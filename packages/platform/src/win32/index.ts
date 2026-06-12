@@ -44,6 +44,6 @@ export function createWin32Platform(native: NativeBundle): Platform {
 
 // Re-export the pure helpers so the service layer / tests can use them
 // without depending on a Platform instance.
-export { candidateTencentFilesRoots, pickTencentFilesRoot, findLoginDb, findNtMsgDb };
+export { candidateTencentFilesRoots, pickTencentFilesRoot, findLoginDb, findNtMsgDb, tencentFilesRootFromUserDataInfo } from './paths';
 export { findQqInstallRoot, findQqExe } from './registry';
 export { resolveQqVersionDir, findQqWrapperNode } from './paths';

@@ -5,7 +5,8 @@
  *   <TencentFilesRoot>/<uin>/nt_qq/nt_db/nt_msg.db   ← per-account msg db
  *   <TencentFilesRoot>/nt_qq/global/nt_db/login.db   ← global accounts
  *
- * `TencentFilesRoot` can live in three places (in priority order):
+ * `TencentFilesRoot` can live in several places (in priority order):
+ *   0. UserDataSavePath from <Public>/Documents/Tencent/QQ/UserDataInfo.ini
  *   1. ~/Documents/Tencent Files
  *   2. ~/<Admin*>/Documents/Tencent Files            ← legacy/admin profiles
  *   3. ~/Tencent Files                               ← portable installs
@@ -18,20 +19,65 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 // ---------- Tencent Files (user data) ------------------------------------
 
 /**
- * Three hard-coded candidate roots. The caller iterates and checks
+ * Authoritative source: QQ writes the real user-data directory into a
+ * machine-wide ini at `<Public>/Documents/Tencent/QQ/UserDataInfo.ini`.
+ * `<Public>` sits next to the user's home (e.g. `C:\Users\Public` alongside
+ * `C:\Users\<name>`), so we resolve it via `dirname(home)/Public`.
+ *
+ * The `[UserDataSet]` section's `UserDataSavePath` IS the Tencent Files root
+ * (e.g. `D:\estkim\T\Tencent Files`). Returns null if the ini is missing,
+ * unreadable, or has no usable `UserDataSavePath` — callers then fall back to
+ * the hard-coded guesses below.
+ */
+export function tencentFilesRootFromUserDataInfo(home = homedir()): string | null {
+  const ini = join(dirname(home), 'Public', 'Documents', 'Tencent', 'QQ', 'UserDataInfo.ini');
+  let text: string;
+  try {
+    text = readFileSync(ini, 'utf-8');
+  } catch {
+    return null;
+  }
+
+  // Section-aware scan: only honor `UserDataSavePath` inside `[UserDataSet]`,
+  // so we never pick up `[UserDataImportSet]`'s `OldVerDataPath`.
+  let inUserDataSet = false;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line.startsWith('[') && line.endsWith(']')) {
+      inUserDataSet = line.toLowerCase() === '[userdataset]';
+      continue;
+    }
+    if (!inUserDataSet) continue;
+    const eq = line.indexOf('=');
+    if (eq === -1) continue;
+    if (line.slice(0, eq).trim().toLowerCase() !== 'userdatasavepath') continue;
+    const value = line.slice(eq + 1).trim();
+    return value.length > 0 ? value : null;
+  }
+  return null;
+}
+
+/**
+ * Candidate roots in priority order. The caller iterates and checks
  * `existsSync` — we deliberately do NOT pre-filter here, because callers
  * sometimes need to know which roots were tried for error messages.
+ *
+ * First we trust `UserDataInfo.ini` (the path QQ itself recorded); only if
+ * that's unavailable do we fall back to the hard-coded location guesses.
  */
 export function candidateTencentFilesRoots(home = homedir()): string[] {
-  const roots: string[] = [
+  const roots: string[] = [];
+  const fromIni = tencentFilesRootFromUserDataInfo(home);
+  if (fromIni) roots.push(fromIni);
+  roots.push(
     join(home, 'Documents', 'Tencent Files'),
     join(home, 'Tencent Files'),
-  ];
+  );
   // Walk one level deep for `<home>/<Admin*>/Documents/Tencent Files`.
   // Some Windows builds nest the real Documents under a legacy admin profile.
   try {
