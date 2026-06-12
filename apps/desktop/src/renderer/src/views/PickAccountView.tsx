@@ -26,8 +26,10 @@ import { QrImage } from '../components/QrImage';
 import type { LoginAccount, QqPortLoginInfo } from '@weq/native';
 
 export function PickAccountView(): ReactElement {
-  const accounts = trpc.bootstrap.listAccounts.useQuery();
-  const processes = trpc.bootstrap.detectRunningProcesses.useQuery();
+  const accounts = trpc.bootstrap.listAccounts.useQuery(undefined, { retry: false });
+  const processes = trpc.bootstrap.detectRunningProcesses.useQuery(undefined, {
+    refetchOnMount: false,
+  });
   const [error, setError] = useState<string | null>(null);
   const [obtainedKey, setObtainedKey] = useState<string | null>(null);
   const setOpenedUin = useViewState((s) => s.setOpenedUin);

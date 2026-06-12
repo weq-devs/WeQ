@@ -34,28 +34,62 @@ export interface DetectedQqProcess {
   loginInfo: QqPortLoginInfo | null;
 }
 
+const INSTALL_CACHE_TTL_MS = 5 * 60_000;
+const ACCOUNT_CACHE_TTL_MS = 5 * 60_000;
+const PROCESS_DETECT_CACHE_TTL_MS = 5 * 60_000;
+
 export class Win32DetectService {
+  private installCache:
+    | { readonly expiresAt: number; readonly value: QqInstallInfo }
+    | null = null;
+  private accountCache:
+    | { readonly expiresAt: number; readonly value: LoginAccount[] }
+    | null = null;
+  private processCache:
+    | { readonly expiresAt: number; readonly value: DetectedQqProcess[] }
+    | null = null;
+
   constructor(private readonly platform: Platform) {}
 
   /** Aggregate the static install / data paths the UI's "diagnostics" screen wants. */
   describeInstall(): QqInstallInfo {
-    return {
+    const now = Date.now();
+    if (this.installCache && this.installCache.expiresAt > now) {
+      return this.installCache.value;
+    }
+
+    const value = {
       qqExePath: this.platform.qqExePath(),
       wrapperNodePath: this.platform.qqWrapperNodePath(),
       tencentFilesRoots: this.platform.tencentFilesRoots().filter((p) => existsSync(p)),
       loginDbPath: this.platform.loginDbPath(),
     };
+    this.installCache = {
+      expiresAt: now + INSTALL_CACHE_TTL_MS,
+      value,
+    };
+    return value;
   }
 
   /** All historically-cached accounts from `login.db`. Throws if the DB is missing. */
   listAccounts(): LoginAccount[] {
+    const now = Date.now();
+    if (this.accountCache && this.accountCache.expiresAt > now) {
+      return this.accountCache.value;
+    }
+
     const dbPath = this.platform.loginDbPath();
     if (!dbPath) {
       throw new Error(
         'login.db not found in any candidate Tencent Files root. Is QQ NT installed?',
       );
     }
-    return this.platform.native.ntHelper.decryptLoginDb(dbPath);
+    const value = this.platform.native.ntHelper.decryptLoginDb(dbPath);
+    this.accountCache = {
+      expiresAt: now + ACCOUNT_CACHE_TTL_MS,
+      value,
+    };
+    return value;
   }
 
   /**
@@ -64,14 +98,21 @@ export class Win32DetectService {
    * you want to pull a key from?".
    */
   detectRunningProcesses(): DetectedQqProcess[] {
-    const pids = this.platform.native.ntHelper.getQqProcesses();
-    for (const pid of pids) {
-      console.log(this.platform.native.ntHelper.probeQqLoginInfo(pid));
+    const now = Date.now();
+    if (this.processCache && this.processCache.expiresAt > now) {
+      return this.processCache.value;
     }
-    return pids.map((pid) => ({
+
+    const pids = this.platform.native.ntHelper.getQqProcesses();
+    const value = pids.map((pid) => ({
       pid,
       loginInfo: this.platform.native.ntHelper.probeQqLoginInfo(pid),
     }));
+    this.processCache = {
+      expiresAt: now + PROCESS_DETECT_CACHE_TTL_MS,
+      value,
+    };
+    return value;
   }
 
   /** Convenience: per-account `nt_msg.db` lookup with a clean error. */
