@@ -180,6 +180,7 @@ export const FaceElementSchema = BaseElementFieldsSchema.extend({
   superEmojiFlag1: z.number().optional(),
   superEmojiFlag2: z.number().optional(),
   diceValue: z.string().optional(),
+  faceFlag47608: z.instanceof(Uint8Array).optional(),
   superEmojiFlag3: z.number().optional(),
   superEmojiFlag4: z.number().optional(),
   canChain: z.boolean().optional(),

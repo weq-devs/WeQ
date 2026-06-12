@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { loadNative } from '../../native/src/index';
 import type { NtHelperBinding, SqlValue } from '../../native/src/index';
 
-const DB_DIR = String.raw`C:\Users\17078\Documents\Tencent Files\1707889225\nt_qq\nt_db`;
+const DB_DIR = String.raw`D:\estkim\T\Tencent Files\1707889225\nt_qq\nt_db`;
 const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
 const NEEDLE = (process.argv[2] ?? 'f2e37358c91fffddd18c0124fb035c7b').toLowerCase();
 

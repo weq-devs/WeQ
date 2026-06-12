@@ -52,7 +52,7 @@ function toBareAnnotated(fields: ReturnType<typeof codecRaw.decode>): import('@w
 export default function App() {
   const schemas = useSchemas();
 
-  const [dbPath, setDbPath] = useState('C:\\Users\\17078\\Documents\\Tencent Files\\1707889225\\nt_qq\\nt_db\\nt_msg.db');
+  const [dbPath, setDbPath] = useState('D:\\estkim\\T\\Tencent Files\\1707889225\\nt_qq\\nt_db\\nt_msg.db');
   const [key, setKey] = useState('^;<kXZ;RI[@]yTD<');
   const [opened, setOpened] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -369,6 +369,7 @@ export default function App() {
                 </div>
               </div>
               <div
+                className="flex-1 overflow-y-auto custom-scrollbar px-2 space-y-px"
                 onScroll={(e) => {
                   const target = e.currentTarget;
                   if (target.scrollHeight - target.scrollTop - target.clientHeight < 50 && hasMoreSamples) {

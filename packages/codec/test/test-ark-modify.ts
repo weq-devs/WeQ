@@ -11,7 +11,7 @@ import type { ArkElement } from '../src/element';
 import { loadNative } from '../../native/src/index';
 import { QqDb } from '../../db/src/qq_db';
 
-const DB_PATH = 'C:\\Users\\17078\\Documents\\Tencent Files\\1707889225\\nt_qq\\nt_db\\nt_msg.db';
+const DB_PATH = 'D:\\estkim\\T\\Tencent Files\\1707889225\\nt_qq\\nt_db\\nt_msg.db';
 const DB_KEY = '^;<kXZ;RI[@]yTD<';
 const TABLE = 'c2c_msg_table';
 const ROWID = '7650288743672057123';

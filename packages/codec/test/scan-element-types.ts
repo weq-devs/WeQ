@@ -18,7 +18,7 @@ import { QqDb } from '../../db/src/qq_db';
 
 const DB_PATH =
   process.env.WEQ_TEST_DB_PATH ??
-  'C:\\Users\\17078\\Documents\\Tencent Files\\1707889225\\nt_qq\\nt_db\\nt_msg.db';
+  'D:\\estkim\\T\\Tencent Files\\1707889225\\nt_qq\\nt_db\\nt_msg.db';
 const DB_KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
 
 /** 已知类型,扫描时不当作 unknown 上报 rowid。9 = 红包。 */

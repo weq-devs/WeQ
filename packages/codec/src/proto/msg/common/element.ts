@@ -456,6 +456,9 @@ export const ElementWire = {
    */
   diceValue: ProtoField(47607, ScalarType.STRING, { optional: true }),
 
+  /** Unknown length-delimited field. Optional for FACE elements. */
+  faceFlag47608: ProtoField(47608, ScalarType.BYTES, { optional: true }),
+
   /** Super-emoji flag 3. Optional for super-emoji FACE elements. */
   superEmojiFlag3: ProtoField(47609, ScalarType.UINT32, { optional: true }),
 

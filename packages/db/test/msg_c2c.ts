@@ -17,7 +17,7 @@ import { C2cMsgDb } from '../src/msg/c2c';
 
 const DB_PATH =
   process.env.WEQ_TEST_DB_PATH ??
-  String.raw`C:\Users\17078\Documents\Tencent Files\1707889225\nt_qq\nt_db\nt_msg.db`;
+  String.raw`D:\estkim\T\Tencent Files\1707889225\nt_qq\nt_db\nt_msg.db`;
 const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
 
 async function main(): Promise<void> {
