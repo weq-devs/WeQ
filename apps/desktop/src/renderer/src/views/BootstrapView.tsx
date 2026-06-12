@@ -13,7 +13,12 @@ import { useViewState } from '../state/view';
 export function BootstrapView(): ReactElement {
   const install = trpc.bootstrap.describeInstall.useQuery();
   const processes = trpc.bootstrap.detectRunningProcesses.useQuery();
+  trpc.bootstrap.listAccounts.useQuery(undefined, {
+    enabled: !!install.data?.loginDbPath,
+    retry: false,
+  });
   const goTo = useViewState((s) => s.goTo);
+  const preparing = install.isLoading || processes.isLoading;
 
   return (
     <main className="p-6 font-sans leading-relaxed">
@@ -60,9 +65,10 @@ export function BootstrapView(): ReactElement {
 
       <button
         onClick={() => goTo('pick-account')}
-        className="px-6 py-2 bg-primary text-primary-foreground rounded-md shadow-sm hover:opacity-90 transition-opacity"
+        disabled={preparing}
+        className="px-6 py-2 bg-primary text-primary-foreground rounded-md shadow-sm hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
       >
-        去选择账号 →
+        {preparing ? '正在检测…' : '去选择账号 →'}
       </button>
     </main>
   );

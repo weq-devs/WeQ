@@ -13,8 +13,15 @@ export function TrpcProvider({ children }: { children: ReactNode }): ReactElemen
     () =>
       new QueryClient({
         defaultOptions: {
-          // Account dbs are read-only after open — refetches just waste time.
-          queries: { staleTime: 5_000 },
+          // Native QQ probes can block the Electron main process briefly.
+          // Avoid re-running them just because the window regains focus.
+          queries: {
+            staleTime: 5 * 60_000,
+            cacheTime: 30 * 60_000,
+            refetchOnMount: false,
+            refetchOnReconnect: false,
+            refetchOnWindowFocus: false,
+          },
         },
       }),
   );
