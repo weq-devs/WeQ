@@ -13,7 +13,7 @@
 
 import { ProtoMsg } from '../core';
 import { decodeElement } from '../element';
-import { MsgBody } from '../proto/msg/common/body';
+import { MsgBody } from '../proto/msg/40800';
 import { sanitizeBytes } from '../raw';
 import type { Element } from '../element';
 import type { C2cMessage, GroupMessage } from './message';

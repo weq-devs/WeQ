@@ -20,7 +20,7 @@ import {
   ShieldCheck
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { ElementWire } from '@weq/codec/proto/msg/common/element';
+import { ElementWire } from '@weq/codec/proto/msg/element';
 import { validateElement } from '../lib/elementValidator';
 
 const TAG_TO_FIELD = Object.entries(ElementWire).reduce((acc, [name, field]) => {

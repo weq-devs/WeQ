@@ -21,7 +21,7 @@
  *   "important" vs "envelope-only" field classifications.
  */
 
-import { ProtoField, ScalarType } from '../../../core';
+import { ProtoField, ScalarType } from '../../core';
 
 /** Nested message for action user info (tags 48210/43210). */
 export const ActionUserWire = {

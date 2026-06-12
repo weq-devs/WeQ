@@ -12,11 +12,11 @@
  * encode flow: Element → encodeElement → strips `kind`, fills in
  * `elementType` from the kind→type map, forwards every other field as-is.
  *
- * Tag numbers (40010, 45001, 45002, …) are described in `../proto/msg/common/element.ts`.
+ * Tag numbers (40010, 45001, 45002, …) are described in `../proto/msg/element.ts`.
  */
 
 import type { ProtoEncodeStructType } from '../core';
-import type { ElementWire } from '../proto/msg/common/element';
+import type { ElementWire } from '../proto/msg/element';
 
 export type {
   TextElement,

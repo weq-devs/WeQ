@@ -17,7 +17,7 @@
 import { ProtoMsg } from '@weq/codec';
 import { decodeElement } from '@weq/codec';
 import { sanitizeBytes } from '@weq/codec/raw';
-import { MsgBody } from '@weq/codec/proto/msg/common/body';
+import { MsgBody } from '@weq/codec/proto/msg/40800';
 import type { NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import type { C2cMsg, C2cPeer } from './types';
 import { QqDb } from '../qq_db';

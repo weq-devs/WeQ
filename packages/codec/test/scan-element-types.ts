@@ -10,7 +10,7 @@
  */
 
 import { ProtoMsg } from '../src/core';
-import { MsgBody } from '../src/proto/msg/common/body';
+import { MsgBody } from '../src/proto/msg/40800';
 import { sanitizeBytes } from '../src/raw';
 import { ElementType } from '../src/element/types';
 import { loadNative } from '../../native/src/index';

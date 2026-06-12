@@ -7,7 +7,7 @@
  * for each chat type.
  */
 
-import { ProtoField } from '../../../core';
+import { ProtoField } from '../../core';
 import { ElementWire } from './element';
 
 export const MsgBody = {

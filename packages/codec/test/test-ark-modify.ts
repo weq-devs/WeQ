@@ -5,7 +5,7 @@
  */
 
 import { ProtoMsg } from '../src/core';
-import { MsgBody } from '../src/proto/msg/common/body';
+import { MsgBody } from '../src/proto/msg/40800';
 import { decodeElement, encodeElement } from '../src/element';
 import type { ArkElement } from '../src/element';
 import { loadNative } from '../../native/src/index';

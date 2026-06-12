@@ -11,7 +11,7 @@
  */
 
 import type { ProtoDecodeStructType, ProtoEncodeStructType } from '../core';
-import { ElementWire } from '../proto/msg/common/element';
+import { ElementWire } from '../proto/msg/element';
 import {
   ElementType,
   type Element,
