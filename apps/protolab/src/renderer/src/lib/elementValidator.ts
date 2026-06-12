@@ -15,6 +15,8 @@ import {
   CallElementSchema,
   OnlineFileElementSchema,
   OnlineFolderElementSchema,
+  EmojiBounceElementSchema,
+  QqDynamicElementSchema,
 } from '@weq/codec/element';
 import type { AnnotatedField } from '@weq/codec/raw';
 import { z } from 'zod';
@@ -35,6 +37,8 @@ const ELEMENT_SCHEMAS: Partial<Record<ElementType, any>> = {
   [ElementType.CALL]: CallElementSchema,
   [ElementType.ONLINE_FILE]: OnlineFileElementSchema,
   [ElementType.ONLINE_FOLDER]: OnlineFolderElementSchema,
+  [ElementType.EMOJI_BOUNCE]: EmojiBounceElementSchema,
+  [ElementType.QQ_DYNAMIC]: QqDynamicElementSchema,
 };
 
 export interface ElementValidation {
@@ -187,6 +191,21 @@ function getTagForField(fieldName: string): number {
     markdownFlag48704: 48704,
     markdownTextSummary: 48705,
     markdownFlag48706: 48706,
+    emojiBounceId: 52132,
+    emojiBounceFlag52133: 52133,
+    emojiBounceName: 52134,
+    emojiBounceDetail: 52137,
+    emojiBounceTextSummary: 52138,
+    emojiBouncePcText: 52139,
+    dynamicType: 48172,
+    dynamicId: 48173,
+    dynamicFlag48174: 48174,
+    dynamicDesc: 48175,
+    dynamicDesc2: 48176,
+    dynamicCoverUrl: 48180,
+    dynamicZoneLogoUrl: 48181,
+    dynamicPublisherUin: 48182,
+    dynamicMeta: 48183,
   };
   return tagMap[fieldName] || 0;
 }
@@ -208,6 +227,8 @@ function isExpectedTag(tag: number, elementType: ElementType): boolean {
     [ElementType.CALL]: [[48151, 48157]],
     [ElementType.ONLINE_FILE]: [[45402, 45504]],
     [ElementType.ONLINE_FOLDER]: [[45402, 45504]],
+    [ElementType.EMOJI_BOUNCE]: [[52132, 52139]],
+    [ElementType.QQ_DYNAMIC]: [[48172, 48193]],
   };
 
   const elementRanges = ranges[elementType] || [];

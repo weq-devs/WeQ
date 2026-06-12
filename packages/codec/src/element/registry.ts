@@ -36,6 +36,8 @@ const KIND_TO_TYPE: Record<KnownKind, ElementType> = {
   call: ElementType.CALL,
   onlineFile: ElementType.ONLINE_FILE,
   onlineFolder: ElementType.ONLINE_FOLDER,
+  emojiBounce: ElementType.EMOJI_BOUNCE,
+  qqDynamic: ElementType.QQ_DYNAMIC,
 };
 
 const TYPE_TO_KIND: Partial<Record<ElementType, KnownKind>> = {
@@ -54,6 +56,8 @@ const TYPE_TO_KIND: Partial<Record<ElementType, KnownKind>> = {
   [ElementType.CALL]: 'call',
   [ElementType.ONLINE_FILE]: 'onlineFile',
   [ElementType.ONLINE_FOLDER]: 'onlineFolder',
+  [ElementType.EMOJI_BOUNCE]: 'emojiBounce',
+  [ElementType.QQ_DYNAMIC]: 'qqDynamic',
 };
 
 export function decodeElement(wire: ProtoDecodeStructType<typeof ElementWire>): Element {

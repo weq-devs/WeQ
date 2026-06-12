@@ -34,6 +34,8 @@ export type {
   CallElement,
   OnlineFileElement,
   OnlineFolderElement,
+  EmojiBounceElement,
+  QqDynamicElement,
   UnknownElement,
   Element,
 } from './spec';
@@ -53,6 +55,8 @@ export enum ElementType {
   MULTI_MSG = 16,
   CALL = 21,
   ONLINE_FILE = 23,
+  QQ_DYNAMIC = 26,
+  EMOJI_BOUNCE = 27,
   ONLINE_FOLDER = 30,
 }
 

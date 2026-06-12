@@ -117,6 +117,35 @@ export const FlashTransferInfoWire = {
   createTime: ProtoField(6, ScalarType.UINT32, { optional: true }),
 };
 
+/**
+ * Nested message for emoji-bounce detail (tag 52137, EMOJI_BOUNCE elements).
+ * Carries a redundant copy of the bounce emoji's name + text summary.
+ */
+export const EmojiBounceDetailWire = {
+  flag52142: ProtoField(52142, ScalarType.UINT32, { optional: true }),
+  name: ProtoField(52143, ScalarType.STRING, { optional: true }),
+  textSummary: ProtoField(52144, ScalarType.STRING, { optional: true }),
+};
+
+/**
+ * Nested message for a QQ-dynamic description block (tags 48175/48176, both
+ * QQ_DYNAMIC elements). 48175 is the primary description, 48176 a secondary.
+ */
+export const QqDynamicDescWire = {
+  mainDesc: ProtoField(48178, ScalarType.STRING, { optional: true }),
+  subDesc: ProtoField(48179, ScalarType.STRING, { optional: true }),
+};
+
+/**
+ * Nested message for one QQ-dynamic tag (tag 48189, repeated within
+ * QQ_DYNAMIC elements).
+ */
+export const QqDynamicTagWire = {
+  flag48191: ProtoField(48191, ScalarType.BOOL, { optional: true }),
+  tagId: ProtoField(48192, ScalarType.UINT32, { optional: true }),
+  tagContent: ProtoField(48193, ScalarType.STRING, { optional: true }),
+};
+
 export const ElementWire = {
   /**
    * Whether this device originated the message. Absent for messages received
@@ -172,8 +201,8 @@ export const ElementWire = {
   /** 红包 / 钱包含义标志. Best guess: integer flag. */
   walletFlag: ProtoField(45111, ScalarType.UINT32, { optional: true }),
 
-  /** 网址校验字段. Best guess: integer flag. */
-  urlVerifyFlag: ProtoField(45112, ScalarType.UINT32, { optional: true }),
+  /** 网址校验字段. Best guess: bytes. */
+  urlVerifyFlag: ProtoField(45112, ScalarType.BYTES, { optional: true }),
 
   // ---- PIC (elementType=2) ----
 
@@ -653,6 +682,62 @@ export const ElementWire = {
 
   /** Transfer flag. */
   transferFlag45504: ProtoField(45504, ScalarType.STRING, { optional: true }),
+
+  // ---- EMOJI_BOUNCE / 表情弹射 (elementType=27) ----
+  // Animated emoji that "bounces" into the chat. All fields below are
+  // required for EMOJI_BOUNCE elements.
+
+  /** 弹射表情 id. Required for EMOJI_BOUNCE elements. */
+  emojiBounceId: ProtoField(52132, ScalarType.UINT32, { optional: true }),
+
+  /** Unknown bool flag. Required for EMOJI_BOUNCE elements. */
+  emojiBounceFlag52133: ProtoField(52133, ScalarType.BOOL, { optional: true }),
+
+  /** 弹射表情名称. Required for EMOJI_BOUNCE elements. */
+  emojiBounceName: ProtoField(52134, ScalarType.STRING, { optional: true }),
+
+  /** Nested detail (name + summary). Required for EMOJI_BOUNCE elements. */
+  emojiBounceDetail: ProtoField(52137, () => EmojiBounceDetailWire, { optional: true }),
+
+  /** 文本总结(含弹射个数). Required for EMOJI_BOUNCE elements. */
+  emojiBounceTextSummary: ProtoField(52138, ScalarType.STRING, { optional: true }),
+
+  /** 电脑端显示文本. Required for EMOJI_BOUNCE elements. */
+  emojiBouncePcText: ProtoField(52139, ScalarType.STRING, { optional: true }),
+
+  // ---- QQ_DYNAMIC / QQ动态消息 (elementType=26) ----
+  // Share card for a QQ-zone dynamic (说说/动态). All fields below are
+  // required for QQ_DYNAMIC elements except the repeated tag list.
+
+  /** 动态类型. Required for QQ_DYNAMIC elements. */
+  dynamicType: ProtoField(48172, ScalarType.UINT32, { optional: true }),
+
+  /** 动态 id. Required for QQ_DYNAMIC elements. */
+  dynamicId: ProtoField(48173, ScalarType.STRING, { optional: true }),
+
+  /** Unknown int. Required for QQ_DYNAMIC elements. */
+  dynamicFlag48174: ProtoField(48174, ScalarType.UINT32, { optional: true }),
+
+  /** Primary description block (main + sub desc). Required for QQ_DYNAMIC elements. */
+  dynamicDesc: ProtoField(48175, () => QqDynamicDescWire, { optional: true }),
+
+  /** Secondary description block (same shape as 48175). Required for QQ_DYNAMIC elements. */
+  dynamicDesc2: ProtoField(48176, () => QqDynamicDescWire, { optional: true }),
+
+  /** 封面图 url. Required for QQ_DYNAMIC elements. */
+  dynamicCoverUrl: ProtoField(48180, ScalarType.STRING, { optional: true }),
+
+  /** QQ 空间 logo url. Required for QQ_DYNAMIC elements. */
+  dynamicZoneLogoUrl: ProtoField(48181, ScalarType.STRING, { optional: true }),
+
+  /** 动态发布者 QQ uin. Required for QQ_DYNAMIC elements. */
+  dynamicPublisherUin: ProtoField(48182, ScalarType.UINT32, { optional: true }),
+
+  /** 动态 meta 数据. Required for QQ_DYNAMIC elements. */
+  dynamicMeta: ProtoField(48183, ScalarType.STRING, { optional: true }),
+
+  /** 标签列表. Repeated nested {flag, tagId, tagContent}. Optional for QQ_DYNAMIC elements. */
+  dynamicTags: ProtoField(48189, () => QqDynamicTagWire, { optional: true, repeat: true }),
 
   // ---- Roaming / sync flags — category 2 envelope tags ----
 

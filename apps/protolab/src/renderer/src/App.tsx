@@ -69,6 +69,7 @@ export default function App() {
   const [showRawHex, setShowRawHex] = useState(false);
   const [sampleOrder, setSampleOrder] = useState<'ASC' | 'DESC'>('DESC');
   const [hasMoreSamples, setHasMoreSamples] = useState(true);
+  const [rowidSearch, setRowidSearch] = useState('');
 
   const [filter, setFilter] = useState('');
 
@@ -143,6 +144,29 @@ export default function App() {
       .then((data) => {
         setSamples((prev) => [...prev, ...data]);
         setHasMoreSamples(data.length === 50);
+      })
+      .catch((e: unknown) => setErr(String(e)));
+  }
+
+  function searchByRowid() {
+    if (!opened || !table || !column) return;
+    const rowid = rowidSearch.trim();
+    if (!rowid) {
+      refreshSamples();
+      return;
+    }
+    setErr(null);
+    setSelected(null);
+    window.protolab
+      .sampleColumn({ dbPath, key, table, column, rowid })
+      .then((data) => {
+        setSamples(data);
+        setHasMoreSamples(false);
+        if (data.length === 0) {
+          setErr(`rowid ${rowid} 未找到(该列为空或行不存在)`);
+        } else {
+          setSelected(data[0]!);
+        }
       })
       .catch((e: unknown) => setErr(String(e)));
   }
@@ -329,8 +353,22 @@ export default function App() {
                   </button>
                 </div>
               </div>
+              <div className="px-2 pb-1.5 shrink-0">
+                <div className="relative group">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted group-focus-within:text-primary transition-colors" />
+                  <input
+                    className="w-full bg-accent border border-border rounded-md pl-7 pr-3 py-1 text-[11px] font-mono outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/15 transition-all placeholder:text-muted/50 disabled:opacity-40"
+                    placeholder="Go to rowid..."
+                    value={rowidSearch}
+                    disabled={!column}
+                    onChange={(e) => setRowidSearch(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') searchByRowid();
+                    }}
+                  />
+                </div>
+              </div>
               <div
-                className="flex-1 overflow-y-auto space-y-px custom-scrollbar px-2 pb-2"
                 onScroll={(e) => {
                   const target = e.currentTarget;
                   if (target.scrollHeight - target.scrollTop - target.clientHeight < 50 && hasMoreSamples) {
