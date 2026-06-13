@@ -24,7 +24,7 @@ function log(msg: string, ...rest: unknown[]): void {
   console.log(`[${ts()}] ${msg}`, ...rest);
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const platform = createWin32Platform(loadNative());
   const detect = new Win32DetectService(platform);
 
@@ -41,7 +41,7 @@ function main(): void {
 
   log('--- [2] listAccounts() ---');
   try {
-    const accounts = detect.listAccounts();
+    const accounts = await detect.listAccounts();
     log(`got ${accounts.length} account(s) from login.db`);
     for (const acc of accounts) {
       log('  -', acc.uin, acc.userName);
@@ -60,9 +60,7 @@ function main(): void {
   }
 }
 
-try {
-  main();
-} catch (e) {
+main().catch((e) => {
   console.error('[test:win32-detect] failed:', e);
   process.exit(1);
-}
+});

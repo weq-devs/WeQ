@@ -169,12 +169,14 @@ function buildResources(nineBirdDir: string): NineBirdResources {
     nineBirdAddonPath: join(nineBirdDir, 'NineBird.node'),
     qrDbkeyJsPath: join(nineBirdDir, 'qr-dbkey.js'),
     quickDbkeyJsPath: join(nineBirdDir, 'quick-dbkey.js'),
+    accountListJsPath: join(nineBirdDir, 'account-list.js'),
   };
   assertExists(resources.hookDllPath, 'ninebird/NineBirdHook.dll');
   assertExists(resources.qqntJsonPath, 'ninebird/qqnt.json');
   assertExists(resources.nineBirdAddonPath, 'ninebird/NineBird.node');
   assertExists(resources.qrDbkeyJsPath, 'ninebird/qr-dbkey.js');
   assertExists(resources.quickDbkeyJsPath, 'ninebird/quick-dbkey.js');
+  assertExists(resources.accountListJsPath, 'ninebird/account-list.js');
   return resources;
 }
 

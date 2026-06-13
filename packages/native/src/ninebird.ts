@@ -19,6 +19,7 @@ import { createServer } from 'node:net';
 import type { Server, Socket } from 'node:net';
 import type {
   LaunchQqResult,
+  NineBirdAccountListEvent,
   NineBirdBootBinding,
   NineBirdEvent,
   NineBirdLoginListEvent,
@@ -39,6 +40,24 @@ export interface QuickLoginOptions {
   qqExePath: string;
   /** Default: 60_000. */
   timeoutMs?: number;
+}
+
+export interface AccountListOptions {
+  qqExePath: string;
+  /** Default: 60_000. */
+  timeoutMs?: number;
+}
+
+/** Handle returned by `startAccountList`. */
+export interface AccountListSession {
+  /** QQ process id, available once `launchQQ` resolves. */
+  pid: Promise<number>;
+  /** Resolves with the terminal `result` event (success or error). */
+  result: Promise<NineBirdResultEvent>;
+  /** The login list QQ enumerated (one event, before `result`). */
+  onAccountList(cb: (e: NineBirdAccountListEvent) => void): void;
+  /** Force-terminate QQ and tear down the pipe server. Safe to call twice. */
+  kill(): void;
 }
 
 /** Handle returned by `startQrLogin` / `startQuickLogin`. */
@@ -78,6 +97,31 @@ export class NineBirdBootstrap {
       qqExePath: opts.qqExePath,
       timeoutMs: opts.timeoutMs ?? 60_000,
     });
+  }
+
+  /**
+   * Launch QQ with the account-list bootstrap. Unlike quick/QR login this
+   * acquires no dbkey — it just asks QQ for its local login list (the same
+   * data `decryptLoginDb` produces, but read by QQ itself), so it works
+   * even when our own `login.db` decryption fails.
+   */
+  startAccountList(opts: AccountListOptions): AccountListSession {
+    const session = this.run({
+      loadJsPath: this.resources.accountListJsPath,
+      qqExePath: opts.qqExePath,
+      timeoutMs: opts.timeoutMs ?? 60_000,
+    });
+    return {
+      pid: session.pid,
+      result: session.result,
+      // Same `login-list` wire frame as quick-login, but account-list.js
+      // fills it with the richer NineBirdAccountListItem payload.
+      onAccountList: (cb) =>
+        session.onLoginList(
+          cb as unknown as (e: NineBirdLoginListEvent) => void,
+        ),
+      kill: session.kill,
+    };
   }
 
   private run(args: {
