@@ -20,12 +20,39 @@ export interface AccountContext {
 }
 
 /**
+ * Highest msgId (column 40001) this session has already surfaced, per chat
+ * type. The file-watcher hook uses these as its "everything below this is
+ * old" baselines; "latest"-reading query services bump them forward so the
+ * hook never re-pushes a message the user already pulled.
+ *
+ * Mutable on purpose — the object identity is stable, only the fields move.
+ * `0n` means "not yet initialized": the hook treats the first observed value
+ * as the baseline instead of replaying the whole table.
+ */
+export interface LastMsgIdMaps {
+  /** Largest c2c (private-chat) msgId already surfaced. */
+  c2cMsgId: bigint;
+  /** Largest group msgId already surfaced. */
+  groupMsgId: bigint;
+  /** Largest guild msgId already surfaced. Reserved — not wired yet. */
+  guildMsgId: bigint;
+}
+
+/**
  * One live account. Holds opened Db instances. Caller must `dispose()`
  * before opening another account (or on app shutdown) to drop the cached
  * native connections.
  */
 export interface AccountSession {
   readonly context: AccountContext;
+  /** Absolute path to this account's `nt_msg.db` (what the file watcher mounts). */
+  readonly msgDbPath: string;
+  /**
+   * Per-chat-type "newest msgId already seen" baselines. Shared mutable
+   * state between the file-watcher hook and the query services. See
+   * {@link LastMsgIdMaps}.
+   */
+  readonly lastMsgIdMaps: LastMsgIdMaps;
   /** Private-chat messages. */
   readonly c2cMsgs: C2cMsgDb;
   /** Group-chat messages. */
@@ -81,6 +108,8 @@ export function openAccount(platform: Platform, ctx: AccountContext): AccountSes
   let disposed = false;
   return {
     context: ctx,
+    msgDbPath,
+    lastMsgIdMaps: { c2cMsgId: 0n, groupMsgId: 0n, guildMsgId: 0n },
     c2cMsgs,
     groupMsgs,
     recentContacts,

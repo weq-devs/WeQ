@@ -35,3 +35,21 @@ export { RecentContactService } from './account/recent_contact';
 export { ForwardMsgService } from './account/forward';
 export { MsgService } from './account/msg';
 export { MsgSearchService } from './account/msg_search';
+
+// A process-wide singleton (NOT bound to AccountSession): a single polling
+// loop you mount/unmount db-watch tasks onto to watch their size for changes.
+export { DbWatchService } from './account/db_watch';
+export type {
+  DbWatchOptions,
+  DbChange,
+  DbFileSize,
+  DbChangeHook,
+  DbWatchTask,
+  DbWatchHandle,
+} from './account/db_watch';
+
+// nt_msg.db watch task: diffs new messages on file change (keeps the query
+// out of the renderer). Mount the returned task on a DbWatchService.
+export { createNtMsgDbHook } from './account/nt_msg_hook';
+export type { NtMsgChange, NtMsgChangeCallback } from './account/nt_msg_hook';
+export { bumpMaxMsgId } from './account/msg';
