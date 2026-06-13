@@ -25,8 +25,16 @@ import type { NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import type { RecentContact } from './types';
 import { QqDb } from '../qq_db';
 
-const SELECT_COLUMNS = `"40010","40020","40021","40050","40051","40090","40093","40094","40095","41110","41135"`;
+const SELECT_COLUMNS = `"40010","40020","40021","40030","40050","40051","40090","40093","40094","40095","41110","41135"`;
 const contactCodec = new ProtoMsg(RecentContactBody);
+
+/**
+ * Chat types excluded from the recent-contact list. Guild/channel rows use a
+ * completely different column layout (name in 40091, preview nested in 41150,
+ * no 40051/avatar) and aren't meaningfully renderable here, so we drop them.
+ * Values are ChatType enum numbers — interpolated into SQL (never user input).
+ */
+const BLOCKED_CHAT_TYPES: readonly number[] = [ChatType.KCHATTYPEGUILDMETA];
 
 export interface RecentContactDbOptions {
   /** Absolute path to nt_msg.db. */
@@ -49,6 +57,7 @@ export class RecentContactDb {
   async getRecentContact(limit = 200, offset = 0): Promise<RecentContact[]> {
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM recent_contact_v3_table
+        WHERE "40010" NOT IN (${BLOCKED_CHAT_TYPES.join(',')})
         ORDER BY "40050" DESC
         LIMIT ? OFFSET ?`,
       [BigInt(limit), BigInt(offset)],
@@ -69,14 +78,15 @@ function rowToRecentContact(row: SqlRow): RecentContact {
     chatType: enumName(ChatType, toNum(row[0])),
     senderUid: toStr(row[1]),
     targetUid: toStr(row[2]),
-    sendTime: toBigint(row[3]),
-    preview: decodePreview(row[4]),
-    senderDisplayName: toStr(row[5]),
-    senderNick: toStr(row[6]),
-    targetDisplayName: toStr(row[7]),
-    senderRemark: toStr(row[8]),
-    targetAvatar: toStr(row[9]),
-    targetRemark: toStr(row[10]),
+    targetUin: toBigint(row[3]),
+    sendTime: toBigint(row[4]),
+    preview: decodePreview(row[5]),
+    senderDisplayName: toStr(row[6]),
+    senderNick: toStr(row[7]),
+    targetDisplayName: toStr(row[8]),
+    senderRemark: toStr(row[9]),
+    targetAvatar: toStr(row[10]),
+    targetRemark: toStr(row[11]),
   };
 }
 

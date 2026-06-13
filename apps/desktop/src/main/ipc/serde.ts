@@ -1,50 +1,91 @@
 /**
- * Helpers to stringify `bigint` at the IPC boundary.
+ * Helpers to stringify `bigint` (and bytes) at the IPC boundary.
  *
- * tRPC v11 + electron-trpc 0.7 don't agree on transformer wiring yet,
- * so we deliberately ship `bigint` as `string`. The conversion is done
- * here once per router shape — keeps the IPC contract explicit.
+ * tRPC v11 + electron-trpc 0.7 don't agree on transformer wiring yet, so we
+ * ship `bigint` as `string`. Conversion is done here once per router shape —
+ * keeps the IPC contract explicit.
  *
- * Renderer-side: every uin / msgId / sendTime arrives as `string` and
- * the renderer can `BigInt(s)` back if it needs arithmetic. Display
- * code (`<div>{uin}</div>`) is no-op.
+ * Renderer-side: every uin / msgId / sendTime arrives as `string`; the
+ * renderer can `BigInt(s)` back if it needs arithmetic. Display code is no-op.
  */
 
-import type { C2cMsg, C2cPeer } from '@weq/db';
-
-export interface C2cPeerWire {
-  peerUin: string;
-  lastSendTime: string;
-  msgCount: number;
-}
+import type { C2cMsg, GroupMsg, RecentContact } from '@weq/db';
 
 export interface C2cMsgWire {
   msgId: string;
-  peerUin: string;
-  senderUin: string;
-  peerUid: string;
+  targetUid: string;
+  targetUin: string;
   senderUid: string;
+  senderUin: string;
   sendTime: string;
   elements: unknown[];
 }
 
-export function peerToWire(p: C2cPeer): C2cPeerWire {
-  return {
-    peerUin: p.peerUin.toString(),
-    lastSendTime: p.lastSendTime.toString(),
-    msgCount: p.msgCount,
-  };
+export interface GroupMsgWire {
+  msgId: string;
+  targetGroupCode: string;
+  senderUid: string;
+  senderUin: string;
+  sendTime: string;
+  elements: unknown[];
+}
+
+export interface RecentContactWire {
+  /** Mapped ChatType name (or raw number). */
+  chatType: string | number;
+  senderUid: string;
+  targetUid: string;
+  /** Peer QQ uin for c2c (string); "0" when absent (e.g. groups/guilds). */
+  targetUin: string;
+  sendTime: string;
+  /** Sanitized preview element (carries `displayText`), or null. */
+  preview: unknown | null;
+  senderDisplayName: string;
+  senderNick: string;
+  targetDisplayName: string;
+  senderRemark: string;
+  /** Local absolute path to the avatar file (unused by the renderer for now). */
+  targetAvatar: string;
+  targetRemark: string;
 }
 
 export function msgToWire(m: C2cMsg): C2cMsgWire {
   return {
     msgId: m.msgId.toString(),
-    peerUin: m.peerUin.toString(),
-    senderUin: m.senderUin.toString(),
-    peerUid: m.peerUid,
+    targetUid: m.targetUid,
+    targetUin: m.targetUin.toString(),
     senderUid: m.senderUid,
+    senderUin: m.senderUin.toString(),
     sendTime: m.sendTime.toString(),
     elements: sanitize(m.elements),
+  };
+}
+
+export function groupMsgToWire(m: GroupMsg): GroupMsgWire {
+  return {
+    msgId: m.msgId.toString(),
+    targetGroupCode: m.targetGroupCode,
+    senderUid: m.senderUid,
+    senderUin: m.senderUin.toString(),
+    sendTime: m.sendTime.toString(),
+    elements: sanitize(m.elements),
+  };
+}
+
+export function recentContactToWire(c: RecentContact): RecentContactWire {
+  return {
+    chatType: c.chatType,
+    senderUid: c.senderUid,
+    targetUid: c.targetUid,
+    targetUin: c.targetUin.toString(),
+    sendTime: c.sendTime.toString(),
+    preview: c.preview ? sanitize(c.preview) : null,
+    senderDisplayName: c.senderDisplayName,
+    senderNick: c.senderNick,
+    targetDisplayName: c.targetDisplayName,
+    senderRemark: c.senderRemark,
+    targetAvatar: c.targetAvatar,
+    targetRemark: c.targetRemark,
   };
 }
 

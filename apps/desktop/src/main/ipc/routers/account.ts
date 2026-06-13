@@ -12,7 +12,7 @@
 import { z } from 'zod';
 import { getAppContext } from '../../context/app_context';
 import { procedure, router } from '../trpc';
-import { msgToWire, peerToWire } from '../serde';
+import { msgToWire, groupMsgToWire, recentContactToWire } from '../serde';
 import type { AccountSession } from '@weq/account';
 
 function requireSession(): AccountSession {
@@ -24,35 +24,49 @@ function requireSession(): AccountSession {
 }
 
 export const accountRouter = router({
-  /** Distinct c2c peers, newest activity first. */
-  listPeers: procedure.query(async () => {
-    const peers = await requireSession().c2cMsgs.listPeers();
-    return peers.map(peerToWire);
+  /** Recent conversations (recent_contact_v3_table), newest first. */
+  listRecentContacts: procedure.query(async () => {
+    const contacts = await requireSession().recentContacts.getRecentContact(200);
+    return contacts.map(recentContactToWire);
   }),
 
   /**
-   * Paginated c2c messages with one peer, newest first.
-   *
-   * v0: simple offset paging. SQLite indexes the (40030, 40050) pair, so
-   * `OFFSET ?` stays cheap even at page 10. Switch to cursor paging if
-   * we ever care about a peer with tens of thousands of rows.
+   * Paginated c2c messages with one conversation target (peer uid, column
+   * 40021), newest first. UID is used instead of uin because uin can be
+   * missing/zero on some rows.
    */
-  listMessagesWithPeer: procedure
+  listC2cMessages: procedure
     .input(
       z.object({
-        peerUin: z.string(),
+        targetUid: z.string().min(1),
         limit: z.number().int().min(1).max(200).default(50),
         offset: z.number().int().min(0).default(0),
       }),
     )
     .query(async ({ input }) => {
-      const session = requireSession();
-      // Use SQL pagination directly for O(limit) performance.
-      const all = await session.c2cMsgs.listRecentWithPeer(
-        BigInt(input.peerUin),
+      const all = await requireSession().c2cMsgs.listMessagesWithTarget(
+        input.targetUid,
         input.limit,
         input.offset,
       );
       return all.map(msgToWire);
+    }),
+
+  /** Paginated group messages in one group (group code, column 40021), newest first. */
+  listGroupMessages: procedure
+    .input(
+      z.object({
+        targetGroupCode: z.string().min(1),
+        limit: z.number().int().min(1).max(200).default(50),
+        offset: z.number().int().min(0).default(0),
+      }),
+    )
+    .query(async ({ input }) => {
+      const all = await requireSession().groupMsgs.listMessagesWithTarget(
+        input.targetGroupCode,
+        input.limit,
+        input.offset,
+      );
+      return all.map(groupMsgToWire);
     }),
 });

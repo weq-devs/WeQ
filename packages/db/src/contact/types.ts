@@ -16,8 +16,10 @@ export interface RecentContact {
   chatType: string | number;
   /** 40020 — sender uid. */
   senderUid: string;
-  /** 40021 — conversation target uid. */
+  /** 40021 — conversation target uid (peer uid for c2c, group code for group). */
   targetUid: string;
+  /** 40030 — conversation target QQ uin (peer uin for c2c; 0 when absent). */
+  targetUin: bigint;
   /** 40050 — latest message timestamp (unix seconds). */
   sendTime: bigint;
   /** 40051 — latest-message preview element (carries displayText). null if absent / undecodable. */

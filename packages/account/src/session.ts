@@ -8,7 +8,7 @@
  * shared mutable state between sessions.
  */
 
-import { C2cMsgDb, RecentContactDb, ForwardMsgDb } from '@weq/db';
+import { C2cMsgDb, GroupMsgDb, RecentContactDb, ForwardMsgDb } from '@weq/db';
 import type { Platform } from '@weq/platform';
 
 export interface AccountContext {
@@ -27,6 +27,8 @@ export interface AccountSession {
   readonly context: AccountContext;
   /** Private-chat messages. */
   readonly c2cMsgs: C2cMsgDb;
+  /** Group-chat messages. */
+  readonly groupMsgs: GroupMsgDb;
   /** Recent-conversation list. */
   readonly recentContacts: RecentContactDb;
   /** Merged-forward / quote-reply cache (40900 column). */
@@ -46,6 +48,11 @@ export function openAccount(platform: Platform, ctx: AccountContext): AccountSes
     key: ctx.dbKey,
   });
 
+  const groupMsgs = new GroupMsgDb(platform.native.ntHelper, {
+    dbPath: msgDbPath,
+    key: ctx.dbKey,
+  });
+
   const recentContacts = new RecentContactDb(platform.native.ntHelper, {
     dbPath: msgDbPath,
     key: ctx.dbKey,
@@ -60,12 +67,14 @@ export function openAccount(platform: Platform, ctx: AccountContext): AccountSes
   return {
     context: ctx,
     c2cMsgs,
+    groupMsgs,
     recentContacts,
     forwardMsgs,
     dispose(): void {
       if (disposed) return;
       disposed = true;
       c2cMsgs.close();
+      groupMsgs.close();
       recentContacts.close();
       forwardMsgs.close();
       // Future db instances close here too.
