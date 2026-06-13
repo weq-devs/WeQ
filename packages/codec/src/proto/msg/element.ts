@@ -146,6 +146,33 @@ export const QqDynamicTagWire = {
   tagContent: ProtoField(48193, ScalarType.STRING, { optional: true }),
 };
 
+/** Nested message for wallet detail (tag 48403, WALLET elements). */
+export const WalletDetailWire = {
+  flag48441: ProtoField(48441, ScalarType.UINT32, { optional: true }),
+  redbagType: ProtoField(48442, ScalarType.UINT32, { optional: true }),
+  redbagTitle: ProtoField(48443, ScalarType.STRING, { optional: true }),
+  openPrompt: ProtoField(48444, ScalarType.STRING, { optional: true }),
+  subTitle: ProtoField(48445, ScalarType.STRING, { optional: true }),
+  flag48446: ProtoField(48446, ScalarType.STRING, { optional: true }),
+  flag48447: ProtoField(48447, ScalarType.STRING, { optional: true }),
+  display: ProtoField(48448, ScalarType.STRING, { optional: true }),
+  flag48449: ProtoField(48449, ScalarType.UINT32, { optional: true }),
+  flag48450: ProtoField(48450, ScalarType.UINT32, { optional: true }),
+  flag48451: ProtoField(48451, ScalarType.STRING, { optional: true }),
+  flag48452: ProtoField(48452, ScalarType.STRING, { optional: true }),
+  flag48453: ProtoField(48453, ScalarType.STRING, { optional: true }),
+  orderUrl: ProtoField(48454, ScalarType.STRING, { optional: true }),
+  flag48461: ProtoField(48461, ScalarType.BYTES, { optional: true }),
+};
+
+/** Nested message for wallet extension (tag 48421, WALLET elements). */
+export const WalletExtWire = {
+  flag3: ProtoField(3, ScalarType.BOOL, { optional: true }),
+  redbagCover: ProtoField(5, ScalarType.STRING, { optional: true }),
+  flag7: ProtoField(7, ScalarType.BOOL, { optional: true }),
+  flag8: ProtoField(8, ScalarType.BOOL, { optional: true }),
+};
+
 export const ElementWire = {
   /**
    * Whether this device originated the message. Absent for messages received
@@ -427,6 +454,55 @@ export const ElementWire = {
   /** Category 2 — observed field, not parsed. */
   grayTipFlag48275: ProtoField(48275, ScalarType.UINT32, { optional: true }),
 
+  // subType=1: message recall/revoke
+
+  /** Unknown int (subType=1). Required for recall tips. */
+  recallFlag47702: ProtoField(47702, ScalarType.UINT32, { optional: true }),
+
+  /** Sender UID (subType=1). Required for recall tips. */
+  recallSenderUid: ProtoField(47703, ScalarType.STRING, { optional: true }),
+
+  /** Revoker UID (subType=1). Required for recall tips. */
+  recallRevokeUid: ProtoField(47704, ScalarType.STRING, { optional: true }),
+
+  /** Sender nickname (subType=1). Required for recall tips. */
+  recallSenderNick: ProtoField(47705, ScalarType.STRING, { optional: true }),
+
+  /** Original message elements (subType=1). Repeated, optional — only present when revoking own message. */
+  recallElements: ProtoField(47710, () => ReplyElementWire, { optional: true, repeat: true }),
+
+  /** Unknown int (subType=1). Optional. */
+  recallFlag47711: ProtoField(47711, ScalarType.UINT32, { optional: true }),
+
+  /** Revoke display text (subType=1). Required for recall tips. */
+  recallDisplayText: ProtoField(47713, ScalarType.STRING, { optional: true }),
+
+  /** Revoker nickname (subType=1). Required for recall tips. */
+  recallRevokeNick: ProtoField(47714, ScalarType.STRING, { optional: true }),
+
+  // subType=4: group notifications (join, dismiss, removal)
+
+  /** Group tip type (subType=4). 1=join group, 2=dismiss, 3=removed from group. Required for group tips. */
+  groupTipType: ProtoField(48501, ScalarType.UINT32, { optional: true }),
+
+  /** User 1 UID (subType=4). Optional. */
+  user1Uid: ProtoField(48503, ScalarType.STRING, { optional: true }),
+
+  /** User 1 nickname (subType=4). Optional. */
+  user1Nick: ProtoField(48504, ScalarType.STRING, { optional: true }),
+
+  /** User 1 group nickname (subType=4). Optional. */
+  user1GroupNick: ProtoField(48505, ScalarType.STRING, { optional: true }),
+
+  /** User 2 UID (subType=4). Optional. */
+  user2Uid: ProtoField(48506, ScalarType.STRING, { optional: true }),
+
+  /** User 2 nickname (subType=4). Optional. */
+  user2Nick: ProtoField(48507, ScalarType.STRING, { optional: true }),
+
+  /** User 2 group nickname (subType=4). Optional. */
+  user2GroupNick: ProtoField(48508, ScalarType.STRING, { optional: true }),
+
   // ---- FACE (elementType=6) ----
 
   /** Extended description. Optional for FACE elements. */
@@ -675,6 +751,42 @@ export const ElementWire = {
 
   /** Call summary. Required for CALL elements. */
   callSummary: ProtoField(48157, ScalarType.STRING, { repeat: true }),
+
+  // ---- WALLET (elementType=9) ----
+
+  /** Target uin (elementType=9). */
+  walletTargetUin: ProtoField(48401, ScalarType.UINT32, { optional: true }),
+
+  /** Transfer protobuf bytes (elementType=9). */
+  walletTransferProto: ProtoField(48402, ScalarType.BYTES, { optional: true }),
+
+  /** Wallet detail (elementType=9). */
+  walletDetail: ProtoField(48403, () => WalletDetailWire, { optional: true }),
+
+  walletFlag48404: ProtoField(48404, ScalarType.UINT32, { optional: true }),
+  walletFlag48405: ProtoField(48405, ScalarType.UINT32, { optional: true }),
+  walletFlag48406: ProtoField(48406, ScalarType.UINT32, { optional: true }),
+  walletFlag48407: ProtoField(48407, ScalarType.UINT32, { optional: true }),
+  walletFlag48408: ProtoField(48408, ScalarType.UINT32, { optional: true }),
+
+  /** Order ID (elementType=9). */
+  walletOrderId: ProtoField(48409, ScalarType.STRING, { optional: true }),
+
+  walletFlag48410: ProtoField(48410, ScalarType.STRING, { optional: true }),
+  walletFlag48411: ProtoField(48411, ScalarType.UINT32, { optional: true }),
+
+  /** Redbag type: 1=transfer, 2=normal, 6=password, 15=voice (elementType=9). */
+  walletRedbagType: ProtoField(48412, ScalarType.UINT32, { optional: true }),
+
+  walletFlag48417: ProtoField(48417, ScalarType.BYTES, { optional: true }),
+  walletFlag48418: ProtoField(48418, ScalarType.STRING, { optional: true }),
+  walletFlag48419: ProtoField(48419, ScalarType.UINT32, { optional: true }),
+
+  /** Extension field (elementType=9). */
+  walletExt: ProtoField(48421, () => WalletExtWire, { optional: true }),
+
+  walletFlag48437: ProtoField(48437, ScalarType.UINT32, { optional: true }),
+  walletFlag48438: ProtoField(48438, ScalarType.UINT32, { optional: true }),
 
   // ---- ONLINE_FILE (elementType=23) ----
   // Reuses PIC tags: 45402 (fileName), 45403 (filePath), 45405 (fileSize),

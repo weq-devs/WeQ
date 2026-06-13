@@ -10,23 +10,22 @@
  */
 
 import { z } from 'zod';
-import { getAppContext } from '../../context/app_context';
+import { getAppContext, type AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import { msgToWire, groupMsgToWire, recentContactToWire } from '../serde';
-import type { AccountSession } from '@weq/account';
 
-function requireSession(): AccountSession {
+function requireServices(): AccountServices {
   const ctx = getAppContext();
-  if (!ctx.account) {
+  if (!ctx.services) {
     throw new Error('No account session open — call bootstrap.openAccount first.');
   }
-  return ctx.account;
+  return ctx.services;
 }
 
 export const accountRouter = router({
   /** Recent conversations (recent_contact_v3_table), newest first. */
   listRecentContacts: procedure.query(async () => {
-    const contacts = await requireSession().recentContacts.getRecentContact(200);
+    const contacts = await requireServices().recentContacts.getRecentContact(200);
     return contacts.map(recentContactToWire);
   }),
 
@@ -44,7 +43,7 @@ export const accountRouter = router({
       }),
     )
     .query(async ({ input }) => {
-      const all = await requireSession().c2cMsgs.listMessagesWithTarget(
+      const all = await requireServices().msgs.getC2cMessages(
         input.targetUid,
         input.limit,
         input.offset,
@@ -62,7 +61,7 @@ export const accountRouter = router({
       }),
     )
     .query(async ({ input }) => {
-      const all = await requireSession().groupMsgs.listMessagesWithTarget(
+      const all = await requireServices().msgs.getGroupMessages(
         input.targetGroupCode,
         input.limit,
         input.offset,

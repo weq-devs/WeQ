@@ -10,6 +10,7 @@
  */
 
 import type { C2cMsg, GroupMsg, RecentContact } from '@weq/db';
+import type { RenderC2cMsg, RenderGroupMsg } from '@weq/service';
 
 export interface C2cMsgWire {
   msgId: string;
@@ -49,7 +50,7 @@ export interface RecentContactWire {
   targetRemark: string;
 }
 
-export function msgToWire(m: C2cMsg): C2cMsgWire {
+export function msgToWire(m: RenderC2cMsg): C2cMsgWire {
   return {
     msgId: m.msgId.toString(),
     targetUid: m.targetUid,
@@ -61,7 +62,7 @@ export function msgToWire(m: C2cMsg): C2cMsgWire {
   };
 }
 
-export function groupMsgToWire(m: GroupMsg): GroupMsgWire {
+export function groupMsgToWire(m: RenderGroupMsg): GroupMsgWire {
   return {
     msgId: m.msgId.toString(),
     targetGroupCode: m.targetGroupCode,
@@ -98,9 +99,7 @@ function sanitize(v: any): any {
   if (v === null || v === undefined) return v;
   if (typeof v === 'bigint') return v.toString();
   if (v instanceof Uint8Array) {
-    return Array.from(v)
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
+    return Buffer.from(v).toString('hex');
   }
   if (Array.isArray(v)) return v.map(sanitize);
   if (typeof v === 'object') {

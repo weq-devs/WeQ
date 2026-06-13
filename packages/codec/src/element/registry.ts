@@ -14,6 +14,7 @@ import type { ProtoDecodeStructType, ProtoEncodeStructType } from '../core';
 import { ElementWire, PreviewElementWire } from '../proto/msg/element';
 import {
   ElementType,
+  GrayTipSubType,
   type Element,
   type UnknownElement,
 } from './types';
@@ -22,13 +23,17 @@ type KnownKind = Exclude<Element['kind'], 'unknown'>;
 
 const KIND_TO_TYPE: Record<KnownKind, ElementType> = {
   text: ElementType.TEXT,
+  at: ElementType.TEXT,
   pic: ElementType.PIC,
   file: ElementType.FILE,
   ptt: ElementType.PTT,
   video: ElementType.VIDEO,
   face: ElementType.FACE,
   reply: ElementType.REPLY,
-  grayTip: ElementType.GRAY_TIP,
+  grayTipRevoke: ElementType.GRAY_TIP,
+  grayTipPoke: ElementType.GRAY_TIP,
+  grayTipGroup: ElementType.GRAY_TIP,
+  wallet: ElementType.WALLET,
   ark: ElementType.ARK,
   mface: ElementType.MFACE,
   markdown: ElementType.MARKDOWN,
@@ -48,7 +53,7 @@ const TYPE_TO_KIND: Partial<Record<ElementType, KnownKind>> = {
   [ElementType.VIDEO]: 'video',
   [ElementType.FACE]: 'face',
   [ElementType.REPLY]: 'reply',
-  [ElementType.GRAY_TIP]: 'grayTip',
+  [ElementType.WALLET]: 'wallet',
   [ElementType.ARK]: 'ark',
   [ElementType.MFACE]: 'mface',
   [ElementType.MARKDOWN]: 'markdown',
@@ -62,6 +67,21 @@ const TYPE_TO_KIND: Partial<Record<ElementType, KnownKind>> = {
 
 export function decodeElement(wire: ProtoDecodeStructType<typeof ElementWire>): Element {
   const type = (wire.elementType ?? 0) as ElementType;
+
+  if (type === ElementType.TEXT) {
+    const kind = wire.bubbleId ? 'at' : 'text';
+    return { kind, ...wire } as Element;
+  }
+
+  if (type === ElementType.GRAY_TIP) {
+    const subType = wire.subType ?? 0;
+    const kind = subType === GrayTipSubType.REVOKE ? 'grayTipRevoke' :
+                 subType === GrayTipSubType.GROUP_TIP ? 'grayTipGroup' :
+                 subType === GrayTipSubType.POKE ? 'grayTipPoke' : null;
+    if (!kind) return makeUnknown(wire, wire.elementType ?? 0);
+    return { kind, ...wire } as Element;
+  }
+
   const kind = TYPE_TO_KIND[type];
   if (!kind) return makeUnknown(wire, wire.elementType ?? 0);
   return { kind, ...wire } as Element;

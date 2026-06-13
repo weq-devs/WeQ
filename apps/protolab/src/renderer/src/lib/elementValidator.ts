@@ -7,7 +7,6 @@ import {
   PttElementSchema,
   FaceElementSchema,
   ReplyElementSchema,
-  GrayTipElementSchema,
   ArkElementSchema,
   MfaceElementSchema,
   MarkdownElementSchema,
@@ -19,7 +18,6 @@ import {
   QqDynamicElementSchema,
 } from '@weq/codec/element';
 import type { AnnotatedField } from '@weq/codec/raw';
-import { z } from 'zod';
 
 const ELEMENT_SCHEMAS: Partial<Record<ElementType, any>> = {
   [ElementType.TEXT]: TextElementSchema,
@@ -29,7 +27,6 @@ const ELEMENT_SCHEMAS: Partial<Record<ElementType, any>> = {
   [ElementType.PTT]: PttElementSchema,
   [ElementType.FACE]: FaceElementSchema,
   [ElementType.REPLY]: ReplyElementSchema,
-  [ElementType.GRAY_TIP]: GrayTipElementSchema,
   [ElementType.ARK]: ArkElementSchema,
   [ElementType.MFACE]: MfaceElementSchema,
   [ElementType.MARKDOWN]: MarkdownElementSchema,
@@ -71,6 +68,18 @@ export function validateElement(fields: AnnotatedField[]): ElementValidation | n
   }
 
   const presentTags = new Set(fields.map(f => f.raw.tag));
+
+  // Skip detailed validation for union schemas (e.g., GRAY_TIP with multiple subtypes)
+  if (!schema.shape) {
+    return {
+      elementType,
+      elementName,
+      hasSchema: true,
+      missingRequired: [],
+      unexpectedFields: [],
+    };
+  }
+
   const schemaShape = schema.shape;
 
   const requiredFields = Object.entries(schemaShape)
@@ -144,6 +153,14 @@ function getTagForField(fieldName: string): number {
     duration: 48152,
     callMethod: 48154,
     callSummary: 48157,
+    recallFlag47702: 47702,
+    recallSenderUid: 47703,
+    recallRevokeUid: 47704,
+    recallSenderNick: 47705,
+    recallElements: 47710,
+    recallFlag47711: 47711,
+    recallDisplayText: 47713,
+    recallRevokeNick: 47714,
     actionId: 48211,
     detailedId: 48212,
     typeFlag: 48213,
@@ -152,6 +169,13 @@ function getTagForField(fieldName: string): number {
     actionUniqueId: 48216,
     tipJson: 48271,
     tipType: 48273,
+    groupTipType: 48501,
+    user1Uid: 48503,
+    user1Nick: 48504,
+    user1GroupNick: 48505,
+    user2Uid: 48506,
+    user2Nick: 48507,
+    user2GroupNick: 48508,
     subType: 45003,
     md5Bytes2: 45407,
     fileFlag45415: 45415,
@@ -219,7 +243,8 @@ function isExpectedTag(tag: number, elementType: ElementType): boolean {
     [ElementType.PTT]: [[45402, 45925]],
     [ElementType.FACE]: [[45004, 45004], [47601, 47622]],
     [ElementType.REPLY]: [[40020, 40021], [47401, 47423]],
-    [ElementType.GRAY_TIP]: [[43210, 43210], [48210, 48275]],
+    [ElementType.GRAY_TIP]: [[43210, 43210], [47702, 47714], [48210, 48275], [48501, 48508]],
+    [ElementType.WALLET]: [[48401, 48461]],
     [ElementType.ARK]: [[47901, 47901]],
     [ElementType.MFACE]: [[80810, 80995]],
     [ElementType.MARKDOWN]: [[48701, 48711]],

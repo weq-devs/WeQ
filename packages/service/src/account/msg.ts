@@ -9,26 +9,45 @@
 
 import type { AccountSession, LastMsgIdMaps } from '@weq/account';
 import type { C2cMsg, GroupMsg } from '@weq/db';
+import { toRenderElements, type RenderElement } from './msg_view';
+
+/**
+ * Augmented message shapes for the renderer.
+ */
+export interface RenderC2cMsg extends Omit<C2cMsg, 'elements'> {
+  elements: RenderElement[];
+}
+export interface RenderGroupMsg extends Omit<GroupMsg, 'elements'> {
+  elements: RenderElement[];
+}
 
 export class MsgService {
   constructor(private readonly session: AccountSession) {}
 
   /** Private-chat messages with one peer (by peer uid), newest first. */
-  async getC2cMessages(targetUid: string, limit = 50, offset = 0): Promise<C2cMsg[]> {
+  async getC2cMessages(targetUid: string, limit = 50, offset = 0): Promise<RenderC2cMsg[]> {
     const msgs = await this.session.c2cMsgs.listMessagesWithTarget(targetUid, limit, offset);
     // These rows are newest-first; the user is now looking at the latest, so
     // advance the watch baseline (monotonically) — the file-watcher hook
     // won't re-push what's already on screen. Only the freshest page
     // (offset 0) can carry the global newest, so skip the bump when paging.
     if (offset === 0) bumpMaxMsgId(this.session.lastMsgIdMaps, 'c2cMsgId', msgs);
-    return msgs;
+
+    return msgs.map((m) => ({
+      ...m,
+      elements: toRenderElements(m.elements),
+    }));
   }
 
   /** Group-chat messages in one group (by group code), newest first. */
-  async getGroupMessages(targetGroupCode: string, limit = 50, offset = 0): Promise<GroupMsg[]> {
+  async getGroupMessages(targetGroupCode: string, limit = 50, offset = 0): Promise<RenderGroupMsg[]> {
     const msgs = await this.session.groupMsgs.listMessagesWithTarget(targetGroupCode, limit, offset);
     if (offset === 0) bumpMaxMsgId(this.session.lastMsgIdMaps, 'groupMsgId', msgs);
-    return msgs;
+
+    return msgs.map((m) => ({
+      ...m,
+      elements: toRenderElements(m.elements),
+    }));
   }
 }
 
