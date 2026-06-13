@@ -188,6 +188,41 @@ export interface NineBirdLoginListEvent {
   list: LoginAccount[];
 }
 
+/**
+ * One entry of the account-list flow. Shape comes straight from QQ's own
+ * `getLoginList()` (via `account-list.js`), so it differs from
+ * `LoginAccount` (decrypted login.db): there's no `a1Key`, but we DO get
+ * the live `isQuickLogin` flag plus nickname/avatar QQ already resolved.
+ */
+export interface NineBirdAccountListItem {
+  /** QQ number. */
+  uin: string;
+  /** Long uid. */
+  uid: string;
+  /** Display name QQ has cached. */
+  nickName: string;
+  /** CDN avatar URL (may 404 if stale). */
+  faceUrl: string;
+  /** Local on-disk avatar path. */
+  facePath: string;
+  /** QQ's internal login-type tag. */
+  loginType: number;
+  /** True when QQ can quick-login this account without a QR scan. */
+  isQuickLogin: boolean;
+  /** True when QQ is configured to auto-login this account. */
+  isAutoLogin: boolean;
+}
+
+/**
+ * Account-list: emitted once after `account-list.js` reads QQ's login list.
+ * Shares the `login-list` wire `kind` with quick-login, but carries the
+ * richer `NineBirdAccountListItem` payload.
+ */
+export interface NineBirdAccountListEvent {
+  kind: 'login-list';
+  list: NineBirdAccountListItem[];
+}
+
 /** QR-login: emitted with the URL to encode into a QR code. */
 export interface NineBirdQrcodeEvent {
   kind: 'qrcode';
@@ -241,6 +276,11 @@ export interface NineBirdResources {
   qrDbkeyJsPath: string;
   /** Script loaded inside QQ for the quick (UIN-cached) login flow. */
   quickDbkeyJsPath: string;
+  /**
+   * Script loaded inside QQ to enumerate the local login list without
+   * decrypting login.db ourselves. Used as the `decryptLoginDb` fallback.
+   */
+  accountListJsPath: string;
 }
 
 // ---------- DB-subset alias used by @weq/db ------------------------------

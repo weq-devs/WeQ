@@ -16,6 +16,8 @@ export { NineBirdBootstrap } from './ninebird';
 export type {
   QrLoginOptions,
   QuickLoginOptions,
+  AccountListOptions,
   LoginSession,
+  AccountListSession,
 } from './ninebird';
 export * from './types';
