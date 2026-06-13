@@ -11,7 +11,8 @@
     "test:c2c-msg": "tsx test/msg_c2c.ts",
     "test:group-msg": "tsx test/msg_group.ts",
     "test:recent-contact": "tsx test/recent_contact.ts",
-    "test:forward": "tsx test/forward.ts"
+    "test:forward": "tsx test/forward.ts",
+    "test:msg-fts": "tsx test/msg_fts.ts"
   },
   "dependencies": {
     "@weq/codec": "workspace:*",

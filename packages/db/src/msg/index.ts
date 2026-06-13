@@ -2,7 +2,8 @@
  * `msg` — message-table accessors.
  *
  * One file per chat type (c2c.ts / group.ts) plus forward.ts for the 40900
- * cache. All decode the 40800 BLOB through `@weq/codec` and surface the typed
+ * cache and buddy_msg_fts.ts for the full-text-search index. The msg-table
+ * accessors decode the 40800 BLOB through `@weq/codec` and surface the typed
  * `*Msg` shapes defined in `types.ts`.
  */
 
@@ -15,4 +16,7 @@ export type { GroupMsgDbOptions } from './group';
 export { ForwardMsgDb } from './forward';
 export type { ForwardMsgDbOptions } from './forward';
 
-export type { C2cMsg, GroupMsg } from './types';
+export { BuddyMsgFtsDb } from './buddy_msg_fts';
+export type { BuddyMsgFtsDbOptions } from './buddy_msg_fts';
+
+export type { C2cMsg, GroupMsg, BuddyMsgFtsHit } from './types';

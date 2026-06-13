@@ -39,3 +39,24 @@ export interface GroupMsg {
   sendTime: bigint;
   elements: Element[];
 }
+
+/**
+ * One hit from the full-text-search index (`buddy_msg_fts` table).
+ *
+ * The FTS table stores already-flattened plain text per message — no 40800
+ * protobuf BLOB to decode, just the `content` column (41701). The other
+ * columns are the identity keys needed to locate the original message in
+ * `nt_msg.db`.
+ */
+export interface BuddyMsgFtsHit {
+  /** Message id (column 40001) — joins back to c2c/group msg tables. */
+  msgId: bigint;
+  /** Chat type (column 40010) — value of `ChatType` (1 = c2c, 2 = group, …). */
+  chatType: number;
+  /** Conversation target — peer uid for c2c, group code for group (column 40021). */
+  targetUid: string;
+  /** Sender uid (column 40020). */
+  senderUid: string;
+  /** The flattened, searchable message text (column 41701). */
+  content: string;
+}

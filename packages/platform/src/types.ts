@@ -43,6 +43,12 @@ export interface Platform {
   ntMsgDbPath(uin: string): string | null;
 
   /**
+   * Resolve `buddy_msg_fts.db` (the full-text-search index) for a specific QQ
+   * account. Co-located with `nt_msg.db`. Null if the account has no index.
+   */
+  buddyMsgFtsDbPath(uin: string): string | null;
+
+  /**
    * Absolute path to a currently installed QQ.exe (or platform equivalent).
    * Used by the launch-based key flows (QR / quick login). Null if QQ isn't
    * installed at any known location.
