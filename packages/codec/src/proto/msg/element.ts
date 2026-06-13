@@ -750,3 +750,17 @@ export const ElementWire = {
   /** Message-sync timestamp. Read for completeness; not part of any element. */
   msgSyncFlag: ProtoField(49155, ScalarType.UINT64, { optional: true }),
 };
+
+/**
+ * Preview element — structurally an ElementWire plus ONE extra field used to
+ * render the latest message OUTSIDE the conversation (in the recent-contact /
+ * conversation list). Built by spreading ElementWire so it reuses every element
+ * field without polluting the base wire with a tag (49093) that only appears in
+ * this one place.
+ */
+export const PreviewElementWire = {
+  ...ElementWire,
+
+  /** 会话列表外显的最新消息文本（tag 49093）. */
+  displayText: ProtoField(49093, ScalarType.STRING, { optional: true }),
+};

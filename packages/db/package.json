@@ -8,7 +8,9 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
-    "test:c2c-msg": "tsx test/msg_c2c.ts"
+    "test:c2c-msg": "tsx test/msg_c2c.ts",
+    "test:recent-contact": "tsx test/recent_contact.ts",
+    "test:forward": "tsx test/forward.ts"
   },
   "dependencies": {
     "@weq/codec": "workspace:*",

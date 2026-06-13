@@ -9,4 +9,7 @@
 export { C2cMsgDb } from './c2c';
 export type { C2cMsgDbOptions } from './c2c';
 
+export { ForwardMsgDb } from './forward';
+export type { ForwardMsgDbOptions } from './forward';
+
 export type { C2cMsg, C2cPeer } from './types';

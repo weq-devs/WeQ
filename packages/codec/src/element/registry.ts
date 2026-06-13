@@ -11,7 +11,7 @@
  */
 
 import type { ProtoDecodeStructType, ProtoEncodeStructType } from '../core';
-import { ElementWire } from '../proto/msg/element';
+import { ElementWire, PreviewElementWire } from '../proto/msg/element';
 import {
   ElementType,
   type Element,
@@ -65,6 +65,24 @@ export function decodeElement(wire: ProtoDecodeStructType<typeof ElementWire>): 
   const kind = TYPE_TO_KIND[type];
   if (!kind) return makeUnknown(wire, wire.elementType ?? 0);
   return { kind, ...wire } as Element;
+}
+
+/**
+ * A preview element (40051 column): a normal Element carrying the recent-contact
+ * list's external display text (wire tag 49093). We keep `displayText` ON the
+ * element rather than destructuring it out — that split was rejected as
+ * unmaintainable, so the whole preview structure stays intact.
+ */
+export type PreviewElement = Element & { displayText?: string };
+
+export function decodePreviewElement(
+  wire: ProtoDecodeStructType<typeof PreviewElementWire>,
+): PreviewElement {
+  const el = decodeElement(wire) as PreviewElement;
+  // Known kinds already carry displayText via the spread in decodeElement; the
+  // UnknownElement branch doesn't, so re-attach it here to be safe.
+  if (wire.displayText !== undefined) el.displayText = wire.displayText;
+  return el;
 }
 
 export function encodeElement(el: Element): ProtoEncodeStructType<typeof ElementWire> {
