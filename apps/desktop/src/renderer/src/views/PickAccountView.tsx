@@ -4,18 +4,11 @@
  * Renders three sections corresponding to the three priority bands the
  * spec calls out:
  *
+ *   0. Saved configurations (config/accounts/*.json) → Direct login
  *   1. Accounts with a live, logged-in QQ process  → fetchKeyFromInstance
  *   2. login.db accounts with a non-empty a1Key    → quickLogin (fallback QR on fail)
  *   3. login.db accounts with empty a1Key          → QR only
  *   4. "Other" — manual UIN entry                  → QR only
- *
- * Also offers:
- *   - Manual dbkey entry (skip auto acquisition entirely)
- *   - Browse to Tencent Files folder (when auto-discovery missed it)
- *
- * v0 does no persistence — the dbkey lives in memory until the user
- * closes the app. We surface the resolved key once we have it so the
- * user can copy it manually.
  */
 
 import { useState, type ReactElement, type ReactNode } from 'react';
@@ -24,9 +17,13 @@ import { client } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { QrImage } from '../components/QrImage';
 import type { LoginAccount, QqPortLoginInfo } from '@weq/native';
+import type { AccountConfig } from '@weq/service';
 
 export function PickAccountView(): ReactElement {
   const accounts = trpc.bootstrap.listAccounts.useQuery(undefined, { retry: false });
+  const savedConfigs = trpc.bootstrap.listAccountConfigs.useQuery(undefined, {
+    refetchOnMount: true,
+  });
   const processes = trpc.bootstrap.detectRunningProcesses.useQuery(undefined, {
     refetchOnMount: false,
   });
@@ -87,6 +84,19 @@ export function PickAccountView(): ReactElement {
         <p className="text-green-600 font-medium my-2 bg-green-50 p-2 rounded-md border border-green-100">
           数据库密钥已获取: <code className="bg-white px-1 rounded border border-green-200 ml-1">{obtainedKey}</code>
         </p>
+      )}
+
+      {(savedConfigs.data?.length ?? 0) > 0 && (
+        <Section title="0) 快速开始 (已保存的配置)">
+          {savedConfigs.data?.map((cfg) => (
+            <SavedConfigRow 
+              key={cfg.uin} 
+              cfg={cfg} 
+              onKey={onKey} 
+              onDelete={() => savedConfigs.refetch()}
+            />
+          ))}
+        </Section>
       )}
 
       <Section title="1) 正在运行的 QQ (推荐)">
@@ -337,27 +347,78 @@ function ManualEntry({ onKey }: { onKey: (uin: string, key: string) => void }): 
   );
 }
 
+function SavedConfigRow({
+  cfg,
+  onKey,
+  onDelete,
+}: {
+  cfg: AccountConfig;
+  onKey: (uin: string, key: string) => void;
+  onDelete: () => void;
+}): ReactElement {
+  const deleteConfig = trpc.bootstrap.deleteAccountConfig.useMutation();
+
+  return (
+    <Row acc={cfg}>
+      <div className="flex gap-2">
+        <button
+          onClick={() => onKey(cfg.uin, cfg.dbKey)}
+          className="px-3 py-1 bg-primary text-primary-foreground rounded-md hover:opacity-90 transition-all text-xs shadow-sm shadow-primary/10"
+        >
+          以此配置登录
+        </button>
+        <button
+          onClick={async () => {
+            if (confirm(`确定要删除账号 ${cfg.uin} 的配置吗？`)) {
+              await deleteConfig.mutateAsync({ uin: cfg.uin });
+              onDelete();
+            }
+          }}
+          className="px-2 py-1 border border-border rounded-md hover:bg-destructive hover:text-destructive-foreground transition-all text-[10px]"
+        >
+          删除
+        </button>
+      </div>
+    </Row>
+  );
+}
+
 function Row({
   acc,
   children,
 }: {
-  acc: LoginAccount | null;
+  acc: LoginAccount | AccountConfig | null;
   children: ReactNode;
 }): ReactElement {
+  const uin = acc?.uin;
+  const name =
+    acc && 'userName' in acc
+      ? (acc as LoginAccount).userName
+      : (acc as AccountConfig)?.displayName;
+
   return (
     <div className="py-1.5 flex items-center gap-4">
       {acc && (
         <>
           <img
-            src={`https://thirdqq.qlogo.cn/g?b=sdk&nk=${acc.uin}&s=0`}
+            src={`https://thirdqq.qlogo.cn/g?b=sdk&nk=${uin}&s=0`}
             alt=""
             width={32}
             height={32}
             className="rounded-full ring-2 ring-background shadow-sm bg-muted"
-            onError={(e) => ((e.target as HTMLImageElement).classList.add('hidden'))}
+            onError={(e) => (e.target as HTMLImageElement).classList.add('hidden')}
           />
           <span className="min-w-[180px] font-semibold text-foreground/90">
-            {acc.userName} <span className="text-muted-foreground font-normal text-[11px] ml-1">({acc.uin})</span>
+            {name ? (
+              <>
+                {name}{' '}
+                <span className="text-muted-foreground font-normal text-[11px] ml-1">
+                  ({uin})
+                </span>
+              </>
+            ) : (
+              uin
+            )}
           </span>
         </>
       )}

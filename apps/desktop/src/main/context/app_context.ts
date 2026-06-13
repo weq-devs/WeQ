@@ -23,6 +23,7 @@ import {
   Win32KeyService,
   MsgService,
   RecentContactService,
+  AccountConfigService,
 } from '@weq/service';
 import { openAccount, type AccountContext, type AccountSession } from '@weq/account';
 
@@ -36,6 +37,7 @@ export interface BootstrapServices {
 export interface AccountServices {
   msgs: MsgService;
   recentContacts: RecentContactService;
+  accountConfig: AccountConfigService;
 }
 
 export interface AppContext {
@@ -73,10 +75,14 @@ export function initAppContext(): AppContext {
       this.account?.dispose();
       const session = openAccount(platform, accountCtx);
       this.account = session;
+      const accountConfig = new AccountConfigService(session, platform.appDataRoot());
       this.services = {
         msgs: new MsgService(session),
         recentContacts: new RecentContactService(session),
+        accountConfig,
       };
+      // Persist credentials for Quick Start
+      accountConfig.save();
     },
     clearAccount(): void {
       this.account?.dispose();
