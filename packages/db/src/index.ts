@@ -25,3 +25,6 @@ export { rowsToObjects } from './row';
 
 // --- msg business ---
 export * from './msg';
+
+// --- contact business ---
+export * from './contact';

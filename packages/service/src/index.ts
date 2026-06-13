@@ -31,3 +31,7 @@ export type { UserConfig } from './bootstrap/user_config';
 
 // ---- account ----
 export { TestMsgService } from './account/test_msg';
+export { RecentContactService } from './account/recent_contact';
+export { ForwardMsgService } from './account/forward';
+export { MsgService } from './account/msg';
+export { MsgSearchService } from './account/msg_search';

@@ -39,7 +39,7 @@ export const TextElementSchema = BaseElementFieldsSchema.extend({
   linkDetectionFlag: z.number().optional(),
   atMentionMask: z.string().optional(),
   walletFlag: z.number().optional(),
-  urlVerifyFlag: z.number().optional(),
+  urlVerifyFlag: z.instanceof(Uint8Array).optional(),
 });
 
 export const PicElementSchema = BaseElementFieldsSchema.extend({
@@ -180,6 +180,7 @@ export const FaceElementSchema = BaseElementFieldsSchema.extend({
   superEmojiFlag1: z.number().optional(),
   superEmojiFlag2: z.number().optional(),
   diceValue: z.string().optional(),
+  faceFlag47608: z.instanceof(Uint8Array).optional(),
   superEmojiFlag3: z.number().optional(),
   superEmojiFlag4: z.number().optional(),
   canChain: z.boolean().optional(),
@@ -312,6 +313,48 @@ export const UnknownElementSchema = BaseElementFieldsSchema.extend({
   raw: z.any(),
 });
 
+export const EmojiBounceElementSchema = BaseElementFieldsSchema.extend({
+  kind: z.literal('emojiBounce'),
+  emojiBounceId: z.number(),
+  emojiBounceFlag52133: z.boolean(),
+  emojiBounceName: z.string(),
+  emojiBounceDetail: z.object({
+    flag52142: z.number().optional(),
+    name: z.string().optional(),
+    textSummary: z.string().optional(),
+  }),
+  emojiBounceTextSummary: z.string(),
+  emojiBouncePcText: z.string(),
+});
+
+export const QqDynamicElementSchema = BaseElementFieldsSchema.extend({
+  kind: z.literal('qqDynamic'),
+  dynamicType: z.number(),
+  dynamicId: z.string(),
+  dynamicFlag48174: z.number(),
+  dynamicDesc: z.object({
+    mainDesc: z.string().optional(),
+    subDesc: z.string().optional(),
+  }),
+  dynamicDesc2: z.object({
+    mainDesc: z.string().optional(),
+    subDesc: z.string().optional(),
+  }),
+  dynamicCoverUrl: z.string(),
+  dynamicZoneLogoUrl: z.string(),
+  dynamicPublisherUin: z.number(),
+  dynamicMeta: z.string(),
+  dynamicTags: z
+    .array(
+      z.object({
+        flag48191: z.boolean().optional(),
+        tagId: z.number().optional(),
+        tagContent: z.string().optional(),
+      }),
+    )
+    .optional(),
+});
+
 export const ElementSchema = z.discriminatedUnion('kind', [
   TextElementSchema,
   PicElementSchema,
@@ -328,6 +371,8 @@ export const ElementSchema = z.discriminatedUnion('kind', [
   CallElementSchema,
   OnlineFileElementSchema,
   OnlineFolderElementSchema,
+  EmojiBounceElementSchema,
+  QqDynamicElementSchema,
   UnknownElementSchema,
 ]);
 
@@ -347,5 +392,7 @@ export type MultiMsgElement = z.infer<typeof MultiMsgElementSchema>;
 export type CallElement = z.infer<typeof CallElementSchema>;
 export type OnlineFileElement = z.infer<typeof OnlineFileElementSchema>;
 export type OnlineFolderElement = z.infer<typeof OnlineFolderElementSchema>;
+export type EmojiBounceElement = z.infer<typeof EmojiBounceElementSchema>;
+export type QqDynamicElement = z.infer<typeof QqDynamicElementSchema>;
 export type UnknownElement = z.infer<typeof UnknownElementSchema>;
 export type Element = z.infer<typeof ElementSchema>;

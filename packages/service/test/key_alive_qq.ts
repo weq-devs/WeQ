@@ -22,7 +22,7 @@ import { Win32DetectService } from '../src/bootstrap/win32_detect';
 
 const DB_PATH =
   process.env.WEQ_TEST_DB_PATH ??
-  String.raw`C:\Users\17078\Documents\Tencent Files\1707889225\nt_qq\nt_db\nt_msg.db`;
+  String.raw`D:\estkim\T\Tencent Files\1707889225\nt_qq\nt_db\nt_msg.db`;
 
 function ts(): string {
   const d = new Date();

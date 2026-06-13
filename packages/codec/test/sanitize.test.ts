@@ -16,8 +16,8 @@ import { describe, it, expect } from 'vitest';
 import { ProtoMsg, ProtoField, ScalarType } from '../src/core';
 import { sanitizeBytes } from '../src/raw';
 import { writeVarint } from '../src/raw';
-import { ElementWire } from '../src/proto/msg/common/element';
-import { MsgBody } from '../src/proto/msg/common/body';
+import { ElementWire } from '../src/proto/msg/element';
+import { MsgBody } from '../src/proto/msg/40800';
 import { decodeElement } from '../src/element';
 
 const realElement = new ProtoMsg(ElementWire);

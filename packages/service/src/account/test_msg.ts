@@ -23,12 +23,6 @@ export class TestMsgService {
     const msgs = await this.session.c2cMsgs.listRecent(limit);
     return JSON.stringify(msgs, bigintReplacer, 2);
   }
-
-  /** Same as `dumpRecent` but scoped to one peer (by their QQ number). */
-  async dumpRecentWithPeer(peerUin: bigint, limit = 50): Promise<string> {
-    const msgs = await this.session.c2cMsgs.listRecentWithPeer(peerUin, limit);
-    return JSON.stringify(msgs, bigintReplacer, 2);
-  }
 }
 
 function bigintReplacer(_key: string, value: unknown): unknown {

@@ -12,11 +12,11 @@
  * encode flow: Element → encodeElement → strips `kind`, fills in
  * `elementType` from the kind→type map, forwards every other field as-is.
  *
- * Tag numbers (40010, 45001, 45002, …) are described in `../proto/msg/common/element.ts`.
+ * Tag numbers (40010, 45001, 45002, …) are described in `../proto/msg/element.ts`.
  */
 
 import type { ProtoEncodeStructType } from '../core';
-import type { ElementWire } from '../proto/msg/common/element';
+import type { ElementWire } from '../proto/msg/element';
 
 export type {
   TextElement,
@@ -34,6 +34,8 @@ export type {
   CallElement,
   OnlineFileElement,
   OnlineFolderElement,
+  EmojiBounceElement,
+  QqDynamicElement,
   UnknownElement,
   Element,
 } from './spec';
@@ -53,6 +55,8 @@ export enum ElementType {
   MULTI_MSG = 16,
   CALL = 21,
   ONLINE_FILE = 23,
+  QQ_DYNAMIC = 26,
+  EMOJI_BOUNCE = 27,
   ONLINE_FOLDER = 30,
 }
 

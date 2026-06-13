@@ -61,9 +61,18 @@ export function registerIpc(): void {
     const offset = Math.max(req.offset ?? 0, 0);
     const order = req.order === 'ASC' ? 'ASC' : 'DESC';
 
-    const rows = await db.query(
-      `SELECT "${safeRowid}", "${safeCol}" FROM "${safeTable}" WHERE "${safeCol}" IS NOT NULL ORDER BY "${safeRowid}" ${order} LIMIT ${limit} OFFSET ${offset}`,
-    );
+    // rowid lookup: fetch exactly one row by its rowid column, ignoring
+    // pagination/order. rowid columns are integers in QQ NT tables, so we
+    // bind a bigint param rather than splicing it into the SQL.
+    const rows =
+      req.rowid != null && req.rowid !== ''
+        ? await db.query(
+            `SELECT "${safeRowid}", "${safeCol}" FROM "${safeTable}" WHERE "${safeRowid}" = ? AND "${safeCol}" IS NOT NULL`,
+            [BigInt(req.rowid)],
+          )
+        : await db.query(
+            `SELECT "${safeRowid}", "${safeCol}" FROM "${safeTable}" WHERE "${safeCol}" IS NOT NULL ORDER BY "${safeRowid}" ${order} LIMIT ${limit} OFFSET ${offset}`,
+          );
 
     const out: CellSample[] = [];
     for (const r of rows) {

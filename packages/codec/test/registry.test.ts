@@ -15,8 +15,8 @@
 import { describe, it, expect } from 'vitest';
 import { ProtoMsg } from '../src/core';
 import { decode, SchemaIndex, annotate } from '../src/raw';
-import { MsgBody } from '../src/proto/msg/common/body';
-import { ElementWire } from '../src/proto/msg/common/element';
+import { MsgBody } from '../src/proto/msg/40800';
+import { ElementWire } from '../src/proto/msg/element';
 import {
   decodeElement,
   encodeElement,
@@ -37,7 +37,7 @@ const SAMPLE = new Uint8Array([
 describe('raw + schema annotation', () => {
   it('annotates the 40800 envelope via MsgBody schema', () => {
     const tree = decode(SAMPLE);
-    const index = new SchemaIndex(MsgBody, 'msg/common/body.MsgBody');
+    const index = new SchemaIndex(MsgBody, 'msg/40800.MsgBody');
     const annotated = annotate(tree, index);
 
     expect(annotated).toHaveLength(1);
@@ -52,7 +52,7 @@ describe('raw + schema annotation', () => {
 
   it('annotates inner fields via ElementWire schema', () => {
     const tree = decode(SAMPLE);
-    const index = new SchemaIndex(MsgBody, 'msg/common/body.MsgBody');
+    const index = new SchemaIndex(MsgBody, 'msg/40800.MsgBody');
     const annotated = annotate(tree, index);
 
     const inner = annotated[0]!.children!;

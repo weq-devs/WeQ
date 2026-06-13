@@ -40,6 +40,11 @@ export interface SampleReq {
   limit?: number; // default: 20
   offset?: number; // default: 0
   order?: 'ASC' | 'DESC'; // default: 'DESC'
+  /**
+   * When set, locate this exact row by its rowid column instead of
+   * ordering/paginating. `limit`/`offset`/`order` are ignored.
+   */
+  rowid?: string;
 }
 
 export const IPC_CHANNELS = {
