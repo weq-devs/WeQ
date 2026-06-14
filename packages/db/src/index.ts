@@ -28,3 +28,6 @@ export * from './msg';
 
 // --- contact business ---
 export * from './contact';
+
+// --- group_info business ---
+export * from './group_info';

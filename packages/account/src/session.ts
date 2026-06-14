@@ -9,7 +9,18 @@
  */
 
 import { dirname, join } from 'node:path';
-import { C2cMsgDb, GroupMsgDb, RecentContactDb, ForwardMsgDb, BuddyMsgFtsDb } from '@weq/db';
+import {
+  C2cMsgDb,
+  GroupMsgDb,
+  RecentContactDb,
+  ForwardMsgDb,
+  BuddyMsgFtsDb,
+  GroupEssenceDb,
+  GroupMemberLevelInfoDb,
+  GroupDetailDb,
+  GroupBulletinDb,
+  GroupMemberDb,
+} from '@weq/db';
 import type { Platform } from '@weq/platform';
 
 export interface AccountContext {
@@ -63,6 +74,16 @@ export interface AccountSession {
   readonly forwardMsgs: ForwardMsgDb;
   /** Full-text-search index over message text (buddy_msg_fts.db). */
   readonly buddyMsgFts: BuddyMsgFtsDb;
+  /** Group essential messages (group_info.db). */
+  readonly groupEssence: GroupEssenceDb;
+  /** Group member level information (group_info.db). */
+  readonly memberLevelInfo: GroupMemberLevelInfoDb;
+  /** Group detailed information (group_info.db). */
+  readonly groupDetail: GroupDetailDb;
+  /** Group announcements (group_info.db). */
+  readonly groupBulletins: GroupBulletinDb;
+  /** Group membership records (group_info.db). */
+  readonly groupMembers: GroupMemberDb;
   /** Close every db this session opened. Idempotent. */
   dispose(): void;
 }
@@ -105,6 +126,34 @@ export function openAccount(platform: Platform, ctx: AccountContext): AccountSes
     key: ctx.dbKey,
   });
 
+  const groupInfoDbPath =
+    platform.groupInfoDbPath(ctx.uin) ?? join(dirname(msgDbPath), 'group_info.db');
+
+  const groupEssence = new GroupEssenceDb(platform.native.ntHelper, {
+    dbPath: groupInfoDbPath,
+    key: ctx.dbKey,
+  });
+
+  const memberLevelInfo = new GroupMemberLevelInfoDb(platform.native.ntHelper, {
+    dbPath: groupInfoDbPath,
+    key: ctx.dbKey,
+  });
+
+  const groupDetail = new GroupDetailDb(platform.native.ntHelper, {
+    dbPath: groupInfoDbPath,
+    key: ctx.dbKey,
+  });
+
+  const groupBulletins = new GroupBulletinDb(platform.native.ntHelper, {
+    dbPath: groupInfoDbPath,
+    key: ctx.dbKey,
+  });
+
+  const groupMembers = new GroupMemberDb(platform.native.ntHelper, {
+    dbPath: groupInfoDbPath,
+    key: ctx.dbKey,
+  });
+
   let disposed = false;
   return {
     context: ctx,
@@ -115,6 +164,11 @@ export function openAccount(platform: Platform, ctx: AccountContext): AccountSes
     recentContacts,
     forwardMsgs,
     buddyMsgFts,
+    groupEssence,
+    memberLevelInfo,
+    groupDetail,
+    groupBulletins,
+    groupMembers,
     dispose(): void {
       if (disposed) return;
       disposed = true;
@@ -123,6 +177,11 @@ export function openAccount(platform: Platform, ctx: AccountContext): AccountSes
       recentContacts.close();
       forwardMsgs.close();
       buddyMsgFts.close();
+      groupEssence.close();
+      memberLevelInfo.close();
+      groupDetail.close();
+      groupBulletins.close();
+      groupMembers.close();
       // Future db instances close here too.
     },
   };
