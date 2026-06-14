@@ -1,21 +1,20 @@
 /**
- * Top-level view router. We have three screens and don't want a real
- * router for one or two transitions — zustand holds the current view
- * and any data that needs to survive across them.
+ * 顶层视图状态。
+ *
+ * 当前只有首页和主界面两个活动视图，同时保存跨视图复用的数据。
  */
 
 import { create } from 'zustand';
 
-export type View = 'bootstrap' | 'pick-account' | 'main';
+export type View = 'bootstrap' | 'main';
 
 interface ViewState {
   view: View;
-  /** Set once an account is opened — drives the main view. */
+  /** 打开账号后写入，用于驱动主界面。 */
   openedUin: string | null;
   /**
-   * Tencent Files root used to derive per-uin `nt_msg.db` paths.
-   * Null = use the first auto-discovered root; a non-null value comes
-   * from the user picking via dialog.
+   * 用于推导每个账号 `nt_msg.db` 路径的 Tencent Files 根目录。
+   * null 表示使用自动检测到的第一个目录；非 null 表示用户手动选择。
    */
   tencentFilesRoot: string | null;
   goTo(view: View): void;
