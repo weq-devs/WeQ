@@ -10,10 +10,12 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AccountSession } from '@weq/account';
+import type { DatabaseAlgorithms } from '@weq/native';
 
 export interface AccountConfig {
   uin: string;
   dbKey: string;
+  algo: DatabaseAlgorithms;
   /** Last seen display name or nickname. */
   displayName?: string;
   /** Unix timestamp of last login. */
@@ -37,6 +39,7 @@ export class AccountConfigService {
     const config: AccountConfig = {
       uin: this.session.context.uin,
       dbKey: this.session.context.dbKey,
+      algo: this.session.context.algo,
       displayName: metadata.displayName,
       lastLoginAt: Date.now(),
     };

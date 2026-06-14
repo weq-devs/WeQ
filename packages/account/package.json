@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "@weq/db": "workspace:*",
-    "@weq/platform": "workspace:*"
+    "@weq/platform": "workspace:*",
+    "@weq/native": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.6"

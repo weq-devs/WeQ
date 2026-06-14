@@ -59,9 +59,6 @@ importers:
       '@weq/shared':
         specifier: workspace:*
         version: link:../../packages/shared
-      '@weq/types':
-        specifier: workspace:*
-        version: link:../../packages/types
       electron-trpc:
         specifier: ^0.7.1
         version: 0.7.1(@trpc/client@10.45.4(@trpc/server@10.45.4))(@trpc/server@10.45.4)(electron@34.3.0)
@@ -174,9 +171,6 @@ importers:
       '@weq/shared':
         specifier: workspace:*
         version: link:../../packages/shared
-      '@weq/types':
-        specifier: workspace:*
-        version: link:../../packages/types
       framer-motion:
         specifier: ^12.40.0
         version: 12.40.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -232,6 +226,9 @@ importers:
       '@weq/db':
         specifier: workspace:*
         version: link:../db
+      '@weq/native':
+        specifier: workspace:*
+        version: link:../native
       '@weq/platform':
         specifier: workspace:*
         version: link:../platform
@@ -326,8 +323,6 @@ importers:
         version: 4.22.4
 
   packages/shared: {}
-
-  packages/types: {}
 
 packages:
 

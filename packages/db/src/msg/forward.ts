@@ -11,7 +11,7 @@
  */
 
 import { decodeMsgCacheColumn, type MsgCacheRecord } from '@weq/codec';
-import type { NtHelperBinding, SqlValue } from '@weq/native';
+import type { DatabaseAlgorithms, NtHelperBinding, SqlValue } from '@weq/native';
 import { QqDb } from '../qq_db';
 
 export interface ForwardMsgDbOptions {
@@ -19,13 +19,15 @@ export interface ForwardMsgDbOptions {
   dbPath: string;
   /** SQLCipher key. */
   key: string;
+  /** Database algorithms. */
+  algo: DatabaseAlgorithms;
 }
 
 export class ForwardMsgDb {
   private readonly qq: QqDb;
 
   constructor(nt: NtHelperBinding, opts: ForwardMsgDbOptions) {
-    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key });
+    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
   }
 
   /** Forward/reply cache for a c2c message, by msgId. */

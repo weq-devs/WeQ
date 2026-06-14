@@ -21,7 +21,7 @@
 import { ProtoMsg, decodePreviewElement, enumName, ChatType } from '@weq/codec';
 import { sanitizeBytes } from '@weq/codec/raw';
 import { RecentContactBody } from '@weq/codec/proto/msg/40051';
-import type { NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
+import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import type { RecentContact } from './types';
 import { QqDb } from '../qq_db';
 
@@ -41,13 +41,15 @@ export interface RecentContactDbOptions {
   dbPath: string;
   /** SQLCipher key. */
   key: string;
+  /** Database algorithms. */
+  algo: DatabaseAlgorithms;
 }
 
 export class RecentContactDb {
   private readonly qq: QqDb;
 
   constructor(nt: NtHelperBinding, opts: RecentContactDbOptions) {
-    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key });
+    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
   }
 
   /**

@@ -25,7 +25,11 @@ const KEYWORD =
 
 async function main(): Promise<void> {
   const platform = createWin32Platform(loadNative());
-  const session = openAccount(platform, { uin: UIN, dbKey: KEY });
+  const session = openAccount(platform, {
+    uin: UIN,
+    dbKey: KEY,
+    algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' },
+  });
   const search = new MsgSearchService(session);
 
   console.log(`[test:msg-search] uin=${UIN} keyword="${KEYWORD}"`);

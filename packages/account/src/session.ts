@@ -26,12 +26,15 @@ import {
   ProfileInfoDb,
 } from '@weq/db';
 import type { Platform } from '@weq/platform';
+import type { DatabaseAlgorithms } from '@weq/native';
 
 export interface AccountContext {
   /** Account QQ number. */
   uin: string;
   /** SQLCipher key for this account's databases (hex passphrase). */
   dbKey: string;
+  /** Cryptographic algorithms used for this account's databases. */
+  algo: DatabaseAlgorithms;
 }
 
 /**
@@ -109,21 +112,25 @@ export function openAccount(platform: Platform, ctx: AccountContext): AccountSes
   const c2cMsgs = new C2cMsgDb(platform.native.ntHelper, {
     dbPath: msgDbPath,
     key: ctx.dbKey,
+    algo: ctx.algo,
   });
 
   const groupMsgs = new GroupMsgDb(platform.native.ntHelper, {
     dbPath: msgDbPath,
     key: ctx.dbKey,
+    algo: ctx.algo,
   });
 
   const recentContacts = new RecentContactDb(platform.native.ntHelper, {
     dbPath: msgDbPath,
     key: ctx.dbKey,
+    algo: ctx.algo,
   });
 
   const forwardMsgs = new ForwardMsgDb(platform.native.ntHelper, {
     dbPath: msgDbPath,
     key: ctx.dbKey,
+    algo: ctx.algo,
   });
 
   // buddy_msg_fts.db sits next to nt_msg.db in the same nt_db folder. Trust
@@ -136,6 +143,7 @@ export function openAccount(platform: Platform, ctx: AccountContext): AccountSes
   const buddyMsgFts = new BuddyMsgFtsDb(platform.native.ntHelper, {
     dbPath: ftsDbPath,
     key: ctx.dbKey,
+    algo: ctx.algo,
   });
 
   const groupInfoDbPath =
@@ -144,34 +152,39 @@ export function openAccount(platform: Platform, ctx: AccountContext): AccountSes
   const groupEssence = new GroupEssenceDb(platform.native.ntHelper, {
     dbPath: groupInfoDbPath,
     key: ctx.dbKey,
+    algo: ctx.algo,
   });
 
   const memberLevelInfo = new GroupMemberLevelInfoDb(platform.native.ntHelper, {
     dbPath: groupInfoDbPath,
     key: ctx.dbKey,
+    algo: ctx.algo,
   });
 
   const groupDetail = new GroupDetailDb(platform.native.ntHelper, {
     dbPath: groupInfoDbPath,
     key: ctx.dbKey,
+    algo: ctx.algo,
   });
 
   const groupBulletins = new GroupBulletinDb(platform.native.ntHelper, {
     dbPath: groupInfoDbPath,
     key: ctx.dbKey,
+    algo: ctx.algo,
   });
 
   const groupMembers = new GroupMemberDb(platform.native.ntHelper, {
     dbPath: groupInfoDbPath,
     key: ctx.dbKey,
+    algo: ctx.algo,
   });
 
   const profileInfoPath = platform.profileInfoDbPath(ctx.uin);
   if (!profileInfoPath) throw new Error(`profile_info.db not found for uin ${ctx.uin}`);
-  const buddies = new BuddyDb(platform.native.ntHelper, { dbPath: profileInfoPath, key: ctx.dbKey });
-  const categories = new CategoryDb(platform.native.ntHelper, { dbPath: profileInfoPath, key: ctx.dbKey });
-  const buddyReqs = new BuddyRequestDb(platform.native.ntHelper, { dbPath: profileInfoPath, key: ctx.dbKey });
-  const profileInfo = new ProfileInfoDb(platform.native.ntHelper, { dbPath: profileInfoPath, key: ctx.dbKey });
+  const buddies = new BuddyDb(platform.native.ntHelper, { dbPath: profileInfoPath, key: ctx.dbKey, algo: ctx.algo });
+  const categories = new CategoryDb(platform.native.ntHelper, { dbPath: profileInfoPath, key: ctx.dbKey, algo: ctx.algo });
+  const buddyReqs = new BuddyRequestDb(platform.native.ntHelper, { dbPath: profileInfoPath, key: ctx.dbKey, algo: ctx.algo });
+  const profileInfo = new ProfileInfoDb(platform.native.ntHelper, { dbPath: profileInfoPath, key: ctx.dbKey, algo: ctx.algo });
 
   let disposed = false;
   return {

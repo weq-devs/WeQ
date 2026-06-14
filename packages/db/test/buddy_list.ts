@@ -15,7 +15,11 @@ async function main() {
   const native = loadNative();
   
   console.log('[test:buddy-list] Opening:', PROFILE_INFO_DB_PATH);
-  const db = new BuddyDb(native.ntHelper, { dbPath: PROFILE_INFO_DB_PATH, key: KEY });
+  const db = new BuddyDb(native.ntHelper, {
+    dbPath: PROFILE_INFO_DB_PATH,
+    key: KEY,
+    algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' },
+  });
 
   const list = await db.listBuddies(10);
   console.log(`[test:buddy-list] Found ${list.length} buddies.`);

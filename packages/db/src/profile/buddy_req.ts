@@ -13,7 +13,7 @@
  *   21501  initiator       (INTEGER) - 0: self, 1: others
  */
 
-import type { NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
+import type { NtHelperBinding, SqlRow, SqlValue, DatabaseAlgorithms } from '@weq/native';
 import { QqDb } from '../qq_db';
 
 export interface BuddyRequest {
@@ -31,6 +31,7 @@ export interface BuddyRequest {
 export interface BuddyRequestDbOptions {
   dbPath: string;
   key: string;
+  algo: DatabaseAlgorithms;
 }
 
 const SELECT_COLUMNS = `"21204","21001","20002","21502","21508","21509","21505","60001","21501"`;
@@ -39,7 +40,7 @@ export class BuddyRequestDb {
   private readonly qq: QqDb;
 
   constructor(nt: NtHelperBinding, opts: BuddyRequestDbOptions) {
-    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key });
+    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
   }
 
   /**

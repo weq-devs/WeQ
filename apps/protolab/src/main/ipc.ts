@@ -11,10 +11,25 @@ import { IPC_CHANNELS, type CellSample, type ColumnRow, type SampleReq, type Tab
 
 const dbCache = new Map<string, QqDb>();
 
-function getDb(dbPath: string, key: string): QqDb {
+async function getDb(dbPath: string, key: string): Promise<QqDb> {
   const cached = dbCache.get(dbPath);
   if (cached) return cached;
-  const db = new QqDb(loadNative().ntHelper, { dbPath, key });
+
+  const { ntHelper } = loadNative();
+  
+  // 1. Probe for algorithms first
+  const probe = await ntHelper.testDatabaseKey(dbPath, key);
+  if (!probe.success || !probe.pageHmacAlgorithm || !probe.kdfHmacAlgorithm) {
+    throw new Error('Database key is incorrect or algorithm probing failed.');
+  }
+
+  const algo = {
+    pageHmacAlgorithm: probe.pageHmacAlgorithm,
+    kdfHmacAlgorithm: probe.kdfHmacAlgorithm,
+  };
+
+  // 2. Instantiate with probed algorithms
+  const db = new QqDb(ntHelper, { dbPath, key, algo });
   dbCache.set(dbPath, db);
   return db;
 }
@@ -25,15 +40,13 @@ function bytesToHex(buf: Buffer | Uint8Array): string {
 
 export function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.openDb, async (_e, req: { dbPath: string; key: string }) => {
-    // Force first query to validate the key — `SELECT 1` runs through PRAGMA
-    // cipher inside native.
-    const db = getDb(req.dbPath, req.key);
-    await db.query('SELECT 1');
+    // getDb already performs probing and validation now.
+    await getDb(req.dbPath, req.key);
     return { ok: true };
   });
 
   ipcMain.handle(IPC_CHANNELS.listTables, async (_e, req: { dbPath: string; key: string }): Promise<TableRow[]> => {
-    const db = getDb(req.dbPath, req.key);
+    const db = await getDb(req.dbPath, req.key);
     const rows = await db.query(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
     );
@@ -43,7 +56,7 @@ export function registerIpc(): void {
   ipcMain.handle(
     IPC_CHANNELS.listColumns,
     async (_e, req: { dbPath: string; key: string; table: string }): Promise<ColumnRow[]> => {
-      const db = getDb(req.dbPath, req.key);
+      const db = await getDb(req.dbPath, req.key);
       // PRAGMA table_info doesn't take ? — escape the identifier instead.
       const safe = req.table.replace(/[^A-Za-z0-9_]/g, '');
       const rows = await db.query(`PRAGMA table_info("${safe}")`);
@@ -53,7 +66,7 @@ export function registerIpc(): void {
   );
 
   ipcMain.handle(IPC_CHANNELS.sampleColumn, async (_e, req: SampleReq): Promise<CellSample[]> => {
-    const db = getDb(req.dbPath, req.key);
+    const db = await getDb(req.dbPath, req.key);
     const safeTable = req.table.replace(/[^A-Za-z0-9_]/g, '');
     const safeCol = req.column.replace(/[^A-Za-z0-9_]/g, '');
     const safeRowid = (req.rowidColumn ?? 'rowid').replace(/[^A-Za-z0-9_]/g, '');

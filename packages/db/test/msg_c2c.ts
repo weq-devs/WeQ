@@ -22,7 +22,11 @@ const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
 
 async function main(): Promise<void> {
   const native = loadNative();
-  const db = new C2cMsgDb(native.ntHelper, { dbPath: DB_PATH, key: KEY });
+  const db = new C2cMsgDb(native.ntHelper, {
+    dbPath: DB_PATH,
+    key: KEY,
+    algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' },
+  });
 
   console.log(`[test:c2c-msg] opening ${DB_PATH}`);
   const msgs = await db.listRecent(50);

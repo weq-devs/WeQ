@@ -22,7 +22,7 @@
 import { ProtoMsg } from '@weq/codec';
 import { GroupRelationBody } from '@weq/codec/proto/profile/20072';
 import { CustomStatusBody } from '@weq/codec/proto/profile/20057';
-import type { NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
+import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import { QqDb } from '../qq_db';
 
 const relationCodec = new ProtoMsg(GroupRelationBody);
@@ -60,6 +60,8 @@ export interface UserProfile {
 export interface ProfileInfoDbOptions {
   dbPath: string;
   key: string;
+  /** Database algorithms. */
+  algo: DatabaseAlgorithms;
 }
 
 const SELECT_COLUMNS = `"1000","1001","1002","20002","20004","20006","20007","20008","20009","20011","20057","20070","20072","24103","24104"`;
@@ -68,7 +70,7 @@ export class ProfileInfoDb {
   private readonly qq: QqDb;
 
   constructor(nt: NtHelperBinding, opts: ProfileInfoDbOptions) {
-    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key });
+    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
   }
 
   /**

@@ -13,12 +13,15 @@ const PROFILE_INFO_DB_PATH = `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db
 
 async function main() {
   const native = loadNative();
-  
-  console.log('[test:category-list] Opening:', PROFILE_INFO_DB_PATH);
-  const db = new CategoryDb(native.ntHelper, { dbPath: PROFILE_INFO_DB_PATH, key: KEY });
 
-  const list = await db.listCategories();
-  console.log(`[test:category-list] Found ${list.length} categories.`);
+  console.log('[test:category-list] Opening:', PROFILE_INFO_DB_PATH);
+  const db = new CategoryDb(native.ntHelper, {
+    dbPath: PROFILE_INFO_DB_PATH,
+    key: KEY,
+    algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' },
+  });
+
+  const list = await db.listCategories();  console.log(`[test:category-list] Found ${list.length} categories.`);
   if (list.length > 0) {
     console.log('[test:category-list] Result:');
     console.log(JSON.stringify(list, null, 2));

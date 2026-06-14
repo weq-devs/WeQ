@@ -11,7 +11,7 @@
  *   40800  msgBody         (BLOB — protobuf repeated ElementWire)
  */
 
-import type { NtHelperBinding, SqlRow } from '@weq/native';
+import type { DatabaseAlgorithms, NtHelperBinding, SqlRow } from '@weq/native';
 import type { GroupMsg } from './types';
 import { decodeBody, toBigint, toStr } from './util';
 import { QqDb } from '../qq_db';
@@ -23,13 +23,15 @@ export interface GroupMsgDbOptions {
   dbPath: string;
   /** SQLCipher key. */
   key: string;
+  /** Database algorithms. */
+  algo: DatabaseAlgorithms;
 }
 
 export class GroupMsgDb {
   private readonly qq: QqDb;
 
   constructor(nt: NtHelperBinding, opts: GroupMsgDbOptions) {
-    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key });
+    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
   }
 
   /**

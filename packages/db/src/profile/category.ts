@@ -6,7 +6,7 @@
 
 import { ProtoMsg } from '@weq/codec';
 import { CategoryListBody } from '@weq/codec/proto/profile/25011';
-import type { NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
+import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import { QqDb } from '../qq_db';
 
 const categoryCodec = new ProtoMsg(CategoryListBody);
@@ -20,13 +20,15 @@ export interface Category {
 export interface CategoryDbOptions {
   dbPath: string;
   key: string;
+  /** Database algorithms. */
+  algo: DatabaseAlgorithms;
 }
 
 export class CategoryDb {
   private readonly qq: QqDb;
 
   constructor(nt: NtHelperBinding, opts: CategoryDbOptions) {
-    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key });
+    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
   }
 
   /**

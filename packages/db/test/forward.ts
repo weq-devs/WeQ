@@ -20,7 +20,11 @@ const MSG_IDS: bigint[] = [7650613959134651362n, 7650606983844292501n];
 
 async function main(): Promise<void> {
   const native = loadNative();
-  const db = new ForwardMsgDb(native.ntHelper, { dbPath: DB_PATH, key: KEY });
+  const db = new ForwardMsgDb(native.ntHelper, {
+    dbPath: DB_PATH,
+    key: KEY,
+    algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' },
+  });
 
   for (const id of MSG_IDS) {
     console.log(`\n===== c2c msgId ${id} =====`);

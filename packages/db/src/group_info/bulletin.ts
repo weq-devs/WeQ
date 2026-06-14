@@ -8,7 +8,7 @@
 
 import { ProtoMsg } from '@weq/codec';
 import { GroupBulletinBody } from '@weq/codec/proto/group_info/64205';
-import type { NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
+import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import { QqDb } from '../qq_db';
 
 const bulletinCodec = new ProtoMsg(GroupBulletinBody);
@@ -25,6 +25,8 @@ export interface GroupBulletin {
 export interface GroupBulletinDbOptions {
   dbPath: string;
   key: string;
+  /** Database algorithms. */
+  algo: DatabaseAlgorithms;
 }
 
 const SELECT_COLUMNS = `"60001","64205"`;
@@ -33,7 +35,7 @@ export class GroupBulletinDb {
   private readonly qq: QqDb;
 
   constructor(nt: NtHelperBinding, opts: GroupBulletinDbOptions) {
-    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key });
+    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
   }
 
   /**

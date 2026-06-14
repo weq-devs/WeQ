@@ -14,12 +14,15 @@ const PROFILE_INFO_DB_PATH = `D:\\estkim\\T\\Tencent Files\\${UIN_ME}\\nt_qq\\nt
 
 async function main() {
   const native = loadNative();
-  
-  console.log('[test:profile-v6] Opening:', PROFILE_INFO_DB_PATH);
-  const db = new ProfileInfoDb(native.ntHelper, { dbPath: PROFILE_INFO_DB_PATH, key: KEY });
 
-  console.log('[test:profile-v6] Querying target UIN:', UIN_TARGET);
-  const profile = await db.getProfileByUin(UIN_TARGET);
+  console.log('[test:profile-v6] Opening:', PROFILE_INFO_DB_PATH);
+  const db = new ProfileInfoDb(native.ntHelper, {
+    dbPath: PROFILE_INFO_DB_PATH,
+    key: KEY,
+    algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' },
+  });
+
+  console.log('[test:profile-v6] Querying target UIN:', UIN_TARGET);  const profile = await db.getProfileByUin(UIN_TARGET);
   
   if (profile) {
     console.log('[test:profile-v6] Result found:');

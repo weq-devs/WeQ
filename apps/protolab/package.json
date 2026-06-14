@@ -25,7 +25,6 @@
     "@weq/db": "workspace:*",
     "@weq/native": "workspace:*",
     "@weq/shared": "workspace:*",
-    "@weq/types": "workspace:*",
     "framer-motion": "^12.40.0",
     "lucide-react": "^0.469.0",
     "react": "^19.0.0",

@@ -17,7 +17,7 @@
  *   64035  memberLevel     (INTEGER)
  */
 
-import type { NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
+import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import { QqDb } from '../qq_db';
 
 export interface GroupMember {
@@ -38,6 +38,8 @@ export interface GroupMember {
 export interface GroupMemberDbOptions {
   dbPath: string;
   key: string;
+  /** Database algorithms. */
+  algo: DatabaseAlgorithms;
 }
 
 const SELECT_COLUMNS = `"60001","1000","1002","64003","20002","64007","64008","64009","64010","64016","64023","64035"`;
@@ -46,7 +48,7 @@ export class GroupMemberDb {
   private readonly qq: QqDb;
 
   constructor(nt: NtHelperBinding, opts: GroupMemberDbOptions) {
-    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key });
+    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
   }
 
   /**

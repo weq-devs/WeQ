@@ -20,7 +20,11 @@ const KEYWORD =
 
 async function main(): Promise<void> {
   const native = loadNative();
-  const db = new BuddyMsgFtsDb(native.ntHelper, { dbPath: DB_PATH, key: KEY });
+  const db = new BuddyMsgFtsDb(native.ntHelper, {
+    dbPath: DB_PATH,
+    key: KEY,
+    algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' },
+  });
 
   console.log(`[test:msg-fts] opening ${DB_PATH}`);
   console.log(`[test:msg-fts] searching for "${KEYWORD}"`);

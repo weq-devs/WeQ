@@ -8,7 +8,7 @@
  *   25007  categoryId  (INTEGER) - Null if in default group
  */
 
-import type { NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
+import type { NtHelperBinding, SqlRow, SqlValue, DatabaseAlgorithms } from '@weq/native';
 import { QqDb } from '../qq_db';
 
 export interface Buddy {
@@ -21,6 +21,7 @@ export interface Buddy {
 export interface BuddyDbOptions {
   dbPath: string;
   key: string;
+  algo: DatabaseAlgorithms;
 }
 
 const SELECT_COLUMNS = `"1000","1001","1002","25007"`;
@@ -29,7 +30,7 @@ export class BuddyDb {
   private readonly qq: QqDb;
 
   constructor(nt: NtHelperBinding, opts: BuddyDbOptions) {
-    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key });
+    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
   }
 
   /**

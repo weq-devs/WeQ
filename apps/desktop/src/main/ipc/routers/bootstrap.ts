@@ -177,24 +177,40 @@ export const bootstrapRouter = router({
         uin: z.string(),
         dbKey: z.string(),
         dbPathOverride: z.string().optional(),
+        algo: z.object({
+          pageHmacAlgorithm: z.string(),
+          kdfHmacAlgorithm: z.string()
+        }).optional()
       }),
     )
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       const ctx = getAppContext();
       if (input.dbPathOverride) {
         if (!existsSync(input.dbPathOverride)) {
           throw new Error(`dbPathOverride does not exist: ${input.dbPathOverride}`);
         }
-        // Whitelist override path by setting ntMsgDbPath via an adapter shim
-        // would be cleaner; for now we route directly through openAccount
-        // — which calls platform.ntMsgDbPath — by temporarily symlinking.
-        // To keep this simple, we leave override unimplemented in v0 and
-        // rely on the discovered path. Surface a clear error.
-        // (Hook into platform if/when this becomes a real need.)
         throw new Error('dbPathOverride is not yet supported — pick the uin path');
       }
-      // Smoke-test by running a trivial query before declaring success.
-      ctx.setAccount({ uin: input.uin, dbKey: input.dbKey });
+
+      let algo = input.algo;
+
+      // If algo is not provided, probe it using ntMsgDbPath
+      if (!algo) {
+        const msgDbPath = ctx.platform.ntMsgDbPath(input.uin);
+        if (!msgDbPath) {
+          throw new Error(`nt_msg.db not found for uin=${input.uin}`);
+        }
+        const probe = await ctx.platform.native.ntHelper.testDatabaseKey(msgDbPath, input.dbKey);
+        if (!probe.success || !probe.pageHmacAlgorithm || !probe.kdfHmacAlgorithm) {
+          throw new Error('Database key is incorrect or algorithm probing failed.');
+        }
+        algo = {
+          pageHmacAlgorithm: probe.pageHmacAlgorithm,
+          kdfHmacAlgorithm: probe.kdfHmacAlgorithm,
+        };
+      }
+
+      ctx.setAccount({ uin: input.uin, dbKey: input.dbKey, algo });
       return ctx.account!.context;
     }),
 

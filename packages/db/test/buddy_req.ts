@@ -13,12 +13,15 @@ const PROFILE_INFO_DB_PATH = `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db
 
 async function main() {
   const native = loadNative();
-  
-  console.log('[test:buddy-req] Opening:', PROFILE_INFO_DB_PATH);
-  const db = new BuddyRequestDb(native.ntHelper, { dbPath: PROFILE_INFO_DB_PATH, key: KEY });
 
-  const list = await db.listRequests(10);
-  console.log(`[test:buddy-req] Found ${list.length} requests.`);
+  console.log('[test:buddy-req] Opening:', PROFILE_INFO_DB_PATH);
+  const db = new BuddyRequestDb(native.ntHelper, {
+    dbPath: PROFILE_INFO_DB_PATH,
+    key: KEY,
+    algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' },
+  });
+
+  const list = await db.listRequests(10);  console.log(`[test:buddy-req] Found ${list.length} requests.`);
   if (list.length > 0) {
     console.log('[test:buddy-req] Sample Result:');
     console.log(JSON.stringify(list[0], bigintReplacer, 2));

@@ -22,7 +22,11 @@ const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
 
 async function main(): Promise<void> {
   const native = loadNative();
-  const db = new RecentContactDb(native.ntHelper, { dbPath: DB_PATH, key: KEY });
+  const db = new RecentContactDb(native.ntHelper, {
+    dbPath: DB_PATH,
+    key: KEY,
+    algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' },
+  });
 
   console.log(`[test:recent-contact] opening ${DB_PATH}`);
   const contacts = await db.getRecentContact(200);

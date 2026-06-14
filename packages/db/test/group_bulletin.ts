@@ -13,9 +13,13 @@ const GROUP_INFO_DB_PATH = `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db\\
 
 async function main() {
   const native = loadNative();
-  
+
   console.log('[test:group-bulletin] Opening:', GROUP_INFO_DB_PATH);
-  const db = new GroupBulletinDb(native.ntHelper, { dbPath: GROUP_INFO_DB_PATH, key: KEY });
+  const db = new GroupBulletinDb(native.ntHelper, {
+    dbPath: GROUP_INFO_DB_PATH,
+    key: KEY,
+    algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' },
+  });
 
   // Try to find a groupCode to test with.
   const anyRows = await (db as any).qq.query('SELECT "60001" FROM group_bulletin LIMIT 1', []);

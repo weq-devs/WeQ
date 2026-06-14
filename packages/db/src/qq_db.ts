@@ -15,6 +15,7 @@ import type {
   NtHelperBinding,
   SqlRow,
   SqlValue,
+  DatabaseAlgorithms,
 } from '@weq/native';
 
 export interface QqDbOptions {
@@ -22,17 +23,21 @@ export interface QqDbOptions {
   dbPath: string;
   /** SQLCipher key (hex passphrase or raw ASCII — both work). */
   key: string;
+  /** Cryptographic algorithms used for this database. */
+  algo: DatabaseAlgorithms;
 }
 
 export class QqDb {
   readonly dbPath: string;
   private readonly key: string;
+  private readonly algo: DatabaseAlgorithms;
   private readonly nt: NtHelperBinding;
 
   constructor(nt: NtHelperBinding, opts: QqDbOptions) {
     this.nt = nt;
     this.dbPath = opts.dbPath;
     this.key = opts.key;
+    this.algo = opts.algo;
   }
 
   /**
@@ -41,7 +46,7 @@ export class QqDb {
    * static column list and prefer named access.
    */
   query(sql: string, params?: SqlValue[]): Promise<SqlRow[]> {
-    return this.nt.executeSqlWithKey(this.dbPath, sql, this.key, params ?? null);
+    return this.nt.executeSqlWithKey(this.dbPath, sql, this.key, this.algo, params ?? null);
   }
 
   /**
@@ -51,7 +56,7 @@ export class QqDb {
    *    run with QQ fully closed.
    */
   write(sql: string, params?: SqlValue[]): Promise<number> {
-    return this.nt.executeSqlWriteWithKey(this.dbPath, sql, this.key, params ?? null);
+    return this.nt.executeSqlWriteWithKey(this.dbPath, sql, this.key, this.algo, params ?? null);
   }
 
   /** Drop both the read and write cached native connections for this database. */
