@@ -41,6 +41,17 @@ export const bootstrapRouter = router({
     return getAppContext().bootstrap.userConfig.read();
   }),
 
+  listAccountConfigs: procedure.query(() => {
+    return getAppContext().bootstrap.userConfig.listAccountConfigs();
+  }),
+
+  deleteAccountConfig: procedure
+    .input(z.object({ uin: z.string() }))
+    .mutation(({ input }) => {
+      getAppContext().bootstrap.userConfig.deleteAccountConfig(input.uin);
+      return true;
+    }),
+
   // ---- filesystem dialog (Tencent Files fallback / manual db pick) ----
 
   pickTencentFilesRoot: procedure.mutation(async () => {

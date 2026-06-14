@@ -20,13 +20,17 @@ import type { ElementWire } from '../proto/msg/element';
 
 export type {
   TextElement,
+  AtElement,
   PicElement,
   FileElement,
   PttElement,
   VideoElement,
   FaceElement,
   ReplyElement,
-  GrayTipElement,
+  GrayTipRevokeElement,
+  GrayTipPokeElement,
+  GrayTipGroupElement,
+  WalletElement,
   ArkElement,
   MfaceElement,
   MarkdownElement,
@@ -49,6 +53,7 @@ export enum ElementType {
   FACE = 6,
   REPLY = 7,
   GRAY_TIP = 8,
+  WALLET = 9,
   ARK = 10,
   MFACE = 11,
   MARKDOWN = 14,
@@ -77,6 +82,8 @@ export enum PttType {
 }
 
 export enum GrayTipSubType {
+  REVOKE = 1,
+  GROUP_TIP = 4,
   POKE = 17,
 }
 

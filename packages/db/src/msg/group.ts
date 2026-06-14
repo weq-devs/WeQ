@@ -58,6 +58,29 @@ export class GroupMsgDb {
     return rows.map(rowToGroupMsg);
   }
 
+  /**
+   * Messages with msgId (column 40001) strictly greater than `sinceMsgId`,
+   * oldest-first (ascending msgId). The group counterpart of
+   * `C2cMsgDb.listSince` — used by the file-watcher hook to compute deltas;
+   * `limit` caps the fan-out so a stale baseline can't dump the whole table.
+   */
+  async listSince(sinceMsgId: bigint, limit = 500): Promise<GroupMsg[]> {
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
+        WHERE "40001" > ?
+        ORDER BY "40001" ASC
+        LIMIT ?`,
+      [sinceMsgId, BigInt(limit)],
+    );
+    return rows.map(rowToGroupMsg);
+  }
+
+  /** Largest msgId (column 40001) currently in the table, or 0n if empty. */
+  async latestMsgId(): Promise<bigint> {
+    const rows = await this.qq.query(`SELECT MAX("40001") FROM group_msg_table`);
+    return toBigint(rows[0]?.[0]);
+  }
+
   /** Drop the cached native connection. Call on account switch / shutdown. */
   close(): void {
     this.qq.close();

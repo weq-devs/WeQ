@@ -16,9 +16,10 @@
  * track those files — TTL / pruning belongs in whoever wrote them.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Platform } from '@weq/platform';
+import type { AccountConfig } from '../account/user_config';
 
 /**
  * Schema for `config.json`. Empty today — additions like `theme`,
@@ -37,6 +38,41 @@ export class UserConfigService {
   constructor(platform: Platform) {
     this.root = platform.appDataRoot();
     this.configPath = join(this.root, 'config.json');
+  }
+
+  /**
+   * List all saved account configurations from <root>/config/accounts/*.json.
+   */
+  listAccountConfigs(): AccountConfig[] {
+    const dir = join(this.root, 'config', 'accounts');
+    try {
+      const files = readdirSync(dir);
+      const configs: AccountConfig[] = [];
+      for (const file of files) {
+        if (!file.endsWith('.json')) continue;
+        try {
+          const raw = readFileSync(join(dir, file), 'utf-8');
+          configs.push(JSON.parse(raw) as AccountConfig);
+        } catch {
+          /* skip corrupt files */
+        }
+      }
+      return configs.sort((a, b) => b.lastLoginAt - a.lastLoginAt);
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Delete a saved account configuration.
+   */
+  deleteAccountConfig(uin: string): void {
+    const filePath = join(this.root, 'config', 'accounts', `${uin}.json`);
+    try {
+      unlinkSync(filePath);
+    } catch {
+      /* ignore if file doesn't exist */
+    }
   }
 
   /**

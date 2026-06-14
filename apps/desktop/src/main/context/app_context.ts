@@ -21,6 +21,9 @@ import {
   UserConfigService,
   Win32DetectService,
   Win32KeyService,
+  MsgService,
+  RecentContactService,
+  AccountConfigService,
 } from '@weq/service';
 import { openAccount, type AccountContext, type AccountSession } from '@weq/account';
 
@@ -30,11 +33,20 @@ export interface BootstrapServices {
   userConfig: UserConfigService;
 }
 
+/** Services that are re-created whenever an account session opens. */
+export interface AccountServices {
+  msgs: MsgService;
+  recentContacts: RecentContactService;
+  accountConfig: AccountConfigService;
+}
+
 export interface AppContext {
   platform: Platform;
   bootstrap: BootstrapServices;
   /** Current account session. `null` until the user confirms a key. */
   account: AccountSession | null;
+  /** Services bound to the current account. `null` if no account is open. */
+  services: AccountServices | null;
   /** Open (or re-open) an account session. Disposes the previous one first. */
   setAccount(ctx: AccountContext): void;
   /** Drop the current account session, if any. */
@@ -58,13 +70,24 @@ export function initAppContext(): AppContext {
     platform,
     bootstrap,
     account: null,
+    services: null,
     setAccount(accountCtx: AccountContext): void {
       this.account?.dispose();
-      this.account = openAccount(platform, accountCtx);
+      const session = openAccount(platform, accountCtx);
+      this.account = session;
+      const accountConfig = new AccountConfigService(session, platform.appDataRoot());
+      this.services = {
+        msgs: new MsgService(session),
+        recentContacts: new RecentContactService(session),
+        accountConfig,
+      };
+      // Persist credentials for Quick Start
+      accountConfig.save();
     },
     clearAccount(): void {
       this.account?.dispose();
       this.account = null;
+      this.services = null;
     },
   };
 

@@ -42,6 +42,21 @@ export const TextElementSchema = BaseElementFieldsSchema.extend({
   urlVerifyFlag: z.instanceof(Uint8Array).optional(),
 });
 
+export const AtElementSchema = BaseElementFieldsSchema.extend({
+  kind: z.literal('at'),
+  textContent: z.string(),
+  textReserve: z.number().optional(),
+  textEncodingFlag: z.number().optional(),
+  fontStyle: z.number().optional(),
+  bubbleId: z.string().optional(),
+  textInputState: z.number().optional(),
+  translationFlag: z.number().optional(),
+  linkDetectionFlag: z.number().optional(),
+  atMentionMask: z.string().optional(),
+  walletFlag: z.number().optional(),
+  urlVerifyFlag: z.instanceof(Uint8Array).optional(),
+});
+
 export const PicElementSchema = BaseElementFieldsSchema.extend({
   kind: z.literal('pic'),
   fileName: z.string(),
@@ -204,8 +219,22 @@ export const ReplyElementSchema = BaseElementFieldsSchema.extend({
   replyFlag47418: z.boolean().optional(),
 });
 
-export const GrayTipElementSchema = BaseElementFieldsSchema.extend({
-  kind: z.literal('grayTip'),
+export const GrayTipRevokeElementSchema = BaseElementFieldsSchema.extend({
+  kind: z.literal('grayTipRevoke'),
+  subType: z.literal(GrayTipSubType.REVOKE),
+  recallFlag47702: z.number(),
+  recallSenderUid: z.string(),
+  recallRevokeUid: z.string(),
+  recallSenderNick: z.string(),
+  recallDisplayText: z.string(),
+  recallRevokeNick: z.string(),
+  recallElements: z.array(z.any()).optional(),
+  recallFlag47711: z.number().optional(),
+});
+
+export const GrayTipPokeElementSchema = BaseElementFieldsSchema.extend({
+  kind: z.literal('grayTipPoke'),
+  subType: z.literal(GrayTipSubType.POKE),
   actionId: z.number(),
   detailedId: z.number(),
   typeFlag: z.number(),
@@ -220,6 +249,18 @@ export const GrayTipElementSchema = BaseElementFieldsSchema.extend({
   grayTipReserved: z.string().optional(),
   grayTipFlag48272: z.boolean().optional(),
   grayTipFlag48275: z.number().optional(),
+});
+
+export const GrayTipGroupElementSchema = BaseElementFieldsSchema.extend({
+  kind: z.literal('grayTipGroup'),
+  subType: z.literal(GrayTipSubType.GROUP_TIP),
+  groupTipType: z.number(),
+  user1Uid: z.string().optional(),
+  user1Nick: z.string().optional(),
+  user1GroupNick: z.string().optional(),
+  user2Uid: z.string().optional(),
+  user2Nick: z.string().optional(),
+  user2GroupNick: z.string().optional(),
 });
 
 export const ArkElementSchema = BaseElementFieldsSchema.extend({
@@ -283,6 +324,28 @@ export const CallElementSchema = BaseElementFieldsSchema.extend({
   callFlag48153: z.string().optional(),
   callUnknownType: z.number().optional(),
   callFlag48156: z.number().optional(),
+});
+
+export const WalletElementSchema = BaseElementFieldsSchema.extend({
+  kind: z.literal('wallet'),
+  walletTargetUin: z.number().optional(),
+  walletTransferProto: z.instanceof(Uint8Array).optional(),
+  walletDetail: z.any().optional(),
+  walletFlag48404: z.number().optional(),
+  walletFlag48405: z.number().optional(),
+  walletFlag48406: z.number().optional(),
+  walletFlag48407: z.number().optional(),
+  walletFlag48408: z.number().optional(),
+  walletOrderId: z.string().optional(),
+  walletFlag48410: z.string().optional(),
+  walletFlag48411: z.number().optional(),
+  walletRedbagType: z.number().optional(),
+  walletFlag48417: z.instanceof(Uint8Array).optional(),
+  walletFlag48418: z.string().optional(),
+  walletFlag48419: z.number().optional(),
+  walletExt: z.any().optional(),
+  walletFlag48437: z.number().optional(),
+  walletFlag48438: z.number().optional(),
 });
 
 export const OnlineFileElementSchema = BaseElementFieldsSchema.extend({
@@ -357,13 +420,17 @@ export const QqDynamicElementSchema = BaseElementFieldsSchema.extend({
 
 export const ElementSchema = z.discriminatedUnion('kind', [
   TextElementSchema,
+  AtElementSchema,
   PicElementSchema,
   FileElementSchema,
   VideoElementSchema,
   PttElementSchema,
   FaceElementSchema,
   ReplyElementSchema,
-  GrayTipElementSchema,
+  GrayTipRevokeElementSchema,
+  GrayTipPokeElementSchema,
+  GrayTipGroupElementSchema,
+  WalletElementSchema,
   ArkElementSchema,
   MfaceElementSchema,
   MarkdownElementSchema,
@@ -378,18 +445,22 @@ export const ElementSchema = z.discriminatedUnion('kind', [
 
 // Infer TypeScript types from schemas
 export type TextElement = z.infer<typeof TextElementSchema>;
+export type AtElement = z.infer<typeof AtElementSchema>;
 export type PicElement = z.infer<typeof PicElementSchema>;
 export type FileElement = z.infer<typeof FileElementSchema>;
 export type VideoElement = z.infer<typeof VideoElementSchema>;
 export type PttElement = z.infer<typeof PttElementSchema>;
 export type FaceElement = z.infer<typeof FaceElementSchema>;
 export type ReplyElement = z.infer<typeof ReplyElementSchema>;
-export type GrayTipElement = z.infer<typeof GrayTipElementSchema>;
+export type GrayTipRevokeElement = z.infer<typeof GrayTipRevokeElementSchema>;
+export type GrayTipPokeElement = z.infer<typeof GrayTipPokeElementSchema>;
+export type GrayTipGroupElement = z.infer<typeof GrayTipGroupElementSchema>;
 export type ArkElement = z.infer<typeof ArkElementSchema>;
 export type MfaceElement = z.infer<typeof MfaceElementSchema>;
 export type MarkdownElement = z.infer<typeof MarkdownElementSchema>;
 export type MultiMsgElement = z.infer<typeof MultiMsgElementSchema>;
 export type CallElement = z.infer<typeof CallElementSchema>;
+export type WalletElement = z.infer<typeof WalletElementSchema>;
 export type OnlineFileElement = z.infer<typeof OnlineFileElementSchema>;
 export type OnlineFolderElement = z.infer<typeof OnlineFolderElementSchema>;
 export type EmojiBounceElement = z.infer<typeof EmojiBounceElementSchema>;

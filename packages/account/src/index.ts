@@ -6,4 +6,4 @@
  */
 
 export { openAccount } from './session';
-export type { AccountContext, AccountSession } from './session';
+export type { AccountContext, AccountSession, LastMsgIdMaps } from './session';
