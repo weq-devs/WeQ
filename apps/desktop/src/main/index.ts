@@ -1,8 +1,9 @@
-import { app, BrowserWindow, shell } from 'electron';
+import { app, BrowserWindow, nativeImage, shell } from 'electron';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { existsSync } from 'node:fs';
 import { initAppContext } from './context/app_context';
 import { appRouter } from './ipc/router';
 
@@ -11,15 +12,45 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const requireFromHere = createRequire(import.meta.url);
 const { createIPCHandler } = requireFromHere('electron-trpc/main') as typeof import('electron-trpc/main');
 
+/**
+ * Window icon, resolved through Electron's own `nativeImage` toolchain from
+ * the shared `resources/brand/logo.png`.
+ *
+ * Dev: walk up from this bundled file to the repo-root `resources/`.
+ * Packaged: electron-builder copies `resources/` to
+ * `process.resourcesPath/resources/` (see electron-builder.yml extraResources).
+ */
+function resolveResource(...segments: string[]): string | null {
+  const candidates = [
+    join(process.resourcesPath ?? '', 'resources', ...segments), // packaged
+    join(__dirname, '../../../../resources', ...segments), // dev (out/main → repo root)
+    join(process.cwd(), 'resources', ...segments),
+  ];
+  for (const path of candidates) {
+    if (path && existsSync(path)) return path;
+  }
+  return null;
+}
+
+function resolveWindowIcon(): Electron.NativeImage | undefined {
+  const path = resolveResource('brand', 'logo.png');
+  if (!path) return undefined;
+  const img = nativeImage.createFromPath(path);
+  return img.isEmpty() ? undefined : img;
+}
+
 function createWindow(): BrowserWindow {
+  const icon = resolveWindowIcon();
   const win = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 960,
-    minHeight: 600,
+    width: 1120,
+    height: 700,
+    minWidth: 940,
+    minHeight: 620,
     show: false,
+    title: 'WeQ Desktop',
     autoHideMenuBar: true,
-    backgroundColor: '#0b0b0d',
+    backgroundColor: '#f7fbff',
+    ...(icon ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       sandbox: false,

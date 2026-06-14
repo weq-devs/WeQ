@@ -1,32 +1,45 @@
 /**
  * 顶层视图状态。
  *
- * 当前只有首页和主界面两个活动视图，同时保存跨视图复用的数据。
+ * 两个活动视图：首页（密钥获取）与主界面。首页内部还有自己的阶段
+ * （booting / home / select）与模式（existing / new），见下方字段。
  */
 
 import { create } from 'zustand';
 
 export type View = 'bootstrap' | 'main';
 
+/** 首页阶段：启动自动进入探测 → 主页（logo+两按钮）→ 账号/密钥选择页。 */
+export type HomeStage = 'booting' | 'home' | 'select';
+
+/** 选择页模式：现有配置 / 新的开始。 */
+export type SelectMode = 'existing' | 'new';
+
 interface ViewState {
   view: View;
   /** 打开账号后写入，用于驱动主界面。 */
   openedUin: string | null;
-  /**
-   * 用于推导每个账号 `nt_msg.db` 路径的 Tencent Files 根目录。
-   * null 表示使用自动检测到的第一个目录；非 null 表示用户手动选择。
-   */
-  tencentFilesRoot: string | null;
+  /** 首页内部阶段。 */
+  homeStage: HomeStage;
+  /** 选择页当前模式。 */
+  selectMode: SelectMode;
   goTo(view: View): void;
   setOpenedUin(uin: string | null): void;
-  setTencentFilesRoot(root: string | null): void;
+  setHomeStage(stage: HomeStage): void;
+  /** 进入选择页并指定模式。 */
+  enterSelect(mode: SelectMode): void;
+  /** 回到主页。 */
+  backHome(): void;
 }
 
 export const useViewState = create<ViewState>((set) => ({
   view: 'bootstrap',
   openedUin: null,
-  tencentFilesRoot: null,
+  homeStage: 'booting',
+  selectMode: 'new',
   goTo: (view) => set({ view }),
   setOpenedUin: (openedUin) => set({ openedUin }),
-  setTencentFilesRoot: (tencentFilesRoot) => set({ tencentFilesRoot }),
+  setHomeStage: (homeStage) => set({ homeStage }),
+  enterSelect: (selectMode) => set({ selectMode, homeStage: 'select' }),
+  backHome: () => set({ homeStage: 'home' }),
 }));

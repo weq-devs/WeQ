@@ -17,17 +17,52 @@
  */
 
 import { mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, basename } from 'node:path';
 import type { Platform } from '@weq/platform';
 import type { AccountConfig } from '../account/user_config';
 
 /**
- * Schema for `config.json`. Empty today — additions like `theme`,
- * `lastUsedUin`, `apiPort`, `authToken` go here. All fields are optional
- * so older config files keep loading after a schema bump.
+ * Cached QQ-installation probe. Written by {@link GlobalConfigService} after
+ * a successful detect so subsequent launches skip the (registry + fs) scan;
+ * each field is re-validated on read and the whole block re-probed if a path
+ * has gone stale.
+ */
+export interface InstallCache {
+  qqExePath: string | null;
+  wrapperNodePath: string | null;
+  loginDbPath: string | null;
+  /** The single in-use Tencent Files root. */
+  tencentFilesRoot: string | null;
+  /** QQ client version parsed from the wrapper.node path (e.g. `9.9.28-46928`). */
+  version: string | null;
+  /** Same as `tencentFilesRoot` — kept under the spec's name for clarity. */
+  userDataPath: string | null;
+  /** Unix ms the probe was taken. */
+  probedAt: number;
+}
+
+/**
+ * "Auto-enter this account next launch". Global — exactly one target at a
+ * time; checking the box for another account overwrites this. Keyed by the
+ * account record's {@link AccountConfig.configId}.
+ */
+export interface AutoEnterTarget {
+  configId: string;
+  uin: string;
+  dataDir?: string;
+}
+
+/**
+ * Schema for `config.json`. All fields optional so older files keep loading
+ * after a schema bump.
  */
 export interface UserConfig {
-  // Reserved for future settings — kept open so older files still load.
+  /** Cached QQ-installation probe (see {@link InstallCache}). */
+  install?: InstallCache;
+  /** Account to silently re-enter on next launch, or null/absent for none. */
+  autoEnter?: AutoEnterTarget | null;
+  /** User-picked Tencent Files root override (from the folder dialog). */
+  tencentFilesRootOverride?: string | null;
 }
 
 export class UserConfigService {
@@ -52,7 +87,11 @@ export class UserConfigService {
         if (!file.endsWith('.json')) continue;
         try {
           const raw = readFileSync(join(dir, file), 'utf-8');
-          configs.push(JSON.parse(raw) as AccountConfig);
+          const parsed = JSON.parse(raw) as AccountConfig;
+          // Back-compat: legacy `<uin>.json` records lack `configId` — derive
+          // it from the filename so the rest of the app can key on it.
+          if (!parsed.configId) parsed.configId = basename(file, '.json');
+          configs.push(parsed);
         } catch {
           /* skip corrupt files */
         }
@@ -64,15 +103,37 @@ export class UserConfigService {
   }
 
   /**
-   * Delete a saved account configuration.
+   * Delete a saved account configuration by its record id (filename stem).
    */
-  deleteAccountConfig(uin: string): void {
-    const filePath = join(this.root, 'config', 'accounts', `${uin}.json`);
+  deleteAccountConfig(configId: string): void {
+    const filePath = join(this.root, 'config', 'accounts', `${configId}.json`);
     try {
       unlinkSync(filePath);
     } catch {
       /* ignore if file doesn't exist */
     }
+    // If the deleted record was the auto-enter target, clear it too.
+    const cfg = this.read();
+    if (cfg.autoEnter && cfg.autoEnter.configId === configId) {
+      this.write({ autoEnter: null });
+    }
+  }
+
+  // ---- auto-enter target (global, single) ----
+
+  /** The account to silently re-enter on next launch, or null. */
+  getAutoEnter(): AutoEnterTarget | null {
+    return this.read().autoEnter ?? null;
+  }
+
+  /** Set (overwrite) the single auto-enter target. */
+  setAutoEnter(target: AutoEnterTarget): void {
+    this.write({ autoEnter: target });
+  }
+
+  /** Clear the auto-enter target. */
+  clearAutoEnter(): void {
+    this.write({ autoEnter: null });
   }
 
   /**

@@ -111,6 +111,13 @@ export interface NtHelperBinding {
   probeQqLoginInfo(pid: number): QqPortLoginInfo | null;
   decryptLoginDb(loginDbPath: string, key: string, algo: DatabaseAlgorithms): LoginAccount[];
   getQqProcesses(): number[];
+  /**
+   * Mutex-lock probe: is the QQ account `uin` currently logged in on this
+   * machine? Works without a pid — QQ holds a per-uin named mutex while the
+   * account is online. Used to attribute the single running QQ process to a
+   * concrete account when port-probing can't (see GlobalConfigService).
+   */
+  isQqLoggedIn(uin: string): boolean;
 
   // --- key acquisition ---
   /** "Instance" path: ask a running, logged-in QQ for the db key via OIDB. */
