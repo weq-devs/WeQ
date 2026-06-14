@@ -20,6 +20,10 @@ import {
   GroupDetailDb,
   GroupBulletinDb,
   GroupMemberDb,
+  BuddyDb,
+  CategoryDb,
+  BuddyRequestDb,
+  ProfileInfoDb,
 } from '@weq/db';
 import type { Platform } from '@weq/platform';
 
@@ -84,6 +88,14 @@ export interface AccountSession {
   readonly groupBulletins: GroupBulletinDb;
   /** Group membership records (group_info.db). */
   readonly groupMembers: GroupMemberDb;
+  /** Buddy list (profile_info.db). */
+  readonly buddies: BuddyDb;
+  /** Buddy categories (profile_info.db). */
+  readonly categories: CategoryDb;
+  /** Buddy request notifications (profile_info.db). */
+  readonly buddyReqs: BuddyRequestDb;
+  /** Detailed user profiles (profile_info.db). */
+  readonly profileInfo: ProfileInfoDb;
   /** Close every db this session opened. Idempotent. */
   dispose(): void;
 }
@@ -154,6 +166,13 @@ export function openAccount(platform: Platform, ctx: AccountContext): AccountSes
     key: ctx.dbKey,
   });
 
+  const profileInfoPath = platform.profileInfoDbPath(ctx.uin);
+  if (!profileInfoPath) throw new Error(`profile_info.db not found for uin ${ctx.uin}`);
+  const buddies = new BuddyDb(platform.native.ntHelper, { dbPath: profileInfoPath, key: ctx.dbKey });
+  const categories = new CategoryDb(platform.native.ntHelper, { dbPath: profileInfoPath, key: ctx.dbKey });
+  const buddyReqs = new BuddyRequestDb(platform.native.ntHelper, { dbPath: profileInfoPath, key: ctx.dbKey });
+  const profileInfo = new ProfileInfoDb(platform.native.ntHelper, { dbPath: profileInfoPath, key: ctx.dbKey });
+
   let disposed = false;
   return {
     context: ctx,
@@ -169,6 +188,10 @@ export function openAccount(platform: Platform, ctx: AccountContext): AccountSes
     groupDetail,
     groupBulletins,
     groupMembers,
+    buddies,
+    categories,
+    buddyReqs,
+    profileInfo,
     dispose(): void {
       if (disposed) return;
       disposed = true;
@@ -182,6 +205,10 @@ export function openAccount(platform: Platform, ctx: AccountContext): AccountSes
       groupDetail.close();
       groupBulletins.close();
       groupMembers.close();
+      buddies.close();
+      categories.close();
+      buddyReqs.close();
+      profileInfo.close();
       // Future db instances close here too.
     },
   };

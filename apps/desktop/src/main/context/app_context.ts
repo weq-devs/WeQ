@@ -24,6 +24,8 @@ import {
   MsgService,
   RecentContactService,
   AccountConfigService,
+  GroupInfoService,
+  ProfileService,
 } from '@weq/service';
 import { openAccount, type AccountContext, type AccountSession } from '@weq/account';
 
@@ -38,6 +40,8 @@ export interface AccountServices {
   msgs: MsgService;
   recentContacts: RecentContactService;
   accountConfig: AccountConfigService;
+  groupInfo: GroupInfoService;
+  profile: ProfileService;
 }
 
 export interface AppContext {
@@ -80,6 +84,8 @@ export function initAppContext(): AppContext {
         msgs: new MsgService(session),
         recentContacts: new RecentContactService(session),
         accountConfig,
+        groupInfo: new GroupInfoService(session),
+        profile: new ProfileService(session),
       };
       // Persist credentials for Quick Start
       accountConfig.save();
