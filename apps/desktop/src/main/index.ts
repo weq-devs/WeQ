@@ -49,10 +49,9 @@ function createWindow(): BrowserWindow {
     show: false,
     title: 'WeQ Desktop',
     autoHideMenuBar: true,
-    backgroundColor: '#f7fbff',
+    backgroundColor: '#f0f0f0',
     titleBarStyle: 'hidden',
     titleBarOverlay: {
-      color: '#f7fbff',
       symbolColor: '#142235',
       height: 32,
     },
