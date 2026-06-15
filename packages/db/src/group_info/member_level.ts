@@ -9,7 +9,7 @@
 
 import { ProtoMsg } from '@weq/codec';
 import { GroupMemberLevelBody } from '@weq/codec/proto/group_info/67103';
-import type { NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
+import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import { QqDb } from '../qq_db';
 
 const levelCodec = new ProtoMsg(GroupMemberLevelBody);
@@ -28,6 +28,8 @@ export interface GroupMemberLevelInfo {
 export interface GroupMemberLevelInfoDbOptions {
   dbPath: string;
   key: string;
+  /** Database algorithms. */
+  algo: DatabaseAlgorithms;
 }
 
 const SELECT_COLUMNS = `"60001","67100","67103"`;
@@ -36,7 +38,7 @@ export class GroupMemberLevelInfoDb {
   private readonly qq: QqDb;
 
   constructor(nt: NtHelperBinding, opts: GroupMemberLevelInfoDbOptions) {
-    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key });
+    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
   }
 
   /**

@@ -69,7 +69,11 @@ function present(row: SqlValue[], colNames: string[]): Set<string> {
 
 async function main(): Promise<void> {
   const native = loadNative();
-  const qq = new QqDb(native.ntHelper, { dbPath: DB_PATH, key: KEY });
+  const qq = new QqDb(native.ntHelper, {
+    dbPath: DB_PATH,
+    key: KEY,
+    algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' },
+  });
 
   const colInfo = await qq.query(`PRAGMA table_info("recent_contact_v3_table")`);
   const colNames = colInfo.map((r) => String(r[1]));

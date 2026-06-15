@@ -131,6 +131,15 @@ export function findGroupInfoDb(uin: string, home = homedir()): string | null {
   return null;
 }
 
+/** `<root>/<uin>/nt_qq/nt_db/profile_info.db` for the first root that has it. */
+export function findProfileInfoDb(uin: string, home = homedir()): string | null {
+  for (const root of candidateTencentFilesRoots(home)) {
+    const candidate = join(root, uin, 'nt_qq', 'nt_db', 'profile_info.db');
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
 /**
  * `<root>/<uin>/nt_qq/nt_db/buddy_msg_fts.db` for the first root that has it.
  *

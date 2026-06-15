@@ -91,6 +91,39 @@ export function resetNativeCache(): void {
   cached = undefined;
 }
 
+/**
+ * Non-throwing variant of {@link loadNative}. Used by the desktop app so a
+ * bad/expired/tampered native bundle surfaces as a UI dialog instead of
+ * crashing `app.whenReady`. On failure it best-effort classifies the cause:
+ *
+ *   - `expired`  — build older than its self-destruct window (InitStatus.Expired)
+ *   - `damaged`  — corrupt / tampered binary, missing assets, unsupported
+ *                  platform, or any other load failure (collapsed per spec:
+ *                  "其它的安装损坏和恶意篡改都显示安装损坏即可")
+ */
+export type NativeLoadResult =
+  | { ok: true; bundle: NativeBundle }
+  | { ok: false; status: InitStatus | null; kind: 'expired' | 'damaged'; message: string };
+
+export function loadNativeSafe(opts: LoadNativeOptions = {}): NativeLoadResult {
+  try {
+    return { ok: true, bundle: loadNative(opts) };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    const status = parseInitStatus(message);
+    const kind = status === InitStatus.Expired ? 'expired' : 'damaged';
+    return { ok: false, status, kind, message };
+  }
+}
+
+/** Recover the InitStatus code from a `loadNative` error message, if present. */
+function parseInitStatus(message: string): InitStatus | null {
+  const match = message.match(/\[(-?\d+)\]/);
+  if (!match) return null;
+  const code = Number(match[1]);
+  return Number.isFinite(code) ? (code as InitStatus) : null;
+}
+
 // ---------- internals -----------------------------------------------------
 
 function resolveNativeRoot(): string {

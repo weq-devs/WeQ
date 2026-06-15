@@ -14,7 +14,11 @@ const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
 
 async function main(): Promise<void> {
   const native = loadNative();
-  const db = new GroupMsgDb(native.ntHelper, { dbPath: DB_PATH, key: KEY });
+  const db = new GroupMsgDb(native.ntHelper, {
+    dbPath: DB_PATH,
+    key: KEY,
+    algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' },
+  });
 
   console.log(`[test:group-msg] opening ${DB_PATH}`);
   const recent = await db.listRecent(5);

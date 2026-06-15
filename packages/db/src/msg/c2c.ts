@@ -14,7 +14,7 @@
  * missing/zero on some rows. The 40800 column is decoded by `@weq/codec`.
  */
 
-import type { NtHelperBinding, SqlRow } from '@weq/native';
+import type { DatabaseAlgorithms, NtHelperBinding, SqlRow } from '@weq/native';
 import type { C2cMsg } from './types';
 import { decodeBody, toBigint, toStr } from './util';
 import { QqDb } from '../qq_db';
@@ -26,13 +26,15 @@ export interface C2cMsgDbOptions {
   dbPath: string;
   /** SQLCipher key. */
   key: string;
+  /** Database algorithms. */
+  algo: DatabaseAlgorithms;
 }
 
 export class C2cMsgDb {
   private readonly qq: QqDb;
 
   constructor(nt: NtHelperBinding, opts: C2cMsgDbOptions) {
-    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key });
+    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
   }
 
   /**

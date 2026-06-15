@@ -9,37 +9,40 @@
  *   40033  senderUin       (INTEGER — sender QQ number)
  *   40050  sendTime        (INTEGER, unix seconds)
  *   40800  msgBody         (BLOB — protobuf repeated ElementWire)
+ *   40062  setEmoji        (BLOB — protobuf repeated sticker reactions / 贴表情)
  */
 
-import type { NtHelperBinding, SqlRow } from '@weq/native';
+import type { DatabaseAlgorithms, NtHelperBinding, SqlRow } from '@weq/native';
 import type { GroupMsg } from './types';
-import { decodeBody, toBigint, toStr } from './util';
+import { decodeBody, decodeEmoji, toBigint, toStr } from './util';
 import { QqDb } from '../qq_db';
 
-const SELECT_COLUMNS = `"40001","40020","40021","40033","40050","40800"`;
+const SELECT_COLUMNS = `"40001","40020","40027","40033","40050","40800","40062"`;
 
 export interface GroupMsgDbOptions {
   /** Absolute path to nt_msg.db. */
   dbPath: string;
   /** SQLCipher key. */
   key: string;
+  /** Database algorithms. */
+  algo: DatabaseAlgorithms;
 }
 
 export class GroupMsgDb {
   private readonly qq: QqDb;
 
   constructor(nt: NtHelperBinding, opts: GroupMsgDbOptions) {
-    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key });
+    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
   }
 
   /**
-   * Most recent N messages in one group (group code, column 40021), newest
-   * first.
+   * Most recent N messages in one group (internal group code, column 40027),
+   * newest first.
    */
   async listMessagesWithTarget(targetGroupCode: string, limit = 50, offset = 0): Promise<GroupMsg[]> {
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM group_msg_table
-        WHERE "40021" = ?
+        WHERE "40027" = ?
         ORDER BY "40050" DESC
         LIMIT ? OFFSET ?`,
       [targetGroupCode, BigInt(limit), BigInt(offset)],
@@ -95,5 +98,6 @@ function rowToGroupMsg(row: SqlRow): GroupMsg {
     senderUin: toBigint(row[3]),
     sendTime: toBigint(row[4]),
     elements: decodeBody(row[5]),
+    setEmojiList: decodeEmoji(row[6]),
   };
 }

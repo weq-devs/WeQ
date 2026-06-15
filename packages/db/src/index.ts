@@ -31,3 +31,6 @@ export * from './contact';
 
 // --- group_info business ---
 export * from './group_info';
+
+// --- profile business ---
+export * from './profile';

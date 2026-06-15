@@ -17,6 +17,7 @@ import {
   findLoginDb,
   findNtMsgDb,
   findGroupInfoDb,
+  findProfileInfoDb,
   findQqWrapperNode,
   pickTencentFilesRoot,
 } from './paths';
@@ -37,6 +38,7 @@ export function createWin32Platform(native: NativeBundle): Platform {
     loginDbPath: () => findLoginDb(),
     ntMsgDbPath: (uin: string) => findNtMsgDb(uin),
     groupInfoDbPath: (uin: string) => findGroupInfoDb(uin),
+    profileInfoDbPath: (uin: string) => findProfileInfoDb(uin),
     buddyMsgFtsDbPath: (uin: string) => findBuddyMsgFtsDb(uin),
     qqExePath: () => findQqExe(),
     qqWrapperNodePath: () => {
@@ -48,6 +50,15 @@ export function createWin32Platform(native: NativeBundle): Platform {
 
 // Re-export the pure helpers so the service layer / tests can use them
 // without depending on a Platform instance.
-export { candidateTencentFilesRoots, pickTencentFilesRoot, findLoginDb, findNtMsgDb, findGroupInfoDb, findBuddyMsgFtsDb, tencentFilesRootFromUserDataInfo } from './paths';
+export {
+  candidateTencentFilesRoots,
+  pickTencentFilesRoot,
+  findLoginDb,
+  findNtMsgDb,
+  findGroupInfoDb,
+  findProfileInfoDb,
+  findBuddyMsgFtsDb,
+  tencentFilesRootFromUserDataInfo,
+} from './paths';
 export { findQqInstallRoot, findQqExe } from './registry';
 export { resolveQqVersionDir, findQqWrapperNode } from './paths';

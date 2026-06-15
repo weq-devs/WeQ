@@ -113,12 +113,18 @@ export class Win32DetectService {
     const dbPath = this.platform.loginDbPath();
     if (dbPath) {
       try {
-        const value = this.platform.native.ntHelper.decryptLoginDb(dbPath);
-        this.accountCache = {
-          expiresAt: now + ACCOUNT_CACHE_TTL_MS,
-          value,
-        };
-        return value;
+        const probe = await this.platform.native.ntHelper.testDatabaseKey(dbPath, 'BD156D6710D54D8782F4');
+        if (probe.success && probe.pageHmacAlgorithm && probe.kdfHmacAlgorithm) {
+          const value = this.platform.native.ntHelper.decryptLoginDb(dbPath, 'BD156D6710D54D8782F4', {
+            pageHmacAlgorithm: probe.pageHmacAlgorithm,
+            kdfHmacAlgorithm: probe.kdfHmacAlgorithm,
+          });
+          this.accountCache = {
+            expiresAt: now + ACCOUNT_CACHE_TTL_MS,
+            value,
+          };
+          return value;
+        }
       } catch {
         // decrypt failed — fall through to the launch-based fallback.
       }

@@ -22,7 +22,7 @@
  *   41701  content    (the searchable flattened text)
  */
 
-import type { NtHelperBinding, SqlRow } from '@weq/native';
+import type { DatabaseAlgorithms, NtHelperBinding, SqlRow } from '@weq/native';
 import type { BuddyMsgFtsHit } from './types';
 import { toBigint, toStr } from './util';
 import { QqDb } from '../qq_db';
@@ -43,13 +43,15 @@ export interface BuddyMsgFtsDbOptions {
   dbPath: string;
   /** SQLCipher key. */
   key: string;
+  /** Database algorithms. */
+  algo: DatabaseAlgorithms;
 }
 
 export class BuddyMsgFtsDb {
   private readonly qq: QqDb;
 
   constructor(nt: NtHelperBinding, opts: BuddyMsgFtsDbOptions) {
-    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key });
+    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
   }
 
   /**

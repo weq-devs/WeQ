@@ -27,16 +27,25 @@ export type {
 } from './bootstrap/win32_key';
 
 export { UserConfigService } from './bootstrap/user_config';
-export type { UserConfig } from './bootstrap/user_config';
+export type { UserConfig, InstallCache, AutoEnterTarget } from './bootstrap/user_config';
+
+export { GlobalConfigService, parseQqVersion } from './bootstrap/global_config';
+export type {
+  GlobalInstallInfo,
+  OnlineProbe,
+  DbFileStat,
+  DirSize,
+} from './bootstrap/global_config';
 
 // ---- account ----
-export { AccountConfigService } from './account/user_config';
-export type { AccountConfig } from './account/user_config';
+export { AccountConfigService, accountConfigId } from './account/user_config';
+export type { AccountConfig, AccountConfigMetadata } from './account/user_config';
 export { TestMsgService } from './account/test_msg';
 export { RecentContactService } from './account/recent_contact';
 export { ForwardMsgService } from './account/forward';
 export { MsgService } from './account/msg';
 export { GroupInfoService } from './account/group_info';
+export { ProfileService } from './account/profile';
 export type { RenderC2cMsg, RenderGroupMsg } from './account/msg';
 export { toRenderElements } from './account/msg_view';
 export type { RenderElement, RenderTextElement } from './account/msg_view';

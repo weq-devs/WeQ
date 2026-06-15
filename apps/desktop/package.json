@@ -28,7 +28,6 @@
     "@weq/platform": "workspace:*",
     "@weq/service": "workspace:*",
     "@weq/shared": "workspace:*",
-    "@weq/types": "workspace:*",
     "electron-trpc": "^0.7.1",
     "qrcode": "^1.5.4",
     "react": "^19.0.0",

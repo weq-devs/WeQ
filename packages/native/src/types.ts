@@ -76,6 +76,17 @@ export interface QqPortLoginInfo {
   loggedIn: boolean;
 }
 
+export interface DatabaseAlgorithms {
+  pageHmacAlgorithm: string;
+  kdfHmacAlgorithm: string;
+}
+
+export interface DatabaseProbeResult {
+  success: boolean;
+  pageHmacAlgorithm?: string;
+  kdfHmacAlgorithm?: string;
+}
+
 /** Status returned after injecting the hook DLL into a QQ process. */
 export interface QQInstanceStatus {
   pid: number;
@@ -98,12 +109,21 @@ export interface NtHelperBinding {
 
   // --- QQ process / login detection ---
   probeQqLoginInfo(pid: number): QqPortLoginInfo | null;
-  decryptLoginDb(loginDbPath: string): LoginAccount[];
+  decryptLoginDb(loginDbPath: string, key: string, algo: DatabaseAlgorithms): LoginAccount[];
   getQqProcesses(): number[];
+  /**
+   * Mutex-lock probe: is the QQ account `uin` currently logged in on this
+   * machine? Works without a pid — QQ holds a per-uin named mutex while the
+   * account is online. Used to attribute the single running QQ process to a
+   * concrete account when port-probing can't (see GlobalConfigService).
+   */
+  isQqLoggedIn(uin: string): boolean;
 
   // --- key acquisition ---
   /** "Instance" path: ask a running, logged-in QQ for the db key via OIDB. */
   requestDecryptKey(pid: number, dbPath: string): Promise<string>;
+  
+  testDatabaseKey(dbPath: string, key: string): Promise<DatabaseProbeResult>;
 
   // --- hook injection ---
   injectAndGetStatus(pid: number, dllPath: string): Promise<QQInstanceStatus>;
@@ -119,6 +139,7 @@ export interface NtHelperBinding {
     dbPath: string,
     sql: string,
     key: string,
+    algo: DatabaseAlgorithms,
     params?: SqlValue[] | null,
   ): Promise<SqlRow[]>;
   executeSqlWrite(
@@ -130,14 +151,15 @@ export interface NtHelperBinding {
     dbPath: string,
     sql: string,
     key: string,
+    algo: DatabaseAlgorithms,
     params?: SqlValue[] | null,
   ): Promise<number>;
   closeDb(dbPath: string): number;
   closeAllDb(): number;
 
   // --- bulk decrypt ---
-  fastDecryptDatabase(dbPath: string, outPath: string, key: string): void;
-  safeDecryptDatabase(dbPath: string, outPath: string, key: string): void;
+  fastDecryptDatabase(dbPath: string, outPath: string, key: string, algo: DatabaseAlgorithms): void;
+  safeDecryptDatabase(dbPath: string, outPath: string, key: string, algo: DatabaseAlgorithms): void;
 
   // --- OIDB service helpers (JSON-stringified results) ---
   fetchDownloadRkeys(pid: number): Promise<string>;

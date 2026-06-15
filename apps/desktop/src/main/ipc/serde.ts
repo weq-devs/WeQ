@@ -10,6 +10,7 @@
  */
 
 import type { C2cMsg, GroupMsg, RecentContact } from '@weq/db';
+import type { SetEmojiItem } from '@weq/codec';
 import type { RenderC2cMsg, RenderGroupMsg } from '@weq/service';
 
 export interface C2cMsgWire {
@@ -29,6 +30,8 @@ export interface GroupMsgWire {
   senderUin: string;
   sendTime: string;
   elements: unknown[];
+  /** Sticker reactions (贴表情, column 40062); omitted when none. */
+  setEmojiList?: SetEmojiItem[];
 }
 
 export interface RecentContactWire {
@@ -70,6 +73,7 @@ export function groupMsgToWire(m: RenderGroupMsg): GroupMsgWire {
     senderUin: m.senderUin.toString(),
     sendTime: m.sendTime.toString(),
     elements: sanitize(m.elements),
+    setEmojiList: m.setEmojiList,
   };
 }
 

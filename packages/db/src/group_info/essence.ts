@@ -13,7 +13,7 @@
  *   67508  timestamp       (INTEGER)
  */
 
-import type { NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
+import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import { QqDb } from '../qq_db';
 
 export interface GroupEssence {
@@ -32,6 +32,8 @@ export interface GroupEssence {
 export interface GroupEssenceDbOptions {
   dbPath: string;
   key: string;
+  /** Database algorithms. */
+  algo: DatabaseAlgorithms;
 }
 
 const SELECT_COLUMNS = `"60001","67501","67502","67503","67504","67505","67506","67507","67508"`;
@@ -40,7 +42,7 @@ export class GroupEssenceDb {
   private readonly qq: QqDb;
 
   constructor(nt: NtHelperBinding, opts: GroupEssenceDbOptions) {
-    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key });
+    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
   }
 
   /**

@@ -13,9 +13,13 @@ const GROUP_INFO_DB_PATH = `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db\\
 
 async function main() {
   const native = loadNative();
-  
+
   console.log('[test:group-member] Opening:', GROUP_INFO_DB_PATH);
-  const db = new GroupMemberDb(native.ntHelper, { dbPath: GROUP_INFO_DB_PATH, key: KEY });
+  const db = new GroupMemberDb(native.ntHelper, {
+    dbPath: GROUP_INFO_DB_PATH,
+    key: KEY,
+    algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' },
+  });
 
   // 1. Find a group and list its members
   const anyRows = await (db as any).qq.query('SELECT "60001" FROM group_member3 LIMIT 1', []);

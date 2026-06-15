@@ -22,7 +22,7 @@
 import { ProtoMsg } from '@weq/codec';
 import { GroupAddressBody } from '@weq/codec/proto/group_info/60242';
 import { GroupCustomLabelsBody } from '@weq/codec/proto/group_info/60241';
-import type { NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
+import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import { QqDb } from '../qq_db';
 
 const addressCodec = new ProtoMsg(GroupAddressBody);
@@ -65,6 +65,8 @@ export interface GroupDetail {
 export interface GroupDetailDbOptions {
   dbPath: string;
   key: string;
+  /** Database algorithms. */
+  algo: DatabaseAlgorithms;
 }
 
 const SELECT_COLUMNS = `"60001","60007","60216","60217","60026","60002","60004","60005","60006","60218","60224","60340","60241","60242"`;
@@ -73,7 +75,7 @@ export class GroupDetailDb {
   private readonly qq: QqDb;
 
   constructor(nt: NtHelperBinding, opts: GroupDetailDbOptions) {
-    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key });
+    this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
   }
 
   /**
