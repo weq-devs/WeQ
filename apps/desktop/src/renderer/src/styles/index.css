@@ -1,5 +1,6 @@
 /* Tailwind v4 — single-line import; no tailwind.config.js, no PostCSS needed. */
 @import "tailwindcss";
+@import "../im-template/styles.css";
 
 /* Tell Tailwind which files to scan for class names */
 @source "../**/*.{ts,tsx}";
