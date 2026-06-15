@@ -4,10 +4,12 @@
  * Same column layout as c2c_msg_table, the conversation key being the group
  * code instead of a peer uid:
  *   40001  msgId           (INTEGER)
+ *   40003  msgSeq          (INTEGER — per-group incrementing sequence)
  *   40020  senderUid       (TEXT)
- *   40021  targetGroupCode (INTEGER as text — 群号; conversation key)
+ *   40027  targetGroupCode (INTEGER as text — 群号; conversation key)
  *   40033  senderUin       (INTEGER — sender QQ number)
  *   40050  sendTime        (INTEGER, unix seconds)
+ *   40058  dayTimestamp    (INTEGER — midnight timestamp of the day)
  *   40800  msgBody         (BLOB — protobuf repeated ElementWire)
  *   40062  setEmoji        (BLOB — protobuf repeated sticker reactions / 贴表情)
  */
@@ -17,7 +19,7 @@ import type { GroupMsg } from './types';
 import { decodeBody, decodeEmoji, toBigint, toStr } from './util';
 import { QqDb } from '../qq_db';
 
-const SELECT_COLUMNS = `"40001","40020","40027","40033","40050","40800","40062"`;
+const SELECT_COLUMNS = `"40001","40020","40027","40033","40050","40800","40062","40003"`;
 
 export interface GroupMsgDbOptions {
   /** Absolute path to nt_msg.db. */
@@ -37,13 +39,13 @@ export class GroupMsgDb {
 
   /**
    * Most recent N messages in one group (internal group code, column 40027),
-   * newest first.
+   * newest first. Uses the (40027, 40003) composite index.
    */
   async listMessagesWithTarget(targetGroupCode: string, limit = 50, offset = 0): Promise<GroupMsg[]> {
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM group_msg_table
         WHERE "40027" = ?
-        ORDER BY "40050" DESC
+        ORDER BY "40003" DESC
         LIMIT ? OFFSET ?`,
       [targetGroupCode, BigInt(limit), BigInt(offset)],
     );
@@ -54,7 +56,7 @@ export class GroupMsgDb {
   async listRecent(limit = 50, offset = 0): Promise<GroupMsg[]> {
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM group_msg_table
-        ORDER BY "40050" DESC
+        ORDER BY "40001" DESC
         LIMIT ? OFFSET ?`,
       [BigInt(limit), BigInt(offset)],
     );
@@ -99,5 +101,6 @@ function rowToGroupMsg(row: SqlRow): GroupMsg {
     sendTime: toBigint(row[4]),
     elements: decodeBody(row[5]),
     setEmojiList: decodeEmoji(row[6]),
+    msgSeq: toBigint(row[7]),
   };
 }

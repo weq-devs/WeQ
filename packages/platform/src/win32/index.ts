@@ -16,15 +16,16 @@ import {
   findBuddyMsgFtsDb,
   findLoginDb,
   findNtMsgDb,
-  findGroupInfoDb,
   findProfileInfoDb,
   findMiscDb,
+  findBuddyMsgFtsDb,
+  findGroupMsgFtsDb,
   findQqWrapperNode,
   pickTencentFilesRoot,
-} from './paths';
-import { findQqExe, findQqInstallRoot } from './registry';
+  } from './paths';
+  import { findQqExe, findQqInstallRoot } from './registry';
 
-export function createWin32Platform(native: NativeBundle): Platform {
+  export function createWin32Platform(native: NativeBundle): Platform {
   return {
     kind: 'win32',
     native,
@@ -42,17 +43,18 @@ export function createWin32Platform(native: NativeBundle): Platform {
     profileInfoDbPath: (uin: string) => findProfileInfoDb(uin),
     miscDbPath: (uin: string) => findMiscDb(uin),
     buddyMsgFtsDbPath: (uin: string) => findBuddyMsgFtsDb(uin),
+    groupMsgFtsDbPath: (uin: string) => findGroupMsgFtsDb(uin),
     qqExePath: () => findQqExe(),
     qqWrapperNodePath: () => {
       const root = findQqInstallRoot();
       return root ? findQqWrapperNode(root) : null;
     },
   };
-}
+  }
 
-// Re-export the pure helpers so the service layer / tests can use them
-// without depending on a Platform instance.
-export {
+  // Re-export the pure helpers so the service layer / tests can use them
+  // without depending on a Platform instance.
+  export {
   candidateTencentFilesRoots,
   pickTencentFilesRoot,
   findLoginDb,
@@ -61,7 +63,9 @@ export {
   findProfileInfoDb,
   findMiscDb,
   findBuddyMsgFtsDb,
+  findGroupMsgFtsDb,
   tencentFilesRootFromUserDataInfo,
-} from './paths';
+  } from './paths';
+
 export { findQqInstallRoot, findQqExe } from './registry';
 export { resolveQqVersionDir, findQqWrapperNode } from './paths';

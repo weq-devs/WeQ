@@ -82,6 +82,8 @@ export interface AccountSession {
   readonly forwardMsgs: ForwardMsgDb;
   /** Full-text-search index over message text (buddy_msg_fts.db). */
   readonly buddyMsgFts: BuddyMsgFtsDb;
+  /** Full-text-search index over group message text (group_msg_fts.db). */
+  readonly groupMsgFts: GroupMsgFtsDb;
   /** Group essential messages (group_info.db). */
   readonly groupEssence: GroupEssenceDb;
   /** Group member level information (group_info.db). */
@@ -145,6 +147,15 @@ export function openAccount(platform: Platform, ctx: AccountContext): AccountSes
 
   const buddyMsgFts = new BuddyMsgFtsDb(platform.native.ntHelper, {
     dbPath: ftsDbPath,
+    key: ctx.dbKey,
+    algo: ctx.algo,
+  });
+
+  const groupFtsDbPath =
+    platform.groupMsgFtsDbPath(ctx.uin) ?? join(dirname(msgDbPath), 'group_msg_fts.db');
+
+  const groupMsgFts = new GroupMsgFtsDb(platform.native.ntHelper, {
+    dbPath: groupFtsDbPath,
     key: ctx.dbKey,
     algo: ctx.algo,
   });
@@ -220,6 +231,7 @@ export function openAccount(platform: Platform, ctx: AccountContext): AccountSes
       recentContacts.close();
       forwardMsgs.close();
       buddyMsgFts.close();
+      groupMsgFts.close();
       groupEssence.close();
       memberLevelInfo.close();
       groupDetail.close();

@@ -152,12 +152,26 @@ export function findMiscDb(uin: string, home = homedir()): string | null {
 /**
  * `<root>/<uin>/nt_qq/nt_db/buddy_msg_fts.db` for the first root that has it.
  *
- * QQ's full-text-search index, co-located with `nt_msg.db` in the same
- * `nt_db` folder. Returns null if the account never built a search index.
+ * QQ's full-text-search index for friends, co-located with `nt_msg.db` in the
+ * same `nt_db` folder. Returns null if the account never built a search index.
  */
 export function findBuddyMsgFtsDb(uin: string, home = homedir()): string | null {
   for (const root of candidateTencentFilesRoots(home)) {
     const candidate = join(root, uin, 'nt_qq', 'nt_db', 'buddy_msg_fts.db');
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+/**
+ * `<root>/<uin>/nt_qq/nt_db/group_msg_fts.db` for the first root that has it.
+ *
+ * QQ's full-text-search index for groups, co-located with `nt_msg.db` in the
+ * same `nt_db` folder. Returns null if the account never built a search index.
+ */
+export function findGroupMsgFtsDb(uin: string, home = homedir()): string | null {
+  for (const root of candidateTencentFilesRoots(home)) {
+    const candidate = join(root, uin, 'nt_qq', 'nt_db', 'group_msg_fts.db');
     if (existsSync(candidate)) return candidate;
   }
   return null;

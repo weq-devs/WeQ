@@ -61,10 +61,18 @@ export interface Platform {
   miscDbPath(uin: string): string | null;
 
   /**
-   * Resolve `buddy_msg_fts.db` (the full-text-search index) for a specific QQ
-   * account. Co-located with `nt_msg.db`. Null if the account has no index.
+   * Resolve `buddy_msg_fts.db` (the full-text-search index for friends) for
+   * a specific QQ account. Co-located with `nt_msg.db`. Null if the account
+   * has no index.
    */
   buddyMsgFtsDbPath(uin: string): string | null;
+
+  /**
+   * Resolve `group_msg_fts.db` (the full-text-search index for groups) for
+   * a specific QQ account. Co-located with `nt_msg.db`. Null if the account
+   * has no index.
+   */
+  groupMsgFtsDbPath(uin: string): string | null;
 
   /**
    * Absolute path to a currently installed QQ.exe (or platform equivalent).
