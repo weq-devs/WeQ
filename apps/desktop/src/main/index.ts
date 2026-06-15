@@ -43,13 +43,19 @@ function createWindow(): BrowserWindow {
   const icon = resolveWindowIcon();
   const win = new BrowserWindow({
     width: 1120,
-    height: 700,
+    height: 580,
     minWidth: 940,
-    minHeight: 620,
+    minHeight: 520,
     show: false,
     title: 'WeQ Desktop',
     autoHideMenuBar: true,
     backgroundColor: '#f7fbff',
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#f7fbff',
+      symbolColor: '#142235',
+      height: 32,
+    },
     ...(icon ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),

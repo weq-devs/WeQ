@@ -642,6 +642,20 @@
   from { transform: scaleX(0); }
   to { transform: scaleX(1); }
 }
+@keyframes weq-rise-in {
+  from { transform: scaleY(0); opacity: 0.4; }
+  to { transform: scaleY(1); opacity: 1; }
+}
+@keyframes weq-screen-in {
+  from { opacity: 0; transform: translateX(20px) scale(0.992); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
+/* Centered popover: keep translateX(-50%) through the pop-in so it stays
+   horizontally anchored under the trigger. */
+@keyframes weq-pop-center {
+  from { opacity: 0; transform: translateX(-50%) translateY(6px) scale(0.985); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
 @keyframes weq-shimmer {
   from { background-position: -160% 0; }
   to { background-position: 260% 0; }
@@ -655,6 +669,11 @@
 .weq-anim-pop { animation: weq-pop-in 170ms cubic-bezier(0.22, 1, 0.36, 1) both; }
 .weq-anim-wipe { animation: weq-wipe-in 620ms cubic-bezier(0.22, 1, 0.36, 1) both; }
 .weq-anim-grow { transform-origin: left center; animation: weq-grow-in 540ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.weq-anim-rise { transform-origin: bottom center; animation: weq-rise-in 560ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.weq-anim-screen { animation: weq-screen-in 340ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+/* translateX(-50%) is the resting transform, so set it up-front to avoid a
+   first-frame jump before the animation's `both` fill applies. */
+.weq-anim-popc { transform: translateX(-50%); animation: weq-pop-center 170ms cubic-bezier(0.22, 1, 0.36, 1) both; }
 .weq-splash-logo { animation: weq-float 2.6s ease-in-out infinite; }
 
 @layer components {
@@ -822,7 +841,9 @@
     gap: 0.85rem;
     padding-bottom: 0.95rem;
     border-bottom: 1px solid rgba(0, 153, 255, 0.16);
+    -webkit-app-region: drag;
   }
+  .weq-select-head button { -webkit-app-region: no-drag; }
   .weq-select-head-title { display: flex; flex-direction: column; gap: 0.15rem; }
   .weq-select-head-tag { font-size: 12.5px; font-weight: 500; color: #0099ff; }
   .weq-select-head-h { font-size: 20px; color: #0a2847; line-height: 1.1; }
@@ -830,6 +851,7 @@
     display: grid;
     grid-template-columns: minmax(19rem, 0.52fr) minmax(0, 1fr);
     gap: 1.6rem;
+    align-items: center;
     flex: 1;
     min-height: 0;
     padding-top: 1.15rem;
@@ -841,7 +863,7 @@
   }
   .weq-select-right {
     min-height: 0;
-    overflow-y: auto;
+    overflow: hidden;
     border-left: 1px solid rgba(0, 153, 255, 0.16);
     padding-left: 1.6rem;
   }
@@ -860,28 +882,45 @@
   /* ---- login panel ---- */
   .weq-login-panel {
     display: flex;
+    flex: 1;
+    min-height: 0;
     flex-direction: column;
-    gap: 1.15rem;
+    gap: 1.1rem;
   }
   .weq-login-status {
     display: inline-flex;
+    align-self: center;
     align-items: center;
     gap: 0.4rem;
     font-size: 12.5px;
     color: #0099ff;
   }
   .weq-auto-enter {
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.6rem;
+    padding: 0.7rem 0.9rem;
+    border-radius: 11px;
+    border: 1px solid rgba(0, 153, 255, 0.16);
+    background: rgba(0, 153, 255, 0.035);
     font-size: 12.5px;
     color: #51677c;
     cursor: pointer;
     user-select: none;
+    transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+  }
+  .weq-auto-enter:hover {
+    border-color: rgba(0, 153, 255, 0.3);
+    background: rgba(0, 153, 255, 0.06);
+  }
+  .weq-auto-enter:has(input:checked) {
+    border-color: rgba(0, 153, 255, 0.4);
+    background: rgba(0, 153, 255, 0.09);
+    color: #16344f;
   }
   .weq-auto-enter input {
-    width: 0.95rem;
-    height: 0.95rem;
+    width: 1rem;
+    height: 1rem;
     accent-color: #0099ff;
     cursor: pointer;
   }
@@ -901,32 +940,25 @@
   .weq-acct-new:hover { background: rgba(0, 153, 255, 0.06); }
 
   /* ---- account selector ---- */
-  .weq-acct { position: relative; }
-  .weq-acct-head {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+  /* margin-top:auto here + margin-bottom:auto on the last control centers the
+     whole login stack vertically in the column. Avatar + nickname + uin are
+     plain display; ONLY the "切换账号" pill is the clickable trigger. */
+  .weq-acct {
+    position: relative;
+    display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 0.95rem;
-    width: 100%;
-    padding: 0.65rem 0.7rem;
-    border-radius: 13px;
-    text-align: left;
-    border: 1px solid transparent;
-    transition: background-color 150ms ease, border-color 150ms ease;
-  }
-  .weq-acct-head[data-interactive='true'] { cursor: pointer; }
-  .weq-acct-head[data-interactive='true']:hover {
-    border-color: rgba(0, 153, 255, 0.22);
-    background: rgba(255, 255, 255, 0.4);
+    gap: 1.1rem;
   }
   .weq-acct-avatar {
-    border: 2px solid rgba(255, 255, 255, 0.9);
-    box-shadow: 0 10px 22px -12px rgba(0, 122, 204, 0.5);
+    border: 3px solid rgba(255, 255, 255, 0.95);
+    box-shadow: 0 16px 34px -16px rgba(0, 122, 204, 0.55);
   }
-  .weq-acct-id { min-width: 0; }
+  .weq-acct-id { min-width: 0; width: 100%; text-align: center; }
   .weq-acct-name {
+    max-width: 100%;
     overflow: hidden;
-    font-size: 19px;
+    font-size: 22px;
     font-weight: 700;
     color: #102d49;
     text-overflow: ellipsis;
@@ -934,32 +966,58 @@
   }
   .weq-acct-name-strong { font-weight: 700; letter-spacing: 0.01em; }
   .weq-acct-uin {
-    margin-top: 0.15rem;
-    font-size: 13px;
-    color: #5a6f84;
+    margin-top: 0.5rem;
+    font-size: 14px;
+    font-weight: 400;
+    color: #6a7f93;
     font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
   }
-  .weq-acct-chevron {
+  .weq-acct-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.4rem 0.95rem;
+    font-size: 12.5px;
+    font-weight: 500;
     color: #0099ff;
-    transition: transform 200ms ease;
+    background: rgba(0, 153, 255, 0.08);
+    border: 1px solid rgba(0, 153, 255, 0.18);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background-color 140ms ease, border-color 140ms ease;
   }
-  .weq-acct-chevron.is-open { transform: rotate(180deg); }
+  .weq-acct-switch:hover {
+    background: rgba(0, 153, 255, 0.14);
+    border-color: rgba(0, 153, 255, 0.32);
+  }
+  .weq-acct-switch svg { transition: transform 200ms ease; }
+  .weq-acct-switch.is-open svg { transform: rotate(180deg); }
 
+  .weq-acct-switchwrap { position: relative; }
   .weq-acct-pop {
     position: absolute;
-    z-index: 30;
-    top: calc(100% + 0.4rem);
-    left: 0;
-    right: 0;
+    z-index: 40;
+    top: calc(100% + 0.55rem);
+    left: 50%;
+    width: 18rem;
+    max-width: 84vw;
+    display: flex;
+    flex-direction: column;
     border-radius: 12px;
     overflow: hidden;
     border: 1px solid rgba(0, 153, 255, 0.22);
-    background: rgba(255, 255, 255, 0.96);
-    box-shadow: 0 22px 46px -26px rgba(7, 31, 61, 0.45);
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: 0 22px 46px -22px rgba(7, 31, 61, 0.5);
     backdrop-filter: blur(4px);
   }
+  .weq-acct-pop.is-up {
+    top: auto;
+    bottom: calc(100% + 0.55rem);
+  }
   .weq-acct-list {
-    max-height: 14.5rem;
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
     padding: 0.3rem;
   }
@@ -990,7 +1048,7 @@
     color: #5a6f84;
     font-variant-numeric: tabular-nums;
   }
-  .weq-acct-foot { border-top: 1px solid rgba(0, 153, 255, 0.12); }
+  .weq-acct-foot { flex-shrink: 0; border-top: 1px solid rgba(0, 153, 255, 0.12); }
 
   /* ---- key field ---- */
   .weq-keyfield {
@@ -1055,69 +1113,113 @@
     color: #b5781a;
   }
 
-  /* ---- stats / charts ---- */
+  /* ---- stats / charts (card-based) ---- */
   .weq-stats {
     display: flex;
     flex-direction: column;
-    gap: 1.35rem;
-    padding-right: 0.2rem;
+    gap: 0.9rem;
   }
+
+  /* Hero card */
   .weq-stats-head {
     display: flex;
     align-items: center;
-    gap: 1rem;
+    gap: 1.05rem;
+    padding: 0.95rem 1.05rem;
+    border-radius: 14px;
+    border: 1px solid rgba(0, 153, 255, 0.16);
+    background: linear-gradient(135deg, rgba(0, 153, 255, 0.07), rgba(54, 192, 143, 0.05));
   }
   .weq-stats-logo {
-    width: 58px;
-    height: 58px;
+    width: 56px;
+    height: 56px;
     flex-shrink: 0;
-    filter: drop-shadow(0 8px 16px rgba(0, 122, 204, 0.2));
+    filter: drop-shadow(0 8px 16px rgba(0, 122, 204, 0.22));
   }
-  .weq-stats-head-info { display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; flex: 1; }
-  .weq-stats-kv {
-    display: grid;
-    grid-template-columns: 4.5rem minmax(0, 1fr);
-    align-items: center;
-    gap: 0.65rem;
+  .weq-stats-head-info { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; flex: 1; }
+  .weq-stats-title-label {
+    font-size: 11.5px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    color: #5a6f84;
   }
-  .weq-stats-k { font-size: 12.5px; color: #5a6f84; }
-  .weq-stats-v { font-size: 13px; color: #1d3a57; min-width: 0; }
-  .weq-stats-path {
+  .weq-stats-version {
+    font-family: var(--font-mono);
+    font-size: 24px;
+    font-weight: 600;
+    line-height: 1.1;
+    letter-spacing: -0.01em;
+    font-variant-numeric: tabular-nums;
+    color: #11304d;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-family: var(--font-mono);
-    font-size: 12px;
-    color: #31506e;
   }
-  .weq-stats-pick { height: 1.9rem; padding-inline: 0.7rem; justify-self: start; }
+  .weq-stats-path {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 0;
+    margin-top: 0.2rem;
+    color: #0099ff;
+  }
+  .weq-stats-path svg { flex-shrink: 0; }
+  .weq-stats-path-txt {
+    overflow: hidden;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: #45627f;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .weq-stats-pick { height: 1.9rem; padding-inline: 0.7rem; margin-top: 0.3rem; align-self: start; }
 
+  /* Stat cards */
   .weq-bignums {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    border-top: 1px solid rgba(0, 153, 255, 0.16);
-    border-bottom: 1px solid rgba(0, 153, 255, 0.16);
+    gap: 0.6rem;
   }
   .weq-bignum {
-    padding: 0.85rem 0.5rem;
-    border-right: 1px solid rgba(0, 153, 255, 0.12);
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.85rem 0.75rem;
+    border-radius: 12px;
+    border: 1px solid rgba(0, 153, 255, 0.14);
+    background: rgba(255, 255, 255, 0.5);
   }
-  .weq-bignum:last-child { border-right: 0; }
-  .weq-bignum-v { font-size: 30px; line-height: 1; color: #11304d; }
+  .weq-bignum-v {
+    font-size: 23px;
+    line-height: 1.05;
+    color: #11304d;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .weq-bignum-v.is-accent { color: #0099ff; }
-  .weq-bignum-l { margin-top: 0.4rem; font-size: 12.5px; color: #5a6f84; }
+  .weq-bignum-l { font-size: 11.5px; color: #5a6f84; }
 
-  .weq-chart { display: flex; flex-direction: column; gap: 0.75rem; }
+  /* Chart cards */
+  .weq-chart {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+    padding: 0.95rem 1.05rem 1.05rem;
+    border-radius: 14px;
+    border: 1px solid rgba(0, 153, 255, 0.12);
+    background: rgba(255, 255, 255, 0.42);
+  }
   .weq-chart-title {
     display: flex;
     align-items: center;
     gap: 0.55rem;
-    font-size: 14px;
-    font-weight: 500;
+    font-size: 13.5px;
+    font-weight: 600;
     color: #102b47;
   }
   .weq-chart-empty {
-    padding: 0.9rem 0;
+    padding: 0.6rem 0;
     font-size: 12.5px;
     color: #6a7d90;
   }
@@ -1125,7 +1227,7 @@
   .weq-langbar-wrap { display: flex; flex-direction: column; gap: 0.85rem; }
   .weq-langbar {
     display: flex;
-    height: 0.85rem;
+    height: 0.5rem;
     width: 100%;
     overflow: hidden;
     border-radius: 999px;
@@ -1163,31 +1265,50 @@
   }
   .weq-legend-size { font-size: 11.5px; color: #6a7d90; flex-shrink: 0; }
 
-  .weq-spacerows { display: flex; flex-direction: column; gap: 0.6rem; }
-  .weq-spacerow {
+  /* ---- resource-usage column chart ---- */
+  .weq-cols {
     display: grid;
-    grid-template-columns: 6.5rem minmax(0, 1fr) 3.6rem;
-    align-items: center;
-    gap: 0.7rem;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    align-items: end;
+    gap: 0.45rem;
+    height: 9.5rem;
   }
-  .weq-spacerow-name {
+  .weq-col {
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    align-items: end;
+    justify-items: center;
+    height: 100%;
+    min-width: 0;
+    gap: 0.3rem;
+  }
+  .weq-col-size {
+    font-size: 10.5px;
+    color: #6a7d90;
+    white-space: nowrap;
+  }
+  .weq-col-track {
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+  }
+  .weq-col-fill {
+    width: 62%;
+    max-width: 1.5rem;
+    min-height: 2px;
+    border-radius: 5px 5px 2px 2px;
+    box-shadow: 0 2px 6px rgba(0, 122, 204, 0.22);
+  }
+  .weq-col-name {
+    max-width: 100%;
     overflow: hidden;
-    font-size: 12px;
+    font-size: 11px;
     color: #36495d;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-  .weq-spacerow-track {
-    height: 0.5rem;
-    border-radius: 999px;
-    background: rgba(0, 153, 255, 0.08);
-    overflow: hidden;
-  }
-  .weq-spacerow-fill { display: block; height: 100%; border-radius: 999px; }
-  .weq-spacerow-size {
-    font-size: 11.5px;
-    color: #6a7d90;
-    text-align: right;
   }
 
   /* ---- skeletons ---- */
@@ -1200,7 +1321,7 @@
     animation: weq-shimmer 1.25s linear infinite;
   }
   .weq-skel-line { height: 0.7rem; }
-  .weq-langbar.weq-skel { height: 0.85rem; }
+  .weq-langbar.weq-skel { height: 0.5rem; }
 }
 
 @media (max-width: 980px) {

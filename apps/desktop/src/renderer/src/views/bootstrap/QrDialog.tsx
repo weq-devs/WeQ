@@ -1,6 +1,7 @@
 /**
- * QR-login dialog. Shows the scannable code in place of the avatar slot with
- * the account identity beneath and a live status line.
+ * QR-login dialog. Shows the scannable code with a live status line. The
+ * account identity (avatar / nickname / uin) shows beneath it for a per-account
+ * login, and is hidden in `anonymous` mode (the "登录新的账号" flow).
  */
 
 import { type ReactElement } from 'react';
@@ -15,6 +16,7 @@ export function QrDialog({
   avatarUrl,
   status,
   qrUrl,
+  anonymous = false,
   onClose,
 }: {
   uin: string;
@@ -22,6 +24,9 @@ export function QrDialog({
   avatarUrl: string | null;
   status: string;
   qrUrl: string | null;
+  /** Hide the account identity (avatar / nickname / uin) — used for the
+   *  "登录新的账号" flow where the selected account is irrelevant. */
+  anonymous?: boolean;
   onClose: () => void;
 }): ReactElement {
   return (
@@ -44,15 +49,15 @@ export function QrDialog({
             )}
           </div>
           <div className="weq-qr-profile">
-            <QqAvatar uin={uin} url={avatarUrl} size={44} />
+            {!anonymous && <QqAvatar uin={uin} url={avatarUrl} size={44} />}
             <div className="weq-qr-profile-main">
               <div className="weq-qr-profile-top">
-                <div className="weq-qr-name">{name}</div>
+                <div className="weq-qr-name">{anonymous ? '扫码登录新账号' : name}</div>
                 <div className="weq-qr-status">{status}</div>
               </div>
               <div className="weq-qr-identity">
-                <span className="weq-number">{uin}</span>
-                <span>手机 QQ 扫码确认</span>
+                {!anonymous && <span className="weq-number">{uin}</span>}
+                <span>手机 QQ 扫码{anonymous ? '登录' : '确认'}</span>
               </div>
             </div>
           </div>

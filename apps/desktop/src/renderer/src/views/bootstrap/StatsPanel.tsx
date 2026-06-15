@@ -1,35 +1,53 @@
 /**
- * Right-pane diagnostics + stats.
+ * Right-pane diagnostics + stats. Card-based layout:
  *
- *   - QQ logo + version + user-data path
- *   - three big numbers: 用户数据 / 历史登录账号 / 在线实例
- *   - GitHub-style language bar over the account's 8 largest databases
- *   - nt_data subdirectory space usage
+ *   - hero card: QQ logo + version + data-dir path (or pick button)
+ *   - three stat cards: 本地账号 / 目录大小 / 在线实例
+ *   - "数据库占用" card: GitHub-style language bar over the 8 largest databases
  *
- * Both charts re-fetch on account switch and replay a left→right wipe. The
- * nt_data scan can be slow, so it shows a shimmer skeleton while pending.
+ * The chart re-fetches on account switch and replays its entry animation.
+ * (ColumnChart/ColumnSkeleton are kept for reuse but no longer rendered here.)
  */
 
 import { type ReactElement } from 'react';
-import { FolderOpen, HardDrive, Layers } from 'lucide-react';
+import { FolderOpen, Layers } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import type { GlobalInstallInfo } from '@weq/service';
-import logoUrl from '@resources/brand/logo.png';
+import logoUrl from '@resources/img/QQ.png';
 
-/** Theme-cohesive blue→teal monochrome ramp (no rainbow). */
+/** Vivid, GitHub-style language colors (TS, JS, HTML, CSS, Python, Java, C++, C#). */
 const RAMP = [
-  '#0090ff',
-  '#1f9ffb',
-  '#37adf2',
-  '#4fb9e8',
-  '#54c2d6',
-  '#4fc7b4',
-  '#5bce97',
-  '#86d9a4',
+  '#3178c6',
+  '#f1e05a',
+  '#e34c26',
+  '#563d7c',
+  '#3572a5',
+  '#b07219',
+  '#f34b7d',
+  '#178600',
+];
+
+/** Slightly brighter versions for the top of the bar gradients. */
+const RAMP_HI = [
+  '#5491d1',
+  '#f4e881',
+  '#e97051',
+  '#7654a3',
+  '#5491c1',
+  '#d1913d',
+  '#f6709d',
+  '#22ba00',
 ];
 
 function shade(i: number): string {
   return RAMP[i % RAMP.length] ?? '#0090ff';
+}
+
+/** Vertical gradient (bright top → base bottom) for an animated column. */
+function gradient(i: number): string {
+  const base = RAMP[i % RAMP.length] ?? '#0090ff';
+  const hi = RAMP_HI[i % RAMP_HI.length] ?? '#3db4ff';
+  return `linear-gradient(180deg, ${hi} 0%, ${base} 100%)`;
 }
 
 function formatBytes(bytes: number): string {
@@ -48,48 +66,47 @@ export function StatsPanel({
 }: {
   install: GlobalInstallInfo;
   selectedUin: string | null;
-  counts: { userData: number; history: number; online: number };
+  counts: { userData: number; online: number };
   onPickRoot: () => void;
 }): ReactElement {
   const dbSizes = trpc.bootstrap.dbFileSizes.useQuery(
     { uin: selectedUin ?? '' },
     { enabled: !!selectedUin, refetchOnWindowFocus: false },
   );
-  const ntData = trpc.bootstrap.ntDataSizes.useQuery(
+  const dirSize = trpc.bootstrap.accountDirSize.useQuery(
     { uin: selectedUin ?? '' },
     { enabled: !!selectedUin, refetchOnWindowFocus: false },
   );
 
   return (
     <div className="weq-stats">
-      {/* QQ identity + version */}
+      {/* Hero: QQ identity + version + data dir */}
       <section className="weq-stats-head">
-        <img src={logoUrl} alt="" className="weq-stats-logo" width={58} height={58} />
+        <img src={logoUrl} alt="" className="weq-stats-logo" width={56} height={56} />
         <div className="weq-stats-head-info">
-          <div className="weq-stats-kv">
-            <span className="weq-stats-k">版本</span>
-            <span className="weq-stats-v weq-number">{install.version ?? '未知'}</span>
-          </div>
-          <div className="weq-stats-kv">
-            <span className="weq-stats-k">用户数据</span>
-            {install.hasUserData ? (
-              <span className="weq-stats-v weq-stats-path" title={install.userDataPath ?? ''}>
-                {install.userDataPath ?? '—'}
-              </span>
-            ) : (
-              <button className="weq-action-soft weq-stats-pick" onClick={onPickRoot}>
-                <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
-                选择数据目录
-              </button>
-            )}
-          </div>
+          <span className="weq-stats-title-label">QQ 版本</span>
+          <span className="weq-stats-version">{install.version ?? '未知'}</span>
+          {install.hasUserData ? (
+            <span className="weq-stats-path" title={install.userDataPath ?? ''}>
+              <FolderOpen size={12} strokeWidth={1.9} aria-hidden />
+              <span className="weq-stats-path-txt">{install.userDataPath ?? '—'}</span>
+            </span>
+          ) : (
+            <button className="weq-action-soft weq-stats-pick" onClick={onPickRoot}>
+              <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
+              选择数据目录
+            </button>
+          )}
         </div>
       </section>
 
-      {/* Big numbers */}
+      {/* Stat cards */}
       <section className="weq-bignums">
-        <BigNumber value={counts.userData} label="用户数据" />
-        <BigNumber value={counts.history} label="历史登录账号" />
+        <BigNumber value={counts.userData} label="本地账号" />
+        <BigNumber
+          value={!selectedUin ? '—' : dirSize.isLoading ? '…' : formatBytes(dirSize.data ?? 0)}
+          label="目录大小"
+        />
         <BigNumber value={counts.online} label="在线实例" accent />
       </section>
 
@@ -106,25 +123,19 @@ export function StatsPanel({
           <LanguageBar key={`db-${selectedUin}`} items={dbSizes.data ?? []} />
         )}
       </section>
-
-      {/* nt_data space usage */}
-      <section className="weq-chart">
-        <ChartTitle icon={<HardDrive size={15} strokeWidth={1.8} aria-hidden />} title="nt_data 空间占用" />
-        {!selectedUin ? (
-          <ChartEmpty>选择账号后显示</ChartEmpty>
-        ) : ntData.isLoading ? (
-          <RowsSkeleton />
-        ) : (ntData.data?.length ?? 0) === 0 ? (
-          <ChartEmpty>未发现数据子目录</ChartEmpty>
-        ) : (
-          <SpaceRows key={`nt-${selectedUin}`} items={ntData.data ?? []} />
-        )}
-      </section>
     </div>
   );
 }
 
-function BigNumber({ value, label, accent }: { value: number; label: string; accent?: boolean }): ReactElement {
+function BigNumber({
+  value,
+  label,
+  accent,
+}: {
+  value: number | string;
+  label: string;
+  accent?: boolean;
+}): ReactElement {
   return (
     <div className="weq-bignum">
       <div className={`weq-bignum-v weq-number ${accent ? 'is-accent' : ''}`}>{value}</div>
@@ -173,23 +184,28 @@ function LanguageBar({ items }: { items: Array<{ name: string; bytes: number }> 
   );
 }
 
-function SpaceRows({ items }: { items: Array<{ name: string; bytes: number }> }): ReactElement {
-  const max = items.reduce((m, i) => Math.max(m, i.bytes), 0) || 1;
+function ColumnChart({ items }: { items: Array<{ name: string; bytes: number }> }): ReactElement {
+  const top = items.slice(0, 8);
+  const max = top.reduce((m, i) => Math.max(m, i.bytes), 0) || 1;
   return (
-    <ul className="weq-spacerows">
-      {items.slice(0, 8).map((it, i) => (
-        <li key={it.name} className="weq-spacerow">
-          <span className="weq-spacerow-name" title={it.name}>{it.name}</span>
-          <span className="weq-spacerow-track">
+    <div className="weq-cols">
+      {top.map((it, i) => (
+        <div key={it.name} className="weq-col" title={`${it.name} · ${formatBytes(it.bytes)}`}>
+          <span className="weq-col-size weq-number">{formatBytes(it.bytes)}</span>
+          <span className="weq-col-track">
             <span
-              className="weq-spacerow-fill weq-anim-grow"
-              style={{ width: `${(it.bytes / max) * 100}%`, background: shade(i) }}
+              className="weq-col-fill weq-anim-rise"
+              style={{
+                height: `${Math.max((it.bytes / max) * 100, 2)}%`,
+                background: gradient(i),
+                animationDelay: `${i * 55}ms`,
+              }}
             />
           </span>
-          <span className="weq-spacerow-size weq-number">{formatBytes(it.bytes)}</span>
-        </li>
+          <span className="weq-col-name" title={it.name}>{it.name}</span>
+        </div>
       ))}
-    </ul>
+    </div>
   );
 }
 
@@ -209,18 +225,18 @@ function BarSkeleton(): ReactElement {
   );
 }
 
-function RowsSkeleton(): ReactElement {
+function ColumnSkeleton(): ReactElement {
+  const heights = [70, 52, 88, 40, 64, 30, 76, 46];
   return (
-    <ul className="weq-spacerows">
-      {Array.from({ length: 5 }).map((_, i) => (
-        <li key={i} className="weq-spacerow">
-          <span className="weq-skel-line" style={{ width: '4rem' }} />
-          <span className="weq-spacerow-track">
-            <span className="weq-spacerow-fill weq-skel" style={{ width: `${70 - i * 12}%` }} />
+    <div className="weq-cols">
+      {heights.map((h, i) => (
+        <div key={i} className="weq-col">
+          <span className="weq-col-track">
+            <span className="weq-col-fill weq-skel" style={{ height: `${h}%` }} />
           </span>
-          <span className="weq-skel-line" style={{ width: '3rem' }} />
-        </li>
+          <span className="weq-skel-line" style={{ width: '70%' }} />
+        </div>
       ))}
-    </ul>
+    </div>
   );
 }

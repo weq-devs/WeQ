@@ -87,6 +87,13 @@ export const bootstrapRouter = router({
       return requireBootstrap().globalConfig.ntDataSubdirSizes(input.uin);
     }),
 
+  /** Total size of the account's user-data directory in bytes (may be slow). */
+  accountDirSize: procedure
+    .input(z.object({ uin: z.string() }))
+    .query(({ input }) => {
+      return requireBootstrap().globalConfig.accountDirSize(input.uin);
+    }),
+
   // ---- user config ----
 
   readConfig: procedure.query(() => {

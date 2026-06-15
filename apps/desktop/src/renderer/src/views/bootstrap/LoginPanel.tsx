@@ -57,8 +57,9 @@ export function LoginPanel({
   const [status, setStatus] = useState('');
   const [autoEnter, setAutoEnter] = useState(false);
 
-  // QR dialog state
-  const [qr, setQr] = useState<{ uin: string; name: string; avatarUrl: string | null; status: string; url: string | null } | null>(null);
+  // QR dialog state. `anonymous` = the "登录新的账号" flow, where the currently
+  // selected account is irrelevant, so its identity must not be shown.
+  const [qr, setQr] = useState<{ uin: string; name: string; avatarUrl: string | null; status: string; url: string | null; anonymous: boolean } | null>(null);
   const subRef = useRef<Sub | null>(null);
 
   // Reset the key + flags whenever the selected account changes.
@@ -147,9 +148,9 @@ export function LoginPanel({
     );
   }
 
-  function startQrLogin(acc: UiAccount): void {
+  function startQrLogin(acc: UiAccount, anonymous = false): void {
     setStatus('正在获取二维码…');
-    setQr({ uin: acc.uin, name: acc.name, avatarUrl: acc.avatarUrl, status: '正在获取二维码…', url: null });
+    setQr({ uin: acc.uin, name: acc.name, avatarUrl: acc.avatarUrl, status: '正在获取二维码…', url: null, anonymous });
     closeSub();
     let seenUin = acc.uin;
     subRef.current = client.bootstrap.qrLogin.subscribe(undefined, {
@@ -263,7 +264,7 @@ export function LoginPanel({
             <button
               type="button"
               className="weq-acct-new"
-              onClick={() => selected && startQrLogin(selected)}
+              onClick={() => selected && startQrLogin(selected, true)}
             >
               <UserPlus size={15} strokeWidth={1.8} aria-hidden />
               登录新的账号
@@ -303,6 +304,7 @@ export function LoginPanel({
           avatarUrl={qr.avatarUrl}
           status={qr.status}
           qrUrl={qr.url}
+          anonymous={qr.anonymous}
           onClose={cancelQr}
         />
       )}

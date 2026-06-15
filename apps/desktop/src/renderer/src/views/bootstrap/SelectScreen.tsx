@@ -36,9 +36,15 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
     () => Array.from(new Set((historical.data ?? []).map((a) => a.uin))),
     [historical.data],
   );
+  // Online-instance count must track QQ launching/quitting, so poll it (and
+  // refetch on window focus) instead of probing once on mount.
   const online = trpc.bootstrap.probeOnline.useQuery(
     { knownUins: allUins },
-    { enabled: !historical.isLoading, refetchOnWindowFocus: false },
+    {
+      enabled: !historical.isLoading,
+      refetchInterval: 4000,
+      refetchOnWindowFocus: true,
+    },
   );
 
   const accounts: UiAccount[] = useMemo(() => {
@@ -97,7 +103,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
   }
 
   return (
-    <div className="weq-select">
+    <div className="weq-select weq-anim-screen">
       <header className="weq-select-head">
         <button className="weq-icon-button" onClick={backHome} title="返回" aria-label="返回主页">
           <ArrowLeft size={17} strokeWidth={1.85} aria-hidden />
@@ -139,7 +145,6 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
             selectedUin={selected?.uin ?? null}
             counts={{
               userData: userDataDirs.data ?? 0,
-              history: historical.data?.length ?? 0,
               online: online.data?.count ?? 0,
             }}
             onPickRoot={() => void pickRoot()}

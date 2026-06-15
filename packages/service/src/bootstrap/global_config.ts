@@ -283,6 +283,16 @@ export class GlobalConfigService {
     sizes.sort((a, b) => b.bytes - a.bytes);
     return sizes;
   }
+
+  /**
+   * Recursive total size of the account's user-data directory
+   * (`<tencentFilesRoot>/<uin>`), in bytes. Bounded by `dirSize`'s node cap.
+   */
+  accountDirSize(uin: string): number {
+    const dataDir = this.accountDataDir(uin);
+    if (!dataDir) return 0;
+    return dirSize(dataDir, 2_000_000);
+  }
 }
 
 /** Parse the QQ version segment out of a `…\versions\<ver>\resources\…` path. */

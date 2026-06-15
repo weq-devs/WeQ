@@ -16,7 +16,7 @@ import type { GroupMsg } from './types';
 import { decodeBody, toBigint, toStr } from './util';
 import { QqDb } from '../qq_db';
 
-const SELECT_COLUMNS = `"40001","40020","40021","40033","40050","40800"`;
+const SELECT_COLUMNS = `"40001","40020","40027","40033","40050","40800"`;
 
 export interface GroupMsgDbOptions {
   /** Absolute path to nt_msg.db. */
@@ -35,13 +35,13 @@ export class GroupMsgDb {
   }
 
   /**
-   * Most recent N messages in one group (group code, column 40021), newest
-   * first.
+   * Most recent N messages in one group (internal group code, column 40027),
+   * newest first.
    */
   async listMessagesWithTarget(targetGroupCode: string, limit = 50, offset = 0): Promise<GroupMsg[]> {
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM group_msg_table
-        WHERE "40021" = ?
+        WHERE "40027" = ?
         ORDER BY "40050" DESC
         LIMIT ? OFFSET ?`,
       [targetGroupCode, BigInt(limit), BigInt(offset)],

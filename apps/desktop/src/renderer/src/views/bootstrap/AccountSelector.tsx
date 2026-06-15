@@ -1,13 +1,15 @@
 /**
- * Big-avatar account header with a click-to-open dropdown selector.
+ * Centered big-avatar account header with a click-to-open dropdown selector.
  *
- * Header: large avatar, bold nickname (or bold uin fallback), uin below. When
- * more than one account exists a chevron appears; clicking opens a height-
- * capped, scrollable list (avatar + nickname/uin rows, hairline dividers,
- * hover animation). The optional footer slot hosts "登录新的账号" (new flow).
+ * Header (vertical, centered): large avatar on top, bold nickname (or bold uin
+ * fallback) below, thin uin under it. A "切换账号" pill is the ONLY clickable
+ * trigger; clicking opens a scrollable list (avatar + nickname/uin rows). The
+ * popover is anchored to the pill and flips up/down with a measured max-height
+ * so it never spills past the window — the footer ("登录新的账号") stays
+ * reachable regardless of where the pill sits in the column.
  */
 
-import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { QqAvatar } from '../../components/QqAvatar';
 import type { UiAccount } from './types';
@@ -25,6 +27,11 @@ export function AccountSelector({
 }): ReactElement {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const [placement, setPlacement] = useState<{ dir: 'down' | 'up'; maxHeight: number }>({
+    dir: 'down',
+    maxHeight: 320,
+  });
   const multiple = accounts.length > 1 || !!footer;
 
   useEffect(() => {
@@ -43,60 +50,84 @@ export function AccountSelector({
     };
   }, [open]);
 
+  // Pick the side with more room and cap the height so the footer never falls
+  // outside the window. Re-measures on resize while open.
+  useLayoutEffect(() => {
+    if (!open) return;
+    function measure(): void {
+      const t = triggerRef.current;
+      if (!t) return;
+      const r = t.getBoundingClientRect();
+      const gap = 10;
+      const margin = 14;
+      const below = window.innerHeight - r.bottom - gap - margin;
+      const above = r.top - gap - margin;
+      const dir: 'down' | 'up' = below >= 240 || below >= above ? 'down' : 'up';
+      const maxHeight = Math.max(168, Math.floor(dir === 'down' ? below : above));
+      setPlacement({ dir, maxHeight });
+    }
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [open]);
+
   return (
     <div className="weq-acct" ref={ref}>
-      <button
-        type="button"
-        className="weq-acct-head"
-        onClick={() => multiple && setOpen((o) => !o)}
-        data-interactive={multiple}
-        aria-haspopup={multiple}
-        aria-expanded={open}
-      >
-        <QqAvatar uin={selected?.uin} url={selected?.avatarUrl} size={72} className="weq-acct-avatar" />
-        <div className="weq-acct-id">
-          <div className={selected?.hasName ? 'weq-acct-name' : 'weq-acct-name weq-acct-name-strong'}>
-            {selected?.name ?? '未选择账号'}
-          </div>
-          {selected?.hasName && <div className="weq-acct-uin">{selected.uin}</div>}
-        </div>
-        {multiple && (
-          <ChevronDown
-            className={`weq-acct-chevron ${open ? 'is-open' : ''}`}
-            size={18}
-            strokeWidth={1.9}
-            aria-hidden
-          />
-        )}
-      </button>
+      <QqAvatar uin={selected?.uin} url={selected?.avatarUrl} size={140} className="weq-acct-avatar" />
 
-      {open && (
-        <div className="weq-acct-pop weq-anim-pop">
-          <div className="weq-acct-list">
-            {accounts.map((acc) => {
-              const active = acc.key === selected?.key;
-              return (
-                <button
-                  type="button"
-                  key={acc.key}
-                  className={`weq-acct-row ${active ? 'is-active' : ''}`}
-                  onClick={() => {
-                    onSelect(acc);
-                    setOpen(false);
-                  }}
-                >
-                  <QqAvatar uin={acc.uin} url={acc.avatarUrl} size={38} />
-                  <div className="weq-acct-row-id">
-                    <div className={acc.hasName ? 'weq-acct-row-name' : 'weq-acct-row-name weq-acct-name-strong'}>
-                      {acc.name}
-                    </div>
-                    <div className="weq-acct-row-uin">{acc.uin}</div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-          {footer && <div className="weq-acct-foot">{footer}</div>}
+      <div className="weq-acct-id">
+        <div className={selected?.hasName ? 'weq-acct-name' : 'weq-acct-name weq-acct-name-strong'}>
+          {selected?.name ?? '未选择账号'}
+        </div>
+        {selected?.hasName && <div className="weq-acct-uin">{selected.uin}</div>}
+      </div>
+
+      {multiple && (
+        <div className="weq-acct-switchwrap">
+          <button
+            ref={triggerRef}
+            type="button"
+            className={`weq-acct-switch ${open ? 'is-open' : ''}`}
+            onClick={() => setOpen((o) => !o)}
+            aria-haspopup="true"
+            aria-expanded={open}
+          >
+            切换账号
+            <ChevronDown size={14} strokeWidth={2} aria-hidden />
+          </button>
+
+          {open && (
+            <div
+              className={`weq-acct-pop weq-anim-popc ${placement.dir === 'up' ? 'is-up' : ''}`}
+              style={{ maxHeight: placement.maxHeight }}
+            >
+              <div className="weq-acct-list">
+                {accounts.map((acc) => {
+                  const active = acc.key === selected?.key;
+                  return (
+                    <button
+                      type="button"
+                      key={acc.key}
+                      className={`weq-acct-row ${active ? 'is-active' : ''}`}
+                      onClick={() => {
+                        onSelect(acc);
+                        setOpen(false);
+                      }}
+                    >
+                      <QqAvatar uin={acc.uin} url={acc.avatarUrl} size={38} />
+                      <div className="weq-acct-row-id">
+                        <div className={acc.hasName ? 'weq-acct-row-name' : 'weq-acct-row-name weq-acct-name-strong'}>
+                          {acc.name}
+                        </div>
+                        <div className="weq-acct-row-uin">{acc.uin}</div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              {footer && <div className="weq-acct-foot">{footer}</div>}
+            </div>
+          )}
         </div>
       )}
     </div>
