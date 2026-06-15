@@ -29,6 +29,7 @@
     "@weq/service": "workspace:*",
     "@weq/shared": "workspace:*",
     "electron-trpc": "^0.7.1",
+    "lottie-web": "^5.13.0",
     "qrcode": "^1.5.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

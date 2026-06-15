@@ -24,6 +24,7 @@ import {
   ChatMainContent,
   ChatShell,
   ChatSidebarContent,
+  composeMessageRenderers,
   type Contact,
   type Conversation,
   type ConversationDrafts,
@@ -32,9 +33,15 @@ import {
   type GroupMember,
   type GroupUpdateInput,
   type Message,
+  type MessageRenderer,
   type User,
   useChatShellController,
 } from '../im-template/template';
+import { qqFaceMessageRenderer } from '../components/QqMessageContent';
+
+const messageRenderers: MessageRenderer[] = composeMessageRenderers({
+  prepend: [qqFaceMessageRenderer],
+});
 
 const PAGE_SIZE = 50;
 
@@ -250,7 +257,10 @@ function messageToTemplate(message: MessageWire, conversation: Conversation, use
     sender,
     body: messageBody(message.elements),
     createdAt: toIsoTime(message.sendTime),
-  };
+    // Raw render-view elements for the QQ face renderer (qqFaceMessageRenderer).
+    // `body` stays the text fallback for previews and non-face messages.
+    qqElements: message.elements,
+  } as Message & { qqElements: unknown[] };
 }
 
 function enrichGroupConversation(conversation: Conversation | undefined, messages: Message[], user: User): Conversation | undefined {
@@ -832,6 +842,7 @@ export function MainView(): ReactElement {
                 selectedGroupConversation={shell.selectedGroupConversation}
                 activeConversation={activeConversation}
                 messages={templateMessages}
+                messageRenderers={messageRenderers}
                 loadingMessages={loadingInitialMessages}
                 conversationPrefs={conversationPrefs}
                 drafts={emptyDrafts}

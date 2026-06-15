@@ -279,3 +279,47 @@
 	margin: 4px 6px 0 0;
 	vertical-align: bottom;
 }
+
+/* QQ face elements (FaceEmoji component): static APNG or Lottie. */
+.face-emoji {
+	display: inline-block;
+	width: 1.4em;
+	height: 1.4em;
+	vertical-align: -0.28em;
+	object-fit: contain;
+	user-select: none;
+}
+
+.face-emoji-lottie {
+	line-height: 0;
+}
+
+.face-emoji-lottie svg,
+.face-emoji-lottie canvas {
+	display: block;
+	width: 100%;
+	height: 100%;
+}
+
+/* Text-size fallback shown when a face image fails to load. */
+.face-emoji-fallback {
+	width: auto;
+	height: auto;
+	vertical-align: baseline;
+	color: inherit;
+}
+
+/* Message body mixing inline text and faces — preserve QQ line breaks. */
+.message-content.qq-message-inline {
+	white-space: pre-wrap;
+}
+
+/* Larger inline faces read better centered on the text line. */
+.message-content.qq-message-inline .face-emoji {
+	vertical-align: -0.45em;
+}
+
+/* Lone sticker face: box is already cleared of bubble chrome via .sticker-only. */
+.message-content.sticker-only .face-emoji {
+	vertical-align: bottom;
+}

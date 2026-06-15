@@ -504,7 +504,7 @@
 	min-height: 0;
 	height: 100%;
 	flex-direction: column;
-	gap: 20px;
+	gap: 18px;
 	padding: 26px 10px 20px 24px;
 	overflow: auto;
 	overscroll-behavior: contain;
@@ -624,11 +624,11 @@
 	align-items: center;
 	justify-content: center;
 	margin: 4px 0;
-	padding: 3px 10px;
+	padding: 2px 8px;
 	border-radius: 999px;
 	background: rgba(255, 255, 255, 0.34);
 	color: #a8a8a8;
-	font-size: 14px;
+	font-size: 11px;
 	font-weight: 400;
 	line-height: 1.25;
 	user-select: none;
@@ -654,7 +654,7 @@
 	align-items: center;
 	gap: 5px;
 	color: #9a9a9a;
-	font-size: 14px;
+	font-size: 13px;
 	font-weight: 500;
 }
 
@@ -664,11 +664,11 @@
 	max-width: 100%;
 	box-sizing: border-box;
 	margin: 0;
-	padding: 8px 12px;
+	padding: 7px 11px;
 	border-radius: 8px;
 	background: #ffffff;
 	color: #111111;
-	font-size: 15px;
+	font-size: 13.5px;
 	font-weight: 400;
 	line-height: 1.38;
 	overflow-wrap: anywhere;

@@ -3,34 +3,21 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { existsSync } from 'node:fs';
 import { initAppContext } from './context/app_context';
 import { appRouter } from './ipc/router';
+import { resolveResource } from './resource';
+import {
+  registerResourceProtocol,
+  registerResourceScheme,
+} from './resource_protocol';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+// Privileged-scheme registration must happen before app `ready`.
+registerResourceScheme();
+
 const requireFromHere = createRequire(import.meta.url);
 const { createIPCHandler } = requireFromHere('electron-trpc/main') as typeof import('electron-trpc/main');
-
-/**
- * Window icon, resolved through Electron's own `nativeImage` toolchain from
- * the shared `resources/brand/logo.png`.
- *
- * Dev: walk up from this bundled file to the repo-root `resources/`.
- * Packaged: electron-builder copies `resources/` to
- * `process.resourcesPath/resources/` (see electron-builder.yml extraResources).
- */
-function resolveResource(...segments: string[]): string | null {
-  const candidates = [
-    join(process.resourcesPath ?? '', 'resources', ...segments), // packaged
-    join(__dirname, '../../../../resources', ...segments), // dev (out/main → repo root)
-    join(process.cwd(), 'resources', ...segments),
-  ];
-  for (const path of candidates) {
-    if (path && existsSync(path)) return path;
-  }
-  return null;
-}
 
 function resolveWindowIcon(): Electron.NativeImage | undefined {
   const path = resolveResource('brand', 'logo.png');
@@ -63,7 +50,16 @@ function createWindow(): BrowserWindow {
     },
   });
 
-  win.on('ready-to-show', () => win.show());
+  const reveal = () => {
+    if (win.isDestroyed() || win.isVisible()) return;
+    win.show();
+    win.focus();
+  };
+
+  win.on('ready-to-show', reveal);
+  // Fallback: in some environments `ready-to-show` can be delayed or missed
+  // (e.g. compositor/driver quirks). Guarantee visibility once content loads.
+  win.webContents.on('did-finish-load', reveal);
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
@@ -83,6 +79,8 @@ void app.whenReady().then(() => {
 
   // Order matters: AppContext (loads native + platform) before IPC handler.
   initAppContext();
+
+  registerResourceProtocol();
 
   app.on('browser-window-created', (_, win) => {
     optimizer.watchWindowShortcuts(win);
