@@ -17,15 +17,17 @@
 import { ProtoMsg } from '../../core';
 import { decodeElement } from '../../element';
 import { MsgBody } from '../../proto/msg/40800';
+import { MsgEmoji } from '../../proto/msg/40062';
 import { MsgType, SendType, SendStatus } from '../../proto/msg/40900';
 import { sanitizeBytes } from '../../raw';
 import type { Element } from '../../element';
-import type { BaseMessage, C2cMessage, GroupMessage } from './message';
+import type { BaseMessage, C2cMessage, GroupMessage, SetEmojiItem } from './message';
 import { ChatType, enumName } from './enums';
 
 export type SqlRow = Record<string, unknown>;
 
 const bodyCodec = new ProtoMsg(MsgBody);
+const emojiCodec = new ProtoMsg(MsgEmoji);
 
 function decodeBody(blob: unknown): Element[] {
   if (!(blob instanceof Uint8Array)) return [];
@@ -39,6 +41,20 @@ function decodeBody(blob: unknown): Element[] {
     return [];
   }
   return (decoded.elements ?? []).map(decodeElement);
+}
+
+function decodeEmoji(blob: unknown): SetEmojiItem[] {
+  if (!(blob instanceof Uint8Array)) return [];
+  try {
+    const decoded = emojiCodec.decode(sanitizeBytes(blob, MsgEmoji));
+    return (decoded.stickers ?? []).map((s) => ({
+      emojiId: s.emojiId ?? '',
+      setNum: s.emojiNum ?? 0,
+      isSelfSet: !!s.isSelfSet,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 function str(row: SqlRow, key: string): string {
@@ -75,7 +91,11 @@ function baseFields(row: SqlRow): Omit<BaseMessage, never> {
 }
 
 export function rowToGroupMessage(row: SqlRow): GroupMessage {
-  return { kind: 'group', ...baseFields(row) };
+  return {
+    kind: 'group',
+    ...baseFields(row),
+    setEmojiList: decodeEmoji(row['40062']),
+  };
 }
 
 export function rowToC2cMessage(row: SqlRow): C2cMessage {

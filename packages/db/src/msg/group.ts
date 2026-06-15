@@ -9,14 +9,15 @@
  *   40033  senderUin       (INTEGER — sender QQ number)
  *   40050  sendTime        (INTEGER, unix seconds)
  *   40800  msgBody         (BLOB — protobuf repeated ElementWire)
+ *   40062  setEmoji        (BLOB — protobuf repeated sticker reactions / 贴表情)
  */
 
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow } from '@weq/native';
 import type { GroupMsg } from './types';
-import { decodeBody, toBigint, toStr } from './util';
+import { decodeBody, decodeEmoji, toBigint, toStr } from './util';
 import { QqDb } from '../qq_db';
 
-const SELECT_COLUMNS = `"40001","40020","40027","40033","40050","40800"`;
+const SELECT_COLUMNS = `"40001","40020","40027","40033","40050","40800","40062"`;
 
 export interface GroupMsgDbOptions {
   /** Absolute path to nt_msg.db. */
@@ -97,5 +98,6 @@ function rowToGroupMsg(row: SqlRow): GroupMsg {
     senderUin: toBigint(row[3]),
     sendTime: toBigint(row[4]),
     elements: decodeBody(row[5]),
+    setEmojiList: decodeEmoji(row[6]),
   };
 }

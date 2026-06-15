@@ -39,8 +39,15 @@ export interface BaseMessage {
   elements: Element[];
 }
 
+export interface SetEmojiItem {
+  emojiId: string;
+  setNum: number;
+  isSelfSet: boolean;
+}
+
 export interface GroupMessage extends BaseMessage {
   kind: 'group';
+  setEmojiList?: SetEmojiItem[];
   /** TODO(RE): sender display name, role, anonymous info, … */
 }
 

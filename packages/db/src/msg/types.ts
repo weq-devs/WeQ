@@ -10,7 +10,7 @@
  * service stringifies them at the JSON boundary.
  */
 
-import type { Element } from '@weq/codec';
+import type { Element, SetEmojiItem } from '@weq/codec';
 
 export interface C2cMsg {
   msgId: bigint;
@@ -38,6 +38,7 @@ export interface GroupMsg {
   /** Seconds since epoch (column 40050). */
   sendTime: bigint;
   elements: Element[];
+  setEmojiList?: SetEmojiItem[];
 }
 
 /**
