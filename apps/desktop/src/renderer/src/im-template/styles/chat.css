@@ -7,7 +7,7 @@
 }
 
 .chat-pane {
-	--chat-header-height: 74px;
+	--chat-header-height: 52px;
 	--group-info-panel-width: clamp(176px, 14vw, 190px);
 	display: grid;
 	grid-template-rows: var(--chat-header-height) minmax(0, 1fr) var(
@@ -1843,4 +1843,44 @@ button.group-info-heading {
 .mention-menu .mention-role-badge.owner {
 	background: #fff2cf;
 	color: #c68100;
+}
+
+/* Empty chat placeholder: large faint QQ logo + small hint. */
+.chat-empty-placeholder {
+	display: grid;
+	place-items: center;
+	gap: 16px;
+	user-select: none;
+}
+
+.chat-empty-logo {
+	width: 132px;
+	height: 132px;
+	color: rgba(0, 153, 255, 0.16);
+}
+
+.chat-empty-text {
+	color: #b3b3b3;
+	font-size: 14px;
+	letter-spacing: 0.05em;
+}
+
+/* Native window drag: top header/rail areas drag the frameless window; their
+   interactive children opt out so clicks still work. */
+.app-rail,
+.sidebar-header,
+.chat-header {
+	-webkit-app-region: drag;
+}
+
+.app-rail button,
+.app-rail a,
+.sidebar-header button,
+.sidebar-header a,
+.sidebar-header input,
+.chat-header button,
+.chat-header a,
+.chat-header input,
+.chat-header [role="button"] {
+	-webkit-app-region: no-drag;
 }

@@ -13,3 +13,6 @@ export type { BuddyRequestDbOptions, BuddyRequest } from './buddy_req';
 
 export { ProfileInfoDb } from './profile_info';
 export type { ProfileInfoDbOptions, UserProfile, ExtensionRelation, CustomStatus } from './profile_info';
+
+export { MiscDb } from './misc';
+export type { OnlineStatusData } from './misc';

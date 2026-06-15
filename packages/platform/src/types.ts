@@ -55,6 +55,12 @@ export interface Platform {
   profileInfoDbPath(uin: string): string | null;
 
   /**
+   * Resolve `misc.db` (online status and other metadata) for a specific
+   * QQ account. Co-located with `nt_msg.db`.
+   */
+  miscDbPath(uin: string): string | null;
+
+  /**
    * Resolve `buddy_msg_fts.db` (the full-text-search index) for a specific QQ
    * account. Co-located with `nt_msg.db`. Null if the account has no index.
    */

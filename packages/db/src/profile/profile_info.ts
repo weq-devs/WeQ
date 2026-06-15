@@ -12,6 +12,7 @@
  *   20008  birthDay        (INTEGER)
  *   20009  remark          (TEXT)
  *   20011  signature       (TEXT)
+ *   20014  gender          (INTEGER)
  *   20057  customStatus    (BLOB/Protobuf)
  *   20070  intimacy        (INTEGER)
  *   20072  extRelation     (BLOB/Protobuf)
@@ -53,6 +54,7 @@ export interface UserProfile {
   age: number;
   sigUpdateTime: number;
   isFriend: boolean;
+  gender: number; // 1: male, 2: female, 0: unknown
   customStatus?: CustomStatus;
   extRelation?: ExtensionRelation;
 }
@@ -64,7 +66,7 @@ export interface ProfileInfoDbOptions {
   algo: DatabaseAlgorithms;
 }
 
-const SELECT_COLUMNS = `"1000","1001","1002","20002","20004","20006","20007","20008","20009","20011","20057","20070","20072","24103","24104"`;
+const SELECT_COLUMNS = `"1000","1001","1002","20002","20004","20006","20007","20008","20009","20011","20014","20057","20070","20072","24103","24104"`;
 
 export class ProfileInfoDb {
   private readonly qq: QqDb;
@@ -114,9 +116,20 @@ export class ProfileInfoDb {
 }
 
 function rowToProfile(row: SqlRow): UserProfile {
-  const statusBlob = row[10];
-  const relationBlob = row[12];
+  const genderRaw = row[10];
+  const statusBlob = row[11];
+  const intimacyRaw = row[12];
+  const relationBlob = row[13];
+  const ageRaw = row[14];
+  const sigUpdateTimeRaw = row[15];
+
   const isFriend = relationBlob !== null && relationBlob !== undefined;
+
+  let gender = 0;
+  const genderNum = genderRaw !== null && genderRaw !== undefined ? Number(genderRaw) : 0;
+  if (genderNum === 1 || genderNum === 2) {
+    gender = genderNum;
+  }
 
   let customStatus: CustomStatus | undefined;
   if (statusBlob instanceof Uint8Array) {
@@ -155,9 +168,10 @@ function rowToProfile(row: SqlRow): UserProfile {
     birthDay: Number(row[7] ?? 0),
     remark: String(row[8] ?? ''),
     signature: String(row[9] ?? ''),
-    intimacy: Number(row[11] ?? 0),
-    age: Number(row[13] ?? 0),
-    sigUpdateTime: Number(row[14] ?? 0),
+    gender,
+    intimacy: Number(intimacyRaw ?? 0),
+    age: Number(ageRaw ?? 0),
+    sigUpdateTime: Number(sigUpdateTimeRaw ?? 0),
     isFriend,
     customStatus,
     extRelation,

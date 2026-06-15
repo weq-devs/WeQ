@@ -10,6 +10,7 @@ import {
 	SendHorizontal,
 	Smile,
 } from "lucide-react";
+import { FaQq } from "react-icons/fa";
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type {
 	ClipboardEvent as ReactClipboardEvent,
@@ -1100,7 +1101,10 @@ export function ChatPane({
 	if (!conversation) {
 		return (
 			<section className={cn("chat-empty")}>
-				<EmptyState title="还没有打开会话" body="从会话列表选择一条聊天。" />
+				<div className={cn("chat-empty-placeholder")}>
+					<FaQq className={cn("chat-empty-logo")} aria-hidden />
+					<span className={cn("chat-empty-text")}>选择会话查看</span>
+				</div>
 			</section>
 		);
 	}

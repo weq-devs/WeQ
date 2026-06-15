@@ -46,6 +46,8 @@ export { ForwardMsgService } from './account/forward';
 export { MsgService } from './account/msg';
 export { GroupInfoService } from './account/group_info';
 export { ProfileService } from './account/profile';
+export { OnlineStatusService } from './account/online_status';
+export type { FormattedOnlineStatus } from './account/online_status';
 export type { RenderC2cMsg, RenderGroupMsg } from './account/msg';
 export { toRenderElements } from './account/msg_view';
 export type { RenderElement, RenderTextElement } from './account/msg_view';

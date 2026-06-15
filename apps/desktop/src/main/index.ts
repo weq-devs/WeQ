@@ -1,4 +1,4 @@
-import { app, BrowserWindow, nativeImage, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeImage, shell } from 'electron';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +18,28 @@ registerResourceScheme();
 
 const requireFromHere = createRequire(import.meta.url);
 const { createIPCHandler } = requireFromHere('electron-trpc/main') as typeof import('electron-trpc/main');
+
+/**
+ * Per-view window sizes. The home/bootstrap screen is compact; the chat view
+ * gets a bit more room. Switching views resizes the window (see the
+ * `window:set-layout` IPC), keeping the top-left corner fixed.
+ */
+const WINDOW_LAYOUTS = {
+  home: { width: 1120, height: 580 },
+  chat: { width: 1180, height: 760 },
+} as const;
+
+function registerWindowLayoutIpc(): void {
+  ipcMain.handle('window:set-layout', (event, layout: keyof typeof WINDOW_LAYOUTS) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const size = WINDOW_LAYOUTS[layout] ?? WINDOW_LAYOUTS.home;
+    // Don't fight a user who maximized/fullscreened the window.
+    if (!win || win.isMaximized() || win.isFullScreen()) return;
+    const [w, h] = win.getSize();
+    if (w === size.width && h === size.height) return;
+    win.setSize(size.width, size.height, true);
+  });
+}
 
 function resolveWindowIcon(): Electron.NativeImage | undefined {
   const path = resolveResource('brand', 'logo.png');
@@ -81,6 +103,7 @@ void app.whenReady().then(() => {
   initAppContext();
 
   registerResourceProtocol();
+  registerWindowLayoutIpc();
 
   app.on('browser-window-created', (_, win) => {
     optimizer.watchWindowShortcuts(win);

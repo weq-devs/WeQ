@@ -18,6 +18,7 @@ import {
   findNtMsgDb,
   findGroupInfoDb,
   findProfileInfoDb,
+  findMiscDb,
   findQqWrapperNode,
   pickTencentFilesRoot,
 } from './paths';
@@ -39,6 +40,7 @@ export function createWin32Platform(native: NativeBundle): Platform {
     ntMsgDbPath: (uin: string) => findNtMsgDb(uin),
     groupInfoDbPath: (uin: string) => findGroupInfoDb(uin),
     profileInfoDbPath: (uin: string) => findProfileInfoDb(uin),
+    miscDbPath: (uin: string) => findMiscDb(uin),
     buddyMsgFtsDbPath: (uin: string) => findBuddyMsgFtsDb(uin),
     qqExePath: () => findQqExe(),
     qqWrapperNodePath: () => {
@@ -57,6 +59,7 @@ export {
   findNtMsgDb,
   findGroupInfoDb,
   findProfileInfoDb,
+  findMiscDb,
   findBuddyMsgFtsDb,
   tencentFilesRootFromUserDataInfo,
 } from './paths';

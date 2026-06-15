@@ -24,6 +24,7 @@ import {
   CategoryDb,
   BuddyRequestDb,
   ProfileInfoDb,
+  MiscDb,
 } from '@weq/db';
 import type { Platform } from '@weq/platform';
 import type { DatabaseAlgorithms } from '@weq/native';
@@ -99,6 +100,8 @@ export interface AccountSession {
   readonly buddyReqs: BuddyRequestDb;
   /** Detailed user profiles (profile_info.db). */
   readonly profileInfo: ProfileInfoDb;
+  /** Misc metadata (misc.db). */
+  readonly misc: MiscDb;
   /** Close every db this session opened. Idempotent. */
   dispose(): void;
 }
@@ -186,6 +189,9 @@ export function openAccount(platform: Platform, ctx: AccountContext): AccountSes
   const buddyReqs = new BuddyRequestDb(platform.native.ntHelper, { dbPath: profileInfoPath, key: ctx.dbKey, algo: ctx.algo });
   const profileInfo = new ProfileInfoDb(platform.native.ntHelper, { dbPath: profileInfoPath, key: ctx.dbKey, algo: ctx.algo });
 
+  const miscDbPath = platform.miscDbPath(ctx.uin) ?? join(dirname(msgDbPath), 'misc.db');
+  const misc = new MiscDb(platform.native.ntHelper, { dbPath: miscDbPath, key: ctx.dbKey, algo: ctx.algo });
+
   let disposed = false;
   return {
     context: ctx,
@@ -205,6 +211,7 @@ export function openAccount(platform: Platform, ctx: AccountContext): AccountSes
     categories,
     buddyReqs,
     profileInfo,
+    misc,
     dispose(): void {
       if (disposed) return;
       disposed = true;
@@ -222,6 +229,7 @@ export function openAccount(platform: Platform, ctx: AccountContext): AccountSes
       categories.close();
       buddyReqs.close();
       profileInfo.close();
+      misc.close();
       // Future db instances close here too.
     },
   };

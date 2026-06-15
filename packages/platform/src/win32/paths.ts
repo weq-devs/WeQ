@@ -140,6 +140,15 @@ export function findProfileInfoDb(uin: string, home = homedir()): string | null 
   return null;
 }
 
+/** `<root>/<uin>/nt_qq/nt_db/misc.db` for the first root that has it. */
+export function findMiscDb(uin: string, home = homedir()): string | null {
+  for (const root of candidateTencentFilesRoots(home)) {
+    const candidate = join(root, uin, 'nt_qq', 'nt_db', 'misc.db');
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
 /**
  * `<root>/<uin>/nt_qq/nt_db/buddy_msg_fts.db` for the first root that has it.
  *

@@ -627,9 +627,15 @@ export function MainView(): ReactElement {
 
   useEffect(() => {
     if (contacts.isLoading) return;
-    if (shell.activeConversationId && conversations.some((conversation) => conversation.id === shell.activeConversationId)) return;
-    shell.setActiveConversationId(conversations[0]?.id ?? null);
-    setOffset(0);
+    // Don't auto-open the first conversation: land on the empty placeholder and
+    // let the user pick. Only clear a selection that no longer exists.
+    if (
+      shell.activeConversationId &&
+      !conversations.some((conversation) => conversation.id === shell.activeConversationId)
+    ) {
+      shell.setActiveConversationId(null);
+      setOffset(0);
+    }
   }, [contacts.isLoading, conversations, shell.activeConversationId, shell.setActiveConversationId]);
 
   useEffect(() => {
