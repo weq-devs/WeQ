@@ -14,18 +14,18 @@ import type { Platform } from '../types';
 import {
   candidateTencentFilesRoots,
   findBuddyMsgFtsDb,
+  findGroupMsgFtsDb,
   findLoginDb,
   findNtMsgDb,
+  findGroupInfoDb,
   findProfileInfoDb,
   findMiscDb,
-  findBuddyMsgFtsDb,
-  findGroupMsgFtsDb,
   findQqWrapperNode,
   pickTencentFilesRoot,
-  } from './paths';
-  import { findQqExe, findQqInstallRoot } from './registry';
+} from './paths';
+import { findQqExe, findQqInstallRoot } from './registry';
 
-  export function createWin32Platform(native: NativeBundle): Platform {
+export function createWin32Platform(native: NativeBundle): Platform {
   return {
     kind: 'win32',
     native,
@@ -35,6 +35,13 @@ import {
         throw new Error('%APPDATA% not set — cannot derive weq user data root on win32');
       }
       return join(base, 'weq');
+    },
+    avatarCacheDir: () => {
+      const base = process.env.APPDATA;
+      if (!base) {
+        throw new Error('%APPDATA% not set — cannot derive weq avatar cache dir on win32');
+      }
+      return join(base, 'weq', 'cache', 'avatar');
     },
     tencentFilesRoots: () => candidateTencentFilesRoots(),
     loginDbPath: () => findLoginDb(),
@@ -50,11 +57,11 @@ import {
       return root ? findQqWrapperNode(root) : null;
     },
   };
-  }
+}
 
-  // Re-export the pure helpers so the service layer / tests can use them
-  // without depending on a Platform instance.
-  export {
+// Re-export the pure helpers so the service layer / tests can use them
+// without depending on a Platform instance.
+export {
   candidateTencentFilesRoots,
   pickTencentFilesRoot,
   findLoginDb,
@@ -65,7 +72,6 @@ import {
   findBuddyMsgFtsDb,
   findGroupMsgFtsDb,
   tencentFilesRootFromUserDataInfo,
-  } from './paths';
-
+} from './paths';
 export { findQqInstallRoot, findQqExe } from './registry';
 export { resolveQqVersionDir, findQqWrapperNode } from './paths';

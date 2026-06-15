@@ -10,11 +10,16 @@ import {
   registerResourceProtocol,
   registerResourceScheme,
 } from './resource_protocol';
+import {
+  registerAvatarProtocol,
+  registerAvatarScheme,
+} from './avatar_protocol';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Privileged-scheme registration must happen before app `ready`.
 registerResourceScheme();
+registerAvatarScheme();
 
 const requireFromHere = createRequire(import.meta.url);
 const { createIPCHandler } = requireFromHere('electron-trpc/main') as typeof import('electron-trpc/main');
@@ -103,6 +108,7 @@ void app.whenReady().then(() => {
   initAppContext();
 
   registerResourceProtocol();
+  registerAvatarProtocol();
   registerWindowLayoutIpc();
 
   app.on('browser-window-created', (_, win) => {

@@ -38,8 +38,12 @@ async function main() {
     });
 
     if (messages.length >= 2) {
-        const isCorrectOrder = messages[0].msgSeq >= messages[1].msgSeq;
-        console.log(`[test:group-msg-seq] Order by Seq correct: ${isCorrectOrder}`);
+        const m0 = messages[0];
+        const m1 = messages[1];
+        if (m0 && m1) {
+            const isCorrectOrder = m0.msgSeq >= m1.msgSeq;
+            console.log(`[test:group-msg-seq] Order by Seq correct: ${isCorrectOrder}`);
+        }
     }
 
   } catch (err) {

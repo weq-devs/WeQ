@@ -24,6 +24,14 @@ export interface Platform {
   appDataRoot(): string;
 
   /**
+   * Default on-disk directory for the avatar cache. On Windows this is
+   * `%APPDATA%\weq\cache\avatar`. Per-OS so the cache lands in the platform's
+   * conventional location; the global config may override it. NOT guaranteed
+   * to exist — the cache service `mkdir -p`s before writing.
+   */
+  avatarCacheDir(): string;
+
+  /**
    * Candidate roots that may contain `<uin>/nt_qq/...` directories. Resolved
    * synchronously from well-known locations on this OS — no I/O needed by
    * the caller, just iterate and stat.

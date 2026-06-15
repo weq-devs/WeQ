@@ -29,6 +29,9 @@ export type {
 export { UserConfigService } from './bootstrap/user_config';
 export type { UserConfig, InstallCache, AutoEnterTarget } from './bootstrap/user_config';
 
+export { AvatarCacheService } from './bootstrap/avatar_cache';
+export type { AvatarBlob } from './bootstrap/avatar_cache';
+
 export { GlobalConfigService, parseQqVersion } from './bootstrap/global_config';
 export type {
   GlobalInstallInfo,

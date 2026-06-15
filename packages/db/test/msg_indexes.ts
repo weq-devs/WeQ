@@ -34,7 +34,7 @@ async function main() {
     const table = await db.query(
       "SELECT sql FROM sqlite_master WHERE type='table' AND name='group_msg_table';"
     );
-    console.log(table[0][0]);
+    console.log(table[0]?.[0]);
 
   } catch (err) {
     console.error('[test:msg-indexes] Failed:', err);

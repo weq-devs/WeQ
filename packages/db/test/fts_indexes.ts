@@ -27,7 +27,7 @@ async function check(name: string, tableName: string) {
     console.log(`Found ${indexes.length} indexes:`);
     indexes.forEach(idx => console.log(`  - ${idx[0]}: ${idx[1]}`));
   } catch (e) {
-    console.log(`Failed to check ${name}:`, e.message);
+    console.log(`Failed to check ${name}:`, (e as any).message);
   } finally {
     db.close();
   }

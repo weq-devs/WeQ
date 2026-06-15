@@ -22,11 +22,11 @@ async function main() {
       "SELECT sql FROM sqlite_master WHERE type='table' AND name='group_member3';"
     );
     console.log('[test:debug-member] Table Schema:');
-    console.log(table[0][0]);
+    console.log(table[0]?.[0]);
 
     // Also sample a few rows to see what kind of data is in columns like 20004 if it exists
     const sample = await db.query("SELECT * FROM group_member3 LIMIT 1;");
-    console.log('\n[test:debug-member] Sample row data count:', sample[0].length);
+    console.log('\n[test:debug-member] Sample row data count:', sample[0]?.length);
 
   } finally {
     db.close();

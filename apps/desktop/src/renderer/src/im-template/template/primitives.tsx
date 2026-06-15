@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { cn } from "./classNames";
 import { DefaultAvatar } from "./defaultAvatar";
+import { cachedAvatarUrl } from "../../lib/avatarCache";
 
 export function Avatar({
 	name,
@@ -13,6 +14,7 @@ export function Avatar({
 	seed?: string;
 }) {
 	const [failed, setFailed] = useState(false);
+	const resolved = cachedAvatarUrl(avatarUrl);
 
 	useEffect(() => {
 		setFailed(false);
@@ -22,12 +24,12 @@ export function Avatar({
 		<span
 			className={cn(
 				"avatar",
-				avatarUrl && !failed ? "has-image" : "has-default",
+				resolved && !failed ? "has-image" : "has-default",
 			)}
 		>
-			{avatarUrl && !failed ? (
+			{resolved && !failed ? (
 				<img
-					src={avatarUrl}
+					src={resolved}
 					alt=""
 					loading="lazy"
 					referrerPolicy="no-referrer"

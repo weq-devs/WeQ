@@ -25,6 +25,7 @@ import {
   Win32DetectService,
   Win32KeyService,
   GlobalConfigService,
+  AvatarCacheService,
   MsgService,
   RecentContactService,
   AccountConfigService,
@@ -39,6 +40,7 @@ export interface BootstrapServices {
   keys: Win32KeyService;
   userConfig: UserConfigService;
   globalConfig: GlobalConfigService;
+  avatarCache: AvatarCacheService;
 }
 
 /** Services that are re-created whenever an account session opens. */
@@ -110,6 +112,7 @@ export function initAppContext(): AppContext {
     keys: new Win32KeyService(platform),
     userConfig,
     globalConfig: new GlobalConfigService(platform, userConfig),
+    avatarCache: new AvatarCacheService(platform, userConfig),
   };
 
   const ctx: AppContext = {
