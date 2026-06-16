@@ -95,6 +95,15 @@ export interface Platform {
    */
   marketFaceDir(uin: string): string | null;
 
+  /** Resolve QQ NT's picture data directory. */
+  picDir(uin: string): string | null;
+  /** Resolve QQ NT's PTT (voice message) data directory. */
+  pttDir(uin: string): string | null;
+  /** Resolve QQ NT's video data directory. */
+  videoDir(uin: string): string | null;
+  /** Resolve QQ NT's file data directory. */
+  fileDir(uin: string): string | null;
+
   /**
    * Absolute path to a currently installed QQ.exe (or platform equivalent).
    * Used by the launch-based key flows (QR / quick login). Null if QQ isn't

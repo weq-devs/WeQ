@@ -36,17 +36,36 @@ import {
   createNtMsgDbHook,
   type AccountConfigMetadata,
   type DbWatchHandle,
-  type NtMsgChange,
+  type NewMessages,
+  type DbChange,
 } from '@weq/service';
 import { openAccount, type AccountContext, type AccountSession } from '@weq/account';
 
 /**
- * Process-wide bus for "new messages landed in nt_msg.db" events. The active
- * account's `nt_msg.db` is watched by the single `dbWatch` loop below; its hook
- * emits `'new'` with an {@link NtMsgChange}. The account router turns this into
- * a tRPC subscription so the renderer can update live without polling.
+ * Process-wide bus for nt_msg.db changes, fed by the single `dbWatch` loop
+ * below. Two events:
+ *   - `'changed'` ({@link DbChange})    — every db change (debounced); drives
+ *     the open conversation's seq-window re-query in the renderer.
+ *   - `'new'`     ({@link NewMessages}) — only when a rowid-delta found newly
+ *     inserted rows; reserved for unread / popup notifications.
+ * The account router turns each into a tRPC subscription.
  */
-export const newMessageBus = new EventEmitter();
+export const dbEventBus = new EventEmitter();
+
+/** Trailing debounce — coalesces a burst of calls into one after `ms` idle. */
+function trailingDebounce<A extends unknown[]>(
+  fn: (...args: A) => void,
+  ms: number,
+): (...args: A) => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return (...args: A): void => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      fn(...args);
+    }, ms);
+  };
+}
 
 /** One polling loop for the whole process; we (un)mount the active db on it. */
 const dbWatch = new DbWatchService();
@@ -156,16 +175,23 @@ export function initAppContext(): AppContext {
       // Persist credentials + metadata, keyed by data directory.
       accountConfig.save(metadata);
 
-      // Watch this account's nt_msg.db; the hook diffs new messages and the
-      // bus fans them out to any live renderer subscription.
+      // Watch this account's nt_msg.db. The hook fans every change into two
+      // bus events: a debounced 'changed' (drives the open-conversation
+      // re-query) and 'new' (rowid-delta, for notifications).
       console.log(`[DbWatch] mount nt_msg.db watcher: ${session.msgDbPath}`);
+      const emitChanged = trailingDebounce((file: DbChange) => {
+        dbEventBus.emit('changed', file);
+      }, 200);
       dbWatchHandle = dbWatch.mount(
-        createNtMsgDbHook(session, (change: NtMsgChange) => {
-          console.log(
-            `[DbWatch] new messages detected → c2c=${change.c2c.length} group=${change.group.length} ` +
-              `(file delta=${change.file.delta}B, listeners=${newMessageBus.listenerCount('new')})`,
-          );
-          newMessageBus.emit('new', change);
+        createNtMsgDbHook(session, {
+          onDbChanged: emitChanged,
+          onNewMessages: (change: NewMessages) => {
+            console.log(
+              `[DbWatch] new rows → c2c=${change.c2c.length} group=${change.group.length} ` +
+                `(listeners=${dbEventBus.listenerCount('new')})`,
+            );
+            dbEventBus.emit('new', change);
+          },
         }),
       );
     },

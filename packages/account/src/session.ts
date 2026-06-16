@@ -42,22 +42,26 @@ export interface AccountContext {
 }
 
 /**
- * Highest msgId (column 40001) this session has already surfaced, per chat
- * type. The file-watcher hook uses these as its "everything below this is
- * old" baselines; "latest"-reading query services bump them forward so the
- * hook never re-pushes a message the user already pulled.
+ * Highest SQLite rowid this session has already surfaced as a "new message",
+ * per chat type. The file-watcher hook uses these as its "everything at or
+ * below this rowid is old" baselines for the new-message notification signal.
+ *
+ * rowid (not msgId) because msgId is not monotonic in group chats — a gray-tip
+ * row can carry a larger msgId than later real messages, so a msgId baseline
+ * would silently swallow them. rowid increments on every insert, so it never
+ * does.
  *
  * Mutable on purpose — the object identity is stable, only the fields move.
- * `0n` means "not yet initialized": the hook treats the first observed value
- * as the baseline instead of replaying the whole table.
+ * `0n` means "not yet initialized": the hook aligns to the current max rowid
+ * on first observation instead of replaying the whole table.
  */
-export interface LastMsgIdMaps {
-  /** Largest c2c (private-chat) msgId already surfaced. */
-  c2cMsgId: bigint;
-  /** Largest group msgId already surfaced. */
-  groupMsgId: bigint;
-  /** Largest guild msgId already surfaced. Reserved — not wired yet. */
-  guildMsgId: bigint;
+export interface LastRowIdMaps {
+  /** Largest c2c (private-chat) rowid already surfaced. */
+  c2cRowId: bigint;
+  /** Largest group rowid already surfaced. */
+  groupRowId: bigint;
+  /** Largest guild rowid already surfaced. Reserved — not wired yet. */
+  guildRowId: bigint;
 }
 
 /**
@@ -70,11 +74,11 @@ export interface AccountSession {
   /** Absolute path to this account's `nt_msg.db` (what the file watcher mounts). */
   readonly msgDbPath: string;
   /**
-   * Per-chat-type "newest msgId already seen" baselines. Shared mutable
-   * state between the file-watcher hook and the query services. See
-   * {@link LastMsgIdMaps}.
+   * Per-chat-type "newest rowid already surfaced" baselines, owned by the
+   * file-watcher hook for the new-message notification signal. See
+   * {@link LastRowIdMaps}.
    */
-  readonly lastMsgIdMaps: LastMsgIdMaps;
+  readonly lastRowIdMaps: LastRowIdMaps;
   /**
    * Resident uid ↔ uin ↔ sortNo directory (nt_uid_mapping_table), loaded once
    * at session open. Used to translate a peer uid to its c2c partition number
@@ -238,7 +242,7 @@ export async function openAccount(
   return {
     context: ctx,
     msgDbPath,
-    lastMsgIdMaps: { c2cMsgId: 0n, groupMsgId: 0n, guildMsgId: 0n },
+    lastRowIdMaps: { c2cRowId: 0n, groupRowId: 0n, guildRowId: 0n },
     uidMap,
     c2cMsgs,
     groupMsgs,

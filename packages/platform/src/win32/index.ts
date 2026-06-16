@@ -22,6 +22,10 @@ import {
   findProfileInfoDb,
   findMiscDb,
   findMarketFaceDir,
+  findPicDir,
+  findPttDir,
+  findVideoDir,
+  findFileDir,
   findQqWrapperNode,
   pickTencentFilesRoot,
 } from './paths';
@@ -55,6 +59,10 @@ export function createWin32Platform(native: NativeBundle): Platform {
     groupMsgFtsDbPath: (uin: string) => findGroupMsgFtsDb(uin),
     emojiResourceDir: (uin: string) => findEmojiResourceDir(uin),
     marketFaceDir: (uin: string) => findMarketFaceDir(uin),
+    picDir: (uin: string) => findPicDir(uin),
+    pttDir: (uin: string) => findPttDir(uin),
+    videoDir: (uin: string) => findVideoDir(uin),
+    fileDir: (uin: string) => findFileDir(uin),
     qqExePath: () => findQqExe(),
     qqWrapperNodePath: () => {
       const root = findQqInstallRoot();
@@ -77,6 +85,10 @@ export {
   findGroupMsgFtsDb,
   findEmojiResourceDir,
   findMarketFaceDir,
+  findPicDir,
+  findPttDir,
+  findVideoDir,
+  findFileDir,
   tencentFilesRootFromUserDataInfo,
 } from './paths';
 export { findQqInstallRoot, findQqExe } from './registry';

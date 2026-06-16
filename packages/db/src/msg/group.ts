@@ -6,12 +6,15 @@
  *   40001  msgId           (INTEGER)
  *   40003  msgSeq          (INTEGER — per-group incrementing sequence)
  *   40020  senderUid       (TEXT)
- *   40027  targetGroupCode (INTEGER as text — 群号; conversation key)
+ *   40027  targetGroupCode (INTEGER as text — 群号; conversation key, indexed)
  *   40033  senderUin       (INTEGER — sender QQ number)
  *   40050  sendTime        (INTEGER, unix seconds)
  *   40058  dayTimestamp    (INTEGER — midnight timestamp of the day)
  *   40800  msgBody         (BLOB — protobuf repeated ElementWire)
  *   40062  setEmoji        (BLOB — protobuf repeated sticker reactions / 贴表情)
+ *
+ * Group code (40027) is the indexed partition key; all conversation queries
+ * order by 40003 to hit the `(40027,40003)` composite index.
  */
 
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow } from '@weq/native';
@@ -37,17 +40,42 @@ export class GroupMsgDb {
     this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
   }
 
-  /**
-   * Most recent N messages in one group (internal group code, column 40027),
-   * newest first. Uses the (40027, 40003) composite index.
-   */
-  async listMessagesWithTarget(targetGroupCode: string, limit = 50, offset = 0): Promise<GroupMsg[]> {
+  /** Newest N messages in one group, newest-first (DESC by seq). */
+  async listLatest(targetGroupCode: string, limit = 50): Promise<GroupMsg[]> {
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM group_msg_table
         WHERE "40027" = ?
         ORDER BY "40003" DESC
-        LIMIT ? OFFSET ?`,
-      [targetGroupCode, BigInt(limit), BigInt(offset)],
+        LIMIT ?`,
+      [targetGroupCode, BigInt(limit)],
+    );
+    return rows.map(rowToGroupMsg);
+  }
+
+  /** The page of messages just older than `beforeSeq` (exclusive), newest-first. */
+  async listBefore(targetGroupCode: string, beforeSeq: bigint, limit = 50): Promise<GroupMsg[]> {
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
+        WHERE "40027" = ? AND "40003" < ?
+        ORDER BY "40003" DESC
+        LIMIT ?`,
+      [targetGroupCode, beforeSeq, BigInt(limit)],
+    );
+    return rows.map(rowToGroupMsg);
+  }
+
+  /**
+   * Messages with seq >= `sinceSeq`, newest-first, capped at `limit`. The
+   * "re-read the currently-loaded window" query — picks up new tail messages
+   * plus in-place edits (recall / sticker reactions) within the window.
+   */
+  async listFrom(targetGroupCode: string, sinceSeq: bigint, limit = 500): Promise<GroupMsg[]> {
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
+        WHERE "40027" = ? AND "40003" >= ?
+        ORDER BY "40003" DESC
+        LIMIT ?`,
+      [targetGroupCode, sinceSeq, BigInt(limit)],
     );
     return rows.map(rowToGroupMsg);
   }
@@ -63,27 +91,27 @@ export class GroupMsgDb {
     return rows.map(rowToGroupMsg);
   }
 
-  /**
-   * Messages with msgId (column 40001) strictly greater than `sinceMsgId`,
-   * oldest-first (ascending msgId). The group counterpart of
-   * `C2cMsgDb.listSince` — used by the file-watcher hook to compute deltas;
-   * `limit` caps the fan-out so a stale baseline can't dump the whole table.
-   */
-  async listSince(sinceMsgId: bigint, limit = 500): Promise<GroupMsg[]> {
-    const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
-        WHERE "40001" > ?
-        ORDER BY "40001" ASC
-        LIMIT ?`,
-      [sinceMsgId, BigInt(limit)],
-    );
-    return rows.map(rowToGroupMsg);
+  /** Largest SQLite rowid currently in the table, or 0n if empty. */
+  async latestRowId(): Promise<bigint> {
+    const rows = await this.qq.query(`SELECT MAX(rowid) FROM group_msg_table`);
+    return toBigint(rows[0]?.[0]);
   }
 
-  /** Largest msgId (column 40001) currently in the table, or 0n if empty. */
-  async latestMsgId(): Promise<bigint> {
-    const rows = await this.qq.query(`SELECT MAX("40001") FROM group_msg_table`);
-    return toBigint(rows[0]?.[0]);
+  /**
+   * Rows inserted after `sinceRowId` (rowid strictly greater), oldest-first.
+   * rowid is monotonic on insert, so this reliably finds newly-arrived group
+   * messages even when their msgId sorts below an older gray-tip's msgId —
+   * the basis of the new-message notification signal.
+   */
+  async listSinceRowId(sinceRowId: bigint, limit = 500): Promise<GroupMsg[]> {
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
+        WHERE rowid > ?
+        ORDER BY rowid ASC
+        LIMIT ?`,
+      [sinceRowId, BigInt(limit)],
+    );
+    return rows.map(rowToGroupMsg);
   }
 
   /** Drop the cached native connection. Call on account switch / shutdown. */

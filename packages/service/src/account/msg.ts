@@ -1,14 +1,20 @@
 /**
- * MsgService — fetch the messages of one conversation, by target.
+ * MsgService — fetch the messages of one conversation by seq cursor.
  *
- * Two methods, one per chat type. Both take the conversation target (peer uid
- * for c2c, group code for group — both come from RecentContact.targetUid) plus
- * offset paging. Returns the structured `*Msg[]`; bigint ids/timestamps are
- * serialized at the IPC/JSON boundary by the caller.
+ * The renderer loads a conversation as a *seq window*:
+ *   - `*Latest`  → newest N (open / switch-into a conversation).
+ *   - `*Before`  → the page just older than a seq (scroll up).
+ *   - `*From`    → re-read everything at/after a seq (live refresh of the
+ *                  currently-loaded window — picks up new tail + in-place edits).
+ *
+ * All return newest-first; bigint ids/seqs are serialized at the IPC boundary
+ * by the caller. c2c queries resolve the peer uid to its sort number (column
+ * 40027) via the session's resident `UidMap` so they hit the (40027,40003)
+ * composite index; a missing mapping falls back to an unindexed uid scan.
  */
 
-import type { AccountSession, LastMsgIdMaps } from '@weq/account';
-import type { C2cMsg, GroupMsg } from '@weq/db';
+import type { AccountSession } from '@weq/account';
+import type { C2cMsg, GroupMsg, C2cPartition } from '@weq/db';
 import { toRenderElements, type RenderElement } from './msg_view';
 
 /**
@@ -24,44 +30,57 @@ export interface RenderGroupMsg extends Omit<GroupMsg, 'elements'> {
 export class MsgService {
   constructor(private readonly session: AccountSession) {}
 
-  /** Private-chat messages with one peer (by peer uid), newest first. */
-  async getC2cMessages(targetUid: string, limit = 50, offset = 0): Promise<RenderC2cMsg[]> {
-    const msgs = await this.session.c2cMsgs.listMessagesWithTarget(targetUid, limit, offset);
-    // These rows are newest-first; the user is now looking at the latest, so
-    // advance the watch baseline (monotonically) — the file-watcher hook
-    // won't re-push what's already on screen. Only the freshest page
-    // (offset 0) can carry the global newest, so skip the bump when paging.
-    if (offset === 0) bumpMaxMsgId(this.session.lastMsgIdMaps, 'c2cMsgId', msgs);
+  // ---- c2c -----------------------------------------------------------------
 
-    return msgs.map((m) => ({
-      ...m,
-      elements: toRenderElements(m.elements),
-    }));
+  /** Newest N private-chat messages with one peer. */
+  async getC2cLatest(targetUid: string, limit = 50): Promise<RenderC2cMsg[]> {
+    const msgs = await this.session.c2cMsgs.listLatest(this.c2cPartition(targetUid), limit);
+    return msgs.map(renderC2c);
   }
 
-  /** Group-chat messages in one group (by group code), newest first. */
-  async getGroupMessages(targetGroupCode: string, limit = 50, offset = 0): Promise<RenderGroupMsg[]> {
-    const msgs = await this.session.groupMsgs.listMessagesWithTarget(targetGroupCode, limit, offset);
-    if (offset === 0) bumpMaxMsgId(this.session.lastMsgIdMaps, 'groupMsgId', msgs);
+  /** Private-chat page just older than `beforeSeq` (scroll-up). */
+  async getC2cBefore(targetUid: string, beforeSeq: bigint, limit = 50): Promise<RenderC2cMsg[]> {
+    const msgs = await this.session.c2cMsgs.listBefore(this.c2cPartition(targetUid), beforeSeq, limit);
+    return msgs.map(renderC2c);
+  }
 
-    return msgs.map((m) => ({
-      ...m,
-      elements: toRenderElements(m.elements),
-    }));
+  /** Re-read private-chat messages with seq >= `sinceSeq` (live refresh). */
+  async getC2cFrom(targetUid: string, sinceSeq: bigint, limit = 500): Promise<RenderC2cMsg[]> {
+    const msgs = await this.session.c2cMsgs.listFrom(this.c2cPartition(targetUid), sinceSeq, limit);
+    return msgs.map(renderC2c);
+  }
+
+  // ---- group ---------------------------------------------------------------
+
+  /** Newest N group messages in one group. */
+  async getGroupLatest(targetGroupCode: string, limit = 50): Promise<RenderGroupMsg[]> {
+    const msgs = await this.session.groupMsgs.listLatest(targetGroupCode, limit);
+    return msgs.map(renderGroup);
+  }
+
+  /** Group page just older than `beforeSeq` (scroll-up). */
+  async getGroupBefore(targetGroupCode: string, beforeSeq: bigint, limit = 50): Promise<RenderGroupMsg[]> {
+    const msgs = await this.session.groupMsgs.listBefore(targetGroupCode, beforeSeq, limit);
+    return msgs.map(renderGroup);
+  }
+
+  /** Re-read group messages with seq >= `sinceSeq` (live refresh). */
+  async getGroupFrom(targetGroupCode: string, sinceSeq: bigint, limit = 500): Promise<RenderGroupMsg[]> {
+    const msgs = await this.session.groupMsgs.listFrom(targetGroupCode, sinceSeq, limit);
+    return msgs.map(renderGroup);
+  }
+
+  /** Resolve a peer uid to its indexed partition (sortNo), else fall back to uid. */
+  private c2cPartition(targetUid: string): C2cPartition {
+    const sortNo = this.session.uidMap.sortNoByUid(targetUid);
+    return sortNo !== undefined ? { sortNo } : { uid: targetUid };
   }
 }
 
-/**
- * Advance `maps[key]` to the largest msgId in `msgs` (never backwards).
- * Shared by the "latest"-reading services so the nt_msg.db watch hook treats
- * already-seen messages as old. Safe on empty / out-of-order input.
- */
-export function bumpMaxMsgId(
-  maps: LastMsgIdMaps,
-  key: keyof LastMsgIdMaps,
-  msgs: readonly { msgId: bigint }[],
-): void {
-  for (const m of msgs) {
-    if (m.msgId > maps[key]) maps[key] = m.msgId;
-  }
+function renderC2c(m: C2cMsg): RenderC2cMsg {
+  return { ...m, elements: toRenderElements(m.elements) };
+}
+
+function renderGroup(m: GroupMsg): RenderGroupMsg {
+  return { ...m, elements: toRenderElements(m.elements) };
 }

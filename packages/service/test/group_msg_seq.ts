@@ -22,7 +22,7 @@ async function main() {
 
   const mockSession = {
     groupMsgs: groupMsgsDb,
-    lastMsgIdMaps: { groupMsgId: 0n },
+    lastRowIdMaps: { groupRowId: 0n },
   } as any;
 
   const service = new MsgService(mockSession);
@@ -30,7 +30,7 @@ async function main() {
   try {
     console.log(`[test:group-msg-seq] Fetching messages for group: ${GROUP_CODE}`);
     
-    const messages = await service.getGroupMessages(GROUP_CODE, 5);
+    const messages = await service.getGroupLatest(GROUP_CODE, 5);
     console.log(`[test:group-msg-seq] Found ${messages.length} messages:`);
     
     messages.forEach((m, i) => {

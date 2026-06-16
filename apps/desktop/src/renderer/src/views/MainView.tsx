@@ -44,6 +44,12 @@ const messageRenderers: MessageRenderer[] = composeMessageRenderers({
 });
 
 const PAGE_SIZE = 50;
+/**
+ * Cap for the live "re-read my loaded window" query. If a user scrolled up past
+ * this many messages while still anchored to the latest, a refresh keeps only
+ * the newest REFRESH_CAP — a rare edge, traded for a bounded re-render.
+ */
+const REFRESH_CAP = 500;
 
 type RecentContactWire = {
   chatType: string | number;
@@ -62,11 +68,34 @@ type RecentContactWire = {
 
 type MessageWire = {
   msgId: string;
+  /** In-conversation sequence number (column 40003); the seq-window cursor. */
+  msgSeq: string;
   senderUid: string;
   senderUin: string;
   sendTime: string;
   elements: unknown[];
 };
+
+/** The unified chat-message wire from the account router → local MessageWire. */
+type ChatMsgWire = {
+  msgId: string;
+  msgSeq: string;
+  senderUid: string;
+  senderUin: string;
+  sendTime: string;
+  elements: unknown[];
+};
+
+function toMessageWire(w: ChatMsgWire): MessageWire {
+  return {
+    msgId: w.msgId,
+    msgSeq: w.msgSeq,
+    senderUid: w.senderUid,
+    senderUin: w.senderUin,
+    sendTime: w.sendTime,
+    elements: w.elements,
+  };
+}
 
 type UserProfileWire = {
   nick?: string;
@@ -77,8 +106,6 @@ type RenderElementWire = {
   type?: string;
   data?: Record<string, unknown>;
 };
-
-type MessagePages = Record<number, MessageWire[]>;
 
 type PendingScrollRestore = {
   conversationId: string;
@@ -549,17 +576,26 @@ export function MainView(): ReactElement {
   const openedUin = useViewState((s) => s.openedUin);
   const goTo = useViewState((s) => s.goTo);
   const setOpenedUin = useViewState((s) => s.setOpenedUin);
-  const [offset, setOffset] = useState(0);
-  const [messagePages, setMessagePages] = useState<MessagePages>({});
+  // Seq-window message model: a single ASC (oldest→newest) list for the open
+  // conversation, plus whether it still reaches the latest message and whether
+  // older history remains. `loaded[0].msgSeq` is the window's lower cursor.
+  const [loaded, setLoaded] = useState<MessageWire[]>([]);
+  const [anchoredToLatest, setAnchoredToLatest] = useState(true);
+  const [hasOlder, setHasOlder] = useState(true);
+  const [messagesLoading, setMessagesLoading] = useState(false);
   const [trackedConversationId, setTrackedConversationId] = useState<string | null>(null);
-  const [hasOlderMessages, setHasOlderMessages] = useState(true);
   const [conversationPrefs, setConversationPrefs] = useState<ConversationPreferences>({});
   const [templateCreditOpen, setTemplateCreditOpen] = useState(false);
-  const pendingOlderOffsetRef = useRef<number | null>(null);
+  const loadingOlderRef = useRef(false);
   const pendingScrollRestoreRef = useRef<PendingScrollRestore | null>(null);
-  // Latest active-conversation identity, read by the live-message subscription
-  // (which is mounted once and must not re-subscribe on every selection change).
+  // Latest active-conversation identity, read by the once-mounted live
+  // subscription (which must not re-subscribe on every selection change).
   const selectionRef = useRef<{ id: string; kind: 'direct' | 'group' } | null>(null);
+  // Current loaded-window descriptor, read by the once-mounted subscription.
+  const windowRef = useRef<{ minSeq: string | null; anchored: boolean }>({
+    minSeq: null,
+    anchored: true,
+  });
 
   const user = useMemo(() => currentUser(openedUin, selfProfile.data), [openedUin, selfProfile.data]);
   const conversations = useMemo(
@@ -600,10 +636,11 @@ export function MainView(): ReactElement {
   // "还没有消息" before the new query result is folded in.
   if (trackedConversationId !== shell.activeConversationId) {
     setTrackedConversationId(shell.activeConversationId);
-    setOffset(0);
-    setMessagePages({});
-    setHasOlderMessages(true);
-    pendingOlderOffsetRef.current = null;
+    setLoaded([]);
+    setAnchoredToLatest(true);
+    setHasOlder(true);
+    setMessagesLoading(Boolean(shell.activeConversationId));
+    loadingOlderRef.current = false;
     pendingScrollRestoreRef.current = null;
   }
 
@@ -616,35 +653,8 @@ export function MainView(): ReactElement {
     { enabled: Boolean(selectedUid && isGroup) },
   );
 
-  const c2cMsgs = trpc.account.listC2cMessages.useQuery(
-    { targetUid: selectedUid, limit: PAGE_SIZE, offset },
-    { enabled: Boolean(selectedUid && isDirect) },
-  );
-  const groupMsgs = trpc.account.listGroupMessages.useQuery(
-    { targetGroupCode: selectedUid, limit: PAGE_SIZE, offset },
-    { enabled: Boolean(selectedUid && isGroup) },
-  );
-  const messagesQuery = isGroup ? groupMsgs : c2cMsgs;
-  const loadedMessageWires = useMemo(() => {
-    const seen = new Set<string>();
-    const sortedOffsets = Object.keys(messagePages)
-      .map(Number)
-      .filter(Number.isFinite)
-      .sort((a, b) => b - a);
-    const messages: MessageWire[] = [];
-
-    for (const pageOffset of sortedOffsets) {
-      const page = messagePages[pageOffset] ?? [];
-      for (let index = page.length - 1; index >= 0; index -= 1) {
-        const message = page[index];
-        if (!message || seen.has(message.msgId)) continue;
-        seen.add(message.msgId);
-        messages.push(message);
-      }
-    }
-
-    return messages;
-  }, [messagePages]);
+  // `loaded` is already oldest→newest; the template renders in array order.
+  const loadedMessageWires = loaded;
   const currentGroupMembers = useMemo(() => {
     if (!selectedConversation || selectedConversation.type !== 'group' || !groupMembers.data) return [];
     
@@ -695,21 +705,10 @@ export function MainView(): ReactElement {
       },
     };
   }, [selectedConversation, currentGroupMembers, groupDetail.data, groupMembers.data, templateMessages, user]);
-  // Treat the conversation as "loading" until its newest page (offset 0) has
-  // actually been folded into `messagePages`. Gating on this — rather than on
-  // react-query's `isLoading` — means a cached revisit (data ready, but not yet
-  // merged for one frame) shows "加载中" instead of flashing "还没有消息".
-  const offsetZeroLoaded = Object.prototype.hasOwnProperty.call(messagePages, 0);
-  const loadingInitialMessages = Boolean(selectedConversation) && !offsetZeroLoaded;
-  const refreshing = contacts.isFetching || messagesQuery.isFetching;
-  const maxLoadedOffset = useMemo(
-    () =>
-      Object.keys(messagePages)
-        .map(Number)
-        .filter(Number.isFinite)
-        .reduce((max, value) => Math.max(max, value), 0),
-    [messagePages],
-  );
+  // "loading" only until the first page lands; gating on this (not react-query)
+  // keeps a switch-into from flashing "还没有消息" before the query resolves.
+  const loadingInitialMessages =
+    Boolean(selectedConversation) && messagesLoading && loaded.length === 0;
 
   useEffect(() => {
     if (contacts.isLoading) return;
@@ -720,7 +719,6 @@ export function MainView(): ReactElement {
       !conversations.some((conversation) => conversation.id === shell.activeConversationId)
     ) {
       shell.setActiveConversationId(null);
-      setOffset(0);
     }
   }, [contacts.isLoading, conversations, shell.activeConversationId, shell.setActiveConversationId]);
 
@@ -733,109 +731,131 @@ export function MainView(): ReactElement {
         : null;
   }, [selectedUid, isDirect, isGroup]);
 
-  // Live updates: subscribe once to nt_msg.db new-message pushes.
-  //  - Always re-pull recent contacts so the conversation list (preview +
-  //    ordering) reflects the new traffic — important even for chats the user
-  //    isn't currently viewing.
-  //  - If the message belongs to the open conversation, splice it onto the
-  //    newest page so it shows up immediately. The decision of whether to
-  //    auto-scroll or surface a "new messages" pill lives in ChatPane.
-  //  - Chats the user isn't viewing are intentionally NOT cached here; opening
-  //    one re-queries from scratch.
+  // Keep the loaded-window descriptor in sync for the once-mounted subscription.
   useEffect(() => {
-    console.log('[DbWatch] renderer: subscribing to account.onNewMessages');
-    const sub = client.account.onNewMessages.subscribe(undefined, {
-      onData(payload) {
-        console.log(
-          `[DbWatch] renderer received push → c2c=${payload.c2c.length} group=${payload.group.length}`,
-        );
+    windowRef.current = { minSeq: loaded[0]?.msgSeq ?? null, anchored: anchoredToLatest };
+  }, [loaded, anchoredToLatest]);
+
+  // Load the newest page whenever the open conversation changes. The render-time
+  // reset already cleared `loaded`, so this never paints the old chat. Always a
+  // fresh query — no react-query staleness — so switching back into a chat shows
+  // messages that arrived while it was closed.
+  useEffect(() => {
+    if (!selectedUid || !(isDirect || isGroup)) {
+      setMessagesLoading(false);
+      return undefined;
+    }
+    const kind = isGroup ? 'group' : 'c2c';
+    const conv = selectedUid;
+    let cancelled = false;
+    setMessagesLoading(true);
+    client.account.listLatest
+      .query({ kind, conv, limit: PAGE_SIZE })
+      .then((page) => {
+        if (cancelled) return;
+        setLoaded(page.map(toMessageWire).reverse()); // newest-first → ASC
+        setHasOlder(page.length >= PAGE_SIZE);
+        setAnchoredToLatest(true);
+        setMessagesLoading(false);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('[msgs] listLatest failed', err);
+        setMessagesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedUid, isDirect, isGroup]);
+
+  // Live refresh of the open conversation: re-read seq >= minSeq and replace the
+  // window. Only when anchored to latest — a history/search window (not yet
+  // wired) must NOT be dragged up to the latest. Stable identity → the
+  // subscription below mounts once.
+  const refreshWindow = useCallback(async (): Promise<void> => {
+    const sel = selectionRef.current;
+    const win = windowRef.current;
+    if (!sel || !win.anchored || win.minSeq === null) return;
+    const kind = sel.kind === 'group' ? 'group' : 'c2c';
+    const conv = sel.id;
+    try {
+      const page = await client.account.listFrom.query({
+        kind,
+        conv,
+        sinceSeq: win.minSeq,
+        limit: REFRESH_CAP,
+      });
+      if (selectionRef.current?.id !== conv) return; // switched away mid-flight
+      setLoaded(page.map(toMessageWire).reverse());
+    } catch (err) {
+      console.error('[live] refreshWindow failed', err);
+    }
+  }, []);
+
+  // Subscribe once to the debounced "db changed" ping: refresh recent contacts
+  // and re-read the open conversation's window. (onNewMessages stays a backend
+  // signal reserved for future popups; the open view no longer needs it.)
+  useEffect(() => {
+    const sub = client.account.onDbChanged.subscribe(undefined, {
+      onData() {
         void utils.account.listRecentContacts.invalidate();
-
-        const selection = selectionRef.current;
-        if (!selection) return;
-
-        const incoming: MessageWire[] =
-          selection.kind === 'group'
-            ? payload.group
-                .filter((m) => m.targetGroupCode === selection.id)
-                .map((m) => ({
-                  msgId: m.msgId,
-                  senderUid: m.senderUid,
-                  senderUin: m.senderUin,
-                  sendTime: m.sendTime,
-                  elements: m.elements,
-                }))
-            : payload.c2c
-                .filter((m) => m.targetUid === selection.id)
-                .map((m) => ({
-                  msgId: m.msgId,
-                  senderUid: m.senderUid,
-                  senderUin: m.senderUin,
-                  sendTime: m.sendTime,
-                  elements: m.elements,
-                }));
-
-        if (incoming.length === 0) return;
-        console.log(
-          `[DbWatch] renderer: appending ${incoming.length} message(s) to open conversation ${selection.id}`,
-        );
-
-        setMessagePages((current) => {
-          // Page 0 holds the newest page, stored newest-first (DESC).
-          const page0 = current[0] ?? [];
-          const known = new Set(page0.map((m) => m.msgId));
-          // `incoming` is oldest-first; reverse to newest-first to match page 0.
-          const fresh = incoming
-            .filter((m) => !known.has(m.msgId))
-            .reverse();
-          if (fresh.length === 0) return current;
-          return { ...current, 0: [...fresh, ...page0] };
-        });
+        void refreshWindow();
       },
       onError(err) {
-        console.error('[DbWatch] renderer: onNewMessages subscription error', err);
+        console.error('[live] onDbChanged subscription error', err);
       },
     });
-
-    return () => {
-      console.log('[DbWatch] renderer: unsubscribing from account.onNewMessages');
-      sub.unsubscribe();
-    };
-  }, [utils]);
-
-  useEffect(() => {
-    if (!selectedConversation || !messagesQuery.data) return;
-
-    const page = messagesQuery.data as MessageWire[];
-    setMessagePages((current) => ({
-      ...current,
-      [offset]: page,
-    }));
-    setHasOlderMessages(page.length >= PAGE_SIZE);
-
-    if (pendingOlderOffsetRef.current === offset) {
-      pendingOlderOffsetRef.current = null;
-    }
-  }, [messagesQuery.data, offset, selectedConversation]);
+    return () => sub.unsubscribe();
+  }, [utils, refreshWindow]);
 
   const requestOlderMessages = useCallback(
     (scroll: HTMLElement): void => {
-      if (!selectedConversation || !hasOlderMessages || messagesQuery.isFetching) return;
-      if (pendingOlderOffsetRef.current !== null) return;
+      if (!selectedConversation || !hasOlder || loadingOlderRef.current) return;
       if (pendingScrollRestoreRef.current !== null) return;
+      const minSeq = loaded[0]?.msgSeq;
+      if (!minSeq) return;
 
-      const nextOffset = maxLoadedOffset + PAGE_SIZE;
-      if (messagePages[nextOffset]) return;
-
-      pendingOlderOffsetRef.current = nextOffset;
+      const kind = selectedConversation.type === 'group' ? 'group' : 'c2c';
+      const conv = selectedConversation.id;
+      loadingOlderRef.current = true;
       pendingScrollRestoreRef.current = {
-        conversationId: selectedConversation.id,
+        conversationId: conv,
         previousHeight: scroll.scrollHeight,
         previousTop: scroll.scrollTop,
       };
-      setOffset(nextOffset);
+
+      client.account.listBefore
+        .query({ kind, conv, beforeSeq: minSeq, limit: PAGE_SIZE })
+        .then((older) => {
+          loadingOlderRef.current = false;
+          if (selectionRef.current?.id !== conv) {
+            pendingScrollRestoreRef.current = null;
+            return;
+          }
+          const known = new Set(loaded.map((m) => m.msgId));
+          const fresh = older
+            .map(toMessageWire)
+            .reverse()
+            .filter((m) => !known.has(m.msgId)); // ASC, older than the window
+          if (fresh.length === 0) {
+            pendingScrollRestoreRef.current = null;
+            setHasOlder(false);
+            return;
+          }
+          setLoaded((cur) => {
+            const seen = new Set(cur.map((m) => m.msgId));
+            const merged = fresh.filter((m) => !seen.has(m.msgId));
+            return merged.length ? [...merged, ...cur] : cur;
+          });
+          if (older.length < PAGE_SIZE) setHasOlder(false);
+        })
+        .catch((err) => {
+          loadingOlderRef.current = false;
+          pendingScrollRestoreRef.current = null;
+          console.error('[msgs] listBefore failed', err);
+        });
     },
-    [hasOlderMessages, maxLoadedOffset, messagePages, messagesQuery.isFetching, selectedConversation],
+    [selectedConversation, hasOlder, loaded],
   );
 
   useEffect(() => {
@@ -899,15 +919,6 @@ export function MainView(): ReactElement {
     await client.bootstrap.closeAccount.mutate();
     setOpenedUin(null);
     goTo('bootstrap');
-  }
-
-  function refreshAll(): void {
-    setOffset(0);
-    setMessagePages({});
-    setHasOlderMessages(true);
-    pendingOlderOffsetRef.current = null;
-    pendingScrollRestoreRef.current = null;
-    void utils.invalidate();
   }
 
   function updateConversationPreference(
