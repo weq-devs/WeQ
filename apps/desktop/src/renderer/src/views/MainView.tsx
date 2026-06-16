@@ -24,6 +24,7 @@ import {
   ChatMainContent,
   ChatShell,
   ChatSidebarContent,
+  composeMessageRenderers,
   type Contact,
   type Conversation,
   type ConversationDrafts,
@@ -32,9 +33,15 @@ import {
   type GroupMember,
   type GroupUpdateInput,
   type Message,
+  type MessageRenderer,
   type User,
   useChatShellController,
 } from '../im-template/template';
+import { qqFaceMessageRenderer } from '../components/QqMessageContent';
+
+const messageRenderers: MessageRenderer[] = composeMessageRenderers({
+  prepend: [qqFaceMessageRenderer],
+});
 
 const PAGE_SIZE = 50;
 
@@ -59,6 +66,11 @@ type MessageWire = {
   senderUin: string;
   sendTime: string;
   elements: unknown[];
+};
+
+type UserProfileWire = {
+  nick?: string;
+  avatarUrl?: string;
 };
 
 type RenderElementWire = {
@@ -145,15 +157,17 @@ function previewText(preview: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-function currentUser(openedUin: string | null): User {
+function currentUser(openedUin: string | null, selfProfile?: UserProfileWire | null): User {
   const identityValue = openedUin ?? 'unknown';
   return {
     id: `self:${identityValue}`,
     identityLabel: 'UIN',
     identityValue,
     username: `uin-${identityValue}`,
-    displayName: 'WeQ',
-    avatarUrl: senderAvatarSrc(identityValue),
+    displayName: selfProfile?.nick || 'WeQ',
+    // Prefer the uin-derived CDN avatar (always resolvable) over the profile
+    // DB's stored URL, which is frequently empty or a stale signed link.
+    avatarUrl: senderAvatarSrc(identityValue) || selfProfile?.avatarUrl || null,
   };
 }
 
@@ -227,22 +241,25 @@ function isMineMessage(message: MessageWire, user: User): boolean {
   });
 }
 
-function messageSender(message: MessageWire, conversation: Conversation, user: User): User {
+function messageSender(message: MessageWire, conversation: Conversation, user: User, members?: GroupMember[]): User {
   if (isMineMessage(message, user)) return user;
   if (conversation.type === 'direct') return conversation.otherUser;
+
+  // Try to find member nickname from the loaded members list
+  const member = members?.find(m => m.id === message.senderUid);
 
   return {
     id: message.senderUid || `sender:${message.senderUin}`,
     identityLabel: message.senderUin && message.senderUin !== '0' ? 'QQ' : 'UID',
     identityValue: message.senderUin && message.senderUin !== '0' ? message.senderUin : message.senderUid,
     username: message.senderUid || message.senderUin,
-    displayName: message.senderUin && message.senderUin !== '0' ? message.senderUin : 'Member',
-    avatarUrl: senderAvatarSrc(message.senderUin),
+    displayName: member?.displayName || (message.senderUin && message.senderUin !== '0' ? message.senderUin : 'Member'),
+    avatarUrl: member?.avatarUrl || senderAvatarSrc(message.senderUin),
   };
 }
 
-function messageToTemplate(message: MessageWire, conversation: Conversation, user: User): Message {
-  const sender = messageSender(message, conversation, user);
+function messageToTemplate(message: MessageWire, conversation: Conversation, user: User, members?: GroupMember[]): Message {
+  const sender = messageSender(message, conversation, user, members);
   return {
     id: message.msgId,
     conversationId: conversation.id,
@@ -250,7 +267,10 @@ function messageToTemplate(message: MessageWire, conversation: Conversation, use
     sender,
     body: messageBody(message.elements),
     createdAt: toIsoTime(message.sendTime),
-  };
+    // Raw render-view elements for the QQ face renderer (qqFaceMessageRenderer).
+    // `body` stays the text fallback for previews and non-face messages.
+    qqElements: message.elements,
+  } as Message & { qqElements: unknown[] };
 }
 
 function enrichGroupConversation(conversation: Conversation | undefined, messages: Message[], user: User): Conversation | undefined {
@@ -525,18 +545,23 @@ function isMobileShell(): boolean {
 export function MainView(): ReactElement {
   const utils = trpc.useUtils();
   const contacts = trpc.account.listRecentContacts.useQuery();
+  const selfProfile = trpc.account.getSelfProfile.useQuery();
   const openedUin = useViewState((s) => s.openedUin);
   const goTo = useViewState((s) => s.goTo);
   const setOpenedUin = useViewState((s) => s.setOpenedUin);
   const [offset, setOffset] = useState(0);
   const [messagePages, setMessagePages] = useState<MessagePages>({});
+  const [trackedConversationId, setTrackedConversationId] = useState<string | null>(null);
   const [hasOlderMessages, setHasOlderMessages] = useState(true);
   const [conversationPrefs, setConversationPrefs] = useState<ConversationPreferences>({});
   const [templateCreditOpen, setTemplateCreditOpen] = useState(false);
   const pendingOlderOffsetRef = useRef<number | null>(null);
   const pendingScrollRestoreRef = useRef<PendingScrollRestore | null>(null);
+  // Latest active-conversation identity, read by the live-message subscription
+  // (which is mounted once and must not re-subscribe on every selection change).
+  const selectionRef = useRef<{ id: string; kind: 'direct' | 'group' } | null>(null);
 
-  const user = useMemo(() => currentUser(openedUin), [openedUin]);
+  const user = useMemo(() => currentUser(openedUin, selfProfile.data), [openedUin, selfProfile.data]);
   const conversations = useMemo(
     () =>
       ((contacts.data ?? []) as RecentContactWire[])
@@ -567,6 +592,30 @@ export function MainView(): ReactElement {
   const selectedUid = selectedConversation?.id ?? '';
   const isGroup = selectedConversation?.type === 'group';
   const isDirect = selectedConversation?.type === 'direct';
+
+  // Reset paging *synchronously* when the open conversation changes. Doing this
+  // during render (instead of in an effect) means React discards this render
+  // before committing, so we never paint a frame where the previous chat's
+  // messages are shown under the new conversation, nor flash an empty
+  // "还没有消息" before the new query result is folded in.
+  if (trackedConversationId !== shell.activeConversationId) {
+    setTrackedConversationId(shell.activeConversationId);
+    setOffset(0);
+    setMessagePages({});
+    setHasOlderMessages(true);
+    pendingOlderOffsetRef.current = null;
+    pendingScrollRestoreRef.current = null;
+  }
+
+  const groupDetail = trpc.account.getGroupDetail.useQuery(
+    { groupCode: selectedUid },
+    { enabled: Boolean(selectedUid && isGroup) },
+  );
+  const groupMembers = trpc.account.listGroupMembers.useQuery(
+    { groupCode: selectedUid },
+    { enabled: Boolean(selectedUid && isGroup) },
+  );
+
   const c2cMsgs = trpc.account.listC2cMessages.useQuery(
     { targetUid: selectedUid, limit: PAGE_SIZE, offset },
     { enabled: Boolean(selectedUid && isDirect) },
@@ -596,16 +645,63 @@ export function MainView(): ReactElement {
 
     return messages;
   }, [messagePages]);
+  const currentGroupMembers = useMemo(() => {
+    if (!selectedConversation || selectedConversation.type !== 'group' || !groupMembers.data) return [];
+    
+    const detail = groupDetail.data;
+    const membersData = groupMembers.data;
+
+    const mapped: GroupMember[] = membersData.map((m) => ({
+      id: m.uid,
+      identityLabel: m.uin && m.uin !== '0' ? 'QQ' : 'UID',
+      identityValue: m.uin && m.uin !== '0' ? m.uin : m.uid,
+      username: m.uid,
+      displayName: m.card || m.nick || m.uin || 'Member',
+      avatarUrl: senderAvatarSrc(m.uin),
+      role: m.uid === detail?.ownerUid ? 'owner' : (m.adminFlag === 1 ? 'admin' : 'member'),
+      joinedAt: toIsoTime(m.joinTime.toString()),
+    }));
+
+    return mapped.sort((a, b) => {
+        const roleScore = { owner: 0, admin: 1, member: 2 };
+        return roleScore[a.role] - roleScore[b.role];
+    });
+  }, [selectedConversation, groupDetail.data, groupMembers.data]);
+
   const templateMessages = useMemo(() => {
     if (!selectedConversation) return [];
-    return loadedMessageWires.map((message) => messageToTemplate(message, selectedConversation, user));
-  }, [loadedMessageWires, selectedConversation, user]);
-  const activeConversation = useMemo(
-    () => enrichGroupConversation(selectedConversation, templateMessages, user),
-    [selectedConversation, templateMessages, user],
-  );
+    return loadedMessageWires.map((message) => 
+      messageToTemplate(message, selectedConversation, user, currentGroupMembers)
+    );
+  }, [loadedMessageWires, selectedConversation, user, currentGroupMembers]);
+
+  const activeConversation = useMemo(() => {
+    if (!selectedConversation) return undefined;
+    if (selectedConversation.type !== 'group') return selectedConversation;
+
+    // If detail/members not loaded yet, fallback to basic message-based list
+    if (currentGroupMembers.length === 0) {
+        return enrichGroupConversation(selectedConversation, templateMessages, user);
+    }
+
+    return {
+      ...selectedConversation,
+      members: currentGroupMembers,
+      group: {
+        ...selectedConversation.group!,
+        memberCount: groupMembers.data?.length || selectedConversation.group!.memberCount,
+        announcement: groupDetail.data?.pinnedAnnounce || null,
+        role: currentGroupMembers.find(m => m.id === user.id)?.role || 'member',
+      },
+    };
+  }, [selectedConversation, currentGroupMembers, groupDetail.data, groupMembers.data, templateMessages, user]);
+  // Treat the conversation as "loading" until its newest page (offset 0) has
+  // actually been folded into `messagePages`. Gating on this — rather than on
+  // react-query's `isLoading` — means a cached revisit (data ready, but not yet
+  // merged for one frame) shows "加载中" instead of flashing "还没有消息".
+  const offsetZeroLoaded = Object.prototype.hasOwnProperty.call(messagePages, 0);
+  const loadingInitialMessages = Boolean(selectedConversation) && !offsetZeroLoaded;
   const refreshing = contacts.isFetching || messagesQuery.isFetching;
-  const loadingInitialMessages = messagesQuery.isLoading && loadedMessageWires.length === 0;
   const maxLoadedOffset = useMemo(
     () =>
       Object.keys(messagePages)
@@ -617,18 +713,95 @@ export function MainView(): ReactElement {
 
   useEffect(() => {
     if (contacts.isLoading) return;
-    if (shell.activeConversationId && conversations.some((conversation) => conversation.id === shell.activeConversationId)) return;
-    shell.setActiveConversationId(conversations[0]?.id ?? null);
-    setOffset(0);
+    // Don't auto-open the first conversation: land on the empty placeholder and
+    // let the user pick. Only clear a selection that no longer exists.
+    if (
+      shell.activeConversationId &&
+      !conversations.some((conversation) => conversation.id === shell.activeConversationId)
+    ) {
+      shell.setActiveConversationId(null);
+      setOffset(0);
+    }
   }, [contacts.isLoading, conversations, shell.activeConversationId, shell.setActiveConversationId]);
 
+  // Keep the live-subscription's view of "what's open" current without
+  // re-subscribing on every selection change.
   useEffect(() => {
-    setOffset(0);
-    setMessagePages({});
-    setHasOlderMessages(true);
-    pendingOlderOffsetRef.current = null;
-    pendingScrollRestoreRef.current = null;
-  }, [shell.activeConversationId]);
+    selectionRef.current =
+      selectedUid && (isDirect || isGroup)
+        ? { id: selectedUid, kind: isGroup ? 'group' : 'direct' }
+        : null;
+  }, [selectedUid, isDirect, isGroup]);
+
+  // Live updates: subscribe once to nt_msg.db new-message pushes.
+  //  - Always re-pull recent contacts so the conversation list (preview +
+  //    ordering) reflects the new traffic — important even for chats the user
+  //    isn't currently viewing.
+  //  - If the message belongs to the open conversation, splice it onto the
+  //    newest page so it shows up immediately. The decision of whether to
+  //    auto-scroll or surface a "new messages" pill lives in ChatPane.
+  //  - Chats the user isn't viewing are intentionally NOT cached here; opening
+  //    one re-queries from scratch.
+  useEffect(() => {
+    console.log('[DbWatch] renderer: subscribing to account.onNewMessages');
+    const sub = client.account.onNewMessages.subscribe(undefined, {
+      onData(payload) {
+        console.log(
+          `[DbWatch] renderer received push → c2c=${payload.c2c.length} group=${payload.group.length}`,
+        );
+        void utils.account.listRecentContacts.invalidate();
+
+        const selection = selectionRef.current;
+        if (!selection) return;
+
+        const incoming: MessageWire[] =
+          selection.kind === 'group'
+            ? payload.group
+                .filter((m) => m.targetGroupCode === selection.id)
+                .map((m) => ({
+                  msgId: m.msgId,
+                  senderUid: m.senderUid,
+                  senderUin: m.senderUin,
+                  sendTime: m.sendTime,
+                  elements: m.elements,
+                }))
+            : payload.c2c
+                .filter((m) => m.targetUid === selection.id)
+                .map((m) => ({
+                  msgId: m.msgId,
+                  senderUid: m.senderUid,
+                  senderUin: m.senderUin,
+                  sendTime: m.sendTime,
+                  elements: m.elements,
+                }));
+
+        if (incoming.length === 0) return;
+        console.log(
+          `[DbWatch] renderer: appending ${incoming.length} message(s) to open conversation ${selection.id}`,
+        );
+
+        setMessagePages((current) => {
+          // Page 0 holds the newest page, stored newest-first (DESC).
+          const page0 = current[0] ?? [];
+          const known = new Set(page0.map((m) => m.msgId));
+          // `incoming` is oldest-first; reverse to newest-first to match page 0.
+          const fresh = incoming
+            .filter((m) => !known.has(m.msgId))
+            .reverse();
+          if (fresh.length === 0) return current;
+          return { ...current, 0: [...fresh, ...page0] };
+        });
+      },
+      onError(err) {
+        console.error('[DbWatch] renderer: onNewMessages subscription error', err);
+      },
+    });
+
+    return () => {
+      console.log('[DbWatch] renderer: unsubscribing from account.onNewMessages');
+      sub.unsubscribe();
+    };
+  }, [utils]);
 
   useEffect(() => {
     if (!selectedConversation || !messagesQuery.data) return;
@@ -832,6 +1005,7 @@ export function MainView(): ReactElement {
                 selectedGroupConversation={shell.selectedGroupConversation}
                 activeConversation={activeConversation}
                 messages={templateMessages}
+                messageRenderers={messageRenderers}
                 loadingMessages={loadingInitialMessages}
                 conversationPrefs={conversationPrefs}
                 drafts={emptyDrafts}
@@ -857,7 +1031,7 @@ export function MainView(): ReactElement {
               />
             </div>
             <div className="weq-chat-action-bar">
-              <button type="button" title="Refresh" disabled={refreshing} onClick={refreshAll}>
+              <button type="button" title="刷新" disabled={refreshing} onClick={refreshAll}>
                 <RefreshCw size={17} className={refreshing ? 'weq-spin' : undefined} />
               </button>
             </div>

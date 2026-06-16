@@ -1,35 +1,53 @@
-import { app, BrowserWindow, nativeImage, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeImage, protocol, shell } from 'electron';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { existsSync } from 'node:fs';
 import { initAppContext } from './context/app_context';
 import { appRouter } from './ipc/router';
+import { resolveResource } from './resource';
+import {
+  registerResourceProtocol,
+  RESOURCE_PRIVILEGED_SCHEME,
+} from './resource_protocol';
+import {
+  registerAvatarProtocol,
+  AVATAR_PRIVILEGED_SCHEME,
+} from './avatar_protocol';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// Privileged-scheme registration must happen before app `ready`, and Electron
+// honors only ONE `registerSchemesAsPrivileged` call — register every custom
+// scheme together here.
+protocol.registerSchemesAsPrivileged([
+  RESOURCE_PRIVILEGED_SCHEME,
+  AVATAR_PRIVILEGED_SCHEME,
+]);
 
 const requireFromHere = createRequire(import.meta.url);
 const { createIPCHandler } = requireFromHere('electron-trpc/main') as typeof import('electron-trpc/main');
 
 /**
- * Window icon, resolved through Electron's own `nativeImage` toolchain from
- * the shared `resources/brand/logo.png`.
- *
- * Dev: walk up from this bundled file to the repo-root `resources/`.
- * Packaged: electron-builder copies `resources/` to
- * `process.resourcesPath/resources/` (see electron-builder.yml extraResources).
+ * Per-view window sizes. The home/bootstrap screen is compact; the chat view
+ * gets a bit more room. Switching views resizes the window (see the
+ * `window:set-layout` IPC), keeping the top-left corner fixed.
  */
-function resolveResource(...segments: string[]): string | null {
-  const candidates = [
-    join(process.resourcesPath ?? '', 'resources', ...segments), // packaged
-    join(__dirname, '../../../../resources', ...segments), // dev (out/main → repo root)
-    join(process.cwd(), 'resources', ...segments),
-  ];
-  for (const path of candidates) {
-    if (path && existsSync(path)) return path;
-  }
-  return null;
+const WINDOW_LAYOUTS = {
+  home: { width: 1120, height: 580 },
+  chat: { width: 1180, height: 760 },
+} as const;
+
+function registerWindowLayoutIpc(): void {
+  ipcMain.handle('window:set-layout', (event, layout: keyof typeof WINDOW_LAYOUTS) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const size = WINDOW_LAYOUTS[layout] ?? WINDOW_LAYOUTS.home;
+    // Don't fight a user who maximized/fullscreened the window.
+    if (!win || win.isMaximized() || win.isFullScreen()) return;
+    const [w, h] = win.getSize();
+    if (w === size.width && h === size.height) return;
+    win.setSize(size.width, size.height, true);
+  });
 }
 
 function resolveWindowIcon(): Electron.NativeImage | undefined {
@@ -63,7 +81,16 @@ function createWindow(): BrowserWindow {
     },
   });
 
-  win.on('ready-to-show', () => win.show());
+  const reveal = () => {
+    if (win.isDestroyed() || win.isVisible()) return;
+    win.show();
+    win.focus();
+  };
+
+  win.on('ready-to-show', reveal);
+  // Fallback: in some environments `ready-to-show` can be delayed or missed
+  // (e.g. compositor/driver quirks). Guarantee visibility once content loads.
+  win.webContents.on('did-finish-load', reveal);
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
@@ -83,6 +110,10 @@ void app.whenReady().then(() => {
 
   // Order matters: AppContext (loads native + platform) before IPC handler.
   initAppContext();
+
+  registerResourceProtocol();
+  registerAvatarProtocol();
+  registerWindowLayoutIpc();
 
   app.on('browser-window-created', (_, win) => {
     optimizer.watchWindowShortcuts(win);

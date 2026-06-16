@@ -1,4 +1,4 @@
-﻿// @ts-nocheck
+// @ts-nocheck
 import { Bot, ChevronRight, Plus } from "lucide-react";
 import { Avatar } from "./primitives";
 import type { GroupConversationView } from "./conversationDetailsTypes";
@@ -12,21 +12,30 @@ export function GroupInfoPanel({
 	conversation: GroupConversationView;
 	onInvite?: () => void;
 }) {
-	const announcement = conversation.group.announcement?.trim();
+	const ANNOUNCEMENT_MAX = 120;
+	const rawAnnouncement = conversation.group.announcement?.trim();
+	const announcement =
+		rawAnnouncement && rawAnnouncement.length > ANNOUNCEMENT_MAX
+			? `${rawAnnouncement.slice(0, ANNOUNCEMENT_MAX)}…`
+			: rawAnnouncement;
 
 	return (
 		<aside className={cn("group-info-panel")} aria-label="群聊资料">
-			{announcement ? (
-				<section className={cn("group-info-section")}>
-					<button className={cn("group-info-heading")} type="button">
-						<strong>群公告</strong>
-						<ChevronRight size={18} />
-					</button>
-					<p>{announcement}</p>
-				</section>
-			) : null}
-
 			<section className={cn("group-info-section")}>
+				<header className={cn("group-info-heading")}>
+					<strong>群公告</strong>
+					<ChevronRight size={18} />
+				</header>
+				<div className={cn("group-announcement-content", !announcement && "is-empty")}>
+					{announcement ? (
+						<p>{announcement}</p>
+					) : (
+						<p className="placeholder-text">暂无群公告</p>
+					)}
+				</div>
+			</section>
+
+			<section className={cn("group-info-section", "member-list-section")}>
 				<header className={cn("group-info-heading group-info-title-row")}>
 					<strong>群聊成员 {conversation.group.memberCount}</strong>
 					{onInvite ? (
@@ -42,13 +51,22 @@ export function GroupInfoPanel({
 				</header>
 				<div className={cn("group-info-member-list")}>
 					{conversation.members.map((member) => (
-						<div className={cn("group-info-member-row")} key={member.id}>
-							<Avatar
-								name={displayUserName(member)}
-								avatarUrl={member.avatarUrl}
-								seed={member.identityValue}
-							/>
-							<span>{displayUserName(member)}</span>
+						<div
+							className={cn(
+								"group-info-member-row",
+								member.role === "owner" && "is-owner",
+								member.role === "admin" && "is-admin"
+							)}
+							key={member.id}
+						>
+							<div className="member-avatar-wrap">
+								<Avatar
+									name={displayUserName(member)}
+									avatarUrl={member.avatarUrl}
+									seed={member.identityValue}
+								/>
+							</div>
+							<span className="member-name-text">{displayUserName(member)}</span>
 							{member.kind === "bot" ? (
 								<small
 									className={cn("bot-badge")}
@@ -58,25 +76,10 @@ export function GroupInfoPanel({
 									<Bot size={12} strokeWidth={2.4} />
 								</small>
 							) : null}
-							{member.role !== "member" ? (
-								<small className={cn(`group-role-badge ${member.role}`)}>
-									{groupRoleLabel(member.role)}
-								</small>
-							) : null}
 						</div>
 					))}
 				</div>
 			</section>
 		</aside>
 	);
-}
-
-function groupRoleLabel(role: "owner" | "admin" | "member") {
-	if (role === "owner") {
-		return "群主";
-	}
-	if (role === "admin") {
-		return "管理员";
-	}
-	return "";
 }

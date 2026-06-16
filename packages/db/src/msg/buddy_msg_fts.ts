@@ -27,7 +27,7 @@ import type { BuddyMsgFtsHit } from './types';
 import { toBigint, toStr } from './util';
 import { QqDb } from '../qq_db';
 
-const SELECT_COLUMNS = `"40001","40010","40021","40020","41701"`;
+const SELECT_COLUMNS = `"40001","40010","40021","40020","41701","40050","41702"`;
 
 /**
  * How many newest LIKE-matching rows to pull before ranking. We over-fetch
@@ -55,12 +55,7 @@ export class BuddyMsgFtsDb {
   }
 
   /**
-   * Search messages whose text contains `keyword`, best matches first.
-   *
-   * Two stages: (1) SQL `LIKE` pulls the newest matching rows into a bounded
-   * candidate pool; (2) JS ranks them by relevance (exact match → keyword
-   * density → occurrence count → earliest position) and returns the top
-   * `limit`. An empty/whitespace keyword yields no hits.
+   * Search messages whose text or filename contains `keyword`, best matches first.
    */
   async search(keyword: string, limit = 20): Promise<BuddyMsgFtsHit[]> {
     const needle = keyword.trim();
@@ -69,7 +64,47 @@ export class BuddyMsgFtsDb {
     const poolSize = Math.min(MAX_POOL, Math.max(limit * POOL_FACTOR, MIN_POOL));
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM buddy_msg_fts
-        WHERE "41701" LIKE ? ESCAPE '\\'
+        WHERE ("41701" LIKE ? ESCAPE '\\' OR "41702" LIKE ? ESCAPE '\\')
+        ORDER BY "40050" DESC
+        LIMIT ?`,
+      [`%${escapeLike(needle)}%`, `%${escapeLike(needle)}%`, BigInt(poolSize)],
+    );
+
+    const hits = rows.map(rowToHit);
+    return rankByRelevance(hits, needle).slice(0, limit);
+  }
+
+  /**
+   * Search messages within a specific conversation.
+   */
+  async searchInConversation(targetUid: string, keyword: string, limit = 20): Promise<BuddyMsgFtsHit[]> {
+    const needle = keyword.trim();
+    if (!needle) return [];
+
+    const poolSize = Math.min(MAX_POOL, Math.max(limit * POOL_FACTOR, MIN_POOL));
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM buddy_msg_fts
+        WHERE "40021" = ? AND ("41701" LIKE ? ESCAPE '\\' OR "41702" LIKE ? ESCAPE '\\')
+        ORDER BY "40050" DESC
+        LIMIT ?`,
+      [targetUid, `%${escapeLike(needle)}%`, `%${escapeLike(needle)}%`, BigInt(poolSize)],
+    );
+
+    const hits = rows.map(rowToHit);
+    return rankByRelevance(hits, needle).slice(0, limit);
+  }
+
+  /**
+   * Search only by filename.
+   */
+  async searchFiles(keyword: string, limit = 20): Promise<BuddyMsgFtsHit[]> {
+    const needle = keyword.trim();
+    if (!needle) return [];
+
+    const poolSize = Math.min(MAX_POOL, Math.max(limit * POOL_FACTOR, MIN_POOL));
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM buddy_msg_fts
+        WHERE "41702" LIKE ? ESCAPE '\\'
         ORDER BY "40050" DESC
         LIMIT ?`,
       [`%${escapeLike(needle)}%`, BigInt(poolSize)],
@@ -100,23 +135,28 @@ function escapeLike(s: string): string {
  */
 function rankByRelevance(hits: BuddyMsgFtsHit[], needle: string): BuddyMsgFtsHit[] {
   return hits
-    .map((hit) => ({ hit, score: scoreOf(hit.content, needle) }))
+    .map((hit) => ({ hit, score: scoreOfMultiple(hit.content, hit.fileName || '', needle) }))
     .sort((a, b) => b.score - a.score)
     .map((s) => s.hit);
 }
 
-function scoreOf(content: string, needle: string): number {
+function scoreOfMultiple(content: string, fileName: string, needle: string): number {
+  return Math.max(scoreOf(content, needle), scoreOf(fileName, needle));
+}
+
+function scoreOf(text: string, needle: string): number {
+  if (!text) return 0;
   let count = 0;
-  let idx = content.indexOf(needle);
+  let idx = text.indexOf(needle);
   const firstPos = idx;
   while (idx !== -1) {
     count++;
-    idx = content.indexOf(needle, idx + needle.length);
+    idx = text.indexOf(needle, idx + needle.length);
   }
   if (count === 0) return 0;
 
-  const exact = content.trim() === needle ? 1_000_000 : 0;
-  const density = (count * needle.length) / Math.max(content.length, 1); // 0..1
+  const exact = text.trim() === needle ? 1_000_000 : 0;
+  const density = (count * needle.length) / Math.max(text.length, 1); // 0..1
   const posBonus = 1 / (1 + firstPos);
   return exact + density * 1000 + count * 10 + posBonus;
 }
@@ -128,5 +168,7 @@ function rowToHit(row: SqlRow): BuddyMsgFtsHit {
     targetUid: toStr(row[2]),
     senderUid: toStr(row[3]),
     content: toStr(row[4]),
+    sendTime: toBigint(row[5]),
+    fileName: toStr(row[6]),
   };
 }

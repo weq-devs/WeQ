@@ -19,4 +19,7 @@ export type { ForwardMsgDbOptions } from './forward';
 export { BuddyMsgFtsDb } from './buddy_msg_fts';
 export type { BuddyMsgFtsDbOptions } from './buddy_msg_fts';
 
+export { GroupMsgFtsDb } from './group_msg_fts';
+export type { GroupMsgFtsDbOptions } from './group_msg_fts';
+
 export type { C2cMsg, GroupMsg, BuddyMsgFtsHit } from './types';

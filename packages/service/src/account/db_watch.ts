@@ -42,6 +42,8 @@ export interface DbFileSize {
   name: string;
   /** Size in bytes. */
   size: number;
+  /** Last-modified time (epoch ms). */
+  mtimeMs: number;
 }
 
 export interface DbChange {
@@ -90,6 +92,13 @@ interface WatchEntry {
   readonly task: DbWatchTask;
   /** Last size we acted on. Only advances when we actually fire the hook. */
   lastTotal: number;
+  /**
+   * Last newest-mtime we acted on. Needed because SQLite WAL writes reuse
+   * existing frame space once the `-wal` reaches steady size — the file
+   * *content* changes (and mtime bumps) while the *size* stays constant, so a
+   * size-only check would miss most message activity.
+   */
+  lastMtime: number;
   /** A change was seen but the hook hasn't consumed it yet (trailing edge). */
   dirty: boolean;
   /** The hook is mid-flight — don't start a second copy. */
@@ -115,10 +124,12 @@ export class DbWatchService {
    */
   mount(task: DbWatchTask): DbWatchHandle {
     const dbPath = resolve(task.dbPath);
+    const baseline = aggregate(dbPath);
     const entry: WatchEntry = {
       dbPath,
       task,
-      lastTotal: aggregate(dbPath).total,
+      lastTotal: baseline.total,
+      lastMtime: baseline.latestMtime,
       dirty: false,
       running: false,
     };
@@ -165,14 +176,19 @@ export class DbWatchService {
   private tick(): void {
     const at = Date.now();
     for (const entry of this.entries) {
-      const { total, files } = aggregate(entry.dbPath);
-      if (total !== entry.lastTotal) entry.dirty = true;
+      const { total, files, latestMtime } = aggregate(entry.dbPath);
+      // A change is EITHER a size change OR an in-place content write (mtime
+      // bump with constant size — the common case for steady-state WAL).
+      if (total !== entry.lastTotal || latestMtime !== entry.lastMtime) {
+        entry.dirty = true;
+      }
       // Skip if nothing new, or the previous hook run hasn't finished — its
       // trailing-edge re-check (driven by `dirty`) will catch what it missed.
       if (!entry.dirty || entry.running) continue;
 
       const prevTotal = entry.lastTotal;
       entry.lastTotal = total;
+      entry.lastMtime = latestMtime;
       entry.dirty = false;
       entry.running = true;
 
@@ -184,6 +200,10 @@ export class DbWatchService {
         files,
         at,
       };
+      console.log(
+        `[DbWatch] change: ${basename(entry.dbPath)} ` +
+          `size ${prevTotal}B → ${total}B (delta=${change.delta}B), mtime=${latestMtime}`,
+      );
       // Fire-and-forget, but serialized per task via `running`. Hooks must
       // recompute their own delta (msgId diff, etc.) rather than trusting
       // `change.delta` to be exact — coalesced ticks fold multiple changes.
@@ -211,27 +231,33 @@ export class DbWatchService {
  * share the full `nt_msg.db` prefix in the same folder — QQ doesn't create
  * such files, so this is fine in practice.
  */
-function aggregate(dbPath: string): { total: number; files: DbFileSize[] } {
+function aggregate(dbPath: string): {
+  total: number;
+  files: DbFileSize[];
+  latestMtime: number;
+} {
   const dir = dirname(dbPath);
   const base = basename(dbPath);
   let names: string[];
   try {
     names = readdirSync(dir);
   } catch {
-    return { total: 0, files: [] };
+    return { total: 0, files: [], latestMtime: 0 };
   }
   const files: DbFileSize[] = [];
   let total = 0;
+  let latestMtime = 0;
   for (const name of names) {
     if (!name.startsWith(base)) continue;
     try {
       const st = statSync(join(dir, name));
       if (!st.isFile()) continue;
-      files.push({ name, size: st.size });
+      files.push({ name, size: st.size, mtimeMs: st.mtimeMs });
       total += st.size;
+      if (st.mtimeMs > latestMtime) latestMtime = st.mtimeMs;
     } catch {
       /* file disappeared between readdir and stat — skip it */
     }
   }
-  return { total, files };
+  return { total, files, latestMtime };
 }

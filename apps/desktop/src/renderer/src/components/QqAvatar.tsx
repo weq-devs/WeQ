@@ -5,6 +5,7 @@
 
 import { useEffect, useState, type ReactElement } from 'react';
 import { UserRound } from 'lucide-react';
+import { cachedAvatarUrl } from '../lib/avatarCache';
 
 export function qqAvatarUrl(uin: string): string {
   return `https://thirdqq.qlogo.cn/g?b=sdk&nk=${uin}&s=0`;
@@ -21,7 +22,7 @@ export function QqAvatar({
   size?: number;
   className?: string;
 }): ReactElement {
-  const resolved = url || (uin ? qqAvatarUrl(uin) : null);
+  const resolved = cachedAvatarUrl(url || (uin ? qqAvatarUrl(uin) : null));
   const [failed, setFailed] = useState(false);
 
   // Reset the failure flag when the source changes (account switch).

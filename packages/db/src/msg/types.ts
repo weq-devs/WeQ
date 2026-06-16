@@ -29,6 +29,8 @@ export interface C2cMsg {
 
 export interface GroupMsg {
   msgId: bigint;
+  /** In-group sequence number (column 40003). */
+  msgSeq: bigint;
   /** Conversation target — group code / 群号 (column 40021). */
   targetGroupCode: string;
   /** Sender uid (column 40020). */
@@ -58,6 +60,10 @@ export interface BuddyMsgFtsHit {
   targetUid: string;
   /** Sender uid (column 40020). */
   senderUid: string;
+  /** Seconds since epoch (column 40050). */
+  sendTime: bigint;
   /** The flattened, searchable message text (column 41701). */
   content: string;
+  /** Optional file name (column 41702). */
+  fileName?: string;
 }

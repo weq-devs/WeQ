@@ -5,14 +5,20 @@
  * `DialogHost` 常驻挂载，承载全局错误/确认弹窗（替代原生 alert/confirm）。
  */
 
-import type { ReactElement } from 'react';
+import { useEffect, type ReactElement } from 'react';
 import { useViewState } from './state/view';
 import { BootstrapView } from './views/BootstrapView';
 import { MainView } from './views/MainView';
 import { DialogHost } from './components/Dialog';
+import { setWindowLayout } from './lib/windowLayout';
 
 export default function App(): ReactElement {
   const view = useViewState((s) => s.view);
+
+  useEffect(() => {
+    setWindowLayout(view === 'main' ? 'chat' : 'home');
+  }, [view]);
+
   return (
     <>
       {view === 'bootstrap' ? <BootstrapView /> : <MainView />}

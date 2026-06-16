@@ -15,6 +15,7 @@ import {
   RecentContactDb,
   ForwardMsgDb,
   BuddyMsgFtsDb,
+  GroupMsgFtsDb,
   GroupEssenceDb,
   GroupMemberLevelInfoDb,
   GroupDetailDb,
@@ -24,6 +25,7 @@ import {
   CategoryDb,
   BuddyRequestDb,
   ProfileInfoDb,
+  MiscDb,
 } from '@weq/db';
 import type { Platform } from '@weq/platform';
 import type { DatabaseAlgorithms } from '@weq/native';
@@ -81,6 +83,8 @@ export interface AccountSession {
   readonly forwardMsgs: ForwardMsgDb;
   /** Full-text-search index over message text (buddy_msg_fts.db). */
   readonly buddyMsgFts: BuddyMsgFtsDb;
+  /** Full-text-search index over group message text (group_msg_fts.db). */
+  readonly groupMsgFts: GroupMsgFtsDb;
   /** Group essential messages (group_info.db). */
   readonly groupEssence: GroupEssenceDb;
   /** Group member level information (group_info.db). */
@@ -99,6 +103,8 @@ export interface AccountSession {
   readonly buddyReqs: BuddyRequestDb;
   /** Detailed user profiles (profile_info.db). */
   readonly profileInfo: ProfileInfoDb;
+  /** Misc metadata (misc.db). */
+  readonly misc: MiscDb;
   /** Close every db this session opened. Idempotent. */
   dispose(): void;
 }
@@ -146,6 +152,15 @@ export function openAccount(platform: Platform, ctx: AccountContext): AccountSes
     algo: ctx.algo,
   });
 
+  const groupFtsDbPath =
+    platform.groupMsgFtsDbPath(ctx.uin) ?? join(dirname(msgDbPath), 'group_msg_fts.db');
+
+  const groupMsgFts = new GroupMsgFtsDb(platform.native.ntHelper, {
+    dbPath: groupFtsDbPath,
+    key: ctx.dbKey,
+    algo: ctx.algo,
+  });
+
   const groupInfoDbPath =
     platform.groupInfoDbPath(ctx.uin) ?? join(dirname(msgDbPath), 'group_info.db');
 
@@ -186,6 +201,9 @@ export function openAccount(platform: Platform, ctx: AccountContext): AccountSes
   const buddyReqs = new BuddyRequestDb(platform.native.ntHelper, { dbPath: profileInfoPath, key: ctx.dbKey, algo: ctx.algo });
   const profileInfo = new ProfileInfoDb(platform.native.ntHelper, { dbPath: profileInfoPath, key: ctx.dbKey, algo: ctx.algo });
 
+  const miscDbPath = platform.miscDbPath(ctx.uin) ?? join(dirname(msgDbPath), 'misc.db');
+  const misc = new MiscDb(platform.native.ntHelper, { dbPath: miscDbPath, key: ctx.dbKey, algo: ctx.algo });
+
   let disposed = false;
   return {
     context: ctx,
@@ -196,6 +214,7 @@ export function openAccount(platform: Platform, ctx: AccountContext): AccountSes
     recentContacts,
     forwardMsgs,
     buddyMsgFts,
+    groupMsgFts,
     groupEssence,
     memberLevelInfo,
     groupDetail,
@@ -205,6 +224,7 @@ export function openAccount(platform: Platform, ctx: AccountContext): AccountSes
     categories,
     buddyReqs,
     profileInfo,
+    misc,
     dispose(): void {
       if (disposed) return;
       disposed = true;
@@ -213,6 +233,7 @@ export function openAccount(platform: Platform, ctx: AccountContext): AccountSes
       recentContacts.close();
       forwardMsgs.close();
       buddyMsgFts.close();
+      groupMsgFts.close();
       groupEssence.close();
       memberLevelInfo.close();
       groupDetail.close();
@@ -222,6 +243,7 @@ export function openAccount(platform: Platform, ctx: AccountContext): AccountSes
       categories.close();
       buddyReqs.close();
       profileInfo.close();
+      misc.close();
       // Future db instances close here too.
     },
   };

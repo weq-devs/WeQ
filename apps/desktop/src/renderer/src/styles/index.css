@@ -184,7 +184,7 @@
   }
 
   .weq-chat-action-bar button:hover:not(:disabled) {
-    background: transparent;
+    background: rgba(0, 0, 0, 0.06);
   }
 
   .weq-chat-action-bar button:disabled {
@@ -192,12 +192,12 @@
     opacity: 0.38;
   }
 
-  .weq-spin {
-    animation: weq-spin 900ms linear infinite;
-  }
-
   .weq-chat-action-bar svg {
     display: block;
+  }
+
+  .weq-spin {
+    animation: weq-spin 900ms linear infinite;
   }
 
   @keyframes weq-spin {
@@ -1798,4 +1798,107 @@ html *::-webkit-scrollbar-corner {
   background: #eeeeee;
   color: #111111;
   outline: none;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Visual Enhancements — Empty State, Group Roles & Announcements
+ * ──────────────────────────────────────────────────────────────────── */
+
+.chat-empty {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at center, rgba(0, 153, 255, 0.03) 0%, transparent 70%);
+}
+
+.chat-empty-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 48px;
+  animation: weq-fade-in 0.6s ease both;
+}
+
+.chat-empty-icon-wrap {
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 24px;
+  background: linear-gradient(135deg, rgba(0, 153, 255, 0.1), rgba(83, 206, 144, 0.05));
+  margin-bottom: 20px;
+  color: #0099ff;
+  box-shadow: 0 10px 25px -5px rgba(0, 153, 255, 0.15);
+}
+
+.chat-empty-logo {
+  width: 200px;
+  height: 200px;
+  font-size: 200px;
+  color: #dfe2e7
+}
+
+.chat-empty-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #0f2d4c;
+  margin-bottom: 8px;
+}
+
+.chat-empty-text {
+  font-size: 13px;
+  color: #9aa3ad;
+}
+
+.member-avatar-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.member-role-badge {
+  position: absolute;
+  bottom: -2px;
+  right: -4px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 600;
+  border: 1px solid #fff;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  z-index: 10;
+}
+
+.member-role-badge.owner {
+  background-color: #ff9500;
+  color: white;
+}
+
+.member-role-badge.admin {
+  background-color: #34c759;
+  color: white;
+}
+
+.group-announcement-content {
+  padding: 8px 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #36495d;
+  background: rgba(0, 153, 255, 0.03);
+  border-radius: 8px;
+  margin: 4px 12px;
+}
+
+.group-announcement-content.is-empty {
+  background: transparent;
+  border: 1px dashed rgba(0, 153, 255, 0.15);
+}
+
+.placeholder-text {
+  color: #94a3b8;
+  font-style: italic;
+  font-size: 12px;
 }

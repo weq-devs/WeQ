@@ -10,6 +10,7 @@ import {
 	SendHorizontal,
 	Smile,
 } from "lucide-react";
+import { FaQq } from "react-icons/fa";
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type {
 	ClipboardEvent as ReactClipboardEvent,
@@ -140,6 +141,22 @@ function formatUnreadJumpCount(value: number) {
 	return value > 99 ? "99+" : String(value);
 }
 
+/**
+ * How many messages were appended at the tail since `lastId`. Falls back to
+ * "1" when the previous tail can't be located (e.g. it scrolled out of the
+ * loaded window) so the pill still nudges the user.
+ */
+function countAppendedMessages(lastId: string | null, messages: Message[]) {
+	if (!lastId) {
+		return messages.length > 0 ? 1 : 0;
+	}
+	const index = messages.findIndex((message) => message.id === lastId);
+	if (index === -1) {
+		return 1;
+	}
+	return messages.length - 1 - index;
+}
+
 function isMobileComposerViewport() {
 	return window.matchMedia("(max-width: 760px)").matches;
 }
@@ -215,6 +232,9 @@ export function ChatPane({
 		useState<MessageContextMenuState | null>(null);
 	const [mentionMenu, setMentionMenu] = useState<MentionMenuState | null>(null);
 	const [unreadJump, setUnreadJump] = useState<UnreadJumpState | null>(null);
+	// Count of newly-arrived (live) messages while the user is reading history.
+	// Surfaces the floating "jump to bottom" pill; cleared once at the bottom.
+	const [newMessagePill, setNewMessagePill] = useState(0);
 	const [clearMessagesConfirmOpen, setClearMessagesConfirmOpen] =
 		useState(false);
 	const [mobileComposerEditorHeight, setMobileComposerEditorHeight] =
@@ -234,6 +254,13 @@ export function ChatPane({
 	const composerSelectionRef = useRef<Range | null>(null);
 	const messageScrollRef = useRef<HTMLDivElement | null>(null);
 	const endRef = useRef<HTMLDivElement | null>(null);
+	// Tracks whether the view is pinned to the bottom of the message list.
+	// Drives auto-scroll-on-new-message vs. "new messages" pill behaviour.
+	const atBottomRef = useRef(true);
+	// Last message id we auto-scrolled / accounted for, to detect new arrivals.
+	const lastMessageIdRef = useRef<string | null>(null);
+	// Conversation id the scroll-tracking refs above currently describe.
+	const scrollConversationRef = useRef<string | null>(null);
 	const unreadSeedRef = useRef<UnreadJumpSeed | null>(null);
 	const unreadConversationRef = useRef<string | null>(null);
 	const unreadScrollFrameRef = useRef<number | null>(null);
@@ -284,9 +311,43 @@ export function ChatPane({
 	}, [conversation?.id, loading, visibleMessages.length]);
 
 	useLayoutEffect(() => {
-		scrollMessagesToBottom();
-		const frame = window.requestAnimationFrame(scrollMessagesToBottom);
-		return () => window.cancelAnimationFrame(frame);
+		const conversationId = conversation?.id ?? null;
+		const newestId =
+			visibleMessages[visibleMessages.length - 1]?.id ?? null;
+
+		// Conversation switched (or first paint): jump to bottom, reset trackers.
+		if (scrollConversationRef.current !== conversationId) {
+			scrollConversationRef.current = conversationId;
+			lastMessageIdRef.current = newestId;
+			atBottomRef.current = true;
+			setNewMessagePill(0);
+			scrollMessagesToBottom();
+			const frame = window.requestAnimationFrame(scrollMessagesToBottom);
+			return () => window.cancelAnimationFrame(frame);
+		}
+
+		// Nothing new at the tail (e.g. older history was prepended above).
+		if (newestId === lastMessageIdRef.current) {
+			return;
+		}
+
+		const appended = countAppendedMessages(
+			lastMessageIdRef.current,
+			visibleMessages,
+		);
+		lastMessageIdRef.current = newestId;
+
+		// Pinned to bottom → follow the new message down, no pill.
+		if (atBottomRef.current) {
+			setNewMessagePill(0);
+			scrollMessagesToBottom();
+			const frame = window.requestAnimationFrame(scrollMessagesToBottom);
+			return () => window.cancelAnimationFrame(frame);
+		}
+
+		// Reading history → surface the pill instead of yanking the view down.
+		setNewMessagePill((current) => current + appended);
+		return;
 	}, [visibleMessages.length, conversation?.id, loading]);
 
 	useLayoutEffect(() => {
@@ -948,9 +1009,28 @@ export function ChatPane({
 			return;
 		}
 		scroll.scrollTop = scroll.scrollHeight;
+		atBottomRef.current = true;
+		setNewMessagePill(0);
+	}
+
+	function isScrolledToBottom() {
+		const scroll = messageScrollRef.current;
+		if (!scroll) {
+			return true;
+		}
+		// Tolerance covers sub-pixel rounding and short content.
+		return (
+			scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight <= 48
+		);
 	}
 
 	function handleMessageScroll() {
+		const bottom = isScrolledToBottom();
+		atBottomRef.current = bottom;
+		if (bottom && newMessagePill > 0) {
+			setNewMessagePill(0);
+		}
+
 		if (!unreadJump || unreadScrollFrameRef.current !== null) {
 			return;
 		}
@@ -1100,7 +1180,12 @@ export function ChatPane({
 	if (!conversation) {
 		return (
 			<section className={cn("chat-empty")}>
-				<EmptyState title="还没有打开会话" body="从会话列表选择一条聊天。" />
+				<div className={cn("chat-empty-container")}>
+					<FaQq className={cn("chat-empty-logo")} aria-hidden />
+					<p className={cn("chat-empty-text")}>
+						左侧选择会话查看聊天记录
+					</p>
+				</div>
 			</section>
 		);
 	}
@@ -1228,6 +1313,17 @@ export function ChatPane({
 				)}
 				<div ref={endRef} />
 			</div>
+
+			{newMessagePill > 0 ? (
+				<button
+					className={cn("new-message-pill")}
+					type="button"
+					onClick={scrollMessagesToBottom}
+				>
+					<ChevronDown size={18} strokeWidth={2.8} />
+					<span>{formatUnreadJumpCount(newMessagePill)}条新消息</span>
+				</button>
+			) : null}
 
 			{unreadJump && unreadJump.remaining > 0 ? (
 				<button

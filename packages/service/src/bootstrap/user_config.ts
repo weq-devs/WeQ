@@ -63,6 +63,12 @@ export interface UserConfig {
   autoEnter?: AutoEnterTarget | null;
   /** User-picked Tencent Files root override (from the folder dialog). */
   tencentFilesRootOverride?: string | null;
+  /**
+   * Override for the avatar cache directory. Absent → the cache service uses
+   * `platform.avatarCacheDir()` (the per-OS default). Set this to relocate the
+   * cache (e.g. onto a larger drive).
+   */
+  avatarCacheDir?: string | null;
 }
 
 export class UserConfigService {

@@ -24,6 +24,14 @@ export interface Platform {
   appDataRoot(): string;
 
   /**
+   * Default on-disk directory for the avatar cache. On Windows this is
+   * `%APPDATA%\weq\cache\avatar`. Per-OS so the cache lands in the platform's
+   * conventional location; the global config may override it. NOT guaranteed
+   * to exist — the cache service `mkdir -p`s before writing.
+   */
+  avatarCacheDir(): string;
+
+  /**
    * Candidate roots that may contain `<uin>/nt_qq/...` directories. Resolved
    * synchronously from well-known locations on this OS — no I/O needed by
    * the caller, just iterate and stat.
@@ -55,10 +63,24 @@ export interface Platform {
   profileInfoDbPath(uin: string): string | null;
 
   /**
-   * Resolve `buddy_msg_fts.db` (the full-text-search index) for a specific QQ
-   * account. Co-located with `nt_msg.db`. Null if the account has no index.
+   * Resolve `misc.db` (online status and other metadata) for a specific
+   * QQ account. Co-located with `nt_msg.db`.
+   */
+  miscDbPath(uin: string): string | null;
+
+  /**
+   * Resolve `buddy_msg_fts.db` (the full-text-search index for friends) for
+   * a specific QQ account. Co-located with `nt_msg.db`. Null if the account
+   * has no index.
    */
   buddyMsgFtsDbPath(uin: string): string | null;
+
+  /**
+   * Resolve `group_msg_fts.db` (the full-text-search index for groups) for
+   * a specific QQ account. Co-located with `nt_msg.db`. Null if the account
+   * has no index.
+   */
+  groupMsgFtsDbPath(uin: string): string | null;
 
   /**
    * Absolute path to a currently installed QQ.exe (or platform equivalent).

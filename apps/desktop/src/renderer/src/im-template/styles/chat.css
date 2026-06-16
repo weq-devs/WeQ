@@ -7,7 +7,7 @@
 }
 
 .chat-pane {
-	--chat-header-height: 74px;
+	--chat-header-height: 52px;
 	--group-info-panel-width: clamp(176px, 14vw, 190px);
 	display: grid;
 	grid-template-rows: var(--chat-header-height) minmax(0, 1fr) var(
@@ -39,15 +39,13 @@
 }
 
 .group-info-panel {
-	display: grid;
-	align-content: start;
-	gap: 20px;
+	display: flex;
+	flex-direction: column;
 	grid-column: 2;
 	grid-row: 2 / 4;
 	min-width: 0;
 	min-height: 0;
-	overflow: auto;
-	padding: 18px 14px 24px;
+	padding: 18px 0 0;
 	border-left: 1px solid #dedede;
 	background: var(--chat-surface);
 }
@@ -504,7 +502,7 @@
 	min-height: 0;
 	height: 100%;
 	flex-direction: column;
-	gap: 20px;
+	gap: 18px;
 	padding: 26px 10px 20px 24px;
 	overflow: auto;
 	overscroll-behavior: contain;
@@ -590,6 +588,50 @@
 	right: calc(var(--group-info-panel-width) + 24px);
 }
 
+/* Floating "N new messages" pill — shown when live messages arrive while the
+ * user is reading history. Click (or scrolling to the bottom) dismisses it. */
+.new-message-pill {
+	position: absolute;
+	z-index: 10;
+	bottom: calc(var(--composer-height, 190px) + 20px);
+	left: 50%;
+	transform: translateX(-50%);
+	display: inline-flex;
+	height: 36px;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	padding: 0 16px;
+	border: 0;
+	border-radius: 999px;
+	background: #1598ff;
+	box-shadow: 0 6px 18px rgba(21, 152, 255, 0.35);
+	color: #ffffff;
+	font-size: 14px;
+	font-weight: 600;
+	line-height: 1;
+	cursor: pointer;
+	user-select: none;
+	transition:
+		box-shadow 120ms ease-out,
+		transform 120ms ease-out;
+}
+
+.new-message-pill:hover,
+.new-message-pill:focus-visible {
+	box-shadow: 0 8px 22px rgba(21, 152, 255, 0.45);
+	outline: 0;
+	transform: translateX(-50%) translateY(-1px);
+}
+
+.new-message-pill svg {
+	flex: 0 0 auto;
+}
+
+.chat-pane.with-group-info:not(.group-info-collapsed) .new-message-pill {
+	left: calc(50% - var(--group-info-panel-width) / 2);
+}
+
 .message-line {
 	display: flex;
 	min-width: 0;
@@ -624,11 +666,11 @@
 	align-items: center;
 	justify-content: center;
 	margin: 4px 0;
-	padding: 3px 10px;
+	padding: 2px 8px;
 	border-radius: 999px;
 	background: rgba(255, 255, 255, 0.34);
 	color: #a8a8a8;
-	font-size: 14px;
+	font-size: 11px;
 	font-weight: 400;
 	line-height: 1.25;
 	user-select: none;
@@ -654,7 +696,7 @@
 	align-items: center;
 	gap: 5px;
 	color: #9a9a9a;
-	font-size: 14px;
+	font-size: 13px;
 	font-weight: 500;
 }
 
@@ -664,11 +706,11 @@
 	max-width: 100%;
 	box-sizing: border-box;
 	margin: 0;
-	padding: 8px 12px;
+	padding: 7px 11px;
 	border-radius: 8px;
 	background: #ffffff;
 	color: #111111;
-	font-size: 15px;
+	font-size: 13.5px;
 	font-weight: 400;
 	line-height: 1.38;
 	overflow-wrap: anywhere;
@@ -1237,8 +1279,17 @@
 }
 
 .group-info-section {
-	display: grid;
+	display: flex;
+	flex-direction: column;
 	gap: 14px;
+	padding: 0;
+	flex-shrink: 0;
+}
+
+.group-info-section.member-list-section {
+	flex: 1;
+	min-height: 0;
+	margin-top: 20px;
 }
 
 .group-info-heading {
@@ -1248,7 +1299,7 @@
 	align-items: center;
 	justify-content: space-between;
 	gap: 12px;
-	padding: 0;
+	padding: 0 12px;
 	border: 0;
 	background: transparent;
 	color: #111111;
@@ -1296,51 +1347,142 @@ button.group-info-heading {
 	line-height: 1.45;
 }
 
+.group-announcement-content {
+	margin-top: 2px;
+	padding: 0 12px;
+	background: transparent;
+}
+
+.group-announcement-content p {
+	display: -webkit-box;
+	overflow: hidden;
+	color: #333333;
+	font-size: 13px;
+	line-height: 1.6;
+	white-space: pre-wrap;
+	word-break: break-word;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 5;
+}
+
+.group-announcement-content.is-empty {
+	background: transparent;
+	padding: 4px 12px 0;
+}
+
+.group-announcement-content .placeholder-text {
+	color: #b0b0b0;
+}
+
 .group-info-member-list {
-	display: grid;
-	gap: 2px;
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	padding-bottom: 24px;
 }
 
 .group-info-member-row {
-	display: grid;
+	display: flex;
+	position: relative;
 	min-width: 0;
-	min-height: 34px;
-	grid-template-columns: 26px minmax(0, 1fr) auto auto;
+	min-height: 42px;
 	align-items: center;
-	gap: 8px;
-	color: #8a8a8a;
+	gap: 10px;
+	padding: 0 12px;
+	color: #444444;
+	transition: all 150ms ease-out;
+	cursor: default;
+}
+
+.group-info-member-row::after {
+	position: absolute;
+	bottom: 0;
+	right: 0;
+	left: 48px;
+	height: 1px;
+	background: rgba(0, 0, 0, 0.04);
+	content: "";
+}
+
+.group-info-member-row:last-child::after {
+	display: none;
+}
+
+.group-info-member-row:hover {
+	background: rgba(0, 0, 0, 0.04);
+	transform: translateX(2px);
+}
+
+.group-info-member-row.is-owner {
+	background: linear-gradient(
+		to right,
+		rgba(230, 67, 44, 0.12),
+		rgba(230, 67, 44, 0.02)
+	);
+}
+
+.group-info-member-row.is-admin {
+	background: linear-gradient(
+		to right,
+		rgba(106, 92, 255, 0.1),
+		rgba(106, 92, 255, 0.02)
+	);
+}
+
+.group-info-member-row.is-owner:hover {
+	background: linear-gradient(
+		to right,
+		rgba(230, 67, 44, 0.18),
+		rgba(230, 67, 44, 0.05)
+	);
+}
+
+.group-info-member-row.is-admin:hover {
+	background: linear-gradient(
+		to right,
+		rgba(106, 92, 255, 0.15),
+		rgba(106, 92, 255, 0.05)
+	);
+}
+
+.group-info-member-row .member-avatar-wrap {
+	flex: 0 0 auto;
 }
 
 .group-info-member-row .avatar {
-	width: 24px;
-	height: 24px;
-	font-size: 12px;
+	width: 28px;
+	height: 28px;
+	font-size: 13px;
 }
 
-.group-info-member-row span {
+.group-info-member-row .member-name-text {
+	min-width: 0;
 	overflow: hidden;
+	flex: 1;
 	font-size: 13px;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
-.group-role-badge {
-	padding: 2px 5px;
-	border-radius: 4px;
-	background: #dff0ff;
-	color: #008be8;
-	font-size: 12px;
-	font-weight: 500;
+.group-info-member-row .bot-badge {
+	flex: 0 0 auto;
 }
 
-.group-role-badge.owner {
-	background: #ffe9c9;
-	color: #f28a18;
+.member-role-badge {
+	display: none;
 }
 
-.group-role-badge.admin {
-	background: #dff0ff;
-	color: #008be8;
+/* QQ standard role colors: owner = gold-red, admin = blue-purple. */
+.member-role-badge.owner {
+	background: #fde7e0;
+	color: #e6432c;
+}
+
+.member-role-badge.admin {
+	background: #e6e6fb;
+	color: #6a5cff;
 }
 
 .group-invite-dialog {
@@ -1843,4 +1985,44 @@ button.group-info-heading {
 .mention-menu .mention-role-badge.owner {
 	background: #fff2cf;
 	color: #c68100;
+}
+
+/* Empty chat placeholder: large faint QQ logo + small hint. */
+.chat-empty-placeholder {
+	display: grid;
+	place-items: center;
+	gap: 16px;
+	user-select: none;
+}
+
+.chat-empty-logo {
+	width: 132px;
+	height: 132px;
+	color: rgba(0, 153, 255, 0.16);
+}
+
+.chat-empty-text {
+	color: #b3b3b3;
+	font-size: 14px;
+	letter-spacing: 0.05em;
+}
+
+/* Native window drag: top header/rail areas drag the frameless window; their
+   interactive children opt out so clicks still work. */
+.app-rail,
+.sidebar-header,
+.chat-header {
+	-webkit-app-region: drag;
+}
+
+.app-rail button,
+.app-rail a,
+.sidebar-header button,
+.sidebar-header a,
+.sidebar-header input,
+.chat-header button,
+.chat-header a,
+.chat-header input,
+.chat-header [role="button"] {
+	-webkit-app-region: no-drag;
 }
