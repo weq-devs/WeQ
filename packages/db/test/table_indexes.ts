@@ -34,8 +34,7 @@ async function check(name: string, tableName: string) {
 }
 
 async function main() {
-  await check('buddy_msg_fts', 'buddy_msg_fts');
-  await check('group_msg_fts', 'group_msg_fts');
+  await check('nt_msg', 'c2c_msg_table');
 }
 
 main().catch(console.error);

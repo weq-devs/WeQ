@@ -13,6 +13,8 @@ import {
   C2cMsgDb,
   GroupMsgDb,
   RecentContactDb,
+  UidMappingDb,
+  UidMap,
   ForwardMsgDb,
   BuddyMsgFtsDb,
   GroupMsgFtsDb,
@@ -73,6 +75,12 @@ export interface AccountSession {
    * {@link LastMsgIdMaps}.
    */
   readonly lastMsgIdMaps: LastMsgIdMaps;
+  /**
+   * Resident uid ↔ uin ↔ sortNo directory (nt_uid_mapping_table), loaded once
+   * at session open. Used to translate a peer uid to its c2c partition number
+   * (column 40027) so private-chat queries hit the composite index.
+   */
+  readonly uidMap: UidMap;
   /** Private-chat messages. */
   readonly c2cMsgs: C2cMsgDb;
   /** Group-chat messages. */
@@ -109,7 +117,10 @@ export interface AccountSession {
   dispose(): void;
 }
 
-export function openAccount(platform: Platform, ctx: AccountContext): AccountSession {
+export async function openAccount(
+  platform: Platform,
+  ctx: AccountContext,
+): Promise<AccountSession> {
   const msgDbPath = platform.ntMsgDbPath(ctx.uin);
   if (!msgDbPath) {
     throw new Error(`nt_msg.db not found for uin=${ctx.uin}`);
@@ -132,6 +143,25 @@ export function openAccount(platform: Platform, ctx: AccountContext): AccountSes
     key: ctx.dbKey,
     algo: ctx.algo,
   });
+
+  // Load the uid ↔ uin ↔ sortNo directory once and keep it resident; the c2c
+  // query path needs uid → sortNo (column 40027) translation on every call.
+  // A failure here (e.g. table absent on an older QQ build) must NOT block
+  // login — degrade to an empty map and let callers fall back.
+  const uidMappingDb = new UidMappingDb(platform.native.ntHelper, {
+    dbPath: msgDbPath,
+    key: ctx.dbKey,
+    algo: ctx.algo,
+  });
+  let uidMap: UidMap;
+  try {
+    uidMap = UidMap.from(await uidMappingDb.listAll());
+  } catch (e) {
+    console.error('[account] failed to load nt_uid_mapping_table — using empty uid map:', e);
+    uidMap = UidMap.from([]);
+  } finally {
+    uidMappingDb.close();
+  }
 
   const forwardMsgs = new ForwardMsgDb(platform.native.ntHelper, {
     dbPath: msgDbPath,
@@ -209,6 +239,7 @@ export function openAccount(platform: Platform, ctx: AccountContext): AccountSes
     context: ctx,
     msgDbPath,
     lastMsgIdMaps: { c2cMsgId: 0n, groupMsgId: 0n, guildMsgId: 0n },
+    uidMap,
     c2cMsgs,
     groupMsgs,
     recentContacts,

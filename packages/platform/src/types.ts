@@ -83,6 +83,19 @@ export interface Platform {
   groupMsgFtsDbPath(uin: string): string | null;
 
   /**
+   * Resolve QQ NT's built-in face resource directory (apng/lottie) for a
+   * specific account. The renderer streams emoji from here via `weq-asset://`
+   * instead of bundling them into the installer. Null if not found on disk.
+   */
+  emojiResourceDir(uin: string): string | null;
+
+  /**
+   * Resolve QQ NT's market face (store emoji) cache directory for a
+   * specific account.
+   */
+  marketFaceDir(uin: string): string | null;
+
+  /**
    * Absolute path to a currently installed QQ.exe (or platform equivalent).
    * Used by the launch-based key flows (QR / quick login). Null if QQ isn't
    * installed at any known location.

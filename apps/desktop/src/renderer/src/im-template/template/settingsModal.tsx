@@ -501,12 +501,6 @@ function NotificationSettingsPanel() {
 
 				{status ? <p className={cn("form-status")}>{status}</p> : null}
 			</form>
-			<button
-				className={cn("text-button refresh")}
-				onClick={() => setStatus("数据已刷新")}
-			>
-				刷新数据
-			</button>
 		</section>
 	);
 }

@@ -323,7 +323,7 @@ export const bootstrapRouter = router({
       const dataDir =
         input.dataDir ?? requireBootstrap().globalConfig.accountDataDir(input.uin) ?? undefined;
 
-      ctx.setAccount(
+      await ctx.setAccount(
         { uin: input.uin, dbKey: input.dbKey, algo },
         {
           ...(input.displayName ? { displayName: input.displayName } : {}),

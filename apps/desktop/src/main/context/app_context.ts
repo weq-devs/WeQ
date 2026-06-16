@@ -92,7 +92,7 @@ export interface AppContext {
   /** Services bound to the current account. `null` if no account is open. */
   services: AccountServices | null;
   /** Open (or re-open) an account session. Disposes the previous one first. */
-  setAccount(ctx: AccountContext, metadata?: AccountConfigMetadata): void;
+  setAccount(ctx: AccountContext, metadata?: AccountConfigMetadata): Promise<void>;
   /** Drop the current account session, if any. */
   clearAccount(): void;
 }
@@ -112,7 +112,7 @@ export function initAppContext(): AppContext {
       nativeError: { kind: result.kind, status: result.status, message: result.message },
       account: null,
       services: null,
-      setAccount(): void {
+      setAccount(): Promise<void> {
         throw new Error('native bundle failed to load — cannot open an account');
       },
       clearAccount(): void {
@@ -139,11 +139,11 @@ export function initAppContext(): AppContext {
     nativeError: null,
     account: null,
     services: null,
-    setAccount(accountCtx: AccountContext, metadata: AccountConfigMetadata = {}): void {
+    async setAccount(accountCtx: AccountContext, metadata: AccountConfigMetadata = {}): Promise<void> {
       this.account?.dispose();
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
-      const session = openAccount(platform, accountCtx);
+      const session = await openAccount(platform, accountCtx);
       this.account = session;
       const accountConfig = new AccountConfigService(session, platform.appDataRoot());
       this.services = {

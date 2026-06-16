@@ -69,8 +69,16 @@ function inlineLabel(element: RenderElement): string {
   return '';
 }
 
-function FaceNode({ data, size }: { data: Record<string, unknown>; size: number | string }) {
-  return <FaceEmoji element={faceProps(data)} size={size} />;
+function FaceNode({
+  data,
+  size,
+  animated,
+}: {
+  data: Record<string, unknown>;
+  size: number | string;
+  animated?: boolean;
+}) {
+  return <FaceEmoji element={faceProps(data)} size={size} animated={animated} />;
 }
 
 export function QqMessageContent({ elements }: { elements: RenderElement[] }) {
@@ -92,7 +100,7 @@ export function QqMessageContent({ elements }: { elements: RenderElement[] }) {
     }
     return (
       <div className={cn('message-content', 'sticker-only')}>
-        <FaceNode data={data} size={STICKER_SIZE} />
+        <FaceNode data={data} size={STICKER_SIZE} animated />
       </div>
     );
   }

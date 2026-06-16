@@ -16,7 +16,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
 } from 'react';
-import { LogOut, RefreshCw, X } from 'lucide-react';
+import { LogOut, X } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { client } from '../trpc/client';
@@ -1029,11 +1029,6 @@ export function MainView(): ReactElement {
                 onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
                 onBackConversation={shell.backConversation}
               />
-            </div>
-            <div className="weq-chat-action-bar">
-              <button type="button" title="刷新" disabled={refreshing} onClick={refreshAll}>
-                <RefreshCw size={17} className={refreshing ? 'weq-spin' : undefined} />
-              </button>
             </div>
             <OverlayScrollbar
               targetSelector=".weq-readonly-chat .message-scroll"

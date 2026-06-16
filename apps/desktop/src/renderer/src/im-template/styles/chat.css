@@ -7,7 +7,7 @@
 }
 
 .chat-pane {
-	--chat-header-height: 52px;
+	--chat-header-height: 40px;
 	--group-info-panel-width: clamp(176px, 14vw, 190px);
 	display: grid;
 	grid-template-rows: var(--chat-header-height) minmax(0, 1fr) var(

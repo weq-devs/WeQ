@@ -48,6 +48,24 @@ function registerWindowLayoutIpc(): void {
     if (w === size.width && h === size.height) return;
     win.setSize(size.width, size.height, true);
   });
+
+  ipcMain.on('window-minimize', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.minimize();
+  });
+
+  ipcMain.on('window-maximize', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return;
+    if (win.isMaximized()) {
+      win.unmaximize();
+    } else {
+      win.maximize();
+    }
+  });
+
+  ipcMain.on('window-close', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.close();
+  });
 }
 
 function resolveWindowIcon(): Electron.NativeImage | undefined {
@@ -69,10 +87,6 @@ function createWindow(): BrowserWindow {
     autoHideMenuBar: true,
     backgroundColor: '#f0f0f0',
     titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      symbolColor: '#142235',
-      height: 32,
-    },
     ...(icon ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),

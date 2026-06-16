@@ -177,6 +177,35 @@ export function findGroupMsgFtsDb(uin: string, home = homedir()): string | null 
   return null;
 }
 
+/**
+ * `<root>/<uin>/nt_qq/nt_data/Emoji/BaseEmojiSyastems/EmojiSystermResource`
+ * for the first root that has it.
+ *
+ * QQ NT keeps the built-in face resource set (apng + lottie, ~40MB) under each
+ * account's `nt_data`. The tree is laid out `<faceId>/apng/<faceId>.png` and
+ * `<faceId>/lottie/<faceId>.json` — identical across accounts, so any logged-in
+ * uin resolves an equivalent set. `BaseEmojiSyastems` is QQ's own (misspelled)
+ * folder name; copied verbatim.
+ */
+export function findEmojiResourceDir(uin: string, home = homedir()): string | null {
+  for (const root of candidateTencentFilesRoots(home)) {
+    const candidate = join(
+      root, uin, 'nt_qq', 'nt_data', 'Emoji', 'BaseEmojiSyastems', 'EmojiSystermResource',
+    );
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+/** `<root>/<uin>/nt_qq/nt_data/Emoji/marketface` for the first root that has it. */
+export function findMarketFaceDir(uin: string, home = homedir()): string | null {
+  for (const root of candidateTencentFilesRoots(home)) {
+    const candidate = join(root, uin, 'nt_qq', 'nt_data', 'Emoji', 'marketface');
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
 // ---------- QQ install (wrapper.node) ------------------------------------
 
 /**
