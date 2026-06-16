@@ -18,6 +18,7 @@
  * `requireBootstrap()` / `requireGlobalConfig()` guards) is enough.
  */
 
+import { EventEmitter } from 'node:events';
 import { loadNativeSafe } from '@weq/native';
 import { createWin32Platform, type Platform } from '@weq/platform';
 import {
@@ -31,9 +32,26 @@ import {
   AccountConfigService,
   GroupInfoService,
   ProfileService,
+  DbWatchService,
+  createNtMsgDbHook,
   type AccountConfigMetadata,
+  type DbWatchHandle,
+  type NtMsgChange,
 } from '@weq/service';
 import { openAccount, type AccountContext, type AccountSession } from '@weq/account';
+
+/**
+ * Process-wide bus for "new messages landed in nt_msg.db" events. The active
+ * account's `nt_msg.db` is watched by the single `dbWatch` loop below; its hook
+ * emits `'new'` with an {@link NtMsgChange}. The account router turns this into
+ * a tRPC subscription so the renderer can update live without polling.
+ */
+export const newMessageBus = new EventEmitter();
+
+/** One polling loop for the whole process; we (un)mount the active db on it. */
+const dbWatch = new DbWatchService();
+/** Handle for the currently-watched account db, if any. */
+let dbWatchHandle: DbWatchHandle | null = null;
 
 export interface BootstrapServices {
   detect: Win32DetectService;
@@ -123,6 +141,8 @@ export function initAppContext(): AppContext {
     services: null,
     setAccount(accountCtx: AccountContext, metadata: AccountConfigMetadata = {}): void {
       this.account?.dispose();
+      dbWatchHandle?.unmount();
+      dbWatchHandle = null;
       const session = openAccount(platform, accountCtx);
       this.account = session;
       const accountConfig = new AccountConfigService(session, platform.appDataRoot());
@@ -135,8 +155,24 @@ export function initAppContext(): AppContext {
       };
       // Persist credentials + metadata, keyed by data directory.
       accountConfig.save(metadata);
+
+      // Watch this account's nt_msg.db; the hook diffs new messages and the
+      // bus fans them out to any live renderer subscription.
+      console.log(`[DbWatch] mount nt_msg.db watcher: ${session.msgDbPath}`);
+      dbWatchHandle = dbWatch.mount(
+        createNtMsgDbHook(session, (change: NtMsgChange) => {
+          console.log(
+            `[DbWatch] new messages detected → c2c=${change.c2c.length} group=${change.group.length} ` +
+              `(file delta=${change.file.delta}B, listeners=${newMessageBus.listenerCount('new')})`,
+          );
+          newMessageBus.emit('new', change);
+        }),
+      );
     },
     clearAccount(): void {
+      if (dbWatchHandle) console.log('[DbWatch] unmount nt_msg.db watcher');
+      dbWatchHandle?.unmount();
+      dbWatchHandle = null;
       this.account?.dispose();
       this.account = null;
       this.services = null;

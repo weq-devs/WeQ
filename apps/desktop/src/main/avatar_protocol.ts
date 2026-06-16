@@ -21,19 +21,20 @@ import { getAppContext } from './context/app_context';
 
 export const AVATAR_SCHEME = 'weq-avatar';
 
-export function registerAvatarScheme(): void {
-  protocol.registerSchemesAsPrivileged([
-    {
-      scheme: AVATAR_SCHEME,
-      privileges: {
-        standard: true,
-        secure: true,
-        supportFetchAPI: true,
-        stream: true,
-      },
-    },
-  ]);
-}
+/**
+ * Privileged-scheme descriptor for `weq-avatar://`. Registered alongside the
+ * resource scheme in one `registerSchemesAsPrivileged` call (see
+ * src/main/index.ts) — Electron only honors a single such call before `ready`.
+ */
+export const AVATAR_PRIVILEGED_SCHEME = {
+  scheme: AVATAR_SCHEME,
+  privileges: {
+    standard: true,
+    secure: true,
+    supportFetchAPI: true,
+    stream: true,
+  },
+} as const;
 
 export function registerAvatarProtocol(): void {
   protocol.handle(AVATAR_SCHEME, async (request) => {

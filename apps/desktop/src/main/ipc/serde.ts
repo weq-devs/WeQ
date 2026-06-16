@@ -9,9 +9,46 @@
  * renderer can `BigInt(s)` back if it needs arithmetic. Display code is no-op.
  */
 
-import type { C2cMsg, GroupMsg, RecentContact } from '@weq/db';
+import type { C2cMsg, GroupMsg, RecentContact, UserProfile, GroupDetail, GroupMember } from '@weq/db';
 import type { SetEmojiItem } from '@weq/codec';
 import type { RenderC2cMsg, RenderGroupMsg } from '@weq/service';
+
+export interface UserProfileWire {
+  uid: string;
+  qid: string;
+  uin: string;
+  nick: string;
+  avatarUrl: string;
+  gender: number;
+  age: number;
+  signature: string;
+  remark: string;
+}
+
+export interface GroupDetailWire {
+  groupCode: string;
+  groupName: string;
+  pinnedAnnounce: string;
+  description: string;
+  remark: string;
+  ownerUid: string;
+  createTime: number;
+}
+
+export interface GroupMemberWire {
+  groupCode: string;
+  uid: string;
+  uin: string;
+  card: string;
+  nick: string;
+  joinTime: number;
+  lastSpeakTime: number;
+  muteUntil: number;
+  adminFlag: number;
+  memberFlag: number;
+  customTitle: string;
+  memberLevel: number;
+}
 
 export interface C2cMsgWire {
   msgId: string;
@@ -91,6 +128,49 @@ export function recentContactToWire(c: RecentContact): RecentContactWire {
     senderRemark: c.senderRemark,
     targetAvatar: c.targetAvatar,
     targetRemark: c.targetRemark,
+  };
+}
+
+export function userProfileToWire(p: UserProfile): UserProfileWire {
+  return {
+    uid: p.uid,
+    qid: p.qid,
+    uin: p.uin.toString(),
+    nick: p.nick,
+    avatarUrl: p.avatarUrl,
+    gender: p.gender,
+    age: p.age,
+    signature: p.signature,
+    remark: p.remark,
+  };
+}
+
+export function groupDetailToWire(d: GroupDetail): GroupDetailWire {
+  return {
+    groupCode: d.groupCode.toString(),
+    groupName: d.groupName,
+    pinnedAnnounce: d.pinnedAnnounce,
+    description: d.description,
+    remark: d.remark,
+    ownerUid: d.ownerUid,
+    createTime: d.createTime,
+  };
+}
+
+export function groupMemberToWire(m: GroupMember): GroupMemberWire {
+  return {
+    groupCode: m.groupCode.toString(),
+    uid: m.uid,
+    uin: m.uin.toString(),
+    card: m.card,
+    nick: m.nick,
+    joinTime: m.joinTime,
+    lastSpeakTime: m.lastSpeakTime,
+    muteUntil: m.muteUntil,
+    adminFlag: m.adminFlag,
+    memberFlag: m.memberFlag,
+    customTitle: m.customTitle,
+    memberLevel: m.memberLevel,
   };
 }
 

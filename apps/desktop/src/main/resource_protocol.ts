@@ -22,19 +22,20 @@ import { resolveResourceRoot } from './resource';
 
 export const RESOURCE_SCHEME = 'weq-asset';
 
-export function registerResourceScheme(): void {
-  protocol.registerSchemesAsPrivileged([
-    {
-      scheme: RESOURCE_SCHEME,
-      privileges: {
-        standard: true,
-        secure: true,
-        supportFetchAPI: true,
-        stream: true,
-      },
-    },
-  ]);
-}
+/**
+ * Privileged-scheme descriptor for `weq-asset://`. Registered together with
+ * every other custom scheme in a single `registerSchemesAsPrivileged` call
+ * (Electron only honors one such call before `ready`).
+ */
+export const RESOURCE_PRIVILEGED_SCHEME = {
+  scheme: RESOURCE_SCHEME,
+  privileges: {
+    standard: true,
+    secure: true,
+    supportFetchAPI: true,
+    stream: true,
+  },
+} as const;
 
 export function registerResourceProtocol(): void {
   protocol.handle(RESOURCE_SCHEME, async (request) => {

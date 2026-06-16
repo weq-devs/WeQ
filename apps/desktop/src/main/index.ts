@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, nativeImage, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeImage, protocol, shell } from 'electron';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -8,18 +8,22 @@ import { appRouter } from './ipc/router';
 import { resolveResource } from './resource';
 import {
   registerResourceProtocol,
-  registerResourceScheme,
+  RESOURCE_PRIVILEGED_SCHEME,
 } from './resource_protocol';
 import {
   registerAvatarProtocol,
-  registerAvatarScheme,
+  AVATAR_PRIVILEGED_SCHEME,
 } from './avatar_protocol';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// Privileged-scheme registration must happen before app `ready`.
-registerResourceScheme();
-registerAvatarScheme();
+// Privileged-scheme registration must happen before app `ready`, and Electron
+// honors only ONE `registerSchemesAsPrivileged` call — register every custom
+// scheme together here.
+protocol.registerSchemesAsPrivileged([
+  RESOURCE_PRIVILEGED_SCHEME,
+  AVATAR_PRIVILEGED_SCHEME,
+]);
 
 const requireFromHere = createRequire(import.meta.url);
 const { createIPCHandler } = requireFromHere('electron-trpc/main') as typeof import('electron-trpc/main');

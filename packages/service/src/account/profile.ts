@@ -44,6 +44,14 @@ export class ProfileService {
   }
 
   /**
+   * Get detailed profile for the currently logged-in user.
+   */
+  async getSelfProfile(): Promise<UserProfile | null> {
+    const uin = BigInt(this.session.context.uin);
+    return this.getProfileByUin(uin);
+  }
+
+  /**
    * List all cached profiles with pagination.
    */
   async listProfiles(limit = 100, offset = 0): Promise<UserProfile[]> {

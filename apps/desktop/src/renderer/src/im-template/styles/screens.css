@@ -589,6 +589,18 @@ html[data-theme="dark"] .group-info-panel {
 	box-shadow: -18px 0 42px rgba(0, 0, 0, 0.26);
 }
 
+html[data-theme="dark"] .group-announcement-content {
+	background: #1b1c1e;
+}
+
+html[data-theme="dark"] .group-announcement-content p {
+	color: #c8c8c8;
+}
+
+html[data-theme="dark"] .group-announcement-content.is-empty {
+	background: transparent;
+}
+
 html[data-theme="dark"] .group-info-toggle {
 	border-color: #242527;
 	background: rgba(38, 39, 41, 0.94);
