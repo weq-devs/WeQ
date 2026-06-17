@@ -77,6 +77,83 @@ type MessageWire = {
   elements: unknown[];
 };
 
+/** One full-text search hit from `account.searchMessages`. */
+type MsgSearchHitWire = {
+  msgId: string;
+  /** In-conversation seq (column 40003) — the click-to-jump anchor. */
+  msgSeq: string;
+  /** ChatType: 2 = group, others = c2c. */
+  chatType: number;
+  /** Conversation key: group code (group) or peer uid (c2c). */
+  targetUid: string;
+  senderUid: string;
+  sendTime: string;
+  content: string;
+  fileName?: string;
+};
+
+/** ChatType 2 = group; everything else treated as a 1-1 (c2c) chat. */
+function isGroupChatType(chatType: number): boolean {
+  return chatType === 2;
+}
+
+/**
+ * Build a one-line snippet around the first keyword match and split it into
+ * highlighted / plain runs (case-insensitive). Keeps ~10 chars of left context
+ * and trims the whole snippet to ~46 chars so the dropdown row stays compact.
+ */
+function highlightSnippet(content: string, keyword: string): Array<{ text: string; hit: boolean }> {
+  const text = content.replace(/\s+/g, ' ').trim();
+  const needle = keyword.trim();
+  if (!needle) return [{ text: text.slice(0, 46), hit: false }];
+
+  const lower = text.toLowerCase();
+  const lneedle = needle.toLowerCase();
+  const first = lower.indexOf(lneedle);
+
+  // Window the snippet around the first hit so a long message still shows it.
+  let start = 0;
+  let prefix = '';
+  if (first > 12) {
+    start = first - 10;
+    prefix = '…';
+  }
+  const windowed = text.slice(start, start + 46);
+  const runs: Array<{ text: string; hit: boolean }> = [];
+  if (prefix) runs.push({ text: prefix, hit: false });
+
+  const wLower = windowed.toLowerCase();
+  let i = 0;
+  for (;;) {
+    const at = wLower.indexOf(lneedle, i);
+    if (at === -1) {
+      if (i < windowed.length) runs.push({ text: windowed.slice(i), hit: false });
+      break;
+    }
+    if (at > i) runs.push({ text: windowed.slice(i, at), hit: false });
+    runs.push({ text: windowed.slice(at, at + needle.length), hit: true });
+    i = at + needle.length;
+  }
+  return runs;
+}
+
+/** Short, locale time/date for a search hit (today → HH:MM, else M/D). */
+function searchHitTime(sendTimeSeconds: string): string {
+  const secs = Number(sendTimeSeconds);
+  if (!Number.isFinite(secs) || secs <= 0) return '';
+  const d = new Date(secs * 1000);
+  const now = new Date();
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  if (sameDay) {
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+  if (d.getFullYear() === now.getFullYear()) return `${d.getMonth() + 1}/${d.getDate()}`;
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+}
+
 /** The unified chat-message wire from the account router → local MessageWire. */
 type ChatMsgWire = {
   msgId: string;
@@ -843,6 +920,17 @@ export function MainView(): ReactElement {
   const loadingOlderRef = useRef(false);
   const loadingNewerRef = useRef(false);
 
+  // Global message search (sidebar search box → dropdown of ≤5 hits).
+  const [searchHits, setSearchHits] = useState<MsgSearchHitWire[]>([]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
+  // uid → nickname resolved from profile_info.db for search-result senders.
+  const [searchNicks, setSearchNicks] = useState<Record<string, string>>({});
+  // Set when a search hit was clicked: the listLatest effect, after the target
+  // conversation's newest page lands, rebuilds the window centred on this seq
+  // instead of leaving the view pinned to the latest.
+  const pendingSearchJumpRef = useRef<{ conv: string; kind: 'group' | 'c2c'; seq: string } | null>(null);
+
   // Mirror of `loaded` for the reply-jump handler (a stable callback that must
   // read the current window without being re-created on every message change).
   const loadedRef = useRef<MessageWire[]>([]);
@@ -1252,35 +1340,26 @@ export function MainView(): ReactElement {
     loadedRef.current = loaded;
   }, [loaded, anchoredToLatest]);
 
-  // Scroll the loaded message list to a reply target, loading older pages first
-  // if it isn't in the window yet, then briefly flash it. The 40003 anchor lives
-  // in a different reply field per kind (verified against the live DB):
-  //   group → origMsgSeq (47402);  c2c → origMsgIndex (47419).
-  const jumpToSeq = useCallback(async (jumpTarget: ReplyJumpTarget): Promise<void> => {
-    const sel = selectionRef.current;
-    if (!sel) return;
-    const kind: 'group' | 'c2c' = sel.kind === 'group' ? 'group' : 'c2c';
-    const rawSeq =
-      kind === 'group' ? (jumpTarget.seq ?? jumpTarget.index) : (jumpTarget.index ?? jumpTarget.seq);
-    if (rawSeq === undefined || rawSeq === null || rawSeq === '') return;
-    const targetSeq = String(rawSeq);
+  // Scroll the loaded list to a message row by id and briefly flash it.
+  const scrollToMsgId = useCallback((msgId: string): boolean => {
+    const line = document.querySelector<HTMLElement>(
+      `.weq-readonly-chat .message-scroll [data-message-id="${msgId}"]`,
+    );
+    if (!line) return false;
+    line.scrollIntoView({ block: 'center' });
+    line.classList.add('weq-reply-target-flash');
+    window.setTimeout(() => line.classList.remove('weq-reply-target-flash'), 1600);
+    return true;
+  }, []);
 
-    function scrollToMsgId(msgId: string): boolean {
-      const line = document.querySelector<HTMLElement>(
-        `.weq-readonly-chat .message-scroll [data-message-id="${msgId}"]`,
-      );
-      if (!line) return false;
-      line.scrollIntoView({ block: 'center' });
-      line.classList.add('weq-reply-target-flash');
-      window.setTimeout(() => line.classList.remove('weq-reply-target-flash'), 1600);
-      return true;
-    }
-
-    // Rebuild the window centred on `targetSeq` straight from the DB, discarding
-    // whatever is loaded now. Used when the target is too far above the window to
-    // reach by a few scroll-up pages — keeps long jumps (and future "search →
-    // jump years back") constant-cost instead of loading everything in between.
-    async function jumpToContext(sel: { id: string }, kind: 'group' | 'c2c'): Promise<void> {
+  // Rebuild the loaded window centred on `targetSeq` straight from the DB,
+  // discarding whatever is loaded now. Keeps long jumps (reply to an ancient
+  // message, or search → jump years back) constant-cost instead of loading
+  // everything between the latest and the target. Returns true if the target
+  // was found and the view repositioned. `conv`/`kind` are passed explicitly so
+  // it works right after a conversation switch (before selectionRef settles).
+  const centerWindowOnSeq = useCallback(
+    async (conv: string, kind: 'group' | 'c2c', targetSeq: string): Promise<boolean> => {
       let before;
       let after;
       try {
@@ -1288,17 +1367,17 @@ export function MainView(): ReactElement {
           // `< target+1` is `<= target`, so the centre message is included.
           client.account.listBefore.query({
             kind,
-            conv: sel.id,
+            conv,
             beforeSeq: String(BigInt(targetSeq) + 1n),
             limit: PAGE_SIZE,
           }),
-          client.account.listAfter.query({ kind, conv: sel.id, afterSeq: targetSeq, limit: PAGE_SIZE }),
+          client.account.listAfter.query({ kind, conv, afterSeq: targetSeq, limit: PAGE_SIZE }),
         ]);
       } catch (err) {
-        console.error('[reply-jump] jumpToContext failed', err);
-        return;
+        console.error('[jump] centerWindowOnSeq failed', err);
+        return false;
       }
-      if (selectionRef.current?.id !== sel.id) return; // switched away mid-flight
+      if (selectionRef.current?.id !== conv) return false; // switched away mid-flight
 
       const seen = new Set<string>();
       const merged: MessageWire[] = [];
@@ -1310,7 +1389,7 @@ export function MainView(): ReactElement {
       }
 
       const target = merged.find((m) => m.msgSeq === targetSeq);
-      if (!target) return; // not in DB (e.g. recalled) — leave the view as-is
+      if (!target) return false; // not in DB (e.g. recalled) — leave the view as-is
 
       const atLatest = after.length < PAGE_SIZE;
       // Update the live-subscription's window descriptor synchronously: a
@@ -1325,7 +1404,23 @@ export function MainView(): ReactElement {
       // otherwise stay detached so refreshWindow won't drag us to the latest.
       setAnchoredToLatest(atLatest);
       window.setTimeout(() => scrollToMsgId(target.msgId), 160);
-    }
+      return true;
+    },
+    [scrollToMsgId],
+  );
+
+  // Scroll the loaded message list to a reply target, loading older pages first
+  // if it isn't in the window yet, then briefly flash it. The 40003 anchor lives
+  // in a different reply field per kind (verified against the live DB):
+  //   group → origMsgSeq (47402);  c2c → origMsgIndex (47419).
+  const jumpToSeq = useCallback(async (jumpTarget: ReplyJumpTarget): Promise<void> => {
+    const sel = selectionRef.current;
+    if (!sel) return;
+    const kind: 'group' | 'c2c' = sel.kind === 'group' ? 'group' : 'c2c';
+    const rawSeq =
+      kind === 'group' ? (jumpTarget.seq ?? jumpTarget.index) : (jumpTarget.index ?? jumpTarget.seq);
+    if (rawSeq === undefined || rawSeq === null || rawSeq === '') return;
+    const targetSeq = String(rawSeq);
 
     const here = loadedRef.current.find((m) => m.msgSeq === targetSeq);
     if (here) {
@@ -1375,8 +1470,124 @@ export function MainView(): ReactElement {
 
     // Slow path B: still not found after 3 pages — rebuild a fresh window
     // centred on the target instead of loading everything up to it.
-    await jumpToContext(sel, kind);
-  }, []);
+    await centerWindowOnSeq(sel.id, kind, targetSeq);
+  }, [centerWindowOnSeq, scrollToMsgId]);
+
+  // Debounced global message search: as the user types, search buddy+group and
+  // show up to 5 hits. A run counter discards stale responses so only the last
+  // keystroke's results win.
+  const searchQuery = shell.query.trim();
+  const searchRunRef = useRef(0);
+  useEffect(() => {
+    if (!searchQuery) {
+      setSearchHits([]);
+      setSearchOpen(false);
+      setSearchLoading(false);
+      return undefined;
+    }
+    const run = ++searchRunRef.current;
+    setSearchLoading(true);
+    const timer = window.setTimeout(() => {
+      client.account.searchMessages
+        .query({ scope: 'all', keyword: searchQuery, limit: 5 })
+        .then((hits) => {
+          if (searchRunRef.current !== run) return; // a newer keystroke superseded us
+          setSearchHits(hits as MsgSearchHitWire[]);
+          setSearchOpen(true);
+          setSearchLoading(false);
+        })
+        .catch((err) => {
+          if (searchRunRef.current !== run) return;
+          console.error('[search] searchMessages failed', err);
+          setSearchHits([]);
+          setSearchLoading(false);
+        });
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [searchQuery]);
+
+  // After hits land, batch-resolve group senders' nicknames from profile_info.db
+  // (one extra query). Only the uids we don't already have a name for.
+  useEffect(() => {
+    const unknown = searchHits
+      .filter((hit) => isGroupChatType(hit.chatType) && hit.senderUid)
+      .map((hit) => hit.senderUid)
+      .filter((uid) => !profileByUid.has(uid) && !searchNicks[uid]);
+    const todo = [...new Set(unknown)];
+    if (todo.length === 0) return;
+
+    let cancelled = false;
+    client.account.getNicksByUids
+      .query({ uids: todo })
+      .then((map) => {
+        if (cancelled) return;
+        const resolved = map as Record<string, string>;
+        if (Object.keys(resolved).length > 0) {
+          setSearchNicks((prev) => ({ ...prev, ...resolved }));
+        }
+      })
+      .catch((err) => console.error('[search] getNicksByUids failed', err));
+    return () => {
+      cancelled = true;
+    };
+  }, [searchHits, profileByUid, searchNicks]);
+
+  // Click a search hit → switch to its conversation and jump to the message.
+  const openSearchHit = useCallback(
+    (hit: MsgSearchHitWire): void => {
+      const kind: 'group' | 'c2c' = isGroupChatType(hit.chatType) ? 'group' : 'c2c';
+      const conv = hit.targetUid;
+      setSearchOpen(false);
+      shell.setQuery('');
+      if (!hit.msgSeq) {
+        // No seq (shouldn't happen now FTS returns 40003) — just open the chat.
+        console.warn('[search] hit missing msgSeq, opening conversation only');
+        shell.selectConversation(conv);
+        return;
+      }
+      if (selectionRef.current?.id === conv) {
+        // Already open — jump straight away.
+        void centerWindowOnSeq(conv, kind, hit.msgSeq);
+        return;
+      }
+      // Switch conversations; the listLatest effect performs the centred jump
+      // once the placeholder newest page lands.
+      pendingSearchJumpRef.current = { conv, kind, seq: hit.msgSeq };
+      shell.selectConversation(conv);
+    },
+    [centerWindowOnSeq, shell],
+  );
+
+  // Resolve display fields (conversation name/avatar, sender name) for each hit
+  // from already-loaded maps; fall back to ids when unresolved.
+  const searchResultRows = useMemo(() => {
+    return searchHits.map((hit) => {
+      const isGroup = isGroupChatType(hit.chatType);
+      const conversation = groupsById.get(hit.targetUid);
+      const convName = isGroup
+        ? conversation?.group?.name || hit.targetUid
+        : conversation?.otherUser?.displayName || conversation?.group?.name || hit.targetUid;
+      const avatarUrl = isGroup
+        ? conversation?.group?.avatarUrl || groupAvatarSrc(hit.targetUid)
+        : conversation?.otherUser?.avatarUrl || null;
+      // Sender name: prefer loaded buddy profile, then the nickname resolved
+      // from profile_info.db, finally a short uid. (c2c sender == the peer.)
+      const senderProfile = profileByUid.get(hit.senderUid);
+      const senderName = isGroup
+        ? displayProfileName(senderProfile) ||
+          searchNicks[hit.senderUid] ||
+          `${hit.senderUid.slice(0, 8)}…`
+        : convName;
+      return {
+        hit,
+        convName,
+        avatarUrl,
+        senderName,
+        time: searchHitTime(hit.sendTime),
+        runs: highlightSnippet(hit.content, searchQuery),
+      };
+    });
+  }, [searchHits, groupsById, profileByUid, searchNicks, searchQuery]);
 
   // Load the newest page whenever the open conversation changes. The render-time
   // reset already cleared `loaded`, so this never paints the old chat. Always a
@@ -1399,6 +1610,16 @@ export function MainView(): ReactElement {
         setHasOlder(page.length >= PAGE_SIZE);
         setAnchoredToLatest(true);
         setMessagesLoading(false);
+
+        // A search hit was clicked for this conversation: don't leave the view
+        // pinned to the latest — rebuild the window centred on the hit's seq.
+        // This newest page is just a cheap placeholder it immediately replaces,
+        // so we never load everything between latest and the target.
+        const jump = pendingSearchJumpRef.current;
+        if (jump && jump.conv === conv) {
+          pendingSearchJumpRef.current = null;
+          void centerWindowOnSeq(jump.conv, jump.kind, jump.seq);
+        }
       })
       .catch((err) => {
         if (cancelled) return;
@@ -1408,7 +1629,7 @@ export function MainView(): ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [selectedUid, isDirect, isGroup]);
+  }, [selectedUid, isDirect, isGroup, centerWindowOnSeq]);
 
   // Live refresh of the open conversation: re-read seq >= minSeq and replace the
   // window. Only when anchored to latest — a history/search window (not yet
@@ -1601,6 +1822,15 @@ export function MainView(): ReactElement {
     return () => document.removeEventListener('keydown', closeOnEscape);
   }, [templateCreditOpen]);
 
+  useEffect(() => {
+    if (!searchOpen) return undefined;
+    function onKey(event: KeyboardEvent): void {
+      if (event.key === 'Escape') setSearchOpen(false);
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [searchOpen]);
+
   async function closeAccount(): Promise<void> {
     await client.bootstrap.closeAccount.mutate();
     setOpenedUin(null);
@@ -1682,6 +1912,53 @@ export function MainView(): ReactElement {
               onSelectGroup={shell.selectGroup}
               activateToolsOnSelect={false}
             />
+            {searchOpen && searchQuery ? (
+              <div className="weq-search-dropdown" role="listbox">
+                {searchLoading && searchResultRows.length === 0 ? (
+                  <div className="weq-search-empty">搜索中…</div>
+                ) : searchResultRows.length === 0 ? (
+                  <div className="weq-search-empty">没有找到相关消息</div>
+                ) : (
+                  searchResultRows.map((row) => (
+                    <button
+                      key={`${row.hit.targetUid}:${row.hit.msgId}`}
+                      type="button"
+                      className="weq-search-row"
+                      role="option"
+                      onClick={() => openSearchHit(row.hit)}
+                    >
+                      <span className="weq-search-avatar">
+                        {row.avatarUrl ? (
+                          <img src={row.avatarUrl} alt="" loading="lazy" />
+                        ) : (
+                          <span className="weq-search-avatar-fallback">
+                            {row.convName.slice(0, 1)}
+                          </span>
+                        )}
+                      </span>
+                      <span className="weq-search-text">
+                        <span className="weq-search-row-top">
+                          <span className="weq-search-name">{row.convName}</span>
+                          <span className="weq-search-time">{row.time}</span>
+                        </span>
+                        <span className="weq-search-snippet">
+                          <span className="weq-search-sender">{row.senderName}: </span>
+                          {row.runs.map((part, i) =>
+                            part.hit ? (
+                              <mark key={i} className="weq-search-hl">
+                                {part.text}
+                              </mark>
+                            ) : (
+                              <span key={i}>{part.text}</span>
+                            ),
+                          )}
+                        </span>
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            ) : null}
             <OverlayScrollbar
               targetSelector=".app-shell .sidebar-body"
               className="weq-sidebar-scrollbar"

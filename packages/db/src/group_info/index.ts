@@ -16,3 +16,7 @@ export type { GroupBulletinDbOptions, GroupBulletin } from './bulletin';
 
 export { GroupMemberDb } from './member';
 export type { GroupMemberDbOptions, GroupMember } from './member';
+
+export { GroupNotifyDb } from './notify';
+export type { GroupNotifyDbOptions, GroupNotify, GroupNotifyUserInfo, GroupNotifyGroupInfo } from './notify';
+export { GroupNotifyStatus, GroupNotifyVerifyStatus } from './notify';

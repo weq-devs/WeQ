@@ -196,6 +196,13 @@ export const accountRouter = router({
       return profile ? userProfileToWire(profile) : null;
     }),
 
+  /** Batch-resolve nicknames by uid → { uid: nick } (cached profiles only). */
+  getNicksByUids: procedure
+    .input(z.object({ uids: z.array(z.string().min(1)).min(1).max(50) }))
+    .query(async ({ input }) => {
+      return requireServices().profile.nicksByUids(input.uids);
+    }),
+
   /** List cached user profiles. */
   listProfiles: procedure
     .input(pageInput.optional())

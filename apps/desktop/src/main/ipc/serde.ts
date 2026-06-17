@@ -157,6 +157,8 @@ export interface GroupMemberLevelInfoWire {
 
 export interface MsgSearchHitWire {
   msgId: string;
+  /** In-conversation seq (column 40003) — the jump anchor for click-to-locate. */
+  msgSeq: string;
   chatType: number;
   targetUid: string;
   senderUid: string;
@@ -392,6 +394,7 @@ export function groupMemberLevelInfoToWire(info: GroupMemberLevelInfo): GroupMem
 export function msgSearchHitToWire(hit: BuddyMsgFtsHit): MsgSearchHitWire {
   return {
     msgId: hit.msgId.toString(),
+    msgSeq: hit.msgSeq.toString(),
     chatType: hit.chatType,
     targetUid: hit.targetUid,
     senderUid: hit.senderUid,

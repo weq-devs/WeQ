@@ -56,6 +56,12 @@ export interface GroupMsg {
 export interface BuddyMsgFtsHit {
   /** Message id (column 40001) — joins back to c2c/group msg tables. */
   msgId: bigint;
+  /**
+   * In-conversation sequence (column 40003) — identical to the main msg table's
+   * msgSeq for the same msgId, so it can drive a reply-style jump straight from
+   * the search hit (no msgId→seq reverse lookup needed).
+   */
+  msgSeq: bigint;
   /** Chat type (column 40010) — value of `ChatType` (1 = c2c, 2 = group, …). */
   chatType: number;
   /** Conversation target — peer uid for c2c, group code for group (column 40021). */

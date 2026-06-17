@@ -48,6 +48,7 @@ export { RecentContactService } from './account/recent_contact';
 export { ForwardMsgService } from './account/forward';
 export { MsgService } from './account/msg';
 export { GroupInfoService } from './account/group_info';
+export { GroupNotifyService } from './account/group_notify';
 export { ProfileService } from './account/profile';
 export { EmojiService } from './account/emoji';
 export { FileSearchService } from './account/file_search';
