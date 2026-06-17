@@ -6,6 +6,7 @@ export type User = {
 	username: string;
 	displayName: string;
 	avatarUrl: string | null;
+	signature?: string | null;
 	kind?: "human" | "bot";
 };
 

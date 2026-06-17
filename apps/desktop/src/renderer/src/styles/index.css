@@ -1579,6 +1579,29 @@ html *::-webkit-scrollbar-corner {
   white-space: nowrap;
 }
 
+.app-title-bar-signature {
+  font-size: 12.5px;
+  font-weight: 400;
+  font-style: italic;
+  font-family: Georgia, "Nimbus Roman No9 L", "Songti SC", "KaiTi", "楷体", serif;
+  color: #5c7c99;
+  margin-left: 12px;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: 0.03em;
+  opacity: 0.85;
+}
+
+html[data-theme="dark"] .app-title-bar-nick {
+  color: #eef0f3;
+}
+
+html[data-theme="dark"] .app-title-bar-signature {
+  color: #9da3ad;
+}
+
 .app-title-bar-drag {
   flex: 1;
   height: 100%;

@@ -18,7 +18,13 @@
 import type { ReactNode } from 'react';
 import type { MessageRenderer } from '../im-template/template';
 import { FaceEmoji } from './FaceEmoji';
+import { QqImage, QqVideo, QqFile, QqVoice, QqMarketFace } from './QqMedia';
 import { cn } from '@renderer/lib/utils';
+
+/** Element kinds that render as standalone, borderless media (no bubble). */
+const BORDERLESS_MEDIA = new Set(['pic', 'video', 'mface']);
+/** Element kinds handled by a dedicated media component. */
+const MEDIA_KINDS = new Set(['pic', 'video', 'file', 'ptt', 'mface']);
 
 /** Box size for a lone sticker face (FaceSubType !== 1). */
 const STICKER_SIZE = 90;
@@ -81,34 +87,96 @@ function FaceNode({
   return <FaceEmoji element={faceProps(data)} size={size} animated={animated} />;
 }
 
-export function QqMessageContent({ elements }: { elements: RenderElement[] }) {
+/** Render a media element to its dedicated component, or null if unsupported. */
+function MediaNode({
+  element,
+  sendTimeMs,
+}: {
+  element: RenderElement;
+  sendTimeMs: number;
+}): ReactNode {
+  const data = element.data ?? {};
+  switch (element.type) {
+    case 'pic':
+      return <QqImage data={data} sendTimeMs={sendTimeMs} />;
+    case 'video':
+      return <QqVideo data={data} sendTimeMs={sendTimeMs} />;
+    case 'file':
+      return <QqFile data={data} sendTimeMs={sendTimeMs} />;
+    case 'ptt':
+      return <QqVoice data={data} sendTimeMs={sendTimeMs} />;
+    case 'mface':
+      return <QqMarketFace data={data} />;
+    default:
+      return null;
+  }
+}
+
+export function QqMessageContent({
+  elements,
+  sendTimeMs,
+}: {
+  elements: RenderElement[];
+  sendTimeMs: number;
+}) {
   const meaningful = elements.filter(isMeaningful);
   const first = meaningful[0];
-  const loneFace =
-    meaningful.length === 1 && first?.type === 'face' ? first : null;
+  const lone = meaningful.length === 1 ? first : null;
 
-  if (loneFace) {
-    const data = loneFace.data ?? {};
-    // subType 1/2 → classic built-in face, render text-sized in the bubble;
-    // every other face (super emoji, dice/rps, …) gets a borderless sticker box.
-    if (isInlineFace(data)) {
+  if (lone) {
+    // A lone borderless media element (image/video/sticker/mface) renders with
+    // no bubble background — same treatment as a sticker face.
+    if (lone.type && BORDERLESS_MEDIA.has(lone.type)) {
       return (
-        <div className={cn('message-content', 'qq-message-inline')}>
-          <FaceNode data={data} size={INLINE_SIZE} />
+        <div className={cn('message-content', 'sticker-only')}>
+          <MediaNode element={lone} sendTimeMs={sendTimeMs} />
         </div>
       );
     }
-    return (
-      <div className={cn('message-content', 'sticker-only')}>
-        <FaceNode data={data} size={STICKER_SIZE} animated />
-      </div>
-    );
+    if (lone.type === 'face') {
+      const data = lone.data ?? {};
+      if (isInlineFace(data)) {
+        return (
+          <div className={cn('message-content', 'qq-message-inline')}>
+            <FaceNode data={data} size={INLINE_SIZE} />
+          </div>
+        );
+      }
+      return (
+        <div className={cn('message-content', 'sticker-only')}>
+          <FaceNode data={data} size={STICKER_SIZE} animated />
+        </div>
+      );
+    }
+    // Lone file/voice still sit in a normal bubble (cards, not stickers).
+    if (lone.type && MEDIA_KINDS.has(lone.type)) {
+      return (
+        <div className={cn('message-content', 'qq-message-inline')}>
+          <MediaNode element={lone} sendTimeMs={sendTimeMs} />
+        </div>
+      );
+    }
   }
 
   const nodes: ReactNode[] = meaningful.map((element, index) => {
     const key = `el-${index}`;
+    if (element.type && MEDIA_KINDS.has(element.type)) {
+      return <MediaNode key={key} element={element} sendTimeMs={sendTimeMs} />;
+    }
     if (element.type === 'face') {
       return <FaceNode key={key} data={element.data ?? {}} size={INLINE_SIZE} />;
+    }
+    if (element.type === 'at') {
+      const text = String(element.data?.textContent ?? '');
+      return (
+        <span
+          key={key}
+          className="qq-at-element text-blue-500 font-medium cursor-pointer hover:underline"
+          title={`UID: ${element.data?.buddleId || 'unknown'}`}
+        >
+          {text}
+        </span>
+      );
     }
     const text = inlineLabel(element);
     return text ? <span key={key}>{text}</span> : null;
@@ -117,17 +185,23 @@ export function QqMessageContent({ elements }: { elements: RenderElement[] }) {
   return <div className={cn('message-content', 'qq-message-inline')}>{nodes}</div>;
 }
 
-/** MessageRenderer that handles messages carrying at least one face element. */
-export const qqFaceMessageRenderer: MessageRenderer = {
-  id: 'qq-face',
+/** Element kinds this renderer claims (face/at + rich media). */
+const HANDLED_KINDS = new Set(['face', 'at', 'pic', 'video', 'file', 'ptt', 'mface']);
+
+/** MessageRenderer that handles messages carrying face/at or rich-media elements. */
+export const qqMessageRenderer: MessageRenderer = {
+  id: 'qq-elements',
   match: ({ message }) => {
     const elements = (message as { qqElements?: RenderElement[] }).qqElements;
     return (
-      Array.isArray(elements) && elements.some((element) => element?.type === 'face')
+      Array.isArray(elements) &&
+      elements.some((element) => element?.type !== undefined && HANDLED_KINDS.has(element.type))
     );
   },
   render: ({ message }) => {
-    const elements = (message as { qqElements?: RenderElement[] }).qqElements ?? [];
-    return <QqMessageContent elements={elements} />;
+    const m = message as { qqElements?: RenderElement[]; createdAt?: string };
+    const elements = m.qqElements ?? [];
+    const sendTimeMs = m.createdAt ? Date.parse(m.createdAt) : 0;
+    return <QqMessageContent elements={elements} sendTimeMs={sendTimeMs} />;
   },
 };

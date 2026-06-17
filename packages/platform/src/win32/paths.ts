@@ -206,6 +206,19 @@ export function findMarketFaceDir(uin: string, home = homedir()): string | null 
   return null;
 }
 
+/**
+ * `<root>/<uin>/nt_qq/nt_data/Emoji/emoji-recv` for the first root that has it.
+ * Holds received animated emoji (pic subType 1): `<YYYY-MM>/Ori` and `/Thumb`,
+ * no separate "original" file.
+ */
+export function findEmojiRecvDir(uin: string, home = homedir()): string | null {
+  for (const root of candidateTencentFilesRoots(home)) {
+    const candidate = join(root, uin, 'nt_qq', 'nt_data', 'Emoji', 'emoji-recv');
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
 /** `<root>/<uin>/nt_qq/nt_data/Pic` for the first root that has it. */
 export function findPicDir(uin: string, home = homedir()): string | null {
   for (const root of candidateTencentFilesRoots(home)) {

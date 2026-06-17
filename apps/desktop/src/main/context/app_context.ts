@@ -32,6 +32,8 @@ import {
   AccountConfigService,
   GroupInfoService,
   ProfileService,
+  FileSearchService,
+  EmojiService,
   DbWatchService,
   createNtMsgDbHook,
   type AccountConfigMetadata,
@@ -87,6 +89,10 @@ export interface AccountServices {
   accountConfig: AccountConfigService;
   groupInfo: GroupInfoService;
   profile: ProfileService;
+  /** Locate on-disk media (pic/video/ptt/file) for the media protocol. */
+  fileSearch: FileSearchService;
+  /** Decrypt + cache market-face (store sticker) images. */
+  emoji: EmojiService;
 }
 
 /** Classified native-init failure surfaced to the renderer. */
@@ -171,6 +177,8 @@ export function initAppContext(): AppContext {
         accountConfig,
         groupInfo: new GroupInfoService(session),
         profile: new ProfileService(session),
+        fileSearch: new FileSearchService(session, platform),
+        emoji: new EmojiService(session, platform),
       };
       // Persist credentials + metadata, keyed by data directory.
       accountConfig.save(metadata);
@@ -178,7 +186,6 @@ export function initAppContext(): AppContext {
       // Watch this account's nt_msg.db. The hook fans every change into two
       // bus events: a debounced 'changed' (drives the open-conversation
       // re-query) and 'new' (rowid-delta, for notifications).
-      console.log(`[DbWatch] mount nt_msg.db watcher: ${session.msgDbPath}`);
       const emitChanged = trailingDebounce((file: DbChange) => {
         dbEventBus.emit('changed', file);
       }, 200);
@@ -186,17 +193,12 @@ export function initAppContext(): AppContext {
         createNtMsgDbHook(session, {
           onDbChanged: emitChanged,
           onNewMessages: (change: NewMessages) => {
-            console.log(
-              `[DbWatch] new rows → c2c=${change.c2c.length} group=${change.group.length} ` +
-                `(listeners=${dbEventBus.listenerCount('new')})`,
-            );
             dbEventBus.emit('new', change);
           },
         }),
       );
     },
     clearAccount(): void {
-      if (dbWatchHandle) console.log('[DbWatch] unmount nt_msg.db watcher');
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
       this.account?.dispose();

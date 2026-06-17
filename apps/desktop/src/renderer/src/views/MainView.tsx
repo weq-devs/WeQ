@@ -37,10 +37,10 @@ import {
   type User,
   useChatShellController,
 } from '../im-template/template';
-import { qqFaceMessageRenderer } from '../components/QqMessageContent';
+import { qqMessageRenderer } from '../components/QqMessageContent';
 
 const messageRenderers: MessageRenderer[] = composeMessageRenderers({
-  prepend: [qqFaceMessageRenderer],
+  prepend: [qqMessageRenderer],
 });
 
 const PAGE_SIZE = 50;
@@ -100,6 +100,7 @@ function toMessageWire(w: ChatMsgWire): MessageWire {
 type UserProfileWire = {
   nick?: string;
   avatarUrl?: string;
+  signature?: string;
 };
 
 type RenderElementWire = {
@@ -195,6 +196,7 @@ function currentUser(openedUin: string | null, selfProfile?: UserProfileWire | n
     // Prefer the uin-derived CDN avatar (always resolvable) over the profile
     // DB's stored URL, which is frequently empty or a stale signed link.
     avatarUrl: senderAvatarSrc(identityValue) || selfProfile?.avatarUrl || null,
+    signature: selfProfile?.signature || null,
   };
 }
 

@@ -31,7 +31,11 @@ export function TitleBar({ user }: { user: User }) {
 					seed={user.identityValue}
 				/>
 				<span className="app-title-bar-nick">{displayUserName(user)}</span>
-			</div>			<div className="app-title-bar-drag" />
+				{user.signature && (
+					<span className="app-title-bar-signature">{user.signature}</span>
+				)}
+				</div>
+			<div className="app-title-bar-drag" />
 			<div className="app-title-bar-actions">
 				<button onClick={handleMinimize} title="最小化">
 					<Minus size={14} />

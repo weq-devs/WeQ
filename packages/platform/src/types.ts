@@ -95,6 +95,9 @@ export interface Platform {
    */
   marketFaceDir(uin: string): string | null;
 
+  /** Received animated-emoji (pic subType 1) cache directory. */
+  emojiRecvDir(uin: string): string | null;
+
   /** Resolve QQ NT's picture data directory. */
   picDir(uin: string): string | null;
   /** Resolve QQ NT's PTT (voice message) data directory. */

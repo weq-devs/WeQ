@@ -8,11 +8,23 @@ import { join, extname } from 'node:path';
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
 
-export type FileType = 'pic' | 'video' | 'ptt' | 'file';
+export type FileType = 'pic' | 'video' | 'ptt' | 'file' | 'emoji';
 
 export interface SearchResult {
+  /** Absolute path to the located media, or null if not on disk. */
   source: string | null;
+  /**
+   * Absolute path to a thumbnail/cover (pic/video), or — for file — a
+   * `<ext>.png` icon basename under `resources/fileIcon`. Never null for file
+   * (icon is derived from the name even when the source isn't found).
+   */
   thumb: string | null;
+}
+
+/** Drop a trailing extension: `abc.mp4` → `abc`. Leaves extension-less names. */
+function stripExt(filename: string): string {
+  const ext = extname(filename);
+  return ext ? filename.slice(0, -ext.length) : filename;
 }
 
 export class FileSearchService {
@@ -51,7 +63,38 @@ export class FileSearchService {
       if (result.source || result.thumb) return result;
     }
 
+    // Animated emoji are content-hashed and reused, so the file often lives in a
+    // different month than the message's send time (and a bad timestamp would
+    // miss entirely). Fall back to scanning every month folder.
+    if (type === 'emoji') {
+      const baseDir = this.getTypeDir(uin, type);
+      if (baseDir && existsSync(baseDir)) {
+        for (const m of this.listMonths(baseDir)) {
+          if (monthsToTry.includes(m)) continue;
+          const result = this.searchInMonthDir(uin, type, m, filename);
+          if (result.thumb || result.source) return result;
+        }
+      }
+    }
+
     return { source: null, thumb: null };
+  }
+
+  /** Sub-directory names under a media base dir (the `<YYYY-MM>` buckets), newest first. */
+  private listMonths(baseDir: string): string[] {
+    try {
+      return readdirSync(baseDir)
+        .filter((e) => {
+          try {
+            return statSync(join(baseDir, e)).isDirectory();
+          } catch {
+            return false;
+          }
+        })
+        .sort((a, b) => b.localeCompare(a));
+    } catch {
+      return [];
+    }
   }
 
   private searchInMonthDir(
@@ -69,43 +112,61 @@ export class FileSearchService {
     const oriDir = join(monthDir, 'Ori');
     const thumbDir = join(monthDir, 'Thumb');
 
-    const source = this.findFirstMatch(oriDir, filename);
-    let thumb: string | null = null;
-
-    if (type === 'pic' || type === 'video') {
-      thumb = this.findFirstMatch(thumbDir, filename);
+    // pic/video share a stem: the cover is often `<stem>_0.jpg` while the source
+    // is `<stem>.<ext>`, so we match by stem (no extension). ptt has no separate
+    // thumbnail, so we match the full filename and skip the Thumb dir.
+    if (type === 'ptt') {
+      return { source: this.findFirstMatch(oriDir, filename), thumb: null };
     }
 
-    return { source, thumb };
+    const stem = stripExt(filename);
+
+    // Animated emoji (pic subType 1) has no "original" — the displayable image
+    // lives in Ori (preferred) or Thumb. Return it as `thumb`, source = null.
+    if (type === 'emoji') {
+      const display = this.findFirstMatch(oriDir, stem) ?? this.findFirstMatch(thumbDir, stem);
+      return { source: null, thumb: display };
+    }
+
+    return {
+      source: this.findFirstMatch(oriDir, stem),
+      thumb: this.findFirstMatch(thumbDir, stem),
+    };
   }
 
   private searchFile(uin: string, filename: string): SearchResult {
-    const baseDir = this.platform.fileDir(uin);
-    if (!baseDir) return { source: null, thumb: null };
-
-    const oriDir = join(baseDir, 'Ori');
-    const source = this.findRecursiveMatch(oriDir, filename);
-
-    if (!source) {
-      return { source: null, thumb: null };
-    }
-
-    // Map extension to icon for file thumbnails.
-    const ext = extname(source).toLowerCase().slice(1);
+    // Files have no separate thumbnail — the icon is derived from the extension
+    // and is ALWAYS returned, even when the source isn't on disk (the user's QQ
+    // download dir, not Ori, is the real location; resolving it is future work).
+    const ext = extname(filename).toLowerCase().slice(1);
     const thumb = this.getIconForExtension(ext);
 
+    const baseDir = this.platform.fileDir(uin);
+    if (!baseDir) return { source: null, thumb };
+
+    // Files keep their full name (with extension) on disk.
+    const oriDir = join(baseDir, 'Ori');
+    const source = this.findRecursiveMatch(oriDir, filename);
     return { source, thumb };
   }
 
-  private findFirstMatch(dir: string, filename: string): string | null {
+  private findFirstMatch(dir: string, needle: string): string | null {
     if (!existsSync(dir)) return null;
+    // Match case-insensitively — QQ stores hex names that may differ in case
+    // between the DB field and the on-disk filename.
+    const lcNeedle = needle.toLowerCase();
     try {
       const entries = readdirSync(dir);
+      // Prefer the entry whose stem equals the needle exactly (the real source,
+      // e.g. `<stem>.mp4`) over a substring hit (e.g. the `<stem>_0.jpg` cover
+      // sitting in the same dir) so a stem search returns the right file.
+      let fallback: string | null = null;
       for (const entry of entries) {
-        if (entry.includes(filename)) {
-          return join(dir, entry);
-        }
+        const lcEntry = entry.toLowerCase();
+        if (stripExt(lcEntry) === lcNeedle) return join(dir, entry);
+        if (!fallback && lcEntry.includes(lcNeedle)) fallback = join(dir, entry);
       }
+      return fallback;
     } catch {
       // Unreadable dir.
     }
@@ -114,6 +175,7 @@ export class FileSearchService {
 
   private findRecursiveMatch(dir: string, filename: string): string | null {
     if (!existsSync(dir)) return null;
+    const lcFilename = filename.toLowerCase();
     try {
       const entries = readdirSync(dir);
       for (const entry of entries) {
@@ -122,7 +184,7 @@ export class FileSearchService {
         if (stat.isDirectory()) {
           const found = this.findRecursiveMatch(fullPath, filename);
           if (found) return found;
-        } else if (entry.includes(filename)) {
+        } else if (entry.toLowerCase().includes(lcFilename)) {
           return fullPath;
         }
       }
@@ -137,6 +199,7 @@ export class FileSearchService {
       case 'pic': return this.platform.picDir(uin);
       case 'ptt': return this.platform.pttDir(uin);
       case 'video': return this.platform.videoDir(uin);
+      case 'emoji': return this.platform.emojiRecvDir(uin);
     }
   }
 

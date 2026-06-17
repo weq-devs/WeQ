@@ -1320,7 +1320,7 @@ export function ChatPane({
 					type="button"
 					onClick={scrollMessagesToBottom}
 				>
-					<ChevronDown size={18} strokeWidth={2.8} />
+					<ChevronDown size={14} strokeWidth={2.8} />
 					<span>{formatUnreadJumpCount(newMessagePill)}条新消息</span>
 				</button>
 			) : null}
