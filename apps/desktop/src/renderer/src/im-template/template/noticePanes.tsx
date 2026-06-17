@@ -1,6 +1,5 @@
-﻿// @ts-nocheck
-import { ChevronDown, ChevronLeft } from "lucide-react";
-import { useEffect, useState } from "react";
+// @ts-nocheck
+import { ChevronLeft } from "lucide-react";
 import { cn } from "./classNames";
 import { formatProfileDate } from "./format";
 import { Avatar, EmptyState } from "./primitives";
@@ -9,8 +8,6 @@ import { displayUserName } from "./user";
 
 export function ContactNoticePane({
 	requests,
-	onAccept,
-	onReject,
 	onBack,
 }: {
 	requests: ContactRequest[];
@@ -18,54 +15,6 @@ export function ContactNoticePane({
 	onReject: (requestId: string) => Promise<void>;
 	onBack?: () => void;
 }) {
-	const [rejectMenuId, setRejectMenuId] = useState<string | null>(null);
-	const [busyId, setBusyId] = useState<string | null>(null);
-
-	useEffect(() => {
-		if (!rejectMenuId) {
-			return;
-		}
-
-		function closeOnOutside(event: MouseEvent) {
-			if (!(event.target as Element).closest(".notice-action-wrap")) {
-				setRejectMenuId(null);
-			}
-		}
-
-		function closeOnEscape(event: KeyboardEvent) {
-			if (event.key === "Escape") {
-				setRejectMenuId(null);
-			}
-		}
-
-		document.addEventListener("mousedown", closeOnOutside);
-		document.addEventListener("keydown", closeOnEscape);
-		return () => {
-			document.removeEventListener("mousedown", closeOnOutside);
-			document.removeEventListener("keydown", closeOnEscape);
-		};
-	}, [rejectMenuId]);
-
-	async function accept(requestId: string) {
-		setBusyId(requestId);
-		setRejectMenuId(null);
-		try {
-			await onAccept(requestId);
-		} finally {
-			setBusyId(null);
-		}
-	}
-
-	async function reject(requestId: string) {
-		setBusyId(requestId);
-		setRejectMenuId(null);
-		try {
-			await onReject(requestId);
-		} finally {
-			setBusyId(null);
-		}
-	}
-
 	return (
 		<section className={cn("notice-pane")}>
 			<NoticeHeader title="好友通知" onBack={onBack} />
@@ -93,45 +42,6 @@ export function ContactNoticePane({
 								</p>
 								<strong>留言：{request.message || "请求添加对方为好友"}</strong>
 							</div>
-							<div className={cn("notice-action")}>
-								{request.direction === "incoming" &&
-								request.status === "pending" ? (
-									<div className={cn("notice-action-wrap")}>
-										<div className={cn("notice-split-button")}>
-											<button
-												type="button"
-												disabled={busyId === request.id}
-												onClick={() => void accept(request.id)}
-											>
-												同意
-											</button>
-											<button
-												type="button"
-												disabled={busyId === request.id}
-												onClick={() =>
-													setRejectMenuId((current) =>
-														current === request.id ? null : request.id,
-													)
-												}
-											>
-												<ChevronDown size={18} />
-											</button>
-										</div>
-										{rejectMenuId === request.id ? (
-											<div className={cn("notice-mini-menu")}>
-												<button
-													type="button"
-													onClick={() => void reject(request.id)}
-												>
-													拒绝
-												</button>
-											</div>
-										) : null}
-									</div>
-								) : (
-									<span>{contactRequestStatusLabel(request)}</span>
-								)}
-							</div>
 						</article>
 					))
 				)}
@@ -142,8 +52,6 @@ export function ContactNoticePane({
 
 export function GroupNoticePane({
 	requests,
-	onAccept,
-	onReject,
 	onBack,
 }: {
 	requests: GroupJoinRequest[];
@@ -151,54 +59,6 @@ export function GroupNoticePane({
 	onReject: (requestId: string) => Promise<void>;
 	onBack?: () => void;
 }) {
-	const [rejectMenuId, setRejectMenuId] = useState<string | null>(null);
-	const [busyId, setBusyId] = useState<string | null>(null);
-
-	useEffect(() => {
-		if (!rejectMenuId) {
-			return;
-		}
-
-		function closeOnOutside(event: MouseEvent) {
-			if (!(event.target as Element).closest(".notice-action-wrap")) {
-				setRejectMenuId(null);
-			}
-		}
-
-		function closeOnEscape(event: KeyboardEvent) {
-			if (event.key === "Escape") {
-				setRejectMenuId(null);
-			}
-		}
-
-		document.addEventListener("mousedown", closeOnOutside);
-		document.addEventListener("keydown", closeOnEscape);
-		return () => {
-			document.removeEventListener("mousedown", closeOnOutside);
-			document.removeEventListener("keydown", closeOnEscape);
-		};
-	}, [rejectMenuId]);
-
-	async function accept(requestId: string) {
-		setBusyId(requestId);
-		setRejectMenuId(null);
-		try {
-			await onAccept(requestId);
-		} finally {
-			setBusyId(null);
-		}
-	}
-
-	async function reject(requestId: string) {
-		setBusyId(requestId);
-		setRejectMenuId(null);
-		try {
-			await onReject(requestId);
-		} finally {
-			setBusyId(null);
-		}
-	}
-
 	return (
 		<section className={cn("notice-pane")}>
 			<NoticeHeader title="群通知" onBack={onBack} />
@@ -226,45 +86,6 @@ export function GroupNoticePane({
 									<time>{formatProfileDate(request.createdAt)}</time>
 								</p>
 								<strong>留言：{request.message || "请求加入群聊"}</strong>
-							</div>
-							<div className={cn("notice-action")}>
-								{request.direction === "incoming" &&
-								request.status === "pending" ? (
-									<div className={cn("notice-action-wrap")}>
-										<div className={cn("notice-split-button")}>
-											<button
-												type="button"
-												disabled={busyId === request.id}
-												onClick={() => void accept(request.id)}
-											>
-												同意
-											</button>
-											<button
-												type="button"
-												disabled={busyId === request.id}
-												onClick={() =>
-													setRejectMenuId((current) =>
-														current === request.id ? null : request.id,
-													)
-												}
-											>
-												<ChevronDown size={18} />
-											</button>
-										</div>
-										{rejectMenuId === request.id ? (
-											<div className={cn("notice-mini-menu")}>
-												<button
-													type="button"
-													onClick={() => void reject(request.id)}
-												>
-													拒绝
-												</button>
-											</div>
-										) : null}
-									</div>
-								) : (
-									<span>{groupRequestStatusLabel(request)}</span>
-								)}
 							</div>
 						</article>
 					))
@@ -299,30 +120,4 @@ function NoticeHeader({
 			<span className={cn("notice-back-spacer")} />
 		</header>
 	);
-}
-
-function contactRequestStatusLabel(request: ContactRequest) {
-	if (request.status === "accepted") {
-		return "已同意";
-	}
-	if (request.status === "rejected") {
-		return "已拒绝";
-	}
-	if (request.status === "cancelled") {
-		return "已取消";
-	}
-	return request.direction === "outgoing" ? "等待验证" : "待处理";
-}
-
-function groupRequestStatusLabel(request: GroupJoinRequest) {
-	if (request.status === "accepted") {
-		return "已同意";
-	}
-	if (request.status === "rejected") {
-		return "已拒绝";
-	}
-	if (request.status === "cancelled") {
-		return "已取消";
-	}
-	return request.direction === "outgoing" ? "等待验证" : "待处理";
 }

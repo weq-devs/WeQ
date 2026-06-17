@@ -12,6 +12,16 @@ export type User = {
 
 export type Contact = User & {
 	createdAt: string;
+	categoryId?: number;
+	categoryName?: string | null;
+	qid?: string | null;
+	remark?: string | null;
+	age?: number;
+	gender?: number;
+	signature?: string | null;
+	intimacy?: number;
+	customStatus?: string | null;
+	onlineStatus?: string | null;
 };
 
 export type GroupMemberRole = "owner" | "admin" | "member";
@@ -19,6 +29,11 @@ export type GroupMemberRole = "owner" | "admin" | "member";
 export type GroupMember = User & {
 	role: GroupMemberRole;
 	joinedAt: string;
+	lastSpeakAt?: string | null;
+	muteUntil?: string | null;
+	customTitle?: string | null;
+	memberLevel?: number;
+	levelName?: string | null;
 };
 
 type ConversationBase = {
@@ -52,8 +67,34 @@ export type GroupConversation = ConversationBase & {
 		identityValue: string;
 		avatarUrl: string | null;
 		announcement: string | null;
+		description?: string | null;
+		remark?: string | null;
 		memberCount: number;
+		maxMemberCount?: number;
 		role: GroupMemberRole;
+		createTime?: string | null;
+		labels?: string | null;
+		entranceQ?: string | null;
+		customLabels?: string[];
+		addressName?: string | null;
+		bulletins?: Array<{
+			id: string;
+			text: string;
+			createdAt: string;
+			publisherUid: string;
+		}>;
+		essenceMessages?: Array<{
+			id: string;
+			msgSeq: number;
+			senderName: string;
+			operatorName: string;
+			createdAt: string;
+			active: boolean;
+		}>;
+		levelConfigs?: Array<{
+			level: number;
+			name: string;
+		}>;
 	};
 	members: GroupMember[];
 };

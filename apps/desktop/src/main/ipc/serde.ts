@@ -9,9 +9,23 @@
  * renderer can `BigInt(s)` back if it needs arithmetic. Display code is no-op.
  */
 
-import type { C2cMsg, GroupMsg, RecentContact, UserProfile, GroupDetail, GroupMember } from '@weq/db';
-import type { SetEmojiItem } from '@weq/codec';
-import type { RenderC2cMsg, RenderGroupMsg } from '@weq/service';
+import type {
+  Buddy,
+  BuddyMsgFtsHit,
+  BuddyRequest,
+  Category,
+  C2cMsg,
+  GroupBulletin,
+  GroupDetail,
+  GroupEssence,
+  GroupMember,
+  GroupMemberLevelInfo,
+  GroupMsg,
+  RecentContact,
+  UserProfile,
+} from '@weq/db';
+import type { MsgCacheRecord, SetEmojiItem } from '@weq/codec';
+import type { FormattedOnlineStatus, RenderC2cMsg, RenderGroupMsg } from '@weq/service';
 
 export interface UserProfileWire {
   uid: string;
@@ -19,10 +33,24 @@ export interface UserProfileWire {
   uin: string;
   nick: string;
   avatarUrl: string;
+  birthYear: number;
+  birthMonth: number;
+  birthDay: number;
   gender: number;
   age: number;
   signature: string;
   remark: string;
+  intimacy: number;
+  sigUpdateTime: number;
+  isFriend: boolean;
+  customStatus?: {
+    id?: number;
+    desc?: string;
+  };
+  extRelation?: {
+    preselectedIds: number[];
+    displayId?: number;
+  };
 }
 
 export interface GroupDetailWire {
@@ -33,6 +61,26 @@ export interface GroupDetailWire {
   remark: string;
   ownerUid: string;
   createTime: number;
+  maxMemberCount: number;
+  memberCount: number;
+  labels: string;
+  entranceQ: string;
+  leaveFlag: number;
+  customLabels: Array<{
+    groupCode?: string;
+    setterUid?: string;
+    labelId?: string;
+    setTimestamp?: string;
+    content?: string;
+  }>;
+  address?: {
+    setterUid?: string;
+    setTimestamp?: string;
+    locationId?: number;
+    longitude?: number;
+    latitude?: number;
+    locationName?: string;
+  };
 }
 
 export interface GroupMemberWire {
@@ -49,6 +97,75 @@ export interface GroupMemberWire {
   customTitle: string;
   memberLevel: number;
 }
+
+export interface BuddyWire {
+  uid: string;
+  qid: string;
+  uin: string;
+  categoryId: number;
+}
+
+export interface CategoryWire {
+  id: number;
+  name: string;
+  buddyCount: number;
+}
+
+export interface BuddyRequestWire {
+  timestamp: number;
+  peerUid: string;
+  nick: string;
+  isAccepted: number;
+  verifyMsg: string;
+  source: string;
+  status: number;
+  sourceGroupCode: string;
+  initiator: number;
+}
+
+export interface GroupBulletinWire {
+  groupCode: string;
+  publisherUid: string;
+  fid: string;
+  msgTime: string;
+  ctime: string;
+  textContent: string;
+}
+
+export interface GroupEssenceWire {
+  groupCode: string;
+  msgSeq: number;
+  msgRandom: number;
+  senderUin: string;
+  senderNick: string;
+  setStatus: number;
+  operatorUin: string;
+  operatorNick: string;
+  timestamp: number;
+}
+
+export interface GroupLevelConfigItemWire {
+  level: number;
+  levelName: string;
+}
+
+export interface GroupMemberLevelInfoWire {
+  groupCode: string;
+  memberLevel: number;
+  levelConfigs: GroupLevelConfigItemWire[];
+}
+
+export interface MsgSearchHitWire {
+  msgId: string;
+  chatType: number;
+  targetUid: string;
+  senderUid: string;
+  sendTime: string;
+  content: string;
+  fileName?: string;
+}
+
+export interface OnlineStatusWire extends FormattedOnlineStatus {}
 
 /**
  * Unified chat-message wire shape for both c2c and group. `conv` is the
@@ -139,10 +256,18 @@ export function userProfileToWire(p: UserProfile): UserProfileWire {
     uin: p.uin.toString(),
     nick: p.nick,
     avatarUrl: p.avatarUrl,
+    birthYear: p.birthYear,
+    birthMonth: p.birthMonth,
+    birthDay: p.birthDay,
     gender: p.gender,
     age: p.age,
     signature: p.signature,
     remark: p.remark,
+    intimacy: p.intimacy,
+    sigUpdateTime: p.sigUpdateTime,
+    isFriend: p.isFriend,
+    customStatus: p.customStatus,
+    extRelation: p.extRelation,
   };
 }
 
@@ -155,6 +280,28 @@ export function groupDetailToWire(d: GroupDetail): GroupDetailWire {
     remark: d.remark,
     ownerUid: d.ownerUid,
     createTime: d.createTime,
+    maxMemberCount: d.maxMemberCount,
+    memberCount: d.memberCount,
+    labels: d.labels,
+    entranceQ: d.entranceQ,
+    leaveFlag: d.leaveFlag,
+    customLabels: d.customLabels.map((label) => ({
+      groupCode: label.groupCode?.toString(),
+      setterUid: label.setterUid,
+      labelId: label.labelId,
+      setTimestamp: label.setTimestamp?.toString(),
+      content: label.content,
+    })),
+    address: d.address
+      ? {
+          setterUid: d.address.setterUid,
+          setTimestamp: d.address.setTimestamp?.toString(),
+          locationId: d.address.locationId,
+          longitude: d.address.longitude,
+          latitude: d.address.latitude,
+          locationName: d.address.locationName,
+        }
+      : undefined,
   };
 }
 
@@ -173,6 +320,93 @@ export function groupMemberToWire(m: GroupMember): GroupMemberWire {
     customTitle: m.customTitle,
     memberLevel: m.memberLevel,
   };
+}
+
+export function buddyToWire(b: Buddy): BuddyWire {
+  return {
+    uid: b.uid,
+    qid: b.qid,
+    uin: b.uin.toString(),
+    categoryId: b.categoryId,
+  };
+}
+
+export function categoryToWire(c: Category): CategoryWire {
+  return {
+    id: c.id,
+    name: c.name,
+    buddyCount: c.buddyCount,
+  };
+}
+
+export function buddyRequestToWire(r: BuddyRequest): BuddyRequestWire {
+  return {
+    timestamp: r.timestamp,
+    peerUid: r.peerUid,
+    nick: r.nick,
+    isAccepted: r.isAccepted,
+    verifyMsg: r.verifyMsg,
+    source: r.source,
+    status: r.status,
+    sourceGroupCode: r.sourceGroupCode.toString(),
+    initiator: r.initiator,
+  };
+}
+
+export function groupBulletinToWire(b: GroupBulletin): GroupBulletinWire {
+  return {
+    groupCode: b.groupCode.toString(),
+    publisherUid: b.publisherUid,
+    fid: b.fid,
+    msgTime: b.msgTime.toString(),
+    ctime: b.ctime.toString(),
+    textContent: b.textContent,
+  };
+}
+
+export function groupEssenceToWire(e: GroupEssence): GroupEssenceWire {
+  return {
+    groupCode: e.groupCode.toString(),
+    msgSeq: e.msgSeq,
+    msgRandom: e.msgRandom,
+    senderUin: e.senderUin.toString(),
+    senderNick: e.senderNick,
+    setStatus: e.setStatus,
+    operatorUin: e.operatorUin.toString(),
+    operatorNick: e.operatorNick,
+    timestamp: e.timestamp,
+  };
+}
+
+export function groupMemberLevelInfoToWire(info: GroupMemberLevelInfo): GroupMemberLevelInfoWire {
+  return {
+    groupCode: info.groupCode.toString(),
+    memberLevel: info.memberLevel,
+    levelConfigs: info.levelConfigs.map((item) => ({
+      level: item.level,
+      levelName: item.levelName,
+    })),
+  };
+}
+
+export function msgSearchHitToWire(hit: BuddyMsgFtsHit): MsgSearchHitWire {
+  return {
+    msgId: hit.msgId.toString(),
+    chatType: hit.chatType,
+    targetUid: hit.targetUid,
+    senderUid: hit.senderUid,
+    sendTime: hit.sendTime.toString(),
+    content: hit.content,
+    fileName: hit.fileName,
+  };
+}
+
+export function onlineStatusToWire(status: FormattedOnlineStatus): OnlineStatusWire {
+  return status;
+}
+
+export function forwardRecordToWire(record: MsgCacheRecord): unknown {
+  return sanitize(record);
 }
 
 /**

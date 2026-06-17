@@ -13,7 +13,11 @@ import type { GroupUpdateInput } from "./conversationDetailsTypes";
 import { displayUserName } from "./user";
 import { cn } from "./classNames";
 
-export { GroupInfoPanel } from "./groupInfoPanel";
+export {
+	GroupInfoDetailDialog,
+	GroupInfoPanel,
+	type GroupInfoDetail,
+} from "./groupInfoPanel";
 export { GroupInviteDialog } from "./groupInviteDialog";
 export type {
 	GroupConversationView,

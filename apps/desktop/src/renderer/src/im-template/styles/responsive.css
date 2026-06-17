@@ -1497,16 +1497,6 @@
 		font-size: 13px;
 	}
 
-	.notice-action {
-		min-width: 0;
-		font-size: 13px;
-	}
-
-	.notice-action {
-		grid-column: 2;
-		justify-content: flex-start;
-	}
-
 	.tools-pane {
 		min-height: 100%;
 		padding: 0 0 16px;
@@ -2535,11 +2525,6 @@
 		font-size: 13px;
 	}
 
-	.group-profile-members .avatar {
-		width: 30px;
-		height: 30px;
-	}
-
 	.contact-profile-row {
 		min-height: 46px;
 	}
@@ -2553,11 +2538,8 @@
 		font-size: 13px;
 	}
 
-	.contact-profile-actions .primary-button,
-	.contact-profile-actions .secondary-button {
-		min-width: 104px;
-		min-height: 36px;
-		font-size: 14px;
+	.group-profile-announcement-row strong {
+		max-width: 100%;
 	}
 
 	html[data-theme="dark"] .app-rail {

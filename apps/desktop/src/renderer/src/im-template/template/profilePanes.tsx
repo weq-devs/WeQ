@@ -1,16 +1,9 @@
-﻿// @ts-nocheck
-import { ChevronLeft } from "lucide-react";
+// @ts-nocheck
+import { ChevronLeft, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "./classNames";
-import { copyTextToClipboard } from "./clipboard";
 import { formatProfileDate } from "./format";
-import {
-	isProfileActionDisabled,
-	profileActionLabel,
-	resolveProfileActionRegistry,
-	type ProfileAction,
-	type ProfileActionRegistry,
-} from "./profileActions";
+import type { ProfileActionRegistry } from "./profileActions";
 import { Avatar, EmptyState } from "./primitives";
 import type { Contact, Conversation } from "./types";
 import { displayUserName } from "./user";
@@ -26,12 +19,6 @@ export function ContactProfilePane({
 	onMessage: (contact: Contact) => void | Promise<void>;
 	profileActions?: Partial<ProfileActionRegistry>;
 }) {
-	const [status, setStatus] = useState("");
-
-	useEffect(() => {
-		setStatus("");
-	}, [contact?.id]);
-
 	if (!contact) {
 		return (
 			<section className={cn("contact-profile-empty")}>
@@ -40,20 +27,6 @@ export function ContactProfilePane({
 		);
 	}
 	const profile = contact;
-
-	async function copyUserId() {
-		setStatus(
-			(await copyTextToClipboard(profile.identityValue))
-				? "已复制"
-				: "复制失败",
-		);
-	}
-	const actionContext = {
-		contact: profile,
-		copyIdentity: copyUserId,
-		message: onMessage,
-	};
-	const actions = resolveProfileActionRegistry(profileActions).contact;
 
 	return (
 		<section className={cn("contact-profile-pane")}>
@@ -85,14 +58,54 @@ export function ContactProfilePane({
 						<span>用户名</span>
 						<strong>{profile.username}</strong>
 					</div>
+					{profile.qid ? (
+						<div className={cn("contact-profile-row")}>
+							<span>QID</span>
+							<strong>{profile.qid}</strong>
+						</div>
+					) : null}
+					{profile.categoryName ? (
+						<div className={cn("contact-profile-row")}>
+							<span>好友分组</span>
+							<strong>{profile.categoryName}</strong>
+						</div>
+					) : null}
+					{profile.customStatus || profile.onlineStatus ? (
+						<div className={cn("contact-profile-row")}>
+							<span>状态</span>
+							<strong>{profile.customStatus || profile.onlineStatus}</strong>
+						</div>
+					) : null}
+					{profile.signature ? (
+						<div className={cn("contact-profile-row")}>
+							<span>签名</span>
+							<strong>{profile.signature}</strong>
+						</div>
+					) : null}
+					{profile.age || profile.gender ? (
+						<div className={cn("contact-profile-row")}>
+							<span>资料</span>
+							<strong>
+								{[
+									profile.age ? `${profile.age} 岁` : null,
+									genderLabel(profile.gender),
+								]
+									.filter(Boolean)
+									.join(" · ")}
+							</strong>
+						</div>
+					) : null}
+					{profile.intimacy ? (
+						<div className={cn("contact-profile-row")}>
+							<span>亲密度</span>
+							<strong>{profile.intimacy}</strong>
+						</div>
+					) : null}
 					<div className={cn("contact-profile-row")}>
 						<span>成为联系人</span>
 						<strong>{formatProfileDate(profile.createdAt)}</strong>
 					</div>
 				</div>
-
-				<ProfileActionButtons actions={actions} context={actionContext} />
-				{status ? <p className={cn("form-status")}>{status}</p> : null}
 			</div>
 		</section>
 	);
@@ -109,10 +122,13 @@ export function GroupProfilePane({
 	onMessage: (conversationId: string) => void | Promise<void>;
 	profileActions?: Partial<ProfileActionRegistry>;
 }) {
-	const [status, setStatus] = useState("");
+	const [detailRow, setDetailRow] = useState<{
+		label: string;
+		value: string;
+	} | null>(null);
 
 	useEffect(() => {
-		setStatus("");
+		setDetailRow(null);
 	}, [conversation?.id]);
 
 	if (!conversation) {
@@ -123,21 +139,25 @@ export function GroupProfilePane({
 		);
 	}
 
-	const groupConversation = conversation;
-
-	async function copyGroupCode() {
-		setStatus(
-			(await copyTextToClipboard(groupConversation.group.identityValue))
-				? "已复制"
-				: "复制失败",
-		);
-	}
-	const actionContext = {
-		conversation: groupConversation,
-		copyIdentity: copyGroupCode,
-		message: onMessage,
-	};
-	const actions = resolveProfileActionRegistry(profileActions).group;
+	const groupRows = [
+		["群公告", conversation.group.announcement?.trim() || "未设置"],
+		["我的身份", groupRoleLabel(conversation.group.role)],
+		["群成员", `${conversation.group.memberCount} 人`],
+		conversation.group.description ? ["群简介", conversation.group.description] : null,
+		conversation.group.remark ? ["群备注", conversation.group.remark] : null,
+		conversation.group.createTime
+			? ["创建时间", formatProfileDate(conversation.group.createTime)]
+			: null,
+		conversation.group.maxMemberCount
+			? [
+					"群容量",
+					`${conversation.group.memberCount}/${conversation.group.maxMemberCount}`,
+				]
+			: null,
+		conversation.group.entranceQ
+			? ["入群问题", conversation.group.entranceQ]
+			: null,
+	].filter(Boolean) as string[][];
 
 	return (
 		<section className={cn("contact-profile-pane group-profile-pane")}>
@@ -166,68 +186,80 @@ export function GroupProfilePane({
 				</header>
 
 				<div className={cn("contact-profile-fields")}>
-					<div className={cn("contact-profile-row")}>
-						<span>群公告</span>
-						<strong>
-							{conversation.group.announcement?.trim() || "未设置"}
-						</strong>
-					</div>
-					<div className={cn("contact-profile-row")}>
-						<span>我的身份</span>
-						<strong>{groupRoleLabel(conversation.group.role)}</strong>
-					</div>
-					<div className={cn("contact-profile-row")}>
-						<span>群成员</span>
-						<strong>{conversation.group.memberCount} 人</strong>
-					</div>
-				</div>
-
-				<div className={cn("group-profile-members")}>
-					{conversation.members.slice(0, 12).map((member) => (
-						<Avatar
-							key={member.id}
-							name={displayUserName(member)}
-							avatarUrl={member.avatarUrl}
-							seed={member.identityValue}
-						/>
+					{groupRows.map(([label, value]) => (
+						<button
+							className={cn(
+								"contact-profile-row",
+								"group-profile-row-button",
+								label === "群公告" && "group-profile-announcement-row",
+							)}
+							type="button"
+							key={label}
+							onClick={() => setDetailRow({ label, value })}
+						>
+							<span>{label}</span>
+							<strong>{value}</strong>
+						</button>
 					))}
 				</div>
-
-				<ProfileActionButtons actions={actions} context={actionContext} />
-				{status ? <p className={cn("form-status")}>{status}</p> : null}
 			</div>
+			{detailRow ? (
+				<GroupProfileDetailDialog
+					title={detailRow.label}
+					value={detailRow.value}
+					onClose={() => setDetailRow(null)}
+				/>
+			) : null}
 		</section>
 	);
 }
 
-function ProfileActionButtons<TContext>({
-	actions,
-	context,
+function GroupProfileDetailDialog({
+	title,
+	value,
+	onClose,
 }: {
-	actions: ProfileAction<TContext>[];
-	context: TContext;
+	title: string;
+	value: string;
+	onClose: () => void;
 }) {
+	useEffect(() => {
+		function closeOnEscape(event: KeyboardEvent) {
+			if (event.key === "Escape") {
+				onClose();
+			}
+		}
+
+		document.addEventListener("keydown", closeOnEscape);
+		return () => document.removeEventListener("keydown", closeOnEscape);
+	}, [onClose]);
+
 	return (
-		<div className={cn("contact-profile-actions")}>
-			{actions.map((action) => {
-				const Icon = action.icon;
-				return (
+		<div
+			className={cn("modal-scrim", "group-profile-detail-scrim")}
+			role="presentation"
+			onMouseDown={onClose}
+		>
+			<section
+				className={cn("group-profile-detail-dialog")}
+				role="dialog"
+				aria-modal="true"
+				aria-label={title}
+				onMouseDown={(event) => event.stopPropagation()}
+			>
+				<header>
+					<strong>{title}</strong>
 					<button
-						key={action.id}
-						className={cn(
-							action.variant === "primary"
-								? "primary-button"
-								: "secondary-button",
-						)}
+						className={cn("icon-button")}
 						type="button"
-						disabled={isProfileActionDisabled(action, context)}
-						onClick={() => void action.onClick(context)}
+						title="关闭"
+						onClick={onClose}
 					>
-						{Icon ? <Icon size={18} /> : null}
-						{profileActionLabel(action, context)}
+						<X size={18} />
 					</button>
-				);
-			})}
+				</header>
+				<p>{value}</p>
+			</section>
 		</div>
 	);
 }
@@ -240,4 +272,14 @@ function groupRoleLabel(role: "owner" | "admin" | "member") {
 		return "管理员";
 	}
 	return "成员";
+}
+
+function genderLabel(value?: number) {
+	if (value === 1) {
+		return "男";
+	}
+	if (value === 2) {
+		return "女";
+	}
+	return null;
 }

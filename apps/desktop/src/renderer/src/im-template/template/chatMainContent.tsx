@@ -44,7 +44,6 @@ export function ChatMainContent({
 	loadingMessages,
 	conversationPrefs,
 	drafts,
-	contacts,
 	query = "",
 	onAcceptContactRequest,
 	onRejectContactRequest,
@@ -57,7 +56,8 @@ export function ChatMainContent({
 	onBackContactNotice,
 	onUpdateConversationPreference,
 	onUpdateGroup,
-	onInviteGroupMembers,
+	onLoadMoreGroupMembers,
+	groupMembersLoading,
 	onOpenNotificationSettings,
 	onSend,
 	onMessageAction,
@@ -85,7 +85,6 @@ export function ChatMainContent({
 	loadingMessages: boolean;
 	conversationPrefs: Record<string, ConversationPreference>;
 	drafts: ConversationDrafts;
-	contacts: Contact[];
 	query?: string;
 	onAcceptContactRequest: (requestId: string) => Promise<void>;
 	onRejectContactRequest: (requestId: string) => Promise<void>;
@@ -105,10 +104,8 @@ export function ChatMainContent({
 		conversationId: string,
 		input: GroupUpdateInput,
 	) => Promise<void>;
-	onInviteGroupMembers: (
-		conversationId: string,
-		memberIds: string[],
-	) => Promise<void>;
+	onLoadMoreGroupMembers?: () => void;
+	groupMembersLoading?: boolean;
 	onOpenNotificationSettings: () => void;
 	onSend: (body: string) => Promise<void>;
 	onMessageAction?: (message: Message, action: MessageAction) => Promise<void>;
@@ -180,7 +177,6 @@ export function ChatMainContent({
 			conversation={activeConversation}
 			messages={messages}
 			composerActions={composerActions}
-			conversationDetailActions={conversationDetailActions}
 			messageRenderers={messageRenderers}
 			loading={loadingMessages}
 			preference={
@@ -189,11 +185,8 @@ export function ChatMainContent({
 					: undefined
 			}
 			draft={activeConversation ? (drafts[activeConversation.id] ?? "") : ""}
-			onPreferenceChange={onUpdateConversationPreference}
-			onUpdateGroup={onUpdateGroup}
-			contacts={contacts}
-			onInviteGroupMembers={onInviteGroupMembers}
-			onOpenNotificationSettings={onOpenNotificationSettings}
+			onLoadMoreGroupMembers={onLoadMoreGroupMembers}
+			groupMembersLoading={groupMembersLoading}
 			onSend={onSend}
 			onMessageAction={onMessageAction}
 			onDraftChange={onDraftChange}
