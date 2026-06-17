@@ -32,21 +32,42 @@ import {
   AccountConfigService,
   GroupInfoService,
   ProfileService,
+  FileSearchService,
+  EmojiService,
   DbWatchService,
   createNtMsgDbHook,
   type AccountConfigMetadata,
   type DbWatchHandle,
-  type NtMsgChange,
+  type NewMessages,
+  type DbChange,
 } from '@weq/service';
 import { openAccount, type AccountContext, type AccountSession } from '@weq/account';
 
 /**
- * Process-wide bus for "new messages landed in nt_msg.db" events. The active
- * account's `nt_msg.db` is watched by the single `dbWatch` loop below; its hook
- * emits `'new'` with an {@link NtMsgChange}. The account router turns this into
- * a tRPC subscription so the renderer can update live without polling.
+ * Process-wide bus for nt_msg.db changes, fed by the single `dbWatch` loop
+ * below. Two events:
+ *   - `'changed'` ({@link DbChange})    — every db change (debounced); drives
+ *     the open conversation's seq-window re-query in the renderer.
+ *   - `'new'`     ({@link NewMessages}) — only when a rowid-delta found newly
+ *     inserted rows; reserved for unread / popup notifications.
+ * The account router turns each into a tRPC subscription.
  */
-export const newMessageBus = new EventEmitter();
+export const dbEventBus = new EventEmitter();
+
+/** Trailing debounce — coalesces a burst of calls into one after `ms` idle. */
+function trailingDebounce<A extends unknown[]>(
+  fn: (...args: A) => void,
+  ms: number,
+): (...args: A) => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return (...args: A): void => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      fn(...args);
+    }, ms);
+  };
+}
 
 /** One polling loop for the whole process; we (un)mount the active db on it. */
 const dbWatch = new DbWatchService();
@@ -68,6 +89,10 @@ export interface AccountServices {
   accountConfig: AccountConfigService;
   groupInfo: GroupInfoService;
   profile: ProfileService;
+  /** Locate on-disk media (pic/video/ptt/file) for the media protocol. */
+  fileSearch: FileSearchService;
+  /** Decrypt + cache market-face (store sticker) images. */
+  emoji: EmojiService;
 }
 
 /** Classified native-init failure surfaced to the renderer. */
@@ -92,7 +117,7 @@ export interface AppContext {
   /** Services bound to the current account. `null` if no account is open. */
   services: AccountServices | null;
   /** Open (or re-open) an account session. Disposes the previous one first. */
-  setAccount(ctx: AccountContext, metadata?: AccountConfigMetadata): void;
+  setAccount(ctx: AccountContext, metadata?: AccountConfigMetadata): Promise<void>;
   /** Drop the current account session, if any. */
   clearAccount(): void;
 }
@@ -112,7 +137,7 @@ export function initAppContext(): AppContext {
       nativeError: { kind: result.kind, status: result.status, message: result.message },
       account: null,
       services: null,
-      setAccount(): void {
+      setAccount(): Promise<void> {
         throw new Error('native bundle failed to load — cannot open an account');
       },
       clearAccount(): void {
@@ -139,11 +164,11 @@ export function initAppContext(): AppContext {
     nativeError: null,
     account: null,
     services: null,
-    setAccount(accountCtx: AccountContext, metadata: AccountConfigMetadata = {}): void {
+    async setAccount(accountCtx: AccountContext, metadata: AccountConfigMetadata = {}): Promise<void> {
       this.account?.dispose();
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
-      const session = openAccount(platform, accountCtx);
+      const session = await openAccount(platform, accountCtx);
       this.account = session;
       const accountConfig = new AccountConfigService(session, platform.appDataRoot());
       this.services = {
@@ -152,25 +177,28 @@ export function initAppContext(): AppContext {
         accountConfig,
         groupInfo: new GroupInfoService(session),
         profile: new ProfileService(session),
+        fileSearch: new FileSearchService(session, platform),
+        emoji: new EmojiService(session, platform),
       };
       // Persist credentials + metadata, keyed by data directory.
       accountConfig.save(metadata);
 
-      // Watch this account's nt_msg.db; the hook diffs new messages and the
-      // bus fans them out to any live renderer subscription.
-      console.log(`[DbWatch] mount nt_msg.db watcher: ${session.msgDbPath}`);
+      // Watch this account's nt_msg.db. The hook fans every change into two
+      // bus events: a debounced 'changed' (drives the open-conversation
+      // re-query) and 'new' (rowid-delta, for notifications).
+      const emitChanged = trailingDebounce((file: DbChange) => {
+        dbEventBus.emit('changed', file);
+      }, 200);
       dbWatchHandle = dbWatch.mount(
-        createNtMsgDbHook(session, (change: NtMsgChange) => {
-          console.log(
-            `[DbWatch] new messages detected → c2c=${change.c2c.length} group=${change.group.length} ` +
-              `(file delta=${change.file.delta}B, listeners=${newMessageBus.listenerCount('new')})`,
-          );
-          newMessageBus.emit('new', change);
+        createNtMsgDbHook(session, {
+          onDbChanged: emitChanged,
+          onNewMessages: (change: NewMessages) => {
+            dbEventBus.emit('new', change);
+          },
         }),
       );
     },
     clearAccount(): void {
-      if (dbWatchHandle) console.log('[DbWatch] unmount nt_msg.db watcher');
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
       this.account?.dispose();

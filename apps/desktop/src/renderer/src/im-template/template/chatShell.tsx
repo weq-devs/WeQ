@@ -3,6 +3,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { cn } from "./classNames";
 import { AppRail } from "./rail";
 import { SidebarHeader, SidebarResizeHandle } from "./sidebar";
+import { TitleBar } from "./TitleBar";
 import type {
 	ContactNoticeView,
 	ContactTab,
@@ -33,6 +34,7 @@ export function ChatShell({
 	onOpenProfile,
 	onOpenAbout,
 	onOpenHelp,
+	onOpenHelp: onOpenHelp_unused, // Not used but kept for interface consistency
 	onOpenInvite,
 	onQueryChange,
 	onQuickInvite,
@@ -77,51 +79,55 @@ export function ChatShell({
 	} as CSSProperties;
 
 	return (
-		<div
-			className={cn("app-shell", view === "tools" && "app-shell-tools")}
-			style={shellStyle}
-		>
-			<AppRail
-				user={user}
-				view={view}
-				onViewChange={onViewChange}
-				onOpenSettings={onOpenSettings}
-				onOpenProfile={onOpenProfile}
-				onOpenAbout={onOpenAbout}
-				onOpenHelp={onOpenHelp}
-				onOpenInvite={onOpenInvite}
-				messageBadgeCount={messageBadgeCount}
-				contactBadgeCount={contactBadgeCount}
-				showTools={showTools}
-				footerContent={railFooterContent}
-			/>
-			<aside className={cn("sidebar")}>
-				<SidebarHeader
+		<div className="app-shell-root">
+			<TitleBar user={user} />
+			<div
+				className={cn("app-shell", view === "tools" && "app-shell-tools")}
+				style={shellStyle}
+			>
+				<AppRail
 					user={user}
 					view={view}
-					query={query}
-					onQueryChange={onQueryChange}
-					onQuickInvite={onQuickInvite}
-					onCreateGroup={onCreateGroup}
+					onViewChange={onViewChange}
+					onOpenSettings={onOpenSettings}
 					onOpenProfile={onOpenProfile}
-					onOpenFriendNotices={onOpenFriendNotices}
-					onOpenGroupNotices={onOpenGroupNotices}
-					contactTab={contactTab}
-					onContactTabChange={onContactTabChange}
-					activeNotice={activeNotice}
-					friendNoticeCount={friendNoticeCount}
-					groupNoticeCount={groupNoticeCount}
+					onOpenAbout={onOpenAbout}
+					onOpenHelp={onOpenHelp}
+					onOpenInvite={onOpenInvite}
+					messageBadgeCount={messageBadgeCount}
+					contactBadgeCount={contactBadgeCount}
+					showTools={showTools}
+					footerContent={railFooterContent}
+					hideAvatar={true}
 				/>
-				<div className={cn("sidebar-body")}>{sidebarContent}</div>
-			</aside>
-			<SidebarResizeHandle
-				width={sidebarWidth}
-				onWidthChange={onSidebarWidthChange}
-			/>
-			<main className={cn("chat-main", mainOpen && "chat-main-open")}>
-				{mainContent}
-			</main>
-			{children}
+				<aside className={cn("sidebar")}>
+					<SidebarHeader
+						user={user}
+						view={view}
+						query={query}
+						onQueryChange={onQueryChange}
+						onQuickInvite={onQuickInvite}
+						onCreateGroup={onCreateGroup}
+						onOpenProfile={onOpenProfile}
+						onOpenFriendNotices={onOpenFriendNotices}
+						onOpenGroupNotices={onOpenGroupNotices}
+						contactTab={contactTab}
+						onContactTabChange={onContactTabChange}
+						activeNotice={activeNotice}
+						friendNoticeCount={friendNoticeCount}
+						groupNoticeCount={groupNoticeCount}
+					/>
+					<div className={cn("sidebar-body")}>{sidebarContent}</div>
+				</aside>
+				<SidebarResizeHandle
+					width={sidebarWidth}
+					onWidthChange={onSidebarWidthChange}
+				/>
+				<main className={cn("chat-main", mainOpen && "chat-main-open")}>
+					{mainContent}
+				</main>
+				{children}
+			</div>
 		</div>
 	);
 }

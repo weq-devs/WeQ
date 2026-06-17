@@ -200,10 +200,6 @@ export class DbWatchService {
         files,
         at,
       };
-      console.log(
-        `[DbWatch] change: ${basename(entry.dbPath)} ` +
-          `size ${prevTotal}B → ${total}B (delta=${change.delta}B), mtime=${latestMtime}`,
-      );
       // Fire-and-forget, but serialized per task via `running`. Hooks must
       // recompute their own delta (msgId diff, etc.) rather than trusting
       // `change.delta` to be exact — coalesced ticks fold multiple changes.

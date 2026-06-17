@@ -14,7 +14,6 @@
  */
 
 import type { AccountSession } from '@weq/account';
-import { bumpMaxMsgId } from './msg';
 
 export class TestMsgService {
   constructor(private readonly session: AccountSession) {}
@@ -22,9 +21,6 @@ export class TestMsgService {
   /** Newest-first dump of recent c2c messages as a JSON string. */
   async dumpRecent(limit = 50): Promise<string> {
     const msgs = await this.session.c2cMsgs.listRecent(limit);
-    // Reading the latest → advance the watch baseline so the file-watcher
-    // hook doesn't re-push these as "new".
-    bumpMaxMsgId(this.session.lastMsgIdMaps, 'c2cMsgId', msgs);
     return JSON.stringify(msgs, bigintReplacer, 2);
   }
 }

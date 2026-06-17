@@ -7,7 +7,7 @@
 }
 
 .chat-pane {
-	--chat-header-height: 52px;
+	--chat-header-height: 40px;
 	--group-info-panel-width: clamp(176px, 14vw, 190px);
 	display: grid;
 	grid-template-rows: var(--chat-header-height) minmax(0, 1fr) var(
@@ -593,21 +593,20 @@
 .new-message-pill {
 	position: absolute;
 	z-index: 10;
-	bottom: calc(var(--composer-height, 190px) + 20px);
-	left: 50%;
-	transform: translateX(-50%);
+	bottom: calc(var(--composer-height, 190px) + 14px);
+	right: 16px;
 	display: inline-flex;
-	height: 36px;
+	height: 26px;
 	align-items: center;
 	justify-content: center;
-	gap: 6px;
-	padding: 0 16px;
+	gap: 4px;
+	padding: 0 10px;
 	border: 0;
 	border-radius: 999px;
 	background: #1598ff;
-	box-shadow: 0 6px 18px rgba(21, 152, 255, 0.35);
+	box-shadow: 0 4px 12px rgba(21, 152, 255, 0.32);
 	color: #ffffff;
-	font-size: 14px;
+	font-size: 12px;
 	font-weight: 600;
 	line-height: 1;
 	cursor: pointer;
@@ -619,17 +618,18 @@
 
 .new-message-pill:hover,
 .new-message-pill:focus-visible {
-	box-shadow: 0 8px 22px rgba(21, 152, 255, 0.45);
+	box-shadow: 0 6px 16px rgba(21, 152, 255, 0.42);
 	outline: 0;
-	transform: translateX(-50%) translateY(-1px);
+	transform: translateY(-1px);
 }
 
 .new-message-pill svg {
 	flex: 0 0 auto;
 }
 
+/* Keep the bottom-right pill clear of the group-info side panel when open. */
 .chat-pane.with-group-info:not(.group-info-collapsed) .new-message-pill {
-	left: calc(50% - var(--group-info-panel-width) / 2);
+	right: calc(var(--group-info-panel-width) + 16px);
 }
 
 .message-line {

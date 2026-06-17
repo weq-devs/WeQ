@@ -133,7 +133,8 @@ export interface RenderPttElement {
     summary: string[];
     pttType: number;
     voiceChanged: boolean;
-    // waveform: Uint8Array;
+    /** Amplitude envelope: one byte (0–255) per 0.1s; length/10 = duration sec. */
+    waveform: number[];
     // transferState?: number;
     // picTransferState?: number;
     // transferVersion?: number;
@@ -231,7 +232,8 @@ export interface RenderMfaceElement {
     emojiId: string;
     mfaceType: number;
     mfaceSubType: boolean;
-    // previewMd5: Uint8Array;
+    /** Lowercase hex of the preview md5 — the on-disk marketface file name. */
+    previewMd5Hex: string;
     mediaType: number;
     // renderFlag: boolean;
     previewWidth: number;
@@ -372,6 +374,14 @@ export type RenderElement =
   | RenderEmojiBounceElement
   | RenderQqDynamicElement
   | RenderUnknownElement;
+
+/** Lowercase hex of a byte array (empty string when absent). */
+function toHex(bytes: Uint8Array | undefined): string {
+  if (!bytes || bytes.length === 0) return '';
+  let out = '';
+  for (const b of bytes) out += b.toString(16).padStart(2, '0');
+  return out;
+}
 
 export function toRenderElements(elements: Element[]): RenderElement[] {
   return elements.map((el) => {
@@ -529,7 +539,7 @@ function mapPtt(el: PttElement): RenderPttElement {
       summary: el.summary,
       pttType: el.pttType,
       voiceChanged: el.voiceChanged,
-      // waveform: el.waveform,
+      waveform: Array.from(el.waveform),
       // transferState: el.transferState,
       // picTransferState: el.picTransferState,
       // transferVersion: el.transferVersion,
@@ -662,7 +672,7 @@ function mapMface(el: MfaceElement): RenderMfaceElement {
       emojiId: el.emojiId,
       mfaceType: el.mfaceType,
       mfaceSubType: el.mfaceSubType,
-      // previewMd5: el.previewMd5,
+      previewMd5Hex: toHex(el.previewMd5),
       mediaType: el.mediaType,
       // renderFlag: el.renderFlag,
       previewWidth: el.previewWidth,

@@ -8,7 +8,7 @@
  */
 
 export { C2cMsgDb } from './c2c';
-export type { C2cMsgDbOptions } from './c2c';
+export type { C2cMsgDbOptions, C2cPartition } from './c2c';
 
 export { GroupMsgDb } from './group';
 export type { GroupMsgDbOptions } from './group';

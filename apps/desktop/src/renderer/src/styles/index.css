@@ -979,7 +979,7 @@
     border-radius: 11px;
     border: 1px solid rgba(0, 153, 255, 0.16);
     background: rgba(0, 153, 255, 0.035);
-    font-size: 12.5px;
+    font-size: 12px !important;
     color: #51677c;
     cursor: pointer;
     user-select: none;
@@ -1026,7 +1026,7 @@
     justify-content: center;
     gap: 0.4rem;
     padding: 0.6rem;
-    font-size: 12.5px;
+    font-size: 12px !important;
     font-weight: 500;
     color: #0099ff;
     border-top: 1px solid rgba(0, 153, 255, 0.14);
@@ -1072,8 +1072,8 @@
     display: inline-flex;
     align-items: center;
     gap: 0.3rem;
-    padding: 0.4rem 0.95rem;
-    font-size: 12.5px;
+    padding: 0.25rem 0.75rem;
+    font-size: 12px !important;
     font-weight: 500;
     color: #0099ff;
     background: rgba(0, 153, 255, 0.08);
@@ -1095,16 +1095,16 @@
     z-index: 40;
     top: calc(100% + 0.55rem);
     left: 50%;
-    width: 18rem;
+    width: 16rem;
     max-width: 84vw;
     display: flex;
     flex-direction: column;
     border-radius: 12px;
     overflow: hidden;
     border: 1px solid rgba(0, 153, 255, 0.22);
-    background: rgba(255, 255, 255, 0.97);
-    box-shadow: 0 22px 46px -22px rgba(7, 31, 61, 0.5);
-    backdrop-filter: blur(4px);
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 22px 46px -22px rgba(7, 31, 61, 0.4);
+    backdrop-filter: blur(10px);
   }
   .weq-acct-pop.is-up {
     top: auto;
@@ -1175,7 +1175,7 @@
     background: transparent;
     color: #142235;
     font-family: var(--font-mono);
-    font-size: 13px;
+    font-size: 12px !important;
     letter-spacing: 0.06em;
     outline: none;
   }
@@ -1201,7 +1201,7 @@
   }
   .weq-keyfield-icon:hover:not(:disabled) { background: rgba(0, 153, 255, 0.1); color: #0099ff; }
   .weq-keyfield-icon:disabled { opacity: 0.4; cursor: default; }
-  .weq-keyfield-action { height: 2.5rem; padding-inline: 1rem; }
+  .weq-keyfield-action { height: 2.5rem; padding-inline: 1rem; font-size: 12px !important; }
   .weq-keyfield-hint {
     grid-column: 1 / -1;
     font-size: 11.5px;
@@ -1518,16 +1518,142 @@ html *::-webkit-scrollbar-corner {
   background: transparent;
 }
 
+.app-shell-root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app-title-bar {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  background: rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(0, 153, 255, 0.12);
+  z-index: 100;
+  padding: 0;
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.app-title-bar-logo-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 50px;
+  height: 100%;
+  flex-shrink: 0;
+}
+
+.app-title-bar-logo {
+  width: 28px;
+  height: 28px;
+  filter: drop-shadow(0 2px 4px rgba(0, 122, 204, 0.15));
+}
+
+.app-title-bar-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  height: 100%;
+  border-left: 1px solid rgba(0, 153, 255, 0.1);
+  -webkit-app-region: no-drag;
+}
+
+.app-title-bar-user .avatar {
+  width: 30px;
+  height: 30px;
+  font-size: 12px;
+}
+
+.app-title-bar-nick {
+  font-size: 13px;
+  font-weight: 600;
+  color: #142235;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-title-bar-signature {
+  font-size: 12.5px;
+  font-weight: 400;
+  font-style: italic;
+  font-family: Georgia, "Nimbus Roman No9 L", "Songti SC", "KaiTi", "楷体", serif;
+  color: #5c7c99;
+  margin-left: 12px;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: 0.03em;
+  opacity: 0.85;
+}
+
+html[data-theme="dark"] .app-title-bar-nick {
+  color: #eef0f3;
+}
+
+html[data-theme="dark"] .app-title-bar-signature {
+  color: #9da3ad;
+}
+
+.app-title-bar-drag {
+  flex: 1;
+  height: 100%;
+}
+
+.app-title-bar-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
+.app-title-bar-actions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 40px;
+  color: #51677c;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.app-title-bar-actions button:hover {
+  background-color: rgba(0, 0, 0, 0.06);
+  color: #142235;
+}
+
+.app-title-bar-actions button.close:hover {
+  background-color: #e81123;
+  color: #ffffff;
+}
+
 .app-shell {
   --im-rail-width: 50px;
   width: 100%;
-  height: 100dvh;
+  flex: 1;
+  min-height: 0;
   transform: none;
+  display: grid;
+  grid-template-columns: var(--im-rail-width) var(--sidebar-width) 1fr;
 }
 
 .app-shell .app-rail {
   gap: 15px;
-  padding: 17px 0 13px;
+  padding: 10px 0 13px;
+}
+
+.app-shell .app-rail.hide-avatar {
+  padding-top: 15px;
 }
 
 .app-shell .rail-avatar,
@@ -1677,7 +1803,6 @@ html *::-webkit-scrollbar-corner {
 }
 
 .weq-template-main-wrap {
-  padding-top: 32px;
   background: var(--chat-surface);
 }
 
@@ -1835,9 +1960,9 @@ html *::-webkit-scrollbar-corner {
 }
 
 .chat-empty-logo {
-  width: 200px;
-  height: 200px;
-  font-size: 200px;
+  width: 120px;
+  height: 120px;
+  font-size: 120px;
   color: #dfe2e7
 }
 

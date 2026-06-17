@@ -14,6 +14,11 @@ import {
   registerAvatarProtocol,
   AVATAR_PRIVILEGED_SCHEME,
 } from './avatar_protocol';
+import {
+  registerMediaProtocol,
+  MEDIA_PRIVILEGED_SCHEME,
+} from './media_protocol';
+import { getAppContext } from './context/app_context';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -23,6 +28,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 protocol.registerSchemesAsPrivileged([
   RESOURCE_PRIVILEGED_SCHEME,
   AVATAR_PRIVILEGED_SCHEME,
+  MEDIA_PRIVILEGED_SCHEME,
 ]);
 
 const requireFromHere = createRequire(import.meta.url);
@@ -48,6 +54,44 @@ function registerWindowLayoutIpc(): void {
     if (w === size.width && h === size.height) return;
     win.setSize(size.width, size.height, true);
   });
+
+  ipcMain.on('window-minimize', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.minimize();
+  });
+
+  ipcMain.on('window-maximize', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return;
+    if (win.isMaximized()) {
+      win.unmaximize();
+    } else {
+      win.maximize();
+    }
+  });
+
+  ipcMain.on('window-close', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.close();
+  });
+}
+
+/**
+ * Reveal a chat media file (video/file) in the OS file manager. The renderer
+ * passes the lookup inputs (sendTime ms, file name, type); we resolve the real
+ * path via the account services and `showItemInFolder`. Returns whether a file
+ * was found and revealed.
+ */
+function registerMediaIpc(): void {
+  ipcMain.handle(
+    'media:reveal',
+    async (_event, input: { t: number; name: string; type: 'video' | 'file' | 'pic' | 'ptt' }) => {
+      const services = getAppContext().services;
+      if (!services) return false;
+      const { source } = await services.fileSearch.findFile(input.t, input.name, input.type);
+      if (!source) return false;
+      shell.showItemInFolder(source);
+      return true;
+    },
+  );
 }
 
 function resolveWindowIcon(): Electron.NativeImage | undefined {
@@ -69,10 +113,6 @@ function createWindow(): BrowserWindow {
     autoHideMenuBar: true,
     backgroundColor: '#f0f0f0',
     titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      symbolColor: '#142235',
-      height: 32,
-    },
     ...(icon ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
@@ -113,7 +153,9 @@ void app.whenReady().then(() => {
 
   registerResourceProtocol();
   registerAvatarProtocol();
+  registerMediaProtocol();
   registerWindowLayoutIpc();
+  registerMediaIpc();
 
   app.on('browser-window-created', (_, win) => {
     optimizer.watchWindowShortcuts(win);

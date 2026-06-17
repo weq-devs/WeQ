@@ -50,24 +50,22 @@ export interface GroupMemberWire {
   memberLevel: number;
 }
 
-export interface C2cMsgWire {
+/**
+ * Unified chat-message wire shape for both c2c and group. `conv` is the
+ * conversation key the renderer uses (peer uid for c2c, group code for group),
+ * and `msgSeq` (column 40003) drives the renderer's seq-window model.
+ */
+export interface ChatMsgWire {
+  kind: 'c2c' | 'group';
   msgId: string;
-  targetUid: string;
-  targetUin: string;
+  msgSeq: string;
+  /** Conversation key: peer uid (c2c) or group code (group). */
+  conv: string;
   senderUid: string;
   senderUin: string;
   sendTime: string;
   elements: unknown[];
-}
-
-export interface GroupMsgWire {
-  msgId: string;
-  targetGroupCode: string;
-  senderUid: string;
-  senderUin: string;
-  sendTime: string;
-  elements: unknown[];
-  /** Sticker reactions (贴表情, column 40062); omitted when none. */
+  /** Sticker reactions (贴表情, column 40062); group-only, omitted when none. */
   setEmojiList?: SetEmojiItem[];
 }
 
@@ -90,11 +88,12 @@ export interface RecentContactWire {
   targetRemark: string;
 }
 
-export function msgToWire(m: RenderC2cMsg): C2cMsgWire {
+export function c2cMsgToWire(m: RenderC2cMsg): ChatMsgWire {
   return {
+    kind: 'c2c',
     msgId: m.msgId.toString(),
-    targetUid: m.targetUid,
-    targetUin: m.targetUin.toString(),
+    msgSeq: m.msgSeq.toString(),
+    conv: m.targetUid,
     senderUid: m.senderUid,
     senderUin: m.senderUin.toString(),
     sendTime: m.sendTime.toString(),
@@ -102,10 +101,12 @@ export function msgToWire(m: RenderC2cMsg): C2cMsgWire {
   };
 }
 
-export function groupMsgToWire(m: RenderGroupMsg): GroupMsgWire {
+export function groupMsgToWire(m: RenderGroupMsg): ChatMsgWire {
   return {
+    kind: 'group',
     msgId: m.msgId.toString(),
-    targetGroupCode: m.targetGroupCode,
+    msgSeq: m.msgSeq.toString(),
+    conv: m.targetGroupCode,
     senderUid: m.senderUid,
     senderUin: m.senderUin.toString(),
     sendTime: m.sendTime.toString(),

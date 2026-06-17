@@ -177,6 +177,84 @@ export function findGroupMsgFtsDb(uin: string, home = homedir()): string | null 
   return null;
 }
 
+/**
+ * `<root>/<uin>/nt_qq/nt_data/Emoji/BaseEmojiSyastems/EmojiSystermResource`
+ * for the first root that has it.
+ *
+ * QQ NT keeps the built-in face resource set (apng + lottie, ~40MB) under each
+ * account's `nt_data`. The tree is laid out `<faceId>/apng/<faceId>.png` and
+ * `<faceId>/lottie/<faceId>.json` — identical across accounts, so any logged-in
+ * uin resolves an equivalent set. `BaseEmojiSyastems` is QQ's own (misspelled)
+ * folder name; copied verbatim.
+ */
+export function findEmojiResourceDir(uin: string, home = homedir()): string | null {
+  for (const root of candidateTencentFilesRoots(home)) {
+    const candidate = join(
+      root, uin, 'nt_qq', 'nt_data', 'Emoji', 'BaseEmojiSyastems', 'EmojiSystermResource',
+    );
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+/** `<root>/<uin>/nt_qq/nt_data/Emoji/marketface` for the first root that has it. */
+export function findMarketFaceDir(uin: string, home = homedir()): string | null {
+  for (const root of candidateTencentFilesRoots(home)) {
+    const candidate = join(root, uin, 'nt_qq', 'nt_data', 'Emoji', 'marketface');
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+/**
+ * `<root>/<uin>/nt_qq/nt_data/Emoji/emoji-recv` for the first root that has it.
+ * Holds received animated emoji (pic subType 1): `<YYYY-MM>/Ori` and `/Thumb`,
+ * no separate "original" file.
+ */
+export function findEmojiRecvDir(uin: string, home = homedir()): string | null {
+  for (const root of candidateTencentFilesRoots(home)) {
+    const candidate = join(root, uin, 'nt_qq', 'nt_data', 'Emoji', 'emoji-recv');
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+/** `<root>/<uin>/nt_qq/nt_data/Pic` for the first root that has it. */
+export function findPicDir(uin: string, home = homedir()): string | null {
+  for (const root of candidateTencentFilesRoots(home)) {
+    const candidate = join(root, uin, 'nt_qq', 'nt_data', 'Pic');
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+/** `<root>/<uin>/nt_qq/nt_data/Ptt` for the first root that has it. */
+export function findPttDir(uin: string, home = homedir()): string | null {
+  for (const root of candidateTencentFilesRoots(home)) {
+    const candidate = join(root, uin, 'nt_qq', 'nt_data', 'Ptt');
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+/** `<root>/<uin>/nt_qq/nt_data/Video` for the first root that has it. */
+export function findVideoDir(uin: string, home = homedir()): string | null {
+  for (const root of candidateTencentFilesRoots(home)) {
+    const candidate = join(root, uin, 'nt_qq', 'nt_data', 'Video');
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+/** `<root>/<uin>/nt_qq/nt_data/File` for the first root that has it. */
+export function findFileDir(uin: string, home = homedir()): string | null {
+  for (const root of candidateTencentFilesRoots(home)) {
+    const candidate = join(root, uin, 'nt_qq', 'nt_data', 'File');
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
 // ---------- QQ install (wrapper.node) ------------------------------------
 
 /**

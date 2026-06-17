@@ -24,6 +24,7 @@ export function AppRail({
 	contactBadgeCount = 0,
 	showTools = true,
 	footerContent,
+	hideAvatar = false,
 }: {
 	user: User;
 	view: MainView;
@@ -37,6 +38,7 @@ export function AppRail({
 	contactBadgeCount?: number;
 	showTools?: boolean;
 	footerContent?: ReactNode;
+	hideAvatar?: boolean;
 }) {
 	const [menuOpen, setMenuOpen] = useState(false);
 	const [profileOpen, setProfileOpen] = useState(false);
@@ -86,22 +88,24 @@ export function AppRail({
 	}
 
 	return (
-		<aside className={cn("app-rail")} ref={railRef}>
-			<button
-				className={cn("rail-avatar")}
-				title={displayUserName(user)}
-				onClick={() => {
-					setMenuOpen(false);
-					setProfileOpen((open) => !open);
-				}}
-			>
-				<Avatar
-					name={displayUserName(user)}
-					avatarUrl={user.avatarUrl}
-					seed={user.identityValue}
-				/>
-				<span />
-			</button>
+		<aside className={cn("app-rail", hideAvatar && "hide-avatar")} ref={railRef}>
+			{!hideAvatar && (
+				<button
+					className={cn("rail-avatar")}
+					title={displayUserName(user)}
+					onClick={() => {
+						setMenuOpen(false);
+						setProfileOpen((open) => !open);
+					}}
+				>
+					<Avatar
+						name={displayUserName(user)}
+						avatarUrl={user.avatarUrl}
+						seed={user.identityValue}
+					/>
+					<span />
+				</button>
+			)}
 			{profileOpen ? (
 				<ProfilePopover
 					user={user}

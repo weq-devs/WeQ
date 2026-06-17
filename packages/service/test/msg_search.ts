@@ -25,7 +25,7 @@ const KEYWORD =
 
 async function main(): Promise<void> {
   const platform = createWin32Platform(loadNative());
-  const session = openAccount(platform, {
+  const session = await openAccount(platform, {
     uin: UIN,
     dbKey: KEY,
     algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' },

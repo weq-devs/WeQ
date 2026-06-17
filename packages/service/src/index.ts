@@ -49,6 +49,9 @@ export { ForwardMsgService } from './account/forward';
 export { MsgService } from './account/msg';
 export { GroupInfoService } from './account/group_info';
 export { ProfileService } from './account/profile';
+export { EmojiService } from './account/emoji';
+export { FileSearchService } from './account/file_search';
+export type { FileType, SearchResult } from './account/file_search';
 export { OnlineStatusService } from './account/online_status';
 export type { FormattedOnlineStatus } from './account/online_status';
 export type { RenderC2cMsg, RenderGroupMsg } from './account/msg';
@@ -68,8 +71,7 @@ export type {
   DbWatchHandle,
 } from './account/db_watch';
 
-// nt_msg.db watch task: diffs new messages on file change (keeps the query
-// out of the renderer). Mount the returned task on a DbWatchService.
+// nt_msg.db watch task: fans every file change into onDbChanged (always) +
+// onNewMessages (rowid-delta). Mount the returned task on a DbWatchService.
 export { createNtMsgDbHook } from './account/nt_msg_hook';
-export type { NtMsgChange, NtMsgChangeCallback } from './account/nt_msg_hook';
-export { bumpMaxMsgId } from './account/msg';
+export type { NewMessages, NtMsgHooks } from './account/nt_msg_hook';

@@ -15,8 +15,9 @@ extraResources:
     to: native/${os}/${arch}
     filter:
       - '*.node'
-  # Shared static assets (brand/logo, future QQ emoji, …). Copied whole so the
-  # main process can read them at runtime via process.resourcesPath/resources.
+  # Shared static assets (brand/logo, …). Copied whole so the main process can
+  # read them at runtime via process.resourcesPath/resources. QQ emoji are NOT
+  # bundled — they stream from the account's QQ NT dir at runtime.
   - from: ../../resources
     to: resources
 asarUnpack:

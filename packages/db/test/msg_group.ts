@@ -24,11 +24,11 @@ async function main(): Promise<void> {
   const recent = await db.listRecent(5);
   console.log(`[test:group-msg] listRecent → ${recent.length} messages`);
 
-  // Re-query the most recent group by its code to exercise listMessagesWithTarget.
+  // Re-query the most recent group by its code to exercise listLatest.
   const code = recent[0]?.targetGroupCode;
   if (code) {
-    const scoped = await db.listMessagesWithTarget(code, 5);
-    console.log(`[test:group-msg] listMessagesWithTarget(${code}) → ${scoped.length} messages`);
+    const scoped = await db.listLatest(code, 5);
+    console.log(`[test:group-msg] listLatest(${code}) → ${scoped.length} messages`);
   }
 
   console.log(JSON.stringify(recent, (_k, v) => (typeof v === 'bigint' ? v.toString() : v), 2));

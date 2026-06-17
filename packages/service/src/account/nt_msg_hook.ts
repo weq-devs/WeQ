@@ -1,105 +1,105 @@
 /**
- * nt_msg.db file-watch hook — turns "the message db grew" into "here are the
- * new messages", keeping that query out of the renderer.
+ * nt_msg.db file-watch hook — turns "the message db changed" into two signals:
  *
- * Strategy (deliberately simplified for now): treat msgId (column 40001) as
- * monotonically increasing per chat type. On each file change, diff the
- * table's current rows against the baseline in `session.lastMsgIdMaps` and
- * emit whatever is newer, then advance the baseline.
+ *   1. `onDbChanged` — fired on EVERY observed change, even when no new rows
+ *      arrived. This drives the open conversation's "re-read my loaded seq
+ *      window" query, which is how group inserts (whose msgId can sort below an
+ *      older gray-tip), recalls, and sticker reactions become visible.
  *
- *   - First run (baseline still `0n`, i.e. nothing has read "latest" yet):
- *     just align the baseline to the current max msgId. We do NOT replay the
- *     whole table — a fresh mount shouldn't dump history at the UI.
- *   - Subsequent runs: `listSince(baseline)` → emit → bump baseline to the
- *     newest msgId returned.
+ *   2. `onNewMessages` — fired only when a rowid-delta finds newly *inserted*
+ *      rows. This is the notification signal (unread badges / future popups).
+ *      rowid is used (not msgId) because msgId is not monotonic in groups; a
+ *      new row always gets a larger rowid, so nothing is missed.
  *
- * Baseline writes are monotonic (`max`) so a concurrent "latest"-reading
- * query service that already advanced the baseline can't be clobbered back.
- *
- * NOT handled yet (documented so the gap is explicit): recalls / edits /
- * upload-complete and other in-place row mutations that don't add a larger
- * msgId, and guild messages (no table wired). The hook signature leaves room
- * to grow into those without touching the watcher.
+ * Baseline (`session.lastRowIdMaps`) is owned entirely by this hook:
+ *   - First run (baseline `0n`): align to the current max rowid, emit nothing
+ *     (a fresh mount must not dump history at the UI).
+ *   - Subsequent runs: emit rows with `rowid > baseline`, then advance the
+ *     baseline to the current max rowid.
  */
 
-import type { AccountSession } from '@weq/account';
+import type { AccountSession, LastRowIdMaps } from '@weq/account';
 import type { C2cMsg, GroupMsg } from '@weq/db';
 import type { DbChange, DbWatchTask } from './db_watch';
 
 /** Max rows pulled per chat type per change — guards against a stale baseline. */
 const MAX_DELTA = 500;
 
-/** Structured result the hook produces and hands to its `onChange` sink. */
-export interface NtMsgChange {
-  /** The raw file-size change that triggered this diff (passthrough). */
+/** Newly-inserted messages since the last baseline, per chat type. */
+export interface NewMessages {
+  /** The raw file change that triggered this diff (passthrough). */
   file: DbChange;
-  /** New private-chat messages since the last baseline, oldest-first. */
+  /** New private-chat messages, oldest-first. */
   c2c: C2cMsg[];
-  /** New group messages since the last baseline, oldest-first. */
+  /** New group messages, oldest-first. */
   group: GroupMsg[];
 }
 
-export type NtMsgChangeCallback = (change: NtMsgChange) => void;
+/** The two sinks the watcher fans changes into. */
+export interface NtMsgHooks {
+  /** Every nt_msg.db change, regardless of whether new rows landed. */
+  onDbChanged: (file: DbChange) => void;
+  /** Only when newly-inserted rows were found (rowid-delta). */
+  onNewMessages: (change: NewMessages) => void;
+}
 
 /**
  * Build a {@link DbWatchTask} for this account's `nt_msg.db`. Mount the
- * returned task on a `DbWatchService`; `onChange` is invoked only when the
- * diff actually found new messages (so the UI sink can stay dumb). Wire
- * `onChange` to a tRPC subscription's `emit.next` to push to the renderer.
+ * returned task on a `DbWatchService`. Wire `onDbChanged` to the renderer's
+ * "refresh open conversation" path and `onNewMessages` to notifications.
  */
-export function createNtMsgDbHook(
-  session: AccountSession,
-  onChange: NtMsgChangeCallback,
-): DbWatchTask {
+export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): DbWatchTask {
   return {
     dbPath: session.msgDbPath,
     onDbFileChangeHook: async (file: DbChange): Promise<void> => {
-      const maps = session.lastMsgIdMaps;
+      // 1. Always: tell the open conversation to re-read its window.
+      hooks.onDbChanged(file);
 
-      const c2c = await diffChatType(
-        maps.c2cMsgId,
-        () => session.c2cMsgs.latestMsgId(),
-        (since) => session.c2cMsgs.listSince(since, MAX_DELTA),
-        (newest) => {
-          if (newest > maps.c2cMsgId) maps.c2cMsgId = newest;
-        },
+      // 2. rowid-delta: detect genuinely new rows for the notification signal.
+      const maps = session.lastRowIdMaps;
+      const c2c = await diffByRowId(
+        maps,
+        'c2cRowId',
+        () => session.c2cMsgs.latestRowId(),
+        (since) => session.c2cMsgs.listSinceRowId(since, MAX_DELTA),
+      );
+      const group = await diffByRowId(
+        maps,
+        'groupRowId',
+        () => session.groupMsgs.latestRowId(),
+        (since) => session.groupMsgs.listSinceRowId(since, MAX_DELTA),
       );
 
-      const group = await diffChatType(
-        maps.groupMsgId,
-        () => session.groupMsgs.latestMsgId(),
-        (since) => session.groupMsgs.listSince(since, MAX_DELTA),
-        (newest) => {
-          if (newest > maps.groupMsgId) maps.groupMsgId = newest;
-        },
-      );
-
-      // guild: no table wired yet — maps.guildMsgId stays reserved.
+      // guild: no table wired yet — maps.guildRowId stays reserved.
 
       if (c2c.length > 0 || group.length > 0) {
-        onChange({ file, c2c, group });
+        hooks.onNewMessages({ file, c2c, group });
       }
     },
   };
 }
 
 /**
- * Shared c2c/group diff. Returns the new messages (empty on first-run
- * baseline alignment) and advances the baseline via `bump`.
+ * Shared rowid diff. Returns newly-inserted rows (empty on first-run baseline
+ * alignment) and advances the baseline to the current max rowid.
  */
-async function diffChatType<M extends { msgId: bigint }>(
-  baseline: bigint,
-  latestMsgId: () => Promise<bigint>,
-  listSince: (since: bigint) => Promise<M[]>,
-  bump: (newest: bigint) => void,
+async function diffByRowId<M>(
+  maps: LastRowIdMaps,
+  key: keyof LastRowIdMaps,
+  latestRowId: () => Promise<bigint>,
+  listSinceRowId: (since: bigint) => Promise<M[]>,
 ): Promise<M[]> {
+  const newMax = await latestRowId();
+  const baseline = maps[key];
+
   // First run: align to current max, don't replay history.
   if (baseline === 0n) {
-    bump(await latestMsgId());
+    maps[key] = newMax;
     return [];
   }
-  const msgs = await listSince(baseline);
-  const newest = msgs[msgs.length - 1]?.msgId; // ASC → last is largest
-  if (newest !== undefined) bump(newest);
+  if (newMax <= baseline) return [];
+
+  const msgs = await listSinceRowId(baseline);
+  maps[key] = newMax;
   return msgs;
 }

@@ -8,3 +8,12 @@
 
 export type { Platform } from './types';
 export { createWin32Platform } from './win32';
+// Pure path helpers (used directly by service tests / tooling that don't hold a
+// Platform instance). The win32 barrel is the source of truth.
+export {
+  findNtMsgDb,
+  findGroupInfoDb,
+  findProfileInfoDb,
+  findMiscDb,
+  findEmojiResourceDir,
+} from './win32';

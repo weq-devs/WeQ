@@ -14,6 +14,8 @@ import type { Element, SetEmojiItem } from '@weq/codec';
 
 export interface C2cMsg {
   msgId: bigint;
+  /** In-conversation sequence number (column 40003). */
+  msgSeq: bigint;
   /** Conversation target — peer uid (column 40021). */
   targetUid: string;
   /** Conversation target — peer QQ uin (column 40030). */

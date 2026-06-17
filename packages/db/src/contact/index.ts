@@ -8,3 +8,5 @@
 export { RecentContactDb } from './recent_contact';
 export type { RecentContactDbOptions } from './recent_contact';
 export type { RecentContact } from './types';
+export { UidMappingDb, UidMap } from './uid_mapping';
+export type { UidMappingDbOptions, UidMappingRow } from './uid_mapping';
