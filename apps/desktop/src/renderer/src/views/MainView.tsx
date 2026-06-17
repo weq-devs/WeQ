@@ -635,7 +635,8 @@ function messageToTemplate(message: MessageWire, conversation: Conversation, use
     // Raw render-view elements for the QQ face renderer (qqFaceMessageRenderer).
     // `body` stays the text fallback for previews and non-face messages.
     qqElements: message.elements,
-  } as Message & { qqElements: unknown[] };
+    msgId: message.msgId,
+  } as Message & { qqElements: unknown[]; msgId: string };
 }
 
 function messageBody(elements: unknown[]): string {

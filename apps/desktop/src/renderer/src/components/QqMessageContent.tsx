@@ -108,9 +108,11 @@ function FaceNode({
 function MediaNode({
   element,
   sendTimeMs,
+  msgId,
 }: {
   element: RenderElement;
   sendTimeMs: number;
+  msgId: string;
 }): ReactNode {
   const data = element.data ?? {};
   switch (element.type) {
@@ -119,7 +121,7 @@ function MediaNode({
     case 'video':
       return <QqVideo data={data} sendTimeMs={sendTimeMs} />;
     case 'file':
-      return <QqFile data={data} sendTimeMs={sendTimeMs} />;
+      return <QqFile data={data} sendTimeMs={sendTimeMs} msgId={msgId} />;
     case 'ptt':
       return <QqVoice data={data} sendTimeMs={sendTimeMs} />;
     case 'mface':
@@ -133,12 +135,14 @@ function MediaNode({
 function ElementNode({
   element,
   sendTimeMs,
+  msgId,
 }: {
   element: RenderElement;
   sendTimeMs: number;
+  msgId: string;
 }): ReactNode {
   if (element.type && MEDIA_KINDS.has(element.type)) {
-    return <MediaNode element={element} sendTimeMs={sendTimeMs} />;
+    return <MediaNode element={element} sendTimeMs={sendTimeMs} msgId={msgId} />;
   }
   if (element.type === 'face') {
     return <FaceNode data={element.data ?? {}} size={INLINE_SIZE} />;
@@ -225,9 +229,11 @@ function ReplyQuote({ data }: { data: Record<string, unknown> }) {
 export function QqMessageContent({
   elements,
   sendTimeMs,
+  msgId,
 }: {
   elements: RenderElement[];
   sendTimeMs: number;
+  msgId: string;
 }) {
   // A `reply` element renders as a quote box above the body; pull it out so the
   // body sizing rules below only consider the actual message content.
@@ -244,7 +250,7 @@ export function QqMessageContent({
         {meaningful.length > 0 ? (
           <div className="qq-reply-body">
             {meaningful.map((element, index) => (
-              <ElementNode key={`el-${index}`} element={element} sendTimeMs={sendTimeMs} />
+              <ElementNode key={`el-${index}`} element={element} sendTimeMs={sendTimeMs} msgId={msgId} />
             ))}
           </div>
         ) : null}
@@ -258,7 +264,7 @@ export function QqMessageContent({
     if (lone.type && BORDERLESS_MEDIA.has(lone.type)) {
       return (
         <div className={cn('message-content', 'sticker-only')}>
-          <MediaNode element={lone} sendTimeMs={sendTimeMs} />
+          <MediaNode element={lone} sendTimeMs={sendTimeMs} msgId={msgId} />
         </div>
       );
     }
@@ -281,14 +287,14 @@ export function QqMessageContent({
     if (lone.type && MEDIA_KINDS.has(lone.type)) {
       return (
         <div className={cn('message-content', 'qq-message-inline')}>
-          <MediaNode element={lone} sendTimeMs={sendTimeMs} />
+          <MediaNode element={lone} sendTimeMs={sendTimeMs} msgId={msgId} />
         </div>
       );
     }
   }
 
   const nodes: ReactNode[] = meaningful.map((element, index) => (
-    <ElementNode key={`el-${index}`} element={element} sendTimeMs={sendTimeMs} />
+    <ElementNode key={`el-${index}`} element={element} sendTimeMs={sendTimeMs} msgId={msgId} />
   ));
 
   return <div className={cn('message-content', 'qq-message-inline')}>{nodes}</div>;
@@ -308,9 +314,10 @@ export const qqMessageRenderer: MessageRenderer = {
     );
   },
   render: ({ message }) => {
-    const m = message as { qqElements?: RenderElement[]; createdAt?: string };
+    const m = message as { qqElements?: RenderElement[]; createdAt?: string; msgId?: string };
     const elements = m.qqElements ?? [];
     const sendTimeMs = m.createdAt ? Date.parse(m.createdAt) : 0;
-    return <QqMessageContent elements={elements} sendTimeMs={sendTimeMs} />;
+    const msgId = m.msgId ?? '';
+    return <QqMessageContent elements={elements} sendTimeMs={sendTimeMs} msgId={msgId} />;
   },
 };

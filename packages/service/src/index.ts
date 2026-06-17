@@ -41,8 +41,19 @@ export type {
 } from './bootstrap/global_config';
 
 // ---- account ----
-export { AccountConfigService, accountConfigId } from './account/user_config';
-export type { AccountConfig, AccountConfigMetadata } from './account/user_config';
+export { AccountConfigService, accountConfigId, rkeyExpiryMs } from './account/user_config';
+export type { AccountConfig, AccountConfigMetadata, DownloadRkey } from './account/user_config';
+export { AccountMonitorService } from './account/monitor';
+export {
+  MediaDownloadService,
+  PRIVATE_IMAGE_RKEY_TYPE,
+  GROUP_IMAGE_RKEY_TYPE,
+  PRIVATE_VIDEO_RKEY_TYPE,
+  GROUP_VIDEO_RKEY_TYPE,
+  PRIVATE_PTT_RKEY_TYPE,
+  GROUP_PTT_RKEY_TYPE,
+} from './account/media_download';
+export type { DownloadOptions } from './account/media_download';
 export { TestMsgService } from './account/test_msg';
 export { RecentContactService } from './account/recent_contact';
 export { ForwardMsgService } from './account/forward';
@@ -51,6 +62,7 @@ export { GroupInfoService } from './account/group_info';
 export { GroupNotifyService } from './account/group_notify';
 export { ProfileService } from './account/profile';
 export { EmojiService } from './account/emoji';
+export { FileAssistantService } from './account/file_assistant';
 export { FileSearchService } from './account/file_search';
 export type { FileType, SearchResult } from './account/file_search';
 export { OnlineStatusService } from './account/online_status';

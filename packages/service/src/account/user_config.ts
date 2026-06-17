@@ -14,10 +14,33 @@
  * Path: <appDataRoot>/config/accounts/<configId>.json
  */
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AccountSession } from '@weq/account';
 import type { DatabaseAlgorithms } from '@weq/native';
+
+/**
+ * A download rkey issued by QQ's OIDB service (via `fetchDownloadRkeys`). Used
+ * to authenticate CDN media downloads when a file isn't on disk locally.
+ *
+ * Normalised from the native JSON (`type_`/`ttl_seconds`/`create_time`). The
+ * `rkey` string already carries its `&rkey=` URL prefix, as QQ returns it.
+ */
+export interface DownloadRkey {
+  /** URL fragment as returned by QQ, e.g. `&rkey=CAQS…`. */
+  rkey: string;
+  /** Scene: 10 = c2c / private chat, 20 = group chat. */
+  type: number;
+  /** Validity window in seconds, measured from {@link createTime}. */
+  ttlSeconds: number;
+  /** Unix seconds the rkey was issued. Expiry = createTime + ttlSeconds. */
+  createTime: number;
+}
+
+/** Absolute expiry of an rkey in unix milliseconds. */
+export function rkeyExpiryMs(r: DownloadRkey): number {
+  return (r.createTime + r.ttlSeconds) * 1000;
+}
 
 export interface AccountConfig {
   /**
@@ -41,6 +64,15 @@ export interface AccountConfig {
   avatarUrl?: string;
   /** Unix milliseconds of last login. */
   lastLoginAt: number;
+
+  /** True while a logged-in QQ.exe instance for this account is running. */
+  qqOnline?: boolean;
+  /** PID of that running QQ instance, or null when none is online. */
+  qqPid?: number | null;
+  /** Latest download rkeys harvested from the online instance. */
+  rkeys?: DownloadRkey[];
+  /** Unix ms the rkeys were last refreshed. */
+  rkeyUpdatedAt?: number;
 }
 
 /** Metadata threaded in from the open flow to enrich the saved record. */
@@ -75,22 +107,33 @@ function shortHash(input: string): string {
 
 export class AccountConfigService {
   private readonly accountsDir: string;
+  /**
+   * Record id for the file this service reads/writes. Seeded from the bare uin
+   * and refined to the (uin, dataDir) id on the first {@link save} — which the
+   * open flow always runs before any {@link patch}.
+   */
+  private currentConfigId: string;
 
   constructor(
     private readonly session: AccountSession,
     appDataRoot: string,
   ) {
     this.accountsDir = join(appDataRoot, 'config', 'accounts');
+    this.currentConfigId = accountConfigId(this.session.context.uin);
   }
 
   /**
    * Save the current session's credentials + metadata to disk, keyed by the
-   * account's data directory (see {@link accountConfigId}).
+   * account's data directory (see {@link accountConfigId}). Preserves any
+   * volatile fields (online/pid/rkeys) already on the existing record.
    */
   save(metadata: AccountConfigMetadata = {}): void {
     const uin = this.session.context.uin;
     const configId = accountConfigId(uin, metadata.dataDir);
+    this.currentConfigId = configId;
+    const prev = this.readRecord();
     const config: AccountConfig = {
+      ...prev,
       configId,
       uin,
       dbKey: this.session.context.dbKey,
@@ -100,9 +143,42 @@ export class AccountConfigService {
       ...(metadata.avatarUrl ? { avatarUrl: metadata.avatarUrl } : {}),
       lastLoginAt: Date.now(),
     };
+    this.writeRecord(config);
+  }
 
+  /** Read the current account's record from disk, or null if not yet written. */
+  getRecord(): AccountConfig | null {
+    return this.readRecord();
+  }
+
+  /** Update the online flag + pid without disturbing the rest of the record. */
+  setOnline(qqOnline: boolean, qqPid: number | null): void {
+    this.patch({ qqOnline, qqPid });
+  }
+
+  /** Replace the stored download rkeys (and stamp the refresh time). */
+  setRkeys(rkeys: DownloadRkey[]): void {
+    this.patch({ rkeys, rkeyUpdatedAt: Date.now() });
+  }
+
+  private patch(partial: Partial<AccountConfig>): void {
+    const existing = this.readRecord();
+    if (!existing) return; // save() seeds the record before any patch
+    this.writeRecord({ ...existing, ...partial });
+  }
+
+  private readRecord(): AccountConfig | null {
+    const filePath = join(this.accountsDir, `${this.currentConfigId}.json`);
+    try {
+      return JSON.parse(readFileSync(filePath, 'utf-8')) as AccountConfig;
+    } catch {
+      return null;
+    }
+  }
+
+  private writeRecord(config: AccountConfig): void {
     mkdirSync(this.accountsDir, { recursive: true });
-    const filePath = join(this.accountsDir, `${configId}.json`);
+    const filePath = join(this.accountsDir, `${config.configId}.json`);
     writeFileSync(filePath, JSON.stringify(config, null, 2), 'utf-8');
   }
 }

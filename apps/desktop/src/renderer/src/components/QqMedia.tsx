@@ -6,7 +6,7 @@
  * bubble); files render as a card; voice as a waveform + duration + play.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { fileIconUrl, mediaUrl } from '@renderer/lib/resourceUrl';
 import { cn } from '@renderer/lib/utils';
 
@@ -21,10 +21,57 @@ function num(d: Data, k: string): number {
   return typeof v === 'number' ? v : Number(v) || 0;
 }
 
+/**
+ * Scale (w×h) to fit within (maxW×maxH) preserving aspect ratio, never
+ * upscaling. Returns null when the natural size is unknown, so the caller can
+ * fall back to a max-bounded box.
+ */
+function fitWithin(
+  w: number,
+  h: number,
+  maxW: number,
+  maxH: number,
+): { width: number; height: number } | null {
+  if (!w || !h) return null;
+  const scale = Math.min(maxW / w, maxH / h, 1);
+  return { width: Math.round(w * scale), height: Math.round(h * scale) };
+}
+
+/**
+ * Gray placeholder shown when a media file can't be found on disk or via CDN.
+ * Sized to the media's footprint (so the bubble doesn't jump) with a broken
+ * image glyph and a "未找到该…" label.
+ */
+function QqMediaMissing({ label, style }: { label: string; style?: CSSProperties }) {
+  return (
+    <div className="qq-media-missing" style={style}>
+      <svg className="qq-media-missing-icon" viewBox="0 0 24 24" aria-hidden>
+        <path
+          fill="currentColor"
+          d="M21 5v6.59l-3-3.01-4 4.01-4-4-4 4-3-3.01V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2m-3 6.42 3 3.01V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6.58l3 2.99 4-4 4 4z"
+        />
+      </svg>
+      <span className="qq-media-missing-text">未找到{label}</span>
+    </div>
+  );
+}
+
 /** Reveal a video/file in the OS file manager via the main-process IPC. */
 function revealMedia(t: number, name: string, type: 'video' | 'file'): void {
   const bridge = (window as { electron?: { ipcRenderer?: { invoke?: (c: string, a: unknown) => Promise<unknown> } } }).electron;
   void bridge?.ipcRenderer?.invoke?.('media:reveal', { t, name, type });
+}
+
+/** Reveal a file by msgId (searches file_assistant.db). */
+async function revealFile(msgId: string): Promise<void> {
+  const bridge = (window as any).electron;
+  const result = (await bridge?.ipcRenderer?.invoke?.('file:reveal', msgId)) as {
+    success: boolean;
+    error?: string;
+  };
+  if (result && !result.success && result.error) {
+    console.error('[file:reveal] failed:', result.error);
+  }
 }
 
 /** Human-readable byte size. */
@@ -45,18 +92,25 @@ function formatSize(bytes: number): string {
 export function QqImage({ data, sendTimeMs }: { data: Data; sendTimeMs: number }) {
   const [broken, setBroken] = useState(false);
   const name = str(data, 'fileName');
+  const token = str(data, 'fileToken');
   const w = num(data, 'imgWidth');
   const h = num(data, 'imgHeight');
   // subType 1 = received animated emoji (served from Emoji/emoji-recv).
   const isAnimatedEmoji = num(data, 'subType') === 1;
   const maxW = isAnimatedEmoji ? 120 : 280;
-  const style =
-    w && h ? { width: Math.min(w, maxW), aspectRatio: `${w} / ${h}` } : { maxWidth: maxW };
+  const maxH = isAnimatedEmoji ? 120 : 360;
+  const fit = fitWithin(w, h, maxW, maxH);
+  const style: CSSProperties = fit
+    ? { width: fit.width, height: fit.height }
+    : { maxWidth: maxW, maxHeight: maxH };
 
   if (broken) {
-    return <span className="qq-media-fallback">{isAnimatedEmoji ? '[动画表情]' : '[图片]'}</span>;
+    return <QqMediaMissing label={isAnimatedEmoji ? '该表情' : '该图片'} style={style} />;
   }
-  const src = mediaUrl('pic', isAnimatedEmoji ? { t: sendTimeMs, name, recv: 1 } : { t: sendTimeMs, name });
+  const src = mediaUrl(
+    'pic',
+    isAnimatedEmoji ? { t: sendTimeMs, name, recv: 1, token } : { t: sendTimeMs, name, token },
+  );
   return (
     <img
       className={isAnimatedEmoji ? 'qq-media-mface' : 'qq-media-image'}
@@ -72,32 +126,68 @@ export function QqImage({ data, sendTimeMs }: { data: Data; sendTimeMs: number }
 // ---- video --------------------------------------------------------------
 
 export function QqVideo({ data, sendTimeMs }: { data: Data; sendTimeMs: number }) {
-  const [broken, setBroken] = useState(false);
+  const [posterBroken, setPosterBroken] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [videoBroken, setVideoBroken] = useState(false);
   const name = str(data, 'fileName');
+  // Cover is fetched with videoToken; the original mp4 with fileToken.
+  const coverToken = str(data, 'videoToken');
+  const fileToken = str(data, 'fileToken');
   const w = num(data, 'videoWidth');
   const h = num(data, 'videoHeight');
   const duration = num(data, 'videoDuration');
-  const maxW = 280;
-  const style =
-    w && h ? { width: Math.min(w, maxW), aspectRatio: `${w} / ${h}` } : { maxWidth: maxW };
+  const fit = fitWithin(w, h, 280, 360);
+  const style: CSSProperties = fit
+    ? { width: fit.width, height: fit.height }
+    : { maxWidth: 280, maxHeight: 360 };
+
+  // Original couldn't be located locally or downloaded → missing placeholder.
+  if (videoBroken) {
+    return <QqMediaMissing label="该视频" style={style} />;
+  }
+
+  // Click → play inline. The media protocol downloads the original on demand;
+  // a spinner covers the gap until the <video> can render its first frame.
+  if (playing) {
+    return (
+      <div className="qq-media-video" style={style}>
+        <video
+          className="qq-media-video-player"
+          src={mediaUrl('video', { t: sendTimeMs, name, token: fileToken })}
+          controls
+          autoPlay
+          onCanPlay={() => setLoading(false)}
+          onError={() => {
+            setVideoBroken(true);
+            setPlaying(false);
+          }}
+        />
+        {loading ? <span className="qq-media-spinner" aria-hidden /> : null}
+      </div>
+    );
+  }
 
   return (
     <div
       className="qq-media-video"
       style={style}
       role="button"
-      title="在文件夹中打开"
-      onClick={() => revealMedia(sendTimeMs, name, 'video')}
+      title="播放"
+      onClick={() => {
+        setLoading(true);
+        setPlaying(true);
+      }}
     >
-      {broken ? (
+      {posterBroken ? (
         <div className="qq-media-video-noposter" />
       ) : (
         <img
           className="qq-media-video-poster"
-          src={mediaUrl('video', { t: sendTimeMs, name, v: 'thumb' })}
+          src={mediaUrl('video', { t: sendTimeMs, name, v: 'thumb', token: coverToken })}
           alt={name || '[视频]'}
           draggable={false}
-          onError={() => setBroken(true)}
+          onError={() => setPosterBroken(true)}
         />
       )}
       <span className="qq-media-video-play" aria-hidden />
@@ -130,7 +220,15 @@ function iconForName(name: string): string {
   return EXT_ICON[ext] ?? 'unknown.png';
 }
 
-export function QqFile({ data, sendTimeMs }: { data: Data; sendTimeMs: number }) {
+export function QqFile({
+  data,
+  sendTimeMs,
+  msgId,
+}: {
+  data: Data;
+  sendTimeMs: number;
+  msgId: string;
+}) {
   const name = str(data, 'fileName');
   const size = num(data, 'fileSize');
   return (
@@ -138,7 +236,7 @@ export function QqFile({ data, sendTimeMs }: { data: Data; sendTimeMs: number })
       className="qq-media-file"
       role="button"
       title="在文件夹中打开"
-      onClick={() => revealMedia(sendTimeMs, name, 'file')}
+      onClick={() => (msgId ? revealFile(msgId) : revealMedia(sendTimeMs, name, 'file'))}
     >
       <img className="qq-media-file-icon" src={fileIconUrl(iconForName(name))} alt="" draggable={false} />
       <div className="qq-media-file-meta">
@@ -153,6 +251,7 @@ export function QqFile({ data, sendTimeMs }: { data: Data; sendTimeMs: number })
 
 export function QqVoice({ data, sendTimeMs }: { data: Data; sendTimeMs: number }) {
   const name = str(data, 'fileName');
+  const token = str(data, 'fileToken');
   const waveform = Array.isArray(data.waveform) ? (data.waveform as number[]) : [];
   // waveform is one byte per 0.1s; length/10 = duration in seconds.
   const seconds = waveform.length > 0 ? Math.max(1, Math.round(waveform.length / 10)) : 0;
@@ -171,7 +270,7 @@ export function QqVoice({ data, sendTimeMs }: { data: Data; sendTimeMs: number }
   const toggle = (): void => {
     let audio = audioRef.current;
     if (!audio) {
-      audio = new Audio(mediaUrl('ptt', { t: sendTimeMs, name }));
+      audio = new Audio(mediaUrl('ptt', { t: sendTimeMs, name, token }));
       audio.onended = () => setPlaying(false);
       audio.onerror = () => setPlaying(false);
       audioRef.current = audio;
@@ -211,11 +310,11 @@ export function QqMarketFace({ data }: { data: Data }) {
   const w = num(data, 'previewWidth');
   const h = num(data, 'previewHeight');
   const size = 120;
-  const style =
+  const style: CSSProperties =
     w && h ? { width: Math.min(w, size), aspectRatio: `${w} / ${h}` } : { width: size, height: size };
 
   if (broken || !pack || !hash) {
-    return <span className="qq-media-fallback">[动画表情]</span>;
+    return <QqMediaMissing label="该表情" style={style} />;
   }
   return (
     <img

@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, nativeImage, protocol, shell } from 'electron';
+import fs from 'node:fs';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -92,6 +93,31 @@ function registerMediaIpc(): void {
       return true;
     },
   );
+
+  ipcMain.handle('file:reveal', async (_event, msgId: string) => {
+    const services = getAppContext().services;
+    if (!services) return { success: false, error: 'Session closed' };
+
+    try {
+      const file = await services.fileAssistant.getFileInfoByMsgId(BigInt(msgId));
+      if (!file) return { success: false, error: '未找到该文件' };
+
+      // Path in NT often starts with ::NTOSFull::
+      let realPath = file.localPath;
+      if (realPath.startsWith('::NTOSFull::')) {
+        realPath = realPath.slice(12);
+      }
+
+      if (!realPath || !fs.existsSync(realPath)) {
+        return { success: false, error: '未找到该文件' };
+      }
+
+      shell.showItemInFolder(realPath);
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: '查询失败' };
+    }
+  });
 }
 
 function resolveWindowIcon(): Electron.NativeImage | undefined {

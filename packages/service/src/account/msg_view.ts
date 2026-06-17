@@ -61,7 +61,8 @@ export interface RenderPicElement {
     imgType: number;
     isOriginal: boolean;
     // md5: string;
-    // fileToken: string;
+    /** CDN download token; used to fetch the image when it isn't on disk. */
+    fileToken: string;
     // uploadTime: number;
     // uploadTimestamp: number;
     // fileTTL: number;
@@ -101,7 +102,8 @@ export interface RenderVideoElement {
     // imgWidth: number;
     // imgHeight: number;
     isOriginal: boolean;
-    // fileToken: string;
+    /** CDN download token for the original video (mp4). */
+    fileToken: string;
     // uploadTime: number;
     // picTransferState?: number;
     // transferVersion?: number;
@@ -112,7 +114,8 @@ export interface RenderVideoElement {
     videoWidth: number;
     videoHeight: number;
     coverFileName: string;
-    // videoToken: string;
+    /** CDN download token for the video cover image. */
+    videoToken: string;
     // expireTimestamp: number;
     // validPeriodSec: number;
     // secondExpireTimestamp: number;
@@ -127,7 +130,8 @@ export interface RenderPttElement {
     fileSize: number;
     isOriginal: boolean;
     // md5: string;
-    // fileToken: string;
+    /** CDN download token for the voice clip (silk). */
+    fileToken: string;
     // uploadTime: number;
     // uploadTimestamp: number;
     // fileTTL: number;
@@ -453,7 +457,7 @@ function mapPic(el: PicElement): RenderPicElement {
       imgType: el.imgType,
       isOriginal: el.isOriginal,
       // md5: el.md5,
-      // fileToken: el.fileToken,
+      fileToken: el.fileToken,
       // uploadTime: el.uploadTime,
       // uploadTimestamp: el.uploadTimestamp,
       // fileTTL: el.fileTTL,
@@ -503,7 +507,7 @@ function mapVideo(el: VideoElement): RenderVideoElement {
       // imgWidth: el.imgWidth,
       // imgHeight: el.imgHeight,
       isOriginal: el.isOriginal,
-      // fileToken: el.fileToken,
+      fileToken: el.fileToken,
       // uploadTime: el.uploadTime,
       // picTransferState: el.picTransferState,
       // transferVersion: el.transferVersion,
@@ -514,7 +518,7 @@ function mapVideo(el: VideoElement): RenderVideoElement {
       videoWidth: el.videoWidth,
       videoHeight: el.videoHeight,
       coverFileName: el.coverFileName,
-      // videoToken: el.videoToken,
+      videoToken: el.videoToken,
       // expireTimestamp: el.expireTimestamp,
       // validPeriodSec: el.validPeriodSec,
       // secondExpireTimestamp: el.secondExpireTimestamp,
@@ -534,7 +538,7 @@ function mapPtt(el: PttElement): RenderPttElement {
       fileSize: el.fileSize,
       isOriginal: el.isOriginal,
       // md5: el.md5,
-      // fileToken: el.fileToken,
+      fileToken: el.fileToken,
       // uploadTime: el.uploadTime,
       // uploadTimestamp: el.uploadTimestamp,
       // fileTTL: el.fileTTL,
