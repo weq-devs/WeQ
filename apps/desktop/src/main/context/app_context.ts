@@ -30,10 +30,13 @@ import {
   MsgService,
   RecentContactService,
   AccountConfigService,
+  ForwardMsgService,
   GroupInfoService,
   ProfileService,
   FileSearchService,
   EmojiService,
+  MsgSearchService,
+  OnlineStatusService,
   DbWatchService,
   createNtMsgDbHook,
   type AccountConfigMetadata,
@@ -87,8 +90,11 @@ export interface AccountServices {
   msgs: MsgService;
   recentContacts: RecentContactService;
   accountConfig: AccountConfigService;
+  forwardMsgs: ForwardMsgService;
   groupInfo: GroupInfoService;
   profile: ProfileService;
+  msgSearch: MsgSearchService;
+  onlineStatus: OnlineStatusService;
   /** Locate on-disk media (pic/video/ptt/file) for the media protocol. */
   fileSearch: FileSearchService;
   /** Decrypt + cache market-face (store sticker) images. */
@@ -175,8 +181,11 @@ export function initAppContext(): AppContext {
         msgs: new MsgService(session),
         recentContacts: new RecentContactService(session),
         accountConfig,
+        forwardMsgs: new ForwardMsgService(session),
         groupInfo: new GroupInfoService(session),
         profile: new ProfileService(session),
+        msgSearch: new MsgSearchService(session),
+        onlineStatus: new OnlineStatusService(session),
         fileSearch: new FileSearchService(session, platform),
         emoji: new EmojiService(session, platform),
       };

@@ -17,12 +17,21 @@ import { getAppContext, dbEventBus, type AccountServices } from '../../context/a
 import { procedure, router } from '../trpc';
 import { toRenderElements, type NewMessages, type DbChange } from '@weq/service';
 import {
+  buddyRequestToWire,
+  buddyToWire,
+  categoryToWire,
   c2cMsgToWire,
+  forwardRecordToWire,
+  groupBulletinToWire,
   groupMsgToWire,
   recentContactToWire,
   userProfileToWire,
   groupDetailToWire,
+  groupEssenceToWire,
   groupMemberToWire,
+  groupMemberLevelInfoToWire,
+  msgSearchHitToWire,
+  onlineStatusToWire,
   type ChatMsgWire,
 } from '../serde';
 
@@ -45,6 +54,15 @@ const convInput = z.object({
   kind: z.enum(['c2c', 'group']),
   /** Conversation key: peer uid (c2c) or group code (group). */
   conv: z.string().min(1),
+});
+
+const pageInput = z.object({
+  limit: z.number().int().min(1).max(2000).default(100),
+  offset: z.number().int().min(0).default(0),
+});
+
+const groupPageInput = pageInput.extend({
+  groupCode: z.string().min(1),
 });
 
 async function fetchLatest(kind: ChatKind, conv: string, limit: number): Promise<ChatMsgWire[]> {
@@ -116,6 +134,55 @@ export const accountRouter = router({
     return profile ? userProfileToWire(profile) : null;
   }),
 
+  /** List QQ buddies from profile_info.db. */
+  listBuddies: procedure
+    .input(pageInput.optional())
+    .query(async ({ input }) => {
+      const page = input ?? { limit: 200, offset: 0 };
+      const buddies = await requireServices().profile.listBuddies(page.limit, page.offset);
+      return buddies.map(buddyToWire);
+    }),
+
+  /** List QQ buddy categories. */
+  listCategories: procedure.query(async () => {
+    const categories = await requireServices().profile.listCategories();
+    return categories.map(categoryToWire);
+  }),
+
+  /** List QQ buddy request notifications. */
+  listBuddyRequests: procedure
+    .input(pageInput.optional())
+    .query(async ({ input }) => {
+      const page = input ?? { limit: 100, offset: 0 };
+      const requests = await requireServices().profile.listBuddyRequests(page.limit, page.offset);
+      return requests.map(buddyRequestToWire);
+    }),
+
+  /** Get detailed profile by NT uid. */
+  getProfile: procedure
+    .input(z.object({ uid: z.string().min(1) }))
+    .query(async ({ input }) => {
+      const profile = await requireServices().profile.getProfile(input.uid);
+      return profile ? userProfileToWire(profile) : null;
+    }),
+
+  /** Get detailed profile by QQ uin. */
+  getProfileByUin: procedure
+    .input(z.object({ uin: z.string().min(1) }))
+    .query(async ({ input }) => {
+      const profile = await requireServices().profile.getProfileByUin(BigInt(input.uin));
+      return profile ? userProfileToWire(profile) : null;
+    }),
+
+  /** List cached user profiles. */
+  listProfiles: procedure
+    .input(pageInput.optional())
+    .query(async ({ input }) => {
+      const page = input ?? { limit: 100, offset: 0 };
+      const profiles = await requireServices().profile.listProfiles(page.limit, page.offset);
+      return profiles.map(userProfileToWire);
+    }),
+
   /** Get group metadata and latest announcement. */
   getGroupDetail: procedure
     .input(z.object({ groupCode: z.string().min(1) }))
@@ -124,15 +191,145 @@ export const accountRouter = router({
       return detail ? groupDetailToWire(detail) : null;
     }),
 
+  /** List all groups from group_info.db. */
+  listAllGroups: procedure
+    .input(pageInput.optional())
+    .query(async ({ input }) => {
+      const page = input ?? { limit: 100, offset: 0 };
+      const groups = await requireServices().groupInfo.listAllGroups(page.limit, page.offset);
+      return groups.map(groupDetailToWire);
+    }),
+
+  /** List group announcements. */
+  listGroupBulletins: procedure
+    .input(groupPageInput)
+    .query(async ({ input }) => {
+      const bulletins = await requireServices().groupInfo.getGroupBulletins(
+        BigInt(input.groupCode),
+        input.limit,
+        input.offset,
+      );
+      return bulletins.map(groupBulletinToWire);
+    }),
+
+  /** List group essence messages. */
+  listGroupEssenceMessages: procedure
+    .input(groupPageInput)
+    .query(async ({ input }) => {
+      const essence = await requireServices().groupInfo.getEssenceMessages(
+        BigInt(input.groupCode),
+        input.limit,
+        input.offset,
+      );
+      return essence.map(groupEssenceToWire);
+    }),
+
+  /** Get group member level definitions. */
+  getGroupMemberLevelInfo: procedure
+    .input(z.object({ groupCode: z.string().min(1) }))
+    .query(async ({ input }) => {
+      const info = await requireServices().groupInfo.getMemberLevelInfo(BigInt(input.groupCode));
+      return info ? groupMemberLevelInfoToWire(info) : null;
+    }),
+
   /** List members of a group. */
   listGroupMembers: procedure
-    .input(z.object({ groupCode: z.string().min(1), limit: z.number().optional() }))
+    .input(
+      z.object({
+        groupCode: z.string().min(1),
+        limit: z.number().int().min(1).max(300).optional(),
+        offset: z.number().int().min(0).optional(),
+      }),
+    )
     .query(async ({ input }) => {
       const members = await requireServices().groupInfo.listMembersInGroup(
         BigInt(input.groupCode),
-        input.limit ?? 2000,
+        input.limit ?? 100,
+        input.offset ?? 0,
       );
       return members.map(groupMemberToWire);
+    }),
+
+  /** List groups a specific user belongs to. */
+  listUserGroups: procedure
+    .input(
+      z.object({
+        uid: z.string().min(1),
+        limit: z.number().int().min(1).max(300).optional(),
+        offset: z.number().int().min(0).optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      const groups = await requireServices().groupInfo.listUserGroups(
+        input.uid,
+        input.limit ?? 100,
+        input.offset ?? 0,
+      );
+      return groups.map(groupMemberToWire);
+    }),
+
+  /** Get formatted online status for a user. */
+  getOnlineStatus: procedure
+    .input(z.object({ uid: z.string().min(1) }))
+    .query(async ({ input }) => {
+      const status = await requireServices().onlineStatus.getOnlineStatus(input.uid);
+      return status ? onlineStatusToWire(status) : null;
+    }),
+
+  /** Search message FTS indexes. */
+  searchMessages: procedure
+    .input(
+      z.object({
+        scope: z.enum(['all', 'buddy', 'group', 'files']).default('all'),
+        keyword: z.string().trim().min(1),
+        limit: z.number().int().min(1).max(100).default(20),
+      }),
+    )
+    .query(async ({ input }) => {
+      const search = requireServices().msgSearch;
+      const hits =
+        input.scope === 'buddy'
+          ? await search.searchBuddy(input.keyword, input.limit)
+          : input.scope === 'group'
+            ? await search.searchGroup(input.keyword, input.limit)
+            : input.scope === 'files'
+              ? await search.searchFiles(input.keyword, input.limit)
+              : [
+                  ...(await search.searchBuddy(input.keyword, input.limit)),
+                  ...(await search.searchGroup(input.keyword, input.limit)),
+                ]
+                  .sort((a, b) => Number(b.sendTime - a.sendTime))
+                  .slice(0, input.limit);
+      return hits.map(msgSearchHitToWire);
+    }),
+
+  /** Search within the open conversation. */
+  searchConversationMessages: procedure
+    .input(
+      convInput.extend({
+        keyword: z.string().trim().min(1),
+        limit: z.number().int().min(1).max(100).default(20),
+      }),
+    )
+    .query(async ({ input }) => {
+      const search = requireServices().msgSearch;
+      const hits =
+        input.kind === 'group'
+          ? await search.searchInGroupConversation(input.conv, input.keyword, input.limit)
+          : await search.searchInBuddyConversation(input.conv, input.keyword, input.limit);
+      return hits.map(msgSearchHitToWire);
+    }),
+
+  /** Get merged-forward / quote-reply cache for one message. */
+  getForwardMessages: procedure
+    .input(z.object({ kind: z.enum(['c2c', 'group']), msgId: z.string().min(1) }))
+    .query(async ({ input }) => {
+      const service = requireServices().forwardMsgs;
+      const records =
+        input.kind === 'group'
+          ? await service.getGroupForward(BigInt(input.msgId))
+          : await service.getC2cForward(BigInt(input.msgId));
+      return records.map(forwardRecordToWire);
     }),
 
   /**
