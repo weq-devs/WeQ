@@ -24,10 +24,19 @@ import { cn } from '@renderer/lib/utils';
 
 /**
  * Lets a reply quote ask the host (MainView) to scroll the message list to the
- * referenced message's seq. Default is a no-op so the renderer also works when
- * mounted outside a provider (e.g. tests).
+ * referenced message. Both seq candidates are passed because the column that
+ * matches `40003` differs by conversation kind — group uses origMsgSeq(47402),
+ * c2c uses origMsgIndex(47419) — and only the host knows the current kind.
+ * Default is a no-op so the renderer also works when mounted outside a provider
+ * (e.g. tests).
  */
-export const ReplyJumpContext = createContext<(seq: number | string) => void>(() => {});
+export interface ReplyJumpTarget {
+  /** origMsgSeq (tag 47402) — the 40003 anchor for GROUP messages. */
+  seq?: number | string;
+  /** origMsgIndex (tag 47419) — the 40003 anchor for C2C messages. */
+  index?: number | string;
+}
+export const ReplyJumpContext = createContext<(target: ReplyJumpTarget) => void>(() => {});
 
 /** Element kinds that render as standalone, borderless media (no bubble). */
 const BORDERLESS_MEDIA = new Set(['pic', 'video', 'mface']);
@@ -181,14 +190,17 @@ function ReplyQuote({ data }: { data: Record<string, unknown> }) {
   const origElements = Array.isArray(data.origElements) ? (data.origElements as RenderElement[]) : [];
   const meaningful = origElements.filter(isMeaningful);
   const preview = meaningful.length > 0 ? meaningful[meaningful.length - 1] : null;
-  // The quoted message's in-conversation seq (column 40003) — `origMsgSeq` is the
-  // reliable one; `origMsgIndex` is a fallback that's often absent for group msgs.
-  const seq = data.origMsgSeq ?? data.origMsgIndex;
-  const canJump = typeof seq === 'number' || (typeof seq === 'string' && seq.length > 0);
+  // Pass both 40003 candidates; the host picks by conversation kind. Verified
+  // against the live DB: group → origMsgSeq(47402), c2c → origMsgIndex(47419).
+  const seq = data.origMsgSeq as number | string | undefined;
+  const index = data.origMsgIndex as number | string | undefined;
+  const isUsable = (v: unknown): boolean =>
+    typeof v === 'number' || (typeof v === 'string' && v.length > 0);
+  const canJump = isUsable(seq) || isUsable(index);
 
   function handleJump(event: ReactMouseEvent | ReactKeyboardEvent): void {
     event.stopPropagation();
-    if (canJump) jumpToSeq(seq as number | string);
+    if (canJump) jumpToSeq({ seq, index });
   }
 
   return (

@@ -44,6 +44,12 @@ export class MsgService {
     return msgs.map(renderC2c);
   }
 
+  /** Private-chat page just newer than `afterSeq` (scroll-down / jump context). */
+  async getC2cAfter(targetUid: string, afterSeq: bigint, limit = 50): Promise<RenderC2cMsg[]> {
+    const msgs = await this.session.c2cMsgs.listAfter(this.c2cPartition(targetUid), afterSeq, limit);
+    return msgs.map(renderC2c);
+  }
+
   /** Re-read private-chat messages with seq >= `sinceSeq` (live refresh). */
   async getC2cFrom(targetUid: string, sinceSeq: bigint, limit = 500): Promise<RenderC2cMsg[]> {
     const msgs = await this.session.c2cMsgs.listFrom(this.c2cPartition(targetUid), sinceSeq, limit);
@@ -61,6 +67,12 @@ export class MsgService {
   /** Group page just older than `beforeSeq` (scroll-up). */
   async getGroupBefore(targetGroupCode: string, beforeSeq: bigint, limit = 50): Promise<RenderGroupMsg[]> {
     const msgs = await this.session.groupMsgs.listBefore(targetGroupCode, beforeSeq, limit);
+    return msgs.map(renderGroup);
+  }
+
+  /** Group page just newer than `afterSeq` (scroll-down / jump context). */
+  async getGroupAfter(targetGroupCode: string, afterSeq: bigint, limit = 50): Promise<RenderGroupMsg[]> {
+    const msgs = await this.session.groupMsgs.listAfter(targetGroupCode, afterSeq, limit);
     return msgs.map(renderGroup);
   }
 

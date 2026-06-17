@@ -64,6 +64,18 @@ export class GroupMsgDb {
     return rows.map(rowToGroupMsg);
   }
 
+  /** The page of messages just newer than `afterSeq` (exclusive), oldest-first. */
+  async listAfter(targetGroupCode: string, afterSeq: bigint, limit = 50): Promise<GroupMsg[]> {
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
+        WHERE "40027" = ? AND "40003" > ?
+        ORDER BY "40003" ASC
+        LIMIT ?`,
+      [targetGroupCode, afterSeq, BigInt(limit)],
+    );
+    return rows.map(rowToGroupMsg);
+  }
+
   /**
    * Messages with seq >= `sinceSeq`, newest-first, capped at `limit`. The
    * "re-read the currently-loaded window" query — picks up new tail messages

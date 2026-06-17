@@ -42,6 +42,7 @@ export function ChatMainContent({
 	toolRegistry,
 	selectedToolId,
 	loadingMessages,
+	atLatest,
 	conversationPrefs,
 	drafts,
 	query = "",
@@ -83,6 +84,8 @@ export function ChatMainContent({
 	toolRegistry?: ToolPaneGroup[];
 	selectedToolId?: string | null;
 	loadingMessages: boolean;
+	/** Whether `messages` is the live latest-anchored window (see ChatPane). */
+	atLatest?: boolean;
 	conversationPrefs: Record<string, ConversationPreference>;
 	drafts: ConversationDrafts;
 	query?: string;
@@ -179,6 +182,7 @@ export function ChatMainContent({
 			composerActions={composerActions}
 			messageRenderers={messageRenderers}
 			loading={loadingMessages}
+			atLatest={atLatest}
 			preference={
 				activeConversation
 					? conversationPrefs[activeConversation.id]

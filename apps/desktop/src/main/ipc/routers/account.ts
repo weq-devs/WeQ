@@ -84,6 +84,18 @@ async function fetchBefore(
     : (await msgs.getC2cBefore(conv, beforeSeq, limit)).map(c2cMsgToWire);
 }
 
+async function fetchAfter(
+  kind: ChatKind,
+  conv: string,
+  afterSeq: bigint,
+  limit: number,
+): Promise<ChatMsgWire[]> {
+  const msgs = requireServices().msgs;
+  return kind === 'group'
+    ? (await msgs.getGroupAfter(conv, afterSeq, limit)).map(groupMsgToWire)
+    : (await msgs.getC2cAfter(conv, afterSeq, limit)).map(c2cMsgToWire);
+}
+
 async function fetchFrom(
   kind: ChatKind,
   conv: string,
@@ -117,6 +129,16 @@ export const accountRouter = router({
       }),
     )
     .query(({ input }) => fetchBefore(input.kind, input.conv, BigInt(input.beforeSeq), input.limit)),
+
+  /** The page just newer than `afterSeq` (scroll down / jump context), oldest-first. */
+  listAfter: procedure
+    .input(
+      convInput.extend({
+        afterSeq: z.string().min(1),
+        limit: z.number().int().min(1).max(200).default(50),
+      }),
+    )
+    .query(({ input }) => fetchAfter(input.kind, input.conv, BigInt(input.afterSeq), input.limit)),
 
   /** Re-read everything with seq >= `sinceSeq` (live refresh of the window). */
   listFrom: procedure

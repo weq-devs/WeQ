@@ -180,6 +180,7 @@ export function ChatPane({
 	composerActions,
 	messageRenderers,
 	loading,
+	atLatest = true,
 	preference,
 	onLoadMoreGroupMembers,
 	groupMembersLoading,
@@ -196,6 +197,13 @@ export function ChatPane({
 	composerActions?: Partial<ComposerActionRegistry>;
 	messageRenderers?: MessageRenderer[];
 	loading: boolean;
+	/**
+	 * Whether `messages` is the live latest-anchored window. False while the host
+	 * shows a detached history window (reply-jump context / downward history
+	 * paging); in that mode tail changes are programmatic, not live arrivals, so
+	 * the "new message" pill and auto-scroll-to-bottom are suppressed.
+	 */
+	atLatest?: boolean;
 	preference: ConversationPreference | undefined;
 	onLoadMoreGroupMembers?: () => void;
 	groupMembersLoading?: boolean;
@@ -322,11 +330,20 @@ export function ChatPane({
 			return;
 		}
 
-		const appended = countAppendedMessages(
-			lastMessageIdRef.current,
-			visibleMessages,
-		);
+		const prevId = lastMessageIdRef.current;
+		// The window was swapped wholesale (reply-jump rebuild) when the previous
+		// tail is no longer present — that's not a live arrival.
+		const replaced =
+			prevId !== null && !visibleMessages.some((message) => message.id === prevId);
+		const appended = countAppendedMessages(prevId, visibleMessages);
 		lastMessageIdRef.current = newestId;
+
+		// Detached history window (reply-jump context or downward history paging):
+		// tail changes are programmatic. Don't pill, don't yank to the bottom — the
+		// host positions the view itself.
+		if (replaced || !atLatest) {
+			return;
+		}
 
 		// Pinned to bottom → follow the new message down, no pill.
 		if (atBottomRef.current) {
@@ -339,7 +356,7 @@ export function ChatPane({
 		// Reading history → surface the pill instead of yanking the view down.
 		setNewMessagePill((current) => current + appended);
 		return;
-	}, [visibleMessages.length, conversation?.id, loading]);
+	}, [visibleMessages.length, conversation?.id, loading, atLatest]);
 
 	useLayoutEffect(() => {
 		if (!unreadJump) {

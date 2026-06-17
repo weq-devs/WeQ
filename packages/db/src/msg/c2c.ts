@@ -82,6 +82,19 @@ export class C2cMsgDb {
     return rows.map(rowToC2cMsg);
   }
 
+  /** The page of messages just newer than `afterSeq` (exclusive), oldest-first. */
+  async listAfter(part: C2cPartition, afterSeq: bigint, limit = 50): Promise<C2cMsg[]> {
+    const { clause, value } = partitionWhere(part);
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM c2c_msg_table
+        WHERE ${clause} AND "40003" > ?
+        ORDER BY "40003" ASC
+        LIMIT ?`,
+      [value, afterSeq, BigInt(limit)],
+    );
+    return rows.map(rowToC2cMsg);
+  }
+
   /**
    * Messages with seq >= `sinceSeq`, newest-first, capped at `limit`. The
    * "re-read the currently-loaded window" query — picks up new tail messages
