@@ -153,6 +153,15 @@ export function MessageBubble({
 				{showSenderName ? (
 					<span className={cn("message-name")}>
 						{senderName}
+						{(sender as any).customTitle || (sender as any).levelName ? (
+							<small className={cn(
+								"member-badge", 
+								(sender as any).role,
+								(sender as any).levelBracket > 0 ? `level-${(sender as any).levelBracket}` : ""
+							)}>
+								{(sender as any).customTitle || (sender as any).levelName}
+							</small>
+						) : null}
 						{senderKind === "bot" ? (
 							<small
 								className={cn("bot-badge")}

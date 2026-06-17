@@ -683,6 +683,39 @@
 	font-weight: 500;
 }
 
+.member-badge {
+	display: inline-block;
+	padding: 1px 5px;
+	border-radius: 4px;
+	font-size: 10px;
+	background-color: rgba(0, 0, 0, 0.05);
+	color: #888;
+	line-height: 1.4;
+	white-space: nowrap;
+	font-weight: 400;
+	flex-shrink: 0;
+}
+
+.member-badge.owner {
+	background-color: #fde7e0;
+	color: #e6432c;
+	border: 0.5px solid #ffccc7;
+}
+
+.member-badge.admin {
+	background-color: #e6e6fb;
+	color: #6a5cff;
+	border: 0.5px solid #d3adf7;
+}
+
+/* Level Brackets */
+.member-badge.level-1 { background-color: #f6ffed; color: #52c41a; border: 0.5px solid #b7eb8f; } /* 0-10 */
+.member-badge.level-2 { background-color: #e6f7ff; color: #1890ff; border: 0.5px solid #91d5ff; } /* 11-20 */
+.member-badge.level-3 { background-color: #f9f0ff; color: #722ed1; border: 0.5px solid #d3adf7; } /* 21-40 */
+.member-badge.level-4 { background-color: #fff2e8; color: #fa541c; border: 0.5px solid #ffbb96; } /* 41-60 */
+.member-badge.level-5 { background-color: #fff1f0; color: #f5222d; border: 0.5px solid #ffa39e; } /* 61-80 */
+.member-badge.level-6 { background-color: #fffbe6; color: #fadb14; border: 0.5px solid #ffe58f; } /* 81+ */
+
 .message-content {
 	width: fit-content;
 	min-width: 0;
@@ -795,6 +828,91 @@
 .message-line.mine .message-bubble.context-active .message-content {
 	background: #078bd8;
 	color: #ffffff;
+}
+
+/* ---- reply quote ------------------------------------------------------- */
+
+/* A reply message stacks the quote box above its own body. */
+.message-content.qq-has-reply {
+	display: flex;
+	flex-direction: column;
+	gap: 5px;
+}
+
+/* Darker inset box echoing the referenced message's last element. */
+.qq-reply-quote {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	max-width: 100%;
+	padding: 4px 8px;
+	border-radius: 6px;
+	background: rgba(0, 0, 0, 0.08);
+	color: #5a5a5a;
+	font-size: 12.5px;
+	line-height: 1.35;
+	border: 0;
+	text-align: left;
+	cursor: pointer;
+	transition: background 0.15s ease;
+}
+
+.qq-reply-quote:hover,
+.qq-reply-quote:focus-visible {
+	background: rgba(0, 0, 0, 0.14);
+	outline: none;
+}
+
+.qq-reply-quote-body {
+	flex: 1 1 auto;
+	min-width: 0;
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.qq-reply-quote-body > span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.qq-reply-quote-arrow {
+	flex: none;
+	color: inherit;
+	opacity: 0.7;
+}
+
+.qq-reply-quote:hover .qq-reply-quote-arrow {
+	opacity: 1;
+}
+
+/* On my own (blue) bubbles the quote needs a light-on-dark treatment. */
+.message-line.mine .qq-reply-quote {
+	background: rgba(255, 255, 255, 0.22);
+	color: rgba(255, 255, 255, 0.92);
+}
+
+.message-line.mine .qq-reply-quote:hover,
+.message-line.mine .qq-reply-quote:focus-visible {
+	background: rgba(255, 255, 255, 0.32);
+}
+
+/* Brief highlight when a reply jump lands on its target message. */
+.message-line.weq-reply-target-flash .message-bubble .message-content {
+	animation: weq-reply-flash 1.6s ease;
+}
+
+@keyframes weq-reply-flash {
+	0%,
+	40% {
+		box-shadow: 0 0 0 2px rgba(18, 168, 255, 0.55);
+	}
+	100% {
+		box-shadow: 0 0 0 2px rgba(18, 168, 255, 0);
+	}
 }
 
 .message-content.sticker-only,
@@ -1500,38 +1618,6 @@ button.contact-profile-row:hover {
 	transform: translateX(2px);
 }
 
-.group-info-member-row.is-owner {
-	background: linear-gradient(
-		to right,
-		rgba(230, 67, 44, 0.12),
-		rgba(230, 67, 44, 0.02)
-	);
-}
-
-.group-info-member-row.is-admin {
-	background: linear-gradient(
-		to right,
-		rgba(106, 92, 255, 0.1),
-		rgba(106, 92, 255, 0.02)
-	);
-}
-
-.group-info-member-row.is-owner:hover {
-	background: linear-gradient(
-		to right,
-		rgba(230, 67, 44, 0.18),
-		rgba(230, 67, 44, 0.05)
-	);
-}
-
-.group-info-member-row.is-admin:hover {
-	background: linear-gradient(
-		to right,
-		rgba(106, 92, 255, 0.15),
-		rgba(106, 92, 255, 0.05)
-	);
-}
-
 .group-info-member-row .member-avatar-wrap {
 	flex: 0 0 auto;
 }
@@ -1543,13 +1629,52 @@ button.contact-profile-row:hover {
 }
 
 .group-info-member-row .member-name-text {
-	display: grid;
+	display: flex;
 	min-width: 0;
 	overflow: hidden;
 	flex: 1;
 	font-size: 13px;
+	align-items: center;
+	height: 100%;
+}
+
+.member-name-with-badge {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	max-width: 100%;
+	height: 100%;
+}
+
+.member-display-name {
+	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+	line-height: 1.2;
+}
+
+.member-role-badge {
+	padding: 1px 4px;
+	border-radius: 4px;
+	font-size: 10px;
+	line-height: 1.2;
+	white-space: nowrap;
+	font-weight: 500;
+	flex-shrink: 0;
+	display: inline-block;
+}
+
+.member-role-badge.owner {
+	background-color: #fff2f0;
+	color: #cf1322;
+	border: 0.5px solid #ffa39e;
+}
+
+.member-role-badge.admin {
+	background-color: #f9f0ff;
+	color: #531dab;
+	border: 0.5px solid #d3adf7;
 }
 
 .group-info-member-row .member-name-text span,
@@ -1767,21 +1892,6 @@ button.contact-profile-row:hover {
 	max-height: min(520px, calc(100vh - 172px));
 	overflow: auto;
 	padding: 18px;
-}
-
-.member-role-badge {
-	display: none;
-}
-
-/* QQ standard role colors: owner = gold-red, admin = blue-purple. */
-.member-role-badge.owner {
-	background: #fde7e0;
-	color: #e6432c;
-}
-
-.member-role-badge.admin {
-	background: #e6e6fb;
-	color: #6a5cff;
 }
 
 .group-invite-dialog {

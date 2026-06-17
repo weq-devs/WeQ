@@ -250,6 +250,26 @@ export const accountRouter = router({
       return members.map(groupMemberToWire);
     }),
 
+  /**
+   * Batch-resolve group members by uid. Lets the renderer fill in display
+   * names for message senders that fall outside the loaded member page,
+   * without blocking on a full member fetch.
+   */
+  getGroupMembersByUids: procedure
+    .input(
+      z.object({
+        groupCode: z.string().min(1),
+        uids: z.array(z.string().min(1)).min(1).max(200),
+      }),
+    )
+    .query(async ({ input }) => {
+      const members = await requireServices().groupInfo.getMembersByUids(
+        BigInt(input.groupCode),
+        input.uids,
+      );
+      return members.map(groupMemberToWire);
+    }),
+
   /** List groups a specific user belongs to. */
   listUserGroups: procedure
     .input(

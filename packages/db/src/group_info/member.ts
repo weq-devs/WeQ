@@ -57,7 +57,12 @@ export class GroupMemberDb {
    */
   async listMembersInGroup(groupCode: bigint, limit = 100, offset = 0): Promise<GroupMember[]> {
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM group_member3 WHERE "60001" = ? AND "64016" = 0 LIMIT ? OFFSET ?`,
+      `SELECT m."60001", m."1000", m."1002", m."64003", m."20002", m."64007", m."64008", m."64009", m."64010", m."64016", m."64023", m."64035"
+       FROM group_member3 m
+       LEFT JOIN group_detail_info_ver1 d ON m."60001" = d."60001"
+       WHERE m."60001" = ? AND m."64016" = 0
+       ORDER BY (m."1000" = d."60002") DESC, m."64010" DESC, m."64007" ASC
+       LIMIT ? OFFSET ?`,
       [groupCode, limit, offset],
     );
     return rows.map(rowToMember);
@@ -70,6 +75,34 @@ export class GroupMemberDb {
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM group_member3 WHERE "1000" = ? AND "64016" = 0 LIMIT ? OFFSET ?`,
       [uid, limit, offset],
+    );
+    return rows.map(rowToMember);
+  }
+
+  /**
+   * Get a single member's info.
+   */
+  async getMember(groupCode: bigint, uid: string): Promise<GroupMember | null> {
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM group_member3 WHERE "60001" = ? AND "1000" = ? LIMIT 1`,
+      [groupCode, uid],
+    );
+    if (rows.length === 0) return null;
+    return rowToMember(rows[0]!);
+  }
+
+  /**
+   * Batch-fetch members by uid in a single query. Used to resolve message
+   * senders that fall outside the paginated member list without firing one
+   * query per uid. Returns only the members found (no nulls / ordering).
+   */
+  async getMembersByUids(groupCode: bigint, uids: string[]): Promise<GroupMember[]> {
+    const unique = [...new Set(uids.filter((uid) => uid))];
+    if (unique.length === 0) return [];
+    const placeholders = unique.map(() => '?').join(',');
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM group_member3 WHERE "60001" = ? AND "1000" IN (${placeholders})`,
+      [groupCode, ...unique],
     );
     return rows.map(rowToMember);
   }

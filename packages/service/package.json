@@ -12,7 +12,8 @@
     "test:key-alive": "tsx test/key_alive_qq.ts",
     "test:key-quick": "tsx test/key_quick_login.ts",
     "test:key-qr": "tsx test/key_qr_login.ts",
-    "test:msg-search": "tsx test/msg_search.ts"
+    "test:msg-search": "tsx test/msg_search.ts",
+    "test:reply": "tsx test/reply_element.ts"
   },
   "dependencies": {
     "@weq/account": "workspace:*",

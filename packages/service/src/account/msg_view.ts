@@ -2,6 +2,7 @@
  * Render View Model — defines simplified, front-end-friendly Element shapes.
  */
 
+import { decodeElement } from '@weq/codec';
 import type {
   Element,
   TextElement,
@@ -169,7 +170,8 @@ export interface RenderReplyElement {
     // origReceiverUin: number;
     origMsgId: bigint;
     origMsgIndex: number;
-    origElements: any[];
+    /** The quoted message's elements, already mapped to render view ({type,data}). */
+    origElements: RenderElement[];
     replyOrigMsgIdRef?: bigint;
     replyTextSummary?: string;
   };
@@ -584,7 +586,10 @@ function mapReply(el: ReplyElement): RenderReplyElement {
       // origReceiverUin: el.origReceiverUin,
       origMsgId: el.origMsgId,
       origMsgIndex: el.origMsgIndex,
-      origElements: el.origElements,
+      // origElements arrive as raw ElementWire (no kind/type); decode then map
+      // to the same render view ({type,data}) the main elements use so the
+      // front-end reply quote can render them with the shared element renderer.
+      origElements: toRenderElements((el.origElements ?? []).map((w) => decodeElement(w as never))),
       // replyOrigMsgIdRef: el.replyOrigMsgIdRef,
       // replyTextSummary: el.replyTextSummary,
       elementId: el.elementId,

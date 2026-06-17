@@ -37,7 +37,7 @@ import {
   type User,
   useChatShellController,
 } from '../im-template/template';
-import { qqMessageRenderer } from '../components/QqMessageContent';
+import { qqMessageRenderer, ReplyJumpContext } from '../components/QqMessageContent';
 
 const messageRenderers: MessageRenderer[] = composeMessageRenderers({
   prepend: [qqMessageRenderer],
@@ -437,9 +437,20 @@ function groupRequestFromBuddyRequest(request: BuddyRequestWire, groupsById: Map
   } as const;
 }
 
+function levelBracketFor(level?: number): number {
+  if (level === undefined) return 0;
+  if (level <= 10) return 1;
+  if (level <= 20) return 2;
+  if (level <= 40) return 3;
+  if (level <= 60) return 4;
+  if (level <= 80) return 5;
+  return 6;
+}
+
 function levelNameFor(levelConfigs: Array<{ level: number; levelName: string }>, level?: number): string | null {
-  if (!level) return null;
-  return levelConfigs.find((item) => item.level === level)?.levelName || `LV${level}`;
+  if (level === undefined || level === 0) return null;
+  const bracket = levelBracketFor(level);
+  return levelConfigs.find((item) => item.level === bracket)?.levelName || `Lv${level}`;
 }
 
 function contactToConversation(c: RecentContactWire, user: User): Conversation | null {
@@ -512,12 +523,13 @@ function isMineMessage(message: MessageWire, user: User): boolean {
   });
 }
 
-function messageSender(message: MessageWire, conversation: Conversation, user: User, members?: GroupMember[]): User {
+function messageSender(message: MessageWire, conversation: Conversation, user: User, memberMap?: Map<string, GroupMember>): User {
   if (isMineMessage(message, user)) return user;
   if (conversation.type === 'direct') return conversation.otherUser;
 
-  // Try to find member nickname from the loaded members list
-  const member = members?.find(m => m.id === message.senderUid);
+  // Optimized O(1) lookup
+  const member = memberMap?.get(message.senderUid);
+  const isUinOnly = !member?.displayName || member.displayName === message.senderUin;
 
   return {
     id: message.senderUid || `sender:${message.senderUin}`,
@@ -526,11 +538,16 @@ function messageSender(message: MessageWire, conversation: Conversation, user: U
     username: message.senderUid || message.senderUin,
     displayName: member?.displayName || (message.senderUin && message.senderUin !== '0' ? message.senderUin : 'Member'),
     avatarUrl: member?.avatarUrl || senderAvatarSrc(message.senderUin),
-  };
+    // Ensure group specific fields are passed through, but ONLY if it's not just a UIN display
+    role: !isUinOnly ? member?.role : undefined,
+    customTitle: !isUinOnly ? member?.customTitle : undefined,
+    levelName: !isUinOnly ? member?.levelName : undefined,
+    levelBracket: !isUinOnly ? levelBracketFor(member?.memberLevel) : 0,
+  } as User;
 }
 
-function messageToTemplate(message: MessageWire, conversation: Conversation, user: User, members?: GroupMember[]): Message {
-  const sender = messageSender(message, conversation, user, members);
+function messageToTemplate(message: MessageWire, conversation: Conversation, user: User, memberMap?: Map<string, GroupMember>): Message {
+  const sender = messageSender(message, conversation, user, memberMap);
   return {
     id: message.msgId,
     conversationId: conversation.id,
@@ -816,7 +833,12 @@ export function MainView(): ReactElement {
   const [groupMemberHasMore, setGroupMemberHasMore] = useState<Record<string, boolean>>({});
   const [groupMemberLoading, setGroupMemberLoading] = useState<Record<string, boolean>>({});
   const groupMemberLoadingRef = useRef<Record<string, boolean>>({});
+  const [missingMembers, setMissingMembers] = useState<Record<string, GroupMemberWire>>({});
   const loadingOlderRef = useRef(false);
+
+  // Mirror of `loaded` for the reply-jump handler (a stable callback that must
+  // read the current window without being re-created on every message change).
+  const loadedRef = useRef<MessageWire[]>([]);
   const pendingScrollRestoreRef = useRef<PendingScrollRestore | null>(null);
   // Latest active-conversation identity, read by the once-mounted live
   // subscription (which must not re-subscribe on every selection change).
@@ -1054,14 +1076,22 @@ export function MainView(): ReactElement {
     const detail = groupDetail.data;
     const levelConfigs = groupLevelInfo.data?.levelConfigs ?? [];
 
-    const mapped: GroupMember[] = selectedGroupMemberWires.map((m) => ({
+    const allMemberWires = [...selectedGroupMemberWires];
+    // Add missing members from the cache
+    Object.values(missingMembers).forEach(m => {
+      if (!allMemberWires.find(em => em.uid === m.uid)) {
+        allMemberWires.push(m);
+      }
+    });
+
+    const mapped: GroupMember[] = allMemberWires.map((m) => ({
       id: m.uid,
       identityLabel: m.uin && m.uin !== '0' ? 'QQ' : 'UID',
       identityValue: m.uin && m.uin !== '0' ? m.uin : m.uid,
       username: m.uid,
       displayName: m.card || m.nick || m.uin || 'Member',
       avatarUrl: senderAvatarSrc(m.uin),
-      role: m.uid === detail?.ownerUid ? 'owner' : (m.adminFlag === 1 ? 'admin' : 'member'),
+      role: m.uid === detail?.ownerUid ? 'owner' : (m.adminFlag > 0 ? 'admin' : 'member'),
       joinedAt: toIsoTime(m.joinTime.toString()),
       lastSpeakAt: secondsToIsoTime(m.lastSpeakTime),
       muteUntil: secondsToIsoTime(m.muteUntil),
@@ -1074,12 +1104,55 @@ export function MainView(): ReactElement {
         const roleScore = { owner: 0, admin: 1, member: 2 };
         return roleScore[a.role] - roleScore[b.role];
     });
-  }, [selectedConversation, groupDetail.data, groupLevelInfo.data, selectedGroupMemberWires]);
+  }, [selectedConversation, groupDetail.data, groupLevelInfo.data, selectedGroupMemberWires, missingMembers]);
+
+  // Asynchronously resolve message senders missing from the loaded member page.
+  // Messages render immediately with the uin fallback; this batch-fetches the
+  // real card/nick/group-title from the DB and patches them in without blocking.
+  useEffect(() => {
+    if (!selectedUid || !isGroup || loaded.length === 0) return;
+
+    const known = new Set(selectedGroupMemberWires.map((m) => m.uid));
+    const unknownUids = [...new Set(loaded.map((m) => m.senderUid))].filter(
+      (uid) => uid && !known.has(uid) && !missingMembers[uid],
+    );
+    if (unknownUids.length === 0) return;
+
+    const groupCode = selectedUid;
+    let cancelled = false;
+    void (async () => {
+      // The endpoint caps at 200 uids per call; chunk larger sets.
+      for (let i = 0; i < unknownUids.length; i += 200) {
+        const chunk = unknownUids.slice(i, i + 200);
+        try {
+          const members = await client.account.getGroupMembersByUids.query({ groupCode, uids: chunk });
+          if (cancelled || selectionRef.current?.id !== groupCode) return;
+          if (members.length > 0) {
+            setMissingMembers((prev) => {
+              const next = { ...prev };
+              for (const member of members) next[member.uid] = member;
+              return next;
+            });
+          }
+        } catch (err) {
+          console.error('[group-members] getGroupMembersByUids failed', err);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loaded, selectedUid, isGroup, selectedGroupMemberWires, missingMembers]);
 
   const templateMessages = useMemo(() => {
     if (!selectedConversation) return [];
+    
+    // Create a fast lookup map for member info
+    const memberMap = new Map(currentGroupMembers.map(m => [m.id, m]));
+    
     return loadedMessageWires.map((message) => 
-      messageToTemplate(message, selectedConversation, user, currentGroupMembers)
+      messageToTemplate(message, selectedConversation, user, memberMap)
     );
   }, [loadedMessageWires, selectedConversation, user, currentGroupMembers]);
 
@@ -1165,7 +1238,70 @@ export function MainView(): ReactElement {
   // Keep the loaded-window descriptor in sync for the once-mounted subscription.
   useEffect(() => {
     windowRef.current = { minSeq: loaded[0]?.msgSeq ?? null, anchored: anchoredToLatest };
+    loadedRef.current = loaded;
   }, [loaded, anchoredToLatest]);
+
+  // Scroll the loaded message list to a reply target by seq, loading older pages
+  // first if it isn't in the window yet, then briefly flash it.
+  const jumpToSeq = useCallback(async (rawSeq: number | string): Promise<void> => {
+    const targetSeq = String(rawSeq);
+
+    function scrollToMsgId(msgId: string): boolean {
+      const line = document.querySelector<HTMLElement>(
+        `.weq-readonly-chat .message-scroll [data-message-id="${msgId}"]`,
+      );
+      if (!line) return false;
+      line.scrollIntoView({ block: 'center' });
+      line.classList.add('weq-reply-target-flash');
+      window.setTimeout(() => line.classList.remove('weq-reply-target-flash'), 1600);
+      return true;
+    }
+
+    const here = loadedRef.current.find((m) => m.msgSeq === targetSeq);
+    if (here) {
+      scrollToMsgId(here.msgId);
+      return;
+    }
+
+    const sel = selectionRef.current;
+    if (!sel) return;
+    const kind = sel.kind === 'group' ? 'group' : 'c2c';
+    const targetNum = Number(targetSeq);
+
+    let working = loadedRef.current.slice();
+    let reachedTop = false;
+    for (let guard = 0; guard < 80; guard += 1) {
+      const minSeq = working[0]?.msgSeq;
+      if (!minSeq || Number(minSeq) <= targetNum) break;
+      if (working.some((m) => m.msgSeq === targetSeq)) break;
+      let older;
+      try {
+        older = await client.account.listBefore.query({ kind, conv: sel.id, beforeSeq: minSeq, limit: PAGE_SIZE });
+      } catch (err) {
+        console.error('[reply-jump] listBefore failed', err);
+        break;
+      }
+      if (selectionRef.current?.id !== sel.id) return; // switched away mid-flight
+      const known = new Set(working.map((m) => m.msgId));
+      const fresh = older.map(toMessageWire).reverse().filter((m) => !known.has(m.msgId));
+      if (fresh.length === 0) {
+        reachedTop = true;
+        break;
+      }
+      working = [...fresh, ...working];
+      if (older.length < PAGE_SIZE) {
+        reachedTop = true;
+        break;
+      }
+    }
+
+    const target = working.find((m) => m.msgSeq === targetSeq);
+    setLoaded(working);
+    if (reachedTop) setHasOlder(false);
+    if (!target) return;
+    // Let the prepended rows paint (and any scroll-restore settle) before scrolling.
+    window.setTimeout(() => scrollToMsgId(target.msgId), 160);
+  }, []);
 
   // Load the newest page whenever the open conversation changes. The render-time
   // reset already cleared `loaded`, so this never paints the old chat. Always a
@@ -1376,7 +1512,7 @@ export function MainView(): ReactElement {
   }
 
   return (
-    <>
+    <ReplyJumpContext.Provider value={jumpToSeq}>
       <ChatShell
         user={user}
         view={shell.view}
@@ -1515,6 +1651,6 @@ export function MainView(): ReactElement {
           </section>
         </div>
       ) : null}
-    </>
+    </ReplyJumpContext.Provider>
   );
 }
