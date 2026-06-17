@@ -163,11 +163,6 @@ export function SidebarHeader({
 						<span className={cn("notice-entry-label")}>
 							<span className={cn("desktop-notice-label")}>好友通知</span>
 							<span className={cn("mobile-notice-label")}>新朋友</span>
-							{friendNoticeCount > 0 ? (
-								<span className={cn("notice-badge")}>
-									{formatBadgeCount(friendNoticeCount)}
-								</span>
-							) : null}
 						</span>
 						<ChevronRight size={20} />
 					</button>
@@ -178,11 +173,6 @@ export function SidebarHeader({
 					>
 						<span className={cn("notice-entry-label")}>
 							群通知
-							{groupNoticeCount > 0 ? (
-								<span className={cn("notice-badge")}>
-									{formatBadgeCount(groupNoticeCount)}
-								</span>
-							) : null}
 						</span>
 						<ChevronRight size={20} />
 					</button>
@@ -210,10 +200,6 @@ export function SidebarHeader({
 			) : null}
 		</div>
 	);
-}
-
-function formatBadgeCount(value: number) {
-	return value > 99 ? "99+" : String(value);
 }
 
 function contactToolButtonClass(active: boolean) {

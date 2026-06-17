@@ -245,6 +245,8 @@ export function ContactList({
 							) : null}
 						</strong>
 						<span>
+							{contact.categoryName ? `${contact.categoryName} · ` : ""}
+							{contact.onlineStatus ? `${contact.onlineStatus} · ` : ""}
 							{contact.identityLabel} {contact.identityValue}
 						</span>
 					</span>
@@ -304,10 +306,10 @@ function conversationLastMessage(conversation: Conversation, user?: User) {
 
 function conversationSearchText(conversation: Conversation) {
 	if (conversation.type === "group") {
-		return `${conversation.group.name} ${conversation.members.map(displayUserName).join(" ")}`.toLowerCase();
+		return `${conversation.group.name} ${conversation.group.announcement ?? ""} ${conversation.group.description ?? ""} ${conversation.group.remark ?? ""} ${conversation.members.map(displayUserName).join(" ")}`.toLowerCase();
 	}
 
-	return `${displayUserName(conversation.otherUser)} ${conversation.otherUser.username} ${conversation.otherUser.identityValue}`.toLowerCase();
+	return `${displayUserName(conversation.otherUser)} ${conversation.otherUser.username} ${conversation.otherUser.identityValue} ${conversation.otherUser.signature ?? ""}`.toLowerCase();
 }
 function formatConversationTime(value: string | undefined) {
 	if (!value) {

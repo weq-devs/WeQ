@@ -6,9 +6,10 @@ import {
 	ChevronRight,
 	ChevronsUp,
 	CirclePlus,
-	MoreHorizontal,
+	FileText,
 	SendHorizontal,
 	Smile,
+	Sparkles,
 } from "lucide-react";
 import { FaQq } from "react-icons/fa";
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -46,13 +47,11 @@ import {
 	type ComposerActionRegistry,
 	type ComposerButtonAction,
 } from "./composerActions";
-import type { ConversationDetailActionRegistry } from "./conversationDetailActions";
 import {
-	ConversationDetailsPanel,
+	GroupInfoDetailDialog,
 	GroupInfoPanel,
-	GroupInviteDialog,
+	type GroupInfoDetail,
 } from "./conversationDetails";
-import type { GroupUpdateInput } from "./conversationDetails";
 import { EmojiPanel } from "./emojiPanel";
 import { loadHiddenMessageIds, saveHiddenMessageIds } from "./hiddenMessages";
 import { MessageBubble } from "./messageBubble";
@@ -61,11 +60,9 @@ import type { MessageContextMenuState } from "./messageContextMenu";
 import type { MessageRenderer } from "./messageRenderers";
 import { filterMentionMembers, mentionText } from "./mentions";
 import { MessageTimeDivider, shouldShowMessageTime } from "./messageTime";
-import { MobileConversationDetails } from "./mobileConversationDetails";
 import { defaultConversationPreference } from "./preferences";
 import { Avatar, EmptyState } from "./primitives";
 import type {
-	Contact,
 	Conversation,
 	ConversationPreference,
 	GroupMember,
@@ -104,6 +101,21 @@ function loadGroupInfoCollapsed() {
 
 function saveGroupInfoCollapsed(value: boolean) {
 	localStorage.setItem(groupInfoCollapsedStorageKey, value ? "1" : "0");
+}
+
+function hasGroupAnnouncements(conversation: Conversation) {
+	return (
+		conversation.type === "group" &&
+		(Boolean(conversation.group.announcement?.trim()) ||
+			Boolean(conversation.group.bulletins?.length))
+	);
+}
+
+function hasGroupEssence(conversation: Conversation) {
+	return (
+		conversation.type === "group" &&
+		Boolean(conversation.group.essenceMessages?.length)
+	);
 }
 
 function getMessageDownloadUrl(message: Message) {
@@ -166,15 +178,11 @@ export function ChatPane({
 	conversation,
 	messages,
 	composerActions,
-	conversationDetailActions,
 	messageRenderers,
 	loading,
 	preference,
-	onPreferenceChange,
-	onOpenNotificationSettings,
-	onUpdateGroup,
-	contacts = [],
-	onInviteGroupMembers,
+	onLoadMoreGroupMembers,
+	groupMembersLoading,
 	onSend,
 	onMessageAction,
 	draft,
@@ -186,25 +194,11 @@ export function ChatPane({
 	conversation: Conversation | undefined;
 	messages: Message[];
 	composerActions?: Partial<ComposerActionRegistry>;
-	conversationDetailActions?: Partial<ConversationDetailActionRegistry>;
 	messageRenderers?: MessageRenderer[];
 	loading: boolean;
 	preference: ConversationPreference | undefined;
-	onPreferenceChange: (
-		conversationId: string,
-		key: keyof ConversationPreference,
-		value: boolean,
-	) => void;
-	onOpenNotificationSettings: () => void;
-	onUpdateGroup: (
-		conversationId: string,
-		input: GroupUpdateInput,
-	) => Promise<void>;
-	contacts?: Contact[];
-	onInviteGroupMembers?: (
-		conversationId: string,
-		memberIds: string[],
-	) => Promise<void>;
+	onLoadMoreGroupMembers?: () => void;
+	groupMembersLoading?: boolean;
 	onSend: (body: string) => Promise<void>;
 	onMessageAction?: (message: Message, action: MessageAction) => Promise<void>;
 	draft: string;
@@ -217,8 +211,7 @@ export function ChatPane({
 	const [composerHeight, setComposerHeight] = useState(() =>
 		loadLayoutNumber(composerHeightStorageKey, 190, 150, 340),
 	);
-	const [detailsOpen, setDetailsOpen] = useState(false);
-	const [groupInviteOpen, setGroupInviteOpen] = useState(false);
+	const [groupInfoDetail, setGroupInfoDetail] = useState<GroupInfoDetail | null>(null);
 	const [groupInfoCollapsed, setGroupInfoCollapsed] = useState(
 		loadGroupInfoCollapsed,
 	);
@@ -241,8 +234,6 @@ export function ChatPane({
 		useState(42);
 	const [mobileComposerLong, setMobileComposerLong] = useState(false);
 	const [mobileComposerExpanded, setMobileComposerExpanded] = useState(false);
-	const detailsPanelRef = useRef<HTMLElement | null>(null);
-	const detailsButtonRef = useRef<HTMLButtonElement | null>(null);
 	const emojiPanelRef = useRef<HTMLDivElement | null>(null);
 	const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
 	const expandedEmojiButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -375,8 +366,7 @@ export function ChatPane({
 	);
 
 	useEffect(() => {
-		setDetailsOpen(false);
-		setGroupInviteOpen(false);
+		setGroupInfoDetail(null);
 		setEmojiOpen(false);
 		setToolsOpen(false);
 		setContextMenu(null);
@@ -436,41 +426,6 @@ export function ChatPane({
 			window.removeEventListener("resize", closeMenu);
 		};
 	}, [contextMenu]);
-
-	useEffect(() => {
-		if (!detailsOpen) {
-			return;
-		}
-
-		function closeDetailsFromOutside(event: globalThis.MouseEvent) {
-			const target = event.target;
-			if (!(target instanceof Node)) {
-				return;
-			}
-			if (
-				detailsPanelRef.current?.contains(target) ||
-				detailsButtonRef.current?.contains(target) ||
-				(target instanceof Element &&
-					target.closest(".mobile-conversation-details"))
-			) {
-				return;
-			}
-			setDetailsOpen(false);
-		}
-
-		function closeDetailsOnEscape(event: globalThis.KeyboardEvent) {
-			if (event.key === "Escape") {
-				setDetailsOpen(false);
-			}
-		}
-
-		document.addEventListener("mousedown", closeDetailsFromOutside);
-		document.addEventListener("keydown", closeDetailsOnEscape);
-		return () => {
-			document.removeEventListener("mousedown", closeDetailsFromOutside);
-			document.removeEventListener("keydown", closeDetailsOnEscape);
-		};
-	}, [detailsOpen]);
 
 	useEffect(() => {
 		if (!emojiOpen) {
@@ -1230,7 +1185,6 @@ export function ChatPane({
 				conversation.type === "group" && groupInfoCollapsed
 					? "group-info-collapsed"
 					: "",
-				detailsOpen ? "with-details" : "",
 				mobileComposerLong ? "mobile-composer-long" : "",
 				mobileComposerExpanded ? "mobile-composer-expanded-open" : "",
 			)}
@@ -1261,14 +1215,28 @@ export function ChatPane({
 					</strong>
 				</div>
 				<div className={cn("chat-actions")}>
-					<button
-						ref={detailsButtonRef}
-						className={cn("icon-button", detailsOpen && "active")}
-						title="更多"
-						onClick={() => setDetailsOpen((open) => !open)}
-					>
-						<MoreHorizontal size={27} />
-					</button>
+					{conversation.type === "group" ? (
+						<>
+							<button
+								className={cn("icon-button", "group-header-info-action")}
+								type="button"
+								title="Group announcements"
+								disabled={!hasGroupAnnouncements(conversation)}
+								onClick={() => setGroupInfoDetail("announcements")}
+							>
+								<FileText size={18} />
+							</button>
+							<button
+								className={cn("icon-button", "group-header-info-action")}
+								type="button"
+								title="Group highlights"
+								disabled={!hasGroupEssence(conversation)}
+								onClick={() => setGroupInfoDetail("essence")}
+							>
+								<Sparkles size={18} />
+							</button>
+						</>
+					) : null}
 				</div>
 			</header>
 
@@ -1355,11 +1323,9 @@ export function ChatPane({
 					{!groupInfoCollapsed ? (
 						<GroupInfoPanel
 							conversation={conversation}
-							onInvite={
-								onInviteGroupMembers && contacts.length > 0
-									? () => setGroupInviteOpen(true)
-									: undefined
-							}
+							onOpenDetail={setGroupInfoDetail}
+							onLoadMoreMembers={onLoadMoreGroupMembers}
+							loadingMoreMembers={groupMembersLoading}
 						/>
 					) : null}
 				</>
@@ -1576,29 +1542,6 @@ export function ChatPane({
 					</section>
 				</div>
 			) : null}
-			{detailsOpen ? (
-				<ConversationDetailsPanel
-					conversation={conversation}
-					preference={currentPreference}
-					panelRef={detailsPanelRef}
-					conversationDetailActions={conversationDetailActions}
-					onPreferenceChange={onPreferenceChange}
-					onUpdateGroup={onUpdateGroup}
-					onClearMessages={requestClearConversationMessages}
-					onOpenNotificationSettings={onOpenNotificationSettings}
-				/>
-			) : null}
-			{detailsOpen ? (
-				<MobileConversationDetails
-					conversation={conversation}
-					preference={currentPreference}
-					conversationDetailActions={conversationDetailActions}
-					onClose={() => setDetailsOpen(false)}
-					onPreferenceChange={onPreferenceChange}
-					onClearMessages={requestClearConversationMessages}
-					onOpenNotificationSettings={onOpenNotificationSettings}
-				/>
-			) : null}
 			{clearMessagesConfirmOpen ? (
 				<ConfirmDialog
 					title="确定删除本地聊天记录？"
@@ -1614,14 +1557,11 @@ export function ChatPane({
 					onDeleteLocal={deleteMessageLocally}
 				/>
 			) : null}
-			{groupInviteOpen &&
-			conversation.type === "group" &&
-			onInviteGroupMembers ? (
-				<GroupInviteDialog
+			{groupInfoDetail && conversation.type === "group" ? (
+				<GroupInfoDetailDialog
 					conversation={conversation}
-					contacts={contacts}
-					onClose={() => setGroupInviteOpen(false)}
-					onInvite={onInviteGroupMembers}
+					detail={groupInfoDetail}
+					onClose={() => setGroupInfoDetail(null)}
 				/>
 			) : null}
 		</section>
