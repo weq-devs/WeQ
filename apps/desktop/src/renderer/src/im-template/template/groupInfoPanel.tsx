@@ -107,12 +107,14 @@ export function GroupInfoPanel({
 								/>
 							</div>
 							<span className="member-name-text">
-								<span>{displayUserName(member)}</span>
-								{member.customTitle || member.levelName ? (
-									<small>
-										{[member.customTitle, member.levelName].filter(Boolean).join(" · ")}
-									</small>
-								) : null}
+								<span className="member-name-with-badge">
+									<span className="member-display-name">{displayUserName(member)}</span>
+									{member.role === "owner" ? (
+										<small className="member-badge owner">群主</small>
+									) : member.role === "admin" ? (
+										<small className="member-badge admin">管理员</small>
+									) : null}
+								</span>
 							</span>
 							{member.kind === "bot" ? (
 								<small

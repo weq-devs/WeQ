@@ -34,3 +34,6 @@ export * from './group_info';
 
 // --- profile business ---
 export * from './profile';
+
+// --- file_assistant business ---
+export * from './file_assistant';

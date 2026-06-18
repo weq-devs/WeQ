@@ -19,6 +19,7 @@
  */
 
 import { EventEmitter } from 'node:events';
+import { join } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
 import { createWin32Platform, type Platform } from '@weq/platform';
 import {
@@ -30,9 +31,13 @@ import {
   MsgService,
   RecentContactService,
   AccountConfigService,
+  AccountMonitorService,
+  MediaDownloadService,
   ForwardMsgService,
   GroupInfoService,
+  GroupNotifyService,
   ProfileService,
+  FileAssistantService,
   FileSearchService,
   EmojiService,
   MsgSearchService,
@@ -76,6 +81,8 @@ function trailingDebounce<A extends unknown[]>(
 const dbWatch = new DbWatchService();
 /** Handle for the currently-watched account db, if any. */
 let dbWatchHandle: DbWatchHandle | null = null;
+/** Background login/pid/rkey monitor for the open account, if any. */
+let accountMonitor: AccountMonitorService | null = null;
 
 export interface BootstrapServices {
   detect: Win32DetectService;
@@ -92,11 +99,16 @@ export interface AccountServices {
   accountConfig: AccountConfigService;
   forwardMsgs: ForwardMsgService;
   groupInfo: GroupInfoService;
+  groupNotify: GroupNotifyService;
   profile: ProfileService;
   msgSearch: MsgSearchService;
   onlineStatus: OnlineStatusService;
   /** Locate on-disk media (pic/video/ptt/file) for the media protocol. */
   fileSearch: FileSearchService;
+  /** CDN fallback download for media missing on disk (uses live rkeys). */
+  mediaDownload: MediaDownloadService;
+  /** Search file entries by msgId or name. */
+  fileAssistant: FileAssistantService;
   /** Decrypt + cache market-face (store sticker) images. */
   emoji: EmojiService;
 }
@@ -171,6 +183,8 @@ export function initAppContext(): AppContext {
     account: null,
     services: null,
     async setAccount(accountCtx: AccountContext, metadata: AccountConfigMetadata = {}): Promise<void> {
+      accountMonitor?.stop();
+      accountMonitor = null;
       this.account?.dispose();
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
@@ -183,14 +197,25 @@ export function initAppContext(): AppContext {
         accountConfig,
         forwardMsgs: new ForwardMsgService(session),
         groupInfo: new GroupInfoService(session),
+        groupNotify: new GroupNotifyService(session),
         profile: new ProfileService(session),
         msgSearch: new MsgSearchService(session),
         onlineStatus: new OnlineStatusService(session),
         fileSearch: new FileSearchService(session, platform),
+        mediaDownload: new MediaDownloadService(
+          accountConfig,
+          join(platform.appDataRoot(), 'cache', 'media'),
+        ),
+        fileAssistant: new FileAssistantService(session),
         emoji: new EmojiService(session, platform),
       };
-      // Persist credentials + metadata, keyed by data directory.
+      // Persist credentials + metadata, keyed by data directory. Must run
+      // before the monitor starts so its patches land on an existing record.
       accountConfig.save(metadata);
+
+      // Start the background login/pid/rkey monitor for this account.
+      accountMonitor = new AccountMonitorService(session, platform, accountConfig);
+      accountMonitor.start();
 
       // Watch this account's nt_msg.db. The hook fans every change into two
       // bus events: a debounced 'changed' (drives the open-conversation
@@ -208,6 +233,8 @@ export function initAppContext(): AppContext {
       );
     },
     clearAccount(): void {
+      accountMonitor?.stop();
+      accountMonitor = null;
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
       this.account?.dispose();

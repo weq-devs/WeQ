@@ -20,6 +20,7 @@
  */
 
 import { existsSync, readdirSync, statSync } from 'node:fs';
+import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Platform } from '@weq/platform';
 import type { UserConfigService, InstallCache } from './user_config';
@@ -264,7 +265,7 @@ export class GlobalConfigService {
    * `<dataDir>/nt_qq/nt_data`. Can be slow on accounts with many small files
    * (caller should show a placeholder); bounded by a node-count guard.
    */
-  ntDataSubdirSizes(uin: string): DirSize[] {
+  async ntDataSubdirSizes(uin: string): Promise<DirSize[]> {
     const dataDir = this.accountDataDir(uin);
     if (!dataDir) return [];
     const ntData = join(dataDir, 'nt_qq', 'nt_data');
@@ -276,10 +277,12 @@ export class GlobalConfigService {
     } catch {
       return [];
     }
-    const sizes: DirSize[] = entries.map((name) => ({
-      name,
-      bytes: dirSize(join(ntData, name)),
-    }));
+    const sizes: DirSize[] = await Promise.all(
+      entries.map(async (name) => ({
+        name,
+        bytes: await dirSizeAsync(join(ntData, name)),
+      }))
+    );
     sizes.sort((a, b) => b.bytes - a.bytes);
     return sizes;
   }
@@ -288,10 +291,10 @@ export class GlobalConfigService {
    * Recursive total size of the account's user-data directory
    * (`<tencentFilesRoot>/<uin>`), in bytes. Bounded by `dirSize`'s node cap.
    */
-  accountDirSize(uin: string): number {
+  async accountDirSize(uin: string): Promise<number> {
     const dataDir = this.accountDataDir(uin);
     if (!dataDir) return 0;
-    return dirSize(dataDir, 2_000_000);
+    return dirSizeAsync(dataDir, 2_000_000);
   }
 }
 
@@ -329,6 +332,39 @@ function dirSize(root: string, cap = 200_000): number {
       } else if (d.isFile()) {
         try {
           total += statSync(full).size;
+        } catch {
+          /* skip */
+        }
+      }
+    }
+  }
+  return total;
+}
+
+/**
+ * Async version of dirSize - prevents blocking the main thread.
+ */
+async function dirSizeAsync(root: string, cap = 200_000): Promise<number> {
+  let total = 0;
+  let visited = 0;
+  const stack: string[] = [root];
+  while (stack.length > 0) {
+    const dir = stack.pop() as string;
+    let dirents: import('node:fs').Dirent[];
+    try {
+      dirents = await readdir(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const d of dirents) {
+      if (++visited > cap) return total;
+      const full = join(dir, d.name);
+      if (d.isDirectory()) {
+        stack.push(full);
+      } else if (d.isFile()) {
+        try {
+          const st = await stat(full);
+          total += st.size;
         } catch {
           /* skip */
         }

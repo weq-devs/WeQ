@@ -19,8 +19,18 @@
 
 import { net, protocol } from 'electron';
 import { pathToFileURL } from 'node:url';
+import {
+  PRIVATE_VIDEO_RKEY_TYPE,
+  GROUP_VIDEO_RKEY_TYPE,
+  PRIVATE_PTT_RKEY_TYPE,
+  GROUP_PTT_RKEY_TYPE,
+} from '@weq/service';
 import { getAppContext } from './context/app_context';
 import { decodeSilkToWav } from './voice';
+
+/** rkey types accepted when downloading each media kind (private + group). */
+const VIDEO_RKEY_TYPES = [PRIVATE_VIDEO_RKEY_TYPE, GROUP_VIDEO_RKEY_TYPE];
+const PTT_RKEY_TYPES = [PRIVATE_PTT_RKEY_TYPE, GROUP_PTT_RKEY_TYPE];
 
 export const MEDIA_SCHEME = 'weq-media';
 
@@ -54,6 +64,9 @@ export function registerMediaProtocol(): void {
     const name = q.get('name') ?? '';
     const tMs = Number(q.get('t') ?? '0');
     const wantThumb = q.get('v') === 'thumb';
+    // CDN fallback token: pic/ptt = fileToken; video thumb = videoToken; video
+    // original = fileToken. Supplied by the renderer from the message element.
+    const token = q.get('token') ?? '';
 
     try {
       switch (kind) {
@@ -63,17 +76,44 @@ export function registerMediaProtocol(): void {
           const picType = q.get('recv') === '1' ? 'emoji' : 'pic';
           const { source, thumb } = await services.fileSearch.findFile(tMs, name, picType);
           const path = wantThumb ? (thumb ?? source) : (source ?? thumb);
-          return path ? fileResponse(path) : notFound('pic not found');
+          if (path) return fileResponse(path);
+          // Missing on disk → CDN: digit token → originalUrl (no rkey); else rkey.
+          const dl = await services.mediaDownload.download(token, {
+            originalUrl: q.get('orig') ?? '',
+          });
+          return dl ? fileResponse(dl) : notFound('pic not found');
         }
         case 'video': {
-          // Only the cover is served inline; the mp4 opens externally on click.
-          const { thumb } = await services.fileSearch.findFile(tMs, name, 'video');
-          return thumb ? fileResponse(thumb) : notFound('video cover not found');
+          // ?v=thumb → cover image; otherwise → original mp4 (downloaded on click).
+          if (wantThumb) {
+            const { thumb } = await services.fileSearch.findFile(tMs, name, 'video');
+            if (thumb) return fileResponse(thumb);
+            const dl = await services.mediaDownload.download(token, {
+              ext: '.jpg',
+              rkeyTypes: VIDEO_RKEY_TYPES,
+            });
+            return dl ? fileResponse(dl) : notFound('video cover not found');
+          }
+          const { source } = await services.fileSearch.findFile(tMs, name, 'video');
+          if (source) return fileResponse(source);
+          const dl = await services.mediaDownload.download(token, {
+            ext: '.mp4',
+            rkeyTypes: VIDEO_RKEY_TYPES,
+          });
+          return dl ? fileResponse(dl) : notFound('video not found');
         }
         case 'ptt': {
           const { source } = await services.fileSearch.findFile(tMs, name, 'ptt');
-          if (!source) return notFound('ptt not found');
-          const wav = await decodeSilkToWav(source);
+          let silk = source;
+          if (!silk) {
+            // Missing on disk → download the silk, then decode as usual.
+            silk = await services.mediaDownload.download(token, {
+              ext: '.silk',
+              rkeyTypes: PTT_RKEY_TYPES,
+            });
+          }
+          if (!silk) return notFound('ptt not found');
+          const wav = await decodeSilkToWav(silk);
           return wav ? fileResponse(wav) : notFound('ptt decode failed');
         }
         case 'mface': {

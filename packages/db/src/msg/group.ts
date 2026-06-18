@@ -64,6 +64,18 @@ export class GroupMsgDb {
     return rows.map(rowToGroupMsg);
   }
 
+  /** The page of messages just newer than `afterSeq` (exclusive), oldest-first. */
+  async listAfter(targetGroupCode: string, afterSeq: bigint, limit = 50): Promise<GroupMsg[]> {
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
+        WHERE "40027" = ? AND "40003" > ?
+        ORDER BY "40003" ASC
+        LIMIT ?`,
+      [targetGroupCode, afterSeq, BigInt(limit)],
+    );
+    return rows.map(rowToGroupMsg);
+  }
+
   /**
    * Messages with seq >= `sinceSeq`, newest-first, capped at `limit`. The
    * "re-read the currently-loaded window" query — picks up new tail messages
@@ -112,6 +124,17 @@ export class GroupMsgDb {
       [sinceRowId, BigInt(limit)],
     );
     return rows.map(rowToGroupMsg);
+  }
+
+  /** Get raw msgBody (column 40800) by msgId. */
+  async getMsgBody(msgId: bigint): Promise<Uint8Array | null> {
+    const rows = await this.qq.query(`SELECT "40800" FROM group_msg_table WHERE "40001" = ? LIMIT 1`, [msgId]);
+    return (rows[0]?.[0] as Uint8Array) ?? null;
+  }
+
+  /** Update the msgBody (column 40800) for a specific message. */
+  async updateMsgBody(msgId: bigint, blob: Uint8Array): Promise<number> {
+    return this.qq.write(`UPDATE group_msg_table SET "40800" = ? WHERE "40001" = ?`, [blob, msgId]);
   }
 
   /** Drop the cached native connection. Call on account switch / shutdown. */

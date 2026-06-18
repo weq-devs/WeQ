@@ -44,6 +44,13 @@ export class ProfileService {
   }
 
   /**
+   * Batch-resolve nicknames by uid (uid→nick map for the ones we have cached).
+   */
+  async nicksByUids(uids: string[]): Promise<Record<string, string>> {
+    return this.session.profileInfo.nicksByUids(uids);
+  }
+
+  /**
    * Get detailed profile for the currently logged-in user.
    */
   async getSelfProfile(): Promise<UserProfile | null> {

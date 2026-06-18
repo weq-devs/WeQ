@@ -82,6 +82,19 @@ export class C2cMsgDb {
     return rows.map(rowToC2cMsg);
   }
 
+  /** The page of messages just newer than `afterSeq` (exclusive), oldest-first. */
+  async listAfter(part: C2cPartition, afterSeq: bigint, limit = 50): Promise<C2cMsg[]> {
+    const { clause, value } = partitionWhere(part);
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM c2c_msg_table
+        WHERE ${clause} AND "40003" > ?
+        ORDER BY "40003" ASC
+        LIMIT ?`,
+      [value, afterSeq, BigInt(limit)],
+    );
+    return rows.map(rowToC2cMsg);
+  }
+
   /**
    * Messages with seq >= `sinceSeq`, newest-first, capped at `limit`. The
    * "re-read the currently-loaded window" query — picks up new tail messages
@@ -131,6 +144,17 @@ export class C2cMsgDb {
       [sinceRowId, BigInt(limit)],
     );
     return rows.map(rowToC2cMsg);
+  }
+
+  /** Get raw msgBody (column 40800) by msgId. */
+  async getMsgBody(msgId: bigint): Promise<Uint8Array | null> {
+    const rows = await this.qq.query(`SELECT "40800" FROM c2c_msg_table WHERE "40001" = ? LIMIT 1`, [msgId]);
+    return (rows[0]?.[0] as Uint8Array) ?? null;
+  }
+
+  /** Update the msgBody (column 40800) for a specific message. */
+  async updateMsgBody(msgId: bigint, blob: Uint8Array): Promise<number> {
+    return this.qq.write(`UPDATE c2c_msg_table SET "40800" = ? WHERE "40001" = ?`, [blob, msgId]);
   }
 
   /** Drop the cached native connection. Call on account switch / shutdown. */

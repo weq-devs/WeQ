@@ -1,5 +1,4 @@
-﻿// @ts-nocheck
-import { Copy, Download, Trash2 } from "lucide-react";
+﻿import { Copy, Download, Trash2, Edit3 } from "lucide-react";
 import type { Message } from "./types";
 import { cn } from "./classNames";
 
@@ -16,11 +15,13 @@ export function MessageContextMenu({
 	onCopy,
 	onDownloadImage,
 	onDeleteLocal,
+	onEditRaw,
 }: {
 	state: MessageContextMenuState;
 	onCopy: (message: Message) => void | Promise<void>;
 	onDownloadImage?: (url: string, message: Message) => void;
 	onDeleteLocal: (message: Message) => void;
+	onEditRaw?: (message: Message) => void;
 }) {
 	return (
 		<div
@@ -45,6 +46,12 @@ export function MessageContextMenu({
 				<Copy size={17} />
 				<span>复制</span>
 			</button>
+			{onEditRaw ? (
+				<button type="button" onClick={() => onEditRaw(state.message)}>
+					<Edit3 size={17} />
+					<span>修改</span>
+				</button>
+			) : null}
 			{state.downloadUrl && onDownloadImage ? (
 				<button
 					type="button"

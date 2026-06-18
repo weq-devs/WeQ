@@ -37,7 +37,8 @@ import {
   type User,
   useChatShellController,
 } from '../im-template/template';
-import { qqMessageRenderer } from '../components/QqMessageContent';
+import { qqMessageRenderer, ReplyJumpContext, type ReplyJumpTarget } from '../components/QqMessageContent';
+import { MsgElementEditor } from '../components/MsgElementEditor';
 
 const messageRenderers: MessageRenderer[] = composeMessageRenderers({
   prepend: [qqMessageRenderer],
@@ -76,6 +77,83 @@ type MessageWire = {
   sendTime: string;
   elements: unknown[];
 };
+
+/** One full-text search hit from `account.searchMessages`. */
+type MsgSearchHitWire = {
+  msgId: string;
+  /** In-conversation seq (column 40003) — the click-to-jump anchor. */
+  msgSeq: string;
+  /** ChatType: 2 = group, others = c2c. */
+  chatType: number;
+  /** Conversation key: group code (group) or peer uid (c2c). */
+  targetUid: string;
+  senderUid: string;
+  sendTime: string;
+  content: string;
+  fileName?: string;
+};
+
+/** ChatType 2 = group; everything else treated as a 1-1 (c2c) chat. */
+function isGroupChatType(chatType: number): boolean {
+  return chatType === 2;
+}
+
+/**
+ * Build a one-line snippet around the first keyword match and split it into
+ * highlighted / plain runs (case-insensitive). Keeps ~10 chars of left context
+ * and trims the whole snippet to ~46 chars so the dropdown row stays compact.
+ */
+function highlightSnippet(content: string, keyword: string): Array<{ text: string; hit: boolean }> {
+  const text = content.replace(/\s+/g, ' ').trim();
+  const needle = keyword.trim();
+  if (!needle) return [{ text: text.slice(0, 46), hit: false }];
+
+  const lower = text.toLowerCase();
+  const lneedle = needle.toLowerCase();
+  const first = lower.indexOf(lneedle);
+
+  // Window the snippet around the first hit so a long message still shows it.
+  let start = 0;
+  let prefix = '';
+  if (first > 12) {
+    start = first - 10;
+    prefix = '…';
+  }
+  const windowed = text.slice(start, start + 46);
+  const runs: Array<{ text: string; hit: boolean }> = [];
+  if (prefix) runs.push({ text: prefix, hit: false });
+
+  const wLower = windowed.toLowerCase();
+  let i = 0;
+  for (;;) {
+    const at = wLower.indexOf(lneedle, i);
+    if (at === -1) {
+      if (i < windowed.length) runs.push({ text: windowed.slice(i), hit: false });
+      break;
+    }
+    if (at > i) runs.push({ text: windowed.slice(i, at), hit: false });
+    runs.push({ text: windowed.slice(at, at + needle.length), hit: true });
+    i = at + needle.length;
+  }
+  return runs;
+}
+
+/** Short, locale time/date for a search hit (today → HH:MM, else M/D). */
+function searchHitTime(sendTimeSeconds: string): string {
+  const secs = Number(sendTimeSeconds);
+  if (!Number.isFinite(secs) || secs <= 0) return '';
+  const d = new Date(secs * 1000);
+  const now = new Date();
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  if (sameDay) {
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+  if (d.getFullYear() === now.getFullYear()) return `${d.getMonth() + 1}/${d.getDate()}`;
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+}
 
 /** The unified chat-message wire from the account router → local MessageWire. */
 type ChatMsgWire = {
@@ -437,9 +515,20 @@ function groupRequestFromBuddyRequest(request: BuddyRequestWire, groupsById: Map
   } as const;
 }
 
+function levelBracketFor(level?: number): number {
+  if (level === undefined) return 0;
+  if (level <= 10) return 1;
+  if (level <= 20) return 2;
+  if (level <= 40) return 3;
+  if (level <= 60) return 4;
+  if (level <= 80) return 5;
+  return 6;
+}
+
 function levelNameFor(levelConfigs: Array<{ level: number; levelName: string }>, level?: number): string | null {
-  if (!level) return null;
-  return levelConfigs.find((item) => item.level === level)?.levelName || `LV${level}`;
+  if (level === undefined || level === 0) return null;
+  const bracket = levelBracketFor(level);
+  return levelConfigs.find((item) => item.level === bracket)?.levelName || `Lv${level}`;
 }
 
 function contactToConversation(c: RecentContactWire, user: User): Conversation | null {
@@ -512,12 +601,13 @@ function isMineMessage(message: MessageWire, user: User): boolean {
   });
 }
 
-function messageSender(message: MessageWire, conversation: Conversation, user: User, members?: GroupMember[]): User {
+function messageSender(message: MessageWire, conversation: Conversation, user: User, memberMap?: Map<string, GroupMember>): User {
   if (isMineMessage(message, user)) return user;
   if (conversation.type === 'direct') return conversation.otherUser;
 
-  // Try to find member nickname from the loaded members list
-  const member = members?.find(m => m.id === message.senderUid);
+  // Optimized O(1) lookup
+  const member = memberMap?.get(message.senderUid);
+  const isUinOnly = !member?.displayName || member.displayName === message.senderUin;
 
   return {
     id: message.senderUid || `sender:${message.senderUin}`,
@@ -526,11 +616,16 @@ function messageSender(message: MessageWire, conversation: Conversation, user: U
     username: message.senderUid || message.senderUin,
     displayName: member?.displayName || (message.senderUin && message.senderUin !== '0' ? message.senderUin : 'Member'),
     avatarUrl: member?.avatarUrl || senderAvatarSrc(message.senderUin),
-  };
+    // Ensure group specific fields are passed through, but ONLY if it's not just a UIN display
+    role: !isUinOnly ? member?.role : undefined,
+    customTitle: !isUinOnly ? member?.customTitle : undefined,
+    levelName: !isUinOnly ? member?.levelName : undefined,
+    levelBracket: !isUinOnly ? levelBracketFor(member?.memberLevel) : 0,
+  } as User;
 }
 
-function messageToTemplate(message: MessageWire, conversation: Conversation, user: User, members?: GroupMember[]): Message {
-  const sender = messageSender(message, conversation, user, members);
+function messageToTemplate(message: MessageWire, conversation: Conversation, user: User, memberMap?: Map<string, GroupMember>): Message {
+  const sender = messageSender(message, conversation, user, memberMap);
   return {
     id: message.msgId,
     conversationId: conversation.id,
@@ -541,7 +636,8 @@ function messageToTemplate(message: MessageWire, conversation: Conversation, use
     // Raw render-view elements for the QQ face renderer (qqFaceMessageRenderer).
     // `body` stays the text fallback for previews and non-face messages.
     qqElements: message.elements,
-  } as Message & { qqElements: unknown[] };
+    msgId: message.msgId,
+  } as Message & { qqElements: unknown[]; msgId: string };
 }
 
 function messageBody(elements: unknown[]): string {
@@ -806,18 +902,7 @@ export function MainView(): ReactElement {
   // older history remains. `loaded[0].msgSeq` is the window's lower cursor.
   const [loaded, setLoaded] = useState<MessageWire[]>([]);
   const [anchoredToLatest, setAnchoredToLatest] = useState(true);
-  const [hasOlder, setHasOlder] = useState(true);
-  const [messagesLoading, setMessagesLoading] = useState(false);
-  const [trackedConversationId, setTrackedConversationId] = useState<string | null>(null);
-  const [conversationPrefs, setConversationPrefs] = useState<ConversationPreferences>({});
-  const [templateCreditOpen, setTemplateCreditOpen] = useState(false);
-  const [onlineStatusByUid, setOnlineStatusByUid] = useState<Record<string, string>>({});
-  const [groupMemberPages, setGroupMemberPages] = useState<Record<string, GroupMemberWire[]>>({});
-  const [groupMemberHasMore, setGroupMemberHasMore] = useState<Record<string, boolean>>({});
-  const [groupMemberLoading, setGroupMemberLoading] = useState<Record<string, boolean>>({});
-  const groupMemberLoadingRef = useRef<Record<string, boolean>>({});
-  const loadingOlderRef = useRef(false);
-  const pendingScrollRestoreRef = useRef<PendingScrollRestore | null>(null);
+  
   // Latest active-conversation identity, read by the once-mounted live
   // subscription (which must not re-subscribe on every selection change).
   const selectionRef = useRef<{ id: string; kind: 'direct' | 'group' } | null>(null);
@@ -826,6 +911,112 @@ export function MainView(): ReactElement {
     minSeq: null,
     anchored: true,
   });
+
+  // Live refresh of the open conversation: re-read seq >= minSeq and replace the
+  // window. Only when anchored to latest — a history/search window (not yet
+  // wired) must NOT be dragged up to the latest. Stable identity → the
+  // subscription below mounts once.
+  const refreshWindow = useCallback(async (): Promise<void> => {
+    const sel = selectionRef.current;
+    const win = windowRef.current;
+    if (!sel || !win.anchored || win.minSeq === null) return;
+    const kind = sel.kind === 'group' ? 'group' : 'c2c';
+    const conv = sel.id;
+    try {
+      const page = await client.account.listFrom.query({
+        kind,
+        conv,
+        sinceSeq: win.minSeq,
+        limit: REFRESH_CAP,
+      });
+      if (selectionRef.current?.id !== conv) return; // switched away mid-flight
+      setLoaded(page.map(toMessageWire).reverse());
+    } catch (err) {
+      console.error('[live] refreshWindow failed', err);
+    }
+  }, []);
+
+  // Subscribe once to the debounced "db changed" ping: refresh recent contacts
+  // and re-read the open conversation's window. (onNewMessages stays a backend
+  // signal reserved for future popups; the open view no longer needs it.)
+  useEffect(() => {
+    const sub = client.account.onDbChanged.subscribe(undefined, {
+      onData() {
+        void utils.account.listRecentContacts.invalidate();
+        void refreshWindow();
+      },
+      onError(err) {
+        console.error('[live] onDbChanged subscription error', err);
+      },
+    });
+    return () => sub.unsubscribe();
+  }, [utils, refreshWindow]);
+
+  const [hasOlder, setHasOlder] = useState(true);
+  // True only in a "jump context" window (anchored=false) that has newer
+  // messages below it; drives scroll-down paging via `requestNewerMessages`.
+  const [hasNewer, setHasNewer] = useState(false);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [trackedConversationId, setTrackedConversationId] = useState<string | null>(null);
+  const [conversationPrefs, setConversationPrefs] = useState<ConversationPreferences>({});
+  const [templateCreditOpen, setTemplateCreditOpen] = useState(false);
+  
+  const [editorState, setEditorState] = useState<{ msgId: string, elements: any[] } | null>(null);
+
+  const handleEditRaw = useCallback(async (message: Message) => {
+    try {
+        const result = await client.account.getRawElements.query({ msgId: message.id });
+        if (result) {
+            setEditorState({ msgId: message.id, elements: result.elements });
+        }
+    } catch (e) {
+        console.error('[MainView] Failed to fetch raw elements:', e);
+    }
+  }, []);
+
+  const handleSaveRaw = useCallback(async (elements: any[]) => {
+    if (!editorState) return;
+    try {
+        const success = await client.account.updateElements.mutate({ 
+            msgId: editorState.msgId, 
+            elements 
+        });
+        if (success) {
+            void refreshWindow();
+        }
+    } catch (e) {
+        console.error('[MainView] Failed to update elements:', e);
+        throw e;
+    }
+  }, [editorState, refreshWindow]);
+
+  const [onlineStatusByUid, setOnlineStatusByUid] = useState<Record<string, string>>({});
+  const [groupMemberPages, setGroupMemberPages] = useState<Record<string, GroupMemberWire[]>>({});
+  const [groupMemberHasMore, setGroupMemberHasMore] = useState<Record<string, boolean>>({});
+  const [groupMemberLoading, setGroupMemberLoading] = useState<Record<string, boolean>>({});
+  const groupMemberLoadingRef = useRef<Record<string, boolean>>({});
+  // Off-page message senders resolved on demand, keyed by groupCode → uid so a
+  // member cached for one group never leaks into another (and per-group cards
+  // don't collide across groups).
+  const [missingMembers, setMissingMembers] = useState<Record<string, Record<string, GroupMemberWire>>>({});
+  const loadingOlderRef = useRef(false);
+  const loadingNewerRef = useRef(false);
+
+  // Global message search (sidebar search box → dropdown of ≤5 hits).
+  const [searchHits, setSearchHits] = useState<MsgSearchHitWire[]>([]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
+  // uid → nickname resolved from profile_info.db for search-result senders.
+  const [searchNicks, setSearchNicks] = useState<Record<string, string>>({});
+  // Set when a search hit was clicked: the listLatest effect, after the target
+  // conversation's newest page lands, rebuilds the window centred on this seq
+  // instead of leaving the view pinned to the latest.
+  const pendingSearchJumpRef = useRef<{ conv: string; kind: 'group' | 'c2c'; seq: string } | null>(null);
+
+  // Mirror of `loaded` for the reply-jump handler (a stable callback that must
+  // read the current window without being re-created on every message change).
+  const loadedRef = useRef<MessageWire[]>([]);
+  const pendingScrollRestoreRef = useRef<PendingScrollRestore | null>(null);
 
   const user = useMemo(() => currentUser(openedUin, selfProfile.data), [openedUin, selfProfile.data]);
   const profileByUid = useMemo(() => {
@@ -950,8 +1141,10 @@ export function MainView(): ReactElement {
     setLoaded([]);
     setAnchoredToLatest(true);
     setHasOlder(true);
+    setHasNewer(false);
     setMessagesLoading(Boolean(shell.activeConversationId));
     loadingOlderRef.current = false;
+    loadingNewerRef.current = false;
     pendingScrollRestoreRef.current = null;
   }
 
@@ -1054,14 +1247,23 @@ export function MainView(): ReactElement {
     const detail = groupDetail.data;
     const levelConfigs = groupLevelInfo.data?.levelConfigs ?? [];
 
-    const mapped: GroupMember[] = selectedGroupMemberWires.map((m) => ({
+    const allMemberWires = [...selectedGroupMemberWires];
+    // Merge in only THIS group's on-demand-resolved senders.
+    const groupMissing = missingMembers[selectedUid] ?? {};
+    Object.values(groupMissing).forEach(m => {
+      if (!allMemberWires.find(em => em.uid === m.uid)) {
+        allMemberWires.push(m);
+      }
+    });
+
+    const mapped: GroupMember[] = allMemberWires.map((m) => ({
       id: m.uid,
       identityLabel: m.uin && m.uin !== '0' ? 'QQ' : 'UID',
       identityValue: m.uin && m.uin !== '0' ? m.uin : m.uid,
       username: m.uid,
       displayName: m.card || m.nick || m.uin || 'Member',
       avatarUrl: senderAvatarSrc(m.uin),
-      role: m.uid === detail?.ownerUid ? 'owner' : (m.adminFlag === 1 ? 'admin' : 'member'),
+      role: m.uid === detail?.ownerUid ? 'owner' : (m.adminFlag > 0 ? 'admin' : 'member'),
       joinedAt: toIsoTime(m.joinTime.toString()),
       lastSpeakAt: secondsToIsoTime(m.lastSpeakTime),
       muteUntil: secondsToIsoTime(m.muteUntil),
@@ -1074,12 +1276,56 @@ export function MainView(): ReactElement {
         const roleScore = { owner: 0, admin: 1, member: 2 };
         return roleScore[a.role] - roleScore[b.role];
     });
-  }, [selectedConversation, groupDetail.data, groupLevelInfo.data, selectedGroupMemberWires]);
+  }, [selectedConversation, selectedUid, groupDetail.data, groupLevelInfo.data, selectedGroupMemberWires, missingMembers]);
+
+  // Asynchronously resolve message senders missing from the loaded member page.
+  // Messages render immediately with the uin fallback; this batch-fetches the
+  // real card/nick/group-title from the DB and patches them in without blocking.
+  useEffect(() => {
+    if (!selectedUid || !isGroup || loaded.length === 0) return;
+
+    const groupCode = selectedUid;
+    const known = new Set(selectedGroupMemberWires.map((m) => m.uid));
+    const resolved = missingMembers[groupCode] ?? {};
+    const unknownUids = [...new Set(loaded.map((m) => m.senderUid))].filter(
+      (uid) => uid && !known.has(uid) && !resolved[uid],
+    );
+    if (unknownUids.length === 0) return;
+
+    let cancelled = false;
+    void (async () => {
+      // The endpoint caps at 200 uids per call; chunk larger sets.
+      for (let i = 0; i < unknownUids.length; i += 200) {
+        const chunk = unknownUids.slice(i, i + 200);
+        try {
+          const members = await client.account.getGroupMembersByUids.query({ groupCode, uids: chunk });
+          if (cancelled || selectionRef.current?.id !== groupCode) return;
+          if (members.length > 0) {
+            setMissingMembers((prev) => {
+              const groupCache = { ...(prev[groupCode] ?? {}) };
+              for (const member of members) groupCache[member.uid] = member;
+              return { ...prev, [groupCode]: groupCache };
+            });
+          }
+        } catch (err) {
+          console.error('[group-members] getGroupMembersByUids failed', err);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loaded, selectedUid, isGroup, selectedGroupMemberWires, missingMembers]);
 
   const templateMessages = useMemo(() => {
     if (!selectedConversation) return [];
+    
+    // Create a fast lookup map for member info
+    const memberMap = new Map(currentGroupMembers.map(m => [m.id, m]));
+    
     return loadedMessageWires.map((message) => 
-      messageToTemplate(message, selectedConversation, user, currentGroupMembers)
+      messageToTemplate(message, selectedConversation, user, memberMap)
     );
   }, [loadedMessageWires, selectedConversation, user, currentGroupMembers]);
 
@@ -1165,7 +1411,257 @@ export function MainView(): ReactElement {
   // Keep the loaded-window descriptor in sync for the once-mounted subscription.
   useEffect(() => {
     windowRef.current = { minSeq: loaded[0]?.msgSeq ?? null, anchored: anchoredToLatest };
+    loadedRef.current = loaded;
   }, [loaded, anchoredToLatest]);
+
+  // Scroll the loaded list to a message row by id and briefly flash it.
+  const scrollToMsgId = useCallback((msgId: string): boolean => {
+    const line = document.querySelector<HTMLElement>(
+      `.weq-readonly-chat .message-scroll [data-message-id="${msgId}"]`,
+    );
+    if (!line) return false;
+    line.scrollIntoView({ block: 'center' });
+    line.classList.add('weq-reply-target-flash');
+    window.setTimeout(() => line.classList.remove('weq-reply-target-flash'), 1600);
+    return true;
+  }, []);
+
+  // Rebuild the loaded window centred on `targetSeq` straight from the DB,
+  // discarding whatever is loaded now. Keeps long jumps (reply to an ancient
+  // message, or search → jump years back) constant-cost instead of loading
+  // everything between the latest and the target. Returns true if the target
+  // was found and the view repositioned. `conv`/`kind` are passed explicitly so
+  // it works right after a conversation switch (before selectionRef settles).
+  const centerWindowOnSeq = useCallback(
+    async (conv: string, kind: 'group' | 'c2c', targetSeq: string): Promise<boolean> => {
+      let before;
+      let after;
+      try {
+        [before, after] = await Promise.all([
+          // `< target+1` is `<= target`, so the centre message is included.
+          client.account.listBefore.query({
+            kind,
+            conv,
+            beforeSeq: String(BigInt(targetSeq) + 1n),
+            limit: PAGE_SIZE,
+          }),
+          client.account.listAfter.query({ kind, conv, afterSeq: targetSeq, limit: PAGE_SIZE }),
+        ]);
+      } catch (err) {
+        console.error('[jump] centerWindowOnSeq failed', err);
+        return false;
+      }
+      if (selectionRef.current?.id !== conv) return false; // switched away mid-flight
+
+      const seen = new Set<string>();
+      const merged: MessageWire[] = [];
+      // before is DESC (newest-first) incl. centre → reverse to ASC; after is ASC.
+      for (const m of [...before.map(toMessageWire).reverse(), ...after.map(toMessageWire)]) {
+        if (seen.has(m.msgId)) continue;
+        seen.add(m.msgId);
+        merged.push(m);
+      }
+
+      const target = merged.find((m) => m.msgSeq === targetSeq);
+      if (!target) return false; // not in DB (e.g. recalled) — leave the view as-is
+
+      const atLatest = after.length < PAGE_SIZE;
+      // Update the live-subscription's window descriptor synchronously: a
+      // db-changed tick between this setLoaded and the passive windowRef effect
+      // must not see the stale (anchored, old-minSeq) descriptor and replace our
+      // freshly-jumped window via refreshWindow's listFrom.
+      windowRef.current = { minSeq: merged[0]?.msgSeq ?? null, anchored: atLatest };
+      setLoaded(merged);
+      setHasOlder(before.length >= PAGE_SIZE);
+      setHasNewer(!atLatest);
+      // If the centre sits near the tail, re-anchor so live messages flow in;
+      // otherwise stay detached so refreshWindow won't drag us to the latest.
+      setAnchoredToLatest(atLatest);
+      window.setTimeout(() => scrollToMsgId(target.msgId), 160);
+      return true;
+    },
+    [scrollToMsgId],
+  );
+
+  // Scroll the loaded message list to a reply target, loading older pages first
+  // if it isn't in the window yet, then briefly flash it. The 40003 anchor lives
+  // in a different reply field per kind (verified against the live DB):
+  //   group → origMsgSeq (47402);  c2c → origMsgIndex (47419).
+  const jumpToSeq = useCallback(async (jumpTarget: ReplyJumpTarget): Promise<void> => {
+    const sel = selectionRef.current;
+    if (!sel) return;
+    const kind: 'group' | 'c2c' = sel.kind === 'group' ? 'group' : 'c2c';
+    const rawSeq =
+      kind === 'group' ? (jumpTarget.seq ?? jumpTarget.index) : (jumpTarget.index ?? jumpTarget.seq);
+    if (rawSeq === undefined || rawSeq === null || rawSeq === '') return;
+    const targetSeq = String(rawSeq);
+
+    const here = loadedRef.current.find((m) => m.msgSeq === targetSeq);
+    if (here) {
+      scrollToMsgId(here.msgId);
+      return;
+    }
+
+    const targetNum = Number(targetSeq);
+
+    // Slow path A: the target is just above the window — reach it by loading a
+    // few scroll-up pages (cheap, preserves the current context). Capped at 3.
+    let working = loadedRef.current.slice();
+    let reachedTop = false;
+    for (let guard = 0; guard < 3; guard += 1) {
+      const minSeq = working[0]?.msgSeq;
+      if (!minSeq || Number(minSeq) <= targetNum) break;
+      if (working.some((m) => m.msgSeq === targetSeq)) break;
+      let older;
+      try {
+        older = await client.account.listBefore.query({ kind, conv: sel.id, beforeSeq: minSeq, limit: PAGE_SIZE });
+      } catch (err) {
+        console.error('[reply-jump] listBefore failed', err);
+        break;
+      }
+      if (selectionRef.current?.id !== sel.id) return; // switched away mid-flight
+      const known = new Set(working.map((m) => m.msgId));
+      const fresh = older.map(toMessageWire).reverse().filter((m) => !known.has(m.msgId));
+      if (fresh.length === 0) {
+        reachedTop = true;
+        break;
+      }
+      working = [...fresh, ...working];
+      if (older.length < PAGE_SIZE) {
+        reachedTop = true;
+        break;
+      }
+    }
+
+    const target = working.find((m) => m.msgSeq === targetSeq);
+    if (target) {
+      setLoaded(working);
+      if (reachedTop) setHasOlder(false);
+      // Let the prepended rows paint (and any scroll-restore settle) before scrolling.
+      window.setTimeout(() => scrollToMsgId(target.msgId), 160);
+      return;
+    }
+
+    // Slow path B: still not found after 3 pages — rebuild a fresh window
+    // centred on the target instead of loading everything up to it.
+    await centerWindowOnSeq(sel.id, kind, targetSeq);
+  }, [centerWindowOnSeq, scrollToMsgId]);
+
+  // Debounced global message search: as the user types, search buddy+group and
+  // show up to 5 hits. A run counter discards stale responses so only the last
+  // keystroke's results win.
+  const searchQuery = shell.query.trim();
+  const searchRunRef = useRef(0);
+  useEffect(() => {
+    if (!searchQuery) {
+      setSearchHits([]);
+      setSearchOpen(false);
+      setSearchLoading(false);
+      return undefined;
+    }
+    const run = ++searchRunRef.current;
+    setSearchLoading(true);
+    const timer = window.setTimeout(() => {
+      client.account.searchMessages
+        .query({ scope: 'all', keyword: searchQuery, limit: 5 })
+        .then((hits) => {
+          if (searchRunRef.current !== run) return; // a newer keystroke superseded us
+          setSearchHits(hits as MsgSearchHitWire[]);
+          setSearchOpen(true);
+          setSearchLoading(false);
+        })
+        .catch((err) => {
+          if (searchRunRef.current !== run) return;
+          console.error('[search] searchMessages failed', err);
+          setSearchHits([]);
+          setSearchLoading(false);
+        });
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [searchQuery]);
+
+  // After hits land, batch-resolve group senders' nicknames from profile_info.db
+  // (one extra query). Only the uids we don't already have a name for.
+  useEffect(() => {
+    const unknown = searchHits
+      .filter((hit) => isGroupChatType(hit.chatType) && hit.senderUid)
+      .map((hit) => hit.senderUid)
+      .filter((uid) => !profileByUid.has(uid) && !searchNicks[uid]);
+    const todo = [...new Set(unknown)];
+    if (todo.length === 0) return;
+
+    let cancelled = false;
+    client.account.getNicksByUids
+      .query({ uids: todo })
+      .then((map) => {
+        if (cancelled) return;
+        const resolved = map as Record<string, string>;
+        if (Object.keys(resolved).length > 0) {
+          setSearchNicks((prev) => ({ ...prev, ...resolved }));
+        }
+      })
+      .catch((err) => console.error('[search] getNicksByUids failed', err));
+    return () => {
+      cancelled = true;
+    };
+  }, [searchHits, profileByUid, searchNicks]);
+
+  // Click a search hit → switch to its conversation and jump to the message.
+  const openSearchHit = useCallback(
+    (hit: MsgSearchHitWire): void => {
+      const kind: 'group' | 'c2c' = isGroupChatType(hit.chatType) ? 'group' : 'c2c';
+      const conv = hit.targetUid;
+      setSearchOpen(false);
+      shell.setQuery('');
+      if (!hit.msgSeq) {
+        // No seq (shouldn't happen now FTS returns 40003) — just open the chat.
+        console.warn('[search] hit missing msgSeq, opening conversation only');
+        shell.selectConversation(conv);
+        return;
+      }
+      if (selectionRef.current?.id === conv) {
+        // Already open — jump straight away.
+        void centerWindowOnSeq(conv, kind, hit.msgSeq);
+        return;
+      }
+      // Switch conversations; the listLatest effect performs the centred jump
+      // once the placeholder newest page lands.
+      pendingSearchJumpRef.current = { conv, kind, seq: hit.msgSeq };
+      shell.selectConversation(conv);
+    },
+    [centerWindowOnSeq, shell],
+  );
+
+  // Resolve display fields (conversation name/avatar, sender name) for each hit
+  // from already-loaded maps; fall back to ids when unresolved.
+  const searchResultRows = useMemo(() => {
+    return searchHits.map((hit) => {
+      const isGroup = isGroupChatType(hit.chatType);
+      const conversation = groupsById.get(hit.targetUid);
+      const convName = isGroup
+        ? conversation?.group?.name || hit.targetUid
+        : conversation?.otherUser?.displayName || conversation?.group?.name || hit.targetUid;
+      const avatarUrl = isGroup
+        ? conversation?.group?.avatarUrl || groupAvatarSrc(hit.targetUid)
+        : conversation?.otherUser?.avatarUrl || null;
+      // Sender name: prefer loaded buddy profile, then the nickname resolved
+      // from profile_info.db, finally a short uid. (c2c sender == the peer.)
+      const senderProfile = profileByUid.get(hit.senderUid);
+      const senderName = isGroup
+        ? displayProfileName(senderProfile) ||
+          searchNicks[hit.senderUid] ||
+          `${hit.senderUid.slice(0, 8)}…`
+        : convName;
+      return {
+        hit,
+        convName,
+        avatarUrl,
+        senderName,
+        time: searchHitTime(hit.sendTime),
+        runs: highlightSnippet(hit.content, searchQuery),
+      };
+    });
+  }, [searchHits, groupsById, profileByUid, searchNicks, searchQuery]);
 
   // Load the newest page whenever the open conversation changes. The render-time
   // reset already cleared `loaded`, so this never paints the old chat. Always a
@@ -1188,6 +1684,16 @@ export function MainView(): ReactElement {
         setHasOlder(page.length >= PAGE_SIZE);
         setAnchoredToLatest(true);
         setMessagesLoading(false);
+
+        // A search hit was clicked for this conversation: don't leave the view
+        // pinned to the latest — rebuild the window centred on the hit's seq.
+        // This newest page is just a cheap placeholder it immediately replaces,
+        // so we never load everything between latest and the target.
+        const jump = pendingSearchJumpRef.current;
+        if (jump && jump.conv === conv) {
+          pendingSearchJumpRef.current = null;
+          void centerWindowOnSeq(jump.conv, jump.kind, jump.seq);
+        }
       })
       .catch((err) => {
         if (cancelled) return;
@@ -1197,47 +1703,7 @@ export function MainView(): ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [selectedUid, isDirect, isGroup]);
-
-  // Live refresh of the open conversation: re-read seq >= minSeq and replace the
-  // window. Only when anchored to latest — a history/search window (not yet
-  // wired) must NOT be dragged up to the latest. Stable identity → the
-  // subscription below mounts once.
-  const refreshWindow = useCallback(async (): Promise<void> => {
-    const sel = selectionRef.current;
-    const win = windowRef.current;
-    if (!sel || !win.anchored || win.minSeq === null) return;
-    const kind = sel.kind === 'group' ? 'group' : 'c2c';
-    const conv = sel.id;
-    try {
-      const page = await client.account.listFrom.query({
-        kind,
-        conv,
-        sinceSeq: win.minSeq,
-        limit: REFRESH_CAP,
-      });
-      if (selectionRef.current?.id !== conv) return; // switched away mid-flight
-      setLoaded(page.map(toMessageWire).reverse());
-    } catch (err) {
-      console.error('[live] refreshWindow failed', err);
-    }
-  }, []);
-
-  // Subscribe once to the debounced "db changed" ping: refresh recent contacts
-  // and re-read the open conversation's window. (onNewMessages stays a backend
-  // signal reserved for future popups; the open view no longer needs it.)
-  useEffect(() => {
-    const sub = client.account.onDbChanged.subscribe(undefined, {
-      onData() {
-        void utils.account.listRecentContacts.invalidate();
-        void refreshWindow();
-      },
-      onError(err) {
-        console.error('[live] onDbChanged subscription error', err);
-      },
-    });
-    return () => sub.unsubscribe();
-  }, [utils, refreshWindow]);
+  }, [selectedUid, isDirect, isGroup, centerWindowOnSeq]);
 
   const requestOlderMessages = useCallback(
     (scroll: HTMLElement): void => {
@@ -1289,6 +1755,45 @@ export function MainView(): ReactElement {
     [selectedConversation, hasOlder, loaded],
   );
 
+  // Scroll-down paging for a detached "jump context" window: append the page of
+  // messages just newer than the window's tail. Appending below the viewport
+  // doesn't move it, so no scroll-restore is needed. When the tail reaches the
+  // latest, re-anchor so live messages flow in again.
+  const requestNewerMessages = useCallback((): void => {
+    if (!selectedConversation || !hasNewer || loadingNewerRef.current) return;
+    const maxSeq = loaded[loaded.length - 1]?.msgSeq;
+    if (!maxSeq) return;
+
+    const kind = selectedConversation.type === 'group' ? 'group' : 'c2c';
+    const conv = selectedConversation.id;
+    loadingNewerRef.current = true;
+
+    client.account.listAfter
+      .query({ kind, conv, afterSeq: maxSeq, limit: PAGE_SIZE })
+      .then((newer) => {
+        loadingNewerRef.current = false;
+        if (selectionRef.current?.id !== conv) return;
+        const known = new Set(loaded.map((m) => m.msgId));
+        const fresh = newer.map(toMessageWire).filter((m) => !known.has(m.msgId)); // ASC, newer
+        if (fresh.length > 0) {
+          setLoaded((cur) => {
+            const seen = new Set(cur.map((m) => m.msgId));
+            const merged = fresh.filter((m) => !seen.has(m.msgId));
+            return merged.length ? [...cur, ...merged] : cur;
+          });
+        }
+        if (newer.length < PAGE_SIZE) {
+          // Reached the tail — fold this window back into the live "latest" view.
+          setHasNewer(false);
+          setAnchoredToLatest(true);
+        }
+      })
+      .catch((err) => {
+        loadingNewerRef.current = false;
+        console.error('[msgs] listAfter failed', err);
+      });
+  }, [selectedConversation, hasNewer, loaded]);
+
   useEffect(() => {
     if (!selectedConversation) return undefined;
 
@@ -1296,23 +1801,28 @@ export function MainView(): ReactElement {
     if (!scroll) return undefined;
     const scrollElement = scroll;
 
-    function maybeLoadOlder(): void {
+    function maybeLoadEdge(): void {
       if (
         scrollElement.scrollTop <= 32 ||
         scrollElement.scrollHeight <= scrollElement.clientHeight + 32
       ) {
         requestOlderMessages(scrollElement);
       }
+      if (
+        scrollElement.scrollHeight - scrollElement.scrollTop - scrollElement.clientHeight <= 32
+      ) {
+        requestNewerMessages();
+      }
     }
 
-    scrollElement.addEventListener('scroll', maybeLoadOlder, { passive: true });
-    const frame = window.requestAnimationFrame(maybeLoadOlder);
+    scrollElement.addEventListener('scroll', maybeLoadEdge, { passive: true });
+    const frame = window.requestAnimationFrame(maybeLoadEdge);
 
     return () => {
-      scrollElement.removeEventListener('scroll', maybeLoadOlder);
+      scrollElement.removeEventListener('scroll', maybeLoadEdge);
       window.cancelAnimationFrame(frame);
     };
-  }, [requestOlderMessages, selectedConversation, templateMessages.length]);
+  }, [requestOlderMessages, requestNewerMessages, selectedConversation, templateMessages.length]);
 
   useLayoutEffect(() => {
     const restore = pendingScrollRestoreRef.current;
@@ -1346,6 +1856,15 @@ export function MainView(): ReactElement {
     return () => document.removeEventListener('keydown', closeOnEscape);
   }, [templateCreditOpen]);
 
+  useEffect(() => {
+    if (!searchOpen) return undefined;
+    function onKey(event: KeyboardEvent): void {
+      if (event.key === 'Escape') setSearchOpen(false);
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [searchOpen]);
+
   async function closeAccount(): Promise<void> {
     await client.bootstrap.closeAccount.mutate();
     setOpenedUin(null);
@@ -1376,7 +1895,7 @@ export function MainView(): ReactElement {
   }
 
   return (
-    <>
+    <ReplyJumpContext.Provider value={jumpToSeq}>
       <ChatShell
         user={user}
         view={shell.view}
@@ -1427,6 +1946,53 @@ export function MainView(): ReactElement {
               onSelectGroup={shell.selectGroup}
               activateToolsOnSelect={false}
             />
+            {searchOpen && searchQuery ? (
+              <div className="weq-search-dropdown" role="listbox">
+                {searchLoading && searchResultRows.length === 0 ? (
+                  <div className="weq-search-empty">搜索中…</div>
+                ) : searchResultRows.length === 0 ? (
+                  <div className="weq-search-empty">没有找到相关消息</div>
+                ) : (
+                  searchResultRows.map((row) => (
+                    <button
+                      key={`${row.hit.targetUid}:${row.hit.msgId}`}
+                      type="button"
+                      className="weq-search-row"
+                      role="option"
+                      onClick={() => openSearchHit(row.hit)}
+                    >
+                      <span className="weq-search-avatar">
+                        {row.avatarUrl ? (
+                          <img src={row.avatarUrl} alt="" loading="lazy" />
+                        ) : (
+                          <span className="weq-search-avatar-fallback">
+                            {row.convName.slice(0, 1)}
+                          </span>
+                        )}
+                      </span>
+                      <span className="weq-search-text">
+                        <span className="weq-search-row-top">
+                          <span className="weq-search-name">{row.convName}</span>
+                          <span className="weq-search-time">{row.time}</span>
+                        </span>
+                        <span className="weq-search-snippet">
+                          <span className="weq-search-sender">{row.senderName}: </span>
+                          {row.runs.map((part, i) =>
+                            part.hit ? (
+                              <mark key={i} className="weq-search-hl">
+                                {part.text}
+                              </mark>
+                            ) : (
+                              <span key={i}>{part.text}</span>
+                            ),
+                          )}
+                        </span>
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            ) : null}
             <OverlayScrollbar
               targetSelector=".app-shell .sidebar-body"
               className="weq-sidebar-scrollbar"
@@ -1449,6 +2015,7 @@ export function MainView(): ReactElement {
                 messages={templateMessages}
                 messageRenderers={messageRenderers}
                 loadingMessages={loadingInitialMessages}
+                atLatest={anchoredToLatest}
                 conversationPrefs={conversationPrefs}
                 drafts={emptyDrafts}
                 query={shell.query}
@@ -1470,6 +2037,7 @@ export function MainView(): ReactElement {
                 onDraftChange={updateDraft}
                 onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
                 onBackConversation={shell.backConversation}
+                onEditRaw={handleEditRaw}
               />
             </div>
             <OverlayScrollbar
@@ -1485,6 +2053,16 @@ export function MainView(): ReactElement {
           </div>
         }
       />
+      
+      {editorState ? (
+        <MsgElementEditor 
+           msgId={editorState.msgId} 
+           elements={editorState.elements}
+           onClose={() => setEditorState(null)}
+           onSave={handleSaveRaw}
+        />
+      ) : null}
+
       {templateCreditOpen ? (
         <div className="weq-template-credit-layer" role="presentation" onMouseDown={() => setTemplateCreditOpen(false)}>
           <section
@@ -1515,6 +2093,6 @@ export function MainView(): ReactElement {
           </section>
         </div>
       ) : null}
-    </>
+    </ReplyJumpContext.Provider>
   );
 }

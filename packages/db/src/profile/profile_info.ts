@@ -100,6 +100,28 @@ export class ProfileInfoDb {
   }
 
   /**
+   * Batch-resolve nicknames by uid in one query. Returns a uid→nick map for the
+   * uids that have a cached profile (missing/empty ones are simply absent).
+   * Only reads uid + nick — cheap enough to call per search result set.
+   */
+  async nicksByUids(uids: string[]): Promise<Record<string, string>> {
+    const unique = [...new Set(uids.filter((uid) => uid))];
+    if (unique.length === 0) return {};
+    const placeholders = unique.map(() => '?').join(',');
+    const rows = await this.qq.query(
+      `SELECT "1000","20002" FROM profile_info_v6 WHERE "1000" IN (${placeholders})`,
+      unique,
+    );
+    const out: Record<string, string> = {};
+    for (const row of rows) {
+      const uid = String(row[0] ?? '');
+      const nick = String(row[1] ?? '');
+      if (uid && nick) out[uid] = nick;
+    }
+    return out;
+  }
+
+  /**
    * List all cached profiles.
    */
   async listProfiles(limit = 100, offset = 0): Promise<UserProfile[]> {

@@ -157,6 +157,8 @@ export interface GroupMemberLevelInfoWire {
 
 export interface MsgSearchHitWire {
   msgId: string;
+  /** In-conversation seq (column 40003) — the jump anchor for click-to-locate. */
+  msgSeq: string;
   chatType: number;
   targetUid: string;
   senderUid: string;
@@ -392,6 +394,7 @@ export function groupMemberLevelInfoToWire(info: GroupMemberLevelInfo): GroupMem
 export function msgSearchHitToWire(hit: BuddyMsgFtsHit): MsgSearchHitWire {
   return {
     msgId: hit.msgId.toString(),
+    msgSeq: hit.msgSeq.toString(),
     chatType: hit.chatType,
     targetUid: hit.targetUid,
     senderUid: hit.senderUid,
@@ -407,6 +410,49 @@ export function onlineStatusToWire(status: FormattedOnlineStatus): OnlineStatusW
 
 export function forwardRecordToWire(record: MsgCacheRecord): unknown {
   return sanitize(record);
+}
+
+/**
+ * Editable-elements wire form for the message editor.
+ *
+ * The display path ({@link sanitize}) turns bytes into a hex string, which is
+ * lossy-to-edit and one-way. The editor instead needs a round-trippable byte
+ * shape, so we use Node's Buffer JSON form `{ type: 'Buffer', data: number[] }`
+ * — which the editor's `ValueEditor` already renders — and reverse it on save.
+ *
+ * This also sidesteps the superjson failure that motivated this code: superjson
+ * serializes a `Buffer` as `['typed-array', 'Buffer']`, but its deserialize
+ * registry only knows the standard typed arrays, so a raw `Buffer` over IPC
+ * throws "Trying to deserialize unknown typed array". Plain objects don't.
+ */
+export function elementsToEditable(v: any): any {
+  if (v === null || v === undefined) return v;
+  if (typeof v === 'bigint') return v.toString();
+  if (v instanceof Uint8Array) {
+    return { type: 'Buffer', data: Array.from(v) };
+  }
+  if (Array.isArray(v)) return v.map(elementsToEditable);
+  if (typeof v === 'object') {
+    const out: Record<string, any> = {};
+    for (const k of Object.keys(v)) out[k] = elementsToEditable(v[k]);
+    return out;
+  }
+  return v;
+}
+
+/** Reverse {@link elementsToEditable}: `{ type:'Buffer', data }` → Uint8Array. */
+export function elementsFromEditable(v: any): any {
+  if (v === null || v === undefined) return v;
+  if (Array.isArray(v)) return v.map(elementsFromEditable);
+  if (typeof v === 'object') {
+    if (v.type === 'Buffer' && Array.isArray(v.data)) {
+      return Uint8Array.from(v.data);
+    }
+    const out: Record<string, any> = {};
+    for (const k of Object.keys(v)) out[k] = elementsFromEditable(v[k]);
+    return out;
+  }
+  return v;
 }
 
 /**

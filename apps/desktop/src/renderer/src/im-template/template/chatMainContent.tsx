@@ -42,6 +42,7 @@ export function ChatMainContent({
 	toolRegistry,
 	selectedToolId,
 	loadingMessages,
+	atLatest,
 	conversationPrefs,
 	drafts,
 	query = "",
@@ -64,6 +65,7 @@ export function ChatMainContent({
 	onDraftChange,
 	onDraftClear,
 	onBackConversation,
+	onEditRaw,
 	onOpenTool,
 	onSelectTool,
 }: {
@@ -83,6 +85,8 @@ export function ChatMainContent({
 	toolRegistry?: ToolPaneGroup[];
 	selectedToolId?: string | null;
 	loadingMessages: boolean;
+	/** Whether `messages` is the live latest-anchored window (see ChatPane). */
+	atLatest?: boolean;
 	conversationPrefs: Record<string, ConversationPreference>;
 	drafts: ConversationDrafts;
 	query?: string;
@@ -112,6 +116,7 @@ export function ChatMainContent({
 	onDraftChange: (conversationId: string, value: string) => void;
 	onDraftClear: (conversationId: string) => void;
 	onBackConversation: () => void;
+	onEditRaw?: (message: Message) => void;
 	onOpenTool?: (item: ToolPaneItem) => void;
 	onSelectTool?: (item: ToolPaneItem) => void;
 }) {
@@ -179,6 +184,7 @@ export function ChatMainContent({
 			composerActions={composerActions}
 			messageRenderers={messageRenderers}
 			loading={loadingMessages}
+			atLatest={atLatest}
 			preference={
 				activeConversation
 					? conversationPrefs[activeConversation.id]
@@ -192,6 +198,7 @@ export function ChatMainContent({
 			onDraftChange={onDraftChange}
 			onDraftClear={onDraftClear}
 			onBack={onBackConversation}
+			onEditRaw={onEditRaw}
 		/>
 	);
 }

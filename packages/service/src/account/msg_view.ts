@@ -2,6 +2,7 @@
  * Render View Model — defines simplified, front-end-friendly Element shapes.
  */
 
+import { decodeElement } from '@weq/codec';
 import type {
   Element,
   TextElement,
@@ -60,13 +61,15 @@ export interface RenderPicElement {
     imgType: number;
     isOriginal: boolean;
     // md5: string;
-    // fileToken: string;
+    /** CDN download token; used to fetch the image when it isn't on disk. */
+    fileToken: string;
     // uploadTime: number;
     // uploadTimestamp: number;
     // fileTTL: number;
     // thumbnailUrl: string;
     // previewUrl: string;
-    // originalUrl: string;
+    /** CDN path for the original image; used for digit-token (rkey-less) downloads. */
+    originalUrl: string;
     summary: string[];
     // cdnHost: string;
     filePath?: string;
@@ -100,7 +103,8 @@ export interface RenderVideoElement {
     // imgWidth: number;
     // imgHeight: number;
     isOriginal: boolean;
-    // fileToken: string;
+    /** CDN download token for the original video (mp4). */
+    fileToken: string;
     // uploadTime: number;
     // picTransferState?: number;
     // transferVersion?: number;
@@ -111,7 +115,8 @@ export interface RenderVideoElement {
     videoWidth: number;
     videoHeight: number;
     coverFileName: string;
-    // videoToken: string;
+    /** CDN download token for the video cover image. */
+    videoToken: string;
     // expireTimestamp: number;
     // validPeriodSec: number;
     // secondExpireTimestamp: number;
@@ -126,7 +131,8 @@ export interface RenderPttElement {
     fileSize: number;
     isOriginal: boolean;
     // md5: string;
-    // fileToken: string;
+    /** CDN download token for the voice clip (silk). */
+    fileToken: string;
     // uploadTime: number;
     // uploadTimestamp: number;
     // fileTTL: number;
@@ -169,7 +175,8 @@ export interface RenderReplyElement {
     // origReceiverUin: number;
     origMsgId: bigint;
     origMsgIndex: number;
-    origElements: any[];
+    /** The quoted message's elements, already mapped to render view ({type,data}). */
+    origElements: RenderElement[];
     replyOrigMsgIdRef?: bigint;
     replyTextSummary?: string;
   };
@@ -451,13 +458,13 @@ function mapPic(el: PicElement): RenderPicElement {
       imgType: el.imgType,
       isOriginal: el.isOriginal,
       // md5: el.md5,
-      // fileToken: el.fileToken,
+      fileToken: el.fileToken,
       // uploadTime: el.uploadTime,
       // uploadTimestamp: el.uploadTimestamp,
       // fileTTL: el.fileTTL,
       // thumbnailUrl: el.thumbnailUrl,
       // previewUrl: el.previewUrl,
-      // originalUrl: el.originalUrl,
+      originalUrl: el.originalUrl,
       summary: el.summary,
       // cdnHost: el.cdnHost,
       elementId: el.elementId,
@@ -501,7 +508,7 @@ function mapVideo(el: VideoElement): RenderVideoElement {
       // imgWidth: el.imgWidth,
       // imgHeight: el.imgHeight,
       isOriginal: el.isOriginal,
-      // fileToken: el.fileToken,
+      fileToken: el.fileToken,
       // uploadTime: el.uploadTime,
       // picTransferState: el.picTransferState,
       // transferVersion: el.transferVersion,
@@ -512,7 +519,7 @@ function mapVideo(el: VideoElement): RenderVideoElement {
       videoWidth: el.videoWidth,
       videoHeight: el.videoHeight,
       coverFileName: el.coverFileName,
-      // videoToken: el.videoToken,
+      videoToken: el.videoToken,
       // expireTimestamp: el.expireTimestamp,
       // validPeriodSec: el.validPeriodSec,
       // secondExpireTimestamp: el.secondExpireTimestamp,
@@ -532,7 +539,7 @@ function mapPtt(el: PttElement): RenderPttElement {
       fileSize: el.fileSize,
       isOriginal: el.isOriginal,
       // md5: el.md5,
-      // fileToken: el.fileToken,
+      fileToken: el.fileToken,
       // uploadTime: el.uploadTime,
       // uploadTimestamp: el.uploadTimestamp,
       // fileTTL: el.fileTTL,
@@ -584,7 +591,10 @@ function mapReply(el: ReplyElement): RenderReplyElement {
       // origReceiverUin: el.origReceiverUin,
       origMsgId: el.origMsgId,
       origMsgIndex: el.origMsgIndex,
-      origElements: el.origElements,
+      // origElements arrive as raw ElementWire (no kind/type); decode then map
+      // to the same render view ({type,data}) the main elements use so the
+      // front-end reply quote can render them with the shared element renderer.
+      origElements: toRenderElements((el.origElements ?? []).map((w) => decodeElement(w as never))),
       // replyOrigMsgIdRef: el.replyOrigMsgIdRef,
       // replyTextSummary: el.replyTextSummary,
       elementId: el.elementId,

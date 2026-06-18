@@ -2115,3 +2115,123 @@ html[data-theme="dark"] .app-title-bar-signature {
   font-style: italic;
   font-size: 12px;
 }
+
+/* ---- Global message search dropdown ---- */
+.app-shell .sidebar-body {
+  position: relative;
+}
+
+.weq-search-dropdown {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  margin: 6px 8px 0;
+  background: var(--popover, #ffffff);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.weq-search-empty {
+  padding: 18px 16px;
+  color: #94a3b8;
+  font-size: 13px;
+  text-align: center;
+}
+
+.weq-search-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.weq-search-row:hover {
+  background: rgba(18, 168, 255, 0.08);
+}
+
+.weq-search-row + .weq-search-row {
+  border-top: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.weq-search-avatar {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.06);
+  display: grid;
+  place-items: center;
+}
+
+.weq-search-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.weq-search-avatar-fallback {
+  font-size: 16px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.weq-search-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.weq-search-row-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.weq-search-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 13.5px;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weq-search-time {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.weq-search-snippet {
+  font-size: 12.5px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weq-search-sender {
+  color: #475569;
+}
+
+.weq-search-hl {
+  background: transparent;
+  color: #12a8ff;
+  font-weight: 600;
+}

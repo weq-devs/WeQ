@@ -32,6 +32,8 @@ import {
   groupMemberLevelInfoToWire,
   msgSearchHitToWire,
   onlineStatusToWire,
+  elementsToEditable,
+  elementsFromEditable,
   type ChatMsgWire,
 } from '../serde';
 
@@ -84,6 +86,18 @@ async function fetchBefore(
     : (await msgs.getC2cBefore(conv, beforeSeq, limit)).map(c2cMsgToWire);
 }
 
+async function fetchAfter(
+  kind: ChatKind,
+  conv: string,
+  afterSeq: bigint,
+  limit: number,
+): Promise<ChatMsgWire[]> {
+  const msgs = requireServices().msgs;
+  return kind === 'group'
+    ? (await msgs.getGroupAfter(conv, afterSeq, limit)).map(groupMsgToWire)
+    : (await msgs.getC2cAfter(conv, afterSeq, limit)).map(c2cMsgToWire);
+}
+
 async function fetchFrom(
   kind: ChatKind,
   conv: string,
@@ -117,6 +131,16 @@ export const accountRouter = router({
       }),
     )
     .query(({ input }) => fetchBefore(input.kind, input.conv, BigInt(input.beforeSeq), input.limit)),
+
+  /** The page just newer than `afterSeq` (scroll down / jump context), oldest-first. */
+  listAfter: procedure
+    .input(
+      convInput.extend({
+        afterSeq: z.string().min(1),
+        limit: z.number().int().min(1).max(200).default(50),
+      }),
+    )
+    .query(({ input }) => fetchAfter(input.kind, input.conv, BigInt(input.afterSeq), input.limit)),
 
   /** Re-read everything with seq >= `sinceSeq` (live refresh of the window). */
   listFrom: procedure
@@ -172,6 +196,13 @@ export const accountRouter = router({
     .query(async ({ input }) => {
       const profile = await requireServices().profile.getProfileByUin(BigInt(input.uin));
       return profile ? userProfileToWire(profile) : null;
+    }),
+
+  /** Batch-resolve nicknames by uid → { uid: nick } (cached profiles only). */
+  getNicksByUids: procedure
+    .input(z.object({ uids: z.array(z.string().min(1)).min(1).max(50) }))
+    .query(async ({ input }) => {
+      return requireServices().profile.nicksByUids(input.uids);
     }),
 
   /** List cached user profiles. */
@@ -246,6 +277,26 @@ export const accountRouter = router({
         BigInt(input.groupCode),
         input.limit ?? 100,
         input.offset ?? 0,
+      );
+      return members.map(groupMemberToWire);
+    }),
+
+  /**
+   * Batch-resolve group members by uid. Lets the renderer fill in display
+   * names for message senders that fall outside the loaded member page,
+   * without blocking on a full member fetch.
+   */
+  getGroupMembersByUids: procedure
+    .input(
+      z.object({
+        groupCode: z.string().min(1),
+        uids: z.array(z.string().min(1)).min(1).max(200),
+      }),
+    )
+    .query(async ({ input }) => {
+      const members = await requireServices().groupInfo.getMembersByUids(
+        BigInt(input.groupCode),
+        input.uids,
       );
       return members.map(groupMemberToWire);
     }),
@@ -330,6 +381,26 @@ export const accountRouter = router({
           ? await service.getGroupForward(BigInt(input.msgId))
           : await service.getC2cForward(BigInt(input.msgId));
       return records.map(forwardRecordToWire);
+    }),
+
+  /** Get un-filtered raw elements for one message (for editing). */
+  getRawElements: procedure
+    .input(z.object({ msgId: z.string().min(1) }))
+    .query(async ({ input }) => {
+      const result = await requireServices().msgs.getRawElements(BigInt(input.msgId));
+      if (!result) return null;
+      // Bytes (Node Buffers) → `{ type:'Buffer', data }` so superjson can ship
+      // them and the editor can round-trip them; bigints → strings.
+      return { kind: result.kind, elements: elementsToEditable(result.elements) };
+    }),
+
+  /** Update elements for one message (back-write to 40800). */
+  updateElements: procedure
+    .input(z.object({ msgId: z.string().min(1), elements: z.array(z.any()) }))
+    .mutation(async ({ input }) => {
+      // Reverse the editable wire form: `{ type:'Buffer', data }` → Uint8Array.
+      const elements = elementsFromEditable(input.elements);
+      return requireServices().msgs.updateElements(BigInt(input.msgId), elements);
     }),
 
   /**

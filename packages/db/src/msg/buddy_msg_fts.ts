@@ -27,7 +27,7 @@ import type { BuddyMsgFtsHit } from './types';
 import { toBigint, toStr } from './util';
 import { QqDb } from '../qq_db';
 
-const SELECT_COLUMNS = `"40001","40010","40021","40020","41701","40050","41702"`;
+const SELECT_COLUMNS = `"40001","40010","40021","40020","41701","40050","41702","40003"`;
 
 /**
  * How many newest LIKE-matching rows to pull before ranking. We over-fetch
@@ -170,5 +170,6 @@ function rowToHit(row: SqlRow): BuddyMsgFtsHit {
     content: toStr(row[4]),
     sendTime: toBigint(row[5]),
     fileName: toStr(row[6]),
+    msgSeq: toBigint(row[7]),
   };
 }

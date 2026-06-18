@@ -23,6 +23,8 @@ import {
   GroupDetailDb,
   GroupBulletinDb,
   GroupMemberDb,
+  GroupNotifyDb,
+  FileAssistantDb,
   BuddyDb,
   CategoryDb,
   BuddyRequestDb,
@@ -107,6 +109,10 @@ export interface AccountSession {
   readonly groupBulletins: GroupBulletinDb;
   /** Group membership records (group_info.db). */
   readonly groupMembers: GroupMemberDb;
+  /** Group notifications (group_info.db). */
+  readonly groupNotifies: GroupNotifyDb;
+  /** File assistant metadata (file_assistant.db). */
+  readonly fileAssistant: FileAssistantDb;
   /** Buddy list (profile_info.db). */
   readonly buddies: BuddyDb;
   /** Buddy categories (profile_info.db). */
@@ -228,6 +234,19 @@ export async function openAccount(
     algo: ctx.algo,
   });
 
+  const groupNotifies = new GroupNotifyDb(platform.native.ntHelper, {
+    dbPath: groupInfoDbPath,
+    key: ctx.dbKey,
+    algo: ctx.algo,
+  });
+
+  const fileAssistantDbPath = join(dirname(msgDbPath), 'file_assistant.db');
+  const fileAssistant = new FileAssistantDb(platform.native.ntHelper, {
+    dbPath: fileAssistantDbPath,
+    key: ctx.dbKey,
+    algo: ctx.algo,
+  });
+
   const profileInfoPath = platform.profileInfoDbPath(ctx.uin);
   if (!profileInfoPath) throw new Error(`profile_info.db not found for uin ${ctx.uin}`);
   const buddies = new BuddyDb(platform.native.ntHelper, { dbPath: profileInfoPath, key: ctx.dbKey, algo: ctx.algo });
@@ -255,6 +274,8 @@ export async function openAccount(
     groupDetail,
     groupBulletins,
     groupMembers,
+    groupNotifies,
+    fileAssistant,
     buddies,
     categories,
     buddyReqs,
@@ -274,6 +295,8 @@ export async function openAccount(
       groupDetail.close();
       groupBulletins.close();
       groupMembers.close();
+      groupNotifies.close();
+      fileAssistant.close();
       buddies.close();
       categories.close();
       buddyReqs.close();

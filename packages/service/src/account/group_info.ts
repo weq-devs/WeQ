@@ -57,6 +57,21 @@ export class GroupInfoService {
   }
 
   /**
+   * Get info for a specific member in a group.
+   */
+  async getMemberInfo(groupCode: bigint, uid: string): Promise<GroupMember | null> {
+    return this.session.groupMembers.getMember(groupCode, uid);
+  }
+
+  /**
+   * Batch-fetch members by uid (single query). Used to resolve message senders
+   * that are not in the loaded member page.
+   */
+  async getMembersByUids(groupCode: bigint, uids: string[]): Promise<GroupMember[]> {
+    return this.session.groupMembers.getMembersByUids(groupCode, uids);
+  }
+
+  /**
    * List all groups a user belongs to.
    */
   async listUserGroups(uid: string, limit = 100, offset = 0): Promise<GroupMember[]> {
