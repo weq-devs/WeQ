@@ -71,6 +71,7 @@ import type {
 	User,
 } from "./types";
 import { displayUserName } from "./user";
+import { OnlineStatus } from "../../components/OnlineStatus";
 
 const composerHeightStorageKey = "chat-template.layout.composerHeight";
 const groupInfoCollapsedStorageKey = "chat-template.layout.groupInfoCollapsed";
@@ -1232,6 +1233,9 @@ export function ChatPane({
 							</small>
 						) : null}
 					</strong>
+					{conversation.type === "direct" ? (
+						<OnlineStatus uid={conversation.otherUser.id} />
+					) : null}
 				</div>
 				<div className={cn("chat-actions")}>
 					{conversation.type === "group" ? (
