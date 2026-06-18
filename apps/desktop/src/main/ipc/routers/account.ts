@@ -117,6 +117,14 @@ export const accountRouter = router({
     return contacts.map(recentContactToWire);
   }),
 
+  /** Get unread message count for a conversation. */
+  getUnreadInfo: procedure
+    .input(z.object({ chatType: z.number().int(), uid: z.string().min(1) }))
+    .query(async ({ input }) => {
+      const result = await requireServices().unreadInfo.getUnreadInfo(input.chatType, input.uid);
+      return result ? { msgSeq: result.msgSeq?.toString() } : null;
+    }),
+
   /** Newest page of a conversation (open / switch-into), newest-first. */
   listLatest: procedure
     .input(convInput.extend({ limit: z.number().int().min(1).max(200).default(50) }))

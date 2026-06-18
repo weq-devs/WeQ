@@ -324,6 +324,56 @@
 	vertical-align: bottom;
 }
 
+/* ---- Sticker reactions (贴表情, SetEmojiReactions) ------------------------ */
+
+/* Sits below the original message; wraps after 7 emoji kinds per row. */
+.msg-reactions {
+	display: inline-grid;
+	grid-template-columns: repeat(7, max-content);
+	gap: 4px 6px;
+	margin-top: 6px;
+	justify-content: start;
+}
+
+.msg-reaction {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+	padding: 1px 7px 1px 5px;
+	border: 1px solid transparent;
+	border-radius: 999px;
+	background: rgba(0, 0, 0, 0.05);
+	font-size: 12px;
+	line-height: 18px;
+	user-select: none;
+}
+
+/* A reaction the logged-in account set itself. */
+.msg-reaction.is-self {
+	border-color: rgba(18, 168, 255, 0.5);
+	background: rgba(18, 168, 255, 0.12);
+}
+
+.msg-reaction .face-emoji {
+	width: 18px;
+	height: 18px;
+	vertical-align: middle;
+}
+
+.msg-reaction-count {
+	color: #666666;
+	font-variant-numeric: tabular-nums;
+}
+
+.msg-reaction.is-self .msg-reaction-count {
+	color: #1287d8;
+}
+
+.msg-reaction-raw {
+	font-size: 14px;
+	line-height: 18px;
+}
+
 /* ---- QQ rich media (image / video / file / voice / market-face) ---------- */
 
 .qq-media-image {

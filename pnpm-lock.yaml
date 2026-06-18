@@ -59,6 +59,9 @@ importers:
       '@weq/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@xmldom/xmldom':
+        specifier: ^0.9.10
+        version: 0.9.10
       electron-trpc:
         specifier: ^0.7.1
         version: 0.7.1(@trpc/client@10.45.4(@trpc/server@10.45.4))(@trpc/server@10.45.4)(electron@34.3.0)

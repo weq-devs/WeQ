@@ -1,3 +1,4 @@
+import React from 'react';
 import { trpc } from '../trpc/client';
 import { Circle, Smile, Clock, Minus, Ban, MinusCircle } from 'lucide-react';
 
@@ -36,7 +37,7 @@ const SUB_ICONS: Record<number, string> = {
   2006: 'aiziji@2x.png',
 };
 
-const TYPE_ICONS = {
+const TYPE_ICONS: Record<number, () => React.ReactNode> = {
   10: () => <Circle size={10} fill="#52c41a" stroke="#52c41a" />,
   60: () => <Smile size={12} stroke="#faad14" />,
   30: () => <Clock size={12} stroke="#8c8c8c" />,

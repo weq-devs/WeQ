@@ -71,6 +71,22 @@ function tagKey(tag: number, wireType: WireType): Uint8Array {
   return writeVarint((BigInt(tag) << 3n) | BigInt(wireType));
 }
 
+/**
+ * protobuf-ts reads STRING scalars with a *fatal* TextDecoder, so a field we
+ * declared STRING that actually carries non-UTF-8 bytes (a mis-guessed tag, or
+ * a nested message / raw blob) throws and loses the WHOLE message. Validate
+ * here so such fields can be dropped like a wire-type conflict.
+ */
+const utf8Validator = new TextDecoder('utf-8', { fatal: true });
+function isValidUtf8(bytes: Uint8Array): boolean {
+  try {
+    utf8Validator.decode(bytes);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function concat(chunks: Uint8Array[]): Uint8Array {
   let total = 0;
   for (const c of chunks) total += c.length;
@@ -104,6 +120,18 @@ function sanitize(buf: Uint8Array, index: SchemaIndex): SanitizeResult {
 
       // Wire type conflicts with the declared type — drop the field.
       if (!wireMatches(info, f.wireType)) {
+        changed = true;
+        continue;
+      }
+
+      // A STRING field whose bytes aren't valid UTF-8 would crash protobuf-ts's
+      // fatal decoder — drop it so the rest of the message still decodes.
+      if (
+        info.kind !== 'message' &&
+        info.scalarType === ScalarType.STRING &&
+        f.wireType === 2 &&
+        !isValidUtf8(f.payload)
+      ) {
         changed = true;
         continue;
       }

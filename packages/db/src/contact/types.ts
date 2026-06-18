@@ -12,6 +12,8 @@
 import type { PreviewElement } from '@weq/codec';
 
 export interface RecentContact {
+  /** 40003 — message sequence number. */
+  msgSeq: bigint;
   /** 40010 — mapped ChatType (enum member name, or raw number if out of range). */
   chatType: string | number;
   /** 40020 — sender uid. */
