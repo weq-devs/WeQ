@@ -38,6 +38,7 @@ import {
   useChatShellController,
 } from '../im-template/template';
 import { qqMessageRenderer, ReplyJumpContext, type ReplyJumpTarget } from '../components/QqMessageContent';
+import { MsgElementEditor } from '../components/MsgElementEditor';
 
 const messageRenderers: MessageRenderer[] = composeMessageRenderers({
   prepend: [qqMessageRenderer],
@@ -901,6 +902,56 @@ export function MainView(): ReactElement {
   // older history remains. `loaded[0].msgSeq` is the window's lower cursor.
   const [loaded, setLoaded] = useState<MessageWire[]>([]);
   const [anchoredToLatest, setAnchoredToLatest] = useState(true);
+  
+  // Latest active-conversation identity, read by the once-mounted live
+  // subscription (which must not re-subscribe on every selection change).
+  const selectionRef = useRef<{ id: string; kind: 'direct' | 'group' } | null>(null);
+  // Current loaded-window descriptor, read by the once-mounted subscription.
+  const windowRef = useRef<{ minSeq: string | null; anchored: boolean }>({
+    minSeq: null,
+    anchored: true,
+  });
+
+  // Live refresh of the open conversation: re-read seq >= minSeq and replace the
+  // window. Only when anchored to latest — a history/search window (not yet
+  // wired) must NOT be dragged up to the latest. Stable identity → the
+  // subscription below mounts once.
+  const refreshWindow = useCallback(async (): Promise<void> => {
+    const sel = selectionRef.current;
+    const win = windowRef.current;
+    if (!sel || !win.anchored || win.minSeq === null) return;
+    const kind = sel.kind === 'group' ? 'group' : 'c2c';
+    const conv = sel.id;
+    try {
+      const page = await client.account.listFrom.query({
+        kind,
+        conv,
+        sinceSeq: win.minSeq,
+        limit: REFRESH_CAP,
+      });
+      if (selectionRef.current?.id !== conv) return; // switched away mid-flight
+      setLoaded(page.map(toMessageWire).reverse());
+    } catch (err) {
+      console.error('[live] refreshWindow failed', err);
+    }
+  }, []);
+
+  // Subscribe once to the debounced "db changed" ping: refresh recent contacts
+  // and re-read the open conversation's window. (onNewMessages stays a backend
+  // signal reserved for future popups; the open view no longer needs it.)
+  useEffect(() => {
+    const sub = client.account.onDbChanged.subscribe(undefined, {
+      onData() {
+        void utils.account.listRecentContacts.invalidate();
+        void refreshWindow();
+      },
+      onError(err) {
+        console.error('[live] onDbChanged subscription error', err);
+      },
+    });
+    return () => sub.unsubscribe();
+  }, [utils, refreshWindow]);
+
   const [hasOlder, setHasOlder] = useState(true);
   // True only in a "jump context" window (anchored=false) that has newer
   // messages below it; drives scroll-down paging via `requestNewerMessages`.
@@ -909,6 +960,36 @@ export function MainView(): ReactElement {
   const [trackedConversationId, setTrackedConversationId] = useState<string | null>(null);
   const [conversationPrefs, setConversationPrefs] = useState<ConversationPreferences>({});
   const [templateCreditOpen, setTemplateCreditOpen] = useState(false);
+  
+  const [editorState, setEditorState] = useState<{ msgId: string, elements: any[] } | null>(null);
+
+  const handleEditRaw = useCallback(async (message: Message) => {
+    try {
+        const result = await client.account.getRawElements.query({ msgId: message.id });
+        if (result) {
+            setEditorState({ msgId: message.id, elements: result.elements });
+        }
+    } catch (e) {
+        console.error('[MainView] Failed to fetch raw elements:', e);
+    }
+  }, []);
+
+  const handleSaveRaw = useCallback(async (elements: any[]) => {
+    if (!editorState) return;
+    try {
+        const success = await client.account.updateElements.mutate({ 
+            msgId: editorState.msgId, 
+            elements 
+        });
+        if (success) {
+            void refreshWindow();
+        }
+    } catch (e) {
+        console.error('[MainView] Failed to update elements:', e);
+        throw e;
+    }
+  }, [editorState, refreshWindow]);
+
   const [onlineStatusByUid, setOnlineStatusByUid] = useState<Record<string, string>>({});
   const [groupMemberPages, setGroupMemberPages] = useState<Record<string, GroupMemberWire[]>>({});
   const [groupMemberHasMore, setGroupMemberHasMore] = useState<Record<string, boolean>>({});
@@ -936,14 +1017,6 @@ export function MainView(): ReactElement {
   // read the current window without being re-created on every message change).
   const loadedRef = useRef<MessageWire[]>([]);
   const pendingScrollRestoreRef = useRef<PendingScrollRestore | null>(null);
-  // Latest active-conversation identity, read by the once-mounted live
-  // subscription (which must not re-subscribe on every selection change).
-  const selectionRef = useRef<{ id: string; kind: 'direct' | 'group' } | null>(null);
-  // Current loaded-window descriptor, read by the once-mounted subscription.
-  const windowRef = useRef<{ minSeq: string | null; anchored: boolean }>({
-    minSeq: null,
-    anchored: true,
-  });
 
   const user = useMemo(() => currentUser(openedUin, selfProfile.data), [openedUin, selfProfile.data]);
   const profileByUid = useMemo(() => {
@@ -1632,46 +1705,6 @@ export function MainView(): ReactElement {
     };
   }, [selectedUid, isDirect, isGroup, centerWindowOnSeq]);
 
-  // Live refresh of the open conversation: re-read seq >= minSeq and replace the
-  // window. Only when anchored to latest — a history/search window (not yet
-  // wired) must NOT be dragged up to the latest. Stable identity → the
-  // subscription below mounts once.
-  const refreshWindow = useCallback(async (): Promise<void> => {
-    const sel = selectionRef.current;
-    const win = windowRef.current;
-    if (!sel || !win.anchored || win.minSeq === null) return;
-    const kind = sel.kind === 'group' ? 'group' : 'c2c';
-    const conv = sel.id;
-    try {
-      const page = await client.account.listFrom.query({
-        kind,
-        conv,
-        sinceSeq: win.minSeq,
-        limit: REFRESH_CAP,
-      });
-      if (selectionRef.current?.id !== conv) return; // switched away mid-flight
-      setLoaded(page.map(toMessageWire).reverse());
-    } catch (err) {
-      console.error('[live] refreshWindow failed', err);
-    }
-  }, []);
-
-  // Subscribe once to the debounced "db changed" ping: refresh recent contacts
-  // and re-read the open conversation's window. (onNewMessages stays a backend
-  // signal reserved for future popups; the open view no longer needs it.)
-  useEffect(() => {
-    const sub = client.account.onDbChanged.subscribe(undefined, {
-      onData() {
-        void utils.account.listRecentContacts.invalidate();
-        void refreshWindow();
-      },
-      onError(err) {
-        console.error('[live] onDbChanged subscription error', err);
-      },
-    });
-    return () => sub.unsubscribe();
-  }, [utils, refreshWindow]);
-
   const requestOlderMessages = useCallback(
     (scroll: HTMLElement): void => {
       if (!selectedConversation || !hasOlder || loadingOlderRef.current) return;
@@ -2004,6 +2037,7 @@ export function MainView(): ReactElement {
                 onDraftChange={updateDraft}
                 onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
                 onBackConversation={shell.backConversation}
+                onEditRaw={handleEditRaw}
               />
             </div>
             <OverlayScrollbar
@@ -2019,6 +2053,16 @@ export function MainView(): ReactElement {
           </div>
         }
       />
+      
+      {editorState ? (
+        <MsgElementEditor 
+           msgId={editorState.msgId} 
+           elements={editorState.elements}
+           onClose={() => setEditorState(null)}
+           onSave={handleSaveRaw}
+        />
+      ) : null}
+
       {templateCreditOpen ? (
         <div className="weq-template-credit-layer" role="presentation" onMouseDown={() => setTemplateCreditOpen(false)}>
           <section

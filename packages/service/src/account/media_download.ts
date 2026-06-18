@@ -23,7 +23,8 @@ import { join } from 'node:path';
 import type { AccountConfigService, DownloadRkey } from './user_config';
 import { rkeyExpiryMs } from './user_config';
 
-const DOWNLOAD_BASE = 'https://multimedia.nt.qq.com.cn/download';
+const MEDIA_HOST = 'https://multimedia.nt.qq.com.cn';
+const DOWNLOAD_BASE = `${MEDIA_HOST}/download`;
 
 /** rkey `type_` values, by (scene × media kind). */
 export const PRIVATE_IMAGE_RKEY_TYPE = 10;
@@ -48,6 +49,12 @@ export interface DownloadOptions {
   ext?: string;
   /** rkey types allowed for this download. Defaults to image types (10/20). */
   rkeyTypes?: number[];
+  /**
+   * CDN path/URL for the original media. When the `fileToken` is all digits the
+   * media predates the rkey scheme — we fetch `<host><originalUrl>` directly
+   * (no rkey) and prefer it over the rkey attempts.
+   */
+  originalUrl?: string;
 }
 
 export class MediaDownloadService {
@@ -65,9 +72,18 @@ export class MediaDownloadService {
     const cachePath = join(this.cacheDir, `${hashToken(fileToken)}${opts.ext ?? ''}`);
     if (existsSync(cachePath)) return cachePath;
 
+    const urls: string[] = [];
+    // Digit-only tokens are pre-rkey media: fetch the original directly, no rkey.
+    if (opts.originalUrl && isAllDigits(fileToken)) {
+      urls.push(resolveOriginalUrl(opts.originalUrl));
+    }
     const allowed = opts.rkeyTypes ?? IMAGE_RKEY_TYPES;
     for (const rkey of this.validRkeys(allowed)) {
-      const bytes = await tryFetch(buildUrl(fileToken, rkey));
+      urls.push(buildUrl(fileToken, rkey));
+    }
+
+    for (const url of urls) {
+      const bytes = await tryFetch(url);
       if (bytes) {
         mkdirSync(this.cacheDir, { recursive: true });
         writeFileSync(cachePath, bytes);
@@ -82,6 +98,16 @@ export class MediaDownloadService {
     const now = Date.now();
     return rkeys.filter((r) => allowedTypes.includes(r.type) && rkeyExpiryMs(r) > now);
   }
+}
+
+function isAllDigits(s: string): boolean {
+  return /^\d+$/.test(s);
+}
+
+/** `originalUrl` is usually a host-relative path; join it onto the media host. */
+function resolveOriginalUrl(originalUrl: string): string {
+  if (/^https?:\/\//i.test(originalUrl)) return originalUrl;
+  return `${MEDIA_HOST}${originalUrl.startsWith('/') ? '' : '/'}${originalUrl}`;
 }
 
 function buildUrl(fileToken: string, rkey: DownloadRkey): string {

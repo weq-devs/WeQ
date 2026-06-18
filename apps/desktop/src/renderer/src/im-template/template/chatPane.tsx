@@ -190,6 +190,7 @@ export function ChatPane({
 	onDraftChange,
 	onDraftClear,
 	onBack,
+	onEditRaw,
 }: {
 	user: User;
 	conversation: Conversation | undefined;
@@ -213,6 +214,7 @@ export function ChatPane({
 	onDraftChange: (conversationId: string, value: string) => void;
 	onDraftClear: (conversationId: string) => void;
 	onBack: () => void;
+	onEditRaw?: (message: Message) => void;
 }) {
 	const [body, setBody] = useState("");
 	const [sending, setSending] = useState(false);
@@ -1572,6 +1574,7 @@ export function ChatPane({
 					onCopy={copyMessage}
 					onDownloadImage={downloadMessageImage}
 					onDeleteLocal={deleteMessageLocally}
+					onEditRaw={onEditRaw}
 				/>
 			) : null}
 			{groupInfoDetail && conversation.type === "group" ? (

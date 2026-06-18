@@ -65,6 +65,7 @@ export function ChatMainContent({
 	onDraftChange,
 	onDraftClear,
 	onBackConversation,
+	onEditRaw,
 	onOpenTool,
 	onSelectTool,
 }: {
@@ -115,6 +116,7 @@ export function ChatMainContent({
 	onDraftChange: (conversationId: string, value: string) => void;
 	onDraftClear: (conversationId: string) => void;
 	onBackConversation: () => void;
+	onEditRaw?: (message: Message) => void;
 	onOpenTool?: (item: ToolPaneItem) => void;
 	onSelectTool?: (item: ToolPaneItem) => void;
 }) {
@@ -196,6 +198,7 @@ export function ChatMainContent({
 			onDraftChange={onDraftChange}
 			onDraftClear={onDraftClear}
 			onBack={onBackConversation}
+			onEditRaw={onEditRaw}
 		/>
 	);
 }

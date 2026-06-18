@@ -32,6 +32,8 @@ import {
   groupMemberLevelInfoToWire,
   msgSearchHitToWire,
   onlineStatusToWire,
+  elementsToEditable,
+  elementsFromEditable,
   type ChatMsgWire,
 } from '../serde';
 
@@ -379,6 +381,26 @@ export const accountRouter = router({
           ? await service.getGroupForward(BigInt(input.msgId))
           : await service.getC2cForward(BigInt(input.msgId));
       return records.map(forwardRecordToWire);
+    }),
+
+  /** Get un-filtered raw elements for one message (for editing). */
+  getRawElements: procedure
+    .input(z.object({ msgId: z.string().min(1) }))
+    .query(async ({ input }) => {
+      const result = await requireServices().msgs.getRawElements(BigInt(input.msgId));
+      if (!result) return null;
+      // Bytes (Node Buffers) → `{ type:'Buffer', data }` so superjson can ship
+      // them and the editor can round-trip them; bigints → strings.
+      return { kind: result.kind, elements: elementsToEditable(result.elements) };
+    }),
+
+  /** Update elements for one message (back-write to 40800). */
+  updateElements: procedure
+    .input(z.object({ msgId: z.string().min(1), elements: z.array(z.any()) }))
+    .mutation(async ({ input }) => {
+      // Reverse the editable wire form: `{ type:'Buffer', data }` → Uint8Array.
+      const elements = elementsFromEditable(input.elements);
+      return requireServices().msgs.updateElements(BigInt(input.msgId), elements);
     }),
 
   /**

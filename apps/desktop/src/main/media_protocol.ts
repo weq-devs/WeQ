@@ -77,8 +77,10 @@ export function registerMediaProtocol(): void {
           const { source, thumb } = await services.fileSearch.findFile(tMs, name, picType);
           const path = wantThumb ? (thumb ?? source) : (source ?? thumb);
           if (path) return fileResponse(path);
-          // Missing on disk → pull from the CDN with a live rkey.
-          const dl = await services.mediaDownload.download(token);
+          // Missing on disk → CDN: digit token → originalUrl (no rkey); else rkey.
+          const dl = await services.mediaDownload.download(token, {
+            originalUrl: q.get('orig') ?? '',
+          });
           return dl ? fileResponse(dl) : notFound('pic not found');
         }
         case 'video': {

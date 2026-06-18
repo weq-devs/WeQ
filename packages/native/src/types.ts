@@ -16,10 +16,10 @@
  *   INTEGER → bigint (i64 precision)
  *   REAL    → number
  *   TEXT    → string
- *   BLOB    → Buffer (Uint8Array also accepted on encode)
+ *   BLOB    → Uint8Array (Node Buffer also accepted on encode)
  *   NULL    → null
  */
-export type SqlValue = null | bigint | number | string | Buffer;
+export type SqlValue = null | bigint | number | string | Uint8Array;
 export type SqlRow = SqlValue[];
 
 // ---------- Init / health ------------------------------------------------

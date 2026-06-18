@@ -14,8 +14,12 @@
  */
 
 import type { AccountSession } from '@weq/account';
-import type { C2cMsg, GroupMsg, C2cPartition } from '@weq/db';
+import { C2cMsg, GroupMsg, C2cPartition } from '@weq/db';
+import { ProtoMsg, encodeElement, Element } from '@weq/codec';
+import { MsgBody } from '@weq/codec/proto/msg/40800';
 import { toRenderElements, type RenderElement } from './msg_view';
+
+const bodyCodec = new ProtoMsg(MsgBody);
 
 /**
  * Augmented message shapes for the renderer.
@@ -29,6 +33,49 @@ export interface RenderGroupMsg extends Omit<GroupMsg, 'elements'> {
 
 export class MsgService {
   constructor(private readonly session: AccountSession) {}
+
+  // ---- raw / modify --------------------------------------------------------
+
+  /**
+   * Get all raw elements of a message by msgId (not filtered by renderer).
+   * Searches both C2C and Group tables.
+   */
+  async getRawElements(msgId: bigint): Promise<{ elements: Element[]; kind: 'c2c' | 'group' } | null> {
+    const { decodeBody } = await import('@weq/db');
+
+    const c2cBlob = await this.session.c2cMsgs.getMsgBody(msgId);
+    if (c2cBlob) {
+        return { elements: decodeBody(c2cBlob), kind: 'c2c' };
+    }
+
+    const groupBlob = await this.session.groupMsgs.getMsgBody(msgId);
+    if (groupBlob) {
+        return { elements: decodeBody(groupBlob), kind: 'group' };
+    }
+
+    return null;
+  }
+
+  /**
+   * Update the elements of a message by msgId.
+   */
+  async updateElements(msgId: bigint, elements: Element[]): Promise<boolean> {
+    const info = await this.getRawElements(msgId);
+    if (!info) return false;
+
+    const blob = bodyCodec.encode({
+        elements: elements.map(encodeElement)
+    });
+
+    let affected = 0;
+    if (info.kind === 'c2c') {
+        affected = await this.session.c2cMsgs.updateMsgBody(msgId, blob);
+    } else {
+        affected = await this.session.groupMsgs.updateMsgBody(msgId, blob);
+    }
+
+    return affected > 0;
+  }
 
   // ---- c2c -----------------------------------------------------------------
 

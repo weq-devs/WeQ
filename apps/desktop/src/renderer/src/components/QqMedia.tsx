@@ -93,6 +93,7 @@ export function QqImage({ data, sendTimeMs }: { data: Data; sendTimeMs: number }
   const [broken, setBroken] = useState(false);
   const name = str(data, 'fileName');
   const token = str(data, 'fileToken');
+  const orig = str(data, 'originalUrl');
   const w = num(data, 'imgWidth');
   const h = num(data, 'imgHeight');
   // subType 1 = received animated emoji (served from Emoji/emoji-recv).
@@ -107,10 +108,10 @@ export function QqImage({ data, sendTimeMs }: { data: Data; sendTimeMs: number }
   if (broken) {
     return <QqMediaMissing label={isAnimatedEmoji ? '该表情' : '该图片'} style={style} />;
   }
-  const src = mediaUrl(
-    'pic',
-    isAnimatedEmoji ? { t: sendTimeMs, name, recv: 1, token } : { t: sendTimeMs, name, token },
-  );
+  const params: Record<string, string | number> = { t: sendTimeMs, name, token };
+  if (isAnimatedEmoji) params.recv = 1;
+  if (orig) params.orig = orig;
+  const src = mediaUrl('pic', params);
   return (
     <img
       className={isAnimatedEmoji ? 'qq-media-mface' : 'qq-media-image'}

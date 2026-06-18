@@ -68,7 +68,8 @@ export interface RenderPicElement {
     // fileTTL: number;
     // thumbnailUrl: string;
     // previewUrl: string;
-    // originalUrl: string;
+    /** CDN path for the original image; used for digit-token (rkey-less) downloads. */
+    originalUrl: string;
     summary: string[];
     // cdnHost: string;
     filePath?: string;
@@ -463,7 +464,7 @@ function mapPic(el: PicElement): RenderPicElement {
       // fileTTL: el.fileTTL,
       // thumbnailUrl: el.thumbnailUrl,
       // previewUrl: el.previewUrl,
-      // originalUrl: el.originalUrl,
+      originalUrl: el.originalUrl,
       summary: el.summary,
       // cdnHost: el.cdnHost,
       elementId: el.elementId,
