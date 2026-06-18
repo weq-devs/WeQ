@@ -54,7 +54,7 @@ export function ConversationList({
 		<div className={cn("list-stack")}>
 			{filtered.map((conversation) => {
 				const active = conversation.id === activeConversationId;
-				const unreadCount = active ? 0 : (conversation.unreadCount ?? 0);
+				const unreadCount = conversation.unreadCount ?? 0;
 				const hasDraft = !active && Boolean(drafts[conversation.id]?.trim());
 				const preview = conversationLastMessage(conversation, user);
 				const showMentionAlert = unreadCount > 0 && preview.mentionsMe;
@@ -101,21 +101,22 @@ export function ConversationList({
 										{preview.text}
 									</span>
 								)}
-								{unreadCount ? (
-									<span
-										className={cn(
-											unreadClass(Boolean(preferences[conversation.id]?.muted)),
-										)}
-									>
-										{formatBadgeCount(unreadCount)}
-									</span>
-								) : preferences[conversation.id]?.muted ? (
+								{!unreadCount && preferences[conversation.id]?.muted ? (
 									<BellOff className={cn("row-muted")} size={15} />
 								) : null}
 							</span>
 						</span>
 						<span className={cn("row-meta")}>
 							<span>{formatConversationTime(conversation.updatedAt)}</span>
+							{unreadCount ? (
+								<span
+									className={cn(
+										unreadClass(Boolean(preferences[conversation.id]?.muted)),
+									)}
+								>
+									{formatBadgeCount(unreadCount)}
+								</span>
+							) : null}
 						</span>
 					</button>
 				);

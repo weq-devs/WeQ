@@ -191,6 +191,8 @@ export interface ChatMsgWire {
 export interface RecentContactWire {
   /** Mapped ChatType name (or raw number). */
   chatType: string | number;
+  /** Latest message seq (string). */
+  msgSeq: string;
   senderUid: string;
   targetUid: string;
   /** Peer QQ uin for c2c (string); "0" when absent (e.g. groups/guilds). */
@@ -237,6 +239,7 @@ export function groupMsgToWire(m: RenderGroupMsg): ChatMsgWire {
 export function recentContactToWire(c: RecentContact): RecentContactWire {
   return {
     chatType: c.chatType,
+    msgSeq: c.msgSeq.toString(),
     senderUid: c.senderUid,
     targetUid: c.targetUid,
     targetUin: c.targetUin.toString(),

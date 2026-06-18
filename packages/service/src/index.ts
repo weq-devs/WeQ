@@ -71,6 +71,7 @@ export type { RenderC2cMsg, RenderGroupMsg } from './account/msg';
 export { toRenderElements } from './account/msg_view';
 export type { RenderElement, RenderTextElement } from './account/msg_view';
 export { MsgSearchService } from './account/msg_search';
+export { UnreadInfoService } from './account/unread_info';
 
 // A process-wide singleton (NOT bound to AccountSession): a single polling
 // loop you mount/unmount db-watch tasks onto to watch their size for changes.

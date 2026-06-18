@@ -13,6 +13,7 @@ import {
 import { Avatar } from "./primitives";
 import type { Conversation, Message, MessageAction, User } from "./types";
 import { cn } from "./classNames";
+import { SetEmojiReactions } from "../../components/SetEmojiReactions";
 
 export function MessageBubble({
 	message,
@@ -182,6 +183,7 @@ export function MessageBubble({
 					},
 					renderers,
 				)}
+				<SetEmojiReactions list={message.setEmojiList} />
 				{message.actions?.length ? (
 					<div className={cn("message-actions")}>
 						{message.actions.map((action) => {

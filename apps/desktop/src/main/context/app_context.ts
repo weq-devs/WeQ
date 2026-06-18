@@ -30,6 +30,7 @@ import {
   AvatarCacheService,
   MsgService,
   RecentContactService,
+  UnreadInfoService,
   AccountConfigService,
   AccountMonitorService,
   MediaDownloadService,
@@ -96,6 +97,7 @@ export interface BootstrapServices {
 export interface AccountServices {
   msgs: MsgService;
   recentContacts: RecentContactService;
+  unreadInfo: UnreadInfoService;
   accountConfig: AccountConfigService;
   forwardMsgs: ForwardMsgService;
   groupInfo: GroupInfoService;
@@ -194,6 +196,7 @@ export function initAppContext(): AppContext {
       this.services = {
         msgs: new MsgService(session),
         recentContacts: new RecentContactService(session),
+        unreadInfo: new UnreadInfoService(session),
         accountConfig,
         forwardMsgs: new ForwardMsgService(session),
         groupInfo: new GroupInfoService(session),

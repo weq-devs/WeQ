@@ -72,6 +72,8 @@ import type {
 } from "./types";
 import { displayUserName } from "./user";
 import { OnlineStatus } from "../../components/OnlineStatus";
+import { GrayTipPokeMessage } from '../../components/GrayTipPokeMessage';
+import { GrayTipRevokeMessage } from '../../components/GrayTipRevokeMessage';
 
 const composerHeightStorageKey = "chat-template.layout.composerHeight";
 const groupInfoCollapsedStorageKey = "chat-template.layout.groupInfoCollapsed";
@@ -1277,6 +1279,29 @@ export function ChatPane({
 						const previous = visibleMessages[index - 1];
 						const mine = message.senderId === user.id;
 						const sender = resolveMessageSender(message, conversation, user);
+						const grayTipPokeElement = message.qqElements?.find(
+							(e: any) => e.type === 'grayTipPoke'
+						);
+						if (grayTipPokeElement) {
+							return (
+								<GrayTipPokeMessage
+									key={message.id}
+									element={grayTipPokeElement}
+									conversation={conversation}
+								/>
+							);
+						}
+						const grayTipRevokeElement = message.qqElements?.find(
+							(e: any) => e.type === 'grayTipRevoke'
+						);
+						if (grayTipRevokeElement) {
+							return (
+								<GrayTipRevokeMessage
+									key={message.id}
+									element={grayTipRevokeElement}
+								/>
+							);
+						}
 						return (
 							<Fragment key={message.id}>
 								{shouldShowMessageTime(previous, message) ? (
@@ -1316,7 +1341,7 @@ export function ChatPane({
 				</button>
 			) : null}
 
-			{unreadJump && unreadJump.remaining > 0 ? (
+			{false && unreadJump && unreadJump.remaining > 0 ? (
 				<button
 					className={cn("unread-jump-button")}
 					type="button"

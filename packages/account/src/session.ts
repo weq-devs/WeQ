@@ -30,6 +30,7 @@ import {
   BuddyRequestDb,
   ProfileInfoDb,
   MiscDb,
+  UnreadInfoDb,
 } from '@weq/db';
 import type { Platform } from '@weq/platform';
 import type { DatabaseAlgorithms } from '@weq/native';
@@ -123,6 +124,8 @@ export interface AccountSession {
   readonly profileInfo: ProfileInfoDb;
   /** Misc metadata (misc.db). */
   readonly misc: MiscDb;
+  /** Unread info (nt_msg.db). */
+  readonly unreadInfo: UnreadInfoDb;
   /** Close every db this session opened. Idempotent. */
   dispose(): void;
 }
@@ -257,6 +260,12 @@ export async function openAccount(
   const miscDbPath = platform.miscDbPath(ctx.uin) ?? join(dirname(msgDbPath), 'misc.db');
   const misc = new MiscDb(platform.native.ntHelper, { dbPath: miscDbPath, key: ctx.dbKey, algo: ctx.algo });
 
+  const unreadInfo = new UnreadInfoDb(platform.native.ntHelper, {
+    dbPath: msgDbPath,
+    key: ctx.dbKey,
+    algo: ctx.algo,
+  });
+
   let disposed = false;
   return {
     context: ctx,
@@ -281,6 +290,7 @@ export async function openAccount(
     buddyReqs,
     profileInfo,
     misc,
+    unreadInfo,
     dispose(): void {
       if (disposed) return;
       disposed = true;
@@ -302,6 +312,7 @@ export async function openAccount(
       buddyReqs.close();
       profileInfo.close();
       misc.close();
+      unreadInfo.close();
       // Future db instances close here too.
     },
   };

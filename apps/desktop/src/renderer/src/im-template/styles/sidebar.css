@@ -281,16 +281,13 @@
 }
 
 .row-unread {
-	position: absolute;
-	right: 18px;
-	bottom: 17px;
 	display: grid;
 	min-width: 18px;
 	height: 18px;
 	place-items: center;
 	padding: 0 5px;
 	border-radius: 999px;
-	background: #ff4b3a;
+	background: #ff7468;
 	color: #ffffff;
 	font-size: 11px;
 	font-weight: 600;
@@ -309,7 +306,7 @@
 }
 
 .conversation-row.active .row-unread {
-	background: #ff4b3a;
+	background: #ff7468;
 	color: #ffffff;
 }
 
@@ -405,10 +402,11 @@
 
 .row-meta {
 	display: inline-flex;
+	flex-direction: column;
 	align-self: start;
-	align-items: center;
-	justify-content: end;
-	gap: 5px;
+	align-items: flex-end;
+	justify-content: start;
+	gap: 6px;
 	color: #9a9a9a;
 	font-size: 12px;
 	font-weight: 400;

@@ -2,6 +2,7 @@
  * `recent_contact_v3_table` — the recent-conversations list.
  *
  * Column map (subset we read):
+ *   40003  msgSeq              (INTEGER)
  *   40010  chatType            (INTEGER → mapped ChatType)
  *   40020  senderUid           (TEXT)
  *   40021  targetUid           (TEXT)
@@ -25,7 +26,7 @@ import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq
 import type { RecentContact } from './types';
 import { QqDb } from '../qq_db';
 
-const SELECT_COLUMNS = `"40010","40020","40021","40030","40050","40051","40090","40093","40094","40095","41110","41135"`;
+const SELECT_COLUMNS = `"40003","40010","40020","40021","40030","40050","40051","40090","40093","40094","40095","41110","41135"`;
 const contactCodec = new ProtoMsg(RecentContactBody);
 
 /**
@@ -77,18 +78,19 @@ export class RecentContactDb {
 
 function rowToRecentContact(row: SqlRow): RecentContact {
   return {
-    chatType: enumName(ChatType, toNum(row[0])),
-    senderUid: toStr(row[1]),
-    targetUid: toStr(row[2]),
-    targetUin: toBigint(row[3]),
-    sendTime: toBigint(row[4]),
-    preview: decodePreview(row[5]),
-    senderDisplayName: toStr(row[6]),
-    senderNick: toStr(row[7]),
-    targetDisplayName: toStr(row[8]),
-    senderRemark: toStr(row[9]),
-    targetAvatar: toStr(row[10]),
-    targetRemark: toStr(row[11]),
+    msgSeq: toBigint(row[0]),
+    chatType: enumName(ChatType, toNum(row[1])),
+    senderUid: toStr(row[2]),
+    targetUid: toStr(row[3]),
+    targetUin: toBigint(row[4]),
+    sendTime: toBigint(row[5]),
+    preview: decodePreview(row[6]),
+    senderDisplayName: toStr(row[7]),
+    senderNick: toStr(row[8]),
+    targetDisplayName: toStr(row[9]),
+    senderRemark: toStr(row[10]),
+    targetAvatar: toStr(row[11]),
+    targetRemark: toStr(row[12]),
   };
 }
 

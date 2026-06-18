@@ -11,8 +11,11 @@
     "test:c2c-msg": "tsx test/msg_c2c.ts",
     "test:group-msg": "tsx test/msg_group.ts",
     "test:recent-contact": "tsx test/recent_contact.ts",
+    "test:recent-contact-all": "tsx test/recent_contact_all.ts",
     "test:forward": "tsx test/forward.ts",
-    "test:msg-fts": "tsx test/msg_fts.ts"
+    "test:msg-fts": "tsx test/msg_fts.ts",
+    "test:msg-unread-info": "tsx test/msg_unread_info.ts",
+    "test:unread-info": "tsx test/unread_info.ts"
   },
   "dependencies": {
     "@weq/codec": "workspace:*",

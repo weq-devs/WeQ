@@ -38,6 +38,7 @@ import {
   useChatShellController,
 } from '../im-template/template';
 import { qqMessageRenderer, ReplyJumpContext, type ReplyJumpTarget } from '../components/QqMessageContent';
+import type { SetEmojiItem } from '@weq/codec';
 import { MsgElementEditor } from '../components/MsgElementEditor';
 
 const messageRenderers: MessageRenderer[] = composeMessageRenderers({
@@ -55,6 +56,7 @@ const REFRESH_CAP = 500;
 
 type RecentContactWire = {
   chatType: string | number;
+  msgSeq: string;
   senderUid: string;
   targetUid: string;
   targetUin: string;
@@ -76,6 +78,8 @@ type MessageWire = {
   senderUin: string;
   sendTime: string;
   elements: unknown[];
+  /** Sticker reactions (贴表情, column 40062); group-only, omitted when none. */
+  setEmojiList?: SetEmojiItem[];
 };
 
 /** One full-text search hit from `account.searchMessages`. */
@@ -163,6 +167,7 @@ type ChatMsgWire = {
   senderUin: string;
   sendTime: string;
   elements: unknown[];
+  setEmojiList?: SetEmojiItem[];
 };
 
 function toMessageWire(w: ChatMsgWire): MessageWire {
@@ -173,6 +178,7 @@ function toMessageWire(w: ChatMsgWire): MessageWire {
     senderUin: w.senderUin,
     sendTime: w.sendTime,
     elements: w.elements,
+    setEmojiList: w.setEmojiList,
   };
 }
 
@@ -636,8 +642,10 @@ function messageToTemplate(message: MessageWire, conversation: Conversation, use
     // Raw render-view elements for the QQ face renderer (qqFaceMessageRenderer).
     // `body` stays the text fallback for previews and non-face messages.
     qqElements: message.elements,
+    // Sticker reactions (贴表情) rendered below the bubble by MessageBubble.
+    setEmojiList: message.setEmojiList,
     msgId: message.msgId,
-  } as Message & { qqElements: unknown[]; msgId: string };
+  } as Message & { qqElements: unknown[]; setEmojiList?: SetEmojiItem[]; msgId: string };
 }
 
 function messageBody(elements: unknown[]): string {
@@ -991,6 +999,9 @@ export function MainView(): ReactElement {
   }, [editorState, refreshWindow]);
 
   const [onlineStatusByUid, setOnlineStatusByUid] = useState<Record<string, string>>({});
+  // Unread count per conversation id (latest msgSeq - last read seq). Filled
+  // asynchronously after the recent-contact list loads / refreshes.
+  const [unreadByConv, setUnreadByConv] = useState<Record<string, number>>({});
   const [groupMemberPages, setGroupMemberPages] = useState<Record<string, GroupMemberWire[]>>({});
   const [groupMemberHasMore, setGroupMemberHasMore] = useState<Record<string, boolean>>({});
   const [groupMemberLoading, setGroupMemberLoading] = useState<Record<string, boolean>>({});
@@ -1049,13 +1060,18 @@ export function MainView(): ReactElement {
         byId.set(detail.groupCode, groupDetailToConversation(detail, byId.get(detail.groupCode), user));
       }
 
-      return Array.from(byId.values()).sort((a, b) => {
-        const aTime = Date.parse(a.updatedAt);
-        const bTime = Date.parse(b.updatedAt);
-        return bTime - aTime;
-      });
+      return Array.from(byId.values())
+        .map((conversation) => {
+          const unread = unreadByConv[conversation.id];
+          return unread ? { ...conversation, unreadCount: unread } : conversation;
+        })
+        .sort((a, b) => {
+          const aTime = Date.parse(a.updatedAt);
+          const bTime = Date.parse(b.updatedAt);
+          return bTime - aTime;
+        });
     },
-    [allGroups.data, contacts.data, user],
+    [allGroups.data, contacts.data, user, unreadByConv],
   );
   const groupsById = useMemo(() => new Map(conversations.map((conversation) => [conversation.id, conversation])), [conversations]);
   const contactRequests = useMemo(
@@ -1130,6 +1146,52 @@ export function MainView(): ReactElement {
       cancelled = true;
     };
   }, [buddies.data]);
+
+  // Compute unread counts: for each recent conversation, query the last-read
+  // seq and subtract from the latest msgSeq. Re-runs whenever the contact list
+  // updates (every db change invalidates listRecentContacts). chatType: 1=c2c,
+  // 2=group — matching the "chatType_uid" key in msg_unread_info_table.
+  useEffect(() => {
+    const list = (contacts.data ?? []) as RecentContactWire[];
+    if (list.length === 0) return undefined;
+    let cancelled = false;
+
+    async function loadUnread(): Promise<void> {
+      const next: Record<string, number> = {};
+      const batchSize = 12;
+      for (let index = 0; index < list.length && !cancelled; index += batchSize) {
+        const batch = list.slice(index, index + batchSize);
+        const counts = await Promise.all(
+          batch.map(async (contact) => {
+            const kind = chatTypeKind(contact.chatType);
+            if (kind === null) return null;
+            const chatType = kind === 'group' ? 2 : 1;
+            try {
+              const info = await client.account.getUnreadInfo.query({
+                chatType,
+                uid: contact.targetUid,
+              });
+              const latest = BigInt(contact.msgSeq || '0');
+              const read = info?.msgSeq ? BigInt(info.msgSeq) : 0n;
+              const unread = latest > read ? Number(latest - read) : 0;
+              return [contact.targetUid, unread] as const;
+            } catch {
+              return null;
+            }
+          }),
+        );
+        for (const entry of counts) {
+          if (entry) next[entry[0]] = entry[1];
+        }
+      }
+      if (!cancelled) setUnreadByConv(next);
+    }
+
+    void loadUnread();
+    return () => {
+      cancelled = true;
+    };
+  }, [contacts.data]);
 
   // Reset paging *synchronously* when the open conversation changes. Doing this
   // during render (instead of in an effect) means React discards this render

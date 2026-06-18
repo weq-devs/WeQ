@@ -28,6 +28,7 @@
     "@weq/platform": "workspace:*",
     "@weq/service": "workspace:*",
     "@weq/shared": "workspace:*",
+    "@xmldom/xmldom": "^0.9.10",
     "electron-trpc": "^0.7.1",
     "lottie-web": "^5.13.0",
     "qrcode": "^1.5.4",
