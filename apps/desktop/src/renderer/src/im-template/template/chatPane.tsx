@@ -74,6 +74,8 @@ import { displayUserName } from "./user";
 import { OnlineStatus } from "../../components/OnlineStatus";
 import { GrayTipPokeMessage } from '../../components/GrayTipPokeMessage';
 import { GrayTipRevokeMessage } from '../../components/GrayTipRevokeMessage';
+import { GrayTipGroupMessage } from '../../components/GrayTipGroupMessage';
+import { GrayTipInviteMessage } from '../../components/GrayTipInviteMessage';
 
 const composerHeightStorageKey = "chat-template.layout.composerHeight";
 const groupInfoCollapsedStorageKey = "chat-template.layout.groupInfoCollapsed";
@@ -1284,11 +1286,17 @@ export function ChatPane({
 						);
 						if (grayTipPokeElement) {
 							return (
-								<GrayTipPokeMessage
+								<div
 									key={message.id}
-									element={grayTipPokeElement}
-									conversation={conversation}
-								/>
+									data-message-id={message.id}
+									onContextMenu={(e) => openMessageMenu(e, message)}
+								>
+									<GrayTipPokeMessage
+										element={grayTipPokeElement}
+										conversation={conversation}
+										message={message}
+									/>
+								</div>
 							);
 						}
 						const grayTipRevokeElement = message.qqElements?.find(
@@ -1296,10 +1304,50 @@ export function ChatPane({
 						);
 						if (grayTipRevokeElement) {
 							return (
-								<GrayTipRevokeMessage
+								<div
 									key={message.id}
-									element={grayTipRevokeElement}
-								/>
+									data-message-id={message.id}
+									onContextMenu={(e) => openMessageMenu(e, message)}
+								>
+									<GrayTipRevokeMessage
+										element={grayTipRevokeElement}
+									/>
+								</div>
+							);
+						}
+						const grayTipGroupElement = message.qqElements?.find(
+							(e: any) => e.type === 'grayTipGroup'
+						);
+						if (grayTipGroupElement) {
+							return (
+								<div
+									key={message.id}
+									data-message-id={message.id}
+									onContextMenu={(e) => openMessageMenu(e, message)}
+								>
+									<GrayTipGroupMessage
+										element={grayTipGroupElement}
+										conversation={conversation}
+										message={message}
+									/>
+								</div>
+							);
+						}
+						const grayTipInviteElement = message.qqElements?.find(
+							(e: any) => e.type === 'grayTipInvite'
+						);
+						if (grayTipInviteElement) {
+							return (
+								<div
+									key={message.id}
+									data-message-id={message.id}
+									onContextMenu={(e) => openMessageMenu(e, message)}
+								>
+									<GrayTipInviteMessage
+										element={grayTipInviteElement}
+										conversation={conversation}
+									/>
+								</div>
 							);
 						}
 						return (

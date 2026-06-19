@@ -9,12 +9,13 @@ import { cn } from '../im-template/template/classNames';
 
 interface Props {
   msgId: string;
+  msgSeq?: number;
   elements: any[];
   onClose: () => void;
   onSave: (elements: any[]) => Promise<void>;
 }
 
-export function MsgElementEditor({ msgId, elements: initialElements, onClose, onSave }: Props) {
+export function MsgElementEditor({ msgId, msgSeq, elements: initialElements, onClose, onSave }: Props) {
   const [elements, setElements] = useState<any[]>(JSON.parse(JSON.stringify(initialElements)));
   const [activeIndex, setActiveIndex] = useState(0);
   const [saving, setSending] = useState(false);
@@ -50,7 +51,7 @@ export function MsgElementEditor({ msgId, elements: initialElements, onClose, on
         <header className="weq-editor-header">
           <div className="weq-editor-title">
             <h3>修改消息元件</h3>
-            <code>msgId: {msgId}</code>
+            <code>msgId: {msgId}{msgSeq !== undefined && ` • seq: ${msgSeq}`}</code>
           </div>
           <button className="weq-editor-close" onClick={onClose}><X size={18}/></button>
         </header>

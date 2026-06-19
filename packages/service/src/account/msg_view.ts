@@ -15,6 +15,7 @@ import type {
   GrayTipRevokeElement,
   GrayTipPokeElement,
   GrayTipGroupElement,
+  GrayTipInviteElement,
   ArkElement,
   MfaceElement,
   MarkdownElement,
@@ -222,6 +223,20 @@ export interface RenderGrayTipGroupElement {
     user2Uid?: string;
     user2Nick?: string;
     user2GroupNick?: string;
+    muteInfo?: {
+      operator?: { uid?: string };
+      mutedUser?: { uid?: string; groupNick?: string };
+      timestamp?: bigint;
+      duration?: number;
+    };
+  };
+}
+
+export interface RenderGrayTipInviteElement {
+  type: 'grayTipInvite';
+  data: BaseRenderData & {
+    grayTipXmlContent?: string;
+    tipJson?: string;
   };
 }
 
@@ -256,6 +271,13 @@ export interface RenderMarkdownElement {
     markdownMeta: any;
     // markdownFlag48703: any;
     markdownTextSummary: string;
+    /**
+     * QQ 闪传 (flash-transfer) info (proto tag 48708). Present only on flash
+     * transfer cards; when set, the renderer draws the markdown as a flash
+     * transfer file card instead of plain markdown. Shape: { fileSetId,
+     * thumbnailName, fileBytes, thumbAlt, createTime }.
+     */
+    flashTransferInfo?: any;
   };
 }
 
@@ -370,6 +392,7 @@ export type RenderElement =
   | RenderGrayTipRevokeElement
   | RenderGrayTipPokeElement
   | RenderGrayTipGroupElement
+  | RenderGrayTipInviteElement
   | RenderArkElement
   | RenderMfaceElement
   | RenderMarkdownElement
@@ -404,6 +427,7 @@ export function toRenderElements(elements: Element[]): RenderElement[] {
       case 'grayTipRevoke': return mapGrayTipRevoke(el as GrayTipRevokeElement);
       case 'grayTipPoke': return mapGrayTipPoke(el as GrayTipPokeElement);
       case 'grayTipGroup': return mapGrayTipGroup(el as GrayTipGroupElement);
+      case 'grayTipInvite': return mapGrayTipInvite(el as GrayTipInviteElement);
       case 'ark': return mapArk(el as ArkElement);
       case 'mface': return mapMface(el as MfaceElement);
       case 'markdown': return mapMarkdown(el as MarkdownElement);
@@ -655,6 +679,20 @@ function mapGrayTipGroup(el: GrayTipGroupElement): RenderGrayTipGroupElement {
       user2Uid: el.user2Uid,
       user2Nick: el.user2Nick,
       user2GroupNick: el.user2GroupNick,
+      muteInfo: el.muteInfo,
+      elementId: el.elementId,
+      isSender: el.isSender,
+      subType: el.subType,
+    },
+  };
+}
+
+function mapGrayTipInvite(el: GrayTipInviteElement): RenderGrayTipInviteElement {
+  return {
+    type: 'grayTipInvite',
+    data: {
+      grayTipXmlContent: el.grayTipXmlContent,
+      tipJson: el.tipJson,
       elementId: el.elementId,
       isSender: el.isSender,
       subType: el.subType,
@@ -703,6 +741,7 @@ function mapMarkdown(el: MarkdownElement): RenderMarkdownElement {
       markdownMeta: el.markdownMeta,
       // markdownFlag48703: el.markdownFlag48703,
       markdownTextSummary: el.markdownTextSummary,
+      flashTransferInfo: el.flashTransferInfo,
       elementId: el.elementId,
       isSender: el.isSender,
       subType: el.subType,

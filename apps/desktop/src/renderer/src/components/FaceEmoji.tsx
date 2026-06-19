@@ -8,9 +8,11 @@
  *   - Inline faces (small, `animated` unset) show the static APNG.
  *   - Big faces (`animated`) prefer the looping Lottie at `<id>/lottie/<id>.json`
  *     when present, falling back to the static APNG when the dir has none.
- *   - Interactive faces (358 骰子, 359 石头剪刀布) carry a `diceValue` and play an
- *     intro Lottie then the result clip at `<id>/lottie/<id>_<value>.json`. A
- *     "0"/missing/out-of-range value falls back to the static APNG.
+ *   - Interactive faces (114 篮球, 358 骰子, 359 石头剪刀布) carry a `diceValue` and
+ *     play an intro Lottie then the result clip at `<id>/lottie/<id>_<value>.json`.
+ *     A "0"/missing/out-of-range value falls back to the static APNG.
+ *   - subType=5 poke faces (戳一戳) render a static PNG from the bundled
+ *     `resources/pokeEmoji/<faceId>.png` set (ids 0-6; out-of-range → 0).
  *
  * Sizing/layout (inline vs. sticker) is the caller's concern — pass `size`
  * and/or `className`. Resources stream from disk via `weq-asset://`, so
@@ -19,7 +21,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { FaceElement } from '@weq/codec';
-import { emojiUrl } from '@renderer/lib/resourceUrl';
+import { emojiUrl, resourceUrl } from '@renderer/lib/resourceUrl';
 import { cn } from '@renderer/lib/utils';
 
 /**
@@ -28,12 +30,20 @@ import { cn } from '@renderer/lib/utils';
  * QQ shuffles 石头剪刀布 twice before revealing, but tumbles the 骰子 once.
  */
 const LOTTIE_FACES: Record<number, { max: number; introPlays: number }> = {
+  114: { max: 6, introPlays: 1 }, // 篮球
   358: { max: 6, introPlays: 1 }, // 骰子
   359: { max: 3, introPlays: 2 }, // 石头剪刀布
 };
 
+/** subType=5 poke faces stream from resources/pokeEmoji/<faceId>.png (ids 0-6). */
+const POKE_FACE_SUBTYPE = 5;
+const POKE_FACE_MAX_ID = 6;
+
 export type FaceEmojiProps = {
-  element: Pick<FaceElement, 'faceId' | 'diceValue'> & { faceText?: string };
+  element: Pick<FaceElement, 'faceId' | 'diceValue'> & {
+    faceText?: string;
+    subType?: number;
+  };
   /** Box size — number (px) or any CSS length string (e.g. "1.3em"). */
   size?: number | string;
   /**
@@ -50,12 +60,26 @@ function toLength(size: number | string | undefined): string | undefined {
 }
 
 export function FaceEmoji({ element, size, animated, className }: FaceEmojiProps) {
-  const { faceId, faceText, diceValue } = element;
+  const { faceId, faceText, diceValue, subType } = element;
   const label = faceText || `[表情${faceId}]`;
   const idStr = String(faceId);
   const apngSrc = emojiUrl(idStr, 'apng', `${faceId}.png`);
   const dim = toLength(size);
   const boxStyle = dim ? { width: dim, height: dim } : undefined;
+
+  // subType=5 poke faces: static PNG from the bundled pokeEmoji set. Ids run
+  // 0-6; anything out of range falls back to 0.
+  if (subType === POKE_FACE_SUBTYPE) {
+    const pokeId = Number.isInteger(faceId) && faceId >= 0 && faceId <= POKE_FACE_MAX_ID ? faceId : 0;
+    return (
+      <FaceImage
+        src={resourceUrl('pokeEmoji', `${pokeId}.png`)}
+        label={label}
+        style={boxStyle}
+        className={className}
+      />
+    );
+  }
 
   const interactive = LOTTIE_FACES[faceId];
   const diceNum = diceValue ? Number(diceValue) : 0;

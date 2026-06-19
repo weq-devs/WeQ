@@ -37,9 +37,10 @@ import {
   type User,
   useChatShellController,
 } from '../im-template/template';
-import { qqMessageRenderer, ReplyJumpContext, type ReplyJumpTarget } from '../components/QqMessageContent';
+import { qqMessageRenderer, ReplyJumpContext, ForwardKindContext, type ReplyJumpTarget } from '../components/QqMessageContent';
 import type { SetEmojiItem } from '@weq/codec';
 import { MsgElementEditor } from '../components/MsgElementEditor';
+import { flashTransferTitle } from '../components/QqFlashTransfer';
 
 const messageRenderers: MessageRenderer[] = composeMessageRenderers({
   prepend: [qqMessageRenderer],
@@ -599,8 +600,24 @@ function contactToConversation(c: RecentContactWire, user: User): Conversation |
   return null;
 }
 
-function isMineMessage(message: MessageWire, user: User): boolean {
+/**
+ * Decide whether a wire message was sent by the current user.
+ *
+ * Primary signal is `senderUin === user.identityValue` — exact match against
+ * the logged-in account's uin, which QQ NT sets on every outbound message in
+ * both c2c and group chats.
+ *
+ * The legacy `data.isSender === true` fallback exists for c2c messages where
+ * `senderUin` is missing (historical receive paths). It is GROUP-UNSAFE: a
+ * group `multiMsg` (合并转发) element carries sub-messages whose `isSender`
+ * reflects whether *the original sender of that sub-message* was self, not
+ * whether the carrier message is self. Reading isSender at the top level
+ * misclassifies anyone forwarding a chat that included one of your messages
+ * as "sent by me". So we only use the fallback in c2c conversations.
+ */
+function isMineMessage(message: MessageWire, conversation: Conversation, user: User): boolean {
   if (message.senderUin && message.senderUin === user.identityValue) return true;
+  if (conversation.type !== 'direct') return false;
   return message.elements.some((element) => {
     const data = (element as RenderElementWire | null)?.data;
     return data?.isSender === true;
@@ -608,7 +625,7 @@ function isMineMessage(message: MessageWire, user: User): boolean {
 }
 
 function messageSender(message: MessageWire, conversation: Conversation, user: User, memberMap?: Map<string, GroupMember>): User {
-  if (isMineMessage(message, user)) return user;
+  if (isMineMessage(message, conversation, user)) return user;
   if (conversation.type === 'direct') return conversation.otherUser;
 
   // Optimized O(1) lookup
@@ -632,6 +649,13 @@ function messageSender(message: MessageWire, conversation: Conversation, user: U
 
 function messageToTemplate(message: MessageWire, conversation: Conversation, user: User, memberMap?: Map<string, GroupMember>): Message {
   const sender = messageSender(message, conversation, user, memberMap);
+  // For any `reply` element in the message, resolve the ORIGINAL message
+  // sender's display name (memberMap → self → otherUser → uin/uid fallbacks)
+  // and stash it on the reply's data as `origSenderDisplayName` so
+  // QqMessageContent's ReplyQuote can render it on the quote box's first line
+  // without having to thread the renderer-side group lookup through React
+  // context. Non-reply elements are passed through untouched.
+  const elements = enrichReplyElements(message.elements, conversation, user, memberMap);
   return {
     id: message.msgId,
     conversationId: conversation.id,
@@ -641,16 +665,179 @@ function messageToTemplate(message: MessageWire, conversation: Conversation, use
     createdAt: toIsoTime(message.sendTime),
     // Raw render-view elements for the QQ face renderer (qqFaceMessageRenderer).
     // `body` stays the text fallback for previews and non-face messages.
-    qqElements: message.elements,
+    qqElements: elements,
     // Sticker reactions (贴表情) rendered below the bubble by MessageBubble.
     setEmojiList: message.setEmojiList,
     msgId: message.msgId,
   } as Message & { qqElements: unknown[]; setEmojiList?: SetEmojiItem[]; msgId: string };
 }
 
+/**
+ * Resolve `origSenderUid` (or `origSenderUin`) on every reply element to a
+ * human-readable nick. Mirrors `messageSender`'s preference order so the quote
+ * box matches the bubble header: memberMap > self > otherUser > uin > uid.
+ * Non-reply elements are returned by reference (no copy).
+ */
+function enrichReplyElements(
+  elements: unknown[],
+  conversation: Conversation,
+  user: User,
+  memberMap?: Map<string, GroupMember>,
+): unknown[] {
+  if (!Array.isArray(elements) || elements.length === 0) return elements;
+  let mutated = false;
+  const out = elements.map((element) => {
+    if (!element || typeof element !== 'object') return element;
+    const el = element as RenderElementWire;
+    if (el.type !== 'reply') return element;
+    const data = (el.data ?? {}) as Record<string, unknown>;
+    const nick = resolveOrigSenderNick(data, conversation, user, memberMap);
+    if (!nick) return element;
+    mutated = true;
+    return { ...el, data: { ...data, origSenderDisplayName: nick } };
+  });
+  return mutated ? out : elements;
+}
+
+function resolveOrigSenderNick(
+  data: Record<string, unknown>,
+  conversation: Conversation,
+  user: User,
+  memberMap?: Map<string, GroupMember>,
+): string | null {
+  const uid = typeof data.origSenderUid === 'string' ? data.origSenderUid : '';
+  const uinRaw = data.origSenderUin;
+  const uin = typeof uinRaw === 'number'
+    ? String(uinRaw)
+    : typeof uinRaw === 'string'
+      ? uinRaw
+      : '';
+
+  // 1) Self — match by uin against the logged-in account's identityValue.
+  // (`user.id` is `self:${uin}` so a uid-string comparison never matches.)
+  if (uin && uin !== '0' && uin === user.identityValue) {
+    return user.displayName || null;
+  }
+
+  // 2) Group member directory — uid-keyed; the same map messageSender uses.
+  if (uid) {
+    const member = memberMap?.get(uid);
+    const memberName = member?.displayName;
+    if (memberName && memberName !== uin) return memberName;
+  }
+
+  // 3) c2c — only two participants. If we already ruled out self in step 1,
+  // by elimination the original sender of any quoted message in this direct
+  // chat IS the peer. Skip the uid/uin equality dance (origSender* fields
+  // are unreliable on c2c: QQ NT often leaves origSenderUid empty and the
+  // uin can land as 0 for older quotes).
+  if (conversation.type === 'direct') {
+    return conversation.otherUser.displayName || null;
+  }
+
+  // 4) Fall back to uin (numeric QQ) — readable in the UI even if no profile
+  // has been resolved yet. Last resort: the uid string itself.
+  if (uin && uin !== '0') return uin;
+  if (uid) return uid;
+  return null;
+}
+
 function messageBody(elements: unknown[]): string {
   const parts = elements.map(elementText).filter(Boolean);
-  return parts.length > 0 ? parts.join('') : '[Unsupported message]';
+  return parts.length > 0 ? parts.join('') : '';
+}
+
+/**
+ * All element kinds defined in @weq/codec's element/spec.ts EXCEPT `unknown`.
+ * Keep this list in sync with codec when new element kinds are added — a
+ * message carrying any of these is considered renderable (dedicated component,
+ * qqMessageRenderer claim, or body text fallback), so it must NOT be filtered
+ * out by isRenderableMessage. `unknown` is intentionally excluded: it is the
+ * codec's "we didn't recognize this" tag, and a message that contains only
+ * `unknown` elements is exactly what we want to drop + log.
+ */
+const RENDERABLE_ELEMENT_TYPES = new Set<string>([
+  // Basic text & mention.
+  'text', 'at',
+  // Rich media (handled by qqMessageRenderer / dedicated media components).
+  'pic', 'file', 'video', 'ptt', 'face', 'mface',
+  // Reply quote.
+  'reply',
+  // Gray tips (dedicated components in chatPane.tsx).
+  'grayTipRevoke', 'grayTipPoke', 'grayTipGroup', 'grayTipInvite',
+  // Rich content (some already render as body text; markdown/ark to be wired up).
+  'ark', 'markdown', 'multiMsg', 'call', 'wallet',
+  // Cloud storage links.
+  'onlineFile', 'onlineFolder',
+  // Misc.
+  'emojiBounce', 'qqDynamic',
+]);
+
+/**
+ * Drop messages that produce nothing on screen: no dedicated gray-tip
+ * component, nothing for qqMessageRenderer, and no fallback body text. These
+ * used to render as a "[Unsupported message]" bubble — we now log them and
+ * skip the bubble entirely. (Note: messages with at least one renderable
+ * element still pass even if other elements are unknown.)
+ */
+function isRenderableMessage(message: MessageWire): boolean {
+  const elements = message.elements ?? [];
+  const hasRenderableElement = elements.some((el) => {
+    const type = (el as RenderElementWire | null)?.type;
+    return typeof type === 'string' && RENDERABLE_ELEMENT_TYPES.has(type);
+  });
+  if (hasRenderableElement) return true;
+  if (messageBody(elements) !== '') return true;
+  console.warn('[unsupported-message] dropping message with no renderable content', {
+    msgId: message.msgId,
+    msgSeq: message.msgSeq,
+    senderUid: message.senderUid,
+    elementTypes: elements.map((el) => (el as RenderElementWire | null)?.type ?? null),
+  });
+  return false;
+}
+
+/**
+ * Collect group-member uids referenced INSIDE gray-tip element payloads (poke
+ * XML / invite XML / mute info) so the member resolver can pre-fetch their
+ * nicks the same way it does for message senders. Only `u_`-prefixed uids are
+ * returned — numeric uins can't be resolved via getGroupMembersByUids and
+ * would otherwise be re-fetched forever (never landing in the resolved cache).
+ */
+function extractGrayTipUids(elements: unknown[]): string[] {
+  const uids: string[] = [];
+  const pushUid = (value: unknown) => {
+    if (typeof value === 'string' && value.startsWith('u_')) uids.push(value);
+  };
+
+  for (const element of elements) {
+    if (!element || typeof element !== 'object') continue;
+    const { type, data = {} } = element as RenderElementWire;
+
+    if (type === 'grayTipPoke' || type === 'grayTipInvite') {
+      const xml = typeof data.grayTipXmlContent === 'string' ? data.grayTipXmlContent : '';
+      if (xml) {
+        const re = /uin="([^"]+)"/g;
+        let match: RegExpExecArray | null;
+        while ((match = re.exec(xml)) !== null) pushUid(match[1]);
+      }
+      const tipJson = typeof data.tipJson === 'string' ? data.tipJson : '';
+      if (tipJson) {
+        try {
+          const parsed = JSON.parse(tipJson);
+          for (const item of parsed.items ?? []) pushUid(item?.uin);
+        } catch {
+          /* malformed tipJson — nothing to extract */
+        }
+      }
+    } else if (type === 'grayTipGroup') {
+      const mute = (data as Record<string, any>).muteInfo;
+      pushUid(mute?.operator?.uid);
+      pushUid(mute?.mutedUser?.uid);
+    }
+  }
+
+  return uids;
 }
 
 function elementText(element: unknown): string {
@@ -666,9 +853,11 @@ function elementText(element: unknown): string {
     case 'pic':
       return attachmentText('Image', data, 'fileName', 'summary');
     case 'file':
-    case 'onlineFile':
-    case 'onlineFolder':
       return attachmentText('File', data, 'fileName');
+    case 'onlineFile':
+      return attachmentText('在线文件', data, 'fileName');
+    case 'onlineFolder':
+      return attachmentText('在线文件夹', data, 'fileName');
     case 'video':
       return attachmentText('Video', data, 'fileName', 'summary');
     case 'ptt':
@@ -679,18 +868,51 @@ function elementText(element: unknown): string {
       return stringField(data, 'recallDisplayText') || '[Message recalled]';
     case 'grayTipPoke':
       return stringField(data, 'grayTipXmlContent') || stringField(data, 'tipJson') || '[Poke]';
-    case 'grayTipGroup':
+    case 'grayTipGroup': {
+      const muteDuration = data.muteDuration as number | undefined;
+      const user1 = (data.user1GroupNick as string | undefined) || (data.user1Nick as string | undefined);
+      const user2 = (data.user2GroupNick as string | undefined) || (data.user2Nick as string | undefined);
+      const hasMutedUser = data.mutedUserInfo !== undefined;
+
+      if (muteDuration !== undefined && user1) {
+        if (hasMutedUser && user2) {
+          return muteDuration > 0 ? `${user2} 被 ${user1} 禁言` : `${user1} 结束了 ${user2} 的禁言`;
+        }
+        return muteDuration > 0 ? `${user1} 开启了全员禁言` : `${user1} 关闭了全员禁言`;
+      }
+      if (data.groupTipType === 1 && user1) {
+        return `${user1} 加入了群聊`;
+      }
+      if (data.groupTipType === 2) {
+        return '该群已被群主解散';
+      }
+      if (data.groupTipType === 3 && user1) {
+        return `${user1} 已将你移出群聊`;
+      }
       return '[Group notice]';
+    }
     case 'ark':
-      return fencedJson('Ark', stringField(data, 'arkData'));
-    case 'markdown':
+      return arkPreview(stringField(data, 'arkData'));
+    case 'markdown': {
+      // QQ 闪传 card → clean label instead of the raw `[闪传](mqqapi://…)` link.
+      const flashInfo = data.flashTransferInfo;
+      if (flashInfo && typeof flashInfo === 'object' && Object.keys(flashInfo).length > 0) {
+        const title = flashTransferTitle(stringField(data, 'markdownContent'));
+        return title ? `[QQ闪传] ${title}` : '[QQ闪传]';
+      }
       return stringField(data, 'markdownContent') || stringField(data, 'markdownTextSummary') || '[Markdown]';
+    }
     case 'multiMsg':
       return '[Merged messages]';
     case 'call':
       return arraySummary(data, 'callSummary') || '[Call]';
-    case 'wallet':
-      return '[Wallet message]';
+    case 'wallet': {
+      const detail = (data.walletDetail ?? {}) as Record<string, unknown>;
+      const type = Number(detail.redbagType ?? data.walletRedbagType);
+      const title = typeof detail.redbagTitle === 'string' ? detail.redbagTitle : '';
+      if (type === 1) return title ? `[转账] ${title}` : '[转账]';
+      return title ? `[QQ红包] ${title}` : '[QQ红包]';
+    }
     case 'mface':
       return '[Sticker]';
     case 'emojiBounce':
@@ -698,7 +920,8 @@ function elementText(element: unknown): string {
     case 'qqDynamic':
       return '[QQ Dynamic]';
     case 'unknown':
-      return '[Unsupported message]';
+      console.warn('[unsupported-element] unknown element type encountered', data);
+      return '';
     default:
       return '';
   }
@@ -726,9 +949,26 @@ function quoteText(label: string, data: Record<string, unknown>, key: string): s
   return text ? `> ${text}` : `[${label}]`;
 }
 
-function fencedJson(label: string, value: string): string {
-  if (!value) return `[${label}]`;
-  return `**${label}**\n\n\`\`\`json\n${value}\n\`\`\``;
+/**
+ * Short, human-friendly preview text for an `ark` card (used by the
+ * conversation-list last-message line). Prefers the share's `prompt`, then a
+ * title-ish field off the first meta payload, falling back to a generic tag.
+ */
+function arkPreview(raw: string): string {
+  if (!raw) return '[卡片消息]';
+  try {
+    const ark = JSON.parse(raw) as { prompt?: string; meta?: Record<string, Record<string, unknown>> };
+    if (typeof ark.prompt === 'string' && ark.prompt.trim()) return ark.prompt.trim();
+    const meta = ark.meta ? Object.values(ark.meta)[0] : undefined;
+    if (meta) {
+      const pick = (k: string): string => (typeof meta[k] === 'string' ? (meta[k] as string) : '');
+      const t = pick('title') || pick('nickname') || pick('summary') || pick('desc') || pick('name');
+      if (t) return t;
+    }
+    return '[卡片消息]';
+  } catch {
+    return '[卡片消息]';
+  }
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -1010,6 +1250,11 @@ export function MainView(): ReactElement {
   // member cached for one group never leaks into another (and per-group cards
   // don't collide across groups).
   const [missingMembers, setMissingMembers] = useState<Record<string, Record<string, GroupMemberWire>>>({});
+  // Uids we've already issued a getGroupMembersByUids query for (per group),
+  // regardless of whether the lookup found a member. Stops uids that don't
+  // resolve (e.g. members who left the group, common for poke/mute targets)
+  // from being re-fetched on every render.
+  const attemptedMemberUidsRef = useRef<Record<string, Set<string>>>({});
   const loadingOlderRef = useRef(false);
   const loadingNewerRef = useRef(false);
 
@@ -1349,10 +1594,23 @@ export function MainView(): ReactElement {
     const groupCode = selectedUid;
     const known = new Set(selectedGroupMemberWires.map((m) => m.uid));
     const resolved = missingMembers[groupCode] ?? {};
-    const unknownUids = [...new Set(loaded.map((m) => m.senderUid))].filter(
-      (uid) => uid && !known.has(uid) && !resolved[uid],
+    const attempted =
+      attemptedMemberUidsRef.current[groupCode] ??
+      (attemptedMemberUidsRef.current[groupCode] = new Set());
+    const referencedUids = [
+      ...loaded.map((m) => m.senderUid),
+      // Gray-tip payloads reference members by uid inside their element bodies
+      // (poke/invite XML, mute info) — resolve those too, not just senders.
+      ...loaded.flatMap((m) => extractGrayTipUids(m.elements)),
+    ];
+    const unknownUids = [...new Set(referencedUids)].filter(
+      (uid) => uid && !known.has(uid) && !resolved[uid] && !attempted.has(uid),
     );
     if (unknownUids.length === 0) return;
+
+    // Mark attempted up-front so uids that resolve to nothing (left the group)
+    // aren't retried when `missingMembers` updates and re-runs this effect.
+    for (const uid of unknownUids) attempted.add(uid);
 
     let cancelled = false;
     void (async () => {
@@ -1382,13 +1640,15 @@ export function MainView(): ReactElement {
 
   const templateMessages = useMemo(() => {
     if (!selectedConversation) return [];
-    
+
     // Create a fast lookup map for member info
     const memberMap = new Map(currentGroupMembers.map(m => [m.id, m]));
-    
-    return loadedMessageWires.map((message) => 
-      messageToTemplate(message, selectedConversation, user, memberMap)
-    );
+
+    return loadedMessageWires
+      .filter((message) => isRenderableMessage(message))
+      .map((message) =>
+        messageToTemplate(message, selectedConversation, user, memberMap)
+      );
   }, [loadedMessageWires, selectedConversation, user, currentGroupMembers]);
 
   const activeConversation = useMemo(() => {
@@ -1864,14 +2124,19 @@ export function MainView(): ReactElement {
     const scrollElement = scroll;
 
     function maybeLoadEdge(): void {
+      // Preload the previous page well before the user hits the very top — fire
+      // once the scroll position is within the last 1/5 of a viewport from each
+      // edge so new content streams in seamlessly instead of stalling at 0.
+      const threshold = Math.max(32, scrollElement.clientHeight / 5);
       if (
-        scrollElement.scrollTop <= 32 ||
+        scrollElement.scrollTop <= threshold ||
         scrollElement.scrollHeight <= scrollElement.clientHeight + 32
       ) {
         requestOlderMessages(scrollElement);
       }
       if (
-        scrollElement.scrollHeight - scrollElement.scrollTop - scrollElement.clientHeight <= 32
+        scrollElement.scrollHeight - scrollElement.scrollTop - scrollElement.clientHeight <=
+        threshold
       ) {
         requestNewerMessages();
       }
@@ -1958,6 +2223,7 @@ export function MainView(): ReactElement {
 
   return (
     <ReplyJumpContext.Provider value={jumpToSeq}>
+      <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
       <ChatShell
         user={user}
         view={shell.view}
@@ -2155,6 +2421,7 @@ export function MainView(): ReactElement {
           </section>
         </div>
       ) : null}
+      </ForwardKindContext.Provider>
     </ReplyJumpContext.Provider>
   );
 }

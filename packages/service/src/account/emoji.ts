@@ -19,8 +19,8 @@ export class EmojiService {
    * Logic:
    * 1. Check weq's own decrypted cache.
    * 2. Check QQ's encrypted local cache, decrypt and save if found.
-   * 3. Download from QQ's CDN (GIF 300/200 -> PNG 300/200), decrypt and save.
-   * 4. Return the path to the decrypted file, or null if all attempts fail.
+   * 3. Download from QQ's CDN (GIF 300/200 -> PNG 300/200) as plaintext and save.
+   * 4. Return the path to the cached file, or null if all attempts fail.
    */
   async getMarketFace(itemId: string, emojiHash: string): Promise<string | null> {
     const weqCacheDir = join(this.platform.appDataRoot(), 'cache', 'marketface');
@@ -49,14 +49,15 @@ export class EmojiService {
       }
     }
 
-    // 3. Fallback to CDN.
+    // 3. Fallback to CDN. CDN bytes are PLAINTEXT — unlike QQ's local cache
+    // (step 2) they are NOT XOR-encrypted, so they're saved as-is.
     const hashPrefix = emojiHash.slice(0, 2);
     const baseUrl = `https://i.gtimg.cn/club/item/parcel/item/${hashPrefix}/${emojiHash}`;
 
     // Try GIF sizes 300, 200.
     for (const size of [300, 200]) {
       const gifUrl = `${baseUrl}/raw${size}.gif`;
-      const result = await this.downloadAndDecrypt(gifUrl, weqCachePath);
+      const result = await this.download(gifUrl, weqCachePath);
       if (result) return result;
     }
 
@@ -64,7 +65,7 @@ export class EmojiService {
     const weqPngCachePath = join(weqCacheDir, `${emojiHash}.png`);
     for (const size of [300, 200]) {
       const pngUrl = `${baseUrl}/${size}x${size}.png`;
-      const result = await this.downloadAndDecrypt(pngUrl, weqPngCachePath);
+      const result = await this.download(pngUrl, weqPngCachePath);
       if (result) return result;
     }
 
@@ -93,7 +94,8 @@ export class EmojiService {
     return output;
   }
 
-  private async downloadAndDecrypt(url: string, targetPath: string): Promise<string | null> {
+  /** Download CDN bytes and save as-is (CDN content is plaintext). */
+  private async download(url: string, targetPath: string): Promise<string | null> {
     try {
       const res = await fetch(url, {
         headers: { Referer: '', 'User-Agent': 'Mozilla/5.0' },
@@ -103,9 +105,8 @@ export class EmojiService {
       const data = Buffer.from(await res.arrayBuffer());
       if (data.length === 0) return null;
 
-      const decrypted = this.decrypt(data);
       mkdirSync(join(targetPath, '..'), { recursive: true });
-      writeFileSync(targetPath, decrypted);
+      writeFileSync(targetPath, data);
       return targetPath;
     } catch {
       return null;

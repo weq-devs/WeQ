@@ -489,11 +489,11 @@
 	padding: 26px 10px 20px 24px;
 	overflow: auto;
 	overscroll-behavior: contain;
-	scrollbar-color: transparent transparent;
+	/* 滑块常驻可见 — 不再依赖 hover/transition (避免翻页时 Chromium 把滑块绘制层丢弃)。 */
+	scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
 	scrollbar-width: thin;
 	scrollbar-gutter: stable;
 	background: var(--chat-surface);
-	transition: scrollbar-color 120ms ease-out;
 }
 
 .message-scroll::-webkit-scrollbar {
@@ -509,22 +509,13 @@
 	min-height: 42px;
 	border: 2px solid transparent;
 	border-radius: 999px;
-	background-color: transparent;
+	background-color: rgba(0, 0, 0, 0.18);
 	background-clip: padding-box;
-	transition: background-color 120ms ease-out;
-}
-
-.message-scroll:hover {
-	scrollbar-color: rgba(0, 0, 0, 0.14) transparent;
-}
-
-.message-scroll:hover::-webkit-scrollbar-thumb {
-	background-color: rgba(0, 0, 0, 0.14);
-	background-clip: padding-box;
+	/* 不要 transition — 过渡 + DOM 抖动会触发 Chromium 滑块丢绘制 Bug。 */
 }
 
 .message-scroll::-webkit-scrollbar-thumb:hover {
-	background-color: rgba(0, 0, 0, 0.2);
+	background-color: rgba(0, 0, 0, 0.32);
 	background-clip: padding-box;
 }
 
@@ -839,10 +830,12 @@
 	gap: 5px;
 }
 
-/* Darker inset box echoing the referenced message's last element. */
+/* Darker inset box echoing the referenced message's last element.
+ * Two-line layout: line 1 is the original sender's nickname (with the
+ * jump-arrow tucked at the end), line 2 is a compact preview. */
 .qq-reply-quote {
 	display: flex;
-	align-items: center;
+	align-items: stretch;
 	gap: 8px;
 	max-width: 100%;
 	padding: 4px 8px;
@@ -863,6 +856,27 @@
 	outline: none;
 }
 
+.qq-reply-quote-stack {
+	flex: 1 1 auto;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+}
+
+.qq-reply-quote-sender {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	font-weight: 600;
+	font-size: 12px;
+	color: inherit;
+	opacity: 0.85;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
 .qq-reply-quote-body {
 	flex: 1 1 auto;
 	min-width: 0;
@@ -870,23 +884,76 @@
 	align-items: center;
 	gap: 4px;
 	overflow: hidden;
+}
+
+.qq-reply-quote-body > span:not(.qq-reply-preview-media) {
+	overflow: hidden;
 	white-space: nowrap;
 	text-overflow: ellipsis;
 }
 
-.qq-reply-quote-body > span {
-	overflow: hidden;
-	text-overflow: ellipsis;
+/* A quoted media element (image / video / market-face) renders as a small
+ * inline thumbnail using the SAME components as the main bubble — sized down
+ * via these wrapper rules so a single image doesn't blow out the quote box. */
+.qq-reply-preview-media {
+	display: inline-flex;
+	align-items: center;
+	flex: 0 0 auto;
+	max-width: 96px;
+	max-height: 56px;
+}
+
+.qq-reply-preview-media img,
+.qq-reply-preview-media .qq-media-image,
+.qq-reply-preview-media .qq-media-mface,
+.qq-reply-preview-media .qq-media-video,
+.qq-reply-preview-media .qq-market-face,
+.qq-reply-preview-media .qq-market-face img {
+	max-width: 96px !important;
+	max-height: 56px !important;
+	width: auto !important;
+	height: auto !important;
+	border-radius: 4px;
+	object-fit: cover;
+}
+
+/* Quote-box video stays a poster only — playback happens by jumping to the
+ * original message. Hide the central play badge so the thumbnail reads as
+ * a preview, not a player. */
+.qq-reply-preview-media .qq-media-video {
+	pointer-events: none;
+}
+.qq-reply-preview-media .qq-media-video-play {
+	display: none;
 }
 
 .qq-reply-quote-arrow {
-	flex: none;
+	flex: 0 0 auto;
 	color: inherit;
 	opacity: 0.7;
+	margin-left: 2px;
+	align-self: flex-end;
 }
 
 .qq-reply-quote:hover .qq-reply-quote-arrow {
 	opacity: 1;
+}
+
+/* Quoted-message replies stack the quote above their own body. The body
+ * mirrors `qq-message-inline` semantics (pre-wrap so QQ line breaks survive)
+ * and lays text-runs / media siblings out as inline flow. */
+.qq-reply-body {
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+/* A coalesced run of text-like elements (text / at / face) rendered as one
+ * cohesive inline chunk so faces ride the text baseline and `pre-wrap`
+ * applies uniformly. Stays inline so it flows alongside any sibling media. */
+.qq-text-run {
+	display: inline;
+	white-space: pre-wrap;
+	word-break: break-word;
 }
 
 /* On my own (blue) bubbles the quote needs a light-on-dark treatment. */
@@ -924,7 +991,16 @@
 .message-bubble.context-active .message-content.markdown-image-only,
 .message-line.mine
 	.message-bubble.context-active
-	.message-content.markdown-image-only {
+	.message-content.markdown-image-only,
+/* Card-only QQ elements (合并转发 / ark / 红包 / 闪传) own their own chrome —
+ * strip the surrounding bubble background and padding so the card sits flush
+ * in the message line. */
+.message-content.qq-card-only,
+.message-line.mine .message-content.qq-card-only,
+.message-bubble.context-active .message-content.qq-card-only,
+.message-line.mine
+	.message-bubble.context-active
+	.message-content.qq-card-only {
 	padding: 0;
 	background: transparent;
 }
@@ -1573,17 +1649,38 @@ button.contact-profile-row:hover {
 	overflow-y: auto;
 	padding-bottom: 24px;
 	overscroll-behavior: contain;
-	scrollbar-color: transparent transparent;
-	scrollbar-width: none;
+	/* 同样让滑块常驻可见，避免分页加载时滑块被丢弃。 */
+	scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
+	scrollbar-width: thin;
 }
 
 .group-info-member-list::-webkit-scrollbar {
-	width: 0;
-	height: 0;
+	width: 6px;
+}
+
+.group-info-member-list::-webkit-scrollbar-track {
+	background: transparent;
 }
 
 .group-info-member-list::-webkit-scrollbar-thumb {
-	background: transparent;
+	border-radius: 999px;
+	background-color: rgba(0, 0, 0, 0.18);
+}
+
+.group-info-member-list::-webkit-scrollbar-thumb:hover {
+	background-color: rgba(0, 0, 0, 0.32);
+}
+
+.group-info-member-list:hover {
+	scrollbar-color: rgba(0, 0, 0, 0.14) transparent;
+}
+
+.group-info-member-list:hover::-webkit-scrollbar-thumb {
+	background-color: rgba(0, 0, 0, 0.14);
+}
+
+.group-info-member-list::-webkit-scrollbar-thumb:hover {
+	background-color: rgba(0, 0, 0, 0.2);
 }
 
 .group-info-member-row {

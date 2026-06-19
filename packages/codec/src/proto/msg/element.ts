@@ -29,6 +29,25 @@ export const ActionUserWire = {
   nickname: ProtoField(1006, ScalarType.STRING, { optional: true }),
 };
 
+/** Nested message for mute operator info (tag 48521 within 48541). */
+export const MuteOperatorWire = {
+  uid: ProtoField(1000, ScalarType.STRING, { optional: true }),
+};
+
+/** Nested message for muted user info (tag 48522 within 48541). */
+export const MutedUserWire = {
+  uid: ProtoField(1000, ScalarType.STRING, { optional: true }),
+  groupNick: ProtoField(20002, ScalarType.STRING, { optional: true }),
+};
+
+/** Nested message for mute info (tag 48541). */
+export const MuteInfoWire = {
+  operator: ProtoField(48521, () => MuteOperatorWire, { optional: true }),
+  mutedUser: ProtoField(48522, () => MutedUserWire, { optional: true }),
+  timestamp: ProtoField(48531, ScalarType.UINT64, { optional: true }),
+  duration: ProtoField(48532, ScalarType.UINT32, { optional: true }),
+};
+
 /** Nested message for action attributes (tag 48217, repeated). */
 export const ActionAttrWire = {
   key: ProtoField(1005, ScalarType.STRING, { optional: true }),
@@ -502,6 +521,9 @@ export const ElementWire = {
 
   /** User 2 group nickname (subType=4). Optional. */
   user2GroupNick: ProtoField(48508, ScalarType.STRING, { optional: true }),
+
+  /** Mute info (subType=4). Nested: {48521: operator, 48522: mutedUser, 48531: timestamp, 48532: duration}. Optional. */
+  muteInfo: ProtoField(48541, () => MuteInfoWire, { optional: true }),
 
   // ---- FACE (elementType=6) ----
 

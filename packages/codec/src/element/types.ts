@@ -30,6 +30,7 @@ export type {
   GrayTipRevokeElement,
   GrayTipPokeElement,
   GrayTipGroupElement,
+  GrayTipInviteElement,
   WalletElement,
   ArkElement,
   MfaceElement,
@@ -84,6 +85,7 @@ export enum PttType {
 export enum GrayTipSubType {
   REVOKE = 1,
   GROUP_TIP = 4,
+  INVITE = 12,
   POKE = 17,
 }
 

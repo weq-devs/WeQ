@@ -491,7 +491,16 @@ html[data-theme="dark"]
 html[data-theme="dark"]
 	.message-line.mine
 	.message-bubble.context-active
-	.message-content.markdown-image-only {
+	.message-content.markdown-image-only,
+html[data-theme="dark"] .message-content.qq-card-only,
+html[data-theme="dark"] .message-line.mine .message-content.qq-card-only,
+html[data-theme="dark"]
+	.message-bubble.context-active
+	.message-content.qq-card-only,
+html[data-theme="dark"]
+	.message-line.mine
+	.message-bubble.context-active
+	.message-content.qq-card-only {
 	background: transparent;
 }
 
@@ -695,21 +704,38 @@ html[data-theme="dark"] .theme-option.active .theme-option-label {
 
 html[data-theme="dark"] .composer-editor,
 html[data-theme="dark"] .message-scroll,
+html[data-theme="dark"] .group-info-member-list,
 html[data-theme="dark"] .emoji-panel-body,
 html[data-theme="dark"] .message-code-pre {
-	scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+	scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+html[data-theme="dark"] .composer-editor::-webkit-scrollbar-thumb,
+html[data-theme="dark"] .message-scroll::-webkit-scrollbar-thumb,
+html[data-theme="dark"] .group-info-member-list::-webkit-scrollbar-thumb,
+html[data-theme="dark"] .emoji-panel-body::-webkit-scrollbar-thumb,
+html[data-theme="dark"] .message-code-pre::-webkit-scrollbar-thumb {
+	background-color: rgba(255, 255, 255, 0.2);
+}
+
+html[data-theme="dark"] .composer-editor::-webkit-scrollbar-thumb:hover,
+html[data-theme="dark"] .message-scroll::-webkit-scrollbar-thumb:hover,
+html[data-theme="dark"] .group-info-member-list::-webkit-scrollbar-thumb:hover,
+html[data-theme="dark"] .emoji-panel-body::-webkit-scrollbar-thumb:hover,
+html[data-theme="dark"] .message-code-pre::-webkit-scrollbar-thumb:hover {
+	background-color: rgba(255, 255, 255, 0.32);
 }
 
 html[data-theme="dark"] .composer-editor:hover,
-html[data-theme="dark"] .message-scroll:hover {
+html[data-theme="dark"] .message-scroll:hover,
+html[data-theme="dark"] .group-info-member-list:hover {
 	scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
 }
 
 html[data-theme="dark"] .composer-editor:hover::-webkit-scrollbar-thumb,
 html[data-theme="dark"] .message-scroll:hover::-webkit-scrollbar-thumb,
-html[data-theme="dark"] .emoji-panel-body::-webkit-scrollbar-thumb,
-html[data-theme="dark"] .message-code-pre::-webkit-scrollbar-thumb {
-	background-color: rgba(255, 255, 255, 0.16);
+html[data-theme="dark"] .group-info-member-list:hover::-webkit-scrollbar-thumb {
+	background-color: rgba(255, 255, 255, 0.2);
 }
 
 html[data-theme="dark"] .auth-screen,

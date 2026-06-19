@@ -33,6 +33,7 @@ const KIND_TO_TYPE: Record<KnownKind, ElementType> = {
   grayTipRevoke: ElementType.GRAY_TIP,
   grayTipPoke: ElementType.GRAY_TIP,
   grayTipGroup: ElementType.GRAY_TIP,
+  grayTipInvite: ElementType.GRAY_TIP,
   wallet: ElementType.WALLET,
   ark: ElementType.ARK,
   mface: ElementType.MFACE,
@@ -77,6 +78,7 @@ export function decodeElement(wire: ProtoDecodeStructType<typeof ElementWire>): 
     const subType = wire.subType ?? 0;
     const kind = subType === GrayTipSubType.REVOKE ? 'grayTipRevoke' :
                  subType === GrayTipSubType.GROUP_TIP ? 'grayTipGroup' :
+                 subType === GrayTipSubType.INVITE ? 'grayTipInvite' :
                  subType === GrayTipSubType.POKE ? 'grayTipPoke' : null;
     if (!kind) return makeUnknown(wire, wire.elementType ?? 0);
     return { kind, ...wire } as Element;

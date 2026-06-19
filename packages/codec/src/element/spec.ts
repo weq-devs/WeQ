@@ -261,6 +261,31 @@ export const GrayTipGroupElementSchema = BaseElementFieldsSchema.extend({
   user2Uid: z.string().optional(),
   user2Nick: z.string().optional(),
   user2GroupNick: z.string().optional(),
+  muteInfo: z.object({
+    operator: z.object({ uid: z.string().optional() }).optional(),
+    mutedUser: z.object({ uid: z.string().optional(), groupNick: z.string().optional() }).optional(),
+    timestamp: z.bigint().optional(),
+    duration: z.number().optional(),
+  }).optional(),
+});
+
+export const GrayTipInviteElementSchema = BaseElementFieldsSchema.extend({
+  kind: z.literal('grayTipInvite'),
+  subType: z.literal(GrayTipSubType.INVITE),
+  actionId: z.number().optional(),
+  detailId: z.number().optional(),
+  typeFlag: z.number().optional(),
+  grayTipXmlContent: z.string().optional(),
+  businessId: z.number().optional(),
+  actionUniqueId: z.number().optional(),
+  callSummary: z.array(z.string()).optional(),
+  actionInitiator: z.object({ uid: z.string().optional(), nickname: z.string().optional() }).optional(),
+  actionTarget: z.object({ uid: z.string().optional(), nickname: z.string().optional() }).optional(),
+  actionAttributes: z.array(z.object({ key: z.string().optional(), value: z.string().optional() })).optional(),
+  tipJson: z.string().optional(),
+  tipType: z.number().optional(),
+  dynamicTags: z.any().optional(),
+  recallElements: z.array(z.any()).optional(),
 });
 
 export const ArkElementSchema = BaseElementFieldsSchema.extend({
@@ -430,6 +455,7 @@ export const ElementSchema = z.discriminatedUnion('kind', [
   GrayTipRevokeElementSchema,
   GrayTipPokeElementSchema,
   GrayTipGroupElementSchema,
+  GrayTipInviteElementSchema,
   WalletElementSchema,
   ArkElementSchema,
   MfaceElementSchema,
@@ -455,6 +481,7 @@ export type ReplyElement = z.infer<typeof ReplyElementSchema>;
 export type GrayTipRevokeElement = z.infer<typeof GrayTipRevokeElementSchema>;
 export type GrayTipPokeElement = z.infer<typeof GrayTipPokeElementSchema>;
 export type GrayTipGroupElement = z.infer<typeof GrayTipGroupElementSchema>;
+export type GrayTipInviteElement = z.infer<typeof GrayTipInviteElementSchema>;
 export type ArkElement = z.infer<typeof ArkElementSchema>;
 export type MfaceElement = z.infer<typeof MfaceElementSchema>;
 export type MarkdownElement = z.infer<typeof MarkdownElementSchema>;
