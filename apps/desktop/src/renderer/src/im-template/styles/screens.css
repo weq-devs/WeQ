@@ -491,7 +491,16 @@ html[data-theme="dark"]
 html[data-theme="dark"]
 	.message-line.mine
 	.message-bubble.context-active
-	.message-content.markdown-image-only {
+	.message-content.markdown-image-only,
+html[data-theme="dark"] .message-content.qq-card-only,
+html[data-theme="dark"] .message-line.mine .message-content.qq-card-only,
+html[data-theme="dark"]
+	.message-bubble.context-active
+	.message-content.qq-card-only,
+html[data-theme="dark"]
+	.message-line.mine
+	.message-bubble.context-active
+	.message-content.qq-card-only {
 	background: transparent;
 }
 

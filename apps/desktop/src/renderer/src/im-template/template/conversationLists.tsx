@@ -277,9 +277,13 @@ function conversationSeed(conversation: Conversation) {
 }
 
 function conversationLastMessage(conversation: Conversation, user?: User) {
+	// When the last message has no text body (e.g. element-only messages like
+	// pure image / sticker / file with no preview text), keep the row's
+	// preview line empty rather than printing a placeholder — the timestamp
+	// and unread-count next to it already convey "there is activity".
 	if (!conversation.lastMessage?.body) {
 		return {
-			text: "还没有消息",
+			text: "",
 			mentionsMe: false,
 		};
 	}

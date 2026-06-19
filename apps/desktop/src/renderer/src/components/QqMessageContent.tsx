@@ -163,6 +163,18 @@ function MediaNode({
   }
 }
 
+/**
+ * Element kinds that behave as inline text — face, @-mention and plain text.
+ * Consecutive elements of these kinds are coalesced into a single text-run
+ * `<span>` so they share one inline flow (wrapping, baseline alignment,
+ * `pre-wrap` line breaks) instead of being N independent siblings.
+ */
+const TEXT_LIKE_KINDS = new Set(['text', 'at', 'face']);
+
+function isTextLike(element: RenderElement): boolean {
+  return typeof element.type === 'string' && TEXT_LIKE_KINDS.has(element.type);
+}
+
 /** Render one element inline (media component, face, @-mention or text). */
 function ElementNode({
   element,
@@ -204,7 +216,52 @@ function ElementNode({
   return text ? <span>{text}</span> : null;
 }
 
-/** Compact one-line label for a quoted element (media → bracket tag). */
+/**
+ * Render a list of elements, coalescing every run of text-like elements
+ * (text / at / face) into a single inline `<span class="qq-text-run">` so they
+ * share one inline flow. Non-text-like elements (images, files, cards, …)
+ * stay as their own siblings.
+ */
+function renderElementNodes(
+  elements: RenderElement[],
+  sendTimeMs: number,
+  msgId: string,
+): ReactNode[] {
+  const out: ReactNode[] = [];
+  let runStart = -1;
+  let runItems: RenderElement[] = [];
+
+  const flushRun = () => {
+    if (runItems.length === 0) return;
+    const items = runItems;
+    const start = runStart;
+    out.push(
+      <span key={`run-${start}`} className="qq-text-run">
+        {items.map((el, i) => (
+          <ElementNode key={`el-${start + i}`} element={el} sendTimeMs={sendTimeMs} msgId={msgId} />
+        ))}
+      </span>,
+    );
+    runItems = [];
+    runStart = -1;
+  };
+
+  elements.forEach((element, index) => {
+    if (isTextLike(element)) {
+      if (runStart === -1) runStart = index;
+      runItems.push(element);
+      return;
+    }
+    flushRun();
+    out.push(
+      <ElementNode key={`el-${index}`} element={element} sendTimeMs={sendTimeMs} msgId={msgId} />,
+    );
+  });
+  flushRun();
+  return out;
+}
+
+/** Bracket-tag fallback for a quoted element when no thumbnail is available. */
 const REPLY_MEDIA_LABEL: Record<string, string> = {
   pic: '[图片]',
   video: '[视频]',
@@ -215,10 +272,60 @@ const REPLY_MEDIA_LABEL: Record<string, string> = {
   onlineFolder: '[在线文件夹]',
 };
 
-/** Render a quoted element compactly: text/@/face inline, media as a tag. */
-function ReplyPreviewNode({ element }: { element: RenderElement }): ReactNode {
+/** Resolve the wall-clock time the quoted message was sent. The reply element
+ * carries `origMsgTime` in seconds (QQ NT proto); fall back to the host
+ * message's send time so animated emoji / image URLs can still time-stamp the
+ * media protocol request. Returns 0 when neither is usable. */
+function quoteSendTimeMs(replyData: Record<string, unknown>, hostSendTimeMs: number): number {
+  const origMs = Number(replyData.origMsgTime);
+  if (Number.isFinite(origMs) && origMs > 0) {
+    // origMsgTime is seconds in the proto — multiply unless it already looks
+    // like milliseconds (post-2001 epoch in ms is > 1e12).
+    return origMs > 1e12 ? origMs : origMs * 1000;
+  }
+  return hostSendTimeMs || 0;
+}
+
+/**
+ * Render one quoted element. Image / video / animated-emoji / market-face /
+ * face all render as small thumbnails — same components as the main bubble,
+ * just sized down via CSS (`.qq-reply-preview-media`). File / voice / online
+ * file keep the bracket-tag fallback. Plain text/@-mention render inline.
+ */
+function ReplyPreviewNode({
+  element,
+  sendTimeMs,
+}: {
+  element: RenderElement;
+  sendTimeMs: number;
+}): ReactNode {
   if (element.type === 'face') {
-    return <FaceNode data={element.data ?? {}} size="1.2em" />;
+    return <FaceNode data={element.data ?? {}} size="1.4em" />;
+  }
+  if (element.type === 'pic') {
+    return (
+      <span className="qq-reply-preview-media">
+        <QqImage data={element.data ?? {}} sendTimeMs={sendTimeMs} />
+      </span>
+    );
+  }
+  if (element.type === 'video') {
+    return (
+      <span className="qq-reply-preview-media">
+        <QqVideo data={element.data ?? {}} sendTimeMs={sendTimeMs} />
+      </span>
+    );
+  }
+  if (element.type === 'mface') {
+    return (
+      <span className="qq-reply-preview-media">
+        <QqMarketFace data={element.data ?? {}} />
+      </span>
+    );
+  }
+  if (element.type === 'at') {
+    const text = String(element.data?.textContent ?? '');
+    return <span className="qq-at-element text-blue-500 font-medium">{text}</span>;
   }
   if (element.type && REPLY_MEDIA_LABEL[element.type]) {
     const name = inlineLabel(element);
@@ -230,14 +337,47 @@ function ReplyPreviewNode({ element }: { element: RenderElement }): ReactNode {
 }
 
 /**
- * The darker quote box for a `reply` element: shows the referenced message's
- * last element with an up-arrow that scrolls to that message's seq.
+ * Compute the best display name for the quoted message's original sender.
+ * Tries (in order): the renderer-resolved nick stashed by the host
+ * (`origSenderDisplayName`, from MainView's memberMap / self / otherUser
+ * resolution), then any other nick-shaped field that might be present, then
+ * the QQ uin number, then the uid. Returns null only if nothing is usable.
  */
-function ReplyQuote({ data }: { data: Record<string, unknown> }) {
+function origSenderDisplay(data: Record<string, unknown>): string | null {
+  const candidates = [
+    data.origSenderDisplayName,
+    data.origSenderNick,
+    data.origSenderName,
+    data.origSenderUin,
+    data.origSenderUid,
+  ];
+  for (const value of candidates) {
+    if (typeof value === 'string' && value.length > 0) return value;
+    if (typeof value === 'number' && value > 0) return String(value);
+  }
+  return null;
+}
+
+/**
+ * The darker quote box for a `reply` element. Two lines:
+ *   line 1 — the original sender's nickname (resolved by the host),
+ *   line 2 — a compact preview of the referenced message's last element
+ *           with the jump-arrow tucked at its end.
+ * Clicking anywhere on the box asks the host to scroll to that message.
+ */
+function ReplyQuote({
+  data,
+  sendTimeMs,
+}: {
+  data: Record<string, unknown>;
+  sendTimeMs: number;
+}) {
   const jumpToSeq = useContext(ReplyJumpContext);
   const origElements = Array.isArray(data.origElements) ? (data.origElements as RenderElement[]) : [];
   const meaningful = origElements.filter(isMeaningful);
   const preview = meaningful.length > 0 ? meaningful[meaningful.length - 1] : null;
+  const senderName = origSenderDisplay(data);
+  const quoteTimeMs = quoteSendTimeMs(data, sendTimeMs);
   // Pass both 40003 candidates; the host picks by conversation kind. Verified
   // against the live DB: group → origMsgSeq(47402), c2c → origMsgIndex(47419).
   const seq = data.origMsgSeq as number | string | undefined;
@@ -262,10 +402,13 @@ function ReplyQuote({ data }: { data: Record<string, unknown> }) {
         if (canJump && (event.key === 'Enter' || event.key === ' ')) handleJump(event);
       }}
     >
-      <div className="qq-reply-quote-body">
-        {preview ? <ReplyPreviewNode element={preview} /> : <span>引用消息</span>}
+      <div className="qq-reply-quote-stack">
+        <div className="qq-reply-quote-sender">{senderName ?? '原消息'}</div>
+        <div className="qq-reply-quote-body">
+          {preview ? <ReplyPreviewNode element={preview} sendTimeMs={quoteTimeMs} /> : <span>引用消息</span>}
+          {canJump ? <ArrowUp className="qq-reply-quote-arrow" size={12} strokeWidth={2.4} aria-hidden /> : null}
+        </div>
       </div>
-      {canJump ? <ArrowUp className="qq-reply-quote-arrow" size={14} strokeWidth={2.4} aria-hidden /> : null}
     </div>
   );
 }
@@ -289,7 +432,7 @@ export function QqMessageContent({
   const arkElement = elements.find((element) => element.type === 'ark');
   if (arkElement) {
     return (
-      <div className={cn('message-content', 'qq-message-inline', 'qq-has-ark')}>
+      <div className={cn('message-content', 'qq-card-only', 'qq-has-ark')}>
         <QqArk arkData={arkElement.data?.arkData} />
       </div>
     );
@@ -300,7 +443,7 @@ export function QqMessageContent({
   const flashElement = elements.find((element) => flashTransferInfoOf(element) !== null);
   if (flashElement) {
     return (
-      <div className={cn('message-content', 'qq-message-inline', 'qq-has-flash')}>
+      <div className={cn('message-content', 'qq-card-only', 'qq-has-flash')}>
         <QqFlashTransfer
           markdownContent={String(flashElement.data?.markdownContent ?? '')}
           info={flashElement.data?.flashTransferInfo}
@@ -313,7 +456,7 @@ export function QqMessageContent({
   const walletElement = elements.find((element) => element.type === 'wallet');
   if (walletElement) {
     return (
-      <div className={cn('message-content', 'qq-message-inline', 'qq-has-wallet')}>
+      <div className={cn('message-content', 'qq-card-only', 'qq-has-wallet')}>
         <QqWallet
           detail={walletElement.data?.walletDetail}
           fallbackType={walletElement.data?.walletRedbagType}
@@ -326,7 +469,7 @@ export function QqMessageContent({
   const forwardKind = useContext(ForwardKindContext);
   if (multiMsgElement) {
     return (
-      <div className={cn('message-content', 'qq-message-inline', 'qq-has-forward')}>
+      <div className={cn('message-content', 'qq-card-only', 'qq-has-forward')}>
         <ForwardMultiMsgPreview
           data={(multiMsgElement.data ?? {}) as Record<string, unknown>}
           msgId={msgId}
@@ -347,12 +490,10 @@ export function QqMessageContent({
   if (replyElement) {
     return (
       <div className={cn('message-content', 'qq-message-inline', 'qq-has-reply')}>
-        <ReplyQuote data={replyElement.data ?? {}} />
+        <ReplyQuote data={replyElement.data ?? {}} sendTimeMs={sendTimeMs} />
         {meaningful.length > 0 ? (
           <div className="qq-reply-body">
-            {meaningful.map((element, index) => (
-              <ElementNode key={`el-${index}`} element={element} sendTimeMs={sendTimeMs} msgId={msgId} />
-            ))}
+            {renderElementNodes(meaningful, sendTimeMs, msgId)}
           </div>
         ) : null}
       </div>
@@ -394,9 +535,7 @@ export function QqMessageContent({
     }
   }
 
-  const nodes: ReactNode[] = meaningful.map((element, index) => (
-    <ElementNode key={`el-${index}`} element={element} sendTimeMs={sendTimeMs} msgId={msgId} />
-  ));
+  const nodes = renderElementNodes(meaningful, sendTimeMs, msgId);
 
   return <div className={cn('message-content', 'qq-message-inline')}>{nodes}</div>;
 }

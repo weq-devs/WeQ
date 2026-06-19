@@ -600,8 +600,24 @@ function contactToConversation(c: RecentContactWire, user: User): Conversation |
   return null;
 }
 
-function isMineMessage(message: MessageWire, user: User): boolean {
+/**
+ * Decide whether a wire message was sent by the current user.
+ *
+ * Primary signal is `senderUin === user.identityValue` — exact match against
+ * the logged-in account's uin, which QQ NT sets on every outbound message in
+ * both c2c and group chats.
+ *
+ * The legacy `data.isSender === true` fallback exists for c2c messages where
+ * `senderUin` is missing (historical receive paths). It is GROUP-UNSAFE: a
+ * group `multiMsg` (合并转发) element carries sub-messages whose `isSender`
+ * reflects whether *the original sender of that sub-message* was self, not
+ * whether the carrier message is self. Reading isSender at the top level
+ * misclassifies anyone forwarding a chat that included one of your messages
+ * as "sent by me". So we only use the fallback in c2c conversations.
+ */
+function isMineMessage(message: MessageWire, conversation: Conversation, user: User): boolean {
   if (message.senderUin && message.senderUin === user.identityValue) return true;
+  if (conversation.type !== 'direct') return false;
   return message.elements.some((element) => {
     const data = (element as RenderElementWire | null)?.data;
     return data?.isSender === true;
@@ -609,7 +625,7 @@ function isMineMessage(message: MessageWire, user: User): boolean {
 }
 
 function messageSender(message: MessageWire, conversation: Conversation, user: User, memberMap?: Map<string, GroupMember>): User {
-  if (isMineMessage(message, user)) return user;
+  if (isMineMessage(message, conversation, user)) return user;
   if (conversation.type === 'direct') return conversation.otherUser;
 
   // Optimized O(1) lookup
@@ -633,6 +649,13 @@ function messageSender(message: MessageWire, conversation: Conversation, user: U
 
 function messageToTemplate(message: MessageWire, conversation: Conversation, user: User, memberMap?: Map<string, GroupMember>): Message {
   const sender = messageSender(message, conversation, user, memberMap);
+  // For any `reply` element in the message, resolve the ORIGINAL message
+  // sender's display name (memberMap → self → otherUser → uin/uid fallbacks)
+  // and stash it on the reply's data as `origSenderDisplayName` so
+  // QqMessageContent's ReplyQuote can render it on the quote box's first line
+  // without having to thread the renderer-side group lookup through React
+  // context. Non-reply elements are passed through untouched.
+  const elements = enrichReplyElements(message.elements, conversation, user, memberMap);
   return {
     id: message.msgId,
     conversationId: conversation.id,
@@ -642,11 +665,81 @@ function messageToTemplate(message: MessageWire, conversation: Conversation, use
     createdAt: toIsoTime(message.sendTime),
     // Raw render-view elements for the QQ face renderer (qqFaceMessageRenderer).
     // `body` stays the text fallback for previews and non-face messages.
-    qqElements: message.elements,
+    qqElements: elements,
     // Sticker reactions (贴表情) rendered below the bubble by MessageBubble.
     setEmojiList: message.setEmojiList,
     msgId: message.msgId,
   } as Message & { qqElements: unknown[]; setEmojiList?: SetEmojiItem[]; msgId: string };
+}
+
+/**
+ * Resolve `origSenderUid` (or `origSenderUin`) on every reply element to a
+ * human-readable nick. Mirrors `messageSender`'s preference order so the quote
+ * box matches the bubble header: memberMap > self > otherUser > uin > uid.
+ * Non-reply elements are returned by reference (no copy).
+ */
+function enrichReplyElements(
+  elements: unknown[],
+  conversation: Conversation,
+  user: User,
+  memberMap?: Map<string, GroupMember>,
+): unknown[] {
+  if (!Array.isArray(elements) || elements.length === 0) return elements;
+  let mutated = false;
+  const out = elements.map((element) => {
+    if (!element || typeof element !== 'object') return element;
+    const el = element as RenderElementWire;
+    if (el.type !== 'reply') return element;
+    const data = (el.data ?? {}) as Record<string, unknown>;
+    const nick = resolveOrigSenderNick(data, conversation, user, memberMap);
+    if (!nick) return element;
+    mutated = true;
+    return { ...el, data: { ...data, origSenderDisplayName: nick } };
+  });
+  return mutated ? out : elements;
+}
+
+function resolveOrigSenderNick(
+  data: Record<string, unknown>,
+  conversation: Conversation,
+  user: User,
+  memberMap?: Map<string, GroupMember>,
+): string | null {
+  const uid = typeof data.origSenderUid === 'string' ? data.origSenderUid : '';
+  const uinRaw = data.origSenderUin;
+  const uin = typeof uinRaw === 'number'
+    ? String(uinRaw)
+    : typeof uinRaw === 'string'
+      ? uinRaw
+      : '';
+
+  // 1) Self — match by uin against the logged-in account's identityValue.
+  // (`user.id` is `self:${uin}` so a uid-string comparison never matches.)
+  if (uin && uin !== '0' && uin === user.identityValue) {
+    return user.displayName || null;
+  }
+
+  // 2) Group member directory — uid-keyed; the same map messageSender uses.
+  if (uid) {
+    const member = memberMap?.get(uid);
+    const memberName = member?.displayName;
+    if (memberName && memberName !== uin) return memberName;
+  }
+
+  // 3) c2c — only two participants. If we already ruled out self in step 1,
+  // by elimination the original sender of any quoted message in this direct
+  // chat IS the peer. Skip the uid/uin equality dance (origSender* fields
+  // are unreliable on c2c: QQ NT often leaves origSenderUid empty and the
+  // uin can land as 0 for older quotes).
+  if (conversation.type === 'direct') {
+    return conversation.otherUser.displayName || null;
+  }
+
+  // 4) Fall back to uin (numeric QQ) — readable in the UI even if no profile
+  // has been resolved yet. Last resort: the uid string itself.
+  if (uin && uin !== '0') return uin;
+  if (uid) return uid;
+  return null;
 }
 
 function messageBody(elements: unknown[]): string {
