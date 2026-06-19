@@ -6,7 +6,9 @@ interface GrayTipGroupMessageProps {
     type: 'grayTipGroup';
     data?: {
       groupTipType?: number;
+      user1Nick?: string;
       user1GroupNick?: string;
+      user2Nick?: string;
       user2GroupNick?: string;
       muteInfo?: {
         operator?: { uid?: string };
@@ -32,7 +34,8 @@ function formatMuteDuration(seconds: number): string {
 }
 
 export function GrayTipGroupMessage({ element, conversation, message }: GrayTipGroupMessageProps) {
-  const { groupTipType, user1GroupNick, user2GroupNick, muteInfo } = element.data || {};
+  const { groupTipType, user1Nick, user1GroupNick, user2GroupNick, muteInfo } = element.data || {};
+  const user1Display = user1GroupNick || user1Nick;
 
   // 构建成员映射
   const memberMap = new Map<string, GroupMember>();
@@ -52,11 +55,30 @@ export function GrayTipGroupMessage({ element, conversation, message }: GrayTipG
   }
 
   // 加入群聊
-  if (groupTipType === 1 && user1GroupNick) {
+  if (groupTipType === 1 && user1Display) {
     return (
       <div className="text-center text-gray-500 text-xs py-2">
-        <span className="text-blue-500">{user1GroupNick}</span>
+        <span className="text-blue-500">{user1Display}</span>
         <span className="px-1">加入了群聊</span>
+      </div>
+    );
+  }
+
+  // 群已被群主解散
+  if (groupTipType === 2) {
+    return (
+      <div className="text-center text-gray-500 text-xs py-2">
+        <span>该群已被群主解散</span>
+      </div>
+    );
+  }
+
+  // 被踢出群聊
+  if (groupTipType === 3 && user1Display) {
+    return (
+      <div className="text-center text-gray-500 text-xs py-2">
+        <span className="text-blue-500">{user1Display}</span>
+        <span className="px-1">已将你移出群聊</span>
       </div>
     );
   }

@@ -37,9 +37,10 @@ import {
   type User,
   useChatShellController,
 } from '../im-template/template';
-import { qqMessageRenderer, ReplyJumpContext, type ReplyJumpTarget } from '../components/QqMessageContent';
+import { qqMessageRenderer, ReplyJumpContext, ForwardKindContext, type ReplyJumpTarget } from '../components/QqMessageContent';
 import type { SetEmojiItem } from '@weq/codec';
 import { MsgElementEditor } from '../components/MsgElementEditor';
+import { flashTransferTitle } from '../components/QqFlashTransfer';
 
 const messageRenderers: MessageRenderer[] = composeMessageRenderers({
   prepend: [qqMessageRenderer],
@@ -650,7 +651,57 @@ function messageToTemplate(message: MessageWire, conversation: Conversation, use
 
 function messageBody(elements: unknown[]): string {
   const parts = elements.map(elementText).filter(Boolean);
-  return parts.length > 0 ? parts.join('') : '[Unsupported message]';
+  return parts.length > 0 ? parts.join('') : '';
+}
+
+/**
+ * All element kinds defined in @weq/codec's element/spec.ts EXCEPT `unknown`.
+ * Keep this list in sync with codec when new element kinds are added — a
+ * message carrying any of these is considered renderable (dedicated component,
+ * qqMessageRenderer claim, or body text fallback), so it must NOT be filtered
+ * out by isRenderableMessage. `unknown` is intentionally excluded: it is the
+ * codec's "we didn't recognize this" tag, and a message that contains only
+ * `unknown` elements is exactly what we want to drop + log.
+ */
+const RENDERABLE_ELEMENT_TYPES = new Set<string>([
+  // Basic text & mention.
+  'text', 'at',
+  // Rich media (handled by qqMessageRenderer / dedicated media components).
+  'pic', 'file', 'video', 'ptt', 'face', 'mface',
+  // Reply quote.
+  'reply',
+  // Gray tips (dedicated components in chatPane.tsx).
+  'grayTipRevoke', 'grayTipPoke', 'grayTipGroup', 'grayTipInvite',
+  // Rich content (some already render as body text; markdown/ark to be wired up).
+  'ark', 'markdown', 'multiMsg', 'call', 'wallet',
+  // Cloud storage links.
+  'onlineFile', 'onlineFolder',
+  // Misc.
+  'emojiBounce', 'qqDynamic',
+]);
+
+/**
+ * Drop messages that produce nothing on screen: no dedicated gray-tip
+ * component, nothing for qqMessageRenderer, and no fallback body text. These
+ * used to render as a "[Unsupported message]" bubble — we now log them and
+ * skip the bubble entirely. (Note: messages with at least one renderable
+ * element still pass even if other elements are unknown.)
+ */
+function isRenderableMessage(message: MessageWire): boolean {
+  const elements = message.elements ?? [];
+  const hasRenderableElement = elements.some((el) => {
+    const type = (el as RenderElementWire | null)?.type;
+    return typeof type === 'string' && RENDERABLE_ELEMENT_TYPES.has(type);
+  });
+  if (hasRenderableElement) return true;
+  if (messageBody(elements) !== '') return true;
+  console.warn('[unsupported-message] dropping message with no renderable content', {
+    msgId: message.msgId,
+    msgSeq: message.msgSeq,
+    senderUid: message.senderUid,
+    elementTypes: elements.map((el) => (el as RenderElementWire | null)?.type ?? null),
+  });
+  return false;
 }
 
 /**
@@ -709,9 +760,11 @@ function elementText(element: unknown): string {
     case 'pic':
       return attachmentText('Image', data, 'fileName', 'summary');
     case 'file':
-    case 'onlineFile':
-    case 'onlineFolder':
       return attachmentText('File', data, 'fileName');
+    case 'onlineFile':
+      return attachmentText('在线文件', data, 'fileName');
+    case 'onlineFolder':
+      return attachmentText('在线文件夹', data, 'fileName');
     case 'video':
       return attachmentText('Video', data, 'fileName', 'summary');
     case 'ptt':
@@ -724,8 +777,8 @@ function elementText(element: unknown): string {
       return stringField(data, 'grayTipXmlContent') || stringField(data, 'tipJson') || '[Poke]';
     case 'grayTipGroup': {
       const muteDuration = data.muteDuration as number | undefined;
-      const user1 = data.user1GroupNick as string | undefined;
-      const user2 = data.user2GroupNick as string | undefined;
+      const user1 = (data.user1GroupNick as string | undefined) || (data.user1Nick as string | undefined);
+      const user2 = (data.user2GroupNick as string | undefined) || (data.user2Nick as string | undefined);
       const hasMutedUser = data.mutedUserInfo !== undefined;
 
       if (muteDuration !== undefined && user1) {
@@ -737,18 +790,36 @@ function elementText(element: unknown): string {
       if (data.groupTipType === 1 && user1) {
         return `${user1} 加入了群聊`;
       }
+      if (data.groupTipType === 2) {
+        return '该群已被群主解散';
+      }
+      if (data.groupTipType === 3 && user1) {
+        return `${user1} 已将你移出群聊`;
+      }
       return '[Group notice]';
     }
     case 'ark':
-      return fencedJson('Ark', stringField(data, 'arkData'));
-    case 'markdown':
+      return arkPreview(stringField(data, 'arkData'));
+    case 'markdown': {
+      // QQ 闪传 card → clean label instead of the raw `[闪传](mqqapi://…)` link.
+      const flashInfo = data.flashTransferInfo;
+      if (flashInfo && typeof flashInfo === 'object' && Object.keys(flashInfo).length > 0) {
+        const title = flashTransferTitle(stringField(data, 'markdownContent'));
+        return title ? `[QQ闪传] ${title}` : '[QQ闪传]';
+      }
       return stringField(data, 'markdownContent') || stringField(data, 'markdownTextSummary') || '[Markdown]';
+    }
     case 'multiMsg':
       return '[Merged messages]';
     case 'call':
       return arraySummary(data, 'callSummary') || '[Call]';
-    case 'wallet':
-      return '[Wallet message]';
+    case 'wallet': {
+      const detail = (data.walletDetail ?? {}) as Record<string, unknown>;
+      const type = Number(detail.redbagType ?? data.walletRedbagType);
+      const title = typeof detail.redbagTitle === 'string' ? detail.redbagTitle : '';
+      if (type === 1) return title ? `[转账] ${title}` : '[转账]';
+      return title ? `[QQ红包] ${title}` : '[QQ红包]';
+    }
     case 'mface':
       return '[Sticker]';
     case 'emojiBounce':
@@ -756,7 +827,8 @@ function elementText(element: unknown): string {
     case 'qqDynamic':
       return '[QQ Dynamic]';
     case 'unknown':
-      return '[Unsupported message]';
+      console.warn('[unsupported-element] unknown element type encountered', data);
+      return '';
     default:
       return '';
   }
@@ -784,9 +856,26 @@ function quoteText(label: string, data: Record<string, unknown>, key: string): s
   return text ? `> ${text}` : `[${label}]`;
 }
 
-function fencedJson(label: string, value: string): string {
-  if (!value) return `[${label}]`;
-  return `**${label}**\n\n\`\`\`json\n${value}\n\`\`\``;
+/**
+ * Short, human-friendly preview text for an `ark` card (used by the
+ * conversation-list last-message line). Prefers the share's `prompt`, then a
+ * title-ish field off the first meta payload, falling back to a generic tag.
+ */
+function arkPreview(raw: string): string {
+  if (!raw) return '[卡片消息]';
+  try {
+    const ark = JSON.parse(raw) as { prompt?: string; meta?: Record<string, Record<string, unknown>> };
+    if (typeof ark.prompt === 'string' && ark.prompt.trim()) return ark.prompt.trim();
+    const meta = ark.meta ? Object.values(ark.meta)[0] : undefined;
+    if (meta) {
+      const pick = (k: string): string => (typeof meta[k] === 'string' ? (meta[k] as string) : '');
+      const t = pick('title') || pick('nickname') || pick('summary') || pick('desc') || pick('name');
+      if (t) return t;
+    }
+    return '[卡片消息]';
+  } catch {
+    return '[卡片消息]';
+  }
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -1458,13 +1547,15 @@ export function MainView(): ReactElement {
 
   const templateMessages = useMemo(() => {
     if (!selectedConversation) return [];
-    
+
     // Create a fast lookup map for member info
     const memberMap = new Map(currentGroupMembers.map(m => [m.id, m]));
-    
-    return loadedMessageWires.map((message) => 
-      messageToTemplate(message, selectedConversation, user, memberMap)
-    );
+
+    return loadedMessageWires
+      .filter((message) => isRenderableMessage(message))
+      .map((message) =>
+        messageToTemplate(message, selectedConversation, user, memberMap)
+      );
   }, [loadedMessageWires, selectedConversation, user, currentGroupMembers]);
 
   const activeConversation = useMemo(() => {
@@ -2039,6 +2130,7 @@ export function MainView(): ReactElement {
 
   return (
     <ReplyJumpContext.Provider value={jumpToSeq}>
+      <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
       <ChatShell
         user={user}
         view={shell.view}
@@ -2236,6 +2328,7 @@ export function MainView(): ReactElement {
           </section>
         </div>
       ) : null}
+      </ForwardKindContext.Provider>
     </ReplyJumpContext.Provider>
   );
 }

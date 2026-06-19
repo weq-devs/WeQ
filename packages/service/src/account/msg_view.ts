@@ -271,6 +271,13 @@ export interface RenderMarkdownElement {
     markdownMeta: any;
     // markdownFlag48703: any;
     markdownTextSummary: string;
+    /**
+     * QQ 闪传 (flash-transfer) info (proto tag 48708). Present only on flash
+     * transfer cards; when set, the renderer draws the markdown as a flash
+     * transfer file card instead of plain markdown. Shape: { fileSetId,
+     * thumbnailName, fileBytes, thumbAlt, createTime }.
+     */
+    flashTransferInfo?: any;
   };
 }
 
@@ -734,6 +741,7 @@ function mapMarkdown(el: MarkdownElement): RenderMarkdownElement {
       markdownMeta: el.markdownMeta,
       // markdownFlag48703: el.markdownFlag48703,
       markdownTextSummary: el.markdownTextSummary,
+      flashTransferInfo: el.flashTransferInfo,
       elementId: el.elementId,
       isSender: el.isSender,
       subType: el.subType,

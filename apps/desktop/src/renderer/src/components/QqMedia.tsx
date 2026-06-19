@@ -7,6 +7,7 @@
  */
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { Cloud } from 'lucide-react';
 import { fileIconUrl, mediaUrl } from '@renderer/lib/resourceUrl';
 import { cn } from '@renderer/lib/utils';
 import { openLightbox } from './ImageLightbox';
@@ -247,6 +248,34 @@ export function QqFile({
       <div className="qq-media-file-meta">
         <div className="qq-media-file-name">{name || '[文件]'}</div>
         <div className="qq-media-file-size">{formatSize(size)}</div>
+      </div>
+    </div>
+  );
+}
+
+// ---- online file / folder ----------------------------------------------
+
+/**
+ * Online file & folder card (微云 / 离线传送). Same skeleton as `QqFile` (file
+ * icon by extension + name + size) but with a cloud badge over the icon so the
+ * eye distinguishes it from an on-disk file at a glance, and no reveal-in-
+ * Explorer click (the bytes don't live locally). `kind === 'folder'` forces the
+ * folder icon regardless of `fileName` extension.
+ */
+export function QqOnlineFile({ data, kind }: { data: Data; kind: 'file' | 'folder' }) {
+  const name = str(data, 'fileName');
+  const size = num(data, 'fileSize');
+  const iconFile = kind === 'folder' ? 'folder.png' : iconForName(name);
+  const placeholder = kind === 'folder' ? '[文件夹]' : '[文件]';
+  return (
+    <div className="qq-media-file qq-media-file-online" title={kind === 'folder' ? '在线文件夹' : '在线文件'}>
+      <div className="qq-media-file-icon-wrap">
+        <img className="qq-media-file-icon" src={fileIconUrl(iconFile)} alt="" draggable={false} />
+        <Cloud className="qq-media-file-online-badge" size={14} strokeWidth={2.2} aria-hidden />
+      </div>
+      <div className="qq-media-file-meta">
+        <div className="qq-media-file-name">{name || placeholder}</div>
+        <div className="qq-media-file-size">{size > 0 ? formatSize(size) : kind === 'folder' ? '在线文件夹' : '在线文件'}</div>
       </div>
     </div>
   );

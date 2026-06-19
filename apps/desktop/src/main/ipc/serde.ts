@@ -24,8 +24,8 @@ import type {
   RecentContact,
   UserProfile,
 } from '@weq/db';
-import type { MsgCacheRecord, SetEmojiItem } from '@weq/codec';
-import type { FormattedOnlineStatus, RenderC2cMsg, RenderGroupMsg } from '@weq/service';
+import { decodeElement, type MsgCacheRecord, type SetEmojiItem } from '@weq/codec';
+import { toRenderElements, type FormattedOnlineStatus, type RenderC2cMsg, type RenderGroupMsg } from '@weq/service';
 
 export interface UserProfileWire {
   uid: string;
@@ -411,8 +411,32 @@ export function onlineStatusToWire(status: FormattedOnlineStatus): OnlineStatusW
   return status;
 }
 
+/**
+ * Convert one 40900 cache record to a renderer-friendly wire shape.
+ *
+ * The renderer reuses {@link QqMessageContent} to draw each cached sub-message,
+ * which expects the render-view element form (`{ type, data }`) — same shape
+ * `c2cMsgToWire` / `groupMsgToWire` produce for the main timeline. The raw
+ * 40900 record carries the FLAT proto `ElementWire` shape instead, so we lift
+ * it: `ElementWire[]` → `decodeElement` → `Element[]` → `toRenderElements` →
+ * `RenderElement[]`. `subMsgs` is recursive (nested forwards arbitrarily deep);
+ * everything else (msgId, senderUin, sendTime, sendNick, senderInfo, …) is
+ * passed through {@link sanitize} so bigints / bytes survive IPC.
+ */
 export function forwardRecordToWire(record: MsgCacheRecord): unknown {
-  return sanitize(record);
+  const elements = Array.isArray((record as { elements?: unknown }).elements)
+    ? toRenderElements(((record as { elements: unknown[] }).elements as never[]).map((w) => decodeElement(w as never)))
+    : [];
+  const subMsgs = Array.isArray((record as { subMsgs?: unknown }).subMsgs)
+    ? ((record as { subMsgs: MsgCacheRecord[] }).subMsgs).map(forwardRecordToWire)
+    : [];
+
+  // Sanitize the carrier fields (msgId/senderUin/sendTime + sender avatar block
+  // etc.) but drop the proto `elements` / `subMsgs` from the spread — we replace
+  // them with the lifted versions above.
+  const { elements: _e, subMsgs: _s, ...rest } = record as unknown as Record<string, unknown>;
+  const carrier = sanitize(rest) as Record<string, unknown>;
+  return { ...carrier, elements, subMsgs };
 }
 
 /**

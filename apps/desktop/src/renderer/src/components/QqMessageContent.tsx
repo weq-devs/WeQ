@@ -19,7 +19,12 @@ import { createContext, useContext, type KeyboardEvent as ReactKeyboardEvent, ty
 import { ArrowUp } from 'lucide-react';
 import type { MessageRenderer } from '../im-template/template';
 import { FaceEmoji } from './FaceEmoji';
-import { QqImage, QqVideo, QqFile, QqVoice, QqMarketFace } from './QqMedia';
+import { QqImage, QqVideo, QqFile, QqVoice, QqMarketFace, QqOnlineFile } from './QqMedia';
+import { ForwardMultiMsgPreview } from './ForwardWindow';
+import { QqArk } from './QqArk';
+import { QqFlashTransfer } from './QqFlashTransfer';
+import { QqWallet } from './QqWallet';
+import { QqCall } from './QqCall';
 import { cn } from '@renderer/lib/utils';
 
 /**
@@ -38,10 +43,17 @@ export interface ReplyJumpTarget {
 }
 export const ReplyJumpContext = createContext<(target: ReplyJumpTarget) => void>(() => {});
 
+/**
+ * The conversation kind of the open chat. MultiMsg lookups (合并转发) hit a
+ * different DB table for c2c vs group, so the preview bubble needs the host
+ * to tell it which side to query. Defaults to 'c2c' for safety in tests.
+ */
+export const ForwardKindContext = createContext<'c2c' | 'group'>('c2c');
+
 /** Element kinds that render as standalone, borderless media (no bubble). */
 const BORDERLESS_MEDIA = new Set(['pic', 'video', 'mface']);
 /** Element kinds handled by a dedicated media component. */
-const MEDIA_KINDS = new Set(['pic', 'video', 'file', 'ptt', 'mface']);
+const MEDIA_KINDS = new Set(['pic', 'video', 'file', 'ptt', 'mface', 'onlineFile', 'onlineFolder']);
 
 /** Box size for a lone sticker face (FaceSubType !== 1). */
 const STICKER_SIZE = 90;
@@ -62,6 +74,20 @@ type RenderElement = {
   type?: string;
   data?: Record<string, unknown>;
 };
+
+/**
+ * A `markdown` element is a QQ 闪传 (flash transfer) card iff it carries a
+ * non-empty `flashTransferInfo` object. Returns that info (for the card) or null
+ * (plain markdown → falls through to the template's default markdown renderer).
+ */
+function flashTransferInfoOf(element: RenderElement): Record<string, unknown> | null {
+  if (element.type !== 'markdown') return null;
+  const info = element.data?.flashTransferInfo;
+  if (info && typeof info === 'object' && Object.keys(info as object).length > 0) {
+    return info as Record<string, unknown>;
+  }
+  return null;
+}
 
 function isMeaningful(element: RenderElement): boolean {
   if (element.type === 'text') {
@@ -128,6 +154,10 @@ function MediaNode({
       return <QqVoice data={data} sendTimeMs={sendTimeMs} />;
     case 'mface':
       return <QqMarketFace data={data} />;
+    case 'onlineFile':
+      return <QqOnlineFile data={data} kind="file" />;
+    case 'onlineFolder':
+      return <QqOnlineFile data={data} kind="folder" />;
     default:
       return null;
   }
@@ -160,6 +190,16 @@ function ElementNode({
       </span>
     );
   }
+  if (element.type === 'call') {
+    const data = element.data ?? {};
+    return (
+      <QqCall
+        callMethod={data.callMethod}
+        subType={data.subType}
+        callSummary={data.callSummary}
+      />
+    );
+  }
   const text = inlineLabel(element);
   return text ? <span>{text}</span> : null;
 }
@@ -171,6 +211,8 @@ const REPLY_MEDIA_LABEL: Record<string, string> = {
   file: '[文件]',
   ptt: '[语音]',
   mface: '[动画表情]',
+  onlineFile: '[在线文件]',
+  onlineFolder: '[在线文件夹]',
 };
 
 /** Render a quoted element compactly: text/@/face inline, media as a tag. */
@@ -237,6 +279,63 @@ export function QqMessageContent({
   sendTimeMs: number;
   msgId: string;
 }) {
+  // A `multiMsg` element (合并转发) always takes over the whole bubble: it
+  // renders as the preview card (title + preview lines + "查看详情" footer).
+  // Click → opens a floating ForwardWindow that does the actual sub-message
+  // lookup. We pick the FIRST multiMsg element because a message never carries
+  // more than one (the proto allows it but QQ NT never produces it).
+  // An `ark` element (结构化卡片：图文/地图/小程序/一起听歌/名片/QQ收藏) likewise
+  // takes over the whole bubble, rendering as its own self-contained card.
+  const arkElement = elements.find((element) => element.type === 'ark');
+  if (arkElement) {
+    return (
+      <div className={cn('message-content', 'qq-message-inline', 'qq-has-ark')}>
+        <QqArk arkData={arkElement.data?.arkData} />
+      </div>
+    );
+  }
+
+  // A `markdown` element carrying `flashTransferInfo` (QQ 闪传) renders as a flash
+  // transfer file card; plain markdown is left to the template's default renderer.
+  const flashElement = elements.find((element) => flashTransferInfoOf(element) !== null);
+  if (flashElement) {
+    return (
+      <div className={cn('message-content', 'qq-message-inline', 'qq-has-flash')}>
+        <QqFlashTransfer
+          markdownContent={String(flashElement.data?.markdownContent ?? '')}
+          info={flashElement.data?.flashTransferInfo}
+        />
+      </div>
+    );
+  }
+
+  // A `wallet` element (转账 / 红包) renders as its own card.
+  const walletElement = elements.find((element) => element.type === 'wallet');
+  if (walletElement) {
+    return (
+      <div className={cn('message-content', 'qq-message-inline', 'qq-has-wallet')}>
+        <QqWallet
+          detail={walletElement.data?.walletDetail}
+          fallbackType={walletElement.data?.walletRedbagType}
+        />
+      </div>
+    );
+  }
+
+  const multiMsgElement = elements.find((element) => element.type === 'multiMsg');
+  const forwardKind = useContext(ForwardKindContext);
+  if (multiMsgElement) {
+    return (
+      <div className={cn('message-content', 'qq-message-inline', 'qq-has-forward')}>
+        <ForwardMultiMsgPreview
+          data={(multiMsgElement.data ?? {}) as Record<string, unknown>}
+          msgId={msgId}
+          kind={forwardKind}
+        />
+      </div>
+    );
+  }
+
   // A `reply` element renders as a quote box above the body; pull it out so the
   // body sizing rules below only consider the actual message content.
   const replyElement = elements.find((element) => element.type === 'reply');
@@ -302,17 +401,21 @@ export function QqMessageContent({
   return <div className={cn('message-content', 'qq-message-inline')}>{nodes}</div>;
 }
 
-/** Element kinds this renderer claims (reply/face/at + rich media). */
-const HANDLED_KINDS = new Set(['reply', 'face', 'at', 'pic', 'video', 'file', 'ptt', 'mface']);
+/** Element kinds this renderer claims (reply/face/at + rich media + multiMsg). */
+const HANDLED_KINDS = new Set(['reply', 'face', 'at', 'pic', 'video', 'file', 'ptt', 'mface', 'multiMsg', 'ark', 'wallet', 'call', 'onlineFile', 'onlineFolder']);
 
 /** MessageRenderer that handles messages carrying face/at or rich-media elements. */
 export const qqMessageRenderer: MessageRenderer = {
   id: 'qq-elements',
   match: ({ message }) => {
     const elements = (message as { qqElements?: RenderElement[] }).qqElements;
-    return (
-      Array.isArray(elements) &&
-      elements.some((element) => element?.type !== undefined && HANDLED_KINDS.has(element.type))
+    if (!Array.isArray(elements)) return false;
+    return elements.some(
+      (element) =>
+        (element?.type !== undefined && HANDLED_KINDS.has(element.type)) ||
+        // Plain markdown stays with the default renderer; only flash-transfer
+        // markdown (flashTransferInfo present) is claimed here.
+        flashTransferInfoOf(element) !== null,
     );
   },
   render: ({ message }) => {

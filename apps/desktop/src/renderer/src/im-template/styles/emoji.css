@@ -498,6 +498,30 @@
 	-webkit-user-drag: none;
 }
 
+/* Online (cloud) file/folder — same skeleton as a regular file, but with a
+   small cloud badge over the icon corner so the eye flags it as remote. */
+.qq-media-file-online { cursor: default; }
+.qq-media-file-icon-wrap {
+	position: relative;
+	width: 40px;
+	height: 40px;
+	flex: 0 0 auto;
+}
+.qq-media-file-icon-wrap .qq-media-file-icon {
+	width: 100%;
+	height: 100%;
+}
+.qq-media-file-online-badge {
+	position: absolute;
+	right: -3px;
+	bottom: -3px;
+	color: #ffffff;
+	background: #2f71df;
+	border-radius: 50%;
+	padding: 2px;
+	box-shadow: 0 0 0 1.5px #ffffff;
+}
+
 .qq-media-file-meta {
 	min-width: 0;
 	display: flex;

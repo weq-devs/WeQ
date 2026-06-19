@@ -2279,3 +2279,602 @@ html[data-theme="dark"] .app-title-bar-signature {
   color: #12a8ff;
   font-weight: 600;
 }
+
+/* ============================================================ */
+/* 合并转发 (multiMsg) — preview bubble + floating window stack  */
+/* Neutral grayscale palette (no blue accents).                  */
+/* ============================================================ */
+
+/* --- inline preview bubble (appears in the message timeline) -- */
+
+.weq-forward-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 220px;
+  max-width: 320px;
+  padding: 10px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #ffffff, #f5f5f5);
+  text-align: left;
+  cursor: pointer;
+  color: #1f2937;
+  font: inherit;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.06s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.weq-forward-preview:hover,
+.weq-forward-preview:focus-visible {
+  background: linear-gradient(180deg, #ffffff, #ececec);
+  border-color: rgba(0, 0, 0, 0.22);
+  outline: none;
+}
+
+.weq-forward-preview:active {
+  transform: translateY(1px);
+}
+
+.weq-forward-preview-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #1f2937;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weq-forward-preview-lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.weq-forward-preview-line {
+  font-size: 12px;
+  color: #4b5563;
+  line-height: 1.45;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weq-forward-preview-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(0, 0, 0, 0.15);
+  font-size: 11.5px;
+}
+
+.weq-forward-preview-summary {
+  color: #6b7280;
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weq-forward-preview-detail {
+  flex: 0 0 auto;
+  color: #374151;
+  font-weight: 600;
+}
+
+/* When the multiMsg bubble lives inside the main message slot we want it to
+   look like a real bubble, so swap out the surrounding inline-text styling for
+   a tighter wrap (no extra padding on the chat side — preview controls it). */
+.message-content.qq-has-forward {
+  padding: 0;
+  background: transparent;
+}
+
+/* ================= Ark 结构化卡片 (ported from the Ark demo) ================= */
+
+/* Card lives directly in the message slot — clear the bubble chrome so the card
+   draws its own (same trick as .qq-has-forward). */
+.message-content.qq-has-ark {
+  padding: 0;
+  background: transparent;
+}
+
+.weq-ark-container {
+  width: 290px;
+  max-width: 100%;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  border: 1px solid #e1e2e6;
+  overflow: hidden;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s;
+}
+.weq-ark-container:hover { background-color: #f9f9fa; }
+.weq-ark-content { padding: 12px; }
+
+/* 顶部应用头 (如小程序) */
+.weq-ark-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #666666;
+}
+.weq-ark-icon-app { width: 16px; height: 16px; border-radius: 4px; object-fit: cover; }
+
+/* 文本展示标准 */
+.weq-ark-title {
+  font-size: 15px;
+  color: #1f1f1f;
+  line-height: 1.4;
+  margin-bottom: 8px;
+  font-weight: 500;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.weq-ark-desc {
+  font-size: 13px;
+  color: #666666;
+  line-height: 1.4;
+  flex: 1;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 左右紧凑型排版 (图文分享、推荐名片、QQ收藏、群名片) */
+.weq-ark-body-compact {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  align-items: flex-start;
+  width: 100%;
+}
+.weq-ark-preview-small {
+  width: 64px;
+  height: 64px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: #f0f0f0;
+  flex-shrink: 0;
+}
+
+/* 通栏大组件排版 (小程序大图、音乐、地图) */
+.weq-ark-preview-big {
+  width: 100%;
+  height: 140px;
+  border-radius: 6px;
+  object-fit: cover;
+  margin-top: 8px;
+  background: #f0f0f0;
+  display: block;
+}
+/* 位置占位卡 (Leaflet 替身)：纯 CSS 仿地图底纹 + 居中图钉 + 地名药丸。
+   不取真实瓦片——OSM 对服务端代理抓取回 418，直连又要放开 CSP，得不偿失。 */
+.weq-ark-map-view {
+  position: relative;
+  width: 100%;
+  height: 130px;
+  margin-top: 8px;
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 仿地图：一条斜向“道路” + 细网格 + 底色渐变 */
+  background:
+    linear-gradient(
+      115deg,
+      transparent 46%,
+      rgba(255, 255, 255, 0.65) 46%,
+      rgba(255, 255, 255, 0.65) 51%,
+      transparent 51%
+    ),
+    linear-gradient(0deg, rgba(0, 0, 0, 0.035) 1px, transparent 1px) 0 0 / 100% 24px,
+    linear-gradient(90deg, rgba(0, 0, 0, 0.035) 1px, transparent 1px) 0 0 / 24px 100%,
+    linear-gradient(160deg, #edf0ea, #e2e6df);
+}
+.weq-ark-map-pin {
+  color: #e2403a;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.3));
+  pointer-events: none;
+  margin-bottom: 6px; /* 给底部地名药丸留白，并让图钉视觉居中 */
+}
+.weq-ark-map-name {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  max-width: calc(100% - 12px);
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #333333;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+/* 动作按钮 */
+.weq-ark-action-btn {
+  text-align: center;
+  color: #2f71df;
+  font-size: 14px;
+  font-weight: 500;
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px dashed #f0f0f0;
+}
+
+/* 统一底部来源栏 (小尾巴) */
+.weq-ark-footer {
+  padding: 8px 12px;
+  border-top: 1px solid #f2f3f5;
+  font-size: 11px;
+  color: #a6a6a6;
+  background: #fafafa;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.weq-ark-footer-icon { width: 12px; height: 12px; border-radius: 2px; object-fit: cover; }
+
+/* ================= QQ 闪传卡片 (ported from the Flash Transfer demo) ================= */
+
+.message-content.qq-has-flash {
+  padding: 0;
+  background: transparent;
+}
+
+.weq-flash-card {
+  width: 275px;
+  max-width: 100%;
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  border: 1px solid #e3e4e6;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+/* 顶部大图预览区域 (灰色背景衬托封面) */
+.weq-flash-media-box {
+  width: 100%;
+  height: 180px;
+  background-color: #f0f1f3;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.weq-flash-cover { width: 100%; height: 100%; object-fit: cover; }
+
+/* 文本及主内容区 */
+.weq-flash-content { padding: 12px; }
+.weq-flash-title {
+  font-size: 16px;
+  color: #1f1f1f;
+  font-weight: 500;
+  line-height: 1.4;
+  margin-bottom: 4px;
+  word-break: break-all;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.weq-flash-desc { font-size: 12px; color: #909094; line-height: 1.4; }
+
+/* 分割线与底部栏 */
+.weq-flash-divider { height: 1px; background-color: #f2f3f5; margin: 12px 0 8px 0; }
+.weq-flash-footer { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #909094; }
+.weq-flash-tail-icon { width: 12px; height: 12px; border-radius: 2px; object-fit: cover; }
+
+/* ================= 通话记录 (语音 / 视频 / 屏幕共享 / 远程协作) ================= */
+/* Rendered as an INLINE icon+text inside the message's normal bubble — no
+   bubble takeover (matches the user's spec: "渲染在气泡框里面"). Failed/rejected
+   /missed calls turn the whole strip red. */
+.weq-call-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.4;
+}
+.weq-call-icon {
+  flex-shrink: 0;
+  /* Inherit the strip colour so failed calls also tint the icon red. */
+  color: currentColor;
+}
+.weq-call-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.weq-call-failed {
+  color: #d4423f;
+}
+
+/* ================= QQ 钱包：转账 / 红包 ================= */
+
+.message-content.qq-has-wallet {
+  padding: 0;
+  background: transparent;
+}
+
+/* ---- 转账卡片 (ported from the Transfer Card demo) ---- */
+.weq-transfer-card {
+  width: 300px;
+  max-width: 100%;
+  background-color: #1aa0ff; /* 原生转账蓝 */
+  border-radius: 16px;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(26, 160, 255, 0.15);
+  overflow: hidden;
+  cursor: pointer;
+  user-select: none;
+}
+.weq-transfer-body {
+  display: flex;
+  align-items: center;
+  padding: 16px 16px;
+  gap: 14px;
+}
+.weq-transfer-icon-box {
+  width: 40px;
+  height: 40px;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-shrink: 0;
+}
+.weq-transfer-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.weq-transfer-amount { font-size: 24px; font-weight: 600; letter-spacing: 0.5px; line-height: 1.2; }
+.weq-transfer-remark {
+  font-size: 14px;
+  opacity: 0.9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.weq-transfer-footer {
+  padding: 9px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+/* ---- 红包卡片 (本地 bag 图 + 居中米黄标题；做小一点) ---- */
+.weq-redbag-card {
+  position: relative;
+  width: 132px; /* 432×648 竖版按比例缩小 */
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: pointer;
+  user-select: none;
+  line-height: 0;
+}
+.weq-redbag-img { width: 100%; height: auto; display: block; }
+.weq-redbag-title {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 84%;
+  text-align: center;
+  color: #fbe4b5; /* 米黄色 */
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.3;
+  letter-spacing: 0.5px;
+  text-shadow: 0 1px 2px rgba(120, 20, 10, 0.45);
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* --- floating forward window stack ----------------------------- */
+
+.weq-forward-layer {
+  position: fixed;
+  inset: 0;
+  /* Above .app-title-bar (z-index: 100) so the floating window's header and
+     close button are never covered by the OS drag region when near the top. */
+  z-index: 110;
+  pointer-events: none;
+}
+
+.weq-forward-window {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.22),
+    0 4px 12px rgba(0, 0, 0, 0.10);
+  overflow: hidden;
+}
+
+.weq-forward-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 8px 14px;
+  background: linear-gradient(180deg, #f5f5f5, #e7e7e7);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+.weq-forward-header:active {
+  cursor: grabbing;
+}
+
+.weq-forward-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2937;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weq-forward-close {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: #475569;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.weq-forward-close:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: #b03240;
+}
+
+.weq-forward-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 8px 12px 12px;
+  background: #fafafa;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.weq-forward-status {
+  align-items: center;
+  justify-content: center;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.weq-forward-error {
+  color: #b54a4a;
+}
+
+.weq-forward-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.weq-forward-avatar {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.08);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.weq-forward-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.weq-forward-avatar-fallback {
+  text-transform: uppercase;
+}
+
+.weq-forward-row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.weq-forward-row-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.weq-forward-row-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #374151;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+.weq-forward-row-time {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.weq-forward-bubble {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.10);
+  font-size: 14px;
+  color: #1f2937;
+  line-height: 1.55;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* Inside a forward bubble the message-content wrapper drops its own padding
+   — the bubble itself owns it now. */
+.weq-forward-bubble .message-content {
+  padding: 0;
+  background: transparent;
+}
+
+/* A nested multiMsg preview lives inside .weq-forward-bubble; flatten the
+   double-bordered look by removing the outer bubble chrome. */
+.weq-forward-bubble:has(.weq-forward-preview) {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
