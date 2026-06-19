@@ -653,6 +653,49 @@ function messageBody(elements: unknown[]): string {
   return parts.length > 0 ? parts.join('') : '[Unsupported message]';
 }
 
+/**
+ * Collect group-member uids referenced INSIDE gray-tip element payloads (poke
+ * XML / invite XML / mute info) so the member resolver can pre-fetch their
+ * nicks the same way it does for message senders. Only `u_`-prefixed uids are
+ * returned — numeric uins can't be resolved via getGroupMembersByUids and
+ * would otherwise be re-fetched forever (never landing in the resolved cache).
+ */
+function extractGrayTipUids(elements: unknown[]): string[] {
+  const uids: string[] = [];
+  const pushUid = (value: unknown) => {
+    if (typeof value === 'string' && value.startsWith('u_')) uids.push(value);
+  };
+
+  for (const element of elements) {
+    if (!element || typeof element !== 'object') continue;
+    const { type, data = {} } = element as RenderElementWire;
+
+    if (type === 'grayTipPoke' || type === 'grayTipInvite') {
+      const xml = typeof data.grayTipXmlContent === 'string' ? data.grayTipXmlContent : '';
+      if (xml) {
+        const re = /uin="([^"]+)"/g;
+        let match: RegExpExecArray | null;
+        while ((match = re.exec(xml)) !== null) pushUid(match[1]);
+      }
+      const tipJson = typeof data.tipJson === 'string' ? data.tipJson : '';
+      if (tipJson) {
+        try {
+          const parsed = JSON.parse(tipJson);
+          for (const item of parsed.items ?? []) pushUid(item?.uin);
+        } catch {
+          /* malformed tipJson — nothing to extract */
+        }
+      }
+    } else if (type === 'grayTipGroup') {
+      const mute = (data as Record<string, any>).muteInfo;
+      pushUid(mute?.operator?.uid);
+      pushUid(mute?.mutedUser?.uid);
+    }
+  }
+
+  return uids;
+}
+
 function elementText(element: unknown): string {
   if (!element || typeof element !== 'object') return '';
   const { type, data = {} } = element as RenderElementWire;
@@ -679,8 +722,23 @@ function elementText(element: unknown): string {
       return stringField(data, 'recallDisplayText') || '[Message recalled]';
     case 'grayTipPoke':
       return stringField(data, 'grayTipXmlContent') || stringField(data, 'tipJson') || '[Poke]';
-    case 'grayTipGroup':
+    case 'grayTipGroup': {
+      const muteDuration = data.muteDuration as number | undefined;
+      const user1 = data.user1GroupNick as string | undefined;
+      const user2 = data.user2GroupNick as string | undefined;
+      const hasMutedUser = data.mutedUserInfo !== undefined;
+
+      if (muteDuration !== undefined && user1) {
+        if (hasMutedUser && user2) {
+          return muteDuration > 0 ? `${user2} 被 ${user1} 禁言` : `${user1} 结束了 ${user2} 的禁言`;
+        }
+        return muteDuration > 0 ? `${user1} 开启了全员禁言` : `${user1} 关闭了全员禁言`;
+      }
+      if (data.groupTipType === 1 && user1) {
+        return `${user1} 加入了群聊`;
+      }
       return '[Group notice]';
+    }
     case 'ark':
       return fencedJson('Ark', stringField(data, 'arkData'));
     case 'markdown':
@@ -1010,6 +1068,11 @@ export function MainView(): ReactElement {
   // member cached for one group never leaks into another (and per-group cards
   // don't collide across groups).
   const [missingMembers, setMissingMembers] = useState<Record<string, Record<string, GroupMemberWire>>>({});
+  // Uids we've already issued a getGroupMembersByUids query for (per group),
+  // regardless of whether the lookup found a member. Stops uids that don't
+  // resolve (e.g. members who left the group, common for poke/mute targets)
+  // from being re-fetched on every render.
+  const attemptedMemberUidsRef = useRef<Record<string, Set<string>>>({});
   const loadingOlderRef = useRef(false);
   const loadingNewerRef = useRef(false);
 
@@ -1349,10 +1412,23 @@ export function MainView(): ReactElement {
     const groupCode = selectedUid;
     const known = new Set(selectedGroupMemberWires.map((m) => m.uid));
     const resolved = missingMembers[groupCode] ?? {};
-    const unknownUids = [...new Set(loaded.map((m) => m.senderUid))].filter(
-      (uid) => uid && !known.has(uid) && !resolved[uid],
+    const attempted =
+      attemptedMemberUidsRef.current[groupCode] ??
+      (attemptedMemberUidsRef.current[groupCode] = new Set());
+    const referencedUids = [
+      ...loaded.map((m) => m.senderUid),
+      // Gray-tip payloads reference members by uid inside their element bodies
+      // (poke/invite XML, mute info) — resolve those too, not just senders.
+      ...loaded.flatMap((m) => extractGrayTipUids(m.elements)),
+    ];
+    const unknownUids = [...new Set(referencedUids)].filter(
+      (uid) => uid && !known.has(uid) && !resolved[uid] && !attempted.has(uid),
     );
     if (unknownUids.length === 0) return;
+
+    // Mark attempted up-front so uids that resolve to nothing (left the group)
+    // aren't retried when `missingMembers` updates and re-runs this effect.
+    for (const uid of unknownUids) attempted.add(uid);
 
     let cancelled = false;
     void (async () => {
@@ -1864,14 +1940,19 @@ export function MainView(): ReactElement {
     const scrollElement = scroll;
 
     function maybeLoadEdge(): void {
+      // Preload the previous page well before the user hits the very top — fire
+      // once the scroll position is within the last 1/5 of a viewport from each
+      // edge so new content streams in seamlessly instead of stalling at 0.
+      const threshold = Math.max(32, scrollElement.clientHeight / 5);
       if (
-        scrollElement.scrollTop <= 32 ||
+        scrollElement.scrollTop <= threshold ||
         scrollElement.scrollHeight <= scrollElement.clientHeight + 32
       ) {
         requestOlderMessages(scrollElement);
       }
       if (
-        scrollElement.scrollHeight - scrollElement.scrollTop - scrollElement.clientHeight <= 32
+        scrollElement.scrollHeight - scrollElement.scrollTop - scrollElement.clientHeight <=
+        threshold
       ) {
         requestNewerMessages();
       }

@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { fileIconUrl, mediaUrl } from '@renderer/lib/resourceUrl';
 import { cn } from '@renderer/lib/utils';
+import { openLightbox } from './ImageLightbox';
 
 type Data = Record<string, unknown>;
 
@@ -112,13 +113,16 @@ export function QqImage({ data, sendTimeMs }: { data: Data; sendTimeMs: number }
   if (isAnimatedEmoji) params.recv = 1;
   if (orig) params.orig = orig;
   const src = mediaUrl('pic', params);
+  // Animated emojis open nothing; real photos open the full-size lightbox.
+  const openable = !isAnimatedEmoji;
   return (
     <img
       className={isAnimatedEmoji ? 'qq-media-mface' : 'qq-media-image'}
-      style={style}
+      style={openable ? { ...style, cursor: 'zoom-in' } : style}
       src={src}
       alt={isAnimatedEmoji ? '[动画表情]' : name || '[图片]'}
       draggable={false}
+      onClick={openable ? () => openLightbox(src, name || '[图片]') : undefined}
       onError={() => setBroken(true)}
     />
   );

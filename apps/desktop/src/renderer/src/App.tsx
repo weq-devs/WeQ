@@ -10,6 +10,7 @@ import { useViewState } from './state/view';
 import { BootstrapView } from './views/BootstrapView';
 import { MainView } from './views/MainView';
 import { DialogHost } from './components/Dialog';
+import { ImageLightbox } from './components/ImageLightbox';
 import { setWindowLayout } from './lib/windowLayout';
 
 export default function App(): ReactElement {
@@ -23,6 +24,7 @@ export default function App(): ReactElement {
     <>
       {view === 'bootstrap' ? <BootstrapView /> : <MainView />}
       <DialogHost />
+      <ImageLightbox />
     </>
   );
 }

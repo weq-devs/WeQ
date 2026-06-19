@@ -55,6 +55,7 @@ type FaceData = {
   faceId: number;
   faceText?: string;
   diceValue?: string;
+  subType?: number;
 };
 
 type RenderElement = {
@@ -79,6 +80,7 @@ function faceProps(data: Record<string, unknown> = {}): FaceData {
     faceId: Number(data.faceId),
     faceText: typeof data.faceText === 'string' ? data.faceText : undefined,
     diceValue: typeof data.diceValue === 'string' ? data.diceValue : undefined,
+    subType: typeof data.subType === 'number' ? data.subType : Number(data.subType) || undefined,
   };
 }
 

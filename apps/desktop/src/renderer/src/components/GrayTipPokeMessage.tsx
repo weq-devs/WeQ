@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { Conversation, GroupMember } from '../im-template/template/types';
+import type { Conversation, GroupMember, Message } from '../im-template/template/types';
 import { DOMParser } from '@xmldom/xmldom';
 import { displayUserName } from '../im-template/template/user';
 
@@ -12,13 +12,14 @@ interface GrayTipPokeMessageProps {
     };
   };
   conversation: Conversation;
+  message: Message;
 }
 
 function getNodeValue(node: any, attribute: string): string {
   return node.attributes.getNamedItem(attribute)?.nodeValue || '';
 }
 
-export function GrayTipPokeMessage({ element, conversation }: GrayTipPokeMessageProps) {
+export function GrayTipPokeMessage({ element, conversation, message }: GrayTipPokeMessageProps) {
   const { grayTipXmlContent, tipJson } = element.data || {};
 
   const content = useMemo(() => {
@@ -29,6 +30,12 @@ export function GrayTipPokeMessage({ element, conversation }: GrayTipPokeMessage
       if (!gtip) return null;
 
       const memberMap = new Map<string, GroupMember>();
+      if (message.sender) {
+        memberMap.set(message.sender.id, message.sender as GroupMember);
+        if (message.sender.identityValue) {
+          memberMap.set(message.sender.identityValue, message.sender as GroupMember);
+        }
+      }
       if (conversation.type === 'group') {
         conversation.members.forEach((m) => {
           memberMap.set(m.id, m);
@@ -72,6 +79,12 @@ export function GrayTipPokeMessage({ element, conversation }: GrayTipPokeMessage
       try {
         const data = JSON.parse(tipJson);
         const memberMap = new Map<string, GroupMember>();
+        if (message.sender) {
+          memberMap.set(message.sender.id, message.sender as GroupMember);
+          if (message.sender.identityValue) {
+            memberMap.set(message.sender.identityValue, message.sender as GroupMember);
+          }
+        }
         if (conversation.type === 'group') {
             conversation.members.forEach((m) => {
                 memberMap.set(m.id, m);
@@ -86,25 +99,34 @@ export function GrayTipPokeMessage({ element, conversation }: GrayTipPokeMessage
             }
         }
 
-        const items = data.items.map((item:any, index:number) => {
+        const items = data.items?.map((item:any, index:number) => {
+          const txt = item.txt || '';
+
           if (item.type === 'url') {
-            const uin = item.uin;
-            let name = item.txt;
+            const uin = item.uin || item.param?.[0];
             if (uin) {
-                const member = memberMap.get(uin);
-                name = member ? displayUserName(member) : name;
+              const member = memberMap.get(uin);
+              const name = member ? displayUserName(member) : txt;
+              return (
+                <span key={index} className="text-blue-500 cursor-pointer hover:underline">
+                  {name}
+                </span>
+              );
             }
-            return (
-              <span key={index} className="text-blue-500 cursor-pointer hover:underline">
-                {name}
-              </span>
-            );
+            return <span key={index} className="text-blue-500">{txt}</span>;
           }
+
           if (item.type === 'nor') {
-            return <span key={index} className="text-gray-500 px-1"> {item.txt} </span>;
+            return <span key={index}>{txt}</span>;
           }
-          return null;
-        });
+
+          if (item.type === 'img') {
+            const src = item.src;
+            return src ? <img key={index} src={src} alt="" className="inline-block w-5 h-5 mx-1" /> : null;
+          }
+
+          return <span key={index}>{txt}</span>;
+        }) || [];
 
         return <div className="text-center text-gray-500 text-xs py-2">{items}</div>;
       } catch (e) {
@@ -114,7 +136,7 @@ export function GrayTipPokeMessage({ element, conversation }: GrayTipPokeMessage
     }
 
     return null;
-  }, [grayTipXmlContent, tipJson, conversation]);
+  }, [grayTipXmlContent, tipJson, conversation, message]);
 
   return content;
 }

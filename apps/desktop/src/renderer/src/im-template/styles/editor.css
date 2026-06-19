@@ -124,7 +124,10 @@ html[data-theme="dark"] .weq-editor-dialog {
 	display: flex;
 	gap: 6px;
 	padding: 10px 14px;
+	height: 50px;
+	flex-shrink: 0;
 	overflow-x: auto;
+	overflow-y: hidden;
 	border-bottom: 1px solid var(--weq-ed-line);
 	scrollbar-width: thin;
 	scrollbar-color: var(--weq-ed-line) transparent;
