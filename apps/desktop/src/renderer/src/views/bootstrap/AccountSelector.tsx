@@ -42,11 +42,20 @@ export function AccountSelector({
     function onEsc(e: KeyboardEvent): void {
       if (e.key === 'Escape') setOpen(false);
     }
+    // Electron `-webkit-app-region: drag` regions swallow mouse events before
+    // they reach JS, so a mousedown on the title bar never fires `onDown`.
+    // The window blurs the moment a drag region is pressed — use that as a
+    // fallback close signal so the popover doesn't get stranded open.
+    function onBlur(): void {
+      setOpen(false);
+    }
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onEsc);
+    window.addEventListener('blur', onBlur);
     return () => {
       document.removeEventListener('mousedown', onDown);
       document.removeEventListener('keydown', onEsc);
+      window.removeEventListener('blur', onBlur);
     };
   }, [open]);
 

@@ -493,26 +493,65 @@ function parseMultiMsgXml(xml: string): {
 } {
   const fallback = { mainTitle: '聊天记录', previewLines: [], summary: '查看转发消息', source: '聊天记录' };
   if (!xml) return fallback;
-  try {
-    const dom = new DOMParser().parseFromString(xml, 'application/xml');
-    if (dom.querySelector('parsererror')) return fallback;
-    const titles = Array.from(dom.querySelectorAll('title'))
+
+  // QQ NT's multiMsg payload is XML that occasionally arrives slightly off-spec:
+  //   - leading BOM / whitespace before `<?xml ...?>` (DOMParser rejects this in
+  //     `application/xml` mode and the resulting document is unusable);
+  //   - bare `&` inside <title> text (URLs, nicknames) that the strict parser
+  //     refuses while every other QQ client happily renders;
+  //   - the occasional <hr> self-close mismatch.
+  // We try strict XML first; if it produces no usable nodes we fall back to the
+  // HTML parser, which is liberal enough to recover every shape we've seen.
+  const cleaned = xml.replace(/^﻿/, '').trim();
+
+  function extract(doc: Document): {
+    titles: string[];
+    summary: string;
+    source: string;
+  } | null {
+    // `getElementsByTagName` is case-insensitive in HTML and case-sensitive in
+    // XML — both fine for our lowercase tags. Skip a doc that's just `<html>`
+    // wrapping our content (HTML parser does that) by searching the whole tree.
+    const titles = Array.from(doc.getElementsByTagName('title'))
       .map((node) => (node.textContent ?? '').trim())
       .filter(Boolean);
-    const summary = (dom.querySelector('summary')?.textContent ?? '').trim();
-    const sourceNode = dom.querySelector('source');
-    const source = sourceNode?.getAttribute('name') ?? '';
-    const mainTitle = titles[0] || source || fallback.mainTitle;
-    const previewLines = titles.slice(1);
-    return {
-      mainTitle,
-      previewLines,
-      summary: summary || fallback.summary,
-      source: source || mainTitle,
-    };
-  } catch {
-    return fallback;
+    const summary = (doc.getElementsByTagName('summary')[0]?.textContent ?? '').trim();
+    const sourceEl = doc.getElementsByTagName('source')[0];
+    const source = sourceEl?.getAttribute('name') ?? '';
+    if (titles.length === 0 && !summary && !source) return null;
+    return { titles, summary, source };
   }
+
+  let picked: { titles: string[]; summary: string; source: string } | null = null;
+  try {
+    const xmlDoc = new DOMParser().parseFromString(cleaned, 'application/xml');
+    if (!xmlDoc.querySelector('parsererror')) {
+      picked = extract(xmlDoc);
+    }
+  } catch {
+    /* fall through to HTML */
+  }
+  if (!picked) {
+    try {
+      // HTML mode is far more forgiving — recovers from missing escapes, bad
+      // self-closing tags, etc. Browsers lowercase tag names, but ours already
+      // are, and the HTML parser keeps custom elements like <msg>/<item> intact.
+      const htmlDoc = new DOMParser().parseFromString(cleaned, 'text/html');
+      picked = extract(htmlDoc);
+    } catch {
+      /* give up below */
+    }
+  }
+  if (!picked) return fallback;
+
+  const mainTitle = picked.titles[0] || picked.source || fallback.mainTitle;
+  const previewLines = picked.titles.slice(1);
+  return {
+    mainTitle,
+    previewLines,
+    summary: picked.summary || fallback.summary,
+    source: picked.source || mainTitle,
+  };
 }
 
 /**

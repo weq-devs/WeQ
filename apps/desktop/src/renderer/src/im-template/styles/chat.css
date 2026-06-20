@@ -567,8 +567,8 @@
 .new-message-pill {
 	position: absolute;
 	z-index: 10;
-	bottom: calc(var(--composer-height, 190px) + 14px);
-	right: 16px;
+	bottom: 24px;
+	right: 24px;
 	display: inline-flex;
 	height: 26px;
 	align-items: center;

@@ -55,6 +55,7 @@ export type DirectConversation = ConversationBase & {
 	otherUser: User;
 	group: null;
 	members: [];
+	chatType?: string | number;
 };
 
 export type GroupConversation = ConversationBase & {

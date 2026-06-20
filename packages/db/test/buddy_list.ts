@@ -22,6 +22,7 @@ async function main() {
   });
 
   const list = await db.listBuddies(10);
+  console.log(list);
   console.log(`[test:buddy-list] Found ${list.length} buddies.`);
   if (list.length > 0) {
     console.log('[test:buddy-list] Sample Result:');

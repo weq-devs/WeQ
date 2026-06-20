@@ -961,10 +961,17 @@
     gap: 0.85rem;
     padding-bottom: 0.95rem;
     border-bottom: 1px solid rgba(0, 153, 255, 0.16);
+  }
+  /* Only the dedicated spacer is a drag handle, so clicks on the title /
+     buttons / surrounding space still reach JS — needed so the account
+     popover's outside-click handler fires when the user clicks the header. */
+  .weq-select-head-drag {
+    flex: 1;
+    align-self: stretch;
     -webkit-app-region: drag;
   }
   .weq-select-head button { -webkit-app-region: no-drag; }
-  .weq-select-head-title { display: flex; flex-direction: column; gap: 0.15rem; }
+  .weq-select-head-title { display: flex; flex-direction: column; gap: 0.15rem; -webkit-app-region: no-drag; }
   .weq-select-head-tag { font-size: 12.5px; font-weight: 500; color: #0099ff; }
   .weq-select-head-h { font-size: 20px; color: #0a2847; line-height: 1.1; }
   .weq-select-body {
@@ -1125,6 +1132,7 @@
     border-radius: 999px;
     cursor: pointer;
     transition: background-color 140ms ease, border-color 140ms ease;
+    -webkit-app-region: no-drag;
   }
   .weq-acct-switch:hover {
     background: rgba(0, 153, 255, 0.14);
@@ -1136,7 +1144,9 @@
   .weq-acct-switchwrap { position: relative; }
   .weq-acct-pop {
     position: absolute;
-    z-index: 40;
+    /* Stay above the header's drag-handle spacer so the top rows are
+       clickable instead of being eaten by the Electron drag region. */
+    z-index: 130;
     top: calc(100% + 0.55rem);
     left: 50%;
     width: 16rem;
@@ -1149,6 +1159,7 @@
     background: rgba(255, 255, 255, 0.9);
     box-shadow: 0 22px 46px -22px rgba(7, 31, 61, 0.4);
     backdrop-filter: blur(10px);
+    -webkit-app-region: no-drag;
   }
   .weq-acct-pop.is-up {
     top: auto;
@@ -1704,11 +1715,30 @@ html[data-theme="dark"] .app-title-bar-signature {
 
 .app-shell .rail-avatar,
 .app-shell .rail-nav button,
-.app-shell .rail-footer button,
-.weq-rail-signout {
+.app-shell .rail-footer button {
   width: 38px;
   height: 38px;
   border-radius: 6px;
+}
+
+/* Scale only the messages & contacts tabs (~1.2×); leave tools and footer alone. */
+.app-shell .rail-nav button.rail-tab-messages,
+.app-shell .rail-nav button.rail-tab-contacts {
+  width: 46px;
+  height: 46px;
+  border-radius: 8px;
+}
+
+.app-shell .rail-nav button.rail-tab-messages .rail-tab-icon,
+.app-shell .rail-nav button.rail-tab-contacts .rail-tab-icon {
+  width: 26px;
+  height: 26px;
+}
+
+.app-shell .rail-nav button.rail-tab-messages .rail-tab-icon > svg,
+.app-shell .rail-nav button.rail-tab-contacts .rail-contact-icon {
+  width: 26px;
+  height: 26px;
 }
 
 .app-shell .rail-avatar .avatar {
@@ -1734,12 +1764,30 @@ html[data-theme="dark"] .app-title-bar-signature {
 
 .app-shell .rail-nav,
 .app-shell .rail-footer {
-  gap: 24px;
+  gap: 8px;
 }
 
-.app-shell .rail-footer button,
-.app-shell .weq-rail-signout {
+.app-shell .rail-footer button {
   height: 30px;
+}
+
+/* Account-footer avatar is intentionally larger than other rail buttons —
+   sits at the very bottom and represents the current account. */
+.app-shell .rail-footer .weq-rail-account-footer,
+.app-shell .rail-footer .weq-rail-account-footer .weq-rail-account-avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 10px;
+}
+
+/* Popover buttons should not be constrained by rail-footer button styles */
+.app-shell .rail-footer .weq-rail-account-popover .weq-rail-account-item,
+.app-shell .rail-footer .weq-rail-account-popover .weq-rail-account-signout {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  width: 100%;
+  height: auto;
 }
 
 .app-shell .rail-footer {
@@ -1966,28 +2014,205 @@ html[data-theme="dark"] .app-title-bar-signature {
   grid-row: 2 !important;
 }
 
-.weq-rail-signout {
+/* Rail footer: settings button */
+.weq-rail-settings {
   display: grid;
   place-items: center;
   border: 0;
   background: transparent;
   color: #111111;
   cursor: pointer;
+  transition: color 0.2s ease, background 0.2s ease;
 }
 
-.weq-rail-signout:hover,
-.weq-rail-signout:focus-visible {
+.weq-rail-settings:hover,
+.weq-rail-settings:focus-visible {
   background: #dcdde0;
   color: #0099f7;
   outline: none;
 }
 
-.weq-rail-signout svg {
-  width: 22px;
-  height: 22px;
+/* Rail footer: current-account avatar + switch popover */
+.weq-rail-account-footer {
+  position: relative;
+  display: grid;
+  place-items: center;
 }
 
-.weq-template-credit-layer {
+.weq-rail-account-avatar {
+  display: grid;
+  place-items: center;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 0.15s ease;
+}
+
+.weq-rail-account-avatar:hover {
+  transform: scale(1.04);
+}
+
+.weq-rail-account-avatar:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.weq-rail-account-avatar .weq-avatar-fallback,
+.weq-rail-account-avatar img {
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: inherit;
+}
+
+.weq-rail-account-popover {
+  position: absolute;
+  left: calc(100% + 10px);
+  bottom: 0;
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  width: 220px;
+  padding: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(20px);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.14);
+  font-family: inherit;
+  color: #111111;
+}
+
+.weq-rail-account-popover-head {
+  padding: 4px 10px 3px;
+}
+
+.weq-rail-account-popover-title {
+  color: #8a8a8a;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.4px;
+}
+
+.weq-rail-account-empty {
+  padding: 18px 10px;
+  color: #8a8a8a;
+  font-size: 13px;
+  text-align: center;
+}
+
+.weq-rail-account-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.weq-rail-account-list li {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.weq-rail-account-item {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  width: 100%;
+  height: auto;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.weq-rail-account-item:hover {
+  background: #f1f3f5;
+}
+
+.weq-rail-account-item:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.weq-rail-account-item > .weq-avatar-img,
+.weq-rail-account-item > .weq-avatar-fallback {
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.weq-rail-account-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.weq-rail-account-item-name {
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weq-rail-account-item-uin {
+  color: #8a8a8a;
+  font-size: 11.5px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weq-rail-account-signout {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: auto;
+  padding: 10px 12px;
+  margin-top: 6px;
+  border: 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 0 0 6px 6px;
+  background: transparent;
+  color: #d33;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.weq-rail-account-signout > svg {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+}
+
+.weq-rail-account-signout:hover {
+  background: rgba(221, 51, 51, 0.08);
+}
+
+.weq-rail-account-signout:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+/* Settings dialog (lightbox) */
+.weq-settings-layer {
   position: fixed;
   inset: 0;
   z-index: 80;
@@ -1997,48 +2222,25 @@ html[data-theme="dark"] .app-title-bar-signature {
   backdrop-filter: blur(4px);
 }
 
-.weq-template-credit-dialog {
+.weq-settings-dialog {
   position: relative;
-  width: min(380px, calc(100vw - 48px));
+  display: grid;
+  grid-template-columns: 216px minmax(0, 1fr);
+  width: min(864px, calc(100vw - 48px));
+  height: min(576px, calc(100vh - 80px));
   border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 8px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.98);
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.16);
-  padding: 24px 24px 22px;
+  overflow: hidden;
   color: #161616;
 }
 
-.weq-template-credit-dialog h2 {
-  margin: 0 0 14px;
-  font-size: 18px;
-  font-weight: 600;
-  line-height: 1.25;
-}
-
-.weq-template-credit-dialog p {
-  margin: 0;
-  color: #525252;
-  font-size: 14px;
-  line-height: 1.7;
-}
-
-.weq-template-credit-dialog p + p {
-  margin-top: 10px;
-}
-
-.weq-template-credit-dialog a {
-  color: #0099f7;
-  text-decoration: none;
-}
-
-.weq-template-credit-dialog a:hover {
-  text-decoration: underline;
-}
-
-.weq-template-credit-close {
+.weq-settings-close {
   position: absolute;
-  top: 12px;
-  right: 12px;
+  top: 10px;
+  right: 10px;
+  z-index: 1;
   display: grid;
   width: 28px;
   height: 28px;
@@ -2050,11 +2252,96 @@ html[data-theme="dark"] .app-title-bar-signature {
   cursor: pointer;
 }
 
-.weq-template-credit-close:hover,
-.weq-template-credit-close:focus-visible {
+.weq-settings-close:hover,
+.weq-settings-close:focus-visible {
   background: #eeeeee;
   color: #111111;
   outline: none;
+}
+
+.weq-settings-nav {
+  border-right: 1px solid rgba(0, 0, 0, 0.06);
+  padding: 18px 10px;
+  background: #fafafa;
+  overflow-y: auto;
+}
+
+.weq-settings-nav-title {
+  margin: 0 8px 14px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.weq-settings-nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.weq-settings-nav-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #1f1f1f;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.weq-settings-nav-item:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.weq-settings-nav-item.is-active {
+  background: rgba(0, 153, 247, 0.1);
+  color: #0099f7;
+}
+
+.weq-settings-nav-icon {
+  display: grid;
+  place-items: center;
+}
+
+.weq-settings-body {
+  padding: 24px 28px;
+  overflow-y: auto;
+}
+
+.weq-settings-section {
+  display: grid;
+  gap: 10px;
+  color: #1f1f1f;
+}
+
+.weq-settings-section-title {
+  margin: 0 0 6px;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.weq-settings-section p {
+  margin: 0;
+  color: #525252;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.weq-settings-section a {
+  color: #0099f7;
+  text-decoration: none;
+}
+
+.weq-settings-section a:hover {
+  text-decoration: underline;
 }
 
 /* ──────────────────────────────────────────────────────────────────────
@@ -2715,6 +3002,11 @@ html[data-theme="dark"] .app-title-bar-signature {
     0 16px 40px rgba(0, 0, 0, 0.22),
     0 4px 12px rgba(0, 0, 0, 0.10);
   overflow: hidden;
+  /* Electron's drag-region hit test runs OUTSIDE the normal compositor stack,
+     so z-index alone can't keep the main title bar's `-webkit-app-region: drag`
+     from swallowing clicks when this window overlaps it. Explicitly punch a
+     no-drag hole here (and let the header opt back in to drag itself). */
+  -webkit-app-region: no-drag;
 }
 
 .weq-forward-header {
@@ -2744,6 +3036,20 @@ html[data-theme="dark"] .app-title-bar-signature {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* Center the title within the header. The header is [title | close-btn];
+     ::before is a phantom spacer that mirrors the close button's width so
+     the title's flex box sits between two equal sidebars, putting its text
+     in the true horizontal center of the window. */
+  text-align: center;
+}
+.weq-forward-header::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  /* Sits to the LEFT of the title (header is row-flex), balancing the close
+     button on the right. Pointer-events: none keeps it from eating drags. */
+  pointer-events: none;
 }
 
 .weq-forward-close {

@@ -30,13 +30,18 @@ const PID_POLL_MS = 5000;
 /** Refresh rkeys this long before they expire. */
 const RKEY_REFRESH_SKEW_MS = 5 * 60 * 1000;
 
+/**
+ * Global registry of injected pids — shared across all AccountMonitorService
+ * instances to prevent re-injecting the same QQ.exe when switching accounts.
+ * Key = pid, Value = true when injected.
+ */
+const injectedPids = new Set<number>();
+
 export class AccountMonitorService {
   private running = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   /** The pid we currently believe hosts this account, or null. */
   private attachedPid: number | null = null;
-  /** The pid we've already injected the hook into (avoids re-injecting). */
-  private injectedPid: number | null = null;
   /** Last online state written to config — avoids rewriting it every tick. */
   private lastOnline: boolean | null = null;
   private lastPid: number | null | undefined = undefined;
@@ -60,7 +65,6 @@ export class AccountMonitorService {
       this.timer = null;
     }
     this.attachedPid = null;
-    this.injectedPid = null;
     this.lastOnline = null;
     this.lastPid = undefined;
   }
@@ -192,9 +196,9 @@ export class AccountMonitorService {
   // ---- rkey harvesting ----------------------------------------------------
 
   private async ensureInjected(pid: number): Promise<void> {
-    if (this.injectedPid === pid) return;
+    if (injectedPids.has(pid)) return;
     await this.nt.injectAndGetStatusEmbedded(pid);
-    this.injectedPid = pid;
+    injectedPids.add(pid);
   }
 
   private async refreshRkey(pid: number): Promise<void> {

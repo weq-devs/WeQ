@@ -68,14 +68,19 @@
 
 .search-box {
 	display: grid;
-	grid-template-columns: 22px minmax(0, 1fr);
+	grid-template-columns: 18px minmax(0, 1fr);
 	align-items: center;
-	height: 38px;
-	gap: 8px;
-	padding: 0 12px;
+	height: 32px;
+	gap: 6px;
+	padding: 0 10px;
 	border-radius: 6px;
 	background: #f4f4f4;
 	color: #9a9a9a;
+}
+
+.search-box svg {
+	width: 18px;
+	height: 18px;
 }
 
 .search-box input {
@@ -85,7 +90,7 @@
 	outline: 0;
 	background: transparent;
 	color: #111111;
-	font-size: 15px;
+	font-size: 13.5px;
 }
 
 .search-box input::placeholder {
@@ -95,7 +100,7 @@
 .sidebar-add {
 	display: grid;
 	width: 42px;
-	height: 38px;
+	height: 32px;
 	place-items: center;
 	border: 0;
 	border-radius: 6px;

@@ -3,9 +3,12 @@ import type { Conversation, Message, User } from "./types";
 import { displayUserName } from "./user";
 
 export function chatHeaderTitle(conversation: Conversation) {
-	return conversation.type === "group"
-		? `${conversation.group.name} (${conversation.group.memberCount})`
-		: displayUserName(conversation.otherUser);
+	if (conversation.type === "group") {
+		return `${conversation.group.name} (${conversation.group.memberCount})`;
+	}
+	const userName = displayUserName(conversation.otherUser);
+	const chatType = String(conversation.chatType || '');
+	return chatType.includes('TEMPC2CFROMGROUP') ? `${userName} 临时会话` : userName;
 }
 
 export function isBotConversation(conversation: Conversation) {

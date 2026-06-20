@@ -72,6 +72,7 @@
 	background: transparent;
 	color: #111111;
 	cursor: pointer;
+	transition: color 0.3s ease, background 0.2s ease;
 }
 
 .rail-nav button.rail-desktop-hidden {
@@ -81,8 +82,8 @@
 .rail-tab-icon {
 	position: relative;
 	display: grid;
-	width: 28px;
-	height: 28px;
+	width: 22px;
+	height: 22px;
 	place-items: center;
 	overflow: hidden;
 	border-radius: 8px;
@@ -97,10 +98,10 @@
 .rail-tab-messages.active .rail-tab-icon::before,
 .rail-tab-messages.active .rail-tab-icon::after {
 	position: absolute;
-	top: 13px;
+	top: 10px;
 	z-index: 1;
-	width: 4px;
-	height: 4px;
+	width: 3px;
+	height: 3px;
 	border-radius: 50%;
 	background: #ffffff;
 	content: "";
@@ -108,16 +109,16 @@
 }
 
 .rail-tab-messages.active .rail-tab-icon::before {
-	left: 9px;
+	left: 7px;
 }
 
 .rail-tab-messages.active .rail-tab-icon::after {
-	left: 17px;
+	left: 13px;
 }
 
 .rail-contact-icon {
-	width: 28px;
-	height: 28px;
+	width: 22px;
+	height: 22px;
 	overflow: visible;
 }
 
@@ -127,12 +128,14 @@
 	stroke: currentColor;
 	stroke-linecap: round;
 	stroke-linejoin: round;
-	stroke-width: 2.15px;
+	stroke-width: 1.8px;
+	transition: fill 0.3s ease, opacity 0.3s ease;
 }
 
 .rail-contact-body-fill {
 	fill: transparent;
 	stroke: none;
+	transition: fill 0.3s ease;
 }
 
 .rail-contact-collar {

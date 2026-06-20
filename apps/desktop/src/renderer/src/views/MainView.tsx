@@ -16,10 +16,12 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
 } from 'react';
-import { LogOut, X } from 'lucide-react';
+import { Settings } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { client } from '../trpc/client';
+import { RailAccountFooter } from '../components/RailAccountFooter';
+import { SettingsDialog } from '../components/SettingsDialog';
 import {
   ChatMainContent,
   ChatShell,
@@ -571,6 +573,7 @@ function contactToConversation(c: RecentContactWire, user: User): Conversation |
       preference: fallbackPreference,
       unreadCount: 0,
       lastMessage,
+      chatType: c.chatType,
     };
   }
 
@@ -1143,7 +1146,8 @@ export function MainView(): ReactElement {
   const buddyRequests = trpc.account.listBuddyRequests.useQuery({ limit: 2000 });
   const allGroups = trpc.account.listAllGroups.useQuery({ limit: 2000 });
   const openedUin = useViewState((s) => s.openedUin);
-  const goTo = useViewState((s) => s.goTo);
+
+  // const goTo = useViewState((s) => s.goTo);
   const setOpenedUin = useViewState((s) => s.setOpenedUin);
   // Seq-window message model: a single ASC (oldest→newest) list for the open
   // conversation, plus whether it still reaches the latest message and whether
@@ -1207,7 +1211,7 @@ export function MainView(): ReactElement {
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [trackedConversationId, setTrackedConversationId] = useState<string | null>(null);
   const [conversationPrefs, setConversationPrefs] = useState<ConversationPreferences>({});
-  const [templateCreditOpen, setTemplateCreditOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   
   const [editorState, setEditorState] = useState<{ msgId: string, elements: any[] } | null>(null);
 
@@ -2173,17 +2177,6 @@ export function MainView(): ReactElement {
   }, [selectedConversation?.id, templateMessages.length]);
 
   useEffect(() => {
-    if (!templateCreditOpen) return undefined;
-
-    function closeOnEscape(event: KeyboardEvent): void {
-      if (event.key === 'Escape') setTemplateCreditOpen(false);
-    }
-
-    document.addEventListener('keydown', closeOnEscape);
-    return () => document.removeEventListener('keydown', closeOnEscape);
-  }, [templateCreditOpen]);
-
-  useEffect(() => {
     if (!searchOpen) return undefined;
     function onKey(event: KeyboardEvent): void {
       if (event.key === 'Escape') setSearchOpen(false);
@@ -2191,12 +2184,6 @@ export function MainView(): ReactElement {
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [searchOpen]);
-
-  async function closeAccount(): Promise<void> {
-    await client.bootstrap.closeAccount.mutate();
-    setOpenedUin(null);
-    goTo('bootstrap');
-  }
 
   function updateConversationPreference(
     conversationId: string,
@@ -2236,9 +2223,22 @@ export function MainView(): ReactElement {
         contactBadgeCount={0}
         showTools={false}
         railFooterContent={
-          <button className="weq-rail-signout" type="button" title="Sign out" onClick={() => void closeAccount()}>
-            <LogOut size={22} />
-          </button>
+          <>
+            <button
+              type="button"
+              className="weq-rail-settings"
+              title="设置"
+              aria-label="设置"
+              onClick={() => setSettingsOpen(true)}
+            >
+              <Settings size={22} strokeWidth={1.5} />
+            </button>
+            <RailAccountFooter
+              currentUin={user.identityValue}
+              currentName={user.displayName}
+              currentAvatarUrl={user.avatarUrl}
+            />
+          </>
         }
         friendNoticeCount={contactRequests.length}
         groupNoticeCount={groupRequests.length}
@@ -2246,7 +2246,7 @@ export function MainView(): ReactElement {
         onOpenSettings={noopAsync}
         onOpenProfile={noopAsync}
         onOpenAbout={noopAsync}
-        onOpenHelp={() => setTemplateCreditOpen(true)}
+        onOpenHelp={noopAsync}
         onOpenInvite={noopAsync}
         onQueryChange={shell.setQuery}
         onQuickInvite={noopAsync}
@@ -2391,36 +2391,7 @@ export function MainView(): ReactElement {
         />
       ) : null}
 
-      {templateCreditOpen ? (
-        <div className="weq-template-credit-layer" role="presentation" onMouseDown={() => setTemplateCreditOpen(false)}>
-          <section
-            className="weq-template-credit-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="weq-template-credit-title"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <button
-              className="weq-template-credit-close"
-              type="button"
-              title="Close"
-              aria-label="Close"
-              onClick={() => setTemplateCreditOpen(false)}
-            >
-              <X size={18} />
-            </button>
-            <h2 id="weq-template-credit-title">消息列表说明</h2>
-            <p>
-              当前消息列表基于{' '}
-              <a href="https://github.com/dogxii/webark-im-template" target="_blank" rel="noreferrer">
-                dogxii/webark-im-template
-              </a>{' '}
-              项目进行适配与修改。
-            </p>
-            <p>感谢 dogxii 及原项目贡献者提供的优秀 IM 模板基础。</p>
-          </section>
-        </div>
-      ) : null}
+      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       </ForwardKindContext.Provider>
     </ReplyJumpContext.Provider>
   );

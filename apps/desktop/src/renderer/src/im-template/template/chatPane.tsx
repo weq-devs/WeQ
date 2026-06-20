@@ -7,6 +7,7 @@ import {
 	ChevronsUp,
 	CirclePlus,
 	FileText,
+	MessageSquareText,
 	SendHorizontal,
 	Smile,
 	Sparkles,
@@ -61,7 +62,7 @@ import type { MessageRenderer } from "./messageRenderers";
 import { filterMentionMembers, mentionText } from "./mentions";
 import { MessageTimeDivider, shouldShowMessageTime } from "./messageTime";
 import { defaultConversationPreference } from "./preferences";
-import { Avatar, EmptyState } from "./primitives";
+import { Avatar, EmptyState, LoadingState } from "./primitives";
 import type {
 	Conversation,
 	ConversationPreference,
@@ -1273,9 +1274,9 @@ export function ChatPane({
 				onScroll={handleMessageScroll}
 			>
 				{loading ? (
-					<div className={cn("loading-line")}>加载中</div>
+					<LoadingState />
 				) : visibleMessages.length === 0 ? (
-					<EmptyState title="还没有消息" body="发出第一条消息。" />
+					<EmptyState title="还没有消息" body="发出第一条消息。" icon={<MessageSquareText />} />
 				) : (
 					visibleMessages.map((message, index) => {
 						const previous = visibleMessages[index - 1];

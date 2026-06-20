@@ -3,23 +3,31 @@
 	display: grid;
 	place-items: center;
 	align-content: center;
-	gap: 8px;
+	gap: 12px;
 	min-height: 220px;
 	color: #9a9a9a;
 	text-align: center;
+}
+
+.empty-state svg {
+	width: 56px;
+	height: 56px;
+	color: #c0c0c0;
+	opacity: 0.85;
 }
 
 .empty-state strong,
 .chat-empty h1 {
 	margin: 0;
 	color: #111111;
-	font-size: 20px;
+	font-size: 18px;
 	font-weight: 600;
 }
 
 .empty-state span,
 .chat-empty p {
 	margin: 0;
+	font-size: 14px;
 }
 
 .chat-empty {
@@ -33,9 +41,25 @@
 	opacity: 0.96;
 }
 
-.loading-line {
-	align-self: center;
+.loading-state {
+	display: grid;
+	place-items: center;
+	gap: 12px;
+	padding: 40px 20px;
 	color: #8a8a8a;
+}
+
+.loading-spinner {
+	width: 32px;
+	height: 32px;
+	border: 3px solid #e5e5e5;
+	border-top-color: #5b9aff;
+	border-radius: 50%;
+	animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+	to { transform: rotate(360deg); }
 }
 
 .auth-screen,
@@ -322,10 +346,19 @@ html[data-theme="dark"] .empty-state,
 html[data-theme="dark"] .chat-empty,
 html[data-theme="dark"] .auth-card p,
 html[data-theme="dark"] .invite-card p,
-html[data-theme="dark"] .loading-line,
+html[data-theme="dark"] .loading-state,
 html[data-theme="dark"] .emoji-section h3,
 html[data-theme="dark"] .kaomoji-grid span {
 	color: #8f9297;
+}
+
+html[data-theme="dark"] .empty-state svg {
+	color: #4a4d52;
+}
+
+html[data-theme="dark"] .loading-spinner {
+	border-color: #2a2d30;
+	border-top-color: #26a8ff;
 }
 
 html[data-theme="dark"] .conversation-row.active,

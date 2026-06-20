@@ -42,11 +42,21 @@ export function Avatar({
 	);
 }
 
-export function EmptyState({ title, body }: { title: string; body: string }) {
+export function EmptyState({ title, body, icon }: { title: string; body: string; icon?: React.ReactNode }) {
 	return (
 		<div className={cn("empty-state")}>
+			{icon}
 			<strong>{title}</strong>
 			<span>{body}</span>
+		</div>
+	);
+}
+
+export function LoadingState({ text = "加载中..." }: { text?: string }) {
+	return (
+		<div className={cn("loading-state")}>
+			<div className={cn("loading-spinner")} />
+			<span>{text}</span>
 		</div>
 	);
 }

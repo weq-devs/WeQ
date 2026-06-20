@@ -1,8 +1,8 @@
 ﻿// @ts-nocheck
-import { BellOff, Bot, ChevronRight, PenLine } from "lucide-react";
+import { BellOff, Bot, ChevronRight, PenLine, MessageSquare, Users, UserRound } from "lucide-react";
 import { useMemo } from "react";
 import { cn } from "./classNames";
-import { Avatar, EmptyState } from "./primitives";
+import { Avatar, EmptyState, LoadingState } from "./primitives";
 import { isBotConversation } from "./conversationDisplay";
 import { messageMentionsUser } from "./mentions";
 import type {
@@ -47,7 +47,7 @@ export function ConversationList({
 	}, [conversations, preferences, query]);
 
 	if (filtered.length === 0) {
-		return <EmptyState title="暂无会话" body="从联系人开始一段聊天。" />;
+		return <EmptyState title="暂无会话" body="从联系人开始一段聊天。" icon={<MessageSquare />} />;
 	}
 
 	return (
@@ -147,7 +147,7 @@ export function GroupList({
 	}, [conversations, query]);
 
 	if (groups.length === 0) {
-		return <EmptyState title="暂无群聊" body="从左上角 + 创建一个群聊。" />;
+		return <EmptyState title="暂无群聊" body="从左上角 + 创建一个群聊。" icon={<Users />} />;
 	}
 
 	return (
@@ -211,6 +211,7 @@ export function ContactList({
 			<EmptyState
 				title="暂无联系人"
 				body="通过 ID 搜索或邀请链接添加联系人。"
+				icon={<UserRound />}
 			/>
 		);
 	}

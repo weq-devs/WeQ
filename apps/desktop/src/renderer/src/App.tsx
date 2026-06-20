@@ -16,14 +16,18 @@ import { setWindowLayout } from './lib/windowLayout';
 
 export default function App(): ReactElement {
   const view = useViewState((s) => s.view);
+  const openedUin = useViewState((s) => s.openedUin);
 
   useEffect(() => {
     setWindowLayout(view === 'main' ? 'chat' : 'home');
   }, [view]);
 
+  // Key MainView by openedUin so account switches (without going through
+  // bootstrap) force a remount — drops the old onDbChanged subscription and
+  // rebinds against the new account.
   return (
     <>
-      {view === 'bootstrap' ? <BootstrapView /> : <MainView />}
+      {view === 'bootstrap' ? <BootstrapView /> : <MainView key={openedUin ?? ''} />}
       <DialogHost />
       <ImageLightbox />
       <ForwardWindowHost />

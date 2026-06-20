@@ -112,6 +112,10 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
           <span className="weq-select-head-tag">{mode === 'existing' ? '现有账号配置' : '新的开始'}</span>
           <h2 className="weq-display weq-select-head-h">选择账号 · 验证密钥</h2>
         </div>
+        {/* Drag handle is a dedicated spacer so the title + back button remain
+            normal hit targets; the popover's outside-click handler then fires
+            when the user clicks anywhere on the header. */}
+        <div className="weq-select-head-drag" aria-hidden />
       </header>
 
       <div className="weq-select-body">

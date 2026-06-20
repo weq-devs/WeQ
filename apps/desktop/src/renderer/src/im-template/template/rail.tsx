@@ -1,10 +1,9 @@
 ﻿// @ts-nocheck
 import {
-	CircleHelp,
 	LayoutGrid,
 	MessageCircle,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import type { ReactNode } from "react";
 import { cn } from "./classNames";
 import { Avatar } from "./primitives";
@@ -42,7 +41,16 @@ export function AppRail({
 }) {
 	const [menuOpen, setMenuOpen] = useState(false);
 	const [profileOpen, setProfileOpen] = useState(false);
+	const [pendingView, setPendingView] = useState<MainView | null>(null);
+	const [, startViewTransition] = useTransition();
 	const railRef = useRef<HTMLElement | null>(null);
+	const activeView = pendingView ?? view;
+
+	useEffect(() => {
+		if (pendingView !== null && view === pendingView) {
+			setPendingView(null);
+		}
+	}, [view, pendingView]);
 
 	useEffect(() => {
 		if (!menuOpen && !profileOpen) {
@@ -75,16 +83,16 @@ export function AppRail({
 		};
 	}, [menuOpen, profileOpen]);
 
-	function openHelp() {
-		setMenuOpen(false);
-		setProfileOpen(false);
-		onOpenHelp();
-	}
-
 	function selectView(nextView: MainView) {
 		setMenuOpen(false);
 		setProfileOpen(false);
-		onViewChange(nextView);
+		// Paint the active-state change immediately, then push the heavy
+		// view switch into a transition so the button animation isn't blocked
+		// by downstream rendering work (e.g. loading a large message list).
+		setPendingView(nextView);
+		startViewTransition(() => {
+			onViewChange(nextView);
+		});
 	}
 
 	return (
@@ -123,14 +131,14 @@ export function AppRail({
 				<nav className={cn("rail-nav rail-nav-primary")} aria-label="Primary">
 					<button
 						className={cn(
-							railButtonClass(view === "messages"),
+							railButtonClass(activeView === "messages"),
 							"rail-tab rail-tab-messages",
 						)}
 						onClick={() => selectView("messages")}
 						title="消息"
 					>
 						<span className={cn("rail-tab-icon")}>
-							<MessageCircle size={28} />
+							<MessageCircle size={22} strokeWidth={1.5} />
 						</span>
 						<span className={cn("rail-label")}>消息</span>
 						{messageBadgeCount > 0 ? (
@@ -141,7 +149,7 @@ export function AppRail({
 					</button>
 					<button
 						className={cn(
-							railButtonClass(view === "contacts"),
+							railButtonClass(activeView === "contacts"),
 							"rail-tab rail-tab-contacts",
 						)}
 						onClick={() => selectView("contacts")}
@@ -159,7 +167,7 @@ export function AppRail({
 					</button>
 					<button
 						className={cn(
-							railButtonClass(view === "tools"),
+							railButtonClass(activeView === "tools"),
 							"rail-mobile-tool rail-tab rail-tab-tools",
 							!showTools && "rail-desktop-hidden",
 						)}
@@ -168,18 +176,13 @@ export function AppRail({
 						onClick={() => selectView("tools")}
 					>
 						<span className={cn("rail-tab-icon")}>
-							<LayoutGrid size={28} />
+							<LayoutGrid size={22} strokeWidth={1.5} />
 						</span>
 						<span className={cn("rail-label")}>应用</span>
 					</button>
 				</nav>
 			</div>
-			<div className={cn("rail-footer")}>
-				<button title="帮助" onClick={openHelp}>
-					<CircleHelp size={28} />
-				</button>
-				{footerContent}
-			</div>
+			<div className={cn("rail-footer")}>{footerContent}</div>
 		</aside>
 	);
 }
@@ -195,15 +198,15 @@ function railButtonClass(active: boolean) {
 function ContactRailIcon() {
 	return (
 		<svg className="rail-contact-icon" viewBox="0 0 28 28" aria-hidden="true">
-			<circle className="rail-contact-head" cx="14" cy="7.1" r="5.4" />
+			<circle className="rail-contact-head" cx="14" cy="7.8" r="4.5" />
 			<path
 				className="rail-contact-body-fill"
-				d="M3.8 24.5a10.2 8.2 0 0 1 20.4 0H3.8Z"
+				d="M4.5 24.5a9.5 7.5 0 0 1 19 0H4.5Z"
 			/>
-			<path className="rail-contact-collar" d="M10.8 16.8h6.4L14 21.1Z" />
+			<path className="rail-contact-collar" d="M11.2 17.5h5.6L14 21Z" />
 			<path
 				className="rail-contact-body-line"
-				d="M3.8 24.5a10.2 8.2 0 0 1 20.4 0"
+				d="M4.5 24.5a9.5 7.5 0 0 1 19 0"
 			/>
 		</svg>
 	);
