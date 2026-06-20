@@ -24,6 +24,7 @@ import {
   forwardRecordToWire,
   groupBulletinToWire,
   groupMsgToWire,
+  groupNotifyToWire,
   recentContactToWire,
   userProfileToWire,
   groupDetailToWire,
@@ -190,6 +191,15 @@ export const accountRouter = router({
       return requests.map(buddyRequestToWire);
     }),
 
+  /** List group notifications. */
+  listGroupNotifies: procedure
+    .input(pageInput.optional())
+    .query(async ({ input }) => {
+      const page = input ?? { limit: 100, offset: 0 };
+      const notifies = await requireServices().groupInfo.listGroupNotifies(page.limit, page.offset);
+      return notifies.map(groupNotifyToWire);
+    }),
+
   /** Get detailed profile by NT uid. */
   getProfile: procedure
     .input(z.object({ uid: z.string().min(1) }))
@@ -211,6 +221,18 @@ export const accountRouter = router({
     .input(z.object({ uids: z.array(z.string().min(1)).min(1).max(50) }))
     .query(async ({ input }) => {
       return requireServices().profile.nicksByUids(input.uids);
+    }),
+
+  /**
+   * Batch-resolve full profiles by uid (cached profiles only). Lets the
+   * renderer fill many buddy / notify profiles in one round-trip instead of
+   * one query per uid.
+   */
+  getProfilesByUids: procedure
+    .input(z.object({ uids: z.array(z.string().min(1)).min(1).max(200) }))
+    .query(async ({ input }) => {
+      const profiles = await requireServices().profile.profilesByUids(input.uids);
+      return profiles.map(userProfileToWire);
     }),
 
   /** List cached user profiles. */

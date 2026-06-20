@@ -37,3 +37,6 @@ export * from './profile';
 
 // --- file_assistant business ---
 export * from './file_assistant';
+
+// --- emoji business ---
+export * from './emoji';

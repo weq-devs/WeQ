@@ -51,6 +51,13 @@ export class ProfileService {
   }
 
   /**
+   * Batch-resolve full profiles by uid (cached profiles only).
+   */
+  async profilesByUids(uids: string[]): Promise<UserProfile[]> {
+    return this.session.profileInfo.profilesByUids(uids);
+  }
+
+  /**
    * Get detailed profile for the currently logged-in user.
    */
   async getSelfProfile(): Promise<UserProfile | null> {

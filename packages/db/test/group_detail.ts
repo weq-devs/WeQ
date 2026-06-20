@@ -21,11 +21,11 @@ async function main() {
     algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' },
   });
 
-  const all = await db.listAll(5);  console.log(`[test:group-detail] Found ${all.length} groups.`);
+  const all = await db.listAll(100);  console.log(`[test:group-detail] Found ${all.length} groups.`);
 
   if (all.length > 0) {
     console.log('[test:group-detail] Sample Result (First Group):');
-    console.log(JSON.stringify(all[0], bigintReplacer, 2));
+    console.log(JSON.stringify(all, bigintReplacer, 2));
   }
 
   db.close();

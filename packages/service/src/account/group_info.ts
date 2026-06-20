@@ -9,10 +9,16 @@ import type {
   GroupDetail,
   GroupBulletin,
   GroupMember,
+  GroupNotify,
 } from '@weq/db';
+import { GroupNotifyService } from './group_notify';
 
 export class GroupInfoService {
-  constructor(private readonly session: AccountSession) {}
+  private readonly groupNotifyService: GroupNotifyService;
+
+  constructor(private readonly session: AccountSession) {
+    this.groupNotifyService = new GroupNotifyService(session);
+  }
 
   /**
    * List essence (pinned) messages for a group, newest first.
@@ -76,5 +82,12 @@ export class GroupInfoService {
    */
   async listUserGroups(uid: string, limit = 100, offset = 0): Promise<GroupMember[]> {
     return this.session.groupMembers.listUserGroups(uid, limit, offset);
+  }
+
+  /**
+   * List all group notifications (both normal and doubt).
+   */
+  async listGroupNotifies(limit = 100, offset = 0): Promise<GroupNotify[]> {
+    return this.groupNotifyService.listAllNotifications(limit, offset);
   }
 }

@@ -21,6 +21,7 @@ import type {
   GroupMember,
   GroupMemberLevelInfo,
   GroupMsg,
+  GroupNotify,
   RecentContact,
   UserProfile,
 } from '@weq/db';
@@ -121,6 +122,21 @@ export interface BuddyRequestWire {
   status: number;
   sourceGroupCode: string;
   initiator: number;
+}
+
+export interface GroupNotifyWire {
+  msgTime: number;
+  status: number;
+  verifyStatus: number;
+  groupUin: string;
+  groupName: string;
+  operatedUid: string;
+  operatedNick: string;
+  operatorUid: string;
+  operatorNick: string;
+  opTime: number;
+  remark: string;
+  systemRemark: string;
 }
 
 export interface GroupBulletinWire {
@@ -355,6 +371,24 @@ export function buddyRequestToWire(r: BuddyRequest): BuddyRequestWire {
     status: r.status,
     sourceGroupCode: r.sourceGroupCode.toString(),
     initiator: r.initiator,
+  };
+}
+
+export function groupNotifyToWire(n: GroupNotify): GroupNotifyWire {
+  return {
+    msgTime: n.msgTime,
+    status: n.status,
+    verifyStatus: n.verifyStatus,
+    groupUin: n.groupInfo?.groupUin.toString() ?? '0',
+    groupName: n.groupInfo?.groupName ?? '',
+    operatedUid: n.operatedUser?.uid ?? '',
+    operatedNick: n.operatedUser?.nick ?? '',
+    operatorUid: n.operatorUser?.uid ?? '',
+    operatorNick: n.operatorUser?.nick ?? '',
+    opTime: n.opTime,
+    remark: n.remark,
+    systemRemark: n.systemRemark,
+    sourceTable: n.sourceTable,
   };
 }
 

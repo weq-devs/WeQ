@@ -24,7 +24,7 @@ async function main() {
   const list = await db.listRequests(10);  console.log(`[test:buddy-req] Found ${list.length} requests.`);
   if (list.length > 0) {
     console.log('[test:buddy-req] Sample Result:');
-    console.log(JSON.stringify(list[0], bigintReplacer, 2));
+    console.log(JSON.stringify(list, bigintReplacer, 2));
   }
 
   db.close();

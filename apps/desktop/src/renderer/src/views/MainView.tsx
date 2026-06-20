@@ -20,6 +20,8 @@ import { Settings } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { client } from '../trpc/client';
+import { useProfileResolver } from '../hooks/useProfileResolver';
+import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
 import { RailAccountFooter } from '../components/RailAccountFooter';
 import { SettingsDialog } from '../components/SettingsDialog';
 import {
@@ -205,6 +207,10 @@ type UserProfileWire = {
     id?: number;
     desc?: string;
   };
+  extRelation?: {
+    preselectedIds: number[];
+    displayId?: number;
+  };
 };
 
 type GroupMemberWire = {
@@ -243,6 +249,23 @@ type BuddyRequestWire = {
   status: number;
   sourceGroupCode: string;
   initiator: number;
+  isAccepted: number;
+};
+
+type GroupNotifyWire = {
+  msgTime: number;
+  status: number;
+  verifyStatus: number;
+  groupUin: string;
+  groupName: string;
+  operatedUid: string;
+  operatedNick: string;
+  operatorUid: string;
+  operatorNick: string;
+  opTime: number;
+  remark: string;
+  systemRemark: string;
+  sourceTable: 'group_notify_list' | 'doubt_group_notify_list';
 };
 
 type GroupDetailWire = {
@@ -350,6 +373,12 @@ function secondsToIsoTime(seconds: number | string | undefined): string | null {
   return new Date(value * 1000).toISOString();
 }
 
+function millisecondsToIsoTime(ms: number | string | undefined): string | null {
+  const value = Number(ms);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return new Date(value).toISOString();
+}
+
 function chatTypeKind(chatType: string | number): 'direct' | 'group' | null {
   const s = String(chatType);
   if (s.includes('C2C')) return 'direct';
@@ -419,10 +448,15 @@ function buddyToContact(
     categoryId: buddy.categoryId,
     categoryName: category?.name || null,
     qid: buddy.qid || profile?.qid || null,
+    nick: profile?.nick || null,
     remark: profile?.remark || null,
     age: profile?.age,
     gender: profile?.gender,
+    birthYear: profile?.birthYear,
+    birthMonth: profile?.birthMonth,
+    birthDay: profile?.birthDay,
     intimacy: profile?.intimacy,
+    extRelation: profile?.extRelation ?? null,
     customStatus,
     onlineStatus: customStatus,
   };
@@ -480,7 +514,7 @@ function buddyRequestToContactRequest(request: BuddyRequestWire, profileByUid: M
     identityLabel: uin && uin !== '0' ? 'QQ' : 'UID',
     identityValue: uin && uin !== '0' ? uin : request.peerUid,
     username: request.peerUid,
-    displayName: request.nick || displayProfileName(profile) || request.peerUid,
+    displayName: profile?.nick || profile?.remark || request.nick || request.peerUid,
     avatarUrl: senderAvatarSrc(uin) || profile?.avatarUrl || null,
     signature: profile?.signature || null,
     createdAt: secondsToIsoTime(request.timestamp) ?? new Date(0).toISOString(),
@@ -488,13 +522,65 @@ function buddyRequestToContactRequest(request: BuddyRequestWire, profileByUid: M
 
   return {
     id: `buddy-request:${request.peerUid}:${request.timestamp}`,
-    direction: request.initiator === 1 ? 'incoming' : 'outgoing',
+    direction: request.isAccepted === 0 ? 'incoming' : 'outgoing',
     status: requestStatus(request.status),
-    message: request.verifyMsg || request.source || null,
+    message: request.verifyMsg || null,
     createdAt: contact.createdAt,
     respondedAt: null,
     user: contact,
   } as const;
+}
+
+function groupNotifyToGroupRequest(
+  notify: GroupNotifyWire,
+  profileByUid: Map<string, UserProfileWire>,
+  groupsById: Map<string, Conversation>
+): GroupJoinRequest | null {
+  const groupConversation = groupsById.get(notify.groupUin);
+  if (!groupConversation || groupConversation.type !== 'group') return null;
+
+  const profile = profileByUid.get(notify.operatedUid);
+  const uin = profile?.uin ?? '';
+  const user: Contact = {
+    id: notify.operatedUid,
+    identityLabel: uin && uin !== '0' ? 'QQ' : 'UID',
+    identityValue: uin && uin !== '0' ? uin : notify.operatedUid,
+    username: notify.operatedUid,
+    displayName: profile?.nick || profile?.remark || notify.operatedNick || notify.operatedUid,
+    avatarUrl: senderAvatarSrc(uin) || profile?.avatarUrl || null,
+    signature: profile?.signature || null,
+    createdAt: millisecondsToIsoTime(notify.msgTime) ?? new Date(0).toISOString(),
+  };
+
+  const statusText = {
+    1: '申请加入',
+    3: '被设置为管理员',
+    6: '被移出群聊',
+    11: '被管理员拒绝加入',
+    13: '自主退出群聊',
+    15: '被取消管理员权限',
+  }[notify.status] || '群通知';
+
+  return {
+    id: `group-notify:${notify.groupUin}:${notify.operatedUid}:${notify.msgTime}`,
+    direction: notify.status === 1 ? 'incoming' : 'outgoing',
+    status: notify.verifyStatus === 2 ? 'accepted' : notify.verifyStatus === 3 ? 'rejected' : 'pending',
+    message: notify.remark || statusText,
+    createdAt: user.createdAt,
+    respondedAt: notify.verifyStatus !== 0 ? secondsToIsoTime(notify.opTime) : null,
+    group: {
+      id: groupConversation.group.id,
+      conversationId: groupConversation.id,
+      identityLabel: groupConversation.group.identityLabel,
+      identityValue: groupConversation.group.identityValue,
+      name: notify.groupName || groupConversation.group.name,
+      avatarUrl: groupConversation.group.avatarUrl,
+      announcement: groupConversation.group.announcement,
+      memberCount: groupConversation.group.memberCount,
+    },
+    user,
+    isDoubt: notify.sourceTable === 'doubt_group_notify_list',
+  };
 }
 
 function groupRequestFromBuddyRequest(request: BuddyRequestWire, groupsById: Map<string, Conversation>, profileByUid: Map<string, UserProfileWire>) {
@@ -1144,6 +1230,7 @@ export function MainView(): ReactElement {
   const categories = trpc.account.listCategories.useQuery();
   const profiles = trpc.account.listProfiles.useQuery({ limit: 2000 });
   const buddyRequests = trpc.account.listBuddyRequests.useQuery({ limit: 2000 });
+  const groupNotifies = trpc.account.listGroupNotifies.useQuery({ limit: 2000 });
   const allGroups = trpc.account.listAllGroups.useQuery({ limit: 2000 });
   const openedUin = useViewState((s) => s.openedUin);
 
@@ -1242,7 +1329,7 @@ export function MainView(): ReactElement {
     }
   }, [editorState, refreshWindow]);
 
-  const [onlineStatusByUid, setOnlineStatusByUid] = useState<Record<string, string>>({});
+  const [onlineStatusByUid, setOnlineStatusByUid] = useState<Record<string, any>>({});
   // Unread count per conversation id (latest msgSeq - last read seq). Filled
   // asynchronously after the recent-contact list loads / refreshes.
   const [unreadByConv, setUnreadByConv] = useState<Record<string, number>>({});
@@ -1250,15 +1337,10 @@ export function MainView(): ReactElement {
   const [groupMemberHasMore, setGroupMemberHasMore] = useState<Record<string, boolean>>({});
   const [groupMemberLoading, setGroupMemberLoading] = useState<Record<string, boolean>>({});
   const groupMemberLoadingRef = useRef<Record<string, boolean>>({});
-  // Off-page message senders resolved on demand, keyed by groupCode → uid so a
-  // member cached for one group never leaks into another (and per-group cards
-  // don't collide across groups).
-  const [missingMembers, setMissingMembers] = useState<Record<string, Record<string, GroupMemberWire>>>({});
-  // Uids we've already issued a getGroupMembersByUids query for (per group),
-  // regardless of whether the lookup found a member. Stops uids that don't
-  // resolve (e.g. members who left the group, common for poke/mute targets)
-  // from being re-fetched on every render.
-  const attemptedMemberUidsRef = useRef<Record<string, Set<string>>>({});
+  // Off-page message senders resolved on demand (groupCode → uid → member),
+  // batched + deduped by useGroupMemberResolver. Kept separate from the global
+  // profile cache because a group card is a (group × uid) thing, not a profile.
+  const { missingMembers, resolveMembers } = useGroupMemberResolver<GroupMemberWire>();
   const loadingOlderRef = useRef(false);
   const loadingNewerRef = useRef(false);
 
@@ -1279,9 +1361,11 @@ export function MainView(): ReactElement {
   const pendingScrollRestoreRef = useRef<PendingScrollRestore | null>(null);
 
   const user = useMemo(() => currentUser(openedUin, selfProfile.data), [openedUin, selfProfile.data]);
-  const profileByUid = useMemo(() => {
-    return new Map(((profiles.data ?? []) as UserProfileWire[]).map((profile) => [profile.uid, profile]));
-  }, [profiles.data]);
+  // 统一的 profile 内存缓存：listProfiles 预热 + 缺失项按需批量补全，所有消费方
+  // （好友列表 / 通知 / 搜索）共用这一个 Map。补全在下方的解析 effect 触发。
+  const { profileByUid, resolveProfiles } = useProfileResolver<UserProfileWire>(
+    profiles.data as UserProfileWire[] | undefined,
+  );
   const categoryById = useMemo(() => {
     return new Map(((categories.data ?? []) as CategoryWire[]).map((category) => [category.id, category]));
   }, [categories.data]);
@@ -1290,9 +1374,11 @@ export function MainView(): ReactElement {
       ((buddies.data ?? []) as BuddyWire[]).map((buddy) =>
         {
           const contact = buddyToContact(buddy, profileByUid, categoryById);
+          const statusObj = onlineStatusByUid[buddy.uid];
           return {
             ...contact,
-            onlineStatus: onlineStatusByUid[buddy.uid] || contact.onlineStatus,
+            onlineStatus: statusObj?.displayStatus || contact.onlineStatus,
+            onlineStatusObj: statusObj,
           };
         },
       ),
@@ -1326,16 +1412,16 @@ export function MainView(): ReactElement {
   const contactRequests = useMemo(
     () =>
       ((buddyRequests.data ?? []) as BuddyRequestWire[])
-        .filter((request) => !request.sourceGroupCode || request.sourceGroupCode === '0')
         .map((request) => buddyRequestToContactRequest(request, profileByUid)),
     [buddyRequests.data, profileByUid],
   );
   const groupRequests = useMemo(
     () =>
-      ((buddyRequests.data ?? []) as BuddyRequestWire[])
-        .map((request) => groupRequestFromBuddyRequest(request, groupsById, profileByUid))
-        .filter((request): request is NonNullable<typeof request> => request !== null),
-    [buddyRequests.data, groupsById, profileByUid],
+      ((groupNotifies.data ?? []) as GroupNotifyWire[])
+        .filter(n => [1, 3, 6, 11, 13, 15].includes(n.status))
+        .map(n => groupNotifyToGroupRequest(n, profileByUid, groupsById))
+        .filter((r): r is NonNullable<typeof r> => r !== null),
+    [groupNotifies.data, profileByUid, groupsById],
   );
   const shellHistory = useMemo(
     () => ({
@@ -1361,13 +1447,35 @@ export function MainView(): ReactElement {
   const isGroup = selectedConversation?.type === 'group';
   const isDirect = selectedConversation?.type === 'direct';
 
+  // 群资料灯箱：拉取所选群在 group_member3 里的前若干名成员，用于头像横排展示。
+  const groupDetailCode = shell.selectedGroupConversationId ?? '';
+  const groupDetailMembers = trpc.account.listGroupMembers.useQuery(
+    { groupCode: groupDetailCode, limit: 14, offset: 0 },
+    { enabled: Boolean(groupDetailCode) },
+  );
+  const selectedGroupConversationForDetail = useMemo(() => {
+    const conv = shell.selectedGroupConversation;
+    if (!conv) return conv;
+    const members = ((groupDetailMembers.data ?? []) as GroupMemberWire[]).map((m) => ({
+      id: m.uid,
+      identityLabel: m.uin && m.uin !== '0' ? 'QQ' : 'UID',
+      identityValue: m.uin && m.uin !== '0' ? m.uin : m.uid,
+      username: m.uid,
+      displayName: m.card || m.nick || m.uin || 'Member',
+      avatarUrl: senderAvatarSrc(m.uin),
+      role: 'member' as const,
+      joinedAt: new Date(0).toISOString(),
+    }));
+    return { ...conv, members };
+  }, [shell.selectedGroupConversation, groupDetailMembers.data]);
+
   useEffect(() => {
     const buddyList = ((buddies.data ?? []) as BuddyWire[]).slice(0, 300);
     if (buddyList.length === 0) return undefined;
     let cancelled = false;
 
     async function loadOnlineStatuses(): Promise<void> {
-      const next: Record<string, string> = {};
+      const next: Record<string, any> = {};
       const batchSize = 12;
       for (let index = 0; index < buddyList.length && !cancelled; index += batchSize) {
         const batch = buddyList.slice(index, index + batchSize);
@@ -1375,7 +1483,7 @@ export function MainView(): ReactElement {
           batch.map(async (buddy) => {
             try {
               const status = await client.account.getOnlineStatus.query({ uid: buddy.uid });
-              return status?.displayStatus ? [buddy.uid, status.displayStatus] as const : null;
+              return status ? [buddy.uid, status] as const : null;
             } catch {
               return null;
             }
@@ -1589,58 +1697,39 @@ export function MainView(): ReactElement {
     });
   }, [selectedConversation, selectedUid, groupDetail.data, groupLevelInfo.data, selectedGroupMemberWires, missingMembers]);
 
-  // Asynchronously resolve message senders missing from the loaded member page.
-  // Messages render immediately with the uin fallback; this batch-fetches the
-  // real card/nick/group-title from the DB and patches them in without blocking.
+  // Resolve message senders / gray-tip targets that fall outside the loaded
+  // member page. Messages render immediately with the uin fallback; the real
+  // card/nick is batched in by useGroupMemberResolver without blocking. Dedup
+  // (known page + already-attempted) lives in the resolver, so this effect just
+  // hands it every referenced uid.
   useEffect(() => {
     if (!selectedUid || !isGroup || loaded.length === 0) return;
-
     const groupCode = selectedUid;
     const known = new Set(selectedGroupMemberWires.map((m) => m.uid));
-    const resolved = missingMembers[groupCode] ?? {};
-    const attempted =
-      attemptedMemberUidsRef.current[groupCode] ??
-      (attemptedMemberUidsRef.current[groupCode] = new Set());
     const referencedUids = [
       ...loaded.map((m) => m.senderUid),
       // Gray-tip payloads reference members by uid inside their element bodies
       // (poke/invite XML, mute info) — resolve those too, not just senders.
       ...loaded.flatMap((m) => extractGrayTipUids(m.elements)),
     ];
-    const unknownUids = [...new Set(referencedUids)].filter(
-      (uid) => uid && !known.has(uid) && !resolved[uid] && !attempted.has(uid),
-    );
-    if (unknownUids.length === 0) return;
+    resolveMembers(groupCode, referencedUids, known, () => selectionRef.current?.id === groupCode);
+  }, [loaded, selectedUid, isGroup, selectedGroupMemberWires, resolveMembers]);
 
-    // Mark attempted up-front so uids that resolve to nothing (left the group)
-    // aren't retried when `missingMembers` updates and re-runs this effect.
-    for (const uid of unknownUids) attempted.add(uid);
-
-    let cancelled = false;
-    void (async () => {
-      // The endpoint caps at 200 uids per call; chunk larger sets.
-      for (let i = 0; i < unknownUids.length; i += 200) {
-        const chunk = unknownUids.slice(i, i + 200);
-        try {
-          const members = await client.account.getGroupMembersByUids.query({ groupCode, uids: chunk });
-          if (cancelled || selectionRef.current?.id !== groupCode) return;
-          if (members.length > 0) {
-            setMissingMembers((prev) => {
-              const groupCache = { ...(prev[groupCode] ?? {}) };
-              for (const member of members) groupCache[member.uid] = member;
-              return { ...prev, [groupCode]: groupCache };
-            });
-          }
-        } catch (err) {
-          console.error('[group-members] getGroupMembersByUids failed', err);
-        }
+  // Resolve display profiles for everyone we render a name/avatar for: buddies,
+  // buddy requests, and the operated user in each group notify. resolveProfiles
+  // dedupes against the primed set + in-flight requests, so handing it the whole
+  // batch every render issues at most one query per never-seen uid.
+  useEffect(() => {
+    const uids: string[] = [];
+    for (const buddy of (buddies.data ?? []) as BuddyWire[]) uids.push(buddy.uid);
+    for (const request of (buddyRequests.data ?? []) as BuddyRequestWire[]) uids.push(request.peerUid);
+    for (const notify of (groupNotifies.data ?? []) as GroupNotifyWire[]) {
+      if ([1, 3, 6, 11, 13, 15].includes(notify.status) && notify.operatedUid) {
+        uids.push(notify.operatedUid);
       }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [loaded, selectedUid, isGroup, selectedGroupMemberWires, missingMembers]);
+    }
+    resolveProfiles(uids);
+  }, [buddies.data, buddyRequests.data, groupNotifies.data, resolveProfiles]);
 
   const templateMessages = useMemo(() => {
     if (!selectedConversation) return [];
@@ -2334,11 +2423,12 @@ export function MainView(): ReactElement {
               <ChatMainContent
                 user={user}
                 view={shell.view}
+                contactTab={shell.contactTab}
                 contactNotice={shell.contactNotice}
                 contactRequests={contactRequests}
                 groupRequests={groupRequests}
                 selectedContact={shell.selectedContact}
-                selectedGroupConversation={shell.selectedGroupConversation}
+                selectedGroupConversation={selectedGroupConversationForDetail}
                 activeConversation={activeConversation}
                 messages={templateMessages}
                 messageRenderers={messageRenderers}

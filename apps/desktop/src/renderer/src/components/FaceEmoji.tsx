@@ -23,6 +23,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { FaceElement } from '@weq/codec';
 import { emojiUrl, resourceUrl } from '@renderer/lib/resourceUrl';
 import { cn } from '@renderer/lib/utils';
+import { UNICODE_FACE_MAP } from './unicodeFaceMap';
 
 /**
  * Interactive faces. `max` = highest valid `diceValue` (values run 1..max);
@@ -62,10 +63,36 @@ function toLength(size: number | string | undefined): string | undefined {
 export function FaceEmoji({ element, size, animated, className }: FaceEmojiProps) {
   const { faceId, faceText, diceValue, subType } = element;
   const label = faceText || `[表情${faceId}]`;
-  const idStr = String(faceId);
-  const apngSrc = emojiUrl(idStr, 'apng', `${faceId}.png`);
   const dim = toLength(size);
   const boxStyle = dim ? { width: dim, height: dim } : undefined;
+
+  // Unicode 字符表情（emoji.db base_sys_emoji_table 中 81214 非 0）：faceId 就是
+  // emoji 的 Unicode code point，没有本地图片资源（`<id>/apng/<id>.png` 不存在），
+  // 必须直接按字符渲染，否则只会回退成 `[表情xxx]`。faceElement 与贴表情
+  // （SetEmojiReactions 复用本组件）都经此分支。
+  const unicodeGlyph = UNICODE_FACE_MAP[faceId];
+  if (unicodeGlyph) {
+    return (
+      <span
+        className={cn('face-emoji-unicode', className)}
+        style={{
+          fontSize: dim ?? '1.25em',
+          lineHeight: 1,
+          display: 'inline-block',
+          verticalAlign: dim ? 'middle' : '-0.15em',
+          userSelect: 'none',
+        }}
+        title={label}
+        role="img"
+        aria-label={label}
+      >
+        {unicodeGlyph}
+      </span>
+    );
+  }
+
+  const idStr = String(faceId);
+  const apngSrc = emojiUrl(idStr, 'apng', `${faceId}.png`);
 
   // subType=5 poke faces: static PNG from the bundled pokeEmoji set. Ids run
   // 0-6; anything out of range falls back to 0.

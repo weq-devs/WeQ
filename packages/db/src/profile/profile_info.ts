@@ -122,6 +122,23 @@ export class ProfileInfoDb {
   }
 
   /**
+   * Batch-resolve full profiles by uid in one query. Returns the profiles for
+   * the uids that have a cached row (missing ones are simply absent — no null
+   * placeholders). Lets the renderer fill many buddy / notify profiles without
+   * issuing one query per uid.
+   */
+  async profilesByUids(uids: string[]): Promise<UserProfile[]> {
+    const unique = [...new Set(uids.filter((uid) => uid))];
+    if (unique.length === 0) return [];
+    const placeholders = unique.map(() => '?').join(',');
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM profile_info_v6 WHERE "1000" IN (${placeholders})`,
+      unique,
+    );
+    return rows.map(rowToProfile);
+  }
+
+  /**
    * List all cached profiles.
    */
   async listProfiles(limit = 100, offset = 0): Promise<UserProfile[]> {

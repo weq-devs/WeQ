@@ -1,6 +1,6 @@
 ﻿// @ts-nocheck
-import { ContactNoticePane, GroupNoticePane } from "./noticePanes";
-import { ContactProfilePane, GroupProfilePane } from "./profilePanes";
+import { ContactNoticeDialog, GroupNoticeDialog } from "./noticePanes";
+import { ContactProfileDialog, ContactProfilePane, GroupProfileDialog, GroupProfilePane } from "./profilePanes";
 import { ChatPane } from "./chatPane";
 import { ToolDetailPane } from "./toolsPane";
 import type { ComposerActionRegistry } from "./composerActions";
@@ -12,6 +12,7 @@ import type { ToolPaneGroup, ToolPaneItem } from "./toolRegistry";
 import type {
 	Contact,
 	ContactNoticeView,
+	ContactTab,
 	ContactRequest,
 	Conversation,
 	ConversationDrafts,
@@ -28,6 +29,7 @@ type GroupConversation = Extract<Conversation, { type: "group" }>;
 export function ChatMainContent({
 	user,
 	view,
+	contactTab,
 	contactNotice,
 	contactRequests,
 	groupRequests,
@@ -71,6 +73,7 @@ export function ChatMainContent({
 }: {
 	user: User;
 	view: MainView;
+	contactTab?: ContactTab;
 	contactNotice: ContactNoticeView | null;
 	contactRequests: ContactRequest[];
 	groupRequests: GroupJoinRequest[];
@@ -121,46 +124,28 @@ export function ChatMainContent({
 	onSelectTool?: (item: ToolPaneItem) => void;
 }) {
 	if (view === "contacts") {
-		if (contactNotice === "friend") {
-			return (
-				<ContactNoticePane
-					requests={contactRequests}
-					onAccept={onAcceptContactRequest}
-					onReject={onRejectContactRequest}
-					onBack={onBackContactNotice}
-				/>
-			);
-		}
-
-		if (contactNotice === "group") {
-			return (
-				<GroupNoticePane
-					requests={groupRequests}
-					onAccept={onAcceptGroupRequest}
-					onReject={onRejectGroupRequest}
-					onBack={onBackContactNotice}
-				/>
-			);
-		}
-
-		if (selectedGroupConversation) {
-			return (
-				<GroupProfilePane
-					conversation={selectedGroupConversation}
-					profileActions={profileActions}
-					onBack={onBackGroup}
-					onMessage={onMessageGroup}
-				/>
-			);
-		}
-
 		return (
-			<ContactProfilePane
-				contact={selectedContact}
-				profileActions={profileActions}
-				onBack={onBackContact}
-				onMessage={onMessageContact}
-			/>
+			<>
+				{contactTab === "groups" ? <GroupProfilePane /> : <ContactProfilePane />}
+				<ContactProfileDialog
+					contact={selectedContact}
+					onClose={onBackContact}
+				/>
+				<GroupProfileDialog
+					conversation={selectedGroupConversation}
+					onClose={onBackGroup}
+				/>
+				<ContactNoticeDialog
+					open={contactNotice === "friend"}
+					requests={contactRequests}
+					onClose={onBackContactNotice}
+				/>
+				<GroupNoticeDialog
+					open={contactNotice === "group"}
+					requests={groupRequests}
+					onClose={onBackContactNotice}
+				/>
+			</>
 		);
 	}
 

@@ -1,6 +1,6 @@
 ﻿// @ts-nocheck
-import { BellOff, Bot, ChevronRight, PenLine, MessageSquare, Users, UserRound } from "lucide-react";
-import { useMemo } from "react";
+import { BellOff, Bot, PenLine, MessageSquare, Users, UserRound, Circle, Smile, Clock, Minus, Ban, MinusCircle, ChevronRight } from "lucide-react";
+import { useMemo, useState } from "react";
 import { cn } from "./classNames";
 import { Avatar, EmptyState, LoadingState } from "./primitives";
 import { isBotConversation } from "./conversationDisplay";
@@ -176,7 +176,6 @@ export function GroupList({
 						</strong>
 						<span>{conversation.group.memberCount} 位成员</span>
 					</span>
-					<ChevronRight size={22} />
 				</button>
 			))}
 		</div>
@@ -194,17 +193,36 @@ export function ContactList({
 	query: string;
 	onSelect: (contact: Contact) => void;
 }) {
+	const lower = query.trim().toLowerCase();
 	const filtered = useMemo(() => {
-		const lower = query.trim().toLowerCase();
-		if (!lower) {
-			return contacts;
-		}
+		if (!lower) return contacts;
 		return contacts.filter((contact) =>
 			`${displayUserName(contact)} ${contact.username} ${contact.identityValue}`
 				.toLowerCase()
 				.includes(lower),
 		);
-	}, [contacts, query]);
+	}, [contacts, lower]);
+
+	// 按好友分组归类，分组内保持原顺序；分组按 categoryId 升序（0「我的好友」在前）。
+	const categories = useMemo(() => {
+		const map = new Map<number, { id: number; name: string; items: Contact[] }>();
+		for (const contact of filtered) {
+			const id = contact.categoryId ?? 0;
+			if (!map.has(id)) {
+				map.set(id, {
+					id,
+					name: contact.categoryName || (id === 0 ? "我的好友" : "未命名分组"),
+					items: [],
+				});
+			}
+			map.get(id).items.push(contact);
+		}
+		return [...map.values()].sort((first, second) => first.id - second.id);
+	}, [filtered]);
+
+	// 默认全部折叠；搜索时强制展开以便看到命中的好友。
+	const [expanded, setExpanded] = useState<Record<number, boolean>>({});
+	const searching = lower.length > 0;
 
 	if (filtered.length === 0) {
 		return (
@@ -217,46 +235,111 @@ export function ContactList({
 	}
 
 	return (
-		<div className={cn("list-stack")}>
-			{filtered.map((contact) => (
-				<button
-					key={contact.id}
-					className={cn(
-						listRowClass(contact.id === activeContactId, "contact-row"),
-					)}
-					onClick={() => onSelect(contact)}
-				>
-					<Avatar
-						name={displayUserName(contact)}
-						avatarUrl={contact.avatarUrl}
-						seed={contact.identityValue}
-					/>
-					<span className={cn("row-main")}>
-						<strong>
-							<span className={cn("row-title-text")}>
-								{displayUserName(contact)}
+		<div className={cn("list-stack", "contact-cat-list")}>
+			{categories.map((category) => {
+				const open = searching || Boolean(expanded[category.id]);
+				return (
+					<div className={cn("contact-cat")} key={category.id}>
+						<button
+							type="button"
+							className={cn("contact-cat-header")}
+							aria-expanded={open}
+							onClick={() =>
+								setExpanded((current) => ({
+									...current,
+									[category.id]: !current[category.id],
+								}))
+							}
+						>
+							<ChevronRight
+								className={cn("contact-cat-caret", open && "is-open")}
+								size={15}
+							/>
+							<span className={cn("contact-cat-name")}>{category.name}</span>
+							<span className={cn("contact-cat-count")}>
+								{category.items.length}
 							</span>
-							{contact.kind === "bot" ? (
-								<small
-									className={cn("bot-badge")}
-									aria-label="机器人"
-									title="机器人"
-								>
-									<Bot size={12} strokeWidth={2.4} />
-								</small>
-							) : null}
-						</strong>
-						<span>
-							{contact.categoryName ? `${contact.categoryName} · ` : ""}
-							{contact.onlineStatus ? `${contact.onlineStatus} · ` : ""}
-							{contact.identityLabel} {contact.identityValue}
-						</span>
-					</span>
-					<ChevronRight size={22} />
-				</button>
-			))}
+						</button>
+						{open
+							? category.items.map((contact) => (
+									<button
+										key={contact.id}
+										className={cn(
+											listRowClass(
+												contact.id === activeContactId,
+												"contact-row",
+											),
+											"contact-cat-row",
+										)}
+										onClick={() => onSelect(contact)}
+									>
+										<Avatar
+											name={displayUserName(contact)}
+											avatarUrl={contact.avatarUrl}
+											seed={contact.identityValue}
+										/>
+										<span className={cn("row-main", "contact-card-main")}>
+											<span className={cn("contact-card-nickname")}>
+												{displayUserName(contact)}
+											</span>
+											<span className={cn("contact-card-bottom")}>
+												{contact.onlineStatusObj &&
+												contact.onlineStatusObj.typeName !== "未知" ? (
+													<span className={cn("contact-card-status")}>
+														<ContactOnlineStatusIcon
+															status={contact.onlineStatusObj}
+														/>
+														<span>
+															[{contact.onlineStatusObj.displayStatus}]
+														</span>
+													</span>
+												) : null}
+												<span className={cn("contact-card-signature")}>
+													{contact.signature || "这个人很懒，什么都没留下"}
+												</span>
+											</span>
+										</span>
+									</button>
+								))
+							: null}
+					</div>
+				);
+			})}
 		</div>
 	);
+}
+
+const SUB_ICONS: Record<number, string> = {
+	1028: 'music@2x.png', 1030: 'weather_3x.png', 2003: 'chuqulang2.png',
+	2015: 'gototravel.png', 2014: 'tkong.png', 1051: 'relationship_3x.png',
+	1071: 'jinli@2x.png', 1201: 'luck@2x.png', 1056: 'happytofly@3x.png',
+	1058: 'fullofyuanqi@3x.png', 1063: 'hardtosay@3x.png', 2001: 'nandehutu.png',
+	1401: 'emonew@2x.png', 1062: 'toohard@3x.png', 2013: 'woxiangkaile.png',
+	1052: 'imfine_3x.png', 1061: 'bequiet@3x.png', 1059: 'youzaizai@3x.png',
+	1011: 'signal_3x.png', 1016: 'sleeping_3x.png', 2012: 'ganzuoye.png',
+	1018: 'study_3x.png', 2023: 'banzhuan.png', 1300: 'fish@2x.png',
+	1060: 'boring@3x.png', 1027: 'timi_3x.png', 2025: 'yiqiyuanmeng.png',
+	2026: 'qiuxingdazi.png', 1032: 'stayup_3x.png', 1021: 'tv_3x.png',
+	2019: 'crush.png', 2006: 'aiziji@2x.png',
+};
+
+const TYPE_ICONS: Record<number, () => JSX.Element> = {
+	10: () => <Circle size={10} fill="#52c41a" stroke="#52c41a" />,
+	60: () => <Smile size={12} stroke="#faad14" />,
+	30: () => <Clock size={12} stroke="#8c8c8c" />,
+	50: () => <Minus size={12} stroke="#faad14" />,
+	70: () => <Ban size={12} stroke="#ff4d4f" />,
+	40: () => <MinusCircle size={12} stroke="#8c8c8c" />,
+};
+
+function ContactOnlineStatusIcon({ status }: { status: any }) {
+	if (!status) return null;
+	const filename = status.type === 10 && SUB_ICONS[status.subType];
+	if (filename) {
+		return <img src={`weq-asset://OnlineStatus/${filename}`} alt="" style={{ width: 14, height: 14 }} />;
+	}
+	const TypeIcon = TYPE_ICONS[status.type];
+	return TypeIcon ? <TypeIcon /> : null;
 }
 
 function conversationTitle(conversation: Conversation) {

@@ -15,13 +15,20 @@ export type Contact = User & {
 	categoryId?: number;
 	categoryName?: string | null;
 	qid?: string | null;
+	nick?: string | null;
 	remark?: string | null;
 	age?: number;
 	gender?: number;
+	birthYear?: number;
+	birthMonth?: number;
+	birthDay?: number;
 	signature?: string | null;
 	intimacy?: number;
 	customStatus?: string | null;
 	onlineStatus?: string | null;
+	onlineStatusObj?: any;
+	/** 扩展（密友）关系：displayId 为当前展示的关系，preselectedIds 为预设标签。 */
+	extRelation?: { preselectedIds: number[]; displayId?: number } | null;
 };
 
 export type GroupMemberRole = "owner" | "admin" | "member";
@@ -178,6 +185,7 @@ export type GroupJoinRequest = {
 		memberCount: number;
 	};
 	user: User;
+	isDoubt?: boolean;
 };
 
 export type MainView = "messages" | "contacts" | "tools";

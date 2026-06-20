@@ -6,7 +6,6 @@ import { loadNative } from '@weq/native';
 import { ProfileInfoDb } from '../src/profile/profile_info';
 
 const UIN_TARGET = 3096435766n;
-// const UIN_TARGET = 50687695n;
 const KEY = '^;<kXZ;RI[@]yTD<';
 const UIN_ME = '1707889225';
 

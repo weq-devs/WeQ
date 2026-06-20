@@ -163,14 +163,14 @@
 
 .contact-tools > button {
 	display: flex;
-	min-height: 48px;
+	min-height: 40px;
 	align-items: center;
 	justify-content: space-between;
 	padding: 0 18px;
 	border: 0;
 	background: #ffffff;
 	color: #111111;
-	font-size: 17px;
+	font-size: 15px;
 	font-weight: 400;
 	cursor: pointer;
 }
@@ -224,12 +224,12 @@
 }
 
 .contact-tab-switch button {
-	min-height: 38px;
+	min-height: 32px;
 	border: 0;
 	border-radius: 5px;
 	background: transparent;
 	color: #777777;
-	font-size: 17px;
+	font-size: 15px;
 	font-weight: 500;
 	cursor: pointer;
 }
@@ -249,6 +249,69 @@
 .list-stack {
 	display: grid;
 	gap: 0;
+}
+
+/* 好友分组（可折叠，默认折叠） */
+.contact-cat-header {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	width: 100%;
+	min-height: 34px;
+	padding: 0 16px;
+	border: 0;
+	background: transparent;
+	color: #6a7d90;
+	font-size: 12.5px;
+	font-weight: 600;
+	cursor: pointer;
+	user-select: none;
+}
+
+.contact-cat-header:hover {
+	color: #21384f;
+}
+
+.contact-cat-caret {
+	flex: none;
+	color: #9aa3ad;
+	transition: transform 160ms ease;
+}
+
+.contact-cat-caret.is-open {
+	transform: rotate(90deg);
+}
+
+.contact-cat-name {
+	flex: 1;
+	overflow: hidden;
+	text-align: left;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.contact-cat-count {
+	flex: none;
+	color: #9aa3ad;
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+}
+
+.contact-cat-row {
+	padding-left: 22px;
+}
+
+html[data-theme="dark"] .contact-cat-header {
+	color: #8b95a1;
+}
+
+html[data-theme="dark"] .contact-cat-header:hover {
+	color: #dfe2e7;
+}
+
+html[data-theme="dark"] .contact-cat-caret,
+html[data-theme="dark"] .contact-cat-count {
+	color: #6f7884;
 }
 
 .conversation-row,
@@ -421,6 +484,60 @@
 .contact-row .avatar {
 	width: 50px;
 	height: 50px;
+}
+
+.contact-card-main {
+	display: flex !important;
+	flex-direction: column;
+	gap: 4px;
+	min-width: 0;
+}
+
+.contact-card-nickname {
+	font-size: 15px;
+	font-weight: 400;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.contact-card-bottom {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	white-space: nowrap;
+	overflow: hidden;
+}
+
+.contact-card-status {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	font-size: 12px;
+	color: #8c8c8c;
+	flex-shrink: 0;
+}
+
+.contact-row.active .contact-card-status {
+	color: rgba(255, 255, 255, 0.75);
+}
+
+.contact-card-signature {
+	font-size: 13px;
+	color: #989898;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	flex-shrink: 1;
+	min-width: 0;
+}
+
+.contact-row.active .contact-card-signature {
+	color: rgba(255, 255, 255, 0.7);
 }
 
 .avatar {
