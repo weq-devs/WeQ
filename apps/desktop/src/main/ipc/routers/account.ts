@@ -244,12 +244,36 @@ export const accountRouter = router({
       return profiles.map(userProfileToWire);
     }),
 
+  /**
+   * List ALL friends ordered by intimacy (高→低), paginated. Backs the "好友亲密度
+   * 排行" lightbox — the payload is already IPC-safe (uin is a string). Includes
+   * every friend, not just those sharing groups with me.
+   */
+  listFriendsByIntimacy: procedure
+    .input(pageInput.optional())
+    .query(async ({ input }) => {
+      const page = input ?? { limit: 100, offset: 0 };
+      return requireServices().profile.listFriendsByIntimacy(page.limit, page.offset);
+    }),
+
   /** Get group metadata and latest announcement. */
   getGroupDetail: procedure
     .input(z.object({ groupCode: z.string().min(1) }))
     .query(async ({ input }) => {
       const detail = await requireServices().groupInfo.getGroupDetail(BigInt(input.groupCode));
       return detail ? groupDetailToWire(detail) : null;
+    }),
+
+  /**
+   * Relation graph: everyone sharing ≥2 of my groups, with profile intimacy /
+   * friend status. Heavy on first call (scans all group membership once), then
+   * served from the per-session cache. Pass `force: true` to rebuild. The
+   * payload is already IPC-safe (uin / group codes are strings).
+   */
+  getRelationGraph: procedure
+    .input(z.object({ force: z.boolean().optional() }).optional())
+    .query(async ({ input }) => {
+      return requireServices().groupInfo.getRelationGraph({ force: input?.force });
     }),
 
   /** List all groups from group_info.db. */
@@ -304,6 +328,27 @@ export const accountRouter = router({
     )
     .query(async ({ input }) => {
       const members = await requireServices().groupInfo.listMembersInGroup(
+        BigInt(input.groupCode),
+        input.limit ?? 100,
+        input.offset ?? 0,
+      );
+      return members.map(groupMemberToWire);
+    }),
+
+  /**
+   * List a group's members ordered by member level (高→低), paginated. Backs
+   * the "群成员等级排行" lightbox (one query per scrolled page, never per member).
+   */
+  listGroupMembersByLevel: procedure
+    .input(
+      z.object({
+        groupCode: z.string().min(1),
+        limit: z.number().int().min(1).max(300).optional(),
+        offset: z.number().int().min(0).optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      const members = await requireServices().groupInfo.listMembersByLevel(
         BigInt(input.groupCode),
         input.limit ?? 100,
         input.offset ?? 0,

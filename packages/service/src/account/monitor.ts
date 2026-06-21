@@ -161,8 +161,10 @@ export class AccountMonitorService {
     }
 
     if (!alive) {
+      if (this.attachedPid !== null) {
+        injectedPids.delete(this.attachedPid);
+      }
       this.attachedPid = null;
-      this.injectedPid = null;
       this.markOffline();
       return this.scheduleLoginPoll(LOGIN_POLL_MS);
     }

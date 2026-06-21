@@ -69,6 +69,23 @@ export class GroupMemberDb {
   }
 
   /**
+   * List a group's members ordered by member level (高→低), active only.
+   * Single paginated query (LIMIT/OFFSET) so the renderer can infinite-scroll
+   * a "等级排行" without ever firing one query per member. Ties break by older
+   * join time first, so equal-level members keep a stable order across pages.
+   */
+  async listMembersByLevel(groupCode: bigint, limit = 100, offset = 0): Promise<GroupMember[]> {
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM group_member3
+       WHERE "60001" = ? AND "64016" = 0
+       ORDER BY "64035" DESC, "64007" ASC
+       LIMIT ? OFFSET ?`,
+      [groupCode, limit, offset],
+    );
+    return rows.map(rowToMember);
+  }
+
+  /**
    * List all groups a specific user belongs to.
    */
   async listUserGroups(uid: string, limit = 100, offset = 0): Promise<GroupMember[]> {
@@ -77,6 +94,29 @@ export class GroupMemberDb {
       [uid, limit, offset],
     );
     return rows.map(rowToMember);
+  }
+
+  /**
+   * Lightweight member scan for relation-graph aggregation: only uid / uin /
+   * nick / card / memberLevel, no JOIN and no ORDER BY (the relation graph
+   * aggregates by uid and doesn't care about order), so it's much cheaper than
+   * {@link listMembersInGroup} when sweeping every group.
+   */
+  async listMemberBriefsInGroup(
+    groupCode: bigint,
+    limit = 5000,
+  ): Promise<Array<{ uid: string; uin: string; nick: string; card: string; memberLevel: number }>> {
+    const rows = await this.qq.query(
+      `SELECT "1000","1002","20002","64003","64035" FROM group_member3 WHERE "60001" = ? AND "64016" = 0 LIMIT ?`,
+      [groupCode, limit],
+    );
+    return rows.map((row) => ({
+      uid: String(row[0] ?? ''),
+      uin: row[1] === null || row[1] === undefined ? '' : String(row[1]),
+      nick: String(row[2] ?? ''),
+      card: String(row[3] ?? ''),
+      memberLevel: Number(row[4] ?? 0),
+    }));
   }
 
   /**

@@ -137,6 +137,7 @@ export interface GroupNotifyWire {
   opTime: number;
   remark: string;
   systemRemark: string;
+  sourceTable: string;
 }
 
 export interface GroupBulletinWire {

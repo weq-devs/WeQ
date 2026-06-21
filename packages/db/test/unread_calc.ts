@@ -32,7 +32,7 @@ async function main(): Promise<void> {
   console.log(`[unread-calc] ${contacts.length} contacts\n`);
 
   for (const c of contacts.slice(0, 30)) {
-    const kind = chatTypeKind(c.chatType);
+    const kind = chatTypeKind(String(c.chatType));
     if (kind === null) continue;
     const chatType = kind === 'group' ? 2 : 1;
     const info = await unread.getUnreadInfo(chatType, c.targetUid);

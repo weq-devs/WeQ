@@ -21,7 +21,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Platform } from '@weq/platform';
 import type { UserConfigService } from './user_config';
@@ -90,10 +90,12 @@ export class AvatarCacheService {
       throw new Error(`refusing to cache non-http avatar url: ${url}`);
     }
 
-    const hit = this.readFromDisk(url);
+    const hit = await this.readFromDisk(url);
     if (hit) return hit;
 
-    // Collapse concurrent misses onto a single fetch.
+    // Collapse concurrent misses onto a single fetch. (The get/set below run
+    // synchronously after the await, so two racing misses still share one
+    // fetch — only the first reaches `set`, the second finds the promise.)
     const existing = this.inFlight.get(url);
     if (existing) return existing;
 
@@ -110,21 +112,20 @@ export class AvatarCacheService {
     return join(this.cacheDir(), hash);
   }
 
-  /** Return cached bytes for `url` if any extension variant exists on disk. */
-  private readFromDisk(url: string): AvatarBlob | null {
+  /**
+   * Return cached bytes for `url` if any extension variant exists on disk.
+   * Async (non-blocking) so dozens of concurrent avatar requests interleave on
+   * the main-process event loop instead of each one blocking it in turn — we
+   * just attempt each extension's read and treat a miss as ENOENT.
+   */
+  private async readFromDisk(url: string): Promise<AvatarBlob | null> {
     const base = this.basePath(url);
     for (const ext of ['png', 'jpg', 'gif', 'webp']) {
-      const path = `${base}.${ext}`;
-      if (!existsSync(path)) continue;
       try {
-        return {
-          data: readFileSync(path),
-          contentType: contentTypeForExt(ext),
-          fromCache: true,
-        };
+        const data = await readFile(`${base}.${ext}`);
+        return { data, contentType: contentTypeForExt(ext), fromCache: true };
       } catch {
-        // Unreadable (mid-write race / corruption) — fall through to refetch.
-        return null;
+        // Missing (ENOENT) or unreadable — try the next extension.
       }
     }
     return null;
@@ -145,9 +146,9 @@ export class AvatarCacheService {
 
     const ext = extFor(contentType, url);
     const dir = this.cacheDir();
-    mkdirSync(dir, { recursive: true });
+    await mkdir(dir, { recursive: true });
     try {
-      writeFileSync(`${this.basePath(url)}.${ext}`, data);
+      await writeFile(`${this.basePath(url)}.${ext}`, data);
     } catch {
       // A cache-write failure shouldn't fail the request — serve the bytes we
       // already fetched; the next request just re-fetches.
