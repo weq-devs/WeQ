@@ -14,7 +14,7 @@
  */
 
 import { observable } from '@trpc/server/observable';
-import { dialog } from 'electron';
+import { app, dialog } from 'electron';
 import { z } from 'zod';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -130,6 +130,101 @@ export const bootstrapRouter = router({
   clearAutoEnter: procedure.mutation(() => {
     requireBootstrap().userConfig.clearAutoEnter();
     return true;
+  }),
+
+  // ---- version (设置 → 全局设置) ----
+
+  /** WeQ app version + the runtime versions, for the 全局设置 page. */
+  getVersionInfo: procedure.query(() => {
+    return {
+      app: app.getVersion(),
+      electron: process.versions.electron ?? '',
+      chrome: process.versions.chrome ?? '',
+      node: process.versions.node ?? '',
+    };
+  }),
+
+  // ---- app settings (设置 → 账号基础 / 全局设置) ----
+
+  /** Full, defaulted global settings (realtime / media-completion / clientkey). */
+  getSettings: procedure.query(() => {
+    return requireBootstrap().userConfig.getSettings();
+  }),
+
+  /**
+   * Toggle 启用数据库监听. Persists, then applies live to the open account so the
+   * nt_msg.db watcher mounts/unmounts immediately (no re-open needed).
+   */
+  setRealtimeEnabled: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ realtimeEnabled: input.enabled });
+      getAppContext().applyRealtime(input.enabled);
+      return true;
+    }),
+
+  /**
+   * Patch the 媒体补全 config. Any field omitted is left unchanged; `types` is
+   * shallow-merged so a single kind can be flipped on its own. The monitor's
+   * rkey harvesting reads `enabled` live on its next poll.
+   */
+  setMediaCompletion: procedure
+    .input(
+      z.object({
+        enabled: z.boolean().optional(),
+        forViewing: z.boolean().optional(),
+        forExport: z.boolean().optional(),
+        types: z
+          .object({
+            image: z.boolean().optional(),
+            sticker: z.boolean().optional(),
+            videoCover: z.boolean().optional(),
+            video: z.boolean().optional(),
+            file: z.boolean().optional(),
+          })
+          .optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ mediaCompletion: input });
+      return true;
+    }),
+
+  /** 占位：自动获取 ClientKey. Persists only — no behaviour wired yet. */
+  setAutoFetchClientKey: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ autoFetchClientKey: input.enabled });
+      return true;
+    }),
+
+  // ---- cache directory (设置 → 账号信息 → 账号缓存路径) ----
+
+  /** Effective / override / default cache paths for display. */
+  getCacheDir: procedure.query(() => {
+    return requireBootstrap().userConfig.getCacheDirInfo();
+  }),
+
+  /** Folder dialog → set the cache override. Returns the new path info. */
+  pickCacheDir: procedure.mutation(async () => {
+    const boot = requireBootstrap();
+    const result = await dialog.showOpenDialog({
+      title: '选择缓存目录',
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return boot.userConfig.getCacheDirInfo();
+    }
+    const picked = result.filePaths[0];
+    if (picked) boot.userConfig.setCacheDirOverride(picked);
+    return boot.userConfig.getCacheDirInfo();
+  }),
+
+  /** Clear the cache override (revert to the default). Returns new path info. */
+  clearCacheDir: procedure.mutation(() => {
+    const boot = requireBootstrap();
+    boot.userConfig.setCacheDirOverride(null);
+    return boot.userConfig.getCacheDirInfo();
   }),
 
   // ---- filesystem dialog (Tencent Files fallback / manual db pick) ----

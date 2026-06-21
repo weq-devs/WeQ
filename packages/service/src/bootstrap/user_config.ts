@@ -52,6 +52,72 @@ export interface AutoEnterTarget {
   dataDir?: string;
 }
 
+/** Recursive `Partial` — lets persisted `settings` omit any nested field. */
+type DeepPartial<T> = {
+  [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
+};
+
+/**
+ * Which media kinds the rkey-completion pass will try to fetch from the CDN
+ * when a file is missing on disk. Defaults favour the cheap/common ones
+ * (images, stickers, video covers) and leave the heavy ones (full videos,
+ * arbitrary files) off — flip them on explicitly when you need them.
+ */
+export interface MediaCompletionTypes {
+  /** 图片. */
+  image: boolean;
+  /** 表情（收到的动画表情 / 商城表情）. */
+  sticker: boolean;
+  /** 视频封面图（缩略图，体积小）. */
+  videoCover: boolean;
+  /** 视频原文件（完整视频，体积大）. */
+  video: boolean;
+  /** 文件（群文件 / 离线文件）. */
+  file: boolean;
+}
+
+/**
+ * "自动从登录的 QQ 进程获取 rkey 补全缺失媒体" settings. This is what powers
+ * both in-app media viewing and export completion — see {@link MediaDownloadService}.
+ */
+export interface MediaCompletionConfig {
+  /** Master switch: harvest rkeys from the online QQ and use them to complete media. */
+  enabled: boolean;
+  /** Apply completion while viewing chats in the app. */
+  forViewing: boolean;
+  /** Apply completion during export. */
+  forExport: boolean;
+  /** Per-kind toggles for what to complete. */
+  types: MediaCompletionTypes;
+}
+
+/**
+ * Global, app-wide preferences exposed in the 设置 → 基础配置 page. Lives under
+ * the `settings` key in `config.json`. All read paths merge against
+ * {@link DEFAULT_APP_SETTINGS} so an older / partial file still yields a full,
+ * well-typed object.
+ */
+export interface AppSettings {
+  /** 启用数据库监听（实时消息）. Drives whether the nt_msg.db watcher is mounted. */
+  realtimeEnabled: boolean;
+  /** 媒体补全（rkey）配置. */
+  mediaCompletion: MediaCompletionConfig;
+  /** 占位：自动获取 ClientKey（尚未接线）. */
+  autoFetchClientKey: boolean;
+}
+
+/** Defaults applied when a field is absent from `config.json`. */
+export const DEFAULT_APP_SETTINGS: AppSettings = {
+  realtimeEnabled: true,
+  mediaCompletion: {
+    enabled: true,
+    forViewing: true,
+    forExport: true,
+    types: { image: true, sticker: true, videoCover: true, video: false, file: false },
+  },
+  autoFetchClientKey: false,
+};
+
 /**
  * Schema for `config.json`. All fields optional so older files keep loading
  * after a schema bump.
@@ -69,6 +135,17 @@ export interface UserConfig {
    * cache (e.g. onto a larger drive).
    */
   avatarCacheDir?: string | null;
+  /**
+   * Global app settings (设置 → 基础配置). Stored partial; read through
+   * {@link UserConfigService.getSettings} which merges {@link DEFAULT_APP_SETTINGS}.
+   */
+  settings?: DeepPartial<AppSettings>;
+  /**
+   * Custom cache directory root (设置 → 账号信息 → 账号缓存路径). Absent → the
+   * default `<appDataRoot>/cache`. Routes {@link UserConfigService.cacheDir}
+   * (and thus the media download cache) onto another disk.
+   */
+  cacheDirOverride?: string | null;
 }
 
 export class UserConfigService {
@@ -185,15 +262,89 @@ export class UserConfigService {
   }
 
   /**
-   * Absolute path to `<root>/cache/<category>/`, created if missing.
+   * Absolute path to `<cacheBase>/<category>/`, created if missing.
    *
    * `category` is a free-form short identifier ("avatar", "preview",
    * "report-2026"). No validation here — the caller picks meaningful
-   * names; bad input just creates an oddly-named directory.
+   * names; bad input just creates an oddly-named directory. The base honours
+   * {@link UserConfig.cacheDirOverride} (see {@link cacheBaseDir}).
    */
   cacheDir(category: string): string {
-    const dir = join(this.root, 'cache', category);
+    const dir = join(this.cacheBaseDir(), category);
     mkdirSync(dir, { recursive: true });
     return dir;
+  }
+
+  // ---- app settings (global, 设置 → 基础配置) ----
+
+  /**
+   * Full, defaulted app settings. Always returns every field — missing keys in
+   * `config.json` fall back to {@link DEFAULT_APP_SETTINGS}.
+   */
+  getSettings(): AppSettings {
+    const s = this.read().settings;
+    const d = DEFAULT_APP_SETTINGS;
+    return {
+      realtimeEnabled: s?.realtimeEnabled ?? d.realtimeEnabled,
+      autoFetchClientKey: s?.autoFetchClientKey ?? d.autoFetchClientKey,
+      mediaCompletion: {
+        enabled: s?.mediaCompletion?.enabled ?? d.mediaCompletion.enabled,
+        forViewing: s?.mediaCompletion?.forViewing ?? d.mediaCompletion.forViewing,
+        forExport: s?.mediaCompletion?.forExport ?? d.mediaCompletion.forExport,
+        types: {
+          image: s?.mediaCompletion?.types?.image ?? d.mediaCompletion.types.image,
+          sticker: s?.mediaCompletion?.types?.sticker ?? d.mediaCompletion.types.sticker,
+          videoCover: s?.mediaCompletion?.types?.videoCover ?? d.mediaCompletion.types.videoCover,
+          video: s?.mediaCompletion?.types?.video ?? d.mediaCompletion.types.video,
+          file: s?.mediaCompletion?.types?.file ?? d.mediaCompletion.types.file,
+        },
+      },
+    };
+  }
+
+  /**
+   * Deep-merge `patch` into the current settings and persist. Returns the new
+   * full settings object. `types` is shallow-merged onto the current types so a
+   * caller can flip a single kind without resending the rest.
+   */
+  setSettings(patch: DeepPartial<AppSettings>): AppSettings {
+    const current = this.getSettings();
+    const next: AppSettings = {
+      realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
+      autoFetchClientKey: patch.autoFetchClientKey ?? current.autoFetchClientKey,
+      mediaCompletion: {
+        enabled: patch.mediaCompletion?.enabled ?? current.mediaCompletion.enabled,
+        forViewing: patch.mediaCompletion?.forViewing ?? current.mediaCompletion.forViewing,
+        forExport: patch.mediaCompletion?.forExport ?? current.mediaCompletion.forExport,
+        types: { ...current.mediaCompletion.types, ...(patch.mediaCompletion?.types ?? {}) },
+      },
+    };
+    this.write({ settings: next });
+    return next;
+  }
+
+  // ---- cache directory (设置 → 账号信息 → 账号缓存路径) ----
+
+  /** Default cache base when no override is set. */
+  private defaultCacheBase(): string {
+    return join(this.root, 'cache');
+  }
+
+  /** Effective cache base: the override if set & non-blank, else the default. */
+  cacheBaseDir(): string {
+    const o = this.read().cacheDirOverride;
+    return o && o.trim() ? o : this.defaultCacheBase();
+  }
+
+  /** Effective / override / default cache paths, for display in settings. */
+  getCacheDirInfo(): { effective: string; override: string | null; default: string } {
+    const def = this.defaultCacheBase();
+    const o = this.read().cacheDirOverride ?? null;
+    return { effective: o && o.trim() ? o : def, override: o, default: def };
+  }
+
+  /** Set (or clear with null/blank) the custom cache directory override. */
+  setCacheDirOverride(dir: string | null): void {
+    this.write({ cacheDirOverride: dir && dir.trim() ? dir : null });
   }
 }

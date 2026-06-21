@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
 	Award,
 	Check,
@@ -16,7 +16,7 @@ import {
 	X,
 } from "lucide-react";
 import { trpc, client } from "../../trpc/client";
-import { closeFromScrim, useEscapeToClose } from "../../im-template/template/modalUtils";
+import { closeFromScrim, useEscapeToClose } from "@renderer/im-template/template";
 import { GraphCanvas } from "./GraphCanvas";
 import { buildGraph, communityColor, personAvatar, groupAvatar } from "./graphModel";
 import { RankingModal, type RankingKind } from "./RankingModal";

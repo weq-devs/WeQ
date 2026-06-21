@@ -3,7 +3,7 @@
  */
 
 import { loadNative } from '@weq/native';
-import { BuddyDb } from '../src/profile/buddy';
+import { BuddyDb } from '../src';
 
 const UIN = '1707889225';
 const KEY = '^;<kXZ;RI[@]yTD<';

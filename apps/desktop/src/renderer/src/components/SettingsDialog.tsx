@@ -7,9 +7,11 @@
  */
 
 import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
-import { Info, X } from 'lucide-react';
+import { Info, Settings2, User, X } from 'lucide-react';
+import { GlobalSettingsSection } from './settings/GlobalSettingsSection';
+import { AccountBasicsSection } from './settings/AccountBasicsSection';
 
-type SectionId = 'about';
+type SectionId = 'global' | 'account' | 'about';
 
 interface SettingsSection {
   id: SectionId;
@@ -19,6 +21,18 @@ interface SettingsSection {
 }
 
 const SETTINGS_SECTIONS: SettingsSection[] = [
+  {
+    id: 'global',
+    label: '全局设置',
+    icon: <Settings2 size={16} strokeWidth={1.8} />,
+    render: () => <GlobalSettingsSection />,
+  },
+  {
+    id: 'account',
+    label: '账号基础',
+    icon: <User size={16} strokeWidth={1.8} />,
+    render: () => <AccountBasicsSection />,
+  },
   {
     id: 'about',
     label: '关于',
@@ -46,7 +60,7 @@ export function SettingsDialog({
   open: boolean;
   onClose: () => void;
 }): ReactElement | null {
-  const [activeId, setActiveId] = useState<SectionId>('about');
+  const [activeId, setActiveId] = useState<SectionId>('global');
 
   useEffect(() => {
     if (!open) return undefined;

@@ -46,10 +46,16 @@ export class AccountMonitorService {
   private lastOnline: boolean | null = null;
   private lastPid: number | null | undefined = undefined;
 
+  /**
+   * @param shouldHarvestRkeys Checked live before each rkey fetch — when it
+   *   returns false (用户关掉了「自动获取 rkey 补全媒体」), online/pid tracking
+   *   keeps running but rkey harvesting is skipped. Defaults to always-on.
+   */
   constructor(
     private readonly session: AccountSession,
     private readonly platform: Platform,
     private readonly accountConfig: AccountConfigService,
+    private readonly shouldHarvestRkeys: () => boolean = () => true,
   ) {}
 
   start(): void {
@@ -115,7 +121,7 @@ export class AccountMonitorService {
 
     this.attachedPid = pid;
     this.markOnline(pid);
-    await this.refreshRkey(pid);
+    if (this.shouldHarvestRkeys()) await this.refreshRkey(pid);
     this.schedulePidPoll(PID_POLL_MS);
   }
 
@@ -169,7 +175,7 @@ export class AccountMonitorService {
       return this.scheduleLoginPoll(LOGIN_POLL_MS);
     }
 
-    await this.refreshRkeyIfStale(pid);
+    if (this.shouldHarvestRkeys()) await this.refreshRkeyIfStale(pid);
     this.schedulePidPoll(PID_POLL_MS);
   }
 

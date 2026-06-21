@@ -14,7 +14,8 @@
     "test:key-qr": "tsx test/key_qr_login.ts",
     "test:msg-search": "tsx test/msg_search.ts",
     "test:msg-search-agg": "tsx test/msg_search_aggregate.ts",
-    "test:reply": "tsx test/reply_element.ts"
+    "test:reply": "tsx test/reply_element.ts",
+    "test:export": "tsx test/export_group.ts"
   },
   "dependencies": {
     "@weq/account": "workspace:*",

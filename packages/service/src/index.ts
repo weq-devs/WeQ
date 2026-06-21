@@ -26,8 +26,15 @@ export type {
   QrLoginStreamOptions,
 } from './bootstrap/win32_key';
 
-export { UserConfigService } from './bootstrap/user_config';
-export type { UserConfig, InstallCache, AutoEnterTarget } from './bootstrap/user_config';
+export { UserConfigService, DEFAULT_APP_SETTINGS } from './bootstrap/user_config';
+export type {
+  UserConfig,
+  InstallCache,
+  AutoEnterTarget,
+  AppSettings,
+  MediaCompletionConfig,
+  MediaCompletionTypes,
+} from './bootstrap/user_config';
 
 export { AvatarCacheService } from './bootstrap/avatar_cache';
 export type { AvatarBlob } from './bootstrap/avatar_cache';
@@ -94,3 +101,25 @@ export type {
 // onNewMessages (rowid-delta). Mount the returned task on a DbWatchService.
 export { createNtMsgDbHook } from './account/nt_msg_hook';
 export type { NewMessages, NtMsgHooks } from './account/nt_msg_hook';
+
+// ---- export pipeline (account/export) ----
+export {
+  exportGroupToJson,
+  exportGroupToJsonl,
+  exportGroupToTxt,
+  iterateGroupMessages,
+  toExportedMessage,
+  elementsToText,
+  messageToText,
+  formatTime,
+} from './account/export';
+export type {
+  ExportFormat,
+  ExportedMessage,
+  ExportProgress,
+  ProgressCallback as ExportProgressCallback,
+  ExportResult,
+  GroupExportOptions,
+  IterateOptions,
+  JsonExportOptions,
+} from './account/export';

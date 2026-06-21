@@ -19,7 +19,6 @@
  */
 
 import { EventEmitter } from 'node:events';
-import { join } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
 import { createWin32Platform, type Platform } from '@weq/platform';
 import {
@@ -85,6 +84,34 @@ let dbWatchHandle: DbWatchHandle | null = null;
 /** Background login/pid/rkey monitor for the open account, if any. */
 let accountMonitor: AccountMonitorService | null = null;
 
+/**
+ * Mount the nt_msg.db watcher for `session` (idempotent — no-op if already
+ * mounted). The hook fans every change into two bus events: a debounced
+ * 'changed' (drives the open-conversation re-query) and 'new' (rowid-delta,
+ * for notifications). Gated by the 实时消息 setting via {@link mountDbWatch}'s
+ * callers / `applyRealtime`.
+ */
+function mountDbWatch(session: AccountSession): void {
+  if (dbWatchHandle) return;
+  const emitChanged = trailingDebounce((file: DbChange) => {
+    dbEventBus.emit('changed', file);
+  }, 200);
+  dbWatchHandle = dbWatch.mount(
+    createNtMsgDbHook(session, {
+      onDbChanged: emitChanged,
+      onNewMessages: (change: NewMessages) => {
+        dbEventBus.emit('new', change);
+      },
+    }),
+  );
+}
+
+/** Stop watching the current account db, if any. */
+function unmountDbWatch(): void {
+  dbWatchHandle?.unmount();
+  dbWatchHandle = null;
+}
+
 export interface BootstrapServices {
   detect: Win32DetectService;
   keys: Win32KeyService;
@@ -140,6 +167,12 @@ export interface AppContext {
   setAccount(ctx: AccountContext, metadata?: AccountConfigMetadata): Promise<void>;
   /** Drop the current account session, if any. */
   clearAccount(): void;
+  /**
+   * Mount/unmount the live nt_msg.db watcher for the open account without
+   * re-opening it. Called when the user toggles 启用数据库监听 so the change
+   * takes effect immediately. No-op when no account is open.
+   */
+  applyRealtime(enabled: boolean): void;
 }
 
 let cached: AppContext | undefined;
@@ -162,6 +195,9 @@ export function initAppContext(): AppContext {
       },
       clearAccount(): void {
         /* nothing to clear */
+      },
+      applyRealtime(): void {
+        /* no account to watch */
       },
     };
     return cached;
@@ -207,7 +243,9 @@ export function initAppContext(): AppContext {
         fileSearch: new FileSearchService(session, platform),
         mediaDownload: new MediaDownloadService(
           accountConfig,
-          join(platform.appDataRoot(), 'cache', 'media'),
+          // Honour the custom 缓存路径 override (设置 → 账号信息). Applied at
+          // account-open time; changing it takes effect on the next 进入.
+          userConfig.cacheDir('media'),
         ),
         fileAssistant: new FileAssistantService(session),
         emoji: new EmojiService(session, platform),
@@ -216,33 +254,36 @@ export function initAppContext(): AppContext {
       // before the monitor starts so its patches land on an existing record.
       accountConfig.save(metadata);
 
-      // Start the background login/pid/rkey monitor for this account.
-      accountMonitor = new AccountMonitorService(session, platform, accountConfig);
+      // Start the background login/pid monitor for this account. rkey
+      // harvesting inside it is gated live by the 媒体补全 master switch, so
+      // toggling that setting takes effect on the next poll without a re-open.
+      accountMonitor = new AccountMonitorService(
+        session,
+        platform,
+        accountConfig,
+        () => userConfig.getSettings().mediaCompletion.enabled,
+      );
       accountMonitor.start();
 
-      // Watch this account's nt_msg.db. The hook fans every change into two
-      // bus events: a debounced 'changed' (drives the open-conversation
-      // re-query) and 'new' (rowid-delta, for notifications).
-      const emitChanged = trailingDebounce((file: DbChange) => {
-        dbEventBus.emit('changed', file);
-      }, 200);
-      dbWatchHandle = dbWatch.mount(
-        createNtMsgDbHook(session, {
-          onDbChanged: emitChanged,
-          onNewMessages: (change: NewMessages) => {
-            dbEventBus.emit('new', change);
-          },
-        }),
-      );
+      // Watch this account's nt_msg.db only when 实时消息 is enabled. Toggling
+      // it later is handled live by `applyRealtime` (no re-open needed).
+      if (userConfig.getSettings().realtimeEnabled) {
+        mountDbWatch(session);
+      }
     },
     clearAccount(): void {
       accountMonitor?.stop();
       accountMonitor = null;
-      dbWatchHandle?.unmount();
-      dbWatchHandle = null;
+      unmountDbWatch();
       this.account?.dispose();
       this.account = null;
       this.services = null;
+    },
+    applyRealtime(enabled: boolean): void {
+      const session = this.account;
+      if (!session) return;
+      if (enabled) mountDbWatch(session);
+      else unmountDbWatch();
     },
   };
 

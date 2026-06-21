@@ -167,6 +167,27 @@ export const accountRouter = router({
     return profile ? userProfileToWire(profile) : null;
   }),
 
+  /**
+   * The persisted config record for the OPEN account — dbKey / algo / data dir
+   * plus the live online state and harvested download rkeys. Backs 设置 → 账号
+   * 信息. The payload is already IPC-safe (no bigint), so it ships as-is.
+   * Returns null if the record hasn't been written yet.
+   */
+  getAccountConfig: procedure.query(() => {
+    const record = requireServices().accountConfig.getRecord();
+    if (!record) return null;
+    return {
+      uin: record.uin,
+      dbKey: record.dbKey,
+      algo: record.algo,
+      dataDir: record.dataDir ?? null,
+      qqOnline: record.qqOnline ?? false,
+      qqPid: record.qqPid ?? null,
+      rkeys: record.rkeys ?? [],
+      rkeyUpdatedAt: record.rkeyUpdatedAt ?? null,
+    };
+  }),
+
   /** List QQ buddies from profile_info.db. */
   listBuddies: procedure
     .input(pageInput.optional())
