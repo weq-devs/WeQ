@@ -58,7 +58,12 @@ export { TestMsgService } from './account/test_msg';
 export { RecentContactService } from './account/recent_contact';
 export { ForwardMsgService } from './account/forward';
 export { MsgService } from './account/msg';
-export { GroupInfoService } from './account/group_info';
+export {
+  GroupInfoService,
+  type RelationGraphData,
+  type RelationGraphNode,
+  type RelationGraphGroup,
+} from './account/group_info';
 export { GroupNotifyService } from './account/group_notify';
 export { ProfileService } from './account/profile';
 export { EmojiService } from './account/emoji';

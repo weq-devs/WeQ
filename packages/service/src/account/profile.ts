@@ -71,4 +71,15 @@ export class ProfileService {
   async listProfiles(limit = 100, offset = 0): Promise<UserProfile[]> {
     return this.session.profileInfo.listProfiles(limit, offset);
   }
+
+  /**
+   * List all friends ordered by intimacy (高→低), paginated. Single query —
+   * backs the "好友亲密度排行" lightbox, which infinite-scrolls.
+   */
+  async listFriendsByIntimacy(
+    limit = 100,
+    offset = 0,
+  ): Promise<Array<{ uid: string; uin: string; nick: string; remark: string; intimacy: number }>> {
+    return this.session.profileInfo.listFriendsByIntimacy(limit, offset);
+  }
 }

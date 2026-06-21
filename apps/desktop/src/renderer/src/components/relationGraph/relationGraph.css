@@ -1,0 +1,1354 @@
+/* 关系图谱：嵌入联系人主区域（上方节点图 + 下方控制条）。
+   沿用 weq 设计：#0099ff 主题、细描边、小圆角。 */
+
+.weq-graph-embed {
+	display: grid;
+	grid-template-rows: minmax(0, 1fr) auto;
+	height: 100%;
+	min-height: 0;
+	background: linear-gradient(135deg, #fdfeff, #f4f9fd);
+}
+
+/* ---- stage (上方节点图) ---- */
+.weq-graph-stage {
+	position: relative;
+	min-height: 0;
+	overflow: hidden;
+	background:
+		radial-gradient(circle at 50% 42%, rgba(0, 153, 255, 0.045), transparent 62%),
+		#fbfdff;
+}
+
+.weq-graph-canvas-wrap {
+	position: absolute;
+	inset: 0;
+	cursor: grab;
+	touch-action: none;
+}
+
+.weq-graph-canvas {
+	display: block;
+}
+
+/* ---- floating overlay (top-left of the canvas): mode + refresh + stat ---- */
+.weq-graph-overlay {
+	position: absolute;
+	left: 14px;
+	top: 14px;
+	z-index: 3;
+	display: flex;
+	flex-direction: column;
+	gap: 7px;
+	align-items: flex-start;
+	pointer-events: none;
+}
+
+.weq-graph-overlay-bar {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	pointer-events: auto;
+}
+
+.weq-graph-overlay .weq-graph-seg {
+	background: rgba(255, 255, 255, 0.86);
+	box-shadow: 0 8px 22px -12px rgba(7, 31, 61, 0.4);
+	backdrop-filter: blur(8px);
+}
+
+.weq-graph-icon-btn {
+	display: inline-grid;
+	width: 34px;
+	height: 34px;
+	place-items: center;
+	flex: none;
+	border: 1px solid rgba(0, 153, 255, 0.2);
+	border-radius: 9px;
+	background: rgba(255, 255, 255, 0.86);
+	color: #0a7fd0;
+	cursor: pointer;
+	box-shadow: 0 8px 22px -12px rgba(7, 31, 61, 0.4);
+	backdrop-filter: blur(8px);
+	transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.weq-graph-icon-btn:hover:not(:disabled) {
+	border-color: rgba(0, 153, 255, 0.42);
+	background: #ffffff;
+}
+
+.weq-graph-icon-btn:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+
+.weq-graph-overlay-stat {
+	padding: 3px 9px;
+	border-radius: 999px;
+	background: rgba(255, 255, 255, 0.78);
+	color: #5a6f84;
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+	pointer-events: auto;
+	backdrop-filter: blur(8px);
+}
+
+.weq-graph-tooltip {
+	position: absolute;
+	z-index: 3;
+	display: grid;
+	gap: 2px;
+	max-width: 220px;
+	padding: 6px 9px;
+	border-radius: 8px;
+	background: rgba(16, 30, 49, 0.92);
+	color: #ffffff;
+	font-size: 12px;
+	line-height: 1.4;
+	pointer-events: none;
+	box-shadow: 0 8px 20px -8px rgba(0, 0, 0, 0.5);
+}
+
+.weq-graph-tooltip strong {
+	font-size: 12.5px;
+	font-weight: 600;
+}
+
+.weq-graph-tooltip span {
+	color: rgba(255, 255, 255, 0.82);
+	font-size: 11px;
+}
+
+.weq-graph-state {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 12px;
+	padding: 24px;
+	color: #5a6f84;
+	font-size: 13px;
+	text-align: center;
+}
+
+.weq-graph-spinner {
+	width: 30px;
+	height: 30px;
+	border-radius: 50%;
+	border: 3px solid rgba(0, 153, 255, 0.2);
+	border-top-color: #0099ff;
+	animation: weq-spin 800ms linear infinite;
+}
+
+/* ---- control bar (下方设置) ---- */
+.weq-graph-controls {
+	display: flex;
+	gap: 20px;
+	align-items: flex-start;
+	padding: 12px 16px 14px;
+	border-top: 1px solid rgba(0, 153, 255, 0.12);
+	background: rgba(255, 255, 255, 0.7);
+	backdrop-filter: blur(6px);
+	overflow-x: auto;
+}
+
+.weq-graph-col {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	min-width: 148px;
+	flex: none;
+}
+
+.weq-graph-col-sliders {
+	flex: 1;
+	min-width: 210px;
+	max-width: 340px;
+}
+
+.weq-graph-col-filter {
+	min-width: 196px;
+}
+
+/* rankings — vertical stack of buttons pinned to the far right of the bar */
+.weq-graph-col-rank {
+	min-width: 168px;
+	margin-left: auto;
+}
+
+.weq-graph-rank-btn {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	min-height: 32px;
+	padding: 0 11px;
+	border: 1px solid rgba(0, 153, 255, 0.22);
+	border-radius: 8px;
+	background: rgba(0, 153, 255, 0.06);
+	color: #0a7fd0;
+	font-size: 12.5px;
+	font-weight: 500;
+	cursor: pointer;
+	transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.weq-graph-rank-btn:hover:not(:disabled) {
+	border-color: rgba(0, 153, 255, 0.42);
+	background: rgba(0, 153, 255, 0.12);
+}
+
+.weq-graph-rank-btn:disabled {
+	border-color: rgba(120, 140, 165, 0.18);
+	background: transparent;
+	color: #8a9bad;
+	cursor: default;
+}
+
+.weq-graph-rank-btn svg {
+	flex: none;
+}
+
+.weq-graph-col-label {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	color: #3c5368;
+	font-size: 12px;
+	font-weight: 600;
+}
+
+/* group-filter "open picker" button */
+.weq-graph-pick-btn {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	min-height: 32px;
+	padding: 0 10px;
+	border: 1px solid rgba(0, 153, 255, 0.22);
+	border-radius: 8px;
+	background: rgba(0, 153, 255, 0.06);
+	color: #0a7fd0;
+	font-size: 12.5px;
+	font-weight: 500;
+	cursor: pointer;
+	transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.weq-graph-pick-btn:hover:not(:disabled) {
+	border-color: rgba(0, 153, 255, 0.42);
+	background: rgba(0, 153, 255, 0.12);
+}
+
+.weq-graph-pick-btn:disabled {
+	border-color: rgba(120, 140, 165, 0.18);
+	background: transparent;
+	color: #8a9bad;
+	cursor: default;
+}
+
+.weq-graph-pick-count {
+	display: inline-grid;
+	min-width: 20px;
+	height: 20px;
+	place-items: center;
+	padding: 0 6px;
+	border-radius: 999px;
+	background: #0099ff;
+	color: #ffffff;
+	font-size: 11px;
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+}
+
+/* slider — tall hit area + big thumb so it's easy to grab and drag, with a
+   filled progress track driven by the inline `--pct` var. */
+.weq-graph-slider {
+	display: grid;
+	gap: 5px;
+}
+
+.weq-graph-slider-top {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+}
+
+.weq-graph-slider-label {
+	color: #3c5368;
+	font-size: 12px;
+	font-weight: 600;
+}
+
+.weq-graph-slider-value {
+	min-width: 30px;
+	padding: 1px 8px;
+	border-radius: 999px;
+	background: rgba(0, 153, 255, 0.1);
+	color: #0a7fd0;
+	font-size: 12px;
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+	text-align: center;
+}
+
+.weq-graph-range {
+	--pct: 0%;
+	width: 100%;
+	height: 22px;
+	appearance: none;
+	background: transparent;
+	cursor: pointer;
+}
+
+.weq-graph-range::-webkit-slider-runnable-track {
+	height: 6px;
+	border-radius: 999px;
+	background: linear-gradient(
+		to right,
+		#0099ff 0%,
+		#39adff var(--pct),
+		rgba(0, 153, 255, 0.16) var(--pct),
+		rgba(0, 153, 255, 0.16) 100%
+	);
+}
+
+.weq-graph-range::-webkit-slider-thumb {
+	appearance: none;
+	width: 18px;
+	height: 18px;
+	margin-top: -6px;
+	border-radius: 50%;
+	border: 3px solid #ffffff;
+	background: #0099ff;
+	box-shadow: 0 2px 7px rgba(0, 122, 204, 0.5);
+	cursor: pointer;
+	transition: transform 120ms ease;
+}
+
+.weq-graph-range:hover::-webkit-slider-thumb {
+	background: #0a8fee;
+	transform: scale(1.12);
+}
+
+.weq-graph-range:active::-webkit-slider-thumb {
+	transform: scale(1.18);
+}
+
+/* segmented */
+.weq-graph-seg {
+	display: grid;
+	grid-auto-flow: column;
+	grid-auto-columns: 1fr;
+	gap: 4px;
+	padding: 3px;
+	border-radius: 8px;
+	background: rgba(0, 153, 255, 0.08);
+}
+
+.weq-graph-seg button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 5px;
+	min-height: 30px;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: #51677c;
+	font-size: 12.5px;
+	font-weight: 500;
+	cursor: pointer;
+	white-space: nowrap;
+	transition: background-color 140ms ease, color 140ms ease;
+}
+
+.weq-graph-seg.is-small button {
+	min-height: 26px;
+	font-size: 12px;
+}
+
+.weq-graph-seg button.is-active {
+	background: #ffffff;
+	color: #0099ff;
+	box-shadow: 0 1px 4px rgba(0, 122, 204, 0.18);
+}
+
+/* toggle */
+.weq-graph-toggle {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	width: 100%;
+	padding: 5px 2px;
+	border: 0;
+	background: transparent;
+	color: #36495d;
+	font-size: 12.5px;
+	cursor: pointer;
+}
+
+.weq-graph-toggle-track {
+	position: relative;
+	width: 34px;
+	height: 18px;
+	flex: none;
+	border-radius: 999px;
+	background: rgba(0, 153, 255, 0.18);
+	transition: background-color 160ms ease;
+}
+
+.weq-graph-toggle-knob {
+	position: absolute;
+	top: 2px;
+	left: 2px;
+	width: 14px;
+	height: 14px;
+	border-radius: 50%;
+	background: #ffffff;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+	transition: transform 160ms ease;
+}
+
+.weq-graph-toggle.is-on .weq-graph-toggle-track {
+	background: #0099ff;
+}
+
+.weq-graph-toggle.is-on .weq-graph-toggle-knob {
+	transform: translateX(16px);
+}
+
+/* ---- group-picker lightbox (white/black list) ---- */
+.weq-graph-modal-scrim {
+	z-index: 60;
+	background: rgba(16, 30, 49, 0.34);
+}
+
+.weq-grouppick {
+	display: grid;
+	grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+	width: min(460px, 92vw);
+	max-height: min(620px, 86vh);
+	overflow: hidden;
+	border: 1px solid rgba(0, 153, 255, 0.18);
+	border-radius: 16px;
+	background: #ffffff;
+	box-shadow: 0 30px 80px -28px rgba(7, 31, 61, 0.55);
+	animation: weq-pop-in 170ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.weq-grouppick-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 16px 18px 12px;
+	border-bottom: 1px solid rgba(0, 153, 255, 0.1);
+}
+
+.weq-grouppick-head strong {
+	display: block;
+	color: #102d49;
+	font-size: 15px;
+	font-weight: 600;
+}
+
+.weq-grouppick-head span {
+	color: #6a7f93;
+	font-size: 12px;
+}
+
+.weq-grouppick-close {
+	display: grid;
+	width: 28px;
+	height: 28px;
+	flex: none;
+	place-items: center;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	color: #8090a0;
+	cursor: pointer;
+}
+
+.weq-grouppick-close:hover {
+	background: rgba(0, 153, 255, 0.1);
+	color: #0f2d4c;
+}
+
+.weq-grouppick-search {
+	display: grid;
+	grid-template-columns: 18px minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 8px;
+	margin: 12px 18px 0;
+	padding: 0 12px;
+	height: 38px;
+	border-radius: 9px;
+	background: #f3f7fb;
+	color: #8a9bad;
+}
+
+.weq-grouppick-search input {
+	min-width: 0;
+	border: 0;
+	outline: 0;
+	background: transparent;
+	color: #21384f;
+	font-size: 13.5px;
+}
+
+.weq-grouppick-search button {
+	display: grid;
+	place-items: center;
+	border: 0;
+	background: transparent;
+	color: #8a9bad;
+	cursor: pointer;
+}
+
+.weq-grouppick-all {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	width: fit-content;
+	margin: 10px 18px 4px;
+	padding: 5px 12px;
+	border: 1px solid rgba(0, 153, 255, 0.22);
+	border-radius: 999px;
+	background: rgba(0, 153, 255, 0.06);
+	color: #0a7fd0;
+	font-size: 12.5px;
+	font-weight: 500;
+	cursor: pointer;
+}
+
+.weq-grouppick-all:hover {
+	background: rgba(0, 153, 255, 0.12);
+}
+
+.weq-grouppick-all span {
+	color: #7d93a8;
+	font-size: 11.5px;
+	font-variant-numeric: tabular-nums;
+}
+
+.weq-grouppick-list {
+	display: grid;
+	align-content: start;
+	gap: 2px;
+	min-height: 0;
+	overflow-y: auto;
+	padding: 4px 12px 8px;
+}
+
+.weq-grouppick-empty {
+	margin: 28px 0;
+	color: #8a9bad;
+	font-size: 13px;
+	text-align: center;
+}
+
+.weq-grouppick-row {
+	display: grid;
+	grid-template-columns: 36px minmax(0, 1fr) 22px;
+	align-items: center;
+	gap: 11px;
+	padding: 7px 8px;
+	border: 0;
+	border-radius: 10px;
+	background: transparent;
+	text-align: left;
+	cursor: pointer;
+	transition: background-color 120ms ease;
+}
+
+.weq-grouppick-row:hover {
+	background: rgba(0, 153, 255, 0.06);
+}
+
+.weq-grouppick-row.is-on {
+	background: rgba(0, 153, 255, 0.1);
+}
+
+.weq-grouppick-avatar {
+	display: inline-grid;
+	width: 36px;
+	height: 36px;
+	flex: none;
+	place-items: center;
+	overflow: hidden;
+	border-radius: 10px;
+	background: #eef4fb;
+	color: #5a6f84;
+	font-size: 14px;
+	font-weight: 600;
+}
+
+.weq-grouppick-avatar img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+
+.weq-grouppick-meta {
+	display: grid;
+	min-width: 0;
+	gap: 2px;
+}
+
+.weq-grouppick-meta strong {
+	overflow: hidden;
+	color: #21384f;
+	font-size: 13.5px;
+	font-weight: 500;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.weq-grouppick-meta small {
+	color: #8a9bad;
+	font-size: 11.5px;
+	font-variant-numeric: tabular-nums;
+}
+
+.weq-grouppick-check {
+	display: inline-grid;
+	width: 22px;
+	height: 22px;
+	place-items: center;
+	flex: none;
+	border: 1.5px solid #cfdcea;
+	border-radius: 50%;
+	background: transparent;
+	color: #ffffff;
+}
+
+.weq-grouppick-row.is-on .weq-grouppick-check {
+	border-color: #0099ff;
+	background: #0099ff;
+}
+
+.weq-grouppick-foot {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 12px 18px;
+	border-top: 1px solid rgba(0, 153, 255, 0.1);
+}
+
+.weq-grouppick-foot > span {
+	color: #6a7f93;
+	font-size: 12.5px;
+	font-variant-numeric: tabular-nums;
+}
+
+.weq-grouppick-foot > div {
+	display: flex;
+	gap: 8px;
+}
+
+.weq-grouppick-btn {
+	min-width: 76px;
+	min-height: 34px;
+	padding: 0 14px;
+	border: 1px solid #d9e3ee;
+	border-radius: 9px;
+	background: #ffffff;
+	color: #51677c;
+	font-size: 13px;
+	font-weight: 500;
+	cursor: pointer;
+	transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.weq-grouppick-btn:hover {
+	background: #f3f7fb;
+}
+
+.weq-grouppick-btn.is-primary {
+	border-color: #0099ff;
+	background: #0099ff;
+	color: #ffffff;
+}
+
+.weq-grouppick-btn.is-primary:hover {
+	background: #0a8fee;
+}
+
+.weq-graph-hint {
+	margin: 0;
+	color: #8090a0;
+	font-size: 11.5px;
+	line-height: 1.5;
+}
+
+/* ---- ranking lightbox (亲密度 / 共同群 / 群成员等级) ---- */
+.weq-rank {
+	display: grid;
+	grid-template-rows: auto minmax(0, 1fr) auto;
+	width: min(440px, 92vw);
+	max-height: min(640px, 86vh);
+	overflow: hidden;
+	border: 1px solid rgba(0, 153, 255, 0.18);
+	border-radius: 16px;
+	background: #ffffff;
+	box-shadow: 0 30px 80px -28px rgba(7, 31, 61, 0.55);
+	animation: weq-pop-in 170ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* group chooser / search adds an extra leading row */
+.weq-rank:has(.weq-rank-search),
+.weq-rank:has(.weq-rank-groupbar) {
+	grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.weq-rank-head {
+	display: flex;
+	align-items: center;
+	gap: 11px;
+	padding: 15px 18px 13px;
+	border-bottom: 1px solid rgba(0, 153, 255, 0.1);
+}
+
+.weq-rank-head-icon {
+	display: inline-grid;
+	width: 32px;
+	height: 32px;
+	flex: none;
+	place-items: center;
+	border-radius: 9px;
+	background: rgba(0, 153, 255, 0.1);
+	color: #0099ff;
+}
+
+.weq-rank-head-text {
+	min-width: 0;
+	flex: 1;
+}
+
+.weq-rank-head-text strong {
+	display: block;
+	color: #102d49;
+	font-size: 15px;
+	font-weight: 600;
+}
+
+.weq-rank-head-text span {
+	display: block;
+	overflow: hidden;
+	color: #6a7f93;
+	font-size: 12px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.weq-rank-close {
+	display: grid;
+	width: 28px;
+	height: 28px;
+	flex: none;
+	place-items: center;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	color: #8090a0;
+	cursor: pointer;
+}
+
+.weq-rank-close:hover {
+	background: rgba(0, 153, 255, 0.1);
+	color: #0f2d4c;
+}
+
+/* search (group chooser) — reuses the grouppick search look */
+.weq-rank-search {
+	display: grid;
+	grid-template-columns: 18px minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 8px;
+	margin: 12px 18px 4px;
+	padding: 0 12px;
+	height: 38px;
+	border-radius: 9px;
+	background: #f3f7fb;
+	color: #8a9bad;
+}
+
+.weq-rank-search input {
+	min-width: 0;
+	border: 0;
+	outline: 0;
+	background: transparent;
+	color: #21384f;
+	font-size: 13.5px;
+}
+
+.weq-rank-search button {
+	display: grid;
+	place-items: center;
+	border: 0;
+	background: transparent;
+	color: #8a9bad;
+	cursor: pointer;
+}
+
+/* selected-group bar (member-level step 2) */
+.weq-rank-groupbar {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin: 12px 18px 4px;
+	padding: 7px 9px 7px 7px;
+	border-radius: 9px;
+	background: #f3f7fb;
+}
+
+.weq-rank-back {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	flex: none;
+	padding: 4px 9px 4px 5px;
+	border: 1px solid rgba(0, 153, 255, 0.22);
+	border-radius: 999px;
+	background: #ffffff;
+	color: #0a7fd0;
+	font-size: 12px;
+	font-weight: 500;
+	cursor: pointer;
+}
+
+.weq-rank-back:hover {
+	background: rgba(0, 153, 255, 0.08);
+}
+
+.weq-rank-groupname {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	color: #21384f;
+	font-size: 13px;
+	font-weight: 500;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.weq-rank-groupcount {
+	flex: none;
+	color: #7d93a8;
+	font-size: 11.5px;
+	font-variant-numeric: tabular-nums;
+}
+
+.weq-rank-list {
+	display: grid;
+	align-content: start;
+	gap: 1px;
+	min-height: 0;
+	overflow-y: auto;
+	padding: 6px 12px 8px;
+}
+
+.weq-rank-row {
+	display: grid;
+	grid-template-columns: 26px 34px minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 10px;
+	padding: 6px 8px;
+	border-radius: 10px;
+}
+
+.weq-rank-row:hover {
+	background: rgba(0, 153, 255, 0.05);
+}
+
+.weq-rank-num {
+	display: inline-grid;
+	place-items: center;
+	height: 22px;
+	color: #93a4b6;
+	font-size: 13px;
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+}
+
+.weq-rank-num.is-top {
+	color: #ffffff;
+	border-radius: 7px;
+	font-size: 12.5px;
+}
+
+.weq-rank-num.is-top1 {
+	background: linear-gradient(135deg, #f7b733, #e8920c);
+}
+
+.weq-rank-num.is-top2 {
+	background: linear-gradient(135deg, #b9c6d4, #8ea0b3);
+}
+
+.weq-rank-num.is-top3 {
+	background: linear-gradient(135deg, #e0a579, #c47f49);
+}
+
+.weq-rank-avatar {
+	display: inline-grid;
+	width: 34px;
+	height: 34px;
+	flex: none;
+	place-items: center;
+	overflow: hidden;
+	border-radius: 9px;
+	background: #eef4fb;
+	color: #5a6f84;
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.weq-rank-avatar img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+
+.weq-rank-meta {
+	display: grid;
+	min-width: 0;
+	gap: 1px;
+}
+
+.weq-rank-meta strong {
+	overflow: hidden;
+	color: #21384f;
+	font-size: 13.5px;
+	font-weight: 500;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.weq-rank-meta small {
+	color: #8a9bad;
+	font-size: 11.5px;
+}
+
+.weq-rank-value {
+	flex: none;
+	padding: 2px 10px;
+	border-radius: 999px;
+	background: rgba(0, 153, 255, 0.1);
+	color: #0a7fd0;
+	font-size: 12.5px;
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+}
+
+/* group chooser row (no value column) */
+.weq-rank-grouprow {
+	display: grid;
+	grid-template-columns: 34px minmax(0, 1fr) 16px;
+	align-items: center;
+	gap: 11px;
+	padding: 7px 8px;
+	border: 0;
+	border-radius: 10px;
+	background: transparent;
+	text-align: left;
+	cursor: pointer;
+	transition: background-color 120ms ease;
+}
+
+.weq-rank-grouprow:hover {
+	background: rgba(0, 153, 255, 0.07);
+}
+
+.weq-rank-grouprow-go {
+	color: #b6c3d1;
+	transform: rotate(180deg);
+}
+
+.weq-rank-empty,
+.weq-rank-end {
+	margin: 22px 0;
+	color: #8a9bad;
+	font-size: 12.5px;
+	text-align: center;
+}
+
+.weq-rank-end {
+	margin: 12px 0;
+	font-size: 11.5px;
+}
+
+.weq-rank-loading {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	padding: 16px 0;
+	color: #6a7f93;
+	font-size: 12.5px;
+}
+
+.weq-rank-spinner {
+	width: 16px;
+	height: 16px;
+	border-radius: 50%;
+	border: 2px solid rgba(0, 153, 255, 0.22);
+	border-top-color: #0099ff;
+	animation: weq-spin 800ms linear infinite;
+}
+
+.weq-rank-foot {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 11px 18px;
+	border-top: 1px solid rgba(0, 153, 255, 0.1);
+	color: #6a7f93;
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+}
+
+/* ---- detail card (floats over the stage, top-right to clear the overlay) ---- */
+.weq-graph-detail {
+	position: absolute;
+	right: 16px;
+	top: 16px;
+	z-index: 2;
+	width: 224px;
+	padding: 14px;
+	border: 1px solid rgba(0, 153, 255, 0.18);
+	border-radius: 12px;
+	background: rgba(255, 255, 255, 0.96);
+	box-shadow: 0 18px 44px -20px rgba(7, 31, 61, 0.42);
+	animation: weq-pop-in 160ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.weq-graph-detail-close {
+	position: absolute;
+	top: 8px;
+	right: 8px;
+	display: grid;
+	width: 22px;
+	height: 22px;
+	place-items: center;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: #8090a0;
+	cursor: pointer;
+}
+
+.weq-graph-detail-close:hover {
+	background: rgba(0, 153, 255, 0.1);
+	color: #0f2d4c;
+}
+
+.weq-graph-detail-head {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-bottom: 12px;
+}
+
+.weq-graph-detail-avatar {
+	display: inline-grid;
+	width: 42px;
+	height: 42px;
+	flex: none;
+	place-items: center;
+	overflow: hidden;
+	border: 2px solid #0099ff;
+	border-radius: 11px;
+	background: #eef4fb;
+	color: #5a6f84;
+	font-size: 16px;
+	font-weight: 600;
+}
+
+.weq-graph-detail-avatar img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+
+.weq-graph-detail-id {
+	min-width: 0;
+}
+
+.weq-graph-detail-id strong {
+	display: block;
+	overflow: hidden;
+	color: #102d49;
+	font-size: 14px;
+	font-weight: 600;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.weq-graph-detail-id span {
+	color: #6a7f93;
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+}
+
+.weq-graph-detail-rows {
+	display: grid;
+	gap: 2px;
+}
+
+.weq-graph-detail-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	min-height: 28px;
+	border-top: 1px solid rgba(0, 153, 255, 0.09);
+}
+
+.weq-graph-detail-row:first-child {
+	border-top: 0;
+}
+
+.weq-graph-detail-row span {
+	color: #6a7d90;
+	font-size: 12.5px;
+}
+
+.weq-graph-detail-row strong {
+	color: #21384f;
+	font-size: 12.5px;
+	font-weight: 600;
+}
+
+.weq-graph-detail-row strong.is-accent {
+	color: #0099ff;
+}
+
+/* ---- dark ---- */
+html[data-theme="dark"] .weq-graph-embed {
+	background: linear-gradient(135deg, #15171a, #121417);
+}
+
+html[data-theme="dark"] .weq-graph-stage {
+	background:
+		radial-gradient(circle at 50% 42%, rgba(0, 153, 255, 0.06), transparent 62%),
+		#0e1013;
+}
+
+html[data-theme="dark"] .weq-graph-controls {
+	border-color: rgba(255, 255, 255, 0.08);
+	background: rgba(26, 28, 30, 0.72);
+}
+
+html[data-theme="dark"] .weq-graph-col-label,
+html[data-theme="dark"] .weq-graph-slider-label,
+html[data-theme="dark"] .weq-graph-toggle {
+	color: #aab3bf;
+}
+
+html[data-theme="dark"] .weq-graph-seg button.is-active {
+	background: #2a2d31;
+	color: #58b6ff;
+}
+
+html[data-theme="dark"] .weq-graph-slider-value {
+	background: rgba(0, 153, 255, 0.18);
+	color: #6cc0ff;
+}
+
+/* dark — overlay toolbar */
+html[data-theme="dark"] .weq-graph-overlay .weq-graph-seg {
+	background: rgba(34, 37, 41, 0.9);
+}
+
+html[data-theme="dark"] .weq-graph-icon-btn {
+	border-color: rgba(255, 255, 255, 0.1);
+	background: rgba(34, 37, 41, 0.9);
+	color: #6cc0ff;
+}
+
+html[data-theme="dark"] .weq-graph-icon-btn:hover:not(:disabled) {
+	background: #2a2d31;
+}
+
+html[data-theme="dark"] .weq-graph-overlay-stat {
+	background: rgba(34, 37, 41, 0.82);
+	color: #9aa6b2;
+}
+
+html[data-theme="dark"] .weq-graph-pick-btn {
+	border-color: rgba(0, 153, 255, 0.28);
+	background: rgba(0, 153, 255, 0.1);
+	color: #6cc0ff;
+}
+
+html[data-theme="dark"] .weq-graph-pick-btn:disabled {
+	border-color: rgba(255, 255, 255, 0.08);
+	background: transparent;
+	color: #6c7783;
+}
+
+/* dark — group-picker lightbox */
+html[data-theme="dark"] .weq-grouppick {
+	border-color: rgba(0, 153, 255, 0.24);
+	background: #1b1d20;
+}
+
+html[data-theme="dark"] .weq-grouppick-head,
+html[data-theme="dark"] .weq-grouppick-foot {
+	border-color: rgba(255, 255, 255, 0.07);
+}
+
+html[data-theme="dark"] .weq-grouppick-head strong {
+	color: #eef0f3;
+}
+
+html[data-theme="dark"] .weq-grouppick-search {
+	background: rgba(255, 255, 255, 0.05);
+}
+
+html[data-theme="dark"] .weq-grouppick-search input {
+	color: #e3e6ea;
+}
+
+html[data-theme="dark"] .weq-grouppick-all {
+	border-color: rgba(0, 153, 255, 0.28);
+	background: rgba(0, 153, 255, 0.1);
+	color: #6cc0ff;
+}
+
+html[data-theme="dark"] .weq-grouppick-row:hover {
+	background: rgba(0, 153, 255, 0.1);
+}
+
+html[data-theme="dark"] .weq-grouppick-row.is-on {
+	background: rgba(0, 153, 255, 0.16);
+}
+
+html[data-theme="dark"] .weq-grouppick-avatar {
+	background: #2a2d31;
+	color: #aab3bf;
+}
+
+html[data-theme="dark"] .weq-grouppick-meta strong {
+	color: #e3e6ea;
+}
+
+html[data-theme="dark"] .weq-grouppick-check {
+	border-color: #3a4048;
+}
+
+html[data-theme="dark"] .weq-grouppick-btn {
+	border-color: rgba(255, 255, 255, 0.12);
+	background: #24272b;
+	color: #c2cad4;
+}
+
+html[data-theme="dark"] .weq-grouppick-btn:hover {
+	background: #2a2d31;
+}
+
+html[data-theme="dark"] .weq-grouppick-btn.is-primary {
+	border-color: #0099ff;
+	background: #0099ff;
+	color: #ffffff;
+}
+
+html[data-theme="dark"] .weq-graph-detail {
+	border-color: rgba(0, 153, 255, 0.24);
+	background: rgba(28, 30, 33, 0.97);
+}
+
+html[data-theme="dark"] .weq-graph-detail-id strong {
+	color: #eef0f3;
+}
+
+html[data-theme="dark"] .weq-graph-detail-row strong {
+	color: #dfe2e7;
+}
+
+html[data-theme="dark"] .weq-graph-detail-row span {
+	color: #8b95a1;
+}
+
+/* dark — ranking buttons + lightbox */
+html[data-theme="dark"] .weq-graph-rank-btn {
+	border-color: rgba(0, 153, 255, 0.28);
+	background: rgba(0, 153, 255, 0.1);
+	color: #6cc0ff;
+}
+
+html[data-theme="dark"] .weq-graph-rank-btn:hover:not(:disabled) {
+	background: rgba(0, 153, 255, 0.18);
+}
+
+html[data-theme="dark"] .weq-graph-rank-btn:disabled {
+	border-color: rgba(255, 255, 255, 0.08);
+	background: transparent;
+	color: #6c7783;
+}
+
+html[data-theme="dark"] .weq-rank {
+	border-color: rgba(0, 153, 255, 0.24);
+	background: #1b1d20;
+}
+
+html[data-theme="dark"] .weq-rank-head,
+html[data-theme="dark"] .weq-rank-foot {
+	border-color: rgba(255, 255, 255, 0.07);
+}
+
+html[data-theme="dark"] .weq-rank-head-text strong {
+	color: #eef0f3;
+}
+
+html[data-theme="dark"] .weq-rank-head-icon {
+	background: rgba(0, 153, 255, 0.16);
+	color: #6cc0ff;
+}
+
+html[data-theme="dark"] .weq-rank-search,
+html[data-theme="dark"] .weq-rank-groupbar {
+	background: rgba(255, 255, 255, 0.05);
+}
+
+html[data-theme="dark"] .weq-rank-search input {
+	color: #e3e6ea;
+}
+
+html[data-theme="dark"] .weq-rank-back {
+	border-color: rgba(0, 153, 255, 0.28);
+	background: #24272b;
+	color: #6cc0ff;
+}
+
+html[data-theme="dark"] .weq-rank-groupname {
+	color: #e3e6ea;
+}
+
+html[data-theme="dark"] .weq-rank-row:hover,
+html[data-theme="dark"] .weq-rank-grouprow:hover {
+	background: rgba(0, 153, 255, 0.12);
+}
+
+html[data-theme="dark"] .weq-rank-avatar {
+	background: #2a2d31;
+	color: #aab3bf;
+}
+
+html[data-theme="dark"] .weq-rank-meta strong {
+	color: #e3e6ea;
+}
+
+html[data-theme="dark"] .weq-rank-value {
+	background: rgba(0, 153, 255, 0.18);
+	color: #6cc0ff;
+}

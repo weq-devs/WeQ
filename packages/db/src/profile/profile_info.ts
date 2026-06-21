@@ -139,6 +139,35 @@ export class ProfileInfoDb {
   }
 
   /**
+   * List ALL friends (the authoritative buddy_list) joined with their profile
+   * intimacy, ordered 亲密度高→低. Single paginated query backing the "好友亲密度
+   * 排行" lightbox (infinite-scroll). buddy_list and profile_info_v6 share one
+   * db file, so this is a plain JOIN — every friend is included, even those with
+   * 0/unknown intimacy (COALESCE sorts them to the bottom). Tie-break by uid so
+   * pagination stays stable when many friends share intimacy 0.
+   */
+  async listFriendsByIntimacy(
+    limit = 100,
+    offset = 0,
+  ): Promise<Array<{ uid: string; uin: string; nick: string; remark: string; intimacy: number }>> {
+    const rows = await this.qq.query(
+      `SELECT b."1000", b."1002", p."20002", p."20009", p."20070"
+       FROM buddy_list b
+       LEFT JOIN profile_info_v6 p ON b."1000" = p."1000"
+       ORDER BY COALESCE(p."20070", 0) DESC, b."1000" ASC
+       LIMIT ? OFFSET ?`,
+      [limit, offset],
+    );
+    return rows.map((row) => ({
+      uid: String(row[0] ?? ''),
+      uin: row[1] === null || row[1] === undefined ? '' : String(row[1]),
+      nick: String(row[2] ?? ''),
+      remark: String(row[3] ?? ''),
+      intimacy: Number(row[4] ?? 0),
+    }));
+  }
+
+  /**
    * List all cached profiles.
    */
   async listProfiles(limit = 100, offset = 0): Promise<UserProfile[]> {

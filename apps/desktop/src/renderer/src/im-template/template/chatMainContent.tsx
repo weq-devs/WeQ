@@ -30,6 +30,7 @@ export function ChatMainContent({
 	user,
 	view,
 	contactTab,
+	relationGraphSlot,
 	contactNotice,
 	contactRequests,
 	groupRequests,
@@ -74,6 +75,8 @@ export function ChatMainContent({
 	user: User;
 	view: MainView;
 	contactTab?: ContactTab;
+	/** App-provided content for the contacts main area (the relation graph). */
+	relationGraphSlot?: React.ReactNode;
 	contactNotice: ContactNoticeView | null;
 	contactRequests: ContactRequest[];
 	groupRequests: GroupJoinRequest[];
@@ -126,7 +129,8 @@ export function ChatMainContent({
 	if (view === "contacts") {
 		return (
 			<>
-				{contactTab === "groups" ? <GroupProfilePane /> : <ContactProfilePane />}
+				{relationGraphSlot ??
+					(contactTab === "groups" ? <GroupProfilePane /> : <ContactProfilePane />)}
 				<ContactProfileDialog
 					contact={selectedContact}
 					onClose={onBackContact}

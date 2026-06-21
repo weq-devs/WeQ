@@ -24,6 +24,7 @@ import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
 import { RailAccountFooter } from '../components/RailAccountFooter';
 import { SettingsDialog } from '../components/SettingsDialog';
+import { RelationGraphView } from '../components/relationGraph/RelationGraphView';
 import {
   ChatMainContent,
   ChatShell,
@@ -34,6 +35,7 @@ import {
   type ConversationDrafts,
   type ConversationPreference,
   type ConversationPreferences,
+  type GroupJoinRequest,
   type GroupMember,
   type GroupUpdateInput,
   type Message,
@@ -2424,6 +2426,7 @@ export function MainView(): ReactElement {
                 user={user}
                 view={shell.view}
                 contactTab={shell.contactTab}
+                relationGraphSlot={<RelationGraphView />}
                 contactNotice={shell.contactNotice}
                 contactRequests={contactRequests}
                 groupRequests={groupRequests}
