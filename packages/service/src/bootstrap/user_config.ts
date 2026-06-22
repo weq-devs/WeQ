@@ -58,37 +58,12 @@ type DeepPartial<T> = {
 };
 
 /**
- * Which media kinds the rkey-completion pass will try to fetch from the CDN
- * when a file is missing on disk. Defaults favour the cheap/common ones
- * (images, stickers, video covers) and leave the heavy ones (full videos,
- * arbitrary files) off — flip them on explicitly when you need them.
- */
-export interface MediaCompletionTypes {
-  /** 图片. */
-  image: boolean;
-  /** 表情（收到的动画表情 / 商城表情）. */
-  sticker: boolean;
-  /** 视频封面图（缩略图，体积小）. */
-  videoCover: boolean;
-  /** 视频原文件（完整视频，体积大）. */
-  video: boolean;
-  /** 文件（群文件 / 离线文件）. */
-  file: boolean;
-}
-
-/**
  * "自动从登录的 QQ 进程获取 rkey 补全缺失媒体" settings. This is what powers
  * both in-app media viewing and export completion — see {@link MediaDownloadService}.
  */
 export interface MediaCompletionConfig {
   /** Master switch: harvest rkeys from the online QQ and use them to complete media. */
   enabled: boolean;
-  /** Apply completion while viewing chats in the app. */
-  forViewing: boolean;
-  /** Apply completion during export. */
-  forExport: boolean;
-  /** Per-kind toggles for what to complete. */
-  types: MediaCompletionTypes;
 }
 
 /**
@@ -102,20 +77,15 @@ export interface AppSettings {
   realtimeEnabled: boolean;
   /** 媒体补全（rkey）配置. */
   mediaCompletion: MediaCompletionConfig;
-  /** 占位：自动获取 ClientKey（尚未接线）. */
+  /** 自动获取 ClientKey. */
   autoFetchClientKey: boolean;
 }
 
 /** Defaults applied when a field is absent from `config.json`. */
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   realtimeEnabled: true,
-  mediaCompletion: {
-    enabled: true,
-    forViewing: true,
-    forExport: true,
-    types: { image: true, sticker: true, videoCover: true, video: false, file: false },
-  },
-  autoFetchClientKey: false,
+  mediaCompletion: { enabled: true },
+  autoFetchClientKey: true,
 };
 
 /**
@@ -289,23 +259,13 @@ export class UserConfigService {
       autoFetchClientKey: s?.autoFetchClientKey ?? d.autoFetchClientKey,
       mediaCompletion: {
         enabled: s?.mediaCompletion?.enabled ?? d.mediaCompletion.enabled,
-        forViewing: s?.mediaCompletion?.forViewing ?? d.mediaCompletion.forViewing,
-        forExport: s?.mediaCompletion?.forExport ?? d.mediaCompletion.forExport,
-        types: {
-          image: s?.mediaCompletion?.types?.image ?? d.mediaCompletion.types.image,
-          sticker: s?.mediaCompletion?.types?.sticker ?? d.mediaCompletion.types.sticker,
-          videoCover: s?.mediaCompletion?.types?.videoCover ?? d.mediaCompletion.types.videoCover,
-          video: s?.mediaCompletion?.types?.video ?? d.mediaCompletion.types.video,
-          file: s?.mediaCompletion?.types?.file ?? d.mediaCompletion.types.file,
-        },
       },
     };
   }
 
   /**
    * Deep-merge `patch` into the current settings and persist. Returns the new
-   * full settings object. `types` is shallow-merged onto the current types so a
-   * caller can flip a single kind without resending the rest.
+   * full settings object.
    */
   setSettings(patch: DeepPartial<AppSettings>): AppSettings {
     const current = this.getSettings();
@@ -314,9 +274,6 @@ export class UserConfigService {
       autoFetchClientKey: patch.autoFetchClientKey ?? current.autoFetchClientKey,
       mediaCompletion: {
         enabled: patch.mediaCompletion?.enabled ?? current.mediaCompletion.enabled,
-        forViewing: patch.mediaCompletion?.forViewing ?? current.mediaCompletion.forViewing,
-        forExport: patch.mediaCompletion?.forExport ?? current.mediaCompletion.forExport,
-        types: { ...current.mediaCompletion.types, ...(patch.mediaCompletion?.types ?? {}) },
       },
     };
     this.write({ settings: next });

@@ -53,6 +53,8 @@ export type FaceEmojiProps = {
    */
   animated?: boolean;
   className?: string;
+  /** Whether the message sender is the current user (for mirroring poke faces). */
+  isSender?: boolean;
 };
 
 function toLength(size: number | string | undefined): string | undefined {
@@ -60,7 +62,7 @@ function toLength(size: number | string | undefined): string | undefined {
   return typeof size === 'number' ? `${size}px` : size;
 }
 
-export function FaceEmoji({ element, size, animated, className }: FaceEmojiProps) {
+export function FaceEmoji({ element, size, animated, className, isSender = true }: FaceEmojiProps) {
   const { faceId, faceText, diceValue, subType } = element;
   const label = faceText || `[表情${faceId}]`;
   const dim = toLength(size);
@@ -103,7 +105,7 @@ export function FaceEmoji({ element, size, animated, className }: FaceEmojiProps
         src={resourceUrl('pokeEmoji', `${pokeId}.png`)}
         label={label}
         style={boxStyle}
-        className={className}
+        className={cn(className, !isSender && 'face-poke-mirror')}
       />
     );
   }

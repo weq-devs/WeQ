@@ -67,7 +67,7 @@ export function GrayTipPokeMessage({ element, conversation, message }: GrayTipPo
         }
         if (node.nodeName === 'img') {
           const src = getNodeValue(node, 'src');
-          return <img key={index} src={src} alt="poke" className="inline-block w-5 h-5 mx-1" />;
+          return <img key={index} src={src} alt="poke" className="inline-block h-[1em] mx-1" />;
         }
         return null;
       });
@@ -122,7 +122,7 @@ export function GrayTipPokeMessage({ element, conversation, message }: GrayTipPo
 
           if (item.type === 'img') {
             const src = item.src;
-            return src ? <img key={index} src={src} alt="" className="inline-block w-5 h-5 mx-1" /> : null;
+            return src ? <img key={index} src={src} alt="" className="inline-block h-[1em] mx-1" /> : null;
           }
 
           return <span key={index}>{txt}</span>;

@@ -64,9 +64,12 @@ export interface RenderPicElement {
     // md5: string;
     /** CDN download token; used to fetch the image when it isn't on disk. */
     fileToken: string;
-    // uploadTime: number;
-    // uploadTimestamp: number;
-    // fileTTL: number;
+    /** Upload/processing time (unix seconds). */
+    uploadTime: number;
+    /** Upload timestamp (unix seconds). */
+    uploadTimestamp: number;
+    /** File TTL in seconds; CDN expiry ≈ uploadTimestamp + fileTTL. */
+    fileTTL: number;
     // thumbnailUrl: string;
     // previewUrl: string;
     /** CDN path for the original image; used for digit-token (rkey-less) downloads. */
@@ -106,11 +109,12 @@ export interface RenderVideoElement {
     isOriginal: boolean;
     /** CDN download token for the original video (mp4). */
     fileToken: string;
-    // uploadTime: number;
-    // picTransferState?: number;
-    // transferVersion?: number;
-    // uploadTimestamp: number;
-    // fileTTL: number;
+    /** Upload/processing time (unix seconds). */
+    uploadTime: number;
+    /** Upload timestamp (unix seconds). */
+    uploadTimestamp: number;
+    /** File TTL in seconds; CDN expiry ≈ uploadTimestamp + fileTTL. */
+    fileTTL: number;
     summary: string[];
     videoDuration: number;
     videoWidth: number;
@@ -118,8 +122,10 @@ export interface RenderVideoElement {
     coverFileName: string;
     /** CDN download token for the video cover image. */
     videoToken: string;
-    // expireTimestamp: number;
-    // validPeriodSec: number;
+    /** Absolute CDN expiry (unix seconds) when present (authoritative for video). */
+    expireTimestamp: number;
+    /** Valid period in seconds from upload, when present. */
+    validPeriodSec: number;
     // secondExpireTimestamp: number;
   };
 }
@@ -134,9 +140,12 @@ export interface RenderPttElement {
     // md5: string;
     /** CDN download token for the voice clip (silk). */
     fileToken: string;
-    // uploadTime: number;
-    // uploadTimestamp: number;
-    // fileTTL: number;
+    /** Upload/processing time (unix seconds). */
+    uploadTime: number;
+    /** Upload timestamp (unix seconds). */
+    uploadTimestamp: number;
+    /** File TTL in seconds; CDN expiry ≈ uploadTimestamp + fileTTL. */
+    fileTTL: number;
     summary: string[];
     pttType: number;
     voiceChanged: boolean;
@@ -483,9 +492,9 @@ function mapPic(el: PicElement): RenderPicElement {
       isOriginal: el.isOriginal,
       // md5: el.md5,
       fileToken: el.fileToken,
-      // uploadTime: el.uploadTime,
-      // uploadTimestamp: el.uploadTimestamp,
-      // fileTTL: el.fileTTL,
+      uploadTime: el.uploadTime,
+      uploadTimestamp: el.uploadTimestamp,
+      fileTTL: el.fileTTL,
       // thumbnailUrl: el.thumbnailUrl,
       // previewUrl: el.previewUrl,
       originalUrl: el.originalUrl,
@@ -533,19 +542,17 @@ function mapVideo(el: VideoElement): RenderVideoElement {
       // imgHeight: el.imgHeight,
       isOriginal: el.isOriginal,
       fileToken: el.fileToken,
-      // uploadTime: el.uploadTime,
-      // picTransferState: el.picTransferState,
-      // transferVersion: el.transferVersion,
-      // uploadTimestamp: el.uploadTimestamp,
-      // fileTTL: el.fileTTL,
+      uploadTime: el.uploadTime,
+      uploadTimestamp: el.uploadTimestamp,
+      fileTTL: el.fileTTL,
       summary: el.summary,
       videoDuration: el.videoDuration,
       videoWidth: el.videoWidth,
       videoHeight: el.videoHeight,
       coverFileName: el.coverFileName,
       videoToken: el.videoToken,
-      // expireTimestamp: el.expireTimestamp,
-      // validPeriodSec: el.validPeriodSec,
+      expireTimestamp: el.expireTimestamp,
+      validPeriodSec: el.validPeriodSec,
       // secondExpireTimestamp: el.secondExpireTimestamp,
       elementId: el.elementId,
       isSender: el.isSender,
@@ -564,9 +571,9 @@ function mapPtt(el: PttElement): RenderPttElement {
       isOriginal: el.isOriginal,
       // md5: el.md5,
       fileToken: el.fileToken,
-      // uploadTime: el.uploadTime,
-      // uploadTimestamp: el.uploadTimestamp,
-      // fileTTL: el.fileTTL,
+      uploadTime: el.uploadTime,
+      uploadTimestamp: el.uploadTimestamp,
+      fileTTL: el.fileTTL,
       summary: el.summary,
       pttType: el.pttType,
       voiceChanged: el.voiceChanged,

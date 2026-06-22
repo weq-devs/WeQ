@@ -14,3 +14,13 @@ export { elementToText, elementsToText, formatTime, messageToText } from './elem
 export { exportGroupToJson, type JsonExportOptions } from './json_exporter';
 export { exportGroupToJsonl } from './jsonl_exporter';
 export { exportGroupToTxt } from './txt_exporter';
+export {
+  scanGroupMedia,
+  mediaDirsFromAccountDir,
+  type MediaKind,
+  type MediaDirs,
+  type MediaRef,
+  type MediaScanResult,
+  type KindCounts,
+  type ScanOptions,
+} from './media_scan';

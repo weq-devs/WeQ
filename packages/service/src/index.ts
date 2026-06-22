@@ -33,7 +33,6 @@ export type {
   AutoEnterTarget,
   AppSettings,
   MediaCompletionConfig,
-  MediaCompletionTypes,
 } from './bootstrap/user_config';
 
 export { AvatarCacheService } from './bootstrap/avatar_cache';
@@ -48,8 +47,8 @@ export type {
 } from './bootstrap/global_config';
 
 // ---- account ----
-export { AccountConfigService, accountConfigId, rkeyExpiryMs } from './account/user_config';
-export type { AccountConfig, AccountConfigMetadata, DownloadRkey } from './account/user_config';
+export { AccountConfigService, accountConfigId, rkeyExpiryMs, clientKeyExpiryMs } from './account/user_config';
+export type { AccountConfig, AccountConfigMetadata, DownloadRkey, ClientKey } from './account/user_config';
 export { AccountMonitorService } from './account/monitor';
 export {
   MediaDownloadService,

@@ -1960,6 +1960,14 @@ button.contact-profile-row:hover {
 	gap: 7px;
 	padding: 13px 0;
 	border-bottom: 1px solid #eeeeee;
+	transition: background-color 0.2s ease, padding 0.2s ease;
+}
+
+.group-info-detail-record[style*="cursor: pointer"]:hover {
+	background-color: #f5f5f5;
+	padding-left: 8px;
+	padding-right: 8px;
+	border-radius: 6px;
 }
 
 .group-info-detail-row:last-child,

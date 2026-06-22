@@ -20,8 +20,8 @@
 
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
-import type { AccountConfigService, DownloadRkey } from './user_config';
-import { rkeyExpiryMs } from './user_config';
+import type { AccountConfigService, DownloadRkey, ClientKey } from './user_config';
+import { rkeyExpiryMs, clientKeyExpiryMs } from './user_config';
 
 /** How often to poll for the account becoming logged in. */
 const LOGIN_POLL_MS = 5000;
@@ -29,6 +29,8 @@ const LOGIN_POLL_MS = 5000;
 const PID_POLL_MS = 5000;
 /** Refresh rkeys this long before they expire. */
 const RKEY_REFRESH_SKEW_MS = 5 * 60 * 1000;
+/** Refresh clientkey this long before it expires. */
+const CLIENTKEY_REFRESH_SKEW_MS = 5 * 60 * 1000;
 
 /**
  * Global registry of injected pids — shared across all AccountMonitorService
@@ -50,12 +52,16 @@ export class AccountMonitorService {
    * @param shouldHarvestRkeys Checked live before each rkey fetch — when it
    *   returns false (用户关掉了「自动获取 rkey 补全媒体」), online/pid tracking
    *   keeps running but rkey harvesting is skipped. Defaults to always-on.
+   * @param shouldFetchClientKey Checked live before each clientkey fetch — when
+   *   it returns false (用户关掉了「自动获取 ClientKey」), clientkey harvesting
+   *   is skipped. Defaults to always-off.
    */
   constructor(
     private readonly session: AccountSession,
     private readonly platform: Platform,
     private readonly accountConfig: AccountConfigService,
     private readonly shouldHarvestRkeys: () => boolean = () => true,
+    private readonly shouldFetchClientKey: () => boolean = () => false,
   ) {}
 
   start(): void {
@@ -121,7 +127,7 @@ export class AccountMonitorService {
 
     this.attachedPid = pid;
     this.markOnline(pid);
-    if (this.shouldHarvestRkeys()) await this.refreshRkey(pid);
+    await this.harvest(pid);
     this.schedulePidPoll(PID_POLL_MS);
   }
 
@@ -175,7 +181,7 @@ export class AccountMonitorService {
       return this.scheduleLoginPoll(LOGIN_POLL_MS);
     }
 
-    if (this.shouldHarvestRkeys()) await this.refreshRkeyIfStale(pid);
+    await this.harvestIfStale(pid);
     this.schedulePidPoll(PID_POLL_MS);
   }
 
@@ -201,7 +207,7 @@ export class AccountMonitorService {
     }
   }
 
-  // ---- rkey harvesting ----------------------------------------------------
+  // ---- rkey / clientkey harvesting ----------------------------------------
 
   private async ensureInjected(pid: number): Promise<void> {
     if (injectedPids.has(pid)) return;
@@ -209,28 +215,53 @@ export class AccountMonitorService {
     injectedPids.add(pid);
   }
 
-  private async refreshRkey(pid: number): Promise<void> {
+  /** Harvest both rkey & clientkey (gated by their respective switches). */
+  private async harvest(pid: number): Promise<void> {
     try {
       await this.ensureInjected(pid);
-      const raw = await this.nt.fetchDownloadRkeys(pid);
-      const rkeys = parseRkeys(raw);
-      if (rkeys.length > 0) this.accountConfig.setRkeys(rkeys);
+      if (this.shouldHarvestRkeys()) {
+        const raw = await this.nt.fetchDownloadRkeys(pid);
+        const rkeys = parseRkeys(raw);
+        if (rkeys.length > 0) this.accountConfig.setRkeys(rkeys);
+      }
+      if (this.shouldFetchClientKey()) {
+        const raw = await this.nt.fetchClientKey(pid);
+        const key = parseClientKey(raw);
+        if (key) this.accountConfig.setClientKey(key);
+      }
     } catch {
-      /* leave stale rkeys in place; retry on the next stale check */
+      /* leave stale credentials in place; retry on the next stale check */
     }
   }
 
-  private async refreshRkeyIfStale(pid: number): Promise<void> {
-    const rkeys = this.accountConfig.getRecord()?.rkeys ?? [];
+  /** Refresh rkey/clientkey when they're stale (按开关独立判断). */
+  private async harvestIfStale(pid: number): Promise<void> {
+    const rec = this.accountConfig.getRecord();
     const now = Date.now();
-    const stale =
-      rkeys.length === 0 ||
-      rkeys.some((r) => rkeyExpiryMs(r) - now < RKEY_REFRESH_SKEW_MS);
-    if (stale) await this.refreshRkey(pid);
+    let needHarvest = false;
+
+    if (this.shouldHarvestRkeys()) {
+      const rkeys = rec?.rkeys ?? [];
+      const rkeyStale =
+        rkeys.length === 0 || rkeys.some((r) => rkeyExpiryMs(r) - now < RKEY_REFRESH_SKEW_MS);
+      if (rkeyStale) needHarvest = true;
+    }
+
+    if (this.shouldFetchClientKey()) {
+      const ck = rec?.clientKey;
+      const ckStale = !ck || clientKeyExpiryMs(ck) - now < CLIENTKEY_REFRESH_SKEW_MS;
+      if (ckStale) needHarvest = true;
+    }
+
+    if (needHarvest) await this.harvest(pid);
   }
 }
 
-/** Normalise the native `fetchDownloadRkeys` JSON into {@link DownloadRkey}s. */
+/**
+ * Normalise the native `fetchDownloadRkeys` JSON into {@link DownloadRkey}s.
+ * Filters out video (12/22) and voice (14/24) rkeys — they're not used and
+ * clutter the account-config record.
+ */
 function parseRkeys(raw: string): DownloadRkey[] {
   let arr: unknown;
   try {
@@ -244,12 +275,34 @@ function parseRkeys(raw: string): DownloadRkey[] {
     if (!x || typeof x !== 'object') continue;
     const o = x as Record<string, unknown>;
     if (typeof o.rkey !== 'string') continue;
+    const type = typeof o.type_ === 'number' ? o.type_ : 0;
+    // Only keep image rkeys (10/20); drop video (12/22) & voice (14/24).
+    if (type !== 10 && type !== 20) continue;
     out.push({
       rkey: o.rkey,
-      type: typeof o.type_ === 'number' ? o.type_ : 0,
+      type,
       ttlSeconds: typeof o.ttl_seconds === 'number' ? o.ttl_seconds : 0,
       createTime: typeof o.create_time === 'number' ? o.create_time : 0,
     });
   }
   return out;
+}
+
+/** Normalise the native `fetchClientKey` JSON into {@link ClientKey}. */
+function parseClientKey(raw: string): ClientKey | null {
+  let obj: unknown;
+  try {
+    obj = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!obj || typeof obj !== 'object') return null;
+  const o = obj as Record<string, unknown>;
+  if (typeof o.client_key !== 'string' || !o.client_key) return null;
+  return {
+    clientKey: o.client_key,
+    keyIndex: typeof o.key_index === 'string' ? o.key_index : '',
+    ttlSeconds: typeof o.expire_time === 'string' ? parseInt(o.expire_time, 10) || 0 : 0,
+    fetchedAt: Date.now(),
+  };
 }

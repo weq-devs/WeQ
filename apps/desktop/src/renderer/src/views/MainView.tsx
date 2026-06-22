@@ -716,26 +716,31 @@ function isMineMessage(message: MessageWire, conversation: Conversation, user: U
 }
 
 function messageSender(message: MessageWire, conversation: Conversation, user: User, memberMap?: Map<string, GroupMember>): User {
-  if (isMineMessage(message, conversation, user)) return user;
-  if (conversation.type === 'direct') return conversation.otherUser;
+  const isMine = isMineMessage(message, conversation, user);
+  if (isMine && conversation.type === 'direct') return user;
 
-  // Optimized O(1) lookup
-  const member = memberMap?.get(message.senderUid);
-  const isUinOnly = !member?.displayName || member.displayName === message.senderUin;
+  // For group messages, even if it's mine, get member info from memberMap
+  if (conversation.type === 'group') {
+    const member = memberMap?.get(message.senderUid);
+    const isUinOnly = !member;
 
-  return {
-    id: message.senderUid || `sender:${message.senderUin}`,
-    identityLabel: message.senderUin && message.senderUin !== '0' ? 'QQ' : 'UID',
-    identityValue: message.senderUin && message.senderUin !== '0' ? message.senderUin : message.senderUid,
-    username: message.senderUid || message.senderUin,
-    displayName: member?.displayName || (message.senderUin && message.senderUin !== '0' ? message.senderUin : 'Member'),
-    avatarUrl: member?.avatarUrl || senderAvatarSrc(message.senderUin),
-    // Ensure group specific fields are passed through, but ONLY if it's not just a UIN display
-    role: !isUinOnly ? member?.role : undefined,
-    customTitle: !isUinOnly ? member?.customTitle : undefined,
-    levelName: !isUinOnly ? member?.levelName : undefined,
-    levelBracket: !isUinOnly ? levelBracketFor(member?.memberLevel) : 0,
-  } as User;
+    return {
+      id: isMine ? user.id : (message.senderUid || `sender:${message.senderUin}`),
+      identityLabel: isMine ? user.identityLabel : (message.senderUin && message.senderUin !== '0' ? 'QQ' : 'UID'),
+      identityValue: isMine ? user.identityValue : (message.senderUin && message.senderUin !== '0' ? message.senderUin : message.senderUid),
+      username: isMine ? user.username : (message.senderUid || message.senderUin),
+      displayName: isMine ? user.displayName : (member?.displayName || (message.senderUin && message.senderUin !== '0' ? message.senderUin : 'Member')),
+      avatarUrl: isMine ? user.avatarUrl : (member?.avatarUrl || senderAvatarSrc(message.senderUin)),
+      role: !isUinOnly ? member?.role : undefined,
+      customTitle: !isUinOnly ? member?.customTitle : undefined,
+      levelName: !isUinOnly ? member?.levelName : undefined,
+      memberLevel: !isUinOnly ? member?.memberLevel : undefined,
+      levelBracket: !isUinOnly ? levelBracketFor(member?.memberLevel) : 0,
+    } as User;
+  }
+
+  if (isMine) return user;
+  return conversation.type === 'direct' ? conversation.otherUser : user;
 }
 
 function messageToTemplate(message: MessageWire, conversation: Conversation, user: User, memberMap?: Map<string, GroupMember>): Message {
@@ -1970,6 +1975,14 @@ export function MainView(): ReactElement {
   const searchQuery = shell.query.trim();
   const searchRunRef = useRef(0);
   useEffect(() => {
+    // Only search messages in messages view
+    if (shell.view !== 'messages') {
+      setSearchHits([]);
+      setSearchOpen(false);
+      setSearchLoading(false);
+      return undefined;
+    }
+
     if (!searchQuery) {
       setSearchHits([]);
       setSearchOpen(false);
@@ -1995,7 +2008,7 @@ export function MainView(): ReactElement {
         });
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [searchQuery]);
+  }, [searchQuery, shell.view]);
 
   // After hits land, batch-resolve group senders' nicknames from profile_info.db
   // (one extra query). Only the uids we don't already have a name for.

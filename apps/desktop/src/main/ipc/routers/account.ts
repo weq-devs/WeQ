@@ -185,6 +185,7 @@ export const accountRouter = router({
       qqPid: record.qqPid ?? null,
       rkeys: record.rkeys ?? [],
       rkeyUpdatedAt: record.rkeyUpdatedAt ?? null,
+      clientKey: record.clientKey ?? null,
     };
   }),
 

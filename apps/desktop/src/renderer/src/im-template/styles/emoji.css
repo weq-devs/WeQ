@@ -630,3 +630,7 @@
 	line-height: 1.3;
 	text-align: center;
 }
+
+.face-poke-mirror {
+	transform: scaleX(-1);
+}

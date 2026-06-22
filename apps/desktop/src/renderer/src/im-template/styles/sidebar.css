@@ -157,30 +157,33 @@
 
 .contact-tools {
 	display: grid;
-	gap: 0;
-	margin-top: 18px;
+	gap: 6px;
+	margin: 16px 18px 0;
 }
 
 .contact-tools > button {
 	display: flex;
-	min-height: 40px;
+	min-height: 38px;
 	align-items: center;
 	justify-content: space-between;
-	padding: 0 18px;
+	padding: 0 14px;
 	border: 0;
-	background: #ffffff;
-	color: #111111;
+	border-radius: 6px;
+	background: #f8f8f8;
+	color: #555555;
 	font-size: 15px;
 	font-weight: 400;
 	cursor: pointer;
+	transition: all 0.15s ease;
 }
 
 .contact-tools > button:hover {
-	background: #f3f3f3;
+	background: #eeeeee;
 }
 
 .contact-tools > button.active {
-	background: #f3f3f3;
+	background: #e8f4fd;
+	color: #0099f7;
 }
 
 .notice-entry-label {
@@ -244,6 +247,31 @@
 	flex: 1;
 	overflow: auto;
 	padding: 0;
+}
+
+.contact-search-results {
+	display: flex;
+	flex-direction: column;
+	gap: 0;
+}
+
+.contact-search-results > * {
+	flex-shrink: 0;
+}
+
+.search-section-header {
+	padding: 12px 18px 8px;
+	color: #999999;
+	font-size: 13px;
+	font-weight: 500;
+	letter-spacing: 0.02em;
+}
+
+.search-empty {
+	padding: 40px 24px;
+	text-align: center;
+	color: #999999;
+	font-size: 14px;
 }
 
 .list-stack {

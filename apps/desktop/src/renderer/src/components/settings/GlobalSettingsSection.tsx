@@ -1,11 +1,14 @@
 /**
  * 设置 → 全局设置.
  *
- * App-wide, account-independent items: WeQ 版本信息 + 缓存目录（可自定义）.
+ * App-wide, account-independent items: WeQ 版本信息 + 现有配置账号列表 +
+ * 默认进入账号选择 + 缓存目录（可自定义）.
  *
  * Data sources:
- *   - `bootstrap.getVersionInfo` — WeQ / Electron / Chrome / Node versions
- *   - `bootstrap.getCacheDir`    — effective / override / default cache paths
+ *   - `bootstrap.getVersionInfo`      — WeQ / Electron / Chrome / Node versions
+ *   - `bootstrap.listAccountConfigs`  — saved account configs
+ *   - `bootstrap.getAutoEnter`        — auto-enter target
+ *   - `bootstrap.getCacheDir`         — effective / override / default cache paths
  *
  * Queries here use `staleTime: 0` + `refetchOnMount: 'always'` so reopening the
  * dialog always shows fresh state (the global QueryClient otherwise keeps
@@ -13,9 +16,10 @@
  */
 
 import { type ReactElement } from 'react';
-import { FolderOpen, Info, RotateCcw } from 'lucide-react';
+import { Check, FolderOpen, Info, RotateCcw, User } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useDialog } from '../Dialog';
+import { QqAvatar } from '../QqAvatar';
 import { Card, Row, SectionHeader } from './controls';
 import logoUrl from '@resources/brand/logo.png';
 
@@ -30,12 +34,24 @@ export function GlobalSettingsSection(): ReactElement {
     refetchOnWindowFocus: false,
     staleTime: Infinity,
   });
+  const accounts = trpc.bootstrap.listAccountConfigs.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
+  const autoEnter = trpc.bootstrap.getAutoEnter.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
   const cacheDir = trpc.bootstrap.getCacheDir.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
   });
 
+  const setAutoEnter = trpc.bootstrap.setAutoEnter.useMutation();
+  const clearAutoEnter = trpc.bootstrap.clearAutoEnter.useMutation();
   const pickCache = trpc.bootstrap.pickCacheDir.useMutation();
   const clearCache = trpc.bootstrap.clearCacheDir.useMutation();
   const cacheBusy = pickCache.isLoading || clearCache.isLoading;
@@ -58,7 +74,27 @@ export function GlobalSettingsSection(): ReactElement {
     }
   }
 
+  async function onSetAutoEnter(uin: string, dataDir?: string): Promise<void> {
+    try {
+      await setAutoEnter.mutateAsync({ uin, dataDir });
+      await autoEnter.refetch();
+    } catch (e) {
+      showError('设置默认进入账号失败', errMsg(e));
+    }
+  }
+
+  async function onClearAutoEnter(): Promise<void> {
+    try {
+      await clearAutoEnter.mutateAsync();
+      await autoEnter.refetch();
+    } catch (e) {
+      showError('清除默认进入账号失败', errMsg(e));
+    }
+  }
+
   const v = version.data;
+  const accountList = accounts.data ?? [];
+  const autoEnterTarget = autoEnter.data;
 
   return (
     <div className="weq-set">
@@ -84,6 +120,67 @@ export function GlobalSettingsSection(): ReactElement {
           <Info size={12} strokeWidth={1.9} aria-hidden /> WeQ 通过解密 QQ
           本地数据库读取聊天记录，不注入、不依赖机器人框架。
         </p>
+      </Card>
+
+      {/* Account list */}
+      <Card title="现有配置">
+        {accountList.length === 0 ? (
+          <div className="weq-set-empty">
+            {accounts.isLoading ? '加载中…' : '暂无保存的账号配置'}
+          </div>
+        ) : (
+          <div className="weq-set-accounts">
+            {accountList.map((acc) => {
+              const isAutoEnter = autoEnterTarget?.configId === acc.configId;
+              return (
+                <div key={acc.configId} className="weq-set-account-item">
+                  <QqAvatar uin={acc.uin} size={40} className="weq-set-account-avatar" />
+                  <div className="weq-set-account-info">
+                    <span className="weq-set-account-name">
+                      {acc.displayName || acc.uin}
+                      {isAutoEnter ? (
+                        <span className="weq-set-badge weq-set-badge-ok">默认进入</span>
+                      ) : null}
+                    </span>
+                    <span className="weq-set-account-uin weq-number">QQ {acc.uin}</span>
+                    {acc.dataDir ? (
+                      <span className="weq-set-account-dir" title={acc.dataDir}>
+                        {acc.dataDir}
+                      </span>
+                    ) : null}
+                  </div>
+                  {!isAutoEnter ? (
+                    <button
+                      type="button"
+                      className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+                      onClick={() => void onSetAutoEnter(acc.uin, acc.dataDir)}
+                      disabled={setAutoEnter.isLoading}
+                    >
+                      <User size={12} strokeWidth={1.8} aria-hidden />
+                      设为默认
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <p className="weq-set-note">
+          已保存的账号配置，点击「设为默认」后下次打开 WeQ 将自动进入该账号。
+        </p>
+        {autoEnterTarget ? (
+          <div className="weq-set-actions">
+            <button
+              type="button"
+              className="weq-set-btn weq-set-btn-soft"
+              onClick={() => void onClearAutoEnter()}
+              disabled={clearAutoEnter.isLoading}
+            >
+              <RotateCcw size={14} strokeWidth={1.8} aria-hidden />
+              清除默认进入账号
+            </button>
+          </div>
+        ) : null}
       </Card>
 
       {/* Cache directory */}

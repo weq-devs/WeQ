@@ -257,11 +257,13 @@ export function initAppContext(): AppContext {
       // Start the background login/pid monitor for this account. rkey
       // harvesting inside it is gated live by the 媒体补全 master switch, so
       // toggling that setting takes effect on the next poll without a re-open.
+      // clientkey harvesting is gated by the autoFetchClientKey setting.
       accountMonitor = new AccountMonitorService(
         session,
         platform,
         accountConfig,
         () => userConfig.getSettings().mediaCompletion.enabled,
+        () => userConfig.getSettings().autoFetchClientKey,
       );
       accountMonitor.start();
 

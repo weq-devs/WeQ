@@ -124,12 +124,14 @@ function FaceNode({
   data,
   size,
   animated,
+  isSender = true,
 }: {
   data: Record<string, unknown>;
   size: number | string;
   animated?: boolean;
+  isSender?: boolean;
 }) {
-  return <FaceEmoji element={faceProps(data)} size={size} animated={animated} />;
+  return <FaceEmoji element={faceProps(data)} size={size} animated={animated} isSender={isSender} />;
 }
 
 /** Render a media element to its dedicated component, or null if unsupported. */
@@ -180,16 +182,18 @@ function ElementNode({
   element,
   sendTimeMs,
   msgId,
+  isSender = true,
 }: {
   element: RenderElement;
   sendTimeMs: number;
   msgId: string;
+  isSender?: boolean;
 }): ReactNode {
   if (element.type && MEDIA_KINDS.has(element.type)) {
     return <MediaNode element={element} sendTimeMs={sendTimeMs} msgId={msgId} />;
   }
   if (element.type === 'face') {
-    return <FaceNode data={element.data ?? {}} size={INLINE_SIZE} />;
+    return <FaceNode data={element.data ?? {}} size={INLINE_SIZE} isSender={isSender} />;
   }
   if (element.type === 'at') {
     const text = String(element.data?.textContent ?? '');
@@ -226,6 +230,7 @@ function renderElementNodes(
   elements: RenderElement[],
   sendTimeMs: number,
   msgId: string,
+  isSender = true,
 ): ReactNode[] {
   const out: ReactNode[] = [];
   let runStart = -1;
@@ -238,7 +243,7 @@ function renderElementNodes(
     out.push(
       <span key={`run-${start}`} className="qq-text-run">
         {items.map((el, i) => (
-          <ElementNode key={`el-${start + i}`} element={el} sendTimeMs={sendTimeMs} msgId={msgId} />
+          <ElementNode key={`el-${start + i}`} element={el} sendTimeMs={sendTimeMs} msgId={msgId} isSender={isSender} />
         ))}
       </span>,
     );
@@ -254,7 +259,7 @@ function renderElementNodes(
     }
     flushRun();
     out.push(
-      <ElementNode key={`el-${index}`} element={element} sendTimeMs={sendTimeMs} msgId={msgId} />,
+      <ElementNode key={`el-${index}`} element={element} sendTimeMs={sendTimeMs} msgId={msgId} isSender={isSender} />,
     );
   });
   flushRun();
@@ -417,10 +422,12 @@ export function QqMessageContent({
   elements,
   sendTimeMs,
   msgId,
+  isSender = true,
 }: {
   elements: RenderElement[];
   sendTimeMs: number;
   msgId: string;
+  isSender?: boolean;
 }) {
   // A `multiMsg` element (合并转发) always takes over the whole bubble: it
   // renders as the preview card (title + preview lines + "查看详情" footer).
@@ -493,7 +500,7 @@ export function QqMessageContent({
         <ReplyQuote data={replyElement.data ?? {}} sendTimeMs={sendTimeMs} />
         {meaningful.length > 0 ? (
           <div className="qq-reply-body">
-            {renderElementNodes(meaningful, sendTimeMs, msgId)}
+            {renderElementNodes(meaningful, sendTimeMs, msgId, isSender)}
           </div>
         ) : null}
       </div>
@@ -515,13 +522,13 @@ export function QqMessageContent({
       if (isInlineFace(data)) {
         return (
           <div className={cn('message-content', 'qq-message-inline')}>
-            <FaceNode data={data} size={INLINE_SIZE} />
+            <FaceNode data={data} size={INLINE_SIZE} isSender={isSender} />
           </div>
         );
       }
       return (
         <div className={cn('message-content', 'sticker-only')}>
-          <FaceNode data={data} size={STICKER_SIZE} animated />
+          <FaceNode data={data} size={STICKER_SIZE} animated isSender={isSender} />
         </div>
       );
     }
@@ -535,7 +542,7 @@ export function QqMessageContent({
     }
   }
 
-  const nodes = renderElementNodes(meaningful, sendTimeMs, msgId);
+  const nodes = renderElementNodes(meaningful, sendTimeMs, msgId, isSender);
 
   return <div className={cn('message-content', 'qq-message-inline')}>{nodes}</div>;
 }
@@ -557,11 +564,12 @@ export const qqMessageRenderer: MessageRenderer = {
         flashTransferInfoOf(element) !== null,
     );
   },
-  render: ({ message }) => {
-    const m = message as { qqElements?: RenderElement[]; createdAt?: string; msgId?: string };
+  render: ({ message, user }) => {
+    const m = message as { qqElements?: RenderElement[]; createdAt?: string; msgId?: string; senderId?: string };
     const elements = m.qqElements ?? [];
     const sendTimeMs = m.createdAt ? Date.parse(m.createdAt) : 0;
     const msgId = m.msgId ?? '';
-    return <QqMessageContent elements={elements} sendTimeMs={sendTimeMs} msgId={msgId} />;
+    const isSender = user?.id ? m.senderId === user.id : false;
+    return <QqMessageContent elements={elements} sendTimeMs={sendTimeMs} msgId={msgId} isSender={isSender} />;
   },
 };

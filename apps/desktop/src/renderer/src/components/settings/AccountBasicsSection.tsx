@@ -2,16 +2,16 @@
  * 设置 → 账号基础.
  *
  * Everything tied to the open account: self profile, the database key, the live
- * download rkeys, plus the behaviour switches (实时消息 / 媒体补全 / ClientKey
- * 占位). Realtime + media-completion are stored globally but read most naturally
- * here next to the account they affect.
+ * download rkeys, clientkey, plus the behaviour switches (实时消息 / 媒体补全 /
+ * ClientKey). Realtime + media-completion + clientkey are stored globally but
+ * read most naturally here next to the account they affect.
  *
  * Freshness: the QueryClient keeps data fresh 5 min and does NOT refetch on
  * mount by default, which made this panel show stale rkeys/settings after they
  * changed in the background. Every query here opts into `staleTime: 0` +
  * `refetchOnMount: 'always'`; the account config also polls while open so a
- * freshly-harvested rkey appears without reopening. After each settings
- * mutation we refetch so a reopen reflects what was persisted.
+ * freshly-harvested rkey/clientkey appears without reopening. After each
+ * settings mutation we refetch so a reopen reflects what was persisted.
  *
  * Avatar: built from the uin (`QqAvatar` → thirdqq CDN), NOT the profile's
  * stored avatarUrl — that URL can be a stale/expired signed link that 502s.
@@ -31,33 +31,13 @@ import {
 import { trpc } from '../../trpc/client';
 import { useDialog } from '../Dialog';
 import { QqAvatar } from '../QqAvatar';
-import { Card, CheckPill, Row, SectionHeader, Toggle } from './controls';
+import { Card, Row, SectionHeader, Toggle } from './controls';
 
 /** rkey `type_` → human label. Mirrors media_download.ts scene constants. */
 const RKEY_TYPE_LABEL: Record<number, string> = {
   10: '私聊图片',
   20: '群聊图片',
-  12: '私聊视频',
-  22: '群聊视频',
-  14: '私聊语音',
-  24: '群聊语音',
 };
-
-type MediaTypes = {
-  image: boolean;
-  sticker: boolean;
-  videoCover: boolean;
-  video: boolean;
-  file: boolean;
-};
-
-const MEDIA_TYPE_ROWS: Array<{ key: keyof MediaTypes; label: string }> = [
-  { key: 'image', label: '图片' },
-  { key: 'sticker', label: '表情' },
-  { key: 'videoCover', label: '视频封面图' },
-  { key: 'video', label: '视频原文件' },
-  { key: 'file', label: '文件' },
-];
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -87,8 +67,8 @@ export function AccountBasicsSection(): ReactElement {
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
-    // rkeys are harvested in the background by the monitor; poll so a fresh one
-    // shows up (and the expiry countdown re-renders) without reopening.
+    // rkeys/clientkey are harvested in the background by the monitor; poll so a
+    // fresh one shows up (and the expiry countdown re-renders) without reopening.
     refetchInterval: 10_000,
   });
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
@@ -107,25 +87,13 @@ export function AccountBasicsSection(): ReactElement {
   // Local mirror for snappy toggles; re-seeded whenever server data changes.
   const [realtime, setRealtimeLocal] = useState(true);
   const [mediaEnabled, setMediaEnabled] = useState(true);
-  const [forViewing, setForViewing] = useState(true);
-  const [forExport, setForExport] = useState(true);
-  const [types, setTypes] = useState<MediaTypes>({
-    image: true,
-    sticker: true,
-    videoCover: true,
-    video: false,
-    file: false,
-  });
-  const [autoClientKey, setAutoClientKey] = useState(false);
+  const [autoClientKey, setAutoClientKey] = useState(true);
 
   useEffect(() => {
     const d = settings.data;
     if (!d) return;
     setRealtimeLocal(d.realtimeEnabled);
     setMediaEnabled(d.mediaCompletion.enabled);
-    setForViewing(d.mediaCompletion.forViewing);
-    setForExport(d.mediaCompletion.forExport);
-    setTypes(d.mediaCompletion.types);
     setAutoClientKey(d.autoFetchClientKey);
   }, [settings.data]);
 
@@ -140,6 +108,7 @@ export function AccountBasicsSection(): ReactElement {
   const dbKey = cfg?.dbKey ?? '';
   const maskedKey = dbKey ? '•'.repeat(Math.min(dbKey.length, 48)) : '';
   const rkeys = cfg?.rkeys ?? [];
+  const clientKey = cfg?.clientKey;
   const settingsLoading = settings.isLoading;
 
   async function copyText(text: string, onOk?: () => void): Promise<void> {
@@ -250,7 +219,7 @@ export function AccountBasicsSection(): ReactElement {
               ? '读取中…'
               : cfg?.qqOnline
                 ? '在线实例已连接，正在等待获取 rKey…'
-                : '未获取到 rKey（需要登录中的 QQ 在线，且开启「媒体补全」）。'}
+                : '未获取到 rKey（需要登录中的 QQ 在线，且开启「自动获取 rKey」）。'}
           </div>
         ) : (
           <ul className="weq-set-rkey-list">
@@ -288,6 +257,58 @@ export function AccountBasicsSection(): ReactElement {
         ) : null}
       </Card>
 
+      {/* ClientKey */}
+      <Card
+        title="ClientKey"
+        action={
+          <button
+            type="button"
+            className={`weq-set-iconbtn${config.isFetching ? ' is-spinning' : ''}`}
+            title="刷新"
+            aria-label="刷新 ClientKey"
+            onClick={() => void config.refetch()}
+          >
+            <RefreshCw size={14} />
+          </button>
+        }
+      >
+        {!clientKey ? (
+          <div className="weq-set-empty">
+            {config.isLoading
+              ? '读取中…'
+              : cfg?.qqOnline
+                ? '在线实例已连接，正在等待获取 ClientKey…'
+                : '未获取到 ClientKey（需要登录中的 QQ 在线，且开启「自动获取 ClientKey」）。'}
+          </div>
+        ) : (
+          <div className="weq-set-rkey-item">
+            <div className="weq-set-rkey-head">
+              <span className="weq-set-rkey-type">Key Index {clientKey.keyIndex}</span>
+              <span
+                className={`weq-set-rkey-exp${
+                  formatExpiry(Math.floor(clientKey.fetchedAt / 1000), clientKey.ttlSeconds)
+                    .expired
+                    ? ' is-expired'
+                    : ''
+                }`}
+              >
+                {formatExpiry(Math.floor(clientKey.fetchedAt / 1000), clientKey.ttlSeconds).text}
+              </span>
+              <button
+                type="button"
+                className="weq-set-iconbtn"
+                title="复制 ClientKey"
+                aria-label="复制 ClientKey"
+                onClick={() => void copyText(clientKey.clientKey)}
+              >
+                <Copy size={13} />
+              </button>
+            </div>
+            <code className="weq-set-rkey-val">{clientKey.clientKey}</code>
+          </div>
+        )}
+      </Card>
+
       {/* Realtime / db watch */}
       <Card>
         <Row
@@ -314,16 +335,16 @@ export function AccountBasicsSection(): ReactElement {
         />
       </Card>
 
-      {/* Media completion */}
-      <Card title="媒体补全">
+      {/* Media completion (simplified) */}
+      <Card>
         <Row
           label={
             <span className="weq-set-row-icon">
               <ImageDown size={15} strokeWidth={1.8} aria-hidden />
-              自动从登录的 QQ 获取 rKey 补全缺失媒体
+              自动获取 rKey
             </span>
           }
-          desc="本地缺失的图片/视频等会通过登录中的 QQ 实例补全。媒体补全几乎决定导出成败。"
+          desc="自动从登录的 QQ 获取 rKey 补全缺失媒体（图片/表情）。"
           control={
             <Toggle
               checked={mediaEnabled}
@@ -334,82 +355,18 @@ export function AccountBasicsSection(): ReactElement {
                   () => setMedia.mutateAsync({ enabled: v }),
                 )
               }
-              label="自动获取 rKey 补全媒体"
+              label="自动获取 rKey"
             />
           }
         />
-
-        <Row
-          indent
-          label="用于聊天查看"
-          desc="在应用内浏览聊天时补全缺失媒体。"
-          control={
-            <Toggle
-              checked={forViewing}
-              disabled={settingsLoading || !mediaEnabled}
-              onChange={(v) =>
-                void persist(
-                  () => setForViewing(v),
-                  () => setMedia.mutateAsync({ forViewing: v }),
-                )
-              }
-              label="用于聊天查看"
-            />
-          }
-        />
-        <Row
-          indent
-          label="用于导出补全"
-          desc="导出聊天记录时补全缺失媒体。"
-          control={
-            <Toggle
-              checked={forExport}
-              disabled={settingsLoading || !mediaEnabled}
-              onChange={(v) =>
-                void persist(
-                  () => setForExport(v),
-                  () => setMedia.mutateAsync({ forExport: v }),
-                )
-              }
-              label="用于导出补全"
-            />
-          }
-        />
-
-        <div className="weq-set-subhead">补全媒体类型</div>
-        <div className="weq-set-types">
-          {MEDIA_TYPE_ROWS.map((row) => (
-            <CheckPill
-              key={row.key}
-              checked={types[row.key]}
-              disabled={settingsLoading || !mediaEnabled}
-              onChange={(v) =>
-                void persist(
-                  () => setTypes((t) => ({ ...t, [row.key]: v })),
-                  () => setMedia.mutateAsync({ types: { [row.key]: v } }),
-                )
-              }
-            >
-              {row.label}
-            </CheckPill>
-          ))}
-        </div>
-        <p className="weq-set-note">
-          默认补全图片、表情与视频封面图；视频原文件与文件体积较大，按需开启。
-        </p>
-      </Card>
-
-      {/* ClientKey placeholder */}
-      <Card>
         <Row
           label={
             <span className="weq-set-row-icon">
               <KeyRound size={15} strokeWidth={1.8} aria-hidden />
               自动获取 ClientKey
-              <span className="weq-set-badge">占位 · 即将支持</span>
             </span>
           }
-          desc="用于后续在线能力的凭据获取，当前仅保存设置，尚未启用。"
+          desc="自动从登录的 QQ 获取 ClientKey 用于接管 QQ h5 服务。"
           control={
             <Toggle
               checked={autoClientKey}

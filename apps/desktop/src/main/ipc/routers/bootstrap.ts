@@ -164,33 +164,20 @@ export const bootstrapRouter = router({
     }),
 
   /**
-   * Patch the 媒体补全 config. Any field omitted is left unchanged; `types` is
-   * shallow-merged so a single kind can be flipped on its own. The monitor's
-   * rkey harvesting reads `enabled` live on its next poll.
+   * Patch the 媒体补全 config. The monitor's rkey harvesting reads `enabled`
+   * live on its next poll.
    */
   setMediaCompletion: procedure
-    .input(
-      z.object({
-        enabled: z.boolean().optional(),
-        forViewing: z.boolean().optional(),
-        forExport: z.boolean().optional(),
-        types: z
-          .object({
-            image: z.boolean().optional(),
-            sticker: z.boolean().optional(),
-            videoCover: z.boolean().optional(),
-            video: z.boolean().optional(),
-            file: z.boolean().optional(),
-          })
-          .optional(),
-      }),
-    )
+    .input(z.object({ enabled: z.boolean().optional() }))
     .mutation(({ input }) => {
       requireBootstrap().userConfig.setSettings({ mediaCompletion: input });
       return true;
     }),
 
-  /** 占位：自动获取 ClientKey. Persists only — no behaviour wired yet. */
+  /**
+   * Toggle 自动获取 ClientKey. Persists, and the monitor reads it live on its
+   * next poll so clientkey harvesting starts/stops immediately (no re-open needed).
+   */
   setAutoFetchClientKey: procedure
     .input(z.object({ enabled: z.boolean() }))
     .mutation(({ input }) => {

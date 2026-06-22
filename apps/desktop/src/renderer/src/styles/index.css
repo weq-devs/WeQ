@@ -2911,6 +2911,86 @@ html[data-theme="dark"] .app-title-bar-signature {
   font-weight: 500;
 }
 
+.weq-set-badge-ok {
+  background: rgba(0, 153, 255, 0.12);
+  color: #0a6fb0;
+}
+
+/* Account list */
+.weq-set-accounts {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.weq-set-account-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  background: #fafafa;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.weq-set-account-item:hover {
+  background: #f5f5f5;
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+.weq-set-account-avatar.weq-avatar-img,
+.weq-set-account-avatar.weq-avatar-fallback {
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.weq-set-account-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.weq-set-account-name {
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.weq-set-account-uin {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.weq-set-account-dir {
+  font-size: 11px;
+  color: #9ca3af;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weq-set-actions {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+}
+
+.weq-set-btn-sm {
+  padding: 5px 10px;
+  font-size: 12px;
+  gap: 5px;
+}
+
+.weq-set-btn-sm svg {
+  width: 12px;
+  height: 12px;
+}
+
 /* ──────────────────────────────────────────────────────────────────────
  * 好友资料灯箱（ContactProfileDialog）。沿用 weq 设计：#0099ff 主题、细描边、
  * 小圆角、轻量留白。密友关系用主题渐变 pill 重点渲染。

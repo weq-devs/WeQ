@@ -1660,6 +1660,10 @@ export function ChatPane({
 					conversation={conversation}
 					detail={groupInfoDetail}
 					onClose={() => setGroupInfoDetail(null)}
+					onJumpToMessage={(seq) => {
+						// TODO: Implement message jump by seq - need backend to add seq field to Message type
+						setGroupInfoDetail(null);
+					}}
 				/>
 			) : null}
 		</section>
