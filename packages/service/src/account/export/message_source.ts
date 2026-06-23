@@ -14,7 +14,7 @@
  * seq of each page; we stop when a short page comes back.
  */
 
-import type { MsgService, RenderGroupMsg } from '../msg';
+import type { MsgService, RenderGroupMsg, RenderC2cMsg } from '../msg';
 import type { ExportedMessage } from './types';
 
 export interface IterateOptions {
@@ -49,8 +49,28 @@ export async function* iterateGroupMessages(
   }
 }
 
+/**
+ * Yield every c2c message with a peer, oldest-first, paging under the hood.
+ */
+export async function* iterateC2cMessages(
+  msgs: MsgService,
+  peerUid: string,
+  opts: IterateOptions = {},
+): AsyncGenerator<RenderC2cMsg> {
+  const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
+  let cursor = 0n;
+  for (;;) {
+    const page = await msgs.getC2cAfter(peerUid, cursor, pageSize);
+    if (page.length === 0) break;
+    for (const m of page) yield m;
+    const last = page[page.length - 1]!;
+    cursor = last.msgSeq;
+    if (page.length < pageSize) break;
+  }
+}
+
 /** Normalize a render message into the export record (bigints → strings). */
-export function toExportedMessage(m: RenderGroupMsg): ExportedMessage {
+export function toExportedMessage(m: RenderGroupMsg | RenderC2cMsg): ExportedMessage {
   return {
     msgId: m.msgId.toString(),
     msgSeq: m.msgSeq.toString(),

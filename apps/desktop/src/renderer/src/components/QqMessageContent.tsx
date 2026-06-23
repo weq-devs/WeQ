@@ -564,12 +564,11 @@ export const qqMessageRenderer: MessageRenderer = {
         flashTransferInfoOf(element) !== null,
     );
   },
-  render: ({ message, user }) => {
-    const m = message as { qqElements?: RenderElement[]; createdAt?: string; msgId?: string; senderId?: string };
+  render: ({ message, mine }) => {
+    const m = message as { qqElements?: RenderElement[]; createdAt?: string; msgId?: string };
     const elements = m.qqElements ?? [];
     const sendTimeMs = m.createdAt ? Date.parse(m.createdAt) : 0;
     const msgId = m.msgId ?? '';
-    const isSender = user?.id ? m.senderId === user.id : false;
-    return <QqMessageContent elements={elements} sendTimeMs={sendTimeMs} msgId={msgId} isSender={isSender} />;
+    return <QqMessageContent elements={elements} sendTimeMs={sendTimeMs} msgId={msgId} isSender={mine} />;
   },
 };

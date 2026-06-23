@@ -137,6 +137,23 @@ export class GroupMsgDb {
     return this.qq.write(`UPDATE group_msg_table SET "40800" = ? WHERE "40001" = ?`, [blob, msgId]);
   }
 
+  /** Batch count messages per group. Returns { groupCode: count }. */
+  async countByGroups(groupCodes: string[]): Promise<Record<string, number>> {
+    if (groupCodes.length === 0) return {};
+    const placeholders = groupCodes.map(() => '?').join(',');
+    const rows = await this.qq.query(
+      `SELECT "40027", COUNT(*) FROM group_msg_table WHERE "40027" IN (${placeholders}) GROUP BY "40027"`,
+      groupCodes,
+    );
+    const result: Record<string, number> = {};
+    for (const row of rows) {
+      const code = String(row[0] ?? '');
+      const count = typeof row[1] === 'bigint' ? Number(row[1]) : Number(row[1] ?? 0);
+      if (code) result[code] = count;
+    }
+    return result;
+  }
+
   /** Drop the cached native connection. Call on account switch / shutdown. */
   close(): void {
     this.qq.close();

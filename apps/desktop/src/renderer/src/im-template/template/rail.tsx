@@ -2,6 +2,8 @@
 import {
 	LayoutGrid,
 	MessageCircle,
+	Download,
+	Settings,
 } from "lucide-react";
 import { useEffect, useRef, useState, useTransition } from "react";
 import type { ReactNode } from "react";
@@ -164,6 +166,30 @@ export function AppRail({
 								{formatBadgeCount(contactBadgeCount)}
 							</span>
 						) : null}
+					</button>
+					<button
+						className={cn(
+							railButtonClass(activeView === "export"),
+							"rail-tab rail-tab-export",
+						)}
+						onClick={() => selectView("export")}
+						title="导出"
+					>
+						<span className={cn("rail-tab-icon")}>
+							<Download size={22} strokeWidth={1.5} />
+						</span>
+						<span className={cn("rail-label")}>导出</span>
+					</button>
+					<button
+						className={cn("rail-tab rail-tab-settings")}
+						onClick={() => onOpenSettings()}
+						title="设置"
+						type="button"
+					>
+						<span className={cn("rail-tab-icon")}>
+							<Settings size={22} strokeWidth={1.5} />
+						</span>
+						<span className={cn("rail-label")}>设置</span>
 					</button>
 					<button
 						className={cn(

@@ -140,6 +140,8 @@ export interface AccountServices {
   fileAssistant: FileAssistantService;
   /** Decrypt + cache market-face (store sticker) images. */
   emoji: EmojiService;
+  /** Export task manager. */
+  exportManager: import('@weq/service').ExportTaskManager;
 }
 
 /** Classified native-init failure surfaced to the renderer. */
@@ -249,6 +251,10 @@ export function initAppContext(): AppContext {
         ),
         fileAssistant: new FileAssistantService(session),
         emoji: new EmojiService(session, platform),
+        exportManager: new (await import('@weq/service')).ExportTaskManager(
+          new MsgService(session),
+          userConfig.cacheDir('export'),
+        ),
       };
       // Persist credentials + metadata, keyed by data directory. Must run
       // before the monitor starts so its patches land on an existing record.

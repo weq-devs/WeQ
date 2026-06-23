@@ -112,6 +112,7 @@ export {
   messageToText,
   formatTime,
 } from './account/export';
+export { ExportTaskManager } from './account/export/task_manager';
 export type {
   ExportFormat,
   ExportedMessage,
@@ -121,4 +122,7 @@ export type {
   GroupExportOptions,
   IterateOptions,
   JsonExportOptions,
+  ExportTask,
+  TaskStatus,
+  TaskProgress,
 } from './account/export';

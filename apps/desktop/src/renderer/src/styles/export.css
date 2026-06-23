@@ -1,0 +1,1067 @@
+/* ──────────────────────────────────────────────────────────────────────────
+ * 导出中心样式。weq 设计语言：#0099ff 主题、细描边、小圆角、轻量留白。
+ * 所有类名以 weq-exp- 前缀，避免与其它面板耦合。灯箱内的开关 / 行 / 卡片复用
+ * 设置面板的 weq-set-* 控件（见 index.css）。
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/* 进入导出视图时隐藏侧栏搜索（侧栏本身在 MainView 已置空，这里兜底）。 */
+.app-shell:has(.weq-exp) .search-row {
+  display: none;
+}
+
+.weq-exp {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: linear-gradient(135deg, #fdfeff, #f3f8fd);
+  color: #1f2430;
+  font-size: 13px;
+}
+
+/* ===== 上半部分：左模式栏 + 右选择面板 ===== */
+.weq-exp-top {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 212px minmax(0, 1fr);
+  gap: 14px;
+  padding: 14px 14px 10px;
+}
+
+/* ---- 左侧模式栏 ---- */
+.weq-exp-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.weq-exp-mode {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 12px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.weq-exp-mode:hover {
+  background: #ffffff;
+  border-color: rgba(0, 153, 255, 0.18);
+}
+
+.weq-exp-mode.is-active {
+  background: #ffffff;
+  border-color: rgba(0, 153, 255, 0.4);
+  box-shadow: 0 8px 22px -16px rgba(0, 122, 204, 0.7);
+}
+
+.weq-exp-mode-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border-radius: 9px;
+  background: rgba(0, 153, 255, 0.1);
+  color: #0099ff;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.weq-exp-mode.is-active .weq-exp-mode-icon {
+  background: #0099ff;
+  color: #ffffff;
+}
+
+.weq-exp-mode-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.weq-exp-mode-text strong {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #283342;
+}
+
+.weq-exp-mode-text small {
+  font-size: 11.5px;
+  color: #8a94a4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weq-exp-mode.is-active .weq-exp-mode-text strong {
+  color: #0099ff;
+}
+
+/* ---- 右侧选择面板 ---- */
+.weq-exp-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 16px 40px -32px rgba(7, 31, 61, 0.45);
+  overflow: hidden;
+}
+
+.weq-exp-pane-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.weq-exp-pane-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.weq-exp-pane-title strong {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2430;
+}
+
+.weq-exp-pane-title span {
+  font-size: 12px;
+  color: #8a94a4;
+}
+
+.weq-exp-pane-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.weq-exp-pane-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 16px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  background: #fbfdff;
+}
+
+.weq-exp-foot-format {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.weq-exp-foot-label {
+  font-size: 12px;
+  color: #6a7280;
+  flex: none;
+}
+
+.weq-exp-foot-hint {
+  font-size: 12px;
+  color: #8a94a4;
+}
+
+.weq-exp-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 18px;
+  flex: none;
+  border: 0;
+  border-radius: 9px;
+  background: #0099ff;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
+  box-shadow: 0 10px 22px -14px rgba(0, 122, 204, 0.9);
+}
+
+.weq-exp-primary:hover:not(:disabled) {
+  background: #0088e6;
+}
+
+.weq-exp-primary:disabled {
+  background: #c3d2df;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* ===== 选择器（多选会话 / 单选群 / 单选库 共用） ===== */
+.weq-exp-picker {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.weq-exp-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 16px 8px;
+  padding: 0 10px;
+  height: 34px;
+  flex: none;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 9px;
+  background: #f6f8fb;
+  color: #8a94a4;
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+.weq-exp-search:focus-within {
+  border-color: rgba(0, 153, 255, 0.5);
+  background: #ffffff;
+}
+
+.weq-exp-search input {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  outline: none;
+  font-size: 13px;
+  color: #1f2430;
+}
+
+.weq-exp-search > button {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #97a2b0;
+  cursor: pointer;
+}
+
+.weq-exp-search > button:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #5b6573;
+}
+
+.weq-exp-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 16px 8px;
+  flex: none;
+}
+
+.weq-exp-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 7px;
+  background: #ffffff;
+  color: #51677c;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease, background-color 140ms ease;
+}
+
+.weq-exp-tool:hover:not(:disabled) {
+  border-color: rgba(0, 153, 255, 0.4);
+  color: #0099ff;
+}
+
+.weq-exp-tool:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.weq-exp-tools-spacer {
+  flex: 1;
+}
+
+.weq-exp-tools-count {
+  font-size: 12px;
+  color: #0099ff;
+  font-weight: 600;
+}
+
+.weq-exp-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.weq-exp-list-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 48px 24px;
+  color: #97a2b0;
+  font-size: 13px;
+  text-align: center;
+}
+
+.weq-exp-list-hint {
+  max-width: 320px;
+  font-size: 12px;
+  color: #aeb7c3;
+  line-height: 1.6;
+}
+
+.weq-exp-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.weq-exp-row:hover {
+  background: #f4f9fe;
+}
+
+.weq-exp-row.is-on {
+  background: rgba(0, 153, 255, 0.08);
+  border-color: rgba(0, 153, 255, 0.3);
+}
+
+.weq-exp-row-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.weq-exp-row-meta strong {
+  font-size: 13px;
+  font-weight: 500;
+  color: #283342;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weq-exp-row-meta small {
+  font-size: 11.5px;
+  color: #97a2b0;
+}
+
+.weq-exp-row-check {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border-radius: 7px;
+  border: 1.5px solid rgba(0, 0, 0, 0.14);
+  color: #ffffff;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.weq-exp-row.is-on .weq-exp-row-check {
+  background: #0099ff;
+  border-color: #0099ff;
+}
+
+/* 单选用 radio 风格的圆点（不带方框） */
+.weq-exp-radio {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  color: #c3ccd6;
+  transition: color 120ms ease;
+}
+
+.weq-exp-radio.is-on {
+  color: #0099ff;
+}
+
+/* ===== 头像 ===== */
+.weq-exp-avatar {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  border-radius: 10px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #e8f3fe, #d6e9fb);
+}
+
+.weq-exp-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.weq-exp-avatar-fb {
+  font-size: 14px;
+  font-weight: 600;
+  color: #5b87c4;
+}
+
+/* ===== Segmented ===== */
+.weq-exp-seg {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 9px;
+  background: rgba(0, 153, 255, 0.08);
+}
+
+.weq-exp-seg button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #51677c;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.weq-exp-seg.is-small button {
+  min-height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.weq-exp-seg button.is-active {
+  background: #ffffff;
+  color: #0099ff;
+  box-shadow: 0 1px 4px rgba(0, 122, 204, 0.18);
+}
+
+/* ===== Spinner ===== */
+.weq-exp-spin {
+  animation: weq-exp-spin 0.8s linear infinite;
+}
+
+@keyframes weq-exp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ===== 灯箱 ===== */
+.weq-exp-modal-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(16, 30, 49, 0.36);
+  backdrop-filter: blur(2px);
+}
+
+.weq-exp-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(520px, 94vw);
+  max-height: 88vh;
+  overflow: hidden;
+  border: 1px solid rgba(0, 153, 255, 0.16);
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 30px 80px -28px rgba(7, 31, 61, 0.55);
+  animation: weq-exp-pop 170ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes weq-exp-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.weq-exp-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 15px 18px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.weq-exp-dialog-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.weq-exp-dialog-title strong {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2430;
+}
+
+.weq-exp-dialog-title span {
+  font-size: 12px;
+  color: #8a94a4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weq-exp-dialog-close {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #97a2b0;
+  cursor: pointer;
+}
+
+.weq-exp-dialog-close:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #5b6573;
+}
+
+.weq-exp-dialog-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 18px;
+  display: grid;
+  gap: 14px;
+}
+
+.weq-exp-dialog-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 13px 18px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  background: #fbfdff;
+}
+
+.weq-exp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 15px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 9px;
+  background: #ffffff;
+  color: #445161;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease, background-color 140ms ease;
+}
+
+.weq-exp-btn:hover:not(:disabled) {
+  border-color: rgba(0, 153, 255, 0.45);
+  color: #0099ff;
+}
+
+.weq-exp-btn.is-primary {
+  border-color: #0099ff;
+  background: #0099ff;
+  color: #ffffff;
+}
+
+.weq-exp-btn.is-primary:hover:not(:disabled) {
+  background: #0088e6;
+  color: #ffffff;
+}
+
+.weq-exp-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.weq-exp-path {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: #445161;
+}
+
+.weq-exp-path-txt {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+  font-size: 12.5px;
+}
+
+.weq-exp-placeholder {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 4px;
+  color: #6a7280;
+}
+
+.weq-exp-placeholder small {
+  font-size: 11.5px;
+  color: #aeb7c3;
+}
+
+/* 数字 / 时间输入 */
+.weq-exp-num {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: #6a7280;
+}
+
+.weq-exp-num input {
+  width: 76px;
+  padding: 5px 8px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 7px;
+  background: #ffffff;
+  font-size: 12.5px;
+  color: #1f2430;
+  outline: none;
+  transition: border-color 140ms ease;
+}
+
+.weq-exp-num input[type='time'] {
+  width: 110px;
+}
+
+.weq-exp-num input:focus {
+  border-color: rgba(0, 153, 255, 0.5);
+}
+
+/* ===== 时间范围选择器 ===== */
+.weq-exp-range {
+  display: grid;
+  gap: 11px;
+}
+
+.weq-exp-range-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.weq-exp-chip {
+  padding: 5px 11px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 999px;
+  background: #ffffff;
+  color: #51677c;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease, background-color 140ms ease;
+}
+
+.weq-exp-chip:hover {
+  border-color: rgba(0, 153, 255, 0.4);
+  color: #0099ff;
+}
+
+.weq-exp-chip.is-on {
+  border-color: #0099ff;
+  background: rgba(0, 153, 255, 0.1);
+  color: #0099ff;
+  font-weight: 600;
+}
+
+.weq-exp-range-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+  color: #445161;
+}
+
+.weq-exp-range-arrow {
+  color: #0099ff;
+}
+
+.weq-exp-cal {
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 11px;
+  padding: 10px 12px 8px;
+  background: #fbfdff;
+}
+
+.weq-exp-cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.weq-exp-cal-head button {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #51677c;
+  cursor: pointer;
+}
+
+.weq-exp-cal-head button:hover {
+  border-color: rgba(0, 153, 255, 0.4);
+  color: #0099ff;
+}
+
+.weq-exp-cal-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #283342;
+}
+
+.weq-exp-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.weq-exp-cal-wd {
+  display: grid;
+  place-items: center;
+  height: 26px;
+  font-size: 11px;
+  color: #97a2b0;
+}
+
+.weq-exp-cal-cell {
+  display: grid;
+  place-items: center;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #44516a;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background-color 110ms ease, color 110ms ease;
+}
+
+.weq-exp-cal-cell:hover:not(.is-blank) {
+  background: rgba(0, 153, 255, 0.12);
+}
+
+.weq-exp-cal-cell.is-blank {
+  cursor: default;
+}
+
+.weq-exp-cal-cell.is-range {
+  background: rgba(0, 153, 255, 0.12);
+  border-radius: 0;
+}
+
+.weq-exp-cal-cell.is-today {
+  box-shadow: inset 0 0 0 1px rgba(0, 153, 255, 0.45);
+}
+
+.weq-exp-cal-cell.is-end {
+  background: #0099ff;
+  color: #ffffff;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+.weq-exp-cal-hint {
+  margin: 8px 2px 0;
+  font-size: 11px;
+  color: #aeb7c3;
+}
+
+/* ===== 底部任务列表 ===== */
+.weq-exp-tasks {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: clamp(168px, 30vh, 300px);
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.weq-exp-tasks-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px 6px;
+  flex: none;
+}
+
+.weq-exp-tasks-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #283342;
+}
+
+.weq-exp-tasks-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(0, 153, 255, 0.12);
+  color: #0099ff;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.weq-exp-tasks-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.weq-exp-tasks-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 100%;
+  color: #aeb7c3;
+  text-align: center;
+}
+
+.weq-exp-tasks-empty span {
+  font-size: 13px;
+  color: #8a94a4;
+}
+
+.weq-exp-tasks-empty small {
+  font-size: 11.5px;
+}
+
+.weq-exp-task {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 13px;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 11px;
+  background: #ffffff;
+  box-shadow: 0 6px 18px -16px rgba(7, 31, 61, 0.4);
+}
+
+.weq-exp-task-kind {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 9px;
+  background: rgba(0, 153, 255, 0.1);
+  color: #0099ff;
+}
+
+.weq-exp-task.is-completed .weq-exp-task-kind {
+  background: rgba(34, 197, 94, 0.12);
+  color: #1e9e54;
+}
+
+.weq-exp-task.is-failed .weq-exp-task-kind {
+  background: rgba(239, 68, 68, 0.12);
+  color: #dc4040;
+}
+
+.weq-exp-task-main {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.weq-exp-task-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.weq-exp-task-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #283342;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weq-exp-task-fmt {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.05);
+  color: #6a7280;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.weq-exp-task-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  flex: none;
+  font-size: 12px;
+  font-weight: 500;
+  color: #6a7280;
+}
+
+.weq-exp-task-status.is-running {
+  color: #0099ff;
+}
+
+.weq-exp-task-status.is-completed {
+  color: #1e9e54;
+}
+
+.weq-exp-task-status.is-failed {
+  color: #dc4040;
+}
+
+.weq-exp-task-status.is-paused {
+  color: #c98a16;
+}
+
+.weq-exp-task-bar {
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(0, 153, 255, 0.12);
+  overflow: hidden;
+}
+
+.weq-exp-task-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #29a8ff, #0099ff);
+  transition: width 0.35s ease;
+}
+
+.weq-exp-task.is-completed .weq-exp-task-fill {
+  background: linear-gradient(90deg, #34d177, #1e9e54);
+}
+
+.weq-exp-task.is-failed .weq-exp-task-fill {
+  background: linear-gradient(90deg, #f87171, #dc4040);
+}
+
+/* 进行中：在填充上叠加流动微光 */
+.weq-exp-task-fill.is-active {
+  background-image: linear-gradient(90deg, #29a8ff, #0099ff),
+    linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, 0.55) 50%, transparent 80%);
+  background-size: 100% 100%, 40% 100%;
+  background-repeat: no-repeat;
+  animation: weq-exp-shimmer 1.3s linear infinite;
+}
+
+@keyframes weq-exp-shimmer {
+  from {
+    background-position: 0 0, -40% 0;
+  }
+  to {
+    background-position: 0 0, 140% 0;
+  }
+}
+
+.weq-exp-task-sub {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11.5px;
+  color: #97a2b0;
+  min-width: 0;
+}
+
+.weq-exp-task-err {
+  color: #dc4040;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weq-exp-task-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+}
+
+.weq-exp-task-actions button {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #51677c;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease, background-color 140ms ease;
+}
+
+.weq-exp-task-actions button:hover {
+  border-color: rgba(0, 153, 255, 0.45);
+  color: #0099ff;
+}
+
+.weq-exp-task-actions button.is-danger:hover {
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #dc4040;
+  background: rgba(239, 68, 68, 0.05);
+}

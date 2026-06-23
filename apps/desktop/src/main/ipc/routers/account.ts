@@ -540,4 +540,94 @@ export const accountRouter = router({
       };
     });
   }),
+
+  // ---- export ----
+
+  /** List conversations with message counts (batch query). */
+  listConversationsWithCount: procedure.query(async () => {
+    const services = requireServices();
+    const contacts = await services.recentContacts.getRecentContact(200);
+
+    const groupCodes = contacts.filter(c => String(c.chatType).includes('GROUP')).map(c => c.targetUid);
+    const c2cUids = contacts.filter(c => String(c.chatType).includes('C2C')).map(c => c.targetUid);
+
+    const [groupCounts, c2cCounts] = await Promise.all([
+      getAppContext().account?.groupMsgs.countByGroups(groupCodes) ?? Promise.resolve({} as Record<string, number>),
+      getAppContext().account?.c2cMsgs.countByUids(c2cUids) ?? Promise.resolve({} as Record<string, number>),
+    ]);
+
+    return contacts.map(c => ({
+      ...recentContactToWire(c),
+      messageCount: String(c.chatType).includes('GROUP') ? (groupCounts[c.targetUid] ?? 0) : (c2cCounts[c.targetUid] ?? 0),
+    }));
+  }),
+
+  /** Start an export task. */
+  startExport: procedure
+    .input(z.object({
+      kind: z.enum(['group', 'c2c']),
+      conv: z.string().min(1),
+      name: z.string().min(1),
+      format: z.enum(['json', 'jsonl', 'txt']),
+      total: z.number().int().min(0),
+    }))
+    .mutation(async ({ input }) => {
+      return requireServices().exportManager.startTask(input);
+    }),
+
+  /** List all export tasks. */
+  listExportTasks: procedure.query(() => {
+    return requireServices().exportManager.listTasks();
+  }),
+
+  /** Pause a running task. */
+  pauseExportTask: procedure
+    .input(z.object({ taskId: z.string().min(1) }))
+    .mutation(({ input }) => {
+      return requireServices().exportManager.pauseTask(input.taskId);
+    }),
+
+  /** Cancel a task. */
+  cancelExportTask: procedure
+    .input(z.object({ taskId: z.string().min(1) }))
+    .mutation(({ input }) => {
+      return requireServices().exportManager.cancelTask(input.taskId);
+    }),
+
+  /** Delete a task. */
+  deleteExportTask: procedure
+    .input(z.object({ taskId: z.string().min(1) }))
+    .mutation(({ input }) => {
+      return requireServices().exportManager.deleteTask(input.taskId);
+    }),
+
+  /** Subscribe to export task progress. */
+  onExportProgress: procedure.subscription(() => {
+    return observable<any>((emit) => {
+      const handler = (progress: any) => emit.next(progress);
+      requireServices().exportManager.on('progress', handler);
+      return () => {
+        requireServices().exportManager.off('progress', handler);
+      };
+    });
+  }),
+
+  /** Save exported file to user-selected location. */
+  saveExportFile: procedure
+    .input(z.object({
+      sourcePath: z.string().min(1),
+      defaultName: z.string().min(1),
+      format: z.enum(['json', 'jsonl', 'txt']),
+    }))
+    .mutation(async ({ input }) => {
+      const { dialog } = await import('electron');
+      const { copyFileSync } = await import('fs');
+      const result = await dialog.showSaveDialog({
+        defaultPath: input.defaultName,
+        filters: [{ name: 'Export', extensions: [input.format] }],
+      });
+      if (result.canceled || !result.filePath) return false;
+      copyFileSync(input.sourcePath, result.filePath);
+      return true;
+    }),
 });

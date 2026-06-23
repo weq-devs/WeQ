@@ -7,7 +7,7 @@
  */
 
 export * from './types';
-export { iterateGroupMessages, toExportedMessage, type IterateOptions } from './message_source';
+export { iterateGroupMessages, iterateC2cMessages, toExportedMessage, type IterateOptions } from './message_source';
 export { bigintReplacer } from './serialize';
 export { runGroupExport, type Framing } from './run_export';
 export { elementToText, elementsToText, formatTime, messageToText } from './element_text';
@@ -24,3 +24,4 @@ export {
   type KindCounts,
   type ScanOptions,
 } from './media_scan';
+export { ExportTaskManager, type ExportTask, type TaskProgress, type TaskStatus, type ConvKind } from './task_manager';

@@ -25,6 +25,7 @@ import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
 import { RailAccountFooter } from '../components/RailAccountFooter';
 import { SettingsDialog } from '../components/SettingsDialog';
 import { RelationGraphView } from '../components/relationGraph/RelationGraphView';
+import { ExportView } from './ExportView';
 import {
   ChatMainContent,
   ChatShell,
@@ -2321,33 +2322,22 @@ export function MainView(): ReactElement {
         query={shell.query}
         contactTab={shell.contactTab}
         activeNotice={shell.contactNotice}
-        sidebarWidth={shell.sidebarWidth}
+        sidebarWidth={shell.view === 'export' ? 0 : shell.sidebarWidth}
         mainOpen={shell.mainOpen}
         messageBadgeCount={0}
         contactBadgeCount={0}
         showTools={false}
         railFooterContent={
-          <>
-            <button
-              type="button"
-              className="weq-rail-settings"
-              title="设置"
-              aria-label="设置"
-              onClick={() => setSettingsOpen(true)}
-            >
-              <Settings size={22} strokeWidth={1.5} />
-            </button>
-            <RailAccountFooter
-              currentUin={user.identityValue}
-              currentName={user.displayName}
-              currentAvatarUrl={user.avatarUrl}
-            />
-          </>
+          <RailAccountFooter
+            currentUin={user.identityValue}
+            currentName={user.displayName}
+            currentAvatarUrl={user.avatarUrl}
+          />
         }
         friendNoticeCount={contactRequests.length}
         groupNoticeCount={groupRequests.length}
         onViewChange={shell.switchView}
-        onOpenSettings={noopAsync}
+        onOpenSettings={() => setSettingsOpen(true)}
         onOpenProfile={noopAsync}
         onOpenAbout={noopAsync}
         onOpenHelp={noopAsync}
@@ -2360,6 +2350,7 @@ export function MainView(): ReactElement {
         onContactTabChange={shell.changeContactTab}
         onSidebarWidthChange={shell.updateSidebarWidth}
         sidebarContent={
+          shell.view === 'export' ? null : (
           <>
             <ChatSidebarContent
               user={user}
@@ -2431,8 +2422,12 @@ export function MainView(): ReactElement {
               refreshKey={`sidebar:${shell.view}:${conversations.length}:${buddyContacts.length}:${shell.query}`}
             />
           </>
+          )
         }
         mainContent={
+          shell.view === 'export' ? (
+            <ExportView />
+          ) : (
           <div className="weq-template-main-wrap">
             <div className="weq-readonly-chat">
               <ChatMainContent
@@ -2485,6 +2480,7 @@ export function MainView(): ReactElement {
               refreshKey={`group-members:${selectedConversation?.id ?? 'none'}:${currentGroupMembers.length}`}
             />
           </div>
+        )
         }
       />
       
