@@ -4,6 +4,7 @@
  * 草稿状态全部在本组件内部，只有点「开始导出」才回传给父组件（沿用关系图
  * GroupPickerModal 的 draft-then-commit 模式）。按 variant 决定显示哪些区块：
  *   full / chatlab → 时间范围 + 媒体选项 + 语音转写
+ *   html           → 时间范围
  *   scheduled      → 上述 + 定时设置
  *   album          → 下载目录 + 相册选择 + 时间范围
  */
@@ -21,7 +22,7 @@ import {
   type Schedule,
 } from './types';
 
-export type LightboxVariant = 'full' | 'chatlab' | 'scheduled' | 'album';
+export type LightboxVariant = 'full' | 'chatlab' | 'html' | 'scheduled' | 'album';
 
 export interface LightboxResult {
   options: ExportOptions;
@@ -58,6 +59,7 @@ export function ExportLightbox({
   const [pickingPath, setPickingPath] = useState(false);
 
   const isAlbum = variant === 'album';
+  const isHtml = variant === 'html';
   const isScheduled = variant === 'scheduled';
 
   function patch(next: Partial<ExportOptions>): void {
@@ -133,7 +135,7 @@ export function ExportLightbox({
           </Card>
 
           {/* 媒体 / 内容选项（非相册模式） */}
-          {!isAlbum ? (
+          {!isAlbum && !isHtml ? (
             <Card title="媒体与内容">
               <Row
                 label="导出媒体文件"

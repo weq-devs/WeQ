@@ -83,6 +83,14 @@ export { toRenderElements } from './account/msg_view';
 export type { RenderElement, RenderTextElement } from './account/msg_view';
 export { MsgSearchService } from './account/msg_search';
 export { UnreadInfoService } from './account/unread_info';
+export { DbDecryptService } from './account/db_decrypt';
+export type {
+  AccountDbFile,
+  DbDecryptItem,
+  DbDecryptMode,
+  DbDecryptOptions,
+  DbDecryptResult,
+} from './account/db_decrypt';
 
 // A process-wide singleton (NOT bound to AccountSession): a single polling
 // loop you mount/unmount db-watch tasks onto to watch their size for changes.
@@ -100,6 +108,29 @@ export type {
 // onNewMessages (rowid-delta). Mount the returned task on a DbWatchService.
 export { createNtMsgDbHook } from './account/nt_msg_hook';
 export type { NewMessages, NtMsgHooks } from './account/nt_msg_hook';
+
+// ---- web cgi (query-only: group notice / album list / honor) ----
+export { WebQueryService, HonorType, computeBkn } from './account/web';
+export type {
+  GroupNotice,
+  GroupNoticeImage,
+  GroupAlbum,
+  HonorMember,
+  WebCredential,
+} from './account/web';
+
+// ---- account protocol services (oidb/trpc packets) ----
+export { GroupAlbumMediaService } from './account/group_album_media';
+export type {
+  AlbumMedia,
+  AlbumMediaImage,
+  AlbumMediaPage,
+  AlbumMediaUrl,
+  AlbumPhotoUrl,
+} from './account/group_album_media';
+
+export { MediaUrlService, mediaNodeFromElement } from './account/media_url';
+export type { MediaElement, GroupFileDownload } from './account/media_url';
 
 // ---- export pipeline (account/export) ----
 export {

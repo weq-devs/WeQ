@@ -13,7 +13,8 @@ import {
 	Sparkles,
 } from "lucide-react";
 import { FaQq } from "react-icons/fa";
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ReplyJumpContext } from "../../components/QqMessageContent";
 import type {
 	ClipboardEvent as ReactClipboardEvent,
 	CSSProperties,
@@ -222,6 +223,8 @@ export function ChatPane({
 	onBack: () => void;
 	onEditRaw?: (message: Message) => void;
 }) {
+	// 复用 replyJump 的跳转能力（含翻页/重建窗口），供群精华消息跳转使用。
+	const jumpToSeq = useContext(ReplyJumpContext);
 	const [body, setBody] = useState("");
 	const [sending, setSending] = useState(false);
 	const [composerHeight, setComposerHeight] = useState(() =>
@@ -1661,8 +1664,14 @@ export function ChatPane({
 					detail={groupInfoDetail}
 					onClose={() => setGroupInfoDetail(null)}
 					onJumpToMessage={(seq) => {
-						// TODO: Implement message jump by seq - need backend to add seq field to Message type
+						// 群精华属于群消息，锚点用 seq（与 replyJump 的 group 分支一致）。
+						// jumpToSeq 内部会 String(seq) 归一化并处理快路径/翻页/重建窗口。
 						setGroupInfoDetail(null);
+						if (seq == null) {
+							console.warn("[essence-jump] missing msgSeq, cannot jump", seq);
+							return;
+						}
+						jumpToSeq({ seq });
 					}}
 				/>
 			) : null}

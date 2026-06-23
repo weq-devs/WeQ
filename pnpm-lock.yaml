@@ -309,6 +309,16 @@ importers:
         specifier: ^22.10.6
         version: 22.19.20
 
+  packages/protocol:
+    dependencies:
+      '@weq/native':
+        specifier: workspace:*
+        version: link:../native
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.6
+        version: 22.19.20
+
   packages/service:
     dependencies:
       '@weq/account':
@@ -326,6 +336,9 @@ importers:
       '@weq/platform':
         specifier: workspace:*
         version: link:../platform
+      '@weq/protocol':
+        specifier: workspace:*
+        version: link:../protocol
     devDependencies:
       '@types/node':
         specifier: ^22.10.6

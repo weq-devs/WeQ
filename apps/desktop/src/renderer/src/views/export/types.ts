@@ -1,14 +1,14 @@
 /**
  * Shared types & constants for the 导出 (export) hub.
  *
- * The page is a single screen with five *modes* in the left rail; each mode
+ * The page is a single screen with export *modes* in the left rail; each mode
  * drives the right pane (a picker) and an action that opens an export lightbox.
  * Backend wiring is partial — see ExportView for which flows run against real
  * tRPC procedures and which are recorded for a not-yet-built backend.
  */
 
 /** Left-rail modes. */
-export type ExportMode = 'full' | 'decrypt' | 'chatlab' | 'scheduled' | 'album';
+export type ExportMode = 'full' | 'decrypt' | 'chatlab' | 'html' | 'scheduled' | 'album';
 
 /** Every output format the 完整消息 / 定时 flows can request. */
 export type ExportFormat = 'json' | 'jsonl' | 'xlsx' | 'csv' | 'txt';

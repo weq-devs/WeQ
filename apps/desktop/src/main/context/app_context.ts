@@ -42,6 +42,7 @@ import {
   EmojiService,
   MsgSearchService,
   OnlineStatusService,
+  DbDecryptService,
   DbWatchService,
   createNtMsgDbHook,
   type AccountConfigMetadata,
@@ -142,6 +143,8 @@ export interface AccountServices {
   emoji: EmojiService;
   /** Export task manager. */
   exportManager: import('@weq/service').ExportTaskManager;
+  /** List and bulk-decrypt encrypted QQ NT databases. */
+  dbDecrypt: DbDecryptService;
 }
 
 /** Classified native-init failure surfaced to the renderer. */
@@ -255,6 +258,7 @@ export function initAppContext(): AppContext {
           new MsgService(session),
           userConfig.cacheDir('export'),
         ),
+        dbDecrypt: new DbDecryptService(session, platform),
       };
       // Persist credentials + metadata, keyed by data directory. Must run
       // before the monitor starts so its patches land on an existing record.

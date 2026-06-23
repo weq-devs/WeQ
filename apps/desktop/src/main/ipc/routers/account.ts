@@ -68,6 +68,20 @@ const groupPageInput = pageInput.extend({
   groupCode: z.string().min(1),
 });
 
+const decryptDbInput = z.object({
+  items: z
+    .array(
+      z.object({
+        dbPath: z.string().min(1),
+        name: z.string().optional(),
+      }),
+    )
+    .min(1),
+  outputDir: z.string().min(1),
+  mode: z.enum(['fast', 'safe']),
+  concurrency: z.number().int().min(1).max(6).optional(),
+});
+
 async function fetchLatest(kind: ChatKind, conv: string, limit: number): Promise<ChatMsgWire[]> {
   const msgs = requireServices().msgs;
   return kind === 'group'
@@ -540,6 +554,36 @@ export const accountRouter = router({
       };
     });
   }),
+
+  // ---- database decrypt ----
+
+  /** List encrypted `*.db` files under the open account's nt_db directory. */
+  listDatabases: procedure.query(() => {
+    return requireServices().dbDecrypt.listDatabases();
+  }),
+
+  /** True when QQ currently reports this account as logged in. */
+  isQqLoggedIn: procedure.query(() => {
+    return requireServices().dbDecrypt.isQqLoggedIn();
+  }),
+
+  /** Folder dialog for decrypted database output. */
+  pickDecryptOutputDir: procedure.mutation(async () => {
+    const { dialog } = await import('electron');
+    const result = await dialog.showOpenDialog({
+      title: '选择解密保存文件夹',
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0] ?? null;
+  }),
+
+  /** Bulk decrypt selected databases into the chosen folder. */
+  decryptDatabases: procedure
+    .input(decryptDbInput)
+    .mutation(async ({ input }) => {
+      return requireServices().dbDecrypt.decryptDatabases(input);
+    }),
 
   // ---- export ----
 

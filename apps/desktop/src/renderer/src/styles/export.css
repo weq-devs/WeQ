@@ -406,6 +406,17 @@
   color: #0099ff;
 }
 
+.weq-exp-db-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 9px;
+  background: rgba(0, 153, 255, 0.1);
+  color: #0099ff;
+}
+
 /* ===== 头像 ===== */
 .weq-exp-avatar {
   display: inline-grid;
@@ -645,6 +656,13 @@
 .weq-exp-placeholder small {
   font-size: 11.5px;
   color: #aeb7c3;
+}
+
+.weq-exp-decrypt-note {
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #8a94a4;
 }
 
 /* 数字 / 时间输入 */

@@ -24,7 +24,8 @@
     "@weq/codec": "workspace:*",
     "@weq/db": "workspace:*",
     "@weq/native": "workspace:*",
-    "@weq/platform": "workspace:*"
+    "@weq/platform": "workspace:*",
+    "@weq/protocol": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.6",

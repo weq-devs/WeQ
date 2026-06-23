@@ -1,13 +1,14 @@
 /**
  * 导出中心（单页）。
  *
- * 布局：左侧窄栏为五种导出模式；右侧为该模式的选择面板 + 操作条；下方为任务列表。
+ * 布局：左侧窄栏为导出模式；右侧为该模式的选择面板 + 操作条；下方为任务列表。
  *
  *   1. 完整消息格式  — 选会话 → 选格式(json/jsonl/xlsx/csv/txt) → 灯箱细项 → 导出
  *   2. 解密数据库    — 选库 → 选导出路径 → 解出原始 sqlite
  *   3. ChatLab 格式  — 同 1，格式限 json/jsonl
- *   4. 定时导出任务  — 同 1，灯箱多一个定时设置
- *   5. 群相册导出    — 选群 → 灯箱选目录/相册/时间
+ *   4. HTML 格式     — 单选会话 → 灯箱选择时间范围
+ *   5. 定时导出任务  — 同 1，灯箱多一个定时设置
+ *   6. 群相册导出    — 选群 → 灯箱选目录/相册/时间
  *
  * 后端目前仅 `account.startExport`（json/jsonl/txt 纯消息流）就绪；其余流程在
  * 前端把配置收集齐后给出「后端待接入」提示，待后端补齐后改为真实调用即可。
@@ -17,22 +18,26 @@ import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from 
 import {
   CalendarClock,
   DatabaseZap,
+  FileCode2,
   FlaskConical,
   Images,
   MessagesSquare,
 } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
-import { useDialog } from '../components/Dialog';
+import { useAppDialog } from '../lib/dialogUtils';
 import { Segmented } from './export/widgets';
 import { ConversationPicker } from './export/ConversationPicker';
 import { SingleSelectPicker } from './export/SingleSelectPicker';
 import { TaskList, type UiTask } from './export/TaskList';
 import { ExportLightbox, type LightboxResult, type LightboxVariant } from './export/ExportLightbox';
+import { DatabasePicker, type DbPickItem } from './export/DatabasePicker';
+import { DecryptLightbox, type DecryptLightboxResult } from './export/DecryptLightbox';
 import {
   CHATLAB_FORMATS,
   FULL_FORMATS,
   chatKind,
   convAvatarUrl,
+  fmtBytes,
   fmtCount,
   groupAvatarUrl,
   isBackendFormat,
@@ -53,6 +58,7 @@ const MODES: ModeDef[] = [
   { id: 'full', label: '完整消息格式', desc: 'JSON / JSONL / XLSX / CSV / TXT', icon: <MessagesSquare size={18} /> },
   { id: 'decrypt', label: '解密数据库', desc: '导出原始 SQLite 供研究', icon: <DatabaseZap size={18} /> },
   { id: 'chatlab', label: 'ChatLab 格式', desc: '供 AI 分析的结构化 JSON', icon: <FlaskConical size={18} /> },
+  { id: 'html', label: '导出为 HTML', desc: '单个会话的网页记录', icon: <FileCode2 size={18} /> },
   { id: 'scheduled', label: '定时导出任务', desc: '按计划自动导出', icon: <CalendarClock size={18} /> },
   { id: 'album', label: '群相册导出', desc: '批量下载群相册', icon: <Images size={18} /> },
 ];
@@ -74,15 +80,19 @@ interface GroupWire {
 
 export function ExportView(): ReactElement {
   const utils = trpc.useUtils();
-  const showInfo = useDialog((s) => s.showInfo);
-  const showError = useDialog((s) => s.showError);
+  const dialog = useAppDialog();
 
   const conversations = trpc.account.listConversationsWithCount.useQuery();
+  const databases = trpc.account.listDatabases.useQuery();
   const groups = trpc.account.listAllGroups.useQuery({ limit: 2000 });
   const tasks = trpc.account.listExportTasks.useQuery();
 
   const [mode, setMode] = useState<ExportMode>('full');
   const [convSelection, setConvSelection] = useState<Set<string>>(new Set());
+  const [dbSelection, setDbSelection] = useState<Set<string>>(new Set());
+  const [decryptLightboxOpen, setDecryptLightboxOpen] = useState(false);
+  const [decryptOutputDir, setDecryptOutputDir] = useState<string | null>(null);
+  const [htmlConvId, setHtmlConvId] = useState<string | null>(null);
   const [albumGroupId, setAlbumGroupId] = useState<string | null>(null);
   const [format, setFormat] = useState<ExportFormat>('json');
   const [lightbox, setLightbox] = useState<LightboxVariant | null>(null);
@@ -127,6 +137,24 @@ export function ExportView(): ReactElement {
     }));
   }, [groups.data]);
 
+  const dbItems = useMemo<DbPickItem[]>(() => {
+    return ((databases.data ?? []) as DbPickItem[]).map((db) => ({
+      name: db.name,
+      path: db.path,
+      bytes: Number(db.bytes ?? 0),
+    }));
+  }, [databases.data]);
+
+  const selectedDbs = useMemo(
+    () => dbItems.filter((it) => dbSelection.has(it.path)),
+    [dbItems, dbSelection],
+  );
+
+  const selectedDbBytes = useMemo(
+    () => selectedDbs.reduce((sum, it) => sum + it.bytes, 0),
+    [selectedDbs],
+  );
+
   const uiTasks = useMemo<UiTask[]>(() => {
     return ((tasks.data ?? []) as UiTask[]).map((t) => ({
       id: t.id,
@@ -166,19 +194,25 @@ export function ExportView(): ReactElement {
         refetchTasks();
       }
     } catch (e) {
-      showError('保存失败', e instanceof Error ? e.message : String(e));
+      dialog.error('保存失败', e instanceof Error ? e.message : String(e));
     }
   };
 
   // ---- primary action per mode ----
   function onPrimary(): void {
     if (mode === 'decrypt') {
-      showInfo('解密数据库', '数据库列表与解密导出的后端尚未接入。前端已就绪，待 service 层补齐 listDatabases / decryptDatabase 后即可启用。');
+      if (dbSelection.size === 0) return;
+      setDecryptLightboxOpen(true);
       return;
     }
     if (mode === 'album') {
       if (!albumGroupId) return;
       setLightbox('album');
+      return;
+    }
+    if (mode === 'html') {
+      if (!htmlConvId) return;
+      setLightbox('html');
       return;
     }
     if (convSelection.size === 0) return;
@@ -188,7 +222,7 @@ export function ExportView(): ReactElement {
   async function runFullExport(): Promise<void> {
     const targets = convItems.filter((it) => convSelection.has(it.id));
     if (!isBackendFormat(format)) {
-      showInfo(
+      dialog.info(
         '格式待接入',
         `${format.toUpperCase()} 导出的后端尚未接入。已收集 ${targets.length} 个会话的导出配置（时间范围、媒体选项等）。`,
       );
@@ -209,7 +243,57 @@ export function ExportView(): ReactElement {
       setLightbox(null);
       refetchTasks();
     } catch (e) {
-      showError('启动导出失败', e instanceof Error ? e.message : String(e));
+      dialog.error('启动导出失败', e instanceof Error ? e.message : String(e));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function runDecryptExport(result: DecryptLightboxResult): Promise<void> {
+    const targets = selectedDbs;
+    if (targets.length === 0) return;
+
+    if (result.mode === 'fast') {
+      let loggedIn = false;
+      try {
+        loggedIn = await client.account.isQqLoggedIn.query();
+      } catch (e) {
+        dialog.error('检查登录状态失败', e instanceof Error ? e.message : String(e));
+        return;
+      }
+      if (loggedIn) {
+        const ok = await dialog.confirm(
+          '快速解密风险',
+          '检测到当前 QQ 账号仍处于登录状态。快速解密可能导致导出的数据库损坏；安全保存更适合 QQ 在线时使用。是否仍继续快速解密？',
+          { okLabel: '继续快速解密', cancelLabel: '返回修改', tone: 'warning' },
+        );
+        if (!ok) return;
+      }
+    }
+
+    setSubmitting(true);
+    try {
+      const decrypted = await client.account.decryptDatabases.mutate({
+        mode: result.mode,
+        outputDir: result.outputDir,
+        concurrency: 3,
+        items: targets.map((db) => ({ dbPath: db.path, name: db.name })),
+      });
+      const okCount = decrypted.filter((r) => r.ok).length;
+      const failed = decrypted.filter((r) => !r.ok);
+      setDecryptOutputDir(result.outputDir);
+      if (failed.length === 0) {
+        setDbSelection(new Set());
+        setDecryptLightboxOpen(false);
+        dialog.info('解密完成', `已解密 ${okCount} 个数据库到：${result.outputDir}`);
+      } else {
+        dialog.error(
+          '部分数据库解密失败',
+          `成功 ${okCount} 个，失败 ${failed.length} 个。${failed[0]?.name ?? ''}${failed[0]?.error ? `：${failed[0].error}` : ''}`,
+        );
+      }
+    } catch (e) {
+      dialog.error('解密失败', e instanceof Error ? e.message : String(e));
     } finally {
       setSubmitting(false);
     }
@@ -220,19 +304,21 @@ export function ExportView(): ReactElement {
       void runFullExport();
       return;
     }
-    // chatlab / scheduled / album — config collected, backend pending.
+    // chatlab / html / scheduled / album — config collected, backend pending.
     const detail =
       lightbox === 'scheduled'
         ? `定时任务配置已记录（${result.schedule?.mode === 'daily' ? `每天 ${result.schedule.time}` : `每 ${result.schedule?.intervalHours} 小时`}）。定时调度后端待接入。`
+        : lightbox === 'html'
+          ? 'HTML 导出后端尚未实现，已记录本次导出的会话与时间范围。'
         : lightbox === 'chatlab'
           ? 'ChatLab 导出器后端待接入，已记录本次导出配置。'
           : '群相册导出后端待接入，已记录本次导出配置。';
     setLightbox(null);
-    showInfo('配置已记录', detail);
+    dialog.info('配置已记录', detail);
   }
 
   const activeMode = MODES.find((m) => m.id === mode)!;
-  const isConvMode = mode === 'full' || mode === 'chatlab' || mode === 'scheduled';
+  const isMultiConvMode = mode === 'full' || mode === 'chatlab' || mode === 'scheduled';
   const formatOptions = mode === 'chatlab' ? CHATLAB_FORMATS : FULL_FORMATS;
 
   const primaryLabel =
@@ -242,16 +328,20 @@ export function ExportView(): ReactElement {
         ? '导出相册'
         : mode === 'decrypt'
           ? '解密并导出'
-          : mode === 'chatlab'
-            ? '导出 ChatLab'
-            : '导出';
+          : mode === 'html'
+            ? '导出 HTML'
+            : mode === 'chatlab'
+              ? '导出 ChatLab'
+              : '导出';
 
   const primaryDisabled =
     mode === 'decrypt'
-      ? false
+      ? dbSelection.size === 0
       : mode === 'album'
         ? !albumGroupId
-        : convSelection.size === 0;
+        : mode === 'html'
+          ? !htmlConvId
+          : convSelection.size === 0;
 
   // Lightbox summary line.
   const lightboxSummary = (() => {
@@ -259,12 +349,22 @@ export function ExportView(): ReactElement {
       const g = groupItems.find((it) => it.id === albumGroupId);
       return g ? `群相册 · ${g.name}` : '群相册';
     }
+    if (lightbox === 'html') {
+      const c = convItems.find((it) => it.id === htmlConvId);
+      return c ? `HTML · ${c.name}` : 'HTML';
+    }
     const n = convSelection.size;
     return `${n} 个会话 · ${format.toUpperCase()}`;
   })();
 
   const lightboxHeadline =
-    lightbox === 'scheduled' ? '新建定时导出任务' : lightbox === 'album' ? '导出群相册' : '导出聊天记录';
+    lightbox === 'scheduled'
+      ? '新建定时导出任务'
+      : lightbox === 'album'
+        ? '导出群相册'
+        : lightbox === 'html'
+          ? '导出 HTML 聊天记录'
+          : '导出聊天记录';
 
   return (
     <div className="weq-exp">
@@ -297,12 +397,21 @@ export function ExportView(): ReactElement {
           </header>
 
           <div className="weq-exp-pane-body">
-            {isConvMode ? (
+            {isMultiConvMode ? (
               <ConversationPicker
                 items={convItems}
                 loading={conversations.isLoading}
                 selected={convSelection}
                 onChange={setConvSelection}
+              />
+            ) : mode === 'html' ? (
+              <SingleSelectPicker
+                items={convItems}
+                loading={conversations.isLoading}
+                selectedId={htmlConvId}
+                onSelect={setHtmlConvId}
+                searchPlaceholder="搜索会话名称或号码"
+                emptyText="暂无可导出的会话"
               />
             ) : mode === 'album' ? (
               <SingleSelectPicker
@@ -314,27 +423,30 @@ export function ExportView(): ReactElement {
                 emptyText="暂无群聊"
               />
             ) : (
-              <SingleSelectPicker
-                items={[]}
-                loading={false}
-                selectedId={null}
-                onSelect={() => undefined}
-                searchPlaceholder="搜索数据库文件"
-                emptyText="未发现数据库"
-                hint="数据库目录扫描接口待接入。接入后这里会列出账号数据目录下的全部 .db 文件。"
+              <DatabasePicker
+                items={dbItems}
+                loading={databases.isLoading}
+                selected={dbSelection}
+                onChange={setDbSelection}
               />
             )}
           </div>
 
           <footer className="weq-exp-pane-foot">
-            {isConvMode ? (
+            {isMultiConvMode ? (
               <div className="weq-exp-foot-format">
                 <span className="weq-exp-foot-label">格式</span>
                 <Segmented<ExportFormat> value={format} onChange={setFormat} options={formatOptions} small />
               </div>
             ) : (
               <span className="weq-exp-foot-hint">
-                {mode === 'album' ? '选择一个群，下一步选择相册与时间范围' : '选择数据库后导出解密副本'}
+                {mode === 'album'
+                  ? '选择一个群，下一步选择相册与时间范围'
+                  : mode === 'html'
+                    ? '选择一个会话，下一步选择时间范围'
+                    : dbSelection.size > 0
+                      ? `已选 ${dbSelection.size} 个数据库 · ${fmtBytes(selectedDbBytes)}`
+                      : '选择数据库后导出解密副本'}
               </span>
             )}
             <button type="button" className="weq-exp-primary" disabled={primaryDisabled} onClick={onPrimary}>
@@ -354,11 +466,28 @@ export function ExportView(): ReactElement {
           summary={lightboxSummary}
           submitting={submitting}
           onPickPath={async () => {
-            showInfo('选择目录', '目录选择接口待接入，开始导出时将使用系统对话框。');
+            dialog.info('选择目录', '目录选择接口待接入，开始导出时将使用系统对话框。');
             return null;
           }}
           onClose={() => setLightbox(null)}
           onConfirm={onLightboxConfirm}
+        />
+      ) : null}
+
+      {decryptLightboxOpen ? (
+        <DecryptLightbox
+          count={selectedDbs.length}
+          totalBytes={selectedDbBytes}
+          outputDir={decryptOutputDir}
+          submitting={submitting}
+          formatBytes={fmtBytes}
+          onPickPath={async () => {
+            const picked = await client.account.pickDecryptOutputDir.mutate();
+            if (picked) setDecryptOutputDir(picked);
+            return picked;
+          }}
+          onClose={() => setDecryptLightboxOpen(false)}
+          onConfirm={(result) => void runDecryptExport(result)}
         />
       ) : null}
     </div>
