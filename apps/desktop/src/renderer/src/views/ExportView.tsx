@@ -32,6 +32,8 @@ import { TaskList, type UiTask } from './export/TaskList';
 import { ExportLightbox, type LightboxResult, type LightboxVariant } from './export/ExportLightbox';
 import { DatabasePicker, type DbPickItem } from './export/DatabasePicker';
 import { DecryptLightbox, type DecryptLightboxResult } from './export/DecryptLightbox';
+import { AlbumExportLightbox, type AlbumExportResult } from './export/AlbumExportLightbox';
+import type { GroupAlbumWire } from '../components/GroupAlbumDialog';
 import {
   CHATLAB_FORMATS,
   FULL_FORMATS,
@@ -92,6 +94,8 @@ export function ExportView(): ReactElement {
   const [dbSelection, setDbSelection] = useState<Set<string>>(new Set());
   const [decryptLightboxOpen, setDecryptLightboxOpen] = useState(false);
   const [decryptOutputDir, setDecryptOutputDir] = useState<string | null>(null);
+  const [albumOutputDir, setAlbumOutputDir] = useState<string | null>(null);
+  const [albumExport, setAlbumExport] = useState<{ group: PickItem; albums: GroupAlbumWire[] } | null>(null);
   const [htmlConvId, setHtmlConvId] = useState<string | null>(null);
   const [albumGroupId, setAlbumGroupId] = useState<string | null>(null);
   const [format, setFormat] = useState<ExportFormat>('json');
@@ -207,7 +211,7 @@ export function ExportView(): ReactElement {
     }
     if (mode === 'album') {
       if (!albumGroupId) return;
-      setLightbox('album');
+      void openAlbumExport();
       return;
     }
     if (mode === 'html') {
@@ -294,6 +298,57 @@ export function ExportView(): ReactElement {
       }
     } catch (e) {
       dialog.error('解密失败', e instanceof Error ? e.message : String(e));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function openAlbumExport(): Promise<void> {
+    if (!albumGroupId) return;
+    const group = groupItems.find((it) => it.id === albumGroupId);
+    if (!group) return;
+    setSubmitting(true);
+    try {
+      const access = await client.account.getGroupAlbumAccessState.query();
+      if (!access.qqOnline) {
+        dialog.error('无法导出群相册', '需要先登录该账号的 QQ 客户端。');
+        return;
+      }
+      if (!access.clientKeyValid) {
+        dialog.error('无法导出群相册', 'ClientKey 未获取或已过期，请在设置中开启自动获取 ClientKey 并等待刷新。');
+        return;
+      }
+      const albums = await client.account.listGroupAlbums.query({ groupCode: group.id });
+      setAlbumExport({ group, albums: albums as GroupAlbumWire[] });
+    } catch (e) {
+      dialog.error('加载群相册失败', e instanceof Error ? e.message : String(e));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function runAlbumExport(result: AlbumExportResult): Promise<void> {
+    if (!albumExport) return;
+    setSubmitting(true);
+    try {
+      const exported = await client.account.exportGroupAlbums.mutate({
+        groupCode: albumExport.group.id,
+        outputDir: result.outputDir,
+        albums: result.selectedAlbums.map((album) => ({ id: album.id, title: album.title })),
+        concurrency: 4,
+      });
+      if (exported.failed.length === 0) {
+        setAlbumGroupId(null);
+        setAlbumExport(null);
+        dialog.info('群相册导出完成', `已保存 ${exported.ok} 个文件到：${exported.outputDir}`);
+      } else {
+        dialog.error(
+          '部分相册媒体导出失败',
+          `成功 ${exported.ok} 个，失败 ${exported.failed.length} 个。${exported.failed[0]?.fileName ?? ''}${exported.failed[0]?.error ? `：${exported.failed[0].error}` : ''}`,
+        );
+      }
+    } catch (e) {
+      dialog.error('群相册导出失败', e instanceof Error ? e.message : String(e));
     } finally {
       setSubmitting(false);
     }
@@ -488,6 +543,22 @@ export function ExportView(): ReactElement {
           }}
           onClose={() => setDecryptLightboxOpen(false)}
           onConfirm={(result) => void runDecryptExport(result)}
+        />
+      ) : null}
+
+      {albumExport ? (
+        <AlbumExportLightbox
+          groupName={albumExport.group.name}
+          albums={albumExport.albums}
+          outputDir={albumOutputDir}
+          submitting={submitting}
+          onPickPath={async () => {
+            const picked = await client.account.pickGroupAlbumExportDir.mutate();
+            if (picked) setAlbumOutputDir(picked);
+            return picked;
+          }}
+          onClose={() => setAlbumExport(null)}
+          onConfirm={(result) => void runAlbumExport(result)}
         />
       ) : null}
     </div>

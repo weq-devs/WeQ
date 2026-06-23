@@ -43,6 +43,8 @@ import {
   MsgSearchService,
   OnlineStatusService,
   DbDecryptService,
+  WebQueryService,
+  GroupAlbumMediaService,
   DbWatchService,
   createNtMsgDbHook,
   type AccountConfigMetadata,
@@ -145,6 +147,10 @@ export interface AccountServices {
   exportManager: import('@weq/service').ExportTaskManager;
   /** List and bulk-decrypt encrypted QQ NT databases. */
   dbDecrypt: DbDecryptService;
+  /** Web CGI queries that need the already-hooked online QQ process. */
+  webQuery: WebQueryService;
+  /** Group album media listing over the already-hooked online QQ process. */
+  groupAlbumMedia: GroupAlbumMediaService;
 }
 
 /** Classified native-init failure surfaced to the renderer. */
@@ -234,6 +240,13 @@ export function initAppContext(): AppContext {
       const session = await openAccount(platform, accountCtx);
       this.account = session;
       const accountConfig = new AccountConfigService(session, platform.appDataRoot());
+      const resolveOnlinePid = (): number => {
+        const record = accountConfig.getRecord();
+        if (!record?.qqOnline || !record.qqPid) {
+          throw new Error('QQ account is not online.');
+        }
+        return record.qqPid;
+      };
       this.services = {
         msgs: new MsgService(session),
         recentContacts: new RecentContactService(session),
@@ -259,6 +272,8 @@ export function initAppContext(): AppContext {
           userConfig.cacheDir('export'),
         ),
         dbDecrypt: new DbDecryptService(session, platform),
+        webQuery: new WebQueryService(platform.native.ntHelper, session, resolveOnlinePid),
+        groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, resolveOnlinePid),
       };
       // Persist credentials + metadata, keyed by data directory. Must run
       // before the monitor starts so its patches land on an existing record.

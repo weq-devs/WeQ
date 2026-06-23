@@ -556,7 +556,7 @@
   .weq-dialog-layer {
     position: fixed;
     inset: 0;
-    z-index: 50;
+    z-index: 140;
     display: grid;
     place-items: center;
     background:
@@ -864,6 +864,13 @@
     justify-content: flex-end;
     gap: 0.6rem;
     margin-top: 1.1rem;
+  }
+  .weq-dialog-foot .weq-action-primary,
+  .weq-dialog-foot .weq-action-soft {
+    min-height: 1.65rem;
+    padding: 0.38rem 0.68rem;
+    border-radius: 0.38rem;
+    font-size: 12px;
   }
 
   /* ---- landing (home) ---- */
@@ -1498,6 +1505,15 @@
 .weq-action-primary:hover,
 .weq-action-primary:focus-visible {
   color: #ffffff;
+}
+
+.weq-dialog-foot .weq-action-primary,
+.weq-dialog-foot .weq-action-soft {
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1;
 }
 
 html * {

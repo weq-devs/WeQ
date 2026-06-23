@@ -13,9 +13,17 @@
 
 import { z } from 'zod';
 import { observable } from '@trpc/server/observable';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { basename, dirname, extname, join } from 'node:path';
 import { getAppContext, dbEventBus, type AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
-import { toRenderElements, type NewMessages, type DbChange } from '@weq/service';
+import {
+  clientKeyExpiryMs,
+  toRenderElements,
+  type AlbumMedia,
+  type NewMessages,
+  type DbChange,
+} from '@weq/service';
 import {
   buddyRequestToWire,
   buddyToWire,
@@ -82,6 +90,54 @@ const decryptDbInput = z.object({
   concurrency: z.number().int().min(1).max(6).optional(),
 });
 
+const groupAlbumInput = z.object({
+  groupCode: z.string().min(1),
+});
+
+const groupAlbumMediaInput = groupAlbumInput.extend({
+  albumId: z.string().min(1),
+});
+
+const albumSelectionInput = z.object({
+  id: z.string().min(1),
+  title: z.string().optional(),
+});
+
+const exportGroupAlbumsInput = groupAlbumInput.extend({
+  outputDir: z.string().min(1),
+  albums: z.array(albumSelectionInput).min(1),
+  concurrency: z.number().int().min(1).max(8).optional(),
+});
+
+export interface GroupAlbumAccessState {
+  qqOnline: boolean;
+  qqPid: number | null;
+  clientKeyValid: boolean;
+  clientKeyExpiresAt: number | null;
+  clientKeySecondsLeft: number;
+}
+
+export interface AlbumMediaWire extends AlbumMedia {
+  previewUrl: string;
+  originalUrl: string;
+  fileName: string;
+}
+
+interface AlbumDownloadWork {
+  albumId: string;
+  albumTitle: string;
+  url: string;
+  targetPath: string;
+  fileName: string;
+}
+
+export interface AlbumExportResult {
+  outputDir: string;
+  total: number;
+  ok: number;
+  failed: Array<{ albumId: string; albumTitle: string; fileName: string; url: string; error: string }>;
+}
+
 async function fetchLatest(kind: ChatKind, conv: string, limit: number): Promise<ChatMsgWire[]> {
   const msgs = requireServices().msgs;
   return kind === 'group'
@@ -123,6 +179,209 @@ async function fetchFrom(
   return kind === 'group'
     ? (await msgs.getGroupFrom(conv, sinceSeq, limit)).map(groupMsgToWire)
     : (await msgs.getC2cFrom(conv, sinceSeq, limit)).map(c2cMsgToWire);
+}
+
+function albumAccessState(services = requireServices()): GroupAlbumAccessState {
+  const record = services.accountConfig.getRecord();
+  const expiresAt = record?.clientKey ? clientKeyExpiryMs(record.clientKey) : null;
+  const secondsLeft = expiresAt ? Math.max(0, Math.floor((expiresAt - Date.now()) / 1000)) : 0;
+  return {
+    qqOnline: Boolean(record?.qqOnline && record.qqPid),
+    qqPid: record?.qqPid ?? null,
+    clientKeyValid: Boolean(expiresAt && expiresAt > Date.now()),
+    clientKeyExpiresAt: expiresAt,
+    clientKeySecondsLeft: secondsLeft,
+  };
+}
+
+function requireQqOnlineForAlbum(services = requireServices()): void {
+  const state = albumAccessState(services);
+  if (!state.qqOnline) {
+    throw new Error('需要先登录该账号的 QQ 客户端。');
+  }
+}
+
+function requireFreshClientKeyForAlbum(services = requireServices()): void {
+  const state = albumAccessState(services);
+  if (!state.qqOnline) {
+    throw new Error('需要先登录该账号的 QQ 客户端。');
+  }
+  if (!state.clientKeyValid) {
+    throw new Error('ClientKey 未获取或已过期，请在设置中开启自动获取 ClientKey 并等待刷新。');
+  }
+}
+
+function mediaUrls(media: AlbumMedia): { previewUrl: string; originalUrl: string; fileName: string } {
+  const image = media.image;
+  if (!image) return { previewUrl: '', originalUrl: '', fileName: '' };
+  const urls = image.photoUrls
+    .map((entry) => entry.url)
+    .filter((entry): entry is NonNullable<typeof entry> => {
+      if (!entry?.url) return false;
+      return !isAlbumPlaceholderUrl(entry.url);
+    });
+  const sorted = urls
+    .slice()
+    .sort((a, b) => (b.width || 0) * (b.height || 0) - (a.width || 0) * (a.height || 0));
+  const defaultUrl = image.defaultUrl && !isAlbumPlaceholderUrl(image.defaultUrl.url) ? image.defaultUrl.url : '';
+  const previewUrl = defaultUrl || sorted[sorted.length - 1]?.url || sorted[0]?.url || '';
+  const originalUrl = sorted[0]?.url || defaultUrl || '';
+  return { previewUrl, originalUrl, fileName: image.name || '' };
+}
+
+function mediaToWire(media: AlbumMedia): AlbumMediaWire {
+  return { ...media, ...mediaUrls(media) };
+}
+
+function isAlbumPlaceholderUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const path = parsed.pathname.toLowerCase();
+    return parsed.hostname.toLowerCase() === 'imgcache.qq.com' && path.endsWith('/no.gif');
+  } catch {
+    return /imgcache\.qq\.com\/.*\/no\.gif/i.test(url);
+  }
+}
+
+async function collectAlbumMedia(
+  services: AccountServices,
+  groupCode: string,
+  albumId: string,
+): Promise<AlbumMediaWire[]> {
+  const out: AlbumMediaWire[] = [];
+  const seenAttachInfo = new Set<string>();
+  let attachInfo = '';
+  for (let guard = 0; guard < 100; guard += 1) {
+    const page = await services.groupAlbumMedia.getMediaList(groupCode, albumId, attachInfo);
+    out.push(...page.mediaList.map(mediaToWire).filter((media) => media.originalUrl || media.previewUrl));
+    const next = page.nextAttachInfo || '';
+    if (!next || seenAttachInfo.has(next)) break;
+    seenAttachInfo.add(next);
+    attachInfo = next;
+  }
+  return out;
+}
+
+function pickAlbumDownloadUrl(media: AlbumMediaWire): string {
+  return media.originalUrl || media.previewUrl;
+}
+
+function sanitizePathSegment(value: string | undefined, fallback: string): string {
+  const raw = (value || fallback).trim();
+  const cleaned = raw
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+    .replace(/\s+/g, ' ')
+    .replace(/[. ]+$/g, '')
+    .slice(0, 120)
+    .trim();
+  const name = cleaned || fallback;
+  return /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(name) ? `_${name}` : name;
+}
+
+function filenameFromUrl(url: string, fallback: string, index: number): string {
+  let name = fallback;
+  if (!name) {
+    try {
+      name = decodeURIComponent(basename(new URL(url).pathname));
+    } catch {
+      name = '';
+    }
+  }
+  const safe = sanitizePathSegment(name, `photo-${String(index + 1).padStart(4, '0')}.jpg`);
+  return extname(safe) ? safe : `${safe}.jpg`;
+}
+
+function uniqueFilename(name: string, used: Set<string>): string {
+  if (!used.has(name.toLowerCase())) {
+    used.add(name.toLowerCase());
+    return name;
+  }
+  const ext = extname(name);
+  const base = ext ? name.slice(0, -ext.length) : name;
+  for (let i = 2; ; i += 1) {
+    const next = `${base}-${i}${ext}`;
+    const key = next.toLowerCase();
+    if (!used.has(key)) {
+      used.add(key);
+      return next;
+    }
+  }
+}
+
+async function downloadAlbumUrl(url: string, targetPath: string): Promise<void> {
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+  const bytes = Buffer.from(await res.arrayBuffer());
+  if (bytes.length === 0) {
+    throw new Error('empty response');
+  }
+  await writeFile(targetPath, bytes);
+}
+
+async function runWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  async function run(): Promise<void> {
+    for (;;) {
+      const index = next;
+      next += 1;
+      if (index >= items.length) return;
+      await worker(items[index]!);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, run));
+}
+
+async function exportGroupAlbums(
+  services: AccountServices,
+  input: z.infer<typeof exportGroupAlbumsInput>,
+): Promise<AlbumExportResult> {
+  requireFreshClientKeyForAlbum(services);
+  const work: AlbumDownloadWork[] = [];
+  for (const album of input.albums) {
+    const albumTitle = sanitizePathSegment(album.title, album.id);
+    const albumDir = join(input.outputDir, albumTitle);
+    const used = new Set<string>();
+    const media = await collectAlbumMedia(services, input.groupCode, album.id);
+    media.forEach((item, index) => {
+      const url = pickAlbumDownloadUrl(item);
+      if (!url) return;
+      const fileName = uniqueFilename(filenameFromUrl(url, item.fileName, index), used);
+      work.push({
+        albumId: album.id,
+        albumTitle,
+        url,
+        fileName,
+        targetPath: join(albumDir, fileName),
+      });
+    });
+  }
+
+  const failed: AlbumExportResult['failed'] = [];
+  let ok = 0;
+  await mkdir(input.outputDir, { recursive: true });
+  await runWithConcurrency(work, input.concurrency ?? 4, async (item) => {
+    try {
+      await mkdir(dirname(item.targetPath), { recursive: true });
+      await downloadAlbumUrl(item.url, item.targetPath);
+      ok += 1;
+    } catch (e) {
+      failed.push({
+        albumId: item.albumId,
+        albumTitle: item.albumTitle,
+        fileName: item.fileName,
+        url: item.url,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  });
+
+  return { outputDir: input.outputDir, total: work.length, ok, failed };
 }
 
 export const accountRouter = router({
@@ -555,6 +814,11 @@ export const accountRouter = router({
     });
   }),
 
+  /** Live prerequisites for group album list/media/export. */
+  getGroupAlbumAccessState: procedure.query(() => {
+    return albumAccessState();
+  }),
+
   // ---- database decrypt ----
 
   /** List encrypted `*.db` files under the open account's nt_db directory. */
@@ -583,6 +847,44 @@ export const accountRouter = router({
     .input(decryptDbInput)
     .mutation(async ({ input }) => {
       return requireServices().dbDecrypt.decryptDatabases(input);
+    }),
+
+  // ---- group album ----
+
+  /** List group albums via Qzone web CGI. Requires online QQ + fresh ClientKey. */
+  listGroupAlbums: procedure
+    .input(groupAlbumInput)
+    .query(async ({ input }) => {
+      const services = requireServices();
+      requireFreshClientKeyForAlbum(services);
+      return services.webQuery.getGroupAlbumList(input.groupCode);
+    }),
+
+  /** List all media for one group album. Requires the saved online QQ pid. */
+  listGroupAlbumMedia: procedure
+    .input(groupAlbumMediaInput)
+    .query(async ({ input }) => {
+      const services = requireServices();
+      requireQqOnlineForAlbum(services);
+      return collectAlbumMedia(services, input.groupCode, input.albumId);
+    }),
+
+  /** Folder dialog for group album export output. */
+  pickGroupAlbumExportDir: procedure.mutation(async () => {
+    const { dialog } = await import('electron');
+    const result = await dialog.showOpenDialog({
+      title: '选择群相册保存文件夹',
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0] ?? null;
+  }),
+
+  /** Enumerate selected albums first, then concurrently download all media. */
+  exportGroupAlbums: procedure
+    .input(exportGroupAlbumsInput)
+    .mutation(async ({ input }) => {
+      return exportGroupAlbums(requireServices(), input);
     }),
 
   // ---- export ----

@@ -52,6 +52,28 @@ function fileResponse(path: string): Promise<Response> {
   return net.fetch(pathToFileURL(path).toString());
 }
 
+async function albumRemoteResponse(src: string): Promise<Response> {
+  if (!/^https?:\/\//i.test(src)) return notFound('album image needs remote url');
+  const target = new URL(src);
+  const host = target.hostname.toLowerCase();
+  const allowed =
+    host === 'imgcache.qq.com' ||
+    host === 'p.qpic.cn' ||
+    host.endsWith('.qpic.cn') ||
+    host === 'photo.store.qq.com' ||
+    host.endsWith('.photo.store.qq.com');
+  if (!allowed) return notFound('album image host not allowed');
+  const res = await net.fetch(src, {
+    headers: {
+      Referer: 'https://user.qzone.qq.com/',
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome Safari/537.36',
+    },
+  });
+  if (!res.ok) return new Response(`album image http ${res.status}`, { status: res.status });
+  return res;
+}
+
 export function registerMediaProtocol(): void {
   protocol.handle(MEDIA_SCHEME, async (request) => {
     const url = new URL(request.url);
@@ -122,6 +144,9 @@ export function registerMediaProtocol(): void {
           if (!pack || !hash) return notFound('mface needs pack+hash');
           const path = await services.emoji.getMarketFace(pack, hash);
           return path ? fileResponse(path) : notFound('mface not found');
+        }
+        case 'album': {
+          return albumRemoteResponse(q.get('src') ?? '');
         }
         default:
           return notFound(`unknown media kind: ${kind}`);

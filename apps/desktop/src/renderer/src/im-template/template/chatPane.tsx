@@ -7,6 +7,7 @@ import {
 	ChevronsUp,
 	CirclePlus,
 	FileText,
+	Images,
 	MessageSquareText,
 	SendHorizontal,
 	Smile,
@@ -198,6 +199,7 @@ export function ChatPane({
 	onDraftClear,
 	onBack,
 	onEditRaw,
+	onOpenGroupAlbums,
 }: {
 	user: User;
 	conversation: Conversation | undefined;
@@ -222,6 +224,7 @@ export function ChatPane({
 	onDraftClear: (conversationId: string) => void;
 	onBack: () => void;
 	onEditRaw?: (message: Message) => void;
+	onOpenGroupAlbums?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 }) {
 	// 复用 replyJump 的跳转能力（含翻页/重建窗口），供群精华消息跳转使用。
 	const jumpToSeq = useContext(ReplyJumpContext);
@@ -1261,10 +1264,18 @@ export function ChatPane({
 								className={cn("icon-button", "group-header-info-action")}
 								type="button"
 								title="Group highlights"
-								disabled={!hasGroupEssence(conversation)}
-								onClick={() => setGroupInfoDetail("essence")}
+									disabled={!hasGroupEssence(conversation)}
+									onClick={() => setGroupInfoDetail("essence")}
 							>
 								<Sparkles size={18} />
+							</button>
+							<button
+								className={cn("icon-button", "group-header-info-action")}
+								type="button"
+								title="Group albums"
+								onClick={() => onOpenGroupAlbums?.(conversation)}
+							>
+								<Images size={18} />
 							</button>
 						</>
 					) : null}
@@ -1424,6 +1435,7 @@ export function ChatPane({
 						<GroupInfoPanel
 							conversation={conversation}
 							onOpenDetail={setGroupInfoDetail}
+							onOpenAlbums={onOpenGroupAlbums}
 							onLoadMoreMembers={onLoadMoreGroupMembers}
 							loadingMoreMembers={groupMembersLoading}
 						/>
