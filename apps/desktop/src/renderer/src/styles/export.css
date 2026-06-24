@@ -1189,6 +1189,141 @@
   text-overflow: ellipsis;
 }
 
+/* 媒体补全结果摘要（成功 xx · 失败 xx）。 */
+.weq-exp-task-complete {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #5b9e6a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weq-exp-task-complete.is-warn {
+  color: #c98a2e;
+}
+
+button.weq-exp-task-complete {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  padding: 0;
+}
+
+button.weq-exp-task-complete.is-clickable {
+  color: #c98a2e;
+  cursor: pointer;
+  text-decoration: underline dotted rgba(201, 138, 46, 0.5);
+  text-underline-offset: 2px;
+}
+
+button.weq-exp-task-complete.is-clickable:hover {
+  color: #b3771e;
+  text-decoration-color: #b3771e;
+}
+
+/* ---- 失败详情灯箱 ---- */
+.weq-exp-fail-dialog {
+  max-width: 560px;
+  width: 92vw;
+}
+
+.weq-exp-fail-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 18px 0;
+}
+
+.weq-exp-fail-chip {
+  padding: 4px 11px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 999px;
+  background: #ffffff;
+  color: #51677c;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease, background-color 140ms ease;
+}
+
+.weq-exp-fail-chip:hover {
+  border-color: rgba(0, 153, 255, 0.45);
+  color: #0099ff;
+}
+
+.weq-exp-fail-chip.is-active {
+  border-color: #0099ff;
+  background: rgba(0, 153, 255, 0.1);
+  color: #0078cc;
+}
+
+.weq-exp-fail-body {
+  display: block;
+  padding-top: 12px;
+}
+
+.weq-exp-fail-empty {
+  padding: 28px 0;
+  text-align: center;
+  color: #97a2b0;
+  font-size: 13px;
+}
+
+.weq-exp-fail-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.weq-exp-fail-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 9px 11px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 9px;
+  background: #fbfcfe;
+}
+
+.weq-exp-fail-icon {
+  flex: none;
+  margin-top: 1px;
+  color: #dc8a40;
+}
+
+.weq-exp-fail-main {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.weq-exp-fail-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: #2f3a48;
+  word-break: break-all;
+}
+
+.weq-exp-fail-tag {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.06);
+  color: #5b6573;
+  font-size: 11px;
+}
+
+.weq-exp-fail-err {
+  font-size: 11.5px;
+  color: #dc4040;
+  word-break: break-all;
+}
+
 .weq-exp-task-actions {
   display: flex;
   align-items: center;

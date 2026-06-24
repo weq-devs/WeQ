@@ -81,6 +81,20 @@ export interface AccountForcedClosedEvent {
 }
 
 export const accountEventBus = new EventEmitter();
+// [TEMP DIAGNOSTIC] Trap every emit('forcedClosed', ...) regardless of caller.
+const _realEmit = accountEventBus.emit.bind(accountEventBus);
+accountEventBus.emit = ((event: string | symbol, ...rest: unknown[]) => {
+  if (event === 'forcedClosed') {
+    try {
+      process.stderr.write(
+        `[dbhealth] BUS-EMIT('forcedClosed') at=${new Date().toISOString()} payload=${JSON.stringify(rest[0])}\n${new Error('bus-emit-stack').stack ?? ''}\n`,
+      );
+    } catch {
+      /* swallow */
+    }
+  }
+  return _realEmit(event as string, ...rest);
+}) as typeof accountEventBus.emit;
 
 /** Trailing debounce — coalesces a burst of calls into one after `ms` idle. */
 function trailingDebounce<A extends unknown[]>(
@@ -133,13 +147,31 @@ function unmountDbWatch(): void {
   dbWatchHandle = null;
 }
 
+/** [TEMP DIAGNOSTIC] Write directly to stderr, bypassing console redirection. */
+function dbhLog(tag: string, payload: string): void {
+  try {
+    process.stderr.write(`[dbhealth] ${tag} ${payload}\n`);
+  } catch {
+    /* swallow — diagnostics must never throw */
+  }
+}
+
 function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: Platform): void {
   const seq = ++dbHealthCheckSeq;
+  dbhLog('START', `seq=${seq} uin=${session.context.uin} at=${new Date().toISOString()}\n` + (new Error('dbhealth-start-stack').stack ?? ''));
   void (async (): Promise<void> => {
     const failures = await checkAccountDatabaseHealth(session, platform);
-    if (seq !== dbHealthCheckSeq || ctx.account !== session || failures.length === 0) return;
+    // [TEMP DIAGNOSTIC] exactly what the native check returned.
+    dbhLog('DONE', `seq=${seq} latest=${dbHealthCheckSeq} sameAccount=${ctx.account === session} failures=${JSON.stringify(failures)}`);
+    // 没检出损坏就不弹窗、不强退 — 只记录一次信息，便于排查
+    if (failures.length === 0) {
+      dbhLog('HEALTHY', `seq=${seq} no failures, skipping force-close`);
+      return;
+    }
+    if (seq !== dbHealthCheckSeq || ctx.account !== session) return;
 
     const details = formatDbHealthFailures(failures);
+    dbhLog('FORCE-CLOSING', `seq=${seq} details=${JSON.stringify(details)}`);
     ctx.clearAccount();
     accountEventBus.emit('forcedClosed', {
       reason: 'database-damaged',
@@ -149,7 +181,11 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
       details,
       failures,
     } satisfies AccountForcedClosedEvent);
+    // [TEMP DIAGNOSTIC] who actually emitted it
+    dbhLog('EMIT', `seq=${seq} branch=损坏\n${new Error().stack ?? ''}`);
   })().catch((e) => {
+    // [TEMP DIAGNOSTIC] the check itself threw (native error / rejection).
+    dbhLog('THREW', `seq=${seq} latest=${dbHealthCheckSeq} err=${e instanceof Error ? e.stack ?? e.message : String(e)}`);
     if (seq !== dbHealthCheckSeq || ctx.account !== session) return;
     const failure: DbHealthFailure = {
       dbName: '数据库健康检查',
@@ -166,6 +202,8 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
       details: formatDbHealthFailures([failure]),
       failures: [failure],
     } satisfies AccountForcedClosedEvent);
+    // [TEMP DIAGNOSTIC] who actually emitted it
+    dbhLog('EMIT', `seq=${seq} branch=错误\n${new Error().stack ?? ''}`);
   });
 }
 

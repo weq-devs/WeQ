@@ -21,6 +21,13 @@ import { fmtCount } from './types';
 
 export type StageStatus = 'pending' | 'running' | 'completed' | 'skipped' | 'failed';
 
+/** One failed media file, surfaced from a stage's `failures`. */
+export interface UiFailure {
+  stage: string;
+  fileName: string;
+  error: string;
+}
+
 export interface UiStage {
   key: string;
   label: string;
@@ -29,11 +36,29 @@ export interface UiStage {
   total: number;
   failed?: number;
   note?: string;
+  failures?: UiFailure[];
 }
 
-/** Total failed items across a task's media stages (0 when none / no stages). */
-function totalFailed(stages: UiStage[] | undefined): number {
-  return (stages ?? []).reduce((sum, s) => sum + (s.failed ?? 0), 0);
+/** The CDN-completion stages (download missing → bundle). */
+const COMPLETION_KEYS = new Set(['image', 'video', 'file']);
+
+/** Aggregate completion (image/video/file) success / fail across a task's stages. */
+function completionSummary(stages: UiStage[] | undefined): {
+  ok: number;
+  failed: number;
+  failures: UiFailure[];
+} {
+  let ok = 0;
+  let failed = 0;
+  const failures: UiFailure[] = [];
+  for (const s of stages ?? []) {
+    if (!COMPLETION_KEYS.has(s.key)) continue;
+    failed += s.failed ?? 0;
+    // ok = total processed minus failed (only meaningful once the stage ran).
+    if (s.status === 'completed') ok += Math.max(0, s.total - (s.failed ?? 0));
+    if (s.failures) failures.push(...s.failures);
+  }
+  return { ok, failed, failures };
 }
 
 export interface UiTask {
@@ -130,12 +155,15 @@ export function TaskList({
   onCancel,
   onDownload,
   onDelete,
+  onShowFailures,
 }: {
   tasks: UiTask[];
   onPause: (t: UiTask) => void;
   onCancel: (t: UiTask) => void;
   onDownload: (t: UiTask) => void;
   onDelete: (t: UiTask) => void;
+  /** Open the failure-detail lightbox for a task's media-completion failures. */
+  onShowFailures: (t: UiTask, failures: UiFailure[]) => void;
 }): ReactElement {
   return (
     <section className="weq-exp-tasks">
@@ -161,7 +189,8 @@ export function TaskList({
               t.stages.length > 1 &&
               (t.status === 'running' || t.status === 'paused');
             const shownStages = multiStage ? visibleStages(t.stages!) : [];
-            const mediaFailed = totalFailed(t.stages);
+            const completion = completionSummary(t.stages);
+            const hasCompletion = completion.ok > 0 || completion.failed > 0;
             return (
               <article key={t.id} className={`weq-exp-task is-${t.status}`}>
                 <span className="weq-exp-task-kind" title={t.kind === 'group' ? '群聊' : '私聊'}>
@@ -201,10 +230,25 @@ export function TaskList({
                       {t.total > 0 ? ` / ${fmtCount(t.total)}` : ''} 条
                       {t.avatarCount ? ` · 含头像 ${fmtCount(t.avatarCount)}` : ''}
                     </span>
-                    {mediaFailed > 0 ? (
-                      <span className="weq-exp-task-err" title="部分媒体搬运/补全失败">
-                        媒体失败 {fmtCount(mediaFailed)}
-                      </span>
+                    {hasCompletion ? (
+                      completion.failed > 0 && completion.failures.length > 0 ? (
+                        <button
+                          type="button"
+                          className="weq-exp-task-complete is-clickable"
+                          title="点击查看失败详情"
+                          onClick={() => onShowFailures(t, completion.failures)}
+                        >
+                          媒体补全 成功 {fmtCount(completion.ok)} · 失败 {fmtCount(completion.failed)}
+                        </button>
+                      ) : (
+                        <span
+                          className={`weq-exp-task-complete${completion.failed > 0 ? ' is-warn' : ''}`}
+                          title="媒体补全结果"
+                        >
+                          媒体补全 成功 {fmtCount(completion.ok)}
+                          {completion.failed > 0 ? ` · 失败 ${fmtCount(completion.failed)}` : ''}
+                        </span>
+                      )
                     ) : null}
                     {t.status === 'failed' && t.error ? (
                       <span className="weq-exp-task-err" title={t.error}>

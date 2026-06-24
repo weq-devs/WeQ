@@ -47,12 +47,37 @@ export interface MediaStageResult {
   total: number;
   ok: number;
   failed: number;
+  /** Per-file failure detail for the stage (capped). Surfaced in the UI. */
+  failures?: MediaFailure[];
+}
+
+/** One file that failed in a media stage — surfaced in the UI's failure lightbox. */
+export interface MediaFailure {
+  /** Stage the failure happened in. */
+  stage: 'image' | 'video' | 'file' | 'media' | 'record';
+  fileName: string;
+  /** Human-readable reason (HTTP status, OIDB error, decode failure, …). */
+  error: string;
 }
 
 /** Drop a trailing extension: `AB.MP4` → `AB`. */
 function dropExt(filename: string): string {
   const ext = extname(filename);
   return ext ? filename.slice(0, -ext.length) : filename;
+}
+
+/** Cap on per-stage failure entries kept for the UI (older entries dropped). */
+const FAILURES_CAP = 200;
+
+/** Append a failure, dropping the oldest entries when the cap is reached. */
+function pushFailure(
+  out: MediaFailure[] | undefined,
+  f: MediaFailure,
+): MediaFailure[] {
+  const arr = out ?? [];
+  arr.push(f);
+  if (arr.length > FAILURES_CAP) arr.splice(0, arr.length - FAILURES_CAP);
+  return arr;
 }
 
 /** Map a scanned media kind to its bundle subdirectory (null = not copied here). */
@@ -113,8 +138,13 @@ export async function copyFoundMedia(
       const dir = copyKindDir(ref.kind)!;
       await copyFile(ref.path!, join(mediaRoot, dir, ref.fileName));
       result.ok += 1;
-    } catch {
+    } catch (e) {
       result.failed += 1;
+      result.failures = pushFailure(result.failures, {
+        stage: 'media',
+        fileName: ref.fileName,
+        error: e instanceof Error ? e.message : String(e),
+      });
     } finally {
       done += 1;
       onProgress?.(done, items.length);
@@ -147,10 +177,23 @@ export async function decodeFoundVoices(
     try {
       const dest = join(recordDir, `${dropExt(ref.fileName)}.wav`);
       const ok = await decodeSilk(ref.path!, dest);
-      if (ok) result.ok += 1;
-      else result.failed += 1;
-    } catch {
+      if (ok) {
+        result.ok += 1;
+      } else {
+        result.failed += 1;
+        result.failures = pushFailure(result.failures, {
+          stage: 'record',
+          fileName: ref.fileName,
+          error: 'silk decode returned false',
+        });
+      }
+    } catch (e) {
       result.failed += 1;
+      result.failures = pushFailure(result.failures, {
+        stage: 'record',
+        fileName: ref.fileName,
+        error: e instanceof Error ? e.message : String(e),
+      });
     } finally {
       done += 1;
       onProgress?.(done, items.length);
@@ -194,9 +237,19 @@ export async function downloadMissingImages(
         result.ok += 1;
       } else {
         result.failed += 1;
+        result.failures = pushFailure(result.failures, {
+          stage: 'image',
+          fileName: ref.fileName,
+          error: 'rkey download returned no cached path',
+        });
       }
-    } catch {
+    } catch (e) {
       result.failed += 1;
+      result.failures = pushFailure(result.failures, {
+        stage: 'image',
+        fileName: ref.fileName,
+        error: e instanceof Error ? e.message : String(e),
+      });
     } finally {
       done += 1;
       onProgress?.(done, items.length);
@@ -222,36 +275,45 @@ function backoffMs(n: number): number {
   return base + Math.floor(Math.random() * base * 0.4);
 }
 
+/** Result of a streamed download: ok, or a human-readable failure reason. */
+type DownloadOutcome = { ok: true } | { ok: false; reason: string };
+
+/** Read a (small) error response body for surfacing — trimmed + capped. */
+async function readErrBody(res: Awaited<ReturnType<typeof fetch>>): Promise<string> {
+  try {
+    const text = (await res.text()).trim();
+    return text ? ` body=${text.slice(0, 300)}` : '';
+  } catch {
+    return '';
+  }
+}
+
 /**
  * Stream one URL to `dest`, with exponential-backoff retry on transient errors
- * (network / 5xx / 429). 4xx and text/* error pages fail fast. Streams the body
- * to disk so large videos / files don't balloon memory. Returns true on success.
+ * (network / 5xx / 429). Streams the body to disk so large videos / files don't
+ * balloon memory. The QQ CDN signals failures with a JSON/text body (sometimes
+ * even under HTTP 200) — those are NOT media, so any non-binary content-type is
+ * treated as a failure and its body is surfaced as the reason.
  */
-async function downloadUrlToFile(url: string, dest: string, tag = '[export]'): Promise<boolean> {
+async function downloadUrlToFile(url: string, dest: string): Promise<DownloadOutcome> {
   for (let attempt = 0; ; attempt += 1) {
     try {
       const res = await fetch(url);
       if (res.status === 429 || res.status >= 500) {
         if (attempt < DL_RETRIES) { await sleep(backoffMs(attempt)); continue; }
-        console.warn(`${tag} download http ${res.status} (gave up): ${url.slice(0, 90)}`);
-        return false;
-      }
-      if (!res.ok || !res.body) {
-        console.warn(`${tag} download http ${res.status} body=${res.body ? 'y' : 'n'}: ${url.slice(0, 120)}`);
-        return false;
+        return { ok: false, reason: `HTTP ${res.status}${await readErrBody(res)}` };
       }
       const ct = res.headers.get('content-type') ?? '';
-      if (ct.startsWith('text/')) {
-        console.warn(`${tag} download got text/* (not media), ct=${ct}: ${url.slice(0, 120)}`);
-        return false; // error page, not media
+      // Non-2xx, empty, or a JSON/text body → CDN error envelope, not media.
+      if (!res.ok || !res.body || ct.startsWith('text/') || ct.includes('json')) {
+        return { ok: false, reason: `HTTP ${res.status} ct=${ct || 'n/a'}${await readErrBody(res)}` };
       }
       await mkdir(dirname(dest), { recursive: true });
       await pipeline(Readable.fromWeb(res.body as WebReadableStream<Uint8Array>), createWriteStream(dest));
-      return true;
+      return { ok: true };
     } catch (e) {
       if (attempt < DL_RETRIES) { await sleep(backoffMs(attempt)); continue; }
-      console.warn(`${tag} download fetch error (gave up): ${e instanceof Error ? e.message : String(e)} | ${url.slice(0, 90)}`);
-      return false;
+      return { ok: false, reason: e instanceof Error ? e.message : String(e) };
     }
   }
 }
@@ -301,6 +363,11 @@ export async function downloadMissingVideos(
 ): Promise<MediaStageResult> {
   const items = scan.downloadList.filter((r) => r.kind === 'video');
   const result: MediaStageResult = { total: items.length, ok: 0, failed: 0 };
+  // TEMP diagnostics for the 群聊视频 failures (step-by-step). Remove once fixed.
+  const isGroup = ctx.kind === 'group';
+  if (isGroup) {
+    console.log(`[group-video] [stage] ${items.length} missing video(s) reached the download stage`);
+  }
   if (items.length === 0) return result;
   const videoDir = join(mediaRoot, MEDIA_SUBDIRS.video);
   await mkdir(videoDir, { recursive: true });
@@ -314,6 +381,11 @@ export async function downloadMissingVideos(
       if (!el) {
         console.warn(`${tag} no raw element: msgId=${ref.msgId} file=${ref.fileName}`);
         result.failed += 1;
+        result.failures = pushFailure(result.failures, {
+          stage: 'video',
+          fileName: ref.fileName,
+          error: 'raw video element not found for msgId=' + ref.msgId,
+        });
         return;
       }
       const element = el as unknown as MediaElement;
@@ -324,20 +396,64 @@ export async function downloadMissingVideos(
             ? await ctx.mediaUrl.getGroupVideoUrlFromElement(groupId, element)
             : await ctx.mediaUrl.getPrivateVideoUrlFromElement(element);
       } catch (e) {
-        console.warn(`${tag} url resolve failed: file=${ref.fileName} token=${ref.fileToken.slice(0, 16)}… err=${e instanceof Error ? e.message : String(e)}`);
+        const ve = element as {
+          fileToken?: string;
+          channelParams?: Uint8Array;
+          videoFlag45421?: Uint8Array;
+          videoFlag45863?: number;
+          md5Bytes?: Uint8Array;
+          contentHash?: Uint8Array;
+        };
+        console.warn(
+          `${tag} url resolve failed: file=${ref.fileName} msgId=${ref.msgId} ` +
+            `token=${(ve.fileToken ?? '').slice(0, 20)}… channelParams=${ve.channelParams ? ve.channelParams.length : 0} ` +
+            `flag45421=${ve.videoFlag45421 ? ve.videoFlag45421.length : 0} flag45863=${ve.videoFlag45863 ?? 'n'} ` +
+            `md5Bytes=${ve.md5Bytes ? ve.md5Bytes.length : 0} contentHash=${ve.contentHash ? ve.contentHash.length : 0} ` +
+            `err=${e instanceof Error ? e.message : String(e)}`,
+        );
         result.failed += 1;
+        result.failures = pushFailure(result.failures, {
+          stage: 'video',
+          fileName: ref.fileName,
+          error: 'OIDB resolve failed: ' + (e instanceof Error ? e.message : String(e)),
+        });
         return;
       }
       if (!url) {
         console.warn(`${tag} empty url: file=${ref.fileName}`);
         result.failed += 1;
+        result.failures = pushFailure(result.failures, {
+          stage: 'video',
+          fileName: ref.fileName,
+          error: 'OIDB resolve returned empty url',
+        });
         return;
       }
-      if (await downloadUrlToFile(url, join(videoDir, ref.fileName), tag)) result.ok += 1;
-      else result.failed += 1;
+      // [4.url] download URL resolved for this group video.
+      if (isGroup) console.log(`[group-video] [4.url] file=${ref.fileName} url=${url.slice(0, 120)}`);
+      const outcome = await downloadUrlToFile(url, join(videoDir, ref.fileName));
+      if (outcome.ok) {
+        // [5.download] streamed to disk OK.
+        if (isGroup) console.log(`[group-video] [5.download] OK file=${ref.fileName}`);
+        result.ok += 1;
+      } else {
+        console.warn(`${tag} download failed: file=${ref.fileName} reason=${outcome.reason} url=${url}`);
+        if (isGroup) console.log(`[group-video] [5.download] FAIL file=${ref.fileName} reason=${outcome.reason}`);
+        result.failed += 1;
+        result.failures = pushFailure(result.failures, {
+          stage: 'video',
+          fileName: ref.fileName,
+          error: outcome.reason,
+        });
+      }
     } catch (e) {
       console.warn(`${tag} unexpected: file=${ref.fileName} err=${e instanceof Error ? e.message : String(e)}`);
       result.failed += 1;
+      result.failures = pushFailure(result.failures, {
+        stage: 'video',
+        fileName: ref.fileName,
+        error: 'unexpected: ' + (e instanceof Error ? e.message : String(e)),
+      });
     } finally {
       done += 1;
       onProgress?.(done, items.length);
@@ -365,14 +481,17 @@ export async function downloadMissingFiles(
   await mkdir(fileDir, { recursive: true });
   const groupId = ctx.kind === 'group' ? Number(ctx.conv) : 0;
 
-  const tag = `[export][${ctx.kind === 'group' ? 'group' : 'private'} file]`;
   let done = 0;
   await runWithConcurrency(items, concurrency, async (ref) => {
     try {
       const el = await findRawElement(ctx.msgs, ref, 'file');
       if (!el) {
-        console.warn(`${tag} no raw element: msgId=${ref.msgId} file=${ref.fileName}`);
         result.failed += 1;
+        result.failures = pushFailure(result.failures, {
+          stage: 'file',
+          fileName: ref.fileName,
+          error: 'raw file element not found for msgId=' + ref.msgId,
+        });
         return;
       }
       const element = el as unknown as MediaElement;
@@ -386,25 +505,40 @@ export async function downloadMissingFiles(
           url = await ctx.mediaUrl.getPrivateFileUrlFromElement(element);
         }
       } catch (e) {
-        const fe = element as { fileToken?: string; md5Bytes2?: Uint8Array; md5?: string };
-        console.warn(
-          `${tag} url resolve failed: file=${ref.fileName} fileId=${(fe.fileToken ?? '').slice(0, 24)}… ` +
-            `hasMd5Bytes2=${fe.md5Bytes2 ? fe.md5Bytes2.length : 0} hasMd5=${fe.md5 ? 'y' : 'n'} ` +
-            `err=${e instanceof Error ? e.message : String(e)}`,
-        );
         result.failed += 1;
+        result.failures = pushFailure(result.failures, {
+          stage: 'file',
+          fileName: ref.fileName,
+          error: 'OIDB resolve failed: ' + (e instanceof Error ? e.message : String(e)),
+        });
         return;
       }
       if (!url) {
-        console.warn(`${tag} empty url: file=${ref.fileName}`);
         result.failed += 1;
+        result.failures = pushFailure(result.failures, {
+          stage: 'file',
+          fileName: ref.fileName,
+          error: 'OIDB resolve returned empty url',
+        });
         return;
       }
-      if (await downloadUrlToFile(url, join(fileDir, ref.fileName), tag)) result.ok += 1;
-      else result.failed += 1;
+      const outcome = await downloadUrlToFile(url, join(fileDir, ref.fileName));
+      if (outcome.ok) result.ok += 1;
+      else {
+        result.failed += 1;
+        result.failures = pushFailure(result.failures, {
+          stage: 'file',
+          fileName: ref.fileName,
+          error: outcome.reason,
+        });
+      }
     } catch (e) {
-      console.warn(`${tag} unexpected: file=${ref.fileName} err=${e instanceof Error ? e.message : String(e)}`);
       result.failed += 1;
+      result.failures = pushFailure(result.failures, {
+        stage: 'file',
+        fileName: ref.fileName,
+        error: 'unexpected: ' + (e instanceof Error ? e.message : String(e)),
+      });
     } finally {
       done += 1;
       onProgress?.(done, items.length);

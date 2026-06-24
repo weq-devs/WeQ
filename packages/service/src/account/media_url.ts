@@ -36,6 +36,8 @@ export interface MediaElement {
   md5Bytes?: Uint8Array;
   md5Bytes2?: Uint8Array;
   contentHash?: Uint8Array;
+  /** Private-file transfer blob (field 45504) — the OIDB 0xe37 `fileHash`. */
+  transferFlag45504?: string;
   imgWidth?: number;
   imgHeight?: number;
   videoWidth?: number;
@@ -172,8 +174,11 @@ export class MediaUrlService {
   }
 
   async getPrivateFileUrlFromElement(element: MediaElement): Promise<string> {
-    const fileHash = textOrHexOf(element.md5Bytes2) || element.md5 || hexOf(element.md5Bytes);
-    if (!fileHash) throw new Error('private file element missing md5Bytes2/fileHash');
+    // OIDB 0xe37_1200 wants the 45504 transfer blob as the fileHash (verified
+    // against real rows); md5 is only a fallback for older rows lacking it.
+    const fileHash =
+      element.transferFlag45504 || textOrHexOf(element.md5Bytes2) || element.md5 || hexOf(element.md5Bytes);
+    if (!fileHash) throw new Error('private file element missing transferFlag45504/md5');
     return this.getPrivateFileUrl(element.fileToken, fileHash);
   }
 }

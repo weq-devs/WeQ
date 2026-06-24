@@ -27,6 +27,7 @@ import {
   downloadMissingVideos,
   downloadMissingFiles,
   type DecodeSilk,
+  type MediaFailure,
 } from './media_export';
 import { scanConvMedia, mediaDirsFromAccountDir, type MediaDirs } from './media_scan';
 import type { MediaUrlService } from '../media_url';
@@ -52,6 +53,8 @@ export interface TaskStage {
   failed?: number;
   /** Short note (e.g. "已导出 1234 条", "下载 3/40", "下载接口修复中"). */
   note?: string;
+  /** Per-file failure details (capped). Drives the failure-detail lightbox. */
+  failures?: MediaFailure[];
 }
 
 /** Media-export options threaded from the lightbox. */
@@ -133,7 +136,12 @@ export class ExportTaskManager extends EventEmitter {
   private loadTasks(): void {
     if (!existsSync(this.persistPath)) return;
     try {
-      const data = JSON.parse(readFileSync(this.persistPath, 'utf-8')) as ExportTask[];
+      // A `writeFileSync('w')` truncates before writing, so a process killed
+      // mid-save leaves a 0-byte / partial file. Treat empty content as "no
+      // tasks" instead of throwing on `JSON.parse('')`.
+      const raw = readFileSync(this.persistPath, 'utf-8').trim();
+      if (!raw) return;
+      const data = JSON.parse(raw) as ExportTask[];
       for (const t of data) {
         if (t.status === 'running') t.status = 'paused'; // crashed tasks → paused
         if (!Array.isArray(t.stages)) t.stages = []; // back-compat with pre-stages tasks
@@ -340,7 +348,7 @@ export class ExportTaskManager extends EventEmitter {
         if (aborted()) return;
         this.touchStage(task, 'media', { current: done, total, note: `搬运 ${done}/${total}` });
       });
-      this.touchStage(task, 'media', { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已搬运 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}` }, { persist: true });
+      this.touchStage(task, 'media', { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已搬运 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`, ...(r.failures ? { failures: r.failures } : {}) }, { persist: true });
     }
     if (aborted()) return;
 
@@ -356,7 +364,7 @@ export class ExportTaskManager extends EventEmitter {
           if (aborted()) return;
           this.touchStage(task, 'record', { current: done, total, note: `解码 ${done}/${total}` });
         });
-        this.touchStage(task, 'record', { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已解码 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}` }, { persist: true });
+        this.touchStage(task, 'record', { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已解码 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`, ...(r.failures ? { failures: r.failures } : {}) }, { persist: true });
       }
     }
     if (aborted()) return;
@@ -373,7 +381,7 @@ export class ExportTaskManager extends EventEmitter {
           if (aborted()) return;
           this.touchStage(task, 'image', { current: done, total, note: `下载 ${done}/${total}` });
         });
-        this.touchStage(task, 'image', { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已补全 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}` }, { persist: true });
+        this.touchStage(task, 'image', { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已补全 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`, ...(r.failures ? { failures: r.failures } : {}) }, { persist: true });
       }
       if (aborted()) return;
 
@@ -409,7 +417,7 @@ export class ExportTaskManager extends EventEmitter {
       key === 'video'
         ? await downloadMissingVideos(scan, mediaRoot, ctx, onP)
         : await downloadMissingFiles(scan, mediaRoot, ctx, onP);
-    this.touchStage(task, key, { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已下载 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}` }, { persist: true });
+    this.touchStage(task, key, { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已下载 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`, ...(r.failures ? { failures: r.failures } : {}) }, { persist: true });
   }
 
   /** Dispatch the message stage to the right exporter by format / conversation kind. */

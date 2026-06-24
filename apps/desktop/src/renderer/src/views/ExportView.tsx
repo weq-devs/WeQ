@@ -28,11 +28,12 @@ import { useAppDialog } from '../lib/dialogUtils';
 import { Segmented } from './export/widgets';
 import { ConversationPicker } from './export/ConversationPicker';
 import { SingleSelectPicker } from './export/SingleSelectPicker';
-import { TaskList, type UiTask } from './export/TaskList';
+import { TaskList, type UiTask, type UiFailure } from './export/TaskList';
 import { ExportLightbox, type LightboxResult, type LightboxVariant } from './export/ExportLightbox';
 import { DatabasePicker, type DbPickItem } from './export/DatabasePicker';
 import { DecryptLightbox, type DecryptLightboxResult } from './export/DecryptLightbox';
 import { AlbumExportLightbox, type AlbumExportResult } from './export/AlbumExportLightbox';
+import { FailureLightbox } from './export/FailureLightbox';
 import {
   CHATLAB_FORMATS,
   FULL_FORMATS,
@@ -102,6 +103,8 @@ export function ExportView(): ReactElement {
   const [format, setFormat] = useState<ExportFormat>('json');
   const [lightbox, setLightbox] = useState<LightboxVariant | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  /** Media-completion failure detail, when the user opens a task's failure list. */
+  const [failureView, setFailureView] = useState<{ name: string; failures: UiFailure[] } | null>(null);
 
   // ChatLab only emits json/jsonl — clamp the chip when entering that mode.
   useEffect(() => {
@@ -569,7 +572,22 @@ export function ExportView(): ReactElement {
       </div>
 
       {/* 底部任务列表 */}
-      <TaskList tasks={uiTasks} onPause={onPause} onCancel={onCancel} onDownload={(t) => void onDownload(t)} onDelete={onDelete} />
+      <TaskList
+        tasks={uiTasks}
+        onPause={onPause}
+        onCancel={onCancel}
+        onDownload={(t) => void onDownload(t)}
+        onDelete={onDelete}
+        onShowFailures={(t, failures) => setFailureView({ name: t.name, failures })}
+      />
+
+      {failureView ? (
+        <FailureLightbox
+          taskName={failureView.name}
+          failures={failureView.failures}
+          onClose={() => setFailureView(null)}
+        />
+      ) : null}
 
       {lightbox ? (
         <ExportLightbox

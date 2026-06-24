@@ -859,6 +859,49 @@
     line-height: 1.62;
     word-break: break-word;
   }
+  .weq-db-damaged-dialog {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .weq-db-damaged-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .weq-db-damaged-section h4 {
+    margin: 0;
+    color: #0f2d4c;
+    font-size: 12.5px;
+    font-weight: 650;
+    line-height: 1.35;
+  }
+  .weq-db-damaged-section p {
+    margin: 0;
+  }
+  .weq-db-damaged-section a {
+    color: #0076c9;
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .weq-db-damaged-section a:hover {
+    color: #005da3;
+  }
+  .weq-db-damaged-details {
+    border-top: 1px solid rgba(15, 45, 76, 0.1);
+    padding-top: 0.7rem;
+  }
+  .weq-db-damaged-details ul {
+    display: flex;
+    flex-direction: column;
+    gap: 0.28rem;
+    margin: 0;
+    padding-left: 1.05rem;
+  }
+  .weq-db-damaged-details li {
+    padding-left: 0.1rem;
+  }
   .weq-dialog-foot {
     display: flex;
     justify-content: flex-end;

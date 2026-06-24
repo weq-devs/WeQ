@@ -185,19 +185,39 @@ function computeExpiry(
   fileTTL: number,
   expireTimestamp: number,
 ): number {
-  if (kind === 'video' && expireTimestamp > 0) return expireTimestamp;
+  // Video: `expireTimestamp` (45515) and `fileTTL` (45518) describe the
+  // original CDN short-URL's expiry (~7 days), NOT when the video is purged
+  // from the server. Our video download re-resolves via OIDB, which doesn't
+  // depend on that URL — so we deliberately treat every video as still
+  // downloadable here. The OIDB resolve / stream stages handle real failures.
+  // (pic/ptt still use the TTL because their completion goes through the
+  // original CDN token.)
+  if (kind === 'video') return 0;
   const base = uploadTimestamp > 0 ? uploadTimestamp : uploadTime;
   if (base > 0 && fileTTL > 0) return base + fileTTL;
   return 0;
 }
 
-/** Pull every media reference out of one message's elements. */
+/**
+ * Default validity for files, which carry no TTL on the element. QQ private
+ * (c2c) files expire from the CDN after ~7 days; past that the URL resolve just
+ * returns "response invalid", so we treat them as expired and skip the download.
+ */
+export const PRIVATE_FILE_TTL_SEC = 7 * 24 * 3600;
+
+/**
+ * Pull every media reference out of one message's elements. `fileTtlSec`, when
+ * > 0, stamps file refs with a synthetic expiry of `sendTime + fileTtlSec`
+ * (files have no real TTL field) so expired files drop out of the work-list.
+ */
 function collectFromElements(
   els: RenderElement[],
   msgId: string,
   msgSeq: string,
   sendTime: number,
   out: MediaRef[],
+  fileTtlSec: number,
+  convKind: ConvKind,
 ): void {
   for (const el of els) {
     let kind: MediaKind | null = null;
@@ -226,6 +246,16 @@ function collectFromElements(
         uploadTimestamp = el.data.uploadTimestamp;
         fileTTL = el.data.fileTTL;
         expireTimestamp = el.data.expireTimestamp;
+        // [1.element] log every group video element we walk over (even if it
+        // gets skipped below for an empty fileName).
+        if (convKind === 'group') {
+          console.log(
+            `[group-video] [1.element] msgId=${msgId} ` +
+              `file=${fileName || '(empty!)'} stem=${fileName ? stemOf(fileName) : '-'} ` +
+              `token=${fileToken.slice(0, 16)}… coverFileName=${(el.data as { coverFileName?: string }).coverFileName ?? '-'} ` +
+              `uploadTime=${uploadTime} uploadTs=${uploadTimestamp} ttl=${fileTTL} expireTs=${expireTimestamp}`,
+          );
+        }
         break;
       case 'ptt':
         kind = 'ptt';
@@ -238,6 +268,12 @@ function collectFromElements(
       case 'file':
         kind = 'file';
         fileName = el.data.fileName;
+        // Files have no TTL field; synthesize one from the message send time so
+        // long-expired files are skipped (uploadTime = sendTime, ttl = default).
+        if (fileTtlSec > 0) {
+          uploadTime = sendTime;
+          fileTTL = fileTtlSec;
+        }
         break;
       default:
         continue;
@@ -315,6 +351,9 @@ export async function scanConvMedia(
     kind === 'group'
       ? iterateGroupMessages(msgs, conv, { pageSize: opts.pageSize, range: opts.range })
       : iterateC2cMessages(msgs, conv, { pageSize: opts.pageSize, range: opts.range });
+  // Private (c2c) files expire from the CDN after ~7 days; stamp them so the
+  // scan drops expired ones. Group files persist, so no synthetic TTL there.
+  const fileTtlSec = kind === 'c2c' ? PRIVATE_FILE_TTL_SEC : 0;
   for await (const m of iterator) {
     collectFromElements(
       m.elements,
@@ -322,6 +361,8 @@ export async function scanConvMedia(
       m.msgSeq.toString(),
       Number(m.sendTime),
       rawRefs,
+      fileTtlSec,
+      kind,
     );
   }
   const collectMs = Date.now() - t0;
@@ -412,10 +453,20 @@ export async function scanConvMedia(
     const counts = byKind[ref.kind];
     counts.unique += 1;
     const hit = index[ref.kind].get(ref.stem);
+    // [2.lookup] local-file lookup result for group videos.
+    const logV = kind === 'group' && ref.kind === 'video';
+    if (logV) {
+      console.log(
+        `[group-video] [2.lookup] stem=${ref.stem} file=${ref.fileName} ` +
+          `${hit ? `FOUND ${hit}` : `NOT-FOUND (video Ori index has ${index.video.size} file(s))`}`,
+      );
+    }
     if (hit) {
       counts.found += 1;
       ref.path = hit;
       found.push(ref);
+      // [3.downloadList] found locally → never a download candidate.
+      if (logV) console.log(`[group-video] [3.downloadList] EXCLUDE stem=${ref.stem} reason=found-locally`);
       continue;
     }
     counts.missing += 1;
@@ -423,9 +474,17 @@ export async function scanConvMedia(
     missing.push(ref);
     if (ref.expired) {
       counts.expired += 1;
+      if (logV) {
+        console.log(
+          `[group-video] [3.downloadList] EXCLUDE stem=${ref.stem} reason=expired ` +
+            `expiresAt=${ref.expiresAt} now=${nowSec}`,
+        );
+      }
     } else {
       counts.downloadable += 1;
       downloadList.push(ref);
+      // [3.downloadList] missing + not expired → enters the download work-list.
+      if (logV) console.log(`[group-video] [3.downloadList] INCLUDE stem=${ref.stem} expiresAt=${ref.expiresAt}`);
     }
   }
   const matchMs = Date.now() - t2;

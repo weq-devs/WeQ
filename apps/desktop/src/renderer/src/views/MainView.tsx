@@ -53,6 +53,61 @@ import type { SetEmojiItem } from '@weq/codec';
 import { MsgElementEditor } from '../components/MsgElementEditor';
 import { flashTransferTitle } from '../components/QqFlashTransfer';
 
+const DATABASE_ISSUES_URL = 'https://github.com/H3CoF6/WeQ/issues';
+
+function DatabaseDamagedDialogBody({
+  message,
+  details,
+}: {
+  message?: string;
+  details?: string[];
+}): ReactElement {
+  const safeMessage = message ?? '';
+  const safeDetails = details ?? [];
+  const isHealthCheckError = safeMessage.includes('健康状态时发生错误');
+
+  return (
+    <div className="weq-db-damaged-dialog">
+      <section className="weq-db-damaged-section">
+        <h4>发生了什么</h4>
+        <p>{isHealthCheckError ? '检测 QQ 数据库健康状态时发生错误。' : '检测到 QQ 数据库损坏。'}</p>
+        <p>问题通常出在 QQ 数据库本身，不是 WeQ 软件导致。</p>
+      </section>
+
+      <section className="weq-db-damaged-section">
+        <h4>已执行处理</h4>
+        <p>
+          {isHealthCheckError
+            ? '为避免继续读取损坏数据，账号已强制退出并返回主页面。'
+            : '账号已强制退出并返回主页面。'}
+        </p>
+      </section>
+
+      <section className="weq-db-damaged-section">
+        <h4>反馈与后续</h4>
+        <p>
+          可以前往{' '}
+          <a href={DATABASE_ISSUES_URL} target="_blank" rel="noreferrer">
+            WeQ GitHub Issues
+          </a>{' '}
+          提交问题，未来可能会做一个数据库修复工具。
+        </p>
+      </section>
+
+      {safeDetails.length > 0 ? (
+        <section className="weq-db-damaged-section weq-db-damaged-details">
+          <h4>检测详情</h4>
+          <ul>
+            {safeDetails.map((line, index) => (
+              <li key={`${line}:${index}`}>{line}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
 const messageRenderers: MessageRenderer[] = composeMessageRenderers({
   prepend: [qqMessageRenderer],
 });
@@ -1309,27 +1364,16 @@ export function MainView(): ReactElement {
   useEffect(() => {
     const sub = client.bootstrap.onAccountForcedClosed.subscribe(undefined, {
       onData(event) {
+        // [TEMP DIAGNOSTIC] capture every payload reaching the renderer
+        // eslint-disable-next-line no-console
+        console.error('[dbhealth][renderer] onAccountForcedClosed payload=', JSON.stringify(event));
         const accountKey = getQueryKey(trpc.account);
         void queryClient.cancelQueries({ queryKey: accountKey });
         queryClient.removeQueries({ queryKey: accountKey });
         setOpenedUin(null);
         setHomeStage('home');
         goTo('bootstrap');
-        showError(
-          event.title,
-          (
-            <div className="space-y-2">
-              <p>{event.message}</p>
-              {event.details.length > 0 ? (
-                <ul className="list-disc space-y-1 pl-5">
-                  {event.details.map((line, index) => (
-                    <li key={`${line}:${index}`}>{line}</li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
-          ),
-        );
+        showError(event.title, <DatabaseDamagedDialogBody message={event.message} details={event.details} />);
       },
       onError(err) {
         console.error('[account] onAccountForcedClosed subscription error', err);
