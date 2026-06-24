@@ -28,10 +28,13 @@ export {
   copyFoundMedia,
   decodeFoundVoices,
   downloadMissingImages,
+  downloadMissingVideos,
+  downloadMissingFiles,
   MEDIA_SUBDIRS,
   type DecodeSilk,
   type MediaStageResult,
   type StageProgress,
+  type UrlDownloadCtx,
 } from './media_export';
 export {
   scanConvMedia,

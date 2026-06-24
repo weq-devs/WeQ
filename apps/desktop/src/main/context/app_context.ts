@@ -29,12 +29,14 @@ import {
   Win32KeyService,
   GlobalConfigService,
   AvatarCacheService,
+  VoiceTranscribeService,
   MsgService,
   RecentContactService,
   UnreadInfoService,
   AccountConfigService,
   AccountMonitorService,
   MediaDownloadService,
+  MediaUrlService,
   ForwardMsgService,
   GroupInfoService,
   GroupNotifyService,
@@ -48,11 +50,14 @@ import {
   WebQueryService,
   GroupAlbumMediaService,
   DbWatchService,
+  checkAccountDatabaseHealth,
   createNtMsgDbHook,
+  formatDbHealthFailures,
   type AccountConfigMetadata,
   type DbWatchHandle,
   type NewMessages,
   type DbChange,
+  type DbHealthFailure,
 } from '@weq/service';
 import { openAccount, type AccountContext, type AccountSession } from '@weq/account';
 
@@ -66,6 +71,16 @@ import { openAccount, type AccountContext, type AccountSession } from '@weq/acco
  * The account router turns each into a tRPC subscription.
  */
 export const dbEventBus = new EventEmitter();
+
+export interface AccountForcedClosedEvent {
+  reason: 'database-damaged';
+  title: string;
+  message: string;
+  details: string[];
+  failures: DbHealthFailure[];
+}
+
+export const accountEventBus = new EventEmitter();
 
 /** Trailing debounce — coalesces a burst of calls into one after `ms` idle. */
 function trailingDebounce<A extends unknown[]>(
@@ -88,6 +103,7 @@ const dbWatch = new DbWatchService();
 let dbWatchHandle: DbWatchHandle | null = null;
 /** Background login/pid/rkey monitor for the open account, if any. */
 let accountMonitor: AccountMonitorService | null = null;
+let dbHealthCheckSeq = 0;
 
 /**
  * Mount the nt_msg.db watcher for `session` (idempotent — no-op if already
@@ -117,12 +133,50 @@ function unmountDbWatch(): void {
   dbWatchHandle = null;
 }
 
+function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: Platform): void {
+  const seq = ++dbHealthCheckSeq;
+  void (async (): Promise<void> => {
+    const failures = await checkAccountDatabaseHealth(session, platform);
+    if (seq !== dbHealthCheckSeq || ctx.account !== session || failures.length === 0) return;
+
+    const details = formatDbHealthFailures(failures);
+    ctx.clearAccount();
+    accountEventBus.emit('forcedClosed', {
+      reason: 'database-damaged',
+      title: '数据库损坏',
+      message:
+        '检测到 QQ 数据库损坏，问题出在 QQ 数据库本身，不是 WeQ 软件导致。账号已强制退出并返回主页面。可以去 https://github.com/H3CoF6/WeQ/issues 提 issue，未来可能会做一个数据库修复工具。',
+      details,
+      failures,
+    } satisfies AccountForcedClosedEvent);
+  })().catch((e) => {
+    if (seq !== dbHealthCheckSeq || ctx.account !== session) return;
+    const failure: DbHealthFailure = {
+      dbName: '数据库健康检查',
+      dbPath: session.msgDbPath,
+      corruptedTables: [],
+      error: e instanceof Error ? e.message : String(e),
+    };
+    ctx.clearAccount();
+    accountEventBus.emit('forcedClosed', {
+      reason: 'database-damaged',
+      title: '数据库损坏',
+      message:
+        '检测 QQ 数据库健康状态时发生错误。为避免继续读取损坏数据，账号已强制退出并返回主页面。问题通常出在 QQ 数据库本身，不是 WeQ 软件导致。可以去 https://github.com/H3CoF6/WeQ/issues 提 issue，未来可能会做一个数据库修复工具。',
+      details: formatDbHealthFailures([failure]),
+      failures: [failure],
+    } satisfies AccountForcedClosedEvent);
+  });
+}
+
 export interface BootstrapServices {
   detect: Win32DetectService;
   keys: Win32KeyService;
   userConfig: UserConfigService;
   globalConfig: GlobalConfigService;
   avatarCache: AvatarCacheService;
+  /** Voice-transcription model management (download/select). Account-independent. */
+  voiceTranscribe: VoiceTranscribeService;
 }
 
 /** Services that are re-created whenever an account session opens. */
@@ -234,6 +288,7 @@ export function initAppContext(): AppContext {
     userConfig,
     globalConfig: new GlobalConfigService(platform, userConfig),
     avatarCache: new AvatarCacheService(platform, userConfig),
+    voiceTranscribe: new VoiceTranscribeService(platform),
   };
 
   const ctx: AppContext = {
@@ -243,6 +298,7 @@ export function initAppContext(): AppContext {
     account: null,
     services: null,
     async setAccount(accountCtx: AccountContext, metadata: AccountConfigMetadata = {}): Promise<void> {
+      dbHealthCheckSeq += 1;
       accountMonitor?.stop();
       accountMonitor = null;
       this.account?.dispose();
@@ -269,6 +325,9 @@ export function initAppContext(): AppContext {
         // account-open time; changing it takes effect on the next 进入.
         userConfig.cacheDir('media'),
       );
+      // OIDB-backed video / file download URL resolver (needs the online QQ pid);
+      // injected into the export manager for 视频 / 文件 媒体补全.
+      const mediaUrl = new MediaUrlService(platform.native.ntHelper, session, resolveOnlinePid);
       this.services = {
         msgs: new MsgService(session),
         recentContacts: new RecentContactService(session),
@@ -292,6 +351,8 @@ export function initAppContext(): AppContext {
             avatarCache: bootstrap.avatarCache,
             // rkey-backed CDN image completion (媒体补全).
             mediaDownload,
+            // OIDB video / file download URL resolver (媒体补全 视频/文件).
+            mediaUrl,
             // Account user-data dir for locating on-disk media to copy.
             accountDir: metadata.dataDir ?? accountConfig.getRecord()?.dataDir,
             // SILK → WAV decode lives in the app (silk-wasm); load it lazily to
@@ -326,8 +387,10 @@ export function initAppContext(): AppContext {
       if (userConfig.getSettings().realtimeEnabled) {
         mountDbWatch(session);
       }
+      setTimeout(() => startDbHealthCheck(this, session, platform), 0);
     },
     clearAccount(): void {
+      dbHealthCheckSeq += 1;
       accountMonitor?.stop();
       accountMonitor = null;
       unmountDbWatch();

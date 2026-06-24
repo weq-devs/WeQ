@@ -20,6 +20,9 @@ import { procedure, router } from '../trpc';
 import {
   clientKeyExpiryMs,
   toRenderElements,
+  PRIVATE_PTT_RKEY_TYPE,
+  GROUP_PTT_RKEY_TYPE,
+  getVoiceModel,
   type AlbumMedia,
   type NewMessages,
   type DbChange,
@@ -1062,5 +1065,64 @@ export const accountRouter = router({
       const dest = join(result.filePaths[0]!, sanitizePathSegment(task.name, task.id));
       cpSync(task.bundleDir, dest, { recursive: true });
       return true;
+    }),
+
+  // ---- voice transcription (语音转文字) ----
+
+  /**
+   * Transcribe a voice (ptt) message to text. Inputs mirror what the renderer
+   * already has for the `weq-media://ptt` request (sendTime ms / fileName /
+   * fileToken). Resolves the silk on disk (or downloads it via rkey, same as
+   * the media protocol), decodes to 16 kHz WAV, and runs the selected model in
+   * the forked sherpa-onnx worker.
+   *
+   * Returns `{ success:false, error }` for every failure mode (no model chosen,
+   * model not downloaded, silk missing, decode/engine error) so the bubble can
+   * show a friendly message instead of throwing.
+   */
+  transcribeVoice: procedure
+    .input(z.object({ t: z.number(), name: z.string(), token: z.string().default('') }))
+    .mutation(async ({ input }): Promise<{ success: boolean; text?: string; error?: string }> => {
+      const ctx = getAppContext();
+      const boot = ctx.bootstrap;
+      const services = ctx.services;
+      if (!boot) return { success: false, error: '原生组件未就绪' };
+      if (!services) return { success: false, error: '未打开账号' };
+
+      const modelId = boot.userConfig.getSettings().voiceTranscribe.modelId;
+      if (!modelId) return { success: false, error: '未选择转录模型' };
+      const model = getVoiceModel(modelId);
+      if (!model) return { success: false, error: '转录模型不存在' };
+
+      const status = boot.voiceTranscribe.getModelStatus(modelId);
+      if (!status?.downloaded) return { success: false, error: '转录模型未下载' };
+
+      // Locate the silk on disk; fall back to an rkey-backed CDN download (same
+      // path the ptt media protocol uses).
+      const { source } = await services.fileSearch.findFile(input.t, input.name, 'ptt');
+      let silk = source;
+      if (!silk && input.token) {
+        silk = await services.mediaDownload.download(input.token, {
+          ext: '.silk',
+          rkeyTypes: [PRIVATE_PTT_RKEY_TYPE, GROUP_PTT_RKEY_TYPE],
+        });
+      }
+      if (!silk) return { success: false, error: '未找到语音文件' };
+
+      const { decodeSilkToWav16kBuffer } = await import('../../voice');
+      const wav = await decodeSilkToWav16kBuffer(silk);
+      if (!wav) return { success: false, error: '语音解码失败' };
+
+      const paths = boot.voiceTranscribe.resolveModelPaths(modelId);
+      if (!paths.model || !paths.tokens) return { success: false, error: '模型文件缺失' };
+
+      const { transcribeWav } = await import('../../transcribe/engine');
+      const result = await transcribeWav(
+        wav,
+        { model: paths.model, tokens: paths.tokens },
+        { engine: model.engine, languages: model.languages },
+      );
+      if (!result.success) return { success: false, error: result.error ?? '识别失败' };
+      return { success: true, text: result.text ?? '' };
     }),
 });

@@ -20,8 +20,16 @@ import { exportGroupToJsonl } from './jsonl_exporter';
 import { exportGroupToCsv, csvFraming, renderCsvRow } from './csv_exporter';
 import { exportToXlsx } from './xlsx_exporter';
 import { exportAvatars } from './avatar_export';
-import { copyFoundMedia, decodeFoundVoices, downloadMissingImages, type DecodeSilk } from './media_export';
+import {
+  copyFoundMedia,
+  decodeFoundVoices,
+  downloadMissingImages,
+  downloadMissingVideos,
+  downloadMissingFiles,
+  type DecodeSilk,
+} from './media_export';
 import { scanConvMedia, mediaDirsFromAccountDir, type MediaDirs } from './media_scan';
+import type { MediaUrlService } from '../media_url';
 import { iterateC2cMessages, toExportedMessage } from './message_source';
 import { type Framing } from './run_export';
 import { bigintReplacer } from './serialize';
@@ -98,6 +106,8 @@ export interface TaskProgress {
 export interface MediaDeps {
   avatarCache?: AvatarCacheService;
   mediaDownload?: MediaDownloadService;
+  /** OIDB-backed video / file download URL resolver (needs online QQ). */
+  mediaUrl?: MediaUrlService;
   /** Absolute media base dirs for the open account (`…/<uin>/nt_qq/nt_data/*`). */
   accountDir?: string;
   /** SILK → WAV decode (writes to a given path). Injected from the app. */
@@ -365,14 +375,41 @@ export class ExportTaskManager extends EventEmitter {
         });
         this.touchStage(task, 'image', { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已补全 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}` }, { persist: true });
       }
+      if (aborted()) return;
 
-      // Stages: video / file — download deferred (underlying interface in repair).
-      for (const key of ['video', 'file'] as StageKey[]) {
-        const s = this.stage(task, key);
-        if (s) { s.status = 'skipped'; s.note = '下载接口修复中'; }
-      }
-      this.saveTasks();
+      // Stages: video / file — OIDB-resolve + download missing (gated by toggle).
+      await this.runUrlDownloadStage(task, 'video', scan, mediaRoot, Boolean(task.media?.downloadVideo), aborted);
+      if (aborted()) return;
+      await this.runUrlDownloadStage(task, 'file', scan, mediaRoot, Boolean(task.media?.downloadFile), aborted);
     }
+  }
+
+  /** Run a video/file download stage: gated by its toggle and a usable mediaUrl. */
+  private async runUrlDownloadStage(
+    task: ExportTask,
+    key: 'video' | 'file',
+    scan: import('./media_scan').MediaScanResult,
+    mediaRoot: string,
+    enabled: boolean,
+    aborted: () => boolean,
+  ): Promise<void> {
+    const s = this.stage(task, key);
+    if (!s) return;
+    if (!enabled) { s.status = 'skipped'; s.note = '未勾选下载'; this.saveTasks(); return; }
+    if (!this.deps.mediaUrl) { s.status = 'skipped'; s.note = '无法获取下载地址'; this.saveTasks(); return; }
+
+    const label = key === 'video' ? '视频' : '文件';
+    const ctx = { mediaUrl: this.deps.mediaUrl, msgs: this.msgs, kind: task.kind, conv: task.conv };
+    this.touchStage(task, key, { status: 'running', note: `下载${label} 0` }, { persist: true });
+    const onP = (done: number, total: number): void => {
+      if (aborted()) return;
+      this.touchStage(task, key, { current: done, total, note: `下载${label} ${done}/${total}` });
+    };
+    const r =
+      key === 'video'
+        ? await downloadMissingVideos(scan, mediaRoot, ctx, onP)
+        : await downloadMissingFiles(scan, mediaRoot, ctx, onP);
+    this.touchStage(task, key, { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已下载 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}` }, { persist: true });
   }
 
   /** Dispatch the message stage to the right exporter by format / conversation kind. */

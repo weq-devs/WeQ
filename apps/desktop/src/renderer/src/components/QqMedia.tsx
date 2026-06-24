@@ -6,10 +6,11 @@
  * bubble); files render as a card; voice as a waveform + duration + play.
  */
 
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { Cloud } from 'lucide-react';
+import { useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
+import { Cloud, FileText, Loader2 } from 'lucide-react';
 import { fileIconUrl, mediaUrl } from '@renderer/lib/resourceUrl';
 import { cn } from '@renderer/lib/utils';
+import { trpc } from '@renderer/trpc/client';
 import { openLightbox } from './ImageLightbox';
 
 type Data = Record<string, unknown>;
@@ -292,9 +293,23 @@ export function QqVoice({ data, sendTimeMs }: { data: Data; sendTimeMs: number }
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
 
+  // Transcription state. The 转文字 entry only renders when a model is selected
+  // in the global settings; one shared query (react-query de-dupes across the
+  // many voice bubbles on screen) tells us whether that's the case.
+  const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 60_000,
+  });
+  const canTranscribe = Boolean(settings.data?.voiceTranscribe.modelId);
+  const transcribe = trpc.account.transcribeVoice.useMutation();
+  const [transcript, setTranscript] = useState<string | null>(null);
+  const [transcribeError, setTranscribeError] = useState<string | null>(null);
+
   useEffect(() => {
-    // Reset the player if the message identity changes underneath us.
+    // Reset the player + transcript if the message identity changes underneath us.
     setPlaying(false);
+    setTranscript(null);
+    setTranscribeError(null);
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current = null;
@@ -317,20 +332,60 @@ export function QqVoice({ data, sendTimeMs }: { data: Data; sendTimeMs: number }
     }
   };
 
+  const runTranscribe = (e: ReactMouseEvent): void => {
+    e.stopPropagation();
+    if (transcribe.isLoading) return;
+    setTranscribeError(null);
+    transcribe
+      .mutateAsync({ t: sendTimeMs, name, token })
+      .then((res) => {
+        if (res.success) setTranscript(res.text ?? '');
+        else setTranscribeError(res.error ?? '识别失败');
+      })
+      .catch((err) => setTranscribeError(err instanceof Error ? err.message : String(err)));
+  };
+
   // Downsample the envelope to a fixed bar count for a stable QQ-style strip.
   const bars = sampleBars(waveform, 28);
+  const hasResult = transcript !== null || transcribeError !== null;
 
   return (
-    <div className={cn('qq-media-voice', playing && 'is-playing')} role="button" onClick={toggle}>
-      <span className="qq-media-voice-play" aria-hidden>
-        {playing ? '❚❚' : '▶'}
-      </span>
-      <span className="qq-media-voice-wave" aria-hidden>
-        {bars.map((v, i) => (
-          <i key={i} style={{ height: `${20 + Math.round((v / 255) * 80)}%` }} />
-        ))}
-      </span>
-      {seconds > 0 ? <span className="qq-media-voice-time">{seconds}″</span> : null}
+    <div className="qq-voice-wrap">
+      <div className="qq-voice-row">
+        <div className={cn('qq-media-voice', playing && 'is-playing')} role="button" onClick={toggle}>
+          <span className="qq-media-voice-play" aria-hidden>
+            {playing ? '❚❚' : '▶'}
+          </span>
+          <span className="qq-media-voice-wave" aria-hidden>
+            {bars.map((v, i) => (
+              <i key={i} style={{ height: `${20 + Math.round((v / 255) * 80)}%` }} />
+            ))}
+          </span>
+          {seconds > 0 ? <span className="qq-media-voice-time">{seconds}″</span> : null}
+        </div>
+        {canTranscribe && !hasResult ? (
+          <button
+            type="button"
+            className="qq-voice-transcribe-btn"
+            title="转文字"
+            onClick={runTranscribe}
+            disabled={transcribe.isLoading}
+          >
+            {transcribe.isLoading ? (
+              <Loader2 size={13} strokeWidth={2} className="weq-spin" aria-hidden />
+            ) : (
+              <FileText size={13} strokeWidth={2} aria-hidden />
+            )}
+            <span>{transcribe.isLoading ? '转写中' : '转文字'}</span>
+          </button>
+        ) : null}
+      </div>
+
+      {hasResult ? (
+        <div className={cn('qq-voice-transcript', transcribeError && 'is-error')}>
+          {transcribeError ?? (transcript ? transcript : '（未识别到内容）')}
+        </div>
+      ) : null}
     </div>
   );
 }

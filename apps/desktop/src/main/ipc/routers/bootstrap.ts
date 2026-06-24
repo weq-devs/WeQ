@@ -19,12 +19,14 @@ import { z } from 'zod';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  accountEventBus,
   getAppContext,
   requireBootstrap,
   requirePlatform,
+  type AccountForcedClosedEvent,
 } from '../../context/app_context';
 import { procedure, router } from '../trpc';
-import { accountConfigId, type KeyEvent } from '@weq/service';
+import { accountConfigId, type KeyEvent, type VoiceDownloadProgress } from '@weq/service';
 
 const algoSchema = z.object({
   pageHmacAlgorithm: z.string(),
@@ -37,6 +39,19 @@ export const bootstrapRouter = router({
   /** Classified native-init error, or null when the bundle loaded fine. */
   nativeStatus: procedure.query(() => {
     return getAppContext().nativeError;
+  }),
+
+  /** Background account session was forcibly closed by main process. */
+  onAccountForcedClosed: procedure.subscription(() => {
+    return observable<AccountForcedClosedEvent>((emit) => {
+      const handler = (event: AccountForcedClosedEvent): void => {
+        emit.next(event);
+      };
+      accountEventBus.on('forcedClosed', handler);
+      return () => {
+        accountEventBus.off('forcedClosed', handler);
+      };
+    });
   }),
 
   // ---- detection (via global config cache) ----
@@ -182,6 +197,54 @@ export const bootstrapRouter = router({
     .input(z.object({ enabled: z.boolean() }))
     .mutation(({ input }) => {
       requireBootstrap().userConfig.setSettings({ autoFetchClientKey: input.enabled });
+      return true;
+    }),
+
+  // ---- voice transcription models (设置 → 语音转录) ----
+
+  /** The model registry, each entry enriched with on-disk / in-flight state. */
+  voiceModels: procedure.query(() => {
+    return requireBootstrap().voiceTranscribe.listModels();
+  }),
+
+  /**
+   * Start downloading a model (fire-and-forget). Progress is delivered via the
+   * `onVoiceModelProgress` subscription; returns immediately so the renderer's
+   * mutation doesn't block on a 245 MB download.
+   */
+  downloadVoiceModel: procedure
+    .input(z.object({ id: z.string().min(1) }))
+    .mutation(({ input }) => {
+      // Don't await — the subscription drives the UI. Swallow rejections here;
+      // the terminal 'progress' event already carries the error.
+      void requireBootstrap().voiceTranscribe.downloadModel(input.id).catch(() => {});
+      return true;
+    }),
+
+  /** Subscribe to voice-model download progress (all models share one stream). */
+  onVoiceModelProgress: procedure.subscription(() => {
+    return observable<VoiceDownloadProgress>((emit) => {
+      const handler = (p: VoiceDownloadProgress): void => emit.next(p);
+      const svc = requireBootstrap().voiceTranscribe;
+      svc.on('progress', handler);
+      return () => {
+        svc.off('progress', handler);
+      };
+    });
+  }),
+
+  /** Delete a downloaded model's files. No-op while a download is in flight. */
+  deleteVoiceModel: procedure
+    .input(z.object({ id: z.string().min(1) }))
+    .mutation(({ input }) => {
+      return requireBootstrap().voiceTranscribe.deleteModel(input.id);
+    }),
+
+  /** Set (or clear with '') the selected transcription model id. */
+  setVoiceModel: procedure
+    .input(z.object({ modelId: z.string() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ voiceTranscribe: { modelId: input.modelId } });
       return true;
     }),
 

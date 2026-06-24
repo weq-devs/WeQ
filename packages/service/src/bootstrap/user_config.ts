@@ -67,6 +67,16 @@ export interface MediaCompletionConfig {
 }
 
 /**
+ * 语音转录 settings. Holds the selected model id (matches an entry in
+ * {@link VOICE_MODELS}). Empty string = feature off (no model chosen), which is
+ * what gates the 转文字 button in the chat view.
+ */
+export interface VoiceTranscribeConfig {
+  /** Selected transcription model id, or '' when none is chosen. */
+  modelId: string;
+}
+
+/**
  * Global, app-wide preferences exposed in the 设置 → 基础配置 page. Lives under
  * the `settings` key in `config.json`. All read paths merge against
  * {@link DEFAULT_APP_SETTINGS} so an older / partial file still yields a full,
@@ -79,6 +89,8 @@ export interface AppSettings {
   mediaCompletion: MediaCompletionConfig;
   /** 自动获取 ClientKey. */
   autoFetchClientKey: boolean;
+  /** 语音转录（选中的模型）. */
+  voiceTranscribe: VoiceTranscribeConfig;
 }
 
 /** Defaults applied when a field is absent from `config.json`. */
@@ -86,6 +98,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   realtimeEnabled: true,
   mediaCompletion: { enabled: true },
   autoFetchClientKey: true,
+  voiceTranscribe: { modelId: '' },
 };
 
 /**
@@ -260,6 +273,9 @@ export class UserConfigService {
       mediaCompletion: {
         enabled: s?.mediaCompletion?.enabled ?? d.mediaCompletion.enabled,
       },
+      voiceTranscribe: {
+        modelId: s?.voiceTranscribe?.modelId ?? d.voiceTranscribe.modelId,
+      },
     };
   }
 
@@ -274,6 +290,9 @@ export class UserConfigService {
       autoFetchClientKey: patch.autoFetchClientKey ?? current.autoFetchClientKey,
       mediaCompletion: {
         enabled: patch.mediaCompletion?.enabled ?? current.mediaCompletion.enabled,
+      },
+      voiceTranscribe: {
+        modelId: patch.voiceTranscribe?.modelId ?? current.voiceTranscribe.modelId,
       },
     };
     this.write({ settings: next });

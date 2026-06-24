@@ -9,6 +9,9 @@
  *                 Take an `AccountSession` in their constructor.
  *                 (TestMsg, future Profile / Statistics / Report …)
  *
+ *   common/     — account-independent helpers that aren't bootstrap services
+ *                 (e.g. voice-transcription model management). Zero-native.
+ *
  * Lifecycle: bootstrap services are singletons living for the whole app.
  * Account services are short-lived — recreate on account switch alongside
  * the session.
@@ -33,6 +36,7 @@ export type {
   AutoEnterTarget,
   AppSettings,
   MediaCompletionConfig,
+  VoiceTranscribeConfig,
 } from './bootstrap/user_config';
 
 export { AvatarCacheService } from './bootstrap/avatar_cache';
@@ -91,6 +95,12 @@ export type {
   DbDecryptOptions,
   DbDecryptResult,
 } from './account/db_decrypt';
+export {
+  ACCOUNT_HEALTH_DATABASES,
+  checkAccountDatabaseHealth,
+  formatDbHealthFailures,
+} from './account/db_health';
+export type { DbHealthFailure } from './account/db_health';
 
 // A process-wide singleton (NOT bound to AccountSession): a single polling
 // loop you mount/unmount db-watch tasks onto to watch their size for changes.
@@ -157,3 +167,12 @@ export type {
   TaskStatus,
   TaskProgress,
 } from './account/export';
+
+// ---- common (account-independent helpers) ----
+export { VoiceTranscribeService, VOICE_MODELS, getVoiceModel } from './common/voice_transcribe';
+export type {
+  TranscribeModelInfo,
+  TranscribeModelFile,
+  TranscribeModelStatus,
+  DownloadProgress as VoiceDownloadProgress,
+} from './common/voice_transcribe';

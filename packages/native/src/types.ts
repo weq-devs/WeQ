@@ -87,6 +87,11 @@ export interface DatabaseProbeResult {
   kdfHmacAlgorithm?: string;
 }
 
+export interface DatabaseHealthResult {
+  healthy: boolean;
+  corruptedTables: string[];
+}
+
 /** Status returned after injecting the hook DLL into a QQ process. */
 export interface QQInstanceStatus {
   pid: number;
@@ -124,6 +129,7 @@ export interface NtHelperBinding {
   requestDecryptKey(pid: number, dbPath: string): Promise<string>;
   
   testDatabaseKey(dbPath: string, key: string): Promise<DatabaseProbeResult>;
+  checkDatabaseHealth(dbPath: string, key: string, algo: DatabaseAlgorithms): Promise<DatabaseHealthResult>;
 
   // --- hook injection ---
   injectAndGetStatus(pid: number, dllPath: string): Promise<QQInstanceStatus>;

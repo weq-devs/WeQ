@@ -593,6 +593,76 @@
 	white-space: nowrap;
 }
 
+/* Voice transcription: wrapper around the play strip + hover 转文字 button and
+   the result bubble below it. The button stays hidden until the wrapper is
+   hovered, mirroring QQ's on-demand transcription affordance. */
+.qq-voice-wrap {
+	display: inline-flex;
+	flex-direction: column;
+	gap: 6px;
+	max-width: 280px;
+}
+
+.qq-voice-row {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.qq-voice-transcribe-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 3px 9px;
+	border: 1px solid rgba(0, 153, 255, 0.35);
+	border-radius: 999px;
+	background: rgba(0, 153, 255, 0.06);
+	color: #0099ff;
+	font-size: 12px;
+	line-height: 1;
+	white-space: nowrap;
+	cursor: pointer;
+	opacity: 0;
+	transform: translateX(-2px);
+	transition: opacity 120ms ease, transform 120ms ease, background 120ms ease;
+}
+
+.qq-voice-wrap:hover .qq-voice-transcribe-btn {
+	opacity: 1;
+	transform: translateX(0);
+}
+
+.qq-voice-transcribe-btn:hover:not(:disabled) {
+	background: rgba(0, 153, 255, 0.14);
+}
+
+.qq-voice-transcribe-btn:disabled {
+	opacity: 1;
+	cursor: progress;
+	color: #999999;
+	border-color: rgba(0, 0, 0, 0.12);
+	background: rgba(0, 0, 0, 0.03);
+}
+
+.qq-voice-transcript {
+	max-width: 280px;
+	padding: 7px 11px;
+	border: 1px solid rgba(0, 0, 0, 0.07);
+	border-radius: 4px 12px 12px 12px;
+	background: #f3f7fb;
+	color: #1f2937;
+	font-size: 13px;
+	line-height: 1.55;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.qq-voice-transcript.is-error {
+	background: #fdf2f2;
+	border-color: rgba(220, 80, 80, 0.25);
+	color: #c0392b;
+}
+
 /* Fallback chip when a media element can't be located/decoded. */
 .qq-media-fallback {
 	color: inherit;

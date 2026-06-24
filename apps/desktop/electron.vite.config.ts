@@ -28,6 +28,23 @@ export default defineConfig({
         '@shared': resolve(__dirname, '../../packages/shared/src'),
       },
     },
+    build: {
+      rollupOptions: {
+        // The voice-transcription recognizer runs in a forked child process,
+        // so it must be a SEPARATE entry the main process can `fork()` by path.
+        // The worker is emitted as `.mjs` so Node always loads it as ESM —
+        // including when packaged & asar-unpacked, where the nearest
+        // package.json (and its `"type":"module"`) is no longer in scope.
+        input: {
+          index: resolve(__dirname, 'src/main/index.ts'),
+          transcribeWorker: resolve(__dirname, 'src/main/transcribe/worker.ts'),
+        },
+        output: {
+          entryFileNames: (chunk) =>
+            chunk.name === 'transcribeWorker' ? 'transcribeWorker.mjs' : '[name].js',
+        },
+      },
+    },
   },
   preload: {
     plugins: [externalizeDepsPlugin()],

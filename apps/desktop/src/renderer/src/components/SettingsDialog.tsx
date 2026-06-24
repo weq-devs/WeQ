@@ -7,11 +7,12 @@
  */
 
 import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
-import { Info, Settings2, User, X } from 'lucide-react';
+import { AudioLines, Info, Settings2, User, X } from 'lucide-react';
 import { GlobalSettingsSection } from './settings/GlobalSettingsSection';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
+import { VoiceTranscribeSection } from './settings/VoiceTranscribeSection';
 
-type SectionId = 'global' | 'account' | 'about';
+type SectionId = 'global' | 'account' | 'voice' | 'about';
 
 interface SettingsSection {
   id: SectionId;
@@ -32,6 +33,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: '账号基础',
     icon: <User size={16} strokeWidth={1.8} />,
     render: () => <AccountBasicsSection />,
+  },
+  {
+    id: 'voice',
+    label: '语音转录',
+    icon: <AudioLines size={16} strokeWidth={1.8} />,
+    render: () => <VoiceTranscribeSection />,
   },
   {
     id: 'about',

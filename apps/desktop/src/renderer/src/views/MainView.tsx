@@ -16,10 +16,13 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
 } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { getQueryKey } from '@trpc/react-query';
 import { Settings } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { client } from '../trpc/client';
+import { useDialog } from '../components/Dialog';
 import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
 import { RailAccountFooter } from '../components/RailAccountFooter';
@@ -1233,6 +1236,8 @@ function isMobileShell(): boolean {
 
 export function MainView(): ReactElement {
   const utils = trpc.useUtils();
+  const queryClient = useQueryClient();
+  const showError = useDialog((s) => s.showError);
   const contacts = trpc.account.listRecentContacts.useQuery();
   const selfProfile = trpc.account.getSelfProfile.useQuery();
   const buddies = trpc.account.listBuddies.useQuery({ limit: 2000 });
@@ -1243,7 +1248,8 @@ export function MainView(): ReactElement {
   const allGroups = trpc.account.listAllGroups.useQuery({ limit: 2000 });
   const openedUin = useViewState((s) => s.openedUin);
 
-  // const goTo = useViewState((s) => s.goTo);
+  const goTo = useViewState((s) => s.goTo);
+  const setHomeStage = useViewState((s) => s.setHomeStage);
   const setOpenedUin = useViewState((s) => s.setOpenedUin);
   // Seq-window message model: a single ASC (oldest→newest) list for the open
   // conversation, plus whether it still reaches the latest message and whether
@@ -1299,6 +1305,38 @@ export function MainView(): ReactElement {
     });
     return () => sub.unsubscribe();
   }, [utils, refreshWindow]);
+
+  useEffect(() => {
+    const sub = client.bootstrap.onAccountForcedClosed.subscribe(undefined, {
+      onData(event) {
+        const accountKey = getQueryKey(trpc.account);
+        void queryClient.cancelQueries({ queryKey: accountKey });
+        queryClient.removeQueries({ queryKey: accountKey });
+        setOpenedUin(null);
+        setHomeStage('home');
+        goTo('bootstrap');
+        showError(
+          event.title,
+          (
+            <div className="space-y-2">
+              <p>{event.message}</p>
+              {event.details.length > 0 ? (
+                <ul className="list-disc space-y-1 pl-5">
+                  {event.details.map((line, index) => (
+                    <li key={`${line}:${index}`}>{line}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ),
+        );
+      },
+      onError(err) {
+        console.error('[account] onAccountForcedClosed subscription error', err);
+      },
+    });
+    return () => sub.unsubscribe();
+  }, [goTo, queryClient, setHomeStage, setOpenedUin, showError]);
 
   const [hasOlder, setHasOlder] = useState(true);
   // True only in a "jump context" window (anchored=false) that has newer
