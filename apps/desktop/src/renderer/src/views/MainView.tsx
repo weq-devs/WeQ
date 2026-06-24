@@ -21,6 +21,7 @@ import { getQueryKey } from '@trpc/react-query';
 import { Settings } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
+import { useUpdateStore } from '../state/update';
 import { client } from '../trpc/client';
 import { useDialog } from '../components/Dialog';
 import { useProfileResolver } from '../hooks/useProfileResolver';
@@ -1364,9 +1365,8 @@ export function MainView(): ReactElement {
   useEffect(() => {
     const sub = client.bootstrap.onAccountForcedClosed.subscribe(undefined, {
       onData(event) {
-        // [TEMP DIAGNOSTIC] capture every payload reaching the renderer
-        // eslint-disable-next-line no-console
-        console.error('[dbhealth][renderer] onAccountForcedClosed payload=', JSON.stringify(event));
+        // Defensive: only react to a real database-damaged event.
+        if (event?.reason !== 'database-damaged') return;
         const accountKey = getQueryKey(trpc.account);
         void queryClient.cancelQueries({ queryKey: accountKey });
         queryClient.removeQueries({ queryKey: accountKey });
@@ -1381,6 +1381,30 @@ export function MainView(): ReactElement {
     });
     return () => sub.unsubscribe();
   }, [goTo, queryClient, setHomeStage, setOpenedUin, showError]);
+
+  // Update availability: seed from the last cached check (the background startup
+  // check may have already run), then keep it live via the check events. Drives
+  // the settings rail red dot. setState via getState() to avoid re-render churn.
+  useEffect(() => {
+    const setAvailable = useUpdateStore.getState().setAvailable;
+    void client.update.getState
+      .query()
+      .then((s) => {
+        if (s?.hasUpdate && s.latest) setAvailable(s.latest);
+      })
+      .catch(() => {});
+    const sub = client.update.onEvent.subscribe(undefined, {
+      onData(e) {
+        if ((e.kind === 'available' || e.kind === 'downloaded') && e.latest) {
+          setAvailable(e.latest);
+        }
+      },
+      onError(err) {
+        console.error('[update] onEvent subscription error', err);
+      },
+    });
+    return () => sub.unsubscribe();
+  }, []);
 
   const [hasOlder, setHasOlder] = useState(true);
   // True only in a "jump context" window (anchored=false) that has newer

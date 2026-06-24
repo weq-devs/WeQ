@@ -1,6 +1,6 @@
 {
   "name": "weq",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "QQ NT 本地聊天记录解密、导出、查看与年度报告",

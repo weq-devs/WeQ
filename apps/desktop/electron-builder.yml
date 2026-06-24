@@ -39,3 +39,11 @@ nsis:
   perMachine: false
   allowToChangeInstallationDirectory: true
   artifactName: ${productName}-${version}-setup.${ext}
+# GitHub publish target for `electron-builder --publish always` (Release workflow).
+# Generates + uploads latest.yml / *.blockmap that the in-app updater reads.
+# releaseType: release => the Release is published (not a draft) and marked latest.
+publish:
+  provider: github
+  owner: H3CoF6
+  repo: WeQ
+  releaseType: release

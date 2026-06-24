@@ -21,6 +21,7 @@ import { trpc } from '../../trpc/client';
 import { useDialog } from '../Dialog';
 import { QqAvatar } from '../QqAvatar';
 import { Card, Row, SectionHeader } from './controls';
+import { UpdateCard } from './UpdateCard';
 import logoUrl from '@resources/brand/logo.png';
 
 function errMsg(e: unknown): string {
@@ -121,6 +122,9 @@ export function GlobalSettingsSection(): ReactElement {
           本地数据库读取聊天记录，不注入、不依赖机器人框架。
         </p>
       </Card>
+
+      {/* Software update */}
+      <UpdateCard />
 
       {/* Account list */}
       <Card title="现有配置">

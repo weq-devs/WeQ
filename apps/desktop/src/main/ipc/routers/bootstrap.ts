@@ -156,6 +156,7 @@ export const bootstrapRouter = router({
       electron: process.versions.electron ?? '',
       chrome: process.versions.chrome ?? '',
       node: process.versions.node ?? '',
+      isDev: !app.isPackaged,
     };
   }),
 

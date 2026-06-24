@@ -20,6 +20,7 @@ import {
   MEDIA_PRIVILEGED_SCHEME,
 } from './media_protocol';
 import { getAppContext } from './context/app_context';
+import { checkForUpdate } from './update/updater';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -189,6 +190,13 @@ void app.whenReady().then(() => {
 
   const win = createWindow();
   createIPCHandler({ router: appRouter, windows: [win] });
+
+  // Silent background update check (packaged builds only). Result is cached and
+  // pushed to the renderer via the `update.onEvent` subscription → settings red
+  // dot. Deferred so it never competes with first paint; failures are ignored.
+  if (app.isPackaged) {
+    setTimeout(() => void checkForUpdate(true).catch(() => {}), 3000);
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
