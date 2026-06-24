@@ -200,6 +200,7 @@ export function ChatPane({
 	onBack,
 	onEditRaw,
 	onOpenGroupAlbums,
+	onOpenGroupAnnouncements,
 }: {
 	user: User;
 	conversation: Conversation | undefined;
@@ -225,6 +226,7 @@ export function ChatPane({
 	onBack: () => void;
 	onEditRaw?: (message: Message) => void;
 	onOpenGroupAlbums?: (conversation: Extract<Conversation, { type: "group" }>) => void;
+	onOpenGroupAnnouncements?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 }) {
 	// 复用 replyJump 的跳转能力（含翻页/重建窗口），供群精华消息跳转使用。
 	const jumpToSeq = useContext(ReplyJumpContext);
@@ -259,6 +261,13 @@ export function ChatPane({
 	const emojiPanelRef = useRef<HTMLDivElement | null>(null);
 	const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
 	const expandedEmojiButtonRef = useRef<HTMLButtonElement | null>(null);
+
+	function openGroupInfoDetail(detail: GroupInfoDetail) {
+		if (detail === "announcements" && conversation?.type === "group") {
+			onOpenGroupAnnouncements?.(conversation);
+		}
+		setGroupInfoDetail(detail);
+	}
 	const toolsPanelRef = useRef<HTMLDivElement | null>(null);
 	const toolsButtonRef = useRef<HTMLButtonElement | null>(null);
 	const mentionMenuRef = useRef<HTMLDivElement | null>(null);
@@ -1255,8 +1264,7 @@ export function ChatPane({
 								className={cn("icon-button", "group-header-info-action")}
 								type="button"
 								title="Group announcements"
-								disabled={!hasGroupAnnouncements(conversation)}
-								onClick={() => setGroupInfoDetail("announcements")}
+								onClick={() => openGroupInfoDetail("announcements")}
 							>
 								<FileText size={18} />
 							</button>
@@ -1434,7 +1442,7 @@ export function ChatPane({
 					{!groupInfoCollapsed ? (
 						<GroupInfoPanel
 							conversation={conversation}
-							onOpenDetail={setGroupInfoDetail}
+							onOpenDetail={openGroupInfoDetail}
 							onOpenAlbums={onOpenGroupAlbums}
 							onLoadMoreMembers={onLoadMoreGroupMembers}
 							loadingMoreMembers={groupMembersLoading}

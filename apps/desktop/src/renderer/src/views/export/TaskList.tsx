@@ -30,6 +30,10 @@ export interface UiTask {
   total: number;
   error?: string;
   filePath?: string;
+  /** Set when the output is an avatar bundle folder (saved as a folder). */
+  bundleDir?: string;
+  /** Number of sender avatars exported into the bundle. */
+  avatarCount?: number;
 }
 
 const STATUS_LABEL: Record<UiTask['status'], string> = {
@@ -117,6 +121,7 @@ export function TaskList({
                     <span>
                       {fmtCount(t.current)}
                       {t.total > 0 ? ` / ${fmtCount(t.total)}` : ''} 条
+                      {t.avatarCount ? ` · 含头像 ${fmtCount(t.avatarCount)}` : ''}
                     </span>
                     {t.status === 'failed' && t.error ? (
                       <span className="weq-exp-task-err" title={t.error}>
@@ -133,7 +138,7 @@ export function TaskList({
                     </button>
                   ) : null}
                   {t.status === 'completed' ? (
-                    <button type="button" title="保存到…" onClick={() => onDownload(t)}>
+                    <button type="button" title={t.bundleDir ? '保存文件夹…' : '保存到…'} onClick={() => onDownload(t)}>
                       <Download size={15} />
                     </button>
                   ) : null}

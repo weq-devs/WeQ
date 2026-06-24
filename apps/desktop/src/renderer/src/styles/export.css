@@ -323,6 +323,10 @@
   text-align: center;
 }
 
+.weq-exp-list-state.is-error {
+  color: #dc4040;
+}
+
 .weq-exp-list-hint {
   max-width: 320px;
   font-size: 12px;
@@ -1009,16 +1013,6 @@
   color: #0099ff;
 }
 
-.weq-exp-task.is-completed .weq-exp-task-kind {
-  background: rgba(34, 197, 94, 0.12);
-  color: #1e9e54;
-}
-
-.weq-exp-task.is-failed .weq-exp-task-kind {
-  background: rgba(239, 68, 68, 0.12);
-  color: #dc4040;
-}
-
 .weq-exp-task-main {
   flex: 1;
   min-width: 0;
@@ -1064,20 +1058,13 @@
   color: #6a7280;
 }
 
-.weq-exp-task-status.is-running {
+.weq-exp-task-status.is-running,
+.weq-exp-task-status.is-completed,
+.weq-exp-task-status.is-failed,
+.weq-exp-task-status.is-paused,
+.weq-exp-task-status.is-cancelled,
+.weq-exp-task-status.is-pending {
   color: #0099ff;
-}
-
-.weq-exp-task-status.is-completed {
-  color: #1e9e54;
-}
-
-.weq-exp-task-status.is-failed {
-  color: #dc4040;
-}
-
-.weq-exp-task-status.is-paused {
-  color: #c98a16;
 }
 
 .weq-exp-task-bar {
@@ -1093,14 +1080,6 @@
   border-radius: 999px;
   background: linear-gradient(90deg, #29a8ff, #0099ff);
   transition: width 0.35s ease;
-}
-
-.weq-exp-task.is-completed .weq-exp-task-fill {
-  background: linear-gradient(90deg, #34d177, #1e9e54);
-}
-
-.weq-exp-task.is-failed .weq-exp-task-fill {
-  background: linear-gradient(90deg, #f87171, #dc4040);
 }
 
 /* 进行中：在填充上叠加流动微光 */

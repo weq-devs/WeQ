@@ -27,6 +27,7 @@ import type {
 } from '@weq/db';
 import { decodeElement, type MsgCacheRecord, type SetEmojiItem } from '@weq/codec';
 import { toRenderElements, type FormattedOnlineStatus, type RenderC2cMsg, type RenderGroupMsg } from '@weq/service';
+import type { GroupNotice } from '@weq/service';
 
 export interface UserProfileWire {
   uid: string;
@@ -401,6 +402,20 @@ export function groupBulletinToWire(b: GroupBulletin): GroupBulletinWire {
     msgTime: b.msgTime.toString(),
     ctime: b.ctime.toString(),
     textContent: b.textContent,
+  };
+}
+
+export function groupNoticeToBulletinWire(
+  notice: GroupNotice,
+  groupCode: string,
+): GroupBulletinWire {
+  return {
+    groupCode,
+    publisherUid: notice.senderId.toString(),
+    fid: notice.noticeId,
+    msgTime: notice.publishTime.toString(),
+    ctime: notice.publishTime.toString(),
+    textContent: notice.text,
   };
 }
 

@@ -19,9 +19,11 @@
  */
 
 import { EventEmitter } from 'node:events';
+import { join } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
 import { createWin32Platform, type Platform } from '@weq/platform';
 import {
+  accountConfigId,
   UserConfigService,
   Win32DetectService,
   Win32KeyService,
@@ -240,6 +242,9 @@ export function initAppContext(): AppContext {
       const session = await openAccount(platform, accountCtx);
       this.account = session;
       const accountConfig = new AccountConfigService(session, platform.appDataRoot());
+      // Per-account export cache: tasks + outputs must NOT leak across accounts.
+      // Keyed by the same (uin, dataDir) id the account record uses.
+      const exportConfigId = accountConfigId(session.context.uin, metadata.dataDir);
       const resolveOnlinePid = (): number => {
         const record = accountConfig.getRecord();
         if (!record?.qqOnline || !record.qqPid) {
@@ -269,7 +274,9 @@ export function initAppContext(): AppContext {
         emoji: new EmojiService(session, platform),
         exportManager: new (await import('@weq/service')).ExportTaskManager(
           new MsgService(session),
-          userConfig.cacheDir('export'),
+          userConfig.cacheDir(join('export', exportConfigId)),
+          // Cache-first avatar resolution for the 导出头像 option.
+          bootstrap.avatarCache,
         ),
         dbDecrypt: new DbDecryptService(session, platform),
         webQuery: new WebQueryService(platform.native.ntHelper, session, resolveOnlinePid),

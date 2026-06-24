@@ -161,7 +161,7 @@ function AlbumListView({
     return (
       <div className="group-album-state">
         <Loader2 size={18} className="weq-spin" />
-        <span>正在加载群相册</span>
+        <span>正在查询群相册列表喵~</span>
       </div>
     );
   }

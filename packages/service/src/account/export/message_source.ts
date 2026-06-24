@@ -15,14 +15,29 @@
  */
 
 import type { MsgService, RenderGroupMsg, RenderC2cMsg } from '../msg';
-import type { ExportedMessage } from './types';
+import type { ExportedMessage, ExportTimeRange } from './types';
 
 export interface IterateOptions {
   /** Messages per DB round-trip. Larger = fewer queries, more peak memory. */
   pageSize?: number;
+  /** Inclusive send-time window (unix seconds); out-of-range messages are skipped. */
+  range?: ExportTimeRange;
 }
 
 const DEFAULT_PAGE_SIZE = 2000;
+
+/**
+ * Whether a message's send time falls inside `range`. No range (or both bounds
+ * null) accepts everything — the common "全部时间" case pays no per-message cost
+ * beyond this guard. Paging still walks by msgSeq; only what we *yield* is
+ * filtered, so the seq cursor and short-page termination are unaffected.
+ */
+function withinRange(sendTimeSec: number, range?: ExportTimeRange): boolean {
+  if (!range) return true;
+  if (range.start != null && sendTimeSec < range.start) return false;
+  if (range.end != null && sendTimeSec > range.end) return false;
+  return true;
+}
 
 /**
  * Yield every message of a group, oldest-first, paging under the hood.
@@ -41,7 +56,9 @@ export async function* iterateGroupMessages(
   for (;;) {
     const page = await msgs.getGroupAfter(groupCode, cursor, pageSize);
     if (page.length === 0) break;
-    for (const m of page) yield m;
+    for (const m of page) {
+      if (withinRange(Number(m.sendTime), opts.range)) yield m;
+    }
     const last = page[page.length - 1]!;
     cursor = last.msgSeq;
     // A short page means we reached the tail — no need for one more empty query.
@@ -62,7 +79,9 @@ export async function* iterateC2cMessages(
   for (;;) {
     const page = await msgs.getC2cAfter(peerUid, cursor, pageSize);
     if (page.length === 0) break;
-    for (const m of page) yield m;
+    for (const m of page) {
+      if (withinRange(Number(m.sendTime), opts.range)) yield m;
+    }
     const last = page[page.length - 1]!;
     cursor = last.msgSeq;
     if (page.length < pageSize) break;

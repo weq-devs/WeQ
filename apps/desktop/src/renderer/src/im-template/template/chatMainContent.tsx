@@ -70,6 +70,7 @@ export function ChatMainContent({
 	onBackConversation,
 	onEditRaw,
 	onOpenGroupAlbums,
+	onOpenGroupAnnouncements,
 	onOpenTool,
 	onSelectTool,
 }: {
@@ -125,6 +126,7 @@ export function ChatMainContent({
 	onBackConversation: () => void;
 	onEditRaw?: (message: Message) => void;
 	onOpenGroupAlbums?: (conversation: GroupConversation) => void;
+	onOpenGroupAnnouncements?: (conversation: GroupConversation) => void;
 	onOpenTool?: (item: ToolPaneItem) => void;
 	onSelectTool?: (item: ToolPaneItem) => void;
 }) {
@@ -191,6 +193,7 @@ export function ChatMainContent({
 			onBack={onBackConversation}
 			onEditRaw={onEditRaw}
 			onOpenGroupAlbums={onOpenGroupAlbums}
+			onOpenGroupAnnouncements={onOpenGroupAnnouncements}
 		/>
 	);
 }

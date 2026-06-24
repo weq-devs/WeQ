@@ -25,12 +25,13 @@
     "@weq/db": "workspace:*",
     "@weq/native": "workspace:*",
     "@weq/platform": "workspace:*",
-    "@weq/protocol": "workspace:*"
+    "@weq/protocol": "workspace:*",
+    "exceljs": "^4.4.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.6",
-    "qrcode": "^1.5.4",
     "@types/qrcode": "^1.5.5",
+    "qrcode": "^1.5.4",
     "tsx": "^4.19.2"
   }
 }

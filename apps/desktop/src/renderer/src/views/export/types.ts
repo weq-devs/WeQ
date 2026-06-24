@@ -13,8 +13,8 @@ export type ExportMode = 'full' | 'decrypt' | 'chatlab' | 'html' | 'scheduled' |
 /** Every output format the 完整消息 / 定时 flows can request. */
 export type ExportFormat = 'json' | 'jsonl' | 'xlsx' | 'csv' | 'txt';
 
-/** Formats the existing backend (`account.startExport`) already understands. */
-export const BACKEND_FORMATS = ['json', 'jsonl', 'txt'] as const;
+/** Formats the backend (`account.startExport`) can produce. */
+export const BACKEND_FORMATS = ['json', 'jsonl', 'txt', 'csv', 'xlsx'] as const;
 export type BackendFormat = (typeof BACKEND_FORMATS)[number];
 
 export function isBackendFormat(f: ExportFormat): f is BackendFormat {

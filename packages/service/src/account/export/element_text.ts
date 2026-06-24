@@ -84,3 +84,21 @@ export function formatTime(unixSec: number): string {
 export function messageToText(m: ExportedMessage): string {
   return `[${formatTime(m.sendTime)}] ${m.senderUin}: ${elementsToText(m.elements)}`;
 }
+
+/**
+ * Column headers for the tabular exporters (CSV / XLSX), in cell order. Sender
+ * names are NOT resolved yet (same as TXT) — the sender columns show uin / uid.
+ */
+export const TABLE_HEADERS = ['时间', '发送者QQ', '发送者ID', '内容', '消息ID', '序号'] as const;
+
+/** One message → its row of cells, aligned with {@link TABLE_HEADERS}. */
+export function messageToCells(m: ExportedMessage): string[] {
+  return [
+    formatTime(m.sendTime),
+    m.senderUin,
+    m.senderUid,
+    elementsToText(m.elements),
+    m.msgId,
+    m.msgSeq,
+  ];
+}

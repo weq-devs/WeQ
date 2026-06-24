@@ -196,7 +196,7 @@ export function ExportLightbox({
               />
               <Row
                 label="导出头像"
-                desc="保存发送者头像到媒体目录"
+                desc="发送者头像存入 avatars/ 子目录（缓存优先，缺失走 CDN 补齐）；导出结果将保存为文件夹"
                 control={<Toggle checked={opts.exportAvatar} onChange={(v) => patch({ exportAvatar: v })} />}
               />
               <Row

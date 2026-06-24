@@ -44,8 +44,10 @@ export async function runGroupExport(
   let count = 0;
   try {
     if (framing.head) await write(framing.head);
-    for await (const m of iterateGroupMessages(msgs, opts.groupCode, { pageSize: opts.pageSize })) {
-      const record = renderRecord(toExportedMessage(m));
+    for await (const m of iterateGroupMessages(msgs, opts.groupCode, { pageSize: opts.pageSize, range: opts.range })) {
+      const exported = toExportedMessage(m);
+      opts.collectSenders?.add(exported.senderUin);
+      const record = renderRecord(exported);
       await write(count === 0 ? record : framing.between + record);
       count += 1;
       if (opts.onProgress && count % progressEvery === 0) {

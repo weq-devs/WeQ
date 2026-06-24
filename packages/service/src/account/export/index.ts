@@ -14,6 +14,9 @@ export { elementToText, elementsToText, formatTime, messageToText } from './elem
 export { exportGroupToJson, type JsonExportOptions } from './json_exporter';
 export { exportGroupToJsonl } from './jsonl_exporter';
 export { exportGroupToTxt } from './txt_exporter';
+export { exportGroupToCsv, csvFraming, renderCsvRow } from './csv_exporter';
+export { exportToXlsx, type XlsxExportOptions } from './xlsx_exporter';
+export { exportAvatars, type AvatarExportResult } from './avatar_export';
 export {
   scanGroupMedia,
   mediaDirsFromAccountDir,
@@ -24,4 +27,4 @@ export {
   type KindCounts,
   type ScanOptions,
 } from './media_scan';
-export { ExportTaskManager, type ExportTask, type TaskProgress, type TaskStatus, type ConvKind } from './task_manager';
+export { ExportTaskManager, type ExportTask, type TaskProgress, type TaskStatus } from './task_manager';

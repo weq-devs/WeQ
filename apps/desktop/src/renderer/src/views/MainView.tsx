@@ -20,12 +20,11 @@ import { Settings } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { client } from '../trpc/client';
-import { useAppDialog } from '../lib/dialogUtils';
 import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
 import { RailAccountFooter } from '../components/RailAccountFooter';
 import { SettingsDialog } from '../components/SettingsDialog';
-import { GroupAlbumDialog, type GroupAlbumWire } from '../components/GroupAlbumDialog';
+import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
 import { RelationGraphView } from '../components/relationGraph/RelationGraphView';
 import { ExportView } from './ExportView';
 import {
@@ -1234,7 +1233,6 @@ function isMobileShell(): boolean {
 
 export function MainView(): ReactElement {
   const utils = trpc.useUtils();
-  const dialog = useAppDialog();
   const contacts = trpc.account.listRecentContacts.useQuery();
   const selfProfile = trpc.account.getSelfProfile.useQuery();
   const buddies = trpc.account.listBuddies.useQuery({ limit: 2000 });
@@ -1310,10 +1308,10 @@ export function MainView(): ReactElement {
   const [trackedConversationId, setTrackedConversationId] = useState<string | null>(null);
   const [conversationPrefs, setConversationPrefs] = useState<ConversationPreferences>({});
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [requestedAnnouncementGroups, setRequestedAnnouncementGroups] = useState<Record<string, boolean>>({});
   const [albumDialog, setAlbumDialog] = useState<{
     groupCode: string;
     groupName: string;
-    albums: GroupAlbumWire[];
   } | null>(null);
   
   const [editorState, setEditorState] = useState<{ msgId: string, elements: any[] } | null>(null);
@@ -1345,27 +1343,18 @@ export function MainView(): ReactElement {
     }
   }, [editorState, refreshWindow]);
 
-  const handleOpenGroupAlbums = useCallback(async (conversation: Extract<Conversation, { type: 'group' }>) => {
-    try {
-      const access = await client.account.getGroupAlbumAccessState.query();
-      if (!access.qqOnline) {
-        dialog.error('无法查看群相册', '需要先登录该账号的 QQ 客户端。');
-        return;
-      }
-      if (!access.clientKeyValid) {
-        dialog.error('无法加载群相册', 'ClientKey 未获取或已过期，请在设置中开启自动获取 ClientKey 并等待刷新。');
-        return;
-      }
-      const albums = await client.account.listGroupAlbums.query({ groupCode: conversation.id });
-      setAlbumDialog({
-        groupCode: conversation.id,
-        groupName: conversation.group.name,
-        albums: albums as GroupAlbumWire[],
-      });
-    } catch (e) {
-      dialog.error('加载群相册失败', e instanceof Error ? e.message : String(e));
-    }
-  }, [dialog]);
+  const handleOpenGroupAlbums = useCallback((conversation: Extract<Conversation, { type: 'group' }>) => {
+    setAlbumDialog({
+      groupCode: conversation.id,
+      groupName: conversation.group.name,
+    });
+  }, []);
+
+  const handleOpenGroupAnnouncements = useCallback((conversation: Extract<Conversation, { type: 'group' }>) => {
+    setRequestedAnnouncementGroups((current) => (
+      current[conversation.id] ? current : { ...current, [conversation.id]: true }
+    ));
+  }, []);
 
   const [onlineStatusByUid, setOnlineStatusByUid] = useState<Record<string, any>>({});
   // Unread count per conversation id (latest msgSeq - last read seq). Filled
@@ -1611,7 +1600,7 @@ export function MainView(): ReactElement {
   );
   const groupBulletins = trpc.account.listGroupBulletins.useQuery(
     { groupCode: selectedUid, limit: 10, offset: 0 },
-    { enabled: Boolean(selectedUid && isGroup) },
+    { enabled: Boolean(selectedUid && isGroup && requestedAnnouncementGroups[selectedUid]) },
   );
   const groupEssence = trpc.account.listGroupEssenceMessages.useQuery(
     { groupCode: selectedUid, limit: 10, offset: 0 },
@@ -2498,6 +2487,7 @@ export function MainView(): ReactElement {
                 onBackConversation={shell.backConversation}
                 onEditRaw={handleEditRaw}
                 onOpenGroupAlbums={handleOpenGroupAlbums}
+                onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
               />
             </div>
             <OverlayScrollbar
@@ -2529,7 +2519,6 @@ export function MainView(): ReactElement {
         <GroupAlbumDialog
           groupCode={albumDialog.groupCode}
           groupName={albumDialog.groupName}
-          initialAlbums={albumDialog.albums}
           onClose={() => setAlbumDialog(null)}
         />
       ) : null}

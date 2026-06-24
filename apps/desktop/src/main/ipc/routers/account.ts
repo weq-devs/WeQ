@@ -37,6 +37,7 @@ import {
   userProfileToWire,
   groupDetailToWire,
   groupEssenceToWire,
+  groupNoticeToBulletinWire,
   groupMemberToWire,
   groupMemberLevelInfoToWire,
   msgSearchHitToWire,
@@ -208,6 +209,52 @@ function requireFreshClientKeyForAlbum(services = requireServices()): void {
   }
   if (!state.clientKeyValid) {
     throw new Error('ClientKey 未获取或已过期，请在设置中开启自动获取 ClientKey 并等待刷新。');
+  }
+}
+
+async function listGroupBulletinsWithWebFallback(
+  services: AccountServices,
+  input: z.infer<typeof groupPageInput>,
+): Promise<ReturnType<typeof groupBulletinToWire>[]> {
+  const localWindow = (
+    await services.groupInfo.getGroupBulletins(
+      BigInt(input.groupCode),
+      input.limit + input.offset,
+      0,
+    )
+  ).map(groupBulletinToWire);
+  const localPage = localWindow.slice(input.offset, input.offset + input.limit);
+
+  const state = albumAccessState(services);
+  if (!state.qqOnline || !state.clientKeyValid) return localPage;
+
+  try {
+    const webNotices = await services.webQuery.getGroupNotice(input.groupCode);
+    const merged = localWindow.slice();
+    const seenFids = new Set(merged.map((item) => item.fid).filter(Boolean));
+    for (const notice of webNotices) {
+      if (notice.noticeId && seenFids.has(notice.noticeId)) continue;
+      if (notice.noticeId) seenFids.add(notice.noticeId);
+      merged.push(groupNoticeToBulletinWire(notice, input.groupCode));
+    }
+    return merged.sort(compareBulletinWireDesc).slice(input.offset, input.offset + input.limit);
+  } catch {
+    return localPage;
+  }
+}
+
+function compareBulletinWireDesc(
+  a: ReturnType<typeof groupBulletinToWire>,
+  b: ReturnType<typeof groupBulletinToWire>,
+): number {
+  return Number(toSafeBigint(b.ctime || b.msgTime) - toSafeBigint(a.ctime || a.msgTime));
+}
+
+function toSafeBigint(value: string | undefined): bigint {
+  try {
+    return BigInt(value || '0');
+  } catch {
+    return 0n;
   }
 }
 
@@ -584,12 +631,7 @@ export const accountRouter = router({
   listGroupBulletins: procedure
     .input(groupPageInput)
     .query(async ({ input }) => {
-      const bulletins = await requireServices().groupInfo.getGroupBulletins(
-        BigInt(input.groupCode),
-        input.limit,
-        input.offset,
-      );
-      return bulletins.map(groupBulletinToWire);
+      return listGroupBulletinsWithWebFallback(requireServices(), input);
     }),
 
   /** List group essence messages. */
@@ -914,8 +956,12 @@ export const accountRouter = router({
       kind: z.enum(['group', 'c2c']),
       conv: z.string().min(1),
       name: z.string().min(1),
-      format: z.enum(['json', 'jsonl', 'txt']),
+      format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx']),
       total: z.number().int().min(0),
+      /** Also export every sender's avatar into an avatars/ subfolder. */
+      exportAvatar: z.boolean().optional(),
+      /** Inclusive send-time window (unix seconds); null bound = open-ended. */
+      range: z.object({ start: z.number().nullable(), end: z.number().nullable() }).optional(),
     }))
     .mutation(async ({ input }) => {
       return requireServices().exportManager.startTask(input);
@@ -963,7 +1009,7 @@ export const accountRouter = router({
     .input(z.object({
       sourcePath: z.string().min(1),
       defaultName: z.string().min(1),
-      format: z.enum(['json', 'jsonl', 'txt']),
+      format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx']),
     }))
     .mutation(async ({ input }) => {
       const { dialog } = await import('electron');
@@ -974,6 +1020,29 @@ export const accountRouter = router({
       });
       if (result.canceled || !result.filePath) return false;
       copyFileSync(input.sourcePath, result.filePath);
+      return true;
+    }),
+
+  /**
+   * Save an avatar-bundle task (message file + avatars/) to a user-picked
+   * folder. Copies the whole cache bundle into `<chosen>/<name>/`. Returns false
+   * if the task has no bundle or the user cancels.
+   */
+  saveExportBundle: procedure
+    .input(z.object({ taskId: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const task = requireServices().exportManager.getTask(input.taskId);
+      if (!task?.bundleDir) return false;
+      const { existsSync, cpSync } = await import('node:fs');
+      if (!existsSync(task.bundleDir)) return false;
+      const { dialog } = await import('electron');
+      const result = await dialog.showOpenDialog({
+        title: '选择导出保存文件夹',
+        properties: ['openDirectory', 'createDirectory'],
+      });
+      if (result.canceled || result.filePaths.length === 0) return false;
+      const dest = join(result.filePaths[0]!, sanitizePathSegment(task.name, task.id));
+      cpSync(task.bundleDir, dest, { recursive: true });
       return true;
     }),
 });

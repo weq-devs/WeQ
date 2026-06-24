@@ -4,20 +4,24 @@
  */
 
 import { EventEmitter, once } from 'node:events';
-import { writeFileSync, readFileSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
+import { writeFileSync, readFileSync, existsSync, mkdirSync, unlinkSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { MsgService } from '../msg';
+import type { AvatarCacheService } from '../../bootstrap/avatar_cache';
 import { exportGroupToJson } from './json_exporter';
 import { exportGroupToTxt } from './txt_exporter';
-import { exportGroupToJsonl } from './jsonl_exporter'
-import { iterateGroupMessages, iterateC2cMessages, toExportedMessage } from './message_source';
-import { runGroupExport, type Framing } from './run_export';
+import { exportGroupToJsonl } from './jsonl_exporter';
+import { exportGroupToCsv, csvFraming, renderCsvRow } from './csv_exporter';
+import { exportToXlsx } from './xlsx_exporter';
+import { exportAvatars } from './avatar_export';
+import { iterateC2cMessages, toExportedMessage } from './message_source';
+import { type Framing } from './run_export';
 import { bigintReplacer } from './serialize';
 import { messageToText } from './element_text';
-import type { ExportFormat, ExportResult } from './types';
+import type { ConvKind, ExportedMessage, ExportFormat, ExportResult, ExportTimeRange, GroupExportOptions } from './types';
 
 export type TaskStatus = 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
-export type ConvKind = 'group' | 'c2c';
+export type { ConvKind };
 
 export interface ExportTask {
   id: string;
@@ -31,6 +35,14 @@ export interface ExportTask {
   total: number; // total messages (estimate)
   error?: string;
   filePath?: string; // cache file path when completed
+  /** True when sender avatars were requested (output is a bundle folder). */
+  exportAvatar?: boolean;
+  /** Inclusive send-time window for this export, if narrowed from 全部时间. */
+  range?: ExportTimeRange;
+  /** Bundle folder (message file + avatars/) when `exportAvatar` is on. */
+  bundleDir?: string;
+  /** Number of avatars written, when avatars were exported. */
+  avatarCount?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -51,6 +63,8 @@ export class ExportTaskManager extends EventEmitter {
   constructor(
     private msgs: MsgService,
     private cacheDir: string,
+    /** Resolves avatar bytes (cache-first, CDN fallback) for avatar export. */
+    private avatarCache?: AvatarCacheService,
   ) {
     super();
     this.persistPath = join(cacheDir, 'export_tasks.json');
@@ -97,6 +111,8 @@ export class ExportTaskManager extends EventEmitter {
     name: string;
     format: ExportFormat;
     total: number;
+    exportAvatar?: boolean;
+    range?: ExportTimeRange;
   }): Promise<string> {
     const id = `${opts.kind}-${opts.conv}-${Date.now()}`;
     const task: ExportTask = {
@@ -109,6 +125,8 @@ export class ExportTaskManager extends EventEmitter {
       progress: 0,
       current: 0,
       total: opts.total,
+      exportAvatar: opts.exportAvatar ?? false,
+      ...(opts.range ? { range: opts.range } : {}),
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -131,8 +149,14 @@ export class ExportTaskManager extends EventEmitter {
     this.abortControllers.set(id, abort);
 
     try {
-      const outPath = join(this.cacheDir, `${task.name}.${task.format}`);
+      // With avatar export on, the message file + avatars/ live together in a
+      // per-task bundle folder; otherwise the file sits directly in the cache.
+      const wantAvatars = Boolean(task.exportAvatar && this.avatarCache);
+      const outDir = wantAvatars ? join(this.cacheDir, `bundle-${id}`) : this.cacheDir;
+      if (wantAvatars) mkdirSync(outDir, { recursive: true });
+      const outPath = join(outDir, `${task.name}.${task.format}`);
       const progressEvery = 1000;
+      const senders = wantAvatars ? new Set<string>() : undefined;
 
       const onProgress = (p: { current: number; message: string }) => {
         if (abort.signal.aborted) return;
@@ -142,22 +166,22 @@ export class ExportTaskManager extends EventEmitter {
         this.emit('progress', { taskId: id, status: 'running', progress: task.progress, current: p.current, message: p.message });
       };
 
-      let result: ExportResult;
-      if (task.kind === 'group') {
-        if (task.format === 'json') {
-          result = await exportGroupToJson(this.msgs, { groupCode: task.conv, outputPath: outPath, progressEvery, onProgress });
-        } else if (task.format === 'jsonl') {
-          result = await exportGroupToJsonl(this.msgs, { groupCode: task.conv, outputPath: outPath, progressEvery, onProgress });
-        } else {
-          result = await exportGroupToTxt(this.msgs, { groupCode: task.conv, outputPath: outPath, progressEvery, onProgress });
-        }
-      } else {
-        result = await this.exportC2c(task.conv, outPath, task.format, progressEvery, onProgress);
-      }
+      const result = await this.exportMessages(task, outPath, progressEvery, onProgress, senders);
 
       if (abort.signal.aborted) {
         task.status = 'cancelled';
       } else {
+        // Avatar phase: download every distinct sender's avatar into avatars/.
+        if (wantAvatars && senders && this.avatarCache) {
+          const avatars = await exportAvatars(this.avatarCache, senders, outDir, {
+            onProgress: (done, total) => {
+              if (abort.signal.aborted) return;
+              this.emit('progress', { taskId: id, status: 'running', progress: task.progress, current: task.current, message: `下载头像 ${done}/${total}` });
+            },
+          });
+          task.avatarCount = avatars.ok;
+          task.bundleDir = outDir;
+        }
         task.status = 'completed';
         task.progress = 100;
         task.current = result.messageCount;
@@ -174,9 +198,73 @@ export class ExportTaskManager extends EventEmitter {
     }
   }
 
-  private async exportC2c(peerUid: string, outPath: string, format: ExportFormat, progressEvery: number, onProgress: (p: any) => void): Promise<ExportResult> {
-    const framing: Framing = format === 'json' ? { head: '[\n', between: ',\n', tail: '\n]\n' } : { head: '', between: '', tail: '' };
-    const renderRecord = format === 'txt' ? (m: any) => `${messageToText(m)}\n` : (m: any) => format === 'jsonl' ? `${JSON.stringify(m, bigintReplacer)}\n` : JSON.stringify(m, bigintReplacer);
+  /** Dispatch one task to the right exporter by output format / conversation kind. */
+  private exportMessages(
+    task: ExportTask,
+    outputPath: string,
+    progressEvery: number,
+    onProgress: (p: { current: number; message: string }) => void,
+    senders: Set<string> | undefined,
+  ): Promise<ExportResult> {
+    // XLSX is a binary workbook, not a character stream — it has its own loop
+    // and handles both conversation kinds itself.
+    if (task.format === 'xlsx') {
+      return exportToXlsx(this.msgs, {
+        kind: task.kind,
+        conv: task.conv,
+        outputPath,
+        progressEvery,
+        onProgress,
+        collectSenders: senders,
+        range: task.range,
+      });
+    }
+    if (task.kind === 'group') {
+      const opts: GroupExportOptions = {
+        groupCode: task.conv,
+        outputPath,
+        progressEvery,
+        onProgress,
+        collectSenders: senders,
+        range: task.range,
+      };
+      switch (task.format) {
+        case 'json':
+          return exportGroupToJson(this.msgs, opts);
+        case 'jsonl':
+          return exportGroupToJsonl(this.msgs, opts);
+        case 'csv':
+          return exportGroupToCsv(this.msgs, opts);
+        default:
+          return exportGroupToTxt(this.msgs, opts);
+      }
+    }
+    return this.exportC2c(task.conv, outputPath, task.format, progressEvery, onProgress, senders, task.range);
+  }
+
+  private async exportC2c(
+    peerUid: string,
+    outPath: string,
+    format: ExportFormat,
+    progressEvery: number,
+    onProgress: (p: { current: number; message: string }) => void,
+    senders?: Set<string>,
+    range?: ExportTimeRange,
+  ): Promise<ExportResult> {
+    const framing: Framing =
+      format === 'json'
+        ? { head: '[\n', between: ',\n', tail: '\n]\n' }
+        : format === 'csv'
+          ? csvFraming
+          : { head: '', between: '', tail: '' };
+    const renderRecord: (m: ExportedMessage) => string =
+      format === 'txt'
+        ? (m) => `${messageToText(m)}\n`
+        : format === 'csv'
+          ? renderCsvRow
+          : format === 'jsonl'
+            ? (m) => `${JSON.stringify(m, bigintReplacer)}\n`
+            : (m) => JSON.stringify(m, bigintReplacer);
 
     const start = Date.now();
     const { createWriteStream, statSync } = await import('node:fs');
@@ -188,8 +276,10 @@ export class ExportTaskManager extends EventEmitter {
     let count = 0;
     try {
       if (framing.head) await write(framing.head);
-      for await (const m of iterateC2cMessages(this.msgs, peerUid, { pageSize: 2000 })) {
-        const record = renderRecord(toExportedMessage(m));
+      for await (const m of iterateC2cMessages(this.msgs, peerUid, { pageSize: 2000, range })) {
+        const exported = toExportedMessage(m);
+        senders?.add(exported.senderUin);
+        const record = renderRecord(exported);
         await write(count === 0 ? record : framing.between + record);
         count += 1;
         if (count % progressEvery === 0) onProgress({ current: count, message: `已导出 ${count} 条` });
@@ -214,17 +304,24 @@ export class ExportTaskManager extends EventEmitter {
     return true;
   }
 
+  /** Remove a task's on-disk output (the whole bundle folder, or the lone file). */
+  private cleanupOutput(task: ExportTask): void {
+    try {
+      if (task.bundleDir && existsSync(task.bundleDir)) {
+        rmSync(task.bundleDir, { recursive: true, force: true });
+      } else if (task.filePath && existsSync(task.filePath)) {
+        unlinkSync(task.filePath);
+      }
+    } catch {}
+  }
+
   cancelTask(id: string): boolean {
     const task = this.tasks.get(id);
     if (!task) return false;
     if (task.status === 'running') this.abortControllers.get(id)?.abort();
     task.status = 'cancelled';
     task.updatedAt = Date.now();
-    if (task.filePath && existsSync(task.filePath)) {
-      try {
-        unlinkSync(task.filePath);
-      } catch {}
-    }
+    this.cleanupOutput(task);
     this.saveTasks();
     this.emit('progress', { taskId: id, status: 'cancelled', progress: task.progress, current: task.current, message: '已取消' });
     return true;
@@ -234,11 +331,7 @@ export class ExportTaskManager extends EventEmitter {
     const task = this.tasks.get(id);
     if (!task) return false;
     if (task.status === 'running') return false;
-    if (task.filePath && existsSync(task.filePath)) {
-      try {
-        unlinkSync(task.filePath);
-      } catch {}
-    }
+    this.cleanupOutput(task);
     this.tasks.delete(id);
     this.saveTasks();
     return true;

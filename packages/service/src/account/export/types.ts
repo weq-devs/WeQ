@@ -14,8 +14,20 @@
 
 import type { RenderElement } from '../msg_view';
 
-/** Output formats, mirroring QCE (+ jsonl). excel / html land in later steps. */
-export type ExportFormat = 'json' | 'jsonl' | 'txt' | 'excel' | 'html';
+/** Output formats, mirroring QCE (+ jsonl). html lands in a later step. */
+export type ExportFormat = 'json' | 'jsonl' | 'txt' | 'csv' | 'xlsx' | 'html';
+
+/** Conversation kind an export targets. */
+export type ConvKind = 'group' | 'c2c';
+
+/**
+ * Inclusive send-time window for an export, in unix *seconds*. `null` on either
+ * bound means open-ended; both null (or absent) means no time filtering.
+ */
+export interface ExportTimeRange {
+  start: number | null;
+  end: number | null;
+}
 
 /** One message, normalized for export. */
 export interface ExportedMessage {
@@ -55,6 +67,10 @@ export interface GroupExportOptions {
   onProgress?: ProgressCallback;
   /** Emit a progress tick every N messages (default 5000). */
   progressEvery?: number;
+  /** When provided, each message's sender uin is collected (avatar export). */
+  collectSenders?: Set<string>;
+  /** Inclusive send-time window; messages outside it are skipped. */
+  range?: ExportTimeRange;
 }
 
 /** Result of a completed export. */

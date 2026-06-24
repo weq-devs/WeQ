@@ -1,7 +1,8 @@
 // @ts-nocheck
-import { useMemo, useState, type ReactElement } from 'react';
+import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { Check, FolderOpen, Image, Loader2, X } from 'lucide-react';
 import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
+import { client } from '../../trpc/client';
 import type { GroupAlbumWire } from '../../components/GroupAlbumDialog';
 
 export interface AlbumExportResult {
@@ -10,16 +11,16 @@ export interface AlbumExportResult {
 }
 
 export function AlbumExportLightbox({
+  groupCode,
   groupName,
-  albums,
   outputDir,
   submitting,
   onPickPath,
   onClose,
   onConfirm,
 }: {
+  groupCode: string;
   groupName: string;
-  albums: GroupAlbumWire[];
   outputDir: string | null;
   submitting?: boolean;
   onPickPath: () => Promise<string | null>;
@@ -27,9 +28,40 @@ export function AlbumExportLightbox({
   onConfirm: (result: AlbumExportResult) => void;
 }): ReactElement {
   useEscapeToClose(onClose);
-  const [selection, setSelection] = useState<Set<string>>(() => new Set(albums.map((album) => album.id)));
+  const [albums, setAlbums] = useState<GroupAlbumWire[]>([]);
+  const [loadingAlbums, setLoadingAlbums] = useState(true);
+  const [albumError, setAlbumError] = useState<string | null>(null);
+  const [selection, setSelection] = useState<Set<string>>(() => new Set());
   const [picking, setPicking] = useState(false);
   const selectedAlbums = useMemo(() => albums.filter((album) => selection.has(album.id)), [albums, selection]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingAlbums(true);
+    setAlbumError(null);
+    setAlbums([]);
+    setSelection(new Set());
+
+    client.account.listGroupAlbums
+      .query({ groupCode })
+      .then((page) => {
+        if (cancelled) return;
+        const nextAlbums = page as GroupAlbumWire[];
+        setAlbums(nextAlbums);
+        setSelection(new Set(nextAlbums.map((album) => album.id)));
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setAlbumError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingAlbums(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [groupCode]);
 
   function toggle(id: string): void {
     setSelection((current) => {
@@ -75,13 +107,13 @@ export function AlbumExportLightbox({
           </section>
 
           <section className="weq-exp-album-tools">
-            <button type="button" className="weq-exp-tool" disabled={albums.length === 0 || submitting} onClick={() => setSelection(new Set(albums.map((album) => album.id)))}>
+            <button type="button" className="weq-exp-tool" disabled={loadingAlbums || albums.length === 0 || submitting} onClick={() => setSelection(new Set(albums.map((album) => album.id)))}>
               全选
             </button>
             <button
               type="button"
               className="weq-exp-tool"
-              disabled={albums.length === 0 || submitting}
+              disabled={loadingAlbums || albums.length === 0 || submitting}
               onClick={() =>
                 setSelection((current) => new Set(albums.filter((album) => !current.has(album.id)).map((album) => album.id)))
               }
@@ -93,7 +125,14 @@ export function AlbumExportLightbox({
           </section>
 
           <div className="weq-exp-album-list">
-            {albums.length === 0 ? (
+            {loadingAlbums ? (
+              <div className="weq-exp-list-state">
+                <Loader2 size={18} className="weq-exp-spin" />
+                <span>正在查询群相册列表喵~</span>
+              </div>
+            ) : albumError ? (
+              <div className="weq-exp-list-state is-error">{albumError}</div>
+            ) : albums.length === 0 ? (
               <div className="weq-exp-list-state">这个群暂无相册</div>
             ) : (
               albums.map((album) => (
@@ -123,7 +162,7 @@ export function AlbumExportLightbox({
           <button
             type="button"
             className="weq-exp-btn is-primary"
-            disabled={submitting || !outputDir || selectedAlbums.length === 0}
+            disabled={submitting || loadingAlbums || Boolean(albumError) || !outputDir || selectedAlbums.length === 0}
             onClick={() => outputDir && onConfirm({ outputDir, selectedAlbums })}
           >
             {submitting ? <Loader2 size={15} className="weq-exp-spin" /> : null}

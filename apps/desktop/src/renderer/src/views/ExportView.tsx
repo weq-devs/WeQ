@@ -33,7 +33,6 @@ import { ExportLightbox, type LightboxResult, type LightboxVariant } from './exp
 import { DatabasePicker, type DbPickItem } from './export/DatabasePicker';
 import { DecryptLightbox, type DecryptLightboxResult } from './export/DecryptLightbox';
 import { AlbumExportLightbox, type AlbumExportResult } from './export/AlbumExportLightbox';
-import type { GroupAlbumWire } from '../components/GroupAlbumDialog';
 import {
   CHATLAB_FORMATS,
   FULL_FORMATS,
@@ -43,8 +42,10 @@ import {
   fmtCount,
   groupAvatarUrl,
   isBackendFormat,
+  type BackendFormat,
   type ExportFormat,
   type ExportMode,
+  type ExportOptions,
   type PickItem,
 } from './export/types';
 import '../styles/export.css';
@@ -95,7 +96,7 @@ export function ExportView(): ReactElement {
   const [decryptLightboxOpen, setDecryptLightboxOpen] = useState(false);
   const [decryptOutputDir, setDecryptOutputDir] = useState<string | null>(null);
   const [albumOutputDir, setAlbumOutputDir] = useState<string | null>(null);
-  const [albumExport, setAlbumExport] = useState<{ group: PickItem; albums: GroupAlbumWire[] } | null>(null);
+  const [albumExport, setAlbumExport] = useState<{ group: PickItem } | null>(null);
   const [htmlConvId, setHtmlConvId] = useState<string | null>(null);
   const [albumGroupId, setAlbumGroupId] = useState<string | null>(null);
   const [format, setFormat] = useState<ExportFormat>('json');
@@ -160,7 +161,10 @@ export function ExportView(): ReactElement {
   );
 
   const uiTasks = useMemo<UiTask[]>(() => {
-    return ((tasks.data ?? []) as UiTask[]).map((t) => ({
+    // Defensive: the IPC payload can momentarily be a non-array during a main
+    // process restart / error envelope — never let that white-screen the view.
+    const rows = Array.isArray(tasks.data) ? (tasks.data as UiTask[]) : [];
+    return rows.map((t) => ({
       id: t.id,
       kind: t.kind,
       name: t.name,
@@ -171,6 +175,8 @@ export function ExportView(): ReactElement {
       total: t.total,
       error: t.error,
       filePath: t.filePath,
+      bundleDir: t.bundleDir,
+      avatarCount: t.avatarCount,
     }));
   }, [tasks.data]);
 
@@ -185,14 +191,21 @@ export function ExportView(): ReactElement {
     void client.account.deleteExportTask.mutate({ taskId: t.id }).then(refetchTasks);
 
   const onDownload = async (t: UiTask): Promise<void> => {
-    if (!t.filePath) return;
     try {
-      const fmt = isBackendFormat(t.format as ExportFormat) ? (t.format as 'json' | 'jsonl' | 'txt') : 'json';
-      const ok = await client.account.saveExportFile.mutate({
-        sourcePath: t.filePath,
-        defaultName: `${t.name}.${t.format}`,
-        format: fmt,
-      });
+      let ok = false;
+      if (t.bundleDir) {
+        // Avatar bundle: copy the whole folder (message file + avatars/) out.
+        ok = await client.account.saveExportBundle.mutate({ taskId: t.id });
+      } else if (t.filePath) {
+        const fmt: BackendFormat = isBackendFormat(t.format as ExportFormat)
+          ? (t.format as BackendFormat)
+          : 'json';
+        ok = await client.account.saveExportFile.mutate({
+          sourcePath: t.filePath,
+          defaultName: `${t.name}.${t.format}`,
+          format: fmt,
+        });
+      }
       if (ok) {
         await client.account.deleteExportTask.mutate({ taskId: t.id });
         refetchTasks();
@@ -211,7 +224,7 @@ export function ExportView(): ReactElement {
     }
     if (mode === 'album') {
       if (!albumGroupId) return;
-      void openAlbumExport();
+      openAlbumExport();
       return;
     }
     if (mode === 'html') {
@@ -223,15 +236,10 @@ export function ExportView(): ReactElement {
     setLightbox(mode === 'scheduled' ? 'scheduled' : mode === 'chatlab' ? 'chatlab' : 'full');
   }
 
-  async function runFullExport(): Promise<void> {
+  async function runFullExport(options: ExportOptions): Promise<void> {
     const targets = convItems.filter((it) => convSelection.has(it.id));
-    if (!isBackendFormat(format)) {
-      dialog.info(
-        '格式待接入',
-        `${format.toUpperCase()} 导出的后端尚未接入。已收集 ${targets.length} 个会话的导出配置（时间范围、媒体选项等）。`,
-      );
-      return;
-    }
+    // null bounds = open-ended; both null (全部时间) means no filtering.
+    const range = { start: options.range.start, end: options.range.end };
     setSubmitting(true);
     try {
       for (const t of targets) {
@@ -241,6 +249,8 @@ export function ExportView(): ReactElement {
           name: t.name,
           format,
           total: t.total ?? 0,
+          exportAvatar: options.exportAvatar,
+          range,
         });
       }
       setConvSelection(new Set());
@@ -303,28 +313,11 @@ export function ExportView(): ReactElement {
     }
   }
 
-  async function openAlbumExport(): Promise<void> {
+  function openAlbumExport(): void {
     if (!albumGroupId) return;
     const group = groupItems.find((it) => it.id === albumGroupId);
     if (!group) return;
-    setSubmitting(true);
-    try {
-      const access = await client.account.getGroupAlbumAccessState.query();
-      if (!access.qqOnline) {
-        dialog.error('无法导出群相册', '需要先登录该账号的 QQ 客户端。');
-        return;
-      }
-      if (!access.clientKeyValid) {
-        dialog.error('无法导出群相册', 'ClientKey 未获取或已过期，请在设置中开启自动获取 ClientKey 并等待刷新。');
-        return;
-      }
-      const albums = await client.account.listGroupAlbums.query({ groupCode: group.id });
-      setAlbumExport({ group, albums: albums as GroupAlbumWire[] });
-    } catch (e) {
-      dialog.error('加载群相册失败', e instanceof Error ? e.message : String(e));
-    } finally {
-      setSubmitting(false);
-    }
+    setAlbumExport({ group });
   }
 
   async function runAlbumExport(result: AlbumExportResult): Promise<void> {
@@ -356,7 +349,7 @@ export function ExportView(): ReactElement {
 
   function onLightboxConfirm(result: LightboxResult): void {
     if (lightbox === 'full') {
-      void runFullExport();
+      void runFullExport(result.options);
       return;
     }
     // chatlab / html / scheduled / album — config collected, backend pending.
@@ -548,8 +541,8 @@ export function ExportView(): ReactElement {
 
       {albumExport ? (
         <AlbumExportLightbox
+          groupCode={albumExport.group.id}
           groupName={albumExport.group.name}
-          albums={albumExport.albums}
           outputDir={albumOutputDir}
           submitting={submitting}
           onPickPath={async () => {
