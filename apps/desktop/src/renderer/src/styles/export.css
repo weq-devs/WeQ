@@ -1100,6 +1100,79 @@
   }
 }
 
+/* 多阶段进度（媒体 bundle 导出）：每个阶段一行，竖向排列 */
+.weq-exp-stages {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.weq-exp-stage {
+  display: grid;
+  grid-template-columns: 56px 1fr 78px;
+  align-items: center;
+  gap: 8px;
+}
+
+.weq-exp-stage-label {
+  font-size: 11.5px;
+  color: #6b7888;
+  white-space: nowrap;
+}
+
+.weq-exp-stage-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(0, 153, 255, 0.12);
+  overflow: hidden;
+}
+
+.weq-exp-stage-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #29a8ff, #0099ff);
+  transition: width 0.35s ease;
+}
+
+.weq-exp-stage-fill.is-active {
+  background-image: linear-gradient(90deg, #29a8ff, #0099ff),
+    linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, 0.55) 50%, transparent 80%);
+  background-size: 100% 100%, 40% 100%;
+  background-repeat: no-repeat;
+  animation: weq-exp-shimmer 1.3s linear infinite;
+}
+
+.weq-exp-stage-note {
+  font-size: 11px;
+  color: #97a2b0;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weq-exp-stage.is-completed .weq-exp-stage-label {
+  color: #2bae66;
+}
+.weq-exp-stage.is-skipped .weq-exp-stage-label,
+.weq-exp-stage.is-skipped .weq-exp-stage-note {
+  color: #b3bcca;
+}
+.weq-exp-stage.is-skipped .weq-exp-stage-fill {
+  background: #d6dde6;
+}
+.weq-exp-stage.is-pending .weq-exp-stage-label {
+  color: #aab3c0;
+}
+.weq-exp-stage.is-failed .weq-exp-stage-label,
+.weq-exp-stage.is-failed .weq-exp-stage-note {
+  color: #dc4040;
+}
+.weq-exp-stage.is-failed .weq-exp-stage-fill {
+  background: #dc4040;
+}
+
 .weq-exp-task-sub {
   display: flex;
   align-items: center;

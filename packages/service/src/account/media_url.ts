@@ -17,6 +17,7 @@ import {
   GetPrivateFileUrl,
   GetPrivatePttUrl,
   GetPrivateVideoUrl,
+  composeGroupFileDownloadUrl,
   type GroupFileDownload,
   type MediaIndexNode,
 } from '@weq/protocol';
@@ -33,15 +34,22 @@ export interface MediaElement {
   /** Lowercase hex md5 (preferred over md5Bytes when present). */
   md5?: string;
   md5Bytes?: Uint8Array;
+  md5Bytes2?: Uint8Array;
   contentHash?: Uint8Array;
   imgWidth?: number;
   imgHeight?: number;
+  videoWidth?: number;
+  videoHeight?: number;
+  fileFlag45415?: number;
+  videoFlag45421?: Uint8Array;
   /** Duration in seconds (video / ptt). */
   videoDuration?: number;
   uploadTime?: number;
   fileTTL?: number;
   subType?: number;
   isOriginal?: boolean;
+  channelParams?: Uint8Array;
+  videoFlag45863?: number;
 }
 
 /** Bytes → lowercase hex. */
@@ -50,6 +58,12 @@ function hexOf(bytes: Uint8Array | undefined): string {
   let out = '';
   for (let i = 0; i < bytes.length; i++) out += bytes[i]!.toString(16).padStart(2, '0');
   return out;
+}
+
+function textOrHexOf(bytes: Uint8Array | undefined): string {
+  if (!bytes?.length) return '';
+  const text = new TextDecoder().decode(bytes);
+  return /^[\x20-\x7e]+$/.test(text) ? text : hexOf(bytes);
 }
 
 /**
@@ -72,14 +86,22 @@ export function mediaNodeFromElement(el: MediaElement): MediaIndexNode {
     fileHash,
     fileSha1,
     fileName: el.fileName ?? '',
-    width: el.imgWidth ?? 0,
-    height: el.imgHeight ?? 0,
+    width: el.videoWidth ?? el.imgWidth ?? 0,
+    height: el.videoHeight ?? el.imgHeight ?? 0,
     time: el.videoDuration ?? 0,
     original: el.isOriginal ? 1 : 0,
+    storeId: el.kind === 'video' ? (el.fileFlag45415 ?? 0) : 0,
     uploadTime: el.uploadTime ?? 0,
     ttl: el.fileTTL ?? 0,
     subType: el.subType ?? 0,
     type: typeInfo,
+    videoExt: el.kind === 'video'
+      ? {
+          channelParams: hexOf(el.channelParams),
+          videoFlag45421: hexOf(el.videoFlag45421),
+          videoFlag45863: el.videoFlag45863 ?? 0,
+        }
+      : undefined,
   };
 }
 
@@ -100,6 +122,10 @@ export class MediaUrlService {
     return GetGroupVideoUrl.invoke(this.nt, this.resolvePid(), { groupId, node });
   }
 
+  async getGroupVideoUrlFromElement(groupId: number, element: MediaElement): Promise<string> {
+    return this.getGroupVideoUrl(groupId, mediaNodeFromElement(element));
+  }
+
   async getGroupPttUrl(groupId: number, node: MediaIndexNode): Promise<string> {
     return GetGroupPttUrl.invoke(this.nt, this.resolvePid(), { groupId, node });
   }
@@ -112,11 +138,23 @@ export class MediaUrlService {
     return GetGroupFileUrl.invoke(this.nt, this.resolvePid(), { groupId, fileId, busId });
   }
 
+  async getGroupFileUrl(groupId: number, fileId: string, busId = 102): Promise<string> {
+    return composeGroupFileDownloadUrl(await this.getGroupFileDownload(groupId, fileId, busId));
+  }
+
+  async getGroupFileUrlFromElement(groupId: number, element: MediaElement, busId = 102): Promise<string> {
+    return this.getGroupFileUrl(groupId, element.fileToken, busId);
+  }
+
   // ─── private / c2c ───
 
   async getPrivateVideoUrl(node: MediaIndexNode): Promise<string> {
     if (!this.selfUid) throw new Error('selfUid unavailable — uid map may not cover own uin');
     return GetPrivateVideoUrl.invoke(this.nt, this.resolvePid(), { selfUid: this.selfUid, node });
+  }
+
+  async getPrivateVideoUrlFromElement(element: MediaElement): Promise<string> {
+    return this.getPrivateVideoUrl(mediaNodeFromElement(element));
   }
 
   async getPrivatePttUrl(node: MediaIndexNode): Promise<string> {
@@ -131,5 +169,11 @@ export class MediaUrlService {
       fileId,
       fileHash,
     });
+  }
+
+  async getPrivateFileUrlFromElement(element: MediaElement): Promise<string> {
+    const fileHash = textOrHexOf(element.md5Bytes2) || element.md5 || hexOf(element.md5Bytes);
+    if (!fileHash) throw new Error('private file element missing md5Bytes2/fileHash');
+    return this.getPrivateFileUrl(element.fileToken, fileHash);
   }
 }

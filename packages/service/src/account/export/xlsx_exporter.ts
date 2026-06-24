@@ -17,7 +17,7 @@ import ExcelJS from 'exceljs';
 import { statSync } from 'node:fs';
 import type { MsgService } from '../msg';
 import { iterateC2cMessages, iterateGroupMessages, toExportedMessage } from './message_source';
-import { TABLE_HEADERS, messageToCells } from './element_text';
+import { TABLE_HEADERS, messageToCells, annotateLocalPaths } from './element_text';
 import type { ConvKind, ExportResult, ExportTimeRange, ProgressCallback } from './types';
 
 /** Rows per worksheet before rolling to a new one (margin under Excel's cap). */
@@ -40,6 +40,8 @@ export interface XlsxExportOptions {
   collectSenders?: Set<string>;
   /** Inclusive send-time window; messages outside it are skipped. */
   range?: ExportTimeRange;
+  /** Stamp media elements with their bundle relative path (`data.localPath`). */
+  withMediaPaths?: boolean;
 }
 
 /** Append a header row to a freshly-created worksheet. */
@@ -82,6 +84,7 @@ export async function exportToXlsx(
     }
     const exported = toExportedMessage(m);
     opts.collectSenders?.add(exported.senderUin);
+    if (opts.withMediaPaths) annotateLocalPaths(exported.elements);
     sheet.addRow(messageToCells(exported)).commit();
     rowsInSheet += 1;
     count += 1;

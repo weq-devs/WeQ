@@ -12,7 +12,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { decode } from 'silk-wasm';
 import { requirePlatform } from './context/app_context';
 
@@ -40,6 +40,25 @@ export async function decodeSilkToWav(silkPath: string): Promise<string | null> 
   } catch (e) {
     console.error(`[voice] failed to decode SILK ${silkPath}:`, e);
     return null;
+  }
+}
+
+/**
+ * Decode the SILK file at `silkPath` directly to `destPath` (a `.wav`). Used by
+ * the media export pipeline, which needs the WAV at a predictable bundle path
+ * rather than the shared voice cache. Returns true on success.
+ */
+export async function decodeSilkToFile(silkPath: string, destPath: string): Promise<boolean> {
+  if (!silkPath || !existsSync(silkPath)) return false;
+  try {
+    const silk = readFileSync(silkPath);
+    const { data: pcm } = await decode(silk, SAMPLE_RATE);
+    mkdirSync(dirname(destPath), { recursive: true });
+    writeFileSync(destPath, wrapWav(pcm));
+    return true;
+  } catch (e) {
+    console.error(`[voice] failed to decode SILK ${silkPath} → ${destPath}:`, e);
+    return false;
   }
 }
 

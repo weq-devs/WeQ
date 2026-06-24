@@ -30,6 +30,6 @@ export type { MediaIndexNode } from './oidb/media-schemas';
 
 export { GetGroupPttUrl, GetPrivatePttUrl } from './oidb/get-ptt-url';
 export { GetGroupVideoUrl, GetPrivateVideoUrl } from './oidb/get-video-url';
-export { GetGroupFileUrl, GetPrivateFileUrl } from './oidb/get-file-url';
+export { GetGroupFileUrl, GetPrivateFileUrl, composeGroupFileDownloadUrl } from './oidb/get-file-url';
 export type { GroupFileDownload } from './oidb/get-file-url';
 export { GetAlbumMediaList } from './oidb/get-album-media-list';

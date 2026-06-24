@@ -1443,7 +1443,6 @@ export function ChatPane({
 						<GroupInfoPanel
 							conversation={conversation}
 							onOpenDetail={openGroupInfoDetail}
-							onOpenAlbums={onOpenGroupAlbums}
 							onLoadMoreMembers={onLoadMoreGroupMembers}
 							loadingMoreMembers={groupMembersLoading}
 						/>

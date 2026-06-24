@@ -14,6 +14,7 @@ export function buildNtv2DownloadReq(
   scene: Record<string, unknown>,
   node: MediaIndexNode,
 ): Record<string, unknown> {
+  const videoExt = node.videoExt;
   return {
     reqHead: {
       common: { requestId, command: 200 },
@@ -21,8 +22,24 @@ export function buildNtv2DownloadReq(
       client: { agentType: 2 },
     },
     download: {
-      node: normalizeMediaNode(node),
-      download: { video: { busiType: 0, sceneType: 0 } },
+      node: normalizeMediaNode(node, !!videoExt),
+      download: {
+        video: videoExt
+          ? {
+              busiType: 0,
+              subBusiType: 0,
+              field5: 0,
+              videoMeta: {
+                businessType: 100,
+                channelParams: videoExt.channelParams ?? '',
+                videoFlag45421: videoExt.videoFlag45421 ?? '',
+                videoFlag45863: videoExt.videoFlag45863 ?? 0,
+              },
+            }
+          : {},
+        ...(videoExt ? { extra: { field1: 0 } } : {}),
+      },
+      ...(videoExt ? { field3: 0 } : {}),
     },
   };
 }

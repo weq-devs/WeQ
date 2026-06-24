@@ -19,7 +19,7 @@ import { resolve } from 'node:path';
 import { loadNative } from '@weq/native';
 import { GroupMsgDb } from '@weq/db';
 import { MsgService } from '../src/account/msg';
-import { scanGroupMedia, mediaDirsFromAccountDir, type MediaRef } from '../src/account/export';
+import { scanConvMedia, mediaDirsFromAccountDir, type MediaRef } from '../src/account/export';
 
 const UIN = '1707889225';
 const KEY = '^;<kXZ;RI[@]yTD<';
@@ -185,7 +185,7 @@ async function main(): Promise<void> {
 
   try {
     console.log('[probe] scanning for downloadable group images…');
-    const scan = await scanGroupMedia(msgs, GROUP_CODE, dirs, { pageSize: 2000 });
+    const scan = await scanConvMedia(msgs, 'group', GROUP_CODE, dirs, { pageSize: 2000 });
     const candidates: MediaRef[] = scan.downloadList.filter((m) => m.kind === 'pic' && m.fileToken.length > 0);
     console.log(`[probe] downloadable group-image candidates: ${candidates.length}\n`);
 

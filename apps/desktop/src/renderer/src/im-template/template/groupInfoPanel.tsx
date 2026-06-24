@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { Bot, Images, X } from "lucide-react";
+import { Bot, X } from "lucide-react";
 import { useCallback, useEffect, useRef } from "react";
 import { Avatar } from "./primitives";
 import type { GroupConversationView } from "./conversationDetailsTypes";
@@ -13,13 +13,11 @@ export function GroupInfoPanel({
 	onLoadMoreMembers,
 	loadingMoreMembers,
 	onOpenDetail,
-	onOpenAlbums,
 }: {
 	conversation: GroupConversationView;
 	onLoadMoreMembers?: () => void;
 	loadingMoreMembers?: boolean;
 	onOpenDetail?: (detail: GroupInfoDetail) => void;
-	onOpenAlbums?: (conversation: GroupConversationView) => void;
 }) {
 	const memberListRef = useRef<HTMLDivElement | null>(null);
 	const group = conversation.group;
@@ -81,17 +79,6 @@ export function GroupInfoPanel({
 						<p className={cn("placeholder-text")}>暂无更多资料</p>
 					)}
 				</div>
-			</section>
-
-			<section className={cn("group-info-section", "group-info-actions")}>
-				<button
-					className={cn("group-info-action-button")}
-					type="button"
-					onClick={() => onOpenAlbums?.(conversation)}
-				>
-					<Images size={15} />
-					<span>群相册</span>
-				</button>
 			</section>
 
 			<section className={cn("group-info-section", "member-list-section")}>

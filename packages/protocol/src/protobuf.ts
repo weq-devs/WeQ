@@ -44,6 +44,8 @@ export interface ProtoField {
   readonly type: ScalarType | ProtoMessage;
   /** True for `repeated` fields (encoded as one entry per element). */
   readonly repeated?: boolean;
+  /** Emit scalar defaults when field presence matters for captured QQ packets. */
+  readonly force?: boolean;
 }
 
 /** Build a nested-message schema. */
@@ -174,7 +176,7 @@ export function encode(schema: ProtoMessage, obj: Record<string, unknown>): Uint
         writeField(w, field, item, true); // repeated: emit every element
       }
     } else {
-      writeField(w, field, value, false); // singular: proto3 default-omission
+      writeField(w, field, value, field.force === true); // singular: proto3 default-omission unless forced
     }
   }
   return w.finish();

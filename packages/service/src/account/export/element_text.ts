@@ -30,6 +30,12 @@ function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max)}…` : s;
 }
 
+/** Append ` (relPath)` when an export injected a bundled-media path. */
+function withPath(label: string, el: RenderElement): string {
+  const p = (el.data as { localPath?: string }).localPath;
+  return p ? `${label.replace(/\]$/, '')} → ${p}]` : label;
+}
+
 /** One element → its text fragment. */
 export function elementToText(el: RenderElement): string {
   switch (el.type) {
@@ -39,9 +45,15 @@ export function elementToText(el: RenderElement): string {
       return el.data.textContent ?? '';
     case 'face':
       return el.data.faceText ? `[${el.data.faceText}]` : '[表情]';
+    case 'pic':
+      return withPath(el.data.subType === 1 ? '[表情]' : '[图片]', el);
+    case 'video':
+      return withPath('[视频]', el);
+    case 'ptt':
+      return withPath('[语音]', el);
     case 'file':
     case 'onlineFile':
-      return `[文件: ${el.data.fileName || ''}]`;
+      return withPath(`[文件: ${el.data.fileName || ''}]`, el);
     case 'reply': {
       const summary = elementsToText(el.data.origElements ?? []).trim();
       return summary ? `[回复: ${truncate(summary, 30)}] ` : '[回复] ';
@@ -101,4 +113,52 @@ export function messageToCells(m: ExportedMessage): string[] {
     m.msgId,
     m.msgSeq,
   ];
+}
+
+/** Drop a trailing extension: `AB.MP4` → `AB`. */
+function dropExt(filename: string): string {
+  const i = filename.lastIndexOf('.');
+  return i > 0 ? filename.slice(0, i) : filename;
+}
+
+/**
+ * Deterministic relative path of one media element inside the export bundle, or
+ * null for non-media. Predictable from (kind, fileName) alone — no scan needed,
+ * which is what lets the message file reference media that the later media
+ * stages will (or won't) materialize at that exact path.
+ *
+ *   pic (subType 1 = emoji) / pic → media/image/<fileName>
+ *   video                         → media/video/<fileName>
+ *   file / onlineFile             → media/file/<fileName>
+ *   ptt                           → media/record/<stem>.wav   (decoded)
+ */
+export function mediaRelPath(el: RenderElement): string | null {
+  switch (el.type) {
+    case 'pic':
+      return el.data.fileName ? `media/image/${el.data.fileName}` : null;
+    case 'video':
+      return el.data.fileName ? `media/video/${el.data.fileName}` : null;
+    case 'file':
+    case 'onlineFile':
+      return el.data.fileName ? `media/file/${el.data.fileName}` : null;
+    case 'ptt':
+      return el.data.fileName ? `media/record/${dropExt(el.data.fileName)}.wav` : null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Mutate a message's media elements in place, stamping each with its bundle
+ * relative path (`data.localPath`). Recurses into reply quotes so quoted media
+ * is referenced too. Called by the exporters only when media export is on.
+ */
+export function annotateLocalPaths(elements: RenderElement[]): void {
+  for (const el of elements) {
+    const rel = mediaRelPath(el);
+    if (rel) (el.data as { localPath?: string }).localPath = rel;
+    if (el.type === 'reply' && Array.isArray(el.data.origElements)) {
+      annotateLocalPaths(el.data.origElements);
+    }
+  }
 }

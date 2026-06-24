@@ -13,7 +13,7 @@ import { resolve } from 'node:path';
 import { loadNative } from '@weq/native';
 import { GroupMsgDb } from '@weq/db';
 import { MsgService } from '../src/account/msg';
-import { scanGroupMedia, mediaDirsFromAccountDir, type MediaKind } from '../src/account/export';
+import { scanConvMedia, mediaDirsFromAccountDir, type MediaKind } from '../src/account/export';
 
 const UIN = '1707889225';
 const KEY = '^;<kXZ;RI[@]yTD<';
@@ -40,7 +40,7 @@ async function main(): Promise<void> {
   console.log(`[test:scan-media] media root ${accountDir}\\nt_qq\\nt_data\n`);
 
   try {
-    const r = await scanGroupMedia(msgs, GROUP_CODE, dirs, { pageSize: 2000 });
+    const r = await scanConvMedia(msgs, 'group', GROUP_CODE, dirs, { pageSize: 2000 });
 
     console.log('  per-kind  (unique / found / missing / expired / downloadable):');
     for (const kind of KINDS) {

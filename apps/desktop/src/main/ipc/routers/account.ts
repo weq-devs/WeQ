@@ -960,12 +960,30 @@ export const accountRouter = router({
       total: z.number().int().min(0),
       /** Also export every sender's avatar into an avatars/ subfolder. */
       exportAvatar: z.boolean().optional(),
+      /** Media export: copy local media into media/ and CDN-complete images. */
+      media: z
+        .object({
+          exportMedia: z.boolean(),
+          completeMedia: z.boolean(),
+          downloadVideo: z.boolean(),
+          downloadFile: z.boolean(),
+        })
+        .optional(),
       /** Inclusive send-time window (unix seconds); null bound = open-ended. */
       range: z.object({ start: z.number().nullable(), end: z.number().nullable() }).optional(),
     }))
     .mutation(async ({ input }) => {
       return requireServices().exportManager.startTask(input);
     }),
+
+  /**
+   * Force a one-shot rkey harvest from the online QQ for the open account — the
+   * explicit "立即重新获取 rkey" before a media-completing export. Returns true
+   * when fresh rkeys were stored.
+   */
+  refreshRkeys: procedure.mutation(() => {
+    return getAppContext().refreshRkeysNow();
+  }),
 
   /** List all export tasks. */
   listExportTasks: procedure.query(() => {

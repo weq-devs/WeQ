@@ -186,6 +186,12 @@ export interface AppContext {
    * takes effect immediately. No-op when no account is open.
    */
   applyRealtime(enabled: boolean): void;
+  /**
+   * Force a one-shot rkey harvest from the online QQ for the open account —
+   * the explicit refresh before a media-completing export. Resolves false when
+   * no account is open / QQ is offline / harvest failed.
+   */
+  refreshRkeysNow(): Promise<boolean>;
 }
 
 let cached: AppContext | undefined;
@@ -211,6 +217,9 @@ export function initAppContext(): AppContext {
       },
       applyRealtime(): void {
         /* no account to watch */
+      },
+      refreshRkeysNow(): Promise<boolean> {
+        return Promise.resolve(false);
       },
     };
     return cached;
@@ -252,6 +261,14 @@ export function initAppContext(): AppContext {
         }
         return record.qqPid;
       };
+      // Shared media download service — also injected into the export manager so
+      // 媒体补全 reuses the same rkey-backed CDN download + on-disk cache.
+      const mediaDownload = new MediaDownloadService(
+        accountConfig,
+        // Honour the custom 缓存路径 override (设置 → 账号信息). Applied at
+        // account-open time; changing it takes effect on the next 进入.
+        userConfig.cacheDir('media'),
+      );
       this.services = {
         msgs: new MsgService(session),
         recentContacts: new RecentContactService(session),
@@ -264,19 +281,24 @@ export function initAppContext(): AppContext {
         msgSearch: new MsgSearchService(session),
         onlineStatus: new OnlineStatusService(session),
         fileSearch: new FileSearchService(session, platform),
-        mediaDownload: new MediaDownloadService(
-          accountConfig,
-          // Honour the custom 缓存路径 override (设置 → 账号信息). Applied at
-          // account-open time; changing it takes effect on the next 进入.
-          userConfig.cacheDir('media'),
-        ),
+        mediaDownload,
         fileAssistant: new FileAssistantService(session),
         emoji: new EmojiService(session, platform),
         exportManager: new (await import('@weq/service')).ExportTaskManager(
           new MsgService(session),
           userConfig.cacheDir(join('export', exportConfigId)),
-          // Cache-first avatar resolution for the 导出头像 option.
-          bootstrap.avatarCache,
+          {
+            // Cache-first avatar resolution for the 导出头像 option.
+            avatarCache: bootstrap.avatarCache,
+            // rkey-backed CDN image completion (媒体补全).
+            mediaDownload,
+            // Account user-data dir for locating on-disk media to copy.
+            accountDir: metadata.dataDir ?? accountConfig.getRecord()?.dataDir,
+            // SILK → WAV decode lives in the app (silk-wasm); load it lazily to
+            // avoid a static import cycle with this module.
+            decodeSilk: (silk: string, dest: string) =>
+              import('../voice').then((m) => m.decodeSilkToFile(silk, dest)),
+          },
         ),
         dbDecrypt: new DbDecryptService(session, platform),
         webQuery: new WebQueryService(platform.native.ntHelper, session, resolveOnlinePid),
@@ -318,6 +340,9 @@ export function initAppContext(): AppContext {
       if (!session) return;
       if (enabled) mountDbWatch(session);
       else unmountDbWatch();
+    },
+    refreshRkeysNow(): Promise<boolean> {
+      return accountMonitor?.harvestRkeysNow() ?? Promise.resolve(false);
     },
   };
 

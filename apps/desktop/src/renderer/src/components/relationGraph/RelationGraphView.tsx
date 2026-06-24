@@ -29,6 +29,14 @@ const RANK_BUTTONS: Array<{ kind: RankingKind; label: string; icon: JSX.Element 
 	{ kind: "memberLevel", label: "群成员等级排行", icon: <Award size={14} /> },
 ];
 
+const COMMON_THRESHOLD_RANGES: Record<
+	GraphMode,
+	{ min: number; max: number; label: string }
+> = {
+	people: { min: 2, max: 10, label: "连线阈值 · 共同群" },
+	groups: { min: 5, max: 30, label: "连线阈值 · 共同好友" },
+};
+
 const DEFAULT_SETTINGS: GraphSettings = {
 	mode: "people",
 	nodeLimit: 100,
@@ -54,6 +62,7 @@ export function RelationGraphView() {
 	const [refreshing, setRefreshing] = useState(false);
 	const [pickerOpen, setPickerOpen] = useState(false);
 	const [rankOpen, setRankOpen] = useState<RankingKind | null>(null);
+	const previousModeRef = useRef<GraphMode>(DEFAULT_SETTINGS.mode);
 
 	const query = trpc.account.getRelationGraph.useQuery(undefined, {
 		staleTime: Infinity,
@@ -63,6 +72,19 @@ export function RelationGraphView() {
 
 	useEffect(() => {
 		setSelectedId(null);
+		setSettings((current) => {
+			const previousMode = previousModeRef.current;
+			if (previousMode === current.mode) return current;
+			previousModeRef.current = current.mode;
+			return {
+				...current,
+				minCommon: scaleCommonThreshold(
+					current.minCommon,
+					COMMON_THRESHOLD_RANGES[previousMode],
+					COMMON_THRESHOLD_RANGES[current.mode],
+				),
+			};
+		});
 	}, [settings.mode]);
 
 	const graph = useMemo(() => buildGraph(data, settings), [data, settings]);
@@ -90,6 +112,7 @@ export function RelationGraphView() {
 
 	const loading = query.isLoading || refreshing;
 	const isPeople = settings.mode === "people";
+	const commonRange = COMMON_THRESHOLD_RANGES[settings.mode];
 	const hasNodes = graph.nodes.some((n) => n.kind !== "self");
 	const filterActive = settings.groupFilterMode !== "all";
 
@@ -160,11 +183,11 @@ export function RelationGraphView() {
 					/>
 					<RangeControl
 						value={settings.minCommon}
-						min={1}
-						max={12}
+						min={commonRange.min}
+						max={commonRange.max}
 						step={1}
 						onCommit={(v) => patch({ minCommon: v })}
-						label={isPeople ? "连线阈值 · 共同群" : "连线阈值 · 共同成员"}
+						label={commonRange.label}
 						unit="≥"
 					/>
 				</div>
@@ -482,20 +505,22 @@ function RangeControl({ value, min, max, step, onCommit, label, unit }) {
 	const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	useEffect(() => {
-		setLocal(value);
-	}, [value]);
+		setLocal(clampNumber(value, min, max));
+	}, [value, min, max]);
 
 	useEffect(() => () => {
 		if (timer.current) clearTimeout(timer.current);
 	}, []);
 
 	function change(v: number) {
-		setLocal(v);
+		const next = clampNumber(v, min, max);
+		setLocal(next);
 		if (timer.current) clearTimeout(timer.current);
-		timer.current = setTimeout(() => onCommit(v), 140);
+		timer.current = setTimeout(() => onCommit(next), 140);
 	}
 
-	const pct = ((local - min) / (max - min)) * 100;
+	const clampedLocal = clampNumber(local, min, max);
+	const pct = ((clampedLocal - min) / (max - min)) * 100;
 
 	return (
 		<label className="weq-graph-slider">
@@ -503,7 +528,7 @@ function RangeControl({ value, min, max, step, onCommit, label, unit }) {
 				<span className="weq-graph-slider-label">{label}</span>
 				<span className="weq-graph-slider-value">
 					{unit ? `${unit} ` : ""}
-					{local}
+					{clampedLocal}
 				</span>
 			</span>
 			<input
@@ -513,11 +538,21 @@ function RangeControl({ value, min, max, step, onCommit, label, unit }) {
 				min={min}
 				max={max}
 				step={step}
-				value={local}
+				value={clampedLocal}
 				onChange={(e) => change(Number(e.target.value))}
 			/>
 		</label>
 	);
+}
+
+function scaleCommonThreshold(value: number, from: { min: number; max: number }, to: { min: number; max: number }) {
+	const pct = (value - from.min) / Math.max(1, from.max - from.min);
+	const scaled = to.min + pct * (to.max - to.min);
+	return Math.round(Math.min(Math.max(scaled, to.min), to.max));
+}
+
+function clampNumber(value: number, min: number, max: number) {
+	return Math.min(Math.max(value, min), max);
 }
 
 function Segmented({ value, onChange, options, small }) {

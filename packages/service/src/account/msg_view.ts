@@ -35,6 +35,12 @@ interface BaseRenderData {
   elementId?: bigint;
   isSender?: boolean;
   subType?: number;
+  /**
+   * Export-only: relative path of this media inside the export bundle
+   * (e.g. `media/image/xxx.jpg`). Absent in the live app; set by the exporter
+   * just before serialization so output files reference the bundled media.
+   */
+  localPath?: string;
 }
 
 export interface RenderTextElement {

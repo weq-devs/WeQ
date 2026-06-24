@@ -19,6 +19,23 @@ import {
 } from 'lucide-react';
 import { fmtCount } from './types';
 
+export type StageStatus = 'pending' | 'running' | 'completed' | 'skipped' | 'failed';
+
+export interface UiStage {
+  key: string;
+  label: string;
+  status: StageStatus;
+  current: number;
+  total: number;
+  failed?: number;
+  note?: string;
+}
+
+/** Total failed items across a task's media stages (0 when none / no stages). */
+function totalFailed(stages: UiStage[] | undefined): number {
+  return (stages ?? []).reduce((sum, s) => sum + (s.failed ?? 0), 0);
+}
+
 export interface UiTask {
   id: string;
   kind: 'group' | 'c2c';
@@ -34,6 +51,32 @@ export interface UiTask {
   bundleDir?: string;
   /** Number of sender avatars exported into the bundle. */
   avatarCount?: number;
+  /** Per-stage progress (message → media → record → image …). */
+  stages?: UiStage[];
+}
+
+/** Percent for one stage's bar. */
+function stagePct(s: UiStage): number {
+  if (s.status === 'completed' || s.status === 'skipped') return 100;
+  if (s.status === 'pending' || s.total <= 0) return 0;
+  return Math.min(100, Math.max(0, Math.floor((s.current / s.total) * 100)));
+}
+
+/**
+ * Which stages to render: keep at most one *done* stage (the most recent
+ * completed/skipped) so finished stages collapse, plus every still-active stage
+ * (running / pending / failed). Order is preserved.
+ */
+function visibleStages(stages: UiStage[]): UiStage[] {
+  const doneIdx: number[] = [];
+  stages.forEach((s, i) => {
+    if (s.status === 'completed' || s.status === 'skipped') doneIdx.push(i);
+  });
+  const keepDone = doneIdx.length ? doneIdx[doneIdx.length - 1] : -1;
+  return stages.filter(
+    (s, i) =>
+      i === keepDone || s.status === 'running' || s.status === 'pending' || s.status === 'failed',
+  );
 }
 
 const STATUS_LABEL: Record<UiTask['status'], string> = {
@@ -60,6 +103,25 @@ function StatusIcon({ status }: { status: UiTask['status'] }): ReactElement {
     default:
       return <Clock size={16} />;
   }
+}
+
+/** One stage's row: label + mini progress bar + note, for a media bundle task. */
+function StageRow({ stage }: { stage: UiStage }): ReactElement {
+  const pct = stagePct(stage);
+  return (
+    <div className={`weq-exp-stage is-${stage.status}`}>
+      <span className="weq-exp-stage-label">{stage.label}</span>
+      <span className="weq-exp-stage-bar">
+        <span
+          className={`weq-exp-stage-fill${stage.status === 'running' ? ' is-active' : ''}`}
+          style={{ width: `${pct}%` }}
+        />
+      </span>
+      <span className="weq-exp-stage-note">
+        {stage.status === 'skipped' ? (stage.note ?? '已跳过') : stage.note ?? `${pct}%`}
+      </span>
+    </div>
+  );
 }
 
 export function TaskList({
@@ -92,6 +154,14 @@ export function TaskList({
         ) : (
           tasks.map((t) => {
             const pct = t.status === 'completed' ? 100 : Math.min(100, Math.max(0, t.progress));
+            // Multi-stage view only for in-progress media bundles; a finished or
+            // single-stage task keeps the compact single bar.
+            const multiStage =
+              !!t.stages &&
+              t.stages.length > 1 &&
+              (t.status === 'running' || t.status === 'paused');
+            const shownStages = multiStage ? visibleStages(t.stages!) : [];
+            const mediaFailed = totalFailed(t.stages);
             return (
               <article key={t.id} className={`weq-exp-task is-${t.status}`}>
                 <span className="weq-exp-task-kind" title={t.kind === 'group' ? '群聊' : '私聊'}>
@@ -110,12 +180,20 @@ export function TaskList({
                     </span>
                   </div>
 
-                  <div className="weq-exp-task-bar">
-                    <span
-                      className={`weq-exp-task-fill${t.status === 'running' ? ' is-active' : ''}`}
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
+                  {multiStage ? (
+                    <div className="weq-exp-stages">
+                      {shownStages.map((s) => (
+                        <StageRow key={s.key} stage={s} />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="weq-exp-task-bar">
+                      <span
+                        className={`weq-exp-task-fill${t.status === 'running' ? ' is-active' : ''}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  )}
 
                   <div className="weq-exp-task-sub">
                     <span>
@@ -123,6 +201,11 @@ export function TaskList({
                       {t.total > 0 ? ` / ${fmtCount(t.total)}` : ''} 条
                       {t.avatarCount ? ` · 含头像 ${fmtCount(t.avatarCount)}` : ''}
                     </span>
+                    {mediaFailed > 0 ? (
+                      <span className="weq-exp-task-err" title="部分媒体搬运/补全失败">
+                        媒体失败 {fmtCount(mediaFailed)}
+                      </span>
+                    ) : null}
                     {t.status === 'failed' && t.error ? (
                       <span className="weq-exp-task-err" title={t.error}>
                         {t.error}

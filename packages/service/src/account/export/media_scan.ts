@@ -24,7 +24,8 @@ import { readdir } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import type { MsgService } from '../msg';
 import type { RenderElement } from '../msg_view';
-import { iterateGroupMessages } from './message_source';
+import { iterateC2cMessages, iterateGroupMessages } from './message_source';
+import type { ConvKind, ExportTimeRange } from './types';
 
 export type MediaKind = 'pic' | 'video' | 'ptt' | 'emoji' | 'file';
 
@@ -66,6 +67,8 @@ export interface MediaRef {
   stem: string;
   /** CDN download token (empty for `file`, which carries none in the render view). */
   fileToken: string;
+  /** CDN path for the original media (digit-token, rkey-less downloads); pic only. */
+  originalUrl: string;
   /** Upload time (unix seconds), as stored on the element. */
   uploadTime: number;
   /** Upload timestamp (unix seconds), as stored on the element. */
@@ -106,6 +109,8 @@ export interface MediaScanResult {
   /** Of the missing, how many are still downloadable (the real work-list size). */
   downloadableFiles: number;
   byKind: Record<MediaKind, KindCounts>;
+  /** Deduped, one entry per (kind, stem) that resolved to a real on-disk path. */
+  found: MediaRef[];
   /** Deduped, one entry per missing (kind, stem) — includes expired ones. */
   missing: MediaRef[];
   /** Missing AND still downloadable (expired excluded). The rkey-download work-list. */
@@ -128,6 +133,8 @@ export interface ScanOptions {
   pageSize?: number;
   /** Concurrency for index-building readdir calls (default 24). */
   concurrency?: number;
+  /** Inclusive send-time window; references outside it are ignored. */
+  range?: ExportTimeRange;
 }
 
 /** Drop a trailing extension and lowercase: `AB.MP4` → `ab`. */
@@ -196,6 +203,7 @@ function collectFromElements(
     let kind: MediaKind | null = null;
     let fileName = '';
     let fileToken = '';
+    let originalUrl = '';
     let uploadTime = 0;
     let uploadTimestamp = 0;
     let fileTTL = 0;
@@ -205,6 +213,7 @@ function collectFromElements(
         kind = el.data.subType === 1 ? 'emoji' : 'pic';
         fileName = el.data.fileName;
         fileToken = el.data.fileToken;
+        originalUrl = el.data.originalUrl;
         uploadTime = el.data.uploadTime;
         uploadTimestamp = el.data.uploadTimestamp;
         fileTTL = el.data.fileTTL;
@@ -242,6 +251,7 @@ function collectFromElements(
       fileName,
       stem: stemOf(fileName),
       fileToken,
+      originalUrl,
       uploadTime,
       uploadTimestamp,
       fileTTL,
@@ -283,12 +293,15 @@ async function walkFiles(
 }
 
 /**
- * Scan a group's media against the local disk. Returns counts + the missing
- * work-list. Pure measurement — does not download or copy anything.
+ * Scan a conversation's media against the local disk. Returns counts + the
+ * found / missing work-lists. Pure measurement — does not download or copy
+ * anything. Group and c2c share the same on-disk media layout; only the message
+ * iterator differs.
  */
-export async function scanGroupMedia(
+export async function scanConvMedia(
   msgs: MsgService,
-  groupCode: string,
+  kind: ConvKind,
+  conv: string,
   dirs: MediaDirs,
   opts: ScanOptions = {},
 ): Promise<MediaScanResult> {
@@ -298,7 +311,11 @@ export async function scanGroupMedia(
   // ---- 1. collect references (one DB pass) ----
   const t0 = Date.now();
   const rawRefs: MediaRef[] = [];
-  for await (const m of iterateGroupMessages(msgs, groupCode, { pageSize: opts.pageSize })) {
+  const iterator =
+    kind === 'group'
+      ? iterateGroupMessages(msgs, conv, { pageSize: opts.pageSize, range: opts.range })
+      : iterateC2cMessages(msgs, conv, { pageSize: opts.pageSize, range: opts.range });
+  for await (const m of iterator) {
     collectFromElements(
       m.elements,
       m.msgId.toString(),
@@ -388,6 +405,7 @@ export async function scanGroupMedia(
   };
   for (const ref of rawRefs) byKind[ref.kind].refs += 1;
 
+  const found: MediaRef[] = [];
   const missing: MediaRef[] = [];
   const downloadList: MediaRef[] = [];
   for (const ref of uniqueByKey.values()) {
@@ -397,6 +415,7 @@ export async function scanGroupMedia(
     if (hit) {
       counts.found += 1;
       ref.path = hit;
+      found.push(ref);
       continue;
     }
     counts.missing += 1;
@@ -426,6 +445,7 @@ export async function scanGroupMedia(
     expiredFiles: missing.length - downloadList.length,
     downloadableFiles: downloadList.length,
     byKind,
+    found,
     missing,
     downloadList,
     collectMs,

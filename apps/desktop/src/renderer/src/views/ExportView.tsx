@@ -177,6 +177,7 @@ export function ExportView(): ReactElement {
       filePath: t.filePath,
       bundleDir: t.bundleDir,
       avatarCount: t.avatarCount,
+      stages: t.stages,
     }));
   }, [tasks.data]);
 
@@ -236,10 +237,72 @@ export function ExportView(): ReactElement {
     setLightbox(mode === 'scheduled' ? 'scheduled' : mode === 'chatlab' ? 'chatlab' : 'full');
   }
 
+  /**
+   * Pre-flight for 补全缺失媒体: needs an online QQ (to harvest a fresh rkey).
+   * Returns false to abort the export. Offline → hard block; global 媒体补全 off
+   * → warn but allow; then force one fresh rkey harvest.
+   */
+  async function preflightMediaCompletion(): Promise<boolean> {
+    let online = false;
+    try {
+      online = (await client.account.getGroupAlbumAccessState.query()).qqOnline;
+    } catch (e) {
+      dialog.error('检查在线状态失败', e instanceof Error ? e.message : String(e));
+      return false;
+    }
+    if (!online) {
+      await dialog.info(
+        '无法补全媒体',
+        '未检测到在线的 QQ 实例。补全缺失媒体需要登录该账号的 QQ 客户端以获取下载凭证（rkey）。请登录后重试，或关闭「补全缺失媒体」后继续导出。',
+      );
+      return false;
+    }
+    let globalOn = true;
+    try {
+      globalOn = (await client.bootstrap.getSettings.query()).mediaCompletion.enabled;
+    } catch {
+      /* treat as on; the forced harvest below still runs */
+    }
+    if (!globalOn) {
+      const ok = await dialog.confirm(
+        '媒体补全未开启',
+        '全局设置中的「媒体补全（rkey）」已关闭，后台不会持续刷新下载凭证，可能有大量图片无法补全。是否仍要继续？',
+        { okLabel: '继续导出', cancelLabel: '返回', tone: 'warning' },
+      );
+      if (!ok) return false;
+    }
+    // Explicit one-shot rkey refresh right before exporting.
+    try {
+      await client.account.refreshRkeys.mutate();
+    } catch {
+      /* best-effort; export proceeds with whatever rkeys exist */
+    }
+    return true;
+  }
+
   async function runFullExport(options: ExportOptions): Promise<void> {
     const targets = convItems.filter((it) => convSelection.has(it.id));
     // null bounds = open-ended; both null (全部时间) means no filtering.
     const range = { start: options.range.start, end: options.range.end };
+    const media = {
+      exportMedia: options.exportMedia,
+      completeMedia: options.exportMedia && options.completeMedia,
+      downloadVideo: options.exportMedia && options.completeMedia && options.downloadVideo,
+      downloadFile: options.exportMedia && options.completeMedia && options.downloadFile,
+    };
+
+    if (media.completeMedia) {
+      const ok = await preflightMediaCompletion();
+      if (!ok) return;
+    } else if (media.exportMedia) {
+      const ok = await dialog.confirm(
+        '未开启媒体补全',
+        '已开启「导出媒体文件」但未开启「补全缺失媒体」。本地缓存中缺失的图片 / 视频 / 文件不会从云端下载，可能有大量媒体无法导出。是否继续？',
+        { okLabel: '继续导出', cancelLabel: '返回', tone: 'warning' },
+      );
+      if (!ok) return;
+    }
+
     setSubmitting(true);
     try {
       for (const t of targets) {
@@ -250,6 +313,7 @@ export function ExportView(): ReactElement {
           format,
           total: t.total ?? 0,
           exportAvatar: options.exportAvatar,
+          media,
           range,
         });
       }

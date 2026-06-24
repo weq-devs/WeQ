@@ -70,6 +70,27 @@ export class AccountMonitorService {
     this.scheduleLoginPoll(0);
   }
 
+  /**
+   * Force a one-shot rkey harvest right now, ignoring the background gate — the
+   * explicit "立即重新获取 rkey" before a media-completing export. Resolves the
+   * QQ pid fresh if we aren't currently attached. Returns true when fresh rkeys
+   * were stored. Best-effort: any failure resolves false rather than throwing.
+   */
+  async harvestRkeysNow(): Promise<boolean> {
+    const pid = this.attachedPid ?? this.resolvePid();
+    if (pid === null) return false;
+    try {
+      await this.ensureInjected(pid);
+      const raw = await this.nt.fetchDownloadRkeys(pid);
+      const rkeys = parseRkeys(raw);
+      if (rkeys.length === 0) return false;
+      this.accountConfig.setRkeys(rkeys);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   stop(): void {
     this.running = false;
     if (this.timer) {

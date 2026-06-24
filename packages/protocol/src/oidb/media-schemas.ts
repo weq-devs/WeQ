@@ -26,6 +26,7 @@ const NTV2_GROUP_INFO = message([{ name: 'groupUin', tag: 1, type: 'uint32' }]);
 const NTV2_SCENE_INFO = message([
   { name: 'requestType', tag: 101, type: 'uint32' },
   { name: 'businessType', tag: 102, type: 'uint32' },
+  { name: 'subBusinessType', tag: 103, type: 'uint32', force: true },
   { name: 'sceneType', tag: 200, type: 'uint32' },
   { name: 'c2c', tag: 201, type: NTV2_C2C_USER_INFO },
   { name: 'group', tag: 202, type: NTV2_GROUP_INFO },
@@ -40,10 +41,10 @@ const NTV2_REQ_HEAD = message([
 ]);
 
 const NTV2_FILE_TYPE = message([
-  { name: 'type', tag: 1, type: 'uint32' },
-  { name: 'picFormat', tag: 2, type: 'uint32' },
-  { name: 'videoFormat', tag: 3, type: 'uint32' },
-  { name: 'voiceFormat', tag: 4, type: 'uint32' },
+  { name: 'type', tag: 1, type: 'uint32', force: true },
+  { name: 'picFormat', tag: 2, type: 'uint32', force: true },
+  { name: 'videoFormat', tag: 3, type: 'uint32', force: true },
+  { name: 'voiceFormat', tag: 4, type: 'uint32', force: true },
 ]);
 
 const NTV2_FILE_INFO = message([
@@ -55,7 +56,7 @@ const NTV2_FILE_INFO = message([
   { name: 'width', tag: 6, type: 'uint32' },
   { name: 'height', tag: 7, type: 'uint32' },
   { name: 'time', tag: 8, type: 'uint32' },
-  { name: 'original', tag: 9, type: 'uint32' },
+  { name: 'original', tag: 9, type: 'uint32', force: true },
 ]);
 
 const NTV2_INDEX_NODE = message([
@@ -64,20 +65,33 @@ const NTV2_INDEX_NODE = message([
   { name: 'storeId', tag: 3, type: 'uint32' },
   { name: 'uploadTime', tag: 4, type: 'uint32' },
   { name: 'ttl', tag: 5, type: 'uint32' },
-  { name: 'subType', tag: 6, type: 'uint32' },
+  { name: 'subType', tag: 6, type: 'uint32', force: true },
 ]);
 
 const NTV2_VIDEO_DOWNLOAD_EXT = message([
-  { name: 'busiType', tag: 1, type: 'uint32' },
+  { name: 'busiType', tag: 1, type: 'uint32', force: true },
   { name: 'sceneType', tag: 2, type: 'uint32' },
-  { name: 'subBusiType', tag: 3, type: 'uint32' },
+  { name: 'subBusiType', tag: 3, type: 'uint32', force: true },
+  { name: 'field5', tag: 5, type: 'uint32', force: true },
+  { name: 'videoMeta', tag: 6, type: message([
+    { name: 'businessType', tag: 1, type: 'uint32' },
+    { name: 'channelParams', tag: 2, type: 'string' },
+    { name: 'videoFlag45421', tag: 3, type: 'string' },
+    { name: 'videoFlag45863', tag: 4, type: 'uint32' },
+  ]) },
 ]);
 
-const NTV2_DOWNLOAD_EXT = message([{ name: 'video', tag: 2, type: NTV2_VIDEO_DOWNLOAD_EXT }]);
+const NTV2_DOWNLOAD_EXTRA = message([{ name: 'field1', tag: 1, type: 'uint32', force: true }]);
+
+const NTV2_DOWNLOAD_EXT = message([
+  { name: 'video', tag: 2, type: NTV2_VIDEO_DOWNLOAD_EXT },
+  { name: 'extra', tag: 4, type: NTV2_DOWNLOAD_EXTRA },
+]);
 
 const NTV2_DOWNLOAD_REQ = message([
   { name: 'node', tag: 1, type: NTV2_INDEX_NODE },
   { name: 'download', tag: 2, type: NTV2_DOWNLOAD_EXT },
+  { name: 'field3', tag: 3, type: 'uint32', force: true },
 ]);
 
 const NTV2_DOWNLOAD_RKEY_REQ = message([{ name: 'types', tag: 1, type: 'uint32', repeated: true }]);
@@ -119,7 +133,7 @@ const OIDB_PRIVATE_FILE_DOWNLOAD_REQ_BODY = message([
   { name: 'fileUuid', tag: 20, type: 'string' },
   { name: 'type', tag: 30, type: 'uint32' },
   { name: 'fileHash', tag: 60, type: 'string' },
-  { name: 't2', tag: 601, type: 'uint32' },
+  { name: 't2', tag: 601, type: 'uint32', force: true },
 ]);
 
 export const OIDB_PRIVATE_FILE_DOWNLOAD_REQ = message([
@@ -269,6 +283,11 @@ export interface MediaIndexNode {
   uploadTime?: number;
   ttl?: number;
   subType?: number;
+  videoExt?: {
+    channelParams?: string;
+    videoFlag45421?: string;
+    videoFlag45863?: number;
+  };
   type?: {
     type?: number;
     picFormat?: number;
@@ -278,9 +297,14 @@ export interface MediaIndexNode {
 }
 
 /** Build the NTV2 `download.node` object from a {@link MediaIndexNode}. */
-export function normalizeMediaNode(node: MediaIndexNode): Record<string, unknown> {
+export function normalizeMediaNode(node: MediaIndexNode, forceDefaultFields = false): Record<string, unknown> {
   if (!node.fileUuid) throw new Error('media node fileUuid is required');
   const t = node.type ?? {};
+  const forced = (value: number | undefined): number | undefined => {
+    if (forceDefaultFields) return value ?? 0;
+    return value && value !== 0 ? value : undefined;
+  };
+
   return {
     info: {
       fileSize: node.fileSize ?? 0,
@@ -288,20 +312,20 @@ export function normalizeMediaNode(node: MediaIndexNode): Record<string, unknown
       fileSha1: node.fileSha1 ?? '',
       fileName: node.fileName ?? '',
       type: {
-        type: t.type ?? 0,
-        picFormat: t.picFormat ?? 0,
-        videoFormat: t.videoFormat ?? 0,
-        voiceFormat: t.voiceFormat ?? 0,
+        type: forced(t.type),
+        picFormat: forced(t.picFormat),
+        videoFormat: forced(t.videoFormat),
+        voiceFormat: forced(t.voiceFormat),
       },
       width: node.width ?? 0,
       height: node.height ?? 0,
       time: node.time ?? 0,
-      original: node.original ?? 0,
+      original: forced(node.original),
     },
     fileUuid: node.fileUuid,
     storeId: node.storeId ?? 0,
     uploadTime: node.uploadTime ?? 0,
     ttl: node.ttl ?? 0,
-    subType: node.subType ?? 0,
+    subType: forced(node.subType),
   };
 }

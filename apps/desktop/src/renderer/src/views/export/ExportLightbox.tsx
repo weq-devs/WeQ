@@ -157,10 +157,11 @@ export function ExportLightbox({
               <Row
                 indent
                 label="下载视频"
+                desc="需先开启「补全缺失媒体」"
                 control={
                   <Toggle
-                    checked={opts.downloadVideo}
-                    disabled={!opts.exportMedia}
+                    checked={opts.downloadVideo && opts.completeMedia}
+                    disabled={!opts.exportMedia || !opts.completeMedia}
                     onChange={(v) => patch({ downloadVideo: v })}
                   />
                 }
@@ -168,10 +169,11 @@ export function ExportLightbox({
               <Row
                 indent
                 label="下载文件"
+                desc="需先开启「补全缺失媒体」"
                 control={
                   <Toggle
-                    checked={opts.downloadFile}
-                    disabled={!opts.exportMedia}
+                    checked={opts.downloadFile && opts.completeMedia}
+                    disabled={!opts.exportMedia || !opts.completeMedia}
                     onChange={(v) => patch({ downloadFile: v })}
                   />
                 }

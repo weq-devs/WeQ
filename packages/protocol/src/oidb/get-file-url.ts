@@ -24,6 +24,19 @@ export interface GroupFileDownload {
   saveFileName: string;
 }
 
+export function composeGroupFileDownloadUrl(download: GroupFileDownload): string {
+  return `https://${download.dns}/ftn_handler/${download.urlHex}/?fname=`;
+}
+
+function composePrivateFileDownloadUrl(server: string, port: number, url: string): string {
+  const [pathWithQuery = '', fragment = ''] = url.replace('/asn.com', '').split('#', 2);
+  const [path = '', query = ''] = pathWithQuery.split('?', 2);
+  const params = query ? query.split('&').filter((p) => p !== '' && p !== 'isthumb=0') : [];
+  params.push('isthumb=0');
+  const suffix = fragment ? `#${fragment}` : '';
+  return `http://${server}:${port}${path}?${params.join('&')}${suffix}`;
+}
+
 export namespace GetGroupFileUrl {
   export const command = 0x6d6;
   export const subCommand = 2;
@@ -86,7 +99,7 @@ export namespace GetPrivateFileUrl {
     field2: 1,
     body: { receiverUid: p.selfUid, fileUuid: p.fileId, type: 2, fileHash: p.fileHash, t2: 0 },
     field101: 3,
-    field102: 103,
+    field102: 1,
     field200: 1,
     field99999: PRIVATE_FILE_MAGIC,
   });
@@ -100,7 +113,7 @@ export namespace GetPrivateFileUrl {
     const port = typeof result.port === 'number' ? result.port : 0;
     const url = typeof result.url === 'string' ? result.url : '';
     if (!server || !url) throw new Error('private file url response invalid');
-    return `http://${server}:${port}${url}&isthumb=0`;
+    return composePrivateFileDownloadUrl(server, port, url);
   };
 
   export const invoke = (nt: OidbNative, pid: number, params: Params): Promise<string> =>

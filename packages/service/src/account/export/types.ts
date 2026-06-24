@@ -71,6 +71,8 @@ export interface GroupExportOptions {
   collectSenders?: Set<string>;
   /** Inclusive send-time window; messages outside it are skipped. */
   range?: ExportTimeRange;
+  /** Stamp media elements with their bundle relative path (`data.localPath`). */
+  withMediaPaths?: boolean;
 }
 
 /** Result of a completed export. */

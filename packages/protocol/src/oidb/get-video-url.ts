@@ -9,7 +9,8 @@ import { buildNtv2DownloadReq, parseNtv2DownloadUrl } from './ntv2';
 import { invokeOidb, type OidbSpec } from './invoke';
 import type { OidbNative } from '../transport';
 
-const VIDEO_REQUEST_ID = 1;
+const GROUP_VIDEO_REQUEST_ID = 3;
+const PRIVATE_VIDEO_REQUEST_ID = 6;
 
 export namespace GetGroupVideoUrl {
   export const command = 0x11ea;
@@ -25,8 +26,8 @@ export namespace GetGroupVideoUrl {
 
   export const serialize = (p: Params): Record<string, unknown> =>
     buildNtv2DownloadReq(
-      VIDEO_REQUEST_ID,
-      { requestType: 2, businessType: 2, sceneType: 2, group: { groupUin: p.groupId } },
+      GROUP_VIDEO_REQUEST_ID,
+      { requestType: 2, businessType: 2, subBusinessType: 0, sceneType: 2, group: { groupUin: p.groupId } },
       p.node,
     );
 
@@ -50,8 +51,8 @@ export namespace GetPrivateVideoUrl {
 
   export const serialize = (p: Params): Record<string, unknown> =>
     buildNtv2DownloadReq(
-      VIDEO_REQUEST_ID,
-      { requestType: 2, businessType: 2, sceneType: 1, c2c: { accountType: 2, targetUid: p.selfUid } },
+      PRIVATE_VIDEO_REQUEST_ID,
+      { requestType: 2, businessType: 2, subBusinessType: 0, sceneType: 1, c2c: { accountType: 2, targetUid: p.selfUid } },
       p.node,
     );
 
