@@ -970,6 +970,7 @@ export const accountRouter = router({
           completeMedia: z.boolean(),
           downloadVideo: z.boolean(),
           downloadFile: z.boolean(),
+          transcribeVoice: z.boolean(),
         })
         .optional(),
       /** Inclusive send-time window (unix seconds); null bound = open-ended. */

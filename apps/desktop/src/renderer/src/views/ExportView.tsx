@@ -283,6 +283,43 @@ export function ExportView(): ReactElement {
     return true;
   }
 
+  /**
+   * Pre-flight for 语音自动转写: a transcription model must be selected *and*
+   * fully downloaded (设置 → 语音转录). Returns false to abort, pointing the user
+   * at the settings page — mirrors the per-message transcribe checks.
+   */
+  async function preflightVoiceTranscribe(): Promise<boolean> {
+    let modelId = '';
+    try {
+      modelId = (await client.bootstrap.getSettings.query()).voiceTranscribe.modelId;
+    } catch (e) {
+      dialog.error('检查语音模型失败', e instanceof Error ? e.message : String(e));
+      return false;
+    }
+    if (!modelId) {
+      await dialog.info(
+        '未配置语音模型',
+        '「语音自动转写」需要先下载并选择一个转录模型。请前往「设置 → 语音转录」下载模型后重试，或关闭「语音自动转写」后继续导出。',
+      );
+      return false;
+    }
+    try {
+      const models = await client.bootstrap.voiceModels.query();
+      const model = models.find((m) => m.id === modelId);
+      if (!model?.downloaded) {
+        await dialog.info(
+          '语音模型未下载',
+          `转录模型「${model?.name ?? modelId}」尚未下载完成。请前往「设置 → 语音转录」完成下载后重试，或关闭「语音自动转写」后继续导出。`,
+        );
+        return false;
+      }
+    } catch (e) {
+      dialog.error('检查语音模型失败', e instanceof Error ? e.message : String(e));
+      return false;
+    }
+    return true;
+  }
+
   async function runFullExport(options: ExportOptions): Promise<void> {
     const targets = convItems.filter((it) => convSelection.has(it.id));
     // null bounds = open-ended; both null (全部时间) means no filtering.
@@ -292,6 +329,7 @@ export function ExportView(): ReactElement {
       completeMedia: options.exportMedia && options.completeMedia,
       downloadVideo: options.exportMedia && options.completeMedia && options.downloadVideo,
       downloadFile: options.exportMedia && options.completeMedia && options.downloadFile,
+      transcribeVoice: options.transcribeVoice,
     };
 
     if (media.completeMedia) {
@@ -303,6 +341,12 @@ export function ExportView(): ReactElement {
         '已开启「导出媒体文件」但未开启「补全缺失媒体」。本地缓存中缺失的图片 / 视频 / 文件不会从云端下载，可能有大量媒体无法导出。是否继续？',
         { okLabel: '继续导出', cancelLabel: '返回', tone: 'warning' },
       );
+      if (!ok) return;
+    }
+
+    // 语音转写需要已下载的转录模型，缺失则提示去设置页（不阻断其它导出选项）。
+    if (media.transcribeVoice) {
+      const ok = await preflightVoiceTranscribe();
       if (!ok) return;
     }
 

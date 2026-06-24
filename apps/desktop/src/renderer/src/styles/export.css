@@ -1100,11 +1100,14 @@
   }
 }
 
-/* 多阶段进度（媒体 bundle 导出）：每个阶段一行，竖向排列 */
+/* 多阶段进度（媒体 bundle 导出）：每个阶段一行，竖向排列。
+ * 行距用每行的 margin-bottom 实现（而非父级 gap），这样某阶段完成收起时，
+ * 它的高度与行距能一起平滑塌陷，不会留下空白。容器底部用负 margin 抵消最后
+ * 一行的多余间距。 */
 .weq-exp-stages {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  margin-bottom: -5px;
 }
 
 .weq-exp-stage {
@@ -1112,6 +1115,38 @@
   grid-template-columns: 56px 1fr 78px;
   align-items: center;
   gap: 8px;
+  max-height: 30px;
+  margin-bottom: 5px;
+  overflow: hidden;
+  transform-origin: top center;
+  /* 收起动画：高度 / 透明度 / 上移 / 行距 一起过渡。 */
+  transition: max-height 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 220ms ease,
+    transform 300ms cubic-bezier(0.4, 0, 0.2, 1), margin-bottom 300ms ease;
+}
+
+/* 进入动画（仅对未收起的行）：轻微下滑 + 淡入。 */
+.weq-exp-stage:not(.is-collapsed) {
+  animation: weq-exp-stage-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes weq-exp-stage-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 完成 / 跳过：向上塌陷淡出（消失时上移消失动画）。 */
+.weq-exp-stage.is-collapsed {
+  max-height: 0;
+  margin-bottom: 0;
+  opacity: 0;
+  transform: translateY(-8px);
+  pointer-events: none;
 }
 
 .weq-exp-stage-label {

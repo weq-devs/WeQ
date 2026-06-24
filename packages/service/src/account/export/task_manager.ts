@@ -23,13 +23,15 @@ import { exportAvatars } from './avatar_export';
 import {
   copyFoundMedia,
   decodeFoundVoices,
+  transcribeFoundVoices,
   downloadMissingImages,
   downloadMissingVideos,
   downloadMissingFiles,
   type DecodeSilk,
+  type TranscribeVoiceFn,
   type MediaFailure,
 } from './media_export';
-import { scanConvMedia, mediaDirsFromAccountDir, type MediaDirs } from './media_scan';
+import { scanConvMedia, mediaDirsFromAccountDir, type MediaDirs, type MediaScanResult } from './media_scan';
 import type { MediaUrlService } from '../media_url';
 import { iterateC2cMessages, toExportedMessage } from './message_source';
 import { type Framing } from './run_export';
@@ -41,7 +43,7 @@ export type TaskStatus = 'pending' | 'running' | 'paused' | 'completed' | 'faile
 export type { ConvKind };
 
 /** A single stage of a task's pipeline. */
-export type StageKey = 'message' | 'media' | 'record' | 'image' | 'video' | 'file';
+export type StageKey = 'message' | 'media' | 'avatar' | 'record' | 'image' | 'video' | 'file' | 'transcribe';
 
 export interface TaskStage {
   key: StageKey;
@@ -67,6 +69,8 @@ export interface MediaExportOptions {
   downloadVideo: boolean;
   /** Reserved: include files when downloading (download deferred). */
   downloadFile: boolean;
+  /** Transcribe locally-found voice clips into a `transcripts.json` (needs a model). */
+  transcribeVoice: boolean;
 }
 
 export interface ExportTask {
@@ -115,6 +119,8 @@ export interface MediaDeps {
   accountDir?: string;
   /** SILK → WAV decode (writes to a given path). Injected from the app. */
   decodeSilk?: DecodeSilk;
+  /** SILK voice → text transcription (native engine; injected from the app). */
+  transcribe?: TranscribeVoiceFn;
 }
 
 export class ExportTaskManager extends EventEmitter {
@@ -185,15 +191,27 @@ export class ExportTaskManager extends EventEmitter {
   }): Promise<string> {
     const id = `${opts.kind}-${opts.conv}-${Date.now()}`;
     const wantMedia = Boolean(opts.media?.exportMedia);
+    const wantAvatars = Boolean(opts.exportAvatar);
+    const wantTranscribe = Boolean(opts.media?.transcribeVoice);
+    // Stage order is the display order. message + 搬运媒体 run first (sequential);
+    // the rest (avatar / record / image / video / file / transcribe) run together.
     const stages: TaskStage[] = [{ key: 'message', label: '导出消息', status: 'pending', current: 0, total: opts.total }];
     if (wantMedia) {
       stages.push({ key: 'media', label: '搬运媒体', status: 'pending', current: 0, total: 0 });
+    }
+    if (wantAvatars) {
+      stages.push({ key: 'avatar', label: '下载头像', status: 'pending', current: 0, total: 0 });
+    }
+    if (wantMedia) {
       stages.push({ key: 'record', label: '解码语音', status: 'pending', current: 0, total: 0 });
       if (opts.media?.completeMedia) {
         stages.push({ key: 'image', label: '补全图片', status: 'pending', current: 0, total: 0 });
         stages.push({ key: 'video', label: '补全视频', status: 'pending', current: 0, total: 0 });
         stages.push({ key: 'file', label: '补全文件', status: 'pending', current: 0, total: 0 });
       }
+    }
+    if (wantTranscribe) {
+      stages.push({ key: 'transcribe', label: '语音转写', status: 'pending', current: 0, total: 0 });
     }
     const task: ExportTask = {
       id,
@@ -224,6 +242,25 @@ export class ExportTaskManager extends EventEmitter {
     return task.stages.find((s) => s.key === key);
   }
 
+  /** A single stage's completion percent (0–100). */
+  private stagePercent(s: TaskStage): number {
+    if (s.status === 'completed' || s.status === 'skipped') return 100;
+    if (s.status === 'pending' || s.total <= 0) return 0;
+    return Math.min(100, Math.max(0, Math.floor((s.current / s.total) * 100)));
+  }
+
+  /**
+   * Coarse overall percent — the mean of every stage's percent. With the
+   * post-message stages running concurrently, a single "active stage" percent
+   * would jump around; averaging keeps the summary bar smooth and monotonic-ish.
+   */
+  private overallProgress(task: ExportTask): number {
+    if (task.stages.length === 0) return task.progress;
+    let sum = 0;
+    for (const s of task.stages) sum += this.stagePercent(s);
+    return Math.min(100, Math.floor(sum / task.stages.length));
+  }
+
   /** Push a stage update + emit progress (debounced writes happen on stage edges). */
   private touchStage(
     task: ExportTask,
@@ -234,7 +271,7 @@ export class ExportTaskManager extends EventEmitter {
     const s = this.stage(task, key);
     if (!s) return;
     Object.assign(s, patch);
-    if (s.total > 0) task.progress = Math.min(100, Math.floor((s.current / s.total) * 100));
+    task.progress = this.overallProgress(task);
     task.updatedAt = Date.now();
     if (opts.persist) this.saveTasks();
     this.emit('progress', {
@@ -259,16 +296,32 @@ export class ExportTaskManager extends EventEmitter {
     const aborted = (): boolean => abort.signal.aborted;
 
     try {
-      const wantAvatars = Boolean(task.exportAvatar && this.deps.avatarCache);
+      const { avatarCache, mediaDownload, accountDir, decodeSilk, transcribe } = this.deps;
+      const wantAvatars = Boolean(task.exportAvatar && avatarCache);
       const wantMedia = Boolean(task.media?.exportMedia);
-      // Avatars or media → output is a bundle folder; otherwise a lone file.
-      const isBundle = wantAvatars || wantMedia;
+      const wantTranscribe = Boolean(task.media?.transcribeVoice && transcribe);
+      const needsScan = wantMedia || wantTranscribe;
+      // Avatars / media / transcription → output is a bundle folder; else a lone file.
+      const isBundle = wantAvatars || wantMedia || wantTranscribe;
       const outDir = isBundle ? join(this.cacheDir, `bundle-${id}`) : this.cacheDir;
       if (isBundle) mkdirSync(outDir, { recursive: true });
       const outPath = join(outDir, `${task.name}.${task.format}`);
+      const mediaRoot = join(outDir, 'media');
       const senders = wantAvatars ? new Set<string>() : undefined;
 
-      // ---- stage: message (+ avatars) ----
+      // Defensive: a stage created for a capability that isn't injected (no
+      // avatar cache / no transcription engine) is skipped up-front, so the
+      // overall summary can still reach 100%.
+      if (task.exportAvatar && !avatarCache) {
+        const s = this.stage(task, 'avatar');
+        if (s) { s.status = 'skipped'; s.note = '头像服务不可用'; }
+      }
+      if (task.media?.transcribeVoice && !transcribe) {
+        const s = this.stage(task, 'transcribe');
+        if (s) { s.status = 'skipped'; s.note = '转录引擎不可用'; }
+      }
+
+      // ---- stage: message (sequential, first) ----
       this.touchStage(task, 'message', { status: 'running', note: '开始导出' }, { persist: true });
       const result = await this.exportMessages(task, outPath, senders, wantMedia, (current, note) => {
         if (aborted()) return;
@@ -277,21 +330,107 @@ export class ExportTaskManager extends EventEmitter {
       task.filePath = result.filePath;
       task.current = result.messageCount;
       this.touchStage(task, 'message', { status: 'completed', current: result.messageCount, total: result.messageCount, note: `${result.messageCount} 条` }, { persist: true });
-
       if (aborted()) { task.status = 'cancelled'; return; }
-
-      if (wantAvatars && senders && this.deps.avatarCache) {
-        const avatars = await exportAvatars(this.deps.avatarCache, senders, outDir, {
-          onProgress: () => { /* avatar progress folds under the message stage */ },
-        });
-        task.avatarCount = avatars.ok;
-      }
       if (isBundle) task.bundleDir = outDir;
 
-      // ---- media stages ----
-      if (wantMedia) {
-        await this.runMediaStages(task, outDir, aborted);
+      // ---- scan once (shared by 搬运媒体 / 补全 / 转写) ----
+      let scan: MediaScanResult | null = null;
+      if (needsScan) {
+        if (!accountDir) {
+          // Can't locate on-disk media — skip every media-dependent stage.
+          for (const key of ['media', 'record', 'image', 'video', 'file', 'transcribe'] as StageKey[]) {
+            const s = this.stage(task, key);
+            if (s) { s.status = 'skipped'; s.note = '无法定位媒体目录'; }
+          }
+        } else {
+          const dirs: MediaDirs = mediaDirsFromAccountDir(accountDir);
+          const scanStage: StageKey = wantMedia ? 'media' : 'transcribe';
+          this.touchStage(task, scanStage, { status: 'running', note: '扫描媒体…' }, { persist: true });
+          scan = await scanConvMedia(this.msgs, task.kind, task.conv, dirs, { pageSize: 2000, range: task.range });
+          if (aborted()) { task.status = 'cancelled'; return; }
+        }
       }
+
+      // ---- sequential: 搬运媒体 (copy locally-found pic / video / file) ----
+      if (wantMedia && scan) {
+        const found = scan.found.filter((r) => r.kind !== 'ptt');
+        this.touchStage(task, 'media', { status: 'running', total: found.length, current: 0, note: `搬运 0/${found.length}` }, { persist: true });
+        const r = await copyFoundMedia(scan, mediaRoot, (done, total) => {
+          if (aborted()) return;
+          this.touchStage(task, 'media', { current: done, total, note: `搬运 ${done}/${total}` });
+        });
+        this.touchStage(task, 'media', { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已搬运 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`, ...(r.failures ? { failures: r.failures } : {}) }, { persist: true });
+      }
+      if (aborted()) { task.status = 'cancelled'; return; }
+
+      // ---- concurrent batch: 头像 / 解码语音 / 补全图片·视频·文件 / 语音转写 ----
+      const jobs: Array<() => Promise<void>> = [];
+
+      if (wantAvatars && senders && avatarCache) {
+        jobs.push(async () => {
+          this.touchStage(task, 'avatar', { status: 'running', total: senders.size, current: 0, note: `下载 0/${senders.size}` }, { persist: true });
+          const r = await exportAvatars(avatarCache, senders, outDir, {
+            onProgress: (done, total) => {
+              if (aborted()) return;
+              this.touchStage(task, 'avatar', { current: done, total, note: `下载 ${done}/${total}` });
+            },
+          });
+          task.avatarCount = r.ok;
+          this.touchStage(task, 'avatar', { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已下载 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}` }, { persist: true });
+        });
+      }
+
+      if (wantMedia && scan) {
+        const found = scan;
+        // 解码语音 — SILK-decode locally-found voices.
+        jobs.push(async () => {
+          const voices = found.found.filter((r) => r.kind === 'ptt');
+          const recStage = this.stage(task, 'record');
+          if (!decodeSilk) { if (recStage) { recStage.status = 'skipped'; recStage.note = '解码不可用'; } return; }
+          this.touchStage(task, 'record', { status: 'running', total: voices.length, current: 0, note: `解码 0/${voices.length}` }, { persist: true });
+          const r = await decodeFoundVoices(found, mediaRoot, decodeSilk, (done, total) => {
+            if (aborted()) return;
+            this.touchStage(task, 'record', { current: done, total, note: `解码 ${done}/${total}` });
+          });
+          this.touchStage(task, 'record', { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已解码 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`, ...(r.failures ? { failures: r.failures } : {}) }, { persist: true });
+        });
+
+        if (task.media?.completeMedia) {
+          // 补全图片 — CDN-complete missing images.
+          jobs.push(async () => {
+            const imgStage = this.stage(task, 'image');
+            if (!mediaDownload) { if (imgStage) { imgStage.status = 'skipped'; imgStage.note = '下载不可用'; } return; }
+            const missing = found.downloadList.filter((r) => r.kind === 'pic' || r.kind === 'emoji');
+            this.touchStage(task, 'image', { status: 'running', total: missing.length, current: 0, note: `下载 0/${missing.length}` }, { persist: true });
+            const r = await downloadMissingImages(found, mediaRoot, mediaDownload, (done, total) => {
+              if (aborted()) return;
+              this.touchStage(task, 'image', { current: done, total, note: `下载 ${done}/${total}` });
+            });
+            this.touchStage(task, 'image', { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已补全 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`, ...(r.failures ? { failures: r.failures } : {}) }, { persist: true });
+          });
+          // 补全视频 / 文件 — OIDB-resolve + download (each gated by its toggle).
+          jobs.push(() => this.runUrlDownloadStage(task, 'video', found, mediaRoot, Boolean(task.media?.downloadVideo), aborted));
+          jobs.push(() => this.runUrlDownloadStage(task, 'file', found, mediaRoot, Boolean(task.media?.downloadFile), aborted));
+        }
+      }
+
+      if (wantTranscribe && transcribe && scan) {
+        const found = scan;
+        jobs.push(async () => {
+          const voices = found.found.filter((r) => r.kind === 'ptt' && r.path);
+          this.touchStage(task, 'transcribe', { status: 'running', total: voices.length, current: 0, note: `转写 0/${voices.length}` }, { persist: true });
+          const r = await transcribeFoundVoices(found, outDir, transcribe, (done, total) => {
+            if (aborted()) return;
+            this.touchStage(task, 'transcribe', { current: done, total, note: `转写 ${done}/${total}` });
+          });
+          this.touchStage(task, 'transcribe', { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已转写 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`, ...(r.failures ? { failures: r.failures } : {}) }, { persist: true });
+        });
+      }
+
+      // Run the batch concurrently; one stage's failure shouldn't sink the rest.
+      const settled = await Promise.allSettled(jobs.map((j) => j()));
+      const firstError = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
+      if (firstError) throw firstError.reason;
 
       if (aborted()) { task.status = 'cancelled'; return; }
       task.status = 'completed';
@@ -313,82 +452,6 @@ export class ExportTaskManager extends EventEmitter {
         current: task.current,
         message: task.status === 'completed' ? '导出完成' : task.error ?? '已取消',
       });
-    }
-  }
-
-  /** Run the media → record → image stages over the scanned media. */
-  private async runMediaStages(task: ExportTask, outDir: string, aborted: () => boolean): Promise<void> {
-    const { mediaDownload, accountDir, decodeSilk } = this.deps;
-    const mediaRoot = join(outDir, 'media');
-
-    if (!accountDir) {
-      // Can't locate on-disk media — skip every media stage rather than fail.
-      for (const key of ['media', 'record', 'image', 'video', 'file'] as StageKey[]) {
-        const s = this.stage(task, key);
-        if (s) { s.status = 'skipped'; s.note = '无法定位媒体目录'; }
-      }
-      return;
-    }
-
-    const dirs: MediaDirs = mediaDirsFromAccountDir(accountDir);
-
-    // Scan once: classify found vs missing across the whole conversation.
-    this.touchStage(task, 'media', { status: 'running', note: '扫描媒体…' }, { persist: true });
-    const scan = await scanConvMedia(this.msgs, task.kind, task.conv, dirs, {
-      pageSize: 2000,
-      range: task.range,
-    });
-    if (aborted()) return;
-
-    // Stage: media — copy locally-found pic / video / file.
-    {
-      const found = scan.found.filter((r) => r.kind !== 'ptt');
-      this.touchStage(task, 'media', { status: 'running', total: found.length, current: 0, note: `搬运 0/${found.length}` }, { persist: true });
-      const r = await copyFoundMedia(scan, mediaRoot, (done, total) => {
-        if (aborted()) return;
-        this.touchStage(task, 'media', { current: done, total, note: `搬运 ${done}/${total}` });
-      });
-      this.touchStage(task, 'media', { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已搬运 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`, ...(r.failures ? { failures: r.failures } : {}) }, { persist: true });
-    }
-    if (aborted()) return;
-
-    // Stage: record — SILK-decode locally-found voices.
-    {
-      const voices = scan.found.filter((r) => r.kind === 'ptt');
-      const recStage = this.stage(task, 'record');
-      if (!decodeSilk) {
-        if (recStage) { recStage.status = 'skipped'; recStage.note = '解码不可用'; }
-      } else {
-        this.touchStage(task, 'record', { status: 'running', total: voices.length, current: 0, note: `解码 0/${voices.length}` }, { persist: true });
-        const r = await decodeFoundVoices(scan, mediaRoot, decodeSilk, (done, total) => {
-          if (aborted()) return;
-          this.touchStage(task, 'record', { current: done, total, note: `解码 ${done}/${total}` });
-        });
-        this.touchStage(task, 'record', { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已解码 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`, ...(r.failures ? { failures: r.failures } : {}) }, { persist: true });
-      }
-    }
-    if (aborted()) return;
-
-    // Stage: image — CDN-complete missing images (only when completeMedia is on).
-    if (task.media?.completeMedia) {
-      const imgStage = this.stage(task, 'image');
-      if (!mediaDownload) {
-        if (imgStage) { imgStage.status = 'skipped'; imgStage.note = '下载不可用'; }
-      } else {
-        const missing = scan.downloadList.filter((r) => r.kind === 'pic' || r.kind === 'emoji');
-        this.touchStage(task, 'image', { status: 'running', total: missing.length, current: 0, note: `下载 0/${missing.length}` }, { persist: true });
-        const r = await downloadMissingImages(scan, mediaRoot, mediaDownload, (done, total) => {
-          if (aborted()) return;
-          this.touchStage(task, 'image', { current: done, total, note: `下载 ${done}/${total}` });
-        });
-        this.touchStage(task, 'image', { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已补全 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`, ...(r.failures ? { failures: r.failures } : {}) }, { persist: true });
-      }
-      if (aborted()) return;
-
-      // Stages: video / file — OIDB-resolve + download missing (gated by toggle).
-      await this.runUrlDownloadStage(task, 'video', scan, mediaRoot, Boolean(task.media?.downloadVideo), aborted);
-      if (aborted()) return;
-      await this.runUrlDownloadStage(task, 'file', scan, mediaRoot, Boolean(task.media?.downloadFile), aborted);
     }
   }
 

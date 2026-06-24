@@ -88,20 +88,14 @@ function stagePct(s: UiStage): number {
 }
 
 /**
- * Which stages to render: keep at most one *done* stage (the most recent
- * completed/skipped) so finished stages collapse, plus every still-active stage
- * (running / pending / failed). Order is preserved.
+ * Stages to mount: everything that has started — running / failed plus the
+ * already-finished ones (completed / skipped). Finished rows stay mounted so
+ * they can play their collapse-up animation instead of popping out of the DOM.
+ * Pending stages aren't mounted yet; they animate in when they start. Order is
+ * preserved.
  */
-function visibleStages(stages: UiStage[]): UiStage[] {
-  const doneIdx: number[] = [];
-  stages.forEach((s, i) => {
-    if (s.status === 'completed' || s.status === 'skipped') doneIdx.push(i);
-  });
-  const keepDone = doneIdx.length ? doneIdx[doneIdx.length - 1] : -1;
-  return stages.filter(
-    (s, i) =>
-      i === keepDone || s.status === 'running' || s.status === 'pending' || s.status === 'failed',
-  );
+function mountedStages(stages: UiStage[]): UiStage[] {
+  return stages.filter((s) => s.status !== 'pending');
 }
 
 const STATUS_LABEL: Record<UiTask['status'], string> = {
@@ -133,8 +127,10 @@ function StatusIcon({ status }: { status: UiTask['status'] }): ReactElement {
 /** One stage's row: label + mini progress bar + note, for a media bundle task. */
 function StageRow({ stage }: { stage: UiStage }): ReactElement {
   const pct = stagePct(stage);
+  // Finished stages collapse upward (CSS animates them out) instead of vanishing.
+  const collapsed = stage.status === 'completed' || stage.status === 'skipped';
   return (
-    <div className={`weq-exp-stage is-${stage.status}`}>
+    <div className={`weq-exp-stage is-${stage.status}${collapsed ? ' is-collapsed' : ''}`}>
       <span className="weq-exp-stage-label">{stage.label}</span>
       <span className="weq-exp-stage-bar">
         <span
@@ -188,7 +184,7 @@ export function TaskList({
               !!t.stages &&
               t.stages.length > 1 &&
               (t.status === 'running' || t.status === 'paused');
-            const shownStages = multiStage ? visibleStages(t.stages!) : [];
+            const shownStages = multiStage ? mountedStages(t.stages!) : [];
             const completion = completionSummary(t.stages);
             const hasCompletion = completion.ok > 0 || completion.failed > 0;
             return (

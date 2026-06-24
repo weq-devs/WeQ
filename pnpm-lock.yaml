@@ -285,6 +285,9 @@ importers:
         specifier: ^3.25.76
         version: 3.25.76
     devDependencies:
+      '@types/node':
+        specifier: ^22.10.6
+        version: 22.19.20
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.20)(lightningcss@1.32.0)

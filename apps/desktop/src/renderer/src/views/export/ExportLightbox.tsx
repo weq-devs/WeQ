@@ -179,24 +179,6 @@ export function ExportLightbox({
                 }
               />
               <Row
-                indent
-                label="单文件大小上限"
-                desc="超过该大小的媒体跳过下载，0 表示不限制"
-                control={
-                  <span className="weq-exp-num">
-                    <input
-                      type="number"
-                      min={0}
-                      max={4096}
-                      value={opts.sizeCapMb}
-                      disabled={!opts.exportMedia}
-                      onChange={(e) => patch({ sizeCapMb: Math.max(0, Number(e.target.value) || 0) })}
-                    />
-                    <span>MB</span>
-                  </span>
-                }
-              />
-              <Row
                 label="导出头像"
                 desc="发送者头像存入 avatars/ 子目录（缓存优先，缺失走 CDN 补齐）；导出结果将保存为文件夹"
                 control={<Toggle checked={opts.exportAvatar} onChange={(v) => patch({ exportAvatar: v })} />}

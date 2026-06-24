@@ -30,6 +30,7 @@ import {
   GlobalConfigService,
   AvatarCacheService,
   VoiceTranscribeService,
+  getVoiceModel,
   MsgService,
   RecentContactService,
   UnreadInfoService,
@@ -362,6 +363,32 @@ export function initAppContext(): AppContext {
             // avoid a static import cycle with this module.
             decodeSilk: (silk: string, dest: string) =>
               import('../voice').then((m) => m.decodeSilkToFile(silk, dest)),
+            // Voice → text transcription. The sherpa-onnx engine is native and
+            // lives in the app; the closure resolves the selected model lazily
+            // (so a model change between 进入 and 导出 is honoured) and decodes
+            // the silk to 16 kHz WAV before forking the recognizer worker.
+            transcribe: async (silkPath: string) => {
+              const modelId = userConfig.getSettings().voiceTranscribe.modelId;
+              if (!modelId) return { ok: false, error: '未选择转录模型' };
+              const model = getVoiceModel(modelId);
+              if (!model) return { ok: false, error: '转录模型不存在' };
+              const status = bootstrap.voiceTranscribe.getModelStatus(modelId);
+              if (!status?.downloaded) return { ok: false, error: '转录模型未下载' };
+              const { decodeSilkToWav16kBuffer } = await import('../voice');
+              const wav = await decodeSilkToWav16kBuffer(silkPath);
+              if (!wav) return { ok: false, error: '语音解码失败' };
+              const paths = bootstrap.voiceTranscribe.resolveModelPaths(modelId);
+              if (!paths.model || !paths.tokens) return { ok: false, error: '模型文件缺失' };
+              const { transcribeWav } = await import('../transcribe/engine');
+              const r = await transcribeWav(
+                wav,
+                { model: paths.model, tokens: paths.tokens },
+                { engine: model.engine, languages: model.languages },
+              );
+              return r.success
+                ? { ok: true, text: r.text ?? '' }
+                : { ok: false, error: r.error ?? '识别失败' };
+            },
           },
         ),
         dbDecrypt: new DbDecryptService(session, platform),

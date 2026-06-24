@@ -77,8 +77,6 @@ export interface ExportOptions {
   downloadVideo: boolean;
   /** Include files when downloading media. */
   downloadFile: boolean;
-  /** Per-file download size cap, in MB (0 = no cap). */
-  sizeCapMb: number;
   /** Auto-transcribe voice messages to text. */
   transcribeVoice: boolean;
 }
@@ -90,7 +88,6 @@ export const DEFAULT_OPTIONS: ExportOptions = {
   completeMedia: false,
   downloadVideo: false,
   downloadFile: false,
-  sizeCapMb: 50,
   transcribeVoice: false,
 };
 

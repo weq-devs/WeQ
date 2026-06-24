@@ -16,7 +16,7 @@
  */
 
 import { createWriteStream } from 'node:fs';
-import { copyFile, mkdir } from 'node:fs/promises';
+import { copyFile, mkdir, writeFile } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as WebReadableStream } from 'node:stream/web';
@@ -30,6 +30,24 @@ import type { MediaRef, MediaScanResult } from './media_scan';
 
 /** Decode a SILK voice file to a WAV at `destPath`. Injected (silk-wasm lives in the app). */
 export type DecodeSilk = (silkPath: string, destPath: string) => Promise<boolean>;
+
+/** Outcome of one voice transcription. */
+export interface TranscribeOutcome {
+  ok: boolean;
+  text?: string;
+  error?: string;
+}
+
+/**
+ * Transcribe a SILK voice file to text. Injected from the app — the sherpa-onnx
+ * recognition engine is native and lives in the Electron main process (the
+ * service stays zero-native, mirroring the silk-wasm split). The closure resolves
+ * the selected model + decodes the silk to 16 kHz WAV internally.
+ */
+export type TranscribeVoiceFn = (silkPath: string) => Promise<TranscribeOutcome>;
+
+/** File name of the per-bundle voice transcript map written by the transcribe stage. */
+export const TRANSCRIPTS_FILE = 'transcripts.json';
 
 /** Per-stage progress tick. */
 export type StageProgress = (done: number, total: number) => void;
@@ -54,7 +72,7 @@ export interface MediaStageResult {
 /** One file that failed in a media stage — surfaced in the UI's failure lightbox. */
 export interface MediaFailure {
   /** Stage the failure happened in. */
-  stage: 'image' | 'video' | 'file' | 'media' | 'record';
+  stage: 'image' | 'video' | 'file' | 'media' | 'record' | 'transcribe';
   fileName: string;
   /** Human-readable reason (HTTP status, OIDB error, decode failure, …). */
   error: string;
@@ -199,6 +217,64 @@ export async function decodeFoundVoices(
       onProgress?.(done, items.length);
     }
   });
+  return result;
+}
+
+/**
+ * Stage `transcribe`: run the selected voice model over every locally-found
+ * voice clip and write a single `transcripts.json` at the bundle root mapping
+ * each voice file name → recognized text. Concurrency is kept low because each
+ * call forks a native sherpa-onnx worker (CPU-heavy). The JSON is written even
+ * when there are no voices (an empty map), so the artifact is always present.
+ */
+export async function transcribeFoundVoices(
+  scan: MediaScanResult,
+  bundleDir: string,
+  transcribe: TranscribeVoiceFn,
+  onProgress?: StageProgress,
+  concurrency = 2,
+): Promise<MediaStageResult> {
+  const items = scan.found.filter((ref) => ref.kind === 'ptt' && ref.path);
+  const result: MediaStageResult = { total: items.length, ok: 0, failed: 0 };
+  const transcripts: Record<string, string> = {};
+
+  const flush = async (): Promise<void> => {
+    await writeFile(join(bundleDir, TRANSCRIPTS_FILE), JSON.stringify(transcripts, null, 2), 'utf-8');
+  };
+  if (items.length === 0) {
+    await flush();
+    return result;
+  }
+
+  let done = 0;
+  await runWithConcurrency(items, concurrency, async (ref) => {
+    try {
+      const r = await transcribe(ref.path!);
+      if (r.ok) {
+        transcripts[ref.fileName] = r.text ?? '';
+        result.ok += 1;
+      } else {
+        result.failed += 1;
+        result.failures = pushFailure(result.failures, {
+          stage: 'transcribe',
+          fileName: ref.fileName,
+          error: r.error ?? '转写失败',
+        });
+      }
+    } catch (e) {
+      result.failed += 1;
+      result.failures = pushFailure(result.failures, {
+        stage: 'transcribe',
+        fileName: ref.fileName,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      done += 1;
+      onProgress?.(done, items.length);
+    }
+  });
+
+  await flush();
   return result;
 }
 
