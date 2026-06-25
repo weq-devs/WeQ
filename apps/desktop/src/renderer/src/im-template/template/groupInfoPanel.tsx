@@ -6,7 +6,7 @@ import type { GroupConversationView } from "./conversationDetailsTypes";
 import { displayUserName } from "./user";
 import { cn } from "./classNames";
 
-export type GroupInfoDetail = "profile" | "announcements" | "essence";
+export type GroupInfoDetail = "profile" | "announcements" | "essence" | "albums";
 
 export function GroupInfoPanel({
 	conversation,
@@ -140,10 +140,12 @@ export function GroupInfoDetailDialog({
 	conversation,
 	detail,
 	onClose,
+	onJumpToMessage,
 }: {
 	conversation: GroupConversationView;
 	detail: GroupInfoDetail;
 	onClose: () => void;
+	onJumpToMessage?: (seq: number) => void;
 }) {
 	const group = conversation.group;
 	const rawAnnouncement = group.announcement?.trim();
@@ -242,6 +244,8 @@ export function GroupInfoDetailDialog({
 								<article
 									className={cn("group-info-detail-record")}
 									key={item.id}
+									onClick={() => onJumpToMessage?.(item.msgSeq)}
+									style={{ cursor: onJumpToMessage ? "pointer" : undefined }}
 								>
 									<span>
 										{formatShortDate(item.createdAt)}

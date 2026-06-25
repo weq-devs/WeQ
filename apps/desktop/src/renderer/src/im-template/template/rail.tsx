@@ -2,6 +2,8 @@
 import {
 	LayoutGrid,
 	MessageCircle,
+	Download,
+	Settings,
 } from "lucide-react";
 import { useEffect, useRef, useState, useTransition } from "react";
 import type { ReactNode } from "react";
@@ -9,6 +11,7 @@ import { cn } from "./classNames";
 import { Avatar } from "./primitives";
 import type { MainView, SettingsTab, User } from "./types";
 import { displayUserName } from "./user";
+import { useUpdateStore } from "../../state/update";
 
 export function AppRail({
 	user,
@@ -45,6 +48,7 @@ export function AppRail({
 	const [, startViewTransition] = useTransition();
 	const railRef = useRef<HTMLElement | null>(null);
 	const activeView = pendingView ?? view;
+	const updateAvailable = useUpdateStore((s) => s.available);
 
 	useEffect(() => {
 		if (pendingView !== null && view === pendingView) {
@@ -163,6 +167,33 @@ export function AppRail({
 							<span className={cn("rail-badge")}>
 								{formatBadgeCount(contactBadgeCount)}
 							</span>
+						) : null}
+					</button>
+					<button
+						className={cn(
+							railButtonClass(activeView === "export"),
+							"rail-tab rail-tab-export",
+						)}
+						onClick={() => selectView("export")}
+						title="导出"
+					>
+						<span className={cn("rail-tab-icon")}>
+							<Download size={22} strokeWidth={1.5} />
+						</span>
+						<span className={cn("rail-label")}>导出</span>
+					</button>
+					<button
+						className={cn("rail-tab rail-tab-settings")}
+						onClick={() => onOpenSettings()}
+						title={updateAvailable ? "设置 · 有新版本可更新" : "设置"}
+						type="button"
+					>
+						<span className={cn("rail-tab-icon")}>
+							<Settings size={22} strokeWidth={1.5} />
+						</span>
+						<span className={cn("rail-label")}>设置</span>
+						{updateAvailable ? (
+							<span className={cn("rail-badge")}>新</span>
 						) : null}
 					</button>
 					<button

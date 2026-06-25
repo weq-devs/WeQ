@@ -16,15 +16,21 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
 } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { getQueryKey } from '@trpc/react-query';
 import { Settings } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
+import { useUpdateStore } from '../state/update';
 import { client } from '../trpc/client';
+import { useDialog } from '../components/Dialog';
 import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
 import { RailAccountFooter } from '../components/RailAccountFooter';
 import { SettingsDialog } from '../components/SettingsDialog';
+import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
 import { RelationGraphView } from '../components/relationGraph/RelationGraphView';
+import { ExportView } from './ExportView';
 import {
   ChatMainContent,
   ChatShell,
@@ -47,6 +53,61 @@ import { qqMessageRenderer, ReplyJumpContext, ForwardKindContext, type ReplyJump
 import type { SetEmojiItem } from '@weq/codec';
 import { MsgElementEditor } from '../components/MsgElementEditor';
 import { flashTransferTitle } from '../components/QqFlashTransfer';
+
+const DATABASE_ISSUES_URL = 'https://github.com/H3CoF6/WeQ/issues';
+
+function DatabaseDamagedDialogBody({
+  message,
+  details,
+}: {
+  message?: string;
+  details?: string[];
+}): ReactElement {
+  const safeMessage = message ?? '';
+  const safeDetails = details ?? [];
+  const isHealthCheckError = safeMessage.includes('健康状态时发生错误');
+
+  return (
+    <div className="weq-db-damaged-dialog">
+      <section className="weq-db-damaged-section">
+        <h4>发生了什么</h4>
+        <p>{isHealthCheckError ? '检测 QQ 数据库健康状态时发生错误。' : '检测到 QQ 数据库损坏。'}</p>
+        <p>问题通常出在 QQ 数据库本身，不是 WeQ 软件导致。</p>
+      </section>
+
+      <section className="weq-db-damaged-section">
+        <h4>已执行处理</h4>
+        <p>
+          {isHealthCheckError
+            ? '为避免继续读取损坏数据，账号已强制退出并返回主页面。'
+            : '账号已强制退出并返回主页面。'}
+        </p>
+      </section>
+
+      <section className="weq-db-damaged-section">
+        <h4>反馈与后续</h4>
+        <p>
+          可以前往{' '}
+          <a href={DATABASE_ISSUES_URL} target="_blank" rel="noreferrer">
+            WeQ GitHub Issues
+          </a>{' '}
+          提交问题，未来可能会做一个数据库修复工具。
+        </p>
+      </section>
+
+      {safeDetails.length > 0 ? (
+        <section className="weq-db-damaged-section weq-db-damaged-details">
+          <h4>检测详情</h4>
+          <ul>
+            {safeDetails.map((line, index) => (
+              <li key={`${line}:${index}`}>{line}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+    </div>
+  );
+}
 
 const messageRenderers: MessageRenderer[] = composeMessageRenderers({
   prepend: [qqMessageRenderer],
@@ -396,10 +457,59 @@ function contactTitle(c: RecentContactWire): string {
   return c.targetDisplayName || c.targetRemark || c.senderDisplayName || c.senderNick || c.targetUid;
 }
 
+/**
+ * Conversation-list preview text for a conversation's latest message.
+ *
+ * The recent-contact row (40051) decodes to a preview element that usually
+ * carries `displayText` — QQ's own out-of-conversation summary ("[图片]", the
+ * text body, …). Gray-tip elements (戳一戳 / 撤回 / 群提示 …) frequently OMIT it,
+ * which used to leave the list row blank. When it's missing we fall back to a
+ * per-kind label via {@link previewFallbackByKind}.
+ */
 function previewText(preview: unknown): string | null {
   if (!preview || typeof preview !== 'object') return null;
-  const value = (preview as { displayText?: unknown }).displayText;
-  return typeof value === 'string' && value.trim() ? value.trim() : null;
+  const p = preview as { displayText?: unknown; kind?: unknown; recallDisplayText?: unknown };
+  if (typeof p.displayText === 'string' && p.displayText.trim()) return p.displayText.trim();
+  return previewFallbackByKind(p);
+}
+
+/**
+ * Fallback conversation-list label derived from a preview element's `kind`, used
+ * when QQ didn't fill `displayText`. Mirrors the element kinds in @weq/codec:
+ * media/content kinds get a QQ-style bracketed tag ("[图片]"…), gray-tip kinds
+ * get a friendly label (戳一戳消息 / 撤回消息 …), and anything unrecognized shows
+ * as the generic "灰条消息".
+ */
+function previewFallbackByKind(preview: { kind?: unknown; recallDisplayText?: unknown }): string {
+  const kind = typeof preview.kind === 'string' ? preview.kind : '';
+  switch (kind) {
+    case 'pic': return '[图片]';
+    case 'file': return '[文件]';
+    case 'video': return '[视频]';
+    case 'ptt': return '[语音]';
+    case 'face': return '[表情]';
+    case 'mface': return '[贴纸]';
+    case 'ark':
+    case 'markdown': return '[卡片消息]';
+    case 'multiMsg': return '[合并转发]';
+    case 'call': return '[通话]';
+    case 'wallet': return '[红包]';
+    case 'onlineFile': return '[在线文件]';
+    case 'onlineFolder': return '[在线文件夹]';
+    case 'emojiBounce': return '[表情互动]';
+    case 'qqDynamic': return '[QQ动态]';
+    case 'reply': return '[回复]';
+    case 'grayTipRevoke':
+      return typeof preview.recallDisplayText === 'string' && preview.recallDisplayText.trim()
+        ? preview.recallDisplayText.trim()
+        : '撤回消息';
+    case 'grayTipPoke': return '戳一戳消息';
+    case 'grayTipGroup': return '群提示消息';
+    case 'grayTipInvite': return '入群邀请';
+    // text/at normally carry displayText; if somehow absent there is nothing
+    // better to show than the generic gray-tip label (same as unknown/default).
+    default: return '灰条消息';
+  }
 }
 
 function currentUser(openedUin: string | null, selfProfile?: UserProfileWire | null): User {
@@ -716,26 +826,31 @@ function isMineMessage(message: MessageWire, conversation: Conversation, user: U
 }
 
 function messageSender(message: MessageWire, conversation: Conversation, user: User, memberMap?: Map<string, GroupMember>): User {
-  if (isMineMessage(message, conversation, user)) return user;
-  if (conversation.type === 'direct') return conversation.otherUser;
+  const isMine = isMineMessage(message, conversation, user);
+  if (isMine && conversation.type === 'direct') return user;
 
-  // Optimized O(1) lookup
-  const member = memberMap?.get(message.senderUid);
-  const isUinOnly = !member?.displayName || member.displayName === message.senderUin;
+  // For group messages, even if it's mine, get member info from memberMap
+  if (conversation.type === 'group') {
+    const member = memberMap?.get(message.senderUid);
+    const isUinOnly = !member;
 
-  return {
-    id: message.senderUid || `sender:${message.senderUin}`,
-    identityLabel: message.senderUin && message.senderUin !== '0' ? 'QQ' : 'UID',
-    identityValue: message.senderUin && message.senderUin !== '0' ? message.senderUin : message.senderUid,
-    username: message.senderUid || message.senderUin,
-    displayName: member?.displayName || (message.senderUin && message.senderUin !== '0' ? message.senderUin : 'Member'),
-    avatarUrl: member?.avatarUrl || senderAvatarSrc(message.senderUin),
-    // Ensure group specific fields are passed through, but ONLY if it's not just a UIN display
-    role: !isUinOnly ? member?.role : undefined,
-    customTitle: !isUinOnly ? member?.customTitle : undefined,
-    levelName: !isUinOnly ? member?.levelName : undefined,
-    levelBracket: !isUinOnly ? levelBracketFor(member?.memberLevel) : 0,
-  } as User;
+    return {
+      id: isMine ? user.id : (message.senderUid || `sender:${message.senderUin}`),
+      identityLabel: isMine ? user.identityLabel : (message.senderUin && message.senderUin !== '0' ? 'QQ' : 'UID'),
+      identityValue: isMine ? user.identityValue : (message.senderUin && message.senderUin !== '0' ? message.senderUin : message.senderUid),
+      username: isMine ? user.username : (message.senderUid || message.senderUin),
+      displayName: isMine ? user.displayName : (member?.displayName || (message.senderUin && message.senderUin !== '0' ? message.senderUin : 'Member')),
+      avatarUrl: isMine ? user.avatarUrl : (member?.avatarUrl || senderAvatarSrc(message.senderUin)),
+      role: !isUinOnly ? member?.role : undefined,
+      customTitle: !isUinOnly ? member?.customTitle : undefined,
+      levelName: !isUinOnly ? member?.levelName : undefined,
+      memberLevel: !isUinOnly ? member?.memberLevel : undefined,
+      levelBracket: !isUinOnly ? levelBracketFor(member?.memberLevel) : 0,
+    } as User;
+  }
+
+  if (isMine) return user;
+  return conversation.type === 'direct' ? conversation.otherUser : user;
 }
 
 function messageToTemplate(message: MessageWire, conversation: Conversation, user: User, memberMap?: Map<string, GroupMember>): Message {
@@ -1226,6 +1341,8 @@ function isMobileShell(): boolean {
 
 export function MainView(): ReactElement {
   const utils = trpc.useUtils();
+  const queryClient = useQueryClient();
+  const showError = useDialog((s) => s.showError);
   const contacts = trpc.account.listRecentContacts.useQuery();
   const selfProfile = trpc.account.getSelfProfile.useQuery();
   const buddies = trpc.account.listBuddies.useQuery({ limit: 2000 });
@@ -1236,7 +1353,8 @@ export function MainView(): ReactElement {
   const allGroups = trpc.account.listAllGroups.useQuery({ limit: 2000 });
   const openedUin = useViewState((s) => s.openedUin);
 
-  // const goTo = useViewState((s) => s.goTo);
+  const goTo = useViewState((s) => s.goTo);
+  const setHomeStage = useViewState((s) => s.setHomeStage);
   const setOpenedUin = useViewState((s) => s.setOpenedUin);
   // Seq-window message model: a single ASC (oldest→newest) list for the open
   // conversation, plus whether it still reaches the latest message and whether
@@ -1293,6 +1411,50 @@ export function MainView(): ReactElement {
     return () => sub.unsubscribe();
   }, [utils, refreshWindow]);
 
+  useEffect(() => {
+    const sub = client.bootstrap.onAccountForcedClosed.subscribe(undefined, {
+      onData(event) {
+        // Defensive: only react to a real database-damaged event.
+        if (event?.reason !== 'database-damaged') return;
+        const accountKey = getQueryKey(trpc.account);
+        void queryClient.cancelQueries({ queryKey: accountKey });
+        queryClient.removeQueries({ queryKey: accountKey });
+        setOpenedUin(null);
+        setHomeStage('home');
+        goTo('bootstrap');
+        showError(event.title, <DatabaseDamagedDialogBody message={event.message} details={event.details} />);
+      },
+      onError(err) {
+        console.error('[account] onAccountForcedClosed subscription error', err);
+      },
+    });
+    return () => sub.unsubscribe();
+  }, [goTo, queryClient, setHomeStage, setOpenedUin, showError]);
+
+  // Update availability: seed from the last cached check (the background startup
+  // check may have already run), then keep it live via the check events. Drives
+  // the settings rail red dot. setState via getState() to avoid re-render churn.
+  useEffect(() => {
+    const setAvailable = useUpdateStore.getState().setAvailable;
+    void client.update.getState
+      .query()
+      .then((s) => {
+        if (s?.hasUpdate && s.latest) setAvailable(s.latest);
+      })
+      .catch(() => {});
+    const sub = client.update.onEvent.subscribe(undefined, {
+      onData(e) {
+        if ((e.kind === 'available' || e.kind === 'downloaded') && e.latest) {
+          setAvailable(e.latest);
+        }
+      },
+      onError(err) {
+        console.error('[update] onEvent subscription error', err);
+      },
+    });
+    return () => sub.unsubscribe();
+  }, []);
+
   const [hasOlder, setHasOlder] = useState(true);
   // True only in a "jump context" window (anchored=false) that has newer
   // messages below it; drives scroll-down paging via `requestNewerMessages`.
@@ -1301,6 +1463,11 @@ export function MainView(): ReactElement {
   const [trackedConversationId, setTrackedConversationId] = useState<string | null>(null);
   const [conversationPrefs, setConversationPrefs] = useState<ConversationPreferences>({});
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [requestedAnnouncementGroups, setRequestedAnnouncementGroups] = useState<Record<string, boolean>>({});
+  const [albumDialog, setAlbumDialog] = useState<{
+    groupCode: string;
+    groupName: string;
+  } | null>(null);
   
   const [editorState, setEditorState] = useState<{ msgId: string, elements: any[] } | null>(null);
 
@@ -1330,6 +1497,19 @@ export function MainView(): ReactElement {
         throw e;
     }
   }, [editorState, refreshWindow]);
+
+  const handleOpenGroupAlbums = useCallback((conversation: Extract<Conversation, { type: 'group' }>) => {
+    setAlbumDialog({
+      groupCode: conversation.id,
+      groupName: conversation.group.name,
+    });
+  }, []);
+
+  const handleOpenGroupAnnouncements = useCallback((conversation: Extract<Conversation, { type: 'group' }>) => {
+    setRequestedAnnouncementGroups((current) => (
+      current[conversation.id] ? current : { ...current, [conversation.id]: true }
+    ));
+  }, []);
 
   const [onlineStatusByUid, setOnlineStatusByUid] = useState<Record<string, any>>({});
   // Unread count per conversation id (latest msgSeq - last read seq). Filled
@@ -1575,7 +1755,7 @@ export function MainView(): ReactElement {
   );
   const groupBulletins = trpc.account.listGroupBulletins.useQuery(
     { groupCode: selectedUid, limit: 10, offset: 0 },
-    { enabled: Boolean(selectedUid && isGroup) },
+    { enabled: Boolean(selectedUid && isGroup && requestedAnnouncementGroups[selectedUid]) },
   );
   const groupEssence = trpc.account.listGroupEssenceMessages.useQuery(
     { groupCode: selectedUid, limit: 10, offset: 0 },
@@ -1970,6 +2150,14 @@ export function MainView(): ReactElement {
   const searchQuery = shell.query.trim();
   const searchRunRef = useRef(0);
   useEffect(() => {
+    // Only search messages in messages view
+    if (shell.view !== 'messages') {
+      setSearchHits([]);
+      setSearchOpen(false);
+      setSearchLoading(false);
+      return undefined;
+    }
+
     if (!searchQuery) {
       setSearchHits([]);
       setSearchOpen(false);
@@ -1995,7 +2183,7 @@ export function MainView(): ReactElement {
         });
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [searchQuery]);
+  }, [searchQuery, shell.view]);
 
   // After hits land, batch-resolve group senders' nicknames from profile_info.db
   // (one extra query). Only the uids we don't already have a name for.
@@ -2308,33 +2496,22 @@ export function MainView(): ReactElement {
         query={shell.query}
         contactTab={shell.contactTab}
         activeNotice={shell.contactNotice}
-        sidebarWidth={shell.sidebarWidth}
+        sidebarWidth={shell.view === 'export' ? 0 : shell.sidebarWidth}
         mainOpen={shell.mainOpen}
         messageBadgeCount={0}
         contactBadgeCount={0}
         showTools={false}
         railFooterContent={
-          <>
-            <button
-              type="button"
-              className="weq-rail-settings"
-              title="设置"
-              aria-label="设置"
-              onClick={() => setSettingsOpen(true)}
-            >
-              <Settings size={22} strokeWidth={1.5} />
-            </button>
-            <RailAccountFooter
-              currentUin={user.identityValue}
-              currentName={user.displayName}
-              currentAvatarUrl={user.avatarUrl}
-            />
-          </>
+          <RailAccountFooter
+            currentUin={user.identityValue}
+            currentName={user.displayName}
+            currentAvatarUrl={user.avatarUrl}
+          />
         }
         friendNoticeCount={contactRequests.length}
         groupNoticeCount={groupRequests.length}
         onViewChange={shell.switchView}
-        onOpenSettings={noopAsync}
+        onOpenSettings={() => setSettingsOpen(true)}
         onOpenProfile={noopAsync}
         onOpenAbout={noopAsync}
         onOpenHelp={noopAsync}
@@ -2347,6 +2524,7 @@ export function MainView(): ReactElement {
         onContactTabChange={shell.changeContactTab}
         onSidebarWidthChange={shell.updateSidebarWidth}
         sidebarContent={
+          shell.view === 'export' ? null : (
           <>
             <ChatSidebarContent
               user={user}
@@ -2418,8 +2596,12 @@ export function MainView(): ReactElement {
               refreshKey={`sidebar:${shell.view}:${conversations.length}:${buddyContacts.length}:${shell.query}`}
             />
           </>
+          )
         }
         mainContent={
+          shell.view === 'export' ? (
+            <ExportView />
+          ) : (
           <div className="weq-template-main-wrap">
             <div className="weq-readonly-chat">
               <ChatMainContent
@@ -2459,6 +2641,8 @@ export function MainView(): ReactElement {
                 onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
                 onBackConversation={shell.backConversation}
                 onEditRaw={handleEditRaw}
+                onOpenGroupAlbums={handleOpenGroupAlbums}
+                onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
               />
             </div>
             <OverlayScrollbar
@@ -2472,6 +2656,7 @@ export function MainView(): ReactElement {
               refreshKey={`group-members:${selectedConversation?.id ?? 'none'}:${currentGroupMembers.length}`}
             />
           </div>
+        )
         }
       />
       
@@ -2485,6 +2670,13 @@ export function MainView(): ReactElement {
       ) : null}
 
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      {albumDialog ? (
+        <GroupAlbumDialog
+          groupCode={albumDialog.groupCode}
+          groupName={albumDialog.groupName}
+          onClose={() => setAlbumDialog(null)}
+        />
+      ) : null}
       </ForwardKindContext.Provider>
     </ReplyJumpContext.Provider>
   );

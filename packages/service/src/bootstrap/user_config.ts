@@ -52,6 +52,55 @@ export interface AutoEnterTarget {
   dataDir?: string;
 }
 
+/** Recursive `Partial` — lets persisted `settings` omit any nested field. */
+type DeepPartial<T> = {
+  [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
+};
+
+/**
+ * "自动从登录的 QQ 进程获取 rkey 补全缺失媒体" settings. This is what powers
+ * both in-app media viewing and export completion — see {@link MediaDownloadService}.
+ */
+export interface MediaCompletionConfig {
+  /** Master switch: harvest rkeys from the online QQ and use them to complete media. */
+  enabled: boolean;
+}
+
+/**
+ * 语音转录 settings. Holds the selected model id (matches an entry in
+ * {@link VOICE_MODELS}). Empty string = feature off (no model chosen), which is
+ * what gates the 转文字 button in the chat view.
+ */
+export interface VoiceTranscribeConfig {
+  /** Selected transcription model id, or '' when none is chosen. */
+  modelId: string;
+}
+
+/**
+ * Global, app-wide preferences exposed in the 设置 → 基础配置 page. Lives under
+ * the `settings` key in `config.json`. All read paths merge against
+ * {@link DEFAULT_APP_SETTINGS} so an older / partial file still yields a full,
+ * well-typed object.
+ */
+export interface AppSettings {
+  /** 启用数据库监听（实时消息）. Drives whether the nt_msg.db watcher is mounted. */
+  realtimeEnabled: boolean;
+  /** 媒体补全（rkey）配置. */
+  mediaCompletion: MediaCompletionConfig;
+  /** 自动获取 ClientKey. */
+  autoFetchClientKey: boolean;
+  /** 语音转录（选中的模型）. */
+  voiceTranscribe: VoiceTranscribeConfig;
+}
+
+/** Defaults applied when a field is absent from `config.json`. */
+export const DEFAULT_APP_SETTINGS: AppSettings = {
+  realtimeEnabled: true,
+  mediaCompletion: { enabled: true },
+  autoFetchClientKey: true,
+  voiceTranscribe: { modelId: '' },
+};
+
 /**
  * Schema for `config.json`. All fields optional so older files keep loading
  * after a schema bump.
@@ -69,6 +118,24 @@ export interface UserConfig {
    * cache (e.g. onto a larger drive).
    */
   avatarCacheDir?: string | null;
+  /**
+   * Global app settings (设置 → 基础配置). Stored partial; read through
+   * {@link UserConfigService.getSettings} which merges {@link DEFAULT_APP_SETTINGS}.
+   */
+  settings?: DeepPartial<AppSettings>;
+  /**
+   * Custom cache directory root (设置 → 账号信息 → 账号缓存路径). Absent → the
+   * default `<appDataRoot>/cache`. Routes {@link UserConfigService.cacheDir}
+   * (and thus the media download cache) onto another disk.
+   */
+  cacheDirOverride?: string | null;
+  /**
+   * First-run onboarding flag. `true` once the user has confirmed the 欢迎使用
+   * 说明框 (shown after the FIRST account is opened, not on app launch). Absent
+   * or `false` → the dialog is shown the next time an account is opened. See
+   * {@link UserConfigService.isWelcomeAcknowledged}.
+   */
+  welcomeAcknowledged?: boolean;
 }
 
 export class UserConfigService {
@@ -185,15 +252,98 @@ export class UserConfigService {
   }
 
   /**
-   * Absolute path to `<root>/cache/<category>/`, created if missing.
+   * Absolute path to `<cacheBase>/<category>/`, created if missing.
    *
    * `category` is a free-form short identifier ("avatar", "preview",
    * "report-2026"). No validation here — the caller picks meaningful
-   * names; bad input just creates an oddly-named directory.
+   * names; bad input just creates an oddly-named directory. The base honours
+   * {@link UserConfig.cacheDirOverride} (see {@link cacheBaseDir}).
    */
   cacheDir(category: string): string {
-    const dir = join(this.root, 'cache', category);
+    const dir = join(this.cacheBaseDir(), category);
     mkdirSync(dir, { recursive: true });
     return dir;
+  }
+
+  // ---- app settings (global, 设置 → 基础配置) ----
+
+  /**
+   * Full, defaulted app settings. Always returns every field — missing keys in
+   * `config.json` fall back to {@link DEFAULT_APP_SETTINGS}.
+   */
+  getSettings(): AppSettings {
+    const s = this.read().settings;
+    const d = DEFAULT_APP_SETTINGS;
+    return {
+      realtimeEnabled: s?.realtimeEnabled ?? d.realtimeEnabled,
+      autoFetchClientKey: s?.autoFetchClientKey ?? d.autoFetchClientKey,
+      mediaCompletion: {
+        enabled: s?.mediaCompletion?.enabled ?? d.mediaCompletion.enabled,
+      },
+      voiceTranscribe: {
+        modelId: s?.voiceTranscribe?.modelId ?? d.voiceTranscribe.modelId,
+      },
+    };
+  }
+
+  /**
+   * Deep-merge `patch` into the current settings and persist. Returns the new
+   * full settings object.
+   */
+  setSettings(patch: DeepPartial<AppSettings>): AppSettings {
+    const current = this.getSettings();
+    const next: AppSettings = {
+      realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
+      autoFetchClientKey: patch.autoFetchClientKey ?? current.autoFetchClientKey,
+      mediaCompletion: {
+        enabled: patch.mediaCompletion?.enabled ?? current.mediaCompletion.enabled,
+      },
+      voiceTranscribe: {
+        modelId: patch.voiceTranscribe?.modelId ?? current.voiceTranscribe.modelId,
+      },
+    };
+    this.write({ settings: next });
+    return next;
+  }
+
+  // ---- first-run onboarding (欢迎使用) ----
+
+  /**
+   * True once the user has confirmed the first-run 欢迎使用 dialog. False (the
+   * default for a fresh install or an older config) means the dialog should be
+   * shown the next time an account is opened.
+   */
+  isWelcomeAcknowledged(): boolean {
+    return this.read().welcomeAcknowledged === true;
+  }
+
+  /** Persist that the user confirmed the first-run 欢迎使用 dialog. */
+  acknowledgeWelcome(): void {
+    this.write({ welcomeAcknowledged: true });
+  }
+
+  // ---- cache directory (设置 → 账号信息 → 账号缓存路径) ----
+
+  /** Default cache base when no override is set. */
+  private defaultCacheBase(): string {
+    return join(this.root, 'cache');
+  }
+
+  /** Effective cache base: the override if set & non-blank, else the default. */
+  cacheBaseDir(): string {
+    const o = this.read().cacheDirOverride;
+    return o && o.trim() ? o : this.defaultCacheBase();
+  }
+
+  /** Effective / override / default cache paths, for display in settings. */
+  getCacheDirInfo(): { effective: string; override: string | null; default: string } {
+    const def = this.defaultCacheBase();
+    const o = this.read().cacheDirOverride ?? null;
+    return { effective: o && o.trim() ? o : def, override: o, default: def };
+  }
+
+  /** Set (or clear with null/blank) the custom cache directory override. */
+  setCacheDirOverride(dir: string | null): void {
+    this.write({ cacheDirOverride: dir && dir.trim() ? dir : null });
   }
 }

@@ -157,6 +157,23 @@ export class C2cMsgDb {
     return this.qq.write(`UPDATE c2c_msg_table SET "40800" = ? WHERE "40001" = ?`, [blob, msgId]);
   }
 
+  /** Batch count messages per peer by uid. Returns { uid: count }. */
+  async countByUids(uids: string[]): Promise<Record<string, number>> {
+    if (uids.length === 0) return {};
+    const placeholders = uids.map(() => '?').join(',');
+    const rows = await this.qq.query(
+      `SELECT "40021", COUNT(*) FROM c2c_msg_table WHERE "40021" IN (${placeholders}) GROUP BY "40021"`,
+      uids,
+    );
+    const result: Record<string, number> = {};
+    for (const row of rows) {
+      const uid = String(row[0] ?? '');
+      const count = typeof row[1] === 'bigint' ? Number(row[1]) : Number(row[1] ?? 0);
+      if (uid) result[uid] = count;
+    }
+    return result;
+  }
+
   /** Drop the cached native connection. Call on account switch / shutdown. */
   close(): void {
     this.qq.close();

@@ -7,13 +7,15 @@ import {
 	ChevronsUp,
 	CirclePlus,
 	FileText,
+	Images,
 	MessageSquareText,
 	SendHorizontal,
 	Smile,
 	Sparkles,
 } from "lucide-react";
 import { FaQq } from "react-icons/fa";
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ReplyJumpContext } from "../../components/QqMessageContent";
 import type {
 	ClipboardEvent as ReactClipboardEvent,
 	CSSProperties,
@@ -197,6 +199,8 @@ export function ChatPane({
 	onDraftClear,
 	onBack,
 	onEditRaw,
+	onOpenGroupAlbums,
+	onOpenGroupAnnouncements,
 }: {
 	user: User;
 	conversation: Conversation | undefined;
@@ -221,7 +225,11 @@ export function ChatPane({
 	onDraftClear: (conversationId: string) => void;
 	onBack: () => void;
 	onEditRaw?: (message: Message) => void;
+	onOpenGroupAlbums?: (conversation: Extract<Conversation, { type: "group" }>) => void;
+	onOpenGroupAnnouncements?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 }) {
+	// 复用 replyJump 的跳转能力（含翻页/重建窗口），供群精华消息跳转使用。
+	const jumpToSeq = useContext(ReplyJumpContext);
 	const [body, setBody] = useState("");
 	const [sending, setSending] = useState(false);
 	const [composerHeight, setComposerHeight] = useState(() =>
@@ -253,6 +261,13 @@ export function ChatPane({
 	const emojiPanelRef = useRef<HTMLDivElement | null>(null);
 	const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
 	const expandedEmojiButtonRef = useRef<HTMLButtonElement | null>(null);
+
+	function openGroupInfoDetail(detail: GroupInfoDetail) {
+		if (detail === "announcements" && conversation?.type === "group") {
+			onOpenGroupAnnouncements?.(conversation);
+		}
+		setGroupInfoDetail(detail);
+	}
 	const toolsPanelRef = useRef<HTMLDivElement | null>(null);
 	const toolsButtonRef = useRef<HTMLButtonElement | null>(null);
 	const mentionMenuRef = useRef<HTMLDivElement | null>(null);
@@ -1249,8 +1264,7 @@ export function ChatPane({
 								className={cn("icon-button", "group-header-info-action")}
 								type="button"
 								title="Group announcements"
-								disabled={!hasGroupAnnouncements(conversation)}
-								onClick={() => setGroupInfoDetail("announcements")}
+								onClick={() => openGroupInfoDetail("announcements")}
 							>
 								<FileText size={18} />
 							</button>
@@ -1258,10 +1272,18 @@ export function ChatPane({
 								className={cn("icon-button", "group-header-info-action")}
 								type="button"
 								title="Group highlights"
-								disabled={!hasGroupEssence(conversation)}
-								onClick={() => setGroupInfoDetail("essence")}
+									disabled={!hasGroupEssence(conversation)}
+									onClick={() => setGroupInfoDetail("essence")}
 							>
 								<Sparkles size={18} />
+							</button>
+							<button
+								className={cn("icon-button", "group-header-info-action")}
+								type="button"
+								title="Group albums"
+								onClick={() => onOpenGroupAlbums?.(conversation)}
+							>
+								<Images size={18} />
 							</button>
 						</>
 					) : null}
@@ -1420,7 +1442,7 @@ export function ChatPane({
 					{!groupInfoCollapsed ? (
 						<GroupInfoPanel
 							conversation={conversation}
-							onOpenDetail={setGroupInfoDetail}
+							onOpenDetail={openGroupInfoDetail}
 							onLoadMoreMembers={onLoadMoreGroupMembers}
 							loadingMoreMembers={groupMembersLoading}
 						/>
@@ -1660,6 +1682,16 @@ export function ChatPane({
 					conversation={conversation}
 					detail={groupInfoDetail}
 					onClose={() => setGroupInfoDetail(null)}
+					onJumpToMessage={(seq) => {
+						// 群精华属于群消息，锚点用 seq（与 replyJump 的 group 分支一致）。
+						// jumpToSeq 内部会 String(seq) 归一化并处理快路径/翻页/重建窗口。
+						setGroupInfoDetail(null);
+						if (seq == null) {
+							console.warn("[essence-jump] missing msgSeq, cannot jump", seq);
+							return;
+						}
+						jumpToSeq({ seq });
+					}}
 				/>
 			) : null}
 		</section>

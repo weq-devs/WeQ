@@ -36,3 +36,8 @@ export function mediaUrl(kind: string, params: Record<string, string | number>):
   for (const [k, v] of Object.entries(params)) q.set(k, String(v));
   return `${MEDIA_SCHEME}://${kind}?${q.toString()}`;
 }
+
+/** Proxy a remote QQ album image through the main process so Qzone referer is attached. */
+export function albumMediaUrl(src: string): string {
+  return mediaUrl('album', { src });
+}

@@ -22,6 +22,11 @@ extraResources:
     to: resources
 asarUnpack:
   - resources/native/**/*
+  # The voice-transcription worker is forked as a child process (can't run from
+  # inside the asar) and loads the native sherpa-onnx binding from node_modules.
+  - out/main/transcribeWorker.mjs
+  - node_modules/sherpa-onnx-node/**/*
+  - node_modules/sherpa-onnx-*/**/*
 win:
   icon: ../../resources/brand/logo.png
   target:
@@ -34,3 +39,11 @@ nsis:
   perMachine: false
   allowToChangeInstallationDirectory: true
   artifactName: ${productName}-${version}-setup.${ext}
+# GitHub publish target for `electron-builder --publish always` (Release workflow).
+# Generates + uploads latest.yml / *.blockmap that the in-app updater reads.
+# releaseType: release => the Release is published (not a draft) and marked latest.
+publish:
+  provider: github
+  owner: H3CoF6
+  repo: WeQ
+  releaseType: release

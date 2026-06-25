@@ -3,7 +3,7 @@
  */
 
 import { loadNative } from '@weq/native';
-import { ProfileInfoDb } from '../src/profile/profile_info';
+import { ProfileInfoDb } from '../src';
 
 const UIN_TARGET = 3096435766n;
 const KEY = '^;<kXZ;RI[@]yTD<';

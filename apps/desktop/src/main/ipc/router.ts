@@ -11,10 +11,12 @@
 import { router } from './trpc';
 import { bootstrapRouter } from './routers/bootstrap';
 import { accountRouter } from './routers/account';
+import { updateRouter } from './routers/update';
 
 export const appRouter = router({
   bootstrap: bootstrapRouter,
   account: accountRouter,
+  update: updateRouter,
 });
 
 export type AppRouter = typeof appRouter;

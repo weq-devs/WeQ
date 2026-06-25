@@ -14,17 +14,19 @@
  */
 
 import { observable } from '@trpc/server/observable';
-import { dialog } from 'electron';
+import { app, dialog } from 'electron';
 import { z } from 'zod';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  accountEventBus,
   getAppContext,
   requireBootstrap,
   requirePlatform,
+  type AccountForcedClosedEvent,
 } from '../../context/app_context';
 import { procedure, router } from '../trpc';
-import { accountConfigId, type KeyEvent } from '@weq/service';
+import { accountConfigId, type KeyEvent, type VoiceDownloadProgress } from '@weq/service';
 
 const algoSchema = z.object({
   pageHmacAlgorithm: z.string(),
@@ -37,6 +39,19 @@ export const bootstrapRouter = router({
   /** Classified native-init error, or null when the bundle loaded fine. */
   nativeStatus: procedure.query(() => {
     return getAppContext().nativeError;
+  }),
+
+  /** Background account session was forcibly closed by main process. */
+  onAccountForcedClosed: procedure.subscription(() => {
+    return observable<AccountForcedClosedEvent>((emit) => {
+      const handler = (event: AccountForcedClosedEvent): void => {
+        emit.next(event);
+      };
+      accountEventBus.on('forcedClosed', handler);
+      return () => {
+        accountEventBus.off('forcedClosed', handler);
+      };
+    });
   }),
 
   // ---- detection (via global config cache) ----
@@ -130,6 +145,150 @@ export const bootstrapRouter = router({
   clearAutoEnter: procedure.mutation(() => {
     requireBootstrap().userConfig.clearAutoEnter();
     return true;
+  }),
+
+  // ---- version (设置 → 全局设置) ----
+
+  /** WeQ app version + the runtime versions, for the 全局设置 page. */
+  getVersionInfo: procedure.query(() => {
+    return {
+      app: app.getVersion(),
+      electron: process.versions.electron ?? '',
+      chrome: process.versions.chrome ?? '',
+      node: process.versions.node ?? '',
+      isDev: !app.isPackaged,
+    };
+  }),
+
+  // ---- app settings (设置 → 账号基础 / 全局设置) ----
+
+  /** Full, defaulted global settings (realtime / media-completion / clientkey). */
+  getSettings: procedure.query(() => {
+    return requireBootstrap().userConfig.getSettings();
+  }),
+
+  /**
+   * Toggle 启用数据库监听. Persists, then applies live to the open account so the
+   * nt_msg.db watcher mounts/unmounts immediately (no re-open needed).
+   */
+  setRealtimeEnabled: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ realtimeEnabled: input.enabled });
+      getAppContext().applyRealtime(input.enabled);
+      return true;
+    }),
+
+  /**
+   * Patch the 媒体补全 config. The monitor's rkey harvesting reads `enabled`
+   * live on its next poll.
+   */
+  setMediaCompletion: procedure
+    .input(z.object({ enabled: z.boolean().optional() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ mediaCompletion: input });
+      return true;
+    }),
+
+  /**
+   * Toggle 自动获取 ClientKey. Persists, and the monitor reads it live on its
+   * next poll so clientkey harvesting starts/stops immediately (no re-open needed).
+   */
+  setAutoFetchClientKey: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ autoFetchClientKey: input.enabled });
+      return true;
+    }),
+
+  // ---- first-run onboarding (欢迎使用) ----
+
+  /** True once the user confirmed the first-run 欢迎使用 dialog. */
+  getWelcomeAcknowledged: procedure.query(() => {
+    return requireBootstrap().userConfig.isWelcomeAcknowledged();
+  }),
+
+  /** Mark the first-run 欢迎使用 dialog as confirmed (persists to config.json). */
+  acknowledgeWelcome: procedure.mutation(() => {
+    requireBootstrap().userConfig.acknowledgeWelcome();
+    return true;
+  }),
+
+  // ---- voice transcription models (设置 → 语音转录) ----
+
+  /** The model registry, each entry enriched with on-disk / in-flight state. */
+  voiceModels: procedure.query(() => {
+    return requireBootstrap().voiceTranscribe.listModels();
+  }),
+
+  /**
+   * Start downloading a model (fire-and-forget). Progress is delivered via the
+   * `onVoiceModelProgress` subscription; returns immediately so the renderer's
+   * mutation doesn't block on a 245 MB download.
+   */
+  downloadVoiceModel: procedure
+    .input(z.object({ id: z.string().min(1) }))
+    .mutation(({ input }) => {
+      // Don't await — the subscription drives the UI. Swallow rejections here;
+      // the terminal 'progress' event already carries the error.
+      void requireBootstrap().voiceTranscribe.downloadModel(input.id).catch(() => {});
+      return true;
+    }),
+
+  /** Subscribe to voice-model download progress (all models share one stream). */
+  onVoiceModelProgress: procedure.subscription(() => {
+    return observable<VoiceDownloadProgress>((emit) => {
+      const handler = (p: VoiceDownloadProgress): void => emit.next(p);
+      const svc = requireBootstrap().voiceTranscribe;
+      svc.on('progress', handler);
+      return () => {
+        svc.off('progress', handler);
+      };
+    });
+  }),
+
+  /** Delete a downloaded model's files. No-op while a download is in flight. */
+  deleteVoiceModel: procedure
+    .input(z.object({ id: z.string().min(1) }))
+    .mutation(({ input }) => {
+      return requireBootstrap().voiceTranscribe.deleteModel(input.id);
+    }),
+
+  /** Set (or clear with '') the selected transcription model id. */
+  setVoiceModel: procedure
+    .input(z.object({ modelId: z.string() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ voiceTranscribe: { modelId: input.modelId } });
+      return true;
+    }),
+
+  // ---- cache directory (设置 → 账号信息 → 账号缓存路径) ----
+
+  /** Effective / override / default cache paths for display. */
+  getCacheDir: procedure.query(() => {
+    return requireBootstrap().userConfig.getCacheDirInfo();
+  }),
+
+  /** Folder dialog → set the cache override. Returns the new path info. */
+  pickCacheDir: procedure.mutation(async () => {
+    const boot = requireBootstrap();
+    const result = await dialog.showOpenDialog({
+      title: '选择缓存目录',
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return boot.userConfig.getCacheDirInfo();
+    }
+    const picked = result.filePaths[0];
+    if (picked) boot.userConfig.setCacheDirOverride(picked);
+    return boot.userConfig.getCacheDirInfo();
+  }),
+
+  /** Clear the cache override (revert to the default). Returns new path info. */
+  clearCacheDir: procedure.mutation(() => {
+    const boot = requireBootstrap();
+    boot.userConfig.setCacheDirOverride(null);
+    return boot.userConfig.getCacheDirInfo();
   }),
 
   // ---- filesystem dialog (Tencent Files fallback / manual db pick) ----

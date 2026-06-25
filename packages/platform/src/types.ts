@@ -51,6 +51,12 @@ export interface Platform {
   ntMsgDbPath(uin: string): string | null;
 
   /**
+   * Resolve the QQ NT database root (`<Tencent Files>/<uin>/nt_qq/nt_db`) for
+   * a specific account. Returns null if the directory exists nowhere.
+   */
+  ntDbDir(uin: string): string | null;
+
+  /**
    * Resolve `group_info.db` (group metadata and essence messages) for a
    * specific QQ account. Co-located with `nt_msg.db`.
    */

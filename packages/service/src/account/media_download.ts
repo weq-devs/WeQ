@@ -116,18 +116,52 @@ function buildUrl(fileToken: string, rkey: DownloadRkey): string {
   return `${DOWNLOAD_BASE}?appid=${appid}&fileid=${encodeURIComponent(fileToken)}&spec=0${rkey.rkey}`;
 }
 
+/** Retries for transient download failures (network / 5xx / 429). */
+const MAX_RETRIES = 3;
+/** Base backoff; grows 300ms → 600ms → 1200ms, plus jitter. */
+const BACKOFF_BASE_MS = 300;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Exponential backoff with ±40% jitter for retry attempt `n` (0-based). */
+function backoffMs(n: number): number {
+  const base = BACKOFF_BASE_MS * 2 ** n;
+  return base + Math.floor(Math.random() * base * 0.4);
+}
+
+/**
+ * Fetch one URL to bytes, with exponential-backoff retry on *transient* errors
+ * only: a thrown fetch (network), a 5xx, or a 429 (rate limit). Permanent
+ * outcomes — 4xx, or a text/* error page (wrong/expired rkey) — return null
+ * immediately so the caller moves on to the next candidate URL.
+ */
 async function tryFetch(url: string): Promise<Buffer | null> {
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    // A wrong-scene / expired rkey tends to come back as an HTML/text error
-    // page with a 200 — reject anything that isn't binary media.
-    const contentType = res.headers.get('content-type') ?? '';
-    if (contentType.startsWith('text/')) return null;
-    const buf = Buffer.from(await res.arrayBuffer());
-    return buf.length > 0 ? buf : null;
-  } catch {
-    return null;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      const res = await fetch(url);
+      if (res.status === 429 || res.status >= 500) {
+        if (attempt < MAX_RETRIES) {
+          await sleep(backoffMs(attempt));
+          continue;
+        }
+        return null;
+      }
+      if (!res.ok) return null; // permanent (404 etc.)
+      // A wrong-scene / expired rkey tends to come back as an HTML/text error
+      // page with a 200 — reject anything that isn't binary media (no retry).
+      const contentType = res.headers.get('content-type') ?? '';
+      if (contentType.startsWith('text/')) return null;
+      const buf = Buffer.from(await res.arrayBuffer());
+      return buf.length > 0 ? buf : null;
+    } catch {
+      if (attempt < MAX_RETRIES) {
+        await sleep(backoffMs(attempt));
+        continue;
+      }
+      return null;
+    }
   }
 }
 

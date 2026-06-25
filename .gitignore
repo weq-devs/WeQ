@@ -33,3 +33,4 @@ release/
 
 # extend
 .claude/
+.agents/

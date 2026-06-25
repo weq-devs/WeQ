@@ -87,6 +87,11 @@ export interface DatabaseProbeResult {
   kdfHmacAlgorithm?: string;
 }
 
+export interface DatabaseHealthResult {
+  healthy: boolean;
+  corruptedTables: string[];
+}
+
 /** Status returned after injecting the hook DLL into a QQ process. */
 export interface QQInstanceStatus {
   pid: number;
@@ -124,6 +129,7 @@ export interface NtHelperBinding {
   requestDecryptKey(pid: number, dbPath: string): Promise<string>;
   
   testDatabaseKey(dbPath: string, key: string): Promise<DatabaseProbeResult>;
+  checkDatabaseHealth(dbPath: string, key: string, algo: DatabaseAlgorithms): Promise<DatabaseHealthResult>;
 
   // --- hook injection ---
   injectAndGetStatus(pid: number, dllPath: string): Promise<QQInstanceStatus>;
@@ -167,6 +173,27 @@ export interface NtHelperBinding {
   fetchSkey(pid: number, uin: string): Promise<string>;
   fetchPskey(pid: number, uin: string, domain: string): Promise<string>;
   computeBkn(skey: string): number;
+
+  // --- custom packet send (protobuf-encoded body in, raw reply body out) ---
+  /**
+   * Send a custom OIDB packet. The body is wrapped in an OIDB envelope and the
+   * command is formatted as `OidbSvcTrpcTcp.0x<command>_<subCommand>`.
+   * `isUid` sets the UIN-form variant (reserved=1). Returns the inner reply body.
+   */
+  sendOidbPacket(
+    pid: number,
+    command: number,
+    subCommand: number,
+    body: Buffer,
+    isUid: boolean,
+  ): Promise<Buffer>;
+  /**
+   * Send a raw SSO packet with an explicit command string (no OIDB envelope) —
+   * used for trpc services such as
+   * `QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.GetMediaList`. The body must
+   * already be protobuf-encoded; the raw reply body is returned.
+   */
+  sendPacket(pid: number, cmd: string, body: Buffer): Promise<Buffer>;
 }
 
 // ---------- NineBirdBoot.node — launch bootstrap -------------------------

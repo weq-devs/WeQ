@@ -42,6 +42,31 @@ export function rkeyExpiryMs(r: DownloadRkey): number {
   return (r.createTime + r.ttlSeconds) * 1000;
 }
 
+/**
+ * A `clientkey` credential issued by QQ's OIDB service (via `fetchClientKey`).
+ * Short-lived (≈30 min) token used to authenticate web/cgi calls to QQ's
+ * services on this account's behalf.
+ *
+ * Normalised from the native JSON (`client_key`/`key_index`/`expire_time`).
+ * Unlike an rkey, QQ returns only a TTL (no issue time), so we stamp
+ * {@link fetchedAt} ourselves when we harvest it.
+ */
+export interface ClientKey {
+  /** The client_key credential (hex string). */
+  clientKey: string;
+  /** Server-side key slot index returned alongside the key. */
+  keyIndex: string;
+  /** Validity window in seconds, measured from {@link fetchedAt}. */
+  ttlSeconds: number;
+  /** Unix milliseconds we fetched the key (QQ gives only a TTL, not an issue time). */
+  fetchedAt: number;
+}
+
+/** Absolute expiry of a clientkey in unix milliseconds. */
+export function clientKeyExpiryMs(c: ClientKey): number {
+  return c.fetchedAt + c.ttlSeconds * 1000;
+}
+
 export interface AccountConfig {
   /**
    * Stable record id derived from (uin, dataDir). Filename is
@@ -73,6 +98,8 @@ export interface AccountConfig {
   rkeys?: DownloadRkey[];
   /** Unix ms the rkeys were last refreshed. */
   rkeyUpdatedAt?: number;
+  /** Latest clientkey harvested from the online instance (when 自动获取 ClientKey is on). */
+  clientKey?: ClientKey;
 }
 
 /** Metadata threaded in from the open flow to enrich the saved record. */
@@ -159,6 +186,11 @@ export class AccountConfigService {
   /** Replace the stored download rkeys (and stamp the refresh time). */
   setRkeys(rkeys: DownloadRkey[]): void {
     this.patch({ rkeys, rkeyUpdatedAt: Date.now() });
+  }
+
+  /** Replace the stored clientkey. */
+  setClientKey(clientKey: ClientKey): void {
+    this.patch({ clientKey });
   }
 
   private patch(partial: Partial<AccountConfig>): void {

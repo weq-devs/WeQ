@@ -7,9 +7,12 @@
  */
 
 import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
-import { Info, X } from 'lucide-react';
+import { AudioLines, Settings2, User, X } from 'lucide-react';
+import { GlobalSettingsSection } from './settings/GlobalSettingsSection';
+import { AccountBasicsSection } from './settings/AccountBasicsSection';
+import { VoiceTranscribeSection } from './settings/VoiceTranscribeSection';
 
-type SectionId = 'about';
+type SectionId = 'global' | 'account' | 'voice' | 'about';
 
 interface SettingsSection {
   id: SectionId;
@@ -20,23 +23,41 @@ interface SettingsSection {
 
 const SETTINGS_SECTIONS: SettingsSection[] = [
   {
-    id: 'about',
-    label: '关于',
-    icon: <Info size={16} strokeWidth={1.8} />,
-    render: () => (
-      <div className="weq-settings-section">
-        <h3 className="weq-settings-section-title">消息列表说明</h3>
-        <p>
-          当前消息列表基于{' '}
-          <a href="https://github.com/dogxii/webark-im-template" target="_blank" rel="noreferrer">
-            dogxii/webark-im-template
-          </a>{' '}
-          项目进行适配与修改。
-        </p>
-        <p>感谢 dogxii 及原项目贡献者提供的优秀 IM 模板基础。</p>
-      </div>
-    ),
+    id: 'global',
+    label: '全局设置',
+    icon: <Settings2 size={16} strokeWidth={1.8} />,
+    render: () => <GlobalSettingsSection />,
   },
+  {
+    id: 'account',
+    label: '账号基础',
+    icon: <User size={16} strokeWidth={1.8} />,
+    render: () => <AccountBasicsSection />,
+  },
+  {
+    id: 'voice',
+    label: '语音转录',
+    icon: <AudioLines size={16} strokeWidth={1.8} />,
+    render: () => <VoiceTranscribeSection />,
+  },
+  // {
+  //   id: 'about',
+  //   label: '关于',
+  //   icon: <Info size={16} strokeWidth={1.8} />,
+  //   render: () => (
+  //     <div className="weq-settings-section">
+  //       <h3 className="weq-settings-section-title">消息列表说明</h3>
+  //       <p>
+  //         当前消息列表基于{' '}
+  //         <a href="https://github.com/dogxii/webark-im-template" target="_blank" rel="noreferrer">
+  //           dogxii/webark-im-template
+  //         </a>{' '}
+  //         项目进行适配与修改。
+  //       </p>
+  //       <p>感谢 dogxii 及原项目贡献者提供的优秀 IM 模板基础。</p>
+  //     </div>
+  //   ),
+  // },
 ];
 
 export function SettingsDialog({
@@ -46,7 +67,7 @@ export function SettingsDialog({
   open: boolean;
   onClose: () => void;
 }): ReactElement | null {
-  const [activeId, setActiveId] = useState<SectionId>('about');
+  const [activeId, setActiveId] = useState<SectionId>('global');
 
   useEffect(() => {
     if (!open) return undefined;

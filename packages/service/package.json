@@ -14,19 +14,24 @@
     "test:key-qr": "tsx test/key_qr_login.ts",
     "test:msg-search": "tsx test/msg_search.ts",
     "test:msg-search-agg": "tsx test/msg_search_aggregate.ts",
-    "test:reply": "tsx test/reply_element.ts"
+    "test:reply": "tsx test/reply_element.ts",
+    "test:export": "tsx test/export_group.ts",
+    "test:scan-media": "tsx test/scan_group_media.ts",
+    "test:download-probe": "tsx test/download_rkey_probe.ts"
   },
   "dependencies": {
     "@weq/account": "workspace:*",
     "@weq/codec": "workspace:*",
     "@weq/db": "workspace:*",
     "@weq/native": "workspace:*",
-    "@weq/platform": "workspace:*"
+    "@weq/platform": "workspace:*",
+    "@weq/protocol": "workspace:*",
+    "exceljs": "^4.4.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.6",
-    "qrcode": "^1.5.4",
     "@types/qrcode": "^1.5.5",
+    "qrcode": "^1.5.4",
     "tsx": "^4.19.2"
   }
 }

@@ -12,11 +12,12 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { decode } from 'silk-wasm';
 import { requirePlatform } from './context/app_context';
 
 const SAMPLE_RATE = 24000;
+const TRANSCRIBE_SAMPLE_RATE = 16000;
 const CHANNELS = 1;
 const BITS_PER_SAMPLE = 16;
 
@@ -43,9 +44,46 @@ export async function decodeSilkToWav(silkPath: string): Promise<string | null> 
   }
 }
 
+/**
+ * Decode the SILK file at `silkPath` directly to `destPath` (a `.wav`). Used by
+ * the media export pipeline, which needs the WAV at a predictable bundle path
+ * rather than the shared voice cache. Returns true on success.
+ */
+export async function decodeSilkToFile(silkPath: string, destPath: string): Promise<boolean> {
+  if (!silkPath || !existsSync(silkPath)) return false;
+  try {
+    const silk = readFileSync(silkPath);
+    const { data: pcm } = await decode(silk, SAMPLE_RATE);
+    mkdirSync(dirname(destPath), { recursive: true });
+    writeFileSync(destPath, wrapWav(pcm));
+    return true;
+  } catch (e) {
+    console.error(`[voice] failed to decode SILK ${silkPath} → ${destPath}:`, e);
+    return false;
+  }
+}
+
+/**
+ * Decode the SILK file at `silkPath` to an in-memory 16 kHz mono WAV buffer for
+ * voice transcription. SenseVoice expects 16 kHz, whereas the playback decoders
+ * above use 24 kHz. Returns null if the source is missing or decoding fails.
+ * Not cached — the WAV is consumed once by the recognizer worker.
+ */
+export async function decodeSilkToWav16kBuffer(silkPath: string): Promise<Buffer | null> {
+  if (!silkPath || !existsSync(silkPath)) return null;
+  try {
+    const silk = readFileSync(silkPath);
+    const { data: pcm } = await decode(silk, TRANSCRIBE_SAMPLE_RATE);
+    return wrapWav(pcm, TRANSCRIBE_SAMPLE_RATE);
+  } catch (e) {
+    console.error(`[voice] failed to decode SILK ${silkPath} to 16k wav:`, e);
+    return null;
+  }
+}
+
 /** Prepend a 44-byte PCM WAV header to raw little-endian 16-bit PCM. */
-function wrapWav(pcm: Uint8Array): Buffer {
-  const byteRate = (SAMPLE_RATE * CHANNELS * BITS_PER_SAMPLE) / 8;
+function wrapWav(pcm: Uint8Array, sampleRate: number = SAMPLE_RATE): Buffer {
+  const byteRate = (sampleRate * CHANNELS * BITS_PER_SAMPLE) / 8;
   const blockAlign = (CHANNELS * BITS_PER_SAMPLE) / 8;
   const header = Buffer.alloc(44);
   header.write('RIFF', 0);
@@ -55,7 +93,7 @@ function wrapWav(pcm: Uint8Array): Buffer {
   header.writeUInt32LE(16, 16);
   header.writeUInt16LE(1, 20); // PCM
   header.writeUInt16LE(CHANNELS, 22);
-  header.writeUInt32LE(SAMPLE_RATE, 24);
+  header.writeUInt32LE(sampleRate, 24);
   header.writeUInt32LE(byteRate, 28);
   header.writeUInt16LE(blockAlign, 32);
   header.writeUInt16LE(BITS_PER_SAMPLE, 34);

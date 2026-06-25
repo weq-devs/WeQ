@@ -1,0 +1,44 @@
+name: Release
+
+# Push a tag like `v0.1.0` to build the Windows installer and publish it as a
+# GitHub Release (with the `latest.yml` manifest the in-app updater consumes).
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # create / upload the release
+
+jobs:
+  release:
+    # Win-only NSIS target + the prebuilt native/.node live under native/win32/x64,
+    # so build on Windows.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Stamp the version from the tag (v1.2.3 -> 1.2.3) into the package.json
+      # files so electron-builder names artifacts and app.getVersion() reports it.
+      - name: Sync version from tag
+        run: node scripts/set-version.mjs ${{ github.ref_name }}
+
+      - name: Build renderer + main
+        run: pnpm --filter @weq/desktop exec electron-vite build
+
+      - name: Package + publish release
+        run: pnpm --filter @weq/desktop exec electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

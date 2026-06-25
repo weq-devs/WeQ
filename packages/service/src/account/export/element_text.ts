@@ -1,0 +1,164 @@
+/**
+ * Render a message's elements to a plain-text summary, for the TXT exporter
+ * (and reusable as alt-text elsewhere). Non-text media collapse to a bracketed
+ * label (`[图片]`, `[视频]`, …) the way a chat log preview would show them.
+ *
+ * Sender names are NOT resolved here — TXT shows the sender uin. Nickname /
+ * group-card resolution needs profile / member lookups and is a later step,
+ * same as media completion.
+ */
+
+import type { RenderElement } from '../msg_view';
+import type { ExportedMessage } from './types';
+
+/** Fixed bracket labels for media kinds that carry no useful text. */
+const LABEL: Record<string, string> = {
+  pic: '[图片]',
+  video: '[视频]',
+  ptt: '[语音]',
+  mface: '[表情]',
+  ark: '[卡片消息]',
+  multiMsg: '[合并转发]',
+  call: '[通话]',
+  wallet: '[红包/转账]',
+  qqDynamic: '[动态]',
+  emojiBounce: '[表情]',
+  onlineFolder: '[文件夹]',
+};
+
+function truncate(s: string, max: number): string {
+  return s.length > max ? `${s.slice(0, max)}…` : s;
+}
+
+/** Append ` (relPath)` when an export injected a bundled-media path. */
+function withPath(label: string, el: RenderElement): string {
+  const p = (el.data as { localPath?: string }).localPath;
+  return p ? `${label.replace(/\]$/, '')} → ${p}]` : label;
+}
+
+/** One element → its text fragment. */
+export function elementToText(el: RenderElement): string {
+  switch (el.type) {
+    case 'text':
+      return el.data.textContent ?? '';
+    case 'at':
+      return el.data.textContent ?? '';
+    case 'face':
+      return el.data.faceText ? `[${el.data.faceText}]` : '[表情]';
+    case 'pic':
+      return withPath(el.data.subType === 1 ? '[表情]' : '[图片]', el);
+    case 'video':
+      return withPath('[视频]', el);
+    case 'ptt':
+      return withPath('[语音]', el);
+    case 'file':
+    case 'onlineFile':
+      return withPath(`[文件: ${el.data.fileName || ''}]`, el);
+    case 'reply': {
+      const summary = elementsToText(el.data.origElements ?? []).trim();
+      return summary ? `[回复: ${truncate(summary, 30)}] ` : '[回复] ';
+    }
+    case 'markdown':
+      return el.data.markdownTextSummary || el.data.markdownContent || '[Markdown]';
+    case 'grayTipRevoke':
+      return `[${el.data.recallDisplayText || '撤回了一条消息'}]`;
+    case 'grayTipPoke':
+      return '[戳一戳]';
+    case 'grayTipGroup':
+    case 'grayTipInvite':
+      return '[群提示]';
+    case 'unknown':
+      return '';
+    default:
+      return LABEL[el.type] ?? '';
+  }
+}
+
+/** All elements → concatenated text. */
+export function elementsToText(elements: RenderElement[]): string {
+  return elements.map(elementToText).join('');
+}
+
+function pad2(n: number): string {
+  return n < 10 ? `0${n}` : `${n}`;
+}
+
+/** Unix seconds → `YYYY-MM-DD HH:mm:ss` in local time. */
+export function formatTime(unixSec: number): string {
+  const d = new Date(unixSec * 1000);
+  return (
+    `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ` +
+    `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
+  );
+}
+
+/** One message → a single log line: `[time] <uin>: <content>`. */
+export function messageToText(m: ExportedMessage): string {
+  return `[${formatTime(m.sendTime)}] ${m.senderUin}: ${elementsToText(m.elements)}`;
+}
+
+/**
+ * Column headers for the tabular exporters (CSV / XLSX), in cell order. Sender
+ * names are NOT resolved yet (same as TXT) — the sender columns show uin / uid.
+ */
+export const TABLE_HEADERS = ['时间', '发送者QQ', '发送者ID', '内容', '消息ID', '序号'] as const;
+
+/** One message → its row of cells, aligned with {@link TABLE_HEADERS}. */
+export function messageToCells(m: ExportedMessage): string[] {
+  return [
+    formatTime(m.sendTime),
+    m.senderUin,
+    m.senderUid,
+    elementsToText(m.elements),
+    m.msgId,
+    m.msgSeq,
+  ];
+}
+
+/** Drop a trailing extension: `AB.MP4` → `AB`. */
+function dropExt(filename: string): string {
+  const i = filename.lastIndexOf('.');
+  return i > 0 ? filename.slice(0, i) : filename;
+}
+
+/**
+ * Deterministic relative path of one media element inside the export bundle, or
+ * null for non-media. Predictable from (kind, fileName) alone — no scan needed,
+ * which is what lets the message file reference media that the later media
+ * stages will (or won't) materialize at that exact path.
+ *
+ *   pic (subType 1 = emoji) / pic → media/image/<fileName>
+ *   video                         → media/video/<fileName>
+ *   file / onlineFile             → media/file/<fileName>
+ *   ptt                           → media/record/<stem>.wav   (decoded)
+ */
+export function mediaRelPath(el: RenderElement): string | null {
+  switch (el.type) {
+    case 'pic':
+      return el.data.fileName ? `media/image/${el.data.fileName}` : null;
+    case 'video':
+      return el.data.fileName ? `media/video/${el.data.fileName}` : null;
+    case 'file':
+    case 'onlineFile':
+      return el.data.fileName ? `media/file/${el.data.fileName}` : null;
+    case 'ptt':
+      return el.data.fileName ? `media/record/${dropExt(el.data.fileName)}.wav` : null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Mutate a message's media elements in place, stamping each with its bundle
+ * relative path (`data.localPath`). Recurses into reply quotes so quoted media
+ * is referenced too. Called by the exporters only when media export is on.
+ */
+export function annotateLocalPaths(elements: RenderElement[]): void {
+  for (const el of elements) {
+    const rel = mediaRelPath(el);
+    if (rel) (el.data as { localPath?: string }).localPath = rel;
+    if (el.type === 'reply' && Array.isArray(el.data.origElements)) {
+      annotateLocalPaths(el.data.origElements);
+    }
+  }
+}
