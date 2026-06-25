@@ -5,8 +5,11 @@ directories:
   output: release/${version}
   buildResources: build
 files:
-  - out/**/*
-  - package.json
+  - "out/**/*"
+  # Bare "package.json" was being resolved as a glob in this monorepo and
+  # matched `../../packages/<name>/package.json` etc., which electron-builder
+  # rejects ("must be under <appDir>"). Pin to the desktop app's own manifest.
+  - "./package.json"
   - "!node_modules/**/*"
 extraResources:
   # native (.node) files live outside the source tree and are bundled at

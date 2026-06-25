@@ -38,7 +38,40 @@ jobs:
       - name: Build renderer + main
         run: pnpm --filter @weq/desktop exec electron-vite build
 
+      # ---- Diagnostic dump (always, even on success) ---------------------
+      # electron-builder runs from apps/desktop; we want to know exactly what
+      # it sees: the build output, the manifest it will read, and the
+      # version stamp that set-version.mjs just wrote. Cheap to log, hugely
+      # useful when the next failure is "must be under <appDir>".
+      - name: Dump build inputs
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "== apps/desktop/out ==";
+          Get-ChildItem -Recurse apps/desktop/out | Select-Object FullName, Length | Format-Table -AutoSize | Out-String | Write-Host
+          Write-Host "== apps/desktop/package.json ==";
+          Get-Content apps/desktop/package.json -Raw | Write-Host
+          Write-Host "== electron-builder.yml ==";
+          Get-Content apps/desktop/electron-builder.yml -Raw | Write-Host
+
       - name: Package + publish release
         run: pnpm --filter @weq/desktop exec electron-builder --win --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # electron-builder is chatty at DEBUG=electron-builder; leave the
+          # next failure mode (asar / filter / publish) self-describing.
+          DEBUG: electron-builder
+
+      # If electron-builder dies, capture whatever it managed to put on
+      # disk so the next iteration doesn't have to guess.
+      - name: Dump release artifacts on failure
+        if: failure()
+        shell: pwsh
+        run: |
+          Write-Host "== release/ tree ==";
+          if (Test-Path apps/desktop/release) {
+            Get-ChildItem -Recurse apps/desktop/release | Select-Object FullName, Length | Format-Table -AutoSize | Out-String | Write-Host
+          } else { Write-Host "(no release/ dir)" }
+          Write-Host "== win-unpacked/peek ==";
+          $p = Join-Path apps/desktop 'release'
+          Get-ChildItem -Depth 3 -Path $p -ErrorAction SilentlyContinue | Select-Object FullName | Format-Table -AutoSize | Out-String | Write-Host

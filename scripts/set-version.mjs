@@ -1,11 +1,14 @@
-// Sync the release version from a pushed git tag (vX.Y.Z) into the root and
-// desktop package.json files. electron-builder reads apps/desktop/package.json
-// for the artifact version, and Electron's app.getVersion() returns it at
-// runtime (shown on 设置 → 全局设置).
+// Sync the release version from a pushed git tag (vX.Y.Z) into every
+// package.json in the monorepo. electron-builder reads
+// apps/desktop/package.json for the artifact version, and Electron's
+// app.getVersion() returns it at runtime (shown on 设置 → 全局设置).
+// Keeping the workspace packages in lockstep avoids weird "version drift"
+// if anything inspects them at package time (NSIS metadata, blockmap
+// generation, etc.).
 //
 //   node scripts/set-version.mjs v1.2.3
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -17,12 +20,23 @@ if (!raw) {
 
 const version = raw.replace(/^v/, '').trim();
 if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
-  console.error(`Invalid version "${version}" (from "${raw}"); expected x.y.z`);
+  console.error(`Invalid version "${raw}" (from "${version}"); expected x.y.z`);
   process.exit(1);
 }
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const targets = ['package.json', 'apps/desktop/package.json'];
+
+// Also stamp every packages/*/package.json that has a `name` field.
+for (const pkgDir of readdirSync(join(repoRoot, 'packages'))) {
+  const candidate = join('packages', pkgDir, 'package.json');
+  try {
+    const pkg = JSON.parse(readFileSync(join(repoRoot, candidate), 'utf8'));
+    if (pkg && typeof pkg.name === 'string') targets.push(candidate);
+  } catch {
+    // skip directories without a package.json
+  }
+}
 
 for (const rel of targets) {
   const file = join(repoRoot, rel);
