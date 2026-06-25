@@ -1,6 +1,5 @@
 ![Banner](./resources/brand/banner.png)
 
-<div align="center">
 ![GitHub Repo stars](https://img.shields.io/github/stars/H3CoF6/WeQ?style=flat-square)![GitHub forks](https://img.shields.io/github/forks/H3CoF6/WeQ?style=flat-square)![GitHub issues](https://img.shields.io/github/issues/H3CoF6/WeQ?style=flat-square)![GitHub pull requests](https://img.shields.io/github/issues-pr/H3CoF6/WeQ?style=flat-square)![GitHub all releases](https://img.shields.io/github/downloads/H3CoF6/WeQ/total?style=flat-square)![GitHub Release downloads](https://img.shields.io/github/downloads/H3CoF6/WeQ/latest/total?style=flat-square)
 
 **WeQ** 是一个 NTQQ 自主的本地消息数据库解密、解析与导出工具。
