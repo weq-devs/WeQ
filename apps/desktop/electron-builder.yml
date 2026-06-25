@@ -10,7 +10,11 @@ files:
   # matched `../../packages/<name>/package.json` etc., which electron-builder
   # rejects ("must be under <appDir>"). Pin to the desktop app's own manifest.
   - "./package.json"
-  - "!node_modules/**/*"
+  # Keep runtime deps from this app's node_modules so bundled code can resolve
+  # bare imports like `@electron-toolkit/utils` after installation.
+  # Workspace packages are removed from the release manifest before packaging.
+  - "node_modules/**/*"
+  - "!node_modules/@weq/**/*"
 extraResources:
   # native (.node) files live outside the source tree and are bundled at
   # package time. Source uses the nested layout `native/<os>/<arch>/*.node`
