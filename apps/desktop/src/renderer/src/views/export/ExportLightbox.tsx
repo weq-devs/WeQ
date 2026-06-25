@@ -129,6 +129,19 @@ export function ExportLightbox({
             </Card>
           ) : null}
 
+          {/* ChatLab 说明 */}
+          {variant === 'chatlab' ? (
+            <Card title="ChatLab 标准格式">
+              <div className="weq-exp-placeholder">
+                <span>导出为 ChatLab 交换格式（成员 / 角色 / 消息已标准化）</span>
+                <small>
+                  可被 ChatLab 解析分析。媒体在消息内以 [图片]/[文件:名] 等标签呈现；
+                  开启下方「语音自动转写」后，语音转写结果写入 transcripts.json（按语音文件名关联）。
+                </small>
+              </div>
+            </Card>
+          ) : null}
+
           {/* 时间范围 */}
           <Card title="时间范围">
             <TimeRangePicker value={opts.range} onChange={(range) => patch({ range })} />

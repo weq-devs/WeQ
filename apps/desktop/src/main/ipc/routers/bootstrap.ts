@@ -201,6 +201,19 @@ export const bootstrapRouter = router({
       return true;
     }),
 
+  // ---- first-run onboarding (欢迎使用) ----
+
+  /** True once the user confirmed the first-run 欢迎使用 dialog. */
+  getWelcomeAcknowledged: procedure.query(() => {
+    return requireBootstrap().userConfig.isWelcomeAcknowledged();
+  }),
+
+  /** Mark the first-run 欢迎使用 dialog as confirmed (persists to config.json). */
+  acknowledgeWelcome: procedure.mutation(() => {
+    requireBootstrap().userConfig.acknowledgeWelcome();
+    return true;
+  }),
+
   // ---- voice transcription models (设置 → 语音转录) ----
 
   /** The model registry, each entry enriched with on-disk / in-flight state. */

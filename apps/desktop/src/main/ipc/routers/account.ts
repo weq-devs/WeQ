@@ -963,6 +963,8 @@ export const accountRouter = router({
       total: z.number().int().min(0),
       /** Also export every sender's avatar into an avatars/ subfolder. */
       exportAvatar: z.boolean().optional(),
+      /** ChatLab interchange format (json/jsonl carry ChatLab structure). */
+      chatlab: z.boolean().optional(),
       /** Media export: copy local media into media/ and CDN-complete images. */
       media: z
         .object({

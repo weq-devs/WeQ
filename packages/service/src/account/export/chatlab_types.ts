@@ -44,6 +44,12 @@ export interface ChatlabHeader {
   };
 }
 
+/** A member role (group owner / admin / custom). */
+export interface ChatlabRole {
+  id: string;
+  name?: string;
+}
+
 /** JSONL member line */
 export interface ChatlabMember {
   _type: 'member';
@@ -51,6 +57,7 @@ export interface ChatlabMember {
   accountName: string;
   groupNickname?: string;
   avatar?: string;
+  roles?: ChatlabRole[];
 }
 
 /** JSONL message line */

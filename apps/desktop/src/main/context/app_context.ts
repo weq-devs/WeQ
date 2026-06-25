@@ -332,15 +332,19 @@ export function initAppContext(): AppContext {
       // OIDB-backed video / file download URL resolver (needs the online QQ pid);
       // injected into the export manager for 视频 / 文件 媒体补全.
       const mediaUrl = new MediaUrlService(platform.native.ntHelper, session, resolveOnlinePid);
+      // Shared instances also fed to the export manager's ChatLab deps (name /
+      // role / profile resolution), so they're built before the services object.
+      const groupInfo = new GroupInfoService(session);
+      const profile = new ProfileService(session);
       this.services = {
         msgs: new MsgService(session),
         recentContacts: new RecentContactService(session),
         unreadInfo: new UnreadInfoService(session),
         accountConfig,
         forwardMsgs: new ForwardMsgService(session),
-        groupInfo: new GroupInfoService(session),
+        groupInfo,
         groupNotify: new GroupNotifyService(session),
-        profile: new ProfileService(session),
+        profile,
         msgSearch: new MsgSearchService(session),
         onlineStatus: new OnlineStatusService(session),
         fileSearch: new FileSearchService(session, platform),
@@ -388,6 +392,36 @@ export function initAppContext(): AppContext {
               return r.success
                 ? { ok: true, text: r.text ?? '' }
                 : { ok: false, error: r.error ?? '识别失败' };
+            },
+            // ChatLab name / role / profile resolvers. The service export package
+            // is account-agnostic, so the live account services are injected here.
+            chatlab: {
+              resolveGroupMembers: async (groupCode, uids) => {
+                const members = await groupInfo.getMembersByUids(BigInt(groupCode), uids);
+                return members.map((m) => ({
+                  uid: m.uid,
+                  uin: m.uin.toString(),
+                  card: m.card,
+                  nick: m.nick,
+                  adminFlag: m.adminFlag,
+                }));
+              },
+              groupMeta: async (groupCode) => {
+                const detail = await groupInfo.getGroupDetail(BigInt(groupCode));
+                return detail ? { name: detail.groupName, ownerUid: detail.ownerUid } : null;
+              },
+              resolveProfile: async (uid) => {
+                const p = await profile.getProfile(uid);
+                return p ? { uin: p.uin.toString(), nick: p.nick } : null;
+              },
+              self: async () => {
+                const p = await profile.getSelfProfile();
+                if (p) return { uid: p.uid, uin: p.uin.toString(), nick: p.nick };
+                // No cached self profile — fall back to the session uin (uid
+                // unknown; the c2c export uses uin as the platformId anyway).
+                const uin = String(session.context.uin ?? '');
+                return uin ? { uid: '', uin, nick: '' } : null;
+              },
             },
           },
         ),

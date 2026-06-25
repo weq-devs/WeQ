@@ -916,6 +916,161 @@
     font-size: 12px;
   }
 
+  /* ---- first-run welcome dialog (欢迎使用 WeQ) ---- */
+  .weq-welcome {
+    display: flex;
+    flex-direction: column;
+  }
+  .weq-welcome-hero {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 1.7rem 1.5rem 1.25rem;
+    background:
+      radial-gradient(ellipse at 50% -10%, rgba(0, 153, 255, 0.16), transparent 62%),
+      linear-gradient(160deg, rgba(0, 153, 255, 0.08), rgba(22, 184, 166, 0.06));
+    border-bottom: 1px solid rgba(0, 153, 255, 0.12);
+  }
+  .weq-welcome-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    margin-bottom: 0.85rem;
+    padding: 0.2rem 0.62rem;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: #0076c9;
+    background: rgba(255, 255, 255, 0.62);
+    border: 1px solid rgba(0, 153, 255, 0.24);
+  }
+  .weq-welcome-logo {
+    filter: drop-shadow(0 10px 22px rgba(0, 122, 204, 0.26));
+  }
+  .weq-welcome-title {
+    margin: 0.7rem 0 0.18rem;
+    font-size: 21px;
+    font-weight: 700;
+    color: #0f2d4c;
+    letter-spacing: 0.01em;
+  }
+  .weq-welcome-tagline {
+    margin: 0;
+    font-size: 12.5px;
+    color: #4a627a;
+  }
+  .weq-welcome-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.95rem;
+    padding: 1.2rem 1.4rem 0.4rem;
+  }
+  .weq-welcome-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.7rem;
+    align-items: start;
+  }
+  .weq-welcome-ico {
+    display: inline-flex;
+    width: 2rem;
+    height: 2rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.55rem;
+    color: #0099ff;
+    background: rgba(0, 153, 255, 0.1);
+    flex: none;
+  }
+  .weq-welcome-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+  .weq-welcome-text p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.62;
+    color: #33485d;
+  }
+  .weq-welcome-sub {
+    font-size: 12.5px !important;
+    color: #5a6f84 !important;
+  }
+  .weq-welcome-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.22rem;
+    color: #0076c9;
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .weq-welcome-link:hover {
+    color: #005da3;
+  }
+  /* 重点高亮：青蓝渐变描边卡片，醒目但不跳出主题 */
+  .weq-welcome-highlight {
+    position: relative;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.7rem;
+    align-items: center;
+    padding: 0.85rem 0.95rem;
+    border-radius: 0.7rem;
+    border: 1px solid rgba(22, 184, 166, 0.4);
+    background:
+      linear-gradient(135deg, rgba(22, 184, 166, 0.12), rgba(0, 153, 255, 0.1));
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4);
+  }
+  .weq-welcome-highlight-ico {
+    display: inline-flex;
+    width: 2.1rem;
+    height: 2.1rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.55rem;
+    color: #0c8a7c;
+    background: rgba(255, 255, 255, 0.66);
+    border: 1px solid rgba(22, 184, 166, 0.34);
+    flex: none;
+  }
+  .weq-welcome-highlight-text strong {
+    display: block;
+    font-size: 13.5px;
+    font-weight: 700;
+    color: #0a5a52;
+    margin-bottom: 0.18rem;
+  }
+  .weq-welcome-highlight-text p {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.58;
+    color: #2f5750;
+  }
+  .weq-welcome-highlight-text em {
+    font-style: normal;
+    font-weight: 600;
+    color: #0c8a7c;
+  }
+  .weq-welcome-disclaimer-title {
+    font-weight: 600;
+    color: #44586c !important;
+  }
+  .weq-welcome-foot {
+    padding: 0.65rem 1.4rem 1.35rem;
+  }
+  .weq-welcome-cta {
+    width: 100%;
+    min-height: 2.5rem;
+    font-size: 13.5px;
+    font-weight: 600;
+    box-shadow: 0 12px 26px -12px rgba(0, 122, 204, 0.6);
+  }
+
   /* ---- landing (home) ---- */
   .weq-home {
     display: flex;

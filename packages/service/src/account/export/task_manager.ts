@@ -19,6 +19,7 @@ import { exportGroupToTxt } from './txt_exporter';
 import { exportGroupToJsonl } from './jsonl_exporter';
 import { exportGroupToCsv, csvFraming, renderCsvRow } from './csv_exporter';
 import { exportToXlsx } from './xlsx_exporter';
+import { exportToChatlab, type ChatlabDeps } from './chatlab_exporter';
 import { exportAvatars } from './avatar_export';
 import {
   copyFoundMedia,
@@ -87,6 +88,8 @@ export interface ExportTask {
   filePath?: string; // message file path when completed
   /** True when sender avatars were requested. */
   exportAvatar?: boolean;
+  /** ChatLab interchange format (json/jsonl carry ChatLab structure, not raw). */
+  chatlab?: boolean;
   /** Media export options, when 导出媒体 is on. */
   media?: MediaExportOptions;
   /** Inclusive send-time window for this export, if narrowed from 全部时间. */
@@ -121,6 +124,8 @@ export interface MediaDeps {
   decodeSilk?: DecodeSilk;
   /** SILK voice → text transcription (native engine; injected from the app). */
   transcribe?: TranscribeVoiceFn;
+  /** ChatLab name / role / profile resolvers (account-side; injected from the app). */
+  chatlab?: ChatlabDeps;
 }
 
 export class ExportTaskManager extends EventEmitter {
@@ -186,6 +191,8 @@ export class ExportTaskManager extends EventEmitter {
     format: ExportFormat;
     total: number;
     exportAvatar?: boolean;
+    /** ChatLab format (json/jsonl carry ChatLab structure). */
+    chatlab?: boolean;
     media?: MediaExportOptions;
     range?: ExportTimeRange;
   }): Promise<string> {
@@ -224,6 +231,7 @@ export class ExportTaskManager extends EventEmitter {
       current: 0,
       total: opts.total,
       exportAvatar: opts.exportAvatar ?? false,
+      ...(opts.chatlab ? { chatlab: true } : {}),
       ...(opts.media ? { media: opts.media } : {}),
       ...(opts.range ? { range: opts.range } : {}),
       stages,
@@ -493,6 +501,25 @@ export class ExportTaskManager extends EventEmitter {
   ): Promise<ExportResult> {
     const progressEvery = 1000;
     const tick = (p: { current: number; message: string }): void => onProgress(p.current, p.message);
+    // ChatLab reuses json/jsonl but emits its own structure (header + members +
+    // normalized messages), and resolves names/roles itself — its own exporter.
+    if (task.chatlab && (task.format === 'json' || task.format === 'jsonl')) {
+      return exportToChatlab(
+        this.msgs,
+        {
+          kind: task.kind,
+          conv: task.conv,
+          name: task.name,
+          format: task.format,
+          outputPath,
+          range: task.range,
+          progressEvery,
+          onProgress: tick,
+          collectSenders: senders,
+        },
+        this.deps.chatlab ?? {},
+      );
+    }
     // XLSX is a binary workbook, not a character stream — its own loop, both kinds.
     if (task.format === 'xlsx') {
       return exportToXlsx(this.msgs, {

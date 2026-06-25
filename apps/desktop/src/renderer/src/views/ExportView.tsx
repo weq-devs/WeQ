@@ -6,7 +6,7 @@
  *   1. 完整消息格式  — 选会话 → 选格式(json/jsonl/xlsx/csv/txt) → 灯箱细项 → 导出
  *   2. 解密数据库    — 选库 → 选导出路径 → 解出原始 sqlite
  *   3. ChatLab 格式  — 同 1，格式限 json/jsonl
- *   4. HTML 格式     — 单选会话 → 灯箱选择时间范围
+ *   4. HTML 格式     — 尚未实现：右栏显示占位空状态，底部按钮禁用
  *   5. 定时导出任务  — 同 1，灯箱多一个定时设置
  *   6. 群相册导出    — 选群 → 灯箱选目录/相册/时间
  *
@@ -98,7 +98,6 @@ export function ExportView(): ReactElement {
   const [decryptOutputDir, setDecryptOutputDir] = useState<string | null>(null);
   const [albumOutputDir, setAlbumOutputDir] = useState<string | null>(null);
   const [albumExport, setAlbumExport] = useState<{ group: PickItem } | null>(null);
-  const [htmlConvId, setHtmlConvId] = useState<string | null>(null);
   const [albumGroupId, setAlbumGroupId] = useState<string | null>(null);
   const [format, setFormat] = useState<ExportFormat>('json');
   const [lightbox, setLightbox] = useState<LightboxVariant | null>(null);
@@ -231,11 +230,6 @@ export function ExportView(): ReactElement {
       openAlbumExport();
       return;
     }
-    if (mode === 'html') {
-      if (!htmlConvId) return;
-      setLightbox('html');
-      return;
-    }
     if (convSelection.size === 0) return;
     setLightbox(mode === 'scheduled' ? 'scheduled' : mode === 'chatlab' ? 'chatlab' : 'full');
   }
@@ -320,7 +314,7 @@ export function ExportView(): ReactElement {
     return true;
   }
 
-  async function runFullExport(options: ExportOptions): Promise<void> {
+  async function runFullExport(options: ExportOptions, opts: { chatlab?: boolean } = {}): Promise<void> {
     const targets = convItems.filter((it) => convSelection.has(it.id));
     // null bounds = open-ended; both null (全部时间) means no filtering.
     const range = { start: options.range.start, end: options.range.end };
@@ -360,6 +354,7 @@ export function ExportView(): ReactElement {
           format,
           total: t.total ?? 0,
           exportAvatar: options.exportAvatar,
+          ...(opts.chatlab ? { chatlab: true } : {}),
           media,
           range,
         });
@@ -463,15 +458,15 @@ export function ExportView(): ReactElement {
       void runFullExport(result.options);
       return;
     }
-    // chatlab / html / scheduled / album — config collected, backend pending.
+    if (lightbox === 'chatlab') {
+      void runFullExport(result.options, { chatlab: true });
+      return;
+    }
+    // scheduled / album — config collected, backend pending.
     const detail =
       lightbox === 'scheduled'
         ? `定时任务配置已记录（${result.schedule?.mode === 'daily' ? `每天 ${result.schedule.time}` : `每 ${result.schedule?.intervalHours} 小时`}）。定时调度后端待接入。`
-        : lightbox === 'html'
-          ? 'HTML 导出后端尚未实现，已记录本次导出的会话与时间范围。'
-        : lightbox === 'chatlab'
-          ? 'ChatLab 导出器后端待接入，已记录本次导出配置。'
-          : '群相册导出后端待接入，已记录本次导出配置。';
+        : '群相册导出后端待接入，已记录本次导出配置。';
     setLightbox(null);
     dialog.info('配置已记录', detail);
   }
@@ -499,7 +494,7 @@ export function ExportView(): ReactElement {
       : mode === 'album'
         ? !albumGroupId
         : mode === 'html'
-          ? !htmlConvId
+          ? true
           : convSelection.size === 0;
 
   // Lightbox summary line.
@@ -507,10 +502,6 @@ export function ExportView(): ReactElement {
     if (lightbox === 'album') {
       const g = groupItems.find((it) => it.id === albumGroupId);
       return g ? `群相册 · ${g.name}` : '群相册';
-    }
-    if (lightbox === 'html') {
-      const c = convItems.find((it) => it.id === htmlConvId);
-      return c ? `HTML · ${c.name}` : 'HTML';
     }
     const n = convSelection.size;
     return `${n} 个会话 · ${format.toUpperCase()}`;
@@ -521,8 +512,8 @@ export function ExportView(): ReactElement {
       ? '新建定时导出任务'
       : lightbox === 'album'
         ? '导出群相册'
-        : lightbox === 'html'
-          ? '导出 HTML 聊天记录'
+        : lightbox === 'chatlab'
+          ? '导出 ChatLab 格式'
           : '导出聊天记录';
 
   return (
@@ -564,14 +555,17 @@ export function ExportView(): ReactElement {
                 onChange={setConvSelection}
               />
             ) : mode === 'html' ? (
-              <SingleSelectPicker
-                items={convItems}
-                loading={conversations.isLoading}
-                selectedId={htmlConvId}
-                onSelect={setHtmlConvId}
-                searchPlaceholder="搜索会话名称或号码"
-                emptyText="暂无可导出的会话"
-              />
+              <div className="weq-exp-empty">
+                <span className="weq-exp-empty-icon" aria-hidden>
+                  <FileCode2 size={28} strokeWidth={1.7} />
+                </span>
+                <strong className="weq-exp-empty-title">HTML 导出尚未实现</strong>
+                <p className="weq-exp-empty-desc">
+                  单个会话的网页化导出正在规划中。当前可使用「完整消息格式」导出为 JSON / JSONL / TXT / CSV / XLSX，
+                  或导出为「ChatLab 格式」供 AI 分析。
+                </p>
+                <span className="weq-exp-empty-tag">等待后期补全</span>
+              </div>
             ) : mode === 'album' ? (
               <SingleSelectPicker
                 items={groupItems}
@@ -602,7 +596,7 @@ export function ExportView(): ReactElement {
                 {mode === 'album'
                   ? '选择一个群，下一步选择相册与时间范围'
                   : mode === 'html'
-                    ? '选择一个会话，下一步选择时间范围'
+                    ? 'HTML 导出尚未实现，等待后期补全'
                     : dbSelection.size > 0
                       ? `已选 ${dbSelection.size} 个数据库 · ${fmtBytes(selectedDbBytes)}`
                       : '选择数据库后导出解密副本'}

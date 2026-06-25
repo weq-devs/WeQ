@@ -118,8 +118,8 @@ export function GlobalSettingsSection(): ReactElement {
           </div>
         </div>
         <p className="weq-set-note">
-          <Info size={12} strokeWidth={1.9} aria-hidden /> WeQ 通过解密 QQ
-          本地数据库读取聊天记录，不注入、不依赖机器人框架。
+          <Info size={12} strokeWidth={1.9} aria-hidden /> WeQ 完全自主解密解析 QQ
+          本地数据库读取聊天记录
         </p>
       </Card>
 

@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
-import { AudioLines, Info, Settings2, User, X } from 'lucide-react';
+import { AudioLines, Settings2, User, X } from 'lucide-react';
 import { GlobalSettingsSection } from './settings/GlobalSettingsSection';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
 import { VoiceTranscribeSection } from './settings/VoiceTranscribeSection';
@@ -40,24 +40,24 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     icon: <AudioLines size={16} strokeWidth={1.8} />,
     render: () => <VoiceTranscribeSection />,
   },
-  {
-    id: 'about',
-    label: '关于',
-    icon: <Info size={16} strokeWidth={1.8} />,
-    render: () => (
-      <div className="weq-settings-section">
-        <h3 className="weq-settings-section-title">消息列表说明</h3>
-        <p>
-          当前消息列表基于{' '}
-          <a href="https://github.com/dogxii/webark-im-template" target="_blank" rel="noreferrer">
-            dogxii/webark-im-template
-          </a>{' '}
-          项目进行适配与修改。
-        </p>
-        <p>感谢 dogxii 及原项目贡献者提供的优秀 IM 模板基础。</p>
-      </div>
-    ),
-  },
+  // {
+  //   id: 'about',
+  //   label: '关于',
+  //   icon: <Info size={16} strokeWidth={1.8} />,
+  //   render: () => (
+  //     <div className="weq-settings-section">
+  //       <h3 className="weq-settings-section-title">消息列表说明</h3>
+  //       <p>
+  //         当前消息列表基于{' '}
+  //         <a href="https://github.com/dogxii/webark-im-template" target="_blank" rel="noreferrer">
+  //           dogxii/webark-im-template
+  //         </a>{' '}
+  //         项目进行适配与修改。
+  //       </p>
+  //       <p>感谢 dogxii 及原项目贡献者提供的优秀 IM 模板基础。</p>
+  //     </div>
+  //   ),
+  // },
 ];
 
 export function SettingsDialog({

@@ -439,23 +439,16 @@ export async function downloadMissingVideos(
 ): Promise<MediaStageResult> {
   const items = scan.downloadList.filter((r) => r.kind === 'video');
   const result: MediaStageResult = { total: items.length, ok: 0, failed: 0 };
-  // TEMP diagnostics for the 群聊视频 failures (step-by-step). Remove once fixed.
-  const isGroup = ctx.kind === 'group';
-  if (isGroup) {
-    console.log(`[group-video] [stage] ${items.length} missing video(s) reached the download stage`);
-  }
   if (items.length === 0) return result;
   const videoDir = join(mediaRoot, MEDIA_SUBDIRS.video);
   await mkdir(videoDir, { recursive: true });
   const groupId = ctx.kind === 'group' ? Number(ctx.conv) : 0;
 
-  const tag = `[export][${ctx.kind === 'group' ? 'group' : 'private'} video]`;
   let done = 0;
   await runWithConcurrency(items, concurrency, async (ref) => {
     try {
       const el = await findRawElement(ctx.msgs, ref, 'video');
       if (!el) {
-        console.warn(`${tag} no raw element: msgId=${ref.msgId} file=${ref.fileName}`);
         result.failed += 1;
         result.failures = pushFailure(result.failures, {
           stage: 'video',
@@ -472,21 +465,6 @@ export async function downloadMissingVideos(
             ? await ctx.mediaUrl.getGroupVideoUrlFromElement(groupId, element)
             : await ctx.mediaUrl.getPrivateVideoUrlFromElement(element);
       } catch (e) {
-        const ve = element as {
-          fileToken?: string;
-          channelParams?: Uint8Array;
-          videoFlag45421?: Uint8Array;
-          videoFlag45863?: number;
-          md5Bytes?: Uint8Array;
-          contentHash?: Uint8Array;
-        };
-        console.warn(
-          `${tag} url resolve failed: file=${ref.fileName} msgId=${ref.msgId} ` +
-            `token=${(ve.fileToken ?? '').slice(0, 20)}… channelParams=${ve.channelParams ? ve.channelParams.length : 0} ` +
-            `flag45421=${ve.videoFlag45421 ? ve.videoFlag45421.length : 0} flag45863=${ve.videoFlag45863 ?? 'n'} ` +
-            `md5Bytes=${ve.md5Bytes ? ve.md5Bytes.length : 0} contentHash=${ve.contentHash ? ve.contentHash.length : 0} ` +
-            `err=${e instanceof Error ? e.message : String(e)}`,
-        );
         result.failed += 1;
         result.failures = pushFailure(result.failures, {
           stage: 'video',
@@ -496,7 +474,6 @@ export async function downloadMissingVideos(
         return;
       }
       if (!url) {
-        console.warn(`${tag} empty url: file=${ref.fileName}`);
         result.failed += 1;
         result.failures = pushFailure(result.failures, {
           stage: 'video',
@@ -505,16 +482,10 @@ export async function downloadMissingVideos(
         });
         return;
       }
-      // [4.url] download URL resolved for this group video.
-      if (isGroup) console.log(`[group-video] [4.url] file=${ref.fileName} url=${url.slice(0, 120)}`);
       const outcome = await downloadUrlToFile(url, join(videoDir, ref.fileName));
       if (outcome.ok) {
-        // [5.download] streamed to disk OK.
-        if (isGroup) console.log(`[group-video] [5.download] OK file=${ref.fileName}`);
         result.ok += 1;
       } else {
-        console.warn(`${tag} download failed: file=${ref.fileName} reason=${outcome.reason} url=${url}`);
-        if (isGroup) console.log(`[group-video] [5.download] FAIL file=${ref.fileName} reason=${outcome.reason}`);
         result.failed += 1;
         result.failures = pushFailure(result.failures, {
           stage: 'video',
@@ -523,7 +494,6 @@ export async function downloadMissingVideos(
         });
       }
     } catch (e) {
-      console.warn(`${tag} unexpected: file=${ref.fileName} err=${e instanceof Error ? e.message : String(e)}`);
       result.failed += 1;
       result.failures = pushFailure(result.failures, {
         stage: 'video',

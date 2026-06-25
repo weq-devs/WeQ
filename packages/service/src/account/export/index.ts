@@ -23,6 +23,19 @@ export { exportGroupToJsonl } from './jsonl_exporter';
 export { exportGroupToTxt } from './txt_exporter';
 export { exportGroupToCsv, csvFraming, renderCsvRow } from './csv_exporter';
 export { exportToXlsx, type XlsxExportOptions } from './xlsx_exporter';
+export {
+  exportToChatlab,
+  type ChatlabExportOptions,
+  type ChatlabDeps,
+  type ChatlabGroupMember,
+} from './chatlab_exporter';
+export {
+  ChatlabMessageType,
+  type ChatlabHeader,
+  type ChatlabMember,
+  type ChatlabMessage,
+  type ChatlabRole,
+} from './chatlab_types';
 export { exportAvatars, type AvatarExportResult } from './avatar_export';
 export {
   copyFoundMedia,

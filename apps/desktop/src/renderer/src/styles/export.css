@@ -334,6 +334,62 @@
   line-height: 1.6;
 }
 
+/* ---- mode-level empty state (used by HTML mode's "尚未实现" placeholder). ---- */
+.weq-exp-empty {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 56px 36px;
+  gap: 10px;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(0, 153, 255, 0.06), transparent 60%),
+    linear-gradient(160deg, rgba(255, 255, 255, 0.72), rgba(248, 252, 255, 0.6));
+  border: 1px dashed rgba(0, 153, 255, 0.28);
+  border-radius: 12px;
+  margin: 16px;
+}
+.weq-exp-empty-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: rgba(0, 153, 255, 0.1);
+  color: #0099ff;
+  margin-bottom: 4px;
+  box-shadow: inset 0 0 0 1px rgba(0, 153, 255, 0.18);
+}
+.weq-exp-empty-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #0f2d4c;
+  letter-spacing: 0.01em;
+}
+.weq-exp-empty-desc {
+  max-width: 420px;
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: #56697e;
+}
+.weq-exp-empty-tag {
+  margin-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.62rem;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #0076c9;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(0, 153, 255, 0.26);
+}
+
 .weq-exp-row {
   display: flex;
   align-items: center;

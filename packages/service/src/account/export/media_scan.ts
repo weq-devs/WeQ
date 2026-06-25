@@ -217,7 +217,6 @@ function collectFromElements(
   sendTime: number,
   out: MediaRef[],
   fileTtlSec: number,
-  convKind: ConvKind,
 ): void {
   for (const el of els) {
     let kind: MediaKind | null = null;
@@ -246,16 +245,6 @@ function collectFromElements(
         uploadTimestamp = el.data.uploadTimestamp;
         fileTTL = el.data.fileTTL;
         expireTimestamp = el.data.expireTimestamp;
-        // [1.element] log every group video element we walk over (even if it
-        // gets skipped below for an empty fileName).
-        if (convKind === 'group') {
-          console.log(
-            `[group-video] [1.element] msgId=${msgId} ` +
-              `file=${fileName || '(empty!)'} stem=${fileName ? stemOf(fileName) : '-'} ` +
-              `token=${fileToken.slice(0, 16)}… coverFileName=${(el.data as { coverFileName?: string }).coverFileName ?? '-'} ` +
-              `uploadTime=${uploadTime} uploadTs=${uploadTimestamp} ttl=${fileTTL} expireTs=${expireTimestamp}`,
-          );
-        }
         break;
       case 'ptt':
         kind = 'ptt';
@@ -362,7 +351,6 @@ export async function scanConvMedia(
       Number(m.sendTime),
       rawRefs,
       fileTtlSec,
-      kind,
     );
   }
   const collectMs = Date.now() - t0;
@@ -453,20 +441,10 @@ export async function scanConvMedia(
     const counts = byKind[ref.kind];
     counts.unique += 1;
     const hit = index[ref.kind].get(ref.stem);
-    // [2.lookup] local-file lookup result for group videos.
-    const logV = kind === 'group' && ref.kind === 'video';
-    if (logV) {
-      console.log(
-        `[group-video] [2.lookup] stem=${ref.stem} file=${ref.fileName} ` +
-          `${hit ? `FOUND ${hit}` : `NOT-FOUND (video Ori index has ${index.video.size} file(s))`}`,
-      );
-    }
     if (hit) {
       counts.found += 1;
       ref.path = hit;
       found.push(ref);
-      // [3.downloadList] found locally → never a download candidate.
-      if (logV) console.log(`[group-video] [3.downloadList] EXCLUDE stem=${ref.stem} reason=found-locally`);
       continue;
     }
     counts.missing += 1;
@@ -474,17 +452,9 @@ export async function scanConvMedia(
     missing.push(ref);
     if (ref.expired) {
       counts.expired += 1;
-      if (logV) {
-        console.log(
-          `[group-video] [3.downloadList] EXCLUDE stem=${ref.stem} reason=expired ` +
-            `expiresAt=${ref.expiresAt} now=${nowSec}`,
-        );
-      }
     } else {
       counts.downloadable += 1;
       downloadList.push(ref);
-      // [3.downloadList] missing + not expired → enters the download work-list.
-      if (logV) console.log(`[group-video] [3.downloadList] INCLUDE stem=${ref.stem} expiresAt=${ref.expiresAt}`);
     }
   }
   const matchMs = Date.now() - t2;

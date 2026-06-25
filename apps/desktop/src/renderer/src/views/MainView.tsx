@@ -457,10 +457,59 @@ function contactTitle(c: RecentContactWire): string {
   return c.targetDisplayName || c.targetRemark || c.senderDisplayName || c.senderNick || c.targetUid;
 }
 
+/**
+ * Conversation-list preview text for a conversation's latest message.
+ *
+ * The recent-contact row (40051) decodes to a preview element that usually
+ * carries `displayText` — QQ's own out-of-conversation summary ("[图片]", the
+ * text body, …). Gray-tip elements (戳一戳 / 撤回 / 群提示 …) frequently OMIT it,
+ * which used to leave the list row blank. When it's missing we fall back to a
+ * per-kind label via {@link previewFallbackByKind}.
+ */
 function previewText(preview: unknown): string | null {
   if (!preview || typeof preview !== 'object') return null;
-  const value = (preview as { displayText?: unknown }).displayText;
-  return typeof value === 'string' && value.trim() ? value.trim() : null;
+  const p = preview as { displayText?: unknown; kind?: unknown; recallDisplayText?: unknown };
+  if (typeof p.displayText === 'string' && p.displayText.trim()) return p.displayText.trim();
+  return previewFallbackByKind(p);
+}
+
+/**
+ * Fallback conversation-list label derived from a preview element's `kind`, used
+ * when QQ didn't fill `displayText`. Mirrors the element kinds in @weq/codec:
+ * media/content kinds get a QQ-style bracketed tag ("[图片]"…), gray-tip kinds
+ * get a friendly label (戳一戳消息 / 撤回消息 …), and anything unrecognized shows
+ * as the generic "灰条消息".
+ */
+function previewFallbackByKind(preview: { kind?: unknown; recallDisplayText?: unknown }): string {
+  const kind = typeof preview.kind === 'string' ? preview.kind : '';
+  switch (kind) {
+    case 'pic': return '[图片]';
+    case 'file': return '[文件]';
+    case 'video': return '[视频]';
+    case 'ptt': return '[语音]';
+    case 'face': return '[表情]';
+    case 'mface': return '[贴纸]';
+    case 'ark':
+    case 'markdown': return '[卡片消息]';
+    case 'multiMsg': return '[合并转发]';
+    case 'call': return '[通话]';
+    case 'wallet': return '[红包]';
+    case 'onlineFile': return '[在线文件]';
+    case 'onlineFolder': return '[在线文件夹]';
+    case 'emojiBounce': return '[表情互动]';
+    case 'qqDynamic': return '[QQ动态]';
+    case 'reply': return '[回复]';
+    case 'grayTipRevoke':
+      return typeof preview.recallDisplayText === 'string' && preview.recallDisplayText.trim()
+        ? preview.recallDisplayText.trim()
+        : '撤回消息';
+    case 'grayTipPoke': return '戳一戳消息';
+    case 'grayTipGroup': return '群提示消息';
+    case 'grayTipInvite': return '入群邀请';
+    // text/at normally carry displayText; if somehow absent there is nothing
+    // better to show than the generic gray-tip label (same as unknown/default).
+    default: return '灰条消息';
+  }
 }
 
 function currentUser(openedUin: string | null, selfProfile?: UserProfileWire | null): User {

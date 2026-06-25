@@ -129,6 +129,13 @@ export interface UserConfig {
    * (and thus the media download cache) onto another disk.
    */
   cacheDirOverride?: string | null;
+  /**
+   * First-run onboarding flag. `true` once the user has confirmed the 欢迎使用
+   * 说明框 (shown after the FIRST account is opened, not on app launch). Absent
+   * or `false` → the dialog is shown the next time an account is opened. See
+   * {@link UserConfigService.isWelcomeAcknowledged}.
+   */
+  welcomeAcknowledged?: boolean;
 }
 
 export class UserConfigService {
@@ -297,6 +304,22 @@ export class UserConfigService {
     };
     this.write({ settings: next });
     return next;
+  }
+
+  // ---- first-run onboarding (欢迎使用) ----
+
+  /**
+   * True once the user has confirmed the first-run 欢迎使用 dialog. False (the
+   * default for a fresh install or an older config) means the dialog should be
+   * shown the next time an account is opened.
+   */
+  isWelcomeAcknowledged(): boolean {
+    return this.read().welcomeAcknowledged === true;
+  }
+
+  /** Persist that the user confirmed the first-run 欢迎使用 dialog. */
+  acknowledgeWelcome(): void {
+    this.write({ welcomeAcknowledged: true });
   }
 
   // ---- cache directory (设置 → 账号信息 → 账号缓存路径) ----
