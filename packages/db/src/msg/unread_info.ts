@@ -13,8 +13,8 @@ import { UnreadInfo } from '@weq/codec/proto/msg/48902';
 
 export interface UnreadInfoDbOptions {
   dbPath: string;
-  key: string;
-  algo: DatabaseAlgorithms;
+  key?: string;
+  algo?: DatabaseAlgorithms;
 }
 
 export interface UnreadInfoResult {

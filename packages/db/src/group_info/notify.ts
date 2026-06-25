@@ -55,8 +55,8 @@ export interface GroupNotify {
 
 export interface GroupNotifyDbOptions {
   dbPath: string;
-  key: string;
-  algo: DatabaseAlgorithms;
+  key?: string;
+  algo?: DatabaseAlgorithms;
 }
 
 const SELECT_COLUMNS = `"61001","61002","61003","61004","61005","61006","61007","61008","61010","61011"`;

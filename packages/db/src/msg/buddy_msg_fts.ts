@@ -41,10 +41,10 @@ const MAX_POOL = 500;
 export interface BuddyMsgFtsDbOptions {
   /** Absolute path to buddy_msg_fts.db. */
   dbPath: string;
-  /** SQLCipher key. */
-  key: string;
-  /** Database algorithms. */
-  algo: DatabaseAlgorithms;
+  /** SQLCipher key. (omit for plain decrypted). */
+  key?: string;
+  /** Database algorithms (omit for plain decrypted). */
+  algo?: DatabaseAlgorithms;
 }
 
 export class BuddyMsgFtsDb {

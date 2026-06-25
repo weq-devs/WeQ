@@ -19,9 +19,9 @@ export interface Category {
 
 export interface CategoryDbOptions {
   dbPath: string;
-  key: string;
-  /** Database algorithms. */
-  algo: DatabaseAlgorithms;
+  key?: string;
+  /** Database algorithms (omit for plain decrypted). */
+  algo?: DatabaseAlgorithms;
 }
 
 export class CategoryDb {

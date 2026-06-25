@@ -27,9 +27,9 @@ export interface GroupMemberLevelInfo {
 
 export interface GroupMemberLevelInfoDbOptions {
   dbPath: string;
-  key: string;
-  /** Database algorithms. */
-  algo: DatabaseAlgorithms;
+  key?: string;
+  /** Database algorithms (omit for plain decrypted). */
+  algo?: DatabaseAlgorithms;
 }
 
 const SELECT_COLUMNS = `"60001","67100","67103"`;

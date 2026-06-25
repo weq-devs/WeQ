@@ -40,10 +40,10 @@ const BLOCKED_CHAT_TYPES: readonly number[] = [ChatType.KCHATTYPEGUILDMETA];
 export interface RecentContactDbOptions {
   /** Absolute path to nt_msg.db. */
   dbPath: string;
-  /** SQLCipher key. */
-  key: string;
-  /** Database algorithms. */
-  algo: DatabaseAlgorithms;
+  /** SQLCipher key. (omit for plain decrypted). */
+  key?: string;
+  /** Database algorithms (omit for plain decrypted). */
+  algo?: DatabaseAlgorithms;
 }
 
 export class RecentContactDb {

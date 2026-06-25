@@ -15,8 +15,8 @@ export interface FileAssistantRow {
 
 export interface FileAssistantDbOptions {
   dbPath: string;
-  key: string;
-  algo: DatabaseAlgorithms;
+  key?: string;
+  algo?: DatabaseAlgorithms;
 }
 
 const SELECT_COLUMNS = `"200002", "200001", "200016", "200005", "200009", "1000", "40021", "200011"`;

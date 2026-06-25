@@ -13,7 +13,7 @@
  */
 
 import { useEffect, useRef, type ReactElement, type ReactNode } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, X } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useDialog } from '../components/Dialog';
@@ -164,12 +164,28 @@ export function BootstrapView(): ReactElement {
     );
   }
 
+  async function handleStatic(): Promise<void> {
+    try {
+      const dirPath = await client.bootstrap.pickStaticDbDir.mutate();
+      if (!dirPath) return;
+      await client.bootstrap.openStaticAccount.mutate({ dirPath });
+      // Derive the UIN from the directory name for the main view.
+      const uin = dirPath.split(/[/\\]/).pop() ?? '';
+      setHomeStage('home');
+      setOpenedUin(uin);
+      goTo('main');
+    } catch (e) {
+      showError('打开本地数据库失败', errMsg(e));
+    }
+  }
+
   return (
     <Shell>
       <HomeScreen
         hasConfigs={(configs.data?.length ?? 0) > 0}
         onExisting={() => enterSelect('existing')}
         onNew={() => enterSelect('new')}
+        onStatic={() => void handleStatic()}
       />
     </Shell>
   );
@@ -178,6 +194,14 @@ export function BootstrapView(): ReactElement {
 function Shell({ children }: { children: ReactNode }): ReactElement {
   return (
     <main className="weq-home-shell h-screen overflow-hidden font-sans text-[#142235]">
+      <button
+        type="button"
+        className="weq-shell-close-btn absolute right-4 top-4 z-20 flex h-8 w-8 items-center justify-center rounded-full text-[#7a8b9e] transition-colors hover:bg-black/5 hover:text-[#142235]"
+        onClick={() => window.close()}
+        aria-label="关闭"
+      >
+        <X size={18} strokeWidth={1.8} />
+      </button>
       <div className="relative z-10 h-full">{children}</div>
     </main>
   );

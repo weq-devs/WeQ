@@ -263,6 +263,10 @@
     background: rgba(0, 153, 255, 0.18);
   }
 
+  .weq-shell-close-btn {
+    -webkit-app-region: no-drag;
+  }
+
   .weq-icon-button,
   .weq-danger-button,
   .weq-action-primary,
@@ -1134,6 +1138,11 @@
     border-color: rgba(0, 153, 255, 0.5);
     background: linear-gradient(150deg, rgba(0, 153, 255, 0.12), rgba(83, 206, 144, 0.08));
   }
+  .weq-entry-card.is-static {
+    grid-column: 1 / -1;
+    border-color: rgba(139, 92, 246, 0.35);
+    background: linear-gradient(150deg, rgba(139, 92, 246, 0.06), rgba(236, 72, 153, 0.03));
+  }
   .weq-entry-icon {
     display: inline-flex;
     width: 2.7rem;
@@ -1148,6 +1157,10 @@
   .weq-entry-card.is-primary .weq-entry-icon {
     color: #ffffff;
     background: linear-gradient(140deg, #0aa2ff, #36c08f);
+  }
+  .weq-entry-icon.is-static {
+    color: #ffffff;
+    background: linear-gradient(140deg, #8b5cf6, #ec4899);
   }
   .weq-entry-text { display: flex; flex-direction: column; gap: 0.18rem; min-width: 0; }
   .weq-entry-title { font-size: 15px; font-weight: 600; color: #11304d; }

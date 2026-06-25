@@ -7,3 +7,4 @@
 
 export { openAccount } from './session';
 export type { AccountContext, AccountSession, LastRowIdMaps } from './session';
+export { openStaticAccount } from './static_session';

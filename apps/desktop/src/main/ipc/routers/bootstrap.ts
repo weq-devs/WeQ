@@ -316,6 +316,15 @@ export const bootstrapRouter = router({
     return result.filePaths[0] ?? null;
   }),
 
+  pickStaticDbDir: procedure.mutation(async () => {
+    const result = await dialog.showOpenDialog({
+      title: '选择已解密的 QQ 数据库目录',
+      properties: ['openDirectory'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0] ?? null;
+  }),
+
   // ---- key correctness probe ----
 
   /**
@@ -497,6 +506,28 @@ export const bootstrapRouter = router({
     getAppContext().clearAccount();
     return true;
   }),
+
+  // ---- static (offline) account from decrypted local databases ----
+
+  /**
+   * Open a static account from a directory of already-decrypted plain-SQLite
+   * QQ databases. The directory name is used as the account UIN. No dbKey or
+   * live QQ is required — all features work in offline/static mode.
+   */
+  openStaticAccount: procedure
+    .input(z.object({ dirPath: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const ctx = getAppContext();
+      if (!existsSync(input.dirPath)) {
+        throw new Error(`Directory not found: ${input.dirPath}`);
+      }
+      const ntMsgPath = join(input.dirPath, 'nt_msg.db');
+      if (!existsSync(ntMsgPath)) {
+        throw new Error(`nt_msg.db not found in selected directory: ${input.dirPath}`);
+      }
+      await ctx.setStaticAccount(input.dirPath);
+      return ctx.account!.context;
+    }),
 
   /** True if an account session is currently open. */
   accountOpen: procedure.query(() => {
