@@ -4,7 +4,7 @@
 
 **WeQ** 是一个 NTQQ 自主的本地消息数据库解密、解析与导出工具。
 
-**欢迎加入QQ群交流** [![WeQ 交流群](https://img.shields.io/badge/WeQ 交流群-Join-blue)](https://qm.qq.com/q/ysMZoAcC1a)
+**欢迎加入QQ群交流** [![WeQ交流群](https://img.shields.io/badge/WeQ交流群-Join-blue)](https://qm.qq.com/q/ysMZoAcC1a)
 
 ---
 
