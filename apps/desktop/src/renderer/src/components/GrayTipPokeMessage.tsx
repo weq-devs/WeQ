@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import type { Conversation, GroupMember, Message } from '../im-template/template/types';
 import { DOMParser } from '@xmldom/xmldom';
 import { displayUserName } from '../im-template/template/user';
+import littleIconUrl from '@resources/img/little_icon.png';
 
 interface GrayTipPokeMessageProps {
   element: {
@@ -17,6 +18,23 @@ interface GrayTipPokeMessageProps {
 
 function getNodeValue(node: any, attribute: string): string {
   return node.attributes.getNamedItem(attribute)?.nodeValue || '';
+}
+
+/**
+ * Gray-tip `<img src="...">` icons reference QQ's own bundled asset filenames
+ * (e.g. the wallet/red-packet "领取了" tip icon), not real URLs — rendering them
+ * raw 404s into a broken-image glyph. Map the known ones to a local asset; let
+ * real http(s) srcs through unchanged; drop anything else (unknown bare
+ * filename) so no broken image shows.
+ */
+const LOCAL_TIP_ICONS: Record<string, string> = {
+  'qqwallet_custom_tips_icon.png': littleIconUrl,
+};
+
+function resolveTipImgSrc(src: string): string | null {
+  if (!src) return null;
+  if (/^(https?:|data:|file:|asset:)/i.test(src)) return src;
+  return LOCAL_TIP_ICONS[src] ?? null;
 }
 
 export function GrayTipPokeMessage({ element, conversation, message }: GrayTipPokeMessageProps) {
@@ -65,9 +83,14 @@ export function GrayTipPokeMessage({ element, conversation, message }: GrayTipPo
         if (node.nodeName === 'nor') {
           return <span key={index} className="text-gray-500 px-1">{getNodeValue(node, 'txt')}</span>;
         }
+        if (node.nodeName === 'url') {
+          return <span key={index} className="text-blue-500">{getNodeValue(node, 'txt')}</span>;
+        }
         if (node.nodeName === 'img') {
-          const src = getNodeValue(node, 'src');
-          return <img key={index} src={src} alt="poke" className="inline-block h-[1em] mx-1" />;
+          const src = resolveTipImgSrc(getNodeValue(node, 'src'));
+          return src ? (
+            <img key={index} src={src} alt="" className="inline-block h-[1em] mx-1 align-middle" />
+          ) : null;
         }
         return null;
       });
@@ -121,8 +144,8 @@ export function GrayTipPokeMessage({ element, conversation, message }: GrayTipPo
           }
 
           if (item.type === 'img') {
-            const src = item.src;
-            return src ? <img key={index} src={src} alt="" className="inline-block h-[1em] mx-1" /> : null;
+            const src = resolveTipImgSrc(item.src ?? '');
+            return src ? <img key={index} src={src} alt="" className="inline-block h-[1em] mx-1 align-middle" /> : null;
           }
 
           return <span key={index}>{txt}</span>;

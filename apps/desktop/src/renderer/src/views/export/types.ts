@@ -102,6 +102,64 @@ export interface Schedule {
 
 export const DEFAULT_SCHEDULE: Schedule = { mode: 'daily', time: '03:00', intervalHours: 6 };
 
+/** Preset window labels for scheduled templates. `custom` carries absolute
+ *  bounds; the other presets are re-resolved at fire-time (so "最近 7 天"
+ *  actually rolls forward every run). */
+export type ScheduleRangePreset = 'all' | 'today' | '7d' | '30d' | '1y' | 'custom';
+
+export interface ScheduleRange {
+  preset: ScheduleRangePreset;
+  /** Only meaningful for `custom`; otherwise null and re-computed at fire-time. */
+  start: number | null;
+  end: number | null;
+}
+
+/** Media / content switches baked into a scheduled template. */
+export interface ScheduleOptions {
+  range: ScheduleRange;
+  exportMedia: boolean;
+  exportAvatar: boolean;
+  completeMedia: boolean;
+  downloadVideo: boolean;
+  downloadFile: boolean;
+  transcribeVoice: boolean;
+}
+
+/** One conversation target inside a scheduled template. */
+export interface ScheduleConversation {
+  id: string;
+  name: string;
+  kind: 'group' | 'c2c';
+  total: number;
+}
+
+export type ScheduleOutcome = 'completed' | 'partial' | 'failed' | 'skipped' | 'cancelled';
+
+/** One past fire of a schedule. The renderer shows these in the history line. */
+export interface ScheduleTrigger {
+  at: number;
+  taskIds: string[];
+  outcome: ScheduleOutcome;
+  skipReason?: string;
+  note?: string;
+}
+
+/** Wire shape matching the tRPC `listSchedules` payload. */
+export interface ScheduledTask {
+  id: string;
+  name: string;
+  format: ExportFormat;
+  conversations: ScheduleConversation[];
+  chatlab?: boolean;
+  schedule: Schedule;
+  options: ScheduleOptions;
+  enabled: boolean;
+  createdAt: number;
+  updatedAt: number;
+  nextRunAt: number | null;
+  history: ScheduleTrigger[];
+}
+
 /** Public-CDN avatar URL for a conversation row. */
 export function convAvatarUrl(kind: 'group' | 'c2c', uid: string, uin?: string): string | null {
   if (kind === 'group') return uid ? `https://p.qlogo.cn/gh/${uid}/${uid}/0` : null;

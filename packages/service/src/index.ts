@@ -154,6 +154,20 @@ export {
   formatTime,
 } from './account/export';
 export { ExportTaskManager } from './account/export/task_manager';
+export { ExportScheduler } from './account/export/scheduler';
+export type {
+  ScheduleConfig,
+  ScheduleOptions,
+  ScheduleConversation,
+  ScheduleRangePreset,
+  ScheduleRange,
+  ScheduleOutcome,
+  ScheduleTrigger,
+  ScheduleInput,
+  SchedulePatch,
+  SchedulerDeps,
+  ScheduledTask,
+} from './account/export/scheduler';
 export type {
   ExportFormat,
   ExportedMessage,

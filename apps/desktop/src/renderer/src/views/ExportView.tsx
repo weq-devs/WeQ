@@ -22,6 +22,10 @@ import {
   FlaskConical,
   Images,
   MessagesSquare,
+  Pause,
+  Play,
+  Trash2,
+  Zap,
 } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
@@ -48,6 +52,7 @@ import {
   type ExportMode,
   type ExportOptions,
   type PickItem,
+  type ScheduledTask,
 } from './export/types';
 import '../styles/export.css';
 
@@ -90,6 +95,7 @@ export function ExportView(): ReactElement {
   const databases = trpc.account.listDatabases.useQuery();
   const groups = trpc.account.listAllGroups.useQuery({ limit: 2000 });
   const tasks = trpc.account.listExportTasks.useQuery();
+  const schedules = trpc.account.listSchedules.useQuery();
 
   const [mode, setMode] = useState<ExportMode>('full');
   const [convSelection, setConvSelection] = useState<Set<string>>(new Set());
@@ -453,7 +459,7 @@ export function ExportView(): ReactElement {
     }
   }
 
-  function onLightboxConfirm(result: LightboxResult): void {
+  async function onLightboxConfirm(result: LightboxResult): Promise<void> {
     if (lightbox === 'full') {
       void runFullExport(result.options);
       return;
@@ -462,13 +468,99 @@ export function ExportView(): ReactElement {
       void runFullExport(result.options, { chatlab: true });
       return;
     }
-    // scheduled / album — config collected, backend pending.
-    const detail =
-      lightbox === 'scheduled'
-        ? `定时任务配置已记录（${result.schedule?.mode === 'daily' ? `每天 ${result.schedule.time}` : `每 ${result.schedule?.intervalHours} 小时`}）。定时调度后端待接入。`
-        : '群相册导出后端待接入，已记录本次导出配置。';
+    if (lightbox === 'scheduled') {
+      await runCreateSchedule(result);
+      return;
+    }
+    // album — config collected, backend pending.
     setLightbox(null);
-    dialog.info('配置已记录', detail);
+    dialog.info('配置已记录', '群相册导出后端待接入，已记录本次导出配置。');
+  }
+
+  /** Persist a scheduled template. Mirrors the per-task `media/range` shape
+   *  from `runFullExport` so a triggered run reproduces the same output. */
+  async function runCreateSchedule(result: LightboxResult): Promise<void> {
+    const targets = convItems.filter((it) => convSelection.has(it.id));
+    if (targets.length === 0) {
+      dialog.error('未选择会话', '请先选择至少一个会话再创建定时任务。');
+      return;
+    }
+    if (!result.schedule) {
+      dialog.error('缺少定时配置', '定时设置未填写完整。');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await client.account.createSchedule.mutate({
+        name: `定时 · ${targets[0]!.name}${targets.length > 1 ? ` 等 ${targets.length} 个` : ''}`,
+        format,
+        conversations: targets.map((t) => ({
+          id: t.id,
+          name: t.name,
+          kind: t.kind ?? 'c2c',
+          total: t.total ?? 0,
+        })),
+        chatlab: false,
+        schedule: result.schedule,
+        options: {
+          range: {
+            preset: result.options.range.preset,
+            start: result.options.range.start,
+            end: result.options.range.end,
+          },
+          exportMedia: result.options.exportMedia,
+          exportAvatar: result.options.exportAvatar,
+          completeMedia: result.options.completeMedia,
+          downloadVideo: result.options.downloadVideo,
+          downloadFile: result.options.downloadFile,
+          transcribeVoice: result.options.transcribeVoice,
+        },
+        enabled: true,
+      });
+      setLightbox(null);
+      setConvSelection(new Set());
+      void utils.account.listSchedules.invalidate();
+    } catch (e) {
+      dialog.error('创建定时任务失败', e instanceof Error ? e.message : String(e));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  /** Action handlers for the scheduled-mode list. */
+  async function onToggleSchedule(s: ScheduledTask): Promise<void> {
+    try {
+      await client.account.setScheduleEnabled.mutate({ id: s.id, enabled: !s.enabled });
+      void utils.account.listSchedules.invalidate();
+    } catch (e) {
+      dialog.error('更新定时任务失败', e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function onDeleteSchedule(s: ScheduledTask): Promise<void> {
+    const ok = await dialog.confirm(
+      '删除定时任务',
+      `确认删除「${s.name}」？该调度将不再触发；历史已生成的导出任务不会被删除。`,
+      { okLabel: '删除', cancelLabel: '返回', tone: 'warning' },
+    );
+    if (!ok) return;
+    try {
+      await client.account.deleteSchedule.mutate({ id: s.id });
+      void utils.account.listSchedules.invalidate();
+    } catch (e) {
+      dialog.error('删除定时任务失败', e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function onRunScheduleNow(s: ScheduledTask): Promise<void> {
+    try {
+      await client.account.runScheduleNow.mutate({ id: s.id });
+      void utils.account.listExportTasks.invalidate();
+      void utils.account.listSchedules.invalidate();
+      dialog.info('已触发', '本次导出任务已加入队列，状态在下方任务列表查看。');
+    } catch (e) {
+      dialog.error('立即运行失败', e instanceof Error ? e.message : String(e));
+    }
   }
 
   const activeMode = MODES.find((m) => m.id === mode)!;
@@ -547,7 +639,42 @@ export function ExportView(): ReactElement {
           </header>
 
           <div className="weq-exp-pane-body">
-            {isMultiConvMode ? (
+            {mode === 'scheduled' ? (
+              <div className="weq-exp-sched">
+                <div className="weq-exp-sched-head">
+                  <div className="weq-exp-sched-head-text">
+                    <strong>定时导出任务</strong>
+                    <small>选择上方会话与格式后点击「新建定时任务」创建调度；下方为已存在的调度列表。</small>
+                  </div>
+                </div>
+                <ConversationPicker
+                  items={convItems}
+                  loading={conversations.isLoading}
+                  selected={convSelection}
+                  onChange={setConvSelection}
+                />
+                <div className="weq-exp-sched-list">
+                  {schedules.isLoading ? (
+                    <div className="weq-exp-sched-empty"><small>加载中…</small></div>
+                  ) : (schedules.data ?? []).length === 0 ? (
+                    <div className="weq-exp-sched-empty">
+                      <strong>暂无定时任务</strong>
+                      <small>选好会话和格式后，点击下方「新建定时任务」开始创建。</small>
+                    </div>
+                  ) : (
+                    (schedules.data as ScheduledTask[]).map((s) => (
+                      <ScheduleRow
+                        key={s.id}
+                        schedule={s}
+                        onToggle={() => void onToggleSchedule(s)}
+                        onDelete={() => void onDeleteSchedule(s)}
+                        onRunNow={() => void onRunScheduleNow(s)}
+                      />
+                    ))
+                  )}
+                </div>
+              </div>
+            ) : isMultiConvMode ? (
               <ConversationPicker
                 items={convItems}
                 loading={conversations.isLoading}
@@ -586,7 +713,13 @@ export function ExportView(): ReactElement {
           </div>
 
           <footer className="weq-exp-pane-foot">
-            {isMultiConvMode ? (
+            {mode === 'scheduled' ? (
+              <span className="weq-exp-foot-hint">
+                {convSelection.size > 0
+                  ? `已选 ${convSelection.size} 个会话 · ${format.toUpperCase()} · 点击新建定时任务`
+                  : '请先选择至少一个会话'}
+              </span>
+            ) : isMultiConvMode ? (
               <div className="weq-exp-foot-format">
                 <span className="weq-exp-foot-label">格式</span>
                 <Segmented<ExportFormat> value={format} onChange={setFormat} options={formatOptions} small />
@@ -674,6 +807,114 @@ export function ExportView(): ReactElement {
           onConfirm={(result) => void runAlbumExport(result)}
         />
       ) : null}
+    </div>
+  );
+}
+
+/** Format unix seconds as `MM/DD HH:mm` for the schedule row. */
+function fmtRunAt(sec: number | null): string {
+  if (sec == null) return '—';
+  const d = new Date(sec * 1000);
+  const pad = (n: number): string => n.toString().padStart(2, '0');
+  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** Compact relative-time hint for the "下次运行" label. */
+function fmtRel(sec: number | null): string {
+  if (sec == null) return '已停止';
+  const diff = sec - Math.floor(Date.now() / 1000);
+  if (diff <= 0) return '即将触发';
+  if (diff < 60) return `还有 ${diff} 秒`;
+  if (diff < 3600) return `还有 ${Math.floor(diff / 60)} 分`;
+  if (diff < 86400) return `还有 ${Math.floor(diff / 3600)} 小时`;
+  return `还有 ${Math.floor(diff / 86400)} 天`;
+}
+
+function outcomeLabel(t: { outcome: string; skipReason?: string }): string {
+  switch (t.outcome) {
+    case 'completed': return '完成';
+    case 'partial': return '部分';
+    case 'failed': return '失败';
+    case 'cancelled': return '取消';
+    case 'skipped':
+      if (t.skipReason === 'QQ 离线') return '跳过·离线';
+      if (t.skipReason === '上次任务未结束') return '跳过·冲突';
+      if (t.skipReason === '已暂停') return '跳过·暂停';
+      if (t.skipReason === '未选择会话') return '跳过·空';
+      return '跳过';
+    default: return t.outcome;
+  }
+}
+
+function scheduleSummary(s: ScheduledTask): string {
+  const cadence = s.schedule.mode === 'daily'
+    ? `每天 ${s.schedule.time}`
+    : `每 ${s.schedule.intervalHours} 小时`;
+  const range = s.options.range.preset === 'all'
+    ? '全部时间'
+    : s.options.range.preset === 'today'
+      ? '今天'
+      : s.options.range.preset === 'custom'
+        ? `自定义时间`
+        : `最近 ${s.options.range.preset}`;
+  const media = [
+    s.options.exportAvatar ? '头像' : null,
+    s.options.exportMedia ? '媒体' : null,
+    s.options.transcribeVoice ? '转写' : null,
+  ].filter(Boolean).join('·') || '纯文本';
+  return `${cadence} · ${range} · ${media}`;
+}
+
+function ScheduleRow({
+  schedule,
+  onToggle,
+  onDelete,
+  onRunNow,
+}: {
+  schedule: ScheduledTask;
+  onToggle: () => void;
+  onDelete: () => void;
+  onRunNow: () => void;
+}): ReactElement {
+  const next = schedule.nextRunAt;
+  return (
+    <div className={`weq-exp-sched-card${schedule.enabled ? '' : ' is-disabled'}`}>
+      <div className="weq-exp-sched-card-main">
+        <div className="weq-exp-sched-card-top">
+          <span className="weq-exp-sched-card-name">{schedule.name}</span>
+          <span className={`weq-exp-sched-card-tag${schedule.enabled ? '' : ' is-off'}`}>
+            {schedule.enabled ? '运行中' : '已暂停'}
+          </span>
+          <span className="weq-exp-sched-card-tag">{schedule.format.toUpperCase()}</span>
+        </div>
+        <div className="weq-exp-sched-card-meta">
+          <span>会话 <b>{schedule.conversations.length}</b></span>
+          <span>节奏 <b>{scheduleSummary(schedule)}</b></span>
+          <span>下次 <b>{fmtRunAt(next)}</b> · {fmtRel(next)}</span>
+        </div>
+        {schedule.history.length > 0 ? (
+          <div className="weq-exp-sched-card-history" title={schedule.history.map((t) => `${fmtRunAt(t.at)} ${outcomeLabel(t)}`).join('\n')}>
+            最近触发：
+            {schedule.history.slice(0, 8).map((t, i) => (
+              <span key={`${t.at}-${i}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                <span className={`weq-exp-sched-card-history-dot is-${t.outcome}`} />
+                <span>{outcomeLabel(t)}</span>
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </div>
+      <div className="weq-exp-sched-card-actions">
+        <button type="button" onClick={onToggle} title={schedule.enabled ? '暂停' : '启用'} aria-label={schedule.enabled ? '暂停' : '启用'}>
+          {schedule.enabled ? <Pause size={14} /> : <Play size={14} />}
+        </button>
+        <button type="button" onClick={onRunNow} title="立即运行" aria-label="立即运行">
+          <Zap size={14} />
+        </button>
+        <button type="button" className="is-danger" onClick={onDelete} title="删除" aria-label="删除">
+          <Trash2 size={14} />
+        </button>
+      </div>
     </div>
   );
 }

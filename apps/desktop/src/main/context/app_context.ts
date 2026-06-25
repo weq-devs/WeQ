@@ -234,6 +234,10 @@ export interface AppContext {
   account: AccountSession | null;
   /** Services bound to the current account. `null` if no account is open. */
   services: AccountServices | null;
+  /** Per-account scheduled-export manager. Recreated with the account; its
+   *  lifecycle is intentionally separate from `services` so the object
+   *  literal can be fully constructed before this field is assigned. */
+  scheduler: import('@weq/service').ExportScheduler | null;
   /** Open (or re-open) an account session. Disposes the previous one first. */
   setAccount(ctx: AccountContext, metadata?: AccountConfigMetadata): Promise<void>;
   /** Drop the current account session, if any. */
@@ -267,6 +271,7 @@ export function initAppContext(): AppContext {
       nativeError: { kind: result.kind, status: result.status, message: result.message },
       account: null,
       services: null,
+      scheduler: null,
       setAccount(): Promise<void> {
         throw new Error('native bundle failed to load — cannot open an account');
       },
@@ -301,6 +306,7 @@ export function initAppContext(): AppContext {
     nativeError: null,
     account: null,
     services: null,
+    scheduler: null,
     async setAccount(accountCtx: AccountContext, metadata: AccountConfigMetadata = {}): Promise<void> {
       dbHealthCheckSeq += 1;
       accountMonitor?.stop();
@@ -429,6 +435,23 @@ export function initAppContext(): AppContext {
         webQuery: new WebQueryService(platform.native.ntHelper, session, resolveOnlinePid),
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, resolveOnlinePid),
       };
+      // Scheduled export manager — fires saved templates through the export
+      // manager on a single setTimeout wake. Per-account cache mirrors the
+      // export manager's isolation (see exportConfigId above). The online
+      // check reads the live record at fire-time only. Held on `ctx` (not on
+      // `services`) so the services object literal can stay simple and the
+      // scheduler's lifecycle is independent.
+      const exportManager = this.services.exportManager;
+      this.scheduler = new (await import('@weq/service')).ExportScheduler(
+        userConfig.cacheDir(join('export', exportConfigId)),
+        {
+          taskManager: exportManager,
+          isOnline: () => {
+            const r = accountConfig.getRecord();
+            return Boolean(r?.qqOnline && r?.qqPid);
+          },
+        },
+      );
       // Persist credentials + metadata, keyed by data directory. Must run
       // before the monitor starts so its patches land on an existing record.
       accountConfig.save(metadata);
@@ -457,6 +480,11 @@ export function initAppContext(): AppContext {
       dbHealthCheckSeq += 1;
       accountMonitor?.stop();
       accountMonitor = null;
+      // Tear down the scheduler's wake timer before dropping the services
+      // object — otherwise a late tick would call into a disposed
+      // ExportTaskManager.
+      this.scheduler?.stop();
+      this.scheduler = null;
       unmountDbWatch();
       this.account?.dispose();
       this.account = null;

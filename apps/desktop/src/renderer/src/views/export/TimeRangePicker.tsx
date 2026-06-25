@@ -41,6 +41,19 @@ function rangeForPreset(preset: RangePreset): TimeRange {
   return { preset, start: startOfDay(from), end: endOfDay(now) };
 }
 
+/** Hint per preset. `single` (the default) describes the static window the
+ *  user is exporting right now. `scheduled` describes how the window rolls
+ *  forward on each fire — important so "近 7 天" doesn't read as "the 7
+ *  days I picked this preset". */
+const PRESET_HINTS: Record<RangePreset, { single: string; scheduled: string }> = {
+  all: { single: '不限制时间', scheduled: '每次触发都导出全量消息' },
+  today: { single: '今天的 00:00 ~ 23:59', scheduled: '每次触发 = 当天 00:00 ~ 23:59（按触发日滚动）' },
+  '7d': { single: '今天往前 7 天（含今天）', scheduled: '每次触发 = 触发日往前 7 天（窗口会滚动）' },
+  '30d': { single: '今天往前 30 天（含今天）', scheduled: '每次触发 = 触发日往前 30 天（窗口会滚动）' },
+  '1y': { single: '今天往前 365 天（含今天）', scheduled: '每次触发 = 触发日往前 365 天（窗口会滚动）' },
+  custom: { single: '月历里点选的具体起止日', scheduled: '起止日是固定的，每次触发都按相同区间导出' },
+};
+
 function fmtDay(secs: number | null): string {
   if (secs == null) return '不限';
   const d = new Date(secs * 1000);
@@ -50,9 +63,14 @@ function fmtDay(secs: number | null): string {
 export function TimeRangePicker({
   value,
   onChange,
+  mode = 'single',
 }: {
   value: TimeRange;
   onChange: (next: TimeRange) => void;
+  /** 'single' = a one-shot export. 'scheduled' = a template that fires
+   *  repeatedly; preset windows are re-resolved at fire-time. Drives the
+   *  hint copy and the per-preset `title`. */
+  mode?: 'single' | 'scheduled';
 }): ReactElement {
   // The month the calendar is currently showing.
   const initial = value.start ? new Date(value.start * 1000) : new Date();
@@ -104,6 +122,13 @@ export function TimeRangePicker({
 
   return (
     <div className="weq-exp-range">
+      {mode === 'scheduled' ? (
+        <p className="weq-exp-range-note">
+          预设窗口（今天 / 近 N 天）会在每次触发时按当时时间重新计算。
+          <br />
+          「自定义」是固定区间，不会滚动。
+        </p>
+      ) : null}
       <div className="weq-exp-range-presets">
         {PRESETS.map((p) => (
           <button
@@ -111,6 +136,7 @@ export function TimeRangePicker({
             type="button"
             className={`weq-exp-chip${value.preset === p.value ? ' is-on' : ''}`}
             onClick={() => pickPreset(p.value)}
+            title={PRESET_HINTS[p.value][mode]}
           >
             {p.label}
           </button>
@@ -165,7 +191,10 @@ export function TimeRangePicker({
               );
             })}
           </div>
-          <p className="weq-exp-cal-hint">点选两次：第一次为起始日，第二次为结束日。</p>
+          <p className="weq-exp-cal-hint">
+            点选两次：第一次为起始日，第二次为结束日。
+            {mode === 'scheduled' ? '（起止日固定，每次触发都按相同区间导出）' : ''}
+          </p>
         </div>
       ) : null}
     </div>

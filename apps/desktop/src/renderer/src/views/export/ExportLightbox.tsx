@@ -144,7 +144,11 @@ export function ExportLightbox({
 
           {/* 时间范围 */}
           <Card title="时间范围">
-            <TimeRangePicker value={opts.range} onChange={(range) => patch({ range })} />
+            <TimeRangePicker
+              value={opts.range}
+              onChange={(range) => patch({ range })}
+              mode={isScheduled ? 'scheduled' : 'single'}
+            />
           </Card>
 
           {/* 媒体 / 内容选项（非相册模式） */}

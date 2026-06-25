@@ -10,11 +10,16 @@
 }
 
 .weq-exp {
+  position: relative;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: linear-gradient(135deg, #fdfeff, #f3f8fd);
+  background:
+    radial-gradient(ellipse at 16% 14%, rgba(0, 153, 255, 0.05) 0, transparent 46%),
+    radial-gradient(ellipse at 82% 86%, rgba(83, 206, 144, 0.04) 0, transparent 44%),
+    linear-gradient(135deg, #fcfdff 0%, #f6fafd 50%, #fbfbf6 100%);
   color: #1f2430;
   font-size: 13px;
 }
@@ -979,6 +984,17 @@
   color: #aeb7c3;
 }
 
+.weq-exp-range-note {
+  margin: 0 2px 8px;
+  padding: 7px 10px;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: #1c4f7a;
+  background: rgba(0, 153, 255, 0.07);
+  border: 1px solid rgba(0, 153, 255, 0.18);
+  border-radius: 7px;
+}
+
 /* ===== 底部任务列表 ===== */
 .weq-exp-tasks {
   flex: 0 0 auto;
@@ -1444,4 +1460,209 @@ button.weq-exp-task-complete.is-clickable:hover {
   border-color: rgba(239, 68, 68, 0.5);
   color: #dc4040;
   background: rgba(239, 68, 68, 0.05);
+}
+
+/* ---- scheduled export list ---- */
+
+.weq-exp-sched {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+}
+
+.weq-exp-sched-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 4px 6px;
+}
+
+.weq-exp-sched-head-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.weq-exp-sched-head-text strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1c2c40;
+}
+
+.weq-exp-sched-head-text small {
+  font-size: 11.5px;
+  color: #6a7a91;
+}
+
+.weq-exp-sched-head button {
+  border: 1px solid #0099ff;
+  background: #0099ff;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 7px;
+  padding: 6px 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.weq-exp-sched-head button:hover {
+  background: #0086e6;
+  border-color: #0086e6;
+}
+
+.weq-exp-sched-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-right: 2px;
+}
+
+.weq-exp-sched-card {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  padding: 12px 13px;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 11px;
+  background: #ffffff;
+  box-shadow: 0 6px 18px -16px rgba(7, 31, 61, 0.4);
+}
+
+.weq-exp-sched-card.is-disabled {
+  opacity: 0.65;
+}
+
+.weq-exp-sched-card-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.weq-exp-sched-card-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.weq-exp-sched-card-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1c2c40;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-exp-sched-card-tag {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: #0099ff;
+  background: rgba(0, 153, 255, 0.1);
+  border-radius: 999px;
+  padding: 2px 7px;
+  flex-shrink: 0;
+}
+
+.weq-exp-sched-card-tag.is-off {
+  color: #b08020;
+  background: rgba(245, 158, 11, 0.12);
+}
+
+.weq-exp-sched-card-meta {
+  font-size: 11.5px;
+  color: #5e6e85;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.weq-exp-sched-card-meta b {
+  color: #1c2c40;
+  font-weight: 600;
+}
+
+.weq-exp-sched-card-history {
+  font-size: 11px;
+  color: #6a7a91;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.weq-exp-sched-card-history-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.weq-exp-sched-card-history-dot.is-completed { background: #22c55e; }
+.weq-exp-sched-card-history-dot.is-partial { background: #f59e0b; }
+.weq-exp-sched-card-history-dot.is-failed { background: #ef4444; }
+.weq-exp-sched-card-history-dot.is-skipped { background: #94a3b8; }
+.weq-exp-sched-card-history-dot.is-cancelled { background: #cbd5e1; }
+
+.weq-exp-sched-card-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  justify-content: center;
+}
+
+.weq-exp-sched-card-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #ffffff;
+  color: #475569;
+  cursor: pointer;
+}
+
+.weq-exp-sched-card-actions button:hover {
+  border-color: rgba(0, 153, 255, 0.4);
+  color: #0099ff;
+  background: rgba(0, 153, 255, 0.05);
+}
+
+.weq-exp-sched-card-actions button.is-danger:hover {
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #dc4040;
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.weq-exp-sched-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 36px 16px;
+  color: #6a7a91;
+  text-align: center;
+}
+
+.weq-exp-sched-empty strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1c2c40;
+}
+
+.weq-exp-sched-empty small {
+  font-size: 11.5px;
+  color: #8a98ad;
 }

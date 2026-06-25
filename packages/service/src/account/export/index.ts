@@ -73,3 +73,19 @@ export {
   type MediaExportOptions,
   type MediaDeps,
 } from './task_manager';
+export {
+  ExportScheduler,
+  computeNextRun,
+  resolveRange,
+  type ScheduleConfig,
+  type ScheduleOptions,
+  type ScheduleConversation,
+  type ScheduleRangePreset,
+  type ScheduleRange,
+  type ScheduleOutcome,
+  type ScheduleTrigger,
+  type ScheduleInput,
+  type SchedulePatch,
+  type SchedulerDeps,
+  type ScheduledTask,
+} from './scheduler';

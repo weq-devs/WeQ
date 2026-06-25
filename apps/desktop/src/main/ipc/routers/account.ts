@@ -58,6 +58,14 @@ function requireServices(): AccountServices {
   return ctx.services;
 }
 
+function requireScheduler(): import('@weq/service').ExportScheduler {
+  const ctx = getAppContext();
+  if (!ctx.scheduler) {
+    throw new Error('No account session open — call bootstrap.openAccount first.');
+  }
+  return ctx.scheduler;
+}
+
 /** Wire payload pushed to the renderer when nt_msg.db gains new rows. */
 export interface NewMessagesWire {
   messages: ChatMsgWire[];
@@ -1027,6 +1035,120 @@ export const accountRouter = router({
       };
     });
   }),
+
+  // ---- scheduled exports ----
+  // All schedule templates are persisted by ExportScheduler in
+  // cacheDir/export/<configId>/schedules.json. CRUD below is a thin proxy; the
+  // scheduler itself is the source of truth for fire-time / nextRunAt / history.
+
+  listSchedules: procedure.query(() => {
+    return requireScheduler().list();
+  }),
+
+  createSchedule: procedure
+    .input(z.object({
+      name: z.string().min(1),
+      format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx']),
+      conversations: z.array(z.object({
+        id: z.string().min(1),
+        name: z.string().min(1),
+        kind: z.enum(['group', 'c2c']),
+        total: z.number().int().min(0),
+      })).min(1),
+      chatlab: z.boolean().optional(),
+      schedule: z.object({
+        mode: z.enum(['daily', 'interval']),
+        time: z.string(),
+        intervalHours: z.number().int().min(1).max(168),
+      }),
+      options: z.object({
+        range: z.object({
+          preset: z.enum(['all', 'today', '7d', '30d', '1y', 'custom']),
+          start: z.number().nullable(),
+          end: z.number().nullable(),
+        }),
+        exportMedia: z.boolean(),
+        exportAvatar: z.boolean(),
+        completeMedia: z.boolean(),
+        downloadVideo: z.boolean(),
+        downloadFile: z.boolean(),
+        transcribeVoice: z.boolean(),
+      }),
+      enabled: z.boolean().default(true),
+    }))
+    .mutation(({ input }) => {
+      // Map renderer-facing `name` (template label) to the manager's ScheduleInput.
+      // (ScheduleInput reuses `name` as the export filename stem; the renderer
+      // sends the user-chosen label here too — keeping it as-is means a fresh
+      // export per trigger produces `<label>.<fmt>`.)
+      return requireScheduler().create({
+        name: input.name,
+        format: input.format,
+        conversations: input.conversations,
+        ...(input.chatlab ? { chatlab: true } : {}),
+        schedule: input.schedule,
+        options: input.options,
+        enabled: input.enabled,
+      });
+    }),
+
+  updateSchedule: procedure
+    .input(z.object({
+      id: z.string().min(1),
+      patch: z.object({
+        name: z.string().min(1).optional(),
+        format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx']).optional(),
+        conversations: z.array(z.object({
+          id: z.string().min(1),
+          name: z.string().min(1),
+          kind: z.enum(['group', 'c2c']),
+          total: z.number().int().min(0),
+        })).min(1).optional(),
+        chatlab: z.boolean().optional(),
+        schedule: z.object({
+          mode: z.enum(['daily', 'interval']),
+          time: z.string(),
+          intervalHours: z.number().int().min(1).max(168),
+        }).optional(),
+        options: z.object({
+          range: z.object({
+            preset: z.enum(['all', 'today', '7d', '30d', '1y', 'custom']),
+            start: z.number().nullable(),
+            end: z.number().nullable(),
+          }),
+          exportMedia: z.boolean(),
+          exportAvatar: z.boolean(),
+          completeMedia: z.boolean(),
+          downloadVideo: z.boolean(),
+          downloadFile: z.boolean(),
+          transcribeVoice: z.boolean(),
+        }).optional(),
+        enabled: z.boolean().optional(),
+      }),
+    }))
+    .mutation(({ input }) => {
+      return requireScheduler().update(input.id, input.patch);
+    }),
+
+  setScheduleEnabled: procedure
+    .input(z.object({ id: z.string().min(1), enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      return requireScheduler().setEnabled(input.id, input.enabled);
+    }),
+
+  deleteSchedule: procedure
+    .input(z.object({ id: z.string().min(1) }))
+    .mutation(({ input }) => {
+      return requireScheduler().delete(input.id);
+    }),
+
+  /** Fire a schedule immediately, without disturbing its `nextRunAt`. Returns
+   *  the task ids generated so the UI can immediately `refetchTasks()`. */
+  runScheduleNow: procedure
+    .input(z.object({ id: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      return requireScheduler().runNow(input.id);
+    }),
 
   /** Save exported file to user-selected location. */
   saveExportFile: procedure

@@ -2275,7 +2275,12 @@ html[data-theme="dark"] .app-title-bar-signature {
 }
 
 .weq-template-main-wrap {
-  background: var(--chat-surface);
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(ellipse at 18% 12%, rgba(0, 153, 255, 0.05) 0, transparent 46%),
+    radial-gradient(ellipse at 84% 88%, rgba(83, 206, 144, 0.04) 0, transparent 44%),
+    linear-gradient(135deg, #fcfdff 0%, #f6fafd 50%, #fbfbf6 100%);
 }
 
 .weq-readonly-chat .chat-pane {
