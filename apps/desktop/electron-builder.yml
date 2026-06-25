@@ -29,11 +29,14 @@ extraResources:
   - from: node_modules/sherpa-onnx-node
     to: node_modules/sherpa-onnx-node
 
+  - from: out/main/transcribeWorker.mjs
+    to: out/main/transcribeWorker.mjs
+
 asarUnpack:
   - resources/native/**/*
-  # The voice-transcription worker is forked as a child process (can't run from
-  # inside the asar) and loads the native sherpa-onnx binding from node_modules.
-  - out/main/transcribeWorker.mjs
+  # # The voice-transcription worker is forked as a child process (can't run from
+  # # inside the asar) and loads the native sherpa-onnx binding from node_modules.
+  # - out/main/transcribeWorker.mjs
 
 win:
   icon: ../../resources/brand/logo.png
