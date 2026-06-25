@@ -75,7 +75,15 @@ export interface AccountConfig {
    */
   configId: string;
   uin: string;
+  /**
+   * SQLCipher key. Empty string for already-decrypted static accounts that
+   * opened without a key (the record is always written with at least '').
+   */
   dbKey: string;
+  /**
+   * Cryptographic algorithms used for this account's databases. Empty
+   * strings for plain (already-decrypted) static accounts.
+   */
   algo: DatabaseAlgorithms;
   /**
    * Absolute path to this account's user-data directory
@@ -100,6 +108,13 @@ export interface AccountConfig {
   rkeyUpdatedAt?: number;
   /** Latest clientkey harvested from the online instance (when 自动获取 ClientKey is on). */
   clientKey?: ClientKey;
+  /**
+   * True for static / offline accounts opened from a directory of
+   * already-decrypted (or SQLCipher-keyed) databases. Drives the
+   * 「静态」 badge in the account list and chooses `setStaticAccount`
+   * vs `setAccount` on re-open.
+   */
+  static?: boolean;
 }
 
 /** Metadata threaded in from the open flow to enrich the saved record. */
@@ -107,6 +122,9 @@ export interface AccountConfigMetadata {
   displayName?: string;
   avatarUrl?: string;
   dataDir?: string;
+  /** Set when opening a static (offline) account so the badge / re-open
+   *  path know which flow to use. */
+  static?: boolean;
 }
 
 /**
@@ -168,6 +186,7 @@ export class AccountConfigService {
       ...(metadata.dataDir ? { dataDir: metadata.dataDir } : {}),
       ...(metadata.displayName ? { displayName: metadata.displayName } : {}),
       ...(metadata.avatarUrl ? { avatarUrl: metadata.avatarUrl } : {}),
+      ...(metadata.static === true ? { static: true } : {}),
       lastLoginAt: Date.now(),
     };
     this.writeRecord(config);

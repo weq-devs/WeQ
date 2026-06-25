@@ -93,16 +93,32 @@ export function BootstrapView(): ReactElement {
 
     void (async () => {
       try {
-        const test = await client.bootstrap.testDatabaseKey.mutate({ uin: cfg.uin, dbKey: cfg.dbKey });
-        if (!test.success) throw new Error(test.error ?? '数据库密钥不正确');
-        await client.bootstrap.openAccount.mutate({
-          uin: cfg.uin,
-          dbKey: cfg.dbKey,
-          algo: test.algo,
-          ...(cfg.displayName ? { displayName: cfg.displayName } : {}),
-          ...(cfg.avatarUrl ? { avatarUrl: cfg.avatarUrl } : {}),
-          ...(cfg.dataDir ? { dataDir: cfg.dataDir } : {}),
-        });
+        if (cfg.static) {
+          // Static (offline) account — no live key gate; re-open from its
+          // saved decrypted-db directory.
+          if (!cfg.dataDir) throw new Error('该静态账号缺少数据库目录，请重新导入。');
+          await client.bootstrap.openStaticAccount.mutate({
+            dirPath: cfg.dataDir,
+            preview: {
+              uin: cfg.uin,
+              displayName: cfg.displayName ?? '',
+              avatarUrl: cfg.avatarUrl ?? '',
+            },
+            ...(cfg.dbKey ? { dbKey: cfg.dbKey } : {}),
+            ...(cfg.algo?.pageHmacAlgorithm ? { algo: cfg.algo } : {}),
+          });
+        } else {
+          const test = await client.bootstrap.testDatabaseKey.mutate({ uin: cfg.uin, dbKey: cfg.dbKey });
+          if (!test.success) throw new Error(test.error ?? '数据库密钥不正确');
+          await client.bootstrap.openAccount.mutate({
+            uin: cfg.uin,
+            dbKey: cfg.dbKey,
+            algo: test.algo,
+            ...(cfg.displayName ? { displayName: cfg.displayName } : {}),
+            ...(cfg.avatarUrl ? { avatarUrl: cfg.avatarUrl } : {}),
+            ...(cfg.dataDir ? { dataDir: cfg.dataDir } : {}),
+          });
+        }
         // Land on 'home' so closing the account later returns to the landing
         // screen rather than re-running the (now consumed) boot splash.
         setHomeStage('home');
@@ -164,28 +180,12 @@ export function BootstrapView(): ReactElement {
     );
   }
 
-  async function handleStatic(): Promise<void> {
-    try {
-      const dirPath = await client.bootstrap.pickStaticDbDir.mutate();
-      if (!dirPath) return;
-      await client.bootstrap.openStaticAccount.mutate({ dirPath });
-      // Derive the UIN from the directory name for the main view.
-      const uin = dirPath.split(/[/\\]/).pop() ?? '';
-      setHomeStage('home');
-      setOpenedUin(uin);
-      goTo('main');
-    } catch (e) {
-      showError('打开本地数据库失败', errMsg(e));
-    }
-  }
-
   return (
     <Shell>
       <HomeScreen
         hasConfigs={(configs.data?.length ?? 0) > 0}
         onExisting={() => enterSelect('existing')}
         onNew={() => enterSelect('new')}
-        onStatic={() => void handleStatic()}
       />
     </Shell>
   );

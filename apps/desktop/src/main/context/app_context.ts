@@ -60,7 +60,7 @@ import {
   type DbChange,
   type DbHealthFailure,
 } from '@weq/service';
-import { openAccount, openStaticAccount, type AccountContext, type AccountSession } from '@weq/account';
+import { openAccount, openStaticAccount, peekStaticSelfUin, type AccountContext, type AccountSession } from '@weq/account';
 
 /**
  * Process-wide bus for nt_msg.db changes, fed by the single `dbWatch` loop
@@ -240,8 +240,18 @@ export interface AppContext {
   scheduler: import('@weq/service').ExportScheduler | null;
   /** Open (or re-open) an account session. Disposes the previous one first. */
   setAccount(ctx: AccountContext, metadata?: AccountConfigMetadata): Promise<void>;
-  /** Open a static (offline) account from a directory of plain decrypted databases. */
-  setStaticAccount(dirPath: string): Promise<void>;
+  /**
+   * Open a static (offline) account from a directory of locally-stored
+   * databases. Pass `selfPreview` (from `peekStaticSelfUin`) so we don't
+   * have to trust the directory name as the UIN. Optional `dbKey` +
+   * `algo` are for still-encrypted SQLCipher backups; omit them for
+   * already-decrypted plain SQLite folders.
+   */
+  setStaticAccount(
+    dirPath: string,
+    selfPreview: { uin: string; displayName: string; avatarUrl: string },
+    options?: { dbKey?: string; algo?: import('@weq/native').DatabaseAlgorithms },
+  ): Promise<void>;
   /** Drop the current account session, if any. */
   clearAccount(): void;
   /**
@@ -481,7 +491,11 @@ export function initAppContext(): AppContext {
       }
       setTimeout(() => startDbHealthCheck(this, session, platform), 0);
     },
-    async setStaticAccount(dirPath: string): Promise<void> {
+    async setStaticAccount(
+      dirPath: string,
+      selfPreview: { uin: string; displayName: string; avatarUrl: string },
+      options: { dbKey?: string; algo?: import('@weq/native').DatabaseAlgorithms } = {},
+    ): Promise<void> {
       dbHealthCheckSeq += 1;
       accountMonitor?.stop();
       accountMonitor = null;
@@ -491,7 +505,12 @@ export function initAppContext(): AppContext {
       this.scheduler?.stop();
       this.scheduler = null;
 
-      const session = await openStaticAccount(platform, dirPath);
+      const session = await openStaticAccount(platform, {
+        dirPath,
+        self: { uin: selfPreview.uin, nick: selfPreview.displayName, avatarUrl: selfPreview.avatarUrl, uid: '' },
+        ...(options.dbKey ? { dbKey: options.dbKey } : {}),
+        ...(options.algo ? { algo: options.algo } : {}),
+      });
       this.account = session;
 
       const accountConfig = new AccountConfigService(session, platform.appDataRoot());
@@ -596,8 +615,14 @@ export function initAppContext(): AppContext {
       };
 
       // Persist metadata keyed by the decrypted-db directory, so re-opening
-      // works without re-selecting the folder.
-      accountConfig.save({ dataDir: dirPath });
+      // works without re-selecting the folder. `static: true` is the marker
+      // the account-list badge + re-open path look for.
+      accountConfig.save({
+        dataDir: dirPath,
+        static: true,
+        ...(selfPreview.displayName ? { displayName: selfPreview.displayName } : {}),
+        ...(selfPreview.avatarUrl ? { avatarUrl: selfPreview.avatarUrl } : {}),
+      });
 
       // No monitor, no db watch, no health check, no scheduler —
       // static accounts are offline snapshots.

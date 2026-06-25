@@ -105,6 +105,7 @@ export function RailAccountFooter({
     displayName?: string;
     avatarUrl?: string | null;
     dataDir?: string;
+    static?: boolean;
   }): Promise<void> {
     if (busy) return;
     if (cfg.uin === currentUin) return;
@@ -118,14 +119,30 @@ export function RailAccountFooter({
       purgeAccountCache();
       setOpenedUin(null);
       await new Promise((resolve) => setTimeout(resolve, 0));
-      await client.bootstrap.openAccount.mutate({
-        uin: cfg.uin,
-        dbKey: cfg.dbKey,
-        ...(cfg.algo ? { algo: cfg.algo } : {}),
-        ...(cfg.displayName ? { displayName: cfg.displayName } : {}),
-        ...(cfg.avatarUrl ? { avatarUrl: cfg.avatarUrl } : {}),
-        ...(cfg.dataDir ? { dataDir: cfg.dataDir } : {}),
-      });
+      if (cfg.static) {
+        // Static (offline) account — no live key gate; re-open from its
+        // saved decrypted-db directory.
+        if (!cfg.dataDir) throw new Error('该静态账号缺少数据库目录，请重新导入。');
+        await client.bootstrap.openStaticAccount.mutate({
+          dirPath: cfg.dataDir,
+          preview: {
+            uin: cfg.uin,
+            displayName: cfg.displayName ?? '',
+            avatarUrl: cfg.avatarUrl ?? '',
+          },
+          ...(cfg.dbKey ? { dbKey: cfg.dbKey } : {}),
+          ...(cfg.algo?.pageHmacAlgorithm ? { algo: cfg.algo } : {}),
+        });
+      } else {
+        await client.bootstrap.openAccount.mutate({
+          uin: cfg.uin,
+          dbKey: cfg.dbKey,
+          ...(cfg.algo ? { algo: cfg.algo } : {}),
+          ...(cfg.displayName ? { displayName: cfg.displayName } : {}),
+          ...(cfg.avatarUrl ? { avatarUrl: cfg.avatarUrl } : {}),
+          ...(cfg.dataDir ? { dataDir: cfg.dataDir } : {}),
+        });
+      }
       // Second purge: anything an in-flight component re-issued between the
       // first purge and openAccount completion (e.g. a useQuery refetch
       // triggered by the unmount/remount transition) would have hit the

@@ -27,6 +27,7 @@ import {
 } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import { accountConfigId, type KeyEvent, type VoiceDownloadProgress } from '@weq/service';
+import { peekStaticSelfUin } from '@weq/account';
 
 const algoSchema = z.object({
   pageHmacAlgorithm: z.string(),
@@ -507,25 +508,98 @@ export const bootstrapRouter = router({
     return true;
   }),
 
-  // ---- static (offline) account from decrypted local databases ----
+  // ---- static (offline) account from local databases ----
 
   /**
-   * Open a static account from a directory of already-decrypted plain-SQLite
-   * QQ databases. The directory name is used as the account UIN. No dbKey or
-   * live QQ is required — all features work in offline/static mode.
+   * Probe a directory of local QQ databases. Tries to read the self row
+   * from `profile_info_v6` so the UI can show the resolved UIN / nickname
+   * before committing to an open.
+   *
+   *   - No key, plain SQLite succeeds → returns `{ ok: true, needKey: false, preview }`
+   *   - SQLCipher with correct key    → same
+   *   - SQLCipher without key (or wrong key) → `{ ok: true, needKey: true }`
+   *     (needKey=true is not a hard error; the UI then prompts for a key)
+   *   - Missing files / corrupt db   → `{ ok: false, error }`
+   */
+  testStaticDir: procedure
+    .input(
+      z.object({
+        dirPath: z.string().min(1),
+        dbKey: z.string().optional(),
+        algo: algoSchema.optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const platform = requirePlatform();
+      if (!existsSync(input.dirPath)) {
+        return { ok: false as const, error: `目录不存在：${input.dirPath}` };
+      }
+      const profileInfoPath = join(input.dirPath, 'profile_info.db');
+      const ntMsgPath = join(input.dirPath, 'nt_msg.db');
+      if (!existsSync(profileInfoPath)) {
+        return { ok: false as const, error: '未在所选目录中找到 profile_info.db' };
+      }
+      if (!existsSync(ntMsgPath)) {
+        return { ok: false as const, error: '未在所选目录中找到 nt_msg.db' };
+      }
+      try {
+        const preview = await peekStaticSelfUin(
+          platform,
+          input.dirPath,
+          input.dbKey,
+          input.algo,
+        );
+        return {
+          ok: true as const,
+          needKey: false as const,
+          preview: {
+            uin: preview.uin,
+            displayName: preview.nick,
+            avatarUrl: preview.avatarUrl,
+          },
+        };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        // Caller didn't supply a key — ask for one. NOT a hard error.
+        if (!input.dbKey) {
+          return { ok: true as const, needKey: true as const };
+        }
+        return { ok: false as const, error: `无法打开数据库：${msg}` };
+      }
+    }),
+
+  /**
+   * Open a static (offline) account. The caller must have already resolved
+   * a self preview (UIN + nick) via `testStaticDir`; we don't trust the
+   * directory name as a UIN. `dbKey` is required for SQLCipher backups;
+   * omit it for already-decrypted plain SQLite folders.
    */
   openStaticAccount: procedure
-    .input(z.object({ dirPath: z.string().min(1) }))
+    .input(
+      z.object({
+        dirPath: z.string().min(1),
+        dbKey: z.string().optional(),
+        algo: algoSchema.optional(),
+        preview: z.object({
+          uin: z.string().min(1),
+          displayName: z.string(),
+          avatarUrl: z.string(),
+        }),
+      }),
+    )
     .mutation(async ({ input }) => {
       const ctx = getAppContext();
       if (!existsSync(input.dirPath)) {
-        throw new Error(`Directory not found: ${input.dirPath}`);
+        throw new Error(`目录不存在：${input.dirPath}`);
       }
       const ntMsgPath = join(input.dirPath, 'nt_msg.db');
       if (!existsSync(ntMsgPath)) {
-        throw new Error(`nt_msg.db not found in selected directory: ${input.dirPath}`);
+        throw new Error(`未在所选目录中找到 nt_msg.db：${input.dirPath}`);
       }
-      await ctx.setStaticAccount(input.dirPath);
+      await ctx.setStaticAccount(input.dirPath, input.preview, {
+        ...(input.dbKey ? { dbKey: input.dbKey } : {}),
+        ...(input.algo ? { algo: input.algo } : {}),
+      });
       return ctx.account!.context;
     }),
 
