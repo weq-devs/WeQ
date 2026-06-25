@@ -38,6 +38,15 @@ jobs:
       - name: Build renderer + main
         run: pnpm --filter @weq/desktop exec electron-vite build
 
+      - name: Prepare release manifest
+        run: node scripts/prepare-electron-builder-manifest.mjs
+
+      - name: Swap in release manifest
+        shell: pwsh
+        run: |
+          Move-Item apps/desktop/package.json apps/desktop/package.dev.json
+          Move-Item apps/desktop/package.release.json apps/desktop/package.json
+
       # ---- Diagnostic dump (always, even on success) ---------------------
       # electron-builder runs from apps/desktop; we want to know exactly what
       # it sees: the build output, the manifest it will read, and the
@@ -61,6 +70,16 @@ jobs:
           # electron-builder is chatty at DEBUG=electron-builder; leave the
           # next failure mode (asar / filter / publish) self-describing.
           DEBUG: electron-builder
+
+      - name: Restore dev manifest
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path apps/desktop/package.dev.json) {
+            Remove-Item apps/desktop/package.json -ErrorAction SilentlyContinue
+            Move-Item apps/desktop/package.dev.json apps/desktop/package.json
+          }
+          Remove-Item apps/desktop/package.release.json -ErrorAction SilentlyContinue
 
       # If electron-builder dies, capture whatever it managed to put on
       # disk so the next iteration doesn't have to guess.
