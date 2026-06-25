@@ -25,7 +25,7 @@ extraResources:
       - '*.node'
 
   - from: ../../LICENSE
-    to: LICENSE
+    to: ../LICENSE
 
   # Shared static assets (brand/logo, …). Copied whole so the main process can
   # read them at runtime via process.resourcesPath/resources. QQ emoji are NOT
@@ -34,7 +34,7 @@ extraResources:
     to: resources
 
   - from: ../../native
-    to: native
+    to: ../native
 
   - from: node_modules/sherpa-onnx-node
     to: node_modules/sherpa-onnx-node
