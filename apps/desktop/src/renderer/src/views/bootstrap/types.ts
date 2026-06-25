@@ -24,6 +24,8 @@ export interface UiAccount {
   algo?: DatabaseAlgorithms;
   dataDir?: string;
   lastLoginAt?: number;
+  /** True for static / offline (decrypted-db directory) accounts. */
+  static?: boolean;
 
   // ---- new-start mode ----
   /** Non-empty marker ⇒ account is quick-login-able. */

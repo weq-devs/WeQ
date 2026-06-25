@@ -24,9 +24,9 @@ export interface GroupBulletin {
 
 export interface GroupBulletinDbOptions {
   dbPath: string;
-  key: string;
-  /** Database algorithms. */
-  algo: DatabaseAlgorithms;
+  key?: string;
+  /** Database algorithms (omit for plain decrypted). */
+  algo?: DatabaseAlgorithms;
 }
 
 const SELECT_COLUMNS = `"60001","64205"`;

@@ -60,7 +60,7 @@ import {
   type DbChange,
   type DbHealthFailure,
 } from '@weq/service';
-import { openAccount, type AccountContext, type AccountSession } from '@weq/account';
+import { openAccount, openStaticAccount, peekStaticSelfUin, type AccountContext, type AccountSession } from '@weq/account';
 
 /**
  * Process-wide bus for nt_msg.db changes, fed by the single `dbWatch` loop
@@ -240,6 +240,18 @@ export interface AppContext {
   scheduler: import('@weq/service').ExportScheduler | null;
   /** Open (or re-open) an account session. Disposes the previous one first. */
   setAccount(ctx: AccountContext, metadata?: AccountConfigMetadata): Promise<void>;
+  /**
+   * Open a static (offline) account from a directory of locally-stored
+   * databases. Pass `selfPreview` (from `peekStaticSelfUin`) so we don't
+   * have to trust the directory name as the UIN. Optional `dbKey` +
+   * `algo` are for still-encrypted SQLCipher backups; omit them for
+   * already-decrypted plain SQLite folders.
+   */
+  setStaticAccount(
+    dirPath: string,
+    selfPreview: { uin: string; displayName: string; avatarUrl: string },
+    options?: { dbKey?: string; algo?: import('@weq/native').DatabaseAlgorithms },
+  ): Promise<void>;
   /** Drop the current account session, if any. */
   clearAccount(): void;
   /**
@@ -274,6 +286,9 @@ export function initAppContext(): AppContext {
       scheduler: null,
       setAccount(): Promise<void> {
         throw new Error('native bundle failed to load — cannot open an account');
+      },
+      setStaticAccount(): Promise<void> {
+        throw new Error('native bundle failed to load — cannot open a static account');
       },
       clearAccount(): void {
         /* nothing to clear */
@@ -475,6 +490,142 @@ export function initAppContext(): AppContext {
         mountDbWatch(session);
       }
       setTimeout(() => startDbHealthCheck(this, session, platform), 0);
+    },
+    async setStaticAccount(
+      dirPath: string,
+      selfPreview: { uin: string; displayName: string; avatarUrl: string },
+      options: { dbKey?: string; algo?: import('@weq/native').DatabaseAlgorithms } = {},
+    ): Promise<void> {
+      dbHealthCheckSeq += 1;
+      accountMonitor?.stop();
+      accountMonitor = null;
+      this.account?.dispose();
+      dbWatchHandle?.unmount();
+      dbWatchHandle = null;
+      this.scheduler?.stop();
+      this.scheduler = null;
+
+      const session = await openStaticAccount(platform, {
+        dirPath,
+        self: { uin: selfPreview.uin, nick: selfPreview.displayName, avatarUrl: selfPreview.avatarUrl, uid: '' },
+        ...(options.dbKey ? { dbKey: options.dbKey } : {}),
+        ...(options.algo ? { algo: options.algo } : {}),
+      });
+      this.account = session;
+
+      const accountConfig = new AccountConfigService(session, platform.appDataRoot());
+      const exportConfigId = accountConfigId(session.context.uin, dirPath);
+
+      // Live QQ is not available for static accounts — PID-dependent services
+      // will simply fail gracefully when called.
+      const noPid = (): number => {
+        throw new Error('QQ account is not online (static account — offline mode).');
+      };
+
+      const mediaDownload = new MediaDownloadService(
+        accountConfig,
+        userConfig.cacheDir('media'),
+      );
+      const mediaUrl = new MediaUrlService(platform.native.ntHelper, session, noPid);
+      const groupInfo = new GroupInfoService(session);
+      const profile = new ProfileService(session);
+
+      this.services = {
+        msgs: new MsgService(session),
+        recentContacts: new RecentContactService(session),
+        unreadInfo: new UnreadInfoService(session),
+        accountConfig,
+        forwardMsgs: new ForwardMsgService(session),
+        groupInfo,
+        groupNotify: new GroupNotifyService(session),
+        profile,
+        msgSearch: new MsgSearchService(session),
+        onlineStatus: new OnlineStatusService(session),
+        fileSearch: new FileSearchService(session, platform),
+        mediaDownload,
+        fileAssistant: new FileAssistantService(session),
+        emoji: new EmojiService(session, platform),
+        exportManager: new (await import('@weq/service')).ExportTaskManager(
+          new MsgService(session),
+          userConfig.cacheDir(join('export', exportConfigId)),
+          {
+            avatarCache: bootstrap.avatarCache,
+            mediaDownload,
+            mediaUrl,
+            // For static accounts, the data directory IS the decrypted DB
+            // directory. nt_data media subdirectories won't be present, so
+            // media-copy will skip gracefully and only CDN completion would
+            // work (which requires a live QQ — unavailable here).
+            accountDir: dirPath,
+            decodeSilk: (silk: string, dest: string) =>
+              import('../voice').then((m) => m.decodeSilkToFile(silk, dest)),
+            transcribe: async (silkPath: string) => {
+              const modelId = userConfig.getSettings().voiceTranscribe.modelId;
+              if (!modelId) return { ok: false, error: '未选择转录模型' };
+              const model = getVoiceModel(modelId);
+              if (!model) return { ok: false, error: '转录模型不存在' };
+              const status = bootstrap.voiceTranscribe.getModelStatus(modelId);
+              if (!status?.downloaded) return { ok: false, error: '转录模型未下载' };
+              const { decodeSilkToWav16kBuffer } = await import('../voice');
+              const wav = await decodeSilkToWav16kBuffer(silkPath);
+              if (!wav) return { ok: false, error: '语音解码失败' };
+              const paths = bootstrap.voiceTranscribe.resolveModelPaths(modelId);
+              if (!paths.model || !paths.tokens) return { ok: false, error: '模型文件缺失' };
+              const { transcribeWav } = await import('../transcribe/engine');
+              const r = await transcribeWav(
+                wav,
+                { model: paths.model, tokens: paths.tokens },
+                { engine: model.engine, languages: model.languages },
+              );
+              return r.success
+                ? { ok: true, text: r.text ?? '' }
+                : { ok: false, error: r.error ?? '识别失败' };
+            },
+            chatlab: {
+              resolveGroupMembers: async (groupCode, uids) => {
+                const members = await groupInfo.getMembersByUids(BigInt(groupCode), uids);
+                return members.map((m) => ({
+                  uid: m.uid,
+                  uin: m.uin.toString(),
+                  card: m.card,
+                  nick: m.nick,
+                  adminFlag: m.adminFlag,
+                }));
+              },
+              groupMeta: async (groupCode) => {
+                const detail = await groupInfo.getGroupDetail(BigInt(groupCode));
+                return detail ? { name: detail.groupName, ownerUid: detail.ownerUid } : null;
+              },
+              resolveProfile: async (uid) => {
+                const p = await profile.getProfile(uid);
+                return p ? { uin: p.uin.toString(), nick: p.nick } : null;
+              },
+              self: async () => {
+                const p = await profile.getSelfProfile();
+                if (p) return { uid: p.uid, uin: p.uin.toString(), nick: p.nick };
+                const uin = String(session.context.uin ?? '');
+                return uin ? { uid: '', uin, nick: '' } : null;
+              },
+            },
+          },
+        ),
+        dbDecrypt: new DbDecryptService(session, platform),
+        webQuery: new WebQueryService(platform.native.ntHelper, session, noPid),
+        groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, noPid),
+      };
+
+      // Persist metadata keyed by the decrypted-db directory, so re-opening
+      // works without re-selecting the folder. `static: true` is the marker
+      // the account-list badge + re-open path look for.
+      accountConfig.save({
+        dataDir: dirPath,
+        static: true,
+        ...(selfPreview.displayName ? { displayName: selfPreview.displayName } : {}),
+        ...(selfPreview.avatarUrl ? { avatarUrl: selfPreview.avatarUrl } : {}),
+      });
+
+      // No monitor, no db watch, no health check, no scheduler —
+      // static accounts are offline snapshots.
     },
     clearAccount(): void {
       dbHealthCheckSeq += 1;

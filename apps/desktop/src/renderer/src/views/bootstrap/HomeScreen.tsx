@@ -3,6 +3,9 @@
  *
  *   左 — 现有账号配置  (disabled when no saved config exists)
  *   右 — 新的开始
+ *
+ * The "本地备份导入" path lives INSIDE 「新的开始」 as a sub-tab — see
+ * `LoginPanel`. There's no top-level entry card for it.
  */
 
 import { type ReactElement } from 'react';

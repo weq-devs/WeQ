@@ -61,9 +61,9 @@ export interface UserProfile {
 
 export interface ProfileInfoDbOptions {
   dbPath: string;
-  key: string;
-  /** Database algorithms. */
-  algo: DatabaseAlgorithms;
+  key?: string;
+  /** Database algorithms (omit for plain decrypted). */
+  algo?: DatabaseAlgorithms;
 }
 
 const SELECT_COLUMNS = `"1000","1001","1002","20002","20004","20006","20007","20008","20009","20011","20014","20057","20070","20072","24103","24104"`;

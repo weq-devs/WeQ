@@ -27,10 +27,10 @@ const SELECT_COLUMNS = `"40001","40020","40027","40033","40050","40800","40062",
 export interface GroupMsgDbOptions {
   /** Absolute path to nt_msg.db. */
   dbPath: string;
-  /** SQLCipher key. */
-  key: string;
-  /** Database algorithms. */
-  algo: DatabaseAlgorithms;
+  /** SQLCipher key. (omit for plain decrypted). */
+  key?: string;
+  /** Database algorithms (omit for plain decrypted). */
+  algo?: DatabaseAlgorithms;
 }
 
 export class GroupMsgDb {

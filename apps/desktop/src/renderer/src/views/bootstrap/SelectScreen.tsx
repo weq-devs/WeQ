@@ -60,6 +60,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
         algo: cfg.algo,
         ...(cfg.dataDir ? { dataDir: cfg.dataDir } : root ? { dataDir: `${root}\\${cfg.uin}` } : {}),
         lastLoginAt: cfg.lastLoginAt,
+        ...(cfg.static ? { static: true } : {}),
       }));
     }
     return (historical.data ?? []).map((a) => ({
