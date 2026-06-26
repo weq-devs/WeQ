@@ -1530,6 +1530,10 @@ export function MainView(): ReactElement {
   const [searchHits, setSearchHits] = useState<MsgSearchHitWire[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
+  // Temporary dismiss of the search dropdown — clicking outside it hides it
+  // so the user can reach contact/group results underneath. Clicking the
+  // search box or typing a new query restores the dropdown.
+  const [searchDismissed, setSearchDismissed] = useState(false);
   // uid → nickname resolved from profile_info.db for search-result senders.
   const [searchNicks, setSearchNicks] = useState<Record<string, string>>({});
   // Set when a search hit was clicked: the listLatest effect, after the target
@@ -2166,6 +2170,7 @@ export function MainView(): ReactElement {
     }
     const run = ++searchRunRef.current;
     setSearchLoading(true);
+    setSearchDismissed(false);
     const timer = window.setTimeout(() => {
       client.account.searchMessages
         .query({ scope: 'all', keyword: searchQuery, limit: 5 })
@@ -2460,8 +2465,29 @@ export function MainView(): ReactElement {
     function onKey(event: KeyboardEvent): void {
       if (event.key === 'Escape') setSearchOpen(false);
     }
+    function onMouseDown(event: MouseEvent): void {
+      const target = event.target;
+      if (target instanceof Element) {
+        // Click inside the search box → restore the dropdown.
+        if (target.closest('.search-box')) {
+          setSearchDismissed(false);
+          return;
+        }
+        // Click inside the dropdown itself → let them pick a result.
+        if (target.closest('.weq-search-dropdown')) {
+          return;
+        }
+      }
+      // Click anywhere else in the sidebar body → temporarily hide the
+      // dropdown so the user can reach the contact/group list underneath.
+      setSearchDismissed(true);
+    }
     document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onMouseDown);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onMouseDown);
+    };
   }, [searchOpen]);
 
   function updateConversationPreference(
@@ -2543,7 +2569,7 @@ export function MainView(): ReactElement {
               onSelectGroup={shell.selectGroup}
               activateToolsOnSelect={false}
             />
-            {searchOpen && searchQuery ? (
+            {searchOpen && searchQuery && !searchDismissed ? (
               <div className="weq-search-dropdown" role="listbox">
                 {searchLoading && searchResultRows.length === 0 ? (
                   <div className="weq-search-empty">搜索中…</div>
