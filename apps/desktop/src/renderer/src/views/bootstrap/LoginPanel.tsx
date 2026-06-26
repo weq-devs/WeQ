@@ -40,6 +40,7 @@ export function LoginPanel({
   allUins,
   autoTarget,
   onEntered,
+  onDeleteAccount,
 }: {
   mode: 'new' | 'existing';
   accounts: UiAccount[];
@@ -49,6 +50,7 @@ export function LoginPanel({
   allUins: string[];
   autoTarget: AutoEnterTarget | null;
   onEntered: (uin: string) => void;
+  onDeleteAccount?: (acc: UiAccount) => void;
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
 
@@ -259,6 +261,7 @@ export function LoginPanel({
         accounts={accounts}
         selected={selected}
         onSelect={onSelect}
+        onDeleteAccount={onDeleteAccount}
         footer={
           mode === 'new' ? (
             <button

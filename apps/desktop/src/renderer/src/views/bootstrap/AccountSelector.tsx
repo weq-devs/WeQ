@@ -9,8 +9,9 @@
  * reachable regardless of where the pill sits in the column.
  */
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { ChevronDown, Trash2 } from 'lucide-react';
 import { QqAvatar } from '../../components/QqAvatar';
 import type { UiAccount } from './types';
 
@@ -18,11 +19,13 @@ export function AccountSelector({
   accounts,
   selected,
   onSelect,
+  onDeleteAccount,
   footer,
 }: {
   accounts: UiAccount[];
   selected: UiAccount | null;
   onSelect: (acc: UiAccount) => void;
+  onDeleteAccount?: (acc: UiAccount) => void;
   footer?: ReactNode;
 }): ReactElement {
   const [open, setOpen] = useState(false);
@@ -33,6 +36,20 @@ export function AccountSelector({
     maxHeight: 320,
   });
   const multiple = accounts.length > 1 || !!footer;
+
+  // Right-click context menu
+  const [ctxMenu, setCtxMenu] = useState<{ acc: UiAccount; x: number; y: number } | null>(null);
+  const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    document.addEventListener('mousedown', closeCtxMenu);
+    document.addEventListener('keydown', closeCtxMenu);
+    return () => {
+      document.removeEventListener('mousedown', closeCtxMenu);
+      document.removeEventListener('keydown', closeCtxMenu);
+    };
+  }, [ctxMenu, closeCtxMenu]);
 
   useEffect(() => {
     if (!open) return;
@@ -113,6 +130,7 @@ export function AccountSelector({
               <div className="weq-acct-list">
                 {accounts.map((acc) => {
                   const active = acc.key === selected?.key;
+                  const canDelete = onDeleteAccount && acc.configId;
                   return (
                     <button
                       type="button"
@@ -122,6 +140,14 @@ export function AccountSelector({
                         onSelect(acc);
                         setOpen(false);
                       }}
+                      onContextMenu={
+                        canDelete
+                          ? (e) => {
+                              e.preventDefault();
+                              setCtxMenu({ acc, x: e.clientX, y: e.clientY });
+                            }
+                          : undefined
+                      }
                     >
                       <QqAvatar uin={acc.uin} url={acc.avatarUrl} size={38} />
                       <div className="weq-acct-row-id">
@@ -139,6 +165,26 @@ export function AccountSelector({
           )}
         </div>
       )}
+      {ctxMenu &&
+        createPortal(
+          <div
+            className="weq-acct-ctx-menu"
+            style={{ left: ctxMenu.x, top: ctxMenu.y }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                onDeleteAccount?.(ctxMenu.acc);
+                setCtxMenu(null);
+              }}
+            >
+              <Trash2 size={15} />
+              <span>删除账号</span>
+            </button>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
