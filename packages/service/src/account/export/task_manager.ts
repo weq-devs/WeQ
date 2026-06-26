@@ -20,6 +20,7 @@ import { exportGroupToJsonl } from './jsonl_exporter';
 import { exportGroupToCsv, csvFraming, renderCsvRow } from './csv_exporter';
 import { exportToXlsx } from './xlsx_exporter';
 import { exportToChatlab, type ChatlabDeps } from './chatlab_exporter';
+import { exportToHtml } from './html_exporter';
 import { exportAvatars } from './avatar_export';
 import {
   copyFoundMedia,
@@ -309,11 +310,13 @@ export class ExportTaskManager extends EventEmitter {
       const wantMedia = Boolean(task.media?.exportMedia);
       const wantTranscribe = Boolean(task.media?.transcribeVoice && transcribe);
       const needsScan = wantMedia || wantTranscribe;
-      // Avatars / media / transcription → output is a bundle folder; else a lone file.
-      const isBundle = wantAvatars || wantMedia || wantTranscribe;
+      // Avatars / media / transcription → output is a bundle folder; else a lone
+      // file. HTML is always a bundle (the user's "一会话一文件夹" model) and its
+      // entry file is index.html so the folder opens cleanly.
+      const isBundle = wantAvatars || wantMedia || wantTranscribe || task.format === 'html';
       const outDir = isBundle ? join(this.cacheDir, `bundle-${id}`) : this.cacheDir;
       if (isBundle) mkdirSync(outDir, { recursive: true });
-      const outPath = join(outDir, `${task.name}.${task.format}`);
+      const outPath = join(outDir, task.format === 'html' ? 'index.html' : `${task.name}.${task.format}`);
       const mediaRoot = join(outDir, 'media');
       const senders = wantAvatars ? new Set<string>() : undefined;
 
@@ -516,6 +519,25 @@ export class ExportTaskManager extends EventEmitter {
           progressEvery,
           onProgress: tick,
           collectSenders: senders,
+        },
+        this.deps.chatlab ?? {},
+      );
+    }
+    // HTML resolves names / roles / self-alignment itself (like ChatLab) and
+    // wraps the records in a document — its own exporter, both kinds.
+    if (task.format === 'html') {
+      return exportToHtml(
+        this.msgs,
+        {
+          kind: task.kind,
+          conv: task.conv,
+          name: task.name,
+          outputPath,
+          range: task.range,
+          progressEvery,
+          onProgress: tick,
+          collectSenders: senders,
+          withMediaPaths,
         },
         this.deps.chatlab ?? {},
       );

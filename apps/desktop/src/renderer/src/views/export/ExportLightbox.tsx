@@ -3,10 +3,9 @@
  *
  * 草稿状态全部在本组件内部，只有点「开始导出」才回传给父组件（沿用关系图
  * GroupPickerModal 的 draft-then-commit 模式）。按 variant 决定显示哪些区块：
- *   full / chatlab → 时间范围 + 媒体选项 + 语音转写
- *   html           → 时间范围
- *   scheduled      → 上述 + 定时设置
- *   album          → 下载目录 + 相册选择 + 时间范围
+ *   full / chatlab / html → 时间范围 + 媒体选项 + 语音转写
+ *   scheduled             → 上述 + 定时设置
+ *   album                 → 下载目录 + 相册选择 + 时间范围
  */
 
 import { useState, type ReactElement } from 'react';
@@ -129,6 +128,19 @@ export function ExportLightbox({
             </Card>
           ) : null}
 
+          {/* HTML 说明 */}
+          {isHtml ? (
+            <Card title="HTML 网页记录">
+              <div className="weq-exp-placeholder">
+                <span>导出为自包含的网页聊天记录，可离线在浏览器中浏览（每个会话一个文件夹）</span>
+                <small>
+                  气泡式布局，含头像 / 昵称 / 时间。开启下方「导出媒体文件」后，图片 / 视频 / 语音 / 文件
+                  存入同目录 media/ 并在网页中直接显示、播放、下载。
+                </small>
+              </div>
+            </Card>
+          ) : null}
+
           {/* ChatLab 说明 */}
           {variant === 'chatlab' ? (
             <Card title="ChatLab 标准格式">
@@ -151,8 +163,8 @@ export function ExportLightbox({
             />
           </Card>
 
-          {/* 媒体 / 内容选项（非相册模式） */}
-          {!isAlbum && !isHtml ? (
+          {/* 媒体 / 内容选项（非相册模式；HTML 也支持） */}
+          {!isAlbum ? (
             <Card title="媒体与内容">
               <Row
                 label="导出媒体文件"

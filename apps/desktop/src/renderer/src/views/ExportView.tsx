@@ -237,7 +237,9 @@ export function ExportView(): ReactElement {
       return;
     }
     if (convSelection.size === 0) return;
-    setLightbox(mode === 'scheduled' ? 'scheduled' : mode === 'chatlab' ? 'chatlab' : 'full');
+    setLightbox(
+      mode === 'scheduled' ? 'scheduled' : mode === 'chatlab' ? 'chatlab' : mode === 'html' ? 'html' : 'full',
+    );
   }
 
   /**
@@ -320,7 +322,10 @@ export function ExportView(): ReactElement {
     return true;
   }
 
-  async function runFullExport(options: ExportOptions, opts: { chatlab?: boolean } = {}): Promise<void> {
+  async function runFullExport(
+    options: ExportOptions,
+    opts: { chatlab?: boolean; format?: ExportFormat } = {},
+  ): Promise<void> {
     const targets = convItems.filter((it) => convSelection.has(it.id));
     // null bounds = open-ended; both null (全部时间) means no filtering.
     const range = { start: options.range.start, end: options.range.end };
@@ -357,7 +362,7 @@ export function ExportView(): ReactElement {
           kind: t.kind ?? 'c2c',
           conv: t.id,
           name: t.name,
-          format,
+          format: opts.format ?? format,
           total: t.total ?? 0,
           exportAvatar: options.exportAvatar,
           ...(opts.chatlab ? { chatlab: true } : {}),
@@ -466,6 +471,10 @@ export function ExportView(): ReactElement {
     }
     if (lightbox === 'chatlab') {
       void runFullExport(result.options, { chatlab: true });
+      return;
+    }
+    if (lightbox === 'html') {
+      void runFullExport(result.options, { format: 'html' });
       return;
     }
     if (lightbox === 'scheduled') {
@@ -585,9 +594,7 @@ export function ExportView(): ReactElement {
       ? dbSelection.size === 0
       : mode === 'album'
         ? !albumGroupId
-        : mode === 'html'
-          ? true
-          : convSelection.size === 0;
+        : convSelection.size === 0;
 
   // Lightbox summary line.
   const lightboxSummary = (() => {
@@ -596,7 +603,8 @@ export function ExportView(): ReactElement {
       return g ? `群相册 · ${g.name}` : '群相册';
     }
     const n = convSelection.size;
-    return `${n} 个会话 · ${format.toUpperCase()}`;
+    const fmt = lightbox === 'html' ? 'HTML' : format.toUpperCase();
+    return `${n} 个会话 · ${fmt}`;
   })();
 
   const lightboxHeadline =
@@ -606,7 +614,9 @@ export function ExportView(): ReactElement {
         ? '导出群相册'
         : lightbox === 'chatlab'
           ? '导出 ChatLab 格式'
-          : '导出聊天记录';
+          : lightbox === 'html'
+            ? '导出为 HTML 网页'
+            : '导出聊天记录';
 
   return (
     <div className="weq-exp">
@@ -674,25 +684,13 @@ export function ExportView(): ReactElement {
                   )}
                 </div>
               </div>
-            ) : isMultiConvMode ? (
+            ) : isMultiConvMode || mode === 'html' ? (
               <ConversationPicker
                 items={convItems}
                 loading={conversations.isLoading}
                 selected={convSelection}
                 onChange={setConvSelection}
               />
-            ) : mode === 'html' ? (
-              <div className="weq-exp-empty">
-                <span className="weq-exp-empty-icon" aria-hidden>
-                  <FileCode2 size={28} strokeWidth={1.7} />
-                </span>
-                <strong className="weq-exp-empty-title">HTML 导出尚未实现</strong>
-                <p className="weq-exp-empty-desc">
-                  单个会话的网页化导出正在规划中。当前可使用「完整消息格式」导出为 JSON / JSONL / TXT / CSV / XLSX，
-                  或导出为「ChatLab 格式」供 AI 分析。
-                </p>
-                <span className="weq-exp-empty-tag">等待后期补全</span>
-              </div>
             ) : mode === 'album' ? (
               <SingleSelectPicker
                 items={groupItems}
@@ -729,7 +727,9 @@ export function ExportView(): ReactElement {
                 {mode === 'album'
                   ? '选择一个群，下一步选择相册与时间范围'
                   : mode === 'html'
-                    ? 'HTML 导出尚未实现，等待后期补全'
+                    ? convSelection.size > 0
+                      ? `已选 ${convSelection.size} 个会话 · HTML · 每个会话导出一个文件夹`
+                      : '选择会话后导出为网页聊天记录（每会话一个文件夹）'
                     : dbSelection.size > 0
                       ? `已选 ${dbSelection.size} 个数据库 · ${fmtBytes(selectedDbBytes)}`
                       : '选择数据库后导出解密副本'}

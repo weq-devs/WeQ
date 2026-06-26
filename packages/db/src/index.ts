@@ -22,6 +22,8 @@
 export { QqDb } from './qq_db';
 export type { QqDbOptions } from './qq_db';
 export { rowsToObjects } from './row';
+export { isLikelyCorruptionError, wrapBindingForCorruption } from './errors';
+export type { CorruptionSuspectInfo } from './errors';
 
 // --- msg business ---
 export * from './msg';

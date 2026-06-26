@@ -105,6 +105,8 @@ let dbWatchHandle: DbWatchHandle | null = null;
 /** Background login/pid/rkey monitor for the open account, if any. */
 let accountMonitor: AccountMonitorService | null = null;
 let dbHealthCheckSeq = 0;
+/** Guards against running more than one full health check at a time. */
+let dbHealthCheckRunning = false;
 
 /**
  * Mount the nt_msg.db watcher for `session` (idempotent — no-op if already
@@ -134,43 +136,62 @@ function unmountDbWatch(): void {
   dbWatchHandle = null;
 }
 
+/**
+ * Run the full per-account database health check **on demand** — triggered when
+ * a live query rejected with an error that strongly looks like database
+ * corruption (see `isLikelyCorruptionError` in `@weq/db`). It is deliberately
+ * NOT run at account-open: a healthy database should never pay for the scan.
+ *
+ * Non-reentrant: only one check runs at a time. When it comes back clean the
+ * gate reopens, so a later suspicion can re-verify (the trigger was a false
+ * alarm / transient). Only a CONFIRMED corruption force-closes the account and
+ * returns the user to the home screen.
+ */
 function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: Platform): void {
+  if (dbHealthCheckRunning) return;
+  // Ignore late triggers from a session that has already been replaced/closed.
+  if (ctx.account !== session) return;
+  dbHealthCheckRunning = true;
   const seq = ++dbHealthCheckSeq;
   void (async (): Promise<void> => {
-    const failures = await checkAccountDatabaseHealth(session, platform);
-    // 没检出损坏就不弹窗、不强退。
-    if (failures.length === 0) return;
-    // A newer check started or the account changed mid-check — drop this result.
-    if (seq !== dbHealthCheckSeq || ctx.account !== session) return;
+    try {
+      const failures = await checkAccountDatabaseHealth(session, platform);
+      // A newer check started or the account changed mid-check — drop the result.
+      if (seq !== dbHealthCheckSeq || ctx.account !== session) return;
+      // 没检出损坏就不弹窗、不强退（误报/瞬时错误），放行让后续可再触发。
+      if (failures.length === 0) return;
 
-    const details = formatDbHealthFailures(failures);
-    ctx.clearAccount();
-    accountEventBus.emit('forcedClosed', {
-      reason: 'database-damaged',
-      title: '数据库损坏',
-      message:
-        '检测到 QQ 数据库损坏，问题出在 QQ 数据库本身，不是 WeQ 软件导致。账号已强制退出并返回主页面。可以去 https://github.com/H3CoF6/WeQ/issues 提 issue，未来可能会做一个数据库修复工具。',
-      details,
-      failures,
-    } satisfies AccountForcedClosedEvent);
-  })().catch((e) => {
-    if (seq !== dbHealthCheckSeq || ctx.account !== session) return;
-    const failure: DbHealthFailure = {
-      dbName: '数据库健康检查',
-      dbPath: session.msgDbPath,
-      corruptedTables: [],
-      error: e instanceof Error ? e.message : String(e),
-    };
-    ctx.clearAccount();
-    accountEventBus.emit('forcedClosed', {
-      reason: 'database-damaged',
-      title: '数据库损坏',
-      message:
-        '检测 QQ 数据库健康状态时发生错误。为避免继续读取损坏数据，账号已强制退出并返回主页面。问题通常出在 QQ 数据库本身，不是 WeQ 软件导致。可以去 https://github.com/H3CoF6/WeQ/issues 提 issue，未来可能会做一个数据库修复工具。',
-      details: formatDbHealthFailures([failure]),
-      failures: [failure],
-    } satisfies AccountForcedClosedEvent);
-  });
+      const details = formatDbHealthFailures(failures);
+      ctx.clearAccount();
+      accountEventBus.emit('forcedClosed', {
+        reason: 'database-damaged',
+        title: '数据库损坏',
+        message:
+          '检测到 QQ 数据库损坏，问题出在 QQ 数据库本身，不是 WeQ 软件导致。账号已强制退出并返回主页面。可以去 https://github.com/H3CoF6/WeQ/issues 提 issue，未来可能会做一个数据库修复工具。',
+        details,
+        failures,
+      } satisfies AccountForcedClosedEvent);
+    } catch (e) {
+      if (seq !== dbHealthCheckSeq || ctx.account !== session) return;
+      const failure: DbHealthFailure = {
+        dbName: '数据库健康检查',
+        dbPath: session.msgDbPath,
+        corruptedTables: [],
+        error: e instanceof Error ? e.message : String(e),
+      };
+      ctx.clearAccount();
+      accountEventBus.emit('forcedClosed', {
+        reason: 'database-damaged',
+        title: '数据库损坏',
+        message:
+          '检测 QQ 数据库健康状态时发生错误。为避免继续读取损坏数据，账号已强制退出并返回主页面。问题通常出在 QQ 数据库本身，不是 WeQ 软件导致。可以去 https://github.com/H3CoF6/WeQ/issues 提 issue，未来可能会做一个数据库修复工具。',
+        details: formatDbHealthFailures([failure]),
+        failures: [failure],
+      } satisfies AccountForcedClosedEvent);
+    } finally {
+      dbHealthCheckRunning = false;
+    }
+  })();
 }
 
 export interface BootstrapServices {
@@ -326,12 +347,22 @@ export function initAppContext(): AppContext {
     scheduler: null,
     async setAccount(accountCtx: AccountContext, metadata: AccountConfigMetadata = {}): Promise<void> {
       dbHealthCheckSeq += 1;
+      dbHealthCheckRunning = false;
       accountMonitor?.stop();
       accountMonitor = null;
       this.account?.dispose();
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
-      const session = await openAccount(platform, accountCtx);
+      // A live query failing with a corruption-signature error is what triggers
+      // the (otherwise unrun) full health check — not account-open. `this.account`
+      // is only set after this resolves, so callbacks that fire mid-open (e.g.
+      // the uid-map load) are ignored until the session is the current one.
+      const session = await openAccount(platform, accountCtx, (info): void => {
+        const current = this.account;
+        if (!current) return;
+        console.warn('[account] suspected database corruption from query on', info.dbPath, info.error);
+        startDbHealthCheck(this, current, platform);
+      });
       this.account = session;
       const accountConfig = new AccountConfigService(session, platform.appDataRoot());
       // Per-account export cache: tasks + outputs must NOT leak across accounts.
@@ -492,7 +523,9 @@ export function initAppContext(): AppContext {
       if (userConfig.getSettings().realtimeEnabled) {
         mountDbWatch(session);
       }
-      setTimeout(() => startDbHealthCheck(this, session, platform), 0);
+      // No health check at open — it now runs lazily, only if a real query
+      // later fails in a way that looks like corruption (see the openAccount
+      // callback above).
     },
     async setStaticAccount(
       dirPath: string,
@@ -500,6 +533,7 @@ export function initAppContext(): AppContext {
       options: { dbKey?: string; algo?: import('@weq/native').DatabaseAlgorithms } = {},
     ): Promise<void> {
       dbHealthCheckSeq += 1;
+      dbHealthCheckRunning = false;
       accountMonitor?.stop();
       accountMonitor = null;
       this.account?.dispose();
@@ -508,6 +542,9 @@ export function initAppContext(): AppContext {
       this.scheduler?.stop();
       this.scheduler = null;
 
+      // Static (backup) accounts are offline snapshots, not the live QQ
+      // database — no corruption watch is wired (openStaticAccount uses the raw
+      // binding) and no health check is ever triggered.
       const session = await openStaticAccount(platform, {
         dirPath,
         self: { uin: selfPreview.uin, nick: selfPreview.displayName, avatarUrl: selfPreview.avatarUrl, uid: '' },
@@ -633,6 +670,7 @@ export function initAppContext(): AppContext {
     },
     clearAccount(): void {
       dbHealthCheckSeq += 1;
+      dbHealthCheckRunning = false;
       accountMonitor?.stop();
       accountMonitor = null;
       // Tear down the scheduler's wake timer before dropping the services

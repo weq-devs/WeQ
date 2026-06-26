@@ -7,5 +7,6 @@
 
 export { openAccount } from './session';
 export type { AccountContext, AccountSession, LastRowIdMaps } from './session';
+export type { CorruptionSuspectInfo } from '@weq/db';
 export { openStaticAccount, peekStaticSelfUin } from './static_session';
 export type { OpenStaticAccountOptions, StaticSelfPreview } from './static_session';

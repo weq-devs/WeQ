@@ -23,6 +23,17 @@ export { exportGroupToJsonl } from './jsonl_exporter';
 export { exportGroupToTxt } from './txt_exporter';
 export { exportGroupToCsv, csvFraming, renderCsvRow } from './csv_exporter';
 export { exportToXlsx, type XlsxExportOptions } from './xlsx_exporter';
+export { exportToHtml, type HtmlExportOptions } from './html_exporter';
+export {
+  avatarUrlForUin,
+  iterateConv,
+  resolveGroupSenders,
+  resolveC2cSenders,
+  fallbackSender,
+  type SenderResolveDeps,
+  type ResolvedSender,
+  type ResolvedGroupMember,
+} from './sender_resolve';
 export {
   exportToChatlab,
   type ChatlabExportOptions,

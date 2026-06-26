@@ -967,7 +967,7 @@ export const accountRouter = router({
       kind: z.enum(['group', 'c2c']),
       conv: z.string().min(1),
       name: z.string().min(1),
-      format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx']),
+      format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']),
       total: z.number().int().min(0),
       /** Also export every sender's avatar into an avatars/ subfolder. */
       exportAvatar: z.boolean().optional(),
@@ -1048,7 +1048,7 @@ export const accountRouter = router({
   createSchedule: procedure
     .input(z.object({
       name: z.string().min(1),
-      format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx']),
+      format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']),
       conversations: z.array(z.object({
         id: z.string().min(1),
         name: z.string().min(1),
@@ -1097,7 +1097,7 @@ export const accountRouter = router({
       id: z.string().min(1),
       patch: z.object({
         name: z.string().min(1).optional(),
-        format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx']).optional(),
+        format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']).optional(),
         conversations: z.array(z.object({
           id: z.string().min(1),
           name: z.string().min(1),
@@ -1155,7 +1155,7 @@ export const accountRouter = router({
     .input(z.object({
       sourcePath: z.string().min(1),
       defaultName: z.string().min(1),
-      format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx']),
+      format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']),
     }))
     .mutation(async ({ input }) => {
       const { dialog } = await import('electron');
