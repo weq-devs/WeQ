@@ -14,6 +14,7 @@ import { WelcomeDialog } from './components/WelcomeDialog';
 import { ImageLightbox } from './components/ImageLightbox';
 import { ForwardWindowHost } from './components/ForwardWindow';
 import { setWindowLayout } from './lib/windowLayout';
+import { ensureThemeInitialized } from './state/theme';
 
 export default function App(): ReactElement {
   const view = useViewState((s) => s.view);
@@ -22,6 +23,10 @@ export default function App(): ReactElement {
   useEffect(() => {
     setWindowLayout(view === 'main' ? 'chat' : 'home');
   }, [view]);
+
+  useEffect(() => {
+    ensureThemeInitialized();
+  }, []);
 
   // Key MainView by openedUin so account switches (without going through
   // bootstrap) force a remount — drops the old onDbChanged subscription and

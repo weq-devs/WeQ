@@ -5,21 +5,21 @@
 	align-content: center;
 	gap: 12px;
 	min-height: 220px;
-	color: #9a9a9a;
+	color: var(--weq-fg-muted, #9a9a9a);
 	text-align: center;
 }
 
 .empty-state svg {
 	width: 56px;
 	height: 56px;
-	color: #c0c0c0;
+	color: color-mix(in srgb, var(--weq-accent-effective) 24%, var(--weq-fg-muted, #c0c0c0));
 	opacity: 0.85;
 }
 
 .empty-state strong,
 .chat-empty h1 {
 	margin: 0;
-	color: #111111;
+	color: var(--weq-fg-primary, #111111);
 	font-size: 18px;
 	font-weight: 600;
 }
@@ -32,7 +32,7 @@
 
 .chat-empty {
 	height: 100%;
-	background: #f0f0f0;
+	background: var(--chat-surface);
 }
 
 .chat-empty img {
@@ -46,14 +46,14 @@
 	place-items: center;
 	gap: 12px;
 	padding: 40px 20px;
-	color: #8a8a8a;
+	color: var(--weq-fg-muted, #8a8a8a);
 }
 
 .loading-spinner {
 	width: 32px;
 	height: 32px;
-	border: 3px solid #e5e5e5;
-	border-top-color: #5b9aff;
+	border: 3px solid color-mix(in srgb, var(--im-color-line, #e5e5e5) 82%, white);
+	border-top-color: var(--weq-accent-effective, #5b9aff);
 	border-radius: 50%;
 	animation: spin 0.8s linear infinite;
 }
@@ -80,9 +80,9 @@
 	width: min(430px, 100%);
 	gap: 16px;
 	padding: 30px;
-	border: 1px solid #dedede;
+	border: 1px solid var(--im-color-line, #dedede);
 	border-radius: 8px;
-	background: #ffffff;
+	background: var(--card, #ffffff);
 	box-shadow: 0 20px 54px rgba(0, 0, 0, 0.11);
 }
 
@@ -96,7 +96,7 @@
 .auth-card p,
 .invite-card p {
 	margin: 0;
-	color: #666666;
+	color: var(--weq-fg-secondary, #666666);
 }
 
 .brand-mark {
@@ -120,7 +120,7 @@
 	gap: 4px;
 	padding: 4px;
 	border-radius: 8px;
-	background: #f2f2f2;
+	background: color-mix(in srgb, var(--weq-bg-surface, #f2f2f2) 80%, var(--weq-bg-app, #f2f2f2));
 }
 
 .auth-switch button {
@@ -132,8 +132,8 @@
 }
 
 .auth-switch button.active {
-	background: #ffffff;
-	color: #0099f7;
+	background: var(--card, #ffffff);
+	color: var(--weq-accent-effective, #0099f7);
 	font-weight: 600;
 }
 
@@ -155,12 +155,14 @@
 
 html[data-theme="dark"] body,
 html[data-theme="dark"] .app-shell,
-html[data-theme="dark"] .chat-main,
-html[data-theme="dark"] .message-scroll,
-html[data-theme="dark"] .chat-empty,
-html[data-theme="dark"] .contact-profile-empty,
 html[data-theme="dark"] .notice-pane {
 	background: #101112;
+}
+
+/* Chat surfaces stay transparent / canvas in dark so the themed --chat-surface
+ * glow shows through (matches light-mode behavior). */
+html[data-theme="dark"] .message-scroll {
+	background: transparent;
 }
 
 html[data-theme="dark"] .unread-jump-button {
@@ -271,8 +273,7 @@ html[data-theme="dark"] .bot-management-sidebar {
 }
 
 html[data-theme="dark"] .chat-header,
-html[data-theme="dark"] .composer,
-html[data-theme="dark"] .contact-profile-pane {
+html[data-theme="dark"] .composer {
 	background: #101112;
 	border-color: #1f1f1f;
 }
@@ -426,17 +427,17 @@ html[data-theme="dark"] .avatar.has-image {
 }
 
 html[data-theme="dark"] .message-content {
-	background: #262729;
+	background: var(--weq-chat-bubble-other, #262729);
 	color: #eef0f3;
 }
 
 html[data-theme="dark"] .message-line.mine .message-content {
-	background: #66686b;
+	background: var(--weq-chat-bubble-mine, #66686b);
 	color: #ffffff;
 }
 
 html[data-theme="dark"] .message-bubble.context-active .message-content {
-	background: #333436;
+	background: var(--weq-chat-bubble-active, #333436);
 	color: #eef0f3;
 }
 
@@ -503,7 +504,7 @@ html[data-theme="dark"]
 	.message-line.mine
 	.message-bubble.context-active
 	.message-content {
-	background: #57595c;
+	background: color-mix(in srgb, var(--weq-chat-bubble-mine, #66686b) 88%, black);
 	color: #ffffff;
 }
 
@@ -781,10 +782,6 @@ html[data-theme="dark"] .splash {
 
 html[data-theme="dark"] .sidebar,
 html[data-theme="dark"] .sidebar-header {
-	background: #1a1b1c;
-}
-
-html[data-theme="dark"] .contact-profile-pane {
 	background: #1a1b1c;
 }
 

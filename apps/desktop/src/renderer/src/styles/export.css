@@ -16,10 +16,8 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background:
-    radial-gradient(ellipse at 16% 14%, rgba(0, 153, 255, 0.05) 0, transparent 46%),
-    radial-gradient(ellipse at 82% 86%, rgba(83, 206, 144, 0.04) 0, transparent 44%),
-    linear-gradient(135deg, #fcfdff 0%, #f6fafd 50%, #fbfbf6 100%);
+  /* Shared themed canvas (same --chat-surface as chat + contacts). */
+  background: var(--chat-surface);
   color: #1f2430;
   font-size: 13px;
 }
@@ -51,6 +49,7 @@
   border: 1px solid transparent;
   border-radius: 11px;
   background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(10px);
   cursor: pointer;
   text-align: left;
   transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
@@ -58,12 +57,12 @@
 
 .weq-exp-mode:hover {
   background: #ffffff;
-  border-color: rgba(0, 153, 255, 0.18);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
 }
 
 .weq-exp-mode.is-active {
   background: #ffffff;
-  border-color: rgba(0, 153, 255, 0.4);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, transparent);
   box-shadow: 0 8px 22px -16px rgba(0, 122, 204, 0.7);
 }
 
@@ -74,13 +73,13 @@
   height: 36px;
   flex: none;
   border-radius: 9px;
-  background: rgba(0, 153, 255, 0.1);
-  color: #0099ff;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-effective);
   transition: background-color 140ms ease, color 140ms ease;
 }
 
 .weq-exp-mode.is-active .weq-exp-mode-icon {
-  background: #0099ff;
+  background: var(--weq-accent-effective);
   color: #ffffff;
 }
 
@@ -106,7 +105,7 @@
 }
 
 .weq-exp-mode.is-active .weq-exp-mode-text strong {
-  color: #0099ff;
+  color: var(--weq-accent-effective);
 }
 
 /* ---- 右侧选择面板 ---- */
@@ -116,7 +115,9 @@
   min-height: 0;
   border: 1px solid rgba(0, 0, 0, 0.07);
   border-radius: 14px;
-  background: #ffffff;
+  /* Frosted so the themed canvas glows through the export panel. */
+  background: color-mix(in srgb, var(--weq-bg-surface) 76%, transparent);
+  backdrop-filter: blur(18px);
   box-shadow: 0 16px 40px -32px rgba(7, 31, 61, 0.45);
   overflow: hidden;
 }
@@ -191,7 +192,7 @@
   flex: none;
   border: 0;
   border-radius: 9px;
-  background: #0099ff;
+  background: var(--weq-accent-effective);
   color: #ffffff;
   font-size: 13px;
   font-weight: 600;
@@ -201,7 +202,7 @@
 }
 
 .weq-exp-primary:hover:not(:disabled) {
-  background: #0088e6;
+  filter: brightness(1.05);
 }
 
 .weq-exp-primary:disabled {
@@ -234,7 +235,7 @@
 }
 
 .weq-exp-search:focus-within {
-  border-color: rgba(0, 153, 255, 0.5);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 52%, transparent);
   background: #ffffff;
 }
 
@@ -287,8 +288,8 @@
 }
 
 .weq-exp-tool:hover:not(:disabled) {
-  border-color: rgba(0, 153, 255, 0.4);
-  color: #0099ff;
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, transparent);
+  color: var(--weq-accent-effective);
 }
 
 .weq-exp-tool:disabled {
@@ -302,7 +303,7 @@
 
 .weq-exp-tools-count {
   font-size: 12px;
-  color: #0099ff;
+  color: var(--weq-accent-effective);
   font-weight: 600;
 }
 
@@ -351,9 +352,9 @@
   padding: 56px 36px;
   gap: 10px;
   background:
-    radial-gradient(ellipse at 50% 0%, rgba(0, 153, 255, 0.06), transparent 60%),
+    radial-gradient(ellipse at 50% 0%, color-mix(in srgb, var(--weq-accent-effective) 7%, transparent), transparent 60%),
     linear-gradient(160deg, rgba(255, 255, 255, 0.72), rgba(248, 252, 255, 0.6));
-  border: 1px dashed rgba(0, 153, 255, 0.28);
+  border: 1px dashed color-mix(in srgb, var(--weq-accent-effective) 30%, transparent);
   border-radius: 12px;
   margin: 16px;
 }
@@ -363,10 +364,10 @@
   width: 56px;
   height: 56px;
   border-radius: 14px;
-  background: rgba(0, 153, 255, 0.1);
-  color: #0099ff;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-effective);
   margin-bottom: 4px;
-  box-shadow: inset 0 0 0 1px rgba(0, 153, 255, 0.18);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
 }
 .weq-exp-empty-title {
   font-size: 15px;
@@ -390,9 +391,9 @@
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  color: #0076c9;
+  color: var(--weq-accent-effective);
   background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(0, 153, 255, 0.26);
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 28%, transparent);
 }
 
 .weq-exp-row {
@@ -413,8 +414,8 @@
 }
 
 .weq-exp-row.is-on {
-  background: rgba(0, 153, 255, 0.08);
-  border-color: rgba(0, 153, 255, 0.3);
+  background: color-mix(in srgb, var(--weq-accent-effective) 9%, transparent);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 32%, transparent);
 }
 
 .weq-exp-row-meta {
@@ -452,8 +453,8 @@
 }
 
 .weq-exp-row.is-on .weq-exp-row-check {
-  background: #0099ff;
-  border-color: #0099ff;
+  background: var(--weq-accent-effective);
+  border-color: var(--weq-accent-effective);
 }
 
 /* 单选用 radio 风格的圆点（不带方框） */
@@ -468,7 +469,7 @@
 }
 
 .weq-exp-radio.is-on {
-  color: #0099ff;
+  color: var(--weq-accent-effective);
 }
 
 .weq-exp-db-icon {
@@ -478,8 +479,8 @@
   height: 34px;
   flex: none;
   border-radius: 9px;
-  background: rgba(0, 153, 255, 0.1);
-  color: #0099ff;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-effective);
 }
 
 /* ===== 头像 ===== */
@@ -511,7 +512,7 @@
   gap: 3px;
   padding: 3px;
   border-radius: 9px;
-  background: rgba(0, 153, 255, 0.08);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
 }
 
 .weq-exp-seg button {
@@ -540,7 +541,7 @@
 
 .weq-exp-seg button.is-active {
   background: #ffffff;
-  color: #0099ff;
+  color: var(--weq-accent-effective);
   box-shadow: 0 1px 4px rgba(0, 122, 204, 0.18);
 }
 
@@ -573,7 +574,7 @@
   width: min(520px, 94vw);
   max-height: 88vh;
   overflow: hidden;
-  border: 1px solid rgba(0, 153, 255, 0.16);
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
   border-radius: 16px;
   background: #ffffff;
   box-shadow: 0 30px 80px -28px rgba(7, 31, 61, 0.55);
@@ -678,18 +679,18 @@
 }
 
 .weq-exp-btn:hover:not(:disabled) {
-  border-color: rgba(0, 153, 255, 0.45);
-  color: #0099ff;
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 48%, transparent);
+  color: var(--weq-accent-effective);
 }
 
 .weq-exp-btn.is-primary {
-  border-color: #0099ff;
-  background: #0099ff;
+  border-color: var(--weq-accent-effective);
+  background: var(--weq-accent-effective);
   color: #ffffff;
 }
 
 .weq-exp-btn.is-primary:hover:not(:disabled) {
-  background: #0088e6;
+  filter: brightness(1.05);
   color: #ffffff;
 }
 
@@ -762,13 +763,13 @@
 }
 
 .weq-exp-album-row.is-on {
-  background: rgba(0, 153, 255, 0.08);
-  border-color: rgba(0, 153, 255, 0.3);
+  background: color-mix(in srgb, var(--weq-accent-effective) 9%, transparent);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 32%, transparent);
 }
 
 .weq-exp-album-row.is-on .weq-exp-row-check {
-  background: #0099ff;
-  border-color: #0099ff;
+  background: var(--weq-accent-effective);
+  border-color: var(--weq-accent-effective);
 }
 
 .weq-exp-album-row:disabled {
@@ -784,8 +785,8 @@
   flex: none;
   overflow: hidden;
   border-radius: 8px;
-  background: rgba(0, 153, 255, 0.1);
-  color: #0099ff;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-effective);
 }
 
 .weq-exp-album-cover img {
@@ -840,7 +841,7 @@
 }
 
 .weq-exp-num input:focus {
-  border-color: rgba(0, 153, 255, 0.5);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 52%, transparent);
 }
 
 /* ===== 时间范围选择器 ===== */
@@ -867,14 +868,14 @@
 }
 
 .weq-exp-chip:hover {
-  border-color: rgba(0, 153, 255, 0.4);
-  color: #0099ff;
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, transparent);
+  color: var(--weq-accent-effective);
 }
 
 .weq-exp-chip.is-on {
-  border-color: #0099ff;
-  background: rgba(0, 153, 255, 0.1);
-  color: #0099ff;
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-effective);
   font-weight: 600;
 }
 
@@ -887,7 +888,7 @@
 }
 
 .weq-exp-range-arrow {
-  color: #0099ff;
+  color: var(--weq-accent-effective);
 }
 
 .weq-exp-cal {
@@ -917,8 +918,8 @@
 }
 
 .weq-exp-cal-head button:hover {
-  border-color: rgba(0, 153, 255, 0.4);
-  color: #0099ff;
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, transparent);
+  color: var(--weq-accent-effective);
 }
 
 .weq-exp-cal-title {
@@ -955,7 +956,7 @@
 }
 
 .weq-exp-cal-cell:hover:not(.is-blank) {
-  background: rgba(0, 153, 255, 0.12);
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
 }
 
 .weq-exp-cal-cell.is-blank {
@@ -963,16 +964,16 @@
 }
 
 .weq-exp-cal-cell.is-range {
-  background: rgba(0, 153, 255, 0.12);
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
   border-radius: 0;
 }
 
 .weq-exp-cal-cell.is-today {
-  box-shadow: inset 0 0 0 1px rgba(0, 153, 255, 0.45);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--weq-accent-effective) 48%, transparent);
 }
 
 .weq-exp-cal-cell.is-end {
-  background: #0099ff;
+  background: var(--weq-accent-effective);
   color: #ffffff;
   border-radius: 8px;
   font-weight: 600;
@@ -989,9 +990,9 @@
   padding: 7px 10px;
   font-size: 11.5px;
   line-height: 1.55;
-  color: #1c4f7a;
-  background: rgba(0, 153, 255, 0.07);
-  border: 1px solid rgba(0, 153, 255, 0.18);
+  color: color-mix(in srgb, var(--weq-accent-effective) 76%, #1c2b38);
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
   border-radius: 7px;
 }
 
@@ -1004,6 +1005,7 @@
   height: clamp(168px, 30vh, 300px);
   border-top: 1px solid rgba(0, 0, 0, 0.08);
   background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(10px);
 }
 
 .weq-exp-tasks-head {
@@ -1027,8 +1029,8 @@
   height: 18px;
   padding: 0 6px;
   border-radius: 999px;
-  background: rgba(0, 153, 255, 0.12);
-  color: #0099ff;
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  color: var(--weq-accent-effective);
   font-size: 11px;
   font-weight: 600;
 }
@@ -1081,8 +1083,8 @@
   height: 34px;
   flex: none;
   border-radius: 9px;
-  background: rgba(0, 153, 255, 0.1);
-  color: #0099ff;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-effective);
 }
 
 .weq-exp-task-main {
@@ -1136,13 +1138,13 @@
 .weq-exp-task-status.is-paused,
 .weq-exp-task-status.is-cancelled,
 .weq-exp-task-status.is-pending {
-  color: #0099ff;
+  color: var(--weq-accent-effective);
 }
 
 .weq-exp-task-bar {
   height: 5px;
   border-radius: 999px;
-  background: rgba(0, 153, 255, 0.12);
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
   overflow: hidden;
 }
 
@@ -1150,13 +1152,21 @@
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: linear-gradient(90deg, #29a8ff, #0099ff);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--weq-accent-effective) 78%, white),
+    var(--weq-accent-effective)
+  );
   transition: width 0.35s ease;
 }
 
 /* 进行中：在填充上叠加流动微光 */
 .weq-exp-task-fill.is-active {
-  background-image: linear-gradient(90deg, #29a8ff, #0099ff),
+  background-image: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--weq-accent-effective) 78%, white),
+      var(--weq-accent-effective)
+    ),
     linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, 0.55) 50%, transparent 80%);
   background-size: 100% 100%, 40% 100%;
   background-repeat: no-repeat;
@@ -1230,7 +1240,7 @@
 .weq-exp-stage-bar {
   height: 4px;
   border-radius: 999px;
-  background: rgba(0, 153, 255, 0.12);
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
   overflow: hidden;
 }
 
@@ -1238,12 +1248,20 @@
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: linear-gradient(90deg, #29a8ff, #0099ff);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--weq-accent-effective) 78%, white),
+    var(--weq-accent-effective)
+  );
   transition: width 0.35s ease;
 }
 
 .weq-exp-stage-fill.is-active {
-  background-image: linear-gradient(90deg, #29a8ff, #0099ff),
+  background-image: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--weq-accent-effective) 78%, white),
+      var(--weq-accent-effective)
+    ),
     linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, 0.55) 50%, transparent 80%);
   background-size: 100% 100%, 40% 100%;
   background-repeat: no-repeat;
@@ -1665,4 +1683,186 @@ button.weq-exp-task-complete.is-clickable:hover {
 .weq-exp-sched-empty small {
   font-size: 11.5px;
   color: #8a98ad;
+}
+
+html[data-theme="dark"] .weq-exp {
+  /* Canvas comes from --chat-surface; only override foreground in dark. */
+  color: #e9eef5;
+}
+
+html[data-theme="dark"] .weq-exp-mode {
+  border-color: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+html[data-theme="dark"] .weq-exp-mode:hover,
+html[data-theme="dark"] .weq-exp-mode.is-active {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .weq-exp-mode:hover {
+  border-color: rgba(86, 168, 247, 0.2);
+}
+
+html[data-theme="dark"] .weq-exp-mode.is-active {
+  border-color: rgba(86, 168, 247, 0.36);
+  box-shadow: 0 10px 26px -18px rgba(0, 0, 0, 0.58);
+}
+
+html[data-theme="dark"] .weq-exp-mode-icon {
+  background: rgba(86, 168, 247, 0.12);
+  color: #8cc4ff;
+}
+
+html[data-theme="dark"] .weq-exp-mode.is-active .weq-exp-mode-icon {
+  background: #56a8f7;
+  color: #08131d;
+}
+
+html[data-theme="dark"] .weq-exp-mode-text strong,
+html[data-theme="dark"] .weq-exp-pane-title strong,
+html[data-theme="dark"] .weq-exp-row-meta strong,
+html[data-theme="dark"] .weq-exp-task-name,
+html[data-theme="dark"] .weq-exp-sched-head-text strong,
+html[data-theme="dark"] .weq-exp-sched-card-name,
+html[data-theme="dark"] .weq-exp-sched-card-meta b,
+html[data-theme="dark"] .weq-exp-sched-empty strong {
+  color: #edf2f7;
+}
+
+html[data-theme="dark"] .weq-exp-mode-text small,
+html[data-theme="dark"] .weq-exp-pane-title span,
+html[data-theme="dark"] .weq-exp-foot-label,
+html[data-theme="dark"] .weq-exp-foot-hint,
+html[data-theme="dark"] .weq-exp-row-meta small,
+html[data-theme="dark"] .weq-exp-list-state,
+html[data-theme="dark"] .weq-exp-empty-desc,
+html[data-theme="dark"] .weq-exp-task-sub,
+html[data-theme="dark"] .weq-exp-sched-head-text small,
+html[data-theme="dark"] .weq-exp-sched-card-meta,
+html[data-theme="dark"] .weq-exp-sched-card-history,
+html[data-theme="dark"] .weq-exp-sched-empty,
+html[data-theme="dark"] .weq-exp-sched-empty small {
+  color: #99a7b8;
+}
+
+html[data-theme="dark"] .weq-exp-dialog,
+html[data-theme="dark"] .weq-exp-task,
+html[data-theme="dark"] .weq-exp-sched-card {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #171d25;
+  box-shadow: 0 18px 40px -28px rgba(0, 0, 0, 0.5);
+}
+
+html[data-theme="dark"] .weq-exp-pane {
+  border-color: rgba(255, 255, 255, 0.08);
+  /* Frosted in dark so the canvas glow stays visible behind the panel. */
+  background: color-mix(in srgb, #171d25 78%, transparent);
+  box-shadow: 0 18px 40px -28px rgba(0, 0, 0, 0.5);
+}
+
+/* Bottom task bar: the light rgba(255,255,255,.6) base reads near-white in dark,
+ * so give it a frosted dark surface that matches the panels. */
+html[data-theme="dark"] .weq-exp-tasks {
+  background: color-mix(in srgb, #171d25 70%, transparent);
+}
+
+html[data-theme="dark"] .weq-exp-pane-head,
+html[data-theme="dark"] .weq-exp-pane-foot,
+html[data-theme="dark"] .weq-exp-dialog-head,
+html[data-theme="dark"] .weq-exp-dialog-foot {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+html[data-theme="dark"] .weq-exp-search,
+html[data-theme="dark"] .weq-exp-num,
+html[data-theme="dark"] .weq-exp-album-path,
+html[data-theme="dark"] .weq-exp-path {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: #11161d;
+  color: #99a7b8;
+}
+
+html[data-theme="dark"] .weq-exp-search:focus-within,
+html[data-theme="dark"] .weq-exp-num input:focus {
+  border-color: rgba(86, 168, 247, 0.44);
+  background: #151c24;
+}
+
+html[data-theme="dark"] .weq-exp-search input,
+html[data-theme="dark"] .weq-exp-num input {
+  color: #edf2f7;
+}
+
+html[data-theme="dark"] .weq-exp-row,
+html[data-theme="dark"] .weq-exp-album-row,
+html[data-theme="dark"] .weq-exp-fail-row {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+html[data-theme="dark"] .weq-exp-row:hover,
+html[data-theme="dark"] .weq-exp-album-row:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+html[data-theme="dark"] .weq-exp-row.is-on,
+html[data-theme="dark"] .weq-exp-album-row.is-on {
+  border-color: rgba(86, 168, 247, 0.35);
+  background: rgba(86, 168, 247, 0.12);
+}
+
+html[data-theme="dark"] .weq-exp-tool,
+html[data-theme="dark"] .weq-exp-btn,
+html[data-theme="dark"] .weq-exp-task-actions button,
+html[data-theme="dark"] .weq-exp-sched-card-actions button,
+html[data-theme="dark"] .weq-exp-dialog-close,
+html[data-theme="dark"] .weq-exp-cal-head button,
+html[data-theme="dark"] .weq-exp-chip,
+html[data-theme="dark"] .weq-exp-seg {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  color: #d5dde6;
+}
+
+html[data-theme="dark"] .weq-exp-tool:hover:not(:disabled),
+html[data-theme="dark"] .weq-exp-btn:hover:not(:disabled),
+html[data-theme="dark"] .weq-exp-task-actions button:hover,
+html[data-theme="dark"] .weq-exp-sched-card-actions button:hover,
+html[data-theme="dark"] .weq-exp-dialog-close:hover,
+html[data-theme="dark"] .weq-exp-chip:hover,
+html[data-theme="dark"] .weq-exp-cal-head button:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+html[data-theme="dark"] .weq-exp-primary,
+html[data-theme="dark"] .weq-exp-btn.is-primary,
+html[data-theme="dark"] .weq-exp-sched-head button {
+  background: #56a8f7;
+  border-color: #56a8f7;
+  color: #08131d;
+  box-shadow: 0 10px 24px -18px rgba(86, 168, 247, 0.55);
+}
+
+html[data-theme="dark"] .weq-exp-primary:hover:not(:disabled),
+html[data-theme="dark"] .weq-exp-btn.is-primary:hover:not(:disabled),
+html[data-theme="dark"] .weq-exp-sched-head button:hover {
+  background: #6cb4fb;
+  border-color: #6cb4fb;
+}
+
+html[data-theme="dark"] .weq-exp-primary:disabled,
+html[data-theme="dark"] .weq-exp-btn:disabled {
+  background: #394655;
+  border-color: #394655;
+  color: #7e8a99;
+}
+
+html[data-theme="dark"] .weq-exp-empty,
+html[data-theme="dark"] .weq-exp-placeholder,
+html[data-theme="dark"] .weq-exp-tasks-empty,
+html[data-theme="dark"] .weq-exp-sched-empty {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
 }
