@@ -94,6 +94,18 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
     goTo('main');
   }
 
+  async function onDeleteAccount(acc: UiAccount): Promise<void> {
+    if (!acc.configId) return;
+    try {
+      await client.bootstrap.deleteAccountConfig.mutate({ configId: acc.configId });
+      await savedConfigs.refetch();
+      // Also invalidate the account config list for RailAccountFooter
+      void utils.bootstrap.listAccountConfigs.invalidate();
+    } catch {
+      // silently ignore
+    }
+  }
+
   async function pickRoot(): Promise<void> {
     const picked = await client.bootstrap.pickTencentFilesRoot.mutate();
     if (picked) {
@@ -136,6 +148,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
               accounts={accounts}
               selected={selected}
               onSelect={(a) => setSelectedKey(a.key)}
+              onDeleteAccount={mode === 'existing' ? (a) => void onDeleteAccount(a) : undefined}
               installRoot={root}
               allUins={allUins}
               autoTarget={autoTarget.data ?? null}

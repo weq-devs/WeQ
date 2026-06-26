@@ -1594,6 +1594,34 @@
     font-variant-numeric: tabular-nums;
   }
   .weq-acct-foot { flex-shrink: 0; border-top: 1px solid rgba(0, 153, 255, 0.12); }
+  .weq-acct-ctx-menu {
+    position: fixed;
+    z-index: 60;
+    min-width: 120px;
+    padding: 5px;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.98);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
+    backdrop-filter: blur(12px);
+  }
+  .weq-acct-ctx-menu button {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: #d32f2f;
+    font-size: 13.5px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .weq-acct-ctx-menu button:hover {
+    background: rgba(211, 47, 47, 0.08);
+  }
 
   /* ---- key field ---- */
   .weq-keyfield {
@@ -2694,6 +2722,39 @@ html[data-theme="dark"] .app-title-bar-signature {
 }
 
 .weq-rail-account-signout:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.weq-rail-account-ctx-menu {
+  position: fixed;
+  z-index: 70;
+  min-width: 120px;
+  padding: 5px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
+  backdrop-filter: blur(12px);
+}
+.weq-rail-account-ctx-menu button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #d32f2f;
+  font-size: 13.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.weq-rail-account-ctx-menu button:hover {
+  background: rgba(211, 47, 47, 0.08);
+}
+.weq-rail-account-ctx-menu button:disabled {
   cursor: progress;
   opacity: 0.6;
 }
@@ -3962,6 +4023,29 @@ html[data-theme="dark"] .weq-notice-head {
 
 html[data-theme="dark"] .weq-notice-head h2 {
   color: #eef0f3;
+}
+
+html[data-theme="dark"] .weq-acct-ctx-menu {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(43, 44, 46, 0.98);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.34);
+}
+html[data-theme="dark"] .weq-acct-ctx-menu button {
+  color: #ff6b6b;
+}
+html[data-theme="dark"] .weq-acct-ctx-menu button:hover {
+  background: rgba(255, 107, 107, 0.1);
+}
+html[data-theme="dark"] .weq-rail-account-ctx-menu {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(43, 44, 46, 0.98);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.34);
+}
+html[data-theme="dark"] .weq-rail-account-ctx-menu button {
+  color: #ff6b6b;
+}
+html[data-theme="dark"] .weq-rail-account-ctx-menu button:hover {
+  background: rgba(255, 107, 107, 0.1);
 }
 
 /* ──────────────────────────────────────────────────────────────────────

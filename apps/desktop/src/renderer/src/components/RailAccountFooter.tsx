@@ -13,10 +13,11 @@
  * staleTime=5min + refetchOnMount=false 会把这个窗口放大到几分钟。
  */
 
-import { useEffect, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+import { createPortal } from 'react-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { getQueryKey } from '@trpc/react-query';
-import { LogOut } from 'lucide-react';
+import { LogOut, Trash2 } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useDialog } from './Dialog';
@@ -43,6 +44,40 @@ export function RailAccountFooter({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  // Right-click context menu for account items
+  const [ctxMenu, setCtxMenu] = useState<{
+    configId: string;
+    displayName: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    document.addEventListener('mousedown', closeCtxMenu);
+    document.addEventListener('keydown', closeCtxMenu);
+    return () => {
+      document.removeEventListener('mousedown', closeCtxMenu);
+      document.removeEventListener('keydown', closeCtxMenu);
+    };
+  }, [ctxMenu, closeCtxMenu]);
+
+  async function deleteAccount(configId: string): Promise<void> {
+    if (busy) return;
+    setBusy(true);
+    setCtxMenu(null);
+    try {
+      await client.bootstrap.deleteAccountConfig.mutate({ configId });
+      // Refetch the account list
+      void configs.refetch();
+    } catch (e) {
+      showError('删除失败', errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   // Drop EVERY cached `trpc.account.*` entry (recent contacts, profiles,
   // buddies, group details, …) so the next account's MainView mount cannot
@@ -192,6 +227,15 @@ export function RailAccountFooter({
                     type="button"
                     className="weq-rail-account-item"
                     onClick={() => void switchTo(cfg)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setCtxMenu({
+                        configId: cfg.configId,
+                        displayName: cfg.displayName || cfg.uin,
+                        x: e.clientX,
+                        y: e.clientY,
+                      });
+                    }}
                     disabled={busy}
                   >
                     <QqAvatar uin={cfg.uin} url={cfg.avatarUrl} size={40} />
@@ -217,6 +261,24 @@ export function RailAccountFooter({
           </button>
         </section>
       ) : null}
+      {ctxMenu &&
+        createPortal(
+          <div
+            className="weq-rail-account-ctx-menu"
+            style={{ left: ctxMenu.x, top: ctxMenu.y }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => void deleteAccount(ctxMenu.configId)}
+              disabled={busy}
+            >
+              <Trash2 size={15} />
+              <span>删除账号</span>
+            </button>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
