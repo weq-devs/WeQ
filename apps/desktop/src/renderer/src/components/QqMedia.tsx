@@ -65,16 +65,30 @@ function revealMedia(t: number, name: string, type: 'video' | 'file'): void {
   void bridge?.ipcRenderer?.invoke?.('media:reveal', { t, name, type });
 }
 
-/** Reveal a file by msgId (searches file_assistant.db). */
-async function revealFile(msgId: string): Promise<void> {
+/** Reveal a file by msgId (searches file_assistant.db). Returns whether it was
+ *  found locally so the caller can fall back to an OIDB download. */
+async function revealFile(msgId: string): Promise<boolean> {
   const bridge = (window as any).electron;
   const result = (await bridge?.ipcRenderer?.invoke?.('file:reveal', msgId)) as {
     success: boolean;
     error?: string;
   };
-  if (result && !result.success && result.error) {
-    console.error('[file:reveal] failed:', result.error);
-  }
+  return Boolean(result?.success);
+}
+
+/** OIDB-download a file that isn't on disk, then reveal it. Needs online QQ. */
+async function downloadFile(args: {
+  msgId: string;
+  name: string;
+  token: string;
+  conv: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const bridge = (window as any).electron;
+  const result = (await bridge?.ipcRenderer?.invoke?.('file:download', args)) as {
+    success: boolean;
+    error?: string;
+  };
+  return result ?? { success: false, error: '下载失败' };
 }
 
 /** Human-readable byte size. */
@@ -132,7 +146,17 @@ export function QqImage({ data, sendTimeMs }: { data: Data; sendTimeMs: number }
 
 // ---- video --------------------------------------------------------------
 
-export function QqVideo({ data, sendTimeMs }: { data: Data; sendTimeMs: number }) {
+export function QqVideo({
+  data,
+  sendTimeMs,
+  msgId = '',
+  conv = '',
+}: {
+  data: Data;
+  sendTimeMs: number;
+  msgId?: string;
+  conv?: string;
+}) {
   const [posterBroken, setPosterBroken] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -154,14 +178,15 @@ export function QqVideo({ data, sendTimeMs }: { data: Data; sendTimeMs: number }
     return <QqMediaMissing label="该视频" style={style} />;
   }
 
-  // Click → play inline. The media protocol downloads the original on demand;
+  // Click → play inline. The media protocol locates the original on disk or
+  // completes it via OIDB (msgId + conv let the host resolve the download URL);
   // a spinner covers the gap until the <video> can render its first frame.
   if (playing) {
     return (
       <div className="qq-media-video" style={style}>
         <video
           className="qq-media-video-player"
-          src={mediaUrl('video', { t: sendTimeMs, name, token: fileToken })}
+          src={mediaUrl('video', { t: sendTimeMs, name, token: fileToken, msgId, conv })}
           controls
           autoPlay
           onCanPlay={() => setLoading(false)}
@@ -231,24 +256,64 @@ export function QqFile({
   data,
   sendTimeMs,
   msgId,
+  conv = '',
 }: {
   data: Data;
   sendTimeMs: number;
   msgId: string;
+  conv?: string;
 }) {
   const name = str(data, 'fileName');
   const size = num(data, 'fileSize');
+  const token = str(data, 'fileToken');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const onClick = (): void => {
+    if (busy) return;
+    setError(null);
+    void (async () => {
+      // 1. Local first: file_assistant.db → reveal in OS file manager.
+      if (msgId && (await revealFile(msgId))) return;
+      // 2. Not on disk → OIDB completion (needs an online QQ). Only msgId is
+      //    required; token just disambiguates multiple files in one message.
+      if (!msgId) {
+        revealMedia(sendTimeMs, name, 'file');
+        return;
+      }
+      setBusy(true);
+      try {
+        const r = await downloadFile({ msgId, name, token, conv });
+        if (!r.success) setError(r.error ?? '下载失败');
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBusy(false);
+      }
+    })();
+  };
+
   return (
     <div
       className="qq-media-file"
       role="button"
-      title="在文件夹中打开"
-      onClick={() => (msgId ? revealFile(msgId) : revealMedia(sendTimeMs, name, 'file'))}
+      title={error ?? (busy ? '正在下载…' : '在文件夹中打开（本地无则尝试下载）')}
+      onClick={onClick}
     >
       <img className="qq-media-file-icon" src={fileIconUrl(iconForName(name))} alt="" draggable={false} />
       <div className="qq-media-file-meta">
         <div className="qq-media-file-name">{name || '[文件]'}</div>
-        <div className="qq-media-file-size">{formatSize(size)}</div>
+        <div className={cn('qq-media-file-size', error && 'qq-media-file-error')}>
+          {busy ? (
+            <span className="qq-media-file-status">
+              <Loader2 size={11} strokeWidth={2} className="weq-spin" aria-hidden /> 下载中…
+            </span>
+          ) : error ? (
+            `下载失败：${error}`
+          ) : (
+            formatSize(size)
+          )}
+        </div>
       </div>
     </div>
   );

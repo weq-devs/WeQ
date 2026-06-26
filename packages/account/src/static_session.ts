@@ -77,13 +77,15 @@ export async function peekStaticSelfUin(
   const nt = platform.native.ntHelper;
   const profileInfoPath = requireFile(dirPath, 'profile_info.db');
   // Probe via QqDb directly (not ProfileInfoDb) so we don't drag every
-  // profile column through the codec pipeline just to read 4 fields.
+  // profile column through the codec pipeline just to read 3 fields.
   const qq = new QqDb(nt, dbOpts(profileInfoPath, dbKey, algo));
   try {
-    // 1002 = uin, 20002 = nick, 20004 = avatarUrl, 1000 = uid
-    // First row of profile_info_v6 is always the account owner.
+    // 1002 = uin, 20002 = nick, 1000 = uid. We intentionally do NOT read the
+    // stored avatar (20004) — it's a chat-CDN token that only a live QQ can
+    // complete, so it 404s for offline/static accounts. The UI builds a stable
+    // avatar URL from the uin instead (see QqAvatar/qqAvatarUrl).
     const rows = await qq.query(
-      `SELECT "1000","1002","20002","20004" FROM profile_info_v6 LIMIT 1`,
+      `SELECT "1000","1002","20002" FROM profile_info_v6 LIMIT 1`,
     );
     if (rows.length === 0 || rows[0] === undefined) {
       throw new Error('profile_info_v6 为空，无法识别账号');
@@ -96,7 +98,8 @@ export async function peekStaticSelfUin(
       uin,
       uid: String(row[0] ?? ''),
       nick: String(row[2] ?? ''),
-      avatarUrl: String(row[3] ?? ''),
+      // Always empty for static accounts — UI derives the avatar from the uin.
+      avatarUrl: '',
     };
   } finally {
     qq.close();

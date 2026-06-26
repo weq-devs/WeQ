@@ -49,7 +49,7 @@ import {
   type User,
   useChatShellController,
 } from '../im-template/template';
-import { qqMessageRenderer, ReplyJumpContext, ForwardKindContext, type ReplyJumpTarget } from '../components/QqMessageContent';
+import { qqMessageRenderer, ReplyJumpContext, ForwardKindContext, ConvContext, type ReplyJumpTarget } from '../components/QqMessageContent';
 import type { SetEmojiItem } from '@weq/codec';
 import { MsgElementEditor } from '../components/MsgElementEditor';
 import { flashTransferTitle } from '../components/QqFlashTransfer';
@@ -2490,6 +2490,7 @@ export function MainView(): ReactElement {
   return (
     <ReplyJumpContext.Provider value={jumpToSeq}>
       <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
+      <ConvContext.Provider value={isGroup ? (selectedConversation?.id ?? '') : ''}>
       <ChatShell
         user={user}
         view={shell.view}
@@ -2677,6 +2678,7 @@ export function MainView(): ReactElement {
           onClose={() => setAlbumDialog(null)}
         />
       ) : null}
+      </ConvContext.Provider>
       </ForwardKindContext.Provider>
     </ReplyJumpContext.Provider>
   );

@@ -541,6 +541,15 @@
 	color: #999999;
 	font-size: 12px;
 }
+.qq-media-file-size.qq-media-file-error {
+	color: #d9534f;
+}
+.qq-media-file-status {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	color: #0099ff;
+}
 
 /* Voice: play button + amplitude bars + duration, QQ style. */
 .qq-media-voice {

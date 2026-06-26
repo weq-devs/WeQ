@@ -10,6 +10,12 @@
 
 import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
+import { createWriteStream } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import type { ReadableStream as WebReadableStream } from 'node:stream/web';
+import { dirname } from 'node:path';
 import {
   GetGroupFileUrl,
   GetGroupPttUrl,
@@ -180,5 +186,93 @@ export class MediaUrlService {
       element.transferFlag45504 || textOrHexOf(element.md5Bytes2) || element.md5 || hexOf(element.md5Bytes);
     if (!fileHash) throw new Error('private file element missing transferFlag45504/md5');
     return this.getPrivateFileUrl(element.fileToken, fileHash);
+  }
+
+  // ─── high-level resolvers (kind-aware; non-group ⇒ private/c2c) ───
+
+  /**
+   * Resolve a video element's download URL, branching on conversation kind.
+   * Non-group conversations are all treated as private (c2c). `groupId` is only
+   * read for the group branch.
+   */
+  async resolveVideoUrl(kind: 'group' | 'c2c', groupId: number, element: MediaElement): Promise<string> {
+    return kind === 'group'
+      ? this.getGroupVideoUrlFromElement(groupId, element)
+      : this.getPrivateVideoUrlFromElement(element);
+  }
+
+  /**
+   * Resolve a file element's download URL, branching on conversation kind. The
+   * group branch composes the URL then appends the encoded file name (QQ's
+   * ftn_handler URL leaves `?fname=` empty).
+   */
+  async resolveFileUrl(
+    kind: 'group' | 'c2c',
+    groupId: number,
+    element: MediaElement,
+    fileName: string,
+  ): Promise<string> {
+    if (kind === 'group') {
+      const base = await this.getGroupFileUrlFromElement(groupId, element);
+      return `${base}${encodeURIComponent(fileName)}`;
+    }
+    return this.getPrivateFileUrlFromElement(element);
+  }
+}
+
+// ─── streamed download (shared by export pipeline + chat-view completion) ───
+
+/** Result of a streamed download: ok, or a human-readable failure reason. */
+export type DownloadOutcome = { ok: true } | { ok: false; reason: string };
+
+/** Retries / base backoff for streamed video & file downloads. */
+const DL_RETRIES = 3;
+const DL_BACKOFF_BASE_MS = 300;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+function backoffMs(n: number): number {
+  const base = DL_BACKOFF_BASE_MS * 2 ** n;
+  return base + Math.floor(Math.random() * base * 0.4);
+}
+
+/** Read a (small) error response body for surfacing — trimmed + capped. */
+async function readErrBody(res: Awaited<ReturnType<typeof fetch>>): Promise<string> {
+  try {
+    const text = (await res.text()).trim();
+    return text ? ` body=${text.slice(0, 300)}` : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Stream one URL to `dest`, with exponential-backoff retry on transient errors
+ * (network / 5xx / 429). Streams the body to disk so large videos / files don't
+ * balloon memory. The QQ CDN signals failures with a JSON/text body (sometimes
+ * even under HTTP 200) — those are NOT media, so any non-binary content-type is
+ * treated as a failure and its body is surfaced as the reason.
+ */
+export async function downloadUrlToFile(url: string, dest: string): Promise<DownloadOutcome> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      const res = await fetch(url);
+      if (res.status === 429 || res.status >= 500) {
+        if (attempt < DL_RETRIES) { await sleep(backoffMs(attempt)); continue; }
+        return { ok: false, reason: `HTTP ${res.status}${await readErrBody(res)}` };
+      }
+      const ct = res.headers.get('content-type') ?? '';
+      // Non-2xx, empty, or a JSON/text body → CDN error envelope, not media.
+      if (!res.ok || !res.body || ct.startsWith('text/') || ct.includes('json')) {
+        return { ok: false, reason: `HTTP ${res.status} ct=${ct || 'n/a'}${await readErrBody(res)}` };
+      }
+      await mkdir(dirname(dest), { recursive: true });
+      await pipeline(Readable.fromWeb(res.body as WebReadableStream<Uint8Array>), createWriteStream(dest));
+      return { ok: true };
+    } catch (e) {
+      if (attempt < DL_RETRIES) { await sleep(backoffMs(attempt)); continue; }
+      return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+    }
   }
 }

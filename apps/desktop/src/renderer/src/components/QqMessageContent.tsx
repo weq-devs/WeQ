@@ -50,6 +50,14 @@ export const ReplyJumpContext = createContext<(target: ReplyJumpTarget) => void>
  */
 export const ForwardKindContext = createContext<'c2c' | 'group'>('c2c');
 
+/**
+ * Group code (群号) of the open chat, or '' for c2c. Video / file OIDB
+ * completion needs the group id to resolve a group download URL; the host
+ * provides it via this context so we don't thread it through every render
+ * layer. Empty string ⇒ private (c2c).
+ */
+export const ConvContext = createContext<string>('');
+
 /** Element kinds that render as standalone, borderless media (no bubble). */
 const BORDERLESS_MEDIA = new Set(['pic', 'video', 'mface']);
 /** Element kinds handled by a dedicated media component. */
@@ -145,13 +153,14 @@ function MediaNode({
   msgId: string;
 }): ReactNode {
   const data = element.data ?? {};
+  const conv = useContext(ConvContext);
   switch (element.type) {
     case 'pic':
       return <QqImage data={data} sendTimeMs={sendTimeMs} />;
     case 'video':
-      return <QqVideo data={data} sendTimeMs={sendTimeMs} />;
+      return <QqVideo data={data} sendTimeMs={sendTimeMs} msgId={msgId} conv={conv} />;
     case 'file':
-      return <QqFile data={data} sendTimeMs={sendTimeMs} msgId={msgId} />;
+      return <QqFile data={data} sendTimeMs={sendTimeMs} msgId={msgId} conv={conv} />;
     case 'ptt':
       return <QqVoice data={data} sendTimeMs={sendTimeMs} />;
     case 'mface':

@@ -96,7 +96,7 @@ export interface RenderFileElement {
     fileSize: number;
     // imgWidth: number;
     // imgHeight: number;
-    // fileToken: string;
+    fileToken: string;
     // uploadTime: number;
     // picTransferState?: number;
     // transferVersion?: number;
@@ -525,7 +525,7 @@ function mapFile(el: FileElement): RenderFileElement {
       fileSize: el.fileSize,
       // imgWidth: el.imgWidth,
       // imgHeight: el.imgHeight,
-      // fileToken: el.fileToken,
+      fileToken: el.fileToken,
       // uploadTime: el.uploadTime,
       // picTransferState: el.picTransferState,
       // transferVersion: el.transferVersion,

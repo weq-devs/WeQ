@@ -199,6 +199,8 @@ export interface AccountServices {
   fileSearch: FileSearchService;
   /** CDN fallback download for media missing on disk (uses live rkeys). */
   mediaDownload: MediaDownloadService;
+  /** OIDB/NTV2 download-URL resolver for video / file completion (needs online QQ). */
+  mediaUrl: MediaUrlService;
   /** Search file entries by msgId or name. */
   fileAssistant: FileAssistantService;
   /** Decrypt + cache market-face (store sticker) images. */
@@ -370,6 +372,7 @@ export function initAppContext(): AppContext {
         onlineStatus: new OnlineStatusService(session),
         fileSearch: new FileSearchService(session, platform),
         mediaDownload,
+        mediaUrl,
         fileAssistant: new FileAssistantService(session),
         emoji: new EmojiService(session, platform),
         exportManager: new (await import('@weq/service')).ExportTaskManager(
@@ -543,6 +546,7 @@ export function initAppContext(): AppContext {
         onlineStatus: new OnlineStatusService(session),
         fileSearch: new FileSearchService(session, platform),
         mediaDownload,
+        mediaUrl,
         fileAssistant: new FileAssistantService(session),
         emoji: new EmojiService(session, platform),
         exportManager: new (await import('@weq/service')).ExportTaskManager(
