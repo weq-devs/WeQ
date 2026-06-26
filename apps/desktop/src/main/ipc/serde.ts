@@ -278,7 +278,11 @@ export function userProfileToWire(p: UserProfile): UserProfileWire {
     qid: p.qid,
     uin: p.uin.toString(),
     nick: p.nick,
-    avatarUrl: p.avatarUrl,
+    // Only surface a real remote avatar URL. The profile DB's stored value
+    // (field 20004) is often a chat-CDN token that only a live QQ can
+    // complete — useless to the renderer and a guaranteed 404 for static
+    // (offline) accounts. The UI derives a stable avatar from the uin instead.
+    avatarUrl: /^https?:\/\//i.test(p.avatarUrl) ? p.avatarUrl : '',
     birthYear: p.birthYear,
     birthMonth: p.birthMonth,
     birthDay: p.birthDay,

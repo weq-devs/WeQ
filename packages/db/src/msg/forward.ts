@@ -17,10 +17,10 @@ import { QqDb } from '../qq_db';
 export interface ForwardMsgDbOptions {
   /** Absolute path to nt_msg.db. */
   dbPath: string;
-  /** SQLCipher key. */
-  key: string;
-  /** Database algorithms. */
-  algo: DatabaseAlgorithms;
+  /** SQLCipher key. (omit for plain decrypted). */
+  key?: string;
+  /** Database algorithms (omit for plain decrypted). */
+  algo?: DatabaseAlgorithms;
 }
 
 export class ForwardMsgDb {

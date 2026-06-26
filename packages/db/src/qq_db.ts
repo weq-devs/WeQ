@@ -21,23 +21,31 @@ import type {
 export interface QqDbOptions {
   /** Absolute path to the QQ NT database file (encrypted, with QQ wrapper). */
   dbPath: string;
-  /** SQLCipher key (hex passphrase or raw ASCII — both work). */
-  key: string;
-  /** Cryptographic algorithms used for this database. */
-  algo: DatabaseAlgorithms;
+  /**
+   * SQLCipher key (hex passphrase or raw ASCII — both work).
+   * Omit (or set to an empty string) for already-decrypted plain SQLite databases.
+   */
+  key?: string;
+  /**
+   * Cryptographic algorithms used for this database.
+   * Omit for plain (already-decrypted) databases.
+   */
+  algo?: DatabaseAlgorithms;
 }
 
 export class QqDb {
   readonly dbPath: string;
-  private readonly key: string;
-  private readonly algo: DatabaseAlgorithms;
+  private readonly key?: string;
+  private readonly algo?: DatabaseAlgorithms;
   private readonly nt: NtHelperBinding;
+  private readonly encrypted: boolean;
 
   constructor(nt: NtHelperBinding, opts: QqDbOptions) {
     this.nt = nt;
     this.dbPath = opts.dbPath;
     this.key = opts.key;
     this.algo = opts.algo;
+    this.encrypted = !!opts.key && !!opts.algo;
   }
 
   /**
@@ -46,7 +54,10 @@ export class QqDb {
    * static column list and prefer named access.
    */
   query(sql: string, params?: SqlValue[]): Promise<SqlRow[]> {
-    return this.nt.executeSqlWithKey(this.dbPath, sql, this.key, this.algo, params ?? null);
+    if (this.encrypted) {
+      return this.nt.executeSqlWithKey(this.dbPath, sql, this.key!, this.algo!, params ?? null);
+    }
+    return this.nt.executeSql(this.dbPath, sql, params ?? null);
   }
 
   /**
@@ -56,7 +67,10 @@ export class QqDb {
    *    run with QQ fully closed.
    */
   write(sql: string, params?: SqlValue[]): Promise<number> {
-    return this.nt.executeSqlWriteWithKey(this.dbPath, sql, this.key, this.algo, params ?? null);
+    if (this.encrypted) {
+      return this.nt.executeSqlWriteWithKey(this.dbPath, sql, this.key!, this.algo!, params ?? null);
+    }
+    return this.nt.executeSqlWrite(this.dbPath, sql, params ?? null);
   }
 
   /** Drop both the read and write cached native connections for this database. */

@@ -64,9 +64,9 @@ export interface GroupDetail {
 
 export interface GroupDetailDbOptions {
   dbPath: string;
-  key: string;
-  /** Database algorithms. */
-  algo: DatabaseAlgorithms;
+  key?: string;
+  /** Database algorithms (omit for plain decrypted). */
+  algo?: DatabaseAlgorithms;
 }
 
 const SELECT_COLUMNS = `"60001","60007","60216","60217","60026","60002","60004","60005","60006","60218","60224","60340","60241","60242"`;

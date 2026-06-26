@@ -19,18 +19,57 @@
 
 import { net, protocol } from 'electron';
 import { pathToFileURL } from 'node:url';
+import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   PRIVATE_VIDEO_RKEY_TYPE,
   GROUP_VIDEO_RKEY_TYPE,
   PRIVATE_PTT_RKEY_TYPE,
   GROUP_PTT_RKEY_TYPE,
+  downloadUrlToFile,
+  type MediaElement,
 } from '@weq/service';
 import { getAppContext } from './context/app_context';
 import { decodeSilkToWav } from './voice';
 
-/** rkey types accepted when downloading each media kind (private + group). */
+/** rkey types accepted when downloading the video COVER (thumb only; the
+ *  original mp4 now goes through OIDB). ptt still uses rkey end-to-end. */
 const VIDEO_RKEY_TYPES = [PRIVATE_VIDEO_RKEY_TYPE, GROUP_VIDEO_RKEY_TYPE];
 const PTT_RKEY_TYPES = [PRIVATE_PTT_RKEY_TYPE, GROUP_PTT_RKEY_TYPE];
+
+/** Stable cache path for an OIDB-downloaded original by its fileToken. */
+function oidbCachePath(cacheDir: string, token: string, ext: string): string {
+  const hash = createHash('sha1').update(token).digest('hex');
+  return join(cacheDir, `${hash}${ext}`);
+}
+
+/**
+ * Find the video / file element a chat media URL refers to by re-reading its
+ * raw message. Returns the element plus the conversation kind so callers can
+ * branch group vs c2c. Matches by fileToken when a message carries several of
+ * the same kind; else the first one of that kind.
+ */
+async function findMediaElement(
+  msgId: string,
+  kind: 'video' | 'file',
+  token: string,
+): Promise<{ element: MediaElement; conv: 'group' | 'c2c' } | null> {
+  const services = getAppContext().services;
+  if (!services || !msgId) return null;
+  let raw: Awaited<ReturnType<typeof services.msgs.getRawElements>>;
+  try {
+    raw = await services.msgs.getRawElements(BigInt(msgId));
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+  const matches = raw.elements.filter((e) => e.kind === kind);
+  const el =
+    matches.find((e) => (e as { fileToken?: string }).fileToken === token) ?? matches[0];
+  if (!el) return null;
+  return { element: el as unknown as MediaElement, conv: raw.kind };
+}
 
 export const MEDIA_SCHEME = 'weq-media';
 
@@ -106,7 +145,9 @@ export function registerMediaProtocol(): void {
           return dl ? fileResponse(dl) : notFound('pic not found');
         }
         case 'video': {
-          // ?v=thumb → cover image; otherwise → original mp4 (downloaded on click).
+          // ?v=thumb → cover image (rkey is fine for covers); otherwise →
+          // original mp4, completed via OIDB (rkey doesn't work for video
+          // originals, so it's intentionally not attempted).
           if (wantThumb) {
             const { thumb } = await services.fileSearch.findFile(tMs, name, 'video');
             if (thumb) return fileResponse(thumb);
@@ -118,11 +159,29 @@ export function registerMediaProtocol(): void {
           }
           const { source } = await services.fileSearch.findFile(tMs, name, 'video');
           if (source) return fileResponse(source);
-          const dl = await services.mediaDownload.download(token, {
-            ext: '.mp4',
-            rkeyTypes: VIDEO_RKEY_TYPES,
-          });
-          return dl ? fileResponse(dl) : notFound('video not found');
+
+          // Missing on disk → OIDB completion (needs an online QQ). Cache the
+          // result by fileToken so a replay doesn't re-download.
+          const boot = getAppContext().bootstrap;
+          if (!boot || !token) return notFound('video not found');
+          const cacheDir = join(boot.userConfig.cacheDir('media'), 'video');
+          const cachePath = oidbCachePath(cacheDir, token, '.mp4');
+          if (existsSync(cachePath)) return fileResponse(cachePath);
+
+          const msgId = q.get('msgId') ?? '';
+          const conv = q.get('conv') ?? '';
+          const found = await findMediaElement(msgId, 'video', token);
+          if (!found) return notFound('video element not found');
+          let url: string;
+          try {
+            url = await services.mediaUrl.resolveVideoUrl(found.conv, Number(conv) || 0, found.element);
+          } catch (e) {
+            console.error('[media] video OIDB resolve failed:', e);
+            return notFound('video OIDB resolve failed');
+          }
+          if (!url) return notFound('video OIDB returned empty url');
+          const outcome = await downloadUrlToFile(url, cachePath);
+          return outcome.ok ? fileResponse(cachePath) : notFound(`video download failed: ${outcome.reason}`);
         }
         case 'ptt': {
           const { source } = await services.fileSearch.findFile(tMs, name, 'ptt');

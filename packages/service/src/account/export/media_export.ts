@@ -15,16 +15,12 @@
  * interface is still being fixed): only their on-disk copies are exported.
  */
 
-import { createWriteStream } from 'node:fs';
 import { copyFile, mkdir, writeFile } from 'node:fs/promises';
-import { Readable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
-import type { ReadableStream as WebReadableStream } from 'node:stream/web';
-import { basename, dirname, extname, join } from 'node:path';
+import { basename, extname, join } from 'node:path';
 import type { Element } from '@weq/codec';
 import type { MsgService } from '../msg';
 import type { MediaDownloadService } from '../media_download';
-import type { MediaUrlService, MediaElement } from '../media_url';
+import { downloadUrlToFile, type MediaUrlService, type MediaElement } from '../media_url';
 import type { ConvKind } from './types';
 import type { MediaRef, MediaScanResult } from './media_scan';
 
@@ -338,60 +334,6 @@ export async function downloadMissingImages(
 function stemOf(filename: string): string {
   const ext = extname(filename);
   return (ext ? filename.slice(0, -ext.length) : filename).toLowerCase();
-}
-
-/** Retries / base backoff for video & file downloads (mirrors media_download). */
-const DL_RETRIES = 3;
-const DL_BACKOFF_BASE_MS = 300;
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
-function backoffMs(n: number): number {
-  const base = DL_BACKOFF_BASE_MS * 2 ** n;
-  return base + Math.floor(Math.random() * base * 0.4);
-}
-
-/** Result of a streamed download: ok, or a human-readable failure reason. */
-type DownloadOutcome = { ok: true } | { ok: false; reason: string };
-
-/** Read a (small) error response body for surfacing — trimmed + capped. */
-async function readErrBody(res: Awaited<ReturnType<typeof fetch>>): Promise<string> {
-  try {
-    const text = (await res.text()).trim();
-    return text ? ` body=${text.slice(0, 300)}` : '';
-  } catch {
-    return '';
-  }
-}
-
-/**
- * Stream one URL to `dest`, with exponential-backoff retry on transient errors
- * (network / 5xx / 429). Streams the body to disk so large videos / files don't
- * balloon memory. The QQ CDN signals failures with a JSON/text body (sometimes
- * even under HTTP 200) — those are NOT media, so any non-binary content-type is
- * treated as a failure and its body is surfaced as the reason.
- */
-async function downloadUrlToFile(url: string, dest: string): Promise<DownloadOutcome> {
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      const res = await fetch(url);
-      if (res.status === 429 || res.status >= 500) {
-        if (attempt < DL_RETRIES) { await sleep(backoffMs(attempt)); continue; }
-        return { ok: false, reason: `HTTP ${res.status}${await readErrBody(res)}` };
-      }
-      const ct = res.headers.get('content-type') ?? '';
-      // Non-2xx, empty, or a JSON/text body → CDN error envelope, not media.
-      if (!res.ok || !res.body || ct.startsWith('text/') || ct.includes('json')) {
-        return { ok: false, reason: `HTTP ${res.status} ct=${ct || 'n/a'}${await readErrBody(res)}` };
-      }
-      await mkdir(dirname(dest), { recursive: true });
-      await pipeline(Readable.fromWeb(res.body as WebReadableStream<Uint8Array>), createWriteStream(dest));
-      return { ok: true };
-    } catch (e) {
-      if (attempt < DL_RETRIES) { await sleep(backoffMs(attempt)); continue; }
-      return { ok: false, reason: e instanceof Error ? e.message : String(e) };
-    }
-  }
 }
 
 /** Re-read a ref's message and find the raw codec element it refers to. */

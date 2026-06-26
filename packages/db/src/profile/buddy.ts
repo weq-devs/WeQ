@@ -20,8 +20,8 @@ export interface Buddy {
 
 export interface BuddyDbOptions {
   dbPath: string;
-  key: string;
-  algo: DatabaseAlgorithms;
+  key?: string;
+  algo?: DatabaseAlgorithms;
 }
 
 const SELECT_COLUMNS = `"1000","1001","1002","25007"`;

@@ -21,6 +21,7 @@ import {
 } from './media_protocol';
 import { getAppContext } from './context/app_context';
 import { checkForUpdate } from './update/updater';
+import type { MediaElement } from '@weq/service';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -119,6 +120,77 @@ function registerMediaIpc(): void {
       return { success: false, error: '查询失败' };
     }
   });
+
+  // OIDB completion for a chat file that isn't on disk. Resolves the download
+  // URL (group vs c2c by the message's own kind), streams it into the media
+  // cache, then reveals it in the OS file manager. Needs an online QQ.
+  ipcMain.handle(
+    'file:download',
+    async (
+      _event,
+      input: { msgId: string; name: string; token: string; conv: string },
+    ): Promise<{ success: boolean; error?: string; path?: string }> => {
+      const ctx = getAppContext();
+      const services = ctx.services;
+      const boot = ctx.bootstrap;
+      if (!services || !boot) return { success: false, error: '未打开账号' };
+      const { msgId, name, token, conv } = input;
+      console.log('[file:download] request', { msgId, name, token, conv });
+      if (!msgId) return { success: false, error: '缺少消息 ID' };
+
+      // Re-read the raw message to find the file element + conversation kind.
+      let raw: Awaited<ReturnType<typeof services.msgs.getRawElements>>;
+      try {
+        raw = await services.msgs.getRawElements(BigInt(msgId));
+      } catch (e) {
+        console.error('[file:download] getRawElements failed:', e);
+        return { success: false, error: '读取消息失败' };
+      }
+      if (!raw) return { success: false, error: '未找到该消息' };
+      const matches = raw.elements.filter((e) => e.kind === 'file');
+      console.log('[file:download] kind=%s, file elements=%d', raw.kind, matches.length);
+      // Match by token when present (multiple files in one message); else the
+      // first file element. token can be empty for older render rows.
+      const el =
+        (token ? matches.find((e) => (e as { fileToken?: string }).fileToken === token) : undefined) ??
+        matches[0];
+      if (!el) return { success: false, error: '消息中未找到文件元素' };
+      const elToken = (el as { fileToken?: string }).fileToken ?? '';
+      console.log('[file:download] element fileToken=%s', elToken);
+
+      const fileName = name || (el as { fileName?: string }).fileName || elToken || 'download';
+      const dest = join(boot.userConfig.cacheDir('media'), 'file', fileName);
+      if (fs.existsSync(dest)) {
+        shell.showItemInFolder(dest);
+        return { success: true, path: dest };
+      }
+
+      let url: string;
+      try {
+        url = await services.mediaUrl.resolveFileUrl(
+          raw.kind,
+          Number(conv) || 0,
+          el as unknown as MediaElement,
+          fileName,
+        );
+      } catch (e) {
+        console.error('[file:download] OIDB resolve failed:', e);
+        return { success: false, error: 'OIDB 解析失败：' + (e instanceof Error ? e.message : String(e)) };
+      }
+      console.log('[file:download] resolved url:', url ? url.slice(0, 120) + '…' : '(empty)');
+      if (!url) return { success: false, error: 'OIDB 返回空链接（QQ 是否在线？）' };
+
+      const { downloadUrlToFile } = await import('@weq/service');
+      const outcome = await downloadUrlToFile(url, dest);
+      if (!outcome.ok) {
+        console.error('[file:download] download failed:', outcome.reason);
+        return { success: false, error: '下载失败：' + outcome.reason };
+      }
+      console.log('[file:download] saved to', dest);
+      shell.showItemInFolder(dest);
+      return { success: true, path: dest };
+    },
+  );
 }
 
 function resolveWindowIcon(): Electron.NativeImage | undefined {

@@ -139,8 +139,8 @@ export type {
   AlbumPhotoUrl,
 } from './account/group_album_media';
 
-export { MediaUrlService, mediaNodeFromElement } from './account/media_url';
-export type { MediaElement, GroupFileDownload } from './account/media_url';
+export { MediaUrlService, mediaNodeFromElement, downloadUrlToFile } from './account/media_url';
+export type { MediaElement, GroupFileDownload, DownloadOutcome } from './account/media_url';
 
 // ---- export pipeline (account/export) ----
 export {

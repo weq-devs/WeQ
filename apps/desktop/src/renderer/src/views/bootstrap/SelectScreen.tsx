@@ -60,6 +60,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
         algo: cfg.algo,
         ...(cfg.dataDir ? { dataDir: cfg.dataDir } : root ? { dataDir: `${root}\\${cfg.uin}` } : {}),
         lastLoginAt: cfg.lastLoginAt,
+        ...(cfg.static ? { static: true } : {}),
       }));
     }
     return (historical.data ?? []).map((a) => ({
@@ -91,6 +92,18 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
   function onEntered(uin: string): void {
     setOpenedUin(uin);
     goTo('main');
+  }
+
+  async function onDeleteAccount(acc: UiAccount): Promise<void> {
+    if (!acc.configId) return;
+    try {
+      await client.bootstrap.deleteAccountConfig.mutate({ configId: acc.configId });
+      await savedConfigs.refetch();
+      // Also invalidate the account config list for RailAccountFooter
+      void utils.bootstrap.listAccountConfigs.invalidate();
+    } catch {
+      // silently ignore
+    }
   }
 
   async function pickRoot(): Promise<void> {
@@ -135,6 +148,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
               accounts={accounts}
               selected={selected}
               onSelect={(a) => setSelectedKey(a.key)}
+              onDeleteAccount={mode === 'existing' ? (a) => void onDeleteAccount(a) : undefined}
               installRoot={root}
               allUins={allUins}
               autoTarget={autoTarget.data ?? null}
