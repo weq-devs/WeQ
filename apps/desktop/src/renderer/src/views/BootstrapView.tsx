@@ -13,7 +13,7 @@
  */
 
 import { useEffect, useRef, type ReactElement, type ReactNode } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, X } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useDialog } from '../components/Dialog';
@@ -93,16 +93,32 @@ export function BootstrapView(): ReactElement {
 
     void (async () => {
       try {
-        const test = await client.bootstrap.testDatabaseKey.mutate({ uin: cfg.uin, dbKey: cfg.dbKey });
-        if (!test.success) throw new Error(test.error ?? '数据库密钥不正确');
-        await client.bootstrap.openAccount.mutate({
-          uin: cfg.uin,
-          dbKey: cfg.dbKey,
-          algo: test.algo,
-          ...(cfg.displayName ? { displayName: cfg.displayName } : {}),
-          ...(cfg.avatarUrl ? { avatarUrl: cfg.avatarUrl } : {}),
-          ...(cfg.dataDir ? { dataDir: cfg.dataDir } : {}),
-        });
+        if (cfg.static) {
+          // Static (offline) account — no live key gate; re-open from its
+          // saved decrypted-db directory.
+          if (!cfg.dataDir) throw new Error('该静态账号缺少数据库目录，请重新导入。');
+          await client.bootstrap.openStaticAccount.mutate({
+            dirPath: cfg.dataDir,
+            preview: {
+              uin: cfg.uin,
+              displayName: cfg.displayName ?? '',
+              avatarUrl: cfg.avatarUrl ?? '',
+            },
+            ...(cfg.dbKey ? { dbKey: cfg.dbKey } : {}),
+            ...(cfg.algo?.pageHmacAlgorithm ? { algo: cfg.algo } : {}),
+          });
+        } else {
+          const test = await client.bootstrap.testDatabaseKey.mutate({ uin: cfg.uin, dbKey: cfg.dbKey });
+          if (!test.success) throw new Error(test.error ?? '数据库密钥不正确');
+          await client.bootstrap.openAccount.mutate({
+            uin: cfg.uin,
+            dbKey: cfg.dbKey,
+            algo: test.algo,
+            ...(cfg.displayName ? { displayName: cfg.displayName } : {}),
+            ...(cfg.avatarUrl ? { avatarUrl: cfg.avatarUrl } : {}),
+            ...(cfg.dataDir ? { dataDir: cfg.dataDir } : {}),
+          });
+        }
         // Land on 'home' so closing the account later returns to the landing
         // screen rather than re-running the (now consumed) boot splash.
         setHomeStage('home');
@@ -178,6 +194,14 @@ export function BootstrapView(): ReactElement {
 function Shell({ children }: { children: ReactNode }): ReactElement {
   return (
     <main className="weq-home-shell h-screen overflow-hidden font-sans text-[#142235]">
+      <button
+        type="button"
+        className="weq-shell-close-btn absolute right-4 top-4 z-20 flex h-8 w-8 items-center justify-center rounded-full text-[#7a8b9e] transition-colors hover:bg-black/5 hover:text-[#142235]"
+        onClick={() => window.close()}
+        aria-label="关闭"
+      >
+        <X size={18} strokeWidth={1.8} />
+      </button>
       <div className="relative z-10 h-full">{children}</div>
     </main>
   );

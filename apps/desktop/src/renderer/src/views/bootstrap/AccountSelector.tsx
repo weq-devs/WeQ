@@ -10,8 +10,8 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { ChevronDown, Database, Trash2 } from 'lucide-react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, Trash2 } from 'lucide-react';
 import { QqAvatar } from '../../components/QqAvatar';
 import type { UiAccount } from './types';
 
@@ -99,7 +99,14 @@ export function AccountSelector({
 
   return (
     <div className="weq-acct" ref={ref}>
-      <QqAvatar uin={selected?.uin} url={selected?.avatarUrl} size={140} className="weq-acct-avatar" />
+      <span className="weq-static-backup-avatar-wrap">
+        <QqAvatar uin={selected?.uin} url={selected?.avatarUrl} size={140} className="weq-acct-avatar" />
+        {selected?.static && (
+          <span className="weq-static-badge is-lg" title="静态离线账号" aria-label="静态离线账号">
+            <Database size={13} strokeWidth={2.2} aria-hidden />
+          </span>
+        )}
+      </span>
 
       <div className="weq-acct-id">
         <div className={selected?.hasName ? 'weq-acct-name' : 'weq-acct-name weq-acct-name-strong'}>
@@ -149,7 +156,14 @@ export function AccountSelector({
                           : undefined
                       }
                     >
-                      <QqAvatar uin={acc.uin} url={acc.avatarUrl} size={38} />
+                      <span className="weq-acct-row-avatar-wrap">
+                        <QqAvatar uin={acc.uin} url={acc.avatarUrl} size={38} />
+                        {acc.static && (
+                          <span className="weq-static-badge" title="静态离线账号" aria-label="静态离线账号">
+                            <Database size={9} strokeWidth={2.2} aria-hidden />
+                          </span>
+                        )}
+                      </span>
                       <div className="weq-acct-row-id">
                         <div className={acc.hasName ? 'weq-acct-row-name' : 'weq-acct-row-name weq-acct-name-strong'}>
                           {acc.name}

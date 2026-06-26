@@ -11,13 +11,14 @@
  */
 
 import { useEffect, useRef, useState, type ReactElement } from 'react';
-import { Loader2, UserPlus } from 'lucide-react';
+import { ArrowRight, Loader2, UserPlus } from 'lucide-react';
 import { client } from '../../trpc/client';
 import { useDialog } from '../../components/Dialog';
 import type { AutoEnterTarget } from '@weq/service';
 import { AccountSelector } from './AccountSelector';
 import { KeyField, isCompleteKey } from './KeyField';
 import { QrDialog } from './QrDialog';
+import { StaticBackupPanel } from './StaticBackupPanel';
 import { deriveMsgDbPath, type UiAccount } from './types';
 
 type Sub = { unsubscribe: () => void };
@@ -58,6 +59,8 @@ export function LoginPanel({
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
   const [autoEnter, setAutoEnter] = useState(false);
+  /** new mode only: which source to drive the wizard from. */
+  const [source, setSource] = useState<'online' | 'backup'>('online');
 
   // QR dialog state. `anonymous` = the "登录新的账号" flow, where the currently
   // selected account is irrelevant, so its identity must not be shown.
@@ -69,6 +72,7 @@ export function LoginPanel({
     setKey(mode === 'existing' ? (selected?.dbKey ?? '') : '');
     setStatus('');
     setAutoEnter(sameTarget(autoTarget, selected));
+    setSource('online');
   }, [selected?.key, mode, selected?.dbKey, autoTarget, selected]);
 
   // Tear down any live subscription on unmount.
@@ -205,6 +209,44 @@ export function LoginPanel({
 
   async function enter(): Promise<void> {
     if (!selected) return;
+
+    // Static (offline) accounts have no live key gate — re-open them directly
+    // from their saved decrypted-db directory + (optional) stored key.
+    if (selected.static) {
+      if (!selected.dataDir) {
+        showError('无法打开', '该静态账号缺少数据库目录，请重新导入。');
+        return;
+      }
+      setBusy(true);
+      setStatus('正在打开本地数据库…');
+      try {
+        await client.bootstrap.openStaticAccount.mutate({
+          dirPath: selected.dataDir,
+          preview: {
+            uin: selected.uin,
+            displayName: selected.hasName ? selected.name : '',
+            avatarUrl: selected.avatarUrl ?? '',
+          },
+          ...(selected.dbKey ? { dbKey: selected.dbKey } : {}),
+          ...(selected.algo?.pageHmacAlgorithm ? { algo: selected.algo } : {}),
+        });
+        if (autoEnter) {
+          await client.bootstrap.setAutoEnter.mutate({
+            uin: selected.uin,
+            ...(selected.dataDir ? { dataDir: selected.dataDir } : {}),
+          });
+        } else if (sameTarget(autoTarget, selected)) {
+          await client.bootstrap.clearAutoEnter.mutate();
+        }
+        onEntered(selected.uin);
+      } catch (e) {
+        setBusy(false);
+        setStatus('');
+        showError('进入失败', errMsg(e));
+      }
+      return;
+    }
+
     const k = key.trim();
     if (mode === 'new' && !isCompleteKey(k)) {
       showError('密钥不完整', '请先获取或填入 16 位数据库密钥。');
@@ -257,59 +299,104 @@ export function LoginPanel({
 
   return (
     <div className="weq-login-panel">
-      <AccountSelector
-        accounts={accounts}
-        selected={selected}
-        onSelect={onSelect}
-        onDeleteAccount={onDeleteAccount}
-        footer={
-          mode === 'new' ? (
-            <button
-              type="button"
-              className="weq-acct-new"
-              onClick={() => selected && startQrLogin(selected, true)}
-            >
-              <UserPlus size={15} strokeWidth={1.8} aria-hidden />
-              登录新的账号
-            </button>
-          ) : undefined
-        }
-      />
-
-      {status && (
-        <div className="weq-login-status">
-          {busy && <Loader2 className="animate-spin" size={13} strokeWidth={1.85} aria-hidden />}
-          {status}
-        </div>
+      {mode === 'new' && (
+        <nav className="weq-source-tabs" role="tablist" aria-label="账号来源">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={source === 'online'}
+            className={`weq-source-tab ${source === 'online' ? 'is-active' : ''}`}
+            onClick={() => setSource('online')}
+          >
+            在线账号
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={source === 'backup'}
+            className={`weq-source-tab ${source === 'backup' ? 'is-active' : ''}`}
+            onClick={() => setSource('backup')}
+          >
+            本地备份
+          </button>
+        </nav>
       )}
 
-      <KeyField
-        mode={mode}
-        value={key}
-        onChange={setKey}
-        onAction={onAction}
-        busy={busy}
-      />
+      {mode === 'new' && source === 'backup' ? (
+        <StaticBackupPanel onEntered={onEntered} />
+      ) : (
+        <>
+          <AccountSelector
+            accounts={accounts}
+            selected={selected}
+            onSelect={onSelect}
+            onDeleteAccount={onDeleteAccount}
+            footer={
+              mode === 'new' ? (
+                <button
+                  type="button"
+                  className="weq-acct-new"
+                  onClick={() => selected && startQrLogin(selected, true)}
+                >
+                  <UserPlus size={15} strokeWidth={1.8} aria-hidden />
+                  登录新的账号
+                </button>
+              ) : undefined
+            }
+          />
 
-      <label className="weq-auto-enter">
-        <input
-          type="checkbox"
-          checked={autoEnter}
-          onChange={(e) => setAutoEnter(e.target.checked)}
-        />
-        <span>下次打开自动进入该账号</span>
-      </label>
+          {status && (
+            <div className="weq-login-status">
+              {busy && <Loader2 className="animate-spin" size={13} strokeWidth={1.85} aria-hidden />}
+              {status}
+            </div>
+          )}
 
-      {qr && (
-        <QrDialog
-          uin={qr.uin}
-          name={qr.name}
-          avatarUrl={qr.avatarUrl}
-          status={qr.status}
-          qrUrl={qr.url}
-          anonymous={qr.anonymous}
-          onClose={cancelQr}
-        />
+          {selected?.static ? (
+            <button
+              type="button"
+              className="weq-action-primary weq-static-enter"
+              onClick={() => void enter()}
+              disabled={busy}
+            >
+              {busy ? (
+                <Loader2 className="animate-spin" size={15} strokeWidth={1.8} aria-hidden />
+              ) : (
+                <ArrowRight size={15} strokeWidth={1.85} aria-hidden />
+              )}
+              进入（静态离线账号）
+            </button>
+          ) : (
+            <KeyField
+              mode={mode}
+              value={key}
+              onChange={setKey}
+              onAction={onAction}
+              busy={busy}
+            />
+          )}
+
+          <label className="weq-auto-enter">
+            <input
+              type="checkbox"
+              checked={autoEnter}
+              onChange={(e) => setAutoEnter(e.target.checked)}
+            />
+            <span>下次打开自动进入该账号</span>
+          </label>
+
+          {qr && (
+            <QrDialog
+              uin={qr.uin}
+              name={qr.name}
+              avatarUrl={qr.avatarUrl}
+              status={qr.status}
+              qrUrl={qr.url}
+              anonymous={qr.anonymous}
+              onClose={cancelQr}
+            />
+          )}
+        </>
       )}
     </div>
   );

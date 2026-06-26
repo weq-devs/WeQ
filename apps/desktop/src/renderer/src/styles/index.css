@@ -263,6 +263,10 @@
     background: rgba(0, 153, 255, 0.18);
   }
 
+  .weq-shell-close-btn {
+    -webkit-app-region: no-drag;
+  }
+
   .weq-icon-button,
   .weq-danger-button,
   .weq-action-primary,
@@ -1173,6 +1177,11 @@
   .weq-select-head-drag {
     flex: 1;
     align-self: stretch;
+    /* Leave room at the right for the Shell's close (X) button — Electron's
+       drag-region hit test runs outside the compositor stack, so a `drag`
+       region painted under the X still swallows its clicks. Carve out a
+       no-drag gap the width of the button + its inset. */
+    margin-right: 3rem;
     -webkit-app-region: drag;
   }
   .weq-select-head button { -webkit-app-region: no-drag; }
@@ -1219,6 +1228,187 @@
     flex-direction: column;
     gap: 1.1rem;
   }
+
+  /* ---- source tabs (新的开始: 在线账号 / 本地备份) ---- */
+  .weq-source-tabs {
+    display: inline-flex;
+    align-self: center;
+    gap: 0.18rem;
+    padding: 0.18rem;
+    border-radius: 9px;
+    border: 1px solid rgba(0, 153, 255, 0.16);
+    background: rgba(0, 153, 255, 0.04);
+  }
+  .weq-source-tab {
+    padding: 0.3rem 0.85rem;
+    border-radius: 7px;
+    font-size: 13px !important;
+    font-weight: 500;
+    color: #5a6f84;
+    transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+  }
+  .weq-source-tab:hover {
+    color: #16344f;
+  }
+  .weq-source-tab.is-active {
+    color: #0a4d80;
+    background: #ffffff;
+    box-shadow: 0 2px 8px -3px rgba(7, 31, 61, 0.28);
+  }
+
+  /* ---- static backup import panel ---- */
+  .weq-static-backup {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+  .weq-static-backup-head {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.5rem 0 0.25rem;
+  }
+  .weq-static-backup-logo {
+    border-radius: 999px;
+    object-fit: contain;
+    padding: 1.4rem;
+    background: rgba(255, 255, 255, 0.7);
+    border: 3px solid rgba(255, 255, 255, 0.95);
+    box-shadow: 0 16px 34px -16px rgba(139, 92, 246, 0.45);
+  }
+  .weq-static-backup-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #11304d;
+  }
+  .weq-static-help {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.6rem 0.75rem;
+    border-radius: 0.6rem;
+    border: 1px solid rgba(139, 92, 246, 0.22);
+    background: linear-gradient(150deg, rgba(139, 92, 246, 0.07), rgba(236, 72, 153, 0.035));
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: #5a4b7a;
+  }
+  .weq-static-help svg {
+    flex-shrink: 0;
+    margin-top: 0.05rem;
+    color: #8b5cf6;
+  }
+  .weq-static-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .weq-static-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 12px;
+    font-weight: 600;
+    color: #11304d;
+  }
+  .weq-static-label svg {
+    color: #0099ff;
+  }
+  .weq-static-inputwrap {
+    display: flex;
+    gap: 0.5rem;
+  }
+  .weq-static-input {
+    flex: 1;
+    min-width: 0;
+    height: 2.5rem;
+    padding: 0 0.7rem;
+    border-radius: 0.6rem;
+    border: 1px solid rgba(0, 153, 255, 0.26);
+    background: rgba(255, 255, 255, 0.55);
+    font-size: 12px !important;
+    color: #142235;
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+  }
+  .weq-static-input:focus {
+    outline: none;
+    border-color: rgba(0, 153, 255, 0.6);
+    box-shadow: 0 0 0 3px rgba(0, 153, 255, 0.1);
+  }
+  .weq-static-input::placeholder {
+    color: #7589a0;
+  }
+  .weq-static-input.is-error {
+    border-color: rgba(220, 70, 70, 0.55);
+    background: rgba(220, 70, 70, 0.04);
+  }
+  .weq-static-inputwrap .weq-action-primary {
+    height: 2.5rem;
+    padding-inline: 1rem;
+    font-size: 12px !important;
+    flex-shrink: 0;
+  }
+  .weq-static-hint {
+    font-size: 11px;
+    color: #8b6f9a;
+  }
+  .weq-static-actions {
+    display: flex;
+    justify-content: flex-end;
+  }
+  .weq-static-actions .weq-action-primary {
+    height: 2.5rem;
+    padding-inline: 1rem;
+    font-size: 12px !important;
+  }
+  .weq-static-backup-avatar-wrap {
+    position: relative;
+    display: inline-flex;
+  }
+  .weq-static-enter {
+    width: 100%;
+    height: 2.5rem;
+    font-size: 12px !important;
+  }
+  .weq-static-error {
+    padding: 0.55rem 0.75rem;
+    border-radius: 0.6rem;
+    border: 1px solid rgba(220, 70, 70, 0.35);
+    background: rgba(220, 70, 70, 0.05);
+    font-size: 12px;
+    color: #b23a3a;
+  }
+
+  /* ---- static account badge (avatar corner, account list) ---- */
+  .weq-acct-row-avatar-wrap {
+    position: relative;
+    display: inline-flex;
+    flex-shrink: 0;
+  }
+  .weq-static-badge {
+    position: absolute;
+    right: -2px;
+    bottom: -2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #ffffff;
+    background: linear-gradient(140deg, #8b5cf6, #ec4899);
+    box-shadow: 0 0 0 2px #ffffff;
+  }
+  /* Larger corner badge for the 140px header avatars (selector + backup panel). */
+  .weq-static-badge.is-lg {
+    width: 30px;
+    height: 30px;
+    right: 6px;
+    bottom: 6px;
+    box-shadow: 0 0 0 3px #ffffff;
+  }
+
   .weq-login-status {
     display: inline-flex;
     align-self: center;

@@ -30,8 +30,8 @@ export interface BuddyRequest {
 
 export interface BuddyRequestDbOptions {
   dbPath: string;
-  key: string;
-  algo: DatabaseAlgorithms;
+  key?: string;
+  algo?: DatabaseAlgorithms;
 }
 
 const SELECT_COLUMNS = `"21204","21001","20002","21502","21508","21509","21505","60001","21501"`;

@@ -31,9 +31,9 @@ export interface GroupEssence {
 
 export interface GroupEssenceDbOptions {
   dbPath: string;
-  key: string;
-  /** Database algorithms. */
-  algo: DatabaseAlgorithms;
+  key?: string;
+  /** Database algorithms (omit for plain decrypted). */
+  algo?: DatabaseAlgorithms;
 }
 
 const SELECT_COLUMNS = `"60001","67501","67502","67503","67504","67505","67506","67507","67508"`;
