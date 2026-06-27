@@ -39,10 +39,37 @@ html[data-theme="light"] {
   --weq-bg-app: var(--background);
   --weq-bg-surface: var(--card);
   --weq-bg-elevated: oklch(0.985 0 0);
-  --weq-chat-bg: linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--weq-accent-effective) 6%, white),
-      color-mix(in srgb, var(--weq-accent-effective) 3%, white)
+  --weq-chat-glow-primary: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+  --weq-chat-glow-secondary: color-mix(in srgb, var(--weq-accent-effective) 10%, rgba(255, 220, 83, 0.22));
+  --weq-chat-glow-tertiary: color-mix(in srgb, var(--weq-accent-effective) 8%, rgba(83, 206, 144, 0.22));
+  --weq-chat-glow-quaternary: color-mix(in srgb, var(--weq-accent-effective) 7%, rgba(132, 126, 224, 0.16));
+  --weq-chat-bg:
+    radial-gradient(
+      86% 72% at 8% -12%,
+      var(--weq-chat-glow-primary) 0,
+      transparent 54%
+    ),
+    radial-gradient(
+      72% 62% at 92% 8%,
+      var(--weq-chat-glow-secondary) 0,
+      transparent 48%
+    ),
+    radial-gradient(
+      84% 76% at 84% 100%,
+      var(--weq-chat-glow-tertiary) 0,
+      transparent 52%
+    ),
+    radial-gradient(
+      78% 70% at 26% 88%,
+      var(--weq-chat-glow-quaternary) 0,
+      transparent 56%
+    ),
+    linear-gradient(
+      135deg,
+      #fdfeff 0%,
+      #f8fcff 38%,
+      #fffef5 68%,
+      #fbfffc 100%
     );
   --weq-chat-bubble-other: rgba(255, 255, 255, 0.96);
   --weq-chat-bubble-mine: var(--weq-accent-effective);
@@ -53,6 +80,11 @@ html[data-theme="light"] {
   --weq-border-subtle: color-mix(in srgb, var(--weq-accent-effective) 15%, transparent);
   --weq-border-strong: color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
   --weq-overlay: rgba(255, 255, 255, 0.72);
+  /* Frosted bars (chat header / composer / group-info panel). Translucent so the
+   * single --chat-surface gradient stays continuous behind them, with a blur to
+   * read as glass. See chat.css. */
+  --weq-bar-surface: color-mix(in srgb, var(--weq-bg-surface) 58%, transparent);
+  --weq-bar-border: var(--weq-border-subtle);
   --weq-shadow-soft: 0 18px 40px -26px rgba(7, 31, 61, 0.28);
   --weq-shadow-card: 0 24px 60px -28px rgba(7, 31, 61, 0.18);
 }
@@ -83,9 +115,34 @@ html[data-theme="dark"],
   --weq-bg-app: var(--background);
   --weq-bg-surface: var(--card);
   --weq-bg-elevated: oklch(0.24 0.01 250);
-  --weq-chat-bg: linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--weq-accent-effective) 10%, #14161a),
+  --weq-chat-glow-primary: color-mix(in srgb, var(--weq-accent-effective) 30%, transparent);
+  --weq-chat-glow-secondary: color-mix(in srgb, var(--weq-accent-effective) 16%, rgba(86, 168, 247, 0.10));
+  --weq-chat-glow-tertiary: color-mix(in srgb, var(--weq-accent-effective) 12%, rgba(83, 206, 144, 0.08));
+  --weq-chat-glow-quaternary: color-mix(in srgb, var(--weq-accent-effective) 10%, rgba(132, 126, 224, 0.07));
+  --weq-chat-bg:
+    radial-gradient(
+      125% 78% at 6% -10%,
+      var(--weq-chat-glow-primary) 0,
+      transparent 52%
+    ),
+    radial-gradient(
+      110% 72% at 104% 2%,
+      var(--weq-chat-glow-secondary) 0,
+      transparent 50%
+    ),
+    radial-gradient(
+      84% 72% at 82% 100%,
+      var(--weq-chat-glow-tertiary) 0,
+      transparent 56%
+    ),
+    radial-gradient(
+      74% 66% at 22% 90%,
+      var(--weq-chat-glow-quaternary) 0,
+      transparent 58%
+    ),
+    linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--weq-accent-effective) 11%, #14161a),
       color-mix(in srgb, var(--weq-accent-effective) 5%, #111317)
     );
   --weq-chat-bubble-other: #262729;
@@ -97,6 +154,8 @@ html[data-theme="dark"],
   --weq-border-subtle: color-mix(in srgb, var(--weq-accent-effective) 16%, rgba(255, 255, 255, 0.1));
   --weq-border-strong: color-mix(in srgb, var(--weq-accent-effective) 26%, rgba(255, 255, 255, 0.16));
   --weq-overlay: rgba(21, 24, 29, 0.78);
+  --weq-bar-surface: color-mix(in srgb, var(--weq-bg-surface) 55%, transparent);
+  --weq-bar-border: var(--weq-border-subtle);
   --weq-shadow-soft: 0 18px 40px -24px rgba(0, 0, 0, 0.52);
   --weq-shadow-card: 0 22px 46px -24px rgba(0, 0, 0, 0.48);
 }
@@ -119,41 +178,66 @@ html[data-background="plain"] {
   );
 }
 
-html[data-background="tint"] {
+html[data-background="paper"] {
   --weq-chat-bg:
     radial-gradient(
-      120% 80% at 50% -12%,
-      color-mix(in srgb, var(--weq-accent-effective) 15%, transparent) 0,
-      transparent 60%
+      130% 96% at 50% -28%,
+      color-mix(in srgb, var(--weq-accent-effective) 5%, transparent) 0,
+      transparent 62%
+    ),
+    repeating-linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0) 0 10px,
+      rgba(0, 0, 0, 0.012) 10px 11px,
+      rgba(255, 255, 255, 0) 11px 22px
     ),
     linear-gradient(
       180deg,
-      color-mix(in srgb, var(--weq-accent-effective) 6.5%, white),
-      color-mix(in srgb, var(--weq-accent-effective) 3%, white)
+      #fdfdfc 0%,
+      #f9faf7 56%,
+      #f6f7f3 100%
     );
 }
 
-html[data-background="mist"] {
+html[data-background="grid"] {
   --weq-chat-bg:
-    radial-gradient(
-      62% 52% at 12% 8%,
-      color-mix(in srgb, var(--weq-accent-effective) 17%, transparent) 0,
-      transparent 60%
-    ),
-    radial-gradient(
-      56% 46% at 88% 4%,
-      color-mix(in srgb, var(--weq-accent-effective) 11%, transparent) 0,
-      transparent 56%
-    ),
-    radial-gradient(
-      72% 60% at 72% 104%,
-      color-mix(in srgb, var(--weq-accent-effective) 10%, transparent) 0,
-      transparent 60%
-    ),
+    linear-gradient(0deg, rgba(0, 0, 0, 0.032) 1px, transparent 1px) 0 0 / 20px 20px,
+    linear-gradient(90deg, rgba(0, 0, 0, 0.032) 1px, transparent 1px) 0 0 / 20px 20px,
     linear-gradient(
       180deg,
-      color-mix(in srgb, var(--weq-accent-effective) 6%, white),
-      color-mix(in srgb, var(--weq-accent-effective) 3%, white)
+      color-mix(in srgb, var(--weq-accent-effective) 3%, white),
+      color-mix(in srgb, var(--weq-accent-effective) 1.2%, white)
+    );
+}
+
+html[data-background="dots"] {
+  --weq-chat-bg:
+    radial-gradient(circle at 1px 1px, rgba(0, 0, 0, 0.075) 0 0.8px, transparent 1px) 0 0 / 16px 16px,
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--weq-accent-effective) 2.8%, white),
+      color-mix(in srgb, var(--weq-accent-effective) 1.1%, white)
+    );
+}
+
+html[data-background="wash"] {
+  --weq-chat-bg:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--weq-accent-effective) 5.5%, white) 0%,
+      #fbfcff 34%,
+      #fffdf7 68%,
+      #fafdfb 100%
+    );
+}
+
+html[data-background="telegram"] {
+  --weq-chat-bg:
+    url("../../../../../../resources/img/chat-doodle-tile.svg") 0 0 / 1040px 860px repeat,
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--weq-accent-effective) 2.4%, white),
+      color-mix(in srgb, var(--weq-accent-effective) 1.2%, white)
     );
 }
 
@@ -165,41 +249,66 @@ html[data-theme="dark"][data-background="plain"] {
   );
 }
 
-html[data-theme="dark"][data-background="tint"] {
+html[data-theme="dark"][data-background="paper"] {
   --weq-chat-bg:
     radial-gradient(
-      120% 82% at 50% -12%,
-      color-mix(in srgb, var(--weq-accent-effective) 28%, transparent) 0,
-      transparent 60%
+      130% 96% at 50% -28%,
+      color-mix(in srgb, var(--weq-accent-effective) 10%, transparent) 0,
+      transparent 62%
+    ),
+    repeating-linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0) 0 10px,
+      rgba(255, 255, 255, 0.02) 10px 11px,
+      rgba(255, 255, 255, 0) 11px 22px
     ),
     linear-gradient(
       180deg,
-      color-mix(in srgb, var(--weq-accent-effective) 11%, #14161a),
-      color-mix(in srgb, var(--weq-accent-effective) 5%, #111317)
+      #1c211d 0%,
+      #181c19 56%,
+      #151815 100%
     );
 }
 
-html[data-theme="dark"][data-background="mist"] {
+html[data-theme="dark"][data-background="grid"] {
   --weq-chat-bg:
-    radial-gradient(
-      62% 52% at 12% 8%,
-      color-mix(in srgb, var(--weq-accent-effective) 32%, transparent) 0,
-      transparent 58%
-    ),
-    radial-gradient(
-      56% 46% at 88% 4%,
-      color-mix(in srgb, var(--weq-accent-effective) 21%, transparent) 0,
-      transparent 55%
-    ),
-    radial-gradient(
-      72% 60% at 72% 104%,
-      color-mix(in srgb, var(--weq-accent-effective) 17%, transparent) 0,
-      transparent 60%
-    ),
+    linear-gradient(0deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px) 0 0 / 20px 20px,
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px) 0 0 / 20px 20px,
     linear-gradient(
       180deg,
-      color-mix(in srgb, var(--weq-accent-effective) 9%, #14161a),
-      color-mix(in srgb, var(--weq-accent-effective) 5%, #111317)
+      color-mix(in srgb, var(--weq-accent-effective) 10%, #161a18),
+      color-mix(in srgb, var(--weq-accent-effective) 4.5%, #121513)
+    );
+}
+
+html[data-theme="dark"][data-background="dots"] {
+  --weq-chat-bg:
+    radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.1) 0 0.8px, transparent 1px) 0 0 / 16px 16px,
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--weq-accent-effective) 9%, #171b19),
+      color-mix(in srgb, var(--weq-accent-effective) 4%, #121513)
+    );
+}
+
+html[data-theme="dark"][data-background="wash"] {
+  --weq-chat-bg:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--weq-accent-effective) 12%, #1a2027) 0%,
+      #181d24 34%,
+      #1d1b20 68%,
+      #161b19 100%
+    );
+}
+
+html[data-theme="dark"][data-background="telegram"] {
+  --weq-chat-bg:
+    url("../../../../../../resources/img/chat-doodle-tile.svg") 0 0 / 1040px 860px repeat,
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--weq-accent-effective) 7%, #181c21),
+      color-mix(in srgb, var(--weq-accent-effective) 3.4%, #14171b)
     );
 }
 
@@ -3126,7 +3235,7 @@ html[data-theme="dark"] .app-title-bar-signature {
 
 .weq-settings-preset-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
   gap: 10px;
 }
 
@@ -3192,41 +3301,62 @@ html[data-theme="dark"] .app-title-bar-signature {
   );
 }
 
-.weq-settings-preset-preview.is-bg-tint {
+.weq-settings-preset-preview.is-bg-paper {
   background:
     radial-gradient(
-      120% 90% at 50% -20%,
-      color-mix(in srgb, var(--weq-accent-effective) 22%, transparent) 0,
-      transparent 62%
+      120% 100% at 50% -30%,
+      color-mix(in srgb, var(--weq-accent-effective) 4%, transparent) 0,
+      transparent 64%
     ),
+    repeating-linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.0) 0 8px,
+      rgba(0, 0, 0, 0.015) 8px 9px,
+      rgba(255, 255, 255, 0.0) 9px 18px
+    ),
+    linear-gradient(180deg, #fdfdfc, #f7f8f5);
+}
+
+.weq-settings-preset-preview.is-bg-grid {
+  background:
+    linear-gradient(0deg, rgba(0, 0, 0, 0.032) 1px, transparent 1px) 0 0 / 16px 16px,
+    linear-gradient(90deg, rgba(0, 0, 0, 0.032) 1px, transparent 1px) 0 0 / 16px 16px,
     linear-gradient(
       180deg,
-      color-mix(in srgb, var(--weq-accent-effective) 7%, white),
-      color-mix(in srgb, var(--weq-accent-effective) 3%, white)
+      color-mix(in srgb, var(--weq-accent-effective) 2.8%, white),
+      color-mix(in srgb, var(--weq-accent-effective) 1.2%, white)
     );
 }
 
-.weq-settings-preset-preview.is-bg-mist {
+.weq-settings-preset-preview.is-bg-dots {
   background:
-    radial-gradient(
-      62% 60% at 14% 6%,
-      color-mix(in srgb, var(--weq-accent-effective) 24%, transparent) 0,
-      transparent 58%
-    ),
-    radial-gradient(
-      58% 50% at 86% 2%,
-      color-mix(in srgb, var(--weq-accent-effective) 15%, transparent) 0,
-      transparent 54%
-    ),
-    radial-gradient(
-      70% 64% at 74% 108%,
-      color-mix(in srgb, var(--weq-accent-effective) 14%, transparent) 0,
-      transparent 60%
-    ),
+    radial-gradient(circle at 1px 1px, rgba(0, 0, 0, 0.08) 0 0.75px, transparent 0.95px) 0 0 / 14px 14px,
     linear-gradient(
       180deg,
-      color-mix(in srgb, var(--weq-accent-effective) 6%, white),
-      color-mix(in srgb, var(--weq-accent-effective) 3%, white)
+      color-mix(in srgb, var(--weq-accent-effective) 2.8%, white),
+      color-mix(in srgb, var(--weq-accent-effective) 1.2%, white)
+    );
+}
+
+.weq-settings-preset-preview.is-bg-wash {
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--weq-accent-effective) 5.5%, white) 0%,
+      #fbfcff 34%,
+      #fffdf7 68%,
+      #fafdfb 100%
+    ),
+    linear-gradient(180deg, #ffffff, #fafafa);
+}
+
+.weq-settings-preset-preview.is-bg-telegram {
+  background:
+    url("../../../../../../resources/img/chat-doodle-tile.svg") 0 0 / 244px 202px repeat,
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--weq-accent-effective) 2.2%, white),
+      color-mix(in srgb, var(--weq-accent-effective) 1.2%, white)
     );
 }
 
@@ -5088,6 +5218,7 @@ html[data-theme="dark"] .chat-empty {
   gap: 4px;
   min-width: 220px;
   max-width: 320px;
+  min-width: 0;
   padding: 10px 12px;
   border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 10px;
@@ -5115,6 +5246,7 @@ html[data-theme="dark"] .chat-empty {
   font-size: 13.5px;
   font-weight: 600;
   color: #1f2937;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5127,15 +5259,19 @@ html[data-theme="dark"] .chat-empty {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
 }
 
 .weq-forward-preview-line {
   font-size: 12px;
   color: #4b5563;
   line-height: 1.45;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .weq-forward-preview-foot {
@@ -5156,6 +5292,8 @@ html[data-theme="dark"] .chat-empty {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .weq-forward-preview-detail {
@@ -5328,6 +5466,52 @@ html[data-theme="dark"] .chat-empty {
   gap: 4px;
 }
 .weq-ark-footer-icon { width: 12px; height: 12px; border-radius: 2px; object-fit: cover; }
+
+/* ---- Ark 卡片深色模式 ---- The demo only ships light colors; map them onto the
+   theme tokens so the structured card reads correctly on the dark canvas. */
+html[data-theme="dark"] .weq-ark-container {
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-subtle);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+html[data-theme="dark"] .weq-ark-container:hover {
+  background-color: color-mix(in srgb, var(--weq-bg-surface) 88%, white);
+}
+html[data-theme="dark"] .weq-ark-header { color: var(--weq-fg-muted); }
+html[data-theme="dark"] .weq-ark-title { color: var(--weq-fg-primary); }
+html[data-theme="dark"] .weq-ark-desc { color: var(--weq-fg-secondary); }
+html[data-theme="dark"] .weq-ark-preview-small,
+html[data-theme="dark"] .weq-ark-preview-big {
+  background: rgba(255, 255, 255, 0.06);
+}
+html[data-theme="dark"] .weq-ark-action-btn {
+  color: var(--weq-accent-effective);
+  border-top-color: rgba(255, 255, 255, 0.1);
+}
+html[data-theme="dark"] .weq-ark-footer {
+  background: color-mix(in srgb, var(--weq-bg-surface) 78%, black);
+  border-top-color: rgba(255, 255, 255, 0.08);
+  color: var(--weq-fg-muted);
+}
+/* Faux-map: invert the road/grid tint so it doesn't glow white on dark. */
+html[data-theme="dark"] .weq-ark-map-view {
+  background:
+    linear-gradient(
+      115deg,
+      transparent 46%,
+      rgba(255, 255, 255, 0.14) 46%,
+      rgba(255, 255, 255, 0.14) 51%,
+      transparent 51%
+    ),
+    linear-gradient(0deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px) 0 0 / 100% 24px,
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px) 0 0 / 24px 100%,
+    linear-gradient(160deg, #2a2f29, #20251f);
+}
+html[data-theme="dark"] .weq-ark-map-name {
+  background: rgba(20, 22, 26, 0.85);
+  color: #d8dde3;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
 
 /* ================= QQ 闪传卡片 (ported from the Flash Transfer demo) ================= */
 
@@ -5690,4 +5874,69 @@ html[data-theme="dark"] .chat-empty {
   padding: 0;
   border: 0;
   background: transparent;
+}
+
+/* ---- 合并转发深色模式 ---- inline multiMsg preview bubble + the floating
+   forward window. All ship light-only in the template; remap to theme tokens. */
+html[data-theme="dark"] .weq-forward-preview {
+  background: linear-gradient(
+    180deg,
+    var(--weq-bg-surface),
+    color-mix(in srgb, var(--weq-bg-surface) 82%, black)
+  );
+  border-color: rgba(255, 255, 255, 0.12);
+  color: var(--weq-fg-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+html[data-theme="dark"] .weq-forward-preview:hover,
+html[data-theme="dark"] .weq-forward-preview:focus-visible {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--weq-bg-surface) 92%, white),
+    var(--weq-bg-surface)
+  );
+  border-color: rgba(255, 255, 255, 0.22);
+}
+html[data-theme="dark"] .weq-forward-preview-title { color: var(--weq-fg-primary); }
+html[data-theme="dark"] .weq-forward-preview-line { color: var(--weq-fg-secondary); }
+html[data-theme="dark"] .weq-forward-preview-foot { border-top-color: rgba(255, 255, 255, 0.14); }
+html[data-theme="dark"] .weq-forward-preview-summary { color: var(--weq-fg-muted); }
+html[data-theme="dark"] .weq-forward-preview-detail { color: var(--weq-fg-secondary); }
+
+html[data-theme="dark"] .weq-forward-window {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: var(--weq-bg-surface);
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.5),
+    0 4px 12px rgba(0, 0, 0, 0.34);
+}
+html[data-theme="dark"] .weq-forward-header {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--weq-bg-surface) 92%, white),
+    var(--weq-bg-surface)
+  );
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+html[data-theme="dark"] .weq-forward-title { color: var(--weq-fg-primary); }
+html[data-theme="dark"] .weq-forward-close { color: var(--weq-fg-secondary); }
+html[data-theme="dark"] .weq-forward-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ff8a93;
+}
+html[data-theme="dark"] .weq-forward-body {
+  background: color-mix(in srgb, var(--weq-bg-surface) 82%, black);
+}
+html[data-theme="dark"] .weq-forward-status { color: var(--weq-fg-muted); }
+html[data-theme="dark"] .weq-forward-error { color: #ff8a8a; }
+html[data-theme="dark"] .weq-forward-avatar {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--weq-fg-secondary);
+}
+html[data-theme="dark"] .weq-forward-row-name { color: var(--weq-fg-primary); }
+html[data-theme="dark"] .weq-forward-row-time { color: var(--weq-fg-muted); }
+html[data-theme="dark"] .weq-forward-bubble {
+  background: var(--weq-bg-surface);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--weq-fg-primary);
 }

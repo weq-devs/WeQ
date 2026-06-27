@@ -274,8 +274,10 @@ html[data-theme="dark"] .bot-management-sidebar {
 
 html[data-theme="dark"] .chat-header,
 html[data-theme="dark"] .composer {
-	background: #101112;
-	border-color: #1f1f1f;
+	/* Frosted dark glass over the gradient (token comes from index.css dark vars);
+	 * no longer a flat #101112 slab that re-broke the continuous canvas. */
+	background: var(--weq-bar-surface, rgba(20, 22, 26, 0.55));
+	border-color: var(--weq-bar-border, #1f1f1f);
 }
 
 html[data-theme="dark"] .search-box,

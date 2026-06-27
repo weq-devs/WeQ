@@ -2,7 +2,13 @@ import { create } from 'zustand';
 
 export type ThemePreference = 'system' | 'light' | 'dark';
 export type ThemeResolved = 'light' | 'dark';
-export type ThemeBackground = 'plain' | 'tint' | 'mist';
+export type ThemeBackground =
+  | 'plain'
+  | 'paper'
+  | 'grid'
+  | 'dots'
+  | 'wash'
+  | 'telegram';
 /**
  * Component skin pack. Only `classic` ships today; the field exists so the
  * settings page can present a (placeholder) switcher and so future packs slot
@@ -38,7 +44,14 @@ function isThemePreference(value: string | null): value is ThemePreference {
 }
 
 function isThemeBackground(value: string | null): value is ThemeBackground {
-  return value === 'plain' || value === 'tint' || value === 'mist';
+  return (
+    value === 'plain' ||
+    value === 'paper' ||
+    value === 'grid' ||
+    value === 'dots' ||
+    value === 'wash' ||
+    value === 'telegram'
+  );
 }
 
 function isThemeComponentStyle(value: string | null): value is ThemeComponentStyle {
@@ -65,9 +78,9 @@ function readAccent(): string {
 function readBackground(): ThemeBackground {
   try {
     const value = window.localStorage.getItem(storageKeys.background);
-    return isThemeBackground(value) ? value : 'tint';
+    return isThemeBackground(value) ? value : 'paper';
   } catch {
-    return 'tint';
+    return 'paper';
   }
 }
 
@@ -119,7 +132,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   preference: 'system',
   resolved: 'light',
   accent: '',
-  background: 'tint',
+  background: 'paper',
   componentStyle: 'classic',
   initialized: false,
   setPreference: (preference) => {

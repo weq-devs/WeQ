@@ -554,6 +554,86 @@ function parseMultiMsgXml(xml: string): {
   };
 }
 
+function parseArkMultiMsg(raw: unknown): {
+  mainTitle: string;
+  previewLines: string[];
+  summary: string;
+  source: string;
+} | null {
+  const fallback = { mainTitle: '聊天记录', previewLines: [], summary: '查看转发消息', source: '聊天记录' };
+  let ark: Record<string, unknown> | null = null;
+  if (raw && typeof raw === 'object') ark = raw as Record<string, unknown>;
+  else if (typeof raw === 'string' && raw.trim()) {
+    try {
+      ark = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      ark = null;
+    }
+  }
+  if (!ark) return null;
+  if (ark.app !== 'com.tencent.multimsg') return null;
+
+  const meta = ark.meta;
+  const detail =
+    meta && typeof meta === 'object' && (meta as Record<string, unknown>).detail &&
+    typeof (meta as Record<string, unknown>).detail === 'object'
+      ? ((meta as Record<string, unknown>).detail as Record<string, unknown>)
+      : null;
+  if (!detail) return fallback;
+
+  const news = Array.isArray(detail.news) ? detail.news : [];
+  const previewLines = news
+    .map((item) =>
+      item && typeof item === 'object' && typeof (item as Record<string, unknown>).text === 'string'
+        ? ((item as Record<string, unknown>).text as string).trim()
+        : '',
+    )
+    .filter(Boolean);
+  const source = typeof detail.source === 'string' && detail.source.trim()
+    ? detail.source.trim()
+    : typeof ark.desc === 'string' && ark.desc.trim()
+      ? ark.desc.trim()
+      : fallback.source;
+  const summary = typeof detail.summary === 'string' && detail.summary.trim()
+    ? detail.summary.trim()
+    : fallback.summary;
+  return {
+    mainTitle: source || fallback.mainTitle,
+    previewLines,
+    summary,
+    source: source || fallback.source,
+  };
+}
+
+export function isArkMultiMsg(raw: unknown): boolean {
+  return parseArkMultiMsg(raw) !== null;
+}
+
+function parseForwardPreviewData(data: Record<string, unknown>): {
+  mainTitle: string;
+  previewLines: string[];
+  summary: string;
+  source: string;
+} {
+  if (typeof data.xmlContent === 'string' && data.xmlContent.trim()) {
+    return parseMultiMsgXml(data.xmlContent);
+  }
+  const parsedArk = parseArkMultiMsg(data.arkData);
+  if (parsedArk) return parsedArk;
+  return {
+    mainTitle: '聊天记录',
+    previewLines: [],
+    summary: '查看转发消息',
+    source: '聊天记录',
+  };
+}
+
+function clampPreviewText(value: string, max: number): string {
+  const text = value.trim();
+  if (!text) return '';
+  return text.length > max ? `${text.slice(0, max)}...` : text;
+}
+
 /**
  * The preview bubble (a:xxx b:xxx c:xxx + 查看详情). Used both inside the main
  * timeline (via the multiMsg element renderer) and inside another forward
@@ -565,7 +645,7 @@ export function ForwardMultiMsgPreview({
   msgId,
   kind,
 }: {
-  /** The raw multiMsg element data: { xmlContent, resId, sessionId }. */
+  /** The raw multiMsg element data, or an Ark `com.tencent.multimsg` wrapper. */
   data: Record<string, unknown>;
   /** Optional inline sub-records (used when nesting — saves a DB round-trip). */
   nestedRecords?: ForwardRecordWire[];
@@ -574,8 +654,13 @@ export function ForwardMultiMsgPreview({
   /** Conversation kind so the lookup hits the right table. */
   kind: 'c2c' | 'group';
 }): ReactElement {
-  const xml = typeof data.xmlContent === 'string' ? (data.xmlContent as string) : '';
-  const parsed = useMemo(() => parseMultiMsgXml(xml), [xml]);
+  const parsed = useMemo(() => parseForwardPreviewData(data), [data]);
+  const titleText = useMemo(() => clampPreviewText(parsed.mainTitle, 36), [parsed.mainTitle]);
+  const previewLines = useMemo(
+    () => parsed.previewLines.slice(0, 4).map((line) => clampPreviewText(line, 25)),
+    [parsed.previewLines],
+  );
+  const summaryText = useMemo(() => clampPreviewText(parsed.summary, 18), [parsed.summary]);
 
   const open = useCallback(() => {
     openForwardWindow({
@@ -588,10 +673,10 @@ export function ForwardMultiMsgPreview({
 
   return (
     <button type="button" className="weq-forward-preview" onClick={open} title="查看合并转发">
-      <div className="weq-forward-preview-title">{parsed.mainTitle}</div>
-      {parsed.previewLines.length > 0 ? (
+      <div className="weq-forward-preview-title">{titleText}</div>
+      {previewLines.length > 0 ? (
         <ul className="weq-forward-preview-lines">
-          {parsed.previewLines.slice(0, 4).map((line, index) => (
+          {previewLines.map((line, index) => (
             <li key={index} className="weq-forward-preview-line">
               {line}
             </li>
@@ -599,7 +684,7 @@ export function ForwardMultiMsgPreview({
         </ul>
       ) : null}
       <div className="weq-forward-preview-foot">
-        <span className="weq-forward-preview-summary">{parsed.summary}</span>
+        <span className="weq-forward-preview-summary">{summaryText}</span>
         <span className="weq-forward-preview-detail">查看详情 ›</span>
       </div>
     </button>

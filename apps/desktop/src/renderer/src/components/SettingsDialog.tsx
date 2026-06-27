@@ -197,7 +197,7 @@ function AppearanceSection(): ReactElement {
         <div className="weq-settings-appearance-head">
           <div>
             <strong>界面背景</strong>
-            <span>跟随主题色的柔光晕染，聊天、联系人与导出页统一生效</span>
+            <span>给聊天、联系人与导出页切换不同画布质感，不一定是渐变</span>
           </div>
         </div>
         <ThemeBackgroundRow value={background} onChange={setBackground} />
@@ -457,8 +457,11 @@ function ThemeBackgroundRow({
 }) {
   const options: Array<{ value: ThemeBackground; label: string; desc: string }> = [
     { value: 'plain', label: '纯净', desc: '近纯色，最克制' },
-    { value: 'tint', label: '柔光', desc: '单层主色晕染' },
-    { value: 'mist', label: '弥散', desc: '多层叠加光晕' },
+    { value: 'paper', label: '纸感', desc: '轻微纤维感，更柔和' },
+    { value: 'grid', label: '细网格', desc: '很淡的秩序线条' },
+    { value: 'dots', label: '微点阵', desc: '比网格更轻的颗粒感' },
+    { value: 'wash', label: '淡洗染', desc: '极浅的色块过渡' },
+    { value: 'telegram', label: '电报墙', desc: 'Telegram 风格简笔画平铺' },
   ];
 
   return (

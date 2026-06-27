@@ -46,8 +46,10 @@
 	min-width: 0;
 	min-height: 0;
 	padding: 14px 0 0;
-	border-left: 1px solid #dedede;
-	background: var(--chat-surface);
+	border-left: 1px solid var(--weq-bar-border, #dedede);
+	/* Transparent so the shared chat-main gradient flows under it continuously;
+	 * the border-left is what separates it from the message column. */
+	background: transparent;
 }
 
 .group-info-toggle {
@@ -395,8 +397,12 @@
 	align-items: center;
 	gap: 14px;
 	padding: 0 22px 0 26px;
-	border-bottom: 1px solid #e0e0e0;
-	background: var(--chat-surface);
+	border-bottom: 1px solid var(--weq-bar-border, #e0e0e0);
+	/* Frosted glass over the single .chat-main gradient — NOT its own gradient.
+	 * This is what removes the old header/message "two gradients" seam. */
+	background: var(--weq-bar-surface, rgba(255, 255, 255, 0.58));
+	backdrop-filter: blur(20px) saturate(1.4);
+	-webkit-backdrop-filter: blur(20px) saturate(1.4);
 }
 
 .back-button {
@@ -495,7 +501,8 @@
 	scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
 	scrollbar-width: thin;
 	scrollbar-gutter: stable;
-	background: var(--chat-surface);
+	/* Transparent — the gradient is painted once on .chat-main behind this. */
+	background: transparent;
 }
 
 .message-scroll::-webkit-scrollbar {
@@ -2583,8 +2590,11 @@ button.contact-profile-row:hover {
 	grid-template-rows: 42px minmax(0, 1fr);
 	grid-template-columns: minmax(0, 1fr);
 	padding: 12px 0 16px 22px;
-	border-top: 1px solid #dedede;
-	background: var(--chat-surface);
+	border-top: 1px solid var(--weq-bar-border, #dedede);
+	/* Frosted glass — same single-gradient trick as .chat-header. */
+	background: var(--weq-bar-surface, rgba(255, 255, 255, 0.58));
+	backdrop-filter: blur(20px) saturate(1.4);
+	-webkit-backdrop-filter: blur(20px) saturate(1.4);
 }
 
 .composer-resize {

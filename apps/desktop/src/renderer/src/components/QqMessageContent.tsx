@@ -20,7 +20,7 @@ import { ArrowUp } from 'lucide-react';
 import type { MessageRenderer } from '../im-template/template';
 import { FaceEmoji } from './FaceEmoji';
 import { QqImage, QqVideo, QqFile, QqVoice, QqMarketFace, QqOnlineFile } from './QqMedia';
-import { ForwardMultiMsgPreview } from './ForwardWindow';
+import { ForwardMultiMsgPreview, isArkMultiMsg } from './ForwardWindow';
 import { QqArk } from './QqArk';
 import { QqFlashTransfer } from './QqFlashTransfer';
 import { QqWallet } from './QqWallet';
@@ -446,6 +446,18 @@ export function QqMessageContent({
   // An `ark` element (结构化卡片：图文/地图/小程序/一起听歌/名片/QQ收藏) likewise
   // takes over the whole bubble, rendering as its own self-contained card.
   const arkElement = elements.find((element) => element.type === 'ark');
+  const forwardKind = useContext(ForwardKindContext);
+  if (arkElement && isArkMultiMsg(arkElement.data?.arkData)) {
+    return (
+      <div className={cn('message-content', 'qq-card-only', 'qq-has-forward')}>
+        <ForwardMultiMsgPreview
+          data={{ arkData: arkElement.data?.arkData }}
+          msgId={msgId}
+          kind={forwardKind}
+        />
+      </div>
+    );
+  }
   if (arkElement) {
     return (
       <div className={cn('message-content', 'qq-card-only', 'qq-has-ark')}>
@@ -482,7 +494,6 @@ export function QqMessageContent({
   }
 
   const multiMsgElement = elements.find((element) => element.type === 'multiMsg');
-  const forwardKind = useContext(ForwardKindContext);
   if (multiMsgElement) {
     return (
       <div className={cn('message-content', 'qq-card-only', 'qq-has-forward')}>
