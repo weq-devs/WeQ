@@ -21,6 +21,7 @@ import {
 } from './media_protocol';
 import { getAppContext } from './context/app_context';
 import { checkForUpdate } from './update/updater';
+import { stopMcpServer } from './mcp/server';
 import { getLogDir, getLogger, logErrorContext, type MediaElement } from '@weq/service';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -325,4 +326,10 @@ void app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+// Best-effort: stop the account-bound MCP server on quit even if the account
+// was never explicitly closed (clearAccount also stops it).
+app.on('will-quit', () => {
+  void stopMcpServer();
 });

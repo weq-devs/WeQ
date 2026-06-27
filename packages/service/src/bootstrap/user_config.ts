@@ -50,11 +50,23 @@ export interface VoiceTranscribeConfig {
   modelId: string;
 }
 
+/**
+ * Local MCP server config. The server is account-bound — it only listens while
+ * an account is open and stops when the account switches / logs out. Bound to
+ * 127.0.0.1 and gated by a bearer `token` (generated on first enable).
+ */
+export interface McpServerConfig {
+  enabled: boolean;
+  port: number;
+  token: string;
+}
+
 export interface AppSettings {
   realtimeEnabled: boolean;
   mediaCompletion: MediaCompletionConfig;
   autoFetchClientKey: boolean;
   voiceTranscribe: VoiceTranscribeConfig;
+  mcp: McpServerConfig;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -62,6 +74,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   mediaCompletion: { enabled: true },
   autoFetchClientKey: true,
   voiceTranscribe: { modelId: '' },
+  mcp: { enabled: false, port: 8765, token: '' },
 };
 
 export interface UserConfig {
@@ -213,6 +226,11 @@ export class UserConfigService {
       voiceTranscribe: {
         modelId: s?.voiceTranscribe?.modelId ?? d.voiceTranscribe.modelId,
       },
+      mcp: {
+        enabled: s?.mcp?.enabled ?? d.mcp.enabled,
+        port: s?.mcp?.port ?? d.mcp.port,
+        token: s?.mcp?.token ?? d.mcp.token,
+      },
     };
   }
 
@@ -227,6 +245,11 @@ export class UserConfigService {
       voiceTranscribe: {
         modelId: patch.voiceTranscribe?.modelId ?? current.voiceTranscribe.modelId,
       },
+      mcp: {
+        enabled: patch.mcp?.enabled ?? current.mcp.enabled,
+        port: patch.mcp?.port ?? current.mcp.port,
+        token: patch.mcp?.token ?? current.mcp.token,
+      },
     };
     this.write({ settings: next });
     this.logger.info('updated app settings', {
@@ -236,6 +259,8 @@ export class UserConfigService {
       autoFetchClientKey: next.autoFetchClientKey,
       mediaCompletionEnabled: next.mediaCompletion.enabled,
       voiceModelId: next.voiceTranscribe.modelId,
+      mcpEnabled: next.mcp.enabled,
+      mcpPort: next.mcp.port,
     });
     return next;
   }

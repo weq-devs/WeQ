@@ -37,6 +37,7 @@ export type {
   AppSettings,
   MediaCompletionConfig,
   VoiceTranscribeConfig,
+  McpServerConfig,
 } from './bootstrap/user_config';
 
 export { AvatarCacheService } from './bootstrap/avatar_cache';

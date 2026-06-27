@@ -19,6 +19,7 @@ import {
   Monitor,
   Moon,
   Palette,
+  Plug,
   Settings2,
   Sun,
   User,
@@ -27,6 +28,7 @@ import {
 import { GlobalSettingsSection } from './settings/GlobalSettingsSection';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
 import { VoiceTranscribeSection } from './settings/VoiceTranscribeSection';
+import { McpServerSection } from './settings/McpServerSection';
 import {
   useThemeStore,
   type ThemeBackground,
@@ -34,7 +36,7 @@ import {
   type ThemePreference,
 } from '../state/theme';
 
-type SectionId = 'global' | 'appearance' | 'account' | 'voice';
+type SectionId = 'global' | 'appearance' | 'account' | 'voice' | 'mcp';
 
 interface SettingsSection {
   id: SectionId;
@@ -67,6 +69,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: '语音转录',
     icon: <AudioLines size={16} strokeWidth={1.8} />,
     render: () => <VoiceTranscribeSection />,
+  },
+  {
+    id: 'mcp',
+    label: 'MCP 服务器',
+    icon: <Plug size={16} strokeWidth={1.8} />,
+    render: () => <McpServerSection />,
   },
 ];
 

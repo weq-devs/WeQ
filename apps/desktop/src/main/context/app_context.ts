@@ -22,6 +22,7 @@ import { EventEmitter } from 'node:events';
 import { join } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
 import { createWin32Platform, type Platform } from '@weq/platform';
+import { startMcpServer, stopMcpServer } from '../mcp/server';
 import {
   accountConfigId,
   UserConfigService,
@@ -63,6 +64,7 @@ import {
   type NewMessages,
   type DbChange,
   type DbHealthFailure,
+  type McpServerConfig,
 } from '@weq/service';
 import { openAccount, openStaticAccount, peekStaticSelfUin, type AccountContext, type AccountSession } from '@weq/account';
 
@@ -307,6 +309,12 @@ export interface AppContext {
    */
   applyRealtime(enabled: boolean): void;
   /**
+   * Apply the MCP server config to the open account (start / stop / restart the
+   * account-bound HTTP server) without re-opening the account. No-op start when
+   * no account is open — the server starts lazily on next account open.
+   */
+  applyMcp(config: McpServerConfig): Promise<void>;
+  /**
    * Force a one-shot rkey harvest from the online QQ for the open account —
    * the explicit refresh before a media-completing export. Resolves false when
    * no account is open / QQ is offline / harvest failed.
@@ -341,6 +349,10 @@ export function initAppContext(): AppContext {
       },
       applyRealtime(): void {
         /* no account to watch */
+      },
+      applyMcp(): Promise<void> {
+        /* no account — nothing to serve */
+        return Promise.resolve();
       },
       refreshRkeysNow(): Promise<boolean> {
         return Promise.resolve(false);
@@ -385,6 +397,7 @@ export function initAppContext(): AppContext {
       dbHealthCheckRunning = false;
       accountMonitor?.stop();
       accountMonitor = null;
+      void stopMcpServer();
       this.account?.dispose();
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
@@ -569,6 +582,19 @@ export function initAppContext(): AppContext {
       if (userConfig.getSettings().realtimeEnabled) {
         mountDbWatch(session);
       }
+
+      // MCP server is account-bound: only listen while an account is open.
+      // Start it now if enabled; live toggling is handled by `applyMcp`.
+      const mcp = userConfig.getSettings().mcp;
+      if (mcp.enabled && mcp.token) {
+        startMcpServer({ port: mcp.port, token: mcp.token }).catch((error) => {
+          logger.error('failed to start mcp server on account open', {
+            event: 'mcp-start-failed',
+            port: mcp.port,
+            ...logErrorContext(error),
+          });
+        });
+      }
       // No health check at open — it now runs lazily, only if a real query
       // later fails in a way that looks like corruption (see the openAccount
       // callback above).
@@ -587,6 +613,7 @@ export function initAppContext(): AppContext {
       dbHealthCheckRunning = false;
       accountMonitor?.stop();
       accountMonitor = null;
+      void stopMcpServer();
       this.account?.dispose();
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
@@ -738,6 +765,7 @@ export function initAppContext(): AppContext {
       // ExportTaskManager.
       this.scheduler?.stop();
       this.scheduler = null;
+      void stopMcpServer();
       unmountDbWatch();
       this.account?.dispose();
       this.account = null;
@@ -753,6 +781,25 @@ export function initAppContext(): AppContext {
       });
       if (enabled) mountDbWatch(session);
       else unmountDbWatch();
+    },
+    async applyMcp(config: McpServerConfig): Promise<void> {
+      // Only live accounts host the MCP server. With no account open we just
+      // persist (handled by the caller) and start lazily on next account open.
+      if (!this.account || !this.services) {
+        await stopMcpServer();
+        return;
+      }
+      logger.info('applying mcp server config', {
+        event: 'apply-mcp',
+        accountUin: this.account.context.uin,
+        enabled: config.enabled,
+        port: config.port,
+      });
+      if (config.enabled && config.token) {
+        await startMcpServer({ port: config.port, token: config.token });
+      } else {
+        await stopMcpServer();
+      }
     },
     refreshRkeysNow(): Promise<boolean> {
       logger.info('manual rkey refresh requested', {

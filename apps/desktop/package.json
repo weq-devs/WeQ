@@ -17,6 +17,7 @@
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/utils": "^4.0.0",
     "@electron/remote": "^2.1.3",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@radix-ui/react-slot": "^1.1.1",
     "@tanstack/react-query": "^4.44.0",
     "@trpc/client": "^10.45.4",
