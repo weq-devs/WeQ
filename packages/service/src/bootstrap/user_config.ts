@@ -65,6 +65,11 @@ export interface AppSettings {
   realtimeEnabled: boolean;
   mediaCompletion: MediaCompletionConfig;
   autoFetchClientKey: boolean;
+  /**
+   * 空闲自动上锁阈值（分钟）。0 = 关闭自动上锁（仍可在左栏手动上锁）。
+   * 解锁强制走系统认证（Windows Hello / Touch ID），无绕过入口。
+   */
+  autoLockMinutes: number;
   voiceTranscribe: VoiceTranscribeConfig;
   mcp: McpServerConfig;
 }
@@ -73,6 +78,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   realtimeEnabled: true,
   mediaCompletion: { enabled: true },
   autoFetchClientKey: true,
+  autoLockMinutes: 0,
   voiceTranscribe: { modelId: '' },
   mcp: { enabled: false, port: 8765, token: '' },
 };
@@ -220,6 +226,7 @@ export class UserConfigService {
     return {
       realtimeEnabled: s?.realtimeEnabled ?? d.realtimeEnabled,
       autoFetchClientKey: s?.autoFetchClientKey ?? d.autoFetchClientKey,
+      autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
       mediaCompletion: {
         enabled: s?.mediaCompletion?.enabled ?? d.mediaCompletion.enabled,
       },
@@ -239,6 +246,7 @@ export class UserConfigService {
     const next: AppSettings = {
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
       autoFetchClientKey: patch.autoFetchClientKey ?? current.autoFetchClientKey,
+      autoLockMinutes: patch.autoLockMinutes ?? current.autoLockMinutes,
       mediaCompletion: {
         enabled: patch.mediaCompletion?.enabled ?? current.mediaCompletion.enabled,
       },
@@ -257,6 +265,7 @@ export class UserConfigService {
       patchKeys: Object.keys(patch),
       realtimeEnabled: next.realtimeEnabled,
       autoFetchClientKey: next.autoFetchClientKey,
+      autoLockMinutes: next.autoLockMinutes,
       mediaCompletionEnabled: next.mediaCompletion.enabled,
       voiceModelId: next.voiceTranscribe.modelId,
       mcpEnabled: next.mcp.enabled,

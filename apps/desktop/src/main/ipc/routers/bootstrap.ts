@@ -212,6 +212,17 @@ export const bootstrapRouter = router({
       return true;
     }),
 
+  /**
+   * 空闲自动上锁阈值（分钟）。0 = 关闭自动上锁。渲染层的 AppLockOverlay
+   * 读取该值驱动空闲计时；手动上锁与之无关，始终可用。
+   */
+  setAutoLockMinutes: procedure
+    .input(z.object({ minutes: z.number().int().min(0).max(120) }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ autoLockMinutes: input.minutes });
+      return true;
+    }),
+
   // ---- MCP server (account-bound) ----
 
   /**

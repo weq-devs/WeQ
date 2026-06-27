@@ -15,8 +15,8 @@
  * everything fresh for 5 min and never refetches on mount).
  */
 
-import { type ReactElement } from 'react';
-import { Check, FolderOpen, Info, RotateCcw, User } from 'lucide-react';
+import { useEffect, useState, type ReactElement } from 'react';
+import { Check, FolderOpen, Info, LockKeyhole, RotateCcw, User } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useDialog } from '../Dialog';
 import { QqAvatar } from '../QqAvatar';
@@ -28,12 +28,30 @@ function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+/** 空闲自动锁定时长选项。0 = 关闭（仍可手动上锁）。 */
+const AUTO_LOCK_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
+  { value: 0, label: '关闭' },
+  { value: 1, label: '1 分钟' },
+  { value: 5, label: '5 分钟' },
+  { value: 10, label: '10 分钟' },
+  { value: 30, label: '30 分钟' },
+];
+
 export function GlobalSettingsSection(): ReactElement {
   const showError = useDialog((s) => s.showError);
+  const [systemAuthStatus, setSystemAuthStatus] = useState<Awaited<
+    ReturnType<typeof window.weq.systemAuth.getStatus>
+  > | null>(null);
+  const [autoLockMinutes, setAutoLockMinutes] = useState(0);
 
   const version = trpc.bootstrap.getVersionInfo.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: Infinity,
+  });
+  const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
   const accounts = trpc.bootstrap.listAccountConfigs.useQuery(undefined, {
     refetchOnWindowFocus: false,
@@ -55,7 +73,20 @@ export function GlobalSettingsSection(): ReactElement {
   const clearAutoEnter = trpc.bootstrap.clearAutoEnter.useMutation();
   const pickCache = trpc.bootstrap.pickCacheDir.useMutation();
   const clearCache = trpc.bootstrap.clearCacheDir.useMutation();
+  const setAutoLock = trpc.bootstrap.setAutoLockMinutes.useMutation();
   const cacheBusy = pickCache.isLoading || clearCache.isLoading;
+
+  useEffect(() => {
+    const minutes = settings.data?.autoLockMinutes;
+    if (typeof minutes === 'number') setAutoLockMinutes(minutes);
+  }, [settings.data?.autoLockMinutes]);
+
+  useEffect(() => {
+    void window.weq.systemAuth
+      .getStatus()
+      .then(setSystemAuthStatus)
+      .catch(() => setSystemAuthStatus(null));
+  }, []);
 
   async function onOpenLogDir(): Promise<void> {
     try {
@@ -101,6 +132,23 @@ export function GlobalSettingsSection(): ReactElement {
     }
   }
 
+  async function onSetAutoLock(minutes: number): Promise<void> {
+    if (minutes > 0 && !systemAuthStatus?.available) {
+      showError('无法开启自动锁定', systemAuthStatus?.error ?? '当前设备的系统认证不可用。');
+      return;
+    }
+    const prev = autoLockMinutes;
+    setAutoLockMinutes(minutes);
+    try {
+      await setAutoLock.mutateAsync({ minutes });
+      await settings.refetch();
+    } catch (e) {
+      setAutoLockMinutes(prev);
+      await settings.refetch();
+      showError('保存自动锁定设置失败', errMsg(e));
+    }
+  }
+
   const v = version.data;
   const accountList = accounts.data ?? [];
   const autoEnterTarget = autoEnter.data;
@@ -133,6 +181,47 @@ export function GlobalSettingsSection(): ReactElement {
 
       {/* Software update */}
       <UpdateCard />
+
+      <Card title="应用锁">
+        <Row
+          label={
+            <span className="weq-set-row-icon">
+              <LockKeyhole size={15} strokeWidth={1.8} aria-hidden />
+              空闲自动锁定
+            </span>
+          }
+          desc={
+            systemAuthStatus?.available
+              ? `无操作超过所选时长后自动锁定，需用 ${systemAuthStatus.displayName} 验证才能解锁。随时可在左栏头像上方手动上锁。`
+              : systemAuthStatus?.error ?? '当前设备或系统环境暂不可用，自动锁定不可开启。'
+          }
+          control={
+            <div
+              className="weq-set-seg"
+              role="radiogroup"
+              aria-label="空闲自动锁定时长"
+            >
+              {AUTO_LOCK_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={autoLockMinutes === opt.value}
+                  className={`weq-set-seg-item${autoLockMinutes === opt.value ? ' is-on' : ''}`}
+                  disabled={
+                    settings.isLoading ||
+                    setAutoLock.isLoading ||
+                    (opt.value > 0 && !systemAuthStatus?.available)
+                  }
+                  onClick={() => void onSetAutoLock(opt.value)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          }
+        />
+      </Card>
 
       {/* Account list */}
       <Card title="现有配置">

@@ -2211,6 +2211,86 @@ html[data-theme="dark"] .chat-empty {
   line-height: 1;
 }
 
+.weq-lock {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  padding: 1.2rem 1.25rem 1.05rem;
+}
+
+.weq-lock-head {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.weq-lock-icon {
+  display: inline-flex;
+  width: 2.15rem;
+  height: 2.15rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.6rem;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+
+.weq-lock-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  min-width: 0;
+}
+
+.weq-lock-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: #0f2d4c;
+}
+
+.weq-lock-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  width: fit-content;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #5b7088;
+}
+
+.weq-lock-desc {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.62;
+  color: #36495d;
+}
+
+.weq-lock-tip {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #76899b;
+}
+
+.weq-lock-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin-top: 0.35rem;
+}
+
+.weq-lock-foot .weq-action-primary,
+.weq-lock-foot .weq-action-soft {
+  min-height: 1.65rem;
+  padding: 0.38rem 0.72rem;
+  border-radius: 0.38rem;
+  font-size: 12px;
+  gap: 0.34rem;
+}
+
 html * {
   scrollbar-color: rgba(190, 190, 190, 0.78) transparent !important;
   scrollbar-width: thin;
@@ -2489,6 +2569,30 @@ html[data-theme="dark"] .app-title-bar-signature {
   width: 46px;
   height: 46px;
   border-radius: 10px;
+}
+
+/* Manual lock button — sits just above the account avatar. */
+.app-shell .rail-footer .weq-rail-lock-btn {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 34px;
+  border-radius: 10px;
+  color: #51677c;
+  background: transparent;
+  border: 1px solid rgba(0, 153, 255, 0.18);
+  transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease;
+}
+
+.app-shell .rail-footer .weq-rail-lock-btn:hover:not(:disabled) {
+  color: #0099ff;
+  border-color: rgba(0, 153, 255, 0.34);
+  background: rgba(0, 153, 255, 0.08);
+}
+
+.app-shell .rail-footer .weq-rail-lock-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* Popover buttons should not be constrained by rail-footer button styles */
@@ -3698,6 +3802,45 @@ html[data-theme="dark"] .app-title-bar-signature {
 
 .weq-set-row-ctrl {
   flex: none;
+}
+
+/* Segmented single-select (e.g. 空闲自动锁定时长). */
+.weq-set-seg {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 153, 255, 0.18);
+  background: rgba(0, 153, 255, 0.05);
+}
+
+.weq-set-seg-item {
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #51677c;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 140ms ease, background-color 140ms ease;
+}
+
+.weq-set-seg-item:hover:not(:disabled):not(.is-on) {
+  color: #0f2d4c;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.weq-set-seg-item.is-on {
+  color: #ffffff;
+  background: #0099ff;
+}
+
+.weq-set-seg-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .weq-set-note {

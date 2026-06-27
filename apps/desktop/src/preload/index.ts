@@ -26,6 +26,22 @@ exposeElectronTRPC();
 
 const weqBridge = {
   openLogDir: (): Promise<boolean> => ipcRenderer.invoke('logs:open-dir') as Promise<boolean>,
+  systemAuth: {
+    getStatus: () =>
+      ipcRenderer.invoke('systemAuth:getStatus') as Promise<{
+        platform: string;
+        available: boolean;
+        method: 'windows-hello' | 'touch-id' | 'none';
+        displayName: string;
+        error?: string;
+      }>,
+    verify: (reason?: string) =>
+      ipcRenderer.invoke('systemAuth:verify', reason) as Promise<{
+        success: boolean;
+        method: 'windows-hello' | 'touch-id' | 'none';
+        error?: string;
+      }>,
+  },
 };
 
 if (process.contextIsolated) {
