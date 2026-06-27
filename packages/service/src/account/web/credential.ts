@@ -15,6 +15,7 @@
  */
 
 import type { NtHelperBinding } from '@weq/native';
+import { getLogger, logErrorContext } from '../../common/logger';
 
 /**
  * djb2 hash → 31-bit `bkn` (a.k.a. `g_tk` / csrf token), QQ-web style.
@@ -73,28 +74,50 @@ export type WebNative = Pick<NtHelperBinding, 'fetchSkey' | 'fetchPskey'>;
 export class WebCredentialProvider {
   private skey: string | null = null;
   private readonly pskeyByDomain = new Map<string, string>();
+  private readonly logger;
 
   constructor(
     private readonly nt: WebNative,
     private readonly uin: string,
     private readonly resolvePid: () => number,
-  ) {}
+  ) {
+    this.logger = getLogger().child({ scope: 'web-credential', accountUin: this.uin });
+  }
 
   /** Credential bundle for `domain` (e.g. 'qun.qq.com', 'qzone.qq.com'). */
   async forDomain(domain: string): Promise<WebCredential> {
     const pid = this.resolvePid();
+    this.logger.info('resolving web credential', {
+      event: 'resolve-web-credential',
+      pid,
+      domain,
+      hasSkeyCache: this.skey !== null,
+      hasPskeyCache: this.pskeyByDomain.has(domain),
+    });
 
     // Sequential, not parallel: both fetchers drive OIDB over the same hook pipe
     // for this pid, so overlapping them risks contention.
-    if (this.skey === null) {
-      this.skey = await this.nt.fetchSkey(pid, this.uin);
-    }
-    let pskey = this.pskeyByDomain.get(domain);
-    if (pskey === undefined) {
-      pskey = await this.nt.fetchPskey(pid, this.uin, domain);
-      this.pskeyByDomain.set(domain, pskey);
-    }
+    try {
+      if (this.skey === null) {
+        this.skey = await this.nt.fetchSkey(pid, this.uin);
+        this.logger.info('fetched skey', { event: 'fetch-skey', pid, domain });
+      }
+      let pskey = this.pskeyByDomain.get(domain);
+      if (pskey === undefined) {
+        pskey = await this.nt.fetchPskey(pid, this.uin, domain);
+        this.pskeyByDomain.set(domain, pskey);
+        this.logger.info('fetched pskey', { event: 'fetch-pskey', pid, domain });
+      }
 
-    return { uin: this.uin, skey: this.skey, pskey };
+      return { uin: this.uin, skey: this.skey, pskey };
+    } catch (error) {
+      this.logger.error('failed to resolve web credential', {
+        event: 'resolve-web-credential-failed',
+        pid,
+        domain,
+        ...logErrorContext(error),
+      });
+      throw error;
+    }
   }
 }

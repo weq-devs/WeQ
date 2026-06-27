@@ -57,6 +57,14 @@ export function GlobalSettingsSection(): ReactElement {
   const clearCache = trpc.bootstrap.clearCacheDir.useMutation();
   const cacheBusy = pickCache.isLoading || clearCache.isLoading;
 
+  async function onOpenLogDir(): Promise<void> {
+    try {
+      await window.weq.openLogDir();
+    } catch (e) {
+      showError('打开日志文件夹失败', errMsg(e));
+    }
+  }
+
   async function onPickCache(): Promise<void> {
     try {
       await pickCache.mutateAsync();
@@ -224,6 +232,19 @@ export function GlobalSettingsSection(): ReactElement {
                 重置默认
               </button>
             </div>
+          }
+        />
+      </Card>
+
+      <Card title="日志">
+        <Row
+          label="日志文件夹"
+          desc="日志按日期拆分保存到 WeQ 缓存目录下的 logs 文件夹。"
+          control={
+            <button type="button" className="weq-set-btn" onClick={() => void onOpenLogDir()}>
+              <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
+              打开日志文件夹
+            </button>
           }
         />
       </Card>

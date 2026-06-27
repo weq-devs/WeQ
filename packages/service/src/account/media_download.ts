@@ -22,6 +22,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AccountConfigService, DownloadRkey } from './user_config';
 import { rkeyExpiryMs } from './user_config';
+import { getLogger, logErrorContext } from '../common/logger';
 
 const MEDIA_HOST = 'https://multimedia.nt.qq.com.cn';
 const DOWNLOAD_BASE = `${MEDIA_HOST}/download`;
@@ -58,6 +59,8 @@ export interface DownloadOptions {
 }
 
 export class MediaDownloadService {
+  private readonly logger = getLogger().child({ scope: 'media-download' });
+
   constructor(
     private readonly accountConfig: AccountConfigService,
     private readonly cacheDir: string,
@@ -70,7 +73,10 @@ export class MediaDownloadService {
   async download(fileToken: string, opts: DownloadOptions = {}): Promise<string | null> {
     if (!fileToken) return null;
     const cachePath = join(this.cacheDir, `${hashToken(fileToken)}${opts.ext ?? ''}`);
-    if (existsSync(cachePath)) return cachePath;
+    if (existsSync(cachePath)) {
+      this.logger.debug('media cache hit', { event: 'media-cache-hit', cachePath, fileToken });
+      return cachePath;
+    }
 
     const urls: string[] = [];
     // Digit-only tokens are pre-rkey media: fetch the original directly, no rkey.
@@ -78,6 +84,13 @@ export class MediaDownloadService {
       urls.push(resolveOriginalUrl(opts.originalUrl));
     }
     const allowed = opts.rkeyTypes ?? IMAGE_RKEY_TYPES;
+    this.logger.info('starting media download', {
+      event: 'media-download-start',
+      fileToken,
+      cachePath,
+      allowedRkeyTypes: allowed,
+      hasOriginalUrl: Boolean(opts.originalUrl),
+    });
     for (const rkey of this.validRkeys(allowed)) {
       urls.push(buildUrl(fileToken, rkey));
     }
@@ -86,10 +99,31 @@ export class MediaDownloadService {
       const bytes = await tryFetch(url);
       if (bytes) {
         mkdirSync(this.cacheDir, { recursive: true });
-        writeFileSync(cachePath, bytes);
+        try {
+          writeFileSync(cachePath, bytes);
+        } catch (error) {
+          this.logger.error('failed to persist downloaded media', {
+            event: 'media-download-write-failed',
+            fileToken,
+            cachePath,
+            ...logErrorContext(error),
+          });
+          throw error;
+        }
+        this.logger.info('downloaded media into cache', {
+          event: 'media-download-success',
+          fileToken,
+          cachePath,
+          size: bytes.length,
+        });
         return cachePath;
       }
     }
+    this.logger.warn('media download exhausted all candidates', {
+      event: 'media-download-failed',
+      fileToken,
+      candidateCount: urls.length,
+    });
     return null;
   }
 

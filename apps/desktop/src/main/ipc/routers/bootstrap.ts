@@ -26,13 +26,15 @@ import {
   type AccountForcedClosedEvent,
 } from '../../context/app_context';
 import { procedure, router } from '../trpc';
-import { accountConfigId, type KeyEvent, type VoiceDownloadProgress } from '@weq/service';
+import { accountConfigId, getLogger, type KeyEvent, type VoiceDownloadProgress } from '@weq/service';
 import { peekStaticSelfUin } from '@weq/account';
 
 const algoSchema = z.object({
   pageHmacAlgorithm: z.string(),
   kdfHmacAlgorithm: z.string(),
 });
+
+const logger = getLogger().child({ scope: 'bootstrap-router' });
 
 export const bootstrapRouter = router({
   // ---- native health ----
@@ -140,6 +142,12 @@ export const bootstrapRouter = router({
       const dataDir = input.dataDir ?? boot.globalConfig.accountDataDir(input.uin) ?? undefined;
       const configId = accountConfigId(input.uin, dataDir);
       boot.userConfig.setAutoEnter({ configId, uin: input.uin, ...(dataDir ? { dataDir } : {}) });
+      logger.info('set auto-enter target from bootstrap router', {
+        event: 'router-set-auto-enter',
+        accountUin: input.uin,
+        dataDir: dataDir ?? null,
+        configId,
+      });
       return true;
     }),
 
@@ -368,6 +376,11 @@ export const bootstrapRouter = router({
     .input(z.object({ pid: z.number().int().positive(), dbPath: z.string() }))
     .mutation(async ({ input }) => {
       const platform = requirePlatform();
+      logger.info('router requested key from running instance', {
+        event: 'router-fetch-key-from-instance',
+        pid: input.pid,
+        dbPath: input.dbPath,
+      });
       // Ensure the hook is loaded before requestDecryptKey runs.
       await platform.native.ntHelper.injectAndGetStatusEmbedded(input.pid);
       return requireBootstrap().keys.fetchFromInstance(input.pid, input.dbPath);
@@ -504,6 +517,7 @@ export const bootstrapRouter = router({
     }),
 
   closeAccount: procedure.mutation(() => {
+    logger.info('router closing account', { event: 'router-close-account' });
     getAppContext().clearAccount();
     return true;
   }),

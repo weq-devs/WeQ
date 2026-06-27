@@ -54,6 +54,10 @@ import {
   checkAccountDatabaseHealth,
   createNtMsgDbHook,
   formatDbHealthFailures,
+  initLogger,
+  getLogger,
+  getLogDir,
+  logErrorContext,
   type AccountConfigMetadata,
   type DbWatchHandle,
   type NewMessages,
@@ -148,6 +152,7 @@ function unmountDbWatch(): void {
  * returns the user to the home screen.
  */
 function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: Platform): void {
+  const logger = getLogger().child({ scope: 'db-health', accountUin: session.context.uin });
   if (dbHealthCheckRunning) return;
   // Ignore late triggers from a session that has already been replaced/closed.
   if (ctx.account !== session) return;
@@ -155,13 +160,27 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
   const seq = ++dbHealthCheckSeq;
   void (async (): Promise<void> => {
     try {
+      logger.info('starting database health check', {
+        event: 'db-health-check-start',
+        msgDbPath: session.msgDbPath,
+      });
       const failures = await checkAccountDatabaseHealth(session, platform);
       // A newer check started or the account changed mid-check — drop the result.
       if (seq !== dbHealthCheckSeq || ctx.account !== session) return;
       // 没检出损坏就不弹窗、不强退（误报/瞬时错误），放行让后续可再触发。
       if (failures.length === 0) return;
 
+      if (failures.length === 0) {
+        logger.info('database health check passed', { event: 'db-health-check-clean' });
+        return;
+      }
+
       const details = formatDbHealthFailures(failures);
+      logger.error('database corruption confirmed', {
+        event: 'db-health-check-failed',
+        failureCount: failures.length,
+        details,
+      });
       ctx.clearAccount();
       accountEventBus.emit('forcedClosed', {
         reason: 'database-damaged',
@@ -173,6 +192,10 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
       } satisfies AccountForcedClosedEvent);
     } catch (e) {
       if (seq !== dbHealthCheckSeq || ctx.account !== session) return;
+      logger.error('database health check crashed', {
+        event: 'db-health-check-error',
+        ...logErrorContext(e),
+      });
       const failure: DbHealthFailure = {
         dbName: '数据库健康检查',
         dbPath: session.msgDbPath,
@@ -327,6 +350,13 @@ export function initAppContext(): AppContext {
   }
 
   const platform = createWin32Platform(result.bundle);
+  initLogger(platform.appDataRoot());
+  const logger = getLogger().child({ scope: 'app-context' });
+  logger.info('initializing app context', {
+    event: 'init-app-context',
+    appDataRoot: platform.appDataRoot(),
+    logDir: getLogDir(),
+  });
   const userConfig = new UserConfigService(platform);
 
   const bootstrap: BootstrapServices = {
@@ -346,6 +376,11 @@ export function initAppContext(): AppContext {
     services: null,
     scheduler: null,
     async setAccount(accountCtx: AccountContext, metadata: AccountConfigMetadata = {}): Promise<void> {
+      logger.info('opening account session', {
+        event: 'open-account-start',
+        accountUin: accountCtx.uin,
+        dataDir: metadata.dataDir ?? null,
+      });
       dbHealthCheckSeq += 1;
       dbHealthCheckRunning = false;
       accountMonitor?.stop();
@@ -361,6 +396,12 @@ export function initAppContext(): AppContext {
         const current = this.account;
         if (!current) return;
         console.warn('[account] suspected database corruption from query on', info.dbPath, info.error);
+        logger.warn('suspected database corruption from query', {
+          event: 'suspected-db-corruption',
+          accountUin: current.context.uin,
+          dbPath: info.dbPath,
+          error: info.error,
+        });
         startDbHealthCheck(this, current, platform);
       });
       this.account = session;
@@ -517,6 +558,11 @@ export function initAppContext(): AppContext {
         () => userConfig.getSettings().autoFetchClientKey,
       );
       accountMonitor.start();
+      logger.info('opened account session', {
+        event: 'open-account-success',
+        accountUin: session.context.uin,
+        dataDir: metadata.dataDir ?? null,
+      });
 
       // Watch this account's nt_msg.db only when 实时消息 is enabled. Toggling
       // it later is handled live by `applyRealtime` (no re-open needed).
@@ -532,6 +578,11 @@ export function initAppContext(): AppContext {
       selfPreview: { uin: string; displayName: string; avatarUrl: string },
       options: { dbKey?: string; algo?: import('@weq/native').DatabaseAlgorithms } = {},
     ): Promise<void> {
+      logger.info('opening static account session', {
+        event: 'open-static-account-start',
+        accountUin: selfPreview.uin,
+        dirPath,
+      });
       dbHealthCheckSeq += 1;
       dbHealthCheckRunning = false;
       accountMonitor?.stop();
@@ -664,11 +715,20 @@ export function initAppContext(): AppContext {
         ...(selfPreview.displayName ? { displayName: selfPreview.displayName } : {}),
         ...(selfPreview.avatarUrl ? { avatarUrl: selfPreview.avatarUrl } : {}),
       });
+      logger.info('opened static account session', {
+        event: 'open-static-account-success',
+        accountUin: session.context.uin,
+        dirPath,
+      });
 
       // No monitor, no db watch, no health check, no scheduler —
       // static accounts are offline snapshots.
     },
     clearAccount(): void {
+      logger.info('clearing account session', {
+        event: 'clear-account',
+        accountUin: this.account?.context.uin ?? null,
+      });
       dbHealthCheckSeq += 1;
       dbHealthCheckRunning = false;
       accountMonitor?.stop();
@@ -686,10 +746,19 @@ export function initAppContext(): AppContext {
     applyRealtime(enabled: boolean): void {
       const session = this.account;
       if (!session) return;
+      logger.info('toggled realtime db watch', {
+        event: 'apply-realtime',
+        accountUin: session.context.uin,
+        enabled,
+      });
       if (enabled) mountDbWatch(session);
       else unmountDbWatch();
     },
     refreshRkeysNow(): Promise<boolean> {
+      logger.info('manual rkey refresh requested', {
+        event: 'refresh-rkeys-now',
+        accountUin: this.account?.context.uin ?? null,
+      });
       return accountMonitor?.harvestRkeysNow() ?? Promise.resolve(false);
     },
   };

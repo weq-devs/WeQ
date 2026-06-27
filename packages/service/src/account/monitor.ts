@@ -22,6 +22,7 @@ import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
 import type { AccountConfigService, DownloadRkey, ClientKey } from './user_config';
 import { rkeyExpiryMs, clientKeyExpiryMs } from './user_config';
+import { getLogger, logErrorContext } from '../common/logger';
 
 /** How often to poll for the account becoming logged in. */
 const LOGIN_POLL_MS = 5000;
@@ -47,6 +48,7 @@ export class AccountMonitorService {
   /** Last online state written to config — avoids rewriting it every tick. */
   private lastOnline: boolean | null = null;
   private lastPid: number | null | undefined = undefined;
+  private readonly logger;
 
   /**
    * @param shouldHarvestRkeys Checked live before each rkey fetch — when it
@@ -62,11 +64,14 @@ export class AccountMonitorService {
     private readonly accountConfig: AccountConfigService,
     private readonly shouldHarvestRkeys: () => boolean = () => true,
     private readonly shouldFetchClientKey: () => boolean = () => false,
-  ) {}
+  ) {
+    this.logger = getLogger().child({ scope: 'account-monitor', accountUin: this.session.context.uin });
+  }
 
   start(): void {
     if (this.running) return;
     this.running = true;
+    this.logger.info('started account monitor', { event: 'monitor-start' });
     this.scheduleLoginPoll(0);
   }
 
@@ -85,8 +90,14 @@ export class AccountMonitorService {
       const rkeys = parseRkeys(raw);
       if (rkeys.length === 0) return false;
       this.accountConfig.setRkeys(rkeys);
+      this.logger.info('harvested rkeys on demand', { event: 'harvest-rkeys-now', pid, count: rkeys.length });
       return true;
-    } catch {
+    } catch (error) {
+      this.logger.warn('failed to harvest rkeys on demand', {
+        event: 'harvest-rkeys-now-failed',
+        pid,
+        ...logErrorContext(error),
+      });
       return false;
     }
   }
@@ -100,6 +111,7 @@ export class AccountMonitorService {
     this.attachedPid = null;
     this.lastOnline = null;
     this.lastPid = undefined;
+    this.logger.info('stopped account monitor', { event: 'monitor-stop' });
   }
 
   private get uin(): string {
@@ -148,6 +160,7 @@ export class AccountMonitorService {
 
     this.attachedPid = pid;
     this.markOnline(pid);
+    this.logger.info('account detected online', { event: 'account-online', pid });
     await this.harvest(pid);
     this.schedulePidPoll(PID_POLL_MS);
   }
@@ -197,6 +210,10 @@ export class AccountMonitorService {
       if (this.attachedPid !== null) {
         injectedPids.delete(this.attachedPid);
       }
+      this.logger.info('attached qq process exited; marking account offline', {
+        event: 'account-offline',
+        pid,
+      });
       this.attachedPid = null;
       this.markOffline();
       return this.scheduleLoginPoll(LOGIN_POLL_MS);
@@ -234,6 +251,7 @@ export class AccountMonitorService {
     if (injectedPids.has(pid)) return;
     await this.nt.injectAndGetStatusEmbedded(pid);
     injectedPids.add(pid);
+    this.logger.info('injected helper into qq process', { event: 'inject-qq-helper', pid });
   }
 
   /** Harvest both rkey & clientkey (gated by their respective switches). */
@@ -244,13 +262,28 @@ export class AccountMonitorService {
         const raw = await this.nt.fetchDownloadRkeys(pid);
         const rkeys = parseRkeys(raw);
         if (rkeys.length > 0) this.accountConfig.setRkeys(rkeys);
+        if (rkeys.length > 0) {
+          this.logger.info('harvested download rkeys', { event: 'harvest-rkeys', pid, count: rkeys.length });
+        }
       }
       if (this.shouldFetchClientKey()) {
         const raw = await this.nt.fetchClientKey(pid);
         const key = parseClientKey(raw);
         if (key) this.accountConfig.setClientKey(key);
+        if (key) {
+          this.logger.info('harvested client key', {
+            event: 'harvest-client-key',
+            pid,
+            ttlSeconds: key.ttlSeconds,
+          });
+        }
       }
-    } catch {
+    } catch (error) {
+      this.logger.warn('background harvest failed', {
+        event: 'harvest-failed',
+        pid,
+        ...logErrorContext(error),
+      });
       /* leave stale credentials in place; retry on the next stale check */
     }
   }

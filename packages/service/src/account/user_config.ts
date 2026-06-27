@@ -18,6 +18,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AccountSession } from '@weq/account';
 import type { DatabaseAlgorithms } from '@weq/native';
+import { getLogger, logErrorContext } from '../common/logger';
 
 /**
  * A download rkey issued by QQ's OIDB service (via `fetchDownloadRkeys`). Used
@@ -158,6 +159,7 @@ export class AccountConfigService {
    * open flow always runs before any {@link patch}.
    */
   private currentConfigId: string;
+  private readonly logger: ReturnType<typeof getLogger>;
 
   constructor(
     private readonly session: AccountSession,
@@ -165,6 +167,7 @@ export class AccountConfigService {
   ) {
     this.accountsDir = join(appDataRoot, 'config', 'accounts');
     this.currentConfigId = accountConfigId(this.session.context.uin);
+    this.logger = getLogger().child({ scope: 'account-config', accountUin: this.session.context.uin });
   }
 
   /**
@@ -190,6 +193,12 @@ export class AccountConfigService {
       lastLoginAt: Date.now(),
     };
     this.writeRecord(config);
+    this.logger.info('saved account config', {
+      event: 'save-account-config',
+      configId,
+      dataDir: metadata.dataDir ?? null,
+      static: metadata.static === true,
+    });
   }
 
   /** Read the current account's record from disk, or null if not yet written. */
@@ -200,16 +209,31 @@ export class AccountConfigService {
   /** Update the online flag + pid without disturbing the rest of the record. */
   setOnline(qqOnline: boolean, qqPid: number | null): void {
     this.patch({ qqOnline, qqPid });
+    this.logger.info('updated account online state', {
+      event: 'set-online',
+      qqOnline,
+      qqPid,
+    });
   }
 
   /** Replace the stored download rkeys (and stamp the refresh time). */
   setRkeys(rkeys: DownloadRkey[]): void {
     this.patch({ rkeys, rkeyUpdatedAt: Date.now() });
+    this.logger.info('stored download rkeys', {
+      event: 'set-rkeys',
+      count: rkeys.length,
+      types: rkeys.map((r) => r.type),
+    });
   }
 
   /** Replace the stored clientkey. */
   setClientKey(clientKey: ClientKey): void {
     this.patch({ clientKey });
+    this.logger.info('stored client key', {
+      event: 'set-client-key',
+      ttlSeconds: clientKey.ttlSeconds,
+      keyIndex: clientKey.keyIndex,
+    });
   }
 
   private patch(partial: Partial<AccountConfig>): void {
@@ -230,6 +254,16 @@ export class AccountConfigService {
   private writeRecord(config: AccountConfig): void {
     mkdirSync(this.accountsDir, { recursive: true });
     const filePath = join(this.accountsDir, `${config.configId}.json`);
-    writeFileSync(filePath, JSON.stringify(config, null, 2), 'utf-8');
+    try {
+      writeFileSync(filePath, JSON.stringify(config, null, 2), 'utf-8');
+    } catch (error) {
+      this.logger.error('failed to write account config', {
+        event: 'write-account-config-failed',
+        filePath,
+        configId: config.configId,
+        ...logErrorContext(error),
+      });
+      throw error;
+    }
   }
 }

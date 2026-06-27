@@ -21,7 +21,7 @@ import {
 } from './media_protocol';
 import { getAppContext } from './context/app_context';
 import { checkForUpdate } from './update/updater';
-import type { MediaElement } from '@weq/service';
+import { getLogDir, getLogger, logErrorContext, type MediaElement } from '@weq/service';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -46,6 +46,8 @@ const WINDOW_LAYOUTS = {
   home: { width: 1120, height: 580 },
   chat: { width: 1180, height: 760 },
 } as const;
+
+const logger = getLogger().child({ scope: 'desktop-main' });
 
 function registerWindowLayoutIpc(): void {
   ipcMain.handle('window:set-layout', (event, layout: keyof typeof WINDOW_LAYOUTS) => {
@@ -91,6 +93,12 @@ function registerMediaIpc(): void {
       if (!services) return false;
       const { source } = await services.fileSearch.findFile(input.t, input.name, input.type);
       if (!source) return false;
+      logger.info('revealing media file in system explorer', {
+        event: 'media-reveal',
+        name: input.name,
+        mediaType: input.type,
+        source,
+      });
       shell.showItemInFolder(source);
       return true;
     },
@@ -133,34 +141,43 @@ function registerMediaIpc(): void {
       const ctx = getAppContext();
       const services = ctx.services;
       const boot = ctx.bootstrap;
-      if (!services || !boot) return { success: false, error: '未打开账号' };
+      if (!services || !boot) return { success: false, error: '?????' };
       const { msgId, name, token, conv } = input;
       console.log('[file:download] request', { msgId, name, token, conv });
-      if (!msgId) return { success: false, error: '缺少消息 ID' };
+      logger.info('requested file download', {
+        event: 'file-download-start',
+        msgId,
+        name,
+        token,
+        conv,
+      });
+      if (!msgId) return { success: false, error: '???? ID' };
 
-      // Re-read the raw message to find the file element + conversation kind.
       let raw: Awaited<ReturnType<typeof services.msgs.getRawElements>>;
       try {
         raw = await services.msgs.getRawElements(BigInt(msgId));
       } catch (e) {
         console.error('[file:download] getRawElements failed:', e);
-        return { success: false, error: '读取消息失败' };
+        return { success: false, error: '??????' };
       }
-      if (!raw) return { success: false, error: '未找到该消息' };
+      if (!raw) return { success: false, error: '??????' };
       const matches = raw.elements.filter((e) => e.kind === 'file');
       console.log('[file:download] kind=%s, file elements=%d', raw.kind, matches.length);
-      // Match by token when present (multiple files in one message); else the
-      // first file element. token can be empty for older render rows.
       const el =
         (token ? matches.find((e) => (e as { fileToken?: string }).fileToken === token) : undefined) ??
         matches[0];
-      if (!el) return { success: false, error: '消息中未找到文件元素' };
+      if (!el) return { success: false, error: '??????????' };
       const elToken = (el as { fileToken?: string }).fileToken ?? '';
       console.log('[file:download] element fileToken=%s', elToken);
 
       const fileName = name || (el as { fileName?: string }).fileName || elToken || 'download';
       const dest = join(boot.userConfig.cacheDir('media'), 'file', fileName);
       if (fs.existsSync(dest)) {
+        logger.info('file download cache hit', {
+          event: 'file-download-cache-hit',
+          msgId,
+          path: dest,
+        });
         shell.showItemInFolder(dest);
         return { success: true, path: dest };
       }
@@ -175,22 +192,47 @@ function registerMediaIpc(): void {
         );
       } catch (e) {
         console.error('[file:download] OIDB resolve failed:', e);
-        return { success: false, error: 'OIDB 解析失败：' + (e instanceof Error ? e.message : String(e)) };
+        return { success: false, error: 'OIDB ?????' + (e instanceof Error ? e.message : String(e)) };
       }
-      console.log('[file:download] resolved url:', url ? url.slice(0, 120) + '…' : '(empty)');
-      if (!url) return { success: false, error: 'OIDB 返回空链接（QQ 是否在线？）' };
+      console.log('[file:download] resolved url:', url ? url.slice(0, 120) + '?' : '(empty)');
+      if (!url) return { success: false, error: 'OIDB ??????QQ ??????' };
 
       const { downloadUrlToFile } = await import('@weq/service');
       const outcome = await downloadUrlToFile(url, dest);
       if (!outcome.ok) {
         console.error('[file:download] download failed:', outcome.reason);
-        return { success: false, error: '下载失败：' + outcome.reason };
+        logger.warn('file download failed', {
+          event: 'file-download-failed',
+          msgId,
+          name: fileName,
+          reason: outcome.reason,
+        });
+        return { success: false, error: '?????' + outcome.reason };
       }
       console.log('[file:download] saved to', dest);
+      logger.info('file downloaded successfully', {
+        event: 'file-download-success',
+        msgId,
+        name: fileName,
+        path: dest,
+      });
       shell.showItemInFolder(dest);
       return { success: true, path: dest };
     },
   );
+}
+
+function registerLogIpc(): void {
+  ipcMain.handle('logs:open-dir', async () => {
+    const dir = getLogDir();
+    if (!dir) {
+      logger.warn('log directory requested before logger init', { event: 'open-log-dir-unavailable' });
+      return false;
+    }
+    logger.info('opening log directory', { event: 'open-log-dir', dir });
+    await shell.openPath(dir);
+    return true;
+  });
 }
 
 function resolveWindowIcon(): Electron.NativeImage | undefined {
@@ -249,18 +291,21 @@ void app.whenReady().then(() => {
 
   // Order matters: AppContext (loads native + platform) before IPC handler.
   initAppContext();
+  logger.info('electron app ready', { event: 'app-ready' });
 
   registerResourceProtocol();
   registerAvatarProtocol();
   registerMediaProtocol();
   registerWindowLayoutIpc();
   registerMediaIpc();
+  registerLogIpc();
 
   app.on('browser-window-created', (_, win) => {
     optimizer.watchWindowShortcuts(win);
   });
 
   const win = createWindow();
+  logger.info('main window created', { event: 'create-window' });
   createIPCHandler({ router: appRouter, windows: [win] });
 
   // Silent background update check (packaged builds only). Result is cached and
