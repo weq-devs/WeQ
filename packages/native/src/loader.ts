@@ -78,6 +78,8 @@ export function loadNative(opts: LoadNativeOptions = {}): NativeBundle {
     throw new Error(`nt_helper initialization failed: [${initStatus}] ${message}`);
   }
 
+  configureNtHelperLogging(ntHelper);
+
   cached = {
     ntHelper,
     nineBirdBoot: requireFromHere(nineBirdBootPath) as NineBirdBootBinding,
@@ -219,4 +221,36 @@ function assertExists(path: string, label: string): void {
       `Required native asset missing: ${label}\n  expected at: ${path}`,
     );
   }
+}
+
+function configureNtHelperLogging(ntHelper: NtHelperBinding): void {
+  const logRoot = resolveNativeLogRoot();
+  const logPath = join(logRoot, 'nt_helper.log');
+  ntHelper.setLogPath(logPath);
+}
+
+function resolveNativeLogRoot(): string {
+  const candidates = new Set<string>();
+
+  const electronAppData = process.env.APPDATA;
+  if (electronAppData) {
+    candidates.add(join(electronAppData, 'WeQ', 'logs'));
+  }
+
+  const localAppData = process.env.LOCALAPPDATA;
+  if (localAppData) {
+    candidates.add(join(localAppData, 'WeQ', 'logs'));
+  }
+
+  const cwdLogDir = join(process.cwd(), 'logs');
+  candidates.add(cwdLogDir);
+
+  for (const candidate of candidates) {
+    const parent = dirname(candidate);
+    if (existsSync(parent) || existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return cwdLogDir;
 }
