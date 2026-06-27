@@ -13,6 +13,33 @@ import type {
 } from '@weq/db';
 import { GroupNotifyService } from './group_notify';
 
+/** Message count ranking entry. */
+export interface GroupMessageRankingItem {
+  uid: string;
+  uin: string;
+  displayName: string;
+  messageCount: number;
+}
+
+/** Per-member analytics result. */
+export interface GroupMemberAnalytics {
+  statistics: {
+    totalMessages: number;
+    textMessages: number;
+    imageMessages: number;
+    voiceMessages: number;
+    videoMessages: number;
+    emojiMessages: number;
+    otherMessages: number;
+    firstMessageTime: number | null;
+    lastMessageTime: number | null;
+    activeDays: number;
+  };
+  timeDistribution: Record<number, number>;
+  commonPhrases: Array<{ phrase: string; count: number }>;
+  commonEmojis: Array<{ emoji: string; count: number }>;
+}
+
 /** One user that shares ≥2 groups with me, for the relation graph. */
 export interface RelationGraphNode {
   uid: string;
@@ -272,5 +299,207 @@ export class GroupInfoService {
    */
   async listGroupNotifies(limit = 100, offset = 0): Promise<GroupNotify[]> {
     return this.groupNotifyService.listAllNotifications(limit, offset);
+  }
+
+  async getGroupMessageRanking(
+    groupCode: bigint,
+    limit = 20,
+    startTime?: number,
+    endTime?: number,
+  ): Promise<GroupMessageRankingItem[]> {
+    const db = this.session.groupMsgs;
+    const counts = new Map<string, number>(); // uid → count
+    const uins = new Map<string, string>(); // uid → uin
+
+    let afterSeq = 0n;
+    while (true) {
+      const batch = await db.listBatch(String(groupCode), afterSeq, 500, startTime, endTime);
+      if (batch.length === 0) break;
+      for (const msg of batch) {
+        const uid = msg.senderUid || '';
+        if (!uid) continue;
+        counts.set(uid, (counts.get(uid) ?? 0) + 1);
+        if (!uins.has(uid) && msg.senderUin > 0n) {
+          uins.set(uid, String(msg.senderUin));
+        }
+      }
+      afterSeq = batch[batch.length - 1]!.msgSeq;
+      if (batch.length < 500) break;
+    }
+
+    const sorted = [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, limit);
+
+    // Batch-resolve display names
+    const uids = sorted.map(([uid]) => uid);
+    const memberMap = new Map<string, string>();
+    if (uids.length > 0) {
+      try {
+        const members = await this.session.groupMembers.getMembersByUids(groupCode, uids);
+        for (const m of members) {
+          memberMap.set(m.uid, m.card || m.nick || m.uid);
+        }
+      } catch { /* fall through, use uin/uid as name */ }
+    }
+
+    return sorted.map(([uid, messageCount]) => ({
+      uid,
+      uin: uins.get(uid) ?? '',
+      displayName: memberMap.get(uid) || uins.get(uid) || uid,
+      messageCount,
+    }));
+  }
+
+  async getGroupActiveHours(
+    groupCode: bigint,
+    startTime?: number,
+    endTime?: number,
+  ): Promise<Record<number, number>> {
+    const db = this.session.groupMsgs;
+    const hourly: Record<number, number> = {};
+    for (let i = 0; i < 24; i++) hourly[i] = 0;
+
+    let afterSeq = 0n;
+    while (true) {
+      const batch = await db.listBatch(String(groupCode), afterSeq, 500, startTime, endTime);
+      if (batch.length === 0) break;
+      for (const msg of batch) {
+        const sendTime = Number(msg.sendTime);
+        if (sendTime > 0) {
+          const hour = new Date(sendTime * 1000).getHours();
+          hourly[hour] = (hourly[hour] ?? 0) + 1;
+        }
+      }
+      afterSeq = batch[batch.length - 1]!.msgSeq;
+      if (batch.length < 500) break;
+    }
+    return hourly;
+  }
+
+  async getGroupMemberAnalytics(
+    groupCode: bigint,
+    memberUid: string,
+    startTime?: number,
+    endTime?: number,
+  ): Promise<GroupMemberAnalytics> {
+    const db = this.session.groupMsgs;
+    const stats = {
+      totalMessages: 0,
+      textMessages: 0,
+      imageMessages: 0,
+      voiceMessages: 0,
+      videoMessages: 0,
+      emojiMessages: 0,
+      otherMessages: 0,
+      firstMessageTime: null as number | null,
+      lastMessageTime: null as number | null,
+      activeDays: 0,
+    };
+
+    const hourly: Record<number, number> = {};
+    for (let i = 0; i < 24; i++) hourly[i] = 0;
+    const dailySet = new Set<string>();
+    const phraseCounts = new Map<string, number>();
+    const emojiCounts = new Map<string, number>();
+
+    let afterSeq = 0n;
+    while (true) {
+      const batch = await db.listBatch(String(groupCode), afterSeq, 500, startTime, endTime);
+      if (batch.length === 0) break;
+      for (const msg of batch) {
+        if (msg.senderUid !== memberUid) continue;
+
+        const sendTime = Number(msg.sendTime);
+        stats.totalMessages++;
+
+        // Classify by element kind
+        let hasText = false;
+        let hasImage = false;
+        let hasVoice = false;
+        let hasVideo = false;
+        let hasEmoji = false;
+
+        for (const el of msg.elements) {
+          switch (el.kind) {
+            case 'text':
+            case 'at':
+              hasText = true;
+              if (el.textContent) {
+                const text = (el.textContent as string).trim();
+                if (text && text.length <= 20) {
+                  phraseCounts.set(text, (phraseCounts.get(text) ?? 0) + 1);
+                }
+              }
+              break;
+            case 'pic':
+              hasImage = true;
+              break;
+            case 'ptt':
+              hasVoice = true;
+              break;
+            case 'video':
+              hasVideo = true;
+              break;
+            case 'face':
+              hasEmoji = true;
+              if (el.faceText) {
+                const faceText = String(el.faceText).trim();
+                if (faceText) {
+                  emojiCounts.set(faceText, (emojiCounts.get(faceText) ?? 0) + 1);
+                }
+              }
+              break;
+            case 'mface':
+            case 'emojiBounce':
+              hasEmoji = true;
+              break;
+          }
+        }
+
+        if (hasText) stats.textMessages++;
+        if (hasImage) stats.imageMessages++;
+        if (hasVoice) stats.voiceMessages++;
+        if (hasVideo) stats.videoMessages++;
+        if (hasEmoji) stats.emojiMessages++;
+        if (!hasText && !hasImage && !hasVoice && !hasVideo && !hasEmoji) {
+          stats.otherMessages++;
+        }
+
+        if (sendTime > 0) {
+          if (stats.firstMessageTime === null || sendTime < stats.firstMessageTime) {
+            stats.firstMessageTime = sendTime;
+          }
+          if (stats.lastMessageTime === null || sendTime > stats.lastMessageTime) {
+            stats.lastMessageTime = sendTime;
+          }
+          const d = new Date(sendTime * 1000);
+          const hour = d.getHours();
+          hourly[hour] = (hourly[hour] ?? 0) + 1;
+          dailySet.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
+        }
+      }
+      afterSeq = batch[batch.length - 1]!.msgSeq;
+      if (batch.length < 500) break;
+    }
+
+    stats.activeDays = dailySet.size;
+
+    const commonPhrases = [...phraseCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([phrase, count]) => ({ phrase, count }));
+
+    const commonEmojis = [...emojiCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([emoji, count]) => ({ emoji, count }));
+
+    return {
+      statistics: stats,
+      timeDistribution: hourly,
+      commonPhrases,
+      commonEmojis,
+    };
   }
 }

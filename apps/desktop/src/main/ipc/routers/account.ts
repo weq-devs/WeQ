@@ -742,6 +742,60 @@ export const accountRouter = router({
       return groups.map(groupMemberToWire);
     }),
 
+  getGroupMessageRanking: procedure
+    .input(
+      z.object({
+        groupCode: z.string().min(1),
+        limit: z.number().int().min(1).max(100).optional(),
+        startTime: z.number().int().optional(),
+        endTime: z.number().int().optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      return requireServices().groupInfo.getGroupMessageRanking(
+        BigInt(input.groupCode),
+        input.limit ?? 20,
+        input.startTime,
+        input.endTime,
+      );
+    }),
+
+  /** 24-hour activity distribution for a group. */
+  getGroupActiveHours: procedure
+    .input(
+      z.object({
+        groupCode: z.string().min(1),
+        startTime: z.number().int().optional(),
+        endTime: z.number().int().optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      return requireServices().groupInfo.getGroupActiveHours(
+        BigInt(input.groupCode),
+        input.startTime,
+        input.endTime,
+      );
+    }),
+
+  /** Detailed per-member analytics for a group. */
+  getGroupMemberAnalytics: procedure
+    .input(
+      z.object({
+        groupCode: z.string().min(1),
+        memberUid: z.string().min(1),
+        startTime: z.number().int().optional(),
+        endTime: z.number().int().optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      return requireServices().groupInfo.getGroupMemberAnalytics(
+        BigInt(input.groupCode),
+        input.memberUid,
+        input.startTime,
+        input.endTime,
+      );
+    }),
+
   /** Get formatted online status for a user. */
   getOnlineStatus: procedure
     .input(z.object({ uid: z.string().min(1) }))
