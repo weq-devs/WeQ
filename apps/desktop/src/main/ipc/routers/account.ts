@@ -742,6 +742,60 @@ export const accountRouter = router({
       return groups.map(groupMemberToWire);
     }),
 
+  getGroupMessageRanking: procedure
+    .input(
+      z.object({
+        groupCode: z.string().min(1),
+        limit: z.number().int().min(1).max(100).optional(),
+        startTime: z.number().int().optional(),
+        endTime: z.number().int().optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      return requireServices().groupInfo.getGroupMessageRanking(
+        BigInt(input.groupCode),
+        input.limit ?? 20,
+        input.startTime,
+        input.endTime,
+      );
+    }),
+
+  /** 24-hour activity distribution for a group. */
+  getGroupActiveHours: procedure
+    .input(
+      z.object({
+        groupCode: z.string().min(1),
+        startTime: z.number().int().optional(),
+        endTime: z.number().int().optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      return requireServices().groupInfo.getGroupActiveHours(
+        BigInt(input.groupCode),
+        input.startTime,
+        input.endTime,
+      );
+    }),
+
+  /** Detailed per-member analytics for a group. */
+  getGroupMemberAnalytics: procedure
+    .input(
+      z.object({
+        groupCode: z.string().min(1),
+        memberUid: z.string().min(1),
+        startTime: z.number().int().optional(),
+        endTime: z.number().int().optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      return requireServices().groupInfo.getGroupMemberAnalytics(
+        BigInt(input.groupCode),
+        input.memberUid,
+        input.startTime,
+        input.endTime,
+      );
+    }),
+
   /** Get formatted online status for a user. */
   getOnlineStatus: procedure
     .input(z.object({ uid: z.string().min(1) }))
@@ -967,7 +1021,7 @@ export const accountRouter = router({
       kind: z.enum(['group', 'c2c']),
       conv: z.string().min(1),
       name: z.string().min(1),
-      format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx']),
+      format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']),
       total: z.number().int().min(0),
       /** Also export every sender's avatar into an avatars/ subfolder. */
       exportAvatar: z.boolean().optional(),
@@ -1048,7 +1102,7 @@ export const accountRouter = router({
   createSchedule: procedure
     .input(z.object({
       name: z.string().min(1),
-      format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx']),
+      format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']),
       conversations: z.array(z.object({
         id: z.string().min(1),
         name: z.string().min(1),
@@ -1097,7 +1151,7 @@ export const accountRouter = router({
       id: z.string().min(1),
       patch: z.object({
         name: z.string().min(1).optional(),
-        format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx']).optional(),
+        format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']).optional(),
         conversations: z.array(z.object({
           id: z.string().min(1),
           name: z.string().min(1),
@@ -1155,7 +1209,7 @@ export const accountRouter = router({
     .input(z.object({
       sourcePath: z.string().min(1),
       defaultName: z.string().min(1),
-      format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx']),
+      format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']),
     }))
     .mutation(async ({ input }) => {
       const { dialog } = await import('electron');

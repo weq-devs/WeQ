@@ -24,10 +24,20 @@
 
 import { createWriteStream, statSync } from 'node:fs';
 import { once } from 'node:events';
-import type { MsgService, RenderGroupMsg, RenderC2cMsg } from '../msg';
+import type { MsgService } from '../msg';
 import type { RenderElement } from '../msg_view';
-import { iterateGroupMessages, iterateC2cMessages, toExportedMessage } from './message_source';
+import { toExportedMessage } from './message_source';
 import { ChatlabMessageType, type ChatlabHeader, type ChatlabMember, type ChatlabMessage } from './chatlab_types';
+import {
+  avatarUrlForUin,
+  fallbackSender,
+  iterateConv,
+  resolveC2cSenders,
+  resolveGroupSenders,
+  type ResolvedGroupMember,
+  type ResolvedSender,
+  type SenderResolveDeps,
+} from './sender_resolve';
 import type { ConvKind, ExportedMessage, ExportResult, ExportTimeRange, ProgressCallback } from './types';
 
 /** ChatLab spec version this exporter targets. */
@@ -35,34 +45,13 @@ const CHATLAB_VERSION = '0.0.2';
 const GENERATOR = 'WeQ';
 const PLATFORM = 'qq';
 
-/** A resolved group member (the fields ChatLab needs), as the deps return them. */
-export interface ChatlabGroupMember {
-  uid: string;
-  uin: string;
-  /** Group card (群名片) — ChatLab `groupNickname`. */
-  card: string;
-  /** Global QQ nick — ChatLab `accountName`. */
-  nick: string;
-  /** 0 = member, 1 = admin (owner is identified separately by uid). */
-  adminFlag: number;
-}
-
 /**
- * Account-side resolvers the ChatLab exporter needs (names / roles / profiles).
- * Injected by the app so the `@weq/service` export package stays decoupled from
- * the live account services. All optional — missing resolvers degrade to
- * uin-only member info rather than failing the export.
+ * Sender-resolution deps + member shape are shared with the HTML exporter; the
+ * ChatLab-named aliases are kept so existing imports (app_context injection,
+ * `index.ts` re-exports) don't need to change.
  */
-export interface ChatlabDeps {
-  /** Group: batch-resolve members by uid (one query). */
-  resolveGroupMembers?: (groupCode: string, uids: string[]) => Promise<ChatlabGroupMember[]>;
-  /** Group: name + owner uid for the meta block. */
-  groupMeta?: (groupCode: string) => Promise<{ name: string; ownerUid: string } | null>;
-  /** c2c: resolve one uid → its uin + nick. */
-  resolveProfile?: (uid: string) => Promise<{ uin: string; nick: string } | null>;
-  /** The exporting (self) account: uid + uin + nick. */
-  self?: () => Promise<{ uid: string; uin: string; nick: string } | null>;
-}
+export type ChatlabGroupMember = ResolvedGroupMember;
+export type ChatlabDeps = SenderResolveDeps;
 
 export interface ChatlabExportOptions {
   kind: ConvKind;
@@ -77,22 +66,6 @@ export interface ChatlabExportOptions {
   progressEvery?: number;
   /** When provided, each message's sender uin is collected (for avatar export). */
   collectSenders?: Set<string>;
-}
-
-/** Public avatar CDN url for a uin (project convention — never a signed url). */
-function avatarUrlForUin(uin: string): string {
-  return `https://thirdqq.qlogo.cn/g?b=sdk&s=0&nk=${uin}`;
-}
-
-/** A sender's resolved identity, cached per uid for the message pass. */
-interface ResolvedSender {
-  /** platformId — the value used for `sender` and `members[].platformId`. */
-  platformId: string;
-  /** accountName (global nick, or a best-effort fallback). */
-  accountName: string;
-  /** groupNickname (group card), when present. */
-  groupNickname?: string;
-  role?: 'owner' | 'admin';
 }
 
 /** Drop a trailing extension: `AB.MP4` → `AB` (kept for label readability). */
@@ -246,90 +219,6 @@ function toChatlabMember(s: ResolvedSender): ChatlabMember {
   return m;
 }
 
-/** The conversation's iterator for the current kind. */
-function iterate(
-  msgs: MsgService,
-  kind: ConvKind,
-  conv: string,
-  range?: ExportTimeRange,
-): AsyncGenerator<RenderGroupMsg | RenderC2cMsg> {
-  return kind === 'group'
-    ? iterateGroupMessages(msgs, conv, { pageSize: 2000, range })
-    : iterateC2cMessages(msgs, conv, { pageSize: 2000, range });
-}
-
-/**
- * Resolve the members of a group export: one pass collects every sender's uid
- * (+ uin from the message), then a single batched member query enriches them
- * with card / nick / admin flag. Senders who have since left the group keep
- * their uin-only identity. Returns an insertion-ordered uid → sender map.
- */
-async function resolveGroupSenders(
-  msgs: MsgService,
-  conv: string,
-  range: ExportTimeRange | undefined,
-  deps: ChatlabDeps,
-  ownerUid: string,
-): Promise<Map<string, ResolvedSender>> {
-  // Pass 1: distinct sender uid → uin (from the message rows).
-  const uinByUid = new Map<string, string>();
-  for await (const m of iterate(msgs, 'group', conv, range)) {
-    const uid = m.senderUid;
-    if (!uid) continue;
-    if (!uinByUid.has(uid)) uinByUid.set(uid, m.senderUin.toString());
-  }
-  const uids = [...uinByUid.keys()];
-  // Always resolve the owner too, so meta.ownerId works even if they never spoke.
-  if (ownerUid && !uinByUid.has(ownerUid)) uids.push(ownerUid);
-
-  const table = new Map<string, ChatlabGroupMember>();
-  if (deps.resolveGroupMembers && uids.length > 0) {
-    try {
-      for (const mem of await deps.resolveGroupMembers(conv, uids)) table.set(mem.uid, mem);
-    } catch {
-      /* degrade to uin-only names */
-    }
-  }
-
-  const out = new Map<string, ResolvedSender>();
-  for (const [uid, msgUin] of uinByUid) {
-    const t = table.get(uid);
-    const uin = t?.uin || msgUin;
-    const platformId = uin && uin !== '0' ? uin : uid;
-    const role: ResolvedSender['role'] = uid === ownerUid ? 'owner' : t?.adminFlag === 1 ? 'admin' : undefined;
-    out.set(uid, {
-      platformId,
-      accountName: t?.nick || t?.card || (uin && uin !== '0' ? uin : uid),
-      groupNickname: t?.card || undefined,
-      role,
-    });
-  }
-  return out;
-}
-
-/** Resolve the two participants of a c2c export (self + peer). */
-async function resolveC2cSenders(
-  conv: string,
-  deps: ChatlabDeps,
-): Promise<{ senders: Map<string, ResolvedSender>; ownerId?: string }> {
-  const senders = new Map<string, ResolvedSender>();
-  let ownerId: string | undefined;
-
-  const self = deps.self ? await deps.self().catch(() => null) : null;
-  if (self) {
-    const platformId = self.uin && self.uin !== '0' ? self.uin : self.uid;
-    senders.set(self.uid, { platformId, accountName: self.nick || platformId });
-    ownerId = platformId;
-  }
-  // Peer uid is the conversation key itself.
-  const peer = deps.resolveProfile ? await deps.resolveProfile(conv).catch(() => null) : null;
-  const peerUin = peer?.uin && peer.uin !== '0' ? peer.uin : conv;
-  if (!senders.has(conv)) {
-    senders.set(conv, { platformId: peerUin, accountName: peer?.nick || peerUin });
-  }
-  return { senders, ownerId };
-}
-
 /**
  * Export a conversation to a ChatLab JSON or JSONL file. Members are resolved
  * and written first; messages stream afterwards (with write-backpressure).
@@ -387,7 +276,7 @@ export async function exportToChatlab(
       for (const s of senders.values()) {
         await write(`${JSON.stringify(toChatlabMember(s))}\n`);
       }
-      for await (const raw of iterate(msgs, opts.kind, opts.conv, opts.range)) {
+      for await (const raw of iterateConv(msgs, opts.kind, opts.conv, opts.range)) {
         const exported = toExportedMessage(raw);
         opts.collectSenders?.add(exported.senderUin);
         const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
@@ -409,7 +298,7 @@ export async function exportToChatlab(
         `"members": ${JSON.stringify(memberObjs)},\n` +
         '"messages": [\n';
       await write(head);
-      for await (const raw of iterate(msgs, opts.kind, opts.conv, opts.range)) {
+      for await (const raw of iterateConv(msgs, opts.kind, opts.conv, opts.range)) {
         const exported = toExportedMessage(raw);
         opts.collectSenders?.add(exported.senderUin);
         const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
@@ -433,11 +322,4 @@ export async function exportToChatlab(
     fileSize: statSync(opts.outputPath).size,
     durationMs: Date.now() - start,
   };
-}
-
-/** Best-effort sender for a uid not in the resolved member set (rare). */
-function fallbackSender(m: ExportedMessage): ResolvedSender {
-  const uin = m.senderUin;
-  const platformId = uin && uin !== '0' ? uin : m.senderUid;
-  return { platformId, accountName: platformId };
 }

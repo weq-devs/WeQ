@@ -36,7 +36,7 @@
 	bottom: 6px;
 	width: 13px;
 	height: 13px;
-	border: 2px solid #e7e7e9;
+	border: 2px solid var(--im-color-rail-bg, #e7e7e9);
 	border-radius: 50%;
 	background: #22d77a;
 }
@@ -139,7 +139,7 @@
 }
 
 .rail-contact-collar {
-	fill: #e7e7e9;
+	fill: var(--im-color-rail-bg, #e7e7e9);
 	opacity: 0;
 	transform-origin: 14px 18px;
 }
@@ -155,12 +155,12 @@
 
 .rail-nav button:hover,
 .rail-nav button.active {
-	background: #dcdde0;
+	background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
 }
 
 .rail-nav button.active,
 .rail-footer button:hover {
-	color: #0099f7;
+	color: var(--weq-accent-effective, #0099f7);
 }
 
 .rail-label {
@@ -194,7 +194,7 @@
 	padding: 6px;
 	border: 1px solid rgba(0, 0, 0, 0.08);
 	border-radius: 8px;
-	background: rgba(255, 255, 255, 0.96);
+	background: var(--popover, rgba(255, 255, 255, 0.96));
 	box-shadow: 0 18px 48px rgba(0, 0, 0, 0.14);
 }
 
@@ -211,7 +211,7 @@
 	border: 0;
 	border-radius: 6px;
 	background: transparent;
-	color: #111111;
+	color: var(--weq-fg-primary, #111111);
 	font-size: 15px;
 	font-weight: 400;
 	text-align: left;
@@ -224,7 +224,7 @@
 }
 
 .rail-menu-popover button:hover {
-	background: #f1f1f1;
+	background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
 }
 
 .profile-popover {
@@ -236,15 +236,15 @@
 	width: 350px;
 	gap: 16px;
 	padding: 24px;
-	border: 1px solid rgba(0, 0, 0, 0.08);
+	border: 1px solid color-mix(in srgb, var(--im-color-line, rgba(0, 0, 0, 0.08)) 72%, transparent);
 	border-radius: 8px;
 	background:
 		linear-gradient(
 			165deg,
-			rgba(234, 245, 255, 0.92),
-			rgba(255, 255, 255, 0.96) 42%
+			color-mix(in srgb, var(--weq-accent-effective) 10%, white),
+			color-mix(in srgb, var(--weq-accent-effective) 3%, white) 42%
 		),
-		#ffffff;
+		var(--card, #ffffff);
 	box-shadow: 0 18px 48px rgba(0, 0, 0, 0.14);
 }
 
@@ -275,7 +275,7 @@
 }
 
 .profile-popover-head span {
-	color: #8a8a8a;
+	color: var(--weq-fg-secondary, #8a8a8a);
 	font-size: 16px;
 	font-style: normal;
 	font-weight: 400;
@@ -285,7 +285,7 @@
 	display: inline-flex;
 	align-items: center;
 	gap: 7px;
-	color: #111111;
+	color: var(--weq-fg-primary, #111111);
 	font-size: 17px;
 	font-style: normal;
 	font-weight: 500;
@@ -306,14 +306,14 @@
 }
 
 .profile-popover-row span {
-	color: #8a8a8a;
+	color: var(--weq-fg-secondary, #8a8a8a);
 	font-size: 16px;
 	font-weight: 400;
 }
 
 .profile-popover-row strong {
 	overflow: hidden;
-	color: #111111;
+	color: var(--weq-fg-primary, #111111);
 	font-size: 16px;
 	font-weight: 500;
 	text-overflow: ellipsis;

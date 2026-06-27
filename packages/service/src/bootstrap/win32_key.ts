@@ -28,6 +28,7 @@ import {
   type NineBirdQrcodeStateEvent,
   type NineBirdResultEvent,
 } from '@weq/native';
+import { getLogger, logErrorContext } from '../common/logger';
 
 /** What every key flow returns when it finishes. */
 export interface KeyResult {
@@ -54,6 +55,7 @@ export interface QrLoginStreamOptions {
 
 export class Win32KeyService {
   private readonly bootstrap: NineBirdBootstrap;
+  private readonly logger = getLogger().child({ scope: 'win32-key' });
 
   constructor(private readonly platform: Platform) {
     this.bootstrap = new NineBirdBootstrap(
@@ -69,10 +71,26 @@ export class Win32KeyService {
    * database. The QQ process must already be logged in.
    */
   async fetchFromInstance(pid: number, dbPath: string): Promise<KeyResult> {
+    this.logger.info('fetching database key from running instance', {
+      event: 'fetch-key-from-instance',
+      pid,
+      dbPath,
+    });
     try {
       const dbkey = await this.platform.native.ntHelper.requestDecryptKey(pid, dbPath);
+      this.logger.info('fetched database key from running instance', {
+        event: 'fetch-key-from-instance-success',
+        pid,
+        dbPath,
+      });
       return { success: true, dbkey };
     } catch (e) {
+      this.logger.error('failed to fetch database key from running instance', {
+        event: 'fetch-key-from-instance-failed',
+        pid,
+        dbPath,
+        ...logErrorContext(e),
+      });
       return { success: false, error: errorMessage(e) };
     }
   }
@@ -90,6 +108,12 @@ export class Win32KeyService {
    */
   quickLoginStream(opts: QuickLoginStreamOptions): AsyncIterable<KeyEvent> {
     const exePath = this.requireQqExe();
+    this.logger.info('starting quick-login key flow', {
+      event: 'quick-login-start',
+      accountUin: opts.uin,
+      timeoutMs: opts.timeoutMs ?? null,
+      exePath,
+    });
     const session = this.bootstrap.startQuickLogin({
       uin: opts.uin,
       qqExePath: exePath,
@@ -107,6 +131,11 @@ export class Win32KeyService {
    */
   qrLoginStream(opts: QrLoginStreamOptions = {}): AsyncIterable<KeyEvent> {
     const exePath = this.requireQqExe();
+    this.logger.info('starting qr-login key flow', {
+      event: 'qr-login-start',
+      timeoutMs: opts.timeoutMs ?? null,
+      exePath,
+    });
     const session = this.bootstrap.startQrLogin({
       qqExePath: exePath,
       ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),

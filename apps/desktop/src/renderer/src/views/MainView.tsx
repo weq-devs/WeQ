@@ -29,6 +29,7 @@ import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
 import { RailAccountFooter } from '../components/RailAccountFooter';
 import { SettingsDialog } from '../components/SettingsDialog';
 import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
+import { GroupAnalyticsDialog } from '../components/GroupAnalyticsDialog';
 import { RelationGraphView } from '../components/relationGraph/RelationGraphView';
 import { ExportView } from './ExportView';
 import {
@@ -1468,6 +1469,10 @@ export function MainView(): ReactElement {
     groupCode: string;
     groupName: string;
   } | null>(null);
+  const [analyticsDialog, setAnalyticsDialog] = useState<{
+    groupCode: string;
+    groupName: string;
+  } | null>(null);
   
   const [editorState, setEditorState] = useState<{ msgId: string, elements: any[] } | null>(null);
 
@@ -1509,6 +1514,13 @@ export function MainView(): ReactElement {
     setRequestedAnnouncementGroups((current) => (
       current[conversation.id] ? current : { ...current, [conversation.id]: true }
     ));
+  }, []);
+
+  const handleOpenGroupAnalytics = useCallback((conversation: Extract<Conversation, { type: 'group' }>) => {
+    setAnalyticsDialog({
+      groupCode: conversation.id,
+      groupName: conversation.group.name,
+    });
   }, []);
 
   const [onlineStatusByUid, setOnlineStatusByUid] = useState<Record<string, any>>({});
@@ -2670,6 +2682,7 @@ export function MainView(): ReactElement {
                 onEditRaw={handleEditRaw}
                 onOpenGroupAlbums={handleOpenGroupAlbums}
                 onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
+                onOpenGroupAnalytics={handleOpenGroupAnalytics}
               />
             </div>
             <OverlayScrollbar
@@ -2702,6 +2715,13 @@ export function MainView(): ReactElement {
           groupCode={albumDialog.groupCode}
           groupName={albumDialog.groupName}
           onClose={() => setAlbumDialog(null)}
+        />
+      ) : null}
+      {analyticsDialog ? (
+        <GroupAnalyticsDialog
+          groupCode={analyticsDialog.groupCode}
+          groupName={analyticsDialog.groupName}
+          onClose={() => setAnalyticsDialog(null)}
         />
       ) : null}
       </ConvContext.Provider>

@@ -19,7 +19,7 @@
 	overflow: hidden;
 	border: 1px solid rgba(0, 0, 0, 0.12);
 	border-radius: 8px;
-	background: rgba(255, 255, 255, 0.98);
+	background: var(--popover, rgba(255, 255, 255, 0.98));
 	box-shadow: 0 10px 34px rgba(0, 0, 0, 0.14);
 }
 
@@ -59,7 +59,7 @@
 
 .emoji-section h3 {
 	margin: 0;
-	color: #777777;
+	color: var(--weq-fg-secondary, #777777);
 	font-size: 12px;
 	font-weight: 500;
 	line-height: 1.2;
@@ -89,7 +89,7 @@
 
 .emoji-grid button:hover,
 .kaomoji-grid button:hover {
-	background: #f1f1f1;
+	background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
 }
 
 .emoji-grid img {
@@ -134,14 +134,14 @@
 }
 
 .kaomoji-grid span {
-	color: #858585;
+	color: var(--weq-fg-muted, #858585);
 	font-size: 12px;
 }
 
 .kaomoji-grid strong {
 	min-width: 0;
 	overflow: hidden;
-	color: #111111;
+	color: var(--weq-fg-primary, #111111);
 	font-size: 15px;
 	font-weight: 400;
 	text-overflow: ellipsis;
@@ -155,7 +155,7 @@
 	gap: 8px;
 	padding: 7px 12px;
 	overflow-x: auto;
-	border-top: 1px solid #eeeeee;
+	border-top: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 72%, white);
 }
 
 .emoji-tabs::-webkit-scrollbar {
@@ -169,15 +169,15 @@
 	flex: 0 0 auto;
 	place-items: center;
 	border-radius: 8px;
-	color: #111111;
+	color: var(--weq-fg-primary, #111111);
 }
 
 .emoji-tabs button:hover {
-	background: #f1f1f1;
+	background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
 }
 
 .emoji-tabs button.active {
-	background: #12a8ff;
+	background: var(--weq-accent-effective, #12a8ff);
 	color: #ffffff;
 }
 
@@ -209,7 +209,7 @@
 	border: 0;
 	outline: 0;
 	background: transparent;
-	color: #111111;
+	color: var(--weq-fg-primary, #111111);
 	font-size: 17px;
 	line-height: 1.5;
 	overflow: auto;
@@ -350,8 +350,8 @@
 
 /* A reaction the logged-in account set itself. */
 .msg-reaction.is-self {
-	border-color: rgba(18, 168, 255, 0.5);
-	background: rgba(18, 168, 255, 0.12);
+	border-color: color-mix(in srgb, var(--weq-accent-effective) 50%, transparent);
+	background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
 }
 
 .msg-reaction .face-emoji {
@@ -361,12 +361,12 @@
 }
 
 .msg-reaction-count {
-	color: #666666;
+	color: var(--weq-fg-secondary, #666666);
 	font-variant-numeric: tabular-nums;
 }
 
 .msg-reaction.is-self .msg-reaction-count {
-	color: #1287d8;
+	color: color-mix(in srgb, var(--weq-accent-effective) 82%, #0f2d4c);
 }
 
 .msg-reaction-raw {
@@ -548,7 +548,7 @@
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
-	color: #0099ff;
+	color: var(--weq-accent-effective, #0099ff);
 }
 
 /* Voice: play button + amplitude bars + duration, QQ style. */
@@ -570,7 +570,7 @@
 	flex: 0 0 auto;
 	place-items: center;
 	border-radius: 50%;
-	background: #12a8ff;
+	background: var(--weq-accent-effective, #12a8ff);
 	color: #ffffff;
 	font-size: 11px;
 	line-height: 1;
@@ -623,10 +623,10 @@
 	align-items: center;
 	gap: 4px;
 	padding: 3px 9px;
-	border: 1px solid rgba(0, 153, 255, 0.35);
+	border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 35%, transparent);
 	border-radius: 999px;
-	background: rgba(0, 153, 255, 0.06);
-	color: #0099ff;
+	background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+	color: var(--weq-accent-effective, #0099ff);
 	font-size: 12px;
 	line-height: 1;
 	white-space: nowrap;
@@ -642,7 +642,7 @@
 }
 
 .qq-voice-transcribe-btn:hover:not(:disabled) {
-	background: rgba(0, 153, 255, 0.14);
+	background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
 }
 
 .qq-voice-transcribe-btn:disabled {
@@ -658,7 +658,7 @@
 	padding: 7px 11px;
 	border: 1px solid rgba(0, 0, 0, 0.07);
 	border-radius: 4px 12px 12px 12px;
-	background: #f3f7fb;
+	background: color-mix(in srgb, var(--weq-accent-effective) 7%, white);
 	color: #1f2937;
 	font-size: 13px;
 	line-height: 1.55;

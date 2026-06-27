@@ -31,7 +31,9 @@ import {
   ProfileInfoDb,
   MiscDb,
   UnreadInfoDb,
+  wrapBindingForCorruption,
 } from '@weq/db';
+import type { CorruptionSuspectInfo } from '@weq/db';
 import type { Platform } from '@weq/platform';
 import type { DatabaseAlgorithms } from '@weq/native';
 
@@ -133,25 +135,42 @@ export interface AccountSession {
 export async function openAccount(
   platform: Platform,
   ctx: AccountContext,
+  /**
+   * Optional hook fired when a live query against this account's databases
+   * rejects with an error that strongly looks like on-disk corruption (see
+   * {@link isLikelyCorruptionError}). When provided, the native binding handed
+   * to every db is wrapped so the signal funnels through one place. Omit it
+   * (as static/offline sessions do) to keep the raw binding and skip the
+   * watch entirely.
+   */
+  onCorruptionSuspected?: (info: CorruptionSuspectInfo) => void,
 ): Promise<AccountSession> {
   const msgDbPath = platform.ntMsgDbPath(ctx.uin);
   if (!msgDbPath) {
     throw new Error(`nt_msg.db not found for uin=${ctx.uin}`);
   }
 
-  const c2cMsgs = new C2cMsgDb(platform.native.ntHelper, {
+  // Online sessions get a corruption-watching wrapper around the shared native
+  // binding so any query that rejects with a corruption-signature error is
+  // surfaced through `onCorruptionSuspected`. Without the hook (or for static
+  // accounts) we use the raw binding unchanged.
+  const nt = onCorruptionSuspected
+    ? wrapBindingForCorruption(platform.native.ntHelper, onCorruptionSuspected)
+    : platform.native.ntHelper;
+
+  const c2cMsgs = new C2cMsgDb(nt, {
     dbPath: msgDbPath,
     key: ctx.dbKey,
     algo: ctx.algo,
   });
 
-  const groupMsgs = new GroupMsgDb(platform.native.ntHelper, {
+  const groupMsgs = new GroupMsgDb(nt, {
     dbPath: msgDbPath,
     key: ctx.dbKey,
     algo: ctx.algo,
   });
 
-  const recentContacts = new RecentContactDb(platform.native.ntHelper, {
+  const recentContacts = new RecentContactDb(nt, {
     dbPath: msgDbPath,
     key: ctx.dbKey,
     algo: ctx.algo,
@@ -161,7 +180,7 @@ export async function openAccount(
   // query path needs uid → sortNo (column 40027) translation on every call.
   // A failure here (e.g. table absent on an older QQ build) must NOT block
   // login — degrade to an empty map and let callers fall back.
-  const uidMappingDb = new UidMappingDb(platform.native.ntHelper, {
+  const uidMappingDb = new UidMappingDb(nt, {
     dbPath: msgDbPath,
     key: ctx.dbKey,
     algo: ctx.algo,
@@ -176,7 +195,7 @@ export async function openAccount(
     uidMappingDb.close();
   }
 
-  const forwardMsgs = new ForwardMsgDb(platform.native.ntHelper, {
+  const forwardMsgs = new ForwardMsgDb(nt, {
     dbPath: msgDbPath,
     key: ctx.dbKey,
     algo: ctx.algo,
@@ -189,7 +208,7 @@ export async function openAccount(
   const ftsDbPath =
     platform.buddyMsgFtsDbPath(ctx.uin) ?? join(dirname(msgDbPath), 'buddy_msg_fts.db');
 
-  const buddyMsgFts = new BuddyMsgFtsDb(platform.native.ntHelper, {
+  const buddyMsgFts = new BuddyMsgFtsDb(nt, {
     dbPath: ftsDbPath,
     key: ctx.dbKey,
     algo: ctx.algo,
@@ -198,7 +217,7 @@ export async function openAccount(
   const groupFtsDbPath =
     platform.groupMsgFtsDbPath(ctx.uin) ?? join(dirname(msgDbPath), 'group_msg_fts.db');
 
-  const groupMsgFts = new GroupMsgFtsDb(platform.native.ntHelper, {
+  const groupMsgFts = new GroupMsgFtsDb(nt, {
     dbPath: groupFtsDbPath,
     key: ctx.dbKey,
     algo: ctx.algo,
@@ -207,44 +226,44 @@ export async function openAccount(
   const groupInfoDbPath =
     platform.groupInfoDbPath(ctx.uin) ?? join(dirname(msgDbPath), 'group_info.db');
 
-  const groupEssence = new GroupEssenceDb(platform.native.ntHelper, {
+  const groupEssence = new GroupEssenceDb(nt, {
     dbPath: groupInfoDbPath,
     key: ctx.dbKey,
     algo: ctx.algo,
   });
 
-  const memberLevelInfo = new GroupMemberLevelInfoDb(platform.native.ntHelper, {
+  const memberLevelInfo = new GroupMemberLevelInfoDb(nt, {
     dbPath: groupInfoDbPath,
     key: ctx.dbKey,
     algo: ctx.algo,
   });
 
-  const groupDetail = new GroupDetailDb(platform.native.ntHelper, {
+  const groupDetail = new GroupDetailDb(nt, {
     dbPath: groupInfoDbPath,
     key: ctx.dbKey,
     algo: ctx.algo,
   });
 
-  const groupBulletins = new GroupBulletinDb(platform.native.ntHelper, {
+  const groupBulletins = new GroupBulletinDb(nt, {
     dbPath: groupInfoDbPath,
     key: ctx.dbKey,
     algo: ctx.algo,
   });
 
-  const groupMembers = new GroupMemberDb(platform.native.ntHelper, {
+  const groupMembers = new GroupMemberDb(nt, {
     dbPath: groupInfoDbPath,
     key: ctx.dbKey,
     algo: ctx.algo,
   });
 
-  const groupNotifies = new GroupNotifyDb(platform.native.ntHelper, {
+  const groupNotifies = new GroupNotifyDb(nt, {
     dbPath: groupInfoDbPath,
     key: ctx.dbKey,
     algo: ctx.algo,
   });
 
   const fileAssistantDbPath = join(dirname(msgDbPath), 'file_assistant.db');
-  const fileAssistant = new FileAssistantDb(platform.native.ntHelper, {
+  const fileAssistant = new FileAssistantDb(nt, {
     dbPath: fileAssistantDbPath,
     key: ctx.dbKey,
     algo: ctx.algo,
@@ -252,15 +271,15 @@ export async function openAccount(
 
   const profileInfoPath = platform.profileInfoDbPath(ctx.uin);
   if (!profileInfoPath) throw new Error(`profile_info.db not found for uin ${ctx.uin}`);
-  const buddies = new BuddyDb(platform.native.ntHelper, { dbPath: profileInfoPath, key: ctx.dbKey, algo: ctx.algo });
-  const categories = new CategoryDb(platform.native.ntHelper, { dbPath: profileInfoPath, key: ctx.dbKey, algo: ctx.algo });
-  const buddyReqs = new BuddyRequestDb(platform.native.ntHelper, { dbPath: profileInfoPath, key: ctx.dbKey, algo: ctx.algo });
-  const profileInfo = new ProfileInfoDb(platform.native.ntHelper, { dbPath: profileInfoPath, key: ctx.dbKey, algo: ctx.algo });
+  const buddies = new BuddyDb(nt, { dbPath: profileInfoPath, key: ctx.dbKey, algo: ctx.algo });
+  const categories = new CategoryDb(nt, { dbPath: profileInfoPath, key: ctx.dbKey, algo: ctx.algo });
+  const buddyReqs = new BuddyRequestDb(nt, { dbPath: profileInfoPath, key: ctx.dbKey, algo: ctx.algo });
+  const profileInfo = new ProfileInfoDb(nt, { dbPath: profileInfoPath, key: ctx.dbKey, algo: ctx.algo });
 
   const miscDbPath = platform.miscDbPath(ctx.uin) ?? join(dirname(msgDbPath), 'misc.db');
-  const misc = new MiscDb(platform.native.ntHelper, { dbPath: miscDbPath, key: ctx.dbKey, algo: ctx.algo });
+  const misc = new MiscDb(nt, { dbPath: miscDbPath, key: ctx.dbKey, algo: ctx.algo });
 
-  const unreadInfo = new UnreadInfoDb(platform.native.ntHelper, {
+  const unreadInfo = new UnreadInfoDb(nt, {
     dbPath: msgDbPath,
     key: ctx.dbKey,
     algo: ctx.algo,

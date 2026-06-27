@@ -111,6 +111,7 @@ export interface QQInstanceStatus {
 export interface NtHelperBinding {
   // --- init / health ---
   getInitStatus(): InitStatus;
+  setLogPath(path: string): void;
 
   // --- QQ process / login detection ---
   probeQqLoginInfo(pid: number): QqPortLoginInfo | null;

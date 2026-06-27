@@ -10,7 +10,7 @@
  * intentionally small.
  */
 
-import { contextBridge } from 'electron';
+import { contextBridge, ipcRenderer } from 'electron';
 import { electronAPI } from '@electron-toolkit/preload';
 import { createRequire } from 'node:module';
 
@@ -24,13 +24,20 @@ const { exposeElectronTRPC } = requireFromHere(
 
 exposeElectronTRPC();
 
+const weqBridge = {
+  openLogDir: (): Promise<boolean> => ipcRenderer.invoke('logs:open-dir') as Promise<boolean>,
+};
+
 if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('electron', electronAPI);
+    contextBridge.exposeInMainWorld('weq', weqBridge);
   } catch (err) {
     console.error('contextBridge expose failed:', err);
   }
 } else {
   // @ts-expect-error legacy non-isolated mode
   window.electron = electronAPI;
+  // @ts-expect-error legacy non-isolated mode
+  window.weq = weqBridge;
 }

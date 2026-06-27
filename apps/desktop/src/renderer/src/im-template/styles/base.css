@@ -1,7 +1,10 @@
 :root {
-	--chat-surface: var(--im-color-chat-surface, #f0f0f0);
-	--im-color-rail-bg: #e7e7e9;
-	--im-color-line: #dedede;
+	--im-color-text: var(--weq-fg-primary, #111111);
+	--im-color-app-bg: var(--weq-bg-app, #f1f1f1);
+	--im-color-chat-surface: var(--weq-bg-surface, #f0f0f0);
+	--chat-surface: var(--weq-chat-bg, var(--im-color-chat-surface, #f0f0f0));
+	--im-color-rail-bg: var(--weq-bg-elevated, #e7e7e9);
+	--im-color-line: var(--weq-border-subtle, #dedede);
 	color-scheme: light;
 	font-family: var(
 		--im-font-body,
@@ -19,12 +22,12 @@
 }
 
 html[data-theme="dark"] {
-	--chat-surface: #101112;
-	--im-color-text: #eef0f3;
-	--im-color-app-bg: #101112;
-	--im-color-chat-surface: #101112;
-	--im-color-rail-bg: #343638;
-	--im-color-line: #1f1f1f;
+	--chat-surface: var(--weq-chat-bg, var(--im-color-chat-surface, #101112));
+	--im-color-text: var(--weq-fg-primary, #eef0f3);
+	--im-color-app-bg: var(--weq-bg-app, #101112);
+	--im-color-chat-surface: var(--weq-bg-surface, #101112);
+	--im-color-rail-bg: var(--weq-bg-elevated, #343638);
+	--im-color-line: var(--weq-border-subtle, #1f1f1f);
 	color-scheme: dark;
 }
 

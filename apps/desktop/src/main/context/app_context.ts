@@ -22,6 +22,7 @@ import { EventEmitter } from 'node:events';
 import { join } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
 import { createWin32Platform, type Platform } from '@weq/platform';
+import { startMcpServer, stopMcpServer } from '../mcp/server';
 import {
   accountConfigId,
   UserConfigService,
@@ -54,11 +55,16 @@ import {
   checkAccountDatabaseHealth,
   createNtMsgDbHook,
   formatDbHealthFailures,
+  initLogger,
+  getLogger,
+  getLogDir,
+  logErrorContext,
   type AccountConfigMetadata,
   type DbWatchHandle,
   type NewMessages,
   type DbChange,
   type DbHealthFailure,
+  type McpServerConfig,
 } from '@weq/service';
 import { openAccount, openStaticAccount, peekStaticSelfUin, type AccountContext, type AccountSession } from '@weq/account';
 
@@ -105,6 +111,8 @@ let dbWatchHandle: DbWatchHandle | null = null;
 /** Background login/pid/rkey monitor for the open account, if any. */
 let accountMonitor: AccountMonitorService | null = null;
 let dbHealthCheckSeq = 0;
+/** Guards against running more than one full health check at a time. */
+let dbHealthCheckRunning = false;
 
 /**
  * Mount the nt_msg.db watcher for `session` (idempotent — no-op if already
@@ -134,43 +142,81 @@ function unmountDbWatch(): void {
   dbWatchHandle = null;
 }
 
+/**
+ * Run the full per-account database health check **on demand** — triggered when
+ * a live query rejected with an error that strongly looks like database
+ * corruption (see `isLikelyCorruptionError` in `@weq/db`). It is deliberately
+ * NOT run at account-open: a healthy database should never pay for the scan.
+ *
+ * Non-reentrant: only one check runs at a time. When it comes back clean the
+ * gate reopens, so a later suspicion can re-verify (the trigger was a false
+ * alarm / transient). Only a CONFIRMED corruption force-closes the account and
+ * returns the user to the home screen.
+ */
 function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: Platform): void {
+  const logger = getLogger().child({ scope: 'db-health', accountUin: session.context.uin });
+  if (dbHealthCheckRunning) return;
+  // Ignore late triggers from a session that has already been replaced/closed.
+  if (ctx.account !== session) return;
+  dbHealthCheckRunning = true;
   const seq = ++dbHealthCheckSeq;
   void (async (): Promise<void> => {
-    const failures = await checkAccountDatabaseHealth(session, platform);
-    // 没检出损坏就不弹窗、不强退。
-    if (failures.length === 0) return;
-    // A newer check started or the account changed mid-check — drop this result.
-    if (seq !== dbHealthCheckSeq || ctx.account !== session) return;
+    try {
+      logger.info('starting database health check', {
+        event: 'db-health-check-start',
+        msgDbPath: session.msgDbPath,
+      });
+      const failures = await checkAccountDatabaseHealth(session, platform);
+      // A newer check started or the account changed mid-check — drop the result.
+      if (seq !== dbHealthCheckSeq || ctx.account !== session) return;
+      // 没检出损坏就不弹窗、不强退（误报/瞬时错误），放行让后续可再触发。
+      if (failures.length === 0) return;
 
-    const details = formatDbHealthFailures(failures);
-    ctx.clearAccount();
-    accountEventBus.emit('forcedClosed', {
-      reason: 'database-damaged',
-      title: '数据库损坏',
-      message:
-        '检测到 QQ 数据库损坏，问题出在 QQ 数据库本身，不是 WeQ 软件导致。账号已强制退出并返回主页面。可以去 https://github.com/H3CoF6/WeQ/issues 提 issue，未来可能会做一个数据库修复工具。',
-      details,
-      failures,
-    } satisfies AccountForcedClosedEvent);
-  })().catch((e) => {
-    if (seq !== dbHealthCheckSeq || ctx.account !== session) return;
-    const failure: DbHealthFailure = {
-      dbName: '数据库健康检查',
-      dbPath: session.msgDbPath,
-      corruptedTables: [],
-      error: e instanceof Error ? e.message : String(e),
-    };
-    ctx.clearAccount();
-    accountEventBus.emit('forcedClosed', {
-      reason: 'database-damaged',
-      title: '数据库损坏',
-      message:
-        '检测 QQ 数据库健康状态时发生错误。为避免继续读取损坏数据，账号已强制退出并返回主页面。问题通常出在 QQ 数据库本身，不是 WeQ 软件导致。可以去 https://github.com/H3CoF6/WeQ/issues 提 issue，未来可能会做一个数据库修复工具。',
-      details: formatDbHealthFailures([failure]),
-      failures: [failure],
-    } satisfies AccountForcedClosedEvent);
-  });
+      if (failures.length === 0) {
+        logger.info('database health check passed', { event: 'db-health-check-clean' });
+        return;
+      }
+
+      const details = formatDbHealthFailures(failures);
+      logger.error('database corruption confirmed', {
+        event: 'db-health-check-failed',
+        failureCount: failures.length,
+        details,
+      });
+      ctx.clearAccount();
+      accountEventBus.emit('forcedClosed', {
+        reason: 'database-damaged',
+        title: '数据库损坏',
+        message:
+          '检测到 QQ 数据库损坏，问题出在 QQ 数据库本身，不是 WeQ 软件导致。账号已强制退出并返回主页面。可以去 https://github.com/H3CoF6/WeQ/issues 提 issue，未来可能会做一个数据库修复工具。',
+        details,
+        failures,
+      } satisfies AccountForcedClosedEvent);
+    } catch (e) {
+      if (seq !== dbHealthCheckSeq || ctx.account !== session) return;
+      logger.error('database health check crashed', {
+        event: 'db-health-check-error',
+        ...logErrorContext(e),
+      });
+      const failure: DbHealthFailure = {
+        dbName: '数据库健康检查',
+        dbPath: session.msgDbPath,
+        corruptedTables: [],
+        error: e instanceof Error ? e.message : String(e),
+      };
+      ctx.clearAccount();
+      accountEventBus.emit('forcedClosed', {
+        reason: 'database-damaged',
+        title: '数据库损坏',
+        message:
+          '检测 QQ 数据库健康状态时发生错误。为避免继续读取损坏数据，账号已强制退出并返回主页面。问题通常出在 QQ 数据库本身，不是 WeQ 软件导致。可以去 https://github.com/H3CoF6/WeQ/issues 提 issue，未来可能会做一个数据库修复工具。',
+        details: formatDbHealthFailures([failure]),
+        failures: [failure],
+      } satisfies AccountForcedClosedEvent);
+    } finally {
+      dbHealthCheckRunning = false;
+    }
+  })();
 }
 
 export interface BootstrapServices {
@@ -263,6 +309,12 @@ export interface AppContext {
    */
   applyRealtime(enabled: boolean): void;
   /**
+   * Apply the MCP server config to the open account (start / stop / restart the
+   * account-bound HTTP server) without re-opening the account. No-op start when
+   * no account is open — the server starts lazily on next account open.
+   */
+  applyMcp(config: McpServerConfig): Promise<void>;
+  /**
    * Force a one-shot rkey harvest from the online QQ for the open account —
    * the explicit refresh before a media-completing export. Resolves false when
    * no account is open / QQ is offline / harvest failed.
@@ -298,6 +350,10 @@ export function initAppContext(): AppContext {
       applyRealtime(): void {
         /* no account to watch */
       },
+      applyMcp(): Promise<void> {
+        /* no account — nothing to serve */
+        return Promise.resolve();
+      },
       refreshRkeysNow(): Promise<boolean> {
         return Promise.resolve(false);
       },
@@ -306,6 +362,13 @@ export function initAppContext(): AppContext {
   }
 
   const platform = createWin32Platform(result.bundle);
+  initLogger(platform.appDataRoot());
+  const logger = getLogger().child({ scope: 'app-context' });
+  logger.info('initializing app context', {
+    event: 'init-app-context',
+    appDataRoot: platform.appDataRoot(),
+    logDir: getLogDir(),
+  });
   const userConfig = new UserConfigService(platform);
 
   const bootstrap: BootstrapServices = {
@@ -325,13 +388,35 @@ export function initAppContext(): AppContext {
     services: null,
     scheduler: null,
     async setAccount(accountCtx: AccountContext, metadata: AccountConfigMetadata = {}): Promise<void> {
+      logger.info('opening account session', {
+        event: 'open-account-start',
+        accountUin: accountCtx.uin,
+        dataDir: metadata.dataDir ?? null,
+      });
       dbHealthCheckSeq += 1;
+      dbHealthCheckRunning = false;
       accountMonitor?.stop();
       accountMonitor = null;
+      void stopMcpServer();
       this.account?.dispose();
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
-      const session = await openAccount(platform, accountCtx);
+      // A live query failing with a corruption-signature error is what triggers
+      // the (otherwise unrun) full health check — not account-open. `this.account`
+      // is only set after this resolves, so callbacks that fire mid-open (e.g.
+      // the uid-map load) are ignored until the session is the current one.
+      const session = await openAccount(platform, accountCtx, (info): void => {
+        const current = this.account;
+        if (!current) return;
+        console.warn('[account] suspected database corruption from query on', info.dbPath, info.error);
+        logger.warn('suspected database corruption from query', {
+          event: 'suspected-db-corruption',
+          accountUin: current.context.uin,
+          dbPath: info.dbPath,
+          error: info.error,
+        });
+        startDbHealthCheck(this, current, platform);
+      });
       this.account = session;
       const accountConfig = new AccountConfigService(session, platform.appDataRoot());
       // Per-account export cache: tasks + outputs must NOT leak across accounts.
@@ -486,28 +571,58 @@ export function initAppContext(): AppContext {
         () => userConfig.getSettings().autoFetchClientKey,
       );
       accountMonitor.start();
+      logger.info('opened account session', {
+        event: 'open-account-success',
+        accountUin: session.context.uin,
+        dataDir: metadata.dataDir ?? null,
+      });
 
       // Watch this account's nt_msg.db only when 实时消息 is enabled. Toggling
       // it later is handled live by `applyRealtime` (no re-open needed).
       if (userConfig.getSettings().realtimeEnabled) {
         mountDbWatch(session);
       }
-      setTimeout(() => startDbHealthCheck(this, session, platform), 0);
+
+      // MCP server is account-bound: only listen while an account is open.
+      // Start it now if enabled; live toggling is handled by `applyMcp`.
+      const mcp = userConfig.getSettings().mcp;
+      if (mcp.enabled && mcp.token) {
+        startMcpServer({ port: mcp.port, token: mcp.token }).catch((error) => {
+          logger.error('failed to start mcp server on account open', {
+            event: 'mcp-start-failed',
+            port: mcp.port,
+            ...logErrorContext(error),
+          });
+        });
+      }
+      // No health check at open — it now runs lazily, only if a real query
+      // later fails in a way that looks like corruption (see the openAccount
+      // callback above).
     },
     async setStaticAccount(
       dirPath: string,
       selfPreview: { uin: string; displayName: string; avatarUrl: string },
       options: { dbKey?: string; algo?: import('@weq/native').DatabaseAlgorithms } = {},
     ): Promise<void> {
+      logger.info('opening static account session', {
+        event: 'open-static-account-start',
+        accountUin: selfPreview.uin,
+        dirPath,
+      });
       dbHealthCheckSeq += 1;
+      dbHealthCheckRunning = false;
       accountMonitor?.stop();
       accountMonitor = null;
+      void stopMcpServer();
       this.account?.dispose();
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
       this.scheduler?.stop();
       this.scheduler = null;
 
+      // Static (backup) accounts are offline snapshots, not the live QQ
+      // database — no corruption watch is wired (openStaticAccount uses the raw
+      // binding) and no health check is ever triggered.
       const session = await openStaticAccount(platform, {
         dirPath,
         self: { uin: selfPreview.uin, nick: selfPreview.displayName, avatarUrl: selfPreview.avatarUrl, uid: '' },
@@ -627,12 +742,22 @@ export function initAppContext(): AppContext {
         ...(selfPreview.displayName ? { displayName: selfPreview.displayName } : {}),
         ...(selfPreview.avatarUrl ? { avatarUrl: selfPreview.avatarUrl } : {}),
       });
+      logger.info('opened static account session', {
+        event: 'open-static-account-success',
+        accountUin: session.context.uin,
+        dirPath,
+      });
 
       // No monitor, no db watch, no health check, no scheduler —
       // static accounts are offline snapshots.
     },
     clearAccount(): void {
+      logger.info('clearing account session', {
+        event: 'clear-account',
+        accountUin: this.account?.context.uin ?? null,
+      });
       dbHealthCheckSeq += 1;
+      dbHealthCheckRunning = false;
       accountMonitor?.stop();
       accountMonitor = null;
       // Tear down the scheduler's wake timer before dropping the services
@@ -640,6 +765,7 @@ export function initAppContext(): AppContext {
       // ExportTaskManager.
       this.scheduler?.stop();
       this.scheduler = null;
+      void stopMcpServer();
       unmountDbWatch();
       this.account?.dispose();
       this.account = null;
@@ -648,10 +774,38 @@ export function initAppContext(): AppContext {
     applyRealtime(enabled: boolean): void {
       const session = this.account;
       if (!session) return;
+      logger.info('toggled realtime db watch', {
+        event: 'apply-realtime',
+        accountUin: session.context.uin,
+        enabled,
+      });
       if (enabled) mountDbWatch(session);
       else unmountDbWatch();
     },
+    async applyMcp(config: McpServerConfig): Promise<void> {
+      // Only live accounts host the MCP server. With no account open we just
+      // persist (handled by the caller) and start lazily on next account open.
+      if (!this.account || !this.services) {
+        await stopMcpServer();
+        return;
+      }
+      logger.info('applying mcp server config', {
+        event: 'apply-mcp',
+        accountUin: this.account.context.uin,
+        enabled: config.enabled,
+        port: config.port,
+      });
+      if (config.enabled && config.token) {
+        await startMcpServer({ port: config.port, token: config.token });
+      } else {
+        await stopMcpServer();
+      }
+    },
     refreshRkeysNow(): Promise<boolean> {
+      logger.info('manual rkey refresh requested', {
+        event: 'refresh-rkeys-now',
+        accountUin: this.account?.context.uin ?? null,
+      });
       return accountMonitor?.harvestRkeysNow() ?? Promise.resolve(false);
     },
   };

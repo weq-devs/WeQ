@@ -17,7 +17,7 @@
  * order by 40003 to hit the `(40027,40003)` composite index.
  */
 
-import type { DatabaseAlgorithms, NtHelperBinding, SqlRow } from '@weq/native';
+import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import type { GroupMsg } from './types';
 import { decodeBody, decodeEmoji, toBigint, toStr } from './util';
 import { QqDb } from '../qq_db';
@@ -72,6 +72,38 @@ export class GroupMsgDb {
         ORDER BY "40003" ASC
         LIMIT ?`,
       [targetGroupCode, afterSeq, BigInt(limit)],
+    );
+    return rows.map(rowToGroupMsg);
+  }
+
+  /**
+   * Batch-read messages oldest-first, starting from `afterSeq` (0n to begin).
+   * Optionally filters by sendTime range (unix seconds). Use for analytics /
+   * full-group scans that need to process every message in order.
+   */
+  async listBatch(
+    targetGroupCode: string,
+    afterSeq: bigint,
+    limit = 500,
+    startTime?: number,
+    endTime?: number,
+  ): Promise<GroupMsg[]> {
+    const conditions: string[] = [`"40027" = ?`, `"40003" > ?`];
+    const params: SqlValue[] = [targetGroupCode, afterSeq];
+    if (startTime != null && startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      params.push(BigInt(startTime));
+    }
+    if (endTime != null && endTime > 0) {
+      conditions.push(`"40050" <= ?`);
+      params.push(BigInt(endTime));
+    }
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY "40003" ASC
+        LIMIT ?`,
+      [...params, BigInt(limit)],
     );
     return rows.map(rowToGroupMsg);
   }

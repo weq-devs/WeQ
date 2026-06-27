@@ -18,6 +18,8 @@ import { app, dialog } from 'electron';
 import { z } from 'zod';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { randomBytes } from 'node:crypto';
+import { isMcpRunning } from '../../mcp/server';
 import {
   accountEventBus,
   getAppContext,
@@ -26,13 +28,15 @@ import {
   type AccountForcedClosedEvent,
 } from '../../context/app_context';
 import { procedure, router } from '../trpc';
-import { accountConfigId, type KeyEvent, type VoiceDownloadProgress } from '@weq/service';
+import { accountConfigId, getLogger, type KeyEvent, type VoiceDownloadProgress } from '@weq/service';
 import { peekStaticSelfUin } from '@weq/account';
 
 const algoSchema = z.object({
   pageHmacAlgorithm: z.string(),
   kdfHmacAlgorithm: z.string(),
 });
+
+const logger = getLogger().child({ scope: 'bootstrap-router' });
 
 export const bootstrapRouter = router({
   // ---- native health ----
@@ -140,6 +144,12 @@ export const bootstrapRouter = router({
       const dataDir = input.dataDir ?? boot.globalConfig.accountDataDir(input.uin) ?? undefined;
       const configId = accountConfigId(input.uin, dataDir);
       boot.userConfig.setAutoEnter({ configId, uin: input.uin, ...(dataDir ? { dataDir } : {}) });
+      logger.info('set auto-enter target from bootstrap router', {
+        event: 'router-set-auto-enter',
+        accountUin: input.uin,
+        dataDir: dataDir ?? null,
+        configId,
+      });
       return true;
     }),
 
@@ -201,6 +211,81 @@ export const bootstrapRouter = router({
       requireBootstrap().userConfig.setSettings({ autoFetchClientKey: input.enabled });
       return true;
     }),
+
+  // ---- MCP server (account-bound) ----
+
+  /**
+   * Current MCP server config + live state. `token` is returned in full (like
+   * the db key in 账号基础); the renderer masks it for display. `running` is
+   * true only while an account is open AND the server is listening.
+   */
+  getMcpStatus: procedure.query(() => {
+    const mcp = requireBootstrap().userConfig.getSettings().mcp;
+    return {
+      enabled: mcp.enabled,
+      port: mcp.port,
+      token: mcp.token,
+      host: '127.0.0.1',
+      url: `http://127.0.0.1:${mcp.port}`,
+      running: isMcpRunning(),
+    };
+  }),
+
+  /**
+   * Toggle the MCP server. On first enable a bearer token is generated. Persists,
+   * then applies live to the open account (starts/stops the HTTP server without
+   * re-opening). Throws (e.g. port already in use) so the renderer can report it.
+   */
+  setMcpEnabled: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(async ({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      const current = userConfig.getSettings().mcp;
+      const token = input.enabled && !current.token ? randomBytes(32).toString('hex') : current.token;
+      userConfig.setSettings({ mcp: { enabled: input.enabled, token } });
+      await getAppContext().applyMcp(userConfig.getSettings().mcp);
+      return userConfig.getSettings().mcp;
+    }),
+
+  /** Change the listen port. Persists and restarts the server if it's running. */
+  setMcpPort: procedure
+    .input(z.object({ port: z.number().int().min(1).max(65535) }))
+    .mutation(async ({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      userConfig.setSettings({ mcp: { port: input.port } });
+      await getAppContext().applyMcp(userConfig.getSettings().mcp);
+      return userConfig.getSettings().mcp;
+    }),
+
+  /** Generate a fresh bearer token. Persists and restarts the server if running. */
+  regenerateMcpToken: procedure.mutation(async () => {
+    const userConfig = requireBootstrap().userConfig;
+    userConfig.setSettings({ mcp: { token: randomBytes(32).toString('hex') } });
+    await getAppContext().applyMcp(userConfig.getSettings().mcp);
+    return userConfig.getSettings().mcp;
+  }),
+
+  /** A ready-to-paste client config snippet (Claude Desktop + mcp-remote fallback). */
+  getMcpClientConfig: procedure.query(() => {
+    const mcp = requireBootstrap().userConfig.getSettings().mcp;
+    const url = `http://127.0.0.1:${mcp.port}`;
+    return JSON.stringify(
+      {
+        mcpServers: {
+          weq: {
+            // 原生支持 Streamable HTTP 的客户端直接用 url + headers：
+            url,
+            headers: { Authorization: `Bearer ${mcp.token}` },
+            // 仅支持 stdio 的客户端（如部分旧版 Claude Desktop）改用下面这行：
+            // "command": "npx",
+            // "args": ["mcp-remote", "<url>", "--header", "Authorization: Bearer <token>"]
+          },
+        },
+      },
+      null,
+      2,
+    );
+  }),
 
   // ---- first-run onboarding (欢迎使用) ----
 
@@ -368,6 +453,11 @@ export const bootstrapRouter = router({
     .input(z.object({ pid: z.number().int().positive(), dbPath: z.string() }))
     .mutation(async ({ input }) => {
       const platform = requirePlatform();
+      logger.info('router requested key from running instance', {
+        event: 'router-fetch-key-from-instance',
+        pid: input.pid,
+        dbPath: input.dbPath,
+      });
       // Ensure the hook is loaded before requestDecryptKey runs.
       await platform.native.ntHelper.injectAndGetStatusEmbedded(input.pid);
       return requireBootstrap().keys.fetchFromInstance(input.pid, input.dbPath);
@@ -504,6 +594,7 @@ export const bootstrapRouter = router({
     }),
 
   closeAccount: procedure.mutation(() => {
+    logger.info('router closing account', { event: 'router-close-account' });
     getAppContext().clearAccount();
     return true;
   }),

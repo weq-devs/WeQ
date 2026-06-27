@@ -37,6 +37,7 @@ export type {
   AppSettings,
   MediaCompletionConfig,
   VoiceTranscribeConfig,
+  McpServerConfig,
 } from './bootstrap/user_config';
 
 export { AvatarCacheService } from './bootstrap/avatar_cache';
@@ -190,3 +191,5 @@ export type {
   TranscribeModelStatus,
   DownloadProgress as VoiceDownloadProgress,
 } from './common/voice_transcribe';
+export { getLogDir, getLogger, initLogger, logErrorContext } from './common/logger';
+export type { Logger, LoggerContext, LogLevel } from './common/logger';

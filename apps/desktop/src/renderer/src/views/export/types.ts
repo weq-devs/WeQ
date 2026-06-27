@@ -10,8 +10,9 @@
 /** Left-rail modes. */
 export type ExportMode = 'full' | 'decrypt' | 'chatlab' | 'html' | 'scheduled' | 'album';
 
-/** Every output format the 完整消息 / 定时 flows can request. */
-export type ExportFormat = 'json' | 'jsonl' | 'xlsx' | 'csv' | 'txt';
+/** Every output format the 完整消息 / 定时 / HTML flows can request. (`html`
+ *  is its own mode with a fixed format, not a chip in the format picker.) */
+export type ExportFormat = 'json' | 'jsonl' | 'xlsx' | 'csv' | 'txt' | 'html';
 
 /** Formats the backend (`account.startExport`) can produce. */
 export const BACKEND_FORMATS = ['json', 'jsonl', 'txt', 'csv', 'xlsx'] as const;
