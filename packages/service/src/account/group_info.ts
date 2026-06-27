@@ -313,7 +313,7 @@ export class GroupInfoService {
 
     let afterSeq = 0n;
     while (true) {
-      const batch = await db.listBatch(groupCode, afterSeq, 500, startTime, endTime);
+      const batch = await db.listBatch(String(groupCode), afterSeq, 500, startTime, endTime);
       if (batch.length === 0) break;
       for (const msg of batch) {
         const uid = msg.senderUid || '';
@@ -362,7 +362,7 @@ export class GroupInfoService {
 
     let afterSeq = 0n;
     while (true) {
-      const batch = await db.listBatch(groupCode, afterSeq, 500, startTime, endTime);
+      const batch = await db.listBatch(String(groupCode), afterSeq, 500, startTime, endTime);
       if (batch.length === 0) break;
       for (const msg of batch) {
         const sendTime = Number(msg.sendTime);
@@ -405,7 +405,7 @@ export class GroupInfoService {
 
     let afterSeq = 0n;
     while (true) {
-      const batch = await db.listBatch(groupCode, afterSeq, 500, startTime, endTime);
+      const batch = await db.listBatch(String(groupCode), afterSeq, 500, startTime, endTime);
       if (batch.length === 0) break;
       for (const msg of batch) {
         if (msg.senderUid !== memberUid) continue;

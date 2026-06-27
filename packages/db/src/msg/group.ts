@@ -17,7 +17,7 @@
  * order by 40003 to hit the `(40027,40003)` composite index.
  */
 
-import type { DatabaseAlgorithms, NtHelperBinding, SqlRow } from '@weq/native';
+import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import type { GroupMsg } from './types';
 import { decodeBody, decodeEmoji, toBigint, toStr } from './util';
 import { QqDb } from '../qq_db';
@@ -89,7 +89,7 @@ export class GroupMsgDb {
     endTime?: number,
   ): Promise<GroupMsg[]> {
     const conditions: string[] = [`"40027" = ?`, `"40003" > ?`];
-    const params: Array<unknown> = [targetGroupCode, afterSeq];
+    const params: SqlValue[] = [targetGroupCode, afterSeq];
     if (startTime != null && startTime > 0) {
       conditions.push(`"40050" >= ?`);
       params.push(BigInt(startTime));
