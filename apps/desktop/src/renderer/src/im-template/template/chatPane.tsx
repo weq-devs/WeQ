@@ -1,5 +1,6 @@
 ﻿// @ts-nocheck
 import {
+	BarChart3,
 	Bot,
 	ChevronDown,
 	ChevronLeft,
@@ -201,6 +202,7 @@ export function ChatPane({
 	onEditRaw,
 	onOpenGroupAlbums,
 	onOpenGroupAnnouncements,
+	onOpenGroupAnalytics,
 }: {
 	user: User;
 	conversation: Conversation | undefined;
@@ -227,6 +229,7 @@ export function ChatPane({
 	onEditRaw?: (message: Message) => void;
 	onOpenGroupAlbums?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenGroupAnnouncements?: (conversation: Extract<Conversation, { type: "group" }>) => void;
+	onOpenGroupAnalytics?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 }) {
 	// 复用 replyJump 的跳转能力（含翻页/重建窗口），供群精华消息跳转使用。
 	const jumpToSeq = useContext(ReplyJumpContext);
@@ -1284,6 +1287,14 @@ export function ChatPane({
 								onClick={() => onOpenGroupAlbums?.(conversation)}
 							>
 								<Images size={18} />
+							</button>
+							<button
+								className={cn("icon-button", "group-header-info-action")}
+								type="button"
+								title="Group analytics"
+								onClick={() => onOpenGroupAnalytics?.(conversation)}
+							>
+								<BarChart3 size={18} />
 							</button>
 						</>
 					) : null}

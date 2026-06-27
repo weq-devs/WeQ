@@ -77,6 +77,38 @@ export class GroupMsgDb {
   }
 
   /**
+   * Batch-read messages oldest-first, starting from `afterSeq` (0n to begin).
+   * Optionally filters by sendTime range (unix seconds). Use for analytics /
+   * full-group scans that need to process every message in order.
+   */
+  async listBatch(
+    targetGroupCode: string,
+    afterSeq: bigint,
+    limit = 500,
+    startTime?: number,
+    endTime?: number,
+  ): Promise<GroupMsg[]> {
+    const conditions: string[] = [`"40027" = ?`, `"40003" > ?`];
+    const params: Array<unknown> = [targetGroupCode, afterSeq];
+    if (startTime != null && startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      params.push(BigInt(startTime));
+    }
+    if (endTime != null && endTime > 0) {
+      conditions.push(`"40050" <= ?`);
+      params.push(BigInt(endTime));
+    }
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY "40003" ASC
+        LIMIT ?`,
+      [...params, BigInt(limit)],
+    );
+    return rows.map(rowToGroupMsg);
+  }
+
+  /**
    * Messages with seq >= `sinceSeq`, newest-first, capped at `limit`. The
    * "re-read the currently-loaded window" query — picks up new tail messages
    * plus in-place edits (recall / sticker reactions) within the window.
