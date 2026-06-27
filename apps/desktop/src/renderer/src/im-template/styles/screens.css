@@ -633,15 +633,22 @@ html[data-theme="dark"] .group-info-panel {
 }
 
 html[data-theme="dark"] .group-announcement-content {
-	background: #1b1c1e;
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in srgb, var(--weq-accent-effective) 14%, var(--weq-bg-surface)),
+			color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-elevated))
+		);
+	border-color: color-mix(in srgb, var(--weq-accent-effective) 24%, rgba(255, 255, 255, 0.08));
+	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 html[data-theme="dark"] .group-announcement-content p {
-	color: #c8c8c8;
+	color: var(--weq-fg-primary);
 }
 
 html[data-theme="dark"] .group-announcement-content.is-empty {
-	background: transparent;
+	background: color-mix(in srgb, var(--weq-bg-surface) 72%, transparent);
 }
 
 html[data-theme="dark"] .group-info-toggle {

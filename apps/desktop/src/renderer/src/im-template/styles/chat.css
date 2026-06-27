@@ -1528,14 +1528,22 @@ button.group-info-heading {
 
 .group-announcement-content {
 	margin-top: 2px;
-	padding: 0 12px;
-	background: transparent;
+	padding: 8px 12px;
+	border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+	border-radius: 10px;
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in srgb, var(--weq-accent-effective) 7%, var(--weq-bg-surface)),
+			color-mix(in srgb, var(--weq-accent-effective) 3%, var(--weq-bg-elevated))
+		);
+	box-shadow: inset 0 1px 0 color-mix(in srgb, white 35%, transparent);
 }
 
 .group-announcement-content p {
 	display: -webkit-box;
 	overflow: hidden;
-	color: #333333;
+	color: var(--weq-fg-primary);
 	font-size: 13px;
 	line-height: 1.6;
 	white-space: pre-wrap;
@@ -1545,12 +1553,13 @@ button.group-info-heading {
 }
 
 .group-announcement-content.is-empty {
-	background: transparent;
-	padding: 4px 12px 0;
+	padding: 8px 12px;
+	background: color-mix(in srgb, var(--weq-bg-surface) 78%, transparent);
+	border-style: dashed;
 }
 
 .group-announcement-content .placeholder-text {
-	color: #b0b0b0;
+	color: var(--weq-fg-muted);
 }
 
 .group-info-meta-list,
@@ -1930,10 +1939,16 @@ button.contact-profile-row:hover {
 	max-height: min(720px, calc(100vh - 64px));
 	grid-template-rows: auto minmax(0, 1fr);
 	overflow: hidden;
-	border: 1px solid rgba(0, 0, 0, 0.08);
-	border-radius: 10px;
-	background: #ffffff;
-	box-shadow: 0 24px 70px rgba(0, 0, 0, 0.18);
+	border: 1px solid var(--weq-border-subtle);
+	border-radius: 14px;
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in srgb, var(--weq-accent-effective) 5%, var(--weq-bg-surface)),
+			var(--weq-bg-surface)
+		);
+	box-shadow: var(--weq-shadow-card);
+	backdrop-filter: blur(18px);
 }
 
 .group-album-dialog header {
@@ -1943,7 +1958,7 @@ button.contact-profile-row:hover {
 	justify-content: space-between;
 	gap: 14px;
 	padding: 16px 18px;
-	border-bottom: 1px solid #eeeeee;
+	border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 .group-album-dialog header div {
@@ -1953,14 +1968,14 @@ button.contact-profile-row:hover {
 }
 
 .group-album-dialog header strong {
-	color: #111111;
+	color: var(--weq-fg-primary);
 	font-size: 17px;
 	font-weight: 600;
 }
 
 .group-album-dialog header span {
 	overflow: hidden;
-	color: #8a8a8a;
+	color: var(--weq-fg-muted);
 	font-size: 12px;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -1983,17 +1998,25 @@ button.contact-profile-row:hover {
 	min-width: 0;
 	gap: 8px;
 	padding: 0;
-	border: 1px solid #eeeeee;
-	border-radius: 8px;
+	border: 1px solid var(--weq-border-subtle);
+	border-radius: 12px;
 	overflow: hidden;
-	background: #ffffff;
+	background: color-mix(in srgb, var(--weq-bg-surface) 88%, transparent);
+	box-shadow: 0 10px 24px -18px color-mix(in srgb, var(--weq-accent-effective) 22%, black);
 	text-align: left;
 	cursor: pointer;
+	transition:
+		border-color 150ms ease,
+		background-color 150ms ease,
+		transform 150ms ease,
+		box-shadow 150ms ease;
 }
 
 .group-album-card:hover {
-	border-color: rgba(0, 153, 247, 0.32);
-	background: #f8fcff;
+	border-color: var(--weq-border-strong);
+	background: color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-surface));
+	transform: translateY(-1px);
+	box-shadow: 0 18px 34px -24px color-mix(in srgb, var(--weq-accent-effective) 38%, black);
 }
 
 .group-album-card:disabled {
@@ -2005,8 +2028,13 @@ button.contact-profile-row:hover {
 	display: grid;
 	aspect-ratio: 4 / 3;
 	place-items: center;
-	background: #f2f3f5;
-	color: #9a9a9a;
+	background:
+		linear-gradient(
+			135deg,
+			color-mix(in srgb, var(--weq-accent-effective) 10%, var(--weq-bg-elevated)),
+			color-mix(in srgb, var(--weq-accent-effective) 4%, var(--weq-bg-surface))
+		);
+	color: var(--weq-fg-muted);
 }
 
 .group-album-cover img {
@@ -2030,13 +2058,13 @@ button.contact-profile-row:hover {
 }
 
 .group-album-card strong {
-	color: #222222;
+	color: var(--weq-fg-primary);
 	font-size: 13px;
 	font-weight: 600;
 }
 
 .group-album-card small {
-	color: #8a8a8a;
+	color: var(--weq-fg-muted);
 	font-size: 12px;
 }
 
@@ -2046,12 +2074,12 @@ button.contact-profile-row:hover {
 	align-items: center;
 	justify-content: center;
 	gap: 8px;
-	color: #8a8a8a;
+	color: var(--weq-fg-muted);
 	font-size: 13px;
 }
 
 .group-album-state.is-error {
-	color: #c03d35;
+	color: var(--destructive);
 }
 
 .group-album-media-view {
@@ -2065,23 +2093,26 @@ button.contact-profile-row:hover {
 	align-items: center;
 	justify-content: space-between;
 	gap: 10px;
-	color: #8a8a8a;
+	color: var(--weq-fg-muted);
 	font-size: 12px;
 }
 
 .group-album-back {
 	min-height: 28px;
 	padding: 0 10px;
-	border: 1px solid #dddddd;
+	border: 1px solid var(--weq-border-subtle);
 	border-radius: 6px;
-	background: #ffffff;
-	color: #333333;
+	background: color-mix(in srgb, var(--weq-bg-surface) 84%, transparent);
+	color: var(--weq-fg-primary);
 	font-size: 12px;
 	cursor: pointer;
+	transition: border-color 150ms ease, background-color 150ms ease, color 150ms ease;
 }
 
 .group-album-back:hover {
-	background: #f6f6f6;
+	border-color: var(--weq-border-strong);
+	background: color-mix(in srgb, var(--weq-accent-effective) 10%, var(--weq-bg-surface));
+	color: color-mix(in srgb, var(--weq-accent-effective) 62%, var(--weq-fg-primary));
 }
 
 .group-album-media-grid {
@@ -2096,10 +2127,18 @@ button.contact-profile-row:hover {
 	place-items: center;
 	padding: 0;
 	border: 0;
-	border-radius: 7px;
+	border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+	border-radius: 10px;
 	overflow: hidden;
-	background: #f2f3f5;
+	background: color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-elevated));
 	cursor: zoom-in;
+	transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.group-album-media-card:hover {
+	transform: translateY(-1px);
+	border-color: var(--weq-border-strong);
+	box-shadow: 0 16px 30px -24px color-mix(in srgb, var(--weq-accent-effective) 42%, black);
 }
 
 .group-album-media-card img {
@@ -2115,10 +2154,16 @@ button.contact-profile-row:hover {
 	max-height: min(680px, calc(100vh - 64px));
 	grid-template-rows: auto minmax(0, 1fr);
 	overflow: hidden;
-	border: 1px solid rgba(0, 0, 0, 0.08);
-	border-radius: 10px;
-	background: #ffffff;
-	box-shadow: 0 24px 70px rgba(0, 0, 0, 0.18);
+	border: 1px solid var(--weq-border-subtle);
+	border-radius: 14px;
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in srgb, var(--weq-accent-effective) 5%, var(--weq-bg-surface)),
+			var(--weq-bg-surface)
+		);
+	box-shadow: var(--weq-shadow-card);
+	backdrop-filter: blur(18px);
 }
 
 .group-profile-detail-dialog {
@@ -2133,7 +2178,7 @@ button.contact-profile-row:hover {
 	justify-content: space-between;
 	gap: 14px;
 	padding: 16px 18px;
-	border-bottom: 1px solid #eeeeee;
+	border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 .group-info-detail-dialog header div {
@@ -2144,14 +2189,14 @@ button.contact-profile-row:hover {
 
 .group-info-detail-dialog header strong,
 .group-profile-detail-dialog header strong {
-	color: #111111;
+	color: var(--weq-fg-primary);
 	font-size: 17px;
 	font-weight: 600;
 }
 
 .group-info-detail-dialog header span {
 	overflow: hidden;
-	color: #8a8a8a;
+	color: var(--weq-fg-muted);
 	font-size: 12px;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -2175,15 +2220,15 @@ button.contact-profile-row:hover {
 	min-width: 0;
 	gap: 7px;
 	padding: 13px 0;
-	border-bottom: 1px solid #eeeeee;
+	border-bottom: 1px solid color-mix(in srgb, var(--weq-border-subtle) 90%, transparent);
 	transition: background-color 0.2s ease, padding 0.2s ease;
 }
 
 .group-info-detail-record[style*="cursor: pointer"]:hover {
-	background-color: #f5f5f5;
+	background-color: color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-elevated));
 	padding-left: 8px;
 	padding-right: 8px;
-	border-radius: 6px;
+	border-radius: 10px;
 }
 
 .group-info-detail-row:last-child,
@@ -2193,7 +2238,7 @@ button.contact-profile-row:hover {
 
 .group-info-detail-row span,
 .group-info-detail-record span {
-	color: #8a8a8a;
+	color: var(--weq-fg-muted);
 	font-size: 12px;
 }
 
@@ -2201,7 +2246,7 @@ button.contact-profile-row:hover {
 .group-info-detail-record p,
 .group-profile-detail-dialog p {
 	margin: 0;
-	color: #333333;
+	color: var(--weq-fg-primary);
 	font-size: 14px;
 	font-weight: 400;
 	line-height: 1.6;
@@ -2784,28 +2829,36 @@ button.contact-profile-row:hover {
 	align-items: center;
 	gap: 8px;
 	padding: 28px 16px 22px;
-	border: 1px solid #e5e5e5;
+	border: 1px solid var(--weq-border-subtle);
 	border-radius: 12px;
-	background: #fff;
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in srgb, var(--weq-accent-effective) 7%, var(--weq-bg-surface)),
+			color-mix(in srgb, var(--weq-accent-effective) 2%, var(--weq-bg-surface))
+		);
 	cursor: pointer;
 	text-align: center;
-	transition: border-color 0.15s, background 0.15s;
+	box-shadow: 0 14px 28px -24px color-mix(in srgb, var(--weq-accent-effective) 36%, black);
+	transition: border-color 0.15s, background 0.15s, transform 0.15s, box-shadow 0.15s;
 }
 
 .ga-menu-card:hover {
-	border-color: rgba(0, 153, 247, 0.35);
-	background: #f8fcff;
+	border-color: var(--weq-border-strong);
+	background: color-mix(in srgb, var(--weq-accent-effective) 10%, var(--weq-bg-surface));
+	transform: translateY(-1px);
+	box-shadow: 0 20px 36px -26px color-mix(in srgb, var(--weq-accent-effective) 44%, black);
 }
 
 .ga-menu-card span {
 	font-size: 15px;
 	font-weight: 600;
-	color: #1a1a1a;
+	color: var(--weq-fg-primary);
 }
 
 .ga-menu-card small {
 	font-size: 12px;
-	color: #8a8a8a;
+	color: var(--weq-fg-muted);
 	line-height: 1.4;
 }
 
@@ -2816,18 +2869,18 @@ button.contact-profile-row:hover {
 	align-items: center;
 	justify-content: center;
 	padding: 48px 0;
-	color: #8a8a8a;
+	color: var(--weq-fg-muted);
 }
 
 .ga-error {
-	color: #e53e3e;
+	color: var(--destructive);
 	padding: 16px;
 	text-align: center;
 	font-size: 13px;
 }
 
 .ga-placeholder {
-	color: #8a8a8a;
+	color: var(--weq-fg-muted);
 	text-align: center;
 	padding: 40px 0;
 	font-size: 13px;
@@ -2856,12 +2909,12 @@ button.contact-profile-row:hover {
 }
 
 .ga-member-card:hover {
-	background: #f2f3f5;
+	background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
 }
 
 .ga-member-name {
 	font-size: 12px;
-	color: #333;
+	color: var(--weq-fg-primary);
 	text-align: center;
 	word-break: break-all;
 	line-height: 1.3;
@@ -2894,9 +2947,10 @@ button.contact-profile-row:hover {
 	align-items: center;
 	gap: 8px;
 	padding: 8px 12px;
-	border: 1px solid #e0e0e0;
+	border: 1px solid var(--weq-border-subtle);
 	border-radius: 8px;
-	background: #fff;
+	background: color-mix(in srgb, var(--weq-bg-surface) 84%, transparent);
+	color: var(--weq-fg-muted);
 }
 
 .ga-search-wrap input {
@@ -2905,6 +2959,11 @@ button.contact-profile-row:hover {
 	flex: 1;
 	font-size: 13px;
 	background: transparent;
+	color: var(--weq-fg-primary);
+}
+
+.ga-search-wrap input::placeholder {
+	color: var(--weq-fg-muted);
 }
 
 .ga-selected-member {
@@ -2913,9 +2972,14 @@ button.contact-profile-row:hover {
 	gap: 10px;
 	margin-bottom: 16px;
 	padding: 10px 14px;
-	background: #f5faff;
+	background:
+		linear-gradient(
+			135deg,
+			color-mix(in srgb, var(--weq-accent-effective) 10%, var(--weq-bg-surface)),
+			color-mix(in srgb, var(--weq-accent-effective) 4%, var(--weq-bg-elevated))
+		);
 	border-radius: 10px;
-	border: 1px solid rgba(0, 153, 247, 0.18);
+	border: 1px solid var(--weq-border-subtle);
 }
 
 .ga-selected-member > div {
@@ -2926,11 +2990,12 @@ button.contact-profile-row:hover {
 
 .ga-selected-member strong {
 	font-size: 14px;
+	color: var(--weq-fg-primary);
 }
 
 .ga-selected-member small {
 	font-size: 11px;
-	color: #8a8a8a;
+	color: var(--weq-fg-muted);
 }
 
 .ga-member-search-list {
@@ -2940,8 +3005,9 @@ button.contact-profile-row:hover {
 	margin-bottom: 16px;
 	max-height: 200px;
 	overflow: auto;
-	border: 1px solid #e0e0e0;
+	border: 1px solid var(--weq-border-subtle);
 	border-radius: 8px;
+	background: color-mix(in srgb, var(--weq-bg-surface) 82%, transparent);
 }
 
 .ga-member-search-item {
@@ -2950,23 +3016,24 @@ button.contact-profile-row:hover {
 	gap: 10px;
 	padding: 8px 12px;
 	border: none;
-	background: #fff;
+	background: transparent;
 	cursor: pointer;
 	font-size: 13px;
 	text-align: left;
+	color: var(--weq-fg-primary);
 }
 
 .ga-member-search-item:hover {
-	background: #f2f3f5;
+	background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
 }
 
 .ga-member-search-item.active {
-	background: #e8f4fd;
+	background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
 }
 
 .ga-member-search-item small {
 	font-size: 11px;
-	color: #8a8a8a;
+	color: var(--weq-fg-muted);
 	margin-left: auto;
 }
 
@@ -2984,19 +3051,20 @@ button.contact-profile-row:hover {
 	align-items: center;
 	gap: 10px;
 	padding: 14px 16px;
-	background: #f7f8fa;
+	background: color-mix(in srgb, var(--weq-accent-effective) 6%, var(--weq-bg-elevated));
+	border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
 	border-radius: 10px;
 }
 
 .ga-stat-card strong {
 	font-size: 16px;
 	display: block;
-	color: #1a1a1a;
+	color: var(--weq-fg-primary);
 }
 
 .ga-stat-card span {
 	font-size: 11px;
-	color: #8a8a8a;
+	color: var(--weq-fg-muted);
 }
 
 .ga-stat-wide {
@@ -3017,9 +3085,10 @@ button.contact-profile-row:hover {
 	align-items: center;
 	gap: 6px;
 	padding: 6px 12px;
-	border: 1px solid #e5e5e5;
+	border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
 	border-radius: 8px;
 	font-size: 12px;
+	background: color-mix(in srgb, var(--weq-bg-surface) 86%, transparent);
 }
 
 .ga-type-dot {
@@ -3029,11 +3098,11 @@ button.contact-profile-row:hover {
 }
 
 .ga-type-label {
-	color: #333;
+	color: var(--weq-fg-primary);
 }
 
 .ga-type-count {
-	color: #8a8a8a;
+	color: var(--weq-fg-muted);
 	font-weight: 600;
 }
 
@@ -3047,6 +3116,7 @@ button.contact-profile-row:hover {
 	font-size: 14px;
 	font-weight: 600;
 	margin-bottom: 10px;
+	color: var(--weq-fg-primary);
 }
 
 /* bar chart */
@@ -3057,7 +3127,7 @@ button.contact-profile-row:hover {
 	gap: 0;
 	height: 160px;
 	padding: 8px 0 0;
-	border-bottom: 1px solid #e5e5e5;
+	border-bottom: 1px solid color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
 }
 
 .ga-bar-col {
@@ -3070,7 +3140,7 @@ button.contact-profile-row:hover {
 
 .ga-bar-value-label {
 	font-size: 9px;
-	color: #8a8a8a;
+	color: var(--weq-fg-muted);
 	height: 16px;
 	line-height: 16px;
 	text-align: center;
@@ -3083,7 +3153,7 @@ button.contact-profile-row:hover {
 	display: flex;
 	align-items: flex-end;
 	border-radius: 4px 4px 0 0;
-	background: #f0f0f0;
+	background: color-mix(in srgb, var(--weq-accent-effective) 10%, var(--weq-bg-elevated));
 }
 
 .ga-bar-fill {
@@ -3095,7 +3165,7 @@ button.contact-profile-row:hover {
 
 .ga-bar-hour-label {
 	font-size: 10px;
-	color: #8a8a8a;
+	color: var(--weq-fg-muted);
 	margin-top: 4px;
 	height: 18px;
 	line-height: 18px;
@@ -3124,20 +3194,21 @@ button.contact-profile-row:hover {
 	align-items: center;
 	gap: 6px;
 	padding: 6px 12px;
-	background: #f7f8fa;
-	border: 1px solid #e5e5e5;
+	background: color-mix(in srgb, var(--weq-accent-effective) 6%, var(--weq-bg-elevated));
+	border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
 	border-radius: 8px;
 	font-size: 13px;
+	color: var(--weq-fg-primary);
 }
 
 .ga-chip small {
 	font-size: 11px;
-	color: #8a8a8a;
+	color: var(--weq-fg-muted);
 }
 
 .ga-chip-empty {
 	font-size: 12px;
-	color: #8a8a8a;
+	color: var(--weq-fg-muted);
 }
 
 /* ranking */
@@ -3154,28 +3225,42 @@ button.contact-profile-row:hover {
 	gap: 12px;
 	padding: 10px 14px;
 	border-radius: 10px;
-	background: #fff;
-	border: 1px solid transparent;
-	transition: background 0.12s;
+	background: color-mix(in srgb, var(--weq-bg-surface) 86%, transparent);
+	border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+	transition: background 0.12s, border-color 0.12s, transform 0.12s;
 }
 
 .ga-ranking-item:hover {
-	background: #f8f9fb;
+	background: color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-surface));
+	border-color: var(--weq-border-strong);
+	transform: translateY(-1px);
 }
 
 .ga-ranking-item.rank-1 {
-	background: linear-gradient(135deg, #fff9e6, #fff3cc);
-	border-color: #ffd700;
+	background: linear-gradient(
+		135deg,
+		color-mix(in srgb, #ffd24d 16%, var(--weq-bg-surface)),
+		color-mix(in srgb, #ffb300 8%, var(--weq-bg-elevated))
+	);
+	border-color: color-mix(in srgb, #ffcf40 45%, var(--weq-border-subtle));
 }
 
 .ga-ranking-item.rank-2 {
-	background: linear-gradient(135deg, #f5f5f5, #e8e8e8);
-	border-color: #c0c0c0;
+	background: linear-gradient(
+		135deg,
+		color-mix(in srgb, #d7dde5 20%, var(--weq-bg-surface)),
+		color-mix(in srgb, #a8b1bc 10%, var(--weq-bg-elevated))
+	);
+	border-color: color-mix(in srgb, #b9c0ca 38%, var(--weq-border-subtle));
 }
 
 .ga-ranking-item.rank-3 {
-	background: linear-gradient(135deg, #fdf4ed, #fbe0c8);
-	border-color: #cd7f32;
+	background: linear-gradient(
+		135deg,
+		color-mix(in srgb, #d29a63 18%, var(--weq-bg-surface)),
+		color-mix(in srgb, #b87333 10%, var(--weq-bg-elevated))
+	);
+	border-color: color-mix(in srgb, #b87333 36%, var(--weq-border-subtle));
 }
 
 .ga-rank-num {
@@ -3183,24 +3268,24 @@ button.contact-profile-row:hover {
 	text-align: center;
 	font-size: 14px;
 	font-weight: 600;
-	color: #8a8a8a;
+	color: var(--weq-fg-muted);
 }
 
 .ga-rank-num.top {
-	color: #1a1a1a;
+	color: var(--weq-fg-primary);
 }
 
 .ga-rank-name {
 	flex: 1;
 	font-size: 13px;
 	font-weight: 500;
-	color: #333;
+	color: var(--weq-fg-primary);
 }
 
 .ga-rank-count {
 	font-size: 13px;
 	font-weight: 600;
-	color: #1a1a1a;
+	color: var(--weq-fg-primary);
 }
 
 /* active hours page */
