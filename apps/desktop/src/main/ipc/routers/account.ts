@@ -478,7 +478,8 @@ export const accountRouter = router({
         customPrompt: z.string().optional(),
         targetUid: z.string().min(1),
         title: z.string().optional(),
-        limit: z.number().int().min(20).max(6000).optional(),
+        // 克隆程度：high 全量遍历（上限 C2C_SAFETY_CAP=20000）；low 取最近 N。
+        limit: z.number().int().min(20).max(20000).optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -492,6 +493,18 @@ export const accountRouter = router({
         limit: input.limit,
       });
     }),
+
+  /** Subscribe to AgentLab clone-build progress (drives the build progress bar). */
+  onAgentLabBuildProgress: procedure.subscription(() => {
+    return observable<import('@weq/service').AgentLabBuildProgress>((emit) => {
+      const svc = requireServices().agentLab;
+      const handler = (p: import('@weq/service').AgentLabBuildProgress): void => emit.next(p);
+      svc.on('build-progress', handler);
+      return () => {
+        svc.off('build-progress', handler);
+      };
+    });
+  }),
 
   chatWithAgentLabPersona: procedure
     .input(
@@ -518,6 +531,99 @@ export const accountRouter = router({
     .input(z.object({ personaId: z.string().min(1) }))
     .mutation(({ input }) => {
       return requireServices().agentLab.deletePersona(input.personaId);
+    }),
+
+  updateAgentLabPersona: procedure
+    .input(
+      z.object({
+        personaId: z.string().min(1),
+        name: z.string().optional(),
+        customPrompt: z.string().optional(),
+        voiceCloneEnabled: z.boolean().optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      return requireServices().agentLab.updatePersona(input.personaId, {
+        name: input.name,
+        customPrompt: input.customPrompt,
+        voiceCloneEnabled: input.voiceCloneEnabled,
+      });
+    }),
+
+  /** AgentLab token 用量统计（主页图表）。 */
+  getAgentLabTokenStats: procedure.query(() => {
+    return requireServices().agentLab.getTokenStats();
+  }),
+
+  /** 与某克隆体的持久化对话历史。 */
+  getAgentLabConversation: procedure
+    .input(z.object({ personaId: z.string().min(1) }))
+    .query(({ input }) => {
+      return requireServices().agentLab.getConversation(input.personaId);
+    }),
+
+  clearAgentLabConversation: procedure
+    .input(z.object({ personaId: z.string().min(1) }))
+    .mutation(({ input }) => {
+      requireServices().agentLab.clearConversation(input.personaId);
+      return true;
+    }),
+
+  /** 克隆体对「对方」的记忆（灯箱「记忆 / 画像」用）。 */
+  getAgentLabMemories: procedure
+    .input(z.object({ personaId: z.string().min(1) }))
+    .query(({ input }) => {
+      return requireServices().agentLab.getMemories(input.personaId);
+    }),
+
+  forgetAgentLabMemory: procedure
+    .input(z.object({ personaId: z.string().min(1), memoryId: z.string().min(1) }))
+    .mutation(({ input }) => {
+      requireServices().agentLab.forgetMemory(input.personaId, input.memoryId);
+      return true;
+    }),
+
+  clearAgentLabMemories: procedure
+    .input(z.object({ personaId: z.string().min(1) }))
+    .mutation(({ input }) => {
+      requireServices().agentLab.clearMemories(input.personaId);
+      return true;
+    }),
+
+  // ── WeQ 助手 ──────────────────────────────────────────────────────────────
+  getAssistantConfig: procedure.query(() => {
+    return requireServices().assistant.getConfig();
+  }),
+
+  setAssistantConfig: procedure
+    .input(
+      z.object({
+        model: agentLabModelRef.optional(),
+        customPrompt: z.string().optional(),
+        mcpServers: z.string().optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      return requireServices().assistant.setConfig({
+        model: input.model,
+        customPrompt: input.customPrompt,
+        mcpServers: input.mcpServers,
+      });
+    }),
+
+  getAssistantConversation: procedure.query(() => {
+    return requireServices().assistant.getConversation();
+  }),
+
+  clearAssistantConversation: procedure.mutation(() => {
+    requireServices().assistant.clearConversation();
+    return true;
+  }),
+
+  chatWithAssistant: procedure
+    .input(z.object({ text: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      return requireServices().assistant.chat(input.text);
     }),
 
   /** Recent conversations (recent_contact_v3_table), newest first. */

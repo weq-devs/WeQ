@@ -5,7 +5,9 @@ export {
   modelsWithCapability,
   resolveEndpoint,
 } from './provider';
-export { embedTexts, runPersonaChat } from './http';
+export { embedTexts, runPersonaChat, reportUsage, keywordsOf } from './http';
+export { humanizeText, DEFAULT_TYPO_INTENSITY } from './typo';
+export { scoreReplyWillingness } from './willing';
 export {
   buildPersonaArtifacts,
   mergeTurns,
@@ -29,6 +31,8 @@ export {
   extractPersonaCard,
   extractDeepProfile,
   extractFewShots,
+  extractExpressions,
+  distillMemories,
   summarizeVoiceScenario,
   describeSticker,
 } from './extract';

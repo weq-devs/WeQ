@@ -50,11 +50,24 @@ export interface AgentLabModels {
   voiceClone?: AgentLabModelRef;
 }
 
+/** 一次 LLM 调用的 token 用量（OpenAI 兼容响应的 usage 字段）。 */
+export interface AgentLabUsage {
+  model: string;
+  kind: 'chat' | 'embedding' | 'vision';
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
 /** 解析后可直接调用的端点 = provider 的 baseUrl/apiKey + 选定 model。 */
 export interface AgentLabEndpoint {
   baseUrl: string;
   apiKey: string;
   model: string;
+  /** 这个端点解析时对应的任务类型（用于 token 记账分类）。 */
+  kind?: 'chat' | 'embedding' | 'vision';
+  /** 每次调用后回调 token 用量（service 注入，写入用量统计）。 */
+  onUsage?: (usage: AgentLabUsage) => void;
 }
 
 // ── 语料 / 画像 ────────────────────────────────────────────────────────────
@@ -156,6 +169,32 @@ export interface AgentLabFewShotPair {
   reply: string;
 }
 
+/** 表达风格库的一条：在某情境下 TA 惯用的句式/表达（借鉴 MaiBot expression_learner）。 */
+export interface AgentLabExpression {
+  /** 情境（≤20 字），如「对某事表示惊叹」。 */
+  situation: string;
+  /** 对应句式/表达（≤20 字），如「用『我嘞个xxx』」。 */
+  style: string;
+  /** 在语料里被命中/重复发现的次数（加权选择用）。 */
+  count: number;
+}
+
+/**
+ * 克隆体对「聊天对方（也就是当前用户）」的一条记忆。
+ * 视角是「AI 变成 TA」，所以记的是 TA 眼中关于对方的事，配合 access 衰减做遗忘。
+ */
+export interface AgentLabMemoryItem {
+  id: string;
+  /** 记住的事实，如「对方最近在准备考研」。 */
+  text: string;
+  keywords: string[];
+  embedding?: number[];
+  /** 被检索命中的累计次数（越高越不易遗忘）。 */
+  accessCount: number;
+  createdAt: number;
+  lastAccessedAt: number;
+}
+
 export interface AgentLabPersona {
   id: string;
   ownerId: string;
@@ -168,8 +207,12 @@ export interface AgentLabPersona {
   models: AgentLabModels;
   /** 用户自定义提示，拼进 system prompt */
   customPrompt?: string;
+  /** 是否开启语音克隆（应用层未来用；这里仅记录开关状态）。 */
+  voiceCloneEnabled?: boolean;
   profile: AgentLabPersonaProfile;
   fewShots: AgentLabFewShotPair[];
+  /** 表达风格库：(情境, 句式) 对，runtime 按情境检索后注入 prompt。 */
+  expressions: AgentLabExpression[];
   /** 高频自定义表情包（不含 mface 商城表情）。 */
   stickers: AgentLabStickerRef[];
   /** TA 实际用过的系统表情 faceText 白名单（prompt 只许从这里选，防造 /吃饭）。 */
@@ -202,10 +245,23 @@ export interface AgentLabChatRequest {
   pairs: AgentLabStoredPair[];
   history: AgentLabChatTurn[];
   input: string;
+  /** 克隆体对当前对方的记忆（service 注入；命中的会在结果里回报以便记账衰减）。 */
+  memories?: AgentLabMemoryItem[];
+  /** 关闭/调节错别字强度（默认开，约 0.18）。 */
+  typoIntensity?: number;
 }
 
 export interface AgentLabChatResult {
+  /** 完整回复文本（分条用 \n 连接，落库/few-shot 用）。 */
   text: string;
+  /** 分条后的消息（前端逐条带打字延迟渲染，借鉴 MaiBot 分段连发）。 */
+  segments: string[];
   promptPreview: string;
   matches: AgentLabStoredPair[];
+  /** 本轮检索命中、需要 +access 的记忆 id。 */
+  usedMemoryIds: string[];
+  /** 回复意愿 0~1（越低越敷衍/越慢）。 */
+  willingness: number;
+  /** 建议的首条回复前延迟（ms，前端模拟「在打字」）。 */
+  replyDelayMs: number;
 }

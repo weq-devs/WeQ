@@ -160,6 +160,7 @@ export function AgentLabSection(): ReactElement {
       });
       setSelectedId(id);
       await utils.bootstrap.listAgentLabProviders.invalidate();
+      dialog.success('已保存', `provider「${form.name.trim() || id}」配置已更新`);
     } catch (error) {
       dialog.error('保存 provider 失败', error instanceof Error ? error.message : String(error));
     }
@@ -174,10 +175,12 @@ export function AgentLabSection(): ReactElement {
     });
     if (!ok) return;
     try {
+      const removed = selectedId;
       await deleteProvider.mutateAsync({ id: selectedId });
       setSelectedId('');
       setForm(emptyForm());
       await utils.bootstrap.listAgentLabProviders.invalidate();
+      dialog.success('已删除', `provider「${removed}」已移除`);
     } catch (error) {
       dialog.error('删除 provider 失败', error instanceof Error ? error.message : String(error));
     }

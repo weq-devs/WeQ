@@ -1,12 +1,20 @@
-import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react';
-import { Bot, BarChart3, MessageSquarePlus, Send, Sparkles, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { Plus, Send, Settings, Sparkles, Trash2 } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
+import { QqAvatar } from '../components/QqAvatar';
+import { NewCloneModal, type BuddyOption, type FlatModels } from './agentlab/NewCloneModal';
+import { PersonaSettingsModal } from './agentlab/PersonaSettingsModal';
+import { UsagePanel } from './agentlab/UsagePanel';
+import { AssistantPanel } from './agentlab/AssistantPanel';
+import { ChatBubble } from './agentlab/ChatBubble';
 
 interface ChatTurn {
   role: 'user' | 'assistant';
   text: string;
 }
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 interface PersonaParamsDetail {
   persona: {
@@ -77,13 +85,7 @@ function Row({ label, children }: { label: string; children: ReactNode }): React
   );
 }
 
-function PersonaParamsPanel({
-  loading,
-  detail,
-}: {
-  loading: boolean;
-  detail: PersonaParamsDetail | null;
-}): ReactElement {
+function PersonaParamsPanel({ loading, detail }: { loading: boolean; detail: PersonaParamsDetail | null }): ReactElement {
   if (loading) return <div className="weq-agentlab-params">加载画像参数中…</div>;
   if (!detail) return <div className="weq-agentlab-params">暂无画像参数。</div>;
   const { stats, profile, fewShots } = detail.persona;
@@ -93,20 +95,7 @@ function PersonaParamsPanel({
   const stickers = detail.persona.stickers ?? [];
   const voiceProfile = detail.persona.voiceProfile;
   return (
-    <div
-      className="weq-agentlab-params"
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 10,
-        padding: '10px 14px',
-        margin: '0 0 8px',
-        borderRadius: 10,
-        background: 'rgba(127,127,127,0.07)',
-        maxHeight: 320,
-        overflowY: 'auto',
-      }}
-    >
+    <div className="weq-agentlab-params">
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <strong style={{ fontSize: 13 }}>画像参数</strong>
         <span
@@ -136,22 +125,14 @@ function PersonaParamsPanel({
       <Row label="语气">{card.tone || profile.styleSummary || '—'}</Row>
       <Row label="标点习惯">{card.punctuationStyle || '—'}</Row>
       <Row label="称呼">{card.addressing || '—'}</Row>
-      <Row label="性格">
-        <Chips items={card.personalityTraits} />
-      </Row>
-      <Row label="口头禅">
-        <Chips items={card.catchphrases} />
-      </Row>
-      <Row label="话题">
-        <Chips items={card.topics.length ? card.topics : profile.topTerms} />
-      </Row>
+      <Row label="性格"><Chips items={card.personalityTraits} /></Row>
+      <Row label="口头禅"><Chips items={card.catchphrases} /></Row>
+      <Row label="话题"><Chips items={card.topics.length ? card.topics : profile.topTerms} /></Row>
       <Row label="语音">
         {voiceProfile?.scenarioSummary || profile.voiceUsageSummary}（占比{' '}
         {Math.round((voiceProfile?.ratio ?? profile.voiceRatio) * 100)}%）
       </Row>
-      <Row label="系统表情">
-        <Chips items={systemFaces} />
-      </Row>
+      <Row label="系统表情"><Chips items={systemFaces} /></Row>
       <Row label="表情包">
         {stickers.length === 0 ? (
           <span style={{ opacity: 0.45 }}>—</span>
@@ -167,15 +148,9 @@ function PersonaParamsPanel({
         )}
       </Row>
       <Row label="关系">{deep.relationship || profile.relationshipSummary || '—'}</Row>
-      <Row label="事实">
-        <Chips items={deep.facts} />
-      </Row>
-      <Row label="反应模式">
-        <Chips items={deep.reactionPatterns} />
-      </Row>
-      <Row label="立场雷点">
-        <Chips items={deep.boundaries} />
-      </Row>
+      <Row label="事实"><Chips items={deep.facts} /></Row>
+      <Row label="反应模式"><Chips items={deep.reactionPatterns} /></Row>
+      <Row label="立场雷点"><Chips items={deep.boundaries} /></Row>
 
       <details>
         <summary style={{ cursor: 'pointer', fontSize: 12, opacity: 0.7 }}>
@@ -194,49 +169,54 @@ function PersonaParamsPanel({
   );
 }
 
-function randomPersonaId(targetUid: string): string {
-  return `persona-${targetUid}-${Date.now()}`;
-}
+type Selection = { kind: 'home' } | { kind: 'assistant' } | { kind: 'persona'; id: string };
 
 export function AgentLabView(): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   const providers = trpc.bootstrap.listAgentLabProviders.useQuery();
   const buddies = trpc.account.listBuddies.useQuery({ limit: 300, offset: 0 });
+  const personas = trpc.account.listAgentLabPersonas.useQuery();
+  const chat = trpc.account.chatWithAgentLabPersona.useMutation();
+  const deletePersona = trpc.account.deleteAgentLabPersona.useMutation();
+  const selfProfile = trpc.account.getSelfProfile.useQuery();
+
   const buddyUids = useMemo(
     () => (buddies.data ?? []).map((item) => item.uid).filter(Boolean),
     [buddies.data],
   );
   const profiles = trpc.account.getProfilesByUids.useQuery(
-    { uids: buddyUids.slice(0, 200) },
-    {
-      enabled: buddyUids.length > 0,
-    },
+    { uids: buddyUids.slice(0, 300) },
+    { enabled: buddyUids.length > 0 },
   );
-  const personas = trpc.account.listAgentLabPersonas.useQuery();
-  const build = trpc.account.buildAgentLabFromC2c.useMutation();
-  const chat = trpc.account.chatWithAgentLabPersona.useMutation();
-  const deletePersona = trpc.account.deleteAgentLabPersona.useMutation();
+  const profileByUid = useMemo(() => {
+    const map = new Map<string, { uin: string; label: string; avatarUrl?: string }>();
+    for (const row of profiles.data ?? []) {
+      map.set(row.uid, {
+        uin: row.uin,
+        label: row.remark || row.nick || row.uin || row.uid,
+        avatarUrl: row.avatarUrl || undefined,
+      });
+    }
+    return map;
+  }, [profiles.data]);
 
-  const [targetUid, setTargetUid] = useState('');
-  const [personaId, setPersonaId] = useState('');
-  const [history, setHistory] = useState<ChatTurn[]>([]);
-  const [input, setInput] = useState('');
-  const [profileNames, setProfileNames] = useState<Record<string, string>>({});
-  const [showParams, setShowParams] = useState(false);
-  const [cloneName, setCloneName] = useState('');
-  const [customPrompt, setCustomPrompt] = useState('');
-  const [chatSel, setChatSel] = useState('');
-  const [embSel, setEmbSel] = useState('');
-  const [visSel, setVisSel] = useState('');
-
-  const personaDetail = trpc.account.getAgentLabPersonaDetail.useQuery(
-    { personaId },
-    { enabled: showParams && !!personaId },
+  // 后端旧版/损坏数据可能混入 undefined，统一在这里过滤一次，下面所有用法都走 personaList。
+  const personaList = useMemo(
+    () => (personas.data ?? []).filter((p): p is NonNullable<typeof p> => Boolean(p)),
+    [personas.data],
   );
 
-  // 把所有 provider 里具备某能力的模型摊平成 "providerId::model" 选项。
-  const flatModels = useMemo(() => {
+  const buddyOptions: BuddyOption[] = useMemo(
+    () =>
+      (buddies.data ?? []).map((item) => {
+        const p = profileByUid.get(item.uid);
+        return { uid: item.uid, uin: p?.uin || item.uin || '', label: p?.label || item.uin || item.uid, avatarUrl: p?.avatarUrl };
+      }),
+    [buddies.data, profileByUid],
+  );
+
+  const flatModels: FlatModels = useMemo(() => {
     const build = (cap: 'chat' | 'embedding' | 'vision') =>
       (providers.data ?? []).flatMap((p) =>
         p.models
@@ -246,68 +226,46 @@ export function AgentLabView(): ReactElement {
     return { chat: build('chat'), embedding: build('embedding'), vision: build('vision') };
   }, [providers.data]);
 
-  useEffect(() => {
-    const first = flatModels.chat[0];
-    if (!chatSel && first) setChatSel(first.key);
-  }, [flatModels.chat, chatSel]);
+  const [sel, setSel] = useState<Selection>({ kind: 'home' });
+  const [cloneOpen, setCloneOpen] = useState(false);
+  const [history, setHistory] = useState<ChatTurn[]>([]);
+  const [input, setInput] = useState('');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [cloneTyping, setCloneTyping] = useState(false);
 
-  useEffect(() => {
-    const first = personas.data?.[0];
-    if (!personaId && first) setPersonaId(first.id);
-  }, [personas.data, personaId]);
-
-  useEffect(() => {
-    const rows = profiles.data;
-    if (!rows?.length) return;
-    const next: Record<string, string> = {};
-    for (const row of rows) next[row.uid] = row.remark || row.nick || row.uin || row.uid;
-    setProfileNames(next);
-  }, [profiles.data]);
-
-  const buddyOptions = useMemo(
-    () =>
-      (buddies.data ?? []).map((item) => ({
-        uid: item.uid,
-        label: profileNames[item.uid] || item.uin || item.uid,
-      })),
-    [buddies.data, profileNames],
+  const personaId = sel.kind === 'persona' ? sel.id : '';
+  const activePersona = personaList.find((item) => item.id === personaId) ?? null;
+  const clonedProfile = activePersona ? profileByUid.get(activePersona.sourceId) : undefined;
+  const personaDetail = trpc.account.getAgentLabPersonaDetail.useQuery(
+    { personaId },
+    { enabled: settingsOpen && !!personaId },
   );
+  const personaConv = trpc.account.getAgentLabConversation.useQuery(
+    { personaId },
+    { enabled: !!personaId },
+  );
+  const seededPersona = useRef('');
 
-  const activePersona = personas.data?.find((item) => item.id === personaId) ?? null;
-
-  function parseSel(key: string): { providerId: string; model: string } | undefined {
-    const [providerId, model] = key.split('::');
-    return providerId && model ? { providerId, model } : undefined;
-  }
-
-  async function onBuild(): Promise<void> {
-    const chatRef = parseSel(chatSel);
-    if (!chatRef || !targetUid) {
-      dialog.error('无法构建', '请先选择聊天模型和好友。');
-      return;
+  // 切到某克隆体时，从持久化对话恢复历史（每个 persona 只 seed 一次）。
+  useEffect(() => {
+    if (personaId && personaConv.data && seededPersona.current !== personaId) {
+      setHistory(personaConv.data.map((t) => ({ role: t.role, text: t.text })));
+      seededPersona.current = personaId;
     }
-    const label = buddyOptions.find((item) => item.uid === targetUid)?.label;
-    const embRef = parseSel(embSel);
-    const visRef = parseSel(visSel);
-    try {
-      const persona = await build.mutateAsync({
-        personaId: randomPersonaId(targetUid),
-        name: cloneName.trim() || undefined,
-        models: {
-          chat: chatRef,
-          ...(embRef ? { embedding: embRef } : {}),
-          ...(visRef ? { vision: visRef } : {}),
-        },
-        customPrompt: customPrompt.trim() || undefined,
-        targetUid,
-        title: label,
-      });
-      setPersonaId(persona.id);
-      setHistory([]);
-      await utils.account.listAgentLabPersonas.invalidate();
-    } catch (error) {
-      dialog.error('构建 persona 失败', error instanceof Error ? error.message : String(error));
+  }, [personaId, personaConv.data]);
+
+  // 选中的 persona 被删除时回退到主页。
+  useEffect(() => {
+    if (sel.kind === 'persona' && personas.data && !personaList.some((p) => p.id === sel.id)) {
+      setSel({ kind: 'home' });
     }
+  }, [sel, personas.data, personaList]);
+
+  function selectPersona(id: string): void {
+    setSel({ kind: 'persona', id });
+    setHistory([]);
+    setSettingsOpen(false);
+    seededPersona.current = ''; // 强制从持久化对话重新 seed
   }
 
   async function onSend(): Promise<void> {
@@ -318,8 +276,23 @@ export function AgentLabView(): ReactElement {
     setHistory(nextHistory);
     try {
       const result = await chat.mutateAsync({ personaId, text, history });
-      setHistory([...nextHistory, { role: 'assistant', text: result.text }]);
+      // 分段连发 + 打字延迟：逐条揭示，模拟真人一句一句发。
+      const segments = result.segments?.length ? result.segments : [result.text];
+      setCloneTyping(true);
+      await sleep(Math.min(1800, result.replyDelayMs ?? 500));
+      let acc = nextHistory;
+      for (let i = 0; i < segments.length; i += 1) {
+        const seg = segments[i]!;
+        acc = [...acc, { role: 'assistant' as const, text: seg }];
+        setHistory(acc);
+        if (i < segments.length - 1) {
+          setCloneTyping(true);
+          await sleep(Math.min(1600, 320 + seg.length * 55));
+        }
+      }
+      setCloneTyping(false);
     } catch (error) {
+      setCloneTyping(false);
       dialog.error('发送失败', error instanceof Error ? error.message : String(error));
       setHistory(history);
       setInput(text);
@@ -328,7 +301,7 @@ export function AgentLabView(): ReactElement {
 
   async function onDeletePersona(): Promise<void> {
     if (!personaId) return;
-    const ok = await dialog.confirm('删除 persona', '确认删除当前克隆？', {
+    const ok = await dialog.confirm('删除克隆', '确认删除当前克隆体？', {
       okLabel: '删除',
       cancelLabel: '返回',
       tone: 'warning',
@@ -336,161 +309,178 @@ export function AgentLabView(): ReactElement {
     if (!ok) return;
     try {
       await deletePersona.mutateAsync({ personaId });
-      setPersonaId('');
+      setSel({ kind: 'home' });
       setHistory([]);
       await utils.account.listAgentLabPersonas.invalidate();
+      dialog.success('已删除');
     } catch (error) {
       dialog.error('删除失败', error instanceof Error ? error.message : String(error));
     }
   }
 
   return (
-    <div className="weq-agentlab-view">
-      <section className="weq-agentlab-panel weq-agentlab-builder">
-        <header className="weq-agentlab-head">
-          <div>
-            <strong>AgentLab</strong>
-            <span>好友克隆实验页。前端先保持简单，重点是把后端链路打通。</span>
-          </div>
-          <Sparkles size={18} />
-        </header>
-        <div className="weq-agentlab-grid">
-          <label className="weq-agentlab-field">
-            <span>克隆对象</span>
-            <select value={targetUid} onChange={(e) => setTargetUid(e.target.value)}>
-              <option value="">请选择好友</option>
-              {buddyOptions.map((item) => (
-                <option key={item.uid} value={item.uid}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="weq-agentlab-field">
-            <span>克隆体名称（可选，默认用好友昵称）</span>
-            <input value={cloneName} onChange={(e) => setCloneName(e.target.value)} placeholder="给这个克隆体起个名" />
-          </label>
-          <label className="weq-agentlab-field">
-            <span>聊天模型</span>
-            <select value={chatSel} onChange={(e) => setChatSel(e.target.value)}>
-              <option value="">请选择聊天模型</option>
-              {flatModels.chat.map((m) => (
-                <option key={m.key} value={m.key}>{m.label}</option>
-              ))}
-            </select>
-          </label>
-          <label className="weq-agentlab-field">
-            <span>向量模型（可选，配了才做相似检索）</span>
-            <select value={embSel} onChange={(e) => setEmbSel(e.target.value)}>
-              <option value="">不使用向量</option>
-              {flatModels.embedding.map((m) => (
-                <option key={m.key} value={m.key}>{m.label}</option>
-              ))}
-            </select>
-          </label>
-          <label className="weq-agentlab-field">
-            <span>视觉模型（可选，配了才解读表情包）</span>
-            <select value={visSel} onChange={(e) => setVisSel(e.target.value)}>
-              <option value="">不解读表情包</option>
-              {flatModels.vision.map((m) => (
-                <option key={m.key} value={m.key}>{m.label}</option>
-              ))}
-            </select>
-          </label>
-        </div>
-        {flatModels.chat.length === 0 ? (
-          <div className="weq-agentlab-empty" style={{ margin: '4px 0' }}>
-            还没有可用的聊天模型，请先到「设置 → 模型服务商」添加 provider 和模型。
-          </div>
-        ) : null}
-        <label className="weq-agentlab-field" style={{ display: 'block', marginTop: 6 }}>
-          <span>自定义提示（可选，拼进 system prompt）</span>
-          <textarea
-            value={customPrompt}
-            onChange={(e) => setCustomPrompt(e.target.value)}
-            placeholder="例如：这个克隆体说话更毒舌一点"
-            rows={2}
-            style={{ width: '100%', resize: 'vertical' }}
-          />
-        </label>
-        <div className="weq-agentlab-actions">
-          <button type="button" className="weq-set-btn" onClick={() => void onBuild()} disabled={build.isLoading}>
-            <MessageSquarePlus size={14} />
-            {build.isLoading ? '构建中...' : '构建克隆'}
-          </button>
-        </div>
-        <div className="weq-agentlab-personas">
-          {(personas.data ?? []).map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={`weq-agentlab-persona${personaId === item.id ? ' is-active' : ''}`}
-              onClick={() => {
-                setPersonaId(item.id);
-                setHistory([]);
-              }}
-            >
-              <span>{item.name}</span>
-              <small>{item.sourceTitle}</small>
-            </button>
-          ))}
-        </div>
-      </section>
+    <div className="weq-agentlab-shell">
+      {/* 左侧 agent 列表 */}
+      <aside className="weq-agentlab-list">
+        <div className="weq-agentlab-list-head">AgentLab</div>
+        <button
+          className={`weq-agentlab-item${sel.kind === 'assistant' ? ' is-active' : ''}`}
+          onClick={() => setSel({ kind: 'assistant' })}
+        >
+          <span className="weq-agentlab-item-avatar is-bot"><Sparkles size={18} /></span>
+          <span className="weq-agentlab-item-text">
+            <strong>WeQ 助手</strong>
+            <small>调用工具帮你完成操作</small>
+          </span>
+        </button>
 
-      <section className="weq-agentlab-panel weq-agentlab-chat">
-        <header className="weq-agentlab-head">
-          <div>
-            <strong>{activePersona?.name ?? '未选择 persona'}</strong>
-            <span>
-              {activePersona
-                ? `${activePersona.models?.chat?.model ?? '旧版克隆，请重建'} · 样本 ${activePersona.corpusMessageCount} 条`
-                : '先在左侧构建或选择一个克隆。'}
-            </span>
-          </div>
-          <div className="weq-agentlab-head-actions">
-            <Bot size={18} />
-            <button
-              type="button"
-              className={`weq-set-btn weq-set-btn-soft weq-set-btn-sm${showParams ? ' is-active' : ''}`}
-              disabled={!activePersona}
-              onClick={() => setShowParams((v) => !v)}
-            >
-              <BarChart3 size={12} />
-              {showParams ? '隐藏参数' : '查看参数'}
-            </button>
-            <button type="button" className="weq-set-btn weq-set-btn-soft weq-set-btn-sm" disabled={!activePersona} onClick={() => void onDeletePersona()}>
-              <Trash2 size={12} />
-              删除
-            </button>
-          </div>
-        </header>
-
-        {showParams && activePersona ? (
-          <PersonaParamsPanel
-            loading={personaDetail.isLoading}
-            detail={personaDetail.data ?? null}
-          />
-        ) : null}
-        <div className="weq-agentlab-transcript">
-          {history.length === 0 ? (
-            <div className="weq-agentlab-empty">这里会显示你和克隆体的测试对话。</div>
+        <div className="weq-agentlab-list-label">好友克隆</div>
+        <div className="weq-agentlab-list-scroll">
+          {personaList.length === 0 ? (
+            <div className="weq-agentlab-empty" style={{ padding: '8px 10px' }}>还没有克隆体。</div>
           ) : (
-            history.map((item, index) => (
-              <div key={`${item.role}-${index}`} className={`weq-agentlab-msg is-${item.role}`}>
-                <span className="weq-agentlab-msg-role">{item.role === 'user' ? '你' : activePersona?.name ?? '克隆体'}</span>
-                <p>{item.text}</p>
-              </div>
-            ))
+            personaList.map((p) => {
+              const prof = profileByUid.get(p.sourceId);
+              return (
+                <button
+                  key={p.id}
+                  className={`weq-agentlab-item${sel.kind === 'persona' && sel.id === p.id ? ' is-active' : ''}`}
+                  onClick={() => selectPersona(p.id)}
+                >
+                  <QqAvatar uin={prof?.uin} size={34} />
+                  <span className="weq-agentlab-item-text">
+                    <strong>{p.name}</strong>
+                    <small>{p.sourceTitle}</small>
+                  </span>
+                </button>
+              );
+            })
           )}
         </div>
-        <div className="weq-agentlab-composer">
-          <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder="输入一句话测试克隆效果" disabled={!activePersona || chat.isLoading} />
-          <button type="button" className="weq-set-btn" onClick={() => void onSend()} disabled={!activePersona || chat.isLoading || !input.trim()}>
-            <Send size={14} />
-            发送
-          </button>
-        </div>
+
+        <button className="weq-agentlab-newclone" onClick={() => setCloneOpen(true)}>
+          <Plus size={15} /> 新建克隆
+        </button>
+      </aside>
+
+      {/* 右侧主区 */}
+      <section className="weq-agentlab-main">
+        {sel.kind === 'home' ? (
+          <UsagePanel resolveName={(id) => personaList.find((p) => p.id === id)?.name ?? '已删除的克隆'} />
+        ) : sel.kind === 'assistant' ? (
+          <AssistantPanel chatModels={flatModels.chat} />
+        ) : (
+          <div className="weq-agentlab-chat">
+            <header className="weq-agentlab-head">
+              <div>
+                <strong>{activePersona?.name ?? '克隆体'}</strong>
+                <span>
+                  {activePersona
+                    ? `${activePersona.models?.chat?.model ?? '旧版克隆，请重建'} · 样本 ${activePersona.corpusMessageCount} 条`
+                    : '加载中…'}
+                </span>
+              </div>
+              <div className="weq-agentlab-head-actions">
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+                  disabled={!activePersona}
+                  onClick={() => setSettingsOpen(true)}
+                >
+                  <Settings size={12} />
+                  设置
+                </button>
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+                  disabled={!activePersona}
+                  onClick={() => void onDeletePersona()}
+                >
+                  <Trash2 size={12} />
+                  删除
+                </button>
+              </div>
+            </header>
+
+            <div className="weq-agentlab-transcript">
+              {history.length === 0 ? (
+                <div className="weq-agentlab-empty">这里会显示你和克隆体的测试对话。</div>
+              ) : (
+                history.map((item, index) =>
+                  item.role === 'user' ? (
+                    <ChatBubble
+                      key={`u-${index}`}
+                      mine
+                      name="我"
+                      uin={selfProfile.data?.uin}
+                      text={item.text}
+                    />
+                  ) : (
+                    <ChatBubble
+                      key={`a-${index}`}
+                      mine={false}
+                      bot
+                      name={activePersona?.name ?? '克隆体'}
+                      uin={clonedProfile?.uin}
+                      text={item.text}
+                    />
+                  ),
+                )
+              )}
+              {(cloneTyping || chat.isLoading) && (
+                <div className="weq-agentlab-typing">
+                  <span /><span /><span />
+                </div>
+              )}
+            </div>
+            <div className="weq-agentlab-composer">
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="输入一句话测试克隆效果"
+                disabled={!activePersona || chat.isLoading}
+              />
+              <button
+                type="button"
+                className="weq-set-btn"
+                onClick={() => void onSend()}
+                disabled={!activePersona || chat.isLoading || !input.trim()}
+              >
+                <Send size={14} />
+                发送
+              </button>
+            </div>
+          </div>
+        )}
       </section>
+
+      {cloneOpen ? (
+        <NewCloneModal
+          buddies={buddyOptions}
+          flatModels={flatModels}
+          onClose={() => setCloneOpen(false)}
+          onBuilt={async (id) => {
+            setCloneOpen(false);
+            await utils.account.listAgentLabPersonas.invalidate();
+            selectPersona(id);
+          }}
+        />
+      ) : null}
+
+      {settingsOpen && activePersona ? (
+        <PersonaSettingsModal
+          persona={{
+            id: activePersona.id,
+            name: activePersona.name,
+            customPrompt: activePersona.customPrompt,
+            voiceCloneEnabled: activePersona.voiceCloneEnabled,
+          }}
+          paramsContent={<PersonaParamsPanel loading={personaDetail.isLoading} detail={personaDetail.data ?? null} />}
+          onClose={() => setSettingsOpen(false)}
+          onSaved={() => void utils.account.listAgentLabPersonas.invalidate()}
+        />
+      ) : null}
     </div>
   );
 }
+

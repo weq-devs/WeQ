@@ -19,6 +19,7 @@ import { useEffect, useState, type ReactElement } from 'react';
 import { Check, FolderOpen, Info, LockKeyhole, RotateCcw, User } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useDialog } from '../Dialog';
+import { useToast } from '../Toast';
 import { QqAvatar } from '../QqAvatar';
 import { Card, Row, SectionHeader } from './controls';
 import { UpdateCard } from './UpdateCard';
@@ -39,6 +40,7 @@ const AUTO_LOCK_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
 
 export function GlobalSettingsSection(): ReactElement {
   const showError = useDialog((s) => s.showError);
+  const pushToast = useToast((s) => s.push);
   const [systemAuthStatus, setSystemAuthStatus] = useState<Awaited<
     ReturnType<typeof window.weq.systemAuth.getStatus>
   > | null>(null);
@@ -100,6 +102,7 @@ export function GlobalSettingsSection(): ReactElement {
     try {
       await pickCache.mutateAsync();
       await cacheDir.refetch();
+      pushToast({ tone: 'success', title: '缓存目录已更新', message: '下次进入账号生效' });
     } catch (e) {
       showError('选择缓存目录失败', errMsg(e));
     }
@@ -109,6 +112,7 @@ export function GlobalSettingsSection(): ReactElement {
     try {
       await clearCache.mutateAsync();
       await cacheDir.refetch();
+      pushToast({ tone: 'success', title: '已重置为默认缓存目录' });
     } catch (e) {
       showError('重置缓存目录失败', errMsg(e));
     }

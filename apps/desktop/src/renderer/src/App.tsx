@@ -10,6 +10,7 @@ import { useViewState } from './state/view';
 import { BootstrapView } from './views/BootstrapView';
 import { MainView } from './views/MainView';
 import { DialogHost } from './components/Dialog';
+import { ToastHost } from './components/Toast';
 import { WelcomeDialog } from './components/WelcomeDialog';
 import { ImageLightbox } from './components/ImageLightbox';
 import { ForwardWindowHost } from './components/ForwardWindow';
@@ -38,6 +39,7 @@ export default function App(): ReactElement {
       {/* 首次进入账号后弹出的欢迎说明框（自身决定是否显示）。 */}
       {view === 'main' ? <WelcomeDialog /> : null}
       <DialogHost />
+      <ToastHost />
       <AppLockOverlay />
       <ImageLightbox />
       <ForwardWindowHost />

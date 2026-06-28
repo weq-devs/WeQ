@@ -23,6 +23,7 @@ import { join } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
 import { createWin32Platform, type Platform } from '@weq/platform';
 import { startMcpServer, stopMcpServer } from '../mcp/server';
+import { aiToolSpecs, runAiTool } from '../mcp/openai_tools';
 import {
   accountConfigId,
   UserConfigService,
@@ -51,6 +52,9 @@ import {
   MsgSearchService,
   OnlineStatusService,
   AgentLabService,
+  AssistantService,
+  TokenUsageStore,
+  ConversationStore,
   DbDecryptService,
   WebQueryService,
   GroupAlbumMediaService,
@@ -259,6 +263,8 @@ export interface AccountServices {
   emoji: EmojiService;
   /** Friend clone / AgentLab personas bound to the current account. */
   agentLab: AgentLabService;
+  /** WeQ assistant (tool-calling agent) bound to the current account. */
+  assistant: import('@weq/service').AssistantService;
   /** Export task manager. */
   exportManager: import('@weq/service').ExportTaskManager;
   /** List and bulk-decrypt encrypted QQ NT databases. */
@@ -499,6 +505,13 @@ export function initAppContext(): AppContext {
       // Built before the services literal so AgentLab can reuse the same media
       // pipeline (媒体寻址 + rkey 补全) for 表情包/语音.
       const fileSearch = new FileSearchService(session, platform);
+      // Shared token-accounting + conversation stores, used by BOTH the clone
+      // service and the WeQ assistant so usage stats + chat history are unified.
+      const agentlabRoot = userConfig.cacheDir(join('agentlab', exportConfigId));
+      const tokenUsage = new TokenUsageStore(join(agentlabRoot, 'usage.json'));
+      const conversations = new ConversationStore(join(agentlabRoot, 'conversations.json'));
+      const resolveAgentEndpoint = (ref: import('@weq/agentlab').AgentLabModelRef) =>
+        bootstrap.agentLabConfig.resolveEndpoint(ref);
       this.services = {
         msgs: new MsgService(session),
         recentContacts: new RecentContactService(session),
@@ -518,11 +531,17 @@ export function initAppContext(): AppContext {
         emoji: new EmojiService(session, platform),
         agentLab: new AgentLabService(
           session,
-          userConfig.cacheDir(join('agentlab', exportConfigId)),
-          (ref) => bootstrap.agentLabConfig.resolveEndpoint(ref),
+          agentlabRoot,
+          resolveAgentEndpoint,
           // Thing 1: 注入媒体/语音能力，蒸馏期补全表情包 + 转录语音。
           agentLabMedia(fileSearch, mediaDownload),
+          tokenUsage,
+          conversations,
         ),
+        assistant: new AssistantService(agentlabRoot, resolveAgentEndpoint, tokenUsage, conversations, {
+          specs: aiToolSpecs,
+          run: runAiTool,
+        }),
         exportManager: new (await import('@weq/service')).ExportTaskManager(
           new MsgService(session),
           userConfig.cacheDir(join('export', exportConfigId)),
@@ -687,6 +706,11 @@ export function initAppContext(): AppContext {
       const groupInfo = new GroupInfoService(session);
       const profile = new ProfileService(session);
       const fileSearch = new FileSearchService(session, platform);
+      const agentlabRoot = userConfig.cacheDir(join('agentlab', exportConfigId));
+      const tokenUsage = new TokenUsageStore(join(agentlabRoot, 'usage.json'));
+      const conversations = new ConversationStore(join(agentlabRoot, 'conversations.json'));
+      const resolveAgentEndpoint = (ref: import('@weq/agentlab').AgentLabModelRef) =>
+        bootstrap.agentLabConfig.resolveEndpoint(ref);
 
       this.services = {
         msgs: new MsgService(session),
@@ -707,11 +731,17 @@ export function initAppContext(): AppContext {
         emoji: new EmojiService(session, platform),
         agentLab: new AgentLabService(
           session,
-          userConfig.cacheDir(join('agentlab', exportConfigId)),
-          (ref) => bootstrap.agentLabConfig.resolveEndpoint(ref),
+          agentlabRoot,
+          resolveAgentEndpoint,
           // 静态账号也注入：媒体寻址可能命中不到（无 nt_data），会优雅降级。
           agentLabMedia(fileSearch, mediaDownload),
+          tokenUsage,
+          conversations,
         ),
+        assistant: new AssistantService(agentlabRoot, resolveAgentEndpoint, tokenUsage, conversations, {
+          specs: aiToolSpecs,
+          run: runAiTool,
+        }),
         exportManager: new (await import('@weq/service')).ExportTaskManager(
           new MsgService(session),
           userConfig.cacheDir(join('export', exportConfigId)),

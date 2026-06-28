@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -6,8 +7,10 @@ import {
   AgentLabStore,
   buildPersonaArtifacts,
   describeSticker,
+  distillMemories,
   embedTexts,
   extractDeepProfile,
+  extractExpressions,
   extractFewShots,
   extractPersonaCard,
   runPersonaChat,
@@ -24,6 +27,7 @@ import {
   type AgentLabChatTurn,
   type AgentLabConversationSample,
   type AgentLabEndpoint,
+  type AgentLabExpression,
   type AgentLabMessage,
   type AgentLabModelRef,
   type AgentLabModels,
@@ -31,6 +35,7 @@ import {
   type AgentLabPersonaProfile,
   type AgentLabStickerRef,
   type AgentLabStoredPair,
+  type AgentLabUsage,
   type AgentLabVoiceProfile,
 } from '@weq/agentlab';
 import type { UserProfile } from '@weq/db';
@@ -44,6 +49,9 @@ import {
   PRIVATE_PTT_RKEY_TYPE,
   GROUP_PTT_RKEY_TYPE,
 } from './media_download';
+import { TokenUsageStore, type TokenStats } from './agentlab_usage';
+import { ConversationStore, type ConversationTurn } from './agentlab_conversation';
+import { MemoryStore } from './agentlab_memory';
 
 /** 把 (providerId, model) 解析成可调用端点；由 bootstrap 的 AgentLabConfigService 提供。 */
 export type EndpointResolver = (ref: AgentLabModelRef) => AgentLabEndpoint;
@@ -62,6 +70,30 @@ export interface AgentLabMediaDeps {
   decodeSilkToWavFile?: (silkPath: string, destPath: string) => Promise<boolean>;
   /** 当前是否配了可用的转录模型（已选且已下载）。 */
   voiceReady?: () => boolean;
+}
+
+/** 克隆构建进度事件（前端进度条用；一次构建一串事件，done/error 收尾）。 */
+export interface AgentLabBuildProgress {
+  personaId: string;
+  /** 当前阶段中文标签，如「拉取聊天记录」「转录语音」。 */
+  phase: string;
+  /** 0–100。 */
+  percent: number;
+  /** 成功收尾。 */
+  done?: boolean;
+  /** 失败收尾（携带错误信息）。 */
+  error?: string;
+}
+
+/** buildFromC2c 入参。 */
+export interface BuildFromC2cInput {
+  personaId: string;
+  name?: string;
+  models: AgentLabModels;
+  customPrompt?: string;
+  targetUid: string;
+  title?: string;
+  limit?: number;
 }
 
 /** 高频表情包累计：扫描期收集，之后再下载 + vision 解读。 */
@@ -126,21 +158,87 @@ function imageToDataUrl(path: string): string | null {
   }
 }
 
-export class AgentLabService {
+export class AgentLabService extends EventEmitter {
   private readonly store: AgentLabStore;
+  private readonly usage: TokenUsageStore;
+  private readonly conversations: ConversationStore;
+  private readonly memories: MemoryStore;
 
   constructor(
     private readonly session: AccountSession,
     private readonly rootDir: string,
     private readonly resolveEndpoint: EndpointResolver,
     private readonly media?: AgentLabMediaDeps,
+    /** 与 AssistantService 共享的 token 记账 / 对话存储（不传则自建，按账号隔离）。 */
+    usageStore?: TokenUsageStore,
+    conversationStore?: ConversationStore,
   ) {
+    super();
     this.store = new AgentLabStore(rootDir);
+    this.usage = usageStore ?? new TokenUsageStore(join(rootDir, 'usage.json'));
+    this.conversations = conversationStore ?? new ConversationStore(join(rootDir, 'conversations.json'));
+    this.memories = new MemoryStore(join(rootDir, 'memories.json'));
   }
 
-  /** models.embedding 配了才返回端点，否则 null（检索退回关键词）。 */
-  private embeddingEndpoint(models: AgentLabModels): AgentLabEndpoint | null {
-    return models.embedding ? this.resolveEndpoint(models.embedding) : null;
+  /** 克隆体对「对方（用户）」的记忆（前端「记忆/画像」灯箱用）。 */
+  getMemories(personaId: string): import('@weq/agentlab').AgentLabMemoryItem[] {
+    return this.memories.get(personaId);
+  }
+
+  forgetMemory(personaId: string, memoryId: string): void {
+    this.memories.remove(personaId, memoryId);
+  }
+
+  clearMemories(personaId: string): void {
+    this.memories.clear(personaId);
+  }
+
+  /** token 用量统计（主页图表用）。 */
+  getTokenStats(): TokenStats {
+    return this.usage.getStats();
+  }
+
+  /** 与某克隆体的历史对话（持久化，刷新不丢）。 */
+  getConversation(personaId: string): ConversationTurn[] {
+    return this.conversations.get(personaId);
+  }
+
+  clearConversation(personaId: string): void {
+    this.conversations.clear(personaId);
+  }
+
+  /** 解析端点并挂上 token 记账回调（按任务类型 + 归属 persona/场景）。 */
+  private resolveWithUsage(
+    ref: AgentLabModelRef,
+    kind: 'chat' | 'embedding' | 'vision',
+    ctx: { personaId?: string; scope: 'build' | 'chat' | 'assistant' },
+  ): AgentLabEndpoint {
+    const ep = this.resolveEndpoint(ref);
+    return {
+      ...ep,
+      kind,
+      onUsage: (u: AgentLabUsage) =>
+        this.usage.record({
+          ts: Date.now(),
+          model: u.model,
+          kind: u.kind,
+          personaId: ctx.personaId,
+          scope: ctx.scope,
+          promptTokens: u.promptTokens,
+          completionTokens: u.completionTokens,
+          totalTokens: u.totalTokens,
+        }),
+    };
+  }
+
+  /** Emit one build-progress event (consumed by the onAgentLabBuildProgress subscription). */
+  private emitProgress(personaId: string, phase: string, percent: number, extra?: { done?: boolean; error?: string }): void {
+    this.emit('build-progress', {
+      personaId,
+      phase,
+      percent: Math.min(100, Math.max(0, Math.round(percent))),
+      ...extra,
+    } satisfies AgentLabBuildProgress);
   }
 
   listPersonas(): AgentLabPersona[] {
@@ -162,7 +260,25 @@ export class AgentLabService {
   }
 
   deletePersona(personaId: string): boolean {
+    this.memories.clear(personaId);
+    this.conversations.clear(personaId);
     return this.store.deletePersona(personaId);
+  }
+
+  /** 增量更新克隆体的可编辑字段（额外提示 / 名称 / 语音克隆开关）。 */
+  updatePersona(
+    personaId: string,
+    patch: { name?: string; customPrompt?: string; voiceCloneEnabled?: boolean },
+  ): AgentLabPersona | null {
+    const record = this.store.getPersona(personaId);
+    if (!record) return null;
+    const persona = record.persona;
+    if (patch.name !== undefined) persona.name = patch.name.trim() || persona.name;
+    if (patch.customPrompt !== undefined) persona.customPrompt = patch.customPrompt.trim() || undefined;
+    if (patch.voiceCloneEnabled !== undefined) persona.voiceCloneEnabled = patch.voiceCloneEnabled;
+    persona.updatedAt = Date.now();
+    this.store.savePersona(record);
+    return persona;
   }
 
   // ── Thing 1：语料采集 / 媒体增强 的私有步骤 ─────────────────────────────────
@@ -283,6 +399,7 @@ export class AgentLabService {
     visionRef: AgentLabModelRef | undefined,
     chatFriendName: string,
     contextHint: string,
+    personaId: string,
   ): Promise<AgentLabStickerRef[]> {
     const media = this.media;
     if (!media) return [];
@@ -290,7 +407,7 @@ export class AgentLabService {
     let visionEndpoint: AgentLabEndpoint | null = null;
     if (visionRef) {
       try {
-        visionEndpoint = this.resolveEndpoint(visionRef);
+        visionEndpoint = this.resolveWithUsage(visionRef, 'vision', { personaId, scope: 'build' });
       } catch {
         visionEndpoint = null;
       }
@@ -398,17 +515,27 @@ export class AgentLabService {
     }
   }
 
-  async buildFromC2c(input: {
-    personaId: string;
-    name?: string;
-    models: AgentLabModels;
-    customPrompt?: string;
-    targetUid: string;
-    title?: string;
-    limit?: number;
-  }): Promise<AgentLabPersona> {
-    const chatEndpoint = this.resolveEndpoint(input.models.chat);
-    const embeddingEndpoint = this.embeddingEndpoint(input.models);
+  /** Public entry: runs the build, emitting build-progress events throughout. */
+  async buildFromC2c(input: BuildFromC2cInput): Promise<AgentLabPersona> {
+    try {
+      const persona = await this.runBuild(input);
+      this.emitProgress(input.personaId, '完成', 100, { done: true });
+      return persona;
+    } catch (error) {
+      this.emitProgress(input.personaId, '失败', 100, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  }
+
+  private async runBuild(input: BuildFromC2cInput): Promise<AgentLabPersona> {
+    this.emitProgress(input.personaId, '准备中', 2);
+    const usageCtx = { personaId: input.personaId, scope: 'build' as const };
+    const chatEndpoint = this.resolveWithUsage(input.models.chat, 'chat', usageCtx);
+    const embeddingEndpoint = input.models.embedding
+      ? this.resolveWithUsage(input.models.embedding, 'embedding', usageCtx)
+      : null;
     const selfUin = this.session.context.uin;
     const selfProfile = await this.session.profileInfo.getProfileByUin(BigInt(selfUin));
     const peerProfile = await this.session.profileInfo.getProfile(input.targetUid);
@@ -417,15 +544,18 @@ export class AgentLabService {
     const displayName = input.name?.trim() || peerName;
 
     // 1) 全量私聊（翻页拉完，受安全上限约束）。
+    this.emitProgress(input.personaId, '拉取聊天记录', 8);
     const rawMsgs = await this.collectC2cMessages(
       this.c2cPartition(input.targetUid),
       input.limit ?? C2C_SAFETY_CAP,
     );
 
     // 2) 映射成语料（顺手把语音转录成文本）。
+    this.emitProgress(input.personaId, '整理语料 / 转录语音', 28);
     const messages = await this.mapC2cMessages(rawMsgs, selfUin, selfName, peerName);
 
     // 3) 表情包 + 系统表情白名单（只看好友自己的消息）。
+    this.emitProgress(input.personaId, '统计表情', 42);
     const { stickers: stickerAccum, faces } = this.collectStickersAndFaces(rawMsgs, selfUin);
     const systemFaces = [...faces.entries()]
       .sort((a, b) => b[1] - a[1])
@@ -434,6 +564,9 @@ export class AgentLabService {
 
     // 4) 阈值兜底：私聊有效语料不足 → 去群里补采风格语料。
     const friendMsgCount = messages.filter((m) => m.role === 'assistant' && isMeaningful(m.text)).length;
+    if (friendMsgCount < GROUP_SUPPLEMENT_THRESHOLD) {
+      this.emitProgress(input.personaId, '私聊语料不足，群里补采风格', 50);
+    }
     const groupStyleMessages =
       friendMsgCount < GROUP_SUPPLEMENT_THRESHOLD
         ? await this.collectGroupStyleMessages(input.targetUid)
@@ -462,17 +595,21 @@ export class AgentLabService {
     }
 
     // LLM 提炼：覆盖 profile 的 card / deep / fewShots；失败则退回启发式画像，不阻断克隆。
+    this.emitProgress(input.personaId, '提炼说话风格与画像', 62);
     let profile: AgentLabPersonaProfile = artifacts.profile;
     let fewShots: Array<{ prompt: string; reply: string }> = [];
+    let expressions: AgentLabExpression[] = [];
     if (artifacts.corpusText.trim()) {
       try {
-        const [card, deep, shots] = await Promise.all([
+        const [card, deep, shots, exprs] = await Promise.all([
           extractPersonaCard(chatEndpoint, peerName, artifacts.stats, artifacts.corpusText),
           extractDeepProfile(chatEndpoint, peerName, artifacts.stats, artifacts.corpusText),
           extractFewShots(chatEndpoint, peerName, artifacts.stats, artifacts.corpusText),
+          extractExpressions(chatEndpoint, peerName, artifacts.stats, artifacts.corpusText),
         ]);
         profile = { ...artifacts.profile, card, deep, extractedByLlm: true };
         fewShots = shots;
+        expressions = exprs;
       } catch (error) {
         profile = {
           ...artifacts.profile,
@@ -488,6 +625,7 @@ export class AgentLabService {
 
     const pairs: AgentLabStoredPair[] = artifacts.pairs;
     if (pairs.length > 0 && embeddingEndpoint) {
+      this.emitProgress(input.personaId, '构建向量索引', 80);
       try {
         const vectors = await embedTexts(
           embeddingEndpoint,
@@ -502,10 +640,13 @@ export class AgentLabService {
     }
 
     // 表情包：本地缓存 +（有 vision 模型时）解读内容/场景。无 media/vision 时降级为空。
+    if (this.media && stickerAccum.size > 0 && input.models.vision) {
+      this.emitProgress(input.personaId, '解读表情包', 88);
+    }
     const contextHint = artifacts.corpusText.slice(0, 600);
     const stickers =
       this.media && stickerAccum.size > 0
-        ? await this.buildStickerRefs([...stickerAccum.values()], input.models.vision, peerName, contextHint)
+        ? await this.buildStickerRefs([...stickerAccum.values()], input.models.vision, peerName, contextHint, input.personaId)
         : [];
 
     // 语音使用场景：有转录成功的语音窗口才调 chat 模型总结。
@@ -532,6 +673,7 @@ export class AgentLabService {
       customPrompt: input.customPrompt?.trim() || undefined,
       profile,
       fewShots,
+      expressions,
       stickers,
       systemFaces,
       voiceProfile,
@@ -542,6 +684,7 @@ export class AgentLabService {
       updatedAt: now,
     };
 
+    this.emitProgress(input.personaId, '保存克隆体', 96);
     this.store.savePersona({ persona, pairs });
     return persona;
   }
@@ -550,14 +693,54 @@ export class AgentLabService {
     const record = this.store.getPersona(input.personaId);
     if (!record) throw new Error('找不到 persona');
     if (!record.persona.models?.chat) throw new Error('这是旧版克隆体，模型结构已更新，请删除后重建');
-    const chatEndpoint = this.resolveEndpoint(record.persona.models.chat);
-    const embeddingEndpoint = this.embeddingEndpoint(record.persona.models);
-    return runPersonaChat(chatEndpoint, embeddingEndpoint, {
+    const ctx = { personaId: input.personaId, scope: 'chat' as const };
+    const chatEndpoint = this.resolveWithUsage(record.persona.models.chat, 'chat', ctx);
+    const embeddingEndpoint = record.persona.models.embedding
+      ? this.resolveWithUsage(record.persona.models.embedding, 'embedding', ctx)
+      : null;
+    const result = await runPersonaChat(chatEndpoint, embeddingEndpoint, {
       persona: record.persona,
       pairs: record.pairs,
       history: input.history,
       input: input.text,
+      memories: this.memories.get(input.personaId),
     });
+    const now = Date.now();
+    // 命中的记忆 +access（越常被想起越不易遗忘）。
+    this.memories.touch(input.personaId, result.usedMemoryIds, now);
+    this.conversations.append(input.personaId, [
+      { role: 'user', text: input.text, ts: now },
+      { role: 'assistant', text: result.text, ts: now },
+    ]);
+
+    // 每隔若干轮，从最近对话蒸馏出克隆体「对对方」的新记忆（不阻塞本次回复）。
+    void this.maybeDistillMemories(input.personaId, record.persona.name, chatEndpoint);
+
+    return result;
+  }
+
+  /** 每 MEMORY_DISTILL_EVERY 个用户回合蒸馏一次记忆；fire-and-forget，失败静默。 */
+  private async maybeDistillMemories(
+    personaId: string,
+    peerName: string,
+    chatEndpoint: AgentLabEndpoint,
+  ): Promise<void> {
+    const MEMORY_DISTILL_EVERY = 6;
+    try {
+      const conv = this.conversations.get(personaId);
+      const userTurns = conv.filter((t) => t.role === 'user').length;
+      if (userTurns === 0 || userTurns % MEMORY_DISTILL_EVERY !== 0) return;
+      const known = this.memories.get(personaId).map((m) => m.text).slice(-40);
+      const fresh = await distillMemories(
+        chatEndpoint,
+        peerName,
+        conv.map((t) => ({ role: t.role, text: t.text })),
+        known,
+      );
+      if (fresh.length > 0) this.memories.add(personaId, fresh, Date.now());
+    } catch {
+      /* 记忆蒸馏失败不影响聊天 */
+    }
   }
 
   private c2cPartition(targetUid: string): { sortNo: bigint } | { uid: string } {

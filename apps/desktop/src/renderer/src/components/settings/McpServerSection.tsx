@@ -19,6 +19,7 @@ import { useEffect, useState, type ReactElement } from 'react';
 import { Check, ClipboardCopy, Copy, Eye, EyeOff, KeyRound, Plug, RotateCcw } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useDialog } from '../Dialog';
+import { useToast } from '../Toast';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 
 function errMsg(e: unknown): string {
@@ -36,6 +37,7 @@ const TOOLS: Array<{ name: string; desc: string }> = [
 
 export function McpServerSection(): ReactElement {
   const showError = useDialog((s) => s.showError);
+  const pushToast = useToast((s) => s.push);
 
   const status = trpc.bootstrap.getMcpStatus.useQuery(undefined, {
     refetchOnWindowFocus: false,
@@ -73,6 +75,7 @@ export function McpServerSection(): ReactElement {
     try {
       await navigator.clipboard.writeText(text);
       onOk?.();
+      pushToast({ tone: 'success', title: '已复制到剪贴板' });
       window.setTimeout(() => {
         setCopiedToken(false);
         setCopiedUrl(false);
@@ -105,6 +108,7 @@ export function McpServerSection(): ReactElement {
       await setPort.mutateAsync({ port });
       await status.refetch();
       await clientConfig.refetch();
+      pushToast({ tone: 'success', title: '端口已更新', message: `MCP 服务器现监听 ${port}` });
     } catch (e) {
       showError('修改端口失败', errMsg(e));
       await status.refetch();
@@ -116,6 +120,7 @@ export function McpServerSection(): ReactElement {
       await regen.mutateAsync();
       await status.refetch();
       await clientConfig.refetch();
+      pushToast({ tone: 'success', title: '令牌已重新生成' });
     } catch (e) {
       showError('重新生成令牌失败', errMsg(e));
     }

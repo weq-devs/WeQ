@@ -9,8 +9,10 @@ import type {
   AgentLabPersonaDeepProfile,
   AgentLabPersonaStats,
   AgentLabEndpoint,
+  AgentLabExpression,
   AgentLabFewShotPair,
 } from './types';
+import { reportUsage } from './http';
 
 function coerceString(value: unknown): string {
   if (typeof value === 'string') return value.trim();
@@ -62,6 +64,7 @@ async function chatCompletion(
     throw new Error(`AgentLab 提炼接口调用失败: HTTP ${res.status}`);
   }
   const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+  reportUsage(endpoint, data);
   return data.choices?.[0]?.message?.content ?? '';
 }
 
@@ -101,6 +104,7 @@ async function visionCompletion(
     throw new Error(`AgentLab 视觉接口调用失败: HTTP ${res.status}`);
   }
   const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+  reportUsage(endpoint, data);
   return data.choices?.[0]?.message?.content ?? '';
 }
 
@@ -238,6 +242,98 @@ export async function extractFewShots(
     out.push({ prompt, reply: replies.join('\n') });
   }
   return out.slice(0, 10);
+}
+
+const EXPRESSION_JSON_SHAPE = `{
+  "expressions": [
+    { "situation": "情境，≤20字（如：对意外的事表示惊叹）", "style": "对应句式/表达，≤20字（如：用『我嘞个xxx』）" }
+  ]
+}`;
+
+/**
+ * 表达风格库提取（借鉴 MaiBot expression_learner）：从语料里挖 TA 的 (情境 → 句式) 习惯。
+ * 学的是「在什么场景下惯用什么说法」，比口头禅更细。失败返回空数组、不阻断克隆。
+ */
+export async function extractExpressions(
+  endpoint: AgentLabEndpoint,
+  friendName: string,
+  stats: AgentLabPersonaStats,
+  corpusText: string,
+): Promise<AgentLabExpression[]> {
+  let raw: Record<string, unknown>;
+  try {
+    raw = await generateJson(
+      endpoint,
+      '你是表达风格分析器。从聊天记录里总结目标人物「在什么情境下惯用什么句式/表达」。' +
+        '只看文字、忽略图片表情；只学目标人物本人的说法，不要学「我」的。' +
+        '要可泛化、能迁移到新对话——不要带具体人名地名事件，聚焦句式、口癖、梗、语气结构。' +
+        '每条形如「当(情境)时，用(句式)」，情境和句式都控制在 20 字内。挑 8-15 条最鲜明的。' +
+        `\n只输出一个 JSON 对象，不要任何解释或代码围栏，格式如下：\n${EXPRESSION_JSON_SHAPE}`,
+      `${corpusPreamble(friendName, stats, corpusText)}\n\n请提炼「${friendName}」的表达习惯，按要求输出 JSON。`,
+      0.3,
+      '表达风格库',
+    );
+  } catch {
+    return [];
+  }
+  const list = Array.isArray(raw.expressions) ? raw.expressions : [];
+  const out: AgentLabExpression[] = [];
+  const seen = new Set<string>();
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    const row = item as Record<string, unknown>;
+    const situation = coerceString(row.situation).slice(0, 30);
+    const style = coerceString(row.style).slice(0, 30);
+    if (!situation || !style) continue;
+    const key = `${situation}|${style}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ situation, style, count: 1 });
+  }
+  return out.slice(0, 15);
+}
+
+const MEMORY_JSON_SHAPE = `{
+  "memories": ["关于对方的一条新信息，具体一句话（如：对方最近在准备考研；对方养了只布偶猫）"]
+}`;
+
+/**
+ * 从「我们和克隆体的最近对话」里蒸馏出克隆体「对对方（用户）」该记住的新事实。
+ * 视角：你就是被克隆的人，从下面对话里记住关于「对方」的、值得长期记得的信息。
+ * 返回 0~5 条短句；失败/没有则空数组。
+ */
+export async function distillMemories(
+  endpoint: AgentLabEndpoint,
+  friendName: string,
+  conversation: Array<{ role: 'user' | 'assistant'; text: string }>,
+  known: string[],
+): Promise<string[]> {
+  const lines = conversation
+    .filter((t) => t.text.trim())
+    .slice(-24)
+    .map((t) => `${t.role === 'user' ? '对方' : '你'}：${t.text}`)
+    .join('\n');
+  if (!lines.trim()) return [];
+  const knownBlock = known.length > 0 ? `\n\n你已经记住的（不要重复）：\n${known.map((k) => `- ${k}`).join('\n')}` : '';
+  let raw: Record<string, unknown>;
+  try {
+    raw = await generateJson(
+      endpoint,
+      `你是「${friendName}」，正在回看自己和「对方」最近的聊天。` +
+        '提炼出关于「对方」值得你长期记住的新信息（TA 的近况、喜好、计划、和你的约定、对你的态度等）。' +
+        '只记真正有信息量、能在以后聊天用到的；客套话、一次性闲聊不要记。没有就给空数组。' +
+        `\n只输出一个 JSON 对象，不要任何解释或代码围栏，格式如下：\n${MEMORY_JSON_SHAPE}`,
+      `最近的对话：\n${lines}${knownBlock}\n\n请按要求输出 JSON。`,
+      0.3,
+      '记忆蒸馏',
+    );
+  } catch {
+    return [];
+  }
+  return coerceStringArray(raw.memories)
+    .map((m) => m.slice(0, 60))
+    .filter(Boolean)
+    .slice(0, 5);
 }
 
 /**

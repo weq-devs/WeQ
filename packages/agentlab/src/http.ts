@@ -2,9 +2,36 @@ import type {
   AgentLabChatRequest,
   AgentLabChatResult,
   AgentLabEndpoint,
+  AgentLabExpression,
+  AgentLabMemoryItem,
   AgentLabPersona,
   AgentLabStoredPair,
 } from './types';
+import { humanizeText } from './typo';
+import { scoreReplyWillingness } from './willing';
+
+/** OpenAI 兼容响应里的 usage 形状。 */
+interface OpenAiUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+}
+
+/** 从响应里抽出 usage 并回调 endpoint.onUsage（用于 token 记账）。 */
+export function reportUsage(endpoint: AgentLabEndpoint, raw: unknown): void {
+  if (!endpoint.onUsage) return;
+  const usage = (raw as { usage?: OpenAiUsage } | null)?.usage;
+  if (!usage) return;
+  const prompt = usage.prompt_tokens ?? 0;
+  const completion = usage.completion_tokens ?? 0;
+  endpoint.onUsage({
+    model: endpoint.model,
+    kind: endpoint.kind ?? 'chat',
+    promptTokens: prompt,
+    completionTokens: completion,
+    totalTokens: usage.total_tokens ?? prompt + completion,
+  });
+}
 
 function splitKeywords(text: string): string[] {
   return Array.from(
@@ -16,6 +43,11 @@ function splitKeywords(text: string): string[] {
         .filter((item) => item.length >= 2),
     ),
   ).slice(0, 24);
+}
+
+/** \u4f9b service \u7ed9\u8bb0\u5fc6\u6761\u76ee\u9884\u7b97\u5173\u952e\u8bcd\uff08\u4e0e pair \u68c0\u7d22\u540c\u53e3\u5f84\uff09\u3002 */
+export function keywordsOf(text: string): string[] {
+  return splitKeywords(text);
 }
 
 function scorePairByKeywords(pair: AgentLabStoredPair, input: string): number {
@@ -50,12 +82,79 @@ function cosineSimilarity(left: number[], right: number[]): number {
   return dot(left, right) / (leftNorm * rightNorm);
 }
 
+/** BM25 兜底：按关键词重合 + access_count 强度给记忆打分，取 top-K。 */
+function rankMemories(memories: AgentLabMemoryItem[], input: string, k = 4): AgentLabMemoryItem[] {
+  if (memories.length === 0) return [];
+  const inputWords = new Set(splitKeywords(input));
+  const scored = memories.map((m) => {
+    let overlap = 0;
+    for (const w of m.keywords) if (inputWords.has(w)) overlap += 1;
+    // 常被想起（accessCount 高）的记忆更不易被遗忘，给一点强度加成，但盖不过话题相关。
+    const strength = Math.log1p(m.accessCount) * 0.25;
+    return { m, score: overlap + strength };
+  });
+  const relevant = scored.filter((s) => s.score > 0).sort((a, b) => b.score - a.score);
+  // 即便没关键词命中，也带上最近/最常想起的几条，保持「记得这个人」的连续感。
+  if (relevant.length < 2) {
+    const filler = [...memories]
+      .sort((a, b) => b.accessCount - a.accessCount || b.lastAccessedAt - a.lastAccessedAt)
+      .slice(0, 2);
+    const merged = new Map<string, AgentLabMemoryItem>();
+    for (const s of relevant) merged.set(s.m.id, s.m);
+    for (const f of filler) merged.set(f.id, f);
+    return [...merged.values()].slice(0, k);
+  }
+  return relevant.slice(0, k).map((s) => s.m);
+}
+
+/** 表达风格库选择：关键词相关优先，再按 count 加权补齐。 */
+function selectExpressions(expressions: AgentLabExpression[], input: string, max: number): AgentLabExpression[] {
+  if (expressions.length === 0 || max <= 0) return [];
+  const inputWords = new Set(splitKeywords(input));
+  const scored = expressions.map((e) => {
+    const words = splitKeywords(`${e.situation} ${e.style}`);
+    let overlap = 0;
+    for (const w of words) if (inputWords.has(w)) overlap += 1;
+    return { e, score: overlap * 2 + Math.log1p(e.count) };
+  });
+  return scored
+    .sort((a, b) => b.score - a.score)
+    .slice(0, max)
+    .map((s) => s.e);
+}
+
+/** 按「---」单独成行拆分模型回复；兜底再按换行拆。超过上限则把尾部并入最后一条。 */
+function splitSegments(text: string, maxSegments: number): string[] {
+  let parts = text
+    .split(/\n\s*-{3,}\s*\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (parts.length <= 1) {
+    parts = text
+      .split(/\n{2,}/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  if (parts.length === 0) return [text.trim()].filter(Boolean);
+  if (parts.length > maxSegments) {
+    const head = parts.slice(0, maxSegments - 1);
+    const tail = parts.slice(maxSegments - 1).join(' ');
+    return [...head, tail];
+  }
+  return parts;
+}
+
 /**
  * 拼装扮演系统提示。借鉴 CipherTalk：全程第二人称沉浸（"你就是 TA"而非"模仿 TA"），
  * 把画像写成"你脑子里的记忆"，并在结尾加总闸——只在话题相关时自然带一嘴，别一股脑往外倒。
  * 这样才不会逐条展示特点、显得刻意。
  */
-function buildSystemPrompt(persona: AgentLabPersona, matches: AgentLabStoredPair[]): string {
+function buildSystemPrompt(
+  persona: AgentLabPersona,
+  matches: AgentLabStoredPair[],
+  memories: AgentLabMemoryItem[],
+  expressions: AgentLabExpression[],
+): string {
   const { card, deep } = persona.profile;
   const name = persona.name;
   const avgChars = Math.max(persona.stats.avgFriendMsgChars, 4);
@@ -77,6 +176,14 @@ function buildSystemPrompt(persona: AgentLabPersona, matches: AgentLabStoredPair
   if (card.punctuationStyle) lines.push(`标点习惯：${card.punctuationStyle}`);
   if (card.addressing && card.addressing !== '无特别称呼') lines.push(`你对对方的称呼：${card.addressing}`);
   if (card.topics.length > 0) lines.push(`你们常聊：${card.topics.join('、')}`);
+
+  // 表达风格库：(情境→句式) 习惯，比口头禅更细。低优先注入，看情况自然用，别硬套。
+  if (expressions.length > 0) {
+    lines.push(
+      '你说话的一些习惯（情境对得上时可以自然用，对不上就别硬套）：',
+      ...expressions.map((e) => `- ${e.situation}时，你会${e.style}`),
+    );
+  }
 
   // 系统表情白名单：QQ 系统表情是固定集合，只许从 TA 真实用过的里挑，绝不能自创 /动作
   // （否则渲染端无法映射成表情图，变成哑文本）。
@@ -103,6 +210,15 @@ function buildSystemPrompt(persona: AgentLabPersona, matches: AgentLabStoredPair
   }
   if (deep.relationship) lines.push('', `【你们的关系】${deep.relationship}`);
   else if (persona.profile.relationshipSummary) lines.push('', `【你们的关系】${persona.profile.relationshipSummary}`);
+
+  // 克隆体对「对方（当前用户）」的记忆：你脑子里记得的关于对方的事，自然知道、别复述。
+  if (memories.length > 0) {
+    lines.push(
+      '',
+      '【你记得关于对方的事】（你早就知道的，聊到时自然提，别像在念档案）',
+      ...memories.map((m) => `- ${m.text}`),
+    );
+  }
   if (deep.reactionPatterns.length > 0) {
     lines.push('', '【你在不同情境下的典型反应】', ...deep.reactionPatterns.map((r) => `- ${r}`));
   }
@@ -128,11 +244,13 @@ function buildSystemPrompt(persona: AgentLabPersona, matches: AgentLabStoredPair
   lines.push(
     '',
     '【聊天规则】',
-    `- 短消息风格：单条 ${avgChars} 字左右；超过两句话通常拆成 2-4 条短回复，像真人一句一句发；简单的话一条就够。`,
-    '- 上面的背景、关系、经历、聊天样本都是你脑子里的记忆：只在话题相关时自然带一嘴，别一股脑往外倒，更别逐条展示自己的"人设"。',
+    `- 短消息风格：单条 ${avgChars} 字左右，平淡口语，像随手在 QQ 上打字。`,
+    '- 分条连发：要分开发的多条消息之间用单独一行「---」隔开（一次别超过 4 条）；简单的话一条就够，别硬凑。',
+    '- 上面的背景、关系、经历、记忆、聊天样本都是你脑子里的东西：只在话题相关时自然带一嘴，别一股脑往外倒，更别逐条展示自己的"人设"。',
     '- 不知道、记不清的事就像真人一样含糊带过或反问，绝不编造具体细节。',
-    '- 始终口语化，贴合上面的语气和标点习惯；禁止 markdown、列表、序号等格式符号。',
-    '- 不要输出任何分析、解释或旁白，直接以本人身份回话。',
+    '- 口语、随意，可以不完整、可以略省标点；贴合上面的语气习惯。',
+    '- 绝对禁止：markdown、列表、序号、加粗、括号注释、表情符号名、冒号开头的前缀（如"好的："）、以及任何分析/解释/旁白。',
+    '- 不浮夸、不长篇大论、不堆排比和华丽辞藻；直接以本人身份回话，别像客服或助手。',
   );
 
   const custom = persona.customPrompt?.trim();
@@ -168,10 +286,12 @@ export async function embedTexts(
   if (inputs.length === 0) return [];
   const data = await postJson<{
     data?: Array<{ embedding?: number[] }>;
+    usage?: OpenAiUsage;
   }>(endpoint, '/embeddings', {
     model: endpoint.model,
     input: inputs,
   });
+  reportUsage(endpoint, data);
   const embeddings =
     data.data?.map((item) => item.embedding).filter((item): item is number[] => Array.isArray(item)) ?? [];
   if (embeddings.length !== inputs.length) {
@@ -222,8 +342,14 @@ export async function runPersonaChat(
   embedding: AgentLabEndpoint | null,
   req: AgentLabChatRequest,
 ): Promise<AgentLabChatResult> {
+  const willing = scoreReplyWillingness(req.input, req.history);
+
   const matches = await rankPairs(embedding, req.pairs, req.input);
-  const system = buildSystemPrompt(req.persona, matches);
+  const memoryPool = req.memories ?? [];
+  const usedMemories = rankMemories(memoryPool, req.input);
+  const expressions = selectExpressions(req.persona.expressions ?? [], req.input, willing.score < 0.4 ? 2 : 4);
+
+  const system = buildSystemPrompt(req.persona, matches, usedMemories, expressions);
   const messages = [
     { role: 'system', content: system },
     ...req.history.slice(-8).map((item) => ({ role: item.role, content: item.text })),
@@ -232,14 +358,32 @@ export async function runPersonaChat(
 
   const data = await postJson<{
     choices?: Array<{ message?: { content?: string } }>;
+    usage?: OpenAiUsage;
   }>(chat, '/chat/completions', {
     model: chat.model,
-    temperature: 0.85,
+    // 意愿越高越放得开（temperature 略高），越敷衍越稳一点。
+    temperature: 0.7 + willing.score * 0.2,
     messages,
   });
-  const text = data.choices?.[0]?.message?.content?.trim();
-  if (!text) {
+  reportUsage(chat, data);
+  const raw = data.choices?.[0]?.message?.content?.trim();
+  if (!raw) {
     throw new Error('AgentLab chat 返回为空');
   }
-  return { text, promptPreview: system, matches };
+
+  // 分条连发 + 逐条注入轻微错别字（人味后处理）。
+  const intensity = req.typoIntensity;
+  const segments = splitSegments(raw, willing.maxSegments).map((seg) =>
+    intensity === undefined ? humanizeText(seg) : humanizeText(seg, intensity),
+  );
+
+  return {
+    text: segments.join('\n'),
+    segments,
+    promptPreview: system,
+    matches,
+    usedMemoryIds: usedMemories.map((m) => m.id),
+    willingness: willing.score,
+    replyDelayMs: willing.replyDelayMs,
+  };
 }

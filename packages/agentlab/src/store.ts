@@ -16,7 +16,8 @@ export class AgentLabStore {
     const out: AgentLabPersona[] = [];
     for (const file of this.safeFiles()) {
       const record = this.readRecord(file);
-      if (record) out.push(record.persona);
+      // 旧版/损坏文件可能解析出没有 persona 字段的记录，跳过以免前端拿到 undefined。
+      if (record?.persona) out.push(record.persona);
     }
     return out.sort((a, b) => b.updatedAt - a.updatedAt);
   }
