@@ -5,6 +5,12 @@ declare global {
     electron: ElectronAPI;
     weq: {
       openLogDir(): Promise<boolean>;
+      channel: {
+        open(): Promise<boolean>;
+        getCookies(): Promise<
+          { name: string; value: string; domain?: string; path?: string }[]
+        >;
+      };
       systemAuth: {
         getStatus(): Promise<{
           platform: string;

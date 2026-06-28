@@ -26,6 +26,15 @@ exposeElectronTRPC();
 
 const weqBridge = {
   openLogDir: (): Promise<boolean> => ipcRenderer.invoke('logs:open-dir') as Promise<boolean>,
+  channel: {
+    /** Open (or focus) the built-in QQ 频道 browser for the current account. */
+    open: (): Promise<boolean> => ipcRenderer.invoke('channel:open') as Promise<boolean>,
+    /** Read the current account's pd.qq.com cookies (for future 频道导出/分析). */
+    getCookies: () =>
+      ipcRenderer.invoke('channel:get-cookies') as Promise<
+        { name: string; value: string; domain?: string; path?: string }[]
+      >,
+  },
   systemAuth: {
     getStatus: () =>
       ipcRenderer.invoke('systemAuth:getStatus') as Promise<{

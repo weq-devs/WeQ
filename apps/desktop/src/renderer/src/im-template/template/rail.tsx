@@ -4,6 +4,7 @@ import {
 	MessageCircle,
 	Download,
 	Settings,
+	Hash,
 } from "lucide-react";
 import { useEffect, useRef, useState, useTransition } from "react";
 import type { ReactNode } from "react";
@@ -168,6 +169,23 @@ export function AppRail({
 								{formatBadgeCount(contactBadgeCount)}
 							</span>
 						) : null}
+					</button>
+					<button
+						className={cn("rail-tab rail-tab-channel")}
+						onClick={() => {
+							setMenuOpen(false);
+							setProfileOpen(false);
+							// Opens a dedicated, per-account browser window (pd.qq.com)
+							// in the main process — not an in-app view.
+							void window.weq?.channel?.open();
+						}}
+						title="QQ 频道"
+						type="button"
+					>
+						<span className={cn("rail-tab-icon")}>
+							<Hash size={22} strokeWidth={1.5} />
+						</span>
+						<span className={cn("rail-label")}>QQ频道</span>
 					</button>
 					<button
 						className={cn(

@@ -22,6 +22,7 @@ import {
 import { getAppContext } from './context/app_context';
 import { checkForUpdate } from './update/updater';
 import { stopMcpServer } from './mcp/server';
+import { registerChannelIpc } from './channel';
 import { getLogDir, getLogger, logErrorContext, type MediaElement } from '@weq/service';
 import { systemAuthService } from './system_auth';
 
@@ -313,6 +314,7 @@ void app.whenReady().then(() => {
   registerMediaIpc();
   registerLogIpc();
   registerSystemAuthIpc();
+  registerChannelIpc();
 
   app.on('browser-window-created', (_, win) => {
     optimizer.watchWindowShortcuts(win);
