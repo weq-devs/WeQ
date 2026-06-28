@@ -796,6 +796,42 @@ export const accountRouter = router({
       );
     }),
 
+  /** Per-day message counts for a group (drives the contribution heatmap 绿墙). */
+  getGroupDailyActivity: procedure
+    .input(
+      z.object({
+        groupCode: z.string().min(1),
+        startTime: z.number().int().optional(),
+        endTime: z.number().int().optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      return requireServices().groupInfo.getGroupDailyActivity(
+        BigInt(input.groupCode),
+        input.startTime,
+        input.endTime,
+      );
+    }),
+
+  /** Group-wide word cloud (segmented word frequencies, top N). */
+  getGroupWordCloud: procedure
+    .input(
+      z.object({
+        groupCode: z.string().min(1),
+        limit: z.number().int().min(1).max(400).optional(),
+        startTime: z.number().int().optional(),
+        endTime: z.number().int().optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      return requireServices().groupInfo.getGroupWordCloud(
+        BigInt(input.groupCode),
+        input.limit ?? 150,
+        input.startTime,
+        input.endTime,
+      );
+    }),
+
   /** Get formatted online status for a user. */
   getOnlineStatus: procedure
     .input(z.object({ uid: z.string().min(1) }))

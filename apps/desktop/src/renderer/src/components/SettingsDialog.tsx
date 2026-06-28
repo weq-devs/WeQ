@@ -197,7 +197,7 @@ function AppearanceSection(): ReactElement {
         <div className="weq-settings-appearance-head">
           <div>
             <strong>界面背景</strong>
-            <span>给聊天、联系人与导出页切换不同画布质感，不一定是渐变</span>
+            <span>给聊天、联系人与导出页切换不同画布质感</span>
           </div>
         </div>
         <ThemeBackgroundRow value={background} onChange={setBackground} />

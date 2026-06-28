@@ -12,6 +12,7 @@ import type {
   GroupNotify,
 } from '@weq/db';
 import { GroupNotifyService } from './group_notify';
+import { segmentWords } from './text_segment';
 
 /** Message count ranking entry. */
 export interface GroupMessageRankingItem {
@@ -36,8 +37,23 @@ export interface GroupMemberAnalytics {
     activeDays: number;
   };
   timeDistribution: Record<number, number>;
+  /** Top segmented words (分词后的高频词), @-mentions excluded. */
   commonPhrases: Array<{ phrase: string; count: number }>;
-  commonEmojis: Array<{ emoji: string; count: number }>;
+  /** Top QQ faces, carrying faceId so the renderer can draw the real emoji. */
+  commonEmojis: Array<{ faceId: number; faceText: string; count: number }>;
+}
+
+/** One word for the group word cloud. */
+export interface GroupWordCloudItem {
+  word: string;
+  count: number;
+}
+
+/** Daily message count for the contribution-style heatmap (绿墙). */
+export interface GroupDailyActivityItem {
+  /** Local date, `YYYY-MM-DD`. */
+  date: string;
+  count: number;
 }
 
 /** One user that shares ≥2 groups with me, for the relation graph. */
@@ -401,7 +417,7 @@ export class GroupInfoService {
     for (let i = 0; i < 24; i++) hourly[i] = 0;
     const dailySet = new Set<string>();
     const phraseCounts = new Map<string, number>();
-    const emojiCounts = new Map<string, number>();
+    const emojiCounts = new Map<string, { faceId: number; faceText: string; count: number }>();
 
     let afterSeq = 0n;
     while (true) {
@@ -423,14 +439,17 @@ export class GroupInfoService {
         for (const el of msg.elements) {
           switch (el.kind) {
             case 'text':
-            case 'at':
               hasText = true;
+              // 分词统计高频词（常用语），跳过 @ 提及（见 'at' 分支）。
               if (el.textContent) {
-                const text = (el.textContent as string).trim();
-                if (text && text.length <= 20) {
-                  phraseCounts.set(text, (phraseCounts.get(text) ?? 0) + 1);
+                for (const word of segmentWords(String(el.textContent))) {
+                  phraseCounts.set(word, (phraseCounts.get(word) ?? 0) + 1);
                 }
               }
+              break;
+            case 'at':
+              // @某人 仍算一条文本消息，但其文本不计入常用语。
+              hasText = true;
               break;
             case 'pic':
               hasImage = true;
@@ -441,15 +460,20 @@ export class GroupInfoService {
             case 'video':
               hasVideo = true;
               break;
-            case 'face':
+            case 'face': {
               hasEmoji = true;
-              if (el.faceText) {
-                const faceText = String(el.faceText).trim();
-                if (faceText) {
-                  emojiCounts.set(faceText, (emojiCounts.get(faceText) ?? 0) + 1);
-                }
+              const faceId = Number(el.faceId);
+              if (Number.isFinite(faceId)) {
+                const key = String(faceId);
+                const prev = emojiCounts.get(key);
+                emojiCounts.set(key, {
+                  faceId,
+                  faceText: el.faceText ? String(el.faceText) : prev?.faceText ?? '',
+                  count: (prev?.count ?? 0) + 1,
+                });
               }
               break;
+            }
             case 'mface':
             case 'emojiBounce':
               hasEmoji = true;
@@ -490,10 +514,9 @@ export class GroupInfoService {
       .slice(0, 10)
       .map(([phrase, count]) => ({ phrase, count }));
 
-    const commonEmojis = [...emojiCounts.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([emoji, count]) => ({ emoji, count }));
+    const commonEmojis = [...emojiCounts.values()]
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 12);
 
     return {
       statistics: stats,
@@ -501,5 +524,76 @@ export class GroupInfoService {
       commonPhrases,
       commonEmojis,
     };
+  }
+
+  /**
+   * Per-day message counts for a group, oldest day first. Backs the
+   * GitHub-style contribution heatmap (绿墙) on the active-hours page.
+   */
+  async getGroupDailyActivity(
+    groupCode: bigint,
+    startTime?: number,
+    endTime?: number,
+  ): Promise<GroupDailyActivityItem[]> {
+    const db = this.session.groupMsgs;
+    const daily = new Map<string, number>();
+
+    let afterSeq = 0n;
+    while (true) {
+      const batch = await db.listBatch(String(groupCode), afterSeq, 500, startTime, endTime);
+      if (batch.length === 0) break;
+      for (const msg of batch) {
+        const sendTime = Number(msg.sendTime);
+        if (sendTime > 0) {
+          const d = new Date(sendTime * 1000);
+          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+            d.getDate(),
+          ).padStart(2, '0')}`;
+          daily.set(key, (daily.get(key) ?? 0) + 1);
+        }
+      }
+      afterSeq = batch[batch.length - 1]!.msgSeq;
+      if (batch.length < 500) break;
+    }
+
+    return [...daily.entries()]
+      .map(([date, count]) => ({ date, count }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  /**
+   * Group-wide word cloud: segment every text message, tally word frequencies,
+   * return the top `limit`. @-mentions and non-text elements are ignored.
+   */
+  async getGroupWordCloud(
+    groupCode: bigint,
+    limit = 150,
+    startTime?: number,
+    endTime?: number,
+  ): Promise<GroupWordCloudItem[]> {
+    const db = this.session.groupMsgs;
+    const counts = new Map<string, number>();
+
+    let afterSeq = 0n;
+    while (true) {
+      const batch = await db.listBatch(String(groupCode), afterSeq, 500, startTime, endTime);
+      if (batch.length === 0) break;
+      for (const msg of batch) {
+        for (const el of msg.elements) {
+          if (el.kind === 'text' && el.textContent) {
+            for (const word of segmentWords(String(el.textContent))) {
+              counts.set(word, (counts.get(word) ?? 0) + 1);
+            }
+          }
+        }
+      }
+      afterSeq = batch[batch.length - 1]!.msgSeq;
+      if (batch.length < 500) break;
+    }
+
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, limit)
+      .map(([word, count]) => ({ word, count }));
   }
 }

@@ -716,6 +716,31 @@
 .member-badge.level-5 { background-color: #fff1f0; color: #f5222d; border: 0.5px solid #ffa39e; } /* 61-80 */
 .member-badge.level-6 { background-color: #fffbe6; color: #fadb14; border: 0.5px solid #ffe58f; } /* 81+ */
 
+html[data-theme="dark"] .member-badge {
+	background-color: rgba(255, 255, 255, 0.1);
+	color: rgba(255, 255, 255, 0.72);
+	border: 0.5px solid rgba(255, 255, 255, 0.12);
+}
+
+html[data-theme="dark"] .member-badge.owner {
+	background-color: rgba(255, 120, 97, 0.16);
+	color: #ffb0a5;
+	border-color: rgba(255, 148, 130, 0.3);
+}
+
+html[data-theme="dark"] .member-badge.admin {
+	background-color: rgba(123, 97, 255, 0.18);
+	color: #c1b3ff;
+	border-color: rgba(170, 145, 255, 0.3);
+}
+
+html[data-theme="dark"] .member-badge.level-1 { background-color: rgba(82, 196, 26, 0.18); color: #95de64; border-color: rgba(149, 222, 100, 0.3); }
+html[data-theme="dark"] .member-badge.level-2 { background-color: rgba(24, 144, 255, 0.18); color: #69b1ff; border-color: rgba(105, 177, 255, 0.3); }
+html[data-theme="dark"] .member-badge.level-3 { background-color: rgba(114, 46, 209, 0.2); color: #b37feb; border-color: rgba(179, 127, 235, 0.3); }
+html[data-theme="dark"] .member-badge.level-4 { background-color: rgba(250, 84, 28, 0.18); color: #ff9c6e; border-color: rgba(255, 156, 110, 0.3); }
+html[data-theme="dark"] .member-badge.level-5 { background-color: rgba(245, 34, 45, 0.18); color: #ff7875; border-color: rgba(255, 120, 117, 0.3); }
+html[data-theme="dark"] .member-badge.level-6 { background-color: rgba(250, 219, 20, 0.18); color: #ffd666; border-color: rgba(255, 214, 102, 0.3); }
+
 .message-content {
 	width: fit-content;
 	min-width: 0;
@@ -1488,7 +1513,7 @@
 	padding: 0 12px;
 	border: 0;
 	background: transparent;
-	color: #111111;
+	color: var(--weq-fg-primary);
 	text-align: left;
 }
 
@@ -1513,13 +1538,13 @@
 	border: 0;
 	border-radius: 6px;
 	background: transparent;
-	color: #777777;
+	color: var(--weq-fg-muted);
 	cursor: pointer;
 }
 
 .group-invite-button:hover {
-	background: #eeeeee;
-	color: #111111;
+	background: color-mix(in srgb, var(--weq-bg-elevated) 88%, var(--weq-accent-effective));
+	color: var(--weq-fg-primary);
 }
 
 button.group-info-heading {
@@ -1528,7 +1553,7 @@ button.group-info-heading {
 
 .group-info-section p {
 	margin: 0;
-	color: #8a8a8a;
+	color: var(--weq-fg-muted);
 	font-size: 13px;
 	line-height: 1.45;
 }
@@ -1589,14 +1614,14 @@ button.group-info-heading {
 }
 
 .group-info-meta-row span {
-	color: #8d8d8d;
+	color: var(--weq-fg-muted);
 	white-space: nowrap;
 }
 
 .group-info-meta-row strong {
 	min-width: 0;
 	overflow: hidden;
-	color: #333333;
+	color: var(--weq-fg-primary);
 	font-size: 12px;
 	font-weight: 400;
 	text-overflow: ellipsis;
@@ -1608,7 +1633,7 @@ button.contact-profile-row {
 }
 
 button.contact-profile-row:hover {
-	background: #f8f8f8;
+	background: color-mix(in srgb, var(--weq-bg-elevated) 92%, var(--weq-accent-effective));
 }
 
 .group-profile-announcement-row {
@@ -1642,7 +1667,7 @@ button.contact-profile-row:hover {
 .group-info-record p {
 	display: -webkit-box;
 	overflow: hidden;
-	color: #333333;
+	color: var(--weq-fg-primary);
 	font-size: 12px;
 	line-height: 1.45;
 	word-break: break-word;
@@ -1652,7 +1677,7 @@ button.contact-profile-row:hover {
 
 .group-info-record span {
 	overflow: hidden;
-	color: #9a9a9a;
+	color: var(--weq-fg-muted);
 	font-size: 11px;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -1690,15 +1715,15 @@ button.contact-profile-row:hover {
 }
 
 .group-info-member-list:hover {
-	scrollbar-color: rgba(0, 0, 0, 0.14) transparent;
+	scrollbar-color: color-mix(in srgb, var(--weq-fg-muted) 20%, transparent) transparent;
 }
 
 .group-info-member-list:hover::-webkit-scrollbar-thumb {
-	background-color: rgba(0, 0, 0, 0.14);
+	background-color: color-mix(in srgb, var(--weq-fg-muted) 20%, transparent);
 }
 
 .group-info-member-list::-webkit-scrollbar-thumb:hover {
-	background-color: rgba(0, 0, 0, 0.2);
+	background-color: color-mix(in srgb, var(--weq-fg-muted) 30%, transparent);
 }
 
 .group-info-member-row {
@@ -1709,7 +1734,7 @@ button.contact-profile-row:hover {
 	align-items: center;
 	gap: 10px;
 	padding: 0 12px;
-	color: #444444;
+	color: var(--weq-fg-primary);
 	transition: all 150ms ease-out;
 	cursor: default;
 }
@@ -1720,7 +1745,7 @@ button.contact-profile-row:hover {
 	right: 0;
 	left: 48px;
 	height: 1px;
-	background: rgba(0, 0, 0, 0.04);
+	background: color-mix(in srgb, var(--weq-border-subtle) 80%, transparent);
 	content: "";
 }
 
@@ -1729,7 +1754,7 @@ button.contact-profile-row:hover {
 }
 
 .group-info-member-row:hover {
-	background: rgba(0, 0, 0, 0.04);
+	background: color-mix(in srgb, var(--weq-bg-elevated) 88%, var(--weq-accent-effective));
 	transform: translateX(2px);
 }
 
@@ -1792,6 +1817,18 @@ button.contact-profile-row:hover {
 	border: 0.5px solid #d3adf7;
 }
 
+html[data-theme="dark"] .member-role-badge.owner {
+	background-color: rgba(245, 34, 45, 0.16);
+	color: #ff9c9a;
+	border-color: rgba(255, 120, 117, 0.3);
+}
+
+html[data-theme="dark"] .member-role-badge.admin {
+	background-color: rgba(114, 46, 209, 0.18);
+	color: #c1b3ff;
+	border-color: rgba(179, 127, 235, 0.3);
+}
+
 .group-info-member-row .member-name-text span,
 .group-info-member-row .member-name-text small {
 	min-width: 0;
@@ -1801,7 +1838,7 @@ button.contact-profile-row:hover {
 }
 
 .group-info-member-row .member-name-text small {
-	color: #9a9a9a;
+	color: var(--weq-fg-muted);
 	font-size: 11px;
 	font-weight: 400;
 }
@@ -1814,7 +1851,7 @@ button.contact-profile-row:hover {
 	display: grid;
 	min-height: 36px;
 	place-items: center;
-	color: #9a9a9a;
+	color: var(--weq-fg-muted);
 	font-size: 12px;
 }
 
@@ -1880,17 +1917,17 @@ button.contact-profile-row:hover {
 	align-items: center;
 	gap: 7px;
 	padding: 0 9px;
-	border: 1px solid rgba(0, 0, 0, 0.07);
+	border: 1px solid var(--weq-border-subtle);
 	border-radius: 7px;
-	background: #ffffff;
-	color: #333333;
+	background: var(--weq-bg-surface);
+	color: var(--weq-fg-primary);
 	font-size: 12px;
 	cursor: pointer;
 }
 
 .group-info-action-button:hover {
 	border-color: rgba(0, 153, 247, 0.28);
-	background: #f7fbff;
+	background: color-mix(in srgb, var(--weq-bg-elevated) 88%, var(--weq-accent-effective));
 	color: #0099f7;
 }
 
@@ -1956,6 +1993,11 @@ button.contact-profile-row:hover {
 		);
 	box-shadow: var(--weq-shadow-card);
 	backdrop-filter: blur(18px);
+	/* Electron's drag-region hit test runs OUTSIDE the normal compositor stack,
+	   so z-index alone can't stop the chat header's `-webkit-app-region: drag`
+	   from swallowing clicks (e.g. the close button) when this dialog overlaps
+	   it near the top. Punch a no-drag hole over the whole dialog. */
+	-webkit-app-region: no-drag;
 }
 
 .group-album-dialog header {
@@ -2860,7 +2902,19 @@ button.contact-profile-row:hover {
 	box-shadow: 0 20px 36px -26px color-mix(in srgb, var(--weq-accent-effective) 44%, black);
 }
 
-.ga-menu-card span {
+.ga-menu-icon {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 48px;
+	height: 48px;
+	border-radius: 12px;
+	color: var(--weq-accent-effective);
+	background: color-mix(in srgb, var(--weq-accent-effective) 14%, var(--weq-bg-surface));
+	margin-bottom: 2px;
+}
+
+.ga-menu-title {
 	font-size: 15px;
 	font-weight: 600;
 	color: var(--weq-fg-primary);
@@ -3051,7 +3105,7 @@ button.contact-profile-row:hover {
 
 .ga-stats-cards {
 	display: grid;
-	grid-template-columns: repeat(3, 1fr);
+	grid-template-columns: 1fr 1fr;
 	gap: 10px;
 	margin-bottom: 14px;
 }
@@ -3298,8 +3352,192 @@ button.contact-profile-row:hover {
 	color: var(--weq-fg-primary);
 }
 
+/* members search */
+
+.ga-members-search {
+	margin-bottom: 14px;
+}
+
+/* emoji chip (rendered FaceEmoji) */
+
+.ga-emoji-chip {
+	padding: 5px 10px 5px 7px;
+}
+
+.ga-emoji-chip .face-emoji {
+	display: inline-block;
+	vertical-align: middle;
+}
+
 /* active hours page */
 
 .ga-active-hours {
 	padding: 8px 0;
+}
+
+.ga-active-hours .ga-bar-hour-label {
+	font-size: 9px;
+}
+
+/* contribution heatmap (绿墙) */
+
+.ga-heatmap {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.ga-hm-meta {
+	font-size: 12px;
+	color: var(--weq-fg-muted);
+}
+
+.ga-hm-meta strong {
+	color: var(--weq-fg-primary);
+	font-weight: 600;
+}
+
+.ga-hm-scroll {
+	overflow-x: auto;
+	padding-bottom: 6px;
+}
+
+.ga-hm-scroll::-webkit-scrollbar {
+	height: 8px;
+}
+
+.ga-hm-scroll::-webkit-scrollbar-thumb {
+	background: color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
+	border-radius: 4px;
+}
+
+.ga-hm-inner {
+	display: inline-flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.ga-hm-months {
+	display: flex;
+	gap: 3px;
+	height: 12px;
+}
+
+.ga-hm-month {
+	width: 11px;
+	flex: 0 0 11px;
+	font-size: 9px;
+	line-height: 12px;
+	color: var(--weq-fg-muted);
+	white-space: nowrap;
+	overflow: visible;
+}
+
+.ga-hm-grid {
+	display: flex;
+	gap: 3px;
+}
+
+.ga-hm-week {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+}
+
+.ga-hm-cell {
+	width: 11px;
+	height: 11px;
+	border-radius: 2px;
+	background: color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-elevated));
+}
+
+.ga-hm-cell.is-empty {
+	background: transparent;
+}
+
+.ga-hm-cell[data-level="1"] {
+	background: color-mix(in srgb, var(--weq-accent-effective) 28%, var(--weq-bg-elevated));
+}
+
+.ga-hm-cell[data-level="2"] {
+	background: color-mix(in srgb, var(--weq-accent-effective) 52%, var(--weq-bg-elevated));
+}
+
+.ga-hm-cell[data-level="3"] {
+	background: color-mix(in srgb, var(--weq-accent-effective) 74%, var(--weq-bg-elevated));
+}
+
+.ga-hm-cell[data-level="4"] {
+	background: var(--weq-accent-effective);
+}
+
+.ga-hm-legend {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	font-size: 11px;
+	color: var(--weq-fg-muted);
+}
+
+.ga-hm-legend i {
+	width: 11px;
+	height: 11px;
+	border-radius: 2px;
+	display: inline-block;
+	background: color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-elevated));
+}
+
+.ga-hm-legend i[data-level="1"] {
+	background: color-mix(in srgb, var(--weq-accent-effective) 28%, var(--weq-bg-elevated));
+}
+
+.ga-hm-legend i[data-level="2"] {
+	background: color-mix(in srgb, var(--weq-accent-effective) 52%, var(--weq-bg-elevated));
+}
+
+.ga-hm-legend i[data-level="3"] {
+	background: color-mix(in srgb, var(--weq-accent-effective) 74%, var(--weq-bg-elevated));
+}
+
+.ga-hm-legend i[data-level="4"] {
+	background: var(--weq-accent-effective);
+}
+
+/* word cloud */
+
+.ga-wordcloud-view {
+	padding: 8px 0;
+}
+
+.ga-wordcloud {
+	position: relative;
+	width: 100%;
+	overflow: hidden;
+	border-radius: 12px;
+	background:
+		radial-gradient(
+			120% 120% at 50% 0%,
+			color-mix(in srgb, var(--weq-accent-effective) 6%, var(--weq-bg-elevated)),
+			var(--weq-bg-surface)
+		);
+	border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+.ga-wc-word {
+	position: absolute;
+	white-space: nowrap;
+	line-height: 1;
+	user-select: none;
+	cursor: default;
+	transition: transform 0.12s ease, opacity 0.12s ease;
+}
+
+.ga-wc-word:hover {
+	transform: scale(1.08);
+	opacity: 0.85;
+}
+
+.ga-wordcloud .ga-loading {
+	position: absolute;
+	inset: 0;
 }
