@@ -4,7 +4,8 @@ interface Window {
   weq: {
     openLogDir(): Promise<boolean>;
     channel: {
-      open(): Promise<boolean>;
+      open(theme?: 'system' | 'light' | 'dark'): Promise<boolean>;
+      setTheme(theme: 'system' | 'light' | 'dark'): Promise<boolean>;
       getCookies(): Promise<
         { name: string; value: string; domain?: string; path?: string }[]
       >;

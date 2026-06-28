@@ -9,6 +9,7 @@ import tailwindcss from '@tailwindcss/vite';
  * to `import "./index.ts"` at runtime.
  */
 const EXCLUDE_FROM_EXTERNAL = [
+  '@weq/agentlab',
   '@weq/account',
   '@weq/codec',
   '@weq/db',

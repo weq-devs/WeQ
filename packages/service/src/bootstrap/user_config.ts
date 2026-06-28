@@ -19,6 +19,7 @@
 import { mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import type { Platform } from '@weq/platform';
+import type { AgentLabProviderConfig } from '@weq/agentlab';
 import type { AccountConfig } from '../account/user_config';
 import { getLogger, logErrorContext } from '../common/logger';
 
@@ -42,6 +43,26 @@ type DeepPartial<T> = {
   [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
 };
 
+function isAgentLabProviderConfig(value: unknown): value is AgentLabProviderConfig {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Partial<AgentLabProviderConfig>;
+  return (
+    typeof item.id === 'string' &&
+    typeof item.name === 'string' &&
+    typeof item.vendor === 'string' &&
+    typeof item.baseUrl === 'string' &&
+    typeof item.apiKey === 'string' &&
+    Array.isArray(item.models) &&
+    typeof item.createdAt === 'number' &&
+    typeof item.updatedAt === 'number'
+  );
+}
+
+function normalizeAgentLabProviders(value: unknown): AgentLabProviderConfig[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isAgentLabProviderConfig);
+}
+
 export interface MediaCompletionConfig {
   enabled: boolean;
 }
@@ -61,6 +82,10 @@ export interface McpServerConfig {
   token: string;
 }
 
+export interface AgentLabSettings {
+  providers: AgentLabProviderConfig[];
+}
+
 export interface AppSettings {
   realtimeEnabled: boolean;
   mediaCompletion: MediaCompletionConfig;
@@ -72,6 +97,7 @@ export interface AppSettings {
   autoLockMinutes: number;
   voiceTranscribe: VoiceTranscribeConfig;
   mcp: McpServerConfig;
+  agentLab: AgentLabSettings;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -81,6 +107,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   autoLockMinutes: 0,
   voiceTranscribe: { modelId: '' },
   mcp: { enabled: false, port: 8765, token: '' },
+  agentLab: { providers: [] },
 };
 
 export interface UserConfig {
@@ -238,6 +265,9 @@ export class UserConfigService {
         port: s?.mcp?.port ?? d.mcp.port,
         token: s?.mcp?.token ?? d.mcp.token,
       },
+      agentLab: {
+        providers: normalizeAgentLabProviders(s?.agentLab?.providers) ?? d.agentLab.providers,
+      },
     };
   }
 
@@ -258,6 +288,12 @@ export class UserConfigService {
         port: patch.mcp?.port ?? current.mcp.port,
         token: patch.mcp?.token ?? current.mcp.token,
       },
+      agentLab: {
+        providers:
+          patch.agentLab?.providers !== undefined
+            ? normalizeAgentLabProviders(patch.agentLab.providers)
+            : current.agentLab.providers,
+      },
     };
     this.write({ settings: next });
     this.logger.info('updated app settings', {
@@ -270,6 +306,7 @@ export class UserConfigService {
       voiceModelId: next.voiceTranscribe.modelId,
       mcpEnabled: next.mcp.enabled,
       mcpPort: next.mcp.port,
+      agentLabProviderCount: next.agentLab.providers.length,
     });
     return next;
   }

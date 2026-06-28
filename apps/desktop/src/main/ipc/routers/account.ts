@@ -66,6 +66,14 @@ function requireScheduler(): import('@weq/service').ExportScheduler {
   return ctx.scheduler;
 }
 
+const agentLabModelRef = z.object({ providerId: z.string().min(1), model: z.string().min(1) });
+const agentLabModels = z.object({
+  chat: agentLabModelRef,
+  embedding: agentLabModelRef.optional(),
+  vision: agentLabModelRef.optional(),
+  voiceClone: agentLabModelRef.optional(),
+});
+
 /** Wire payload pushed to the renderer when nt_msg.db gains new rows. */
 export interface NewMessagesWire {
   messages: ChatMsgWire[];
@@ -443,6 +451,75 @@ async function exportGroupAlbums(
 }
 
 export const accountRouter = router({
+  // ---- agent lab ----
+
+  listAgentLabPersonas: procedure.query(() => {
+    return requireServices().agentLab.listPersonas();
+  }),
+
+  getAgentLabPersona: procedure
+    .input(z.object({ personaId: z.string().min(1) }))
+    .query(({ input }) => {
+      return requireServices().agentLab.getPersona(input.personaId);
+    }),
+
+  getAgentLabPersonaDetail: procedure
+    .input(z.object({ personaId: z.string().min(1) }))
+    .query(({ input }) => {
+      return requireServices().agentLab.getPersonaDetail(input.personaId);
+    }),
+
+  buildAgentLabFromC2c: procedure
+    .input(
+      z.object({
+        personaId: z.string().min(1),
+        name: z.string().optional(),
+        models: agentLabModels,
+        customPrompt: z.string().optional(),
+        targetUid: z.string().min(1),
+        title: z.string().optional(),
+        limit: z.number().int().min(20).max(6000).optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      return requireServices().agentLab.buildFromC2c({
+        personaId: input.personaId,
+        name: input.name,
+        models: input.models,
+        customPrompt: input.customPrompt,
+        targetUid: input.targetUid,
+        title: input.title,
+        limit: input.limit,
+      });
+    }),
+
+  chatWithAgentLabPersona: procedure
+    .input(
+      z.object({
+        personaId: z.string().min(1),
+        text: z.string().min(1),
+        history: z.array(
+          z.object({
+            role: z.enum(['user', 'assistant']),
+            text: z.string().min(1),
+          }),
+        ).default([]),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      return requireServices().agentLab.chat({
+        personaId: input.personaId,
+        text: input.text,
+        history: input.history,
+      });
+    }),
+
+  deleteAgentLabPersona: procedure
+    .input(z.object({ personaId: z.string().min(1) }))
+    .mutation(({ input }) => {
+      return requireServices().agentLab.deletePersona(input.personaId);
+    }),
+
   /** Recent conversations (recent_contact_v3_table), newest first. */
   listRecentContacts: procedure.query(async () => {
     const contacts = await requireServices().recentContacts.getRecentContact(200);

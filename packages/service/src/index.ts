@@ -38,7 +38,9 @@ export type {
   MediaCompletionConfig,
   VoiceTranscribeConfig,
   McpServerConfig,
+  AgentLabSettings,
 } from './bootstrap/user_config';
+export { AgentLabConfigService } from './bootstrap/agentlab_config';
 
 export { AvatarCacheService } from './bootstrap/avatar_cache';
 export type { AvatarBlob } from './bootstrap/avatar_cache';
@@ -88,6 +90,8 @@ export { FileSearchService } from './account/file_search';
 export type { FileType, SearchResult } from './account/file_search';
 export { OnlineStatusService } from './account/online_status';
 export type { FormattedOnlineStatus } from './account/online_status';
+export { AgentLabService } from './account/agentlab';
+export type { AgentLabMediaDeps, EndpointResolver } from './account/agentlab';
 export type { RenderC2cMsg, RenderGroupMsg } from './account/msg';
 export { toRenderElements } from './account/msg_view';
 export type { RenderElement, RenderTextElement } from './account/msg_view';

@@ -359,6 +359,45 @@ export const bootstrapRouter = router({
       return true;
     }),
 
+  // ---- agent lab provider config ----
+
+  getAgentLabCatalog: procedure.query(() => {
+    return requireBootstrap().agentLabConfig.listCatalog();
+  }),
+
+  listAgentLabProviders: procedure.query(() => {
+    return requireBootstrap().agentLabConfig.listProviders();
+  }),
+
+  saveAgentLabProvider: procedure
+    .input(
+      z.object({
+        id: z.string().min(1),
+        name: z.string().min(1),
+        vendor: z.string().min(1),
+        baseUrl: z.string().min(1),
+        apiKey: z.string().min(1),
+        models: z
+          .array(
+            z.object({
+              id: z.string().min(1),
+              label: z.string().optional(),
+              capabilities: z.array(z.enum(['chat', 'embedding', 'vision'])),
+            }),
+          )
+          .default([]),
+      }),
+    )
+    .mutation(({ input }) => {
+      return requireBootstrap().agentLabConfig.saveProvider(input);
+    }),
+
+  deleteAgentLabProvider: procedure
+    .input(z.object({ id: z.string().min(1) }))
+    .mutation(({ input }) => {
+      return requireBootstrap().agentLabConfig.deleteProvider(input.id);
+    }),
+
   // ---- cache directory (设置 → 账号信息 → 账号缓存路径) ----
 
   /** Effective / override / default cache paths for display. */

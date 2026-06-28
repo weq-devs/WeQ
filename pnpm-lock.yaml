@@ -47,6 +47,9 @@ importers:
       '@weq/account':
         specifier: workspace:*
         version: link:../../packages/account
+      '@weq/agentlab':
+        specifier: workspace:*
+        version: link:../../packages/agentlab
       '@weq/codec':
         specifier: workspace:*
         version: link:../../packages/codec
@@ -273,6 +276,12 @@ importers:
         specifier: ^22.10.6
         version: 22.19.20
 
+  packages/agentlab:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.6
+        version: 22.19.20
+
   packages/codec:
     dependencies:
       '@protobuf-ts/runtime':
@@ -345,6 +354,9 @@ importers:
       '@weq/account':
         specifier: workspace:*
         version: link:../account
+      '@weq/agentlab':
+        specifier: workspace:*
+        version: link:../agentlab
       '@weq/codec':
         specifier: workspace:*
         version: link:../codec

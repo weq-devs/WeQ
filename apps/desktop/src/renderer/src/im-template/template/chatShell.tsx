@@ -117,7 +117,7 @@ export function ChatShell({
 						friendNoticeCount={friendNoticeCount}
 						groupNoticeCount={groupNoticeCount}
 					/>
-					<div className={cn("sidebar-body")}>{sidebarContent}</div>
+					<div className={cn("sidebar-body", view === "agentlab" && "is-agentlab-sidebar")}>{sidebarContent}</div>
 				</aside>
 				<SidebarResizeHandle
 					width={sidebarWidth}

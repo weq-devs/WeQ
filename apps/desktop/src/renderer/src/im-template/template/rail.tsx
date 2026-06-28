@@ -1,5 +1,6 @@
 ﻿// @ts-nocheck
 import {
+	Bot,
 	LayoutGrid,
 	MessageCircle,
 	Download,
@@ -13,6 +14,7 @@ import { Avatar } from "./primitives";
 import type { MainView, SettingsTab, User } from "./types";
 import { displayUserName } from "./user";
 import { useUpdateStore } from "../../state/update";
+import { useThemeStore } from "../../state/theme";
 
 export function AppRail({
 	user,
@@ -176,8 +178,11 @@ export function AppRail({
 							setMenuOpen(false);
 							setProfileOpen(false);
 							// Opens a dedicated, per-account browser window (pd.qq.com)
-							// in the main process — not an in-app view.
-							void window.weq?.channel?.open();
+							// in the main process — not an in-app view. Pass WeQ's
+							// theme so the browser follows 深/浅 mode.
+							void window.weq?.channel?.open(
+								useThemeStore.getState().preference,
+							);
 						}}
 						title="QQ 频道"
 						type="button"
@@ -199,6 +204,19 @@ export function AppRail({
 							<Download size={22} strokeWidth={1.5} />
 						</span>
 						<span className={cn("rail-label")}>导出</span>
+					</button>
+					<button
+						className={cn(
+							railButtonClass(activeView === "agentlab"),
+							"rail-tab rail-tab-agentlab",
+						)}
+						onClick={() => selectView("agentlab")}
+						title="AgentLab"
+					>
+						<span className={cn("rail-tab-icon")}>
+							<Bot size={22} strokeWidth={1.5} />
+						</span>
+						<span className={cn("rail-label")}>AgentLab</span>
 					</button>
 					<button
 						className={cn("rail-tab rail-tab-settings")}

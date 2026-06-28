@@ -109,7 +109,7 @@ export function AppLockOverlay(): ReactElement | null {
             ? `请使用 ${status?.displayName ?? '系统认证'} 验证身份后继续访问当前账号数据。`
             : status?.error ?? '系统认证当前不可用，请在系统中重新启用后再试。'}
         </p>
-        <p className="weq-lock-tip">解锁需要通过系统认证，没有跳过入口。</p>
+        <p className="weq-lock-tip">解锁需要通过系统认证。</p>
 
         <div className="weq-lock-foot">
           <button

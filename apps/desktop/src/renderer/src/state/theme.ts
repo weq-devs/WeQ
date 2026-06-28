@@ -120,6 +120,12 @@ function applyTheme({
   root.classList.toggle('dark', resolved === 'dark');
   root.style.colorScheme = resolved;
   root.style.setProperty('--weq-accent-custom', accent || '');
+  // Keep the built-in QQ 频道 browser's 深/浅 mode in lockstep with WeQ. Safe
+  // when no channel window is open; the bridge may be absent in non-electron
+  // contexts (tests), hence the optional chaining.
+  try {
+    window.weq?.channel?.setTheme?.(preference);
+  } catch {}
 }
 
 function persist(key: string, value: string) {

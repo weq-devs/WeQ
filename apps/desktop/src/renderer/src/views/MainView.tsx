@@ -32,6 +32,7 @@ import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
 import { GroupAnalyticsDialog } from '../components/GroupAnalyticsDialog';
 import { BuddyAnalyticsDialog } from '../components/BuddyAnalyticsDialog';
 import { RelationGraphView } from '../components/relationGraph/RelationGraphView';
+import { AgentLabView } from './AgentLabView';
 import { ExportView } from './ExportView';
 import {
   ChatMainContent,
@@ -2551,7 +2552,7 @@ export function MainView(): ReactElement {
         query={shell.query}
         contactTab={shell.contactTab}
         activeNotice={shell.contactNotice}
-        sidebarWidth={shell.view === 'export' ? 0 : shell.sidebarWidth}
+        sidebarWidth={shell.view === 'export' || shell.view === 'agentlab' ? 0 : shell.sidebarWidth}
         mainOpen={shell.mainOpen}
         messageBadgeCount={0}
         contactBadgeCount={0}
@@ -2579,7 +2580,7 @@ export function MainView(): ReactElement {
         onContactTabChange={shell.changeContactTab}
         onSidebarWidthChange={shell.updateSidebarWidth}
         sidebarContent={
-          shell.view === 'export' ? null : (
+          shell.view === 'export' || shell.view === 'agentlab' ? null : (
           <>
             <ChatSidebarContent
               user={user}
@@ -2656,6 +2657,8 @@ export function MainView(): ReactElement {
         mainContent={
           shell.view === 'export' ? (
             <ExportView />
+          ) : shell.view === 'agentlab' ? (
+            <AgentLabView />
           ) : (
           <div className="weq-template-main-wrap">
             <div className="weq-readonly-chat">

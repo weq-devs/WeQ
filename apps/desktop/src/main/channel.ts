@@ -22,13 +22,30 @@
  * 频道相关的导出/分析 work (see `channel:get-cookies`).
  */
 
-import { BrowserWindow, ipcMain, session, shell } from 'electron';
+import { BrowserWindow, ipcMain, nativeTheme, session, shell } from 'electron';
 import { accountConfigId, getLogger, logErrorContext } from '@weq/service';
 import { getAppContext } from './context/app_context';
 
 const CHANNEL_URL = 'https://pd.qq.com/';
 /** Domain the channel p_skey is minted for (native `fetchPskey` argument). */
 const CHANNEL_PSKEY_DOMAIN = 'pd.qq.com';
+
+/** WeQ's theme preference, mirrored 1:1 onto `nativeTheme.themeSource`. */
+type ChannelTheme = 'system' | 'light' | 'dark';
+
+/**
+ * Follow WeQ's 深/浅 mode. `nativeTheme.themeSource` is the only lever Electron
+ * gives for a window's `prefers-color-scheme`, and it's process-global — so the
+ * channel window's remote content (pd.qq.com) and native chrome track WeQ. The
+ * main window is unaffected in practice: it themes via CSS classes, and only
+ * consults `prefers-color-scheme` when the user picked 跟随系统 ('system'), where
+ * we set the source back to 'system' (Electron's default) so the OS still drives.
+ */
+function applyChannelTheme(theme: ChannelTheme | undefined): void {
+  if (theme === 'system' || theme === 'light' || theme === 'dark') {
+    nativeTheme.themeSource = theme;
+  }
+}
 
 const logger = getLogger().child({ scope: 'qq-channel' });
 
@@ -132,8 +149,16 @@ async function openChannelWindow(): Promise<void> {
 }
 
 export function registerChannelIpc(): void {
-  ipcMain.handle('channel:open', async () => {
+  ipcMain.handle('channel:open', async (_event, theme?: ChannelTheme) => {
+    applyChannelTheme(theme);
     await openChannelWindow();
+    return true;
+  });
+
+  // Live theme follow: the renderer pushes this whenever WeQ's 深/浅 mode changes
+  // so an already-open channel window updates without being reopened.
+  ipcMain.handle('channel:set-theme', (_event, theme?: ChannelTheme) => {
+    applyChannelTheme(theme);
     return true;
   });
 

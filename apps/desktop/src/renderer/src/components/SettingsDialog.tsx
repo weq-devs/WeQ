@@ -14,6 +14,7 @@ import {
 } from 'react';
 import {
   AudioLines,
+  Bot,
   Check,
   Lock,
   Monitor,
@@ -27,6 +28,7 @@ import {
 } from 'lucide-react';
 import { GlobalSettingsSection } from './settings/GlobalSettingsSection';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
+import { AgentLabSection } from './settings/AgentLabSection';
 import { VoiceTranscribeSection } from './settings/VoiceTranscribeSection';
 import { McpServerSection } from './settings/McpServerSection';
 import {
@@ -36,7 +38,7 @@ import {
   type ThemePreference,
 } from '../state/theme';
 
-type SectionId = 'global' | 'appearance' | 'account' | 'voice' | 'mcp';
+type SectionId = 'global' | 'appearance' | 'account' | 'voice' | 'agentlab' | 'mcp';
 
 interface SettingsSection {
   id: SectionId;
@@ -69,6 +71,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: '语音转录',
     icon: <AudioLines size={16} strokeWidth={1.8} />,
     render: () => <VoiceTranscribeSection />,
+  },
+  {
+    id: 'agentlab',
+    label: 'AgentLab',
+    icon: <Bot size={16} strokeWidth={1.8} />,
+    render: () => <AgentLabSection />,
   },
   {
     id: 'mcp',
