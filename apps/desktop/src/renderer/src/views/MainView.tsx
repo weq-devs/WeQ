@@ -30,6 +30,7 @@ import { RailAccountFooter } from '../components/RailAccountFooter';
 import { SettingsDialog } from '../components/SettingsDialog';
 import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
 import { GroupAnalyticsDialog } from '../components/GroupAnalyticsDialog';
+import { BuddyAnalyticsDialog } from '../components/BuddyAnalyticsDialog';
 import { RelationGraphView } from '../components/relationGraph/RelationGraphView';
 import { ExportView } from './ExportView';
 import {
@@ -1473,6 +1474,10 @@ export function MainView(): ReactElement {
     groupCode: string;
     groupName: string;
   } | null>(null);
+  const [buddyAnalyticsDialog, setBuddyAnalyticsDialog] = useState<{
+    peerUid: string;
+    peerName: string;
+  } | null>(null);
   
   const [editorState, setEditorState] = useState<{ msgId: string, elements: any[] } | null>(null);
 
@@ -1520,6 +1525,17 @@ export function MainView(): ReactElement {
     setAnalyticsDialog({
       groupCode: conversation.id,
       groupName: conversation.group.name,
+    });
+  }, []);
+
+  const handleOpenBuddyAnalytics = useCallback((conversation: Extract<Conversation, { type: 'direct' }>) => {
+    setBuddyAnalyticsDialog({
+      peerUid: conversation.otherUser.id,
+      peerName:
+        conversation.otherUser.displayName ||
+        conversation.otherUser.username ||
+        conversation.otherUser.identityValue ||
+        'TA',
     });
   }, []);
 
@@ -2683,6 +2699,7 @@ export function MainView(): ReactElement {
                 onOpenGroupAlbums={handleOpenGroupAlbums}
                 onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
                 onOpenGroupAnalytics={handleOpenGroupAnalytics}
+                onOpenBuddyAnalytics={handleOpenBuddyAnalytics}
               />
             </div>
             <OverlayScrollbar
@@ -2722,6 +2739,13 @@ export function MainView(): ReactElement {
           groupCode={analyticsDialog.groupCode}
           groupName={analyticsDialog.groupName}
           onClose={() => setAnalyticsDialog(null)}
+        />
+      ) : null}
+      {buddyAnalyticsDialog ? (
+        <BuddyAnalyticsDialog
+          peerUid={buddyAnalyticsDialog.peerUid}
+          peerName={buddyAnalyticsDialog.peerName}
+          onClose={() => setBuddyAnalyticsDialog(null)}
         />
       ) : null}
       </ConvContext.Provider>

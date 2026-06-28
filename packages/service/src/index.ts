@@ -75,6 +75,11 @@ export {
   type RelationGraphNode,
   type RelationGraphGroup,
 } from './account/group_info';
+export {
+  BuddyAnalyticsService,
+  type BuddyAnalytics,
+  type BuddyReplyStats,
+} from './account/buddy_analytics';
 export { GroupNotifyService } from './account/group_notify';
 export { ProfileService } from './account/profile';
 export { EmojiService } from './account/emoji';

@@ -832,6 +832,13 @@ export const accountRouter = router({
       );
     }),
 
+  /** Full one-on-one (private chat) analytics for a single peer. */
+  getBuddyAnalytics: procedure
+    .input(z.object({ peerUid: z.string().min(1) }))
+    .query(async ({ input }) => {
+      return requireServices().buddyAnalytics.getBuddyAnalytics(input.peerUid);
+    }),
+
   /** Get formatted online status for a user. */
   getOnlineStatus: procedure
     .input(z.object({ uid: z.string().min(1) }))

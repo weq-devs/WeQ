@@ -25,6 +25,7 @@ import type {
 } from "./types";
 
 type GroupConversation = Extract<Conversation, { type: "group" }>;
+type DirectConversation = Extract<Conversation, { type: "direct" }>;
 
 export function ChatMainContent({
 	user,
@@ -72,6 +73,7 @@ export function ChatMainContent({
 	onOpenGroupAlbums,
 	onOpenGroupAnnouncements,
 	onOpenGroupAnalytics,
+	onOpenBuddyAnalytics,
 	onOpenTool,
 	onSelectTool,
 }: {
@@ -129,6 +131,7 @@ export function ChatMainContent({
 	onOpenGroupAlbums?: (conversation: GroupConversation) => void;
 	onOpenGroupAnnouncements?: (conversation: GroupConversation) => void;
 	onOpenGroupAnalytics?: (conversation: GroupConversation) => void;
+	onOpenBuddyAnalytics?: (conversation: DirectConversation) => void;
 	onOpenTool?: (item: ToolPaneItem) => void;
 	onSelectTool?: (item: ToolPaneItem) => void;
 }) {
@@ -197,6 +200,7 @@ export function ChatMainContent({
 			onOpenGroupAlbums={onOpenGroupAlbums}
 			onOpenGroupAnnouncements={onOpenGroupAnnouncements}
 			onOpenGroupAnalytics={onOpenGroupAnalytics}
+			onOpenBuddyAnalytics={onOpenBuddyAnalytics}
 		/>
 	);
 }

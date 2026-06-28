@@ -203,6 +203,7 @@ export function ChatPane({
 	onOpenGroupAlbums,
 	onOpenGroupAnnouncements,
 	onOpenGroupAnalytics,
+	onOpenBuddyAnalytics,
 }: {
 	user: User;
 	conversation: Conversation | undefined;
@@ -230,6 +231,7 @@ export function ChatPane({
 	onOpenGroupAlbums?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenGroupAnnouncements?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenGroupAnalytics?: (conversation: Extract<Conversation, { type: "group" }>) => void;
+	onOpenBuddyAnalytics?: (conversation: Extract<Conversation, { type: "direct" }>) => void;
 }) {
 	// 复用 replyJump 的跳转能力（含翻页/重建窗口），供群精华消息跳转使用。
 	const jumpToSeq = useContext(ReplyJumpContext);
@@ -1297,6 +1299,15 @@ export function ChatPane({
 								<BarChart3 size={18} />
 							</button>
 						</>
+					) : conversation.type === "direct" ? (
+						<button
+							className={cn("icon-button", "group-header-info-action")}
+							type="button"
+							title="私聊分析"
+							onClick={() => onOpenBuddyAnalytics?.(conversation)}
+						>
+							<BarChart3 size={18} />
+						</button>
 					) : null}
 				</div>
 			</header>

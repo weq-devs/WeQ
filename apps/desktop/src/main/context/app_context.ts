@@ -41,6 +41,7 @@ import {
   MediaUrlService,
   ForwardMsgService,
   GroupInfoService,
+  BuddyAnalyticsService,
   GroupNotifyService,
   ProfileService,
   FileAssistantService,
@@ -237,6 +238,8 @@ export interface AccountServices {
   accountConfig: AccountConfigService;
   forwardMsgs: ForwardMsgService;
   groupInfo: GroupInfoService;
+  /** One-on-one (c2c) chat analytics for the private-chat analysis page. */
+  buddyAnalytics: BuddyAnalyticsService;
   groupNotify: GroupNotifyService;
   profile: ProfileService;
   msgSearch: MsgSearchService;
@@ -451,6 +454,7 @@ export function initAppContext(): AppContext {
         accountConfig,
         forwardMsgs: new ForwardMsgService(session),
         groupInfo,
+        buddyAnalytics: new BuddyAnalyticsService(session),
         groupNotify: new GroupNotifyService(session),
         profile,
         msgSearch: new MsgSearchService(session),
@@ -655,6 +659,7 @@ export function initAppContext(): AppContext {
         accountConfig,
         forwardMsgs: new ForwardMsgService(session),
         groupInfo,
+        buddyAnalytics: new BuddyAnalyticsService(session),
         groupNotify: new GroupNotifyService(session),
         profile,
         msgSearch: new MsgSearchService(session),
