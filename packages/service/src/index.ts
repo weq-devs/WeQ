@@ -97,7 +97,7 @@ export type { TokenStats, TokenUsageRecord } from './account/agentlab_usage';
 export { ConversationStore } from './account/agentlab_conversation';
 export type { ConversationTurn } from './account/agentlab_conversation';
 export { AssistantService, ASSISTANT_AGENT_ID } from './account/assistant';
-export type { AssistantConfig, AssistantTools, AssistantToolSpec, AssistantStep } from './account/assistant';
+export type { AssistantConfig, AssistantTools, AssistantToolSpec, AssistantStep, AssistantArtifact } from './account/assistant';
 export type { RenderC2cMsg, RenderGroupMsg } from './account/msg';
 export { toRenderElements } from './account/msg_view';
 export type { RenderElement, RenderTextElement } from './account/msg_view';
@@ -208,3 +208,13 @@ export type {
 } from './common/voice_transcribe';
 export { getLogDir, getLogger, initLogger, logErrorContext } from './common/logger';
 export type { Logger, LoggerContext, LogLevel } from './common/logger';
+export { TtsService, TTS_VENDOR_CATALOG, getTtsCatalogEntry, getTtsCapabilities } from './common/tts';
+export type {
+  TtsVendor,
+  TtsProviderConfig,
+  TtsRefClip,
+  TtsSynthesizeOptions,
+  TtsSynthesizeResult,
+  TtsCapabilities,
+  TtsVendorCatalogEntry,
+} from './common/tts';

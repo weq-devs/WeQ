@@ -18,10 +18,17 @@ export const GROUP_STYLE_CHAR_BUDGET = 4000;
 /** 一轮内连发多条的分隔符（提示词里会说明） */
 export const BURST_JOINER = '／';
 
+/** 深层画像 map-reduce：单块字符上限（一块喂一次 LLM 提取部分画像） */
+export const PROFILE_CHUNK_CHARS = 10000;
+/** 深层画像 map-reduce：最多切几块（超出保留最近的，近况优先，控制成本） */
+export const PROFILE_MAX_CHUNKS = 12;
+
 // ── Thing 1 蒸馏管线的上限常量（service 层 buildFromC2c 取用，集中在此便于调参）──
 
 /** 私聊翻页安全上限（防极端会话撑爆内存） */
 export const C2C_SAFETY_CAP = 20000;
+/** 默认总语料消息上限（替代旧的克隆程度 high/low；私聊翻页装满即停，控制时间/成本） */
+export const C2C_CORPUS_CAP = 6000;
 /** 对方有效消息 < 此值 → 去群里补采风格语料；私聊+群仍 < 此值 → 提示失败 */
 export const GROUP_SUPPLEMENT_THRESHOLD = 50;
 /** 群补采最多扫几个群 */
@@ -173,6 +180,30 @@ export function renderCorpus(turns: AgentLabTurn[], friendName: string): string 
 }
 
 /**
+ * 深层画像语料：把全部轮次按时间正序切成 ≤PROFILE_CHUNK_CHARS 的块（map-reduce 的 map 输入）。
+ * 与 renderCorpus 不同——这里要全量历史而非最近优先；超过 PROFILE_MAX_CHUNKS 时保留最近的块
+ * （近期生活状态比远古历史更重要）。
+ */
+export function renderProfileChunks(turns: AgentLabTurn[], friendName: string): string[] {
+  const chunks: string[] = [];
+  let current: string[] = [];
+  let chars = 0;
+  for (const turn of turns) {
+    const speaker = turn.role === 'assistant' ? friendName : '我';
+    const line = `${speaker}: ${turn.texts.join(BURST_JOINER)}`;
+    if (chars + line.length > PROFILE_CHUNK_CHARS && current.length > 0) {
+      chunks.push(current.join('\n'));
+      current = [];
+      chars = 0;
+    }
+    current.push(line);
+    chars += line.length;
+  }
+  if (current.length > 0) chunks.push(current.join('\n'));
+  return chunks.slice(-PROFILE_MAX_CHUNKS);
+}
+
+/**
  * 渲染群补采的风格语料：只有 TA 自己在群里的发言（一行一条），无对话上下文。
  * 仅供画像/风格提炼「学语气」，不构成问答对。装满预算即停。
  */
@@ -254,7 +285,7 @@ export function buildHeuristicProfile(
       addressing: '',
       topics: terms.slice(0, 10),
     },
-    deep: { facts: [], relationship: '', reactionPatterns: [], boundaries: [] },
+    deep: { facts: [], relationship: '', reactionPatterns: [], boundaries: [], sharedEvents: [] },
     styleSummary,
     topTerms: terms,
     voiceRatio: voiceUsage.voiceRatio,

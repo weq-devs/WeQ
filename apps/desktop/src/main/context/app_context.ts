@@ -34,6 +34,7 @@ import {
   AvatarCacheService,
   AgentLabConfigService,
   VoiceTranscribeService,
+  TtsService,
   getVoiceModel,
   MsgService,
   RecentContactService,
@@ -236,6 +237,8 @@ export interface BootstrapServices {
   agentLabConfig: AgentLabConfigService;
   /** Voice-transcription model management (download/select). Account-independent. */
   voiceTranscribe: VoiceTranscribeService;
+  /** Text-to-speech（克隆体发语音/语音克隆）。Account-independent，纯 fetch。 */
+  tts: TtsService;
 }
 
 /** Services that are re-created whenever an account session opens. */
@@ -394,6 +397,7 @@ export function initAppContext(): AppContext {
     avatarCache: new AvatarCacheService(platform, userConfig),
     agentLabConfig: new AgentLabConfigService(userConfig),
     voiceTranscribe: new VoiceTranscribeService(platform),
+    tts: new TtsService(),
   };
 
   // Shared voice/transcription closures — both the export manager and AgentLab
@@ -539,6 +543,12 @@ export function initAppContext(): AppContext {
           agentLabMedia(fileSearch, mediaDownload),
           tokenUsage,
           conversations,
+          // 语音合成（克隆体发语音 / 语音克隆）：provider 从全局语音配置取。
+          {
+            service: bootstrap.tts,
+            getProvider: (id: string) =>
+              userConfig.getSettings().voiceTranscribe.ttsProviders.find((p) => p.id === id) ?? null,
+          },
         ),
         assistant: new AssistantService(agentlabRoot, resolveAgentEndpoint, tokenUsage, conversations, {
           // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
@@ -744,6 +754,11 @@ export function initAppContext(): AppContext {
           agentLabMedia(fileSearch, mediaDownload),
           tokenUsage,
           conversations,
+          {
+            service: bootstrap.tts,
+            getProvider: (id: string) =>
+              userConfig.getSettings().voiceTranscribe.ttsProviders.find((p) => p.id === id) ?? null,
+          },
         ),
         assistant: new AssistantService(agentlabRoot, resolveAgentEndpoint, tokenUsage, conversations, {
           // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。

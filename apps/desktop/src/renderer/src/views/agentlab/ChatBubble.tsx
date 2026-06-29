@@ -1,6 +1,6 @@
 /** 复用 im-template 的 QQ 气泡样式（chat.css 的 message-line / message-bubble）渲染一行。 */
-import { Fragment, type ReactElement, type ReactNode } from 'react';
-import { Bot } from 'lucide-react';
+import { Fragment, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { Bot, Pause, Play } from 'lucide-react';
 import { QqAvatar } from '../../components/QqAvatar';
 import { FaceEmoji } from '../../components/FaceEmoji';
 
@@ -44,6 +44,41 @@ function renderWithFaces(text: string, faces: FaceContext): ReactNode {
   });
 }
 
+/** 自定义表情包标记：[[sticker:<md5>]]，由后端落库 / 前端实时插入。 */
+const STICKER_MARKER = /^\[\[sticker:([0-9a-fA-F]+)\]\]$/;
+/** 克隆体合成语音标记：[[voice:<hash.ext>]]，由后端落库 / 前端实时插入。 */
+const VOICE_MARKER = /^\[\[voice:([0-9a-zA-Z._-]+)\]\]$/;
+
+/** 克隆体语音气泡：点击播放后端合成的语音（weq-media://agentvoice）。 */
+function VoiceBubble({ personaId, voiceId }: { personaId: string; voiceId: string }): ReactElement {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const src = `weq-media://agentvoice?persona=${encodeURIComponent(personaId)}&id=${encodeURIComponent(voiceId)}`;
+  const toggle = (): void => {
+    let audio = audioRef.current;
+    if (!audio) {
+      audio = new Audio(src);
+      audio.onended = () => setPlaying(false);
+      audio.onpause = () => setPlaying(false);
+      audio.onplay = () => setPlaying(true);
+      audioRef.current = audio;
+    }
+    if (audio.paused) void audio.play().catch(() => setPlaying(false));
+    else audio.pause();
+  };
+  return (
+    <button type="button" className="weq-agentlab-voice" onClick={toggle} aria-label="播放语音">
+      {playing ? <Pause size={14} strokeWidth={2} /> : <Play size={14} strokeWidth={2} />}
+      <span className="weq-agentlab-voice-bars" aria-hidden>
+        {Array.from({ length: 6 }).map((_, i) => (
+          <span key={i} className={`weq-agentlab-voice-bar${playing ? ' is-playing' : ''}`} style={{ animationDelay: `${i * 0.12}s` }} />
+        ))}
+      </span>
+      <span className="weq-agentlab-voice-label">语音</span>
+    </button>
+  );
+}
+
 export function ChatBubble({
   mine,
   name,
@@ -51,6 +86,8 @@ export function ChatBubble({
   text,
   bot,
   faces,
+  personaId,
+  onMediaLoad,
 }: {
   mine: boolean;
   name: string;
@@ -59,7 +96,15 @@ export function ChatBubble({
   bot?: boolean;
   /** 提供后，会把文本里的系统表情 faceText 渲染成表情图（克隆体气泡用）。 */
   faces?: FaceContext;
+  /** 克隆体 id：提供后，[[sticker:md5]] 标记会渲染成自定义表情图。 */
+  personaId?: string;
+  /** 图片类消息加载后通知父级重新贴底。 */
+  onMediaLoad?: () => void;
 }): ReactElement {
+  // 自定义表情包：整条消息就是一个表情标记时，渲染成图片。
+  const stickerMatch = personaId ? text.match(STICKER_MARKER) : null;
+  // 合成语音：整条消息就是一个语音标记时，渲染成语音气泡。
+  const voiceMatch = personaId ? text.match(VOICE_MARKER) : null;
   // 头像统一用 uin 拼 weq-avatar:// 协议，不依赖数据库里存的外链。
   const avatar = (
     <span className="avatar">
@@ -80,7 +125,23 @@ export function ChatBubble({
             ) : null}
           </span>
         ) : null}
-        <div className="message-content">{faces ? renderWithFaces(text, faces) : text}</div>
+        <div className="message-content">
+          {stickerMatch ? (
+            <img
+              className="weq-agentlab-sticker-img"
+              src={`weq-media://sticker?persona=${encodeURIComponent(personaId!)}&md5=${encodeURIComponent(stickerMatch[1] ?? '')}`}
+              alt="[表情]"
+              draggable={false}
+              onLoad={onMediaLoad}
+            />
+          ) : voiceMatch ? (
+            <VoiceBubble personaId={personaId!} voiceId={voiceMatch[1] ?? ''} />
+          ) : faces ? (
+            renderWithFaces(text, faces)
+          ) : (
+            text
+          )}
+        </div>
       </div>
       {mine ? avatar : null}
     </div>

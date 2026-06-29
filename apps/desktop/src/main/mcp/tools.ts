@@ -171,6 +171,40 @@ export const AI_TOOLS: AiTool[] = [
   }),
 
   tool({
+    name: 'search_in_conversation',
+    description:
+      '在【指定会话内】全文搜索关键词——比全局 search_messages 更精准，专治「某人/某群里 TA 说过什么」。' +
+      'kind: c2c=私聊（conv 传对方 uid），group=群聊（conv 传群号）。会话标识来自 find_contact / list_conversations / list_groups。' +
+      '提到人名/群名时先用 find_contact 解析成会话标识，再用这个在该会话里搜，别把人名当关键词。' +
+      '返回精简命中：time 时间、sender 发送者昵称、mine 是否本人发送、text 文本。',
+    input: z.object({
+      kind: z.enum(['c2c', 'group']).describe('会话类型'),
+      conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
+      keyword: z.string().min(1).describe('搜索关键词'),
+      limit: z.number().int().min(1).max(50).default(20).describe('返回条数上限'),
+    }),
+    run: async ({ kind, conv, keyword, limit }) => {
+      const svc = services();
+      const hits =
+        kind === 'group'
+          ? await svc.msgSearch.searchInGroupConversation(conv, keyword, limit)
+          : await svc.msgSearch.searchInBuddyConversation(conv, keyword, limit);
+
+      const selfUid = (await svc.profile.getSelfProfile())?.uid ?? '';
+      const otherUids = [...new Set(hits.filter((h) => h.senderUid !== selfUid).map((h) => h.senderUid))];
+      const nameByUid = otherUids.length ? await svc.profile.nicksByUids(otherUids) : {};
+
+      return hits.map((h) => ({
+        time: fmtTime(h.sendTime),
+        sender: h.senderUid === selfUid ? '我' : nameByUid[h.senderUid] || h.senderUid,
+        mine: h.senderUid === selfUid,
+        text: h.content,
+        ...(h.fileName ? { file: h.fileName } : {}),
+      }));
+    },
+  }),
+
+  tool({
     name: 'list_conversations',
     description: '列出最近会话（私聊与群聊），最新在前。用来给后续工具挑选目标会话。',
     input: z.object({
@@ -239,6 +273,53 @@ export const AI_TOOLS: AiTool[] = [
     run: async ({ limit, offset }) => {
       const buddies = await services().profile.listBuddies(limit, offset);
       return buddies.map(buddyToWire);
+    },
+  }),
+
+  tool({
+    name: 'search_buddies',
+    description:
+      '按昵称或备注模糊搜索好友（用于「找一下叫XX的好友」「我和谁的好友名字里有YY」等场景）。' +
+      '支持部分匹配，返回 uid、uin、昵称、备注。不传 query 时返回所有好友。',
+    input: z.object({
+      query: z.string().default('').describe('搜索关键词（昵称/备注，不区分大小写，空字符串=全部）'),
+      limit: z.number().int().min(1).max(200).default(50).describe('返回条数上限'),
+    }),
+    run: async ({ query, limit }) => {
+      const svc = services();
+      const buddies = await svc.profile.listBuddies(500, 0);
+      const profiles = await svc.profile.profilesByUids(buddies.map((b) => b.uid));
+      const q = query.toLowerCase();
+      const matched = profiles.filter(
+        (p) =>
+          !q ||
+          (p.nick && p.nick.toLowerCase().includes(q)) ||
+          (p.remark && p.remark.toLowerCase().includes(q)),
+      );
+      return matched.slice(0, limit).map((p) => ({
+        uid: p.uid,
+        uin: p.uin.toString(),
+        nick: p.nick,
+        remark: p.remark,
+        qid: p.qid,
+      }));
+    },
+  }),
+
+  tool({
+    name: 'search_groups',
+    description:
+      '按群名模糊搜索群聊（用于「找一下XX群」「我加入的群里哪些名字包含YY」等场景）。' +
+      '支持部分匹配，返回 groupCode、groupName 等。不传 query 时返回所有群。',
+    input: z.object({
+      query: z.string().default('').describe('搜索关键词（群名，不区分大小写，空字符串=全部）'),
+      limit: z.number().int().min(1).max(200).default(50).describe('返回条数上限'),
+    }),
+    run: async ({ query, limit }) => {
+      const all = await services().groupInfo.listAllGroups(500, 0);
+      const q = query.toLowerCase();
+      const matched = all.filter((g) => !q || (g.groupName && g.groupName.toLowerCase().includes(q)));
+      return matched.slice(0, limit).map(groupDetailToWire);
     },
   }),
 
@@ -329,4 +410,146 @@ export const AI_TOOLS: AiTool[] = [
       return members.map(groupMemberToWire);
     },
   }),
+
+  tool({
+    name: 'list_user_groups',
+    description:
+      '列出某个用户「在我加入的群里」所属的群聊（即我和 TA 的共同群）。传入对方 uid（可由 find_contact 解析人名得到）。' +
+      '用来回答「我和某人有哪些共同群」「TA 在哪些群里」。' +
+      '返回每个群：groupCode 群号、groupName 群名、card 该用户在群里的名片、level 等级。',
+    input: z.object({
+      uid: z.string().min(1).describe('目标用户的 uid（可用 find_contact 把人名解析成 uid）'),
+      limit: z.number().int().min(1).max(200).default(100).describe('返回条数上限'),
+      offset: z.number().int().min(0).default(0).describe('分页偏移'),
+    }),
+    run: async ({ uid, limit, offset }) => {
+      const svc = services();
+      const memberships = await svc.groupInfo.listUserGroups(uid, limit, offset);
+      if (memberships.length === 0) {
+        return {
+          uid,
+          count: 0,
+          groups: [],
+          hint: '该用户不在你加入的任何群里，或 uid 不正确（可先用 find_contact 解析人名为 uid）。',
+        };
+      }
+      // 群名不在成员记录里，批量取一次群列表建 code→名 映射，避免逐群查询。
+      const allGroups = await svc.groupInfo.listAllGroups(500, 0);
+      const nameByCode = new Map(allGroups.map((g) => [g.groupCode.toString(), g.groupName]));
+      return {
+        uid,
+        count: memberships.length,
+        groups: memberships.map((m) => {
+          const code = m.groupCode.toString();
+          return {
+            groupCode: code,
+            groupName: nameByCode.get(code) || code,
+            card: m.card || m.nick || '',
+            level: m.memberLevel,
+          };
+        }),
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_buddy_analytics',
+    description:
+      '获取与某个好友的私聊统计分析（消息总数、每日活跃度、时段分布、回复延迟、火花天数、常用词/表情等），用于生成私聊活跃度报告。' +
+      '传入对方 uid（可由 find_contact 解析人名得到）。返回详细统计数据（JSON），适合用 write_report 生成 HTML 可视化报告。',
+    input: z.object({
+      uid: z.string().min(1).describe('目标好友的 uid（可用 find_contact 把人名解析成 uid）'),
+    }),
+    run: async ({ uid }) => {
+      const analytics = await services().buddyAnalytics.getBuddyAnalytics(uid);
+      // 转换 bigint → string，其余保留
+      return {
+        peer: { uid: analytics.peer.uid, uin: analytics.peer.uin.toString() },
+        self: { uin: analytics.self.uin.toString() },
+        statistics: analytics.statistics,
+        messageTypes: analytics.messageTypes,
+        hourlySelf: analytics.hourlySelf,
+        hourlyPeer: analytics.hourlyPeer,
+        daily: analytics.daily,
+        initiation: analytics.initiation,
+        reply: analytics.reply,
+        streak: analytics.streak,
+        phrasesSelf: analytics.phrasesSelf,
+        phrasesPeer: analytics.phrasesPeer,
+        emojisSelf: analytics.emojisSelf.map((e) => ({ faceId: e.faceId, faceText: e.faceText, count: e.count })),
+        emojisPeer: analytics.emojisPeer.map((e) => ({ faceId: e.faceId, faceText: e.faceText, count: e.count })),
+        wordCloud: analytics.wordCloud,
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_group_activity',
+    description:
+      '获取某个群聊的活跃度统计（指定时间范围内的消息数、活跃成员排行、时段分布、每日趋势等），用于生成群聊活跃度报告。' +
+      '传入群号（可由 find_contact 解析群名得到）和时间范围（默认最近 30 天）。返回统计数据（JSON），适合用 write_report 生成 HTML 可视化报告。',
+    input: z.object({
+      groupCode: z.string().min(1).describe('群号（纯数字，可用 find_contact 把群名解析成群号）'),
+      days: z.number().int().min(1).max(180).default(30).describe('统计最近 N 天（默认 30 天）'),
+    }),
+    run: async ({ groupCode, days }) => {
+      const svc = services();
+      const now = Date.now();
+      // group_msg_table 的 sendTime 是 unix **秒**（见 packages/db/src/msg/group.ts 列 40050），
+      // 故时间窗也换算成秒来比较；后面构造 Date 时再 ×1000 还原成毫秒。
+      const startSec = Math.floor((now - days * 86400000) / 1000);
+
+      // 通过 MsgService 获取群消息（getGroupLatest 最多 5000 条，足够覆盖大多数统计场景）
+      const msgs = await svc.msgs.getGroupLatest(groupCode, 5000);
+      const filtered = msgs.filter((m) => Number(m.sendTime) >= startSec);
+
+      if (filtered.length === 0) {
+        return {
+          groupCode,
+          days,
+          totalMessages: 0,
+          activeDays: 0,
+          topSenders: [],
+          hourlyDistribution: {},
+          daily: [],
+          hint: '该时间范围内无消息记录（或消息数超过 5000 条导致时间窗外的被截断）。',
+        };
+      }
+
+      // 统计：总消息数、活跃天数、成员排行、时段分布、每日趋势
+      const daily = new Map<string, number>();
+      const hourly: Record<number, number> = {};
+      for (let i = 0; i < 24; i++) hourly[i] = 0;
+      const senderCounts = new Map<string, { uid: string; count: number }>();
+
+      for (const msg of filtered) {
+        const d = new Date(Number(msg.sendTime) * 1000);
+        const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        daily.set(day, (daily.get(day) ?? 0) + 1);
+        hourly[d.getHours()] = (hourly[d.getHours()] ?? 0) + 1;
+
+        const uid = msg.senderUid;
+        const prev = senderCounts.get(uid);
+        senderCounts.set(uid, { uid, count: (prev?.count ?? 0) + 1 });
+      }
+
+      const topSenders = [...senderCounts.values()]
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 20)
+        .map((s) => ({ uid: s.uid, count: s.count }));
+
+      return {
+        groupCode,
+        days,
+        totalMessages: filtered.length,
+        activeDays: daily.size,
+        topSenders,
+        hourlyDistribution: hourly,
+        daily: [...daily.entries()]
+          .map(([date, count]) => ({ date, count }))
+          .sort((a, b) => a.date.localeCompare(b.date)),
+      };
+    },
+  }),
 ];
+

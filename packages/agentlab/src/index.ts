@@ -5,7 +5,8 @@ export {
   modelsWithCapability,
   resolveEndpoint,
 } from './provider';
-export { embedTexts, runPersonaChat, reportUsage, keywordsOf } from './http';
+export { embedTexts, runPersonaChat, reportUsage, keywordsOf, testChatEndpoint } from './http';
+export { selectStickerByEmotion } from './sticker';
 export { humanizeText, DEFAULT_TYPO_INTENSITY } from './typo';
 export { scoreReplyWillingness } from './willing';
 export {
@@ -14,9 +15,13 @@ export {
   extractPairs,
   renderCorpus,
   renderGroupStyleCorpus,
+  renderProfileChunks,
   computeStats,
   buildHeuristicProfile,
+  PROFILE_CHUNK_CHARS,
+  PROFILE_MAX_CHUNKS,
   C2C_SAFETY_CAP,
+  C2C_CORPUS_CAP,
   GROUP_SUPPLEMENT_THRESHOLD,
   GROUP_MAX,
   PER_GROUP_MSG_CAP,
@@ -29,10 +34,12 @@ export {
 } from './persona';
 export {
   extractPersonaCard,
-  extractDeepProfile,
+  extractProfileChunk,
+  mergeProfileParts,
   extractFewShots,
   extractExpressions,
   distillMemories,
+  reflectConversation,
   summarizeVoiceScenario,
   describeSticker,
 } from './extract';

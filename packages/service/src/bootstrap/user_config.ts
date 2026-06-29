@@ -20,6 +20,7 @@ import { mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from 
 import { join, basename } from 'node:path';
 import type { Platform } from '@weq/platform';
 import type { AgentLabProviderConfig } from '@weq/agentlab';
+import type { TtsProviderConfig } from '../common/tts';
 import type { AccountConfig } from '../account/user_config';
 import { getLogger, logErrorContext } from '../common/logger';
 
@@ -63,12 +64,34 @@ function normalizeAgentLabProviders(value: unknown): AgentLabProviderConfig[] {
   return value.filter(isAgentLabProviderConfig);
 }
 
+function isTtsProviderConfig(value: unknown): value is TtsProviderConfig {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Partial<TtsProviderConfig>;
+  return (
+    typeof item.id === 'string' &&
+    typeof item.name === 'string' &&
+    typeof item.vendor === 'string' &&
+    typeof item.baseUrl === 'string' &&
+    typeof item.apiKey === 'string' &&
+    typeof item.createdAt === 'number' &&
+    typeof item.updatedAt === 'number'
+  );
+}
+
+function normalizeTtsProviders(value: unknown): TtsProviderConfig[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isTtsProviderConfig);
+}
+
 export interface MediaCompletionConfig {
   enabled: boolean;
 }
 
 export interface VoiceTranscribeConfig {
+  /** 离线转录模型 id（空 = 关）。 */
   modelId: string;
+  /** TTS 服务商列表（用于克隆体发语音/语音克隆）。 */
+  ttsProviders: TtsProviderConfig[];
 }
 
 /**
@@ -105,7 +128,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   mediaCompletion: { enabled: true },
   autoFetchClientKey: true,
   autoLockMinutes: 0,
-  voiceTranscribe: { modelId: '' },
+  voiceTranscribe: { modelId: '', ttsProviders: [] },
   mcp: { enabled: false, port: 8765, token: '' },
   agentLab: { providers: [] },
 };
@@ -259,6 +282,7 @@ export class UserConfigService {
       },
       voiceTranscribe: {
         modelId: s?.voiceTranscribe?.modelId ?? d.voiceTranscribe.modelId,
+        ttsProviders: normalizeTtsProviders(s?.voiceTranscribe?.ttsProviders) ?? d.voiceTranscribe.ttsProviders,
       },
       mcp: {
         enabled: s?.mcp?.enabled ?? d.mcp.enabled,
@@ -282,6 +306,10 @@ export class UserConfigService {
       },
       voiceTranscribe: {
         modelId: patch.voiceTranscribe?.modelId ?? current.voiceTranscribe.modelId,
+        ttsProviders:
+          patch.voiceTranscribe?.ttsProviders !== undefined
+            ? normalizeTtsProviders(patch.voiceTranscribe.ttsProviders)
+            : current.voiceTranscribe.ttsProviders,
       },
       mcp: {
         enabled: patch.mcp?.enabled ?? current.mcp.enabled,
@@ -304,6 +332,7 @@ export class UserConfigService {
       autoLockMinutes: next.autoLockMinutes,
       mediaCompletionEnabled: next.mediaCompletion.enabled,
       voiceModelId: next.voiceTranscribe.modelId,
+      ttsProviderCount: next.voiceTranscribe.ttsProviders.length,
       mcpEnabled: next.mcp.enabled,
       mcpPort: next.mcp.port,
       agentLabProviderCount: next.agentLab.providers.length,

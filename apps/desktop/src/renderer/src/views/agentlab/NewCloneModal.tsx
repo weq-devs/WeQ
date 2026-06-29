@@ -1,10 +1,12 @@
 /**
  * 新建好友克隆弹窗（灯箱）：
  *   step 1 选好友（带头像/昵称的列表，可搜索）
- *   step 2 配置模型 / 是否分析表情 / 克隆程度(high·low) / 名称 / 额外提示
- *   构建中显示进度条（订阅 account.onAgentLabBuildProgress）。
+ *   step 2 配置模型 / 是否分析表情 / 语料来源(private·group) / 名称 / 额外提示
  *
- * 克隆程度：high = 遍历全部聊天记录(limit=20000)，消耗更大；low = 最近 600 条。
+ * 点「开始克隆」只负责收集配置并交给父级（AgentLabView）发起构建——
+ * 构建态/进度灯箱由父级持有，于是用户可把进度隐藏到任务列表，构建在后台继续。
+ *
+ * 语料来源：group = 私聊为主、不足时群补采风格；private = 纯私聊、不回退。
  * 「分析表情」需选一个视觉模型；不选则不解读表情包。
  */
 
@@ -13,7 +15,6 @@ import { ArrowLeft, Search, Sparkles, X } from 'lucide-react';
 import { Modal } from '../../components/Dialog';
 import { qqAvatarUrl } from '../../components/QqAvatar';
 import { Avatar } from '../export/widgets';
-import { trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
 import '../../styles/export.css';
 
@@ -37,7 +38,26 @@ export interface FlatModels {
   vision: ModelOption[];
 }
 
-type CloneDegree = 'high' | 'low';
+/** 语料模式：private 纯私聊不回退；group 私聊不足时去群里补采风格。 */
+export type CloneMode = 'private' | 'group';
+
+/** 提交给父级的克隆请求：params 直接喂给 buildAgentLabFromC2c，meta 用于任务列表展示。 */
+export interface StartCloneArgs {
+  params: {
+    personaId: string;
+    name?: string;
+    models: {
+      chat: { providerId: string; model: string };
+      embedding?: { providerId: string; model: string };
+      vision?: { providerId: string; model: string };
+    };
+    customPrompt?: string;
+    targetUid: string;
+    title: string;
+    mode: CloneMode;
+  };
+  meta: { name: string; uin: string; mode: CloneMode };
+}
 
 function parseSel(key: string): { providerId: string; model: string } | undefined {
   const [providerId, model] = key.split('::');
@@ -48,15 +68,15 @@ export function NewCloneModal({
   buddies,
   flatModels,
   onClose,
-  onBuilt,
+  onStart,
 }: {
   buddies: BuddyOption[];
   flatModels: FlatModels;
   onClose: () => void;
-  onBuilt: (personaId: string) => void;
+  /** 收集完配置后交给父级发起构建（父级随后关闭本弹窗并打开进度灯箱）。 */
+  onStart: (args: StartCloneArgs) => void;
 }): ReactElement {
   const dialog = useAppDialog();
-  const build = trpc.account.buildAgentLabFromC2c.useMutation();
 
   const [target, setTarget] = useState<BuddyOption | null>(null);
   const [query, setQuery] = useState('');
@@ -65,18 +85,8 @@ export function NewCloneModal({
   const [embSel, setEmbSel] = useState('');
   const [analyzeStickers, setAnalyzeStickers] = useState(false);
   const [visSel, setVisSel] = useState('');
-  const [degree, setDegree] = useState<CloneDegree>('high');
+  const [mode, setMode] = useState<CloneMode>('group');
   const [customPrompt, setCustomPrompt] = useState('');
-
-  // 进度：构建中订阅，按本次 personaId 过滤。
-  const [buildingId, setBuildingId] = useState<string | null>(null);
-  const [progress, setProgress] = useState<{ phase: string; percent: number } | null>(null);
-  trpc.account.onAgentLabBuildProgress.useSubscription(undefined, {
-    enabled: !!buildingId,
-    onData: (p) => {
-      if (p.personaId === buildingId && !p.error) setProgress({ phase: p.phase, percent: p.percent });
-    },
-  });
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -84,7 +94,7 @@ export function NewCloneModal({
     return buddies.filter((b) => b.label.toLowerCase().includes(q) || b.uin.includes(q));
   }, [buddies, query]);
 
-  async function onStart(): Promise<void> {
+  function onStartClick(): void {
     const chatRef = parseSel(chatSel);
     if (!target || !chatRef) {
       dialog.error('无法构建', '请先选择好友和聊天模型。');
@@ -93,10 +103,8 @@ export function NewCloneModal({
     const embRef = parseSel(embSel);
     const visRef = analyzeStickers ? parseSel(visSel) : undefined;
     const personaId = `persona-${target.uid}-${Date.now()}`;
-    setBuildingId(personaId);
-    setProgress({ phase: '准备中', percent: 1 });
-    try {
-      await build.mutateAsync({
+    onStart({
+      params: {
         personaId,
         name: name.trim() || undefined,
         models: {
@@ -107,30 +115,24 @@ export function NewCloneModal({
         customPrompt: customPrompt.trim() || undefined,
         targetUid: target.uid,
         title: target.label,
-        limit: degree === 'high' ? 20000 : 600,
-      });
-      onBuilt(personaId);
-    } catch (error) {
-      setBuildingId(null);
-      setProgress(null);
-      dialog.error('构建克隆失败', error instanceof Error ? error.message : String(error));
-    }
+        mode,
+      },
+      meta: { name: name.trim() || target.label, uin: target.uin, mode },
+    });
   }
 
-  const building = !!buildingId;
-
   return (
-    <Modal onClose={building ? undefined : onClose} width={520}>
+    <Modal onClose={onClose} width={520}>
       <div className="weq-clone-modal">
         <header className="weq-clone-modal-head">
-          {target && !building ? (
+          {target ? (
             <button className="weq-set-iconbtn" onClick={() => setTarget(null)} aria-label="返回选择好友">
               <ArrowLeft size={16} />
             </button>
           ) : (
             <span className="weq-clone-modal-icon"><Sparkles size={16} /></span>
           )}
-          <strong>{!target ? '选择要克隆的好友' : building ? '正在克隆…' : `配置克隆：${target.label}`}</strong>
+          <strong>{!target ? '选择要克隆的好友' : `配置克隆：${target.label}`}</strong>
         </header>
 
         {/* step 1: 好友选择（视觉沿用导出页选择框，头像直连 CDN 不走缓存协议，避免 502） */}
@@ -165,18 +167,6 @@ export function NewCloneModal({
                 ))
               )}
             </div>
-          </div>
-        ) : building ? (
-          /* 构建进度 */
-          <div className="weq-clone-progress">
-            <div className="weq-clone-progress-phase">{progress?.phase ?? '准备中'}</div>
-            <div className="weq-clone-progress-track">
-              <div className="weq-clone-progress-fill" style={{ width: `${progress?.percent ?? 0}%` }} />
-            </div>
-            <div className="weq-clone-progress-pct">{Math.round(progress?.percent ?? 0)}%</div>
-            <p className="weq-clone-progress-hint">
-              {degree === 'high' ? '高克隆度会遍历全部聊天记录，请耐心等待…' : '正在分析最近的聊天记录…'}
-            </p>
           </div>
         ) : (
           /* step 2: 配置 */
@@ -241,26 +231,28 @@ export function NewCloneModal({
             </div>
 
             <div className="weq-agentlab-field">
-              <span>克隆程度</span>
+              <span>语料来源</span>
               <div className="weq-clone-degree">
                 <button
-                  className={`weq-clone-degree-opt${degree === 'high' ? ' is-active' : ''}`}
-                  onClick={() => setDegree('high')}
+                  className={`weq-clone-degree-opt${mode === 'group' ? ' is-active' : ''}`}
+                  onClick={() => setMode('group')}
                 >
-                  <strong>高</strong>
-                  <small>遍历全部聊天记录，更像 TA</small>
+                  <strong>配合群聊补充</strong>
+                  <small>私聊为主，语料不足时去 TA 所在群补采说话风格</small>
                 </button>
                 <button
-                  className={`weq-clone-degree-opt${degree === 'low' ? ' is-active' : ''}`}
-                  onClick={() => setDegree('low')}
+                  className={`weq-clone-degree-opt${mode === 'private' ? ' is-active' : ''}`}
+                  onClick={() => setMode('private')}
                 >
-                  <strong>低</strong>
-                  <small>只取最近 600 条，快而省</small>
+                  <strong>纯私聊取语料</strong>
+                  <small>只用你和 TA 的私聊，更纯净；语料太少会直接失败</small>
                 </button>
               </div>
-              {degree === 'high' ? (
-                <small className="weq-clone-tokenhint">⚠ 高克隆度会消耗更多 token 和时间。</small>
-              ) : null}
+              <small className="weq-clone-tokenhint">
+                {mode === 'group'
+                  ? '群聊消息只用于学习说话风格，不会被当成你和 TA 的问答。'
+                  : '不会回退到群聊；若私聊记录太少，克隆会直接提示失败。'}
+              </small>
             </div>
 
             <label className="weq-agentlab-field">
@@ -275,7 +267,7 @@ export function NewCloneModal({
 
             <div className="weq-clone-actions">
               <button className="weq-set-btn weq-set-btn-soft" onClick={onClose}>取消</button>
-              <button className="weq-set-btn" onClick={() => void onStart()} disabled={build.isLoading || !chatSel}>
+              <button className="weq-set-btn" onClick={onStartClick} disabled={!chatSel}>
                 开始克隆
               </button>
             </div>

@@ -1,10 +1,25 @@
-import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
-import { ArrowLeft, Plus, Send, Settings, Sparkles, Trash2 } from 'lucide-react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
+import { ArrowLeft, Plus, Send, Settings, Sparkles, Trash2, X } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
 import { autoGrowTextarea } from '../lib/textareaAutoGrow';
 import { QqAvatar } from '../components/QqAvatar';
-import { NewCloneModal, type BuddyOption, type FlatModels } from './agentlab/NewCloneModal';
+import { NewCloneModal, type BuddyOption, type FlatModels, type StartCloneArgs } from './agentlab/NewCloneModal';
+import { CloneProgressModal } from './agentlab/CloneProgressModal';
+import {
+  startCloneTask,
+  dismissCloneTask,
+  subscribeCloneTasks,
+  getCloneTasks,
+} from './agentlab/cloneTaskStore';
 import { PersonaSettingsModal } from './agentlab/PersonaSettingsModal';
 import { UsagePanel } from './agentlab/UsagePanel';
 import { AssistantPanel } from './agentlab/AssistantPanel';
@@ -221,11 +236,14 @@ export function AgentLabView(): ReactElement {
 
   const [sel, setSel] = useState<Selection>({ kind: 'home' });
   const [cloneOpen, setCloneOpen] = useState(false);
+  // 克隆任务列表：抬到模块级 store（脱离本组件生命周期），切出 AgentLab 再回来任务不丢（bug2）。
+  const cloneTasks = useSyncExternalStore(subscribeCloneTasks, getCloneTasks);
+  const [viewTaskId, setViewTaskId] = useState<string | null>(null);
   const [history, setHistory] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [cloneTyping, setCloneTyping] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
 
   const personaId = sel.kind === 'persona' ? sel.id : '';
   const activePersona = personaList.find((item) => item.id === personaId) ?? null;
@@ -248,13 +266,36 @@ export function AgentLabView(): ReactElement {
   );
   const seededPersona = useRef('');
 
-  // 切到某克隆体时，从持久化对话恢复历史（每个 persona 只 seed 一次）。
+  function scrollTranscriptToBottom(): void {
+    const el = transcriptRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+      requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight;
+      });
+    });
+  }
+
+  // 切换克隆体（personaId 变化）时重置 seed 并清空历史，等新会话数据到位再恢复。
+  // 注意：只依赖 personaId——发消息后的 invalidate 不会改变 personaId，于是不会清掉刚揭示的本地历史。
   useEffect(() => {
-    if (personaId && personaConv.data && seededPersona.current !== personaId) {
-      setHistory(personaConv.data.map((t) => ({ role: t.role, text: t.text })));
-      seededPersona.current = personaId;
-    }
+    seededPersona.current = '';
+    setHistory([]);
+  }, [personaId]);
+
+  // 持久化对话就绪、且当前克隆体尚未 seed 过时，从持久化对话恢复历史（每个 persona 只 seed 一次）。
+  useEffect(() => {
+    if (!personaId || seededPersona.current === personaId || !personaConv.data) return;
+    setHistory(personaConv.data.map((t) => ({ role: t.role, text: t.text })));
+    seededPersona.current = personaId;
   }, [personaId, personaConv.data]);
+
+  // 发送、收到分段回复、等待态变化时始终跟随到会话底部。
+  useEffect(() => {
+    scrollTranscriptToBottom();
+  }, [history, chat.isLoading, personaId]);
 
   // 选中的 persona 被删除时回退到主页。
   useEffect(() => {
@@ -263,14 +304,45 @@ export function AgentLabView(): ReactElement {
     }
   }, [sel, personas.data, personaList]);
 
+  // 进度订阅由 cloneTaskStore 在模块级维护（脱离本组件，切视图不中断）。
+  // 这里只负责：有任务构建完成时刷新克隆体列表（同时覆盖「构建期切走、回来才看到完成」的情况）。
+  const doneTaskIds = cloneTasks
+    .filter((t) => t.status === 'done')
+    .map((t) => t.personaId)
+    .join(',');
+  useEffect(() => {
+    if (doneTaskIds) void utils.account.listAgentLabPersonas.invalidate();
+  }, [doneTaskIds, utils]);
+
   function selectPersona(id: string): void {
+    // 已是当前克隆体则忽略：重复点击不应清空已揭示的历史（bug1）。
+    if (sel.kind === 'persona' && sel.id === id) return;
     setSel({ kind: 'persona', id });
-    setHistory([]);
     setSettingsOpen(false);
-    seededPersona.current = ''; // 强制从持久化对话重新 seed
     // 切入时拉一次最新持久化历史，避免命中陈旧缓存（实时查询历史）。
     void utils.account.getAgentLabConversation.invalidate({ personaId: id });
   }
+
+  // 由配置弹窗发起构建：交给模块级 store 登记任务 + 后台跑构建 → 关弹窗 → 打开进度灯箱。
+  // 构建脱离本组件，切走再回来任务态仍在（bug2）。完成后由上面的 doneTaskIds effect 刷新列表。
+  function startClone(args: StartCloneArgs): void {
+    setCloneOpen(false);
+    setViewTaskId(args.params.personaId);
+    void startCloneTask(args);
+  }
+
+  function openPersonaFromTask(personaId: string): void {
+    dismissCloneTask(personaId);
+    setViewTaskId(null);
+    selectPersona(personaId);
+  }
+
+  function dismissTask(personaId: string): void {
+    dismissCloneTask(personaId);
+    setViewTaskId((cur) => (cur === personaId ? null : cur));
+  }
+
+  const viewingTask = cloneTasks.find((t) => t.personaId === viewTaskId) ?? null;
 
   async function onSend(): Promise<void> {
     if (!personaId || !input.trim()) return;
@@ -282,8 +354,13 @@ export function AgentLabView(): ReactElement {
     try {
       const result = await chat.mutateAsync({ personaId, text, history });
       // 分段连发 + 打字延迟：逐条揭示，模拟真人一句一句发。
-      const segments = result.segments?.length ? result.segments : [result.text];
-      setCloneTyping(true);
+      // renderedTurns = 后端按 actions 顺序落库的标记文本（文字 / [[sticker:md5]] / [[voice:id]]），
+      // 表情图、语音气泡都在其中，前端按序揭示即可；缺省时回退旧字段（兼容）。
+      const segments =
+        result.renderedTurns && result.renderedTurns.length > 0
+          ? [...result.renderedTurns]
+          : [...(result.segments ?? []), ...(result.sticker ? [`[[sticker:${result.sticker.md5}]]`] : [])];
+      if (segments.length === 0) segments.push(result.text);
       await sleep(Math.min(1800, result.replyDelayMs ?? 500));
       let acc = nextHistory;
       for (let i = 0; i < segments.length; i += 1) {
@@ -291,16 +368,13 @@ export function AgentLabView(): ReactElement {
         acc = [...acc, { role: 'assistant' as const, text: seg }];
         setHistory(acc);
         if (i < segments.length - 1) {
-          setCloneTyping(true);
           await sleep(Math.min(1600, 320 + seg.length * 55));
         }
       }
-      setCloneTyping(false);
       // 让持久化对话缓存跟上（后端已逐条落库）；否则切走再切回会从陈旧缓存 reseed 丢消息。
       seededPersona.current = personaId; // 防止下面的失效触发 reseed 清掉刚揭示的本地历史
       void utils.account.getAgentLabConversation.invalidate({ personaId });
     } catch (error) {
-      setCloneTyping(false);
       dialog.error('发送失败', error instanceof Error ? error.message : String(error));
       setHistory(history);
       setInput(text);
@@ -366,6 +440,51 @@ export function AgentLabView(): ReactElement {
           )}
         </div>
 
+        {cloneTasks.length > 0 ? (
+          <div className="weq-clone-tasklist">
+            {cloneTasks.map((t) => (
+              <button
+                key={t.personaId}
+                type="button"
+                className={`weq-clone-task is-${t.status}`}
+                onClick={() => setViewTaskId(t.personaId)}
+                title="查看克隆进度"
+              >
+                <QqAvatar uin={t.uin} size={28} />
+                <span className="weq-clone-task-text">
+                  <strong>{t.name}</strong>
+                  <small>
+                    {t.status === 'running'
+                      ? `${t.phase} · ${Math.round(t.percent)}%`
+                      : t.status === 'done'
+                        ? '克隆完成 · 点击查看'
+                        : '克隆失败 · 点击查看'}
+                  </small>
+                  {t.status === 'running' ? (
+                    <span className="weq-clone-task-bar">
+                      <i style={{ width: `${Math.round(t.percent)}%` }} />
+                    </span>
+                  ) : null}
+                </span>
+                {t.status !== 'running' ? (
+                  <span
+                    className="weq-clone-task-close"
+                    role="button"
+                    tabIndex={0}
+                    aria-label="移除任务"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      dismissTask(t.personaId);
+                    }}
+                  >
+                    <X size={13} />
+                  </span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
         <button className="weq-agentlab-newclone" onClick={() => setCloneOpen(true)}>
           <Plus size={15} /> 新建克隆
         </button>
@@ -376,6 +495,7 @@ export function AgentLabView(): ReactElement {
         {sel.kind === 'home' ? (
           <UsagePanel
             resolveName={(id) => personaList.find((p) => p.id === id)?.name ?? '已删除的克隆'}
+            hasPersona={(id) => id === '__assistant__' || personaList.some((p) => p.id === id)}
             personaCount={personaList.length}
           />
         ) : sel.kind === 'assistant' ? (
@@ -424,7 +544,7 @@ export function AgentLabView(): ReactElement {
               </div>
             </header>
 
-            <div className="weq-agentlab-transcript">
+            <div className="weq-agentlab-transcript" ref={transcriptRef}>
               {history.length === 0 ? (
                 <div className="weq-agentlab-empty">这里会显示你和克隆体的测试对话。</div>
               ) : (
@@ -446,14 +566,11 @@ export function AgentLabView(): ReactElement {
                       uin={clonedProfile?.uin}
                       text={item.text}
                       faces={cloneFaces}
+                      personaId={personaId}
+                      onMediaLoad={scrollTranscriptToBottom}
                     />
                   ),
                 )
-              )}
-              {(cloneTyping || chat.isLoading) && (
-                <div className="weq-agentlab-typing">
-                  <span /><span /><span />
-                </div>
               )}
             </div>
             <div className="weq-agentlab-composer">
@@ -493,11 +610,16 @@ export function AgentLabView(): ReactElement {
           buddies={buddyOptions}
           flatModels={flatModels}
           onClose={() => setCloneOpen(false)}
-          onBuilt={async (id) => {
-            setCloneOpen(false);
-            await utils.account.listAgentLabPersonas.invalidate();
-            selectPersona(id);
-          }}
+          onStart={(args) => void startClone(args)}
+        />
+      ) : null}
+
+      {viewingTask ? (
+        <CloneProgressModal
+          task={viewingTask}
+          onHide={() => setViewTaskId(null)}
+          onOpenPersona={openPersonaFromTask}
+          onDismiss={dismissTask}
         />
       ) : null}
 
@@ -508,6 +630,8 @@ export function AgentLabView(): ReactElement {
             name: activePersona.name,
             customPrompt: activePersona.customPrompt,
             voiceCloneEnabled: activePersona.voiceCloneEnabled,
+            voice: activePersona.voice,
+            voiceProfile: activePersona.voiceProfile,
           }}
           paramsContent={<PersonaParamsPanel loading={personaDetail.isLoading} detail={personaDetail.data ?? null} />}
           onClose={() => setSettingsOpen(false)}
@@ -517,4 +641,3 @@ export function AgentLabView(): ReactElement {
     </div>
   );
 }
-

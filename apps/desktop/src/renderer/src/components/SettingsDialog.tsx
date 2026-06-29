@@ -68,7 +68,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'voice',
-    label: '语音转录',
+    label: '语音配置',
     icon: <AudioLines size={16} strokeWidth={1.8} />,
     render: () => <VoiceTranscribeSection />,
   },

@@ -91,13 +91,164 @@ function Soon({ text }: { text: string }): ReactElement {
   );
 }
 
+type VoiceBinding = { providerId: string; mode: 'clone' | 'preset'; voice?: string };
+
+/** ③ 语音克隆：门控（TA 发过语音 + 配了 TTS）+ 服务商/音色方式选择。 */
+function VoiceTab({
+  persona,
+  onSaved,
+}: {
+  persona: {
+    id: string;
+    voiceCloneEnabled?: boolean;
+    voice?: VoiceBinding;
+    voiceProfile?: { ratio: number; refClips?: unknown[] };
+  };
+  onSaved: () => void;
+}): ReactElement {
+  const dialog = useAppDialog();
+  const update = trpc.account.updateAgentLabPersona.useMutation();
+  const providers = trpc.bootstrap.listTtsProviders.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
+  const catalog = trpc.bootstrap.getTtsCatalog.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: Infinity,
+  });
+
+  const providerList = providers.data ?? [];
+  const hasVoiceMsgs = (persona.voiceProfile?.ratio ?? 0) > 0 || (persona.voiceProfile?.refClips?.length ?? 0) > 0;
+  const hasRefClips = (persona.voiceProfile?.refClips?.length ?? 0) > 0;
+  const hasTts = providerList.length > 0;
+  const canEnable = hasVoiceMsgs && hasTts;
+
+  const [enabled, setEnabled] = useState(!!persona.voiceCloneEnabled);
+  const [providerId, setProviderId] = useState(persona.voice?.providerId ?? '');
+  const [mode, setMode] = useState<'clone' | 'preset'>(persona.voice?.mode ?? 'clone');
+  const [voice, setVoice] = useState(persona.voice?.voice ?? '');
+  const [saving, setSaving] = useState(false);
+
+  const currentProvider = providerList.find((p) => p.id === providerId) ?? providerList[0];
+  const caps = catalog.data?.find((c) => c.vendor === currentProvider?.vendor)?.capabilities;
+  const cloneOk = !!caps?.clone && hasRefClips;
+  const effMode: 'clone' | 'preset' = mode === 'clone' && !cloneOk ? 'preset' : mode;
+
+  async function save(nextEnabled: boolean): Promise<void> {
+    setSaving(true);
+    try {
+      const binding: VoiceBinding | null =
+        nextEnabled && currentProvider
+          ? {
+              providerId: currentProvider.id,
+              mode: effMode,
+              voice: effMode === 'preset' ? voice.trim() || undefined : undefined,
+            }
+          : (persona.voice ?? null);
+      await update.mutateAsync({ personaId: persona.id, voiceCloneEnabled: nextEnabled, voice: binding });
+      onSaved();
+    } catch (e) {
+      dialog.error('保存失败', e instanceof Error ? e.message : String(e));
+      throw e;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onToggle(next: boolean): Promise<void> {
+    setEnabled(next);
+    try {
+      await save(next);
+    } catch {
+      setEnabled(!next);
+    }
+  }
+
+  return (
+    <div className="weq-persona-form">
+      <label className="weq-clone-check">
+        <input
+          type="checkbox"
+          checked={enabled && canEnable}
+          disabled={!canEnable}
+          onChange={(e) => void onToggle(e.target.checked)}
+        />
+        <span>开启语音克隆</span>
+      </label>
+
+      {!hasVoiceMsgs ? (
+        <p className="weq-persona-note">TA 在聊天里没有发过语音，无法做语音克隆。</p>
+      ) : !hasTts ? (
+        <p className="weq-persona-note">
+          还没有 TTS 服务商。请先到「设置 → 语音配置」添加一个（推荐 CosyVoice：可复刻、免费）。
+        </p>
+      ) : (
+        <p className="weq-persona-note">
+          开启后，克隆体会像真人一样自主决定某些消息用语音发。
+          {hasRefClips
+            ? '「用 TA 的声音」会拿 TA 的真实语音做参考音频复刻。'
+            : '（没采集到可用的参考音频，只能用预置音色。）'}
+        </p>
+      )}
+
+      {enabled && canEnable ? (
+        <>
+          <label className="weq-agentlab-field">
+            <span>TTS 服务商</span>
+            <select className="weq-set-input" value={currentProvider?.id ?? ''} onChange={(e) => setProviderId(e.target.value)}>
+              {providerList.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="weq-agentlab-field">
+            <span>音色方式</span>
+            <select className="weq-set-input" value={effMode} onChange={(e) => setMode(e.target.value as 'clone' | 'preset')}>
+              <option value="clone" disabled={!cloneOk}>
+                用 TA 的声音（复刻）{cloneOk ? '' : '（不支持 / 无参考音频）'}
+              </option>
+              <option value="preset">预置音色</option>
+            </select>
+          </label>
+          {effMode === 'preset' ? (
+            <label className="weq-agentlab-field">
+              <span>音色 id</span>
+              <input
+                className="weq-set-input"
+                value={voice}
+                onChange={(e) => setVoice(e.target.value)}
+                placeholder={currentProvider?.voice || '留空用服务商默认音色'}
+              />
+            </label>
+          ) : null}
+          <div className="weq-clone-actions">
+            <button className="weq-set-btn" disabled={saving} onClick={() => void save(true)}>
+              保存语音设置
+            </button>
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 export function PersonaSettingsModal({
   persona,
   paramsContent,
   onClose,
   onSaved,
 }: {
-  persona: { id: string; name: string; customPrompt?: string; voiceCloneEnabled?: boolean };
+  persona: {
+    id: string;
+    name: string;
+    customPrompt?: string;
+    voiceCloneEnabled?: boolean;
+    voice?: VoiceBinding;
+    voiceProfile?: { ratio: number; refClips?: unknown[] };
+  };
   paramsContent: ReactNode;
   onClose: () => void;
   onSaved: () => void;
@@ -106,7 +257,6 @@ export function PersonaSettingsModal({
   const update = trpc.account.updateAgentLabPersona.useMutation();
   const [tab, setTab] = useState<Tab>('params');
   const [prompt, setPrompt] = useState(persona.customPrompt ?? '');
-  const [voiceClone, setVoiceClone] = useState(!!persona.voiceCloneEnabled);
 
   async function savePrompt(): Promise<void> {
     try {
@@ -114,17 +264,6 @@ export function PersonaSettingsModal({
       dialog.success('已保存', '额外提示已更新');
       onSaved();
     } catch (e) {
-      dialog.error('保存失败', e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  async function toggleVoiceClone(next: boolean): Promise<void> {
-    setVoiceClone(next);
-    try {
-      await update.mutateAsync({ personaId: persona.id, voiceCloneEnabled: next });
-      onSaved();
-    } catch (e) {
-      setVoiceClone(!next);
       dialog.error('保存失败', e instanceof Error ? e.message : String(e));
     }
   }
@@ -170,15 +309,7 @@ export function PersonaSettingsModal({
                 </div>
               </div>
             ) : tab === 'voice' ? (
-              <div className="weq-persona-form">
-                <label className="weq-clone-check">
-                  <input type="checkbox" checked={voiceClone} onChange={(e) => void toggleVoiceClone(e.target.checked)} />
-                  <span>开启语音克隆</span>
-                </label>
-                <p className="weq-persona-note">
-                  开启后，克隆体回复可合成 TA 的语音（语音克隆为应用层能力，正在开发中；此处仅记录开关状态）。
-                </p>
-              </div>
+              <VoiceTab persona={persona} onSaved={onSaved} />
             ) : tab === 'memory' ? (
               <MemoryTab personaId={persona.id} />
             ) : (

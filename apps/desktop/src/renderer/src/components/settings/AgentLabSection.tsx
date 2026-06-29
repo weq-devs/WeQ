@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
-import { Plus, Save, Sparkles, Trash2, X } from 'lucide-react';
+import { Boxes, FlaskConical, Loader2, Plus, Save, Server, Sparkles, Trash2, X } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { Card, CheckPill, Row, SectionHeader } from './controls';
@@ -47,10 +47,12 @@ export function AgentLabSection(): ReactElement {
   });
   const saveProvider = trpc.bootstrap.saveAgentLabProvider.useMutation();
   const deleteProvider = trpc.bootstrap.deleteAgentLabProvider.useMutation();
+  const testProvider = trpc.bootstrap.testAgentLabProvider.useMutation();
 
   const [selectedId, setSelectedId] = useState<string>('');
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<ProviderForm>(emptyForm);
+  const [testing, setTesting] = useState(false);
 
   useEffect(() => {
     const current = providers.data?.find((item) => item.id === selectedId);
@@ -179,6 +181,36 @@ export function AgentLabSection(): ReactElement {
     }
   }
 
+  /** 测试连通性：用表单里第一个带「聊天」能力的模型探活，把详细错误（状态码/响应体）展示出来。 */
+  async function onTest(): Promise<void> {
+    if (!form.baseUrl.trim()) {
+      dialog.error('无法测试', '请先填写 Base URL。');
+      return;
+    }
+    const chatModel = form.models.find((m) => m.capabilities.includes('chat') && m.id.trim())?.id.trim();
+    if (!chatModel) {
+      dialog.error('无法测试', '请先添加并填写一个带「聊天」能力的模型。');
+      return;
+    }
+    setTesting(true);
+    try {
+      const res = await testProvider.mutateAsync({
+        baseUrl: form.baseUrl.trim(),
+        apiKey: form.apiKey.trim(),
+        model: chatModel,
+      });
+      if (res.ok) {
+        dialog.success('测试通过', `模型「${chatModel}」可正常调用${res.reply ? `，回了：${res.reply}` : '。'}`);
+      } else {
+        dialog.error('测试失败', res.error ?? '未知错误');
+      }
+    } catch (error) {
+      dialog.error('测试失败', error instanceof Error ? error.message : String(error));
+    } finally {
+      setTesting(false);
+    }
+  }
+
   async function onDelete(): Promise<void> {
     if (!selectedId) return;
     const ok = await dialog.confirm('删除 provider', `确认删除「${selectedId}」？`, {
@@ -203,6 +235,7 @@ export function AgentLabSection(): ReactElement {
   return (
     <div className="weq-set">
       <SectionHeader
+        icon={<Boxes size={18} strokeWidth={1.8} />}
         title="模型服务商（Provider）"
         desc="只在这里配置厂商（base_url + api_key + 可用模型）。具体用哪个模型，在克隆体里按任务选择。推荐硅基流动：一个 key 覆盖聊天 / 向量 / 视觉。"
       />
@@ -233,7 +266,10 @@ export function AgentLabSection(): ReactElement {
                 className={`weq-agentlab-provider-item${editing && selectedId === item.id ? ' is-active' : ''}`}
                 onClick={() => editProvider(item.id)}
               >
-                <span className="weq-agentlab-provider-name">{item.name}</span>
+                <span className="weq-agentlab-provider-name">
+                  <Server size={14} strokeWidth={1.8} aria-hidden style={{ marginRight: 6, verticalAlign: '-2px', opacity: 0.7 }} />
+                  {item.name}
+                </span>
                 <small>{item.models.length} 个模型 · {item.baseUrl}</small>
               </button>
             ))}
@@ -339,6 +375,10 @@ export function AgentLabSection(): ReactElement {
           <button type="button" className="weq-set-btn" onClick={() => void onSave()} disabled={saveProvider.isLoading}>
             <Save size={14} />
             保存 provider
+          </button>
+          <button type="button" className="weq-set-btn weq-set-btn-soft" onClick={() => void onTest()} disabled={testing}>
+            {testing ? <Loader2 size={14} className="weq-spin" /> : <FlaskConical size={14} />}
+            测试连通性
           </button>
           <button type="button" className="weq-set-btn weq-set-btn-soft" onClick={() => void onDelete()} disabled={!selectedId || deleteProvider.isLoading}>
             <Trash2 size={14} />

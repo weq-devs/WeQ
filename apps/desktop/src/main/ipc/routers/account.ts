@@ -480,8 +480,10 @@ export const accountRouter = router({
         customPrompt: z.string().optional(),
         targetUid: z.string().min(1),
         title: z.string().optional(),
-        // 克隆程度：high 全量遍历（上限 C2C_SAFETY_CAP=20000）；low 取最近 N。
+        // 总消息上限（默认 C2C_CORPUS_CAP）；一般不由前端指定。
         limit: z.number().int().min(20).max(20000).optional(),
+        // 语料模式：private 纯私聊不回退；group 私聊不足时群补采。默认 group。
+        mode: z.enum(['private', 'group']).optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -493,6 +495,7 @@ export const accountRouter = router({
         targetUid: input.targetUid,
         title: input.title,
         limit: input.limit,
+        mode: input.mode,
       });
     }),
 
@@ -542,6 +545,14 @@ export const accountRouter = router({
         name: z.string().optional(),
         customPrompt: z.string().optional(),
         voiceCloneEnabled: z.boolean().optional(),
+        voice: z
+          .object({
+            providerId: z.string().min(1),
+            mode: z.enum(['clone', 'preset']),
+            voice: z.string().optional(),
+          })
+          .nullable()
+          .optional(),
       }),
     )
     .mutation(({ input }) => {
@@ -549,6 +560,7 @@ export const accountRouter = router({
         name: input.name,
         customPrompt: input.customPrompt,
         voiceCloneEnabled: input.voiceCloneEnabled,
+        voice: input.voice,
       });
     }),
 
@@ -643,7 +655,43 @@ export const accountRouter = router({
       return { runId };
     }),
 
-  /** 助手任务的过程流（thinking / tool_call / tool_result / final / error）。 */
+  /**
+   * 查看助手写的报告文件。HTML → 在隔离窗口里用本地 Tailwind 运行时渲染；
+   * markdown / text → 交给系统默认程序打开。id 的路径安全由 service.artifactInfo 校验。
+   */
+  openAssistantArtifact: procedure
+    .input(z.object({ id: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const { path, kind } = requireServices().assistant.artifactInfo(input.id);
+      if (kind === 'html') {
+        const { openReportWindow } = await import('../../report_window');
+        await openReportWindow(path);
+      } else {
+        const { shell } = await import('electron');
+        const err = await shell.openPath(path);
+        if (err) throw new Error(err);
+      }
+      return true;
+    }),
+
+  /** 把助手写的报告文件另存到用户选定位置（复用 saveExportFile 范式）。 */
+  saveAssistantArtifact: procedure
+    .input(z.object({ id: z.string().min(1), name: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const { path } = requireServices().assistant.artifactInfo(input.id);
+      const { dialog } = await import('electron');
+      const { copyFileSync } = await import('node:fs');
+      const ext = extname(input.name).replace(/^\./, '') || 'html';
+      const result = await dialog.showSaveDialog({
+        defaultPath: input.name,
+        filters: [{ name: 'Report', extensions: [ext] }],
+      });
+      if (result.canceled || !result.filePath) return false;
+      copyFileSync(path, result.filePath);
+      return true;
+    }),
+
+  /** 助手任务的过程流（thinking / tool_call / tool_result / artifact / final / error）。 */
   onAssistantEvent: procedure.subscription(() => {
     return observable<AssistantStreamEvent>((emit) => {
       const handler = (e: AssistantStreamEvent): void => emit.next(e);

@@ -229,7 +229,7 @@ export function AppRail({
 						</span>
 						<span className={cn("rail-label")}>设置</span>
 						{updateAvailable ? (
-							<span className={cn("rail-badge")}>新</span>
+							<span className={cn("rail-badge", "rail-badge-dot")} aria-label="有新版本可更新" />
 						) : null}
 					</button>
 					<button

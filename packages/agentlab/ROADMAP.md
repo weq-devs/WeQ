@@ -165,6 +165,16 @@ ProviderConfig {
       - 反GPT味：`http.ts:buildSystemPrompt` 约束 + `typo.ts:humanizeText` 错别字后处理。
       - 记忆：`agentlab_memory.ts` 存（access 衰减遗忘）+ `http.ts:rankMemories`（BM25兜底）+ `extract.ts:distillMemories`（每6回合蒸馏）。
       - 回复意愿：`willing.ts:scoreReplyWillingness`（内容分+存在感惩罚 → 调 temperature/分条/延迟）。
+- [x] 蒸馏/调用细腻度增强（对标 CipherTalk 三项，2026-06-30）：
+      - **深层画像 map-reduce**：`deep` 不再一次性喂最近语料，改全量历史切块（`persona.ts:renderProfileChunks`，块 10000 字 × 最多 12 块，近况优先）→ 并发 3 `extract.ts:extractProfileChunk` → `mergeProfileParts` 合并；新增 `sharedEvents`（共同经历）维度。service `agentlab.ts:extractDeepProfileMapReduce` 编排，内部不抛（deep 失败不拖垮 card/fewShots）。
+      - **对话反思**（自动，每 8 用户回合）：`extract.ts:reflectConversation` 提炼 corrections（用户对扮演的纠正，必须遵守）+ episode（对话摘要）；存 `service/account/agentlab_notes.ts:NotesStore`（notes.json，corrections cap 20 / episodes cap 8 / reflectedCount 水位）；`agentlab.ts:maybeReflect` fire-and-forget；`http.ts:buildSystemPrompt` 注入【扮演纠正】+【你们最近聊过】。与 memory 并存（粒度不同）。
+      - **表情包使用情境 contexts**：`AgentLabStickerRef.contexts`（TA 发这张前最近对话短句 ≤3）；`collectStickersAndFaces` 维护 lastText 收集；作为 `describeSticker` 的专属 hint（替代全局语料切片），并进 `sticker.ts` 运行时选表情评分。
+- [x] **语音克隆 + 表情自知化 + TTS 多厂商**（2026-06-30，借鉴 MaiBot「动作模型 + 模型自知」，**保持单次调用、不上多轮工具循环**）：
+      - **有序自知动作**：`runPersonaChat` 输出解析成 `AgentLabChatAction[]`（text/sticker/voice，`http.ts:parseActions`）；service `chat()` 按序落库 + 返回 `renderedTurns` 供前端逐条揭示。
+      - **表情自知化**：prompt 列**编号的真实表情清单**（只列有 description 的），模型 `[[发表情:序号]]` 按内容自己选；`resolveStickerToken` 用同一份过滤清单做编号映射；情绪词/md5 兜底。替代旧「吐情绪词→盲匹配」。
+      - **真·语音克隆**：用 TA 真实语音做参考音频复刻。蒸馏期 `transcribePtt` 收 wav+文本+`voiceChanged`+`waveform`，`mapC2cMessages` 只收好友语音、**排除变声**、`scoreVoiceClip`(waveform 有声占比 + 时长 3~10s + 文本)挑 Top-5 → `voiceProfile.refClips`。运行时 `[[语音]]` 前缀 → service `synthesizeVoice` → `agentvoice/<hash>.<ext>` → `[[voice:id]]` turn → `weq-media://agentvoice` → `ChatBubble:VoiceBubble`。门控：TA 发过语音 + 配了 TTS（`PersonaSettingsModal:VoiceTab`，存 `persona.voice` 绑定）。
+      - **TTS 多厂商**：`packages/service/src/common/tts.ts`（照 MaiBot tts_voice_plugin 全套 7 家，返回解码五类）；复刻型 cosyvoice(Gradio 免费)+gpt-sovits(本地)；配置 `AppSettings.voiceTranscribe.ttsProviders` + bootstrap tRPC + 设置页「语音配置」。
+      - 待真机：登录 QQ 实测发表情准不准 / 语音克隆音色像不像；CosyVoice 公共空间慢会阻塞回复。
 - [ ] 远期未做：表达风格库向量检索化 + AI 复审；关系三元组/知识图谱；导出 bot client AI tool（前端灯箱「导出好友」等它）。
 - [ ] 未来：群聊（多 agent 互动） / bot client 导出
 

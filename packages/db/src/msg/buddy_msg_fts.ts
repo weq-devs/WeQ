@@ -17,7 +17,9 @@
  *   40001  msgId      (INTEGER UNIQUE — joins back to c2c/group msg tables)
  *   40010  chatType   (ChatType: 1 = c2c, 2 = group, …)
  *   40020  senderUid  (sender)
- *   40021  targetUid  (conversation target — peer uid / group code)
+ *   40021  targetUid  (conversation target — peer uid; app-facing key, UNINDEXED)
+ *   40027  sortNo     (INTEGER — per-account peer index; same value as
+ *                      c2c_msg_table.40027, and the *indexed* conversation key)
  *   40050  sendTime   (INTEGER, unix seconds — used to order the candidate pool)
  *   41701  content    (the searchable flattened text)
  */
@@ -25,6 +27,7 @@
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow } from '@weq/native';
 import type { BuddyMsgFtsHit } from './types';
 import { toBigint, toStr } from './util';
+import { partitionWhere, type C2cPartition } from './c2c';
 import { QqDb } from '../qq_db';
 
 const SELECT_COLUMNS = `"40001","40010","40021","40020","41701","40050","41702","40003"`;
@@ -75,19 +78,23 @@ export class BuddyMsgFtsDb {
   }
 
   /**
-   * Search messages within a specific conversation.
+   * Search messages within a specific c2c conversation. Filters by the indexed
+   * partition column `40027` (sortNo) on the fast path; `40021` (uid) is
+   * unindexed and only used as a fallback for peers missing from the uid map.
+   * Callers resolve uid → sortNo via the session's `UidMap` (see MsgSearchService).
    */
-  async searchInConversation(targetUid: string, keyword: string, limit = 20): Promise<BuddyMsgFtsHit[]> {
+  async searchInConversation(part: C2cPartition, keyword: string, limit = 20): Promise<BuddyMsgFtsHit[]> {
     const needle = keyword.trim();
     if (!needle) return [];
 
+    const { clause, value } = partitionWhere(part);
     const poolSize = Math.min(MAX_POOL, Math.max(limit * POOL_FACTOR, MIN_POOL));
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM buddy_msg_fts
-        WHERE "40021" = ? AND ("41701" LIKE ? ESCAPE '\\' OR "41702" LIKE ? ESCAPE '\\')
+        WHERE ${clause} AND ("41701" LIKE ? ESCAPE '\\' OR "41702" LIKE ? ESCAPE '\\')
         ORDER BY "40050" DESC
         LIMIT ?`,
-      [targetUid, `%${escapeLike(needle)}%`, `%${escapeLike(needle)}%`, BigInt(poolSize)],
+      [value, `%${escapeLike(needle)}%`, `%${escapeLike(needle)}%`, BigInt(poolSize)],
     );
 
     const hits = rows.map(rowToHit);

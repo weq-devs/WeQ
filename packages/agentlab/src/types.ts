@@ -111,6 +111,8 @@ export interface AgentLabPersonaDeepProfile {
   relationship: string;
   reactionPatterns: string[];
   boundaries: string[];
+  /** 你们的共同经历大事记（带大致时间），map-reduce 全量历史提炼。 */
+  sharedEvents: string[];
 }
 
 export interface AgentLabPersonaProfile {
@@ -144,12 +146,35 @@ export interface AgentLabStickerRef {
   description: string;
   /** chat 模型总结的「TA 在什么语境发这张」（没配 vision 时为空） */
   scenario: string;
+  /** TA 发这张表情前最近的真实对话短句（≤3 条）：喂给 vision 判断场景 + runtime 选表情。 */
+  contexts: string[];
 }
 
-/** 语音使用画像：占比 + LLM 总结的「TA 什么场景爱发语音」。 */
+/** 一条语音克隆参考音频：本地 wav 路径 + 它的转录文本（复刻需要 prompt_text）+ 时长。 */
+export interface AgentLabVoiceRefClip {
+  path: string;
+  text: string;
+  durationMs?: number;
+}
+
+/** 语音使用画像：占比 + LLM 总结的「TA 什么场景爱发语音」+ 复刻参考音频（按质量排序）。 */
 export interface AgentLabVoiceProfile {
   ratio: number;
   scenarioSummary: string;
+  /** 语音克隆参考音频候选，best-first（已排除变声、按 waveform 质量打分）。运行时用第 0 条。 */
+  refClips?: AgentLabVoiceRefClip[];
+}
+
+/**
+ * 克隆体的语音绑定（TTS 不是 LLM，独立于 models）。
+ * providerId 指向全局 AppSettings.voiceTranscribe.ttsProviders 里的某个服务商。
+ */
+export interface AgentLabVoiceBinding {
+  providerId: string;
+  /** clone = 用 TA 的声音（参考音频复刻，需 provider 支持 + 有 refClips）；preset = 预置音色。 */
+  mode: 'clone' | 'preset';
+  /** preset 模式的音色 id；clone 模式可留空。 */
+  voice?: string;
 }
 
 export interface AgentLabPersonaStats {
@@ -195,6 +220,17 @@ export interface AgentLabMemoryItem {
   lastAccessedAt: number;
 }
 
+/**
+ * 对话反思笔记（借鉴 CipherTalk 导演笔记）：从「我们和克隆体的对话」里反思出来的，
+ * 不是构建产物，runtime 累积，单独存储（service 的 NotesStore）。
+ */
+export interface AgentLabPersonaNotes {
+  /** 用户对扮演的纠正/指示（注入 prompt 必须遵守，如「他从不说谢谢」）。 */
+  corrections: string[];
+  /** 历次克隆对话的摘要（克隆体自己的 episodic memory，如「上次聊了考研」）。 */
+  episodes: string[];
+}
+
 export interface AgentLabPersona {
   id: string;
   ownerId: string;
@@ -207,8 +243,10 @@ export interface AgentLabPersona {
   models: AgentLabModels;
   /** 用户自定义提示，拼进 system prompt */
   customPrompt?: string;
-  /** 是否开启语音克隆（应用层未来用；这里仅记录开关状态）。 */
+  /** 是否开启语音克隆（开后运行时允许 bot 自主发语音）。 */
   voiceCloneEnabled?: boolean;
+  /** 语音 TTS 绑定（开启语音克隆后用哪个服务商 + 复刻/预置）。 */
+  voice?: AgentLabVoiceBinding;
   profile: AgentLabPersonaProfile;
   fewShots: AgentLabFewShotPair[];
   /** 表达风格库：(情境, 句式) 对，runtime 按情境检索后注入 prompt。 */
@@ -247,15 +285,32 @@ export interface AgentLabChatRequest {
   input: string;
   /** 克隆体对当前对方的记忆（service 注入；命中的会在结果里回报以便记账衰减）。 */
   memories?: AgentLabMemoryItem[];
+  /** 对话反思笔记（service 注入）：用户纠正 + 历次对话摘要。 */
+  notes?: AgentLabPersonaNotes;
   /** 关闭/调节错别字强度（默认开，约 0.18）。 */
   typoIntensity?: number;
+  /** 是否允许 bot 自主发语音（克隆体开了语音克隆 + 配了 TTS 时由 service 置 true）。 */
+  voiceEnabled?: boolean;
 }
+
+/**
+ * 克隆体一轮回复里的一个有序动作（借鉴 MaiBot 的 action 模型）。
+ * - text：一条文字消息（已分条 + 错别字后处理）。
+ * - sticker：一张「模型看着真实清单按编号选定」的自定义表情。
+ * - voice：一条语音消息（仅文本；真正合成在 service 层做，pure 包不碰 TTS/参考音频）。
+ */
+export type AgentLabChatAction =
+  | { kind: 'text'; text: string }
+  | { kind: 'sticker'; sticker: AgentLabStickerRef }
+  | { kind: 'voice'; text: string };
 
 export interface AgentLabChatResult {
   /** 完整回复文本（分条用 \n 连接，落库/few-shot 用）。 */
   text: string;
-  /** 分条后的消息（前端逐条带打字延迟渲染，借鉴 MaiBot 分段连发）。 */
+  /** 分条后的纯文字消息（不含表情/语音；few-shot/兜底用）。 */
   segments: string[];
+  /** 有序动作列表（text/sticker/voice）：service 据此按序落库、前端按序揭示。 */
+  actions: AgentLabChatAction[];
   promptPreview: string;
   matches: AgentLabStoredPair[];
   /** 本轮检索命中、需要 +access 的记忆 id。 */
@@ -264,4 +319,6 @@ export interface AgentLabChatResult {
   willingness: number;
   /** 建议的首条回复前延迟（ms，前端模拟「在打字」）。 */
   replyDelayMs: number;
+  /** 第一张选中的自定义表情（兼容旧读取方；完整顺序见 actions）。 */
+  sticker?: AgentLabStickerRef | null;
 }

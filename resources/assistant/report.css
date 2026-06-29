@@ -1,0 +1,310 @@
+/*
+ * WeQ 助手报告组件库 —— 由 report_window.ts 注入到 write_report 生成的 HTML 报告 <head>。
+ *
+ * 配合本地 Tailwind 运行时一起用：这里提供一套"开箱即美"的语义组件类（rp-*），
+ * AI 只要套用就能得到统一、专业的版式，无需自己手撸样式；Tailwind 原子类仍可叠加微调。
+ * 纯 CSS、零依赖，目的是把报告的"设计下限"焊死，不受模型审美波动影响。
+ */
+
+:root {
+  --rp-accent: #6366f1; /* indigo-500 */
+  --rp-accent-2: #8b5cf6; /* violet-500 */
+  --rp-ink: #1e293b; /* slate-800 正文 */
+  --rp-muted: #64748b; /* slate-500 次要 */
+  --rp-faint: #94a3b8; /* slate-400 最弱 */
+  --rp-border: #e8ecf3;
+  --rp-card: #ffffff;
+  --rp-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 28px -14px rgba(15, 23, 42, 0.2);
+  --rp-radius: 16px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei',
+    Roboto, system-ui, sans-serif;
+  color: var(--rp-ink);
+  line-height: 1.7;
+  background: radial-gradient(1200px 600px at 100% -10%, #eef2ff 0%, transparent 60%),
+    radial-gradient(1000px 520px at -10% 0%, #faf5ff 0%, transparent 55%), #f6f8fc;
+  -webkit-font-smoothing: antialiased;
+}
+
+.rp-page {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 48px 24px 72px;
+}
+
+/* ── 头图 ─────────────────────────────────────────────── */
+.rp-hero {
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 32px;
+  padding: 40px;
+  border-radius: 24px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--rp-accent) 0%, var(--rp-accent-2) 100%);
+  box-shadow: 0 20px 44px -18px rgba(99, 102, 241, 0.6);
+}
+.rp-hero::after {
+  content: '';
+  position: absolute;
+  right: -50px;
+  bottom: -70px;
+  width: 240px;
+  height: 240px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+}
+.rp-hero h1 {
+  margin: 10px 0 8px;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.rp-hero p {
+  margin: 0;
+  max-width: 64ch;
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.86);
+}
+.rp-eyebrow {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+/* ── 栅格 ─────────────────────────────────────────────── */
+.rp-grid {
+  display: grid;
+  gap: 16px;
+}
+.rp-grid-2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+.rp-grid-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+.rp-grid-4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+@media (max-width: 720px) {
+  .rp-grid-3,
+  .rp-grid-4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 460px) {
+  .rp-grid-2,
+  .rp-grid-3,
+  .rp-grid-4 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── 卡片 / 指标 ──────────────────────────────────────── */
+.rp-card {
+  padding: 22px 24px;
+  background: var(--rp-card);
+  border: 1px solid var(--rp-border);
+  border-radius: var(--rp-radius);
+  box-shadow: var(--rp-shadow);
+}
+.rp-stat {
+  padding: 20px 22px;
+  background: var(--rp-card);
+  border: 1px solid var(--rp-border);
+  border-radius: var(--rp-radius);
+  box-shadow: var(--rp-shadow);
+}
+.rp-stat-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--rp-muted);
+}
+.rp-stat-value {
+  margin: 6px 0 2px;
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  background: linear-gradient(120deg, var(--rp-accent), var(--rp-accent-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.rp-stat-sub {
+  font-size: 12.5px;
+  color: var(--rp-faint);
+}
+
+/* ── 章节 ─────────────────────────────────────────────── */
+.rp-section {
+  margin-top: 36px;
+}
+.rp-section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 16px;
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--rp-ink);
+}
+.rp-section-title::before {
+  content: '';
+  width: 5px;
+  height: 20px;
+  border-radius: 3px;
+  background: linear-gradient(var(--rp-accent), var(--rp-accent-2));
+}
+
+/* ── 解读 / 总结 / 金句（报告的灵魂）─────────────────── */
+.rp-callout {
+  padding: 16px 20px;
+  border-left: 4px solid var(--rp-accent);
+  border-radius: 12px;
+  background: linear-gradient(90deg, #eef2ff, #ffffff 80%);
+  color: #3730a3;
+  font-size: 14.5px;
+}
+.rp-callout strong {
+  color: var(--rp-accent);
+}
+
+/* ── 聊天原话引用 ─────────────────────────────────────── */
+.rp-quote {
+  margin: 12px 0;
+  padding: 4px 0 4px 16px;
+  border-left: 3px solid var(--rp-border);
+  color: #475569;
+}
+.rp-quote cite {
+  display: block;
+  margin-top: 6px;
+  font-size: 12.5px;
+  font-style: normal;
+  color: var(--rp-faint);
+}
+
+/* ── 徽章 ─────────────────────────────────────────────── */
+.rp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.rp-badge-up {
+  background: #dcfce7;
+  color: #15803d;
+}
+.rp-badge-down {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.rp-badge-info {
+  background: #e0e7ff;
+  color: #4338ca;
+}
+.rp-badge-warn {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+/* ── 表格 ─────────────────────────────────────────────── */
+.rp-table {
+  width: 100%;
+  border-collapse: collapse;
+  overflow: hidden;
+  background: var(--rp-card);
+  border-radius: var(--rp-radius);
+  box-shadow: var(--rp-shadow);
+  font-size: 14px;
+}
+.rp-table thead th {
+  padding: 12px 16px;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  background: #1e293b;
+}
+.rp-table td {
+  padding: 11px 16px;
+  border-top: 1px solid var(--rp-border);
+}
+.rp-table tbody tr:nth-child(odd) {
+  background: #f8fafc;
+}
+.rp-table .rp-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 排行（带进度条）── span 用 style="--rp-pct:73%" 控制宽度 ── */
+.rp-rank {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.rp-rank-item {
+  display: grid;
+  grid-template-columns: 130px 1fr auto;
+  align-items: center;
+  gap: 12px;
+}
+.rp-rank-name {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--rp-ink);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.rp-rank-bar {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eef2f7;
+}
+.rp-rank-bar > span {
+  display: block;
+  height: 100%;
+  width: var(--rp-pct, 0%);
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--rp-accent), var(--rp-accent-2));
+}
+.rp-rank-val {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--rp-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 杂项 ─────────────────────────────────────────────── */
+.rp-divider {
+  height: 1px;
+  margin: 32px 0;
+  border: 0;
+  background: var(--rp-border);
+}
+.rp-footer {
+  margin-top: 44px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--rp-faint);
+}
+.rp-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}

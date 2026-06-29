@@ -28,7 +28,13 @@ import {
   type AccountForcedClosedEvent,
 } from '../../context/app_context';
 import { procedure, router } from '../trpc';
-import { accountConfigId, getLogger, type KeyEvent, type VoiceDownloadProgress } from '@weq/service';
+import {
+  accountConfigId,
+  getLogger,
+  type KeyEvent,
+  type VoiceDownloadProgress,
+  type TtsProviderConfig,
+} from '@weq/service';
 import { peekStaticSelfUin } from '@weq/account';
 
 const algoSchema = z.object({
@@ -396,6 +402,92 @@ export const bootstrapRouter = router({
     .input(z.object({ id: z.string().min(1) }))
     .mutation(({ input }) => {
       return requireBootstrap().agentLabConfig.deleteProvider(input.id);
+    }),
+
+  /** 「测试连通性」：用表单里的 base_url + api_key + 某个 chat 模型探活，返回详细错误（含状态码/响应体）。 */
+  testAgentLabProvider: procedure
+    .input(
+      z.object({
+        baseUrl: z.string().min(1),
+        apiKey: z.string().default(''),
+        model: z.string().min(1),
+      }),
+    )
+    .mutation(({ input }) => {
+      return requireBootstrap().agentLabConfig.testEndpoint(input);
+    }),
+
+  // ---- TTS 服务商（设置 → 语音配置；克隆体发语音/语音克隆用）----
+
+  /** 厂商模板（新建 provider 一键带入 + 表单字段提示）。 */
+  getTtsCatalog: procedure.query(() => {
+    return requireBootstrap().tts.listCatalog();
+  }),
+
+  /** 已保存的 TTS 服务商列表。 */
+  listTtsProviders: procedure.query(() => {
+    return requireBootstrap().userConfig.getSettings().voiceTranscribe.ttsProviders;
+  }),
+
+  /** 新增/更新一个 TTS 服务商（按 id upsert，保留 createdAt）。 */
+  saveTtsProvider: procedure
+    .input(
+      z.object({
+        id: z.string().min(1),
+        name: z.string().min(1),
+        vendor: z.enum(['openai-compatible', 'gsv2p', 'minimax', 'mimo', 'doubao', 'gpt-sovits', 'cosyvoice']),
+        baseUrl: z.string().min(1),
+        apiKey: z.string().default(''),
+        appId: z.string().optional(),
+        resourceId: z.string().optional(),
+        model: z.string().optional(),
+        voice: z.string().optional(),
+        format: z.string().optional(),
+        speed: z.number().optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      const cfg = requireBootstrap().userConfig;
+      const now = Date.now();
+      const existing = cfg.getSettings().voiceTranscribe.ttsProviders;
+      const prior = existing.find((p) => p.id === input.id);
+      const saved: TtsProviderConfig = { ...input, createdAt: prior?.createdAt ?? now, updatedAt: now };
+      const next = [...existing.filter((p) => p.id !== input.id), saved].sort((a, b) => b.updatedAt - a.updatedAt);
+      cfg.setSettings({ voiceTranscribe: { ttsProviders: next } });
+      return saved;
+    }),
+
+  /** 删除一个 TTS 服务商。 */
+  deleteTtsProvider: procedure
+    .input(z.object({ id: z.string().min(1) }))
+    .mutation(({ input }) => {
+      const cfg = requireBootstrap().userConfig;
+      const next = cfg.getSettings().voiceTranscribe.ttsProviders.filter((p) => p.id !== input.id);
+      cfg.setSettings({ voiceTranscribe: { ttsProviders: next } });
+      return true;
+    }),
+
+  /** 「测试」：用该配置合成一句样例，返回 base64 供前端试听。 */
+  testTtsProvider: procedure
+    .input(
+      z.object({
+        id: z.string().default('test'),
+        name: z.string().default('test'),
+        vendor: z.enum(['openai-compatible', 'gsv2p', 'minimax', 'mimo', 'doubao', 'gpt-sovits', 'cosyvoice']),
+        baseUrl: z.string().min(1),
+        apiKey: z.string().default(''),
+        appId: z.string().optional(),
+        resourceId: z.string().optional(),
+        model: z.string().optional(),
+        voice: z.string().optional(),
+        format: z.string().optional(),
+        speed: z.number().optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      const now = Date.now();
+      const cfg: TtsProviderConfig = { ...input, createdAt: now, updatedAt: now };
+      return requireBootstrap().tts.testProvider(cfg);
     }),
 
   // ---- cache directory (设置 → 账号信息 → 账号缓存路径) ----

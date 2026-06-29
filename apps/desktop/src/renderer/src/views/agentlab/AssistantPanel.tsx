@@ -16,6 +16,7 @@ import type { AssistantStep } from '@weq/service';
 import { ChatBubble } from './ChatBubble';
 import { AssistantMessage } from './AssistantMessage';
 import { AssistantSteps } from './AssistantSteps';
+import { AssistantArtifactCard } from './AssistantArtifactCard';
 import type { FlatModels } from './NewCloneModal';
 
 interface Turn {
@@ -116,8 +117,12 @@ function AssistantSettings({
   );
 }
 
-/** 助手回复气泡：折叠过程 + Markdown 终答。 */
+/** 助手回复气泡：折叠过程 + Markdown 终答 + 附件卡片。 */
 function AssistantBubble({ turn }: { turn: Turn }): ReactElement {
+  const artifacts = (turn.steps ?? [])
+    .filter((s): s is Extract<AssistantStep, { kind: 'artifact' }> => s.kind === 'artifact')
+    .map((s) => s.artifact);
+
   return (
     <div className="message-line theirs">
       <span className="avatar weq-asst-avatar">
@@ -139,6 +144,9 @@ function AssistantBubble({ turn }: { turn: Turn }): ReactElement {
               <span /><span /><span />
             </div>
           ) : null}
+          {artifacts.map((a) => (
+            <AssistantArtifactCard key={a.id} artifact={a} />
+          ))}
         </div>
       </div>
     </div>

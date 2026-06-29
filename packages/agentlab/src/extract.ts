@@ -146,8 +146,22 @@ const PROFILE_JSON_SHAPE = `{
   "facts": ["TA 的工作/家庭/生活事实，一条一项，具体（如'在杭州做后端开发''养了只叫咪咪的猫'）"],
   "relationship": "你们关系的定位与相处模式，1-3 句（如'大学室友，互损但有事真上'）",
   "reactionPatterns": ["「情境 → 典型反应」规则（如'对方抱怨工作时，先调侃两句再认真安慰'）"],
-  "boundaries": ["TA 的立场/雷点/回避的话题/明显不了解的领域"]
+  "boundaries": ["TA 的立场/雷点/回避的话题/明显不了解的领域"],
+  "sharedEvents": ["你们的共同经历大事记，带大致时间（如'2024 年夏天一起去了青岛''去年帮对方搬过家'）"]
 }`;
+
+/** 注入 prompt 的体积上限：合并后各维度封顶（与 CipherTalk 对齐）。 */
+const PROFILE_CAPS = { facts: 15, reactionPatterns: 10, boundaries: 8, sharedEvents: 10 } as const;
+
+function parseProfile(raw: Record<string, unknown>): AgentLabPersonaDeepProfile {
+  return {
+    facts: coerceStringArray(raw.facts).slice(0, PROFILE_CAPS.facts),
+    relationship: coerceString(raw.relationship),
+    reactionPatterns: coerceStringArray(raw.reactionPatterns).slice(0, PROFILE_CAPS.reactionPatterns),
+    boundaries: coerceStringArray(raw.boundaries).slice(0, PROFILE_CAPS.boundaries),
+    sharedEvents: coerceStringArray(raw.sharedEvents).slice(0, PROFILE_CAPS.sharedEvents),
+  };
+}
 
 const FEWSHOT_JSON_SHAPE = `{
   "examples": [
@@ -191,28 +205,54 @@ export async function extractPersonaCard(
   };
 }
 
-export async function extractDeepProfile(
+/**
+ * map 阶段：从一块历史对话里提取部分深层画像。全量历史切块后逐块调用（service 编排并发）。
+ * 单块失败由 generateJson 抛出，调用方决定是否吞掉继续。
+ */
+export async function extractProfileChunk(
   endpoint: AgentLabEndpoint,
   friendName: string,
-  stats: AgentLabPersonaStats,
-  corpusText: string,
+  chunkText: string,
 ): Promise<AgentLabPersonaDeepProfile> {
   const raw = await generateJson(
     endpoint,
-    `你是人物侧写师。从「我」和「${friendName}」的聊天记录里提取关于「${friendName}」的深层信息：` +
-      '生活事实、你们的关系、TA 在不同情境下的典型反应、立场与边界。' +
+    `你是人物侧写师。下面是「我」和「${friendName}」的一段聊天记录（按时间正序，一行一轮，连发用「／」分隔）。` +
+      `从中提取关于「${friendName}」的深层信息：生活事实、你们的关系、TA 在不同情境下的典型反应、立场与边界、共同经历。` +
       '只依据记录本身，不要臆造；没有依据的维度给空数组/空字符串。' +
       `\n只输出一个 JSON 对象，不要任何解释或代码围栏，格式如下：\n${PROFILE_JSON_SHAPE}`,
-    `${corpusPreamble(friendName, stats, corpusText)}\n\n请提炼「${friendName}」的深层画像，按要求输出 JSON。`,
+    chunkText,
     0.2,
-    '深层画像',
+    '深层画像分块',
   );
-  return {
-    facts: coerceStringArray(raw.facts).slice(0, 15),
-    relationship: coerceString(raw.relationship),
-    reactionPatterns: coerceStringArray(raw.reactionPatterns).slice(0, 10),
-    boundaries: coerceStringArray(raw.boundaries).slice(0, 8),
-  };
+  return parseProfile(raw);
+}
+
+/**
+ * reduce 阶段：合并多块部分画像（去重、矛盾时以更新的为准、各维度压到上限）。
+ * 0 块→空画像；1 块→直接返回（省一次 LLM）。
+ */
+export async function mergeProfileParts(
+  endpoint: AgentLabEndpoint,
+  friendName: string,
+  parts: AgentLabPersonaDeepProfile[],
+): Promise<AgentLabPersonaDeepProfile> {
+  if (parts.length === 0) {
+    return { facts: [], relationship: '', reactionPatterns: [], boundaries: [], sharedEvents: [] };
+  }
+  if (parts.length === 1) return parseProfile(parts[0] as unknown as Record<string, unknown>);
+
+  const raw = await generateJson(
+    endpoint,
+    `下面是从「我」和「${friendName}」不同时间段的聊天里分别提取的多份部分画像（按时间正序，越靠后越新）。` +
+      '请合并成一份：去重、矛盾时以更新的为准（如换了工作以新工作为准）、同类信息压缩合并；' +
+      `facts 不超过 ${PROFILE_CAPS.facts} 条、reactionPatterns 不超过 ${PROFILE_CAPS.reactionPatterns} 条、` +
+      `boundaries 不超过 ${PROFILE_CAPS.boundaries} 条、sharedEvents 不超过 ${PROFILE_CAPS.sharedEvents} 条。` +
+      `\n只输出一个 JSON 对象，不要任何解释或代码围栏，格式如下：\n${PROFILE_JSON_SHAPE}`,
+    parts.map((p, i) => `【第 ${i + 1} 份】\n${JSON.stringify(p)}`).join('\n\n'),
+    0.2,
+    '深层画像合并',
+  );
+  return parseProfile(raw);
 }
 
 export async function extractFewShots(
@@ -334,6 +374,54 @@ export async function distillMemories(
     .map((m) => m.slice(0, 60))
     .filter(Boolean)
     .slice(0, 5);
+}
+
+const REFLECT_JSON_SHAPE = `{
+  "corrections": ["指导下次扮演的通用规则，一条一项（如：他不会说谢谢这么客气；他喊对方'老张'不是'张哥'）"],
+  "summary": "用 1-2 句概括这段对话聊了什么（给下次当作'我们之前聊过'的记忆）"
+}`;
+
+/**
+ * 对话反思（借鉴 CipherTalk 导演笔记）：从「我们和克隆体的对话」里提炼
+ * ① corrections：用户对扮演效果的纠正/不满/指示，改写成下次扮演的通用规则；
+ * ② summary：这段对话的摘要（克隆体的 episodic memory）。
+ * 视角是「旁观这段扮演对话」。失败返回空、不抛，不阻断聊天。
+ */
+export async function reflectConversation(
+  endpoint: AgentLabEndpoint,
+  friendName: string,
+  conversation: Array<{ role: 'user' | 'assistant'; text: string }>,
+): Promise<{ corrections: string[]; summary: string }> {
+  const lines = conversation
+    .filter((t) => t.text.trim())
+    .slice(-40)
+    .map((t) => `${t.role === 'user' ? '对方' : friendName}：${t.text}`)
+    .join('\n');
+  if (!lines.trim()) return { corrections: [], summary: '' };
+  let raw: Record<string, unknown>;
+  try {
+    raw = await generateJson(
+      endpoint,
+      `下面是「对方」和一个模仿「${friendName}」的 AI 分身的对话记录。请做两件事：` +
+        '\n1. corrections：找出「对方」对分身扮演效果的纠正、不满或指示' +
+        '（如"他才不会这么说""你太客气了""他喊我老张不是张哥"），改写成指导下次扮演的通用规则，一条一项；' +
+        '没有就给空数组。只收与"怎么扮演"有关的，普通聊天内容不算。' +
+        '\n2. summary：用 1-2 句概括这段对话聊了什么（给分身下次当作"我们之前聊过"的记忆）。' +
+        `\n只输出一个 JSON 对象，不要任何解释或代码围栏，格式如下：\n${REFLECT_JSON_SHAPE}`,
+      `对话记录：\n${lines}\n\n请按要求输出 JSON。`,
+      0.2,
+      '对话反思',
+    );
+  } catch {
+    return { corrections: [], summary: '' };
+  }
+  return {
+    corrections: coerceStringArray(raw.corrections)
+      .map((c) => c.slice(0, 80))
+      .filter(Boolean)
+      .slice(0, 5),
+    summary: coerceString(raw.summary).slice(0, 120),
+  };
 }
 
 /**

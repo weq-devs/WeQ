@@ -184,6 +184,16 @@
 	line-height: 1;
 }
 
+/* 更新提示：只点一个小红点，不显示「新」字。 */
+.rail-badge-dot {
+	top: 6px;
+	right: 12px;
+	min-width: 9px;
+	width: 9px;
+	height: 9px;
+	padding: 0;
+}
+
 .rail-menu-popover {
 	position: absolute;
 	left: 58px;

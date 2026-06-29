@@ -4,7 +4,7 @@
  * 数据来自 account.getAgentLabTokenStats，图表全用纯 SVG / CSS，不引图表库。
  */
 
-import { useMemo, type ReactElement } from 'react';
+import { useMemo, useState, type ReactElement } from 'react';
 import { BarChart3, Clock, Coins, Users, Activity } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 
@@ -60,11 +60,13 @@ function BarList({ rows }: { rows: Array<{ key: string; label: string; value: nu
     <div className="weq-usage-bars">
       {rows.map((r) => (
         <div key={r.key} className="weq-usage-bar-row">
-          <span className="weq-usage-bar-label" title={r.label}>{r.label}</span>
+          <div className="weq-usage-bar-head">
+            <span className="weq-usage-bar-label" title={r.label}>{r.label}</span>
+            <span className="weq-usage-bar-val">{fmt(r.value)}</span>
+          </div>
           <span className="weq-usage-bar-track">
             <span className="weq-usage-bar-fill" style={{ width: `${(r.value / max) * 100}%` }} />
           </span>
-          <span className="weq-usage-bar-val">{fmt(r.value)}</span>
         </div>
       ))}
     </div>
@@ -75,30 +77,87 @@ function BarList({ rows }: { rows: Array<{ key: string; label: string; value: nu
 function HourLine({ data }: { data: Array<{ hour: string; tokens: number; calls: number }> }): ReactElement {
   const W = 560;
   const H = 140;
-  const PAD = 8;
+  const PAD_X = 8;
+  const PAD_Y = 8;
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const max = Math.max(1, ...data.map((d) => d.tokens));
-  const stepX = (W - PAD * 2) / Math.max(1, data.length - 1);
+  const ticks = [max, Math.round(max * 0.75), Math.round(max * 0.5), Math.round(max * 0.25), 0];
+  const stepX = (W - PAD_X * 2) / Math.max(1, data.length - 1);
   const pts = data.map((d, i) => {
-    const x = PAD + i * stepX;
-    const y = PAD + (1 - d.tokens / max) * (H - PAD * 2);
+    const x = PAD_X + i * stepX;
+    const y = PAD_Y + (1 - d.tokens / max) * (H - PAD_Y * 2);
     return [x, y] as const;
   });
   const line = pts.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
-  const last = pts[pts.length - 1] ?? [PAD, H - PAD];
-  const area = `${line} L${last[0].toFixed(1)},${H - PAD} L${PAD},${H - PAD} Z`;
+  const last = pts[pts.length - 1] ?? [PAD_X, H - PAD_Y];
+  const area = `${line} L${last[0].toFixed(1)},${H - PAD_Y} L${PAD_X},${H - PAD_Y} Z`;
+  const activePoint = activeIndex == null ? null : pts[activeIndex] ?? null;
+  const activeDatum = activeIndex == null ? null : data[activeIndex] ?? null;
   return (
     <div className="weq-usage-line">
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="weq-usage-line-svg" role="img" aria-label="近24小时token折线">
-        {[0.25, 0.5, 0.75].map((t) => (
-          <line key={t} x1={PAD} x2={W - PAD} y1={PAD + (H - PAD * 2) * t} y2={PAD + (H - PAD * 2) * t} className="weq-usage-grid" />
-        ))}
-        <path d={area} className="weq-usage-line-area" />
-        <path d={line} className="weq-usage-line-stroke" fill="none" />
-      </svg>
-      <div className="weq-usage-line-axis">
-        {data.map((d, i) => (
-          <span key={`${d.hour}-${i}`}>{i % 3 === 0 ? d.hour.slice(0, 2) : ''}</span>
-        ))}
+      <div className="weq-usage-line-body">
+        <div className="weq-usage-line-yaxis" aria-hidden>
+          {ticks.map((tick, index) => (
+            <span key={`${tick}-${index}`}>{fmt(tick)}</span>
+          ))}
+        </div>
+        <div className="weq-usage-line-plot">
+          <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="weq-usage-line-svg" role="img" aria-label="近24小时token折线">
+            {[0, 0.25, 0.5, 0.75, 1].map((t) => (
+              <line
+                key={t}
+                x1={PAD_X}
+                x2={W - PAD_X}
+                y1={PAD_Y + (H - PAD_Y * 2) * t}
+                y2={PAD_Y + (H - PAD_Y * 2) * t}
+                className="weq-usage-grid"
+              />
+            ))}
+            <line x1={PAD_X} x2={PAD_X} y1={PAD_Y} y2={H - PAD_Y} className="weq-usage-grid weq-usage-grid-axis" />
+            <path d={area} className="weq-usage-line-area" />
+            <path d={line} className="weq-usage-line-stroke" fill="none" />
+            {activePoint ? (
+              <line
+                x1={activePoint[0]}
+                x2={activePoint[0]}
+                y1={PAD_Y}
+                y2={H - PAD_Y}
+                className="weq-usage-line-cursor"
+              />
+            ) : null}
+            {pts.map(([x, y], i) => (
+              <circle
+                key={`${data[i]!.hour}-${i}`}
+                cx={x}
+                cy={y}
+                r={activeIndex === i ? 4.5 : 3}
+                className={`weq-usage-line-dot${activeIndex === i ? ' is-active' : ''}`}
+                onMouseEnter={() => setActiveIndex(i)}
+                onMouseLeave={() => setActiveIndex((curr) => (curr === i ? null : curr))}
+              >
+                <title>{`${data[i]!.hour} · ${fmt(data[i]!.tokens)} tokens · ${data[i]!.calls} 次调用`}</title>
+              </circle>
+            ))}
+          </svg>
+          {activePoint && activeDatum ? (
+            <div
+              className="weq-usage-line-tooltip"
+              style={{
+                left: `${(activePoint[0] / W) * 100}%`,
+                top: `${(activePoint[1] / H) * 100}%`,
+              }}
+            >
+              <strong>{activeDatum.hour}</strong>
+              <span>{fmt(activeDatum.tokens)} tokens</span>
+              <span>{activeDatum.calls} 次调用</span>
+            </div>
+          ) : null}
+          <div className="weq-usage-line-axis">
+            {data.map((d, i) => (
+              <span key={`${d.hour}-${i}`}>{i % 3 === 0 ? d.hour.slice(0, 2) : ''}</span>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -125,7 +184,11 @@ function PieChart({ rows, donut }: { rows: Slice[]; donut?: boolean }): ReactEle
           const p1 = polar(cx, cy, r, a1);
           const large = a1 - a0 > 180 ? 1 : 0;
           const d = `M ${cx} ${cy} L ${p0.x.toFixed(2)} ${p0.y.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${p1.x.toFixed(2)} ${p1.y.toFixed(2)} Z`;
-          return <path key={row.key} d={d} fill={row.color} className="weq-usage-pie-slice" />;
+          return (
+            <path key={row.key} d={d} fill={row.color} className="weq-usage-pie-slice">
+              <title>{`${row.label} · ${fmt(row.value)} · ${Math.round((row.value / total) * 100)}%`}</title>
+            </path>
+          );
         })
       )}
       {donut ? <circle cx={cx} cy={cy} r={30} className="weq-usage-pie-hole" /> : null}
@@ -149,7 +212,9 @@ function RadarChart({ axes }: { axes: Array<{ label: string; value: number }> })
         <polygon key={f} points={ring(f)} className="weq-usage-radar-grid" />
       ))}
       {axes.map((_, i) => { const p = at(i, maxR); return <line key={i} x1={cx} y1={cy} x2={p.x} y2={p.y} className="weq-usage-radar-grid" />; })}
-      <polygon points={dataPoly} className="weq-usage-radar-area" />
+      <polygon points={dataPoly} className="weq-usage-radar-area">
+        <title>{axes.map((a) => `${a.label}: ${fmt(a.value)}`).join(' / ')}</title>
+      </polygon>
       {axes.map((a, i) => { const p = at(i, maxR + 10); return (
         <text key={i} x={p.x} y={p.y} className="weq-usage-radar-label" textAnchor="middle" dominantBaseline="middle">{a.label}</text>
       ); })}
@@ -174,9 +239,11 @@ function Legend({ rows }: { rows: Slice[] }): ReactElement {
 
 export function UsagePanel({
   resolveName,
+  hasPersona,
   personaCount,
 }: {
   resolveName: (personaId: string) => string;
+  hasPersona: (personaId: string) => boolean;
   personaCount: number;
 }): ReactElement {
   const stats = trpc.account.getAgentLabTokenStats.useQuery();
@@ -184,12 +251,16 @@ export function UsagePanel({
 
   const personaRows = useMemo(
     () =>
-      (d?.byPersona ?? []).map((p) => ({
-        key: p.personaId,
-        label: p.personaId === ASSISTANT_KEY ? 'WeQ 助手' : resolveName(p.personaId),
-        value: p.tokens,
-      })),
-    [d?.byPersona, resolveName],
+      (d?.byPersona ?? [])
+        .filter((p) => p.personaId === ASSISTANT_KEY || hasPersona(p.personaId))
+        .sort((a, b) => b.tokens - a.tokens)
+        .slice(0, 5)
+        .map((p) => ({
+          key: p.personaId,
+          label: p.personaId === ASSISTANT_KEY ? 'WeQ 助手' : resolveName(p.personaId),
+          value: p.tokens,
+        })),
+    [d?.byPersona, hasPersona, resolveName],
   );
 
   const scopeSlices = useMemo(
