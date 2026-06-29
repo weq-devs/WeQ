@@ -22,6 +22,7 @@ import {
 import { getAppContext } from './context/app_context';
 import { checkForUpdate } from './update/updater';
 import { stopMcpServer } from './mcp/server';
+import { disposeExternalMcp } from './mcp/external';
 import { registerChannelIpc } from './channel';
 import { getLogDir, getLogger, logErrorContext, type MediaElement } from '@weq/service';
 import { systemAuthService } from './system_auth';
@@ -347,4 +348,5 @@ app.on('window-all-closed', () => {
 // was never explicitly closed (clearAccount also stops it).
 app.on('will-quit', () => {
   void stopMcpServer();
+  void disposeExternalMcp();
 });

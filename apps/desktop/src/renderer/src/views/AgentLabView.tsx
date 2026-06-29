@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
-import { Plus, Send, Settings, Sparkles, Trash2 } from 'lucide-react';
+import { ArrowLeft, Plus, Send, Settings, Sparkles, Trash2 } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
+import { autoGrowTextarea } from '../lib/textareaAutoGrow';
 import { QqAvatar } from '../components/QqAvatar';
 import { NewCloneModal, type BuddyOption, type FlatModels } from './agentlab/NewCloneModal';
 import { PersonaSettingsModal } from './agentlab/PersonaSettingsModal';
 import { UsagePanel } from './agentlab/UsagePanel';
 import { AssistantPanel } from './agentlab/AssistantPanel';
-import { ChatBubble } from './agentlab/ChatBubble';
+import { ChatBubble, buildFaceMap, type FaceContext } from './agentlab/ChatBubble';
 
 interface ChatTurn {
   role: 'user' | 'assistant';
@@ -61,14 +62,11 @@ interface PersonaParamsDetail {
 }
 
 function Chips({ items }: { items: string[] }): ReactElement {
-  if (!items.length) return <span style={{ opacity: 0.45 }}>—</span>;
+  if (!items.length) return <span className="weq-pp-dim">—</span>;
   return (
-    <span style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+    <span className="weq-pp-chips">
       {items.map((item, index) => (
-        <span
-          key={`${item}-${index}`}
-          style={{ padding: '1px 6px', borderRadius: 6, background: 'rgba(127,127,127,0.16)', fontSize: 12 }}
-        >
+        <span key={`${item}-${index}`} className="weq-pp-chip">
           {item}
         </span>
       ))}
@@ -78,9 +76,9 @@ function Chips({ items }: { items: string[] }): ReactElement {
 
 function Row({ label, children }: { label: string; children: ReactNode }): ReactElement {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '92px 1fr', gap: 8, alignItems: 'start', fontSize: 13 }}>
-      <span style={{ opacity: 0.6 }}>{label}</span>
-      <div style={{ minWidth: 0 }}>{children}</div>
+    <div className="weq-pp-row">
+      <span className="weq-pp-label">{label}</span>
+      <div className="weq-pp-val">{children}</div>
     </div>
   );
 }
@@ -96,26 +94,19 @@ function PersonaParamsPanel({ loading, detail }: { loading: boolean; detail: Per
   const voiceProfile = detail.persona.voiceProfile;
   return (
     <div className="weq-agentlab-params">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <strong style={{ fontSize: 13 }}>画像参数</strong>
-        <span
-          style={{
-            padding: '1px 8px',
-            borderRadius: 6,
-            fontSize: 12,
-            background: profile.extractedByLlm ? 'rgba(46,160,67,0.2)' : 'rgba(219,154,4,0.2)',
-          }}
-        >
+      <div className="weq-pp-head">
+        <strong className="weq-pp-title">画像参数</strong>
+        <span className={`weq-pp-badge${profile.extractedByLlm ? ' is-llm' : ' is-fallback'}`}>
           {profile.extractedByLlm ? 'LLM 提炼' : '启发式兜底（未调用 LLM 或失败）'}
         </span>
       </div>
 
       {profile.extractError ? (
-        <div style={{ fontSize: 12, color: '#d9534f' }}>提炼失败：{profile.extractError}</div>
+        <div className="weq-pp-error">提炼失败：{profile.extractError}</div>
       ) : null}
 
       <Row label="统计">
-        <span style={{ fontSize: 12, opacity: 0.85 }}>
+        <span className="weq-pp-stats">
           源消息 {stats.sourceMessageCount} · 对方 {stats.friendMessageCount} · 轮次 {stats.turnCount} · 问答对{' '}
           {stats.pairCount} · 均字 {stats.avgFriendMsgChars} · 连发 {stats.avgFriendBurst} · 语料{' '}
           {stats.corpusChars} 字
@@ -135,11 +126,11 @@ function PersonaParamsPanel({ loading, detail }: { loading: boolean; detail: Per
       <Row label="系统表情"><Chips items={systemFaces} /></Row>
       <Row label="表情包">
         {stickers.length === 0 ? (
-          <span style={{ opacity: 0.45 }}>—</span>
+          <span className="weq-pp-dim">—</span>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <div className="weq-pp-stickers">
             {stickers.map((s, index) => (
-              <span key={`sticker-${index}`} style={{ fontSize: 12, opacity: 0.85 }}>
+              <span key={`sticker-${index}`} className="weq-pp-sticker">
                 ×{s.count} {s.description || '（未解读）'}
                 {s.scenario ? `（${s.scenario}）` : ''}
               </span>
@@ -152,14 +143,14 @@ function PersonaParamsPanel({ loading, detail }: { loading: boolean; detail: Per
       <Row label="反应模式"><Chips items={deep.reactionPatterns} /></Row>
       <Row label="立场雷点"><Chips items={deep.boundaries} /></Row>
 
-      <details>
-        <summary style={{ cursor: 'pointer', fontSize: 12, opacity: 0.7 }}>
+      <details className="weq-pp-samples">
+        <summary>
           代表样本 {fewShots.length} 组 / 真实问答对抽样 {detail.pairs.length} 条
         </summary>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+        <div className="weq-pp-samples-body">
           {fewShots.map((pair, index) => (
-            <div key={`fs-${index}`} style={{ fontSize: 12, lineHeight: 1.5 }}>
-              <div style={{ opacity: 0.6 }}>我：{pair.prompt}</div>
+            <div key={`fs-${index}`} className="weq-pp-sample">
+              <div className="weq-pp-sample-q">我：{pair.prompt}</div>
               <div>{detail.persona.name}：{pair.reply}</div>
             </div>
           ))}
@@ -180,6 +171,8 @@ export function AgentLabView(): ReactElement {
   const chat = trpc.account.chatWithAgentLabPersona.useMutation();
   const deletePersona = trpc.account.deleteAgentLabPersona.useMutation();
   const selfProfile = trpc.account.getSelfProfile.useQuery();
+  const systemFaces = trpc.account.getSystemFaces.useQuery(undefined, { staleTime: Infinity });
+  const faceDescToId = useMemo(() => buildFaceMap(systemFaces.data ?? []), [systemFaces.data]);
 
   const buddyUids = useMemo(
     () => (buddies.data ?? []).map((item) => item.uid).filter(Boolean),
@@ -232,10 +225,19 @@ export function AgentLabView(): ReactElement {
   const [input, setInput] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [cloneTyping, setCloneTyping] = useState(false);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
   const personaId = sel.kind === 'persona' ? sel.id : '';
   const activePersona = personaList.find((item) => item.id === personaId) ?? null;
   const clonedProfile = activePersona ? profileByUid.get(activePersona.sourceId) : undefined;
+  // 克隆体气泡的系统表情渲染上下文：用 TA 的 faceText 白名单 + 全局 faceText→id 映射。
+  const cloneFaces: FaceContext | undefined = useMemo(
+    () =>
+      activePersona?.systemFaces?.length
+        ? { whitelist: activePersona.systemFaces, descToId: faceDescToId }
+        : undefined,
+    [activePersona?.systemFaces, faceDescToId],
+  );
   const personaDetail = trpc.account.getAgentLabPersonaDetail.useQuery(
     { personaId },
     { enabled: settingsOpen && !!personaId },
@@ -266,12 +268,15 @@ export function AgentLabView(): ReactElement {
     setHistory([]);
     setSettingsOpen(false);
     seededPersona.current = ''; // 强制从持久化对话重新 seed
+    // 切入时拉一次最新持久化历史，避免命中陈旧缓存（实时查询历史）。
+    void utils.account.getAgentLabConversation.invalidate({ personaId: id });
   }
 
   async function onSend(): Promise<void> {
     if (!personaId || !input.trim()) return;
     const text = input.trim();
     setInput('');
+    if (composerRef.current) composerRef.current.style.height = 'auto';
     const nextHistory = [...history, { role: 'user' as const, text }];
     setHistory(nextHistory);
     try {
@@ -291,6 +296,9 @@ export function AgentLabView(): ReactElement {
         }
       }
       setCloneTyping(false);
+      // 让持久化对话缓存跟上（后端已逐条落库）；否则切走再切回会从陈旧缓存 reseed 丢消息。
+      seededPersona.current = personaId; // 防止下面的失效触发 reseed 清掉刚揭示的本地历史
+      void utils.account.getAgentLabConversation.invalidate({ personaId });
     } catch (error) {
       setCloneTyping(false);
       dialog.error('发送失败', error instanceof Error ? error.message : String(error));
@@ -366,19 +374,33 @@ export function AgentLabView(): ReactElement {
       {/* 右侧主区 */}
       <section className="weq-agentlab-main">
         {sel.kind === 'home' ? (
-          <UsagePanel resolveName={(id) => personaList.find((p) => p.id === id)?.name ?? '已删除的克隆'} />
+          <UsagePanel
+            resolveName={(id) => personaList.find((p) => p.id === id)?.name ?? '已删除的克隆'}
+            personaCount={personaList.length}
+          />
         ) : sel.kind === 'assistant' ? (
-          <AssistantPanel chatModels={flatModels.chat} />
+          <AssistantPanel chatModels={flatModels.chat} onBack={() => setSel({ kind: 'home' })} />
         ) : (
           <div className="weq-agentlab-chat">
             <header className="weq-agentlab-head">
-              <div>
-                <strong>{activePersona?.name ?? '克隆体'}</strong>
-                <span>
-                  {activePersona
-                    ? `${activePersona.models?.chat?.model ?? '旧版克隆，请重建'} · 样本 ${activePersona.corpusMessageCount} 条`
-                    : '加载中…'}
-                </span>
+              <div className="weq-agentlab-head-left">
+                <button
+                  type="button"
+                  className="weq-set-iconbtn"
+                  onClick={() => setSel({ kind: 'home' })}
+                  aria-label="返回主页"
+                  title="返回"
+                >
+                  <ArrowLeft size={16} />
+                </button>
+                <div>
+                  <strong>{activePersona?.name ?? '克隆体'}</strong>
+                  <span>
+                    {activePersona
+                      ? `${activePersona.models?.chat?.model ?? '旧版克隆，请重建'} · 样本 ${activePersona.corpusMessageCount} 条`
+                      : '加载中…'}
+                  </span>
+                </div>
               </div>
               <div className="weq-agentlab-head-actions">
                 <button
@@ -423,6 +445,7 @@ export function AgentLabView(): ReactElement {
                       name={activePersona?.name ?? '克隆体'}
                       uin={clonedProfile?.uin}
                       text={item.text}
+                      faces={cloneFaces}
                     />
                   ),
                 )
@@ -435,9 +458,20 @@ export function AgentLabView(): ReactElement {
             </div>
             <div className="weq-agentlab-composer">
               <textarea
+                ref={composerRef}
+                rows={1}
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="输入一句话测试克隆效果"
+                onChange={(e) => {
+                  setInput(e.target.value);
+                  autoGrowTextarea(e.currentTarget);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    void onSend();
+                  }
+                }}
+                placeholder="输入一句话测试克隆效果（Enter 发送，Shift+Enter 换行）"
                 disabled={!activePersona || chat.isLoading}
               />
               <button

@@ -708,9 +708,11 @@ export class AgentLabService extends EventEmitter {
     const now = Date.now();
     // 命中的记忆 +access（越常被想起越不易遗忘）。
     this.memories.touch(input.personaId, result.usedMemoryIds, now);
+    // 分段连发逐条落库（每条一个 assistant turn），重启/切换后历史仍保持分句。
+    const assistantSegments = result.segments.length > 0 ? result.segments : [result.text];
     this.conversations.append(input.personaId, [
       { role: 'user', text: input.text, ts: now },
-      { role: 'assistant', text: result.text, ts: now },
+      ...assistantSegments.map((seg) => ({ role: 'assistant' as const, text: seg, ts: now })),
     ]);
 
     // 每隔若干轮，从最近对话蒸馏出克隆体「对对方」的新记忆（不阻塞本次回复）。

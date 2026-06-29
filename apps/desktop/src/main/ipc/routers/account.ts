@@ -14,9 +14,11 @@
 import { z } from 'zod';
 import { observable } from '@trpc/server/observable';
 import { mkdir, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { basename, dirname, extname, join } from 'node:path';
 import { getAppContext, dbEventBus, type AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
+import { assistantBus, type AssistantStreamEvent } from '../../mcp/assistant_bus';
 import {
   clientKeyExpiryMs,
   toRenderElements,
@@ -555,6 +557,11 @@ export const accountRouter = router({
     return requireServices().agentLab.getTokenStats();
   }),
 
+  /** 系统表情清单（faceId + 外显文字），前端把克隆体回复里的 /捂脸 渲染成表情图。 */
+  getSystemFaces: procedure.query(() => {
+    return requireServices().emoji.listSystemFaces();
+  }),
+
   /** 与某克隆体的持久化对话历史。 */
   getAgentLabConversation: procedure
     .input(z.object({ personaId: z.string().min(1) }))
@@ -620,11 +627,32 @@ export const accountRouter = router({
     return true;
   }),
 
+  /**
+   * 启动一轮助手任务（非阻塞）。立即返回 runId；每一步思考/工具调用/最终答复
+   * 通过 `onAssistantEvent` 流式推送（镜像 update.download / onProgress）。
+   * chat() 内部已把异常先 emit 成 `error` step 再抛出，故这里吞掉 rejection。
+   */
   chatWithAssistant: procedure
     .input(z.object({ text: z.string().min(1) }))
-    .mutation(async ({ input }) => {
-      return requireServices().assistant.chat(input.text);
+    .mutation(({ input }) => {
+      const assistant = requireServices().assistant;
+      const runId = randomUUID();
+      void assistant
+        .chat(input.text, (step) => assistantBus.emit('step', { runId, step } satisfies AssistantStreamEvent))
+        .catch(() => {});
+      return { runId };
     }),
+
+  /** 助手任务的过程流（thinking / tool_call / tool_result / final / error）。 */
+  onAssistantEvent: procedure.subscription(() => {
+    return observable<AssistantStreamEvent>((emit) => {
+      const handler = (e: AssistantStreamEvent): void => emit.next(e);
+      assistantBus.on('step', handler);
+      return () => {
+        assistantBus.off('step', handler);
+      };
+    });
+  }),
 
   /** Recent conversations (recent_contact_v3_table), newest first. */
   listRecentContacts: procedure.query(async () => {

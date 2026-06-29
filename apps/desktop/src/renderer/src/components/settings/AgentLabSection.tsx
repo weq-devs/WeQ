@@ -49,12 +49,8 @@ export function AgentLabSection(): ReactElement {
   const deleteProvider = trpc.bootstrap.deleteAgentLabProvider.useMutation();
 
   const [selectedId, setSelectedId] = useState<string>('');
+  const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<ProviderForm>(emptyForm);
-
-  useEffect(() => {
-    const first = providers.data?.[0];
-    if (!selectedId && first) setSelectedId(first.id);
-  }, [providers.data, selectedId]);
 
   useEffect(() => {
     const current = providers.data?.find((item) => item.id === selectedId);
@@ -83,9 +79,25 @@ export function AgentLabSection(): ReactElement {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
-  function startCreate(): void {
+  /** 点「新建」：正在新建则收回，否则展开一个空表单。 */
+  function toggleCreate(): void {
+    if (editing && !selectedId) {
+      setEditing(false);
+      return;
+    }
     setSelectedId('');
     setForm(emptyForm());
+    setEditing(true);
+  }
+
+  /** 点已有 provider：进入编辑（再点同一个则收回）。 */
+  function editProvider(id: string): void {
+    if (editing && selectedId === id) {
+      setEditing(false);
+      return;
+    }
+    setSelectedId(id);
+    setEditing(true);
   }
 
   function applyVendor(vendor: string): void {
@@ -159,6 +171,7 @@ export function AgentLabSection(): ReactElement {
         models,
       });
       setSelectedId(id);
+      setEditing(true);
       await utils.bootstrap.listAgentLabProviders.invalidate();
       dialog.success('已保存', `provider「${form.name.trim() || id}」配置已更新`);
     } catch (error) {
@@ -179,6 +192,7 @@ export function AgentLabSection(): ReactElement {
       await deleteProvider.mutateAsync({ id: selectedId });
       setSelectedId('');
       setForm(emptyForm());
+      setEditing(false);
       await utils.bootstrap.listAgentLabProviders.invalidate();
       dialog.success('已删除', `provider「${removed}」已移除`);
     } catch (error) {
@@ -193,27 +207,42 @@ export function AgentLabSection(): ReactElement {
         desc="只在这里配置厂商（base_url + api_key + 可用模型）。具体用哪个模型，在克隆体里按任务选择。推荐硅基流动：一个 key 覆盖聊天 / 向量 / 视觉。"
       />
 
-      <Card title="已保存的 provider">
-        <div className="weq-agentlab-provider-list">
-          {(providers.data ?? []).map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={`weq-agentlab-provider-item${selectedId === item.id ? ' is-active' : ''}`}
-              onClick={() => setSelectedId(item.id)}
-            >
-              <span className="weq-agentlab-provider-name">{item.name}</span>
-              <small>{item.models.length} 个模型 · {item.baseUrl}</small>
-            </button>
-          ))}
-          <button type="button" className="weq-agentlab-provider-item is-create" onClick={startCreate}>
-            <Plus size={14} />
-            <span>新建 provider</span>
+      <Card
+        title="已保存的 provider"
+        action={
+          <button
+            type="button"
+            className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+            onClick={toggleCreate}
+          >
+            <Plus size={12} />
+            {editing && !selectedId ? '收起' : '新建'}
           </button>
-        </div>
+        }
+      >
+        {(providers.data ?? []).length === 0 ? (
+          <div className="weq-set-row-desc" style={{ padding: '4px 2px' }}>
+            还没有 provider，点右上角「新建」添加一个厂商。
+          </div>
+        ) : (
+          <div className="weq-agentlab-provider-list">
+            {(providers.data ?? []).map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`weq-agentlab-provider-item${editing && selectedId === item.id ? ' is-active' : ''}`}
+                onClick={() => editProvider(item.id)}
+              >
+                <span className="weq-agentlab-provider-name">{item.name}</span>
+                <small>{item.models.length} 个模型 · {item.baseUrl}</small>
+              </button>
+            ))}
+          </div>
+        )}
       </Card>
 
-      <Card title="Provider 配置">
+      {editing ? (
+      <Card title={selectedId ? '编辑 provider' : '新建 provider'}>
         <Row
           label="厂商模板"
           desc="选模板自动带入 base_url 与推荐模型。"
@@ -317,6 +346,7 @@ export function AgentLabSection(): ReactElement {
           </button>
         </div>
       </Card>
+      ) : null}
     </div>
   );
 }

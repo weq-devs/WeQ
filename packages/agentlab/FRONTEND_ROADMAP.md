@@ -71,5 +71,11 @@
 - [x] 6 WeQ助手 tool-calling（openai_tools 注册表）
 - [x] 补充：分段连发 + 打字延迟（onSend 逐条揭示 + `.weq-agentlab-typing` 动画，吃后端 `segments`/`replyDelayMs`）
 
+- [x] 系统表情渲染：克隆体回复里的 `/捂脸` 这类 faceText 在气泡里渲染成表情图。
+      `emoji.db`→`EmojiService.listSystemFaces`→`account.getSystemFaces`→`ChatBubble` 用 persona.systemFaces 白名单 + faceText→faceId 映射（复用 `FaceEmoji`）。
+- [x] 分段连发逐条落库：`chat()` 每个 segment 存为独立 assistant turn，重启/切换历史保持分句。
+- [x] 历史实时性：发送后 / 切入克隆体时 invalidate `getAgentLabConversation`，修复「切走切回丢历史」。
+
 ### 仅剩
 - ⑤ 灯箱「导出好友」——等后端 BACKEND_ROADMAP §5 的导出 AI tool。
+- 克隆体「发自定义表情包 / 发语音」——见 BACKEND_ROADMAP（需 sticker 引用协议 / TTS 语音克隆，应用层）。

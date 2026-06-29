@@ -7,6 +7,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import type { AssistantStep } from './assistant';
 
 export interface ConversationTurn {
   role: 'user' | 'assistant';
@@ -14,6 +15,8 @@ export interface ConversationTurn {
   ts: number;
   /** assistant 回合用到的工具名（WeQ 助手）。 */
   toolsUsed?: string[];
+  /** assistant 回合的多轮思考/工具调用过程（WeQ 助手），用于刷新后回放折叠历史。 */
+  steps?: AssistantStep[];
 }
 
 /** 单个 agent 最多保留的回合数（防文件无限增长）。 */

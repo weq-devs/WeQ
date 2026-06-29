@@ -9,11 +9,13 @@
  */
 
 import { useMemo, useState, type ReactElement } from 'react';
-import { ArrowLeft, Search, Sparkles } from 'lucide-react';
+import { ArrowLeft, Search, Sparkles, X } from 'lucide-react';
 import { Modal } from '../../components/Dialog';
-import { QqAvatar } from '../../components/QqAvatar';
+import { qqAvatarUrl } from '../../components/QqAvatar';
+import { Avatar } from '../export/widgets';
 import { trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
+import '../../styles/export.css';
 
 export interface BuddyOption {
   uid: string;
@@ -131,27 +133,34 @@ export function NewCloneModal({
           <strong>{!target ? '选择要克隆的好友' : building ? '正在克隆…' : `配置克隆：${target.label}`}</strong>
         </header>
 
-        {/* step 1: 好友选择 */}
+        {/* step 1: 好友选择（视觉沿用导出页选择框，头像直连 CDN 不走缓存协议，避免 502） */}
         {!target ? (
-          <div className="weq-clone-picker">
-            <div className="weq-clone-search">
-              <Search size={15} />
+          <div className="weq-exp-picker">
+            <div className="weq-exp-search">
+              <Search size={15} aria-hidden />
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="搜索好友昵称 / QQ 号"
                 autoFocus
               />
+              {query ? (
+                <button type="button" title="清空" onClick={() => setQuery('')}>
+                  <X size={14} />
+                </button>
+              ) : null}
             </div>
-            <div className="weq-clone-list">
+            <div className="weq-exp-list">
               {filtered.length === 0 ? (
-                <div className="weq-agentlab-empty">没有匹配的好友。</div>
+                <div className="weq-exp-list-state">{query ? '没有匹配的好友' : '没有可克隆的好友'}</div>
               ) : (
                 filtered.map((b) => (
-                  <button key={b.uid} className="weq-clone-row" onClick={() => setTarget(b)}>
-                    <QqAvatar uin={b.uin} url={b.avatarUrl} size={36} />
-                    <span className="weq-clone-row-name">{b.label}</span>
-                    <span className="weq-clone-row-uin">{b.uin}</span>
+                  <button key={b.uid} type="button" className="weq-exp-row" onClick={() => setTarget(b)}>
+                    <Avatar url={b.uin ? qqAvatarUrl(b.uin) : b.avatarUrl} name={b.label} size={38} />
+                    <span className="weq-exp-row-meta">
+                      <strong title={b.label}>{b.label}</strong>
+                      <small>{b.uin}</small>
+                    </span>
                   </button>
                 ))
               )}
@@ -198,25 +207,38 @@ export function NewCloneModal({
               </select>
             </label>
 
-            <label className="weq-clone-check">
-              <input
-                type="checkbox"
-                checked={analyzeStickers}
-                onChange={(e) => setAnalyzeStickers(e.target.checked)}
-              />
-              <span>分析 TA 的自定义表情包（需要视觉模型）</span>
-            </label>
-            {analyzeStickers ? (
-              <label className="weq-agentlab-field">
-                <span>视觉模型</span>
-                <select value={visSel} onChange={(e) => setVisSel(e.target.value)}>
-                  <option value="">请选择视觉模型</option>
-                  {flatModels.vision.map((m) => (
-                    <option key={m.key} value={m.key}>{m.label}</option>
-                  ))}
-                </select>
+            <div className={`weq-clone-toggle-card${analyzeStickers ? ' is-on' : ''}`}>
+              <label className="weq-clone-check weq-clone-toggle-main">
+                <input
+                  type="checkbox"
+                  checked={analyzeStickers}
+                  onChange={(e) => setAnalyzeStickers(e.target.checked)}
+                />
+                <span className="weq-clone-toggle-text">
+                  <strong>分析 TA 的自定义表情包</strong>
+                  <small>逐张让视觉模型解读，克隆体聊天时会带上 TA 常用的表情</small>
+                </span>
               </label>
-            ) : null}
+              {analyzeStickers ? (
+                <div className="weq-clone-toggle-extra">
+                  {flatModels.vision.length === 0 ? (
+                    <div className="weq-clone-sub-hint">
+                      还没有视觉模型，请先到「设置 → 模型服务商」添加带「视觉」能力的模型。
+                    </div>
+                  ) : (
+                    <label className="weq-agentlab-field">
+                      <span>视觉模型</span>
+                      <select value={visSel} onChange={(e) => setVisSel(e.target.value)}>
+                        <option value="">请选择视觉模型</option>
+                        {flatModels.vision.map((m) => (
+                          <option key={m.key} value={m.key}>{m.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </div>
+              ) : null}
+            </div>
 
             <div className="weq-agentlab-field">
               <span>克隆程度</span>

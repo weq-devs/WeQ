@@ -136,7 +136,7 @@ async function generateJson(
 const CARD_JSON_SHAPE = `{
   "tone": "语气与说话风格，2-4 句中文描述",
   "personalityTraits": ["性格特征短语", "..."],
-  "catchphrases": ["口头禅/高频用语，没有就给空数组"],
+  "catchphrases": ["口头禅/高频用语/常用语气词，尽量列全，最多 20 个，没有就给空数组"],
   "punctuationStyle": "标点与排版习惯，如：几乎不用句号、爱用~和省略号、习惯连发短句",
   "addressing": "对聊天对象（语料中的'我'）的称呼习惯，没有特别称呼就写'无特别称呼'",
   "topics": ["常聊话题", "..."]
@@ -184,7 +184,7 @@ export async function extractPersonaCard(
   return {
     tone: coerceString(raw.tone),
     personalityTraits: coerceStringArray(raw.personalityTraits),
-    catchphrases: coerceStringArray(raw.catchphrases),
+    catchphrases: coerceStringArray(raw.catchphrases).slice(0, 20),
     punctuationStyle: coerceString(raw.punctuationStyle),
     addressing: coerceString(raw.addressing),
     topics: coerceStringArray(raw.topics),

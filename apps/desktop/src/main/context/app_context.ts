@@ -24,6 +24,7 @@ import { loadNativeSafe } from '@weq/native';
 import { createWin32Platform, type Platform } from '@weq/platform';
 import { startMcpServer, stopMcpServer } from '../mcp/server';
 import { aiToolSpecs, runAiTool } from '../mcp/openai_tools';
+import { getExternalMcpHub, disposeExternalMcp } from '../mcp/external';
 import {
   accountConfigId,
   UserConfigService,
@@ -456,6 +457,7 @@ export function initAppContext(): AppContext {
       accountMonitor?.stop();
       accountMonitor = null;
       void stopMcpServer();
+      void disposeExternalMcp();
       this.account?.dispose();
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
@@ -539,8 +541,12 @@ export function initAppContext(): AppContext {
           conversations,
         ),
         assistant: new AssistantService(agentlabRoot, resolveAgentEndpoint, tokenUsage, conversations, {
-          specs: aiToolSpecs,
-          run: runAiTool,
+          // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
+          specs: async () => [...aiToolSpecs(), ...(await getExternalMcpHub().specs())],
+          run: (name, args) =>
+            name.startsWith('mcp__') ? getExternalMcpHub().run(name, args) : runAiTool(name, args),
+          // 配置变更/启动时把外部 MCP 配置同步给 Hub（连接惰性建立）。
+          syncExternalMcp: (raw) => getExternalMcpHub().configure(raw),
         }),
         exportManager: new (await import('@weq/service')).ExportTaskManager(
           new MsgService(session),
@@ -672,6 +678,7 @@ export function initAppContext(): AppContext {
       accountMonitor?.stop();
       accountMonitor = null;
       void stopMcpServer();
+      void disposeExternalMcp();
       this.account?.dispose();
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
@@ -739,8 +746,12 @@ export function initAppContext(): AppContext {
           conversations,
         ),
         assistant: new AssistantService(agentlabRoot, resolveAgentEndpoint, tokenUsage, conversations, {
-          specs: aiToolSpecs,
-          run: runAiTool,
+          // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
+          specs: async () => [...aiToolSpecs(), ...(await getExternalMcpHub().specs())],
+          run: (name, args) =>
+            name.startsWith('mcp__') ? getExternalMcpHub().run(name, args) : runAiTool(name, args),
+          // 配置变更/启动时把外部 MCP 配置同步给 Hub（连接惰性建立）。
+          syncExternalMcp: (raw) => getExternalMcpHub().configure(raw),
         }),
         exportManager: new (await import('@weq/service')).ExportTaskManager(
           new MsgService(session),
@@ -823,6 +834,7 @@ export function initAppContext(): AppContext {
       this.scheduler?.stop();
       this.scheduler = null;
       void stopMcpServer();
+      void disposeExternalMcp();
       unmountDbWatch();
       this.account?.dispose();
       this.account = null;

@@ -14,7 +14,7 @@ export const AGENTLAB_PROVIDER_CATALOG: AgentLabProviderCatalogEntry[] = [
     models: [
       { id: 'deepseek-ai/DeepSeek-V3', label: 'DeepSeek-V3（聊天）', capabilities: ['chat'] },
       { id: 'Qwen/Qwen2.5-72B-Instruct', label: 'Qwen2.5-72B（聊天）', capabilities: ['chat'] },
-      { id: 'Qwen/Qwen2.5-VL-72B-Instruct', label: 'Qwen2.5-VL-72B（视觉）', capabilities: ['chat', 'vision'] },
+      { id: 'Qwen/Qwen3-VL-30B-A3B-Instruct', label: 'Qwen3-VL-30B-A3B（视觉）', capabilities: ['chat', 'vision'] },
       { id: 'BAAI/bge-m3', label: 'bge-m3（中文向量）', capabilities: ['embedding'] },
     ],
   },

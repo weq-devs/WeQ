@@ -84,7 +84,7 @@ export {
 } from './account/buddy_analytics';
 export { GroupNotifyService } from './account/group_notify';
 export { ProfileService } from './account/profile';
-export { EmojiService } from './account/emoji';
+export { EmojiService, type SystemFaceEntry } from './account/emoji';
 export { FileAssistantService } from './account/file_assistant';
 export { FileSearchService } from './account/file_search';
 export type { FileType, SearchResult } from './account/file_search';
@@ -97,7 +97,7 @@ export type { TokenStats, TokenUsageRecord } from './account/agentlab_usage';
 export { ConversationStore } from './account/agentlab_conversation';
 export type { ConversationTurn } from './account/agentlab_conversation';
 export { AssistantService, ASSISTANT_AGENT_ID } from './account/assistant';
-export type { AssistantConfig, AssistantTools, AssistantToolSpec } from './account/assistant';
+export type { AssistantConfig, AssistantTools, AssistantToolSpec, AssistantStep } from './account/assistant';
 export type { RenderC2cMsg, RenderGroupMsg } from './account/msg';
 export { toRenderElements } from './account/msg_view';
 export type { RenderElement, RenderTextElement } from './account/msg_view';
