@@ -24,6 +24,7 @@ import { checkForUpdate } from './update/updater';
 import { stopMcpServer } from './mcp/server';
 import { disposeExternalMcp } from './mcp/external';
 import { registerChannelIpc } from './channel';
+import { registerQzoneIpc } from './qzone';
 import { getLogDir, getLogger, logErrorContext, type MediaElement } from '@weq/service';
 import { systemAuthService } from './system_auth';
 
@@ -316,6 +317,7 @@ void app.whenReady().then(() => {
   registerLogIpc();
   registerSystemAuthIpc();
   registerChannelIpc();
+  registerQzoneIpc();
 
   app.on('browser-window-created', (_, win) => {
     optimizer.watchWindowShortcuts(win);

@@ -7280,6 +7280,17 @@ html[data-theme="dark"] .weq-forward-bubble {
 }
 .weq-persona-memforget:hover { background: rgba(127, 127, 127, 0.18); color: var(--weq-danger, #e5484d); }
 
+/* 深色适配：.weq-modal 的土台是写死的白色渐变、没有 dark 变体（导出/转发/资料等弹窗
+ * 靠各自内层容器铺底盖住白色）。克隆设置(.weq-clone-modal)/克隆体设置(.weq-persona-modal)
+ * 自身透明，于是深色下白底透出来变成「白底白字」。这里给这两个壳铺上工程统一的深色面
+ * (#171d25)，文字/输入框等已走 token 会自动跟随。顶部保留一抹品牌色微光与浅色弹窗呼应。 */
+html[data-theme="dark"] .weq-clone-modal,
+html[data-theme="dark"] .weq-persona-modal {
+  background:
+    radial-gradient(ellipse at 24% 0%, color-mix(in srgb, var(--weq-accent-effective) 14%, transparent), transparent 46%),
+    #171d25;
+}
+
 /* ── 主页用量统计 ────────────────────────────────────────────────────────── */
 .weq-usage { flex: 1; min-width: 0; overflow-y: auto; padding: 22px; display: flex; flex-direction: column; gap: 18px; }
 .weq-usage-head { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
