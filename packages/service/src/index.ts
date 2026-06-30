@@ -38,7 +38,9 @@ export type {
   MediaCompletionConfig,
   VoiceTranscribeConfig,
   McpServerConfig,
+  AgentLabSettings,
 } from './bootstrap/user_config';
+export { AgentLabConfigService } from './bootstrap/agentlab_config';
 
 export { AvatarCacheService } from './bootstrap/avatar_cache';
 export type { AvatarBlob } from './bootstrap/avatar_cache';
@@ -75,14 +77,27 @@ export {
   type RelationGraphNode,
   type RelationGraphGroup,
 } from './account/group_info';
+export {
+  BuddyAnalyticsService,
+  type BuddyAnalytics,
+  type BuddyReplyStats,
+} from './account/buddy_analytics';
 export { GroupNotifyService } from './account/group_notify';
 export { ProfileService } from './account/profile';
-export { EmojiService } from './account/emoji';
+export { EmojiService, type SystemFaceEntry } from './account/emoji';
 export { FileAssistantService } from './account/file_assistant';
 export { FileSearchService } from './account/file_search';
 export type { FileType, SearchResult } from './account/file_search';
 export { OnlineStatusService } from './account/online_status';
 export type { FormattedOnlineStatus } from './account/online_status';
+export { AgentLabService } from './account/agentlab';
+export type { AgentLabMediaDeps, EndpointResolver, AgentLabBuildProgress } from './account/agentlab';
+export { TokenUsageStore } from './account/agentlab_usage';
+export type { TokenStats, TokenUsageRecord } from './account/agentlab_usage';
+export { ConversationStore } from './account/agentlab_conversation';
+export type { ConversationTurn } from './account/agentlab_conversation';
+export { AssistantService, ASSISTANT_AGENT_ID } from './account/assistant';
+export type { AssistantConfig, AssistantTools, AssistantToolSpec, AssistantStep, AssistantArtifact } from './account/assistant';
 export type { RenderC2cMsg, RenderGroupMsg } from './account/msg';
 export { toRenderElements } from './account/msg_view';
 export type { RenderElement, RenderTextElement } from './account/msg_view';
@@ -193,3 +208,13 @@ export type {
 } from './common/voice_transcribe';
 export { getLogDir, getLogger, initLogger, logErrorContext } from './common/logger';
 export type { Logger, LoggerContext, LogLevel } from './common/logger';
+export { TtsService, TTS_VENDOR_CATALOG, getTtsCatalogEntry, getTtsCapabilities } from './common/tts';
+export type {
+  TtsVendor,
+  TtsProviderConfig,
+  TtsRefClip,
+  TtsSynthesizeOptions,
+  TtsSynthesizeResult,
+  TtsCapabilities,
+  TtsVendorCatalogEntry,
+} from './common/tts';

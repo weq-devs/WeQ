@@ -19,6 +19,8 @@
 import { mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import type { Platform } from '@weq/platform';
+import type { AgentLabProviderConfig } from '@weq/agentlab';
+import type { TtsProviderConfig } from '../common/tts';
 import type { AccountConfig } from '../account/user_config';
 import { getLogger, logErrorContext } from '../common/logger';
 
@@ -42,12 +44,54 @@ type DeepPartial<T> = {
   [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
 };
 
+function isAgentLabProviderConfig(value: unknown): value is AgentLabProviderConfig {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Partial<AgentLabProviderConfig>;
+  return (
+    typeof item.id === 'string' &&
+    typeof item.name === 'string' &&
+    typeof item.vendor === 'string' &&
+    typeof item.baseUrl === 'string' &&
+    typeof item.apiKey === 'string' &&
+    Array.isArray(item.models) &&
+    typeof item.createdAt === 'number' &&
+    typeof item.updatedAt === 'number'
+  );
+}
+
+function normalizeAgentLabProviders(value: unknown): AgentLabProviderConfig[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isAgentLabProviderConfig);
+}
+
+function isTtsProviderConfig(value: unknown): value is TtsProviderConfig {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Partial<TtsProviderConfig>;
+  return (
+    typeof item.id === 'string' &&
+    typeof item.name === 'string' &&
+    typeof item.vendor === 'string' &&
+    typeof item.baseUrl === 'string' &&
+    typeof item.apiKey === 'string' &&
+    typeof item.createdAt === 'number' &&
+    typeof item.updatedAt === 'number'
+  );
+}
+
+function normalizeTtsProviders(value: unknown): TtsProviderConfig[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isTtsProviderConfig);
+}
+
 export interface MediaCompletionConfig {
   enabled: boolean;
 }
 
 export interface VoiceTranscribeConfig {
+  /** 离线转录模型 id（空 = 关）。 */
   modelId: string;
+  /** TTS 服务商列表（用于克隆体发语音/语音克隆）。 */
+  ttsProviders: TtsProviderConfig[];
 }
 
 /**
@@ -61,20 +105,32 @@ export interface McpServerConfig {
   token: string;
 }
 
+export interface AgentLabSettings {
+  providers: AgentLabProviderConfig[];
+}
+
 export interface AppSettings {
   realtimeEnabled: boolean;
   mediaCompletion: MediaCompletionConfig;
   autoFetchClientKey: boolean;
+  /**
+   * 空闲自动上锁阈值（分钟）。0 = 关闭自动上锁（仍可在左栏手动上锁）。
+   * 解锁强制走系统认证（Windows Hello / Touch ID），无绕过入口。
+   */
+  autoLockMinutes: number;
   voiceTranscribe: VoiceTranscribeConfig;
   mcp: McpServerConfig;
+  agentLab: AgentLabSettings;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   realtimeEnabled: true,
   mediaCompletion: { enabled: true },
   autoFetchClientKey: true,
-  voiceTranscribe: { modelId: '' },
+  autoLockMinutes: 0,
+  voiceTranscribe: { modelId: '', ttsProviders: [] },
   mcp: { enabled: false, port: 8765, token: '' },
+  agentLab: { providers: [] },
 };
 
 export interface UserConfig {
@@ -220,16 +276,21 @@ export class UserConfigService {
     return {
       realtimeEnabled: s?.realtimeEnabled ?? d.realtimeEnabled,
       autoFetchClientKey: s?.autoFetchClientKey ?? d.autoFetchClientKey,
+      autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
       mediaCompletion: {
         enabled: s?.mediaCompletion?.enabled ?? d.mediaCompletion.enabled,
       },
       voiceTranscribe: {
         modelId: s?.voiceTranscribe?.modelId ?? d.voiceTranscribe.modelId,
+        ttsProviders: normalizeTtsProviders(s?.voiceTranscribe?.ttsProviders) ?? d.voiceTranscribe.ttsProviders,
       },
       mcp: {
         enabled: s?.mcp?.enabled ?? d.mcp.enabled,
         port: s?.mcp?.port ?? d.mcp.port,
         token: s?.mcp?.token ?? d.mcp.token,
+      },
+      agentLab: {
+        providers: normalizeAgentLabProviders(s?.agentLab?.providers) ?? d.agentLab.providers,
       },
     };
   }
@@ -239,16 +300,27 @@ export class UserConfigService {
     const next: AppSettings = {
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
       autoFetchClientKey: patch.autoFetchClientKey ?? current.autoFetchClientKey,
+      autoLockMinutes: patch.autoLockMinutes ?? current.autoLockMinutes,
       mediaCompletion: {
         enabled: patch.mediaCompletion?.enabled ?? current.mediaCompletion.enabled,
       },
       voiceTranscribe: {
         modelId: patch.voiceTranscribe?.modelId ?? current.voiceTranscribe.modelId,
+        ttsProviders:
+          patch.voiceTranscribe?.ttsProviders !== undefined
+            ? normalizeTtsProviders(patch.voiceTranscribe.ttsProviders)
+            : current.voiceTranscribe.ttsProviders,
       },
       mcp: {
         enabled: patch.mcp?.enabled ?? current.mcp.enabled,
         port: patch.mcp?.port ?? current.mcp.port,
         token: patch.mcp?.token ?? current.mcp.token,
+      },
+      agentLab: {
+        providers:
+          patch.agentLab?.providers !== undefined
+            ? normalizeAgentLabProviders(patch.agentLab.providers)
+            : current.agentLab.providers,
       },
     };
     this.write({ settings: next });
@@ -257,10 +329,13 @@ export class UserConfigService {
       patchKeys: Object.keys(patch),
       realtimeEnabled: next.realtimeEnabled,
       autoFetchClientKey: next.autoFetchClientKey,
+      autoLockMinutes: next.autoLockMinutes,
       mediaCompletionEnabled: next.mediaCompletion.enabled,
       voiceModelId: next.voiceTranscribe.modelId,
+      ttsProviderCount: next.voiceTranscribe.ttsProviders.length,
       mcpEnabled: next.mcp.enabled,
       mcpPort: next.mcp.port,
+      agentLabProviderCount: next.agentLab.providers.length,
     });
     return next;
   }

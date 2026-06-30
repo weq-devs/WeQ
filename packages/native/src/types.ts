@@ -99,6 +99,16 @@ export interface QQInstanceStatus {
   uin: string;
 }
 
+export interface WindowsHelloAvailabilityInfo {
+  code: number;
+  available: boolean;
+}
+
+export interface WindowsHelloVerifyInfo {
+  code: number;
+  success: boolean;
+}
+
 // ---------- nt_helper.node — full surface --------------------------------
 
 /**
@@ -124,6 +134,8 @@ export interface NtHelperBinding {
    * concrete account when port-probing can't (see GlobalConfigService).
    */
   isQqLoggedIn(uin: string): boolean;
+  checkWindowsHelloAvailability(): WindowsHelloAvailabilityInfo;
+  verifyWindowsHello(message: string, hwnd?: bigint | number | null): WindowsHelloVerifyInfo;
 
   // --- key acquisition ---
   /** "Instance" path: ask a running, logged-in QQ for the db key via OIDB. */

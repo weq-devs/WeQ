@@ -1,0 +1,232 @@
+<svg width="920" height="760" viewBox="0 0 920 760" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <g id="bubble-a">
+      <path d="M0 0h34a12 12 0 0 1 12 12v19a12 12 0 0 1-12 12H15L0 55V12A12 12 0 0 1 12 0Z"/>
+    </g>
+    <g id="circle-a">
+      <path d="M20 0c11 0 20 8 20 18s-9 18-20 18S0 28 0 18 9 0 20 0Z"/>
+    </g>
+    <g id="star-a">
+      <path d="M25 0l12 24 27 4-19 18 5 28-25-14-24 14 5-28-19-18 27-4L25 0Z"/>
+    </g>
+    <g id="note-a">
+      <path d="M0 23C0 10 10 0 23 0h10v23A23 23 0 0 1 10 46H0V23Z"/>
+    </g>
+    <g id="capsule-a">
+      <path d="M0 13C0 5 5 0 13 0h13v17c0 8-5 13-13 13S0 25 0 13Z"/>
+    </g>
+    <g id="hex-a">
+      <path d="M8 0h42l-8 17 8 18H8L0 17 8 0Z"/>
+    </g>
+    <g id="cross-a">
+      <path d="M0 0l15 15"/>
+      <path d="M15 0L0 15"/>
+    </g>
+    <g id="plus-a">
+      <path d="M0 15h34"/>
+      <path d="M17 0v34"/>
+    </g>
+    <g id="smile-a">
+      <path d="M0 13C7 2 15-4 25-4c11 0 19 6 25 17"/>
+      <path d="M3 35c7 8 15 12 25 12 11 0 19-4 25-12"/>
+    </g>
+    <g id="lock-a">
+      <path d="M0 0h49v32A16 16 0 0 1 33 48H16A16 16 0 0 1 0 32V0Z"/>
+    </g>
+  </defs>
+
+  <g stroke="#8EA2B5" stroke-opacity="0.23" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+    <g transform="translate(58 62) rotate(-9) scale(0.76)">
+      <use href="#bubble-a"/>
+    </g>
+    <g transform="translate(172 48) rotate(13) scale(0.74)">
+      <use href="#circle-a"/>
+    </g>
+    <g transform="translate(248 104) rotate(-17) scale(0.72)">
+      <use href="#star-a"/>
+    </g>
+    <g transform="translate(344 62) rotate(11) scale(0.78)">
+      <use href="#note-a"/>
+    </g>
+    <g transform="translate(448 61) rotate(-8) scale(0.81)">
+      <use href="#capsule-a"/>
+    </g>
+    <g transform="translate(544 54) rotate(16) scale(0.7)">
+      <use href="#circle-a"/>
+    </g>
+    <g transform="translate(654 66) rotate(-14) scale(0.72)">
+      <use href="#hex-a"/>
+    </g>
+    <g transform="translate(753 51) rotate(7) scale(0.9)">
+      <use href="#cross-a"/>
+    </g>
+    <g transform="translate(819 61) rotate(-19) scale(0.72)">
+      <use href="#circle-a"/>
+    </g>
+
+    <g transform="translate(94 165) rotate(8) scale(0.84)">
+      <use href="#note-a"/>
+    </g>
+    <g transform="translate(206 168) rotate(-4) scale(0.9)">
+      <use href="#plus-a"/>
+    </g>
+    <g transform="translate(282 145) rotate(12) scale(0.76)">
+      <use href="#bubble-a"/>
+    </g>
+    <g transform="translate(383 166) rotate(-10) scale(0.79)">
+      <use href="#smile-a"/>
+    </g>
+    <g transform="translate(483 152) rotate(15) scale(0.7)">
+      <use href="#star-a"/>
+    </g>
+    <g transform="translate(611 160) rotate(-11) scale(0.82)">
+      <use href="#note-a"/>
+    </g>
+    <g transform="translate(728 150) rotate(18) scale(0.73)">
+      <use href="#circle-a"/>
+    </g>
+    <g transform="translate(804 146) rotate(-6) scale(0.79)">
+      <use href="#lock-a"/>
+    </g>
+
+    <g transform="translate(58 272) rotate(-13) scale(0.68)">
+      <use href="#circle-a"/>
+    </g>
+    <g transform="translate(147 254) rotate(10) scale(0.71)">
+      <use href="#bubble-a"/>
+    </g>
+    <g transform="translate(226 246) rotate(-18) scale(0.76)">
+      <use href="#circle-a"/>
+    </g>
+    <g transform="translate(331 254) rotate(21) scale(0.82)">
+      <use href="#cross-a"/>
+    </g>
+    <g transform="translate(391 247) rotate(-3) scale(0.88)">
+      <use href="#plus-a"/>
+    </g>
+    <g transform="translate(486 240) rotate(9) scale(0.8)">
+      <use href="#note-a"/>
+    </g>
+    <g transform="translate(579 237) rotate(-12) scale(0.78)">
+      <use href="#hex-a"/>
+    </g>
+    <g transform="translate(668 246) rotate(14) scale(0.65)">
+      <use href="#circle-a"/>
+    </g>
+    <g transform="translate(756 232) rotate(-7) scale(0.68)">
+      <use href="#star-a"/>
+    </g>
+    <g transform="translate(838 244) rotate(5) scale(0.77)">
+      <use href="#smile-a"/>
+    </g>
+
+    <g transform="translate(84 352) rotate(4) scale(0.77)">
+      <use href="#lock-a"/>
+    </g>
+    <g transform="translate(190 344) rotate(-16) scale(0.8)">
+      <use href="#capsule-a"/>
+    </g>
+    <g transform="translate(301 332) rotate(11) scale(0.75)">
+      <use href="#bubble-a"/>
+    </g>
+    <g transform="translate(414 328) rotate(-8) scale(0.8)">
+      <use href="#circle-a"/>
+    </g>
+    <g transform="translate(520 321) rotate(3) scale(0.79)">
+      <use href="#plus-a"/>
+    </g>
+    <g transform="translate(586 330) rotate(-24) scale(0.84)">
+      <use href="#cross-a"/>
+    </g>
+    <g transform="translate(650 319) rotate(13) scale(0.84)">
+      <use href="#note-a"/>
+    </g>
+    <g transform="translate(771 331) rotate(-10) scale(0.78)">
+      <use href="#bubble-a"/>
+    </g>
+    <g transform="translate(853 325) rotate(19) scale(0.7)">
+      <use href="#circle-a"/>
+    </g>
+
+    <g transform="translate(41 454) rotate(2) scale(0.73)">
+      <use href="#plus-a"/>
+    </g>
+    <g transform="translate(123 428) rotate(-15) scale(0.83)">
+      <use href="#note-a"/>
+    </g>
+    <g transform="translate(234 413) rotate(9) scale(0.72)">
+      <use href="#star-a"/>
+    </g>
+    <g transform="translate(343 422) rotate(-6) scale(0.79)">
+      <use href="#bubble-a"/>
+    </g>
+    <g transform="translate(453 414) rotate(17) scale(0.72)">
+      <use href="#circle-a"/>
+    </g>
+    <g transform="translate(540 420) rotate(-9) scale(0.78)">
+      <use href="#smile-a"/>
+    </g>
+    <g transform="translate(663 421) rotate(7) scale(0.8)">
+      <use href="#lock-a"/>
+    </g>
+    <g transform="translate(758 410) rotate(-18) scale(0.76)">
+      <use href="#circle-a"/>
+    </g>
+    <g transform="translate(844 419) rotate(12) scale(0.88)">
+      <use href="#cross-a"/>
+    </g>
+
+    <g transform="translate(71 545) rotate(-8) scale(0.76)">
+      <use href="#bubble-a"/>
+    </g>
+    <g transform="translate(181 527) rotate(14) scale(0.7)">
+      <use href="#circle-a"/>
+    </g>
+    <g transform="translate(254 557) rotate(-5) scale(0.88)">
+      <use href="#plus-a"/>
+    </g>
+    <g transform="translate(341 523) rotate(11) scale(0.84)">
+      <use href="#note-a"/>
+    </g>
+    <g transform="translate(460 516) rotate(-16) scale(0.69)">
+      <use href="#star-a"/>
+    </g>
+    <g transform="translate(566 523) rotate(9) scale(0.73)">
+      <use href="#hex-a"/>
+    </g>
+    <g transform="translate(645 517) rotate(-12) scale(0.76)">
+      <use href="#note-a"/>
+    </g>
+    <g transform="translate(741 509) rotate(6) scale(0.79)">
+      <use href="#lock-a"/>
+    </g>
+    <g transform="translate(834 519) rotate(-20) scale(0.74)">
+      <use href="#circle-a"/>
+    </g>
+
+    <g transform="translate(107 642) rotate(10) scale(0.82)">
+      <use href="#note-a"/>
+    </g>
+    <g transform="translate(225 627) rotate(-7) scale(0.76)">
+      <use href="#bubble-a"/>
+    </g>
+    <g transform="translate(327 616) rotate(16) scale(0.72)">
+      <use href="#circle-a"/>
+    </g>
+    <g transform="translate(411 624) rotate(-22) scale(0.82)">
+      <use href="#cross-a"/>
+    </g>
+    <g transform="translate(497 619) rotate(8) scale(0.78)">
+      <use href="#smile-a"/>
+    </g>
+    <g transform="translate(621 610) rotate(-11) scale(0.7)">
+      <use href="#star-a"/>
+    </g>
+    <g transform="translate(741 619) rotate(3) scale(0.82)">
+      <use href="#plus-a"/>
+    </g>
+    <g transform="translate(825 615) rotate(13) scale(0.74)">
+      <use href="#bubble-a"/>
+    </g>
+  </g>
+</svg>

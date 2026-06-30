@@ -20,6 +20,7 @@
     "test:download-probe": "tsx test/download_rkey_probe.ts"
   },
   "dependencies": {
+    "@weq/agentlab": "workspace:*",
     "@weq/account": "workspace:*",
     "@weq/codec": "workspace:*",
     "@weq/db": "workspace:*",

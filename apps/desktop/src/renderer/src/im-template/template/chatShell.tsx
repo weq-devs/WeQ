@@ -100,7 +100,7 @@ export function ChatShell({
 					footerContent={railFooterContent}
 					hideAvatar={true}
 				/>
-				<aside className={cn("sidebar")}>
+				<aside className={cn("sidebar", view === "agentlab" && "is-agentlab-view")}>
 					<SidebarHeader
 						user={user}
 						view={view}
@@ -117,7 +117,7 @@ export function ChatShell({
 						friendNoticeCount={friendNoticeCount}
 						groupNoticeCount={groupNoticeCount}
 					/>
-					<div className={cn("sidebar-body")}>{sidebarContent}</div>
+					<div className={cn("sidebar-body", view === "agentlab" && "is-agentlab-sidebar")}>{sidebarContent}</div>
 				</aside>
 				<SidebarResizeHandle
 					width={sidebarWidth}

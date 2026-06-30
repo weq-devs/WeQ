@@ -26,6 +26,36 @@ exposeElectronTRPC();
 
 const weqBridge = {
   openLogDir: (): Promise<boolean> => ipcRenderer.invoke('logs:open-dir') as Promise<boolean>,
+  channel: {
+    /** Open (or focus) the built-in QQ 频道 browser for the current account.
+     *  Pass WeQ's theme preference so the window follows 深/浅 mode. */
+    open: (theme?: 'system' | 'light' | 'dark'): Promise<boolean> =>
+      ipcRenderer.invoke('channel:open', theme) as Promise<boolean>,
+    /** Push WeQ's theme preference to the channel window (live 深/浅 follow). */
+    setTheme: (theme: 'system' | 'light' | 'dark'): Promise<boolean> =>
+      ipcRenderer.invoke('channel:set-theme', theme) as Promise<boolean>,
+    /** Read the current account's pd.qq.com cookies (for future 频道导出/分析). */
+    getCookies: () =>
+      ipcRenderer.invoke('channel:get-cookies') as Promise<
+        { name: string; value: string; domain?: string; path?: string }[]
+      >,
+  },
+  systemAuth: {
+    getStatus: () =>
+      ipcRenderer.invoke('systemAuth:getStatus') as Promise<{
+        platform: string;
+        available: boolean;
+        method: 'windows-hello' | 'touch-id' | 'none';
+        displayName: string;
+        error?: string;
+      }>,
+    verify: (reason?: string) =>
+      ipcRenderer.invoke('systemAuth:verify', reason) as Promise<{
+        success: boolean;
+        method: 'windows-hello' | 'touch-id' | 'none';
+        error?: string;
+      }>,
+  },
 };
 
 if (process.contextIsolated) {

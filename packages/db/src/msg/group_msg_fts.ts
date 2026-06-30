@@ -50,7 +50,8 @@ export class GroupMsgFtsDb {
   }
 
   /**
-   * Search messages within a specific group.
+   * Search messages within a specific group. Filters by the indexed group-code
+   * column `40027` (same value as group_msg_table.40027); `40021` is unindexed.
    */
   async searchInGroup(groupCode: string, keyword: string, limit = 20): Promise<BuddyMsgFtsHit[]> {
     const needle = keyword.trim();
@@ -59,7 +60,7 @@ export class GroupMsgFtsDb {
     const poolSize = Math.min(MAX_POOL, Math.max(limit * POOL_FACTOR, MIN_POOL));
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM group_msg_fts
-        WHERE "40021" = ? AND ("41701" LIKE ? ESCAPE '\\' OR "41702" LIKE ? ESCAPE '\\')
+        WHERE "40027" = ? AND ("41701" LIKE ? ESCAPE '\\' OR "41702" LIKE ? ESCAPE '\\')
         ORDER BY "40050" DESC
         LIMIT ?`,
       [groupCode, `%${escapeLike(needle)}%`, `%${escapeLike(needle)}%`, BigInt(poolSize)],

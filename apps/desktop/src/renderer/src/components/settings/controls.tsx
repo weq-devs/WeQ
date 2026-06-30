@@ -8,17 +8,22 @@
 
 import type { ReactElement, ReactNode } from 'react';
 
-/** Section heading + optional description, shown at the top of each panel. */
+/** Section heading + optional description (and optional leading icon), shown at the top of each panel. */
 export function SectionHeader({
   title,
   desc,
+  icon,
 }: {
   title: string;
   desc?: ReactNode;
+  icon?: ReactNode;
 }): ReactElement {
   return (
     <header className="weq-set-head">
-      <h3 className="weq-set-title">{title}</h3>
+      <div className="weq-set-head-title">
+        {icon ? <span className="weq-set-head-icon" aria-hidden>{icon}</span> : null}
+        <h3 className="weq-set-title">{title}</h3>
+      </div>
       {desc ? <p className="weq-set-desc">{desc}</p> : null}
     </header>
   );

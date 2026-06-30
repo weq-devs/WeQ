@@ -34,7 +34,7 @@ const SELECT_COLUMNS = `"40001","40020","40021","40030","40033","40050","40800",
  */
 export type C2cPartition = { sortNo: bigint } | { uid: string };
 
-function partitionWhere(part: C2cPartition): { clause: string; value: SqlValue } {
+export function partitionWhere(part: C2cPartition): { clause: string; value: SqlValue } {
   return 'sortNo' in part
     ? { clause: '"40027" = ?', value: part.sortNo }
     : { clause: '"40021" = ?', value: part.uid };

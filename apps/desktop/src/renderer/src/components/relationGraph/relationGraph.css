@@ -6,7 +6,9 @@
 	grid-template-rows: minmax(0, 1fr) auto;
 	height: 100%;
 	min-height: 0;
-	background: linear-gradient(135deg, #fdfeff, #f4f9fd);
+	/* Share the themed canvas with chat/contacts instead of a hardcoded
+	 * light gradient, so the graph follows the accent + light/dark theme. */
+	background: var(--chat-surface);
 }
 
 /* ---- stage (上方节点图) ---- */
@@ -14,9 +16,13 @@
 	position: relative;
 	min-height: 0;
 	overflow: hidden;
-	background:
-		radial-gradient(circle at 50% 42%, rgba(0, 153, 255, 0.045), transparent 62%),
-		#fbfdff;
+	/* Transparent base + a faint accent halo that layers over --chat-surface;
+	 * the <canvas> uses clearRect so the wallpaper shows through the nodes. */
+	background: radial-gradient(
+		circle at 50% 42%,
+		color-mix(in srgb, var(--weq-accent-effective) 6%, transparent),
+		transparent 62%
+	);
 }
 
 .weq-graph-canvas-wrap {
@@ -1133,15 +1139,9 @@
 }
 
 /* ---- dark ---- */
-html[data-theme="dark"] .weq-graph-embed {
-	background: linear-gradient(135deg, #15171a, #121417);
-}
-
-html[data-theme="dark"] .weq-graph-stage {
-	background:
-		radial-gradient(circle at 50% 42%, rgba(0, 153, 255, 0.06), transparent 62%),
-		#0e1013;
-}
+/* embed/stage intentionally NOT overridden here: both modes now share the
+ * themed --chat-surface gradient (set on the base rules above), so the graph
+ * picks up the accent + light/dark canvas like chat & contacts. */
 
 html[data-theme="dark"] .weq-graph-controls {
 	border-color: rgba(255, 255, 255, 0.08);

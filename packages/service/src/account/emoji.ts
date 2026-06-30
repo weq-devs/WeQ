@@ -6,12 +6,48 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
+import { BaseSysEmojiDb } from '@weq/db';
+
+/** 系统表情清单项：faceId + 外显文字（如 "[微笑]"），供前端把 faceText 渲染成表情图。 */
+export interface SystemFaceEntry {
+  id: number;
+  desc: string;
+}
 
 export class EmojiService {
+  /** emoji.db 是只读静态表，一个账号会话内缓存一次。 */
+  private sysFaces: SystemFaceEntry[] | null = null;
+
   constructor(
     private readonly session: AccountSession,
     private readonly platform: Platform,
   ) {}
+
+  /**
+   * 列出内置系统表情（id + 外显文字），用于前端把克隆体回复里的 `/捂脸` 这类
+   * faceText 渲染成表情图。读 emoji.db 的 base_sys_emoji_table，失败/缺库返回空表。
+   */
+  async listSystemFaces(): Promise<SystemFaceEntry[]> {
+    if (this.sysFaces) return this.sysFaces;
+    const dir = this.platform.ntDbDir(this.session.context.uin);
+    if (!dir) return [];
+    const dbPath = join(dir, 'emoji.db');
+    if (!existsSync(dbPath)) return [];
+    try {
+      const db = new BaseSysEmojiDb(this.platform.native.ntHelper, {
+        dbPath,
+        key: this.session.context.dbKey,
+        algo: this.session.context.algo,
+      });
+      const rows = await db.listAll();
+      this.sysFaces = rows
+        .map((r) => ({ id: Number(r.id), desc: r.desc }))
+        .filter((r) => Number.isFinite(r.id) && r.desc);
+      return this.sysFaces;
+    } catch {
+      return [];
+    }
+  }
 
   /**
    * Get the path to a decrypted market face GIF.

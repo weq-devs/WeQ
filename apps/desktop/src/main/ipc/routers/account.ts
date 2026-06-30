@@ -14,9 +14,11 @@
 import { z } from 'zod';
 import { observable } from '@trpc/server/observable';
 import { mkdir, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { basename, dirname, extname, join } from 'node:path';
 import { getAppContext, dbEventBus, type AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
+import { assistantBus, type AssistantStreamEvent } from '../../mcp/assistant_bus';
 import {
   clientKeyExpiryMs,
   toRenderElements,
@@ -65,6 +67,14 @@ function requireScheduler(): import('@weq/service').ExportScheduler {
   }
   return ctx.scheduler;
 }
+
+const agentLabModelRef = z.object({ providerId: z.string().min(1), model: z.string().min(1) });
+const agentLabModels = z.object({
+  chat: agentLabModelRef,
+  embedding: agentLabModelRef.optional(),
+  vision: agentLabModelRef.optional(),
+  voiceClone: agentLabModelRef.optional(),
+});
 
 /** Wire payload pushed to the renderer when nt_msg.db gains new rows. */
 export interface NewMessagesWire {
@@ -443,6 +453,255 @@ async function exportGroupAlbums(
 }
 
 export const accountRouter = router({
+  // ---- agent lab ----
+
+  listAgentLabPersonas: procedure.query(() => {
+    return requireServices().agentLab.listPersonas();
+  }),
+
+  getAgentLabPersona: procedure
+    .input(z.object({ personaId: z.string().min(1) }))
+    .query(({ input }) => {
+      return requireServices().agentLab.getPersona(input.personaId);
+    }),
+
+  getAgentLabPersonaDetail: procedure
+    .input(z.object({ personaId: z.string().min(1) }))
+    .query(({ input }) => {
+      return requireServices().agentLab.getPersonaDetail(input.personaId);
+    }),
+
+  buildAgentLabFromC2c: procedure
+    .input(
+      z.object({
+        personaId: z.string().min(1),
+        name: z.string().optional(),
+        models: agentLabModels,
+        customPrompt: z.string().optional(),
+        targetUid: z.string().min(1),
+        title: z.string().optional(),
+        // 总消息上限（默认 C2C_CORPUS_CAP）；一般不由前端指定。
+        limit: z.number().int().min(20).max(20000).optional(),
+        // 语料模式：private 纯私聊不回退；group 私聊不足时群补采。默认 group。
+        mode: z.enum(['private', 'group']).optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      return requireServices().agentLab.buildFromC2c({
+        personaId: input.personaId,
+        name: input.name,
+        models: input.models,
+        customPrompt: input.customPrompt,
+        targetUid: input.targetUid,
+        title: input.title,
+        limit: input.limit,
+        mode: input.mode,
+      });
+    }),
+
+  /** Subscribe to AgentLab clone-build progress (drives the build progress bar). */
+  onAgentLabBuildProgress: procedure.subscription(() => {
+    return observable<import('@weq/service').AgentLabBuildProgress>((emit) => {
+      const svc = requireServices().agentLab;
+      const handler = (p: import('@weq/service').AgentLabBuildProgress): void => emit.next(p);
+      svc.on('build-progress', handler);
+      return () => {
+        svc.off('build-progress', handler);
+      };
+    });
+  }),
+
+  chatWithAgentLabPersona: procedure
+    .input(
+      z.object({
+        personaId: z.string().min(1),
+        text: z.string().min(1),
+        history: z.array(
+          z.object({
+            role: z.enum(['user', 'assistant']),
+            text: z.string().min(1),
+          }),
+        ).default([]),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      return requireServices().agentLab.chat({
+        personaId: input.personaId,
+        text: input.text,
+        history: input.history,
+      });
+    }),
+
+  deleteAgentLabPersona: procedure
+    .input(z.object({ personaId: z.string().min(1) }))
+    .mutation(({ input }) => {
+      return requireServices().agentLab.deletePersona(input.personaId);
+    }),
+
+  updateAgentLabPersona: procedure
+    .input(
+      z.object({
+        personaId: z.string().min(1),
+        name: z.string().optional(),
+        customPrompt: z.string().optional(),
+        voiceCloneEnabled: z.boolean().optional(),
+        voice: z
+          .object({
+            providerId: z.string().min(1),
+            mode: z.enum(['clone', 'preset']),
+            voice: z.string().optional(),
+          })
+          .nullable()
+          .optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      return requireServices().agentLab.updatePersona(input.personaId, {
+        name: input.name,
+        customPrompt: input.customPrompt,
+        voiceCloneEnabled: input.voiceCloneEnabled,
+        voice: input.voice,
+      });
+    }),
+
+  /** AgentLab token 用量统计（主页图表）。 */
+  getAgentLabTokenStats: procedure.query(() => {
+    return requireServices().agentLab.getTokenStats();
+  }),
+
+  /** 系统表情清单（faceId + 外显文字），前端把克隆体回复里的 /捂脸 渲染成表情图。 */
+  getSystemFaces: procedure.query(() => {
+    return requireServices().emoji.listSystemFaces();
+  }),
+
+  /** 与某克隆体的持久化对话历史。 */
+  getAgentLabConversation: procedure
+    .input(z.object({ personaId: z.string().min(1) }))
+    .query(({ input }) => {
+      return requireServices().agentLab.getConversation(input.personaId);
+    }),
+
+  clearAgentLabConversation: procedure
+    .input(z.object({ personaId: z.string().min(1) }))
+    .mutation(({ input }) => {
+      requireServices().agentLab.clearConversation(input.personaId);
+      return true;
+    }),
+
+  /** 克隆体对「对方」的记忆（灯箱「记忆 / 画像」用）。 */
+  getAgentLabMemories: procedure
+    .input(z.object({ personaId: z.string().min(1) }))
+    .query(({ input }) => {
+      return requireServices().agentLab.getMemories(input.personaId);
+    }),
+
+  forgetAgentLabMemory: procedure
+    .input(z.object({ personaId: z.string().min(1), memoryId: z.string().min(1) }))
+    .mutation(({ input }) => {
+      requireServices().agentLab.forgetMemory(input.personaId, input.memoryId);
+      return true;
+    }),
+
+  clearAgentLabMemories: procedure
+    .input(z.object({ personaId: z.string().min(1) }))
+    .mutation(({ input }) => {
+      requireServices().agentLab.clearMemories(input.personaId);
+      return true;
+    }),
+
+  // ── WeQ 助手 ──────────────────────────────────────────────────────────────
+  getAssistantConfig: procedure.query(() => {
+    return requireServices().assistant.getConfig();
+  }),
+
+  setAssistantConfig: procedure
+    .input(
+      z.object({
+        model: agentLabModelRef.optional(),
+        customPrompt: z.string().optional(),
+        mcpServers: z.string().optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      return requireServices().assistant.setConfig({
+        model: input.model,
+        customPrompt: input.customPrompt,
+        mcpServers: input.mcpServers,
+      });
+    }),
+
+  getAssistantConversation: procedure.query(() => {
+    return requireServices().assistant.getConversation();
+  }),
+
+  clearAssistantConversation: procedure.mutation(() => {
+    requireServices().assistant.clearConversation();
+    return true;
+  }),
+
+  /**
+   * 启动一轮助手任务（非阻塞）。立即返回 runId；每一步思考/工具调用/最终答复
+   * 通过 `onAssistantEvent` 流式推送（镜像 update.download / onProgress）。
+   * chat() 内部已把异常先 emit 成 `error` step 再抛出，故这里吞掉 rejection。
+   */
+  chatWithAssistant: procedure
+    .input(z.object({ text: z.string().min(1) }))
+    .mutation(({ input }) => {
+      const assistant = requireServices().assistant;
+      const runId = randomUUID();
+      void assistant
+        .chat(input.text, (step) => assistantBus.emit('step', { runId, step } satisfies AssistantStreamEvent))
+        .catch(() => {});
+      return { runId };
+    }),
+
+  /**
+   * 查看助手写的报告文件。HTML → 在隔离窗口里用本地 Tailwind 运行时渲染；
+   * markdown / text → 交给系统默认程序打开。id 的路径安全由 service.artifactInfo 校验。
+   */
+  openAssistantArtifact: procedure
+    .input(z.object({ id: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const { path, kind } = requireServices().assistant.artifactInfo(input.id);
+      if (kind === 'html') {
+        const { openReportWindow } = await import('../../report_window');
+        await openReportWindow(path);
+      } else {
+        const { shell } = await import('electron');
+        const err = await shell.openPath(path);
+        if (err) throw new Error(err);
+      }
+      return true;
+    }),
+
+  /** 把助手写的报告文件另存到用户选定位置（复用 saveExportFile 范式）。 */
+  saveAssistantArtifact: procedure
+    .input(z.object({ id: z.string().min(1), name: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const { path } = requireServices().assistant.artifactInfo(input.id);
+      const { dialog } = await import('electron');
+      const { copyFileSync } = await import('node:fs');
+      const ext = extname(input.name).replace(/^\./, '') || 'html';
+      const result = await dialog.showSaveDialog({
+        defaultPath: input.name,
+        filters: [{ name: 'Report', extensions: [ext] }],
+      });
+      if (result.canceled || !result.filePath) return false;
+      copyFileSync(path, result.filePath);
+      return true;
+    }),
+
+  /** 助手任务的过程流（thinking / tool_call / tool_result / artifact / final / error）。 */
+  onAssistantEvent: procedure.subscription(() => {
+    return observable<AssistantStreamEvent>((emit) => {
+      const handler = (e: AssistantStreamEvent): void => emit.next(e);
+      assistantBus.on('step', handler);
+      return () => {
+        assistantBus.off('step', handler);
+      };
+    });
+  }),
+
   /** Recent conversations (recent_contact_v3_table), newest first. */
   listRecentContacts: procedure.query(async () => {
     const contacts = await requireServices().recentContacts.getRecentContact(200);
@@ -794,6 +1053,49 @@ export const accountRouter = router({
         input.startTime,
         input.endTime,
       );
+    }),
+
+  /** Per-day message counts for a group (drives the contribution heatmap 绿墙). */
+  getGroupDailyActivity: procedure
+    .input(
+      z.object({
+        groupCode: z.string().min(1),
+        startTime: z.number().int().optional(),
+        endTime: z.number().int().optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      return requireServices().groupInfo.getGroupDailyActivity(
+        BigInt(input.groupCode),
+        input.startTime,
+        input.endTime,
+      );
+    }),
+
+  /** Group-wide word cloud (segmented word frequencies, top N). */
+  getGroupWordCloud: procedure
+    .input(
+      z.object({
+        groupCode: z.string().min(1),
+        limit: z.number().int().min(1).max(400).optional(),
+        startTime: z.number().int().optional(),
+        endTime: z.number().int().optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      return requireServices().groupInfo.getGroupWordCloud(
+        BigInt(input.groupCode),
+        input.limit ?? 150,
+        input.startTime,
+        input.endTime,
+      );
+    }),
+
+  /** Full one-on-one (private chat) analytics for a single peer. */
+  getBuddyAnalytics: procedure
+    .input(z.object({ peerUid: z.string().min(1) }))
+    .query(async ({ input }) => {
+      return requireServices().buddyAnalytics.getBuddyAnalytics(input.peerUid);
     }),
 
   /** Get formatted online status for a user. */
@@ -1243,6 +1545,55 @@ export const accountRouter = router({
       if (result.canceled || result.filePaths.length === 0) return false;
       const dest = join(result.filePaths[0]!, sanitizePathSegment(task.name, task.id));
       cpSync(task.bundleDir, dest, { recursive: true });
+      return true;
+    }),
+
+  /**
+   * 打开助手导出工具产出的结果（卡片「打开」）。单文件→系统默认程序；
+   * bundle 目录→文件管理器。taskId 即 AssistantArtifact.id。
+   */
+  openAssistantExport: procedure
+    .input(z.object({ taskId: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const task = requireServices().exportManager.getTask(input.taskId);
+      const path = task?.bundleDir || task?.filePath;
+      if (!path) throw new Error('导出结果不存在（可能已被清理）。');
+      const { shell } = await import('electron');
+      const err = await shell.openPath(path);
+      if (err) throw new Error(err);
+      return true;
+    }),
+
+  /**
+   * 另存助手导出结果（卡片「另存为」）。bundle 目录→选文件夹整目录拷贝；
+   * 单文件→保存对话框复制。镜像 saveExportBundle / saveExportFile。
+   */
+  saveAssistantExport: procedure
+    .input(z.object({ taskId: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const task = requireServices().exportManager.getTask(input.taskId);
+      if (!task) throw new Error('导出结果不存在（可能已被清理）。');
+      const { dialog } = await import('electron');
+      if (task.bundleDir) {
+        const { existsSync, cpSync } = await import('node:fs');
+        if (!existsSync(task.bundleDir)) return false;
+        const result = await dialog.showOpenDialog({
+          title: '选择导出保存文件夹',
+          properties: ['openDirectory', 'createDirectory'],
+        });
+        if (result.canceled || result.filePaths.length === 0) return false;
+        const dest = join(result.filePaths[0]!, sanitizePathSegment(task.name, task.id));
+        cpSync(task.bundleDir, dest, { recursive: true });
+        return true;
+      }
+      if (!task.filePath) return false;
+      const { copyFileSync } = await import('node:fs');
+      const result = await dialog.showSaveDialog({
+        defaultPath: `${task.name}.${task.format}`,
+        filters: [{ name: 'Export', extensions: [task.format] }],
+      });
+      if (result.canceled || !result.filePath) return false;
+      copyFileSync(task.filePath, result.filePath);
       return true;
     }),
 

@@ -129,6 +129,26 @@ export class MsgService {
     return msgs.map(renderGroup);
   }
 
+  // ---- count ---------------------------------------------------------------
+
+  /**
+   * Count the total stored messages of one conversation (a single COUNT query).
+   * Used as a coarse `total` estimate for export progress; failures degrade to 0
+   * so callers never break on it.
+   */
+  async countConv(kind: 'c2c' | 'group', conv: string): Promise<number> {
+    try {
+      if (kind === 'group') {
+        const byCode = await this.session.groupMsgs.countByGroups([conv]);
+        return byCode[conv] ?? 0;
+      }
+      const byUid = await this.session.c2cMsgs.countByUids([conv]);
+      return byUid[conv] ?? 0;
+    } catch {
+      return 0;
+    }
+  }
+
   /** Resolve a peer uid to its indexed partition (sortNo), else fall back to uid. */
   private c2cPartition(targetUid: string): C2cPartition {
     const sortNo = this.session.uidMap.sortNoByUid(targetUid);

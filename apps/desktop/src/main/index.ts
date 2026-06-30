@@ -22,7 +22,10 @@ import {
 import { getAppContext } from './context/app_context';
 import { checkForUpdate } from './update/updater';
 import { stopMcpServer } from './mcp/server';
+import { disposeExternalMcp } from './mcp/external';
+import { registerChannelIpc } from './channel';
 import { getLogDir, getLogger, logErrorContext, type MediaElement } from '@weq/service';
+import { systemAuthService } from './system_auth';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -236,6 +239,17 @@ function registerLogIpc(): void {
   });
 }
 
+function registerSystemAuthIpc(): void {
+  ipcMain.handle('systemAuth:getStatus', async () => {
+    return systemAuthService.resolveStatus();
+  });
+
+  ipcMain.handle('systemAuth:verify', async (event, reason?: string) => {
+    const targetWin = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+    return systemAuthService.verify(reason, targetWin);
+  });
+}
+
 function resolveWindowIcon(): Electron.NativeImage | undefined {
   const path = resolveResource('brand', 'logo.png');
   if (!path) return undefined;
@@ -300,6 +314,8 @@ void app.whenReady().then(() => {
   registerWindowLayoutIpc();
   registerMediaIpc();
   registerLogIpc();
+  registerSystemAuthIpc();
+  registerChannelIpc();
 
   app.on('browser-window-created', (_, win) => {
     optimizer.watchWindowShortcuts(win);
@@ -332,4 +348,5 @@ app.on('window-all-closed', () => {
 // was never explicitly closed (clearAccount also stops it).
 app.on('will-quit', () => {
   void stopMcpServer();
+  void disposeExternalMcp();
 });

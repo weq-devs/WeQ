@@ -17,9 +17,10 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from 'rea
 import { createPortal } from 'react-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { getQueryKey } from '@trpc/react-query';
-import { LogOut, Trash2 } from 'lucide-react';
+import { LockKeyhole, LogOut, Trash2 } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
 import { useViewState } from '../state/view';
+import { useAppLock } from '../state/lock';
 import { useDialog } from './Dialog';
 import { QqAvatar } from './QqAvatar';
 
@@ -39,11 +40,42 @@ export function RailAccountFooter({
   const setOpenedUin = useViewState((s) => s.setOpenedUin);
   const goTo = useViewState((s) => s.goTo);
   const showError = useDialog((s) => s.showError);
+  const lock = useAppLock((s) => s.lock);
   const queryClient = useQueryClient();
 
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Whether the platform can actually verify identity. We refuse to lock when
+  // it can't, otherwise the lock screen would be unsolvable.
+  const [authAvailable, setAuthAvailable] = useState<boolean | null>(null);
+  const [authError, setAuthError] = useState<string | undefined>(undefined);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void window.weq.systemAuth
+      .getStatus()
+      .then((s) => {
+        if (!alive) return;
+        setAuthAvailable(s.available);
+        setAuthError(s.error);
+      })
+      .catch(() => {
+        if (alive) setAuthAvailable(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  function lockNow(): void {
+    if (!authAvailable) {
+      showError('无法上锁', authError ?? '当前设备的系统认证不可用，启用后才能使用应用锁。');
+      return;
+    }
+    setOpen(false);
+    lock();
+  }
 
   // Right-click context menu for account items
   const [ctxMenu, setCtxMenu] = useState<{
@@ -199,7 +231,18 @@ export function RailAccountFooter({
   const others = (configs.data ?? []).filter((c) => c.uin !== currentUin);
 
   return (
-    <div ref={wrapRef} className="weq-rail-account-footer">
+    <>
+      <button
+        type="button"
+        className="weq-rail-lock-btn"
+        title={authAvailable === false ? authError ?? '系统认证不可用' : '锁定 WeQ'}
+        aria-label="锁定 WeQ"
+        onClick={lockNow}
+        disabled={busy || authAvailable === false}
+      >
+        <LockKeyhole size={18} strokeWidth={1.8} aria-hidden />
+      </button>
+      <div ref={wrapRef} className="weq-rail-account-footer">
       <button
         type="button"
         className="weq-rail-account-avatar"
@@ -279,6 +322,7 @@ export function RailAccountFooter({
           </div>,
           document.body,
         )}
-    </div>
+      </div>
+    </>
   );
 }

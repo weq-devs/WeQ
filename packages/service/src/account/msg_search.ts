@@ -12,7 +12,7 @@
  */
 
 import type { AccountSession } from '@weq/account';
-import type { BuddyMsgFtsHit } from '@weq/db';
+import type { BuddyMsgFtsHit, C2cPartition } from '@weq/db';
 
 export class MsgSearchService {
   constructor(private readonly session: AccountSession) {}
@@ -32,10 +32,19 @@ export class MsgSearchService {
   }
 
   /**
-   * Search within a specific friend conversation.
+   * Search within a specific friend conversation. Resolves the peer uid to its
+   * indexed sort number (column 40027) via the session's resident `UidMap` so
+   * the query hits the FTS conversation index; a missing mapping falls back to
+   * an unindexed uid (40021) scan.
    */
   searchInBuddyConversation(targetUid: string, keyword: string, limit = 20): Promise<BuddyMsgFtsHit[]> {
-    return this.session.buddyMsgFts.searchInConversation(targetUid, keyword, limit);
+    return this.session.buddyMsgFts.searchInConversation(this.c2cPartition(targetUid), keyword, limit);
+  }
+
+  /** Resolve a peer uid to its indexed partition (sortNo), else fall back to uid. */
+  private c2cPartition(targetUid: string): C2cPartition {
+    const sortNo = this.session.uidMap.sortNoByUid(targetUid);
+    return sortNo !== undefined ? { sortNo } : { uid: targetUid };
   }
 
   /**

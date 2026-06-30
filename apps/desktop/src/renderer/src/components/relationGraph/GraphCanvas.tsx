@@ -185,6 +185,11 @@ export function GraphCanvas({
 
 		const { w, h, dpr } = sizeRef.current;
 		const v = viewRef.current;
+		// Node labels must flip with the theme — dark text + white halo is
+		// unreadable on the dark canvas, so swap to light text + dark halo.
+		const dark = document.documentElement.dataset.theme === "dark";
+		const labelFill = dark ? "#c8d0da" : "#33455a";
+		const labelHalo = dark ? "rgba(8,10,13,0.85)" : "rgba(255,255,255,0.85)";
 
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		ctx.clearRect(0, 0, w, h);
@@ -270,9 +275,9 @@ export function GraphCanvas({
 				ctx.font = `500 ${fontPx}px var(--font-sans, sans-serif)`;
 				const label = n.label.length > 12 ? `${n.label.slice(0, 12)}…` : n.label;
 				ctx.lineWidth = 3 / v.scale;
-				ctx.strokeStyle = "rgba(255,255,255,0.85)";
+				ctx.strokeStyle = labelHalo;
 				ctx.strokeText(label, n.x, n.y + r + fontPx * 0.9);
-				ctx.fillStyle = "#33455a";
+				ctx.fillStyle = labelFill;
 				ctx.fillText(label, n.x, n.y + r + fontPx * 0.9);
 			}
 		}

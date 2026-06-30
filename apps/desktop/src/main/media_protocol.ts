@@ -12,6 +12,7 @@
  *   weq-media://video?t=&name=&v=thumb                        → cover image bytes
  *   weq-media://ptt?t=&name=                                  → decoded WAV bytes
  *   weq-media://mface?pack=<emojiPackId>&hash=<previewMd5Hex> → sticker bytes
+ *   weq-media://agentvoice?persona=&id=<hash.ext>             → clone TTS audio bytes
  *
  * Like the other custom schemes: `registerMediaScheme()` runs before app
  * `ready`; `registerMediaProtocol()` runs after.
@@ -203,6 +204,21 @@ export function registerMediaProtocol(): void {
           if (!pack || !hash) return notFound('mface needs pack+hash');
           const path = await services.emoji.getMarketFace(pack, hash);
           return path ? fileResponse(path) : notFound('mface not found');
+        }
+        case 'sticker': {
+          // AgentLab 克隆体的自定义表情包（蒸馏期缓存到 agentlab/stickers/<md5>.png）。
+          const persona = q.get('persona') ?? '';
+          const md5 = q.get('md5') ?? '';
+          if (!persona || !md5) return notFound('sticker needs persona+md5');
+          const path = services.agentLab.getStickerPath(persona, md5);
+          return path ? fileResponse(path) : notFound('sticker not found');
+        }
+        case 'agentvoice': {
+          // AgentLab 克隆体合成的语音（agentlab/agentvoice/<hash>.<ext>）。
+          const id = q.get('id') ?? '';
+          if (!id) return notFound('agentvoice needs id');
+          const path = services.agentLab.getAgentVoicePath(id);
+          return path ? fileResponse(path) : notFound('agentvoice not found');
         }
         case 'album': {
           return albumRemoteResponse(q.get('src') ?? '');

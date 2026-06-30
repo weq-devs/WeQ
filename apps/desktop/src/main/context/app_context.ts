@@ -23,6 +23,8 @@ import { join } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
 import { createWin32Platform, type Platform } from '@weq/platform';
 import { startMcpServer, stopMcpServer } from '../mcp/server';
+import { aiToolSpecs, runAiTool } from '../mcp/openai_tools';
+import { getExternalMcpHub, disposeExternalMcp } from '../mcp/external';
 import {
   accountConfigId,
   UserConfigService,
@@ -30,7 +32,9 @@ import {
   Win32KeyService,
   GlobalConfigService,
   AvatarCacheService,
+  AgentLabConfigService,
   VoiceTranscribeService,
+  TtsService,
   getVoiceModel,
   MsgService,
   RecentContactService,
@@ -41,6 +45,7 @@ import {
   MediaUrlService,
   ForwardMsgService,
   GroupInfoService,
+  BuddyAnalyticsService,
   GroupNotifyService,
   ProfileService,
   FileAssistantService,
@@ -48,6 +53,10 @@ import {
   EmojiService,
   MsgSearchService,
   OnlineStatusService,
+  AgentLabService,
+  AssistantService,
+  TokenUsageStore,
+  ConversationStore,
   DbDecryptService,
   WebQueryService,
   GroupAlbumMediaService,
@@ -225,8 +234,11 @@ export interface BootstrapServices {
   userConfig: UserConfigService;
   globalConfig: GlobalConfigService;
   avatarCache: AvatarCacheService;
+  agentLabConfig: AgentLabConfigService;
   /** Voice-transcription model management (download/select). Account-independent. */
   voiceTranscribe: VoiceTranscribeService;
+  /** Text-to-speech（克隆体发语音/语音克隆）。Account-independent，纯 fetch。 */
+  tts: TtsService;
 }
 
 /** Services that are re-created whenever an account session opens. */
@@ -237,6 +249,8 @@ export interface AccountServices {
   accountConfig: AccountConfigService;
   forwardMsgs: ForwardMsgService;
   groupInfo: GroupInfoService;
+  /** One-on-one (c2c) chat analytics for the private-chat analysis page. */
+  buddyAnalytics: BuddyAnalyticsService;
   groupNotify: GroupNotifyService;
   profile: ProfileService;
   msgSearch: MsgSearchService;
@@ -251,6 +265,10 @@ export interface AccountServices {
   fileAssistant: FileAssistantService;
   /** Decrypt + cache market-face (store sticker) images. */
   emoji: EmojiService;
+  /** Friend clone / AgentLab personas bound to the current account. */
+  agentLab: AgentLabService;
+  /** WeQ assistant (tool-calling agent) bound to the current account. */
+  assistant: import('@weq/service').AssistantService;
   /** Export task manager. */
   exportManager: import('@weq/service').ExportTaskManager;
   /** List and bulk-decrypt encrypted QQ NT databases. */
@@ -377,8 +395,53 @@ export function initAppContext(): AppContext {
     userConfig,
     globalConfig: new GlobalConfigService(platform, userConfig),
     avatarCache: new AvatarCacheService(platform, userConfig),
+    agentLabConfig: new AgentLabConfigService(userConfig),
     voiceTranscribe: new VoiceTranscribeService(platform),
+    tts: new TtsService(),
   };
+
+  // Shared voice/transcription closures — both the export manager and AgentLab
+  // need the same "silk → text" pipeline (model resolved lazily so a model
+  // change between 进入 and 使用 is honoured). Factored here to avoid duplication.
+  const transcribeSilk = async (
+    silkPath: string,
+  ): Promise<{ ok: boolean; text?: string; error?: string }> => {
+    const modelId = userConfig.getSettings().voiceTranscribe.modelId;
+    if (!modelId) return { ok: false, error: '未选择转录模型' };
+    const model = getVoiceModel(modelId);
+    if (!model) return { ok: false, error: '转录模型不存在' };
+    const status = bootstrap.voiceTranscribe.getModelStatus(modelId);
+    if (!status?.downloaded) return { ok: false, error: '转录模型未下载' };
+    const { decodeSilkToWav16kBuffer } = await import('../voice');
+    const wav = await decodeSilkToWav16kBuffer(silkPath);
+    if (!wav) return { ok: false, error: '语音解码失败' };
+    const paths = bootstrap.voiceTranscribe.resolveModelPaths(modelId);
+    if (!paths.model || !paths.tokens) return { ok: false, error: '模型文件缺失' };
+    const { transcribeWav } = await import('../transcribe/engine');
+    const r = await transcribeWav(
+      wav,
+      { model: paths.model, tokens: paths.tokens },
+      { engine: model.engine, languages: model.languages },
+    );
+    return r.success ? { ok: true, text: r.text ?? '' } : { ok: false, error: r.error ?? '识别失败' };
+  };
+  /** True only when a transcription model is configured AND downloaded. */
+  const voiceReady = (): boolean => {
+    const modelId = userConfig.getSettings().voiceTranscribe.modelId;
+    return !!modelId && Boolean(bootstrap.voiceTranscribe.getModelStatus(modelId)?.downloaded);
+  };
+  /** AgentLab media deps factory: media completion + voice for a given session. */
+  const agentLabMedia = (
+    fileSearch: FileSearchService,
+    mediaDownload: MediaDownloadService,
+  ): import('@weq/service').AgentLabMediaDeps => ({
+    fileSearch,
+    mediaDownload,
+    transcribe: transcribeSilk,
+    decodeSilkToWavFile: (silk: string, dest: string) =>
+      import('../voice').then((m) => m.decodeSilkToFile(silk, dest)),
+    voiceReady,
+  });
 
   const ctx: AppContext = {
     platform,
@@ -398,6 +461,7 @@ export function initAppContext(): AppContext {
       accountMonitor?.stop();
       accountMonitor = null;
       void stopMcpServer();
+      void disposeExternalMcp();
       this.account?.dispose();
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
@@ -444,6 +508,16 @@ export function initAppContext(): AppContext {
       // role / profile resolution), so they're built before the services object.
       const groupInfo = new GroupInfoService(session);
       const profile = new ProfileService(session);
+      // Built before the services literal so AgentLab can reuse the same media
+      // pipeline (媒体寻址 + rkey 补全) for 表情包/语音.
+      const fileSearch = new FileSearchService(session, platform);
+      // Shared token-accounting + conversation stores, used by BOTH the clone
+      // service and the WeQ assistant so usage stats + chat history are unified.
+      const agentlabRoot = userConfig.cacheDir(join('agentlab', exportConfigId));
+      const tokenUsage = new TokenUsageStore(join(agentlabRoot, 'usage.json'));
+      const conversations = new ConversationStore(join(agentlabRoot, 'conversations.json'));
+      const resolveAgentEndpoint = (ref: import('@weq/agentlab').AgentLabModelRef) =>
+        bootstrap.agentLabConfig.resolveEndpoint(ref);
       this.services = {
         msgs: new MsgService(session),
         recentContacts: new RecentContactService(session),
@@ -451,15 +525,39 @@ export function initAppContext(): AppContext {
         accountConfig,
         forwardMsgs: new ForwardMsgService(session),
         groupInfo,
+        buddyAnalytics: new BuddyAnalyticsService(session),
         groupNotify: new GroupNotifyService(session),
         profile,
         msgSearch: new MsgSearchService(session),
         onlineStatus: new OnlineStatusService(session),
-        fileSearch: new FileSearchService(session, platform),
+        fileSearch,
         mediaDownload,
         mediaUrl,
         fileAssistant: new FileAssistantService(session),
         emoji: new EmojiService(session, platform),
+        agentLab: new AgentLabService(
+          session,
+          agentlabRoot,
+          resolveAgentEndpoint,
+          // Thing 1: 注入媒体/语音能力，蒸馏期补全表情包 + 转录语音。
+          agentLabMedia(fileSearch, mediaDownload),
+          tokenUsage,
+          conversations,
+          // 语音合成（克隆体发语音 / 语音克隆）：provider 从全局语音配置取。
+          {
+            service: bootstrap.tts,
+            getProvider: (id: string) =>
+              userConfig.getSettings().voiceTranscribe.ttsProviders.find((p) => p.id === id) ?? null,
+          },
+        ),
+        assistant: new AssistantService(agentlabRoot, resolveAgentEndpoint, tokenUsage, conversations, {
+          // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
+          specs: async () => [...aiToolSpecs(), ...(await getExternalMcpHub().specs())],
+          run: (name, args) =>
+            name.startsWith('mcp__') ? getExternalMcpHub().run(name, args) : runAiTool(name, args),
+          // 配置变更/启动时把外部 MCP 配置同步给 Hub（连接惰性建立）。
+          syncExternalMcp: (raw) => getExternalMcpHub().configure(raw),
+        }),
         exportManager: new (await import('@weq/service')).ExportTaskManager(
           new MsgService(session),
           userConfig.cacheDir(join('export', exportConfigId)),
@@ -476,32 +574,8 @@ export function initAppContext(): AppContext {
             // avoid a static import cycle with this module.
             decodeSilk: (silk: string, dest: string) =>
               import('../voice').then((m) => m.decodeSilkToFile(silk, dest)),
-            // Voice → text transcription. The sherpa-onnx engine is native and
-            // lives in the app; the closure resolves the selected model lazily
-            // (so a model change between 进入 and 导出 is honoured) and decodes
-            // the silk to 16 kHz WAV before forking the recognizer worker.
-            transcribe: async (silkPath: string) => {
-              const modelId = userConfig.getSettings().voiceTranscribe.modelId;
-              if (!modelId) return { ok: false, error: '未选择转录模型' };
-              const model = getVoiceModel(modelId);
-              if (!model) return { ok: false, error: '转录模型不存在' };
-              const status = bootstrap.voiceTranscribe.getModelStatus(modelId);
-              if (!status?.downloaded) return { ok: false, error: '转录模型未下载' };
-              const { decodeSilkToWav16kBuffer } = await import('../voice');
-              const wav = await decodeSilkToWav16kBuffer(silkPath);
-              if (!wav) return { ok: false, error: '语音解码失败' };
-              const paths = bootstrap.voiceTranscribe.resolveModelPaths(modelId);
-              if (!paths.model || !paths.tokens) return { ok: false, error: '模型文件缺失' };
-              const { transcribeWav } = await import('../transcribe/engine');
-              const r = await transcribeWav(
-                wav,
-                { model: paths.model, tokens: paths.tokens },
-                { engine: model.engine, languages: model.languages },
-              );
-              return r.success
-                ? { ok: true, text: r.text ?? '' }
-                : { ok: false, error: r.error ?? '识别失败' };
-            },
+            // Voice → text transcription (shared closure; see transcribeSilk above).
+            transcribe: transcribeSilk,
             // ChatLab name / role / profile resolvers. The service export package
             // is account-agnostic, so the live account services are injected here.
             chatlab: {
@@ -614,6 +688,7 @@ export function initAppContext(): AppContext {
       accountMonitor?.stop();
       accountMonitor = null;
       void stopMcpServer();
+      void disposeExternalMcp();
       this.account?.dispose();
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
@@ -647,6 +722,12 @@ export function initAppContext(): AppContext {
       const mediaUrl = new MediaUrlService(platform.native.ntHelper, session, noPid);
       const groupInfo = new GroupInfoService(session);
       const profile = new ProfileService(session);
+      const fileSearch = new FileSearchService(session, platform);
+      const agentlabRoot = userConfig.cacheDir(join('agentlab', exportConfigId));
+      const tokenUsage = new TokenUsageStore(join(agentlabRoot, 'usage.json'));
+      const conversations = new ConversationStore(join(agentlabRoot, 'conversations.json'));
+      const resolveAgentEndpoint = (ref: import('@weq/agentlab').AgentLabModelRef) =>
+        bootstrap.agentLabConfig.resolveEndpoint(ref);
 
       this.services = {
         msgs: new MsgService(session),
@@ -655,15 +736,38 @@ export function initAppContext(): AppContext {
         accountConfig,
         forwardMsgs: new ForwardMsgService(session),
         groupInfo,
+        buddyAnalytics: new BuddyAnalyticsService(session),
         groupNotify: new GroupNotifyService(session),
         profile,
         msgSearch: new MsgSearchService(session),
         onlineStatus: new OnlineStatusService(session),
-        fileSearch: new FileSearchService(session, platform),
+        fileSearch,
         mediaDownload,
         mediaUrl,
         fileAssistant: new FileAssistantService(session),
         emoji: new EmojiService(session, platform),
+        agentLab: new AgentLabService(
+          session,
+          agentlabRoot,
+          resolveAgentEndpoint,
+          // 静态账号也注入：媒体寻址可能命中不到（无 nt_data），会优雅降级。
+          agentLabMedia(fileSearch, mediaDownload),
+          tokenUsage,
+          conversations,
+          {
+            service: bootstrap.tts,
+            getProvider: (id: string) =>
+              userConfig.getSettings().voiceTranscribe.ttsProviders.find((p) => p.id === id) ?? null,
+          },
+        ),
+        assistant: new AssistantService(agentlabRoot, resolveAgentEndpoint, tokenUsage, conversations, {
+          // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
+          specs: async () => [...aiToolSpecs(), ...(await getExternalMcpHub().specs())],
+          run: (name, args) =>
+            name.startsWith('mcp__') ? getExternalMcpHub().run(name, args) : runAiTool(name, args),
+          // 配置变更/启动时把外部 MCP 配置同步给 Hub（连接惰性建立）。
+          syncExternalMcp: (raw) => getExternalMcpHub().configure(raw),
+        }),
         exportManager: new (await import('@weq/service')).ExportTaskManager(
           new MsgService(session),
           userConfig.cacheDir(join('export', exportConfigId)),
@@ -678,28 +782,7 @@ export function initAppContext(): AppContext {
             accountDir: dirPath,
             decodeSilk: (silk: string, dest: string) =>
               import('../voice').then((m) => m.decodeSilkToFile(silk, dest)),
-            transcribe: async (silkPath: string) => {
-              const modelId = userConfig.getSettings().voiceTranscribe.modelId;
-              if (!modelId) return { ok: false, error: '未选择转录模型' };
-              const model = getVoiceModel(modelId);
-              if (!model) return { ok: false, error: '转录模型不存在' };
-              const status = bootstrap.voiceTranscribe.getModelStatus(modelId);
-              if (!status?.downloaded) return { ok: false, error: '转录模型未下载' };
-              const { decodeSilkToWav16kBuffer } = await import('../voice');
-              const wav = await decodeSilkToWav16kBuffer(silkPath);
-              if (!wav) return { ok: false, error: '语音解码失败' };
-              const paths = bootstrap.voiceTranscribe.resolveModelPaths(modelId);
-              if (!paths.model || !paths.tokens) return { ok: false, error: '模型文件缺失' };
-              const { transcribeWav } = await import('../transcribe/engine');
-              const r = await transcribeWav(
-                wav,
-                { model: paths.model, tokens: paths.tokens },
-                { engine: model.engine, languages: model.languages },
-              );
-              return r.success
-                ? { ok: true, text: r.text ?? '' }
-                : { ok: false, error: r.error ?? '识别失败' };
-            },
+            transcribe: transcribeSilk,
             chatlab: {
               resolveGroupMembers: async (groupCode, uids) => {
                 const members = await groupInfo.getMembersByUids(BigInt(groupCode), uids);
@@ -766,6 +849,7 @@ export function initAppContext(): AppContext {
       this.scheduler?.stop();
       this.scheduler = null;
       void stopMcpServer();
+      void disposeExternalMcp();
       unmountDbWatch();
       this.account?.dispose();
       this.account = null;

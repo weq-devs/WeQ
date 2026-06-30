@@ -108,6 +108,8 @@ export function SidebarHeader({
 	const title =
 		view === "contacts"
 			? "联系人"
+			: view === "agentlab"
+				? "AgentLab"
 			: view === "tools"
 				? "应用"
 				: displayUserName(user);
