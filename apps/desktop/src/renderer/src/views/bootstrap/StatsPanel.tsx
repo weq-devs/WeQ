@@ -87,10 +87,17 @@ export function StatsPanel({
           <span className="weq-stats-title-label">QQ 版本</span>
           <span className="weq-stats-version">{install.version ?? '未知'}</span>
           {install.hasUserData ? (
-            <span className="weq-stats-path" title={install.userDataPath ?? ''}>
+            // The path itself is the control: click it anytime to re-pick the
+            // Tencent Files directory (e.g. after moving QQ data to another disk).
+            <button
+              type="button"
+              className="weq-stats-path weq-stats-path-btn"
+              onClick={onPickRoot}
+              title={`${install.userDataPath ?? ''}\n点击更改 QQ 数据目录`}
+            >
               <FolderOpen size={12} strokeWidth={1.9} aria-hidden />
               <span className="weq-stats-path-txt">{install.userDataPath ?? '—'}</span>
-            </span>
+            </button>
           ) : (
             <button className="weq-action-soft weq-stats-pick" onClick={onPickRoot}>
               <FolderOpen size={14} strokeWidth={1.8} aria-hidden />

@@ -17,4 +17,5 @@ export {
   findProfileInfoDb,
   findMiscDb,
   findEmojiResourceDir,
+  isTencentFilesRoot,
 } from './win32';

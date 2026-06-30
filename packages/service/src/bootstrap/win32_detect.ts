@@ -21,6 +21,7 @@ import {
   type NineBirdAccountListItem,
   type QqPortLoginInfo,
 } from '@weq/native';
+import { getLogger, logErrorContext } from '../common/logger';
 
 export interface QqInstallInfo {
   qqExePath: string | null;
@@ -66,6 +67,7 @@ export class Win32DetectService {
     | null = null;
 
   private readonly bootstrap: NineBirdBootstrap;
+  private readonly logger = getLogger().child({ scope: 'win32-detect' });
 
   constructor(private readonly platform: Platform) {
     this.bootstrap = new NineBirdBootstrap(
@@ -125,9 +127,28 @@ export class Win32DetectService {
           };
           return value;
         }
-      } catch {
+        // Probe ran but reported failure (wrong/rotated key or unsupported algo).
+        this.logger.warn('login.db probe did not yield algorithms; using fallback', {
+          event: 'login-db-probe-unsuccessful',
+          dbPath,
+          probeSuccess: probe.success,
+        });
+      } catch (error) {
         // decrypt failed — fall through to the launch-based fallback.
+        this.logger.warn('login.db decrypt threw; using fallback', {
+          event: 'login-db-decrypt-failed',
+          dbPath,
+          ...logErrorContext(error),
+        });
       }
+    } else {
+      // No login.db found under any candidate/override root: decryption can't
+      // even be attempted — this is the silent case that looks like "nothing
+      // happened". Log the roots tried so a misconfigured data dir is obvious.
+      this.logger.warn('login.db not found; skipping decrypt, using fallback', {
+        event: 'login-db-not-found',
+        rootsTried: this.platform.tencentFilesRoots(),
+      });
     }
 
     const value = await this.listAccountsFallback();

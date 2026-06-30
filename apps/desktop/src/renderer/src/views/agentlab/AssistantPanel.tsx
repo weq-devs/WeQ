@@ -153,10 +153,18 @@ function AssistantBubble({ turn }: { turn: Turn }): ReactElement {
   );
 }
 
-export function AssistantPanel({ chatModels, onBack }: { chatModels: FlatModels['chat']; onBack: () => void }): ReactElement {
+export function AssistantPanel({
+  sessionId,
+  chatModels,
+  onBack,
+}: {
+  sessionId: string;
+  chatModels: FlatModels['chat'];
+  onBack: () => void;
+}): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
-  const conversation = trpc.account.getAssistantConversation.useQuery();
+  const conversation = trpc.account.getAssistantConversation.useQuery({ sessionId });
   const selfProfile = trpc.account.getSelfProfile.useQuery();
   const send = trpc.account.chatWithAssistant.useMutation();
   const clear = trpc.account.clearAssistantConversation.useMutation();
@@ -198,7 +206,9 @@ export function AssistantPanel({ chatModels, onBack }: { chatModels: FlatModels[
           if (step.kind === 'final') {
             next[idx] = { ...turn, text: step.text || '（没能得出结论。）', running: false };
             runIdRef.current = null;
-            void utils.account.getAssistantConversation.invalidate();
+            void utils.account.getAssistantConversation.invalidate({ sessionId });
+            // 首轮对话后端会自动总结标题；刷新会话列表让左栏标题跟上。
+            void utils.account.listAssistantSessions.invalidate();
           } else if (step.kind === 'error') {
             next[idx] = { ...turn, running: false };
             runIdRef.current = null;
@@ -212,7 +222,7 @@ export function AssistantPanel({ chatModels, onBack }: { chatModels: FlatModels[
       onError: (err) => console.error('[assistant] event subscription error', err),
     });
     return () => sub.unsubscribe();
-  }, [utils, dialog]);
+  }, [utils, dialog, sessionId]);
 
   // 新内容时滚到底部。
   useEffect(() => {
@@ -227,7 +237,7 @@ export function AssistantPanel({ chatModels, onBack }: { chatModels: FlatModels[
     if (inputRef.current) inputRef.current.style.height = 'auto';
     setTurns((prev) => [...prev, { role: 'user', text }, { role: 'assistant', text: '', steps: [], running: true }]);
     try {
-      const { runId } = await send.mutateAsync({ text });
+      const { runId } = await send.mutateAsync({ sessionId, text });
       runIdRef.current = runId;
     } catch (e) {
       dialog.error('发送失败', e instanceof Error ? e.message : String(e));
@@ -238,12 +248,13 @@ export function AssistantPanel({ chatModels, onBack }: { chatModels: FlatModels[
   }
 
   async function onClear(): Promise<void> {
-    const ok = await dialog.confirm('清空对话', '确认清空与 WeQ 助手的对话？', { okLabel: '清空', tone: 'warning' });
+    const ok = await dialog.confirm('清空对话', '确认清空当前这段对话的内容？', { okLabel: '清空', tone: 'warning' });
     if (!ok) return;
-    await clear.mutateAsync();
+    await clear.mutateAsync({ sessionId });
     setTurns([]);
     runIdRef.current = null;
-    await utils.account.getAssistantConversation.invalidate();
+    await utils.account.getAssistantConversation.invalidate({ sessionId });
+    await utils.account.listAssistantSessions.invalidate();
   }
 
   return (

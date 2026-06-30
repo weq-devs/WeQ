@@ -41,6 +41,17 @@ export interface AssistantConfig {
 }
 
 /**
+ * 与 WeQ 助手的一次「会话」。一个会话 = 一段独立的对话历史（独立上下文、独立持久化桶）。
+ * 标题在首轮对话后由模型自动总结生成（见 {@link AssistantService.generateTitle}）。
+ */
+export interface AssistantSession {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
  * 助手用 write_report 写到本地的一份报告/文档（落在账号缓存目录的 reports/ 下）。
  * `id` 同时是磁盘文件名与 open/save 的句柄；前端据此渲染附件卡片（查看/另存为）。
  */
@@ -131,8 +142,14 @@ const WRITE_REPORT_SPEC: AssistantToolSpec = {
   },
 };
 
-/** 助手会话固定的 agentId（持久化分桶用）。 */
+/**
+ * 助手持久化分桶前缀。每个会话独占一个桶，桶 key 为 `assistant:<sessionId>`；
+ * 裸 `assistant`（无后缀）是旧版「单一对话」遗留桶，仅用于一次性迁移。
+ */
 export const ASSISTANT_AGENT_ID = 'assistant';
+
+/** 新建会话的占位标题；首轮对话后会被模型总结的标题替换。 */
+const DEFAULT_SESSION_TITLE = '新对话';
 
 /** 单轮任务最多调用工具的轮数。任务型 agent 要敢多试，故给得宽一些。 */
 const TOOL_LOOP_LIMIT = 14;
@@ -149,7 +166,9 @@ interface ApiMessage {
 
 export class AssistantService {
   private readonly configPath: string;
+  private readonly sessionsPath: string;
   private config: AssistantConfig;
+  private sessions: AssistantSession[];
 
   constructor(
     private readonly rootDir: string,
@@ -159,7 +178,10 @@ export class AssistantService {
     private readonly tools?: AssistantTools,
   ) {
     this.configPath = join(rootDir, 'assistant.json');
+    this.sessionsPath = join(rootDir, 'assistant_sessions.json');
     this.config = this.loadConfig();
+    this.sessions = this.loadSessions();
+    this.migrateLegacyConversation();
     // 启动即把已存的外部 MCP 配置交给 Hub，连接在首次用到时惰性建立。
     this.tools?.syncExternalMcp?.(this.config.mcpServers);
   }
@@ -179,12 +201,56 @@ export class AssistantService {
     return this.config;
   }
 
-  getConversation(): ConversationTurn[] {
-    return this.conversations.get(ASSISTANT_AGENT_ID);
+  // ── 会话管理（多会话：每个会话独立上下文 + 独立持久化桶）──────────────────
+
+  /** 某会话的持久化桶 key。 */
+  private bucketId(sessionId: string): string {
+    return `${ASSISTANT_AGENT_ID}:${sessionId}`;
   }
 
-  clearConversation(): void {
-    this.conversations.clear(ASSISTANT_AGENT_ID);
+  /** 会话列表，按最近活跃倒序（最新在前）。 */
+  listSessions(): AssistantSession[] {
+    return [...this.sessions].sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
+  /** 新建一个空会话并返回（标题待首轮对话后自动总结）。 */
+  createSession(): AssistantSession {
+    const now = Date.now();
+    const session: AssistantSession = { id: randomUUID(), title: DEFAULT_SESSION_TITLE, createdAt: now, updatedAt: now };
+    this.sessions.push(session);
+    this.persistSessions();
+    return session;
+  }
+
+  /** 删除会话：移除元数据 + 清掉其对话桶。 */
+  deleteSession(sessionId: string): void {
+    this.sessions = this.sessions.filter((s) => s.id !== sessionId);
+    this.conversations.clear(this.bucketId(sessionId));
+    this.persistSessions();
+  }
+
+  /** 重命名会话（空标题回退占位标题）。 */
+  renameSession(sessionId: string, title: string): void {
+    const session = this.sessions.find((s) => s.id === sessionId);
+    if (!session) return;
+    session.title = title.trim().slice(0, 40) || DEFAULT_SESSION_TITLE;
+    session.updatedAt = Date.now();
+    this.persistSessions();
+  }
+
+  /** 清空某会话的对话内容（保留会话本身，标题复位待重新总结）。 */
+  clearConversation(sessionId: string): void {
+    this.conversations.clear(this.bucketId(sessionId));
+    const session = this.sessions.find((s) => s.id === sessionId);
+    if (session) {
+      session.title = DEFAULT_SESSION_TITLE;
+      session.updatedAt = Date.now();
+      this.persistSessions();
+    }
+  }
+
+  getConversation(sessionId: string): ConversationTurn[] {
+    return this.conversations.get(this.bucketId(sessionId));
   }
 
   // ── 报告文件（write_report 内置工具 + 前端查看/另存为的取址）────────────────
@@ -244,8 +310,14 @@ export class AssistantService {
    * 处理一条用户消息：多轮调用工具直到给出最终答复。每一步通过 `onStep` 实时吐出。
    * 失败（包括异常）也会作为 `error` step 推出后再抛出，便于前端统一处理。
    */
-  async chat(text: string, onStep?: (step: AssistantStep) => void): Promise<{ text: string; steps: AssistantStep[] }> {
+  async chat(
+    sessionId: string,
+    text: string,
+    onStep?: (step: AssistantStep) => void,
+  ): Promise<{ text: string; steps: AssistantStep[] }> {
     if (!this.config.model) throw new Error('请先在助手设置里选择聊天模型。');
+    const session = this.sessions.find((s) => s.id === sessionId);
+    if (!session) throw new Error('对话不存在，请新建一个对话。');
 
     const steps: AssistantStep[] = [];
     const emit = (step: AssistantStep): void => {
@@ -258,11 +330,10 @@ export class AssistantService {
     };
 
     try {
-      const reply = await this.runLoop(text, emit);
-      emit({ kind: 'final', text: reply });
+      const reply = await this.runLoop(sessionId, text, emit);
       const now = Date.now();
       const toolsUsed = steps.filter((s): s is Extract<AssistantStep, { kind: 'tool_call' }> => s.kind === 'tool_call').map((s) => s.name);
-      this.conversations.append(ASSISTANT_AGENT_ID, [
+      this.conversations.append(this.bucketId(sessionId), [
         { role: 'user', text, ts: now },
         {
           role: 'assistant',
@@ -272,6 +343,19 @@ export class AssistantService {
           ...(toolsUsed.length ? { toolsUsed: [...new Set(toolsUsed)] } : {}),
         },
       ]);
+      // 标题：仍是占位标题（即本会话首轮）时，让模型简单总结对话内容生成标题。
+      // 放在 emit(final) 之前完成，前端收到 final 后刷新会话列表即可拿到新标题（无竞态）。
+      if (session.title === DEFAULT_SESSION_TITLE) {
+        try {
+          const title = await this.generateTitle(text, reply);
+          if (title) session.title = title;
+        } catch {
+          /* 标题总结失败不影响对话本身 */
+        }
+      }
+      session.updatedAt = now;
+      this.persistSessions();
+      emit({ kind: 'final', text: reply });
       return { text: reply, steps };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -280,8 +364,32 @@ export class AssistantService {
     }
   }
 
+  /**
+   * 让模型用一句短语概括对话主题，作为会话标题。轻量调用（无工具、不记账），
+   * 失败/为空时返回 ''（上层保留占位标题）。
+   */
+  private async generateTitle(userText: string, reply: string): Promise<string> {
+    if (!this.config.model) return '';
+    const endpoint: AgentLabEndpoint = { ...this.resolveEndpoint(this.config.model), kind: 'chat' };
+    const data = await this.callApi(
+      endpoint,
+      [
+        {
+          role: 'system',
+          content:
+            '你是会话标题生成器。根据用户与助手的一段对话，用一句不超过 14 个汉字的中文短语概括对话主题，' +
+            '只输出标题本身，不要引号、书名号、句号或任何前后缀。',
+        },
+        { role: 'user', content: `用户：${userText.slice(0, 600)}\n助手：${reply.slice(0, 600)}` },
+      ],
+      [],
+    );
+    const raw = data.choices?.[0]?.message?.content;
+    return cleanTitle(typeof raw === 'string' ? raw : '');
+  }
+
   /** 核心多轮循环：返回最终文本。中途只 emit 过程 step，不 emit final。 */
-  private async runLoop(text: string, emit: (step: AssistantStep) => void): Promise<string> {
+  private async runLoop(sessionId: string, text: string, emit: (step: AssistantStep) => void): Promise<string> {
     const endpoint: AgentLabEndpoint = {
       ...this.resolveEndpoint(this.config.model!),
       kind: 'chat',
@@ -297,7 +405,7 @@ export class AssistantService {
         }),
     };
 
-    const prior = this.conversations.get(ASSISTANT_AGENT_ID).slice(-12);
+    const prior = this.conversations.get(this.bucketId(sessionId)).slice(-12);
     const messages: ApiMessage[] = [
       { role: 'system', content: this.systemPrompt() },
       ...prior.map((t) => ({ role: t.role, content: t.text })),
@@ -500,6 +608,41 @@ export class AssistantService {
       /* ignore */
     }
   }
+
+  private loadSessions(): AssistantSession[] {
+    try {
+      if (!existsSync(this.sessionsPath)) return [];
+      const parsed = JSON.parse(readFileSync(this.sessionsPath, 'utf-8'));
+      return Array.isArray(parsed) ? (parsed as AssistantSession[]).filter((s) => s && typeof s.id === 'string') : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private persistSessions(): void {
+    try {
+      mkdirSync(dirname(this.sessionsPath), { recursive: true });
+      writeFileSync(this.sessionsPath, JSON.stringify(this.sessions), 'utf-8');
+    } catch {
+      /* 持久化失败不应影响对话本身 */
+    }
+  }
+
+  /**
+   * 旧版「单一对话」（裸 `assistant` 桶）迁移成一个会话——仅当尚无任何会话且旧桶有内容时
+   * 触发一次：把旧 turn 搬进新会话桶、清掉旧桶、登记一条「历史对话」会话。
+   */
+  private migrateLegacyConversation(): void {
+    if (this.sessions.length) return;
+    const legacy = this.conversations.get(ASSISTANT_AGENT_ID);
+    if (!legacy.length) return;
+    const now = Date.now();
+    const session: AssistantSession = { id: randomUUID(), title: '历史对话', createdAt: now, updatedAt: now };
+    this.conversations.append(this.bucketId(session.id), legacy);
+    this.conversations.clear(ASSISTANT_AGENT_ID);
+    this.sessions.push(session);
+    this.persistSessions();
+  }
 }
 
 function isArtifactKind(value: unknown): value is ArtifactKind {
@@ -524,6 +667,19 @@ function slug(text: string): string {
     .replace(/[^\p{L}\p{N}]+/gu, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 40);
+}
+
+/**
+ * 清洗模型生成的标题：去掉首尾空白、换行、包裹的引号/书名号与结尾标点，截断到 20 字。
+ * 结果为空时返回 ''（上层保留占位标题）。
+ */
+function cleanTitle(raw: string): string {
+  let t = raw.trim().replace(/\s+/g, ' ');
+  // 取首行，去掉常见包裹符号与结尾标点。
+  t = t.split('\n')[0]!.trim();
+  t = t.replace(/^["'“”『』《》「」\s]+|["'“”『』《》「」\s]+$/g, '');
+  t = t.replace(/[。.!！?？，,、；;：:]+$/g, '');
+  return t.slice(0, 20).trim();
 }
 
 /** JSON.stringify，循环引用/异常兜底成字符串。 */

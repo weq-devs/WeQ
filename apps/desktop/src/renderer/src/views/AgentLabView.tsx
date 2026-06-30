@@ -7,7 +7,7 @@ import {
   type ReactElement,
   type ReactNode,
 } from 'react';
-import { ArrowLeft, Plus, Send, Settings, Sparkles, Trash2, X } from 'lucide-react';
+import { ArrowLeft, MessageSquarePlus, MessagesSquare, Plus, Send, Settings, Sparkles, Trash2, X } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
 import { autoGrowTextarea } from '../lib/textareaAutoGrow';
@@ -175,7 +175,23 @@ function PersonaParamsPanel({ loading, detail }: { loading: boolean; detail: Per
   );
 }
 
-type Selection = { kind: 'home' } | { kind: 'assistant' } | { kind: 'persona'; id: string };
+type Selection =
+  | { kind: 'home' }
+  | { kind: 'assistant'; sessionId: string | null }
+  | { kind: 'persona'; id: string };
+
+/** 会话列表里的相对时间（粗粒度，够用即可）。 */
+function relTime(ts: number): string {
+  const diff = Date.now() - ts;
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return '刚刚';
+  if (min < 60) return `${min} 分钟前`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr} 小时前`;
+  const day = Math.floor(hr / 24);
+  if (day < 30) return `${day} 天前`;
+  return new Date(ts).toLocaleDateString();
+}
 
 export function AgentLabView(): ReactElement {
   const dialog = useAppDialog();
@@ -185,6 +201,8 @@ export function AgentLabView(): ReactElement {
   const personas = trpc.account.listAgentLabPersonas.useQuery();
   const chat = trpc.account.chatWithAgentLabPersona.useMutation();
   const deletePersona = trpc.account.deleteAgentLabPersona.useMutation();
+  const createAssistantSession = trpc.account.createAssistantSession.useMutation();
+  const deleteAssistantSession = trpc.account.deleteAssistantSession.useMutation();
   const selfProfile = trpc.account.getSelfProfile.useQuery();
   const systemFaces = trpc.account.getSystemFaces.useQuery(undefined, { staleTime: Infinity });
   const faceDescToId = useMemo(() => buildFaceMap(systemFaces.data ?? []), [systemFaces.data]);
@@ -235,6 +253,11 @@ export function AgentLabView(): ReactElement {
   }, [providers.data]);
 
   const [sel, setSel] = useState<Selection>({ kind: 'home' });
+  // WeQ 助手会话列表：仅进入助手模式时拉取。
+  const assistantSessionsQuery = trpc.account.listAssistantSessions.useQuery(undefined, {
+    enabled: sel.kind === 'assistant',
+  });
+  const assistantSessions = assistantSessionsQuery.data ?? [];
   const [cloneOpen, setCloneOpen] = useState(false);
   // 克隆任务列表：抬到模块级 store（脱离本组件生命周期），切出 AgentLab 再回来任务不丢（bug2）。
   const cloneTasks = useSyncExternalStore(subscribeCloneTasks, getCloneTasks);
@@ -323,6 +346,32 @@ export function AgentLabView(): ReactElement {
     void utils.account.getAgentLabConversation.invalidate({ personaId: id });
   }
 
+  async function onNewAssistantSession(): Promise<void> {
+    try {
+      const session = await createAssistantSession.mutateAsync();
+      await utils.account.listAssistantSessions.invalidate();
+      setSel({ kind: 'assistant', sessionId: session.id });
+    } catch (error) {
+      dialog.error('新建失败', error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function onDeleteAssistantSession(sessionId: string): Promise<void> {
+    const ok = await dialog.confirm('删除对话', '确认删除这段对话？删除后无法恢复。', {
+      okLabel: '删除',
+      tone: 'warning',
+    });
+    if (!ok) return;
+    try {
+      await deleteAssistantSession.mutateAsync({ sessionId });
+      await utils.account.listAssistantSessions.invalidate();
+      // 删的是当前打开的会话 → 回到「选择/新建」空态。
+      setSel((cur) => (cur.kind === 'assistant' && cur.sessionId === sessionId ? { kind: 'assistant', sessionId: null } : cur));
+    } catch (error) {
+      dialog.error('删除失败', error instanceof Error ? error.message : String(error));
+    }
+  }
+
   // 由配置弹窗发起构建：交给模块级 store 登记任务 + 后台跑构建 → 关弹窗 → 打开进度灯箱。
   // 构建脱离本组件，切走再回来任务态仍在（bug2）。完成后由上面的 doneTaskIds effect 刷新列表。
   function startClone(args: StartCloneArgs): void {
@@ -404,10 +453,57 @@ export function AgentLabView(): ReactElement {
     <div className="weq-agentlab-shell">
       {/* 左侧 agent 列表 */}
       <aside className="weq-agentlab-list">
+        {sel.kind === 'assistant' ? (
+          <>
+            <button className="weq-agentlab-list-back" onClick={() => setSel({ kind: 'home' })}>
+              <ArrowLeft size={14} /> 返回 AgentLab
+            </button>
+            <div className="weq-agentlab-list-head weq-asst-list-head">
+              <Sparkles size={15} /> WeQ 助手 · 对话
+            </div>
+            <button className="weq-agentlab-newclone" onClick={() => void onNewAssistantSession()}>
+              <MessageSquarePlus size={15} /> 新建对话
+            </button>
+            <div className="weq-agentlab-list-scroll">
+              {assistantSessions.length === 0 ? (
+                <div className="weq-agentlab-empty" style={{ padding: '8px 10px' }}>
+                  还没有对话，点上方「新建对话」开始。
+                </div>
+              ) : (
+                assistantSessions.map((s) => (
+                  <button
+                    key={s.id}
+                    className={`weq-agentlab-item${sel.sessionId === s.id ? ' is-active' : ''}`}
+                    onClick={() => setSel({ kind: 'assistant', sessionId: s.id })}
+                  >
+                    <span className="weq-agentlab-item-avatar is-bot"><MessagesSquare size={16} /></span>
+                    <span className="weq-agentlab-item-text">
+                      <strong>{s.title}</strong>
+                      <small>{relTime(s.updatedAt)}</small>
+                    </span>
+                    <span
+                      className="weq-clone-task-close"
+                      role="button"
+                      tabIndex={0}
+                      aria-label="删除对话"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void onDeleteAssistantSession(s.id);
+                      }}
+                    >
+                      <Trash2 size={13} />
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          </>
+        ) : (
+          <>
         <div className="weq-agentlab-list-head">AgentLab</div>
         <button
-          className={`weq-agentlab-item${sel.kind === 'assistant' ? ' is-active' : ''}`}
-          onClick={() => setSel({ kind: 'assistant' })}
+          className="weq-agentlab-item"
+          onClick={() => setSel({ kind: 'assistant', sessionId: null })}
         >
           <span className="weq-agentlab-item-avatar is-bot"><Sparkles size={18} /></span>
           <span className="weq-agentlab-item-text">
@@ -488,6 +584,8 @@ export function AgentLabView(): ReactElement {
         <button className="weq-agentlab-newclone" onClick={() => setCloneOpen(true)}>
           <Plus size={15} /> 新建克隆
         </button>
+          </>
+        )}
       </aside>
 
       {/* 右侧主区 */}
@@ -499,7 +597,28 @@ export function AgentLabView(): ReactElement {
             personaCount={personaList.length}
           />
         ) : sel.kind === 'assistant' ? (
-          <AssistantPanel chatModels={flatModels.chat} onBack={() => setSel({ kind: 'home' })} />
+          sel.sessionId ? (
+            <AssistantPanel
+              key={sel.sessionId}
+              sessionId={sel.sessionId}
+              chatModels={flatModels.chat}
+              onBack={() => setSel({ kind: 'assistant', sessionId: null })}
+            />
+          ) : (
+            <div className="weq-agentlab-chat">
+              <div className="weq-agentlab-empty">
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, textAlign: 'center' }}>
+                  <Sparkles size={30} strokeWidth={1.5} />
+                  <span>
+                    从左侧选择一段对话继续，或<strong>新建一段对话</strong>，开始和 WeQ 助手聊天。
+                  </span>
+                  <button className="weq-set-btn" onClick={() => void onNewAssistantSession()}>
+                    <MessageSquarePlus size={14} /> 新建对话
+                  </button>
+                </div>
+              </div>
+            </div>
+          )
         ) : (
           <div className="weq-agentlab-chat">
             <header className="weq-agentlab-head">

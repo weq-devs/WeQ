@@ -19,9 +19,10 @@
  */
 
 import { EventEmitter } from 'node:events';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
-import { createWin32Platform, type Platform } from '@weq/platform';
+import { createWin32Platform, isTencentFilesRoot, type Platform } from '@weq/platform';
 import { startMcpServer, stopMcpServer } from '../mcp/server';
 import { aiToolSpecs, runAiTool } from '../mcp/openai_tools';
 import { getExternalMcpHub, disposeExternalMcp } from '../mcp/external';
@@ -379,7 +380,13 @@ export function initAppContext(): AppContext {
     return cached;
   }
 
-  const platform = createWin32Platform(result.bundle);
+  // The user-picked Tencent Files override lives in config.json
+  // (UserConfigService), but UserConfigService needs `platform.appDataRoot()`
+  // to construct — a cycle. Break it with a late-bound reader: the platform
+  // calls this lazily on every path lookup, by which point `userConfig` is
+  // assigned, so the override flows into login.db decrypt / db lookup / stats.
+  let readDataRootOverride: () => string | null = () => null;
+  const platform = createWin32Platform(result.bundle, () => readDataRootOverride());
   initLogger(platform.appDataRoot());
   const logger = getLogger().child({ scope: 'app-context' });
   logger.info('initializing app context', {
@@ -388,6 +395,24 @@ export function initAppContext(): AppContext {
     logDir: getLogDir(),
   });
   const userConfig = new UserConfigService(platform);
+  readDataRootOverride = () => userConfig.read().tencentFilesRootOverride ?? null;
+
+  // Sanitize a legacy / malformed data-dir override on launch: a stored path
+  // that no longer exists or doesn't end in `Tencent Files` (e.g. an old build
+  // that saved `…\Tencent Files\<uin>`) is dropped so detection re-runs and the
+  // user isn't stuck with a path that silently resolves nothing.
+  const storedOverride = userConfig.read().tencentFilesRootOverride ?? null;
+  if (storedOverride && (!existsSync(storedOverride) || !isTencentFilesRoot(storedOverride))) {
+    // Also drop the cached install probe — it may have been derived from the
+    // bad override and would otherwise be served as still-valid.
+    userConfig.write({ tencentFilesRootOverride: null, install: undefined });
+    logger.warn('cleared invalid Tencent Files override on launch', {
+      event: 'sanitize-data-root-override',
+      override: storedOverride,
+      exists: existsSync(storedOverride),
+      endsWithTencentFiles: isTencentFilesRoot(storedOverride),
+    });
+  }
 
   const bootstrap: BootstrapServices = {
     detect: new Win32DetectService(platform),

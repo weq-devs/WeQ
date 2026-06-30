@@ -9,6 +9,7 @@
  */
 
 import type { NativeBundle } from '@weq/native';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Platform } from '../types';
 import {
@@ -33,7 +34,26 @@ import {
 } from './paths';
 import { findQqExe, findQqInstallRoot } from './registry';
 
-export function createWin32Platform(native: NativeBundle): Platform {
+/**
+ * Build a Win32 Platform.
+ *
+ * `getOverrideRoot` is the seam for the user-picked Tencent Files directory:
+ * it's read fresh on every path lookup (so changing the override mid-session
+ * takes effect immediately) and, when it points at an existing directory, wins
+ * over auto-detection across the WHOLE platform — login.db decrypt, per-account
+ * db lookup, and stats all resolve against it. Defaults to "no override" so
+ * tests and callers that don't care can omit it.
+ */
+export function createWin32Platform(
+  native: NativeBundle,
+  getOverrideRoot: () => string | null = () => null,
+): Platform {
+  // Resolve the override lazily per call; ignore a stale/removed path so we
+  // gracefully fall back to detection rather than returning dead paths.
+  const override = (): string | null => {
+    const o = getOverrideRoot();
+    return o && existsSync(o) ? o : null;
+  };
   return {
     kind: 'win32',
     native,
@@ -51,22 +71,22 @@ export function createWin32Platform(native: NativeBundle): Platform {
       }
       return join(base, 'weq', 'cache', 'avatar');
     },
-    tencentFilesRoots: () => candidateTencentFilesRoots(),
-    loginDbPath: () => findLoginDb(),
-    ntDbDir: (uin: string) => findNtDbDir(uin),
-    ntMsgDbPath: (uin: string) => findNtMsgDb(uin),
-    groupInfoDbPath: (uin: string) => findGroupInfoDb(uin),
-    profileInfoDbPath: (uin: string) => findProfileInfoDb(uin),
-    miscDbPath: (uin: string) => findMiscDb(uin),
-    buddyMsgFtsDbPath: (uin: string) => findBuddyMsgFtsDb(uin),
-    groupMsgFtsDbPath: (uin: string) => findGroupMsgFtsDb(uin),
-    emojiResourceDir: (uin: string) => findEmojiResourceDir(uin),
-    marketFaceDir: (uin: string) => findMarketFaceDir(uin),
-    emojiRecvDir: (uin: string) => findEmojiRecvDir(uin),
-    picDir: (uin: string) => findPicDir(uin),
-    pttDir: (uin: string) => findPttDir(uin),
-    videoDir: (uin: string) => findVideoDir(uin),
-    fileDir: (uin: string) => findFileDir(uin),
+    tencentFilesRoots: () => candidateTencentFilesRoots(undefined, override()),
+    loginDbPath: () => findLoginDb(undefined, override()),
+    ntDbDir: (uin: string) => findNtDbDir(uin, undefined, override()),
+    ntMsgDbPath: (uin: string) => findNtMsgDb(uin, undefined, override()),
+    groupInfoDbPath: (uin: string) => findGroupInfoDb(uin, undefined, override()),
+    profileInfoDbPath: (uin: string) => findProfileInfoDb(uin, undefined, override()),
+    miscDbPath: (uin: string) => findMiscDb(uin, undefined, override()),
+    buddyMsgFtsDbPath: (uin: string) => findBuddyMsgFtsDb(uin, undefined, override()),
+    groupMsgFtsDbPath: (uin: string) => findGroupMsgFtsDb(uin, undefined, override()),
+    emojiResourceDir: (uin: string) => findEmojiResourceDir(uin, undefined, override()),
+    marketFaceDir: (uin: string) => findMarketFaceDir(uin, undefined, override()),
+    emojiRecvDir: (uin: string) => findEmojiRecvDir(uin, undefined, override()),
+    picDir: (uin: string) => findPicDir(uin, undefined, override()),
+    pttDir: (uin: string) => findPttDir(uin, undefined, override()),
+    videoDir: (uin: string) => findVideoDir(uin, undefined, override()),
+    fileDir: (uin: string) => findFileDir(uin, undefined, override()),
     qqExePath: () => findQqExe(),
     qqWrapperNodePath: () => {
       const root = findQqInstallRoot();
@@ -79,6 +99,7 @@ export function createWin32Platform(native: NativeBundle): Platform {
 // without depending on a Platform instance.
 export {
   candidateTencentFilesRoots,
+  isTencentFilesRoot,
   pickTencentFilesRoot,
   findLoginDb,
   findNtDbDir,
