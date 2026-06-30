@@ -42,8 +42,10 @@ export interface TtsProviderConfig {
   appId?: string;
   /** 豆包 X-Api-Resource-Id。 */
   resourceId?: string;
-  /** TTS 模型 id（厂商相关，可空用默认）。 */
+  /** TTS 模型 id（固定音色 / preset 模式；厂商相关，可空用默认）。 */
   model?: string;
+  /** 语音复刻模型 id（clone 模式；部分厂商 preset 与 clone 是不同模型，如 mimo）。可空用默认。 */
+  cloneModel?: string;
   /** 默认音色 / voice_id（preset 模式用）。 */
   voice?: string;
   /** 音频格式 mp3 | wav。 */
@@ -96,7 +98,7 @@ export interface TtsVendorCatalogEntry {
   apiKeyHint?: string;
   capabilities: TtsCapabilities;
   /** 该厂商配置用到哪些字段（前端据此显隐表单项）。 */
-  fields: Array<'apiKey' | 'appId' | 'resourceId' | 'model' | 'voice' | 'format' | 'speed'>;
+  fields: Array<'apiKey' | 'appId' | 'resourceId' | 'model' | 'cloneModel' | 'voice' | 'format' | 'speed'>;
   /** 默认模型（preset 模式 / model 留空时用；前端表单展示成占位与提示）。 */
   defaultModel?: string;
   /** 语音复刻默认模型（clone 模式 / model 留空时用；前端把它作为「语音克隆默认配置」显示出来）。 */
@@ -161,11 +163,11 @@ export const TTS_VENDOR_CATALOG: TtsVendorCatalogEntry[] = [
     baseUrl: 'https://api.xiaomimimo.com/v1/chat/completions',
     apiKeyHint: 'api-key',
     capabilities: { fixedVoice: true, clone: true },
-    fields: ['apiKey', 'model', 'voice', 'format'],
+    fields: ['apiKey', 'model', 'cloneModel', 'voice', 'format'],
     defaultModel: 'mimo-v2.5-tts',
     cloneModel: 'mimo-v2.5-tts-voiceclone',
     presetVoices: [{ id: 'mimo_default', label: '默认' }],
-    note: '模型留空时按模式自动选：固定音色用 mimo-v2.5-tts，语音复刻用 mimo-v2.5-tts-voiceclone（参考音频随请求上传）。',
+    note: 'preset 与复刻是不同模型：固定音色用「模型」，语音复刻用「复刻模型」；两者留空各自用默认（mimo-v2.5-tts / mimo-v2.5-tts-voiceclone），参考音频随请求上传。',
   },
   {
     vendor: 'doubao',
@@ -365,7 +367,10 @@ const mimo: Backend = async (cfg, text, opts) => {
   const format = opts.format ?? cfg.format ?? 'wav';
   const content = opts.emotion ? `<style>${opts.emotion}</style>${text}` : text;
   const clone = !!opts.refClip;
-  const model = cfg.model?.trim() || (clone ? MIMO_MODEL_CLONE : MIMO_MODEL_PRESET);
+  // preset 与复刻是不同模型，各自独立配置（留空各用默认）。
+  const model = clone
+    ? cfg.cloneModel?.trim() || MIMO_MODEL_CLONE
+    : cfg.model?.trim() || MIMO_MODEL_PRESET;
 
   const messages: Array<Record<string, unknown>> = [];
   if (clone && opts.refClip) {

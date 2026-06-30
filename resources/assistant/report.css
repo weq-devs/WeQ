@@ -308,3 +308,282 @@ body {
   gap: 12px;
   align-items: center;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 图表 —— 纯 CSS / 内联 SVG，零运行时。数据由 AI 用内联 style / SVG 点位绑定。
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/* ── 甜甜圈 / 饼图 ── 用 style="--rp-donut: conic-gradient(色 起 止, …)" 上色 ──
+ * 单值占比可只给两段：conic-gradient(var(--rp-accent) 0 73%, #eef2f7 0)。 */
+.rp-donut {
+  position: relative;
+  width: 168px;
+  height: 168px;
+  border-radius: 50%;
+  background: var(--rp-donut, conic-gradient(#e5e7eb 0 100%));
+  box-shadow: var(--rp-shadow);
+}
+.rp-donut::after {
+  content: '';
+  position: absolute;
+  inset: 24%;
+  border-radius: 50%;
+  background: var(--rp-card);
+}
+/* 圈心数字：放一个 .rp-donut-center 子元素即可绝对居中。 */
+.rp-donut-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.rp-donut-center b {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--rp-ink);
+}
+.rp-donut-center small {
+  font-size: 12px;
+  color: var(--rp-muted);
+}
+
+/* ── 图例 ── 每项一个 `.rp-dot`(style="--c:#色") + 文本 ── */
+.rp-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+}
+.rp-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--rp-ink);
+}
+.rp-legend-item b {
+  margin-left: 2px;
+  color: var(--rp-muted);
+  font-variant-numeric: tabular-nums;
+}
+.rp-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  background: var(--c, var(--rp-accent));
+  flex: none;
+}
+
+/* ── 柱状图 ── 每柱 .rp-bar style="--rp-h:73%"，内含 fill / val / label ── */
+.rp-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  height: 200px;
+  padding-top: 18px; /* 给柱顶数值留位 */
+}
+.rp-bar {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  min-width: 0;
+}
+.rp-bar-fill {
+  width: 100%;
+  max-width: 48px;
+  height: var(--rp-h, 0%);
+  border-radius: 8px 8px 0 0;
+  background: linear-gradient(var(--rp-accent), var(--rp-accent-2));
+  transition: none;
+}
+.rp-bar-val {
+  position: absolute;
+  top: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--rp-muted);
+  font-variant-numeric: tabular-nums;
+}
+.rp-bar-label {
+  margin-top: 8px;
+  overflow: hidden;
+  max-width: 100%;
+  font-size: 12px;
+  color: var(--rp-faint);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ── 折线 / 面积图 ── 内放 AI 写的 <svg viewBox> + polyline/polygon ──
+ * <div class="rp-spark"><svg viewBox="0 0 100 40" preserveAspectRatio="none">
+ *    <polygon class="rp-spark-area" points="0,40 0,28 25,18 …,40"/>
+ *    <polyline class="rp-spark-line" points="0,28 25,18 50,22 …"/></svg></div> */
+.rp-spark {
+  width: 100%;
+}
+.rp-spark svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.rp-spark-line {
+  fill: none;
+  stroke: var(--rp-accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.rp-spark-area {
+  fill: rgba(99, 102, 241, 0.14);
+  stroke: none;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 艺术字体设计 —— 可叠加在任意文字上
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/* 超大展示标题：随视口缩放、渐变填充。适合封面大字。 */
+.rp-display {
+  margin: 0;
+  font-size: clamp(34px, 7vw, 68px);
+  font-weight: 900;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  background: linear-gradient(120deg, var(--rp-accent), var(--rp-accent-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+/* 行内渐变字（套在 span 上给某几个字上色）。 */
+.rp-gradient-text {
+  background: linear-gradient(120deg, var(--rp-accent), var(--rp-accent-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+/* 荧光笔底纹（强调短语）。 */
+.rp-mark {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: linear-gradient(transparent 56%, rgba(139, 92, 246, 0.28) 0);
+  font-weight: 600;
+}
+/* 小号大写字距标签（深色背景上当 kicker 用）。 */
+.rp-kicker {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--rp-accent);
+}
+/* 优雅衬线 fallback（标题想要文艺感时套上）。 */
+.rp-serif {
+  font-family: Georgia, 'Times New Roman', 'Songti SC', 'STSong', serif;
+}
+/* 大号装饰引言 / 金句（带一个特大引号）。 */
+.rp-pull {
+  position: relative;
+  margin: 8px 0;
+  padding: 8px 0 8px 44px;
+  font-size: clamp(18px, 2.6vw, 24px);
+  font-weight: 700;
+  line-height: 1.5;
+  color: var(--rp-ink);
+}
+.rp-pull::before {
+  content: '\201C';
+  position: absolute;
+  top: -10px;
+  left: 0;
+  font-family: Georgia, serif;
+  font-size: 56px;
+  line-height: 1;
+  color: var(--rp-accent);
+  opacity: 0.5;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 时间线 / 标签 / 头像 —— 适合「活跃日记」「话题」「成员列表」
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/* 时间线：每项 .rp-tl-item，内放 .rp-tl-time + 任意内容。 */
+.rp-timeline {
+  position: relative;
+  margin: 0;
+  padding-left: 26px;
+}
+.rp-timeline::before {
+  content: '';
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 6px;
+  width: 2px;
+  background: var(--rp-border);
+}
+.rp-tl-item {
+  position: relative;
+  padding: 0 0 20px 6px;
+}
+.rp-tl-item::before {
+  content: '';
+  position: absolute;
+  top: 5px;
+  left: -23px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--rp-accent);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+}
+.rp-tl-item:last-child {
+  padding-bottom: 0;
+}
+.rp-tl-time {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--rp-accent);
+}
+
+/* 标签 chips（话题 / 关键词 / 高频词）。 */
+.rp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.rp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border: 1px solid var(--rp-border);
+  border-radius: 999px;
+  background: var(--rp-card);
+  font-size: 13px;
+  color: var(--rp-ink);
+}
+
+/* 首字母头像圆（用 style="--c:#色" 可换底色；放成员/好友名前）。 */
+.rp-ava {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--c, linear-gradient(135deg, var(--rp-accent), var(--rp-accent-2)));
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  flex: none;
+}

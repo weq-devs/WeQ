@@ -5,18 +5,20 @@
  */
 
 import { useState, type ReactElement } from 'react';
-import { Download, Eye, FileCode2, FileText, FileType2 } from 'lucide-react';
+import { Download, Eye, FileCode2, FileText, FileType2, FolderArchive } from 'lucide-react';
 import type { AssistantArtifact } from '@weq/service';
 import { trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
 
 function kindIcon(kind: AssistantArtifact['kind']): ReactElement {
+  if (kind === 'export') return <FolderArchive size={18} />;
   if (kind === 'html') return <FileCode2 size={18} />;
   if (kind === 'markdown') return <FileType2 size={18} />;
   return <FileText size={18} />;
 }
 
 function kindLabel(kind: AssistantArtifact['kind']): string {
+  if (kind === 'export') return '导出';
   if (kind === 'html') return 'HTML 报告';
   if (kind === 'markdown') return 'Markdown';
   return '文本';
@@ -30,14 +32,18 @@ function formatBytes(bytes: number): string {
 
 export function AssistantArtifactCard({ artifact }: { artifact: AssistantArtifact }): ReactElement {
   const dialog = useAppDialog();
+  const isExport = artifact.kind === 'export';
   const open = trpc.account.openAssistantArtifact.useMutation();
   const save = trpc.account.saveAssistantArtifact.useMutation();
+  const openExport = trpc.account.openAssistantExport.useMutation();
+  const saveExport = trpc.account.saveAssistantExport.useMutation();
   const [busy, setBusy] = useState<'view' | 'save' | null>(null);
 
   async function onView(): Promise<void> {
     setBusy('view');
     try {
-      await open.mutateAsync({ id: artifact.id });
+      if (isExport) await openExport.mutateAsync({ taskId: artifact.id });
+      else await open.mutateAsync({ id: artifact.id });
     } catch (e) {
       dialog.error('打开失败', e instanceof Error ? e.message : String(e));
     } finally {
@@ -48,7 +54,8 @@ export function AssistantArtifactCard({ artifact }: { artifact: AssistantArtifac
   async function onSave(): Promise<void> {
     setBusy('save');
     try {
-      await save.mutateAsync({ id: artifact.id, name: artifact.name });
+      if (isExport) await saveExport.mutateAsync({ taskId: artifact.id });
+      else await save.mutateAsync({ id: artifact.id, name: artifact.name });
     } catch (e) {
       dialog.error('另存为失败', e instanceof Error ? e.message : String(e));
     } finally {
@@ -72,7 +79,7 @@ export function AssistantArtifactCard({ artifact }: { artifact: AssistantArtifac
           disabled={busy !== null}
           onClick={() => void onView()}
         >
-          <Eye size={13} /> 查看
+          <Eye size={13} /> {isExport ? '打开' : '查看'}
         </button>
         <button
           type="button"

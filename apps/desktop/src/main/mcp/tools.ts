@@ -36,6 +36,12 @@ export interface AiTool {
   input: z.ZodObject<z.ZodRawShape>;
   /** Returns plain JSON-serializable data (no bigint / Uint8Array). */
   run: (args: Record<string, unknown>) => Promise<unknown>;
+  /**
+   * Exclude from the external read-only MCP server (`server.ts`); only the in-app
+   * assistant may call it. Use for tools with side effects (e.g. writing an export
+   * file) so the public MCP surface stays strictly read-only.
+   */
+  assistantOnly?: boolean;
 }
 
 function services(): AccountServices {
@@ -65,6 +71,87 @@ const pad2 = (n: number): string => (n < 10 ? `0${n}` : String(n));
 function fmtTime(sec: bigint | number): string {
   const d = new Date(Number(sec) * 1000);
   return `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+/** epoch 秒 → 本地「HH:mm」（单日内的精简时间）。 */
+function hhmm(sec: bigint | number): string {
+  const d = new Date(Number(sec) * 1000);
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+/**
+ * 解析「某天」为本地 [startSec, endSec) 半开窗口（秒），默认今天。
+ * date 形如 YYYY-MM-DD；非法时抛出可读错误。给「今日/某天」类工具单一事实源。
+ */
+function dayWindow(date?: string): { startSec: number; endSec: number; label: string } {
+  let d: Date;
+  const raw = (date ?? '').trim();
+  if (raw) {
+    const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(raw);
+    if (!m) throw new Error(`无效日期：${date}（应为 YYYY-MM-DD，例如 2026-06-30；不传则默认今天）`);
+    d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    if (Number.isNaN(d.getTime())) throw new Error(`无效日期：${date}`);
+  } else {
+    const now = new Date();
+    d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  }
+  const startSec = Math.floor(d.getTime() / 1000);
+  return { startSec, endSec: startSec + 86400, label: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}` };
+}
+
+/** 从 RecentContact.chatType 判定会话类型（兼容字符串枚举与数字）。 */
+function convKindOf(chatType: unknown): 'c2c' | 'group' | null {
+  const s = String(chatType).toUpperCase();
+  if (s.includes('C2C') || s === '1') return 'c2c';
+  if (s.includes('GROUP') || s === '2') return 'group';
+  return null;
+}
+
+/** 导出格式 → MIME（结果卡片显示用）。 */
+const EXPORT_MIME: Record<string, string> = {
+  json: 'application/json',
+  jsonl: 'application/x-ndjson',
+  txt: 'text/plain',
+  csv: 'text/csv',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  html: 'text/html',
+};
+
+/**
+ * 等导出任务到终态。监听 manager 的 `progress` 事件按 taskId 轮询 getTask，
+ * 带超时兜底——避免大导出把助手这一轮卡死（媒体类大导出应走导出中心）。
+ */
+function waitForExport(
+  mgr: AccountServices['exportManager'],
+  taskId: string,
+  timeoutMs = 180_000,
+): Promise<NonNullable<ReturnType<AccountServices['exportManager']['getTask']>>> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const settle = (fn: () => void): void => {
+      if (settled) return;
+      settled = true;
+      mgr.off('progress', onProgress);
+      clearTimeout(timer);
+      fn();
+    };
+    const check = (): void => {
+      const t = mgr.getTask(taskId);
+      if (!t) return;
+      if (t.status === 'completed') settle(() => resolve(t));
+      else if (t.status === 'failed') settle(() => reject(new Error(t.error || '导出失败')));
+      else if (t.status === 'cancelled') settle(() => reject(new Error('导出被取消了')));
+    };
+    const onProgress = (p: { taskId?: string }): void => {
+      if (p?.taskId === taskId) check();
+    };
+    const timer = setTimeout(
+      () => settle(() => reject(new Error('导出耗时过长已超时；如需带媒体或大批量，请在「导出中心」里操作。'))),
+      timeoutMs,
+    );
+    mgr.on('progress', onProgress);
+    check(); // 可能在挂监听前就已完成
+  });
 }
 
 /** RenderElement[]（wire 形）→ 给 LLM 看的纯文本：媒体只留占位，丢掉体积字段。 */
@@ -124,6 +211,7 @@ function tool<I extends z.ZodRawShape>(def: {
   description: string;
   input: z.ZodObject<I>;
   run: (args: z.infer<z.ZodObject<I>>) => Promise<unknown>;
+  assistantOnly?: boolean;
 }): AiTool {
   return def as unknown as AiTool;
 }
@@ -548,6 +636,255 @@ export const AI_TOOLS: AiTool[] = [
         daily: [...daily.entries()]
           .map(([date, count]) => ({ date, count }))
           .sort((a, b) => a.date.localeCompare(b.date)),
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_daily_digest',
+    description:
+      '一站式「某天活跃总览」——回答「我今天在哪些群发了消息」「今天和哪些好友聊了天」「今日活跃日记」等。' +
+      '高效：先用最近会话筛出当天动过的会话，再并发统计，不做全表扫描。date 默认今天，可传 YYYY-MM-DD 看某天（如昨天）。' +
+      '返回：totals 总览（我发了多少条/触达会话数/我发言的群数/聊过的好友数/首末活跃时刻/活跃小时数）、hourlyMine 我的逐小时分布、' +
+      'groups 当天动过的群（含 myCount 我在该群发言数、totalCount 群当天总条数、lastSnippet 最后一条摘要）、friends 当天私聊好友（含 myCount/peerCount）。' +
+      '适合接着用 write_report 出一份带图表/时间线的「活跃日记」HTML 报告。',
+    input: z.object({
+      date: z.string().default('').describe('某天 YYYY-MM-DD；空=今天'),
+    }),
+    run: async ({ date }) => {
+      const svc = services();
+      const { startSec, endSec, label } = dayWindow(date);
+      const self = await svc.profile.getSelfProfile();
+      const selfUin = self?.uin ?? -1n;
+
+      // 1) 廉价筛出「当天动过」的会话（recent_contact 自带最后消息时间）。
+      const contacts = await svc.recentContacts.getRecentContact(200);
+      const CAP = 80;
+      const touched = contacts
+        .filter((c) => Number(c.sendTime) >= startSec && Number(c.sendTime) < endSec)
+        .map((c) => ({ c, wire: recentContactToWire(c), kind: convKindOf(c.chatType) }))
+        .filter((t): t is { c: typeof t.c; wire: typeof t.wire; kind: 'c2c' | 'group' } => t.kind !== null);
+      const capped = touched.slice(0, CAP);
+
+      // 群名映射：一次性建 code→名，避免逐群查询。
+      const allGroups = capped.some((t) => t.kind === 'group')
+        ? await svc.groupInfo.listAllGroups(500, 0)
+        : [];
+      const groupNameByCode = new Map(allGroups.map((g) => [g.groupCode.toString(), g.groupName]));
+
+      // 2) 并发读每个会话当天消息并就地统计。
+      const READ_GROUP = 800;
+      const READ_C2C = 500;
+      const perConv = await Promise.all(
+        capped.map(async (t) => {
+          const conv = t.wire.targetUid;
+          const rows =
+            t.kind === 'group'
+              ? await svc.msgs.getGroupLatest(conv, READ_GROUP)
+              : await svc.msgs.getC2cLatest(conv, READ_C2C);
+          const limit = t.kind === 'group' ? READ_GROUP : READ_C2C;
+          // rows 为最新在前；过滤到当天窗口。
+          const day = rows.filter((r) => Number(r.sendTime) >= startSec && Number(r.sendTime) < endSec);
+          let myCount = 0;
+          const hourly: Record<number, number> = {};
+          let lastSec = 0; // 会话当天最后一条（任意人），用于「最近活跃」展示
+          let myFirstSec = Infinity; // 我自己当天首/末发言，用于刻画「我的活跃区间」
+          let myLastSec = 0;
+          for (const r of day) {
+            const sec = Number(r.sendTime);
+            if (sec > lastSec) lastSec = sec;
+            if (r.senderUin === selfUin) {
+              myCount += 1;
+              if (sec < myFirstSec) myFirstSec = sec;
+              if (sec > myLastSec) myLastSec = sec;
+              hourly[new Date(sec * 1000).getHours()] = (hourly[new Date(sec * 1000).getHours()] ?? 0) + 1;
+            }
+          }
+          const name =
+            t.kind === 'group'
+              ? groupNameByCode.get(conv) || t.wire.targetDisplayName || conv
+              : t.wire.targetRemark || t.wire.targetDisplayName || t.wire.senderNick || conv;
+          // 当天消息条数 >= 读取上限时，更早的可能被截断。
+          const truncated = rows.length >= limit && day.length === rows.length;
+          return {
+            kind: t.kind,
+            conv,
+            name,
+            total: day.length,
+            myCount,
+            peerCount: day.length - myCount,
+            myFirstSec: myFirstSec === Infinity ? 0 : myFirstSec,
+            myLastSec,
+            lastSec,
+            lastSnippet: day.length ? flattenElements(day[0]!.elements).slice(0, 60) : '',
+            hourly,
+            truncated,
+          };
+        }),
+      );
+
+      // 3) 汇总。
+      const hourlyMine: Record<number, number> = {};
+      for (let i = 0; i < 24; i++) hourlyMine[i] = 0;
+      let myMessages = 0;
+      let firstActive = Infinity;
+      let lastActive = 0;
+      for (const p of perConv) {
+        myMessages += p.myCount;
+        for (const [h, n] of Object.entries(p.hourly)) {
+          hourlyMine[Number(h)] = (hourlyMine[Number(h)] ?? 0) + n;
+        }
+        if (p.myFirstSec && p.myFirstSec < firstActive) firstActive = p.myFirstSec;
+        if (p.myLastSec > lastActive) lastActive = p.myLastSec;
+      }
+      const groups = perConv
+        .filter((p) => p.kind === 'group')
+        .sort((a, b) => b.myCount - a.myCount || b.total - a.total)
+        .slice(0, 40)
+        .map((p) => ({
+          groupCode: p.conv,
+          groupName: p.name,
+          myCount: p.myCount,
+          totalCount: p.total,
+          lastActive: p.lastSec ? hhmm(p.lastSec) : '',
+          lastSnippet: p.lastSnippet,
+          ...(p.truncated ? { truncated: true } : {}),
+        }));
+      const friends = perConv
+        .filter((p) => p.kind === 'c2c')
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 40)
+        .map((p) => ({
+          uid: p.conv,
+          name: p.name,
+          myCount: p.myCount,
+          peerCount: p.peerCount,
+          total: p.total,
+          lastActive: p.lastSec ? hhmm(p.lastSec) : '',
+          lastSnippet: p.lastSnippet,
+        }));
+      const activeHours = Object.values(hourlyMine).filter((n) => n > 0).length;
+
+      return {
+        date: label,
+        self: { uin: selfUin.toString(), nick: self?.nick ?? '' },
+        totals: {
+          myMessages,
+          conversationsTouched: touched.length,
+          groupsIPostedIn: groups.filter((g) => g.myCount > 0).length,
+          friendsIChattedWith: friends.length,
+          firstActive: firstActive === Infinity ? '' : hhmm(firstActive),
+          lastActive: lastActive ? hhmm(lastActive) : '',
+          activeHours,
+        },
+        hourlyMine,
+        groups,
+        friends,
+        hint:
+          touched.length > CAP
+            ? `当天动过的会话有 ${touched.length} 个，仅统计了最近 ${CAP} 个。`
+            : myMessages === 0
+              ? '这一天你没有发送记录（或消息超出读取上限被截断）。'
+              : '可据此用 write_report 生成「活跃日记」；想看与某人具体聊了啥，用 get_messages_by_date。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_messages_by_date',
+    description:
+      '读取【某个会话】在【某一天】的逐条消息，按时间正序返回——用于「今天/某天和 XX 聊了什么」做话题归纳，或回看某天群里的讨论。' +
+      'kind: c2c=私聊（conv 传对方 uid），group=群聊（conv 传群号）；会话标识可由 find_contact 解析。date 默认今天，可传 YYYY-MM-DD。' +
+      '每条为精简形：time（HH:mm）、sender 发送者昵称、mine 是否本人、text 文本。',
+    input: z.object({
+      kind: z.enum(['c2c', 'group']).describe('会话类型'),
+      conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
+      date: z.string().default('').describe('某天 YYYY-MM-DD；空=今天'),
+      limit: z.number().int().min(1).max(300).default(120).describe('返回条数上限（取当天最近的若干条）'),
+    }),
+    run: async ({ kind, conv, date, limit }) => {
+      const svc = services();
+      const { startSec, endSec, label } = dayWindow(date);
+      const READ = kind === 'group' ? 1000 : 600;
+      const rows =
+        kind === 'group' ? await svc.msgs.getGroupLatest(conv, READ) : await svc.msgs.getC2cLatest(conv, READ);
+      const day = rows.filter((r) => Number(r.sendTime) >= startSec && Number(r.sendTime) < endSec);
+
+      const selfUin = (await svc.profile.getSelfProfile())?.uin ?? -1n;
+      const otherUids = [...new Set(day.filter((r) => r.senderUin !== selfUin).map((r) => r.senderUid))];
+      const nameByUid = otherUids.length ? await svc.profile.nicksByUids(otherUids) : {};
+
+      // day 为最新在前；取当天最近 limit 条后翻成旧→新方便顺读。
+      const slice = day.slice(0, limit).reverse();
+      const messages = slice.map((r) => ({
+        time: hhmm(r.sendTime),
+        sender: r.senderUin === selfUin ? '我' : nameByUid[r.senderUid] || String(r.senderUin),
+        mine: r.senderUin === selfUin,
+        text: flattenElements(r.elements),
+      }));
+
+      return {
+        date: label,
+        kind,
+        conv,
+        count: messages.length,
+        messages,
+        ...(day.length > limit
+          ? { hint: `当天共 ${day.length} 条，只返回最近 ${limit} 条；如需更早可缩小到更早的日期或提高 limit。` }
+          : day.length === 0
+            ? { hint: '这一天该会话没有消息记录。' }
+            : {}),
+      };
+    },
+  }),
+
+  tool({
+    name: 'export_conversation',
+    assistantOnly: true, // 写本地导出文件（有副作用）→ 不进只读 MCP server，仅助手可用
+    description:
+      '把某个会话的聊天记录【快速导出】成一个本地文件，完成后会在你的回复里出现一张「导出」卡片，用户可「打开」或「另存为」。' +
+      'kind: c2c=私聊（conv 传对方 uid），group=群聊（conv 传群号）；会话标识可由 find_contact 解析。' +
+      'format 默认 html（自带样式、可直接看），也支持 txt/json/jsonl/csv/xlsx。days 只导出最近 N 天（不传=全部）。' +
+      '注意：本工具只导出纯文字记录、不含图片/语音/视频；要带媒体或超大批量，请提示用户去应用内「导出中心」操作。',
+    input: z.object({
+      kind: z.enum(['c2c', 'group']).describe('会话类型'),
+      conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
+      format: z.enum(['html', 'txt', 'json', 'jsonl', 'csv', 'xlsx']).default('html').describe('导出格式，默认 html'),
+      name: z.string().default('').describe('文件名（建议传联系人/群名，便于识别）'),
+      days: z.number().int().min(1).max(3650).default(0).describe('只导出最近 N 天；0/不传=全部时间'),
+    }),
+    run: async ({ kind, conv, format, name, days }) => {
+      const svc = services();
+      const stem = (name || '').trim() || `导出-${conv}`;
+      const total = await svc.msgs.countConv(kind, conv);
+      const range =
+        days > 0 ? { start: Math.floor(Date.now() / 1000) - days * 86400, end: null } : undefined;
+
+      const taskId = await svc.exportManager.startTask({ kind, conv, name: stem, format, total, range });
+      const task = await waitForExport(svc.exportManager, taskId);
+
+      const path = task.filePath || task.bundleDir;
+      if (!path) throw new Error('导出完成但未找到结果文件。');
+      const { statSync } = await import('node:fs');
+      let bytes = 0;
+      try {
+        bytes = statSync(path).size;
+      } catch {
+        bytes = 0;
+      }
+
+      return {
+        artifactCard: {
+          id: taskId,
+          name: `${stem}.${format}`,
+          kind: 'export' as const,
+          mime: EXPORT_MIME[format] ?? 'application/octet-stream',
+          bytes,
+        },
+        ok: true,
+        exported: total,
+        format,
+        message: `已导出${total ? ` ${total} 条` : ''}聊天记录为 ${format.toUpperCase()} 文件，卡片里可「打开」或「另存为」。`,
       };
     },
   }),

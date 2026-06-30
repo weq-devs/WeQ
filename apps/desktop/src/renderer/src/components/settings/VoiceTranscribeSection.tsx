@@ -254,6 +254,7 @@ interface TtsForm {
   appId: string;
   resourceId: string;
   model: string;
+  cloneModel: string;
   voice: string;
   format: string;
   speed: string;
@@ -269,6 +270,7 @@ function emptyTtsForm(): TtsForm {
     appId: '',
     resourceId: '',
     model: '',
+    cloneModel: '',
     voice: '',
     format: '',
     speed: '',
@@ -316,6 +318,7 @@ function TtsProvidersCard(): ReactElement {
         appId: current.appId ?? '',
         resourceId: current.resourceId ?? '',
         model: current.model ?? '',
+        cloneModel: current.cloneModel ?? '',
         voice: current.voice ?? '',
         format: current.format ?? '',
         speed: current.speed !== undefined ? String(current.speed) : '',
@@ -374,6 +377,7 @@ function TtsProvidersCard(): ReactElement {
       appId: form.appId.trim() || undefined,
       resourceId: form.resourceId.trim() || undefined,
       model: form.model.trim() || undefined,
+      cloneModel: form.cloneModel.trim() || undefined,
       voice: form.voice.trim() || undefined,
       format: form.format.trim() || undefined,
       speed: speed !== undefined && Number.isFinite(speed) ? speed : undefined,
@@ -544,10 +548,10 @@ function TtsProvidersCard(): ReactElement {
           ) : null}
           {has('model') ? (
             <Row
-              label="模型"
+              label={has('cloneModel') ? '固定音色模型' : '模型'}
               desc={
                 vendorEntry?.defaultModel
-                  ? `留空自动用默认：${vendorEntry.defaultModel}${vendorEntry.cloneModel ? `；语音复刻：${vendorEntry.cloneModel}` : ''}`
+                  ? `留空自动用默认：${vendorEntry.defaultModel}`
                   : undefined
               }
               control={
@@ -556,6 +560,24 @@ function TtsProvidersCard(): ReactElement {
                   value={form.model}
                   onChange={(e) => update('model', e.target.value)}
                   placeholder={vendorEntry?.defaultModel ?? '厂商模型 id（可空用默认）'}
+                />
+              }
+            />
+          ) : null}
+          {has('cloneModel') ? (
+            <Row
+              label="复刻模型"
+              desc={
+                vendorEntry?.cloneModel
+                  ? `语音克隆专用模型，与固定音色模型不同；留空自动用默认：${vendorEntry.cloneModel}`
+                  : '语音克隆专用模型（可空用默认）'
+              }
+              control={
+                <input
+                  className="weq-set-input"
+                  value={form.cloneModel}
+                  onChange={(e) => update('cloneModel', e.target.value)}
+                  placeholder={vendorEntry?.cloneModel ?? '复刻模型 id（可空用默认）'}
                 />
               }
             />

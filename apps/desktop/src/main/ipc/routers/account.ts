@@ -1548,6 +1548,55 @@ export const accountRouter = router({
       return true;
     }),
 
+  /**
+   * 打开助手导出工具产出的结果（卡片「打开」）。单文件→系统默认程序；
+   * bundle 目录→文件管理器。taskId 即 AssistantArtifact.id。
+   */
+  openAssistantExport: procedure
+    .input(z.object({ taskId: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const task = requireServices().exportManager.getTask(input.taskId);
+      const path = task?.bundleDir || task?.filePath;
+      if (!path) throw new Error('导出结果不存在（可能已被清理）。');
+      const { shell } = await import('electron');
+      const err = await shell.openPath(path);
+      if (err) throw new Error(err);
+      return true;
+    }),
+
+  /**
+   * 另存助手导出结果（卡片「另存为」）。bundle 目录→选文件夹整目录拷贝；
+   * 单文件→保存对话框复制。镜像 saveExportBundle / saveExportFile。
+   */
+  saveAssistantExport: procedure
+    .input(z.object({ taskId: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const task = requireServices().exportManager.getTask(input.taskId);
+      if (!task) throw new Error('导出结果不存在（可能已被清理）。');
+      const { dialog } = await import('electron');
+      if (task.bundleDir) {
+        const { existsSync, cpSync } = await import('node:fs');
+        if (!existsSync(task.bundleDir)) return false;
+        const result = await dialog.showOpenDialog({
+          title: '选择导出保存文件夹',
+          properties: ['openDirectory', 'createDirectory'],
+        });
+        if (result.canceled || result.filePaths.length === 0) return false;
+        const dest = join(result.filePaths[0]!, sanitizePathSegment(task.name, task.id));
+        cpSync(task.bundleDir, dest, { recursive: true });
+        return true;
+      }
+      if (!task.filePath) return false;
+      const { copyFileSync } = await import('node:fs');
+      const result = await dialog.showSaveDialog({
+        defaultPath: `${task.name}.${task.format}`,
+        filters: [{ name: 'Export', extensions: [task.format] }],
+      });
+      if (result.canceled || !result.filePath) return false;
+      copyFileSync(task.filePath, result.filePath);
+      return true;
+    }),
+
   // ---- voice transcription (语音转文字) ----
 
   /**

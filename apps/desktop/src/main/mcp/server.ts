@@ -47,6 +47,8 @@ export function runningMcpConfig(): McpServerOptions | null {
 function buildMcpServer(): McpServer {
   const server = new McpServer({ name: 'weq', version: '0.1.0' });
   for (const t of AI_TOOLS) {
+    // 外部 MCP 面板保持严格只读：带副作用的工具（assistantOnly）只给内置助手用。
+    if (t.assistantOnly) continue;
     server.registerTool(
       t.name,
       { description: t.description, inputSchema: t.input.shape },

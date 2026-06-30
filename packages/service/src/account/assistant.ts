@@ -45,14 +45,36 @@ export interface AssistantConfig {
  * `id` 同时是磁盘文件名与 open/save 的句柄；前端据此渲染附件卡片（查看/另存为）。
  */
 export interface AssistantArtifact {
-  /** 磁盘文件名（含 uuid，纯 basename）。同时是 openArtifact/saveArtifact 的 id。 */
+  /**
+   * 句柄：report 类是磁盘文件名（含 uuid，纯 basename，open/saveArtifact 用）；
+   * export 类是导出任务 id（open/saveAssistantExport 用）。前端按 kind 路由。
+   */
   id: string;
   /** 展示名（带扩展名）：卡片标题 + 另存为默认文件名。 */
   name: string;
-  kind: 'html' | 'markdown' | 'text';
+  /** html/markdown/text 由 write_report 产出；export 由导出工具产出（结果文件/文件夹）。 */
+  kind: 'html' | 'markdown' | 'text' | 'export';
   mime: string;
-  /** 字节数（UTF-8），卡片显示大小用。 */
+  /** 字节数，卡片显示大小用。 */
   bytes: number;
+}
+
+/**
+ * 应用层工具想往聊天里吐一张「附件卡片」时，让 run() 返回一个带此键的对象即可
+ * （如导出工具）。runLoop 检测到就 emit 一条 artifact step，保持 assistant 通用、
+ * 不耦合具体工具名。
+ */
+export interface ToolArtifactResult {
+  artifactCard: AssistantArtifact;
+}
+
+function extractArtifactCard(result: unknown): AssistantArtifact | null {
+  if (!result || typeof result !== 'object' || !('artifactCard' in result)) return null;
+  const card = (result as ToolArtifactResult).artifactCard;
+  if (card && typeof card.id === 'string' && typeof card.name === 'string' && typeof card.kind === 'string') {
+    return card;
+  }
+  return null;
 }
 
 /**
@@ -86,9 +108,10 @@ const WRITE_REPORT_SPEC: AssistantToolSpec = {
     name: 'write_report',
     description:
       '把一份报告/文档写到本地文件（用户随后可在你的回复里「查看」或「另存为」）。' +
-      '强烈优先 kind="html"：应用内置本地 Tailwind 运行时 + 一套报告组件库 class（rp-*）离线渲染，' +
-      '优先用 rp-* 组件（rp-page/rp-hero/rp-stat/rp-section/rp-card/rp-rank/rp-table/rp-callout 等）搭骨架，套上即美，' +
+      '强烈优先 kind="html"：应用内置本地 Tailwind 运行时 + 一套可选的报告组件库 class（rp-*）离线渲染，' +
       '无需写 <style>、也无需引任何 CDN（详见系统提示的【写报告】小节）。' +
+      'rp-* 组件是一块「调色板」而非「模板」：用哪些、怎么组合、整体什么结构，完全由你按内容自由决定，' +
+      '别把所有报告都塞进同一个套路；也可叠加 Tailwind 原子类或自写样式。' +
       'HTML 请给一份完整自包含文档（<!doctype html><html>…），并加入你自己的解读与结尾点评，别只堆数据。' +
       '需要纯文本/便于二次编辑时才用 markdown / text。内容较长、成体系时用本工具，而不是把长文塞进聊天回复。',
     parameters: {
@@ -338,6 +361,11 @@ export class AssistantService {
             ok,
             preview: serialized.slice(0, STEP_PREVIEW_CAP),
           });
+          // 工具若返回 artifactCard（如导出工具的结果文件/文件夹）→ 在聊天里出一张卡片。
+          if (ok) {
+            const card = extractArtifactCard(result);
+            if (card) emit({ kind: 'artifact', artifact: card });
+          }
           messages.push({ role: 'tool', tool_call_id: call.id, content: serialized.slice(0, TOOL_RESULT_CAP) });
         }
         continue;
@@ -371,43 +399,47 @@ export class AssistantService {
       '- 简洁、直接给结论，不要复述工具调用过程（过程前端会单独展示）。',
       '',
       '【写报告 / 文档】',
-      '- 当产出是成体系的长内容（报告、总结、数据清单、可视化网页）时，用 write_report 工具把它写成本地文件（**优先 kind="html"**），' +
+      '- 当产出是成体系的长内容（报告、总结、数据清单、人物分析、时间线、可视化网页…）时，用 write_report 工具把它写成本地文件（**优先 kind="html"**），' +
         '用户能在你的回复里「查看」或「另存为」；不要把这种长文整段塞进聊天回复里。',
-      '- 报告渲染环境已内置两样东西，你直接用即可，**无需写 <style>、无需引任何 CDN**：' +
-        '① 本地 Tailwind 运行时（可用 Tailwind 原子类做微调）；' +
-        '② 一套"开箱即美"的报告组件库 class（`rp-*`）——**优先用 rp-* 组件搭骨架**，套上就专业，别自己从零拼样式。',
-      '- 组件清单（按需取用）：',
-      '  • `rp-page`：整页容器，所有内容都包在它里面；',
-      '  • `rp-hero`：头图，内放 `rp-eyebrow`(小标签) + `<h1>`(大标题) + `<p>`(副标题/概览)；',
-      '  • `rp-grid rp-grid-3`(或 -2/-4)：指标卡栅格，内含若干 `rp-stat`（各带 `rp-stat-label`/`rp-stat-value`/`rp-stat-sub`）；',
-      '  • `rp-section` + `rp-section-title`：分章节；普通内容块用 `rp-card`；',
-      '  • `rp-rank`：排行榜，每行 `rp-rank-item`(名称 `rp-rank-name` + 进度条 `rp-rank-bar`>`<span style="--rp-pct:73%">` + 数值 `rp-rank-val`)；',
-      '  • `rp-table`：表格（表头深色、隔行底色，数字单元格加 `rp-num` 右对齐）；',
-      '  • `rp-badge` + `rp-badge-up`/`-down`/`-info`/`-warn`：趋势/状态徽章（配 emoji，如 📈🔥）；',
-      '  • `rp-quote`(内含 `<cite>` 写是谁、大概何时说的)：引用聊天原话；',
-      '  • `rp-callout`：高亮块，放你的解读 / 总结 / 金句（见下条）；`rp-footer`：页脚署名。',
-      '- ⭐ **报告的灵魂是你的洞察，不是数据搬运**：如果只把数字排进模板，那写死一个生成器就够了，要你做什么？所以每份报告都必须：',
-      '  • 在恰当位置（如 hero 副标题、章节里）穿插**你自己的简短总结与解读**——这群最近在聊什么、谁最活跃、氛围/趋势有什么变化、有没有值得一提的瞬间；',
-      '  • 结尾用 `rp-callout` 写**一两句走心的点评或鸡汤**：温暖、有人情味、贴合这份数据本身（不要套话），让报告有温度、有记忆点。',
-      '  • 语气可以活泼、有梗，像一个懂这个群的朋友在做总结，而不是冷冰冰的数据面板。',
-      '- 骨架示例（照这个风格组织，内容按实际自由发挥）：',
+      '- 渲染环境已内置、开箱即用，**无需写 <style>、无需引任何 CDN**：' +
+        '① 本地 Tailwind 运行时（任意 Tailwind 原子类都可用）；' +
+        '② 一套报告组件库 class（`rp-*`）。',
+      '- ⭐ **这套组件是「调色板」，不是「模板」**：用哪些、用不用、怎么排列组合、整份报告长什么样，' +
+        '**完全由你按内容自由决定**。一份人物分析、一条时间线、一次对比、一个核心结论、一块数据看板，本该长得各不相同——' +
+        '别把所有报告都套进同一个「头图＋指标卡＋排行榜」的壳子里。让结构去贴合内容，而不是让内容去填模板。',
+      '- 可用积木（任选、可只用一两个、也可全不用，自己拿 Tailwind 拼也行）：',
+      '  • `rp-page` 整页容器；`rp-hero` 头图（内放 `rp-eyebrow` + `<h1>` + `<p>`）；',
+      '  • `rp-grid rp-grid-2/-3/-4` 栅格 + `rp-stat`（`rp-stat-label`/`-value`/`-sub`）指标卡；',
+      '  • `rp-section` + `rp-section-title` 分章节；`rp-card` 内容块；',
+      '  • `rp-rank` 排行榜：每行 `rp-rank-item`(名称 `rp-rank-name` + 进度条 `rp-rank-bar`>`<span style="--rp-pct:73%">` + 数值 `rp-rank-val`)；',
+      '  • `rp-table` 表格（数字单元格加 `rp-num` 右对齐）；`rp-badge` + `-up`/`-down`/`-info`/`-warn` 徽章（配 emoji）；',
+      '  • `rp-quote`（内含 `<cite>` 写是谁、大概何时说的）引用原话；`rp-callout` 高亮/解读块；`rp-divider` 分隔线；`rp-footer` 页脚。',
+      '  • 时间线 `rp-timeline`>`rp-tl-item`(内放 `rp-tl-time` + 内容)，很适合「活跃日记/今日时间线」；标签云 `rp-chips`>`rp-chip`（话题/高频词）；首字母头像 `rp-ava`（可 `style="--c:#色"`，放成员名前）。',
+      '- 📊 **图表**（纯 CSS/内联 SVG，数据由你绑定，照下面语法写就能出图，别引图表库）：',
+      '  • 饼/环图 `rp-donut`：`<div class="rp-donut" style="--rp-donut:conic-gradient(#6366f1 0 62%,#f59e0b 0 85%,#e5e7eb 0)"><div class="rp-donut-center"><b>62%</b><small>占比</small></div></div>`，' +
+        '配图例 `<div class="rp-legend"><span class="rp-legend-item"><span class="rp-dot" style="--c:#6366f1"></span>我 <b>62%</b></span>…</div>`；单值占比只给两段即可。',
+      '  • 柱状图 `rp-bars`：每根 `<div class="rp-bar" style="--rp-h:73%"><span class="rp-bar-fill"></span><span class="rp-bar-val">42</span><span class="rp-bar-label">周一</span></div>`，--rp-h 用「该值/最大值」算百分比。',
+      '  • 折线/面积图 `rp-spark`：内放你写的 SVG，`<svg viewBox="0 0 100 40" preserveAspectRatio="none"><polygon class="rp-spark-area" points="0,40 0,28 25,18 50,22 75,9 100,14 100,40"/><polyline class="rp-spark-line" points="0,28 25,18 50,22 75,9 100,14"/></svg>`，点位按数据换算到 viewBox 坐标（y 越小越高）。',
+      '- ✨ **艺术字**：封面大字用 `rp-display`（超大渐变标题），行内给某几个字上色用 `rp-gradient-text`，强调短语用 `rp-mark`（荧光笔底）或 `rp-pull`（大号金句引言），文艺感叠 `rp-serif`，小标签用 `rp-kicker`。',
+      '- 想更自由：可叠加任意 Tailwind 原子类微调，也可以自己写 <style>；想换主题色，直接覆盖 CSS 变量即可' +
+        '（如 `<style>:root{--rp-accent:#e11d48;--rp-accent-2:#f59e0b}</style>` 一句换掉整套配色）。组件库只是省事的起点，不是围栏。',
+      '- ⭐ **报告的灵魂是你的洞察，不是数据搬运**：把数字排进格子谁都会，那写死一个生成器就够了，要你做什么？所以每份报告都要：',
+      '  • 穿插**你自己的简短总结与解读**——在聊什么、谁最活跃、氛围/趋势有什么变化、有没有值得一提的瞬间；',
+      '  • 在合适处（用 `rp-callout` 或你自己排的版式）写**一两句走心、贴合这份数据的点评/金句**，让报告有温度、有记忆点（别套话）。',
+      '  • 语气可以活泼、有梗，像一个懂行的朋友在做总结，而不是冷冰冰的数据面板。',
+      '- 下面这段**只是演示几个组件怎么写、怎么嵌套**，不是要你照搬它的布局或主题——请按手上的内容重新决定结构：',
       '```html',
-      '<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>群活跃度报告</title></head>',
+      '<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>示例</title></head>',
       '<body><div class="rp-page">',
-      '  <div class="rp-hero"><div class="rp-eyebrow">WEQ 群报告</div><h1>「摸鱼大队」本周活跃度</h1><p>6/23–6/29 · 共 1,240 条消息，比上周 📈 +18%，周末那场露营约局把群点着了。</p></div>',
+      '  <div class="rp-hero"><div class="rp-eyebrow">小标签</div><h1>大标题</h1><p>副标题：一句你自己的概览/解读。</p></div>',
       '  <div class="rp-grid rp-grid-3">',
-      '    <div class="rp-stat"><div class="rp-stat-label">总消息</div><div class="rp-stat-value">1,240</div><div class="rp-stat-sub">日均 177 条</div></div>',
-      '    <div class="rp-stat"><div class="rp-stat-label">活跃成员</div><div class="rp-stat-value">23</div><div class="rp-stat-sub">占全群 64%</div></div>',
-      '    <div class="rp-stat"><div class="rp-stat-label">龙王</div><div class="rp-stat-value">小枳壳</div><div class="rp-stat-sub">312 条 <span class="rp-badge rp-badge-up">🔥 TOP1</span></div></div>',
+      '    <div class="rp-stat"><div class="rp-stat-label">指标名</div><div class="rp-stat-value">1,240</div><div class="rp-stat-sub">附注 <span class="rp-badge rp-badge-up">📈 +18%</span></div></div>',
       '  </div>',
-      '  <div class="rp-section"><div class="rp-section-title">成员排行</div><div class="rp-card"><div class="rp-rank">',
-      '    <div class="rp-rank-item"><span class="rp-rank-name">小枳壳</span><div class="rp-rank-bar"><span style="--rp-pct:100%"></span></div><span class="rp-rank-val">312</span></div>',
-      '    <div class="rp-rank-item"><span class="rp-rank-name">阿白</span><div class="rp-rank-bar"><span style="--rp-pct:61%"></span></div><span class="rp-rank-val">190</span></div>',
+      '  <div class="rp-section"><div class="rp-section-title">某章节</div><div class="rp-card"><div class="rp-rank">',
+      '    <div class="rp-rank-item"><span class="rp-rank-name">名称</span><div class="rp-rank-bar"><span style="--rp-pct:100%"></span></div><span class="rp-rank-val">312</span></div>',
       '  </div></div></div>',
-      '  <div class="rp-section"><div class="rp-section-title">我的观察</div>',
-      '    <div class="rp-callout">这周的热度几乎全是周末露营约局烧起来的，小枳壳一个人就占了四分之一的消息量 😎。<strong>一句话：白天集体潜水，晚上准时炸群的快乐老群。</strong>愿这份热闹，往后每周都不缺席 🌿</div>',
-      '  </div>',
-      '  <div class="rp-footer">由 WeQ 助手生成 · 2026-06-29</div>',
+      '  <div class="rp-callout">这里放一两句走心、贴合数据的点评。<strong>金句加粗。</strong></div>',
+      '  <div class="rp-footer">由 WeQ 助手生成</div>',
       '</div></body></html>',
       '```',
       '- 需要纯文本、便于用户二次编辑时，才用 kind="markdown" 或 "text"。',
