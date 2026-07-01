@@ -630,14 +630,44 @@ export const accountRouter = router({
       });
     }),
 
-  getAssistantConversation: procedure.query(() => {
-    return requireServices().assistant.getConversation();
+  /** WeQ 助手的会话列表（最近活跃倒序）。 */
+  listAssistantSessions: procedure.query(() => {
+    return requireServices().assistant.listSessions();
   }),
 
-  clearAssistantConversation: procedure.mutation(() => {
-    requireServices().assistant.clearConversation();
-    return true;
+  /** 新建一个空会话，返回会话元数据（标题首轮对话后自动总结）。 */
+  createAssistantSession: procedure.mutation(() => {
+    return requireServices().assistant.createSession();
   }),
+
+  /** 删除一个会话（含其对话内容）。 */
+  deleteAssistantSession: procedure
+    .input(z.object({ sessionId: z.string().min(1) }))
+    .mutation(({ input }) => {
+      requireServices().assistant.deleteSession(input.sessionId);
+      return true;
+    }),
+
+  /** 重命名会话。 */
+  renameAssistantSession: procedure
+    .input(z.object({ sessionId: z.string().min(1), title: z.string() }))
+    .mutation(({ input }) => {
+      requireServices().assistant.renameSession(input.sessionId, input.title);
+      return true;
+    }),
+
+  getAssistantConversation: procedure
+    .input(z.object({ sessionId: z.string().min(1) }))
+    .query(({ input }) => {
+      return requireServices().assistant.getConversation(input.sessionId);
+    }),
+
+  clearAssistantConversation: procedure
+    .input(z.object({ sessionId: z.string().min(1) }))
+    .mutation(({ input }) => {
+      requireServices().assistant.clearConversation(input.sessionId);
+      return true;
+    }),
 
   /**
    * 启动一轮助手任务（非阻塞）。立即返回 runId；每一步思考/工具调用/最终答复
@@ -645,12 +675,12 @@ export const accountRouter = router({
    * chat() 内部已把异常先 emit 成 `error` step 再抛出，故这里吞掉 rejection。
    */
   chatWithAssistant: procedure
-    .input(z.object({ text: z.string().min(1) }))
+    .input(z.object({ sessionId: z.string().min(1), text: z.string().min(1) }))
     .mutation(({ input }) => {
       const assistant = requireServices().assistant;
       const runId = randomUUID();
       void assistant
-        .chat(input.text, (step) => assistantBus.emit('step', { runId, step } satisfies AssistantStreamEvent))
+        .chat(input.sessionId, input.text, (step) => assistantBus.emit('step', { runId, step } satisfies AssistantStreamEvent))
         .catch(() => {});
       return { runId };
     }),

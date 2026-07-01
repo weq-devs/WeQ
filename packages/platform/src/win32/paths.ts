@@ -63,15 +63,36 @@ export function tencentFilesRootFromUserDataInfo(home = homedir()): string | nul
 }
 
 /**
+ * True when `p`'s last path segment is literally `Tencent Files` (case- and
+ * trailing-separator-insensitive). The user-data root QQ creates is always
+ * `…\Tencent Files`; a path pointing one level too deep (e.g. the per-account
+ * `…\Tencent Files\<uin>`) or anywhere else is rejected. Used to validate a
+ * user-picked override before we trust it.
+ */
+export function isTencentFilesRoot(p: string): boolean {
+  const trimmed = p.replace(/[\\/]+$/, '');
+  const base = trimmed.split(/[\\/]/).pop() ?? '';
+  return base.trim().toLowerCase() === 'tencent files';
+}
+
+/**
  * Candidate roots in priority order. The caller iterates and checks
  * `existsSync` — we deliberately do NOT pre-filter here, because callers
  * sometimes need to know which roots were tried for error messages.
  *
- * First we trust `UserDataInfo.ini` (the path QQ itself recorded); only if
- * that's unavailable do we fall back to the hard-coded location guesses.
+ * A user-picked `overrideRoot` (when it exists on disk) is prepended so it
+ * wins over every detected location — this is the single seam that makes the
+ * whole platform (login.db decrypt, per-account db lookup, stats) honor a
+ * manually-set data directory. Then we trust `UserDataInfo.ini` (the path QQ
+ * itself recorded); only if that's unavailable do we fall back to the
+ * hard-coded location guesses.
  */
-export function candidateTencentFilesRoots(home = homedir()): string[] {
+export function candidateTencentFilesRoots(
+  home = homedir(),
+  overrideRoot?: string | null,
+): string[] {
   const roots: string[] = [];
+  if (overrideRoot && existsSync(overrideRoot)) roots.push(overrideRoot);
   const fromIni = tencentFilesRootFromUserDataInfo(home);
   if (fromIni) roots.push(fromIni);
   roots.push(
@@ -89,7 +110,25 @@ export function candidateTencentFilesRoots(home = homedir()): string[] {
   } catch {
     /* home unreadable — fall through with the two static roots */
   }
-  return roots;
+  // Dedupe so an override that equals a detected root isn't probed twice.
+  return [...new Set(roots)];
+}
+
+/**
+ * First `<root>/<...segments>` that exists, scanning every candidate root
+ * (override-first). Shared by all the `find*` helpers below so override
+ * threading lives in exactly one place.
+ */
+function firstExistingUnder(
+  home: string,
+  overrideRoot: string | null | undefined,
+  ...segments: string[]
+): string | null {
+  for (const root of candidateTencentFilesRoots(home, overrideRoot)) {
+    const candidate = join(root, ...segments);
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
 }
 
 /** First Tencent Files root that exists on disk, or null. */
@@ -105,57 +144,33 @@ export function pickTencentFilesRoot(home = homedir()): string | null {
  * Walks all roots (not just the picked one) because the user may have
  * Tencent Files in one place but legacy login.db in another.
  */
-export function findLoginDb(home = homedir()): string | null {
-  for (const root of candidateTencentFilesRoots(home)) {
-    const candidate = join(root, 'nt_qq', 'global', 'nt_db', 'login.db');
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
+export function findLoginDb(home = homedir(), overrideRoot?: string | null): string | null {
+  return firstExistingUnder(home, overrideRoot, 'nt_qq', 'global', 'nt_db', 'login.db');
 }
 
 /** `<root>/<uin>/nt_qq/nt_db/nt_msg.db` for the first root that has it. */
-export function findNtMsgDb(uin: string, home = homedir()): string | null {
-  for (const root of candidateTencentFilesRoots(home)) {
-    const candidate = join(root, uin, 'nt_qq', 'nt_db', 'nt_msg.db');
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
+export function findNtMsgDb(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+  return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_db', 'nt_msg.db');
 }
 
 /** `<root>/<uin>/nt_qq/nt_db` for the first root that has it. */
-export function findNtDbDir(uin: string, home = homedir()): string | null {
-  for (const root of candidateTencentFilesRoots(home)) {
-    const candidate = join(root, uin, 'nt_qq', 'nt_db');
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
+export function findNtDbDir(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+  return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_db');
 }
 
 /** `<root>/<uin>/nt_qq/nt_db/group_info.db` for the first root that has it. */
-export function findGroupInfoDb(uin: string, home = homedir()): string | null {
-  for (const root of candidateTencentFilesRoots(home)) {
-    const candidate = join(root, uin, 'nt_qq', 'nt_db', 'group_info.db');
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
+export function findGroupInfoDb(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+  return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_db', 'group_info.db');
 }
 
 /** `<root>/<uin>/nt_qq/nt_db/profile_info.db` for the first root that has it. */
-export function findProfileInfoDb(uin: string, home = homedir()): string | null {
-  for (const root of candidateTencentFilesRoots(home)) {
-    const candidate = join(root, uin, 'nt_qq', 'nt_db', 'profile_info.db');
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
+export function findProfileInfoDb(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+  return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_db', 'profile_info.db');
 }
 
 /** `<root>/<uin>/nt_qq/nt_db/misc.db` for the first root that has it. */
-export function findMiscDb(uin: string, home = homedir()): string | null {
-  for (const root of candidateTencentFilesRoots(home)) {
-    const candidate = join(root, uin, 'nt_qq', 'nt_db', 'misc.db');
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
+export function findMiscDb(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+  return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_db', 'misc.db');
 }
 
 /**
@@ -164,12 +179,8 @@ export function findMiscDb(uin: string, home = homedir()): string | null {
  * QQ's full-text-search index for friends, co-located with `nt_msg.db` in the
  * same `nt_db` folder. Returns null if the account never built a search index.
  */
-export function findBuddyMsgFtsDb(uin: string, home = homedir()): string | null {
-  for (const root of candidateTencentFilesRoots(home)) {
-    const candidate = join(root, uin, 'nt_qq', 'nt_db', 'buddy_msg_fts.db');
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
+export function findBuddyMsgFtsDb(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+  return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_db', 'buddy_msg_fts.db');
 }
 
 /**
@@ -178,12 +189,8 @@ export function findBuddyMsgFtsDb(uin: string, home = homedir()): string | null 
  * QQ's full-text-search index for groups, co-located with `nt_msg.db` in the
  * same `nt_db` folder. Returns null if the account never built a search index.
  */
-export function findGroupMsgFtsDb(uin: string, home = homedir()): string | null {
-  for (const root of candidateTencentFilesRoots(home)) {
-    const candidate = join(root, uin, 'nt_qq', 'nt_db', 'group_msg_fts.db');
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
+export function findGroupMsgFtsDb(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+  return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_db', 'group_msg_fts.db');
 }
 
 /**
@@ -196,23 +203,15 @@ export function findGroupMsgFtsDb(uin: string, home = homedir()): string | null 
  * uin resolves an equivalent set. `BaseEmojiSyastems` is QQ's own (misspelled)
  * folder name; copied verbatim.
  */
-export function findEmojiResourceDir(uin: string, home = homedir()): string | null {
-  for (const root of candidateTencentFilesRoots(home)) {
-    const candidate = join(
-      root, uin, 'nt_qq', 'nt_data', 'Emoji', 'BaseEmojiSyastems', 'EmojiSystermResource',
-    );
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
+export function findEmojiResourceDir(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+  return firstExistingUnder(
+    home, overrideRoot, uin, 'nt_qq', 'nt_data', 'Emoji', 'BaseEmojiSyastems', 'EmojiSystermResource',
+  );
 }
 
 /** `<root>/<uin>/nt_qq/nt_data/Emoji/marketface` for the first root that has it. */
-export function findMarketFaceDir(uin: string, home = homedir()): string | null {
-  for (const root of candidateTencentFilesRoots(home)) {
-    const candidate = join(root, uin, 'nt_qq', 'nt_data', 'Emoji', 'marketface');
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
+export function findMarketFaceDir(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+  return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_data', 'Emoji', 'marketface');
 }
 
 /**
@@ -220,48 +219,28 @@ export function findMarketFaceDir(uin: string, home = homedir()): string | null 
  * Holds received animated emoji (pic subType 1): `<YYYY-MM>/Ori` and `/Thumb`,
  * no separate "original" file.
  */
-export function findEmojiRecvDir(uin: string, home = homedir()): string | null {
-  for (const root of candidateTencentFilesRoots(home)) {
-    const candidate = join(root, uin, 'nt_qq', 'nt_data', 'Emoji', 'emoji-recv');
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
+export function findEmojiRecvDir(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+  return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_data', 'Emoji', 'emoji-recv');
 }
 
 /** `<root>/<uin>/nt_qq/nt_data/Pic` for the first root that has it. */
-export function findPicDir(uin: string, home = homedir()): string | null {
-  for (const root of candidateTencentFilesRoots(home)) {
-    const candidate = join(root, uin, 'nt_qq', 'nt_data', 'Pic');
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
+export function findPicDir(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+  return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_data', 'Pic');
 }
 
 /** `<root>/<uin>/nt_qq/nt_data/Ptt` for the first root that has it. */
-export function findPttDir(uin: string, home = homedir()): string | null {
-  for (const root of candidateTencentFilesRoots(home)) {
-    const candidate = join(root, uin, 'nt_qq', 'nt_data', 'Ptt');
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
+export function findPttDir(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+  return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_data', 'Ptt');
 }
 
 /** `<root>/<uin>/nt_qq/nt_data/Video` for the first root that has it. */
-export function findVideoDir(uin: string, home = homedir()): string | null {
-  for (const root of candidateTencentFilesRoots(home)) {
-    const candidate = join(root, uin, 'nt_qq', 'nt_data', 'Video');
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
+export function findVideoDir(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+  return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_data', 'Video');
 }
 
 /** `<root>/<uin>/nt_qq/nt_data/File` for the first root that has it. */
-export function findFileDir(uin: string, home = homedir()): string | null {
-  for (const root of candidateTencentFilesRoots(home)) {
-    const candidate = join(root, uin, 'nt_qq', 'nt_data', 'File');
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
+export function findFileDir(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+  return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_data', 'File');
 }
 
 // ---------- QQ install (wrapper.node) ------------------------------------

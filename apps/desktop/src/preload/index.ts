@@ -40,6 +40,20 @@ const weqBridge = {
         { name: string; value: string; domain?: string; path?: string }[]
       >,
   },
+  qzone: {
+    /** Open (or focus) the built-in QQ 空间 browser for the current account.
+     *  Pass WeQ's theme preference so the window follows 深/浅 mode. */
+    open: (theme?: 'system' | 'light' | 'dark'): Promise<boolean> =>
+      ipcRenderer.invoke('qzone:open', theme) as Promise<boolean>,
+    /** Push WeQ's theme preference to the Qzone window (live 深/浅 follow). */
+    setTheme: (theme: 'system' | 'light' | 'dark'): Promise<boolean> =>
+      ipcRenderer.invoke('qzone:set-theme', theme) as Promise<boolean>,
+    /** Read the current account's qzone.qq.com cookies (for future 空间导出/分析). */
+    getCookies: () =>
+      ipcRenderer.invoke('qzone:get-cookies') as Promise<
+        { name: string; value: string; domain?: string; path?: string }[]
+      >,
+  },
   systemAuth: {
     getStatus: () =>
       ipcRenderer.invoke('systemAuth:getStatus') as Promise<{

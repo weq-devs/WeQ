@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
+import { useDialog } from '../../components/Dialog';
 import { useViewState } from '../../state/view';
 import type { GlobalInstallInfo } from '@weq/service';
 import { LoginPanel } from './LoginPanel';
@@ -23,6 +24,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
   const backHome = useViewState((s) => s.backHome);
   const goTo = useViewState((s) => s.goTo);
   const setOpenedUin = useViewState((s) => s.setOpenedUin);
+  const showError = useDialog((s) => s.showError);
   const utils = trpc.useUtils();
 
   const root = install.tencentFilesRoot;
@@ -107,11 +109,20 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
   }
 
   async function pickRoot(): Promise<void> {
-    const picked = await client.bootstrap.pickTencentFilesRoot.mutate();
-    if (picked) {
+    const res = await client.bootstrap.pickTencentFilesRoot.mutate();
+    if (res.ok) {
       // pickTencentFilesRoot already persisted the override + re-probed install.
       await utils.bootstrap.describeInstall.invalidate();
-      await Promise.all([userDataDirs.refetch(), savedConfigs.refetch(), historical.refetch()]);
+      await Promise.all([
+        userDataDirs.refetch(),
+        savedConfigs.refetch(),
+        historical.refetch(),
+      ]);
+      return;
+    }
+    // Rejected because the folder wasn't `Tencent Files` (cancel returns no error).
+    if (res.error) {
+      showError('目录不正确', res.error);
     }
   }
 

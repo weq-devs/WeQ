@@ -36,6 +36,17 @@ import {
   type TtsProviderConfig,
 } from '@weq/service';
 import { peekStaticSelfUin } from '@weq/account';
+import { isTencentFilesRoot } from '@weq/platform';
+
+/** Result of the Tencent Files folder picker (with the hard `Tencent Files` rule). */
+export interface PickRootResult {
+  /** True only when a valid `Tencent Files` folder was picked and persisted. */
+  ok: boolean;
+  /** The path the user picked (kept on rejection so the UI can show it), or null on cancel. */
+  path: string | null;
+  /** Human-readable reason when `ok` is false and the user didn't just cancel. */
+  error?: string;
+}
 
 const algoSchema = z.object({
   pageHmacAlgorithm: z.string(),
@@ -43,6 +54,17 @@ const algoSchema = z.object({
 });
 
 const logger = getLogger().child({ scope: 'bootstrap-router' });
+
+/**
+ * QQ pids the embedded hook has been injected into during THIS app session.
+ * Re-injecting a live pid forces the native pipe client to reconnect, which
+ * races the hook's single-listener pipe and fails with ERROR_PIPE_BUSY — so we
+ * inject once per pid and reuse the cached native client thereafter (see
+ * `fetchKeyFromInstance`). Process-scoped: a full app restart resets it (and
+ * also resets the native client cache), which is exactly when re-injection is
+ * actually needed again.
+ */
+const injectedPids = new Set<number>();
 
 export const bootstrapRouter = router({
   // ---- native health ----
@@ -523,17 +545,36 @@ export const bootstrapRouter = router({
 
   // ---- filesystem dialog (Tencent Files fallback / manual db pick) ----
 
-  pickTencentFilesRoot: procedure.mutation(async () => {
+  pickTencentFilesRoot: procedure.mutation(async (): Promise<PickRootResult> => {
     const result = await dialog.showOpenDialog({
-      title: '选择 Tencent Files 目录',
+      title: '选择 Tencent Files 目录（必须选到 Tencent Files 文件夹本身）',
       properties: ['openDirectory'],
     });
-    if (result.canceled || result.filePaths.length === 0) return null;
-    const picked = result.filePaths[0] ?? null;
-    if (picked) {
-      requireBootstrap().globalConfig.setTencentFilesRootOverride(picked);
+    if (result.canceled || result.filePaths.length === 0) {
+      return { ok: false, path: null };
     }
-    return picked;
+    const picked = result.filePaths[0] ?? null;
+    if (!picked) return { ok: false, path: null };
+    // Hard rule: the override must point at the `Tencent Files` folder itself,
+    // not a parent or the per-account `…\Tencent Files\<uin>` subdir. Reject
+    // anything else so the user gets a clear message instead of a silent miss.
+    if (!isTencentFilesRoot(picked)) {
+      logger.warn('rejected non-Tencent-Files data dir pick', {
+        event: 'pick-root-rejected',
+        picked,
+      });
+      return {
+        ok: false,
+        path: picked,
+        error: '请选择名为「Tencent Files」的文件夹本身（不要选里面的 QQ 号子目录，也不要选它的上级目录）。',
+      };
+    }
+    requireBootstrap().globalConfig.setTencentFilesRootOverride(picked);
+    logger.info('set Tencent Files data dir override', {
+      event: 'pick-root-accepted',
+      picked,
+    });
+    return { ok: true, path: picked };
   }),
 
   pickMsgDb: procedure.mutation(async () => {
@@ -597,14 +638,50 @@ export const bootstrapRouter = router({
     .input(z.object({ pid: z.number().int().positive(), dbPath: z.string() }))
     .mutation(async ({ input }) => {
       const platform = requirePlatform();
+      const boot = requireBootstrap();
+      // Validate the db file exists before handing it to native — otherwise the
+      // addon opens it itself and surfaces an opaque "Failed to open db" error.
+      if (!existsSync(input.dbPath)) {
+        logger.warn('key fetch aborted: db file not found', {
+          event: 'router-fetch-key-missing-db',
+          pid: input.pid,
+          dbPath: input.dbPath,
+        });
+        return { success: false as const, error: `未找到数据库文件：${input.dbPath}` };
+      }
       logger.info('router requested key from running instance', {
         event: 'router-fetch-key-from-instance',
         pid: input.pid,
         dbPath: input.dbPath,
+        alreadyInjected: injectedPids.has(input.pid),
       });
-      // Ensure the hook is loaded before requestDecryptKey runs.
-      await platform.native.ntHelper.injectAndGetStatusEmbedded(input.pid);
-      return requireBootstrap().keys.fetchFromInstance(input.pid, input.dbPath);
+
+      // Inject the embedded hook once per pid per app session. Re-injecting a
+      // live pid forces a native reconnect that races the hook's single-listener
+      // pipe (ERROR_PIPE_BUSY); skipping it lets the cached native client be
+      // reused. The native side also reuses a healthy connection now, so this is
+      // belt-and-suspenders against that race.
+      if (!injectedPids.has(input.pid)) {
+        await platform.native.ntHelper.injectAndGetStatusEmbedded(input.pid);
+        injectedPids.add(input.pid);
+      }
+
+      let result = await boot.keys.fetchFromInstance(input.pid, input.dbPath);
+      if (!result.success) {
+        // The cached native client may have died (QQ relaunched / hook
+        // unloaded). Re-inject once — a genuinely closed client reconnects
+        // cleanly — and retry a single time.
+        logger.warn('key fetch failed; re-injecting and retrying once', {
+          event: 'router-fetch-key-retry',
+          pid: input.pid,
+          error: result.error,
+        });
+        injectedPids.delete(input.pid);
+        await platform.native.ntHelper.injectAndGetStatusEmbedded(input.pid);
+        injectedPids.add(input.pid);
+        result = await boot.keys.fetchFromInstance(input.pid, input.dbPath);
+      }
+      return result;
     }),
 
   /**

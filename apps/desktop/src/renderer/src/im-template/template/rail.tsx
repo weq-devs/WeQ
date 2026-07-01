@@ -6,6 +6,7 @@ import {
 	Download,
 	Settings,
 	Hash,
+	Star,
 } from "lucide-react";
 import { useEffect, useRef, useState, useTransition } from "react";
 import type { ReactNode } from "react";
@@ -171,6 +172,26 @@ export function AppRail({
 								{formatBadgeCount(contactBadgeCount)}
 							</span>
 						) : null}
+					</button>
+					<button
+						className={cn("rail-tab rail-tab-qzone")}
+						onClick={() => {
+							setMenuOpen(false);
+							setProfileOpen(false);
+							// Opens a dedicated, per-account browser window
+							// (user.qzone.qq.com) in the main process — not an in-app
+							// view. Pass WeQ's theme so the browser follows 深/浅 mode.
+							void window.weq?.qzone?.open(
+								useThemeStore.getState().preference,
+							);
+						}}
+						title="QQ 空间"
+						type="button"
+					>
+						<span className={cn("rail-tab-icon")}>
+							<Star size={22} strokeWidth={1.5} fill="currentColor" />
+						</span>
+						<span className={cn("rail-label")}>QQ空间</span>
 					</button>
 					<button
 						className={cn("rail-tab rail-tab-channel")}

@@ -97,7 +97,7 @@ export type { TokenStats, TokenUsageRecord } from './account/agentlab_usage';
 export { ConversationStore } from './account/agentlab_conversation';
 export type { ConversationTurn } from './account/agentlab_conversation';
 export { AssistantService, ASSISTANT_AGENT_ID } from './account/assistant';
-export type { AssistantConfig, AssistantTools, AssistantToolSpec, AssistantStep, AssistantArtifact } from './account/assistant';
+export type { AssistantConfig, AssistantSession, AssistantTools, AssistantToolSpec, AssistantStep, AssistantArtifact } from './account/assistant';
 export type { RenderC2cMsg, RenderGroupMsg } from './account/msg';
 export { toRenderElements } from './account/msg_view';
 export type { RenderElement, RenderTextElement } from './account/msg_view';
