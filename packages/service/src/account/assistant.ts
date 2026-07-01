@@ -13,7 +13,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, extname, join, resolve, sep } from 'node:path';
-import { reportUsage, type AgentLabEndpoint, type AgentLabModelRef, type AgentLabUsage } from '@weq/agentlab';
+import { reportUsage, pickMessageText, type AgentLabEndpoint, type AgentLabModelRef, type AgentLabUsage } from '@weq/agentlab';
 import type { TokenUsageStore } from './agentlab_usage';
 import type { ConversationStore, ConversationTurn } from './agentlab_conversation';
 
@@ -384,8 +384,8 @@ export class AssistantService {
       ],
       [],
     );
-    const raw = data.choices?.[0]?.message?.content;
-    return cleanTitle(typeof raw === 'string' ? raw : '');
+    const raw = pickMessageText(data.choices?.[0]?.message);
+    return cleanTitle(raw);
   }
 
   /** 核心多轮循环：返回最终文本。中途只 emit 过程 step，不 emit final。 */
@@ -424,7 +424,7 @@ export class AssistantService {
       const msg = data.choices?.[0]?.message;
       if (!msg) throw new Error('助手返回为空');
 
-      const content = typeof msg.content === 'string' ? msg.content.trim() : '';
+      const content = pickMessageText(msg);
 
       if (allowTools && msg.tool_calls?.length) {
         // 模型在调用工具前给出的思路 → 作为"思考"展示。
