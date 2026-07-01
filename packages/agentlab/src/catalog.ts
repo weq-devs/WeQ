@@ -26,6 +26,8 @@ export const AGENTLAB_PROVIDER_CATALOG: AgentLabProviderCatalogEntry[] = [
     models: [
       { id: 'deepseek-chat', label: 'deepseek-chat', capabilities: ['chat'] },
       { id: 'deepseek-reasoner', label: 'deepseek-reasoner', capabilities: ['chat'] },
+      { id: 'deepseek-v4-flash', label: 'deepseek-v4-flash', capabilities: ['chat'] },
+      { id: 'deepseek-v4-pro', label: 'deepseek-v4-pro', capabilities: ['chat'] },
     ],
   },
   {
