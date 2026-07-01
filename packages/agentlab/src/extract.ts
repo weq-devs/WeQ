@@ -12,7 +12,7 @@ import type {
   AgentLabExpression,
   AgentLabFewShotPair,
 } from './types';
-import { reportUsage } from './http';
+import { reportUsage, pickMessageText } from './http';
 
 function coerceString(value: unknown): string {
   if (typeof value === 'string') return value.trim();
@@ -63,9 +63,9 @@ async function chatCompletion(
   if (!res.ok) {
     throw new Error(`AgentLab 提炼接口调用失败: HTTP ${res.status}`);
   }
-  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string; reasoning_content?: string } }> };
   reportUsage(endpoint, data);
-  return data.choices?.[0]?.message?.content ?? '';
+  return pickMessageText(data.choices?.[0]?.message);
 }
 
 /**
@@ -103,9 +103,9 @@ async function visionCompletion(
   if (!res.ok) {
     throw new Error(`AgentLab 视觉接口调用失败: HTTP ${res.status}`);
   }
-  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string; reasoning_content?: string } }> };
   reportUsage(endpoint, data);
-  return data.choices?.[0]?.message?.content ?? '';
+  return pickMessageText(data.choices?.[0]?.message);
 }
 
 /** generateText + 宽松解析 + 失败重试一次。 */

@@ -345,20 +345,31 @@ async function postJson<T>(
   return (await res.json()) as T;
 }
 
+/** OpenAI 兼容消息里同时可能存在 content 和 reasoning_content（推理模型专用），取首个非空。 */
+export function pickMessageText(msg: { content?: unknown; reasoning_content?: unknown } | undefined): string {
+  if (!msg) return '';
+  const c = typeof msg.content === 'string' ? msg.content : '';
+  const r = typeof msg.reasoning_content === 'string' ? msg.reasoning_content : '';
+  return (c || r).trim();
+}
+
 /**
  * 设置页「测试连通性」：用最小的 chat 请求探活，返回 ok + 详细错误（含 HTTP 状态码与响应体）。
  * 不抛错——把失败包装成 { ok:false, error }，让前端直接展示「模型不对 / key 不对」。
+ * 推理模型（如 deepseek-v4 系列）会把思考过程放在 reasoning_content 中，
+ * 当 max_tokens 较小时 content 可能为空——因此同时检查两个字段。
  */
 export async function testChatEndpoint(
   endpoint: AgentLabEndpoint,
 ): Promise<{ ok: boolean; error?: string; reply?: string }> {
   try {
-    const data = await postJson<{ choices?: Array<{ message?: { content?: string } }> }>(
+    const data = await postJson<{ choices?: Array<{ message?: { content?: string; reasoning_content?: string } }> }>(
       endpoint,
       '/chat/completions',
-      { model: endpoint.model, messages: [{ role: 'user', content: '你好' }], max_tokens: 16 },
+      // 推理模型需要更多 token 预算才能产出 content；64 足够短路"你好"又不浪费。
+      { model: endpoint.model, messages: [{ role: 'user', content: '你好' }], max_tokens: 64 },
     );
-    const reply = data.choices?.[0]?.message?.content?.trim();
+    const reply = pickMessageText(data.choices?.[0]?.message);
     if (!reply) return { ok: false, error: '接口可达，但返回内容为空（模型可能不支持 chat/completions）。' };
     return { ok: true, reply };
   } catch (e) {
@@ -564,7 +575,7 @@ export async function runPersonaChat(
   ];
 
   const data = await postJson<{
-    choices?: Array<{ message?: { content?: string } }>;
+    choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
     usage?: OpenAiUsage;
   }>(chat, '/chat/completions', {
     model: chat.model,
@@ -573,7 +584,7 @@ export async function runPersonaChat(
     messages,
   });
   reportUsage(chat, data);
-  const raw = data.choices?.[0]?.message?.content?.trim();
+  const raw = pickMessageText(data.choices?.[0]?.message);
   if (!raw) {
     throw new Error('AgentLab chat 返回为空');
   }
