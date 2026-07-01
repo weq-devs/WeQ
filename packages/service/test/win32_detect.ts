@@ -14,7 +14,7 @@
 
 import { loadNative } from '@weq/native';
 import { createWin32Platform } from '@weq/platform';
-import { Win32DetectService } from '../src/bootstrap/win32_detect';
+import { Win32DetectService } from '../src';
 
 function ts(): string {
   const d = new Date();
