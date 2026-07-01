@@ -346,9 +346,11 @@ async function postJson<T>(
 }
 
 /** OpenAI 兼容消息里同时可能存在 content 和 reasoning_content（推理模型专用），取首个非空。 */
-export function pickMessageText(msg: { content?: string; reasoning_content?: string } | undefined): string {
+export function pickMessageText(msg: { content?: unknown; reasoning_content?: unknown } | undefined): string {
   if (!msg) return '';
-  return (msg.content || msg.reasoning_content || '').trim();
+  const c = typeof msg.content === 'string' ? msg.content : '';
+  const r = typeof msg.reasoning_content === 'string' ? msg.reasoning_content : '';
+  return (c || r).trim();
 }
 
 /**
