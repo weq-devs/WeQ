@@ -102,6 +102,16 @@ export function AgentLabSection(): ReactElement {
     setEditing(true);
   }
 
+  function mergeTemplateModels(currentModels: ModelForm[], vendor: string): ModelForm[] {
+    const entry = catalog.data?.find((item) => item.vendor === vendor);
+    if (!entry?.models.length) return currentModels;
+    const seen = new Set(currentModels.map((m) => m.id));
+    const extra = entry.models
+      .filter((m) => !seen.has(m.id))
+      .map((m) => ({ id: m.id, label: m.label ?? '', capabilities: m.capabilities as Capability[] }));
+    return extra.length > 0 ? [...currentModels, ...extra] : currentModels;
+  }
+
   function applyVendor(vendor: string): void {
     const entry = catalog.data?.find((item) => item.vendor === vendor);
     setForm((current) => ({
@@ -109,20 +119,24 @@ export function AgentLabSection(): ReactElement {
       vendor,
       baseUrl: current.baseUrl.trim() || entry?.baseUrl || current.baseUrl,
       name: current.name.trim() || entry?.label?.replace(/（.*?）/g, '') || current.name,
+      models: mergeTemplateModels(current.models, vendor),
     }));
   }
 
   function importTemplateModels(): void {
-    const entry = catalog.data?.find((item) => item.vendor === form.vendor);
-    if (!entry?.models.length) return;
-    setForm((current) => {
-      const seen = new Set(current.models.map((m) => m.id));
-      const extra = entry.models
-        .filter((m) => !seen.has(m.id))
-        .map((m) => ({ id: m.id, label: m.label ?? '', capabilities: m.capabilities as Capability[] }));
-      return { ...current, models: [...current.models, ...extra] };
-    });
+    setForm((current) => ({
+      ...current,
+      models: mergeTemplateModels(current.models, form.vendor),
+    }));
   }
+
+  /** 模板中有多少个模型尚未添加（用于按钮 badge）。 */
+  const newModelCount = useMemo(() => {
+    const entry = catalog.data?.find((item) => item.vendor === form.vendor);
+    if (!entry?.models.length) return 0;
+    const seen = new Set(form.models.map((m) => m.id));
+    return entry.models.filter((m) => !seen.has(m.id)).length;
+  }, [catalog.data, form.vendor, form.models]);
 
   function addModel(): void {
     setForm((c) => ({ ...c, models: [...c.models, { id: '', label: '', capabilities: ['chat'] }] }));
@@ -320,7 +334,7 @@ export function AgentLabSection(): ReactElement {
           <div className="weq-set-card-title">可用模型</div>
           <div className="weq-set-card-action" style={{ display: 'flex', gap: 6 }}>
             <button type="button" className="weq-set-btn weq-set-btn-soft weq-set-btn-sm" onClick={importTemplateModels} disabled={!vendorEntry?.models.length}>
-              <Sparkles size={12} /> 导入模板推荐
+              <Sparkles size={12} /> 导入模板推荐{newModelCount > 0 ? ` (${newModelCount})` : ''}
             </button>
             <button type="button" className="weq-set-btn weq-set-btn-soft weq-set-btn-sm" onClick={addModel}>
               <Plus size={12} /> 手动添加

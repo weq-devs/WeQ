@@ -14,8 +14,21 @@ import type { UserConfigService } from './user_config';
 export class AgentLabConfigService {
   constructor(private readonly userConfig: UserConfigService) {}
 
+  /**
+   * 用厂商模板自动补全缺失的模型（仅追加，不覆盖已有）。
+   * 解决了用户早前保存的 provider 不包含 catalog 后续新增模型的问题。
+   */
+  private enrichProvider(p: AgentLabProviderConfig): AgentLabProviderConfig {
+    const entry = AGENTLAB_PROVIDER_CATALOG.find((c) => c.vendor === p.vendor);
+    if (!entry?.models?.length) return p;
+    const existingIds = new Set(p.models.map((m) => m.id));
+    const extra = entry.models.filter((m) => !existingIds.has(m.id));
+    if (extra.length === 0) return p;
+    return { ...p, models: [...p.models, ...extra] };
+  }
+
   listProviders(): AgentLabProviderConfig[] {
-    return this.userConfig.getSettings().agentLab.providers;
+    return this.userConfig.getSettings().agentLab.providers.map((p) => this.enrichProvider(p));
   }
 
   getProvider(providerId: string): AgentLabProviderConfig | null {
