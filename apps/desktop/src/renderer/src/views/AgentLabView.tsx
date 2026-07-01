@@ -636,7 +636,11 @@ export function AgentLabView(): ReactElement {
                   <strong>{activePersona?.name ?? '克隆体'}</strong>
                   <span>
                     {activePersona
-                      ? `${activePersona.models?.chat?.model ?? '旧版克隆，请重建'} · 样本 ${activePersona.corpusMessageCount} 条`
+                      ? (() => {
+                          const p = (providers.data ?? []).find((pr) => pr.id === activePersona.models?.chat?.providerId);
+                          const modelText = activePersona.models?.chat?.model ?? '旧版克隆，请重建';
+                          return `${p ? `${p.name} · ` : ''}${modelText} · 样本 ${activePersona.corpusMessageCount} 条`;
+                        })()
                       : '加载中…'}
                   </span>
                 </div>
