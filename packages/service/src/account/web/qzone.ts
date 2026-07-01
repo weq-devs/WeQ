@@ -1,14 +1,16 @@
 /**
- * QQ 空间读接口 — 说说列表 (`taotao.qzone.qq.com/cgi-bin/emotion_cgi_msglist_v6`)
- * 与好友动态 (`ic2.qzone.qq.com/cgi-bin/feeds/feeds3_html_more`)，都经
- * `h5.qzone.qq.com` 代理网关访问 —— 与群相册列表同一套 cookie/g_tk 通路。
+ * QQ 空间读接口 — 说说列表 (`taotao.qq.com/cgi-bin/emotion_cgi_msglist_v6`，经
+ * `user.qzone.qq.com` 代理网关) 与好友动态 (`ic2.qzone.qq.com/cgi-bin/feeds/
+ * feeds3_html_more`，经 `h5.qzone.qq.com` 代理网关) —— 与群相册列表同一套
+ * cookie/g_tk 通路。两条走不同网关/目标域:说说走 user+taotao.qq.com 以避开
+ * `-10000 使用人数过多` 风控(真机验证),动态仍走 h5+taotao.qzone。
  *
  * Auth: cookie jar + `g_tk = bkn(p_skey || skey)`。`uin` 在 query 里裸传(不带
  * 'o' 前缀),cookie 里的 uin 仍带 'o'(见 {@link cookieHeader})。
  *
- * 这两个 cgi 的响应是 JSONP 包裹(`_preloadCallback({...})`),不能直接走
- * {@link webRequestJson} 的严格 JSON.parse,所以用 {@link webRequestText} 取文本,
- * 再用本文件内的 {@link parseQzoneJson} 容错切片解析。
+ * 响应形态:说说列表用 `format=json` 回裸 JSON;好友动态是 JS 对象字面量(见
+ * {@link parseQzoneCallback})。两者都走 {@link webRequestText} 取文本 —— 说说用
+ * {@link parseQzoneJson} 容错切片,动态用非执行解析器,均不走严格 JSON.parse。
  *
  * 读路径采用 throw-on-auth-failure 约定:传输失败、非零 `code`、或缺失数据数组
  * (过期 cookie 产出的 body)都抛错,而 NOT 吞成空列表 —— 否则坏 cookie 会和
@@ -31,6 +33,174 @@ export function parseQzoneJson<T>(text: string): T {
     throw new Error('invalid response from qzone api');
   }
   return JSON.parse(s.slice(start, end + 1)) as T;
+}
+
+/**
+ * 非执行地解析 qzone feeds 的 JS **对象字面量** body(不是 JSON)。
+ * `feeds3_html_more` 返回 `_preloadCallback({ … })`,其中 `data` 用无引号键、
+ * 单引号字符串、`\xNN` 转义、数组里还夹 `undefined` —— 本意是给浏览器回调 eval 的,
+ * 所以 {@link parseQzoneJson} 的 JSON.parse 会直接噎住。
+ *
+ * 绝不 eval 远程内容(`vm` 沙箱不是安全边界,被篡改的响应能逃逸成 RCE)。这里用
+ * 递归下降把字面量当**数据**解析:它只可能产出一个值,永远不会执行代码。
+ * 只认对象/数组/字符串/数字/`true|false|null|undefined`;丢弃 `__proto__` 键防
+ * 原型污染。数组尾部的 `undefined` 空洞由 {@link mapFeeds} 过滤。
+ */
+function parseJsLiteral(src: string): unknown {
+  let i = 0;
+  const n = src.length;
+  const isWs = (c: string): boolean => c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f' || c === '\v';
+  const skipWs = (): void => {
+    while (i < n && isWs(src[i]!)) i++;
+  };
+
+  function parseString(quote: string): string {
+    i++; // 开引号
+    let out = '';
+    while (i < n) {
+      const c = src[i]!;
+      if (c === '\\') {
+        const e = src[i + 1];
+        if (e === 'x') {
+          out += String.fromCharCode(parseInt(src.slice(i + 2, i + 4), 16));
+          i += 4;
+          continue;
+        }
+        if (e === 'u') {
+          out += String.fromCharCode(parseInt(src.slice(i + 2, i + 6), 16));
+          i += 6;
+          continue;
+        }
+        const simple: Record<string, string> = { n: '\n', t: '\t', r: '\r', b: '\b', f: '\f', v: '\v', '0': '\0' };
+        out += e !== undefined ? (simple[e] ?? e) : ''; // \/ → /, \' → ', 未知转义 → 原字符
+        i += 2;
+        continue;
+      }
+      if (c === quote) {
+        i++;
+        return out;
+      }
+      out += c;
+      i++;
+    }
+    throw new Error('unterminated string in qzone feeds payload');
+  }
+
+  function parseKey(): string {
+    skipWs();
+    const c = src[i];
+    if (c === '"' || c === "'") return parseString(c);
+    let s = '';
+    while (i < n && /[A-Za-z0-9_$]/.test(src[i]!)) {
+      s += src[i];
+      i++;
+    }
+    if (!s) throw new Error('expected object key in qzone feeds payload');
+    return s;
+  }
+
+  function parseObject(): Record<string, unknown> {
+    i++; // {
+    const obj: Record<string, unknown> = {};
+    skipWs();
+    if (src[i] === '}') {
+      i++;
+      return obj;
+    }
+    for (;;) {
+      const key = parseKey();
+      skipWs();
+      if (src[i] !== ':') throw new Error('expected ":" in qzone feeds payload');
+      i++;
+      const value = parseValue();
+      if (key !== '__proto__') obj[key] = value;
+      skipWs();
+      const ch = src[i];
+      if (ch === ',') {
+        i++;
+        skipWs();
+        if (src[i] === '}') {
+          i++;
+          return obj;
+        }
+        continue;
+      }
+      if (ch === '}') {
+        i++;
+        return obj;
+      }
+      throw new Error('expected "," or "}" in qzone feeds payload');
+    }
+  }
+
+  function parseArray(): unknown[] {
+    i++; // [
+    const arr: unknown[] = [];
+    skipWs();
+    if (src[i] === ']') {
+      i++;
+      return arr;
+    }
+    for (;;) {
+      arr.push(parseValue());
+      skipWs();
+      const ch = src[i];
+      if (ch === ',') {
+        i++;
+        skipWs();
+        if (src[i] === ']') {
+          i++;
+          return arr;
+        }
+        continue;
+      }
+      if (ch === ']') {
+        i++;
+        return arr;
+      }
+      throw new Error('expected "," or "]" in qzone feeds payload');
+    }
+  }
+
+  function parseValue(): unknown {
+    skipWs();
+    const c = src[i];
+    if (c === undefined) throw new Error('unexpected end of qzone feeds payload');
+    if (c === '{') return parseObject();
+    if (c === '[') return parseArray();
+    if (c === '"' || c === "'") return parseString(c);
+    let token = '';
+    while (i < n && !/[,}\]:\s]/.test(src[i]!)) {
+      token += src[i];
+      i++;
+    }
+    if (token === 'true') return true;
+    if (token === 'false') return false;
+    if (token === 'null') return null;
+    if (token === 'undefined') return undefined;
+    if (token !== '') {
+      const num = Number(token);
+      if (!Number.isNaN(num)) return num;
+    }
+    throw new Error('unexpected token in qzone feeds payload: ' + token.slice(0, 20));
+  }
+
+  return parseValue();
+}
+
+/**
+ * 从 qzone feeds JSONP body 里取出回调实参那个对象,作为**数据**解析(永不执行,
+ * 见 {@link parseJsLiteral})。从第一个 `{`(回调实参)切起,解析一个平衡值;
+ * 尾部的 `);` 直接忽略。body 不是对象时抛错。
+ */
+export function parseQzoneCallback<T>(text: string): T {
+  const start = text.indexOf('{');
+  if (start === -1) throw new Error('invalid feeds response from qzone api');
+  const value = parseJsLiteral(text.slice(start));
+  if (value === null || typeof value !== 'object') {
+    throw new Error('invalid feeds response from qzone api');
+  }
+  return value as T;
 }
 
 // ─────────────── 说说列表 (说说 / emotion) — emotion_cgi_msglist_v6 ───────────────
@@ -117,29 +287,29 @@ export async function getQzoneMsgList(
 ): Promise<QzoneMsgListResult> {
   const gtk = computeBkn(cred.pskey || cred.skey);
 
-  const url = `https://h5.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_msglist_v6?${new URLSearchParams(
+  // 关键路由:经 `user.qzone.qq.com` 代理网关访问目标域 `taotao.qq.com`
+  // (注意 NOT `taotao.qzone.qq.com`)。这一组合经真机抓包验证**不吃**
+  // `-10000 使用人数过多` 风控;而旧的 `h5.qzone.qq.com`+`taotao.qzone.qq.com`
+  // 那套会被 taotao 单独甩 -10000。`format=json` 直接回裸 JSON(不再 JSONP 包裹),
+  // parseQzoneJson 的容错切片照样能解。参数保持极简 —— 多余参数(loginUin/
+  // callback/replynum…)对绕风控无益,去掉更贴近验证过的请求。
+  const url = `https://user.qzone.qq.com/proxy/domain/taotao.qq.com/cgi-bin/emotion_cgi_msglist_v6?${new URLSearchParams(
     {
       uin: targetUin,
-      // 登录号(查询发起方)。跨号查别人空间时 QZone 靠它判权限,缺了会被风控
-      // 甩 `-10000 使用人数过多`。`cred.uin` 是本账号裸 uin(不带 'o')。
-      loginUin: cred.uin,
       ftype: '0',
       sort: '0',
       pos: String(pos),
       num: String(num),
-      replynum: '100',
       g_tk: String(gtk),
-      callback: '_preloadCallback',
       code_version: '1',
-      format: 'jsonp',
-      need_private_comment: '1',
+      format: 'json',
     },
   ).toString()}`;
 
   const text = await webRequestText(url, {
     method: 'GET',
     cookie: cookieHeader(cred),
-    // QZone 风控会校验 referer 是 qzone 来源,缺了甩 `-10000 使用人数过多`。
+    // Referer 指向目标空间;QZone 会校验 referer 是 qzone 来源。
     headers: { Referer: `https://user.qzone.qq.com/${targetUin}` },
   });
   const data = parseQzoneJson<RawMsgListRet>(text);
@@ -148,7 +318,7 @@ export async function getQzoneMsgList(
     throw new Error(`qzone msglist failed: code=${data.code} ${data.message ?? ''}`.trim());
   }
   if (!Array.isArray(data.msglist)) {
-    throw new Error('无法获取空间说说列表(可能 cookie 失效或无权限)');
+    throw new Error(`无法获取空间说说列表(响应结构异常): ${text.slice(0, 200)}`);
   }
 
   return mapMsgList(data);
@@ -206,7 +376,8 @@ export interface QzoneFeedsResult {
 
 /** 纯转换:原始 feeds 响应 → 归一化好友动态列表。 */
 export function mapFeeds(data: RawFeedsRet): QzoneFeedsResult {
-  const list = data.data?.data ?? [];
+  // 该 cgi 会在数组尾部塞 `undefined`/null 空洞 —— 过滤掉。
+  const list = (data.data?.data ?? []).filter((f): f is RawFeedItem => !!f);
   return {
     feeds: list.map((f) => ({
       uin: Number(f.uin ?? 0),
@@ -265,13 +436,16 @@ export async function getQzoneFeeds(
     cookie: cookieHeader(cred),
     headers: { Referer: `https://user.qzone.qq.com/${selfUin}` },
   });
-  const data = parseQzoneJson<RawFeedsRet>(text);
+  // feeds3_html_more 的 body 是 JS 对象字面量而非 JSON —— 走非执行解析器
+  // (见 parseQzoneCallback;永不执行),不能用 parseQzoneJson 的 JSON.parse。
+  const data = parseQzoneCallback<RawFeedsRet>(text);
 
   if (typeof data.code === 'number' && data.code !== 0) {
     throw new Error(`qzone feeds failed: code=${data.code} ${data.message ?? ''}`.trim());
   }
   if (!Array.isArray(data.data?.data)) {
-    throw new Error('无法获取空间好友动态(可能 cookie 失效或无权限)');
+    // 带上响应头片段:cookie 失效 / 无权限 / 风控 各有不同 body,方便对症。
+    throw new Error(`无法获取空间好友动态(响应结构异常): ${text.slice(0, 200)}`);
   }
 
   return mapFeeds(data);
