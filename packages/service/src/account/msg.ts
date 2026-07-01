@@ -103,6 +103,16 @@ export class MsgService {
     return msgs.map(renderC2c);
   }
 
+  /**
+   * Private-chat page just newer than `afterRowId` (rowid order). Export-only
+   * fallback for conversations whose msgSeq is unusable — see
+   * `C2cMsgDb.listAfterRowId`.
+   */
+  async getC2cAfterRowId(targetUid: string, afterRowId: bigint, limit = 2000): Promise<Array<RenderC2cMsg & { rowId: bigint }>> {
+    const msgs = await this.session.c2cMsgs.listAfterRowId(this.c2cPartition(targetUid), afterRowId, limit);
+    return msgs.map((m) => ({ ...renderC2c(m), rowId: m.rowId }));
+  }
+
   // ---- group ---------------------------------------------------------------
 
   /** Newest N group messages in one group. */
@@ -127,6 +137,15 @@ export class MsgService {
   async getGroupFrom(targetGroupCode: string, sinceSeq: bigint, limit = 500): Promise<RenderGroupMsg[]> {
     const msgs = await this.session.groupMsgs.listFrom(targetGroupCode, sinceSeq, limit);
     return msgs.map(renderGroup);
+  }
+
+  /**
+   * Group page just newer than `afterRowId` (rowid order). Export-only fallback
+   * for conversations whose msgSeq is unusable — see `GroupMsgDb.listAfterRowId`.
+   */
+  async getGroupAfterRowId(targetGroupCode: string, afterRowId: bigint, limit = 2000): Promise<Array<RenderGroupMsg & { rowId: bigint }>> {
+    const msgs = await this.session.groupMsgs.listAfterRowId(targetGroupCode, afterRowId, limit);
+    return msgs.map((m) => ({ ...renderGroup(m), rowId: m.rowId }));
   }
 
   // ---- count ---------------------------------------------------------------

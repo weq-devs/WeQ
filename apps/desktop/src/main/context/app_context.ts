@@ -26,6 +26,7 @@ import { createWin32Platform, isTencentFilesRoot, type Platform } from '@weq/pla
 import { startMcpServer, stopMcpServer } from '../mcp/server';
 import { aiToolSpecs, runAiTool } from '../mcp/openai_tools';
 import { getExternalMcpHub, disposeExternalMcp } from '../mcp/external';
+import { sampleHitokoto } from '../hitokoto';
 import {
   accountConfigId,
   UserConfigService,
@@ -529,6 +530,9 @@ export function initAppContext(): AppContext {
       // OIDB-backed video / file download URL resolver (needs the online QQ pid);
       // injected into the export manager for 视频 / 文件 媒体补全.
       const mediaUrl = new MediaUrlService(platform.native.ntHelper, session, resolveOnlinePid);
+      // QQ 空间 Web 查询（说说 / 相册）—— 也注入进导出管理器，供「好友空间导出」
+      // 翻页拉说说。需在线 QQ 凭证；离线时 fetchMsgList 会抛错（前端已先拦截）。
+      const webQuery = new WebQueryService(platform.native.ntHelper, session, resolveOnlinePid);
       // Shared instances also fed to the export manager's ChatLab deps (name /
       // role / profile resolution), so they're built before the services object.
       const groupInfo = new GroupInfoService(session);
@@ -582,6 +586,8 @@ export function initAppContext(): AppContext {
             name.startsWith('mcp__') ? getExternalMcpHub().run(name, args) : runAiTool(name, args),
           // 配置变更/启动时把外部 MCP 配置同步给 Hub（连接惰性建立）。
           syncExternalMcp: (raw) => getExternalMcpHub().configure(raw),
+          // 写报告时随机抽一批「一言」候选，供模型挑一句做主题大字（多元化）。
+          sampleHitokoto,
         }),
         exportManager: new (await import('@weq/service')).ExportTaskManager(
           new MsgService(session),
@@ -631,10 +637,12 @@ export function initAppContext(): AppContext {
                 return uin ? { uid: '', uin, nick: '' } : null;
               },
             },
+            // 好友 QQ 空间说说导出：翻页拉取能力（需在线 QQ）。
+            qzone: { fetchMsgList: (uin, pos, num) => webQuery.getQzoneMsgList(uin, pos, num) },
           },
         ),
         dbDecrypt: new DbDecryptService(session, platform),
-        webQuery: new WebQueryService(platform.native.ntHelper, session, resolveOnlinePid),
+        webQuery,
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, resolveOnlinePid),
       };
       // Scheduled export manager — fires saved templates through the export
@@ -745,6 +753,8 @@ export function initAppContext(): AppContext {
         userConfig.cacheDir('media'),
       );
       const mediaUrl = new MediaUrlService(platform.native.ntHelper, session, noPid);
+      // 静态账号无在线 QQ —— webQuery 用 noPid，「好友空间导出」会优雅失败（离线）。
+      const webQuery = new WebQueryService(platform.native.ntHelper, session, noPid);
       const groupInfo = new GroupInfoService(session);
       const profile = new ProfileService(session);
       const fileSearch = new FileSearchService(session, platform);
@@ -792,6 +802,8 @@ export function initAppContext(): AppContext {
             name.startsWith('mcp__') ? getExternalMcpHub().run(name, args) : runAiTool(name, args),
           // 配置变更/启动时把外部 MCP 配置同步给 Hub（连接惰性建立）。
           syncExternalMcp: (raw) => getExternalMcpHub().configure(raw),
+          // 写报告时随机抽一批「一言」候选，供模型挑一句做主题大字（多元化）。
+          sampleHitokoto,
         }),
         exportManager: new (await import('@weq/service')).ExportTaskManager(
           new MsgService(session),
@@ -834,10 +846,11 @@ export function initAppContext(): AppContext {
                 return uin ? { uid: '', uin, nick: '' } : null;
               },
             },
+            qzone: { fetchMsgList: (uin, pos, num) => webQuery.getQzoneMsgList(uin, pos, num) },
           },
         ),
         dbDecrypt: new DbDecryptService(session, platform),
-        webQuery: new WebQueryService(platform.native.ntHelper, session, noPid),
+        webQuery,
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, noPid),
       };
 

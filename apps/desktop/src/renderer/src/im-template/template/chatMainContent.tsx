@@ -32,6 +32,7 @@ export function ChatMainContent({
 	view,
 	contactTab,
 	relationGraphSlot,
+	chatHomeSlot,
 	contactNotice,
 	contactRequests,
 	groupRequests,
@@ -82,6 +83,12 @@ export function ChatMainContent({
 	contactTab?: ContactTab;
 	/** App-provided content for the contacts main area (the relation graph). */
 	relationGraphSlot?: React.ReactNode;
+	/**
+	 * App-provided landing shown in the messages view when no conversation is
+	 * selected (the animated home facade). Falls back to ChatPane's built-in
+	 * empty state when omitted.
+	 */
+	chatHomeSlot?: React.ReactNode;
 	contactNotice: ContactNoticeView | null;
 	contactRequests: ContactRequest[];
 	groupRequests: GroupJoinRequest[];
@@ -172,6 +179,10 @@ export function ChatMainContent({
 				onSelectItem={onSelectTool}
 			/>
 		);
+	}
+
+	if (!activeConversation && chatHomeSlot) {
+		return <>{chatHomeSlot}</>;
 	}
 
 	return (

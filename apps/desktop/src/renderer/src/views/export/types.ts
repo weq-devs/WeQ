@@ -8,10 +8,10 @@
  */
 
 /** Left-rail modes. */
-export type ExportMode = 'full' | 'decrypt' | 'chatlab' | 'html' | 'scheduled' | 'album';
+export type ExportMode = 'full' | 'decrypt' | 'chatlab' | 'qzone' | 'scheduled' | 'album';
 
-/** Every output format the 完整消息 / 定时 / HTML flows can request. (`html`
- *  is its own mode with a fixed format, not a chip in the format picker.) */
+/** Every output format the 完整消息 / 定时 flows can request. HTML is now one of
+ *  the 完整消息 format chips (merged from its old standalone mode). */
 export type ExportFormat = 'json' | 'jsonl' | 'xlsx' | 'csv' | 'txt' | 'html';
 
 /** Formats the backend (`account.startExport`) can produce. */
@@ -22,19 +22,27 @@ export function isBackendFormat(f: ExportFormat): f is BackendFormat {
   return (BACKEND_FORMATS as readonly string[]).includes(f);
 }
 
-/** Format chips shown for the full-message / scheduled flows. */
+/** Format chips shown for the full-message / scheduled flows. HTML is a chip
+ *  here now (merged from its old standalone mode). */
 export const FULL_FORMATS: Array<{ value: ExportFormat; label: string }> = [
   { value: 'json', label: 'JSON' },
   { value: 'jsonl', label: 'JSONL' },
   { value: 'xlsx', label: 'XLSX' },
   { value: 'csv', label: 'CSV' },
   { value: 'txt', label: 'TXT' },
+  { value: 'html', label: 'HTML' },
 ];
 
 /** ChatLab only emits structured JSON variants. */
 export const CHATLAB_FORMATS: Array<{ value: ExportFormat; label: string }> = [
   { value: 'json', label: 'JSON' },
   { value: 'jsonl', label: 'JSONL' },
+];
+
+/** 好友 QQ 空间导出仅 JSON / TXT。 */
+export const QZONE_FORMATS: Array<{ value: ExportFormat; label: string }> = [
+  { value: 'json', label: 'JSON' },
+  { value: 'txt', label: 'TXT' },
 ];
 
 /** A row in any of the right-pane pickers. */
@@ -49,6 +57,8 @@ export interface PickItem {
   meta?: string;
   /** Conversation kind, when relevant (drives the backend export `kind`). */
   kind?: 'group' | 'c2c';
+  /** 好友 QQ 号（c2c 专用）—— 好友空间导出以此为目标 uin。 */
+  uin?: string;
   /** Raw message-count estimate, used as the export task `total`. */
   total?: number;
 }

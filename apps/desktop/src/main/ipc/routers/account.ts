@@ -17,6 +17,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, extname, join } from 'node:path';
 import { getAppContext, dbEventBus, type AccountServices } from '../../context/app_context';
+import { sampleHitokoto } from '../../hitokoto';
 import { procedure, router } from '../trpc';
 import { assistantBus, type AssistantStreamEvent } from '../../mcp/assistant_bus';
 import {
@@ -66,6 +67,96 @@ function requireScheduler(): import('@weq/service').ExportScheduler {
     throw new Error('No account session open — call bootstrap.openAccount first.');
   }
   return ctx.scheduler;
+}
+
+/** 会话类型判定（首页门面用；兼容字符串枚举与数字）。 */
+function chatKindOf(chatType: unknown): 'c2c' | 'group' | null {
+  const s = String(chatType).toUpperCase();
+  if (s.includes('C2C') || s === '1') return 'c2c';
+  if (s.includes('GROUP') || s === '2') return 'group';
+  return null;
+}
+
+/**
+ * 一条消息 → 纯文本，仅接受 text/at/face；出现任何媒体/卡片/引用等即返回 null
+ * （整条丢弃）。首页「虚拟聊天流」只滚动展示轻量文字气泡，媒体一律排除。
+ */
+function plainTextLine(
+  elements: readonly { type?: string; data?: { textContent?: unknown; faceText?: unknown } }[],
+): string | null {
+  const parts: string[] = [];
+  for (const el of elements ?? []) {
+    if (el.type === 'text' || el.type === 'at') {
+      parts.push(String(el.data?.textContent ?? ''));
+    } else if (el.type === 'face') {
+      const t = String(el.data?.faceText ?? '').trim();
+      parts.push(t ? `[${t}]` : '');
+    } else {
+      return null; // 图片/语音/视频/文件/卡片/引用… → 丢弃整条
+    }
+  }
+  const text = parts.join('').replace(/\s+/g, ' ').trim();
+  return text || null;
+}
+
+/** Fisher–Yates 就地洗牌（主进程内允许 Math.random）。 */
+function shuffleInPlace<T>(arr: T[]): void {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j]!, arr[i]!];
+  }
+}
+
+/**
+ * 首页门面：从**私聊**会话里抽一批「别人发来的」纯文本短句，带对方昵称/QQ 号
+ * （前端据 QQ 号取头像），去重后洗牌返回。刻意加随机：
+ *   - 会话先洗牌再取子集（不局限于最近几个）；
+ *   - 每个会话多读一些历史再随机挑（不总是最新那几条）；
+ * 配合前端「每次进首页都重新请求」，做到每次打开都换一批。
+ * 只留 text/face、按可读长度筛选、剔除链接、剔除自己发的。
+ */
+async function sampleHomeChatLines(
+  limit: number,
+): Promise<Array<{ text: string; uin: string; name: string }>> {
+  const svc = requireServices();
+  const selfUin = (await svc.profile.getSelfProfile())?.uin ?? -1n;
+  const contacts = await svc.recentContacts.getRecentContact(200);
+  const c2c = contacts.filter((c) => chatKindOf(c.chatType) === 'c2c');
+  shuffleInPlace(c2c);
+  const picked = c2c.slice(0, 24);
+
+  const perConv = await Promise.all(
+    picked.map(async (c) => {
+      try {
+        // 多读一点历史，给随机挑选更大的样本空间（一次查询开销不大）。
+        const rows = await svc.msgs.getC2cLatest(c.targetUid, 120);
+        return { c, rows };
+      } catch {
+        return { c, rows: [] as Awaited<ReturnType<typeof svc.msgs.getC2cLatest>> };
+      }
+    }),
+  );
+
+  const seen = new Set<string>();
+  const pool: Array<{ text: string; uin: string; name: string }> = [];
+  for (const { c, rows } of perConv) {
+    const name = c.targetRemark || c.targetDisplayName || c.senderNick || String(c.targetUin);
+    const uin = c.targetUin ? String(c.targetUin) : '';
+    for (const r of rows) {
+      if (r.senderUin === selfUin) continue; // 只保留别人发的
+      const text = plainTextLine(r.elements as never);
+      if (!text) continue;
+      const len = [...text].length;
+      if (len < 3 || len > 28) continue;
+      if (/https?:\/\//i.test(text)) continue;
+      if (seen.has(text)) continue;
+      seen.add(text);
+      pool.push({ text, uin, name });
+    }
+  }
+
+  shuffleInPlace(pool);
+  return pool.slice(0, limit);
 }
 
 const agentLabModelRef = z.object({ providerId: z.string().min(1), model: z.string().min(1) });
@@ -738,6 +829,16 @@ export const accountRouter = router({
     return contacts.map(recentContactToWire);
   }),
 
+  /** 首页门面：随机一言若干（打字机轮播用；已按句长筛过）。 */
+  sampleHitokoto: procedure
+    .input(z.object({ count: z.number().int().min(1).max(80).default(30) }).optional())
+    .query(({ input }) => sampleHitokoto(input?.count ?? 30)),
+
+  /** 首页门面：私聊纯文本短句池（装饰性「虚拟聊天流」用）。 */
+  sampleChatLines: procedure
+    .input(z.object({ limit: z.number().int().min(1).max(160).default(80) }).optional())
+    .query(({ input }) => sampleHomeChatLines(input?.limit ?? 80)),
+
   /** Get unread message count for a conversation. */
   getUnreadInfo: procedure
     .input(z.object({ chatType: z.number().int(), uid: z.string().min(1) }))
@@ -1374,6 +1475,39 @@ export const accountRouter = router({
     }))
     .mutation(async ({ input }) => {
       return requireServices().exportManager.startTask(input);
+    }),
+
+  /**
+   * Start a friend-QZone (说说) export. Requires an online QQ (the web CGI needs
+   * this account's skey/pskey). `conv` carries the friend's uin. Media = 配图.
+   */
+  startQzoneExport: procedure
+    .input(z.object({
+      targetUin: z.string().min(1),
+      name: z.string().min(1),
+      format: z.enum(['json', 'txt']),
+      downloadMedia: z.boolean(),
+      range: z.object({ start: z.number().nullable(), end: z.number().nullable() }).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const services = requireServices();
+      requireQqOnlineForAlbum(services); // 硬性要求：在线 QQ 实例
+      return services.exportManager.startTask({
+        qzone: true,
+        kind: 'c2c',
+        conv: input.targetUin,
+        name: input.name,
+        format: input.format,
+        total: 0,
+        media: {
+          exportMedia: input.downloadMedia,
+          completeMedia: false,
+          downloadVideo: false,
+          downloadFile: false,
+          transcribeVoice: false,
+        },
+        ...(input.range ? { range: input.range } : {}),
+      });
     }),
 
   /**

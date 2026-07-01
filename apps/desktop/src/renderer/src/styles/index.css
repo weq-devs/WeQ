@@ -7546,3 +7546,279 @@ html[data-theme="dark"] .weq-persona-modal {
   from { transform: scaleX(0); }
   to { transform: scaleX(1); }
 }
+
+/* ──────────────────────────────────────────────────────────────────────
+ * 聊天页门面（无选中会话时）：logo + 大字细体问候 + 一言打字机 + 虚拟聊天流。
+ * 背景透明，透出父级 .weq-readonly-chat 的 --chat-surface 柔光画布。
+ * ──────────────────────────────────────────────────────────────────── */
+
+.weq-chathome {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 28px 24px;
+  overflow: hidden;
+  position: relative;
+  user-select: none;
+  background: transparent;
+}
+
+.weq-chathome-inner {
+  width: 100%;
+  max-width: 680px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* 整组仍居中，但拉大间距 → logo+问候落在中上部、一言落在中下部 */
+  gap: clamp(72px, 22vh, 200px);
+}
+
+.weq-chathome-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  text-align: center;
+}
+
+.weq-chathome-logo {
+  width: clamp(58px, 8vh, 74px);
+  height: auto;
+  filter: drop-shadow(0 12px 26px color-mix(in srgb, var(--weq-accent-effective) 26%, transparent));
+}
+
+.weq-chathome-greet {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.1em 0.32em;
+  font-size: clamp(28px, 4.4vw, 48px);
+  font-weight: 200;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+}
+
+.weq-chathome-greet-hi {
+  font-weight: 200;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-chathome-greet-name {
+  font-weight: 400;
+  background: linear-gradient(
+    118deg,
+    var(--weq-accent-effective),
+    color-mix(in srgb, var(--weq-accent-effective) 52%, #53ce90)
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ── 一言打字机 ── */
+.weq-chathome-hitokoto {
+  width: 100%;
+  max-width: 560px;
+  min-height: 4.6em;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  text-align: center;
+}
+
+.weq-chathome-verse {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: clamp(15px, 1.7vw, 19px);
+  line-height: 1.75;
+  color: var(--weq-fg-secondary);
+  min-height: 1.75em;
+}
+
+.weq-chathome-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  margin-left: 3px;
+  vertical-align: text-bottom;
+  border-radius: 2px;
+  background: var(--weq-accent-effective);
+  animation: weq-chathome-caret-blink 1.05s steps(1) infinite;
+}
+
+.weq-chathome-from {
+  margin: 10px 0 0;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--weq-fg-muted);
+  opacity: 0;
+  transform: translateY(2px);
+  transition: opacity 360ms ease, transform 360ms ease;
+}
+
+.weq-chathome-from.is-shown {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ── 记忆长廊（旧消息沿时间线匀速上浮，纯 CSS transform；悬停暂停） ── */
+.weq-chathome-lane,
+.weq-lane {
+  width: 100%;
+  max-width: 468px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.weq-lane-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-size: 12.5px;
+  letter-spacing: 0.14em;
+  color: var(--weq-fg-muted);
+}
+
+.weq-lane-clock {
+  color: color-mix(in srgb, var(--weq-accent-effective) 70%, var(--weq-fg-muted));
+}
+
+.weq-lane-viewport {
+  position: relative;
+  height: clamp(184px, 30vh, 248px);
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 16%, #000 84%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%, #000 16%, #000 84%, transparent 100%);
+}
+
+/* 左侧一条贯穿的时间线（记忆之路） */
+.weq-lane-viewport::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 14px;
+  width: 1px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--weq-border-subtle) 12%,
+    var(--weq-border-subtle) 88%,
+    transparent
+  );
+  pointer-events: none;
+}
+
+.weq-lane-track {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  animation: weq-lane-drift var(--weq-lane-duration, 40s) linear infinite;
+  will-change: transform;
+}
+
+.weq-lane-viewport:hover .weq-lane-track {
+  animation-play-state: paused;
+}
+
+.weq-lane-item {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  /* 用等值 margin 而非 flex gap：两份副本各占整轨一半，-50% 才能严丝合缝无缝循环 */
+  margin-bottom: 20px;
+  padding-left: 30px;
+  opacity: 0.9;
+}
+
+/* 时间线上的节点小圆点，正对左侧竖线 */
+.weq-lane-node {
+  position: absolute;
+  left: 11px;
+  top: 11px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--weq-accent-effective);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+}
+
+.weq-chathome-avatar {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  object-fit: cover;
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+}
+
+.weq-chathome-avatar-fallback {
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--weq-accent-effective);
+}
+
+.weq-lane-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding-top: 1px;
+}
+
+.weq-lane-name {
+  font-size: 11.5px;
+  letter-spacing: 0.01em;
+  color: var(--weq-fg-muted);
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-lane-text {
+  margin: 0;
+  max-width: 340px;
+  font-family: var(--font-serif);
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--weq-fg-secondary);
+  word-break: break-word;
+  /* 最多两行，超出以省略号收束，保持每条记忆高度稳定 */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 轨道匀速上移一整份（内容复制两份 → -50% 即无缝衔接） */
+@keyframes weq-lane-drift {
+  from { transform: translateY(0); }
+  to { transform: translateY(-50%); }
+}
+
+@keyframes weq-chathome-caret-blink {
+  0%, 50% { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-chathome-logo,
+  .weq-chathome-caret { animation: none; }
+  .weq-lane-track { animation: none; }
+}

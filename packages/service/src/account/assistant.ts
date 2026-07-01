@@ -31,6 +31,12 @@ export interface AssistantTools {
   run: (name: string, args: Record<string, unknown>) => Promise<unknown>;
   /** 配置变更时把外部 MCP 服务器原始配置同步给应用层的 Hub（可选）。 */
   syncExternalMcp?: (raw: string | undefined) => void;
+  /**
+   * 写报告时随机抽 n 条「一言」候选（句子 + 出处），供模型挑一句做「主题大字」——
+   * 让每份报告有个醒目、有格调的封面主题，弱化僵化标题、拉开风格差异。数据在应用层
+   * （resources/hitokoto.json），故由应用层注入；缺省则报告小节不出现主题句候选。
+   */
+  sampleHitokoto?: (n: number) => Array<{ text: string; from: string }>;
 }
 
 export interface AssistantConfig {
@@ -123,6 +129,7 @@ const WRITE_REPORT_SPEC: AssistantToolSpec = {
       '无需写 <style>、也无需引任何 CDN（详见系统提示的【写报告】小节）。' +
       'rp-* 组件是一块「调色板」而非「模板」：用哪些、怎么组合、整体什么结构，完全由你按内容自由决定，' +
       '别把所有报告都塞进同一个套路；也可叠加 Tailwind 原子类或自写样式。' +
+      '**务必让风格多元**：给 <body> 挑一款皮肤换背景+配色、开篇换不同 masthead、挑一句「一言」做主题大字（详见系统提示）。' +
       'HTML 请给一份完整自包含文档（<!doctype html><html>…），并加入你自己的解读与结尾点评，别只堆数据。' +
       '需要纯文本/便于二次编辑时才用 markdown / text。内容较长、成体系时用本工具，而不是把长文塞进聊天回复。',
     parameters: {
@@ -489,6 +496,11 @@ export class AssistantService {
   private systemPrompt(): string {
     const today = new Date();
     const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    // 随机抽一批「一言」候选（每轮重抽 → 候选池天然变化 → 报告主题句天然多元）。
+    const verses = this.tools?.sampleHitokoto?.(8) ?? [];
+    const verseBlock = verses.length
+      ? verses.map((v, i) => `  ${i + 1}. ${v.text}${v.from ? `　—— ${v.from}` : ''}`).join('\n')
+      : '';
     return [
       '你是 WeQ 助手，运行在用户的 QQ 客户端里，是一个**任务执行者**：你的职责是亲自把用户的问题查清楚、把任务做完，而不是告诉用户"你可以自己去搜索/查看"。',
       `今天是 ${dateStr}。涉及"哪天/什么时候"等时间问题时，结合聊天记录里的日期与今天推算。`,
@@ -511,18 +523,40 @@ export class AssistantService {
         '用户能在你的回复里「查看」或「另存为」；不要把这种长文整段塞进聊天回复里。',
       '- 渲染环境已内置、开箱即用，**无需写 <style>、无需引任何 CDN**：' +
         '① 本地 Tailwind 运行时（任意 Tailwind 原子类都可用）；' +
-        '② 一套报告组件库 class（`rp-*`）。',
+        '② 一套报告组件库 class（`rp-*`）；' +
+        '③ 一组「皮肤」——给 `<body>` 挂一个 class 就换掉整份报告的背景与主色。',
       '- ⭐ **这套组件是「调色板」，不是「模板」**：用哪些、用不用、怎么排列组合、整份报告长什么样，' +
         '**完全由你按内容自由决定**。一份人物分析、一条时间线、一次对比、一个核心结论、一块数据看板，本该长得各不相同——' +
         '别把所有报告都套进同一个「头图＋指标卡＋排行榜」的壳子里。让结构去贴合内容，而不是让内容去填模板。',
+      '- 🎨 **换肤（背景 + 主色）**：给 `<body>` 挂一个皮肤 class，整份报告的背景与配色随之改变。' +
+        '**每份报告按主题/心情选一款，别老用默认靛紫**：' +
+        '`rp-aurora`(靛紫·默认) `rp-rose`(玫瑰暖) `rp-emerald`(青翠) `rp-ocean`(海蓝) `rp-sunset`(落日橙粉) ' +
+        '`rp-grape`(葡萄紫) `rp-mono`(灰度杂志) `rp-paper`(米色纸感·文艺) `rp-midnight`(深蓝暗色) `rp-ink`(近黑暗色)。' +
+        '可再叠一层纹理：`rp-pat-dots`(点阵) / `rp-pat-grid`(网格) / `rp-pat-rays`(光晕)。' +
+        '想微调，直接覆盖 `--rp-accent` 等变量。如 `<body class="rp-paper rp-pat-dots">`。',
+      '- 🏷️ **开篇（masthead）也别千篇一律**：四选一或自由发挥——' +
+        '`rp-hero`(渐变色块·热闹) / `rp-masthead`(杂志式·细线+衬线大标题·克制) / ' +
+        '`rp-cover`(整屏居中封面·最适合放主题句大字) / `rp-band`(极简·左侧粗边框)。报告标题的重要性不高，别让它占据全部视觉重量。',
+      verseBlock
+        ? '- ✨ **主题句（一言）—— 报告的「大字」主题**：与其堆一个僵硬标题，不如挑一句有格调的话做封面级大字，' +
+            '让报告一眼有记忆点、有情绪。下面是随机候选，**挑一句最贴合本报告主题/心情的**（也可不用、或自拟金句）：\n' +
+            verseBlock +
+            '\n  用 `rp-verse` 渲染，叠不同修饰换风格（务必每份报告都换一种组合，别定式）：' +
+            '`rp-verse-serif`(衬线文艺) `rp-verse-grad`(渐变大字) `rp-verse-outline`(描边空心) ' +
+            '`rp-verse-center`(居中) `rp-verse-mark`(前置大引号) `rp-verse-vert`(左竖条) `rp-verse-card`(卡片承托)；' +
+            '句子放 `<p class="rp-verse-text">`、出处放 `<span class="rp-verse-from">—— 出处</span>`。' +
+            '例：`<div class="rp-verse rp-verse-serif rp-verse-mark"><p class="rp-verse-text">句子…</p><span class="rp-verse-from">—— 出处</span></div>`，' +
+            '很适合放进 `rp-cover` 当封面主角。'
+        : '',
       '- 可用积木（任选、可只用一两个、也可全不用，自己拿 Tailwind 拼也行）：',
-      '  • `rp-page` 整页容器；`rp-hero` 头图（内放 `rp-eyebrow` + `<h1>` + `<p>`）；',
+      '  • `rp-page` 整页容器；开篇用上面四种 masthead 之一（`rp-hero` 头图内放 `rp-eyebrow` + `<h1>` + `<p>`）；主题句用 `rp-verse` 系列；',
       '  • `rp-grid rp-grid-2/-3/-4` 栅格 + `rp-stat`（`rp-stat-label`/`-value`/`-sub`）指标卡；',
       '  • `rp-section` + `rp-section-title` 分章节；`rp-card` 内容块；',
       '  • `rp-rank` 排行榜：每行 `rp-rank-item`(名称 `rp-rank-name` + 进度条 `rp-rank-bar`>`<span style="--rp-pct:73%">` + 数值 `rp-rank-val`)；',
       '  • `rp-table` 表格（数字单元格加 `rp-num` 右对齐）；`rp-badge` + `-up`/`-down`/`-info`/`-warn` 徽章（配 emoji）；',
       '  • `rp-quote`（内含 `<cite>` 写是谁、大概何时说的）引用原话；`rp-callout` 高亮/解读块；`rp-divider` 分隔线；`rp-footer` 页脚。',
-      '  • 时间线 `rp-timeline`>`rp-tl-item`(内放 `rp-tl-time` + 内容)，很适合「活跃日记/今日时间线」；标签云 `rp-chips`>`rp-chip`（话题/高频词）；首字母头像 `rp-ava`（可 `style="--c:#色"`，放成员名前）。',
+      '  • 时间线 `rp-timeline`>`rp-tl-item`(内放 `rp-tl-time` + 内容)，很适合「活跃日记/今日时间线」；标签 `rp-chips`>`rp-chip`（话题/标签）；首字母头像 `rp-ava`（可 `style="--c:#色"`，放成员名前）。',
+      '  • 词云 `rp-cloud`：每个热词一个 `<span class="rp-cloud-word" style="--rp-w:0.8">词</span>`，`--rp-w` 用「该词频/最高词频」算 0~1，自动缩放字号与浓淡（可加 `--c:#色` 单独换色）。get_group_activity 返回的 wordCloud 直接拿来用。',
       '- 📊 **图表**（纯 CSS/内联 SVG，数据由你绑定，照下面语法写就能出图，别引图表库）：',
       '  • 饼/环图 `rp-donut`：`<div class="rp-donut" style="--rp-donut:conic-gradient(#6366f1 0 62%,#f59e0b 0 85%,#e5e7eb 0)"><div class="rp-donut-center"><b>62%</b><small>占比</small></div></div>`，' +
         '配图例 `<div class="rp-legend"><span class="rp-legend-item"><span class="rp-dot" style="--c:#6366f1"></span>我 <b>62%</b></span>…</div>`；单值占比只给两段即可。',
@@ -538,8 +572,9 @@ export class AssistantService {
       '- 下面这段**只是演示几个组件怎么写、怎么嵌套**，不是要你照搬它的布局或主题——请按手上的内容重新决定结构：',
       '```html',
       '<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>示例</title></head>',
-      '<body><div class="rp-page">',
-      '  <div class="rp-hero"><div class="rp-eyebrow">小标签</div><h1>大标题</h1><p>副标题：一句你自己的概览/解读。</p></div>',
+      '<body class="rp-ocean rp-pat-dots"><div class="rp-page">',
+      '  <div class="rp-masthead"><span class="rp-kicker">小标签</span><h1>大标题</h1><p>副标题：一句你自己的概览/解读。</p></div>',
+      '  <div class="rp-verse rp-verse-serif rp-verse-mark"><p class="rp-verse-text">一句贴合主题的话。</p><span class="rp-verse-from">—— 出处</span></div>',
       '  <div class="rp-grid rp-grid-3">',
       '    <div class="rp-stat"><div class="rp-stat-label">指标名</div><div class="rp-stat-value">1,240</div><div class="rp-stat-sub">附注 <span class="rp-badge rp-badge-up">📈 +18%</span></div></div>',
       '  </div>',

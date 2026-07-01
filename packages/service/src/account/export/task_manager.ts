@@ -21,6 +21,7 @@ import { exportGroupToCsv, csvFraming, renderCsvRow } from './csv_exporter';
 import { exportToXlsx } from './xlsx_exporter';
 import { exportToChatlab, type ChatlabDeps } from './chatlab_exporter';
 import { exportToHtml } from './html_exporter';
+import { exportQzone, type QzoneExportDeps } from './qzone_export';
 import { exportAvatars } from './avatar_export';
 import {
   copyFoundMedia,
@@ -91,6 +92,8 @@ export interface ExportTask {
   exportAvatar?: boolean;
   /** ChatLab interchange format (json/jsonl carry ChatLab structure, not raw). */
   chatlab?: boolean;
+  /** 好友 QQ 空间说说导出（`conv` = 好友 uin；走独立的 Web 拉取流水线）。 */
+  qzone?: boolean;
   /** Media export options, when 导出媒体 is on. */
   media?: MediaExportOptions;
   /** Inclusive send-time window for this export, if narrowed from 全部时间. */
@@ -127,6 +130,8 @@ export interface MediaDeps {
   transcribe?: TranscribeVoiceFn;
   /** ChatLab name / role / profile resolvers (account-side; injected from the app). */
   chatlab?: ChatlabDeps;
+  /** QQ 空间说说拉取能力（Web CGI；需在线 QQ，由 app 注入）。 */
+  qzone?: QzoneExportDeps;
 }
 
 export class ExportTaskManager extends EventEmitter {
@@ -194,6 +199,8 @@ export class ExportTaskManager extends EventEmitter {
     exportAvatar?: boolean;
     /** ChatLab format (json/jsonl carry ChatLab structure). */
     chatlab?: boolean;
+    /** 好友 QQ 空间说说导出（走独立流水线）。 */
+    qzone?: boolean;
     media?: MediaExportOptions;
     range?: ExportTimeRange;
   }): Promise<string> {
@@ -201,6 +208,34 @@ export class ExportTaskManager extends EventEmitter {
     const wantMedia = Boolean(opts.media?.exportMedia);
     const wantAvatars = Boolean(opts.exportAvatar);
     const wantTranscribe = Boolean(opts.media?.transcribeVoice);
+
+    // 好友空间导出是独立的两段式流水线（说说 + 可选配图），不复用消息流水线。
+    if (opts.qzone) {
+      const qStages: TaskStage[] = [{ key: 'message', label: '导出说说', status: 'pending', current: 0, total: opts.total }];
+      if (wantMedia) qStages.push({ key: 'media', label: '下载配图', status: 'pending', current: 0, total: 0 });
+      const qTask: ExportTask = {
+        id,
+        kind: opts.kind,
+        conv: opts.conv,
+        name: opts.name,
+        format: opts.format,
+        status: 'pending',
+        progress: 0,
+        current: 0,
+        total: opts.total,
+        qzone: true,
+        ...(opts.media ? { media: opts.media } : {}),
+        ...(opts.range ? { range: opts.range } : {}),
+        stages: qStages,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      this.tasks.set(id, qTask);
+      this.saveTasks();
+      void this.runQzoneTask(id);
+      return id;
+    }
+
     // Stage order is the display order. message + 搬运媒体 run first (sequential);
     // the rest (avatar / record / image / video / file / transcribe) run together.
     const stages: TaskStage[] = [{ key: 'message', label: '导出消息', status: 'pending', current: 0, total: opts.total }];
@@ -450,6 +485,100 @@ export class ExportTaskManager extends EventEmitter {
       task.status = 'failed';
       task.error = String(e?.message ?? e);
       // Mark the running stage failed so the UI shows where it broke.
+      const running = task.stages.find((s) => s.status === 'running');
+      if (running) { running.status = 'failed'; running.note = task.error; }
+    } finally {
+      task.updatedAt = Date.now();
+      this.abortControllers.delete(id);
+      this.saveTasks();
+      this.emit('progress', {
+        taskId: id,
+        status: task.status,
+        progress: task.progress,
+        current: task.current,
+        message: task.status === 'completed' ? '导出完成' : task.error ?? '已取消',
+      });
+    }
+  }
+
+  /**
+   * 好友 QQ 空间说说导出：翻页拉说说 → 写 json/txt →（可选）下载配图。
+   * 独立于消息流水线；`conv` 是好友 uin，拉取能力走注入的 `deps.qzone`。
+   */
+  private async runQzoneTask(id: string): Promise<void> {
+    const task = this.tasks.get(id);
+    if (!task || task.status === 'cancelled') return;
+
+    task.status = 'running';
+    task.updatedAt = Date.now();
+    this.saveTasks();
+
+    const abort = new AbortController();
+    this.abortControllers.set(id, abort);
+    const aborted = (): boolean => abort.signal.aborted;
+
+    try {
+      const qzone = this.deps.qzone;
+      if (!qzone) throw new Error('QQ 空间拉取能力不可用（需在线 QQ）。');
+      const wantMedia = Boolean(task.media?.exportMedia);
+      // 下载配图 → 产物为 bundle 目录（说说文件 + media/），否则单文件。
+      const isBundle = wantMedia;
+      const outDir = isBundle ? join(this.cacheDir, `bundle-${id}`) : this.cacheDir;
+      if (isBundle) mkdirSync(outDir, { recursive: true });
+      const outPath = join(outDir, `${task.name}.${task.format}`);
+      const mediaRoot = wantMedia ? join(outDir, 'media') : undefined;
+
+      this.touchStage(task, 'message', { status: 'running', note: '拉取说说…' }, { persist: true });
+      const result = await exportQzone(
+        {
+          targetUin: task.conv,
+          name: task.name,
+          format: task.format === 'txt' ? 'txt' : 'json',
+          outputPath: outPath,
+          mediaRoot,
+          range: task.range,
+          onProgress: (current, total, note) => {
+            if (aborted()) return;
+            this.touchStage(task, 'message', { current, total, note });
+          },
+          onMedia: (done, total) => {
+            if (aborted()) return;
+            this.touchStage(task, 'media', { status: 'running', current: done, total, note: `下载 ${done}/${total}` });
+          },
+          signal: abort.signal,
+        },
+        qzone,
+      );
+      if (aborted()) { task.status = 'cancelled'; return; }
+
+      task.filePath = result.filePath;
+      task.current = result.count;
+      if (isBundle) task.bundleDir = outDir;
+      this.touchStage(
+        task,
+        'message',
+        { status: 'completed', current: result.count, total: result.count, note: `${result.count} 条说说` },
+        { persist: true },
+      );
+      if (wantMedia) {
+        this.touchStage(
+          task,
+          'media',
+          {
+            status: 'completed',
+            current: result.mediaOk + result.mediaFailed,
+            total: result.mediaOk + result.mediaFailed,
+            failed: result.mediaFailed,
+            note: `已下载 ${result.mediaOk}${result.mediaFailed ? ` · 失败 ${result.mediaFailed}` : ''}`,
+          },
+          { persist: true },
+        );
+      }
+      task.status = 'completed';
+      task.progress = 100;
+    } catch (e: any) {
+      task.status = 'failed';
+      task.error = String(e?.message ?? e);
       const running = task.stages.find((s) => s.status === 'running');
       if (running) { running.status = 'failed'; running.note = task.error; }
     } finally {

@@ -166,6 +166,7 @@ export function AssistantPanel({
   const utils = trpc.useUtils();
   const conversation = trpc.account.getAssistantConversation.useQuery({ sessionId });
   const selfProfile = trpc.account.getSelfProfile.useQuery();
+  const assistantConfig = trpc.account.getAssistantConfig.useQuery();
   const send = trpc.account.chatWithAssistant.useMutation();
   const clear = trpc.account.clearAssistantConversation.useMutation();
 
@@ -232,6 +233,19 @@ export function AssistantPanel({
 
   async function onSend(): Promise<void> {
     if (!input.trim() || busy) return;
+    // 没配聊天模型时后端会直接抛错、且这条 rejection 被路由吞掉（不会 emit error
+    // 事件），前端就会永久转圈。发送前先拦下来，给出可操作的提示而不是加载动画。
+    if (!assistantConfig.data?.model) {
+      const goSettings = await dialog.confirm(
+        '还没配置聊天模型',
+        chatModels.length === 0
+          ? '请先在 AgentLab 里添加一个带「聊天」能力的模型，再回到助手设置里选择它。'
+          : '请先在助手设置里选择一个聊天模型。',
+        { okLabel: '去设置', tone: 'warning' },
+      );
+      if (goSettings) setSettingsOpen(true);
+      return;
+    }
     const text = input.trim();
     setInput('');
     if (inputRef.current) inputRef.current.style.height = 'auto';

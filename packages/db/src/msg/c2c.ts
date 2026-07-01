@@ -96,6 +96,27 @@ export class C2cMsgDb {
   }
 
   /**
+   * The page of messages just newer than `afterRowId` (exclusive), ordered by
+   * rowid ASC. The export-only fallback for conversations whose `40003` msgSeq
+   * is unusable (all 0/NULL — e.g. history imported by a phone migration that
+   * didn't rebuild the per-peer seq): the seq cursor matches nothing there, so
+   * we page by the always-present, monotonic-on-insert rowid instead. rowid is
+   * insertion order, only an *approximation* of true send-time order — hence
+   * fallback-only, never the primary path.
+   */
+  async listAfterRowId(part: C2cPartition, afterRowId: bigint, limit = 50): Promise<Array<C2cMsg & { rowId: bigint }>> {
+    const { clause, value } = partitionWhere(part);
+    const rows = await this.qq.query(
+      `SELECT rowid, ${SELECT_COLUMNS} FROM c2c_msg_table
+        WHERE ${clause} AND rowid > ?
+        ORDER BY rowid ASC
+        LIMIT ?`,
+      [value, afterRowId, BigInt(limit)],
+    );
+    return rows.map(rowToC2cMsgWithRowId);
+  }
+
+  /**
    * Messages with seq >= `sinceSeq`, newest-first, capped at `limit`. The
    * "re-read the currently-loaded window" query — picks up new tail messages
    * plus in-place edits (recall) within the window.
@@ -190,5 +211,20 @@ function rowToC2cMsg(row: SqlRow): C2cMsg {
     sendTime: toBigint(row[5]),
     elements: decodeBody(row[6]),
     msgSeq: toBigint(row[7]),
+  };
+}
+
+/** As {@link rowToC2cMsg} but for a `SELECT rowid, …` row (indices shifted +1). */
+function rowToC2cMsgWithRowId(row: SqlRow): C2cMsg & { rowId: bigint } {
+  return {
+    rowId: toBigint(row[0]),
+    msgId: toBigint(row[1]),
+    senderUid: toStr(row[2]),
+    targetUid: toStr(row[3]),
+    targetUin: toBigint(row[4]),
+    senderUin: toBigint(row[5]),
+    sendTime: toBigint(row[6]),
+    elements: decodeBody(row[7]),
+    msgSeq: toBigint(row[8]),
   };
 }
