@@ -1198,6 +1198,138 @@ html[data-theme="dark"] .chat-empty {
     font-size: 12px;
   }
 
+  /* ---- close-confirm dialog (关闭 WeQ：托盘 / 退出) ---- */
+  /* Token-driven so it tracks light/dark, like the welcome dialog. */
+  .weq-close {
+    display: flex;
+    flex-direction: column;
+    padding: 1.15rem 1.2rem 1rem;
+    color: var(--weq-fg-primary);
+    background: var(--weq-bg-surface);
+  }
+  .weq-close-head {
+    display: flex;
+    flex-direction: column;
+    gap: 0.28rem;
+    margin-bottom: 0.85rem;
+  }
+  .weq-close-title {
+    margin: 0;
+    font-size: 15.5px;
+    font-weight: 650;
+    color: var(--weq-fg-primary);
+  }
+  .weq-close-sub {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--weq-fg-secondary);
+  }
+  .weq-close-options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .weq-close-opt {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    padding: 0.7rem 0.8rem;
+    text-align: left;
+    border-radius: 0.6rem;
+    border: 1px solid var(--weq-border-subtle);
+    background: color-mix(in srgb, var(--weq-accent-effective) 5%, transparent);
+    cursor: pointer;
+    transition: border-color 140ms ease, background-color 140ms ease, transform 120ms ease;
+  }
+  .weq-close-opt:hover:not(:disabled) {
+    border-color: var(--weq-border-strong);
+    background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  }
+  .weq-close-opt:active:not(:disabled) {
+    transform: translateY(0.5px);
+  }
+  .weq-close-opt:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  .weq-close-opt-ico {
+    display: inline-flex;
+    flex-shrink: 0;
+    width: 2.1rem;
+    height: 2.1rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.5rem;
+    color: var(--weq-accent-effective);
+    background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  }
+  .weq-close-opt-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.14rem;
+    min-width: 0;
+  }
+  .weq-close-opt-text strong {
+    font-size: 13px;
+    font-weight: 620;
+    color: var(--weq-fg-primary);
+  }
+  .weq-close-opt-text span {
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--weq-fg-muted);
+  }
+  .weq-close-opt.is-danger .weq-close-opt-ico {
+    color: #d5495a;
+    background: rgba(213, 73, 90, 0.12);
+  }
+  .weq-close-opt.is-danger:hover:not(:disabled) {
+    border-color: rgba(213, 73, 90, 0.4);
+    background: rgba(213, 73, 90, 0.08);
+  }
+  .weq-close-remember {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.85rem;
+    font-size: 12px;
+    color: var(--weq-fg-secondary);
+    cursor: pointer;
+    user-select: none;
+  }
+  .weq-close-remember input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+  .weq-close-remember-box {
+    display: inline-flex;
+    flex-shrink: 0;
+    width: 1rem;
+    height: 1rem;
+    border-radius: 0.28rem;
+    border: 1px solid var(--weq-border-strong);
+    background: transparent;
+    transition: background-color 130ms ease, border-color 130ms ease;
+  }
+  .weq-close-remember input:checked + .weq-close-remember-box {
+    border-color: var(--weq-accent-effective);
+    background: var(--weq-accent-effective)
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E")
+      center / 0.72rem no-repeat;
+  }
+  .weq-close-remember input:focus-visible + .weq-close-remember-box {
+    outline: 2px solid color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+    outline-offset: 1px;
+  }
+  .weq-close-foot {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 0.9rem;
+  }
+
   /* ---- first-run welcome dialog (欢迎使用 WeQ) ---- */
   /* Fully token-driven so it tracks light/dark. The shared `.weq-modal` shell
      paints a fixed white gradient with no dark variant, so `.weq-welcome` lays

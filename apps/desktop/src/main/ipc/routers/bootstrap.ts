@@ -251,6 +251,17 @@ export const bootstrapRouter = router({
       return true;
     }),
 
+  /**
+   * 关闭按钮行为（最小化到托盘 / 直接退出 / 每次询问）。主进程的 window
+   * 'close' 拦截会在下一次关闭时读取该值——纯持久化，无需即时应用。
+   */
+  setWindowCloseBehavior: procedure
+    .input(z.object({ behavior: z.enum(['ask', 'tray', 'quit']) }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ windowCloseBehavior: input.behavior });
+      return true;
+    }),
+
   // ---- MCP server (account-bound) ----
 
   /**

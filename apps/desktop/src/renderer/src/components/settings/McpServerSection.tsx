@@ -88,7 +88,15 @@ export function McpServerSection(): ReactElement {
 
   async function onToggle(next: boolean): Promise<void> {
     try {
-      await setEnabled.mutateAsync({ enabled: next });
+      const requested = data?.port;
+      const result = await setEnabled.mutateAsync({ enabled: next });
+      if (next && requested != null && result.port !== requested) {
+        pushToast({
+          tone: 'info',
+          title: '端口已自动调整',
+          message: `${requested} 被占用，MCP 服务器现监听 ${result.port}`,
+        });
+      }
       await status.refetch();
       await clientConfig.refetch();
     } catch (e) {
@@ -105,10 +113,18 @@ export function McpServerSection(): ReactElement {
     }
     if (data && port === data.port) return;
     try {
-      await setPort.mutateAsync({ port });
+      const result = await setPort.mutateAsync({ port });
       await status.refetch();
       await clientConfig.refetch();
-      pushToast({ tone: 'success', title: '端口已更新', message: `MCP 服务器现监听 ${port}` });
+      if (result.port !== port) {
+        pushToast({
+          tone: 'info',
+          title: '端口已自动调整',
+          message: `${port} 被占用，MCP 服务器现监听 ${result.port}`,
+        });
+      } else {
+        pushToast({ tone: 'success', title: '端口已更新', message: `MCP 服务器现监听 ${port}` });
+      }
     } catch (e) {
       showError('修改端口失败', errMsg(e));
       await status.refetch();

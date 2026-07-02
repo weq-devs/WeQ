@@ -118,6 +118,9 @@ interface VoiceClipCandidate {
   score: number;
 }
 
+/** 语音克隆参考音频的目标条数（与 selectRefClips 的 Top-K 对齐）：攒够就停止打捞。 */
+const VOICE_REF_NEED = 5;
+
 /** 克隆构建进度事件（前端进度条用；一次构建一串事件，done/error 收尾）。 */
 export interface AgentLabBuildProgress {
   personaId: string;
@@ -984,14 +987,13 @@ export class AgentLabService extends EventEmitter {
   ): Promise<void> {
     if (!this.media?.transcribe || !(this.media.voiceReady?.() ?? false)) return;
     const PAGE = 500;
-    const NEED = 5;
     let transcribed = 0;
     let scanned = 0;
     let page = await this.session.c2cMsgs.listLatest(part, PAGE);
     while (
       page.length > 0 &&
       transcribed < VOICE_TRANSCRIBE_CAP &&
-      voiceClips.length < NEED &&
+      voiceClips.length < VOICE_REF_NEED &&
       scanned < C2C_SAFETY_CAP
     ) {
       for (const msg of page) {
@@ -1008,13 +1010,64 @@ export class AgentLabService extends EventEmitter {
           durationMs,
           score: scoreVoiceClip(res.waveform, durationMs, res.spoken),
         });
-        if (voiceClips.length >= NEED || transcribed >= VOICE_TRANSCRIBE_CAP) break;
+        if (voiceClips.length >= VOICE_REF_NEED || transcribed >= VOICE_TRANSCRIBE_CAP) break;
       }
       const oldest = page[page.length - 1];
       if (!oldest) break;
       const next = await this.session.c2cMsgs.listBefore(part, oldest.msgSeq, PAGE);
       if (next.length === 0) break;
       page = next;
+    }
+  }
+
+  /**
+   * 群聊语音打捞（group 模式）：去好友所在群里找 **TA 本人** 的语音，转录留 wav 攒克隆参考。
+   * 语音不分私聊/群聊、一视同仁——私聊没攒够时就来群里补。只收好友本人、排除变声，
+   * 攒够 Top-K（VOICE_REF_NEED）即停，遍历上限沿用群补采那套（GROUP_MAX 群 × PER_GROUP_SCAN_CAP）。
+   */
+  private async salvageGroupVoiceClips(
+    targetUid: string,
+    voiceClips: VoiceClipCandidate[],
+  ): Promise<void> {
+    if (!this.media?.transcribe || !(this.media.voiceReady?.() ?? false)) return;
+    const groups = await this.session.groupMembers.listUserGroups(targetUid, 50);
+    const picked = [...groups].sort((a, b) => b.lastSpeakTime - a.lastSpeakTime).slice(0, GROUP_MAX);
+    let transcribed = 0;
+    for (const g of picked) {
+      if (voiceClips.length >= VOICE_REF_NEED || transcribed >= VOICE_TRANSCRIBE_CAP) break;
+      const groupCode = g.groupCode.toString();
+      let scanned = 0;
+      let beforeSeq: bigint | null = null;
+      while (
+        scanned < PER_GROUP_SCAN_CAP &&
+        voiceClips.length < VOICE_REF_NEED &&
+        transcribed < VOICE_TRANSCRIBE_CAP
+      ) {
+        const page: GroupMsg[] =
+          beforeSeq === null
+            ? await this.session.groupMsgs.listLatest(groupCode, 500)
+            : await this.session.groupMsgs.listBefore(groupCode, beforeSeq, 500);
+        if (page.length === 0) break;
+        scanned += page.length;
+        const oldest = page[page.length - 1];
+        if (!oldest) break;
+        beforeSeq = oldest.msgSeq;
+        for (const m of page) {
+          if (m.senderUid !== targetUid) continue; // 只要好友本人的语音
+          if (!m.elements.some((el) => el.kind === 'ptt')) continue;
+          const res = await this.transcribePtt(m.elements, Number(m.sendTime) * 1000);
+          if (!res.spoken || res.voiceChanged || !res.wavPath) continue;
+          transcribed += 1;
+          const durationMs = res.durationMs ?? 0;
+          voiceClips.push({
+            path: res.wavPath,
+            text: res.spoken,
+            durationMs,
+            score: scoreVoiceClip(res.waveform, durationMs, res.spoken),
+          });
+          if (voiceClips.length >= VOICE_REF_NEED || transcribed >= VOICE_TRANSCRIBE_CAP) break;
+        }
+      }
     }
   }
 
@@ -1390,11 +1443,17 @@ export class AgentLabService extends EventEmitter {
     }
     const groupStyleMessages = needGroup ? await this.collectGroupStyleMessages(input.targetUid) : [];
 
-    // 语音参考兜底：group 模式下，消息撞到上限被截断、且收集到的语料里一条可用语音都没有时，
-    // 回溯整段历史只找语音（攒语音克隆参考），不动语料。
-    if (mode === 'group' && capHit && canTranscribe && voiceClips.length === 0) {
-      this.emitProgress(input.personaId, '回溯历史语音（语音克隆参考）', 58);
-      await this.salvageVoiceClips(part, selfUin, voiceClips);
+    // 语音参考兜底（group 模式）：语音不分私聊/群聊、一视同仁——只要还没攒够参考音频就继续补。
+    // 先回溯私聊剩余历史（仅在撞 cap、还有更老消息没拉时有意义），仍不够则去好友所在群里补采语音。
+    if (mode === 'group' && canTranscribe && voiceClips.length < VOICE_REF_NEED) {
+      if (capHit && voiceClips.length < VOICE_REF_NEED) {
+        this.emitProgress(input.personaId, '回溯私聊历史语音（克隆参考）', 56);
+        await this.salvageVoiceClips(part, selfUin, voiceClips);
+      }
+      if (voiceClips.length < VOICE_REF_NEED) {
+        this.emitProgress(input.personaId, '群聊补充语音（克隆参考）', 58);
+        await this.salvageGroupVoiceClips(input.targetUid, voiceClips);
+      }
     }
 
     const sample: AgentLabConversationSample = {

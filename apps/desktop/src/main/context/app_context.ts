@@ -694,13 +694,19 @@ export function initAppContext(): AppContext {
       // Start it now if enabled; live toggling is handled by `applyMcp`.
       const mcp = userConfig.getSettings().mcp;
       if (mcp.enabled && mcp.token) {
-        startMcpServer({ port: mcp.port, token: mcp.token }).catch((error) => {
-          logger.error('failed to start mcp server on account open', {
-            event: 'mcp-start-failed',
-            port: mcp.port,
-            ...logErrorContext(error),
+        startMcpServer({ port: mcp.port, token: mcp.token })
+          .then((boundPort) => {
+            // Port fallback may have moved us off a squatted port; persist the
+            // real one so the UI / client config stay in sync.
+            if (boundPort !== mcp.port) userConfig.setSettings({ mcp: { port: boundPort } });
+          })
+          .catch((error) => {
+            logger.error('failed to start mcp server on account open', {
+              event: 'mcp-start-failed',
+              port: mcp.port,
+              ...logErrorContext(error),
+            });
           });
-        });
       }
       // No health check at open — it now runs lazily, only if a real query
       // later fails in a way that looks like corruption (see the openAccount
@@ -918,7 +924,10 @@ export function initAppContext(): AppContext {
         port: config.port,
       });
       if (config.enabled && config.token) {
-        await startMcpServer({ port: config.port, token: config.token });
+        const boundPort = await startMcpServer({ port: config.port, token: config.token });
+        // Port fallback may have moved us off a squatted port; persist the real
+        // one so getMcpStatus / the client config snippet report what's live.
+        if (boundPort !== config.port) userConfig.setSettings({ mcp: { port: boundPort } });
       } else {
         await stopMcpServer();
       }

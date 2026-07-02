@@ -35,6 +35,7 @@ export type {
   InstallCache,
   AutoEnterTarget,
   AppSettings,
+  WindowCloseBehavior,
   MediaCompletionConfig,
   VoiceTranscribeConfig,
   McpServerConfig,
