@@ -117,7 +117,7 @@ export class Win32DetectService {
       try {
         const probe = await this.platform.native.ntHelper.testDatabaseKey(dbPath, 'BD156D6710D54D8782F4');
         if (probe.success && probe.pageHmacAlgorithm && probe.kdfHmacAlgorithm) {
-          const value = this.platform.native.ntHelper.decryptLoginDb(dbPath, 'BD156D6710D54D8782F4', {
+          const value = this.platform.native.ntHelper.decryptLoginDb(dbPath, {
             pageHmacAlgorithm: probe.pageHmacAlgorithm,
             kdfHmacAlgorithm: probe.kdfHmacAlgorithm,
           });

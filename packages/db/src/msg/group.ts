@@ -109,6 +109,25 @@ export class GroupMsgDb {
   }
 
   /**
+   * The page of messages just newer than `afterRowId` (exclusive), ordered by
+   * rowid ASC. The export-only fallback for conversations whose `40003` msgSeq
+   * is unusable (all 0/NULL — e.g. migration-imported history): the seq cursor
+   * matches nothing, so we page by the always-present, monotonic-on-insert
+   * rowid. rowid is insertion order — only an approximation of true send-time
+   * order, hence fallback-only.
+   */
+  async listAfterRowId(targetGroupCode: string, afterRowId: bigint, limit = 50): Promise<Array<GroupMsg & { rowId: bigint }>> {
+    const rows = await this.qq.query(
+      `SELECT rowid, ${SELECT_COLUMNS} FROM group_msg_table
+        WHERE "40027" = ? AND rowid > ?
+        ORDER BY rowid ASC
+        LIMIT ?`,
+      [targetGroupCode, afterRowId, BigInt(limit)],
+    );
+    return rows.map(rowToGroupMsgWithRowId);
+  }
+
+  /**
    * Messages with seq >= `sinceSeq`, newest-first, capped at `limit`. The
    * "re-read the currently-loaded window" query — picks up new tail messages
    * plus in-place edits (recall / sticker reactions) within the window.
@@ -202,5 +221,20 @@ function rowToGroupMsg(row: SqlRow): GroupMsg {
     elements: decodeBody(row[5]),
     setEmojiList: decodeEmoji(row[6]),
     msgSeq: toBigint(row[7]),
+  };
+}
+
+/** As {@link rowToGroupMsg} but for a `SELECT rowid, …` row (indices shifted +1). */
+function rowToGroupMsgWithRowId(row: SqlRow): GroupMsg & { rowId: bigint } {
+  return {
+    rowId: toBigint(row[0]),
+    msgId: toBigint(row[1]),
+    senderUid: toStr(row[2]),
+    targetGroupCode: toStr(row[3]),
+    senderUin: toBigint(row[4]),
+    sendTime: toBigint(row[5]),
+    elements: decodeBody(row[6]),
+    setEmojiList: decodeEmoji(row[7]),
+    msgSeq: toBigint(row[8]),
   };
 }

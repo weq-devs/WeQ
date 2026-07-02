@@ -18,8 +18,8 @@ import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from 
 import {
   CalendarClock,
   DatabaseZap,
-  FileCode2,
   FlaskConical,
+  Globe,
   Images,
   MessagesSquare,
   Pause,
@@ -41,6 +41,7 @@ import { FailureLightbox } from './export/FailureLightbox';
 import {
   CHATLAB_FORMATS,
   FULL_FORMATS,
+  QZONE_FORMATS,
   chatKind,
   convAvatarUrl,
   fmtBytes,
@@ -64,10 +65,10 @@ interface ModeDef {
 }
 
 const MODES: ModeDef[] = [
-  { id: 'full', label: '完整消息格式', desc: 'JSON / JSONL / XLSX / CSV / TXT', icon: <MessagesSquare size={18} /> },
+  { id: 'full', label: '完整消息格式', desc: 'JSON / JSONL / XLSX / CSV / TXT / HTML', icon: <MessagesSquare size={18} /> },
   { id: 'decrypt', label: '解密数据库', desc: '导出原始 SQLite 供研究', icon: <DatabaseZap size={18} /> },
   { id: 'chatlab', label: 'ChatLab 格式', desc: '供 AI 分析的结构化 JSON', icon: <FlaskConical size={18} /> },
-  { id: 'html', label: '导出为 HTML', desc: '单个会话的网页记录', icon: <FileCode2 size={18} /> },
+  { id: 'qzone', label: '好友QQ空间导出', desc: '导出好友空间说说（需在线 QQ）', icon: <Globe size={18} /> },
   { id: 'scheduled', label: '定时导出任务', desc: '按计划自动导出', icon: <CalendarClock size={18} /> },
   { id: 'album', label: '群相册导出', desc: '批量下载群相册', icon: <Images size={18} /> },
 ];
@@ -111,9 +112,10 @@ export function ExportView(): ReactElement {
   /** Media-completion failure detail, when the user opens a task's failure list. */
   const [failureView, setFailureView] = useState<{ name: string; failures: UiFailure[] } | null>(null);
 
-  // ChatLab only emits json/jsonl — clamp the chip when entering that mode.
+  // ChatLab only emits json/jsonl; 好友空间 only json/txt — clamp on mode entry.
   useEffect(() => {
     if (mode === 'chatlab' && format !== 'json' && format !== 'jsonl') setFormat('json');
+    if (mode === 'qzone' && format !== 'json' && format !== 'txt') setFormat('json');
   }, [mode, format]);
 
   // Live task progress: invalidate the list whenever the backend ticks.
@@ -134,11 +136,18 @@ export function ExportView(): ReactElement {
         name: c.targetDisplayName || c.targetUid,
         avatarUrl: convAvatarUrl(kind, c.targetUid, c.targetUin),
         kind,
+        uin: c.targetUin,
         total: count,
         meta: `${fmtCount(count)} 条 · ${kind === 'group' ? '群聊' : '私聊'}`,
       };
     });
   }, [conversations.data]);
+
+  // 好友空间导出：只列私聊好友（排除群聊），且需有效 uin。
+  const friendItems = useMemo<PickItem[]>(
+    () => convItems.filter((it) => it.kind === 'c2c' && it.uin && it.uin !== '0'),
+    [convItems],
+  );
 
   const groupItems = useMemo<PickItem[]>(() => {
     return ((groups.data ?? []) as GroupWire[]).map((g) => ({
@@ -238,7 +247,7 @@ export function ExportView(): ReactElement {
     }
     if (convSelection.size === 0) return;
     setLightbox(
-      mode === 'scheduled' ? 'scheduled' : mode === 'chatlab' ? 'chatlab' : mode === 'html' ? 'html' : 'full',
+      mode === 'scheduled' ? 'scheduled' : mode === 'chatlab' ? 'chatlab' : mode === 'qzone' ? 'qzone' : 'full',
     );
   }
 
@@ -320,6 +329,59 @@ export function ExportView(): ReactElement {
       return false;
     }
     return true;
+  }
+
+  /**
+   * Pre-flight for 好友空间导出: a live QQ instance must be logged in (the QZone
+   * web CGI needs this account's skey/pskey). Returns false to abort with a
+   * prompt to open QQ.
+   */
+  async function preflightQqOnline(): Promise<boolean> {
+    let online = false;
+    try {
+      online = (await client.account.getGroupAlbumAccessState.query()).qqOnline;
+    } catch (e) {
+      dialog.error('检查在线状态失败', e instanceof Error ? e.message : String(e));
+      return false;
+    }
+    if (!online) {
+      await dialog.info(
+        '需要打开 QQ',
+        '导出好友 QQ 空间需要登录该账号的 QQ 客户端以获取访问凭证。请打开并登录 QQ 后重试。',
+      );
+      return false;
+    }
+    return true;
+  }
+
+  /** 好友空间导出：每个选中好友起一个说说导出任务（json/txt + 可选下载配图）。 */
+  async function runQzoneExport(options: ExportOptions): Promise<void> {
+    const targets = friendItems.filter((it) => convSelection.has(it.id));
+    if (targets.length === 0) return;
+    const ok = await preflightQqOnline();
+    if (!ok) return;
+
+    const range = { start: options.range.start, end: options.range.end };
+    setSubmitting(true);
+    try {
+      for (const t of targets) {
+        if (!t.uin) continue;
+        await client.account.startQzoneExport.mutate({
+          targetUin: t.uin,
+          name: t.name,
+          format: format === 'txt' ? 'txt' : 'json',
+          downloadMedia: options.exportMedia,
+          range,
+        });
+      }
+      setConvSelection(new Set());
+      setLightbox(null);
+      refetchTasks();
+    } catch (e) {
+      dialog.error('启动空间导出失败', e instanceof Error ? e.message : String(e));
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   async function runFullExport(
@@ -466,15 +528,16 @@ export function ExportView(): ReactElement {
 
   async function onLightboxConfirm(result: LightboxResult): Promise<void> {
     if (lightbox === 'full') {
-      void runFullExport(result.options);
+      // HTML is now one of the 完整消息 formats — pass the selected chip through.
+      void runFullExport(result.options, { format });
       return;
     }
     if (lightbox === 'chatlab') {
       void runFullExport(result.options, { chatlab: true });
       return;
     }
-    if (lightbox === 'html') {
-      void runFullExport(result.options, { format: 'html' });
+    if (lightbox === 'qzone') {
+      void runQzoneExport(result.options);
       return;
     }
     if (lightbox === 'scheduled') {
@@ -573,8 +636,12 @@ export function ExportView(): ReactElement {
   }
 
   const activeMode = MODES.find((m) => m.id === mode)!;
-  const isMultiConvMode = mode === 'full' || mode === 'chatlab' || mode === 'scheduled';
-  const formatOptions = mode === 'chatlab' ? CHATLAB_FORMATS : FULL_FORMATS;
+  const isMultiConvMode =
+    mode === 'full' || mode === 'chatlab' || mode === 'scheduled' || mode === 'qzone';
+  const formatOptions =
+    mode === 'chatlab' ? CHATLAB_FORMATS : mode === 'qzone' ? QZONE_FORMATS : FULL_FORMATS;
+  // 好友空间导出只列好友（排除群聊）；其余多选模式用全部会话。
+  const pickerItems = mode === 'qzone' ? friendItems : convItems;
 
   const primaryLabel =
     mode === 'scheduled'
@@ -583,8 +650,8 @@ export function ExportView(): ReactElement {
         ? '导出相册'
         : mode === 'decrypt'
           ? '解密并导出'
-          : mode === 'html'
-            ? '导出 HTML'
+          : mode === 'qzone'
+            ? '导出空间'
             : mode === 'chatlab'
               ? '导出 ChatLab'
               : '导出';
@@ -603,8 +670,8 @@ export function ExportView(): ReactElement {
       return g ? `群相册 · ${g.name}` : '群相册';
     }
     const n = convSelection.size;
-    const fmt = lightbox === 'html' ? 'HTML' : format.toUpperCase();
-    return `${n} 个会话 · ${fmt}`;
+    const fmt = format.toUpperCase();
+    return lightbox === 'qzone' ? `${n} 位好友 · ${fmt}` : `${n} 个会话 · ${fmt}`;
   })();
 
   const lightboxHeadline =
@@ -614,8 +681,8 @@ export function ExportView(): ReactElement {
         ? '导出群相册'
         : lightbox === 'chatlab'
           ? '导出 ChatLab 格式'
-          : lightbox === 'html'
-            ? '导出为 HTML 网页'
+          : lightbox === 'qzone'
+            ? '导出好友 QQ 空间'
             : '导出聊天记录';
 
   return (
@@ -684,12 +751,13 @@ export function ExportView(): ReactElement {
                   )}
                 </div>
               </div>
-            ) : isMultiConvMode || mode === 'html' ? (
+            ) : mode === 'full' || mode === 'chatlab' || mode === 'qzone' ? (
               <ConversationPicker
-                items={convItems}
+                items={pickerItems}
                 loading={conversations.isLoading}
                 selected={convSelection}
                 onChange={setConvSelection}
+                emptyText={mode === 'qzone' ? '暂无好友（仅私聊可导出空间）' : undefined}
               />
             ) : mode === 'album' ? (
               <SingleSelectPicker
@@ -726,13 +794,9 @@ export function ExportView(): ReactElement {
               <span className="weq-exp-foot-hint">
                 {mode === 'album'
                   ? '选择一个群，下一步选择相册与时间范围'
-                  : mode === 'html'
-                    ? convSelection.size > 0
-                      ? `已选 ${convSelection.size} 个会话 · HTML · 每个会话导出一个文件夹`
-                      : '选择会话后导出为网页聊天记录（每会话一个文件夹）'
-                    : dbSelection.size > 0
-                      ? `已选 ${dbSelection.size} 个数据库 · ${fmtBytes(selectedDbBytes)}`
-                      : '选择数据库后导出解密副本'}
+                  : dbSelection.size > 0
+                    ? `已选 ${dbSelection.size} 个数据库 · ${fmtBytes(selectedDbBytes)}`
+                    : '选择数据库后导出解密副本'}
               </span>
             )}
             <button type="button" className="weq-exp-primary" disabled={primaryDisabled} onClick={onPrimary}>

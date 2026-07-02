@@ -16,6 +16,18 @@
   --rp-card: #ffffff;
   --rp-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 28px -14px rgba(15, 23, 42, 0.2);
   --rp-radius: 16px;
+
+  /* 下列是「皮肤」(body.rp-*) 可整套覆盖的派生变量 —— 换肤时背景/表格/引用/图表底槽等联动，
+   * 暗色皮肤也不会破相。想微调单份报告，覆盖其中任意一个即可。 */
+  --rp-bg: radial-gradient(1200px 600px at 100% -10%, #eef2ff 0%, transparent 60%),
+    radial-gradient(1000px 520px at -10% 0%, #faf5ff 0%, transparent 55%), #f6f8fc;
+  --rp-track: #eef2f7; /* 进度条 / 图表底槽 */
+  --rp-quote-ink: #475569; /* 引用正文 */
+  --rp-th-bg: #1e293b; /* 表头底 */
+  --rp-th-ink: #ffffff; /* 表头字 */
+  --rp-stripe: #f8fafc; /* 表格斑马纹 */
+  --rp-callout-bg: linear-gradient(90deg, #eef2ff, #ffffff 80%);
+  --rp-callout-ink: #3730a3;
 }
 
 * {
@@ -28,12 +40,15 @@ body {
     Roboto, system-ui, sans-serif;
   color: var(--rp-ink);
   line-height: 1.7;
-  background: radial-gradient(1200px 600px at 100% -10%, #eef2ff 0%, transparent 60%),
-    radial-gradient(1000px 520px at -10% 0%, #faf5ff 0%, transparent 55%), #f6f8fc;
+  min-height: 100vh;
+  background: var(--rp-bg);
+  background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
 }
 
 .rp-page {
+  position: relative; /* 抬到纹理层(body::before)之上 */
+  z-index: 1;
   max-width: 980px;
   margin: 0 auto;
   padding: 48px 24px 72px;
@@ -169,8 +184,8 @@ body {
   padding: 16px 20px;
   border-left: 4px solid var(--rp-accent);
   border-radius: 12px;
-  background: linear-gradient(90deg, #eef2ff, #ffffff 80%);
-  color: #3730a3;
+  background: var(--rp-callout-bg);
+  color: var(--rp-callout-ink);
   font-size: 14.5px;
 }
 .rp-callout strong {
@@ -182,7 +197,7 @@ body {
   margin: 12px 0;
   padding: 4px 0 4px 16px;
   border-left: 3px solid var(--rp-border);
-  color: #475569;
+  color: var(--rp-quote-ink);
 }
 .rp-quote cite {
   display: block;
@@ -234,15 +249,15 @@ body {
   text-align: left;
   font-size: 13px;
   font-weight: 600;
-  color: #fff;
-  background: #1e293b;
+  color: var(--rp-th-ink);
+  background: var(--rp-th-bg);
 }
 .rp-table td {
   padding: 11px 16px;
   border-top: 1px solid var(--rp-border);
 }
 .rp-table tbody tr:nth-child(odd) {
-  background: #f8fafc;
+  background: var(--rp-stripe);
 }
 .rp-table .rp-num {
   text-align: right;
@@ -273,7 +288,7 @@ body {
   height: 10px;
   overflow: hidden;
   border-radius: 999px;
-  background: #eef2f7;
+  background: var(--rp-track);
 }
 .rp-rank-bar > span {
   display: block;
@@ -320,7 +335,7 @@ body {
   width: 168px;
   height: 168px;
   border-radius: 50%;
-  background: var(--rp-donut, conic-gradient(#e5e7eb 0 100%));
+  background: var(--rp-donut, conic-gradient(var(--rp-track) 0 100%));
   box-shadow: var(--rp-shadow);
 }
 .rp-donut::after {
@@ -573,6 +588,24 @@ body {
   color: var(--rp-ink);
 }
 
+/* 词云：每词 <span class="rp-cloud-word" style="--rp-w:.8">词</span>，
+ * --rp-w = 该词频/最高频（0~1），控制字号与浓淡；可加 --c:#色 单独换色。 */
+.rp-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  line-height: 1.4;
+}
+.rp-cloud-word {
+  --rp-w: 0.5;
+  font-size: calc(13px + var(--rp-w) * 30px);
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--c, var(--rp-accent));
+  opacity: calc(0.45 + var(--rp-w) * 0.55);
+}
+
 /* 首字母头像圆（用 style="--c:#色" 可换底色；放成员/好友名前）。 */
 .rp-ava {
   display: inline-flex;
@@ -586,4 +619,271 @@ body {
   font-size: 14px;
   font-weight: 700;
   flex: none;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 皮肤（背景 + 配色）—— 给 <body> 挂一个 rp-* class 即可整份换肤。
+ * 每份报告挑一个贴合主题/心情的皮肤，别都用默认靛紫；换肤只改变量，组件自动联动。
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/* —— 亮色皮肤 —— */
+body.rp-aurora {
+  --rp-accent: #6366f1;
+  --rp-accent-2: #8b5cf6;
+  --rp-bg: radial-gradient(1200px 600px at 100% -10%, #eef2ff 0%, transparent 60%),
+    radial-gradient(1000px 520px at -10% 0%, #faf5ff 0%, transparent 55%), #f6f8fc;
+}
+body.rp-rose {
+  --rp-accent: #f43f5e;
+  --rp-accent-2: #fb923c;
+  --rp-bg: radial-gradient(1100px 560px at 110% -12%, #ffe4e6 0%, transparent 60%),
+    radial-gradient(900px 480px at -8% 4%, #ffedd5 0%, transparent 55%), #fff7f6;
+}
+body.rp-emerald {
+  --rp-accent: #10b981;
+  --rp-accent-2: #14b8a6;
+  --rp-bg: radial-gradient(1100px 560px at 108% -10%, #d1fae5 0%, transparent 60%),
+    radial-gradient(900px 480px at -8% 2%, #ccfbf1 0%, transparent 55%), #f3fbf7;
+}
+body.rp-ocean {
+  --rp-accent: #0ea5e9;
+  --rp-accent-2: #6366f1;
+  --rp-bg: radial-gradient(1100px 560px at 110% -12%, #e0f2fe 0%, transparent 60%),
+    radial-gradient(900px 480px at -8% 2%, #e0e7ff 0%, transparent 55%), #f2f8fd;
+}
+body.rp-sunset {
+  --rp-accent: #f97316;
+  --rp-accent-2: #ec4899;
+  --rp-bg: radial-gradient(1100px 560px at 110% -12%, #ffedd5 0%, transparent 58%),
+    radial-gradient(900px 520px at -6% 4%, #fce7f3 0%, transparent 55%), #fff8f4;
+}
+body.rp-grape {
+  --rp-accent: #a855f7;
+  --rp-accent-2: #d946ef;
+  --rp-bg: radial-gradient(1100px 560px at 110% -12%, #f3e8ff 0%, transparent 60%),
+    radial-gradient(900px 480px at -8% 2%, #fae8ff 0%, transparent 55%), #fbf6ff;
+}
+body.rp-mono {
+  --rp-accent: #334155;
+  --rp-accent-2: #64748b;
+  --rp-bg: linear-gradient(180deg, #ffffff, #f4f5f7);
+}
+body.rp-paper {
+  --rp-accent: #b45309;
+  --rp-accent-2: #a16207;
+  --rp-ink: #3f3a34;
+  --rp-muted: #7c7266;
+  --rp-faint: #a99f90;
+  --rp-border: #e7ddc9;
+  --rp-card: #fffdf7;
+  --rp-track: #efe7d6;
+  --rp-quote-ink: #6b6152;
+  --rp-stripe: #faf6ec;
+  --rp-callout-bg: linear-gradient(90deg, #fdf3e0, #fffdf7 80%);
+  --rp-callout-ink: #92400e;
+  --rp-bg: radial-gradient(1000px 520px at 108% -10%, #f6ead2 0%, transparent 60%), #fbf5e9;
+}
+
+/* —— 暗色皮肤：整套变量翻转 —— */
+body.rp-midnight {
+  --rp-accent: #818cf8;
+  --rp-accent-2: #c084fc;
+  --rp-ink: #e8ecf7;
+  --rp-muted: #a5aec6;
+  --rp-faint: #6b7594;
+  --rp-border: #26304d;
+  --rp-card: #161d33;
+  --rp-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 18px 40px -18px rgba(0, 0, 0, 0.7);
+  --rp-track: #232c47;
+  --rp-quote-ink: #b7c0d8;
+  --rp-th-bg: #0b1120;
+  --rp-th-ink: #e8ecf7;
+  --rp-stripe: #131a2e;
+  --rp-callout-bg: linear-gradient(90deg, #1e2747, #161d33 80%);
+  --rp-callout-ink: #c7d2fe;
+  --rp-bg: radial-gradient(1200px 620px at 100% -10%, #1e2a52 0%, transparent 58%),
+    radial-gradient(1000px 520px at -10% 0%, #2a1e46 0%, transparent 55%), #0b1020;
+}
+body.rp-ink {
+  --rp-accent: #f59e0b;
+  --rp-accent-2: #f43f5e;
+  --rp-ink: #ececec;
+  --rp-muted: #a3a3a3;
+  --rp-faint: #6f6f6f;
+  --rp-border: #2a2a2a;
+  --rp-card: #181818;
+  --rp-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 18px 40px -18px rgba(0, 0, 0, 0.8);
+  --rp-track: #262626;
+  --rp-quote-ink: #bdbdbd;
+  --rp-th-bg: #000000;
+  --rp-th-ink: #f5f5f5;
+  --rp-stripe: #141414;
+  --rp-callout-bg: linear-gradient(90deg, #2a2320, #181818 80%);
+  --rp-callout-ink: #fcd34d;
+  --rp-bg: radial-gradient(1100px 560px at 108% -10%, #241a0d 0%, transparent 58%), #0d0d0d;
+}
+
+/* —— 纹理叠层（可与任意皮肤同用）：固定铺满、置于内容之下（.rp-page 已 z-index:1）—— */
+body[class*='rp-pat-']::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+body.rp-pat-dots::before {
+  background-image: radial-gradient(currentColor 1px, transparent 1.4px);
+  background-size: 22px 22px;
+  color: var(--rp-accent);
+  opacity: 0.08;
+}
+body.rp-pat-grid::before {
+  background-image: linear-gradient(var(--rp-border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--rp-border) 1px, transparent 1px);
+  background-size: 28px 28px;
+  opacity: 0.5;
+}
+body.rp-pat-rays::before {
+  background: conic-gradient(
+    from 210deg at 82% -8%,
+    color-mix(in srgb, var(--rp-accent) 18%, transparent),
+    transparent 92deg
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 开篇 masthead —— 四种风格任选其一（别都套同一个 rp-hero）。
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/* 杂志式：细线 + 衬线大标题，克制有格调。 */
+.rp-masthead {
+  margin-bottom: 32px;
+  padding-bottom: 22px;
+  border-bottom: 2px solid var(--rp-ink);
+}
+.rp-masthead h1 {
+  margin: 8px 0 6px;
+  font-family: Georgia, 'Times New Roman', 'Songti SC', serif;
+  font-size: clamp(30px, 5vw, 48px);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+.rp-masthead p {
+  margin: 0;
+  font-size: 15px;
+  color: var(--rp-muted);
+}
+
+/* 整屏居中封面：留白大，最适合把主题句(rp-verse)当主角。 */
+.rp-cover {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  min-height: min(78vh, 640px);
+  padding: 40px 16px;
+  text-align: center;
+}
+
+/* 极简：左侧一道 accent 粗边框。 */
+.rp-band {
+  margin-bottom: 30px;
+  padding: 6px 0 6px 20px;
+  border-left: 6px solid var(--rp-accent);
+}
+.rp-band h1 {
+  margin: 0 0 6px;
+  font-size: clamp(26px, 4.4vw, 40px);
+  font-weight: 900;
+  letter-spacing: -0.02em;
+}
+.rp-band p {
+  margin: 0;
+  font-size: 15px;
+  color: var(--rp-muted);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 主题句（一言）—— 报告的「大字」主题。风格务必多元：叠不同修饰类换样子。
+ *   <div class="rp-verse rp-verse-serif rp-verse-mark">
+ *     <p class="rp-verse-text">句子……</p><span class="rp-verse-from">—— 出处</span></div>
+ * ════════════════════════════════════════════════════════════════════════ */
+.rp-verse {
+  margin: 0 0 8px;
+}
+.rp-verse-text {
+  margin: 0;
+  font-size: clamp(26px, 5vw, 52px);
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: var(--rp-ink);
+}
+.rp-verse-from {
+  display: block;
+  margin-top: 14px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--rp-muted);
+}
+/* 修饰：衬线文艺 */
+.rp-verse-serif .rp-verse-text {
+  font-family: Georgia, 'Times New Roman', 'Songti SC', 'STSong', serif;
+  font-weight: 700;
+}
+/* 修饰：渐变填充大字 */
+.rp-verse-grad .rp-verse-text {
+  background: linear-gradient(120deg, var(--rp-accent), var(--rp-accent-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+/* 修饰：描边空心字 */
+.rp-verse-outline .rp-verse-text {
+  color: transparent;
+  -webkit-text-stroke: 1.5px var(--rp-accent);
+  font-weight: 900;
+}
+/* 修饰：居中 */
+.rp-verse-center {
+  text-align: center;
+}
+.rp-verse-center .rp-verse-from {
+  letter-spacing: 0.14em;
+}
+/* 修饰：前置大引号 */
+.rp-verse-mark {
+  position: relative;
+  padding-top: 30px;
+}
+.rp-verse-mark::before {
+  content: '\201C';
+  position: absolute;
+  top: -18px;
+  left: -6px;
+  font-family: Georgia, serif;
+  font-size: 96px;
+  line-height: 1;
+  color: var(--rp-accent);
+  opacity: 0.22;
+}
+.rp-verse-center.rp-verse-mark::before {
+  left: 50%;
+  transform: translateX(-50%);
+}
+/* 修饰：左侧竖条 */
+.rp-verse-vert {
+  padding-left: 22px;
+  border-left: 5px solid var(--rp-accent);
+}
+/* 修饰：卡片承托（带背景/阴影，与皮肤呼应） */
+.rp-verse-card {
+  padding: 32px 30px;
+  border: 1px solid var(--rp-border);
+  border-radius: var(--rp-radius);
+  background: var(--rp-card);
+  box-shadow: var(--rp-shadow);
 }

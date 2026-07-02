@@ -53,15 +53,47 @@ export async function* iterateGroupMessages(
 ): AsyncGenerator<RenderGroupMsg> {
   const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
   let cursor = 0n;
+  let sawSeqRows = false;
   for (;;) {
     const page = await msgs.getGroupAfter(groupCode, cursor, pageSize);
     if (page.length === 0) break;
+    sawSeqRows = true;
     for (const m of page) {
       if (withinRange(Number(m.sendTime), opts.range)) yield m;
     }
     const last = page[page.length - 1]!;
     cursor = last.msgSeq;
     // A short page means we reached the tail — no need for one more empty query.
+    if (page.length < pageSize) break;
+  }
+  // Fallback: the seq cursor matched no rows at all, yet the conversation has
+  // messages (they COUNT and render in the chat view). This is the degenerate
+  // msgSeq case — every 40003 is 0/NULL, typically migration-imported history.
+  // Re-scan by rowid so those messages still export. See iterateByRowId.
+  if (!sawSeqRows) {
+    yield* iterateGroupByRowId(msgs, groupCode, opts);
+  }
+}
+
+/**
+ * Fallback scan for {@link iterateGroupMessages}: page by rowid (insertion
+ * order) instead of msgSeq. Only an approximation of send-time order, so this
+ * runs strictly as a last resort when msgSeq is unusable.
+ */
+async function* iterateGroupByRowId(
+  msgs: MsgService,
+  groupCode: string,
+  opts: IterateOptions,
+): AsyncGenerator<RenderGroupMsg> {
+  const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
+  let cursor = 0n;
+  for (;;) {
+    const page = await msgs.getGroupAfterRowId(groupCode, cursor, pageSize);
+    if (page.length === 0) break;
+    for (const m of page) {
+      if (withinRange(Number(m.sendTime), opts.range)) yield m;
+    }
+    cursor = page[page.length - 1]!.rowId;
     if (page.length < pageSize) break;
   }
 }
@@ -76,14 +108,44 @@ export async function* iterateC2cMessages(
 ): AsyncGenerator<RenderC2cMsg> {
   const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
   let cursor = 0n;
+  let sawSeqRows = false;
   for (;;) {
     const page = await msgs.getC2cAfter(peerUid, cursor, pageSize);
     if (page.length === 0) break;
+    sawSeqRows = true;
     for (const m of page) {
       if (withinRange(Number(m.sendTime), opts.range)) yield m;
     }
     const last = page[page.length - 1]!;
     cursor = last.msgSeq;
+    if (page.length < pageSize) break;
+  }
+  // Fallback for degenerate msgSeq (all 0/NULL — migration-imported history):
+  // the seq cursor matched nothing though the conversation has messages, so
+  // re-scan by rowid. See iterateC2cByRowId.
+  if (!sawSeqRows) {
+    yield* iterateC2cByRowId(msgs, peerUid, opts);
+  }
+}
+
+/**
+ * Fallback scan for {@link iterateC2cMessages}: page by rowid (insertion order)
+ * instead of msgSeq. Approximate ordering — last-resort only.
+ */
+async function* iterateC2cByRowId(
+  msgs: MsgService,
+  peerUid: string,
+  opts: IterateOptions,
+): AsyncGenerator<RenderC2cMsg> {
+  const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
+  let cursor = 0n;
+  for (;;) {
+    const page = await msgs.getC2cAfterRowId(peerUid, cursor, pageSize);
+    if (page.length === 0) break;
+    for (const m of page) {
+      if (withinRange(Number(m.sendTime), opts.range)) yield m;
+    }
+    cursor = page[page.length - 1]!.rowId;
     if (page.length < pageSize) break;
   }
 }

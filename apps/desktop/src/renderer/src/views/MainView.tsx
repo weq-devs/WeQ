@@ -34,6 +34,7 @@ import { BuddyAnalyticsDialog } from '../components/BuddyAnalyticsDialog';
 import { RelationGraphView } from '../components/relationGraph/RelationGraphView';
 import { AgentLabView } from './AgentLabView';
 import { ExportView } from './ExportView';
+import { ChatHome } from './ChatHome';
 import {
   ChatMainContent,
   ChatShell,
@@ -1641,7 +1642,9 @@ export function MainView(): ReactElement {
   const shellHistory = useMemo(
     () => ({
       isMobileShell,
-      shouldAutoSelectConversation: () => true,
+      // 从其它页（联系人/导出/助手…）切回「消息」时，落在门面首页而不是自动选中
+      // 最近一条会话——会话由用户在左栏显式点选后才进入。
+      shouldAutoSelectConversation: () => false,
       replaceShell: () => undefined,
       pushShellDetail: () => undefined,
       pushConversationDetail: () => undefined,
@@ -2667,6 +2670,7 @@ export function MainView(): ReactElement {
                 view={shell.view}
                 contactTab={shell.contactTab}
                 relationGraphSlot={<RelationGraphView />}
+                chatHomeSlot={<ChatHome nickname={user.displayName} />}
                 contactNotice={shell.contactNotice}
                 contactRequests={contactRequests}
                 groupRequests={groupRequests}

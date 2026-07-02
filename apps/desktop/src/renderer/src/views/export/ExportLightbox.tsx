@@ -3,9 +3,10 @@
  *
  * 草稿状态全部在本组件内部，只有点「开始导出」才回传给父组件（沿用关系图
  * GroupPickerModal 的 draft-then-commit 模式）。按 variant 决定显示哪些区块：
- *   full / chatlab / html → 时间范围 + 媒体选项 + 语音转写
- *   scheduled             → 上述 + 定时设置
- *   album                 → 下载目录 + 相册选择 + 时间范围
+ *   full / chatlab → 时间范围 + 媒体选项 + 语音转写（HTML 现为 full 的一种格式）
+ *   scheduled      → 上述 + 定时设置
+ *   qzone          → 时间范围 + 是否下载配图（好友空间说说）
+ *   album          → 下载目录 + 相册选择 + 时间范围
  */
 
 import { useState, type ReactElement } from 'react';
@@ -21,7 +22,7 @@ import {
   type Schedule,
 } from './types';
 
-export type LightboxVariant = 'full' | 'chatlab' | 'html' | 'scheduled' | 'album';
+export type LightboxVariant = 'full' | 'chatlab' | 'qzone' | 'scheduled' | 'album';
 
 export interface LightboxResult {
   options: ExportOptions;
@@ -58,7 +59,7 @@ export function ExportLightbox({
   const [pickingPath, setPickingPath] = useState(false);
 
   const isAlbum = variant === 'album';
-  const isHtml = variant === 'html';
+  const isQzone = variant === 'qzone';
   const isScheduled = variant === 'scheduled';
 
   function patch(next: Partial<ExportOptions>): void {
@@ -128,14 +129,14 @@ export function ExportLightbox({
             </Card>
           ) : null}
 
-          {/* HTML 说明 */}
-          {isHtml ? (
-            <Card title="HTML 网页记录">
+          {/* 好友空间说明 */}
+          {isQzone ? (
+            <Card title="好友 QQ 空间导出">
               <div className="weq-exp-placeholder">
-                <span>导出为自包含的网页聊天记录，可离线在浏览器中浏览（每个会话一个文件夹）</span>
+                <span>导出该好友已发表的说说（内容 / 时间 / 评论数 / 配图链接）</span>
                 <small>
-                  气泡式布局，含头像 / 昵称 / 时间。开启下方「导出媒体文件」后，图片 / 视频 / 语音 / 文件
-                  存入同目录 media/ 并在网页中直接显示、播放、下载。
+                  需登录该账号的 QQ 客户端。开启下方「下载配图」后，说说图片存入同目录 media/ 子文件夹；
+                  否则仅在文件中保留图片链接。
                 </small>
               </div>
             </Card>
@@ -163,8 +164,19 @@ export function ExportLightbox({
             />
           </Card>
 
-          {/* 媒体 / 内容选项（非相册模式；HTML 也支持） */}
-          {!isAlbum ? (
+          {/* 好友空间：只需「是否下载配图」一个开关 */}
+          {isQzone ? (
+            <Card title="媒体">
+              <Row
+                label="下载配图"
+                desc="将说说中的图片下载到 media/ 子目录（导出结果保存为文件夹）"
+                control={<Toggle checked={opts.exportMedia} onChange={(v) => patch({ exportMedia: v })} />}
+              />
+            </Card>
+          ) : null}
+
+          {/* 媒体 / 内容选项（完整消息 / ChatLab / 定时；HTML 也支持） */}
+          {!isAlbum && !isQzone ? (
             <Card title="媒体与内容">
               <Row
                 label="导出媒体文件"

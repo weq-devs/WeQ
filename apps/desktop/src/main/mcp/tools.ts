@@ -20,6 +20,8 @@ import {
   groupMemberToWire,
   buddyToWire,
   userProfileToWire,
+  groupEssenceToWire,
+  groupBulletinToWire,
 } from '../ipc/serde';
 
 /**
@@ -77,6 +79,12 @@ function fmtTime(sec: bigint | number): string {
 function hhmm(sec: bigint | number): string {
   const d = new Date(Number(sec) * 1000);
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+/** epoch 秒 → 本地「YYYY-MM-DD」（只到日，给建群时间等）。 */
+function fmtDate(sec: bigint | number): string {
+  const d = new Date(Number(sec) * 1000);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
 /**
@@ -481,21 +489,184 @@ export const AI_TOOLS: AiTool[] = [
   tool({
     name: 'list_group_members',
     description:
-      '列出某个群的成员（群号、群名片 card、昵称 nick、uid、uin 等）。用来把群内的某个昵称解析成 uid，再定位 TA 在群里的发言。',
+      '列出某个群的成员名单（群号、群名片 card、昵称 nick、uid、uin、群等级 memberLevel、管理标记 adminFlag 等）。' +
+      '既能把群内的某个昵称解析成 uid（再定位 TA 的发言），也能出「群成员名单/等级排行」。' +
+      'orderBy: default=默认顺序，level=按群等级从高到低（看群里的元老/等级排行）。支持 limit/offset 翻页。',
     input: z.object({
-      group: z.string().min(1).describe('群号'),
+      group: z.string().min(1).describe('群号（可先用 find_contact 把群名解析成群号）'),
+      orderBy: z
+        .enum(['default', 'level'])
+        .default('default')
+        .describe('排序方式：default=默认顺序；level=按群等级从高到低'),
       limit: z.number().int().min(1).max(200).default(60).describe('返回条数上限'),
       offset: z.number().int().min(0).default(0).describe('分页偏移'),
     }),
-    run: async ({ group, limit, offset }) => {
+    run: async ({ group, orderBy, limit, offset }) => {
       let code: bigint;
       try {
         code = BigInt(group.trim());
       } catch {
         throw new Error(`群号无效：${group}（应为纯数字群号，可先用 find_contact 解析）`);
       }
-      const members = await services().groupInfo.listMembersInGroup(code, limit, offset);
+      const members =
+        orderBy === 'level'
+          ? await services().groupInfo.listMembersByLevel(code, limit, offset)
+          : await services().groupInfo.listMembersInGroup(code, limit, offset);
       return members.map(groupMemberToWire);
+    },
+  }),
+
+  tool({
+    name: 'list_friends_by_intimacy',
+    description:
+      '按【亲密度】从高到低列出我的 QQ 好友排行榜。亲密度来自 QQ 本地资料（profile_info），0 表示未知/无数据，会排到最后。' +
+      '用来回答「我和谁最亲密」「亲密度最高的好友」「好友亲密度排行」。' +
+      '返回每位：rank 名次、nick 昵称、remark 备注、uin QQ号、uid、intimacy 亲密度分值。',
+    input: z.object({
+      limit: z.number().int().min(1).max(200).default(30).describe('返回条数上限（取亲密度最高的若干位）'),
+      offset: z.number().int().min(0).default(0).describe('分页偏移（翻看排行后段）'),
+    }),
+    run: async ({ limit, offset }) => {
+      const friends = await services().profile.listFriendsByIntimacy(limit, offset);
+      return friends.map((f, i) => ({
+        rank: offset + i + 1,
+        nick: f.nick,
+        remark: f.remark,
+        uin: f.uin,
+        uid: f.uid,
+        intimacy: f.intimacy,
+      }));
+    },
+  }),
+
+  tool({
+    name: 'get_user_profile',
+    description:
+      '查看某个用户的详细资料卡（昵称、备注、QQ号、性别、年龄、生日、个性签名、亲密度、是否我的好友）。' +
+      '传入对方 uid（可用 find_contact 解析人名、或 list_group_members 从群里拿到 uid）。' +
+      '用来回答「XX 的生日/签名/性别是什么」「TA 是不是我好友」等。资料取自本地缓存，未缓存的字段可能为空。',
+    input: z.object({
+      uid: z.string().min(1).describe('目标用户的 uid（可用 find_contact 把人名解析成 uid）'),
+    }),
+    run: async ({ uid }) => {
+      const p = await services().profile.getProfile(uid);
+      if (!p) {
+        return {
+          uid,
+          found: false,
+          hint: '没有该用户的缓存资料；确认 uid 是否正确（可用 find_contact 解析人名为 uid）。',
+        };
+      }
+      const w = userProfileToWire(p);
+      return {
+        found: true,
+        uid: w.uid,
+        uin: w.uin,
+        nick: w.nick,
+        remark: w.remark,
+        gender: w.gender === 1 ? '男' : w.gender === 2 ? '女' : '未知',
+        ...(w.age ? { age: w.age } : {}),
+        ...(w.birthYear ? { birthday: `${w.birthYear}-${pad2(w.birthMonth)}-${pad2(w.birthDay)}` } : {}),
+        ...(w.signature ? { signature: w.signature } : {}),
+        intimacy: w.intimacy,
+        isFriend: w.isFriend,
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_group_info',
+    description:
+      '查看某个群的资料详情（群名、群号、群主 uid、当前人数/人数上限、创建时间、群介绍、置顶公告、群标签）。' +
+      '传入群号（可用 find_contact 解析群名得到）。用来回答「这个群多少人」「群主是谁」「群什么时候建的」「群介绍/置顶」等。',
+    input: z.object({
+      groupCode: z.string().min(1).describe('群号（纯数字，可用 find_contact 把群名解析成群号）'),
+    }),
+    run: async ({ groupCode }) => {
+      let gc: bigint;
+      try {
+        gc = BigInt(String(groupCode).trim());
+      } catch {
+        throw new Error(`群号必须是纯数字：${groupCode}（先用 find_contact 把群名解析成群号）`);
+      }
+      const d = await services().groupInfo.getGroupDetail(gc);
+      if (!d) {
+        return { groupCode, found: false, hint: '找不到该群资料；确认群号是否正确（可用 find_contact 解析群名）。' };
+      }
+      const w = groupDetailToWire(d);
+      return {
+        found: true,
+        groupCode: w.groupCode,
+        groupName: w.groupName,
+        ownerUid: w.ownerUid,
+        memberCount: w.memberCount,
+        maxMemberCount: w.maxMemberCount,
+        ...(w.createTime ? { created: fmtDate(w.createTime) } : {}),
+        ...(w.description ? { description: w.description } : {}),
+        ...(w.pinnedAnnounce ? { pinnedAnnounce: w.pinnedAnnounce } : {}),
+        ...(w.remark ? { remark: w.remark } : {}),
+        ...(w.labels ? { labels: w.labels } : {}),
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_group_essence',
+    description:
+      '列出某个群的精华消息（被群管理设为「精华」的发言），较新在前。传入群号（可用 find_contact 解析群名得到）。' +
+      '用来回答「群里有哪些精华消息」「谁的发言被设成精华了」。' +
+      '返回每条：sender 原发言人、senderUin、operator 设精华的人、time 设置时间、msgSeq。',
+    input: z.object({
+      groupCode: z.string().min(1).describe('群号'),
+      limit: z.number().int().min(1).max(100).default(30).describe('返回条数上限'),
+    }),
+    run: async ({ groupCode, limit }) => {
+      let gc: bigint;
+      try {
+        gc = BigInt(String(groupCode).trim());
+      } catch {
+        throw new Error(`群号必须是纯数字：${groupCode}（先用 find_contact 把群名解析成群号）`);
+      }
+      const list = await services().groupInfo.getEssenceMessages(gc, limit, 0);
+      return list.map((e) => {
+        const w = groupEssenceToWire(e);
+        return {
+          sender: w.senderNick || w.senderUin,
+          senderUin: w.senderUin,
+          operator: w.operatorNick || w.operatorUin,
+          time: w.timestamp ? fmtTime(w.timestamp) : '',
+          msgSeq: w.msgSeq,
+        };
+      });
+    },
+  }),
+
+  tool({
+    name: 'get_group_bulletins',
+    description:
+      '列出某个群的群公告（较新在前）。传入群号（可用 find_contact 解析群名得到）。' +
+      '用来回答「群公告说了什么」「最新群公告」「进群须知」等。返回每条：text 公告正文、time 发布时间、publisherUid 发布者。',
+    input: z.object({
+      groupCode: z.string().min(1).describe('群号'),
+      limit: z.number().int().min(1).max(50).default(10).describe('返回条数上限'),
+    }),
+    run: async ({ groupCode, limit }) => {
+      let gc: bigint;
+      try {
+        gc = BigInt(String(groupCode).trim());
+      } catch {
+        throw new Error(`群号必须是纯数字：${groupCode}（先用 find_contact 把群名解析成群号）`);
+      }
+      const list = await services().groupInfo.getGroupBulletins(gc, limit, 0);
+      return list.map((b) => {
+        const w = groupBulletinToWire(b);
+        const t = Number(w.msgTime);
+        return {
+          text: w.textContent,
+          time: t ? fmtTime(t) : '',
+          publisherUid: w.publisherUid,
+        };
+      });
     },
   }),
 
@@ -574,68 +745,69 @@ export const AI_TOOLS: AiTool[] = [
   tool({
     name: 'get_group_activity',
     description:
-      '获取某个群聊的活跃度统计（指定时间范围内的消息数、活跃成员排行、时段分布、每日趋势等），用于生成群聊活跃度报告。' +
-      '传入群号（可由 find_contact 解析群名得到）和时间范围（默认最近 30 天）。返回统计数据（JSON），适合用 write_report 生成 HTML 可视化报告。',
+      '获取某个群聊的活跃度全量统计——活跃成员排行（已解析成群名片/昵称）、24 时段分布、每日消息趋势、热词词云。' +
+      '**默认统计全部历史**（days=0）；传 days>0 才只看最近 N 天。传入群号（可由 find_contact 解析群名得到）。' +
+      '内部走全量分页扫描（与「群聊分析」卡片同一套逻辑），不做 5000 条截断，故不会漏统计。' +
+      '返回统计数据（JSON），非常适合接着用 write_report 出一份带图表/排行/词云的 HTML 可视化报告。',
     input: z.object({
       groupCode: z.string().min(1).describe('群号（纯数字，可用 find_contact 把群名解析成群号）'),
-      days: z.number().int().min(1).max(180).default(30).describe('统计最近 N 天（默认 30 天）'),
+      days: z
+        .number()
+        .int()
+        .min(0)
+        .max(3650)
+        .default(0)
+        .describe('统计最近 N 天；0=全部历史（默认，最不容易漏数据）'),
+      wordLimit: z
+        .number()
+        .int()
+        .min(0)
+        .max(300)
+        .default(60)
+        .describe('词云返回的热词数量；0=不算词云（省时）'),
     }),
-    run: async ({ groupCode, days }) => {
+    run: async ({ groupCode, days, wordLimit }) => {
       const svc = services();
-      const now = Date.now();
-      // group_msg_table 的 sendTime 是 unix **秒**（见 packages/db/src/msg/group.ts 列 40050），
-      // 故时间窗也换算成秒来比较；后面构造 Date 时再 ×1000 还原成毫秒。
-      const startSec = Math.floor((now - days * 86400000) / 1000);
-
-      // 通过 MsgService 获取群消息（getGroupLatest 最多 5000 条，足够覆盖大多数统计场景）
-      const msgs = await svc.msgs.getGroupLatest(groupCode, 5000);
-      const filtered = msgs.filter((m) => Number(m.sendTime) >= startSec);
-
-      if (filtered.length === 0) {
-        return {
-          groupCode,
-          days,
-          totalMessages: 0,
-          activeDays: 0,
-          topSenders: [],
-          hourlyDistribution: {},
-          daily: [],
-          hint: '该时间范围内无消息记录（或消息数超过 5000 条导致时间窗外的被截断）。',
-        };
+      let gc: bigint;
+      try {
+        gc = BigInt(String(groupCode).trim());
+      } catch {
+        throw new Error(`群号必须是纯数字：${groupCode}（先用 find_contact 把群名解析成群号）`);
       }
 
-      // 统计：总消息数、活跃天数、成员排行、时段分布、每日趋势
-      const daily = new Map<string, number>();
-      const hourly: Record<number, number> = {};
-      for (let i = 0; i < 24; i++) hourly[i] = 0;
-      const senderCounts = new Map<string, { uid: string; count: number }>();
-
-      for (const msg of filtered) {
-        const d = new Date(Number(msg.sendTime) * 1000);
-        const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-        daily.set(day, (daily.get(day) ?? 0) + 1);
-        hourly[d.getHours()] = (hourly[d.getHours()] ?? 0) + 1;
-
-        const uid = msg.senderUid;
-        const prev = senderCounts.get(uid);
-        senderCounts.set(uid, { uid, count: (prev?.count ?? 0) + 1 });
+      // 复刻「群聊分析」卡片：不限时间=全历史；days>0 时才下推 sendTime 时间窗（unix 秒）。
+      let startTime: number | undefined;
+      let endTime: number | undefined;
+      if (days && days > 0) {
+        endTime = Math.floor(Date.now() / 1000);
+        startTime = endTime - days * 86400;
       }
 
-      const topSenders = [...senderCounts.values()]
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 20)
-        .map((s) => ({ uid: s.uid, count: s.count }));
+      // 全部走 groupInfo 的全量分页统计（listBatch，逐 500 条扫到底），与卡片同源。
+      const [ranking, hourlyDistribution, daily, wordCloud] = await Promise.all([
+        svc.groupInfo.getGroupMessageRanking(gc, 20, startTime, endTime),
+        svc.groupInfo.getGroupActiveHours(gc, startTime, endTime),
+        svc.groupInfo.getGroupDailyActivity(gc, startTime, endTime),
+        wordLimit > 0
+          ? svc.groupInfo.getGroupWordCloud(gc, wordLimit, startTime, endTime)
+          : Promise.resolve([]),
+      ]);
+
+      const totalMessages = daily.reduce((sum, d) => sum + d.count, 0);
 
       return {
         groupCode,
-        days,
-        totalMessages: filtered.length,
-        activeDays: daily.size,
-        topSenders,
-        hourlyDistribution: hourly,
-        daily: [...daily.entries()]
-          .map(([date, count]) => ({ date, count }))
-          .sort((a, b) => a.date.localeCompare(b.date)),
+        range: days && days > 0 ? `最近 ${days} 天` : '全部历史',
+        totalMessages,
+        activeDays: daily.length,
+        // 排行已解析成群名片/昵称（displayName），报告里可直接展示，不必再自己查名字。
+        topSenders: ranking.map((r) => ({ name: r.displayName, uid: r.uid, count: r.messageCount })),
+        hourlyDistribution,
+        daily,
+        wordCloud: wordCloud.map((w) => ({ word: w.word, count: w.count })),
+        ...(totalMessages === 0
+          ? { hint: '该范围内没有消息记录：确认群号是否正确，或用 days=0 看全部历史。' }
+          : {}),
       };
     },
   }),

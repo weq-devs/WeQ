@@ -12,7 +12,7 @@ import type {
   AgentLabExpression,
   AgentLabFewShotPair,
 } from './types';
-import { reportUsage } from './http';
+import { reportUsage, pickMessageText } from './http';
 
 function coerceString(value: unknown): string {
   if (typeof value === 'string') return value.trim();
@@ -63,9 +63,9 @@ async function chatCompletion(
   if (!res.ok) {
     throw new Error(`AgentLab 提炼接口调用失败: HTTP ${res.status}`);
   }
-  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string; reasoning_content?: string } }> };
   reportUsage(endpoint, data);
-  return data.choices?.[0]?.message?.content ?? '';
+  return pickMessageText(data.choices?.[0]?.message);
 }
 
 /**
@@ -103,9 +103,9 @@ async function visionCompletion(
   if (!res.ok) {
     throw new Error(`AgentLab 视觉接口调用失败: HTTP ${res.status}`);
   }
-  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string; reasoning_content?: string } }> };
   reportUsage(endpoint, data);
-  return data.choices?.[0]?.message?.content ?? '';
+  return pickMessageText(data.choices?.[0]?.message);
 }
 
 /** generateText + 宽松解析 + 失败重试一次。 */
@@ -374,6 +374,106 @@ export async function distillMemories(
     .map((m) => m.slice(0, 60))
     .filter(Boolean)
     .slice(0, 5);
+}
+
+function coerceNumber(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const n = Number.parseFloat(value);
+    return Number.isFinite(n) ? n : 0;
+  }
+  return 0;
+}
+
+function clampNum(value: unknown, min: number, max: number): number {
+  return Math.max(min, Math.min(max, coerceNumber(value)));
+}
+
+const SENTIMENT_JSON_SHAPE = `{
+  "affinityDelta": 0,
+  "moodDelta": 0
+}`;
+
+/**
+ * 关系情感打分（M4）：从「你和对方刚刚的一段互动」里评估你对对方的好感 / 当下情绪的变化。
+ * 视角：你就是被克隆的人。affinityDelta ∈ [-5,5]（长期好感，克制），moodDelta ∈ [-12,12]
+ * （当下情绪，波动大些）。失败 / 平淡返回 0，不阻断聊天。
+ */
+export async function scoreInteractionSentiment(
+  endpoint: AgentLabEndpoint,
+  friendName: string,
+  exchange: string,
+): Promise<{ affinityDelta: number; moodDelta: number }> {
+  const text = exchange.trim();
+  if (!text) return { affinityDelta: 0, moodDelta: 0 };
+  try {
+    const raw = await generateJson(
+      endpoint,
+      `你是「${friendName}」。下面是你和「对方」刚刚的一段互动。评估这段互动让你对对方的「好感」` +
+        '和你当下「情绪」的变化：被理解/被关心/被逗笑/聊得投机→正；被冒犯/被无视/话不投机/被泼冷水→负；' +
+        '平淡无波→0。务必克制，大多数普通寒暄都应接近 0，别轻易给大分。' +
+        `\naffinityDelta 取 -5~5 的整数，moodDelta 取 -12~12 的整数。` +
+        `\n只输出一个 JSON 对象，不要任何解释或代码围栏：\n${SENTIMENT_JSON_SHAPE}`,
+      `互动：\n${text}\n\n请按要求输出 JSON。`,
+      0.2,
+      '关系情感打分',
+    );
+    return {
+      affinityDelta: Math.round(clampNum(raw.affinityDelta, -5, 5)),
+      moodDelta: Math.round(clampNum(raw.moodDelta, -12, 12)),
+    };
+  } catch {
+    return { affinityDelta: 0, moodDelta: 0 };
+  }
+}
+
+const DECIDE_JSON_SHAPE = `{ "reply": true, "reason": "十来个字说明为什么回 / 为什么潜水" }`;
+
+/**
+ * 群聊「要不要开口」决策（M：每人各自带上下文让 LLM 判断，取代启发式打分）。
+ * 视角＝这个克隆体本人。它看最近群对话 + 自己和说话人的关系/记忆/性格，自行决定：
+ * 这条是不是在跟我说话、我想不想接。别人之间的对话/没提到我/没什么想说的 → 沉默观察。
+ * temperature 低求稳；失败默认不回（宁可少说，别乱插话）。调用方保证上下文有界。
+ */
+export async function decideGroupReply(
+  endpoint: AgentLabEndpoint,
+  input: {
+    personaName: string;
+    tone?: string;
+    transcript: string;
+    currentSpeaker: string;
+    currentText: string;
+    relationNote?: string;
+    memories?: string[];
+    dispositionHint?: string;
+    crowdedHint?: string;
+  },
+): Promise<{ reply: boolean; reason: string }> {
+  const ctxLines = [
+    `你是「${input.personaName}」，正在一个群聊里。`,
+    input.tone ? `你的性格/语气：${input.tone}` : '',
+    input.relationNote ? input.relationNote : '',
+    input.memories && input.memories.length > 0 ? `你记得关于 TA：${input.memories.join('；')}` : '',
+    input.dispositionHint ?? '',
+    input.crowdedHint ?? '',
+  ].filter(Boolean);
+  try {
+    const raw = await generateJson(
+      endpoint,
+      ctxLines.join('\n') +
+        '\n\n下面是群里最近的对话。判断「最新一条」该不该由你接话：' +
+        '只有当它像是在对你说、点到你、或你确实很想插一句时才回；' +
+        '如果这是别人之间的对话、没提到你、或你没什么特别想说的，就保持沉默、继续观察。' +
+        '像真人在群里那样——大多数不关自己的话都是划过去、不吭声。' +
+        `\n只输出一个 JSON，不要任何解释或代码围栏：${DECIDE_JSON_SHAPE}`,
+      `最近的对话：\n${input.transcript}\n\n最新一条 ${input.currentSpeaker} 说：「${input.currentText}」\n\n请判断，输出 JSON。`,
+      0.2,
+      '发言决策',
+    );
+    return { reply: raw.reply === true, reason: coerceString(raw.reason) };
+  } catch {
+    return { reply: false, reason: '决策失败，默认潜水' };
+  }
 }
 
 const REFLECT_JSON_SHAPE = `{

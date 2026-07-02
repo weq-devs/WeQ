@@ -125,7 +125,7 @@ export interface NtHelperBinding {
 
   // --- QQ process / login detection ---
   probeQqLoginInfo(pid: number): QqPortLoginInfo | null;
-  decryptLoginDb(loginDbPath: string, key: string, algo: DatabaseAlgorithms): LoginAccount[];
+  decryptLoginDb(loginDbPath: string, algo: DatabaseAlgorithms): LoginAccount[];
   getQqProcesses(): number[];
   /**
    * Mutex-lock probe: is the QQ account `uin` currently logged in on this

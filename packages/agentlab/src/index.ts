@@ -5,10 +5,29 @@ export {
   modelsWithCapability,
   resolveEndpoint,
 } from './provider';
-export { embedTexts, runPersonaChat, reportUsage, keywordsOf, testChatEndpoint } from './http';
+export { embedTexts, runPersonaChat, reportUsage, keywordsOf, testChatEndpoint, pickMessageText } from './http';
 export { selectStickerByEmotion } from './sticker';
 export { humanizeText, DEFAULT_TYPO_INTENSITY } from './typo';
 export { scoreReplyWillingness } from './willing';
+export {
+  scoreReplyGate,
+  willingLevelBias,
+  GROUP_REPLY_THRESHOLD,
+  type ReplyGateInput,
+  type ReplyDecision,
+} from './reply_gate';
+export {
+  makeBaseRelation,
+  clampRelation,
+  decayMood,
+  applyRelationDelta,
+  describeRelationTone,
+  NEUTRAL_AFFINITY,
+  NEUTRAL_FAMILIARITY,
+  RELATION_AFFINITY_RANGE,
+  RELATION_FAMILIARITY_RANGE,
+  RELATION_MOOD_RANGE,
+} from './relation';
 export {
   buildPersonaArtifacts,
   mergeTurns,
@@ -40,6 +59,8 @@ export {
   extractExpressions,
   distillMemories,
   reflectConversation,
+  scoreInteractionSentiment,
+  decideGroupReply,
   summarizeVoiceScenario,
   describeSticker,
 } from './extract';

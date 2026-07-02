@@ -25,6 +25,12 @@ export { exportGroupToCsv, csvFraming, renderCsvRow } from './csv_exporter';
 export { exportToXlsx, type XlsxExportOptions } from './xlsx_exporter';
 export { exportToHtml, type HtmlExportOptions } from './html_exporter';
 export {
+  exportQzone,
+  type QzoneExportDeps,
+  type QzoneExportOpts,
+  type QzoneExportResult,
+} from './qzone_export';
+export {
   avatarUrlForUin,
   iterateConv,
   resolveGroupSenders,

@@ -61,7 +61,7 @@ export { getGroupAlbumList } from './group_album';
 export type { GroupAlbum } from './group_album';
 export { getHonorList, HonorType } from './group_honor';
 export type { HonorMember } from './group_honor';
-export { getQzoneMsgList, getQzoneFeeds, mapMsgList, mapFeeds, parseQzoneJson } from './qzone';
+export { getQzoneMsgList, getQzoneFeeds, mapMsgList, mapFeeds, parseQzoneJson, parseQzoneCallback } from './qzone';
 export type {
   QzoneEmotion,
   QzoneMsgListResult,
