@@ -6256,7 +6256,7 @@ html[data-theme="dark"] .weq-forward-bubble {
 }
 
 .weq-agentlab-provider-name {
-  font-weight: 600;
+  font-weight: 500;
   color: var(--weq-fg-primary);
 }
 
@@ -6370,6 +6370,15 @@ html[data-theme="dark"] .weq-forward-bubble {
 .weq-agentlab-field select {
   min-height: 40px;
   padding: 0 12px;
+}
+
+/* 选中输入框：边框统一走主题色（聊天 composer / 各配置面板 / 克隆体设置）。 */
+.weq-agentlab-field select:focus,
+.weq-agentlab-field input:focus,
+.weq-agentlab-field textarea:focus,
+.weq-agentlab-composer textarea:focus {
+  outline: none;
+  border-color: var(--weq-accent-effective);
 }
 
 .weq-agentlab-actions,
@@ -7158,6 +7167,12 @@ html[data-theme="dark"] .weq-forward-bubble {
   font-size: 13px;
   resize: vertical;
 }
+.weq-clone-config input:focus,
+.weq-clone-config textarea:focus,
+.weq-clone-config select:focus {
+  outline: none;
+  border-color: var(--weq-accent-effective);
+}
 .weq-clone-check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--weq-fg-primary); }
 .weq-clone-check input { flex: none; }
 
@@ -7230,12 +7245,13 @@ html[data-theme="dark"] .weq-forward-bubble {
   text-align: left;
   color: var(--weq-fg-primary);
 }
+.weq-clone-degree-opt strong { font-size: 13px; font-weight: 500; color: var(--weq-fg-primary); }
 .weq-clone-degree-opt small { font-size: 11.5px; color: var(--weq-fg-muted); }
 .weq-clone-degree-opt.is-active {
   border-color: var(--weq-accent-effective);
   background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
 }
-.weq-clone-tokenhint { font-size: 12px; color: #d9883a; }
+.weq-clone-tokenhint { font-size: 12px; line-height: 1.55; color: var(--weq-fg-muted); }
 
 .weq-clone-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; }
 
@@ -7308,6 +7324,11 @@ html[data-theme="dark"] .weq-forward-bubble {
   font: inherit;
   font-size: 13px;
   resize: vertical;
+}
+.weq-persona-form textarea:focus,
+.weq-persona-form input:focus {
+  outline: none;
+  border-color: var(--weq-accent-effective);
 }
 .weq-persona-note { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--weq-fg-muted); }
 .weq-persona-soon {
@@ -7821,4 +7842,109 @@ html[data-theme="dark"] .weq-persona-modal {
   .weq-chathome-logo,
   .weq-chathome-caret { animation: none; }
   .weq-lane-track { animation: none; }
+}
+
+/* ───────────────────────── 克隆体群聊（M2 群骨架）───────────────────────── */
+
+/* 新建群聊：成员多选列表 */
+.weq-group-members {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 12px;
+  background: var(--weq-bg-surface);
+}
+.weq-group-member {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+.weq-group-member:hover {
+  background: var(--weq-bg-elevated);
+}
+.weq-group-member.is-on {
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+.weq-group-member-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+.weq-group-member-text strong {
+  font-size: 13px;
+  color: var(--weq-fg-primary);
+}
+.weq-group-member-text small {
+  font-size: 11px;
+  color: var(--weq-fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weq-group-member-check {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--weq-border-strong);
+  border-radius: 50%;
+  color: #fff;
+}
+.weq-group-member-check.is-on {
+  border-color: var(--weq-accent-effective);
+  background: var(--weq-accent-effective);
+}
+
+/* @ 成员浮层：贴在输入框上方 */
+.weq-agentlab-composer {
+  position: relative;
+}
+.weq-mention-pop {
+  position: absolute;
+  left: 20px;
+  bottom: calc(100% - 6px);
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: calc(100% - 40px);
+  padding: 8px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 12px;
+  background: var(--weq-bg-elevated);
+  box-shadow: var(--weq-shadow-soft);
+}
+.weq-mention-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+}
+.weq-mention-opt:hover {
+  border-color: var(--weq-accent-effective);
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
 }

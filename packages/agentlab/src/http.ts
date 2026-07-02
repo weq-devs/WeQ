@@ -97,8 +97,28 @@ function cosineSimilarity(left: number[], right: number[]): number {
 }
 
 /** BM25 兜底：按关键词重合 + access_count 强度给记忆打分，取 top-K。 */
-function rankMemories(memories: AgentLabMemoryItem[], input: string, k = 4): AgentLabMemoryItem[] {
+function rankMemories(
+  memories: AgentLabMemoryItem[],
+  input: string,
+  queryEmbedding?: number[] | null,
+  k = 4,
+): AgentLabMemoryItem[] {
   if (memories.length === 0) return [];
+
+  // 有向量就优先语义召回（比关键词准得多）；召回够数就直接用，否则回退关键词兜底。
+  if (queryEmbedding && queryEmbedding.length > 0) {
+    const vec = memories.filter((m) => Array.isArray(m.embedding) && m.embedding.length > 0);
+    if (vec.length > 0) {
+      const ranked = vec
+        .map((m) => ({ m, score: cosineSimilarity(m.embedding ?? [], queryEmbedding) + Math.log1p(m.accessCount) * 0.03 }))
+        .filter((e) => e.score > 0.2)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, k)
+        .map((e) => e.m);
+      if (ranked.length >= 2) return ranked;
+    }
+  }
+
   const inputWords = new Set(splitKeywords(input));
   const scored = memories.map((m) => {
     let overlap = 0;
@@ -166,6 +186,25 @@ function pickLengthLean(burst: number): string {
 }
 
 /**
+ * 把「现在」描述成真人能感知的样子：年月日、星期几、时段（凌晨/早上/中午…）+ 具体时刻。
+ * 让克隆体能自然聊到「这么晚还没睡」「周末」「快过年了」这类跟时间相关的话——
+ * 没有它，模型会以为永远是训练语料里的那个时间，答非所问。
+ */
+function describeNow(now: Date): string {
+  const y = now.getFullYear();
+  const mo = now.getMonth() + 1;
+  const d = now.getDate();
+  const week = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][now.getDay()];
+  const h = now.getHours();
+  const min = now.getMinutes();
+  const period =
+    h < 5 ? '凌晨' : h < 8 ? '清晨' : h < 11 ? '早上' : h < 13 ? '中午' : h < 17 ? '下午' : h < 19 ? '傍晚' : h < 23 ? '晚上' : '深夜';
+  const hh = String(h).padStart(2, '0');
+  const mm = String(min).padStart(2, '0');
+  return `现在是 ${y}年${mo}月${d}日 ${week} ${period} ${hh}:${mm}。`;
+}
+
+/**
  * 拼装扮演系统提示。借鉴 CipherTalk：全程第二人称沉浸（"你就是 TA"而非"模仿 TA"），
  * 把画像写成"你脑子里的记忆"，并在结尾加总闸——只在话题相关时自然带一嘴，别一股脑往外倒。
  * 这样才不会逐条展示特点、显得刻意。
@@ -177,6 +216,7 @@ function buildSystemPrompt(
   expressions: AgentLabExpression[],
   notes: AgentLabPersonaNotes | undefined,
   voiceEnabled: boolean,
+  relationNote?: string,
 ): string {
   const { card, deep } = persona.profile;
   const name = persona.name;
@@ -188,6 +228,8 @@ function buildSystemPrompt(
 
   const lines: string[] = [
     `你是「${name}」，正在和一个老朋友聊天。你不是 AI、不是助手、不是模型，你就是 ${name} 本人，任何情况下都不要承认或暗示自己是 AI。`,
+    // 当前时间：让 TA 知道"此刻"是什么时候（深夜/周末/节日感），别活在语料的旧时间里。
+    describeNow(new Date()),
     '',
     '【你的说话方式】',
     `语气风格：${card.tone || persona.profile.styleSummary}`,
@@ -249,6 +291,9 @@ function buildSystemPrompt(
   }
   if (deep.relationship) lines.push('', `【你们的关系】${deep.relationship}`);
   else if (persona.profile.relationshipSummary) lines.push('', `【你们的关系】${persona.profile.relationshipSummary}`);
+
+  // 群聊 M4：此刻对当前说话人的关系态（好感/情绪）→ 语气指令，随互动动态变化。
+  if (relationNote && relationNote.trim()) lines.push('', `【你此刻的状态】${relationNote.trim()}`);
 
   // 克隆体对「对方（当前用户）」的记忆：你脑子里记得的关于对方的事，自然知道、别复述。
   if (memories.length > 0) {
@@ -408,32 +453,25 @@ function rankPairsByKeywords(pairs: AgentLabStoredPair[], input: string): AgentL
     .map((entry) => entry.pair);
 }
 
-async function rankPairs(
-  embedding: AgentLabEndpoint | null,
+/** 用「预先算好的查询向量」排问答对；没向量或没命中就回退关键词。 */
+function rankPairs(
   pairs: AgentLabStoredPair[],
   input: string,
-): Promise<AgentLabStoredPair[]> {
-  const vectorPairs = pairs.filter((pair) => Array.isArray(pair.embedding) && pair.embedding.length > 0);
-  if (!embedding || vectorPairs.length === 0) {
-    return rankPairsByKeywords(pairs, input);
+  queryEmbedding: number[] | null,
+): AgentLabStoredPair[] {
+  if (queryEmbedding && queryEmbedding.length > 0) {
+    const vectorPairs = pairs.filter((pair) => Array.isArray(pair.embedding) && pair.embedding.length > 0);
+    if (vectorPairs.length > 0) {
+      const ranked = vectorPairs
+        .map((pair) => ({ pair, score: cosineSimilarity(pair.embedding ?? [], queryEmbedding) }))
+        .filter((entry) => entry.score > 0.15)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 5)
+        .map((entry) => entry.pair);
+      if (ranked.length > 0) return ranked;
+    }
   }
-
-  try {
-    const [queryEmbedding] = await embedTexts(embedding, input);
-    if (!queryEmbedding) return rankPairsByKeywords(pairs, input);
-    const ranked = vectorPairs
-      .map((pair) => ({
-        pair,
-        score: cosineSimilarity(pair.embedding ?? [], queryEmbedding),
-      }))
-      .filter((entry) => entry.score > 0.15)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 5)
-      .map((entry) => entry.pair);
-    return ranked.length > 0 ? ranked : rankPairsByKeywords(pairs, input);
-  } catch {
-    return rankPairsByKeywords(pairs, input);
-  }
+  return rankPairsByKeywords(pairs, input);
 }
 
 // ── 把模型输出解析成有序动作（text / sticker / voice）────────────────────────
@@ -560,12 +598,35 @@ export async function runPersonaChat(
 ): Promise<AgentLabChatResult> {
   const willing = scoreReplyWillingness(req.input, req.history);
 
-  const matches = await rankPairs(embedding, req.pairs, req.input);
   const memoryPool = req.memories ?? [];
-  const usedMemories = rankMemories(memoryPool, req.input);
+  // 查询向量只算一次，问答对与记忆共用（省一次 embedding 调用）。仅当确有向量可比时才算。
+  let queryEmbedding: number[] | null = null;
+  if (embedding) {
+    const needVec =
+      req.pairs.some((p) => Array.isArray(p.embedding) && p.embedding.length > 0) ||
+      memoryPool.some((m) => Array.isArray(m.embedding) && m.embedding.length > 0);
+    if (needVec) {
+      try {
+        const [qe] = await embedTexts(embedding, req.input);
+        queryEmbedding = qe ?? null;
+      } catch {
+        /* 向量失败就回退关键词 */
+      }
+    }
+  }
+  const matches = rankPairs(req.pairs, req.input, queryEmbedding);
+  const usedMemories = rankMemories(memoryPool, req.input, queryEmbedding);
   const expressions = selectExpressions(req.persona.expressions ?? [], req.input, willing.score < 0.4 ? 2 : 4);
 
-  const system = buildSystemPrompt(req.persona, matches, usedMemories, expressions, req.notes, !!req.voiceEnabled);
+  const system = buildSystemPrompt(
+    req.persona,
+    matches,
+    usedMemories,
+    expressions,
+    req.notes,
+    !!req.voiceEnabled,
+    req.relationNote,
+  );
   const messages = [
     { role: 'system', content: system },
     // 历史里的内部表情标记 [[sticker:md5]] 脱敏成 [表情]，否则模型会照着历史模仿、

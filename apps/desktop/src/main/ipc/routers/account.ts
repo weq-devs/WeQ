@@ -20,6 +20,7 @@ import { getAppContext, dbEventBus, type AccountServices } from '../../context/a
 import { sampleHitokoto } from '../../hitokoto';
 import { procedure, router } from '../trpc';
 import { assistantBus, type AssistantStreamEvent } from '../../mcp/assistant_bus';
+import { groupChatBus, type GroupChatStreamEvent } from '../../mcp/agentlab_group_bus';
 import {
   clientKeyExpiryMs,
   toRenderElements,
@@ -629,6 +630,115 @@ export const accountRouter = router({
       return requireServices().agentLab.deletePersona(input.personaId);
     }),
 
+  // ── 克隆体群聊（M2 群骨架）─────────────────────────────────────────────
+
+  createAgentLabGroup: procedure
+    .input(z.object({ name: z.string().min(1), personaIds: z.array(z.string().min(1)).min(1) }))
+    .mutation(({ input }) => {
+      return requireServices().agentLab.createGroup({ name: input.name, personaIds: input.personaIds });
+    }),
+
+  listAgentLabGroups: procedure.query(() => {
+    return requireServices().agentLab.listGroups();
+  }),
+
+  getAgentLabGroupDetail: procedure
+    .input(z.object({ groupId: z.string().min(1) }))
+    .query(({ input }) => {
+      return requireServices().agentLab.getGroupDetail(input.groupId);
+    }),
+
+  renameAgentLabGroup: procedure
+    .input(z.object({ groupId: z.string().min(1), name: z.string().min(1) }))
+    .mutation(({ input }) => {
+      requireServices().agentLab.renameGroup(input.groupId, input.name);
+      return true;
+    }),
+
+  deleteAgentLabGroup: procedure
+    .input(z.object({ groupId: z.string().min(1) }))
+    .mutation(({ input }) => {
+      requireServices().agentLab.deleteGroup(input.groupId);
+      return true;
+    }),
+
+  addAgentLabGroupMember: procedure
+    .input(z.object({ groupId: z.string().min(1), personaId: z.string().min(1) }))
+    .mutation(({ input }) => {
+      requireServices().agentLab.addGroupMember(input.groupId, input.personaId);
+      return true;
+    }),
+
+  removeAgentLabGroupMember: procedure
+    .input(z.object({ groupId: z.string().min(1), memberId: z.string().min(1) }))
+    .mutation(({ input }) => {
+      requireServices().agentLab.removeGroupMember(input.groupId, input.memberId);
+      return true;
+    }),
+
+  getAgentLabGroupConversation: procedure
+    .input(z.object({ groupId: z.string().min(1) }))
+    .query(({ input }) => {
+      return requireServices().agentLab.getGroupMessages(input.groupId);
+    }),
+
+  clearAgentLabGroupConversation: procedure
+    .input(z.object({ groupId: z.string().min(1) }))
+    .mutation(({ input }) => {
+      requireServices().agentLab.clearGroupMessages(input.groupId);
+      return true;
+    }),
+
+  /**
+   * 启动一轮群聊（非阻塞）。立即返回 groupRunId；用户那条 + 每个克隆体的每条回复
+   * 通过 `onGroupChatEvent` 逐条流式推送。镜像 chatWithAssistant 的范式。
+   */
+  sendAgentLabGroupMessage: procedure
+    .input(
+      z.object({
+        groupId: z.string().min(1),
+        text: z.string().min(1),
+        mentions: z.array(z.string().min(1)).default([]),
+      }),
+    )
+    .mutation(({ input }) => {
+      const svc = requireServices().agentLab;
+      const groupRunId = randomUUID();
+      const groupId = input.groupId;
+      void svc
+        .sendGroupMessage({ groupId, text: input.text, mentions: input.mentions }, (message) =>
+          groupChatBus.emit('event', {
+            groupRunId,
+            groupId,
+            kind: 'message',
+            message,
+          } satisfies GroupChatStreamEvent),
+        )
+        .then(() =>
+          groupChatBus.emit('event', { groupRunId, groupId, kind: 'done' } satisfies GroupChatStreamEvent),
+        )
+        .catch((err: unknown) =>
+          groupChatBus.emit('event', {
+            groupRunId,
+            groupId,
+            kind: 'error',
+            message: err instanceof Error ? err.message : String(err),
+          } satisfies GroupChatStreamEvent),
+        );
+      return { groupRunId };
+    }),
+
+  /** 群聊过程流（每条群消息 / 收尾 / 出错）。 */
+  onGroupChatEvent: procedure.subscription(() => {
+    return observable<GroupChatStreamEvent>((emit) => {
+      const handler = (e: GroupChatStreamEvent): void => emit.next(e);
+      groupChatBus.on('event', handler);
+      return () => {
+        groupChatBus.off('event', handler);
+      };
+    });
+  }),
+
   updateAgentLabPersona: procedure
     .input(
       z.object({
@@ -644,6 +754,14 @@ export const accountRouter = router({
           })
           .nullable()
           .optional(),
+        willing: z
+          .object({
+            gatePrivate: z.boolean().optional(),
+            level: z.number().int().min(0).max(100).optional(),
+            mustReplyOnMention: z.boolean().optional(),
+          })
+          .nullable()
+          .optional(),
       }),
     )
     .mutation(({ input }) => {
@@ -652,6 +770,7 @@ export const accountRouter = router({
         customPrompt: input.customPrompt,
         voiceCloneEnabled: input.voiceCloneEnabled,
         voice: input.voice,
+        willing: input.willing,
       });
     }),
 

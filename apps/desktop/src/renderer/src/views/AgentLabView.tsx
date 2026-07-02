@@ -24,6 +24,8 @@ import { PersonaSettingsModal } from './agentlab/PersonaSettingsModal';
 import { UsagePanel } from './agentlab/UsagePanel';
 import { AssistantPanel } from './agentlab/AssistantPanel';
 import { ChatBubble, buildFaceMap, type FaceContext } from './agentlab/ChatBubble';
+import { NewGroupModal, type GroupPersonaOption } from './agentlab/NewGroupModal';
+import { GroupChatPanel } from './agentlab/GroupChatPanel';
 
 interface ChatTurn {
   role: 'user' | 'assistant';
@@ -178,7 +180,8 @@ function PersonaParamsPanel({ loading, detail }: { loading: boolean; detail: Per
 type Selection =
   | { kind: 'home' }
   | { kind: 'assistant'; sessionId: string | null }
-  | { kind: 'persona'; id: string };
+  | { kind: 'persona'; id: string }
+  | { kind: 'group'; id: string };
 
 /** 会话列表里的相对时间（粗粒度，够用即可）。 */
 function relTime(ts: number): string {
@@ -201,6 +204,8 @@ export function AgentLabView(): ReactElement {
   const personas = trpc.account.listAgentLabPersonas.useQuery();
   const chat = trpc.account.chatWithAgentLabPersona.useMutation();
   const deletePersona = trpc.account.deleteAgentLabPersona.useMutation();
+  const groups = trpc.account.listAgentLabGroups.useQuery();
+  const createGroup = trpc.account.createAgentLabGroup.useMutation();
   const createAssistantSession = trpc.account.createAssistantSession.useMutation();
   const deleteAssistantSession = trpc.account.deleteAssistantSession.useMutation();
   const selfProfile = trpc.account.getSelfProfile.useQuery();
@@ -259,6 +264,7 @@ export function AgentLabView(): ReactElement {
   });
   const assistantSessions = assistantSessionsQuery.data ?? [];
   const [cloneOpen, setCloneOpen] = useState(false);
+  const [groupOpen, setGroupOpen] = useState(false);
   // 克隆任务列表：抬到模块级 store（脱离本组件生命周期），切出 AgentLab 再回来任务不丢（bug2）。
   const cloneTasks = useSyncExternalStore(subscribeCloneTasks, getCloneTasks);
   const [viewTaskId, setViewTaskId] = useState<string | null>(null);
@@ -402,6 +408,12 @@ export function AgentLabView(): ReactElement {
     setHistory(nextHistory);
     try {
       const result = await chat.mutateAsync({ personaId, text, history });
+      // 发言意愿对私聊生效且这次「懒得回」：只保留用户这条，不加回复气泡。
+      if (result.silent) {
+        seededPersona.current = personaId;
+        void utils.account.getAgentLabConversation.invalidate({ personaId });
+        return;
+      }
       // 分段连发 + 打字延迟：逐条揭示，模拟真人一句一句发。
       // renderedTurns = 后端按 actions 顺序落库的标记文本（文字 / [[sticker:md5]] / [[voice:id]]），
       // 表情图、语音气泡都在其中，前端按序揭示即可；缺省时回退旧字段（兼容）。
@@ -427,6 +439,28 @@ export function AgentLabView(): ReactElement {
       dialog.error('发送失败', error instanceof Error ? error.message : String(error));
       setHistory(history);
       setInput(text);
+    }
+  }
+
+  const groupPersonaOptions: GroupPersonaOption[] = useMemo(
+    () =>
+      personaList.map((p) => ({
+        id: p.id,
+        name: p.name,
+        uin: profileByUid.get(p.sourceId)?.uin,
+        sourceTitle: p.sourceTitle,
+      })),
+    [personaList, profileByUid],
+  );
+
+  async function onCreateGroup(args: { name: string; personaIds: string[] }): Promise<void> {
+    try {
+      const { group } = await createGroup.mutateAsync(args);
+      setGroupOpen(false);
+      await utils.account.listAgentLabGroups.invalidate();
+      setSel({ kind: 'group', id: group.id });
+    } catch (error) {
+      dialog.error('建群失败', error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -536,6 +570,30 @@ export function AgentLabView(): ReactElement {
           )}
         </div>
 
+        <div className="weq-agentlab-list-label">群聊</div>
+        <div className="weq-agentlab-list-scroll">
+          {(groups.data ?? []).length === 0 ? (
+            <div className="weq-agentlab-empty" style={{ padding: '8px 10px' }}>还没有群聊。</div>
+          ) : (
+            (groups.data ?? []).map((g) => (
+              <button
+                key={g.id}
+                className={`weq-agentlab-item${sel.kind === 'group' && sel.id === g.id ? ' is-active' : ''}`}
+                onClick={() => setSel({ kind: 'group', id: g.id })}
+              >
+                <span className="weq-agentlab-item-avatar is-bot"><MessagesSquare size={16} /></span>
+                <span className="weq-agentlab-item-text">
+                  <strong>{g.name}</strong>
+                  <small>群聊</small>
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+        <button className="weq-agentlab-newclone" onClick={() => setGroupOpen(true)}>
+          <Plus size={15} /> 新建群聊
+        </button>
+
         {cloneTasks.length > 0 ? (
           <div className="weq-clone-tasklist">
             {cloneTasks.map((t) => (
@@ -619,6 +677,17 @@ export function AgentLabView(): ReactElement {
               </div>
             </div>
           )
+        ) : sel.kind === 'group' ? (
+          <GroupChatPanel
+            key={sel.id}
+            groupId={sel.id}
+            selfUin={selfProfile.data?.uin}
+            personaList={personaList}
+            profileByUid={profileByUid}
+            faceDescToId={faceDescToId}
+            onBack={() => setSel({ kind: 'home' })}
+            onDeleted={() => setSel({ kind: 'home' })}
+          />
         ) : (
           <div className="weq-agentlab-chat">
             <header className="weq-agentlab-head">
@@ -737,6 +806,14 @@ export function AgentLabView(): ReactElement {
         />
       ) : null}
 
+      {groupOpen ? (
+        <NewGroupModal
+          personas={groupPersonaOptions}
+          onClose={() => setGroupOpen(false)}
+          onCreate={(args) => void onCreateGroup(args)}
+        />
+      ) : null}
+
       {viewingTask ? (
         <CloneProgressModal
           task={viewingTask}
@@ -755,6 +832,7 @@ export function AgentLabView(): ReactElement {
             voiceCloneEnabled: activePersona.voiceCloneEnabled,
             voice: activePersona.voice,
             voiceProfile: activePersona.voiceProfile,
+            willing: activePersona.willing,
           }}
           paramsContent={<PersonaParamsPanel loading={personaDetail.isLoading} detail={personaDetail.data ?? null} />}
           onClose={() => setSettingsOpen(false)}

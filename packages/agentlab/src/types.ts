@@ -214,6 +214,12 @@ export interface AgentLabMemoryItem {
   text: string;
   keywords: string[];
   embedding?: number[];
+  /**
+   * 这条记忆是「关于谁」的（M5 多人）：群聊里克隆体要分别记住「我」和其他克隆体的事。
+   * aboutId=成员 id；缺省（旧数据）视为关于私聊对方。召回时按 aboutId 过滤防串人。
+   */
+  aboutId?: string;
+  aboutKind?: AgentLabMemberKind;
   /** 被检索命中的累计次数（越高越不易遗忘）。 */
   accessCount: number;
   createdAt: number;
@@ -231,6 +237,18 @@ export interface AgentLabPersonaNotes {
   episodes: string[];
 }
 
+/**
+ * 发言意愿配置（用户在克隆体设置里调）。作用于意愿闸 scoreReplyGate：
+ * - gatePrivate：私聊是否也走意愿闸（默认关——1:1 测试保持必回）；
+ * - level：总体发言意愿 0~100（50=中性，越高越爱接话、越低越爱潜水）；
+ * - mustReplyOnMention：被 @ 是否必回（默认开）。
+ */
+export interface AgentLabWillingConfig {
+  gatePrivate?: boolean;
+  level?: number;
+  mustReplyOnMention?: boolean;
+}
+
 export interface AgentLabPersona {
   id: string;
   ownerId: string;
@@ -243,6 +261,8 @@ export interface AgentLabPersona {
   models: AgentLabModels;
   /** 用户自定义提示，拼进 system prompt */
   customPrompt?: string;
+  /** 发言意愿配置（意愿闸调节；缺省=群聊按默认闸、私聊必回）。 */
+  willing?: AgentLabWillingConfig;
   /** 是否开启语音克隆（开后运行时允许 bot 自主发语音）。 */
   voiceCloneEnabled?: boolean;
   /** 语音 TTS 绑定（开启语音克隆后用哪个服务商 + 复刻/预置）。 */
@@ -291,6 +311,11 @@ export interface AgentLabChatRequest {
   typoIntensity?: number;
   /** 是否允许 bot 自主发语音（克隆体开了语音克隆 + 配了 TTS 时由 service 置 true）。 */
   voiceEnabled?: boolean;
+  /**
+   * 「此刻对当前说话人的感觉」语气指令（群聊 M4 注入，由 describeRelationTone 生成）。
+   * 让克隆体语气随关系好感/情绪变化。私聊路径一般不传。
+   */
+  relationNote?: string;
 }
 
 /**
@@ -321,4 +346,123 @@ export interface AgentLabChatResult {
   replyDelayMs: number;
   /** 第一张选中的自定义表情（兼容旧读取方；完整顺序见 actions）。 */
   sticker?: AgentLabStickerRef | null;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// 群聊（多克隆体）——M1 数据底座
+//
+// 视角升级：私聊是「一个克隆体 ↔ 我」的单线；群聊是「多个克隆体 + 我」同处一室，
+// 克隆体之间也会你来我往。这里只定义**领域类型 + 存储 port 接口**（存储无关），
+// JSON / SQLite 两种后端都实现同一组 port，引擎只依赖接口、不认识具体存储。
+// ──────────────────────────────────────────────────────────────────────────
+
+/** 群成员种类：'user' = 账号主人（我），'persona' = 某个克隆体。 */
+export type AgentLabMemberKind = 'user' | 'persona';
+
+/** 一个克隆体群聊。 */
+export interface AgentLabGroup {
+  id: string;
+  name: string;
+  /** 归属账号 uin（和 persona.ownerId 一致，账号隔离）。 */
+  ownerId: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * 群成员。memberId 语义按 kind 区分：
+ * - persona：memberId = personaId；
+ * - user：memberId = 账号 uin（便于将来 napcat 导出时对齐真实 QQ 号）。
+ */
+export interface AgentLabGroupMember {
+  groupId: string;
+  memberId: string;
+  kind: AgentLabMemberKind;
+  /** 群内显示名（克隆体名 / 「我」）。 */
+  displayName: string;
+  joinedAt: number;
+}
+
+/**
+ * 一条群消息（替代私聊的 ConversationTurn；带发送者身份 + @ + 引用）。
+ * text 沿用私聊的标记文本约定（[[sticker:md5]] / [[voice:id]] / 纯文本），
+ * 前端复用同一套四叉渲染，只是按 senderId 分气泡。
+ */
+export interface AgentLabGroupMessage {
+  id: string;
+  groupId: string;
+  /** 发送者 memberId（persona 的 personaId 或 user 的 uin）。 */
+  senderId: string;
+  senderKind: AgentLabMemberKind;
+  /** 标记文本（落库/few-shot 用）。 */
+  text: string;
+  /** 原始有序动作（可选，富渲染/调试用；纯文本消息可省）。 */
+  actions?: AgentLabChatAction[];
+  ts: number;
+  /** 回复的目标消息 id（可选）。 */
+  replyToId?: string;
+  /** @ 到的成员 memberId 列表（驱动 @必回）。 */
+  mentions?: string[];
+}
+
+/**
+ * 关系态（克隆体「主观」看某个人）。M4 才真正随互动更新并反哺意愿/语气，
+ * M1 先把类型和存储 port 落地，初值给中性基线。
+ */
+export interface AgentLabRelation {
+  /** 谁的视角（克隆体）。 */
+  subjectPersonaId: string;
+  /** 对谁（另一个成员）。 */
+  objectId: string;
+  objectKind: AgentLabMemberKind;
+  /** 好感度 0~100。 */
+  affinity: number;
+  /** 熟悉度 0~100（随互动次数缓慢增长）。 */
+  familiarity: number;
+  /** 最近情绪 -50~+50（对这个人当前的情绪，随时间回落到 0）。 */
+  mood: number;
+  /** 累计互动次数。 */
+  interactionCount: number;
+  lastInteractAt: number;
+  updatedAt: number;
+}
+
+/**
+ * 群/成员/群消息的存储 port（JSON 与 SQLite 后端共同实现）。
+ * 同步接口——JSON 是同步落盘、better-sqlite3 也是同步 API，二者天然对齐。
+ */
+export interface AgentLabGroupStore {
+  createGroup(input: { id: string; name: string; ownerId: string; now: number }): AgentLabGroup;
+  listGroups(ownerId: string): AgentLabGroup[];
+  getGroup(id: string): AgentLabGroup | null;
+  renameGroup(id: string, name: string, now: number): void;
+  deleteGroup(id: string): void;
+
+  setMembers(groupId: string, members: AgentLabGroupMember[]): void;
+  listMembers(groupId: string): AgentLabGroupMember[];
+  addMember(member: AgentLabGroupMember): void;
+  removeMember(groupId: string, memberId: string): void;
+
+  appendMessage(message: AgentLabGroupMessage): void;
+  /** 取最近 limit 条（时间正序返回；省略 limit 取全部）。 */
+  listMessages(groupId: string, limit?: number): AgentLabGroupMessage[];
+  clearMessages(groupId: string): void;
+}
+
+/** 关系态的存储 port（JSON 与 SQLite 后端共同实现）。 */
+export interface AgentLabRelationStore {
+  get(subjectPersonaId: string, objectId: string): AgentLabRelation | null;
+  listForSubject(subjectPersonaId: string): AgentLabRelation[];
+  upsert(relation: AgentLabRelation): void;
+  /**
+   * 按增量更新（不存在则以 base 初值创建），返回更新后的关系态。
+   * clamp 到各自区间；M4 的互动打分会调这个。
+   */
+  applyDelta(
+    subjectPersonaId: string,
+    objectId: string,
+    objectKind: AgentLabMemberKind,
+    delta: { affinity?: number; familiarity?: number; mood?: number },
+    now: number,
+  ): AgentLabRelation;
 }

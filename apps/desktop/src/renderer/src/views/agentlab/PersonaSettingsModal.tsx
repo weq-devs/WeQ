@@ -8,7 +8,7 @@
  */
 
 import { useState, type ReactElement, type ReactNode } from 'react';
-import { BarChart3, Download, FileText, Mic, Settings, Brain, X } from 'lucide-react';
+import { BarChart3, Download, FileText, Mic, Settings, Brain, Gauge, X } from 'lucide-react';
 import { Modal } from '../../components/Dialog';
 import { trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
@@ -71,15 +71,77 @@ function MemoryTab({ personaId }: { personaId: string }): ReactElement {
   );
 }
 
-type Tab = 'params' | 'prompt' | 'voice' | 'memory' | 'export';
+type Tab = 'params' | 'prompt' | 'willing' | 'voice' | 'memory' | 'export';
 
 const TABS: Array<{ id: Tab; label: string; icon: ReactElement }> = [
   { id: 'params', label: '训练参数', icon: <BarChart3 size={15} /> },
   { id: 'prompt', label: '额外提示', icon: <FileText size={15} /> },
+  { id: 'willing', label: '发言意愿', icon: <Gauge size={15} /> },
   { id: 'voice', label: '语音克隆', icon: <Mic size={15} /> },
   { id: 'memory', label: '记忆 / 画像', icon: <Brain size={15} /> },
   { id: 'export', label: '导出好友', icon: <Download size={15} /> },
 ];
+
+type WillingCfg = { gatePrivate?: boolean; level?: number; mustReplyOnMention?: boolean };
+
+/** 发言意愿：总体意愿档位 + 是否对私聊生效 + 被 @ 是否必回。 */
+function WillingTab({
+  persona,
+  onSaved,
+}: {
+  persona: { id: string; willing?: WillingCfg };
+  onSaved: () => void;
+}): ReactElement {
+  const dialog = useAppDialog();
+  const update = trpc.account.updateAgentLabPersona.useMutation();
+  const [level, setLevel] = useState(persona.willing?.level ?? 50);
+  const [mustReply, setMustReply] = useState(persona.willing?.mustReplyOnMention !== false);
+  const [gatePrivate, setGatePrivate] = useState(!!persona.willing?.gatePrivate);
+  const [saving, setSaving] = useState(false);
+
+  async function save(): Promise<void> {
+    setSaving(true);
+    try {
+      await update.mutateAsync({
+        personaId: persona.id,
+        willing: { level, mustReplyOnMention: mustReply, gatePrivate },
+      });
+      dialog.success('已保存', '发言意愿已更新');
+      onSaved();
+    } catch (e) {
+      dialog.error('保存失败', e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const levelHint = level >= 70 ? '话痨，很爱接话' : level <= 30 ? '高冷，多数时候潜水' : '看心情和话题';
+
+  return (
+    <div className="weq-persona-form">
+      <p className="weq-persona-note">
+        控制这个克隆体多爱说话。群聊里始终按意愿决定要不要接话；私聊默认必回，可在下方开启「私聊也按意愿」。
+      </p>
+      <label className="weq-agentlab-field">
+        <span>总体发言意愿：{level} · {levelHint}</span>
+        <input type="range" min={0} max={100} step={5} value={level} onChange={(e) => setLevel(Number(e.target.value))} />
+      </label>
+      <label className="weq-clone-check">
+        <input type="checkbox" checked={mustReply} onChange={(e) => setMustReply(e.target.checked)} />
+        <span>被 @ 时必定回复（关掉后被 @ 也可能不接）</span>
+      </label>
+      <label className="weq-clone-check">
+        <input type="checkbox" checked={gatePrivate} onChange={(e) => setGatePrivate(e.target.checked)} />
+        <span>私聊也按意愿（开启后 1:1 私聊里 TA 也可能懒得回你）</span>
+      </label>
+      <div className="weq-clone-actions">
+        <button className="weq-set-btn" disabled={saving} onClick={() => void save()}>
+          保存
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function Soon({ text }: { text: string }): ReactElement {
   return (
@@ -248,6 +310,7 @@ export function PersonaSettingsModal({
     voiceCloneEnabled?: boolean;
     voice?: VoiceBinding;
     voiceProfile?: { ratio: number; refClips?: unknown[] };
+    willing?: WillingCfg;
   };
   paramsContent: ReactNode;
   onClose: () => void;
@@ -308,6 +371,8 @@ export function PersonaSettingsModal({
                   </button>
                 </div>
               </div>
+            ) : tab === 'willing' ? (
+              <WillingTab persona={persona} onSaved={onSaved} />
             ) : tab === 'voice' ? (
               <VoiceTab persona={persona} onSaved={onSaved} />
             ) : tab === 'memory' ? (
