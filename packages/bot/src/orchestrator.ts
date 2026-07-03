@@ -21,9 +21,18 @@ function ts(): string {
   return new Date().toISOString().slice(11, 19);
 }
 
+/** 运行统计打点端口（WebUI 统计页用；缺省则不统计）。 */
+export interface StatsSink {
+  onMessageIn(ts?: number): void;
+  onMessageOut(ts?: number): void;
+  onReplyGenerated(): void;
+}
+
 export interface OrchestratorOptions {
   /** 是否参与群聊（M3）。默认关：只处理私聊。 */
   groupChat?: boolean;
+  /** 收发消息计数（WebUI 统计）。 */
+  stats?: StatsSink;
 }
 
 export class BotOrchestrator {
@@ -67,6 +76,7 @@ export class BotOrchestrator {
       console.log(`[${ts()}] └ 跳过：空文本且未@我`);
       return;
     }
+    this.opts.stats?.onMessageIn();
     if (msg.chatType === 'private') {
       await this.handlePrivate(msg);
     } else if (this.opts.groupChat) {
@@ -89,6 +99,7 @@ export class BotOrchestrator {
       console.log(`[${ts()}] └ 静默（私聊意愿闸未过）`);
       return;
     }
+    this.opts.stats?.onReplyGenerated();
     console.log(`[${ts()}] └ 生成 ${result.renderedTurns.length} 条: ${JSON.stringify(result.renderedTurns)}`);
     await this.deliver({ chatType: 'private', peerId: msg.peerId }, result.renderedTurns, result.replyDelayMs);
 
@@ -133,6 +144,7 @@ export class BotOrchestrator {
     history.push({ role: 'user', text: `「${msg.senderName}」：${msg.text}` });
 
     if (!result.silent && result.renderedTurns.length > 0) {
+      this.opts.stats?.onReplyGenerated();
       console.log(`[${ts()}]   生成 ${result.renderedTurns.length} 条: ${JSON.stringify(result.renderedTurns)}`);
       await this.deliver({ chatType: 'group', peerId: msg.peerId }, result.renderedTurns, result.replyDelayMs);
       for (const t of result.renderedTurns) history.push({ role: 'assistant', text: t });
@@ -152,6 +164,7 @@ export class BotOrchestrator {
       if (!segments) continue;
       try {
         await this.adapter.sendMessage(target, segments);
+        this.opts.stats?.onMessageOut();
         console.log(`[${ts()}]   发送 → ${target.chatType}:${target.peerId}: ${turn}`);
       } catch (err) {
         console.error(`[${ts()}]   发送失败:`, err instanceof Error ? err.message : err);

@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AccountSession } from '@weq/account';
 import {
@@ -258,6 +258,22 @@ function imageToDataUrl(path: string): string | null {
   } catch {
     return null;
   }
+}
+
+/** 一次导出产物的 WebUI 访问信息（存 bot_exports.json，供设置页查密钥 / 打开控制台）。 */
+export interface BotExportInfo {
+  /** WebUI 访问密钥（hex）。 */
+  key: string;
+  /** bot 编号（uuid）。 */
+  id: string;
+  /** WebUI 端口。 */
+  port: number;
+  /** 默认访问地址 http://127.0.0.1:<port>。 */
+  url: string;
+  /** 产物目录。 */
+  outDir: string;
+  /** 导出时间戳。 */
+  exportedAt: number;
 }
 
 export class AgentLabService extends EventEmitter {
@@ -850,6 +866,39 @@ export class AgentLabService extends EventEmitter {
   /** 完整 persona 记录（含全部 pairs），供导出 bot 用。 */
   getPersonaRecord(personaId: string): { persona: AgentLabPersona; pairs: AgentLabStoredPair[] } | null {
     return this.store.getPersona(personaId);
+  }
+
+  // ── 导出记录（id → WebUI 访问信息）：导出后在设置页可查密钥 / 打开控制台 ─────────
+  private get exportsPath(): string {
+    return join(this.rootDir, 'bot_exports.json');
+  }
+
+  private readExports(): Record<string, BotExportInfo> {
+    try {
+      if (existsSync(this.exportsPath)) {
+        return JSON.parse(readFileSync(this.exportsPath, 'utf-8')) as Record<string, BotExportInfo>;
+      }
+    } catch {
+      /* 损坏当空 */
+    }
+    return {};
+  }
+
+  /** 记录一次导出的 WebUI 访问信息（覆盖同 persona 的旧记录，保留最近一次）。 */
+  recordExport(personaId: string, info: BotExportInfo): void {
+    const all = this.readExports();
+    all[personaId] = info;
+    try {
+      mkdirSync(this.rootDir, { recursive: true });
+      writeFileSync(this.exportsPath, JSON.stringify(all, null, 2), 'utf-8');
+    } catch (e) {
+      this.logger.warn('保存导出记录失败', { error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  /** 读取某 persona 最近一次导出的 WebUI 访问信息（没有则 null）。 */
+  getExportInfo(personaId: string): BotExportInfo | null {
+    return this.readExports()[personaId] ?? null;
   }
 
   /** 该账号 agentlab 资产根目录（stickers/ 和 voice/ 在此），供导出复制资产。 */

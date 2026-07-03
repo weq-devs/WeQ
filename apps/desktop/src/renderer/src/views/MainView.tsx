@@ -2478,18 +2478,24 @@ export function MainView(): ReactElement {
     const scroll = document.querySelector<HTMLElement>('.weq-readonly-chat .message-scroll');
     if (!scroll) return undefined;
 
-    let secondFrame: number | null = null;
-    const firstFrame = window.requestAnimationFrame(() => {
-      secondFrame = window.requestAnimationFrame(() => {
-        scroll.scrollTop = Math.max(0, scroll.scrollHeight - restore.previousHeight + restore.previousTop);
-        pendingScrollRestoreRef.current = null;
-      });
+    const apply = (): void => {
+      scroll.scrollTop = Math.max(0, scroll.scrollHeight - restore.previousHeight + restore.previousTop);
+    };
+
+    // Restore synchronously (before paint) so the freshly prepended page keeps the
+    // reading position in a single layout pass. Deferring the whole restore with rAF
+    // let the browser paint one frame where scrollHeight had already grown but
+    // scrollTop was still at its old (near-top) value — which made the overlay
+    // scrollbar thumb snap to the top and back ("上下乱串"). We re-apply once more on
+    // the next frame in case a late reflow (e.g. a message measuring itself) shifts
+    // the height; with a stable height this is a no-op, so no visible jitter.
+    apply();
+    const frame = window.requestAnimationFrame(() => {
+      apply();
+      pendingScrollRestoreRef.current = null;
     });
 
-    return () => {
-      window.cancelAnimationFrame(firstFrame);
-      if (secondFrame !== null) window.cancelAnimationFrame(secondFrame);
-    };
+    return () => window.cancelAnimationFrame(frame);
   }, [selectedConversation?.id, templateMessages.length]);
 
   useEffect(() => {
@@ -2652,7 +2658,7 @@ export function MainView(): ReactElement {
             <OverlayScrollbar
               targetSelector=".app-shell .sidebar-body"
               className="weq-sidebar-scrollbar"
-              refreshKey={`sidebar:${shell.view}:${conversations.length}:${buddyContacts.length}:${shell.query}`}
+              refreshKey={`sidebar:${shell.view}:${shell.query}`}
             />
           </>
           )
@@ -2712,12 +2718,12 @@ export function MainView(): ReactElement {
             <OverlayScrollbar
               targetSelector=".weq-readonly-chat .message-scroll"
               className="weq-message-scrollbar"
-              refreshKey={`messages:${selectedConversation?.id ?? 'none'}:${templateMessages.length}`}
+              refreshKey={`messages:${selectedConversation?.id ?? 'none'}`}
             />
             <OverlayScrollbar
               targetSelector=".weq-readonly-chat .group-info-member-list"
               className="weq-group-members-scrollbar"
-              refreshKey={`group-members:${selectedConversation?.id ?? 'none'}:${currentGroupMembers.length}`}
+              refreshKey={`group-members:${selectedConversation?.id ?? 'none'}`}
             />
           </div>
         )

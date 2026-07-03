@@ -644,6 +644,7 @@ export const accountRouter = router({
         selfId: z.string().min(1),
         voice: z.boolean().optional(),
         groupChat: z.boolean().optional(),
+        webuiPort: z.number().int().min(1).max(65535).optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -695,8 +696,44 @@ export const accountRouter = router({
         adapter: { type: input.adapterType, wsUrl: input.wsUrl, token: input.token },
         selfId: input.selfId,
         features: { voice: input.voice ?? false, groupChat: input.groupChat ?? false },
+        webuiPort: input.webuiPort,
+      });
+      // 记录 id → WebUI 访问信息，导出后在设置页可查密钥 / 一键打开控制台。
+      svc.recordExport(input.personaId, {
+        key: result.webui.key,
+        id: result.webui.id,
+        port: result.webui.port,
+        url: result.webui.url,
+        outDir: result.outDir,
+        exportedAt: Date.now(),
       });
       return { canceled: false as const, ...result };
+    }),
+
+  /** 查某克隆体最近一次导出的 WebUI 访问信息（密钥/端口/url；没导出过则 null）。 */
+  getAgentLabExportInfo: procedure
+    .input(z.object({ personaId: z.string().min(1) }))
+    .query(({ input }) => {
+      return requireServices().agentLab.getExportInfo(input.personaId) ?? null;
+    }),
+
+  /**
+   * 打开某克隆体导出 bot 的 WebUI 控制台窗口（用存储的密钥自动登录）。
+   * 先探活默认地址（或用户传入的 url）；不可达则返回 { needUrl: true } 让前端提示输入地址。
+   */
+  openBotWebUi: procedure
+    .input(z.object({ personaId: z.string().min(1), url: z.string().optional() }))
+    .mutation(async ({ input }) => {
+      const svc = requireServices().agentLab;
+      const info = svc.getExportInfo(input.personaId);
+      if (!info) throw new Error('这个克隆体还没有导出过，请先导出机器人。');
+      const base = (input.url?.trim() || info.url).replace(/\/+$/, '');
+      const { probeBotWebUi, openBotWebUiWindow } = await import('../../bot_webui_window');
+      const reachable = await probeBotWebUi(base + '/');
+      if (!reachable) return { opened: false as const, needUrl: true as const, defaultUrl: info.url };
+      const persona = svc.getPersona(input.personaId);
+      await openBotWebUiWindow(base, info.key, persona?.name);
+      return { opened: true as const, needUrl: false as const };
     }),
 
   // ── 克隆体群聊（M2 群骨架）─────────────────────────────────────────────

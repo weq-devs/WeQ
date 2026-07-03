@@ -20,6 +20,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { Smile } from 'lucide-react';
 import type { FaceElement } from '@weq/codec';
 import { emojiUrl, resourceUrl } from '@renderer/lib/resourceUrl';
 import { cn } from '@renderer/lib/utils';
@@ -170,10 +171,20 @@ function FaceImage({
 }) {
   const [broken, setBroken] = useState(false);
 
+  // 图片加载失败 = 这个 faceId 超出了我们预设的所有表情范围（本地没有对应资源）。
+  // 不回退成文字 `[表情xxx]`（丑且不像表情），而是回退到一个纯线条的默认笑脸，
+  // 一眼能看出是「未知表情」的兜底占位。
   if (broken) {
+    const glyphSize = style?.width ?? '1.25em';
     return (
-      <span className={cn('face-emoji face-emoji-fallback', className)} title={label}>
-        {label}
+      <span
+        className={cn('face-emoji face-emoji-fallback', className)}
+        title={label}
+        role="img"
+        aria-label={label}
+        style={{ display: 'inline-flex', verticalAlign: style ? 'middle' : '-0.15em' }}
+      >
+        <Smile strokeWidth={1.5} style={{ width: glyphSize, height: glyphSize }} />
       </span>
     );
   }

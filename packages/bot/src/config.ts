@@ -36,6 +36,18 @@ export interface BotFeatures {
   groupChat?: boolean;
 }
 
+/** 本机 WebUI 控制台（统计 / 总览；导出时生成密钥+编号）。 */
+export interface WebUiConfig {
+  /** 是否启用（默认启用；关掉则 bot 不开端口）。 */
+  enabled?: boolean;
+  /** 监听端口（仅 127.0.0.1，默认 8090）。 */
+  port?: number;
+  /** 访问密钥（导出时随机生成的 hex）。 */
+  key: string;
+  /** bot 编号（导出时随机生成的 uuid，用于识别产物）。 */
+  id: string;
+}
+
 export interface BotConfig {
   adapter: AdapterConfig;
   /** bot 自己的 QQ 号（= AgentRuntime.selfId；用于区分「自己发的」消息）。 */
@@ -47,6 +59,8 @@ export interface BotConfig {
   /** TTS providers（导出自 AppSettings.voiceTranscribe.ttsProviders；persona.voice.providerId 指向）。 */
   ttsProviders?: TtsProviderConfig[];
   features?: BotFeatures;
+  /** 本机 WebUI 控制台配置（缺省则不启）。 */
+  webui?: WebUiConfig;
 }
 
 /**

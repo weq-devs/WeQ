@@ -14,6 +14,7 @@
  */
 import { existsSync } from 'node:fs';
 import { copyFile, mkdir, writeFile } from 'node:fs/promises';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { basename, join } from 'node:path';
 import type { AgentLabPersona, AgentLabStoredPair, TtsProviderConfig } from '@weq/agentlab';
 
@@ -40,12 +41,16 @@ export interface BotExportInput {
   /** bot 自己的 QQ 号。 */
   selfId: string;
   features: { voice: boolean; groupChat: boolean };
+  /** 本机 WebUI 控制台端口（默认 8090）。 */
+  webuiPort?: number;
 }
 
 export interface BotExportResult {
   outDir: string;
   stickerCount: number;
   voiceClipCount: number;
+  /** 生成的 WebUI 访问信息（密钥请提示用户妥善保管）。 */
+  webui: { port: number; key: string; id: string; url: string };
 }
 
 async function copyIfExists(src: string, dest: string): Promise<boolean> {
@@ -94,7 +99,14 @@ export async function buildBotExport(input: BotExportInput): Promise<BotExportRe
     'utf-8',
   );
 
-  // 4) config.json。
+  // 4) config.json（含随机生成的 WebUI 访问密钥 + bot 编号）。
+  const webuiPort = input.webuiPort && input.webuiPort > 0 ? input.webuiPort : 8090;
+  const webui = {
+    enabled: true,
+    port: webuiPort,
+    key: randomBytes(16).toString('hex'), // 32 位 hex 密钥
+    id: randomUUID(),
+  };
   const config = {
     adapter: { type: input.adapter.type, wsUrl: input.adapter.wsUrl, token: input.adapter.token ?? '' },
     selfId: input.selfId,
@@ -102,6 +114,7 @@ export async function buildBotExport(input: BotExportInput): Promise<BotExportRe
     llmProviders: input.llmProviders,
     ttsProviders: input.ttsProviders,
     features: input.features,
+    webui,
   };
   await writeFile(join(input.outDir, 'config.json'), JSON.stringify(config, null, 2), 'utf-8');
 
@@ -120,9 +133,15 @@ export async function buildBotExport(input: BotExportInput): Promise<BotExportRe
   await writeFile(join(input.outDir, 'package.json'), JSON.stringify(pkg, null, 2), 'utf-8');
 
   // 7) README。
-  await writeFile(join(input.outDir, 'README.md'), renderReadme(persona.name, input), 'utf-8');
+  const webuiUrl = `http://127.0.0.1:${webuiPort}`;
+  await writeFile(join(input.outDir, 'README.md'), renderReadme(persona.name, input, { ...webui, url: webuiUrl }), 'utf-8');
 
-  return { outDir: input.outDir, stickerCount, voiceClipCount };
+  return {
+    outDir: input.outDir,
+    stickerCount,
+    voiceClipCount,
+    webui: { port: webuiPort, key: webui.key, id: webui.id, url: webuiUrl },
+  };
 }
 
 function sanitizeName(name: string): string {
@@ -136,16 +155,24 @@ import { dirname, join } from 'node:path';
 import { startBot } from './bot.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const config = JSON.parse(readFileSync(join(here, 'config.json'), 'utf-8'));
-config.personaDir = join(here, config.personaDir);
+// 每次（含重载）都重读 config.json，改配置后从 WebUI「重载配置」即可生效，无需手动重启。
+function loadConfig() {
+  const config = JSON.parse(readFileSync(join(here, 'config.json'), 'utf-8'));
+  config.personaDir = join(here, config.personaDir);
+  return config;
+}
 
-startBot(config).then(
+startBot(loadConfig(), { reloadConfig: loadConfig }).then(
   () => console.log('克隆体 bot 已启动。Ctrl+C 退出。'),
   (err) => { console.error('启动失败:', err); process.exit(1); },
 );
 `;
 
-function renderReadme(name: string, input: BotExportInput): string {
+function renderReadme(
+  name: string,
+  input: BotExportInput,
+  webui: { port: number; key: string; id: string; url: string },
+): string {
   return `# ${name} · 克隆体 Bot
 
 由 WeQ 导出。这是一个自包含的 OneBot bot，连接 **${input.adapter.type}** 后即可让克隆体作为 QQ bot 上线。
@@ -157,6 +184,16 @@ npm install    # 安装 ws（唯一运行时依赖）
 npm start
 \`\`\`
 
+启动后 bot 会自动开启本机 **WebUI 控制台**，可查看 token 消耗、收发消息统计与克隆体总览。
+
+## WebUI 控制台
+
+- 地址：${webui.url}
+- 访问密钥（首次打开需输入）：\`${webui.key}\`
+- bot 编号：\`${webui.id}\`
+
+> 控制台仅监听 \`127.0.0.1\`（本机），用上面的密钥鉴权。改端口 / 关闭：编辑 \`config.json\` 的 \`webui\` 段。
+
 ## 配置（config.json）
 
 - \`adapter.wsUrl\`：${input.adapter.type} 的正向 WebSocket 地址（当前：\`${input.adapter.wsUrl}\`）。
@@ -164,9 +201,10 @@ npm start
 - \`selfId\`：bot 的 QQ 号（当前：\`${input.selfId}\`）。
 - \`features.voice\`：是否允许发语音（当前：${input.features.voice ? '开' : '关'}）。
 - \`features.groupChat\`：是否参与群聊（当前：${input.features.groupChat ? '开' : '关'}）。
+- \`webui.port\`：控制台端口（当前：\`${webui.port}\`）；\`webui.enabled\` 设为 false 可关闭。
 
 ## ⚠️ 安全提示
 
-\`config.json\` 里含有你的 **LLM / TTS API Key**（明文）。请妥善保管这个文件夹，不要公开分享。
+\`config.json\` 里含有你的 **LLM / TTS API Key**（明文）以及 **WebUI 访问密钥**。请妥善保管这个文件夹，不要公开分享。
 `;
 }

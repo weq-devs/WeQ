@@ -7323,6 +7323,48 @@ html[data-theme="dark"] .weq-forward-bubble {
 .weq-clone-check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--weq-fg-primary); }
 .weq-clone-check input { flex: none; }
 .weq-clone-check > svg { flex: none; color: var(--weq-fg-muted); }
+.weq-clone-check.is-disabled { color: var(--weq-fg-muted); cursor: not-allowed; }
+.weq-clone-check.is-disabled input { cursor: not-allowed; }
+
+/* 导出页：可折叠的「使用说明」 */
+.weq-collapse { border: 1px solid var(--weq-border-subtle); border-radius: 10px; overflow: hidden;
+  background: color-mix(in srgb, var(--weq-bg-surface) 60%, transparent); }
+.weq-collapse-head {
+  width: 100%; display: flex; align-items: center; gap: 8px; padding: 9px 12px; font-size: 12.5px;
+  color: var(--weq-fg-secondary); background: none; border: none; cursor: pointer; text-align: left;
+}
+.weq-collapse-head:hover { color: var(--weq-fg-primary); }
+.weq-collapse-head > svg:first-child { color: var(--weq-accent-effective); flex: none; }
+.weq-collapse-chev { margin-left: auto; flex: none; transition: transform .18s ease; color: var(--weq-fg-muted); }
+.weq-collapse-chev.is-open { transform: rotate(180deg); }
+.weq-collapse-body { padding: 0 12px 11px; margin: 0; }
+
+/* 导出页：已导出「运行配置」卡 */
+.weq-bot-runtime {
+  display: flex; flex-direction: column; gap: 10px; padding: 13px 14px; border-radius: 12px;
+  border: 1px solid var(--weq-border-strong);
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, var(--weq-bg-surface));
+}
+.weq-bot-runtime-head { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600;
+  color: var(--weq-fg-primary); }
+.weq-bot-runtime-head > svg { color: var(--weq-accent-effective); flex: none; }
+.weq-bot-runtime-port { margin-left: auto; font-size: 11.5px; font-weight: 500; color: var(--weq-fg-muted);
+  padding: 2px 8px; border-radius: 999px; border: 1px solid var(--weq-border-subtle); }
+.weq-bot-keyrow { display: flex; align-items: center; gap: 8px; }
+.weq-bot-keyrow > svg { flex: none; color: var(--weq-fg-muted); }
+.weq-bot-key {
+  flex: 1; min-width: 0; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 12px;
+  color: var(--weq-fg-secondary); background: var(--weq-bg-elevated); border: 1px solid var(--weq-border-subtle);
+  border-radius: 7px; padding: 6px 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.weq-bot-iconbtn {
+  flex: none; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 7px;
+  color: var(--weq-fg-secondary); border: 1px solid var(--weq-border-subtle); background: var(--weq-bg-surface);
+  transition: background .15s, color .15s;
+}
+.weq-bot-iconbtn:hover { background: var(--weq-bg-elevated); color: var(--weq-fg-primary); }
+.weq-bot-urlrow { display: flex; align-items: center; gap: 8px; }
+.weq-bot-urlrow .weq-set-input { flex: 1; min-width: 0; }
 
 /* 「分析表情包」开关卡：勾选后在同一张卡内露出视觉模型选择，避免选择框孤零零格格不入。 */
 .weq-clone-toggle-card {
