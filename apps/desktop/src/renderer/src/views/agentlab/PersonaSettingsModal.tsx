@@ -8,7 +8,22 @@
  */
 
 import { useState, type ReactElement, type ReactNode } from 'react';
-import { BarChart3, Download, FileText, Mic, Settings, Brain, Gauge, X } from 'lucide-react';
+import {
+  BarChart3,
+  Download,
+  FileText,
+  Mic,
+  Settings,
+  Brain,
+  Gauge,
+  X,
+  Plug,
+  Link2,
+  KeyRound,
+  UserRound,
+  AudioLines,
+  Users,
+} from 'lucide-react';
 import { Modal } from '../../components/Dialog';
 import { trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
@@ -139,16 +154,6 @@ function WillingTab({
           保存
         </button>
       </div>
-    </div>
-  );
-}
-
-function Soon({ text }: { text: string }): ReactElement {
-  return (
-    <div className="weq-persona-soon">
-      <Settings size={28} strokeWidth={1.4} />
-      <p>{text}</p>
-      <span className="weq-agentlab-soon">即将推出</span>
     </div>
   );
 }
@@ -297,6 +302,101 @@ function VoiceTab({
   );
 }
 
+/** 「导出好友」页：填 napcat/snowluma 连接信息，把克隆体导出成独立 bot 产物。 */
+function ExportTab({
+  persona,
+}: {
+  persona: { id: string; name: string; voiceCloneEnabled?: boolean };
+}): ReactElement {
+  const dialog = useAppDialog();
+  const exportMut = trpc.account.exportAgentLabPersona.useMutation();
+  const [adapterType, setAdapterType] = useState<'napcat' | 'snowluma'>('napcat');
+  const [wsUrl, setWsUrl] = useState('ws://127.0.0.1:8081');
+  const [token, setToken] = useState('');
+  const [selfId, setSelfId] = useState('');
+  const [voice, setVoice] = useState(!!persona.voiceCloneEnabled);
+  const [groupChat, setGroupChat] = useState(false);
+
+  async function doExport(): Promise<void> {
+    if (!wsUrl.trim()) {
+      dialog.error('缺少信息', '请填写 WebSocket 地址');
+      return;
+    }
+    if (!selfId.trim()) {
+      dialog.error('缺少信息', '请填写 bot 的 QQ 号');
+      return;
+    }
+    try {
+      const r = await exportMut.mutateAsync({
+        personaId: persona.id,
+        adapterType,
+        wsUrl: wsUrl.trim(),
+        token: token.trim() || undefined,
+        selfId: selfId.trim(),
+        voice,
+        groupChat,
+      });
+      if (r.canceled) return;
+      dialog.success(
+        '导出成功',
+        `已导出到：\n${r.outDir}\n\n表情 ${r.stickerCount} 张 / 语音参考 ${r.voiceClipCount} 条。\n进入该目录执行 npm install && npm start 即可让 bot 上线。`,
+      );
+    } catch (e) {
+      dialog.error('导出失败', e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  return (
+    <div className="weq-persona-form">
+      <p className="weq-persona-note">
+        把「{persona.name}」导出成独立机器人：连接 NapCat / SnowLuma 后即可作为真 QQ 机器人上线。导出的
+        <code>config.json</code> 含 API Key，请妥善保管产物文件夹。
+      </p>
+
+      <label className="weq-agentlab-field">
+        <span><Plug size={13} /> 适配器</span>
+        <select value={adapterType} onChange={(e) => setAdapterType(e.target.value as 'napcat' | 'snowluma')}>
+          <option value="napcat">NapCat</option>
+          <option value="snowluma">SnowLuma</option>
+        </select>
+      </label>
+
+      <label className="weq-agentlab-field">
+        <span><Link2 size={13} /> WebSocket 地址</span>
+        <input value={wsUrl} onChange={(e) => setWsUrl(e.target.value)} placeholder="ws://127.0.0.1:8081" />
+      </label>
+
+      <label className="weq-agentlab-field">
+        <span><KeyRound size={13} /> 连接 Token（没有可留空）</span>
+        <input value={token} onChange={(e) => setToken(e.target.value)} placeholder="Authorization 鉴权 token" />
+      </label>
+
+      <label className="weq-agentlab-field">
+        <span><UserRound size={13} /> 机器人 QQ 号</span>
+        <input value={selfId} onChange={(e) => setSelfId(e.target.value)} placeholder="机器人登录的 QQ 号" />
+      </label>
+
+      <label className="weq-clone-check">
+        <input type="checkbox" checked={voice} onChange={(e) => setVoice(e.target.checked)} />
+        <AudioLines size={14} />
+        <span>允许发语音（需已开启语音克隆）</span>
+      </label>
+
+      <label className="weq-clone-check">
+        <input type="checkbox" checked={groupChat} onChange={(e) => setGroupChat(e.target.checked)} />
+        <Users size={14} />
+        <span>参与群聊（被 @ 或聊到感兴趣的话题时才接话）</span>
+      </label>
+
+      <div className="weq-clone-actions">
+        <button className="weq-set-btn" disabled={exportMut.isLoading} onClick={() => void doExport()}>
+          {exportMut.isLoading ? '导出中…' : '导出机器人'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function PersonaSettingsModal({
   persona,
   paramsContent,
@@ -378,7 +478,7 @@ export function PersonaSettingsModal({
             ) : tab === 'memory' ? (
               <MemoryTab personaId={persona.id} />
             ) : (
-              <Soon text="把这个克隆体（含画像 / 语料 / 表情）导出为可分享或可接入 QQ 适配器的文件。依赖导出能力。" />
+              <ExportTab persona={persona} />
             )}
           </div>
         </div>

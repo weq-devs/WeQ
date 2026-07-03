@@ -219,3 +219,5 @@ export type {
   TtsCapabilities,
   TtsVendorCatalogEntry,
 } from '@weq/agentlab';
+export { buildBotExport } from './account/agentlab_export';
+export type { BotExportInput, BotExportResult, BotExportLlmProvider } from './account/agentlab_export';

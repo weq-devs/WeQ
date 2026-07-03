@@ -847,6 +847,16 @@ export class AgentLabService extends EventEmitter {
     return this.store.getPersona(personaId)?.persona ?? null;
   }
 
+  /** 完整 persona 记录（含全部 pairs），供导出 bot 用。 */
+  getPersonaRecord(personaId: string): { persona: AgentLabPersona; pairs: AgentLabStoredPair[] } | null {
+    return this.store.getPersona(personaId);
+  }
+
+  /** 该账号 agentlab 资产根目录（stickers/ 和 voice/ 在此），供导出复制资产。 */
+  get assetRoot(): string {
+    return this.rootDir;
+  }
+
   /**
    * 按 md5 解析某克隆体的自定义表情包本地路径（供 weq-media://sticker 协议读取）。
    * 找不到 persona / 表情 / 文件不存在时返回 null。

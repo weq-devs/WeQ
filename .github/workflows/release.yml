@@ -35,6 +35,11 @@ jobs:
       - name: Sync version from tag
         run: node scripts/set-version.mjs ${{ github.ref_name }}
 
+      # Bundle the clone-export bot engine to resources/bot-runtime/bot.mjs so
+      # electron-builder ships it; the "导出好友" feature copies it into products.
+      - name: Build clone-bot runtime
+        run: pnpm run build:bot
+
       - name: Build renderer + main
         run: pnpm --filter @weq/desktop exec electron-vite build
 

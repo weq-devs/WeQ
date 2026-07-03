@@ -6484,11 +6484,21 @@ html[data-theme="dark"] .weq-forward-bubble {
 }
 
 .weq-agentlab-field span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   color: var(--weq-fg-secondary);
 }
 
+.weq-agentlab-field span svg {
+  color: var(--weq-fg-muted);
+  flex: none;
+}
+
 .weq-agentlab-field select,
+.weq-agentlab-field input,
+.weq-agentlab-field textarea,
 .weq-agentlab-composer textarea {
   width: 100%;
   border: 1px solid var(--weq-border-subtle);
@@ -6499,9 +6509,14 @@ html[data-theme="dark"] .weq-forward-bubble {
   font-size: 13px;
 }
 
-.weq-agentlab-field select {
+.weq-agentlab-field select,
+.weq-agentlab-field input {
   min-height: 40px;
   padding: 0 12px;
+}
+
+.weq-agentlab-field input::placeholder {
+  color: var(--weq-fg-muted);
 }
 
 /* 选中输入框：边框统一走主题色（聊天 composer / 各配置面板 / 克隆体设置）。 */
@@ -7307,6 +7322,7 @@ html[data-theme="dark"] .weq-forward-bubble {
 }
 .weq-clone-check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--weq-fg-primary); }
 .weq-clone-check input { flex: none; }
+.weq-clone-check > svg { flex: none; color: var(--weq-fg-muted); }
 
 /* 「分析表情包」开关卡：勾选后在同一张卡内露出视觉模型选择，避免选择框孤零零格格不入。 */
 .weq-clone-toggle-card {

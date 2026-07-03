@@ -8,6 +8,7 @@ import {
   type AgentLabModelRef,
   type AgentLabProviderCatalogEntry,
   type AgentLabProviderConfig,
+  type TtsProviderConfig,
 } from '@weq/agentlab';
 import type { UserConfigService } from './user_config';
 
@@ -33,6 +34,11 @@ export class AgentLabConfigService {
 
   getProvider(providerId: string): AgentLabProviderConfig | null {
     return this.listProviders().find((item) => item.id === providerId) ?? null;
+  }
+
+  /** 按 id 取 TTS provider 配置（供导出 bot 打包语音配置）。 */
+  getTtsProvider(providerId: string): TtsProviderConfig | null {
+    return this.userConfig.getSettings().voiceTranscribe.ttsProviders.find((p) => p.id === providerId) ?? null;
   }
 
   /** 把 agent 里的「某任务用哪个 provider 的哪个 model」解析成可调用端点。 */

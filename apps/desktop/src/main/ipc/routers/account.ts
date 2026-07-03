@@ -18,6 +18,8 @@ import { randomUUID } from 'node:crypto';
 import { basename, dirname, extname, join } from 'node:path';
 import { getAppContext, dbEventBus, type AccountServices } from '../../context/app_context';
 import { sampleHitokoto } from '../../hitokoto';
+import { resolveResource } from '../../resource';
+import { dialog } from 'electron';
 import { procedure, router } from '../trpc';
 import { assistantBus, type AssistantStreamEvent } from '../../mcp/assistant_bus';
 import { groupChatBus, type GroupChatStreamEvent } from '../../mcp/agentlab_group_bus';
@@ -27,6 +29,7 @@ import {
   PRIVATE_PTT_RKEY_TYPE,
   GROUP_PTT_RKEY_TYPE,
   getVoiceModel,
+  buildBotExport,
   type AlbumMedia,
   type NewMessages,
   type DbChange,
@@ -628,6 +631,72 @@ export const accountRouter = router({
     .input(z.object({ personaId: z.string().min(1) }))
     .mutation(({ input }) => {
       return requireServices().agentLab.deletePersona(input.personaId);
+    }),
+
+  /** 导出克隆体为独立 OneBot bot（napcat/snowluma）产物文件夹。 */
+  exportAgentLabPersona: procedure
+    .input(
+      z.object({
+        personaId: z.string().min(1),
+        adapterType: z.enum(['napcat', 'snowluma']),
+        wsUrl: z.string().min(1),
+        token: z.string().optional(),
+        selfId: z.string().min(1),
+        voice: z.boolean().optional(),
+        groupChat: z.boolean().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const ctx = getAppContext();
+      const svc = ctx.services?.agentLab;
+      const cfg = ctx.bootstrap?.agentLabConfig;
+      if (!svc || !cfg) throw new Error('账号未就绪');
+      const record = svc.getPersonaRecord(input.personaId);
+      if (!record) throw new Error('找不到克隆体');
+      const { persona } = record;
+
+      // 抽 persona 用到的 LLM providers（chat/embedding/vision，去重）。
+      const llmIds = new Set<string>();
+      for (const m of [persona.models.chat, persona.models.embedding, persona.models.vision]) {
+        if (m?.providerId) llmIds.add(m.providerId);
+      }
+      const llmProviders: Array<{ id: string; baseUrl: string; apiKey: string }> = [];
+      for (const id of llmIds) {
+        const p = cfg.getProvider(id);
+        if (!p) throw new Error(`缺少 LLM provider 配置：${id}（请先在设置里配置该厂商）`);
+        llmProviders.push({ id: p.id, baseUrl: p.baseUrl, apiKey: p.apiKey });
+      }
+      // 抽 TTS provider（若绑了语音克隆）。
+      const ttsProviders = persona.voice?.providerId
+        ? [cfg.getTtsProvider(persona.voice.providerId)].filter((t): t is NonNullable<typeof t> => t !== null)
+        : [];
+
+      // 定位预打包引擎。
+      const botMjs = resolveResource('bot-runtime', 'bot.mjs');
+      if (!botMjs) throw new Error('找不到 bot 引擎 bot.mjs（开发环境请先运行 pnpm build:bot）');
+
+      // 选输出位置。
+      const picked = await dialog.showOpenDialog({
+        title: '选择导出位置',
+        properties: ['openDirectory', 'createDirectory'],
+      });
+      if (picked.canceled || !picked.filePaths[0]) return { canceled: true as const };
+      const safeName = (persona.name || 'clone').replace(/[^\w一-龥-]+/g, '_').slice(0, 40) || 'clone';
+      const outDir = join(picked.filePaths[0], `${safeName}-bot`);
+
+      const result = await buildBotExport({
+        outDir,
+        botRuntimeMjs: botMjs,
+        persona,
+        pairs: record.pairs,
+        agentlabRoot: svc.assetRoot,
+        llmProviders,
+        ttsProviders,
+        adapter: { type: input.adapterType, wsUrl: input.wsUrl, token: input.token },
+        selfId: input.selfId,
+        features: { voice: input.voice ?? false, groupChat: input.groupChat ?? false },
+      });
+      return { canceled: false as const, ...result };
     }),
 
   // ── 克隆体群聊（M2 群骨架）─────────────────────────────────────────────

@@ -14,7 +14,8 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runPersonaChat, embedTexts } from './http';
 import { scoreReplyGate, willingLevelBias } from './reply_gate';
-import { distillMemories, reflectConversation } from './extract';
+import { describeRelationTone } from './relation';
+import { distillMemories, reflectConversation, scoreInteractionSentiment } from './extract';
 import type { AgentLabStore } from './store';
 import type {
   AgentLabPersona,
@@ -62,6 +63,8 @@ export interface ConversationSink {
 /** 记忆库落点（MemoryStore 满足）。 */
 export interface MemorySink {
   get(personaId: string): AgentLabMemoryItem[];
+  /** 只取「关于指定成员」的记忆（群聊防串人）；includeUntagged=true 把无 aboutId 的旧记忆也算上。 */
+  getAbout(personaId: string, aboutIds: string[], includeUntagged?: boolean): AgentLabMemoryItem[];
   touch(personaId: string, ids: string[], now: number): void;
   add(
     personaId: string,
@@ -468,5 +471,101 @@ export class AgentRuntime {
     } catch {
       /* 对话反思失败不影响聊天 */
     }
+  }
+
+  /**
+   * 群聊入口（单 persona 在真实群）：先过意愿闸决定要不要回，回则用群历史 + 对该群友的关系态生成回复，
+   * 并异步更新对该群友的关系。不做多克隆连锁（那是桌面内玩法）。
+   */
+  async handleGroupMessage(input: {
+    personaId: string;
+    senderId: string;
+    senderName: string;
+    text: string;
+    mentionsSelf: boolean;
+    history: AgentLabChatTurn[];
+    /** 最近若干条里自己的占比（存在感惩罚，0~1）。 */
+    selfShareRecent?: number;
+    /** 距自己上次发言的毫秒数（冷却）。 */
+    msSinceOwnLastReply?: number;
+  }): Promise<{ renderedTurns: string[]; replyDelayMs: number; silent: boolean; reason: string; score: number }> {
+    const record = this.store.getPersona(input.personaId);
+    if (!record?.persona.models?.chat) return { renderedTurns: [], replyDelayMs: 0, silent: true, reason: 'no-chat-model', score: 0 };
+    const persona = record.persona;
+    const willing = persona.willing;
+    const relation = this.relations.get(input.personaId, input.senderId);
+
+    const decision = scoreReplyGate({
+      text: input.text,
+      personaName: persona.name,
+      mentioned: input.mentionsSelf,
+      fromOwner: false,
+      interestTerms: this.personaInterestTerms(persona),
+      relation,
+      selfShareRecent: input.selfShareRecent,
+      msSinceOwnLastReply: input.msSinceOwnLastReply,
+      levelBias: willingLevelBias(willing?.level),
+      mustReplyOnMention: willing?.mustReplyOnMention !== false,
+    });
+    if (!decision.shouldReply) {
+      return { renderedTurns: [], replyDelayMs: decision.replyDelayMs, silent: true, reason: decision.reason, score: decision.score };
+    }
+
+    const ctx = { personaId: input.personaId, scope: 'chat' as const };
+    const chatEndpoint = this.resolveWithUsage(persona.models.chat, 'chat', ctx);
+    const embeddingEndpoint = persona.models.embedding
+      ? this.resolveWithUsage(persona.models.embedding, 'embedding', ctx)
+      : null;
+    const relationNote = relation ? describeRelationTone(relation) : undefined;
+    // 只召回「关于这个群友」的记忆，防串人（includeUntagged=true 把旧的无标记记忆也算上）。
+    const memories = this.memories.getAbout(input.personaId, [input.senderId], true);
+    const now = Date.now();
+    const { renderedTurns } = await this.generatePersonaTurns(persona, record.pairs, {
+      chatEndpoint,
+      embeddingEndpoint,
+      history: input.history,
+      input: `「${input.senderName}」：${input.text}`,
+      now,
+      relationNote,
+      memories,
+    });
+
+    // 异步更新对该群友的关系（不阻塞回复）。
+    this.updateGroupRelation(
+      input.personaId,
+      persona.name,
+      input.senderId,
+      `对方(${input.senderName})：${input.text}\n你：${renderedTurns.join(' ')}`,
+      chatEndpoint,
+    );
+    return { renderedTurns, replyDelayMs: decision.replyDelayMs, silent: false, reason: decision.reason, score: decision.score };
+  }
+
+  /**
+   * 一段群聊互动后更新「克隆体 → 群友」的关系态。fire-and-forget：
+   * 每次互动熟悉度 +2；每 5 次互动做一次 LLM 情感打分调 affinity/mood。
+   */
+  private updateGroupRelation(
+    personaId: string,
+    personaName: string,
+    objectId: string,
+    exchange: string,
+    endpoint: AgentLabEndpoint,
+  ): void {
+    void (async () => {
+      try {
+        const prev = this.relations.get(personaId, objectId);
+        const nextCount = (prev?.interactionCount ?? 0) + 1;
+        const delta: { familiarity: number; affinity?: number; mood?: number } = { familiarity: 2 };
+        if (nextCount % 5 === 0) {
+          const s = await scoreInteractionSentiment(endpoint, personaName, exchange);
+          delta.affinity = s.affinityDelta;
+          delta.mood = s.moodDelta;
+        }
+        this.relations.applyDelta(personaId, objectId, 'user', delta, Date.now());
+      } catch {
+        /* 关系更新失败不影响聊天 */
+      }
+    })();
   }
 }

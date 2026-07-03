@@ -5,7 +5,7 @@
  * Orchestrator(编排)，连上 ws 即上线。产物的 index.mjs 读 config.json 后调用它。
  */
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import {
   AgentLabStore,
   AgentRuntime,
@@ -19,11 +19,11 @@ import { createAdapter } from './adapter/onebot';
 import type { AssetResolver } from './normalize/outbound';
 import { BotOrchestrator } from './orchestrator';
 import {
-  InMemoryConversationStore,
-  InMemoryMemoryStore,
-  InMemoryNotesStore,
+  JsonConversationStore,
+  JsonMemoryStore,
+  JsonNotesStore,
   NoopUsageStore,
-  StubRelationStore,
+  JsonRelationStore,
 } from './stores';
 
 const consoleLogger: RuntimeLogger = {
@@ -60,15 +60,32 @@ export async function startBot(config: BotConfig): Promise<{ stop: () => void }>
   const persona = store.listPersonas()[0];
   if (!persona) throw new Error(`personaDir 里没有克隆体数据: ${config.personaDir}`);
 
+  // 导出产物里语音参考 refClips[].path 是相对 personaDir 的（如 voice/x.wav）——补成绝对并回写一次，
+  // 这样 AgentRuntime 内部 store.getPersona 拿到的路径可直接读到 wav。
+  const refClips = persona.voiceProfile?.refClips ?? [];
+  let patched = false;
+  for (const clip of refClips) {
+    if (clip.path && !isAbsolute(clip.path)) {
+      clip.path = join(config.personaDir, clip.path);
+      patched = true;
+    }
+  }
+  if (patched) {
+    const rec = store.getPersona(persona.id);
+    if (rec) store.savePersona({ persona, pairs: rec.pairs });
+  }
+
+  // 记忆 / 关系 / 对话历史落盘到产物 data/ 目录（personaDir 的同级），**重启保持**。
+  const dataDir = join(config.personaDir, '..', 'data');
   const runtime = new AgentRuntime({
     rootDir: config.personaDir,
     store,
     endpoints: buildEndpointResolver(config.llmProviders),
     usage: new NoopUsageStore(),
-    conversations: new InMemoryConversationStore(),
-    memories: new InMemoryMemoryStore(),
-    notes: new InMemoryNotesStore(),
-    relations: new StubRelationStore(),
+    conversations: new JsonConversationStore(join(dataDir, 'conversations.json')),
+    memories: new JsonMemoryStore(join(dataDir, 'memories.json')),
+    notes: new JsonNotesStore(join(dataDir, 'notes.json')),
+    relations: new JsonRelationStore(join(dataDir, 'relations.json')),
     selfId: config.selfId,
     tts: buildTtsPort(config),
     logger: consoleLogger,
@@ -98,5 +115,6 @@ export type { BotConfig, AdapterConfig, AdapterType, BotLlmProvider, BotFeatures
 export { createAdapter, NapcatAdapter, SnowLumaAdapter, BaseOneBotAdapter } from './adapter/onebot';
 export type { OneBot11Adapter, OneBotSegment, IncomingEvent, SendTarget } from './adapter/types';
 export { BotOrchestrator } from './orchestrator';
+export { BotCapabilities } from './capabilities';
 export { normalizeInbound, type NormalizedMessage } from './normalize/inbound';
 export { encodeTurn, type AssetResolver } from './normalize/outbound';
