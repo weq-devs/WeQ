@@ -256,19 +256,19 @@ function buildSystemPrompt(
   if (systemFaces.length > 0) {
     lines.push(
       `系统表情：你偶尔用这几个（仅当语气合适时，别每条都带）——${systemFaces.join(' ')}。` +
-        `这些是 QQ 固定的系统表情，你只能从这个列表里原样挑用，绝对不要自己造别的「/动作」（比如 /吃饭 /睡觉 这种是不存在的）。`,
+        `这些是 QQ 固定的系统表情，直接原样写在 text 消息的文字里即可（如「哈哈哈 /捂脸」）；你只能从这个列表里挑用，绝对不要自己造别的「/动作」（比如 /吃饭 /睡觉 这种是不存在的）。`,
     );
   }
 
   // 自定义表情包：给一份「编号 + 真实内容」的清单，让模型看着内容自己挑哪张——
-  // 它清楚知道自己发的是什么（不再是吐个情绪词让后端盲匹配）。发图只走 [[发表情:序号]]。
+  // 它清楚知道自己发的是什么。发表情 = 一条独立的 emoji 消息，content 填编号（见【输出格式】）。
   const stickers = (persona.stickers ?? []).filter((s) => s.description);
   if (stickers.length > 0) {
     lines.push(
       '',
-      '【你的表情包】（你常用的几张自定义表情，看清楚每张是什么，想发哪张就单独一行写 `[[发表情:序号]]`）：',
+      '【你的表情包】（你常用的几张自定义表情，看清楚每张是什么，想发哪张就作为一条 emoji 消息发）：',
       ...stickers.map((s, i) => `${i + 1}. ${s.description}${s.scenario ? `（${s.scenario}）` : ''}`),
-      '发表情规则：挑你**真正想表达**的那张，单独一行输出 `[[发表情:序号]]`（序号就是上面的数字）。' +
+      '发表情规则：挑你**真正想表达**的那张，作为一条独立消息 `{"type":"emoji","content":"编号"}`（编号就是上面的数字）。' +
         '绝对不要用文字去旁白一个表情（写成「（捂脸）」「[狗头]」「企鹅吐舌」都是错的，发不出图、只会变尬文字）。' +
         '表情通常是"单独回一个表情"代替打字（对方说了句好笑的，你就只回个表情、别的不发），而不是每条话后面都补一个——大多数消息里根本没有表情。',
     );
@@ -281,8 +281,8 @@ function buildSystemPrompt(
       '',
       '【发语音】你可以像平时那样发语音消息。' +
         (scen ? `你平时发语音的习惯是：${scen}。` : '') +
-        '想发语音时，把那一条单独成行、开头加 `[[语音]]`，紧跟着写你要说的话（口语、自然，就像真的在说话那样）。' +
-        '别滥用——只在符合你平时发语音习惯的场景才发，大多数消息还是打字。一条消息要么文字要么语音，别在语音里再夹表情标记。',
+        '想发语音时，把那一条作为一条 `{"type":"ptt","content":"要说的话"}` 消息（content 是口语、自然，就像真的在说话那样）。' +
+        '别滥用——只在符合你平时发语音习惯的场景才发，大多数消息还是打字。一条语音就是一条独立消息，别在里面夹表情。',
     );
   }
 
@@ -349,11 +349,11 @@ function buildSystemPrompt(
     `- 单条消息平淡口语，像随手在 QQ 上打字；单条通常 ${avgChars} 字上下，但别死守这个数——该短就短，该长就长。`,
     `- 回复长度和条数要忽长忽短、像真人一样没有固定套路：${baseline}有时只回一个字或一个表情，有时一两句，偶尔遇到能聊的才铺开多说几条。**绝对不要每次都用同一个节奏**（比如总是两句话再加一个表情）。`,
     `- ${pickLengthLean(burst)}`,
-    '- 分条连发：真的有好几件事要说、或想模拟连着打字的语气时，才用单独一行「---」把消息隔开（一次别超过 4 条）；大多数时候一条、甚至一个词就够，别为了凑数硬分。',
+    '- 分条连发：真有好几件事要说、或想模拟连着打字的语气时，就在 JSON 数组里放多个元素（一次别超过 4 条）；大多数时候一条、甚至一个词就够，别为了凑数硬分。',
     '- 上面的背景、关系、经历、记忆、聊天样本都是你脑子里的东西：只在话题相关时自然带一嘴，别一股脑往外倒，更别逐条展示自己的"人设"。',
     '- 不知道、记不清的事就像真人一样含糊带过或反问，绝不编造具体细节。',
     '- 口语、随意，可以不完整、可以略省标点；贴合上面的语气习惯。',
-    '- 绝对禁止：markdown、列表、序号、加粗、括号注释、表情符号名、冒号开头的前缀（如"好的："）、以及任何分析/解释/旁白。',
+    '- 每条消息的文字内容（content）里绝对禁止：markdown、列表、序号、加粗、括号注释、表情符号名、冒号开头的前缀（如"好的："）、以及任何分析/解释/旁白。',
     '- 不浮夸、不堆排比和华丽辞藻、不用 AI 腔；直接以本人身份回话，别像客服或助手。',
   );
 
@@ -365,6 +365,25 @@ function buildSystemPrompt(
 
   const custom = persona.customPrompt?.trim();
   if (custom) lines.push('', '【额外要求】（用户设定，优先遵守）', custom);
+
+  // 【输出格式】放最后，作为最强的硬性约束：整段回复必须是 JSON 数组，一个元素 = 一条消息。
+  const typeLines = ['  · text = 一条文字消息，content 就是这句话（系统表情如 /捂脸 直接写在文字里）。'];
+  if (stickers.length > 0) {
+    typeLines.push('  · emoji = 发一张你的自定义表情，content 填上面表情清单里的编号（数字字符串）。');
+  }
+  if (voiceEnabled) typeLines.push('  · ptt = 发一条语音，content 是你要说的话。');
+  const allowedTypes = ['text', ...(stickers.length > 0 ? ['emoji'] : []), ...(voiceEnabled ? ['ptt'] : [])];
+  const exampleEmoji = stickers.length > 0 ? ',{"type":"emoji","content":"1"}' : '';
+  lines.push(
+    '',
+    '【输出格式】（最重要，务必严格遵守）',
+    '- 你的整个回复必须是一个 JSON 数组，数组里每个元素是你要连着发出的一条消息，按顺序发。',
+    `- 每个元素形如 {"type":"text","content":"..."}；type 只能是 ${allowedTypes.map((t) => `"${t}"`).join('、')} 之一：`,
+    ...typeLines,
+    '- 想连发几条就放几个元素；一个元素就是完整的一条消息，不要在 content 里用换行或 --- 再分条。',
+    '- 只输出这个 JSON 数组本身，前后不要有任何解释文字，不要用 ``` 代码块包裹。',
+    `- 示例（只示范格式、别照抄内容）：[{"type":"text","content":"哈哈哈真的假的"},{"type":"text","content":"牛逼啊你"}${exampleEmoji}]`,
+  );
 
   return lines.join('\n');
 }
@@ -476,24 +495,30 @@ function rankPairs(
 
 // ── 把模型输出解析成有序动作（text / sticker / voice）────────────────────────
 
-/** 单独成行的表情标记：[[发表情:序号]] / [[发表情:情绪]]（旧）/ [[sticker:md5]]（内部，兼容）。 */
-const STICKER_LINE = /^\s*\[\[(?:发表情|sticker)[:：]\s*(.+?)\s*\]\]\s*$/i;
-/** 一条语音消息的前缀：以 [[语音]] 开头。 */
-const VOICE_PREFIX = /^\s*\[\[\s*语音\s*\]\]\s*/;
+/** 模型输出的一条结构化消息（未校验的原始形状）。 */
+interface RawMessageItem {
+  type?: unknown;
+  content?: unknown;
+}
 
-/** 把一段文本按「单独成行的 ---」或空行拆块（无上限，trim 去空）。 */
-function splitBlocks(text: string): string[] {
-  let parts = text
-    .split(/\n\s*-{3,}\s*\n/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (parts.length <= 1) {
-    parts = text
-      .split(/\n{2,}/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-  }
-  return parts.length ? parts : [text.trim()].filter(Boolean);
+/**
+ * 从模型整段输出里稳健提取 JSON 文本（数组优先，退化到单对象）：
+ * - 优先剥掉 ```json … ``` / ``` … ``` 代码围栏；
+ * - 截取第一个 `[` 到最后一个 `]`（容忍模型在数组前后夹了解释废话）；
+ * - 没有数组时退化截取 `{` 到 `}`（模型只吐了单个对象没套数组 → 上层会包成数组）。
+ * 都拿不到就返回 null，交给上层降级。
+ */
+function extractJsonArray(raw: string): string | null {
+  let s = raw.trim();
+  const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence?.[1]) s = fence[1].trim();
+  const aStart = s.indexOf('[');
+  const aEnd = s.lastIndexOf(']');
+  if (aStart >= 0 && aEnd > aStart) return s.slice(aStart, aEnd + 1);
+  const oStart = s.indexOf('{');
+  const oEnd = s.lastIndexOf('}');
+  if (oStart >= 0 && oEnd > oStart) return s.slice(oStart, oEnd + 1);
+  return null;
 }
 
 /**
@@ -541,7 +566,15 @@ function capTextActions(actions: AgentLabChatAction[], max: number): AgentLabCha
   return out;
 }
 
-/** 解析模型整段输出为有序动作。voice 仅产出文本，真正合成在 service 层。 */
+/**
+ * 解析模型整段输出为有序动作。新协议：模型输出 JSON 数组
+ * [{"type":"text|emoji|ptt","content":"..."}]，一个元素 = 一条消息（模型自己决定分几条）。
+ * - text  → 文字（可内联系统表情 /捂脸）
+ * - emoji → 一个自定义表情，content = 编号（resolveStickerToken）
+ * - ptt   → 语音，content = 要说的话（仅 voiceEnabled；否则降级成文字，不丢内容）
+ * 强容错：JSON 解析不出来 / 解析全为空 → 整段降级为一条 text，永不崩、永不空。
+ * voice 动作只产出文本，真正合成在 service 层。
+ */
 function parseActions(
   raw: string,
   persona: AgentLabPersona,
@@ -549,45 +582,52 @@ function parseActions(
   maxSegments: number,
   typoIntensity: number | undefined,
 ): AgentLabChatAction[] {
-  // 第一遍：逐行把「单独成行的表情标记」切成独立 token，其余文本按 --- / 空行分块，保留顺序。
-  const ordered: Array<{ type: 'sticker'; token: string } | { type: 'text'; text: string }> = [];
-  let buf: string[] = [];
-  const flush = (): void => {
-    const block = buf.join('\n');
-    buf = [];
-    for (const b of splitBlocks(block)) ordered.push({ type: 'text', text: b });
-  };
-  for (const line of raw.split('\n')) {
-    const m = line.match(STICKER_LINE);
-    if (m) {
-      flush();
-      ordered.push({ type: 'sticker', token: m[1] ?? '' });
-    } else {
-      buf.push(line);
+  const humanize = (s: string): string =>
+    typoIntensity === undefined ? humanizeText(s) : humanizeText(s, typoIntensity);
+  // 剥掉模型可能从历史里学回来的内部标记，避免混进 content 漏给用户。
+  const stripMarkers = (s: string): string =>
+    s.replace(EMOTION_MARKER_G, '').replace(STICKER_MD5_MARKER_G, '').replace(VOICE_MARKER_G, '').trim();
+
+  // 稳健解析出消息数组（失败 → null，走整段降级）。
+  let items: RawMessageItem[] | null = null;
+  const jsonText = extractJsonArray(raw);
+  if (jsonText) {
+    try {
+      const parsed: unknown = JSON.parse(jsonText);
+      if (Array.isArray(parsed)) items = parsed as RawMessageItem[];
+      else if (parsed && typeof parsed === 'object') items = [parsed as RawMessageItem];
+    } catch {
+      items = null;
     }
   }
-  flush();
 
-  // 第二遍：token → action（文本里再分 voice/text + humanize；表情按编号解析）。
-  const humanize = (s: string): string => (typoIntensity === undefined ? humanizeText(s) : humanizeText(s, typoIntensity));
   const actions: AgentLabChatAction[] = [];
-  for (const item of ordered) {
-    if (item.type === 'sticker') {
-      const sticker = resolveStickerToken(persona, item.token);
+  for (const item of items ?? []) {
+    if (!item || typeof item !== 'object') continue;
+    const type = typeof item.type === 'string' ? item.type.trim().toLowerCase() : '';
+    const content = typeof item.content === 'string' ? item.content : '';
+    if (type === 'emoji') {
+      const sticker = resolveStickerToken(persona, content.trim());
       if (sticker) actions.push({ kind: 'sticker', sticker });
       continue;
     }
-    const t = item.text.trim();
-    if (!t) continue;
-    if (voiceEnabled && VOICE_PREFIX.test(t)) {
-      const body = t.replace(VOICE_PREFIX, '').replace(EMOTION_MARKER_G, '').replace(STICKER_MD5_MARKER_G, '').trim();
-      if (body) actions.push({ kind: 'voice', text: body });
-      continue;
+    const clean = stripMarkers(content);
+    if (!clean) continue;
+    if (type === 'ptt') {
+      // 开了语音 → 语音动作；没开 → 降级成文字，别把要说的话丢了。
+      actions.push(voiceEnabled ? { kind: 'voice', text: clean } : { kind: 'text', text: humanize(clean) });
+    } else {
+      // text，以及任何未知 type 的兜底：都当文字。
+      actions.push({ kind: 'text', text: humanize(clean) });
     }
-    // 防御：剥掉行内残留的标记，避免把内部格式当文本漏出去。
-    const clean = t.replace(EMOTION_MARKER_G, '').replace(STICKER_MD5_MARKER_G, '').trim();
-    if (clean) actions.push({ kind: 'text', text: humanize(clean) });
   }
+
+  // 降级兜底：JSON 完全解析不了 / 解析出来全是空 → 整段清掉标记当一条文字，永不崩、永不空。
+  if (actions.length === 0) {
+    const fallback = stripMarkers(raw);
+    if (fallback) actions.push({ kind: 'text', text: humanize(fallback) });
+  }
+
   return capTextActions(actions, maxSegments);
 }
 

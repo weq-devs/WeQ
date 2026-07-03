@@ -65,4 +65,32 @@ export {
   describeSticker,
 } from './extract';
 export { AgentLabStore } from './store';
+export { AgentRuntime } from './runtime';
+export type {
+  AgentRuntimeDeps,
+  EndpointResolver,
+  UsageSink,
+  ConversationSink,
+  ConversationTurnLike,
+  MemorySink,
+  NotesSink,
+  TtsPort,
+  TtsSynthesisOptions,
+  RuntimeLogger,
+} from './runtime';
+export {
+  TtsService,
+  TTS_VENDOR_CATALOG,
+  getTtsCatalogEntry,
+  getTtsCapabilities,
+} from './tts';
+export type {
+  TtsVendor,
+  TtsProviderConfig,
+  TtsRefClip,
+  TtsSynthesizeOptions,
+  TtsSynthesizeResult,
+  TtsCapabilities,
+  TtsVendorCatalogEntry,
+} from './tts';
 export type * from './types';

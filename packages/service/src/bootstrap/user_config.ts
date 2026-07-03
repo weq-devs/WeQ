@@ -19,8 +19,7 @@
 import { mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import type { Platform } from '@weq/platform';
-import type { AgentLabProviderConfig } from '@weq/agentlab';
-import type { TtsProviderConfig } from '../common/tts';
+import type { AgentLabProviderConfig, TtsProviderConfig } from '@weq/agentlab';
 import type { AccountConfig } from '../account/user_config';
 import { getLogger, logErrorContext } from '../common/logger';
 

@@ -372,30 +372,25 @@ const mimo: Backend = async (cfg, text, opts) => {
     ? cfg.cloneModel?.trim() || MIMO_MODEL_CLONE
     : cfg.model?.trim() || MIMO_MODEL_PRESET;
 
+  // 复刻协议（照 MaiBot maibot-mimotts-voice）：参考音频**作为 audio.voice 的 DataURL**传，
+  // 不放进 messages 的 input_audio；messages 只给 user(风格/'') + assistant(待合成文本)。
+  const audio: Record<string, unknown> = { format };
   const messages: Array<Record<string, unknown>> = [];
   if (clone && opts.refClip) {
     const refB64 = (await readFile(opts.refClip.path)).toString('base64');
-    messages.push({
-      role: 'user',
-      content: [
-        { type: 'input_audio', input_audio: { data: refB64, format: 'wav' } },
-        ...(opts.refClip.text ? [{ type: 'text', text: opts.refClip.text }] : []),
-      ],
-    });
+    audio.voice = `data:audio/wav;base64,${refB64}`; // 复刻模式音色 = 参考音频（DataURL），忽略 opts.voice/cfg.voice
+    messages.push({ role: 'user', content: opts.refClip.text ?? '' });
+  } else {
+    audio.voice = opts.voice ?? cfg.voice ?? 'mimo_default';
   }
   messages.push({ role: 'assistant', content });
-
-  const audio: Record<string, unknown> = { format };
-  const voice = opts.voice ?? cfg.voice;
-  if (voice) audio.voice = voice; // 复刻模式音色由参考音频决定，voice 可空
-  else if (!clone) audio.voice = 'mimo_default';
 
   const res = await fetchWithTimeout(
     cfg.baseUrl || 'https://api.xiaomimimo.com/v1/chat/completions',
     {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'api-key': cfg.apiKey },
-      body: JSON.stringify({ model, messages, audio }),
+      body: JSON.stringify({ model, modalities: ['text', 'audio'], messages, audio }),
     },
     opts.timeoutMs ?? DEFAULT_TIMEOUT,
   );

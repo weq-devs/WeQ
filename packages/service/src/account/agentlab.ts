@@ -1,10 +1,11 @@
 import { EventEmitter } from 'node:events';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AccountSession } from '@weq/account';
 import {
   AgentLabStore,
+  AgentRuntime,
   buildPersonaArtifacts,
   describeSticker,
   distillMemories,
@@ -14,11 +15,7 @@ import {
   extractPersonaCard,
   extractProfileChunk,
   mergeProfileParts,
-  reflectConversation,
   renderProfileChunks,
-  runPersonaChat,
-  scoreReplyGate,
-  willingLevelBias,
   scoreInteractionSentiment,
   decideGroupReply,
   describeRelationTone,
@@ -58,10 +55,11 @@ import {
   type AgentLabGroupMember,
   type AgentLabGroupMessage,
   type AgentLabRelation,
-  type AgentLabMemoryItem,
   type AgentLabWillingConfig,
+  type TtsPort,
+  type TtsProviderConfig,
+  type TtsService,
 } from '@weq/agentlab';
-import { TtsService, type TtsProviderConfig } from '../common/tts';
 import type { UserProfile } from '@weq/db';
 import type { Element } from '@weq/codec';
 import type { C2cMsg, GroupMsg, C2cPartition } from '@weq/db';
@@ -79,6 +77,7 @@ import { MemoryStore } from './agentlab_memory';
 import { NotesStore } from './agentlab_notes';
 import { JsonGroupStore } from './agentlab_group_store';
 import { JsonRelationStore } from './agentlab_relation_store';
+import { getLogger } from '../common/logger';
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -273,6 +272,9 @@ export class AgentLabService extends EventEmitter {
   private readonly relations: AgentLabRelationStore;
   /** 群聊记忆蒸馏节流计数（key = `personaId aboutId`，每 6 次互动蒸一次）。 */
   private readonly groupMemoryCounter = new Map<string, number>();
+  private readonly logger = getLogger().child({ scope: 'agentlab' });
+  /** 运行时对话引擎（下沉自本类，桌面与导出 bot 共用）。 */
+  private readonly runtime: AgentRuntime;
 
   constructor(
     private readonly session: AccountSession,
@@ -293,6 +295,35 @@ export class AgentLabService extends EventEmitter {
     this.notes = new NotesStore(join(rootDir, 'notes.json'));
     this.groups = new JsonGroupStore(join(rootDir, 'groups.json'));
     this.relations = new JsonRelationStore(join(rootDir, 'relations.json'));
+
+    // 运行时对话引擎下沉到 @weq/agentlab 的 AgentRuntime（桌面与导出 bot 共用同一套）。
+    // 把桌面侧依赖注入进去：现有 store + TTS（抽象成 TtsPort）+ 登录账号 uin 作为 selfId。
+    const ttsPort: TtsPort | undefined = tts
+      ? {
+          getCapabilities: (id) => {
+            const p = tts.getProvider(id);
+            return p ? tts.service.capabilities(p.vendor) : null;
+          },
+          synthesize: (id, text, opts) => {
+            const p = tts.getProvider(id);
+            if (!p) throw new Error(`TTS provider 不存在: ${id}`);
+            return tts.service.synthesize(p, text, opts);
+          },
+        }
+      : undefined;
+    this.runtime = new AgentRuntime({
+      rootDir,
+      store: this.store,
+      endpoints: this.resolveEndpoint,
+      usage: this.usage,
+      conversations: this.conversations,
+      memories: this.memories,
+      notes: this.notes,
+      relations: this.relations,
+      selfId: String(this.session.context.uin),
+      tts: ttsPort,
+      logger: this.logger,
+    });
   }
 
   /** 对话反思笔记（前端「记忆/画像」灯箱可选展示）。 */
@@ -448,17 +479,6 @@ export class AgentLabService extends EventEmitter {
         /* 关系更新失败不影响聊天 */
       }
     })();
-  }
-
-  /** 克隆体的兴趣关键词（话题 + 口头禅 + 高频词），供意愿闸判断「聊到感兴趣的」。 */
-  private personaInterestTerms(persona: AgentLabPersona): string[] {
-    const card = persona.profile?.card;
-    const terms = [
-      ...(card?.topics ?? []),
-      ...(card?.catchphrases ?? []),
-      ...(persona.profile?.topTerms ?? []),
-    ];
-    return Array.from(new Set(terms.map((t) => t.trim()).filter((t) => t.length >= 2)));
   }
 
   /**
@@ -667,7 +687,7 @@ export class AgentLabService extends EventEmitter {
       const inputText = trigger.senderKind === 'user' ? trigger.text : `「${triggerName}」：${trigger.text}`;
 
       await sleep(delayMs); // 越想回越快开口
-      const { renderedTurns } = await this.generatePersonaTurns(persona, pairs, {
+      const { renderedTurns } = await this.runtime.generatePersonaTurns(persona, pairs, {
         chatEndpoint,
         embeddingEndpoint,
         history,
@@ -831,70 +851,12 @@ export class AgentLabService extends EventEmitter {
    * 按 md5 解析某克隆体的自定义表情包本地路径（供 weq-media://sticker 协议读取）。
    * 找不到 persona / 表情 / 文件不存在时返回 null。
    */
-  /** 合成语音的落盘目录（账号 agentlab 根下，懒建）。 */
-  private agentVoiceDir(): string {
-    const dir = join(this.rootDir, 'agentvoice');
-    mkdirSync(dir, { recursive: true });
-    return dir;
-  }
-
   /**
    * 按 id 解析某条合成语音的本地路径（供 weq-media://agentvoice 协议读取）。
    * id 必须是安全 basename（仅 hex + .mp3/.wav），防目录逃逸。
    */
   getAgentVoicePath(id: string): string | null {
-    if (!/^[0-9a-f]+\.(mp3|wav)$/i.test(id)) return null;
-    const path = join(this.agentVoiceDir(), id);
-    return existsSync(path) ? path : null;
-  }
-
-  /**
-   * 这个克隆体当前能不能发语音：开了语音克隆 + 绑了 provider + 该 provider 能力匹配。
-   * clone 模式还要求 provider 支持复刻且有参考音频；preset 模式要求 provider 支持固定音色。
-   */
-  private isVoiceReady(persona: AgentLabPersona): boolean {
-    if (!persona.voiceCloneEnabled || !persona.voice || !this.tts) return false;
-    const provider = this.tts.getProvider(persona.voice.providerId);
-    if (!provider) return false;
-    const caps = this.tts.service.capabilities(provider.vendor);
-    if (persona.voice.mode === 'clone') {
-      return caps.clone && (persona.voiceProfile?.refClips?.length ?? 0) > 0;
-    }
-    return caps.fixedVoice;
-  }
-
-  /**
-   * 合成一条语音，写到 agentvoice/<hash>.<ext>，返回文件名（id）。失败返回 null（调用方降级文字）。
-   * clone 模式用 TA 的参考音频复刻；preset 模式用预置音色。
-   */
-  private async synthesizeVoice(persona: AgentLabPersona, text: string): Promise<string | null> {
-    const voice = persona.voice;
-    if (!this.tts || !voice) return null;
-    const provider = this.tts.getProvider(voice.providerId);
-    if (!provider) return null;
-    try {
-      const opts: import('../common/tts').TtsSynthesizeOptions = {};
-      if (voice.mode === 'clone') {
-        const clips = (persona.voiceProfile?.refClips ?? []).filter((c) => existsSync(c.path));
-        if (clips.length === 0) return null;
-        opts.refClip = { path: clips[0]!.path, text: clips[0]!.text };
-        opts.auxRefClips = clips.slice(1, 3).map((c) => ({ path: c.path, text: c.text }));
-      } else {
-        opts.voice = voice.voice || provider.voice;
-      }
-      const { audio, format } = await this.tts.service.synthesize(provider, text, opts);
-      const ext = format === 'wav' ? 'wav' : 'mp3';
-      const hash = createHash('sha1')
-        .update(`${persona.id}|${provider.id}|${voice.mode}|${voice.voice ?? ''}|${text}`)
-        .digest('hex')
-        .slice(0, 16);
-      const id = `${hash}.${ext}`;
-      const dest = join(this.agentVoiceDir(), id);
-      if (!existsSync(dest)) writeFileSync(dest, audio);
-      return id;
-    } catch {
-      return null;
-    }
+    return this.runtime.getAgentVoicePath(id);
   }
 
   getStickerPath(personaId: string, md5: string): string | null {
@@ -1589,203 +1551,8 @@ export class AgentLabService extends EventEmitter {
   }
 
   async chat(input: { personaId: string; history: AgentLabChatTurn[]; text: string }) {
-    const record = this.store.getPersona(input.personaId);
-    if (!record) throw new Error('找不到 persona');
-    if (!record.persona.models?.chat) throw new Error('这是旧版克隆体，模型结构已更新，请删除后重建');
-    const ctx = { personaId: input.personaId, scope: 'chat' as const };
-    const chatEndpoint = this.resolveWithUsage(record.persona.models.chat, 'chat', ctx);
-    const embeddingEndpoint = record.persona.models.embedding
-      ? this.resolveWithUsage(record.persona.models.embedding, 'embedding', ctx)
-      : null;
-
-    // 发言意愿对私聊生效（可选）：意愿闸没过就保持沉默，只记下用户这条，不回。
-    const willing = record.persona.willing;
-    if (willing?.gatePrivate) {
-      const decision = scoreReplyGate({
-        text: input.text,
-        personaName: record.persona.name,
-        fromOwner: true,
-        interestTerms: this.personaInterestTerms(record.persona),
-        relation: this.relations.get(input.personaId, this.selfMemberId()),
-        levelBias: willingLevelBias(willing.level),
-        mustReplyOnMention: willing.mustReplyOnMention !== false,
-      });
-      if (!decision.shouldReply) {
-        const ts = Date.now();
-        this.conversations.append(input.personaId, [{ role: 'user', text: input.text, ts }]);
-        return {
-          text: '',
-          segments: [],
-          actions: [],
-          promptPreview: '',
-          matches: [],
-          usedMemoryIds: [],
-          willingness: decision.score,
-          replyDelayMs: 0,
-          sticker: null,
-          renderedTurns: [] as string[],
-          silent: true,
-        };
-      }
-    }
-
-    const now = Date.now();
-    const { result, renderedTurns } = await this.generatePersonaTurns(record.persona, record.pairs, {
-      chatEndpoint,
-      embeddingEndpoint,
-      history: input.history,
-      input: input.text,
-      now,
-    });
-
-    const assistantTurns: ConversationTurn[] = renderedTurns.map((text) => ({
-      role: 'assistant',
-      text,
-      ts: now,
-    }));
-    this.conversations.append(input.personaId, [
-      { role: 'user', text: input.text, ts: now },
-      ...assistantTurns,
-    ]);
-
-    // 每隔若干轮，从最近对话蒸馏出克隆体「对对方」的新记忆（不阻塞本次回复）。
-    void this.maybeDistillMemories(input.personaId, record.persona.name, chatEndpoint);
-    // 每隔若干轮，反思扮演效果：提炼用户纠正 + 对话摘要（不阻塞本次回复）。
-    void this.maybeReflect(input.personaId, record.persona.name, chatEndpoint);
-
-    // renderedTurns = 最终落库的有序标记文本，前端据此逐条揭示（含表情图/语音气泡）。
-    return { ...result, renderedTurns, silent: false };
-  }
-
-  /**
-   * 单个克隆体「给定历史 + 当前输入 → 产出有序标记文本」的共享生成逻辑
-   * （私聊 chat() 与群聊 sendGroupMessage() 复用）。只做生成 + 记忆命中记账 +
-   * action→标记文本（含语音合成），不碰任何对话落库——落哪由调用方决定。
-   */
-  private async generatePersonaTurns(
-    persona: AgentLabPersona,
-    pairs: AgentLabStoredPair[],
-    opts: {
-      chatEndpoint: AgentLabEndpoint;
-      embeddingEndpoint: AgentLabEndpoint | null;
-      history: AgentLabChatTurn[];
-      input: string;
-      now: number;
-      /** 群聊 M4：此刻对当前说话人的关系语气指令。 */
-      relationNote?: string;
-      /** M5：显式指定可召回的记忆（群聊传「关于当前说话人」的，防串人）。缺省=该克隆体全部记忆。 */
-      memories?: AgentLabMemoryItem[];
-    },
-  ): Promise<{ result: Awaited<ReturnType<typeof runPersonaChat>>; renderedTurns: string[] }> {
-    const voiceEnabled = this.isVoiceReady(persona);
-    const result = await runPersonaChat(opts.chatEndpoint, opts.embeddingEndpoint, {
-      persona,
-      pairs,
-      history: opts.history,
-      input: opts.input,
-      memories: opts.memories ?? this.memories.get(persona.id),
-      notes: this.notes.get(persona.id),
-      voiceEnabled,
-      relationNote: opts.relationNote,
-    });
-    // 命中的记忆 +access（越常被想起越不易遗忘）。
-    this.memories.touch(persona.id, result.usedMemoryIds, opts.now);
-
-    // 按 actions 顺序转成标记文本（text / 表情 [[sticker:md5]] / 语音 [[voice:id]]）。
-    // 语音合成失败则降级为文字，不丢内容。
-    const renderedTurns: string[] = [];
-    for (const action of result.actions) {
-      if (action.kind === 'text') {
-        renderedTurns.push(action.text);
-      } else if (action.kind === 'sticker') {
-        renderedTurns.push(`[[sticker:${action.sticker.md5}]]`);
-      } else {
-        const voiceId = await this.synthesizeVoice(persona, action.text);
-        renderedTurns.push(voiceId ? `[[voice:${voiceId}]]` : action.text);
-      }
-    }
-    // 极端兜底：actions 为空时至少产出一条完整文本。
-    if (renderedTurns.length === 0) renderedTurns.push(result.text);
-    return { result, renderedTurns };
-  }
-
-  /** 每 MEMORY_DISTILL_EVERY 个用户回合蒸馏一次记忆；fire-and-forget，失败静默。 */
-  private async maybeDistillMemories(
-    personaId: string,
-    peerName: string,
-    chatEndpoint: AgentLabEndpoint,
-  ): Promise<void> {
-    const MEMORY_DISTILL_EVERY = 6;
-    try {
-      const conv = this.conversations.get(personaId);
-      const userTurns = conv.filter((t) => t.role === 'user').length;
-      if (userTurns === 0 || userTurns % MEMORY_DISTILL_EVERY !== 0) return;
-      const known = this.memories.get(personaId).map((m) => m.text).slice(-40);
-      const fresh = await distillMemories(
-        chatEndpoint,
-        peerName,
-        conv.map((t) => ({ role: t.role, text: t.text })),
-        known,
-      );
-      if (fresh.length === 0) return;
-      // M5：私聊记忆标记 aboutId=被克隆好友本人（对方），并在配了向量模型时嵌入以便语义召回。
-      const persona = this.store.getPersona(personaId)?.persona;
-      const aboutId = persona?.sourceId;
-      let embeddings: Array<number[] | undefined> | undefined;
-      if (persona?.models.embedding) {
-        try {
-          const embEndpoint = this.resolveWithUsage(persona.models.embedding, 'embedding', {
-            personaId,
-            scope: 'chat',
-          });
-          embeddings = await embedTexts(embEndpoint, fresh);
-        } catch {
-          /* 嵌入失败就退化成关键词召回 */
-        }
-      }
-      this.memories.add(
-        personaId,
-        fresh,
-        Date.now(),
-        aboutId ? { aboutId, aboutKind: 'user' } : undefined,
-        embeddings,
-      );
-    } catch {
-      /* 记忆蒸馏失败不影响聊天 */
-    }
-  }
-
-  /**
-   * 每 REFLECT_EVERY 个用户回合反思一次扮演效果；用 reflectedCount 水位只反思新增片段，
-   * 提炼出的 corrections（必须遵守）/ summary（episode）写入 NotesStore。fire-and-forget，失败静默。
-   */
-  private async maybeReflect(
-    personaId: string,
-    peerName: string,
-    chatEndpoint: AgentLabEndpoint,
-  ): Promise<void> {
-    const REFLECT_EVERY = 8;
-    const MIN_UNREFLECTED = 4;
-    try {
-      const conv = this.conversations.get(personaId);
-      const userTurns = conv.filter((t) => t.role === 'user').length;
-      if (userTurns === 0 || userTurns % REFLECT_EVERY !== 0) return;
-      const reflected = this.notes.getReflectedCount(personaId);
-      const unreflected = conv.slice(reflected);
-      if (unreflected.length < MIN_UNREFLECTED) return;
-      const result = await reflectConversation(
-        chatEndpoint,
-        peerName,
-        unreflected.map((t) => ({ role: t.role, text: t.text })),
-      );
-      if (result.corrections.length > 0 || result.summary) {
-        this.notes.add(personaId, result.corrections, result.summary);
-      }
-      // 无论是否提炼出内容都推进水位，避免下次重复反思同一段。
-      this.notes.setReflectedCount(personaId, conv.length);
-    } catch {
-      /* 对话反思失败不影响聊天 */
-    }
+    // 运行时对话（意愿闸 / 生成 / 落库 / 记忆反思）已下沉到 AgentRuntime，桌面与 bot 共用同一套。
+    return this.runtime.chat(input);
   }
 
   private c2cPartition(targetUid: string): { sortNo: bigint } | { uid: string } {
