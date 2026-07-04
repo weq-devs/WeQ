@@ -16,7 +16,8 @@
  */
 
 import { useEffect, useState, type ReactElement } from 'react';
-import { Check, FolderOpen, Info, LockKeyhole, RotateCcw, User } from 'lucide-react';
+import { Check, FolderOpen, Info, LockKeyhole, Minimize2, RotateCcw, User } from 'lucide-react';
+import type { WindowCloseBehavior } from '@weq/service';
 import { trpc } from '../../trpc/client';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
@@ -38,6 +39,13 @@ const AUTO_LOCK_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
   { value: 30, label: '30 分钟' },
 ];
 
+/** 点击关闭按钮（标题栏 ✕）时的行为。 */
+const CLOSE_BEHAVIOR_OPTIONS: ReadonlyArray<{ value: WindowCloseBehavior; label: string }> = [
+  { value: 'ask', label: '每次询问' },
+  { value: 'tray', label: '最小化到托盘' },
+  { value: 'quit', label: '直接退出' },
+];
+
 export function GlobalSettingsSection(): ReactElement {
   const showError = useDialog((s) => s.showError);
   const pushToast = useToast((s) => s.push);
@@ -45,6 +53,7 @@ export function GlobalSettingsSection(): ReactElement {
     ReturnType<typeof window.weq.systemAuth.getStatus>
   > | null>(null);
   const [autoLockMinutes, setAutoLockMinutes] = useState(0);
+  const [closeBehavior, setCloseBehavior] = useState<WindowCloseBehavior>('ask');
 
   const version = trpc.bootstrap.getVersionInfo.useQuery(undefined, {
     refetchOnWindowFocus: false,
@@ -76,12 +85,18 @@ export function GlobalSettingsSection(): ReactElement {
   const pickCache = trpc.bootstrap.pickCacheDir.useMutation();
   const clearCache = trpc.bootstrap.clearCacheDir.useMutation();
   const setAutoLock = trpc.bootstrap.setAutoLockMinutes.useMutation();
+  const setWindowClose = trpc.bootstrap.setWindowCloseBehavior.useMutation();
   const cacheBusy = pickCache.isLoading || clearCache.isLoading;
 
   useEffect(() => {
     const minutes = settings.data?.autoLockMinutes;
     if (typeof minutes === 'number') setAutoLockMinutes(minutes);
   }, [settings.data?.autoLockMinutes]);
+
+  useEffect(() => {
+    const behavior = settings.data?.windowCloseBehavior;
+    if (behavior) setCloseBehavior(behavior);
+  }, [settings.data?.windowCloseBehavior]);
 
   useEffect(() => {
     void window.weq.systemAuth
@@ -153,6 +168,19 @@ export function GlobalSettingsSection(): ReactElement {
     }
   }
 
+  async function onSetCloseBehavior(behavior: WindowCloseBehavior): Promise<void> {
+    const prev = closeBehavior;
+    setCloseBehavior(behavior);
+    try {
+      await setWindowClose.mutateAsync({ behavior });
+      await settings.refetch();
+    } catch (e) {
+      setCloseBehavior(prev);
+      await settings.refetch();
+      showError('保存关闭行为设置失败', errMsg(e));
+    }
+  }
+
   const v = version.data;
   const accountList = accounts.data ?? [];
   const autoEnterTarget = autoEnter.data;
@@ -218,6 +246,42 @@ export function GlobalSettingsSection(): ReactElement {
                     (opt.value > 0 && !systemAuthStatus?.available)
                   }
                   onClick={() => void onSetAutoLock(opt.value)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          }
+        />
+      </Card>
+
+      {/* Window close behavior */}
+      <Card title="窗口">
+        <Row
+          label={
+            <span className="weq-set-row-icon">
+              <Minimize2 size={15} strokeWidth={1.8} aria-hidden />
+              关闭按钮
+            </span>
+          }
+          desc={
+            closeBehavior === 'tray'
+              ? '点击关闭按钮后最小化到系统托盘，进程常驻后台，可从托盘图标恢复。'
+              : closeBehavior === 'quit'
+                ? '点击关闭按钮后直接完全退出应用。'
+                : '每次点击关闭按钮时弹窗询问，可选择最小化到托盘或完全退出。'
+          }
+          control={
+            <div className="weq-set-seg" role="radiogroup" aria-label="关闭按钮行为">
+              {CLOSE_BEHAVIOR_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={closeBehavior === opt.value}
+                  className={`weq-set-seg-item${closeBehavior === opt.value ? ' is-on' : ''}`}
+                  disabled={settings.isLoading || setWindowClose.isLoading}
+                  onClick={() => void onSetCloseBehavior(opt.value)}
                 >
                   {opt.label}
                 </button>

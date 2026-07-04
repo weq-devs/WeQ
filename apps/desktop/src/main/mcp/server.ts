@@ -30,6 +30,9 @@ export interface McpServerOptions {
   token: string;
 }
 
+/** How many consecutive ports to probe when the requested one is taken. */
+const PORT_FALLBACK_ATTEMPTS = 20;
+
 let httpServer: http.Server | null = null;
 let activeConfig: McpServerOptions | null = null;
 
@@ -122,40 +125,76 @@ async function handleRequest(
 }
 
 /**
+ * Try to bind `server` to `port` on loopback. Resolves `true` on success,
+ * `false` if the port is already in use (so the caller can try the next one).
+ * Any other bind error rejects.
+ */
+function tryListen(server: http.Server, port: number): Promise<boolean> {
+  return new Promise((resolve, reject) => {
+    const onError = (err: NodeJS.ErrnoException): void => {
+      server.off('listening', onListening);
+      if (err.code === 'EADDRINUSE') {
+        resolve(false);
+        return;
+      }
+      reject(err);
+    };
+    const onListening = (): void => {
+      server.off('error', onError);
+      resolve(true);
+    };
+    server.once('error', onError);
+    server.once('listening', onListening);
+    server.listen(port, '127.0.0.1');
+  });
+}
+
+/**
  * Start (or restart) the MCP HTTP server. Idempotent: a call with the same
  * port+token while already running is a no-op; a different config restarts.
- * Rejects if the port can't be bound (e.g. already in use).
+ *
+ * If the requested port is already in use (common on Windows where e.g. Baidu
+ * IME squats on 8765), it probes the next `PORT_FALLBACK_ATTEMPTS` ports and
+ * binds to the first free one. Returns the port it actually bound to, so the
+ * caller can persist it and keep the UI / client config in sync.
  */
-export async function startMcpServer(opts: McpServerOptions): Promise<void> {
+export async function startMcpServer(opts: McpServerOptions): Promise<number> {
   if (httpServer) {
     if (activeConfig && activeConfig.port === opts.port && activeConfig.token === opts.token) {
-      return;
+      return activeConfig.port;
     }
     await stopMcpServer();
   }
   const server = http.createServer((req, res) => {
     void handleRequest(req, res, opts.token);
   });
-  await new Promise<void>((resolve, reject) => {
-    const onError = (err: Error): void => {
-      server.off('listening', onListening);
-      reject(err);
-    };
-    const onListening = (): void => {
-      server.off('error', onError);
-      resolve();
-    };
-    server.once('error', onError);
-    server.once('listening', onListening);
-    server.listen(opts.port, '127.0.0.1');
-  });
+  let boundPort = -1;
+  for (let i = 0; i < PORT_FALLBACK_ATTEMPTS; i += 1) {
+    const port = opts.port + i;
+    if (port > 65535) break;
+    if (await tryListen(server, port)) {
+      boundPort = port;
+      break;
+    }
+    if (i > 0) {
+      logger.warn('mcp port in use, trying next', { event: 'mcp-port-busy', port });
+    }
+  }
+  if (boundPort === -1) {
+    server.close();
+    throw new Error(
+      `MCP 端口 ${opts.port}–${Math.min(opts.port + PORT_FALLBACK_ATTEMPTS - 1, 65535)} 都被占用，无法启动。`,
+    );
+  }
   httpServer = server;
-  activeConfig = { ...opts };
+  activeConfig = { port: boundPort, token: opts.token };
   logger.info('mcp server started', {
     event: 'mcp-start',
-    port: opts.port,
-    url: `http://127.0.0.1:${opts.port}`,
+    port: boundPort,
+    requestedPort: opts.port,
+    url: `http://127.0.0.1:${boundPort}`,
   });
+  return boundPort;
 }
 
 /** Stop the MCP HTTP server if running. Idempotent. */

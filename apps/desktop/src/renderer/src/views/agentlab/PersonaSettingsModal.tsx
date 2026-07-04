@@ -7,8 +7,31 @@
  *   ⑤ 导出好友（占位，依赖 AI tool 导出能力）
  */
 
-import { useState, type ReactElement, type ReactNode } from 'react';
-import { BarChart3, Download, FileText, Mic, Settings, Brain, Gauge, X } from 'lucide-react';
+import { useState, useMemo, type ReactElement, type ReactNode } from 'react';
+import {
+  BarChart3,
+  Download,
+  FileText,
+  Mic,
+  Settings,
+  Brain,
+  Gauge,
+  X,
+  Plug,
+  Link2,
+  KeyRound,
+  UserRound,
+  AudioLines,
+  Users,
+  Globe,
+  ChevronDown,
+  ExternalLink,
+  Copy,
+  Eye,
+  EyeOff,
+  Info,
+  Image as ImageIcon,
+} from 'lucide-react';
 import { Modal } from '../../components/Dialog';
 import { trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
@@ -139,16 +162,6 @@ function WillingTab({
           保存
         </button>
       </div>
-    </div>
-  );
-}
-
-function Soon({ text }: { text: string }): ReactElement {
-  return (
-    <div className="weq-persona-soon">
-      <Settings size={28} strokeWidth={1.4} />
-      <p>{text}</p>
-      <span className="weq-agentlab-soon">即将推出</span>
     </div>
   );
 }
@@ -297,6 +310,253 @@ function VoiceTab({
   );
 }
 
+/** 已导出记录卡片：查看 WebUI 密钥 + 一键打开控制台（连不上时提示输地址）。 */
+function ExportRuntimeCard({ personaId }: { personaId: string }): ReactElement | null {
+  const dialog = useAppDialog();
+  const info = trpc.account.getAgentLabExportInfo.useQuery({ personaId });
+  const openMut = trpc.account.openBotWebUi.useMutation();
+  const [showKey, setShowKey] = useState(false);
+  const [urlInput, setUrlInput] = useState<string | null>(null);
+
+  const data = info.data;
+  if (!data) return null;
+
+  async function openConsole(url?: string): Promise<void> {
+    try {
+      const r = await openMut.mutateAsync({ personaId, url });
+      if (r.needUrl) {
+        setUrlInput(url ?? r.defaultUrl);
+        dialog.error('连不上控制台', '默认地址没响应。请确认 bot 已 npm start，或在下方填入实际访问地址后重试。');
+      } else if (r.opened) {
+        setUrlInput(null);
+      }
+    } catch (e) {
+      dialog.error('打开失败', e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function copyKey(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(data!.key);
+      dialog.success('已复制', 'WebUI 密钥已复制到剪贴板');
+    } catch {
+      /* 剪贴板不可用则忽略 */
+    }
+  }
+
+  const maskedKey = showKey ? data.key : `${data.key.slice(0, 6)}${'·'.repeat(12)}${data.key.slice(-4)}`;
+
+  return (
+    <div className="weq-bot-runtime">
+      <div className="weq-bot-runtime-head">
+        <Globe size={14} />
+        <span>运行配置 · 已导出</span>
+        <span className="weq-bot-runtime-port">端口 {data.port}</span>
+      </div>
+      <div className="weq-bot-keyrow">
+        <KeyRound size={13} />
+        <code className="weq-bot-key">{maskedKey}</code>
+        <button type="button" className="weq-bot-iconbtn" title={showKey ? '隐藏' : '显示'} onClick={() => setShowKey((v) => !v)}>
+          {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+        </button>
+        <button type="button" className="weq-bot-iconbtn" title="复制密钥" onClick={() => void copyKey()}>
+          <Copy size={14} />
+        </button>
+      </div>
+      {urlInput !== null ? (
+        <div className="weq-bot-urlrow">
+          <input
+            className="weq-set-input"
+            value={urlInput}
+            onChange={(e) => setUrlInput(e.target.value)}
+            placeholder="http://127.0.0.1:8090"
+          />
+          <button className="weq-set-btn weq-set-btn-sm" disabled={openMut.isLoading} onClick={() => void openConsole(urlInput)}>
+            连接
+          </button>
+        </div>
+      ) : null}
+      <div className="weq-clone-actions">
+        <button className="weq-set-btn" disabled={openMut.isLoading} onClick={() => void openConsole()}>
+          <ExternalLink size={14} /> {openMut.isLoading ? '连接中…' : '打开控制台'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** 「导出好友」页：填 napcat/snowluma 连接信息，把克隆体导出成独立 bot 产物。 */
+function ExportTab({
+  persona,
+}: {
+  persona: { id: string; name: string; voiceCloneEnabled?: boolean };
+}): ReactElement {
+  const dialog = useAppDialog();
+  const utils = trpc.useUtils();
+  const exportMut = trpc.account.exportAgentLabPersona.useMutation();
+  const providers = trpc.bootstrap.listAgentLabProviders.useQuery();
+  const canVoice = !!persona.voiceCloneEnabled;
+  const [introOpen, setIntroOpen] = useState(false);
+  const [adapterType, setAdapterType] = useState<'napcat' | 'snowluma'>('napcat');
+  const [wsUrl, setWsUrl] = useState('ws://127.0.0.1:8081');
+  const [token, setToken] = useState('');
+  const [selfId, setSelfId] = useState('');
+  const [voice, setVoice] = useState(canVoice);
+  const [groupChat, setGroupChat] = useState(false);
+  const [groupReplyMode, setGroupReplyMode] = useState<'llm' | 'heuristic'>('llm');
+  const [webuiPort, setWebuiPort] = useState('8090');
+  // 图像模型（可选）：写进导出 persona 的 models.vision，供 bot 解析「WebUI 上传的新表情」。
+  // 留「（不设置）」则沿用克隆时的 vision（若有）。
+  const visionOptions = useMemo(
+    () =>
+      (providers.data ?? []).flatMap((p) =>
+        p.models
+          .filter((m) => m.capabilities.includes('vision'))
+          .map((m) => ({ key: `${p.id}::${m.id}`, providerId: p.id, model: m.id, label: `${p.name} · ${m.label ?? m.id}` })),
+      ),
+    [providers.data],
+  );
+  const [visionKey, setVisionKey] = useState('');
+
+  async function doExport(): Promise<void> {
+    if (!wsUrl.trim()) {
+      dialog.error('缺少信息', '请填写 WebSocket 地址');
+      return;
+    }
+    if (!selfId.trim()) {
+      dialog.error('缺少信息', '请填写 bot 的 QQ 号');
+      return;
+    }
+    const portNum = Number(webuiPort.trim());
+    if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) {
+      dialog.error('端口无效', 'WebUI 端口需为 1–65535 之间的整数');
+      return;
+    }
+    try {
+      const vision = visionOptions.find((o) => o.key === visionKey);
+      const r = await exportMut.mutateAsync({
+        personaId: persona.id,
+        adapterType,
+        wsUrl: wsUrl.trim(),
+        token: token.trim() || undefined,
+        selfId: selfId.trim(),
+        voice: voice && canVoice,
+        groupChat,
+        groupReplyMode,
+        webuiPort: portNum,
+        visionModel: vision ? { providerId: vision.providerId, model: vision.model } : undefined,
+      });
+      if (r.canceled) return;
+      await utils.account.getAgentLabExportInfo.invalidate({ personaId: persona.id });
+      dialog.success(
+        '导出成功',
+        `已导出到：\n${r.outDir}\n\n表情 ${r.stickerCount} 张 / 语音参考 ${r.voiceClipCount} 条。\n\n` +
+          `WebUI 控制台：${r.webui.url}\n访问密钥：${r.webui.key}\n（请妥善保管，也可在下方「运行配置」或产物 README 里查看）\n\n` +
+          `进入该目录执行 npm install && npm start 即可让 bot 上线。`,
+      );
+    } catch (e) {
+      dialog.error('导出失败', e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  return (
+    <div className="weq-persona-form">
+      <div className="weq-collapse">
+        <button type="button" className="weq-collapse-head" onClick={() => setIntroOpen((v) => !v)}>
+          <Info size={13} />
+          <span>使用说明</span>
+          <ChevronDown size={14} className={`weq-collapse-chev${introOpen ? ' is-open' : ''}`} />
+        </button>
+        {introOpen ? (
+          <p className="weq-persona-note weq-collapse-body">
+            把「{persona.name}」导出成独立机器人：连接 NapCat / SnowLuma 后即可作为真 QQ 机器人上线。导出时会自动生成
+            WebUI 控制台的访问密钥与编号（可查看 token 消耗、收发统计与克隆体总览）。导出的
+            <code>config.json</code> 含 API Key 与访问密钥，请妥善保管产物文件夹。
+          </p>
+        ) : null}
+      </div>
+
+      <ExportRuntimeCard personaId={persona.id} />
+
+      <label className="weq-agentlab-field">
+        <span><Plug size={13} /> 适配器</span>
+        <select value={adapterType} onChange={(e) => setAdapterType(e.target.value as 'napcat' | 'snowluma')}>
+          <option value="napcat">NapCat</option>
+          <option value="snowluma">SnowLuma</option>
+        </select>
+      </label>
+
+      <label className="weq-agentlab-field">
+        <span><Link2 size={13} /> WebSocket 地址</span>
+        <input value={wsUrl} onChange={(e) => setWsUrl(e.target.value)} placeholder="ws://127.0.0.1:8081" />
+      </label>
+
+      <label className="weq-agentlab-field">
+        <span><KeyRound size={13} /> 连接 Token（没有可留空）</span>
+        <input value={token} onChange={(e) => setToken(e.target.value)} placeholder="Authorization 鉴权 token" />
+      </label>
+
+      <label className="weq-agentlab-field">
+        <span><UserRound size={13} /> 机器人 QQ 号</span>
+        <input value={selfId} onChange={(e) => setSelfId(e.target.value)} placeholder="机器人登录的 QQ 号" />
+      </label>
+
+      <label className="weq-agentlab-field">
+        <span><Globe size={13} /> WebUI 控制台端口</span>
+        <input
+          value={webuiPort}
+          onChange={(e) => setWebuiPort(e.target.value.replace(/[^\d]/g, ''))}
+          placeholder="8090"
+          inputMode="numeric"
+        />
+      </label>
+
+      <label className="weq-agentlab-field">
+        <span><ImageIcon size={13} /> 图像模型（可选，解析上传的新表情）</span>
+        <select value={visionKey} onChange={(e) => setVisionKey(e.target.value)}>
+          <option value="">（不设置 · 沿用克隆时的图像模型）</option>
+          {visionOptions.map((o) => (
+            <option key={o.key} value={o.key}>{o.label}</option>
+          ))}
+        </select>
+      </label>
+
+      <label className={`weq-clone-check${canVoice ? '' : ' is-disabled'}`}>
+        <input
+          type="checkbox"
+          checked={voice && canVoice}
+          disabled={!canVoice}
+          onChange={(e) => setVoice(e.target.checked)}
+        />
+        <AudioLines size={14} />
+        <span>允许发语音{canVoice ? '' : '（需先在「语音克隆」页开启）'}</span>
+      </label>
+
+      <label className="weq-clone-check">
+        <input type="checkbox" checked={groupChat} onChange={(e) => setGroupChat(e.target.checked)} />
+        <Users size={14} />
+        <span>参与群聊（被 @ 或聊到感兴趣的话题时才接话）</span>
+      </label>
+
+      {groupChat && (
+        <label className="weq-agentlab-field">
+          <span>群聊回复方式</span>
+          <select value={groupReplyMode} onChange={(e) => setGroupReplyMode(e.target.value as 'llm' | 'heuristic')}>
+            <option value="llm">拟人判断（默认 · 像桌面群聊，更自然，每条消息多一次 LLM 调用）</option>
+            <option value="heuristic">启发式（快 · 省 token，按 @ / 点名 / 关系打分）</option>
+          </select>
+        </label>
+      )}
+
+      <div className="weq-clone-actions">
+        <button className="weq-set-btn" disabled={exportMut.isLoading} onClick={() => void doExport()}>
+          {exportMut.isLoading ? '导出中…' : '导出机器人'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function PersonaSettingsModal({
   persona,
   paramsContent,
@@ -378,7 +638,7 @@ export function PersonaSettingsModal({
             ) : tab === 'memory' ? (
               <MemoryTab personaId={persona.id} />
             ) : (
-              <Soon text="把这个克隆体（含画像 / 语料 / 表情）导出为可分享或可接入 QQ 适配器的文件。依赖导出能力。" />
+              <ExportTab persona={persona} />
             )}
           </div>
         </div>

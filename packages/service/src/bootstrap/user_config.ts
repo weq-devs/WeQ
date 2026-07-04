@@ -19,8 +19,7 @@
 import { mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import type { Platform } from '@weq/platform';
-import type { AgentLabProviderConfig } from '@weq/agentlab';
-import type { TtsProviderConfig } from '../common/tts';
+import type { AgentLabProviderConfig, TtsProviderConfig } from '@weq/agentlab';
 import type { AccountConfig } from '../account/user_config';
 import { getLogger, logErrorContext } from '../common/logger';
 
@@ -62,6 +61,12 @@ function isAgentLabProviderConfig(value: unknown): value is AgentLabProviderConf
 function normalizeAgentLabProviders(value: unknown): AgentLabProviderConfig[] {
   if (!Array.isArray(value)) return [];
   return value.filter(isAgentLabProviderConfig);
+}
+
+/** Coerce a persisted / patched close-behavior value to the known union, or
+ *  `undefined` so the caller falls back to the default / current value. */
+function normalizeWindowCloseBehavior(value: unknown): WindowCloseBehavior | undefined {
+  return value === 'ask' || value === 'tray' || value === 'quit' ? value : undefined;
 }
 
 function isTtsProviderConfig(value: unknown): value is TtsProviderConfig {
@@ -109,6 +114,14 @@ export interface AgentLabSettings {
   providers: AgentLabProviderConfig[];
 }
 
+/**
+ * 关闭主窗口（标题栏 ✕）时的行为：
+ *   - 'ask'  首次询问，弹窗让用户选择（最小化到托盘 / 完全退出），可记住选择
+ *   - 'tray' 最小化到系统托盘，进程常驻后台，可从托盘恢复
+ *   - 'quit' 直接完全退出应用
+ */
+export type WindowCloseBehavior = 'ask' | 'tray' | 'quit';
+
 export interface AppSettings {
   realtimeEnabled: boolean;
   mediaCompletion: MediaCompletionConfig;
@@ -121,6 +134,8 @@ export interface AppSettings {
   voiceTranscribe: VoiceTranscribeConfig;
   mcp: McpServerConfig;
   agentLab: AgentLabSettings;
+  /** 点击关闭按钮时的行为。默认 'ask'（首次弹窗询问）。 */
+  windowCloseBehavior: WindowCloseBehavior;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -129,8 +144,11 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   autoFetchClientKey: true,
   autoLockMinutes: 0,
   voiceTranscribe: { modelId: '', ttsProviders: [] },
-  mcp: { enabled: false, port: 8765, token: '' },
+  // 8765 在 Windows 上常被百度输入法等占用，默认改用不常冲突的高端口；
+  // 即便仍冲突，启动时也会自动向上探测可用端口（见 mcp/server.ts）。
+  mcp: { enabled: false, port: 48765, token: '' },
   agentLab: { providers: [] },
+  windowCloseBehavior: 'ask',
 };
 
 export interface UserConfig {
@@ -277,6 +295,7 @@ export class UserConfigService {
       realtimeEnabled: s?.realtimeEnabled ?? d.realtimeEnabled,
       autoFetchClientKey: s?.autoFetchClientKey ?? d.autoFetchClientKey,
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
+      windowCloseBehavior: normalizeWindowCloseBehavior(s?.windowCloseBehavior) ?? d.windowCloseBehavior,
       mediaCompletion: {
         enabled: s?.mediaCompletion?.enabled ?? d.mediaCompletion.enabled,
       },
@@ -301,6 +320,8 @@ export class UserConfigService {
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
       autoFetchClientKey: patch.autoFetchClientKey ?? current.autoFetchClientKey,
       autoLockMinutes: patch.autoLockMinutes ?? current.autoLockMinutes,
+      windowCloseBehavior:
+        normalizeWindowCloseBehavior(patch.windowCloseBehavior) ?? current.windowCloseBehavior,
       mediaCompletion: {
         enabled: patch.mediaCompletion?.enabled ?? current.mediaCompletion.enabled,
       },

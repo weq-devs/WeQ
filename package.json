@@ -11,12 +11,14 @@
   },
   "scripts": {
     "dev": "pnpm --filter @weq/desktop dev",
-    "build": "pnpm --filter @weq/desktop build",
+    "build": "pnpm run build:bot && pnpm --filter @weq/desktop build",
+    "build:bot": "esbuild packages/bot/src/index.ts --bundle --platform=node --format=esm --external:ws --outfile=resources/bot-runtime/bot.mjs",
     "proto": "pnpm --filter @weq/protolab dev",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint"
   },
   "devDependencies": {
+    "esbuild": "^0.28.1",
     "tsx": "^4.22.4",
     "typescript": "^5.7.3"
   }

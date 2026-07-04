@@ -35,6 +35,7 @@ export type {
   InstallCache,
   AutoEnterTarget,
   AppSettings,
+  WindowCloseBehavior,
   MediaCompletionConfig,
   VoiceTranscribeConfig,
   McpServerConfig,
@@ -208,7 +209,7 @@ export type {
 } from './common/voice_transcribe';
 export { getLogDir, getLogger, initLogger, logErrorContext } from './common/logger';
 export type { Logger, LoggerContext, LogLevel } from './common/logger';
-export { TtsService, TTS_VENDOR_CATALOG, getTtsCatalogEntry, getTtsCapabilities } from './common/tts';
+export { TtsService, TTS_VENDOR_CATALOG, getTtsCatalogEntry, getTtsCapabilities } from '@weq/agentlab';
 export type {
   TtsVendor,
   TtsProviderConfig,
@@ -217,4 +218,6 @@ export type {
   TtsSynthesizeResult,
   TtsCapabilities,
   TtsVendorCatalogEntry,
-} from './common/tts';
+} from '@weq/agentlab';
+export { buildBotExport } from './account/agentlab_export';
+export type { BotExportInput, BotExportResult, BotExportLlmProvider } from './account/agentlab_export';

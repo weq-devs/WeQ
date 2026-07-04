@@ -88,6 +88,22 @@ function scoreStickerForEmotion(sticker: AgentLabStickerRef, targetEmotion: stri
   return best + Math.log1p(sticker.count) * 0.05;
 }
 
+/**
+ * 随机挑一张表情（供「随机发」通路：模型输出 emoji content=random 时用）。
+ * preferUndescribed=true 时优先从「没有文字描述」的表情里挑——这正是刚导入、还没被视觉模型
+ * 解析过的新表情，让它们也有机会被发出去（否则永远进不了编号清单）。子集为空则回退全部。
+ */
+export function pickRandomSticker(
+  persona: AgentLabPersona,
+  opts?: { preferUndescribed?: boolean },
+): AgentLabStickerRef | null {
+  const all = persona.stickers ?? [];
+  if (all.length === 0) return null;
+  const undescribed = all.filter((s) => !s.description && !s.scenario);
+  const pool = opts?.preferUndescribed && undescribed.length > 0 ? undescribed : all;
+  return pool[Math.floor(Math.random() * pool.length)] ?? null;
+}
+
 /** 从 persona.stickers 里选出最匹配 targetEmotion 的表情；都不沾边时返回高频兜底。 */
 export function selectStickerByEmotion(
   persona: AgentLabPersona,

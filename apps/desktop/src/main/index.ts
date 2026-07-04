@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, nativeImage, protocol, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, protocol, shell, Tray } from 'electron';
 import fs from 'node:fs';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { createRequire } from 'node:module';
@@ -25,7 +25,13 @@ import { stopMcpServer } from './mcp/server';
 import { disposeExternalMcp } from './mcp/external';
 import { registerChannelIpc } from './channel';
 import { registerQzoneIpc } from './qzone';
-import { getLogDir, getLogger, logErrorContext, type MediaElement } from '@weq/service';
+import {
+  getLogDir,
+  getLogger,
+  logErrorContext,
+  type MediaElement,
+  type WindowCloseBehavior,
+} from '@weq/service';
 import { systemAuthService } from './system_auth';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -54,6 +60,81 @@ const WINDOW_LAYOUTS = {
 
 const logger = getLogger().child({ scope: 'desktop-main' });
 
+/** The primary app window. Tracked so the tray / single-instance / close flows
+ *  can reach it without threading it through every call. */
+let mainWindow: BrowserWindow | null = null;
+/** System-tray icon; null until built (or if creation failed). */
+let tray: Tray | null = null;
+/** Set true right before a *real* quit so the `close` handler stops intercepting
+ *  and lets the window actually close (托盘退出 / 确认框「完全退出」/ before-quit). */
+let isQuitting = false;
+
+/** Bring the main window back to the foreground (from tray / second instance). */
+function revealWindow(win: BrowserWindow): void {
+  if (win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
+/**
+ * Resolve the current 关闭行为 from persisted settings. Falls back to `'quit'`
+ * when bootstrap is unavailable (native-load failure → only an error window is
+ * showing; hiding it to tray would be pointless).
+ */
+function resolveCloseBehavior(): WindowCloseBehavior {
+  try {
+    const boot = getAppContext().bootstrap;
+    if (!boot) return 'quit';
+    return boot.userConfig.getSettings().windowCloseBehavior ?? 'ask';
+  } catch {
+    return 'quit';
+  }
+}
+
+/**
+ * Build the system tray once. The icon is the brand logo, downscaled to a
+ * tray-appropriate size (16px on Windows; 18px template image on macOS so it
+ * tracks the menu-bar's light/dark). Menu: 显示主窗口 / 退出 WeQ. Left-click and
+ * double-click both re-reveal the window.
+ */
+function buildTray(win: BrowserWindow): void {
+  if (tray) return;
+  const iconPath = resolveResource('brand', 'logo.png');
+  let image = iconPath ? nativeImage.createFromPath(iconPath) : nativeImage.createEmpty();
+  if (!image.isEmpty()) {
+    image = image.resize(
+      process.platform === 'darwin' ? { width: 18, height: 18 } : { width: 16, height: 16 },
+    );
+    if (process.platform === 'darwin') image.setTemplateImage(true);
+  }
+  try {
+    tray = new Tray(image);
+    tray.setToolTip('WeQ');
+    tray.setContextMenu(
+      Menu.buildFromTemplate([
+        { label: '显示主窗口', click: () => revealWindow(win) },
+        { type: 'separator' },
+        {
+          label: '退出 WeQ',
+          click: () => {
+            isQuitting = true;
+            app.quit();
+          },
+        },
+      ]),
+    );
+    tray.on('click', () => revealWindow(win));
+    tray.on('double-click', () => revealWindow(win));
+    logger.info('system tray created', { event: 'tray-create' });
+  } catch (e) {
+    logger.warn('failed to create system tray', {
+      event: 'tray-create-failed',
+      error: String(e),
+    });
+  }
+}
+
 function registerWindowLayoutIpc(): void {
   ipcMain.handle('window:set-layout', (event, layout: keyof typeof WINDOW_LAYOUTS) => {
     const win = BrowserWindow.fromWebContents(event.sender);
@@ -81,6 +162,17 @@ function registerWindowLayoutIpc(): void {
 
   ipcMain.on('window-close', (event) => {
     BrowserWindow.fromWebContents(event.sender)?.close();
+  });
+
+  // Reply from the renderer's 关闭确认框 (only sent when behavior === 'ask').
+  //   'tray' → hide to tray; 'quit' → real quit; 'cancel' → do nothing.
+  ipcMain.on('window:respond-close', (_event, action: 'tray' | 'quit' | 'cancel') => {
+    if (action === 'tray') {
+      mainWindow?.hide();
+    } else if (action === 'quit') {
+      isQuitting = true;
+      app.quit();
+    }
   });
 }
 
@@ -289,6 +381,27 @@ function createWindow(): BrowserWindow {
   // (e.g. compositor/driver quirks). Guarantee visibility once content loads.
   win.webContents.on('did-finish-load', reveal);
 
+  // Intercept the close button so it doesn't hard-quit. Behavior is
+  // user-configurable (设置 → 全局设置 → 关闭按钮):
+  //   'quit' → let it close (window-all-closed then quits);
+  //   'tray' → hide to the system tray, keep the process alive;
+  //   'ask'  → ask the renderer to show the 关闭确认框 (default, first time).
+  win.on('close', (e) => {
+    if (isQuitting || win !== mainWindow) return;
+    const behavior = resolveCloseBehavior();
+    if (behavior === 'quit') {
+      isQuitting = true;
+      return;
+    }
+    e.preventDefault();
+    if (behavior === 'tray' && tray) {
+      win.hide();
+      return;
+    }
+    // 'ask' — or 'tray' but the tray failed to build → fall back to asking.
+    win.webContents.send('window:confirm-close', { canMinimizeToTray: Boolean(tray) });
+  });
+
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
@@ -299,10 +412,24 @@ function createWindow(): BrowserWindow {
   } else {
     void win.loadFile(join(__dirname, '../renderer/index.html'));
   }
+  mainWindow = win;
   return win;
 }
 
+// Single-instance guard: with the app now living in the tray, a second launch
+// should just re-reveal the existing window rather than spawn another
+// background process. The non-primary instance quits immediately.
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) revealWindow(mainWindow);
+  });
+}
+
 void app.whenReady().then(() => {
+  if (!hasSingleInstanceLock) return;
   electronApp.setAppUserModelId('app.weq.desktop');
 
   // Order matters: AppContext (loads native + platform) before IPC handler.
@@ -326,6 +453,7 @@ void app.whenReady().then(() => {
   const win = createWindow();
   logger.info('main window created', { event: 'create-window' });
   createIPCHandler({ router: appRouter, windows: [win] });
+  buildTray(win);
 
   // Silent background update check (packaged builds only). Result is cached and
   // pushed to the renderer via the `update.onEvent` subscription → settings red
@@ -343,7 +471,24 @@ void app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  // With the tray keeping the process alive, closing the window normally hides
+  // it (never reaching here). We only get here on a real quit path — which
+  // already sets `isQuitting` — so honour it. macOS keeps the app resident.
+  if (process.platform !== 'darwin' && isQuitting) app.quit();
+});
+
+// A real quit is underway (tray「退出」/ 确认框「完全退出」/ Cmd+Q / OS shutdown):
+// flip the flag so the `close` handler stops intercepting, and drop the tray.
+app.on('before-quit', () => {
+  isQuitting = true;
+  if (tray) {
+    try {
+      tray.destroy();
+    } catch {
+      /* ignore */
+    }
+    tray = null;
+  }
 });
 
 // Best-effort: stop the account-bound MCP server on quit even if the account
