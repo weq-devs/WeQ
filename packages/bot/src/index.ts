@@ -14,6 +14,7 @@ import {
   AgentLabStore,
   AgentRuntime,
   TtsService,
+  describeSticker,
   type RuntimeLogger,
   type TtsPort,
   type TtsProviderConfig,
@@ -100,10 +101,11 @@ async function boot(
   // 记忆 / 关系 / 对话历史 / 统计落盘到产物 data/ 目录（personaDir 的同级），**重启保持**。
   const dataDir = join(config.personaDir, '..', 'data');
   const stats = new StatsStore(join(dataDir, 'stats.json'));
+  const resolver = buildEndpointResolver(config.llmProviders);
   const runtime = new AgentRuntime({
     rootDir: config.personaDir,
     store,
-    endpoints: buildEndpointResolver(config.llmProviders),
+    endpoints: resolver,
     usage: stats,
     conversations: new JsonConversationStore(join(dataDir, 'conversations.json')),
     memories: new JsonMemoryStore(join(dataDir, 'memories.json')),
@@ -125,9 +127,19 @@ async function boot(
   const adapter = createAdapter(config.adapter);
   const orchestrator = new BotOrchestrator(adapter, runtime, persona.id, config.selfId, assets, {
     groupChat: config.features?.groupChat ?? false,
+    groupReplyMode: config.features?.groupReplyMode ?? 'llm',
     stats,
   });
   orchestrator.start();
+
+  // 图像模型（若 persona 绑了 vision）：供 WebUI 上传新表情时解析一次内容/场景。没有则上传的新表情走「随机发」。
+  const visionRef = persona.models?.vision;
+  const visionDescribe = visionRef
+    ? async (imageDataUrl: string): Promise<{ description: string; scenario: string }> => {
+        const ep = resolver({ providerId: visionRef.providerId, model: visionRef.model });
+        return describeSticker({ ...ep, kind: 'vision' }, persona.sourceTitle || persona.name, imageDataUrl, '');
+      }
+    : undefined;
 
   // 本机 WebUI 控制台（默认开；仅 127.0.0.1，用导出时生成的密钥鉴权）。
   let webui: WebUiHandle | null = null;
@@ -140,6 +152,9 @@ async function boot(
       stats,
       features: { voice: config.features?.voice ?? false, groupChat: config.features?.groupChat ?? false },
       ttsProviders: config.ttsProviders,
+      store,
+      stickersDir: join(config.personaDir, 'stickers'),
+      visionDescribe,
       onReload,
       logger: consoleLogger,
     });

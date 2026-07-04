@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { runPersonaChat, embedTexts } from './http';
 import { scoreReplyGate, willingLevelBias } from './reply_gate';
 import { describeRelationTone } from './relation';
-import { distillMemories, reflectConversation, scoreInteractionSentiment } from './extract';
+import { distillMemories, reflectConversation, scoreInteractionSentiment, decideGroupReply } from './extract';
 import type { AgentLabStore } from './store';
 import type {
   AgentLabPersona,
@@ -192,6 +192,30 @@ export class AgentRuntime {
       ...(persona.profile?.topTerms ?? []),
     ];
     return Array.from(new Set(terms.map((t) => t.trim()).filter((t) => t.length >= 2)));
+  }
+
+  /** 把对话历史渲染成群聊转录（供 LLM 发言决策）：user 文本已带「name」：前缀，assistant 记为「你」。 */
+  private renderHistoryTranscript(history: AgentLabChatTurn[], limit: number): string {
+    return history
+      .slice(-limit)
+      .map((t) => (t.role === 'assistant' ? `你：${t.text.slice(0, 80)}` : t.text.slice(0, 80)))
+      .join('\n');
+  }
+
+  /** 意愿档位 → 性格倾向提示（喂给发言决策）。对标 service 的 willingDisposition。 */
+  private willingDisposition(level?: number): string {
+    if (level === undefined) return '';
+    if (level >= 70) return '你性格比较爱说话、爱凑热闹，遇到能接的话就想插两句。';
+    if (level <= 30) return '你性格偏高冷、不太主动接话，多数时候在潜水，只有真戳到你才开口。';
+    return '';
+  }
+
+  /** 存在感提示：自己最近说太多就提醒别硬刷屏（用编排层已算好的占比）。 */
+  private crowdedHintFromShare(selfShareRecent?: number): string {
+    if (selfShareRecent !== undefined && selfShareRecent > 0.5) {
+      return '你最近已经连着说了好几条了，注意别刷屏，没必要就歇一歇。';
+    }
+    return '';
   }
 
   /** 合成语音的落盘目录（<rootDir>/agentvoice/，懒建）。 */
@@ -474,8 +498,9 @@ export class AgentRuntime {
   }
 
   /**
-   * 群聊入口（单 persona 在真实群）：先过意愿闸决定要不要回，回则用群历史 + 对该群友的关系态生成回复，
-   * 并异步更新对该群友的关系。不做多克隆连锁（那是桌面内玩法）。
+   * 群聊入口（单 persona 在真实群）：先决定要不要回（mode='llm' 复刻桌面 decideGroupReply 让克隆体
+   * 带上下文/关系/记忆自己判断，默认；'heuristic'=纯启发式打分 scoreReplyGate），回则用群历史 +
+   * 对该群友的关系态生成回复，并异步更新对该群友的关系。单 persona，不做多克隆连锁（那是桌面内玩法）。
    */
   async handleGroupMessage(input: {
     personaId: string;
@@ -488,35 +513,78 @@ export class AgentRuntime {
     selfShareRecent?: number;
     /** 距自己上次发言的毫秒数（冷却）。 */
     msSinceOwnLastReply?: number;
+    /**
+     * 回复意愿决策方式：'llm'=克隆体带上下文/关系/记忆自己判断要不要开口（默认，与桌面模拟群聊一致，
+     * 更自然但每条消息多一次 LLM 调用）；'heuristic'=纯启发式打分（快·省 token）。
+     */
+    mode?: 'llm' | 'heuristic';
   }): Promise<{ renderedTurns: string[]; replyDelayMs: number; silent: boolean; reason: string; score: number }> {
     const record = this.store.getPersona(input.personaId);
     if (!record?.persona.models?.chat) return { renderedTurns: [], replyDelayMs: 0, silent: true, reason: 'no-chat-model', score: 0 };
     const persona = record.persona;
     const willing = persona.willing;
     const relation = this.relations.get(input.personaId, input.senderId);
-
-    const decision = scoreReplyGate({
-      text: input.text,
-      personaName: persona.name,
-      mentioned: input.mentionsSelf,
-      fromOwner: false,
-      interestTerms: this.personaInterestTerms(persona),
-      relation,
-      selfShareRecent: input.selfShareRecent,
-      msSinceOwnLastReply: input.msSinceOwnLastReply,
-      levelBias: willingLevelBias(willing?.level),
-      mustReplyOnMention: willing?.mustReplyOnMention !== false,
-    });
-    if (!decision.shouldReply) {
-      return { renderedTurns: [], replyDelayMs: decision.replyDelayMs, silent: true, reason: decision.reason, score: decision.score };
-    }
+    const mode = input.mode ?? 'llm';
 
     const ctx = { personaId: input.personaId, scope: 'chat' as const };
     const chatEndpoint = this.resolveWithUsage(persona.models.chat, 'chat', ctx);
+    const relationNote = relation ? describeRelationTone(relation) : undefined;
+
+    // 决策要不要开口。@必回快捷路两模式共用；否则 llm=克隆体自己判断（默认，同桌面群聊 decideGroupReply）、
+    // heuristic=纯启发式打分（省 token，走 scoreReplyGate）。
+    const mustReply = willing?.mustReplyOnMention !== false;
+    let replyDelayMs: number;
+    let reason: string;
+    let score: number;
+    if (input.mentionsSelf && mustReply) {
+      replyDelayMs = Math.round(300 + Math.random() * 500);
+      reason = '被@必回';
+      score = 1;
+    } else if (mode === 'llm') {
+      const decision = await decideGroupReply(chatEndpoint, {
+        personaName: persona.name,
+        tone: persona.profile?.card?.tone || persona.profile?.styleSummary,
+        transcript: this.renderHistoryTranscript(input.history, 12),
+        currentSpeaker: input.senderName,
+        currentText: input.text,
+        relationNote,
+        memories: this.memories
+          .getAbout(input.personaId, [input.senderId], true)
+          .slice(0, 5)
+          .map((m) => m.text),
+        dispositionHint: this.willingDisposition(willing?.level),
+        crowdedHint: this.crowdedHintFromShare(input.selfShareRecent),
+      });
+      if (!decision.reply) {
+        return { renderedTurns: [], replyDelayMs: 0, silent: true, reason: decision.reason, score: 0 };
+      }
+      replyDelayMs = Math.round(300 + Math.random() * 500);
+      reason = decision.reason;
+      score = 1;
+    } else {
+      const decision = scoreReplyGate({
+        text: input.text,
+        personaName: persona.name,
+        mentioned: input.mentionsSelf,
+        fromOwner: false,
+        interestTerms: this.personaInterestTerms(persona),
+        relation,
+        selfShareRecent: input.selfShareRecent,
+        msSinceOwnLastReply: input.msSinceOwnLastReply,
+        levelBias: willingLevelBias(willing?.level),
+        mustReplyOnMention: willing?.mustReplyOnMention !== false,
+      });
+      if (!decision.shouldReply) {
+        return { renderedTurns: [], replyDelayMs: decision.replyDelayMs, silent: true, reason: decision.reason, score: decision.score };
+      }
+      replyDelayMs = decision.replyDelayMs;
+      reason = decision.reason;
+      score = decision.score;
+    }
+
     const embeddingEndpoint = persona.models.embedding
       ? this.resolveWithUsage(persona.models.embedding, 'embedding', ctx)
       : null;
-    const relationNote = relation ? describeRelationTone(relation) : undefined;
     // 只召回「关于这个群友」的记忆，防串人（includeUntagged=true 把旧的无标记记忆也算上）。
     const memories = this.memories.getAbout(input.personaId, [input.senderId], true);
     const now = Date.now();
@@ -538,7 +606,7 @@ export class AgentRuntime {
       `对方(${input.senderName})：${input.text}\n你：${renderedTurns.join(' ')}`,
       chatEndpoint,
     );
-    return { renderedTurns, replyDelayMs: decision.replyDelayMs, silent: false, reason: decision.reason, score: decision.score };
+    return { renderedTurns, replyDelayMs, silent: false, reason, score };
   }
 
   /**

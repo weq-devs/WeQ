@@ -7,7 +7,7 @@
  *   ⑤ 导出好友（占位，依赖 AI tool 导出能力）
  */
 
-import { useState, type ReactElement, type ReactNode } from 'react';
+import { useState, useMemo, type ReactElement, type ReactNode } from 'react';
 import {
   BarChart3,
   Download,
@@ -30,6 +30,7 @@ import {
   Eye,
   EyeOff,
   Info,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { Modal } from '../../components/Dialog';
 import { trpc } from '../../trpc/client';
@@ -393,6 +394,7 @@ function ExportTab({
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   const exportMut = trpc.account.exportAgentLabPersona.useMutation();
+  const providers = trpc.bootstrap.listAgentLabProviders.useQuery();
   const canVoice = !!persona.voiceCloneEnabled;
   const [introOpen, setIntroOpen] = useState(false);
   const [adapterType, setAdapterType] = useState<'napcat' | 'snowluma'>('napcat');
@@ -401,7 +403,20 @@ function ExportTab({
   const [selfId, setSelfId] = useState('');
   const [voice, setVoice] = useState(canVoice);
   const [groupChat, setGroupChat] = useState(false);
+  const [groupReplyMode, setGroupReplyMode] = useState<'llm' | 'heuristic'>('llm');
   const [webuiPort, setWebuiPort] = useState('8090');
+  // 图像模型（可选）：写进导出 persona 的 models.vision，供 bot 解析「WebUI 上传的新表情」。
+  // 留「（不设置）」则沿用克隆时的 vision（若有）。
+  const visionOptions = useMemo(
+    () =>
+      (providers.data ?? []).flatMap((p) =>
+        p.models
+          .filter((m) => m.capabilities.includes('vision'))
+          .map((m) => ({ key: `${p.id}::${m.id}`, providerId: p.id, model: m.id, label: `${p.name} · ${m.label ?? m.id}` })),
+      ),
+    [providers.data],
+  );
+  const [visionKey, setVisionKey] = useState('');
 
   async function doExport(): Promise<void> {
     if (!wsUrl.trim()) {
@@ -418,6 +433,7 @@ function ExportTab({
       return;
     }
     try {
+      const vision = visionOptions.find((o) => o.key === visionKey);
       const r = await exportMut.mutateAsync({
         personaId: persona.id,
         adapterType,
@@ -426,7 +442,9 @@ function ExportTab({
         selfId: selfId.trim(),
         voice: voice && canVoice,
         groupChat,
+        groupReplyMode,
         webuiPort: portNum,
+        visionModel: vision ? { providerId: vision.providerId, model: vision.model } : undefined,
       });
       if (r.canceled) return;
       await utils.account.getAgentLabExportInfo.invalidate({ personaId: persona.id });
@@ -493,6 +511,16 @@ function ExportTab({
         />
       </label>
 
+      <label className="weq-agentlab-field">
+        <span><ImageIcon size={13} /> 图像模型（可选，解析上传的新表情）</span>
+        <select value={visionKey} onChange={(e) => setVisionKey(e.target.value)}>
+          <option value="">（不设置 · 沿用克隆时的图像模型）</option>
+          {visionOptions.map((o) => (
+            <option key={o.key} value={o.key}>{o.label}</option>
+          ))}
+        </select>
+      </label>
+
       <label className={`weq-clone-check${canVoice ? '' : ' is-disabled'}`}>
         <input
           type="checkbox"
@@ -509,6 +537,16 @@ function ExportTab({
         <Users size={14} />
         <span>参与群聊（被 @ 或聊到感兴趣的话题时才接话）</span>
       </label>
+
+      {groupChat && (
+        <label className="weq-agentlab-field">
+          <span>群聊回复方式</span>
+          <select value={groupReplyMode} onChange={(e) => setGroupReplyMode(e.target.value as 'llm' | 'heuristic')}>
+            <option value="llm">拟人判断（默认 · 像桌面群聊，更自然，每条消息多一次 LLM 调用）</option>
+            <option value="heuristic">启发式（快 · 省 token，按 @ / 点名 / 关系打分）</option>
+          </select>
+        </label>
+      )}
 
       <div className="weq-clone-actions">
         <button className="weq-set-btn" disabled={exportMut.isLoading} onClick={() => void doExport()}>

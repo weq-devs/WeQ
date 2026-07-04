@@ -31,6 +31,8 @@ export interface StatsSink {
 export interface OrchestratorOptions {
   /** 是否参与群聊（M3）。默认关：只处理私聊。 */
   groupChat?: boolean;
+  /** 群聊回复意愿决策方式（默认 'llm'，与桌面模拟群聊一致；'heuristic'=纯启发式打分省 token）。 */
+  groupReplyMode?: 'llm' | 'heuristic';
   /** 收发消息计数（WebUI 统计）。 */
   stats?: StatsSink;
 }
@@ -131,6 +133,7 @@ export class BotOrchestrator {
         history,
         selfShareRecent,
         msSinceOwnLastReply,
+        mode: this.opts.groupReplyMode ?? 'llm',
       });
     } catch (err) {
       console.error(`[${ts()}] └ 群聊生成失败:`, err instanceof Error ? err.message : err);

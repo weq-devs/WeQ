@@ -32,6 +32,14 @@ export interface StatsModelBucket {
   totalTokens: number;
 }
 
+/** 单小时聚合桶（近 24 小时折线用）。 */
+export interface StatsHourBucket {
+  /** 展示用标签 HH:00（snapshot 时填）。 */
+  hour: string;
+  tokens: number;
+  calls: number;
+}
+
 interface StatsData {
   /** 首次启动（历史累计起点）。 */
   firstStartedAt: number;
@@ -46,6 +54,8 @@ interface StatsData {
   };
   byModel: Record<string, StatsModelBucket>;
   byDay: Record<string, StatsDayBucket>;
+  /** key = YYYY-MM-DD-HH（本地时区）；只保留近 ~48h，snapshot 取近 24h。 */
+  byHour: Record<string, { tokens: number; calls: number }>;
 }
 
 /** WebUI /api/stats 的返回快照。 */
@@ -58,6 +68,8 @@ export interface StatsSnapshot {
   byModel: StatsModelBucket[];
   /** 最近 N 天，最早→最晚。 */
   byDay: StatsDayBucket[];
+  /** 最近 24 小时，最早→最晚。 */
+  byHour: StatsHourBucket[];
 }
 
 function emptyData(now: number): StatsData {
@@ -74,6 +86,7 @@ function emptyData(now: number): StatsData {
     },
     byModel: {},
     byDay: {},
+    byHour: {},
   };
 }
 
@@ -84,6 +97,25 @@ function dayKey(ts: number): string {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+/** 本地时区 YYYY-MM-DD-HH（小时聚合键）。 */
+function hourKey(ts: number): string {
+  const d = new Date(ts);
+  const h = String(d.getHours()).padStart(2, '0');
+  return `${dayKey(ts)}-${h}`;
+}
+
+/** 裁掉早于 48 小时的小时桶（近 24h 展示够用，留一倍余量防时区/边界丢点）。 */
+function pruneHours(
+  hours: Record<string, { tokens: number; calls: number }>,
+  now: number,
+): Record<string, { tokens: number; calls: number }> {
+  const keep = new Set<string>();
+  for (let i = 0; i < 48; i++) keep.add(hourKey(now - i * 3600_000));
+  const out: Record<string, { tokens: number; calls: number }> = {};
+  for (const [k, v] of Object.entries(hours)) if (keep.has(k)) out[k] = v;
+  return out;
 }
 
 export class StatsStore implements UsageSink {
@@ -109,6 +141,7 @@ export class StatsStore implements UsageSink {
           totals: { ...base.totals, ...parsed.totals },
           byModel: parsed.byModel ?? {},
           byDay: parsed.byDay ?? {},
+          byHour: pruneHours(parsed.byHour ?? {}, now),
         };
       }
     } catch {
@@ -173,6 +206,16 @@ export class StatsStore implements UsageSink {
     day.completionTokens += entry.completionTokens;
     day.totalTokens += entry.totalTokens;
 
+    const hk = hourKey(entry.ts);
+    const hb = this.data.byHour[hk] ?? { tokens: 0, calls: 0 };
+    hb.tokens += entry.totalTokens;
+    hb.calls += 1;
+    this.data.byHour[hk] = hb;
+    // 长跑进程每小时新增一个键，超过阈值就裁到近 48h，防无界增长。
+    if (Object.keys(this.data.byHour).length > 60) {
+      this.data.byHour = pruneHours(this.data.byHour, entry.ts);
+    }
+
     this.persist();
   }
 
@@ -210,6 +253,19 @@ export class StatsStore implements UsageSink {
         },
       );
     }
+    // 近 24 小时（含当前小时），最早→最晚，补齐空档，label 用本地 HH:00。
+    const byHour: StatsHourBucket[] = [];
+    for (let i = 23; i >= 0; i--) {
+      const ts = now - i * 3600_000;
+      const key = hourKey(ts);
+      const b = this.data.byHour[key];
+      byHour.push({
+        hour: `${String(new Date(ts).getHours()).padStart(2, '0')}:00`,
+        tokens: b?.tokens ?? 0,
+        calls: b?.calls ?? 0,
+      });
+    }
+
     const byModel = Object.values(this.data.byModel).sort((a, b) => b.totalTokens - a.totalTokens);
     return {
       firstStartedAt: this.data.firstStartedAt,
@@ -218,6 +274,7 @@ export class StatsStore implements UsageSink {
       totals: { ...this.data.totals },
       byModel,
       byDay,
+      byHour,
     };
   }
 }

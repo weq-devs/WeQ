@@ -11,8 +11,10 @@
  *   GET  /api/overview     → 训练参数 / 语音 / 表情 / 画像总览（只读）
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { timingSafeEqual } from 'node:crypto';
-import type { AgentLabPersona, TtsProviderConfig } from '@weq/agentlab';
+import { timingSafeEqual, createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { join } from 'node:path';
+import type { AgentLabPersona, AgentLabStickerRef, AgentLabStore, TtsProviderConfig } from '@weq/agentlab';
 import type { RuntimeLogger } from '@weq/agentlab';
 import type { StatsStore } from '../stats';
 import { renderAppHtml } from './app.html';
@@ -29,6 +31,12 @@ export interface WebUiDeps {
   features: { voice: boolean; groupChat: boolean };
   /** TTS providers（拿 provider 名字展示，不返回 key）。 */
   ttsProviders?: TtsProviderConfig[];
+  /** persona 存储：上传/删除表情后 savePersona 落盘，runtime 下次对话即读到新表情。 */
+  store: AgentLabStore;
+  /** 表情图目录（<personaDir>/stickers），GET/POST/DELETE 表情都在这读写。 */
+  stickersDir: string;
+  /** 有图像模型时用它解析上传的新表情（生成 description/scenario）；无则新表情走「随机发」。 */
+  visionDescribe?: (imageDataUrl: string) => Promise<{ description: string; scenario: string }>;
   /** 完全重载回调（重读 config.json 并重建实例）。缺省则 /api/reload 返回 501。 */
   onReload?: () => Promise<{ ok: boolean; message?: string }>;
   logger?: RuntimeLogger;
@@ -91,6 +99,36 @@ function buildOverview(deps: WebUiDeps): OverviewPayload {
       relationshipSummary: p.profile?.relationshipSummary ?? '',
     },
   };
+}
+
+/** 表情列表（只读展示；described=有文字说明，能被 LLM 按语义精准选，否则走随机发）。 */
+function listStickers(persona: AgentLabPersona): Array<{
+  md5: string;
+  description: string;
+  scenario: string;
+  count: number;
+  described: boolean;
+}> {
+  return (persona.stickers ?? []).map((s) => ({
+    md5: s.md5,
+    description: s.description ?? '',
+    scenario: s.scenario ?? '',
+    count: s.count ?? 0,
+    described: !!(s.description || s.scenario),
+  }));
+}
+
+/** data URL（data:image/png;base64,xxx 或裸 base64）→ Buffer。非法返回 null。 */
+function dataUrlToBuffer(dataUrl: string): Buffer | null {
+  const m = /^data:image\/[a-zA-Z0-9.+-]+;base64,(.+)$/.exec(dataUrl.trim());
+  const b64 = m ? m[1]! : /^[A-Za-z0-9+/=\s]+$/.test(dataUrl.trim()) ? dataUrl.trim() : null;
+  if (!b64) return null;
+  try {
+    const buf = Buffer.from(b64, 'base64');
+    return buf.length > 0 ? buf : null;
+  } catch {
+    return null;
+  }
 }
 
 /** 常量时间比较（长度不同直接 false，长度相同才 timingSafeEqual）。 */
@@ -175,6 +213,29 @@ export function startWebUi(deps: WebUiDeps): Promise<WebUiHandle> {
       return;
     }
 
+    // 表情图（二进制）：<img> 标签不能带 Authorization 头，改用 query ?k=<key> 鉴权。仅本机，安全性够用。
+    // 路径 /api/sticker/<md5>。md5 强校验（仅 hex），杜绝路径穿越。
+    if (method === 'GET' && url.startsWith('/api/sticker/')) {
+      const q = new URL(req.url || '/', 'http://127.0.0.1');
+      if (!keyMatches(q.searchParams.get('k') || '', deps.key)) {
+        sendJson(res, 401, { error: 'unauthorized' });
+        return;
+      }
+      const md5 = url.slice('/api/sticker/'.length);
+      if (!/^[0-9a-fA-F]{6,64}$/.test(md5)) {
+        sendJson(res, 404, { error: 'not found' });
+        return;
+      }
+      const file = join(deps.stickersDir, `${md5}.png`);
+      if (!existsSync(file)) {
+        sendJson(res, 404, { error: 'not found' });
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' });
+      res.end(readFileSync(file));
+      return;
+    }
+
     // 受保护 API
     if (url.startsWith('/api/')) {
       if (!keyMatches(bearer(req), deps.key)) {
@@ -187,6 +248,96 @@ export function startWebUi(deps: WebUiDeps): Promise<WebUiHandle> {
       }
       if (method === 'GET' && url === '/api/overview') {
         sendJson(res, 200, buildOverview(deps));
+        return;
+      }
+      // 表情列表。
+      if (method === 'GET' && url === '/api/stickers') {
+        sendJson(res, 200, { stickers: listStickers(deps.persona), canDescribe: !!deps.visionDescribe });
+        return;
+      }
+      // 上传新表情：body { dataUrl } → 存 <md5>.png → 追加/更新 persona.stickers → 有图像模型则解析一次 → savePersona。
+      if (method === 'POST' && url === '/api/stickers') {
+        let dataUrl = '';
+        try {
+          const parsed = JSON.parse((await readBody(req, 8 * 1024 * 1024)) || '{}') as { dataUrl?: unknown };
+          dataUrl = typeof parsed.dataUrl === 'string' ? parsed.dataUrl : '';
+        } catch {
+          sendJson(res, 400, { error: '请求体过大或格式错误' });
+          return;
+        }
+        const buf = dataUrlToBuffer(dataUrl);
+        if (!buf) {
+          sendJson(res, 400, { error: '不是有效的图片数据' });
+          return;
+        }
+        const md5 = createHash('md5').update(buf).digest('hex').toUpperCase();
+        mkdirSync(deps.stickersDir, { recursive: true });
+        writeFileSync(join(deps.stickersDir, `${md5}.png`), buf);
+
+        const stickers = (deps.persona.stickers = deps.persona.stickers ?? []);
+        let ref = stickers.find((s) => s.md5.toUpperCase() === md5);
+        if (!ref) {
+          ref = {
+            md5,
+            fileName: `${md5}.png`,
+            localPath: join('stickers', `${md5}.png`),
+            cdnToken: '',
+            count: 0,
+            description: '',
+            scenario: '',
+            contexts: [],
+          } satisfies AgentLabStickerRef;
+          stickers.push(ref);
+        }
+        // 有图像模型则解析一次内容/场景（失败不阻断，留空走随机发）。
+        if (deps.visionDescribe) {
+          try {
+            const d = await deps.visionDescribe(dataUrl);
+            ref.description = d.description || '';
+            ref.scenario = d.scenario || '';
+          } catch (err) {
+            deps.logger?.warn(`表情解析失败（将走随机发）：${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+        // 落盘（保留原 pairs）。
+        const rec = deps.store.getPersona(deps.persona.id);
+        deps.store.savePersona({ persona: deps.persona, pairs: rec?.pairs ?? [] });
+        sendJson(res, 200, {
+          ok: true,
+          sticker: {
+            md5: ref.md5,
+            description: ref.description,
+            scenario: ref.scenario,
+            count: ref.count,
+            described: !!(ref.description || ref.scenario),
+          },
+        });
+        return;
+      }
+      // 删除表情：/api/stickers/<md5>。
+      if (method === 'DELETE' && url.startsWith('/api/stickers/')) {
+        const md5 = url.slice('/api/stickers/'.length);
+        if (!/^[0-9a-fA-F]{6,64}$/.test(md5)) {
+          sendJson(res, 404, { error: 'not found' });
+          return;
+        }
+        const stickers = deps.persona.stickers ?? [];
+        const idx = stickers.findIndex((s) => s.md5.toUpperCase() === md5.toUpperCase());
+        if (idx < 0) {
+          sendJson(res, 404, { error: 'not found' });
+          return;
+        }
+        const removed = stickers[idx]!;
+        stickers.splice(idx, 1);
+        deps.persona.stickers = stickers;
+        try {
+          unlinkSync(join(deps.stickersDir, `${removed.md5}.png`));
+        } catch {
+          /* 文件可能已不在，忽略 */
+        }
+        const rec = deps.store.getPersona(deps.persona.id);
+        deps.store.savePersona({ persona: deps.persona, pairs: rec?.pairs ?? [] });
+        sendJson(res, 200, { ok: true });
         return;
       }
       // 完全重载：重读 config.json 并重建实例。注意——本 http server 会随实例一起重启，

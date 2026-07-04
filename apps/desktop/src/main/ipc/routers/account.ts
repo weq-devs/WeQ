@@ -644,7 +644,10 @@ export const accountRouter = router({
         selfId: z.string().min(1),
         voice: z.boolean().optional(),
         groupChat: z.boolean().optional(),
+        groupReplyMode: z.enum(['llm', 'heuristic']).optional(),
         webuiPort: z.number().int().min(1).max(65535).optional(),
+        // 可选图像模型：写进导出 persona 的 models.vision，供 bot 解析上传的新表情。
+        visionModel: agentLabModelRef.optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -657,8 +660,9 @@ export const accountRouter = router({
       const { persona } = record;
 
       // 抽 persona 用到的 LLM providers（chat/embedding/vision，去重）。
+      // 导出弹窗显式指定的图像模型也并进来（即使克隆时没用 vision，也能让 bot 具备解析新表情的能力）。
       const llmIds = new Set<string>();
-      for (const m of [persona.models.chat, persona.models.embedding, persona.models.vision]) {
+      for (const m of [persona.models.chat, persona.models.embedding, persona.models.vision, input.visionModel]) {
         if (m?.providerId) llmIds.add(m.providerId);
       }
       const llmProviders: Array<{ id: string; baseUrl: string; apiKey: string }> = [];
@@ -695,8 +699,9 @@ export const accountRouter = router({
         ttsProviders,
         adapter: { type: input.adapterType, wsUrl: input.wsUrl, token: input.token },
         selfId: input.selfId,
-        features: { voice: input.voice ?? false, groupChat: input.groupChat ?? false },
+        features: { voice: input.voice ?? false, groupChat: input.groupChat ?? false, groupReplyMode: input.groupReplyMode ?? 'llm' },
         webuiPort: input.webuiPort,
+        visionModel: input.visionModel,
       });
       // 记录 id → WebUI 访问信息，导出后在设置页可查密钥 / 一键打开控制台。
       svc.recordExport(input.personaId, {

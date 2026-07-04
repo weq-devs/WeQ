@@ -40,9 +40,14 @@ export interface BotExportInput {
   adapter: { type: 'napcat' | 'snowluma'; wsUrl: string; token?: string };
   /** bot 自己的 QQ 号。 */
   selfId: string;
-  features: { voice: boolean; groupChat: boolean };
+  features: { voice: boolean; groupChat: boolean; groupReplyMode?: 'llm' | 'heuristic' };
   /** 本机 WebUI 控制台端口（默认 8090）。 */
   webuiPort?: number;
+  /**
+   * 图像（vision）模型：写进导出 persona 的 models.vision，供 bot 运行时解析「上传的新表情」。
+   * 缺省时沿用 persona 原有的 models.vision（克隆时若选过 vision 就有）。其 provider 必须在 llmProviders 里。
+   */
+  visionModel?: { providerId: string; model: string };
 }
 
 export interface BotExportResult {
@@ -71,6 +76,11 @@ export async function buildBotExport(input: BotExportInput): Promise<BotExportRe
 
   // 2) persona（深拷贝后重定位资产路径：绝对 → 产物内相对）。
   const persona: AgentLabPersona = JSON.parse(JSON.stringify(input.persona));
+
+  // 图像模型：显式指定则写进 persona.models.vision（单一事实源——bot 解析新表情、runtime 都读它）。
+  if (input.visionModel) {
+    persona.models = { ...persona.models, vision: input.visionModel };
+  }
 
   // 表情图：复制到 persona/stickers/<md5>.png（bot 出站按 md5 就地找，不依赖 localPath）。
   let stickerCount = 0;
@@ -201,6 +211,9 @@ npm start
 - \`selfId\`：bot 的 QQ 号（当前：\`${input.selfId}\`）。
 - \`features.voice\`：是否允许发语音（当前：${input.features.voice ? '开' : '关'}）。
 - \`features.groupChat\`：是否参与群聊（当前：${input.features.groupChat ? '开' : '关'}）。
+- \`features.groupReplyMode\`：群聊回复意愿决策（当前：${
+    (input.features.groupReplyMode ?? 'llm') === 'llm' ? 'llm·拟人判断' : 'heuristic·启发式打分'
+  }）。\`llm\`=克隆体带上下文自己判断要不要开口（更自然，每条群消息多一次 LLM 调用）；\`heuristic\`=纯启发式打分（快·省 token）。
 - \`webui.port\`：控制台端口（当前：\`${webui.port}\`）；\`webui.enabled\` 设为 false 可关闭。
 
 ## ⚠️ 安全提示

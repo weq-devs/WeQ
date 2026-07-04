@@ -12,7 +12,7 @@ import type {
 } from './types';
 import { humanizeText } from './typo';
 import { scoreReplyWillingness } from './willing';
-import { selectStickerByEmotion } from './sticker';
+import { selectStickerByEmotion, pickRandomSticker } from './sticker';
 
 // 标记（全局，用于从文本里剥离）：[[发表情:…]] / 内部 [[sticker:md5]] / 内部 [[voice:id]]。
 const EMOTION_MARKER_G = /\[\[发表情[:：].+?\]\]/g;
@@ -263,15 +263,26 @@ function buildSystemPrompt(
   // 自定义表情包：给一份「编号 + 真实内容」的清单，让模型看着内容自己挑哪张——
   // 它清楚知道自己发的是什么。发表情 = 一条独立的 emoji 消息，content 填编号（见【输出格式】）。
   const stickers = (persona.stickers ?? []).filter((s) => s.description);
-  if (stickers.length > 0) {
-    lines.push(
-      '',
-      '【你的表情包】（你常用的几张自定义表情，看清楚每张是什么，想发哪张就作为一条 emoji 消息发）：',
-      ...stickers.map((s, i) => `${i + 1}. ${s.description}${s.scenario ? `（${s.scenario}）` : ''}`),
-      '发表情规则：挑你**真正想表达**的那张，作为一条独立消息 `{"type":"emoji","content":"编号"}`（编号就是上面的数字）。' +
-        '绝对不要用文字去旁白一个表情（写成「（捂脸）」「[狗头]」「企鹅吐舌」都是错的，发不出图、只会变尬文字）。' +
-        '表情通常是"单独回一个表情"代替打字（对方说了句好笑的，你就只回个表情、别的不发），而不是每条话后面都补一个——大多数消息里根本没有表情。',
-    );
+  // 没有文字描述的表情（多为刚导入、还没被视觉模型解析的新表情）——进不了编号清单，
+  // 但允许模型用 content=random「随手发一张」，否则它们永远发不出去。
+  const undescribedCount = (persona.stickers ?? []).filter((s) => !s.description).length;
+  const hasAnySticker = stickers.length > 0 || undescribedCount > 0;
+  if (hasAnySticker) {
+    lines.push('', '【你的表情包】（想发哪张就作为一条独立的 emoji 消息发，别用文字旁白表情）：');
+    if (stickers.length > 0) {
+      lines.push(
+        ...stickers.map((s, i) => `${i + 1}. ${s.description}${s.scenario ? `（${s.scenario}）` : ''}`),
+        '发表情规则：挑你**真正想表达**的那张，作为一条独立消息 `{"type":"emoji","content":"编号"}`（编号就是上面的数字）。' +
+          '绝对不要用文字去旁白一个表情（写成「（捂脸）」「[狗头]」「企鹅吐舌」都是错的，发不出图、只会变尬文字）。' +
+          '表情通常是"单独回一个表情"代替打字（对方说了句好笑的，你就只回个表情、别的不发），而不是每条话后面都补一个——大多数消息里根本没有表情。',
+      );
+    }
+    if (undescribedCount > 0) {
+      lines.push(
+        `另外你还有 ${undescribedCount} 张没有文字说明的表情；想随手发个表情活跃气氛时，可以发 ` +
+          '`{"type":"emoji","content":"random"}`（会从这些里随机挑一张）。同样别用文字去旁白它。',
+      );
+    }
   }
 
   // 语音：开了语音克隆且 TA 平时发语音时，允许 bot 自主决定某条用语音发。
@@ -368,12 +379,20 @@ function buildSystemPrompt(
 
   // 【输出格式】放最后，作为最强的硬性约束：整段回复必须是 JSON 数组，一个元素 = 一条消息。
   const typeLines = ['  · text = 一条文字消息，content 就是这句话（系统表情如 /捂脸 直接写在文字里）。'];
-  if (stickers.length > 0) {
-    typeLines.push('  · emoji = 发一张你的自定义表情，content 填上面表情清单里的编号（数字字符串）。');
+  if (hasAnySticker) {
+    typeLines.push(
+      stickers.length > 0
+        ? '  · emoji = 发一张你的自定义表情，content 填表情清单里的编号（数字字符串），或填 "random" 随机发一张。'
+        : '  · emoji = 发一张你的自定义表情，content 填 "random" 随机挑一张发。',
+    );
   }
   if (voiceEnabled) typeLines.push('  · ptt = 发一条语音，content 是你要说的话。');
-  const allowedTypes = ['text', ...(stickers.length > 0 ? ['emoji'] : []), ...(voiceEnabled ? ['ptt'] : [])];
-  const exampleEmoji = stickers.length > 0 ? ',{"type":"emoji","content":"1"}' : '';
+  const allowedTypes = ['text', ...(hasAnySticker ? ['emoji'] : []), ...(voiceEnabled ? ['ptt'] : [])];
+  const exampleEmoji = hasAnySticker
+    ? stickers.length > 0
+      ? ',{"type":"emoji","content":"1"}'
+      : ',{"type":"emoji","content":"random"}'
+    : '';
   lines.push(
     '',
     '【输出格式】（最重要，务必严格遵守）',
@@ -530,6 +549,10 @@ function extractJsonArray(raw: string): string | null {
 function resolveStickerToken(persona: AgentLabPersona, token: string): AgentLabStickerRef | null {
   const t = token.trim();
   const all = persona.stickers ?? [];
+  // random = 随手发一张（优先没描述的新表情，让刚导入、未解析的表情也有机会发出）。
+  if (/^random$/i.test(t)) {
+    return pickRandomSticker(persona, { preferUndescribed: true });
+  }
   // 编号对应「有描述的清单」——必须和 buildSystemPrompt 里列出的那份过滤后清单一致。
   if (/^\d+$/.test(t)) {
     const listed = all.filter((s) => s.description);

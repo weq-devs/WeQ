@@ -34,6 +34,12 @@ export interface BotFeatures {
   voice?: boolean;
   /** 参与群聊（意愿闸决定是否回，M3）。 */
   groupChat?: boolean;
+  /**
+   * 群聊回复意愿决策方式（默认 'llm'，与桌面模拟群聊一致）：
+   * 'llm'=克隆体带上下文/关系/记忆自己判断要不要开口（更自然，每条消息多一次 LLM 调用）；
+   * 'heuristic'=纯启发式打分（快·省 token）。
+   */
+  groupReplyMode?: 'llm' | 'heuristic';
 }
 
 /** 本机 WebUI 控制台（统计 / 总览；导出时生成密钥+编号）。 */

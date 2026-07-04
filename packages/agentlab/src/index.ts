@@ -6,7 +6,7 @@ export {
   resolveEndpoint,
 } from './provider';
 export { embedTexts, runPersonaChat, reportUsage, keywordsOf, testChatEndpoint, pickMessageText } from './http';
-export { selectStickerByEmotion } from './sticker';
+export { selectStickerByEmotion, pickRandomSticker } from './sticker';
 export { humanizeText, DEFAULT_TYPO_INTENSITY } from './typo';
 export { scoreReplyWillingness } from './willing';
 export {
