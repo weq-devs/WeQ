@@ -20,6 +20,7 @@
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import type { GroupMsg } from './types';
 import { decodeBody, decodeEmoji, toBigint, toStr } from './util';
+import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './append';
 import { QqDb } from '../qq_db';
 
 const SELECT_COLUMNS = `"40001","40020","40027","40033","40050","40800","40062","40003"`;
@@ -186,6 +187,15 @@ export class GroupMsgDb {
   /** Update the msgBody (column 40800) for a specific message. */
   async updateMsgBody(msgId: bigint, blob: Uint8Array): Promise<number> {
     return this.qq.write(`UPDATE group_msg_table SET "40800" = ? WHERE "40001" = ?`, [blob, msgId]);
+  }
+
+  /**
+   * Append a new group message by cloning the group's newest row as a template
+   * (see {@link appendClonedRow}). Returns the new msgId/msgSeq, or null if the
+   * group has no message to clone.
+   */
+  async appendMessage(targetGroupCode: string, fields: AppendMsgFields): Promise<AppendMsgResult | null> {
+    return appendClonedRow(this.qq, 'group_msg_table', '"40027" = ?', targetGroupCode, fields);
   }
 
   /** Batch count messages per group. Returns { groupCode: count }. */

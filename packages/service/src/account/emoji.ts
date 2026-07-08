@@ -12,6 +12,10 @@ import { BaseSysEmojiDb } from '@weq/db';
 export interface SystemFaceEntry {
   id: number;
   desc: string;
+  /** 1 系统表情(小黄脸) / 2 emoji 字符表情 / 3 动态可变表情(骰子等)——用于分组。 */
+  emojiType: number;
+  /** Unicode 字符表情的 code point；0 表示非此类（走本地图片资源）。 */
+  unicodeId: number;
 }
 
 export class EmojiService {
@@ -41,7 +45,12 @@ export class EmojiService {
       });
       const rows = await db.listAll();
       this.sysFaces = rows
-        .map((r) => ({ id: Number(r.id), desc: r.desc }))
+        .map((r) => ({
+          id: Number(r.id),
+          desc: r.desc,
+          emojiType: r.emojiType,
+          unicodeId: r.unicodeId,
+        }))
         .filter((r) => Number.isFinite(r.id) && r.desc);
       return this.sysFaces;
     } catch {

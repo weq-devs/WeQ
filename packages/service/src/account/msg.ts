@@ -14,12 +14,40 @@
  */
 
 import type { AccountSession } from '@weq/account';
-import { C2cMsg, GroupMsg, C2cPartition } from '@weq/db';
-import { ProtoMsg, encodeElement, Element } from '@weq/codec';
+import { C2cMsg, GroupMsg, C2cPartition, type AppendMsgFields } from '@weq/db';
+import {
+  ProtoMsg,
+  encodeElement,
+  Element,
+  validateComposeMessage,
+  COMPOSE_ELEMENT_SPECS,
+  type ComposeKind,
+  type FieldSpec,
+} from '@weq/codec';
 import { MsgBody } from '@weq/codec/proto/msg/40800';
 import { toRenderElements, type RenderElement } from './msg_view';
 
 const bodyCodec = new ProtoMsg(MsgBody);
+
+/**
+ * Input for authoring a new message. `elements` is the *raw* authored array
+ * (already byte-decoded at the IPC boundary); it is validated + coerced against
+ * the codec compose schemas here, so the service is the single validation point.
+ */
+export interface InsertMsgInput {
+  /** Who the message appears to be from. */
+  senderUid: string;
+  senderUin: string | bigint;
+  /** Authored elements (text/at/pic/face + optional leading reply). */
+  elements: unknown[];
+  /** Unix seconds; defaults to now. */
+  sendTime?: number;
+}
+
+export interface InsertMsgResult {
+  msgId: bigint;
+  msgSeq: bigint;
+}
 
 /**
  * Augmented message shapes for the renderer.
@@ -33,6 +61,51 @@ export interface RenderGroupMsg extends Omit<GroupMsg, 'elements'> {
 
 export class MsgService {
   constructor(private readonly session: AccountSession) {}
+
+  // ---- compose / insert ----------------------------------------------------
+
+  /**
+   * Field descriptors for each authorable element kind, derived from the codec
+   * Zod schemas. The frontend builds its compose form from this — no parallel
+   * interface to keep in sync.
+   */
+  getComposeSpecs(): Record<ComposeKind, FieldSpec[]> {
+    return COMPOSE_ELEMENT_SPECS;
+  }
+
+  /** Insert a new private-chat message with `peerUid`. */
+  async insertC2cMessage(peerUid: string, input: InsertMsgInput): Promise<InsertMsgResult | null> {
+    const fields = this.buildAppendFields(input);
+    return this.session.c2cMsgs.appendMessage(this.c2cPartition(peerUid), fields);
+  }
+
+  /** Insert a new group message into `targetGroupCode`. */
+  async insertGroupMessage(targetGroupCode: string, input: InsertMsgInput): Promise<InsertMsgResult | null> {
+    const fields = this.buildAppendFields(input);
+    return this.session.groupMsgs.appendMessage(targetGroupCode, fields);
+  }
+
+  /**
+   * Validate the authored elements, derive msgType, encode the 40800 body, and
+   * assemble the column overrides shared by c2c/group append. Throws on invalid
+   * input so the caller surfaces the reason.
+   */
+  private buildAppendFields(input: InsertMsgInput): AppendMsgFields {
+    const parsed = validateComposeMessage(input.elements);
+    if (!parsed.ok) throw new Error(parsed.error);
+
+    const body = bodyCodec.encode({ elements: parsed.elements.map(encodeElement) });
+    const sendTime = BigInt(input.sendTime ?? Math.floor(Date.now() / 1000));
+
+    return {
+      senderUid: input.senderUid,
+      senderUin: BigInt(input.senderUin),
+      msgType: parsed.msgType,
+      sendTime,
+      dayTimestamp: localMidnight(sendTime),
+      body,
+    };
+  }
 
   // ---- raw / modify --------------------------------------------------------
 
@@ -173,6 +246,12 @@ export class MsgService {
     const sortNo = this.session.uidMap.sortNoByUid(targetUid);
     return sortNo !== undefined ? { sortNo } : { uid: targetUid };
   }
+}
+
+/** Local-midnight (unix seconds) of a unix-seconds timestamp — column 40058. */
+function localMidnight(sec: bigint): bigint {
+  const d = new Date(Number(sec) * 1000);
+  return BigInt(Math.floor(new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() / 1000));
 }
 
 function renderC2c(m: C2cMsg): RenderC2cMsg {

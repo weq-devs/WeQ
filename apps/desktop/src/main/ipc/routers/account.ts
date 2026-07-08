@@ -1544,6 +1544,47 @@ export const accountRouter = router({
     }),
 
   /**
+   * Field descriptors for the compose form — required/optional/type per
+   * authorable element kind, derived from the codec Zod schemas.
+   */
+  composeElementSpecs: procedure.query(() => requireServices().msgs.getComposeSpecs()),
+
+  /**
+   * Insert a brand-new message into a conversation (c2c peer uid or group code).
+   * `elements` is the authored array in editable wire form (bytes as
+   * `{ type:'Buffer', data }`); it is byte-decoded here and validated in the
+   * service. Returns the new `{ msgId, msgSeq }` as strings, or null if the
+   * conversation had no message to clone as a template.
+   */
+  insertMessage: procedure
+    .input(
+      z.object({
+        kind: z.enum(['c2c', 'group']),
+        conv: z.string().min(1),
+        senderUid: z.string().min(1),
+        senderUin: z.string().min(1),
+        elements: z.array(z.any()).min(1),
+        sendTime: z.number().int().positive().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const elements = elementsFromEditable(input.elements);
+      const svc = requireServices().msgs;
+      const payload = {
+        senderUid: input.senderUid,
+        senderUin: input.senderUin,
+        elements,
+        sendTime: input.sendTime,
+      };
+      const res =
+        input.kind === 'group'
+          ? await svc.insertGroupMessage(input.conv, payload)
+          : await svc.insertC2cMessage(input.conv, payload);
+      if (!res) return null;
+      return { msgId: res.msgId.toString(), msgSeq: res.msgSeq.toString() };
+    }),
+
+  /**
    * Live "nt_msg.db changed" ping (debounced). Carries no payload beyond a
    * timestamp — the renderer responds by re-reading the open conversation's
    * loaded seq window. This is what makes group inserts, recalls and sticker

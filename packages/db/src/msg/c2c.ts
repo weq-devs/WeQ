@@ -23,6 +23,7 @@
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import type { C2cMsg } from './types';
 import { decodeBody, toBigint, toStr } from './util';
+import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './append';
 import { QqDb } from '../qq_db';
 
 const SELECT_COLUMNS = `"40001","40020","40021","40030","40033","40050","40800","40003"`;
@@ -176,6 +177,16 @@ export class C2cMsgDb {
   /** Update the msgBody (column 40800) for a specific message. */
   async updateMsgBody(msgId: bigint, blob: Uint8Array): Promise<number> {
     return this.qq.write(`UPDATE c2c_msg_table SET "40800" = ? WHERE "40001" = ?`, [blob, msgId]);
+  }
+
+  /**
+   * Append a new private-chat message by cloning the peer's newest row as a
+   * template (see {@link appendClonedRow}). Returns the new msgId/msgSeq, or
+   * null if the conversation has no message to clone.
+   */
+  async appendMessage(part: C2cPartition, fields: AppendMsgFields): Promise<AppendMsgResult | null> {
+    const { clause, value } = partitionWhere(part);
+    return appendClonedRow(this.qq, 'c2c_msg_table', clause, value, fields);
   }
 
   /** Batch count messages per peer by uid. Returns { uid: count }. */

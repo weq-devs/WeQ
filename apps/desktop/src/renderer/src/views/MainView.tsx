@@ -31,6 +31,7 @@ import { SettingsDialog } from '../components/SettingsDialog';
 import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
 import { GroupAnalyticsDialog } from '../components/GroupAnalyticsDialog';
 import { BuddyAnalyticsDialog } from '../components/BuddyAnalyticsDialog';
+import { AddMessageModal } from '../components/compose/AddMessageModal';
 import { RelationGraphView } from '../components/relationGraph/RelationGraphView';
 import { AgentLabView } from './AgentLabView';
 import { ExportView } from './ExportView';
@@ -1482,6 +1483,7 @@ export function MainView(): ReactElement {
   } | null>(null);
   
   const [editorState, setEditorState] = useState<{ msgId: string, elements: any[] } | null>(null);
+  const [addMessageConv, setAddMessageConv] = useState<Conversation | null>(null);
 
   const handleEditRaw = useCallback(async (message: Message) => {
     try {
@@ -1528,6 +1530,10 @@ export function MainView(): ReactElement {
       groupCode: conversation.id,
       groupName: conversation.group.name,
     });
+  }, []);
+
+  const handleAddMessage = useCallback((conversation: Conversation) => {
+    setAddMessageConv(conversation);
   }, []);
 
   const handleOpenBuddyAnalytics = useCallback((conversation: Extract<Conversation, { type: 'direct' }>) => {
@@ -2713,6 +2719,7 @@ export function MainView(): ReactElement {
                 onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
                 onOpenGroupAnalytics={handleOpenGroupAnalytics}
                 onOpenBuddyAnalytics={handleOpenBuddyAnalytics}
+                onAddMessage={handleAddMessage}
               />
             </div>
             <OverlayScrollbar
@@ -2759,6 +2766,14 @@ export function MainView(): ReactElement {
           peerUid={buddyAnalyticsDialog.peerUid}
           peerName={buddyAnalyticsDialog.peerName}
           onClose={() => setBuddyAnalyticsDialog(null)}
+        />
+      ) : null}
+      {addMessageConv ? (
+        <AddMessageModal
+          conversation={addMessageConv}
+          selfUser={user}
+          onClose={() => setAddMessageConv(null)}
+          onInserted={() => void refreshWindow()}
         />
       ) : null}
       </ConvContext.Provider>
