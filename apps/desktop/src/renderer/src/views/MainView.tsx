@@ -37,6 +37,7 @@ import { AddMessageModal } from '../components/compose/AddMessageModal';
 import { RelationGraphView } from '../components/relationGraph/RelationGraphView';
 import { AgentLabView } from './AgentLabView';
 import { ExportView } from './ExportView';
+import { CacheView } from './cache/CacheView';
 import { ChatHome } from './ChatHome';
 import {
   ChatMainContent,
@@ -2576,7 +2577,7 @@ export function MainView(): ReactElement {
         query={shell.query}
         contactTab={shell.contactTab}
         activeNotice={shell.contactNotice}
-        sidebarWidth={shell.view === 'export' || shell.view === 'agentlab' ? 0 : shell.sidebarWidth}
+        sidebarWidth={shell.view === 'export' || shell.view === 'agentlab' || shell.view === 'cache' ? 0 : shell.sidebarWidth}
         mainOpen={shell.mainOpen}
         messageBadgeCount={0}
         contactBadgeCount={0}
@@ -2604,7 +2605,7 @@ export function MainView(): ReactElement {
         onContactTabChange={shell.changeContactTab}
         onSidebarWidthChange={shell.updateSidebarWidth}
         sidebarContent={
-          shell.view === 'export' || shell.view === 'agentlab' ? null : (
+          shell.view === 'export' || shell.view === 'agentlab' || shell.view === 'cache' ? null : (
           <>
             <ChatSidebarContent
               user={user}
@@ -2683,6 +2684,8 @@ export function MainView(): ReactElement {
             <ExportView />
           ) : shell.view === 'agentlab' ? (
             <AgentLabView />
+          ) : shell.view === 'cache' ? (
+            <CacheView />
           ) : (
           <div className="weq-template-main-wrap">
             <div className="weq-readonly-chat">
@@ -2781,6 +2784,7 @@ export function MainView(): ReactElement {
         <AddMessageModal
           conversation={addMessageConv}
           selfUser={user}
+          selfUid={selfProfile.data?.uid}
           onClose={() => setAddMessageConv(null)}
           onInserted={() => void refreshWindow()}
         />

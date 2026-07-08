@@ -249,6 +249,17 @@ export interface AgentLabWillingConfig {
   mustReplyOnMention?: boolean;
 }
 
+/**
+ * 错别字（人味后处理）配置。缺省（老克隆体没存过）时按 DEFAULT_TYPO_INTENSITY 走。
+ * enabled=false 等价于 intensity=0（完全不手滑）。
+ */
+export interface AgentLabTypoConfig {
+  /** 是否开启错别字后处理（缺省视为开）。 */
+  enabled?: boolean;
+  /** 手滑强度 ∈ [0,1]：越高越容易写错字/吞句号。 */
+  intensity?: number;
+}
+
 export interface AgentLabPersona {
   id: string;
   ownerId: string;
@@ -263,6 +274,8 @@ export interface AgentLabPersona {
   customPrompt?: string;
   /** 发言意愿配置（意愿闸调节；缺省=群聊按默认闸、私聊必回）。 */
   willing?: AgentLabWillingConfig;
+  /** 错别字（人味后处理）配置；缺省=按默认强度开。 */
+  typo?: AgentLabTypoConfig;
   /** 是否开启语音克隆（开后运行时允许 bot 自主发语音）。 */
   voiceCloneEnabled?: boolean;
   /** 语音 TTS 绑定（开启语音克隆后用哪个服务商 + 复刻/预置）。 */

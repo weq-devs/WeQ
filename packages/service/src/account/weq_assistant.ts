@@ -8,11 +8,16 @@
  * card) is the structural template we clone: copy its row from each nt_msg.db
  * table, then override only the identity + content columns.
  *
- * What we write (nt_msg.db only — profile_info.db is skipped because its tables
- * carry FTS5 `pinyin_letter` triggers our SQLCipher build can't run):
- *   nt_uid_mapping_table    — uid ↔ uin ↔ sortNo directory entry
- *   c2c_msg_table           — one ARK message (cover + jump point at our server)
- *   recent_contact_v3_table — the recent-list entry (name/avatar/preview)
+ * ── The three tables, and how they're treated ──────────────────────────────
+ *   nt_uid_mapping_table    — 配置/身份目录。**只写一次**（`ensureMapping`），存在即不
+ *                             动，永不删。它的 sortNo(48901) 同时当会话 sortNo(40027)。
+ *   c2c_msg_table           — 消息内容。**只新增不删除**（`insertTweetC2c`）。每次打开对
+ *                             比本地推文列表，缺哪条补哪条；用推文的固定时间(40050)去重。
+ *   recent_contact_v3_table — 会话列表。开启时写（`setContactLatest`，预览最新推文）、关
+ *                             闭时删（`removeContact`）；从不动 mapping / c2c。
+ *
+ * 推文只有一类：内容 + 一个**固定在本地**的时间。本地那份 JSON（见 app 层 tweets.ts）
+ * 才是唯一数据源；这里只负责把它注入库，绝不用「插入时刻」当消息时间。
  *
  * The avatar is a REAL local image file written under QQ's own
  * `nt_data/avatar/weq/` dir — QQ reads that absolute path (column 41110) to
@@ -20,7 +25,8 @@
  *
  * The ARK card's `coverUrl` / `url` point at our local HTTP server
  * (`http://127.0.0.1:<port>/…`); QQ fetches them to render the card cover and
- * open the jump page. When the port changes we rewrite the ARK body in place.
+ * open the jump page. When the port changes we rewrite the ARK body in place
+ * (`rewriteArkPort` —— update, not delete).
  *
  * ⚠️ Writes to the live QQ databases + QQ's data dir. Run with QQ closed.
  */
@@ -64,11 +70,12 @@ const bodyCodec = new ProtoMsg(MsgBody);
 const rcCodec = new ProtoMsg(RecentContactBody);
 
 /**
- * One WeQ助手「推文」= one ARK card. Each becomes its own c2c message in the
- * fabricated conversation; the newest one drives the recent-list preview. Adding
- * a 推文 is just appending to {@link DEFAULT_CARDS} — no other surgery needed.
+ * One WeQ助手「推文」= one ARK card, keyed by a time that is **fixed in local
+ * storage** (never the DB-insert moment). This is the render-facing slice the DB
+ * layer needs; the authoritative record lives in the app-layer local store
+ * (tweets.ts `WeqTweet`), which is structurally a superset of this.
  */
-export interface ArkCard {
+export interface WeqTweetCard {
   /** Server route for the cover PNG, e.g. `/cover/daily`. */
   coverPath: string;
   /** Server route for the click-through page, e.g. `/p/daily`. */
@@ -81,46 +88,12 @@ export interface ArkCard {
   prompt: string;
   /** Recent-list preview line shown when this is the newest card. */
   previewText: string;
-}
-
-/**
- * The default 推文 set fabricated at init, oldest → newest. The LAST entry is the
- * newest message (drives the recent-list preview). "每日推文" 是首篇；"群数据周报"
- * 是统计推文（页面见 apps/.../weq_assistant/stats_page.ts）。
- */
-export const DEFAULT_CARDS: ArkCard[] = [
-  {
-    coverPath: '/cover/daily',
-    pagePath: '/p/daily',
-    title: 'WeQ 助手 · 每日推文',
-    contentText: '每日推文已送达，点击查看今日内容～',
-    prompt: '[WeQ助手] 每日推文',
-    previewText: '[WeQ助手] WeQ 助手已上线',
-  },
-  {
-    coverPath: '/cover/stats',
-    pagePath: '/p/stats',
-    title: 'WeQ 助手 · 群数据周报',
-    contentText: '你最活跃群聊的数据周报已生成，点击查看排行 / 活跃时段 / 词云～',
-    prompt: '[WeQ助手] 群数据周报',
-    previewText: '[WeQ助手] 群数据周报已生成',
-  },
-];
-
-export interface EnsureAssistantOptions {
-  /** Local server port embedded into the ARK card's coverUrl / jump url. */
-  port: number;
   /**
-   * Absolute path to the source avatar image (e.g. resources/brand/logo.png).
-   * Copied into QQ's nt_data/avatar/weq dir. Omit to leave 41110 untouched.
+   * **Fixed** unix seconds — the message time (written to 40050) AND the dedup
+   * key deciding whether this 推文 is already in c2c. Fixed at local-save time,
+   * never recomputed at insert.
    */
-  avatarSourcePath?: string;
-}
-
-export interface EnsureAssistantResult {
-  msgId: bigint;
-  /** Absolute avatar path written to column 41110 (or null if not set). */
-  avatarPath: string | null;
+  createdAt: number;
 }
 
 export class WeqAssistantService {
@@ -145,100 +118,133 @@ export class WeqAssistantService {
   }
 
   /**
-   * Create (or replace) the WeQ助手 account across the three nt_msg.db tables.
-   * Idempotent: deletes any prior rows for our uid first. Returns the msgId of
-   * the ARK message (persist it so port-change rewrites can find it fast).
+   * ① mapping —— **只写一次**。存在即不动（永不删/永不改）。它的 sortNo(48901) 是整个
+   * 会话的 sortNo，c2c(40027) / recent_contact(40027) 都复用它。
    */
-  async ensureAccount(opts: EnsureAssistantOptions): Promise<EnsureAssistantResult> {
-    const nowSec = Math.floor(Date.now() / 1000);
-    const nowSecBig = BigInt(nowSec);
-    const midnightSec = BigInt(Math.floor(new Date(new Date().setHours(0, 0, 0, 0)).getTime() / 1000));
-
-    const cards = DEFAULT_CARDS;
+  async ensureMapping(): Promise<void> {
+    if (await this.exists()) return;
     const newSortNo = (await this.maxBigint('nt_uid_mapping_table', '48901')) + 1n;
-    let msgIdCursor = await this.maxBigint('c2c_msg_table', '40001');
-    const newRecentPk = (await this.maxBigint('recent_contact_v3_table', '41102')) + rand31();
-
-    // 1) Write the real avatar image into QQ's own data dir (QQ reads 41110).
-    const avatarPath = this.writeAvatarFile(opts.avatarSourcePath);
-
-    // ── cleanup prior rows (idempotent — removes ALL our rows across re-runs) ──
-    for (const [table, col] of [
-      ['nt_uid_mapping_table', '48902'],
-      ['c2c_msg_table', '40021'],
-      ['recent_contact_v3_table', '40021'],
-    ] as const) {
-      await this.msgDb.write(`DELETE FROM "${table}" WHERE "${col}" = ?`, [WEQ_ASSISTANT_UID]);
-    }
-
-    // ── 1) nt_uid_mapping_table (one directory entry, shared by all cards) ──
     await this.cloneAndInsert('nt_uid_mapping_table', '48902', '"48901" DESC', {
       '48901': newSortNo,
       '48902': WEQ_ASSISTANT_UID,
       '1002': WEQ_ASSISTANT_UIN,
     }, ['48912']);
+  }
 
-    // ── 2) c2c_msg_table — one ARK message per 推文 (all share the conversation's
-    //       sortNo/40027; only msgId/random/time differ). Timestamps increase with
-    //       index so the LAST card is the newest message. ──
-    let firstMsgId = 0n;
-    let newestMsgId = 0n;
-    let newestArkJson = '';
-    for (let i = 0; i < cards.length; i += 1) {
-      const card = cards[i]!;
-      msgIdCursor += rand31(); // strictly increasing, collision-free
-      const msgId = msgIdCursor;
-      const cardTime = BigInt(nowSec - (cards.length - 1 - i)); // last card == nowSec
-      const arkJson = buildArkJson(opts.port, Number(cardTime), card);
-      const body = await this.buildArkBody(arkJson);
-      await this.cloneAndInsert('c2c_msg_table', '40021', '"40050" DESC', {
-        '40001': msgId,
-        '40002': rand31(),
-        '40020': WEQ_ASSISTANT_UID,
-        '40021': WEQ_ASSISTANT_UID,
-        '40027': newSortNo,
-        '40030': WEQ_ASSISTANT_UIN,
-        '40033': WEQ_ASSISTANT_UIN,
-        '40050': cardTime,
-        '40058': midnightSec,
-        '40800': body,
-      }, ['40801', '40900', '40062']);
-      if (i === 0) firstMsgId = msgId;
-      newestMsgId = msgId;
-      newestArkJson = arkJson;
-    }
+  /**
+   * ② c2c —— 插入一条推文的 ARK 消息，**只新增不删除**。用推文的**固定时间**
+   * (`card.createdAt` → 40050) 当去重键：库里已有同 uid 同时间的行则跳过（返回 false）。
+   * 消息时间取本地固定值，绝不用插入时刻。
+   */
+  async insertTweetC2c(port: number, card: WeqTweetCard): Promise<boolean> {
+    const timeBig = BigInt(card.createdAt);
+    const dup = await this.msgDb.query(
+      `SELECT 1 FROM c2c_msg_table WHERE "40021" = ? AND "40050" = ? LIMIT 1`,
+      [WEQ_ASSISTANT_UID, timeBig],
+    );
+    if (dup.length > 0) return false;
 
-    // ── 3) recent_contact_v3_table — one row, previewing the NEWEST card ──
-    const newestCard = cards[cards.length - 1]!;
+    const sortNo = await this.conversationSortNo();
+    const msgId = (await this.maxBigint('c2c_msg_table', '40001')) + rand31();
+    const arkJson = buildArkJson(port, card.createdAt, card);
+    const body = await this.buildArkBody(arkJson);
+    await this.cloneAndInsert('c2c_msg_table', '40021', '"40050" DESC', {
+      '40001': msgId,
+      '40002': rand31(),
+      '40020': WEQ_ASSISTANT_UID,
+      '40021': WEQ_ASSISTANT_UID,
+      '40027': sortNo,
+      '40030': WEQ_ASSISTANT_UIN,
+      '40033': WEQ_ASSISTANT_UIN,
+      '40050': timeBig,
+      '40058': BigInt(localMidnightSec(card.createdAt)),
+      '40800': body,
+    }, ['40801', '40900', '40062']);
+    return true;
+  }
+
+  /**
+   * ③ recent_contact —— 写/替换会话列表行，让它预览 `card`（应传最新那篇推文）。会话时间
+   * (40050/41136) 用该推文的固定时间。同时（若给了源图）刷新头像文件。整行先删后插以幂等。
+   */
+  async setContactLatest(port: number, card: WeqTweetCard, avatarSourcePath?: string): Promise<void> {
+    const sortNo = await this.conversationSortNo();
+    const avatarPath = this.writeAvatarFile(avatarSourcePath);
+    const timeBig = BigInt(card.createdAt);
+
+    // 指向该推文在 c2c 里的真实 msgId（按固定时间定位）。
+    const rows = await this.msgDb.query(
+      `SELECT "40001" FROM c2c_msg_table WHERE "40021" = ? AND "40050" = ? LIMIT 1`,
+      [WEQ_ASSISTANT_UID, timeBig],
+    );
+    const raw = rows[0]?.[0];
+    const msgId = typeof raw === 'bigint' ? raw : typeof raw === 'number' ? BigInt(raw) : 0n;
+
+    const arkJson = buildArkJson(port, card.createdAt, card);
     const previewBlob = rcCodec.encode({
       preview: {
         elementType: ElementType.ARK,
-        arkData: newestArkJson,
-        displayText: newestCard.previewText,
+        arkData: arkJson,
+        displayText: card.previewText,
         isSender: false,
       },
     });
     const recentOv: Record<string, SqlValue> = {
-      '41102': newRecentPk,
+      '41102': (await this.maxBigint('recent_contact_v3_table', '41102')) + rand31(),
       '40010': 103n, // chatType (public account)
       '40011': 11n, // msgType (ark)
-      '40027': newSortNo,
+      '40027': sortNo,
       '40021': WEQ_ASSISTANT_UID,
       '40020': WEQ_ASSISTANT_UID,
       '40030': WEQ_ASSISTANT_UIN,
       '40033': WEQ_ASSISTANT_UIN,
-      '40001': newestMsgId,
+      '40001': msgId,
       '40094': WEQ_ASSISTANT_NICK,
-      '40050': nowSecBig,
-      '41136': nowSecBig,
+      '40050': timeBig,
+      '41136': timeBig,
       '40051': previewBlob,
     };
     if (avatarPath) recentOv['41110'] = avatarPath; // local avatar file for QQ
-    await this.cloneAndInsert('recent_contact_v3_table', '40021', '"40050" DESC', recentOv);
 
-    // Return the FIRST card's msgId for back-compat (config bookkeeping); the port
-    // rewriter walks every card row by uid, so it no longer relies on this.
-    return { msgId: firstMsgId, avatarPath };
+    await this.removeContact();
+    await this.cloneAndInsert('recent_contact_v3_table', '40021', '"40050" DESC', recentOv);
+  }
+
+  /** 删除会话列表行（仅 recent_contact；mapping / c2c 一概不动）。关闭开关时调用。 */
+  async removeContact(): Promise<void> {
+    await this.msgDb.write(
+      `DELETE FROM recent_contact_v3_table WHERE "40021" = ?`,
+      [WEQ_ASSISTANT_UID],
+    );
+  }
+
+  /**
+   * 发布单条推文进库（解耦调用的「注入数据库」这一步）：
+   *   ensureMapping（只写一次）→ insertTweetC2c（缺才插）→ setContactLatest（预览它）。
+   * 与本地写入（tweets.ts `addTweet`）配对：先写本地再 injectTweet。
+   */
+  async injectTweet(port: number, card: WeqTweetCard, avatarSourcePath?: string): Promise<void> {
+    await this.ensureMapping();
+    await this.insertTweetC2c(port, card);
+    await this.setContactLatest(port, card, avatarSourcePath);
+  }
+
+  /**
+   * 把整份本地推文列表同步进库（打开账号 / 开启开关时走这条）：
+   *   ensureMapping → 逐条 insertTweetC2c（按固定时间去重，只补缺失）
+   *   → rewriteArkPort（把已有行里嵌的端口刷成当前实际端口，改写≠删除）
+   *   → setContactLatest（预览时间最新的那篇）。
+   * `cards` 可乱序，内部按 createdAt 升序处理。
+   */
+  async syncTweets(port: number, cards: WeqTweetCard[], avatarSourcePath?: string): Promise<void> {
+    await this.ensureMapping();
+    const sorted = [...cards].sort((a, b) => a.createdAt - b.createdAt);
+    for (const card of sorted) {
+      await this.insertTweetC2c(port, card);
+    }
+    await this.rewriteArkPort(port); // keep every existing card's embedded port live
+    const newest = sorted[sorted.length - 1];
+    if (newest) await this.setContactLatest(port, newest, avatarSourcePath);
   }
 
   /**
@@ -349,6 +355,16 @@ export class WeqAssistantService {
     return typeof v === 'bigint' ? v : typeof v === 'number' ? BigInt(v) : 0n;
   }
 
+  /** The conversation's sortNo (== mapping's 48901), reused as c2c/recent 40027. */
+  private async conversationSortNo(): Promise<bigint> {
+    const rows = await this.msgDb.query(
+      `SELECT "48901" FROM nt_uid_mapping_table WHERE "48902" = ? LIMIT 1`,
+      [WEQ_ASSISTANT_UID],
+    );
+    const v = rows[0]?.[0];
+    return typeof v === 'bigint' ? v : typeof v === 'number' ? BigInt(v) : 0n;
+  }
+
   /**
    * Clone the game-center template row for `table` and INSERT it with the given
    * per-column overrides (and optional columns forced to NULL). Column order =
@@ -390,11 +406,12 @@ export class WeqAssistantService {
 // ── ark payload helpers ────────────────────────────────────────────────────
 
 /**
- * Build the ARK JSON for the WeQ助手 card. Most game-center ARK fields don't
- * matter for rendering (token/config/appid/adId/feedId…), so they're left empty
- * or zero — QQ renders from `view` + `meta.template3` (cover/title/text/url).
+ * Build the ARK JSON for the WeQ助手 card. `timeSec` is the card's FIXED local
+ * time. Most game-center ARK fields don't matter for rendering
+ * (token/config/appid/adId/feedId…), so they're left empty or zero — QQ renders
+ * from `view` + `meta.template3` (cover/title/text/url).
  */
-export function buildArkJson(port: number, nowSec: number, card: ArkCard = DEFAULT_CARDS[0]!): string {
+export function buildArkJson(port: number, timeSec: number, card: WeqTweetCard): string {
   const base = `http://127.0.0.1:${port}`;
   return JSON.stringify({
     app: 'com.tencent.gamecenter.mall',
@@ -407,7 +424,7 @@ export function buildArkJson(port: number, nowSec: number, card: ArkCard = DEFAU
         contentText: card.contentText,
         coverUrl: `${base}${card.coverPath}`,
         styleType: 1,
-        time: String(nowSec),
+        time: String(timeSec),
         title: card.title,
         url: `${base}${card.pagePath}`,
       },
@@ -416,8 +433,15 @@ export function buildArkJson(port: number, nowSec: number, card: ArkCard = DEFAU
     sourceName: 'WeQ',
     ver: '0.0.3.67',
     view: 'pubAdArkView',
-    config: { ctime: nowSec, token: '' },
+    config: { ctime: timeSec, token: '' },
   });
+}
+
+/** Local-midnight (00:00, local tz) of a fixed unix-seconds timestamp, in seconds. */
+function localMidnightSec(unixSec: number): number {
+  const d = new Date(unixSec * 1000);
+  d.setHours(0, 0, 0, 0);
+  return Math.floor(d.getTime() / 1000);
 }
 
 /**

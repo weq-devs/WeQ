@@ -260,17 +260,23 @@ function renderWordCloud(report: WeqStatsReport, p: WeqPalette): string {
   ];
   const maxC = words[0]!.count || 1;
   const minC = words[words.length - 1]!.count || 1;
-  const spans = words
-    .map((w, i) => {
-      const t = maxC === minC ? 1 : (w.count - minC) / (maxC - minC);
-      const fs = Math.round(13 + Math.pow(t, 1.6) * (36 - 13));
-      const weight = fs > 30 ? 800 : fs > 22 ? 700 : fs > 16 ? 600 : 500;
-      return `<span class="st-wc-word" style="font-size:${fs}px;font-weight:${weight};color:${colors[i % colors.length]}" title="${esc(
-        w.word,
-      )} · ${w.count} 次">${esc(w.word)}</span>`;
-    })
-    .join('');
-  return `<div class="st-wordcloud">${spans}</div>`;
+  // 字号 / 颜色按频次排名（rank 0 = 最大）计算，与最终摆放位置无关。
+  const spans = words.map((w, rank) => {
+    const t = maxC === minC ? 1 : (w.count - minC) / (maxC - minC);
+    const fs = Math.round(13 + Math.pow(t, 1.6) * (36 - 13));
+    const weight = fs > 30 ? 800 : fs > 22 ? 700 : fs > 16 ? 600 : 500;
+    return `<span class="st-wc-word" style="font-size:${fs}px;font-weight:${weight};color:${colors[rank % colors.length]}" title="${esc(
+      w.word,
+    )} · ${w.count} 次">${esc(w.word)}</span>`;
+  });
+  // 中心向外排布：把最大的词（rank 0）放进序列正中，其余按频次交替塞到它两侧，
+  // 配合 .st-wordcloud 的居中换行，视觉上最大的词落在正中间而不是左上角。
+  const arranged: string[] = [];
+  spans.forEach((span, rank) => {
+    if (rank % 2 === 0) arranged.push(span);
+    else arranged.unshift(span);
+  });
+  return `<div class="st-wordcloud">${arranged.join('')}</div>`;
 }
 
 // ── 页面组装 ──────────────────────────────────────────────────────────────

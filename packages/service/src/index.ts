@@ -111,7 +111,7 @@ export {
   WEQ_ASSISTANT_UIN,
   WEQ_ASSISTANT_NICK,
 } from './account/weq_assistant';
-export type { EnsureAssistantOptions, EnsureAssistantResult } from './account/weq_assistant';
+export type { WeqTweetCard } from './account/weq_assistant';
 export { AssistantService, ASSISTANT_AGENT_ID } from './account/assistant';
 export type { AssistantConfig, AssistantSession, AssistantTools, AssistantToolSpec, AssistantStep, AssistantArtifact } from './account/assistant';
 export type { RenderC2cMsg, RenderGroupMsg } from './account/msg';
@@ -127,6 +127,16 @@ export type {
   DbDecryptOptions,
   DbDecryptResult,
 } from './account/db_decrypt';
+export { DbExplorerService } from './account/db_explorer';
+export type {
+  DbCell,
+  DbInputValue,
+  RowKey,
+  DbObject,
+  DbColumn,
+  TableRowsResult,
+  QueryResult,
+} from './account/db_explorer';
 export {
   ACCOUNT_HEALTH_DATABASES,
   checkAccountDatabaseHealth,

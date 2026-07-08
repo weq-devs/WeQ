@@ -317,12 +317,12 @@ export async function renderCardPng(spec: CardSpec): Promise<Buffer> {
   return png;
 }
 
-/** The default WeQ 助手 每日推文 cover. */
+/** The default WeQ 助手 欢迎使用 cover. */
 export function dailyCardSpec(dateLabel: string): CardSpec {
   return {
-    title: '今天，你的 QQ 会自己写日报',
-    subtitle: 'WeQ 助手把本机聊天数据整理成每日推送',
+    title: '欢迎使用 WeQ！',
+    subtitle: 'NTQQ 本地消息数据库解密 · 解析 · 导出工具',
     footer: dateLabel,
-    tag: '每日推文',
+    tag: '欢迎使用',
   };
 }

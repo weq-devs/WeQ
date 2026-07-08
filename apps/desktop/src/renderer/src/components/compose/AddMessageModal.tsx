@@ -49,11 +49,18 @@ type View = 'main' | 'sender' | 'reply' | 'at' | 'face' | 'pic';
 export function AddMessageModal({
   conversation,
   selfUser,
+  selfUid,
   onClose,
   onInserted,
 }: {
   conversation: Conversation;
   selfUser: User;
+  /**
+   * Real self uid (40020 senderUid) written to the DB. `selfUser.id` is only a
+   * `self:${uin}` marker used by the chat view's "is this mine" checks, so it
+   * must NOT be used as the sender uid.
+   */
+  selfUid?: string;
   onClose: () => void;
   onInserted?: () => void;
 }): ReactElement {
@@ -65,7 +72,7 @@ export function AddMessageModal({
   const peerUid = isGroup ? '' : conversation.otherUser.id;
 
   const self: Person = {
-    uid: selfUser.id,
+    uid: selfUid || selfUser.id,
     uin: selfUser.identityValue,
     name: selfUser.displayName || '我',
   };

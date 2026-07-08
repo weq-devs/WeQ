@@ -34,8 +34,8 @@ for (const group of CONFUSION_GROUPS) {
   }
 }
 
-/** 默认强度：约 18% 的消息会带一处手滑。0 关闭。 */
-export const DEFAULT_TYPO_INTENSITY = 0.18;
+/** 默认强度：约 10% 的消息会带一处手滑。0 关闭。 */
+export const DEFAULT_TYPO_INTENSITY = 0.1;
 
 /**
  * 用一个确定性 PRNG（不依赖 Math.random，便于复现/测试）。seed 取文本内容即可，

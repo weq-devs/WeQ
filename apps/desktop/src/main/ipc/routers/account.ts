@@ -21,6 +21,7 @@ import { sampleHitokoto } from '../../hitokoto';
 import { resolveResource } from '../../resource';
 import { dialog } from 'electron';
 import { procedure, router } from '../trpc';
+import { dbExplorerRouter } from './db_explorer';
 import { assistantBus, type AssistantStreamEvent } from '../../mcp/assistant_bus';
 import { groupChatBus, type GroupChatStreamEvent } from '../../mcp/agentlab_group_bus';
 import {
@@ -548,6 +549,9 @@ async function exportGroupAlbums(
 }
 
 export const accountRouter = router({
+  // ---- database explorer (SQLiteStudio-style browse / query / edit) ----
+  dbExplorer: dbExplorerRouter,
+
   // ---- agent lab ----
 
   listAgentLabPersonas: procedure.query(() => {
@@ -873,6 +877,13 @@ export const accountRouter = router({
           })
           .nullable()
           .optional(),
+        typo: z
+          .object({
+            enabled: z.boolean().optional(),
+            intensity: z.number().min(0).max(1).optional(),
+          })
+          .nullable()
+          .optional(),
       }),
     )
     .mutation(({ input }) => {
@@ -882,6 +893,7 @@ export const accountRouter = router({
         voiceCloneEnabled: input.voiceCloneEnabled,
         voice: input.voice,
         willing: input.willing,
+        typo: input.typo,
       });
     }),
 

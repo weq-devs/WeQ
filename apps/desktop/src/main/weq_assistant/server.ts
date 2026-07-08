@@ -72,10 +72,38 @@ function todayLabel(): string {
 
 /**
  * Push page opened when the QQ user taps the card. Handcrafted single page (not
- * the report system) — this is a demo intro today; the push channel will later
- * carry real subscriptions (CLI 日报 / 通知). Colors follow WeQ Desktop's theme
- * via the live snapshot (accent + 深/浅), matching the ARK cover 1:1.
+ * the report system) — a 「欢迎使用 WeQ」intro that briefly presents the project
+ * (see README). The push channel will later carry real subscriptions (日报 /
+ * 通知). Colors follow WeQ Desktop's theme via the live snapshot (accent + 深/
+ * 浅), matching the ARK cover 1:1.
  */
+/**
+ * Inline lucide icons (paths copied verbatim from `lucide-react@0.469`). The push
+ * page is a plain HTML string in the main process — we can't mount React
+ * components — so we emit the same SVG the component library would, keeping the
+ * icons consistent with WeQ Desktop's UI. `currentColor` lets CSS tint them.
+ */
+const LUCIDE_PATHS: Record<string, string> = {
+  smartphone: '<rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/>',
+  'refresh-cw':
+    '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>' +
+    '<path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
+  package:
+    '<path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/>' +
+    '<path d="M12 22V12"/><path d="m3.3 7 7.703 4.734a2 2 0 0 0 1.994 0L20.7 7"/><path d="m7.5 4.27 9 5.15"/>',
+  'shield-check':
+    '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>' +
+    '<path d="m9 12 2 2 4-4"/>',
+  lock: '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+};
+function lucide(name: keyof typeof LUCIDE_PATHS, size: number): string {
+  return (
+    `<svg class="ico" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" ` +
+    `stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ` +
+    `aria-hidden="true">${LUCIDE_PATHS[name]}</svg>`
+  );
+}
+
 function dailyPageHtml(): string {
   const date = todayLabel();
   const p = buildPalette(getWeqTheme());
@@ -89,7 +117,7 @@ function dailyPageHtml(): string {
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>WeQ 助手 · 每日推文</title>
+<title>WeQ 助手 · 欢迎使用</title>
 <style>
   :root {
     --accent: ${p.accent};
@@ -157,12 +185,13 @@ function dailyPageHtml(): string {
   .feats { display: flex; flex-direction: column; gap: 12px; margin: 24px 0 6px; }
   .feat { display: flex; gap: 12px; align-items: flex-start; }
   .feat .ic { flex: none; width: 30px; height: 30px; border-radius: 9px;
-    display: flex; align-items: center; justify-content: center; font-size: 16px;
-    background: var(--tag-bg); }
+    display: flex; align-items: center; justify-content: center;
+    color: var(--tag-ink); background: var(--tag-bg); }
   .feat .ft { font-size: 14.5px; line-height: 1.6; }
   .feat .ft b { color: var(--title); }
-  .foot { margin-top: 26px; text-align: center; font-size: 12.5px; color: var(--sub); }
-  .foot .lock { opacity: 0.85; }
+  .foot { margin-top: 26px; display: flex; align-items: center; justify-content: center;
+    gap: 6px; font-size: 12.5px; color: var(--sub); }
+  .foot .ico { opacity: 0.85; }
 </style>
 </head>
 <body>
@@ -170,19 +199,20 @@ function dailyPageHtml(): string {
     <div class="brand">
       ${logoTag}
       <span class="name">WeQ 助手</span>
-      <span class="tag">每日推文</span>
+      <span class="tag">欢迎使用</span>
     </div>
     <div class="card">
-      <h1>今天，你的 QQ 会自己写日报</h1>
-      <div class="date"><span class="dot"></span>${date} · 本机推送</div>
-      <p>这是 WeQ 助手推送的<b>每日推文</b>示例页面。未来这里会渲染日报、日记、订阅摘要等由本地服务生成的内容。</p>
+      <h1>欢迎使用 WeQ！</h1>
+      <div class="date"><span class="dot"></span>${date} · 本机运行</div>
+      <p><b>WeQ</b> 是一个 NTQQ 自主的<b>本地消息数据库</b>解密、解析与导出工具。所有解密、解析与展示都在你本机完成，消息、封面与本页都来自你自己的 WeQ 服务。</p>
       <div class="feats">
-        <div class="feat"><div class="ic">📊</div><div class="ft"><b>每日日报</b> —— 把当天的聊天动态整理成一页摘要，睡前十秒看完。</div></div>
-        <div class="feat"><div class="ic">🔔</div><div class="ft"><b>订阅通知</b> —— 关注的人/群有新动态时，主动推一条卡片给你。</div></div>
-        <div class="feat"><div class="ic">🔒</div><div class="ft"><b>完全离线</b> —— 消息、封面与本页都来自你本机的 WeQ 服务，不经过任何外部服务器。</div></div>
+        <div class="feat"><div class="ic">${lucide('smartphone', 18)}</div><div class="ft"><b>高仿 QQ 界面</b> —— 聊天列表、联系人等核心界面高度还原，全消息类型适配。</div></div>
+        <div class="feat"><div class="ic">${lucide('refresh-cw', 18)}</div><div class="ft"><b>实时更新</b> —— 外部监听数据库，消息变更时增量更新；支持媒体下载与查看。</div></div>
+        <div class="feat"><div class="ic">${lucide('package', 18)}</div><div class="ft"><b>多格式导出</b> —— TXT / JSON / JSONL / SQLite / CSV / XLSX，以及群相册批量下载。</div></div>
+        <div class="feat"><div class="ic">${lucide('shield-check', 18)}</div><div class="ft"><b>完全离线</b> —— 不经过任何外部服务器，仅用于个人数据的本地备份与分析。</div></div>
       </div>
     </div>
-    <div class="foot"><span class="lock">🔒</span> Served locally by WeQ · 127.0.0.1</div>
+    <div class="foot">${lucide('lock', 13)} Served locally by WeQ · 127.0.0.1</div>
   </div>
 </body>
 </html>`;

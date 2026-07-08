@@ -120,8 +120,6 @@ export interface McpServerConfig {
 export interface WeqAssistantConfig {
   enabled: boolean;
   port: number;
-  /** msgId of the fabricated ARK message (decimal string), if created. */
-  msgId?: string;
 }
 
 export interface AgentLabSettings {
@@ -328,7 +326,6 @@ export class UserConfigService {
       weqAssistant: {
         enabled: s?.weqAssistant?.enabled ?? d.weqAssistant.enabled,
         port: s?.weqAssistant?.port ?? d.weqAssistant.port,
-        msgId: s?.weqAssistant?.msgId ?? d.weqAssistant.msgId,
       },
       agentLab: {
         providers: normalizeAgentLabProviders(s?.agentLab?.providers) ?? d.agentLab.providers,
@@ -362,11 +359,6 @@ export class UserConfigService {
       weqAssistant: {
         enabled: patch.weqAssistant?.enabled ?? current.weqAssistant.enabled,
         port: patch.weqAssistant?.port ?? current.weqAssistant.port,
-        // msgId: explicit null clears it; undefined keeps the current value.
-        msgId:
-          patch.weqAssistant && 'msgId' in patch.weqAssistant
-            ? (patch.weqAssistant.msgId ?? undefined)
-            : current.weqAssistant.msgId,
       },
       agentLab: {
         providers:

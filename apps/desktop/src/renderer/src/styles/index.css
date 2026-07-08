@@ -2418,9 +2418,10 @@ html[data-theme="dark"] .chat-empty {
   max-width: 340px;
   padding: 10px 12px;
   border-radius: 10px;
-  background: var(--weq-surface, #ffffff);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16);
+  background: var(--weq-bg-surface, #ffffff);
+  color: var(--weq-fg-primary, #1a1a1a);
+  border: 1px solid var(--weq-border-subtle, rgba(0, 0, 0, 0.08));
+  box-shadow: var(--weq-shadow-card, 0 8px 28px rgba(0, 0, 0, 0.16));
 }
 
 .weq-toast-icon {
@@ -2806,7 +2807,10 @@ html[data-theme="dark"] .app-title-bar-signature {
   gap: 0;
 }
 
-.app-shell .rail-nav,
+.app-shell .rail-nav {
+  gap: 4px;
+}
+
 .app-shell .rail-footer {
   gap: 8px;
 }
@@ -7521,6 +7525,7 @@ html[data-theme="dark"] .weq-forward-bubble {
   border-color: var(--weq-accent-effective);
 }
 .weq-persona-note { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--weq-fg-muted); }
+.weq-persona-divider { height: 1px; background: var(--weq-border-subtle); margin: 4px 0; border: none; }
 .weq-persona-soon {
   display: flex;
   flex-direction: column;

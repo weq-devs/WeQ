@@ -26,6 +26,7 @@ import { createWin32Platform, isTencentFilesRoot, type Platform } from '@weq/pla
 import { startMcpServer, stopMcpServer } from '../mcp/server';
 import { startWeqServer, stopWeqServer } from '../weq_assistant/server';
 import { refreshWeqStats, setWeqStats, statsCachePath } from '../weq_assistant/stats';
+import { ensureDefaultTweets, tweetsStorePath } from '../weq_assistant/tweets';
 import { aiToolSpecs, runAiTool } from '../mcp/openai_tools';
 import { getExternalMcpHub, disposeExternalMcp } from '../mcp/external';
 import { sampleHitokoto } from '../hitokoto';
@@ -62,6 +63,7 @@ import {
   TokenUsageStore,
   ConversationStore,
   DbDecryptService,
+  DbExplorerService,
   WebQueryService,
   GroupAlbumMediaService,
   DbWatchService,
@@ -280,6 +282,8 @@ export interface AccountServices {
   exportManager: import('@weq/service').ExportTaskManager;
   /** List and bulk-decrypt encrypted QQ NT databases. */
   dbDecrypt: DbDecryptService;
+  /** SQLiteStudio-style browse / query / edit over the account's databases. */
+  dbExplorer: DbExplorerService;
   /** Web CGI queries that need the already-hooked online QQ process. */
   webQuery: WebQueryService;
   /** Group album media listing over the already-hooked online QQ process. */
@@ -661,6 +665,7 @@ export function initAppContext(): AppContext {
           },
         ),
         dbDecrypt: new DbDecryptService(session, platform),
+        dbExplorer: new DbExplorerService(session, platform),
         webQuery,
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, resolveOnlinePid),
       };
@@ -890,6 +895,7 @@ export function initAppContext(): AppContext {
           },
         ),
         dbDecrypt: new DbDecryptService(session, platform),
+        dbExplorer: new DbExplorerService(session, platform),
         webQuery,
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, noPid),
       };
@@ -980,30 +986,38 @@ export function initAppContext(): AppContext {
         enabled: config.enabled,
         port: config.port,
       });
+      const svc = new WeqAssistantService(this.account, this.platform);
+
+      // 关闭：停 server + 只删会话列表行（recent_contact）。mapping / c2c 一概保留——
+      // 推文（消息）与身份目录留在库里，下次开启对比本地补齐即可。best-effort。
       if (!config.enabled) {
         await stopWeqServer();
+        try {
+          await svc.removeContact();
+        } catch (error) {
+          logger.warn('failed to remove weq assistant contact on disable', {
+            event: 'weq-disable-failed',
+            ...logErrorContext(error),
+          });
+        }
         return 0;
       }
 
       // 1) Start the loopback server (port fallback may move us up).
       const boundPort = await startWeqServer({ port: config.port });
 
-      // 2) FULLY OVERWRITE the fabricated conversation every time the toggle is
-      //    applied. `ensureAccount` is idempotent (delete-then-write), so it
-      //    always re-copies the real avatar file + rewrites all three rows with
-      //    the current ARK payload / bound port — no stale rows survive, and no
-      //    manual delete-script is needed during iteration. (We deliberately do
-      //    NOT take the exists()/rewrite fast-path: it left old avatar/ark data
-      //    in place.) Best-effort: log but don't crash the toggle.
-      const svc = new WeqAssistantService(this.account, this.platform);
+      // 2) 本地推文列表是唯一数据源：读本地（首次为空则种入内置两篇，时间固定在本地），
+      //    再 syncTweets——ensureMapping（只写一次）+ 逐条按固定时间去重补进 c2c（只新增
+      //    不删除）+ 把已有卡片端口刷成当前实际端口（改写≠删除）+ 会话列表预览最新一篇。
+      //    best-effort：log but don't crash the toggle.
       try {
+        const storePath = tweetsStorePath(userConfig.cacheDir('weq-assistant'));
+        const tweets = ensureDefaultTweets(storePath);
         const logo = resolveResource('brand', 'logo.png') ?? undefined;
-        const { msgId } = await svc.ensureAccount({ port: boundPort, avatarSourcePath: logo });
-        userConfig.setSettings({
-          weqAssistant: { port: boundPort, msgId: msgId.toString() },
-        });
+        await svc.syncTweets(boundPort, tweets, logo);
+        userConfig.setSettings({ weqAssistant: { port: boundPort } });
       } catch (error) {
-        logger.error('failed to fabricate weq assistant conversation', {
+        logger.error('failed to sync weq assistant tweets', {
           event: 'weq-ensure-failed',
           ...logErrorContext(error),
         });

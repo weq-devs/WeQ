@@ -56,6 +56,7 @@ import {
   type AgentLabGroupMessage,
   type AgentLabRelation,
   type AgentLabWillingConfig,
+  type AgentLabTypoConfig,
   type TtsPort,
   type TtsProviderConfig,
   type TtsService,
@@ -952,6 +953,7 @@ export class AgentLabService extends EventEmitter {
       voiceCloneEnabled?: boolean;
       voice?: AgentLabVoiceBinding | null;
       willing?: AgentLabWillingConfig | null;
+      typo?: AgentLabTypoConfig | null;
     },
   ): AgentLabPersona | null {
     const record = this.store.getPersona(personaId);
@@ -962,6 +964,7 @@ export class AgentLabService extends EventEmitter {
     if (patch.voiceCloneEnabled !== undefined) persona.voiceCloneEnabled = patch.voiceCloneEnabled;
     if (patch.voice !== undefined) persona.voice = patch.voice ?? undefined;
     if (patch.willing !== undefined) persona.willing = patch.willing ?? undefined;
+    if (patch.typo !== undefined) persona.typo = patch.typo ?? undefined;
     persona.updatedAt = Date.now();
     this.store.savePersona(record);
     return persona;
