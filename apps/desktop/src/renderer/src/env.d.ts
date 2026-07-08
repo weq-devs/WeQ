@@ -17,6 +17,9 @@ interface Window {
         { name: string; value: string; domain?: string; path?: string }[]
       >;
     };
+    weqAssistant: {
+      setTheme(theme: { accent: string; mode: 'light' | 'dark' }): Promise<boolean>;
+    };
     systemAuth: {
       getStatus(): Promise<{
         platform: string;

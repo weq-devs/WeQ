@@ -126,6 +126,9 @@ function applyTheme({
   try {
     window.weq?.channel?.setTheme?.(preference);
     window.weq?.qzone?.setTheme?.(preference);
+    // The 每日推文 ARK 封面 / 跳转页 render in the main process (no localStorage),
+    // so push the effective accent + resolved 深/浅 for them to follow.
+    window.weq?.weqAssistant?.setTheme?.({ accent, mode: resolved });
   } catch {}
 }
 

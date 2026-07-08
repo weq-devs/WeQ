@@ -57,6 +57,14 @@ export interface Platform {
   ntDbDir(uin: string): string | null;
 
   /**
+   * Resolve QQ NT's media data root (`<Tencent Files>/<uin>/nt_qq/nt_data`) for
+   * a specific account — the parent of Pic/Video/Ptt/File/avatar. Returns null
+   * if the directory exists nowhere. Used to place the WeQ 助手 avatar image
+   * where QQ itself reads it.
+   */
+  ntDataDir(uin: string): string | null;
+
+  /**
    * Resolve `group_info.db` (group metadata and essence messages) for a
    * specific QQ account. Co-located with `nt_msg.db`.
    */

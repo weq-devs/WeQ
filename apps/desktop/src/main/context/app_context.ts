@@ -24,6 +24,8 @@ import { join } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
 import { createWin32Platform, isTencentFilesRoot, type Platform } from '@weq/platform';
 import { startMcpServer, stopMcpServer } from '../mcp/server';
+import { startWeqServer, stopWeqServer } from '../weq_assistant/server';
+import { refreshWeqStats, setWeqStats, statsCachePath } from '../weq_assistant/stats';
 import { aiToolSpecs, runAiTool } from '../mcp/openai_tools';
 import { getExternalMcpHub, disposeExternalMcp } from '../mcp/external';
 import { sampleHitokoto } from '../hitokoto';
@@ -76,7 +78,10 @@ import {
   type DbChange,
   type DbHealthFailure,
   type McpServerConfig,
+  type WeqAssistantConfig,
+  WeqAssistantService,
 } from '@weq/service';
+import { resolveResource } from '../resource';
 import { openAccount, openStaticAccount, peekStaticSelfUin, type AccountContext, type AccountSession } from '@weq/account';
 
 /**
@@ -335,6 +340,14 @@ export interface AppContext {
    */
   applyMcp(config: McpServerConfig): Promise<void>;
   /**
+   * Apply the WeQ 助手 config to the open account: when enabled, fabricate the
+   * built-in "WeQ助手" conversation in the live QQ db (idempotent) + start the
+   * loopback HTTP server; when disabled, stop the server (account data is left
+   * in place). Rewrites the ARK card when the port changed. No-op when no
+   * account is open. Returns the port the server actually bound to (or 0).
+   */
+  applyWeqAssistant(config: WeqAssistantConfig): Promise<number>;
+  /**
    * Force a one-shot rkey harvest from the online QQ for the open account —
    * the explicit refresh before a media-completing export. Resolves false when
    * no account is open / QQ is offline / harvest failed.
@@ -373,6 +386,10 @@ export function initAppContext(): AppContext {
       applyMcp(): Promise<void> {
         /* no account — nothing to serve */
         return Promise.resolve();
+      },
+      applyWeqAssistant(): Promise<number> {
+        /* no account — nothing to serve */
+        return Promise.resolve(0);
       },
       refreshRkeysNow(): Promise<boolean> {
         return Promise.resolve(false);
@@ -487,6 +504,8 @@ export function initAppContext(): AppContext {
       accountMonitor?.stop();
       accountMonitor = null;
       void stopMcpServer();
+      void stopWeqServer();
+      setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
       this.account?.dispose();
       dbWatchHandle?.unmount();
@@ -708,6 +727,19 @@ export function initAppContext(): AppContext {
             });
           });
       }
+
+      // WeQ 助手 is account-bound too: ensure the fabricated conversation exists
+      // + start the loopback server when enabled. Live toggling → applyWeqAssistant.
+      const weq = userConfig.getSettings().weqAssistant;
+      if (weq.enabled) {
+        void this.applyWeqAssistant(weq).catch((error) => {
+          logger.error('failed to start weq assistant on account open', {
+            event: 'weq-start-failed',
+            port: weq.port,
+            ...logErrorContext(error),
+          });
+        });
+      }
       // No health check at open — it now runs lazily, only if a real query
       // later fails in a way that looks like corruption (see the openAccount
       // callback above).
@@ -727,6 +759,8 @@ export function initAppContext(): AppContext {
       accountMonitor?.stop();
       accountMonitor = null;
       void stopMcpServer();
+      void stopWeqServer();
+      setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
       this.account?.dispose();
       dbWatchHandle?.unmount();
@@ -893,6 +927,8 @@ export function initAppContext(): AppContext {
       this.scheduler?.stop();
       this.scheduler = null;
       void stopMcpServer();
+      void stopWeqServer();
+      setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
       unmountDbWatch();
       this.account?.dispose();
@@ -931,6 +967,63 @@ export function initAppContext(): AppContext {
       } else {
         await stopMcpServer();
       }
+    },
+    async applyWeqAssistant(config: WeqAssistantConfig): Promise<number> {
+      // Only live accounts host the server / own the fabricated conversation.
+      if (!this.account || !this.platform) {
+        await stopWeqServer();
+        return 0;
+      }
+      logger.info('applying weq assistant config', {
+        event: 'apply-weq-assistant',
+        accountUin: this.account.context.uin,
+        enabled: config.enabled,
+        port: config.port,
+      });
+      if (!config.enabled) {
+        await stopWeqServer();
+        return 0;
+      }
+
+      // 1) Start the loopback server (port fallback may move us up).
+      const boundPort = await startWeqServer({ port: config.port });
+
+      // 2) FULLY OVERWRITE the fabricated conversation every time the toggle is
+      //    applied. `ensureAccount` is idempotent (delete-then-write), so it
+      //    always re-copies the real avatar file + rewrites all three rows with
+      //    the current ARK payload / bound port — no stale rows survive, and no
+      //    manual delete-script is needed during iteration. (We deliberately do
+      //    NOT take the exists()/rewrite fast-path: it left old avatar/ark data
+      //    in place.) Best-effort: log but don't crash the toggle.
+      const svc = new WeqAssistantService(this.account, this.platform);
+      try {
+        const logo = resolveResource('brand', 'logo.png') ?? undefined;
+        const { msgId } = await svc.ensureAccount({ port: boundPort, avatarSourcePath: logo });
+        userConfig.setSettings({
+          weqAssistant: { port: boundPort, msgId: msgId.toString() },
+        });
+      } catch (error) {
+        logger.error('failed to fabricate weq assistant conversation', {
+          event: 'weq-ensure-failed',
+          ...logErrorContext(error),
+        });
+      }
+
+      // 「群数据周报」推文的存储/缓存：后台（非阻塞）挑「我等级最高的群」算一份统计
+      // 快照并落盘，页面（/p/stats）只读这份缓存。best-effort：失败只记日志。首帧会先
+      // 把盘上旧缓存灌进内存，避免推文空窗（见 weq_assistant/stats.refreshWeqStats）。
+      if (this.services) {
+        const statsUin = this.account.context.uin;
+        const cachePath = statsCachePath(userConfig.cacheDir('weq-assistant'), statsUin);
+        void refreshWeqStats(this.services.groupInfo, statsUin, cachePath).catch((error) => {
+          logger.warn('failed to refresh weq stats snapshot', {
+            event: 'weq-stats-refresh-failed',
+            ...logErrorContext(error),
+          });
+        });
+      }
+      // No svc.close() — it shares the session's cached nt_msg.db connection.
+      return boundPort;
     },
     refreshRkeysNow(): Promise<boolean> {
       logger.info('manual rkey refresh requested', {

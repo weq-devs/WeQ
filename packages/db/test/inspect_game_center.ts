@@ -40,7 +40,7 @@ function describe(v: unknown): string {
 }
 
 /** Dump every column of every matching row for one table. */
-async function dumpRows(db: QqDb, table: string, whereCol: string, whereVal: unknown, limit = 3): Promise<void> {
+async function dumpRows(db: QqDb, table: string, whereCol: string, whereVal: string, limit = 3): Promise<void> {
   const info = await db.query(`PRAGMA table_info("${table}")`);
   const cols = info.map((r) => String(r[1]));
   console.log(`\n================ ${table} — WHERE "${whereCol}" = ${String(whereVal)} ================`);

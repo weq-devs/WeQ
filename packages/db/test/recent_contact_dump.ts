@@ -60,7 +60,7 @@ async function main(): Promise<void> {
     db.close();
     return;
   }
-  const row = rows[0];
+  const row = rows[0]!;
   console.log(`\n================ one example row — ${row.length} columns ================`);
   for (let i = 0; i < row.length; i++) {
     console.log(`  ${(colNames[i] ?? `#${i}`).padEnd(10)} = ${describe(row[i])}`);

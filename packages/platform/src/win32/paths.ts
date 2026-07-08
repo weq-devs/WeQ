@@ -158,6 +158,15 @@ export function findNtDbDir(uin: string, home = homedir(), overrideRoot?: string
   return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_db');
 }
 
+/**
+ * `<root>/<uin>/nt_qq/nt_data` for the first root that has it — QQ NT's media
+ * data root (holds Pic/Video/Ptt/File/avatar/…). Used to place the WeQ 助手
+ * avatar file where QQ itself reads it (`nt_data/avatar/weq/…`).
+ */
+export function findNtDataDir(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+  return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_data');
+}
+
 /** `<root>/<uin>/nt_qq/nt_db/group_info.db` for the first root that has it. */
 export function findGroupInfoDb(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
   return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_db', 'group_info.db');

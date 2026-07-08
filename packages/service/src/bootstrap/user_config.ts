@@ -110,6 +110,20 @@ export interface McpServerConfig {
   token: string;
 }
 
+/**
+ * WeQ 助手 config. When enabled (and an account is open) we fabricate a built-in
+ * "WeQ助手" public-account conversation inside the LIVE QQ databases and run a
+ * loopback HTTP server on `port` that QQ fetches for the card cover / jump page.
+ * `msgId` caches the fabricated ARK message id so port changes can rewrite it in
+ * place. Account-bound + off by default.
+ */
+export interface WeqAssistantConfig {
+  enabled: boolean;
+  port: number;
+  /** msgId of the fabricated ARK message (decimal string), if created. */
+  msgId?: string;
+}
+
 export interface AgentLabSettings {
   providers: AgentLabProviderConfig[];
 }
@@ -133,6 +147,7 @@ export interface AppSettings {
   autoLockMinutes: number;
   voiceTranscribe: VoiceTranscribeConfig;
   mcp: McpServerConfig;
+  weqAssistant: WeqAssistantConfig;
   agentLab: AgentLabSettings;
   /** 点击关闭按钮时的行为。默认 'ask'（首次弹窗询问）。 */
   windowCloseBehavior: WindowCloseBehavior;
@@ -147,6 +162,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   // 8765 在 Windows 上常被百度输入法等占用，默认改用不常冲突的高端口；
   // 即便仍冲突，启动时也会自动向上探测可用端口（见 mcp/server.ts）。
   mcp: { enabled: false, port: 48765, token: '' },
+  // 20000+ 不常用端口；若被占用，启动时自动向上探测（见 weq_assistant/server.ts）。
+  weqAssistant: { enabled: false, port: 27182 },
   agentLab: { providers: [] },
   windowCloseBehavior: 'ask',
 };
@@ -308,6 +325,11 @@ export class UserConfigService {
         port: s?.mcp?.port ?? d.mcp.port,
         token: s?.mcp?.token ?? d.mcp.token,
       },
+      weqAssistant: {
+        enabled: s?.weqAssistant?.enabled ?? d.weqAssistant.enabled,
+        port: s?.weqAssistant?.port ?? d.weqAssistant.port,
+        msgId: s?.weqAssistant?.msgId ?? d.weqAssistant.msgId,
+      },
       agentLab: {
         providers: normalizeAgentLabProviders(s?.agentLab?.providers) ?? d.agentLab.providers,
       },
@@ -336,6 +358,15 @@ export class UserConfigService {
         enabled: patch.mcp?.enabled ?? current.mcp.enabled,
         port: patch.mcp?.port ?? current.mcp.port,
         token: patch.mcp?.token ?? current.mcp.token,
+      },
+      weqAssistant: {
+        enabled: patch.weqAssistant?.enabled ?? current.weqAssistant.enabled,
+        port: patch.weqAssistant?.port ?? current.weqAssistant.port,
+        // msgId: explicit null clears it; undefined keeps the current value.
+        msgId:
+          patch.weqAssistant && 'msgId' in patch.weqAssistant
+            ? (patch.weqAssistant.msgId ?? undefined)
+            : current.weqAssistant.msgId,
       },
       agentLab: {
         providers:

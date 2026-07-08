@@ -22,6 +22,7 @@ import {
   Palette,
   Plug,
   Settings2,
+  Sparkles,
   Sun,
   User,
   X,
@@ -31,6 +32,7 @@ import { AccountBasicsSection } from './settings/AccountBasicsSection';
 import { AgentLabSection } from './settings/AgentLabSection';
 import { VoiceTranscribeSection } from './settings/VoiceTranscribeSection';
 import { McpServerSection } from './settings/McpServerSection';
+import { WeqAssistantSection } from './settings/WeqAssistantSection';
 import {
   useThemeStore,
   type ThemeBackground,
@@ -38,7 +40,7 @@ import {
   type ThemePreference,
 } from '../state/theme';
 
-type SectionId = 'global' | 'appearance' | 'account' | 'voice' | 'agentlab' | 'mcp';
+type SectionId = 'global' | 'appearance' | 'account' | 'voice' | 'agentlab' | 'mcp' | 'weq';
 
 interface SettingsSection {
   id: SectionId;
@@ -83,6 +85,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: 'MCP 服务器',
     icon: <Plug size={16} strokeWidth={1.8} />,
     render: () => <McpServerSection />,
+  },
+  {
+    id: 'weq',
+    label: 'WeQ 助手',
+    icon: <Sparkles size={16} strokeWidth={1.8} />,
+    render: () => <WeqAssistantSection />,
   },
 ];
 

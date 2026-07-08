@@ -12,6 +12,16 @@ declare global {
           { name: string; value: string; domain?: string; path?: string }[]
         >;
       };
+      qzone: {
+        open(theme?: 'system' | 'light' | 'dark'): Promise<boolean>;
+        setTheme(theme: 'system' | 'light' | 'dark'): Promise<boolean>;
+        getCookies(): Promise<
+          { name: string; value: string; domain?: string; path?: string }[]
+        >;
+      };
+      weqAssistant: {
+        setTheme(theme: { accent: string; mode: 'light' | 'dark' }): Promise<boolean>;
+      };
       systemAuth: {
         getStatus(): Promise<{
           platform: string;

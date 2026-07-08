@@ -39,6 +39,7 @@ export type {
   MediaCompletionConfig,
   VoiceTranscribeConfig,
   McpServerConfig,
+  WeqAssistantConfig,
   AgentLabSettings,
 } from './bootstrap/user_config';
 export { AgentLabConfigService } from './bootstrap/agentlab_config';
@@ -77,6 +78,11 @@ export {
   type RelationGraphData,
   type RelationGraphNode,
   type RelationGraphGroup,
+  type SelfGroupLevel,
+  type GroupStatsReport,
+  type GroupMessageRankingItem,
+  type GroupWordCloudItem,
+  type GroupDailyActivityItem,
 } from './account/group_info';
 export {
   BuddyAnalyticsService,
@@ -97,6 +103,15 @@ export { TokenUsageStore } from './account/agentlab_usage';
 export type { TokenStats, TokenUsageRecord } from './account/agentlab_usage';
 export { ConversationStore } from './account/agentlab_conversation';
 export type { ConversationTurn } from './account/agentlab_conversation';
+export {
+  WeqAssistantService,
+  buildArkJson,
+  rewriteArkPort,
+  WEQ_ASSISTANT_UID,
+  WEQ_ASSISTANT_UIN,
+  WEQ_ASSISTANT_NICK,
+} from './account/weq_assistant';
+export type { EnsureAssistantOptions, EnsureAssistantResult } from './account/weq_assistant';
 export { AssistantService, ASSISTANT_AGENT_ID } from './account/assistant';
 export type { AssistantConfig, AssistantSession, AssistantTools, AssistantToolSpec, AssistantStep, AssistantArtifact } from './account/assistant';
 export type { RenderC2cMsg, RenderGroupMsg } from './account/msg';
