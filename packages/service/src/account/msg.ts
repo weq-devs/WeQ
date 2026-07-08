@@ -14,13 +14,14 @@
  */
 
 import type { AccountSession } from '@weq/account';
-import { C2cMsg, GroupMsg, C2cPartition, type AppendMsgFields } from '@weq/db';
+import { C2cMsg, GroupMsg, C2cPartition, type AppendMsgFields, type C2cMsgDb } from '@weq/db';
 import {
   ProtoMsg,
   encodeElement,
   Element,
   validateComposeMessage,
   COMPOSE_ELEMENT_SPECS,
+  isDatalineUid,
   type ComposeKind,
   type FieldSpec,
 } from '@weq/codec';
@@ -76,7 +77,7 @@ export class MsgService {
   /** Insert a new private-chat message with `peerUid`. */
   async insertC2cMessage(peerUid: string, input: InsertMsgInput): Promise<InsertMsgResult | null> {
     const fields = this.buildAppendFields(input);
-    return this.session.c2cMsgs.appendMessage(this.c2cPartition(peerUid), fields);
+    return this.c2cDbFor(peerUid).appendMessage(this.c2cPartition(peerUid), fields);
   }
 
   /** Insert a new group message into `targetGroupCode`. */
@@ -121,6 +122,12 @@ export class MsgService {
         return { elements: decodeBody(c2cBlob), kind: 'c2c' };
     }
 
+    // Device-line messages share the c2c wire shape / edit path.
+    const datalineBlob = await this.session.datalineMsgs.getMsgBody(msgId);
+    if (datalineBlob) {
+        return { elements: decodeBody(datalineBlob), kind: 'c2c' };
+    }
+
     const groupBlob = await this.session.groupMsgs.getMsgBody(msgId);
     if (groupBlob) {
         return { elements: decodeBody(groupBlob), kind: 'group' };
@@ -154,25 +161,25 @@ export class MsgService {
 
   /** Newest N private-chat messages with one peer. */
   async getC2cLatest(targetUid: string, limit = 50): Promise<RenderC2cMsg[]> {
-    const msgs = await this.session.c2cMsgs.listLatest(this.c2cPartition(targetUid), limit);
+    const msgs = await this.c2cDbFor(targetUid).listLatest(this.c2cPartition(targetUid), limit);
     return msgs.map(renderC2c);
   }
 
   /** Private-chat page just older than `beforeSeq` (scroll-up). */
   async getC2cBefore(targetUid: string, beforeSeq: bigint, limit = 50): Promise<RenderC2cMsg[]> {
-    const msgs = await this.session.c2cMsgs.listBefore(this.c2cPartition(targetUid), beforeSeq, limit);
+    const msgs = await this.c2cDbFor(targetUid).listBefore(this.c2cPartition(targetUid), beforeSeq, limit);
     return msgs.map(renderC2c);
   }
 
   /** Private-chat page just newer than `afterSeq` (scroll-down / jump context). */
   async getC2cAfter(targetUid: string, afterSeq: bigint, limit = 50): Promise<RenderC2cMsg[]> {
-    const msgs = await this.session.c2cMsgs.listAfter(this.c2cPartition(targetUid), afterSeq, limit);
+    const msgs = await this.c2cDbFor(targetUid).listAfter(this.c2cPartition(targetUid), afterSeq, limit);
     return msgs.map(renderC2c);
   }
 
   /** Re-read private-chat messages with seq >= `sinceSeq` (live refresh). */
   async getC2cFrom(targetUid: string, sinceSeq: bigint, limit = 500): Promise<RenderC2cMsg[]> {
-    const msgs = await this.session.c2cMsgs.listFrom(this.c2cPartition(targetUid), sinceSeq, limit);
+    const msgs = await this.c2cDbFor(targetUid).listFrom(this.c2cPartition(targetUid), sinceSeq, limit);
     return msgs.map(renderC2c);
   }
 
@@ -182,7 +189,7 @@ export class MsgService {
    * `C2cMsgDb.listAfterRowId`.
    */
   async getC2cAfterRowId(targetUid: string, afterRowId: bigint, limit = 2000): Promise<Array<RenderC2cMsg & { rowId: bigint }>> {
-    const msgs = await this.session.c2cMsgs.listAfterRowId(this.c2cPartition(targetUid), afterRowId, limit);
+    const msgs = await this.c2cDbFor(targetUid).listAfterRowId(this.c2cPartition(targetUid), afterRowId, limit);
     return msgs.map((m) => ({ ...renderC2c(m), rowId: m.rowId }));
   }
 
@@ -234,7 +241,7 @@ export class MsgService {
         const byCode = await this.session.groupMsgs.countByGroups([conv]);
         return byCode[conv] ?? 0;
       }
-      const byUid = await this.session.c2cMsgs.countByUids([conv]);
+      const byUid = await this.c2cDbFor(conv).countByUids([conv]);
       return byUid[conv] ?? 0;
     } catch {
       return 0;
@@ -245,6 +252,17 @@ export class MsgService {
   private c2cPartition(targetUid: string): C2cPartition {
     const sortNo = this.session.uidMap.sortNoByUid(targetUid);
     return sortNo !== undefined ? { sortNo } : { uid: targetUid };
+  }
+
+  /**
+   * Pick the message table for a "c2c-like" conversation. Device-line uids
+   * (我的手机/我的电脑) live in `dataline_msg_table`; everything else is a real
+   * private chat in `c2c_msg_table`. Both are served by C2cMsgDb (same schema),
+   * and dataline uids aren't in the uid map so they naturally take the uid
+   * partition path.
+   */
+  private c2cDbFor(targetUid: string): C2cMsgDb {
+    return isDatalineUid(targetUid) ? this.session.datalineMsgs : this.session.c2cMsgs;
   }
 }
 

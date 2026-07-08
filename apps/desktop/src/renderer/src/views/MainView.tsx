@@ -24,6 +24,8 @@ import { useViewState } from '../state/view';
 import { useUpdateStore } from '../state/update';
 import { client } from '../trpc/client';
 import { useDialog } from '../components/Dialog';
+import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
+import { datalineName, isDatalineSelfUid } from '@weq/codec';
 import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
 import { RailAccountFooter } from '../components/RailAccountFooter';
@@ -451,6 +453,8 @@ function chatTypeKind(chatType: string | number): 'direct' | 'group' | null {
   const s = String(chatType);
   if (s.includes('C2C')) return 'direct';
   if (s.includes('GROUP')) return 'group';
+  // 数据线（我的手机/我的电脑）按单聊解析，头像用设备图标兜底。
+  if (isDataline(chatType)) return 'direct';
   return null;
 }
 
@@ -459,7 +463,8 @@ function toIsoTime(seconds: string | undefined): string {
 }
 
 function contactTitle(c: RecentContactWire): string {
-  return c.targetDisplayName || c.targetRemark || c.senderDisplayName || c.senderNick || c.targetUid;
+  // 数据线会话往往不带 targetDisplayName，会回退成原始 uid；优先给出设备名。
+  return c.targetDisplayName || c.targetRemark || c.senderDisplayName || c.senderNick || datalineName(c.targetUid) || c.targetUid;
 }
 
 /**
@@ -763,7 +768,7 @@ function contactToConversation(c: RecentContactWire, user: User): Conversation |
       identityValue: c.targetUin && c.targetUin !== '0' ? c.targetUin : c.targetUid,
       username: c.targetUid,
       displayName: title,
-      avatarUrl: avatarSrc(c),
+      avatarUrl: isDataline(c.chatType) ? deviceAvatarDataUri(c.targetUid) : avatarSrc(c),
     };
 
     return {
@@ -824,6 +829,10 @@ function contactToConversation(c: RecentContactWire, user: User): Conversation |
 function isMineMessage(message: MessageWire, conversation: Conversation, user: User): boolean {
   if (message.senderUin && message.senderUin === user.identityValue) return true;
   if (conversation.type !== 'direct') return false;
+  // 数据线：senderUin 是自己（各设备同号），无法区分方向；约定 PC 伪 uid = 本机，
+  // 由它发出的算"我发的"，手机/平板发来的算对端。
+  if (isDatalineSelfUid(message.senderUid)) return true;
+  if (datalineName(message.senderUid)) return false;
   return message.elements.some((element) => {
     const data = (element as RenderElementWire | null)?.data;
     return data?.isSender === true;

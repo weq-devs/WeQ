@@ -1707,16 +1707,25 @@ export const accountRouter = router({
 
     const groupCodes = contacts.filter(c => String(c.chatType).includes('GROUP')).map(c => c.targetUid);
     const c2cUids = contacts.filter(c => String(c.chatType).includes('C2C')).map(c => c.targetUid);
+    // 数据线（我的手机/我的电脑）消息在 dataline_msg_table，单独计数。
+    const datalineUids = contacts.filter(c => String(c.chatType).includes('DATALINE')).map(c => c.targetUid);
 
-    const [groupCounts, c2cCounts] = await Promise.all([
-      getAppContext().account?.groupMsgs.countByGroups(groupCodes) ?? Promise.resolve({} as Record<string, number>),
-      getAppContext().account?.c2cMsgs.countByUids(c2cUids) ?? Promise.resolve({} as Record<string, number>),
+    const account = getAppContext().account;
+    const [groupCounts, c2cCounts, datalineCounts] = await Promise.all([
+      account?.groupMsgs.countByGroups(groupCodes) ?? Promise.resolve({} as Record<string, number>),
+      account?.c2cMsgs.countByUids(c2cUids) ?? Promise.resolve({} as Record<string, number>),
+      account?.datalineMsgs.countByUids(datalineUids) ?? Promise.resolve({} as Record<string, number>),
     ]);
 
-    return contacts.map(c => ({
-      ...recentContactToWire(c),
-      messageCount: String(c.chatType).includes('GROUP') ? (groupCounts[c.targetUid] ?? 0) : (c2cCounts[c.targetUid] ?? 0),
-    }));
+    return contacts.map(c => {
+      const t = String(c.chatType);
+      const messageCount = t.includes('GROUP')
+        ? (groupCounts[c.targetUid] ?? 0)
+        : t.includes('DATALINE')
+          ? (datalineCounts[c.targetUid] ?? 0)
+          : (c2cCounts[c.targetUid] ?? 0);
+      return { ...recentContactToWire(c), messageCount };
+    });
   }),
 
   /** Start an export task. */

@@ -29,6 +29,8 @@ import {
 } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
+import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
+import { datalineName } from '@weq/codec';
 import { Segmented } from './export/widgets';
 import { ConversationPicker } from './export/ConversationPicker';
 import { SingleSelectPicker } from './export/SingleSelectPicker';
@@ -131,10 +133,15 @@ export function ExportView(): ReactElement {
     return ((conversations.data ?? []) as ConvWire[]).map((c) => {
       const kind = chatKind(c.chatType);
       const count = Number(c.messageCount ?? 0);
+      const dataline = isDataline(c.chatType);
+      const name = c.targetDisplayName || (dataline ? datalineName(c.targetUid) : null) || c.targetUid;
       return {
         id: c.targetUid,
-        name: c.targetDisplayName || c.targetUid,
-        avatarUrl: convAvatarUrl(kind, c.targetUid, c.targetUin),
+        name,
+        // 数据线（我的手机/我的电脑）无 QQ 头像，用自绘设备图标兜底。
+        avatarUrl: dataline
+          ? deviceAvatarDataUri(c.targetUid)
+          : convAvatarUrl(kind, c.targetUid, c.targetUin),
         kind,
         uin: c.targetUin,
         total: count,

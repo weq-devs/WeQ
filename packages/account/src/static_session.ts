@@ -144,6 +144,8 @@ export async function openStaticAccount(
   const msgDbPath = requireFile(dirPath, 'nt_msg.db');
 
   const c2cMsgs = new C2cMsgDb(nt, opts(msgDbPath));
+  // 数据线消息表结构同 c2c，复用 C2cMsgDb 只换表名。
+  const datalineMsgs = new C2cMsgDb(nt, { ...opts(msgDbPath), table: 'dataline_msg_table' });
   const groupMsgs = new GroupMsgDb(nt, opts(msgDbPath));
   const recentContacts = new RecentContactDb(nt, opts(msgDbPath));
 
@@ -201,6 +203,7 @@ export async function openStaticAccount(
     lastRowIdMaps: { c2cRowId: 0n, groupRowId: 0n, guildRowId: 0n },
     uidMap,
     c2cMsgs,
+    datalineMsgs,
     groupMsgs,
     recentContacts,
     forwardMsgs,
@@ -223,6 +226,7 @@ export async function openStaticAccount(
       if (disposed) return;
       disposed = true;
       c2cMsgs.close();
+      datalineMsgs.close();
       groupMsgs.close();
       recentContacts.close();
       forwardMsgs.close();
