@@ -100,7 +100,7 @@ export function ChatShell({
 					footerContent={railFooterContent}
 					hideAvatar={true}
 				/>
-				<aside className={cn("sidebar", view === "agentlab" && "is-agentlab-view")}>
+				<aside className={cn("sidebar", view === "agentlab" && "is-agentlab-view", view === "cache" && "is-cache-view")}>
 					<SidebarHeader
 						user={user}
 						view={view}

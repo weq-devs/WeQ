@@ -232,6 +232,26 @@ export function findEmojiRecvDir(uin: string, home = homedir(), overrideRoot?: s
   return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_data', 'Emoji', 'emoji-recv');
 }
 
+/**
+ * `<root>/<uin>/nt_qq/nt_data/Emoji/personal_emoji` for the first root that has
+ * it. Holds the user's own / favourited custom emoji as two flat sub-dirs:
+ * `Ori/<hash>.<ext>` (original — jpg/gif/png, extension unreliable) and
+ * `Thumb/<hash>.png` (still preview).
+ */
+export function findPersonalEmojiDir(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+  return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_data', 'Emoji', 'personal_emoji');
+}
+
+/**
+ * `<root>/<uin>/nt_qq/nt_data/Emoji/emoji-related/emoji` for the first root that
+ * has it. Holds keyword-associated emoji: a `words.json` (`{ words: string[] }`)
+ * plus one sub-dir per keyword named `md5(keyword)` (UTF-8) containing plaintext
+ * `.gif` files. (An `__MACOSX` junk dir may sit beside the hash dirs.)
+ */
+export function findEmojiRelatedDir(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+  return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_data', 'Emoji', 'emoji-related', 'emoji');
+}
+
 /** `<root>/<uin>/nt_qq/nt_data/Pic` for the first root that has it. */
 export function findPicDir(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
   return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_data', 'Pic');

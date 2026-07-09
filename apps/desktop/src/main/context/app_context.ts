@@ -64,6 +64,12 @@ import {
   ConversationStore,
   DbDecryptService,
   DbExplorerService,
+  AvatarResourceService,
+  SysEmojiResourceService,
+  MarketEmojiResourceService,
+  CustomEmojiResourceService,
+  RelatedEmojiResourceService,
+  FileResourceService,
   WebQueryService,
   GroupAlbumMediaService,
   DbWatchService,
@@ -284,6 +290,18 @@ export interface AccountServices {
   dbDecrypt: DbDecryptService;
   /** SQLiteStudio-style browse / query / edit over the account's databases. */
   dbExplorer: DbExplorerService;
+  /** Browse the account's local avatar cache (nt_data/avatar/*). */
+  avatarResource: AvatarResourceService;
+  /** Browse the account's built-in system emoji resource dir. */
+  sysEmoji: SysEmojiResourceService;
+  /** Browse the account's market-face (store sticker) cache. */
+  marketEmoji: import('@weq/service').MarketEmojiResourceService;
+  /** Browse the account's custom-emoji cache (received + personal). */
+  customEmoji: CustomEmojiResourceService;
+  /** Browse the account's related-emoji cache (keyword → gif). */
+  relatedEmoji: RelatedEmojiResourceService;
+  /** Browse the account's File 目录 (nt_data/File/Ori) + 下载文件 (file_assistant.db). */
+  fileResource: FileResourceService;
   /** Web CGI queries that need the already-hooked online QQ process. */
   webQuery: WebQueryService;
   /** Group album media listing over the already-hooked online QQ process. */
@@ -666,6 +684,12 @@ export function initAppContext(): AppContext {
         ),
         dbDecrypt: new DbDecryptService(session, platform),
         dbExplorer: new DbExplorerService(session, platform),
+        avatarResource: new AvatarResourceService(session, platform),
+        sysEmoji: new SysEmojiResourceService(session, platform),
+        marketEmoji: new MarketEmojiResourceService(session, platform),
+        customEmoji: new CustomEmojiResourceService(session, platform),
+        relatedEmoji: new RelatedEmojiResourceService(session, platform),
+        fileResource: new FileResourceService(session, platform),
         webQuery,
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, resolveOnlinePid),
       };
@@ -896,6 +920,12 @@ export function initAppContext(): AppContext {
         ),
         dbDecrypt: new DbDecryptService(session, platform),
         dbExplorer: new DbExplorerService(session, platform),
+        avatarResource: new AvatarResourceService(session, platform),
+        sysEmoji: new SysEmojiResourceService(session, platform),
+        marketEmoji: new MarketEmojiResourceService(session, platform),
+        customEmoji: new CustomEmojiResourceService(session, platform),
+        relatedEmoji: new RelatedEmojiResourceService(session, platform),
+        fileResource: new FileResourceService(session, platform),
         webQuery,
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, noPid),
       };

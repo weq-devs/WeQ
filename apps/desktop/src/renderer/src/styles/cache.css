@@ -18,14 +18,82 @@
   font-size: 13px;
 }
 
+/* 资源列收起：首列缩成一根细条（只留展开按钮）。 */
+.weq-cache.is-cats-collapsed {
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 10px;
+}
+
 /* ===== 左侧分类栏 ===== */
 .weq-cache-cats {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.weq-cache-cats-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 4px 8px;
+}
+
+.weq-cache-cats-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #8a94a4;
+}
+
+.weq-cache-cats-body {
   display: flex;
   flex-direction: column;
   gap: 6px;
   min-height: 0;
   overflow-y: auto;
   padding-right: 2px;
+}
+
+/* 收起态细条：竖直居中放一个展开按钮。 */
+.weq-cache-cats-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 2px;
+}
+
+/* 收起/展开按钮（资源列 + 表列共用）。 */
+.weq-cache-collapse-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #8a94a4;
+  cursor: pointer;
+  transition: background-color 130ms ease, color 130ms ease, border-color 130ms ease;
+}
+
+.weq-cache-collapse-btn:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 30%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+/* 隐藏资源列滚动条（保留滚动）。 */
+.weq-cache-cats-body {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.weq-cache-cats-body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .weq-cache-cat {
@@ -162,6 +230,20 @@
   min-height: 0;
 }
 
+/* 表列收起：首列缩成一根细条（只留展开按钮）。 */
+.weq-cache-db.is-tree-collapsed {
+  grid-template-columns: 40px minmax(0, 1fr);
+}
+
+/* 收起态细条：竖直放一个展开按钮，右侧留描边分隔。 */
+.weq-cache-tree-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 0;
+  border-right: 1px solid rgba(0, 0, 0, 0.06);
+}
+
 /* ---- 左树 ---- */
 .weq-cache-tree {
   display: flex;
@@ -172,8 +254,16 @@
 
 .weq-cache-dbpick {
   position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 10px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.weq-cache-dbpick .weq-cache-dbpick-btn {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .weq-cache-dbpick-btn {
@@ -274,6 +364,14 @@
   min-height: 0;
   overflow-y: auto;
   padding: 8px 6px;
+  /* 隐藏表列滚动条（保留滚动）。 */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.weq-cache-tree-body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .weq-cache-tree-state {
@@ -564,6 +662,24 @@
   font-size: 11.5px;
 }
 
+/* BLOB 单元格的点击触发按钮：点开 hex 灯箱查看 / 编辑。 */
+.weq-cache-blob-btn {
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, #9a6a12 30%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, #f5a623 12%, transparent);
+  color: #9a6a12;
+  font-family: var(--weq-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.weq-cache-blob-btn:hover {
+  background: color-mix(in srgb, #f5a623 22%, transparent);
+  border-color: color-mix(in srgb, #9a6a12 55%, transparent);
+}
+
 .weq-cache-null {
   font-size: 11px;
   font-style: italic;
@@ -662,6 +778,71 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+
+/* ---- 本表索引（从左树迁移到 SQL 页，选表后展示） ---- */
+.weq-cache-sql-indices {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  background: color-mix(in srgb, var(--weq-accent-effective) 4%, transparent);
+}
+
+.weq-cache-sql-indices-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #6a7280;
+}
+
+.weq-cache-sql-indices-head svg {
+  color: var(--weq-accent-effective);
+}
+
+.weq-cache-sql-indices-count {
+  margin-left: 5px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-style: normal;
+  color: #8a94a4;
+  background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
+}
+
+.weq-cache-sql-indices-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.weq-cache-sql-index {
+  max-width: 100%;
+  padding: 4px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+  color: #4a5462;
+  font-size: 11.5px;
+  font-family: var(--weq-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: border-color 130ms ease, background-color 130ms ease, color 130ms ease;
+}
+
+.weq-cache-sql-index:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+.weq-cache-sql-index:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .weq-cache-sql-editor {
@@ -775,6 +956,963 @@
   padding: 40px;
   font-size: 12.5px;
   color: #a4adba;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 头像资源浏览器
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+.weq-cache-avatar {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* ---- 子标签（好友 / 群 / 封面） ---- */
+.weq-cache-avatar-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.weq-cache-avatar-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.6);
+  color: #4a5462;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: border-color 130ms ease, background-color 130ms ease, color 130ms ease;
+}
+
+.weq-cache-avatar-tab:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+.weq-cache-avatar-tab.is-on {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 50%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-effective);
+  font-weight: 600;
+}
+
+.weq-cache-avatar-tab:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.weq-cache-avatar-tabcount {
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-style: normal;
+  color: #8a94a4;
+  background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
+}
+
+.weq-cache-avatar-tab.is-on .weq-cache-avatar-tabcount {
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+}
+
+.weq-cache-avatar-loading {
+  font-size: 12px;
+  color: #8a94a4;
+}
+
+/* ---- 网格 ---- */
+.weq-cache-avatar-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px;
+  /* 隐藏滚动条（与资源列/表列保持一致）。 */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.weq-cache-avatar-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.weq-cache-avatar-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 12px;
+}
+
+.weq-cache-avatar-card {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.weq-cache-avatar-thumb {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  border-radius: 6px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.weq-cache-avatar-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* 资源来源角标：大图 / 缩略图 / 大图+缩略图。 */
+.weq-cache-avatar-src {
+  position: absolute;
+  left: 5px;
+  bottom: 5px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #ffffff;
+  backdrop-filter: blur(4px);
+  background: rgba(20, 26, 34, 0.55);
+}
+
+/* 三种来源统一走主题色，用深浅区分：大图+缩略图(实心) > 大图(略浅) > 缩略图(最浅)。 */
+.weq-cache-avatar-src.is-both {
+  background: var(--weq-accent-effective);
+}
+
+.weq-cache-avatar-src.is-big {
+  background: color-mix(in srgb, var(--weq-accent-effective) 80%, #000 6%);
+}
+
+.weq-cache-avatar-src.is-small {
+  background: color-mix(in srgb, var(--weq-accent-effective) 55%, #000 4%);
+}
+
+.weq-cache-avatar-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 10.5px;
+  color: #8a94a4;
+}
+
+.weq-cache-avatar-hash {
+  font-family: var(--weq-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-cache-avatar-size {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-cache-avatar-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 18px;
+  font-size: 12px;
+  color: #8a94a4;
+}
+
+.weq-cache-avatar-more.is-end {
+  color: #b0b8c4;
+}
+
+.weq-cache-avatar-more .is-spin {
+  animation: weq-cache-spin 900ms linear infinite;
+}
+
+@keyframes weq-cache-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 系统表情浏览器
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+.weq-cache-sysemoji {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.weq-cache-sysemoji-bar {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.weq-cache-sysemoji-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 12px;
+}
+
+.weq-cache-sysemoji-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 10px 6px 8px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: border-color 130ms ease, background-color 130ms ease, box-shadow 130ms ease;
+}
+
+.weq-cache-sysemoji-card:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, transparent);
+  background: #ffffff;
+  box-shadow: 0 8px 22px -16px rgba(0, 122, 204, 0.7);
+}
+
+.weq-cache-sysemoji-thumb {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+}
+
+.weq-cache-sysemoji-thumb img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.weq-cache-sysemoji-fallback {
+  color: #b0b8c4;
+}
+
+.weq-cache-sysemoji-name {
+  max-width: 100%;
+  font-size: 11.5px;
+  color: #4a5462;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-cache-sysemoji-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 3px;
+}
+
+.weq-cache-sysemoji-badge {
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 600;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+}
+
+/* ---- 灯箱：多格式并排渲染 ---- */
+.weq-sysemoji-dialog {
+  width: min(380px, 94vw);
+}
+
+.weq-sysemoji-panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 14px;
+  padding: 16px;
+}
+
+/* ---- 有 Lottie 时：Lottie 居中放大为主角，APNG/PNG 缩小分列两侧 ---- */
+.weq-sysemoji-dialog.has-lottie {
+  width: min(560px, 94vw);
+}
+
+.weq-sysemoji-dialog.has-lottie .weq-sysemoji-panels {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+}
+
+.weq-sysemoji-dialog.has-lottie .weq-sysemoji-panel {
+  flex: 0 0 auto;
+}
+
+/* 主角：Lottie 大且居中 */
+.weq-sysemoji-dialog.has-lottie .weq-sysemoji-panel.is-lottie .weq-sysemoji-stage {
+  max-width: 220px;
+}
+
+.weq-sysemoji-dialog.has-lottie .weq-sysemoji-panel.is-lottie .weq-sysemoji-lottie {
+  max-width: 200px;
+  max-height: 200px;
+}
+
+/* 配角：APNG / PNG 远小于 Lottie */
+.weq-sysemoji-dialog.has-lottie .weq-sysemoji-panel.is-apng .weq-sysemoji-stage,
+.weq-sysemoji-dialog.has-lottie .weq-sysemoji-panel.is-png .weq-sysemoji-stage {
+  max-width: 84px;
+}
+
+.weq-sysemoji-dialog.has-lottie .weq-sysemoji-panel.is-apng .weq-sysemoji-stage img,
+.weq-sysemoji-dialog.has-lottie .weq-sysemoji-panel.is-png .weq-sysemoji-stage img {
+  max-width: 64px;
+  max-height: 64px;
+}
+
+.weq-sysemoji-panel {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.weq-sysemoji-stage {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  max-width: 150px;
+  margin: 0 auto;
+  aspect-ratio: 1 / 1;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  background:
+    conic-gradient(from 0deg, rgba(0, 0, 0, 0.04) 0 25%, transparent 0 50%, rgba(0, 0, 0, 0.04) 0 75%, transparent 0)
+      0 0 / 16px 16px;
+  overflow: hidden;
+}
+
+.weq-sysemoji-stage img,
+.weq-sysemoji-lottie {
+  width: 100%;
+  height: 100%;
+  max-width: 120px;
+  max-height: 120px;
+  object-fit: contain;
+}
+
+.weq-sysemoji-lottie-fail {
+  font-size: 12px;
+  color: #e5484d;
+}
+
+.weq-sysemoji-panel-cap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: center;
+}
+
+.weq-sysemoji-panel-cap strong {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--weq-accent-effective);
+}
+
+.weq-sysemoji-panel-cap span {
+  font-size: 10.5px;
+  color: #8a94a4;
+  font-family: var(--weq-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 商城表情浏览器
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+.weq-cache-marketemoji {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.weq-cache-marketemoji-bar {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.weq-cache-marketemoji-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 12px;
+}
+
+.weq-cache-marketemoji-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 10px 6px 8px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: border-color 130ms ease, background-color 130ms ease, box-shadow 130ms ease;
+}
+
+.weq-cache-marketemoji-card:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, transparent);
+  background: #ffffff;
+  box-shadow: 0 8px 22px -16px rgba(0, 122, 204, 0.7);
+}
+
+.weq-cache-marketemoji-thumb {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+}
+
+.weq-cache-marketemoji-thumb img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.weq-cache-marketemoji-fallback {
+  color: #b0b8c4;
+}
+
+.weq-cache-marketemoji-hash {
+  max-width: 100%;
+  font-size: 10px;
+  color: #8a94a4;
+  font-family: var(--weq-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-cache-marketemoji-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 3px;
+}
+
+.weq-cache-marketemoji-badge {
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 600;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+}
+
+/* ---- 灯箱：多格式并排渲染 ---- */
+.weq-marketemoji-dialog {
+  width: min(380px, 94vw);
+}
+
+.weq-marketemoji-panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 14px;
+  padding: 16px;
+}
+
+/* 双类压过 .weq-blob-body 的 flex/column（定义更靠后，否则每项一行拉满宽）。 */
+.weq-blob-body.weq-marketemoji-panels {
+  display: grid;
+  align-content: start;
+}
+
+.weq-marketemoji-panel {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.weq-marketemoji-stage {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  max-width: 150px;
+  margin: 0 auto;
+  aspect-ratio: 1 / 1;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  background:
+    conic-gradient(from 0deg, rgba(0, 0, 0, 0.04) 0 25%, transparent 0 50%, rgba(0, 0, 0, 0.04) 0 75%, transparent 0)
+      0 0 / 16px 16px;
+  overflow: hidden;
+}
+
+.weq-marketemoji-stage img {
+  width: 100%;
+  height: 100%;
+  max-width: 120px;
+  max-height: 120px;
+  object-fit: contain;
+}
+
+.weq-marketemoji-panel-cap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: center;
+}
+
+.weq-marketemoji-panel-cap strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--weq-accent-effective);
+}
+
+.weq-marketemoji-panel-cap span {
+  font-size: 10px;
+  color: #8a94a4;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- 自定义表情（搜到的 / 我的）网格 ----
+ * 复用头像资源的 scope tab + 滚动容器（.weq-cache-avatar-*）与商城表情的
+ * 灯箱面板（.weq-marketemoji-*）；这里只补网格卡片与 ori/thumb 标签。 */
+.weq-cache-customemoji-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 12px;
+}
+
+.weq-cache-customemoji-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 10px 6px 8px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: border-color 130ms ease, background-color 130ms ease, box-shadow 130ms ease;
+}
+
+.weq-cache-customemoji-card:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, transparent);
+  background: #ffffff;
+  box-shadow: 0 8px 22px -16px rgba(0, 122, 204, 0.7);
+}
+
+.weq-cache-customemoji-thumb {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+}
+
+.weq-cache-customemoji-thumb img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.weq-cache-customemoji-fallback {
+  font-size: 22px;
+  font-weight: 600;
+  color: #b0b8c4;
+}
+
+.weq-cache-customemoji-hash {
+  max-width: 100%;
+  font-size: 10px;
+  color: #8a94a4;
+  font-family: var(--weq-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-cache-customemoji-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 3px;
+}
+
+.weq-cache-customemoji-badge {
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 600;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+}
+
+/* ---- 关联表情（关键词 → gif）网格 ----
+ * 复用商城表情的顶栏 + 头像资源的滚动容器；卡片=首图封面 + 关键词标题，
+ * 角标显示 gif 数量。灯箱（.weq-related-*）平铺该关键词全部 gif。 */
+.weq-cache-related-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 12px;
+}
+
+.weq-cache-related-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 6px 8px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: border-color 130ms ease, background-color 130ms ease, box-shadow 130ms ease;
+}
+
+.weq-cache-related-card:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, transparent);
+  background: #ffffff;
+  box-shadow: 0 8px 22px -16px rgba(0, 122, 204, 0.7);
+}
+
+.weq-cache-related-cover {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
+  overflow: hidden;
+  background:
+    conic-gradient(from 0deg, rgba(0, 0, 0, 0.04) 0 25%, transparent 0 50%, rgba(0, 0, 0, 0.04) 0 75%, transparent 0)
+      0 0 / 14px 14px;
+}
+
+.weq-cache-related-cover img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.weq-cache-related-fallback {
+  color: #b0b8c4;
+}
+
+.weq-cache-related-count {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 600;
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.weq-cache-related-word {
+  max-width: 100%;
+  font-size: 12px;
+  color: #46505f;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- 关联表情灯箱：平铺全部 gif ----
+ * 用双类选择器压过 .weq-blob-dialog / .weq-blob-body（后者在文件里定义更靠后，
+ * 会用 display:flex + column 覆盖掉普通 grid，导致每项一行、拉满宽）。 */
+.weq-blob-dialog.weq-related-dialog {
+  width: min(720px, 94vw);
+}
+
+.weq-blob-body.weq-related-panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  /* 固定行高：否则 aspect-ratio 的格子在量大时会溢出轨道、压到下一行造成重叠。 */
+  grid-auto-rows: 84px;
+  align-content: start;
+  gap: 12px;
+}
+
+.weq-related-stage {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  /* grid item 默认 min-height:auto，会被内容撑高溢出——必须清零。 */
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  background:
+    conic-gradient(from 0deg, rgba(0, 0, 0, 0.04) 0 25%, transparent 0 50%, rgba(0, 0, 0, 0.04) 0 75%, transparent 0)
+      0 0 / 16px 16px;
+  overflow: hidden;
+}
+
+.weq-related-stage img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 二进制数据（BLOB）hex 灯箱
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+.weq-blob-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 96;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background: rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(3px);
+  animation: weq-blob-fade 120ms ease-out;
+}
+
+@keyframes weq-blob-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.weq-blob-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(760px, 94vw);
+  max-height: min(82vh, 760px);
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--weq-bg-surface, #ffffff);
+  color: #1f2430;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
+  animation: weq-blob-pop 150ms cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+@keyframes weq-blob-pop {
+  from { transform: translateY(8px) scale(0.985); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+.weq-blob-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.weq-blob-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.weq-blob-title h3 {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: #283342;
+}
+
+.weq-blob-title code {
+  font-size: 11.5px;
+  color: #8a94a4;
+  font-family: var(--weq-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.weq-blob-close {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #8a94a4;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.weq-blob-close:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
+  color: #4a5462;
+}
+
+.weq-blob-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.weq-blob-empty {
+  padding: 30px;
+  text-align: center;
+  color: #8a94a4;
+  font-size: 12.5px;
+}
+
+/* ---- hexdump ---- */
+.weq-blob-dump {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--weq-fg-primary) 3%, transparent);
+  font-family: var(--weq-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-x: auto;
+}
+
+.weq-blob-line {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  white-space: nowrap;
+}
+
+.weq-blob-offset {
+  flex: none;
+  color: #a4adba;
+  user-select: none;
+}
+
+.weq-blob-hexes {
+  display: inline-grid;
+  grid-template-columns: repeat(16, 1fr);
+  gap: 2px;
+  flex: none;
+}
+
+.weq-blob-byte,
+.weq-blob-byte-input {
+  width: 20px;
+  text-align: center;
+  color: #344050;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-blob-byte.is-pad {
+  color: transparent;
+}
+
+.weq-blob-byte-input {
+  padding: 1px 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  font-family: inherit;
+  font-size: inherit;
+  outline: none;
+  transition: border-color 110ms ease, background-color 110ms ease;
+}
+
+.weq-blob-byte-input:hover {
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+.weq-blob-byte-input:focus {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+  background: var(--weq-bg-surface);
+  color: var(--weq-accent-effective);
+}
+
+.weq-blob-ascii {
+  flex: none;
+  padding-left: 12px;
+  border-left: 1px solid rgba(0, 0, 0, 0.08);
+  color: #6a7280;
+  letter-spacing: 1px;
+}
+
+.weq-blob-ch.is-dot {
+  color: #c0c8d2;
+}
+
+.weq-blob-elided,
+.weq-blob-note {
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: #9a6a12;
+  background: color-mix(in srgb, #f5a623 12%, transparent);
+}
+
+/* ---- 原始 Hex 整体替换 ---- */
+.weq-blob-bulk {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.weq-blob-bulk-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11.5px;
+  color: #6a7280;
+}
+
+.weq-blob-bulk-input {
+  height: 96px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-fg-primary) 3%, transparent);
+  color: var(--weq-fg-primary);
+  font-family: var(--weq-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  line-height: 1.6;
+  outline: none;
+}
+
+.weq-blob-bulk-input:focus {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
+}
+
+.weq-blob-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -943,4 +2081,693 @@ html[data-theme="dark"] .weq-cache-warnbar {
 
 html[data-theme="dark"] .weq-cache-btn.is-primary {
   color: #08131d;
+}
+
+html[data-theme="dark"] .weq-cache-cats-title {
+  color: #99a7b8;
+}
+
+html[data-theme="dark"] .weq-cache-collapse-btn {
+  color: #99a7b8;
+}
+
+html[data-theme="dark"] .weq-cache-collapse-btn:hover {
+  background: rgba(86, 168, 247, 0.14);
+  border-color: rgba(86, 168, 247, 0.3);
+  color: #8cc4ff;
+}
+
+html[data-theme="dark"] .weq-cache-tree-rail {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .weq-cache-sql-indices {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(86, 168, 247, 0.06);
+}
+
+html[data-theme="dark"] .weq-cache-sql-indices-head {
+  color: #99a7b8;
+}
+
+html[data-theme="dark"] .weq-cache-sql-index {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: #c3ceda;
+}
+
+html[data-theme="dark"] .weq-cache-sql-index:hover:not(:disabled) {
+  border-color: rgba(86, 168, 247, 0.42);
+  color: #8cc4ff;
+}
+
+/* ---- BLOB 触发按钮 + hex 灯箱 ---- */
+html[data-theme="dark"] .weq-cache-blob-btn {
+  border-color: rgba(224, 176, 96, 0.3);
+  background: rgba(224, 176, 96, 0.12);
+  color: #e0b060;
+}
+
+html[data-theme="dark"] .weq-cache-blob-btn:hover {
+  background: rgba(224, 176, 96, 0.2);
+  border-color: rgba(224, 176, 96, 0.5);
+}
+
+html[data-theme="dark"] .weq-blob-dialog {
+  background: #1b1c1e;
+  color: #eef0f3;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+}
+
+html[data-theme="dark"] .weq-blob-head,
+html[data-theme="dark"] .weq-blob-foot {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .weq-blob-title h3 {
+  color: #edf2f7;
+}
+
+html[data-theme="dark"] .weq-blob-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #c3ceda;
+}
+
+html[data-theme="dark"] .weq-blob-dump {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+html[data-theme="dark"] .weq-blob-byte,
+html[data-theme="dark"] .weq-blob-byte-input {
+  color: #c3ceda;
+}
+
+html[data-theme="dark"] .weq-blob-byte-input:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+html[data-theme="dark"] .weq-blob-byte-input:focus {
+  background: #11161d;
+  color: #8cc4ff;
+  border-color: rgba(86, 168, 247, 0.55);
+}
+
+html[data-theme="dark"] .weq-blob-ascii {
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #99a7b8;
+}
+
+html[data-theme="dark"] .weq-blob-ch.is-dot {
+  color: #4a5462;
+}
+
+html[data-theme="dark"] .weq-blob-elided,
+html[data-theme="dark"] .weq-blob-note {
+  color: #e6c07a;
+  background: color-mix(in srgb, #f5a623 10%, transparent);
+}
+
+html[data-theme="dark"] .weq-blob-bulk-input {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  color: #edf2f7;
+}
+
+/* ---- 头像资源浏览器 ---- */
+html[data-theme="dark"] .weq-cache-avatar-tabs {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .weq-cache-avatar-tab {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: #c3ceda;
+}
+
+html[data-theme="dark"] .weq-cache-avatar-tab:hover:not(:disabled),
+html[data-theme="dark"] .weq-cache-avatar-tab.is-on {
+  border-color: rgba(86, 168, 247, 0.5);
+  color: #8cc4ff;
+}
+
+html[data-theme="dark"] .weq-cache-avatar-tab.is-on {
+  background: rgba(86, 168, 247, 0.14);
+}
+
+html[data-theme="dark"] .weq-cache-avatar-thumb {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+html[data-theme="dark"] .weq-cache-avatar-meta,
+html[data-theme="dark"] .weq-cache-avatar-loading {
+  color: #99a7b8;
+}
+
+/* ---- 系统表情浏览器 ---- */
+html[data-theme="dark"] .weq-cache-sysemoji-bar {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .weq-cache-sysemoji-card {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+html[data-theme="dark"] .weq-cache-sysemoji-card:hover {
+  border-color: rgba(86, 168, 247, 0.42);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 10px 26px -18px rgba(0, 0, 0, 0.58);
+}
+
+html[data-theme="dark"] .weq-cache-sysemoji-name {
+  color: #c3ceda;
+}
+
+html[data-theme="dark"] .weq-sysemoji-stage {
+  border-color: rgba(255, 255, 255, 0.1);
+  background:
+    conic-gradient(from 0deg, rgba(255, 255, 255, 0.05) 0 25%, transparent 0 50%, rgba(255, 255, 255, 0.05) 0 75%, transparent 0)
+      0 0 / 20px 20px;
+}
+
+html[data-theme="dark"] .weq-sysemoji-panel-cap span {
+  color: #99a7b8;
+}
+
+/* ---- 商城表情浏览器 ---- */
+html[data-theme="dark"] .weq-cache-marketemoji-bar {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .weq-cache-marketemoji-card {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+html[data-theme="dark"] .weq-cache-marketemoji-card:hover {
+  border-color: rgba(86, 168, 247, 0.42);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 10px 26px -18px rgba(0, 0, 0, 0.58);
+}
+
+html[data-theme="dark"] .weq-cache-marketemoji-hash {
+  color: #99a7b8;
+}
+
+html[data-theme="dark"] .weq-marketemoji-stage {
+  border-color: rgba(255, 255, 255, 0.1);
+  background:
+    conic-gradient(from 0deg, rgba(255, 255, 255, 0.05) 0 25%, transparent 0 50%, rgba(255, 255, 255, 0.05) 0 75%, transparent 0)
+      0 0 / 16px 16px;
+}
+
+html[data-theme="dark"] .weq-marketemoji-panel-cap span {
+  color: #99a7b8;
+}
+
+/* ---- 自定义表情浏览器 ---- */
+html[data-theme="dark"] .weq-cache-customemoji-card {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+html[data-theme="dark"] .weq-cache-customemoji-card:hover {
+  border-color: rgba(86, 168, 247, 0.42);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 10px 26px -18px rgba(0, 0, 0, 0.58);
+}
+
+html[data-theme="dark"] .weq-cache-customemoji-hash {
+  color: #99a7b8;
+}
+
+/* ---- 关联表情浏览器 ---- */
+html[data-theme="dark"] .weq-cache-related-card {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+html[data-theme="dark"] .weq-cache-related-card:hover {
+  border-color: rgba(86, 168, 247, 0.42);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 10px 26px -18px rgba(0, 0, 0, 0.58);
+}
+
+html[data-theme="dark"] .weq-cache-related-cover {
+  background:
+    conic-gradient(from 0deg, rgba(255, 255, 255, 0.05) 0 25%, transparent 0 50%, rgba(255, 255, 255, 0.05) 0 75%, transparent 0)
+      0 0 / 14px 14px;
+}
+
+html[data-theme="dark"] .weq-cache-related-word {
+  color: #c3ceda;
+}
+
+html[data-theme="dark"] .weq-related-stage {
+  border-color: rgba(255, 255, 255, 0.1);
+  background:
+    conic-gradient(from 0deg, rgba(255, 255, 255, 0.05) 0 25%, transparent 0 50%, rgba(255, 255, 255, 0.05) 0 75%, transparent 0)
+      0 0 / 16px 16px;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 文件浏览器（File 目录 + 下载文件）
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+.weq-filebrowser {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* ---- 工具栏：分类标签 + 搜索 + 排序 ---- */
+.weq-filebrowser-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.weq-filebrowser-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.weq-filebrowser-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.6);
+  color: #4a5462;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: border-color 130ms ease, background-color 130ms ease, color 130ms ease;
+}
+
+.weq-filebrowser-tab:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+.weq-filebrowser-tab.is-on {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 50%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-effective);
+  font-weight: 600;
+}
+
+.weq-filebrowser-tabcount {
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-style: normal;
+  color: #8a94a4;
+  background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
+}
+
+.weq-filebrowser-tab.is-on .weq-filebrowser-tabcount {
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+}
+
+.weq-filebrowser-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.weq-filebrowser-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.6);
+  color: #8a94a4;
+  min-width: 200px;
+}
+
+.weq-filebrowser-search input {
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font-size: 12.5px;
+  width: 100%;
+}
+
+.weq-filebrowser-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.weq-filebrowser-sortkey {
+  padding: 4px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #4a5462;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.weq-filebrowser-sortkey.is-on {
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  color: var(--weq-accent-effective);
+  font-weight: 600;
+}
+
+.weq-filebrowser-order,
+.weq-filebrowser-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.6);
+  color: #4a5462;
+  cursor: pointer;
+}
+
+.weq-filebrowser-order:hover,
+.weq-filebrowser-refresh:hover {
+  color: var(--weq-accent-effective);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+}
+
+.weq-filebrowser-refresh:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.weq-filebrowser-warn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: 12px;
+  color: #b26a00;
+  background: rgba(255, 176, 32, 0.1);
+}
+
+/* ---- 滚动容器 ---- */
+.weq-filebrowser-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.weq-filebrowser-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* ---- File 目录：卡片网格 ---- */
+.weq-filebrowser-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.weq-filecard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+  transition: border-color 130ms ease, box-shadow 130ms ease;
+}
+
+.weq-filecard:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  box-shadow: 0 8px 20px -16px rgba(0, 0, 0, 0.5);
+}
+
+.weq-filecard-thumb {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border-radius: 7px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
+}
+
+.weq-filecard-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.weq-filecard-thumb img.weq-filecard-icon {
+  width: 46px;
+  height: 46px;
+  object-fit: contain;
+}
+
+.weq-filecard-ext {
+  position: absolute;
+  left: 5px;
+  bottom: 5px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  color: #ffffff;
+  background: rgba(20, 26, 34, 0.55);
+  backdrop-filter: blur(4px);
+}
+
+.weq-filecard-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.weq-filecard-name {
+  font-size: 12.5px;
+  color: var(--weq-fg-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-filecard-sub {
+  font-size: 10.5px;
+  color: #8a94a4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-filecard-sub.is-error {
+  color: #d9534f;
+}
+
+.weq-filecard-actions {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.weq-filecard:hover .weq-filecard-actions {
+  opacity: 1;
+}
+
+.weq-filecard-actions button,
+.weq-filerow-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 7px;
+  background: rgba(20, 26, 34, 0.62);
+  color: #ffffff;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+}
+
+.weq-filecard-actions button:hover,
+.weq-filerow-actions button:hover {
+  background: var(--weq-accent-effective);
+}
+
+/* ---- 下载文件：列表 ---- */
+.weq-filebrowser-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.weq-filerow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: border-color 130ms ease, background-color 130ms ease;
+}
+
+.weq-filerow:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 35%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 5%, rgba(255, 255, 255, 0.5));
+}
+
+.weq-filerow.is-gone {
+  cursor: default;
+  opacity: 0.62;
+}
+
+.weq-filerow-thumb {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  border-radius: 7px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
+}
+
+.weq-filerow-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.weq-filerow-thumb img.weq-filerow-icon {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+
+.weq-filerow-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.weq-filerow-name {
+  font-size: 13px;
+  color: var(--weq-fg-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-filerow-sub {
+  font-size: 11px;
+  color: #8a94a4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-filerow-sub.is-error {
+  color: #d9534f;
+}
+
+.weq-filerow-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.weq-filerow-badge.is-ok {
+  color: #2b9348;
+  background: rgba(43, 147, 72, 0.12);
+}
+
+.weq-filerow-badge.is-gone {
+  color: #9aa4b2;
+  background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
+}
+
+.weq-filerow-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 4px;
+}
+
+/* ---- 分页底部 ---- */
+.weq-filebrowser-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 16px;
+  font-size: 12px;
+  color: #8a94a4;
+}
+
+.weq-filebrowser-more.is-end {
+  color: #b0b8c4;
+}
+
+.weq-filebrowser-more .is-spin {
+  animation: weq-cache-spin 900ms linear infinite;
+}
+
+/* ---- 暗色适配 ---- */
+html[data-theme="dark"] .weq-filebrowser-tab,
+html[data-theme="dark"] .weq-filebrowser-search,
+html[data-theme="dark"] .weq-filebrowser-sort,
+html[data-theme="dark"] .weq-filebrowser-order,
+html[data-theme="dark"] .weq-filebrowser-refresh,
+html[data-theme="dark"] .weq-filecard,
+html[data-theme="dark"] .weq-filerow {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #c3ceda;
+}
+
+html[data-theme="dark"] .weq-filecard-name,
+html[data-theme="dark"] .weq-filerow-name {
+  color: #e6ecf3;
 }

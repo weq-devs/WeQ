@@ -41,3 +41,8 @@ export function mediaUrl(kind: string, params: Record<string, string | number>):
 export function albumMediaUrl(src: string): string {
   return mediaUrl('album', { src });
 }
+
+/** Preview a local file under `nt_data/File/Ori` by absolute path (image thumbnails). */
+export function localFileUrl(absPath: string): string {
+  return mediaUrl('localfile', { path: absPath });
+}

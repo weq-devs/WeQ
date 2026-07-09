@@ -190,7 +190,7 @@ export function AppRail({
 						type="button"
 					>
 						<span className={cn("rail-tab-icon")}>
-							<Star size={22} strokeWidth={1.5} fill="currentColor" />
+							<Star size={22} strokeWidth={1.5} />
 						</span>
 						<span className={cn("rail-label")}>QQ空间</span>
 					</button>

@@ -1,10 +1,12 @@
 /**
  * SQLiteStudio-style database explorer (the 数据库 tab of the cache view).
  *
- * Left: a database picker (dropdown) + a schema-object tree (tables / views /
- * indices, grouped; triggers intentionally excluded). Right: a 数据 / SQL
- * sub-tab pair over the selected object, plus an 编辑模式 toggle that unlocks
- * inline row editing and hand-written writes.
+ * Left: a database picker (dropdown) + a schema-object tree (tables / views;
+ * triggers intentionally excluded). Both the object tree and the outer resource
+ * column can be collapsed to give the data grid near-full-screen room. Right: a
+ * 数据 / SQL sub-tab pair over the selected object, plus an 编辑模式 toggle that
+ * unlocks inline row editing and hand-written writes. Indices of the selected
+ * table are surfaced on the SQL sub-tab (not mixed into the object tree).
  *
  * All data flows through `account.dbExplorer.*` (see @weq/service DbExplorer
  * Service). Nothing here decrypts or opens files directly.
@@ -15,9 +17,10 @@ import {
   Database,
   Table2,
   Eye,
-  KeyRound,
   ChevronDown,
   AlertTriangle,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import type { DbObject } from '@weq/service';
 import { trpc } from '../../trpc/client';
@@ -51,6 +54,8 @@ export function DbExplorer(): ReactElement {
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [subTab, setSubTab] = useState<SubTab>('data');
   const [editable, setEditable] = useState(false);
+  // 表选择列可收起，收起后腾出空间给数据表接近全屏查看。
+  const [treeCollapsed, setTreeCollapsed] = useState(false);
 
   const dbList = useMemo<AccountDbFile[]>(
     () => ((databases.data ?? []) as AccountDbFile[]),
@@ -89,83 +94,106 @@ export function DbExplorer(): ReactElement {
   const grouped = useMemo(() => {
     const tables = objectList.filter((o) => o.type === 'table');
     const views = objectList.filter((o) => o.type === 'view');
-    const indices = objectList.filter((o) => o.type === 'index');
-    return { tables, views, indices };
+    return { tables, views };
   }, [objectList]);
+
+  // 当前所选表/视图的索引——不再和表名混在左树里，改到 SQL 页展示。
+  const selectedIndices = useMemo(
+    () =>
+      selectedTable
+        ? objectList.filter((o) => o.type === 'index' && o.tableName === selectedTable)
+        : [],
+    [objectList, selectedTable],
+  );
 
   const selectedDb = dbList.find((d) => d.path === dbPath) ?? null;
 
   return (
-    <div className="weq-cache-db">
-      {/* 左树：选库 + 对象列表 */}
-      <aside className="weq-cache-tree">
-        <div className="weq-cache-dbpick">
+    <div className={`weq-cache-db${treeCollapsed ? ' is-tree-collapsed' : ''}`}>
+      {/* 左树：选库 + 对象列表（可收起） */}
+      {treeCollapsed ? (
+        <div className="weq-cache-tree-rail">
           <button
             type="button"
-            className="weq-cache-dbpick-btn"
-            onClick={() => setPickerOpen((v) => !v)}
-            disabled={dbList.length === 0}
+            className="weq-cache-collapse-btn"
+            onClick={() => setTreeCollapsed(false)}
+            title="展开表列表"
+            aria-label="展开表列表"
           >
-            <Database size={15} />
-            <span className="weq-cache-dbpick-name" title={selectedDb?.name}>
-              {selectedDb?.name ?? (databases.isLoading ? '加载中…' : '无数据库')}
-            </span>
-            <ChevronDown size={14} className="weq-cache-dbpick-caret" />
+            <PanelLeftOpen size={16} />
           </button>
-          {pickerOpen ? (
-            <div className="weq-cache-dbpick-menu" role="listbox">
-              {dbList.map((db) => (
-                <button
-                  key={db.path}
-                  type="button"
-                  className={`weq-cache-dbpick-item${db.path === dbPath ? ' is-on' : ''}`}
-                  onClick={() => {
-                    setDbPath(db.path);
-                    setPickerOpen(false);
-                  }}
-                  title={db.path}
-                >
-                  <strong>{db.name}</strong>
-                  <small>{fmtBytes(db.bytes)}</small>
-                </button>
-              ))}
-            </div>
-          ) : null}
         </div>
+      ) : (
+        <aside className="weq-cache-tree">
+          <div className="weq-cache-dbpick">
+            <button
+              type="button"
+              className="weq-cache-dbpick-btn"
+              onClick={() => setPickerOpen((v) => !v)}
+              disabled={dbList.length === 0}
+            >
+              <Database size={15} />
+              <span className="weq-cache-dbpick-name" title={selectedDb?.name}>
+                {selectedDb?.name ?? (databases.isLoading ? '加载中…' : '无数据库')}
+              </span>
+              <ChevronDown size={14} className="weq-cache-dbpick-caret" />
+            </button>
+            <button
+              type="button"
+              className="weq-cache-collapse-btn"
+              onClick={() => setTreeCollapsed(true)}
+              title="收起表列表"
+              aria-label="收起表列表"
+            >
+              <PanelLeftClose size={16} />
+            </button>
+            {pickerOpen ? (
+              <div className="weq-cache-dbpick-menu" role="listbox">
+                {dbList.map((db) => (
+                  <button
+                    key={db.path}
+                    type="button"
+                    className={`weq-cache-dbpick-item${db.path === dbPath ? ' is-on' : ''}`}
+                    onClick={() => {
+                      setDbPath(db.path);
+                      setPickerOpen(false);
+                    }}
+                    title={db.path}
+                  >
+                    <strong>{db.name}</strong>
+                    <small>{fmtBytes(db.bytes)}</small>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
 
-        <div className="weq-cache-tree-body">
-          {objects.isLoading ? (
-            <div className="weq-cache-tree-state">加载对象中…</div>
-          ) : objectList.length === 0 ? (
-            <div className="weq-cache-tree-state">该库无表 / 视图</div>
-          ) : (
-            <>
-              <ObjectGroup
-                label="表"
-                icon={<Table2 size={14} />}
-                items={grouped.tables}
-                selected={selectedTable}
-                onSelect={setSelectedTable}
-              />
-              <ObjectGroup
-                label="视图"
-                icon={<Eye size={14} />}
-                items={grouped.views}
-                selected={selectedTable}
-                onSelect={setSelectedTable}
-              />
-              <ObjectGroup
-                label="索引"
-                icon={<KeyRound size={14} />}
-                items={grouped.indices}
-                selected={selectedTable}
-                onSelect={setSelectedTable}
-                muted
-              />
-            </>
-          )}
-        </div>
-      </aside>
+          <div className="weq-cache-tree-body">
+            {objects.isLoading ? (
+              <div className="weq-cache-tree-state">加载对象中…</div>
+            ) : objectList.length === 0 ? (
+              <div className="weq-cache-tree-state">该库无表 / 视图</div>
+            ) : (
+              <>
+                <ObjectGroup
+                  label="表"
+                  icon={<Table2 size={14} />}
+                  items={grouped.tables}
+                  selected={selectedTable}
+                  onSelect={setSelectedTable}
+                />
+                <ObjectGroup
+                  label="视图"
+                  icon={<Eye size={14} />}
+                  items={grouped.views}
+                  selected={selectedTable}
+                  onSelect={setSelectedTable}
+                />
+              </>
+            )}
+          </div>
+        </aside>
+      )}
 
       {/* 右面板：数据 / SQL + 编辑模式 */}
       <section className="weq-cache-panel">
@@ -207,7 +235,12 @@ export function DbExplorer(): ReactElement {
           {!dbPath ? (
             <div className="weq-cache-grid-state">请选择数据库</div>
           ) : subTab === 'sql' ? (
-            <SqlConsole dbPath={dbPath} editable={editable} />
+            <SqlConsole
+              dbPath={dbPath}
+              editable={editable}
+              tableName={selectedTable}
+              indices={selectedIndices}
+            />
           ) : selectedTable ? (
             <DbDataGrid
               key={`${dbPath}:${selectedTable}`}

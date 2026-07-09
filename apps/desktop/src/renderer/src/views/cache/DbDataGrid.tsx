@@ -14,6 +14,7 @@ import type { DbCell, DbColumn, RowKey, TableRowsResult } from '@weq/service';
 import { client } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { cellText, cellKind, cellEditText, isCellEditable, textToInput } from './cellFormat';
+import { BlobHexModal } from './BlobHexModal';
 
 interface PageState {
   columns: DbColumn[];
@@ -51,6 +52,13 @@ export function DbDataGrid({
   const [saving, setSaving] = useState(false);
   // Draft new-row inputs (column name → text); non-null when the insert row is open.
   const [draft, setDraft] = useState<Record<string, string> | null>(null);
+  // Open BLOB lightbox: which row+column, its current hex, and the column name.
+  const [blobView, setBlobView] = useState<{
+    rowIndex: number;
+    colIndex: number;
+    hex: string;
+    columnName: string;
+  } | null>(null);
 
   const load = useCallback(
     async (cursor: string | null): Promise<void> => {
@@ -142,6 +150,22 @@ export function DbDataGrid({
     } finally {
       setSaving(false);
     }
+  }
+
+  async function saveBlob(rowIndex: number, colIndex: number, hex: string): Promise<void> {
+    if (!page) return;
+    const column = page.columns[colIndex];
+    const rowKey = page.keys[rowIndex];
+    if (!column || !rowKey) throw new Error('无法定位该行');
+    await client.account.dbExplorer.updateCell.mutate({
+      dbPath,
+      table,
+      rowKey,
+      column: column.name,
+      value: { t: 'blob', hex },
+    });
+    dialog.success('已保存', `${column.name} 已更新`);
+    await load(currentCursor);
   }
 
   async function deleteRow(rowIndex: number): Promise<void> {
@@ -281,6 +305,7 @@ export function DbDataGrid({
                 {row.map((cell, ci) => {
                   const editing = edit?.rowIndex === ri && edit?.colIndex === ci;
                   const editableCell = canEditRows && isCellEditable(cell);
+                  const isBlob = cellKind(cell) === 'blob';
                   return (
                     <td
                       key={ci}
@@ -288,7 +313,7 @@ export function DbDataGrid({
                         editableCell ? ' is-editable' : ''
                       }`}
                       onDoubleClick={() => beginEdit(ri, ci)}
-                      title={editableCell ? '双击编辑' : undefined}
+                      title={editableCell ? '双击编辑' : isBlob ? '点击查看 / 编辑二进制' : undefined}
                     >
                       {editing ? (
                         <input
@@ -310,6 +335,21 @@ export function DbDataGrid({
                         />
                       ) : cell === null ? (
                         <span className="weq-cache-null">NULL</span>
+                      ) : isBlob && cell !== null && typeof cell === 'object' && cell.t === 'blob' ? (
+                        <button
+                          type="button"
+                          className="weq-cache-blob-btn"
+                          onClick={() =>
+                            setBlobView({
+                              rowIndex: ri,
+                              colIndex: ci,
+                              hex: cell.hex,
+                              columnName: page.columns[ci]?.name ?? '',
+                            })
+                          }
+                        >
+                          {cellText(cell)}
+                        </button>
                       ) : (
                         cellText(cell)
                       )}
@@ -365,6 +405,20 @@ export function DbDataGrid({
           <ChevronRight size={14} />
         </button>
       </div>
+
+      {blobView ? (
+        <BlobHexModal
+          hex={blobView.hex}
+          columnName={blobView.columnName}
+          editable={canEditRows}
+          onClose={() => setBlobView(null)}
+          onSave={
+            canEditRows
+              ? (hex) => saveBlob(blobView.rowIndex, blobView.colIndex, hex)
+              : undefined
+          }
+        />
+      ) : null}
     </div>
   );
 }

@@ -112,6 +112,12 @@ export interface Platform {
   /** Received animated-emoji (pic subType 1) cache directory. */
   emojiRecvDir(uin: string): string | null;
 
+  /** Personal / favourited custom-emoji cache directory (`…/Emoji/personal_emoji`). */
+  personalEmojiDir(uin: string): string | null;
+
+  /** Related-emoji (keyword → gif) cache directory (`…/Emoji/emoji-related/emoji`). */
+  emojiRelatedDir(uin: string): string | null;
+
   /** Resolve QQ NT's picture data directory. */
   picDir(uin: string): string | null;
   /** Resolve QQ NT's PTT (voice message) data directory. */

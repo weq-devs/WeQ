@@ -7252,6 +7252,10 @@ html[data-theme="dark"] .weq-forward-bubble {
    与 .sidebar-body 同级，故用 .sidebar 上的视图类来命中）。 */
 .sidebar.is-agentlab-view .search-row { display: none; }
 
+/* 本地缓存资源视图同样隐藏侧栏顶部搜索框（放大镜）——缓存页侧栏宽度为 0，
+   search-row 仍在 SidebarHeader 内会溢出到左上角。 */
+.sidebar.is-cache-view .search-row { display: none; }
+
 /* ── 新建克隆弹窗 ────────────────────────────────────────────────────────── */
 .weq-clone-modal { display: flex; flex-direction: column; max-height: 78vh; }
 .weq-clone-modal-head {

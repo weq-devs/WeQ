@@ -22,6 +22,12 @@ import { resolveResource } from '../../resource';
 import { dialog } from 'electron';
 import { procedure, router } from '../trpc';
 import { dbExplorerRouter } from './db_explorer';
+import { avatarResourceRouter } from './avatar_resource';
+import { sysEmojiRouter } from './sys_emoji';
+import { marketEmojiRouter } from './market_emoji';
+import { customEmojiRouter } from './custom_emoji';
+import { relatedEmojiRouter } from './related_emoji';
+import { fileResourceRouter } from './file_resource';
 import { assistantBus, type AssistantStreamEvent } from '../../mcp/assistant_bus';
 import { groupChatBus, type GroupChatStreamEvent } from '../../mcp/agentlab_group_bus';
 import {
@@ -551,6 +557,18 @@ async function exportGroupAlbums(
 export const accountRouter = router({
   // ---- database explorer (SQLiteStudio-style browse / query / edit) ----
   dbExplorer: dbExplorerRouter,
+  // ---- local avatar cache browser (nt_data/avatar/*) ----
+  avatarResource: avatarResourceRouter,
+  // ---- built-in system emoji resource browser ----
+  sysEmoji: sysEmojiRouter,
+  // ---- market-face (store sticker) cache browser ----
+  marketEmoji: marketEmojiRouter,
+  // ---- custom-emoji (received + personal) cache browser ----
+  customEmoji: customEmojiRouter,
+  // ---- related-emoji (keyword → gif) cache browser ----
+  relatedEmoji: relatedEmojiRouter,
+  // ---- File 目录 (nt_data/File/Ori) + 下载文件 (file_assistant.db) browser ----
+  fileResource: fileResourceRouter,
 
   // ---- agent lab ----
 

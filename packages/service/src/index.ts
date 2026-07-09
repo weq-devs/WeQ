@@ -137,6 +137,53 @@ export type {
   TableRowsResult,
   QueryResult,
 } from './account/db_explorer';
+export { AvatarResourceService, AVATAR_SCOPES } from './account/avatar_resource';
+export type {
+  AvatarScope,
+  AvatarVariant,
+  AvatarScopeInfo,
+  AvatarEntry,
+  AvatarPage,
+} from './account/avatar_resource';
+export { SysEmojiResourceService } from './account/sys_emoji_resource';
+export type {
+  SysEmojiFormat,
+  SysEmojiEntry,
+  SysEmojiPage,
+} from './account/sys_emoji_resource';
+export { MarketEmojiResourceService } from './account/market_emoji_resource';
+export type {
+  MarketFaceEntry,
+  MarketFacePage,
+} from './account/market_emoji_resource';
+export {
+  CustomEmojiResourceService,
+  CUSTOM_EMOJI_SCOPES,
+} from './account/custom_emoji_resource';
+export type {
+  CustomEmojiScope,
+  CustomEmojiVariant,
+  CustomEmojiScopeInfo,
+  CustomEmojiEntry,
+  CustomEmojiPage,
+} from './account/custom_emoji_resource';
+export { RelatedEmojiResourceService } from './account/related_emoji_resource';
+export type {
+  RelatedEmojiKeyword,
+  RelatedEmojiPage,
+} from './account/related_emoji_resource';
+export { FileResourceService, FILE_CATEGORIES, classifyFile } from './account/file_resource';
+export type {
+  FileCategory,
+  FileSortKey,
+  FileSortOrder,
+  FileResourceEntry,
+  FileDirSummary,
+  FileDirPage,
+  DownloadFileEntry,
+  DownloadFilePage,
+  FileListOptions,
+} from './account/file_resource';
 export {
   ACCOUNT_HEALTH_DATABASES,
   checkAccountDatabaseHealth,

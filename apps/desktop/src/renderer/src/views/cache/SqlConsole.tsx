@@ -9,22 +9,33 @@
  * Writes hit QQ's live database, so the run button is gated behind the parent's
  * 编辑模式 for anything that isn't a read statement — we detect that client-side
  * and refuse to send a write while read-only, matching the grid's guard.
+ *
+ * When a table is selected, its indices are listed above the editor (moved here
+ * from the object tree); clicking one loads its `CREATE INDEX` DDL into the
+ * editor for inspection.
  */
 
 import { useState, type ReactElement, type KeyboardEvent } from 'react';
-import { Play, AlertTriangle } from 'lucide-react';
-import type { QueryResult } from '@weq/service';
+import { Play, AlertTriangle, KeyRound } from 'lucide-react';
+import type { DbObject, QueryResult } from '@weq/service';
 import { client } from '../../trpc/client';
 import { cellText, cellKind } from './cellFormat';
+import { BlobHexModal } from './BlobHexModal';
 
 const READ_RE = /^\s*(select|with|pragma|explain)\b/i;
 
 export function SqlConsole({
   dbPath,
   editable,
+  tableName = null,
+  indices = [],
 }: {
   dbPath: string;
   editable: boolean;
+  /** 当前左树所选表/视图名，用于「本表索引」标题。 */
+  tableName?: string | null;
+  /** 当前所选表的索引对象，从左树迁移到此处按表查看。 */
+  indices?: DbObject[];
 }): ReactElement {
   const [sql, setSql] = useState('');
   const [running, setRunning] = useState(false);
@@ -75,6 +86,33 @@ export function SqlConsole({
 
   return (
     <div className="weq-cache-sql">
+      {indices.length > 0 ? (
+        <div className="weq-cache-sql-indices">
+          <div className="weq-cache-sql-indices-head">
+            <KeyRound size={13} />
+            <span>
+              「{tableName}」的索引
+              <em className="weq-cache-sql-indices-count">{indices.length}</em>
+            </span>
+          </div>
+          <div className="weq-cache-sql-indices-list">
+            {indices.map((idx) => (
+              <button
+                key={idx.name}
+                type="button"
+                className="weq-cache-sql-index"
+                title={idx.sql ? `点击载入定义：\n${idx.sql}` : idx.name}
+                disabled={!idx.sql}
+                onClick={() => {
+                  if (idx.sql) setSql(`${idx.sql};`);
+                }}
+              >
+                {idx.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <div className="weq-cache-sql-editor">
         <textarea
           className="weq-cache-sql-input"
@@ -125,6 +163,9 @@ export function SqlConsole({
 }
 
 function ResultTable({ result }: { result: QueryResult }): ReactElement {
+  // Open BLOB lightbox (read-only for hand-written query results).
+  const [blobView, setBlobView] = useState<{ hex: string; columnName: string } | null>(null);
+
   if (result.columns.length === 0) {
     return <div className="weq-cache-sql-placeholder">（无列）</div>;
   }
@@ -147,6 +188,17 @@ function ResultTable({ result }: { result: QueryResult }): ReactElement {
                 <td key={ci} className={`weq-cache-cell is-${cellKind(cell)}`}>
                   {cell === null ? (
                     <span className="weq-cache-null">NULL</span>
+                  ) : cell !== null && typeof cell === 'object' && cell.t === 'blob' ? (
+                    <button
+                      type="button"
+                      className="weq-cache-blob-btn"
+                      title="点击查看二进制"
+                      onClick={() =>
+                        setBlobView({ hex: cell.hex, columnName: result.columns[ci] ?? '' })
+                      }
+                    >
+                      {cellText(cell)}
+                    </button>
                   ) : (
                     cellText(cell)
                   )}
@@ -156,6 +208,14 @@ function ResultTable({ result }: { result: QueryResult }): ReactElement {
           ))}
         </tbody>
       </table>
+      {blobView ? (
+        <BlobHexModal
+          hex={blobView.hex}
+          columnName={blobView.columnName}
+          editable={false}
+          onClose={() => setBlobView(null)}
+        />
+      ) : null}
     </div>
   );
 }
