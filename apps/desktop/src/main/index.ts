@@ -22,6 +22,7 @@ import {
 import { getAppContext } from './context/app_context';
 import { checkForUpdate } from './update/updater';
 import { stopMcpServer } from './mcp/server';
+import { stopWeqServer, registerWeqAssistantIpc } from './weq_assistant/server';
 import { disposeExternalMcp } from './mcp/external';
 import { registerChannelIpc } from './channel';
 import { registerQzoneIpc } from './qzone';
@@ -445,6 +446,7 @@ void app.whenReady().then(() => {
   registerSystemAuthIpc();
   registerChannelIpc();
   registerQzoneIpc();
+  registerWeqAssistantIpc();
 
   app.on('browser-window-created', (_, win) => {
     optimizer.watchWindowShortcuts(win);
@@ -495,5 +497,6 @@ app.on('before-quit', () => {
 // was never explicitly closed (clearAccount also stops it).
 app.on('will-quit', () => {
   void stopMcpServer();
+  void stopWeqServer();
   void disposeExternalMcp();
 });

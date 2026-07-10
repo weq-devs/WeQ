@@ -833,6 +833,7 @@ export function AgentLabView(): ReactElement {
             voice: activePersona.voice,
             voiceProfile: activePersona.voiceProfile,
             willing: activePersona.willing,
+            typo: activePersona.typo,
           }}
           paramsContent={<PersonaParamsPanel loading={personaDetail.isLoading} detail={personaDetail.data ?? null} />}
           onClose={() => setSettingsOpen(false)}

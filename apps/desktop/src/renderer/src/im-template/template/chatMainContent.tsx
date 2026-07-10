@@ -75,6 +75,7 @@ export function ChatMainContent({
 	onOpenGroupAnnouncements,
 	onOpenGroupAnalytics,
 	onOpenBuddyAnalytics,
+	onAddMessage,
 	onOpenTool,
 	onSelectTool,
 }: {
@@ -139,6 +140,7 @@ export function ChatMainContent({
 	onOpenGroupAnnouncements?: (conversation: GroupConversation) => void;
 	onOpenGroupAnalytics?: (conversation: GroupConversation) => void;
 	onOpenBuddyAnalytics?: (conversation: DirectConversation) => void;
+	onAddMessage?: (conversation: Conversation) => void;
 	onOpenTool?: (item: ToolPaneItem) => void;
 	onSelectTool?: (item: ToolPaneItem) => void;
 }) {
@@ -212,6 +214,7 @@ export function ChatMainContent({
 			onOpenGroupAnnouncements={onOpenGroupAnnouncements}
 			onOpenGroupAnalytics={onOpenGroupAnalytics}
 			onOpenBuddyAnalytics={onOpenBuddyAnalytics}
+			onAddMessage={onAddMessage}
 		/>
 	);
 }

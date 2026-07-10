@@ -27,3 +27,5 @@ export type { UnreadInfoDbOptions, UnreadInfoResult } from './unread_info';
 
 export { decodeBody } from './util';
 export type { C2cMsg, GroupMsg, BuddyMsgFtsHit } from './types';
+
+export type { AppendMsgFields, AppendMsgResult } from './append';

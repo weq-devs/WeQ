@@ -24,6 +24,9 @@ import { join } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
 import { createWin32Platform, isTencentFilesRoot, type Platform } from '@weq/platform';
 import { startMcpServer, stopMcpServer } from '../mcp/server';
+import { startWeqServer, stopWeqServer } from '../weq_assistant/server';
+import { refreshWeqStats, setWeqStats, statsCachePath } from '../weq_assistant/stats';
+import { ensureDefaultTweets, tweetsStorePath } from '../weq_assistant/tweets';
 import { aiToolSpecs, runAiTool } from '../mcp/openai_tools';
 import { getExternalMcpHub, disposeExternalMcp } from '../mcp/external';
 import { sampleHitokoto } from '../hitokoto';
@@ -60,6 +63,14 @@ import {
   TokenUsageStore,
   ConversationStore,
   DbDecryptService,
+  DbExplorerService,
+  AvatarResourceService,
+  SysEmojiResourceService,
+  MarketEmojiResourceService,
+  CustomEmojiResourceService,
+  RelatedEmojiResourceService,
+  FileResourceService,
+  MediaResourceService,
   WebQueryService,
   GroupAlbumMediaService,
   DbWatchService,
@@ -76,7 +87,10 @@ import {
   type DbChange,
   type DbHealthFailure,
   type McpServerConfig,
+  type WeqAssistantConfig,
+  WeqAssistantService,
 } from '@weq/service';
+import { resolveResource } from '../resource';
 import { openAccount, openStaticAccount, peekStaticSelfUin, type AccountContext, type AccountSession } from '@weq/account';
 
 /**
@@ -275,6 +289,22 @@ export interface AccountServices {
   exportManager: import('@weq/service').ExportTaskManager;
   /** List and bulk-decrypt encrypted QQ NT databases. */
   dbDecrypt: DbDecryptService;
+  /** SQLiteStudio-style browse / query / edit over the account's databases. */
+  dbExplorer: DbExplorerService;
+  /** Browse the account's local avatar cache (nt_data/avatar/*). */
+  avatarResource: AvatarResourceService;
+  /** Browse the account's built-in system emoji resource dir. */
+  sysEmoji: SysEmojiResourceService;
+  /** Browse the account's market-face (store sticker) cache. */
+  marketEmoji: import('@weq/service').MarketEmojiResourceService;
+  /** Browse the account's custom-emoji cache (received + personal). */
+  customEmoji: CustomEmojiResourceService;
+  /** Browse the account's related-emoji cache (keyword → gif). */
+  relatedEmoji: RelatedEmojiResourceService;
+  /** Browse the account's File 目录 (nt_data/File/Ori) + 下载文件 (file_assistant.db). */
+  fileResource: FileResourceService;
+  /** Browse the account's local media caches (PhotoWall / Qzone / Pic / Video). */
+  mediaResource: MediaResourceService;
   /** Web CGI queries that need the already-hooked online QQ process. */
   webQuery: WebQueryService;
   /** Group album media listing over the already-hooked online QQ process. */
@@ -335,6 +365,14 @@ export interface AppContext {
    */
   applyMcp(config: McpServerConfig): Promise<void>;
   /**
+   * Apply the WeQ 助手 config to the open account: when enabled, fabricate the
+   * built-in "WeQ助手" conversation in the live QQ db (idempotent) + start the
+   * loopback HTTP server; when disabled, stop the server (account data is left
+   * in place). Rewrites the ARK card when the port changed. No-op when no
+   * account is open. Returns the port the server actually bound to (or 0).
+   */
+  applyWeqAssistant(config: WeqAssistantConfig): Promise<number>;
+  /**
    * Force a one-shot rkey harvest from the online QQ for the open account —
    * the explicit refresh before a media-completing export. Resolves false when
    * no account is open / QQ is offline / harvest failed.
@@ -373,6 +411,10 @@ export function initAppContext(): AppContext {
       applyMcp(): Promise<void> {
         /* no account — nothing to serve */
         return Promise.resolve();
+      },
+      applyWeqAssistant(): Promise<number> {
+        /* no account — nothing to serve */
+        return Promise.resolve(0);
       },
       refreshRkeysNow(): Promise<boolean> {
         return Promise.resolve(false);
@@ -487,6 +529,8 @@ export function initAppContext(): AppContext {
       accountMonitor?.stop();
       accountMonitor = null;
       void stopMcpServer();
+      void stopWeqServer();
+      setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
       this.account?.dispose();
       dbWatchHandle?.unmount();
@@ -642,6 +686,14 @@ export function initAppContext(): AppContext {
           },
         ),
         dbDecrypt: new DbDecryptService(session, platform),
+        dbExplorer: new DbExplorerService(session, platform),
+        avatarResource: new AvatarResourceService(session, platform),
+        sysEmoji: new SysEmojiResourceService(session, platform),
+        marketEmoji: new MarketEmojiResourceService(session, platform),
+        customEmoji: new CustomEmojiResourceService(session, platform),
+        relatedEmoji: new RelatedEmojiResourceService(session, platform),
+        fileResource: new FileResourceService(session, platform),
+        mediaResource: new MediaResourceService(session, platform),
         webQuery,
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, resolveOnlinePid),
       };
@@ -708,6 +760,19 @@ export function initAppContext(): AppContext {
             });
           });
       }
+
+      // WeQ 助手 is account-bound too: ensure the fabricated conversation exists
+      // + start the loopback server when enabled. Live toggling → applyWeqAssistant.
+      const weq = userConfig.getSettings().weqAssistant;
+      if (weq.enabled) {
+        void this.applyWeqAssistant(weq).catch((error) => {
+          logger.error('failed to start weq assistant on account open', {
+            event: 'weq-start-failed',
+            port: weq.port,
+            ...logErrorContext(error),
+          });
+        });
+      }
       // No health check at open — it now runs lazily, only if a real query
       // later fails in a way that looks like corruption (see the openAccount
       // callback above).
@@ -727,6 +792,8 @@ export function initAppContext(): AppContext {
       accountMonitor?.stop();
       accountMonitor = null;
       void stopMcpServer();
+      void stopWeqServer();
+      setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
       this.account?.dispose();
       dbWatchHandle?.unmount();
@@ -856,6 +923,14 @@ export function initAppContext(): AppContext {
           },
         ),
         dbDecrypt: new DbDecryptService(session, platform),
+        dbExplorer: new DbExplorerService(session, platform),
+        avatarResource: new AvatarResourceService(session, platform),
+        sysEmoji: new SysEmojiResourceService(session, platform),
+        marketEmoji: new MarketEmojiResourceService(session, platform),
+        customEmoji: new CustomEmojiResourceService(session, platform),
+        relatedEmoji: new RelatedEmojiResourceService(session, platform),
+        fileResource: new FileResourceService(session, platform),
+        mediaResource: new MediaResourceService(session, platform),
         webQuery,
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, noPid),
       };
@@ -893,6 +968,8 @@ export function initAppContext(): AppContext {
       this.scheduler?.stop();
       this.scheduler = null;
       void stopMcpServer();
+      void stopWeqServer();
+      setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
       unmountDbWatch();
       this.account?.dispose();
@@ -931,6 +1008,71 @@ export function initAppContext(): AppContext {
       } else {
         await stopMcpServer();
       }
+    },
+    async applyWeqAssistant(config: WeqAssistantConfig): Promise<number> {
+      // Only live accounts host the server / own the fabricated conversation.
+      if (!this.account || !this.platform) {
+        await stopWeqServer();
+        return 0;
+      }
+      logger.info('applying weq assistant config', {
+        event: 'apply-weq-assistant',
+        accountUin: this.account.context.uin,
+        enabled: config.enabled,
+        port: config.port,
+      });
+      const svc = new WeqAssistantService(this.account, this.platform);
+
+      // 关闭：停 server + 只删会话列表行（recent_contact）。mapping / c2c 一概保留——
+      // 推文（消息）与身份目录留在库里，下次开启对比本地补齐即可。best-effort。
+      if (!config.enabled) {
+        await stopWeqServer();
+        try {
+          await svc.removeContact();
+        } catch (error) {
+          logger.warn('failed to remove weq assistant contact on disable', {
+            event: 'weq-disable-failed',
+            ...logErrorContext(error),
+          });
+        }
+        return 0;
+      }
+
+      // 1) Start the loopback server (port fallback may move us up).
+      const boundPort = await startWeqServer({ port: config.port });
+
+      // 2) 本地推文列表是唯一数据源：读本地（首次为空则种入内置两篇，时间固定在本地），
+      //    再 syncTweets——ensureMapping（只写一次）+ 逐条按固定时间去重补进 c2c（只新增
+      //    不删除）+ 把已有卡片端口刷成当前实际端口（改写≠删除）+ 会话列表预览最新一篇。
+      //    best-effort：log but don't crash the toggle.
+      try {
+        const storePath = tweetsStorePath(userConfig.cacheDir('weq-assistant'));
+        const tweets = ensureDefaultTweets(storePath);
+        const logo = resolveResource('brand', 'logo.png') ?? undefined;
+        await svc.syncTweets(boundPort, tweets, logo);
+        userConfig.setSettings({ weqAssistant: { port: boundPort } });
+      } catch (error) {
+        logger.error('failed to sync weq assistant tweets', {
+          event: 'weq-ensure-failed',
+          ...logErrorContext(error),
+        });
+      }
+
+      // 「群数据周报」推文的存储/缓存：后台（非阻塞）挑「我等级最高的群」算一份统计
+      // 快照并落盘，页面（/p/stats）只读这份缓存。best-effort：失败只记日志。首帧会先
+      // 把盘上旧缓存灌进内存，避免推文空窗（见 weq_assistant/stats.refreshWeqStats）。
+      if (this.services) {
+        const statsUin = this.account.context.uin;
+        const cachePath = statsCachePath(userConfig.cacheDir('weq-assistant'), statsUin);
+        void refreshWeqStats(this.services.groupInfo, statsUin, cachePath).catch((error) => {
+          logger.warn('failed to refresh weq stats snapshot', {
+            event: 'weq-stats-refresh-failed',
+            ...logErrorContext(error),
+          });
+        });
+      }
+      // No svc.close() — it shares the session's cached nt_msg.db connection.
+      return boundPort;
     },
     refreshRkeysNow(): Promise<boolean> {
       logger.info('manual rkey refresh requested', {

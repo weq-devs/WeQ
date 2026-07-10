@@ -106,13 +106,17 @@ const TABS: Array<{ id: Tab; label: string; icon: ReactElement }> = [
 ];
 
 type WillingCfg = { gatePrivate?: boolean; level?: number; mustReplyOnMention?: boolean };
+type TypoCfg = { enabled?: boolean; intensity?: number };
 
-/** 发言意愿：总体意愿档位 + 是否对私聊生效 + 被 @ 是否必回。 */
+/** 错别字默认强度（与 packages/agentlab DEFAULT_TYPO_INTENSITY 保持一致）。 */
+const DEFAULT_TYPO_INTENSITY = 0.1;
+
+/** 发言意愿：总体意愿档位 + 是否对私聊生效 + 被 @ 是否必回；顺带管错别字（人味）后处理。 */
 function WillingTab({
   persona,
   onSaved,
 }: {
-  persona: { id: string; willing?: WillingCfg };
+  persona: { id: string; willing?: WillingCfg; typo?: TypoCfg };
   onSaved: () => void;
 }): ReactElement {
   const dialog = useAppDialog();
@@ -120,6 +124,9 @@ function WillingTab({
   const [level, setLevel] = useState(persona.willing?.level ?? 50);
   const [mustReply, setMustReply] = useState(persona.willing?.mustReplyOnMention !== false);
   const [gatePrivate, setGatePrivate] = useState(!!persona.willing?.gatePrivate);
+  const [typoOn, setTypoOn] = useState(persona.typo?.enabled !== false);
+  // 内部按百分比操作（0–30），存库时 /100 成 intensity。
+  const [typoPct, setTypoPct] = useState(Math.round((persona.typo?.intensity ?? DEFAULT_TYPO_INTENSITY) * 100));
   const [saving, setSaving] = useState(false);
 
   async function save(): Promise<void> {
@@ -128,6 +135,7 @@ function WillingTab({
       await update.mutateAsync({
         personaId: persona.id,
         willing: { level, mustReplyOnMention: mustReply, gatePrivate },
+        typo: { enabled: typoOn, intensity: typoPct / 100 },
       });
       dialog.success('已保存', '发言意愿已更新');
       onSaved();
@@ -139,6 +147,7 @@ function WillingTab({
   }
 
   const levelHint = level >= 70 ? '话痨，很爱接话' : level <= 30 ? '高冷，多数时候潜水' : '看心情和话题';
+  const typoHint = typoPct >= 20 ? '经常手滑' : typoPct <= 5 ? '几乎不出错' : '偶尔手滑';
 
   return (
     <div className="weq-persona-form">
@@ -157,6 +166,29 @@ function WillingTab({
         <input type="checkbox" checked={gatePrivate} onChange={(e) => setGatePrivate(e.target.checked)} />
         <span>私聊也按意愿（开启后 1:1 私聊里 TA 也可能懒得回你）</span>
       </label>
+
+      <div className="weq-persona-divider" />
+      <p className="weq-persona-note">
+        错别字（人味）：偶尔把「在/再」这类同音字写错、吞掉句尾句号，削弱 AI 感。嫌太频繁就调低频率或直接关掉。
+      </p>
+      <label className="weq-clone-check">
+        <input type="checkbox" checked={typoOn} onChange={(e) => setTypoOn(e.target.checked)} />
+        <span>开启错别字（关掉后回复永远工工整整）</span>
+      </label>
+      {typoOn ? (
+        <label className="weq-agentlab-field">
+          <span>手滑频率：{typoPct}% · {typoHint}</span>
+          <input
+            type="range"
+            min={0}
+            max={30}
+            step={1}
+            value={typoPct}
+            onChange={(e) => setTypoPct(Number(e.target.value))}
+          />
+        </label>
+      ) : null}
+
       <div className="weq-clone-actions">
         <button className="weq-set-btn" disabled={saving} onClick={() => void save()}>
           保存
@@ -571,6 +603,7 @@ export function PersonaSettingsModal({
     voice?: VoiceBinding;
     voiceProfile?: { ratio: number; refClips?: unknown[] };
     willing?: WillingCfg;
+    typo?: TypoCfg;
   };
   paramsContent: ReactNode;
   onClose: () => void;

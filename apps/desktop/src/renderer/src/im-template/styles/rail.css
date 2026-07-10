@@ -51,7 +51,7 @@
 .rail-nav,
 .rail-footer {
 	display: grid;
-	gap: 12px;
+	gap: 8px;
 	justify-items: center;
 }
 

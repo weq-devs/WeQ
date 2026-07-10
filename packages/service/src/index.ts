@@ -39,6 +39,7 @@ export type {
   MediaCompletionConfig,
   VoiceTranscribeConfig,
   McpServerConfig,
+  WeqAssistantConfig,
   AgentLabSettings,
 } from './bootstrap/user_config';
 export { AgentLabConfigService } from './bootstrap/agentlab_config';
@@ -77,6 +78,11 @@ export {
   type RelationGraphData,
   type RelationGraphNode,
   type RelationGraphGroup,
+  type SelfGroupLevel,
+  type GroupStatsReport,
+  type GroupMessageRankingItem,
+  type GroupWordCloudItem,
+  type GroupDailyActivityItem,
 } from './account/group_info';
 export {
   BuddyAnalyticsService,
@@ -97,6 +103,15 @@ export { TokenUsageStore } from './account/agentlab_usage';
 export type { TokenStats, TokenUsageRecord } from './account/agentlab_usage';
 export { ConversationStore } from './account/agentlab_conversation';
 export type { ConversationTurn } from './account/agentlab_conversation';
+export {
+  WeqAssistantService,
+  buildArkJson,
+  rewriteArkPort,
+  WEQ_ASSISTANT_UID,
+  WEQ_ASSISTANT_UIN,
+  WEQ_ASSISTANT_NICK,
+} from './account/weq_assistant';
+export type { WeqTweetCard } from './account/weq_assistant';
 export { AssistantService, ASSISTANT_AGENT_ID } from './account/assistant';
 export type { AssistantConfig, AssistantSession, AssistantTools, AssistantToolSpec, AssistantStep, AssistantArtifact } from './account/assistant';
 export type { RenderC2cMsg, RenderGroupMsg } from './account/msg';
@@ -112,6 +127,76 @@ export type {
   DbDecryptOptions,
   DbDecryptResult,
 } from './account/db_decrypt';
+export { DbExplorerService } from './account/db_explorer';
+export type {
+  DbCell,
+  DbInputValue,
+  RowKey,
+  DbObject,
+  DbColumn,
+  TableRowsResult,
+  QueryResult,
+} from './account/db_explorer';
+export { AvatarResourceService, AVATAR_SCOPES } from './account/avatar_resource';
+export type {
+  AvatarScope,
+  AvatarVariant,
+  AvatarScopeInfo,
+  AvatarEntry,
+  AvatarPage,
+} from './account/avatar_resource';
+export { SysEmojiResourceService } from './account/sys_emoji_resource';
+export type {
+  SysEmojiFormat,
+  SysEmojiEntry,
+  SysEmojiPage,
+} from './account/sys_emoji_resource';
+export { MarketEmojiResourceService } from './account/market_emoji_resource';
+export type {
+  MarketFaceEntry,
+  MarketFacePage,
+} from './account/market_emoji_resource';
+export {
+  CustomEmojiResourceService,
+  CUSTOM_EMOJI_SCOPES,
+} from './account/custom_emoji_resource';
+export type {
+  CustomEmojiScope,
+  CustomEmojiVariant,
+  CustomEmojiScopeInfo,
+  CustomEmojiEntry,
+  CustomEmojiPage,
+} from './account/custom_emoji_resource';
+export { RelatedEmojiResourceService } from './account/related_emoji_resource';
+export type {
+  RelatedEmojiKeyword,
+  RelatedEmojiPage,
+} from './account/related_emoji_resource';
+export { FileResourceService, FILE_CATEGORIES, classifyFile } from './account/file_resource';
+export type {
+  FileCategory,
+  FileSortKey,
+  FileSortOrder,
+  FileResourceEntry,
+  FileDirSummary,
+  FileDirPage,
+  DownloadFileEntry,
+  DownloadFilePage,
+  FileListOptions,
+} from './account/file_resource';
+export { MediaResourceService } from './account/media_resource';
+export type {
+  MediaResourceKind,
+  FlatMediaEntry,
+  MonthMediaEntry,
+  FlatMediaPage,
+  MonthMediaPage,
+  VoiceMediaEntry,
+  VoiceMediaPage,
+  ResourceTreeKey,
+  ResourceBucket,
+  ResourceStat,
+} from './account/media_resource';
 export {
   ACCOUNT_HEALTH_DATABASES,
   checkAccountDatabaseHealth,

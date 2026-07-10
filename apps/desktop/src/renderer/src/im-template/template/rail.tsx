@@ -7,6 +7,7 @@ import {
 	Settings,
 	Hash,
 	Star,
+	HardDrive,
 } from "lucide-react";
 import { useEffect, useRef, useState, useTransition } from "react";
 import type { ReactNode } from "react";
@@ -189,7 +190,7 @@ export function AppRail({
 						type="button"
 					>
 						<span className={cn("rail-tab-icon")}>
-							<Star size={22} strokeWidth={1.5} fill="currentColor" />
+							<Star size={22} strokeWidth={1.5} />
 						</span>
 						<span className={cn("rail-label")}>QQ空间</span>
 					</button>
@@ -238,6 +239,19 @@ export function AppRail({
 							<Bot size={22} strokeWidth={1.5} />
 						</span>
 						<span className={cn("rail-label")}>AgentLab</span>
+					</button>
+					<button
+						className={cn(
+							railButtonClass(activeView === "cache"),
+							"rail-tab rail-tab-cache",
+						)}
+						onClick={() => selectView("cache")}
+						title="本地缓存资源"
+					>
+						<span className={cn("rail-tab-icon")}>
+							<HardDrive size={22} strokeWidth={1.5} />
+						</span>
+						<span className={cn("rail-label")}>缓存</span>
 					</button>
 					<button
 						className={cn("rail-tab rail-tab-settings")}

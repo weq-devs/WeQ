@@ -57,6 +57,14 @@ export interface Platform {
   ntDbDir(uin: string): string | null;
 
   /**
+   * Resolve QQ NT's media data root (`<Tencent Files>/<uin>/nt_qq/nt_data`) for
+   * a specific account — the parent of Pic/Video/Ptt/File/avatar. Returns null
+   * if the directory exists nowhere. Used to place the WeQ 助手 avatar image
+   * where QQ itself reads it.
+   */
+  ntDataDir(uin: string): string | null;
+
+  /**
    * Resolve `group_info.db` (group metadata and essence messages) for a
    * specific QQ account. Co-located with `nt_msg.db`.
    */
@@ -103,6 +111,12 @@ export interface Platform {
 
   /** Received animated-emoji (pic subType 1) cache directory. */
   emojiRecvDir(uin: string): string | null;
+
+  /** Personal / favourited custom-emoji cache directory (`…/Emoji/personal_emoji`). */
+  personalEmojiDir(uin: string): string | null;
+
+  /** Related-emoji (keyword → gif) cache directory (`…/Emoji/emoji-related/emoji`). */
+  emojiRelatedDir(uin: string): string | null;
 
   /** Resolve QQ NT's picture data directory. */
   picDir(uin: string): string | null;

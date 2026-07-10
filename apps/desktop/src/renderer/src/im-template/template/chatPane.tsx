@@ -204,6 +204,7 @@ export function ChatPane({
 	onOpenGroupAnnouncements,
 	onOpenGroupAnalytics,
 	onOpenBuddyAnalytics,
+	onAddMessage,
 }: {
 	user: User;
 	conversation: Conversation | undefined;
@@ -232,6 +233,7 @@ export function ChatPane({
 	onOpenGroupAnnouncements?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenGroupAnalytics?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenBuddyAnalytics?: (conversation: Extract<Conversation, { type: "direct" }>) => void;
+	onAddMessage?: (conversation: Conversation) => void;
 }) {
 	// 复用 replyJump 的跳转能力（含翻页/重建窗口），供群精华消息跳转使用。
 	const jumpToSeq = useContext(ReplyJumpContext);
@@ -1263,6 +1265,17 @@ export function ChatPane({
 					) : null}
 				</div>
 				<div className={cn("chat-actions")}>
+					{onAddMessage &&
+					(conversation.type === "group" || conversation.type === "direct") ? (
+						<button
+							className={cn("icon-button", "group-header-info-action")}
+							type="button"
+							title="添加消息"
+							onClick={() => onAddMessage(conversation)}
+						>
+							<CirclePlus size={18} />
+						</button>
+					) : null}
 					{conversation.type === "group" ? (
 						<>
 							<button

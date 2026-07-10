@@ -21,6 +21,14 @@ import { sampleHitokoto } from '../../hitokoto';
 import { resolveResource } from '../../resource';
 import { dialog } from 'electron';
 import { procedure, router } from '../trpc';
+import { dbExplorerRouter } from './db_explorer';
+import { avatarResourceRouter } from './avatar_resource';
+import { sysEmojiRouter } from './sys_emoji';
+import { marketEmojiRouter } from './market_emoji';
+import { customEmojiRouter } from './custom_emoji';
+import { relatedEmojiRouter } from './related_emoji';
+import { fileResourceRouter } from './file_resource';
+import { mediaResourceRouter } from './media_resource';
 import { assistantBus, type AssistantStreamEvent } from '../../mcp/assistant_bus';
 import { groupChatBus, type GroupChatStreamEvent } from '../../mcp/agentlab_group_bus';
 import {
@@ -548,6 +556,23 @@ async function exportGroupAlbums(
 }
 
 export const accountRouter = router({
+  // ---- database explorer (SQLiteStudio-style browse / query / edit) ----
+  dbExplorer: dbExplorerRouter,
+  // ---- local avatar cache browser (nt_data/avatar/*) ----
+  avatarResource: avatarResourceRouter,
+  // ---- built-in system emoji resource browser ----
+  sysEmoji: sysEmojiRouter,
+  // ---- market-face (store sticker) cache browser ----
+  marketEmoji: marketEmojiRouter,
+  // ---- custom-emoji (received + personal) cache browser ----
+  customEmoji: customEmojiRouter,
+  // ---- related-emoji (keyword → gif) cache browser ----
+  relatedEmoji: relatedEmojiRouter,
+  // ---- File 目录 (nt_data/File/Ori) + 下载文件 (file_assistant.db) browser ----
+  fileResource: fileResourceRouter,
+  // ---- 图片墙 / QQ空间 / 图片 / 视频 local media cache browser ----
+  mediaResource: mediaResourceRouter,
+
   // ---- agent lab ----
 
   listAgentLabPersonas: procedure.query(() => {
@@ -873,6 +898,13 @@ export const accountRouter = router({
           })
           .nullable()
           .optional(),
+        typo: z
+          .object({
+            enabled: z.boolean().optional(),
+            intensity: z.number().min(0).max(1).optional(),
+          })
+          .nullable()
+          .optional(),
       }),
     )
     .mutation(({ input }) => {
@@ -882,6 +914,7 @@ export const accountRouter = router({
         voiceCloneEnabled: input.voiceCloneEnabled,
         voice: input.voice,
         willing: input.willing,
+        typo: input.typo,
       });
     }),
 
@@ -1544,6 +1577,47 @@ export const accountRouter = router({
     }),
 
   /**
+   * Field descriptors for the compose form — required/optional/type per
+   * authorable element kind, derived from the codec Zod schemas.
+   */
+  composeElementSpecs: procedure.query(() => requireServices().msgs.getComposeSpecs()),
+
+  /**
+   * Insert a brand-new message into a conversation (c2c peer uid or group code).
+   * `elements` is the authored array in editable wire form (bytes as
+   * `{ type:'Buffer', data }`); it is byte-decoded here and validated in the
+   * service. Returns the new `{ msgId, msgSeq }` as strings, or null if the
+   * conversation had no message to clone as a template.
+   */
+  insertMessage: procedure
+    .input(
+      z.object({
+        kind: z.enum(['c2c', 'group']),
+        conv: z.string().min(1),
+        senderUid: z.string().min(1),
+        senderUin: z.string().min(1),
+        elements: z.array(z.any()).min(1),
+        sendTime: z.number().int().positive().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const elements = elementsFromEditable(input.elements);
+      const svc = requireServices().msgs;
+      const payload = {
+        senderUid: input.senderUid,
+        senderUin: input.senderUin,
+        elements,
+        sendTime: input.sendTime,
+      };
+      const res =
+        input.kind === 'group'
+          ? await svc.insertGroupMessage(input.conv, payload)
+          : await svc.insertC2cMessage(input.conv, payload);
+      if (!res) return null;
+      return { msgId: res.msgId.toString(), msgSeq: res.msgSeq.toString() };
+    }),
+
+  /**
    * Live "nt_msg.db changed" ping (debounced). Carries no payload beyond a
    * timestamp — the renderer responds by re-reading the open conversation's
    * loaded seq window. This is what makes group inserts, recalls and sticker
@@ -1666,16 +1740,25 @@ export const accountRouter = router({
 
     const groupCodes = contacts.filter(c => String(c.chatType).includes('GROUP')).map(c => c.targetUid);
     const c2cUids = contacts.filter(c => String(c.chatType).includes('C2C')).map(c => c.targetUid);
+    // 数据线（我的手机/我的电脑）消息在 dataline_msg_table，单独计数。
+    const datalineUids = contacts.filter(c => String(c.chatType).includes('DATALINE')).map(c => c.targetUid);
 
-    const [groupCounts, c2cCounts] = await Promise.all([
-      getAppContext().account?.groupMsgs.countByGroups(groupCodes) ?? Promise.resolve({} as Record<string, number>),
-      getAppContext().account?.c2cMsgs.countByUids(c2cUids) ?? Promise.resolve({} as Record<string, number>),
+    const account = getAppContext().account;
+    const [groupCounts, c2cCounts, datalineCounts] = await Promise.all([
+      account?.groupMsgs.countByGroups(groupCodes) ?? Promise.resolve({} as Record<string, number>),
+      account?.c2cMsgs.countByUids(c2cUids) ?? Promise.resolve({} as Record<string, number>),
+      account?.datalineMsgs.countByUids(datalineUids) ?? Promise.resolve({} as Record<string, number>),
     ]);
 
-    return contacts.map(c => ({
-      ...recentContactToWire(c),
-      messageCount: String(c.chatType).includes('GROUP') ? (groupCounts[c.targetUid] ?? 0) : (c2cCounts[c.targetUid] ?? 0),
-    }));
+    return contacts.map(c => {
+      const t = String(c.chatType);
+      const messageCount = t.includes('GROUP')
+        ? (groupCounts[c.targetUid] ?? 0)
+        : t.includes('DATALINE')
+          ? (datalineCounts[c.targetUid] ?? 0)
+          : (c2cCounts[c.targetUid] ?? 0);
+      return { ...recentContactToWire(c), messageCount };
+    });
   }),
 
   /** Start an export task. */

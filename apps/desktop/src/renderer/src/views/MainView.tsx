@@ -24,6 +24,8 @@ import { useViewState } from '../state/view';
 import { useUpdateStore } from '../state/update';
 import { client } from '../trpc/client';
 import { useDialog } from '../components/Dialog';
+import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
+import { datalineName, isDatalineSelfUid } from '@weq/codec';
 import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
 import { RailAccountFooter } from '../components/RailAccountFooter';
@@ -31,9 +33,11 @@ import { SettingsDialog } from '../components/SettingsDialog';
 import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
 import { GroupAnalyticsDialog } from '../components/GroupAnalyticsDialog';
 import { BuddyAnalyticsDialog } from '../components/BuddyAnalyticsDialog';
+import { AddMessageModal } from '../components/compose/AddMessageModal';
 import { RelationGraphView } from '../components/relationGraph/RelationGraphView';
 import { AgentLabView } from './AgentLabView';
 import { ExportView } from './ExportView';
+import { CacheView } from './cache/CacheView';
 import { ChatHome } from './ChatHome';
 import {
   ChatMainContent,
@@ -450,6 +454,8 @@ function chatTypeKind(chatType: string | number): 'direct' | 'group' | null {
   const s = String(chatType);
   if (s.includes('C2C')) return 'direct';
   if (s.includes('GROUP')) return 'group';
+  // 数据线（我的手机/我的电脑）按单聊解析，头像用设备图标兜底。
+  if (isDataline(chatType)) return 'direct';
   return null;
 }
 
@@ -458,7 +464,8 @@ function toIsoTime(seconds: string | undefined): string {
 }
 
 function contactTitle(c: RecentContactWire): string {
-  return c.targetDisplayName || c.targetRemark || c.senderDisplayName || c.senderNick || c.targetUid;
+  // 数据线会话往往不带 targetDisplayName，会回退成原始 uid；优先给出设备名。
+  return c.targetDisplayName || c.targetRemark || c.senderDisplayName || c.senderNick || datalineName(c.targetUid) || c.targetUid;
 }
 
 /**
@@ -762,7 +769,7 @@ function contactToConversation(c: RecentContactWire, user: User): Conversation |
       identityValue: c.targetUin && c.targetUin !== '0' ? c.targetUin : c.targetUid,
       username: c.targetUid,
       displayName: title,
-      avatarUrl: avatarSrc(c),
+      avatarUrl: isDataline(c.chatType) ? deviceAvatarDataUri(c.targetUid) : avatarSrc(c),
     };
 
     return {
@@ -823,6 +830,10 @@ function contactToConversation(c: RecentContactWire, user: User): Conversation |
 function isMineMessage(message: MessageWire, conversation: Conversation, user: User): boolean {
   if (message.senderUin && message.senderUin === user.identityValue) return true;
   if (conversation.type !== 'direct') return false;
+  // 数据线：senderUin 是自己（各设备同号），无法区分方向；约定 PC 伪 uid = 本机，
+  // 由它发出的算"我发的"，手机/平板发来的算对端。
+  if (isDatalineSelfUid(message.senderUid)) return true;
+  if (datalineName(message.senderUid)) return false;
   return message.elements.some((element) => {
     const data = (element as RenderElementWire | null)?.data;
     return data?.isSender === true;
@@ -1482,6 +1493,7 @@ export function MainView(): ReactElement {
   } | null>(null);
   
   const [editorState, setEditorState] = useState<{ msgId: string, elements: any[] } | null>(null);
+  const [addMessageConv, setAddMessageConv] = useState<Conversation | null>(null);
 
   const handleEditRaw = useCallback(async (message: Message) => {
     try {
@@ -1528,6 +1540,10 @@ export function MainView(): ReactElement {
       groupCode: conversation.id,
       groupName: conversation.group.name,
     });
+  }, []);
+
+  const handleAddMessage = useCallback((conversation: Conversation) => {
+    setAddMessageConv(conversation);
   }, []);
 
   const handleOpenBuddyAnalytics = useCallback((conversation: Extract<Conversation, { type: 'direct' }>) => {
@@ -2561,7 +2577,7 @@ export function MainView(): ReactElement {
         query={shell.query}
         contactTab={shell.contactTab}
         activeNotice={shell.contactNotice}
-        sidebarWidth={shell.view === 'export' || shell.view === 'agentlab' ? 0 : shell.sidebarWidth}
+        sidebarWidth={shell.view === 'export' || shell.view === 'agentlab' || shell.view === 'cache' ? 0 : shell.sidebarWidth}
         mainOpen={shell.mainOpen}
         messageBadgeCount={0}
         contactBadgeCount={0}
@@ -2589,7 +2605,7 @@ export function MainView(): ReactElement {
         onContactTabChange={shell.changeContactTab}
         onSidebarWidthChange={shell.updateSidebarWidth}
         sidebarContent={
-          shell.view === 'export' || shell.view === 'agentlab' ? null : (
+          shell.view === 'export' || shell.view === 'agentlab' || shell.view === 'cache' ? null : (
           <>
             <ChatSidebarContent
               user={user}
@@ -2668,6 +2684,8 @@ export function MainView(): ReactElement {
             <ExportView />
           ) : shell.view === 'agentlab' ? (
             <AgentLabView />
+          ) : shell.view === 'cache' ? (
+            <CacheView />
           ) : (
           <div className="weq-template-main-wrap">
             <div className="weq-readonly-chat">
@@ -2713,6 +2731,7 @@ export function MainView(): ReactElement {
                 onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
                 onOpenGroupAnalytics={handleOpenGroupAnalytics}
                 onOpenBuddyAnalytics={handleOpenBuddyAnalytics}
+                onAddMessage={handleAddMessage}
               />
             </div>
             <OverlayScrollbar
@@ -2759,6 +2778,15 @@ export function MainView(): ReactElement {
           peerUid={buddyAnalyticsDialog.peerUid}
           peerName={buddyAnalyticsDialog.peerName}
           onClose={() => setBuddyAnalyticsDialog(null)}
+        />
+      ) : null}
+      {addMessageConv ? (
+        <AddMessageModal
+          conversation={addMessageConv}
+          selfUser={user}
+          selfUid={selfProfile.data?.uid}
+          onClose={() => setAddMessageConv(null)}
+          onInserted={() => void refreshWindow()}
         />
       ) : null}
       </ConvContext.Provider>

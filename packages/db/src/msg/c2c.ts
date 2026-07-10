@@ -23,6 +23,7 @@
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import type { C2cMsg } from './types';
 import { decodeBody, toBigint, toStr } from './util';
+import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './append';
 import { QqDb } from '../qq_db';
 
 const SELECT_COLUMNS = `"40001","40020","40021","40030","40033","40050","40800","40003"`;
@@ -47,20 +48,28 @@ export interface C2cMsgDbOptions {
   key?: string;
   /** Database algorithms (omit for plain decrypted). */
   algo?: DatabaseAlgorithms;
+  /**
+   * Which table to read/write. Defaults to `c2c_msg_table`. `dataline_msg_table`
+   * (cross-device sync — 我的手机/我的电脑) is structurally identical, so the same
+   * class serves it verbatim; only the table name differs.
+   */
+  table?: string;
 }
 
 export class C2cMsgDb {
   private readonly qq: QqDb;
+  private readonly table: string;
 
   constructor(nt: NtHelperBinding, opts: C2cMsgDbOptions) {
     this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
+    this.table = opts.table ?? 'c2c_msg_table';
   }
 
   /** Newest N messages in one conversation, newest-first (DESC by seq). */
   async listLatest(part: C2cPartition, limit = 50): Promise<C2cMsg[]> {
     const { clause, value } = partitionWhere(part);
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM c2c_msg_table
+      `SELECT ${SELECT_COLUMNS} FROM ${this.table}
         WHERE ${clause}
         ORDER BY "40003" DESC
         LIMIT ?`,
@@ -73,7 +82,7 @@ export class C2cMsgDb {
   async listBefore(part: C2cPartition, beforeSeq: bigint, limit = 50): Promise<C2cMsg[]> {
     const { clause, value } = partitionWhere(part);
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM c2c_msg_table
+      `SELECT ${SELECT_COLUMNS} FROM ${this.table}
         WHERE ${clause} AND "40003" < ?
         ORDER BY "40003" DESC
         LIMIT ?`,
@@ -86,7 +95,7 @@ export class C2cMsgDb {
   async listAfter(part: C2cPartition, afterSeq: bigint, limit = 50): Promise<C2cMsg[]> {
     const { clause, value } = partitionWhere(part);
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM c2c_msg_table
+      `SELECT ${SELECT_COLUMNS} FROM ${this.table}
         WHERE ${clause} AND "40003" > ?
         ORDER BY "40003" ASC
         LIMIT ?`,
@@ -107,7 +116,7 @@ export class C2cMsgDb {
   async listAfterRowId(part: C2cPartition, afterRowId: bigint, limit = 50): Promise<Array<C2cMsg & { rowId: bigint }>> {
     const { clause, value } = partitionWhere(part);
     const rows = await this.qq.query(
-      `SELECT rowid, ${SELECT_COLUMNS} FROM c2c_msg_table
+      `SELECT rowid, ${SELECT_COLUMNS} FROM ${this.table}
         WHERE ${clause} AND rowid > ?
         ORDER BY rowid ASC
         LIMIT ?`,
@@ -124,7 +133,7 @@ export class C2cMsgDb {
   async listFrom(part: C2cPartition, sinceSeq: bigint, limit = 500): Promise<C2cMsg[]> {
     const { clause, value } = partitionWhere(part);
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM c2c_msg_table
+      `SELECT ${SELECT_COLUMNS} FROM ${this.table}
         WHERE ${clause} AND "40003" >= ?
         ORDER BY "40003" DESC
         LIMIT ?`,
@@ -136,7 +145,7 @@ export class C2cMsgDb {
   /** Most recent N messages across all peers, newest first. Useful for "test dump". */
   async listRecent(limit = 50, offset = 0): Promise<C2cMsg[]> {
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM c2c_msg_table
+      `SELECT ${SELECT_COLUMNS} FROM ${this.table}
         ORDER BY "40050" DESC
         LIMIT ? OFFSET ?`,
       [BigInt(limit), BigInt(offset)],
@@ -146,7 +155,7 @@ export class C2cMsgDb {
 
   /** Largest SQLite rowid currently in the table, or 0n if empty. */
   async latestRowId(): Promise<bigint> {
-    const rows = await this.qq.query(`SELECT MAX(rowid) FROM c2c_msg_table`);
+    const rows = await this.qq.query(`SELECT MAX(rowid) FROM ${this.table}`);
     return toBigint(rows[0]?.[0]);
   }
 
@@ -158,7 +167,7 @@ export class C2cMsgDb {
    */
   async listSinceRowId(sinceRowId: bigint, limit = 500): Promise<C2cMsg[]> {
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM c2c_msg_table
+      `SELECT ${SELECT_COLUMNS} FROM ${this.table}
         WHERE rowid > ?
         ORDER BY rowid ASC
         LIMIT ?`,
@@ -169,13 +178,23 @@ export class C2cMsgDb {
 
   /** Get raw msgBody (column 40800) by msgId. */
   async getMsgBody(msgId: bigint): Promise<Uint8Array | null> {
-    const rows = await this.qq.query(`SELECT "40800" FROM c2c_msg_table WHERE "40001" = ? LIMIT 1`, [msgId]);
+    const rows = await this.qq.query(`SELECT "40800" FROM ${this.table} WHERE "40001" = ? LIMIT 1`, [msgId]);
     return (rows[0]?.[0] as Uint8Array) ?? null;
   }
 
   /** Update the msgBody (column 40800) for a specific message. */
   async updateMsgBody(msgId: bigint, blob: Uint8Array): Promise<number> {
-    return this.qq.write(`UPDATE c2c_msg_table SET "40800" = ? WHERE "40001" = ?`, [blob, msgId]);
+    return this.qq.write(`UPDATE ${this.table} SET "40800" = ? WHERE "40001" = ?`, [blob, msgId]);
+  }
+
+  /**
+   * Append a new private-chat message by cloning the peer's newest row as a
+   * template (see {@link appendClonedRow}). Returns the new msgId/msgSeq, or
+   * null if the conversation has no message to clone.
+   */
+  async appendMessage(part: C2cPartition, fields: AppendMsgFields): Promise<AppendMsgResult | null> {
+    const { clause, value } = partitionWhere(part);
+    return appendClonedRow(this.qq, this.table, clause, value, fields);
   }
 
   /** Batch count messages per peer by uid. Returns { uid: count }. */
@@ -183,7 +202,7 @@ export class C2cMsgDb {
     if (uids.length === 0) return {};
     const placeholders = uids.map(() => '?').join(',');
     const rows = await this.qq.query(
-      `SELECT "40021", COUNT(*) FROM c2c_msg_table WHERE "40021" IN (${placeholders}) GROUP BY "40021"`,
+      `SELECT "40021", COUNT(*) FROM ${this.table} WHERE "40021" IN (${placeholders}) GROUP BY "40021"`,
       uids,
     );
     const result: Record<string, number> = {};

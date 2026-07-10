@@ -13,6 +13,10 @@
  *   weq-media://ptt?t=&name=                                  → decoded WAV bytes
  *   weq-media://mface?pack=<emojiPackId>&hash=<previewMd5Hex> → sticker bytes
  *   weq-media://agentvoice?persona=&id=<hash.ext>             → clone TTS audio bytes
+ *   weq-media://avatar?scope=user&hash=<hash>&v=big|small     → local avatar-cache bytes
+ *   weq-media://localfile?path=<absOriPath>                   → File/Ori file bytes (image preview)
+ *   weq-media://localmedia?kind=pic&rel=<month/Ori/name>      → PhotoWall/Qzone/Pic/Video cache bytes
+ *   weq-media://localvoice?rel=<month/Ori/name>               → decoded WAV for a Ptt cache clip
  *
  * Like the other custom schemes: `registerMediaScheme()` runs before app
  * `ready`; `registerMediaProtocol()` runs after.
@@ -219,6 +223,77 @@ export function registerMediaProtocol(): void {
           if (!id) return notFound('agentvoice needs id');
           const path = services.agentLab.getAgentVoicePath(id);
           return path ? fileResponse(path) : notFound('agentvoice not found');
+        }
+        case 'avatar': {
+          // Local avatar cache (nt_data/avatar/{user,group,cover}). The renderer
+          // asks for the big original first and falls back to the small thumb via
+          // <img onError>. scope+hash+v identify the file; bytes stream off disk.
+          const scope = q.get('scope') ?? '';
+          const hash = q.get('hash') ?? '';
+          const variant = q.get('v') === 'small' ? 'small' : 'big';
+          if (scope !== 'user' && scope !== 'group' && scope !== 'cover') {
+            return notFound('avatar needs scope=user|group|cover');
+          }
+          if (!hash) return notFound('avatar needs hash');
+          const path = await services.avatarResource.resolveFile(scope, hash, variant);
+          return path ? fileResponse(path) : notFound('avatar not found');
+        }
+        case 'cemoji': {
+          // Custom-emoji cache (nt_data/Emoji/emoji-recv/<month> + personal_emoji).
+          // scope+bucket+v pick the Ori/Thumb sub-dir; `file` is the exact on-disk
+          // name (extension / `_size` suffix vary), and bytes stream off disk.
+          const scope = q.get('scope') ?? '';
+          const bucket = q.get('bucket') ?? '';
+          const file = q.get('file') ?? '';
+          const variant = q.get('v') === 'ori' ? 'ori' : 'thumb';
+          if (scope !== 'recv' && scope !== 'personal') {
+            return notFound('cemoji needs scope=recv|personal');
+          }
+          if (!file) return notFound('cemoji needs file');
+          const path = await services.customEmoji.resolveFile(scope, bucket, variant, file);
+          return path ? fileResponse(path) : notFound('cemoji not found');
+        }
+        case 'relemoji': {
+          // Related-emoji cache (nt_data/Emoji/emoji-related/emoji/<md5>/<gif>).
+          // hash is the keyword's md5 dir; `file` is one plaintext gif in it.
+          const hash = q.get('hash') ?? '';
+          const file = q.get('file') ?? '';
+          if (!hash || !file) return notFound('relemoji needs hash+file');
+          const path = await services.relatedEmoji.resolveFile(hash, file);
+          return path ? fileResponse(path) : notFound('relemoji not found');
+        }
+        case 'localfile': {
+          // Image preview for a file living under nt_data/File/Ori. The service
+          // re-validates the path is inside the Ori tree AND is a real file, so a
+          // crafted `path` can't read outside the File dir. Bytes stream off disk.
+          const path = q.get('path') ?? '';
+          if (!path) return notFound('localfile needs path');
+          const resolved = await services.fileResource.resolveLocalFile(path);
+          return resolved ? fileResponse(resolved) : notFound('localfile not found');
+        }
+        case 'localmedia': {
+          // Local media caches (PhotoWall / Qzone / Pic / Video). `kind` picks the
+          // tree; `rel` is the path relative to its root (bucket/name, or
+          // month/Ori|Thumb/name). The service re-validates rel stays inside the
+          // tree AND is a real file, so a crafted `rel` can't escape. Bytes (incl.
+          // range requests for <video>) stream off disk.
+          const mkind = q.get('kind') ?? '';
+          const rel = q.get('rel') ?? '';
+          if (!rel) return notFound('localmedia needs rel');
+          const path = await services.mediaResource.resolveFile(mkind, rel);
+          return path ? fileResponse(path) : notFound('localmedia not found');
+        }
+        case 'localvoice': {
+          // Voice clip from the Ptt cache (本地资源 → 语音). `rel` is the path
+          // relative to the Ptt root (`<month>/Ori/<name>`); the service
+          // re-validates it stays inside the tree. The file is SILK, which no
+          // browser plays, so it's decoded to a cached WAV before streaming.
+          const rel = q.get('rel') ?? '';
+          if (!rel) return notFound('localvoice needs rel');
+          const silk = await services.mediaResource.resolveFile('ptt', rel);
+          if (!silk) return notFound('localvoice not found');
+          const wav = await decodeSilkToWav(silk);
+          return wav ? fileResponse(wav) : notFound('localvoice decode failed');
         }
         case 'album': {
           return albumRemoteResponse(q.get('src') ?? '');

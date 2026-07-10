@@ -92,6 +92,8 @@ export interface AccountSession {
   readonly uidMap: UidMap;
   /** Private-chat messages. */
   readonly c2cMsgs: C2cMsgDb;
+  /** 数据线（我的手机/我的电脑）消息，dataline_msg_table，结构同 c2c。 */
+  readonly datalineMsgs: C2cMsgDb;
   /** Group-chat messages. */
   readonly groupMsgs: GroupMsgDb;
   /** Recent-conversation list. */
@@ -162,6 +164,14 @@ export async function openAccount(
     dbPath: msgDbPath,
     key: ctx.dbKey,
     algo: ctx.algo,
+  });
+
+  // 数据线（我的手机/我的电脑）消息表结构与 c2c 相同，复用 C2cMsgDb，仅换表名。
+  const datalineMsgs = new C2cMsgDb(nt, {
+    dbPath: msgDbPath,
+    key: ctx.dbKey,
+    algo: ctx.algo,
+    table: 'dataline_msg_table',
   });
 
   const groupMsgs = new GroupMsgDb(nt, {
@@ -292,6 +302,7 @@ export async function openAccount(
     lastRowIdMaps: { c2cRowId: 0n, groupRowId: 0n, guildRowId: 0n },
     uidMap,
     c2cMsgs,
+    datalineMsgs,
     groupMsgs,
     recentContacts,
     forwardMsgs,
@@ -314,6 +325,7 @@ export async function openAccount(
       if (disposed) return;
       disposed = true;
       c2cMsgs.close();
+      datalineMsgs.close();
       groupMsgs.close();
       recentContacts.close();
       forwardMsgs.close();

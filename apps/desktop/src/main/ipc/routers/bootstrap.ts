@@ -20,6 +20,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { isMcpRunning } from '../../mcp/server';
+import { isWeqServerRunning } from '../../weq_assistant/server';
 import {
   accountEventBus,
   getAppContext,
@@ -336,6 +337,49 @@ export const bootstrapRouter = router({
       2,
     );
   }),
+
+  // ---- WeQ 助手 (account-bound; renders inside QQ itself) ----
+
+  /** Current WeQ 助手 config + live state. */
+  getWeqAssistantStatus: procedure.query(() => {
+    const weq = requireBootstrap().userConfig.getSettings().weqAssistant;
+    return {
+      enabled: weq.enabled,
+      port: weq.port,
+      host: '127.0.0.1',
+      url: `http://127.0.0.1:${weq.port}`,
+      running: isWeqServerRunning(),
+    };
+  }),
+
+  /**
+   * Toggle WeQ 助手. On enable (with an account open) it fabricates the built-in
+   * conversation in the live QQ db + starts the loopback server; on disable it
+   * stops the server (the conversation data is left in place). Persists first,
+   * then applies live. Throws so the renderer can report failures.
+   */
+  setWeqAssistantEnabled: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(async ({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      userConfig.setSettings({ weqAssistant: { enabled: input.enabled } });
+      await getAppContext().applyWeqAssistant(userConfig.getSettings().weqAssistant);
+      return userConfig.getSettings().weqAssistant;
+    }),
+
+  /**
+   * Change the listen port (20000–65535). Persists, then re-applies: restarts
+   * the server and rewrites the ARK card's embedded coverUrl / jump url so the
+   * message in QQ points at the new port.
+   */
+  setWeqAssistantPort: procedure
+    .input(z.object({ port: z.number().int().min(20000).max(65535) }))
+    .mutation(async ({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      userConfig.setSettings({ weqAssistant: { port: input.port } });
+      await getAppContext().applyWeqAssistant(userConfig.getSettings().weqAssistant);
+      return userConfig.getSettings().weqAssistant;
+    }),
 
   // ---- first-run onboarding (欢迎使用) ----
 

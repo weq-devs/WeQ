@@ -54,6 +54,15 @@ const weqBridge = {
         { name: string; value: string; domain?: string; path?: string }[]
       >,
   },
+  weqAssistant: {
+    /**
+     * Push WeQ's accent + 深/浅 to the main process so the 每日推文 ARK 封面 / 跳转页
+     * (rendered in the main process, no localStorage access) follow the theme.
+     * `accent` is a free-form hex; empty falls back to the WeQ default blue.
+     */
+    setTheme: (theme: { accent: string; mode: 'light' | 'dark' }): Promise<boolean> =>
+      ipcRenderer.invoke('weqAssistant:set-theme', theme) as Promise<boolean>,
+  },
   systemAuth: {
     getStatus: () =>
       ipcRenderer.invoke('systemAuth:getStatus') as Promise<{

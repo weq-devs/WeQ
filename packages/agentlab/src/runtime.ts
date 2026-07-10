@@ -26,7 +26,20 @@ import type {
   AgentLabMemoryItem,
   AgentLabPersonaNotes,
   AgentLabRelationStore,
+  AgentLabTypoConfig,
 } from './types';
+
+/**
+ * persona.typo → 传给 runPersonaChat 的 typoIntensity。
+ * 缺省（老克隆体没存过）返回 undefined，让 http 层吃 DEFAULT_TYPO_INTENSITY；
+ * enabled=false 返回 0（完全不手滑）；否则用配置的 intensity（钳到 [0,1]）。
+ */
+function resolveTypoIntensity(cfg: AgentLabTypoConfig | undefined): number | undefined {
+  if (!cfg) return undefined;
+  if (cfg.enabled === false) return 0;
+  if (typeof cfg.intensity !== 'number') return undefined;
+  return Math.max(0, Math.min(1, cfg.intensity));
+}
 
 // ── 依赖注入 Port 接口 ─────────────────────────────────────────────────────
 // 现有 service store（MemoryStore/NotesStore/ConversationStore/TokenUsageStore）与 TtsService
@@ -325,6 +338,7 @@ export class AgentRuntime {
       memories: opts.memories ?? this.memories.get(persona.id),
       notes: this.notes.get(persona.id),
       voiceEnabled,
+      typoIntensity: resolveTypoIntensity(persona.typo),
       relationNote: opts.relationNote,
     });
     // 命中的记忆 +access（越常被想起越不易遗忘）。

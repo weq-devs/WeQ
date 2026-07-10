@@ -56,6 +56,43 @@ export interface GroupDailyActivityItem {
   count: number;
 }
 
+/** One of my groups plus my own member level in it. */
+export interface SelfGroupLevel {
+  code: string;
+  name: string;
+  memberCount: number;
+  /** My member level in this group (0 when unknown). */
+  myLevel: number;
+}
+
+/**
+ * A single-pass aggregate of one group's chat activity — the raw data behind the
+ * WeQ 助手「群数据周报」推文. Everything the four analytics views (发言排行 / 活跃时段 /
+ * 每日热力图 / 词云) need, computed in ONE table scan so the cached snapshot is cheap
+ * to (re)build. `group` is filled in by the caller (see pickTopSelfLevelGroup).
+ */
+export interface GroupStatsReport {
+  totals: {
+    totalMessages: number;
+    textMessages: number;
+    imageMessages: number;
+    voiceMessages: number;
+    videoMessages: number;
+    emojiMessages: number;
+    otherMessages: number;
+    /** Distinct days with ≥1 message. */
+    activeDays: number;
+    /** Distinct senders. */
+    speakerCount: number;
+    firstMessageTime: number | null;
+    lastMessageTime: number | null;
+  };
+  ranking: GroupMessageRankingItem[];
+  timeDistribution: Record<number, number>;
+  daily: GroupDailyActivityItem[];
+  words: GroupWordCloudItem[];
+}
+
 /** One user that shares ≥2 groups with me, for the relation graph. */
 export interface RelationGraphNode {
   uid: string;
@@ -595,5 +632,203 @@ export class GroupInfoService {
       .sort((a, b) => b[1] - a[1])
       .slice(0, limit)
       .map(([word, count]) => ({ word, count }));
+  }
+
+  /**
+   * Scan every group I'm in and return the one where MY OWN member level is
+   * highest — the target of the WeQ 助手「群数据周报」推文. Cheap path: resolve my
+   * uid once (uidMap) and pull just my member row per group; falls back to the
+   * relation-graph style brief scan (match by uin) for groups where the direct
+   * lookup misses. Returns null if I'm in no group / have no membership rows.
+   */
+  async pickTopSelfLevelGroup(): Promise<SelfGroupLevel | null> {
+    const selfUin = String(this.session.context.uin ?? '');
+    if (!selfUin) return null;
+    let myUid: string | undefined;
+    try {
+      myUid = this.session.uidMap.uidByUin(BigInt(selfUin));
+    } catch {
+      myUid = undefined;
+    }
+
+    const groupDetails = await this.session.groupDetail.listAll(2000, 0);
+    let best: SelfGroupLevel | null = null;
+    for (const g of groupDetails) {
+      const code = g.groupCode.toString();
+      let level: number | null = null;
+
+      // Fast path: my member row only (one row, indexed by uid).
+      if (myUid) {
+        try {
+          const rows = await this.session.groupMembers.getMembersByUids(BigInt(code), [myUid]);
+          if (rows.length > 0) level = rows[0]!.memberLevel;
+        } catch {
+          /* fall through to the brief scan */
+        }
+      }
+      // Fallback: brief scan, match my uin (proven in buildRelationGraph).
+      if (level === null) {
+        try {
+          const members = await this.session.groupMembers.listMemberBriefsInGroup(
+            BigInt(code),
+            MEMBER_SCAN_LIMIT,
+          );
+          const me = members.find((m) => m.uin && m.uin === selfUin);
+          if (me) level = me.memberLevel;
+        } catch {
+          continue;
+        }
+      }
+      if (level === null) continue;
+
+      if (!best || level > best.myLevel) {
+        best = { code, name: g.groupName || code, memberCount: g.memberCount, myLevel: level };
+      }
+    }
+    return best;
+  }
+
+  /**
+   * One-pass aggregate of a group's whole chat history — backs the「群数据周报」推文
+   * snapshot. Reproduces, in a SINGLE table scan, what getGroupMessageRanking /
+   * getGroupActiveHours / getGroupDailyActivity / getGroupWordCloud each compute
+   * on their own (they scan the group once apiece); folding them together keeps
+   * the cached-once report cheap to rebuild. `group` meta is stitched on by the
+   * caller.
+   */
+  async getGroupStatsReport(
+    groupCode: bigint,
+    opts?: { rankingLimit?: number; wordLimit?: number },
+  ): Promise<GroupStatsReport> {
+    const db = this.session.groupMsgs;
+
+    const counts = new Map<string, number>(); // uid → message count
+    const uins = new Map<string, string>(); // uid → uin
+    const hourly: Record<number, number> = {};
+    for (let i = 0; i < 24; i++) hourly[i] = 0;
+    const daily = new Map<string, number>();
+    const wordCounts = new Map<string, number>();
+
+    const totals = {
+      totalMessages: 0,
+      textMessages: 0,
+      imageMessages: 0,
+      voiceMessages: 0,
+      videoMessages: 0,
+      emojiMessages: 0,
+      otherMessages: 0,
+      activeDays: 0,
+      speakerCount: 0,
+      firstMessageTime: null as number | null,
+      lastMessageTime: null as number | null,
+    };
+
+    let afterSeq = 0n;
+    while (true) {
+      const batch = await db.listBatch(String(groupCode), afterSeq, 500);
+      if (batch.length === 0) break;
+      for (const msg of batch) {
+        totals.totalMessages++;
+
+        const uid = msg.senderUid || '';
+        if (uid) {
+          counts.set(uid, (counts.get(uid) ?? 0) + 1);
+          if (!uins.has(uid) && msg.senderUin > 0n) uins.set(uid, String(msg.senderUin));
+        }
+
+        let hasText = false;
+        let hasImage = false;
+        let hasVoice = false;
+        let hasVideo = false;
+        let hasEmoji = false;
+        for (const el of msg.elements) {
+          switch (el.kind) {
+            case 'text':
+              hasText = true;
+              if (el.textContent) {
+                for (const word of segmentWords(String(el.textContent))) {
+                  wordCounts.set(word, (wordCounts.get(word) ?? 0) + 1);
+                }
+              }
+              break;
+            case 'at':
+              hasText = true;
+              break;
+            case 'pic':
+              hasImage = true;
+              break;
+            case 'ptt':
+              hasVoice = true;
+              break;
+            case 'video':
+              hasVideo = true;
+              break;
+            case 'face':
+            case 'mface':
+            case 'emojiBounce':
+              hasEmoji = true;
+              break;
+          }
+        }
+        if (hasText) totals.textMessages++;
+        if (hasImage) totals.imageMessages++;
+        if (hasVoice) totals.voiceMessages++;
+        if (hasVideo) totals.videoMessages++;
+        if (hasEmoji) totals.emojiMessages++;
+        if (!hasText && !hasImage && !hasVoice && !hasVideo && !hasEmoji) totals.otherMessages++;
+
+        const sendTime = Number(msg.sendTime);
+        if (sendTime > 0) {
+          const d = new Date(sendTime * 1000);
+          hourly[d.getHours()] = (hourly[d.getHours()] ?? 0) + 1;
+          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+            d.getDate(),
+          ).padStart(2, '0')}`;
+          daily.set(key, (daily.get(key) ?? 0) + 1);
+          if (totals.firstMessageTime === null || sendTime < totals.firstMessageTime) {
+            totals.firstMessageTime = sendTime;
+          }
+          if (totals.lastMessageTime === null || sendTime > totals.lastMessageTime) {
+            totals.lastMessageTime = sendTime;
+          }
+        }
+      }
+      afterSeq = batch[batch.length - 1]!.msgSeq;
+      if (batch.length < 500) break;
+    }
+
+    totals.activeDays = daily.size;
+    totals.speakerCount = counts.size;
+
+    // Ranking: top N senders, display names resolved in one batched query.
+    const rankingLimit = opts?.rankingLimit ?? 15;
+    const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, rankingLimit);
+    const rankUids = sorted.map(([uid]) => uid);
+    const nameByUid = new Map<string, string>();
+    if (rankUids.length > 0) {
+      try {
+        const members = await this.session.groupMembers.getMembersByUids(groupCode, rankUids);
+        for (const m of members) nameByUid.set(m.uid, m.card || m.nick || m.uid);
+      } catch {
+        /* fall through, use uin/uid as name */
+      }
+    }
+    const ranking: GroupMessageRankingItem[] = sorted.map(([uid, messageCount]) => ({
+      uid,
+      uin: uins.get(uid) ?? '',
+      displayName: nameByUid.get(uid) || uins.get(uid) || uid,
+      messageCount,
+    }));
+
+    const words = [...wordCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, opts?.wordLimit ?? 120)
+      .map(([word, count]) => ({ word, count }));
+
+    const dailyArr = [...daily.entries()]
+      .map(([date, count]) => ({ date, count }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    return { totals, ranking, timeDistribution: hourly, daily: dailyArr, words };
   }
 }
