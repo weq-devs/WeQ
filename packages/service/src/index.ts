@@ -184,6 +184,19 @@ export type {
   DownloadFilePage,
   FileListOptions,
 } from './account/file_resource';
+export { MediaResourceService } from './account/media_resource';
+export type {
+  MediaResourceKind,
+  FlatMediaEntry,
+  MonthMediaEntry,
+  FlatMediaPage,
+  MonthMediaPage,
+  VoiceMediaEntry,
+  VoiceMediaPage,
+  ResourceTreeKey,
+  ResourceBucket,
+  ResourceStat,
+} from './account/media_resource';
 export {
   ACCOUNT_HEALTH_DATABASES,
   checkAccountDatabaseHealth,

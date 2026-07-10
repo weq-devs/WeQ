@@ -70,6 +70,7 @@ import {
   CustomEmojiResourceService,
   RelatedEmojiResourceService,
   FileResourceService,
+  MediaResourceService,
   WebQueryService,
   GroupAlbumMediaService,
   DbWatchService,
@@ -302,6 +303,8 @@ export interface AccountServices {
   relatedEmoji: RelatedEmojiResourceService;
   /** Browse the account's File 目录 (nt_data/File/Ori) + 下载文件 (file_assistant.db). */
   fileResource: FileResourceService;
+  /** Browse the account's local media caches (PhotoWall / Qzone / Pic / Video). */
+  mediaResource: MediaResourceService;
   /** Web CGI queries that need the already-hooked online QQ process. */
   webQuery: WebQueryService;
   /** Group album media listing over the already-hooked online QQ process. */
@@ -690,6 +693,7 @@ export function initAppContext(): AppContext {
         customEmoji: new CustomEmojiResourceService(session, platform),
         relatedEmoji: new RelatedEmojiResourceService(session, platform),
         fileResource: new FileResourceService(session, platform),
+        mediaResource: new MediaResourceService(session, platform),
         webQuery,
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, resolveOnlinePid),
       };
@@ -926,6 +930,7 @@ export function initAppContext(): AppContext {
         customEmoji: new CustomEmojiResourceService(session, platform),
         relatedEmoji: new RelatedEmojiResourceService(session, platform),
         fileResource: new FileResourceService(session, platform),
+        mediaResource: new MediaResourceService(session, platform),
         webQuery,
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, noPid),
       };

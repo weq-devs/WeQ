@@ -14,6 +14,7 @@ import { ToastHost } from './components/Toast';
 import { WelcomeDialog } from './components/WelcomeDialog';
 import { CloseConfirmDialog } from './components/CloseConfirmDialog';
 import { ImageLightbox } from './components/ImageLightbox';
+import { VideoLightbox } from './components/VideoLightbox';
 import { ForwardWindowHost } from './components/ForwardWindow';
 import { AppLockOverlay } from './components/AppLockOverlay';
 import { setWindowLayout } from './lib/windowLayout';
@@ -44,6 +45,7 @@ export default function App(): ReactElement {
       <CloseConfirmDialog />
       <AppLockOverlay />
       <ImageLightbox />
+      <VideoLightbox />
       <ForwardWindowHost />
     </>
   );

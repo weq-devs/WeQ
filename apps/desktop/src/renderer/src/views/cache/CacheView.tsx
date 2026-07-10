@@ -25,6 +25,7 @@ import {
   Construction,
   PanelLeftClose,
   PanelLeftOpen,
+  ChartPie,
 } from 'lucide-react';
 import { DbExplorer } from './DbExplorer';
 import { AvatarExplorer } from './AvatarExplorer';
@@ -34,6 +35,8 @@ import { CustomEmojiExplorer } from './CustomEmojiExplorer';
 import { RelatedEmojiExplorer } from './RelatedEmojiExplorer';
 import { FileDirExplorer } from './FileDirExplorer';
 import { DownloadFileExplorer } from './DownloadFileExplorer';
+import { FlatMediaExplorer, MonthMediaExplorer, VoiceExplorer } from './MediaResourceExplorers';
+import { ResourceAnalyticsDialog } from './ResourceAnalyticsDialog';
 import '../../styles/cache.css';
 
 /** 一个缓存资源分类。`ready` 为 false 时右侧渲染占位空状态。 */
@@ -54,17 +57,19 @@ const CATEGORIES: CacheCategory[] = [
   { id: 'relatedEmoji', label: '关联表情', desc: '关键词联想表情', icon: <Smile size={18} />, ready: true },
   { id: 'fileDir', label: 'File 目录', desc: 'nt_data File 目录', icon: <Folder size={18} />, ready: true },
   { id: 'downloadFile', label: '下载文件', desc: '下载到本地的文件', icon: <FileDown size={18} />, ready: true },
-  { id: 'album', label: '图片墙资源', desc: '群相册 / 图片墙缓存', icon: <Images size={18} />, ready: false },
-  { id: 'image', label: '图片资源', desc: '聊天图片缓存', icon: <ImageIcon size={18} />, ready: false },
-  { id: 'video', label: '视频资源', desc: '聊天视频缓存', icon: <Film size={18} />, ready: false },
-  { id: 'voice', label: '语音资源', desc: '聊天语音缓存', icon: <AudioLines size={18} />, ready: false },
-  { id: 'qzone', label: 'QQ空间缓存', desc: '空间浏览缓存', icon: <Cloud size={18} />, ready: false },
+  { id: 'album', label: '图片墙资源', desc: '群相册 / 图片墙缓存', icon: <Images size={18} />, ready: true },
+  { id: 'image', label: '图片资源', desc: '聊天图片缓存', icon: <ImageIcon size={18} />, ready: true },
+  { id: 'video', label: '视频资源', desc: '聊天视频缓存', icon: <Film size={18} />, ready: true },
+  { id: 'voice', label: '语音资源', desc: '聊天语音缓存', icon: <AudioLines size={18} />, ready: true },
+  { id: 'qzone', label: 'QQ空间缓存', desc: '空间浏览缓存', icon: <Cloud size={18} />, ready: true },
 ];
 
 export function CacheView(): ReactElement {
   const [active, setActive] = useState<string>('database');
   // 资源选择列可收起，收起后腾出空间给右侧数据表接近全屏查看。
   const [catsCollapsed, setCatsCollapsed] = useState(false);
+  // 整体分析弹窗（遍历全部资源目录统计）。
+  const [showAnalytics, setShowAnalytics] = useState(false);
   const activeCategory = CATEGORIES.find((c) => c.id === active) ?? CATEGORIES[0]!;
 
   return (
@@ -81,6 +86,15 @@ export function CacheView(): ReactElement {
           >
             <PanelLeftOpen size={16} />
           </button>
+          <button
+            type="button"
+            className="weq-cache-analyze-rail"
+            onClick={() => setShowAnalytics(true)}
+            title="整体分析"
+            aria-label="整体分析"
+          >
+            <ChartPie size={16} />
+          </button>
         </div>
       ) : (
         <nav className="weq-cache-cats" aria-label="缓存资源分类">
@@ -96,6 +110,14 @@ export function CacheView(): ReactElement {
               <PanelLeftClose size={16} />
             </button>
           </div>
+          <button
+            type="button"
+            className="weq-cache-analyze-btn"
+            onClick={() => setShowAnalytics(true)}
+          >
+            <ChartPie size={16} />
+            <span>整体分析</span>
+          </button>
           <div className="weq-cache-cats-body">
             {CATEGORIES.map((c) => (
               <button
@@ -133,10 +155,22 @@ export function CacheView(): ReactElement {
           <FileDirExplorer />
         ) : activeCategory.id === 'downloadFile' ? (
           <DownloadFileExplorer />
+        ) : activeCategory.id === 'album' ? (
+          <FlatMediaExplorer key="album" kind="photoWall" />
+        ) : activeCategory.id === 'qzone' ? (
+          <FlatMediaExplorer key="qzone" kind="qzone" />
+        ) : activeCategory.id === 'image' ? (
+          <MonthMediaExplorer key="image" kind="pic" />
+        ) : activeCategory.id === 'video' ? (
+          <MonthMediaExplorer key="video" kind="video" />
+        ) : activeCategory.id === 'voice' ? (
+          <VoiceExplorer key="voice" />
         ) : (
           <CachePlaceholder label={activeCategory.label} />
         )}
       </section>
+
+      <ResourceAnalyticsDialog open={showAnalytics} onClose={() => setShowAnalytics(false)} />
     </div>
   );
 }

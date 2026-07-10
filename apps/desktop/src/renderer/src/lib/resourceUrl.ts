@@ -46,3 +46,21 @@ export function albumMediaUrl(src: string): string {
 export function localFileUrl(absPath: string): string {
   return mediaUrl('localfile', { path: absPath });
 }
+
+/**
+ * Stream a local media-cache file (PhotoWall / Qzone / Pic / Video). `rel` is the
+ * path relative to that kind's root (`<bucket>/<name>` or `<month>/Ori|Thumb/<name>`);
+ * the main process re-validates it before streaming.
+ */
+export function localMediaUrl(kind: string, rel: string): string {
+  return mediaUrl('localmedia', { kind, rel });
+}
+
+/**
+ * Stream a voice clip from the local `Ptt` cache, decoded to WAV. `rel` is the
+ * path relative to the Ptt root (`<month>/Ori/<name>`); the main process
+ * re-validates it and decodes the SILK bytes before streaming playable audio.
+ */
+export function localVoiceUrl(rel: string): string {
+  return mediaUrl('localvoice', { rel });
+}

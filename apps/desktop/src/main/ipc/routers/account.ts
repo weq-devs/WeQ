@@ -28,6 +28,7 @@ import { marketEmojiRouter } from './market_emoji';
 import { customEmojiRouter } from './custom_emoji';
 import { relatedEmojiRouter } from './related_emoji';
 import { fileResourceRouter } from './file_resource';
+import { mediaResourceRouter } from './media_resource';
 import { assistantBus, type AssistantStreamEvent } from '../../mcp/assistant_bus';
 import { groupChatBus, type GroupChatStreamEvent } from '../../mcp/agentlab_group_bus';
 import {
@@ -569,6 +570,8 @@ export const accountRouter = router({
   relatedEmoji: relatedEmojiRouter,
   // ---- File 目录 (nt_data/File/Ori) + 下载文件 (file_assistant.db) browser ----
   fileResource: fileResourceRouter,
+  // ---- 图片墙 / QQ空间 / 图片 / 视频 local media cache browser ----
+  mediaResource: mediaResourceRouter,
 
   // ---- agent lab ----
 
