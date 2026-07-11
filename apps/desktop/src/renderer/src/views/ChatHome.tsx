@@ -2,7 +2,7 @@
  * 聊天页门面（无选中会话时的落地页）。三段式，纯装饰、无交互：
  *
  *   ① 品牌 logo + 大字细体问候（按时间 Good morning/… + QQ 昵称）
- *   ② 一言打字机：从 hitokoto 池随机取句，逐字打出→停顿→逆序退回→下一句
+ *   ② 一言打字机：从 hitokoto 池随机取一句，逐字打出后定格（光标继续闪烁、不再切换句）
  *   ③ 记忆长廊：把私聊里「别人发来」的真实短句排成一条时间线，纯 CSS 匀速上浮（悬停
  *     暂停），像回忆浮现又淡去——真·旧消息就是最贴「回忆」主题的素材
  *
@@ -60,7 +60,10 @@ function Avatar({ uin, name }: { uin: string; name: string }) {
   );
 }
 
-/** ② 一言打字机（独立组件，隔离高频 setState）。 */
+/**
+ * ② 一言打字机（独立组件，隔离高频 setState）。取随机一句逐字打出，打完即定格——
+ * 光标继续闪烁、句子不再切换。随机性来自后端每次进首页重新洗牌（verses[0] 即随机）。
+ */
 function HitokotoTicker({ verses }: { verses: Verse[] }) {
   const [display, setDisplay] = useState('');
   const [from, setFrom] = useState('');
@@ -70,49 +73,27 @@ function HitokotoTicker({ verses }: { verses: Verse[] }) {
     if (verses.length === 0) return undefined;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
-    let vi = 0;
 
-    const typeVerse = (): void => {
+    const verse = verses[0]!;
+    const chars = [...verse.text];
+    setFrom(verse.from);
+    setShowFrom(false);
+    setDisplay('');
+    let i = 0;
+
+    const typeChar = (): void => {
       if (cancelled) return;
-      const verse = verses[vi % verses.length]!;
-      const chars = [...verse.text];
-      setFrom(verse.from);
-      setShowFrom(false);
-      let i = 0;
-
-      const typeChar = (): void => {
-        if (cancelled) return;
-        i += 1;
-        setDisplay(chars.slice(0, i).join(''));
-        if (i < chars.length) {
-          timer = setTimeout(typeChar, 58 + Math.random() * 52);
-        } else {
-          setShowFrom(true);
-          timer = setTimeout(erase, 2400);
-        }
-      };
-
-      const erase = (): void => {
-        if (cancelled) return;
-        setShowFrom(false);
-        const eraseChar = (): void => {
-          if (cancelled) return;
-          i -= 1;
-          setDisplay(chars.slice(0, Math.max(0, i)).join(''));
-          if (i > 0) {
-            timer = setTimeout(eraseChar, 22);
-          } else {
-            vi += 1;
-            timer = setTimeout(typeVerse, 360);
-          }
-        };
-        eraseChar();
-      };
-
-      timer = setTimeout(typeChar, 280);
+      i += 1;
+      setDisplay(chars.slice(0, i).join(''));
+      if (i < chars.length) {
+        timer = setTimeout(typeChar, 58 + Math.random() * 52);
+      } else {
+        // 打完定格：显示出处，光标留在句尾继续闪烁，不再退回/切换。
+        setShowFrom(true);
+      }
     };
 
-    typeVerse();
+    timer = setTimeout(typeChar, 280);
     return () => {
       cancelled = true;
       clearTimeout(timer);
@@ -227,7 +208,7 @@ export function ChatHome({ nickname }: { nickname: string }) {
           <img
             src={logoUrl}
             alt="WeQ"
-            className="weq-chathome-logo weq-splash-logo"
+            className="weq-chathome-logo"
             width={72}
             height={72}
           />

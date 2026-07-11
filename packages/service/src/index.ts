@@ -137,13 +137,14 @@ export type {
   TableRowsResult,
   QueryResult,
 } from './account/db_explorer';
-export { AvatarResourceService, AVATAR_SCOPES } from './account/avatar_resource';
+export { AvatarResourceService, AVATAR_SCOPES, avatarHashForUid } from './account/avatar_resource';
 export type {
   AvatarScope,
   AvatarVariant,
   AvatarScopeInfo,
   AvatarEntry,
   AvatarPage,
+  AvatarPathProbe,
 } from './account/avatar_resource';
 export { SysEmojiResourceService } from './account/sys_emoji_resource';
 export type {

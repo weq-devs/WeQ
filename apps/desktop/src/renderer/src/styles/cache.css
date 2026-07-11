@@ -1028,6 +1028,324 @@
   color: #8a94a4;
 }
 
+/* “算路径”工具按钮：推到 tab 行最右。 */
+.weq-cache-avatar-tool {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 30%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  color: var(--weq-accent-effective);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background-color 130ms ease, border-color 130ms ease;
+}
+
+.weq-cache-avatar-tool svg {
+  width: 13px;
+  height: 13px;
+}
+
+.weq-cache-avatar-tool:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 50%, transparent);
+}
+
+/* ===== 头像缓存路径计算器（弹窗） ===== */
+.weq-avpath {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 15px 17px 17px;
+}
+
+.weq-avpath-head {
+  display: flex;
+  align-items: center;
+}
+
+.weq-avpath-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #283342;
+}
+
+.weq-avpath-head .weq-dialog-x {
+  margin-left: auto;
+}
+
+.weq-avpath-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.weq-avpath-seg {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.weq-avpath-segbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #6b7480;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.weq-avpath-segbtn svg {
+  width: 12px;
+  height: 12px;
+}
+
+.weq-avpath-segbtn.is-on {
+  background: var(--weq-accent-effective);
+  color: #fff;
+  font-weight: 600;
+}
+
+.weq-avpath-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12px;
+  color: #283342;
+  outline: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.weq-avpath-input:focus {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+}
+
+/* 紧凑版“计算”按钮：覆盖 weq-action-primary 的尺寸。 */
+.weq-avpath-go {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 11px;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.weq-avpath-go svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* 算法依据块 */
+.weq-avpath-algo {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+}
+
+.weq-avpath-algo-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--weq-accent-effective);
+}
+
+.weq-avpath-algo-code {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: #34404e;
+  word-break: break-all;
+}
+
+.weq-avpath-algo-note {
+  margin: 1px 0 0;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: #6b7480;
+}
+
+.weq-avpath-algo-note b {
+  color: #34404e;
+}
+
+.weq-avpath-error {
+  padding: 8px 11px;
+  border-radius: 8px;
+  background: color-mix(in srgb, #ef4444 10%, transparent);
+  color: #b91c1c;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+/* 结果区 */
+.weq-avpath-result {
+  display: flex;
+  gap: 14px;
+}
+
+.weq-avpath-preview {
+  flex: none;
+  width: 78px;
+  height: 78px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 11px;
+  background: rgba(0, 0, 0, 0.03);
+  overflow: hidden;
+}
+
+.weq-avpath-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.weq-avpath-preview-empty {
+  font-size: 10.5px;
+  color: #98a1ac;
+}
+
+.weq-avpath-fields {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.weq-avpath-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.weq-avpath-field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: #8a94a4;
+}
+
+.weq-avpath-field-val {
+  font-size: 11.5px;
+  color: #283342;
+}
+
+.weq-avpath-mono {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  word-break: break-all;
+}
+
+.weq-avpath-hash {
+  color: var(--weq-accent-effective);
+}
+
+.weq-avpath-nick {
+  font-style: normal;
+  color: #8a94a4;
+}
+
+.weq-avpath-badge {
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.weq-avpath-badge.is-on {
+  color: #15803d;
+  background: color-mix(in srgb, #22c55e 16%, transparent);
+}
+
+.weq-avpath-badge.is-off {
+  color: #98a1ac;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.weq-avpath-pathrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.weq-avpath-path {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: #4a5462;
+}
+
+.weq-avpath-copy {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 6px;
+  background: #fff;
+  color: #8a94a4;
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.weq-avpath-copy:hover {
+  color: var(--weq-accent-effective);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+}
+
+/* 暗色适配 */
+html[data-theme="dark"] .weq-avpath-title,
+html[data-theme="dark"] .weq-avpath-algo-code,
+html[data-theme="dark"] .weq-avpath-algo-note b,
+html[data-theme="dark"] .weq-avpath-field-val {
+  color: #e6ebf2;
+}
+
+html[data-theme="dark"] .weq-avpath-input {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #e6ebf2;
+}
+
+html[data-theme="dark"] .weq-avpath-preview,
+html[data-theme="dark"] .weq-avpath-seg {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+html[data-theme="dark"] .weq-avpath-copy {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+html[data-theme="dark"] .weq-avpath-path {
+  color: #aeb6c2;
+}
+
 /* ---- 网格 ---- */
 .weq-cache-avatar-scroll {
   flex: 1 1 auto;

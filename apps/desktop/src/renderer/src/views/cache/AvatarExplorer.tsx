@@ -14,9 +14,10 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { Users, UsersRound, Image as ImageIcon, RefreshCw } from 'lucide-react';
+import { Users, UsersRound, Image as ImageIcon, RefreshCw, Calculator } from 'lucide-react';
 import type { AvatarEntry, AvatarScope, AvatarScopeInfo } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
+import { AvatarPathDialog } from './AvatarPathDialog';
 
 const PAGE = 120;
 
@@ -57,6 +58,7 @@ export function AvatarExplorer(): ReactElement {
   );
 
   const [active, setActive] = useState<AvatarScope>('user');
+  const [toolOpen, setToolOpen] = useState(false);
 
   // Auto-select the first present scope once the summary lands (if the current
   // one turned out empty).
@@ -86,9 +88,19 @@ export function AvatarExplorer(): ReactElement {
         {scopes.isLoading && scopeList.length === 0 ? (
           <span className="weq-cache-avatar-loading">扫描头像缓存中…</span>
         ) : null}
+        <button
+          type="button"
+          className="weq-cache-avatar-tool"
+          onClick={() => setToolOpen(true)}
+          title="输入 QQ 号 / 群号，计算其头像缓存路径"
+        >
+          <Calculator size={14} />
+          <span>算路径</span>
+        </button>
       </div>
 
       <AvatarGrid key={active} scope={active} />
+      {toolOpen ? <AvatarPathDialog onClose={() => setToolOpen(false)} /> : null}
     </div>
   );
 }

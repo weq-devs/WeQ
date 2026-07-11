@@ -2959,6 +2959,16 @@ html[data-theme="dark"] .member-role-badge.admin {
 	padding: 4px 0;
 }
 
+.ga-members-loading-more {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	padding: 12px 0 4px;
+	font-size: 12px;
+	color: var(--weq-fg-secondary);
+}
+
 .ga-member-card {
 	display: flex;
 	flex-direction: column;
