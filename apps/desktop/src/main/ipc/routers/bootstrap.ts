@@ -598,6 +598,22 @@ export const bootstrapRouter = router({
     return boot.userConfig.getCacheDirInfo();
   }),
 
+  /**
+   * Per-category size of the clearable WeQ caches (头像/媒体/商城表情/语音).
+   * Only these re-downloadable/re-generatable categories are listed —
+   * agentlab / weq-assistant / export are user content and stay untouched.
+   */
+  listClearableCache: procedure.query(() => {
+    return requireBootstrap().userConfig.listClearableCache();
+  }),
+
+  /** Delete the given clearable cache categories (all when omitted). */
+  clearWeqCache: procedure
+    .input(z.object({ ids: z.array(z.string()).optional() }).optional())
+    .mutation(({ input }) => {
+      return requireBootstrap().userConfig.clearCache(input?.ids);
+    }),
+
   // ---- filesystem dialog (Tencent Files fallback / manual db pick) ----
 
   pickTencentFilesRoot: procedure.mutation(async (): Promise<PickRootResult> => {

@@ -2828,7 +2828,9 @@ html[data-theme="dark"] .app-title-bar-signature {
   border-radius: 10px;
 }
 
-/* Manual lock button — sits just above the account avatar. */
+/* Manual 深/浅 toggle + lock button — both sit just above the account avatar,
+   share the same pill shape so they read as one stacked control cluster. */
+.app-shell .rail-footer .weq-rail-theme-btn,
 .app-shell .rail-footer .weq-rail-lock-btn {
   display: grid;
   place-items: center;
@@ -2841,6 +2843,7 @@ html[data-theme="dark"] .app-title-bar-signature {
   transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease;
 }
 
+.app-shell .rail-footer .weq-rail-theme-btn:hover:not(:disabled),
 .app-shell .rail-footer .weq-rail-lock-btn:hover:not(:disabled) {
   color: #0099ff;
   border-color: rgba(0, 153, 255, 0.34);
@@ -2850,6 +2853,12 @@ html[data-theme="dark"] .app-title-bar-signature {
 .app-shell .rail-footer .weq-rail-lock-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+html[data-theme='dark'] .app-shell .rail-footer .weq-rail-theme-btn,
+html[data-theme='dark'] .app-shell .rail-footer .weq-rail-lock-btn {
+  color: #9fb2c6;
+  border-color: rgba(0, 153, 255, 0.28);
 }
 
 /* Popover buttons should not be constrained by rail-footer button styles */
@@ -4436,6 +4445,92 @@ html[data-theme='dark'] .weq-set-input {
 .weq-set-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* Destructive action (清理缓存). */
+.weq-set-btn-danger {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: #ffffff;
+}
+
+.weq-set-btn-danger:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+/* 清理缓存 — per-category checkbox rows. */
+.weq-set-cache-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.weq-set-cache-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  font-size: 13px;
+  color: #374151;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.weq-set-cache-item:hover {
+  background: rgba(0, 153, 255, 0.05);
+  border-color: rgba(0, 153, 255, 0.2);
+}
+
+.weq-set-cache-item input {
+  accent-color: var(--weq-accent-effective);
+}
+
+.weq-set-cache-item svg {
+  color: #6b7280;
+  flex: none;
+}
+
+.weq-set-cache-label {
+  flex: 1 1 auto;
+}
+
+.weq-set-cache-size {
+  color: #6b7280;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-set-cache-total {
+  flex: 1 1 auto;
+  align-self: center;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.weq-set-cache-total strong {
+  color: #374151;
+}
+
+html[data-theme='dark'] .weq-set-cache-item {
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #cbd5e1;
+}
+
+html[data-theme='dark'] .weq-set-cache-item:hover {
+  background: rgba(0, 153, 255, 0.1);
+}
+
+html[data-theme='dark'] .weq-set-cache-size,
+html[data-theme='dark'] .weq-set-cache-total {
+  color: #94a3b8;
+}
+
+html[data-theme='dark'] .weq-set-cache-total strong,
+html[data-theme='dark'] .weq-set-cache-item svg {
+  color: #cbd5e1;
 }
 
 /* Media-type checkbox pills */

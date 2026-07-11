@@ -110,17 +110,18 @@ export class GroupMsgDb {
   }
 
   /**
-   * The page of messages just newer than `afterRowId` (exclusive), ordered by
-   * rowid ASC. The export-only fallback for conversations whose `40003` msgSeq
-   * is unusable (all 0/NULL — e.g. migration-imported history): the seq cursor
-   * matches nothing, so we page by the always-present, monotonic-on-insert
-   * rowid. rowid is insertion order — only an approximation of true send-time
-   * order, hence fallback-only.
+   * The page of **seq-less** messages (40003 = 0 / NULL) just newer than
+   * `afterRowId` (exclusive), ordered by rowid ASC. Export-only: migration-
+   * imported history lands with no per-group seq, so the normal `40003 > ?`
+   * cursor never sees it. Those rows keep a real sendTime, so the export merges
+   * this rowid-ordered stream (insertion order ≈ send-time order for an imported
+   * block) against the seq stream by sendTime — see `message_source`. Restricting
+   * to seq-less rows keeps the two streams disjoint (no dupes).
    */
-  async listAfterRowId(targetGroupCode: string, afterRowId: bigint, limit = 50): Promise<Array<GroupMsg & { rowId: bigint }>> {
+  async listSeqlessAfterRowId(targetGroupCode: string, afterRowId: bigint, limit = 50): Promise<Array<GroupMsg & { rowId: bigint }>> {
     const rows = await this.qq.query(
       `SELECT rowid, ${SELECT_COLUMNS} FROM group_msg_table
-        WHERE "40027" = ? AND rowid > ?
+        WHERE "40027" = ? AND rowid > ? AND ("40003" = 0 OR "40003" IS NULL)
         ORDER BY rowid ASC
         LIMIT ?`,
       [targetGroupCode, afterRowId, BigInt(limit)],

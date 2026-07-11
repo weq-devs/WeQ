@@ -105,19 +105,19 @@ export class C2cMsgDb {
   }
 
   /**
-   * The page of messages just newer than `afterRowId` (exclusive), ordered by
-   * rowid ASC. The export-only fallback for conversations whose `40003` msgSeq
-   * is unusable (all 0/NULL — e.g. history imported by a phone migration that
-   * didn't rebuild the per-peer seq): the seq cursor matches nothing there, so
-   * we page by the always-present, monotonic-on-insert rowid instead. rowid is
-   * insertion order, only an *approximation* of true send-time order — hence
-   * fallback-only, never the primary path.
+   * The page of **seq-less** messages (40003 = 0 / NULL) just newer than
+   * `afterRowId` (exclusive), ordered by rowid ASC. Export-only: phone→PC
+   * migrated history lands with no per-peer seq, so the normal `40003 > ?`
+   * cursor never sees it. Those rows still carry a real sendTime, so the export
+   * merges this rowid-ordered stream (insertion order ≈ send-time order for a
+   * migrated block) against the seq stream by sendTime — see `message_source`.
+   * Restricting to seq-less rows keeps the two streams disjoint (no dupes).
    */
-  async listAfterRowId(part: C2cPartition, afterRowId: bigint, limit = 50): Promise<Array<C2cMsg & { rowId: bigint }>> {
+  async listSeqlessAfterRowId(part: C2cPartition, afterRowId: bigint, limit = 50): Promise<Array<C2cMsg & { rowId: bigint }>> {
     const { clause, value } = partitionWhere(part);
     const rows = await this.qq.query(
       `SELECT rowid, ${SELECT_COLUMNS} FROM ${this.table}
-        WHERE ${clause} AND rowid > ?
+        WHERE ${clause} AND rowid > ? AND ("40003" = 0 OR "40003" IS NULL)
         ORDER BY rowid ASC
         LIMIT ?`,
       [value, afterRowId, BigInt(limit)],

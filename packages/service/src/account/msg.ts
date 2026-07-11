@@ -184,12 +184,12 @@ export class MsgService {
   }
 
   /**
-   * Private-chat page just newer than `afterRowId` (rowid order). Export-only
-   * fallback for conversations whose msgSeq is unusable — see
-   * `C2cMsgDb.listAfterRowId`.
+   * Private-chat page of seq-less messages (migration-imported history) just
+   * newer than `afterRowId` (rowid order). Export-only — the seq scan misses
+   * these; see `C2cMsgDb.listSeqlessAfterRowId` and `message_source`.
    */
-  async getC2cAfterRowId(targetUid: string, afterRowId: bigint, limit = 2000): Promise<Array<RenderC2cMsg & { rowId: bigint }>> {
-    const msgs = await this.c2cDbFor(targetUid).listAfterRowId(this.c2cPartition(targetUid), afterRowId, limit);
+  async getC2cSeqlessAfterRowId(targetUid: string, afterRowId: bigint, limit = 2000): Promise<Array<RenderC2cMsg & { rowId: bigint }>> {
+    const msgs = await this.c2cDbFor(targetUid).listSeqlessAfterRowId(this.c2cPartition(targetUid), afterRowId, limit);
     return msgs.map((m) => ({ ...renderC2c(m), rowId: m.rowId }));
   }
 
@@ -220,11 +220,12 @@ export class MsgService {
   }
 
   /**
-   * Group page just newer than `afterRowId` (rowid order). Export-only fallback
-   * for conversations whose msgSeq is unusable — see `GroupMsgDb.listAfterRowId`.
+   * Group page of seq-less messages (migration-imported history) just newer
+   * than `afterRowId` (rowid order). Export-only — the seq scan misses these;
+   * see `GroupMsgDb.listSeqlessAfterRowId` and `message_source`.
    */
-  async getGroupAfterRowId(targetGroupCode: string, afterRowId: bigint, limit = 2000): Promise<Array<RenderGroupMsg & { rowId: bigint }>> {
-    const msgs = await this.session.groupMsgs.listAfterRowId(targetGroupCode, afterRowId, limit);
+  async getGroupSeqlessAfterRowId(targetGroupCode: string, afterRowId: bigint, limit = 2000): Promise<Array<RenderGroupMsg & { rowId: bigint }>> {
+    const msgs = await this.session.groupMsgs.listSeqlessAfterRowId(targetGroupCode, afterRowId, limit);
     return msgs.map((m) => ({ ...renderGroup(m), rowId: m.rowId }));
   }
 

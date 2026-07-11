@@ -1736,12 +1736,24 @@ export const accountRouter = router({
   /** List conversations with message counts (batch query). */
   listConversationsWithCount: procedure.query(async () => {
     const services = requireServices();
-    const contacts = await services.recentContacts.getRecentContact(200);
+    // 空 targetUid 的系统/占位会话既不能当消息分区键，也不是可导出目标 —— 直接剔除。
+    const contacts = (await services.recentContacts.getRecentContact(200)).filter(c => c.targetUid);
 
-    const groupCodes = contacts.filter(c => String(c.chatType).includes('GROUP')).map(c => c.targetUid);
-    const c2cUids = contacts.filter(c => String(c.chatType).includes('C2C')).map(c => c.targetUid);
-    // 数据线（我的手机/我的电脑）消息在 dataline_msg_table，单独计数。
-    const datalineUids = contacts.filter(c => String(c.chatType).includes('DATALINE')).map(c => c.targetUid);
+    // 分类是收集查询集和计数分流的唯一依据，两处必须共用，否则会出现
+    // 「归到 c2c 计数、却没被 countByUids 查过」的会话恒显示 0 条 —— 公众号
+    // (KCHATTYPETEMPPUBLICACCOUNT=103) 等枚举名不含 'C2C' 的临时会话就是这样：
+    // 消息其实在 c2c_msg_table，只是没进查询集。dataline 走独立表单独计数，
+    // 其余一切都按 c2c 归类（能查到就显示真实条数，查不到才是 0）。
+    const kindOf = (chatType: string | number): 'group' | 'dataline' | 'c2c' => {
+      const t = String(chatType);
+      if (t.includes('GROUP')) return 'group';
+      if (t.includes('DATALINE')) return 'dataline';
+      return 'c2c';
+    };
+
+    const groupCodes = contacts.filter(c => kindOf(c.chatType) === 'group').map(c => c.targetUid);
+    const c2cUids = contacts.filter(c => kindOf(c.chatType) === 'c2c').map(c => c.targetUid);
+    const datalineUids = contacts.filter(c => kindOf(c.chatType) === 'dataline').map(c => c.targetUid);
 
     const account = getAppContext().account;
     const [groupCounts, c2cCounts, datalineCounts] = await Promise.all([
@@ -1751,10 +1763,10 @@ export const accountRouter = router({
     ]);
 
     return contacts.map(c => {
-      const t = String(c.chatType);
-      const messageCount = t.includes('GROUP')
+      const kind = kindOf(c.chatType);
+      const messageCount = kind === 'group'
         ? (groupCounts[c.targetUid] ?? 0)
-        : t.includes('DATALINE')
+        : kind === 'dataline'
           ? (datalineCounts[c.targetUid] ?? 0)
           : (c2cCounts[c.targetUid] ?? 0);
       return { ...recentContactToWire(c), messageCount };

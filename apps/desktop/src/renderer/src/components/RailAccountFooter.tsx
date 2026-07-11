@@ -17,10 +17,11 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from 'rea
 import { createPortal } from 'react-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { getQueryKey } from '@trpc/react-query';
-import { LockKeyhole, LogOut, Trash2 } from 'lucide-react';
+import { LockKeyhole, LogOut, Moon, Sun, Trash2 } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useAppLock } from '../state/lock';
+import { useThemeStore } from '../state/theme';
 import { useDialog } from './Dialog';
 import { QqAvatar } from './QqAvatar';
 
@@ -41,6 +42,11 @@ export function RailAccountFooter({
   const goTo = useViewState((s) => s.goTo);
   const showError = useDialog((s) => s.showError);
   const lock = useAppLock((s) => s.lock);
+  // Manual 深/浅 toggle sitting above the lock button. Reuses the global theme
+  // store — flipping here also updates the settings page (跟随系统 can still be
+  // chosen there; a click just pins one concrete mode).
+  const resolvedTheme = useThemeStore((s) => s.resolved);
+  const setThemePreference = useThemeStore((s) => s.setPreference);
   const queryClient = useQueryClient();
 
   const [open, setOpen] = useState(false);
@@ -75,6 +81,12 @@ export function RailAccountFooter({
     }
     setOpen(false);
     lock();
+  }
+
+  function toggleTheme(): void {
+    // Pin the opposite of whatever is currently showing. From 跟随系统 this
+    // still does the intuitive thing: flips away from the resolved mode.
+    setThemePreference(resolvedTheme === 'dark' ? 'light' : 'dark');
   }
 
   // Right-click context menu for account items
@@ -232,6 +244,19 @@ export function RailAccountFooter({
 
   return (
     <>
+      <button
+        type="button"
+        className="weq-rail-theme-btn"
+        title={resolvedTheme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
+        aria-label={resolvedTheme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
+        onClick={toggleTheme}
+      >
+        {resolvedTheme === 'dark' ? (
+          <Sun size={18} strokeWidth={1.8} aria-hidden />
+        ) : (
+          <Moon size={18} strokeWidth={1.8} aria-hidden />
+        )}
+      </button>
       <button
         type="button"
         className="weq-rail-lock-btn"
