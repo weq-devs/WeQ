@@ -558,6 +558,7 @@
 	display: inline-flex;
 	align-items: center;
 	gap: 9px;
+	box-sizing: border-box;
 	min-width: 120px;
 	max-width: 240px;
 	padding: 8px 13px 8px 9px;
@@ -617,6 +618,12 @@
 	align-items: center;
 	gap: 2px;
 	height: 26px;
+	/* Shrink to fit the strip: with many bars (long clips) the fixed-width
+	   bars would otherwise push past the bubble's max-width. Flexing + clipping
+	   keeps the waveform inside the frame. */
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
 	color: var(--weq-accent-effective, #12a8ff);
 }
 

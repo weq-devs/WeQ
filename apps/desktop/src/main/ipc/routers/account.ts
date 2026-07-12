@@ -42,6 +42,8 @@ import {
   type AlbumMedia,
   type NewMessages,
   type DbChange,
+  type RenderC2cMsg,
+  type RenderGroupMsg,
 } from '@weq/service';
 import {
   buddyRequestToWire,
@@ -1588,6 +1590,42 @@ export const accountRouter = router({
       // Reverse the editable wire form: `{ type:'Buffer', data }` → Uint8Array.
       const elements = elementsFromEditable(input.elements);
       return requireServices().msgs.updateElements(BigInt(input.msgId), elements);
+    }),
+
+  /** Reversible soft-delete of one message (hidden from its conversation). */
+  deleteMessage: procedure
+    .input(z.object({ msgId: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      return requireServices().msgs.deleteMessage(BigInt(input.msgId));
+    }),
+
+  /** Restore a soft-deleted message. No-op if it was never soft-deleted. */
+  restoreMessage: procedure
+    .input(z.object({ msgId: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      return requireServices().msgs.restoreMessage(BigInt(input.msgId));
+    }),
+
+  /** Hard-delete (irreversible): physically drop the message row by msgId. */
+  hardDeleteMessage: procedure
+    .input(z.object({ msgId: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      return requireServices().msgs.hardDeleteMessage(BigInt(input.msgId));
+    }),
+
+  /**
+   * List the soft-deleted (hidden, restorable) messages of one conversation,
+   * newest-first, serialized like any other message page so the renderer can
+   * reuse its chat bubbles in the "查看删除消息" panel.
+   */
+  deletedMessages: procedure
+    .input(z.object({ kind: z.enum(['c2c', 'group']), conv: z.string().min(1) }))
+    .query(async ({ input }): Promise<ChatMsgWire[]> => {
+      const msgs = requireServices().msgs;
+      const rows = await msgs.getDeletedMessages(input.kind, input.conv);
+      return input.kind === 'group'
+        ? (rows as RenderGroupMsg[]).map(groupMsgToWire)
+        : (rows as RenderC2cMsg[]).map(c2cMsgToWire);
     }),
 
   /**

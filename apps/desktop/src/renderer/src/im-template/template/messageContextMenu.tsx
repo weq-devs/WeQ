@@ -1,4 +1,4 @@
-﻿import { Copy, Download, Trash2, Edit3 } from "lucide-react";
+﻿import { Copy, Download, Trash2, Trash, Edit3 } from "lucide-react";
 import type { Message } from "./types";
 import { cn } from "./classNames";
 
@@ -8,6 +8,12 @@ export type MessageContextMenuState = {
 	y: number;
 	downloadUrl?: string;
 	variant?: "desktop" | "mobile";
+	/**
+	 * Click point offset within the anchored message row at open time. Used to
+	 * keep the desktop menu glued to its message while the list scrolls.
+	 */
+	anchorOffsetX?: number;
+	anchorOffsetY?: number;
 };
 
 export function MessageContextMenu({
@@ -15,12 +21,14 @@ export function MessageContextMenu({
 	onCopy,
 	onDownloadImage,
 	onDeleteLocal,
+	onHardDelete,
 	onEditRaw,
 }: {
 	state: MessageContextMenuState;
 	onCopy: (message: Message) => void | Promise<void>;
 	onDownloadImage?: (url: string, message: Message) => void;
 	onDeleteLocal: (message: Message) => void;
+	onHardDelete?: (message: Message) => void;
 	onEditRaw?: (message: Message) => void;
 }) {
 	return (
@@ -65,8 +73,18 @@ export function MessageContextMenu({
 			) : null}
 			<button type="button" onClick={() => onDeleteLocal(state.message)}>
 				<Trash2 size={17} />
-				<span>删除</span>
+				<span>软删除（实验）</span>
 			</button>
+			{onHardDelete ? (
+				<button
+					type="button"
+					className="is-danger"
+					onClick={() => onHardDelete(state.message)}
+				>
+					<Trash size={17} />
+					<span>删除</span>
+				</button>
+			) : null}
 		</div>
 	);
 }

@@ -33,6 +33,22 @@ import { toRenderElements, type RenderElement } from './msg_view';
 const bodyCodec = new ProtoMsg(MsgBody);
 
 /**
+ * Reversible soft-delete markers (see {@link MsgService.deleteMessage}).
+ *
+ * `SOFT_DELETE_MASK` is XOR-ed into the numeric partition key 40027 (real group
+ * code / private-chat sortNo). Bit 62 sits far above any real group code or peer
+ * index, so toggling it moves the row out of every real conversation query and
+ * never collides; XOR-ing again restores the original value.
+ *
+ * `SOFT_DELETE_UID_PREFIX` is prepended to the TEXT key 40021 on the c2c/dataline
+ * tables to also cover the uid-fallback and device-line query paths (which filter
+ * on 40021, not 40027). Restore only strips it from rows that still carry the
+ * mask bit, so it can never corrupt a live uid (real uids start with `u_`).
+ */
+const SOFT_DELETE_MASK = 1n << 62n;
+const SOFT_DELETE_UID_PREFIX = 'weqdel';
+
+/**
  * ElementType values that render as a media thumbnail in a reply quote. A reply
  * whose stored `origElements` lacks all of these (QQ NT stores only a "[图片]"
  * text placeholder in the 40800 body) is a candidate for 40900-cache enrichment.
@@ -178,7 +194,61 @@ export class MsgService {
     return affected > 0;
   }
 
-  // ---- c2c -----------------------------------------------------------------
+  /**
+   * Reversible soft-delete: hide a message from its conversation by XOR-ing a
+   * high-bit mask into the 40027 partition key (real group code / private-chat
+   * sortNo), plus prefixing the 40021 uid key on the c2c/dataline tables so the
+   * uid-fallback and device-line queries miss it too. The row stays in the DB;
+   * {@link restoreMessage} brings it back. Searches c2c → dataline → group and
+   * acts on whichever holds the row. Returns true if a row was hidden.
+   */
+  async deleteMessage(msgId: bigint): Promise<boolean> {
+    let n = await this.session.c2cMsgs.softDelete(msgId, SOFT_DELETE_MASK, SOFT_DELETE_UID_PREFIX);
+    if (n === 0) n = await this.session.datalineMsgs.softDelete(msgId, SOFT_DELETE_MASK, SOFT_DELETE_UID_PREFIX);
+    if (n === 0) n = await this.session.groupMsgs.softDeleteMsg(msgId, SOFT_DELETE_MASK);
+    return n > 0;
+  }
+
+  /**
+   * Reverse a {@link deleteMessage} soft-delete. Guarded so calling it on a
+   * message that was never soft-deleted is a harmless no-op (returns false).
+   */
+  async restoreMessage(msgId: bigint): Promise<boolean> {
+    let n = await this.session.c2cMsgs.restore(msgId, SOFT_DELETE_MASK, SOFT_DELETE_UID_PREFIX);
+    if (n === 0) n = await this.session.datalineMsgs.restore(msgId, SOFT_DELETE_MASK, SOFT_DELETE_UID_PREFIX);
+    if (n === 0) n = await this.session.groupMsgs.restoreMsg(msgId, SOFT_DELETE_MASK);
+    return n > 0;
+  }
+
+  /**
+   * Hard-delete: physically drop the message row by msgId. Unlike
+   * {@link deleteMessage} (the reversible soft-delete) this is IRREVERSIBLE —
+   * the row is gone and cannot be restored. Searches c2c → dataline → group and
+   * deletes from whichever holds the row. Returns true if a row was deleted.
+   */
+  async hardDeleteMessage(msgId: bigint): Promise<boolean> {
+    let n = await this.session.c2cMsgs.hardDelete(msgId);
+    if (n === 0) n = await this.session.datalineMsgs.hardDelete(msgId);
+    if (n === 0) n = await this.session.groupMsgs.hardDeleteMsg(msgId);
+    return n > 0;
+  }
+
+  /**
+   * List the soft-deleted messages of one conversation (see {@link deleteMessage}),
+   * newest-first, rendered exactly like a normal page so the UI can reuse its
+   * chat bubbles. Group rows are found at `groupCode ^ mask`; c2c/dataline rows
+   * by the `weqdel`-prefixed uid — the same table split as the live queries.
+   */
+  async getDeletedMessages(kind: 'c2c' | 'group', conv: string, limit = 200): Promise<RenderC2cMsg[] | RenderGroupMsg[]> {
+    if (kind === 'group') {
+      const msgs = await this.session.groupMsgs.listDeleted(conv, SOFT_DELETE_MASK, limit);
+      await this.enrichReplyMedia(msgs, 'group');
+      return msgs.map(renderGroup);
+    }
+    const msgs = await this.c2cDbFor(conv).listDeleted(conv, SOFT_DELETE_UID_PREFIX, limit);
+    await this.enrichReplyMedia(msgs, 'c2c');
+    return msgs.map(renderC2c);
+  }
 
   /** Newest N private-chat messages with one peer. */
   async getC2cLatest(targetUid: string, limit = 50): Promise<RenderC2cMsg[]> {

@@ -191,6 +191,55 @@ export class GroupMsgDb {
   }
 
   /**
+   * Reversible soft-delete: XOR `mask` (a high bit, far above any real group
+   * code) into the partition key 40027 so `WHERE "40027" = groupCode` no longer
+   * matches — the message leaves the group view but the row stays. Idempotent
+   * via the `("40027" & mask) = 0` guard. Returns affected rows.
+   */
+  async softDeleteMsg(msgId: bigint, mask: bigint): Promise<number> {
+    return this.qq.write(
+      // SQLite has no `^` (XOR) operator; use the identity a^b = (a|b) - (a&b).
+      `UPDATE group_msg_table SET "40027" = ("40027" | ?) - ("40027" & ?) WHERE "40001" = ? AND ("40027" & ?) = 0`,
+      [mask, mask, msgId, mask],
+    );
+  }
+
+  /**
+   * List the soft-deleted messages of one group, newest-first. {@link softDeleteMsg}
+   * XORs `mask` into the numeric partition key 40027, so the hidden rows sit at
+   * `groupCode ^ mask`; querying that exact value returns exactly them. Their seq
+   * (40003) is untouched, so they page in normal newest-first order.
+   */
+  async listDeleted(targetGroupCode: string, mask: bigint, limit = 200): Promise<GroupMsg[]> {
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
+        WHERE "40027" = ?
+        ORDER BY "40003" DESC
+        LIMIT ?`,
+      [BigInt(targetGroupCode) ^ mask, BigInt(limit)],
+    );
+    return rows.map(rowToGroupMsg);
+  }
+
+  /** Reverse {@link softDeleteMsg}: XOR the partition key 40027 back. */
+  async restoreMsg(msgId: bigint, mask: bigint): Promise<number> {
+    return this.qq.write(
+      // SQLite has no `^` (XOR) operator; use the identity a^b = (a|b) - (a&b).
+      `UPDATE group_msg_table SET "40027" = ("40027" | ?) - ("40027" & ?) WHERE "40001" = ? AND ("40027" & ?) <> 0`,
+      [mask, mask, msgId, mask],
+    );
+  }
+
+  /**
+   * Hard-delete: physically drop the row (by msgId 40001) from group_msg_table.
+   * Unlike {@link softDeleteMsg} this is irreversible — the message is gone, not
+   * hidden. Returns affected rows (0 if the group table doesn't hold the msgId).
+   */
+  async hardDeleteMsg(msgId: bigint): Promise<number> {
+    return this.qq.write(`DELETE FROM group_msg_table WHERE "40001" = ?`, [msgId]);
+  }
+
+  /**
    * Append a new group message by cloning the group's newest row as a template
    * (see {@link appendClonedRow}). Returns the new msgId/msgSeq, or null if the
    * group has no message to clone.

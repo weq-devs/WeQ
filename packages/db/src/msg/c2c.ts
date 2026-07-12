@@ -188,6 +188,63 @@ export class C2cMsgDb {
   }
 
   /**
+   * Reversible soft-delete: hide a message from its conversation without
+   * dropping the row. XOR `mask` (a high bit, far above any real sortNo) into
+   * the indexed partition key 40027 so the fast-path query `WHERE "40027" =
+   * sortNo` no longer matches, AND prefix the TEXT key 40021 with `uidPrefix`
+   * so the uid-fallback / dataline query `WHERE "40021" = uid` misses it too.
+   * The `("40027" & mask) = 0` guard makes it idempotent. Returns affected rows.
+   */
+  async softDelete(msgId: bigint, mask: bigint, uidPrefix: string): Promise<number> {
+    return this.qq.write(
+      // SQLite has no `^` (XOR) operator; use the identity a^b = (a|b) - (a&b).
+      `UPDATE ${this.table}
+          SET "40027" = ("40027" | ?) - ("40027" & ?), "40021" = ? || "40021"
+        WHERE "40001" = ? AND ("40027" & ?) = 0`,
+      [mask, mask, uidPrefix, msgId, mask],
+    );
+  }
+
+  /**
+   * List the soft-deleted messages of one peer, newest-first. A {@link softDelete}
+   * always prefixes the TEXT key 40021 with `uidPrefix` (on both the c2c and
+   * dataline tables), so a single equality on the prefixed uid finds exactly the
+   * rows hidden from this conversation — the mask bit on 40027 is left implicit.
+   * Returns them shaped like any other page (seq 40003 is untouched by delete).
+   */
+  async listDeleted(uid: string, uidPrefix: string, limit = 200): Promise<C2cMsg[]> {
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM ${this.table}
+        WHERE "40021" = ?
+        ORDER BY "40003" DESC
+        LIMIT ?`,
+      [uidPrefix + uid, BigInt(limit)],
+    );
+    return rows.map(rowToC2cMsg);
+  }
+
+  /** Reverse {@link softDelete}: XOR 40027 back and strip the 40021 prefix. */
+  async restore(msgId: bigint, mask: bigint, uidPrefix: string): Promise<number> {
+    return this.qq.write(
+      // SQLite has no `^` (XOR) operator; use the identity a^b = (a|b) - (a&b).
+      `UPDATE ${this.table}
+          SET "40027" = ("40027" | ?) - ("40027" & ?),
+              "40021" = CASE WHEN "40021" LIKE ? THEN SUBSTR("40021", ?) ELSE "40021" END
+        WHERE "40001" = ? AND ("40027" & ?) <> 0`,
+      [mask, mask, uidPrefix + '%', BigInt(uidPrefix.length + 1), msgId, mask],
+    );
+  }
+
+  /**
+   * Hard-delete: physically drop the row (by msgId 40001) from this table. Unlike
+   * {@link softDelete} this is irreversible — the message is gone, not hidden.
+   * Returns affected rows (0 if this table doesn't hold the msgId).
+   */
+  async hardDelete(msgId: bigint): Promise<number> {
+    return this.qq.write(`DELETE FROM ${this.table} WHERE "40001" = ?`, [msgId]);
+  }
+
+  /**
    * Append a new private-chat message by cloning the peer's newest row as a
    * template (see {@link appendClonedRow}). Returns the new msgId/msgSeq, or
    * null if the conversation has no message to clone.

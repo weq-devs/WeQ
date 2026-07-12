@@ -417,8 +417,9 @@ export function QqVoice({ data, sendTimeMs }: { data: Data; sendTimeMs: number }
 
   // Bar count tracks duration (QQ-style: longer clip → longer strip), with a
   // floor so short clips — notably AI 声聊, which are often 1–5s — always show a
-  // visible waveform, and a cap so very long clips stay within the bubble.
-  const barCount = Math.max(12, Math.min(36, 8 + Math.round(seconds)));
+  // visible waveform, and a cap so very long clips stay within the bubble (the
+  // wave area also clips as a hard safety net; see .qq-media-voice-wave).
+  const barCount = Math.max(12, Math.min(28, 8 + Math.round(seconds)));
   const bars = sampleBars(waveform, barCount);
   const hasResult = transcript !== null || transcribeError !== null;
 

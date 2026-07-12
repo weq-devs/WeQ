@@ -35,6 +35,8 @@ import { GroupAnalyticsDialog } from '../components/GroupAnalyticsDialog';
 import { MemberProfileCard } from '../components/MemberProfileCard';
 import { BuddyAnalyticsDialog } from '../components/BuddyAnalyticsDialog';
 import { AddMessageModal } from '../components/compose/AddMessageModal';
+import { DeletedMessagesModal } from '../components/compose/DeletedMessagesModal';
+import { loadHiddenMessageIds, saveHiddenMessageIds } from '../im-template/template/hiddenMessages';
 import { RelationGraphView } from '../components/relationGraph/RelationGraphView';
 import { AgentLabView } from './AgentLabView';
 import { ExportView } from './ExportView';
@@ -1538,6 +1540,13 @@ export function MainView(): ReactElement {
 
   const [editorState, setEditorState] = useState<{ msgId: string, elements: any[] } | null>(null);
   const [addMessageConv, setAddMessageConv] = useState<Conversation | null>(null);
+  // "查看删除消息" panel: which conversation is open, its fetched deleted rows,
+  // and a bump counter that tells ChatPane to re-read its local hidden set after
+  // a restore (so the message reappears in the live chat immediately).
+  const [deletedConv, setDeletedConv] = useState<Conversation | null>(null);
+  const [deletedWires, setDeletedWires] = useState<MessageWire[]>([]);
+  const [deletedLoading, setDeletedLoading] = useState(false);
+  const [hiddenReloadKey, setHiddenReloadKey] = useState(0);
 
   const handleEditRaw = useCallback(async (message: Message) => {
     try {
@@ -1553,9 +1562,9 @@ export function MainView(): ReactElement {
   const handleSaveRaw = useCallback(async (elements: any[]) => {
     if (!editorState) return;
     try {
-        const success = await client.account.updateElements.mutate({ 
-            msgId: editorState.msgId, 
-            elements 
+        const success = await client.account.updateElements.mutate({
+            msgId: editorState.msgId,
+            elements
         });
         if (success) {
             void refreshWindow();
@@ -1565,6 +1574,24 @@ export function MainView(): ReactElement {
         throw e;
     }
   }, [editorState, refreshWindow]);
+
+  const handleDeleteMessage = useCallback(async (message: Message) => {
+    try {
+        await client.account.deleteMessage.mutate({ msgId: message.id });
+    } catch (e) {
+        console.error('[MainView] Failed to delete message:', e);
+    }
+  }, []);
+
+  const handleHardDeleteMessage = useCallback(async (message: Message) => {
+    try {
+        await client.account.hardDeleteMessage.mutate({ msgId: message.id });
+        // Row is physically gone — refresh so the window reflects the DB.
+        void refreshWindow();
+    } catch (e) {
+        console.error('[MainView] Failed to hard-delete message:', e);
+    }
+  }, [refreshWindow]);
 
   const handleOpenGroupAlbums = useCallback((conversation: Extract<Conversation, { type: 'group' }>) => {
     setAlbumDialog({
@@ -1589,6 +1616,57 @@ export function MainView(): ReactElement {
   const handleAddMessage = useCallback((conversation: Conversation) => {
     setAddMessageConv(conversation);
   }, []);
+
+  /** kind + conversation key (peer uid / group code) used by the msg endpoints. */
+  const convFetchKey = useCallback(
+    (c: Conversation): { kind: 'c2c' | 'group'; conv: string } =>
+      c.type === 'group'
+        ? { kind: 'group', conv: c.group.identityValue }
+        : { kind: 'c2c', conv: c.otherUser.id },
+    [],
+  );
+
+  const loadDeletedMessages = useCallback(
+    async (c: Conversation): Promise<void> => {
+      const { kind, conv } = convFetchKey(c);
+      setDeletedLoading(true);
+      try {
+        const rows = await client.account.deletedMessages.query({ kind, conv });
+        setDeletedWires(rows.map(toMessageWire));
+      } catch (e) {
+        console.error('[MainView] Failed to load deleted messages:', e);
+        setDeletedWires([]);
+      } finally {
+        setDeletedLoading(false);
+      }
+    },
+    [convFetchKey],
+  );
+
+  const handleViewDeleted = useCallback(
+    (conversation: Conversation) => {
+      setDeletedWires([]);
+      setDeletedConv(conversation);
+      void loadDeletedMessages(conversation);
+    },
+    [loadDeletedMessages],
+  );
+
+  const handleRestoreMessage = useCallback(
+    async (msgId: string): Promise<void> => {
+      await client.account.restoreMessage.mutate({ msgId });
+      if (deletedConv) {
+        // Delete had added this id to the conversation's local hidden set; drop
+        // it so the live chat re-shows the row, then nudge ChatPane to re-read.
+        const ids = loadHiddenMessageIds(deletedConv.id);
+        if (ids.delete(msgId)) saveHiddenMessageIds(deletedConv.id, ids);
+        setHiddenReloadKey((k) => k + 1);
+        await loadDeletedMessages(deletedConv);
+      }
+      void refreshWindow();
+    },
+    [deletedConv, loadDeletedMessages, refreshWindow],
+  );
 
   const handleOpenGroupMember = useCallback(
     (member: any, anchor: { x: number; y: number }) => {
@@ -2047,6 +2125,17 @@ export function MainView(): ReactElement {
         messageToTemplate(message, selectedConversation, user, memberMap)
       );
   }, [loadedMessageWires, selectedConversation, user, currentGroupMembers]);
+
+  // Deleted messages built through the SAME template pipeline as the live chat,
+  // so the panel's bubbles match exactly. The panel only opens for the currently
+  // selected conversation, so `currentGroupMembers` is the right member source.
+  const deletedTemplateMessages = useMemo(() => {
+    if (!deletedConv) return [];
+    const memberMap = new Map(currentGroupMembers.map((m) => [m.id, m]));
+    return deletedWires
+      .filter((message) => isRenderableMessage(message))
+      .map((message) => messageToTemplate(message, deletedConv, user, memberMap));
+  }, [deletedWires, deletedConv, user, currentGroupMembers]);
 
   const activeConversation = useMemo(() => {
     if (!selectedConversation) return undefined;
@@ -2797,12 +2886,16 @@ export function MainView(): ReactElement {
                 onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
                 onBackConversation={shell.backConversation}
                 onEditRaw={handleEditRaw}
+                onDeleteMessage={handleDeleteMessage}
+                onHardDeleteMessage={handleHardDeleteMessage}
                 onOpenGroupAlbums={handleOpenGroupAlbums}
                 onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
                 onOpenGroupAnalytics={handleOpenGroupAnalytics}
                 onOpenBuddyAnalytics={handleOpenBuddyAnalytics}
                 onOpenGroupMember={handleOpenGroupMember}
                 onAddMessage={handleAddMessage}
+                onViewDeleted={handleViewDeleted}
+                hiddenReloadKey={hiddenReloadKey}
               />
             </div>
             <OverlayScrollbar
@@ -2865,6 +2958,20 @@ export function MainView(): ReactElement {
           selfUid={selfProfile.data?.uid}
           onClose={() => setAddMessageConv(null)}
           onInserted={() => void refreshWindow()}
+        />
+      ) : null}
+      {deletedConv ? (
+        <DeletedMessagesModal
+          conversation={deletedConv}
+          user={user}
+          messages={deletedTemplateMessages}
+          renderers={messageRenderers}
+          loading={deletedLoading}
+          onRestore={handleRestoreMessage}
+          onClose={() => {
+            setDeletedConv(null);
+            setDeletedWires([]);
+          }}
         />
       ) : null}
       </ConvContext.Provider>

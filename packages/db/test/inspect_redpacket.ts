@@ -61,7 +61,7 @@ function printTree(fields: RawField[], indent: string): void {
       if (asStr && asStr.kind === 'len-utf8' && asStr.value.trim()) {
         console.log(`${indent}    (也可读作 ${topGuess(asStr)})`);
       }
-    } else {
+    } else if (best) {
       console.log(`${indent}#${f.tag}  ${topGuess(best)}`);
     }
   }
