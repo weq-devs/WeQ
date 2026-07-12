@@ -107,7 +107,7 @@ export {
   WeqAssistantService,
   buildArkJson,
   rewriteArkPort,
-  WEQ_ASSISTANT_UID,
+  generateWeqAssistantUid,
   WEQ_ASSISTANT_UIN,
   WEQ_ASSISTANT_NICK,
 } from './account/weq_assistant';

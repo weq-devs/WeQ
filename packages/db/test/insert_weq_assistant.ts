@@ -55,7 +55,9 @@ const WRITE_PROFILE = !!process.env.WEQ_WRITE_PROFILE;
 /** The real game-center account we clone templates from. */
 const TEMPLATE_UID = 'u_-PBswiplK-7J7bmaQLA-mA';
 
-/** Our fabricated account (uid + uin made up — must not collide with a real peer). */
+/** Our fabricated account (uid + uin made up — must not collide with a real peer).
+ *  生产路径的 uid 现在随机生成并存在 %APPDATA%/weq/config.json 的 `weqAssistantUid`；
+ *  这个手动探针脚本仍用固定 uid（可用 WEQ_FAKE_UID 覆盖），只为复刻结构调试用。 */
 const FAKE_UID = process.env.WEQ_FAKE_UID ?? 'u_WeQ-assistant-fake01';
 const FAKE_UIN = BigInt(process.env.WEQ_FAKE_UIN ?? '2233445566');
 const NICK = 'WeQ助手';

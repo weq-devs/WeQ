@@ -1075,7 +1075,7 @@ export function initAppContext(): AppContext {
         enabled: config.enabled,
         port: config.port,
       });
-      const svc = new WeqAssistantService(this.account, this.platform);
+      const svc = new WeqAssistantService(this.account, this.platform, userConfig.getWeqAssistantUid());
 
       // 关闭：停 server + 只删会话列表行（recent_contact）。mapping / c2c 一概保留——
       // 推文（消息）与身份目录留在库里，下次开启对比本地补齐即可。best-effort。

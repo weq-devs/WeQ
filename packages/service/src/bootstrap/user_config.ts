@@ -30,6 +30,7 @@ import { join, basename } from 'node:path';
 import type { Platform } from '@weq/platform';
 import type { AgentLabProviderConfig, TtsProviderConfig } from '@weq/agentlab';
 import type { AccountConfig } from '../account/user_config';
+import { generateWeqAssistantUid } from '../account/weq_assistant';
 import { getLogger, logErrorContext } from '../common/logger';
 
 export interface InstallCache {
@@ -183,6 +184,11 @@ export interface UserConfig {
   settings?: DeepPartial<AppSettings>;
   cacheDirOverride?: string | null;
   welcomeAcknowledged?: boolean;
+  /**
+   * 本机 WeQ助手 的固定 uid（`u_` + 22 位 [A-Za-z0-9-_]）。首次启用助手时随机生成一次并
+   * 写在这里，之后恒定复用——见 {@link UserConfigService.getWeqAssistantUid}。
+   */
+  weqAssistantUid?: string;
 }
 
 export class UserConfigService {
@@ -400,6 +406,21 @@ export class UserConfigService {
   acknowledgeWelcome(): void {
     this.write({ welcomeAcknowledged: true });
     this.logger.info('welcome dialog acknowledged', { event: 'welcome-ack' });
+  }
+
+  /**
+   * 本机 WeQ助手 的固定 uid。首次调用时随机生成（`u_` + 22 位 [A-Za-z0-9-_]）并持久化，
+   * 之后恒定返回同一个值。uid 必须稳定：一旦变化，QQ 库里会残留旧 uid 的孤儿会话，
+   * 且头像文件的 hash 路径（md5³(uid)）也会随之改变。全网各安装各自随机，避免共用同一
+   * 硬编码 uid 触发 QQ 风控。
+   */
+  getWeqAssistantUid(): string {
+    const existing = this.read().weqAssistantUid;
+    if (existing && existing.trim()) return existing;
+    const uid = generateWeqAssistantUid();
+    this.write({ weqAssistantUid: uid });
+    this.logger.info('generated weq assistant uid', { event: 'weq-assistant-uid-generated' });
+    return uid;
   }
 
   private defaultCacheBase(): string {

@@ -25,16 +25,18 @@ import {
   MessagesSquare,
   Pause,
   Play,
+  Search,
   Trash2,
   Users,
   UserRound,
+  X,
   Zap,
 } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { datalineName } from '@weq/codec';
-import { Segmented } from './export/widgets';
+import { Avatar, Segmented, Spinner } from './export/widgets';
 import { ConversationPicker } from './export/ConversationPicker';
 import { SingleSelectPicker } from './export/SingleSelectPicker';
 import { TaskList, type UiTask, type UiFailure } from './export/TaskList';
@@ -97,6 +99,15 @@ interface GroupWire {
   memberCount: number;
 }
 
+/** A friend row rendered in the 导出联系人 · 好友 preview list. */
+interface FriendPreviewItem {
+  uid: string;
+  uin: string;
+  name: string;
+  avatarUrl: string | null;
+  categoryId: number;
+}
+
 export function ExportView(): ReactElement {
   const utils = trpc.useUtils();
   const dialog = useAppDialog();
@@ -120,6 +131,16 @@ export function ExportView(): ReactElement {
   const categories = trpc.account.listCategories.useQuery(undefined, {
     enabled: mode === 'contacts' && contactScope === 'friends',
   });
+  // 好友预览（导出联系人 · 好友）：buddies 给分组归属，intimacy 列表补昵称。
+  const friendsEnabled = mode === 'contacts' && contactScope === 'friends';
+  const buddies = trpc.account.listBuddies.useQuery(
+    { limit: 2000, offset: 0 },
+    { enabled: friendsEnabled },
+  );
+  const friendNames = trpc.account.listFriendsByIntimacy.useQuery(
+    { limit: 2000, offset: 0 },
+    { enabled: friendsEnabled },
+  );
   const [decryptLightboxOpen, setDecryptLightboxOpen] = useState(false);
   const [decryptOutputDir, setDecryptOutputDir] = useState<string | null>(null);
   const [albumOutputDir, setAlbumOutputDir] = useState<string | null>(null);
@@ -200,6 +221,25 @@ export function ExportView(): ReactElement {
   }, [categories.data]);
 
   const friendTotal = useMemo(() => catItems.reduce((sum, c) => sum + c.count, 0), [catItems]);
+
+  // 好友预览行：join buddies（分组）× intimacy 列表（昵称）。空选分组 = 全部好友。
+  const friendPreview = useMemo<FriendPreviewItem[]>(() => {
+    const nameByUid = new Map<string, string>();
+    for (const f of friendNames.data ?? []) {
+      const nm = f.remark?.trim() || f.nick?.trim() || '';
+      if (nm) nameByUid.set(f.uid, nm);
+    }
+    const rows = (buddies.data ?? []).map((b) => ({
+      uid: b.uid,
+      uin: b.uin,
+      name: nameByUid.get(b.uid) || (b.uin && b.uin !== '0' ? `QQ ${b.uin}` : b.uid),
+      avatarUrl: convAvatarUrl('c2c', b.uid, b.uin),
+      categoryId: b.categoryId,
+    }));
+    const wanted = catSelection.size > 0 ? catSelection : null;
+    const filtered = wanted ? rows.filter((r) => wanted.has(r.categoryId)) : rows;
+    return filtered.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'));
+  }, [buddies.data, friendNames.data, catSelection]);
 
   const dbItems = useMemo<DbPickItem[]>(() => {
     return ((databases.data ?? []) as DbPickItem[]).map((db) => ({
@@ -886,13 +926,20 @@ export function ExportView(): ReactElement {
                   />
                 </div>
                 {contactScope === 'friends' ? (
-                  <CategoryChips
-                    items={catItems}
-                    total={friendTotal}
-                    loading={categories.isLoading}
-                    selected={catSelection}
-                    onChange={setCatSelection}
-                  />
+                  <>
+                    <CategoryChips
+                      items={catItems}
+                      total={friendTotal}
+                      loading={categories.isLoading}
+                      selected={catSelection}
+                      onChange={setCatSelection}
+                    />
+                    <FriendPreview
+                      items={friendPreview}
+                      loading={buddies.isLoading || friendNames.isLoading}
+                      scoped={catSelection.size > 0}
+                    />
+                  </>
                 ) : (
                   <SingleSelectPicker
                     items={groupItems}
@@ -1074,6 +1121,72 @@ function CategoryChips({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * 好友预览列表（导出联系人 · 好友）。跟随上方分组 chips：未选分组显示全部好友，
+ * 选了分组则只显示这些分组下的好友。只读，仅用于让用户「心里有数」——避免选完
+ * 分组下方一片空白。可搜索昵称 / QQ 号。
+ */
+function FriendPreview({
+  items,
+  loading,
+  scoped,
+}: {
+  items: FriendPreviewItem[];
+  loading: boolean;
+  scoped: boolean;
+}): ReactElement {
+  const [query, setQuery] = useState('');
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((it) => it.name.toLowerCase().includes(q) || it.uin.includes(q));
+  }, [items, query]);
+
+  return (
+    <div className="weq-exp-friends">
+      <div className="weq-exp-friends-head">
+        <strong>{scoped ? '分组好友预览' : '全部好友预览'}</strong>
+        <small>{loading ? '加载中…' : `${fmtCount(items.length)} 人`}</small>
+      </div>
+      <div className="weq-exp-search">
+        <Search size={15} aria-hidden />
+        <input
+          placeholder="搜索昵称或 QQ 号"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        {query ? (
+          <button type="button" title="清空" onClick={() => setQuery('')}>
+            <X size={14} />
+          </button>
+        ) : null}
+      </div>
+      <div className="weq-exp-list">
+        {loading ? (
+          <div className="weq-exp-list-state">
+            <Spinner size={18} />
+            加载中…
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="weq-exp-list-state">
+            <span>{query ? '没有匹配的好友' : scoped ? '该分组下暂无好友' : '暂无好友'}</span>
+          </div>
+        ) : (
+          filtered.map((it) => (
+            <div key={it.uid} className="weq-exp-row is-static">
+              <Avatar url={it.avatarUrl} name={it.name} size={34} />
+              <span className="weq-exp-row-meta">
+                <strong title={it.name}>{it.name}</strong>
+                {it.uin && it.uin !== '0' ? <small>{it.uin}</small> : null}
+              </span>
+            </div>
+          ))
+        )}
+      </div>
     </div>
   );
 }
