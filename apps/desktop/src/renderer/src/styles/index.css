@@ -1047,6 +1047,12 @@ html[data-theme="dark"] .chat-empty {
   cursor: zoom-out;
 }
 
+/* 缩放/平移的舞台：入场动画放在这层，媒体自身承载 zoom 的 transform。 */
+.weq-lightbox-stage {
+  display: grid;
+  place-items: center;
+}
+
 .weq-lightbox-image {
   max-width: 66vw;
   max-height: 66vh;
@@ -1054,6 +1060,8 @@ html[data-theme="dark"] .chat-empty {
   border-radius: 6px;
   box-shadow: 0 24px 80px -20px rgba(0, 0, 0, 0.7);
   cursor: default;
+  /* transform-origin 保持默认居中，useZoomPan 的锚点数学依赖于此。 */
+  transform-origin: center center;
 }
 
 .weq-lightbox-close {

@@ -7,13 +7,15 @@
  *   - <ImageLightbox/>         mount once near the root; renders the overlay
  *     for whatever the store currently holds (a single global portal).
  *
- * Click the backdrop or press ESC to close.
+ * Click the backdrop or press ESC to close. Scroll to zoom (anchored at the
+ * cursor), click the image to toggle 2× zoom, drag to pan when zoomed.
  */
 
 import { useEffect, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { create } from 'zustand';
 import { X } from 'lucide-react';
+import { useZoomPan } from './useZoomPan';
 
 interface LightboxStore {
   src: string | null;
@@ -44,6 +46,7 @@ export function ImageLightbox(): ReactElement | null {
   const src = useLightbox((s) => s.src);
   const alt = useLightbox((s) => s.alt);
   const close = useLightbox((s) => s.close);
+  const zoom = useZoomPan(src);
 
   useEffect(() => {
     if (!src) return;
@@ -61,13 +64,17 @@ export function ImageLightbox(): ReactElement | null {
       <button className="weq-lightbox-close" type="button" onClick={close} aria-label="关闭">
         <X size={22} />
       </button>
-      <img
-        className="weq-lightbox-image weq-anim-pop"
-        src={src}
-        alt={alt}
-        draggable={false}
-        onMouseDown={(event) => event.stopPropagation()}
-      />
+      <div className="weq-lightbox-stage weq-anim-pop" onMouseDown={(event) => event.stopPropagation()}>
+        <img
+          ref={zoom.setEl}
+          className="weq-lightbox-image"
+          src={src}
+          alt={alt}
+          draggable={false}
+          style={zoom.style}
+          onMouseDown={zoom.onMouseDown}
+        />
+      </div>
     </div>,
     document.body,
   );

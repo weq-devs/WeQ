@@ -480,8 +480,24 @@ function contactTitle(c: RecentContactWire): string {
 function previewText(preview: unknown): string | null {
   if (!preview || typeof preview !== 'object') return null;
   const p = preview as { displayText?: unknown; kind?: unknown; recallDisplayText?: unknown };
-  if (typeof p.displayText === 'string' && p.displayText.trim()) return p.displayText.trim();
+  // QQ's `displayText` is unreliable for element-only messages: a lone face /
+  // sticker often stores an *invisible* sysface control marker that renders as a
+  // blank conversation-list row. Treat "no visible character" as empty so we
+  // fall back to the kind-derived bracket label ([表情] / [图片] …).
+  if (typeof p.displayText === 'string' && hasVisibleText(p.displayText)) {
+    return p.displayText.trim();
+  }
   return previewFallbackByKind(p);
+}
+
+/** True when a string has at least one visible (non-control, non-space) char. */
+function hasVisibleText(s: string): boolean {
+  // Visible = any char that is not a C0/C1 control char (QQ sysface markers) or whitespace.
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c > 0x20 && c !== 0x7f && !(c >= 0x80 && c <= 0x9f)) return true;
+  }
+  return false;
 }
 
 /**

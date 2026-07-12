@@ -19,16 +19,37 @@ import {
   ProtoMsg,
   encodeElement,
   Element,
+  ElementType,
   validateComposeMessage,
   COMPOSE_ELEMENT_SPECS,
   isDatalineUid,
   type ComposeKind,
   type FieldSpec,
+  type MsgCacheRecord,
 } from '@weq/codec';
 import { MsgBody } from '@weq/codec/proto/msg/40800';
 import { toRenderElements, type RenderElement } from './msg_view';
 
 const bodyCodec = new ProtoMsg(MsgBody);
+
+/**
+ * ElementType values that render as a media thumbnail in a reply quote. A reply
+ * whose stored `origElements` lacks all of these (QQ NT stores only a "[图片]"
+ * text placeholder in the 40800 body) is a candidate for 40900-cache enrichment.
+ */
+const REPLY_MEDIA_TYPES: ReadonlySet<number> = new Set([
+  ElementType.PIC,
+  ElementType.VIDEO,
+  ElementType.FILE,
+  ElementType.MFACE,
+  ElementType.PTT,
+]);
+
+/** A message carrying a reply element, tagged with its msgId for a 40900 lookup. */
+interface ReplyBearer {
+  msgId: bigint;
+  elements: Element[];
+}
 
 /**
  * Input for authoring a new message. `elements` is the *raw* authored array
@@ -162,24 +183,28 @@ export class MsgService {
   /** Newest N private-chat messages with one peer. */
   async getC2cLatest(targetUid: string, limit = 50): Promise<RenderC2cMsg[]> {
     const msgs = await this.c2cDbFor(targetUid).listLatest(this.c2cPartition(targetUid), limit);
+    await this.enrichReplyMedia(msgs, 'c2c');
     return msgs.map(renderC2c);
   }
 
   /** Private-chat page just older than `beforeSeq` (scroll-up). */
   async getC2cBefore(targetUid: string, beforeSeq: bigint, limit = 50): Promise<RenderC2cMsg[]> {
     const msgs = await this.c2cDbFor(targetUid).listBefore(this.c2cPartition(targetUid), beforeSeq, limit);
+    await this.enrichReplyMedia(msgs, 'c2c');
     return msgs.map(renderC2c);
   }
 
   /** Private-chat page just newer than `afterSeq` (scroll-down / jump context). */
   async getC2cAfter(targetUid: string, afterSeq: bigint, limit = 50): Promise<RenderC2cMsg[]> {
     const msgs = await this.c2cDbFor(targetUid).listAfter(this.c2cPartition(targetUid), afterSeq, limit);
+    await this.enrichReplyMedia(msgs, 'c2c');
     return msgs.map(renderC2c);
   }
 
   /** Re-read private-chat messages with seq >= `sinceSeq` (live refresh). */
   async getC2cFrom(targetUid: string, sinceSeq: bigint, limit = 500): Promise<RenderC2cMsg[]> {
     const msgs = await this.c2cDbFor(targetUid).listFrom(this.c2cPartition(targetUid), sinceSeq, limit);
+    await this.enrichReplyMedia(msgs, 'c2c');
     return msgs.map(renderC2c);
   }
 
@@ -198,24 +223,28 @@ export class MsgService {
   /** Newest N group messages in one group. */
   async getGroupLatest(targetGroupCode: string, limit = 50): Promise<RenderGroupMsg[]> {
     const msgs = await this.session.groupMsgs.listLatest(targetGroupCode, limit);
+    await this.enrichReplyMedia(msgs, 'group');
     return msgs.map(renderGroup);
   }
 
   /** Group page just older than `beforeSeq` (scroll-up). */
   async getGroupBefore(targetGroupCode: string, beforeSeq: bigint, limit = 50): Promise<RenderGroupMsg[]> {
     const msgs = await this.session.groupMsgs.listBefore(targetGroupCode, beforeSeq, limit);
+    await this.enrichReplyMedia(msgs, 'group');
     return msgs.map(renderGroup);
   }
 
   /** Group page just newer than `afterSeq` (scroll-down / jump context). */
   async getGroupAfter(targetGroupCode: string, afterSeq: bigint, limit = 50): Promise<RenderGroupMsg[]> {
     const msgs = await this.session.groupMsgs.listAfter(targetGroupCode, afterSeq, limit);
+    await this.enrichReplyMedia(msgs, 'group');
     return msgs.map(renderGroup);
   }
 
   /** Re-read group messages with seq >= `sinceSeq` (live refresh). */
   async getGroupFrom(targetGroupCode: string, sinceSeq: bigint, limit = 500): Promise<RenderGroupMsg[]> {
     const msgs = await this.session.groupMsgs.listFrom(targetGroupCode, sinceSeq, limit);
+    await this.enrichReplyMedia(msgs, 'group');
     return msgs.map(renderGroup);
   }
 
@@ -249,6 +278,51 @@ export class MsgService {
     }
   }
 
+  // ---- reply media enrichment ----------------------------------------------
+
+  /**
+   * Back-fill a reply quote's real media element from the 40900 cache.
+   *
+   * QQ NT stores only a "[图片]" / "[视频]" TEXT placeholder in a reply's inline
+   * `origElements` (40800 body) — the quoted message's true media (image token,
+   * md5, CDN urls) lives instead in the 40900 message-cache column as a full
+   * snapshot of the quoted row. So for every reply whose stored origElements
+   * carries NO media element, we look up this message's 40900 cache, find the
+   * cached quoted message (matched by origMsgId, else the first record), and
+   * splice its real elements into origElements — letting the renderer show an
+   * actual thumbnail. Text/@/face replies and replies that already carry media
+   * are left untouched (no lookup).
+   *
+   * Mutates the passed messages in place (before render mapping) and swallows
+   * per-message lookup failures so a bad cache never breaks the page.
+   */
+  private async enrichReplyMedia(
+    msgs: ReplyBearer[],
+    kind: 'c2c' | 'group',
+  ): Promise<void> {
+    const pending = msgs.filter((m) => m.elements.some(isMediaLessReply));
+    if (pending.length === 0) return;
+
+    await Promise.all(
+      pending.map(async (m) => {
+        try {
+          const cache =
+            kind === 'group'
+              ? await this.session.forwardMsgs.listGroupForward(m.msgId)
+              : await this.session.forwardMsgs.listC2cForward(m.msgId);
+          if (cache.length === 0) return;
+          const media = cachedQuotedMedia(cache);
+          if (media.length === 0) return;
+          for (const el of m.elements) {
+            if (isMediaLessReply(el)) (el as ReplyLike).origElements = media;
+          }
+        } catch {
+          /* keep the "[图片]" placeholder on any cache miss / decode error */
+        }
+      }),
+    );
+  }
+
   /** Resolve a peer uid to its indexed partition (sortNo), else fall back to uid. */
   private c2cPartition(targetUid: string): C2cPartition {
     const sortNo = this.session.uidMap.sortNoByUid(targetUid);
@@ -279,4 +353,45 @@ function renderC2c(m: C2cMsg): RenderC2cMsg {
 
 function renderGroup(m: GroupMsg): RenderGroupMsg {
   return { ...m, elements: toRenderElements(m.elements) };
+}
+
+/** A reply element (pre-render): `origElements` holds raw quoted ElementWire. */
+interface ReplyLike {
+  kind?: string;
+  origElements?: unknown[];
+}
+
+/** Raw wire element: an object bearing a numeric `elementType`. */
+function wireType(el: unknown): number {
+  const t = (el as { elementType?: unknown })?.elementType;
+  return typeof t === 'number' ? t : 0;
+}
+
+/**
+ * True for a `reply` element whose stored `origElements` contains no media
+ * element — i.e. only the "[图片]"/"[视频]" text placeholder QQ writes into the
+ * 40800 body. These are the replies worth a 40900-cache lookup.
+ */
+function isMediaLessReply(el: Element): boolean {
+  if ((el as ReplyLike).kind !== 'reply') return false;
+  const orig = (el as ReplyLike).origElements;
+  if (!Array.isArray(orig)) return true;
+  return !orig.some((o) => REPLY_MEDIA_TYPES.has(wireType(o)));
+}
+
+/**
+ * Pick the quoted message's real media-bearing elements out of a 40900 cache.
+ *
+ * A reply's 40900 cache holds exactly ONE record: the quoted message (only
+ * merged-forwards, msgType 8, carry multiple). The reply element's `origMsgId`
+ * is NOT the cached record's snowflake msgId (verified on a live row — they
+ * differ), so we can't match by id; we take the sole record. Returns its raw
+ * wire elements (ready for decodeElement in mapReply), or [] when the cached
+ * record carries no media after all.
+ */
+function cachedQuotedMedia(cache: MsgCacheRecord[]): unknown[] {
+  const record = cache[0];
+  const els = (record as { elements?: unknown[] } | undefined)?.elements;
+  if (!Array.isArray(els)) return [];
+  return els.some((o) => REPLY_MEDIA_TYPES.has(wireType(o))) ? els : [];
 }

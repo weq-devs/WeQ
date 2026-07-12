@@ -36,9 +36,11 @@ import { MessagePicker, type PickedMessage } from './MessagePicker';
 import {
   hasContent,
   nextId,
+  replyTrailingIsPic,
   summarize,
   toPreviewElements,
   toReplyElement,
+  toReplyOrigElements,
   toWireElements,
   type ReplyTarget,
   type Segment,
@@ -118,6 +120,38 @@ export function AddMessageModal({
   }
   function updateText(id: string, text: string): void {
     setSegments((prev) => prev.map((s) => (s.id === id && s.t === 'text' ? { ...s, text } : s)));
+  }
+
+  /**
+   * Commit a reply target. When the quoted message ends in an image, lift the
+   * real `pic` element (getRawElements → editable wire) into origElements so the
+   * stored quote renders an actual thumbnail; otherwise carry the trailing
+   * text/@/face run. Any lift failure degrades to the bracket-label preview.
+   */
+  async function pickReply(m: PickedMessage): Promise<void> {
+    const base: ReplyTarget = {
+      msgId: m.msgId,
+      msgSeq: m.msgSeq,
+      senderUid: m.senderUid,
+      senderUin: m.senderUin,
+      sendTime: m.sendTime,
+      summary: summarize(m.elements ?? []),
+      origElements: toReplyOrigElements(m.elements ?? []),
+    };
+    if (replyTrailingIsPic(m.elements ?? [])) {
+      try {
+        const raw = await client.account.getRawElements.query({ msgId: m.msgId });
+        // The trailing image — findLast, not find: a multi-image message quotes
+        // its LAST picture (the one the preview rule selected).
+        const pics = (raw?.elements ?? []).filter((e: { kind?: string }) => e.kind === 'pic');
+        const picCodec = pics[pics.length - 1] as Record<string, unknown> | undefined;
+        if (picCodec) base.origElements = [picCodec];
+      } catch {
+        /* keep the bracket-label fallback from toReplyOrigElements */
+      }
+    }
+    setReplyTarget(base);
+    setView('main');
   }
 
   async function pickImage(msg: PickedMessage): Promise<void> {
@@ -343,17 +377,7 @@ export function AddMessageModal({
                 kind={kind}
                 conv={conv}
                 resolveName={resolveName}
-                onPick={(m) => {
-                  setReplyTarget({
-                    msgId: m.msgId,
-                    msgSeq: m.msgSeq,
-                    senderUid: m.senderUid,
-                    senderUin: m.senderUin,
-                    sendTime: m.sendTime,
-                    summary: summarize(m.elements ?? []),
-                  });
-                  setView('main');
-                }}
+                onPick={(m) => void pickReply(m)}
               />
             ) : null}
             {view === 'pic' ? (

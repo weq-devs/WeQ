@@ -8,13 +8,15 @@
  *
  * Sibling of {@link ImageLightbox}; kept separate because it renders a `<video>`
  * (controls / autoplay / range streaming) rather than an `<img>`. Click the
- * backdrop or press ESC to close.
+ * backdrop or press ESC to close. Scroll to zoom (anchored at the cursor) and
+ * drag to pan when zoomed; single click is left to the native play/pause.
  */
 
 import { useEffect, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { create } from 'zustand';
 import { X } from 'lucide-react';
+import { useZoomPan } from './useZoomPan';
 
 interface VideoLightboxStore {
   src: string | null;
@@ -45,6 +47,7 @@ export function VideoLightbox(): ReactElement | null {
   const src = useVideoLightbox((s) => s.src);
   const poster = useVideoLightbox((s) => s.poster);
   const close = useVideoLightbox((s) => s.close);
+  const zoom = useZoomPan(src, { clickZoom: false });
 
   useEffect(() => {
     if (!src) return;
@@ -62,15 +65,19 @@ export function VideoLightbox(): ReactElement | null {
       <button className="weq-lightbox-close" type="button" onClick={close} aria-label="关闭">
         <X size={22} />
       </button>
-      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-      <video
-        className="weq-lightbox-image weq-anim-pop"
-        src={src}
-        poster={poster || undefined}
-        controls
-        autoPlay
-        onMouseDown={(event) => event.stopPropagation()}
-      />
+      <div className="weq-lightbox-stage weq-anim-pop" onMouseDown={(event) => event.stopPropagation()}>
+        {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+        <video
+          ref={zoom.setEl}
+          className="weq-lightbox-image"
+          src={src}
+          poster={poster || undefined}
+          controls
+          autoPlay
+          style={zoom.style}
+          onMouseDown={zoom.onMouseDown}
+        />
+      </div>
     </div>,
     document.body,
   );

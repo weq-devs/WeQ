@@ -26,6 +26,12 @@ export interface ReplyTarget {
   sendTime: string;
   /** Plain-text summary shown in the quote line. */
   summary: string;
+  /**
+   * The quoted message's trailing elements (kind-tagged; encoded to wire by the
+   * backend) so the stored reply quote renders real face/@/text instead of a
+   * flattened "[表情]" string. Empty ⇒ fall back to a text summary element.
+   */
+  origElements?: Array<Record<string, unknown>>;
 }
 
 /** The render-view element shape consumed by QqMessageContent. */
@@ -79,11 +85,17 @@ export function toWireElements(segs: Segment[]): Array<Record<string, unknown>> 
 /**
  * Build the leading `reply` element from a picked target. Group replies omit
  * origReceiverUid/origMsgIndex in the wild, but the compose schema requires them,
- * so we supply harmless fillers. `origElements` carries a single synthesized text
- * element so the stored quote renders a preview instead of "引用消息".
+ * so we supply harmless fillers. `origElements` carries the quoted message's
+ * trailing elements (kind-tagged; encoded to wire by the backend) so the stored
+ * quote renders real face/@/text; it falls back to a single synthesized text
+ * element when none were captured.
  */
 export function toReplyElement(target: ReplyTarget, peerUid: string): Record<string, unknown> {
   const seqNum = Number(target.msgSeq) || 0;
+  const origElements =
+    target.origElements && target.origElements.length > 0
+      ? target.origElements
+      : [{ kind: 'text', textContent: target.summary || '引用消息' }];
   return {
     kind: 'reply',
     origSenderUid: target.senderUid,
@@ -95,8 +107,88 @@ export function toReplyElement(target: ReplyTarget, peerUid: string): Record<str
     origMsgId: target.msgId,
     origMsgIndex: seqNum,
     replyFlag47422: target.msgId,
-    origElements: [{ elementType: 1, textContent: target.summary || '引用消息' }],
+    origElements,
   };
+}
+
+/** Media kinds we can't re-author as real quoted elements in the compose tool;
+ * previewed as a bracket label instead of their (unavailable) CDN payload. */
+const REPLY_MEDIA_LABEL: Record<string, string> = {
+  pic: '[图片]',
+  video: '[视频]',
+  file: '[文件]',
+  ptt: '[语音]',
+  mface: '[动画表情]',
+  onlineFile: '[在线文件]',
+  onlineFolder: '[在线文件夹]',
+};
+
+/** An origElements element is "meaningful" unless it's empty text. */
+function isMeaningfulEl(e: RenderEl): boolean {
+  if (e.type === 'text') return String(e.data?.textContent ?? '').length > 0;
+  return true;
+}
+
+/** Inline (text-run) kinds — coalesced when trailing, mirrors the reply quote. */
+function isInlineEl(e: RenderEl): boolean {
+  return e.type === 'text' || e.type === 'at' || e.type === 'face';
+}
+
+/**
+ * True when a picked message's reply preview is a single trailing image — the
+ * caller then lifts the real `pic` element (via getRawElements) so the stored
+ * quote shows an actual thumbnail rather than the "[图片]" bracket label.
+ */
+export function replyTrailingIsPic(elements: RenderEl[]): boolean {
+  const meaningful = elements.filter((e) => e.type !== 'reply' && isMeaningfulEl(e));
+  const last = meaningful[meaningful.length - 1];
+  return !!last && last.type === 'pic';
+}
+
+/** One picked-message render element → a kind-tagged wire element for storage. */
+function toOrigElement(e: RenderEl): Record<string, unknown> {
+  const data = e.data ?? {};
+  switch (e.type) {
+    case 'text':
+      return { kind: 'text', textContent: String(data.textContent ?? '') };
+    case 'at':
+      return {
+        kind: 'at',
+        textContent: String(data.textContent ?? ''),
+        // mapAt stores the target uid under `buddleId` (sic); decodeElement keys
+        // 'at' off a present `bubbleId`, so restore the correct wire field name.
+        bubbleId: String(data.buddleId ?? data.bubbleId ?? ''),
+      };
+    case 'face':
+      return { kind: 'face', faceId: Number(data.faceId) || 0, faceText: String(data.faceText ?? '') };
+    default:
+      return { kind: 'text', textContent: REPLY_MEDIA_LABEL[e.type ?? ''] ?? '[消息]' };
+  }
+}
+
+/**
+ * Build a reply target's `origElements` from a picked message's render elements,
+ * mirroring the reply-quote render rule: if the message ends in media, carry just
+ * that trailing media (as a bracket-label text — its CDN payload isn't
+ * re-authorable here); otherwise carry the trailing run of inline text/@/face so
+ * the quote shows them for real (face renders as the actual emoji).
+ */
+export function toReplyOrigElements(elements: RenderEl[]): Array<Record<string, unknown>> {
+  const meaningful = elements.filter((e) => e.type !== 'reply' && isMeaningfulEl(e));
+  const last = meaningful[meaningful.length - 1];
+  if (!last) return [];
+  let run: RenderEl[];
+  if (!isInlineEl(last)) {
+    run = [last];
+  } else {
+    run = [];
+    for (let i = meaningful.length - 1; i >= 0; i--) {
+      const el = meaningful[i];
+      if (!el || !isInlineEl(el)) break;
+      run.unshift(el);
+    }
+  }
+  return run.map(toOrigElement);
 }
 
 /** Convert authored segments into render elements for the live preview. */
