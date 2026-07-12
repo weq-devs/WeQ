@@ -14,8 +14,8 @@
 
 import type { RenderElement } from '../msg_view';
 
-/** Output formats, mirroring QCE (+ jsonl). html lands in a later step. */
-export type ExportFormat = 'json' | 'jsonl' | 'txt' | 'csv' | 'xlsx' | 'html';
+/** Output formats, mirroring QCE (+ jsonl). `vcard` is contacts-only (联系人导出). */
+export type ExportFormat = 'json' | 'jsonl' | 'txt' | 'csv' | 'xlsx' | 'html' | 'vcard';
 
 /** Conversation kind an export targets. */
 export type ConvKind = 'group' | 'c2c';

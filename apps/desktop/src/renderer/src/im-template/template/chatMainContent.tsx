@@ -71,11 +71,16 @@ export function ChatMainContent({
 	onDraftClear,
 	onBackConversation,
 	onEditRaw,
+	onDeleteMessage,
+	onHardDeleteMessage,
 	onOpenGroupAlbums,
 	onOpenGroupAnnouncements,
 	onOpenGroupAnalytics,
 	onOpenBuddyAnalytics,
+	onOpenGroupMember,
 	onAddMessage,
+	onViewDeleted,
+	hiddenReloadKey,
 	onOpenTool,
 	onSelectTool,
 }: {
@@ -136,11 +141,17 @@ export function ChatMainContent({
 	onDraftClear: (conversationId: string) => void;
 	onBackConversation: () => void;
 	onEditRaw?: (message: Message) => void;
+	onDeleteMessage?: (message: Message) => void | Promise<void>;
+	onHardDeleteMessage?: (message: Message) => void | Promise<void>;
 	onOpenGroupAlbums?: (conversation: GroupConversation) => void;
 	onOpenGroupAnnouncements?: (conversation: GroupConversation) => void;
 	onOpenGroupAnalytics?: (conversation: GroupConversation) => void;
 	onOpenBuddyAnalytics?: (conversation: DirectConversation) => void;
+	onOpenGroupMember?: (member: any, anchor: { x: number; y: number }) => void;
 	onAddMessage?: (conversation: Conversation) => void;
+	onViewDeleted?: (conversation: Conversation) => void;
+	/** Bumped after a restore so ChatPane re-reads its local hidden-message set. */
+	hiddenReloadKey?: number;
 	onOpenTool?: (item: ToolPaneItem) => void;
 	onSelectTool?: (item: ToolPaneItem) => void;
 }) {
@@ -210,11 +221,16 @@ export function ChatMainContent({
 			onDraftClear={onDraftClear}
 			onBack={onBackConversation}
 			onEditRaw={onEditRaw}
+			onDeleteMessage={onDeleteMessage}
+			onHardDeleteMessage={onHardDeleteMessage}
 			onOpenGroupAlbums={onOpenGroupAlbums}
 			onOpenGroupAnnouncements={onOpenGroupAnnouncements}
 			onOpenGroupAnalytics={onOpenGroupAnalytics}
 			onOpenBuddyAnalytics={onOpenBuddyAnalytics}
+			onOpenGroupMember={onOpenGroupMember}
 			onAddMessage={onAddMessage}
+			onViewDeleted={onViewDeleted}
+			hiddenReloadKey={hiddenReloadKey}
 		/>
 	);
 }

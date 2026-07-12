@@ -2,10 +2,14 @@
  * SILK voice decode for the media protocol.
  *
  * QQ stores PTT as Tencent SILK v3 (`.amr` extension, header `#!SILK_V3`,
- * sometimes with a 1-byte prefix — `silk-wasm` handles both). No browser plays
- * SILK, so we decode to 24 kHz mono PCM via `silk-wasm` and wrap it in a WAV
- * container. Results cache under `appData/cache/voice/<name>.wav`, so a clip
- * decodes once and replays off disk.
+ * preceded by a 1-byte flag). No browser plays SILK, so we decode to 24 kHz
+ * mono PCM via `silk-wasm` and wrap it in a WAV container. Results cache under
+ * `appData/cache/voice/<name>.wav`, so a clip decodes once and replays off disk.
+ *
+ * silk-wasm's wasm decoder only accepts `0x02` as that flag byte, but QQ also
+ * emits clips with a `0x03` flag (both are valid Tencent SILK, they just decode
+ * fine once normalized). `normalizeSilk` rewrites whatever precedes the magic
+ * to a single `0x02`, so every variant reaches the decoder in the shape it wants.
  *
  * silk-wasm lives in this app's dependencies (not @weq/service) because the
  * wasm runtime belongs in the Electron main process.
@@ -21,6 +25,22 @@ const TRANSCRIBE_SAMPLE_RATE = 16000;
 const CHANNELS = 1;
 const BITS_PER_SAMPLE = 16;
 
+const SILK_MAGIC = Buffer.from('#!SILK_V3');
+const SILK_FLAG = 0x02;
+
+/**
+ * Normalize a Tencent SILK buffer so silk-wasm accepts it: the wasm decoder
+ * only recognizes a `0x02` flag byte before the `#!SILK_V3` magic, but QQ also
+ * ships clips flagged `0x03` (and potentially other bytes). Rewrite whatever
+ * precedes the magic to exactly one `0x02`. If the magic isn't present, hand the
+ * buffer back untouched and let the decoder fail as it would have.
+ */
+function normalizeSilk(silk: Buffer): Buffer {
+  const idx = silk.indexOf(SILK_MAGIC);
+  if (idx < 0) return silk;
+  return Buffer.concat([Buffer.from([SILK_FLAG]), silk.subarray(idx)]);
+}
+
 /**
  * Decode the SILK file at `silkPath` to a cached WAV; returns the WAV path, or
  * null if the source is missing or decoding fails.
@@ -33,7 +53,7 @@ export async function decodeSilkToWav(silkPath: string): Promise<string | null> 
   if (existsSync(cachePath)) return cachePath;
 
   try {
-    const silk = readFileSync(silkPath);
+    const silk = normalizeSilk(readFileSync(silkPath));
     const { data: pcm } = await decode(silk, SAMPLE_RATE);
     mkdirSync(cacheDir, { recursive: true });
     writeFileSync(cachePath, wrapWav(pcm));
@@ -52,7 +72,7 @@ export async function decodeSilkToWav(silkPath: string): Promise<string | null> 
 export async function decodeSilkToFile(silkPath: string, destPath: string): Promise<boolean> {
   if (!silkPath || !existsSync(silkPath)) return false;
   try {
-    const silk = readFileSync(silkPath);
+    const silk = normalizeSilk(readFileSync(silkPath));
     const { data: pcm } = await decode(silk, SAMPLE_RATE);
     mkdirSync(dirname(destPath), { recursive: true });
     writeFileSync(destPath, wrapWav(pcm));
@@ -72,7 +92,7 @@ export async function decodeSilkToFile(silkPath: string, destPath: string): Prom
 export async function decodeSilkToWav16kBuffer(silkPath: string): Promise<Buffer | null> {
   if (!silkPath || !existsSync(silkPath)) return null;
   try {
-    const silk = readFileSync(silkPath);
+    const silk = normalizeSilk(readFileSync(silkPath));
     const { data: pcm } = await decode(silk, TRANSCRIBE_SAMPLE_RATE);
     return wrapWav(pcm, TRANSCRIBE_SAMPLE_RATE);
   } catch (e) {

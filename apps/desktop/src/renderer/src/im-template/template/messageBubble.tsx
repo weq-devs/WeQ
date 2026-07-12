@@ -30,6 +30,7 @@ export function MessageBubble({
 	onContextMenu,
 	onLongPress,
 	onAction,
+	onAvatarClick,
 }: {
 	message: Message;
 	conversation: Conversation;
@@ -45,6 +46,7 @@ export function MessageBubble({
 	onContextMenu: (event: ReactMouseEvent, message: Message) => void;
 	onLongPress: (point: { x: number; y: number }, message: Message) => void;
 	onAction?: (message: Message, action: MessageAction) => void | Promise<void>;
+	onAvatarClick?: (sender: User, anchor: { x: number; y: number }) => void;
 }) {
 	const longPressTimerRef = useRef<number | null>(null);
 	const longPressPointRef = useRef<{ x: number; y: number } | null>(null);
@@ -130,11 +132,29 @@ export function MessageBubble({
 			data-message-id={message.id}
 		>
 			{!mine ? (
-				<Avatar
-					name={senderName}
-					avatarUrl={senderAvatarUrl}
-					seed={senderSeed}
-				/>
+				onAvatarClick ? (
+					<button
+						type="button"
+						className={cn("message-avatar-button")}
+						title="查看资料"
+						aria-label={`查看 ${senderName} 的资料`}
+						onClick={(event) =>
+							onAvatarClick(sender, { x: event.clientX, y: event.clientY })
+						}
+					>
+						<Avatar
+							name={senderName}
+							avatarUrl={senderAvatarUrl}
+							seed={senderSeed}
+						/>
+					</button>
+				) : (
+					<Avatar
+						name={senderName}
+						avatarUrl={senderAvatarUrl}
+						seed={senderSeed}
+					/>
+				)
 			) : null}
 			<div
 				ref={bubbleRef}
@@ -154,15 +174,26 @@ export function MessageBubble({
 				{showSenderName ? (
 					<span className={cn("message-name")}>
 						{senderName}
-						{(sender as any).customTitle || (sender as any).levelName ? (
-							<small className={cn(
-								"member-badge", 
-								(sender as any).role,
-								(sender as any).levelBracket > 0 ? `level-${(sender as any).levelBracket}` : ""
-							)}>
-								{(sender as any).memberLevel != null ? `Lv${(sender as any).memberLevel} · ` : ''}{(sender as any).customTitle || (sender as any).levelName}
-							</small>
-						) : null}
+						{(() => {
+							const role = (sender as any).role;
+							const isRoleBadge = role === "owner" || role === "admin";
+							// 群头衔优先级：群主/管理员 > 自定义头衔/群等级
+							const badgeText = isRoleBadge
+								? (role === "owner" ? "群主" : "管理员")
+								: ((sender as any).customTitle || (sender as any).levelName);
+							if (!badgeText) return null;
+							const levelBracket = (sender as any).levelBracket;
+							const memberLevel = (sender as any).memberLevel;
+							return (
+								<small className={cn(
+									"member-badge",
+									isRoleBadge ? role : "",
+									!isRoleBadge && levelBracket > 0 ? `level-${levelBracket}` : ""
+								)}>
+									{!isRoleBadge && memberLevel != null ? `Lv${memberLevel} · ` : ''}{badgeText}
+								</small>
+							);
+						})()}
 						{senderKind === "bot" ? (
 							<small
 								className={cn("bot-badge")}

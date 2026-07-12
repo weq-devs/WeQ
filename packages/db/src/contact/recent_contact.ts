@@ -14,6 +14,8 @@
  *   40095  senderRemark        (TEXT)
  *   41110  targetAvatar        (TEXT)
  *   41135  targetRemark        (TEXT, conversation remark)
+ *   41220  notifyLevel         (INTEGER — message-notify level; 1 = notify
+ *                               normally, other values (observed 4) = 免打扰/muted)
  *
  * The 40051 column is decoded by `@weq/codec`; chatType is mapped through the
  * codec's ChatType enum. Everything is assembled into `RecentContact`.
@@ -26,7 +28,7 @@ import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq
 import type { RecentContact } from './types';
 import { QqDb } from '../qq_db';
 
-const SELECT_COLUMNS = `"40003","40010","40020","40021","40030","40050","40051","40090","40093","40094","40095","41110","41135"`;
+const SELECT_COLUMNS = `"40003","40010","40020","40021","40030","40050","40051","40090","40093","40094","40095","41110","41135","41220"`;
 const contactCodec = new ProtoMsg(RecentContactBody);
 
 /**
@@ -91,6 +93,7 @@ function rowToRecentContact(row: SqlRow): RecentContact {
     senderRemark: toStr(row[10]),
     targetAvatar: toStr(row[11]),
     targetRemark: toStr(row[12]),
+    notifyLevel: toNum(row[13]),
   };
 }
 

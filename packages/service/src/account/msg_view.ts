@@ -153,9 +153,14 @@ export interface RenderPttElement {
     /** File TTL in seconds; CDN expiry ≈ uploadTimestamp + fileTTL. */
     fileTTL: number;
     summary: string[];
-    pttType: number;
+    /** Clip duration in seconds (wire tag 45906) — the render source of truth
+     * for the 时长 label and bubble width; the waveform is decorative. */
+    pttDuration: number;
     voiceChanged: boolean;
-    /** Amplitude envelope: one byte (0–255) per 0.1s; length/10 = duration sec. */
+    /** AI 声聊 marker (wire tag 45915) — true only for AI-voice-chat clips. */
+    isAiVoice?: boolean;
+    /** Amplitude envelope; decorative only. AI 声聊 clips carry a fixed 30-byte
+     * strip, so length/10 is NOT a reliable duration — use pttDuration. */
     waveform: number[];
     // transferState?: number;
     // picTransferState?: number;
@@ -322,6 +327,7 @@ export interface RenderWalletElement {
     walletDetail?: any;
     walletOrderId?: string;
     walletRedbagType?: number;
+    walletDesignatedUin?: number;
     walletExt?: any;
   };
 }
@@ -581,8 +587,9 @@ function mapPtt(el: PttElement): RenderPttElement {
       uploadTimestamp: el.uploadTimestamp,
       fileTTL: el.fileTTL,
       summary: el.summary,
-      pttType: el.pttType,
+      pttDuration: el.pttDuration,
       voiceChanged: el.voiceChanged,
+      isAiVoice: el.isAiVoice,
       waveform: Array.from(el.waveform),
       // transferState: el.transferState,
       // picTransferState: el.picTransferState,
@@ -799,6 +806,7 @@ function mapWallet(el: WalletElement): RenderWalletElement {
       walletDetail: el.walletDetail,
       walletOrderId: el.walletOrderId,
       walletRedbagType: el.walletRedbagType,
+      walletDesignatedUin: el.walletDesignatedUin,
       walletExt: el.walletExt,
       elementId: el.elementId,
       isSender: el.isSender,

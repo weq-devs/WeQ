@@ -22,7 +22,7 @@ import {
   type Schedule,
 } from './types';
 
-export type LightboxVariant = 'full' | 'chatlab' | 'qzone' | 'scheduled' | 'album';
+export type LightboxVariant = 'full' | 'chatlab' | 'qzone' | 'scheduled' | 'album' | 'contacts';
 
 export interface LightboxResult {
   options: ExportOptions;
@@ -61,6 +61,7 @@ export function ExportLightbox({
   const isAlbum = variant === 'album';
   const isQzone = variant === 'qzone';
   const isScheduled = variant === 'scheduled';
+  const isContacts = variant === 'contacts';
 
   function patch(next: Partial<ExportOptions>): void {
     setOpts((o) => ({ ...o, ...next }));
@@ -155,14 +156,34 @@ export function ExportLightbox({
             </Card>
           ) : null}
 
-          {/* 时间范围 */}
-          <Card title="时间范围">
-            <TimeRangePicker
-              value={opts.range}
-              onChange={(range) => patch({ range })}
-              mode={isScheduled ? 'scheduled' : 'single'}
-            />
-          </Card>
+          {/* 联系人导出说明 + 头像 */}
+          {isContacts ? (
+            <Card title="导出联系人">
+              <div className="weq-exp-placeholder">
+                <span>导出好友列表 / 群成员列表（QQ号、昵称、备注、分组、角色等）</span>
+                <small>
+                  数据来自本地资料库，无需在线 QQ。开启下方「导出头像」后，头像存入同目录
+                  avatars/ 子文件夹（导出结果保存为文件夹）。
+                </small>
+              </div>
+              <Row
+                label="导出头像"
+                desc="联系人头像存入 avatars/ 子目录（缓存优先，缺失走 CDN 补齐）"
+                control={<Toggle checked={opts.exportAvatar} onChange={(v) => patch({ exportAvatar: v })} />}
+              />
+            </Card>
+          ) : null}
+
+          {/* 时间范围（联系人无时间维度，不显示） */}
+          {!isContacts ? (
+            <Card title="时间范围">
+              <TimeRangePicker
+                value={opts.range}
+                onChange={(range) => patch({ range })}
+                mode={isScheduled ? 'scheduled' : 'single'}
+              />
+            </Card>
+          ) : null}
 
           {/* 好友空间：只需「是否下载配图」一个开关 */}
           {isQzone ? (
@@ -176,7 +197,7 @@ export function ExportLightbox({
           ) : null}
 
           {/* 媒体 / 内容选项（完整消息 / ChatLab / 定时；HTML 也支持） */}
-          {!isAlbum && !isQzone ? (
+          {!isAlbum && !isQzone && !isContacts ? (
             <Card title="媒体与内容">
               <Row
                 label="导出媒体文件"

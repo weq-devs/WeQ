@@ -120,9 +120,24 @@ export function GroupAnalyticsDialog({
   const loadMembers = useCallback(async () => {
     setMembersLoading(true);
     setMembersError(null);
+    setMembers([]);
     try {
-      const result = await client.account.listGroupMembers.query({ groupCode, limit: 300 });
-      setMembers(result as MemberWire[]);
+      // 全量分页加载：后端单页上限 300，这里循环翻页累加，最多 3000 个，
+      // 保证搜索能命中所有成员（而不是只搜到前一页）。边加载边填充，
+      // 用户不必等全部拉完就能看到并搜索已加载的成员。
+      const PAGE_SIZE = 300;
+      const MAX_MEMBERS = 3000;
+      const all: MemberWire[] = [];
+      for (let offset = 0; offset < MAX_MEMBERS; offset += PAGE_SIZE) {
+        const page = (await client.account.listGroupMembers.query({
+          groupCode,
+          limit: PAGE_SIZE,
+          offset,
+        })) as MemberWire[];
+        all.push(...page);
+        setMembers([...all]);
+        if (page.length < PAGE_SIZE) break; // 最后一页，已取完
+      }
     } catch (e) {
       setMembersError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -334,14 +349,16 @@ export function GroupAnalyticsDialog({
                   onChange={(e) => setMemberSearch(e.target.value)}
                 />
               </div>
-              {membersLoading ? (
+              {membersLoading && members.length === 0 ? (
                 <div className="ga-loading">
                   <Loader2 size={28} className="weq-spin" />
                 </div>
               ) : membersError ? (
                 <div className="ga-error">{membersError}</div>
               ) : filteredMembers.length === 0 ? (
-                <p className="ga-placeholder">没有匹配的成员</p>
+                <p className="ga-placeholder">
+                  {membersLoading ? "加载中…" : "没有匹配的成员"}
+                </p>
               ) : (
                 <div className="ga-members-grid">
                   {filteredMembers.map((m) => (
@@ -363,6 +380,12 @@ export function GroupAnalyticsDialog({
                       {m.memberLevel > 0 && <span className="ga-member-level">LV{m.memberLevel}</span>}
                     </button>
                   ))}
+                </div>
+              )}
+              {membersLoading && members.length > 0 && (
+                <div className="ga-members-loading-more">
+                  <Loader2 size={14} className="weq-spin" />
+                  <span>正在加载全部成员…（已 {members.length}）</span>
                 </div>
               )}
             </div>

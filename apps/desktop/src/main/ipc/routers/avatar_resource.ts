@@ -42,4 +42,16 @@ export const avatarResourceRouter = router({
         cursor: input.cursor ?? null,
       });
     }),
+
+  /**
+   * Given a QQ number, derive where its avatar is cached (the 头像路径 tool).
+   * `kind=user` translates uin→uid via profile_info_v6; `kind=group` uses the
+   * number directly (group uin == uid). Returns the uid, computed hash and each
+   * variant's on-disk presence.
+   */
+  computePath: procedure
+    .input(z.object({ kind: z.enum(['user', 'group']), qq: z.string().trim() }))
+    .query(({ input }) => {
+      return requireServices().avatarResource.probeByQq(input.kind, input.qq);
+    }),
 });

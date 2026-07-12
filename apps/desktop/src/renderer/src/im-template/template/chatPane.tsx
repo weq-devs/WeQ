@@ -7,6 +7,7 @@ import {
 	ChevronRight,
 	ChevronsUp,
 	CirclePlus,
+	Trash2,
 	FileText,
 	Images,
 	MessageSquareText,
@@ -200,11 +201,16 @@ export function ChatPane({
 	onDraftClear,
 	onBack,
 	onEditRaw,
+	onDeleteMessage,
+	onHardDeleteMessage,
 	onOpenGroupAlbums,
 	onOpenGroupAnnouncements,
 	onOpenGroupAnalytics,
 	onOpenBuddyAnalytics,
+	onOpenGroupMember,
 	onAddMessage,
+	onViewDeleted,
+	hiddenReloadKey,
 }: {
 	user: User;
 	conversation: Conversation | undefined;
@@ -229,11 +235,17 @@ export function ChatPane({
 	onDraftClear: (conversationId: string) => void;
 	onBack: () => void;
 	onEditRaw?: (message: Message) => void;
+	onDeleteMessage?: (message: Message) => void | Promise<void>;
+	onHardDeleteMessage?: (message: Message) => void | Promise<void>;
 	onOpenGroupAlbums?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenGroupAnnouncements?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenGroupAnalytics?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenBuddyAnalytics?: (conversation: Extract<Conversation, { type: "direct" }>) => void;
+	onOpenGroupMember?: (member: any, anchor: { x: number; y: number }) => void;
 	onAddMessage?: (conversation: Conversation) => void;
+	onViewDeleted?: (conversation: Conversation) => void;
+	/** Bumped by the parent after a restore so this pane re-reads hidden ids. */
+	hiddenReloadKey?: number;
 }) {
 	// 复用 replyJump 的跳转能力（含翻页/重建窗口），供群精华消息跳转使用。
 	const jumpToSeq = useContext(ReplyJumpContext);
@@ -423,6 +435,14 @@ export function ChatPane({
 		setHiddenMessageIds(loadHiddenMessageIds(conversation?.id));
 	}, [conversation?.id]);
 
+	// Re-read the local hidden set when the parent signals a restore (bumping
+	// `hiddenReloadKey`), so a message un-hidden from the deleted panel reappears
+	// in the live chat without touching the rest of the conversation reset above.
+	useEffect(() => {
+		if (!hiddenReloadKey) return;
+		setHiddenMessageIds(loadHiddenMessageIds(conversation?.id));
+	}, [hiddenReloadKey, conversation?.id]);
+
 	useEffect(() => {
 		const editor = composerEditorRef.current;
 		setBody(draft);
@@ -473,6 +493,68 @@ export function ChatPane({
 			window.removeEventListener("resize", closeMenu);
 		};
 	}, [contextMenu]);
+
+	// Keep the desktop context menu glued to its message as the list scrolls,
+	// instead of floating in place. Dismisses once the message leaves the list
+	// viewport. Mobile menus (long-press sheet) keep their fixed placement.
+	useEffect(() => {
+		if (!contextMenu || contextMenu.variant === "mobile") {
+			return;
+		}
+		const scroll = messageScrollRef.current;
+		if (!scroll) {
+			return;
+		}
+
+		let frame = 0;
+		function reposition() {
+			if (frame) {
+				return;
+			}
+			frame = window.requestAnimationFrame(() => {
+				frame = 0;
+				setContextMenu((current) => {
+					if (!current || current.variant === "mobile") {
+						return current;
+					}
+					const container = messageScrollRef.current;
+					if (!container) {
+						return current;
+					}
+					const idSelector = current.message.id.replace(/["\\]/g, "\\$&");
+					const el = container.querySelector<HTMLElement>(
+						`[data-message-id="${idSelector}"]`,
+					);
+					if (!el) {
+						return current;
+					}
+					const rect = el.getBoundingClientRect();
+					const bounds = container.getBoundingClientRect();
+					// Message scrolled out of the list viewport → dismiss the menu.
+					if (rect.bottom < bounds.top || rect.top > bounds.bottom) {
+						return null;
+					}
+					const x = Math.min(
+						rect.left + (current.anchorOffsetX ?? 0),
+						window.innerWidth - 126,
+					);
+					const y = Math.min(
+						Math.max(rect.top + (current.anchorOffsetY ?? 0), 8),
+						window.innerHeight - 84,
+					);
+					return { ...current, x, y };
+				});
+			});
+		}
+
+		scroll.addEventListener("scroll", reposition, { passive: true });
+		return () => {
+			scroll.removeEventListener("scroll", reposition);
+			if (frame) {
+				window.cancelAnimationFrame(frame);
+			}
+		};
+	}, [contextMenu?.message.id, contextMenu?.variant]);
 
 	useEffect(() => {
 		if (!emojiOpen) {
@@ -868,12 +950,20 @@ export function ChatPane({
 		}
 		event.preventDefault();
 		window.getSelection()?.removeAllRanges();
+		// Record where the click landed inside the message row so the menu can
+		// track that row as the list scrolls (see the reposition effect below).
+		const anchorEl = (event.currentTarget as HTMLElement).closest?.(
+			"[data-message-id]",
+		) as HTMLElement | null;
+		const anchorRect = anchorEl?.getBoundingClientRect();
 		setContextMenu({
 			message,
 			downloadUrl: getMessageDownloadUrl(message),
 			x: Math.min(event.clientX, window.innerWidth - 126),
 			y: Math.min(event.clientY, window.innerHeight - 84),
 			variant: "desktop",
+			anchorOffsetX: anchorRect ? event.clientX - anchorRect.left : undefined,
+			anchorOffsetY: anchorRect ? event.clientY - anchorRect.top : undefined,
 		});
 	}
 
@@ -1133,7 +1223,10 @@ export function ChatPane({
 
 	async function copyMessage(message: Message) {
 		const selectedText = window.getSelection()?.toString().trim();
-		await copyTextToClipboard(selectedText || message.body);
+		// Non-copyable messages (images/files/cards) render an empty body — fall
+		// back to a `msgid=xxx` reference so there's always something on the clipboard.
+		const body = message.body?.trim() ? message.body : `msgid=${message.id}`;
+		await copyTextToClipboard(selectedText || body);
 		setContextMenu(null);
 	}
 
@@ -1142,6 +1235,7 @@ export function ChatPane({
 			return;
 		}
 
+		// Hide immediately for instant feedback...
 		setHiddenMessageIds((current) => {
 			const next = new Set(current);
 			next.add(message.id);
@@ -1149,6 +1243,31 @@ export function ChatPane({
 			return next;
 		});
 		setContextMenu(null);
+		// ...and reversibly soft-delete the underlying DB row (hidden, restorable).
+		void onDeleteMessage?.(message);
+	}
+
+	// Hard-delete: physically drops the DB row (no restore). Same instant-hide
+	// UX as soft-delete — no confirmation prompt.
+	function hardDeleteMessageLocally(message: Message) {
+		if (!conversation) {
+			return;
+		}
+		setHiddenMessageIds((current) => {
+			const next = new Set(current);
+			next.add(message.id);
+			saveHiddenMessageIds(conversation.id, next);
+			return next;
+		});
+		setContextMenu(null);
+		void onHardDeleteMessage?.(message);
+	}
+
+	function editMessageRaw(message: Message) {
+		// Close the menu before the editor lightbox opens so it doesn't linger
+		// on top of / behind the modal.
+		setContextMenu(null);
+		onEditRaw?.(message);
 	}
 
 	function requestClearConversationMessages() {
@@ -1274,6 +1393,17 @@ export function ChatPane({
 							onClick={() => onAddMessage(conversation)}
 						>
 							<CirclePlus size={18} />
+						</button>
+					) : null}
+					{onViewDeleted &&
+					(conversation.type === "group" || conversation.type === "direct") ? (
+						<button
+							className={cn("icon-button", "group-header-info-action")}
+							type="button"
+							title="查看删除消息"
+							onClick={() => onViewDeleted(conversation)}
+						>
+							<Trash2 size={18} />
 						</button>
 					) : null}
 					{conversation.type === "group" ? (
@@ -1428,6 +1558,11 @@ export function ChatPane({
 									onContextMenu={openMessageMenu}
 									onLongPress={openMobileMessageMenu}
 									onAction={onMessageAction}
+									onAvatarClick={
+										conversation.type === "group" && onOpenGroupMember
+											? onOpenGroupMember
+											: undefined
+									}
 								/>
 							</Fragment>
 						);
@@ -1478,6 +1613,7 @@ export function ChatPane({
 						<GroupInfoPanel
 							conversation={conversation}
 							onOpenDetail={openGroupInfoDetail}
+							onOpenMember={onOpenGroupMember}
 							onLoadMoreMembers={onLoadMoreGroupMembers}
 							loadingMoreMembers={groupMembersLoading}
 						/>
@@ -1709,7 +1845,8 @@ export function ChatPane({
 					onCopy={copyMessage}
 					onDownloadImage={downloadMessageImage}
 					onDeleteLocal={deleteMessageLocally}
-					onEditRaw={onEditRaw}
+					onHardDelete={onHardDeleteMessage ? hardDeleteMessageLocally : undefined}
+					onEditRaw={onEditRaw ? editMessageRaw : undefined}
 				/>
 			) : null}
 			{groupInfoDetail && conversation.type === "group" ? (

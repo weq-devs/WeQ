@@ -21,10 +21,26 @@
  * the `weq-media://avatar` protocol. Nothing here decrypts.
  */
 
+import { createHash } from 'node:crypto';
 import { readdir, stat } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
+
+/**
+ * The local avatar filename hash for a peer uid:
+ *
+ *   hash = md5( md5( md5(uid) + uid ) + uid )      // hex-string concatenation
+ *
+ * so the file lives at `<scope>/<hash.slice(0,2)>/[b_|s_]<hash>`. Verified 40/40
+ * against real `recent_contact_v3_table` avatar paths (users `u_xxx`; groups use
+ * their numeric uin, which equals the uid). This is what lets us jump straight
+ * from a uid to its cached avatar file with no directory scan.
+ */
+export function avatarHashForUid(uid: string): string {
+  const md5 = (s: string): string => createHash('md5').update(s).digest('hex');
+  return md5(md5(md5(uid) + uid) + uid);
+}
 
 /** Which avatar tree to browse. */
 export type AvatarScope = 'user' | 'group' | 'cover';
@@ -66,6 +82,37 @@ export interface AvatarPage {
   entries: AvatarEntry[];
   /** Opaque cursor for the next page, or null when exhausted. */
   nextCursor: string | null;
+}
+
+/**
+ * Result of "given a QQ number, where is its avatar cached?" — the derivation
+ * behind the 头像路径 tool. Carries the resolved uid, the computed hash, and the
+ * on-disk presence of each variant so the UI can show the formula, the path,
+ * and a live preview.
+ */
+export interface AvatarPathProbe {
+  /** 'user' (friend) or 'group'. */
+  scope: AvatarScope;
+  /** The QQ number that was entered (a uin). */
+  qq: string;
+  /** Resolved peer uid (== qq for groups; '' when a friend's uid wasn't found). */
+  uid: string;
+  /** Friend remark/nick for context ('' for groups / unknown). */
+  nick: string;
+  /** True when the uid was resolved (groups: always true for a valid number). */
+  resolved: boolean;
+  /** The computed avatar hash (md5³), '' when unresolved. */
+  hash: string;
+  /** Hash bucket (first two hex chars). */
+  bucket: string;
+  /** Display path relative to nt_data: `avatar/<scope>/<bucket>/b_<hash>`. */
+  bigRel: string;
+  /** Display path relative to nt_data: `avatar/<scope>/<bucket>/s_<hash>`. */
+  smallRel: string;
+  hasBig: boolean;
+  hasSmall: boolean;
+  bigBytes: number;
+  smallBytes: number;
 }
 
 const DEFAULT_PAGE = 120;
@@ -216,6 +263,122 @@ export class AvatarResourceService {
     return null;
   }
 
+  /**
+   * Resolve a peer's local avatar straight from their uid — no directory scan.
+   * Computes the {@link avatarHashForUid} hash, then reuses {@link resolveFile}
+   * (which keeps all the bucket / temp / path-traversal handling). If the
+   * requested variant is absent we try the other one — `b_`/`s_` share the hash,
+   * so a "big" request still hits when only the thumbnail was cached. Returns
+   * null when neither is on disk, so the caller can fall back to the CDN.
+   */
+  async resolveByUid(
+    scope: AvatarScope,
+    uid: string,
+    variant: AvatarVariant,
+  ): Promise<string | null> {
+    if (!uid) return null;
+    const hash = avatarHashForUid(uid);
+    const primary = await this.resolveFile(scope, hash, variant);
+    if (primary) return primary;
+    const other: AvatarVariant = variant === 'big' ? 'small' : 'big';
+    return this.resolveFile(scope, hash, other);
+  }
+
+  /**
+   * Like {@link resolveByUid} but keyed by QQ uin. Groups have uin == uid (the
+   * numeric group code), so they resolve with no lookup; for users we translate
+   * uin → uid through the session's resident {@link UidMap}. An unknown uin
+   * (e.g. a stranger absent from the mapping table) → null → CDN fallback.
+   */
+  async resolveByUin(
+    scope: AvatarScope,
+    uin: string,
+    variant: AvatarVariant,
+  ): Promise<string | null> {
+    if (!/^\d+$/.test(uin) || uin === '0') return null;
+    if (scope === 'group') return this.resolveByUid(scope, uin, variant);
+    const uid = this.session.uidMap.uidByUin(BigInt(uin));
+    return uid ? this.resolveByUid(scope, uid, variant) : null;
+  }
+
+  /**
+   * "Given a QQ number, where is its avatar cached?" — the derivation behind the
+   * 头像路径 tool. For a friend we translate uin → uid via `profile_info_v6`
+   * (the authoritative profile table); for a group the uin IS the uid. We then
+   * compute the hash and report each variant's on-disk presence + size. Returns
+   * a probe with `resolved: false` when the number is invalid or (friend) has no
+   * cached profile row.
+   */
+  async probeByQq(kind: 'user' | 'group', qq: string): Promise<AvatarPathProbe> {
+    const scope: AvatarScope = kind === 'group' ? 'group' : 'user';
+    const blank: AvatarPathProbe = {
+      scope,
+      qq,
+      uid: '',
+      nick: '',
+      resolved: false,
+      hash: '',
+      bucket: '',
+      bigRel: '',
+      smallRel: '',
+      hasBig: false,
+      hasSmall: false,
+      bigBytes: 0,
+      smallBytes: 0,
+    };
+    if (!/^\d+$/.test(qq) || qq === '0') return blank;
+
+    let uid: string;
+    let nick = '';
+    if (kind === 'group') {
+      uid = qq; // group uin == uid
+    } else {
+      const profile = await this.session.profileInfo.getProfileByUin(BigInt(qq));
+      if (!profile || !profile.uid) return blank;
+      uid = profile.uid;
+      nick = profile.remark || profile.nick || '';
+    }
+
+    const hash = avatarHashForUid(uid);
+    const bucket = hash.slice(0, 2);
+    const scopeDir = this.scopeDir(scope);
+
+    let hasBig = false;
+    let hasSmall = false;
+    let bigBytes = 0;
+    let smallBytes = 0;
+    if (scopeDir) {
+      const [big, small] = await Promise.all([
+        statSafe(join(scopeDir, bucket, `b_${hash}`)),
+        statSafe(join(scopeDir, bucket, `s_${hash}`)),
+      ]);
+      if (big) {
+        hasBig = true;
+        bigBytes = big.size;
+      }
+      if (small) {
+        hasSmall = true;
+        smallBytes = small.size;
+      }
+    }
+
+    return {
+      scope,
+      qq,
+      uid,
+      nick,
+      resolved: true,
+      hash,
+      bucket,
+      bigRel: `avatar/${scope}/${bucket}/b_${hash}`,
+      smallRel: `avatar/${scope}/${bucket}/s_${hash}`,
+      hasBig,
+      hasSmall,
+      bigBytes,
+      smallBytes,
+    };
+  }
+
   // ── internals ──────────────────────────────────────────────────────────────
 
   /** Bucket dir names (`00`…`ff`, `temp`, …) under a scope, or null if absent. */
@@ -316,4 +479,14 @@ function parseCursor(cursor: string | null): { bucketIndex: number; entryIndex: 
 function clampInt(n: number, lo: number, hi: number): number {
   const x = Math.floor(Number.isFinite(n) ? n : lo);
   return Math.min(hi, Math.max(lo, x));
+}
+
+/** stat that swallows ENOENT (and any error), returning null when absent. */
+async function statSafe(path: string): Promise<{ size: number } | null> {
+  try {
+    const st = await stat(path);
+    return st.isFile() ? { size: st.size } : null;
+  } catch {
+    return null;
+  }
 }

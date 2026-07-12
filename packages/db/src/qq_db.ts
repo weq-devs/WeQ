@@ -65,12 +65,25 @@ export class QqDb {
    *
    * ⚠️ Writes go to QQ's live database. Always back up first and prefer to
    *    run with QQ fully closed.
+   *
+   * The native layer keeps a cached connection per dbPath, and a write
+   * connection holds SQLite's RESERVED/EXCLUSIVE lock. If we left it open,
+   * QQ itself would be locked out of nt_msg.db ("database is locked" — no
+   * chat history, no contacts) until WeQ exits. And if the write throws
+   * (e.g. a SQL error), the half-acquired lock would otherwise stay held.
+   * So we ALWAYS drop the connection afterwards — releasing the lock back to
+   * QQ. Writes here are low-frequency (delete / edit / insert), so the
+   * re-open + re-decrypt on the next query is a non-issue.
    */
-  write(sql: string, params?: SqlValue[]): Promise<number> {
-    if (this.encrypted) {
-      return this.nt.executeSqlWriteWithKey(this.dbPath, sql, this.key!, this.algo!, params ?? null);
+  async write(sql: string, params?: SqlValue[]): Promise<number> {
+    try {
+      if (this.encrypted) {
+        return await this.nt.executeSqlWriteWithKey(this.dbPath, sql, this.key!, this.algo!, params ?? null);
+      }
+      return await this.nt.executeSqlWrite(this.dbPath, sql, params ?? null);
+    } finally {
+      this.nt.closeDb(this.dbPath);
     }
-    return this.nt.executeSqlWrite(this.dbPath, sql, params ?? null);
   }
 
   /** Drop both the read and write cached native connections for this database. */

@@ -13,11 +13,16 @@ export function GroupInfoPanel({
 	onLoadMoreMembers,
 	loadingMoreMembers,
 	onOpenDetail,
+	onOpenMember,
 }: {
 	conversation: GroupConversationView;
 	onLoadMoreMembers?: () => void;
 	loadingMoreMembers?: boolean;
 	onOpenDetail?: (detail: GroupInfoDetail) => void;
+	onOpenMember?: (
+		member: GroupConversationView["members"][number],
+		anchor: { x: number; y: number },
+	) => void;
 }) {
 	const memberListRef = useRef<HTMLDivElement | null>(null);
 	const group = conversation.group;
@@ -94,10 +99,34 @@ export function GroupInfoPanel({
 						<div
 							className={cn(
 								"group-info-member-row",
+								onOpenMember && "is-clickable",
 								member.role === "owner" && "is-owner",
 								member.role === "admin" && "is-admin",
 							)}
 							key={member.id}
+							role={onOpenMember ? "button" : undefined}
+							tabIndex={onOpenMember ? 0 : undefined}
+							title={onOpenMember ? "查看资料" : undefined}
+							onClick={
+								onOpenMember
+									? (event) =>
+											onOpenMember(member, { x: event.clientX, y: event.clientY })
+									: undefined
+							}
+							onKeyDown={
+								onOpenMember
+									? (event) => {
+											if (event.key === "Enter" || event.key === " ") {
+												event.preventDefault();
+												const rect = event.currentTarget.getBoundingClientRect();
+												onOpenMember(member, {
+													x: rect.left + rect.width / 2,
+													y: rect.bottom,
+												});
+											}
+										}
+									: undefined
+							}
 						>
 							<div className="member-avatar-wrap">
 								<Avatar

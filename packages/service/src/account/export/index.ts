@@ -31,6 +31,15 @@ export {
   type QzoneExportResult,
 } from './qzone_export';
 export {
+  exportFriends,
+  exportGroupMembers,
+  type ContactsExportDeps,
+  type ContactsFormat,
+  type ContactsExportResult,
+  type ExportFriendsOpts,
+  type ExportGroupMembersOpts,
+} from './contacts_export';
+export {
   avatarUrlForUin,
   iterateConv,
   resolveGroupSenders,

@@ -16,7 +16,16 @@
  * track those files — TTL / pruning belongs in whoever wrote them.
  */
 
-import { mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from 'node:fs';
+import {
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  readdirSync,
+  unlinkSync,
+  statSync,
+  rmSync,
+  existsSync,
+} from 'node:fs';
 import { join, basename } from 'node:path';
 import type { Platform } from '@weq/platform';
 import type { AgentLabProviderConfig, TtsProviderConfig } from '@weq/agentlab';
@@ -415,4 +424,111 @@ export class UserConfigService {
       dir: dir && dir.trim() ? dir : null,
     });
   }
+
+  /**
+   * WeQ 缓存清理.
+   *
+   * The `<cacheBase>/<category>/` layout is written by various callers
+   * (avatars, media previews, 商城表情, 语音转录). These four categories are
+   * pure caches — every file is re-downloadable / re-generatable on demand,
+   * so wiping them only costs a re-fetch. We deliberately DO NOT expose
+   * `agentlab`（克隆体运行数据）, `weq-assistant`（推文/周报快照）or
+   * `export`（导出产物）here: those hold user-generated content, not cache.
+   */
+  private static readonly CLEARABLE_CACHE_CATEGORIES: ReadonlyArray<{
+    id: string;
+    label: string;
+  }> = [
+    { id: 'avatar', label: '头像缓存' },
+    { id: 'media', label: '图片/视频缓存' },
+    { id: 'marketface', label: '商城表情缓存' },
+    { id: 'voice', label: '语音转录缓存' },
+  ];
+
+  /** Per-category on-disk size (bytes) for the clearable cache categories. */
+  listClearableCache(): Array<{ id: string; label: string; bytes: number }> {
+    const base = this.cacheBaseDir();
+    return UserConfigService.CLEARABLE_CACHE_CATEGORIES.map(({ id, label }) => ({
+      id,
+      label,
+      bytes: dirSizeBytes(join(base, id)),
+    }));
+  }
+
+  /**
+   * Delete the given clearable cache categories (or all of them when `ids` is
+   * omitted). Unknown / non-clearable ids are ignored — we never rm outside
+   * the whitelist, so this can't touch agentlab / export / config / logs.
+   * Returns the number of bytes freed.
+   */
+  clearCache(ids?: string[]): { freedBytes: number; cleared: string[] } {
+    const base = this.cacheBaseDir();
+    const allowed = new Set(
+      UserConfigService.CLEARABLE_CACHE_CATEGORIES.map((c) => c.id),
+    );
+    const targets = (ids && ids.length > 0 ? ids : [...allowed]).filter((id) =>
+      allowed.has(id),
+    );
+    let freedBytes = 0;
+    const cleared: string[] = [];
+    for (const id of targets) {
+      const dir = join(base, id);
+      if (!existsSync(dir)) continue;
+      freedBytes += dirSizeBytes(dir);
+      try {
+        // Remove the category folder wholesale, then recreate it empty so the
+        // next writer's mkdir -p is a no-op and nothing breaks mid-session.
+        rmSync(dir, { recursive: true, force: true });
+        mkdirSync(dir, { recursive: true });
+        cleared.push(id);
+      } catch (error) {
+        this.logger.error('failed to clear cache category', {
+          event: 'clear-cache-failed',
+          category: id,
+          dir,
+          ...logErrorContext(error),
+        });
+      }
+    }
+    this.logger.info('cleared weq cache', {
+      event: 'clear-cache',
+      cleared,
+      freedBytes,
+    });
+    return { freedBytes, cleared };
+  }
+}
+
+/**
+ * Recursive directory byte size with a hard node-visit cap so a pathological
+ * tree (the avatar/media caches can hold tens of thousands of tiny files)
+ * can't wedge the caller. Missing dirs return 0.
+ */
+function dirSizeBytes(root: string, cap = 500_000): number {
+  let total = 0;
+  let visited = 0;
+  const stack: string[] = [root];
+  while (stack.length > 0) {
+    const dir = stack.pop() as string;
+    let dirents: import('node:fs').Dirent[];
+    try {
+      dirents = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const d of dirents) {
+      if (++visited > cap) return total;
+      const full = join(dir, d.name);
+      if (d.isDirectory()) {
+        stack.push(full);
+      } else if (d.isFile()) {
+        try {
+          total += statSync(full).size;
+        } catch {
+          /* skip */
+        }
+      }
+    }
+  }
+  return total;
 }

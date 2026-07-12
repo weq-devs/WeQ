@@ -57,7 +57,28 @@ export function ConversationList({
 				const unreadCount = conversation.unreadCount ?? 0;
 				const hasDraft = !active && Boolean(drafts[conversation.id]?.trim());
 				const preview = conversationLastMessage(conversation, user);
-				const showMentionAlert = unreadCount > 0 && preview.mentionsMe;
+				// 提醒高亮：来自 48902 的权威标记（特别关心 / @我 …）。
+				const highlightKinds = new Set(
+					(conversation.highlights ?? []).map((h) => h.kind),
+				);
+				// @我：优先用 48902 权威标记，回退到本地对消息正文的启发式解析。
+				const showMentionAlert =
+					unreadCount > 0 && (highlightKinds.has("atMe") || preview.mentionsMe);
+				// @全体成员：同属「找你」红色告警类。
+				const showAtAll = unreadCount > 0 && highlightKinds.has("atAll");
+				// 特别关心：会话存在特别关心好友未读时，行首挂红色标记。
+				const showSpecialCare =
+					unreadCount > 0 && highlightKinds.has("specialCare");
+				// 新文件：内容类提示（非「找你」告警），行首挂蓝色标记。
+				const showNewFile = unreadCount > 0 && highlightKinds.has("newFile");
+				// QQ红包：内容类提示，行首挂金色标记。
+				const showRedPacket = unreadCount > 0 && highlightKinds.has("redPacket");
+				// 免打扰：会话自带的 DB 值（41220）打底，本地手动偏好覆盖 ——
+				// 与 shellController.countVisibleUnreadConversations 的 merge 顺序保持一致。
+				const muted = Boolean({
+					...conversation.preference,
+					...preferences[conversation.id],
+				}.muted);
 
 				return (
 					<button
@@ -95,13 +116,25 @@ export function ConversationList({
 									</span>
 								) : (
 									<span className={cn("row-message-preview")}>
+										{showSpecialCare ? (
+											<span className={cn("row-specialcare-alert")}>[特别关心]</span>
+										) : null}
 										{showMentionAlert ? (
 											<span className={cn("row-mention-alert")}>[有人@我]</span>
+										) : null}
+										{showAtAll ? (
+											<span className={cn("row-mention-alert")}>[@全体]</span>
+										) : null}
+										{showNewFile ? (
+											<span className={cn("row-newfile-alert")}>[新文件]</span>
+										) : null}
+										{showRedPacket ? (
+											<span className={cn("row-redpacket-alert")}>[红包]</span>
 										) : null}
 										{preview.text}
 									</span>
 								)}
-								{!unreadCount && preferences[conversation.id]?.muted ? (
+								{!unreadCount && muted ? (
 									<BellOff className={cn("row-muted")} size={15} />
 								) : null}
 							</span>
@@ -109,11 +142,7 @@ export function ConversationList({
 						<span className={cn("row-meta")}>
 							<span>{formatConversationTime(conversation.updatedAt)}</span>
 							{unreadCount ? (
-								<span
-									className={cn(
-										unreadClass(Boolean(preferences[conversation.id]?.muted)),
-									)}
-								>
+								<span className={cn(unreadClass(muted))}>
 									{formatBadgeCount(unreadCount)}
 								</span>
 							) : null}

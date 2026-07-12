@@ -16,7 +16,18 @@
  */
 
 import { useEffect, useState, type ReactElement } from 'react';
-import { Check, FolderOpen, Info, LockKeyhole, Minimize2, RotateCcw, User } from 'lucide-react';
+import {
+  Check,
+  FolderOpen,
+  HardDrive,
+  Info,
+  Loader2,
+  LockKeyhole,
+  Minimize2,
+  RotateCcw,
+  Trash2,
+  User,
+} from 'lucide-react';
 import type { WindowCloseBehavior } from '@weq/service';
 import { trpc } from '../../trpc/client';
 import { useDialog } from '../Dialog';
@@ -28,6 +39,19 @@ import logoUrl from '@resources/brand/logo.png';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+/** Human-readable byte size for the cache-cleanup card. */
+function formatBytes(bytes: number): string {
+  if (!bytes || bytes < 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(unit === 0 ? 0 : value >= 100 ? 0 : 1)} ${units[unit]}`;
 }
 
 /** 空闲自动锁定时长选项。0 = 关闭（仍可手动上锁）。 */
@@ -48,6 +72,7 @@ const CLOSE_BEHAVIOR_OPTIONS: ReadonlyArray<{ value: WindowCloseBehavior; label:
 
 export function GlobalSettingsSection(): ReactElement {
   const showError = useDialog((s) => s.showError);
+  const confirm = useDialog((s) => s.confirm);
   const pushToast = useToast((s) => s.push);
   const [systemAuthStatus, setSystemAuthStatus] = useState<Awaited<
     ReturnType<typeof window.weq.systemAuth.getStatus>
@@ -87,6 +112,19 @@ export function GlobalSettingsSection(): ReactElement {
   const setAutoLock = trpc.bootstrap.setAutoLockMinutes.useMutation();
   const setWindowClose = trpc.bootstrap.setWindowCloseBehavior.useMutation();
   const cacheBusy = pickCache.isLoading || clearCache.isLoading;
+
+  // ---- WeQ 缓存清理（头像/媒体/商城表情/语音，均可重下）----
+  const cacheUsage = trpc.bootstrap.listClearableCache.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
+  const clearWeqCache = trpc.bootstrap.clearWeqCache.useMutation();
+  // Which categories are checked for cleanup. Empty set + a click on 清理 means
+  // "clear everything listed"; individual checkboxes narrow it down.
+  const [pickedCats, setPickedCats] = useState<Set<string>>(new Set());
+  const cacheItems = cacheUsage.data ?? [];
+  const totalCacheBytes = cacheItems.reduce((sum, it) => sum + it.bytes, 0);
 
   useEffect(() => {
     const minutes = settings.data?.autoLockMinutes;
@@ -130,6 +168,42 @@ export function GlobalSettingsSection(): ReactElement {
       pushToast({ tone: 'success', title: '已重置为默认缓存目录' });
     } catch (e) {
       showError('重置缓存目录失败', errMsg(e));
+    }
+  }
+
+  function toggleCat(id: string): void {
+    setPickedCats((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function onClearWeqCache(): Promise<void> {
+    const ids = [...pickedCats];
+    // Nothing selected → clear all listed categories.
+    const targets = ids.length > 0 ? cacheItems.filter((c) => pickedCats.has(c.id)) : cacheItems;
+    const willFree = targets.reduce((sum, it) => sum + it.bytes, 0);
+    const label =
+      ids.length > 0 ? targets.map((t) => t.label).join('、') : '全部可清理缓存';
+    const ok = await confirm(
+      '清理 WeQ 缓存',
+      `将删除「${label}」，预计释放约 ${formatBytes(willFree)}。这些缓存会在下次需要时自动重新下载，不影响聊天记录。是否继续？`,
+      { okLabel: '清理', cancelLabel: '取消', tone: 'warning' },
+    );
+    if (!ok) return;
+    try {
+      const res = await clearWeqCache.mutateAsync(ids.length > 0 ? { ids } : undefined);
+      await cacheUsage.refetch();
+      setPickedCats(new Set());
+      pushToast({
+        tone: 'success',
+        title: '缓存已清理',
+        message: `释放约 ${formatBytes(res.freedBytes)}`,
+      });
+    } catch (e) {
+      showError('清理缓存失败', errMsg(e));
     }
   }
 
@@ -391,6 +465,53 @@ export function GlobalSettingsSection(): ReactElement {
             </div>
           }
         />
+      </Card>
+
+      {/* Clear WeQ cache */}
+      <Card title="清理缓存">
+        <p className="weq-set-note">
+          <Info size={12} strokeWidth={1.9} aria-hidden /> 以下缓存均可在需要时自动重新下载，
+          删除不影响聊天记录、克隆体数据与导出产物。默认清理全部，也可勾选后单独清理。
+        </p>
+        <div className="weq-set-cache-list">
+          {cacheUsage.isLoading ? (
+            <div className="weq-set-empty">读取缓存占用中…</div>
+          ) : cacheItems.length === 0 ? (
+            <div className="weq-set-empty">暂无可清理的缓存</div>
+          ) : (
+            cacheItems.map((item) => (
+              <label key={item.id} className="weq-set-cache-item">
+                <input
+                  type="checkbox"
+                  checked={pickedCats.has(item.id)}
+                  onChange={() => toggleCat(item.id)}
+                  disabled={clearWeqCache.isLoading}
+                />
+                <HardDrive size={14} strokeWidth={1.8} aria-hidden />
+                <span className="weq-set-cache-label">{item.label}</span>
+                <span className="weq-set-cache-size weq-number">{formatBytes(item.bytes)}</span>
+              </label>
+            ))
+          )}
+        </div>
+        <div className="weq-set-actions">
+          <span className="weq-set-cache-total">
+            合计占用 <strong className="weq-number">{formatBytes(totalCacheBytes)}</strong>
+          </span>
+          <button
+            type="button"
+            className="weq-set-btn weq-set-btn-danger"
+            disabled={clearWeqCache.isLoading || cacheItems.length === 0 || totalCacheBytes === 0}
+            onClick={() => void onClearWeqCache()}
+          >
+            {clearWeqCache.isLoading ? (
+              <Loader2 size={14} strokeWidth={1.8} className="weq-spin" aria-hidden />
+            ) : (
+              <Trash2 size={14} strokeWidth={1.8} aria-hidden />
+            )}
+            {pickedCats.size > 0 ? '清理所选' : '清理全部'}
+          </button>
+        </div>
       </Card>
 
       <Card title="日志">

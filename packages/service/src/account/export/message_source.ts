@@ -12,6 +12,17 @@
  * the `(40027,40003)` composite index and the output is naturally oldest-first
  * (the order a chat log reads top-to-bottom). The cursor advances to the last
  * seq of each page; we stop when a short page comes back.
+ *
+ * Mixed-seq conversations: phone→PC migrated history lands with no per-conv seq
+ * (40003 = 0/NULL), so the seq cursor (`40003 > 0`) never returns it — yet the
+ * PC's own messages (seq > 0) do, so a naive seq scan silently drops all the
+ * imported history. To capture both, we run TWO cursors and merge them by
+ * sendTime: the seq scan (seq > 0) and a rowid scan restricted to seq-less rows
+ * (the imported block). Each stream is ~oldest-first on its own; the merge
+ * interleaves them into one globally chronological stream. When a conversation
+ * has no imported rows the seq-less stream is empty (one cheap query), and when
+ * every row is seq-less the seq stream is empty — both degenerate cases fall out
+ * of the same merge with no special-casing.
  */
 
 import type { MsgService, RenderGroupMsg, RenderC2cMsg } from '../msg';
@@ -40,9 +51,36 @@ function withinRange(sendTimeSec: number, range?: ExportTimeRange): boolean {
 }
 
 /**
+ * Merge two ~oldest-first message streams into one, ordered by sendTime. Both
+ * inputs are individually near-ascending on sendTime (a seq scan and a rowid
+ * scan of an imported block), so a classic two-way merge yields a globally
+ * chronological stream while only ever holding one message from each in memory.
+ * Ties and small local disorder inside a stream are preserved as-is — that's
+ * the best obtainable order without a usable seq on the imported rows.
+ */
+async function* mergeBySendTime<T extends { sendTime: bigint }>(
+  a: AsyncGenerator<T>,
+  b: AsyncGenerator<T>,
+): AsyncGenerator<T> {
+  let na = await a.next();
+  let nb = await b.next();
+  while (!na.done && !nb.done) {
+    if (na.value.sendTime <= nb.value.sendTime) {
+      yield na.value;
+      na = await a.next();
+    } else {
+      yield nb.value;
+      nb = await b.next();
+    }
+  }
+  for (; !na.done; na = await a.next()) yield na.value;
+  for (; !nb.done; nb = await b.next()) yield nb.value;
+}
+
+/**
  * Yield every message of a group, oldest-first, paging under the hood.
  *
- * NOTE: the cursor uses `msgSeq > lastSeq`, which assumes per-group seqs are
+ * NOTE: the seq cursor uses `msgSeq > lastSeq`, which assumes per-group seqs are
  * unique (they are — 40003 is a per-group incrementing sequence). If a future
  * dataset proves otherwise, switch the cursor to a (seq,msgId) tuple.
  */
@@ -52,47 +90,43 @@ export async function* iterateGroupMessages(
   opts: IterateOptions = {},
 ): AsyncGenerator<RenderGroupMsg> {
   const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
-  let cursor = 0n;
-  let sawSeqRows = false;
-  for (;;) {
-    const page = await msgs.getGroupAfter(groupCode, cursor, pageSize);
-    if (page.length === 0) break;
-    sawSeqRows = true;
-    for (const m of page) {
-      if (withinRange(Number(m.sendTime), opts.range)) yield m;
-    }
-    const last = page[page.length - 1]!;
-    cursor = last.msgSeq;
-    // A short page means we reached the tail — no need for one more empty query.
-    if (page.length < pageSize) break;
-  }
-  // Fallback: the seq cursor matched no rows at all, yet the conversation has
-  // messages (they COUNT and render in the chat view). This is the degenerate
-  // msgSeq case — every 40003 is 0/NULL, typically migration-imported history.
-  // Re-scan by rowid so those messages still export. See iterateByRowId.
-  if (!sawSeqRows) {
-    yield* iterateGroupByRowId(msgs, groupCode, opts);
+  const merged = mergeBySendTime(
+    pageGroupBySeq(msgs, groupCode, pageSize),
+    pageGroupBySeqlessRowId(msgs, groupCode, pageSize),
+  );
+  for await (const m of merged) {
+    if (withinRange(Number(m.sendTime), opts.range)) yield m;
   }
 }
 
-/**
- * Fallback scan for {@link iterateGroupMessages}: page by rowid (insertion
- * order) instead of msgSeq. Only an approximation of send-time order, so this
- * runs strictly as a last resort when msgSeq is unusable.
- */
-async function* iterateGroupByRowId(
+/** Group seq cursor (`40003 > lastSeq`): all messages that carry a real seq. */
+async function* pageGroupBySeq(
   msgs: MsgService,
   groupCode: string,
-  opts: IterateOptions,
+  pageSize: number,
 ): AsyncGenerator<RenderGroupMsg> {
-  const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
   let cursor = 0n;
   for (;;) {
-    const page = await msgs.getGroupAfterRowId(groupCode, cursor, pageSize);
+    const page = await msgs.getGroupAfter(groupCode, cursor, pageSize);
     if (page.length === 0) break;
-    for (const m of page) {
-      if (withinRange(Number(m.sendTime), opts.range)) yield m;
-    }
+    for (const m of page) yield m;
+    cursor = page[page.length - 1]!.msgSeq;
+    // A short page means we reached the tail — no need for one more empty query.
+    if (page.length < pageSize) break;
+  }
+}
+
+/** Group rowid cursor over seq-less rows only: the migration-imported block. */
+async function* pageGroupBySeqlessRowId(
+  msgs: MsgService,
+  groupCode: string,
+  pageSize: number,
+): AsyncGenerator<RenderGroupMsg> {
+  let cursor = 0n;
+  for (;;) {
+    const page = await msgs.getGroupSeqlessAfterRowId(groupCode, cursor, pageSize);
+    if (page.length === 0) break;
+    for (const m of page) yield m;
     cursor = page[page.length - 1]!.rowId;
     if (page.length < pageSize) break;
   }
@@ -107,44 +141,42 @@ export async function* iterateC2cMessages(
   opts: IterateOptions = {},
 ): AsyncGenerator<RenderC2cMsg> {
   const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
-  let cursor = 0n;
-  let sawSeqRows = false;
-  for (;;) {
-    const page = await msgs.getC2cAfter(peerUid, cursor, pageSize);
-    if (page.length === 0) break;
-    sawSeqRows = true;
-    for (const m of page) {
-      if (withinRange(Number(m.sendTime), opts.range)) yield m;
-    }
-    const last = page[page.length - 1]!;
-    cursor = last.msgSeq;
-    if (page.length < pageSize) break;
-  }
-  // Fallback for degenerate msgSeq (all 0/NULL — migration-imported history):
-  // the seq cursor matched nothing though the conversation has messages, so
-  // re-scan by rowid. See iterateC2cByRowId.
-  if (!sawSeqRows) {
-    yield* iterateC2cByRowId(msgs, peerUid, opts);
+  const merged = mergeBySendTime(
+    pageC2cBySeq(msgs, peerUid, pageSize),
+    pageC2cBySeqlessRowId(msgs, peerUid, pageSize),
+  );
+  for await (const m of merged) {
+    if (withinRange(Number(m.sendTime), opts.range)) yield m;
   }
 }
 
-/**
- * Fallback scan for {@link iterateC2cMessages}: page by rowid (insertion order)
- * instead of msgSeq. Approximate ordering — last-resort only.
- */
-async function* iterateC2cByRowId(
+/** C2c seq cursor (`40003 > lastSeq`): all messages that carry a real seq. */
+async function* pageC2cBySeq(
   msgs: MsgService,
   peerUid: string,
-  opts: IterateOptions,
+  pageSize: number,
 ): AsyncGenerator<RenderC2cMsg> {
-  const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
   let cursor = 0n;
   for (;;) {
-    const page = await msgs.getC2cAfterRowId(peerUid, cursor, pageSize);
+    const page = await msgs.getC2cAfter(peerUid, cursor, pageSize);
     if (page.length === 0) break;
-    for (const m of page) {
-      if (withinRange(Number(m.sendTime), opts.range)) yield m;
-    }
+    for (const m of page) yield m;
+    cursor = page[page.length - 1]!.msgSeq;
+    if (page.length < pageSize) break;
+  }
+}
+
+/** C2c rowid cursor over seq-less rows only: the migration-imported block. */
+async function* pageC2cBySeqlessRowId(
+  msgs: MsgService,
+  peerUid: string,
+  pageSize: number,
+): AsyncGenerator<RenderC2cMsg> {
+  let cursor = 0n;
+  for (;;) {
+    const page = await msgs.getC2cSeqlessAfterRowId(peerUid, cursor, pageSize);
+    if (page.length === 0) break;
+    for (const m of page) yield m;
     cursor = page[page.length - 1]!.rowId;
     if (page.length < pageSize) break;
   }

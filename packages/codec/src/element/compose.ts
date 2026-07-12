@@ -174,6 +174,22 @@ export interface ComposeParseOk {
 }
 export type ComposeParseResult = ComposeParseOk | ComposeParseError;
 
+/**
+ * Coerce a quoted (reply.origElements) element. A lifted `pic` carries CDN
+ * fields whose numeric/bigint leaves arrive as strings over IPC, so run it
+ * through the lenient pic schema to restore their types before it is re-encoded
+ * into the stored quote. Text/@/face need no coercion, and wire-form items
+ * (elementType, no `kind`) are left untouched. Never throws — an unparseable
+ * item is returned verbatim so the insert still succeeds.
+ */
+function coerceOrigElement(raw: unknown): unknown {
+  if ((raw as { kind?: string })?.kind === 'pic') {
+    const res = COERCED_SCHEMAS.pic.safeParse(raw);
+    if (res.success) return res.data;
+  }
+  return raw;
+}
+
 /** Validate + coerce one authored element. */
 function parseComposeElement(raw: unknown): { ok: true; element: Element } | ComposeParseError {
   const kind = (raw as { kind?: string })?.kind;
@@ -184,7 +200,11 @@ function parseComposeElement(raw: unknown): { ok: true; element: Element } | Com
   if (!res.success) {
     return { ok: false, error: `${kind} 校验失败: ${res.error.issues.map((i) => `${i.path.join('.')} ${i.message}`).join('; ')}` };
   }
-  return { ok: true, element: res.data as Element };
+  const element = res.data as Element & { origElements?: unknown };
+  if (kind === 'reply' && Array.isArray(element.origElements)) {
+    element.origElements = element.origElements.map(coerceOrigElement);
+  }
+  return { ok: true, element: element as Element };
 }
 
 /**

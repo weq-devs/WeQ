@@ -14,6 +14,8 @@
  *   weq-media://mface?pack=<emojiPackId>&hash=<previewMd5Hex> → sticker bytes
  *   weq-media://agentvoice?persona=&id=<hash.ext>             → clone TTS audio bytes
  *   weq-media://avatar?scope=user&hash=<hash>&v=big|small     → local avatar-cache bytes
+ *   weq-media://avatar?scope=user&uin=<qq>&fb=<cdnUrl>        → local by uid-hash, CDN fallback
+ *   weq-media://avatar?scope=group&uid=<code>&fb=<cdnUrl>     → group avatar (uin==uid)
  *   weq-media://localfile?path=<absOriPath>                   → File/Ori file bytes (image preview)
  *   weq-media://localmedia?kind=pic&rel=<month/Ori/name>      → PhotoWall/Qzone/Pic/Video cache bytes
  *   weq-media://localvoice?rel=<month/Ori/name>               → decoded WAV for a Ptt cache clip
@@ -94,6 +96,27 @@ function notFound(reason: string): Response {
 
 function fileResponse(path: string): Promise<Response> {
   return net.fetch(pathToFileURL(path).toString());
+}
+
+/**
+ * CDN fallback for an avatar the local cache didn't have. Routes through the
+ * shared {@link AvatarCacheService} disk cache (so the fetched bytes warm the
+ * same cache the rest of the app reads), returning 404 on any failure so the
+ * renderer shows its glyph.
+ */
+async function avatarFallbackResponse(src: string): Promise<Response> {
+  if (!/^https?:\/\//i.test(src)) return notFound('avatar fallback needs http url');
+  const cache = getAppContext().bootstrap?.avatarCache;
+  if (!cache) return notFound('avatar cache unavailable');
+  try {
+    const blob = await cache.get(src);
+    return new Response(new Uint8Array(blob.data), {
+      status: 200,
+      headers: { 'Content-Type': blob.contentType, 'Cache-Control': 'public, max-age=86400' },
+    });
+  } catch {
+    return notFound('avatar fallback failed');
+  }
 }
 
 async function albumRemoteResponse(src: string): Promise<Response> {
@@ -225,18 +248,31 @@ export function registerMediaProtocol(): void {
           return path ? fileResponse(path) : notFound('agentvoice not found');
         }
         case 'avatar': {
-          // Local avatar cache (nt_data/avatar/{user,group,cover}). The renderer
-          // asks for the big original first and falls back to the small thumb via
-          // <img onError>. scope+hash+v identify the file; bytes stream off disk.
+          // Local avatar cache (nt_data/avatar/{user,group,cover}). Three ways in:
+          //   hash=<hash>    — an explicit file (本地资源 → 头像 browser)
+          //   uid=<peer uid> — compute the file hash from the uid formula
+          //   uin=<peer qq>  — same, translating uin→uid (group uin == uid)
+          // `v=big|small` picks the resolution (the other is tried as backup).
+          // `fb=<enc cdn url>` is the guaranteed fallback: on a local miss we
+          // serve (and disk-cache) the CDN avatar, so the renderer needs only one
+          // <img src> and its onError is the final glyph net.
           const scope = q.get('scope') ?? '';
           const hash = q.get('hash') ?? '';
+          const uid = q.get('uid') ?? '';
+          const uin = q.get('uin') ?? '';
           const variant = q.get('v') === 'small' ? 'small' : 'big';
+          const fb = q.get('fb') ?? '';
           if (scope !== 'user' && scope !== 'group' && scope !== 'cover') {
             return notFound('avatar needs scope=user|group|cover');
           }
-          if (!hash) return notFound('avatar needs hash');
-          const path = await services.avatarResource.resolveFile(scope, hash, variant);
-          return path ? fileResponse(path) : notFound('avatar not found');
+          let path: string | null = null;
+          if (hash) path = await services.avatarResource.resolveFile(scope, hash, variant);
+          else if (uid) path = await services.avatarResource.resolveByUid(scope, uid, variant);
+          else if (uin) path = await services.avatarResource.resolveByUin(scope, uin, variant);
+          if (path) return fileResponse(path);
+          // Local miss → CDN fallback (disk-cached by AvatarCacheService).
+          if (fb) return avatarFallbackResponse(fb);
+          return notFound('avatar not found');
         }
         case 'cemoji': {
           // Custom-emoji cache (nt_data/Emoji/emoji-recv/<month> + personal_emoji).

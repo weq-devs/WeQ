@@ -13,6 +13,8 @@
     "test:recent-contact": "tsx test/recent_contact.ts",
     "test:recent-contact-all": "tsx test/recent_contact_all.ts",
     "test:recent-contact-dump": "tsx test/recent_contact_dump.ts",
+    "test:verify-avatar-hash": "tsx test/verify_avatar_hash.ts",
+    "test:verify-avatar-probe": "tsx test/verify_avatar_probe.ts",
     "test:inspect-game-center": "tsx test/inspect_game_center.ts",
     "test:insert-weq-assistant": "tsx test/insert_weq_assistant.ts",
     "test:delete-weq-assistant": "tsx test/delete_weq_assistant.ts",

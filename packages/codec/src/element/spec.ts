@@ -13,7 +13,6 @@ import {
   ElementType,
   PicSubType,
   PicType,
-  PttType,
   GrayTipSubType,
   CallSubType,
   CallType,
@@ -174,8 +173,13 @@ export const PttElementSchema = BaseElementFieldsSchema.extend({
   uploadTimestamp: z.number(),
   fileTTL: z.number(),
   summary: z.array(z.string()),
-  pttType: z.nativeEnum(PttType),
+  /** Clip duration in seconds (wire tag 45906). Authoritative for both the
+   * 时长 label and bubble width — waveform length is not. */
+  pttDuration: z.number(),
   voiceChanged: z.boolean(),
+  /** AI 声聊 flag (wire tag 45915): true only on AI-voice-chat clips, absent
+   * otherwise. Reliable classifier; their waveform is a synthetic placeholder. */
+  isAiVoice: z.boolean().optional(),
   waveform: z.instanceof(Uint8Array),
   transferState: z.number().optional(),
   picTransferState: z.number().optional(),
@@ -368,6 +372,7 @@ export const WalletElementSchema = BaseElementFieldsSchema.extend({
   walletFlag48417: z.instanceof(Uint8Array).optional(),
   walletFlag48418: z.string().optional(),
   walletFlag48419: z.number().optional(),
+  walletDesignatedUin: z.number().optional(),
   walletExt: z.any().optional(),
   walletFlag48437: z.number().optional(),
   walletFlag48438: z.number().optional(),

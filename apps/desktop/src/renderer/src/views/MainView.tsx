@@ -32,8 +32,11 @@ import { RailAccountFooter } from '../components/RailAccountFooter';
 import { SettingsDialog } from '../components/SettingsDialog';
 import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
 import { GroupAnalyticsDialog } from '../components/GroupAnalyticsDialog';
+import { MemberProfileCard } from '../components/MemberProfileCard';
 import { BuddyAnalyticsDialog } from '../components/BuddyAnalyticsDialog';
 import { AddMessageModal } from '../components/compose/AddMessageModal';
+import { DeletedMessagesModal } from '../components/compose/DeletedMessagesModal';
+import { loadHiddenMessageIds, saveHiddenMessageIds } from '../im-template/template/hiddenMessages';
 import { RelationGraphView } from '../components/relationGraph/RelationGraphView';
 import { AgentLabView } from './AgentLabView';
 import { ExportView } from './ExportView';
@@ -47,6 +50,7 @@ import {
   type Contact,
   type Conversation,
   type ConversationDrafts,
+  type ConversationHighlight,
   type ConversationPreference,
   type ConversationPreferences,
   type GroupJoinRequest,
@@ -144,6 +148,8 @@ type RecentContactWire = {
   senderRemark: string;
   targetAvatar: string;
   targetRemark: string;
+  /** 41220 — message-notify level. 1 = notify normally; else (observed 4) 免打扰/muted. */
+  notifyLevel: number;
 };
 
 type MessageWire = {
@@ -480,8 +486,24 @@ function contactTitle(c: RecentContactWire): string {
 function previewText(preview: unknown): string | null {
   if (!preview || typeof preview !== 'object') return null;
   const p = preview as { displayText?: unknown; kind?: unknown; recallDisplayText?: unknown };
-  if (typeof p.displayText === 'string' && p.displayText.trim()) return p.displayText.trim();
+  // QQ's `displayText` is unreliable for element-only messages: a lone face /
+  // sticker often stores an *invisible* sysface control marker that renders as a
+  // blank conversation-list row. Treat "no visible character" as empty so we
+  // fall back to the kind-derived bracket label ([表情] / [图片] …).
+  if (typeof p.displayText === 'string' && hasVisibleText(p.displayText)) {
+    return p.displayText.trim();
+  }
   return previewFallbackByKind(p);
+}
+
+/** True when a string has at least one visible (non-control, non-space) char. */
+function hasVisibleText(s: string): boolean {
+  // Visible = any char that is not a C0/C1 control char (QQ sysface markers) or whitespace.
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c > 0x20 && c !== 0x7f && !(c >= 0x80 && c <= 0x9f)) return true;
+  }
+  return false;
 }
 
 /**
@@ -749,11 +771,25 @@ function levelNameFor(levelConfigs: Array<{ level: number; levelName: string }>,
   return levelConfigs.find((item) => item.level === bracket)?.levelName || `Lv${level}`;
 }
 
+/**
+ * Derive the 免打扰/muted flag from `recent_contact` column 41220.
+ * Observed values: 1 = notify normally, 4 = muted. Treat 0/1 as "notify"
+ * (0 = unset) and anything else (2/3/4 — QQ's various push-restriction modes)
+ * as muted, so the conversation shows the grey badge + disabled-bell indicator.
+ */
+function mutedFromNotifyLevel(notifyLevel: number | undefined): boolean {
+  return notifyLevel !== undefined && notifyLevel !== 0 && notifyLevel !== 1;
+}
+
 function contactToConversation(c: RecentContactWire, user: User): Conversation | null {
   const kind = chatTypeKind(c.chatType);
   const title = contactTitle(c);
   const preview = previewText(c.preview);
   const updatedAt = toIsoTime(c.sendTime);
+  const preference: ConversationPreference = {
+    ...fallbackPreference,
+    muted: mutedFromNotifyLevel(c.notifyLevel),
+  };
   const lastMessage = {
     id: `preview:${c.targetUid}:${c.sendTime}`,
     senderId: c.senderUid || null,
@@ -779,7 +815,7 @@ function contactToConversation(c: RecentContactWire, user: User): Conversation |
       otherUser,
       group: null,
       members: [],
-      preference: fallbackPreference,
+      preference,
       unreadCount: 0,
       lastMessage,
       chatType: c.chatType,
@@ -803,7 +839,7 @@ function contactToConversation(c: RecentContactWire, user: User): Conversation |
         role: 'member',
       },
       members: [{ ...user, role: 'member', joinedAt: updatedAt }],
-      preference: fallbackPreference,
+      preference,
       unreadCount: 0,
       lastMessage,
     };
@@ -819,21 +855,27 @@ function contactToConversation(c: RecentContactWire, user: User): Conversation |
  * the logged-in account's uin, which QQ NT sets on every outbound message in
  * both c2c and group chats.
  *
- * The legacy `data.isSender === true` fallback exists for c2c messages where
- * `senderUin` is missing (historical receive paths). It is GROUP-UNSAFE: a
- * group `multiMsg` (合并转发) element carries sub-messages whose `isSender`
- * reflects whether *the original sender of that sub-message* was self, not
- * whether the carrier message is self. Reading isSender at the top level
- * misclassifies anyone forwarding a chat that included one of your messages
- * as "sent by me". So we only use the fallback in c2c conversations.
+ * The legacy `data.isSender === true` fallback exists ONLY for messages where
+ * `senderUin` is missing (historical receive paths). It is UNSAFE to trust
+ * otherwise: a `multiMsg` (合并转发) carrier element itself carries
+ * `isSender=true` in the local DB, and that flag does NOT reflect the carrier
+ * message's own direction. Reading it at the top level misclassifies a forward
+ * the peer sent you as "sent by me" (both c2c and group). So whenever a valid
+ * `senderUin` is present we decide direction from it alone and never consult
+ * `isSender`; the fallback is reached only when `senderUin` is absent/'0'.
  */
 function isMineMessage(message: MessageWire, conversation: Conversation, user: User): boolean {
-  if (message.senderUin && message.senderUin === user.identityValue) return true;
-  if (conversation.type !== 'direct') return false;
   // 数据线：senderUin 是自己（各设备同号），无法区分方向；约定 PC 伪 uid = 本机，
-  // 由它发出的算"我发的"，手机/平板发来的算对端。
+  // 由它发出的算"我发的"，手机/平板发来的算对端。这些伪 uid 只在数据线会话命中，
+  // 对普通好友/群成员 uid 返回 false，故可安全地放在最前面。
   if (isDatalineSelfUid(message.senderUid)) return true;
   if (datalineName(message.senderUid)) return false;
+  // senderUin 有效（存在且非哨兵 '0'）时以它为准判定方向，不再信任 element.isSender。
+  if (message.senderUin && message.senderUin !== '0') {
+    return message.senderUin === user.identityValue;
+  }
+  // senderUin 缺失时才 fallback 到 element 标志（旧/迁移消息兜底），仅限私聊。
+  if (conversation.type !== 'direct') return false;
   return message.elements.some((element) => {
     const data = (element as RenderElementWire | null)?.data;
     return data?.isSender === true;
@@ -1491,9 +1533,20 @@ export function MainView(): ReactElement {
     peerUid: string;
     peerName: string;
   } | null>(null);
-  
+  const [memberCard, setMemberCard] = useState<{
+    member: any;
+    anchor: { x: number; y: number };
+  } | null>(null);
+
   const [editorState, setEditorState] = useState<{ msgId: string, elements: any[] } | null>(null);
   const [addMessageConv, setAddMessageConv] = useState<Conversation | null>(null);
+  // "查看删除消息" panel: which conversation is open, its fetched deleted rows,
+  // and a bump counter that tells ChatPane to re-read its local hidden set after
+  // a restore (so the message reappears in the live chat immediately).
+  const [deletedConv, setDeletedConv] = useState<Conversation | null>(null);
+  const [deletedWires, setDeletedWires] = useState<MessageWire[]>([]);
+  const [deletedLoading, setDeletedLoading] = useState(false);
+  const [hiddenReloadKey, setHiddenReloadKey] = useState(0);
 
   const handleEditRaw = useCallback(async (message: Message) => {
     try {
@@ -1509,9 +1562,9 @@ export function MainView(): ReactElement {
   const handleSaveRaw = useCallback(async (elements: any[]) => {
     if (!editorState) return;
     try {
-        const success = await client.account.updateElements.mutate({ 
-            msgId: editorState.msgId, 
-            elements 
+        const success = await client.account.updateElements.mutate({
+            msgId: editorState.msgId,
+            elements
         });
         if (success) {
             void refreshWindow();
@@ -1521,6 +1574,24 @@ export function MainView(): ReactElement {
         throw e;
     }
   }, [editorState, refreshWindow]);
+
+  const handleDeleteMessage = useCallback(async (message: Message) => {
+    try {
+        await client.account.deleteMessage.mutate({ msgId: message.id });
+    } catch (e) {
+        console.error('[MainView] Failed to delete message:', e);
+    }
+  }, []);
+
+  const handleHardDeleteMessage = useCallback(async (message: Message) => {
+    try {
+        await client.account.hardDeleteMessage.mutate({ msgId: message.id });
+        // Row is physically gone — refresh so the window reflects the DB.
+        void refreshWindow();
+    } catch (e) {
+        console.error('[MainView] Failed to hard-delete message:', e);
+    }
+  }, [refreshWindow]);
 
   const handleOpenGroupAlbums = useCallback((conversation: Extract<Conversation, { type: 'group' }>) => {
     setAlbumDialog({
@@ -1546,6 +1617,64 @@ export function MainView(): ReactElement {
     setAddMessageConv(conversation);
   }, []);
 
+  /** kind + conversation key (peer uid / group code) used by the msg endpoints. */
+  const convFetchKey = useCallback(
+    (c: Conversation): { kind: 'c2c' | 'group'; conv: string } =>
+      c.type === 'group'
+        ? { kind: 'group', conv: c.group.identityValue }
+        : { kind: 'c2c', conv: c.otherUser.id },
+    [],
+  );
+
+  const loadDeletedMessages = useCallback(
+    async (c: Conversation): Promise<void> => {
+      const { kind, conv } = convFetchKey(c);
+      setDeletedLoading(true);
+      try {
+        const rows = await client.account.deletedMessages.query({ kind, conv });
+        setDeletedWires(rows.map(toMessageWire));
+      } catch (e) {
+        console.error('[MainView] Failed to load deleted messages:', e);
+        setDeletedWires([]);
+      } finally {
+        setDeletedLoading(false);
+      }
+    },
+    [convFetchKey],
+  );
+
+  const handleViewDeleted = useCallback(
+    (conversation: Conversation) => {
+      setDeletedWires([]);
+      setDeletedConv(conversation);
+      void loadDeletedMessages(conversation);
+    },
+    [loadDeletedMessages],
+  );
+
+  const handleRestoreMessage = useCallback(
+    async (msgId: string): Promise<void> => {
+      await client.account.restoreMessage.mutate({ msgId });
+      if (deletedConv) {
+        // Delete had added this id to the conversation's local hidden set; drop
+        // it so the live chat re-shows the row, then nudge ChatPane to re-read.
+        const ids = loadHiddenMessageIds(deletedConv.id);
+        if (ids.delete(msgId)) saveHiddenMessageIds(deletedConv.id, ids);
+        setHiddenReloadKey((k) => k + 1);
+        await loadDeletedMessages(deletedConv);
+      }
+      void refreshWindow();
+    },
+    [deletedConv, loadDeletedMessages, refreshWindow],
+  );
+
+  const handleOpenGroupMember = useCallback(
+    (member: any, anchor: { x: number; y: number }) => {
+      setMemberCard({ member, anchor });
+    },
+    [],
+  );
+
   const handleOpenBuddyAnalytics = useCallback((conversation: Extract<Conversation, { type: 'direct' }>) => {
     setBuddyAnalyticsDialog({
       peerUid: conversation.otherUser.id,
@@ -1561,6 +1690,9 @@ export function MainView(): ReactElement {
   // Unread count per conversation id (latest msgSeq - last read seq). Filled
   // asynchronously after the recent-contact list loads / refreshes.
   const [unreadByConv, setUnreadByConv] = useState<Record<string, number>>({});
+  const [highlightsByConv, setHighlightsByConv] = useState<
+    Record<string, ConversationHighlight[]>
+  >({});
   const [groupMemberPages, setGroupMemberPages] = useState<Record<string, GroupMemberWire[]>>({});
   const [groupMemberHasMore, setGroupMemberHasMore] = useState<Record<string, boolean>>({});
   const [groupMemberLoading, setGroupMemberLoading] = useState<Record<string, boolean>>({});
@@ -1630,7 +1762,13 @@ export function MainView(): ReactElement {
       return Array.from(byId.values())
         .map((conversation) => {
           const unread = unreadByConv[conversation.id];
-          return unread ? { ...conversation, unreadCount: unread } : conversation;
+          const highlights = highlightsByConv[conversation.id] ?? null;
+          if (!unread && !highlights) return conversation;
+          return {
+            ...conversation,
+            ...(unread ? { unreadCount: unread } : {}),
+            highlights,
+          };
         })
         .sort((a, b) => {
           const aTime = Date.parse(a.updatedAt);
@@ -1638,7 +1776,7 @@ export function MainView(): ReactElement {
           return bTime - aTime;
         });
     },
-    [allGroups.data, contacts.data, user, unreadByConv],
+    [allGroups.data, contacts.data, user, unreadByConv, highlightsByConv],
   );
   const groupsById = useMemo(() => new Map(conversations.map((conversation) => [conversation.id, conversation])), [conversations]);
   const contactRequests = useMemo(
@@ -1749,6 +1887,7 @@ export function MainView(): ReactElement {
 
     async function loadUnread(): Promise<void> {
       const next: Record<string, number> = {};
+      const highlights: Record<string, ConversationHighlight[]> = {};
       const batchSize = 12;
       for (let index = 0; index < list.length && !cancelled; index += batchSize) {
         const batch = list.slice(index, index + batchSize);
@@ -1765,17 +1904,26 @@ export function MainView(): ReactElement {
               const latest = BigInt(contact.msgSeq || '0');
               const read = info?.msgSeq ? BigInt(info.msgSeq) : 0n;
               const unread = latest > read ? Number(latest - read) : 0;
-              return [contact.targetUid, unread] as const;
+              return {
+                uid: contact.targetUid,
+                unread,
+                highlights: (info?.highlights ?? null) as ConversationHighlight[] | null,
+              };
             } catch {
               return null;
             }
           }),
         );
         for (const entry of counts) {
-          if (entry) next[entry[0]] = entry[1];
+          if (!entry) continue;
+          next[entry.uid] = entry.unread;
+          if (entry.highlights?.length) highlights[entry.uid] = entry.highlights;
         }
       }
-      if (!cancelled) setUnreadByConv(next);
+      if (!cancelled) {
+        setUnreadByConv(next);
+        setHighlightsByConv(highlights);
+      }
     }
 
     void loadUnread();
@@ -1977,6 +2125,17 @@ export function MainView(): ReactElement {
         messageToTemplate(message, selectedConversation, user, memberMap)
       );
   }, [loadedMessageWires, selectedConversation, user, currentGroupMembers]);
+
+  // Deleted messages built through the SAME template pipeline as the live chat,
+  // so the panel's bubbles match exactly. The panel only opens for the currently
+  // selected conversation, so `currentGroupMembers` is the right member source.
+  const deletedTemplateMessages = useMemo(() => {
+    if (!deletedConv) return [];
+    const memberMap = new Map(currentGroupMembers.map((m) => [m.id, m]));
+    return deletedWires
+      .filter((message) => isRenderableMessage(message))
+      .map((message) => messageToTemplate(message, deletedConv, user, memberMap));
+  }, [deletedWires, deletedConv, user, currentGroupMembers]);
 
   const activeConversation = useMemo(() => {
     if (!selectedConversation) return undefined;
@@ -2727,11 +2886,16 @@ export function MainView(): ReactElement {
                 onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
                 onBackConversation={shell.backConversation}
                 onEditRaw={handleEditRaw}
+                onDeleteMessage={handleDeleteMessage}
+                onHardDeleteMessage={handleHardDeleteMessage}
                 onOpenGroupAlbums={handleOpenGroupAlbums}
                 onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
                 onOpenGroupAnalytics={handleOpenGroupAnalytics}
                 onOpenBuddyAnalytics={handleOpenBuddyAnalytics}
+                onOpenGroupMember={handleOpenGroupMember}
                 onAddMessage={handleAddMessage}
+                onViewDeleted={handleViewDeleted}
+                hiddenReloadKey={hiddenReloadKey}
               />
             </div>
             <OverlayScrollbar
@@ -2780,6 +2944,13 @@ export function MainView(): ReactElement {
           onClose={() => setBuddyAnalyticsDialog(null)}
         />
       ) : null}
+      {memberCard ? (
+        <MemberProfileCard
+          member={memberCard.member}
+          anchor={memberCard.anchor}
+          onClose={() => setMemberCard(null)}
+        />
+      ) : null}
       {addMessageConv ? (
         <AddMessageModal
           conversation={addMessageConv}
@@ -2787,6 +2958,20 @@ export function MainView(): ReactElement {
           selfUid={selfProfile.data?.uid}
           onClose={() => setAddMessageConv(null)}
           onInserted={() => void refreshWindow()}
+        />
+      ) : null}
+      {deletedConv ? (
+        <DeletedMessagesModal
+          conversation={deletedConv}
+          user={user}
+          messages={deletedTemplateMessages}
+          renderers={messageRenderers}
+          loading={deletedLoading}
+          onRestore={handleRestoreMessage}
+          onClose={() => {
+            setDeletedConv(null);
+            setDeletedWires([]);
+          }}
         />
       ) : null}
       </ConvContext.Provider>

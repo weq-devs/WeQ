@@ -89,8 +89,9 @@ export const ReplyElementWire = {
   summary: ProtoField(45815, ScalarType.STRING, { repeat: true }),
   cdnHost: ProtoField(45816, ScalarType.STRING, { optional: true }),
   transferState: ProtoField(45550, ScalarType.UINT32, { optional: true }),
-  pttType: ProtoField(45906, ScalarType.UINT32, { optional: true }),
+  pttDuration: ProtoField(45906, ScalarType.UINT32, { optional: true }),
   voiceChanged: ProtoField(45911, ScalarType.BOOL, { optional: true }),
+  isAiVoice: ProtoField(45915, ScalarType.BOOL, { optional: true }),
   waveform: ProtoField(45925, ScalarType.BYTES, { optional: true }),
   faceId: ProtoField(47601, ScalarType.UINT32, { optional: true }),
   faceText: ProtoField(47602, ScalarType.STRING, { optional: true }),
@@ -412,8 +413,12 @@ export const ElementWire = {
   /** Transfer state (optional). */
   transferState: ProtoField(45550, ScalarType.UINT32, { optional: true }),
 
-  /** Voice type: 1=intercom, 2=recording. Required for PTT elements. */
-  pttType: ProtoField(45906, ScalarType.UINT32, { optional: true }),
+  /** Voice clip duration in seconds. Drives both the 时长 label and the bubble
+   * width; the waveform (45925) is decorative and NOT a reliable duration source
+   * (AI 声聊 clips carry a fixed 30-byte synthetic strip regardless of length).
+   * Named `pttDuration` to avoid colliding with the CALL `duration` (48152) that
+   * shares this flat wire struct — a duplicate key would silently drop tag 45906. */
+  pttDuration: ProtoField(45906, ScalarType.UINT32, { optional: true }),
 
   /** PTT protocol flag. */
   pttFlag45907: ProtoField(45907, ScalarType.UINT32, { optional: true }),
@@ -422,6 +427,12 @@ export const ElementWire = {
 
   /** Whether voice is changed/transformed. Required for PTT elements. */
   voiceChanged: ProtoField(45911, ScalarType.BOOL, { optional: true }),
+
+  /** AI 声聊 marker. Present (=true) ONLY on AI-voice-chat clips; absent on
+   * normal mic recordings, 对讲 (intercom), and other-client voices. This is
+   * the reliable classifier — QQ doesn't otherwise flag these, and their
+   * waveform (45925) is a fixed synthetic 30-byte strip. */
+  isAiVoice: ProtoField(45915, ScalarType.BOOL, { optional: true }),
 
   pttFlag45922: ProtoField(45922, ScalarType.UINT32, { optional: true }),
 
@@ -797,12 +808,21 @@ export const ElementWire = {
   walletFlag48410: ProtoField(48410, ScalarType.STRING, { optional: true }),
   walletFlag48411: ProtoField(48411, ScalarType.UINT32, { optional: true }),
 
-  /** Redbag type: 1=transfer, 2=normal, 6=password, 15=voice (elementType=9). */
+  /**
+   * Redbag type (elementType=9). See `RedbagType` in `element/types.ts`.
+   * 1=transfer, 2=normal, 3=lucky (拼手气), 6=password, 8=designated (专属), 15=voice.
+   */
   walletRedbagType: ProtoField(48412, ScalarType.UINT32, { optional: true }),
 
   walletFlag48417: ProtoField(48417, ScalarType.BYTES, { optional: true }),
   walletFlag48418: ProtoField(48418, ScalarType.STRING, { optional: true }),
   walletFlag48419: ProtoField(48419, ScalarType.UINT32, { optional: true }),
+
+  /**
+   * Designated recipient uin (elementType=9). Present only on 专属红包
+   * (walletRedbagType=8); the sole group member allowed to claim the packet.
+   */
+  walletDesignatedUin: ProtoField(48420, ScalarType.UINT32, { optional: true }),
 
   /** Extension field (elementType=9). */
   walletExt: ProtoField(48421, () => WalletExtWire, { optional: true }),

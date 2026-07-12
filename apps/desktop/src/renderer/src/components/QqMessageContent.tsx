@@ -373,9 +373,32 @@ function origSenderDisplay(data: Record<string, unknown>): string | null {
 }
 
 /**
+ * Which quoted elements to preview in the reply box (QQ-style, not just the
+ * single last element):
+ *   - the message ends in media (image / video / file / sticker / …) → preview
+ *     JUST that trailing media (its thumbnail / bracket label);
+ *   - the message ends in inline content (text / @ / face) → preview the whole
+ *     trailing run of inline elements (walk back until a media element or the
+ *     start), so "@a 在吗😊" shows in full instead of only the last "😊".
+ */
+function replyPreviewElements(origElements: RenderElement[]): RenderElement[] {
+  const meaningful = origElements.filter(isMeaningful);
+  const last = meaningful[meaningful.length - 1];
+  if (!last) return [];
+  if (!isTextLike(last)) return [last];
+  const run: RenderElement[] = [];
+  for (let i = meaningful.length - 1; i >= 0; i--) {
+    const el = meaningful[i];
+    if (!el || !isTextLike(el)) break;
+    run.unshift(el);
+  }
+  return run;
+}
+
+/**
  * The darker quote box for a `reply` element. Two lines:
  *   line 1 — the original sender's nickname (resolved by the host),
- *   line 2 — a compact preview of the referenced message's last element
+ *   line 2 — a compact preview of the referenced message's trailing elements
  *           with the jump-arrow tucked at its end.
  * Clicking anywhere on the box asks the host to scroll to that message.
  */
@@ -388,8 +411,7 @@ function ReplyQuote({
 }) {
   const jumpToSeq = useContext(ReplyJumpContext);
   const origElements = Array.isArray(data.origElements) ? (data.origElements as RenderElement[]) : [];
-  const meaningful = origElements.filter(isMeaningful);
-  const preview = meaningful.length > 0 ? meaningful[meaningful.length - 1] : null;
+  const previewEls = replyPreviewElements(origElements);
   const senderName = origSenderDisplay(data);
   const quoteTimeMs = quoteSendTimeMs(data, sendTimeMs);
   // Pass both 40003 candidates; the host picks by conversation kind. Verified
@@ -419,7 +441,13 @@ function ReplyQuote({
       <div className="qq-reply-quote-stack">
         <div className="qq-reply-quote-sender">{senderName ?? '原消息'}</div>
         <div className="qq-reply-quote-body">
-          {preview ? <ReplyPreviewNode element={preview} sendTimeMs={quoteTimeMs} /> : <span>引用消息</span>}
+          {previewEls.length > 0 ? (
+            previewEls.map((element, i) => (
+              <ReplyPreviewNode key={`rp-${i}`} element={element} sendTimeMs={quoteTimeMs} />
+            ))
+          ) : (
+            <span>引用消息</span>
+          )}
           {canJump ? <ArrowUp className="qq-reply-quote-arrow" size={12} strokeWidth={2.4} aria-hidden /> : null}
         </div>
       </div>
@@ -487,7 +515,8 @@ export function QqMessageContent({
       <div className={cn('message-content', 'qq-card-only', 'qq-has-wallet')}>
         <QqWallet
           detail={walletElement.data?.walletDetail}
-          fallbackType={walletElement.data?.walletRedbagType}
+          redbagType={walletElement.data?.walletRedbagType}
+          designatedUin={walletElement.data?.walletDesignatedUin}
         />
       </div>
     );
@@ -552,7 +581,17 @@ export function QqMessageContent({
         </div>
       );
     }
-    // Lone file/voice still sit in a normal bubble (cards, not stickers).
+    // A lone voice owns its own chrome: the play strip IS the bubble, so we
+    // strip the surrounding message bubble (qq-voice-only) — that lets the
+    // 转文字 button and transcript sit OUTSIDE the voice bubble.
+    if (lone.type === 'ptt') {
+      return (
+        <div className={cn('message-content', 'qq-message-inline', 'qq-voice-only')}>
+          <MediaNode element={lone} sendTimeMs={sendTimeMs} msgId={msgId} />
+        </div>
+      );
+    }
+    // Lone file still sits in a normal bubble (a card, not a sticker).
     if (lone.type && MEDIA_KINDS.has(lone.type)) {
       return (
         <div className={cn('message-content', 'qq-message-inline')}>

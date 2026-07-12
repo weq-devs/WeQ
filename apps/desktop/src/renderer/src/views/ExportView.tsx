@@ -17,6 +17,7 @@
 import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react';
 import {
   CalendarClock,
+  Contact,
   DatabaseZap,
   FlaskConical,
   Globe,
@@ -25,6 +26,8 @@ import {
   Pause,
   Play,
   Trash2,
+  Users,
+  UserRound,
   Zap,
 } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
@@ -42,7 +45,10 @@ import { AlbumExportLightbox, type AlbumExportResult } from './export/AlbumExpor
 import { FailureLightbox } from './export/FailureLightbox';
 import {
   CHATLAB_FORMATS,
+  DEFAULT_OPTIONS,
+  FRIEND_FORMATS,
   FULL_FORMATS,
+  MEMBER_FORMATS,
   QZONE_FORMATS,
   chatKind,
   convAvatarUrl,
@@ -71,6 +77,7 @@ const MODES: ModeDef[] = [
   { id: 'decrypt', label: '解密数据库', desc: '导出原始 SQLite 供研究', icon: <DatabaseZap size={18} /> },
   { id: 'chatlab', label: 'ChatLab 格式', desc: '供 AI 分析的结构化 JSON', icon: <FlaskConical size={18} /> },
   { id: 'qzone', label: '好友QQ空间导出', desc: '导出好友空间说说（需在线 QQ）', icon: <Globe size={18} /> },
+  { id: 'contacts', label: '导出联系人', desc: '好友列表 / 群成员列表', icon: <Contact size={18} /> },
   { id: 'scheduled', label: '定时导出任务', desc: '按计划自动导出', icon: <CalendarClock size={18} /> },
   { id: 'album', label: '群相册导出', desc: '批量下载群相册', icon: <Images size={18} /> },
 ];
@@ -103,6 +110,16 @@ export function ExportView(): ReactElement {
   const [mode, setMode] = useState<ExportMode>('full');
   const [convSelection, setConvSelection] = useState<Set<string>>(new Set());
   const [dbSelection, setDbSelection] = useState<Set<string>>(new Set());
+  /** 导出联系人：好友 or 群成员。 */
+  const [contactScope, setContactScope] = useState<'friends' | 'group'>('friends');
+  /** 好友导出：选中的分组 id（空 = 全部好友）。 */
+  const [catSelection, setCatSelection] = useState<Set<number>>(new Set());
+  /** 群成员导出：选中的群号。 */
+  const [contactGroupId, setContactGroupId] = useState<string | null>(null);
+
+  const categories = trpc.account.listCategories.useQuery(undefined, {
+    enabled: mode === 'contacts' && contactScope === 'friends',
+  });
   const [decryptLightboxOpen, setDecryptLightboxOpen] = useState(false);
   const [decryptOutputDir, setDecryptOutputDir] = useState<string | null>(null);
   const [albumOutputDir, setAlbumOutputDir] = useState<string | null>(null);
@@ -114,11 +131,20 @@ export function ExportView(): ReactElement {
   /** Media-completion failure detail, when the user opens a task's failure list. */
   const [failureView, setFailureView] = useState<{ name: string; failures: UiFailure[] } | null>(null);
 
-  // ChatLab only emits json/jsonl; 好友空间 only json/txt — clamp on mode entry.
+  // ChatLab only emits json/jsonl; 好友空间 only json/txt; 联系人受子类限制 — clamp.
   useEffect(() => {
     if (mode === 'chatlab' && format !== 'json' && format !== 'jsonl') setFormat('json');
     if (mode === 'qzone' && format !== 'json' && format !== 'txt') setFormat('json');
-  }, [mode, format]);
+    if (mode === 'contacts') {
+      const allowed =
+        contactScope === 'friends'
+          ? ['csv', 'xlsx', 'json', 'txt', 'vcard']
+          : ['csv', 'xlsx', 'json', 'txt'];
+      if (!allowed.includes(format)) setFormat('csv');
+    }
+    // vcard 仅联系人可用；离开联系人模式时清掉，避免带进消息/定时导出。
+    if (mode !== 'contacts' && format === 'vcard') setFormat('json');
+  }, [mode, contactScope, format]);
 
   // Live task progress: invalidate the list whenever the backend ticks.
   useEffect(() => {
@@ -165,6 +191,15 @@ export function ExportView(): ReactElement {
       meta: `${fmtCount(g.memberCount || 0)} 人`,
     }));
   }, [groups.data]);
+
+  // 好友分组 chips（导出联系人 · 好友）。
+  const catItems = useMemo<Array<{ id: number; name: string; count: number }>>(() => {
+    return ((categories.data ?? []) as Array<{ id: number; name: string; buddyCount: number }>).map(
+      (c) => ({ id: c.id, name: c.name || `分组${c.id}`, count: Number(c.buddyCount ?? 0) }),
+    );
+  }, [categories.data]);
+
+  const friendTotal = useMemo(() => catItems.reduce((sum, c) => sum + c.count, 0), [catItems]);
 
   const dbItems = useMemo<DbPickItem[]>(() => {
     return ((databases.data ?? []) as DbPickItem[]).map((db) => ({
@@ -250,6 +285,11 @@ export function ExportView(): ReactElement {
     if (mode === 'album') {
       if (!albumGroupId) return;
       openAlbumExport();
+      return;
+    }
+    if (mode === 'contacts') {
+      if (contactScope === 'group' && !contactGroupId) return;
+      setLightbox('contacts');
       return;
     }
     if (convSelection.size === 0) return;
@@ -391,6 +431,43 @@ export function ExportView(): ReactElement {
     }
   }
 
+  /** 导出联系人：好友列表（可按分组过滤）或某群成员列表；格式 + 可选头像。 */
+  async function runContactsExport(options: ExportOptions): Promise<void> {
+    // 联系人格式收窄到 startContactsExport 接受的集合（chips 已保证）。
+    const cfmt = format as 'json' | 'csv' | 'xlsx' | 'txt' | 'vcard';
+    setSubmitting(true);
+    try {
+      if (contactScope === 'friends') {
+        const cats = [...catSelection];
+        await client.account.startContactsExport.mutate({
+          scope: 'friends',
+          name: cats.length ? `好友_${cats.length}个分组` : '全部好友',
+          format: cfmt,
+          exportAvatar: options.exportAvatar,
+          ...(cats.length ? { categoryIds: cats } : {}),
+        });
+      } else {
+        const g = groupItems.find((it) => it.id === contactGroupId);
+        if (!g) return;
+        await client.account.startContactsExport.mutate({
+          scope: 'group',
+          groupCode: g.id,
+          name: `${g.name}_群成员`,
+          format: cfmt === 'vcard' ? 'csv' : cfmt,
+          exportAvatar: options.exportAvatar,
+        });
+      }
+      setLightbox(null);
+      setCatSelection(new Set());
+      setContactGroupId(null);
+      refetchTasks();
+    } catch (e) {
+      dialog.error('启动联系人导出失败', e instanceof Error ? e.message : String(e));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   async function runFullExport(
     options: ExportOptions,
     opts: { chatlab?: boolean; format?: ExportFormat } = {},
@@ -431,7 +508,7 @@ export function ExportView(): ReactElement {
           kind: t.kind ?? 'c2c',
           conv: t.id,
           name: t.name,
-          format: opts.format ?? format,
+          format: (opts.format ?? format) as Exclude<ExportFormat, 'vcard'>,
           total: t.total ?? 0,
           exportAvatar: options.exportAvatar,
           ...(opts.chatlab ? { chatlab: true } : {}),
@@ -547,6 +624,10 @@ export function ExportView(): ReactElement {
       void runQzoneExport(result.options);
       return;
     }
+    if (lightbox === 'contacts') {
+      void runContactsExport(result.options);
+      return;
+    }
     if (lightbox === 'scheduled') {
       await runCreateSchedule(result);
       return;
@@ -572,7 +653,7 @@ export function ExportView(): ReactElement {
     try {
       await client.account.createSchedule.mutate({
         name: `定时 · ${targets[0]!.name}${targets.length > 1 ? ` 等 ${targets.length} 个` : ''}`,
-        format,
+        format: format as Exclude<ExportFormat, 'vcard'>,
         conversations: targets.map((t) => ({
           id: t.id,
           name: t.name,
@@ -645,8 +726,18 @@ export function ExportView(): ReactElement {
   const activeMode = MODES.find((m) => m.id === mode)!;
   const isMultiConvMode =
     mode === 'full' || mode === 'chatlab' || mode === 'scheduled' || mode === 'qzone';
+  // 显示底部格式 chips 的模式（多选会话 + 导出联系人）。
+  const showFormatChips = isMultiConvMode || mode === 'contacts';
   const formatOptions =
-    mode === 'chatlab' ? CHATLAB_FORMATS : mode === 'qzone' ? QZONE_FORMATS : FULL_FORMATS;
+    mode === 'chatlab'
+      ? CHATLAB_FORMATS
+      : mode === 'qzone'
+        ? QZONE_FORMATS
+        : mode === 'contacts'
+          ? contactScope === 'friends'
+            ? FRIEND_FORMATS
+            : MEMBER_FORMATS
+          : FULL_FORMATS;
   // 好友空间导出只列好友（排除群聊）；其余多选模式用全部会话。
   const pickerItems = mode === 'qzone' ? friendItems : convItems;
 
@@ -661,14 +752,18 @@ export function ExportView(): ReactElement {
             ? '导出空间'
             : mode === 'chatlab'
               ? '导出 ChatLab'
-              : '导出';
+              : mode === 'contacts'
+                ? '导出联系人'
+                : '导出';
 
   const primaryDisabled =
     mode === 'decrypt'
       ? dbSelection.size === 0
       : mode === 'album'
         ? !albumGroupId
-        : convSelection.size === 0;
+        : mode === 'contacts'
+          ? contactScope === 'group' && !contactGroupId
+          : convSelection.size === 0;
 
   // Lightbox summary line.
   const lightboxSummary = (() => {
@@ -676,8 +771,16 @@ export function ExportView(): ReactElement {
       const g = groupItems.find((it) => it.id === albumGroupId);
       return g ? `群相册 · ${g.name}` : '群相册';
     }
-    const n = convSelection.size;
     const fmt = format.toUpperCase();
+    if (lightbox === 'contacts') {
+      if (contactScope === 'group') {
+        const g = groupItems.find((it) => it.id === contactGroupId);
+        return `${g?.name ?? '群成员'} · ${fmt}`;
+      }
+      const n = catSelection.size;
+      return `${n ? `${n} 个分组` : '全部好友'} · ${fmt}`;
+    }
+    const n = convSelection.size;
     return lightbox === 'qzone' ? `${n} 位好友 · ${fmt}` : `${n} 个会话 · ${fmt}`;
   })();
 
@@ -690,7 +793,11 @@ export function ExportView(): ReactElement {
           ? '导出 ChatLab 格式'
           : lightbox === 'qzone'
             ? '导出好友 QQ 空间'
-            : '导出聊天记录';
+            : lightbox === 'contacts'
+              ? contactScope === 'friends'
+                ? '导出好友列表'
+                : '导出群成员列表'
+              : '导出聊天记录';
 
   return (
     <div className="weq-exp">
@@ -766,6 +873,37 @@ export function ExportView(): ReactElement {
                 onChange={setConvSelection}
                 emptyText={mode === 'qzone' ? '暂无好友（仅私聊可导出空间）' : undefined}
               />
+            ) : mode === 'contacts' ? (
+              <div className="weq-exp-contacts">
+                <div className="weq-exp-contacts-switch">
+                  <Segmented<'friends' | 'group'>
+                    value={contactScope}
+                    onChange={setContactScope}
+                    options={[
+                      { value: 'friends', label: '好友', icon: <UserRound size={13} /> },
+                      { value: 'group', label: '群成员', icon: <Users size={13} /> },
+                    ]}
+                  />
+                </div>
+                {contactScope === 'friends' ? (
+                  <CategoryChips
+                    items={catItems}
+                    total={friendTotal}
+                    loading={categories.isLoading}
+                    selected={catSelection}
+                    onChange={setCatSelection}
+                  />
+                ) : (
+                  <SingleSelectPicker
+                    items={groupItems}
+                    loading={groups.isLoading}
+                    selectedId={contactGroupId}
+                    onSelect={setContactGroupId}
+                    searchPlaceholder="搜索群名称或群号"
+                    emptyText="暂无群聊"
+                  />
+                )}
+              </div>
             ) : mode === 'album' ? (
               <SingleSelectPicker
                 items={groupItems}
@@ -792,7 +930,7 @@ export function ExportView(): ReactElement {
                   ? `已选 ${convSelection.size} 个会话 · ${format.toUpperCase()} · 点击新建定时任务`
                   : '请先选择至少一个会话'}
               </span>
-            ) : isMultiConvMode ? (
+            ) : showFormatChips ? (
               <div className="weq-exp-foot-format">
                 <span className="weq-exp-foot-label">格式</span>
                 <Segmented<ExportFormat> value={format} onChange={setFormat} options={formatOptions} small />
@@ -836,6 +974,8 @@ export function ExportView(): ReactElement {
           variant={lightbox}
           headline={lightboxHeadline}
           summary={lightboxSummary}
+          // 联系人导出默认不下载头像（大群头像量大），其余沿用默认。
+          initialOptions={lightbox === 'contacts' ? { ...DEFAULT_OPTIONS, exportAvatar: false } : undefined}
           submitting={submitting}
           onPickPath={async () => {
             dialog.info('选择目录', '目录选择接口待接入，开始导出时将使用系统对话框。');
@@ -878,6 +1018,62 @@ export function ExportView(): ReactElement {
           onConfirm={(result) => void runAlbumExport(result)}
         />
       ) : null}
+    </div>
+  );
+}
+
+/** 好友分组多选 chips（导出联系人 · 好友）。空选 = 全部好友。 */
+function CategoryChips({
+  items,
+  total,
+  loading,
+  selected,
+  onChange,
+}: {
+  items: Array<{ id: number; name: string; count: number }>;
+  total: number;
+  loading: boolean;
+  selected: Set<number>;
+  onChange: (next: Set<number>) => void;
+}): ReactElement {
+  const allActive = selected.size === 0;
+  const toggle = (id: number): void => {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    onChange(next);
+  };
+  return (
+    <div className="weq-exp-cats">
+      <div className="weq-exp-cats-head">
+        <strong>好友分组</strong>
+        <small>{allActive ? `全部好友 · ${total} 人` : `已选 ${selected.size} 个分组`}</small>
+      </div>
+      {loading ? (
+        <div className="weq-exp-cats-empty"><small>加载中…</small></div>
+      ) : items.length === 0 ? (
+        <div className="weq-exp-cats-empty"><small>暂无分组数据</small></div>
+      ) : (
+        <div className="weq-exp-cats-list">
+          <button
+            type="button"
+            className={`weq-exp-chip${allActive ? ' is-active' : ''}`}
+            onClick={() => onChange(new Set())}
+          >
+            全部好友 <b>{total}</b>
+          </button>
+          {items.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              className={`weq-exp-chip${selected.has(c.id) ? ' is-active' : ''}`}
+              onClick={() => toggle(c.id)}
+            >
+              {c.name} <b>{c.count}</b>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

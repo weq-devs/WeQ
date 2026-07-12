@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
-import { Cloud, FileText, Loader2 } from 'lucide-react';
+import { Cloud, FileText, Loader2, Sparkles, Star } from 'lucide-react';
 import { fileIconUrl, mediaUrl } from '@renderer/lib/resourceUrl';
 import { cn } from '@renderer/lib/utils';
 import { trpc } from '@renderer/trpc/client';
@@ -353,8 +353,13 @@ export function QqVoice({ data, sendTimeMs }: { data: Data; sendTimeMs: number }
   const name = str(data, 'fileName');
   const token = str(data, 'fileToken');
   const waveform = Array.isArray(data.waveform) ? (data.waveform as number[]) : [];
-  // waveform is one byte per 0.1s; length/10 = duration in seconds.
-  const seconds = waveform.length > 0 ? Math.max(1, Math.round(waveform.length / 10)) : 0;
+  // Duration comes from the element (wire tag 45906), NOT the waveform: AI 声聊
+  // clips carry a fixed 30-byte synthetic strip, so waveform.length/10 is wrong
+  // for them. Fall back to the waveform only when duration is absent (0).
+  const seconds =
+    num(data, 'pttDuration') || (waveform.length > 0 ? Math.max(1, Math.round(waveform.length / 10)) : 0);
+  const voiceChanged = Boolean(data.voiceChanged);
+  const isAiVoice = Boolean(data.isAiVoice);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
 
@@ -410,17 +415,34 @@ export function QqVoice({ data, sendTimeMs }: { data: Data; sendTimeMs: number }
       .catch((err) => setTranscribeError(err instanceof Error ? err.message : String(err)));
   };
 
-  // Downsample the envelope to a fixed bar count for a stable QQ-style strip.
-  const bars = sampleBars(waveform, 28);
+  // Bar count tracks duration (QQ-style: longer clip → longer strip), with a
+  // floor so short clips — notably AI 声聊, which are often 1–5s — always show a
+  // visible waveform, and a cap so very long clips stay within the bubble (the
+  // wave area also clips as a hard safety net; see .qq-media-voice-wave).
+  const barCount = Math.max(12, Math.min(28, 8 + Math.round(seconds)));
+  const bars = sampleBars(waveform, barCount);
   const hasResult = transcript !== null || transcribeError !== null;
 
   return (
     <div className="qq-voice-wrap">
       <div className="qq-voice-row">
-        <div className={cn('qq-media-voice', playing && 'is-playing')} role="button" onClick={toggle}>
+        <div
+          className={cn('qq-media-voice', playing && 'is-playing')}
+          role="button"
+          onClick={toggle}
+        >
           <span className="qq-media-voice-play" aria-hidden>
             {playing ? '❚❚' : '▶'}
           </span>
+          {isAiVoice ? (
+            <span className="qq-media-voice-ai" title="AI 声聊">
+              <Sparkles size={11} strokeWidth={2} aria-hidden />
+              AI
+            </span>
+          ) : null}
+          {voiceChanged ? (
+            <Star size={13} strokeWidth={2} className="qq-media-voice-changed" aria-label="变声语音" />
+          ) : null}
           <span className="qq-media-voice-wave" aria-hidden>
             {bars.map((v, i) => (
               <i key={i} style={{ height: `${20 + Math.round((v / 255) * 80)}%` }} />

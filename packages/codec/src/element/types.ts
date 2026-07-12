@@ -77,11 +77,6 @@ export enum PicType {
   ORIGINAL = 1001,
 }
 
-export enum PttType {
-  INTERCOM = 1,
-  RECORDING = 2,
-}
-
 export enum GrayTipSubType {
   REVOKE = 1,
   GROUP_TIP = 4,
@@ -109,6 +104,28 @@ export enum CallType {
   VIDEO = 2,
   SCREEN_SHARE = 3,
   REMOTE_ASSIST = 5,
+}
+
+/**
+ * 红包 / 转账类型 — value of WALLET wire tag 48412 (`walletRedbagType`).
+ *
+ * TRANSFER/NORMAL/PASSWORD/VOICE 来自早期 RE；LUCKY(3) 与 DESIGNATED(8) 为实测
+ * 确认（对比同群拼手气红包与专属红包的 msgBody）。DESIGNATED 红包会额外带 wire
+ * tag 48420 (`walletDesignatedUin`) 指定唯一可领取的群友 uin。
+ */
+export enum RedbagType {
+  /** 转账。 */
+  TRANSFER = 1,
+  /** 普通红包（等额）。 */
+  NORMAL = 2,
+  /** 拼手气红包。 */
+  LUCKY = 3,
+  /** 口令红包。 */
+  PASSWORD = 6,
+  /** 专属红包（指定领取人，见 walletDesignatedUin/48420）。 */
+  DESIGNATED = 8,
+  /** 语音红包。 */
+  VOICE = 15,
 }
 
 export enum FaceSubType {

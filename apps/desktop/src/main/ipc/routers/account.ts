@@ -29,6 +29,7 @@ import { customEmojiRouter } from './custom_emoji';
 import { relatedEmojiRouter } from './related_emoji';
 import { fileResourceRouter } from './file_resource';
 import { mediaResourceRouter } from './media_resource';
+import { resourceCleanupRouter } from './resource_cleanup';
 import { assistantBus, type AssistantStreamEvent } from '../../mcp/assistant_bus';
 import { groupChatBus, type GroupChatStreamEvent } from '../../mcp/agentlab_group_bus';
 import {
@@ -41,6 +42,8 @@ import {
   type AlbumMedia,
   type NewMessages,
   type DbChange,
+  type RenderC2cMsg,
+  type RenderGroupMsg,
 } from '@weq/service';
 import {
   buddyRequestToWire,
@@ -572,6 +575,8 @@ export const accountRouter = router({
   fileResource: fileResourceRouter,
   // ---- 图片墙 / QQ空间 / 图片 / 视频 local media cache browser ----
   mediaResource: mediaResourceRouter,
+  // ---- nt_data 资源清理释放 (本地资源整理 → 清理释放) ----
+  resourceCleanup: resourceCleanupRouter,
 
   // ---- agent lab ----
 
@@ -1107,7 +1112,18 @@ export const accountRouter = router({
     .input(z.object({ chatType: z.number().int(), uid: z.string().min(1) }))
     .query(async ({ input }) => {
       const result = await requireServices().unreadInfo.getUnreadInfo(input.chatType, input.uid);
-      return result ? { msgSeq: result.msgSeq?.toString() } : null;
+      if (!result) return null;
+      return {
+        msgSeq: result.msgSeq?.toString(),
+        // 提醒高亮（特别关心 / @我 / …）。各类别一条，seq 保留供上层使用。
+        highlights: result.highlights?.map((h) => ({
+          kind: h.kind,
+          rawKind: h.rawKind,
+          msgSeq: h.msgSeq.toString(),
+          senderUid: h.senderUid,
+          sendTime: h.sendTime.toString(),
+        })),
+      };
     }),
 
   /** Newest page of a conversation (open / switch-into), newest-first. */
@@ -1576,6 +1592,42 @@ export const accountRouter = router({
       return requireServices().msgs.updateElements(BigInt(input.msgId), elements);
     }),
 
+  /** Reversible soft-delete of one message (hidden from its conversation). */
+  deleteMessage: procedure
+    .input(z.object({ msgId: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      return requireServices().msgs.deleteMessage(BigInt(input.msgId));
+    }),
+
+  /** Restore a soft-deleted message. No-op if it was never soft-deleted. */
+  restoreMessage: procedure
+    .input(z.object({ msgId: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      return requireServices().msgs.restoreMessage(BigInt(input.msgId));
+    }),
+
+  /** Hard-delete (irreversible): physically drop the message row by msgId. */
+  hardDeleteMessage: procedure
+    .input(z.object({ msgId: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      return requireServices().msgs.hardDeleteMessage(BigInt(input.msgId));
+    }),
+
+  /**
+   * List the soft-deleted (hidden, restorable) messages of one conversation,
+   * newest-first, serialized like any other message page so the renderer can
+   * reuse its chat bubbles in the "查看删除消息" panel.
+   */
+  deletedMessages: procedure
+    .input(z.object({ kind: z.enum(['c2c', 'group']), conv: z.string().min(1) }))
+    .query(async ({ input }): Promise<ChatMsgWire[]> => {
+      const msgs = requireServices().msgs;
+      const rows = await msgs.getDeletedMessages(input.kind, input.conv);
+      return input.kind === 'group'
+        ? (rows as RenderGroupMsg[]).map(groupMsgToWire)
+        : (rows as RenderC2cMsg[]).map(c2cMsgToWire);
+    }),
+
   /**
    * Field descriptors for the compose form — required/optional/type per
    * authorable element kind, derived from the codec Zod schemas.
@@ -1736,12 +1788,24 @@ export const accountRouter = router({
   /** List conversations with message counts (batch query). */
   listConversationsWithCount: procedure.query(async () => {
     const services = requireServices();
-    const contacts = await services.recentContacts.getRecentContact(200);
+    // 空 targetUid 的系统/占位会话既不能当消息分区键，也不是可导出目标 —— 直接剔除。
+    const contacts = (await services.recentContacts.getRecentContact(200)).filter(c => c.targetUid);
 
-    const groupCodes = contacts.filter(c => String(c.chatType).includes('GROUP')).map(c => c.targetUid);
-    const c2cUids = contacts.filter(c => String(c.chatType).includes('C2C')).map(c => c.targetUid);
-    // 数据线（我的手机/我的电脑）消息在 dataline_msg_table，单独计数。
-    const datalineUids = contacts.filter(c => String(c.chatType).includes('DATALINE')).map(c => c.targetUid);
+    // 分类是收集查询集和计数分流的唯一依据，两处必须共用，否则会出现
+    // 「归到 c2c 计数、却没被 countByUids 查过」的会话恒显示 0 条 —— 公众号
+    // (KCHATTYPETEMPPUBLICACCOUNT=103) 等枚举名不含 'C2C' 的临时会话就是这样：
+    // 消息其实在 c2c_msg_table，只是没进查询集。dataline 走独立表单独计数，
+    // 其余一切都按 c2c 归类（能查到就显示真实条数，查不到才是 0）。
+    const kindOf = (chatType: string | number): 'group' | 'dataline' | 'c2c' => {
+      const t = String(chatType);
+      if (t.includes('GROUP')) return 'group';
+      if (t.includes('DATALINE')) return 'dataline';
+      return 'c2c';
+    };
+
+    const groupCodes = contacts.filter(c => kindOf(c.chatType) === 'group').map(c => c.targetUid);
+    const c2cUids = contacts.filter(c => kindOf(c.chatType) === 'c2c').map(c => c.targetUid);
+    const datalineUids = contacts.filter(c => kindOf(c.chatType) === 'dataline').map(c => c.targetUid);
 
     const account = getAppContext().account;
     const [groupCounts, c2cCounts, datalineCounts] = await Promise.all([
@@ -1751,10 +1815,10 @@ export const accountRouter = router({
     ]);
 
     return contacts.map(c => {
-      const t = String(c.chatType);
-      const messageCount = t.includes('GROUP')
+      const kind = kindOf(c.chatType);
+      const messageCount = kind === 'group'
         ? (groupCounts[c.targetUid] ?? 0)
-        : t.includes('DATALINE')
+        : kind === 'dataline'
           ? (datalineCounts[c.targetUid] ?? 0)
           : (c2cCounts[c.targetUid] ?? 0);
       return { ...recentContactToWire(c), messageCount };
@@ -1820,6 +1884,40 @@ export const accountRouter = router({
           transcribeVoice: false,
         },
         ...(input.range ? { range: input.range } : {}),
+      });
+    }),
+
+  /**
+   * Start a contacts export — 好友列表（scope='friends'，可按分组过滤）或某群的
+   * 成员列表（scope='group'，`groupCode` 必填）。走本地资料库，无需在线 QQ。
+   * 好友支持 vcard；群成员不支持 vcard。
+   */
+  startContactsExport: procedure
+    .input(z.object({
+      scope: z.enum(['friends', 'group']),
+      groupCode: z.string().optional(),
+      name: z.string().min(1),
+      format: z.enum(['json', 'csv', 'xlsx', 'txt', 'vcard']),
+      exportAvatar: z.boolean().optional(),
+      categoryIds: z.array(z.number().int()).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      if (input.scope === 'group' && !input.groupCode) {
+        throw new Error('导出群成员需要指定群号。');
+      }
+      // vcard 仅好友可用；群成员传 vcard 时回退到 csv。
+      const format = input.scope === 'group' && input.format === 'vcard' ? 'csv' : input.format;
+      return requireServices().exportManager.startTask({
+        contacts: {
+          scope: input.scope,
+          ...(input.categoryIds ? { categoryIds: input.categoryIds } : {}),
+        },
+        kind: 'c2c',
+        conv: input.scope === 'group' ? input.groupCode! : '',
+        name: input.name,
+        format,
+        total: 0,
+        exportAvatar: input.exportAvatar ?? false,
       });
     }),
 

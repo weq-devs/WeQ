@@ -110,17 +110,18 @@ export class GroupMsgDb {
   }
 
   /**
-   * The page of messages just newer than `afterRowId` (exclusive), ordered by
-   * rowid ASC. The export-only fallback for conversations whose `40003` msgSeq
-   * is unusable (all 0/NULL — e.g. migration-imported history): the seq cursor
-   * matches nothing, so we page by the always-present, monotonic-on-insert
-   * rowid. rowid is insertion order — only an approximation of true send-time
-   * order, hence fallback-only.
+   * The page of **seq-less** messages (40003 = 0 / NULL) just newer than
+   * `afterRowId` (exclusive), ordered by rowid ASC. Export-only: migration-
+   * imported history lands with no per-group seq, so the normal `40003 > ?`
+   * cursor never sees it. Those rows keep a real sendTime, so the export merges
+   * this rowid-ordered stream (insertion order ≈ send-time order for an imported
+   * block) against the seq stream by sendTime — see `message_source`. Restricting
+   * to seq-less rows keeps the two streams disjoint (no dupes).
    */
-  async listAfterRowId(targetGroupCode: string, afterRowId: bigint, limit = 50): Promise<Array<GroupMsg & { rowId: bigint }>> {
+  async listSeqlessAfterRowId(targetGroupCode: string, afterRowId: bigint, limit = 50): Promise<Array<GroupMsg & { rowId: bigint }>> {
     const rows = await this.qq.query(
       `SELECT rowid, ${SELECT_COLUMNS} FROM group_msg_table
-        WHERE "40027" = ? AND rowid > ?
+        WHERE "40027" = ? AND rowid > ? AND ("40003" = 0 OR "40003" IS NULL)
         ORDER BY rowid ASC
         LIMIT ?`,
       [targetGroupCode, afterRowId, BigInt(limit)],
@@ -187,6 +188,55 @@ export class GroupMsgDb {
   /** Update the msgBody (column 40800) for a specific message. */
   async updateMsgBody(msgId: bigint, blob: Uint8Array): Promise<number> {
     return this.qq.write(`UPDATE group_msg_table SET "40800" = ? WHERE "40001" = ?`, [blob, msgId]);
+  }
+
+  /**
+   * Reversible soft-delete: XOR `mask` (a high bit, far above any real group
+   * code) into the partition key 40027 so `WHERE "40027" = groupCode` no longer
+   * matches — the message leaves the group view but the row stays. Idempotent
+   * via the `("40027" & mask) = 0` guard. Returns affected rows.
+   */
+  async softDeleteMsg(msgId: bigint, mask: bigint): Promise<number> {
+    return this.qq.write(
+      // SQLite has no `^` (XOR) operator; use the identity a^b = (a|b) - (a&b).
+      `UPDATE group_msg_table SET "40027" = ("40027" | ?) - ("40027" & ?) WHERE "40001" = ? AND ("40027" & ?) = 0`,
+      [mask, mask, msgId, mask],
+    );
+  }
+
+  /**
+   * List the soft-deleted messages of one group, newest-first. {@link softDeleteMsg}
+   * XORs `mask` into the numeric partition key 40027, so the hidden rows sit at
+   * `groupCode ^ mask`; querying that exact value returns exactly them. Their seq
+   * (40003) is untouched, so they page in normal newest-first order.
+   */
+  async listDeleted(targetGroupCode: string, mask: bigint, limit = 200): Promise<GroupMsg[]> {
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
+        WHERE "40027" = ?
+        ORDER BY "40003" DESC
+        LIMIT ?`,
+      [BigInt(targetGroupCode) ^ mask, BigInt(limit)],
+    );
+    return rows.map(rowToGroupMsg);
+  }
+
+  /** Reverse {@link softDeleteMsg}: XOR the partition key 40027 back. */
+  async restoreMsg(msgId: bigint, mask: bigint): Promise<number> {
+    return this.qq.write(
+      // SQLite has no `^` (XOR) operator; use the identity a^b = (a|b) - (a&b).
+      `UPDATE group_msg_table SET "40027" = ("40027" | ?) - ("40027" & ?) WHERE "40001" = ? AND ("40027" & ?) <> 0`,
+      [mask, mask, msgId, mask],
+    );
+  }
+
+  /**
+   * Hard-delete: physically drop the row (by msgId 40001) from group_msg_table.
+   * Unlike {@link softDeleteMsg} this is irreversible — the message is gone, not
+   * hidden. Returns affected rows (0 if the group table doesn't hold the msgId).
+   */
+  async hardDeleteMsg(msgId: bigint): Promise<number> {
+    return this.qq.write(`DELETE FROM group_msg_table WHERE "40001" = ?`, [msgId]);
   }
 
   /**

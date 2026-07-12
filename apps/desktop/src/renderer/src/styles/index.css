@@ -1047,6 +1047,12 @@ html[data-theme="dark"] .chat-empty {
   cursor: zoom-out;
 }
 
+/* 缩放/平移的舞台：入场动画放在这层，媒体自身承载 zoom 的 transform。 */
+.weq-lightbox-stage {
+  display: grid;
+  place-items: center;
+}
+
 .weq-lightbox-image {
   max-width: 66vw;
   max-height: 66vh;
@@ -1054,6 +1060,8 @@ html[data-theme="dark"] .chat-empty {
   border-radius: 6px;
   box-shadow: 0 24px 80px -20px rgba(0, 0, 0, 0.7);
   cursor: default;
+  /* transform-origin 保持默认居中，useZoomPan 的锚点数学依赖于此。 */
+  transform-origin: center center;
 }
 
 .weq-lightbox-close {
@@ -2828,7 +2836,9 @@ html[data-theme="dark"] .app-title-bar-signature {
   border-radius: 10px;
 }
 
-/* Manual lock button — sits just above the account avatar. */
+/* Manual 深/浅 toggle + lock button — both sit just above the account avatar,
+   share the same pill shape so they read as one stacked control cluster. */
+.app-shell .rail-footer .weq-rail-theme-btn,
 .app-shell .rail-footer .weq-rail-lock-btn {
   display: grid;
   place-items: center;
@@ -2841,6 +2851,7 @@ html[data-theme="dark"] .app-title-bar-signature {
   transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease;
 }
 
+.app-shell .rail-footer .weq-rail-theme-btn:hover:not(:disabled),
 .app-shell .rail-footer .weq-rail-lock-btn:hover:not(:disabled) {
   color: #0099ff;
   border-color: rgba(0, 153, 255, 0.34);
@@ -2850,6 +2861,12 @@ html[data-theme="dark"] .app-title-bar-signature {
 .app-shell .rail-footer .weq-rail-lock-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+html[data-theme='dark'] .app-shell .rail-footer .weq-rail-theme-btn,
+html[data-theme='dark'] .app-shell .rail-footer .weq-rail-lock-btn {
+  color: #9fb2c6;
+  border-color: rgba(0, 153, 255, 0.28);
 }
 
 /* Popover buttons should not be constrained by rail-footer button styles */
@@ -4438,6 +4455,92 @@ html[data-theme='dark'] .weq-set-input {
   cursor: not-allowed;
 }
 
+/* Destructive action (清理缓存). */
+.weq-set-btn-danger {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: #ffffff;
+}
+
+.weq-set-btn-danger:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+/* 清理缓存 — per-category checkbox rows. */
+.weq-set-cache-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.weq-set-cache-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  font-size: 13px;
+  color: #374151;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.weq-set-cache-item:hover {
+  background: rgba(0, 153, 255, 0.05);
+  border-color: rgba(0, 153, 255, 0.2);
+}
+
+.weq-set-cache-item input {
+  accent-color: var(--weq-accent-effective);
+}
+
+.weq-set-cache-item svg {
+  color: #6b7280;
+  flex: none;
+}
+
+.weq-set-cache-label {
+  flex: 1 1 auto;
+}
+
+.weq-set-cache-size {
+  color: #6b7280;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-set-cache-total {
+  flex: 1 1 auto;
+  align-self: center;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.weq-set-cache-total strong {
+  color: #374151;
+}
+
+html[data-theme='dark'] .weq-set-cache-item {
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #cbd5e1;
+}
+
+html[data-theme='dark'] .weq-set-cache-item:hover {
+  background: rgba(0, 153, 255, 0.1);
+}
+
+html[data-theme='dark'] .weq-set-cache-size,
+html[data-theme='dark'] .weq-set-cache-total {
+  color: #94a3b8;
+}
+
+html[data-theme='dark'] .weq-set-cache-total strong,
+html[data-theme='dark'] .weq-set-cache-item svg {
+  color: #cbd5e1;
+}
+
 /* Media-type checkbox pills */
 .weq-set-subhead {
   font-size: 13px;
@@ -5282,6 +5385,170 @@ html[data-theme="dark"] .weq-profile-member .avatar {
 }
 
 /* ──────────────────────────────────────────────────────────────────────
+ * 群成员资料卡片（MemberProfileCard）。贴光标弹出的 anchored 浮层：
+ * scrim 只作透明点击捕获（无遮罩、不虚化，避免打断阅读），卡片本体沿用
+ * weq-profile 的设计语言，宽度更紧凑。定位由组件 inline style(fixed+left/top)
+ * 负责，这里只管观感。
+ * ──────────────────────────────────────────────────────────────────── */
+.weq-member-pop-scrim {
+  /* position/inset/z-index 由组件 inline 设定；此处仅兜底 */
+  background: transparent;
+}
+
+.weq-member-pop {
+  display: flex;
+  flex-direction: column;
+  width: 288px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 22px 16px 14px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
+  border-radius: 14px;
+  background:
+    radial-gradient(
+      ellipse at 50% -10%,
+      color-mix(in srgb, var(--weq-accent-effective) 10%, transparent),
+      transparent 48%
+    ),
+    rgba(255, 255, 255, 0.99);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.6) inset,
+    0 20px 48px -18px rgba(7, 31, 61, 0.5);
+  transition: opacity 120ms ease;
+}
+
+.weq-member-pop .weq-profile-close {
+  top: 8px;
+  right: 8px;
+}
+
+/* 角色 pill：群主=金色渐变、管理员=柔和绿，压过默认主题色关系 pill。 */
+.weq-profile-rel.is-owner {
+  border-color: transparent;
+  background: linear-gradient(135deg, #ffd66b, #f5a623);
+  color: #5a3a00;
+  box-shadow: 0 6px 14px -8px rgba(245, 166, 35, 0.7);
+}
+
+.weq-profile-rel.is-admin {
+  border-color: transparent;
+  background: linear-gradient(135deg, #7fe0b0, #2fb87a);
+  color: #05391f;
+  box-shadow: 0 6px 14px -8px rgba(47, 184, 122, 0.6);
+}
+
+/* 专属头衔 pill：主题渐变填充，突出但不喧宾夺主。 */
+.weq-member-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 11px;
+  border-radius: 999px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--weq-accent-effective) 72%, white),
+    var(--weq-accent-effective)
+  );
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 6px 14px -8px rgba(0, 122, 204, 0.6);
+}
+
+.weq-member-title svg {
+  flex: none;
+}
+
+/* 底部资料补全中的轻量提示。 */
+.weq-member-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 10px;
+  color: #7c8a99;
+  font-size: 11.5px;
+}
+
+.weq-member-loading svg {
+  animation: weq-spin 0.9s linear infinite;
+}
+
+@keyframes weq-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 群成员行可点击态：hover 高亮 + 手型，提示可查看资料。 */
+.group-info-member-row.is-clickable {
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background-color 130ms ease;
+}
+
+.group-info-member-row.is-clickable:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 9%, transparent);
+}
+
+.group-info-member-row.is-clickable:active {
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+}
+
+/* 消息气泡里的发送者头像 → 可点击弹资料卡片。button 重置为纯头像容器。 */
+.message-avatar-button {
+  flex: none;
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: transform 130ms ease;
+}
+
+.message-avatar-button .avatar {
+  transition: box-shadow 130ms ease;
+}
+
+.message-avatar-button:hover {
+  transform: translateY(-1px);
+}
+
+.message-avatar-button:hover .avatar {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+}
+
+.message-avatar-button:active {
+  transform: none;
+}
+
+html[data-theme="dark"] .weq-member-pop {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
+  background:
+    radial-gradient(
+      ellipse at 50% -10%,
+      color-mix(in srgb, var(--weq-accent-effective) 16%, transparent),
+      transparent 48%
+    ),
+    #1c2028;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 20px 48px -18px rgba(0, 0, 0, 0.7);
+}
+
+html[data-theme="dark"] .weq-member-loading {
+  color: #8c98a6;
+}
+
+html[data-theme="dark"] .group-info-member-row.is-clickable:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+}
+
+/* ──────────────────────────────────────────────────────────────────────
  * 好友 / 群通知灯箱（ContactNoticeDialog / GroupNoticeDialog）。
  * 复用 .weq-profile-layer 遮罩；固定标题 + 可滚动列表，复用 .notice-card 卡片。
  * ──────────────────────────────────────────────────────────────────── */
@@ -5885,6 +6152,22 @@ html[data-theme="dark"] .chat-empty {
 }
 .weq-ark-footer-icon { width: 12px; height: 12px; border-radius: 2px; object-fit: cover; }
 
+/* 群公告卡 (com.tencent.mannounce)：喇叭头 + 标题 + 多行正文 */
+.weq-ark-announce { cursor: default; }
+.weq-ark-announce:hover { background-color: #ffffff; }
+.weq-ark-announce-icon { color: #ff9c19; flex-shrink: 0; }
+.weq-ark-announce-text {
+  font-size: 13px;
+  color: #666666;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 /* ---- Ark 卡片深色模式 ---- The demo only ships light colors; map them onto the
    theme tokens so the structured card reads correctly on the dark canvas. */
 html[data-theme="dark"] .weq-ark-container {
@@ -5898,6 +6181,8 @@ html[data-theme="dark"] .weq-ark-container:hover {
 html[data-theme="dark"] .weq-ark-header { color: var(--weq-fg-muted); }
 html[data-theme="dark"] .weq-ark-title { color: var(--weq-fg-primary); }
 html[data-theme="dark"] .weq-ark-desc { color: var(--weq-fg-secondary); }
+html[data-theme="dark"] .weq-ark-announce-text { color: var(--weq-fg-secondary); }
+html[data-theme="dark"] .weq-ark-announce:hover { background-color: var(--weq-bg-surface); }
 html[data-theme="dark"] .weq-ark-preview-small,
 html[data-theme="dark"] .weq-ark-preview-big {
   background: rgba(255, 255, 255, 0.06);
@@ -6085,6 +6370,41 @@ html[data-theme="dark"] .weq-ark-map-name {
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* 红包类型小字 / 专属领取人：叠在封面图上，紧贴居中标题的上方一点 */
+.weq-redbag-tag {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 44%; /* 占封面上半，内容底对齐 → 落在标题正上方 */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  padding: 0 8px 3px;
+  line-height: 1.2;
+  font-size: 11px;
+  color: #fbe4b5; /* 与标题同系米黄 */
+  text-align: center;
+  text-shadow: 0 1px 2px rgba(120, 20, 10, 0.45);
+  pointer-events: none;
+}
+.weq-redbag-tag-avatar {
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.4);
+}
+
+/* 专属红包：头像+文字整块及标题一起下移一点，避免头像盖住封面顶部的 QQ logo。 */
+.weq-redbag-tag--designated {
+  transform: translateY(14px);
+}
+.weq-redbag-card--designated .weq-redbag-title {
+  /* 保留原居中变换，叠加下移量。 */
+  transform: translate(-50%, calc(-50% + 14px));
 }
 
 /* --- floating forward window stack ----------------------------- */
@@ -8445,6 +8765,74 @@ html[data-theme="dark"] .weq-persona-modal {
   flex-direction: column;
   min-height: 0;
   height: min(60vh, 480px);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   View-deleted-messages panel (components/compose/DeletedMessagesModal)
+   Reuses the chat `.message-scroll` + `MessageBubble`, so bubbles look exactly
+   like the live chat; only the per-row 恢复 affordance is bespoke.
+   ───────────────────────────────────────────────────────────────────────── */
+.weq-deleted {
+  display: flex;
+  flex-direction: column;
+  max-height: min(80vh, 680px);
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+}
+.weq-deleted-scroll {
+  flex: 1;
+  min-height: 0;
+  height: min(64vh, 560px);
+}
+.weq-deleted-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 100%;
+  padding: 2rem 1.5rem;
+  text-align: center;
+  color: var(--weq-fg-secondary);
+}
+.weq-deleted-empty small {
+  font-size: 12px;
+  color: var(--weq-fg-tertiary, var(--weq-fg-secondary));
+  max-width: 20rem;
+}
+/* Wrap each reused bubble so the restore action can float over its corner. */
+.weq-deleted-row {
+  position: relative;
+}
+.weq-deleted-row .weq-deleted-restore {
+  position: absolute;
+  top: 2px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--weq-fg-secondary);
+  background: var(--weq-bg-surface);
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.weq-deleted-row:hover .weq-deleted-restore,
+.weq-deleted-row .weq-deleted-restore:disabled {
+  opacity: 1;
+}
+.weq-deleted-row .weq-deleted-restore:hover {
+  color: var(--weq-accent, #2f7bff);
+  border-color: var(--weq-accent, #2f7bff);
+}
+.weq-deleted-row .weq-deleted-restore:disabled {
+  cursor: default;
+  color: var(--weq-fg-tertiary, var(--weq-fg-secondary));
 }
 
 /* face picker */

@@ -71,6 +71,7 @@ import {
   RelatedEmojiResourceService,
   FileResourceService,
   MediaResourceService,
+  ResourceCleanupService,
   WebQueryService,
   GroupAlbumMediaService,
   DbWatchService,
@@ -305,6 +306,8 @@ export interface AccountServices {
   fileResource: FileResourceService;
   /** Browse the account's local media caches (PhotoWall / Qzone / Pic / Video). */
   mediaResource: MediaResourceService;
+  /** Clean up the account's nt_data resource trees (本地资源整理 → 清理释放). */
+  resourceCleanup: ResourceCleanupService;
   /** Web CGI queries that need the already-hooked online QQ process. */
   webQuery: WebQueryService;
   /** Group album media listing over the already-hooked online QQ process. */
@@ -683,6 +686,55 @@ export function initAppContext(): AppContext {
             },
             // 好友 QQ 空间说说导出：翻页拉取能力（需在线 QQ）。
             qzone: { fetchMsgList: (uin, pos, num) => webQuery.getQzoneMsgList(uin, pos, num) },
+            // 联系人导出（好友 / 群成员）：本地资料库拉取，bigint 归一化为字符串。
+            contacts: {
+              listBuddies: async (limit, offset) => {
+                const buddies = await profile.listBuddies(limit, offset);
+                return buddies.map((b) => ({
+                  uid: b.uid,
+                  uin: b.uin.toString(),
+                  qid: b.qid,
+                  categoryId: b.categoryId,
+                }));
+              },
+              listCategories: async () => {
+                const cats = await profile.listCategories();
+                return cats.map((c) => ({ id: c.id, name: c.name }));
+              },
+              profilesByUids: async (uids) => {
+                const profiles = await profile.profilesByUids(uids);
+                return profiles.map((p) => ({
+                  uid: p.uid,
+                  nick: p.nick,
+                  remark: p.remark,
+                  signature: p.signature,
+                  gender: p.gender,
+                  age: p.age,
+                  birthYear: p.birthYear,
+                  birthMonth: p.birthMonth,
+                  birthDay: p.birthDay,
+                  intimacy: p.intimacy,
+                }));
+              },
+              listGroupMembers: async (groupCode, limit, offset) => {
+                const members = await groupInfo.listMembersInGroup(BigInt(groupCode), limit, offset);
+                return members.map((m) => ({
+                  uid: m.uid,
+                  uin: m.uin.toString(),
+                  card: m.card,
+                  nick: m.nick,
+                  adminFlag: m.adminFlag,
+                  customTitle: m.customTitle,
+                  memberLevel: m.memberLevel,
+                  joinTime: m.joinTime,
+                  lastSpeakTime: m.lastSpeakTime,
+                }));
+              },
+              groupOwnerUid: async (groupCode) => {
+                const detail = await groupInfo.getGroupDetail(BigInt(groupCode));
+                return detail?.ownerUid ?? null;
+              },
+            },
           },
         ),
         dbDecrypt: new DbDecryptService(session, platform),
@@ -694,6 +746,7 @@ export function initAppContext(): AppContext {
         relatedEmoji: new RelatedEmojiResourceService(session, platform),
         fileResource: new FileResourceService(session, platform),
         mediaResource: new MediaResourceService(session, platform),
+        resourceCleanup: new ResourceCleanupService(session, platform),
         webQuery,
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, resolveOnlinePid),
       };
@@ -931,6 +984,7 @@ export function initAppContext(): AppContext {
         relatedEmoji: new RelatedEmojiResourceService(session, platform),
         fileResource: new FileResourceService(session, platform),
         mediaResource: new MediaResourceService(session, platform),
+        resourceCleanup: new ResourceCleanupService(session, platform),
         webQuery,
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, noPid),
       };

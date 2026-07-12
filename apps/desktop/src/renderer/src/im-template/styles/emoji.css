@@ -551,16 +551,29 @@
 	color: var(--weq-accent-effective, #0099ff);
 }
 
-/* Voice: play button + amplitude bars + duration, QQ style. */
+/* Voice: the play strip is a self-contained bubble (play button + amplitude
+   bars + duration). It owns its background so it stays legible regardless of
+   the surrounding message bubble; the 转文字 button lives OUTSIDE it. */
 .qq-media-voice {
 	display: inline-flex;
 	align-items: center;
 	gap: 9px;
-	min-width: 110px;
+	box-sizing: border-box;
+	min-width: 120px;
 	max-width: 240px;
-	padding: 2px 4px;
+	padding: 8px 13px 8px 9px;
+	border-radius: 14px;
+	background: var(--weq-chat-bubble-other, #ffffff);
+	border: 1px solid rgba(0, 0, 0, 0.06);
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+	color: var(--weq-fg-primary, #1f2937);
 	cursor: pointer;
 	user-select: none;
+	transition: box-shadow 120ms ease;
+}
+
+.qq-media-voice:hover {
+	box-shadow: 0 2px 6px rgba(0, 0, 0, 0.09);
 }
 
 .qq-media-voice-play {
@@ -576,11 +589,42 @@
 	line-height: 1;
 }
 
+/* Voice-changer badge: a small filled star before the waveform marking a
+   变声语音 (voiceChanged) clip. */
+.qq-media-voice-changed {
+	flex: 0 0 auto;
+	color: var(--weq-accent-effective, #12a8ff);
+	fill: currentColor;
+}
+
+/* AI 声聊 badge (element tag 45915): a small pill before the waveform. */
+.qq-media-voice-ai {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	flex: 0 0 auto;
+	padding: 1px 5px;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+	color: var(--weq-accent-effective, #12a8ff);
+	font-size: 10px;
+	font-weight: 600;
+	line-height: 1.4;
+	letter-spacing: 0.3px;
+}
+
 .qq-media-voice-wave {
 	display: flex;
 	align-items: center;
 	gap: 2px;
 	height: 26px;
+	/* Shrink to fit the strip: with many bars (long clips) the fixed-width
+	   bars would otherwise push past the bubble's max-width. Flexing + clipping
+	   keeps the waveform inside the frame. */
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	color: var(--weq-accent-effective, #12a8ff);
 }
 
 .qq-media-voice-wave i {
@@ -589,17 +633,62 @@
 	min-height: 3px;
 	border-radius: 1px;
 	background: currentColor;
-	opacity: 0.5;
+	opacity: 0.55;
 }
 
 .qq-media-voice.is-playing .qq-media-voice-wave i {
-	opacity: 0.85;
+	opacity: 0.9;
 }
 
 .qq-media-voice-time {
-	color: #999999;
+	color: #8a9099;
 	font-size: 12px;
+	font-variant-numeric: tabular-nums;
 	white-space: nowrap;
+}
+
+/* ---- my own (sent) voice: solid accent strip, everything reversed to white
+   so the play button, waveform, duration and badges all read clearly (fixes
+   the old blue-on-blue mush). ------------------------------------------------ */
+.message-line.mine .qq-media-voice {
+	background: var(--weq-chat-bubble-mine, #12a8ff);
+	border-color: transparent;
+	box-shadow: 0 1px 3px color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 40%, transparent);
+	color: #ffffff;
+}
+
+.message-line.mine .qq-media-voice:hover {
+	box-shadow: 0 2px 7px color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 48%, transparent);
+}
+
+.message-line.mine .qq-media-voice-play {
+	background: #ffffff;
+	color: var(--weq-accent-effective, #12a8ff);
+}
+
+.message-line.mine .qq-media-voice-wave {
+	color: #ffffff;
+}
+
+.message-line.mine .qq-media-voice-wave i {
+	opacity: 0.72;
+}
+
+.message-line.mine .qq-media-voice.is-playing .qq-media-voice-wave i {
+	opacity: 1;
+}
+
+.message-line.mine .qq-media-voice-time {
+	color: rgba(255, 255, 255, 0.9);
+}
+
+.message-line.mine .qq-media-voice-changed {
+	color: #ffffff;
+}
+
+.message-line.mine .qq-media-voice-ai {
+	background: rgba(255, 255, 255, 0.22);
+	color: #ffffff;
 }
 
 /* Voice transcription: wrapper around the play strip + hover 转文字 button and
@@ -615,34 +704,43 @@
 .qq-voice-row {
 	display: inline-flex;
 	align-items: center;
-	gap: 6px;
+	gap: 7px;
+}
+
+/* On my own (right-aligned) messages the 转文字 button sits to the LEFT of the
+   strip; flip the row so the play strip stays hugging the bubble edge. */
+.message-line.mine .qq-voice-row {
+	flex-direction: row-reverse;
 }
 
 .qq-voice-transcribe-btn {
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
-	padding: 3px 9px;
+	flex: 0 0 auto;
+	padding: 4px 10px;
 	border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 35%, transparent);
 	border-radius: 999px;
-	background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+	background: var(--weq-bg-elevated, #ffffff);
 	color: var(--weq-accent-effective, #0099ff);
 	font-size: 12px;
 	line-height: 1;
 	white-space: nowrap;
 	cursor: pointer;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 	opacity: 0;
-	transform: translateX(-2px);
+	transform: scale(0.94);
 	transition: opacity 120ms ease, transform 120ms ease, background 120ms ease;
 }
 
-.qq-voice-wrap:hover .qq-voice-transcribe-btn {
+.qq-voice-wrap:hover .qq-voice-transcribe-btn,
+.qq-voice-transcribe-btn:focus-visible {
 	opacity: 1;
-	transform: translateX(0);
+	transform: scale(1);
 }
 
 .qq-voice-transcribe-btn:hover:not(:disabled) {
-	background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+	background: color-mix(in srgb, var(--weq-accent-effective) 12%, var(--weq-bg-elevated, #fff));
 }
 
 .qq-voice-transcribe-btn:disabled {
@@ -664,6 +762,13 @@
 	line-height: 1.55;
 	white-space: pre-wrap;
 	word-break: break-word;
+}
+
+/* Keep the transcript reading light-on-... it stays a light bubble even under my
+   own messages (it's a result panel, not part of the accent strip). */
+.message-line.mine .qq-voice-transcript {
+	align-self: flex-end;
+	border-radius: 12px 4px 12px 12px;
 }
 
 .qq-voice-transcript.is-error {

@@ -22,6 +22,12 @@ import { exportToXlsx } from './xlsx_exporter';
 import { exportToChatlab, type ChatlabDeps } from './chatlab_exporter';
 import { exportToHtml } from './html_exporter';
 import { exportQzone, type QzoneExportDeps } from './qzone_export';
+import {
+  exportFriends,
+  exportGroupMembers,
+  type ContactsExportDeps,
+  type ContactsFormat,
+} from './contacts_export';
 import { exportAvatars } from './avatar_export';
 import {
   copyFoundMedia,
@@ -94,6 +100,9 @@ export interface ExportTask {
   chatlab?: boolean;
   /** 好友 QQ 空间说说导出（`conv` = 好友 uin；走独立的 Web 拉取流水线）。 */
   qzone?: boolean;
+  /** 联系人导出（好友列表 / 群成员列表；走独立的资料库拉取流水线）。
+   *  `group` 时 `conv` = 群号；`friends` 时 `conv` 为空。 */
+  contacts?: { scope: 'friends' | 'group'; categoryIds?: number[] };
   /** Media export options, when 导出媒体 is on. */
   media?: MediaExportOptions;
   /** Inclusive send-time window for this export, if narrowed from 全部时间. */
@@ -132,6 +141,8 @@ export interface MediaDeps {
   chatlab?: ChatlabDeps;
   /** QQ 空间说说拉取能力（Web CGI；需在线 QQ，由 app 注入）。 */
   qzone?: QzoneExportDeps;
+  /** 联系人（好友 / 群成员）资料库拉取能力（由 app 注入）。 */
+  contacts?: ContactsExportDeps;
 }
 
 export class ExportTaskManager extends EventEmitter {
@@ -201,6 +212,8 @@ export class ExportTaskManager extends EventEmitter {
     chatlab?: boolean;
     /** 好友 QQ 空间说说导出（走独立流水线）。 */
     qzone?: boolean;
+    /** 联系人导出（好友 / 群成员；走独立流水线）。 */
+    contacts?: { scope: 'friends' | 'group'; categoryIds?: number[] };
     media?: MediaExportOptions;
     range?: ExportTimeRange;
   }): Promise<string> {
@@ -208,6 +221,34 @@ export class ExportTaskManager extends EventEmitter {
     const wantMedia = Boolean(opts.media?.exportMedia);
     const wantAvatars = Boolean(opts.exportAvatar);
     const wantTranscribe = Boolean(opts.media?.transcribeVoice);
+
+    // 联系人导出（好友 / 群成员）是独立流水线（写表 + 可选头像），不复用消息流水线。
+    if (opts.contacts) {
+      const cStages: TaskStage[] = [
+        { key: 'message', label: '导出联系人', status: 'pending', current: 0, total: opts.total },
+      ];
+      if (wantAvatars) cStages.push({ key: 'avatar', label: '下载头像', status: 'pending', current: 0, total: 0 });
+      const cTask: ExportTask = {
+        id,
+        kind: opts.kind,
+        conv: opts.conv,
+        name: opts.name,
+        format: opts.format,
+        status: 'pending',
+        progress: 0,
+        current: 0,
+        total: opts.total,
+        contacts: opts.contacts,
+        exportAvatar: wantAvatars,
+        stages: cStages,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      this.tasks.set(id, cTask);
+      this.saveTasks();
+      void this.runContactsTask(id);
+      return id;
+    }
 
     // 好友空间导出是独立的两段式流水线（说说 + 可选配图），不复用消息流水线。
     if (opts.qzone) {
@@ -574,6 +615,118 @@ export class ExportTaskManager extends EventEmitter {
           { persist: true },
         );
       }
+      task.status = 'completed';
+      task.progress = 100;
+    } catch (e: any) {
+      task.status = 'failed';
+      task.error = String(e?.message ?? e);
+      const running = task.stages.find((s) => s.status === 'running');
+      if (running) { running.status = 'failed'; running.note = task.error; }
+    } finally {
+      task.updatedAt = Date.now();
+      this.abortControllers.delete(id);
+      this.saveTasks();
+      this.emit('progress', {
+        taskId: id,
+        status: task.status,
+        progress: task.progress,
+        current: task.current,
+        message: task.status === 'completed' ? '导出完成' : task.error ?? '已取消',
+      });
+    }
+  }
+
+  /**
+   * 联系人导出：拉好友/群成员写表 →（可选）下载头像。独立于消息流水线；
+   * `contacts.scope==='group'` 时 `conv` 为群号，拉取能力走注入的 `deps.contacts`。
+   */
+  private async runContactsTask(id: string): Promise<void> {
+    const task = this.tasks.get(id);
+    if (!task || task.status === 'cancelled') return;
+
+    task.status = 'running';
+    task.updatedAt = Date.now();
+    this.saveTasks();
+
+    const abort = new AbortController();
+    this.abortControllers.set(id, abort);
+    const aborted = (): boolean => abort.signal.aborted;
+
+    try {
+      const deps = this.deps.contacts;
+      if (!deps) throw new Error('联系人数据拉取能力不可用。');
+      const avatarCache = this.deps.avatarCache;
+      const wantAvatars = Boolean(task.exportAvatar && avatarCache);
+
+      // 有头像 → 产物为 bundle 目录（表文件 + avatars/），否则单文件。
+      const isBundle = wantAvatars;
+      const outDir = isBundle ? join(this.cacheDir, `bundle-${id}`) : this.cacheDir;
+      if (isBundle) mkdirSync(outDir, { recursive: true });
+      const ext = task.format === 'vcard' ? 'vcf' : task.format;
+      const outPath = join(outDir, `${task.name}.${ext}`);
+      const uins = wantAvatars ? new Set<string>() : undefined;
+
+      if (task.exportAvatar && !avatarCache) {
+        const s = this.stage(task, 'avatar');
+        if (s) { s.status = 'skipped'; s.note = '头像服务不可用'; }
+      }
+
+      // ---- stage: 导出联系人 ----
+      this.touchStage(task, 'message', { status: 'running', note: '开始导出' }, { persist: true });
+      const onProgress = (current: number, total: number, note: string): void => {
+        if (aborted()) return;
+        this.touchStage(task, 'message', { current, total, note });
+      };
+      const result =
+        task.contacts?.scope === 'group'
+          ? await exportGroupMembers(
+              {
+                groupCode: task.conv,
+                format: (task.format === 'vcard' ? 'txt' : task.format) as Exclude<ContactsFormat, 'vcard'>,
+                outputPath: outPath,
+                collectUins: uins,
+                onProgress,
+                signal: abort.signal,
+              },
+              deps,
+            )
+          : await exportFriends(
+              {
+                format: task.format as ContactsFormat,
+                outputPath: outPath,
+                categoryIds: task.contacts?.categoryIds,
+                collectUins: uins,
+                onProgress,
+                signal: abort.signal,
+              },
+              deps,
+            );
+      if (aborted()) { task.status = 'cancelled'; return; }
+
+      task.filePath = result.filePath;
+      task.current = result.count;
+      if (isBundle) task.bundleDir = outDir;
+      this.touchStage(
+        task,
+        'message',
+        { status: 'completed', current: result.count, total: result.count, note: `${result.count} 位联系人` },
+        { persist: true },
+      );
+
+      // ---- stage: 下载头像（可选） ----
+      if (wantAvatars && uins && avatarCache) {
+        this.touchStage(task, 'avatar', { status: 'running', total: uins.size, current: 0, note: `下载 0/${uins.size}` }, { persist: true });
+        const r = await exportAvatars(avatarCache, uins, outDir, {
+          onProgress: (done, total) => {
+            if (aborted()) return;
+            this.touchStage(task, 'avatar', { current: done, total, note: `下载 ${done}/${total}` });
+          },
+        });
+        task.avatarCount = r.ok;
+        this.touchStage(task, 'avatar', { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已下载 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}` }, { persist: true });
+      }
+      if (aborted()) { task.status = 'cancelled'; return; }
+
       task.status = 'completed';
       task.progress = 100;
     } catch (e: any) {

@@ -110,6 +110,19 @@ export function decodePreviewElement(
 export function encodeElement(el: Element): ProtoEncodeStructType<typeof ElementWire> {
   if (el.kind === 'unknown') return el.raw;
   const { kind, ...rest } = el;
+  // A `reply` element nests the quoted message's `origElements`. When authored
+  // in kind-tagged form (compose / insert), encode each to wire so the stored
+  // bytes are real nested Elements — decodeElement keys off `elementType`, which
+  // a kind-tagged object lacks. Items already in wire form (no `kind`) pass
+  // through untouched, so decoded-then-re-encoded replies stay stable.
+  if (kind === 'reply') {
+    const nested = (rest as { origElements?: unknown }).origElements;
+    if (Array.isArray(nested)) {
+      (rest as { origElements?: unknown[] }).origElements = nested.map((o) =>
+        o && typeof o === 'object' && 'kind' in o ? encodeElement(o as Element) : o,
+      );
+    }
+  }
   return {
     ...rest,
     elementType: KIND_TO_TYPE[kind as KnownKind],
