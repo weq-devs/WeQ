@@ -32,6 +32,7 @@
  */
 
 import { copyFileSync, mkdirSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
@@ -41,30 +42,33 @@ import { ProtoMsg, decodeElement, encodeElement, ElementType } from '@weq/codec'
 import type { ArkElement } from '@weq/codec';
 import { MsgBody } from '@weq/codec/proto/msg/40800';
 import { RecentContactBody } from '@weq/codec/proto/msg/40051';
+import { avatarHashForUid } from './avatar_resource';
 
 /** The real game-center account whose rows we clone as a structural template. */
 const TEMPLATE_UID = 'u_-PBswiplK-7J7bmaQLA-mA';
 
-/** Our fabricated account. Fixed so re-runs are idempotent (delete-then-write). */
-export const WEQ_ASSISTANT_UID = 'u_WeQ-assistant-fake01';
+/**
+ * uin / 昵称固定；uid 不再硬编码。以前为了硬编码那套「真实」头像文件路径，只能把 uid
+ * 也钉死成一个常量——全网所有安装共用同一个 `u_WeQ-assistant-fake01`，极易被 QQ 当成
+ * 批量伪造账号风控。现在头像 hash 路径可由 uid 经 md5³ 公式（{@link avatarHashForUid}）
+ * 实时算出，于是 uid 改成**每台机器随机生成一次并持久化**（见
+ * `UserConfigService.getWeqAssistantUid`），由外部通过构造函数注入。
+ */
 export const WEQ_ASSISTANT_UIN = 2233445566n;
 export const WEQ_ASSISTANT_NICK = 'WeQ助手';
 
 /**
- * Where QQ ITSELF looks for this account's avatar.
- *
- * QQ does NOT read the avatar path we write to column 41110 — it derives its own
- * cache path from the account's uid/uin (an opaque hash we can't reproduce) and
- * renders whatever image sits there. For our FIXED fake uid/uin that path is
- * constant, so we hard-code it and overwrite that exact file with our logo.
- *
- * Path shape: `nt_data/avatar/user/<hash[0:2]>/s_<hash>` (the 2-char shard dir
- * is the hash prefix). Empirically observed for uid=WEQ_ASSISTANT_UID /
- * uin=WEQ_ASSISTANT_UIN. If either identity constant changes, QQ will compute a
- * different hash and this must be re-observed.
+ * 生成一个 QQ 风格的随机 uid：`u_` 前缀 + 22 位取自 base64url 字符集 [A-Za-z0-9-_]
+ * （与真实 QQ uid 同构）。仅在首次启用时生成一次，之后必须持久化复用：uid 一旦变化，
+ * QQ 库里会残留旧 uid 的孤儿会话，且头像文件的 hash 路径也随之改变（对不上先前写入的图）。
  */
-const AVATAR_HASH = 's_85179c05460bdec70b7320e6b1b039d4';
-const AVATAR_SHARD = AVATAR_HASH.slice(2, 4); // 's_' + first 2 hex chars → '85'
+export function generateWeqAssistantUid(): string {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'; // 64 chars
+  const bytes = randomBytes(22);
+  let s = '';
+  for (let i = 0; i < 22; i++) s += alphabet.charAt((bytes[i] ?? 0) % alphabet.length);
+  return `u_${s}`;
+}
 
 const bodyCodec = new ProtoMsg(MsgBody);
 const rcCodec = new ProtoMsg(RecentContactBody);
@@ -99,10 +103,18 @@ export interface WeqTweetCard {
 export class WeqAssistantService {
   private readonly msgDb: QqDb;
   private readonly c2c: C2cMsgDb;
+  /**
+   * QQ 自己渲染这个会话头像时读的文件名 `s_<hash>` 与它的两位分片目录，均由 uid 经
+   * md5³ 公式算出（`nt_data/avatar/user/<shard>/s_<hash>`）。uid 变则这两个值都变。
+   */
+  private readonly avatarHash: string;
+  private readonly avatarShard: string;
 
   constructor(
     private readonly session: AccountSession,
     private readonly platform: Platform,
+    /** 本机固定的 WeQ助手 uid（来自 userConfig：随机生成一次后持久化，保证幂等）。 */
+    private readonly uid: string,
   ) {
     const { dbKey, algo } = session.context;
     this.msgDb = new QqDb(platform.native.ntHelper, {
@@ -115,6 +127,9 @@ export class WeqAssistantService {
       key: dbKey,
       algo,
     });
+    const hash = avatarHashForUid(uid);
+    this.avatarHash = `s_${hash}`;
+    this.avatarShard = hash.slice(0, 2);
   }
 
   /**
@@ -126,7 +141,7 @@ export class WeqAssistantService {
     const newSortNo = (await this.maxBigint('nt_uid_mapping_table', '48901')) + 1n;
     await this.cloneAndInsert('nt_uid_mapping_table', '48902', '"48901" DESC', {
       '48901': newSortNo,
-      '48902': WEQ_ASSISTANT_UID,
+      '48902': this.uid,
       '1002': WEQ_ASSISTANT_UIN,
     }, ['48912']);
   }
@@ -140,7 +155,7 @@ export class WeqAssistantService {
     const timeBig = BigInt(card.createdAt);
     const dup = await this.msgDb.query(
       `SELECT 1 FROM c2c_msg_table WHERE "40021" = ? AND "40050" = ? LIMIT 1`,
-      [WEQ_ASSISTANT_UID, timeBig],
+      [this.uid, timeBig],
     );
     if (dup.length > 0) return false;
 
@@ -151,8 +166,8 @@ export class WeqAssistantService {
     await this.cloneAndInsert('c2c_msg_table', '40021', '"40050" DESC', {
       '40001': msgId,
       '40002': rand31(),
-      '40020': WEQ_ASSISTANT_UID,
-      '40021': WEQ_ASSISTANT_UID,
+      '40020': this.uid,
+      '40021': this.uid,
       '40027': sortNo,
       '40030': WEQ_ASSISTANT_UIN,
       '40033': WEQ_ASSISTANT_UIN,
@@ -175,7 +190,7 @@ export class WeqAssistantService {
     // 指向该推文在 c2c 里的真实 msgId（按固定时间定位）。
     const rows = await this.msgDb.query(
       `SELECT "40001" FROM c2c_msg_table WHERE "40021" = ? AND "40050" = ? LIMIT 1`,
-      [WEQ_ASSISTANT_UID, timeBig],
+      [this.uid, timeBig],
     );
     const raw = rows[0]?.[0];
     const msgId = typeof raw === 'bigint' ? raw : typeof raw === 'number' ? BigInt(raw) : 0n;
@@ -194,8 +209,8 @@ export class WeqAssistantService {
       '40010': 103n, // chatType (public account)
       '40011': 11n, // msgType (ark)
       '40027': sortNo,
-      '40021': WEQ_ASSISTANT_UID,
-      '40020': WEQ_ASSISTANT_UID,
+      '40021': this.uid,
+      '40020': this.uid,
       '40030': WEQ_ASSISTANT_UIN,
       '40033': WEQ_ASSISTANT_UIN,
       '40001': msgId,
@@ -214,7 +229,7 @@ export class WeqAssistantService {
   async removeContact(): Promise<void> {
     await this.msgDb.write(
       `DELETE FROM recent_contact_v3_table WHERE "40021" = ?`,
-      [WEQ_ASSISTANT_UID],
+      [this.uid],
     );
   }
 
@@ -257,7 +272,7 @@ export class WeqAssistantService {
     // Every ARK message row for our fabricated account.
     const rows = await this.msgDb.query(
       `SELECT "40001" FROM c2c_msg_table WHERE "40021" = ? ORDER BY "40050" ASC`,
-      [WEQ_ASSISTANT_UID],
+      [this.uid],
     );
     const ids = rows
       .map((r) => r[0])
@@ -279,7 +294,7 @@ export class WeqAssistantService {
     // recent-contact preview (40051)
     const rcRows = await this.msgDb.query(
       `SELECT "40051" FROM recent_contact_v3_table WHERE "40021" = ? LIMIT 1`,
-      [WEQ_ASSISTANT_UID],
+      [this.uid],
     );
     const rcBlob = rcRows[0]?.[0];
     if (rcBlob instanceof Uint8Array) {
@@ -288,7 +303,7 @@ export class WeqAssistantService {
         const preview = { ...rc.preview, arkData: rewriteArkPort(rc.preview.arkData, newPort) };
         await this.msgDb.write(
           `UPDATE recent_contact_v3_table SET "40051" = ? WHERE "40021" = ?`,
-          [rcCodec.encode({ preview }), WEQ_ASSISTANT_UID],
+          [rcCodec.encode({ preview }), this.uid],
         );
       }
     }
@@ -299,7 +314,7 @@ export class WeqAssistantService {
   async exists(): Promise<boolean> {
     const rows = await this.msgDb.query(
       `SELECT 1 FROM nt_uid_mapping_table WHERE "48902" = ? LIMIT 1`,
-      [WEQ_ASSISTANT_UID],
+      [this.uid],
     );
     return rows.length > 0;
   }
@@ -313,9 +328,9 @@ export class WeqAssistantService {
   // ── internals ──────────────────────────────────────────────────────────
 
   /**
-   * Overwrite the exact avatar file QQ derives for our fake uid/uin
-   * (`nt_data/avatar/user/<shard>/<AVATAR_HASH>`) with our logo. QQ ignores
-   * column 41110 and renders from this hashed path, so this is the ONLY write
+   * Overwrite the exact avatar file QQ derives for our fake uid
+   * (`nt_data/avatar/user/<shard>/s_<hash>`, hash = md5³(uid)) with our logo. QQ
+   * ignores column 41110 and renders from this hashed path, so this is the ONLY write
    * that actually changes the displayed avatar. Returns the absolute path
    * written (also stored in 41110 for our own bookkeeping), or null if no source
    * given / the account's nt_data dir can't be resolved.
@@ -324,9 +339,9 @@ export class WeqAssistantService {
     if (!sourcePath) return null;
     const ntData = this.platform.ntDataDir(this.session.context.uin);
     if (!ntData) return null;
-    const dir = join(ntData, 'avatar', 'user', AVATAR_SHARD);
+    const dir = join(ntData, 'avatar', 'user', this.avatarShard);
     mkdirSync(dir, { recursive: true });
-    const dest = join(dir, AVATAR_HASH);
+    const dest = join(dir, this.avatarHash);
     copyFileSync(sourcePath, dest);
     return dest;
   }
@@ -359,7 +374,7 @@ export class WeqAssistantService {
   private async conversationSortNo(): Promise<bigint> {
     const rows = await this.msgDb.query(
       `SELECT "48901" FROM nt_uid_mapping_table WHERE "48902" = ? LIMIT 1`,
-      [WEQ_ASSISTANT_UID],
+      [this.uid],
     );
     const v = rows[0]?.[0];
     return typeof v === 'bigint' ? v : typeof v === 'number' ? BigInt(v) : 0n;
