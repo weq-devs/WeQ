@@ -21,15 +21,22 @@ export interface UnreadInfoDbOptions {
  * Named categories of the 48902 notify-highlight (50005 → 50060), keyed by the
  * observed `50000` kind code. QQ NT populates one highlight group per category
  * that currently has an unread hit:
- *   1000 = @我 (at-me), 1006 = 特别关心 (special-care),
+ *   1000 = @我 (at-me), 1006 = 特别关心 (special-care), 1007 = QQ红包 (red-packet),
  *   2000 = @全体 (at-all), 2001 = 新文件 (new-file).
  * More (回复我 …) will slot in as their codes are captured.
  */
-export type HighlightKind = 'atMe' | 'atAll' | 'specialCare' | 'newFile' | 'unknown';
+export type HighlightKind =
+  | 'atMe'
+  | 'atAll'
+  | 'specialCare'
+  | 'newFile'
+  | 'redPacket'
+  | 'unknown';
 
 const HIGHLIGHT_KIND_BY_CODE: Record<number, HighlightKind> = {
   1000: 'atMe',
   1006: 'specialCare',
+  1007: 'redPacket',
   2000: 'atAll',
   2001: 'newFile',
 };

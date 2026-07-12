@@ -322,6 +322,7 @@ export interface RenderWalletElement {
     walletDetail?: any;
     walletOrderId?: string;
     walletRedbagType?: number;
+    walletDesignatedUin?: number;
     walletExt?: any;
   };
 }
@@ -799,6 +800,7 @@ function mapWallet(el: WalletElement): RenderWalletElement {
       walletDetail: el.walletDetail,
       walletOrderId: el.walletOrderId,
       walletRedbagType: el.walletRedbagType,
+      walletDesignatedUin: el.walletDesignatedUin,
       walletExt: el.walletExt,
       elementId: el.elementId,
       isSender: el.isSender,

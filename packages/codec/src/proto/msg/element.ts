@@ -797,12 +797,21 @@ export const ElementWire = {
   walletFlag48410: ProtoField(48410, ScalarType.STRING, { optional: true }),
   walletFlag48411: ProtoField(48411, ScalarType.UINT32, { optional: true }),
 
-  /** Redbag type: 1=transfer, 2=normal, 6=password, 15=voice (elementType=9). */
+  /**
+   * Redbag type (elementType=9). See `RedbagType` in `element/types.ts`.
+   * 1=transfer, 2=normal, 3=lucky (拼手气), 6=password, 8=designated (专属), 15=voice.
+   */
   walletRedbagType: ProtoField(48412, ScalarType.UINT32, { optional: true }),
 
   walletFlag48417: ProtoField(48417, ScalarType.BYTES, { optional: true }),
   walletFlag48418: ProtoField(48418, ScalarType.STRING, { optional: true }),
   walletFlag48419: ProtoField(48419, ScalarType.UINT32, { optional: true }),
+
+  /**
+   * Designated recipient uin (elementType=9). Present only on 专属红包
+   * (walletRedbagType=8); the sole group member allowed to claim the packet.
+   */
+  walletDesignatedUin: ProtoField(48420, ScalarType.UINT32, { optional: true }),
 
   /** Extension field (elementType=9). */
   walletExt: ProtoField(48421, () => WalletExtWire, { optional: true }),

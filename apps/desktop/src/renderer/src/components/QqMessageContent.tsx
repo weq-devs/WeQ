@@ -515,7 +515,8 @@ export function QqMessageContent({
       <div className={cn('message-content', 'qq-card-only', 'qq-has-wallet')}>
         <QqWallet
           detail={walletElement.data?.walletDetail}
-          fallbackType={walletElement.data?.walletRedbagType}
+          redbagType={walletElement.data?.walletRedbagType}
+          designatedUin={walletElement.data?.walletDesignatedUin}
         />
       </div>
     );

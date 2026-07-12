@@ -368,6 +368,7 @@ export const WalletElementSchema = BaseElementFieldsSchema.extend({
   walletFlag48417: z.instanceof(Uint8Array).optional(),
   walletFlag48418: z.string().optional(),
   walletFlag48419: z.number().optional(),
+  walletDesignatedUin: z.number().optional(),
   walletExt: z.any().optional(),
   walletFlag48437: z.number().optional(),
   walletFlag48438: z.number().optional(),

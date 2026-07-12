@@ -71,6 +71,8 @@ export function ConversationList({
 					unreadCount > 0 && highlightKinds.has("specialCare");
 				// 新文件：内容类提示（非「找你」告警），行首挂蓝色标记。
 				const showNewFile = unreadCount > 0 && highlightKinds.has("newFile");
+				// QQ红包：内容类提示，行首挂金色标记。
+				const showRedPacket = unreadCount > 0 && highlightKinds.has("redPacket");
 				// 免打扰：会话自带的 DB 值（41220）打底，本地手动偏好覆盖 ——
 				// 与 shellController.countVisibleUnreadConversations 的 merge 顺序保持一致。
 				const muted = Boolean({
@@ -125,6 +127,9 @@ export function ConversationList({
 										) : null}
 										{showNewFile ? (
 											<span className={cn("row-newfile-alert")}>[新文件]</span>
+										) : null}
+										{showRedPacket ? (
+											<span className={cn("row-redpacket-alert")}>[红包]</span>
 										) : null}
 										{preview.text}
 									</span>

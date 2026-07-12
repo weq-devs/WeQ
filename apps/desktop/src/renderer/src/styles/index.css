@@ -6372,6 +6372,41 @@ html[data-theme="dark"] .weq-ark-map-name {
   overflow: hidden;
 }
 
+/* 红包类型小字 / 专属领取人：叠在封面图上，紧贴居中标题的上方一点 */
+.weq-redbag-tag {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 44%; /* 占封面上半，内容底对齐 → 落在标题正上方 */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  padding: 0 8px 3px;
+  line-height: 1.2;
+  font-size: 11px;
+  color: #fbe4b5; /* 与标题同系米黄 */
+  text-align: center;
+  text-shadow: 0 1px 2px rgba(120, 20, 10, 0.45);
+  pointer-events: none;
+}
+.weq-redbag-tag-avatar {
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.4);
+}
+
+/* 专属红包：头像+文字整块及标题一起下移一点，避免头像盖住封面顶部的 QQ logo。 */
+.weq-redbag-tag--designated {
+  transform: translateY(14px);
+}
+.weq-redbag-card--designated .weq-redbag-title {
+  /* 保留原居中变换，叠加下移量。 */
+  transform: translate(-50%, calc(-50% + 14px));
+}
+
 /* --- floating forward window stack ----------------------------- */
 
 .weq-forward-layer {

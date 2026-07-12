@@ -43,7 +43,13 @@ export type GroupMember = User & {
 	levelName?: string | null;
 };
 
-export type ConversationHighlightKind = "atMe" | "atAll" | "specialCare" | "newFile" | "unknown";
+export type ConversationHighlightKind =
+	| "atMe"
+	| "atAll"
+	| "specialCare"
+	| "newFile"
+	| "redPacket"
+	| "unknown";
 
 export type ConversationHighlight = {
 	kind: ConversationHighlightKind;

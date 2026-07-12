@@ -499,6 +499,12 @@ html[data-theme="dark"] .contact-cat-count {
 	margin-right: 2px;
 }
 
+.row-redpacket-alert {
+	color: #e8a33d;
+	font-weight: 500;
+	margin-right: 2px;
+}
+
 .row-draft svg {
 	flex: 0 0 auto;
 	color: #ff4b3a;
