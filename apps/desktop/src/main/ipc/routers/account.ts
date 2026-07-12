@@ -1850,6 +1850,40 @@ export const accountRouter = router({
     }),
 
   /**
+   * Start a contacts export — 好友列表（scope='friends'，可按分组过滤）或某群的
+   * 成员列表（scope='group'，`groupCode` 必填）。走本地资料库，无需在线 QQ。
+   * 好友支持 vcard；群成员不支持 vcard。
+   */
+  startContactsExport: procedure
+    .input(z.object({
+      scope: z.enum(['friends', 'group']),
+      groupCode: z.string().optional(),
+      name: z.string().min(1),
+      format: z.enum(['json', 'csv', 'xlsx', 'txt', 'vcard']),
+      exportAvatar: z.boolean().optional(),
+      categoryIds: z.array(z.number().int()).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      if (input.scope === 'group' && !input.groupCode) {
+        throw new Error('导出群成员需要指定群号。');
+      }
+      // vcard 仅好友可用；群成员传 vcard 时回退到 csv。
+      const format = input.scope === 'group' && input.format === 'vcard' ? 'csv' : input.format;
+      return requireServices().exportManager.startTask({
+        contacts: {
+          scope: input.scope,
+          ...(input.categoryIds ? { categoryIds: input.categoryIds } : {}),
+        },
+        kind: 'c2c',
+        conv: input.scope === 'group' ? input.groupCode! : '',
+        name: input.name,
+        format,
+        total: 0,
+        exportAvatar: input.exportAvatar ?? false,
+      });
+    }),
+
+  /**
    * Force a one-shot rkey harvest from the online QQ for the open account — the
    * explicit "立即重新获取 rkey" before a media-completing export. Returns true
    * when fresh rkeys were stored.

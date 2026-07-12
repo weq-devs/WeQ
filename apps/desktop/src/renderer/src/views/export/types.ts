@@ -8,11 +8,11 @@
  */
 
 /** Left-rail modes. */
-export type ExportMode = 'full' | 'decrypt' | 'chatlab' | 'qzone' | 'scheduled' | 'album';
+export type ExportMode = 'full' | 'decrypt' | 'chatlab' | 'qzone' | 'contacts' | 'scheduled' | 'album';
 
-/** Every output format the 完整消息 / 定时 flows can request. HTML is now one of
- *  the 完整消息 format chips (merged from its old standalone mode). */
-export type ExportFormat = 'json' | 'jsonl' | 'xlsx' | 'csv' | 'txt' | 'html';
+/** Every output format the 完整消息 / 定时 flows can request. HTML is one of the
+ *  完整消息 chips; `vcard` is contacts-only (导出联系人). */
+export type ExportFormat = 'json' | 'jsonl' | 'xlsx' | 'csv' | 'txt' | 'html' | 'vcard';
 
 /** Formats the backend (`account.startExport`) can produce. */
 export const BACKEND_FORMATS = ['json', 'jsonl', 'txt', 'csv', 'xlsx'] as const;
@@ -41,6 +41,23 @@ export const CHATLAB_FORMATS: Array<{ value: ExportFormat; label: string }> = [
 
 /** 好友 QQ 空间导出仅 JSON / TXT。 */
 export const QZONE_FORMATS: Array<{ value: ExportFormat; label: string }> = [
+  { value: 'json', label: 'JSON' },
+  { value: 'txt', label: 'TXT' },
+];
+
+/** 导出好友：表格类 + vCard 电子名片。 */
+export const FRIEND_FORMATS: Array<{ value: ExportFormat; label: string }> = [
+  { value: 'csv', label: 'CSV' },
+  { value: 'xlsx', label: 'XLSX' },
+  { value: 'json', label: 'JSON' },
+  { value: 'txt', label: 'TXT' },
+  { value: 'vcard', label: 'vCard' },
+];
+
+/** 导出群成员：表格类（无 vCard）。 */
+export const MEMBER_FORMATS: Array<{ value: ExportFormat; label: string }> = [
+  { value: 'csv', label: 'CSV' },
+  { value: 'xlsx', label: 'XLSX' },
   { value: 'json', label: 'JSON' },
   { value: 'txt', label: 'TXT' },
 ];
