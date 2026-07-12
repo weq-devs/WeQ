@@ -3,11 +3,11 @@
  * charts the totals. The scan is the slow part (each file is `stat`-ed for its
  * size), so it runs ONE tree at a time via `mediaResource.analyzeTree`, showing a
  * progress banner + per-category cards that fill in as each tree finishes. The
- * cross-category charts (size/count donuts, the by-month bars, the 源文件/缩略图
- * split) render once the whole sweep completes.
+ * cross-category charts (the ranked category bars, the by-month bars, the
+ * 源文件/缩略图 split) render once the whole sweep completes.
  *
- * Visuals reuse the shared {@link DonutChart} (theme-aware, dependency-free) plus
- * a small inline monthly-bar chart; everything follows the picked accent.
+ * Visuals are dependency-free inline bar charts whose colours all come from
+ * {@link ACCENT_SERIES}, so everything follows 设置里的主题色.
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
@@ -29,19 +29,23 @@ import {
 } from 'lucide-react';
 import type { ResourceStat, ResourceTreeKey } from '@weq/service';
 import { client } from '../../trpc/client';
-import { DonutChart, formatNumber } from '../../components/analyticsCharts';
+import { ACCENT_MUTED, ACCENT_SERIES, formatNumber } from '../../components/analyticsCharts';
 import { fmtBytes } from './FileResourceShared';
 
-/** The trees to scan, in a stable order (also fixes each category's colour). */
+/**
+ * The trees to scan, in a stable order (also fixes each category's colour).
+ * Colours come from {@link ACCENT_SERIES} so every slice follows 设置里的主题色
+ * — cohesive shades of the accent rather than a clashing rainbow.
+ */
 const TREES: Array<{ key: ResourceTreeKey; label: string; icon: ReactElement; color: string }> = [
-  { key: 'pic', label: '图片', icon: <ImageIcon size={15} />, color: 'var(--weq-accent-effective)' },
-  { key: 'video', label: '视频', icon: <Film size={15} />, color: 'color-mix(in srgb, var(--weq-accent-effective) 60%, #8b5cf6)' },
-  { key: 'ptt', label: '语音', icon: <AudioLines size={15} />, color: '#22c55e' },
-  { key: 'emoji', label: '表情', icon: <Smile size={15} />, color: '#f59e0b' },
-  { key: 'avatar', label: '头像', icon: <ImageIcon size={15} />, color: '#ec4899' },
-  { key: 'photoWall', label: '图片墙', icon: <Images size={15} />, color: '#06b6d4' },
-  { key: 'qzone', label: 'QQ空间', icon: <Cloud size={15} />, color: '#f43f5e' },
-  { key: 'file', label: '文件', icon: <Folder size={15} />, color: '#94a3b8' },
+  { key: 'pic', label: '图片', icon: <ImageIcon size={15} />, color: ACCENT_SERIES[0] },
+  { key: 'video', label: '视频', icon: <Film size={15} />, color: ACCENT_SERIES[1] },
+  { key: 'ptt', label: '语音', icon: <AudioLines size={15} />, color: ACCENT_SERIES[2] },
+  { key: 'emoji', label: '表情', icon: <Smile size={15} />, color: ACCENT_SERIES[3] },
+  { key: 'avatar', label: '头像', icon: <ImageIcon size={15} />, color: ACCENT_SERIES[4] },
+  { key: 'photoWall', label: '图片墙', icon: <Images size={15} />, color: ACCENT_SERIES[5] },
+  { key: 'qzone', label: 'QQ空间', icon: <Cloud size={15} />, color: ACCENT_SERIES[6] },
+  { key: 'file', label: '文件', icon: <Folder size={15} />, color: ACCENT_SERIES[7] },
 ];
 
 function labelOf(key: ResourceTreeKey): string {
@@ -222,54 +226,31 @@ export function ResourceAnalyticsDialog({
             />
           </div>
 
-          {/* Cross-category donuts (need the full sweep). */}
-          <div className="weq-ra-charts">
-            <ChartCard title="各分类占用大小">
-              {done && present.length > 0 ? (
-                <DonutChart
-                  segments={present
-                    .slice()
-                    .sort((a, b) => b.bytes - a.bytes)
-                    .map((s) => ({ label: labelOf(s.key), value: s.bytes, color: colorOf(s.key) }))}
-                  centerLabel={fmtBytes(totals.bytes)}
-                  centerSub="总大小"
-                />
-              ) : (
-                <ChartWaiting scanning={scanningKey !== null} />
-              )}
-            </ChartCard>
+          {/* Cross-category ranking — one bar chart covers both 大小 and 数量
+              (toggle), so every category name shows in full without the cramped
+              legend the old donuts had. */}
+          <ChartCard title="各分类分布" wide>
+            {done && present.length > 0 ? (
+              <CategoryBars stats={present} totals={totals} />
+            ) : (
+              <ChartWaiting scanning={scanningKey !== null} />
+            )}
+          </ChartCard>
 
-            <ChartCard title="各分类文件数量">
-              {done && present.length > 0 ? (
-                <DonutChart
-                  segments={present
-                    .slice()
-                    .sort((a, b) => b.files - a.files)
-                    .map((s) => ({ label: labelOf(s.key), value: s.files, color: colorOf(s.key) }))}
-                  centerLabel={formatNumber(totals.files)}
-                  centerSub="总数量"
-                />
-              ) : (
-                <ChartWaiting scanning={scanningKey !== null} />
-              )}
-            </ChartCard>
-
-            <ChartCard title="源文件 / 缩略图 占比">
-              {done && totals.files > 0 ? (
-                <DonutChart
-                  segments={[
-                    { label: '源文件', value: totals.ori.bytes, color: 'var(--weq-accent-effective)' },
-                    { label: '缩略图', value: totals.thumb.bytes, color: '#f59e0b' },
-                    { label: '其它', value: totals.other.bytes, color: '#94a3b8' },
-                  ]}
-                  centerLabel={fmtBytes(totals.ori.bytes + totals.thumb.bytes)}
-                  centerSub="原图+缩略图"
-                />
-              ) : (
-                <ChartWaiting scanning={scanningKey !== null} />
-              )}
-            </ChartCard>
-          </div>
+          {/* 源文件 / 缩略图 占比 as a slim 100% stacked bar. */}
+          <ChartCard title="源文件 / 缩略图 占比" wide>
+            {done && totals.files > 0 ? (
+              <ShareBar
+                segments={[
+                  { label: '源文件', bytes: totals.ori.bytes, files: totals.ori.files, color: ACCENT_SERIES[0] },
+                  { label: '缩略图', bytes: totals.thumb.bytes, files: totals.thumb.files, color: ACCENT_SERIES[3] },
+                  { label: '其它', bytes: totals.other.bytes, files: totals.other.files, color: ACCENT_MUTED },
+                ]}
+              />
+            ) : (
+              <ChartWaiting scanning={scanningKey !== null} />
+            )}
+          </ChartCard>
 
           {/* By-month bars. */}
           <ChartCard title="按时间分布（文件修改月份）" wide>
@@ -382,6 +363,113 @@ function ChartWaiting({ scanning }: { scanning: boolean }): ReactElement {
       ) : (
         <span>暂无数据</span>
       )}
+    </div>
+  );
+}
+
+/**
+ * Ranked horizontal bars over the scanned categories. A 大小/数量 toggle switches
+ * which metric drives the bar length + sort order, while BOTH values stay on
+ * every row — one chart replacing the two cramped donuts, and no truncated
+ * labels.
+ */
+function CategoryBars({ stats, totals }: { stats: ResourceStat[]; totals: Totals }): ReactElement {
+  const [metric, setMetric] = useState<'bytes' | 'files'>('bytes');
+  const rows = stats
+    .slice()
+    .sort((a, b) => (metric === 'bytes' ? b.bytes - a.bytes : b.files - a.files));
+  const totalMetric = metric === 'bytes' ? totals.bytes : totals.files;
+  const max = Math.max(...rows.map((s) => (metric === 'bytes' ? s.bytes : s.files)), 1);
+
+  return (
+    <div className="weq-ra-barwrap">
+      <div className="weq-ra-metric">
+        <button
+          type="button"
+          className={metric === 'bytes' ? 'is-on' : ''}
+          onClick={() => setMetric('bytes')}
+        >
+          大小
+        </button>
+        <button
+          type="button"
+          className={metric === 'files' ? 'is-on' : ''}
+          onClick={() => setMetric('files')}
+        >
+          数量
+        </button>
+      </div>
+      <div className="weq-ra-bars">
+        {rows.map((s) => {
+          const value = metric === 'bytes' ? s.bytes : s.files;
+          const pct = totalMetric > 0 ? (value / totalMetric) * 100 : 0;
+          const width = max > 0 ? (value / max) * 100 : 0;
+          const primary = metric === 'bytes' ? fmtBytes(s.bytes) : `${formatNumber(s.files)} 个`;
+          const secondary = metric === 'bytes' ? `${formatNumber(s.files)} 个` : fmtBytes(s.bytes);
+          return (
+            <div className="weq-ra-bar-row" key={s.key}>
+              <span className="weq-ra-bar-label">
+                <i style={{ background: colorOf(s.key) }} />
+                {labelOf(s.key)}
+              </span>
+              <span className="weq-ra-bar-track">
+                <span
+                  className="weq-ra-bar-fill"
+                  style={{
+                    width: `${Math.max(width, value > 0 ? 2 : 0)}%`,
+                    background: colorOf(s.key),
+                  }}
+                />
+              </span>
+              <span className="weq-ra-bar-val">
+                <b>{primary}</b>
+                <small>
+                  {pct >= 10 ? pct.toFixed(0) : pct.toFixed(1)}% · {secondary}
+                </small>
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Slim 100% stacked bar (by bytes) for the 源文件 / 缩略图 / 其它 split. */
+function ShareBar({
+  segments,
+}: {
+  segments: Array<{ label: string; bytes: number; files: number; color: string }>;
+}): ReactElement {
+  const total = segments.reduce((s, x) => s + Math.max(0, x.bytes), 0);
+  return (
+    <div className="weq-ra-sharewrap">
+      <div className="weq-ra-sharebar">
+        {segments.map((s) =>
+          s.bytes > 0 ? (
+            <span
+              key={s.label}
+              className="weq-ra-shareseg"
+              style={{ width: `${(s.bytes / total) * 100}%`, background: s.color }}
+              title={`${s.label} · ${fmtBytes(s.bytes)} · ${s.files} 个`}
+            />
+          ) : null,
+        )}
+      </div>
+      <div className="weq-ra-sharelegend">
+        {segments.map((s) => {
+          const pct = total > 0 ? (s.bytes / total) * 100 : 0;
+          return (
+            <span className="weq-ra-shareitem" key={s.label}>
+              <i style={{ background: s.color }} />
+              <span className="weq-ra-share-lbl">{s.label}</span>
+              <span className="weq-ra-share-val">
+                {fmtBytes(s.bytes)} · {pct >= 10 ? pct.toFixed(0) : pct.toFixed(1)}%
+              </span>
+            </span>
+          );
+        })}
+      </div>
     </div>
   );
 }

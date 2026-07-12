@@ -1107,7 +1107,18 @@ export const accountRouter = router({
     .input(z.object({ chatType: z.number().int(), uid: z.string().min(1) }))
     .query(async ({ input }) => {
       const result = await requireServices().unreadInfo.getUnreadInfo(input.chatType, input.uid);
-      return result ? { msgSeq: result.msgSeq?.toString() } : null;
+      if (!result) return null;
+      return {
+        msgSeq: result.msgSeq?.toString(),
+        // 特别关心标记（若该会话有特别关心未读）。seq 保留供上层使用。
+        specialCare: result.specialCare
+          ? {
+              msgSeq: result.specialCare.msgSeq.toString(),
+              senderUid: result.specialCare.senderUid,
+              sendTime: result.specialCare.sendTime.toString(),
+            }
+          : undefined,
+      };
     }),
 
   /** Newest page of a conversation (open / switch-into), newest-first. */

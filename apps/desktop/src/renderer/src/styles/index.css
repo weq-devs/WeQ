@@ -5385,6 +5385,141 @@ html[data-theme="dark"] .weq-profile-member .avatar {
 }
 
 /* ──────────────────────────────────────────────────────────────────────
+ * 群成员资料卡片（MemberProfileCard）。贴光标弹出的 anchored 浮层：
+ * scrim 只作透明点击捕获（无遮罩、不虚化，避免打断阅读），卡片本体沿用
+ * weq-profile 的设计语言，宽度更紧凑。定位由组件 inline style(fixed+left/top)
+ * 负责，这里只管观感。
+ * ──────────────────────────────────────────────────────────────────── */
+.weq-member-pop-scrim {
+  /* position/inset/z-index 由组件 inline 设定；此处仅兜底 */
+  background: transparent;
+}
+
+.weq-member-pop {
+  display: flex;
+  flex-direction: column;
+  width: 288px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 22px 16px 14px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
+  border-radius: 14px;
+  background:
+    radial-gradient(
+      ellipse at 50% -10%,
+      color-mix(in srgb, var(--weq-accent-effective) 10%, transparent),
+      transparent 48%
+    ),
+    rgba(255, 255, 255, 0.99);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.6) inset,
+    0 20px 48px -18px rgba(7, 31, 61, 0.5);
+  transition: opacity 120ms ease;
+}
+
+.weq-member-pop .weq-profile-close {
+  top: 8px;
+  right: 8px;
+}
+
+/* 角色 pill：群主=金色渐变、管理员=柔和绿，压过默认主题色关系 pill。 */
+.weq-profile-rel.is-owner {
+  border-color: transparent;
+  background: linear-gradient(135deg, #ffd66b, #f5a623);
+  color: #5a3a00;
+  box-shadow: 0 6px 14px -8px rgba(245, 166, 35, 0.7);
+}
+
+.weq-profile-rel.is-admin {
+  border-color: transparent;
+  background: linear-gradient(135deg, #7fe0b0, #2fb87a);
+  color: #05391f;
+  box-shadow: 0 6px 14px -8px rgba(47, 184, 122, 0.6);
+}
+
+/* 专属头衔 pill：主题渐变填充，突出但不喧宾夺主。 */
+.weq-member-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 11px;
+  border-radius: 999px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--weq-accent-effective) 72%, white),
+    var(--weq-accent-effective)
+  );
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 6px 14px -8px rgba(0, 122, 204, 0.6);
+}
+
+.weq-member-title svg {
+  flex: none;
+}
+
+/* 底部资料补全中的轻量提示。 */
+.weq-member-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 10px;
+  color: #7c8a99;
+  font-size: 11.5px;
+}
+
+.weq-member-loading svg {
+  animation: weq-spin 0.9s linear infinite;
+}
+
+@keyframes weq-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 群成员行可点击态：hover 高亮 + 手型，提示可查看资料。 */
+.group-info-member-row.is-clickable {
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background-color 130ms ease;
+}
+
+.group-info-member-row.is-clickable:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 9%, transparent);
+}
+
+.group-info-member-row.is-clickable:active {
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+}
+
+html[data-theme="dark"] .weq-member-pop {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
+  background:
+    radial-gradient(
+      ellipse at 50% -10%,
+      color-mix(in srgb, var(--weq-accent-effective) 16%, transparent),
+      transparent 48%
+    ),
+    #1c2028;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 20px 48px -18px rgba(0, 0, 0, 0.7);
+}
+
+html[data-theme="dark"] .weq-member-loading {
+  color: #8c98a6;
+}
+
+html[data-theme="dark"] .group-info-member-row.is-clickable:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+}
+
+/* ──────────────────────────────────────────────────────────────────────
  * 好友 / 群通知灯箱（ContactNoticeDialog / GroupNoticeDialog）。
  * 复用 .weq-profile-layer 遮罩；固定标题 + 可滚动列表，复用 .notice-card 卡片。
  * ──────────────────────────────────────────────────────────────────── */

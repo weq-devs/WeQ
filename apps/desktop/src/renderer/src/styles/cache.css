@@ -3592,6 +3592,127 @@ html[data-theme="dark"] .weq-filerow-name {
   font-size: 12.5px;
 }
 
+/* 各分类横向排行条 */
+.weq-ra-barwrap {
+  width: 100%;
+}
+
+.weq-ra-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.weq-ra-bar-row {
+  display: grid;
+  grid-template-columns: 92px 1fr auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.weq-ra-bar-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--weq-fg-primary);
+  white-space: nowrap;
+}
+
+.weq-ra-bar-label i {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+}
+
+.weq-ra-bar-track {
+  height: 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
+  overflow: hidden;
+}
+
+.weq-ra-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  transition: width 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.weq-ra-bar-val {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  min-width: 108px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-ra-bar-val b {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--weq-fg-primary);
+}
+
+.weq-ra-bar-val small {
+  font-size: 10.5px;
+  color: var(--weq-fg-muted);
+}
+
+/* 源文件/缩略图 百分比堆叠条 */
+.weq-ra-sharewrap {
+  width: 100%;
+}
+
+.weq-ra-sharebar {
+  display: flex;
+  gap: 2px;
+  height: 14px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
+}
+
+.weq-ra-shareseg {
+  height: 100%;
+  min-width: 3px;
+  transition: width 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.weq-ra-sharelegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+  margin-top: 14px;
+}
+
+.weq-ra-shareitem {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+}
+
+.weq-ra-shareitem i {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+}
+
+.weq-ra-share-lbl {
+  color: var(--weq-fg-primary);
+  font-weight: 600;
+}
+
+.weq-ra-share-val {
+  color: var(--weq-fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 /* 月度柱状图 */
 .weq-ra-monthwrap {
   width: 100%;

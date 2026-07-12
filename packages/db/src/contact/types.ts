@@ -38,4 +38,10 @@ export interface RecentContact {
   targetAvatar: string;
   /** 41135 — conversation remark name. */
   targetRemark: string;
+  /**
+   * 41220 — message-notify level. 1 = notify normally; other values
+   * (observed 4) mean 免打扰/muted. Consumers derive a boolean from this
+   * (see the renderer's mute resolution).
+   */
+  notifyLevel: number;
 }

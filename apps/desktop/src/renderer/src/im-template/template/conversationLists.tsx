@@ -58,6 +58,14 @@ export function ConversationList({
 				const hasDraft = !active && Boolean(drafts[conversation.id]?.trim());
 				const preview = conversationLastMessage(conversation, user);
 				const showMentionAlert = unreadCount > 0 && preview.mentionsMe;
+				// 特别关心：会话存在特别关心好友未读时，行首挂红色标记。
+				const showSpecialCare = unreadCount > 0 && Boolean(conversation.specialCare);
+				// 免打扰：会话自带的 DB 值（41220）打底，本地手动偏好覆盖 ——
+				// 与 shellController.countVisibleUnreadConversations 的 merge 顺序保持一致。
+				const muted = Boolean({
+					...conversation.preference,
+					...preferences[conversation.id],
+				}.muted);
 
 				return (
 					<button
@@ -95,13 +103,16 @@ export function ConversationList({
 									</span>
 								) : (
 									<span className={cn("row-message-preview")}>
+										{showSpecialCare ? (
+											<span className={cn("row-specialcare-alert")}>[特别关心]</span>
+										) : null}
 										{showMentionAlert ? (
 											<span className={cn("row-mention-alert")}>[有人@我]</span>
 										) : null}
 										{preview.text}
 									</span>
 								)}
-								{!unreadCount && preferences[conversation.id]?.muted ? (
+								{!unreadCount && muted ? (
 									<BellOff className={cn("row-muted")} size={15} />
 								) : null}
 							</span>
@@ -109,11 +120,7 @@ export function ConversationList({
 						<span className={cn("row-meta")}>
 							<span>{formatConversationTime(conversation.updatedAt)}</span>
 							{unreadCount ? (
-								<span
-									className={cn(
-										unreadClass(Boolean(preferences[conversation.id]?.muted)),
-									)}
-								>
+								<span className={cn(unreadClass(muted))}>
 									{formatBadgeCount(unreadCount)}
 								</span>
 							) : null}

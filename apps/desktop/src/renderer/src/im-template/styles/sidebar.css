@@ -487,6 +487,12 @@ html[data-theme="dark"] .contact-cat-count {
 	font-weight: 500;
 }
 
+.row-specialcare-alert {
+	color: #ff4b3a;
+	font-weight: 500;
+	margin-right: 2px;
+}
+
 .row-draft svg {
 	flex: 0 0 auto;
 	color: #ff4b3a;

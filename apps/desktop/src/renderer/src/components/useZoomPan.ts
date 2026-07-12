@@ -15,7 +15,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from 're
 
 const MIN_SCALE = 1;
 const MAX_SCALE = 8;
-const WHEEL_STEP = 1.35; // 每格滚轮的缩放倍率
+const WHEEL_STEP = 1.15; // 每格滚轮的缩放倍率（越接近 1 越平滑）
 const CLICK_ZOOM = 2; // 单击放大到的倍率
 const DRAG_THRESHOLD = 4; // 超过该位移(px)才算拖拽，否则视为单击
 

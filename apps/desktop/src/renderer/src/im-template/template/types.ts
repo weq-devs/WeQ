@@ -48,6 +48,11 @@ type ConversationBase = {
 	updatedAt: string;
 	preference?: ConversationPreference;
 	unreadCount?: number;
+	/**
+	 * 特别关心标记：该会话存在特别关心好友发来的未读时置位，来自
+	 * msg_unread_info_table 的 48902 高亮扩展。msgSeq 保留但不展示。
+	 */
+	specialCare?: { senderUid: string; msgSeq: string } | null;
 	lastMessage: {
 		id: string;
 		senderId: string | null;

@@ -204,6 +204,7 @@ export function ChatPane({
 	onOpenGroupAnnouncements,
 	onOpenGroupAnalytics,
 	onOpenBuddyAnalytics,
+	onOpenGroupMember,
 	onAddMessage,
 }: {
 	user: User;
@@ -233,6 +234,7 @@ export function ChatPane({
 	onOpenGroupAnnouncements?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenGroupAnalytics?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenBuddyAnalytics?: (conversation: Extract<Conversation, { type: "direct" }>) => void;
+	onOpenGroupMember?: (member: any, anchor: { x: number; y: number }) => void;
 	onAddMessage?: (conversation: Conversation) => void;
 }) {
 	// 复用 replyJump 的跳转能力（含翻页/重建窗口），供群精华消息跳转使用。
@@ -1478,6 +1480,7 @@ export function ChatPane({
 						<GroupInfoPanel
 							conversation={conversation}
 							onOpenDetail={openGroupInfoDetail}
+							onOpenMember={onOpenGroupMember}
 							onLoadMoreMembers={onLoadMoreGroupMembers}
 							loadingMoreMembers={groupMembersLoading}
 						/>

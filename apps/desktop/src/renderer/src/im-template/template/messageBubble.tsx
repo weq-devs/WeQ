@@ -154,15 +154,26 @@ export function MessageBubble({
 				{showSenderName ? (
 					<span className={cn("message-name")}>
 						{senderName}
-						{(sender as any).customTitle || (sender as any).levelName ? (
-							<small className={cn(
-								"member-badge", 
-								(sender as any).role,
-								(sender as any).levelBracket > 0 ? `level-${(sender as any).levelBracket}` : ""
-							)}>
-								{(sender as any).memberLevel != null ? `Lv${(sender as any).memberLevel} · ` : ''}{(sender as any).customTitle || (sender as any).levelName}
-							</small>
-						) : null}
+						{(() => {
+							const role = (sender as any).role;
+							const isRoleBadge = role === "owner" || role === "admin";
+							// 群头衔优先级：群主/管理员 > 自定义头衔/群等级
+							const badgeText = isRoleBadge
+								? (role === "owner" ? "群主" : "管理员")
+								: ((sender as any).customTitle || (sender as any).levelName);
+							if (!badgeText) return null;
+							const levelBracket = (sender as any).levelBracket;
+							const memberLevel = (sender as any).memberLevel;
+							return (
+								<small className={cn(
+									"member-badge",
+									isRoleBadge ? role : "",
+									!isRoleBadge && levelBracket > 0 ? `level-${levelBracket}` : ""
+								)}>
+									{!isRoleBadge && memberLevel != null ? `Lv${memberLevel} · ` : ''}{badgeText}
+								</small>
+							);
+						})()}
 						{senderKind === "bot" ? (
 							<small
 								className={cn("bot-badge")}

@@ -32,6 +32,7 @@ import { RailAccountFooter } from '../components/RailAccountFooter';
 import { SettingsDialog } from '../components/SettingsDialog';
 import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
 import { GroupAnalyticsDialog } from '../components/GroupAnalyticsDialog';
+import { MemberProfileCard } from '../components/MemberProfileCard';
 import { BuddyAnalyticsDialog } from '../components/BuddyAnalyticsDialog';
 import { AddMessageModal } from '../components/compose/AddMessageModal';
 import { RelationGraphView } from '../components/relationGraph/RelationGraphView';
@@ -144,6 +145,8 @@ type RecentContactWire = {
   senderRemark: string;
   targetAvatar: string;
   targetRemark: string;
+  /** 41220 — message-notify level. 1 = notify normally; else (observed 4) 免打扰/muted. */
+  notifyLevel: number;
 };
 
 type MessageWire = {
@@ -765,11 +768,25 @@ function levelNameFor(levelConfigs: Array<{ level: number; levelName: string }>,
   return levelConfigs.find((item) => item.level === bracket)?.levelName || `Lv${level}`;
 }
 
+/**
+ * Derive the 免打扰/muted flag from `recent_contact` column 41220.
+ * Observed values: 1 = notify normally, 4 = muted. Treat 0/1 as "notify"
+ * (0 = unset) and anything else (2/3/4 — QQ's various push-restriction modes)
+ * as muted, so the conversation shows the grey badge + disabled-bell indicator.
+ */
+function mutedFromNotifyLevel(notifyLevel: number | undefined): boolean {
+  return notifyLevel !== undefined && notifyLevel !== 0 && notifyLevel !== 1;
+}
+
 function contactToConversation(c: RecentContactWire, user: User): Conversation | null {
   const kind = chatTypeKind(c.chatType);
   const title = contactTitle(c);
   const preview = previewText(c.preview);
   const updatedAt = toIsoTime(c.sendTime);
+  const preference: ConversationPreference = {
+    ...fallbackPreference,
+    muted: mutedFromNotifyLevel(c.notifyLevel),
+  };
   const lastMessage = {
     id: `preview:${c.targetUid}:${c.sendTime}`,
     senderId: c.senderUid || null,
@@ -795,7 +812,7 @@ function contactToConversation(c: RecentContactWire, user: User): Conversation |
       otherUser,
       group: null,
       members: [],
-      preference: fallbackPreference,
+      preference,
       unreadCount: 0,
       lastMessage,
       chatType: c.chatType,
@@ -819,7 +836,7 @@ function contactToConversation(c: RecentContactWire, user: User): Conversation |
         role: 'member',
       },
       members: [{ ...user, role: 'member', joinedAt: updatedAt }],
-      preference: fallbackPreference,
+      preference,
       unreadCount: 0,
       lastMessage,
     };
@@ -835,21 +852,27 @@ function contactToConversation(c: RecentContactWire, user: User): Conversation |
  * the logged-in account's uin, which QQ NT sets on every outbound message in
  * both c2c and group chats.
  *
- * The legacy `data.isSender === true` fallback exists for c2c messages where
- * `senderUin` is missing (historical receive paths). It is GROUP-UNSAFE: a
- * group `multiMsg` (合并转发) element carries sub-messages whose `isSender`
- * reflects whether *the original sender of that sub-message* was self, not
- * whether the carrier message is self. Reading isSender at the top level
- * misclassifies anyone forwarding a chat that included one of your messages
- * as "sent by me". So we only use the fallback in c2c conversations.
+ * The legacy `data.isSender === true` fallback exists ONLY for messages where
+ * `senderUin` is missing (historical receive paths). It is UNSAFE to trust
+ * otherwise: a `multiMsg` (合并转发) carrier element itself carries
+ * `isSender=true` in the local DB, and that flag does NOT reflect the carrier
+ * message's own direction. Reading it at the top level misclassifies a forward
+ * the peer sent you as "sent by me" (both c2c and group). So whenever a valid
+ * `senderUin` is present we decide direction from it alone and never consult
+ * `isSender`; the fallback is reached only when `senderUin` is absent/'0'.
  */
 function isMineMessage(message: MessageWire, conversation: Conversation, user: User): boolean {
-  if (message.senderUin && message.senderUin === user.identityValue) return true;
-  if (conversation.type !== 'direct') return false;
   // 数据线：senderUin 是自己（各设备同号），无法区分方向；约定 PC 伪 uid = 本机，
-  // 由它发出的算"我发的"，手机/平板发来的算对端。
+  // 由它发出的算"我发的"，手机/平板发来的算对端。这些伪 uid 只在数据线会话命中，
+  // 对普通好友/群成员 uid 返回 false，故可安全地放在最前面。
   if (isDatalineSelfUid(message.senderUid)) return true;
   if (datalineName(message.senderUid)) return false;
+  // senderUin 有效（存在且非哨兵 '0'）时以它为准判定方向，不再信任 element.isSender。
+  if (message.senderUin && message.senderUin !== '0') {
+    return message.senderUin === user.identityValue;
+  }
+  // senderUin 缺失时才 fallback 到 element 标志（旧/迁移消息兜底），仅限私聊。
+  if (conversation.type !== 'direct') return false;
   return message.elements.some((element) => {
     const data = (element as RenderElementWire | null)?.data;
     return data?.isSender === true;
@@ -1507,7 +1530,11 @@ export function MainView(): ReactElement {
     peerUid: string;
     peerName: string;
   } | null>(null);
-  
+  const [memberCard, setMemberCard] = useState<{
+    member: any;
+    anchor: { x: number; y: number };
+  } | null>(null);
+
   const [editorState, setEditorState] = useState<{ msgId: string, elements: any[] } | null>(null);
   const [addMessageConv, setAddMessageConv] = useState<Conversation | null>(null);
 
@@ -1562,6 +1589,13 @@ export function MainView(): ReactElement {
     setAddMessageConv(conversation);
   }, []);
 
+  const handleOpenGroupMember = useCallback(
+    (member: any, anchor: { x: number; y: number }) => {
+      setMemberCard({ member, anchor });
+    },
+    [],
+  );
+
   const handleOpenBuddyAnalytics = useCallback((conversation: Extract<Conversation, { type: 'direct' }>) => {
     setBuddyAnalyticsDialog({
       peerUid: conversation.otherUser.id,
@@ -1577,6 +1611,9 @@ export function MainView(): ReactElement {
   // Unread count per conversation id (latest msgSeq - last read seq). Filled
   // asynchronously after the recent-contact list loads / refreshes.
   const [unreadByConv, setUnreadByConv] = useState<Record<string, number>>({});
+  const [specialCareByConv, setSpecialCareByConv] = useState<
+    Record<string, { senderUid: string; msgSeq: string }>
+  >({});
   const [groupMemberPages, setGroupMemberPages] = useState<Record<string, GroupMemberWire[]>>({});
   const [groupMemberHasMore, setGroupMemberHasMore] = useState<Record<string, boolean>>({});
   const [groupMemberLoading, setGroupMemberLoading] = useState<Record<string, boolean>>({});
@@ -1646,7 +1683,13 @@ export function MainView(): ReactElement {
       return Array.from(byId.values())
         .map((conversation) => {
           const unread = unreadByConv[conversation.id];
-          return unread ? { ...conversation, unreadCount: unread } : conversation;
+          const specialCare = specialCareByConv[conversation.id] ?? null;
+          if (!unread && !specialCare) return conversation;
+          return {
+            ...conversation,
+            ...(unread ? { unreadCount: unread } : {}),
+            specialCare,
+          };
         })
         .sort((a, b) => {
           const aTime = Date.parse(a.updatedAt);
@@ -1654,7 +1697,7 @@ export function MainView(): ReactElement {
           return bTime - aTime;
         });
     },
-    [allGroups.data, contacts.data, user, unreadByConv],
+    [allGroups.data, contacts.data, user, unreadByConv, specialCareByConv],
   );
   const groupsById = useMemo(() => new Map(conversations.map((conversation) => [conversation.id, conversation])), [conversations]);
   const contactRequests = useMemo(
@@ -1765,6 +1808,7 @@ export function MainView(): ReactElement {
 
     async function loadUnread(): Promise<void> {
       const next: Record<string, number> = {};
+      const care: Record<string, { senderUid: string; msgSeq: string }> = {};
       const batchSize = 12;
       for (let index = 0; index < list.length && !cancelled; index += batchSize) {
         const batch = list.slice(index, index + batchSize);
@@ -1781,17 +1825,28 @@ export function MainView(): ReactElement {
               const latest = BigInt(contact.msgSeq || '0');
               const read = info?.msgSeq ? BigInt(info.msgSeq) : 0n;
               const unread = latest > read ? Number(latest - read) : 0;
-              return [contact.targetUid, unread] as const;
+              return {
+                uid: contact.targetUid,
+                unread,
+                specialCare: info?.specialCare
+                  ? { senderUid: info.specialCare.senderUid, msgSeq: info.specialCare.msgSeq }
+                  : null,
+              };
             } catch {
               return null;
             }
           }),
         );
         for (const entry of counts) {
-          if (entry) next[entry[0]] = entry[1];
+          if (!entry) continue;
+          next[entry.uid] = entry.unread;
+          if (entry.specialCare) care[entry.uid] = entry.specialCare;
         }
       }
-      if (!cancelled) setUnreadByConv(next);
+      if (!cancelled) {
+        setUnreadByConv(next);
+        setSpecialCareByConv(care);
+      }
     }
 
     void loadUnread();
@@ -2747,6 +2802,7 @@ export function MainView(): ReactElement {
                 onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
                 onOpenGroupAnalytics={handleOpenGroupAnalytics}
                 onOpenBuddyAnalytics={handleOpenBuddyAnalytics}
+                onOpenGroupMember={handleOpenGroupMember}
                 onAddMessage={handleAddMessage}
               />
             </div>
@@ -2794,6 +2850,13 @@ export function MainView(): ReactElement {
           peerUid={buddyAnalyticsDialog.peerUid}
           peerName={buddyAnalyticsDialog.peerName}
           onClose={() => setBuddyAnalyticsDialog(null)}
+        />
+      ) : null}
+      {memberCard ? (
+        <MemberProfileCard
+          member={memberCard.member}
+          anchor={memberCard.anchor}
+          onClose={() => setMemberCard(null)}
         />
       ) : null}
       {addMessageConv ? (

@@ -52,12 +52,12 @@ const RELATION_META: Record<
 
 const DEFAULT_RELATION = { label: "游戏搭子", Icon: Gamepad2, intimate: false };
 
-function relationMeta(id: number) {
+export function relationMeta(id: number) {
 	return RELATION_META[id] ?? DEFAULT_RELATION;
 }
 
 /** 由出生月日推算星座名（标准日期分界）。缺月或日时返回 null。 */
-function constellationOf(month?: number, day?: number) {
+export function constellationOf(month?: number, day?: number) {
 	if (!month || !day) {
 		return null;
 	}
@@ -80,7 +80,7 @@ function constellationOf(month?: number, day?: number) {
 	return entry[1];
 }
 
-function birthdayText(year?: number, month?: number, day?: number) {
+export function birthdayText(year?: number, month?: number, day?: number) {
 	if (!month || !day) {
 		return null;
 	}
@@ -504,7 +504,7 @@ export function GroupProfileDialog({
 	);
 }
 
-function ProfileRow({
+export function ProfileRow({
 	icon,
 	label,
 	value,
@@ -543,7 +543,7 @@ function ProfileRow({
 	);
 }
 
-function genderLabel(value?: number) {
+export function genderLabel(value?: number) {
 	if (value === 1) {
 		return "男";
 	}
