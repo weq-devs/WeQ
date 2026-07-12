@@ -216,14 +216,14 @@ export function QqArk({ arkData }: { arkData: unknown }): ReactElement | null {
 
 /**
  * 群公告卡片。payload 里 title/text 为 base64 (encode=1)，无任何图片素材，
- * 所以不复用通用引擎：解码后渲染「群公告」头 + 标题 + 正文。正文保留换行
- * (white-space: pre-wrap)，因为公告常带多行段落。卡片不可点击（payload 只
- * 有 fid/gc/sign，没有可跳转的 http 链接）。
+ * 所以不复用通用引擎。title 实为卡片头部标签（如「群公告」），text 才是正文；
+ * 正文保留换行 (white-space: pre-wrap)，因为公告常带多行段落。卡片不可点击
+ * （payload 只有 fid/gc/sign，没有可跳转的 http 链接）。
  */
 function ArkGroupAnnounce({ p }: { p: ArkPayload }): ReactElement {
   const encoded = p.encode === 1 || p.encode === '1';
   const decode = (raw: string): string => (encoded ? decodeBase64Utf8(raw) : raw);
-  const title = decode(s(p, 'title')).trim();
+  const title = decode(s(p, 'title')).trim() || '群公告';
   const text = decode(s(p, 'text')).trim();
 
   return (
@@ -231,13 +231,9 @@ function ArkGroupAnnounce({ p }: { p: ArkPayload }): ReactElement {
       <div className="weq-ark-content">
         <div className="weq-ark-header">
           <Megaphone className="weq-ark-announce-icon" size={14} strokeWidth={2.2} />
-          <span>群公告</span>
+          <span>{title}</span>
         </div>
-        {title ? <div className="weq-ark-title">{title}</div> : null}
         {text ? <div className="weq-ark-announce-text">{text}</div> : null}
-      </div>
-      <div className="weq-ark-footer">
-        <span>群公告</span>
       </div>
     </div>
   );

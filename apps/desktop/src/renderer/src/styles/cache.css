@@ -3152,13 +3152,26 @@ html[data-theme="dark"] .weq-filerow-name {
  * 整体分析入口按钮（资源分类列表顶部 / 收起态细条）
  * ════════════════════════════════════════════════════════════════════════ */
 
+/* 入口按钮行：整体分析 + 清理释放 并排一行，等宽平分。 */
+.weq-cache-actions {
+  display: flex;
+  gap: 6px;
+  margin: 0 2px 8px;
+}
+
+.weq-cache-actions .weq-cache-analyze-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
+}
+
 .weq-cache-analyze-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: 6px;
   margin: 0 2px 8px;
-  padding: 9px 11px;
+  padding: 9px 8px;
   border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 32%, transparent);
   border-radius: 9px;
   background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
@@ -3600,7 +3613,7 @@ html[data-theme="dark"] .weq-filerow-name {
 .weq-ra-bars {
   display: flex;
   flex-direction: column;
-  gap: 11px;
+  gap: 6px;
 }
 
 .weq-ra-bar-row {
@@ -3861,4 +3874,542 @@ html[data-theme="dark"] .weq-filerow-name {
 
 .weq-ra-pending .weq-spin {
   animation: weq-cache-spin 900ms linear infinite;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   清理释放 (ResourceCleanupDialog)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* 入口按钮的清理变体（红色调），继承 .weq-cache-analyze-btn / -rail 基样式 */
+.weq-cache-clean-btn {
+  border-color: color-mix(in srgb, #e5484d 32%, transparent);
+  background: color-mix(in srgb, #e5484d 10%, transparent);
+  color: #e5484d;
+}
+.weq-cache-clean-btn:hover {
+  background: color-mix(in srgb, #e5484d 18%, transparent);
+}
+.weq-cache-clean-rail {
+  border-color: color-mix(in srgb, #e5484d 30%, transparent);
+  background: color-mix(in srgb, #e5484d 10%, transparent);
+  color: #e5484d;
+}
+.weq-cache-clean-rail:hover {
+  background: color-mix(in srgb, #e5484d 20%, transparent);
+}
+
+.weq-clean-dialog {
+  width: min(680px, 100%);
+}
+
+.weq-clean-total {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--weq-fg-secondary);
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-fg-muted) 14%, transparent);
+}
+
+.weq-clean-body {
+  gap: 12px;
+}
+
+/* ── 模式选择 ─────────────────────────────────────────────────────────────── */
+.weq-clean-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.weq-clean-mode {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 14px 15px;
+  text-align: left;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 13px;
+  background: var(--weq-bg-elevated);
+  cursor: pointer;
+  transition: border-color 130ms ease, background-color 130ms ease, transform 130ms ease, box-shadow 130ms ease;
+}
+.weq-clean-mode:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
+}
+.weq-clean-mode:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.weq-clean-mode-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  border-radius: 11px;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+}
+
+.weq-clean-mode-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.weq-clean-mode-body strong {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--weq-fg-primary);
+}
+.weq-clean-mode-body small {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-clean-mode-size {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--weq-accent-effective);
+  white-space: nowrap;
+}
+
+/* danger / extreme 模式的红色调 */
+.weq-clean-mode.is-danger .weq-clean-mode-icon {
+  color: #e5484d;
+  background: color-mix(in srgb, #e5484d 13%, transparent);
+}
+.weq-clean-mode.is-danger .weq-clean-mode-size {
+  color: #e5484d;
+}
+.weq-clean-mode.is-danger:hover:not(:disabled) {
+  border-color: color-mix(in srgb, #e5484d 45%, transparent);
+}
+.weq-clean-mode.is-extreme {
+  border-color: color-mix(in srgb, #e5484d 26%, transparent);
+  background: color-mix(in srgb, #e5484d 6%, var(--weq-bg-elevated));
+}
+
+.weq-clean-mode.is-custom .weq-clean-mode-icon {
+  color: var(--weq-fg-secondary);
+  background: color-mix(in srgb, var(--weq-fg-muted) 15%, transparent);
+}
+.weq-clean-mode.is-custom .weq-clean-mode-size {
+  color: var(--weq-fg-muted);
+}
+
+/* ── 自定义面板 ───────────────────────────────────────────────────────────── */
+.weq-clean-custom,
+.weq-clean-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.weq-clean-back {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px 5px 6px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.weq-clean-back:hover {
+  background: color-mix(in srgb, var(--weq-fg-muted) 12%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+.weq-clean-target-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.weq-clean-target {
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 11px;
+  background: var(--weq-bg-elevated);
+  overflow: hidden;
+  transition: border-color 130ms ease;
+}
+.weq-clean-target.is-on {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 50%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, var(--weq-bg-elevated));
+}
+.weq-clean-target.is-disabled {
+  opacity: 0.5;
+}
+
+.weq-clean-target-main {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 11px 13px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.weq-clean-target.is-disabled .weq-clean-target-main {
+  cursor: not-allowed;
+}
+
+.weq-clean-check {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  border-radius: 6px;
+  border: 1.5px solid color-mix(in srgb, var(--weq-fg-muted) 45%, transparent);
+  color: #fff;
+}
+.weq-clean-check.is-on {
+  border-color: var(--weq-accent-effective);
+  background: var(--weq-accent-effective);
+}
+
+.weq-clean-target-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  color: var(--weq-fg-secondary);
+  background: color-mix(in srgb, var(--weq-fg-muted) 12%, transparent);
+}
+
+.weq-clean-target-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.weq-clean-target-text strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--weq-fg-primary);
+}
+.weq-clean-target-text small {
+  font-size: 11.5px;
+  color: var(--weq-fg-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-clean-tier {
+  font-style: normal;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+.weq-clean-tier.is-safe {
+  color: #2e9c6a;
+  background: color-mix(in srgb, #2e9c6a 15%, transparent);
+}
+.weq-clean-tier.is-caution {
+  color: #d9822b;
+  background: color-mix(in srgb, #d9822b 15%, transparent);
+}
+
+.weq-clean-target-size {
+  flex: 0 0 auto;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--weq-fg-secondary);
+  white-space: nowrap;
+}
+
+.weq-clean-variants {
+  display: flex;
+  gap: 7px;
+  padding: 0 13px 11px 54px;
+}
+.weq-clean-variants button {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 5px 10px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 8px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease, background-color 120ms ease;
+}
+.weq-clean-variants button i {
+  font-style: normal;
+  font-size: 10.5px;
+  font-weight: 500;
+  opacity: 0.75;
+}
+.weq-clean-variants button.is-on {
+  border-color: var(--weq-accent-effective);
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+
+.weq-clean-custom-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 4px;
+}
+.weq-clean-custom-foot > span {
+  font-size: 12.5px;
+  color: var(--weq-fg-secondary);
+}
+.weq-clean-custom-foot strong {
+  color: var(--weq-fg-primary);
+}
+
+/* ── 确认步 ───────────────────────────────────────────────────────────────── */
+.weq-clean-summary {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 14px 15px;
+  border-radius: 13px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 30%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-elevated));
+}
+.weq-clean-summary.is-danger {
+  border-color: color-mix(in srgb, #e5484d 34%, transparent);
+  background: color-mix(in srgb, #e5484d 8%, var(--weq-bg-elevated));
+}
+.weq-clean-summary-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  border-radius: 11px;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 15%, transparent);
+}
+.weq-clean-summary.is-danger .weq-clean-summary-icon {
+  color: #e5484d;
+  background: color-mix(in srgb, #e5484d 14%, transparent);
+}
+.weq-clean-summary > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.weq-clean-summary strong {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--weq-fg-primary);
+}
+.weq-clean-summary p {
+  margin: 3px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--weq-fg-secondary);
+}
+.weq-clean-summary-size {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+}
+.weq-clean-summary-size b {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--weq-fg-primary);
+}
+.weq-clean-summary-size small {
+  font-size: 11px;
+  color: var(--weq-fg-muted);
+}
+
+.weq-clean-review {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 11px;
+  overflow: hidden;
+}
+.weq-clean-review-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 13px;
+}
+.weq-clean-review-row + .weq-clean-review-row {
+  border-top: 1px solid var(--weq-border-subtle);
+}
+.weq-clean-review-label {
+  flex: 1 1 auto;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--weq-fg-primary);
+}
+.weq-clean-review-variant {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 13%, transparent);
+}
+.weq-clean-review-size {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-clean-empty {
+  padding: 24px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--weq-fg-muted);
+}
+
+.weq-clean-phrase {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.weq-clean-phrase > span {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--weq-fg-secondary);
+}
+.weq-clean-phrase b {
+  color: #e5484d;
+}
+.weq-clean-phrase input {
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, #e5484d 34%, transparent);
+  border-radius: 9px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+}
+.weq-clean-phrase input:focus {
+  outline: none;
+  border-color: #e5484d;
+}
+
+/* ── 底部按钮 ─────────────────────────────────────────────────────────────── */
+.weq-clean-confirm-foot,
+.weq-clean-done-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 4px;
+}
+.weq-clean-cancel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 16px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 9px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.weq-clean-cancel:hover {
+  color: var(--weq-fg-primary);
+  border-color: color-mix(in srgb, var(--weq-fg-muted) 40%, transparent);
+}
+.weq-clean-go {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 16px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: var(--weq-accent-effective);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 130ms ease, opacity 130ms ease;
+}
+.weq-clean-go:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+.weq-clean-go.is-danger {
+  background: #e5484d;
+}
+.weq-clean-go:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ── 执行中 / 完成 ────────────────────────────────────────────────────────── */
+.weq-clean-running,
+.weq-clean-done {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  padding: 40px 20px 28px;
+  text-align: center;
+}
+.weq-clean-running .weq-spin {
+  color: var(--weq-accent-effective);
+  animation: weq-cache-spin 900ms linear infinite;
+}
+.weq-clean-running strong {
+  font-size: 15px;
+  color: var(--weq-fg-primary);
+}
+.weq-clean-running span {
+  font-size: 12.5px;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-clean-done-icon {
+  color: #2e9c6a;
+}
+.weq-clean-done-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--weq-fg-primary);
+}
+.weq-clean-done-desc {
+  margin: 0;
+  max-width: 420px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--weq-fg-secondary);
+}
+.weq-clean-done-actions {
+  justify-content: center;
+  padding-top: 8px;
 }

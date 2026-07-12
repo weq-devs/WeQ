@@ -198,6 +198,16 @@ export type {
   ResourceBucket,
   ResourceStat,
 } from './account/media_resource';
+export { ResourceCleanupService } from './account/resource_cleanup';
+export type {
+  CleanupVariant,
+  CleanupTier,
+  CleanupBucket,
+  CleanupTargetStat,
+  CleanupInstruction,
+  CleanupTargetResult,
+  CleanupResult,
+} from './account/resource_cleanup';
 export {
   ACCOUNT_HEALTH_DATABASES,
   checkAccountDatabaseHealth,

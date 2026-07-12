@@ -71,6 +71,7 @@ import {
   RelatedEmojiResourceService,
   FileResourceService,
   MediaResourceService,
+  ResourceCleanupService,
   WebQueryService,
   GroupAlbumMediaService,
   DbWatchService,
@@ -305,6 +306,8 @@ export interface AccountServices {
   fileResource: FileResourceService;
   /** Browse the account's local media caches (PhotoWall / Qzone / Pic / Video). */
   mediaResource: MediaResourceService;
+  /** Clean up the account's nt_data resource trees (本地资源整理 → 清理释放). */
+  resourceCleanup: ResourceCleanupService;
   /** Web CGI queries that need the already-hooked online QQ process. */
   webQuery: WebQueryService;
   /** Group album media listing over the already-hooked online QQ process. */
@@ -694,6 +697,7 @@ export function initAppContext(): AppContext {
         relatedEmoji: new RelatedEmojiResourceService(session, platform),
         fileResource: new FileResourceService(session, platform),
         mediaResource: new MediaResourceService(session, platform),
+        resourceCleanup: new ResourceCleanupService(session, platform),
         webQuery,
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, resolveOnlinePid),
       };
@@ -931,6 +935,7 @@ export function initAppContext(): AppContext {
         relatedEmoji: new RelatedEmojiResourceService(session, platform),
         fileResource: new FileResourceService(session, platform),
         mediaResource: new MediaResourceService(session, platform),
+        resourceCleanup: new ResourceCleanupService(session, platform),
         webQuery,
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, noPid),
       };

@@ -26,6 +26,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   ChartPie,
+  Trash2,
 } from 'lucide-react';
 import { DbExplorer } from './DbExplorer';
 import { AvatarExplorer } from './AvatarExplorer';
@@ -37,6 +38,7 @@ import { FileDirExplorer } from './FileDirExplorer';
 import { DownloadFileExplorer } from './DownloadFileExplorer';
 import { FlatMediaExplorer, MonthMediaExplorer, VoiceExplorer } from './MediaResourceExplorers';
 import { ResourceAnalyticsDialog } from './ResourceAnalyticsDialog';
+import { ResourceCleanupDialog } from './ResourceCleanupDialog';
 import '../../styles/cache.css';
 
 /** 一个缓存资源分类。`ready` 为 false 时右侧渲染占位空状态。 */
@@ -70,6 +72,8 @@ export function CacheView(): ReactElement {
   const [catsCollapsed, setCatsCollapsed] = useState(false);
   // 整体分析弹窗（遍历全部资源目录统计）。
   const [showAnalytics, setShowAnalytics] = useState(false);
+  // 清理释放弹窗（删除本地缓存以释放磁盘空间）。
+  const [showCleanup, setShowCleanup] = useState(false);
   const activeCategory = CATEGORIES.find((c) => c.id === active) ?? CATEGORIES[0]!;
 
   return (
@@ -95,6 +99,15 @@ export function CacheView(): ReactElement {
           >
             <ChartPie size={16} />
           </button>
+          <button
+            type="button"
+            className="weq-cache-analyze-rail weq-cache-clean-rail"
+            onClick={() => setShowCleanup(true)}
+            title="清理释放"
+            aria-label="清理释放"
+          >
+            <Trash2 size={16} />
+          </button>
         </div>
       ) : (
         <nav className="weq-cache-cats" aria-label="缓存资源分类">
@@ -110,14 +123,24 @@ export function CacheView(): ReactElement {
               <PanelLeftClose size={16} />
             </button>
           </div>
-          <button
-            type="button"
-            className="weq-cache-analyze-btn"
-            onClick={() => setShowAnalytics(true)}
-          >
-            <ChartPie size={16} />
-            <span>整体分析</span>
-          </button>
+          <div className="weq-cache-actions">
+            <button
+              type="button"
+              className="weq-cache-analyze-btn"
+              onClick={() => setShowAnalytics(true)}
+            >
+              <ChartPie size={16} />
+              <span>整体分析</span>
+            </button>
+            <button
+              type="button"
+              className="weq-cache-analyze-btn weq-cache-clean-btn"
+              onClick={() => setShowCleanup(true)}
+            >
+              <Trash2 size={16} />
+              <span>清理释放</span>
+            </button>
+          </div>
           <div className="weq-cache-cats-body">
             {CATEGORIES.map((c) => (
               <button
@@ -171,6 +194,7 @@ export function CacheView(): ReactElement {
       </section>
 
       <ResourceAnalyticsDialog open={showAnalytics} onClose={() => setShowAnalytics(false)} />
+      <ResourceCleanupDialog open={showCleanup} onClose={() => setShowCleanup(false)} />
     </div>
   );
 }
