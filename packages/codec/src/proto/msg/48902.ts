@@ -12,7 +12,7 @@
  *   50005 {                       // conversation extension
  *     50001 peerUid, 50002 chatType
  *     50060 {                     // notify-highlight aggregate (absent when none)
- *       50000 kind                // observed 1006 for 特别关心
+ *       50000 kind                // 1000 = @我, 1006 = 特别关心
  *       50040 {                   // one entry per highlighted message
  *         50020 msgSeq            // seq of the highlighted message
  *         50022 senderUid         // who sent it
@@ -22,9 +22,9 @@
  *     }
  *   }
  *
- * Other categories (@我 etc.) will slot in here once we capture their blobs —
- * they are expected to appear either as sibling nested groups or as different
- * `50000` kind codes, so `highlight` is modelled as `repeat`.
+ * One 50060 group appears per active category; the kind code (50000)
+ * distinguishes them. Remaining categories (@全体 / 回复我 / 新文件) will slot
+ * in as their codes are captured, so `highlight` is modelled as `repeat`.
  */
 
 import { ProtoField, ScalarType } from '../../core';
@@ -44,7 +44,7 @@ const NotifyHighlightItem = {
 /** 50060 — notify-highlight aggregate; present only when the conversation has
  *  a highlighted unread (e.g. 特别关心). */
 const NotifyHighlight = {
-  /** 50000 — highlight kind. Observed 1006 for 特别关心. */
+  /** 50000 — highlight kind. 1000 = @我, 1006 = 特别关心. */
   kind: ProtoField(50000, ScalarType.UINT32, { optional: true }),
   /** 50040 — highlighted messages (one per message). */
   items: ProtoField(50040, () => NotifyHighlightItem, { optional: true, repeat: true }),

@@ -5497,6 +5497,35 @@ html[data-theme="dark"] .weq-profile-member .avatar {
   background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
 }
 
+/* 消息气泡里的发送者头像 → 可点击弹资料卡片。button 重置为纯头像容器。 */
+.message-avatar-button {
+  flex: none;
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: transform 130ms ease;
+}
+
+.message-avatar-button .avatar {
+  transition: box-shadow 130ms ease;
+}
+
+.message-avatar-button:hover {
+  transform: translateY(-1px);
+}
+
+.message-avatar-button:hover .avatar {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+}
+
+.message-avatar-button:active {
+  transform: none;
+}
+
 html[data-theme="dark"] .weq-member-pop {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
   background:
@@ -6123,6 +6152,22 @@ html[data-theme="dark"] .chat-empty {
 }
 .weq-ark-footer-icon { width: 12px; height: 12px; border-radius: 2px; object-fit: cover; }
 
+/* 群公告卡 (com.tencent.mannounce)：喇叭头 + 标题 + 多行正文 */
+.weq-ark-announce { cursor: default; }
+.weq-ark-announce:hover { background-color: #ffffff; }
+.weq-ark-announce-icon { color: #ff9c19; flex-shrink: 0; }
+.weq-ark-announce-text {
+  font-size: 13px;
+  color: #666666;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 /* ---- Ark 卡片深色模式 ---- The demo only ships light colors; map them onto the
    theme tokens so the structured card reads correctly on the dark canvas. */
 html[data-theme="dark"] .weq-ark-container {
@@ -6136,6 +6181,8 @@ html[data-theme="dark"] .weq-ark-container:hover {
 html[data-theme="dark"] .weq-ark-header { color: var(--weq-fg-muted); }
 html[data-theme="dark"] .weq-ark-title { color: var(--weq-fg-primary); }
 html[data-theme="dark"] .weq-ark-desc { color: var(--weq-fg-secondary); }
+html[data-theme="dark"] .weq-ark-announce-text { color: var(--weq-fg-secondary); }
+html[data-theme="dark"] .weq-ark-announce:hover { background-color: var(--weq-bg-surface); }
 html[data-theme="dark"] .weq-ark-preview-small,
 html[data-theme="dark"] .weq-ark-preview-big {
   background: rgba(255, 255, 255, 0.06);

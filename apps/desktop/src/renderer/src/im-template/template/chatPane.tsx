@@ -1430,6 +1430,11 @@ export function ChatPane({
 									onContextMenu={openMessageMenu}
 									onLongPress={openMobileMessageMenu}
 									onAction={onMessageAction}
+									onAvatarClick={
+										conversation.type === "group" && onOpenGroupMember
+											? onOpenGroupMember
+											: undefined
+									}
 								/>
 							</Fragment>
 						);

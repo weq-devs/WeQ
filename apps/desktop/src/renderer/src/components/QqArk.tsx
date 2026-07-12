@@ -28,7 +28,7 @@
  */
 
 import { useMemo, type ReactElement } from 'react';
-import { MapPin } from 'lucide-react';
+import { MapPin, Megaphone } from 'lucide-react';
 import { cachedAvatarUrl } from '../lib/avatarCache';
 
 // ---- types ---------------------------------------------------------------
@@ -61,6 +61,16 @@ function s(p: ArkPayload, key: string): string {
   return typeof v === 'string' ? v : '';
 }
 
+/** Decode a base64 string as UTF-8 (atob yields Latin-1 bytes → TextDecoder). */
+function decodeBase64Utf8(raw: string): string {
+  try {
+    const bytes = Uint8Array.from(atob(raw), (c) => c.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return raw;
+  }
+}
+
 // ---- the universal card --------------------------------------------------
 
 export function QqArk({ arkData }: { arkData: unknown }): ReactElement | null {
@@ -70,6 +80,13 @@ export function QqArk({ arkData }: { arkData: unknown }): ReactElement | null {
   const firstKey = data?.meta ? Object.keys(data.meta)[0] : undefined;
   const p: ArkPayload | null = data?.meta && firstKey ? data.meta[firstKey] ?? null : null;
   if (!data || !p) return null;
+
+  // 群公告 (com.tencent.mannounce) 不走通用引擎：它的 title/text 是 base64
+  // (encode=1)，且正文藏在 text 字段、没有任何图片素材，通用引擎会把原始
+  // base64 当标题直接吐出来。单独渲染成公告卡。
+  if (data.app === 'com.tencent.mannounce') {
+    return <ArkGroupAnnounce p={p} />;
+  }
 
   const prompt = typeof data.prompt === 'string' ? data.prompt : '';
 
@@ -190,6 +207,37 @@ export function QqArk({ arkData }: { arkData: unknown }): ReactElement | null {
           <img className="weq-ark-footer-icon" src={cachedAvatarUrl(footerIcon) ?? footerIcon} alt="" loading="lazy" />
         ) : null}
         <span>{footerLabel}</span>
+      </div>
+    </div>
+  );
+}
+
+// ---- the group announcement card (com.tencent.mannounce) -----------------
+
+/**
+ * 群公告卡片。payload 里 title/text 为 base64 (encode=1)，无任何图片素材，
+ * 所以不复用通用引擎：解码后渲染「群公告」头 + 标题 + 正文。正文保留换行
+ * (white-space: pre-wrap)，因为公告常带多行段落。卡片不可点击（payload 只
+ * 有 fid/gc/sign，没有可跳转的 http 链接）。
+ */
+function ArkGroupAnnounce({ p }: { p: ArkPayload }): ReactElement {
+  const encoded = p.encode === 1 || p.encode === '1';
+  const decode = (raw: string): string => (encoded ? decodeBase64Utf8(raw) : raw);
+  const title = decode(s(p, 'title')).trim();
+  const text = decode(s(p, 'text')).trim();
+
+  return (
+    <div className="weq-ark-container weq-ark-announce">
+      <div className="weq-ark-content">
+        <div className="weq-ark-header">
+          <Megaphone className="weq-ark-announce-icon" size={14} strokeWidth={2.2} />
+          <span>群公告</span>
+        </div>
+        {title ? <div className="weq-ark-title">{title}</div> : null}
+        {text ? <div className="weq-ark-announce-text">{text}</div> : null}
+      </div>
+      <div className="weq-ark-footer">
+        <span>群公告</span>
       </div>
     </div>
   );

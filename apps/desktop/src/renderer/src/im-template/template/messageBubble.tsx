@@ -30,6 +30,7 @@ export function MessageBubble({
 	onContextMenu,
 	onLongPress,
 	onAction,
+	onAvatarClick,
 }: {
 	message: Message;
 	conversation: Conversation;
@@ -45,6 +46,7 @@ export function MessageBubble({
 	onContextMenu: (event: ReactMouseEvent, message: Message) => void;
 	onLongPress: (point: { x: number; y: number }, message: Message) => void;
 	onAction?: (message: Message, action: MessageAction) => void | Promise<void>;
+	onAvatarClick?: (sender: User, anchor: { x: number; y: number }) => void;
 }) {
 	const longPressTimerRef = useRef<number | null>(null);
 	const longPressPointRef = useRef<{ x: number; y: number } | null>(null);
@@ -130,11 +132,29 @@ export function MessageBubble({
 			data-message-id={message.id}
 		>
 			{!mine ? (
-				<Avatar
-					name={senderName}
-					avatarUrl={senderAvatarUrl}
-					seed={senderSeed}
-				/>
+				onAvatarClick ? (
+					<button
+						type="button"
+						className={cn("message-avatar-button")}
+						title="查看资料"
+						aria-label={`查看 ${senderName} 的资料`}
+						onClick={(event) =>
+							onAvatarClick(sender, { x: event.clientX, y: event.clientY })
+						}
+					>
+						<Avatar
+							name={senderName}
+							avatarUrl={senderAvatarUrl}
+							seed={senderSeed}
+						/>
+					</button>
+				) : (
+					<Avatar
+						name={senderName}
+						avatarUrl={senderAvatarUrl}
+						seed={senderSeed}
+					/>
+				)
 			) : null}
 			<div
 				ref={bubbleRef}

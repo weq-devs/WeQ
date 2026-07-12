@@ -65,7 +65,9 @@ export function MemberProfileCard({ member, anchor, onClose }) {
 	const cardRef = useRef(null);
 	const [pos, setPos] = useState({ left: anchor.x + 14, top: anchor.y + 8, ready: false });
 
-	const uid = member.identityValue;
+	// 真正的 uid 在 member.id；member.identityValue 展示用的是 uin（QQ号）。
+	// getProfile 需要 uid，早先误传 identityValue(=uin) 会拉不到 profile_info_v6。
+	const uid = member.id;
 
 	useEscapeToClose(onClose);
 
@@ -120,7 +122,16 @@ export function MemberProfileCard({ member, anchor, onClose }) {
 		profile?.intimacy && Number(profile.intimacy) > 0
 			? Number(profile.intimacy).toLocaleString("en-US")
 			: null;
-	const levelText = member.levelName || (member.memberLevel ? `Lv.${member.memberLevel}` : null);
+	// 群等级 = 数字等级（memberLevel）；levelName 是群主给各等级段起的段位名称
+	// （元老 / 潜水 …），是「头衔样式」的字符串，只作为副标题附在数字后面，
+	// 不能单独当等级展示——否则看起来就成了群头衔。
+	const levelText = member.memberLevel
+		? `Lv.${member.memberLevel}${
+				member.levelName && member.levelName !== `Lv${member.memberLevel}`
+					? ` · ${member.levelName}`
+					: ""
+			}`
+		: member.levelName || null;
 	const joinedAt = shortDate(member.joinedAt);
 	const lastSpeak = shortDate(member.lastSpeakAt);
 

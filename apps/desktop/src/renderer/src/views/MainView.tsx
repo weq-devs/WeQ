@@ -48,6 +48,7 @@ import {
   type Contact,
   type Conversation,
   type ConversationDrafts,
+  type ConversationHighlight,
   type ConversationPreference,
   type ConversationPreferences,
   type GroupJoinRequest,
@@ -1611,8 +1612,8 @@ export function MainView(): ReactElement {
   // Unread count per conversation id (latest msgSeq - last read seq). Filled
   // asynchronously after the recent-contact list loads / refreshes.
   const [unreadByConv, setUnreadByConv] = useState<Record<string, number>>({});
-  const [specialCareByConv, setSpecialCareByConv] = useState<
-    Record<string, { senderUid: string; msgSeq: string }>
+  const [highlightsByConv, setHighlightsByConv] = useState<
+    Record<string, ConversationHighlight[]>
   >({});
   const [groupMemberPages, setGroupMemberPages] = useState<Record<string, GroupMemberWire[]>>({});
   const [groupMemberHasMore, setGroupMemberHasMore] = useState<Record<string, boolean>>({});
@@ -1683,12 +1684,12 @@ export function MainView(): ReactElement {
       return Array.from(byId.values())
         .map((conversation) => {
           const unread = unreadByConv[conversation.id];
-          const specialCare = specialCareByConv[conversation.id] ?? null;
-          if (!unread && !specialCare) return conversation;
+          const highlights = highlightsByConv[conversation.id] ?? null;
+          if (!unread && !highlights) return conversation;
           return {
             ...conversation,
             ...(unread ? { unreadCount: unread } : {}),
-            specialCare,
+            highlights,
           };
         })
         .sort((a, b) => {
@@ -1697,7 +1698,7 @@ export function MainView(): ReactElement {
           return bTime - aTime;
         });
     },
-    [allGroups.data, contacts.data, user, unreadByConv, specialCareByConv],
+    [allGroups.data, contacts.data, user, unreadByConv, highlightsByConv],
   );
   const groupsById = useMemo(() => new Map(conversations.map((conversation) => [conversation.id, conversation])), [conversations]);
   const contactRequests = useMemo(
@@ -1808,7 +1809,7 @@ export function MainView(): ReactElement {
 
     async function loadUnread(): Promise<void> {
       const next: Record<string, number> = {};
-      const care: Record<string, { senderUid: string; msgSeq: string }> = {};
+      const highlights: Record<string, ConversationHighlight[]> = {};
       const batchSize = 12;
       for (let index = 0; index < list.length && !cancelled; index += batchSize) {
         const batch = list.slice(index, index + batchSize);
@@ -1828,9 +1829,7 @@ export function MainView(): ReactElement {
               return {
                 uid: contact.targetUid,
                 unread,
-                specialCare: info?.specialCare
-                  ? { senderUid: info.specialCare.senderUid, msgSeq: info.specialCare.msgSeq }
-                  : null,
+                highlights: (info?.highlights ?? null) as ConversationHighlight[] | null,
               };
             } catch {
               return null;
@@ -1840,12 +1839,12 @@ export function MainView(): ReactElement {
         for (const entry of counts) {
           if (!entry) continue;
           next[entry.uid] = entry.unread;
-          if (entry.specialCare) care[entry.uid] = entry.specialCare;
+          if (entry.highlights?.length) highlights[entry.uid] = entry.highlights;
         }
       }
       if (!cancelled) {
         setUnreadByConv(next);
-        setSpecialCareByConv(care);
+        setHighlightsByConv(highlights);
       }
     }
 

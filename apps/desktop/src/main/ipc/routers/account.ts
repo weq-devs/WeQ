@@ -1110,14 +1110,14 @@ export const accountRouter = router({
       if (!result) return null;
       return {
         msgSeq: result.msgSeq?.toString(),
-        // 特别关心标记（若该会话有特别关心未读）。seq 保留供上层使用。
-        specialCare: result.specialCare
-          ? {
-              msgSeq: result.specialCare.msgSeq.toString(),
-              senderUid: result.specialCare.senderUid,
-              sendTime: result.specialCare.sendTime.toString(),
-            }
-          : undefined,
+        // 提醒高亮（特别关心 / @我 / …）。各类别一条，seq 保留供上层使用。
+        highlights: result.highlights?.map((h) => ({
+          kind: h.kind,
+          rawKind: h.rawKind,
+          msgSeq: h.msgSeq.toString(),
+          senderUid: h.senderUid,
+          sendTime: h.sendTime.toString(),
+        })),
       };
     }),
 

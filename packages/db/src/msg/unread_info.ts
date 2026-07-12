@@ -18,16 +18,36 @@ export interface UnreadInfoDbOptions {
 }
 
 /**
- * 特别关心 (special-care) marker for a conversation, decoded from the 48902
- * notify-highlight extension (50005 → 50060, kind 1006). Present only when the
- * conversation has an unread message from a 特别关心 friend.
+ * Named categories of the 48902 notify-highlight (50005 → 50060), keyed by the
+ * observed `50000` kind code. QQ NT populates one highlight group per category
+ * that currently has an unread hit:
+ *   1000 = @我 (at-me), 1006 = 特别关心 (special-care),
+ *   2000 = @全体 (at-all), 2001 = 新文件 (new-file).
+ * More (回复我 …) will slot in as their codes are captured.
  */
-export interface SpecialCareInfo {
-  /** Seq of the (latest) special-care message. */
+export type HighlightKind = 'atMe' | 'atAll' | 'specialCare' | 'newFile' | 'unknown';
+
+const HIGHLIGHT_KIND_BY_CODE: Record<number, HighlightKind> = {
+  1000: 'atMe',
+  1006: 'specialCare',
+  2000: 'atAll',
+  2001: 'newFile',
+};
+
+/**
+ * One notify-highlight hit for a conversation, decoded from 50060 → 50040.
+ * Present only while the conversation has a matching unread message.
+ */
+export interface UnreadHighlight {
+  /** Mapped category; 'unknown' when the 50000 code isn't recognized yet. */
+  kind: HighlightKind;
+  /** Raw 50000 code, preserved so unmapped categories are still identifiable. */
+  rawKind: number;
+  /** Seq of the (latest) highlighted message in this category. */
   msgSeq: number;
-  /** Uid of the special-care sender. */
+  /** Uid of the sender. */
   senderUid: string;
-  /** Send time of the special-care message (unix seconds). */
+  /** Send time of the highlighted message (unix seconds). */
   sendTime: number;
 }
 
@@ -36,12 +56,9 @@ export interface UnreadInfoResult {
   chatType: number;
   uid: string;
   msgSeq?: number;
-  /** 特别关心 marker, when the conversation has a special-care unread. */
-  specialCare?: SpecialCareInfo;
+  /** Notify-highlights (特别关心 / @我 / …) present on this conversation. */
+  highlights?: UnreadHighlight[];
 }
-
-/** QQ NT's notify-highlight kind code for 特别关心. */
-const HIGHLIGHT_KIND_SPECIAL_CARE = 1006;
 
 export class UnreadInfoDb {
   private readonly qq: QqDb;
@@ -63,13 +80,14 @@ export class UnreadInfoDb {
 
     const buf = row[1] as Uint8Array;
     const decoded = buf ? this.proto.decode(buf) : {};
+    const highlights = extractHighlights(decoded.info?.ext);
 
     return {
       peer: row[0] as string,
       chatType,
       uid,
       msgSeq: decoded.info?.msgSeq,
-      specialCare: extractSpecialCare(decoded.info?.ext),
+      highlights: highlights.length ? highlights : undefined,
     };
   }
 
@@ -78,32 +96,36 @@ export class UnreadInfoDb {
   }
 }
 
-/**
- * Pull the 特别关心 marker out of the decoded 50005 extension. Picks the
- * highlight group tagged with the special-care kind and returns its latest
- * (highest-seq) item. Returns undefined when there's no special-care unread.
- */
 type DecodedExt = NonNullable<
   NonNullable<ReturnType<ProtoMsg<typeof UnreadInfo>['decode']>['info']>['ext']
 >;
 
-function extractSpecialCare(ext: DecodedExt | undefined): SpecialCareInfo | undefined {
+/**
+ * Flatten the 50060 highlight groups into one entry per category. Each group's
+ * `50000` code maps to a `HighlightKind`; within a group the latest (highest
+ * seq) 50040 item wins.
+ */
+function extractHighlights(ext: DecodedExt | undefined): UnreadHighlight[] {
   const groups = ext?.highlight;
-  if (!groups?.length) return undefined;
+  if (!groups?.length) return [];
 
-  let best: SpecialCareInfo | undefined;
+  const out: UnreadHighlight[] = [];
   for (const group of groups) {
-    if (group.kind !== HIGHLIGHT_KIND_SPECIAL_CARE) continue;
+    const rawKind = group.kind ?? -1;
+    let best: UnreadHighlight | undefined;
     for (const item of group.items ?? []) {
       if (item.msgSeq === undefined) continue;
       if (!best || item.msgSeq > best.msgSeq) {
         best = {
+          kind: HIGHLIGHT_KIND_BY_CODE[rawKind] ?? 'unknown',
+          rawKind,
           msgSeq: item.msgSeq,
           senderUid: item.senderUid ?? '',
           sendTime: item.sendTime ?? 0,
         };
       }
     }
+    if (best) out.push(best);
   }
-  return best;
+  return out;
 }

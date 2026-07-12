@@ -43,16 +43,25 @@ export type GroupMember = User & {
 	levelName?: string | null;
 };
 
+export type ConversationHighlightKind = "atMe" | "atAll" | "specialCare" | "newFile" | "unknown";
+
+export type ConversationHighlight = {
+	kind: ConversationHighlightKind;
+	rawKind: number;
+	senderUid: string;
+	msgSeq: string;
+};
+
 type ConversationBase = {
 	id: string;
 	updatedAt: string;
 	preference?: ConversationPreference;
 	unreadCount?: number;
 	/**
-	 * 特别关心标记：该会话存在特别关心好友发来的未读时置位，来自
-	 * msg_unread_info_table 的 48902 高亮扩展。msgSeq 保留但不展示。
+	 * 提醒高亮标记（特别关心 / @我 / …）：该会话存在对应类别的未读时置位，
+	 * 来自 msg_unread_info_table 的 48902 高亮扩展。msgSeq 保留但不展示。
 	 */
-	specialCare?: { senderUid: string; msgSeq: string } | null;
+	highlights?: ConversationHighlight[] | null;
 	lastMessage: {
 		id: string;
 		senderId: string | null;
