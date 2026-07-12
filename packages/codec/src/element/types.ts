@@ -77,11 +77,6 @@ export enum PicType {
   ORIGINAL = 1001,
 }
 
-export enum PttType {
-  INTERCOM = 1,
-  RECORDING = 2,
-}
-
 export enum GrayTipSubType {
   REVOKE = 1,
   GROUP_TIP = 4,

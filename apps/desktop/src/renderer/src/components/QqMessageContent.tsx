@@ -581,7 +581,17 @@ export function QqMessageContent({
         </div>
       );
     }
-    // Lone file/voice still sit in a normal bubble (cards, not stickers).
+    // A lone voice owns its own chrome: the play strip IS the bubble, so we
+    // strip the surrounding message bubble (qq-voice-only) — that lets the
+    // 转文字 button and transcript sit OUTSIDE the voice bubble.
+    if (lone.type === 'ptt') {
+      return (
+        <div className={cn('message-content', 'qq-message-inline', 'qq-voice-only')}>
+          <MediaNode element={lone} sendTimeMs={sendTimeMs} msgId={msgId} />
+        </div>
+      );
+    }
+    // Lone file still sits in a normal bubble (a card, not a sticker).
     if (lone.type && MEDIA_KINDS.has(lone.type)) {
       return (
         <div className={cn('message-content', 'qq-message-inline')}>

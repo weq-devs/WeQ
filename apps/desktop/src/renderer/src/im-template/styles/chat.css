@@ -1028,13 +1028,20 @@ html[data-theme="dark"] .member-badge.level-6 { background-color: rgba(250, 219,
 	.message-content.markdown-image-only,
 /* Card-only QQ elements (合并转发 / ark / 红包 / 闪传) own their own chrome —
  * strip the surrounding bubble background and padding so the card sits flush
- * in the message line. */
+ * in the message line. A lone voice (qq-voice-only) is the same idea: the play
+ * strip is its own bubble, so the 转文字 button sits outside it. */
 .message-content.qq-card-only,
 .message-line.mine .message-content.qq-card-only,
 .message-bubble.context-active .message-content.qq-card-only,
 .message-line.mine
 	.message-bubble.context-active
-	.message-content.qq-card-only {
+	.message-content.qq-card-only,
+.message-content.qq-voice-only,
+.message-line.mine .message-content.qq-voice-only,
+.message-bubble.context-active .message-content.qq-voice-only,
+.message-line.mine
+	.message-bubble.context-active
+	.message-content.qq-voice-only {
 	padding: 0;
 	background: transparent;
 }

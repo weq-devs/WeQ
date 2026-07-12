@@ -89,8 +89,9 @@ export const ReplyElementWire = {
   summary: ProtoField(45815, ScalarType.STRING, { repeat: true }),
   cdnHost: ProtoField(45816, ScalarType.STRING, { optional: true }),
   transferState: ProtoField(45550, ScalarType.UINT32, { optional: true }),
-  pttType: ProtoField(45906, ScalarType.UINT32, { optional: true }),
+  pttDuration: ProtoField(45906, ScalarType.UINT32, { optional: true }),
   voiceChanged: ProtoField(45911, ScalarType.BOOL, { optional: true }),
+  isAiVoice: ProtoField(45915, ScalarType.BOOL, { optional: true }),
   waveform: ProtoField(45925, ScalarType.BYTES, { optional: true }),
   faceId: ProtoField(47601, ScalarType.UINT32, { optional: true }),
   faceText: ProtoField(47602, ScalarType.STRING, { optional: true }),
@@ -412,8 +413,12 @@ export const ElementWire = {
   /** Transfer state (optional). */
   transferState: ProtoField(45550, ScalarType.UINT32, { optional: true }),
 
-  /** Voice type: 1=intercom, 2=recording. Required for PTT elements. */
-  pttType: ProtoField(45906, ScalarType.UINT32, { optional: true }),
+  /** Voice clip duration in seconds. Drives both the 时长 label and the bubble
+   * width; the waveform (45925) is decorative and NOT a reliable duration source
+   * (AI 声聊 clips carry a fixed 30-byte synthetic strip regardless of length).
+   * Named `pttDuration` to avoid colliding with the CALL `duration` (48152) that
+   * shares this flat wire struct — a duplicate key would silently drop tag 45906. */
+  pttDuration: ProtoField(45906, ScalarType.UINT32, { optional: true }),
 
   /** PTT protocol flag. */
   pttFlag45907: ProtoField(45907, ScalarType.UINT32, { optional: true }),
@@ -422,6 +427,12 @@ export const ElementWire = {
 
   /** Whether voice is changed/transformed. Required for PTT elements. */
   voiceChanged: ProtoField(45911, ScalarType.BOOL, { optional: true }),
+
+  /** AI 声聊 marker. Present (=true) ONLY on AI-voice-chat clips; absent on
+   * normal mic recordings, 对讲 (intercom), and other-client voices. This is
+   * the reliable classifier — QQ doesn't otherwise flag these, and their
+   * waveform (45925) is a fixed synthetic 30-byte strip. */
+  isAiVoice: ProtoField(45915, ScalarType.BOOL, { optional: true }),
 
   pttFlag45922: ProtoField(45922, ScalarType.UINT32, { optional: true }),
 

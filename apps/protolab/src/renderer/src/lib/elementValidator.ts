@@ -129,7 +129,7 @@ function getTagForField(fieldName: string): number {
     summary: 45815,
     cdnHost: 45816,
     filePath: 45403,
-    pttType: 45906,
+    pttDuration: 45906,
     voiceChanged: 45911,
     waveform: 45925,
     faceId: 47601,
