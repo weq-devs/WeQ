@@ -6180,6 +6180,44 @@ html[data-theme="dark"] .chat-empty {
   overflow: hidden;
 }
 
+/* 名片卡 (contact / cardshare)：左头像 + 右昵称/副标题 */
+.weq-ark-contact-body {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+.weq-ark-contact-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #f0f0f0;
+  flex-shrink: 0;
+}
+.weq-ark-contact-main { min-width: 0; flex: 1; }
+.weq-ark-contact-name {
+  font-size: 15px;
+  font-weight: 500;
+  color: #1f1f1f;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.weq-ark-contact-sub {
+  font-size: 12px;
+  color: #999999;
+  line-height: 1.35;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+html[data-theme="dark"] .weq-ark-contact-avatar { background: rgba(255, 255, 255, 0.06); }
+html[data-theme="dark"] .weq-ark-contact-name { color: var(--weq-fg-primary); }
+html[data-theme="dark"] .weq-ark-contact-sub { color: var(--weq-fg-muted); }
+
 /* ---- Ark 卡片深色模式 ---- The demo only ships light colors; map them onto the
    theme tokens so the structured card reads correctly on the dark canvas. */
 html[data-theme="dark"] .weq-ark-container {

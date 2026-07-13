@@ -21,7 +21,7 @@ import type { MessageRenderer } from '../im-template/template';
 import { FaceEmoji } from './FaceEmoji';
 import { QqImage, QqVideo, QqFile, QqVoice, QqMarketFace, QqOnlineFile } from './QqMedia';
 import { ForwardMultiMsgPreview, isArkMultiMsg } from './ForwardWindow';
-import { QqArk } from './QqArk';
+import { QqArk } from './ark/QqArk';
 import { QqFlashTransfer } from './QqFlashTransfer';
 import { QqWallet } from './QqWallet';
 import { QqCall } from './QqCall';

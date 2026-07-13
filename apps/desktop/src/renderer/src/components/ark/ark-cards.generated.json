@@ -1,0 +1,902 @@
+{
+  "com.tencent.contact.lua": {
+    "defaultMetaKey": "contact",
+    "variants": {
+      "contact": {
+        "jump": "jumpUrl",
+        "slots": {
+          "source": "tag",
+          "avatar": "avatar"
+        },
+        "bindings": {
+          "tag": "tag",
+          "avatar": "avatar"
+        }
+      }
+    }
+  },
+  "com.tencent.miniapp.lua": {
+    "defaultMetaKey": "miniapp",
+    "variants": {
+      "miniapp": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "source": "source",
+          "sourceIcon": "sourcelogo"
+        },
+        "bindings": {
+          "title": "title",
+          "tag": "source",
+          "bottomTag": "tag",
+          "tagIcon": "sourcelogo",
+          "bottomTagIcon": "tagIcon",
+          "preview": "preview"
+        }
+      }
+    }
+  },
+  "com.tencent.mobileqq.cardshare": {
+    "defaultMetaKey": "contact",
+    "variants": {
+      "contact": {
+        "jump": null,
+        "slots": {
+          "source": "tag",
+          "name": "nickname",
+          "avatar": "avatar"
+        },
+        "bindings": {
+          "tag": "tag",
+          "nickname": "nickname",
+          "contactInfo": "contactInfo",
+          "avatar": "avatar"
+        }
+      }
+    }
+  },
+  "com.tencent.music.lua": {
+    "defaultMetaKey": "music",
+    "variants": {
+      "music": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "thumb": "preview",
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "titleView": "title",
+          "descView": "desc",
+          "background": "preview",
+          "tagIcon": "tagIcon"
+        }
+      }
+    }
+  },
+  "com.tencent.od": {
+    "defaultMetaKey": "pic",
+    "variants": {
+      "pic": {
+        "jump": "jumpUrl",
+        "slots": {
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "tagIcon": "tagIcon"
+        }
+      },
+      "news": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "thumb": "preview",
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "title": "title",
+          "desc": "desc",
+          "background": "preview",
+          "tagIcon": "tagIcon"
+        }
+      },
+      "music": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "thumb": "preview",
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "titleView": "title",
+          "descView": "desc",
+          "background": "preview",
+          "tagIcon": "tagIcon"
+        }
+      },
+      "video": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "thumb": "preview"
+        },
+        "bindings": {
+          "title": "title",
+          "desc": "desc",
+          "background": "preview"
+        }
+      },
+      "contact": {
+        "jump": "jumpUrl",
+        "slots": {
+          "source": "tag",
+          "title": "title",
+          "desc": "desc",
+          "avatar": "avatar"
+        },
+        "bindings": {
+          "tag": "tag",
+          "titleView": "title",
+          "descView": "desc",
+          "avatar": "avatar"
+        }
+      },
+      "messages": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc"
+        },
+        "bindings": {
+          "title": "title",
+          "desc": "desc"
+        }
+      },
+      "miniapp": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "title": "title",
+          "tagIcon": "tagIcon",
+          "preview": "preview"
+        }
+      }
+    }
+  },
+  "com.tencent.qidian.general": {
+    "defaultMetaKey": "pic",
+    "variants": {
+      "pic": {
+        "jump": "url",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "source": "tag",
+          "thumb": "picurl"
+        },
+        "bindings": {
+          "title": "title",
+          "desc": "desc",
+          "tag": "tag",
+          "background": "picurl"
+        }
+      },
+      "transfercontact": {
+        "jump": "jumpUrl",
+        "slots": {
+          "source": "tag",
+          "name": "nickname",
+          "avatar": "avatar"
+        },
+        "bindings": {
+          "tag": "tag",
+          "nickname": "nickname",
+          "avatar": "avatar"
+        }
+      }
+    }
+  },
+  "com.tencent.qqgxh.general": {
+    "defaultMetaKey": "pic",
+    "variants": {
+      "pic": {
+        "jump": "jumpUrl",
+        "slots": {
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "tagIcon": "tagIcon"
+        }
+      },
+      "news": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "thumb": "preview",
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "title": "title",
+          "desc": "desc",
+          "background": "preview",
+          "tagIcon": "tagIcon"
+        }
+      },
+      "music": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "thumb": "preview",
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "titleView": "title",
+          "descView": "desc",
+          "background": "preview",
+          "tagIcon": "tagIcon"
+        }
+      },
+      "video": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "thumb": "preview"
+        },
+        "bindings": {
+          "title": "title",
+          "desc": "desc",
+          "background": "preview"
+        }
+      },
+      "contact": {
+        "jump": "jumpUrl",
+        "slots": {
+          "source": "tag",
+          "title": "title",
+          "desc": "desc",
+          "avatar": "avatar"
+        },
+        "bindings": {
+          "tag": "tag",
+          "titleView": "title",
+          "descView": "desc",
+          "avatar": "avatar"
+        }
+      },
+      "messages": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc"
+        },
+        "bindings": {
+          "title": "title",
+          "desc": "desc"
+        }
+      },
+      "miniapp": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "title": "title",
+          "tagIcon": "tagIcon",
+          "preview": "preview"
+        }
+      }
+    }
+  },
+  "com.tencent.qun.invite": {
+    "defaultMetaKey": "pic",
+    "variants": {
+      "pic": {
+        "jump": "jumpUrl",
+        "slots": {
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "tagIcon": "tagIcon"
+        }
+      },
+      "news": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "thumb": "preview",
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "title": "title",
+          "desc": "desc",
+          "background": "preview",
+          "tagIcon": "tagIcon"
+        }
+      },
+      "music": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "thumb": "preview",
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "titleView": "title",
+          "descView": "desc",
+          "background": "preview",
+          "tagIcon": "tagIcon"
+        }
+      },
+      "video": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "thumb": "preview"
+        },
+        "bindings": {
+          "title": "title",
+          "desc": "desc",
+          "background": "preview"
+        }
+      },
+      "contact": {
+        "jump": "jumpUrl",
+        "slots": {
+          "source": "tag",
+          "title": "title",
+          "desc": "desc",
+          "avatar": "avatar"
+        },
+        "bindings": {
+          "tag": "tag",
+          "titleView": "title",
+          "descView": "desc",
+          "avatar": "avatar"
+        }
+      },
+      "messages": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc"
+        },
+        "bindings": {
+          "title": "title",
+          "desc": "desc"
+        }
+      },
+      "miniapp": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "title": "title",
+          "tagIcon": "tagIcon",
+          "preview": "preview"
+        }
+      }
+    }
+  },
+  "com.tencent.structmsg": {
+    "defaultMetaKey": "news",
+    "variants": {
+      "news": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "thumb": "preview"
+        },
+        "bindings": {
+          "title": "title",
+          "desc": "desc",
+          "background": "preview"
+        }
+      },
+      "music": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "thumb": "preview"
+        },
+        "bindings": {
+          "titleView": "title",
+          "descView": "desc",
+          "background": "preview"
+        }
+      },
+      "video": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "thumb": "preview"
+        },
+        "bindings": {
+          "title": "title",
+          "desc": "desc",
+          "background": "preview"
+        }
+      },
+      "contact": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "thumb": "preview"
+        },
+        "bindings": {
+          "titleView": "title",
+          "descView": "desc",
+          "background": "preview"
+        }
+      },
+      "messages": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc"
+        },
+        "bindings": {
+          "title": "title",
+          "desc": "desc"
+        }
+      }
+    }
+  },
+  "com.tencent.tdoc.qqpush": {
+    "defaultMetaKey": "pic",
+    "variants": {
+      "pic": {
+        "jump": "jumpUrl",
+        "slots": {
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "tagIcon": "tagIcon"
+        }
+      },
+      "news": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "thumb": "preview",
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "title": "title",
+          "desc": "desc",
+          "background": "preview",
+          "tagIcon": "tagIcon"
+        }
+      },
+      "music": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "thumb": "preview",
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "titleView": "title",
+          "descView": "desc",
+          "background": "preview",
+          "tagIcon": "tagIcon"
+        }
+      },
+      "video": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "thumb": "preview"
+        },
+        "bindings": {
+          "title": "title",
+          "desc": "desc",
+          "background": "preview"
+        }
+      },
+      "contact": {
+        "jump": "jumpUrl",
+        "slots": {
+          "source": "tag",
+          "title": "title",
+          "desc": "desc",
+          "avatar": "avatar"
+        },
+        "bindings": {
+          "tag": "tag",
+          "titleView": "title",
+          "descView": "desc",
+          "avatar": "avatar"
+        }
+      },
+      "messages": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc"
+        },
+        "bindings": {
+          "title": "title",
+          "desc": "desc"
+        }
+      },
+      "miniapp": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "title": "title",
+          "tagIcon": "tagIcon",
+          "preview": "preview"
+        }
+      }
+    }
+  },
+  "com.tencent.template.qqfavorite.share": {
+    "defaultMetaKey": "news",
+    "variants": {
+      "news": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "thumb": "preview"
+        },
+        "bindings": {
+          "title": "title",
+          "desc": "desc",
+          "background": "preview"
+        }
+      }
+    }
+  },
+  "com.tencent.tianxuan.share": {
+    "defaultMetaKey": "pic",
+    "variants": {
+      "pic": {
+        "jump": "jumpUrl",
+        "slots": {
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "tagIcon": "tagIcon"
+        }
+      },
+      "news": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "thumb": "preview",
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "title": "title",
+          "desc": "desc",
+          "background": "preview",
+          "tagIcon": "tagIcon"
+        }
+      },
+      "music": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "thumb": "preview",
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "titleView": "title",
+          "descView": "desc",
+          "background": "preview",
+          "tagIcon": "tagIcon"
+        }
+      },
+      "video": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "thumb": "preview"
+        },
+        "bindings": {
+          "title": "title",
+          "desc": "desc",
+          "background": "preview"
+        }
+      },
+      "contact": {
+        "jump": "jumpUrl",
+        "slots": {
+          "source": "tag",
+          "title": "title",
+          "desc": "desc",
+          "avatar": "avatar"
+        },
+        "bindings": {
+          "tag": "tag",
+          "titleView": "title",
+          "descView": "desc",
+          "avatar": "avatar"
+        }
+      },
+      "messages": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc"
+        },
+        "bindings": {
+          "title": "title",
+          "desc": "desc"
+        }
+      },
+      "miniapp": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "title": "title",
+          "tagIcon": "tagIcon",
+          "preview": "preview"
+        }
+      }
+    }
+  },
+  "com.tencent.together": {
+    "defaultMetaKey": "invite",
+    "variants": {
+      "invite": {
+        "jump": null,
+        "slots": {
+          "title": "title",
+          "summary": "summary",
+          "button": "button",
+          "cover": "cover"
+        },
+        "bindings": {
+          "title": "title",
+          "summary": "summary",
+          "button": "button",
+          "mainImage": "cover"
+        }
+      }
+    }
+  },
+  "com.tencent.troopsharecard": {
+    "defaultMetaKey": "pic",
+    "variants": {
+      "pic": {
+        "jump": "jumpUrl",
+        "slots": {
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "tagIcon": "tagIcon"
+        }
+      },
+      "news": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "thumb": "preview",
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "title": "title",
+          "desc": "desc",
+          "background": "preview",
+          "tagIcon": "tagIcon"
+        }
+      },
+      "music": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "thumb": "preview",
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "titleView": "title",
+          "descView": "desc",
+          "background": "preview",
+          "tagIcon": "tagIcon"
+        }
+      },
+      "video": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "thumb": "preview"
+        },
+        "bindings": {
+          "title": "title",
+          "desc": "desc",
+          "background": "preview"
+        }
+      },
+      "contact": {
+        "jump": "jumpUrl",
+        "slots": {
+          "source": "tag",
+          "title": "title",
+          "desc": "desc",
+          "avatar": "avatar"
+        },
+        "bindings": {
+          "tag": "tag",
+          "titleView": "title",
+          "descView": "desc",
+          "avatar": "avatar"
+        }
+      },
+      "messages": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc"
+        },
+        "bindings": {
+          "title": "title",
+          "desc": "desc"
+        }
+      },
+      "miniapp": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "title": "title",
+          "tagIcon": "tagIcon",
+          "preview": "preview"
+        }
+      }
+    }
+  },
+  "com.tencent.tuwen.lua": {
+    "defaultMetaKey": "news",
+    "variants": {
+      "news": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "thumb": "preview",
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "title": "title",
+          "desc": "desc",
+          "background": "preview",
+          "tagIcon": "tagIcon"
+        }
+      }
+    }
+  },
+  "com.tencent.weishi.public.share": {
+    "defaultMetaKey": "pic",
+    "variants": {
+      "pic": {
+        "jump": "jumpUrl",
+        "slots": {
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "tagIcon": "tagIcon"
+        }
+      },
+      "news": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "thumb": "preview",
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "title": "title",
+          "desc": "desc",
+          "background": "preview",
+          "tagIcon": "tagIcon"
+        }
+      },
+      "music": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "thumb": "preview",
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "titleView": "title",
+          "descView": "desc",
+          "background": "preview",
+          "tagIcon": "tagIcon"
+        }
+      },
+      "video": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc",
+          "thumb": "preview"
+        },
+        "bindings": {
+          "title": "title",
+          "desc": "desc",
+          "background": "preview"
+        }
+      },
+      "contact": {
+        "jump": "jumpUrl",
+        "slots": {
+          "source": "tag",
+          "title": "title",
+          "desc": "desc",
+          "avatar": "avatar"
+        },
+        "bindings": {
+          "tag": "tag",
+          "titleView": "title",
+          "descView": "desc",
+          "avatar": "avatar"
+        }
+      },
+      "messages": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "desc": "desc"
+        },
+        "bindings": {
+          "title": "title",
+          "desc": "desc"
+        }
+      },
+      "miniapp": {
+        "jump": "jumpUrl",
+        "slots": {
+          "title": "title",
+          "sourceIcon": "tagIcon"
+        },
+        "bindings": {
+          "title": "title",
+          "tagIcon": "tagIcon",
+          "preview": "preview"
+        }
+      }
+    }
+  }
+}
