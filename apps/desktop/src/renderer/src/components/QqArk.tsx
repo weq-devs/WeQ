@@ -17,14 +17,17 @@
  * the `weq-avatar://` disk cache (cachedAvatarUrl) so they survive the renderer
  * CSP and don't re-hit the CDN on every render.
  *
- * The map (Location.Search) is the one piece that can't be ported verbatim: the
- * demo's Leaflet widget pulls OSM tiles straight from the browser, which the
- * renderer CSP blocks (`script-src 'self'`, no openstreetmap in `img-src`, no
- * `frame-src` for an embed). Proxying the tiles through `weq-avatar://` doesn't
- * help either — that fetch is server-side (non-browser UA + empty Referer), and
- * OSM's tile policy answers it with HTTP 418 "access blocked". So we render a
- * dependency-free, network-free location placeholder (faux-map backdrop + pin +
- * place name); the human-readable address is already shown above it.
+ * The map (Location.Search) used to be the one piece we couldn't render: the
+ * demo's Leaflet widget pulls OSM tiles straight from the browser (blocked by
+ * the renderer CSP), and proxying OSM tiles server-side gets HTTP 418 "access
+ * blocked". The fix is to skip tiles entirely and use QQ 位置服务's static-map
+ * endpoint (`apis.map.qq.com/ws/staticmap/v2`) — one PNG per location, keyed
+ * with the MAP_KEY baked into QQ's own `com.tencent.map` ark package. That URL
+ * serves fine to a server-side fetch (empty Referer, non-browser UA), so it
+ * rides the existing `weq-avatar://` disk cache like any other remote image.
+ * The QQ share coordinate is GCJ-02, matching QQ's own tiles, so no conversion.
+ * If the image ever fails to load we fall back to the CSS faux-map backdrop
+ * (still behind the pin), and the address is shown above the map regardless.
  */
 
 import { useMemo, type ReactElement } from 'react';
@@ -188,7 +191,7 @@ export function QqArk({ arkData }: { arkData: unknown }): ReactElement | null {
                 <div className="weq-ark-desc" style={{ color: '#8c8c8c', marginBottom: 8 }}>
                   {componentDesc}
                 </div>
-                <ArkLocationMap name={s(p, 'name')} />
+                <ArkLocationMap lat={lat} lng={lng} name={s(p, 'name')} />
               </>
             ) : null}
             {isBlockLayout && mainImg ? (
@@ -239,19 +242,57 @@ function ArkGroupAnnounce({ p }: { p: ArkPayload }): ReactElement {
   );
 }
 
-// ---- the location placeholder (Leaflet substitute) -----------------------
+// ---- the location map (QQ 位置服务 static image) --------------------------
 
 /**
- * A network-free location card: a faux-map backdrop (CSS only — see
- * `.weq-ark-map-view` styles) with a centred pin and the place name. We
- * deliberately render NO real tiles: OSM blocks the proxy's server-side fetch
- * with HTTP 418, and loading tiles straight from the renderer would need a CSP
- * carve-out plus reliance on OSM's tile policy. The address sits above this in
- * the card body, so the coordinate itself is the only thing we drop.
+ * MAP_KEY lifted verbatim from QQ's own `com.tencent.map` ark package
+ * (…/arks/apps/com.tencent.map/…/index.js). QQ uses it against the same
+ * `staticmap/v2` endpoint to draw the chat card's thumbnail; reusing it renders
+ * a pixel-faithful map. It's a shared key — fine for rendering local data, but
+ * heavy public traffic on it could get it throttled.
  */
-function ArkLocationMap({ name }: { name: string }): ReactElement {
+const QQ_MAP_KEY = 'RJNBZ-56724-USWUA-XVB56-RWETV-AIBPS';
+
+/**
+ * Build the QQ 位置服务 static-map URL for a GCJ-02 lat/lng. `scale=2` returns a
+ * retina PNG, `no_logo=1` drops the watermark. The location sits dead-centre
+ * (center == the point) so the overlaid pin lines up without a baked marker.
+ */
+function qqStaticMapUrl(lat: string, lng: string): string {
+  const q = new URLSearchParams({
+    key: QQ_MAP_KEY,
+    size: '280*130',
+    center: `${lat},${lng}`,
+    zoom: '16',
+    format: 'png8',
+    no_logo: '1',
+    scale: '2',
+  });
+  return `https://apis.map.qq.com/ws/staticmap/v2/?${q.toString()}`;
+}
+
+/**
+ * The location card: a real QQ static-map image (funnelled through the
+ * `weq-avatar://` disk cache so the server side fetches it and the renderer CSP
+ * is satisfied) with a centred pin and place-name pill on top. The `.weq-ark-
+ * map-view` backdrop stays behind as the offline/error fallback — if the image
+ * 404s or the fetch fails, `onError` hides it and the CSS faux-map shows.
+ */
+function ArkLocationMap({ lat, lng, name }: { lat: string; lng: string; name: string }): ReactElement {
+  const mapSrc = lat && lng ? cachedAvatarUrl(qqStaticMapUrl(lat, lng)) : null;
   return (
     <div className="weq-ark-map-view">
+      {mapSrc ? (
+        <img
+          className="weq-ark-map-img"
+          src={mapSrc}
+          alt=""
+          loading="lazy"
+          onError={(e) => {
+            e.currentTarget.style.display = 'none';
+          }}
+        />
+      ) : null}
       <MapPin className="weq-ark-map-pin" size={28} strokeWidth={2.2} />
       {name ? <span className="weq-ark-map-name">{name}</span> : null}
     </div>

@@ -25,6 +25,7 @@ import {
   GroupMemberDb,
   GroupNotifyDb,
   FileAssistantDb,
+  CollectionDb,
   BuddyDb,
   CategoryDb,
   BuddyRequestDb,
@@ -118,6 +119,8 @@ export interface AccountSession {
   readonly groupNotifies: GroupNotifyDb;
   /** File assistant metadata (file_assistant.db). */
   readonly fileAssistant: FileAssistantDb;
+  /** Favorites / 收藏 (collection.db). */
+  readonly collection: CollectionDb;
   /** Buddy list (profile_info.db). */
   readonly buddies: BuddyDb;
   /** Buddy categories (profile_info.db). */
@@ -279,6 +282,13 @@ export async function openAccount(
     algo: ctx.algo,
   });
 
+  const collectionDbPath = join(dirname(msgDbPath), 'collection.db');
+  const collection = new CollectionDb(nt, {
+    dbPath: collectionDbPath,
+    key: ctx.dbKey,
+    algo: ctx.algo,
+  });
+
   const profileInfoPath = platform.profileInfoDbPath(ctx.uin);
   if (!profileInfoPath) throw new Error(`profile_info.db not found for uin ${ctx.uin}`);
   const buddies = new BuddyDb(nt, { dbPath: profileInfoPath, key: ctx.dbKey, algo: ctx.algo });
@@ -315,6 +325,7 @@ export async function openAccount(
     groupMembers,
     groupNotifies,
     fileAssistant,
+    collection,
     buddies,
     categories,
     buddyReqs,
@@ -338,6 +349,7 @@ export async function openAccount(
       groupMembers.close();
       groupNotifies.close();
       fileAssistant.close();
+      collection.close();
       buddies.close();
       categories.close();
       buddyReqs.close();

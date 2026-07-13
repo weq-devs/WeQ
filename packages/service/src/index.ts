@@ -93,6 +93,7 @@ export { GroupNotifyService } from './account/group_notify';
 export { ProfileService } from './account/profile';
 export { EmojiService, type SystemFaceEntry } from './account/emoji';
 export { FileAssistantService } from './account/file_assistant';
+export { CollectionService, type CollectionPage } from './account/collection';
 export { FileSearchService } from './account/file_search';
 export type { FileType, SearchResult } from './account/file_search';
 export { OnlineStatusService } from './account/online_status';

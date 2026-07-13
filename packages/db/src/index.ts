@@ -42,3 +42,6 @@ export * from './file_assistant';
 
 // --- emoji business ---
 export * from './emoji';
+
+// --- collection business ---
+export * from './collection';

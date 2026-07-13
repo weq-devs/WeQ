@@ -32,6 +32,7 @@ import {
   GroupMemberDb,
   GroupNotifyDb,
   FileAssistantDb,
+  CollectionDb,
   BuddyDb,
   CategoryDb,
   BuddyRequestDb,
@@ -181,6 +182,9 @@ export async function openStaticAccount(
   // ---- file assistant (may not exist) ----
   const fileAssistant = new FileAssistantDb(nt, opts(join(dirPath, 'file_assistant.db')));
 
+  // ---- collection / 收藏 (may not exist) ----
+  const collection = new CollectionDb(nt, opts(join(dirPath, 'collection.db')));
+
   // ---- profile ----
   const profileInfoPath = requireFile(dirPath, 'profile_info.db');
   const profileOpts = opts(profileInfoPath);
@@ -216,6 +220,7 @@ export async function openStaticAccount(
     groupMembers,
     groupNotifies,
     fileAssistant,
+    collection,
     buddies,
     categories,
     buddyReqs,
@@ -239,6 +244,7 @@ export async function openStaticAccount(
       groupMembers.close();
       groupNotifies.close();
       fileAssistant.close();
+      collection.close();
       buddies.close();
       categories.close();
       buddyReqs.close();

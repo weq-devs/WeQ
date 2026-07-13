@@ -6080,8 +6080,8 @@ html[data-theme="dark"] .chat-empty {
   background: #f0f0f0;
   display: block;
 }
-/* 位置占位卡 (Leaflet 替身)：纯 CSS 仿地图底纹 + 居中图钉 + 地名药丸。
-   不取真实瓦片——OSM 对服务端代理抓取回 418，直连又要放开 CSP，得不偿失。 */
+/* 位置卡：真·QQ 位置服务静态图 (.weq-ark-map-img) 铺在最底，图钉/地名叠在上层。
+   下面这层 CSS 仿地图底纹保留为兜底——静态图加载失败 (onError 隐藏 img) 时透出。 */
 .weq-ark-map-view {
   position: relative;
   width: 100%;
@@ -6105,7 +6105,18 @@ html[data-theme="dark"] .chat-empty {
     linear-gradient(90deg, rgba(0, 0, 0, 0.035) 1px, transparent 1px) 0 0 / 24px 100%,
     linear-gradient(160deg, #edf0ea, #e2e6df);
 }
+/* 真·静态地图图层：铺满整卡，压在假底纹之上、图钉/地名之下。 */
+.weq-ark-map-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+}
 .weq-ark-map-pin {
+  position: relative; /* 抬到静态图 (absolute) 之上 */
+  z-index: 1;
   color: #e2403a;
   filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.3));
   pointer-events: none;
@@ -6113,6 +6124,7 @@ html[data-theme="dark"] .chat-empty {
 }
 .weq-ark-map-name {
   position: absolute;
+  z-index: 2;
   left: 6px;
   bottom: 6px;
   max-width: calc(100% - 12px);
