@@ -30,6 +30,7 @@ import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
 import { RailAccountFooter } from '../components/RailAccountFooter';
 import { SettingsDialog } from '../components/SettingsDialog';
+import { CollectionDialog } from '../components/CollectionDialog';
 import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
 import { GroupAnalyticsDialog } from '../components/GroupAnalyticsDialog';
 import { MemberProfileCard } from '../components/MemberProfileCard';
@@ -1520,6 +1521,7 @@ export function MainView(): ReactElement {
   const [trackedConversationId, setTrackedConversationId] = useState<string | null>(null);
   const [conversationPrefs, setConversationPrefs] = useState<ConversationPreferences>({});
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [collectionOpen, setCollectionOpen] = useState(false);
   const [requestedAnnouncementGroups, setRequestedAnnouncementGroups] = useState<Record<string, boolean>>({});
   const [albumDialog, setAlbumDialog] = useState<{
     groupCode: string;
@@ -2752,6 +2754,7 @@ export function MainView(): ReactElement {
         groupNoticeCount={groupRequests.length}
         onViewChange={shell.switchView}
         onOpenSettings={() => setSettingsOpen(true)}
+        onOpenCollection={() => setCollectionOpen(true)}
         onOpenProfile={noopAsync}
         onOpenAbout={noopAsync}
         onOpenHelp={noopAsync}
@@ -2923,6 +2926,7 @@ export function MainView(): ReactElement {
       ) : null}
 
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <CollectionDialog open={collectionOpen} onClose={() => setCollectionOpen(false)} />
       {albumDialog ? (
         <GroupAlbumDialog
           groupCode={albumDialog.groupCode}

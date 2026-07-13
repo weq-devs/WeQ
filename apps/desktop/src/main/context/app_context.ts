@@ -60,6 +60,7 @@ import {
   OnlineStatusService,
   AgentLabService,
   AssistantService,
+  CollectionService,
   TokenUsageStore,
   ConversationStore,
   DbDecryptService,
@@ -312,6 +313,8 @@ export interface AccountServices {
   webQuery: WebQueryService;
   /** Group album media listing over the already-hooked online QQ process. */
   groupAlbumMedia: GroupAlbumMediaService;
+  /** QQ 收藏 (favorites) reader over collection.db. */
+  collection: CollectionService;
 }
 
 /** Classified native-init failure surfaced to the renderer. */
@@ -606,6 +609,7 @@ export function initAppContext(): AppContext {
         profile,
         msgSearch: new MsgSearchService(session),
         onlineStatus: new OnlineStatusService(session),
+        collection: new CollectionService(session),
         fileSearch,
         mediaDownload,
         mediaUrl,
@@ -902,6 +906,7 @@ export function initAppContext(): AppContext {
         profile,
         msgSearch: new MsgSearchService(session),
         onlineStatus: new OnlineStatusService(session),
+        collection: new CollectionService(session),
         fileSearch,
         mediaDownload,
         mediaUrl,

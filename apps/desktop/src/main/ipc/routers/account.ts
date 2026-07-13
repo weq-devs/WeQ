@@ -50,6 +50,7 @@ import {
   buddyToWire,
   categoryToWire,
   c2cMsgToWire,
+  collectionItemToWire,
   forwardRecordToWire,
   groupBulletinToWire,
   groupMsgToWire,
@@ -1782,6 +1783,40 @@ export const accountRouter = router({
     .mutation(async ({ input }) => {
       return exportGroupAlbums(requireServices(), input);
     }),
+
+  // ---- 收藏 (QQ favorites / collection.db) ----
+
+  /**
+   * One page of collected items, newest-collected first, projected to the
+   * IPC wire shape (bigint → string, byte blobs dropped). `hasMore` lets the
+   * renderer page through everything.
+   */
+  listCollections: procedure
+    .input(
+      z
+        .object({
+          limit: z.number().int().min(1).max(200).optional(),
+          offset: z.number().int().min(0).optional(),
+        })
+        .optional(),
+    )
+    .query(async ({ input }) => {
+      const page = await requireServices().collection.listCollections(
+        input?.limit ?? 50,
+        input?.offset ?? 0,
+      );
+      return {
+        offset: page.offset,
+        limit: page.limit,
+        hasMore: page.hasMore,
+        items: page.items.map(collectionItemToWire),
+      };
+    }),
+
+  /** Total number of collected items. */
+  countCollections: procedure.query(async () => {
+    return requireServices().collection.countCollections();
+  }),
 
   // ---- export ----
 

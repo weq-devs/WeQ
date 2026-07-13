@@ -31,6 +31,7 @@ export function ChatShell({
 	children,
 	onViewChange,
 	onOpenSettings,
+	onOpenCollection,
 	onOpenProfile,
 	onOpenAbout,
 	onOpenHelp,
@@ -62,6 +63,7 @@ export function ChatShell({
 	children?: ReactNode;
 	onViewChange: (view: MainView) => void;
 	onOpenSettings: (tab?: SettingsTab) => void;
+	onOpenCollection: () => void;
 	onOpenProfile: () => void;
 	onOpenAbout: () => void;
 	onOpenHelp: () => void;
@@ -90,6 +92,7 @@ export function ChatShell({
 					view={view}
 					onViewChange={onViewChange}
 					onOpenSettings={onOpenSettings}
+					onOpenCollection={onOpenCollection}
 					onOpenProfile={onOpenProfile}
 					onOpenAbout={onOpenAbout}
 					onOpenHelp={onOpenHelp}

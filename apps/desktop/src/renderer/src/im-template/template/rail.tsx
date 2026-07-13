@@ -7,6 +7,7 @@ import {
 	Settings,
 	Hash,
 	Star,
+	Bookmark,
 	HardDrive,
 } from "lucide-react";
 import { useEffect, useRef, useState, useTransition } from "react";
@@ -23,6 +24,7 @@ export function AppRail({
 	view,
 	onViewChange,
 	onOpenSettings,
+	onOpenCollection,
 	onOpenProfile,
 	onOpenAbout,
 	onOpenHelp,
@@ -37,6 +39,7 @@ export function AppRail({
 	view: MainView;
 	onViewChange: (view: MainView) => void;
 	onOpenSettings: (tab?: SettingsTab) => void;
+	onOpenCollection: () => void;
 	onOpenProfile: () => void;
 	onOpenAbout: () => void;
 	onOpenHelp: () => void;
@@ -252,6 +255,21 @@ export function AppRail({
 							<HardDrive size={22} strokeWidth={1.5} />
 						</span>
 						<span className={cn("rail-label")}>缓存</span>
+					</button>
+					<button
+						className={cn("rail-tab rail-tab-collection")}
+						onClick={() => {
+							setMenuOpen(false);
+							setProfileOpen(false);
+							onOpenCollection();
+						}}
+						title="我的收藏"
+						type="button"
+					>
+						<span className={cn("rail-tab-icon")}>
+							<Bookmark size={22} strokeWidth={1.5} />
+						</span>
+						<span className={cn("rail-label")}>收藏</span>
 					</button>
 					<button
 						className={cn("rail-tab rail-tab-settings")}
