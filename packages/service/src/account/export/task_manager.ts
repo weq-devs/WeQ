@@ -28,6 +28,11 @@ import {
   type ContactsExportDeps,
   type ContactsFormat,
 } from './contacts_export';
+import {
+  exportCollections,
+  type CollectionExportDeps,
+  type CollectionFormat,
+} from './collection_export';
 import { exportAvatars } from './avatar_export';
 import {
   copyFoundMedia,
@@ -103,6 +108,8 @@ export interface ExportTask {
   /** 联系人导出（好友列表 / 群成员列表；走独立的资料库拉取流水线）。
    *  `group` 时 `conv` = 群号；`friends` 时 `conv` 为空。 */
   contacts?: { scope: 'friends' | 'group'; categoryIds?: number[] };
+  /** 收藏导出（QQ 收藏；走独立的收藏库拉取流水线）。`kinds` 为空 = 全部类型。 */
+  collection?: { kinds?: string[] };
   /** Media export options, when 导出媒体 is on. */
   media?: MediaExportOptions;
   /** Inclusive send-time window for this export, if narrowed from 全部时间. */
@@ -143,6 +150,8 @@ export interface MediaDeps {
   qzone?: QzoneExportDeps;
   /** 联系人（好友 / 群成员）资料库拉取能力（由 app 注入）。 */
   contacts?: ContactsExportDeps;
+  /** 收藏（QQ 收藏）拉取能力（由 app 注入；返回已拍平的行）。 */
+  collection?: CollectionExportDeps;
 }
 
 export class ExportTaskManager extends EventEmitter {
@@ -214,6 +223,8 @@ export class ExportTaskManager extends EventEmitter {
     qzone?: boolean;
     /** 联系人导出（好友 / 群成员；走独立流水线）。 */
     contacts?: { scope: 'friends' | 'group'; categoryIds?: number[] };
+    /** 收藏导出（QQ 收藏；走独立流水线）。 */
+    collection?: { kinds?: string[] };
     media?: MediaExportOptions;
     range?: ExportTimeRange;
   }): Promise<string> {
@@ -221,6 +232,29 @@ export class ExportTaskManager extends EventEmitter {
     const wantMedia = Boolean(opts.media?.exportMedia);
     const wantAvatars = Boolean(opts.exportAvatar);
     const wantTranscribe = Boolean(opts.media?.transcribeVoice);
+
+    // 收藏导出是独立流水线（单文件表格产物，无媒体 / 头像），不复用消息流水线。
+    if (opts.collection) {
+      const colTask: ExportTask = {
+        id,
+        kind: opts.kind,
+        conv: opts.conv,
+        name: opts.name,
+        format: opts.format,
+        status: 'pending',
+        progress: 0,
+        current: 0,
+        total: opts.total,
+        collection: opts.collection,
+        stages: [{ key: 'message', label: '导出收藏', status: 'pending', current: 0, total: opts.total }],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      this.tasks.set(id, colTask);
+      this.saveTasks();
+      void this.runCollectionTask(id);
+      return id;
+    }
 
     // 联系人导出（好友 / 群成员）是独立流水线（写表 + 可选头像），不复用消息流水线。
     if (opts.contacts) {
@@ -726,6 +760,74 @@ export class ExportTaskManager extends EventEmitter {
         this.touchStage(task, 'avatar', { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已下载 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}` }, { persist: true });
       }
       if (aborted()) { task.status = 'cancelled'; return; }
+
+      task.status = 'completed';
+      task.progress = 100;
+    } catch (e: any) {
+      task.status = 'failed';
+      task.error = String(e?.message ?? e);
+      const running = task.stages.find((s) => s.status === 'running');
+      if (running) { running.status = 'failed'; running.note = task.error; }
+    } finally {
+      task.updatedAt = Date.now();
+      this.abortControllers.delete(id);
+      this.saveTasks();
+      this.emit('progress', {
+        taskId: id,
+        status: task.status,
+        progress: task.progress,
+        current: task.current,
+        message: task.status === 'completed' ? '导出完成' : task.error ?? '已取消',
+      });
+    }
+  }
+
+  /**
+   * 收藏导出：翻页拉全收藏 → 写表格文件。独立于消息流水线；拉取能力走注入的
+   * `deps.collection`（返回已拍平的行）。无媒体 / 头像阶段，单文件产物。
+   */
+  private async runCollectionTask(id: string): Promise<void> {
+    const task = this.tasks.get(id);
+    if (!task || task.status === 'cancelled') return;
+
+    task.status = 'running';
+    task.updatedAt = Date.now();
+    this.saveTasks();
+
+    const abort = new AbortController();
+    this.abortControllers.set(id, abort);
+    const aborted = (): boolean => abort.signal.aborted;
+
+    try {
+      const deps = this.deps.collection;
+      if (!deps) throw new Error('收藏数据拉取能力不可用。');
+
+      const outPath = join(this.cacheDir, `${task.name}.${task.format}`);
+
+      this.touchStage(task, 'message', { status: 'running', note: '开始导出' }, { persist: true });
+      const result = await exportCollections(
+        {
+          format: task.format as CollectionFormat,
+          outputPath: outPath,
+          kinds: task.collection?.kinds,
+          onProgress: (current, total, note) => {
+            if (aborted()) return;
+            this.touchStage(task, 'message', { current, total, note });
+          },
+          signal: abort.signal,
+        },
+        deps,
+      );
+      if (aborted()) { task.status = 'cancelled'; return; }
+
+      task.filePath = result.filePath;
+      task.current = result.count;
+      this.touchStage(
+        task,
+        'message',
+        { status: 'completed', current: result.count, total: result.count, note: `${result.count} 条收藏` },
+        { persist: true },
+      );
 
       task.status = 'completed';
       task.progress = 100;

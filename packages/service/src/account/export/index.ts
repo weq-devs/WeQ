@@ -40,6 +40,15 @@ export {
   type ExportGroupMembersOpts,
 } from './contacts_export';
 export {
+  exportCollections,
+  type CollectionExportDeps,
+  type CollectionExportRow,
+  type CollectionExportPic,
+  type CollectionFormat,
+  type CollectionExportResult,
+  type ExportCollectionsOpts,
+} from './collection_export';
+export {
   avatarUrlForUin,
   iterateConv,
   resolveGroupSenders,

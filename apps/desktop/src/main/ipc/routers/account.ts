@@ -1957,6 +1957,27 @@ export const accountRouter = router({
     }),
 
   /**
+   * Start a collection (收藏) export — 走本地收藏库，无需在线 QQ。全部或按类型
+   * (`kinds`) 过滤，导出为 json/csv/xlsx/txt 表格。
+   */
+  startCollectionExport: procedure
+    .input(z.object({
+      name: z.string().min(1),
+      format: z.enum(['json', 'csv', 'xlsx', 'txt']),
+      kinds: z.array(z.string()).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      return requireServices().exportManager.startTask({
+        collection: { ...(input.kinds && input.kinds.length ? { kinds: input.kinds } : {}) },
+        kind: 'c2c',
+        conv: '',
+        name: input.name,
+        format: input.format,
+        total: 0,
+      });
+    }),
+
+  /**
    * Force a one-shot rkey harvest from the online QQ for the open account — the
    * explicit "立即重新获取 rkey" before a media-completing export. Returns true
    * when fresh rkeys were stored.

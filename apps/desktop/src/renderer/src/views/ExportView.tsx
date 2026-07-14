@@ -16,6 +16,7 @@
 
 import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react';
 import {
+  Bookmark,
   CalendarClock,
   Contact,
   DatabaseZap,
@@ -47,6 +48,7 @@ import { AlbumExportLightbox, type AlbumExportResult } from './export/AlbumExpor
 import { FailureLightbox } from './export/FailureLightbox';
 import {
   CHATLAB_FORMATS,
+  COLLECTION_FORMATS,
   DEFAULT_OPTIONS,
   FRIEND_FORMATS,
   FULL_FORMATS,
@@ -80,6 +82,7 @@ const MODES: ModeDef[] = [
   { id: 'chatlab', label: 'ChatLab 格式', desc: '供 AI 分析的结构化 JSON', icon: <FlaskConical size={18} /> },
   { id: 'qzone', label: '好友QQ空间导出', desc: '导出好友空间说说（需在线 QQ）', icon: <Globe size={18} /> },
   { id: 'contacts', label: '导出联系人', desc: '好友列表 / 群成员列表', icon: <Contact size={18} /> },
+  { id: 'collection', label: '导出收藏', desc: 'QQ 收藏导出为表格', icon: <Bookmark size={18} /> },
   { id: 'scheduled', label: '定时导出任务', desc: '按计划自动导出', icon: <CalendarClock size={18} /> },
   { id: 'album', label: '群相册导出', desc: '批量下载群相册', icon: <Images size={18} /> },
 ];
@@ -127,6 +130,11 @@ export function ExportView(): ReactElement {
   const [catSelection, setCatSelection] = useState<Set<number>>(new Set());
   /** 群成员导出：选中的群号。 */
   const [contactGroupId, setContactGroupId] = useState<string | null>(null);
+  /** 导出收藏：选中的收藏类型（空 = 全部）。 */
+  const [collectionKinds, setCollectionKinds] = useState<Set<string>>(new Set());
+  /** 收藏预览：加载一次全部收藏后按类型计数（仅进入收藏模式时拉取）。 */
+  const [collectionItems, setCollectionItems] = useState<{ kind: string }[] | null>(null);
+  const [collectionLoading, setCollectionLoading] = useState(false);
 
   const categories = trpc.account.listCategories.useQuery(undefined, {
     enabled: mode === 'contacts' && contactScope === 'friends',
@@ -163,9 +171,40 @@ export function ExportView(): ReactElement {
           : ['csv', 'xlsx', 'json', 'txt'];
       if (!allowed.includes(format)) setFormat('csv');
     }
+    if (mode === 'collection' && !['json', 'csv', 'xlsx', 'txt'].includes(format)) setFormat('json');
     // vcard 仅联系人可用；离开联系人模式时清掉，避免带进消息/定时导出。
     if (mode !== 'contacts' && format === 'vcard') setFormat('json');
   }, [mode, contactScope, format]);
+
+  // 进入收藏模式时加载一次全部收藏（分页拉全，收藏集通常不大），用于类型计数与预览。
+  useEffect(() => {
+    if (mode !== 'collection' || collectionItems !== null) return;
+    let cancelled = false;
+    setCollectionLoading(true);
+    (async () => {
+      try {
+        const all: { kind: string }[] = [];
+        let offset = 0;
+        for (;;) {
+          const res = (await client.account.listCollections.query({ limit: 100, offset })) as {
+            items: { kind: string }[];
+            hasMore: boolean;
+          };
+          all.push(...res.items.map((it) => ({ kind: it.kind })));
+          if (!res.hasMore || res.items.length === 0) break;
+          offset += res.items.length;
+        }
+        if (!cancelled) setCollectionItems(all);
+      } catch {
+        if (!cancelled) setCollectionItems([]);
+      } finally {
+        if (!cancelled) setCollectionLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, collectionItems]);
 
   // Live task progress: invalidate the list whenever the backend ticks.
   useEffect(() => {
@@ -221,6 +260,14 @@ export function ExportView(): ReactElement {
   }, [categories.data]);
 
   const friendTotal = useMemo(() => catItems.reduce((sum, c) => sum + c.count, 0), [catItems]);
+
+  // 收藏类型计数（导出收藏）：全部 + 每种 kind。
+  const collectionCounts = useMemo(() => {
+    const items = collectionItems ?? [];
+    const c: Record<string, number> = { all: items.length };
+    for (const it of items) c[it.kind] = (c[it.kind] ?? 0) + 1;
+    return c;
+  }, [collectionItems]);
 
   // 好友预览行：join buddies（分组）× intimacy 列表（昵称）。空选分组 = 全部好友。
   const friendPreview = useMemo<FriendPreviewItem[]>(() => {
@@ -330,6 +377,10 @@ export function ExportView(): ReactElement {
     if (mode === 'contacts') {
       if (contactScope === 'group' && !contactGroupId) return;
       setLightbox('contacts');
+      return;
+    }
+    if (mode === 'collection') {
+      void runCollectionExport();
       return;
     }
     if (convSelection.size === 0) return;
@@ -503,6 +554,26 @@ export function ExportView(): ReactElement {
       refetchTasks();
     } catch (e) {
       dialog.error('启动联系人导出失败', e instanceof Error ? e.message : String(e));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  /** 导出收藏：全部或按类型过滤，格式 json/csv/xlsx/txt（图片仅写 URL，不下载）。 */
+  async function runCollectionExport(): Promise<void> {
+    const cfmt = format as 'json' | 'csv' | 'xlsx' | 'txt';
+    const kinds = [...collectionKinds];
+    setSubmitting(true);
+    try {
+      await client.account.startCollectionExport.mutate({
+        name: kinds.length ? `收藏_${kinds.length}类` : '全部收藏',
+        format: cfmt,
+        ...(kinds.length ? { kinds } : {}),
+      });
+      setCollectionKinds(new Set());
+      refetchTasks();
+    } catch (e) {
+      dialog.error('启动收藏导出失败', e instanceof Error ? e.message : String(e));
     } finally {
       setSubmitting(false);
     }
@@ -766,18 +837,20 @@ export function ExportView(): ReactElement {
   const activeMode = MODES.find((m) => m.id === mode)!;
   const isMultiConvMode =
     mode === 'full' || mode === 'chatlab' || mode === 'scheduled' || mode === 'qzone';
-  // 显示底部格式 chips 的模式（多选会话 + 导出联系人）。
-  const showFormatChips = isMultiConvMode || mode === 'contacts';
+  // 显示底部格式 chips 的模式（多选会话 + 导出联系人 + 导出收藏）。
+  const showFormatChips = isMultiConvMode || mode === 'contacts' || mode === 'collection';
   const formatOptions =
     mode === 'chatlab'
       ? CHATLAB_FORMATS
       : mode === 'qzone'
         ? QZONE_FORMATS
-        : mode === 'contacts'
-          ? contactScope === 'friends'
-            ? FRIEND_FORMATS
-            : MEMBER_FORMATS
-          : FULL_FORMATS;
+        : mode === 'collection'
+          ? COLLECTION_FORMATS
+          : mode === 'contacts'
+            ? contactScope === 'friends'
+              ? FRIEND_FORMATS
+              : MEMBER_FORMATS
+            : FULL_FORMATS;
   // 好友空间导出只列好友（排除群聊）；其余多选模式用全部会话。
   const pickerItems = mode === 'qzone' ? friendItems : convItems;
 
@@ -794,7 +867,9 @@ export function ExportView(): ReactElement {
               ? '导出 ChatLab'
               : mode === 'contacts'
                 ? '导出联系人'
-                : '导出';
+                : mode === 'collection'
+                  ? '导出收藏'
+                  : '导出';
 
   const primaryDisabled =
     mode === 'decrypt'
@@ -803,7 +878,9 @@ export function ExportView(): ReactElement {
         ? !albumGroupId
         : mode === 'contacts'
           ? contactScope === 'group' && !contactGroupId
-          : convSelection.size === 0;
+          : mode === 'collection'
+            ? collectionLoading || (collectionCounts.all ?? 0) === 0
+            : convSelection.size === 0;
 
   // Lightbox summary line.
   const lightboxSummary = (() => {
@@ -951,6 +1028,13 @@ export function ExportView(): ReactElement {
                   />
                 )}
               </div>
+            ) : mode === 'collection' ? (
+              <CollectionScope
+                counts={collectionCounts}
+                loading={collectionLoading}
+                selected={collectionKinds}
+                onChange={setCollectionKinds}
+              />
             ) : mode === 'album' ? (
               <SingleSelectPicker
                 items={groupItems}
@@ -1187,6 +1271,77 @@ function FriendPreview({
           ))
         )}
       </div>
+    </div>
+  );
+}
+
+/** 收藏类型多选（导出收藏）。空选 = 全部收藏。顺序与「我的收藏」弹窗一致。 */
+const COLLECTION_KIND_FILTERS: Array<{ id: string; label: string }> = [
+  { id: 'richMedia', label: '图文' },
+  { id: 'link', label: '链接' },
+  { id: 'gallery', label: '图片' },
+  { id: 'video', label: '视频' },
+  { id: 'audio', label: '语音' },
+  { id: 'file', label: '文件' },
+  { id: 'location', label: '位置' },
+  { id: 'text', label: '文本' },
+  { id: 'unknown', label: '其他' },
+];
+
+function CollectionScope({
+  counts,
+  loading,
+  selected,
+  onChange,
+}: {
+  counts: Record<string, number>;
+  loading: boolean;
+  selected: Set<string>;
+  onChange: (next: Set<string>) => void;
+}): ReactElement {
+  const total = counts.all ?? 0;
+  const allActive = selected.size === 0;
+  const toggle = (id: string): void => {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    onChange(next);
+  };
+  // 只展示实际有内容的类型 chips。
+  const kinds = COLLECTION_KIND_FILTERS.filter((k) => (counts[k.id] ?? 0) > 0);
+  return (
+    <div className="weq-exp-cats">
+      <div className="weq-exp-cats-head">
+        <strong>收藏类型</strong>
+        <small>
+          {loading ? '加载中…' : allActive ? `全部收藏 · ${fmtCount(total)} 条` : `已选 ${selected.size} 类`}
+        </small>
+      </div>
+      {loading ? (
+        <div className="weq-exp-cats-empty"><small>正在加载收藏…</small></div>
+      ) : total === 0 ? (
+        <div className="weq-exp-cats-empty"><small>还没有任何收藏</small></div>
+      ) : (
+        <div className="weq-exp-cats-list">
+          <button
+            type="button"
+            className={`weq-exp-chip${allActive ? ' is-active' : ''}`}
+            onClick={() => onChange(new Set())}
+          >
+            全部收藏 <b>{total}</b>
+          </button>
+          {kinds.map((k) => (
+            <button
+              key={k.id}
+              type="button"
+              className={`weq-exp-chip${selected.has(k.id) ? ' is-active' : ''}`}
+              onClick={() => toggle(k.id)}
+            >
+              {k.label} <b>{counts[k.id] ?? 0}</b>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

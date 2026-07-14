@@ -94,6 +94,7 @@ import {
 } from '@weq/service';
 import { resolveResource } from '../resource';
 import { openAccount, openStaticAccount, peekStaticSelfUin, type AccountContext, type AccountSession } from '@weq/account';
+import { collectionItemToWire } from '../ipc/serde';
 
 /**
  * Process-wide bus for nt_msg.db changes, fed by the single `dbWatch` loop
@@ -587,6 +588,8 @@ export function initAppContext(): AppContext {
       // role / profile resolution), so they're built before the services object.
       const groupInfo = new GroupInfoService(session);
       const profile = new ProfileService(session);
+      // 收藏服务：既进 services，又喂给导出管理器的收藏拉取 dep（拍平投影）。
+      const collectionSvc = new CollectionService(session);
       // Built before the services literal so AgentLab can reuse the same media
       // pipeline (媒体寻址 + rkey 补全) for 表情包/语音.
       const fileSearch = new FileSearchService(session, platform);
@@ -609,7 +612,7 @@ export function initAppContext(): AppContext {
         profile,
         msgSearch: new MsgSearchService(session),
         onlineStatus: new OnlineStatusService(session),
-        collection: new CollectionService(session),
+        collection: collectionSvc,
         fileSearch,
         mediaDownload,
         mediaUrl,
@@ -737,6 +740,13 @@ export function initAppContext(): AppContext {
               groupOwnerUid: async (groupCode) => {
                 const detail = await groupInfo.getGroupDetail(BigInt(groupCode));
                 return detail?.ownerUid ?? null;
+              },
+            },
+            // 收藏导出：翻页拉本地收藏并拍平为可序列化行（复用 IPC 的 wire 投影）。
+            collection: {
+              listCollections: async (limit, offset) => {
+                const page = await collectionSvc.listCollections(limit, offset);
+                return page.items.map(collectionItemToWire);
               },
             },
           },
@@ -887,6 +897,8 @@ export function initAppContext(): AppContext {
       const webQuery = new WebQueryService(platform.native.ntHelper, session, noPid);
       const groupInfo = new GroupInfoService(session);
       const profile = new ProfileService(session);
+      // 收藏服务：既进 services，又喂给导出管理器的收藏拉取 dep（拍平投影）。
+      const collectionSvc = new CollectionService(session);
       const fileSearch = new FileSearchService(session, platform);
       const agentlabRoot = userConfig.cacheDir(join('agentlab', exportConfigId));
       const tokenUsage = new TokenUsageStore(join(agentlabRoot, 'usage.json'));
@@ -906,7 +918,7 @@ export function initAppContext(): AppContext {
         profile,
         msgSearch: new MsgSearchService(session),
         onlineStatus: new OnlineStatusService(session),
-        collection: new CollectionService(session),
+        collection: collectionSvc,
         fileSearch,
         mediaDownload,
         mediaUrl,
@@ -978,6 +990,13 @@ export function initAppContext(): AppContext {
               },
             },
             qzone: { fetchMsgList: (uin, pos, num) => webQuery.getQzoneMsgList(uin, pos, num) },
+            // 收藏导出：静态账号同样有本地收藏库，可离线导出。
+            collection: {
+              listCollections: async (limit, offset) => {
+                const page = await collectionSvc.listCollections(limit, offset);
+                return page.items.map(collectionItemToWire);
+              },
+            },
           },
         ),
         dbDecrypt: new DbDecryptService(session, platform),
