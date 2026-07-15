@@ -63,6 +63,7 @@ import {
   CollectionService,
   TokenUsageStore,
   ConversationStore,
+  DeletedMsgStore,
   DbDecryptService,
   DbExplorerService,
   AvatarResourceService,
@@ -600,8 +601,12 @@ export function initAppContext(): AppContext {
       const conversations = new ConversationStore(join(agentlabRoot, 'conversations.json'));
       const resolveAgentEndpoint = (ref: import('@weq/agentlab').AgentLabModelRef) =>
         bootstrap.agentLabConfig.resolveEndpoint(ref);
+      // 删除记录：哪些消息是 WeQ 删的 + 原始 40011/40012（恢复用），按账号落盘。
+      const deletedMsgs = new DeletedMsgStore(
+        join(userConfig.cacheDir(join('deleted', exportConfigId)), 'deleted.json'),
+      );
       this.services = {
-        msgs: new MsgService(session),
+        msgs: new MsgService(session, deletedMsgs),
         recentContacts: new RecentContactService(session),
         unreadInfo: new UnreadInfoService(session),
         accountConfig,
@@ -905,9 +910,13 @@ export function initAppContext(): AppContext {
       const conversations = new ConversationStore(join(agentlabRoot, 'conversations.json'));
       const resolveAgentEndpoint = (ref: import('@weq/agentlab').AgentLabModelRef) =>
         bootstrap.agentLabConfig.resolveEndpoint(ref);
+      // 删除记录：与在线会话同一份存储（按 exportConfigId 落盘），静态账号也可删/恢复。
+      const deletedMsgs = new DeletedMsgStore(
+        join(userConfig.cacheDir(join('deleted', exportConfigId)), 'deleted.json'),
+      );
 
       this.services = {
-        msgs: new MsgService(session),
+        msgs: new MsgService(session, deletedMsgs),
         recentContacts: new RecentContactService(session),
         unreadInfo: new UnreadInfoService(session),
         accountConfig,

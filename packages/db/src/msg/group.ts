@@ -23,7 +23,7 @@ import { decodeBody, decodeEmoji, toBigint, toStr } from './util';
 import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './append';
 import { QqDb } from '../qq_db';
 
-const SELECT_COLUMNS = `"40001","40020","40027","40033","40050","40800","40062","40003"`;
+const SELECT_COLUMNS = `"40001","40020","40027","40033","40050","40800","40062","40003","40011","40012"`;
 
 export interface GroupMsgDbOptions {
   /** Absolute path to nt_msg.db. */
@@ -191,52 +191,67 @@ export class GroupMsgDb {
   }
 
   /**
-   * Reversible soft-delete: XOR `mask` (a high bit, far above any real group
-   * code) into the partition key 40027 so `WHERE "40027" = groupCode` no longer
-   * matches — the message leaves the group view but the row stays. Idempotent
-   * via the `("40027" & mask) = 0` guard. Returns affected rows.
+   * Read a message's type columns (40011 msgType / 40012 subType) by msgId, or
+   * null if this table doesn't hold it. These are what QQ itself rewrites to
+   * `(1,1)` when a message is recalled/deleted; WeQ's delete mirrors that (see
+   * {@link writeMsgType}) and remembers the originals to restore them.
    */
-  async softDeleteMsg(msgId: bigint, mask: bigint): Promise<number> {
+  async readMsgType(msgId: bigint): Promise<{ msgType: bigint; subType: bigint } | null> {
+    const rows = await this.qq.query(
+      `SELECT "40011","40012" FROM group_msg_table WHERE "40001" = ? LIMIT 1`,
+      [msgId],
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return { msgType: toBigint(row[0]), subType: toBigint(row[1]) };
+  }
+
+  /**
+   * Overwrite a message's type columns (40011/40012) in place. Delete writes
+   * `(1,1)` — byte-identical to QQ's own recall — leaving the 40800 body intact
+   * so the message still renders; restore writes the remembered originals back.
+   */
+  async writeMsgType(msgId: bigint, msgType: bigint, subType: bigint): Promise<number> {
     return this.qq.write(
-      // SQLite has no `^` (XOR) operator; use the identity a^b = (a|b) - (a&b).
-      `UPDATE group_msg_table SET "40027" = ("40027" | ?) - ("40027" & ?) WHERE "40001" = ? AND ("40027" & ?) = 0`,
-      [mask, mask, msgId, mask],
+      `UPDATE group_msg_table SET "40011" = ?, "40012" = ? WHERE "40001" = ?`,
+      [msgType, subType, msgId],
     );
   }
 
   /**
-   * List the soft-deleted messages of one group, newest-first. {@link softDeleteMsg}
-   * XORs `mask` into the numeric partition key 40027, so the hidden rows sit at
-   * `groupCode ^ mask`; querying that exact value returns exactly them. Their seq
-   * (40003) is untouched, so they page in normal newest-first order.
+   * Fetch full message rows by msgId (40001), newest-first. Used to render the
+   * "deleted messages" list: WeQ's delete leaves rows in their normal partition
+   * (only 40011/40012 change), so the deleted set is addressed by msgId, not a
+   * hidden partition key. Empty input short-circuits to [].
    */
-  async listDeleted(targetGroupCode: string, mask: bigint, limit = 200): Promise<GroupMsg[]> {
+  async listByMsgIds(msgIds: bigint[]): Promise<GroupMsg[]> {
+    if (msgIds.length === 0) return [];
+    const placeholders = msgIds.map(() => '?').join(',');
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM group_msg_table
-        WHERE "40027" = ?
-        ORDER BY "40003" DESC
-        LIMIT ?`,
-      [BigInt(targetGroupCode) ^ mask, BigInt(limit)],
+        WHERE "40001" IN (${placeholders})
+        ORDER BY "40003" DESC`,
+      msgIds,
     );
     return rows.map(rowToGroupMsg);
   }
 
-  /** Reverse {@link softDeleteMsg}: XOR the partition key 40027 back. */
-  async restoreMsg(msgId: bigint, mask: bigint): Promise<number> {
-    return this.qq.write(
-      // SQLite has no `^` (XOR) operator; use the identity a^b = (a|b) - (a&b).
-      `UPDATE group_msg_table SET "40027" = ("40027" | ?) - ("40027" & ?) WHERE "40001" = ? AND ("40027" & ?) <> 0`,
-      [mask, mask, msgId, mask],
-    );
-  }
-
   /**
-   * Hard-delete: physically drop the row (by msgId 40001) from group_msg_table.
-   * Unlike {@link softDeleteMsg} this is irreversible — the message is gone, not
-   * hidden. Returns affected rows (0 if the group table doesn't hold the msgId).
+   * All rows in one group carrying the `(1,1)` deleted signature (40011=1 &
+   * 40012=1), newest-first. Covers BOTH WeQ's own deletes and QQ's native
+   * recalls — the caller splits them by consulting the DeletedMsgStore. This is
+   * what lets the "deleted messages" panel surface QQ recalls the store never
+   * recorded. `limit` bounds a pathologically recall-heavy group.
    */
-  async hardDeleteMsg(msgId: bigint): Promise<number> {
-    return this.qq.write(`DELETE FROM group_msg_table WHERE "40001" = ?`, [msgId]);
+  async listDeletedByConv(targetGroupCode: string, limit = 200): Promise<GroupMsg[]> {
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
+        WHERE "40027" = ? AND "40011" = 1 AND "40012" = 1
+        ORDER BY "40003" DESC
+        LIMIT ?`,
+      [targetGroupCode, BigInt(limit)],
+    );
+    return rows.map(rowToGroupMsg);
   }
 
   /**
@@ -281,6 +296,8 @@ function rowToGroupMsg(row: SqlRow): GroupMsg {
     elements: decodeBody(row[5]),
     setEmojiList: decodeEmoji(row[6]),
     msgSeq: toBigint(row[7]),
+    msgType: toBigint(row[8]),
+    subType: toBigint(row[9]),
   };
 }
 
@@ -296,5 +313,7 @@ function rowToGroupMsgWithRowId(row: SqlRow): GroupMsg & { rowId: bigint } {
     elements: decodeBody(row[6]),
     setEmojiList: decodeEmoji(row[7]),
     msgSeq: toBigint(row[8]),
+    msgType: toBigint(row[9]),
+    subType: toBigint(row[10]),
   };
 }

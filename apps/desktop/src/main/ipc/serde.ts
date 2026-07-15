@@ -205,6 +205,12 @@ export interface ChatMsgWire {
   elements: unknown[];
   /** Sticker reactions (贴表情, column 40062); group-only, omitted when none. */
   setEmojiList?: SetEmojiItem[];
+  /**
+   * Deleted state: `'weq'` = WeQ deleted (restorable), `'qq'` = QQ-native
+   * recall / delete from another client (NOT restorable). Omitted for a live
+   * message. Drives the in-chat veil + whether a restore button shows.
+   */
+  deletedKind?: 'weq' | 'qq';
 }
 
 export interface RecentContactWire {
@@ -240,6 +246,7 @@ export function c2cMsgToWire(m: RenderC2cMsg): ChatMsgWire {
     senderUin: m.senderUin.toString(),
     sendTime: m.sendTime.toString(),
     elements: sanitize(m.elements),
+    deletedKind: m.deletedKind,
   };
 }
 
@@ -254,6 +261,7 @@ export function groupMsgToWire(m: RenderGroupMsg): ChatMsgWire {
     sendTime: m.sendTime.toString(),
     elements: sanitize(m.elements),
     setEmojiList: m.setEmojiList,
+    deletedKind: m.deletedKind,
   };
 }
 

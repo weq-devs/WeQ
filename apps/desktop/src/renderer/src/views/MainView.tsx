@@ -37,7 +37,6 @@ import { MemberProfileCard } from '../components/MemberProfileCard';
 import { BuddyAnalyticsDialog } from '../components/BuddyAnalyticsDialog';
 import { AddMessageModal } from '../components/compose/AddMessageModal';
 import { DeletedMessagesModal } from '../components/compose/DeletedMessagesModal';
-import { loadHiddenMessageIds, saveHiddenMessageIds } from '../im-template/template/hiddenMessages';
 import { RelationGraphView } from '../components/relationGraph/RelationGraphView';
 import { AgentLabView } from './AgentLabView';
 import { ExportView } from './ExportView';
@@ -163,6 +162,8 @@ type MessageWire = {
   elements: unknown[];
   /** Sticker reactions (贴表情, column 40062); group-only, omitted when none. */
   setEmojiList?: SetEmojiItem[];
+  /** Deleted origin: 'weq' (restorable) or 'qq' (native recall, not). */
+  deletedKind?: 'weq' | 'qq';
 };
 
 /** One full-text search hit from `account.searchMessages`. */
@@ -251,6 +252,7 @@ type ChatMsgWire = {
   sendTime: string;
   elements: unknown[];
   setEmojiList?: SetEmojiItem[];
+  deletedKind?: 'weq' | 'qq';
 };
 
 function toMessageWire(w: ChatMsgWire): MessageWire {
@@ -262,6 +264,7 @@ function toMessageWire(w: ChatMsgWire): MessageWire {
     sendTime: w.sendTime,
     elements: w.elements,
     setEmojiList: w.setEmojiList,
+    deletedKind: w.deletedKind,
   };
 }
 
@@ -932,8 +935,10 @@ function messageToTemplate(message: MessageWire, conversation: Conversation, use
     qqElements: elements,
     // Sticker reactions (贴表情) rendered below the bubble by MessageBubble.
     setEmojiList: message.setEmojiList,
+    // Deleted origin ('weq'/'qq'), carried to the bubble's veil renderer.
+    deletedKind: message.deletedKind,
     msgId: message.msgId,
-  } as Message & { qqElements: unknown[]; setEmojiList?: SetEmojiItem[]; msgId: string };
+  } as Message & { qqElements: unknown[]; setEmojiList?: SetEmojiItem[]; deletedKind?: 'weq' | 'qq'; msgId: string };
 }
 
 /**
@@ -1542,13 +1547,14 @@ export function MainView(): ReactElement {
 
   const [editorState, setEditorState] = useState<{ msgId: string, elements: any[] } | null>(null);
   const [addMessageConv, setAddMessageConv] = useState<Conversation | null>(null);
-  // "查看删除消息" panel: which conversation is open, its fetched deleted rows,
-  // and a bump counter that tells ChatPane to re-read its local hidden set after
-  // a restore (so the message reappears in the live chat immediately).
+  // "删除列表" panel: which conversation is open + its fetched deleted rows.
   const [deletedConv, setDeletedConv] = useState<Conversation | null>(null);
   const [deletedWires, setDeletedWires] = useState<MessageWire[]>([]);
   const [deletedLoading, setDeletedLoading] = useState(false);
-  const [hiddenReloadKey, setHiddenReloadKey] = useState(0);
+  // msgIds WeQ deleted in the SELECTED conversation — drives the in-place
+  // translucent overlay in the chat. Loaded per conversation, updated
+  // optimistically on delete/restore.
+  const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
 
   const handleEditRaw = useCallback(async (message: Message) => {
     try {
@@ -1577,23 +1583,33 @@ export function MainView(): ReactElement {
     }
   }, [editorState, refreshWindow]);
 
-  const handleDeleteMessage = useCallback(async (message: Message) => {
+  /** kind + conversation key (peer uid / group code) used by the msg endpoints. */
+  const convFetchKey = useCallback(
+    (c: Conversation): { kind: 'c2c' | 'group'; conv: string } =>
+      c.type === 'group'
+        ? { kind: 'group', conv: c.group.identityValue }
+        : { kind: 'c2c', conv: c.otherUser.id },
+    [],
+  );
+
+  // QQ-style delete: rewrites 40011/40012 to (1,1) in the DB — the message
+  // stays in the chat under a translucent overlay. Optimistically mark it
+  // deleted so the overlay appears instantly.
+  const handleDeleteMessage = useCallback(async (message: Message, conversation: Conversation) => {
+    const { kind, conv } = convFetchKey(conversation);
+    setDeletedIds((current) => new Set(current).add(message.id));
     try {
-        await client.account.deleteMessage.mutate({ msgId: message.id });
+        await client.account.deleteMessage.mutate({ msgId: message.id, kind, conv });
     } catch (e) {
         console.error('[MainView] Failed to delete message:', e);
+        // Roll the optimistic overlay back on failure.
+        setDeletedIds((current) => {
+          const next = new Set(current);
+          next.delete(message.id);
+          return next;
+        });
     }
-  }, []);
-
-  const handleHardDeleteMessage = useCallback(async (message: Message) => {
-    try {
-        await client.account.hardDeleteMessage.mutate({ msgId: message.id });
-        // Row is physically gone — refresh so the window reflects the DB.
-        void refreshWindow();
-    } catch (e) {
-        console.error('[MainView] Failed to hard-delete message:', e);
-    }
-  }, [refreshWindow]);
+  }, [convFetchKey]);
 
   const handleOpenGroupAlbums = useCallback((conversation: Extract<Conversation, { type: 'group' }>) => {
     setAlbumDialog({
@@ -1618,15 +1634,6 @@ export function MainView(): ReactElement {
   const handleAddMessage = useCallback((conversation: Conversation) => {
     setAddMessageConv(conversation);
   }, []);
-
-  /** kind + conversation key (peer uid / group code) used by the msg endpoints. */
-  const convFetchKey = useCallback(
-    (c: Conversation): { kind: 'c2c' | 'group'; conv: string } =>
-      c.type === 'group'
-        ? { kind: 'group', conv: c.group.identityValue }
-        : { kind: 'c2c', conv: c.otherUser.id },
-    [],
-  );
 
   const loadDeletedMessages = useCallback(
     async (c: Conversation): Promise<void> => {
@@ -1657,12 +1664,13 @@ export function MainView(): ReactElement {
   const handleRestoreMessage = useCallback(
     async (msgId: string): Promise<void> => {
       await client.account.restoreMessage.mutate({ msgId });
+      // Clear the in-place overlay for the restored message.
+      setDeletedIds((current) => {
+        const next = new Set(current);
+        next.delete(msgId);
+        return next;
+      });
       if (deletedConv) {
-        // Delete had added this id to the conversation's local hidden set; drop
-        // it so the live chat re-shows the row, then nudge ChatPane to re-read.
-        const ids = loadHiddenMessageIds(deletedConv.id);
-        if (ids.delete(msgId)) saveHiddenMessageIds(deletedConv.id, ids);
-        setHiddenReloadKey((k) => k + 1);
         await loadDeletedMessages(deletedConv);
       }
       void refreshWindow();
@@ -1820,6 +1828,27 @@ export function MainView(): ReactElement {
   const selectedUid = selectedConversation?.id ?? '';
   const isGroup = selectedConversation?.type === 'group';
   const isDirect = selectedConversation?.type === 'direct';
+
+  // Load the WeQ-deleted msgIds whenever the selected conversation changes so
+  // the in-place "deleted" overlay is correct on entry. Stale responses from a
+  // quickly-switched-away conversation are ignored.
+  useEffect(() => {
+    setDeletedIds(new Set());
+    if (!selectedConversation) return;
+    const { kind, conv } = convFetchKey(selectedConversation);
+    let alive = true;
+    client.account.deletedMsgIds
+      .query({ kind, conv })
+      .then((ids) => {
+        if (alive) setDeletedIds(new Set(ids));
+      })
+      .catch(() => {
+        /* overlay silently absent on failure; delete/restore still work */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [selectedConversation, convFetchKey]);
 
   // 群资料灯箱：拉取所选群在 group_member3 里的前若干名成员，用于头像横排展示。
   const groupDetailCode = shell.selectedGroupConversationId ?? '';
@@ -2890,7 +2919,6 @@ export function MainView(): ReactElement {
                 onBackConversation={shell.backConversation}
                 onEditRaw={handleEditRaw}
                 onDeleteMessage={handleDeleteMessage}
-                onHardDeleteMessage={handleHardDeleteMessage}
                 onOpenGroupAlbums={handleOpenGroupAlbums}
                 onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
                 onOpenGroupAnalytics={handleOpenGroupAnalytics}
@@ -2898,7 +2926,8 @@ export function MainView(): ReactElement {
                 onOpenGroupMember={handleOpenGroupMember}
                 onAddMessage={handleAddMessage}
                 onViewDeleted={handleViewDeleted}
-                hiddenReloadKey={hiddenReloadKey}
+                deletedIds={deletedIds}
+                onRestoreMessage={handleRestoreMessage}
               />
             </div>
             <OverlayScrollbar

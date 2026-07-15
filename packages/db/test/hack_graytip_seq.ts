@@ -55,9 +55,9 @@ async function main(): Promise<void> {
 
   await readRow(db, 'before');
 
-  // Push all three at once: seq(40003)=9999, local(40008)=9999, sendTime(40050) future.
-  const future = BigInt(Math.floor(Date.now() / 1000) + 12 * 3600);
-  const dayStart = BigInt(new Date(Number(future) * 1000).setHours(0, 0, 0, 0) / 1000);
+  // Extreme future: 2099-01-01 00:00:00 UTC = 4070908800. See if QQ still renders it.
+  const future = 4070908800n;
+  const dayStart = 4070908800n;
   const affected = await db.write(
     `UPDATE group_msg_table SET "40003" = ?, "40008" = ?, "40050" = ?, "40058" = ? WHERE "40001" = ?`,
     [9999n, 9999n, future, dayStart, MSG_ID],

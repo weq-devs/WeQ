@@ -27,6 +27,14 @@ export interface C2cMsg {
   /** Seconds since epoch (column 40050). */
   sendTime: bigint;
   elements: Element[];
+  /**
+   * Message type (column 40011). QQ rewrites this to 1 on recall/delete;
+   * paired with {@link subType} it forms the `(1,1)` deleted signature.
+   * Optional: only the render read-paths select it (SELECT_COLUMNS).
+   */
+  msgType?: bigint;
+  /** Sub message type (column 40012); see {@link msgType}. */
+  subType?: bigint;
 }
 
 export interface GroupMsg {
@@ -43,6 +51,14 @@ export interface GroupMsg {
   sendTime: bigint;
   elements: Element[];
   setEmojiList?: SetEmojiItem[];
+  /**
+   * Message type (column 40011). QQ rewrites this to 1 on recall/delete;
+   * paired with {@link subType} it forms the `(1,1)` deleted signature.
+   * Optional: only the render read-paths select it (SELECT_COLUMNS).
+   */
+  msgType?: bigint;
+  /** Sub message type (column 40012); see {@link msgType}. */
+  subType?: bigint;
 }
 
 /**

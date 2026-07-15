@@ -1595,31 +1595,38 @@ export const accountRouter = router({
       return requireServices().msgs.updateElements(BigInt(input.msgId), elements);
     }),
 
-  /** Reversible soft-delete of one message (hidden from its conversation). */
+  /**
+   * Delete one message the way QQ does: rewrite 40011/40012 to (1,1) in place.
+   * The row stays in its conversation (rendered under a "deleted" overlay);
+   * the original type columns are remembered per account for restore.
+   */
   deleteMessage: procedure
-    .input(z.object({ msgId: z.string().min(1) }))
+    .input(z.object({ msgId: z.string().min(1), kind: z.enum(['c2c', 'group']), conv: z.string().min(1) }))
     .mutation(async ({ input }) => {
-      return requireServices().msgs.deleteMessage(BigInt(input.msgId));
+      return requireServices().msgs.deleteMessage(BigInt(input.msgId), input.kind, input.conv);
     }),
 
-  /** Restore a soft-deleted message. No-op if it was never soft-deleted. */
+  /** Restore a WeQ-deleted message (write the original 40011/40012 back). */
   restoreMessage: procedure
     .input(z.object({ msgId: z.string().min(1) }))
     .mutation(async ({ input }) => {
       return requireServices().msgs.restoreMessage(BigInt(input.msgId));
     }),
 
-  /** Hard-delete (irreversible): physically drop the message row by msgId. */
-  hardDeleteMessage: procedure
-    .input(z.object({ msgId: z.string().min(1) }))
-    .mutation(async ({ input }) => {
-      return requireServices().msgs.hardDeleteMessage(BigInt(input.msgId));
+  /**
+   * The msgIds WeQ deleted in one conversation — drives the in-chat translucent
+   * overlay without refetching message content.
+   */
+  deletedMsgIds: procedure
+    .input(z.object({ kind: z.enum(['c2c', 'group']), conv: z.string().min(1) }))
+    .query(({ input }): string[] => {
+      return requireServices().msgs.getDeletedMsgIds(input.kind, input.conv);
     }),
 
   /**
-   * List the soft-deleted (hidden, restorable) messages of one conversation,
+   * List the WeQ-deleted (restorable) messages of one conversation,
    * newest-first, serialized like any other message page so the renderer can
-   * reuse its chat bubbles in the "查看删除消息" panel.
+   * reuse its chat bubbles in the "删除列表" panel.
    */
   deletedMessages: procedure
     .input(z.object({ kind: z.enum(['c2c', 'group']), conv: z.string().min(1) }))

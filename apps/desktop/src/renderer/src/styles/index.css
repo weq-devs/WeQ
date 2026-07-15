@@ -9772,3 +9772,125 @@ html[data-theme="dark"] .weq-asst-preset {
 html[data-theme="dark"] .weq-asst-preset:hover:not(:disabled) {
   background: color-mix(in srgb, var(--weq-accent-effective) 16%, #12161c);
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   In-place deleted-message overlay (im-template/messageBubble)
+   WeQ's delete mirrors QQ's recall (40011/40012 → (1,1)) but keeps the row in
+   the chat: the bubble dims + desaturates under a translucent veil with an
+   「已删除」pill, and hovering the row reveals a themed 恢复 button. All colors
+   ride the --weq-* tokens so light/dark + custom accent stay consistent.
+   ───────────────────────────────────────────────────────────────────────── */
+.message-line.is-deleted .message-bubble {
+  position: relative;
+  opacity: 0.52;
+  filter: saturate(0.55);
+  transition: opacity 0.15s ease, filter 0.15s ease;
+}
+html[data-theme="dark"] .message-line.is-deleted .message-bubble {
+  opacity: 0.58;
+}
+/* Un-dim slightly on hover so the content is inspectable before restoring. */
+.message-line.is-deleted:hover .message-bubble {
+  opacity: 0.78;
+  filter: saturate(0.8);
+}
+/* The avatar dims with the bubble so the whole row reads as deleted. */
+.message-line.is-deleted > .avatar,
+.message-line.is-deleted > .message-avatar-button {
+  opacity: 0.55;
+}
+
+/* Veil: frosted wash over the bubble carrying the badge + restore button.
+   pointer-events none except on the button so text stays selectable. */
+.message-line.is-deleted .weq-msg-deleted-veil {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--weq-overlay) 42%, transparent);
+  pointer-events: none;
+}
+
+.message-line.is-deleted .weq-msg-deleted-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  color: var(--weq-fg-muted);
+  background: var(--weq-bg-surface);
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  box-shadow: var(--weq-shadow-soft);
+}
+
+.message-line.is-deleted .weq-msg-restore {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  color: var(--weq-accent-effective);
+  background: var(--weq-bg-surface);
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
+  border-radius: 999px;
+  box-shadow: var(--weq-shadow-soft);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+.message-line.is-deleted:hover .weq-msg-restore,
+.message-line.is-deleted .weq-msg-restore:disabled {
+  opacity: 1;
+  pointer-events: auto;
+}
+.message-line.is-deleted .weq-msg-restore:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, var(--weq-bg-surface));
+  border-color: var(--weq-accent-effective);
+}
+.message-line.is-deleted .weq-msg-restore:disabled {
+  cursor: default;
+  color: var(--weq-fg-muted);
+  border-color: var(--weq-border-subtle);
+}
+
+/* QQ-native recall / delete-from-another-client: NOT restorable, so it needs no
+   persistent affordance. Keep the bubble merely translucent (the .is-deleted
+   base) and drop BOTH the frosted veil wash and the always-on badge — the
+   "QQ删除" tag only fades in on hover, like the restore button does. */
+.message-line.is-deleted.is-qq-deleted .weq-msg-deleted-veil {
+  background: transparent;
+}
+.message-line.is-deleted.is-qq-deleted .weq-msg-deleted-badge {
+  color: color-mix(in srgb, var(--weq-warn, #b8860b) 88%, var(--weq-fg-muted));
+  border-color: color-mix(in srgb, var(--weq-warn, #b8860b) 45%, var(--weq-border-subtle));
+  background: color-mix(in srgb, var(--weq-warn, #b8860b) 10%, var(--weq-bg-surface));
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.message-line.is-deleted.is-qq-deleted:hover .weq-msg-deleted-badge {
+  opacity: 1;
+}
+
+/* "QQ删除" tag shown in the 删除列表 in place of the restore button. */
+.weq-deleted-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  color: color-mix(in srgb, var(--weq-warn, #b8860b) 88%, var(--weq-fg-muted));
+  background: color-mix(in srgb, var(--weq-warn, #b8860b) 10%, var(--weq-bg-surface));
+  border: 1px solid color-mix(in srgb, var(--weq-warn, #b8860b) 45%, var(--weq-border-subtle));
+  border-radius: 999px;
+  white-space: nowrap;
+}

@@ -4,7 +4,7 @@ import type {
 	MouseEvent as ReactMouseEvent,
 	PointerEvent as ReactPointerEvent,
 } from "react";
-import { Bot } from "lucide-react";
+import { Bot, RotateCcw } from "lucide-react";
 import { parseMarkdownBlocks } from "./messageMarkdown";
 import {
 	renderMessageWithRegistry,
@@ -27,6 +27,9 @@ export function MessageBubble({
 	showSenderName,
 	active,
 	renderers,
+	deleted,
+	deletedKind,
+	onRestore,
 	onContextMenu,
 	onLongPress,
 	onAction,
@@ -43,6 +46,16 @@ export function MessageBubble({
 	showSenderName: boolean;
 	active: boolean;
 	renderers?: MessageRenderer[];
+	/** WeQ-deleted: rendered in place under a translucent overlay + restore-on-hover. */
+	deleted?: boolean;
+	/**
+	 * Deleted origin: `'weq'` (WeQ deleted, restorable) or `'qq'` (QQ-native
+	 * recall / delete elsewhere, NOT restorable → "QQ删除" veil, no restore
+	 * button). Preferred over the legacy boolean `deleted`.
+	 */
+	deletedKind?: "weq" | "qq";
+	/** Restore a WeQ-deleted message (only used when `deleted`). */
+	onRestore?: (msgId: string) => Promise<void>;
 	onContextMenu: (event: ReactMouseEvent, message: Message) => void;
 	onLongPress: (point: { x: number; y: number }, message: Message) => void;
 	onAction?: (message: Message, action: MessageAction) => void | Promise<void>;
@@ -53,9 +66,15 @@ export function MessageBubble({
 	const longPressAnchorRef = useRef<{ x: number; y: number } | null>(null);
 	const bubbleRef = useRef<HTMLDivElement | null>(null);
 	const [pendingActionId, setPendingActionId] = useState<string | null>(null);
+	const [restoring, setRestoring] = useState(false);
 	const hasCode = parseMarkdownBlocks(message.body).some(
 		(block) => block.type === "code",
 	);
+	// Deleted origin — prefer the explicit kind; fall back to the legacy boolean
+	// (which always meant a WeQ delete). `qq` = QQ-native recall, not restorable.
+	const resolvedKind: "weq" | "qq" | null = deletedKind ?? (deleted ? "weq" : null);
+	const isDeleted = resolvedKind !== null;
+	const isQqDeleted = resolvedKind === "qq";
 
 	function clearLongPress() {
 		if (longPressTimerRef.current !== null) {
@@ -126,9 +145,22 @@ export function MessageBubble({
 
 	useEffect(() => clearLongPress, []);
 
+	async function handleRestoreClick(event: ReactMouseEvent<HTMLButtonElement>) {
+		event.stopPropagation();
+		if (!onRestore || restoring) {
+			return;
+		}
+		setRestoring(true);
+		try {
+			await onRestore(message.id);
+		} finally {
+			setRestoring(false);
+		}
+	}
+
 	return (
 		<div
-			className={cn("message-line", mine ? "mine" : "theirs")}
+			className={cn("message-line", mine ? "mine" : "theirs", isDeleted && "is-deleted", isQqDeleted && "is-qq-deleted")}
 			data-message-id={message.id}
 		>
 			{!mine ? (
@@ -215,6 +247,26 @@ export function MessageBubble({
 					renderers,
 				)}
 				<SetEmojiReactions list={message.setEmojiList} />
+				{isDeleted ? (
+					<div className={cn("weq-msg-deleted-veil")} aria-label={isQqDeleted ? "QQ删除的消息" : "已删除的消息"}>
+						<span className={cn("weq-msg-deleted-badge")}>{isQqDeleted ? "QQ删除" : "已删除"}</span>
+						{!isQqDeleted && onRestore ? (
+							<button
+								type="button"
+								className={cn("weq-msg-restore")}
+								title="恢复这条消息"
+								disabled={restoring}
+								onPointerDown={(event) => event.stopPropagation()}
+								onClick={(event) => {
+									void handleRestoreClick(event);
+								}}
+							>
+								<RotateCcw size={13} />
+								<span>{restoring ? "恢复中…" : "恢复"}</span>
+							</button>
+						) : null}
+					</div>
+				) : null}
 				{message.actions?.length ? (
 					<div className={cn("message-actions")}>
 						{message.actions.map((action) => {

@@ -72,7 +72,6 @@ export function ChatMainContent({
 	onBackConversation,
 	onEditRaw,
 	onDeleteMessage,
-	onHardDeleteMessage,
 	onOpenGroupAlbums,
 	onOpenGroupAnnouncements,
 	onOpenGroupAnalytics,
@@ -80,7 +79,8 @@ export function ChatMainContent({
 	onOpenGroupMember,
 	onAddMessage,
 	onViewDeleted,
-	hiddenReloadKey,
+	deletedIds,
+	onRestoreMessage,
 	onOpenTool,
 	onSelectTool,
 }: {
@@ -141,8 +141,7 @@ export function ChatMainContent({
 	onDraftClear: (conversationId: string) => void;
 	onBackConversation: () => void;
 	onEditRaw?: (message: Message) => void;
-	onDeleteMessage?: (message: Message) => void | Promise<void>;
-	onHardDeleteMessage?: (message: Message) => void | Promise<void>;
+	onDeleteMessage?: (message: Message, conversation: Conversation) => void | Promise<void>;
 	onOpenGroupAlbums?: (conversation: GroupConversation) => void;
 	onOpenGroupAnnouncements?: (conversation: GroupConversation) => void;
 	onOpenGroupAnalytics?: (conversation: GroupConversation) => void;
@@ -150,8 +149,10 @@ export function ChatMainContent({
 	onOpenGroupMember?: (member: any, anchor: { x: number; y: number }) => void;
 	onAddMessage?: (conversation: Conversation) => void;
 	onViewDeleted?: (conversation: Conversation) => void;
-	/** Bumped after a restore so ChatPane re-reads its local hidden-message set. */
-	hiddenReloadKey?: number;
+	/** msgIds WeQ deleted in the active conversation (in-place overlay). */
+	deletedIds?: Set<string>;
+	/** Restore one WeQ-deleted message (overlay hover button). */
+	onRestoreMessage?: (msgId: string) => Promise<void>;
 	onOpenTool?: (item: ToolPaneItem) => void;
 	onSelectTool?: (item: ToolPaneItem) => void;
 }) {
@@ -222,7 +223,6 @@ export function ChatMainContent({
 			onBack={onBackConversation}
 			onEditRaw={onEditRaw}
 			onDeleteMessage={onDeleteMessage}
-			onHardDeleteMessage={onHardDeleteMessage}
 			onOpenGroupAlbums={onOpenGroupAlbums}
 			onOpenGroupAnnouncements={onOpenGroupAnnouncements}
 			onOpenGroupAnalytics={onOpenGroupAnalytics}
@@ -230,7 +230,8 @@ export function ChatMainContent({
 			onOpenGroupMember={onOpenGroupMember}
 			onAddMessage={onAddMessage}
 			onViewDeleted={onViewDeleted}
-			hiddenReloadKey={hiddenReloadKey}
+			deletedIds={deletedIds}
+			onRestoreMessage={onRestoreMessage}
 		/>
 	);
 }

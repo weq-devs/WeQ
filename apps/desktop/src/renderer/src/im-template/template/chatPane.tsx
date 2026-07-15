@@ -202,7 +202,6 @@ export function ChatPane({
 	onBack,
 	onEditRaw,
 	onDeleteMessage,
-	onHardDeleteMessage,
 	onOpenGroupAlbums,
 	onOpenGroupAnnouncements,
 	onOpenGroupAnalytics,
@@ -210,7 +209,8 @@ export function ChatPane({
 	onOpenGroupMember,
 	onAddMessage,
 	onViewDeleted,
-	hiddenReloadKey,
+	deletedIds,
+	onRestoreMessage,
 }: {
 	user: User;
 	conversation: Conversation | undefined;
@@ -235,8 +235,7 @@ export function ChatPane({
 	onDraftClear: (conversationId: string) => void;
 	onBack: () => void;
 	onEditRaw?: (message: Message) => void;
-	onDeleteMessage?: (message: Message) => void | Promise<void>;
-	onHardDeleteMessage?: (message: Message) => void | Promise<void>;
+	onDeleteMessage?: (message: Message, conversation: Conversation) => void | Promise<void>;
 	onOpenGroupAlbums?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenGroupAnnouncements?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenGroupAnalytics?: (conversation: Extract<Conversation, { type: "group" }>) => void;
@@ -244,8 +243,10 @@ export function ChatPane({
 	onOpenGroupMember?: (member: any, anchor: { x: number; y: number }) => void;
 	onAddMessage?: (conversation: Conversation) => void;
 	onViewDeleted?: (conversation: Conversation) => void;
-	/** Bumped by the parent after a restore so this pane re-reads hidden ids. */
-	hiddenReloadKey?: number;
+	/** msgIds WeQ deleted in this conversation — rendered in place under a translucent overlay. */
+	deletedIds?: Set<string>;
+	/** Restore one WeQ-deleted message (the overlay's hover button). */
+	onRestoreMessage?: (msgId: string) => Promise<void>;
 }) {
 	// 复用 replyJump 的跳转能力（含翻页/重建窗口），供群精华消息跳转使用。
 	const jumpToSeq = useContext(ReplyJumpContext);
@@ -261,11 +262,14 @@ export function ChatPane({
 	const [emojiOpen, setEmojiOpen] = useState(false);
 	const [toolsOpen, setToolsOpen] = useState(false);
 	const [activeEmojiPackId, setActiveEmojiPackId] = useState("emoji");
+	const [contextMenu, setContextMenu] =
+		useState<MessageContextMenuState | null>(null);
+	// Local "清空聊天记录" hide set (localStorage). Per-message delete no longer
+	// touches this — deleted messages stay visible under an overlay; this set
+	// only backs the clear-conversation action.
 	const [hiddenMessageIds, setHiddenMessageIds] = useState<Set<string>>(
 		new Set(),
 	);
-	const [contextMenu, setContextMenu] =
-		useState<MessageContextMenuState | null>(null);
 	const [mentionMenu, setMentionMenu] = useState<MentionMenuState | null>(null);
 	const [unreadJump, setUnreadJump] = useState<UnreadJumpState | null>(null);
 	// Count of newly-arrived (live) messages while the user is reading history.
@@ -434,14 +438,6 @@ export function ChatPane({
 		setMobileComposerExpanded(false);
 		setHiddenMessageIds(loadHiddenMessageIds(conversation?.id));
 	}, [conversation?.id]);
-
-	// Re-read the local hidden set when the parent signals a restore (bumping
-	// `hiddenReloadKey`), so a message un-hidden from the deleted panel reappears
-	// in the live chat without touching the rest of the conversation reset above.
-	useEffect(() => {
-		if (!hiddenReloadKey) return;
-		setHiddenMessageIds(loadHiddenMessageIds(conversation?.id));
-	}, [hiddenReloadKey, conversation?.id]);
 
 	useEffect(() => {
 		const editor = composerEditorRef.current;
@@ -1230,37 +1226,14 @@ export function ChatPane({
 		setContextMenu(null);
 	}
 
-	function deleteMessageLocally(message: Message) {
+	// QQ-style delete: the DB row's type columns become (1,1) and the message
+	// STAYS in the chat, rendered under a translucent overlay (no local hiding).
+	function deleteMessage(message: Message) {
 		if (!conversation) {
 			return;
 		}
-
-		// Hide immediately for instant feedback...
-		setHiddenMessageIds((current) => {
-			const next = new Set(current);
-			next.add(message.id);
-			saveHiddenMessageIds(conversation.id, next);
-			return next;
-		});
 		setContextMenu(null);
-		// ...and reversibly soft-delete the underlying DB row (hidden, restorable).
-		void onDeleteMessage?.(message);
-	}
-
-	// Hard-delete: physically drops the DB row (no restore). Same instant-hide
-	// UX as soft-delete — no confirmation prompt.
-	function hardDeleteMessageLocally(message: Message) {
-		if (!conversation) {
-			return;
-		}
-		setHiddenMessageIds((current) => {
-			const next = new Set(current);
-			next.add(message.id);
-			saveHiddenMessageIds(conversation.id, next);
-			return next;
-		});
-		setContextMenu(null);
-		void onHardDeleteMessage?.(message);
+		void onDeleteMessage?.(message, conversation);
 	}
 
 	function editMessageRaw(message: Message) {
@@ -1400,7 +1373,7 @@ export function ChatPane({
 						<button
 							className={cn("icon-button", "group-header-info-action")}
 							type="button"
-							title="查看删除消息"
+							title="删除列表"
 							onClick={() => onViewDeleted(conversation)}
 						>
 							<Trash2 size={18} />
@@ -1555,6 +1528,9 @@ export function ChatPane({
 									showSenderName={showSenderNames}
 									active={contextMenu?.message.id === message.id}
 									renderers={messageRenderers}
+									deleted={deletedIds?.has(message.id) ?? false}
+									deletedKind={message.deletedKind}
+									onRestore={onRestoreMessage}
 									onContextMenu={openMessageMenu}
 									onLongPress={openMobileMessageMenu}
 									onAction={onMessageAction}
@@ -1844,8 +1820,7 @@ export function ChatPane({
 					state={contextMenu}
 					onCopy={copyMessage}
 					onDownloadImage={downloadMessageImage}
-					onDeleteLocal={deleteMessageLocally}
-					onHardDelete={onHardDeleteMessage ? hardDeleteMessageLocally : undefined}
+					onDelete={deleteMessage}
 					onEditRaw={onEditRaw ? editMessageRaw : undefined}
 				/>
 			) : null}

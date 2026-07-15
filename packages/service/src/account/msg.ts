@@ -29,24 +29,19 @@ import {
 } from '@weq/codec';
 import { MsgBody } from '@weq/codec/proto/msg/40800';
 import { toRenderElements, type RenderElement } from './msg_view';
+import { DeletedMsgStore } from './deleted_msgs';
 
 const bodyCodec = new ProtoMsg(MsgBody);
 
 /**
- * Reversible soft-delete markers (see {@link MsgService.deleteMessage}).
- *
- * `SOFT_DELETE_MASK` is XOR-ed into the numeric partition key 40027 (real group
- * code / private-chat sortNo). Bit 62 sits far above any real group code or peer
- * index, so toggling it moves the row out of every real conversation query and
- * never collides; XOR-ing again restores the original value.
- *
- * `SOFT_DELETE_UID_PREFIX` is prepended to the TEXT key 40021 on the c2c/dataline
- * tables to also cover the uid-fallback and device-line query paths (which filter
- * on 40021, not 40027). Restore only strips it from rows that still carry the
- * mask bit, so it can never corrupt a live uid (real uids start with `u_`).
+ * QQ's own recall/delete rewrites a message's type columns to `(1,1)`, leaving
+ * the 40800 body untouched. WeQ's delete mirrors this exactly (see
+ * {@link MsgService.deleteMessage}) so the DB stays byte-consistent with QQ's
+ * behavior; reversibility (which rows WeQ deleted + their original 40011/40012)
+ * is tracked out-of-band in a {@link DeletedMsgStore}, never in the DB.
  */
-const SOFT_DELETE_MASK = 1n << 62n;
-const SOFT_DELETE_UID_PREFIX = 'weqdel';
+const DELETED_MSG_TYPE = 1n;
+const DELETED_SUB_TYPE = 1n;
 
 /**
  * ElementType values that render as a media thumbnail in a reply quote. A reply
@@ -89,16 +84,53 @@ export interface InsertMsgResult {
 
 /**
  * Augmented message shapes for the renderer.
+ *
+ * `deletedKind` marks the QQ-style `(1,1)` deleted signature and its origin:
+ * `'weq'` = WeQ deleted it (in the DeletedMsgStore, restorable) → the chat
+ * shows a "已删除" veil + restore button; `'qq'` = QQ's own recall / a delete
+ * from another client (no store record, NOT restorable) → a "QQ删除" veil, no
+ * restore. `undefined` = a live message.
  */
+export type DeletedKind = 'weq' | 'qq';
 export interface RenderC2cMsg extends Omit<C2cMsg, 'elements'> {
   elements: RenderElement[];
+  deletedKind?: DeletedKind;
 }
 export interface RenderGroupMsg extends Omit<GroupMsg, 'elements'> {
   elements: RenderElement[];
+  deletedKind?: DeletedKind;
 }
 
 export class MsgService {
-  constructor(private readonly session: AccountSession) {}
+  /**
+   * `deleted` is the per-account {@link DeletedMsgStore}; omit it for contexts
+   * that never delete (e.g. the export pipeline's private MsgService).
+   */
+  constructor(
+    private readonly session: AccountSession,
+    private readonly deleted?: DeletedMsgStore,
+  ) {}
+
+  /**
+   * Classify a message's deleted state from its raw type columns. A `(1,1)`
+   * signature (see {@link DELETED_MSG_TYPE}) means deleted; the DeletedMsgStore
+   * then tells WeQ-deleted (restorable) apart from a QQ-native recall (not).
+   * `undefined` when the columns weren't selected or the message is live.
+   */
+  private classifyDeleted(m: { msgId: bigint; msgType?: bigint; subType?: bigint }): DeletedKind | undefined {
+    if (m.msgType !== DELETED_MSG_TYPE || m.subType !== DELETED_SUB_TYPE) return undefined;
+    return this.deleted?.get(m.msgId.toString()) ? 'weq' : 'qq';
+  }
+
+  /** {@link renderC2c} plus the computed {@link RenderC2cMsg.deletedKind}. */
+  private renderC2cWithState(m: C2cMsg): RenderC2cMsg {
+    return { ...renderC2c(m), deletedKind: this.classifyDeleted(m) };
+  }
+
+  /** {@link renderGroup} plus the computed {@link RenderGroupMsg.deletedKind}. */
+  private renderGroupWithState(m: GroupMsg): RenderGroupMsg {
+    return { ...renderGroup(m), deletedKind: this.classifyDeleted(m) };
+  }
 
   // ---- compose / insert ----------------------------------------------------
 
@@ -195,87 +227,108 @@ export class MsgService {
   }
 
   /**
-   * Reversible soft-delete: hide a message from its conversation by XOR-ing a
-   * high-bit mask into the 40027 partition key (real group code / private-chat
-   * sortNo), plus prefixing the 40021 uid key on the c2c/dataline tables so the
-   * uid-fallback and device-line queries miss it too. The row stays in the DB;
-   * {@link restoreMessage} brings it back. Searches c2c → dataline → group and
-   * acts on whichever holds the row. Returns true if a row was hidden.
+   * Delete a message the way QQ itself does: rewrite the type columns
+   * 40011/40012 to `(1,1)` in place (verified against a live QQ delete — those
+   * are the ONLY two columns QQ touches; the 40800 body stays intact). The row
+   * never leaves its conversation partition, so it still renders in the chat —
+   * the frontend shows it under a translucent "deleted" overlay.
+   *
+   * Reversibility lives in the {@link DeletedMsgStore}: the original 40011/40012
+   * are remembered there per msgId (they vary by message kind — plain text is
+   * 2/16, replies 9/…), which is also what distinguishes WeQ deletes from QQ's
+   * own recalls (both are `(1,1)` in the DB). Without a store this degrades to
+   * an irreversible-but-QQ-identical delete.
+   *
+   * Searches c2c → dataline → group and acts on whichever holds the row.
+   * Returns true if a row was rewritten.
    */
-  async deleteMessage(msgId: bigint): Promise<boolean> {
-    let n = await this.session.c2cMsgs.softDelete(msgId, SOFT_DELETE_MASK, SOFT_DELETE_UID_PREFIX);
-    if (n === 0) n = await this.session.datalineMsgs.softDelete(msgId, SOFT_DELETE_MASK, SOFT_DELETE_UID_PREFIX);
-    if (n === 0) n = await this.session.groupMsgs.softDeleteMsg(msgId, SOFT_DELETE_MASK);
-    return n > 0;
+  async deleteMessage(msgId: bigint, kind: 'c2c' | 'group', conv: string): Promise<boolean> {
+    for (const db of [this.session.c2cMsgs, this.session.datalineMsgs, this.session.groupMsgs] as const) {
+      const orig = await db.readMsgType(msgId);
+      if (!orig) continue;
+      this.deleted?.add(msgId.toString(), {
+        origMsgType: orig.msgType.toString(),
+        origSubType: orig.subType.toString(),
+        kind,
+        conv,
+        deletedAt: Math.floor(Date.now() / 1000),
+      });
+      return (await db.writeMsgType(msgId, DELETED_MSG_TYPE, DELETED_SUB_TYPE)) > 0;
+    }
+    return false;
   }
 
   /**
-   * Reverse a {@link deleteMessage} soft-delete. Guarded so calling it on a
-   * message that was never soft-deleted is a harmless no-op (returns false).
+   * Reverse a {@link deleteMessage}: write the remembered original 40011/40012
+   * back and drop the store record. No-op (false) for messages WeQ never
+   * deleted — including QQ's own recalls, which have no store record.
    */
   async restoreMessage(msgId: bigint): Promise<boolean> {
-    let n = await this.session.c2cMsgs.restore(msgId, SOFT_DELETE_MASK, SOFT_DELETE_UID_PREFIX);
-    if (n === 0) n = await this.session.datalineMsgs.restore(msgId, SOFT_DELETE_MASK, SOFT_DELETE_UID_PREFIX);
-    if (n === 0) n = await this.session.groupMsgs.restoreMsg(msgId, SOFT_DELETE_MASK);
-    return n > 0;
-  }
-
-  /**
-   * Hard-delete: physically drop the message row by msgId. Unlike
-   * {@link deleteMessage} (the reversible soft-delete) this is IRREVERSIBLE —
-   * the row is gone and cannot be restored. Searches c2c → dataline → group and
-   * deletes from whichever holds the row. Returns true if a row was deleted.
-   */
-  async hardDeleteMessage(msgId: bigint): Promise<boolean> {
-    let n = await this.session.c2cMsgs.hardDelete(msgId);
-    if (n === 0) n = await this.session.datalineMsgs.hardDelete(msgId);
-    if (n === 0) n = await this.session.groupMsgs.hardDeleteMsg(msgId);
-    return n > 0;
-  }
-
-  /**
-   * List the soft-deleted messages of one conversation (see {@link deleteMessage}),
-   * newest-first, rendered exactly like a normal page so the UI can reuse its
-   * chat bubbles. Group rows are found at `groupCode ^ mask`; c2c/dataline rows
-   * by the `weqdel`-prefixed uid — the same table split as the live queries.
-   */
-  async getDeletedMessages(kind: 'c2c' | 'group', conv: string, limit = 200): Promise<RenderC2cMsg[] | RenderGroupMsg[]> {
-    if (kind === 'group') {
-      const msgs = await this.session.groupMsgs.listDeleted(conv, SOFT_DELETE_MASK, limit);
-      await this.enrichReplyMedia(msgs, 'group');
-      return msgs.map(renderGroup);
+    const rec = this.deleted?.get(msgId.toString());
+    if (!rec) return false;
+    for (const db of [this.session.c2cMsgs, this.session.datalineMsgs, this.session.groupMsgs] as const) {
+      const cur = await db.readMsgType(msgId);
+      if (!cur) continue;
+      const n = await db.writeMsgType(msgId, BigInt(rec.origMsgType), BigInt(rec.origSubType));
+      if (n > 0) this.deleted?.remove(msgId.toString());
+      return n > 0;
     }
-    const msgs = await this.c2cDbFor(conv).listDeleted(conv, SOFT_DELETE_UID_PREFIX, limit);
+    return false;
+  }
+
+  /**
+   * List the deleted messages of one conversation, newest-first, rendered like
+   * a normal page so the UI can reuse its chat bubbles. Scans EVERY `(1,1)` row
+   * in the conversation (see `listDeletedByConv`) — so it surfaces both WeQ's
+   * own deletes AND QQ-native recalls the store never recorded — then tags each
+   * with `deletedKind` ('weq' restorable vs 'qq' not) via {@link classifyDeleted}.
+   */
+  async getDeletedMessages(kind: 'c2c' | 'group', conv: string): Promise<RenderC2cMsg[] | RenderGroupMsg[]> {
+    if (kind === 'group') {
+      const msgs = await this.session.groupMsgs.listDeletedByConv(conv);
+      await this.enrichReplyMedia(msgs, 'group');
+      return msgs.map((m) => this.renderGroupWithState(m));
+    }
+    const msgs = await this.c2cDbFor(conv).listDeletedByConv(conv);
     await this.enrichReplyMedia(msgs, 'c2c');
-    return msgs.map(renderC2c);
+    return msgs.map((m) => this.renderC2cWithState(m));
+  }
+
+  /**
+   * The msgIds WeQ deleted in one conversation — the lightweight signal the
+   * chat view uses to draw the translucent "deleted" overlay over in-place
+   * rows without fetching their content again.
+   */
+  getDeletedMsgIds(kind: 'c2c' | 'group', conv: string): string[] {
+    return this.deleted?.listIds(kind, conv) ?? [];
   }
 
   /** Newest N private-chat messages with one peer. */
   async getC2cLatest(targetUid: string, limit = 50): Promise<RenderC2cMsg[]> {
     const msgs = await this.c2cDbFor(targetUid).listLatest(this.c2cPartition(targetUid), limit);
     await this.enrichReplyMedia(msgs, 'c2c');
-    return msgs.map(renderC2c);
+    return msgs.map((m) => this.renderC2cWithState(m));
   }
 
   /** Private-chat page just older than `beforeSeq` (scroll-up). */
   async getC2cBefore(targetUid: string, beforeSeq: bigint, limit = 50): Promise<RenderC2cMsg[]> {
     const msgs = await this.c2cDbFor(targetUid).listBefore(this.c2cPartition(targetUid), beforeSeq, limit);
     await this.enrichReplyMedia(msgs, 'c2c');
-    return msgs.map(renderC2c);
+    return msgs.map((m) => this.renderC2cWithState(m));
   }
 
   /** Private-chat page just newer than `afterSeq` (scroll-down / jump context). */
   async getC2cAfter(targetUid: string, afterSeq: bigint, limit = 50): Promise<RenderC2cMsg[]> {
     const msgs = await this.c2cDbFor(targetUid).listAfter(this.c2cPartition(targetUid), afterSeq, limit);
     await this.enrichReplyMedia(msgs, 'c2c');
-    return msgs.map(renderC2c);
+    return msgs.map((m) => this.renderC2cWithState(m));
   }
 
   /** Re-read private-chat messages with seq >= `sinceSeq` (live refresh). */
   async getC2cFrom(targetUid: string, sinceSeq: bigint, limit = 500): Promise<RenderC2cMsg[]> {
     const msgs = await this.c2cDbFor(targetUid).listFrom(this.c2cPartition(targetUid), sinceSeq, limit);
     await this.enrichReplyMedia(msgs, 'c2c');
-    return msgs.map(renderC2c);
+    return msgs.map((m) => this.renderC2cWithState(m));
   }
 
   /**
@@ -294,28 +347,28 @@ export class MsgService {
   async getGroupLatest(targetGroupCode: string, limit = 50): Promise<RenderGroupMsg[]> {
     const msgs = await this.session.groupMsgs.listLatest(targetGroupCode, limit);
     await this.enrichReplyMedia(msgs, 'group');
-    return msgs.map(renderGroup);
+    return msgs.map((m) => this.renderGroupWithState(m));
   }
 
   /** Group page just older than `beforeSeq` (scroll-up). */
   async getGroupBefore(targetGroupCode: string, beforeSeq: bigint, limit = 50): Promise<RenderGroupMsg[]> {
     const msgs = await this.session.groupMsgs.listBefore(targetGroupCode, beforeSeq, limit);
     await this.enrichReplyMedia(msgs, 'group');
-    return msgs.map(renderGroup);
+    return msgs.map((m) => this.renderGroupWithState(m));
   }
 
   /** Group page just newer than `afterSeq` (scroll-down / jump context). */
   async getGroupAfter(targetGroupCode: string, afterSeq: bigint, limit = 50): Promise<RenderGroupMsg[]> {
     const msgs = await this.session.groupMsgs.listAfter(targetGroupCode, afterSeq, limit);
     await this.enrichReplyMedia(msgs, 'group');
-    return msgs.map(renderGroup);
+    return msgs.map((m) => this.renderGroupWithState(m));
   }
 
   /** Re-read group messages with seq >= `sinceSeq` (live refresh). */
   async getGroupFrom(targetGroupCode: string, sinceSeq: bigint, limit = 500): Promise<RenderGroupMsg[]> {
     const msgs = await this.session.groupMsgs.listFrom(targetGroupCode, sinceSeq, limit);
     await this.enrichReplyMedia(msgs, 'group');
-    return msgs.map(renderGroup);
+    return msgs.map((m) => this.renderGroupWithState(m));
   }
 
   /**
