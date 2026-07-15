@@ -17,12 +17,14 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from 'rea
 import { createPortal } from 'react-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { getQueryKey } from '@trpc/react-query';
-import { LockKeyhole, LogOut, Moon, Sun, Trash2 } from 'lucide-react';
+import { LockKeyhole, LogOut, Moon, Sun, Trash2, Eye, EyeOff, Camera } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useAppLock } from '../state/lock';
 import { useThemeStore } from '../state/theme';
+import { usePrivacyStore } from '../state/privacy';
 import { useDialog } from './Dialog';
+import { useToast } from './Toast';
 import { QqAvatar } from './QqAvatar';
 
 function errMsg(e: unknown): string {
@@ -47,6 +49,9 @@ export function RailAccountFooter({
   // chosen there; a click just pins one concrete mode).
   const resolvedTheme = useThemeStore((s) => s.resolved);
   const setThemePreference = useThemeStore((s) => s.setPreference);
+  const privacyEnabled = usePrivacyStore((s) => s.enabled);
+  const togglePrivacy = usePrivacyStore((s) => s.toggle);
+  const pushToast = useToast((s) => s.push);
   const queryClient = useQueryClient();
 
   const [open, setOpen] = useState(false);
@@ -87,6 +92,19 @@ export function RailAccountFooter({
     // Pin the opposite of whatever is currently showing. From 跟随系统 this
     // still does the intuitive thing: flips away from the resolved mode.
     setThemePreference(resolvedTheme === 'dark' ? 'light' : 'dark');
+  }
+
+  async function captureNow(): Promise<void> {
+    try {
+      const res = await window.weq.capture.window();
+      if (res.ok) {
+        pushToast({ tone: 'success', title: '截图已复制', message: '窗口截图已写入剪贴板' });
+      } else {
+        showError('截图失败', res.error ?? '未知错误');
+      }
+    } catch (e) {
+      showError('截图失败', errMsg(e));
+    }
   }
 
   // Right-click context menu for account items
@@ -244,6 +262,29 @@ export function RailAccountFooter({
 
   return (
     <>
+      <button
+        type="button"
+        className="weq-rail-capture-btn"
+        title="截图当前窗口（复制到剪贴板）"
+        aria-label="截图当前窗口"
+        onClick={() => void captureNow()}
+      >
+        <Camera size={18} strokeWidth={1.8} aria-hidden />
+      </button>
+      <button
+        type="button"
+        className={`weq-rail-privacy-btn${privacyEnabled ? ' is-on' : ''}`}
+        title={privacyEnabled ? '关闭隐私模式' : '开启隐私模式'}
+        aria-label={privacyEnabled ? '关闭隐私模式' : '开启隐私模式'}
+        aria-pressed={privacyEnabled}
+        onClick={togglePrivacy}
+      >
+        {privacyEnabled ? (
+          <EyeOff size={18} strokeWidth={1.8} aria-hidden />
+        ) : (
+          <Eye size={18} strokeWidth={1.8} aria-hidden />
+        )}
+      </button>
       <button
         type="button"
         className="weq-rail-theme-btn"

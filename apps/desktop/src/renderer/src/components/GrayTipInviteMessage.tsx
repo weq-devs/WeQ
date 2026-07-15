@@ -63,7 +63,7 @@ export function GrayTipInviteMessage({ element, conversation }: GrayTipInviteMes
       return null;
     });
 
-    return <div className="text-center text-gray-500 text-xs py-2">{nodes}</div>;
+    return <div className="weq-graytip text-center text-gray-500 text-xs py-2">{nodes}</div>;
   }, [grayTipXmlContent, conversation]);
 
   return content;

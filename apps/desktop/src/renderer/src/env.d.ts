@@ -34,5 +34,8 @@ interface Window {
         error?: string;
       }>;
     };
+    capture: {
+      window(): Promise<{ ok: boolean; error?: string }>;
+    };
   };
 }

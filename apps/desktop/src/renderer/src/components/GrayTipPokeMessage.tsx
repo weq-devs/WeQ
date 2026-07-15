@@ -95,7 +95,7 @@ export function GrayTipPokeMessage({ element, conversation, message }: GrayTipPo
         return null;
       });
 
-      return <div className="text-center text-gray-500 text-xs py-2">{nodes}</div>;
+      return <div className="weq-graytip text-center text-gray-500 text-xs py-2">{nodes}</div>;
     }
 
     if (tipJson) {
@@ -151,7 +151,7 @@ export function GrayTipPokeMessage({ element, conversation, message }: GrayTipPo
           return <span key={index}>{txt}</span>;
         }) || [];
 
-        return <div className="text-center text-gray-500 text-xs py-2">{items}</div>;
+        return <div className="weq-graytip text-center text-gray-500 text-xs py-2">{items}</div>;
       } catch (e) {
         console.error('Failed to parse tipJson', e);
         return null;

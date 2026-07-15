@@ -79,6 +79,11 @@ const weqBridge = {
         error?: string;
       }>,
   },
+  capture: {
+    /** 抓取 WeQ 窗口客户区写入系统剪贴板（含隐私遮罩效果）。截完即可粘贴。 */
+    window: () =>
+      ipcRenderer.invoke('capture:window') as Promise<{ ok: boolean; error?: string }>,
+  },
 };
 
 if (process.contextIsolated) {

@@ -1,6 +1,8 @@
 /* Tailwind v4 — single-line import; no tailwind.config.js, no PostCSS needed. */
 @import "tailwindcss";
 @import "../im-template/styles.css";
+/* 全局隐私遮罩（只写在 WeQ 侧，挂钩模板稳定 class）。放在模板样式之后以覆盖。 */
+@import "./privacy.css";
 
 /* Tell Tailwind which files to scan for class names */
 @source "../**/*.{ts,tsx}";
@@ -2837,9 +2839,12 @@ html[data-theme="dark"] .app-title-bar-signature {
 }
 
 /* Manual 深/浅 toggle + lock button — both sit just above the account avatar,
-   share the same pill shape so they read as one stacked control cluster. */
+   share the same pill shape so they read as one stacked control cluster.
+   截图 / 隐私 按钮同属这个竖排控件簇，复用同一套 pill 视觉。 */
 .app-shell .rail-footer .weq-rail-theme-btn,
-.app-shell .rail-footer .weq-rail-lock-btn {
+.app-shell .rail-footer .weq-rail-lock-btn,
+.app-shell .rail-footer .weq-rail-capture-btn,
+.app-shell .rail-footer .weq-rail-privacy-btn {
   display: grid;
   place-items: center;
   width: 46px;
@@ -2852,10 +2857,19 @@ html[data-theme="dark"] .app-title-bar-signature {
 }
 
 .app-shell .rail-footer .weq-rail-theme-btn:hover:not(:disabled),
-.app-shell .rail-footer .weq-rail-lock-btn:hover:not(:disabled) {
+.app-shell .rail-footer .weq-rail-lock-btn:hover:not(:disabled),
+.app-shell .rail-footer .weq-rail-capture-btn:hover:not(:disabled),
+.app-shell .rail-footer .weq-rail-privacy-btn:hover:not(:disabled) {
   color: #0099ff;
   border-color: rgba(0, 153, 255, 0.34);
   background: rgba(0, 153, 255, 0.08);
+}
+
+/* 隐私模式开启态：常亮高亮，让「正在遮罩」一眼可见。 */
+.app-shell .rail-footer .weq-rail-privacy-btn.is-on {
+  color: #0099ff;
+  border-color: rgba(0, 153, 255, 0.45);
+  background: rgba(0, 153, 255, 0.12);
 }
 
 .app-shell .rail-footer .weq-rail-lock-btn:disabled {
@@ -2864,7 +2878,9 @@ html[data-theme="dark"] .app-title-bar-signature {
 }
 
 html[data-theme='dark'] .app-shell .rail-footer .weq-rail-theme-btn,
-html[data-theme='dark'] .app-shell .rail-footer .weq-rail-lock-btn {
+html[data-theme='dark'] .app-shell .rail-footer .weq-rail-lock-btn,
+html[data-theme='dark'] .app-shell .rail-footer .weq-rail-capture-btn,
+html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   color: #9fb2c6;
   border-color: rgba(0, 153, 255, 0.28);
 }
@@ -8850,39 +8866,74 @@ html[data-theme="dark"] .weq-persona-modal {
   color: var(--weq-fg-tertiary, var(--weq-fg-secondary));
   max-width: 20rem;
 }
-/* Wrap each reused bubble so the restore action can float over its corner. */
+/* Wrap each reused bubble so the restore action / status tag floats over its
+   top-right corner. Both affordances share one visual language with the in-chat
+   deleted state: solid-accent 恢复 primary, amber frosted QQ删除 tag. Always
+   visible here (this IS the restore surface) — no hover-gating. */
 .weq-deleted-row {
   position: relative;
 }
-.weq-deleted-row .weq-deleted-restore {
+.weq-deleted-row .weq-deleted-restore,
+.weq-deleted-row .weq-deleted-tag {
   position: absolute;
-  top: 2px;
+  top: 4px;
   right: 8px;
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 9px;
+  height: 24px;
+  padding: 0 11px;
   font-size: 12px;
   font-weight: 600;
-  color: var(--weq-fg-secondary);
-  background: var(--weq-bg-surface);
-  border: 1px solid var(--weq-border-subtle);
+  line-height: 1;
   border-radius: 999px;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  white-space: nowrap;
 }
-.weq-deleted-row:hover .weq-deleted-restore,
-.weq-deleted-row .weq-deleted-restore:disabled {
-  opacity: 1;
+/* 恢复 — solid accent primary. */
+.weq-deleted-row .weq-deleted-restore {
+  color: #fff;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--weq-accent-effective) 92%, white),
+    var(--weq-accent-effective)
+  );
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 60%, black 6%);
+  box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--weq-accent-effective) 70%, transparent);
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
 }
 .weq-deleted-row .weq-deleted-restore:hover {
-  color: var(--weq-accent, #2f7bff);
-  border-color: var(--weq-accent, #2f7bff);
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+  box-shadow: 0 9px 20px -8px color-mix(in srgb, var(--weq-accent-effective) 80%, transparent);
+}
+.weq-deleted-row .weq-deleted-restore:active {
+  transform: translateY(0);
 }
 .weq-deleted-row .weq-deleted-restore:disabled {
   cursor: default;
-  color: var(--weq-fg-tertiary, var(--weq-fg-secondary));
+  color: var(--weq-fg-muted);
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-subtle);
+  box-shadow: none;
+  transform: none;
+  filter: none;
+}
+/* QQ删除 — amber frosted tag with a status dot, matching the in-chat pill. */
+.weq-deleted-row .weq-deleted-tag {
+  color: color-mix(in srgb, var(--weq-warn, #b8860b) 86%, var(--weq-fg-muted));
+  background: color-mix(in srgb, var(--weq-bg-surface) 74%, transparent);
+  -webkit-backdrop-filter: blur(8px) saturate(1.2);
+  backdrop-filter: blur(8px) saturate(1.2);
+  border: 1px solid color-mix(in srgb, var(--weq-warn, #b8860b) 42%, transparent);
+}
+.weq-deleted-row .weq-deleted-tag::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--weq-warn, #b8860b);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--weq-warn, #b8860b) 24%, transparent);
 }
 
 /* face picker */
@@ -9782,115 +9833,124 @@ html[data-theme="dark"] .weq-asst-preset:hover:not(:disabled) {
    ───────────────────────────────────────────────────────────────────────── */
 .message-line.is-deleted .message-bubble {
   position: relative;
-  opacity: 0.52;
-  filter: saturate(0.55);
-  transition: opacity 0.15s ease, filter 0.15s ease;
+  opacity: 0.78;
+  filter: saturate(0.88);
+  transition: opacity 0.16s ease, filter 0.16s ease;
 }
 html[data-theme="dark"] .message-line.is-deleted .message-bubble {
-  opacity: 0.58;
+  opacity: 0.72;
 }
-/* Un-dim slightly on hover so the content is inspectable before restoring. */
+/* Ease fully back in on hover so content is inspectable before restoring. */
 .message-line.is-deleted:hover .message-bubble {
-  opacity: 0.78;
-  filter: saturate(0.8);
+  opacity: 0.97;
+  filter: saturate(1);
 }
-/* The avatar dims with the bubble so the whole row reads as deleted. */
+/* Avatar rides the same easing so the whole row reads as deleted. */
 .message-line.is-deleted > .avatar,
 .message-line.is-deleted > .message-avatar-button {
-  opacity: 0.55;
+  opacity: 0.6;
+  transition: opacity 0.16s ease;
+}
+.message-line.is-deleted:hover > .avatar,
+.message-line.is-deleted:hover > .message-avatar-button {
+  opacity: 0.85;
 }
 
-/* Veil: frosted wash over the bubble carrying the badge + restore button.
-   pointer-events none except on the button so text stays selectable. */
+/* Veil is now a positioning layer only (no grey wash) — it anchors the status
+   pill + restore button to the bubble's bottom-right. pointer-events pass
+   through except on the button, so bubble text stays selectable. */
 .message-line.is-deleted .weq-msg-deleted-veil {
   position: absolute;
   inset: 0;
   display: flex;
-  align-items: flex-start;
+  align-items: flex-end;
   justify-content: flex-end;
   gap: 6px;
-  padding: 4px 6px;
+  padding: 6px;
   border-radius: inherit;
-  background: color-mix(in srgb, var(--weq-overlay) 42%, transparent);
+  background: transparent;
   pointer-events: none;
 }
 
+/* Frosted-glass status pill with a small status dot. WeQ delete = accent/blue. */
 .message-line.is-deleted .weq-msg-deleted-badge {
   display: inline-flex;
   align-items: center;
-  padding: 1px 8px;
+  gap: 5px;
+  padding: 2px 10px;
   font-size: 11px;
   font-weight: 600;
-  line-height: 1.6;
-  color: var(--weq-fg-muted);
-  background: var(--weq-bg-surface);
-  border: 1px solid var(--weq-border-subtle);
+  line-height: 1.7;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--weq-accent-effective) 82%, var(--weq-fg-muted));
+  background: color-mix(in srgb, var(--weq-bg-surface) 74%, transparent);
+  -webkit-backdrop-filter: blur(8px) saturate(1.2);
+  backdrop-filter: blur(8px) saturate(1.2);
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 38%, transparent);
   border-radius: 999px;
   box-shadow: var(--weq-shadow-soft);
 }
+.message-line.is-deleted .weq-msg-deleted-badge::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--weq-accent-effective);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
+}
 
+/* Solid accent 恢复 button — the primary action: calm, small, always visible. */
 .message-line.is-deleted .weq-msg-restore {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 1px 9px;
+  padding: 2px 11px;
   font-size: 11px;
   font-weight: 600;
-  line-height: 1.6;
-  color: var(--weq-accent-effective);
-  background: var(--weq-bg-surface);
-  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
+  line-height: 1.7;
+  color: #fff;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--weq-accent-effective) 92%, white),
+    var(--weq-accent-effective)
+  );
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 60%, black 6%);
   border-radius: 999px;
-  box-shadow: var(--weq-shadow-soft);
+  box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--weq-accent-effective) 70%, transparent);
   cursor: pointer;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.12s ease, background 0.12s ease, border-color 0.12s ease;
-}
-.message-line.is-deleted:hover .weq-msg-restore,
-.message-line.is-deleted .weq-msg-restore:disabled {
-  opacity: 1;
   pointer-events: auto;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
 }
 .message-line.is-deleted .weq-msg-restore:hover {
-  background: color-mix(in srgb, var(--weq-accent-effective) 12%, var(--weq-bg-surface));
-  border-color: var(--weq-accent-effective);
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+  box-shadow: 0 9px 20px -8px color-mix(in srgb, var(--weq-accent-effective) 80%, transparent);
+}
+.message-line.is-deleted .weq-msg-restore:active {
+  transform: translateY(0);
 }
 .message-line.is-deleted .weq-msg-restore:disabled {
   cursor: default;
   color: var(--weq-fg-muted);
+  background: var(--weq-bg-surface);
   border-color: var(--weq-border-subtle);
+  box-shadow: none;
+  transform: none;
+  filter: none;
 }
 
-/* QQ-native recall / delete-from-another-client: NOT restorable, so it needs no
-   persistent affordance. Keep the bubble merely translucent (the .is-deleted
-   base) and drop BOTH the frosted veil wash and the always-on badge — the
-   "QQ删除" tag only fades in on hover, like the restore button does. */
-.message-line.is-deleted.is-qq-deleted .weq-msg-deleted-veil {
-  background: transparent;
-}
+/* QQ-native recall / delete-from-another-client: NOT restorable → amber pill,
+   no restore button. Now always visible (no hover-gating) and matching the WeQ
+   pill's frosted-glass treatment, just in the warn hue. */
 .message-line.is-deleted.is-qq-deleted .weq-msg-deleted-badge {
-  color: color-mix(in srgb, var(--weq-warn, #b8860b) 88%, var(--weq-fg-muted));
-  border-color: color-mix(in srgb, var(--weq-warn, #b8860b) 45%, var(--weq-border-subtle));
-  background: color-mix(in srgb, var(--weq-warn, #b8860b) 10%, var(--weq-bg-surface));
-  opacity: 0;
-  transition: opacity 0.12s ease;
+  color: color-mix(in srgb, var(--weq-warn, #b8860b) 86%, var(--weq-fg-muted));
+  border-color: color-mix(in srgb, var(--weq-warn, #b8860b) 42%, transparent);
+  background: color-mix(in srgb, var(--weq-bg-surface) 74%, transparent);
 }
-.message-line.is-deleted.is-qq-deleted:hover .weq-msg-deleted-badge {
-  opacity: 1;
+.message-line.is-deleted.is-qq-deleted .weq-msg-deleted-badge::before {
+  background: var(--weq-warn, #b8860b);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--weq-warn, #b8860b) 24%, transparent);
 }
 
-/* "QQ删除" tag shown in the 删除列表 in place of the restore button. */
-.weq-deleted-tag {
-  display: inline-flex;
-  align-items: center;
-  padding: 1px 9px;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1.6;
-  color: color-mix(in srgb, var(--weq-warn, #b8860b) 88%, var(--weq-fg-muted));
-  background: color-mix(in srgb, var(--weq-warn, #b8860b) 10%, var(--weq-bg-surface));
-  border: 1px solid color-mix(in srgb, var(--weq-warn, #b8860b) 45%, var(--weq-border-subtle));
-  border-radius: 999px;
-  white-space: nowrap;
-}
+/* "QQ删除" tag: styled together with the restore button under .weq-deleted-row
+   above (shares the in-chat amber frosted-pill language). No standalone rule. */

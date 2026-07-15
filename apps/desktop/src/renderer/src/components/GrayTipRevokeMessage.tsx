@@ -14,7 +14,7 @@ interface GrayTipRevokeMessageProps {
   
     if (!recallRevokeNick || !recallSenderNick) {
       return (
-          <div className="text-center text-gray-500 text-xs py-2">
+          <div className="weq-graytip text-center text-gray-500 text-xs py-2">
               {'占位空消息'}
           </div>
       );
@@ -23,7 +23,7 @@ interface GrayTipRevokeMessageProps {
     const isSamePerson = recallRevokeNick === recallSenderNick;
   
     return (
-      <div className="text-center text-gray-500 text-xs py-2">
+      <div className="weq-graytip text-center text-gray-500 text-xs py-2">
         {isSamePerson ? (
           <>
             <span className="text-blue-500">{recallSenderNick}</span>

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, protocol, shell, Tray } from 'electron';
+import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, protocol, shell, Tray } from 'electron';
 import fs from 'node:fs';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { createRequire } from 'node:module';
@@ -344,6 +344,26 @@ function registerSystemAuthIpc(): void {
   });
 }
 
+/**
+ * 截图：抓取发起窗口的客户区（不含桌面 / 标题栏外区域）写入系统剪贴板。
+ * 走 webContents.capturePage()——隐私遮罩是 DOM 上的 filter，会如实截到糊后的
+ * 效果，故截图天然与隐私模式联动。截完即可粘贴到聊天 / 文档，暂不落盘。
+ */
+function registerCaptureIpc(): void {
+  ipcMain.handle('capture:window', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return { ok: false, error: '找不到目标窗口' };
+    try {
+      const image = await win.webContents.capturePage();
+      if (image.isEmpty()) return { ok: false, error: '截图为空' };
+      clipboard.writeImage(image);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+}
+
 function resolveWindowIcon(): Electron.NativeImage | undefined {
   const path = resolveResource('brand', 'logo.png');
   if (!path) return undefined;
@@ -444,6 +464,7 @@ void app.whenReady().then(() => {
   registerMediaIpc();
   registerLogIpc();
   registerSystemAuthIpc();
+  registerCaptureIpc();
   registerChannelIpc();
   registerQzoneIpc();
   registerWeqAssistantIpc();

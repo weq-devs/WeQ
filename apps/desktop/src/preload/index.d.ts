@@ -36,6 +36,9 @@ declare global {
           error?: string;
         }>;
       };
+      capture: {
+        window(): Promise<{ ok: boolean; error?: string }>;
+      };
     };
   }
 }
