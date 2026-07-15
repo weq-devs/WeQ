@@ -979,6 +979,7 @@ export const accountRouter = router({
       z.object({
         model: agentLabModelRef.optional(),
         customPrompt: z.string().optional(),
+        reasoningEffort: z.enum(['off', 'low', 'medium', 'high']).optional(),
         mcpServers: z.string().optional(),
       }),
     )
@@ -986,6 +987,7 @@ export const accountRouter = router({
       return requireServices().assistant.setConfig({
         model: input.model,
         customPrompt: input.customPrompt,
+        reasoningEffort: input.reasoningEffort,
         mcpServers: input.mcpServers,
       });
     }),

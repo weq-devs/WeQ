@@ -3,11 +3,12 @@
  *
  * 一次提问 = 一个任务：后端多轮推进，过程（思考/工具调用/工具结果）经
  * `account.onAssistantEvent` 订阅实时流式推送，前端逐步展示（可折叠），最终答复
- * 用 Markdown 渲染。顶部设置可配置：聊天模型 / 额外提示 / 外部 MCP 服务器。
+ * 用 Markdown 渲染。模型与思考等级在输入框上方就近切换（即改即存）；顶部设置
+ * 弹窗配置：额外提示 / 外部 MCP 服务器。空会话展示预设问题，点击直接发送。
  */
 
 import { useEffect, useRef, useState, type ReactElement } from 'react';
-import { ArrowLeft, Send, Settings, Sparkles, Wrench } from 'lucide-react';
+import { ArrowLeft, Brain, Cpu, Send, Settings, Sparkles } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { autoGrowTextarea } from '../../lib/textareaAutoGrow';
@@ -31,25 +32,39 @@ function parseSel(key: string): { providerId: string; model: string } | undefine
   return providerId && model ? { providerId, model } : undefined;
 }
 
+/** 思考等级选项（后端字段已就位，reasoning 参数接入待流式改造）。 */
+const EFFORT_OPTIONS = [
+  { value: 'off', label: '不思考' },
+  { value: 'low', label: '轻度思考' },
+  { value: 'medium', label: '标准思考' },
+  { value: 'high', label: '深度思考' },
+] as const;
+
+type EffortValue = (typeof EFFORT_OPTIONS)[number]['value'];
+
+/** 空状态预设问题：点一下直接发送，让新用户知道助手能干什么。 */
+const PRESET_QUESTIONS = [
+  '我最近一周和谁聊得最火热？',
+  '看看我最活跃的群最近都在聊什么',
+  '帮我写一份我的聊天数据周报',
+  '找找最近有谁跟我约过「吃饭」',
+];
+
 function AssistantSettings({
-  chatModels,
   onClose,
 }: {
-  chatModels: FlatModels['chat'];
   onClose: () => void;
 }): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   const config = trpc.account.getAssistantConfig.useQuery();
   const save = trpc.account.setAssistantConfig.useMutation();
-  const [modelSel, setModelSel] = useState('');
   const [prompt, setPrompt] = useState('');
   const [mcp, setMcp] = useState('');
 
   useEffect(() => {
     const c = config.data;
     if (!c) return;
-    setModelSel(c.model ? `${c.model.providerId}::${c.model.model}` : '');
     setPrompt(c.customPrompt ?? '');
     setMcp(c.mcpServers ?? '');
   }, [config.data]);
@@ -57,7 +72,6 @@ function AssistantSettings({
   async function onSave(): Promise<void> {
     try {
       await save.mutateAsync({
-        model: parseSel(modelSel),
         customPrompt: prompt,
         mcpServers: mcp,
       });
@@ -77,15 +91,6 @@ function AssistantSettings({
           <strong>WeQ 助手设置</strong>
         </header>
         <div className="weq-clone-config">
-          <label className="weq-agentlab-field">
-            <span>聊天模型</span>
-            <select value={modelSel} onChange={(e) => setModelSel(e.target.value)}>
-              <option value="">请选择聊天模型</option>
-              {chatModels.map((m) => (
-                <option key={m.key} value={m.key}>{m.label}</option>
-              ))}
-            </select>
-          </label>
           <label className="weq-agentlab-field">
             <span>额外提示（可选）</span>
             <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3} placeholder="例如：回答尽量简洁" />
@@ -169,6 +174,7 @@ export function AssistantPanel({
   const assistantConfig = trpc.account.getAssistantConfig.useQuery();
   const send = trpc.account.chatWithAssistant.useMutation();
   const clear = trpc.account.clearAssistantConversation.useMutation();
+  const saveConfig = trpc.account.setAssistantConfig.useMutation();
 
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState('');
@@ -179,6 +185,23 @@ export function AssistantPanel({
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const busy = turns.some((t) => t.running);
+  const modelSel = assistantConfig.data?.model
+    ? `${assistantConfig.data.model.providerId}::${assistantConfig.data.model.model}`
+    : '';
+  const effort: EffortValue = assistantConfig.data?.reasoningEffort ?? 'medium';
+
+  /** 输入框旁的快捷设置：改了立即落库（与设置弹窗共用同一份配置）。 */
+  async function onQuickConfig(patch: { modelKey?: string; effort?: EffortValue }): Promise<void> {
+    try {
+      await saveConfig.mutateAsync({
+        ...(patch.modelKey !== undefined ? { model: parseSel(patch.modelKey) } : {}),
+        ...(patch.effort !== undefined ? { reasoningEffort: patch.effort } : {}),
+      });
+      await utils.account.getAssistantConfig.invalidate();
+    } catch (e) {
+      dialog.error('保存失败', e instanceof Error ? e.message : String(e));
+    }
+  }
 
   // 首次加载持久化对话（含历史的折叠过程）。
   useEffect(() => {
@@ -231,24 +254,26 @@ export function AssistantPanel({
     if (el) el.scrollTop = el.scrollHeight;
   }, [turns]);
 
-  async function onSend(): Promise<void> {
-    if (!input.trim() || busy) return;
+  async function onSend(preset?: string): Promise<void> {
+    const raw = preset ?? input;
+    if (!raw.trim() || busy) return;
     // 没配聊天模型时后端会直接抛错、且这条 rejection 被路由吞掉（不会 emit error
     // 事件），前端就会永久转圈。发送前先拦下来，给出可操作的提示而不是加载动画。
     if (!assistantConfig.data?.model) {
-      const goSettings = await dialog.confirm(
+      await dialog.confirm(
         '还没配置聊天模型',
         chatModels.length === 0
-          ? '请先在 AgentLab 里添加一个带「聊天」能力的模型，再回到助手设置里选择它。'
-          : '请先在助手设置里选择一个聊天模型。',
-        { okLabel: '去设置', tone: 'warning' },
+          ? '请先在 AgentLab 里添加一个带「聊天」能力的模型，再回到助手这里选择它。'
+          : '请先在输入框上方选择一个聊天模型。',
+        { okLabel: '知道了', tone: 'warning' },
       );
-      if (goSettings) setSettingsOpen(true);
       return;
     }
-    const text = input.trim();
-    setInput('');
-    if (inputRef.current) inputRef.current.style.height = 'auto';
+    const text = raw.trim();
+    if (!preset) {
+      setInput('');
+      if (inputRef.current) inputRef.current.style.height = 'auto';
+    }
     setTurns((prev) => [...prev, { role: 'user', text }, { role: 'assistant', text: '', steps: [], running: true }]);
     try {
       const { runId } = await send.mutateAsync({ sessionId, text });
@@ -257,7 +282,7 @@ export function AssistantPanel({
       dialog.error('发送失败', e instanceof Error ? e.message : String(e));
       // 回滚刚加入的两条。
       setTurns((prev) => prev.slice(0, -2));
-      setInput(text);
+      if (!preset) setInput(text);
     }
   }
 
@@ -299,10 +324,18 @@ export function AssistantPanel({
 
       <div className="weq-agentlab-transcript" ref={transcriptRef}>
         {turns.length === 0 ? (
-          <div className="weq-agentlab-empty">
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-              <Wrench size={28} strokeWidth={1.5} />
-              <span>问我点什么吧，例如「小枳壳哪天有考试？」或「帮我找和张三聊过的『还钱』」。</span>
+          <div className="weq-agentlab-empty weq-asst-empty">
+            <span className="weq-asst-empty-icon">
+              <Sparkles size={26} strokeWidth={1.6} />
+            </span>
+            <strong>把任务交给 WeQ 助手</strong>
+            <span>它会自己查聊天记录、找联系人、多轮推进直到给出结论。试试：</span>
+            <div className="weq-asst-presets">
+              {PRESET_QUESTIONS.map((q) => (
+                <button key={q} type="button" className="weq-asst-preset" disabled={busy} onClick={() => void onSend(q)}>
+                  {q}
+                </button>
+              ))}
             </div>
           </div>
         ) : (
@@ -316,30 +349,59 @@ export function AssistantPanel({
         )}
       </div>
 
-      <div className="weq-agentlab-composer">
-        <textarea
-          ref={inputRef}
-          rows={1}
-          value={input}
-          onChange={(e) => {
-            setInput(e.target.value);
-            autoGrowTextarea(e.currentTarget);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              void onSend();
-            }
-          }}
-          placeholder="把任务交给 WeQ 助手（Enter 发送，Shift+Enter 换行）"
-          disabled={busy}
-        />
-        <button className="weq-set-btn" onClick={() => void onSend()} disabled={busy || !input.trim()}>
-          <Send size={14} /> 发送
-        </button>
+      <div className="weq-asst-composer">
+        <div className="weq-asst-composer-tools">
+          <label className="weq-asst-tool-select" title="聊天模型">
+            <Cpu size={13} />
+            <select
+              value={modelSel}
+              disabled={busy || saveConfig.isLoading}
+              onChange={(e) => void onQuickConfig({ modelKey: e.target.value })}
+            >
+              <option value="">选择模型…</option>
+              {chatModels.map((m) => (
+                <option key={m.key} value={m.key}>{m.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="weq-asst-tool-select" title="思考等级">
+            <Brain size={13} />
+            <select
+              value={effort}
+              disabled={busy || saveConfig.isLoading}
+              onChange={(e) => void onQuickConfig({ effort: e.target.value as EffortValue })}
+            >
+              {EFFORT_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="weq-agentlab-composer weq-asst-composer-row">
+          <textarea
+            ref={inputRef}
+            rows={1}
+            value={input}
+            onChange={(e) => {
+              setInput(e.target.value);
+              autoGrowTextarea(e.currentTarget);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                void onSend();
+              }
+            }}
+            placeholder="把任务交给 WeQ 助手（Enter 发送，Shift+Enter 换行）"
+            disabled={busy}
+          />
+          <button className="weq-set-btn" onClick={() => void onSend()} disabled={busy || !input.trim()}>
+            <Send size={14} /> 发送
+          </button>
+        </div>
       </div>
 
-      {settingsOpen ? <AssistantSettings chatModels={chatModels} onClose={() => setSettingsOpen(false)} /> : null}
+      {settingsOpen ? <AssistantSettings onClose={() => setSettingsOpen(false)} /> : null}
     </div>
   );
 }

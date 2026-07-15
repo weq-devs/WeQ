@@ -114,7 +114,7 @@ export {
 } from './account/weq_assistant';
 export type { WeqTweetCard } from './account/weq_assistant';
 export { AssistantService, ASSISTANT_AGENT_ID } from './account/assistant';
-export type { AssistantConfig, AssistantSession, AssistantTools, AssistantToolSpec, AssistantStep, AssistantArtifact } from './account/assistant';
+export type { AssistantConfig, AssistantReasoningEffort, AssistantSession, AssistantTools, AssistantToolSpec, AssistantStep, AssistantArtifact } from './account/assistant';
 export type { RenderC2cMsg, RenderGroupMsg } from './account/msg';
 export { toRenderElements } from './account/msg_view';
 export type { RenderElement, RenderTextElement } from './account/msg_view';

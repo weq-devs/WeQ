@@ -123,6 +123,10 @@ export function resolveArkCard(app: string, meta: Record<string, Record<string, 
   fill('sourceIcon', 'sourcelogo', 'tagIcon', 'icon');
   fill('button', 'button');
   fill('jump', 'jumpUrl', 'qqdocurl', 'url');
+  // 大图/小图兜底：miniapp（说说分享等）的大图字段名是 preview，未进机器生成的槽位表，
+  // 这里补进 cover/thumb，否则 AppBlockCard 的 big 取不到值、preview 不渲染。
+  fill('cover', 'cover', 'preview');
+  fill('thumb', 'thumb');
 
   // 部分卡片顶/底各有一个来源标签（如小程序：顶=source、底=tag「QQ小程序」）。
   if (layout === 'appBlock') {

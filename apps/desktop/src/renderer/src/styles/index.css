@@ -9650,3 +9650,125 @@ html[data-theme="dark"] .weq-collection-page-info {
 html[data-theme="dark"] .weq-collection-state {
   color: #7b8794;
 }
+
+/* ───────────────────────── WeQ 助手：composer 工具条 + 空状态预设 ────────── */
+
+/* 外层：工具条（模型/思考等级）+ 输入行，共享一条顶部分隔线。 */
+.weq-asst-composer {
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-asst-composer-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px 0;
+}
+
+/* 内层输入行复用 .weq-agentlab-composer 网格，但分隔线由外层负责。 */
+.weq-asst-composer .weq-agentlab-composer {
+  border-top: none;
+  padding-top: 10px;
+}
+
+.weq-asst-tool-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+  background: var(--weq-bg-soft, transparent);
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.weq-asst-tool-select:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 45%, var(--weq-border-subtle));
+  color: var(--weq-fg-primary);
+}
+
+.weq-asst-tool-select > select {
+  appearance: none;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  max-width: 220px;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.weq-asst-tool-select > select:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* 空状态：图标 + 标题 + 预设问题 chips。 */
+.weq-asst-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px 16px;
+}
+
+.weq-asst-empty > strong {
+  font-size: 15px;
+  color: var(--weq-fg-primary);
+}
+
+.weq-asst-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  color: #fff;
+  background: linear-gradient(135deg, var(--weq-accent-effective), color-mix(in srgb, var(--weq-accent-effective) 50%, #53ce90));
+  box-shadow: var(--weq-shadow-soft);
+  margin-bottom: 4px;
+}
+
+.weq-asst-presets {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+  max-width: 520px;
+}
+
+.weq-asst-preset {
+  padding: 7px 14px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  background: var(--weq-bg-soft, transparent);
+  color: var(--weq-fg-primary);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+
+.weq-asst-preset:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 55%, var(--weq-border-subtle));
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  transform: translateY(-1px);
+}
+
+.weq-asst-preset:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+html[data-theme="dark"] .weq-asst-tool-select,
+html[data-theme="dark"] .weq-asst-preset {
+  background: #12161c;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+html[data-theme="dark"] .weq-asst-preset:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, #12161c);
+}

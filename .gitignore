@@ -35,5 +35,7 @@ release/
 # extend
 .claude/
 .agents/
+# 本地开发计划（不进仓库）
+docs/assistant-roadmap.md
 # 导出 bot 的预打包引擎（由 pnpm build:bot 生成）
 resources/bot-runtime/

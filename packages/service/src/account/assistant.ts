@@ -39,9 +39,14 @@ export interface AssistantTools {
   sampleHitokoto?: (n: number) => Array<{ text: string; from: string }>;
 }
 
+/** 思考等级（reasoning effort）。占位：暂只持久化，待流式改造时随 reasoning 参数一起接入调用。 */
+export type AssistantReasoningEffort = 'off' | 'low' | 'medium' | 'high';
+
 export interface AssistantConfig {
   model?: AgentLabModelRef;
   customPrompt?: string;
+  /** 思考等级（占位字段，见 {@link AssistantReasoningEffort}）。 */
+  reasoningEffort?: AssistantReasoningEffort;
   /** 外部 MCP 服务器配置（Claude Desktop JSON 或每行 `名字=url`）。 */
   mcpServers?: string;
 }
@@ -201,6 +206,7 @@ export class AssistantService {
     this.config = {
       model: patch.model ?? this.config.model,
       customPrompt: patch.customPrompt !== undefined ? patch.customPrompt : this.config.customPrompt,
+      reasoningEffort: patch.reasoningEffort !== undefined ? patch.reasoningEffort : this.config.reasoningEffort,
       mcpServers: patch.mcpServers !== undefined ? patch.mcpServers : this.config.mcpServers,
     };
     this.persistConfig();
