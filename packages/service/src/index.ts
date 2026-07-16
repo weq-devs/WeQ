@@ -118,6 +118,8 @@ export type { AssistantConfig, AssistantReasoningEffort, AssistantSession, Assis
 export type { RenderC2cMsg, RenderGroupMsg } from './account/msg';
 export { DeletedMsgStore } from './account/deleted_msgs';
 export type { DeletedMsgRecord } from './account/deleted_msgs';
+export { AntiRecallService, AntiRecallQqRunningError } from './account/anti_recall';
+export type { AntiRecallConfig, AntiRecallStatus } from './account/anti_recall';
 export { toRenderElements } from './account/msg_view';
 export type { RenderElement, RenderTextElement } from './account/msg_view';
 export { MsgSearchService } from './account/msg_search';

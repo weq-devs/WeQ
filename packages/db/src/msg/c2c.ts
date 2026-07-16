@@ -182,9 +182,23 @@ export class C2cMsgDb {
     return (rows[0]?.[0] as Uint8Array) ?? null;
   }
 
-  /** Update the msgBody (column 40800) for a specific message. */
+  /**
+   * Update the msgBody (column 40800) for a specific message.
+   *
+   * We ALSO bump 40002 (msgRandom) to a fresh value in the same UPDATE. This is
+   * the "it's me, allow it" signal for the anti-recall trigger: QQ's own recall
+   * rewrites 40800 while leaving 40002 untouched (proven in
+   * test/compare_recall_40002.ts), so the trigger cancels any 40800/40900 change
+   * that keeps 40002 the same. WeQ's legitimate edits change 40002, so they slip
+   * past the trigger while QQ's recall is caught. Harmless when anti-recall is
+   * off — 40002 is just a random tiebreaker column.
+   */
   async updateMsgBody(msgId: bigint, blob: Uint8Array): Promise<number> {
-    return this.qq.write(`UPDATE ${this.table} SET "40800" = ? WHERE "40001" = ?`, [blob, msgId]);
+    const newRandom = BigInt(Math.floor(Math.random() * 0x7fffffff));
+    return this.qq.write(
+      `UPDATE ${this.table} SET "40800" = ?, "40002" = ? WHERE "40001" = ?`,
+      [blob, newRandom, msgId],
+    );
   }
 
   /**

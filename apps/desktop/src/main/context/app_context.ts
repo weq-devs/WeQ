@@ -64,6 +64,7 @@ import {
   TokenUsageStore,
   ConversationStore,
   DeletedMsgStore,
+  AntiRecallService,
   DbDecryptService,
   DbExplorerService,
   AvatarResourceService,
@@ -295,6 +296,8 @@ export interface AccountServices {
   dbDecrypt: DbDecryptService;
   /** SQLiteStudio-style browse / query / edit over the account's databases. */
   dbExplorer: DbExplorerService;
+  /** 防撤回：安装/卸载拦截 QQ 撤回的 SQL 触发器 + 按会话选择配置。 */
+  antiRecall: AntiRecallService;
   /** Browse the account's local avatar cache (nt_data/avatar/*). */
   avatarResource: AvatarResourceService;
   /** Browse the account's built-in system emoji resource dir. */
@@ -758,6 +761,11 @@ export function initAppContext(): AppContext {
         ),
         dbDecrypt: new DbDecryptService(session, platform),
         dbExplorer: new DbExplorerService(session, platform),
+        antiRecall: new AntiRecallService(
+          session,
+          platform,
+          join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
+        ),
         avatarResource: new AvatarResourceService(session, platform),
         sysEmoji: new SysEmojiResourceService(session, platform),
         marketEmoji: new MarketEmojiResourceService(session, platform),
@@ -1010,6 +1018,11 @@ export function initAppContext(): AppContext {
         ),
         dbDecrypt: new DbDecryptService(session, platform),
         dbExplorer: new DbExplorerService(session, platform),
+        antiRecall: new AntiRecallService(
+          session,
+          platform,
+          join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
+        ),
         avatarResource: new AvatarResourceService(session, platform),
         sysEmoji: new SysEmojiResourceService(session, platform),
         marketEmoji: new MarketEmojiResourceService(session, platform),

@@ -165,6 +165,17 @@ const DEFAULT_SESSION_TITLE = '新对话';
 
 /** 单轮任务最多调用工具的轮数。任务型 agent 要敢多试，故给得宽一些。 */
 const TOOL_LOOP_LIMIT = 14;
+
+/**
+ * 判定用户这轮是否「想要一份报告/可视化文档」。命中才把体量约 55 行的 rp-* 报告排版
+ * 指南注入 system prompt（见 {@link AssistantService.systemPrompt}）。
+ * 宁可少注入也别误伤日常提问：只匹配明确的成品诉求（报告/网页/看板/海报…）与"生成/做/写一份…"结构，
+ * 不匹配"总结一下""分析下他"这类既可能只是聊天回答、也可能要报告的模糊表达——那种就让模型自己按
+ * 【写报告 / 文档】缺省判断（缺省下模型仍知道有 write_report，只是不带排版细节）。
+ */
+const REPORT_INTENT_PATTERN =
+  /报告|周报|月报|日报|网页|可视化|看板|仪表盘|dashboard|海报|长图|画一?[张份个]|做一?[张份个]|生成一?[张份个]|写一?[份张个](?:.*?)(?:报告|文档|网页|页面|总结|分析)|导出(?:成|为)?(?:报告|文档|网页|html|pdf)|html|排版|封面/i;
+
 /** 单个工具结果回灌给模型 / 落库的字符上限。 */
 const TOOL_RESULT_CAP = 8000;
 const STEP_PREVIEW_CAP = 4000;
@@ -420,7 +431,7 @@ export class AssistantService {
 
     const prior = this.conversations.get(this.bucketId(sessionId)).slice(-12);
     const messages: ApiMessage[] = [
-      { role: 'system', content: this.systemPrompt() },
+      { role: 'system', content: this.systemPrompt(text) },
       ...prior.map((t) => ({ role: t.role, content: t.text })),
       { role: 'user', content: text },
     ];
@@ -499,11 +510,14 @@ export class AssistantService {
     return '（任务推进超过最大轮数，已中止。）';
   }
 
-  private systemPrompt(): string {
+  private systemPrompt(userText = ''): string {
     const today = new Date();
     const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    // 报告排版指南（rp-* 那一大段）只在用户这轮确有「写报告/网页/看板」意图时才注入，
+    // 否则整段剔除：省 token，也避免几十行排版细节稀释调查方法论指令。
+    const wantsReport = REPORT_INTENT_PATTERN.test(userText);
     // 随机抽一批「一言」候选（每轮重抽 → 候选池天然变化 → 报告主题句天然多元）。
-    const verses = this.tools?.sampleHitokoto?.(8) ?? [];
+    const verses = wantsReport ? this.tools?.sampleHitokoto?.(8) ?? [] : [];
     const verseBlock = verses.length
       ? verses.map((v, i) => `  ${i + 1}. ${v.text}${v.from ? `　—— ${v.from}` : ''}`).join('\n')
       : '';
@@ -519,11 +533,24 @@ export class AssistantService {
       '- 多轮推进：每一步先想清楚下一步查什么，再调用工具；拿到结果后据此决定继续查还是作答。',
       '- 只有在合理地尝试过多种方式仍查不到时，才如实说明"没找到"，并简要说明你已经查过的范围，给出可能的下一步建议。绝不编造不存在的信息。',
       '',
+      '【调查方法论】（关系/人物/结论类问题必须遵守，避免"看几句话就下判断"）',
+      '- **引用 vs 推断分离**：工具返回的原话只能证明它字面直接支持的事实；任何关系亲疏、态度、动机、情绪的判断都属于你的推断，要另起一句标成"我的推断是……"，并说明依据与不确定性，别把推断当既定事实陈述。',
+      '- **原话必须真实**：引用的每一句都必须严格来自某次工具返回的内容，标清是谁、大概何时说的；字段缺失就写"未知"，绝不凭印象补造原话，也不得声称看过工具没返回的消息。',
+      '- **工具结果只是线索，不是结论**：rank_friends_by_activity / rank_my_groups_by_activity / get_period_overview / list_* 这类排行与聚合只提供"从哪查"的候选和方向，不能代替原文；要坐实一个具体结论，必须再用 inspect_timeline + get_messages / search_messages 读到真实原话核验。',
+      '- **累计消息量 ≠ 关系最好**：消息条数多只代表历史互动体量大。判断"最亲密/最重要/最疏远/谁在升温降温"要综合最近是否仍活跃、90 天变化、最后联系时间、谁更常主动、沉默前后的真实内容，别拿单一排行下断言。多人里选情感候选时，至少对 2-3 个不同候选分别跑 inspect_timeline 并读到原文再比较，别用同一人反复调用冒充多方核对。',
+      '- **信息不足就继续查**：每次拿到工具结果先看它的 range / coverage / hasMore / hint——覆盖不全或还有下一页就换关键词、翻页、换时间段或换工具补查，直到足以可靠回答；确实到头仍不完整，就在结论里明确降低强度、说清局限，而不是硬下定论。',
+      '- **面对追问（真的假的 / 有证据吗 / 原话呢 / 为什么这么说）**：这一轮必须重新调工具查证再答，禁止复述或为上一段结论辩护；从上一结论里挑姓名/事件/日期/关键词去检索，别拿"真的假的"这类追问原句当搜索词。已经展示过的原话不算本轮新证据；查不到支持内容就直说"这轮没查到能支持该说法的原话"，并撤回或降级上一结论，绝不坚称它存在。',
+      '- **认错要分清责任**：被质疑判断错时，区分是"工具确实返回错了"、"工具覆盖范围有限没查全"、还是"我自己取证不足/权重判断错了"。除非工具输出与事实矛盾，别把锅甩给工具；指出当时漏看的时间尺度或候选，本轮重新核验后再修正结论。',
+      '',
       '【回答格式】',
       '- 最终答复用 **Markdown**：可用标题、要点列表、引用（> 原话）、必要时表格或代码块，让结论一眼可读。',
       '- 引用聊天记录原文时用引用块，并尽量带上是谁、大概什么时候说的。',
       '- 简洁、直接给结论，不要复述工具调用过程（过程前端会单独展示）。',
       '',
+      // 报告排版指南（rp-* 皮肤/组件/图表/艺术字约 55 行）体量很大，只在这轮确有写报告
+      // 意图时才注入；平时整段以空数组 spread 出去，既省 token 又不稀释上面的调查方法论。
+      ...(wantsReport
+        ? [
       '【写报告 / 文档】',
       '- 当产出是成体系的长内容（报告、总结、数据清单、人物分析、时间线、可视化网页…）时，用 write_report 工具把它写成本地文件（**优先 kind="html"**），' +
         '用户能在你的回复里「查看」或「另存为」；不要把这种长文整段塞进聊天回复里。',
@@ -593,6 +620,8 @@ export class AssistantService {
       '```',
       '- 需要纯文本、便于用户二次编辑时，才用 kind="markdown" 或 "text"。',
       '- 写完报告后，在聊天里用一两句话说明你写了什么（卡片会自动出现，不用你贴文件内容）。',
+          ]
+        : []),
       this.config.customPrompt ? `\n【用户额外要求】（优先遵守）\n${this.config.customPrompt}` : '',
     ]
       .filter((l) => l !== '')

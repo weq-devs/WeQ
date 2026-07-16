@@ -22,6 +22,7 @@ import { resolveResource } from '../../resource';
 import { dialog } from 'electron';
 import { procedure, router } from '../trpc';
 import { dbExplorerRouter } from './db_explorer';
+import { antiRecallRouter } from './anti_recall';
 import { avatarResourceRouter } from './avatar_resource';
 import { sysEmojiRouter } from './sys_emoji';
 import { marketEmojiRouter } from './market_emoji';
@@ -562,6 +563,8 @@ async function exportGroupAlbums(
 export const accountRouter = router({
   // ---- database explorer (SQLiteStudio-style browse / query / edit) ----
   dbExplorer: dbExplorerRouter,
+  // ---- 防撤回（拦截 QQ 撤回的 SQL 触发器 + 按会话选择）----
+  antiRecall: antiRecallRouter,
   // ---- local avatar cache browser (nt_data/avatar/*) ----
   avatarResource: avatarResourceRouter,
   // ---- built-in system emoji resource browser ----

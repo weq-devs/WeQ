@@ -185,9 +185,20 @@ export class GroupMsgDb {
     return (rows[0]?.[0] as Uint8Array) ?? null;
   }
 
-  /** Update the msgBody (column 40800) for a specific message. */
+  /**
+   * Update the msgBody (column 40800) for a specific message.
+   *
+   * Also bumps 40002 (msgRandom) in the same UPDATE — the anti-recall trigger's
+   * "it's me, allow it" signal. See {@link C2cMsgDb.updateMsgBody} for the full
+   * rationale (QQ recall keeps 40002; our edits change it, so the trigger only
+   * catches recall).
+   */
   async updateMsgBody(msgId: bigint, blob: Uint8Array): Promise<number> {
-    return this.qq.write(`UPDATE group_msg_table SET "40800" = ? WHERE "40001" = ?`, [blob, msgId]);
+    const newRandom = BigInt(Math.floor(Math.random() * 0x7fffffff));
+    return this.qq.write(
+      `UPDATE group_msg_table SET "40800" = ?, "40002" = ? WHERE "40001" = ?`,
+      [blob, newRandom, msgId],
+    );
   }
 
   /**
