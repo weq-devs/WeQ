@@ -387,18 +387,31 @@ export class MsgService {
    * Count the total stored messages of one conversation (a single COUNT query).
    * Used as a coarse `total` estimate for export progress; failures degrade to 0
    * so callers never break on it.
+   *
+   * `opts` narrows the count without extra scans (see the DB layer): `startTime`/
+   * `endTime` window on sendTime; `senderUid` counts only that sender's messages
+   * (e.g. self, for 「我在这段发了多少」). Powers `compare_periods` per-conversation.
    */
-  async countConv(kind: 'c2c' | 'group', conv: string): Promise<number> {
+  async countConv(
+    kind: 'c2c' | 'group',
+    conv: string,
+    opts: { startTime?: number; endTime?: number; senderUid?: string } = {},
+  ): Promise<number> {
     try {
       if (kind === 'group') {
-        const byCode = await this.session.groupMsgs.countByGroups([conv]);
+        const byCode = await this.session.groupMsgs.countByGroups([conv], opts);
         return byCode[conv] ?? 0;
       }
-      const byUid = await this.c2cDbFor(conv).countByUids([conv]);
+      const byUid = await this.c2cDbFor(conv).countByUids([conv], opts);
       return byUid[conv] ?? 0;
     } catch {
       return 0;
     }
+  }
+
+  /** Current account's own uid (for `senderUid=self` filters). '' if unresolved. */
+  selfUid(): string {
+    return this.session.uidMap.uidByUin(BigInt(this.session.context.uin ?? 0)) ?? '';
   }
 
   // ---- reply media enrichment ----------------------------------------------

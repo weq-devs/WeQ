@@ -263,13 +263,37 @@ export class GroupMsgDb {
     return appendClonedRow(this.qq, 'group_msg_table', '"40027" = ?', targetGroupCode, fields);
   }
 
-  /** Batch count messages per group. Returns { groupCode: count }. */
-  async countByGroups(groupCodes: string[]): Promise<Record<string, number>> {
+  /**
+   * Batch count messages per group. Returns { groupCode: count }.
+   *
+   * `opts` adds extra `AND`s onto the same indexed `40027 IN (…)` scan:
+   *   - `startTime`/`endTime` (unix seconds) → window on `40050` sendTime;
+   *   - `senderUid` → count only messages *this* uid sent (e.g. self, to rank
+   *     「我在哪个群最活跃」 rather than the group's total traffic).
+   */
+  async countByGroups(
+    groupCodes: string[],
+    opts: { startTime?: number; endTime?: number; senderUid?: string } = {},
+  ): Promise<Record<string, number>> {
     if (groupCodes.length === 0) return {};
     const placeholders = groupCodes.map(() => '?').join(',');
+    const conditions = [`"40027" IN (${placeholders})`];
+    const params: SqlValue[] = [...groupCodes];
+    if (opts.startTime != null && opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      params.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime != null && opts.endTime > 0) {
+      conditions.push(`"40050" <= ?`);
+      params.push(BigInt(opts.endTime));
+    }
+    if (opts.senderUid) {
+      conditions.push(`"40020" = ?`);
+      params.push(opts.senderUid);
+    }
     const rows = await this.qq.query(
-      `SELECT "40027", COUNT(*) FROM group_msg_table WHERE "40027" IN (${placeholders}) GROUP BY "40027"`,
-      groupCodes,
+      `SELECT "40027", COUNT(*) FROM group_msg_table WHERE ${conditions.join(' AND ')} GROUP BY "40027"`,
+      params,
     );
     const result: Record<string, number> = {};
     for (const row of rows) {

@@ -9,7 +9,18 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
-import { ChevronLeft, ChevronRight, Plus, Trash2, RefreshCw, X, Check } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  Trash2,
+  RefreshCw,
+  X,
+  Check,
+  Search,
+  ArrowUp,
+  ArrowDown,
+} from 'lucide-react';
 import type { DbCell, DbColumn, RowKey, TableRowsResult } from '@weq/service';
 import { client } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
@@ -28,6 +39,12 @@ interface PageState {
 interface EditTarget {
   rowIndex: number;
   colIndex: number;
+}
+
+/** Active sort: a column name + direction, or null for the table's natural order. */
+interface SortState {
+  column: string;
+  dir: 'asc' | 'desc';
 }
 
 export function DbDataGrid({
@@ -50,6 +67,11 @@ export function DbDataGrid({
   const [edit, setEdit] = useState<EditTarget | null>(null);
   const [editValue, setEditValue] = useState('');
   const [saving, setSaving] = useState(false);
+  // 搜索：`searchInput` 跟随输入框，防抖后落到 `search`（真正下发后端的词）。
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+  // 排序：点表头在 无 → 升 → 降 → 无 间循环；null = 表的自然顺序。
+  const [sort, setSort] = useState<SortState | null>(null);
   // Draft new-row inputs (column name → text); non-null when the insert row is open.
   const [draft, setDraft] = useState<Record<string, string> | null>(null);
   // Open BLOB lightbox: which row+column, its current hex, and the column name.
@@ -59,6 +81,12 @@ export function DbDataGrid({
     hex: string;
     columnName: string;
   } | null>(null);
+
+  // 输入框防抖 300ms 后才真正触发查询，避免每敲一个字符打一次后端。
+  useEffect(() => {
+    const id = setTimeout(() => setSearch(searchInput.trim()), 300);
+    return () => clearTimeout(id);
+  }, [searchInput]);
 
   const load = useCallback(
     async (cursor: string | null): Promise<void> => {
@@ -71,6 +99,9 @@ export function DbDataGrid({
           table,
           cursor,
           limit: 200,
+          search: search || null,
+          orderBy: sort?.column ?? null,
+          orderDir: sort?.dir,
         });
         setPage({
           columns: res.columns,
@@ -86,16 +117,25 @@ export function DbDataGrid({
         setLoading(false);
       }
     },
-    [dbPath, table],
+    [dbPath, table, search, sort],
   );
 
-  // Reset to the first page whenever the target table changes.
+  // Reset to the first page whenever the query changes (table, search, sort).
   useEffect(() => {
     cursorStackRef.current = [];
     setCurrentCursor(null);
     setDraft(null);
     void load(null);
   }, [load]);
+
+  // 点表头循环切换该列排序：无 → 升序 → 降序 → 无。
+  function toggleSort(column: string): void {
+    setSort((prev) => {
+      if (prev?.column !== column) return { column, dir: 'asc' };
+      if (prev.dir === 'asc') return { column, dir: 'desc' };
+      return null;
+    });
+  }
 
   function nextPage(): void {
     if (!page?.nextCursor) return;
@@ -227,8 +267,30 @@ export function DbDataGrid({
         <span className="weq-cache-data-meta">
           {page.rows.length} 行
           {page.hasRowid ? '' : ' · 无 rowid（只读）'}
+          {search ? ' · 已筛选' : ''}
         </span>
         <span className="weq-cache-spacer" />
+        <div className="weq-cache-search">
+          <Search size={13} className="weq-cache-search-icon" />
+          <input
+            className="weq-cache-search-input"
+            type="text"
+            placeholder="搜索本表所有列…"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+          />
+          {searchInput ? (
+            <button
+              type="button"
+              className="weq-cache-search-clear"
+              onClick={() => setSearchInput('')}
+              title="清除搜索"
+              aria-label="清除搜索"
+            >
+              <X size={13} />
+            </button>
+          ) : null}
+        </div>
         {canEditRows ? (
           <button
             type="button"
@@ -251,12 +313,29 @@ export function DbDataGrid({
           <thead>
             <tr>
               <th className="weq-cache-grid-rownum">#</th>
-              {page.columns.map((c) => (
-                <th key={c.cid} title={`${c.type || '—'}${c.pk ? ' · PK' : ''}`}>
-                  {c.name}
-                  {c.pk ? <span className="weq-cache-pk">PK</span> : null}
-                </th>
-              ))}
+              {page.columns.map((c) => {
+                const active = sort?.column === c.name;
+                return (
+                  <th
+                    key={c.cid}
+                    className={`weq-cache-grid-th is-sortable${active ? ' is-sorted' : ''}`}
+                    title={`${c.type || '—'}${c.pk ? ' · PK' : ''} · 点击排序`}
+                    onClick={() => toggleSort(c.name)}
+                  >
+                    <span className="weq-cache-th-inner">
+                      <span className="weq-cache-th-label">{c.name}</span>
+                      {c.pk ? <span className="weq-cache-pk">PK</span> : null}
+                      {active ? (
+                        sort?.dir === 'asc' ? (
+                          <ArrowUp size={12} className="weq-cache-sort-caret" />
+                        ) : (
+                          <ArrowDown size={12} className="weq-cache-sort-caret" />
+                        )
+                      ) : null}
+                    </span>
+                  </th>
+                );
+              })}
               {canEditRows ? <th className="weq-cache-grid-actions" /> : null}
             </tr>
           </thead>
@@ -376,7 +455,7 @@ export function DbDataGrid({
                   className="weq-cache-grid-empty"
                   colSpan={page.columns.length + 1 + (canEditRows ? 1 : 0)}
                 >
-                  该表暂无数据
+                  {search ? '没有匹配的行' : '该表暂无数据'}
                 </td>
               </tr>
             ) : null}

@@ -261,13 +261,38 @@ export class C2cMsgDb {
     return appendClonedRow(this.qq, this.table, clause, value, fields);
   }
 
-  /** Batch count messages per peer by uid. Returns { uid: count }. */
-  async countByUids(uids: string[]): Promise<Record<string, number>> {
+  /**
+   * Batch count messages per peer by uid. Returns { uid: count }.
+   *
+   * `opts` narrows the count without changing the (indexed) `40021 IN (…)`
+   * grouping — every filter is an extra `AND` on the same scan:
+   *   - `startTime`/`endTime` (unix seconds) → window on `40050` sendTime;
+   *   - `senderUid` → count only messages *this* uid sent (e.g. self, to get
+   *     「我发了多少」 rather than the conversation total).
+   */
+  async countByUids(
+    uids: string[],
+    opts: { startTime?: number; endTime?: number; senderUid?: string } = {},
+  ): Promise<Record<string, number>> {
     if (uids.length === 0) return {};
     const placeholders = uids.map(() => '?').join(',');
+    const conditions = [`"40021" IN (${placeholders})`];
+    const params: SqlValue[] = [...uids];
+    if (opts.startTime != null && opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      params.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime != null && opts.endTime > 0) {
+      conditions.push(`"40050" <= ?`);
+      params.push(BigInt(opts.endTime));
+    }
+    if (opts.senderUid) {
+      conditions.push(`"40020" = ?`);
+      params.push(opts.senderUid);
+    }
     const rows = await this.qq.query(
-      `SELECT "40021", COUNT(*) FROM ${this.table} WHERE "40021" IN (${placeholders}) GROUP BY "40021"`,
-      uids,
+      `SELECT "40021", COUNT(*) FROM ${this.table} WHERE ${conditions.join(' AND ')} GROUP BY "40021"`,
+      params,
     );
     const result: Record<string, number> = {};
     for (const row of rows) {

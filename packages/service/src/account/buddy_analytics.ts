@@ -309,4 +309,80 @@ export class BuddyAnalyticsService {
         .map(([word, count]) => ({ word, count })),
     };
   }
+
+  /**
+   * 全好友活跃度排行（近 N 天，days=0 为全部历史）。用一次 `GROUP BY 对方uid` 的
+   * 聚合数出「每个好友的私聊总条数」，再用一次带 `senderUid=self` 的聚合数出「我发的」，
+   * 相减得对方发的——**只两条 SQL、不扫消息体**，故可一次覆盖全部好友做排行。
+   *
+   * `window` 传显式 [startTime,endTime]（unix 秒）时忽略 days，直接按该窗口统计——
+   * 供周报做「上一周」环比等任意区间查询复用同一套聚合。
+   *
+   * 返回按 total 降序、已解析昵称/备注的排行；`windowStart/windowEnd` 回传实际统计窗口
+   * （unix 秒；全部历史时为 null），供上层如实说明覆盖范围。
+   */
+  async rankFriendsByActivity(
+    days = 7,
+    window?: { startTime: number; endTime: number },
+  ): Promise<{
+    windowStart: number | null;
+    windowEnd: number | null;
+    items: Array<{
+      uid: string;
+      uin: string;
+      nick: string;
+      remark: string;
+      total: number;
+      mine: number;
+      peer: number;
+    }>;
+  }> {
+    const now = Math.floor(Date.now() / 1000);
+    const startTime = window ? window.startTime : days > 0 ? now - days * 86400 : undefined;
+    const endTime = window ? window.endTime : days > 0 ? now : undefined;
+    const selfUid = this.session.uidMap.uidByUin(BigInt(this.session.context.uin ?? 0)) ?? '';
+
+    // 全好友 uid（分页拉到底，避免漏人）。
+    const uids: string[] = [];
+    for (let offset = 0; ; offset += 500) {
+      const page = await this.session.buddies.listBuddies(500, offset);
+      if (page.length === 0) break;
+      uids.push(...page.map((b) => b.uid));
+      if (page.length < 500) break;
+    }
+    if (uids.length === 0) {
+      return { windowStart: startTime ?? null, windowEnd: endTime ?? null, items: [] };
+    }
+
+    const db = this.session.c2cMsgs;
+    const [totals, mineCounts] = await Promise.all([
+      db.countByUids(uids, { startTime, endTime }),
+      selfUid
+        ? db.countByUids(uids, { startTime, endTime, senderUid: selfUid })
+        : Promise.resolve({} as Record<string, number>),
+    ]);
+
+    // 只保留窗口内有过消息的好友，按 total 降序。
+    const active = uids.filter((uid) => (totals[uid] ?? 0) > 0);
+    const profiles = await this.session.profileInfo.profilesByUids(active);
+    const profByUid = new Map(profiles.map((p) => [p.uid, p]));
+    const items = active
+      .map((uid) => {
+        const total = totals[uid] ?? 0;
+        const mine = Math.min(mineCounts[uid] ?? 0, total);
+        const prof = profByUid.get(uid);
+        return {
+          uid,
+          uin: String(this.session.uidMap.uinByUid(uid) ?? ''),
+          nick: prof?.nick ?? '',
+          remark: prof?.remark ?? '',
+          total,
+          mine,
+          peer: total - mine,
+        };
+      })
+      .sort((a, b) => b.total - a.total);
+
+    return { windowStart: startTime ?? null, windowEnd: endTime ?? null, items };
+  }
 }

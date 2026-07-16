@@ -64,12 +64,18 @@ export const dbExplorerRouter = router({
         table,
         limit: z.number().int().positive().optional(),
         cursor: z.string().nullish(),
+        search: z.string().nullish(),
+        orderBy: z.string().nullish(),
+        orderDir: z.enum(['asc', 'desc']).optional(),
       }),
     )
     .query(({ input }) => {
       return requireServices().dbExplorer.getRows(input.dbPath, input.table, {
         limit: input.limit,
         cursor: input.cursor ?? null,
+        search: input.search ?? null,
+        orderBy: input.orderBy ?? null,
+        orderDir: input.orderDir,
       });
     }),
 

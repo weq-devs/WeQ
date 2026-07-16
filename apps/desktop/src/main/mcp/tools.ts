@@ -88,6 +88,18 @@ function fmtDate(sec: bigint | number): string {
 }
 
 /**
+ * 排行/统计类工具的「范围说明」信封字段。给 LLM 一个恒定可读的窗口描述 + coverage 提醒，
+ * 让低质模型每轮都看到「算的是哪段、数据可能不全」，而不是靠 system prompt 一句话约束。
+ */
+function rangeLabel(days: number, windowStart: number | null): string {
+  if (days > 0 && windowStart) return `最近 ${days} 天（${fmtDate(windowStart)} 起至今）`;
+  return '全部本地历史';
+}
+
+/** 排行类工具的统一 coverage 提醒——只统计本地已同步的消息。 */
+const RANK_COVERAGE = '仅基于本地已同步的聊天记录统计；未漫游/未拉取的历史不计入。';
+
+/**
  * 解析「某天」为本地 [startSec, endSec) 半开窗口（秒），默认今天。
  * date 形如 YYYY-MM-DD；非法时抛出可读错误。给「今日/某天」类工具单一事实源。
  */
@@ -105,6 +117,26 @@ function dayWindow(date?: string): { startSec: number; endSec: number; label: st
   }
   const startSec = Math.floor(d.getTime() / 1000);
   return { startSec, endSec: startSec + 86400, label: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}` };
+}
+
+/**
+ * 解析一个「日期区间」为本地 [startSec, endSec) 半开窗口（秒）。start/end 均为
+ * YYYY-MM-DD，end 含当天（内部 +1 天转半开）。给 compare_periods 的任意两段对比用。
+ */
+function rangeWindow(start: string, end: string): { startSec: number; endSec: number; label: string } {
+  const parse = (s: string): Date => {
+    const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec((s ?? '').trim());
+    if (!m) throw new Error(`无效日期：${s}（应为 YYYY-MM-DD，例如 2026-06-30）`);
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    if (Number.isNaN(d.getTime())) throw new Error(`无效日期：${s}`);
+    return d;
+  };
+  const a = parse(start);
+  const b = parse(end);
+  const startSec = Math.floor(a.getTime() / 1000);
+  const endSec = Math.floor(b.getTime() / 1000) + 86400; // end 含当天
+  if (endSec <= startSec) throw new Error(`区间起止颠倒：${start} ~ ${end}（结束应不早于开始）`);
+  return { startSec, endSec, label: `${fmtDate(startSec)} ~ ${fmtDate(endSec - 86400)}` };
 }
 
 /** 从 RecentContact.chatType 判定会话类型（兼容字符串枚举与数字）。 */
@@ -297,6 +329,95 @@ export const AI_TOOLS: AiTool[] = [
         text: h.content,
         ...(h.fileName ? { file: h.fileName } : {}),
       }));
+    },
+  }),
+
+  tool({
+    name: 'find_people_who_mentioned',
+    description:
+      '【按人聚合的关键词检索】搜某个关键词（如「吃饭」「借钱」「出去玩」），把命中**按发言人归类**，' +
+      '数出「谁提得最多、最近一次什么时候提的」——直接回答「还有谁说过 X」「最近谁跟我约过 XX」。' +
+      '比 search_messages 更适合「按人找」：后者把命中按时间平铺、要你自己数；这个已经替你 group by 人。' +
+      'scope: buddy=私聊里、group=群聊里、all=两者。days 限定最近 N 天（默认 0=全部历史）。' +
+      'includeMe=false（默认）时不把我自己的发言算进去，只看别人提没提。' +
+      '返回每人：name 名称、hits 命中次数、lastTime 最近一次、sample 一条样例原文、scope 命中所在会话类型。',
+    input: z.object({
+      keyword: z.string().min(1).describe('要检索的关键词/短语'),
+      scope: z.enum(['all', 'buddy', 'group']).default('all').describe('检索范围：私聊/群聊/两者'),
+      days: z.number().int().min(0).max(3650).default(0).describe('只看最近 N 天；0=全部历史'),
+      includeMe: z.boolean().default(false).describe('是否把我自己的发言也算进去（默认否）'),
+      limit: z.number().int().min(1).max(50).default(15).describe('返回前几名发言人'),
+    }),
+    run: async ({ keyword, scope, days, includeMe, limit }) => {
+      const svc = services();
+      // FTS 末尾会 slice(0, POOL)，聚合要尽量多的命中垫底 → 顶到池上限 500。
+      const POOL = 500;
+      const raw =
+        scope === 'buddy'
+          ? await svc.msgSearch.searchBuddy(keyword, POOL)
+          : scope === 'group'
+            ? await svc.msgSearch.searchGroup(keyword, POOL)
+            : [...(await svc.msgSearch.searchBuddy(keyword, POOL)), ...(await svc.msgSearch.searchGroup(keyword, POOL))];
+
+      const selfUid = (await svc.profile.getSelfProfile())?.uid ?? '';
+      const cutoff = days > 0 ? Math.floor(Date.now() / 1000) - days * 86400 : 0;
+      const hits = raw.filter((h) => {
+        if (cutoff && Number(h.sendTime) < cutoff) return false;
+        if (!includeMe && h.senderUid === selfUid) return false;
+        return !!h.senderUid;
+      });
+
+      // 按发言人聚合：命中数、最近一次时间、一条样例、命中所在会话类型集合。
+      interface Agg {
+        uid: string;
+        hits: number;
+        lastSec: number;
+        sample: string;
+        scopes: Set<'c2c' | 'group'>;
+      }
+      const byUid = new Map<string, Agg>();
+      for (const h of hits) {
+        const sec = Number(h.sendTime);
+        const kindScope: 'c2c' | 'group' = Number(h.chatType) === 2 ? 'group' : 'c2c';
+        const cur = byUid.get(h.senderUid);
+        if (!cur) {
+          byUid.set(h.senderUid, { uid: h.senderUid, hits: 1, lastSec: sec, sample: h.content, scopes: new Set([kindScope]) });
+        } else {
+          cur.hits += 1;
+          cur.scopes.add(kindScope);
+          if (sec > cur.lastSec) {
+            cur.lastSec = sec;
+            cur.sample = h.content; // 样例取最近一条，最贴合「最近谁提过」
+          }
+        }
+      }
+
+      const ranked = [...byUid.values()].sort((a, b) => b.hits - a.hits || b.lastSec - a.lastSec).slice(0, limit);
+      const nameByUid = ranked.length
+        ? await svc.profile.nicksByUids(ranked.map((r) => r.uid).filter((u) => u !== selfUid))
+        : {};
+
+      return {
+        keyword,
+        range: days > 0 ? `最近 ${days} 天` : '全部本地历史',
+        coverage: RANK_COVERAGE,
+        totalHits: hits.length,
+        peopleCount: byUid.size,
+        items: ranked.map((r) => ({
+          name: r.uid === selfUid ? '我' : nameByUid[r.uid] || r.uid,
+          uid: r.uid,
+          hits: r.hits,
+          lastTime: fmtTime(r.lastSec),
+          scope: [...r.scopes].join('+'),
+          sample: r.sample.slice(0, 80),
+        })),
+        hint:
+          byUid.size === 0
+            ? `没搜到含「${keyword}」的发言（这段时间内）；可换同义词、放宽 days、或把 includeMe 设 true 连自己一起看。`
+            : raw.length >= POOL
+              ? `命中较多、已按相关度取前 ${POOL} 条聚合；结果偏「谁高频提到」，个别少量提及者可能未纳入。`
+              : '这是「谁提得多」的线索；确认具体语境请用 search_in_conversation 到对应会话看原文。',
+      };
     },
   }),
 
@@ -743,6 +864,168 @@ export const AI_TOOLS: AiTool[] = [
   }),
 
   tool({
+    name: 'inspect_timeline',
+    description:
+      '【单个好友的关系时间线】把我和某个好友的私聊摊成一条时间线：首次/最近一次聊天、**距今多久没联系**、' +
+      '逐月消息量、**最长沉默期**（中间断得最久的一段）、近30天 vs 近90天对比、以及**建议进一步阅读的日期窗口**（消息量高峰的那几天）。' +
+      '用于「我和 XX 是什么时候熟起来的/多久没联系了/关系降温了吗」这类关系深挖。传对方 uid（可用 find_contact 解析人名）。' +
+      '注意：这是**时间结构线索**，不含具体聊了什么——想看某段窗口的原话，用返回的 readWindows 里的日期接 get_messages_by_date。',
+    input: z.object({
+      uid: z.string().min(1).describe('目标好友的 uid（可用 find_contact 把人名解析成 uid）'),
+    }),
+    run: async ({ uid }) => {
+      const svc = services();
+      const a = await svc.buddyAnalytics.getBuddyAnalytics(uid);
+      const daily = [...a.daily].sort((x, y) => x.date.localeCompare(y.date)); // 只含有消息的日子，升序
+      const now = Date.now();
+      const dayMs = 86400_000;
+      const nameByUid = await svc.profile.nicksByUids([uid]);
+
+      if (daily.length === 0 || a.statistics.totalMessages === 0) {
+        return {
+          uid,
+          name: nameByUid[uid] || uid,
+          found: false,
+          hint: '本地没有和该好友的私聊记录；确认 uid 是否正确（find_contact 解析），或消息尚未同步。',
+        };
+      }
+
+      const first = a.statistics.firstMessageTime ?? 0;
+      const last = a.statistics.lastMessageTime ?? 0;
+      const daysSinceLast = last ? Math.floor((now / 1000 - last) / 86400) : null;
+
+      // 最长沉默期：相邻两个「有消息日期」之间的最大间隔（天）。
+      let longestSilence = { days: 0, from: '', to: '' };
+      for (let i = 1; i < daily.length; i++) {
+        const prev = new Date(daily[i - 1]!.date + 'T00:00:00').getTime();
+        const cur = new Date(daily[i]!.date + 'T00:00:00').getTime();
+        const gap = Math.round((cur - prev) / dayMs);
+        if (gap > longestSilence.days) longestSilence = { days: gap, from: daily[i - 1]!.date, to: daily[i]!.date };
+      }
+
+      // 近 30 / 90 天消息量（用 daily 求和，省去再扫库）。
+      const since = (d: number): number => {
+        const cut = new Date(now - d * dayMs);
+        const cutYmd = `${cut.getFullYear()}-${pad2(cut.getMonth() + 1)}-${pad2(cut.getDate())}`;
+        return daily.filter((x) => x.date >= cutYmd).reduce((s, x) => s + x.count, 0);
+      };
+      const last30 = since(30);
+      const last90 = since(90);
+
+      // 逐月消息量。
+      const byMonth = new Map<string, number>();
+      for (const d of daily) byMonth.set(d.date.slice(0, 7), (byMonth.get(d.date.slice(0, 7)) ?? 0) + d.count);
+      const monthly = [...byMonth.entries()].map(([month, count]) => ({ month, count }));
+
+      // 建议阅读窗口：消息量最高的前 3 天（最值得回看原话的高峰）。
+      const readWindows = [...daily].sort((x, y) => y.count - x.count).slice(0, 3).map((d) => ({ date: d.date, count: d.count }));
+
+      return {
+        uid,
+        name: nameByUid[uid] || uid,
+        found: true,
+        coverage: RANK_COVERAGE,
+        firstChat: fmtDate(first),
+        lastChat: fmtDate(last),
+        daysSinceLastChat: daysSinceLast,
+        totalMessages: a.statistics.totalMessages,
+        sentVsReceived: { mine: a.statistics.selfMessages, peer: a.statistics.peerMessages },
+        activeDays: a.statistics.activeDays,
+        initiation: a.initiation, // 谁更常先开口
+        streak: a.streak, // 火花：连续双方都说话的天数
+        last30Days: last30,
+        last90Days: last90,
+        recentTrend:
+          last90 > 0
+            ? last30 >= last90 * 0.5
+              ? '近30天占近90天过半，最近更密集'
+              : last30 === 0
+                ? '近30天无往来，可能已降温'
+                : '近30天明显少于前期，有降温迹象'
+            : '近90天无往来',
+        longestSilence,
+        monthly,
+        readWindows,
+        hint: '想看某段具体聊了什么，用 readWindows 里的 date 接 get_messages_by_date(kind=c2c, conv=uid, date=…)。以上只是时间结构线索，别据此直接下关系结论。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'rank_friends_by_activity',
+    description:
+      '【私聊活跃排行】把我的**所有好友**按最近一段时间的私聊消息量从多到少排出来——直接回答' +
+      '「我最近和谁聊得最多/最火热」「这周谁聊得最勤」。内部一次性聚合全部好友（不是逐个查、也不会漏人），' +
+      'days 控制窗口（默认 7 天，0=全部历史）。返回每位：rank 名次、name 名称、total 总条数、mine 我发的、peer 对方发的。' +
+      '注意：消息条数只是**热度线索**，不等于关系亲疏；要判断关系还需结合具体聊了什么、谁主动。' +
+      '想深挖某人再用 get_buddy_analytics / get_messages。',
+    input: z.object({
+      days: z.number().int().min(0).max(3650).default(7).describe('统计最近 N 天；0=全部历史'),
+      limit: z.number().int().min(1).max(100).default(15).describe('返回前几名'),
+    }),
+    run: async ({ days, limit }) => {
+      const { windowStart, items } = await services().buddyAnalytics.rankFriendsByActivity(days);
+      const top = items.slice(0, limit).map((it, i) => ({
+        rank: i + 1,
+        name: it.remark || it.nick || it.uin || it.uid,
+        uid: it.uid,
+        uin: it.uin,
+        total: it.total,
+        mine: it.mine,
+        peer: it.peer,
+      }));
+      return {
+        range: rangeLabel(days, windowStart),
+        coverage: RANK_COVERAGE,
+        activeFriends: items.length,
+        items: top,
+        hint:
+          items.length === 0
+            ? '该时间窗内没有任何私聊记录；可把 days 调大或用 0 看全部历史。'
+            : '这是「聊得多少」的热度排行，不代表关系深浅；要下结论请再看具体聊天内容（get_messages / get_buddy_analytics）。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'rank_my_groups_by_activity',
+    description:
+      '【群活跃排行】把我加入的**所有群**按最近一段时间的活跃度从高到低排出来。by="me"（默认）按' +
+      '**我在群里的发言量**排——回答「我最近最活跃/最常冒泡的是哪个群」；by="all" 按**群总消息量**排——' +
+      '回答「哪个群最热闹」。内部一次性聚合全部群（不逐个查、不漏群），days 控制窗口（默认 7 天，0=全部历史）。' +
+      '返回每个群：rank 名次、groupName 群名、groupCode 群号、count 条数。' +
+      '想知道某个群在聊什么，接着用 get_group_activity（词云/趋势）或 get_messages_by_date（逐条）。',
+    input: z.object({
+      days: z.number().int().min(0).max(3650).default(7).describe('统计最近 N 天；0=全部历史'),
+      by: z
+        .enum(['me', 'all'])
+        .default('me')
+        .describe('me=按我的发言量排（我最活跃的群）；all=按群总消息量排（最热闹的群）'),
+      limit: z.number().int().min(1).max(100).default(15).describe('返回前几名'),
+    }),
+    run: async ({ days, by, limit }) => {
+      const { windowStart, items } = await services().groupInfo.rankMyGroupsByActivity(days, by);
+      const top = items.slice(0, limit).map((it, i) => ({
+        rank: i + 1,
+        groupName: it.groupName,
+        groupCode: it.groupCode,
+        count: it.count,
+      }));
+      return {
+        range: rangeLabel(days, windowStart),
+        coverage: RANK_COVERAGE,
+        countedBy: by === 'me' ? '我的发言量' : '群总消息量',
+        activeGroups: items.length,
+        items: top,
+        hint:
+          items.length === 0
+            ? '该时间窗内你的群没有消息记录；可把 days 调大或用 0 看全部历史。'
+            : '想看某个群具体在聊什么，用 groupCode 接 get_group_activity（词云/趋势）或 get_messages_by_date（逐条）。',
+      };
+    },
+  }),
+
+  tool({
     name: 'get_group_activity',
     description:
       '获取某个群聊的活跃度全量统计——活跃成员排行（已解析成群名片/昵称）、24 时段分布、每日消息趋势、热词词云。' +
@@ -958,6 +1241,180 @@ export const AI_TOOLS: AiTool[] = [
             : myMessages === 0
               ? '这一天你没有发送记录（或消息超出读取上限被截断）。'
               : '可据此用 write_report 生成「活跃日记」；想看与某人具体聊了啥，用 get_messages_by_date。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_period_overview',
+    description:
+      '【账号级周报/月报总览】一站式回答「帮我写份聊天数据周报」「我最近一个月的社交总览」。' +
+      '把最近一段时间跨【所有私聊 + 所有群】的活跃度汇总成一份账号级报告，并**自动和上一个等长周期对比**（环比升降）。' +
+      'days 控制周期长度（默认 7=周报，可 30=月报，等等）。内部只做聚合计数、不逐条扫消息，覆盖全部会话不漏。' +
+      '返回：range 周期说明、totals（私聊消息量/群消息量/我发的/收到的/活跃私聊数/活跃群数，各带对上周期的 delta 环比）、' +
+      'topFriends 私聊活跃榜、topGroups 我最活跃的群榜。非常适合接着用 write_report 出一份可视化 HTML 周报。',
+    input: z.object({
+      days: z.number().int().min(1).max(365).default(7).describe('周期天数：7=周报，30=月报'),
+      topN: z.number().int().min(1).max(30).default(8).describe('好友/群榜各取前几名'),
+    }),
+    run: async ({ days, topN }) => {
+      const svc = services();
+      const now = Math.floor(Date.now() / 1000);
+      const span = days * 86400;
+      const curWin = { startTime: now - span, endTime: now };
+      const prevWin = { startTime: now - span * 2, endTime: now - span };
+
+      // 当前周期与上一等长周期各跑一次好友榜+群榜（复用 ①② 的聚合，各一条 SQL）。
+      const [curFriends, prevFriends, curGroups, prevGroups] = await Promise.all([
+        svc.buddyAnalytics.rankFriendsByActivity(days, curWin),
+        svc.buddyAnalytics.rankFriendsByActivity(days, prevWin),
+        svc.groupInfo.rankMyGroupsByActivity(days, 'me', curWin),
+        svc.groupInfo.rankMyGroupsByActivity(days, 'me', prevWin),
+      ]);
+
+      const sum = (ns: number[]): number => ns.reduce((a, b) => a + b, 0);
+      // 私聊侧账号级汇总。
+      const c2cMine = sum(curFriends.items.map((f) => f.mine));
+      const c2cPeer = sum(curFriends.items.map((f) => f.peer));
+      const c2cTotal = c2cMine + c2cPeer;
+      const prevC2cTotal = sum(prevFriends.items.map((f) => f.total));
+      // 群侧账号级汇总（by='me'，即我在群里发的）。
+      const groupMine = sum(curGroups.items.map((g) => g.count));
+      const prevGroupMine = sum(prevGroups.items.map((g) => g.count));
+
+      const delta = (cur: number, prev: number): { value: number; delta: number; deltaPct: number | null } => ({
+        value: cur,
+        delta: cur - prev,
+        deltaPct: prev > 0 ? Math.round(((cur - prev) / prev) * 100) : null,
+      });
+
+      const startD = fmtDate(curWin.startTime);
+      const endD = fmtDate(now);
+
+      return {
+        range: `最近 ${days} 天（${startD} ~ ${endD}）`,
+        comparedTo: `上一个 ${days} 天（${fmtDate(prevWin.startTime)} ~ ${startD}）`,
+        coverage: RANK_COVERAGE,
+        totals: {
+          c2cMessages: delta(c2cTotal, prevC2cTotal), // 私聊总消息（我+对方）
+          c2cSent: c2cMine, // 私聊我发的
+          c2cReceived: c2cPeer, // 私聊我收到的
+          groupMessagesByMe: delta(groupMine, prevGroupMine), // 我在群里发的
+          activeFriends: delta(curFriends.items.length, prevFriends.items.length),
+          activeGroups: delta(curGroups.items.length, prevGroups.items.length),
+        },
+        topFriends: curFriends.items.slice(0, topN).map((f, i) => ({
+          rank: i + 1,
+          name: f.remark || f.nick || f.uin || f.uid,
+          uid: f.uid,
+          total: f.total,
+          mine: f.mine,
+          peer: f.peer,
+        })),
+        topGroups: curGroups.items.slice(0, topN).map((g, i) => ({
+          rank: i + 1,
+          groupName: g.groupName,
+          groupCode: g.groupCode,
+          myMessages: g.count,
+        })),
+        hint:
+          c2cTotal === 0 && groupMine === 0
+            ? '该周期内没有你的聊天记录；确认账号数据已同步，或把 days 调大。'
+            : 'delta 为对上一等长周期的增减、deltaPct 为百分比（上期为 0 时为 null）。可据此用 write_report 出一份带环比图表的 HTML 周报；想深挖某人/某群再用 get_buddy_analytics / get_group_activity。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'compare_periods',
+    description:
+      '【任意两个日期段对比】给两段自定义时间区间 periodA / periodB，对比消息量与我发/收到的变化——' +
+      '回答「我和 XX 这个月比上个月聊得多还是少」「国庆那周 vs 平时的群活跃差多少」这类**指定区间**的对比。' +
+      '不传 conv=账号级对比（跨所有私聊+群）；传 conv 则只比这一个会话（kind=c2c 传对方 uid，kind=group 传群号，可用 find_contact 解析）。' +
+      '每段日期用 start/end（YYYY-MM-DD，含起止当天）。返回两段各自指标 + delta 差值/百分比。' +
+      '想要「最近N天 vs 上一个等长周期」这种滚动环比，直接用 get_period_overview 更省事；本工具专用于**手动指定**的两段。',
+    input: z.object({
+      periodA: z
+        .object({ start: z.string().describe('起 YYYY-MM-DD'), end: z.string().describe('止 YYYY-MM-DD（含当天）') })
+        .describe('第一个日期段'),
+      periodB: z
+        .object({ start: z.string().describe('起 YYYY-MM-DD'), end: z.string().describe('止 YYYY-MM-DD（含当天）') })
+        .describe('第二个日期段'),
+      kind: z.enum(['c2c', 'group']).optional().describe('只比单个会话时传：c2c=私聊 / group=群聊'),
+      conv: z.string().optional().describe('只比单个会话时传：私聊对方 uid 或群号（配合 kind）'),
+    }),
+    run: async ({ periodA, periodB, kind, conv }) => {
+      const svc = services();
+      const winA = rangeWindow(periodA.start, periodA.end);
+      const winB = rangeWindow(periodB.start, periodB.end);
+      const selfUid = svc.msgs.selfUid();
+
+      const diff = (a: number, b: number): { a: number; b: number; delta: number; deltaPct: number | null } => ({
+        a,
+        b,
+        delta: a - b,
+        deltaPct: b > 0 ? Math.round(((a - b) / b) * 100) : null,
+      });
+
+      // ── 单会话对比 ──────────────────────────────────────────────
+      if (kind && conv) {
+        const w = (win: { startSec: number; endSec: number }) => ({
+          startTime: win.startSec,
+          endTime: win.endSec - 1, // countConv 的 endTime 为闭区间上界
+        });
+        const [totalA, mineA, totalB, mineB] = await Promise.all([
+          svc.msgs.countConv(kind, conv, w(winA)),
+          selfUid ? svc.msgs.countConv(kind, conv, { ...w(winA), senderUid: selfUid }) : Promise.resolve(0),
+          svc.msgs.countConv(kind, conv, w(winB)),
+          selfUid ? svc.msgs.countConv(kind, conv, { ...w(winB), senderUid: selfUid }) : Promise.resolve(0),
+        ]);
+        return {
+          scope: 'conversation',
+          kind,
+          conv,
+          periodA: winA.label,
+          periodB: winB.label,
+          coverage: RANK_COVERAGE,
+          total: diff(totalA, totalB),
+          mine: diff(mineA, mineB),
+          peer: diff(totalA - mineA, totalB - mineB),
+          hint:
+            totalA === 0 && totalB === 0
+              ? '两段区间该会话都没有消息；确认 conv/kind 是否正确、数据是否已同步。'
+              : 'a=periodA、b=periodB；delta=a-b、deltaPct 为相对 b 的百分比（b 为 0 时 null）。想看具体聊了什么用 get_messages_by_date。',
+        };
+      }
+
+      // ── 账号级对比（复用 ①② 的窗口聚合）──────────────────────────
+      const win = (r: { startSec: number; endSec: number }) => ({ startTime: r.startSec, endTime: r.endSec - 1 });
+      const [fa, fb, ga, gb] = await Promise.all([
+        svc.buddyAnalytics.rankFriendsByActivity(0, win(winA)),
+        svc.buddyAnalytics.rankFriendsByActivity(0, win(winB)),
+        svc.groupInfo.rankMyGroupsByActivity(0, 'me', win(winA)),
+        svc.groupInfo.rankMyGroupsByActivity(0, 'me', win(winB)),
+      ]);
+      const sum = (ns: number[]): number => ns.reduce((s, n) => s + n, 0);
+      const c2cA = sum(fa.items.map((f) => f.total));
+      const c2cB = sum(fb.items.map((f) => f.total));
+      const mineA = sum(fa.items.map((f) => f.mine));
+      const mineB = sum(fb.items.map((f) => f.mine));
+      const grpA = sum(ga.items.map((g) => g.count));
+      const grpB = sum(gb.items.map((g) => g.count));
+
+      return {
+        scope: 'account',
+        periodA: winA.label,
+        periodB: winB.label,
+        coverage: RANK_COVERAGE,
+        c2cMessages: diff(c2cA, c2cB),
+        c2cSentByMe: diff(mineA, mineB),
+        groupMessagesByMe: diff(grpA, grpB),
+        activeFriends: diff(fa.items.length, fb.items.length),
+        activeGroups: diff(ga.items.length, gb.items.length),
+        hint:
+          c2cA === 0 && c2cB === 0 && grpA === 0 && grpB === 0
+            ? '两段区间都没有聊天记录；确认日期与数据同步。'
+            : 'a=periodA、b=periodB；delta=a-b、deltaPct 为相对 b 的百分比。想按人/群看差异用 rank_friends_by_activity / rank_my_groups_by_activity。',
       };
     },
   }),
