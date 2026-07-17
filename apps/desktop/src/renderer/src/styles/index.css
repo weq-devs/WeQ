@@ -3921,6 +3921,8 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 .weq-settings-body {
   padding: 24px 28px;
   overflow-y: auto;
+  overflow-x: hidden;
+  min-width: 0;
 }
 
 .weq-settings-section {
@@ -3958,6 +3960,7 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
  * ──────────────────────────────────────────────────────────────────── */
 .weq-set {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   color: #1f1f1f;
 }
@@ -4003,6 +4006,7 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   display: grid;
   gap: 10px;
   padding: 14px 16px;
+  min-width: 0;
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 10px;
   background: #fcfcfd;
@@ -4171,6 +4175,41 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 .weq-set-note svg {
   flex: none;
   margin-top: 2px;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ * 设置面板内嵌的会话选择器（防撤回复用导出页 ConversationPicker）。
+ * 导出页 picker 是为宽布局设计的：搜索框/工具条带 16px 横向 margin、列表撑满
+ * 高度。塞进窄的设置卡片里会撑破容器（横向滚动条）。这里把它收进卡片内：去掉
+ * 多余横向 margin、工具条允许换行、列表限定一个适中的高度。
+ * ──────────────────────────────────────────────────────────────────── */
+.weq-set-picker {
+  display: flex;
+  min-width: 0;
+  margin: 2px -4px 0;
+}
+
+.weq-set-picker .weq-exp-picker {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.weq-set-picker .weq-exp-search {
+  margin: 0 0 8px;
+}
+
+.weq-set-picker .weq-exp-tools {
+  margin: 0 0 8px;
+  flex-wrap: wrap;
+}
+
+.weq-set-picker .weq-exp-list {
+  max-height: 300px;
+  padding: 0;
+}
+
+.weq-set-picker .weq-exp-row {
+  min-width: 0;
 }
 
 /* Spinning refresh icon while a refetch is in flight. */
@@ -9811,6 +9850,151 @@ html[data-theme="dark"] .weq-collection-state {
 .weq-asst-tool-select > select:disabled {
   cursor: default;
   opacity: 0.6;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ * 输入框上方的自定义下拉（模型 / 思考等级）。触发器是胶囊，点开在其上方弹出
+ * 圆角卡片（popover 用 portal 渲染到 body、fixed 定位，故不受会话滚动区裁剪）。
+ * ──────────────────────────────────────────────────────────────────── */
+.weq-asst-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 240px;
+  padding: 5px 9px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+  line-height: 1.4;
+  background: var(--weq-bg-soft, transparent);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.weq-asst-select:hover:not(:disabled),
+.weq-asst-select.is-open {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 48%, var(--weq-border-subtle));
+  color: var(--weq-fg-primary);
+}
+
+.weq-asst-select.is-open {
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+}
+
+.weq-asst-select:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.weq-asst-select-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--weq-accent-effective);
+}
+
+.weq-asst-select-value {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.weq-asst-select-value.is-placeholder {
+  color: var(--weq-fg-muted);
+}
+
+.weq-asst-select-caret {
+  flex: none;
+  opacity: 0.6;
+  transition: transform 0.15s ease;
+}
+
+.weq-asst-select.is-open .weq-asst-select-caret {
+  transform: rotate(180deg);
+}
+
+/* popover：固定定位在触发器正上方，向上展开的选项卡片。 */
+.weq-asst-select-pop {
+  position: fixed;
+  z-index: 60;
+  max-width: 340px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 5px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 12px;
+  background: var(--weq-bg-elevated, #fff);
+  box-shadow: var(--weq-shadow-soft, 0 12px 32px rgba(0, 0, 0, 0.16));
+  animation: weq-asst-pop-in 0.12s ease;
+}
+
+@keyframes weq-asst-pop-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.weq-asst-select-group + .weq-asst-select-group {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-asst-select-group-label {
+  padding: 4px 10px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--weq-fg-muted);
+  text-transform: uppercase;
+}
+
+.weq-asst-select-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.weq-asst-select-opt:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+.weq-asst-select-opt.is-active {
+  color: var(--weq-accent-effective);
+  font-weight: 600;
+}
+
+.weq-asst-select-opt-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.weq-asst-select-opt > svg {
+  flex: none;
+  color: var(--weq-accent-effective);
+}
+
+html[data-theme="dark"] .weq-asst-select {
+  background: #12161c;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+html[data-theme="dark"] .weq-asst-select-pop {
+  background: #12161c;
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
 /* 空状态：图标 + 标题 + 预设问题 chips。 */

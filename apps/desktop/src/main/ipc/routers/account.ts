@@ -32,6 +32,7 @@ import { fileResourceRouter } from './file_resource';
 import { mediaResourceRouter } from './media_resource';
 import { resourceCleanupRouter } from './resource_cleanup';
 import { assistantBus, type AssistantStreamEvent } from '../../mcp/assistant_bus';
+import { validateMcpConfig } from '../../mcp/external';
 import { groupChatBus, type GroupChatStreamEvent } from '../../mcp/agentlab_group_bus';
 import {
   clientKeyExpiryMs,
@@ -993,6 +994,9 @@ export const accountRouter = router({
       }),
     )
     .mutation(({ input }) => {
+      // MCP 配置若是 JSON 写法但语法有误：显式保存路径上严格校验、抛可读错误（前端 dialog.error 弹出），
+      // 而不是像 parseMcpConfig 那样静默当空处理——避免用户粘错 JSON 后完全无感。
+      if (input.mcpServers !== undefined) validateMcpConfig(input.mcpServers);
       return requireServices().assistant.setConfig({
         model: input.model,
         customPrompt: input.customPrompt,

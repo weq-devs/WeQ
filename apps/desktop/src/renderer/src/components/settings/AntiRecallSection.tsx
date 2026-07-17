@@ -244,13 +244,15 @@ export function AntiRecallSection(): ReactElement {
           </button>
         }
       >
-        <ConversationPicker
-          items={items}
-          loading={conversations.isLoading}
-          selected={selected}
-          onChange={setSelected}
-          emptyText="暂无可保护的会话"
-        />
+        <div className="weq-set-picker">
+          <ConversationPicker
+            items={items}
+            loading={conversations.isLoading}
+            selected={selected}
+            onChange={setSelected}
+            emptyText="暂无可保护的会话"
+          />
+        </div>
         <p className="weq-set-note">
           支持搜索、全选、反选。修改后点「保存选择」写入并重建触发器；若 QQ 正在运行，改动可能需重启 QQ 才生效。
         </p>

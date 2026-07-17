@@ -95,7 +95,7 @@ async function main(): Promise<void> {
       const els = decodeBody(gt[0]![1]);
       console.log(`   补插灰条 decode: ${json(els.map((e: any) => ({ kind: e.kind, tipJson: e.tipJson })))}`);
       // 清理：删掉这条补插的灰条
-      await db.write(`DELETE FROM group_msg_table WHERE "40001"=?`, [gt[0]![0]]);
+      await db.write(`DELETE FROM group_msg_table WHERE "40001"=?`, [gt[0]![0]!]);
       console.log(`   （已清理补插的测试灰条 40001=${gt[0]![0]}）`);
     }
 

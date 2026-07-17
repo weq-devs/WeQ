@@ -7,8 +7,9 @@
  * 弹窗配置：额外提示 / 外部 MCP 服务器。空会话展示预设问题，点击直接发送。
  */
 
-import { memo, useEffect, useRef, useState, type ReactElement } from 'react';
-import { ArrowLeft, Brain, Cpu, Send, Settings, Sparkles, Square } from 'lucide-react';
+import { memo, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { ArrowLeft, Brain, Check, ChevronDown, Cpu, Send, Settings, Sparkles, Square } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { autoGrowTextarea } from '../../lib/textareaAutoGrow';
@@ -34,6 +35,158 @@ interface Turn {
 function parseSel(key: string): { providerId: string; model: string } | undefined {
   const [providerId, model] = key.split('::');
   return providerId && model ? { providerId, model } : undefined;
+}
+
+/** 下拉里的分组：一个 provider 一组，组内多个模型选项。 */
+interface SelectGroup {
+  label: string;
+  options: Array<{ value: string; label: string }>;
+}
+
+/**
+ * 把扁平模型列表按 provider 分组（label 形如 `Provider · Model`：组标题取 provider，
+ * 选项标题取 model 部分，去掉冗余的 provider 前缀让下拉更清爽）。保持原有顺序。
+ */
+function buildModelGroups(models: FlatModels['chat']): SelectGroup[] {
+  const groups: SelectGroup[] = [];
+  const byProvider = new Map<string, SelectGroup>();
+  for (const m of models) {
+    const sep = m.label.indexOf(' · ');
+    const provider = sep >= 0 ? m.label.slice(0, sep) : m.label;
+    const modelLabel = sep >= 0 ? m.label.slice(sep + 3) : m.label;
+    let group = byProvider.get(m.providerId);
+    if (!group) {
+      group = { label: provider, options: [] };
+      byProvider.set(m.providerId, group);
+      groups.push(group);
+    }
+    group.options.push({ value: m.key, label: modelLabel });
+  }
+  return groups;
+}
+
+/**
+ * 输入框上方的紧凑下拉（模型 / 思考等级共用）。
+ *
+ * 原生 <select> 在这里既丑又难与主题一致，改成自定义 popover：触发器是一颗胶囊，
+ * 点开在其上方弹出圆角卡片（用 portal + fixed 定位，避免被会话滚动区裁剪 / 撑高）。
+ * 选项可按 provider 分组、当前项高亮打勾。纯展示，选中回调交给父组件落库。
+ */
+function ComposerSelect({
+  icon,
+  title,
+  placeholder,
+  value,
+  groups,
+  disabled,
+  onChange,
+}: {
+  icon: ReactNode;
+  title: string;
+  placeholder: string;
+  value: string;
+  groups: SelectGroup[];
+  disabled?: boolean;
+  onChange: (value: string) => void;
+}): ReactElement {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const popRef = useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = useState<{ left: number; bottom: number; minWidth: number } | null>(null);
+
+  const flat = groups.flatMap((g) => g.options);
+  const current = flat.find((o) => o.value === value);
+  const hasGroups = groups.length > 1 || (groups[0]?.label ?? '') !== '';
+
+  // 打开时按触发器位置把 popover 贴到其正上方；随后点外部 / 滚动 / Esc 关闭。
+  useLayoutEffect(() => {
+    if (!open) return;
+    const el = triggerRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    setPos({
+      left: r.left,
+      bottom: window.innerHeight - r.top + 6,
+      minWidth: r.width,
+    });
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function onDocDown(e: MouseEvent): void {
+      const t = e.target as Node;
+      if (triggerRef.current?.contains(t) || popRef.current?.contains(t)) return;
+      setOpen(false);
+    }
+    function onKey(e: KeyboardEvent): void {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    document.addEventListener('mousedown', onDocDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={`weq-asst-select${open ? ' is-open' : ''}`}
+        title={title}
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="weq-asst-select-icon">{icon}</span>
+        <span className={`weq-asst-select-value${current ? '' : ' is-placeholder'}`}>
+          {current?.label ?? placeholder}
+        </span>
+        <ChevronDown size={13} className="weq-asst-select-caret" aria-hidden />
+      </button>
+      {open && pos
+        ? createPortal(
+            <div
+              ref={popRef}
+              className="weq-asst-select-pop"
+              role="listbox"
+              style={{ left: pos.left, bottom: pos.bottom, minWidth: pos.minWidth }}
+            >
+              {groups.map((g, gi) => (
+                <div key={g.label || `g-${gi}`} className="weq-asst-select-group">
+                  {hasGroups && g.label ? (
+                    <div className="weq-asst-select-group-label">{g.label}</div>
+                  ) : null}
+                  {g.options.map((o) => {
+                    const active = o.value === value;
+                    return (
+                      <button
+                        key={o.value}
+                        type="button"
+                        role="option"
+                        aria-selected={active}
+                        className={`weq-asst-select-opt${active ? ' is-active' : ''}`}
+                        onClick={() => {
+                          onChange(o.value);
+                          setOpen(false);
+                        }}
+                      >
+                        <span className="weq-asst-select-opt-label">{o.label}</span>
+                        {active ? <Check size={14} aria-hidden /> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
+  );
 }
 
 /** 思考等级选项：非「不思考」时以 reasoning_effort 传给模型（M2）。 */
@@ -171,17 +324,30 @@ export function AssistantPanel({
   sessionId,
   chatModels,
   onBack,
+  onSessionCreated,
 }: {
-  sessionId: string;
+  /** 真实会话 id；`null` 表示草稿会话——用户真正发第一条消息时才落库。 */
+  sessionId: string | null;
   chatModels: FlatModels['chat'];
   onBack: () => void;
+  /** 草稿会话首次发送、后端建好真会话后回调（父组件据此刷新列表 + 更新选中态）。 */
+  onSessionCreated: (sessionId: string) => void;
 }): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
-  const conversation = trpc.account.getAssistantConversation.useQuery({ sessionId });
+  // 挂载时快照初始 id：草稿(null) 与既有会话在本组件生命周期内身份固定，
+  // 后续父组件把草稿升级成真会话（sessionId 由 null 变真）不重新拉历史，避免闪断。
+  const initialSessionId = useRef(sessionId).current;
+  // 可变的当前会话 id：草稿首次发送时被写成真 id，之后所有读写都走它。
+  const sessionIdRef = useRef<string | null>(sessionId);
+  const conversation = trpc.account.getAssistantConversation.useQuery(
+    { sessionId: initialSessionId ?? '' },
+    { enabled: !!initialSessionId },
+  );
   const selfProfile = trpc.account.getSelfProfile.useQuery();
   const assistantConfig = trpc.account.getAssistantConfig.useQuery();
   const send = trpc.account.chatWithAssistant.useMutation();
+  const createSession = trpc.account.createAssistantSession.useMutation();
   const abort = trpc.account.abortAssistantRun.useMutation();
   const clear = trpc.account.clearAssistantConversation.useMutation();
   const saveConfig = trpc.account.setAssistantConfig.useMutation();
@@ -199,6 +365,13 @@ export function AssistantPanel({
     ? `${assistantConfig.data.model.providerId}::${assistantConfig.data.model.model}`
     : '';
   const effort: EffortValue = assistantConfig.data?.reasoningEffort ?? 'medium';
+  const modelGroups = buildModelGroups(chatModels);
+
+  /** 让当前会话的持久化对话缓存失效（会话 id 走 ref，草稿升级后仍指向真会话）。 */
+  function invalidateConversation(): void {
+    const id = sessionIdRef.current;
+    if (id) void utils.account.getAssistantConversation.invalidate({ sessionId: id });
+  }
 
   /** 输入框旁的快捷设置：改了立即落库（与设置弹窗共用同一份配置）。 */
   async function onQuickConfig(patch: { modelKey?: string; effort?: EffortValue }): Promise<void> {
@@ -254,7 +427,7 @@ export function AssistantPanel({
           } else if (step.kind === 'final') {
             next[idx] = { ...turn, text: step.text || '（没能得出结论。）', streamingText: '', reasoning: '', running: false };
             runIdRef.current = null;
-            void utils.account.getAssistantConversation.invalidate({ sessionId });
+            invalidateConversation();
             // 首轮对话后端会自动总结标题；刷新会话列表让左栏标题跟上。
             void utils.account.listAssistantSessions.invalidate();
           } else if (step.kind === 'aborted') {
@@ -267,7 +440,7 @@ export function AssistantPanel({
               running: false,
             };
             runIdRef.current = null;
-            void utils.account.getAssistantConversation.invalidate({ sessionId });
+            invalidateConversation();
             void utils.account.listAssistantSessions.invalidate();
           } else if (step.kind === 'error') {
             next[idx] = { ...turn, running: false };
@@ -282,7 +455,9 @@ export function AssistantPanel({
       onError: (err) => console.error('[assistant] event subscription error', err),
     });
     return () => sub.unsubscribe();
-  }, [utils, dialog, sessionId]);
+    // 订阅只按 runIdRef 匹配，会话 id 走 ref，不必因 id 变化重订阅。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [utils, dialog]);
 
   // 新内容时滚到底部。
   useEffect(() => {
@@ -312,7 +487,18 @@ export function AssistantPanel({
     }
     setTurns((prev) => [...prev, { role: 'user', text }, { role: 'assistant', text: '', steps: [], running: true }]);
     try {
-      const { runId } = await send.mutateAsync({ sessionId, text });
+      // 草稿会话：真正发第一条消息时才落库建会话，拿到真 id 后续都走它。
+      // 建好立刻通知父组件刷新列表 + 把选中态指向新会话（不换组件 key，避免闪断）。
+      let id = sessionIdRef.current;
+      if (!id) {
+        const session = await createSession.mutateAsync();
+        id = session.id;
+        sessionIdRef.current = id;
+        seeded.current = true; // 新会话无历史可 seed，别再被首帧空对话覆盖本地 turns。
+        await utils.account.listAssistantSessions.invalidate();
+        onSessionCreated(id);
+      }
+      const { runId } = await send.mutateAsync({ sessionId: id, text });
       runIdRef.current = runId;
     } catch (e) {
       dialog.error('发送失败', e instanceof Error ? e.message : String(e));
@@ -325,11 +511,15 @@ export function AssistantPanel({
   async function onClear(): Promise<void> {
     const ok = await dialog.confirm('清空对话', '确认清空当前这段对话的内容？', { okLabel: '清空', tone: 'warning' });
     if (!ok) return;
-    await clear.mutateAsync({ sessionId });
+    const id = sessionIdRef.current;
+    // 草稿会话还没落库，直接清本地即可。
+    if (id) {
+      await clear.mutateAsync({ sessionId: id });
+      invalidateConversation();
+      await utils.account.listAssistantSessions.invalidate();
+    }
     setTurns([]);
     runIdRef.current = null;
-    await utils.account.getAssistantConversation.invalidate({ sessionId });
-    await utils.account.listAssistantSessions.invalidate();
   }
 
   /** 停止当前任务：请求后端掐断（真正收尾 + 持久化半截答复由后端 emit `aborted` 驱动）。 */
@@ -394,31 +584,24 @@ export function AssistantPanel({
 
       <div className="weq-asst-composer">
         <div className="weq-asst-composer-tools">
-          <label className="weq-asst-tool-select" title="聊天模型">
-            <Cpu size={13} />
-            <select
-              value={modelSel}
-              disabled={busy || saveConfig.isLoading}
-              onChange={(e) => void onQuickConfig({ modelKey: e.target.value })}
-            >
-              <option value="">选择模型…</option>
-              {chatModels.map((m) => (
-                <option key={m.key} value={m.key}>{m.label}</option>
-              ))}
-            </select>
-          </label>
-          <label className="weq-asst-tool-select" title="思考等级">
-            <Brain size={13} />
-            <select
-              value={effort}
-              disabled={busy || saveConfig.isLoading}
-              onChange={(e) => void onQuickConfig({ effort: e.target.value as EffortValue })}
-            >
-              {EFFORT_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </label>
+          <ComposerSelect
+            icon={<Cpu size={13} />}
+            title="聊天模型"
+            placeholder="选择模型…"
+            value={modelSel}
+            groups={modelGroups}
+            disabled={busy || saveConfig.isLoading}
+            onChange={(v) => void onQuickConfig({ modelKey: v })}
+          />
+          <ComposerSelect
+            icon={<Brain size={13} />}
+            title="思考等级"
+            placeholder="思考等级"
+            value={effort}
+            groups={[{ label: '', options: EFFORT_OPTIONS.map((o) => ({ value: o.value, label: o.label })) }]}
+            disabled={busy || saveConfig.isLoading}
+            onChange={(v) => void onQuickConfig({ effort: v as EffortValue })}
+          />
         </div>
         <div className="weq-agentlab-composer weq-asst-composer-row">
           <textarea
