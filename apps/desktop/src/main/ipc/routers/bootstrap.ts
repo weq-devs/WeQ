@@ -26,7 +26,9 @@ import {
   getAppContext,
   requireBootstrap,
   requirePlatform,
+  emitKeyFetchStalled,
   type AccountForcedClosedEvent,
+  type KeyFetchStalledEvent,
 } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import {
@@ -87,6 +89,60 @@ export const bootstrapRouter = router({
       };
     });
   }),
+
+  /**
+   * Alive QQ instance stalled without a real recv packet (linux). Central
+   * channel so the renderer surfaces one consistent "poke the account" hint
+   * no matter which flow hit the stall.
+   */
+  onKeyFetchStalled: procedure.subscription(() => {
+    return observable<KeyFetchStalledEvent>((emit) => {
+      const handler = (event: KeyFetchStalledEvent): void => {
+        emit.next(event);
+      };
+      accountEventBus.on('keyFetchStalled', handler);
+      return () => {
+        accountEventBus.off('keyFetchStalled', handler);
+      };
+    });
+  }),
+
+  /**
+   * The renderer login race timed out waiting on an alive instance. It handles
+   * its own continue/kill prompt, but reports the stall here so the stall is
+   * logged and broadcast through the same central channel as background flows.
+   */
+  reportKeyStalled: procedure
+    .input(z.object({ uin: z.string().optional() }))
+    .mutation(({ input }) => {
+      emitKeyFetchStalled('login', input.uin);
+      return { ok: true as const };
+    }),
+
+  /** Platform kind, so the renderer can branch linux-only key behaviour. */
+  systemInfo: procedure.query(() => {
+    return { platformKind: process.platform as NodeJS.Platform };
+  }),
+
+  /**
+   * Force-terminate a QQ process by pid. Used by the login race when the user
+   * opts to abandon the alive-instance path and switch to ninebird.
+   */
+  killQqProcess: procedure
+    .input(z.object({ pid: z.number().int().positive() }))
+    .mutation(({ input }) => {
+      try {
+        process.kill(input.pid);
+        return { ok: true as const };
+      } catch (e) {
+        logger.warn('killQqProcess failed', {
+          event: 'router-kill-qq-failed',
+          pid: input.pid,
+          error: e instanceof Error ? e.message : String(e),
+        });
+        return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+      }
+    }),
 
   // ---- detection (via global config cache) ----
 

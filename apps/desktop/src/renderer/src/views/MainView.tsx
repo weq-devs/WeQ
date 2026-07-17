@@ -24,6 +24,7 @@ import { useViewState } from '../state/view';
 import { useUpdateStore } from '../state/update';
 import { client } from '../trpc/client';
 import { useDialog } from '../components/Dialog';
+import { useToast } from '../components/Toast';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { datalineName, isDatalineSelfUid } from '@weq/codec';
 import { useProfileResolver } from '../hooks/useProfileResolver';
@@ -1406,6 +1407,7 @@ export function MainView(): ReactElement {
   const utils = trpc.useUtils();
   const queryClient = useQueryClient();
   const showError = useDialog((s) => s.showError);
+  const pushToast = useToast((s) => s.push);
   const contacts = trpc.account.listRecentContacts.useQuery();
   const selfProfile = trpc.account.getSelfProfile.useQuery();
   const buddies = trpc.account.listBuddies.useQuery({ limit: 2000 });
@@ -1493,6 +1495,24 @@ export function MainView(): ReactElement {
     });
     return () => sub.unsubscribe();
   }, [goTo, queryClient, setHomeStage, setOpenedUin, showError]);
+
+  // Central "alive QQ but packet-stalled" channel. The login race owns its own
+  // continue/kill prompt, so we only surface background-flow stalls (harvest /
+  // on-demand credential) as a non-blocking toast here — login stalls arrive
+  // with source==='login' purely for logging and are skipped.
+  useEffect(() => {
+    const sub = client.bootstrap.onKeyFetchStalled.subscribe(undefined, {
+      onData(event) {
+        if (event?.reason !== 'packet-stalled') return;
+        if (event.source === 'login') return;
+        pushToast({ tone: 'info', title: event.title, message: event.message, ttl: 8000 });
+      },
+      onError(err) {
+        console.error('[account] onKeyFetchStalled subscription error', err);
+      },
+    });
+    return () => sub.unsubscribe();
+  }, [pushToast]);
 
   // Update availability: seed from the last cached check (the background startup
   // check may have already run), then keep it live via the check events. Drives
