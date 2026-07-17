@@ -53,10 +53,13 @@ export interface AppidQua {
  * directly with `fs` and throw when the directory isn't writable — inject
  * elevated implementations (pkexec/polkit/helper daemon) to support
  * root-owned installs. Ignored on win32.
+ *
+ * Both hooks may be async — the launch flow awaits them — so an elevated
+ * implementation can shell out to `pkexec` and reject on cancel/failure.
  */
 export interface StubHooks {
-  dropStub(path: string, content: string): void;
-  removeStub(path: string): void;
+  dropStub(path: string, content: string): void | Promise<void>;
+  removeStub(path: string): void | Promise<void>;
 }
 
 const defaultStubHooks: StubHooks = {
@@ -193,18 +196,18 @@ export class NineBirdBootstrap {
       ? join(dirname(args.qqExePath), 'resources', 'app', 'loadNineBird.js')
       : '';
     let stubDropped = false;
-    const dropStub = (): void => {
+    const dropStub = async (): Promise<void> => {
       if (!isLinux || stubDropped) return;
       const content =
         "try { require('fs').unlinkSync(__filename); } catch (e) {}\n" +
         `require(${JSON.stringify(args.loadJsPath)});\n`;
-      this.stubHooks.dropStub(stubPath, content);
+      await this.stubHooks.dropStub(stubPath, content);
       stubDropped = true;
     };
     const removeStub = (): void => {
       if (!isLinux || !stubDropped) return;
       try {
-        this.stubHooks.removeStub(stubPath);
+        void this.stubHooks.removeStub(stubPath);
       } catch {
         /* QQ likely self-deleted it already */
       }
@@ -301,7 +304,7 @@ export class NineBirdBootstrap {
 
       // ---- linux: drop the entry stub before launch (may throw / elevate) ----
       try {
-        dropStub();
+        await dropStub();
       } catch (e) {
         const err = e instanceof Error ? e : new Error(String(e));
         pidReject(err);

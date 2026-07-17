@@ -30,6 +30,7 @@ import { ensureDefaultTweets, tweetsStorePath } from '../weq_assistant/tweets';
 import { aiToolSpecs, runAiTool } from '../mcp/openai_tools';
 import { getExternalMcpHub, disposeExternalMcp } from '../mcp/external';
 import { sampleHitokoto } from '../hitokoto';
+import { pkexecStubHooks } from '../stub_elevation';
 import {
   accountConfigId,
   UserConfigService,
@@ -521,9 +522,13 @@ export function initAppContext(): AppContext {
     });
   }
 
+  // Linux drops a ninebird entry stub into QQ's root-owned resources/app, so
+  // it needs a pkexec-elevated writer. Windows uses the fs default (undefined).
+  const stubHooks = process.platform === 'linux' ? pkexecStubHooks : undefined;
+
   const bootstrap: BootstrapServices = {
-    detect: new Win32DetectService(platform),
-    keys: new Win32KeyService(platform),
+    detect: new Win32DetectService(platform, stubHooks),
+    keys: new Win32KeyService(platform, stubHooks),
     userConfig,
     globalConfig: new GlobalConfigService(platform, userConfig),
     avatarCache: new AvatarCacheService(platform, userConfig),

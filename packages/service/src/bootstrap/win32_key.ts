@@ -27,6 +27,7 @@ import {
   type NineBirdQrcodeEvent,
   type NineBirdQrcodeStateEvent,
   type NineBirdResultEvent,
+  type StubHooks,
 } from '@weq/native';
 import { getLogger, logErrorContext } from '../common/logger';
 
@@ -57,10 +58,15 @@ export class Win32KeyService {
   private readonly bootstrap: NineBirdBootstrap;
   private readonly logger = getLogger().child({ scope: 'win32-key' });
 
-  constructor(private readonly platform: Platform) {
+  constructor(
+    private readonly platform: Platform,
+    /** Linux-only entry-stub hooks (pkexec elevation). Omit for the fs default. */
+    stubHooks?: StubHooks,
+  ) {
     this.bootstrap = new NineBirdBootstrap(
       platform.native.nineBirdBoot,
       platform.native.resources,
+      stubHooks,
     );
   }
 

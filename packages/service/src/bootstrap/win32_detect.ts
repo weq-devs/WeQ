@@ -20,6 +20,7 @@ import {
   type LoginAccount,
   type NineBirdAccountListItem,
   type QqPortLoginInfo,
+  type StubHooks,
 } from '@weq/native';
 import { getLogger, logErrorContext } from '../common/logger';
 
@@ -69,10 +70,15 @@ export class Win32DetectService {
   private readonly bootstrap: NineBirdBootstrap;
   private readonly logger = getLogger().child({ scope: 'win32-detect' });
 
-  constructor(private readonly platform: Platform) {
+  constructor(
+    private readonly platform: Platform,
+    /** Linux-only entry-stub hooks (pkexec elevation). Omit for the fs default. */
+    stubHooks?: StubHooks,
+  ) {
     this.bootstrap = new NineBirdBootstrap(
       platform.native.nineBirdBoot,
       platform.native.resources,
+      stubHooks,
     );
   }
 
