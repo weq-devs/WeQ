@@ -19,5 +19,7 @@ export type {
   AccountListOptions,
   LoginSession,
   AccountListSession,
+  AppidQua,
+  StubHooks,
 } from './ninebird';
 export * from './types';

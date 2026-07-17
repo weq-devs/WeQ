@@ -16,6 +16,7 @@
 
 # Native / binary
 *.node binary
+*.so binary
 *.png binary
 *.jpg binary
 *.jpeg binary
