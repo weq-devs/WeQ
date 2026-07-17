@@ -1,6 +1,13 @@
 # Auto-detect text files and normalize line endings to LF on commit
 * text=auto
 
+# LICENSE must keep its exact bytes (CRLF): the closed-source nt_helper.node
+# validates the project-root LICENSE against a SHA-256 baked into the binary.
+# Any EOL normalization changes the hash and trips the "组件已损坏或被篡改"
+# guard. `-text` disables all line-ending conversion so it round-trips byte-
+# for-byte on every platform.
+/LICENSE -text
+
 # Source code
 *.ts text eol=lf
 *.tsx text eol=lf
