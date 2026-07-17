@@ -15,6 +15,7 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Platform } from '@weq/platform';
+import { linuxFindLoginDbs } from '@weq/platform';
 import {
   NineBirdBootstrap,
   type LoginAccount,
@@ -82,6 +83,22 @@ export class Win32DetectService {
     );
   }
 
+  /**
+   * All login.db paths to decrypt, in merge-priority order. win32 has a single
+   * `nt_qq/global/nt_db/login.db`; linux has two (`global/nt_db` primary +
+   * `nt_qq/global/nt_db` supplementary), so we consult the linux-specific
+   * two-location finder there and dedupe against the platform's own pick.
+   */
+  private loginDbPaths(): string[] {
+    if (this.platform.kind === 'linux') {
+      const override = this.platform.tencentFilesRoots()[0] ?? null;
+      const both = linuxFindLoginDbs(undefined, override);
+      if (both.length > 0) return [...new Set(both)];
+    }
+    const single = this.platform.loginDbPath();
+    return single ? [single] : [];
+  }
+
   /** Aggregate the static install / data paths the UI's "diagnostics" screen wants. */
   describeInstall(): QqInstallInfo {
     const now = Date.now();
@@ -118,34 +135,44 @@ export class Win32DetectService {
       return this.accountCache.value;
     }
 
-    const dbPath = this.platform.loginDbPath();
-    if (dbPath) {
-      try {
-        const probe = await this.platform.native.ntHelper.testDatabaseKey(dbPath, 'BD156D6710D54D8782F4');
-        if (probe.success && probe.pageHmacAlgorithm && probe.kdfHmacAlgorithm) {
-          const value = this.platform.native.ntHelper.decryptLoginDb(dbPath, {
-            pageHmacAlgorithm: probe.pageHmacAlgorithm,
-            kdfHmacAlgorithm: probe.kdfHmacAlgorithm,
+    // login.db lives in one place on win32 but TWO on linux (`global/nt_db`
+    // primary + `nt_qq/global/nt_db` supplementary). Decrypt each and merge,
+    // letting earlier (higher-priority) entries win on a uin clash.
+    const dbPaths = this.loginDbPaths();
+    if (dbPaths.length > 0) {
+      const merged = new Map<string, LoginAccount>();
+      let anyDecrypted = false;
+      for (const dbPath of dbPaths) {
+        try {
+          const probe = await this.platform.native.ntHelper.testDatabaseKey(dbPath, 'BD156D6710D54D8782F4');
+          if (probe.success && probe.pageHmacAlgorithm && probe.kdfHmacAlgorithm) {
+            anyDecrypted = true;
+            const rows = this.platform.native.ntHelper.decryptLoginDb(dbPath, {
+              pageHmacAlgorithm: probe.pageHmacAlgorithm,
+              kdfHmacAlgorithm: probe.kdfHmacAlgorithm,
+            });
+            for (const row of rows) {
+              if (row.uin && !merged.has(row.uin)) merged.set(row.uin, row);
+            }
+          } else {
+            this.logger.warn('login.db probe did not yield algorithms', {
+              event: 'login-db-probe-unsuccessful',
+              dbPath,
+              probeSuccess: probe.success,
+            });
+          }
+        } catch (error) {
+          this.logger.warn('login.db decrypt threw', {
+            event: 'login-db-decrypt-failed',
+            dbPath,
+            ...logErrorContext(error),
           });
-          this.accountCache = {
-            expiresAt: now + ACCOUNT_CACHE_TTL_MS,
-            value,
-          };
-          return value;
         }
-        // Probe ran but reported failure (wrong/rotated key or unsupported algo).
-        this.logger.warn('login.db probe did not yield algorithms; using fallback', {
-          event: 'login-db-probe-unsuccessful',
-          dbPath,
-          probeSuccess: probe.success,
-        });
-      } catch (error) {
-        // decrypt failed — fall through to the launch-based fallback.
-        this.logger.warn('login.db decrypt threw; using fallback', {
-          event: 'login-db-decrypt-failed',
-          dbPath,
-          ...logErrorContext(error),
-        });
+      }
+      if (anyDecrypted && merged.size > 0) {
+        const value = [...merged.values()];
+        this.accountCache = { expiresAt: now + ACCOUNT_CACHE_TTL_MS, value };
+        return value;
       }
     } else {
       // No login.db found under any candidate/override root: decryption can't

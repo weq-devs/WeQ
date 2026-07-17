@@ -22,7 +22,7 @@ import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
-import { createWin32Platform, isTencentFilesRoot, type Platform } from '@weq/platform';
+import { createWin32Platform, createLinuxPlatform, isTencentFilesRoot, type Platform } from '@weq/platform';
 import { startMcpServer, stopMcpServer } from '../mcp/server';
 import { startWeqServer, stopWeqServer } from '../weq_assistant/server';
 import { refreshWeqStats, setWeqStats, statsCachePath } from '../weq_assistant/stats';
@@ -136,6 +136,21 @@ export interface KeyFetchStalledEvent {
 }
 
 export const accountEventBus = new EventEmitter();
+
+/**
+ * Process-wide uin→uid registry. On linux the on-disk account directory is
+ * `nt_qq_<md5(md5(uid)+"nt_kernel")>`, so path resolution needs the string uid
+ * for a given uin. A freshly-added account's uid isn't in the saved config yet
+ * when `openAccount` first probes its db path, so the router seeds it here via
+ * `rememberAccountUid` before the lookup. The linux platform's uid resolver
+ * checks this map first, then falls back to the persisted account configs.
+ */
+const uidRegistry = new Map<string, string>();
+
+/** Seed the uin→uid map (called from the openAccount flow). No-op off linux. */
+export function rememberAccountUid(uin: string, uid: string): void {
+  if (uin && uid) uidRegistry.set(uin, uid);
+}
 
 /**
  * The single source of truth for the "alive QQ but can't send the packet" copy.
@@ -494,7 +509,19 @@ export function initAppContext(): AppContext {
   // calls this lazily on every path lookup, by which point `userConfig` is
   // assigned, so the override flows into login.db decrypt / db lookup / stats.
   let readDataRootOverride: () => string | null = () => null;
-  const platform = createWin32Platform(result.bundle, () => readDataRootOverride());
+
+  // uin→uid registry for linux account-directory derivation. In-memory map wins
+  // (covers a freshly-added account whose config isn't on disk yet); on a miss
+  // we fall back to the saved account configs. Late-bound like the override
+  // reader above because `userConfig` is constructed after `platform`.
+  let readUidFromConfig: (uin: string) => string | null = () => null;
+  const resolveUid = (uin: string): string | null =>
+    uidRegistry.get(uin) ?? readUidFromConfig(uin);
+
+  const platform =
+    process.platform === 'linux'
+      ? createLinuxPlatform(result.bundle, () => readDataRootOverride(), resolveUid)
+      : createWin32Platform(result.bundle, () => readDataRootOverride());
   initLogger(platform.appDataRoot());
   const logger = getLogger().child({ scope: 'app-context' });
   logger.info('initializing app context', {
@@ -504,6 +531,12 @@ export function initAppContext(): AppContext {
   });
   const userConfig = new UserConfigService(platform);
   readDataRootOverride = () => userConfig.read().tencentFilesRootOverride ?? null;
+  readUidFromConfig = (uin: string): string | null => {
+    for (const rec of userConfig.listAccountConfigs()) {
+      if (rec.uin === uin && rec.uid) return rec.uid;
+    }
+    return null;
+  };
 
   // Sanitize a legacy / malformed data-dir override on launch: a stored path
   // that no longer exists or doesn't end in `Tencent Files` (e.g. an old build

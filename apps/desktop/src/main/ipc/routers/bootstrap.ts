@@ -27,6 +27,7 @@ import {
   requireBootstrap,
   requirePlatform,
   emitKeyFetchStalled,
+  rememberAccountUid,
   type AccountForcedClosedEvent,
   type KeyFetchStalledEvent,
 } from '../../context/app_context';
@@ -900,6 +901,7 @@ export const bootstrapRouter = router({
     .input(
       z.object({
         uin: z.string(),
+        uid: z.string().optional(),
         dbKey: z.string(),
         algo: algoSchema.optional(),
         displayName: z.string().optional(),
@@ -910,6 +912,12 @@ export const bootstrapRouter = router({
     .mutation(async ({ input }) => {
       const ctx = getAppContext();
       const platform = requirePlatform();
+
+      // Register the uid→uin mapping BEFORE any path lookup: on linux the
+      // account directory is derived from uid, and this is a fresh account
+      // whose uid isn't in the saved config yet. Seeding it here lets
+      // `platform.ntMsgDbPath(uin)` resolve during this very call.
+      if (input.uid) rememberAccountUid(input.uin, input.uid);
 
       let algo = input.algo;
       if (!algo) {
@@ -933,6 +941,7 @@ export const bootstrapRouter = router({
       await ctx.setAccount(
         { uin: input.uin, dbKey: input.dbKey, algo },
         {
+          ...(input.uid ? { uid: input.uid } : {}),
           ...(input.displayName ? { displayName: input.displayName } : {}),
           ...(input.avatarUrl ? { avatarUrl: input.avatarUrl } : {}),
           ...(dataDir ? { dataDir } : {}),
