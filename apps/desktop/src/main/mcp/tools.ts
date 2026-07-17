@@ -65,6 +65,8 @@ interface AiMsgLine {
   sender: string;
   mine: boolean;
   text: string;
+  /** 与上一条（更早那条）的时间间隔，人读形式（如「2小时」）；仅在间隔较大时附上。 */
+  gap?: string;
 }
 
 const pad2 = (n: number): string => (n < 10 ? `0${n}` : String(n));
@@ -85,6 +87,30 @@ function hhmm(sec: bigint | number): string {
 function fmtDate(sec: bigint | number): string {
   const d = new Date(Number(sec) * 1000);
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+/** 秒数 → 精简中文时长（如「3天」「5小时」「12分钟」「刚刚」）。给「距今多久/间隔多久」用。 */
+function humanDuration(sec: number): string {
+  const s = Math.max(0, Math.floor(sec));
+  if (s < 60) return '刚刚';
+  const min = Math.floor(s / 60);
+  if (min < 60) return `${min}分钟`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}小时`;
+  const day = Math.floor(hr / 24);
+  if (day < 30) return `${day}天`;
+  const mon = Math.floor(day / 30);
+  if (mon < 12) return `${mon}个月`;
+  return `${Math.floor(day / 365)}年`;
+}
+
+/** 容错解析翻页游标（模型回传，可能带空格/非法字符）；解析失败视作「无游标」而非抛错。 */
+function safeBigint(text: string): bigint | null {
+  try {
+    return BigInt(text.trim());
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -261,7 +287,11 @@ export const AI_TOOLS: AiTool[] = [
     name: 'search_messages',
     description:
       '在本地 QQ 聊天记录里全文搜索关键词。scope: buddy=私聊, group=群聊, all=两者合并按时间排序。' +
-      '返回精简命中：time 时间、scope 会话类型、conv 会话标识、sender 发送者昵称、mine 是否本人发送、text 文本。',
+      '返回精简命中：time 时间、scope 会话类型、conv 会话标识、sender 发送者昵称、mine 是否本人发送、text 文本。' +
+      '\n【怎么用我】底层是**本地字面关键词匹配**，不理解整句问题：keyword 只能传一个最有辨识度、可能真出现在原话里的短词/短语，' +
+      '别把用户的问句、同义词列表或空格拼接的多词丢进来。想限定某个人/某个群里搜，改用 search_in_conversation 更准。' +
+      '\n【结果不能代表什么】一次零命中**不等于**内容不存在——可能是词没选对；要换更短/近义的关键词多试几次，或改用 get_messages 直接把相关会话读出来判断。' +
+      '命中的原话可作为「谁在何时说过某字面词」的直接证据，但**别拿前几十条命中当完整名单**（要「还有谁说过 X」用 find_people_who_mentioned），也别据此推断关系亲疏——那要接 inspect_timeline / get_messages 核验。',
     input: z.object({
       keyword: z.string().min(1).describe('搜索关键词'),
       scope: z.enum(['all', 'buddy', 'group']).default('all').describe('搜索范围'),
@@ -270,23 +300,24 @@ export const AI_TOOLS: AiTool[] = [
     run: async ({ keyword, scope, limit }) => {
       const svc = services();
       const search = svc.msgSearch;
-      const hits =
+      // 多探一条判断是否还有更多命中（诚实的 hasMore）；合并 all 时两路各探再并。
+      const probe = limit + 1;
+      const raw =
         scope === 'buddy'
-          ? await search.searchBuddy(keyword, limit)
+          ? await search.searchBuddy(keyword, probe)
           : scope === 'group'
-            ? await search.searchGroup(keyword, limit)
-            : [
-                ...(await search.searchBuddy(keyword, limit)),
-                ...(await search.searchGroup(keyword, limit)),
-              ]
-                .sort((a, b) => Number(b.sendTime - a.sendTime))
-                .slice(0, limit);
+            ? await search.searchGroup(keyword, probe)
+            : [...(await search.searchBuddy(keyword, probe)), ...(await search.searchGroup(keyword, probe))].sort(
+                (a, b) => Number(b.sendTime - a.sendTime),
+              );
+      const hasMore = raw.length > limit;
+      const hits = raw.slice(0, limit);
 
       const selfUid = (await svc.profile.getSelfProfile())?.uid ?? '';
       const otherUids = [...new Set(hits.filter((h) => h.senderUid !== selfUid).map((h) => h.senderUid))];
       const nameByUid = otherUids.length ? await svc.profile.nicksByUids(otherUids) : {};
 
-      return hits.map((h) => ({
+      const items = hits.map((h) => ({
         time: fmtTime(h.sendTime),
         scope: Number(h.chatType) === 2 ? 'group' : 'c2c',
         conv: h.targetUid,
@@ -295,6 +326,20 @@ export const AI_TOOLS: AiTool[] = [
         text: h.content,
         ...(h.fileName ? { file: h.fileName } : {}),
       }));
+
+      return {
+        keyword,
+        scope,
+        count: items.length,
+        hasMore,
+        coverage: RANK_COVERAGE,
+        hits: items,
+        ...(items.length === 0
+          ? { hint: `没搜到含「${keyword}」的消息；换更短/近义的关键词再试，或改用 get_messages 直接读会话判断。零命中不代表内容不存在。` }
+          : hasMore
+            ? { hint: `命中较多，只返回按时间最新的 ${limit} 条；调大 limit 或换更具体的关键词收窄。` }
+            : {}),
+      };
     },
   }),
 
@@ -304,7 +349,8 @@ export const AI_TOOLS: AiTool[] = [
       '在【指定会话内】全文搜索关键词——比全局 search_messages 更精准，专治「某人/某群里 TA 说过什么」。' +
       'kind: c2c=私聊（conv 传对方 uid），group=群聊（conv 传群号）。会话标识来自 find_contact / list_conversations / list_groups。' +
       '提到人名/群名时先用 find_contact 解析成会话标识，再用这个在该会话里搜，别把人名当关键词。' +
-      '返回精简命中：time 时间、sender 发送者昵称、mine 是否本人发送、text 文本。',
+      '返回 hits：time 时间、sender 发送者昵称、mine 是否本人发送、text 文本；带 hasMore（命中是否被截断）。' +
+      '同样是字面匹配：keyword 传短词、零命中≠不存在，可换词或改用 get_messages 顺读。',
     input: z.object({
       kind: z.enum(['c2c', 'group']).describe('会话类型'),
       conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
@@ -313,22 +359,40 @@ export const AI_TOOLS: AiTool[] = [
     }),
     run: async ({ kind, conv, keyword, limit }) => {
       const svc = services();
-      const hits =
+      const probe = limit + 1;
+      const raw =
         kind === 'group'
-          ? await svc.msgSearch.searchInGroupConversation(conv, keyword, limit)
-          : await svc.msgSearch.searchInBuddyConversation(conv, keyword, limit);
+          ? await svc.msgSearch.searchInGroupConversation(conv, keyword, probe)
+          : await svc.msgSearch.searchInBuddyConversation(conv, keyword, probe);
+      const hasMore = raw.length > limit;
+      const hits = raw.slice(0, limit);
 
       const selfUid = (await svc.profile.getSelfProfile())?.uid ?? '';
       const otherUids = [...new Set(hits.filter((h) => h.senderUid !== selfUid).map((h) => h.senderUid))];
       const nameByUid = otherUids.length ? await svc.profile.nicksByUids(otherUids) : {};
 
-      return hits.map((h) => ({
+      const items = hits.map((h) => ({
         time: fmtTime(h.sendTime),
         sender: h.senderUid === selfUid ? '我' : nameByUid[h.senderUid] || h.senderUid,
         mine: h.senderUid === selfUid,
         text: h.content,
         ...(h.fileName ? { file: h.fileName } : {}),
       }));
+
+      return {
+        kind,
+        conv,
+        keyword,
+        count: items.length,
+        hasMore,
+        coverage: RANK_COVERAGE,
+        hits: items,
+        ...(items.length === 0
+          ? { hint: `该会话里没搜到含「${keyword}」的消息；换更短/近义关键词，或用 get_messages 顺读判断。零命中不代表没说过。` }
+          : hasMore
+            ? { hint: `命中较多，只返回 ${limit} 条；调大 limit 或换更具体的关键词。` }
+            : {}),
+      };
     },
   }),
 
@@ -423,7 +487,7 @@ export const AI_TOOLS: AiTool[] = [
 
   tool({
     name: 'list_conversations',
-    description: '列出最近会话（私聊与群聊），最新在前。用来给后续工具挑选目标会话。',
+    description: '列出最近会话（私聊与群聊），最新在前。用来给后续工具挑选目标会话——从返回的 conv/kind 接 get_messages / get_messages_by_date 读原文，或先看「最近在跟谁来往」。想按活跃量排行别用它（那用 rank_friends_by_activity / get_period_overview）。',
     input: z.object({
       limit: z.number().int().min(1).max(200).default(50).describe('返回条数上限'),
     }),
@@ -436,40 +500,77 @@ export const AI_TOOLS: AiTool[] = [
   tool({
     name: 'get_messages',
     description:
-      '读取某个会话最新的若干条消息，按时间正序（旧→新）返回，方便顺读。' +
+      '读取某个会话的消息，按时间正序（旧→新）返回，方便顺读。默认取最新一页。' +
       'kind: c2c=私聊（conv 传对方 uid），group=群聊（conv 传群号）。会话标识可来自 list_conversations / list_groups。' +
-      '每条为精简形：time 时间、sender 发送者昵称、mine 是否本人发送、text 文本。',
+      '每条为精简形：time 时间、sender 发送者昵称、mine 是否本人发送、text 文本；间隔较大时附 gap（距上一条多久）。' +
+      '\n【翻页】返回带 hasMore / nextBefore：还想往更早读，就把 nextBefore 原样传回 before 参数取上一页；' +
+      '一次别把 limit 开太大，顺着翻更省 token 也更聚焦。',
     input: z.object({
       kind: z.enum(['c2c', 'group']).describe('会话类型'),
       conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
       limit: z.number().int().min(1).max(100).default(30).describe('返回条数上限'),
+      before: z.string().default('').describe('翻页游标：上一次返回的 nextBefore（读更早的一页）；不传=最新一页'),
     }),
-    run: async ({ kind, conv, limit }): Promise<AiMsgLine[]> => {
+    run: async ({ kind, conv, limit, before }) => {
       const svc = services();
       const selfUin = (await svc.profile.getSelfProfile())?.uin ?? -1n;
+      const beforeSeq = before.trim() ? safeBigint(before) : null;
+      // 探测法：多取一条判断是否还有更早的消息，既得到诚实的 hasMore、又不返回会翻出空页的游标。
+      const probe = limit + 1;
       const rows =
         kind === 'group'
-          ? await svc.msgs.getGroupLatest(conv, limit)
-          : await svc.msgs.getC2cLatest(conv, limit);
+          ? beforeSeq != null
+            ? await svc.msgs.getGroupBefore(conv, beforeSeq, probe)
+            : await svc.msgs.getGroupLatest(conv, probe)
+          : beforeSeq != null
+            ? await svc.msgs.getC2cBefore(conv, beforeSeq, probe)
+            : await svc.msgs.getC2cLatest(conv, probe);
+
+      const hasMore = rows.length > limit;
+      const page = rows.slice(0, limit); // DB 最新在前，取最新的 limit 条
+      // 更早一页的游标 = 本页最旧那条的 seq（page 仍是新→旧，故取末元素）。
+      const nextBefore = hasMore && page.length ? String(page[page.length - 1]!.msgSeq) : '';
 
       // 名字解析：自己=「我」，其余批量取昵称（私聊就对方一个人，群聊各发言人）。
-      const otherUids = [...new Set(rows.filter((r) => r.senderUin !== selfUin).map((r) => r.senderUid))];
+      const otherUids = [...new Set(page.filter((r) => r.senderUin !== selfUin).map((r) => r.senderUid))];
       const nameByUid = otherUids.length ? await svc.profile.nicksByUids(otherUids) : {};
 
-      const lines = rows.map((r) => ({
-        time: fmtTime(r.sendTime),
-        sender: r.senderUin === selfUin ? '我' : nameByUid[r.senderUid] || String(r.senderUin),
-        mine: r.senderUin === selfUin,
-        text: flattenElements(r.elements),
-      }));
-      lines.reverse(); // DB 是最新在前，翻成旧→新方便顺读
-      return lines;
+      const ordered = [...page].reverse(); // 翻成旧→新方便顺读
+      const messages: AiMsgLine[] = ordered.map((r, i) => {
+        const line: AiMsgLine = {
+          time: fmtTime(r.sendTime),
+          sender: r.senderUin === selfUin ? '我' : nameByUid[r.senderUid] || String(r.senderUin),
+          mine: r.senderUin === selfUin,
+          text: flattenElements(r.elements),
+        };
+        // 与上一条（更早那条）的间隔：只在 ≥30 分钟时标注，给「聊天有没有断档」的时间感又不刷屏。
+        if (i > 0) {
+          const gapSec = Number(r.sendTime) - Number(ordered[i - 1]!.sendTime);
+          if (gapSec >= 1800) line.gap = humanDuration(gapSec);
+        }
+        return line;
+      });
+
+      return {
+        kind,
+        conv,
+        count: messages.length,
+        hasMore,
+        ...(nextBefore ? { nextBefore } : {}),
+        coverage: RANK_COVERAGE,
+        messages,
+        ...(messages.length === 0
+          ? { hint: beforeSeq != null ? '没有更早的消息了。' : '该会话本地没有消息记录（确认 conv 是否正确、或消息尚未同步）。' }
+          : hasMore
+            ? { hint: `还有更早的消息；把 nextBefore 传回 before 可继续往前读。` }
+            : {}),
+      };
     },
   }),
 
   tool({
     name: 'list_groups',
-    description: '列出当前账号加入的群聊（群号、群名等）。',
+    description: '列出当前账号加入的群聊（群号、群名等）。用来枚举/挑群，或把群名对上群号（只找某一个群更快的是 find_contact / search_groups）。拿到群号后接 get_messages / get_group_activity / list_group_members 等。',
     input: z.object({
       limit: z.number().int().min(1).max(500).default(100).describe('返回条数上限'),
       offset: z.number().int().min(0).default(0).describe('分页偏移'),
@@ -482,7 +583,7 @@ export const AI_TOOLS: AiTool[] = [
 
   tool({
     name: 'list_buddies',
-    description: '列出当前账号的 QQ 好友（uid、uin、昵称、备注等）。',
+    description: '列出当前账号的 QQ 好友（uid、uin、昵称、备注等）。用来枚举好友或把昵称对上 uid（只找某一个人更快的是 find_contact / search_buddies）。拿到 uid 后接 get_messages / inspect_timeline / get_user_profile 等。想要「和谁聊得最多」的排行用 rank_friends_by_activity，别自己遍历。',
     input: z.object({
       limit: z.number().int().min(1).max(500).default(100).describe('返回条数上限'),
       offset: z.number().int().min(0).default(0).describe('分页偏移'),
@@ -1424,7 +1525,8 @@ export const AI_TOOLS: AiTool[] = [
     description:
       '读取【某个会话】在【某一天】的逐条消息，按时间正序返回——用于「今天/某天和 XX 聊了什么」做话题归纳，或回看某天群里的讨论。' +
       'kind: c2c=私聊（conv 传对方 uid），group=群聊（conv 传群号）；会话标识可由 find_contact 解析。date 默认今天，可传 YYYY-MM-DD。' +
-      '每条为精简形：time（HH:mm）、sender 发送者昵称、mine 是否本人、text 文本。',
+      '每条为精简形：time（HH:mm）、sender 发送者昵称、mine 是否本人、text 文本；间隔较大时附 gap（距上一条多久）。' +
+      '\n【局限】只在该会话最近若干条里筛当天；查很久以前的某天可能扫不到（返回 coverage 会点明），那种情况改用 inspect_timeline 的 readWindows 找活跃日、或直接读最近的日期。',
     input: z.object({
       kind: z.enum(['c2c', 'group']).describe('会话类型'),
       conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
@@ -1438,6 +1540,9 @@ export const AI_TOOLS: AiTool[] = [
       const rows =
         kind === 'group' ? await svc.msgs.getGroupLatest(conv, READ) : await svc.msgs.getC2cLatest(conv, READ);
       const day = rows.filter((r) => Number(r.sendTime) >= startSec && Number(r.sendTime) < endSec);
+      // 读取窗口触顶且最旧一条仍晚于目标日 → 目标日可能落在未扫到的更早区间，coverage 要如实点明。
+      const oldestSec = rows.length ? Number(rows[rows.length - 1]!.sendTime) : Number.MAX_SAFE_INTEGER;
+      const mayMissEarlier = rows.length >= READ && oldestSec >= endSec;
 
       const selfUin = (await svc.profile.getSelfProfile())?.uin ?? -1n;
       const otherUids = [...new Set(day.filter((r) => r.senderUin !== selfUin).map((r) => r.senderUid))];
@@ -1445,23 +1550,37 @@ export const AI_TOOLS: AiTool[] = [
 
       // day 为最新在前；取当天最近 limit 条后翻成旧→新方便顺读。
       const slice = day.slice(0, limit).reverse();
-      const messages = slice.map((r) => ({
-        time: hhmm(r.sendTime),
-        sender: r.senderUin === selfUin ? '我' : nameByUid[r.senderUid] || String(r.senderUin),
-        mine: r.senderUin === selfUin,
-        text: flattenElements(r.elements),
-      }));
+      const messages: AiMsgLine[] = slice.map((r, i) => {
+        const line: AiMsgLine = {
+          time: hhmm(r.sendTime),
+          sender: r.senderUin === selfUin ? '我' : nameByUid[r.senderUid] || String(r.senderUin),
+          mine: r.senderUin === selfUin,
+          text: flattenElements(r.elements),
+        };
+        if (i > 0) {
+          const gapSec = Number(r.sendTime) - Number(slice[i - 1]!.sendTime);
+          if (gapSec >= 1800) line.gap = humanDuration(gapSec);
+        }
+        return line;
+      });
 
       return {
         date: label,
         kind,
         conv,
         count: messages.length,
+        coverage: mayMissEarlier
+          ? `${RANK_COVERAGE}（注意：只扫了该会话最近 ${READ} 条，这一天可能更早、未完全覆盖）`
+          : RANK_COVERAGE,
         messages,
         ...(day.length > limit
           ? { hint: `当天共 ${day.length} 条，只返回最近 ${limit} 条；如需更早可缩小到更早的日期或提高 limit。` }
           : day.length === 0
-            ? { hint: '这一天该会话没有消息记录。' }
+            ? {
+                hint: mayMissEarlier
+                  ? '在最近的读取窗口里没扫到这一天（可能更久远）；用 inspect_timeline 找活跃日、或读更近的日期。'
+                  : '这一天该会话没有消息记录。',
+              }
             : {}),
       };
     },

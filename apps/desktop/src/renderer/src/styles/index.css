@@ -7108,6 +7108,16 @@ html[data-theme="dark"] .weq-forward-bubble {
   color: var(--weq-fg-muted);
 }
 
+/* 停止按钮：busy 时替换发送键，用警示色区分「这是中断动作」。 */
+.weq-asst-stop-btn {
+  background: color-mix(in srgb, var(--weq-danger, #e5484d) 14%, transparent);
+  border-color: color-mix(in srgb, var(--weq-danger, #e5484d) 40%, transparent);
+  color: var(--weq-danger, #e5484d);
+}
+.weq-asst-stop-btn:hover {
+  background: color-mix(in srgb, var(--weq-danger, #e5484d) 22%, transparent);
+}
+
 /* 折叠的过程区 */
 .weq-asst-steps {
   border: 1px solid var(--weq-border-subtle);
@@ -7161,6 +7171,13 @@ html[data-theme="dark"] .weq-forward-bubble {
 .weq-asst-step-think .weq-asst-step-text {
   white-space: pre-wrap;
   color: var(--weq-fg-muted);
+}
+/* reasoning（推理模型思考流）：比 thinking 更淡、斜体，与工具前思路区分开。 */
+.weq-asst-reasoning-text {
+  white-space: pre-wrap;
+  color: var(--weq-fg-muted);
+  font-style: italic;
+  opacity: 0.85;
 }
 .weq-asst-step-tool {
   padding: 1px 6px;
@@ -7334,14 +7351,15 @@ html[data-theme="dark"] .weq-forward-bubble {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
-.weq-asst-md-code {
+/* 行内 code（react-markdown 输出裸 <code>，非 pre 内的那些）。 */
+.weq-asst-md :not(pre) > code {
   padding: 1px 5px;
   border-radius: 5px;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 0.9em;
   background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
 }
-.weq-asst-md-pre {
+.weq-asst-md pre {
   margin: 8px 0;
   padding: 10px 12px;
   overflow: auto;
@@ -7351,22 +7369,81 @@ html[data-theme="dark"] .weq-forward-bubble {
   font-size: 12px;
   line-height: 1.5;
 }
-.weq-asst-md-pre code {
+.weq-asst-md pre code {
   background: none;
   padding: 0;
 }
-.weq-asst-md-quote {
+.weq-asst-md blockquote {
   margin: 8px 0;
   padding: 4px 12px;
   border-left: 3px solid var(--weq-border-strong);
   color: var(--weq-fg-secondary);
   background: color-mix(in srgb, var(--weq-accent-effective) 5%, transparent);
-  white-space: pre-wrap;
 }
-.weq-asst-md-hr {
+.weq-asst-md hr {
   margin: 12px 0;
   border: 0;
   border-top: 1px solid var(--weq-border-subtle);
+}
+/* GFM 表格（remark-gfm）。 */
+.weq-asst-md table {
+  margin: 8px 0;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  width: auto;
+  max-width: 100%;
+  display: block;
+  overflow-x: auto;
+}
+.weq-asst-md th,
+.weq-asst-md td {
+  padding: 5px 10px;
+  border: 1px solid var(--weq-border-subtle);
+  text-align: left;
+}
+.weq-asst-md th {
+  font-weight: 600;
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+}
+.weq-asst-md tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--weq-accent-effective) 3%, transparent);
+}
+/* GFM 任务列表复选框（remark-gfm）：去掉列表符号、复选框与文字对齐。 */
+.weq-asst-md li:has(> input[type='checkbox']) {
+  list-style: none;
+  margin-left: -18px;
+}
+.weq-asst-md input[type='checkbox'] {
+  margin-right: 6px;
+  vertical-align: middle;
+}
+/* highlight.js 语法高亮主题（rehype-highlight 打的 hljs-* class；跟随 app 前景/强调色的暗色友好配色）。 */
+.weq-asst-md .hljs-comment,
+.weq-asst-md .hljs-quote {
+  color: var(--weq-fg-muted);
+  font-style: italic;
+}
+.weq-asst-md .hljs-keyword,
+.weq-asst-md .hljs-selector-tag,
+.weq-asst-md .hljs-built_in {
+  color: #c678dd;
+}
+.weq-asst-md .hljs-string,
+.weq-asst-md .hljs-attr {
+  color: #98c379;
+}
+.weq-asst-md .hljs-number,
+.weq-asst-md .hljs-literal {
+  color: #d19a66;
+}
+.weq-asst-md .hljs-title,
+.weq-asst-md .hljs-function .hljs-title,
+.weq-asst-md .hljs-section {
+  color: #61afef;
+}
+.weq-asst-md .hljs-type,
+.weq-asst-md .hljs-class .hljs-title {
+  color: #e5c07b;
 }
 
 .weq-asst-set-hint {

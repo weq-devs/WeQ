@@ -78,14 +78,31 @@ interface TableSpec {
   table: string;
   /** Column holding the conversation key for the session filter. */
   filterCol: string;
+  /**
+   * True when `filterCol` stores its key as an INTEGER (group's 40027 群号),
+   * false when it's TEXT (c2c/dataline's 40021 peer uid).
+   *
+   * This is load-bearing, and the reason group recall silently slipped past the
+   * trigger for a while: inside a trigger, `OLD."col"` is an EXPRESSION and does
+   * NOT carry the table column's affinity (proven with an audit trigger on the
+   * live DB — db/test/diag_audit_trigger.ts). So `OLD."40027" IN ('673646675')`
+   * compares INTEGER 673646675 against TEXT '673646675', which SQLite deems
+   * unequal (different storage classes) → the WHEN never matched → recall went
+   * through. A plain `SELECT … WHERE "40027" IN ('…')` DOES match (the real
+   * table column applies NUMERIC affinity), which is exactly why every SELECT
+   * probe misled us. Fix: emit the IN-list as bare integer literals for numeric
+   * filter columns so it's INTEGER-vs-INTEGER. TEXT columns keep quoted string
+   * literals.
+   */
+  filterNumeric: boolean;
   trigger: string;
 }
 
 /** The three message tables and how each is filtered by conversation. */
 const TABLE_SPECS: readonly TableSpec[] = [
-  { kind: 'c2c', table: 'c2c_msg_table', filterCol: '40021', trigger: 'weq_anti_recall_c2c' },
-  { kind: 'group', table: 'group_msg_table', filterCol: '40027', trigger: 'weq_anti_recall_group' },
-  { kind: 'dataline', table: 'dataline_msg_table', filterCol: '40021', trigger: 'weq_anti_recall_dataline' },
+  { kind: 'c2c', table: 'c2c_msg_table', filterCol: '40021', filterNumeric: false, trigger: 'weq_anti_recall_c2c' },
+  { kind: 'group', table: 'group_msg_table', filterCol: '40027', filterNumeric: true, trigger: 'weq_anti_recall_group' },
+  { kind: 'dataline', table: 'dataline_msg_table', filterCol: '40021', filterNumeric: false, trigger: 'weq_anti_recall_dataline' },
 ] as const;
 
 /** Quote a value as a SQL string literal (single quotes, doubled to escape). */
@@ -94,12 +111,36 @@ function sqlStr(v: string): string {
 }
 
 /**
+ * Render one conversation id as a SQL literal for the IN-list, matching the
+ * filter column's storage class (see {@link TableSpec.filterNumeric}).
+ *
+ * For a numeric column we emit a BARE INTEGER. A group id is always all-digits;
+ * anything else (e.g. a stray `u_…` uid the renderer mis-tagged as group) can't
+ * live in an INTEGER 40027 anyway, so we drop it rather than emit a quoted value
+ * that would (a) re-introduce the affinity mismatch and (b) never match. TEXT
+ * columns keep quoted string literals.
+ */
+function sqlLiteral(id: string, numeric: boolean): string | null {
+  if (!numeric) return sqlStr(id);
+  return /^[0-9]+$/.test(id) ? id : null;
+}
+
+/**
  * Build the `CREATE TRIGGER` statement for one table, gated on the given
  * conversation ids. `ids` must be non-empty — the caller drops (not creates)
  * the trigger for tables with no selection.
+ *
+ * Returns `null` when, after rendering to storage-class-correct literals, no id
+ * survives (e.g. a numeric table handed only non-numeric ids). An empty IN-list
+ * would be `IN ()` — a syntax error — so the caller treats null as "nothing to
+ * install for this table".
  */
-function createTriggerSql(spec: TableSpec, ids: readonly string[]): string {
-  const inList = ids.map(sqlStr).join(', ');
+function createTriggerSql(spec: TableSpec, ids: readonly string[]): string | null {
+  const inList = ids
+    .map((id) => sqlLiteral(id, spec.filterNumeric))
+    .filter((lit): lit is string => lit !== null)
+    .join(', ');
+  if (inList === '') return null;
   return `CREATE TRIGGER IF NOT EXISTS ${spec.trigger}
 BEFORE UPDATE ON ${spec.table}
 WHEN OLD."40002" IS NEW."40002"
@@ -162,7 +203,10 @@ export class AntiRecallDb {
       // stored trigger, and DROP-then-CREATE is the only portable way.
       await this.qq.write(`DROP TRIGGER IF EXISTS ${spec.trigger}`);
       if (ids.length > 0) {
-        await this.qq.write(createTriggerSql(spec, ids));
+        const sql = createTriggerSql(spec, ids);
+        // null → no storage-class-valid id survived for this table; leave it
+        // dropped rather than emit an `IN ()` syntax error.
+        if (sql) await this.qq.write(sql);
       }
     }
   }

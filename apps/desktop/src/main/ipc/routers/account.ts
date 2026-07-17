@@ -184,6 +184,12 @@ const agentLabModels = z.object({
   voiceClone: agentLabModelRef.optional(),
 });
 
+/**
+ * 进行中的助手任务：runId → AbortController。chatWithAssistant 建、结束时清；
+ * abortAssistantRun 据此掐断（用户点「停止」）。模块级单例，与 assistantBus 同层。
+ */
+const activeAssistantRuns = new Map<string, AbortController>();
+
 /** Wire payload pushed to the renderer when nt_msg.db gains new rows. */
 export interface NewMessagesWire {
   messages: ChatMsgWire[];
@@ -1044,10 +1050,22 @@ export const accountRouter = router({
     .mutation(({ input }) => {
       const assistant = requireServices().assistant;
       const runId = randomUUID();
+      // 每轮任务挂一个 AbortController，供 abortAssistantRun 按 runId 掐断（用户点「停止」）。
+      const ac = new AbortController();
+      activeAssistantRuns.set(runId, ac);
       void assistant
-        .chat(input.sessionId, input.text, (step) => assistantBus.emit('step', { runId, step } satisfies AssistantStreamEvent))
-        .catch(() => {});
+        .chat(input.sessionId, input.text, (step) => assistantBus.emit('step', { runId, step } satisfies AssistantStreamEvent), ac.signal)
+        .catch(() => {})
+        .finally(() => activeAssistantRuns.delete(runId));
       return { runId };
+    }),
+
+  /** 取消一轮进行中的助手任务：掐断在途 LLM 请求 + 让 chat() 在轮次边界尽早收尾（emit `aborted`）。 */
+  abortAssistantRun: procedure
+    .input(z.object({ runId: z.string().min(1) }))
+    .mutation(({ input }) => {
+      activeAssistantRuns.get(input.runId)?.abort();
+      return true;
     }),
 
   /**

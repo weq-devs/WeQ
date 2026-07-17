@@ -8,9 +8,10 @@
  *   setEnabled   → flip master switch, (re)install or drop triggers
  *   setTargets   → replace the protected-conversation set, reconcile triggers
  *
- * `setEnabled` / `setTargets` can throw AntiRecallQqRunningError (code
- * 'QQ_RUNNING') when QQ is still open — the config is persisted either way, the
- * error just tells the UI to prompt "close QQ, then retry".
+ * `setEnabled` / `setTargets` install or drop the triggers right away, whether
+ * or not QQ is running. If QQ is open it may keep serving from its cached schema
+ * until the next restart, so `getStatus().qqRunning` lets the UI warn that the
+ * change may not take effect until QQ is restarted.
  */
 
 import { z } from 'zod';

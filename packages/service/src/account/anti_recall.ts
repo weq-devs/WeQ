@@ -8,9 +8,11 @@
  *     I/O error).
  *   • the SQL-trigger installer {@link AntiRecallDb} (in @weq/db) that actually
  *     writes/drops the `BEFORE UPDATE … RAISE(IGNORE)` triggers on nt_msg.db.
- *   • a QQ-closed guard around every write: the triggers live in QQ's schema and
- *     QQ only re-reads the schema on boot, so installing while QQ runs both risks
- *     the DB lock and wouldn't take effect until restart anyway.
+ *   • a `qqRunning` hint alongside every write: install/uninstall works whether
+ *     or not QQ is open (each trigger DDL is a short, lock-releasing write), but
+ *     QQ may keep serving from its already-open connection's cached schema, so a
+ *     freshly (un)installed trigger can take until QQ's next restart to actually
+ *     (stop) firing. The renderer surfaces `qqRunning` to warn about exactly that.
  *
  * The renderer drives it through the anti_recall tRPC router:
  *   getConfig → { enabled, targets, installed }   (installed = live trigger set)
@@ -45,6 +47,25 @@ export interface AntiRecallStatus extends AntiRecallConfig {
 }
 
 const DEFAULT_CONFIG: AntiRecallConfig = { enabled: false, targets: [] };
+
+/**
+ * 归一化一个 target 的 kind，修复前端对临时会话的误判。
+ *
+ * 真群号是纯数字，uid 一定是 `u_` 开头。有些临时会话（群临时会话/频道等）chatType
+ * 名字里带 'GROUP'，却把 uid 存进 targetUid —— 前端可能把它错标成 group，塞进 group
+ * 触发器的 40027(数字) IN 列表，导致永不命中、完全不受保护（已在真实库用
+ * diag_dirty_conv.ts 证实这类会话消息都在 c2c_msg_table）。
+ *
+ * 这里兜底：id 以 `u_` 开头却标了 group 的，一律改回 c2c（走 40021）。既清洗历史脏
+ * 配置（load 时自愈），也防前端漏网（setTargets 时再校一遍）。dataline 保持不动——
+ * 数据线 id 也是 u_，但它是前端按 chatType 明确判定的，不该被降级成 c2c。
+ */
+function normalizeTarget(t: AntiRecallTarget): AntiRecallTarget {
+  if (t.kind === 'group' && t.id.startsWith('u_')) {
+    return { kind: 'c2c', id: t.id };
+  }
+  return { kind: t.kind, id: t.id };
+}
 
 export class AntiRecallService {
   private config: AntiRecallConfig;
@@ -83,15 +104,17 @@ export class AntiRecallService {
 
   /** Replace the protected-conversation set, then reconcile. Persists. */
   async setTargets(targets: AntiRecallTarget[]): Promise<AntiRecallStatus> {
-    // Drop empty ids and de-dup by (kind,id) so the trigger's IN-list is clean.
+    // Normalize (u_ ids can't be group codes), drop empty ids, de-dup by (kind,id)
+    // so the trigger's IN-list is clean and every id lands in the right column.
     const seen = new Set<string>();
     const clean: AntiRecallTarget[] = [];
-    for (const t of targets) {
-      if (!t.id) continue;
+    for (const raw of targets) {
+      if (!raw.id) continue;
+      const t = normalizeTarget(raw);
       const key = `${t.kind}:${t.id}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      clean.push({ kind: t.kind, id: t.id });
+      clean.push(t);
     }
     this.config = { ...this.config, targets: clean };
     this.persist();
@@ -104,15 +127,12 @@ export class AntiRecallService {
    * conversations when enabled, drop everything when disabled (or nothing is
    * selected).
    *
-   * ⚠️ Refuses while QQ is running — the schema change needs the write lock and
-   *    wouldn't take effect until QQ restarts anyway. The renderer surfaces
-   *    `qqRunning` so the user knows to close QQ; the config is still persisted,
-   *    so the next apply (or an explicit re-toggle after closing QQ) installs it.
+   * Works whether or not QQ is running — each statement is a short write that
+   * releases the lock immediately (see QqDb.write). Note only: if QQ is open it
+   * may keep firing (or not firing) the old triggers from its cached schema
+   * until its next restart, so callers surface `qqRunning` as a heads-up.
    */
   async applyTriggers(): Promise<void> {
-    if (this.isQqRunning()) {
-      throw new AntiRecallQqRunningError();
-    }
     const db = this.openDb();
     try {
       const active = this.config.enabled ? this.config.targets : [];
@@ -148,11 +168,13 @@ export class AntiRecallService {
       return {
         enabled: parsed.enabled === true,
         targets: Array.isArray(parsed.targets)
-          ? parsed.targets.filter(
-              (t): t is AntiRecallTarget =>
-                !!t && typeof t.id === 'string' &&
-                (t.kind === 'c2c' || t.kind === 'group' || t.kind === 'dataline'),
-            )
+          ? parsed.targets
+              .filter(
+                (t): t is AntiRecallTarget =>
+                  !!t && typeof t.id === 'string' &&
+                  (t.kind === 'c2c' || t.kind === 'group' || t.kind === 'dataline'),
+              )
+              .map(normalizeTarget)
           : [],
       };
     } catch {
@@ -167,14 +189,5 @@ export class AntiRecallService {
     } catch {
       /* 持久化失败不应阻断开关本身；下次 apply 时以内存态为准 */
     }
-  }
-}
-
-/** Thrown by {@link AntiRecallService.applyTriggers} when QQ is still running. */
-export class AntiRecallQqRunningError extends Error {
-  readonly code = 'QQ_RUNNING' as const;
-  constructor() {
-    super('QQ 正在运行，无法安装/更新防撤回触发器。请完全退出 QQ 后重试。');
-    this.name = 'AntiRecallQqRunningError';
   }
 }

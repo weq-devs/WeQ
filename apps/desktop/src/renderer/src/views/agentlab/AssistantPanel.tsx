@@ -7,8 +7,8 @@
  * 弹窗配置：额外提示 / 外部 MCP 服务器。空会话展示预设问题，点击直接发送。
  */
 
-import { useEffect, useRef, useState, type ReactElement } from 'react';
-import { ArrowLeft, Brain, Cpu, Send, Settings, Sparkles } from 'lucide-react';
+import { memo, useEffect, useRef, useState, type ReactElement } from 'react';
+import { ArrowLeft, Brain, Cpu, Send, Settings, Sparkles, Square } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { autoGrowTextarea } from '../../lib/textareaAutoGrow';
@@ -25,6 +25,10 @@ interface Turn {
   text: string;
   steps?: AssistantStep[];
   running?: boolean;
+  /** 运行中逐字累积的正文（final 到达后清空，改用 text）。 */
+  streamingText?: string;
+  /** 运行中逐字累积的推理内容（reasoning_delta），喂给思考面板。 */
+  reasoning?: string;
 }
 
 function parseSel(key: string): { providerId: string; model: string } | undefined {
@@ -32,7 +36,7 @@ function parseSel(key: string): { providerId: string; model: string } | undefine
   return providerId && model ? { providerId, model } : undefined;
 }
 
-/** 思考等级选项（后端字段已就位，reasoning 参数接入待流式改造）。 */
+/** 思考等级选项：非「不思考」时以 reasoning_effort 传给模型（M2）。 */
 const EFFORT_OPTIONS = [
   { value: 'off', label: '不思考' },
   { value: 'low', label: '轻度思考' },
@@ -122,11 +126,16 @@ function AssistantSettings({
   );
 }
 
-/** 助手回复气泡：折叠过程 + Markdown 终答 + 附件卡片。 */
-function AssistantBubble({ turn }: { turn: Turn }): ReactElement {
+/**
+ * 助手回复气泡：折叠过程 + Markdown 终答 + 附件卡片。
+ * `memo` 隔离：流式期间只有「正在跑的最后一条」变化，历史气泡不因父组件 setTurns 重渲。
+ */
+const AssistantBubble = memo(function AssistantBubble({ turn }: { turn: Turn }): ReactElement {
   const artifacts = (turn.steps ?? [])
     .filter((s): s is Extract<AssistantStep, { kind: 'artifact' }> => s.kind === 'artifact')
     .map((s) => s.artifact);
+  // 运行中显示逐字流式缓冲，完成后显示定稿正文。
+  const body = turn.running ? turn.streamingText || turn.text : turn.text;
 
   return (
     <div className="message-line theirs">
@@ -141,9 +150,9 @@ function AssistantBubble({ turn }: { turn: Turn }): ReactElement {
           </small>
         </span>
         <div className="message-content weq-asst-content">
-          <AssistantSteps steps={turn.steps ?? []} running={!!turn.running} />
-          {turn.text ? (
-            <AssistantMessage text={turn.text} />
+          <AssistantSteps steps={turn.steps ?? []} running={!!turn.running} reasoning={turn.reasoning} />
+          {body ? (
+            <AssistantMessage text={body} />
           ) : turn.running ? (
             <div className="weq-agentlab-typing weq-asst-typing">
               <span /><span /><span />
@@ -156,7 +165,7 @@ function AssistantBubble({ turn }: { turn: Turn }): ReactElement {
       </div>
     </div>
   );
-}
+});
 
 export function AssistantPanel({
   sessionId,
@@ -173,6 +182,7 @@ export function AssistantPanel({
   const selfProfile = trpc.account.getSelfProfile.useQuery();
   const assistantConfig = trpc.account.getAssistantConfig.useQuery();
   const send = trpc.account.chatWithAssistant.useMutation();
+  const abort = trpc.account.abortAssistantRun.useMutation();
   const clear = trpc.account.clearAssistantConversation.useMutation();
   const saveConfig = trpc.account.setAssistantConfig.useMutation();
 
@@ -227,11 +237,37 @@ export function AssistantPanel({
           const turn = prev[idx];
           if (!turn || turn.role !== 'assistant') return prev;
           const next = [...prev];
-          if (step.kind === 'final') {
-            next[idx] = { ...turn, text: step.text || '（没能得出结论。）', running: false };
+          if (step.kind === 'text_delta') {
+            // 正文逐字：累积进流式缓冲，气泡实时渲染。
+            next[idx] = { ...turn, streamingText: (turn.streamingText ?? '') + step.text };
+          } else if (step.kind === 'reasoning_delta') {
+            // 推理逐字：累积进 reasoning，喂思考面板。
+            next[idx] = { ...turn, reasoning: (turn.reasoning ?? '') + step.text };
+          } else if (step.kind === 'tool_call') {
+            // 工具调用开始：此前那段流式正文其实是「工具前的思考」——合成一条 thinking 落进 steps、
+            // 清空流式缓冲/推理（与后端持久化视觉一致），再追加本条 tool_call。
+            const pre = (turn.streamingText ?? '').trim();
+            const steps = [...(turn.steps ?? [])];
+            if (pre) steps.push({ kind: 'thinking', text: pre });
+            steps.push(step);
+            next[idx] = { ...turn, steps, streamingText: '', reasoning: '' };
+          } else if (step.kind === 'final') {
+            next[idx] = { ...turn, text: step.text || '（没能得出结论。）', streamingText: '', reasoning: '', running: false };
             runIdRef.current = null;
             void utils.account.getAssistantConversation.invalidate({ sessionId });
             // 首轮对话后端会自动总结标题；刷新会话列表让左栏标题跟上。
+            void utils.account.listAssistantSessions.invalidate();
+          } else if (step.kind === 'aborted') {
+            // 用户取消：把已流出的半截正文定稿为本轮答复（后端也已如此持久化）。
+            next[idx] = {
+              ...turn,
+              text: (turn.streamingText ?? '').trim() || turn.text || '（已停止）',
+              streamingText: '',
+              reasoning: '',
+              running: false,
+            };
+            runIdRef.current = null;
+            void utils.account.getAssistantConversation.invalidate({ sessionId });
             void utils.account.listAssistantSessions.invalidate();
           } else if (step.kind === 'error') {
             next[idx] = { ...turn, running: false };
@@ -294,6 +330,13 @@ export function AssistantPanel({
     runIdRef.current = null;
     await utils.account.getAssistantConversation.invalidate({ sessionId });
     await utils.account.listAssistantSessions.invalidate();
+  }
+
+  /** 停止当前任务：请求后端掐断（真正收尾 + 持久化半截答复由后端 emit `aborted` 驱动）。 */
+  function onStop(): void {
+    const runId = runIdRef.current;
+    if (!runId) return;
+    abort.mutate({ runId });
   }
 
   return (
@@ -395,9 +438,15 @@ export function AssistantPanel({
             placeholder="把任务交给 WeQ 助手（Enter 发送，Shift+Enter 换行）"
             disabled={busy}
           />
-          <button className="weq-set-btn" onClick={() => void onSend()} disabled={busy || !input.trim()}>
-            <Send size={14} /> 发送
-          </button>
+          {busy ? (
+            <button className="weq-set-btn weq-asst-stop-btn" onClick={onStop} title="停止本轮任务">
+              <Square size={13} strokeWidth={2.6} /> 停止
+            </button>
+          ) : (
+            <button className="weq-set-btn" onClick={() => void onSend()} disabled={!input.trim()}>
+              <Send size={14} /> 发送
+            </button>
+          )}
         </div>
       </div>
 

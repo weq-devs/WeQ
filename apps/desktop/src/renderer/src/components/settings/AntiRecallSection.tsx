@@ -10,9 +10,9 @@
  *   - setEnabled(enabled)  — 总开关；安装或卸载触发器
  *   - setTargets(targets)  — 替换受保护会话集；重建触发器
  *
- * setEnabled/setTargets 在 QQ 运行时会抛 code='QQ_RUNNING'：配置照常落盘，只是本次
- * 装/卸未执行 —— UI 据此提示「请退出 QQ 后重试」。触发器改的是 QQ 的 schema，QQ 仅在
- * 启动时重读 schema，所以装好后需重启 QQ 才真正生效。
+ * 装/卸触发器无论 QQ 是否运行都会立即执行。但 QQ 若正开着，可能仍按其已加载的旧
+ * schema 运行，导致改动要等 QQ 重启才真正生效 —— 因此 qqRunning 为真时 UI 提示
+ * 「可能需重启 QQ 才生效」。
  *
  * 会话选择器复用导出页的 ConversationPicker（全选 / 反选 / 清空 / 搜索）；数据源
  * 与导出页同一个 listConversationsWithCount，因此 PickItem.id 恰好就是触发器的过滤值
@@ -47,22 +47,28 @@ interface ConvWire {
   messageCount?: number;
 }
 
-/** 与后端 kindOf 同构：区分 群 / 数据线 / 私聊。 */
-function kindOf(chatType: string | number): AntiRecallKind {
+/**
+ * 判定一个会话该用哪个触发器（过滤列）。
+ *
+ * 不能只看 chatType：有些临时会话（群临时会话 / 频道等）chatType 名字里带 'GROUP'，
+ * 但 targetUid 却是 `u_` 开头的 uid，消息实际落在 c2c_msg_table（40021），群表 0 条
+ * （已用 diag_dirty_conv.ts 在真实库验证）。而 group 触发器按 40027（纯数字群号）过滤，
+ * 永远不等于 `u_xxx` —— 这类会话会被误塞进群列表、完全不受保护。
+ *
+ * 真群号一定是纯数字，uid 一定是 `u_` 开头。所以：只要 id 是 `u_` 开头，无论 chatType
+ * 怎么说都归 c2c/dataline（走 40021）；只有纯数字 id 且 chatType 含 GROUP 才是真群。
+ */
+function kindOf(chatType: string | number, id: string): AntiRecallKind {
   const t = String(chatType);
-  if (t.includes('GROUP')) return 'group';
   if (t.includes('DATALINE')) return 'dataline';
+  // `u_` 开头 = uid（私聊/临时会话/数据线），绝不是群号 → 用 40021 过滤。
+  if (id.startsWith('u_')) return 'c2c';
+  if (t.includes('GROUP')) return 'group';
   return 'c2c';
 }
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
-}
-
-/** QQ 运行导致的装/卸失败（后端 AntiRecallQqRunningError）。 */
-function isQqRunningErr(e: unknown): boolean {
-  const msg = errMsg(e);
-  return msg.includes('QQ_RUNNING') || msg.includes('QQ 正在运行');
 }
 
 export function AntiRecallSection(): ReactElement {
@@ -91,7 +97,7 @@ export function AntiRecallSection(): ReactElement {
     return ((conversations.data ?? []) as ConvWire[])
       .filter((c) => c.targetUid)
       .map((c) => {
-        const kind = kindOf(c.chatType);
+        const kind = kindOf(c.chatType, c.targetUid);
         const count = Number(c.messageCount ?? 0);
         const dataline = isDataline(c.chatType);
         const name =
@@ -115,7 +121,7 @@ export function AntiRecallSection(): ReactElement {
   const kindById = useMemo(() => {
     const m = new Map<string, AntiRecallKind>();
     for (const c of (conversations.data ?? []) as ConvWire[]) {
-      if (c.targetUid) m.set(c.targetUid, kindOf(c.chatType));
+      if (c.targetUid) m.set(c.targetUid, kindOf(c.chatType, c.targetUid));
     }
     return m;
   }, [conversations.data]);
@@ -140,24 +146,25 @@ export function AntiRecallSection(): ReactElement {
 
   async function onToggle(next: boolean): Promise<void> {
     try {
-      await setEnabled.mutateAsync({ enabled: next });
+      const res = await setEnabled.mutateAsync({ enabled: next });
       await status.refetch();
+      const needRestart = res.qqRunning;
       if (next) {
         pushToast({
           tone: 'success',
           title: '防撤回已开启',
-          message: '触发器已安装。请重启 QQ 使拦截生效。',
+          message: needRestart ? '触发器已安装。QQ 正在运行，可能需重启 QQ 才生效。' : '触发器已安装。',
         });
       } else {
-        pushToast({ tone: 'info', title: '防撤回已关闭', message: '触发器已卸载。' });
+        pushToast({
+          tone: 'info',
+          title: '防撤回已关闭',
+          message: needRestart ? '触发器已卸载。QQ 正在运行，可能需重启 QQ 才彻底停止。' : '触发器已卸载。',
+        });
       }
     } catch (e) {
       await status.refetch();
-      if (isQqRunningErr(e)) {
-        showError('请先退出 QQ', '防撤回触发器需要在 QQ 完全关闭时安装/卸载。请退出 QQ 后重试。');
-      } else {
-        showError(next ? '开启防撤回失败' : '关闭防撤回失败', errMsg(e));
-      }
+      showError(next ? '开启防撤回失败' : '关闭防撤回失败', errMsg(e));
     }
   }
 
@@ -167,20 +174,21 @@ export function AntiRecallSection(): ReactElement {
       id,
     }));
     try {
-      await setTargets.mutateAsync({ targets });
+      const res = await setTargets.mutateAsync({ targets });
       await status.refetch();
+      const needRestart = enabled && res.qqRunning;
       pushToast({
         tone: 'success',
         title: '已保存受保护会话',
-        message: enabled ? '触发器已更新。请重启 QQ 使拦截生效。' : '已保存（防撤回当前关闭）。',
+        message: !enabled
+          ? '已保存（防撤回当前关闭）。'
+          : needRestart
+            ? '触发器已更新。QQ 正在运行，可能需重启 QQ 才生效。'
+            : '触发器已更新。',
       });
     } catch (e) {
       await status.refetch();
-      if (isQqRunningErr(e)) {
-        showError('请先退出 QQ', '更新防撤回触发器需要在 QQ 完全关闭时进行。请退出 QQ 后重试。');
-      } else {
-        showError('保存失败', errMsg(e));
-      }
+      showError('保存失败', errMsg(e));
     }
   }
 
@@ -215,8 +223,8 @@ export function AntiRecallSection(): ReactElement {
           }
           desc={
             qqRunning
-              ? '⚠️ 检测到 QQ 正在运行。安装/更新拦截需要先完全退出 QQ。'
-              : '触发器改动 QQ 数据库，安装后需重启 QQ 才会生效。'
+              ? 'QQ 正在运行：可随时安装/卸载，但改动可能要重启 QQ 后才生效。'
+              : '触发器安装后即时可用；QQ 下次启动会加载最新拦截规则。'
           }
           control={<span />}
         />
@@ -244,7 +252,7 @@ export function AntiRecallSection(): ReactElement {
           emptyText="暂无可保护的会话"
         />
         <p className="weq-set-note">
-          支持搜索、全选、反选。修改后点「保存选择」写入并重建触发器；若防撤回已开启，需重启 QQ 生效。
+          支持搜索、全选、反选。修改后点「保存选择」写入并重建触发器；若 QQ 正在运行，改动可能需重启 QQ 才生效。
         </p>
       </Card>
     </div>

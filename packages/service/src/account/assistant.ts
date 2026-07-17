@@ -39,13 +39,13 @@ export interface AssistantTools {
   sampleHitokoto?: (n: number) => Array<{ text: string; from: string }>;
 }
 
-/** 思考等级（reasoning effort）。占位：暂只持久化，待流式改造时随 reasoning 参数一起接入调用。 */
+/** 思考等级（reasoning effort）。映射为 OpenAI 兼容请求的 `reasoning_effort` 参数（`off` = 不带）。 */
 export type AssistantReasoningEffort = 'off' | 'low' | 'medium' | 'high';
 
 export interface AssistantConfig {
   model?: AgentLabModelRef;
   customPrompt?: string;
-  /** 思考等级（占位字段，见 {@link AssistantReasoningEffort}）。 */
+  /** 思考等级（见 {@link AssistantReasoningEffort}）：非 `off` 时以 `reasoning_effort` 传给模型。 */
   reasoningEffort?: AssistantReasoningEffort;
   /** 外部 MCP 服务器配置（Claude Desktop JSON 或每行 `名字=url`）。 */
   mcpServers?: string;
@@ -101,14 +101,21 @@ function extractArtifactCard(result: unknown): AssistantArtifact | null {
 
 /**
  * 一轮任务推进里可观测的一步。前端按 kind 渲染（thinking/工具调用/工具结果可折叠，
- * final 用 Markdown，artifact 渲染成气泡里的附件卡片）。`error` 为终止态。
+ * final 用 Markdown，artifact 渲染成气泡里的附件卡片）。`error`/`aborted` 为终止态。
+ *
+ * 流式（M2）：正文与推理不再等整段返回，而是逐片以 `text_delta` / `reasoning_delta`
+ * 推出（前端累积进气泡 / 思考面板）。`thinking` 仍保留——工具调用前那段思路会作为
+ * 一条 thinking 写进 steps[] 持久化（但运行时不重复 emit，正文已由 text_delta 送达）。
  */
 export type AssistantStep =
   | { kind: 'thinking'; text: string }
+  | { kind: 'text_delta'; text: string }
+  | { kind: 'reasoning_delta'; text: string }
   | { kind: 'tool_call'; id: string; name: string; args: unknown }
   | { kind: 'tool_result'; id: string; name: string; ok: boolean; preview: string }
   | { kind: 'artifact'; artifact: AssistantArtifact }
   | { kind: 'final'; text: string }
+  | { kind: 'aborted' }
   | { kind: 'error'; message: string };
 
 /** report 文件类型 → 扩展名 / MIME。单一事实源，写盘与读取都走它。 */
@@ -164,7 +171,16 @@ export const ASSISTANT_AGENT_ID = 'assistant';
 const DEFAULT_SESSION_TITLE = '新对话';
 
 /** 单轮任务最多调用工具的轮数。任务型 agent 要敢多试，故给得宽一些。 */
-const TOOL_LOOP_LIMIT = 14;
+const TOOL_LOOP_LIMIT = 24;
+
+/**
+ * 证据追问检测：用户是不是在质疑/追问上一条结论的依据（「真的假的 / 有证据吗 / 原话呢 / 为什么这么说」）。
+ * 命中且**上一轮助手确实用过工具**时，systemPrompt 会注入一条硬规则：本轮必须重新调工具查证再答，
+ * 禁止复述或为旧结论辩护（见 {@link AssistantService.systemPrompt} 的【本轮特别要求】）。
+ * 正则借鉴 WeFlow `EVIDENCE_FOLLOW_UP_PATTERN`。
+ */
+const EVIDENCE_FOLLOW_UP_PATTERN =
+  /真的假的|真(?:的)?吗|你确定|确定(?:吗|么)|有(?:什么)?证据|证据(?:呢|在哪|是什么)?|原话|原文|哪句话?|怎么证明|如何证明|依据(?:呢|是什么)?|出处(?:呢|是什么)?|为什么这么说|凭什么|瞎说|乱说|胡说|不对吧|真有|假的吧/i;
 
 /**
  * 判定用户这轮是否「想要一份报告/可视化文档」。命中才把体量约 55 行的 rp-* 报告排版
@@ -187,11 +203,29 @@ interface ApiMessage {
   tool_call_id?: string;
 }
 
+/** OpenAI 兼容流式响应的一片（`data: {...}`）；只声明我们会读的字段。 */
+interface StreamChunk {
+  choices?: Array<{
+    delta?: {
+      content?: unknown;
+      reasoning_content?: unknown;
+      tool_calls?: Array<{
+        index?: number;
+        id?: string;
+        function?: { name?: string; arguments?: string };
+      }>;
+    };
+  }>;
+  usage?: unknown;
+}
+
 export class AssistantService {
   private readonly configPath: string;
   private readonly sessionsPath: string;
   private config: AssistantConfig;
   private sessions: AssistantSession[];
+  /** provider 若不认 `reasoning_effort`（首次 400）就置真，本进程后续调用不再带该参数。 */
+  private reasoningUnsupported = false;
 
   constructor(
     private readonly rootDir: string,
@@ -338,13 +372,19 @@ export class AssistantService {
     sessionId: string,
     text: string,
     onStep?: (step: AssistantStep) => void,
+    signal?: AbortSignal,
   ): Promise<{ text: string; steps: AssistantStep[] }> {
     if (!this.config.model) throw new Error('请先在助手设置里选择聊天模型。');
     const session = this.sessions.find((s) => s.id === sessionId);
     if (!session) throw new Error('对话不存在，请新建一个对话。');
 
     const steps: AssistantStep[] = [];
+    // 累积「当前可见正文」：用户点停止时用它作为已完成的部分答复持久化。
+    // 一批工具调用开始（tool_call）意味着此前那段正文已转为「思考」，故清零重来。
+    let streamed = '';
     const emit = (step: AssistantStep): void => {
+      if (step.kind === 'text_delta') streamed += step.text;
+      else if (step.kind === 'tool_call') streamed = '';
       steps.push(step);
       try {
         onStep?.(step);
@@ -352,19 +392,31 @@ export class AssistantService {
         /* 前端推送失败不应中断任务 */
       }
     };
+    // 仅持久化、不再实时推送：正文/推理已通过 *_delta 到达前端，这里只补一条汇总 step 供重载回看。
+    const record = (step: AssistantStep): void => {
+      steps.push(step);
+    };
+    // text_delta / reasoning_delta 是逐字碎片，不入库（会重复且臃肿）；落库只保留过程性 step。
+    const persistable = (): AssistantStep[] =>
+      steps.filter((s) => s.kind !== 'text_delta' && s.kind !== 'reasoning_delta');
+    const collectToolsUsed = (): string[] => [
+      ...new Set(
+        steps.filter((s): s is Extract<AssistantStep, { kind: 'tool_call' }> => s.kind === 'tool_call').map((s) => s.name),
+      ),
+    ];
 
     try {
-      const reply = await this.runLoop(sessionId, text, emit);
+      const reply = await this.runLoop(sessionId, text, emit, record, signal);
       const now = Date.now();
-      const toolsUsed = steps.filter((s): s is Extract<AssistantStep, { kind: 'tool_call' }> => s.kind === 'tool_call').map((s) => s.name);
+      const toolsUsed = collectToolsUsed();
       this.conversations.append(this.bucketId(sessionId), [
         { role: 'user', text, ts: now },
         {
           role: 'assistant',
           text: reply,
           ts: now,
-          steps,
-          ...(toolsUsed.length ? { toolsUsed: [...new Set(toolsUsed)] } : {}),
+          steps: persistable(),
+          ...(toolsUsed.length ? { toolsUsed } : {}),
         },
       ]);
       // 标题：仍是占位标题（即本会话首轮）时，让模型简单总结对话内容生成标题。
@@ -382,6 +434,28 @@ export class AssistantService {
       emit({ kind: 'final', text: reply });
       return { text: reply, steps };
     } catch (error) {
+      // 用户取消：把已流出的半截正文当作本轮答复持久化（保持 user/assistant 成对、不留悬空 user），
+      // 正常返回而非抛错——这不是失败。
+      const aborted = signal?.aborted || (error instanceof Error && error.name === 'AbortError');
+      if (aborted) {
+        const now = Date.now();
+        const reply = streamed.trim() || '（已停止）';
+        const toolsUsed = collectToolsUsed();
+        this.conversations.append(this.bucketId(sessionId), [
+          { role: 'user', text, ts: now },
+          {
+            role: 'assistant',
+            text: reply,
+            ts: now,
+            steps: persistable(),
+            ...(toolsUsed.length ? { toolsUsed } : {}),
+          },
+        ]);
+        session.updatedAt = now;
+        this.persistSessions();
+        emit({ kind: 'aborted' });
+        return { text: reply, steps };
+      }
       const message = error instanceof Error ? error.message : String(error);
       emit({ kind: 'error', message });
       throw error;
@@ -412,8 +486,17 @@ export class AssistantService {
     return cleanTitle(raw);
   }
 
-  /** 核心多轮循环：返回最终文本。中途只 emit 过程 step，不 emit final。 */
-  private async runLoop(sessionId: string, text: string, emit: (step: AssistantStep) => void): Promise<string> {
+  /**
+   * 核心多轮循环：返回最终文本。中途正文/推理走 `emit`（*_delta 流式），工具调用前的思路
+   * 走 `record`（只落库、不重复推）。`signal` 在每轮与每次工具调用前检查以尽早取消。
+   */
+  private async runLoop(
+    sessionId: string,
+    text: string,
+    emit: (step: AssistantStep) => void,
+    record: (step: AssistantStep) => void,
+    signal?: AbortSignal,
+  ): Promise<string> {
     const endpoint: AgentLabEndpoint = {
       ...this.resolveEndpoint(this.config.model!),
       kind: 'chat',
@@ -430,8 +513,13 @@ export class AssistantService {
     };
 
     const prior = this.conversations.get(this.bucketId(sessionId)).slice(-12);
+    // 证据追问：本轮像在质疑上一结论，且上一条助手回复确实用过工具时，才强制重新查证。
+    // （像开场就问「真的假的」这种没有可查证对象，强制反而诱导模型编造，故要求 prior 用过工具。）
+    const lastAssistant = [...prior].reverse().find((t) => t.role === 'assistant');
+    const evidenceFollowUp =
+      EVIDENCE_FOLLOW_UP_PATTERN.test(text) && !!lastAssistant?.toolsUsed?.length;
     const messages: ApiMessage[] = [
-      { role: 'system', content: this.systemPrompt(text) },
+      { role: 'system', content: this.systemPrompt(text, evidenceFollowUp) },
       ...prior.map((t) => ({ role: t.role, content: t.text })),
       { role: 'user', content: text },
     ];
@@ -441,20 +529,23 @@ export class AssistantService {
     const specs = [WRITE_REPORT_SPEC, ...((await this.tools?.specs()) ?? [])];
 
     for (let loop = 0; loop < TOOL_LOOP_LIMIT; loop += 1) {
+      throwIfAborted(signal);
       // 最后一轮强制关闭工具，逼模型给出文字结论，避免"用尽轮数"硬中断。
       const allowTools = specs.length > 0 && loop < TOOL_LOOP_LIMIT - 1;
-      const data = await this.callApi(endpoint, messages, allowTools ? specs : []);
-      reportUsage(endpoint, data);
-      const msg = data.choices?.[0]?.message;
-      if (!msg) throw new Error('助手返回为空');
+      const { content, toolCalls } = await this.callApiStream(
+        endpoint,
+        messages,
+        allowTools ? specs : [],
+        emit,
+        signal,
+      );
 
-      const content = pickMessageText(msg);
-
-      if (allowTools && msg.tool_calls?.length) {
-        // 模型在调用工具前给出的思路 → 作为"思考"展示。
-        if (content) emit({ kind: 'thinking', text: content });
-        messages.push(msg as ApiMessage);
-        for (const call of msg.tool_calls) {
+      if (allowTools && toolCalls?.length) {
+        // 模型在调用工具前给出的思路 → 已随 text_delta 流式到达前端；这里只补一条 thinking 落库。
+        if (content) record({ kind: 'thinking', text: content });
+        messages.push({ role: 'assistant', content, tool_calls: toolCalls });
+        for (const call of toolCalls) {
+          throwIfAborted(signal);
           const args = this.parseArgs(call.function.arguments);
           emit({ kind: 'tool_call', id: call.id, name: call.function.name, args });
 
@@ -503,14 +594,14 @@ export class AssistantService {
         continue;
       }
 
-      // 没有工具调用 → 这就是最终答复。
+      // 没有工具调用 → 这就是最终答复（正文已随 text_delta 流式送达前端）。
       return content || '（没能得出结论，请换个问法或补充信息。）';
     }
     // 理论上到不了这里（最后一轮已关工具强制出文本）。
     return '（任务推进超过最大轮数，已中止。）';
   }
 
-  private systemPrompt(userText = ''): string {
+  private systemPrompt(userText = '', evidenceFollowUp = false): string {
     const today = new Date();
     const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
     // 报告排版指南（rp-* 那一大段）只在用户这轮确有「写报告/网页/看板」意图时才注入，
@@ -524,6 +615,14 @@ export class AssistantService {
     return [
       '你是 WeQ 助手，运行在用户的 QQ 客户端里，是一个**任务执行者**：你的职责是亲自把用户的问题查清楚、把任务做完，而不是告诉用户"你可以自己去搜索/查看"。',
       `今天是 ${dateStr}。涉及"哪天/什么时候"等时间问题时，结合聊天记录里的日期与今天推算。`,
+      // 证据追问命中：置顶一条硬规则，强制本轮重新取证，压住"复述旧结论/嘴硬辩护"的倾向。
+      evidenceFollowUp
+        ? '\n⚠️【本轮特别要求：这是对上一条结论的证据追问】\n' +
+          '用户在质疑你上一条回答的依据。**本轮必须先重新调用工具查证，再作答**，禁止直接复述或为上一段结论辩护。' +
+          '从上一条结论里挑出人名/事件/日期/关键词去检索（用 inspect_timeline / get_messages / get_messages_by_date / search_messages 等），' +
+          '别拿"真的假的/有没有证据"这类追问原话当搜索词。' +
+          '查证后：能坐实就补上真实原话（谁、何时说的）；查不到支持内容就**老实说这轮没查到能支持该说法的原话，并撤回或降级上一结论**——绝不坚称它存在。'
+        : '',
       '',
       '【工作方式】',
       '- 把用户的每个问题都当成一个需要主动完成的任务，需要数据就调用工具，能查就查，别把活儿甩回给用户。',
@@ -660,6 +759,131 @@ export class AssistantService {
     return (await res.json()) as { choices?: Array<{ message?: ApiMessage }>; usage?: unknown };
   }
 
+  /**
+   * 流式一次 LLM 调用：`stream:true` 边收边 emit（正文→text_delta、推理→reasoning_delta），
+   * 结束后返回累积的 { content, reasoning, toolCalls }。runLoop 用它替代 callApi。
+   *
+   * - 取消：把 `signal` 透传给 fetch —— 用户点停止时在途请求立即中断（抛 AbortError）。
+   * - reasoning：`reasoningEffort` 非 off 时带 `reasoning_effort`；若 provider 不认（400），
+   *   去掉该参数重试一次，并回填 `this.reasoningUnsupported` 让本进程后续不再带（防基础聊天回归）。
+   * - tool_calls：流式下每片是 `delta.tool_calls[]`，需按 `index` 分槽把 name/arguments 碎片拼全。
+   */
+  private async callApiStream(
+    endpoint: AgentLabEndpoint,
+    messages: ApiMessage[],
+    specs: AssistantToolSpec[],
+    emit: (step: AssistantStep) => void,
+    signal?: AbortSignal,
+  ): Promise<{ content: string; reasoning: string; toolCalls: ApiMessage['tool_calls'] }> {
+    const effort = this.config.reasoningEffort;
+    const withReasoning = !!effort && effort !== 'off' && !this.reasoningUnsupported;
+
+    const buildBody = (reasoning: boolean): string =>
+      JSON.stringify({
+        model: endpoint.model,
+        temperature: 0.3,
+        stream: true,
+        stream_options: { include_usage: true },
+        messages,
+        ...(reasoning ? { reasoning_effort: effort } : {}),
+        ...(specs.length ? { tools: specs, tool_choice: 'auto' } : {}),
+      });
+
+    const post = (reasoning: boolean): Promise<Response> =>
+      fetch(`${endpoint.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${endpoint.apiKey}` },
+        body: buildBody(reasoning),
+        signal,
+      });
+
+    let res = await post(withReasoning);
+    // provider 不识别 reasoning_effort → 400：去掉重试一次，并记住本进程内别再带。
+    if (!res.ok && res.status === 400 && withReasoning) {
+      this.reasoningUnsupported = true;
+      res = await post(false);
+    }
+    if (!res.ok || !res.body) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(`WeQ 助手接口调用失败: HTTP ${res.status}${detail ? ` — ${detail.slice(0, 300)}` : ''}`);
+    }
+
+    let content = '';
+    let reasoning = '';
+    // 按 index 累积的工具调用槽（流式下 arguments 是逐片拼接的）。
+    const toolSlots = new Map<number, { id: string; name: string; args: string }>();
+    let usage: unknown;
+
+    // 消费一个完整 SSE 事件（可能含多行；只认 `data:` 行）。
+    const consumeEvent = (rawEvent: string): void => {
+      for (const line of rawEvent.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) continue;
+        const data = trimmed.slice(5).trim();
+        if (!data || data === '[DONE]') continue;
+        let chunk: StreamChunk;
+        try {
+          chunk = JSON.parse(data) as StreamChunk;
+        } catch {
+          continue; // 半个 JSON（理论上被事件切分保护，兜底跳过）
+        }
+        if (chunk.usage) usage = chunk.usage;
+        const delta = chunk.choices?.[0]?.delta;
+        if (!delta) continue;
+        if (typeof delta.content === 'string' && delta.content) {
+          content += delta.content;
+          emit({ kind: 'text_delta', text: delta.content });
+        }
+        if (typeof delta.reasoning_content === 'string' && delta.reasoning_content) {
+          reasoning += delta.reasoning_content;
+          emit({ kind: 'reasoning_delta', text: delta.reasoning_content });
+        }
+        for (const tc of delta.tool_calls ?? []) {
+          const idx = tc.index ?? 0;
+          const slot = toolSlots.get(idx) ?? { id: '', name: '', args: '' };
+          if (tc.id) slot.id = tc.id;
+          if (tc.function?.name) slot.name = tc.function.name;
+          if (tc.function?.arguments) slot.args += tc.function.arguments;
+          toolSlots.set(idx, slot);
+        }
+      }
+    };
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        // CRLF 归一（部分 provider 用 \r\n\r\n 分隔事件），再按空行切完整事件、残片留到下一片。
+        buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+        let sep: number;
+        while ((sep = buffer.indexOf('\n\n')) >= 0) {
+          consumeEvent(buffer.slice(0, sep));
+          buffer = buffer.slice(sep + 2);
+        }
+      }
+      // 流结束后残留的最后一个事件（provider 未补尾部空行时）。
+      if (buffer.trim()) consumeEvent(buffer);
+    } finally {
+      reader.releaseLock();
+    }
+
+    if (usage) reportUsage(endpoint, { usage });
+
+    const toolCalls = [...toolSlots.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, s]) => ({
+        id: s.id || randomUUID(),
+        type: 'function' as const,
+        function: { name: s.name, arguments: s.args || '{}' },
+      }))
+      .filter((c) => c.function.name);
+
+    return { content, reasoning, toolCalls: toolCalls.length ? toolCalls : undefined };
+  }
+
   private loadConfig(): AssistantConfig {
     try {
       if (!existsSync(this.configPath)) return {};
@@ -758,5 +982,14 @@ function safeStringify(value: unknown): string {
     return typeof value === 'string' ? value : JSON.stringify(value, null, 2) ?? String(value);
   } catch {
     return String(value);
+  }
+}
+
+/** 若已请求取消则抛一个名为 AbortError 的错误（与 fetch(signal) 抛出的同名，chat() 统一识别）。 */
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    const err = new Error('已取消');
+    err.name = 'AbortError';
+    throw err;
   }
 }
