@@ -47,7 +47,7 @@ export { AgentLabConfigService } from './bootstrap/agentlab_config';
 export { AvatarCacheService } from './bootstrap/avatar_cache';
 export type { AvatarBlob } from './bootstrap/avatar_cache';
 
-export { GlobalConfigService, parseQqVersion } from './bootstrap/global_config';
+export { GlobalConfigService } from './bootstrap/global_config';
 export type {
   GlobalInstallInfo,
   OnlineProbe,

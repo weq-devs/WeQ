@@ -91,6 +91,7 @@ export {
 export {
   scanConvMedia,
   mediaDirsFromAccountDir,
+  mediaDirsFromNtDataDir,
   type MediaKind,
   type MediaDirs,
   type MediaRef,

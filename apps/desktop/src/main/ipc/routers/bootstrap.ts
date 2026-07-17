@@ -70,6 +70,30 @@ const logger = getLogger().child({ scope: 'bootstrap-router' });
  */
 const injectedPids = new Set<number>();
 
+/**
+ * Ensure the uin→uid mapping is registered so linux path resolution
+ * (`platform.ntMsgDbPath(uin)` etc., which hashes uid into the account dir)
+ * works during the login flow — before the account is saved to config. Reads
+ * the decrypted login.db account list and seeds the in-memory registry. No-op
+ * on win32 (paths key off uin there) and when the uid is already known.
+ */
+async function ensureUidForUin(
+  boot: ReturnType<typeof requireBootstrap>,
+  uin: string,
+): Promise<void> {
+  try {
+    const accounts = await boot.detect.listAccounts();
+    const match = accounts.find((a) => a.uin === uin && a.uid);
+    if (match?.uid) rememberAccountUid(uin, match.uid);
+  } catch (e) {
+    logger.warn('ensureUidForUin failed to resolve uid', {
+      event: 'ensure-uid-failed',
+      uin,
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
+}
+
 export const bootstrapRouter = router({
   // ---- native health ----
 
@@ -182,22 +206,30 @@ export const bootstrapRouter = router({
   /** Largest database files for an account (language-bar chart). */
   dbFileSizes: procedure
     .input(z.object({ uin: z.string(), topN: z.number().int().positive().max(20).optional() }))
-    .query(({ input }) => {
-      return requireBootstrap().globalConfig.dbFileSizes(input.uin, input.topN ?? 8);
+    .query(async ({ input }) => {
+      const boot = requireBootstrap();
+      // Linux resolves the account dir from uid; seed it before scanning so
+      // the pre-open stats screen works (the account isn't open yet).
+      await ensureUidForUin(boot, input.uin);
+      return boot.globalConfig.dbFileSizes(input.uin, input.topN ?? 8);
     }),
 
   /** nt_data subdirectory sizes for an account (space chart; may be slow). */
   ntDataSizes: procedure
     .input(z.object({ uin: z.string() }))
-    .query(({ input }) => {
-      return requireBootstrap().globalConfig.ntDataSubdirSizes(input.uin);
+    .query(async ({ input }) => {
+      const boot = requireBootstrap();
+      await ensureUidForUin(boot, input.uin);
+      return boot.globalConfig.ntDataSubdirSizes(input.uin);
     }),
 
   /** Total size of the account's user-data directory in bytes (may be slow). */
   accountDirSize: procedure
     .input(z.object({ uin: z.string() }))
-    .query(({ input }) => {
-      return requireBootstrap().globalConfig.accountDirSize(input.uin);
+    .query(async ({ input }) => {
+      const boot = requireBootstrap();
+      await ensureUidForUin(boot, input.uin);
+      return boot.globalConfig.accountDirSize(input.uin);
     }),
 
   // ---- user config ----
@@ -735,6 +767,7 @@ export const bootstrapRouter = router({
     .input(z.object({ uin: z.string(), dbKey: z.string(), dbPathOverride: z.string().optional() }))
     .mutation(async ({ input }) => {
       const platform = requirePlatform();
+      if (!input.dbPathOverride) await ensureUidForUin(requireBootstrap(), input.uin);
       const dbPath = input.dbPathOverride ?? platform.ntMsgDbPath(input.uin);
       if (!dbPath || !existsSync(dbPath)) {
         return { success: false as const, error: `未找到该账号的 nt_msg.db（uin=${input.uin}）` };
@@ -759,28 +792,39 @@ export const bootstrapRouter = router({
   // ---- key flows ----
 
   /**
-   * Flow 1 — alive QQ instance. Caller passes pid + dbPath; we inject the
-   * embedded hook (idempotent inside native), then ask for the key.
+   * Flow 1 — alive QQ instance. Caller passes pid + uin; we resolve the
+   * account's nt_msg.db via the platform (never trust a client-built path —
+   * that leaked Windows separators onto linux), inject the embedded hook
+   * (idempotent inside native), then ask for the key.
    */
   fetchKeyFromInstance: procedure
-    .input(z.object({ pid: z.number().int().positive(), dbPath: z.string() }))
+    .input(z.object({ pid: z.number().int().positive(), uin: z.string() }))
     .mutation(async ({ input }) => {
       const platform = requirePlatform();
       const boot = requireBootstrap();
-      // Validate the db file exists before handing it to native — otherwise the
-      // addon opens it itself and surfaces an opaque "Failed to open db" error.
-      if (!existsSync(input.dbPath)) {
+      // On linux the account dir is derived from uid, which isn't in the config
+      // yet during login. Seed it from the decrypted login.db account list so
+      // `platform.ntMsgDbPath(uin)` can resolve the dir this call.
+      await ensureUidForUin(boot, input.uin);
+      // Resolve the db path from the platform so the layout (win `<uin>/nt_qq/…`
+      // vs linux `nt_qq_<hash>/…`) and separators are always correct.
+      const dbPath = platform.ntMsgDbPath(input.uin);
+      if (!dbPath || !existsSync(dbPath)) {
         logger.warn('key fetch aborted: db file not found', {
           event: 'router-fetch-key-missing-db',
           pid: input.pid,
-          dbPath: input.dbPath,
+          uin: input.uin,
+          dbPath: dbPath ?? null,
         });
-        return { success: false as const, error: `未找到数据库文件：${input.dbPath}` };
+        return {
+          success: false as const,
+          error: dbPath ? `未找到数据库文件：${dbPath}` : `未找到账号 ${input.uin} 的数据库目录`,
+        };
       }
       logger.info('router requested key from running instance', {
         event: 'router-fetch-key-from-instance',
         pid: input.pid,
-        dbPath: input.dbPath,
+        dbPath,
         alreadyInjected: injectedPids.has(input.pid),
       });
 
@@ -794,7 +838,7 @@ export const bootstrapRouter = router({
         injectedPids.add(input.pid);
       }
 
-      let result = await boot.keys.fetchFromInstance(input.pid, input.dbPath);
+      let result = await boot.keys.fetchFromInstance(input.pid, dbPath);
       if (!result.success) {
         // The cached native client may have died (QQ relaunched / hook
         // unloaded). Re-inject once — a genuinely closed client reconnects
@@ -807,7 +851,7 @@ export const bootstrapRouter = router({
         injectedPids.delete(input.pid);
         await platform.native.ntHelper.injectAndGetStatusEmbedded(input.pid);
         injectedPids.add(input.pid);
-        result = await boot.keys.fetchFromInstance(input.pid, input.dbPath);
+        result = await boot.keys.fetchFromInstance(input.pid, dbPath);
       }
       return result;
     }),
@@ -916,8 +960,10 @@ export const bootstrapRouter = router({
       // Register the uid→uin mapping BEFORE any path lookup: on linux the
       // account directory is derived from uid, and this is a fresh account
       // whose uid isn't in the saved config yet. Seeding it here lets
-      // `platform.ntMsgDbPath(uin)` resolve during this very call.
+      // `platform.ntMsgDbPath(uin)` resolve during this very call. Prefer the
+      // uid the caller passed; otherwise recover it from the login.db list.
       if (input.uid) rememberAccountUid(input.uin, input.uid);
+      else await ensureUidForUin(requireBootstrap(), input.uin);
 
       let algo = input.algo;
       if (!algo) {

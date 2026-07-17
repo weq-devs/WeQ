@@ -754,6 +754,11 @@ export function initAppContext(): AppContext {
             mediaUrl,
             // Account user-data dir for locating on-disk media to copy.
             accountDir: metadata.dataDir ?? accountConfig.getRecord()?.dataDir,
+            // Platform-resolved nt_data (correct per-OS; linux has no `nt_qq`
+            // middle segment). Preferred over deriving it from accountDir.
+            ...(platform.ntDataDir(session.context.uin)
+              ? { ntDataDir: platform.ntDataDir(session.context.uin)! }
+              : {}),
             // SILK → WAV decode lives in the app (silk-wasm); load it lazily to
             // avoid a static import cycle with this module.
             decodeSilk: (silk: string, dest: string) =>

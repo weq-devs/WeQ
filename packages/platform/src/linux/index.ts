@@ -22,8 +22,12 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { Platform } from '../types';
+import { readQqVersion } from '../qq_meta';
 import {
   candidateQqRoots,
+  pickQqRoot,
+  readLauncherCount,
+  findAccountDir,
   findBuddyMsgFtsDb,
   findGroupMsgFtsDb,
   findEmojiResourceDir,
@@ -44,6 +48,7 @@ import {
   findFileDir,
   findQqExe,
   findQqWrapperNode,
+  findQqMajorNode,
 } from './paths';
 
 /**
@@ -84,6 +89,7 @@ export function createLinuxPlatform(
     },
     tencentFilesRoots: () => candidateQqRoots(home, override()),
     loginDbPath: () => findLoginDb(home, override()),
+    accountDir: (u: string) => findAccountDir(uid(u), home, override()),
     ntDbDir: (u: string) => findNtDbDir(uid(u), home, override()),
     ntDataDir: (u: string) => findNtDataDir(uid(u), home, override()),
     ntMsgDbPath: (u: string) => findNtMsgDb(uid(u), home, override()),
@@ -106,5 +112,25 @@ export function createLinuxPlatform(
       const exe = findQqExe();
       return exe ? findQqWrapperNode(exe) : null;
     },
+    qqMajorNodePath: () => {
+      const exe = findQqExe();
+      return exe ? findQqMajorNode(exe) : null;
+    },
+    qqVersion: () => {
+      const exe = findQqExe();
+      return readQqVersion(exe ? findQqWrapperNode(exe) : null);
+    },
+    // linux's native probe needs the data-root baseDir + string uid; derive
+    // both here (baseDir via the same override→~/.config/QQ candidate chain,
+    // no hard-coded path) so callers just pass a uin.
+    isQqLoggedIn: (u: string) => {
+      try {
+        return native.ntHelper.isQqLoggedIn(u, pickQqRoot(home, override()), getUidForUin(u));
+      } catch {
+        return false;
+      }
+    },
+    // QQ records its own running-instance count in versions/setting.json.
+    launcherCount: () => readLauncherCount(pickQqRoot(home, override())),
   };
 }

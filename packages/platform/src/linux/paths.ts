@@ -31,11 +31,12 @@
  *   /opt/QQ/qq                              (binary; no registry on linux)
  *   <qqRoot>/resources/app/wrapper.node     (protobuf descriptors)
  *   <qqRoot>/resources/app/major.node       (appid/qua anchor)
- *   ~/.config/QQ/versions/config.json       (curVersion)
+ *   <qqRoot>/resources/app/package.json     (client `version`, read uniformly
+ *                                            across win32/linux)
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -141,6 +142,11 @@ export function findLoginDb(home = homedir(), overrideRoot?: string | null): str
 }
 
 // ---------- per-account databases (nt_db) ---------------------------------
+
+/** `<root>/nt_qq_<hash>` — the account's user-data directory. */
+export function findAccountDir(uid: string, home = homedir(), overrideRoot?: string | null): string | null {
+  return firstExistingUnderAccount(uid, home, overrideRoot);
+}
 
 /** `<root>/nt_qq_<hash>/nt_db/nt_msg.db`. */
 export function findNtMsgDb(uid: string, home = homedir(), overrideRoot?: string | null): string | null {
@@ -265,4 +271,28 @@ export function findQqWrapperNode(qqExePath: string): string | null {
 export function findQqMajorNode(qqExePath: string): string | null {
   const candidate = join(qqExePath, '..', 'resources', 'app', 'major.node');
   return existsSync(candidate) ? candidate : null;
+}
+
+// ---------- online-instance count (setting.json) --------------------------
+
+/**
+ * Number of running QQ launcher instances, read from
+ * `<root>/versions/setting.json`'s `launcherCounts`. QQ maintains this itself,
+ * so it's a far more reliable "online instance count" than counting Electron
+ * processes (one instance forks gpu/renderer/utility/zygote, all named `qq`).
+ *
+ * Returns null when the file is missing / unreadable / has no numeric
+ * `launcherCounts`, so callers can fall back to the process-count probe.
+ * `root` is the QQ data root (from `pickQqRoot`); pass null to short-circuit.
+ */
+export function readLauncherCount(root: string | null): number | null {
+  if (!root) return null;
+  const settingPath = join(root, 'versions', 'setting.json');
+  try {
+    const parsed = JSON.parse(readFileSync(settingPath, 'utf-8')) as { launcherCounts?: unknown };
+    const n = parsed.launcherCounts;
+    return typeof n === 'number' && Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
 }

@@ -142,7 +142,7 @@ export class AccountMonitorService {
   private async loginPoll(): Promise<void> {
     let loggedIn = false;
     try {
-      loggedIn = this.nt.isQqLoggedIn(this.uin);
+      loggedIn = this.platform.isQqLoggedIn(this.uin);
     } catch {
       /* probe unavailable — treat as not logged in */
     }

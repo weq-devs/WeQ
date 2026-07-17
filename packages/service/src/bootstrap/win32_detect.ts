@@ -310,8 +310,14 @@ export class Win32DetectService {
    * Every QQ account directory on disk: `<TencentFilesRoot>/<uin>/nt_qq`.
    * Only all-digit directory names that actually contain an `nt_qq` subdir
    * count — this skips siblings like `nt_qq`, `NapCat`, `All Users1`.
+   *
+   * linux has no numeric-uin directory (accounts are hashed `nt_qq_<hash>`
+   * folders from which the uin can't be recovered), so this uin-list fallback
+   * can't work there — account discovery goes through login.db decryption
+   * instead. Return empty rather than mis-scanning.
    */
   private probeAccountDirs(): string[] {
+    if (this.platform.kind === 'linux') return [];
     const uins = new Set<string>();
     for (const root of this.platform.tencentFilesRoots()) {
       let entries: string[];

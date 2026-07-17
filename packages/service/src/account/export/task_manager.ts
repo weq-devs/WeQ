@@ -45,7 +45,7 @@ import {
   type TranscribeVoiceFn,
   type MediaFailure,
 } from './media_export';
-import { scanConvMedia, mediaDirsFromAccountDir, type MediaDirs, type MediaScanResult } from './media_scan';
+import { scanConvMedia, mediaDirsFromAccountDir, mediaDirsFromNtDataDir, type MediaDirs, type MediaScanResult } from './media_scan';
 import type { MediaUrlService } from '../media_url';
 import { iterateC2cMessages, toExportedMessage } from './message_source';
 import { type Framing } from './run_export';
@@ -140,6 +140,13 @@ export interface MediaDeps {
   mediaUrl?: MediaUrlService;
   /** Absolute media base dirs for the open account (`…/<uin>/nt_qq/nt_data/*`). */
   accountDir?: string;
+  /**
+   * Pre-resolved `nt_data` directory for the open account. Preferred over
+   * `accountDir` because the platform already knows the per-OS account layout
+   * (linux's hashed `nt_qq_<hash>/nt_data` has no `nt_qq` middle segment).
+   * When set, media scanning uses this directly; `accountDir` is the fallback.
+   */
+  ntDataDir?: string;
   /** SILK → WAV decode (writes to a given path). Injected from the app. */
   decodeSilk?: DecodeSilk;
   /** SILK voice → text transcription (native engine; injected from the app). */
@@ -415,7 +422,7 @@ export class ExportTaskManager extends EventEmitter {
     const aborted = (): boolean => abort.signal.aborted;
 
     try {
-      const { avatarCache, mediaDownload, accountDir, decodeSilk, transcribe } = this.deps;
+      const { avatarCache, mediaDownload, accountDir, ntDataDir, decodeSilk, transcribe } = this.deps;
       const wantAvatars = Boolean(task.exportAvatar && avatarCache);
       const wantMedia = Boolean(task.media?.exportMedia);
       const wantTranscribe = Boolean(task.media?.transcribeVoice && transcribe);
@@ -457,14 +464,20 @@ export class ExportTaskManager extends EventEmitter {
       // ---- scan once (shared by 搬运媒体 / 补全 / 转写) ----
       let scan: MediaScanResult | null = null;
       if (needsScan) {
-        if (!accountDir) {
+        // Prefer the platform-resolved nt_data (correct on every OS); fall back
+        // to deriving it from the account dir (win32 layout / static accounts).
+        const dirs: MediaDirs | null = ntDataDir
+          ? mediaDirsFromNtDataDir(ntDataDir)
+          : accountDir
+            ? mediaDirsFromAccountDir(accountDir)
+            : null;
+        if (!dirs) {
           // Can't locate on-disk media — skip every media-dependent stage.
           for (const key of ['media', 'record', 'image', 'video', 'file', 'transcribe'] as StageKey[]) {
             const s = this.stage(task, key);
             if (s) { s.status = 'skipped'; s.note = '无法定位媒体目录'; }
           }
         } else {
-          const dirs: MediaDirs = mediaDirsFromAccountDir(accountDir);
           const scanStage: StageKey = wantMedia ? 'media' : 'transcribe';
           this.touchStage(task, scanStage, { status: 'running', note: '扫描媒体…' }, { persist: true });
           scan = await scanConvMedia(this.msgs, task.kind, task.conv, dirs, { pageSize: 2000, range: task.range });

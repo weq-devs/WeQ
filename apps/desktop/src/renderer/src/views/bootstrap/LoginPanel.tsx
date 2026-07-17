@@ -19,7 +19,7 @@ import { AccountSelector } from './AccountSelector';
 import { KeyField, isCompleteKey } from './KeyField';
 import { QrDialog } from './QrDialog';
 import { StaticBackupPanel } from './StaticBackupPanel';
-import { deriveMsgDbPath, type UiAccount } from './types';
+import { type UiAccount } from './types';
 
 type Sub = { unsubscribe: () => void };
 
@@ -111,22 +111,22 @@ export function LoginPanel({
       if (!pid && procs.length === 1 && probe.byUin?.[selected.uin]) pid = procs[0]?.pid;
 
       if (pid) {
-        if (!installRoot) throw new Error('未找到 Tencent Files 目录，请先在右侧选择数据目录。');
-        const dbPath = deriveMsgDbPath(installRoot, selected.uin);
+        // The db path is resolved server-side from uin via the platform, so we
+        // never build an OS-specific path here (that leaked `\` onto linux).
 
         // Linux: the alive-instance path can stall for a long time (the hook
         // needs a real post-login recv packet to locate the MSF service). Race
         // it against a 10s timer; on timeout ask the user to keep waiting or
         // kill QQ and fall back to ninebird. Windows keeps the direct path.
         if (isLinux) {
-          const handled = await acquireFromInstanceLinux(pid, dbPath, selected);
+          const handled = await acquireFromInstanceLinux(pid, selected);
           if (handled) return; // key set, or a fallback flow took over
           // handled === false ⇒ user chose "keep waiting"; fall through to
           // a plain awaited fetch below.
         }
 
         setStatus('正在从在线实例获取密钥…');
-        const r = await client.bootstrap.fetchKeyFromInstance.mutate({ pid, dbPath });
+        const r = await client.bootstrap.fetchKeyFromInstance.mutate({ pid, uin: selected.uin });
         if (!r.success || !r.dbkey) {
           throw new Error(r.error ?? '依赖在线 QQ 客户端获取失败，请退出登录后重试。');
         }
@@ -160,11 +160,10 @@ export function LoginPanel({
    */
   async function acquireFromInstanceLinux(
     pid: number,
-    dbPath: string,
     acc: UiAccount,
   ): Promise<boolean> {
     setStatus('正在从在线实例获取密钥（在线获取较慢，请稍候）…');
-    const fetchPromise = client.bootstrap.fetchKeyFromInstance.mutate({ pid, dbPath });
+    const fetchPromise = client.bootstrap.fetchKeyFromInstance.mutate({ pid, uin: acc.uin });
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<'timeout'>((res) => {
       timer = setTimeout(() => res('timeout'), 10_000);
