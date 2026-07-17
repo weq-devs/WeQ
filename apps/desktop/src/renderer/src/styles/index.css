@@ -3,6 +3,13 @@
 @import "../im-template/styles.css";
 /* 全局隐私遮罩（只写在 WeQ 侧，挂钩模板稳定 class）。放在模板样式之后以覆盖。 */
 @import "./privacy.css";
+/* streamdown（WeQ 助手流式 Markdown）自带元素样式。自包含编译产物，无需额外 @source。 */
+@import "streamdown/styles.css";
+
+/* streamdown 代码块用 Tailwind `dark:` 工具类切换 shiki 明/暗配色，但本项目暗色靠
+ * html[data-theme="dark"]（同时 theme.ts 会 toggle .dark 类）。把 `dark:` variant 桥接到这两个
+ * 钩子，代码高亮才能跟随 app 主题。项目其它地方未用 `dark:` 工具类，故此行只点亮 streamdown。 */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *, .dark, .dark *));
 
 /* Tell Tailwind which files to scan for class names */
 @source "../**/*.{ts,tsx}";
@@ -7416,34 +7423,6 @@ html[data-theme="dark"] .weq-forward-bubble {
 .weq-asst-md input[type='checkbox'] {
   margin-right: 6px;
   vertical-align: middle;
-}
-/* highlight.js 语法高亮主题（rehype-highlight 打的 hljs-* class；跟随 app 前景/强调色的暗色友好配色）。 */
-.weq-asst-md .hljs-comment,
-.weq-asst-md .hljs-quote {
-  color: var(--weq-fg-muted);
-  font-style: italic;
-}
-.weq-asst-md .hljs-keyword,
-.weq-asst-md .hljs-selector-tag,
-.weq-asst-md .hljs-built_in {
-  color: #c678dd;
-}
-.weq-asst-md .hljs-string,
-.weq-asst-md .hljs-attr {
-  color: #98c379;
-}
-.weq-asst-md .hljs-number,
-.weq-asst-md .hljs-literal {
-  color: #d19a66;
-}
-.weq-asst-md .hljs-title,
-.weq-asst-md .hljs-function .hljs-title,
-.weq-asst-md .hljs-section {
-  color: #61afef;
-}
-.weq-asst-md .hljs-type,
-.weq-asst-md .hljs-class .hljs-title {
-  color: #e5c07b;
 }
 
 .weq-asst-set-hint {

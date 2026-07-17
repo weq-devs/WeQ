@@ -125,6 +125,41 @@ function sqlLiteral(id: string, numeric: boolean): string | null {
   return /^[0-9]+$/.test(id) ? id : null;
 }
 
+// ── 补插灰条 + 记录表的常量 ──────────────────────────────────────────────────
+
+/** 撤回记录表名（我们自己的表，QQ 不认识、不会碰）。 */
+const RECALL_LOG_TABLE = 'weq_recall_log';
+
+/**
+ * 撤回记录表 DDL。见 docs/anti-recall.md「记录表」。
+ *
+ * msgid 设为 PRIMARY KEY —— trigger 用 `INSERT OR IGNORE` 写入，QQ 撤回是**单事务
+ * 3 连击 UPDATE**（body 逐步 52→88→…），每击都命中 trigger，靠 msgid 主键天然去重，
+ * 同一条被撤消息只留一行。recall_ts 用首次命中时刻。
+ */
+const RECALL_LOG_DDL = `CREATE TABLE IF NOT EXISTS ${RECALL_LOG_TABLE} (
+  msgid       INTEGER PRIMARY KEY,   -- 被撤消息 40001（去重键）
+  conv        TEXT,      -- 会话标识: group=40027 / c2c·dataline=40021
+  table_kind  TEXT,      -- 'c2c' | 'group' | 'dataline'
+  sender_uid  TEXT,      -- 原作者 OLD.40020
+  revoke_uid  TEXT,      -- 撤回者，从 NEW.40800 提取(可能=sender 或 管理员)
+  orig_seq    INTEGER,   -- OLD.40003
+  recall_ts   INTEGER,   -- 撤回发生时刻(unix秒)
+  orig_body   BLOB,      -- OLD.40800 原文(无损保底)
+  graytip_done INTEGER DEFAULT 0     -- WeQ JS 是否已补插灰条（0=待补插，轮询游标用）
+)`;
+
+/**
+ * 从 NEW.40800（撤回灰条 protobuf）提取撤回者 uid 的 SQL 表达式。
+ * field 47704 (recallRevokeUid) 的 wire tag = X'c2a517'；uid 恒 24B。
+ * `+4` = 跳过 3B tag + 1B len(0x18)。若没定位到（instr=0）则表达式取空串。
+ * 见 probe_recall_uid_extract.ts（真库 5/5 稳定切出 u_ 开头 24B）。
+ */
+const REVOKE_UID_EXPR =
+  `CASE WHEN instr(NEW."40800", X'c2a517') > 0` +
+  ` THEN CAST(substr(NEW."40800", instr(NEW."40800", X'c2a517') + 4, 24) AS TEXT)` +
+  ` ELSE '' END`;
+
 /**
  * Build the `CREATE TRIGGER` statement for one table, gated on the given
  * conversation ids. `ids` must be non-empty — the caller drops (not creates)
@@ -141,6 +176,7 @@ function createTriggerSql(spec: TableSpec, ids: readonly string[]): string | nul
     .filter((lit): lit is string => lit !== null)
     .join(', ');
   if (inList === '') return null;
+
   return `CREATE TRIGGER IF NOT EXISTS ${spec.trigger}
 BEFORE UPDATE ON ${spec.table}
 WHEN OLD."40002" IS NEW."40002"
@@ -152,6 +188,17 @@ WHEN OLD."40002" IS NEW."40002"
         AND (IFNULL(OLD."40011", -1) <> 5 OR IFNULL(OLD."40012", -1) <> 4))
   )
 BEGIN
+  -- ① 记录一笔（无损保底：原文 blob + 谁发的 + 谁撤的 + seq + 时刻）。
+  --    QQ 撤回是单事务 3 连击 UPDATE，每击都命中；msgid 是主键 + OR IGNORE →
+  --    同一条被撤消息只留一行，recall_ts 取首次命中时刻。WeQ JS 轮询这张表补插灰条。
+  INSERT OR IGNORE INTO ${RECALL_LOG_TABLE}
+    (msgid, conv, table_kind, sender_uid, revoke_uid, orig_seq, recall_ts, orig_body)
+    VALUES (OLD."40001", CAST(OLD."${spec.filterCol}" AS TEXT), '${spec.kind}',
+            OLD."40020", ${REVOKE_UID_EXPR}, OLD."40003", strftime('%s','now'), OLD."40800");
+  -- ② 取消这次撤回的 UPDATE，原消息原地保留。
+  --    ⚠️ 灰条补插绝不能在这里做「INSERT 同表」——已验证：QQ 单事务 3 连击下，
+  --    RAISE(IGNORE) 会把同事务里补插的 INSERT 一起废掉（连记录表若与补插同体也会没）。
+  --    所以补插灰条改由 WeQ JS 轮询 weq_recall_log 后用 appendClonedRow 完成（方案 C）。
   SELECT RAISE(IGNORE);
 END`;
 }
@@ -197,6 +244,12 @@ export class AntiRecallDb {
       byKind.set(t.kind, list);
     }
 
+    // 记录表必须先于任何 trigger 存在——trigger body 会 INSERT 进它。幂等。
+    const anySelected = [...byKind.values()].some((l) => l.length > 0);
+    if (anySelected) {
+      await this.ensureRecallLogSchema();
+    }
+
     for (const spec of TABLE_SPECS) {
       const ids = byKind.get(spec.kind) ?? [];
       // Always drop first: refreshing the WHEN id-list means replacing the
@@ -209,6 +262,31 @@ export class AntiRecallDb {
         if (sql) await this.qq.write(sql);
       }
     }
+  }
+
+  /**
+   * 确保记录表存在**且结构最新**。
+   *
+   * 陷阱：`CREATE TABLE IF NOT EXISTS` 对一张**已存在但结构陈旧**的表是无操作 ——
+   * 早期版本建的 weq_recall_log 可能缺 `graytip_done` 等列，直接用会让 trigger 的
+   * INSERT 因列不存在而失败（在 QQ 撤回时静默炸）。所以这里先探列：缺任一必需列就
+   * DROP 重建。记录表是我们自己的增量辅助数据，重建丢历史无伤（撤回记录本就是往后
+   * 累积的），换取 schema 一定正确。
+   */
+  private async ensureRecallLogSchema(): Promise<void> {
+    const required = [
+      'msgid', 'conv', 'table_kind', 'sender_uid', 'revoke_uid',
+      'orig_seq', 'recall_ts', 'orig_body', 'graytip_done',
+    ];
+    const info = await this.qq.query(`PRAGMA table_info("${RECALL_LOG_TABLE}")`);
+    if (info.length > 0) {
+      const have = new Set(info.map((r) => String(r[1])));
+      const missing = required.some((c) => !have.has(c));
+      if (missing) {
+        await this.qq.write(`DROP TABLE IF EXISTS ${RECALL_LOG_TABLE}`);
+      }
+    }
+    await this.qq.write(RECALL_LOG_DDL);
   }
 
   /** Drop all three anti-recall triggers, whatever the current selection. */

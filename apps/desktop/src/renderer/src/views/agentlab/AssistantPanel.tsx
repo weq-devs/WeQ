@@ -152,7 +152,7 @@ const AssistantBubble = memo(function AssistantBubble({ turn }: { turn: Turn }):
         <div className="message-content weq-asst-content">
           <AssistantSteps steps={turn.steps ?? []} running={!!turn.running} reasoning={turn.reasoning} />
           {body ? (
-            <AssistantMessage text={body} />
+            <AssistantMessage text={body} streaming={!!turn.running} />
           ) : turn.running ? (
             <div className="weq-agentlab-typing weq-asst-typing">
               <span /><span /><span />
