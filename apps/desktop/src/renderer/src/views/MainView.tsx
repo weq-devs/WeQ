@@ -37,6 +37,7 @@ import { MemberProfileCard } from '../components/MemberProfileCard';
 import { BuddyAnalyticsDialog } from '../components/BuddyAnalyticsDialog';
 import { AddMessageModal } from '../components/compose/AddMessageModal';
 import { DeletedMessagesModal } from '../components/compose/DeletedMessagesModal';
+import { RecalledMessagesModal } from '../components/compose/RecalledMessagesModal';
 import { RelationGraphView } from '../components/relationGraph/RelationGraphView';
 import { AgentLabView } from './AgentLabView';
 import { ExportView } from './ExportView';
@@ -164,6 +165,8 @@ type MessageWire = {
   setEmojiList?: SetEmojiItem[];
   /** Deleted origin: 'weq' (restorable) or 'qq' (native recall, not). */
   deletedKind?: 'weq' | 'qq';
+  /** Recall marker: message whose QQ recall was intercepted (content intact). */
+  recall?: { revokeUid: string; sameSender: boolean; recallTs: number };
 };
 
 /** One full-text search hit from `account.searchMessages`. */
@@ -253,6 +256,7 @@ type ChatMsgWire = {
   elements: unknown[];
   setEmojiList?: SetEmojiItem[];
   deletedKind?: 'weq' | 'qq';
+  recall?: { revokeUid: string; sameSender: boolean; recallTs: number };
 };
 
 function toMessageWire(w: ChatMsgWire): MessageWire {
@@ -265,6 +269,7 @@ function toMessageWire(w: ChatMsgWire): MessageWire {
     elements: w.elements,
     setEmojiList: w.setEmojiList,
     deletedKind: w.deletedKind,
+    recall: w.recall,
   };
 }
 
@@ -923,6 +928,20 @@ function messageToTemplate(message: MessageWire, conversation: Conversation, use
   // without having to thread the renderer-side group lookup through React
   // context. Non-reply elements are passed through untouched.
   const elements = enrichReplyElements(message.elements, conversation, user, memberMap);
+  // Recall reviser's display name: only needed when an admin recalled someone
+  // else's message (sameSender === false). Group → memberMap by uid; c2c → the
+  // peer (the only other party). Falls back to a generic label in the bubble.
+  let recallRevokerName: string | undefined;
+  if (message.recall && !message.recall.sameSender) {
+    const uid = message.recall.revokeUid;
+    if (uid) {
+      recallRevokerName =
+        memberMap?.get(uid)?.displayName ??
+        (conversation.type === 'direct' && conversation.otherUser.id === uid
+          ? conversation.otherUser.displayName
+          : undefined);
+    }
+  }
   return {
     id: message.msgId,
     conversationId: conversation.id,
@@ -937,8 +956,11 @@ function messageToTemplate(message: MessageWire, conversation: Conversation, use
     setEmojiList: message.setEmojiList,
     // Deleted origin ('weq'/'qq'), carried to the bubble's veil renderer.
     deletedKind: message.deletedKind,
+    // Recall marker + resolved reviser name, carried to the bubble's 撤回 tag.
+    recall: message.recall,
+    recallRevokerName,
     msgId: message.msgId,
-  } as Message & { qqElements: unknown[]; setEmojiList?: SetEmojiItem[]; deletedKind?: 'weq' | 'qq'; msgId: string };
+  } as Message & { qqElements: unknown[]; setEmojiList?: SetEmojiItem[]; deletedKind?: 'weq' | 'qq'; recall?: { revokeUid: string; sameSender: boolean; recallTs: number }; recallRevokerName?: string; msgId: string };
 }
 
 /**
@@ -1551,6 +1573,12 @@ export function MainView(): ReactElement {
   const [deletedConv, setDeletedConv] = useState<Conversation | null>(null);
   const [deletedWires, setDeletedWires] = useState<MessageWire[]>([]);
   const [deletedLoading, setDeletedLoading] = useState(false);
+  // "撤回列表" panel: which conversation is open + its fetched recalled rows.
+  // Unlike deletes there's no restore — the anti-recall trigger already kept the
+  // original message; this panel just lists what was recalled + by whom.
+  const [recalledConv, setRecalledConv] = useState<Conversation | null>(null);
+  const [recalledWires, setRecalledWires] = useState<MessageWire[]>([]);
+  const [recalledLoading, setRecalledLoading] = useState(false);
   // msgIds WeQ deleted in the SELECTED conversation — drives the in-place
   // translucent overlay in the chat. Loaded per conversation, updated
   // optimistically on delete/restore.
@@ -1659,6 +1687,32 @@ export function MainView(): ReactElement {
       void loadDeletedMessages(conversation);
     },
     [loadDeletedMessages],
+  );
+
+  const loadRecalledMessages = useCallback(
+    async (c: Conversation): Promise<void> => {
+      const { kind, conv } = convFetchKey(c);
+      setRecalledLoading(true);
+      try {
+        const rows = await client.account.recalledMessages.query({ kind, conv });
+        setRecalledWires(rows.map(toMessageWire));
+      } catch (e) {
+        console.error('[MainView] Failed to load recalled messages:', e);
+        setRecalledWires([]);
+      } finally {
+        setRecalledLoading(false);
+      }
+    },
+    [convFetchKey],
+  );
+
+  const handleViewRecalled = useCallback(
+    (conversation: Conversation) => {
+      setRecalledWires([]);
+      setRecalledConv(conversation);
+      void loadRecalledMessages(conversation);
+    },
+    [loadRecalledMessages],
   );
 
   const handleRestoreMessage = useCallback(
@@ -2167,6 +2221,16 @@ export function MainView(): ReactElement {
       .filter((message) => isRenderableMessage(message))
       .map((message) => messageToTemplate(message, deletedConv, user, memberMap));
   }, [deletedWires, deletedConv, user, currentGroupMembers]);
+
+  // Recalled messages through the SAME template pipeline (bubbles match the chat
+  // + carry the 撤回 tag). Same member source as the deleted panel.
+  const recalledTemplateMessages = useMemo(() => {
+    if (!recalledConv) return [];
+    const memberMap = new Map(currentGroupMembers.map((m) => [m.id, m]));
+    return recalledWires
+      .filter((message) => isRenderableMessage(message))
+      .map((message) => messageToTemplate(message, recalledConv, user, memberMap));
+  }, [recalledWires, recalledConv, user, currentGroupMembers]);
 
   const activeConversation = useMemo(() => {
     if (!selectedConversation) return undefined;
@@ -2926,6 +2990,7 @@ export function MainView(): ReactElement {
                 onOpenGroupMember={handleOpenGroupMember}
                 onAddMessage={handleAddMessage}
                 onViewDeleted={handleViewDeleted}
+                onViewRecalled={handleViewRecalled}
                 deletedIds={deletedIds}
                 onRestoreMessage={handleRestoreMessage}
               />
@@ -3004,6 +3069,19 @@ export function MainView(): ReactElement {
           onClose={() => {
             setDeletedConv(null);
             setDeletedWires([]);
+          }}
+        />
+      ) : null}
+      {recalledConv ? (
+        <RecalledMessagesModal
+          conversation={recalledConv}
+          user={user}
+          messages={recalledTemplateMessages}
+          renderers={messageRenderers}
+          loading={recalledLoading}
+          onClose={() => {
+            setRecalledConv(null);
+            setRecalledWires([]);
           }}
         />
       ) : null}

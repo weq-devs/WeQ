@@ -10194,3 +10194,29 @@ html[data-theme="dark"] .message-line.is-deleted .message-bubble {
 
 /* "QQ删除" tag: styled together with the restore button under .weq-deleted-row
    above (shares the in-chat amber frosted-pill language). No standalone rule. */
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Anti-recall 撤回 tag (im-template/messageBubble)
+   Unlike delete, an intercepted recall leaves the message content intact — so
+   there's NO veil. We only show a small, quiet caption below the bubble naming
+   who recalled it (self vs admin). Rides the --weq-* tokens like the rest. */
+.weq-msg-recall-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 3px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.6;
+  letter-spacing: 0.01em;
+  color: color-mix(in srgb, var(--weq-warn, #b8860b) 78%, var(--weq-fg-muted));
+  background: color-mix(in srgb, var(--weq-bg-surface) 66%, transparent);
+  border: 1px solid color-mix(in srgb, var(--weq-warn, #b8860b) 30%, transparent);
+  border-radius: 999px;
+  width: fit-content;
+  user-select: none;
+}
+.weq-msg-recall-tag svg {
+  opacity: 0.85;
+}

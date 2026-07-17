@@ -211,6 +211,13 @@ export interface ChatMsgWire {
    * message. Drives the in-chat veil + whether a restore button shows.
    */
   deletedKind?: 'weq' | 'qq';
+  /**
+   * Recall marker: present when this message's QQ recall was intercepted by the
+   * anti-recall trigger (its original content survives and renders normally).
+   * `sameSender` = author recalled their own message; false = an admin recalled
+   * it. Drives the in-chat 撤回 tag + the 撤回列表 panel. Omitted for a normal message.
+   */
+  recall?: { revokeUid: string; sameSender: boolean; recallTs: number };
 }
 
 export interface RecentContactWire {
@@ -247,6 +254,7 @@ export function c2cMsgToWire(m: RenderC2cMsg): ChatMsgWire {
     sendTime: m.sendTime.toString(),
     elements: sanitize(m.elements),
     deletedKind: m.deletedKind,
+    recall: m.recall,
   };
 }
 
@@ -262,6 +270,7 @@ export function groupMsgToWire(m: RenderGroupMsg): ChatMsgWire {
     elements: sanitize(m.elements),
     setEmojiList: m.setEmojiList,
     deletedKind: m.deletedKind,
+    recall: m.recall,
   };
 }
 

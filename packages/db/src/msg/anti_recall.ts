@@ -73,6 +73,38 @@ export interface AntiRecallTriggerInfo {
   table: string;
 }
 
+/**
+ * One recorded recall, read back from the `weq_recall_log` table the trigger
+ * writes to. This is the read side of the anti-recall feature: the trigger
+ * (below) records every recall it intercepts; {@link AntiRecallDb.listRecalls}
+ * reads them so the UI can flag "this message was recalled — by whom".
+ *
+ * The original message itself is NOT here — the trigger cancels QQ's recall in
+ * place, so the real row survives untouched in the message table and renders
+ * normally. `origBody` (the pre-recall body blob) is kept in the log purely as a
+ * lossless backstop and is intentionally not surfaced here.
+ */
+export interface RecallLogRow {
+  /** Recalled message's 40001 (msgId), as a decimal string. */
+  msgid: string;
+  /** Conversation key: peer uid (c2c/dataline) or group code (group). */
+  conv: string;
+  /** Which table it came from. */
+  kind: AntiRecallKind;
+  /** Original author's uid (OLD.40020). */
+  senderUid: string;
+  /**
+   * Who performed the recall (extracted from the recall gray-tip). Equals
+   * {@link senderUid} for a self-recall; differs when an admin recalled someone
+   * else's message. May be '' if extraction failed.
+   */
+  revokeUid: string;
+  /** Original message seq (OLD.40003), as a decimal string. */
+  origSeq: string;
+  /** When the recall was intercepted (unix seconds). */
+  recallTs: number;
+}
+
 interface TableSpec {
   kind: AntiRecallKind;
   table: string;
@@ -224,6 +256,42 @@ export class AntiRecallDb {
         ORDER BY tbl_name`,
     );
     return rows.map((r) => ({ name: String(r[0]), table: String(r[1]) }));
+  }
+
+  /**
+   * Read the recorded recalls for one conversation, newest-first.
+   *
+   * The `weq_recall_log` table only exists once the trigger has been installed
+   * at least once (see {@link ensureRecallLogSchema}); before that a plain
+   * SELECT would fail with "no such table". So we probe `sqlite_master` first
+   * and return `[]` when the table is absent — a user who never enabled
+   * anti-recall simply has no recalls, not an error.
+   *
+   * Column order matches the SELECT list; `query` returns positional rows.
+   */
+  async listRecalls(kind: AntiRecallKind, conv: string): Promise<RecallLogRow[]> {
+    const exists = await this.qq.query(
+      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1`,
+      [RECALL_LOG_TABLE],
+    );
+    if (exists.length === 0) return [];
+
+    const rows = await this.qq.query(
+      `SELECT msgid, conv, table_kind, sender_uid, revoke_uid, orig_seq, recall_ts
+        FROM ${RECALL_LOG_TABLE}
+        WHERE table_kind = ? AND conv = ?
+        ORDER BY recall_ts DESC`,
+      [kind, conv],
+    );
+    return rows.map((r) => ({
+      msgid: String(r[0]),
+      conv: String(r[1]),
+      kind: String(r[2]) as AntiRecallKind,
+      senderUid: String(r[3] ?? ''),
+      revokeUid: String(r[4] ?? ''),
+      origSeq: String(r[5] ?? ''),
+      recallTs: Number(r[6] ?? 0),
+    }));
   }
 
   /**

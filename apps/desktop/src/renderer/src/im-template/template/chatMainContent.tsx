@@ -79,6 +79,7 @@ export function ChatMainContent({
 	onOpenGroupMember,
 	onAddMessage,
 	onViewDeleted,
+	onViewRecalled,
 	deletedIds,
 	onRestoreMessage,
 	onOpenTool,
@@ -149,6 +150,7 @@ export function ChatMainContent({
 	onOpenGroupMember?: (member: any, anchor: { x: number; y: number }) => void;
 	onAddMessage?: (conversation: Conversation) => void;
 	onViewDeleted?: (conversation: Conversation) => void;
+	onViewRecalled?: (conversation: Conversation) => void;
 	/** msgIds WeQ deleted in the active conversation (in-place overlay). */
 	deletedIds?: Set<string>;
 	/** Restore one WeQ-deleted message (overlay hover button). */
@@ -230,6 +232,7 @@ export function ChatMainContent({
 			onOpenGroupMember={onOpenGroupMember}
 			onAddMessage={onAddMessage}
 			onViewDeleted={onViewDeleted}
+			onViewRecalled={onViewRecalled}
 			deletedIds={deletedIds}
 			onRestoreMessage={onRestoreMessage}
 		/>

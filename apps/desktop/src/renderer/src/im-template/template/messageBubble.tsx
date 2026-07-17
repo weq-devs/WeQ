@@ -29,6 +29,7 @@ export function MessageBubble({
 	renderers,
 	deleted,
 	deletedKind,
+	recallRevokerName,
 	onRestore,
 	onContextMenu,
 	onLongPress,
@@ -54,6 +55,12 @@ export function MessageBubble({
 	 * button). Preferred over the legacy boolean `deleted`.
 	 */
 	deletedKind?: "weq" | "qq";
+	/**
+	 * Recall reviser's display name — shown in the 撤回 tag when an admin recalled
+	 * someone else's message (`recall.sameSender === false`). Resolved by the
+	 * parent from `message.recall.revokeUid`.
+	 */
+	recallRevokerName?: string;
 	/** Restore a WeQ-deleted message (only used when `deleted`). */
 	onRestore?: (msgId: string) => Promise<void>;
 	onContextMenu: (event: ReactMouseEvent, message: Message) => void;
@@ -75,6 +82,17 @@ export function MessageBubble({
 	const resolvedKind: "weq" | "qq" | null = deletedKind ?? (deleted ? "weq" : null);
 	const isDeleted = resolvedKind !== null;
 	const isQqDeleted = resolvedKind === "qq";
+
+	// Recall marker — the anti-recall trigger caught a QQ recall of this message;
+	// its content is intact, so we DON'T veil it (unlike delete). We just show a
+	// small "撤回" tag below the bubble naming who recalled it. `sameSender` = the
+	// author recalled their own message; otherwise an admin recalled someone else's.
+	const recall = (message as { recall?: { revokeUid: string; sameSender: boolean; recallTs: number } }).recall;
+	const recallText = !recall
+		? null
+		: recall.sameSender
+			? (mine ? "你撤回了这条消息" : "对方撤回了这条消息")
+			: `${recallRevokerName?.trim() || "管理员"} 撤回了这条消息`;
 
 	function clearLongPress() {
 		if (longPressTimerRef.current !== null) {
@@ -247,6 +265,12 @@ export function MessageBubble({
 					renderers,
 				)}
 				<SetEmojiReactions list={message.setEmojiList} />
+				{recallText ? (
+					<div className={cn("weq-msg-recall-tag")} title="防撤回已保留原消息">
+						<RotateCcw size={12} />
+						<span>{recallText}</span>
+					</div>
+				) : null}
 				{isDeleted ? (
 					<div className={cn("weq-msg-deleted-veil")} aria-label={isQqDeleted ? "QQ删除的消息" : "已删除的消息"}>
 						<span className={cn("weq-msg-deleted-badge")}>{isQqDeleted ? "QQ删除" : "已删除"}</span>

@@ -26,7 +26,7 @@ export { UnreadInfoDb } from './unread_info';
 export type { UnreadInfoDbOptions, UnreadInfoResult } from './unread_info';
 
 export { AntiRecallDb } from './anti_recall';
-export type { AntiRecallKind, AntiRecallTarget, AntiRecallTriggerInfo } from './anti_recall';
+export type { AntiRecallKind, AntiRecallTarget, AntiRecallTriggerInfo, RecallLogRow } from './anti_recall';
 
 export { decodeBody } from './util';
 export type { C2cMsg, GroupMsg, BuddyMsgFtsHit } from './types';

@@ -608,8 +608,15 @@ export function initAppContext(): AppContext {
       const deletedMsgs = new DeletedMsgStore(
         join(userConfig.cacheDir(join('deleted', exportConfigId)), 'deleted.json'),
       );
+      // 防撤回 service：既装 trigger，又是「读 weq_recall_log」的入口。先建好，
+      // 供 MsgService 给消息打「撤回」标（明文直显 + 撤回者），同时进 services。
+      const antiRecall = new AntiRecallService(
+        session,
+        platform,
+        join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
+      );
       this.services = {
-        msgs: new MsgService(session, deletedMsgs),
+        msgs: new MsgService(session, deletedMsgs, antiRecall),
         recentContacts: new RecentContactService(session),
         unreadInfo: new UnreadInfoService(session),
         accountConfig,
@@ -663,6 +670,9 @@ export function initAppContext(): AppContext {
             mediaUrl,
             // Account user-data dir for locating on-disk media to copy.
             accountDir: metadata.dataDir ?? accountConfig.getRecord()?.dataDir,
+            // Built-in system-emoji resource dir — HTML export copies the 小黄脸
+            // face images used by the conversation into the bundle so they render.
+            emojiDir: platform.emojiResourceDir(session.context.uin),
             // SILK → WAV decode lives in the app (silk-wasm); load it lazily to
             // avoid a static import cycle with this module.
             decodeSilk: (silk: string, dest: string) =>
@@ -761,11 +771,7 @@ export function initAppContext(): AppContext {
         ),
         dbDecrypt: new DbDecryptService(session, platform),
         dbExplorer: new DbExplorerService(session, platform),
-        antiRecall: new AntiRecallService(
-          session,
-          platform,
-          join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
-        ),
+        antiRecall,
         avatarResource: new AvatarResourceService(session, platform),
         sysEmoji: new SysEmojiResourceService(session, platform),
         marketEmoji: new MarketEmojiResourceService(session, platform),
@@ -922,9 +928,15 @@ export function initAppContext(): AppContext {
       const deletedMsgs = new DeletedMsgStore(
         join(userConfig.cacheDir(join('deleted', exportConfigId)), 'deleted.json'),
       );
+      // 防撤回 service：装 trigger + 读 weq_recall_log。先建好供 MsgService 打撤回标。
+      const antiRecall = new AntiRecallService(
+        session,
+        platform,
+        join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
+      );
 
       this.services = {
-        msgs: new MsgService(session, deletedMsgs),
+        msgs: new MsgService(session, deletedMsgs, antiRecall),
         recentContacts: new RecentContactService(session),
         unreadInfo: new UnreadInfoService(session),
         accountConfig,
@@ -977,6 +989,9 @@ export function initAppContext(): AppContext {
             // media-copy will skip gracefully and only CDN completion would
             // work (which requires a live QQ — unavailable here).
             accountDir: dirPath,
+            // Built-in system-emoji resource dir (may be absent for a static
+            // account — HTML export then skips face images gracefully).
+            emojiDir: platform.emojiResourceDir(session.context.uin),
             decodeSilk: (silk: string, dest: string) =>
               import('../voice').then((m) => m.decodeSilkToFile(silk, dest)),
             transcribe: transcribeSilk,
@@ -1018,11 +1033,7 @@ export function initAppContext(): AppContext {
         ),
         dbDecrypt: new DbDecryptService(session, platform),
         dbExplorer: new DbExplorerService(session, platform),
-        antiRecall: new AntiRecallService(
-          session,
-          platform,
-          join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
-        ),
+        antiRecall,
         avatarResource: new AvatarResourceService(session, platform),
         sysEmoji: new SysEmojiResourceService(session, platform),
         marketEmoji: new MarketEmojiResourceService(session, platform),

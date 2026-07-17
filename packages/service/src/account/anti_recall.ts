@@ -24,7 +24,7 @@
  * in config so re-enabling restores it.
  */
 
-import { AntiRecallDb, type AntiRecallTarget, type AntiRecallTriggerInfo } from '@weq/db';
+import { AntiRecallDb, type AntiRecallTarget, type AntiRecallTriggerInfo, type RecallLogRow } from '@weq/db';
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -92,6 +92,38 @@ export class AntiRecallService {
     } finally {
       db.close();
     }
+  }
+
+  /**
+   * The recorded recalls for one conversation, newest-first — read straight from
+   * the `weq_recall_log` table the trigger writes to. Empty when the feature was
+   * never enabled (the table doesn't exist yet — {@link AntiRecallDb.listRecalls}
+   * handles that). Drives the "撤回列表" panel.
+   */
+  async listRecalls(kind: 'c2c' | 'group', conv: string): Promise<RecallLogRow[]> {
+    const db = this.openDb();
+    try {
+      return await db.listRecalls(kind, conv);
+    } finally {
+      db.close();
+    }
+  }
+
+  /**
+   * A `msgId → recall info` map for one conversation, so a message page can be
+   * tagged in a single DB read instead of one lookup per message. Consumed by
+   * {@link MsgService} to attach `recall` to each rendered message.
+   */
+  async getRecallMap(
+    kind: 'c2c' | 'group',
+    conv: string,
+  ): Promise<Map<string, { revokeUid: string; senderUid: string; recallTs: number }>> {
+    const rows = await this.listRecalls(kind, conv);
+    const map = new Map<string, { revokeUid: string; senderUid: string; recallTs: number }>();
+    for (const r of rows) {
+      map.set(r.msgid, { revokeUid: r.revokeUid, senderUid: r.senderUid, recallTs: r.recallTs });
+    }
+    return map;
   }
 
   /** Flip the master switch, then reconcile triggers to match. Persists. */

@@ -8,6 +8,7 @@ import {
 	ChevronsUp,
 	CirclePlus,
 	Trash2,
+	RotateCcw,
 	FileText,
 	Images,
 	MessageSquareText,
@@ -209,6 +210,7 @@ export function ChatPane({
 	onOpenGroupMember,
 	onAddMessage,
 	onViewDeleted,
+	onViewRecalled,
 	deletedIds,
 	onRestoreMessage,
 }: {
@@ -243,6 +245,7 @@ export function ChatPane({
 	onOpenGroupMember?: (member: any, anchor: { x: number; y: number }) => void;
 	onAddMessage?: (conversation: Conversation) => void;
 	onViewDeleted?: (conversation: Conversation) => void;
+	onViewRecalled?: (conversation: Conversation) => void;
 	/** msgIds WeQ deleted in this conversation — rendered in place under a translucent overlay. */
 	deletedIds?: Set<string>;
 	/** Restore one WeQ-deleted message (the overlay's hover button). */
@@ -1379,6 +1382,17 @@ export function ChatPane({
 							<Trash2 size={18} />
 						</button>
 					) : null}
+					{onViewRecalled &&
+					(conversation.type === "group" || conversation.type === "direct") ? (
+						<button
+							className={cn("icon-button", "group-header-info-action")}
+							type="button"
+							title="撤回列表"
+							onClick={() => onViewRecalled(conversation)}
+						>
+							<RotateCcw size={18} />
+						</button>
+					) : null}
 					{conversation.type === "group" ? (
 						<>
 							<button
@@ -1530,6 +1544,7 @@ export function ChatPane({
 									renderers={messageRenderers}
 									deleted={deletedIds?.has(message.id) ?? false}
 									deletedKind={message.deletedKind}
+									recallRevokerName={message.recallRevokerName}
 									onRestore={onRestoreMessage}
 									onContextMenu={openMessageMenu}
 									onLongPress={openMobileMessageMenu}

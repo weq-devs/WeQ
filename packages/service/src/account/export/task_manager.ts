@@ -46,6 +46,7 @@ import {
   type MediaFailure,
 } from './media_export';
 import { scanConvMedia, mediaDirsFromAccountDir, type MediaDirs, type MediaScanResult } from './media_scan';
+import { exportSysFaces } from './sysface_export';
 import type { MediaUrlService } from '../media_url';
 import { iterateC2cMessages, toExportedMessage } from './message_source';
 import { type Framing } from './run_export';
@@ -57,7 +58,7 @@ export type TaskStatus = 'pending' | 'running' | 'paused' | 'completed' | 'faile
 export type { ConvKind };
 
 /** A single stage of a task's pipeline. */
-export type StageKey = 'message' | 'media' | 'avatar' | 'record' | 'image' | 'video' | 'file' | 'transcribe';
+export type StageKey = 'message' | 'media' | 'avatar' | 'record' | 'image' | 'video' | 'file' | 'transcribe' | 'sysface';
 
 export interface TaskStage {
   key: StageKey;
@@ -140,6 +141,8 @@ export interface MediaDeps {
   mediaUrl?: MediaUrlService;
   /** Absolute media base dirs for the open account (`…/<uin>/nt_qq/nt_data/*`). */
   accountDir?: string;
+  /** Account built-in system-emoji resource dir (platform.emojiResourceDir), for HTML face images. */
+  emojiDir?: string | null;
   /** SILK → WAV decode (writes to a given path). Injected from the app. */
   decodeSilk?: DecodeSilk;
   /** SILK voice → text transcription (native engine; injected from the app). */
@@ -331,6 +334,11 @@ export class ExportTaskManager extends EventEmitter {
     if (wantTranscribe) {
       stages.push({ key: 'transcribe', label: '语音转写', status: 'pending', current: 0, total: 0 });
     }
+    // HTML 页内联系统表情（小黄脸）图片：导出消息时收集用到的 faceId，导出后把这些
+    // 表情图片复制进 bundle 的 media/face/。仅 HTML 格式有此阶段。
+    if (opts.format === 'html') {
+      stages.push({ key: 'sysface', label: '导出表情', status: 'pending', current: 0, total: 0 });
+    }
     const task: ExportTask = {
       id,
       kind: opts.kind,
@@ -429,6 +437,10 @@ export class ExportTaskManager extends EventEmitter {
       const outPath = join(outDir, task.format === 'html' ? 'index.html' : `${task.name}.${task.format}`);
       const mediaRoot = join(outDir, 'media');
       const senders = wantAvatars ? new Set<string>() : undefined;
+      // HTML collects the built-in system-emoji face ids it renders, so the
+      // sysface stage can copy just those images into media/face/.
+      const wantSysFaces = task.format === 'html';
+      const faces = wantSysFaces ? new Set<string>() : undefined;
 
       // Defensive: a stage created for a capability that isn't injected (no
       // avatar cache / no transcription engine) is skipped up-front, so the
@@ -447,7 +459,7 @@ export class ExportTaskManager extends EventEmitter {
       const result = await this.exportMessages(task, outPath, senders, wantMedia, (current, note) => {
         if (aborted()) return;
         this.touchStage(task, 'message', { current, note });
-      });
+      }, faces);
       task.filePath = result.filePath;
       task.current = result.messageCount;
       this.touchStage(task, 'message', { status: 'completed', current: result.messageCount, total: result.messageCount, note: `${result.messageCount} 条` }, { persist: true });
@@ -484,8 +496,25 @@ export class ExportTaskManager extends EventEmitter {
       }
       if (aborted()) { task.status = 'cancelled'; return; }
 
-      // ---- concurrent batch: 头像 / 解码语音 / 补全图片·视频·文件 / 语音转写 ----
+      // ---- concurrent batch: 头像 / 解码语音 / 补全图片·视频·文件 / 语音转写 / 系统表情 ----
       const jobs: Array<() => Promise<void>> = [];
+
+      if (wantSysFaces && faces) {
+        jobs.push(async () => {
+          const s = this.stage(task, 'sysface');
+          const emojiDir = this.deps.emojiDir;
+          if (!emojiDir) {
+            if (s) { s.status = 'skipped'; s.note = '未找到表情资源目录'; this.saveTasks(); }
+            return;
+          }
+          this.touchStage(task, 'sysface', { status: 'running', total: faces.size, current: 0, note: `导出 0/${faces.size}` }, { persist: true });
+          const r = await exportSysFaces(faces, emojiDir, mediaRoot, (done, total) => {
+            if (aborted()) return;
+            this.touchStage(task, 'sysface', { current: done, total, note: `导出 ${done}/${total}` });
+          });
+          this.touchStage(task, 'sysface', { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已导出 ${r.ok}${r.failed ? ` · 缺失 ${r.failed}` : ''}` }, { persist: true });
+        });
+      }
 
       if (wantAvatars && senders && avatarCache) {
         jobs.push(async () => {
@@ -885,6 +914,7 @@ export class ExportTaskManager extends EventEmitter {
     senders: Set<string> | undefined,
     withMediaPaths: boolean,
     onProgress: (current: number, note: string) => void,
+    faces?: Set<string>,
   ): Promise<ExportResult> {
     const progressEvery = 1000;
     const tick = (p: { current: number; message: string }): void => onProgress(p.current, p.message);
@@ -921,6 +951,7 @@ export class ExportTaskManager extends EventEmitter {
           progressEvery,
           onProgress: tick,
           collectSenders: senders,
+          collectFaces: faces,
           withMediaPaths,
         },
         this.deps.chatlab ?? {},

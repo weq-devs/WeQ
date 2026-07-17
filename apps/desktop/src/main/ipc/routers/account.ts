@@ -1664,6 +1664,23 @@ export const accountRouter = router({
     }),
 
   /**
+   * List the recalled messages of one conversation (newest-recall-first) — the
+   * ones the anti-recall trigger caught and logged. Their original content is
+   * intact (the trigger cancelled QQ's recall in place), so they serialize like
+   * any other message page, each carrying its `recall` marker (who/when), for
+   * the "撤回列表" panel. Empty when anti-recall was never enabled here.
+   */
+  recalledMessages: procedure
+    .input(z.object({ kind: z.enum(['c2c', 'group']), conv: z.string().min(1) }))
+    .query(async ({ input }): Promise<ChatMsgWire[]> => {
+      const msgs = requireServices().msgs;
+      const rows = await msgs.getRecalledMessages(input.kind, input.conv);
+      return input.kind === 'group'
+        ? (rows as RenderGroupMsg[]).map(groupMsgToWire)
+        : (rows as RenderC2cMsg[]).map(c2cMsgToWire);
+    }),
+
+  /**
    * Field descriptors for the compose form — required/optional/type per
    * authorable element kind, derived from the codec Zod schemas.
    */

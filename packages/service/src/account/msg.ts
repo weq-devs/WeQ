@@ -30,6 +30,7 @@ import {
 import { MsgBody } from '@weq/codec/proto/msg/40800';
 import { toRenderElements, type RenderElement } from './msg_view';
 import { DeletedMsgStore } from './deleted_msgs';
+import { AntiRecallService } from './anti_recall';
 
 const bodyCodec = new ProtoMsg(MsgBody);
 
@@ -92,23 +93,48 @@ export interface InsertMsgResult {
  * restore. `undefined` = a live message.
  */
 export type DeletedKind = 'weq' | 'qq';
+
+/**
+ * Recall marker for a message whose QQ recall was intercepted by the anti-recall
+ * trigger. The original row survives untouched (renders normally); this only
+ * records that a recall happened and who did it, read from `weq_recall_log`.
+ */
+export interface RecallInfo {
+  /** Uid that performed the recall (from the recall gray-tip; '' if unknown). */
+  revokeUid: string;
+  /** True = author recalled their own message; false = an admin recalled it. */
+  sameSender: boolean;
+  /** When the recall was intercepted (unix seconds). */
+  recallTs: number;
+}
+
+/** Conversation-level `msgId → recall log entry` map (see AntiRecallService.getRecallMap). */
+type RecallMap = Map<string, { revokeUid: string; senderUid: string; recallTs: number }>;
+
 export interface RenderC2cMsg extends Omit<C2cMsg, 'elements'> {
   elements: RenderElement[];
   deletedKind?: DeletedKind;
+  recall?: RecallInfo;
 }
 export interface RenderGroupMsg extends Omit<GroupMsg, 'elements'> {
   elements: RenderElement[];
   deletedKind?: DeletedKind;
+  recall?: RecallInfo;
 }
 
 export class MsgService {
   /**
    * `deleted` is the per-account {@link DeletedMsgStore}; omit it for contexts
    * that never delete (e.g. the export pipeline's private MsgService).
+   *
+   * `antiRecall` is the per-account {@link AntiRecallService}; when present, each
+   * fetched page is tagged with `recall` for messages the trigger recorded in
+   * `weq_recall_log`. Omit it for contexts with no anti-recall (export pipeline).
    */
   constructor(
     private readonly session: AccountSession,
     private readonly deleted?: DeletedMsgStore,
+    private readonly antiRecall?: AntiRecallService,
   ) {}
 
   /**
@@ -122,14 +148,30 @@ export class MsgService {
     return this.deleted?.get(m.msgId.toString()) ? 'weq' : 'qq';
   }
 
-  /** {@link renderC2c} plus the computed {@link RenderC2cMsg.deletedKind}. */
-  private renderC2cWithState(m: C2cMsg): RenderC2cMsg {
-    return { ...renderC2c(m), deletedKind: this.classifyDeleted(m) };
+  /**
+   * Resolve a message's recall marker from a conversation-level recall map
+   * (msgId → log entry). `undefined` when this message wasn't recalled.
+   * `sameSender` distinguishes a self-recall from an admin recalling someone else.
+   */
+  private classifyRecall(m: { msgId: bigint }, recallMap?: RecallMap): RecallInfo | undefined {
+    const r = recallMap?.get(m.msgId.toString());
+    if (!r) return undefined;
+    return { revokeUid: r.revokeUid, sameSender: r.revokeUid !== '' && r.revokeUid === r.senderUid, recallTs: r.recallTs };
   }
 
-  /** {@link renderGroup} plus the computed {@link RenderGroupMsg.deletedKind}. */
-  private renderGroupWithState(m: GroupMsg): RenderGroupMsg {
-    return { ...renderGroup(m), deletedKind: this.classifyDeleted(m) };
+  /** Fetch the conversation's recall map once (empty when anti-recall is off). */
+  private async recallMapFor(kind: 'c2c' | 'group', conv: string): Promise<RecallMap | undefined> {
+    return this.antiRecall?.getRecallMap(kind, conv);
+  }
+
+  /** {@link renderC2c} plus the computed deleted/recall state. */
+  private renderC2cWithState(m: C2cMsg, recallMap?: RecallMap): RenderC2cMsg {
+    return { ...renderC2c(m), deletedKind: this.classifyDeleted(m), recall: this.classifyRecall(m, recallMap) };
+  }
+
+  /** {@link renderGroup} plus the computed deleted/recall state. */
+  private renderGroupWithState(m: GroupMsg, recallMap?: RecallMap): RenderGroupMsg {
+    return { ...renderGroup(m), deletedKind: this.classifyDeleted(m), recall: this.classifyRecall(m, recallMap) };
   }
 
   // ---- compose / insert ----------------------------------------------------
@@ -284,14 +326,15 @@ export class MsgService {
    * with `deletedKind` ('weq' restorable vs 'qq' not) via {@link classifyDeleted}.
    */
   async getDeletedMessages(kind: 'c2c' | 'group', conv: string): Promise<RenderC2cMsg[] | RenderGroupMsg[]> {
+    const recallMap = await this.recallMapFor(kind, conv);
     if (kind === 'group') {
       const msgs = await this.session.groupMsgs.listDeletedByConv(conv);
       await this.enrichReplyMedia(msgs, 'group');
-      return msgs.map((m) => this.renderGroupWithState(m));
+      return msgs.map((m) => this.renderGroupWithState(m, recallMap));
     }
     const msgs = await this.c2cDbFor(conv).listDeletedByConv(conv);
     await this.enrichReplyMedia(msgs, 'c2c');
-    return msgs.map((m) => this.renderC2cWithState(m));
+    return msgs.map((m) => this.renderC2cWithState(m, recallMap));
   }
 
   /**
@@ -303,32 +346,70 @@ export class MsgService {
     return this.deleted?.listIds(kind, conv) ?? [];
   }
 
+  /**
+   * The recalled messages of one conversation, newest-recall-first, rendered
+   * like a normal page so the "撤回列表" panel can reuse the chat bubbles.
+   *
+   * Unlike deletes, a recalled message's original row is untouched on disk (the
+   * trigger cancelled QQ's recall in place) — so we read the recall log for the
+   * msgIds + who/when, then fetch those original rows by id and re-order them to
+   * match the log's newest-first order (listByMsgIds sorts by seq, not recall
+   * time). Each row is tagged with its `recall` marker.
+   */
+  async getRecalledMessages(kind: 'c2c' | 'group', conv: string): Promise<RenderC2cMsg[] | RenderGroupMsg[]> {
+    const recallMap = await this.recallMapFor(kind, conv);
+    if (!recallMap || recallMap.size === 0) return [];
+    const ids = [...recallMap.keys()];
+    const idBigints = ids.map((id) => BigInt(id));
+
+    if (kind === 'group') {
+      const rows = await this.session.groupMsgs.listByMsgIds(idBigints);
+      await this.enrichReplyMedia(rows, 'group');
+      const byId = new Map(rows.map((m) => [m.msgId.toString(), m]));
+      return ids
+        .map((id) => byId.get(id))
+        .filter((m): m is GroupMsg => m !== undefined)
+        .map((m) => this.renderGroupWithState(m, recallMap));
+    }
+    const rows = await this.c2cDbFor(conv).listByMsgIds(idBigints);
+    await this.enrichReplyMedia(rows, 'c2c');
+    const byId = new Map(rows.map((m) => [m.msgId.toString(), m]));
+    return ids
+      .map((id) => byId.get(id))
+      .filter((m): m is C2cMsg => m !== undefined)
+      .map((m) => this.renderC2cWithState(m, recallMap));
+  }
+
   /** Newest N private-chat messages with one peer. */
   async getC2cLatest(targetUid: string, limit = 50): Promise<RenderC2cMsg[]> {
     const msgs = await this.c2cDbFor(targetUid).listLatest(this.c2cPartition(targetUid), limit);
     await this.enrichReplyMedia(msgs, 'c2c');
-    return msgs.map((m) => this.renderC2cWithState(m));
+    const recallMap = await this.recallMapFor('c2c', targetUid);
+    return msgs.map((m) => this.renderC2cWithState(m, recallMap));
   }
 
   /** Private-chat page just older than `beforeSeq` (scroll-up). */
   async getC2cBefore(targetUid: string, beforeSeq: bigint, limit = 50): Promise<RenderC2cMsg[]> {
     const msgs = await this.c2cDbFor(targetUid).listBefore(this.c2cPartition(targetUid), beforeSeq, limit);
     await this.enrichReplyMedia(msgs, 'c2c');
-    return msgs.map((m) => this.renderC2cWithState(m));
+    const recallMap = await this.recallMapFor('c2c', targetUid);
+    return msgs.map((m) => this.renderC2cWithState(m, recallMap));
   }
 
   /** Private-chat page just newer than `afterSeq` (scroll-down / jump context). */
   async getC2cAfter(targetUid: string, afterSeq: bigint, limit = 50): Promise<RenderC2cMsg[]> {
     const msgs = await this.c2cDbFor(targetUid).listAfter(this.c2cPartition(targetUid), afterSeq, limit);
     await this.enrichReplyMedia(msgs, 'c2c');
-    return msgs.map((m) => this.renderC2cWithState(m));
+    const recallMap = await this.recallMapFor('c2c', targetUid);
+    return msgs.map((m) => this.renderC2cWithState(m, recallMap));
   }
 
   /** Re-read private-chat messages with seq >= `sinceSeq` (live refresh). */
   async getC2cFrom(targetUid: string, sinceSeq: bigint, limit = 500): Promise<RenderC2cMsg[]> {
     const msgs = await this.c2cDbFor(targetUid).listFrom(this.c2cPartition(targetUid), sinceSeq, limit);
     await this.enrichReplyMedia(msgs, 'c2c');
-    return msgs.map((m) => this.renderC2cWithState(m));
+    const recallMap = await this.recallMapFor('c2c', targetUid);
+    return msgs.map((m) => this.renderC2cWithState(m, recallMap));
   }
 
   /**
@@ -347,28 +428,32 @@ export class MsgService {
   async getGroupLatest(targetGroupCode: string, limit = 50): Promise<RenderGroupMsg[]> {
     const msgs = await this.session.groupMsgs.listLatest(targetGroupCode, limit);
     await this.enrichReplyMedia(msgs, 'group');
-    return msgs.map((m) => this.renderGroupWithState(m));
+    const recallMap = await this.recallMapFor('group', targetGroupCode);
+    return msgs.map((m) => this.renderGroupWithState(m, recallMap));
   }
 
   /** Group page just older than `beforeSeq` (scroll-up). */
   async getGroupBefore(targetGroupCode: string, beforeSeq: bigint, limit = 50): Promise<RenderGroupMsg[]> {
     const msgs = await this.session.groupMsgs.listBefore(targetGroupCode, beforeSeq, limit);
     await this.enrichReplyMedia(msgs, 'group');
-    return msgs.map((m) => this.renderGroupWithState(m));
+    const recallMap = await this.recallMapFor('group', targetGroupCode);
+    return msgs.map((m) => this.renderGroupWithState(m, recallMap));
   }
 
   /** Group page just newer than `afterSeq` (scroll-down / jump context). */
   async getGroupAfter(targetGroupCode: string, afterSeq: bigint, limit = 50): Promise<RenderGroupMsg[]> {
     const msgs = await this.session.groupMsgs.listAfter(targetGroupCode, afterSeq, limit);
     await this.enrichReplyMedia(msgs, 'group');
-    return msgs.map((m) => this.renderGroupWithState(m));
+    const recallMap = await this.recallMapFor('group', targetGroupCode);
+    return msgs.map((m) => this.renderGroupWithState(m, recallMap));
   }
 
   /** Re-read group messages with seq >= `sinceSeq` (live refresh). */
   async getGroupFrom(targetGroupCode: string, sinceSeq: bigint, limit = 500): Promise<RenderGroupMsg[]> {
     const msgs = await this.session.groupMsgs.listFrom(targetGroupCode, sinceSeq, limit);
     await this.enrichReplyMedia(msgs, 'group');
-    return msgs.map((m) => this.renderGroupWithState(m));
+    const recallMap = await this.recallMapFor('group', targetGroupCode);
+    return msgs.map((m) => this.renderGroupWithState(m, recallMap));
   }
 
   /**
