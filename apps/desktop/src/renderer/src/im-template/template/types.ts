@@ -208,7 +208,7 @@ export type GroupJoinRequest = {
 	isDoubt?: boolean;
 };
 
-export type MainView = "messages" | "contacts" | "export" | "agentlab" | "cache" | "tools";
+export type MainView = "messages" | "contacts" | "export" | "agentlab" | "cache" | "tools" | "qzone" | "channel";
 export type ContactTab = "friends" | "groups";
 export type ContactNoticeView = "friend" | "group";
 export type SettingsTab = "general" | "notifications" | "account";

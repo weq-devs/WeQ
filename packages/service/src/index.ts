@@ -29,11 +29,15 @@ export type {
   QrLoginStreamOptions,
 } from './bootstrap/win32_key';
 
+export { createDirectInjectHook } from './bootstrap/inject';
+export type { InjectHook } from './bootstrap/inject';
+
 export { UserConfigService, DEFAULT_APP_SETTINGS } from './bootstrap/user_config';
 export type {
   UserConfig,
   InstallCache,
   AutoEnterTarget,
+  InjectRecord,
   AppSettings,
   WindowCloseBehavior,
   MediaCompletionConfig,
@@ -47,7 +51,7 @@ export { AgentLabConfigService } from './bootstrap/agentlab_config';
 export { AvatarCacheService } from './bootstrap/avatar_cache';
 export type { AvatarBlob } from './bootstrap/avatar_cache';
 
-export { GlobalConfigService, parseQqVersion } from './bootstrap/global_config';
+export { GlobalConfigService } from './bootstrap/global_config';
 export type {
   GlobalInstallInfo,
   OnlineProbe,

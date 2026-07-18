@@ -165,6 +165,24 @@ export function registerQzoneIpc(): void {
     return true;
   });
 
+  // 内嵌模式（QzoneView 的 <webview>）入口：应用主题、解析 per-account 分区、
+  // 在首次导航前把自动登录 cookie 种进该分区，然后把 partition/url 交给渲染层，
+  // 由 <webview> 用同一个 partition 加载。cookie 注入失败不致命 —— 回退到持久
+  // 分区里已有的 cookie。返回的 partition 与独立窗口用的是同一套，登录状态互通。
+  ipcMain.handle('qzone:prepare', async (_event, theme?: QzoneTheme) => {
+    applyQzoneTheme(theme);
+    const partition = resolvePartition();
+    await injectAutoLoginCookies(partition).catch((error) => {
+      logger.warn('qzone auto-login cookie injection failed', {
+        event: 'qzone-autologin-failed',
+        ...logErrorContext(error),
+      });
+    });
+    const url = qzoneUrl(getAppContext().account?.context.uin);
+    logger.info('preparing embedded qq zone webview', { event: 'qzone-prepare', partition });
+    return { partition, url };
+  });
+
   // Live theme follow: the renderer pushes this whenever WeQ's 深/浅 mode changes
   // so an already-open Qzone window updates without being reopened.
   ipcMain.handle('qzone:set-theme', (_event, theme?: QzoneTheme) => {

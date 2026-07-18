@@ -19,7 +19,7 @@ import { AccountSelector } from './AccountSelector';
 import { KeyField, isCompleteKey } from './KeyField';
 import { QrDialog } from './QrDialog';
 import { StaticBackupPanel } from './StaticBackupPanel';
-import { deriveMsgDbPath, type UiAccount } from './types';
+import { type UiAccount } from './types';
 
 type Sub = { unsubscribe: () => void };
 
@@ -54,6 +54,7 @@ export function LoginPanel({
   onDeleteAccount?: (acc: UiAccount) => void;
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
+  const confirm = useDialog((s) => s.confirm);
 
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
@@ -61,6 +62,18 @@ export function LoginPanel({
   const [autoEnter, setAutoEnter] = useState(false);
   /** new mode only: which source to drive the wizard from. */
   const [source, setSource] = useState<'online' | 'backup'>('online');
+  /** linux-only: alive-instance key fetch is slow & may need a manual message. */
+  const [isLinux, setIsLinux] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    void client.bootstrap.systemInfo.query().then((info) => {
+      if (alive) setIsLinux(info.platformKind === 'linux');
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // QR dialog state. `anonymous` = the "登录新的账号" flow, where the currently
   // selected account is irrelevant, so its identity must not be shown.
@@ -98,10 +111,22 @@ export function LoginPanel({
       if (!pid && procs.length === 1 && probe.byUin?.[selected.uin]) pid = procs[0]?.pid;
 
       if (pid) {
-        if (!installRoot) throw new Error('未找到 Tencent Files 目录，请先在右侧选择数据目录。');
+        // The db path is resolved server-side from uin via the platform, so we
+        // never build an OS-specific path here (that leaked `\` onto linux).
+
+        // Linux: the alive-instance path can stall for a long time (the hook
+        // needs a real post-login recv packet to locate the MSF service). Race
+        // it against a 10s timer; on timeout ask the user to keep waiting or
+        // kill QQ and fall back to ninebird. Windows keeps the direct path.
+        if (isLinux) {
+          const handled = await acquireFromInstanceLinux(pid, selected);
+          if (handled) return; // key set, or a fallback flow took over
+          // handled === false ⇒ user chose "keep waiting"; fall through to
+          // a plain awaited fetch below.
+        }
+
         setStatus('正在从在线实例获取密钥…');
-        const dbPath = deriveMsgDbPath(installRoot, selected.uin);
-        const r = await client.bootstrap.fetchKeyFromInstance.mutate({ pid, dbPath });
+        const r = await client.bootstrap.fetchKeyFromInstance.mutate({ pid, uin: selected.uin });
         if (!r.success || !r.dbkey) {
           throw new Error(r.error ?? '依赖在线 QQ 客户端获取失败，请退出登录后重试。');
         }
@@ -121,6 +146,90 @@ export function LoginPanel({
       setStatus('');
       showError('获取密钥失败', errMsg(e));
     }
+  }
+
+  /**
+   * Linux alive-instance key fetch with a 10s stall guard.
+   *
+   * The inject half (which pops the polkit password dialog and can take as long
+   * as the user needs to type) runs FIRST and UNTIMED via `prepareInstanceInject`
+   * — only after it completes do we start the 10s timer on the actual key fetch
+   * (which internally does the wait-for-packet). So the password-entry time no
+   * longer eats into the 10s, and the "send a message to unblock" prompt fires
+   * only when the packet wait itself is genuinely stalling.
+   *
+   * Returns:
+   *   - `true`  — the key was fetched (state updated), or the user opted to
+   *               kill QQ and a ninebird fallback flow has taken over. Caller
+   *               must stop.
+   *   - `false` — the user chose to keep waiting; caller should fall back to a
+   *               plain awaited `fetchKeyFromInstance`.
+   */
+  async function acquireFromInstanceLinux(
+    pid: number,
+    acc: UiAccount,
+  ): Promise<boolean> {
+    // Step A (untimed): elevate + inject. The password dialog lives here.
+    setStatus('正在注入 QQ 进程（可能弹出授权窗口，请输入密码）…');
+    const prep = await client.bootstrap.prepareInstanceInject.mutate({ pid });
+    if (!prep.ok) {
+      throw new Error(prep.error ?? '注入 QQ 进程失败，请重试。');
+    }
+
+    // Step B (timed from here): fetch the key. Internally waits for the first
+    // post-login packet; that wait — not the password entry — is what the 10s
+    // guards. On timeout, prompt the user to poke the account with a message.
+    setStatus('已注入，正在获取密钥（在线获取较慢，请稍候）…');
+    const fetchPromise = client.bootstrap.fetchKeyFromInstance.mutate({ pid, uin: acc.uin });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<'timeout'>((res) => {
+      timer = setTimeout(() => res('timeout'), 10_000);
+    });
+
+    const winner = await Promise.race([fetchPromise, timeout]);
+    if (winner !== 'timeout') {
+      if (timer) clearTimeout(timer);
+      const r = winner;
+      if (!r.success || !r.dbkey) {
+        throw new Error(r.error ?? '依赖在线 QQ 客户端获取失败，请退出登录后重试。');
+      }
+      setKey(r.dbkey);
+      setStatus('已获取密钥');
+      setBusy(false);
+      return true;
+    }
+
+    // Stalled past 10s. Log + broadcast through the central channel, then ask.
+    void client.bootstrap.reportKeyStalled.mutate({ uin: acc.uin });
+    setStatus('在线获取仍未完成…');
+    const keepWaiting = await confirm(
+      '在线取密钥较慢',
+      '已注入该 QQ，但还没收到可用于定位服务地址的登录后数据包，取密钥会一直等待。\n\n用任意小号给该账号发一条消息即可立即解除等待；或直接结束 QQ 进程，改用扫码/快速登录获取（更稳）。',
+      { okLabel: '继续等待', cancelLabel: '结束 QQ 改用登录', tone: 'warning' },
+    );
+
+    if (keepWaiting) {
+      // Keep the in-flight fetch; caller re-awaits it via the plain path.
+      // Guard the already-pending promise so we don't fire a second request.
+      const r = await fetchPromise;
+      if (!r.success || !r.dbkey) {
+        throw new Error(r.error ?? '依赖在线 QQ 客户端获取失败，请退出登录后重试。');
+      }
+      setKey(r.dbkey);
+      setStatus('已获取密钥');
+      setBusy(false);
+      return true;
+    }
+
+    // User opted to abandon the instance path. Kill QQ, then run ninebird.
+    setStatus('正在结束 QQ 进程…');
+    await client.bootstrap.killQqProcess.mutate({ pid });
+    // Don't await the abandoned fetch — it will reject/settle on its own once
+    // the pipe drops; we've already moved on.
+    void fetchPromise.catch(() => undefined);
+    if (acc.a1Key) startQuickLogin(acc);
+    else startQrLogin(acc);
+    return true;
   }
 
   function startQuickLogin(acc: UiAccount): void {

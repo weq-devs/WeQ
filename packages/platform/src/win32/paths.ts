@@ -148,6 +148,11 @@ export function findLoginDb(home = homedir(), overrideRoot?: string | null): str
   return firstExistingUnder(home, overrideRoot, 'nt_qq', 'global', 'nt_db', 'login.db');
 }
 
+/** `<root>/<uin>` — the account's user-data directory — for the first root that has it. */
+export function findAccountDir(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+  return firstExistingUnder(home, overrideRoot, uin);
+}
+
 /** `<root>/<uin>/nt_qq/nt_db/nt_msg.db` for the first root that has it. */
 export function findNtMsgDb(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
   return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_db', 'nt_msg.db');
@@ -326,5 +331,13 @@ export function findQqWrapperNode(qqRoot: string): string | null {
   const versionDir = resolveQqVersionDir(qqRoot);
   if (!versionDir) return null;
   const candidate = join(versionDir, 'resources', 'app', 'wrapper.node');
+  return existsSync(candidate) ? candidate : null;
+}
+
+/** `<qqRoot>/versions/<cur>/resources/app/major.node` if resolvable (appid/qua anchor). */
+export function findQqMajorNode(qqRoot: string): string | null {
+  const versionDir = resolveQqVersionDir(qqRoot);
+  if (!versionDir) return null;
+  const candidate = join(versionDir, 'resources', 'app', 'major.node');
   return existsSync(candidate) ? candidate : null;
 }

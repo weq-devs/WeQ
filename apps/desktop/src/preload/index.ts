@@ -31,6 +31,9 @@ const weqBridge = {
      *  Pass WeQ's theme preference so the window follows 深/浅 mode. */
     open: (theme?: 'system' | 'light' | 'dark'): Promise<boolean> =>
       ipcRenderer.invoke('channel:open', theme) as Promise<boolean>,
+    /** 内嵌模式：种好登录 cookie，返回 <webview> 要用的 partition / url。 */
+    prepare: (theme?: 'system' | 'light' | 'dark') =>
+      ipcRenderer.invoke('channel:prepare', theme) as Promise<{ partition: string; url: string }>,
     /** Push WeQ's theme preference to the channel window (live 深/浅 follow). */
     setTheme: (theme: 'system' | 'light' | 'dark'): Promise<boolean> =>
       ipcRenderer.invoke('channel:set-theme', theme) as Promise<boolean>,
@@ -45,6 +48,9 @@ const weqBridge = {
      *  Pass WeQ's theme preference so the window follows 深/浅 mode. */
     open: (theme?: 'system' | 'light' | 'dark'): Promise<boolean> =>
       ipcRenderer.invoke('qzone:open', theme) as Promise<boolean>,
+    /** 内嵌模式：种好登录 cookie，返回 <webview> 要用的 partition / url。 */
+    prepare: (theme?: 'system' | 'light' | 'dark') =>
+      ipcRenderer.invoke('qzone:prepare', theme) as Promise<{ partition: string; url: string }>,
     /** Push WeQ's theme preference to the Qzone window (live 深/浅 follow). */
     setTheme: (theme: 'system' | 'light' | 'dark'): Promise<boolean> =>
       ipcRenderer.invoke('qzone:set-theme', theme) as Promise<boolean>,

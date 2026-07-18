@@ -39,10 +39,13 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
           transcribeWorker: resolve(__dirname, 'src/main/transcribe/worker.ts'),
+          injectWorker: resolve(__dirname, 'src/main/inject_worker.ts'),
         },
         output: {
           entryFileNames: (chunk) =>
-            chunk.name === 'transcribeWorker' ? 'transcribeWorker.mjs' : '[name].js',
+            chunk.name === 'transcribeWorker' || chunk.name === 'injectWorker'
+              ? `${chunk.name}.mjs`
+              : '[name].js',
         },
       },
     },

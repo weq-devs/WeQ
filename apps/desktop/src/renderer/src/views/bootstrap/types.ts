@@ -31,8 +31,3 @@ export interface UiAccount {
   /** Non-empty marker ⇒ account is quick-login-able. */
   a1Key?: string;
 }
-
-/** Derive an account's `nt_msg.db` path from the Tencent Files root. */
-export function deriveMsgDbPath(root: string, uin: string): string {
-  return `${root}\\${uin}\\nt_qq\\nt_db\\nt_msg.db`;
-}

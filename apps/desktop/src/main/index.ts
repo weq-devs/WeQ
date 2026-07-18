@@ -373,6 +373,12 @@ function resolveWindowIcon(): Electron.NativeImage | undefined {
 
 function createWindow(): BrowserWindow {
   const icon = resolveWindowIcon();
+  // On tiling Wayland WMs (Hyprland/sway) new toplevels tile by default. Ask
+  // the WM to float us by advertising a non-'normal' window type — 'toolbar'
+  // is the least invasive one that Hyprland/sway treat as floating (unlike
+  // 'splash', it keeps the taskbar entry). Opt-out with WEQ_WINDOW_TYPE=normal
+  // (or override to another value) so this can be disabled per-environment.
+  const windowType = process.env.WEQ_WINDOW_TYPE ?? (process.platform === 'linux' ? 'toolbar' : undefined);
   const win = new BrowserWindow({
     width: 1120,
     height: 580,
@@ -383,11 +389,15 @@ function createWindow(): BrowserWindow {
     autoHideMenuBar: true,
     backgroundColor: '#f0f0f0',
     titleBarStyle: 'hidden',
+    ...(windowType && windowType !== 'normal' ? { type: windowType } : {}),
     ...(icon ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       sandbox: false,
       contextIsolation: true,
+      // 允许在渲染层用 <webview> 内嵌 QQ 空间 / 频道（见 QzoneView / ChannelView）。
+      // webview 自身不挂本 preload，远程内容拿不到 tRPC 特权桥。
+      webviewTag: true,
     },
   });
 

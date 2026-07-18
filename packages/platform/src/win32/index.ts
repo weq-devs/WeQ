@@ -12,8 +12,10 @@ import type { NativeBundle } from '@weq/native';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Platform } from '../types';
+import { readQqVersion } from '../qq_meta';
 import {
   candidateTencentFilesRoots,
+  findAccountDir,
   findBuddyMsgFtsDb,
   findGroupMsgFtsDb,
   findEmojiResourceDir,
@@ -33,6 +35,7 @@ import {
   findVideoDir,
   findFileDir,
   findQqWrapperNode,
+  findQqMajorNode,
   pickTencentFilesRoot,
 } from './paths';
 import { findQqExe, findQqInstallRoot } from './registry';
@@ -76,6 +79,7 @@ export function createWin32Platform(
     },
     tencentFilesRoots: () => candidateTencentFilesRoots(undefined, override()),
     loginDbPath: () => findLoginDb(undefined, override()),
+    accountDir: (uin: string) => findAccountDir(uin, undefined, override()),
     ntDbDir: (uin: string) => findNtDbDir(uin, undefined, override()),
     ntDataDir: (uin: string) => findNtDataDir(uin, undefined, override()),
     ntMsgDbPath: (uin: string) => findNtMsgDb(uin, undefined, override()),
@@ -98,6 +102,24 @@ export function createWin32Platform(
       const root = findQqInstallRoot();
       return root ? findQqWrapperNode(root) : null;
     },
+    qqMajorNodePath: () => {
+      const root = findQqInstallRoot();
+      return root ? findQqMajorNode(root) : null;
+    },
+    qqVersion: () => {
+      const root = findQqInstallRoot();
+      return readQqVersion(root ? findQqWrapperNode(root) : null);
+    },
+    // win32's native probe keys off the numeric uin; baseDir/uid are ignored.
+    isQqLoggedIn: (uin: string) => {
+      try {
+        return native.ntHelper.isQqLoggedIn(uin);
+      } catch {
+        return false;
+      }
+    },
+    // No authoritative instance count on win32 — caller uses the process probe.
+    launcherCount: () => null,
   };
 }
 

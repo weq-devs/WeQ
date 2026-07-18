@@ -22,7 +22,7 @@ import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
-import { createWin32Platform, isTencentFilesRoot, type Platform } from '@weq/platform';
+import { createWin32Platform, createLinuxPlatform, isTencentFilesRoot, type Platform } from '@weq/platform';
 import { startMcpServer, stopMcpServer } from '../mcp/server';
 import { startWeqServer, stopWeqServer } from '../weq_assistant/server';
 import { refreshWeqStats, setWeqStats, statsCachePath } from '../weq_assistant/stats';
@@ -30,6 +30,8 @@ import { ensureDefaultTweets, tweetsStorePath } from '../weq_assistant/tweets';
 import { aiToolSpecs, runAiTool } from '../mcp/openai_tools';
 import { getExternalMcpHub, disposeExternalMcp } from '../mcp/external';
 import { sampleHitokoto } from '../hitokoto';
+import { pkexecStubHooks } from '../stub_elevation';
+import { createPkexecInjectHook } from '../inject_elevation';
 import {
   accountConfigId,
   UserConfigService,
@@ -93,6 +95,8 @@ import {
   type McpServerConfig,
   type WeqAssistantConfig,
   WeqAssistantService,
+  createDirectInjectHook,
+  type InjectHook,
 } from '@weq/service';
 import { resolveResource } from '../resource';
 import { openAccount, openStaticAccount, peekStaticSelfUin, type AccountContext, type AccountSession } from '@weq/account';
@@ -117,7 +121,75 @@ export interface AccountForcedClosedEvent {
   failures: DbHealthFailure[];
 }
 
+/**
+ * The QQ instance is alive but the key/credential request can't complete —
+ * on linux this means the injected hook hasn't yet observed a real post-login
+ * recv packet, so it doesn't know the MSF service address and the OIDB request
+ * stalls. Surfaced to the user with a "send the account any message to unblock"
+ * hint. Emitted both by main-side background flows (monitor harvest, on-demand
+ * credential fetch) and by the renderer's login race via `reportKeyStalled`.
+ */
+export interface KeyFetchStalledEvent {
+  reason: 'packet-stalled';
+  /** Which flow hit the stall — for the log + optional per-context copy. */
+  source: 'login' | 'harvest' | 'credential';
+  uin?: string;
+  title: string;
+  message: string;
+}
+
 export const accountEventBus = new EventEmitter();
+
+/**
+ * Process-wide uin→uid registry. On linux the on-disk account directory is
+ * `nt_qq_<md5(md5(uid)+"nt_kernel")>`, so path resolution needs the string uid
+ * for a given uin. A freshly-added account's uid isn't in the saved config yet
+ * when `openAccount` first probes its db path, so the router seeds it here via
+ * `rememberAccountUid` before the lookup. The linux platform's uid resolver
+ * checks this map first, then falls back to the persisted account configs.
+ */
+const uidRegistry = new Map<string, string>();
+
+/** Seed the uin→uid map (called from the openAccount flow). No-op off linux. */
+export function rememberAccountUid(uin: string, uid: string): void {
+  if (uin && uid) uidRegistry.set(uin, uid);
+}
+
+/**
+ * The single source of truth for the "alive QQ but can't send the packet" copy.
+ * The linux hook needs one real post-login recv packet to learn the MSF service
+ * address; until then key/credential OIDB requests stall. Telling the user to
+ * poke the account with any message is the fastest unblock.
+ */
+export const KEY_STALL_TITLE = '在线取密钥较慢';
+export const KEY_STALL_HINT =
+  '当前 QQ 在线，但还没收到可用于定位服务地址的数据包，取密钥/凭据会卡住。用任意小号给该账号发一条消息即可立即解除等待；或改用扫码/快速登录获取。';
+
+/**
+ * Log + broadcast a {@link KeyFetchStalledEvent} on the shared bus. Both
+ * main-side background flows and the renderer login race (via the
+ * `reportKeyStalled` mutation) funnel through here so the copy and the log
+ * event stay in one place.
+ */
+export function emitKeyFetchStalled(
+  source: KeyFetchStalledEvent['source'],
+  uin?: string,
+): void {
+  getLogger()
+    .child({ scope: 'key-stall' })
+    .warn('alive QQ instance stalled without a real recv packet', {
+      event: 'key-fetch-stalled',
+      source,
+      uin: uin ?? null,
+    });
+  accountEventBus.emit('keyFetchStalled', {
+    reason: 'packet-stalled',
+    source,
+    ...(uin ? { uin } : {}),
+    title: KEY_STALL_TITLE,
+    message: KEY_STALL_HINT,
+  } satisfies KeyFetchStalledEvent);
+}
 
 /** Trailing debounce — coalesces a burst of calls into one after `ms` idle. */
 function trailingDebounce<A extends unknown[]>(
@@ -260,6 +332,13 @@ export interface BootstrapServices {
   voiceTranscribe: VoiceTranscribeService;
   /** Text-to-speech（克隆体发语音/语音克隆）。Account-independent，纯 fetch。 */
   tts: TtsService;
+  /**
+   * Turns a QQ pid into a sendable state before instance-key/rkey fetches.
+   * linux → pkexec-elevated inject + wait-for-packet; other platforms →
+   * in-process direct inject. Shared (single instance) so its per-pid
+   * idempotency spans the router and every account monitor.
+   */
+  injectHook: InjectHook;
 }
 
 /** Services that are re-created whenever an account session opens. */
@@ -440,7 +519,19 @@ export function initAppContext(): AppContext {
   // calls this lazily on every path lookup, by which point `userConfig` is
   // assigned, so the override flows into login.db decrypt / db lookup / stats.
   let readDataRootOverride: () => string | null = () => null;
-  const platform = createWin32Platform(result.bundle, () => readDataRootOverride());
+
+  // uin→uid registry for linux account-directory derivation. In-memory map wins
+  // (covers a freshly-added account whose config isn't on disk yet); on a miss
+  // we fall back to the saved account configs. Late-bound like the override
+  // reader above because `userConfig` is constructed after `platform`.
+  let readUidFromConfig: (uin: string) => string | null = () => null;
+  const resolveUid = (uin: string): string | null =>
+    uidRegistry.get(uin) ?? readUidFromConfig(uin);
+
+  const platform =
+    process.platform === 'linux'
+      ? createLinuxPlatform(result.bundle, () => readDataRootOverride(), resolveUid)
+      : createWin32Platform(result.bundle, () => readDataRootOverride());
   initLogger(platform.appDataRoot());
   const logger = getLogger().child({ scope: 'app-context' });
   logger.info('initializing app context', {
@@ -450,6 +541,12 @@ export function initAppContext(): AppContext {
   });
   const userConfig = new UserConfigService(platform);
   readDataRootOverride = () => userConfig.read().tencentFilesRootOverride ?? null;
+  readUidFromConfig = (uin: string): string | null => {
+    for (const rec of userConfig.listAccountConfigs()) {
+      if (rec.uin === uin && rec.uid) return rec.uid;
+    }
+    return null;
+  };
 
   // Sanitize a legacy / malformed data-dir override on launch: a stored path
   // that no longer exists or doesn't end in `Tencent Files` (e.g. an old build
@@ -468,15 +565,29 @@ export function initAppContext(): AppContext {
     });
   }
 
+  // Linux drops a ninebird entry stub into QQ's root-owned resources/app, so
+  // it needs a pkexec-elevated writer. Windows uses the fs default (undefined).
+  const stubHooks = process.platform === 'linux' ? pkexecStubHooks : undefined;
+
+  // Injecting the hook into a running QQ needs root (ptrace) on linux, so it
+  // goes through a pkexec child + a wait-for-packet step; other platforms
+  // inject in-process. One shared instance so its per-pid idempotency spans the
+  // bootstrap router and every account monitor.
+  const injectHook: InjectHook =
+    process.platform === 'linux'
+      ? createPkexecInjectHook(platform.native.ntHelper, userConfig)
+      : createDirectInjectHook(platform.native.ntHelper);
+
   const bootstrap: BootstrapServices = {
-    detect: new Win32DetectService(platform),
-    keys: new Win32KeyService(platform),
+    detect: new Win32DetectService(platform, stubHooks),
+    keys: new Win32KeyService(platform, stubHooks),
     userConfig,
     globalConfig: new GlobalConfigService(platform, userConfig),
     avatarCache: new AvatarCacheService(platform, userConfig),
     agentLabConfig: new AgentLabConfigService(userConfig),
     voiceTranscribe: new VoiceTranscribeService(platform),
     tts: new TtsService(),
+    injectHook,
   };
 
   // Shared voice/transcription closures — both the export manager and AgentLab
@@ -673,6 +784,11 @@ export function initAppContext(): AppContext {
             // Built-in system-emoji resource dir — HTML export copies the 小黄脸
             // face images used by the conversation into the bundle so they render.
             emojiDir: platform.emojiResourceDir(session.context.uin),
+            // Platform-resolved nt_data (correct per-OS; linux has no `nt_qq`
+            // middle segment). Preferred over deriving it from accountDir.
+            ...(platform.ntDataDir(session.context.uin)
+              ? { ntDataDir: platform.ntDataDir(session.context.uin)! }
+              : {}),
             // SILK → WAV decode lives in the app (silk-wasm); load it lazily to
             // avoid a static import cycle with this module.
             decodeSilk: (silk: string, dest: string) =>
@@ -814,6 +930,7 @@ export function initAppContext(): AppContext {
         accountConfig,
         () => userConfig.getSettings().mediaCompletion.enabled,
         () => userConfig.getSettings().autoFetchClientKey,
+        bootstrap.injectHook,
       );
       accountMonitor.start();
       logger.info('opened account session', {

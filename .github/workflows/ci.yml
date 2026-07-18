@@ -36,3 +36,50 @@ jobs:
 
       - name: Type-check all packages
         run: pnpm -r typecheck
+
+  # Linux 打包冒烟：只构建、不发布（--dir），在 PR 阶段就能发现
+  # Linux 打包链路（electron-vite build + electron-builder）挂没挂。
+  # 只跑 x64 足以覆盖配置正确性；arm64 交给 release 时的原生 runner。
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build clone-bot runtime
+        run: pnpm run build:bot
+
+      - name: Build renderer + main
+        run: pnpm --filter @weq/desktop exec electron-vite build
+
+      - name: Prepare release manifest
+        run: node scripts/prepare-electron-builder-manifest.mjs
+
+      - name: Swap in release manifest
+        run: |
+          mv apps/desktop/package.json apps/desktop/package.dev.json
+          mv apps/desktop/package.release.json apps/desktop/package.json
+
+      # --dir：只解包到 release/，不产出安装包、不发布。验证打包能跑通即可。
+      - name: Package (dir only, no publish)
+        run: pnpm --filter @weq/desktop exec electron-builder --linux --dir
+
+      - name: Restore dev manifest
+        if: always()
+        run: |
+          if [ -f apps/desktop/package.dev.json ]; then
+            rm -f apps/desktop/package.json
+            mv apps/desktop/package.dev.json apps/desktop/package.json
+          fi
+          rm -f apps/desktop/package.release.json

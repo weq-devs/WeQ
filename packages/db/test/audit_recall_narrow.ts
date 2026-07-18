@@ -82,7 +82,7 @@ async function install(db: QqDb): Promise<void> {
     `SELECT name, sql FROM sqlite_master WHERE type='trigger' AND name LIKE 'weq_anti_recall_%'`,
   );
   for (const r of real) {
-    await db.write(`INSERT OR REPLACE INTO ${META}(name, sql) VALUES(?, ?)`, [r[0], r[1]]);
+    await db.write(`INSERT OR REPLACE INTO ${META}(name, sql) VALUES(?, ?)`, [r[0]!, r[1]!]);
   }
   for (const r of real) {
     await db.write(`DROP TRIGGER IF EXISTS ${String(r[0])}`);
@@ -113,7 +113,7 @@ async function install(db: QqDb): Promise<void> {
 
   // 3) 三表审计 trigger（纯记录，不 RAISE）。
   for (let i = 0; i < TABLES.length; i++) {
-    const { kind, table, convCol } = TABLES[i];
+    const { kind, table, convCol } = TABLES[i]!;
 
     // 现行“内容层”条件（去掉会话过滤与 40002 放行，好把 WeQ 自己的写也一并看到）。
     const contentChg = `(NEW."40800" IS NOT OLD."40800"

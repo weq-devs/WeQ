@@ -10,7 +10,7 @@
  * is accessed defensively so non-Electron tests can still load via `WEQ_NATIVE_DIR`.
  */
 
-export { loadNative, loadNativeSafe, resetNativeCache, INIT_ERROR_MESSAGES } from './loader';
+export { loadNative, loadNativeSafe, resetNativeCache, resolveNtHelperPath, INIT_ERROR_MESSAGES } from './loader';
 export type { LoadNativeOptions, NativeLoadResult } from './loader';
 export { NineBirdBootstrap } from './ninebird';
 export type {
@@ -19,5 +19,7 @@ export type {
   AccountListOptions,
   LoginSession,
   AccountListSession,
+  AppidQua,
+  StubHooks,
 } from './ninebird';
 export * from './types';

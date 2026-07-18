@@ -51,6 +51,15 @@ export interface Platform {
   ntMsgDbPath(uin: string): string | null;
 
   /**
+   * Resolve the account's user-data directory (win32 `<root>/<uin>`, linux
+   * `<root>/nt_qq_<hash>`) for a specific account. This is the account root
+   * that holds `nt_qq`/`nt_db`/`nt_data` (win32) or `nt_db`/`nt_data` (linux)
+   * — the per-OS depth differs, so callers must NOT derive it by walking up
+   * from `ntDbDir`. Returns null if the directory exists nowhere.
+   */
+  accountDir(uin: string): string | null;
+
+  /**
    * Resolve the QQ NT database root (`<Tencent Files>/<uin>/nt_qq/nt_db`) for
    * a specific account. Returns null if the directory exists nowhere.
    */
@@ -139,4 +148,37 @@ export interface Platform {
    * inside `nt_helper` needs this to read protobuf descriptors at runtime.
    */
   qqWrapperNodePath(): string | null;
+
+  /**
+   * Path to `major.node` inside QQ's resources/app — the anchor
+   * `resolveAppidFromMajor` scans for the build's appid/qua. Co-located with
+   * `wrapper.node`. Null if QQ isn't found. The appid/qua MUST match the
+   * installed build or the login server rejects with 140022017.
+   */
+  qqMajorNodePath(): string | null;
+
+  /**
+   * The installed QQ client version (e.g. `3.2.31-51102`), read from the
+   * `package.json` co-located with `wrapper.node`. Uniform across win32/linux
+   * — unlike scraping it from the on-disk path, which only matches win32's
+   * `versions/<ver>/` layout. Null if QQ isn't found or the file is unusable.
+   */
+  qqVersion(): string | null;
+
+  /**
+   * Is the given QQ account currently logged in on this machine? Wraps the
+   * native probe, supplying the per-OS identifying inputs the mechanism needs
+   * (win32 keys off `uin`; linux/macOS need the data-root `baseDir` + string
+   * `uid`, derived here so callers never assemble OS-specific paths). Returns
+   * false if the probe is unavailable or the inputs can't be resolved.
+   */
+  isQqLoggedIn(uin: string): boolean;
+
+  /**
+   * Number of online QQ instances as QQ itself records it, or null when this
+   * OS has no such authoritative source (callers then fall back to the native
+   * process-count probe). On linux this reads `versions/setting.json`'s
+   * `launcherCounts`; win32 returns null.
+   */
+  launcherCount(): number | null;
 }
