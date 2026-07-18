@@ -3174,6 +3174,27 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
     linear-gradient(135deg, #fcfdff 0%, #f6fafd 50%, #fbfbf6 100%);
 }
 
+/* 内嵌浏览器（QQ 空间 / 频道）：占满主内容区，webview 自身撑满。 */
+.weq-embedded-browser {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  overflow: hidden;
+}
+
+.weq-embedded-browser webview {
+  flex: 1 1 auto;
+}
+
+.weq-embedded-browser-loading,
+.weq-embedded-browser-error {
+  align-items: center;
+  justify-content: center;
+  color: var(--weq-text-muted, #8a94a6);
+  font-size: 13px;
+}
+
+
 .weq-readonly-chat .chat-pane {
   grid-template-rows: var(--chat-header-height) minmax(0, 1fr) 0 !important;
 }
@@ -7641,6 +7662,10 @@ html[data-theme="dark"] .weq-forward-bubble {
 /* 本地缓存资源视图同样隐藏侧栏顶部搜索框（放大镜）——缓存页侧栏宽度为 0，
    search-row 仍在 SidebarHeader 内会溢出到左上角。 */
 .sidebar.is-cache-view .search-row { display: none; }
+
+/* QQ 空间 / 频道内嵌视图同理：侧栏宽度为 0，隐藏顶部搜索框（放大镜）。 */
+.sidebar.is-qzone-view .search-row,
+.sidebar.is-channel-view .search-row { display: none; }
 
 /* ── 新建克隆弹窗 ────────────────────────────────────────────────────────── */
 .weq-clone-modal { display: flex; flex-direction: column; max-height: 78vh; }

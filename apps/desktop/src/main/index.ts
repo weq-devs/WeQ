@@ -395,6 +395,9 @@ function createWindow(): BrowserWindow {
       preload: join(__dirname, '../preload/index.mjs'),
       sandbox: false,
       contextIsolation: true,
+      // 允许在渲染层用 <webview> 内嵌 QQ 空间 / 频道（见 QzoneView / ChannelView）。
+      // webview 自身不挂本 preload，远程内容拿不到 tRPC 特权桥。
+      webviewTag: true,
     },
   });
 

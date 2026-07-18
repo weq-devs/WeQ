@@ -17,7 +17,6 @@ import { Avatar } from "./primitives";
 import type { MainView, SettingsTab, User } from "./types";
 import { displayUserName } from "./user";
 import { useUpdateStore } from "../../state/update";
-import { useThemeStore } from "../../state/theme";
 
 export function AppRail({
 	user,
@@ -178,17 +177,11 @@ export function AppRail({
 						) : null}
 					</button>
 					<button
-						className={cn("rail-tab rail-tab-qzone")}
-						onClick={() => {
-							setMenuOpen(false);
-							setProfileOpen(false);
-							// Opens a dedicated, per-account browser window
-							// (user.qzone.qq.com) in the main process — not an in-app
-							// view. Pass WeQ's theme so the browser follows 深/浅 mode.
-							void window.weq?.qzone?.open(
-								useThemeStore.getState().preference,
-							);
-						}}
+						className={cn(
+							railButtonClass(activeView === "qzone"),
+							"rail-tab rail-tab-qzone",
+						)}
+						onClick={() => selectView("qzone")}
 						title="QQ 空间"
 						type="button"
 					>
@@ -198,17 +191,11 @@ export function AppRail({
 						<span className={cn("rail-label")}>QQ空间</span>
 					</button>
 					<button
-						className={cn("rail-tab rail-tab-channel")}
-						onClick={() => {
-							setMenuOpen(false);
-							setProfileOpen(false);
-							// Opens a dedicated, per-account browser window (pd.qq.com)
-							// in the main process — not an in-app view. Pass WeQ's
-							// theme so the browser follows 深/浅 mode.
-							void window.weq?.channel?.open(
-								useThemeStore.getState().preference,
-							);
-						}}
+						className={cn(
+							railButtonClass(activeView === "channel"),
+							"rail-tab rail-tab-channel",
+						)}
+						onClick={() => selectView("channel")}
 						title="QQ 频道"
 						type="button"
 					>

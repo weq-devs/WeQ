@@ -5,6 +5,7 @@ interface Window {
     openLogDir(): Promise<boolean>;
     channel: {
       open(theme?: 'system' | 'light' | 'dark'): Promise<boolean>;
+      prepare(theme?: 'system' | 'light' | 'dark'): Promise<{ partition: string; url: string }>;
       setTheme(theme: 'system' | 'light' | 'dark'): Promise<boolean>;
       getCookies(): Promise<
         { name: string; value: string; domain?: string; path?: string }[]
@@ -12,6 +13,7 @@ interface Window {
     };
     qzone: {
       open(theme?: 'system' | 'light' | 'dark'): Promise<boolean>;
+      prepare(theme?: 'system' | 'light' | 'dark'): Promise<{ partition: string; url: string }>;
       setTheme(theme: 'system' | 'light' | 'dark'): Promise<boolean>;
       getCookies(): Promise<
         { name: string; value: string; domain?: string; path?: string }[]

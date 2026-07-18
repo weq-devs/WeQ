@@ -42,6 +42,8 @@ import { RelationGraphView } from '../components/relationGraph/RelationGraphView
 import { AgentLabView } from './AgentLabView';
 import { ExportView } from './ExportView';
 import { CacheView } from './cache/CacheView';
+import { QzoneView } from './QzoneView';
+import { ChannelView } from './ChannelView';
 import { ChatHome } from './ChatHome';
 import {
   ChatMainContent,
@@ -2787,7 +2789,7 @@ export function MainView(): ReactElement {
         query={shell.query}
         contactTab={shell.contactTab}
         activeNotice={shell.contactNotice}
-        sidebarWidth={shell.view === 'export' || shell.view === 'agentlab' || shell.view === 'cache' ? 0 : shell.sidebarWidth}
+        sidebarWidth={shell.view === 'export' || shell.view === 'agentlab' || shell.view === 'cache' || shell.view === 'qzone' || shell.view === 'channel' ? 0 : shell.sidebarWidth}
         mainOpen={shell.mainOpen}
         messageBadgeCount={0}
         contactBadgeCount={0}
@@ -2816,7 +2818,7 @@ export function MainView(): ReactElement {
         onContactTabChange={shell.changeContactTab}
         onSidebarWidthChange={shell.updateSidebarWidth}
         sidebarContent={
-          shell.view === 'export' || shell.view === 'agentlab' || shell.view === 'cache' ? null : (
+          shell.view === 'export' || shell.view === 'agentlab' || shell.view === 'cache' || shell.view === 'qzone' || shell.view === 'channel' ? null : (
           <>
             <ChatSidebarContent
               user={user}
@@ -2897,6 +2899,10 @@ export function MainView(): ReactElement {
             <AgentLabView />
           ) : shell.view === 'cache' ? (
             <CacheView />
+          ) : shell.view === 'qzone' ? (
+            <QzoneView />
+          ) : shell.view === 'channel' ? (
+            <ChannelView />
           ) : (
           <div className="weq-template-main-wrap">
             <div className="weq-readonly-chat">
