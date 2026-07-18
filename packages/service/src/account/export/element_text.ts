@@ -8,7 +8,7 @@
  * same as media completion.
  */
 
-import type { RenderElement } from '../msg_view';
+import type { RenderElement, ForwardMessage } from '../msg_view';
 import type { ExportedMessage } from './types';
 
 /** Fixed bracket labels for media kinds that carry no useful text. */
@@ -36,8 +36,8 @@ function withPath(label: string, el: RenderElement): string {
   return p ? `${label.replace(/\]$/, '')} → ${p}]` : label;
 }
 
-/** One element → its text fragment. */
-export function elementToText(el: RenderElement): string {
+/** One element → its text fragment. `depth` scales nested-forward indentation. */
+export function elementToText(el: RenderElement, depth = 0): string {
   switch (el.type) {
     case 'text':
       return el.data.textContent ?? '';
@@ -67,6 +67,8 @@ export function elementToText(el: RenderElement): string {
     case 'grayTipGroup':
     case 'grayTipInvite':
       return '[群提示]';
+    case 'multiMsg':
+      return forwardToText(el.data.forwardMessages, depth + 1);
     case 'unknown':
       return '';
     default:
@@ -74,9 +76,25 @@ export function elementToText(el: RenderElement): string {
   }
 }
 
-/** All elements → concatenated text. */
-export function elementsToText(elements: RenderElement[]): string {
-  return elements.map(elementToText).join('');
+/** All elements → concatenated text. `depth` propagates to nested forwards. */
+export function elementsToText(elements: RenderElement[], depth = 0): string {
+  return elements.map((el) => elementToText(el, depth)).join('');
+}
+
+/**
+ * A merged-forward's expanded content as an indented, multi-line block. Each
+ * forwarded message becomes `名字: 内容`, prefixed by a depth-scaled indent so
+ * nested forwards (forward-inside-forward) read as a tree. Falls back to the
+ * `[合并转发]` label when the 40900 cache wasn't expanded (offline / no cache).
+ */
+export function forwardToText(messages: ForwardMessage[] | undefined, depth: number): string {
+  if (!messages || messages.length === 0) return '[合并转发]';
+  const pad = '　'.repeat(depth); // full-width space keeps alignment in monospace + Excel
+  const lines = messages.map((msg) => {
+    const body = elementsToText(msg.elements, depth).trim();
+    return `${pad}${msg.senderName}: ${body}`;
+  });
+  return `[合并转发]\n${lines.join('\n')}`;
 }
 
 function pad2(n: number): string {

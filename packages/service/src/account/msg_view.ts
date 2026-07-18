@@ -301,12 +301,38 @@ export interface RenderMarkdownElement {
   };
 }
 
+/**
+ * One message inside a merged-forward (合并转发), lifted from the 40900 cache.
+ * The exporters attach a list of these to a multiMsg element's render data so
+ * TXT / CSV / JSON / HTML / ChatLab can render the real forwarded content
+ * instead of a bare `[合并转发]` placeholder. `elements` are already render-view
+ * mapped; a nested forward re-appears as a `multiMsg` element inside `elements`,
+ * carrying its own `forwardMessages` (recursion is resolved at expand time).
+ */
+export interface ForwardMessage {
+  /** Sender display name (nickname / card / uin fallback). */
+  senderName: string;
+  /** Sender QQ number, when known ('' otherwise). */
+  senderUin: string;
+  /** Send time, unix seconds (0 when absent). */
+  sendTime: number;
+  /** Render-view elements of this forwarded message. */
+  elements: RenderElement[];
+}
+
 export interface RenderMultiMsgElement {
   type: 'multiMsg';
   data: BaseRenderData & {
     resId: string;
     xmlContent: string;
     sessionId: string;
+    /**
+     * Real forwarded messages, expanded from the 40900 cache by the export
+     * pipeline. Absent on the live-chat render path (the front-end fetches the
+     * forward lazily via `getForwardMessages`); present only when an exporter
+     * pre-expanded it so the output can inline the content.
+     */
+    forwardMessages?: ForwardMessage[];
   };
 }
 

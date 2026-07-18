@@ -494,6 +494,22 @@ export class MsgService {
     }
   }
 
+  /**
+   * The 40900 merged-forward / reply cache for one message, by kind. Each record
+   * is a full cached message snapshot and may nest its own 40900 list (deep
+   * forwards). The export pipeline uses this to expand a `[合并转发]` placeholder
+   * into the real forwarded content. Returns [] on any miss / decode error.
+   */
+  async listForward(kind: 'c2c' | 'group', msgId: bigint): Promise<MsgCacheRecord[]> {
+    try {
+      return kind === 'group'
+        ? await this.session.forwardMsgs.listGroupForward(msgId)
+        : await this.session.forwardMsgs.listC2cForward(msgId);
+    } catch {
+      return [];
+    }
+  }
+
   /** Current account's own uid (for `senderUid=self` filters). '' if unresolved. */
   selfUid(): string {
     return this.session.uidMap.uidByUin(BigInt(this.session.context.uin ?? 0)) ?? '';

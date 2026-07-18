@@ -24,7 +24,8 @@
  * render the conversation avatar, exactly like every other cached avatar.
  *
  * The ARK card's `coverUrl` / `url` point at our local HTTP server
- * (`http://127.0.0.1:<port>/…`); QQ fetches them to render the card cover and
+ * (`http://localhost.weixin.qq.com:<port>/…`, a loopback alias → 127.0.0.1);
+ * QQ fetches them to render the card cover and
  * open the jump page. When the port changes we rewrite the ARK body in place
  * (`rewriteArkPort` —— update, not delete).
  *
@@ -426,8 +427,15 @@ export class WeqAssistantService {
  * (token/config/appid/adId/feedId…), so they're left empty or zero — QQ renders
  * from `view` + `meta.template3` (cover/title/text/url).
  */
+/**
+ * Host for the ARK card's cover/page URLs. QQ blocks/limits fetches to raw
+ * `127.0.0.1`, so we use Tencent's own loopback alias `localhost.weixin.qq.com`
+ * (an A record that resolves to 127.0.0.1) — the server still binds 127.0.0.1.
+ */
+const LOOPBACK_HOST = 'localhost.weixin.qq.com';
+
 export function buildArkJson(port: number, timeSec: number, card: WeqTweetCard): string {
-  const base = `http://127.0.0.1:${port}`;
+  const base = `http://${LOOPBACK_HOST}:${port}`;
   return JSON.stringify({
     app: 'com.tencent.gamecenter.mall',
     desc: 'WeQ 助手',
@@ -460,8 +468,8 @@ function localMidnightSec(unixSec: number): number {
 }
 
 /**
- * Swap the `127.0.0.1:<oldPort>` authority in an ARK JSON's coverUrl/url for the
- * new port. Parses + re-stringifies so we only touch our own local URLs.
+ * Swap the loopback authority in an ARK JSON's coverUrl/url for the new port.
+ * Parses + re-stringifies so we only touch our own local URLs.
  */
 export function rewriteArkPort(arkData: string, newPort: number): string {
   try {
@@ -479,9 +487,16 @@ export function rewriteArkPort(arkData: string, newPort: number): string {
   }
 }
 
-/** Replace the port of a `http://127.0.0.1:<port>/…` URL; other URLs untouched. */
+/**
+ * Rewrite a loopback URL's authority to `${LOOPBACK_HOST}:<newPort>`. Matches
+ * either the current host or a legacy `127.0.0.1` authority (so cards written by
+ * older builds get migrated to the QQ-safe host); other URLs are untouched.
+ */
 function swapLocalPort(url: string, newPort: number): string {
-  return url.replace(/^(https?:\/\/127\.0\.0\.1):\d+/, `$1:${newPort}`);
+  return url.replace(
+    /^(https?:\/\/)(127\.0\.0\.1|localhost\.weixin\.qq\.com):\d+/,
+    `$1${LOOPBACK_HOST}:${newPort}`,
+  );
 }
 
 /** Random 31-bit positive bigint (msgId jitter / msgRandom). */

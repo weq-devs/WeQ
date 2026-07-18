@@ -24,9 +24,10 @@
 import { createWriteStream, statSync } from 'node:fs';
 import { once } from 'node:events';
 import type { MsgService } from '../msg';
-import type { RenderElement } from '../msg_view';
+import type { RenderElement, ForwardMessage } from '../msg_view';
 import { toExportedMessage } from './message_source';
 import { annotateLocalPaths, elementsToText, formatTime } from './element_text';
+import { expandForwards } from './forward_expand';
 import { UNICODE_FACE_MAP } from './unicode_face_map';
 import { SYSFACE_SUBDIR } from './sysface_export';
 import {
@@ -188,6 +189,8 @@ function renderElement(el: RenderElement, collectFaces?: Set<string>): string {
     }
     case 'markdown':
       return escapeMultiline(el.data.markdownTextSummary || el.data.markdownContent || '[Markdown]');
+    case 'multiMsg':
+      return renderForward(el.data.forwardMessages, collectFaces);
     case 'grayTipRevoke':
       return `<span class="ph">[${escapeHtml(el.data.recallDisplayText || '撤回了一条消息')}]</span>`;
     case 'unknown':
@@ -202,6 +205,25 @@ function renderBody(elements: RenderElement[], collectFaces?: Set<string>): stri
   const quotes = elements.filter((e) => e.type === 'reply').map((e) => renderElement(e, collectFaces)).join('');
   const rest = elements.filter((e) => e.type !== 'reply').map((e) => renderElement(e, collectFaces)).join('');
   return quotes + rest;
+}
+
+/**
+ * A merged-forward's expanded content as a nested card of mini-bubbles. Each
+ * forwarded message shows its sender name + rendered body; a nested forward
+ * recurses (its own `multiMsg` element renders another card via `renderBody`).
+ * Falls back to a `[合并转发]` placeholder when the cache wasn't expanded.
+ */
+function renderForward(messages: ForwardMessage[] | undefined, collectFaces?: Set<string>): string {
+  if (!messages || messages.length === 0) return '<span class="ph">[合并转发]</span>';
+  const rows = messages
+    .map((msg) => {
+      const name = escapeHtml(msg.senderName || '匿名');
+      const time = msg.sendTime ? `<span class="fwd-time">${escapeHtml(formatTime(msg.sendTime))}</span>` : '';
+      const body = renderBody(msg.elements, collectFaces);
+      return `<div class="fwd-msg"><div class="fwd-meta"><span class="fwd-name">${name}</span>${time}</div><div class="fwd-body">${body}</div></div>`;
+    })
+    .join('');
+  return `<div class="fwd"><div class="fwd-head">合并转发的聊天记录</div>${rows}</div>`;
 }
 
 /** One message → a bubble row, or a centered system line for gray-tip-only messages. */
@@ -278,6 +300,15 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system
 .file{display:inline-flex;align-items:center;gap:6px;color:var(--accent);text-decoration:none;background:rgba(0,153,255,.08);border-radius:6px;padding:6px 9px}
 .file small{color:var(--sub)}
 .quote{border-left:3px solid var(--accent);background:rgba(140,140,140,.1);color:var(--sub);font-size:13px;border-radius:0 6px 6px 0;padding:3px 8px;margin-bottom:5px}
+.fwd{border:1px solid var(--line);border-radius:8px;background:rgba(140,140,140,.06);margin:3px 0;overflow:hidden;max-width:340px}
+.fwd-head{background:rgba(140,140,140,.12);color:var(--sub);font-size:12px;padding:5px 9px;border-bottom:1px solid var(--line)}
+.fwd-msg{padding:6px 9px;border-bottom:1px solid var(--line)}
+.fwd-msg:last-child{border-bottom:0}
+.fwd-meta{display:flex;gap:6px;align-items:baseline;margin-bottom:2px}
+.fwd-name{color:var(--accent);font-size:12px;font-weight:600}
+.fwd-time{color:var(--sub);font-size:11px}
+.fwd-body{font-size:13px;word-break:break-word}
+.fwd .media{max-width:180px;max-height:180px}
 .ph{color:var(--sub)}
 .foot{text-align:center;color:var(--sub);font-size:12px;padding:16px}
 `;
@@ -379,6 +410,7 @@ export async function exportToHtml(
     for await (const raw of iterateConv(msgs, opts.kind, opts.conv, opts.range)) {
       const exported = toExportedMessage(raw);
       opts.collectSenders?.add(exported.senderUin);
+      await expandForwards(msgs, opts.kind, exported);
       if (opts.withMediaPaths) annotateLocalPaths(exported.elements);
       const day = dayKey(exported.sendTime);
       if (day !== lastDay) {

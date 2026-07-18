@@ -49,6 +49,7 @@ import { scanConvMedia, mediaDirsFromAccountDir, mediaDirsFromNtDataDir, type Me
 import { exportSysFaces } from './sysface_export';
 import type { MediaUrlService } from '../media_url';
 import { iterateC2cMessages, toExportedMessage } from './message_source';
+import { expandForwards } from './forward_expand';
 import type { Framing } from './run_export';
 import { bigintReplacer } from './serialize';
 import { messageToText, annotateLocalPaths } from './element_text';
@@ -1045,6 +1046,7 @@ export class ExportTaskManager extends EventEmitter {
       for await (const m of iterateC2cMessages(this.msgs, peerUid, { pageSize: 2000, range })) {
         const exported = toExportedMessage(m);
         senders?.add(exported.senderUin);
+        await expandForwards(this.msgs, 'c2c', exported);
         if (withMediaPaths) annotateLocalPaths(exported.elements);
         const record = renderRecord(exported);
         await write(count === 0 ? record : framing.between + record);

@@ -27,6 +27,8 @@ import { once } from 'node:events';
 import type { MsgService } from '../msg';
 import type { RenderElement } from '../msg_view';
 import { toExportedMessage } from './message_source';
+import { expandForwards } from './forward_expand';
+import { forwardToText } from './element_text';
 import { ChatlabMessageType, type ChatlabHeader, type ChatlabMember, type ChatlabMessage } from './chatlab_types';
 import {
   avatarUrlForUin,
@@ -114,7 +116,7 @@ function renderContent(elements: RenderElement[]): string {
         out += '[动态]';
         break;
       case 'multiMsg':
-        out += '[合并转发]';
+        out += forwardToText(el.data.forwardMessages, 1);
         break;
       case 'call':
         out += '[通话]';
@@ -279,6 +281,7 @@ export async function exportToChatlab(
       for await (const raw of iterateConv(msgs, opts.kind, opts.conv, opts.range)) {
         const exported = toExportedMessage(raw);
         opts.collectSenders?.add(exported.senderUin);
+        await expandForwards(msgs, opts.kind, exported);
         const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
         await write(`${JSON.stringify(toChatlabMessage(exported, sender))}\n`);
         count += 1;
@@ -301,6 +304,7 @@ export async function exportToChatlab(
       for await (const raw of iterateConv(msgs, opts.kind, opts.conv, opts.range)) {
         const exported = toExportedMessage(raw);
         opts.collectSenders?.add(exported.senderUin);
+        await expandForwards(msgs, opts.kind, exported);
         const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
         const { _type, ...rest } = toChatlabMessage(exported, sender);
         void _type;
