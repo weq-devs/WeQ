@@ -67,6 +67,24 @@ nsis:
   perMachine: false
   allowToChangeInstallationDirectory: true
   artifactName: ${productName}-${version}-setup.${ext}
+
+# Linux 目标：AppImage（单文件免安装，最通用）+ tar.gz（解压即用）。
+# x64 与 arm64 都出；native/ 二进制通过上面的 extraResources 按 ${os}/${arch}
+# 自动挑对应架构（linux/x64 或 linux/arm64）。arm64 未经真机实测。
+linux:
+  icon: ../../resources/brand/logo.png
+  target:
+    - target: AppImage
+      arch:
+        - x64
+        - arm64
+    - target: tar.gz
+      arch:
+        - x64
+        - arm64
+  artifactName: ${productName}-${version}-linux-${arch}.${ext}
+  category: Network
+
 # GitHub publish target for `electron-builder --publish always` (Release workflow).
 # Generates + uploads latest.yml / *.blockmap that the in-app updater reads.
 # releaseType: release => the Release is published (not a draft) and marked latest.
