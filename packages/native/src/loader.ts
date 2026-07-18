@@ -97,6 +97,20 @@ export function resetNativeCache(): void {
 }
 
 /**
+ * Absolute path to the `nt_helper.node` that {@link loadNative} would resolve,
+ * without loading it. The desktop app needs this to hand an elevated
+ * (pkexec) child the exact addon to require for linux injection. Resolution
+ * mirrors `loadNative` (WEQ_NATIVE_DIR → packaged → dev walk-up).
+ */
+export function resolveNtHelperPath(opts: LoadNativeOptions = {}): string {
+  const nativeRoot = opts.nativeRoot ?? resolveNativeRoot();
+  const platformRoot = resolvePlatformRoot(nativeRoot);
+  const ntHelperPath = join(platformRoot, 'nt_helper.node');
+  assertExists(ntHelperPath, 'nt_helper.node');
+  return ntHelperPath;
+}
+
+/**
  * Non-throwing variant of {@link loadNative}. Used by the desktop app so a
  * bad/expired/tampered native bundle surfaces as a UI dialog instead of
  * crashing `app.whenReady`. On failure it best-effort classifies the cause:

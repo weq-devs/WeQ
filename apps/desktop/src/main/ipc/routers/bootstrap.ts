@@ -60,17 +60,6 @@ const algoSchema = z.object({
 const logger = getLogger().child({ scope: 'bootstrap-router' });
 
 /**
- * QQ pids the embedded hook has been injected into during THIS app session.
- * Re-injecting a live pid forces the native pipe client to reconnect, which
- * races the hook's single-listener pipe and fails with ERROR_PIPE_BUSY — so we
- * inject once per pid and reuse the cached native client thereafter (see
- * `fetchKeyFromInstance`). Process-scoped: a full app restart resets it (and
- * also resets the native client cache), which is exactly when re-injection is
- * actually needed again.
- */
-const injectedPids = new Set<number>();
-
-/**
  * Ensure the uin→uid mapping is registered so linux path resolution
  * (`platform.ntMsgDbPath(uin)` etc., which hashes uid into the account dir)
  * works during the login flow — before the account is saved to config. Reads
@@ -792,6 +781,36 @@ export const bootstrapRouter = router({
   // ---- key flows ----
 
   /**
+   * Flow 1, step A — inject the hook into the alive QQ instance WITHOUT waiting
+   * for the post-login packet. On linux this is the pkexec-elevated ptrace
+   * inject, so it pops the polkit password dialog and can take arbitrarily long
+   * (the user typing their password). The renderer awaits this UNTIMED, then
+   * runs `fetchKeyFromInstance` (step B) under its 10s stall timer — so the
+   * password-entry time no longer counts against "how long has the packet wait
+   * stalled". Idempotent inside the hook. No-op-ish on win32 (ensure == inject).
+   */
+  prepareInstanceInject: procedure
+    .input(z.object({ pid: z.number().int().positive() }))
+    .mutation(async ({ input }) => {
+      const boot = requireBootstrap();
+      logger.info('router preparing instance inject (untimed)', {
+        event: 'router-prepare-inject',
+        pid: input.pid,
+      });
+      try {
+        await boot.injectHook.inject(input.pid);
+        return { ok: true as const };
+      } catch (e) {
+        logger.warn('prepareInstanceInject failed', {
+          event: 'router-prepare-inject-failed',
+          pid: input.pid,
+          error: e instanceof Error ? e.message : String(e),
+        });
+        return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+      }
+    }),
+
+  /**
    * Flow 1 — alive QQ instance. Caller passes pid + uin; we resolve the
    * account's nt_msg.db via the platform (never trust a client-built path —
    * that leaked Windows separators onto linux), inject the embedded hook
@@ -825,32 +844,27 @@ export const bootstrapRouter = router({
         event: 'router-fetch-key-from-instance',
         pid: input.pid,
         dbPath,
-        alreadyInjected: injectedPids.has(input.pid),
       });
 
-      // Inject the embedded hook once per pid per app session. Re-injecting a
-      // live pid forces a native reconnect that races the hook's single-listener
-      // pipe (ERROR_PIPE_BUSY); skipping it lets the cached native client be
-      // reused. The native side also reuses a healthy connection now, so this is
-      // belt-and-suspenders against that race.
-      if (!injectedPids.has(input.pid)) {
-        await platform.native.ntHelper.injectAndGetStatusEmbedded(input.pid);
-        injectedPids.add(input.pid);
-      }
+      // Make the pid sendable (idempotent). On win32 this injects the embedded
+      // hook once; on linux it pkexec-elevates the inject and waits for the
+      // first post-login packet. Re-injecting a live pid would race the hook's
+      // single-listener pipe (ERROR_PIPE_BUSY), so the hook's per-pid cache
+      // ensures we only do it once.
+      await boot.injectHook.ensure(input.pid);
 
       let result = await boot.keys.fetchFromInstance(input.pid, dbPath);
       if (!result.success) {
         // The cached native client may have died (QQ relaunched / hook
-        // unloaded). Re-inject once — a genuinely closed client reconnects
-        // cleanly — and retry a single time.
+        // unloaded). Reset + re-ensure once — a genuinely closed client
+        // reconnects cleanly — and retry a single time.
         logger.warn('key fetch failed; re-injecting and retrying once', {
           event: 'router-fetch-key-retry',
           pid: input.pid,
           error: result.error,
         });
-        injectedPids.delete(input.pid);
-        await platform.native.ntHelper.injectAndGetStatusEmbedded(input.pid);
-        injectedPids.add(input.pid);
+        boot.injectHook.reset(input.pid);
+        await boot.injectHook.ensure(input.pid);
         result = await boot.keys.fetchFromInstance(input.pid, dbPath);
       }
       return result;

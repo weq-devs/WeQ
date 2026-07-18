@@ -99,6 +99,19 @@ export interface QQInstanceStatus {
   uin: string;
 }
 
+/**
+ * A recv packet observed by the hook. Returned by `waitForRealPacket` once the
+ * hook has seen a genuine post-login packet — on linux this is what tells the
+ * hook the MSF service address, so no OIDB packet can be sent before it lands.
+ */
+export interface HookRecvPacketInfo {
+  sequence: string;
+  error: number;
+  cmd: string;
+  uin: string;
+  body: Buffer;
+}
+
 export interface WindowsHelloAvailabilityInfo {
   code: number;
   available: boolean;
@@ -170,6 +183,14 @@ export interface NtHelperBinding {
   // --- hook injection ---
   injectAndGetStatus(pid: number, dllPath: string): Promise<QQInstanceStatus>;
   injectAndGetStatusEmbedded(pid: number): Promise<QQInstanceStatus>;
+  /**
+   * Wait until the hook observes a genuine post-login recv packet (pre-login
+   * snapshots/commands are ignored). On linux the hook cannot locate the MSF
+   * service address — and therefore cannot send any OIDB packet — until such a
+   * packet arrives, so the instance key/rkey flows must await this first. On
+   * win32 the service address is resolved by port-probe, so this is unused.
+   */
+  waitForRealPacket(pid: number, timeoutMs: number): Promise<HookRecvPacketInfo>;
 
   // --- SQL (cached connection per dbPath) ---
   executeSql(

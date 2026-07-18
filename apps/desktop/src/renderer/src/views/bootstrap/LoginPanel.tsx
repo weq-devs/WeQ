@@ -151,6 +151,13 @@ export function LoginPanel({
   /**
    * Linux alive-instance key fetch with a 10s stall guard.
    *
+   * The inject half (which pops the polkit password dialog and can take as long
+   * as the user needs to type) runs FIRST and UNTIMED via `prepareInstanceInject`
+   * — only after it completes do we start the 10s timer on the actual key fetch
+   * (which internally does the wait-for-packet). So the password-entry time no
+   * longer eats into the 10s, and the "send a message to unblock" prompt fires
+   * only when the packet wait itself is genuinely stalling.
+   *
    * Returns:
    *   - `true`  — the key was fetched (state updated), or the user opted to
    *               kill QQ and a ninebird fallback flow has taken over. Caller
@@ -162,7 +169,17 @@ export function LoginPanel({
     pid: number,
     acc: UiAccount,
   ): Promise<boolean> {
-    setStatus('正在从在线实例获取密钥（在线获取较慢，请稍候）…');
+    // Step A (untimed): elevate + inject. The password dialog lives here.
+    setStatus('正在注入 QQ 进程（可能弹出授权窗口，请输入密码）…');
+    const prep = await client.bootstrap.prepareInstanceInject.mutate({ pid });
+    if (!prep.ok) {
+      throw new Error(prep.error ?? '注入 QQ 进程失败，请重试。');
+    }
+
+    // Step B (timed from here): fetch the key. Internally waits for the first
+    // post-login packet; that wait — not the password entry — is what the 10s
+    // guards. On timeout, prompt the user to poke the account with a message.
+    setStatus('已注入，正在获取密钥（在线获取较慢，请稍候）…');
     const fetchPromise = client.bootstrap.fetchKeyFromInstance.mutate({ pid, uin: acc.uin });
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<'timeout'>((res) => {
@@ -187,7 +204,7 @@ export function LoginPanel({
     setStatus('在线获取仍未完成…');
     const keepWaiting = await confirm(
       '在线取密钥较慢',
-      '当前 QQ 在线，但还没收到可用于定位服务地址的数据包，取密钥会一直等待。\n\n用任意小号给该账号发一条消息即可立即解除等待；或直接结束 QQ 进程，改用扫码/快速登录获取（更稳）。',
+      '已注入该 QQ，但还没收到可用于定位服务地址的登录后数据包，取密钥会一直等待。\n\n用任意小号给该账号发一条消息即可立即解除等待；或直接结束 QQ 进程，改用扫码/快速登录获取（更稳）。',
       { okLabel: '继续等待', cancelLabel: '结束 QQ 改用登录', tone: 'warning' },
     );
 

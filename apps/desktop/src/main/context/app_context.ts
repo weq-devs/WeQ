@@ -31,6 +31,7 @@ import { aiToolSpecs, runAiTool } from '../mcp/openai_tools';
 import { getExternalMcpHub, disposeExternalMcp } from '../mcp/external';
 import { sampleHitokoto } from '../hitokoto';
 import { pkexecStubHooks } from '../stub_elevation';
+import { createPkexecInjectHook } from '../inject_elevation';
 import {
   accountConfigId,
   UserConfigService,
@@ -94,6 +95,8 @@ import {
   type McpServerConfig,
   type WeqAssistantConfig,
   WeqAssistantService,
+  createDirectInjectHook,
+  type InjectHook,
 } from '@weq/service';
 import { resolveResource } from '../resource';
 import { openAccount, openStaticAccount, peekStaticSelfUin, type AccountContext, type AccountSession } from '@weq/account';
@@ -329,6 +332,13 @@ export interface BootstrapServices {
   voiceTranscribe: VoiceTranscribeService;
   /** Text-to-speech（克隆体发语音/语音克隆）。Account-independent，纯 fetch。 */
   tts: TtsService;
+  /**
+   * Turns a QQ pid into a sendable state before instance-key/rkey fetches.
+   * linux → pkexec-elevated inject + wait-for-packet; other platforms →
+   * in-process direct inject. Shared (single instance) so its per-pid
+   * idempotency spans the router and every account monitor.
+   */
+  injectHook: InjectHook;
 }
 
 /** Services that are re-created whenever an account session opens. */
@@ -559,6 +569,15 @@ export function initAppContext(): AppContext {
   // it needs a pkexec-elevated writer. Windows uses the fs default (undefined).
   const stubHooks = process.platform === 'linux' ? pkexecStubHooks : undefined;
 
+  // Injecting the hook into a running QQ needs root (ptrace) on linux, so it
+  // goes through a pkexec child + a wait-for-packet step; other platforms
+  // inject in-process. One shared instance so its per-pid idempotency spans the
+  // bootstrap router and every account monitor.
+  const injectHook: InjectHook =
+    process.platform === 'linux'
+      ? createPkexecInjectHook(platform.native.ntHelper, userConfig)
+      : createDirectInjectHook(platform.native.ntHelper);
+
   const bootstrap: BootstrapServices = {
     detect: new Win32DetectService(platform, stubHooks),
     keys: new Win32KeyService(platform, stubHooks),
@@ -568,6 +587,7 @@ export function initAppContext(): AppContext {
     agentLabConfig: new AgentLabConfigService(userConfig),
     voiceTranscribe: new VoiceTranscribeService(platform),
     tts: new TtsService(),
+    injectHook,
   };
 
   // Shared voice/transcription closures — both the export manager and AgentLab
@@ -904,6 +924,7 @@ export function initAppContext(): AppContext {
         accountConfig,
         () => userConfig.getSettings().mediaCompletion.enabled,
         () => userConfig.getSettings().autoFetchClientKey,
+        bootstrap.injectHook,
       );
       accountMonitor.start();
       logger.info('opened account session', {

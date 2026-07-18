@@ -42,6 +42,9 @@ extraResources:
   - from: out/main/transcribeWorker.mjs
     to: out/main/transcribeWorker.mjs
 
+  - from: out/main/injectWorker.mjs
+    to: out/main/injectWorker.mjs
+
 asarUnpack:
   - resources/native/**/*
   # @resvg/resvg-js loads a platform .node binding (used by the WeQ 助手 cover
