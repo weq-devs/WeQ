@@ -8,12 +8,11 @@
 import { loadNative } from '@weq/native';
 import { QqDb } from '../src/qq_db';
 import { decodeBody } from '../src/msg/util';
+import { testEnv } from '@weq/testkit';
 
-const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
+const KEY = testEnv.key;
 const ALGO = { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' } as const;
-const LIVE =
-  process.env.WEQ_TEST_DB_PATH ??
-  String.raw`D:\estkim\T\Tencent Files\1707889225\nt_qq\nt_db\nt_msg.db`;
+const LIVE = testEnv.msgDbPath;
 const GROUP = process.argv[2] ?? '673646675';
 
 const brief = (els: any[]): string =>

@@ -5,12 +5,12 @@
 import { loadNative } from '@weq/native';
 import { GroupDetailDb } from '@weq/db';
 import { GroupInfoService } from '../src/account/group_info';
+import { testEnv, qqDbPath } from '@weq/testkit';
 
-const UIN = '1707889225';
-const KEY = '^;<kXZ;RI[@]yTD<';
+const KEY = testEnv.key;
 const GROUP_CODE = 1090396070n;
 
-const DB_PATH = `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db\\group_info.db`;
+const DB_PATH = qqDbPath('group_info.db');
 
 async function main() {
   const native = loadNative();

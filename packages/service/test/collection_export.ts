@@ -16,13 +16,13 @@ import { CollectionDb, type CollectionItem } from '@weq/db';
 import type { AccountSession } from '@weq/account';
 import { CollectionService } from '../src/account/collection';
 import { exportCollections, type CollectionExportRow, type CollectionFormat } from '../src/account/export';
+import { testEnv, qqDbPath } from '@weq/testkit';
 
-const UIN = '1707889225';
-const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
+const KEY = testEnv.key;
 const ALGO = { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' } as const;
 const DB_PATH =
   process.env.WEQ_TEST_DB_PATH ??
-  `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db\\collection.db`;
+  qqDbPath('collection.db');
 
 /** 把一组图片拍成 wire 形状（uri + 尺寸）。 */
 function pics(list: readonly { uri?: string; width?: number; height?: number }[] | undefined) {

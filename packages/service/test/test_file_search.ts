@@ -4,13 +4,14 @@
 
 import { FileSearchService } from '../src/account/file_search';
 import { createWin32Platform } from '@weq/platform';
+import { testEnv } from '@weq/testkit';
 
 // Mock objects
 const mockNative: any = { ntHelper: {} };
 const platform = createWin32Platform(mockNative);
 
 const mockSession: any = {
-  context: { uin: '1707889225' }
+  context: { uin: testEnv.uin }
 };
 
 const service = new FileSearchService(mockSession, platform);

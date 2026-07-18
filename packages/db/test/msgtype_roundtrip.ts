@@ -11,11 +11,10 @@
 
 import { loadNative } from '@weq/native';
 import { GroupMsgDb } from '../src/msg/group';
+import { testEnv } from '@weq/testkit';
 
-const DB_PATH =
-  process.env.WEQ_TEST_DB_PATH ??
-  String.raw`D:\estkim\T\Tencent Files\1707889225\nt_qq\nt_db\nt_msg.db`;
-const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
+const DB_PATH = testEnv.msgDbPath;
+const KEY = testEnv.key;
 
 const MSG_ID = 7662841583143182782n;
 const ORIG = { msgType: 2n, subType: 16n };

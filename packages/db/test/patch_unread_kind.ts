@@ -22,11 +22,10 @@ import { loadNative } from '@weq/native';
 import { QqDb } from '../src/qq_db';
 import { ProtoMsg } from '@weq/codec';
 import { UnreadInfo } from '@weq/codec/proto/msg/48902';
+import { testEnv } from '@weq/testkit';
 
-const DB_PATH =
-  process.env.WEQ_TEST_DB_PATH ??
-  String.raw`D:\estkim\T\Tencent Files\1707889225\nt_qq\nt_db\nt_msg.db`;
-const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
+const DB_PATH = testEnv.msgDbPath;
+const KEY = testEnv.key;
 const ALGO = { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' } as const;
 
 const PEER = process.env.WEQ_PEER ?? '2_673646675';
@@ -34,8 +33,8 @@ const OLD_KIND = 1003;
 const NEW_KIND = 1005;
 const FIELD_50000 = 50000;
 
-const DRY_RUN = !!process.env.WEQ_DRY_RUN;
-const RESTORE = !!process.env.WEQ_RESTORE;
+const DRY_RUN = testEnv.dryRun;
+const RESTORE = testEnv.restore;
 const BAK_PATH = fileURLToPath(new URL('./patch_unread_kind.bak.txt', import.meta.url));
 
 function encodeVarint(n: number): number[] {

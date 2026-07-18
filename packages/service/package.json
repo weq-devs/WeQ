@@ -33,6 +33,7 @@
   "devDependencies": {
     "@types/node": "^22.10.6",
     "@types/qrcode": "^1.5.5",
+    "@weq/testkit": "workspace:*",
     "qrcode": "^1.5.4",
     "tsx": "^4.19.2"
   }

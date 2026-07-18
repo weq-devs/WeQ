@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { Buffer } from 'node:buffer';
+import { ntDataPath, envOptional } from '@weq/testkit';
 
 function decrypt(input: Buffer): Buffer {
   const output = Buffer.allocUnsafe(input.length);
@@ -20,8 +21,12 @@ function decrypt(input: Buffer): Buffer {
   return output;
 }
 
-const inputPath = "D:\\estkim\\T\\Tencent Files\\1707889225\\nt_qq\\nt_data\\Emoji\\marketface\\237036\\747a234be30321f68e7424568fb12bfa";
-const outputPath = "decrypted_emoji.gif";
+// A marketface emoji file under nt_data. Override the relative sub-path with
+// WEQ_EMOJI_REL, e.g. "Emoji/marketface/<itemId>/<hash>".
+const inputPath = ntDataPath(
+  envOptional('WEQ_EMOJI_REL', 'Emoji/marketface/237036/747a234be30321f68e7424568fb12bfa'),
+);
+const outputPath = 'decrypted_emoji.gif';
 
 if (existsSync(inputPath)) {
   console.log(`Reading: ${inputPath}`);

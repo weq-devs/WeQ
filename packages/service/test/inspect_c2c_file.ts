@@ -17,10 +17,10 @@ import { ProtoMsg, decodeElement } from '@weq/codec';
 import { sanitizeBytes } from '@weq/codec/raw';
 import { MsgBody } from '@weq/codec/proto/msg/40800';
 import { mediaNodeFromElement, type MediaElement } from '../src/account/media_url';
+import { testEnv, qqDbPath } from '@weq/testkit';
 
-const UIN = '1707889225';
-const KEY = '^;<kXZ;RI[@]yTD<';
-const DB_PATH = `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db\\nt_msg.db`;
+const KEY = testEnv.key;
+const DB_PATH = qqDbPath('nt_msg.db');
 
 /** The private file message to inspect (msgId = column 40001). */
 const TARGET_MSGID = 7654987674703340593n;

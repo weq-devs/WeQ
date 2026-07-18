@@ -8,17 +8,16 @@
  * Run:  pnpm tsx ./packages/db/test/dump_msg_by_id.ts <msgId> [<msgId> ...]
  *   or  WEQ_TEST_MSG_IDS="7651461878938216377,7661671524070269822" pnpm tsx ./packages/db/test/dump_msg_by_id.ts
  *
- * Path/key are hard-coded below (override with WEQ_TEST_DB_PATH / WEQ_TEST_DB_KEY).
+ * Path/key come from the root `.env` via `@weq/testkit` (see `.env.example`).
  */
 
 import { loadNative } from '@weq/native';
 import { QqDb } from '../src/qq_db';
+import { testEnv } from '@weq/testkit';
 
-// ── hard-coded dev credentials (edit these to your local account) ────────────
-const DB_PATH =
-  process.env.WEQ_TEST_DB_PATH ??
-  '/home/h3cof6/.config/QQ/nt_qq_14d6c6a49c6ce9be5ca03fc736bee8da/nt_db/nt_msg.db';
-const KEY = process.env.WEQ_TEST_DB_KEY ?? 'w~-rqEGwz%(*cde?';
+// ── credentials come from the root .env via @weq/testkit ─────────────────────
+const DB_PATH = testEnv.msgDbPath;
+const KEY = testEnv.key;
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** QQ rewrites 40011/40012 to (1,1) on delete/recall; WeQ's delete mirrors it. */

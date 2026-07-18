@@ -14,11 +14,12 @@ import { loadNative } from '@weq/native';
 import { GroupMsgDb } from '@weq/db';
 import { MsgService } from '../src/account/msg';
 import { scanConvMedia, mediaDirsFromAccountDir, type MediaKind } from '../src/account/export';
+import { testEnv, qqDbPath } from '@weq/testkit';
 
-const _UIN = '1707889225';
-const KEY = '^;<kXZ;RI[@]yTD<';
+const _UIN = testEnv.uin;
+const KEY = testEnv.key;
 const GROUP_CODE = '932791232';
-const DB_PATH = String.raw`D:\estkim\T\Tencent Files\1707889225\nt_qq\nt_db\nt_msg.db`;
+const DB_PATH = qqDbPath('nt_msg.db');
 
 const KINDS: MediaKind[] = ['pic', 'video', 'ptt', 'emoji', 'file'];
 

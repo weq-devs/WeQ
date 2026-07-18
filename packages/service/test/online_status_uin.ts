@@ -8,12 +8,11 @@
 import { loadNative } from '@weq/native';
 import { MiscDb, UidMappingDb, UidMap } from '@weq/db';
 import { OnlineStatusService } from '../src/account/online_status';
+import { testEnv, qqDbPath } from '@weq/testkit';
 
-const UIN = '1707889225';
-const KEY = '^;<kXZ;RI[@]yTD<';
-const BASE = `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db`;
-const MISC_DB_PATH = `${BASE}\\misc.db`;
-const NT_MSG_DB_PATH = `${BASE}\\nt_msg.db`;
+const KEY = testEnv.key;
+const MISC_DB_PATH = qqDbPath('misc.db');
+const NT_MSG_DB_PATH = qqDbPath('nt_msg.db');
 
 const TARGET_UIN = '2793172767';
 const ALGO = { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' } as const;

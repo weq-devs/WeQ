@@ -4,10 +4,10 @@
 
 import { loadNative } from '@weq/native';
 import { QqDb } from '../src/qq_db';
+import { testEnv, qqDbDir } from '@weq/testkit';
 
-const UIN = '1707889225';
-const KEY = '^;<kXZ;RI[@]yTD<';
-const NT_DB_DIR = `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db`;
+const KEY = testEnv.key;
+const NT_DB_DIR = qqDbDir();
 
 async function check(name: string, tableName: string) {
   const native = loadNative();

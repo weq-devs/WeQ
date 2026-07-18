@@ -5,16 +5,17 @@
 import { loadNative } from '@weq/native';
 import { GroupNotifyDb } from '@weq/db';
 import fs from 'node:fs';
+import { testEnv, qqDbPath } from '@weq/testkit';
 
 // Update these with your real values
-const UIN = '1707889225';
-const KEY = '^;<kXZ;RI[@]yTD<'; // This should be the same as profile_info.db's key
+const UIN = testEnv.uin;
+const KEY = testEnv.key; // This should be the same as profile_info.db's key
 const ALGO = { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' } as any;
 
 // Adjust path as needed
-const DB_PATH = `C:\\Users\\17078\\Documents\\Tencent Files\\${UIN}\\nt_qq\\nt_db\\group_info.db`;
+const DB_PATH = qqDbPath('group_info.db');
 // Fallback path example
-const DB_PATH_ALT = `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db\\group_info.db`;
+const DB_PATH_ALT = qqDbPath('group_info.db');
 
 async function main() {
   const native = loadNative();

@@ -19,10 +19,9 @@ import { loadNative } from '@weq/native';
 import { createWin32Platform } from '@weq/platform';
 import { Win32KeyService } from '../src/bootstrap/win32_key';
 import { Win32DetectService } from '../src/bootstrap/win32_detect';
+import { testEnv } from '@weq/testkit';
 
-const DB_PATH =
-  process.env.WEQ_TEST_DB_PATH ??
-  String.raw`D:\estkim\T\Tencent Files\1707889225\nt_qq\nt_db\nt_msg.db`;
+const DB_PATH = testEnv.msgDbPath;
 
 function ts(): string {
   const d = new Date();

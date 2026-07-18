@@ -10,9 +10,10 @@
 import { loadNative } from '../../native/src/index';
 import { QqDb } from '../../db/src/qq_db';
 import { decodeEmoji } from '../../db/src/msg/util';
+import { testEnv, qqDbPath } from '@weq/testkit';
 
-const DB_PATH = 'D:\\estkim\\T\\Tencent Files\\1707889225\\nt_qq\\nt_db\\nt_msg.db';
-const DB_KEY = '^;<kXZ;RI[@]yTD<';
+const DB_PATH = qqDbPath('nt_msg.db');
+const DB_KEY = testEnv.key;
 const TABLE = 'group_msg_table';
 const TARGET = '7725570840783887852';
 

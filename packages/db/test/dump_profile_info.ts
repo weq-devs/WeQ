@@ -6,12 +6,10 @@
 
 import { loadNative } from '@weq/native';
 import { QqDb } from '../src/qq_db';
+import { testEnv } from '@weq/testkit';
 
-const UIN_ME = '1707889225';
-const DB_PATH =
-  process.env.WEQ_TEST_PROFILE_DB_PATH ??
-  `D:\\estkim\\T\\Tencent Files\\${UIN_ME}\\nt_qq\\nt_db\\profile_info.db`;
-const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
+const DB_PATH = testEnv.profileDbPath;
+const KEY = testEnv.key;
 
 const TABLE = 'profile_info_v6';
 

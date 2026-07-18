@@ -10,11 +10,10 @@
 
 import { loadNative } from '@weq/native';
 import { ForwardMsgDb } from '../src/msg/forward';
+import { testEnv } from '@weq/testkit';
 
-const DB_PATH =
-  process.env.WEQ_TEST_DB_PATH ??
-  String.raw`D:\estkim\T\Tencent Files\1707889225\nt_qq\nt_db\nt_msg.db`;
-const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
+const DB_PATH = testEnv.msgDbPath;
+const KEY = testEnv.key;
 
 const MSG_IDS: bigint[] = [7650613959134651362n, 7650606983844292501n];
 

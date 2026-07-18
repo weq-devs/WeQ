@@ -8,13 +8,14 @@
  *   3. fetchDownloadRkeys(pid) 并打印结果,确认字段形状
  *
  * 用法: pnpm tsx packages/native/test/rkey.ts [uin]
- *   默认 uin = 1707889225(开发账号)。需要该账号的 QQ 正在运行且已登录。
+ *   默认 uin 取自根 .env 的 WEQ_TEST_UIN。需要该账号的 QQ 正在运行且已登录。
  */
 
 import { loadNative } from '../src/index';
 import type { QqPortLoginInfo } from '../src/types';
+import { testEnv } from '@weq/testkit';
 
-const TARGET_UIN = process.argv[2] ?? '1707889225';
+const TARGET_UIN = process.argv[2] ?? testEnv.uin;
 
 function probeSafe(
   nt: ReturnType<typeof loadNative>['ntHelper'],

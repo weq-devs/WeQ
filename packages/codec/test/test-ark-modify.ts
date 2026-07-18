@@ -10,9 +10,10 @@ import { decodeElement, encodeElement } from '../src/element';
 import type { ArkElement } from '../src/element';
 import { loadNative } from '../../native/src/index';
 import { QqDb } from '../../db/src/qq_db';
+import { testEnv, qqDbPath } from '@weq/testkit';
 
-const DB_PATH = 'D:\\estkim\\T\\Tencent Files\\1707889225\\nt_qq\\nt_db\\nt_msg.db';
-const DB_KEY = '^;<kXZ;RI[@]yTD<';
+const DB_PATH = qqDbPath('nt_msg.db');
+const DB_KEY = testEnv.key;
 const TABLE = 'c2c_msg_table';
 const ROWID = '7650288743672057123';
 

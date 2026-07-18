@@ -9,14 +9,13 @@
 
 import { loadNative } from '@weq/native';
 import { BuddyMsgFtsDb } from '../src/msg/buddy_msg_fts';
+import { testEnv } from '@weq/testkit';
 
-const DB_PATH =
-  process.env.WEQ_TEST_FTS_DB_PATH ??
-  String.raw`D:\estkim\T\Tencent Files\1707889225\nt_qq\nt_db\buddy_msg_fts.db`;
-const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
+const DB_PATH = testEnv.ftsDbPath;
+const KEY = testEnv.key;
 // pnpm forwards a literal `--` separator into argv; drop it before reading.
 const KEYWORD =
-  process.argv.slice(2).find((a) => a !== '--') ?? process.env.WEQ_TEST_KEYWORD ?? '你好';
+  process.argv.slice(2).find((a) => a !== '--') ?? testEnv.keyword;
 
 async function main(): Promise<void> {
   const native = loadNative();

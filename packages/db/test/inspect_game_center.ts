@@ -15,12 +15,11 @@ import { QqDb } from '../src/qq_db';
 import { ProtoMsg } from '@weq/codec';
 import { MsgBody } from '@weq/codec/proto/msg/40800';
 import { decodeElement } from '@weq/codec';
+import { testEnv } from '@weq/testkit';
 
-const UIN_ME = process.env.WEQ_TEST_UIN ?? '1707889225';
-const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
-const BASE = `D:\\estkim\\T\\Tencent Files\\${UIN_ME}\\nt_qq\\nt_db`;
-const MSG_DB_PATH = process.env.WEQ_TEST_DB_PATH ?? `${BASE}\\nt_msg.db`;
-const PROFILE_DB_PATH = process.env.WEQ_TEST_PROFILE_DB_PATH ?? `${BASE}\\profile_info.db`;
+const KEY = testEnv.key;
+const MSG_DB_PATH = testEnv.msgDbPath;
+const PROFILE_DB_PATH = testEnv.profileDbPath;
 
 const TARGET_UID = 'u_-PBswiplK-7J7bmaQLA-mA';
 

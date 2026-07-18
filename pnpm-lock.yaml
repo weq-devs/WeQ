@@ -74,9 +74,6 @@ importers:
       '@weq/service':
         specifier: workspace:*
         version: link:../../packages/service
-      '@weq/shared':
-        specifier: workspace:*
-        version: link:../../packages/shared
       '@xmldom/xmldom':
         specifier: ^0.9.10
         version: 0.9.10
@@ -228,9 +225,6 @@ importers:
       '@weq/native':
         specifier: workspace:*
         version: link:../../packages/native
-      '@weq/shared':
-        specifier: workspace:*
-        version: link:../../packages/shared
       framer-motion:
         specifier: ^12.40.0
         version: 12.40.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -324,9 +318,6 @@ importers:
       '@protobuf-ts/runtime':
         specifier: ^2.11.1
         version: 2.11.1
-      '@weq/shared':
-        specifier: workspace:*
-        version: link:../shared
       better-sqlite3:
         specifier: ^12.10.0
         version: 12.10.0
@@ -337,6 +328,9 @@ importers:
       '@types/node':
         specifier: ^22.10.6
         version: 22.19.20
+      '@weq/testkit':
+        specifier: workspace:*
+        version: link:../testkit
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.20)(lightningcss@1.32.0)
@@ -353,6 +347,9 @@ importers:
       '@types/node':
         specifier: ^22.10.6
         version: 22.19.20
+      '@weq/testkit':
+        specifier: workspace:*
+        version: link:../testkit
       tsx:
         specifier: ^4.19.2
         version: 4.22.4
@@ -362,6 +359,9 @@ importers:
       '@types/node':
         specifier: ^22.10.6
         version: 22.19.20
+      '@weq/testkit':
+        specifier: workspace:*
+        version: link:../testkit
       electron:
         specifier: ^35.0.0
         version: 35.7.5
@@ -419,6 +419,9 @@ importers:
       '@types/qrcode':
         specifier: ^1.5.5
         version: 1.5.6
+      '@weq/testkit':
+        specifier: workspace:*
+        version: link:../testkit
       qrcode:
         specifier: ^1.5.4
         version: 1.5.4
@@ -426,7 +429,11 @@ importers:
         specifier: ^4.19.2
         version: 4.22.4
 
-  packages/shared: {}
+  packages/testkit:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.6
+        version: 22.19.20
 
 packages:
 

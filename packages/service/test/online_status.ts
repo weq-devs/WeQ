@@ -5,10 +5,10 @@
 import { loadNative } from '@weq/native';
 import { MiscDb } from '@weq/db';
 import { OnlineStatusService } from '../src/account/online_status';
+import { testEnv, qqDbPath } from '@weq/testkit';
 
-const UIN = '1707889225';
-const KEY = '^;<kXZ;RI[@]yTD<';
-const MISC_DB_PATH = `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db\\misc.db`;
+const KEY = testEnv.key;
+const MISC_DB_PATH = qqDbPath('misc.db');
 
 async function main() {
   const native = loadNative();

@@ -5,13 +5,14 @@
 import { loadNative } from '@weq/native';
 import { FileAssistantDb } from '@weq/db';
 import fs from 'node:fs';
+import { testEnv, qqDbPath } from '@weq/testkit';
 
 // Update these with your real values
-const UIN = '1707889225';
-const KEY = '^;<kXZ;RI[@]yTD<';
+const UIN = testEnv.uin;
+const KEY = testEnv.key;
 const ALGO = { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' } as any;
 
-const DB_PATH = `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db\\file_assistant.db`;
+const DB_PATH = qqDbPath('file_assistant.db');
 
 async function main() {
   const native = loadNative();

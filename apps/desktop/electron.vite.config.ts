@@ -16,7 +16,6 @@ const EXCLUDE_FROM_EXTERNAL = [
   '@weq/native',
   '@weq/platform',
   '@weq/service',
-  '@weq/shared',
   '@weq/types',
 ];
 
@@ -26,7 +25,6 @@ export default defineConfig({
     resolve: {
       alias: {
         '@main': resolve(__dirname, 'src/main'),
-        '@shared': resolve(__dirname, '../../packages/shared/src'),
       },
     },
     build: {
@@ -59,7 +57,6 @@ export default defineConfig({
     resolve: {
       alias: {
         '@renderer': resolve(__dirname, 'src/renderer/src'),
-        '@shared': resolve(__dirname, '../../packages/shared/src'),
         '@resources': resolve(__dirname, '../../resources'),
       },
     },

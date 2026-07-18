@@ -13,14 +13,15 @@
  * Run:  pnpm --filter @weq/service test:key-quick
  *
  * Args:
- *   WEQ_TEST_UIN env var (or argv[2]) — defaults to 1707889225
+ *   WEQ_TEST_UIN env var (or argv[2]) — configured via root .env
  */
 
 import { loadNative } from '@weq/native';
 import { createWin32Platform } from '@weq/platform';
 import { Win32KeyService } from '../src/bootstrap/win32_key';
+import { testEnv } from '@weq/testkit';
 
-const UIN = process.argv[2] ?? process.env.WEQ_TEST_UIN ?? '1707889225';
+const UIN = process.argv[2] ?? testEnv.uin;
 const TIMEOUT_MS = 60_000;
 
 function ts(): string {

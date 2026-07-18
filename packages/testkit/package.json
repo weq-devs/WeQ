@@ -1,0 +1,16 @@
+{
+  "name": "@weq/testkit",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared configuration for local integration/probe scripts. Reads a single root .env so no test file hardcodes paths or keys.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.6"
+  }
+}

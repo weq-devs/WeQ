@@ -10,6 +10,7 @@ import { loadNative } from '@weq/native';
 import { QqDb } from '../src/qq_db';
 import { decode } from '@weq/codec/raw';
 import type { RawField, Guess } from '@weq/codec/raw';
+import { testEnv, qqDbPath } from '@weq/testkit';
 
 /** Render the single best guess of each field as an indented tree. */
 function renderTree(fields: RawField[], indent: number): string {
@@ -52,11 +53,10 @@ function describeGuess(g: Guess, indent: number): string {
   }
 }
 
-const UIN = '1707889225';
-const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
+const KEY = testEnv.key;
 const DB_PATH =
   process.env.WEQ_TEST_DB_PATH ??
-  `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db\\collection.db`;
+  qqDbPath('collection.db');
 
 const TABLE = 'collection_list_info_table';
 
