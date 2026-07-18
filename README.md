@@ -1,10 +1,8 @@
-![Banner](./resources/brand/banner.png)
+![banner](./resources/brand/banner_v2.png)
 
-![GitHub Repo stars](https://img.shields.io/github/stars/H3CoF6/WeQ?style=flat-square)![GitHub forks](https://img.shields.io/github/forks/H3CoF6/WeQ?style=flat-square)![GitHub issues](https://img.shields.io/github/issues/H3CoF6/WeQ?style=flat-square)![GitHub pull requests](https://img.shields.io/github/issues-pr/H3CoF6/WeQ?style=flat-square)![GitHub all releases](https://img.shields.io/github/downloads/H3CoF6/WeQ/total?style=flat-square)![GitHub Release downloads](https://img.shields.io/github/downloads/H3CoF6/WeQ/latest/total?style=flat-square)
+![GitHub Repo stars](https://img.shields.io/github/stars/H3CoF6/WeQ?style=flat-square)![GitHub forks](https://img.shields.io/github/forks/H3CoF6/WeQ?style=flat-square)![GitHub issues](https://img.shields.io/github/issues/H3CoF6/WeQ?style=flat-square)![GitHub pull requests](https://img.shields.io/github/issues-pr/H3CoF6/WeQ?style=flat-square)![GitHub all releases](https://img.shields.io/github/downloads/H3CoF6/WeQ/total?style=flat-square)
 
 **WeQ** 是一个 NTQQ 自主的本地消息数据库解密、解析与导出工具。
-
-**欢迎加入QQ群交流** [![WeQ交流群](https://img.shields.io/badge/WeQ交流群-Join-blue)](https://qm.qq.com/q/ysMZoAcC1a)
 
 ---
 
@@ -18,17 +16,17 @@
 
 ## ✨ 功能
 
-- **高仿 QQ 界面** —— 聊天列表、联系人等核心界面**高度还原**
-- **全消息类型适配** —— **PC 端消息类型全覆盖**，包括文本、图片、文件、引用、表情等
-- **消息实时更新** —— **外部监听数据库**，变更时增量更新
-- **媒体下载与查看** —— 本地/CDN媒体文件的提取与查看
-- **数据库修改** —— 支持对解密后数据库的读写操作
-- **多格式导出** —— 支持导出为 TXT、JSON、JSONL、SQLite、CSV、XLSX，<del>HTML</del>
-- **群相册导出** —— 批量下载保存群相册到本地
-- [ ] **已适配 ChatLab** —— 一键导入 [ChatLab](https://chatlab.fun/) 进一步分析
-- [ ] 聊天分析 && 年度报告
-- [ ] 开放api/MCP服务器
-- [ ] 允许接入ai完成高度自定义的数据分析
+| 高仿QQ聊天页面            | ![image-20260719010909884](./docs/images/image-20260719010909884.png) | 隐私化展示               | ![image-20260719011107158](./docs/images/image-20260719011107158.png) |
+| ------------------------- | ------------------------------------------------------------ | ------------------------ | ------------------------------------------------------------ |
+| **导出为各类格式**        | ![image-20260719011244024](./docs/images/image-20260719011244024.png) | **QQ收藏查看导出**       | ![image-20260719011358310](./docs/images/image-20260719011358310.png) |
+| **完整数据库查看**        | ![image-20260719011458352](./docs/images/image-20260719011458352.png) | **本地消息的修改和新增** | ![image-20260719011603014](./docs/images/image-20260719011603014.png) |
+| **防撤回（无需weq运行）** | ![image-20260719011718608](./docs/images/image-20260719011718608.png) | **查看QQ删除消息**       | ![image-20260719011941578](./docs/images/image-20260719011941578.png) |
+| **群相册查看和导出**      | ![image-20260719012204330](./docs/images/image-20260719012204330.png) | **QQ空间查看和导出**     | ![image-20260719012503954](./docs/images/image-20260719012503954.png) |
+| **群聊/私聊分析**         | ![image-20260719012335989](./docs/images/image-20260719012335989.png) | **好友亲密度排行**       | ![image-20260719012608790](./docs/images/image-20260719012608790.png) |
+| **好友克隆          支持导出机器人** | ![image-20260719012740048](./docs/images/image-20260719012740048.png) |**克隆好友群聊**|![image-20260719012944970](./docs/images/image-20260719012944970.png)|
+| **完整QQ表情资源查看** | ![image-20260719013104790](./docs/images/image-20260719013104790.png) |**导出html**|![image-20260719013242705](./docs/images/image-20260719013242705.png)|
+
+> 完整功能请查看[使用手册](./docs/usage.md)
 
 ## 使用方法
 
@@ -48,31 +46,13 @@ pnpm i
 pnpm dev
 ```
 
-#### 项目结构
+> 贡献代码请先阅读 [贡献指南](./contribution.md)  以及本项目[原理](./docs/develop.md) 作为参考
 
-```
-WeQ/
-├── apps/
-│   └── desktop/          # Electron 前端代码
-└── packages/
-    ├── account/          # 账号会话管理
-    ├── codec/            # Protobuf 解析
-    ├── db/               # 数据库读写方法
-    ├── native/           # 原生模块（密钥提取等）
-    ├── platform/         # 跨平台路径适配（目前仅 win32）
-    ├── protocol/         # QQ 协议部分实现
-    └── service/          # 前端调用的业务方法
-```
-
-## 相关项目推荐 && 致谢
-
-- **微信聊天记录导出：** [WeFlow](https://github.com/hicccc77/WeFlow/tree/93d46a3183b98bfe5073ea89ecaa32a4f80f79d3)
+## 致谢
 
 - **微信高仿 & 数据分析：** [WeChatDataAnalysis](https://github.com/LifeArchiveProject/WeChatDataAnalysis)
 
-  ---
-
-- **[NapNeko](https://github.com/NapNeko)** —— **大量实现参考**，不限于native实现思路，消息结构和字段枚举
+- **[NapNeko](https://github.com/NapNeko)** —— **大量实现参考**
 - **[webark-im-template](https://github.com/dogxii/webark-im-template)** —— QQ 聊天界面模板
 - **[QQBackup](https://github.com/QQBackup)** —— 整理了大量QQ数据库相关信息
 
@@ -81,6 +61,15 @@ WeQ/
 <a href="https://github.com/H3CoF6/WeQ/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=H3CoF6/WeQ" />
 </a>
+
+> [!important]
+>
+> 欢迎加入QQ群讨论，代码问题更建议在issue提出哦
+>
+> [![WeQ交流群](https://img.shields.io/badge/WeQ交流群-Join-blue)](https://qm.qq.com/q/ysMZoAcC1a)
+> <img src="./docs/images/image-20260719014708246.png" alt="image-20260719014708246" style="zoom:25%;" />
+>
+> > TG群组真正建设中
 
 ## Star History
 
