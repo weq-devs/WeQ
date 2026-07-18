@@ -182,7 +182,7 @@ function parseJsLiteral(src: string): unknown {
       const num = Number(token);
       if (!Number.isNaN(num)) return num;
     }
-    throw new Error('unexpected token in qzone feeds payload: ' + token.slice(0, 20));
+    throw new Error(`unexpected token in qzone feeds payload: ${token.slice(0, 20)}`);
   }
 
   return parseValue();

@@ -23,7 +23,6 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
-  useState,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
   type ReactElement,

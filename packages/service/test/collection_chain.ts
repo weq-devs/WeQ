@@ -67,7 +67,9 @@ async function main() {
     const dist = new Map<string, number>();
     for (const it of all) dist.set(it.kind, (dist.get(it.kind) ?? 0) + 1);
     console.log('[chain] kind distribution:');
-    [...dist.entries()].sort().forEach(([k, n]) => console.log(`   ${k.padEnd(12)} ${n}`));
+    [...dist.entries()].sort().forEach(([k, n]) => {
+      console.log(`   ${k.padEnd(12)} ${n}`);
+    });
 
     // One decoded sample per kind.
     console.log('\n[chain] one sample per kind:');

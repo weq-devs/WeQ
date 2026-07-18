@@ -69,7 +69,7 @@ export interface ChatlabExportOptions {
 }
 
 /** Drop a trailing extension: `AB.MP4` → `AB` (kept for label readability). */
-function fileNameOf(el: { data: { fileName?: string } }): string {
+function _fileNameOf(el: { data: { fileName?: string } }): string {
   return el.data.fileName ?? '';
 }
 

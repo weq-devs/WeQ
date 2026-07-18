@@ -40,7 +40,9 @@ async function readRow(path: string): Promise<Record<string, unknown> | null> {
     );
     if (!rows.length) return null;
     const out: Record<string, unknown> = {};
-    COLS.forEach((c, i) => (out[c] = rows[0]![i]));
+    COLS.forEach((c, i) => {
+      out[c] = rows[0]![i];
+    });
     out['40800.len'] = rows[0]![COLS.length];
     return out;
   } finally {
@@ -61,7 +63,7 @@ async function main(): Promise<void> {
   if (!before || !after) return;
 
   const keys = [...COLS, '40800.len'];
-  console.log('col'.padEnd(12) + 'BEFORE (backup)'.padEnd(24) + 'AFTER (live/recalled)'.padEnd(24) + 'changed?');
+  console.log(`${'col'.padEnd(12) + 'BEFORE (backup)'.padEnd(24) + 'AFTER (live/recalled)'.padEnd(24)}changed?`);
   console.log('-'.repeat(72));
   for (const k of keys) {
     const b = fmt(before[k]);

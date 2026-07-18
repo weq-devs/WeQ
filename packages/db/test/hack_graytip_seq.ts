@@ -17,7 +17,7 @@ const DB_PATH =
 const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
 
 const MSG_ID = 7737024164892267232n;
-const NEW_SEQ = 9999n;
+const _NEW_SEQ = 9999n;
 
 function fmt(v: unknown): string {
   if (v === null || v === undefined) return 'NULL';

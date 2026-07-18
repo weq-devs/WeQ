@@ -24,7 +24,7 @@ async function main(): Promise<void> {
   const native = loadNative();
   const db = new QqDb(native.ntHelper, { dbPath: LIVE, key: KEY, algo: ALGO });
 
-  console.log('id'.padEnd(26) + 'c2c(40021)'.padEnd(12) + 'group(40021)'.padEnd(14) + 'dataline(40021)');
+  console.log(`${'id'.padEnd(26) + 'c2c(40021)'.padEnd(12) + 'group(40021)'.padEnd(14)}dataline(40021)`);
   console.log('-'.repeat(66));
   for (const id of DIRTY) {
     const c = await db.query(`SELECT COUNT(*) FROM c2c_msg_table WHERE "40021"=?`, [id]);

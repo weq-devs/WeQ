@@ -133,7 +133,7 @@ export function MessageBubble({
 
 	function selectMessageContent() {
 		const content = bubbleRef.current?.querySelector(".message-content");
-		if (!content || !content.textContent?.trim()) {
+		if (!content?.textContent?.trim()) {
 			return;
 		}
 

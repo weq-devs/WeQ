@@ -21,7 +21,7 @@
  */
 
 import { ProtoField, ScalarType } from '../../core';
-import { AuthorInfo, PicInfo, FileInfo } from './common';
+import { PicInfo, FileInfo } from './common';
 
 /** type 1 — plain text note. Predicted (unsampled). */
 export const TextSummary = {

@@ -46,10 +46,10 @@ function printTree(fields: RawField[], indent: string): void {
       | Extract<Guess, { kind: 'len-utf8' }>
       | undefined;
 
-    if (nested && nested.consumedAll) {
+    if (nested?.consumedAll) {
       const hint = utf8 ? `  (or str ${JSON.stringify(utf8.value)})` : '';
       console.log(`${indent}#${f.tag} {${hint}`);
-      printTree(nested.value, indent + '  ');
+      printTree(nested.value, `${indent}  `);
       console.log(`${indent}}`);
     } else {
       console.log(`${indent}#${f.tag} = ${fmtGuess(f.guesses[0]!)}`);

@@ -18,7 +18,6 @@ import {
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { getQueryKey } from '@trpc/react-query';
-import { Settings } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useUpdateStore } from '../state/update';
@@ -389,11 +388,6 @@ type GroupEssenceWire = {
   timestamp: number;
 };
 
-type GroupMemberLevelInfoWire = {
-  memberLevel: number;
-  levelConfigs: Array<{ level: number; levelName: string }>;
-};
-
 type RenderElementWire = {
   type?: string;
   data?: Record<string, unknown>;
@@ -577,7 +571,7 @@ function displayProfileName(profile?: UserProfileWire): string | null {
   return profile.remark || profile.nick || profile.qid || profile.uin || null;
 }
 
-function genderLabel(value?: number): string | null {
+function _genderLabel(value?: number): string | null {
   if (value === 1) return '男';
   if (value === 2) return '女';
   return null;
@@ -694,7 +688,7 @@ function groupNotifyToGroupRequest(
   groupsById: Map<string, Conversation>
 ): GroupJoinRequest | null {
   const groupConversation = groupsById.get(notify.groupUin);
-  if (!groupConversation || groupConversation.type !== 'group') return null;
+  if (groupConversation?.type !== 'group') return null;
 
   const profile = profileByUid.get(notify.operatedUid);
   const uin = profile?.uin ?? '';
@@ -740,10 +734,10 @@ function groupNotifyToGroupRequest(
   };
 }
 
-function groupRequestFromBuddyRequest(request: BuddyRequestWire, groupsById: Map<string, Conversation>, profileByUid: Map<string, UserProfileWire>) {
+function _groupRequestFromBuddyRequest(request: BuddyRequestWire, groupsById: Map<string, Conversation>, profileByUid: Map<string, UserProfileWire>) {
   if (!request.sourceGroupCode || request.sourceGroupCode === '0') return null;
   const groupConversation = groupsById.get(request.sourceGroupCode);
-  if (!groupConversation || groupConversation.type !== 'group') return null;
+  if (groupConversation?.type !== 'group') return null;
   const contactRequest = buddyRequestToContactRequest(request, profileByUid);
 
   return {
@@ -1112,8 +1106,11 @@ function extractGrayTipUids(elements: unknown[]): string[] {
       const xml = typeof data.grayTipXmlContent === 'string' ? data.grayTipXmlContent : '';
       if (xml) {
         const re = /uin="([^"]+)"/g;
-        let match: RegExpExecArray | null;
-        while ((match = re.exec(xml)) !== null) pushUid(match[1]);
+        let match = re.exec(xml);
+        while (match !== null) {
+          pushUid(match[1]);
+          match = re.exec(xml);
+        }
       }
       const tipJson = typeof data.tipJson === 'string' ? data.tipJson : '';
       if (tipJson) {
@@ -2157,7 +2154,7 @@ export function MainView(): ReactElement {
   // `loaded` is already oldest→newest; the template renders in array order.
   const loadedMessageWires = loaded;
   const currentGroupMembers = useMemo(() => {
-    if (!selectedConversation || selectedConversation.type !== 'group') return [];
+    if (selectedConversation?.type !== 'group') return [];
     
     const detail = groupDetail.data;
     const levelConfigs = groupLevelInfo.data?.levelConfigs ?? [];
@@ -2366,8 +2363,8 @@ export function MainView(): ReactElement {
   // it works right after a conversation switch (before selectionRef settles).
   const centerWindowOnSeq = useCallback(
     async (conv: string, kind: 'group' | 'c2c', targetSeq: string): Promise<boolean> => {
-      let before;
-      let after;
+      let before: ChatMsgWire[];
+      let after: ChatMsgWire[];
       try {
         [before, after] = await Promise.all([
           // `< target+1` is `<= target`, so the centre message is included.
@@ -2444,7 +2441,7 @@ export function MainView(): ReactElement {
       const minSeq = working[0]?.msgSeq;
       if (!minSeq || Number(minSeq) <= targetNum) break;
       if (working.some((m) => m.msgSeq === targetSeq)) break;
-      let older;
+      let older: ChatMsgWire[];
       try {
         older = await client.account.listBefore.query({ kind, conv: sel.id, beforeSeq: minSeq, limit: PAGE_SIZE });
       } catch (err) {

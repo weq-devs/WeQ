@@ -611,8 +611,8 @@ export const AI_TOOLS: AiTool[] = [
       const matched = profiles.filter(
         (p) =>
           !q ||
-          (p.nick && p.nick.toLowerCase().includes(q)) ||
-          (p.remark && p.remark.toLowerCase().includes(q)),
+          (p.nick?.toLowerCase().includes(q)) ||
+          (p.remark?.toLowerCase().includes(q)),
       );
       return matched.slice(0, limit).map((p) => ({
         uid: p.uid,
@@ -636,7 +636,7 @@ export const AI_TOOLS: AiTool[] = [
     run: async ({ query, limit }) => {
       const all = await services().groupInfo.listAllGroups(500, 0);
       const q = query.toLowerCase();
-      const matched = all.filter((g) => !q || (g.groupName && g.groupName.toLowerCase().includes(q)));
+      const matched = all.filter((g) => !q || (g.groupName?.toLowerCase().includes(q)));
       return matched.slice(0, limit).map(groupDetailToWire);
     },
   }),
@@ -998,8 +998,8 @@ export const AI_TOOLS: AiTool[] = [
       // 最长沉默期：相邻两个「有消息日期」之间的最大间隔（天）。
       let longestSilence = { days: 0, from: '', to: '' };
       for (let i = 1; i < daily.length; i++) {
-        const prev = new Date(daily[i - 1]!.date + 'T00:00:00').getTime();
-        const cur = new Date(daily[i]!.date + 'T00:00:00').getTime();
+        const prev = new Date(`${daily[i - 1]!.date}T00:00:00`).getTime();
+        const cur = new Date(`${daily[i]!.date}T00:00:00`).getTime();
         const gap = Math.round((cur - prev) / dayMs);
         if (gap > longestSilence.days) longestSilence = { days: gap, from: daily[i - 1]!.date, to: daily[i]!.date };
       }

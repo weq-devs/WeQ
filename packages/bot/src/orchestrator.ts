@@ -4,7 +4,7 @@
  * 内置详细 console 日志（收到消息 / 意愿闸决策 / 生成内容 / 发送内容），方便真机调试
  * ——尤其「为什么不回」一眼可查（看意愿闸 reason/score 或是否被判为空文本）。
  */
-import { AgentRuntime, type AgentLabChatTurn } from '@weq/agentlab';
+import type { AgentRuntime, AgentLabChatTurn } from '@weq/agentlab';
 import type { OneBot11Adapter } from './adapter/types';
 import { normalizeInbound, type NormalizedMessage } from './normalize/inbound';
 import { encodeTurn, type AssetResolver } from './normalize/outbound';

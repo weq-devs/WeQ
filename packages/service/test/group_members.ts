@@ -5,7 +5,6 @@
 import { loadNative } from '@weq/native';
 import { GroupMemberDb } from '@weq/db';
 import { GroupInfoService } from '../src/account/group_info';
-import { join } from 'node:path';
 
 const UIN = '1707889225';
 const KEY = '^;<kXZ;RI[@]yTD<';

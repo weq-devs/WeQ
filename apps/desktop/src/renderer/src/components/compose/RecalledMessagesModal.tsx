@@ -13,7 +13,7 @@
  * pipeline, so senders/avatars/replies match the live chat.
  */
 
-import { type ReactElement } from 'react';
+import type { ReactElement } from 'react';
 import { RotateCcw, X } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { ConvContext, ForwardKindContext } from '../QqMessageContent';

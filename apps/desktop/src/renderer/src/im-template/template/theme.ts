@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { ensureThemeInitialized, useThemeStore, type ThemePreference } from '../../state/theme';
+import { ensureThemeInitialized, useThemeStore, } from '../../state/theme';
 
 export type { ThemePreference } from '../../state/theme';
 

@@ -77,7 +77,7 @@ export class AvatarCacheService {
   /** Effective cache directory: config override, else the platform default. */
   cacheDir(): string {
     const override = this.userConfig.read().avatarCacheDir;
-    return override && override.trim() ? override : this.platform.avatarCacheDir();
+    return override?.trim() ? override : this.platform.avatarCacheDir();
   }
 
   /**

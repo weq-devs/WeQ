@@ -14,11 +14,11 @@
  */
 
 import type { AccountSession } from '@weq/account';
-import { C2cMsg, GroupMsg, C2cPartition, type AppendMsgFields, type C2cMsgDb } from '@weq/db';
+import type { C2cMsg, GroupMsg, C2cPartition, AppendMsgFields, C2cMsgDb } from '@weq/db';
 import {
   ProtoMsg,
   encodeElement,
-  Element,
+  type Element,
   ElementType,
   validateComposeMessage,
   COMPOSE_ELEMENT_SPECS,
@@ -29,8 +29,8 @@ import {
 } from '@weq/codec';
 import { MsgBody } from '@weq/codec/proto/msg/40800';
 import { toRenderElements, type RenderElement } from './msg_view';
-import { DeletedMsgStore } from './deleted_msgs';
-import { AntiRecallService } from './anti_recall';
+import type { DeletedMsgStore } from './deleted_msgs';
+import type { AntiRecallService } from './anti_recall';
 
 const bodyCodec = new ProtoMsg(MsgBody);
 

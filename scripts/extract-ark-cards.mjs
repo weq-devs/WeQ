@@ -34,20 +34,25 @@ function parseTemplateNodes(xml) {
   const nodes = [];
   // 匹配开标签（自闭合或普通），抓取标签名 + 属性串
   const re = /<([A-Za-z]+)\b([^>]*)>/g;
-  let m;
-  while ((m = re.exec(xml))) {
+  let m = re.exec(xml);
+  while (m) {
     const tag = m[1];
-    if (tag === 'Event' || tag.startsWith('On')) continue;
+    if (tag === 'Event' || tag.startsWith('On')) {
+      m = re.exec(xml);
+      continue;
+    }
     const attrs = m[2];
     const id = attr(attrs, 'id');
-    if (!id) continue;
-    nodes.push({
-      tag,
-      id,
-      size: attr(attrs, 'size'),
-      font: attr(attrs, 'font'),
-      anchors: attr(attrs, 'anchors'),
-    });
+    if (id) {
+      nodes.push({
+        tag,
+        id,
+        size: attr(attrs, 'size'),
+        font: attr(attrs, 'font'),
+        anchors: attr(attrs, 'anchors'),
+      });
+    }
+    m = re.exec(xml);
   }
   return nodes;
 }
@@ -61,9 +66,10 @@ function attr(attrs, name) {
 function collectTemplates(js) {
   const out = {};
   const re = /_setViewTemplate\(\s*'([^']+)'\s*,\s*`([\s\S]*?)`\s*\)/g;
-  let m;
-  while ((m = re.exec(js))) {
+  let m = re.exec(js);
+  while (m) {
     out[m[1]] = parseTemplateNodes(m[2]);
+    m = re.exec(js);
   }
   return out;
 }
@@ -93,7 +99,7 @@ function extractVariants(js) {
       local[mm[1]] = mm[2];
     }
     for (const mm of block.matchAll(/\bself\.(\w+)\s*=\s*(?:utils\.fixurl\(\s*)?data\["(\w+)"\]/g)) {
-      local['self.' + mm[1]] = mm[2];
+      local[`self.${mm[1]}`] = mm[2];
     }
 
     const resolve = (arg) => {
@@ -101,7 +107,7 @@ function extractVariants(js) {
       let mm = /^data\["(\w+)"\]/.exec(arg);
       if (mm) return mm[1];
       mm = /^self\.(\w+)/.exec(arg);
-      if (mm && local['self.' + mm[1]]) return local['self.' + mm[1]];
+      if (mm && local[`self.${mm[1]}`]) return local[`self.${mm[1]}`];
       if (local[arg]) return local[arg];
       return null;
     };
@@ -233,7 +239,7 @@ function main() {
   }
 
   mkdirSync(dirname(OUT), { recursive: true });
-  writeFileSync(OUT, JSON.stringify(result, null, 2) + '\n', 'utf8');
+  writeFileSync(OUT, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
   const kb = (JSON.stringify(result).length / 1024).toFixed(1);
   console.log(`✓ 提取完成：${ok} 个 app 有绑定，${skipped} 个跳过（无绑定/无 index.js）`);
   console.log(`✓ 写入 ${OUT}（${kb} KB）`);

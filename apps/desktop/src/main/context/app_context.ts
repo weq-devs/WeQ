@@ -99,7 +99,7 @@ import {
   type InjectHook,
 } from '@weq/service';
 import { resolveResource } from '../resource';
-import { openAccount, openStaticAccount, peekStaticSelfUin, type AccountContext, type AccountSession } from '@weq/account';
+import { openAccount, openStaticAccount, type AccountContext, type AccountSession } from '@weq/account';
 import { collectionItemToWire } from '../ipc/serde';
 
 /**

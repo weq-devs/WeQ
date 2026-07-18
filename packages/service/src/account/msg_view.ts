@@ -460,9 +460,10 @@ export function toRenderElements(elements: Element[]): RenderElement[] {
       case 'emojiBounce': return mapEmojiBounce(el as EmojiBounceElement);
       case 'qqDynamic': return mapQqDynamic(el as QqDynamicElement);
       case 'unknown': return mapUnknown(el as UnknownElement);
-      default:
+      default: {
         const { kind, ...rest } = el as any;
         return { type: kind, data: rest } as any;
+      }
     }
   });
 }

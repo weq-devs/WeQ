@@ -19,7 +19,7 @@ import { AccountSelector } from './AccountSelector';
 import { KeyField, isCompleteKey } from './KeyField';
 import { QrDialog } from './QrDialog';
 import { StaticBackupPanel } from './StaticBackupPanel';
-import { type UiAccount } from './types';
+import type { UiAccount } from './types';
 
 type Sub = { unsubscribe: () => void };
 
@@ -37,7 +37,7 @@ export function LoginPanel({
   accounts,
   selected,
   onSelect,
-  installRoot,
+  installRoot: _installRoot,
   allUins,
   autoTarget,
   onEntered,

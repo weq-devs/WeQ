@@ -33,7 +33,7 @@ export const DATALINE_SELF_DEVICE: DatalineDevice = 'pc';
 
 /** 该 uid 是否是数据线设备伪 uid。 */
 export function isDatalineUid(uid: string): boolean {
-  return Object.prototype.hasOwnProperty.call(DATALINE_UID_TO_DEVICE, uid);
+  return  Object.hasOwn(DATALINE_UID_TO_DEVICE, uid);
 }
 
 /** 设备伪 uid → 中文名（未知则返回 null）。 */

@@ -408,7 +408,7 @@ export function AssistantPanel({
         setTurns((prev) => {
           const idx = prev.length - 1;
           const turn = prev[idx];
-          if (!turn || turn.role !== 'assistant') return prev;
+          if (turn?.role !== 'assistant') return prev;
           const next = [...prev];
           if (step.kind === 'text_delta') {
             // 正文逐字：累积进流式缓冲，气泡实时渲染。

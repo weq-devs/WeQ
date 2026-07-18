@@ -5,5 +5,3 @@ declare global {
     protolab: ProtolabApi;
   }
 }
-
-export {};

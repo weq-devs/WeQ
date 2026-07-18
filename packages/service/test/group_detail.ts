@@ -33,7 +33,7 @@ async function main() {
     const detail = await service.getGroupDetail(GROUP_CODE);
     if (detail) {
         console.log('[test:group-detail] Result:');
-        console.log(JSON.stringify(detail, (k, v) => typeof v === 'bigint' ? v.toString() : v, 2));
+        console.log(JSON.stringify(detail, (_k, v) => typeof v === 'bigint' ? v.toString() : v, 2));
     } else {
         console.log('[test:group-detail] Group not found.');
     }

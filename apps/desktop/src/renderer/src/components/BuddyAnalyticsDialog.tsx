@@ -38,6 +38,8 @@ const TYPE_META: Array<{ key: string; label: string; color: string }> = [
   { key: "other", label: "其他", color: "#6b7280" },
 ];
 
+type BuddyAnalyticsData = Awaited<ReturnType<typeof client.account.getBuddyAnalytics.query>>;
+
 function avatarUrl(uin: string | undefined | null): string | null {
   return uin && uin !== "0" ? `https://thirdqq.qlogo.cn/g?b=sdk&nk=${uin}&s=0` : null;
 }
@@ -84,8 +86,8 @@ function PhraseChips({ items }: { items: Array<{ phrase: string; count: number }
   if (!items || items.length === 0) return <span className="ga-chip-empty">暂无常用语</span>;
   return (
     <div className="ga-chips">
-      {items.map((item, idx) => (
-        <span className="ga-chip" key={idx}>
+      {items.map((item) => (
+        <span className="ga-chip" key={item.phrase}>
           <span>{item.phrase}</span>
           <small>{item.count}</small>
         </span>
@@ -98,8 +100,8 @@ function EmojiChips({ items }: { items: Array<{ faceId: number; faceText: string
   if (!items || items.length === 0) return <span className="ga-chip-empty">暂无表情数据</span>;
   return (
     <div className="ga-chips">
-      {items.map((item, idx) => (
-        <span className="ga-chip ga-emoji-chip" key={idx} title={item.faceText}>
+      {items.map((item) => (
+        <span className="ga-chip ga-emoji-chip" key={item.faceId} title={item.faceText}>
           <FaceEmoji element={{ faceId: item.faceId, faceText: item.faceText }} size={22} />
           <small>{item.count}</small>
         </span>
@@ -119,7 +121,7 @@ export function BuddyAnalyticsDialog({
 }) {
   useEscapeToClose(onClose);
 
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<BuddyAnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 

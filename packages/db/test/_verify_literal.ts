@@ -20,9 +20,9 @@ const c2cIds = ['u_mGIBTBW7gF4Wocw8zapc6w', 'u_abc'];
 const g = inList(groupIds, true);
 const c = inList(c2cIds, false);
 
-console.log('GROUP (numeric=true):  IN (' + g + ')');
-console.log('C2C   (numeric=false): IN (' + c + ')');
+console.log(`GROUP (numeric=true):  IN (${g})`);
+console.log(`C2C   (numeric=false): IN (${c})`);
 console.log('');
-console.log('group 含引号?  ' + (/'/.test(g) ? '❌ 还有引号' : '✅ 裸整数'));
-console.log('group 含 u_?   ' + (/u_/.test(g) ? '❌ 没剔除' : '✅ 已剔除'));
-console.log('group 含 673?  ' + (/673646675/.test(g) ? '✅' : '❌'));
+console.log(`group 含引号?  ${/'/.test(g) ? '❌ 还有引号' : '✅ 裸整数'}`);
+console.log(`group 含 u_?   ${/u_/.test(g) ? '❌ 没剔除' : '✅ 已剔除'}`);
+console.log(`group 含 673?  ${/673646675/.test(g) ? '✅' : '❌'}`);

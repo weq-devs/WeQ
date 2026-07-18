@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { Conversation, GroupMember, Message } from '../im-template/template/types';
-import { DOMParser } from '@xmldom/xmldom';
+import { DOMParser, type Node } from '@xmldom/xmldom';
 import { displayUserName } from '../im-template/template/user';
 import littleIconUrl from '@resources/img/little_icon.png';
 
@@ -16,8 +16,24 @@ interface GrayTipPokeMessageProps {
   message: Message;
 }
 
-function getNodeValue(node: any, attribute: string): string {
-  return node.attributes.getNamedItem(attribute)?.nodeValue || '';
+function getNodeValue(
+  node: Node,
+  attribute: string,
+): string {
+  const attributes = (node as Node & {
+    attributes?: {
+      getNamedItem(name: string): { nodeValue?: string | null } | null;
+    };
+  }).attributes;
+  return attributes?.getNamedItem(attribute)?.nodeValue || '';
+}
+
+interface TipJsonItem {
+  type?: string;
+  txt?: string;
+  uin?: string;
+  param?: string[];
+  src?: string;
 }
 
 /**
@@ -100,7 +116,7 @@ export function GrayTipPokeMessage({ element, conversation, message }: GrayTipPo
 
     if (tipJson) {
       try {
-        const data = JSON.parse(tipJson);
+        const data = JSON.parse(tipJson) as { items?: TipJsonItem[] };
         const memberMap = new Map<string, GroupMember>();
         if (message.sender) {
           memberMap.set(message.sender.id, message.sender as GroupMember);
@@ -122,8 +138,9 @@ export function GrayTipPokeMessage({ element, conversation, message }: GrayTipPo
             }
         }
 
-        const items = data.items?.map((item:any, index:number) => {
+        const items = data.items?.map((item) => {
           const txt = item.txt || '';
+          const itemKey = `${item.type ?? 'unknown'}-${item.uin ?? item.param?.[0] ?? ''}-${txt}-${item.src ?? ''}`;
 
           if (item.type === 'url') {
             const uin = item.uin || item.param?.[0];
@@ -131,24 +148,24 @@ export function GrayTipPokeMessage({ element, conversation, message }: GrayTipPo
               const member = memberMap.get(uin);
               const name = member ? displayUserName(member) : txt;
               return (
-                <span key={index} className="text-blue-500 cursor-pointer hover:underline">
+                <span key={itemKey} className="text-blue-500 cursor-pointer hover:underline">
                   {name}
                 </span>
               );
             }
-            return <span key={index} className="text-blue-500">{txt}</span>;
+            return <span key={itemKey} className="text-blue-500">{txt}</span>;
           }
 
           if (item.type === 'nor') {
-            return <span key={index}>{txt}</span>;
+            return <span key={itemKey}>{txt}</span>;
           }
 
           if (item.type === 'img') {
             const src = resolveTipImgSrc(item.src ?? '');
-            return src ? <img key={index} src={src} alt="" className="inline-block h-[1em] mx-1 align-middle" /> : null;
+            return src ? <img key={itemKey} src={src} alt="" className="inline-block h-[1em] mx-1 align-middle" /> : null;
           }
 
-          return <span key={index}>{txt}</span>;
+          return <span key={itemKey}>{txt}</span>;
         }) || [];
 
         return <div className="weq-graytip text-center text-gray-500 text-xs py-2">{items}</div>;

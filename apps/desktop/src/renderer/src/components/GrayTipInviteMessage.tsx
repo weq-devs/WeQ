@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { Conversation, GroupMember } from '../im-template/template/types';
-import { DOMParser } from '@xmldom/xmldom';
+import { DOMParser, type Node } from '@xmldom/xmldom';
 import { displayUserName } from '../im-template/template/user';
 import { FaceEmoji } from './FaceEmoji';
 
@@ -14,8 +14,16 @@ interface GrayTipInviteMessageProps {
   conversation: Conversation;
 }
 
-function getNodeValue(node: any, attribute: string): string {
-  return node.attributes.getNamedItem(attribute)?.nodeValue || '';
+function getNodeValue(
+  node: Node,
+  attribute: string,
+): string {
+  const attributes = (node as Node & {
+    attributes?: {
+      getNamedItem(name: string): { nodeValue?: string | null } | null;
+    };
+  }).attributes;
+  return attributes?.getNamedItem(attribute)?.nodeValue || '';
 }
 
 export function GrayTipInviteMessage({ element, conversation }: GrayTipInviteMessageProps) {

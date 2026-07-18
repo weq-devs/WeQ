@@ -4,7 +4,7 @@ import { decodeBody } from '../src/msg/util';
 const PRE = `{"align":"center","items":[{"col":"3","jp":"tencent://ntqq-open?subCmd=profile&action=openMiniBuddyProfile&actionParams=%7B%22uin%22%3A%22`;
 const MID = `%22%2C%22sourceType%22%3A%22QrCodeShareBuddyLink%22%7D","txt":"`;
 const POST = `","type":"url"},{"txt":"撤回了一条消息","type":"nor"}]}`;
-const tip = PRE + '1707889225' + MID + 'H3CoF6' + POST;
+const tip = `${PRE}1707889225${MID}H3CoF6${POST}`;
 
 console.log('=== 源码常量拼出的 tipJson（未经 SQL/DB）===');
 console.log('含 &amp; ?', tip.includes('&amp;'));

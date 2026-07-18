@@ -53,13 +53,13 @@ async function main(): Promise<void> {
         v instanceof Uint8Array
           ? `<BLOB ${v.byteLength}B>`
           : typeof v === 'string' && v.length > 60
-            ? v.slice(0, 60) + '…'
+            ? `${v.slice(0, 60)}…`
             : String(v);
       console.log(`  ${name.padEnd(8)} = ${disp}`);
     });
     const blob = row[info.findIndex((r) => String(r[1]) === '40800')];
     console.log('  40800 decoded elements:');
-    console.log(json(decodeBody(blob)).split('\n').map((l) => '    ' + l).join('\n'));
+    console.log(json(decodeBody(blob)).split('\n').map((l) => `    ${l}`).join('\n'));
   }
 
   db.close();

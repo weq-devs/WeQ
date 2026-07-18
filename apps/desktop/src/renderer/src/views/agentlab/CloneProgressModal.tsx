@@ -7,7 +7,7 @@
  *   error   → 错误信息 + 「关闭」
  */
 
-import { type ReactElement } from 'react';
+import type { ReactElement } from 'react';
 import { Minus, Sparkles } from 'lucide-react';
 import { Modal } from '../../components/Dialog';
 import type { CloneTask } from './cloneTaskStore';

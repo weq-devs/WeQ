@@ -397,10 +397,11 @@ function makePipeName(): string {
 function attachSocket(socket: Socket, emitter: EventEmitter): void {
   let buf = '';
   const drain = (final: boolean): void => {
-    let nl: number;
-    while ((nl = buf.indexOf('\n')) >= 0) {
+    let nl = buf.indexOf('\n');
+    while (nl >= 0) {
       const line = buf.slice(0, nl);
       buf = buf.slice(nl + 1);
+      nl = buf.indexOf('\n');
       if (!line.trim()) continue;
       emitParsed(line, emitter);
     }

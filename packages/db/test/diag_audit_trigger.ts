@@ -127,7 +127,9 @@ async function dump(db: QqDb, group?: string): Promise<void> {
   console.log(`日志 ${rows.length} 行：\n`);
   for (const r of rows) {
     const o: Record<string, unknown> = {};
-    names.forEach((n, i) => (o[n] = r[i]));
+    names.forEach((n, i) => {
+      o[n] = r[i];
+    });
     console.log(`#${o.seq} ${o.op} msg=${o.msgid}`);
     if (o.op === 'UPDATE') {
       console.log(`   40027: OLD=${o.old_g}(${o.old_gt})  NEW=${o.new_g}(${o.new_gt})`);

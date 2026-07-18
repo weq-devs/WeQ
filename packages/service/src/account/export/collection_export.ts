@@ -158,7 +158,7 @@ function rowPics(r: CollectionExportRow): string {
 /** 文件：名称（大小）。 */
 function rowFile(r: CollectionExportRow): string {
   const f = r.file ?? (r.video ? { name: r.video.fileName, size: r.video.fileSize } : null);
-  if (!f || !f.name) return '';
+  if (!f?.name) return '';
   const sz = sizeText(f.size);
   return sz ? `${f.name}（${sz}）` : f.name;
 }

@@ -59,7 +59,7 @@ async function main(): Promise<void> {
     console.log('   · 若 FIRE ✅ → 类型亲和在触发器里也生效，字符串比较无区别，根因在别处（如连接未重载）。');
   } finally {
     db.close();
-    try { rmSync(path, { force: true }); rmSync(path + '-wal', { force: true }); rmSync(path + '-shm', { force: true }); } catch { /* ignore */ }
+    try { rmSync(path, { force: true }); rmSync(`${path}-wal`, { force: true }); rmSync(`${path}-shm`, { force: true }); } catch { /* ignore */ }
   }
 }
 

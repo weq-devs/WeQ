@@ -228,7 +228,7 @@ export function ResourceCleanupDialog({
   const pickPreset = (preset: Preset): void => {
     const instructions = preset.build(targets).filter((ins) => {
       const t = targets.find((x) => x.id === ins.id);
-      return t && t.present && instructionBytes(t, ins.variant) >= 0 && t.files > 0;
+      return t?.present && instructionBytes(t, ins.variant) >= 0 && t.files > 0;
     });
     setChosen({ preset, instructions });
     setPhrase('');

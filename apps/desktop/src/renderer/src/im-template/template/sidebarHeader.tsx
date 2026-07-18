@@ -19,8 +19,8 @@ export function SidebarHeader({
 	contactTab,
 	onContactTabChange,
 	activeNotice,
-	friendNoticeCount = 0,
-	groupNoticeCount = 0,
+	friendNoticeCount: _friendNoticeCount = 0,
+	groupNoticeCount: _groupNoticeCount = 0,
 }: {
 	user: User;
 	view: MainView;

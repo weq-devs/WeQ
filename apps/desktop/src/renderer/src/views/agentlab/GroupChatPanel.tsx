@@ -96,7 +96,9 @@ export function GroupChatPanel({
     if (!data || data.length === 0) return;
     const missing = data.filter((m) => !seenIds.current.has(m.id));
     if (missing.length === 0) return;
-    missing.forEach((m) => seenIds.current.add(m.id));
+    missing.forEach((m) => {
+      seenIds.current.add(m.id);
+    });
     setHistory((prev) => [...prev, ...missing].sort((a, b) => a.ts - b.ts));
   }, [conversation.data]);
 

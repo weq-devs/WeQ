@@ -41,7 +41,9 @@ async function main() {
     map.set(key, (map.get(key) ?? 0) + 1);
   }
   console.log('=== type -> 180015 inner sub-tag(s) ===');
-  [...map.entries()].sort().forEach(([k, n]) => console.log(`  ${String(n).padStart(2)}x  ${k}`));
+  [...map.entries()].sort().forEach(([k, n]) => {
+    console.log(`  ${String(n).padStart(2)}x  ${k}`);
+  });
   db.close();
 }
 main().catch((e) => {

@@ -8,7 +8,7 @@
  * `LoginPanel`. There's no top-level entry card for it.
  */
 
-import { type ReactElement } from 'react';
+import type { ReactElement } from 'react';
 import { FolderClock, Sparkles } from 'lucide-react';
 import logoUrl from '@resources/brand/logo.png';
 

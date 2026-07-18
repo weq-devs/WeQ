@@ -82,8 +82,8 @@ export function humanizeText(text: string, intensity = DEFAULT_TYPO_INTENSITY): 
   }
 
   // 2) 偶尔吃掉句尾的句号（真人短消息很少打结尾句号）。
-  if (rng() < intensity * 0.6 && /[。\.]$/.test(out)) {
-    out = out.replace(/[。\.]$/, '');
+  if (rng() < intensity * 0.6 && /[。.]$/.test(out)) {
+    out = out.replace(/[。.]$/, '');
   }
 
   return out;

@@ -910,10 +910,11 @@ export class AssistantService {
         if (done) break;
         // CRLF 归一（部分 provider 用 \r\n\r\n 分隔事件），再按空行切完整事件、残片留到下一片。
         buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
-        let sep: number;
-        while ((sep = buffer.indexOf('\n\n')) >= 0) {
+        let sep = buffer.indexOf('\n\n');
+        while (sep >= 0) {
           consumeEvent(buffer.slice(0, sep));
           buffer = buffer.slice(sep + 2);
+          sep = buffer.indexOf('\n\n');
         }
       }
       // 流结束后残留的最后一个事件（provider 未补尾部空行时）。
@@ -1077,7 +1078,7 @@ function capToolResult(result: unknown): string {
     }
   }
   // 单个超大对象无从按条数裁 → 字符硬切 + 明确标记（让模型知道后面还有、需换更小范围重查）。
-  return full.slice(0, TOOL_RESULT_CAP - 80) + '\n…[结果因过长被截断，请用更小的 limit / 加时间范围 / 翻页重查]';
+  return `${full.slice(0, TOOL_RESULT_CAP - 80)}\n…[结果因过长被截断，请用更小的 limit / 加时间范围 / 翻页重查]`;
 }
 
 /** 若已请求取消则抛一个名为 AbortError 的错误（与 fetch(signal) 抛出的同名，chat() 统一识别）。 */

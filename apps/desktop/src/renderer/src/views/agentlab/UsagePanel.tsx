@@ -127,7 +127,7 @@ function HourLine({ data }: { data: Array<{ hour: string; tokens: number; calls:
             ) : null}
             {pts.map(([x, y], i) => (
               <circle
-                key={`${data[i]!.hour}-${i}`}
+                key={data[i]!.hour}
                 cx={x}
                 cy={y}
                 r={activeIndex === i ? 4.5 : 3}
@@ -154,7 +154,7 @@ function HourLine({ data }: { data: Array<{ hour: string; tokens: number; calls:
           ) : null}
           <div className="weq-usage-line-axis">
             {data.map((d, i) => (
-              <span key={`${d.hour}-${i}`}>{i % 3 === 0 ? d.hour.slice(0, 2) : ''}</span>
+              <span key={d.hour}>{i % 3 === 0 ? d.hour.slice(0, 2) : ''}</span>
             ))}
           </div>
         </div>
@@ -211,12 +211,12 @@ function RadarChart({ axes }: { axes: Array<{ label: string; value: number }> })
       {[1, 0.66, 0.33].map((f) => (
         <polygon key={f} points={ring(f)} className="weq-usage-radar-grid" />
       ))}
-      {axes.map((_, i) => { const p = at(i, maxR); return <line key={i} x1={cx} y1={cy} x2={p.x} y2={p.y} className="weq-usage-radar-grid" />; })}
+      {axes.map((axis, i) => { const p = at(i, maxR); return <line key={axis.label} x1={cx} y1={cy} x2={p.x} y2={p.y} className="weq-usage-radar-grid" />; })}
       <polygon points={dataPoly} className="weq-usage-radar-area">
         <title>{axes.map((a) => `${a.label}: ${fmt(a.value)}`).join(' / ')}</title>
       </polygon>
       {axes.map((a, i) => { const p = at(i, maxR + 10); return (
-        <text key={i} x={p.x} y={p.y} className="weq-usage-radar-label" textAnchor="middle" dominantBaseline="middle">{a.label}</text>
+        <text key={a.label} x={p.x} y={p.y} className="weq-usage-radar-label" textAnchor="middle" dominantBaseline="middle">{a.label}</text>
       ); })}
     </svg>
   );

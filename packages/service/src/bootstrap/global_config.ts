@@ -325,7 +325,7 @@ export class GlobalConfigService {
  * (QQ caches can hold hundreds of thousands of tiny files) can't wedge the
  * main process. Returns the summed byte size of files visited.
  */
-function dirSize(root: string, cap = 200_000): number {
+function _dirSize(root: string, cap = 200_000): number {
   let total = 0;
   let visited = 0;
   const stack: string[] = [root];

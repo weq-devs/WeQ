@@ -74,7 +74,7 @@ export class SysEmojiResourceService {
     if (this.names) return this.names;
     const root = this.root();
     if (!root) return [];
-    let entries;
+    let entries: import('node:fs').Dirent[];
     try {
       entries = await readdir(root, { withFileTypes: true });
     } catch {
@@ -139,7 +139,7 @@ export class SysEmojiResourceService {
  * Returns just the file name, or null when the dir is absent / has no match.
  */
 async function pickFile(dir: string, name: string, ext: string): Promise<string | null> {
-  let files;
+  let files: import('node:fs').Dirent[];
   try {
     files = await readdir(dir, { withFileTypes: true });
   } catch {

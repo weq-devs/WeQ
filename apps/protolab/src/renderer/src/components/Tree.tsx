@@ -493,7 +493,7 @@ function renderGuess(g: Guess): React.ReactNode {
 function hexPreview(b: Uint8Array): string {
   const slice = b.length > 8 ? b.slice(0, 8) : b;
   let s = '';
-  for (const byte of slice) s += byte.toString(16).padStart(2, '0') + ' ';
+  for (const byte of slice) s += `${byte.toString(16).padStart(2, '0')} `;
   return s.trim() + (b.length > 8 ? ' ...' : '');
 }
 

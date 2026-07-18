@@ -50,7 +50,7 @@ function previewOf(v: SqlValue): string {
     s = String(v ?? '');
   }
   s = s.replace(/\s+/g, ' ').trim();
-  return s.length > 160 ? s.slice(0, 160) + '…' : s;
+  return s.length > 160 ? `${s.slice(0, 160)}…` : s;
 }
 
 async function searchDb(nt: NtHelperBinding, file: string, hits: Hit[]): Promise<void> {

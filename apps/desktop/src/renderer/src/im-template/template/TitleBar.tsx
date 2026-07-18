@@ -1,6 +1,5 @@
-import type { ReactNode } from "react";
-import { Minus, Square, X, Maximize2, Minimize2 } from "lucide-react";
-import { cn } from "./classNames";
+
+import { Minus, Square, X, } from "lucide-react";
 import { Avatar } from "./primitives";
 import type { User } from "./types";
 import { displayUserName } from "./user";

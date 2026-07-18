@@ -137,7 +137,7 @@ function attemptDownload(base: string): Promise<void> {
     autoUpdater
       .checkForUpdates()
       .then((result) => {
-        if (!result || !result.updateInfo) throw new Error('未获取到更新信息');
+        if (!result?.updateInfo) throw new Error('未获取到更新信息');
         return autoUpdater.downloadUpdate();
       })
       .then(() => finish())

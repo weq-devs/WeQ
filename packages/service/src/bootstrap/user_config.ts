@@ -505,7 +505,7 @@ export class UserConfigService {
    */
   getWeqAssistantUid(): string {
     const existing = this.read().weqAssistantUid;
-    if (existing && existing.trim()) return existing;
+    if (existing?.trim()) return existing;
     const uid = generateWeqAssistantUid();
     this.write({ weqAssistantUid: uid });
     this.logger.info('generated weq assistant uid', { event: 'weq-assistant-uid-generated' });
@@ -518,20 +518,20 @@ export class UserConfigService {
 
   cacheBaseDir(): string {
     const o = this.read().cacheDirOverride;
-    return o && o.trim() ? o : this.defaultCacheBase();
+    return o?.trim() ? o : this.defaultCacheBase();
   }
 
   getCacheDirInfo(): { effective: string; override: string | null; default: string } {
     const def = this.defaultCacheBase();
     const o = this.read().cacheDirOverride ?? null;
-    return { effective: o && o.trim() ? o : def, override: o, default: def };
+    return { effective: o?.trim() ? o : def, override: o, default: def };
   }
 
   setCacheDirOverride(dir: string | null): void {
-    this.write({ cacheDirOverride: dir && dir.trim() ? dir : null });
+    this.write({ cacheDirOverride: dir?.trim() ? dir : null });
     this.logger.info('updated cache directory override', {
       event: 'set-cache-dir-override',
-      dir: dir && dir.trim() ? dir : null,
+      dir: dir?.trim() ? dir : null,
     });
   }
 

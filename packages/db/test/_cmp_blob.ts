@@ -16,7 +16,7 @@ function parseLen(hex: string): void {
   }
   const declared = val;
   const actual = b.length - pos; // pos 现在指向 element 内容开始
-  console.log(`  外层声明长度=${declared}  实际剩余=${actual}  ${declared === actual ? '✅' : '❌ 差 ' + (actual - declared)}`);
+  console.log(`  外层声明长度=${declared}  实际剩余=${actual}  ${declared === actual ? '✅' : `❌ 差 ${actual - declared}`}`);
 }
 
 console.log('REF:');

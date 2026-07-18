@@ -86,11 +86,11 @@ async function main(): Promise<void> {
     console.log(`\n③ 补插灰条 INSERT：`);
     const cols = MSG_COLUMNS.map((c) => `"${c}"`).join(',');
     const vals = MSG_COLUMNS.map((c) => graytipVal(c, 'src')).join(',');
-    let insertedId: bigint | null = null;
+    let _insertedId: bigint | null = null;
     try {
       // 先算出将要插入的 40001，方便清理
       const nid = await db.query(`SELECT "40001" + 10 + (abs(random()) % 41) FROM group_msg_table WHERE "40001"=?`, [mid]);
-      insertedId = nid[0]![0] as bigint;
+      _insertedId = nid[0]![0] as bigint;
       await db.write(
         `INSERT INTO group_msg_table (${cols})
          SELECT ${vals} FROM group_msg_table AS src WHERE src."40001"=?`, [mid]);

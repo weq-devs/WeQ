@@ -34,7 +34,7 @@ function decodeBody(blob: unknown): Element[] {
   // Drop fields whose on-wire type conflicts with the schema before handing
   // the bytes to protobuf-ts; otherwise one mis-declared tag derails the whole
   // message. Conflicting fields just go missing instead of crashing the decode.
-  let decoded;
+  let decoded: ReturnType<typeof bodyCodec.decode>;
   try {
     decoded = bodyCodec.decode(sanitizeBytes(blob, MsgBody));
   } catch {

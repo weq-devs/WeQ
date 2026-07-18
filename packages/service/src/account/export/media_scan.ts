@@ -197,7 +197,7 @@ function computeExpiry(
   uploadTime: number,
   uploadTimestamp: number,
   fileTTL: number,
-  expireTimestamp: number,
+  _expireTimestamp: number,
 ): number {
   // Video: `expireTimestamp` (45515) and `fileTTL` (45518) describe the
   // original CDN short-URL's expiry (~7 days), NOT when the video is purged
@@ -317,7 +317,7 @@ async function walkFiles(
   onFile: (fullPath: string, name: string) => void,
   onDir: () => void,
 ): Promise<void> {
-  let entries;
+  let entries: import('node:fs').Dirent[];
   try {
     entries = await readdir(dir, { withFileTypes: true });
   } catch {
@@ -406,7 +406,7 @@ export async function scanConvMedia(
   }
 
   await mapLimit(dirTasks, concurrency, async (task) => {
-    let entries;
+    let entries: import('node:fs').Dirent[];
     try {
       entries = await readdir(task.dir, { withFileTypes: true });
     } catch {

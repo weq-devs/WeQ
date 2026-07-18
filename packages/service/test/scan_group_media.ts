@@ -15,7 +15,7 @@ import { GroupMsgDb } from '@weq/db';
 import { MsgService } from '../src/account/msg';
 import { scanConvMedia, mediaDirsFromAccountDir, type MediaKind } from '../src/account/export';
 
-const UIN = '1707889225';
+const _UIN = '1707889225';
 const KEY = '^;<kXZ;RI[@]yTD<';
 const GROUP_CODE = '932791232';
 const DB_PATH = String.raw`D:\estkim\T\Tencent Files\1707889225\nt_qq\nt_db\nt_msg.db`;

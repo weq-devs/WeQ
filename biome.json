@@ -16,6 +16,7 @@
       "!**/*.tsbuildinfo",
       "!**/*.css",
       "!resources/bot-runtime",
+      "!resources/hitokoto.json",
       "!resources/assistant/tailwind.runtime.js",
       "!native/**/*.js",
       "!pnpm-lock.yaml",
@@ -39,9 +40,9 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true,
+      "preset": "recommended",
       "a11y": {
-        "recommended": false
+        "preset": "none"
       },
       "style": {
         "noNonNullAssertion": "off"
@@ -58,5 +59,17 @@
         "organizeImports": "off"
       }
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["**/test/**"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          }
+        }
+      }
+    }
+  ]
 }

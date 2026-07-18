@@ -150,7 +150,7 @@ function sendJson(res: ServerResponse, code: number, body: unknown): void {
 }
 
 function bearer(req: IncomingMessage): string {
-  const h = req.headers['authorization'];
+  const h = req.headers.authorization;
   if (!h || Array.isArray(h)) return '';
   return h.startsWith('Bearer ') ? h.slice(7).trim() : '';
 }
@@ -274,7 +274,8 @@ export function startWebUi(deps: WebUiDeps): Promise<WebUiHandle> {
         mkdirSync(deps.stickersDir, { recursive: true });
         writeFileSync(join(deps.stickersDir, `${md5}.png`), buf);
 
-        const stickers = (deps.persona.stickers = deps.persona.stickers ?? []);
+        const stickers = deps.persona.stickers ?? [];
+        deps.persona.stickers = stickers;
         let ref = stickers.find((s) => s.md5.toUpperCase() === md5);
         if (!ref) {
           ref = {

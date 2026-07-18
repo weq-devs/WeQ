@@ -20,7 +20,7 @@ function fmt(v: unknown): string {
   if (v === null || v === undefined) return 'NULL';
   if (v instanceof Uint8Array) return `<BLOB ${v.byteLength}B>`;
   if (typeof v === 'bigint') return v.toString();
-  if (typeof v === 'string') return v.length > 30 ? v.slice(0, 30) + '…' : v;
+  if (typeof v === 'string') return v.length > 30 ? `${v.slice(0, 30)}…` : v;
   return String(v);
 }
 

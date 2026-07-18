@@ -8,7 +8,7 @@
  */
 
 import { ProtoMsg, type ProtoDecodeStructType } from '../../core';
-import { MsgCache, MsgCacheBody } from '../../proto/msg/40900';
+import { type MsgCache, MsgCacheBody } from '../../proto/msg/40900';
 import { sanitizeBytes } from '../../raw';
 
 /** One decoded 40900 entry (full message snapshot). */

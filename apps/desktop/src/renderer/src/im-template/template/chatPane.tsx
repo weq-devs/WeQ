@@ -114,7 +114,7 @@ function saveGroupInfoCollapsed(value: boolean) {
 	localStorage.setItem(groupInfoCollapsedStorageKey, value ? "1" : "0");
 }
 
-function hasGroupAnnouncements(conversation: Conversation) {
+function _hasGroupAnnouncements(conversation: Conversation) {
 	return (
 		conversation.type === "group" &&
 		(Boolean(conversation.group.announcement?.trim()) ||
@@ -1246,7 +1246,7 @@ export function ChatPane({
 		onEditRaw?.(message);
 	}
 
-	function requestClearConversationMessages() {
+	function _requestClearConversationMessages() {
 		setContextMenu(null);
 		setClearMessagesConfirmOpen(true);
 	}

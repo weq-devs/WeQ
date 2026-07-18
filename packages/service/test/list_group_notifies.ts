@@ -40,11 +40,11 @@ async function main() {
     
     console.log('\n--- Normal Notifications ---');
     const normal = await notifyDb.listNormal(10);
-    console.log(JSON.stringify(normal, (k, v) => typeof v === 'bigint' ? v.toString() : v, 2));
+    console.log(JSON.stringify(normal, (_k, v) => typeof v === 'bigint' ? v.toString() : v, 2));
 
     console.log('\n--- Doubt Notifications ---');
     const doubt = await notifyDb.listDoubt(10);
-    console.log(JSON.stringify(doubt, (k, v) => typeof v === 'bigint' ? v.toString() : v, 2));
+    console.log(JSON.stringify(doubt, (_k, v) => typeof v === 'bigint' ? v.toString() : v, 2));
 
   } catch (err) {
     console.error('[test:group-notify] Failed:', err);

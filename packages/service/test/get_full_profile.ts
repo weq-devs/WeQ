@@ -28,7 +28,7 @@ async function main() {
     
     if (profile) {
         console.log('[test:full-profile] Result:');
-        console.log(JSON.stringify(profile, (k, v) => typeof v === 'bigint' ? v.toString() : v, 2));
+        console.log(JSON.stringify(profile, (_k, v) => typeof v === 'bigint' ? v.toString() : v, 2));
     } else {
         console.log('[test:full-profile] Profile not found.');
     }

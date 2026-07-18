@@ -775,7 +775,7 @@ export const accountRouter = router({
       if (!info) throw new Error('这个克隆体还没有导出过，请先导出机器人。');
       const base = (input.url?.trim() || info.url).replace(/\/+$/, '');
       const { probeBotWebUi, openBotWebUiWindow } = await import('../../bot_webui_window');
-      const reachable = await probeBotWebUi(base + '/');
+      const reachable = await probeBotWebUi(`${base}/`);
       if (!reachable) return { opened: false as const, needUrl: true as const, defaultUrl: info.url };
       const persona = svc.getPersona(input.personaId);
       await openBotWebUiWindow(base, info.key, persona?.name);
@@ -2019,7 +2019,7 @@ export const accountRouter = router({
     }))
     .mutation(async ({ input }) => {
       return requireServices().exportManager.startTask({
-        collection: { ...(input.kinds && input.kinds.length ? { kinds: input.kinds } : {}) },
+        collection: { ...(input.kinds?.length ? { kinds: input.kinds } : {}) },
         kind: 'c2c',
         conv: '',
         name: input.name,
@@ -2197,7 +2197,7 @@ export const accountRouter = router({
     }))
     .mutation(async ({ input }) => {
       const { dialog } = await import('electron');
-      const { copyFileSync } = await import('fs');
+      const { copyFileSync } = await import('node:fs');
       const result = await dialog.showSaveDialog({
         defaultPath: input.defaultName,
         filters: [{ name: 'Export', extensions: [input.format] }],

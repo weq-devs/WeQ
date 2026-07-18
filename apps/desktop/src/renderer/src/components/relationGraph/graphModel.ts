@@ -295,7 +295,9 @@ function detectCommunities(nodes: GNode[], edges: GEdge[]): number {
 	}
 
 	const label = new Map<string, number>();
-	nodes.forEach((n, i) => label.set(n.id, i));
+	nodes.forEach((n, i) => {
+		label.set(n.id, i);
+	});
 
 	for (let iter = 0; iter < 10; iter++) {
 		let changed = false;

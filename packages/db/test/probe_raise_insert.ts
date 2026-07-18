@@ -59,7 +59,7 @@ async function main(): Promise<void> {
       const probeCnt = Number((await db.query(`SELECT COUNT(*) FROM weq_raise_probe`))[0]![0]);
       // 确认靶子没被真改
       const stillType = await db.query(`SELECT "40011","40012" FROM group_msg_table WHERE "40001"=?`, [mid]);
-      console.log(`[${variant}] UPDATE affected=${affected}${updErr ? ' err=' + updErr.slice(0, 40) : ''}  →  probe表INSERT留存=${probeCnt} 行  (靶子仍 ${stillType[0]?.[0]}/${stillType[0]?.[1]})`);
+      console.log(`[${variant}] UPDATE affected=${affected}${updErr ? ` err=${updErr.slice(0, 40)}` : ''}  →  probe表INSERT留存=${probeCnt} 行  (靶子仍 ${stillType[0]?.[0]}/${stillType[0]?.[1]})`);
     }
 
     console.log('\n=== 判读 ===');

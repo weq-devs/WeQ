@@ -38,17 +38,25 @@ async function main() {
 
     const buddyHits = await service.searchBuddy(keyword, 3);
     console.log(`\nBuddy Hits (${buddyHits.length}):`);
-    buddyHits.forEach(h => console.log(` - [${h.sendTime}] ${h.content.slice(0, 30)}`));
+    buddyHits.forEach((h) => {
+      console.log(` - [${h.sendTime}] ${h.content.slice(0, 30)}`);
+    });
 
     const groupHits = await service.searchGroup(keyword, 3);
     console.log(`\nGroup Hits (${groupHits.length}):`);
-    groupHits.forEach(h => console.log(` - [${h.sendTime}] ${h.content.slice(0, 30)}`));
+    groupHits.forEach((h) => {
+      console.log(` - [${h.sendTime}] ${h.content.slice(0, 30)}`);
+    });
 
     const fileKeyword = 'zip';
     console.log(`\n[test:search] Searching files for: "${fileKeyword}"`);
     const fileHits = await service.searchFiles(fileKeyword, 3);
     console.log(`File Hits (${fileHits.length}):`);
-    fileHits.forEach(h => console.log(` - [${h.sendTime}] File: ${h.fileName}, Content: ${h.content.slice(0, 30)}`));
+    fileHits.forEach((h) => {
+      console.log(
+        ` - [${h.sendTime}] File: ${h.fileName}, Content: ${h.content.slice(0, 30)}`,
+      );
+    });
 
   } catch (err) {
     console.error('[test:search] Failed:', err);

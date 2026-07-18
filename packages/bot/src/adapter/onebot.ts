@@ -67,7 +67,8 @@ export abstract class BaseOneBotAdapter implements OneBot11Adapter {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       return Promise.reject(new Error(`ws 未连接，无法调用 action: ${action}`));
     }
-    const echo = `${action}-${(this.echoSeq += 1)}`;
+    this.echoSeq += 1;
+    const echo = `${action}-${this.echoSeq}`;
     return new Promise<unknown>((resolve, reject) => {
       const timeoutMs = this.cfg.actionTimeoutMs ?? 15000;
       const timer = setTimeout(() => {

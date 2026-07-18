@@ -334,7 +334,7 @@ export class AvatarResourceService {
       uid = qq; // group uin == uid
     } else {
       const profile = await this.session.profileInfo.getProfileByUin(BigInt(qq));
-      if (!profile || !profile.uid) return blank;
+      if (!profile?.uid) return blank;
       uid = profile.uid;
       nick = profile.remark || profile.nick || '';
     }
@@ -383,7 +383,7 @@ export class AvatarResourceService {
 
   /** Bucket dir names (`00`…`ff`, `temp`, …) under a scope, or null if absent. */
   private async readBuckets(scopeDir: string): Promise<string[] | null> {
-    let entries;
+    let entries: import('node:fs').Dirent[];
     try {
       entries = await readdir(scopeDir, { withFileTypes: true });
     } catch {
@@ -405,7 +405,7 @@ export class AvatarResourceService {
   /** Merge one bucket's files into `hash → Acc`, keyed by the shared hash. */
   private async mergeBucket(bucketDir: string): Promise<Map<string, Acc>> {
     const out = new Map<string, Acc>();
-    let files;
+    let files: import('node:fs').Dirent[];
     try {
       files = await readdir(bucketDir, { withFileTypes: true });
     } catch {

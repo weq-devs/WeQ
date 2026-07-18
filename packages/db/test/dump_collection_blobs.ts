@@ -28,7 +28,7 @@ function describeGuess(g: Guess, indent: number): string {
     case 'len-nested':
       return `nested${g.consumedAll ? '' : '?'} {\n${renderTree(g.value, indent + 2)}\n${' '.repeat(indent)}}`;
     case 'len-utf8': {
-      const s = g.value.length > 70 ? g.value.slice(0, 70) + '…' : g.value;
+      const s = g.value.length > 70 ? `${g.value.slice(0, 70)}…` : g.value;
       return `str(${g.value.length}): ${JSON.stringify(s)}`;
     }
     case 'len-bytes':
@@ -92,7 +92,7 @@ async function main(): Promise<void> {
       const v = row[i];
       if (isBlob(v)) console.log(`  ${c} = <BLOB ${v.byteLength}B>`);
       else if (typeof v === 'string')
-        console.log(`  ${c} = ${v.length > 60 ? v.slice(0, 60) + '…' : v}`);
+        console.log(`  ${c} = ${v.length > 60 ? `${v.slice(0, 60)}…` : v}`);
       else console.log(`  ${c} = ${String(v)}`);
     });
   });
@@ -112,7 +112,9 @@ async function main(): Promise<void> {
     dist.set(k, (dist.get(k) ?? 0) + 1);
   }
   console.log(`\n=== (type,category) distribution ===`);
-  [...dist.entries()].sort().forEach(([k, n]) => console.log(`  ${k.padEnd(20)} ${n}`));
+  [...dist.entries()].sort().forEach(([k, n]) => {
+    console.log(`  ${k.padEnd(20)} ${n}`);
+  });
 
   // 5) raw-decode blob 180004 for ONE representative row of each distinct type
   const seen = new Set<unknown>();

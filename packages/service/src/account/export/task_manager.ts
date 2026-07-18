@@ -49,7 +49,7 @@ import { scanConvMedia, mediaDirsFromAccountDir, mediaDirsFromNtDataDir, type Me
 import { exportSysFaces } from './sysface_export';
 import type { MediaUrlService } from '../media_url';
 import { iterateC2cMessages, toExportedMessage } from './message_source';
-import { type Framing } from './run_export';
+import type { Framing } from './run_export';
 import { bigintReplacer } from './serialize';
 import { messageToText, annotateLocalPaths } from './element_text';
 import type { ConvKind, ExportedMessage, ExportFormat, ExportResult, ExportTimeRange, GroupExportOptions } from './types';
@@ -1062,7 +1062,7 @@ export class ExportTaskManager extends EventEmitter {
 
   pauseTask(id: string): boolean {
     const task = this.tasks.get(id);
-    if (!task || task.status !== 'running') return false;
+    if (task?.status !== 'running') return false;
     this.abortControllers.get(id)?.abort();
     task.status = 'paused';
     task.updatedAt = Date.now();

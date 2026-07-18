@@ -1,4 +1,4 @@
-import React from 'react';
+import type React from 'react';
 import { trpc } from '../trpc/client';
 import { Circle, Smile, Clock, Minus, Ban, MinusCircle } from 'lucide-react';
 

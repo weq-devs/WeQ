@@ -54,8 +54,8 @@ async function main() {
     console.log(`   Fetched ${members.length} members.\n`);
     
     // Header
-    console.log('   ' + 'Nick'.padEnd(20) + ' | ' + 'Level'.padEnd(8) + ' | ' + 'Custom Title');
-    console.log('   ' + '-'.repeat(50));
+    console.log(`   ${'Nick'.padEnd(20)} | ${'Level'.padEnd(8)} | Custom Title`);
+    console.log(`   ${'-'.repeat(50)}`);
 
     members.forEach((m) => {
         const levelName = levelInfo?.levelConfigs.find(c => c.level === m.memberLevel)?.levelName || `LV${m.memberLevel}`;

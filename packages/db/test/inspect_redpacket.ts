@@ -55,7 +55,7 @@ function printTree(fields: RawField[], indent: string): void {
     const nested = f.guesses.find((g) => g.kind === 'len-nested');
     if (nested && nested.kind === 'len-nested') {
       console.log(`${indent}#${f.tag}  ${topGuess(nested)}`);
-      printTree(nested.value, indent + '  ');
+      printTree(nested.value, `${indent}  `);
       // 若同一 LEN 字段还能被解释成字符串，附注一下
       const asStr = f.guesses.find((g) => g.kind === 'len-utf8');
       if (asStr && asStr.kind === 'len-utf8' && asStr.value.trim()) {
@@ -76,7 +76,7 @@ async function main(): Promise<void> {
   });
 
   for (const c of CASES) {
-    console.log('\n' + '='.repeat(70));
+    console.log(`\n${'='.repeat(70)}`);
     console.log(`${c.label}  msgId=${c.msgId}`);
     console.log('='.repeat(70));
 

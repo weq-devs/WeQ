@@ -36,7 +36,6 @@ import {
   findFileDir,
   findQqWrapperNode,
   findQqMajorNode,
-  pickTencentFilesRoot,
 } from './paths';
 import { findQqExe, findQqInstallRoot } from './registry';
 

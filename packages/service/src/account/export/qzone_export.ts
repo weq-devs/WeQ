@@ -129,7 +129,7 @@ function emotionToTxt(e: QzoneEmotion): string {
   if (e.content) lines.push(e.content);
   if (e.images.length) lines.push(`图片: ${e.images.join(', ')}`);
   lines.push('—'.repeat(24));
-  return lines.join('\n') + '\n';
+  return `${lines.join('\n')}\n`;
 }
 
 /** 从 URL 猜图片扩展名，缺失回退 `.jpg`。 */

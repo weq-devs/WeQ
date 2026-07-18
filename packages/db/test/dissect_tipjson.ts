@@ -49,7 +49,7 @@ function scan(buf: Uint8Array, base: number, indent: string, depth: number): voi
         console.log(`${indent}@${abs} #${field} LEN key=${keyBytes} lenPfx=${lenBytes}(${L}B) <bin ${Buffer.from(slice.subarray(0, 12)).toString('hex')}…>`);
         // 尝试递归子消息(仅当看起来像 protobuf：depth 限制)
         if (depth < 3 && L > 2 && !printable) {
-          try { scan(slice, base + (p2 - 0), indent + '  ', depth + 1); } catch { /* not a submsg */ }
+          try { scan(slice, base + (p2 - 0), `${indent}  `, depth + 1); } catch { /* not a submsg */ }
         }
       }
     } else if (wt === 1) { pos += 8; console.log(`${indent}@${abs} #${field} 64BIT`); }

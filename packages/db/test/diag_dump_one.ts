@@ -24,7 +24,7 @@ async function main(): Promise<void> {
   const db = new QqDb(native.ntHelper, { dbPath: LIVE, key: KEY, algo: ALGO });
 
   for (const table of TABLES) {
-    let info;
+    let info: unknown[][];
     try { info = await db.query(`PRAGMA table_info("${table}")`); } catch { continue; }
     if (!info.length) continue;
     const cols = info.map((r) => String(r[1]));
@@ -46,7 +46,7 @@ async function main(): Promise<void> {
     });
     if (bodyIdx >= 0) {
       console.log('\n  40800 解码:');
-      console.log(json(decodeBody(row[bodyIdx])).split('\n').map((l) => '    ' + l).join('\n'));
+      console.log(json(decodeBody(row[bodyIdx])).split('\n').map((l) => `    ${l}`).join('\n'));
     }
     // 顺带记录：该会话(同分区)当前最大 rowid，撤回后可看是否新增行
     const part = table === 'group_msg_table' ? '40027' : '40021';

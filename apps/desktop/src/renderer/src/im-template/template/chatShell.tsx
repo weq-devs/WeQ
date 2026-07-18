@@ -35,7 +35,7 @@ export function ChatShell({
 	onOpenProfile,
 	onOpenAbout,
 	onOpenHelp,
-	onOpenHelp: onOpenHelp_unused, // Not used but kept for interface consistency
+	onOpenHelp: _onOpenHelp, // Not used but kept for interface consistency
 	onOpenInvite,
 	onQueryChange,
 	onQuickInvite,

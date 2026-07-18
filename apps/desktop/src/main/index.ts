@@ -29,7 +29,6 @@ import { registerQzoneIpc } from './qzone';
 import {
   getLogDir,
   getLogger,
-  logErrorContext,
   type MediaElement,
   type WindowCloseBehavior,
 } from '@weq/service';
@@ -222,7 +221,7 @@ function registerMediaIpc(): void {
 
       shell.showItemInFolder(realPath);
       return { success: true };
-    } catch (e) {
+    } catch (_e) {
       return { success: false, error: '查询失败' };
     }
   });
@@ -290,9 +289,9 @@ function registerMediaIpc(): void {
         );
       } catch (e) {
         console.error('[file:download] OIDB resolve failed:', e);
-        return { success: false, error: 'OIDB ?????' + (e instanceof Error ? e.message : String(e)) };
+        return { success: false, error: `OIDB ?????${e instanceof Error ? e.message : String(e)}` };
       }
-      console.log('[file:download] resolved url:', url ? url.slice(0, 120) + '?' : '(empty)');
+      console.log('[file:download] resolved url:', url ? `${url.slice(0, 120)}?` : '(empty)');
       if (!url) return { success: false, error: 'OIDB ??????QQ ??????' };
 
       const { downloadUrlToFile } = await import('@weq/service');
@@ -305,7 +304,7 @@ function registerMediaIpc(): void {
           name: fileName,
           reason: outcome.reason,
         });
-        return { success: false, error: '?????' + outcome.reason };
+        return { success: false, error: `?????${outcome.reason}` };
       }
       console.log('[file:download] saved to', dest);
       logger.info('file downloaded successfully', {
@@ -438,8 +437,8 @@ function createWindow(): BrowserWindow {
     return { action: 'deny' };
   });
 
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    void win.loadURL(process.env['ELECTRON_RENDERER_URL']);
+  if (is.dev && process.env.ELECTRON_RENDERER_URL) {
+    void win.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
     void win.loadFile(join(__dirname, '../renderer/index.html'));
   }

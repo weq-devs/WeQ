@@ -222,7 +222,7 @@ async function dump(db: QqDb, conv?: string): Promise<void> {
       continue;
     }
     console.log(`#${r.seq} [${r.ts}] UPDATE ${tag} ${r.tbl} msg=${r.msgid} conv=${r.conv}`);
-    console.log(`    002:${r.old002}${r.old002 === r.new002 ? '=' : '→' + r.new002 + ' ★变'}  type:${r.oldType}→${r.newType}  blen:${r.oldBlen}→${r.newBlen}  900:${r.old900}→${r.new900}`);
+    console.log(`    002:${r.old002}${r.old002 === r.new002 ? '=' : `→${r.new002} ★变`}  type:${r.oldType}→${r.newType}  blen:${r.oldBlen}→${r.newBlen}  900:${r.old900}→${r.new900}`);
     console.log(`    sig: old=${r.oldSig} new=${r.newSig}  senderSig=${r.senderSig}   谓词: rand_same=${r.randSame} body=${r.bodyChg} 900=${r.p900} 54=${r.type54}`);
     console.log(`    判据: fire_cur=${r.fireCur}  fire_sig=${r.fireSig}  fire_sig54=${r.fireSig54}`);
     console.log(`    newHead=${r.newHead.slice(0, 48)}…`);

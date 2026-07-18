@@ -14,14 +14,12 @@ import type {
   BuddyMsgFtsHit,
   BuddyRequest,
   Category,
-  C2cMsg,
   CollectionItem,
   GroupBulletin,
   GroupDetail,
   GroupEssence,
   GroupMember,
   GroupMemberLevelInfo,
-  GroupMsg,
   GroupNotify,
   RecentContact,
   UserProfile,
@@ -527,32 +525,34 @@ export function forwardRecordToWire(record: MsgCacheRecord): unknown {
  * registry only knows the standard typed arrays, so a raw `Buffer` over IPC
  * throws "Trying to deserialize unknown typed array". Plain objects don't.
  */
-export function elementsToEditable(v: any): any {
+export function elementsToEditable<T>(v: T): T {
   if (v === null || v === undefined) return v;
-  if (typeof v === 'bigint') return v.toString();
+  if (typeof v === 'bigint') return v.toString() as T;
   if (v instanceof Uint8Array) {
-    return { type: 'Buffer', data: Array.from(v) };
+    return { type: 'Buffer', data: Array.from(v) } as T;
   }
-  if (Array.isArray(v)) return v.map(elementsToEditable);
+  if (Array.isArray(v)) return v.map((item) => elementsToEditable(item)) as T;
   if (typeof v === 'object') {
-    const out: Record<string, any> = {};
-    for (const k of Object.keys(v)) out[k] = elementsToEditable(v[k]);
-    return out;
+    const record = v as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(record)) out[k] = elementsToEditable(record[k]);
+    return out as T;
   }
   return v;
 }
 
 /** Reverse {@link elementsToEditable}: `{ type:'Buffer', data }` → Uint8Array. */
-export function elementsFromEditable(v: any): any {
+export function elementsFromEditable<T>(v: T): T {
   if (v === null || v === undefined) return v;
-  if (Array.isArray(v)) return v.map(elementsFromEditable);
+  if (Array.isArray(v)) return v.map((item) => elementsFromEditable(item)) as T;
   if (typeof v === 'object') {
-    if (v.type === 'Buffer' && Array.isArray(v.data)) {
-      return Uint8Array.from(v.data);
+    const record = v as Record<string, unknown>;
+    if (record.type === 'Buffer' && Array.isArray(record.data)) {
+      return Uint8Array.from(record.data as number[]) as T;
     }
-    const out: Record<string, any> = {};
-    for (const k of Object.keys(v)) out[k] = elementsFromEditable(v[k]);
-    return out;
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(record)) out[k] = elementsFromEditable(record[k]);
+    return out as T;
   }
   return v;
 }
@@ -562,19 +562,20 @@ export function elementsFromEditable(v: any): any {
  * - Uint8Array -> hex string
  * - bigint -> string
  */
-function sanitize(v: any): any {
+function sanitize<T>(v: T): T {
   if (v === null || v === undefined) return v;
-  if (typeof v === 'bigint') return v.toString();
+  if (typeof v === 'bigint') return v.toString() as T;
   if (v instanceof Uint8Array) {
-    return Buffer.from(v).toString('hex');
+    return Buffer.from(v).toString('hex') as T;
   }
-  if (Array.isArray(v)) return v.map(sanitize);
+  if (Array.isArray(v)) return v.map((item) => sanitize(item)) as T;
   if (typeof v === 'object') {
-    const out: Record<string, any> = {};
-    for (const k of Object.keys(v)) {
-      out[k] = sanitize(v[k]);
+    const record = v as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(record)) {
+      out[k] = sanitize(record[k]);
     }
-    return out;
+    return out as T;
   }
   return v;
 }

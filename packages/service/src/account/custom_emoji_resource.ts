@@ -120,7 +120,7 @@ export class CustomEmojiResourceService {
     const root = this.scopeRoot(scope);
     if (!root) return null;
     if (scope === 'personal') return [''];
-    let entries;
+    let entries: import('node:fs').Dirent[];
     try {
       entries = await readdir(root, { withFileTypes: true });
     } catch {
@@ -287,7 +287,7 @@ export class CustomEmojiResourceService {
     dir: string,
     variant: CustomEmojiVariant,
   ): Promise<void> {
-    let files;
+    let files: import('node:fs').Dirent[];
     try {
       files = await readdir(dir, { withFileTypes: true });
     } catch {

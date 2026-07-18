@@ -56,7 +56,7 @@ async function main(): Promise<void> {
     const gtAfter = Number((await db.query(`SELECT COUNT(*) FROM group_msg_table WHERE "40027"=? AND "40011"=5 AND "40012"=17`, [BigInt(GROUP)]))[0]![0]);
     const orig = await db.query(`SELECT "40011","40012" FROM group_msg_table WHERE "40001"=?`, [mid]);
 
-    console.log(`\nUPDATE affected=${aff}${err ? ' err='+err : ''}`);
+    console.log(`\nUPDATE affected=${aff}${err ? ` err=${err}` : ''}`);
     console.log(`拦截: 靶子仍 ${orig[0]![0]}/${orig[0]![1]}  ${String(orig[0]![0])==='2'?'✅':'❌'}`);
     console.log(`记录表: +${logAfter-logBefore} ${logAfter-logBefore===1?'✅':'❌'}`);
     console.log(`补插灰条: +${gtAfter-gtBefore} ${gtAfter-gtBefore===1?'✅':'❌'}`);

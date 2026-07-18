@@ -245,10 +245,10 @@ class ProtoMsgCore<T extends ProtoMessageType> {
   }
 
   static getInstance<T extends ProtoMessageType>(fields: T): ProtoMsgCore<T> {
-    let instance = this.cache.get(fields);
+    let instance = ProtoMsgCore.cache.get(fields);
     if (!instance) {
       instance = new ProtoMsgCore(fields);
-      this.cache.set(fields, instance);
+      ProtoMsgCore.cache.set(fields, instance);
     }
     return instance;
   }

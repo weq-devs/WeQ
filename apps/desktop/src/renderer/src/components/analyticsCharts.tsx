@@ -115,12 +115,12 @@ export function DonutChart({
           strokeWidth={thickness}
         />
         {total > 0 &&
-          segments.map((s, i) => {
+          segments.map((s) => {
             if (s.value <= 0) return null;
             const dash = (s.value / total) * circumference;
             const node = (
               <circle
-                key={i}
+                key={`${s.label}-${s.color}`}
                 cx={cx}
                 cy={cx}
                 r={radius}
@@ -149,10 +149,10 @@ export function DonutChart({
         ) : null}
       </svg>
       <div className="ba-donut-legend">
-        {segments.map((s, i) => {
+        {segments.map((s) => {
           const pct = total > 0 ? Math.round((s.value / total) * 100) : 0;
           return (
-            <div className="ba-donut-legend-item" key={i}>
+            <div className="ba-donut-legend-item" key={`${s.label}-${s.color}`}>
               <span className="ba-donut-dot" style={{ background: s.color }} />
               <span className="ba-donut-lbl">{s.label}</span>
               <span className="ba-donut-val">
@@ -292,17 +292,17 @@ export function ContributionHeatmap({ data }: { data: DailyActivityItem[] }) {
         <div className="ga-hm-inner">
           <div className="ga-hm-months">
             {model.monthLabels.map((label, i) => (
-              <span className="ga-hm-month" key={i}>
+              <span className="ga-hm-month" key={model.weeks[i]?.[0]?.date ?? label}>
                 {label}
               </span>
             ))}
           </div>
           <div className="ga-hm-grid">
-            {model.weeks.map((week, wi) => (
-              <div className="ga-hm-week" key={wi}>
-                {week.map((cell, di) => (
+            {model.weeks.map((week) => (
+              <div className="ga-hm-week" key={week[0]?.date}>
+                {week.map((cell) => (
                   <div
-                    key={di}
+                    key={cell.date}
                     className={cn("ga-hm-cell", !cell.inRange && "is-empty")}
                     data-level={cell.inRange ? intensityLevel(cell.count, model.max) : undefined}
                     title={cell.inRange ? `${cell.date} · ${cell.count} 条` : undefined}
@@ -384,7 +384,7 @@ function layoutWords(
   list.forEach((item, idx) => {
     const t = maxCount === minCount ? 1 : (item.count - minCount) / (maxCount - minCount);
     // 用 >1 的幂曲线拉开高低频差距，凸显重点词（而非线性的"科学计数"）。
-    const fontSize = Math.round(minFs + Math.pow(t, 1.6) * (maxFs - minFs));
+    const fontSize = Math.round(minFs + t ** 1.6 * (maxFs - minFs));
     const weight = fontSize > 34 ? 800 : fontSize > 24 ? 700 : fontSize > 17 ? 600 : 500;
     ctx.font = `${weight} ${fontSize}px ${fontFamily}`;
     const w = ctx.measureText(item.word).width;
@@ -450,9 +450,9 @@ export function WordCloud({ words, height = 300 }: { words: WordCloudItem[]; hei
           <Loader2 size={24} className="weq-spin" />
         </div>
       ) : null}
-      {placed.map((p, i) => (
+      {placed.map((p) => (
         <span
-          key={`${p.word}-${i}`}
+          key={`${p.word}-${p.x}-${p.y}`}
           className="ga-wc-word"
           style={{
             left: p.x,

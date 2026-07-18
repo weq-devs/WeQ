@@ -82,8 +82,8 @@ function Chips({ items }: { items: string[] }): ReactElement {
   if (!items.length) return <span className="weq-pp-dim">—</span>;
   return (
     <span className="weq-pp-chips">
-      {items.map((item, index) => (
-        <span key={`${item}-${index}`} className="weq-pp-chip">
+      {items.map((item) => (
+        <span key={item} className="weq-pp-chip">
           {item}
         </span>
       ))}
@@ -146,8 +146,11 @@ function PersonaParamsPanel({ loading, detail }: { loading: boolean; detail: Per
           <span className="weq-pp-dim">—</span>
         ) : (
           <div className="weq-pp-stickers">
-            {stickers.map((s, index) => (
-              <span key={`sticker-${index}`} className="weq-pp-sticker">
+            {stickers.map((s) => (
+              <span
+                key={`${s.description}-${s.scenario}-${s.count}`}
+                className="weq-pp-sticker"
+              >
                 ×{s.count} {s.description || '（未解读）'}
                 {s.scenario ? `（${s.scenario}）` : ''}
               </span>
@@ -165,8 +168,8 @@ function PersonaParamsPanel({ loading, detail }: { loading: boolean; detail: Per
           代表样本 {fewShots.length} 组 / 真实问答对抽样 {detail.pairs.length} 条
         </summary>
         <div className="weq-pp-samples-body">
-          {fewShots.map((pair, index) => (
-            <div key={`fs-${index}`} className="weq-pp-sample">
+          {fewShots.map((pair) => (
+            <div key={`${pair.prompt}-${pair.reply}`} className="weq-pp-sample">
               <div className="weq-pp-sample-q">我：{pair.prompt}</div>
               <div>{detail.persona.name}：{pair.reply}</div>
             </div>

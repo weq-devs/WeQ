@@ -68,7 +68,7 @@ async function main(): Promise<void> {
     const other = await db.query(`SELECT note FROM weq_probe_other ORDER BY id`);
     const cntMsgAfter = Number((await db.query(`SELECT COUNT(*) FROM group_msg_table WHERE "40027"=?`, [BigInt(GROUP)]))[0]![0]);
 
-    console.log(`\nUPDATE affected=${aff}${err ? ' err='+err.slice(0,60) : ''}`);
+    console.log(`\nUPDATE affected=${aff}${err ? ` err=${err.slice(0,60)}` : ''}`);
     console.log(`异表 weq_probe_other 落地行: ${other.length}  → ${JSON.stringify(other.map(r=>r[0]))}`);
     console.log(`  期望 ['other-before-sametable','other-after-sametable'] 两行都在`);
     console.log(`同表 group_msg_table 新增: ${cntMsgAfter - cntMsgBefore} 行  ${cntMsgAfter-cntMsgBefore===1?'✅ 同表INSERT落地':'❌ 同表INSERT没落地'}`);

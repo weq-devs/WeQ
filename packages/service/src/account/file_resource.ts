@@ -185,7 +185,7 @@ export class FileResourceService {
     const out: FileResourceEntry[] = [];
     const walk = async (dir: string, rel: string, depth: number): Promise<void> => {
       if (out.length >= MAX_SCAN_FILES || depth > MAX_SCAN_DEPTH) return;
-      let dirents;
+      let dirents: import('node:fs').Dirent[];
       try {
         dirents = await readdir(dir, { withFileTypes: true });
       } catch {

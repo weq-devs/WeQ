@@ -31,7 +31,7 @@ const DB =
 
 const CMD = process.argv[2] ?? 'verify';
 const GROUP = process.argv[3] ?? '673646675';
-const json = (v: unknown) => JSON.stringify(v, (_k, x) => (typeof x === 'bigint' ? x.toString() : x), 2);
+const _json = (v: unknown) => JSON.stringify(v, (_k, x) => (typeof x === 'bigint' ? x.toString() : x), 2);
 
 function assertClosed(nt: ReturnType<typeof loadNative>): void {
   if (nt.ntHelper.getQqProcesses().length) { console.error('先关 QQ（install/cleanup 需要写锁）'); process.exit(1); }

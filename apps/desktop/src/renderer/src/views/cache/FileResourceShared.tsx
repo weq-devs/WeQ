@@ -5,7 +5,7 @@
  * the chat does (icon by extension), enriched with an inline image preview.
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactElement, } from 'react';
 import {
   Files,
   Image as ImageIcon,
@@ -306,7 +306,5 @@ export function ListFooter({
   );
 }
 
-interface Cn {
-  (...parts: (string | false | null | undefined)[]): string;
-}
+type Cn = (...parts: (string | false | null | undefined)[]) => string
 export const cn: Cn = (...parts) => parts.filter(Boolean).join(' ');

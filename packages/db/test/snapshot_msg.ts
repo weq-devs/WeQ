@@ -23,7 +23,7 @@ const LABEL = process.argv[3] ?? 'snapshot';
 
 const BLOB_COLS = new Set(['40800', '40900', '40600', '40601', '40801', '40605', '40062']);
 
-function cell(name: string, v: unknown): string {
+function cell(_name: string, v: unknown): string {
   if (v === null || v === undefined) return 'NULL';
   if (v instanceof Uint8Array) {
     const h = createHash('sha1').update(v).digest('hex').slice(0, 12);

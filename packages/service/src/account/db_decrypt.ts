@@ -107,7 +107,7 @@ export class DbDecryptService {
 }
 
 async function listDbFiles(dir: string): Promise<AccountDbFile[]> {
-  let entries;
+  let entries: import('node:fs').Dirent[];
   try {
     entries = await readdir(dir, { withFileTypes: true });
   } catch {

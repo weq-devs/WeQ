@@ -24,8 +24,6 @@ import type { Platform } from '@weq/platform';
 import {
   NineBirdBootstrap,
   type NineBirdLoginListEvent,
-  type NineBirdQrcodeEvent,
-  type NineBirdQrcodeStateEvent,
   type NineBirdResultEvent,
   type StubHooks,
 } from '@weq/native';

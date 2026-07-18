@@ -134,7 +134,9 @@ async function main(): Promise<void> {
         console.log(`\nmatched on column ${c}: ${rows.length} rows`);
         rows.forEach((row, ri) => {
           console.log(`\n--- row ${ri} ---`);
-          row.forEach((val, i) => console.log(`  ${(cols[i] ?? `#${i}`).padEnd(10)} = ${describe(val)}`));
+          row.forEach((val, i) => {
+            console.log(`  ${(cols[i] ?? `#${i}`).padEnd(10)} = ${describe(val)}`);
+          });
         });
       }
     }
@@ -143,7 +145,9 @@ async function main(): Promise<void> {
       const rows = await profileDb.query(`SELECT * FROM "profile_info_public_account" LIMIT 2`);
       rows.forEach((row, ri) => {
         console.log(`\n--- sample row ${ri} ---`);
-        row.forEach((val, i) => console.log(`  ${(cols[i] ?? `#${i}`).padEnd(10)} = ${describe(val)}`));
+        row.forEach((val, i) => {
+          console.log(`  ${(cols[i] ?? `#${i}`).padEnd(10)} = ${describe(val)}`);
+        });
       });
     }
   } catch (e) {

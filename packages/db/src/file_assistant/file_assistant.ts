@@ -81,7 +81,7 @@ export class FileAssistantDb {
         [limit, offset],
       );
       return rows.map(r => rowToInfo(r, tableName as any));
-    } catch (e) {
+    } catch (_e) {
       // Table might not exist in older versions
       return [];
     }

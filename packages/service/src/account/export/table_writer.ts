@@ -52,7 +52,7 @@ export async function writeCsv<T>(cols: Array<Col<T>>, rows: T[], outputPath: st
   for (const r of rows) {
     lines.push(cols.map((c) => escapeCsv(String(c.get(r)))).join(','));
   }
-  await writeFileStream(outputPath, lines.join('\r\n') + '\r\n');
+  await writeFileStream(outputPath, `${lines.join('\r\n')}\r\n`);
 }
 
 /** txt：每条记录一段「表头: 值」+ 分隔线。 */
@@ -61,7 +61,7 @@ export async function writeTxt<T>(cols: Array<Col<T>>, rows: T[], outputPath: st
     const body = cols.map((c) => `${c.header}: ${String(c.get(r))}`).join('\n');
     return `${body}\n${'—'.repeat(24)}`;
   });
-  await writeFileStream(outputPath, blocks.join('\n') + '\n');
+  await writeFileStream(outputPath, `${blocks.join('\n')}\n`);
 }
 
 /** xlsx：ExcelJS 流式写一张表（表头 + 每条一行）。 */

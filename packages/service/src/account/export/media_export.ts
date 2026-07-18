@@ -395,7 +395,7 @@ export async function downloadMissingVideos(
         result.failures = pushFailure(result.failures, {
           stage: 'video',
           fileName: ref.fileName,
-          error: 'raw video element not found for msgId=' + ref.msgId,
+          error: `raw video element not found for msgId=${ref.msgId}`,
         });
         return;
       }
@@ -411,7 +411,7 @@ export async function downloadMissingVideos(
         result.failures = pushFailure(result.failures, {
           stage: 'video',
           fileName: ref.fileName,
-          error: 'OIDB resolve failed: ' + (e instanceof Error ? e.message : String(e)),
+          error: `OIDB resolve failed: ${e instanceof Error ? e.message : String(e)}`,
         });
         return;
       }
@@ -440,7 +440,7 @@ export async function downloadMissingVideos(
       result.failures = pushFailure(result.failures, {
         stage: 'video',
         fileName: ref.fileName,
-        error: 'unexpected: ' + (e instanceof Error ? e.message : String(e)),
+        error: `unexpected: ${e instanceof Error ? e.message : String(e)}`,
       });
     } finally {
       done += 1;
@@ -478,7 +478,7 @@ export async function downloadMissingFiles(
         result.failures = pushFailure(result.failures, {
           stage: 'file',
           fileName: ref.fileName,
-          error: 'raw file element not found for msgId=' + ref.msgId,
+          error: `raw file element not found for msgId=${ref.msgId}`,
         });
         return;
       }
@@ -497,7 +497,7 @@ export async function downloadMissingFiles(
         result.failures = pushFailure(result.failures, {
           stage: 'file',
           fileName: ref.fileName,
-          error: 'OIDB resolve failed: ' + (e instanceof Error ? e.message : String(e)),
+          error: `OIDB resolve failed: ${e instanceof Error ? e.message : String(e)}`,
         });
         return;
       }
@@ -525,7 +525,7 @@ export async function downloadMissingFiles(
       result.failures = pushFailure(result.failures, {
         stage: 'file',
         fileName: ref.fileName,
-        error: 'unexpected: ' + (e instanceof Error ? e.message : String(e)),
+        error: `unexpected: ${e instanceof Error ? e.message : String(e)}`,
       });
     } finally {
       done += 1;

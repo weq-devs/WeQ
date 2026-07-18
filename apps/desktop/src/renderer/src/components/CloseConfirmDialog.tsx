@@ -17,7 +17,7 @@ import { trpc } from '../trpc/client';
 
 type CloseAction = 'tray' | 'quit' | 'cancel';
 
-function ipc(): { on(ch: string, cb: (...a: unknown[]) => void): (() => void) | void; send(ch: string, ...a: unknown[]): void } | undefined {
+function ipc(): { on(ch: string, cb: (...a: unknown[]) => void): (() => void) | undefined; send(ch: string, ...a: unknown[]): void } | undefined {
   return (window as unknown as { electron?: { ipcRenderer?: ReturnType<typeof ipc> } }).electron?.ipcRenderer;
 }
 

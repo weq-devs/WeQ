@@ -263,7 +263,7 @@ function renderWordCloud(report: WeqStatsReport, p: WeqPalette): string {
   // 字号 / 颜色按频次排名（rank 0 = 最大）计算，与最终摆放位置无关。
   const spans = words.map((w, rank) => {
     const t = maxC === minC ? 1 : (w.count - minC) / (maxC - minC);
-    const fs = Math.round(13 + Math.pow(t, 1.6) * (36 - 13));
+    const fs = Math.round(13 + t ** 1.6 * (36 - 13));
     const weight = fs > 30 ? 800 : fs > 22 ? 700 : fs > 16 ? 600 : 500;
     return `<span class="st-wc-word" style="font-size:${fs}px;font-weight:${weight};color:${colors[rank % colors.length]}" title="${esc(
       w.word,

@@ -21,7 +21,6 @@ import {
   Terminal,
   X,
   Copy,
-  Binary,
   ArrowUpDown
 } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';

@@ -2,8 +2,8 @@
  * 聚合共同群聊 >= 2 的用户数据，并按重合群数降序排序
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { loadNative } from '@weq/native';
 import { GroupMemberDb } from '../src/group_info/member';
 

@@ -243,7 +243,7 @@ async function writeFriendsVcard(rows: FriendRow[], outputPath: string): Promise
     ].filter(Boolean);
     return lines.join('\r\n');
   });
-  await writeFileStream(outputPath, cards.join('\r\n') + '\r\n');
+  await writeFileStream(outputPath, `${cards.join('\r\n')}\r\n`);
 }
 
 // ---- 群成员导出 ----

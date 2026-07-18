@@ -37,7 +37,7 @@ async function main() {
     const found = await fileDb.getByMsgId(targetMsgId);
     if (found) {
         console.log('Found match:');
-        console.log(JSON.stringify(found, (k, v) => typeof v === 'bigint' ? v.toString() : v, 2));
+        console.log(JSON.stringify(found, (_k, v) => typeof v === 'bigint' ? v.toString() : v, 2));
     } else {
         console.log('No match found for this msgId.');
     }
@@ -48,12 +48,12 @@ async function main() {
         // listAll already sorts by timestamp DESC
         const newest = files[0]!;
         console.log('\n--- Newest File ---');
-        console.log(JSON.stringify(newest, (k, v) => typeof v === 'bigint' ? v.toString() : v, 2));
+        console.log(JSON.stringify(newest, (_k, v) => typeof v === 'bigint' ? v.toString() : v, 2));
         
         console.log('\n--- Recent 5 Files ---');
         console.table(files.slice(0, 5).map(f => ({
             name: f.fileName,
-            size: (Number(f.fileSize) / 1024 / 1024).toFixed(2) + ' MB',
+            size: `${(Number(f.fileSize) / 1024 / 1024).toFixed(2)} MB`,
             time: new Date(Number(f.timestamp) * 1000).toLocaleString(),
             table: f.sourceTable
         })));
