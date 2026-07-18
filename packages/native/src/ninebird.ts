@@ -198,9 +198,17 @@ export class NineBirdBootstrap {
     let stubDropped = false;
     const dropStub = async (): Promise<void> => {
       if (!isLinux || stubDropped) return;
+      // The stub runs inside QQ; if NINEBIRD_LOG is set it writes one line
+      // before requiring the real loader — that line is the proof the
+      // launcher.so injection actually redirected QQ's entry to us (vs. QQ
+      // never loading the stub at all). Self-delete first (zero residue),
+      // then log, then require the loader.
       const content =
         "try { require('fs').unlinkSync(__filename); } catch (e) {}\n" +
-        `require(${JSON.stringify(args.loadJsPath)});\n`;
+        "function __nblog(m){ try { if (process.env.NINEBIRD_LOG) require('fs').appendFileSync(process.env.NINEBIRD_LOG, '[stub pid=' + process.pid + '] ' + m + '\\n'); } catch (e) {} }\n" +
+        `__nblog('loadNineBird.js executed, requiring loader: ' + ${JSON.stringify(args.loadJsPath)});\n` +
+        `try { require(${JSON.stringify(args.loadJsPath)}); }\n` +
+        "catch (e) { __nblog('require(loader) THREW: ' + (e && e.stack || e)); throw e; }\n";
       await this.stubHooks.dropStub(stubPath, content);
       stubDropped = true;
     };

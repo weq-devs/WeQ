@@ -209,21 +209,37 @@ var import_node_fs2 = __toESM(require("node:fs"));
 var import_node_path2 = __toESM(require("node:path"));
 var PIPE_NAME = process.env.NINEBIRD_PIPE_NAME || "";
 var TIMEOUT_MS = parseInt(process.env.NINEBIRD_TIMEOUT_MS || "30000", 10);
+var NB_LOG = process.env.NINEBIRD_LOG || "";
+function nbLog(msg) {
+  if (!NB_LOG) return;
+  try {
+    import_node_fs2.default.appendFileSync(NB_LOG, `[loader:account pid=${process.pid}] ${msg}
+`);
+  } catch {
+  }
+}
+nbLog(`loaded. PIPE_NAME=${PIPE_NAME} TIMEOUT_MS=${TIMEOUT_MS}`);
 var pipeClient = null;
 var shutdownCalled = false;
 function ensurePipeOpen() {
-  if (!PIPE_NAME) return Promise.resolve();
+  if (!PIPE_NAME) {
+    nbLog("ensurePipeOpen: PIPE_NAME empty, skip");
+    return Promise.resolve();
+  }
   if (pipeClient) return Promise.resolve();
+  nbLog(`ensurePipeOpen: connecting to ${PIPE_NAME}`);
   return new Promise((resolve) => {
     const c = import_node_net.default.createConnection(PIPE_NAME);
     const onReady = () => {
       c.removeListener("error", onErr);
       pipeClient = c;
+      nbLog("ensurePipeOpen: connected");
       c.on("error", () => process.exit(1));
       resolve();
     };
-    const onErr = () => {
+    const onErr = (e) => {
       c.removeListener("connect", onReady);
+      nbLog(`ensurePipeOpen: connect FAILED: ${e && e.message}`);
       resolve();
     };
     c.once("connect", onReady);
@@ -298,6 +314,7 @@ function loadQQWrapper(execPath, qqVersion) {
   return nativemodule.exports;
 }
 async function main() {
+  nbLog("main() start");
   await ensurePipeOpen();
   setTimeout(() => {
     if (!shutdownCalled) {
@@ -378,9 +395,11 @@ async function main() {
     });
     return sendResultAndExit(true);
   } catch (error) {
+    nbLog(`main() threw: ${String(error)}`);
     void sendResultAndExit(false, String(error));
   }
 }
 main().catch((err) => {
+  nbLog(`main() rejected: ${String(err)}`);
   void sendResultAndExit(false, String(err));
 });
