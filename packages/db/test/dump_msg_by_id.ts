@@ -17,8 +17,8 @@ import { QqDb } from '../src/qq_db';
 // ── hard-coded dev credentials (edit these to your local account) ────────────
 const DB_PATH =
   process.env.WEQ_TEST_DB_PATH ??
-  String.raw`D:\estkim\T\Tencent Files\1707889225\nt_qq\nt_db\nt_msg.db`;
-const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
+  '/home/h3cof6/.config/QQ/nt_qq_14d6c6a49c6ce9be5ca03fc736bee8da/nt_db/nt_msg.db';
+const KEY = process.env.WEQ_TEST_DB_KEY ?? 'w~-rqEGwz%(*cde?';
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** QQ rewrites 40011/40012 to (1,1) on delete/recall; WeQ's delete mirrors it. */
