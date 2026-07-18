@@ -15,11 +15,10 @@ import { sanitizeBytes } from '../src/raw';
 import { ElementType } from '../src/element/types';
 import { loadNative } from '../../native/src/index';
 import { QqDb } from '../../db/src/qq_db';
+import { testEnv } from '@weq/testkit';
 
-const DB_PATH =
-  process.env.WEQ_TEST_DB_PATH ??
-  'D:\\estkim\\T\\Tencent Files\\1707889225\\nt_qq\\nt_db\\nt_msg.db';
-const DB_KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
+const DB_PATH = testEnv.msgDbPath;
+const DB_KEY = testEnv.key;
 
 /** 已知类型,扫描时不当作 unknown 上报 rowid。9 = 红包。 */
 const KNOWN_UNKNOWNS = new Set<number>([9]);

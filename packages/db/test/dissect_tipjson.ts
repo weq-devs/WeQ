@@ -8,12 +8,11 @@
  */
 import { loadNative } from '@weq/native';
 import { QqDb } from '../src/qq_db';
+import { testEnv } from '@weq/testkit';
 
-const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
+const KEY = testEnv.key;
 const ALGO = { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' } as const;
-const DB =
-  process.env.WEQ_TEST_DB_PATH ??
-  String.raw`D:\estkim\T\Tencent Files\1707889225\nt_qq\nt_db\nt_msg.db`;
+const DB = testEnv.msgDbPath;
 const MSG_ID = BigInt(process.argv[2] ?? '7737024164892267232');
 
 function readVarint(buf: Uint8Array, pos: number): [bigint, number, number] {

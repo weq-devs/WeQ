@@ -1,8 +1,9 @@
 //  自己手写的测试文件，非常的稀有
 import { loadNative } from '../src/index';
 import type { QqPortLoginInfo } from '../src/types';
+import { testEnv } from '@weq/testkit';
 
-const TARGET_UIN = process.argv[2] ?? '1707889225';
+const TARGET_UIN = process.argv[2] ?? testEnv.uin;
 
 function probeSafe(
     nt: ReturnType<typeof loadNative>['ntHelper'],
@@ -54,7 +55,7 @@ async function main(): Promise<void> {
     console.log(`注入结果: pid=${status.pid} uin=${status.uin} loggedIn=${status.loggedIn}`);
 
     console.log(`\n调用 pskey获取(${targetPid}) ...`);
-    const raw = await nt.fetchPskey(targetPid, '1707889225', 'pd.qq.com');
+    const raw = await nt.fetchPskey(targetPid, testEnv.uin, 'pd.qq.com');
     console.log(`\n === 原始返回字符串 ===\n${raw}\n`);
 }
 

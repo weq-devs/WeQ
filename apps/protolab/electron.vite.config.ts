@@ -10,7 +10,6 @@ const EXCLUDE_FROM_EXTERNAL = [
   '@weq/codec',
   '@weq/db',
   '@weq/native',
-  '@weq/shared',
   '@weq/types',
 ];
 

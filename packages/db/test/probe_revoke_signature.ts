@@ -24,11 +24,10 @@
 import { loadNative } from '@weq/native';
 import { QqDb } from '../src/qq_db';
 import { decodeBody } from '../src/msg/util';
+import { testEnv } from '@weq/testkit';
 
-const DB_PATH =
-  process.env.WEQ_TEST_DB_PATH ??
-  String.raw`D:\estkim\T\Tencent Files\1707889225\nt_qq\nt_db\nt_msg.db`;
-const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
+const DB_PATH = testEnv.msgDbPath;
+const KEY = testEnv.key;
 
 const TABLE = process.argv[2] ?? 'group_msg_table';
 const LIMIT = Number(process.argv[3] ?? 20000);

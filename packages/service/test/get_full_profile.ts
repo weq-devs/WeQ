@@ -4,12 +4,13 @@
 
 import { loadNative } from '@weq/native';
 import { ProfileInfoDb } from '@weq/db';
+import { testEnv, qqDbPath } from '@weq/testkit';
 
-const UIN = '1707889225';
-const KEY = '^;<kXZ;RI[@]yTD<';
+const UIN = testEnv.uin;
+const KEY = testEnv.key;
 const ALGO = { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' } as any;
 
-const DB_PATH = `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db\\profile_info.db`;
+const DB_PATH = qqDbPath('profile_info.db');
 
 async function main() {
   const native = loadNative();

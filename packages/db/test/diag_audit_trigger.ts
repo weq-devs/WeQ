@@ -25,12 +25,11 @@
  */
 import { loadNative } from '@weq/native';
 import { QqDb } from '../src/qq_db';
+import { testEnv } from '@weq/testkit';
 
-const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
+const KEY = testEnv.key;
 const ALGO = { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' } as const;
-const DB =
-  process.env.WEQ_TEST_DB_PATH ??
-  String.raw`D:\estkim\T\Tencent Files\1707889225\nt_qq\nt_db\nt_msg.db`;
+const DB = testEnv.msgDbPath;
 
 // 线上 group 触发器实际用的混合 IN 列表（含目标测试群 673646675 与若干 u_）。
 // 直接照搬形态，保证诊断与线上同构。

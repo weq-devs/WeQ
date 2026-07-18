@@ -6,10 +6,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { loadNative } from '@weq/native';
 import { GroupMemberDb } from '../src/group_info/member';
+import { testEnv, qqDbPath } from '@weq/testkit';
 
-const UIN = '1707889225';
-const KEY = '^;<kXZ;RI[@]yTD<';
-const GROUP_INFO_DB_PATH = `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db\\group_info.db`;
+const KEY = testEnv.key;
+const GROUP_INFO_DB_PATH = qqDbPath('group_info.db');
 
 interface CloudUser {
     uid: string;

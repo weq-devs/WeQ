@@ -12,13 +12,13 @@ import { loadNative } from '@weq/native';
 import { CollectionDb, type CollectionItem } from '@weq/db';
 import type { AccountSession } from '@weq/account';
 import { CollectionService } from '../src/account/collection';
+import { testEnv, qqDbPath } from '@weq/testkit';
 
-const UIN = '1707889225';
-const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
+const KEY = testEnv.key;
 const ALGO = { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' } as const;
 const DB_PATH =
   process.env.WEQ_TEST_DB_PATH ??
-  `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db\\collection.db`;
+  qqDbPath('collection.db');
 
 /** One-line human summary of an item, for spot-checking decoded content. */
 function preview(it: CollectionItem): string {

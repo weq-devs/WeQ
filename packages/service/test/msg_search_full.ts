@@ -5,10 +5,10 @@
 import { loadNative } from '@weq/native';
 import { BuddyMsgFtsDb, GroupMsgFtsDb } from '@weq/db';
 import { MsgSearchService } from '../src/account/msg_search';
+import { testEnv, qqDbDir } from '@weq/testkit';
 
-const UIN = '1707889225';
-const KEY = '^;<kXZ;RI[@]yTD<';
-const NT_DB_DIR = `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db`;
+const KEY = testEnv.key;
+const NT_DB_DIR = qqDbDir();
 
 async function main() {
   const native = loadNative();

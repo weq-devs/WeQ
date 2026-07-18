@@ -5,11 +5,11 @@
 import { loadNative } from '@weq/native';
 import { GroupMsgDb } from '@weq/db';
 import { MsgService } from '../src/account/msg';
+import { testEnv, qqDbPath } from '@weq/testkit';
 
-const UIN = '1707889225';
-const KEY = '^;<kXZ;RI[@]yTD<';
+const KEY = testEnv.key;
 const GROUP_CODE = '1090396070';
-const DB_PATH = `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db\\nt_msg.db`;
+const DB_PATH = qqDbPath('nt_msg.db');
 
 async function main() {
   const native = loadNative();

@@ -9,11 +9,10 @@ import { decodeElement } from '@weq/codec/element';
 import { MsgBody } from '@weq/codec/proto/msg/40800';
 import { sanitizeBytes } from '@weq/codec/raw';
 import { GroupMsgDb } from '../src/msg/group';
+import { testEnv } from '@weq/testkit';
 
-const DB_PATH =
-  process.env.WEQ_TEST_DB_PATH ??
-  String.raw`D:\estkim\T\Tencent Files\1707889225\nt_qq\nt_db\nt_msg.db`;
-const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
+const DB_PATH = testEnv.msgDbPath;
+const KEY = testEnv.key;
 
 const MSG_IDS = [7661607490431795174n, 7661606365443025303n];
 

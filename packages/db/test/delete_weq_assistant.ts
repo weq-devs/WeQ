@@ -9,18 +9,16 @@
 
 import { loadNative } from '@weq/native';
 import { QqDb } from '../src/qq_db';
+import { testEnv } from '@weq/testkit';
 
-const UIN_ME = process.env.WEQ_TEST_UIN ?? '1707889225';
-const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
-const MSG_DB_PATH =
-  process.env.WEQ_TEST_DB_PATH ??
-  `D:\\estkim\\T\\Tencent Files\\${UIN_ME}\\nt_qq\\nt_db\\nt_msg.db`;
+const KEY = testEnv.key;
+const MSG_DB_PATH = testEnv.msgDbPath;
 const ALGO = { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' } as const;
 
 // uid 现在是每台机器随机生成并存在 %APPDATA%/weq/config.json 的 `weqAssistantUid`。
 // 跑这个脚本清库时，用 WEQ_FAKE_UID 传入你本机那份真实 uid（下面的默认值只是旧的历史
 // 硬编码值，仅对早期安装有效）。
-const FAKE_UID = process.env.WEQ_FAKE_UID ?? 'u_WeQ-assistant-fake01';
+const FAKE_UID = testEnv.fakeUid;
 
 async function main(): Promise<void> {
   const db = new QqDb(loadNative().ntHelper, { dbPath: MSG_DB_PATH, key: KEY, algo: ALGO });

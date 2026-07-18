@@ -13,12 +13,11 @@
  */
 import { loadNative } from '@weq/native';
 import { QqDb } from '../src/qq_db';
+import { testEnv } from '@weq/testkit';
 
-const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
+const KEY = testEnv.key;
 const ALGO = { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' } as const;
-const DB =
-  process.env.WEQ_TEST_DB_PATH ??
-  String.raw`D:\estkim\T\Tencent Files\1707889225\nt_qq\nt_db\nt_msg.db`;
+const DB = testEnv.msgDbPath;
 const GROUP = process.argv[2] ?? '673646675';
 
 const MSG_COLUMNS = ['40001','40002','40003','40010','40011','40012','40013','40020','40026','40021','40027','40040','40041','40050','40052','40090','40093','40800','40900','40105','40005','40058','40006','40100','40600','40060','40850','40851','40601','40801','40605','40030','40033','40062','40083','40084','40008','40009'];

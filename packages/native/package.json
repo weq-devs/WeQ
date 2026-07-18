@@ -12,6 +12,7 @@
   "dependencies": {},
   "devDependencies": {
     "@types/node": "^22.10.6",
+    "@weq/testkit": "workspace:*",
     "electron": "^35.0.0"
   }
 }

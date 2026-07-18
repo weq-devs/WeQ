@@ -32,15 +32,14 @@ import { ProtoMsg, decodeElement, encodeElement, ElementType } from '@weq/codec'
 import type { ArkElement } from '@weq/codec';
 import { MsgBody } from '@weq/codec/proto/msg/40800';
 import { RecentContactBody } from '@weq/codec/proto/msg/40051';
+import { testEnv } from '@weq/testkit';
 
 // ─── config ────────────────────────────────────────────────────────────────
-const UIN_ME = process.env.WEQ_TEST_UIN ?? '1707889225';
-const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
-const BASE = `D:\\estkim\\T\\Tencent Files\\${UIN_ME}\\nt_qq\\nt_db`;
-const MSG_DB_PATH = process.env.WEQ_TEST_DB_PATH ?? `${BASE}\\nt_msg.db`;
-const PROFILE_DB_PATH = process.env.WEQ_TEST_PROFILE_DB_PATH ?? `${BASE}\\profile_info.db`;
+const KEY = testEnv.key;
+const MSG_DB_PATH = testEnv.msgDbPath;
+const PROFILE_DB_PATH = testEnv.profileDbPath;
 const ALGO = { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' } as const;
-const DRY_RUN = !!process.env.WEQ_DRY_RUN;
+const DRY_RUN = testEnv.dryRun;
 
 /**
  * Whether to write the two profile_info.db tables. Default OFF: those tables
@@ -50,7 +49,7 @@ const DRY_RUN = !!process.env.WEQ_DRY_RUN;
  * no such triggers and write fine — enough to make the account appear in the
  * recent list + open the conversation. Set WEQ_WRITE_PROFILE=1 to attempt them.
  */
-const WRITE_PROFILE = !!process.env.WEQ_WRITE_PROFILE;
+const WRITE_PROFILE = testEnv.writeProfile;
 
 /** The real game-center account we clone templates from. */
 const TEMPLATE_UID = 'u_-PBswiplK-7J7bmaQLA-mA';
@@ -58,8 +57,8 @@ const TEMPLATE_UID = 'u_-PBswiplK-7J7bmaQLA-mA';
 /** Our fabricated account (uid + uin made up — must not collide with a real peer).
  *  生产路径的 uid 现在随机生成并存在 %APPDATA%/weq/config.json 的 `weqAssistantUid`；
  *  这个手动探针脚本仍用固定 uid（可用 WEQ_FAKE_UID 覆盖），只为复刻结构调试用。 */
-const FAKE_UID = process.env.WEQ_FAKE_UID ?? 'u_WeQ-assistant-fake01';
-const FAKE_UIN = BigInt(process.env.WEQ_FAKE_UIN ?? '2233445566');
+const FAKE_UID = testEnv.fakeUid;
+const FAKE_UIN = BigInt(testEnv.fakeUin);
 const NICK = 'WeQ助手';
 
 /** Reused from game-center's profile_info_v6.20004 — temporary avatar (外链). */

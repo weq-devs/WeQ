@@ -4,13 +4,13 @@
 
 import { loadNative } from '@weq/native';
 import { ProfileInfoDb } from '../src';
+import { testEnv, qqDbPath } from '@weq/testkit';
 
 const UIN_TARGET = 3096435766n;
-const KEY = '^;<kXZ;RI[@]yTD<';
-const UIN_ME = '1707889225';
+const KEY = testEnv.key;
 
 // Hardcoded path for the developer demo test.
-const PROFILE_INFO_DB_PATH = `D:\\estkim\\T\\Tencent Files\\${UIN_ME}\\nt_qq\\nt_db\\profile_info.db`;
+const PROFILE_INFO_DB_PATH = qqDbPath('profile_info.db');
 
 async function main() {
   const native = loadNative();

@@ -10,12 +10,11 @@
  */
 import { loadNative } from '@weq/native';
 import { QqDb } from '../src/qq_db';
+import { testEnv } from '@weq/testkit';
 
-const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
+const KEY = testEnv.key;
 const ALGO = { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' } as const;
-const DB =
-  process.env.WEQ_TEST_DB_PATH ??
-  String.raw`D:\estkim\T\Tencent Files\1707889225\nt_qq\nt_db\nt_msg.db`;
+const DB = testEnv.msgDbPath;
 
 const ETYPE = `hex(substr("40800", instr("40800", X'd0fc15') + 3, 1))`;
 const HAS_REVOKE = `(instr("40800", X'c2a517') > 0)`;

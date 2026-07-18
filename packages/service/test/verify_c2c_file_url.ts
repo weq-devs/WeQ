@@ -16,10 +16,11 @@ import { MediaUrlService, type MediaElement } from '../src/account/media_url';
 import { ProtoMsg } from '@weq/codec';
 import { sanitizeBytes } from '@weq/codec/raw';
 import { MsgBody } from '@weq/codec/proto/msg/40800';
+import { testEnv, qqDbPath } from '@weq/testkit';
 
-const UIN = '1707889225';
-const KEY = '^;<kXZ;RI[@]yTD<';
-const DB_PATH = `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db\\nt_msg.db`;
+const UIN = testEnv.uin;
+const KEY = testEnv.key;
+const DB_PATH = qqDbPath('nt_msg.db');
 const SELF_UID = 'u_mGIBTBW7gF4Wocw8zapc6w';
 const TARGET_MSGID = 7654987674703340593n;
 

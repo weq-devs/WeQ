@@ -8,12 +8,12 @@
 import { loadNative } from '@weq/native';
 import { QqDb } from '../src/qq_db';
 import { decode } from '@weq/codec/raw';
+import { testEnv, qqDbPath } from '@weq/testkit';
 
-const UIN = '1707889225';
-const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
+const KEY = testEnv.key;
 const DB_PATH =
   process.env.WEQ_TEST_DB_PATH ??
-  `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db\\collection.db`;
+  qqDbPath('collection.db');
 
 async function main() {
   const native = loadNative();

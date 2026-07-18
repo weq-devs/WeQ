@@ -4,12 +4,12 @@
 
 import { loadNative } from '@weq/native';
 import { MiscDb } from '../src/profile/misc';
+import { testEnv, qqDbPath } from '@weq/testkit';
 
-const UIN = '1707889225';
-const KEY = '^;<kXZ;RI[@]yTD<';
+const KEY = testEnv.key;
 
 // Hardcoded path for the developer demo test.
-const MISC_DB_PATH = `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db\\misc.db`;
+const MISC_DB_PATH = qqDbPath('misc.db');
 
 async function main() {
   const native = loadNative();
