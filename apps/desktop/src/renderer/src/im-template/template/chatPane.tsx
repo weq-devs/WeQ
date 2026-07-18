@@ -79,7 +79,7 @@ import type {
 import { displayUserName } from "./user";
 import { OnlineStatus } from "../../components/OnlineStatus";
 import { GrayTipPokeMessage } from '../../components/GrayTipPokeMessage';
-import { GrayTipRevokeMessage } from '../../components/GrayTipRevokeMessage';
+import { GrayTipRevokeMessage, isPlaceholderRevoke } from '../../components/GrayTipRevokeMessage';
 import { GrayTipGroupMessage } from '../../components/GrayTipGroupMessage';
 import { GrayTipInviteMessage } from '../../components/GrayTipInviteMessage';
 
@@ -1452,112 +1452,118 @@ export function ChatPane({
 				) : visibleMessages.length === 0 ? (
 					<EmptyState title="还没有消息" body="发出第一条消息。" icon={<MessageSquareText />} />
 				) : (
-					visibleMessages.map((message, index) => {
-						const previous = visibleMessages[index - 1];
-						const mine = message.senderId === user.id;
-						const sender = resolveMessageSender(message, conversation, user);
-						const grayTipPokeElement = message.qqElements?.find(
-							(e: any) => e.type === 'grayTipPoke'
-						);
-						if (grayTipPokeElement) {
-							return (
+					(() => {
+						// Detect the gray-tip element (if any) a message carries.
+						const GRAY_TIP_KINDS = ['grayTipPoke', 'grayTipRevoke', 'grayTipGroup', 'grayTipInvite'];
+						const grayTipOf = (message) => {
+							const els = message.qqElements ?? [];
+							for (const kind of GRAY_TIP_KINDS) {
+								const el = els.find((e) => e?.type === kind);
+								if (el) return { kind, el };
+							}
+							return null;
+						};
+
+						// Render one gray-tip row's inner component (no wrapper).
+						const renderGrayTip = (message, gt) => {
+							switch (gt.kind) {
+								case 'grayTipPoke':
+									return <GrayTipPokeMessage element={gt.el} conversation={conversation} message={message} />;
+								case 'grayTipRevoke':
+									return <GrayTipRevokeMessage element={gt.el} conversation={conversation} message={message} />;
+								case 'grayTipGroup':
+									return <GrayTipGroupMessage element={gt.el} conversation={conversation} message={message} />;
+								case 'grayTipInvite':
+									return <GrayTipInviteMessage element={gt.el} conversation={conversation} />;
+								default:
+									return null;
+							}
+						};
+
+						// Collect consecutive gray-tip messages into a "run". The
+						// accent "band" frame is reserved for a run that carries a
+						// placeholder recall (content not in the local DB) — the frame
+						// exists to host the "本地暂无内容" backfill hint. Ordinary gray
+						// tips (pokes, normal recalls, group notices) render as plain
+						// centered lines with no background frame.
+						const out = [];
+						let band = null; // { messages: [{ message, gt }] }
+						const flushBand = () => {
+							if (!band) return;
+							const hasPlaceholder = band.messages.some(
+								(b) => b.gt.kind === 'grayTipRevoke' && isPlaceholderRevoke(b.gt.el),
+							);
+							const rows = band.messages.map(({ message, gt }) => (
 								<div
 									key={message.id}
 									data-message-id={message.id}
 									onContextMenu={(e) => openMessageMenu(e, message)}
 								>
-									<GrayTipPokeMessage
-										element={grayTipPokeElement}
-										conversation={conversation}
+									{renderGrayTip(message, gt)}
+								</div>
+							));
+							if (hasPlaceholder) {
+								out.push(
+									<div className={cn('weq-graytip-band')} key={`band-${band.messages[0].message.id}`}>
+										{rows}
+										<div className={cn('weq-graytip-band-hint')}>
+											本地暂无这些消息内容 · 用 QQ 查看后会自动补全
+										</div>
+									</div>,
+								);
+							} else {
+								out.push(...rows);
+							}
+							band = null;
+						};
+
+						visibleMessages.forEach((message, index) => {
+							const gt = grayTipOf(message);
+							if (gt) {
+								if (!band) band = { messages: [] };
+								band.messages.push({ message, gt });
+								return;
+							}
+							flushBand();
+							const previous = visibleMessages[index - 1];
+							const mine = message.senderId === user.id;
+							const sender = resolveMessageSender(message, conversation, user);
+							out.push(
+								<Fragment key={message.id}>
+									{shouldShowMessageTime(previous, message) ? (
+										<MessageTimeDivider value={message.createdAt} />
+									) : null}
+									<MessageBubble
 										message={message}
-									/>
-								</div>
-							);
-						}
-						const grayTipRevokeElement = message.qqElements?.find(
-							(e: any) => e.type === 'grayTipRevoke'
-						);
-						if (grayTipRevokeElement) {
-							return (
-								<div
-									key={message.id}
-									data-message-id={message.id}
-									onContextMenu={(e) => openMessageMenu(e, message)}
-								>
-									<GrayTipRevokeMessage
-										element={grayTipRevokeElement}
-									/>
-								</div>
-							);
-						}
-						const grayTipGroupElement = message.qqElements?.find(
-							(e: any) => e.type === 'grayTipGroup'
-						);
-						if (grayTipGroupElement) {
-							return (
-								<div
-									key={message.id}
-									data-message-id={message.id}
-									onContextMenu={(e) => openMessageMenu(e, message)}
-								>
-									<GrayTipGroupMessage
-										element={grayTipGroupElement}
 										conversation={conversation}
-										message={message}
+										sender={sender}
+										mine={mine}
+										senderName={displayUserName(sender)}
+										senderAvatarUrl={sender.avatarUrl}
+										senderSeed={sender.identityValue}
+										senderKind={sender.kind}
+										showSenderName={showSenderNames}
+										active={contextMenu?.message.id === message.id}
+										renderers={messageRenderers}
+										deleted={deletedIds?.has(message.id) ?? false}
+										deletedKind={message.deletedKind}
+										recallRevokerName={message.recallRevokerName}
+										onRestore={onRestoreMessage}
+										onContextMenu={openMessageMenu}
+										onLongPress={openMobileMessageMenu}
+										onAction={onMessageAction}
+										onAvatarClick={
+											conversation.type === "group" && onOpenGroupMember
+												? onOpenGroupMember
+												: undefined
+										}
 									/>
-								</div>
+								</Fragment>,
 							);
-						}
-						const grayTipInviteElement = message.qqElements?.find(
-							(e: any) => e.type === 'grayTipInvite'
-						);
-						if (grayTipInviteElement) {
-							return (
-								<div
-									key={message.id}
-									data-message-id={message.id}
-									onContextMenu={(e) => openMessageMenu(e, message)}
-								>
-									<GrayTipInviteMessage
-										element={grayTipInviteElement}
-										conversation={conversation}
-									/>
-								</div>
-							);
-						}
-						return (
-							<Fragment key={message.id}>
-								{shouldShowMessageTime(previous, message) ? (
-									<MessageTimeDivider value={message.createdAt} />
-								) : null}
-								<MessageBubble
-									message={message}
-									conversation={conversation}
-									sender={sender}
-									mine={mine}
-									senderName={displayUserName(sender)}
-									senderAvatarUrl={sender.avatarUrl}
-									senderSeed={sender.identityValue}
-									senderKind={sender.kind}
-									showSenderName={showSenderNames}
-									active={contextMenu?.message.id === message.id}
-									renderers={messageRenderers}
-									deleted={deletedIds?.has(message.id) ?? false}
-									deletedKind={message.deletedKind}
-									recallRevokerName={message.recallRevokerName}
-									onRestore={onRestoreMessage}
-									onContextMenu={openMessageMenu}
-									onLongPress={openMobileMessageMenu}
-									onAction={onMessageAction}
-									onAvatarClick={
-										conversation.type === "group" && onOpenGroupMember
-											? onOpenGroupMember
-											: undefined
-									}
-								/>
-							</Fragment>
-						);
-					})
+						});
+						flushBand();
+						return out;
+					})()
 				)}
 				<div ref={endRef} />
 			</div>

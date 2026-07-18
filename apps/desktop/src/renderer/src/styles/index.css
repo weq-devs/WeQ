@@ -8976,15 +8976,15 @@ html[data-theme="dark"] .weq-persona-modal {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 24px;
-  padding: 0 11px;
+  height: 22px;
+  padding: 0 9px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1;
-  border-radius: 999px;
+  border-radius: 6px;
   white-space: nowrap;
 }
-/* 恢复 — solid accent primary. */
+/* 恢复 — accent primary, flattened (small radius, no heavy shadow). */
 .weq-deleted-row .weq-deleted-restore {
   color: #fff;
   background: linear-gradient(
@@ -8993,14 +8993,12 @@ html[data-theme="dark"] .weq-persona-modal {
     var(--weq-accent-effective)
   );
   border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 60%, black 6%);
-  box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--weq-accent-effective) 70%, transparent);
   cursor: pointer;
-  transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
+  transition: transform 0.12s ease, filter 0.12s ease;
 }
 .weq-deleted-row .weq-deleted-restore:hover {
   transform: translateY(-1px);
   filter: brightness(1.05);
-  box-shadow: 0 9px 20px -8px color-mix(in srgb, var(--weq-accent-effective) 80%, transparent);
 }
 .weq-deleted-row .weq-deleted-restore:active {
   transform: translateY(0);
@@ -9010,25 +9008,16 @@ html[data-theme="dark"] .weq-persona-modal {
   color: var(--weq-fg-muted);
   background: var(--weq-bg-surface);
   border-color: var(--weq-border-subtle);
-  box-shadow: none;
   transform: none;
   filter: none;
 }
-/* QQ删除 — amber frosted tag with a status dot, matching the in-chat pill. */
+/* 撤回者+时间 / QQ删除 — NOT a bubble: a flat accent caption. Small radius, no
+   frosted glass, no bold, faint accent tint. QQ删除 (not restorable) reads a
+   touch quieter via lower opacity + the label itself, not a different hue. */
 .weq-deleted-row .weq-deleted-tag {
-  color: color-mix(in srgb, var(--weq-warn, #b8860b) 86%, var(--weq-fg-muted));
-  background: color-mix(in srgb, var(--weq-bg-surface) 74%, transparent);
-  -webkit-backdrop-filter: blur(8px) saturate(1.2);
-  backdrop-filter: blur(8px) saturate(1.2);
-  border: 1px solid color-mix(in srgb, var(--weq-warn, #b8860b) 42%, transparent);
-}
-.weq-deleted-row .weq-deleted-tag::before {
-  content: "";
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--weq-warn, #b8860b);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--weq-warn, #b8860b) 24%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective) 78%, var(--weq-fg-muted));
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
 }
 
 /* face picker */
@@ -10112,41 +10101,30 @@ html[data-theme="dark"] .message-line.is-deleted .message-bubble {
   pointer-events: none;
 }
 
-/* Frosted-glass status pill with a small status dot. WeQ delete = accent/blue. */
+/* Flat status caption (not a pill). WeQ delete = accent tint. */
 .message-line.is-deleted .weq-msg-deleted-badge {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 2px 10px;
+  padding: 2px 8px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1.7;
-  letter-spacing: 0.02em;
-  color: color-mix(in srgb, var(--weq-accent-effective) 82%, var(--weq-fg-muted));
-  background: color-mix(in srgb, var(--weq-bg-surface) 74%, transparent);
-  -webkit-backdrop-filter: blur(8px) saturate(1.2);
-  backdrop-filter: blur(8px) saturate(1.2);
-  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 38%, transparent);
-  border-radius: 999px;
-  box-shadow: var(--weq-shadow-soft);
-}
-.message-line.is-deleted .weq-msg-deleted-badge::before {
-  content: "";
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--weq-accent-effective);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
+  letter-spacing: 0.01em;
+  color: color-mix(in srgb, var(--weq-accent-effective) 80%, var(--weq-fg-muted));
+  background: color-mix(in srgb, var(--weq-accent-effective) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
+  border-radius: 6px;
 }
 
-/* Solid accent 恢复 button — the primary action: calm, small, always visible. */
+/* Accent 恢复 button — flattened (small radius, no heavy shadow). */
 .message-line.is-deleted .weq-msg-restore {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 11px;
+  padding: 2px 10px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1.7;
   color: #fff;
   background: linear-gradient(
@@ -10155,16 +10133,14 @@ html[data-theme="dark"] .message-line.is-deleted .message-bubble {
     var(--weq-accent-effective)
   );
   border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 60%, black 6%);
-  border-radius: 999px;
-  box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--weq-accent-effective) 70%, transparent);
+  border-radius: 6px;
   cursor: pointer;
   pointer-events: auto;
-  transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
+  transition: transform 0.12s ease, filter 0.12s ease;
 }
 .message-line.is-deleted .weq-msg-restore:hover {
   transform: translateY(-1px);
   filter: brightness(1.05);
-  box-shadow: 0 9px 20px -8px color-mix(in srgb, var(--weq-accent-effective) 80%, transparent);
 }
 .message-line.is-deleted .weq-msg-restore:active {
   transform: translateY(0);
@@ -10174,22 +10150,17 @@ html[data-theme="dark"] .message-line.is-deleted .message-bubble {
   color: var(--weq-fg-muted);
   background: var(--weq-bg-surface);
   border-color: var(--weq-border-subtle);
-  box-shadow: none;
   transform: none;
   filter: none;
 }
 
-/* QQ-native recall / delete-from-another-client: NOT restorable → amber pill,
-   no restore button. Now always visible (no hover-gating) and matching the WeQ
-   pill's frosted-glass treatment, just in the warn hue. */
+/* QQ-native recall / delete-from-another-client: NOT restorable. Same accent
+   caption as WeQ delete, just quieter (lower opacity) — the "QQ删除" label
+   itself carries the "can't restore" meaning, no separate hue needed. */
 .message-line.is-deleted.is-qq-deleted .weq-msg-deleted-badge {
-  color: color-mix(in srgb, var(--weq-warn, #b8860b) 86%, var(--weq-fg-muted));
-  border-color: color-mix(in srgb, var(--weq-warn, #b8860b) 42%, transparent);
-  background: color-mix(in srgb, var(--weq-bg-surface) 74%, transparent);
-}
-.message-line.is-deleted.is-qq-deleted .weq-msg-deleted-badge::before {
-  background: var(--weq-warn, #b8860b);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--weq-warn, #b8860b) 24%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective) 58%, var(--weq-fg-muted));
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 15%, transparent);
 }
 
 /* "QQ删除" tag: styled together with the restore button under .weq-deleted-row
@@ -10199,7 +10170,8 @@ html[data-theme="dark"] .message-line.is-deleted .message-bubble {
    Anti-recall 撤回 tag (im-template/messageBubble)
    Unlike delete, an intercepted recall leaves the message content intact — so
    there's NO veil. We only show a small, quiet caption below the bubble naming
-   who recalled it (self vs admin). Rides the --weq-* tokens like the rest. */
+   who recalled it (self vs admin). Flat accent caption (not a pill): small
+   radius, non-bold, theme accent instead of amber. */
 .weq-msg-recall-tag {
   display: inline-flex;
   align-items: center;
@@ -10210,13 +10182,90 @@ html[data-theme="dark"] .message-line.is-deleted .message-bubble {
   font-weight: 500;
   line-height: 1.6;
   letter-spacing: 0.01em;
-  color: color-mix(in srgb, var(--weq-warn, #b8860b) 78%, var(--weq-fg-muted));
-  background: color-mix(in srgb, var(--weq-bg-surface) 66%, transparent);
-  border: 1px solid color-mix(in srgb, var(--weq-warn, #b8860b) 30%, transparent);
-  border-radius: 999px;
+  color: color-mix(in srgb, var(--weq-accent-effective) 76%, var(--weq-fg-muted));
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
+  border-radius: 6px;
   width: fit-content;
   user-select: none;
 }
 .weq-msg-recall-tag svg {
   opacity: 0.85;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Gray-tip 液体带 (chatPane)
+   Consecutive gray-tip rows (revoke / poke / group / invite) are wrapped in a
+   single .weq-graytip-band. The band paints a soft, translucent accent-tinted
+   "liquid" fill so a run of system notices reads as one calm zone rather than N
+   loose centered lines. When the run contains a placeholder recall (message not
+   in the local DB), a quiet hint says QQ will backfill it on view. */
+.weq-graytip-band {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 6px;
+  padding: 8px 14px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  background:
+    radial-gradient(
+      120% 80% at 15% 0%,
+      color-mix(in srgb, var(--weq-accent-effective) 12%, transparent) 0%,
+      transparent 60%
+    ),
+    radial-gradient(
+      120% 90% at 85% 100%,
+      color-mix(in srgb, var(--weq-accent-effective) 9%, transparent) 0%,
+      transparent 62%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--weq-accent-effective) 8%, transparent),
+      color-mix(in srgb, var(--weq-accent-effective) 5%, transparent)
+    );
+}
+html[data-theme="dark"] .weq-graytip-band {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+  background:
+    radial-gradient(
+      120% 80% at 15% 0%,
+      color-mix(in srgb, var(--weq-accent-effective) 15%, transparent) 0%,
+      transparent 60%
+    ),
+    radial-gradient(
+      120% 90% at 85% 100%,
+      color-mix(in srgb, var(--weq-accent-effective) 11%, transparent) 0%,
+      transparent 62%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--weq-accent-effective) 10%, transparent),
+      color-mix(in srgb, var(--weq-accent-effective) 6%, transparent)
+    );
+}
+
+/* Base gray-tip line inside the band: centered, quiet, secondary-fg. (No base
+   .weq-graytip rule existed before — the component used Tailwind utilities; the
+   band now owns the color language so it tracks the theme + accent.) */
+.weq-graytip {
+  color: var(--weq-fg-secondary);
+}
+/* Names / actors — theme accent instead of the old hard-coded tailwind blue. */
+.weq-graytip-accent {
+  color: var(--weq-accent-effective);
+}
+.weq-graytip-muted {
+  color: var(--weq-fg-muted, var(--weq-fg-tertiary, var(--weq-fg-secondary)));
+}
+
+/* "本地暂无内容" hint — centered, small, non-bold, accent-leaning. */
+.weq-graytip-band-hint {
+  margin-top: 2px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.6;
+  letter-spacing: 0.01em;
+  color: color-mix(in srgb, var(--weq-accent-effective) 70%, var(--weq-fg-muted));
 }

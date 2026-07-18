@@ -1125,6 +1125,13 @@ function extractGrayTipUids(elements: unknown[]): string[] {
       const mute = (data as Record<string, any>).muteInfo;
       pushUid(mute?.operator?.uid);
       pushUid(mute?.mutedUser?.uid);
+    } else if (type === 'grayTipRevoke') {
+      // Placeholder / offline recall tips often arrive WITHOUT the sender's nick
+      // baked in — only the uids. Pre-resolve them via the group-member resolver
+      // so GrayTipRevokeMessage can show "{昵称} 撤回了一条消息" instead of a
+      // bare placeholder. (Both are `u_`-prefixed; pushUid filters accordingly.)
+      pushUid((data as Record<string, any>).recallSenderUid);
+      pushUid((data as Record<string, any>).recallRevokeUid);
     }
   }
 
