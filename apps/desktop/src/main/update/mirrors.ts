@@ -3,10 +3,15 @@
  *
  * Mainland-China users often can't reach github.com / its release CDN reliably,
  * so the in-app updater goes through a proxy. We race a fetch of the update
- * manifest (`latest.yml`) across every known mirror, keep the fastest healthy
- * one, and remember the full latency-sorted list for download fallback. Probing
- * the manifest path validates the whole release path shape end-to-end, so a
- * mirror that wins the race can also serve the installer that sits next to it.
+ * manifest across every known mirror, keep the fastest healthy one, and remember
+ * the full latency-sorted list for download fallback. Probing the manifest path
+ * validates the whole release path shape end-to-end, so a mirror that wins the
+ * race can also serve the installer that sits next to it.
+ *
+ * The manifest filename is platform/arch-specific — electron-builder publishes
+ * `latest.yml` (Windows), `latest-mac.yml` (macOS), `latest-linux.yml` (Linux
+ * x64) and `latest-linux-arm64.yml` (Linux arm64). Probing the wrong name 404s
+ * on every mirror, which is exactly why Linux never saw updates before.
  *
  * `FILE_MIRRORS` is the single source of truth — these proxies die often, so
  * this list is the ONLY place to maintain them.
@@ -17,8 +22,20 @@ export const REPO = { owner: 'H3CoF6', repo: 'WeQ' } as const;
 /** GitHub "latest release download" directory, proxied through each mirror. */
 const GH_RELEASE_LATEST = `https://github.com/${REPO.owner}/${REPO.repo}/releases/latest/download`;
 
-/** Update manifest electron-builder publishes next to the installer. */
-const MANIFEST = 'latest.yml';
+/**
+ * Update manifest electron-builder publishes next to the installer. The name
+ * depends on the running platform/arch — see the module header. Windows =
+ * `latest.yml`, macOS = `latest-mac.yml`, Linux x64 = `latest-linux.yml`,
+ * Linux arm64 = `latest-linux-arm64.yml`.
+ */
+function manifestName(): string {
+  if (process.platform === 'win32') return 'latest.yml';
+  if (process.platform === 'darwin') return 'latest-mac.yml';
+  // linux (and any other posix): electron-builder suffixes arm64 explicitly.
+  return process.arch === 'arm64' ? 'latest-linux-arm64.yml' : 'latest-linux.yml';
+}
+
+const MANIFEST = manifestName();
 
 /**
  * Accelerator prefixes. Each is prepended to a full `https://github.com/...`
