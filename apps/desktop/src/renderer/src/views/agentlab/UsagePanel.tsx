@@ -98,6 +98,7 @@ function HourLine({ data }: { data: Array<{ hour: string; tokens: number; calls:
       <div className="weq-usage-line-body">
         <div className="weq-usage-line-yaxis" aria-hidden>
           {ticks.map((tick, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
             <span key={`${tick}-${index}`}>{fmt(tick)}</span>
           ))}
         </div>

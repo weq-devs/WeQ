@@ -83,6 +83,7 @@ export function FailureLightbox({
           ) : (
             <ul className="weq-exp-fail-list">
               {shown.map((f, i) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                 <li key={`${f.stage}-${f.fileName}-${i}`} className="weq-exp-fail-row">
                   <FileWarning size={15} className="weq-exp-fail-icon" aria-hidden />
                   <div className="weq-exp-fail-main">

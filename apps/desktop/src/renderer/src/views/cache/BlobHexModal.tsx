@@ -120,6 +120,7 @@ export function BlobHexModal({
               {rows.map((bytes, ri) => {
                 const base = ri * ROW;
                 return (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                   <div className="weq-blob-line" key={ri}>
                     <span className="weq-blob-offset">
                       {base.toString(16).padStart(8, '0')}
@@ -129,6 +130,7 @@ export function BlobHexModal({
                         const idx = base + ci;
                         return inlineEditable ? (
                           <input
+                            // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                             key={ci}
                             className="weq-blob-byte-input"
                             value={b.toString(16).padStart(2, '0')}
@@ -139,6 +141,7 @@ export function BlobHexModal({
                             }}
                           />
                         ) : (
+                          // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                           <span key={ci} className="weq-blob-byte">
                             {b.toString(16).padStart(2, '0')}
                           </span>
@@ -147,6 +150,7 @@ export function BlobHexModal({
                       {/* Pad the last short row so the ASCII gutter stays aligned. */}
                       {bytes.length < ROW
                         ? Array.from({ length: ROW - bytes.length }, (_, k) => (
+                            // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                             <span key={`pad${k}`} className="weq-blob-byte is-pad" />
                           ))
                         : null}
@@ -154,6 +158,7 @@ export function BlobHexModal({
                     <span className="weq-blob-ascii">
                       {bytes.map((b, ci) => (
                         <span
+                          // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                           key={ci}
                           className={`weq-blob-ch${isPrintable(b) ? '' : ' is-dot'}`}
                         >

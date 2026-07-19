@@ -452,6 +452,7 @@ function pickAlbumDownloadUrl(media: AlbumMediaWire): string {
 function sanitizePathSegment(value: string | undefined, fallback: string): string {
   const raw = (value || fallback).trim();
   const cleaned = raw
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: 有意剔除文件名中的控制字符
     .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
     .replace(/\s+/g, ' ')
     .replace(/[. ]+$/g, '')
@@ -2065,8 +2066,8 @@ export const accountRouter = router({
 
   /** Subscribe to export task progress. */
   onExportProgress: procedure.subscription(() => {
-    return observable<any>((emit) => {
-      const handler = (progress: any) => emit.next(progress);
+    return observable<import('@weq/service').TaskProgress>((emit) => {
+      const handler = (progress: import('@weq/service').TaskProgress) => emit.next(progress);
       requireServices().exportManager.on('progress', handler);
       return () => {
         requireServices().exportManager.off('progress', handler);

@@ -65,6 +65,7 @@ export function Tree({ fields, hasSchema }: { fields: AnnotatedField[]; hasSchem
         </div>
       )}
       {fields.map((f, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
         <TreeNode key={`${f.raw.start}-${f.raw.tag}-${i}`} node={f} depth={0} hasSchema={hasSchema} />
       ))}
     </div>
@@ -243,6 +244,7 @@ function TreeNode({ node, depth, hasSchema }: { node: AnnotatedField; depth: num
             className="overflow-hidden"
           >
             {node.children!.map((c, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
               <TreeNode key={`${c.raw.start}-${c.raw.tag}-${i}`} node={c} depth={depth + 1} hasSchema={hasSchema} />
             ))}
           </motion.div>
@@ -306,6 +308,7 @@ function DetailModal({ open, onOpenChange, node }: { open: boolean, onOpenChange
               </div>
               <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-2">
                 {node.raw.guesses.map((g, idx) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                   <div key={idx} className="bg-accent/40 border border-border rounded-lg p-3 hover:border-primary/20 transition-colors">
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-[10px] font-medium uppercase tracking-wider text-muted">
@@ -335,6 +338,7 @@ function DetailModal({ open, onOpenChange, node }: { open: boolean, onOpenChange
                 {bytes.length > 0 ? (
                   <div className="font-mono text-xs leading-6 space-y-px">
                     {Array.from({ length: Math.ceil(bytes.length / 8) }).map((_, rowIndex) => (
+                      // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                       <div key={rowIndex} className="flex gap-3 group/row">
                         <span className="text-muted/25 shrink-0">{(rowIndex * 8).toString(16).padStart(4, '0')}</span>
                         <span className="text-primary/70 group-hover/row:text-primary transition-colors">
@@ -401,6 +405,7 @@ function RawModal({ open, onOpenChange, node }: { open: boolean, onOpenChange: (
               {bytes.length > 0 ? (
                 <div className="font-mono text-xs leading-6 space-y-px">
                   {Array.from({ length: Math.ceil(bytes.length / 8) }).map((_, rowIndex) => (
+                    // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                     <div key={rowIndex} className="flex gap-3 group/row">
                       <span className="text-muted/25 shrink-0">{(rowIndex * 8).toString(16).padStart(4, '0')}</span>
                       <span className="text-primary/70 group-hover/row:text-primary transition-colors">

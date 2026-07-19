@@ -599,9 +599,9 @@ export class ExportTaskManager extends EventEmitter {
       if (aborted()) { task.status = 'cancelled'; return; }
       task.status = 'completed';
       task.progress = 100;
-    } catch (e: any) {
+    } catch (e) {
       task.status = 'failed';
-      task.error = String(e?.message ?? e);
+      task.error = String((e as Error)?.message ?? e);
       // Mark the running stage failed so the UI shows where it broke.
       const running = task.stages.find((s) => s.status === 'running');
       if (running) { running.status = 'failed'; running.note = task.error; }
@@ -694,9 +694,9 @@ export class ExportTaskManager extends EventEmitter {
       }
       task.status = 'completed';
       task.progress = 100;
-    } catch (e: any) {
+    } catch (e) {
       task.status = 'failed';
-      task.error = String(e?.message ?? e);
+      task.error = String((e as Error)?.message ?? e);
       const running = task.stages.find((s) => s.status === 'running');
       if (running) { running.status = 'failed'; running.note = task.error; }
     } finally {
@@ -806,9 +806,9 @@ export class ExportTaskManager extends EventEmitter {
 
       task.status = 'completed';
       task.progress = 100;
-    } catch (e: any) {
+    } catch (e) {
       task.status = 'failed';
-      task.error = String(e?.message ?? e);
+      task.error = String((e as Error)?.message ?? e);
       const running = task.stages.find((s) => s.status === 'running');
       if (running) { running.status = 'failed'; running.note = task.error; }
     } finally {
@@ -874,9 +874,9 @@ export class ExportTaskManager extends EventEmitter {
 
       task.status = 'completed';
       task.progress = 100;
-    } catch (e: any) {
+    } catch (e) {
       task.status = 'failed';
-      task.error = String(e?.message ?? e);
+      task.error = String((e as Error)?.message ?? e);
       const running = task.stages.find((s) => s.status === 'running');
       if (running) { running.status = 'failed'; running.note = task.error; }
     } finally {

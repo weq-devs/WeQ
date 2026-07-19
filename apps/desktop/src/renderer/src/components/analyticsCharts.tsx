@@ -184,6 +184,7 @@ export function HourlyBarChart({
         const value = data[hour] ?? 0;
         const heightPct = max > 0 ? (value / max) * 100 : 0;
         return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: 固定 24 小时槽位,索引即稳定键
           <div className="ga-bar-col" key={hour}>
             <div className="ga-bar-value-label">{value > 0 ? formatNumber(value) : ""}</div>
             <div className="ga-bar-track">

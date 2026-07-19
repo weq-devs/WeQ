@@ -91,20 +91,24 @@ export function GrayTipPokeMessage({ element, conversation, message }: GrayTipPo
           const member = memberMap.get(uin);
           const name = member ? displayUserName(member) : getNodeValue(node, 'nm') || uin;
           return (
+            // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
             <span key={index} className="text-blue-500 cursor-pointer hover:underline">
               {name}
             </span>
           );
         }
         if (node.nodeName === 'nor') {
+          // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
           return <span key={index} className="text-gray-500 px-1">{getNodeValue(node, 'txt')}</span>;
         }
         if (node.nodeName === 'url') {
+          // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
           return <span key={index} className="text-blue-500">{getNodeValue(node, 'txt')}</span>;
         }
         if (node.nodeName === 'img') {
           const src = resolveTipImgSrc(getNodeValue(node, 'src'));
           return src ? (
+            // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
             <img key={index} src={src} alt="" className="inline-block h-[1em] mx-1 align-middle" />
           ) : null;
         }

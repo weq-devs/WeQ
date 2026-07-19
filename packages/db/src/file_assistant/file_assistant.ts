@@ -50,12 +50,12 @@ export class FileAssistantDb {
     const target = msgId + 1n;
     
     // 1. Try exact match with msgId + 1
-    for (const table of ['file_assistant_v2', 'file_assistant']) {
+    for (const table of ['file_assistant_v2', 'file_assistant'] as const) {
       const rows = await this.qq.query(
         `SELECT ${SELECT_COLUMNS} FROM ${table} WHERE "200016" = ? LIMIT 1`,
         [target],
       );
-      if (rows.length > 0) return rowToInfo(rows[0]!, table as any);
+      if (rows.length > 0) return rowToInfo(rows[0]!, table);
     }
 
     // 2. Fallback: Range search [msgId - 2, msgId + 2]
@@ -63,24 +63,24 @@ export class FileAssistantDb {
     const lower = msgId - 2n;
     const upper = msgId + 2n;
     
-    for (const table of ['file_assistant_v2', 'file_assistant']) {
+    for (const table of ['file_assistant_v2', 'file_assistant'] as const) {
       const rows = await this.qq.query(
         `SELECT ${SELECT_COLUMNS} FROM ${table} WHERE "200016" >= ? AND "200016" <= ? ORDER BY ABS("200016" - ?) ASC LIMIT 1`,
         [lower, upper, msgId],
       );
-      if (rows.length > 0) return rowToInfo(rows[0]!, table as any);
+      if (rows.length > 0) return rowToInfo(rows[0]!, table);
     }
 
     return null;
   }
 
-  private async listFromTable(tableName: string, limit: number, offset: number): Promise<FileAssistantRow[]> {
+  private async listFromTable(tableName: 'file_assistant' | 'file_assistant_v2', limit: number, offset: number): Promise<FileAssistantRow[]> {
     try {
       const rows = await this.qq.query(
         `SELECT ${SELECT_COLUMNS} FROM ${tableName} ORDER BY "200009" DESC LIMIT ? OFFSET ?`,
         [limit, offset],
       );
-      return rows.map(r => rowToInfo(r, tableName as any));
+      return rows.map(r => rowToInfo(r, tableName));
     } catch (_e) {
       // Table might not exist in older versions
       return [];

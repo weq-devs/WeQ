@@ -1645,6 +1645,7 @@ function ScheduleRow({
           <div className="weq-exp-sched-card-history" title={schedule.history.map((t) => `${fmtRunAt(t.at)} ${outcomeLabel(t)}`).join('\n')}>
             最近触发：
             {schedule.history.slice(0, 8).map((t, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
               <span key={`${t.at}-${i}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                 <span className={`weq-exp-sched-card-history-dot is-${t.outcome}`} />
                 <span>{outcomeLabel(t)}</span>

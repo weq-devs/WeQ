@@ -38,8 +38,10 @@ function renderWithFaces(text: string, faces: FaceContext): ReactNode {
   return parts.map((part, i) => {
     const id = faces.descToId.get(normFaceKey(part));
     if (id !== undefined && tokens.includes(part)) {
+      // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
       return <FaceEmoji key={i} element={{ faceId: id, faceText: part }} size="1.3em" className="weq-inline-face" />;
     }
+    // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
     return <Fragment key={i}>{part}</Fragment>;
   });
 }
@@ -71,6 +73,7 @@ function VoiceBubble({ personaId, voiceId }: { personaId: string; voiceId: strin
       {playing ? <Pause size={14} strokeWidth={2} /> : <Play size={14} strokeWidth={2} />}
       <span className="weq-agentlab-voice-bars" aria-hidden>
         {Array.from({ length: 6 }).map((_, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
           <span key={i} className={`weq-agentlab-voice-bar${playing ? ' is-playing' : ''}`} style={{ animationDelay: `${i * 0.12}s` }} />
         ))}
       </span>

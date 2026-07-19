@@ -59,6 +59,7 @@ export function MsgElementEditor({ msgId, msgSeq, elements: initialElements, onC
         <div className="weq-editor-tabs">
           {elements.map((_, i) => (
             <button
+              // biome-ignore lint/suspicious/noArrayIndexKey: tab 按位置选中,索引即语义键
               key={i}
               className={cn("weq-editor-tab", i === activeIndex && "active")}
               onClick={() => setActiveIndex(i)}
@@ -152,6 +153,7 @@ function ObjectEditor({ value, onChange, path }: { value: any, onChange: (val: a
       return (
           <div className="weq-array-editor">
               {value.map((v, i) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: 数组项按位置展示,无稳定 id
                   <div key={i} className="weq-array-item">
                       <div className="weq-array-index">[{i}]</div>
                       <ValueEditor 

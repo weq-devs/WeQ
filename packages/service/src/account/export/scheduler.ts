@@ -135,6 +135,7 @@ export declare interface ExportScheduler {
   emit<K extends keyof SchedulerEvents>(event: K, ...args: Parameters<SchedulerEvents[K]>): boolean;
 }
 
+// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: 与上方 interface 合并以给 EventEmitter 提供强类型事件签名
 export class ExportScheduler extends EventEmitter {
   private tasks = new Map<string, ScheduledTask>();
   private readonly path: string;
@@ -368,8 +369,8 @@ export class ExportScheduler extends EventEmitter {
           range,
         });
         taskIds.push(id);
-      } catch (e: any) {
-        if (!firstError) firstError = String(e?.message ?? e);
+      } catch (e) {
+        if (!firstError) firstError = String((e as Error)?.message ?? e);
       }
     }
 

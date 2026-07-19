@@ -68,7 +68,7 @@ function revealMedia(t: number, name: string, type: 'video' | 'file'): void {
 /** Reveal a file by msgId (searches file_assistant.db). Returns whether it was
  *  found locally so the caller can fall back to an OIDB download. */
 async function revealFile(msgId: string): Promise<boolean> {
-  const bridge = (window as any).electron;
+  const bridge = window.electron;
   const result = (await bridge?.ipcRenderer?.invoke?.('file:reveal', msgId)) as {
     success: boolean;
     error?: string;
@@ -83,7 +83,7 @@ async function downloadFile(args: {
   token: string;
   conv: string;
 }): Promise<{ success: boolean; error?: string }> {
-  const bridge = (window as any).electron;
+  const bridge = window.electron;
   const result = (await bridge?.ipcRenderer?.invoke?.('file:download', args)) as {
     success: boolean;
     error?: string;
@@ -445,6 +445,7 @@ export function QqVoice({ data, sendTimeMs }: { data: Data; sendTimeMs: number }
           ) : null}
           <span className="qq-media-voice-wave" aria-hidden>
             {bars.map((v, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
               <i key={i} style={{ height: `${20 + Math.round((v / 255) * 80)}%` }} />
             ))}
           </span>

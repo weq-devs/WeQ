@@ -383,6 +383,7 @@ function ForwardScroll({ win }: { win: ForwardWindowState }): ReactElement {
     <div ref={scrollRef} className="weq-forward-body">
       {records.map((record, index) => (
         <ForwardRow
+          // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
           key={`${record.msgId || 'rec'}:${index}`}
           record={record}
           kind={win.kind}
@@ -676,6 +677,7 @@ export function ForwardMultiMsgPreview({
       {previewLines.length > 0 ? (
         <ul className="weq-forward-preview-lines">
           {previewLines.map((line, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
             <li key={index} className="weq-forward-preview-line">
               {line}
             </li>

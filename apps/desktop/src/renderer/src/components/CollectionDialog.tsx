@@ -201,6 +201,7 @@ function PicGrid({ pics, alt }: { pics: PicWire[]; alt: string }): ReactElement 
   return (
     <div className={`weq-col-picgrid weq-col-picgrid-${Math.min(pics.length, 3)}`}>
       {pics.slice(0, 6).map((p, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
         <Thumb key={`${p.uri}-${i}`} pic={p} alt={alt} />
       ))}
       {pics.length > 6 ? <span className="weq-col-picmore">+{pics.length - 6}</span> : null}
