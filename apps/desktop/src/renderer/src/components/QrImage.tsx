@@ -33,9 +33,10 @@ export function QrImage({ url, size = 192 }: { url: string; size?: number }): Re
   if (error) return <div style={{ color: 'crimson' }}>QR render failed: {error}</div>;
   if (!svg) return <div style={{ width: size, height: size }}>…</div>;
   return (
-    <div
+    <img
+      src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`}
+      alt="QR code"
       style={{ width: size, height: size }}
-      dangerouslySetInnerHTML={{ __html: svg }}
     />
   );
 }

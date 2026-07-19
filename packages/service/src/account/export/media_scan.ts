@@ -43,16 +43,30 @@ export interface MediaDirs {
   file: string;
 }
 
-/** Build the media dirs from an account's user-data directory (`…/<uin>`). */
-export function mediaDirsFromAccountDir(accountDir: string): MediaDirs {
-  const data = join(accountDir, 'nt_qq', 'nt_data');
+/**
+ * Build the media dirs from an already-resolved `nt_data` directory. Preferred
+ * entry point: the caller resolves `nt_data` via the platform (which knows the
+ * per-OS account layout — win32 `<uin>/nt_qq/nt_data`, linux `nt_qq_<hash>/
+ * nt_data`), so this stays layout-agnostic.
+ */
+export function mediaDirsFromNtDataDir(ntData: string): MediaDirs {
   return {
-    pic: join(data, 'Pic'),
-    video: join(data, 'Video'),
-    ptt: join(data, 'Ptt'),
-    emoji: join(data, 'Emoji', 'emoji-recv'),
-    file: join(data, 'File'),
+    pic: join(ntData, 'Pic'),
+    video: join(ntData, 'Video'),
+    ptt: join(ntData, 'Ptt'),
+    emoji: join(ntData, 'Emoji', 'emoji-recv'),
+    file: join(ntData, 'File'),
   };
+}
+
+/**
+ * Build the media dirs from an account's user-data directory (`…/<uin>`),
+ * assuming the win32 `nt_qq/nt_data` sub-layout. Kept for win32 callers /
+ * static accounts / tests that hold the account dir but not the resolved
+ * `nt_data`; new code should prefer {@link mediaDirsFromNtDataDir}.
+ */
+export function mediaDirsFromAccountDir(accountDir: string): MediaDirs {
+  return mediaDirsFromNtDataDir(join(accountDir, 'nt_qq', 'nt_data'));
 }
 
 /** One referenced media file. */
@@ -183,7 +197,7 @@ function computeExpiry(
   uploadTime: number,
   uploadTimestamp: number,
   fileTTL: number,
-  expireTimestamp: number,
+  _expireTimestamp: number,
 ): number {
   // Video: `expireTimestamp` (45515) and `fileTTL` (45518) describe the
   // original CDN short-URL's expiry (~7 days), NOT when the video is purged
@@ -303,7 +317,7 @@ async function walkFiles(
   onFile: (fullPath: string, name: string) => void,
   onDir: () => void,
 ): Promise<void> {
-  let entries;
+  let entries: import('node:fs').Dirent[];
   try {
     entries = await readdir(dir, { withFileTypes: true });
   } catch {
@@ -392,7 +406,7 @@ export async function scanConvMedia(
   }
 
   await mapLimit(dirTasks, concurrency, async (task) => {
-    let entries;
+    let entries: import('node:fs').Dirent[];
     try {
       entries = await readdir(task.dir, { withFileTypes: true });
     } catch {

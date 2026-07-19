@@ -19,7 +19,7 @@ const releasePkg = {
   dependencies,
 };
 
-writeFileSync(releasePkgPath, JSON.stringify(releasePkg, null, 2) + '\n');
+writeFileSync(releasePkgPath, `${JSON.stringify(releasePkg, null, 2)}\n`);
 
 console.log(`wrote ${releasePkgPath}`);
 console.log(

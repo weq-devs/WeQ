@@ -22,6 +22,7 @@ import {
   Palette,
   Plug,
   Settings2,
+  ShieldCheck,
   Sparkles,
   Sun,
   User,
@@ -33,6 +34,7 @@ import { AgentLabSection } from './settings/AgentLabSection';
 import { VoiceTranscribeSection } from './settings/VoiceTranscribeSection';
 import { McpServerSection } from './settings/McpServerSection';
 import { WeqAssistantSection } from './settings/WeqAssistantSection';
+import { AntiRecallSection } from './settings/AntiRecallSection';
 import {
   useThemeStore,
   type ThemeBackground,
@@ -40,7 +42,7 @@ import {
   type ThemePreference,
 } from '../state/theme';
 
-type SectionId = 'global' | 'appearance' | 'account' | 'voice' | 'agentlab' | 'mcp' | 'weq';
+type SectionId = 'global' | 'appearance' | 'account' | 'voice' | 'agentlab' | 'mcp' | 'weq' | 'antirecall';
 
 interface SettingsSection {
   id: SectionId;
@@ -67,6 +69,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: '账号基础',
     icon: <User size={16} strokeWidth={1.8} />,
     render: () => <AccountBasicsSection />,
+  },
+  {
+    id: 'antirecall',
+    label: '防撤回',
+    icon: <ShieldCheck size={16} strokeWidth={1.8} />,
+    render: () => <AntiRecallSection />,
   },
   {
     id: 'voice',

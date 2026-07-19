@@ -220,10 +220,12 @@ function renderPlainText(value: string, keyPrefix: string) {
 	return value.split("\n").flatMap((line, index) => {
 		const nodes: ReactNode[] = [];
 		if (index > 0) {
+			// biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
 			nodes.push(<br key={`${keyPrefix}-br-${index}`} />);
 		}
 		if (line) {
 			nodes.push(
+				// biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
 				<Fragment key={`${keyPrefix}-text-${index}`}>{line}</Fragment>,
 			);
 		}

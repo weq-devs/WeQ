@@ -4,10 +4,10 @@
 
 import { loadNative } from '@weq/native';
 import { QqDb } from '../src/qq_db';
+import { testEnv, qqDbPath } from '@weq/testkit';
 
-const UIN = '1707889225';
-const KEY = '^;<kXZ;RI[@]yTD<';
-const MSG_DB_PATH = `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db\\nt_msg.db`;
+const KEY = testEnv.key;
+const MSG_DB_PATH = qqDbPath('nt_msg.db');
 
 async function main() {
   const native = loadNative();

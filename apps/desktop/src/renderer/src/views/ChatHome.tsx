@@ -168,10 +168,12 @@ function MemoryLane({ lines }: { lines: StreamLine[] }) {
       <div className="weq-lane-viewport">
         <ul className="weq-lane-track" style={trackStyle}>
           {items.map((line, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
             <MemoryItem key={`a-${i}`} line={line} />
           ))}
           {/* 第二份副本，供无缝循环（对屏幕阅读器隐藏，故无需唯一语义 key） */}
           {items.map((line, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
             <MemoryItem key={`b-${i}`} line={line} />
           ))}
         </ul>

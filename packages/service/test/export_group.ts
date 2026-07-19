@@ -20,11 +20,12 @@ import {
   exportGroupToTxt,
   type ExportResult,
 } from '../src/account/export';
+import { testEnv, qqDbPath } from '@weq/testkit';
 
-const UIN = '1707889225';
-const KEY = '^;<kXZ;RI[@]yTD<';
+const _UIN = testEnv.uin;
+const KEY = testEnv.key;
 const GROUP_CODE = '932791232';
-const DB_PATH = String.raw`D:\estkim\T\Tencent Files\1707889225\nt_qq\nt_db\nt_msg.db`;
+const DB_PATH = qqDbPath('nt_msg.db');
 
 /** Parse-safe ceiling: don't readFileSync + parse files larger than this. */
 const FULL_READ_LIMIT = 100 * 1024 * 1024;

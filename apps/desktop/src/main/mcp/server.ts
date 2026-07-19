@@ -92,7 +92,7 @@ async function handleRequest(
   res: http.ServerResponse,
   token: string,
 ): Promise<void> {
-  const auth = req.headers['authorization'];
+  const auth = req.headers.authorization;
   if (!token || auth !== `Bearer ${token}`) {
     unauthorized(res);
     return;

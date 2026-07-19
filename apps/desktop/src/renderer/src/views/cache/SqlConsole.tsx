@@ -176,15 +176,18 @@ function ResultTable({ result }: { result: QueryResult }): ReactElement {
           <tr>
             <th className="weq-cache-grid-rownum">#</th>
             {result.columns.map((c, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
               <th key={`${c}:${i}`}>{c}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {result.rows.map((row, ri) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
             <tr key={ri}>
               <td className="weq-cache-grid-rownum">{ri + 1}</td>
               {row.map((cell, ci) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                 <td key={ci} className={`weq-cache-cell is-${cellKind(cell)}`}>
                   {cell === null ? (
                     <span className="weq-cache-null">NULL</span>

@@ -1,199 +1,57 @@
 /**
- * 紧凑、无外部依赖的 Markdown → React 渲染，供 WeQ 助手的最终答复使用。
+ * 助手最终答复的 Markdown 渲染。
  *
- * 支持：标题(#~######)、围栏代码块(```)、引用(>)、有序/无序列表、分隔线(---)、
- * 段落与软换行；行内支持 **粗** *斜* ~~删~~ `代码` 与 [文字](http链接)。
- * 刻意只覆盖助手实际会产出的子集，样式走 `weq-asst-md*`（见 styles/index.css）。
+ * M3 起换用 streamdown（Vercel AI SDK 生态，专为 LLM 流式输出设计）替代 react-markdown。
+ * 相比逐 token 整段重解析，streamdown 的 `parseIncompleteMarkdown` 会把流式中途「未闭合的
+ * 语法」（半截的 **加粗**、``` 代码块、| 表格、链接）平滑收尾，不再跳变闪烁；GFM 表格/列表
+ * 也更稳。历史气泡仍由 AssistantBubble 的 memo 隔离，不受流式重渲影响。
+ *
+ * 代码高亮走自建的 shiki 插件（shikiHighlighter.ts）——streamdown 本身不带高亮引擎，需注入；
+ * 且必须用 shiki 的纯 JS 引擎，因为本应用 CSP 是 `script-src 'self'`，WASM 引擎会被拦下。
+ *
+ * 外链统一新窗打开（Electron 里 target=_blank 会走 setWindowOpenHandler 交给系统浏览器）。
+ * streamdown 自带元素样式（streamdown/styles.css，在 styles/index.css 里 import），代码块的
+ * 明/暗配色由 `dark:` 工具类切换（styles/index.css 顶部的 @custom-variant 桥接到 data-theme）。
  */
 
-import { Fragment, type ReactElement, type ReactNode } from 'react';
+import { memo, type ReactElement } from 'react';
+import { Streamdown, type Components } from 'streamdown';
+import remarkGfm from 'remark-gfm';
+import { shikiCodeHighlighter } from './shikiHighlighter';
 
-type Block =
-  | { type: 'heading'; level: number; text: string }
-  | { type: 'paragraph'; text: string }
-  | { type: 'quote'; text: string }
-  | { type: 'list'; ordered: boolean; items: string[] }
-  | { type: 'code'; lang: string; text: string }
-  | { type: 'hr' };
+const COMPONENTS: Components = {
+  // 外链新窗打开（与原手写渲染器一致；{...props} 保留 streamdown 的链接 hardening 属性）。
+  a: ({ children, ...props }) => (
+    <a {...props} className="weq-asst-md-link" target="_blank" rel="noreferrer">
+      {children}
+    </a>
+  ),
+};
 
-function parseBlocks(value: string): Block[] {
-  const lines = value.replace(/\r\n/g, '\n').split('\n');
-  const at = (n: number): string => lines[n] ?? '';
-  const blocks: Block[] = [];
-  let i = 0;
+const REMARK_PLUGINS = [remarkGfm];
+const PLUGINS = { code: shikiCodeHighlighter };
 
-  while (i < lines.length) {
-    const line = at(i);
-
-    if (!line.trim()) {
-      i += 1;
-      continue;
-    }
-
-    // 围栏代码块
-    const fence = line.match(/^```([\w-]*)\s*$/);
-    if (fence) {
-      const code: string[] = [];
-      i += 1;
-      while (i < lines.length && !/^```/.test(at(i))) {
-        code.push(at(i));
-        i += 1;
-      }
-      if (i < lines.length) i += 1; // 跳过收尾 ```
-      blocks.push({ type: 'code', lang: fence[1] ?? '', text: code.join('\n') });
-      continue;
-    }
-
-    // 分隔线
-    if (/^\s*([-*_])\1{2,}\s*$/.test(line)) {
-      blocks.push({ type: 'hr' });
-      i += 1;
-      continue;
-    }
-
-    // 标题
-    const heading = line.match(/^(#{1,6})\s+(.*)$/);
-    if (heading) {
-      blocks.push({ type: 'heading', level: (heading[1] ?? '').length, text: (heading[2] ?? '').trim() });
-      i += 1;
-      continue;
-    }
-
-    // 引用
-    if (/^>\s?/.test(line)) {
-      const quote: string[] = [];
-      while (i < lines.length && /^>\s?/.test(at(i))) {
-        quote.push(at(i).replace(/^>\s?/, ''));
-        i += 1;
-      }
-      blocks.push({ type: 'quote', text: quote.join('\n') });
-      continue;
-    }
-
-    // 列表（连续同类型行）
-    const listMatch = line.match(/^\s*([-*+]|\d+[.)])\s+(.+)$/);
-    if (listMatch) {
-      const ordered = /\d+[.)]/.test(listMatch[1] ?? '');
-      const items: string[] = [];
-      while (i < lines.length) {
-        const m = at(i).match(/^\s*([-*+]|\d+[.)])\s+(.+)$/);
-        if (!m || /\d+[.)]/.test(m[1] ?? '') !== ordered) break;
-        items.push(m[2] ?? '');
-        i += 1;
-      }
-      blocks.push({ type: 'list', ordered, items });
-      continue;
-    }
-
-    // 段落（吃到空行或下一个块语法）
-    const para: string[] = [];
-    while (
-      i < lines.length &&
-      at(i).trim() &&
-      !/^```/.test(at(i)) &&
-      !/^#{1,6}\s+/.test(at(i)) &&
-      !/^>\s?/.test(at(i)) &&
-      !/^\s*([-*+]|\d+[.)])\s+/.test(at(i)) &&
-      !/^\s*([-*_])\1{2,}\s*$/.test(at(i))
-    ) {
-      para.push(at(i));
-      i += 1;
-    }
-    blocks.push({ type: 'paragraph', text: para.join('\n') });
-  }
-
-  return blocks;
-}
-
-const INLINE =
-  /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|`([^`\n]+)`|\*\*([^*\n]+)\*\*|__([^_\n]+)__|~~([^~\n]+)~~|\*([^*\n]+)\*|_([^_\n]+)_/g;
-
-/** 渲染一段行内 Markdown 为节点数组。 */
-function renderInline(value: string, key: string): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  let cursor = 0;
-  let m: RegExpExecArray | null;
-  INLINE.lastIndex = 0;
-  while ((m = INLINE.exec(value))) {
-    if (m.index > cursor) nodes.push(...renderText(value.slice(cursor, m.index), `${key}-t-${cursor}`));
-    if (m[1] !== undefined && m[2]) {
-      nodes.push(
-        <a key={`${key}-a-${m.index}`} className="weq-asst-md-link" href={m[2]} target="_blank" rel="noreferrer">
-          {m[1]}
-        </a>,
-      );
-    } else if (m[3] !== undefined) {
-      nodes.push(
-        <code key={`${key}-c-${m.index}`} className="weq-asst-md-code">
-          {m[3]}
-        </code>,
-      );
-    } else if (m[4] !== undefined || m[5] !== undefined) {
-      nodes.push(<strong key={`${key}-b-${m.index}`}>{m[4] ?? m[5]}</strong>);
-    } else if (m[6] !== undefined) {
-      nodes.push(<del key={`${key}-d-${m.index}`}>{m[6]}</del>);
-    } else if (m[7] !== undefined || m[8] !== undefined) {
-      nodes.push(<em key={`${key}-i-${m.index}`}>{m[7] ?? m[8]}</em>);
-    }
-    cursor = m.index + m[0].length;
-  }
-  if (cursor < value.length) nodes.push(...renderText(value.slice(cursor), `${key}-t-${cursor}`));
-  return nodes;
-}
-
-/** 纯文本，软换行转 <br/>。 */
-function renderText(value: string, key: string): ReactNode[] {
-  return value.split('\n').flatMap((line, idx) => {
-    const out: ReactNode[] = [];
-    if (idx > 0) out.push(<br key={`${key}-br-${idx}`} />);
-    if (line) out.push(<Fragment key={`${key}-f-${idx}`}>{line}</Fragment>);
-    return out;
-  });
-}
-
-export function AssistantMessage({ text }: { text: string }): ReactElement {
-  const blocks = parseBlocks(text);
+/**
+ * text/streaming 相同则不重渲——流式期间父组件频繁 setTurns，靠这层挡住无关重解析。
+ * `streaming` 为 true 时开启 parseIncompleteMarkdown（流式宽松），定稿时关闭做完整重解析。
+ */
+export const AssistantMessage = memo(function AssistantMessage({
+  text,
+  streaming = false,
+}: {
+  text: string;
+  streaming?: boolean;
+}): ReactElement {
   return (
     <div className="weq-asst-md">
-      {blocks.map((b, idx) => {
-        const key = `b-${idx}`;
-        switch (b.type) {
-          case 'heading': {
-            const Tag = (`h${Math.min(b.level + 2, 6)}` as 'h3' | 'h4' | 'h5' | 'h6');
-            return <Tag key={key}>{renderInline(b.text, key)}</Tag>;
-          }
-          case 'code':
-            return (
-              <pre key={key} className="weq-asst-md-pre">
-                <code>{b.text}</code>
-              </pre>
-            );
-          case 'quote':
-            return (
-              <blockquote key={key} className="weq-asst-md-quote">
-                {renderInline(b.text, key)}
-              </blockquote>
-            );
-          case 'hr':
-            return <hr key={key} className="weq-asst-md-hr" />;
-          case 'list':
-            return b.ordered ? (
-              <ol key={key}>
-                {b.items.map((it, j) => (
-                  <li key={`${key}-${j}`}>{renderInline(it, `${key}-${j}`)}</li>
-                ))}
-              </ol>
-            ) : (
-              <ul key={key}>
-                {b.items.map((it, j) => (
-                  <li key={`${key}-${j}`}>{renderInline(it, `${key}-${j}`)}</li>
-                ))}
-              </ul>
-            );
-          default:
-            return <p key={key}>{renderInline(b.text, key)}</p>;
-        }
-      })}
+      <Streamdown
+        remarkPlugins={REMARK_PLUGINS}
+        components={COMPONENTS}
+        plugins={PLUGINS}
+        parseIncompleteMarkdown={streaming}
+      >
+        {text}
+      </Streamdown>
     </div>
   );
-}
+});

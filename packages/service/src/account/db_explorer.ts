@@ -153,14 +153,25 @@ export class DbExplorerService {
   }
 
   /**
-   * One page of rows from `table`. `rowid` tables use fast keyset paging
-   * (`WHERE rowid > cursor`); WITHOUT ROWID tables fall back to LIMIT/OFFSET
-   * with the offset carried in the cursor.
+   * One page of rows from `table`.
+   *
+   * With no filter/sort the fast paths are used: `rowid` tables keyset-page
+   * (`WHERE rowid > cursor`), WITHOUT ROWID tables LIMIT/OFFSET. As soon as a
+   * `search` term or an explicit `orderBy` is supplied, both cases switch to
+   * OFFSET paging with an explicit `ORDER BY` (rowid tables still fetch their
+   * `rowid` so inline editing keeps working). `search` matches a `%term%` LIKE
+   * against every column cast to TEXT (BLOBs won't match, harmlessly).
    */
   async getRows(
     dbPath: string,
     table: string,
-    opts: { limit?: number; cursor?: string | null } = {},
+    opts: {
+      limit?: number;
+      cursor?: string | null;
+      search?: string | null;
+      orderBy?: string | null;
+      orderDir?: 'asc' | 'desc';
+    } = {},
   ): Promise<TableRowsResult> {
     const db = await this.open(dbPath);
     const columns = await this.readColumns(db, table);
@@ -169,7 +180,14 @@ export class DbExplorerService {
     const q = quoteId(table);
     const hasRowid = await this.detectRowid(db, table);
 
-    if (hasRowid) {
+    const search = opts.search?.trim() ? opts.search.trim() : null;
+    // Only honour an orderBy that names a real column (guards SQL injection).
+    const orderBy =
+      opts.orderBy && columns.some((c) => c.name === opts.orderBy) ? opts.orderBy : null;
+    const orderDir: 'asc' | 'desc' = opts.orderDir === 'desc' ? 'desc' : 'asc';
+
+    // Fast keyset path: rowid table, no search, no explicit sort.
+    if (hasRowid && !search && !orderBy) {
       const params: SqlValue[] = [];
       let where = '';
       if (cursor != null) {
@@ -198,29 +216,63 @@ export class DbExplorerService {
       };
     }
 
-    // WITHOUT ROWID (or a view): offset paging + primary-key row match.
+    // Filtered / sorted path (and all WITHOUT ROWID / view paging): OFFSET.
     const offset = cursor != null ? Math.max(0, Number(cursor)) : 0;
+    const params: SqlValue[] = [];
+
+    let where = '';
+    if (search) {
+      const like = `%${escapeLike(search)}%`;
+      const ors = columns
+        .map((c) => `CAST(${quoteId(c.name)} AS TEXT) LIKE ? ESCAPE '\\'`)
+        .join(' OR ');
+      where = `WHERE (${ors})`;
+      for (let i = 0; i < columns.length; i++) params.push(like);
+    }
+
+    // Sort by the chosen column; append rowid as a stable tiebreaker when we can.
+    const dir = orderDir === 'desc' ? 'DESC' : 'ASC';
+    let orderClause: string;
+    if (orderBy) {
+      orderClause = `ORDER BY ${quoteId(orderBy)} ${dir}${hasRowid ? ', rowid' : ''}`;
+    } else if (hasRowid) {
+      orderClause = 'ORDER BY rowid';
+    } else {
+      orderClause = '';
+    }
+
+    const select = hasRowid ? `rowid AS __weq_rowid, *` : '*';
+    params.push(cap, offset);
+    const raw = await db.query(
+      `SELECT ${select} FROM ${q} ${where} ${orderClause} LIMIT ? OFFSET ?`,
+      params,
+    );
+
     const pkCols = columns.filter((c) => c.pk > 0).sort((a, b) => a.pk - b.pk);
-    const raw = await db.query(`SELECT * FROM ${q} LIMIT ? OFFSET ?`, [cap, offset]);
     const rows: DbCell[][] = [];
     const keys: RowKey[] = [];
     for (const r of raw) {
-      const cells = r.map(toCell);
-      rows.push(cells);
-      const keyCols = pkCols.length ? pkCols : columns;
-      keys.push({
-        t: 'pk',
-        cols: keyCols.map((c) => ({
-          name: c.name,
-          value: cellToInput(cells[columns.findIndex((x) => x.name === c.name)] ?? null),
-        })),
-      });
+      if (hasRowid) {
+        keys.push({ t: 'rowid', rowid: String(r[0]) });
+        rows.push(r.slice(1).map(toCell));
+      } else {
+        const cells = r.map(toCell);
+        rows.push(cells);
+        const keyCols = pkCols.length ? pkCols : columns;
+        keys.push({
+          t: 'pk',
+          cols: keyCols.map((c) => ({
+            name: c.name,
+            value: cellToInput(cells[columns.findIndex((x) => x.name === c.name)] ?? null),
+          })),
+        });
+      }
     }
     return {
       columns,
       rows,
       keys,
-      hasRowid: false,
+      hasRowid,
       nextCursor: raw.length === cap ? String(offset + cap) : null,
     };
   }
@@ -445,6 +497,11 @@ function positionalColumns(raw: SqlRow[]): string[] {
 /** Quote an SQL identifier, guarding against embedded double-quotes. */
 function quoteId(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
+}
+
+/** Escape LIKE wildcards so a search term matches literally (with ESCAPE '\'). */
+function escapeLike(term: string): string {
+  return term.replace(/[\\%_]/g, (ch) => `\\${ch}`);
 }
 
 function asText(v: SqlValue | undefined): string | null {

@@ -12,9 +12,10 @@ import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadNative } from '../../native/src/index';
 import type { NtHelperBinding, SqlValue } from '../../native/src/index';
+import { testEnv, qqDbDir } from '@weq/testkit';
 
-const DB_DIR = String.raw`D:\estkim\T\Tencent Files\1707889225\nt_qq\nt_db`;
-const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
+const DB_DIR = qqDbDir();
+const KEY = testEnv.key;
 const NEEDLE = (process.argv[2] ?? 'f2e37358c91fffddd18c0124fb035c7b').toLowerCase();
 
 interface Hit {
@@ -50,7 +51,7 @@ function previewOf(v: SqlValue): string {
     s = String(v ?? '');
   }
   s = s.replace(/\s+/g, ' ').trim();
-  return s.length > 160 ? s.slice(0, 160) + '…' : s;
+  return s.length > 160 ? `${s.slice(0, 160)}…` : s;
 }
 
 async function searchDb(nt: NtHelperBinding, file: string, hits: Hit[]): Promise<void> {

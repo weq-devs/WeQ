@@ -5,12 +5,12 @@
 import { loadNative } from '@weq/native';
 import { GroupMemberDb, GroupMemberLevelInfoDb } from '@weq/db';
 import { GroupInfoService } from '../src/account/group_info';
+import { testEnv, qqDbPath } from '@weq/testkit';
 
-const UIN = '1707889225';
-const KEY = '^;<kXZ;RI[@]yTD<';
+const KEY = testEnv.key;
 const GROUP_CODE = 1090396070n;
 
-const DB_PATH = `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db\\group_info.db`;
+const DB_PATH = qqDbPath('group_info.db');
 
 async function main() {
   const native = loadNative();
@@ -54,8 +54,8 @@ async function main() {
     console.log(`   Fetched ${members.length} members.\n`);
     
     // Header
-    console.log('   ' + 'Nick'.padEnd(20) + ' | ' + 'Level'.padEnd(8) + ' | ' + 'Custom Title');
-    console.log('   ' + '-'.repeat(50));
+    console.log(`   ${'Nick'.padEnd(20)} | ${'Level'.padEnd(8)} | Custom Title`);
+    console.log(`   ${'-'.repeat(50)}`);
 
     members.forEach((m) => {
         const levelName = levelInfo?.levelConfigs.find(c => c.level === m.memberLevel)?.levelName || `LV${m.memberLevel}`;

@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { Conversation, GroupMember } from '../im-template/template/types';
-import { DOMParser } from '@xmldom/xmldom';
+import { DOMParser, type Node } from '@xmldom/xmldom';
 import { displayUserName } from '../im-template/template/user';
 import { FaceEmoji } from './FaceEmoji';
 
@@ -14,8 +14,16 @@ interface GrayTipInviteMessageProps {
   conversation: Conversation;
 }
 
-function getNodeValue(node: any, attribute: string): string {
-  return node.attributes.getNamedItem(attribute)?.nodeValue || '';
+function getNodeValue(
+  node: Node,
+  attribute: string,
+): string {
+  const attributes = (node as Node & {
+    attributes?: {
+      getNamedItem(name: string): { nodeValue?: string | null } | null;
+    };
+  }).attributes;
+  return attributes?.getNamedItem(attribute)?.nodeValue || '';
 }
 
 export function GrayTipInviteMessage({ element, conversation }: GrayTipInviteMessageProps) {
@@ -45,25 +53,29 @@ export function GrayTipInviteMessage({ element, conversation }: GrayTipInviteMes
         const member = memberMap.get(uin);
         const name = member ? displayUserName(member) : getNodeValue(node, 'nm') || uin;
         return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
           <span key={index} className="text-blue-500">
             {name}
           </span>
         );
       }
       if (node.nodeName === 'nor') {
+        // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
         return <span key={index}>{getNodeValue(node, 'txt')}</span>;
       }
       if (node.nodeName === 'url') {
+        // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
         return <span key={index} className="text-blue-500">{getNodeValue(node, 'txt')}</span>;
       }
       if (node.nodeName === 'face') {
         const faceId = Number(getNodeValue(node, 'id'));
+        // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
         return <FaceEmoji key={index} element={{ faceId }} size="1.2em" className="inline-block align-middle mx-0.5" />;
       }
       return null;
     });
 
-    return <div className="text-center text-gray-500 text-xs py-2">{nodes}</div>;
+    return <div className="weq-graytip text-center text-gray-500 text-xs py-2">{nodes}</div>;
   }, [grayTipXmlContent, conversation]);
 
   return content;

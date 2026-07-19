@@ -1,22 +1,4 @@
-/**
- * Element abstract model — Layer 2 of the codec stack.
- *
- * Types are now derived from Zod schemas in `spec.ts` for runtime validation.
- * The required-vs-optional distinction drives downstream UI choices.
- *
- * decode flow: ElementWire (raw protobuf) → decodeElement → adds `kind`
- * discriminator based on `wire.elementType` and forwards every other field
- * as-is. Nothing is dropped at the element layer; the renderer or msg
- * pipeline decides what to render or hide.
- *
- * encode flow: Element → encodeElement → strips `kind`, fills in
- * `elementType` from the kind→type map, forwards every other field as-is.
- *
- * Tag numbers (40010, 45001, 45002, …) are described in `../proto/msg/element.ts`.
- */
 
-import type { ProtoEncodeStructType } from '../core';
-import type { ElementWire } from '../proto/msg/element';
 
 export type {
   TextElement,

@@ -29,11 +29,15 @@ export type {
   QrLoginStreamOptions,
 } from './bootstrap/win32_key';
 
+export { createDirectInjectHook } from './bootstrap/inject';
+export type { InjectHook } from './bootstrap/inject';
+
 export { UserConfigService, DEFAULT_APP_SETTINGS } from './bootstrap/user_config';
 export type {
   UserConfig,
   InstallCache,
   AutoEnterTarget,
+  InjectRecord,
   AppSettings,
   WindowCloseBehavior,
   MediaCompletionConfig,
@@ -47,7 +51,7 @@ export { AgentLabConfigService } from './bootstrap/agentlab_config';
 export { AvatarCacheService } from './bootstrap/avatar_cache';
 export type { AvatarBlob } from './bootstrap/avatar_cache';
 
-export { GlobalConfigService, parseQqVersion } from './bootstrap/global_config';
+export { GlobalConfigService } from './bootstrap/global_config';
 export type {
   GlobalInstallInfo,
   OnlineProbe,
@@ -93,6 +97,7 @@ export { GroupNotifyService } from './account/group_notify';
 export { ProfileService } from './account/profile';
 export { EmojiService, type SystemFaceEntry } from './account/emoji';
 export { FileAssistantService } from './account/file_assistant';
+export { CollectionService, type CollectionPage } from './account/collection';
 export { FileSearchService } from './account/file_search';
 export type { FileType, SearchResult } from './account/file_search';
 export { OnlineStatusService } from './account/online_status';
@@ -113,8 +118,12 @@ export {
 } from './account/weq_assistant';
 export type { WeqTweetCard } from './account/weq_assistant';
 export { AssistantService, ASSISTANT_AGENT_ID } from './account/assistant';
-export type { AssistantConfig, AssistantSession, AssistantTools, AssistantToolSpec, AssistantStep, AssistantArtifact } from './account/assistant';
+export type { AssistantConfig, AssistantReasoningEffort, AssistantSession, AssistantTools, AssistantToolSpec, AssistantStep, AssistantArtifact } from './account/assistant';
 export type { RenderC2cMsg, RenderGroupMsg } from './account/msg';
+export { DeletedMsgStore } from './account/deleted_msgs';
+export type { DeletedMsgRecord } from './account/deleted_msgs';
+export { AntiRecallService } from './account/anti_recall';
+export type { AntiRecallConfig, AntiRecallStatus } from './account/anti_recall';
 export { toRenderElements } from './account/msg_view';
 export type { RenderElement, RenderTextElement } from './account/msg_view';
 export { MsgSearchService } from './account/msg_search';

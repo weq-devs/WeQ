@@ -51,7 +51,7 @@ export function validateElement(fields: AnnotatedField[]): ElementValidation | n
   if (!elementTypeField) return null;
 
   const guess = elementTypeField.raw.guesses.find(g => g.kind === 'varint-uint64');
-  if (!guess || guess.kind !== 'varint-uint64') return null;
+  if (guess?.kind !== 'varint-uint64') return null;
 
   const elementType = Number(guess.value) as ElementType;
   const elementName = ElementType[elementType] || 'UNKNOWN';

@@ -57,7 +57,7 @@ export function GrayTipGroupMessage({ element, conversation, message }: GrayTipG
   // 加入群聊
   if (groupTipType === 1 && user1Display) {
     return (
-      <div className="text-center text-gray-500 text-xs py-2">
+      <div className="weq-graytip text-center text-gray-500 text-xs py-2">
         <span className="text-blue-500">{user1Display}</span>
         <span className="px-1">加入了群聊</span>
       </div>
@@ -67,7 +67,7 @@ export function GrayTipGroupMessage({ element, conversation, message }: GrayTipG
   // 群已被群主解散
   if (groupTipType === 2) {
     return (
-      <div className="text-center text-gray-500 text-xs py-2">
+      <div className="weq-graytip text-center text-gray-500 text-xs py-2">
         <span>该群已被群主解散</span>
       </div>
     );
@@ -76,7 +76,7 @@ export function GrayTipGroupMessage({ element, conversation, message }: GrayTipG
   // 被踢出群聊
   if (groupTipType === 3 && user1Display) {
     return (
-      <div className="text-center text-gray-500 text-xs py-2">
+      <div className="weq-graytip text-center text-gray-500 text-xs py-2">
         <span className="text-blue-500">{user1Display}</span>
         <span className="px-1">已将你移出群聊</span>
       </div>
@@ -98,7 +98,7 @@ export function GrayTipGroupMessage({ element, conversation, message }: GrayTipG
       // 个人禁言
       if (duration > 0) {
         return (
-          <div className="text-center text-gray-500 text-xs py-2">
+          <div className="weq-graytip text-center text-gray-500 text-xs py-2">
             <span className="text-blue-500">{targetNick}</span>
             <span> 被 </span>
             <span className="text-blue-500">{operatorNick}</span>
@@ -107,7 +107,7 @@ export function GrayTipGroupMessage({ element, conversation, message }: GrayTipG
         );
       } else {
         return (
-          <div className="text-center text-gray-500 text-xs py-2">
+          <div className="weq-graytip text-center text-gray-500 text-xs py-2">
             <span className="text-blue-500">{operatorNick}</span>
             <span> 结束了 </span>
             <span className="text-blue-500">{targetNick}</span>
@@ -118,7 +118,7 @@ export function GrayTipGroupMessage({ element, conversation, message }: GrayTipG
     } else {
       // 全员禁言
       return (
-        <div className="text-center text-gray-500 text-xs py-2">
+        <div className="weq-graytip text-center text-gray-500 text-xs py-2">
           <span className="text-blue-500">{operatorNick}</span>
           <span> {duration > 0 ? '开启' : '关闭'}了全员禁言</span>
         </div>

@@ -57,11 +57,8 @@ export class DbDecryptService {
   }
 
   isQqLoggedIn(): boolean {
-    try {
-      return this.platform.native.ntHelper.isQqLoggedIn(this.session.context.uin);
-    } catch {
-      return false;
-    }
+    // Platform wraps the per-OS probe inputs (linux needs baseDir + uid).
+    return this.platform.isQqLoggedIn(this.session.context.uin);
   }
 
   async decryptDatabases(opts: DbDecryptOptions): Promise<DbDecryptResult[]> {
@@ -110,7 +107,7 @@ export class DbDecryptService {
 }
 
 async function listDbFiles(dir: string): Promise<AccountDbFile[]> {
-  let entries;
+  let entries: import('node:fs').Dirent[];
   try {
     entries = await readdir(dir, { withFileTypes: true });
   } catch {

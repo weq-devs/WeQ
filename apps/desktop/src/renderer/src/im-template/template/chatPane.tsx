@@ -8,6 +8,7 @@ import {
 	ChevronsUp,
 	CirclePlus,
 	Trash2,
+	RotateCcw,
 	FileText,
 	Images,
 	MessageSquareText,
@@ -78,7 +79,7 @@ import type {
 import { displayUserName } from "./user";
 import { OnlineStatus } from "../../components/OnlineStatus";
 import { GrayTipPokeMessage } from '../../components/GrayTipPokeMessage';
-import { GrayTipRevokeMessage } from '../../components/GrayTipRevokeMessage';
+import { GrayTipRevokeMessage, isPlaceholderRevoke } from '../../components/GrayTipRevokeMessage';
 import { GrayTipGroupMessage } from '../../components/GrayTipGroupMessage';
 import { GrayTipInviteMessage } from '../../components/GrayTipInviteMessage';
 
@@ -113,7 +114,7 @@ function saveGroupInfoCollapsed(value: boolean) {
 	localStorage.setItem(groupInfoCollapsedStorageKey, value ? "1" : "0");
 }
 
-function hasGroupAnnouncements(conversation: Conversation) {
+function _hasGroupAnnouncements(conversation: Conversation) {
 	return (
 		conversation.type === "group" &&
 		(Boolean(conversation.group.announcement?.trim()) ||
@@ -202,7 +203,6 @@ export function ChatPane({
 	onBack,
 	onEditRaw,
 	onDeleteMessage,
-	onHardDeleteMessage,
 	onOpenGroupAlbums,
 	onOpenGroupAnnouncements,
 	onOpenGroupAnalytics,
@@ -210,7 +210,9 @@ export function ChatPane({
 	onOpenGroupMember,
 	onAddMessage,
 	onViewDeleted,
-	hiddenReloadKey,
+	onViewRecalled,
+	deletedIds,
+	onRestoreMessage,
 }: {
 	user: User;
 	conversation: Conversation | undefined;
@@ -235,8 +237,7 @@ export function ChatPane({
 	onDraftClear: (conversationId: string) => void;
 	onBack: () => void;
 	onEditRaw?: (message: Message) => void;
-	onDeleteMessage?: (message: Message) => void | Promise<void>;
-	onHardDeleteMessage?: (message: Message) => void | Promise<void>;
+	onDeleteMessage?: (message: Message, conversation: Conversation) => void | Promise<void>;
 	onOpenGroupAlbums?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenGroupAnnouncements?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenGroupAnalytics?: (conversation: Extract<Conversation, { type: "group" }>) => void;
@@ -244,8 +245,11 @@ export function ChatPane({
 	onOpenGroupMember?: (member: any, anchor: { x: number; y: number }) => void;
 	onAddMessage?: (conversation: Conversation) => void;
 	onViewDeleted?: (conversation: Conversation) => void;
-	/** Bumped by the parent after a restore so this pane re-reads hidden ids. */
-	hiddenReloadKey?: number;
+	onViewRecalled?: (conversation: Conversation) => void;
+	/** msgIds WeQ deleted in this conversation — rendered in place under a translucent overlay. */
+	deletedIds?: Set<string>;
+	/** Restore one WeQ-deleted message (the overlay's hover button). */
+	onRestoreMessage?: (msgId: string) => Promise<void>;
 }) {
 	// 复用 replyJump 的跳转能力（含翻页/重建窗口），供群精华消息跳转使用。
 	const jumpToSeq = useContext(ReplyJumpContext);
@@ -261,11 +265,14 @@ export function ChatPane({
 	const [emojiOpen, setEmojiOpen] = useState(false);
 	const [toolsOpen, setToolsOpen] = useState(false);
 	const [activeEmojiPackId, setActiveEmojiPackId] = useState("emoji");
+	const [contextMenu, setContextMenu] =
+		useState<MessageContextMenuState | null>(null);
+	// Local "清空聊天记录" hide set (localStorage). Per-message delete no longer
+	// touches this — deleted messages stay visible under an overlay; this set
+	// only backs the clear-conversation action.
 	const [hiddenMessageIds, setHiddenMessageIds] = useState<Set<string>>(
 		new Set(),
 	);
-	const [contextMenu, setContextMenu] =
-		useState<MessageContextMenuState | null>(null);
 	const [mentionMenu, setMentionMenu] = useState<MentionMenuState | null>(null);
 	const [unreadJump, setUnreadJump] = useState<UnreadJumpState | null>(null);
 	// Count of newly-arrived (live) messages while the user is reading history.
@@ -434,14 +441,6 @@ export function ChatPane({
 		setMobileComposerExpanded(false);
 		setHiddenMessageIds(loadHiddenMessageIds(conversation?.id));
 	}, [conversation?.id]);
-
-	// Re-read the local hidden set when the parent signals a restore (bumping
-	// `hiddenReloadKey`), so a message un-hidden from the deleted panel reappears
-	// in the live chat without touching the rest of the conversation reset above.
-	useEffect(() => {
-		if (!hiddenReloadKey) return;
-		setHiddenMessageIds(loadHiddenMessageIds(conversation?.id));
-	}, [hiddenReloadKey, conversation?.id]);
 
 	useEffect(() => {
 		const editor = composerEditorRef.current;
@@ -1230,37 +1229,14 @@ export function ChatPane({
 		setContextMenu(null);
 	}
 
-	function deleteMessageLocally(message: Message) {
+	// QQ-style delete: the DB row's type columns become (1,1) and the message
+	// STAYS in the chat, rendered under a translucent overlay (no local hiding).
+	function deleteMessage(message: Message) {
 		if (!conversation) {
 			return;
 		}
-
-		// Hide immediately for instant feedback...
-		setHiddenMessageIds((current) => {
-			const next = new Set(current);
-			next.add(message.id);
-			saveHiddenMessageIds(conversation.id, next);
-			return next;
-		});
 		setContextMenu(null);
-		// ...and reversibly soft-delete the underlying DB row (hidden, restorable).
-		void onDeleteMessage?.(message);
-	}
-
-	// Hard-delete: physically drops the DB row (no restore). Same instant-hide
-	// UX as soft-delete — no confirmation prompt.
-	function hardDeleteMessageLocally(message: Message) {
-		if (!conversation) {
-			return;
-		}
-		setHiddenMessageIds((current) => {
-			const next = new Set(current);
-			next.add(message.id);
-			saveHiddenMessageIds(conversation.id, next);
-			return next;
-		});
-		setContextMenu(null);
-		void onHardDeleteMessage?.(message);
+		void onDeleteMessage?.(message, conversation);
 	}
 
 	function editMessageRaw(message: Message) {
@@ -1270,7 +1246,7 @@ export function ChatPane({
 		onEditRaw?.(message);
 	}
 
-	function requestClearConversationMessages() {
+	function _requestClearConversationMessages() {
 		setContextMenu(null);
 		setClearMessagesConfirmOpen(true);
 	}
@@ -1400,10 +1376,21 @@ export function ChatPane({
 						<button
 							className={cn("icon-button", "group-header-info-action")}
 							type="button"
-							title="查看删除消息"
+							title="删除列表"
 							onClick={() => onViewDeleted(conversation)}
 						>
 							<Trash2 size={18} />
+						</button>
+					) : null}
+					{onViewRecalled &&
+					(conversation.type === "group" || conversation.type === "direct") ? (
+						<button
+							className={cn("icon-button", "group-header-info-action")}
+							type="button"
+							title="撤回列表"
+							onClick={() => onViewRecalled(conversation)}
+						>
+							<RotateCcw size={18} />
 						</button>
 					) : null}
 					{conversation.type === "group" ? (
@@ -1465,108 +1452,118 @@ export function ChatPane({
 				) : visibleMessages.length === 0 ? (
 					<EmptyState title="还没有消息" body="发出第一条消息。" icon={<MessageSquareText />} />
 				) : (
-					visibleMessages.map((message, index) => {
-						const previous = visibleMessages[index - 1];
-						const mine = message.senderId === user.id;
-						const sender = resolveMessageSender(message, conversation, user);
-						const grayTipPokeElement = message.qqElements?.find(
-							(e: any) => e.type === 'grayTipPoke'
-						);
-						if (grayTipPokeElement) {
-							return (
+					(() => {
+						// Detect the gray-tip element (if any) a message carries.
+						const GRAY_TIP_KINDS = ['grayTipPoke', 'grayTipRevoke', 'grayTipGroup', 'grayTipInvite'];
+						const grayTipOf = (message) => {
+							const els = message.qqElements ?? [];
+							for (const kind of GRAY_TIP_KINDS) {
+								const el = els.find((e) => e?.type === kind);
+								if (el) return { kind, el };
+							}
+							return null;
+						};
+
+						// Render one gray-tip row's inner component (no wrapper).
+						const renderGrayTip = (message, gt) => {
+							switch (gt.kind) {
+								case 'grayTipPoke':
+									return <GrayTipPokeMessage element={gt.el} conversation={conversation} message={message} />;
+								case 'grayTipRevoke':
+									return <GrayTipRevokeMessage element={gt.el} conversation={conversation} message={message} />;
+								case 'grayTipGroup':
+									return <GrayTipGroupMessage element={gt.el} conversation={conversation} message={message} />;
+								case 'grayTipInvite':
+									return <GrayTipInviteMessage element={gt.el} conversation={conversation} />;
+								default:
+									return null;
+							}
+						};
+
+						// Collect consecutive gray-tip messages into a "run". The
+						// accent "band" frame is reserved for a run that carries a
+						// placeholder recall (content not in the local DB) — the frame
+						// exists to host the "本地暂无内容" backfill hint. Ordinary gray
+						// tips (pokes, normal recalls, group notices) render as plain
+						// centered lines with no background frame.
+						const out = [];
+						let band = null; // { messages: [{ message, gt }] }
+						const flushBand = () => {
+							if (!band) return;
+							const hasPlaceholder = band.messages.some(
+								(b) => b.gt.kind === 'grayTipRevoke' && isPlaceholderRevoke(b.gt.el),
+							);
+							const rows = band.messages.map(({ message, gt }) => (
 								<div
 									key={message.id}
 									data-message-id={message.id}
 									onContextMenu={(e) => openMessageMenu(e, message)}
 								>
-									<GrayTipPokeMessage
-										element={grayTipPokeElement}
-										conversation={conversation}
+									{renderGrayTip(message, gt)}
+								</div>
+							));
+							if (hasPlaceholder) {
+								out.push(
+									<div className={cn('weq-graytip-band')} key={`band-${band.messages[0].message.id}`}>
+										{rows}
+										<div className={cn('weq-graytip-band-hint')}>
+											本地暂无这些消息内容 · 用 QQ 查看后会自动补全
+										</div>
+									</div>,
+								);
+							} else {
+								out.push(...rows);
+							}
+							band = null;
+						};
+
+						visibleMessages.forEach((message, index) => {
+							const gt = grayTipOf(message);
+							if (gt) {
+								if (!band) band = { messages: [] };
+								band.messages.push({ message, gt });
+								return;
+							}
+							flushBand();
+							const previous = visibleMessages[index - 1];
+							const mine = message.senderId === user.id;
+							const sender = resolveMessageSender(message, conversation, user);
+							out.push(
+								<Fragment key={message.id}>
+									{shouldShowMessageTime(previous, message) ? (
+										<MessageTimeDivider value={message.createdAt} />
+									) : null}
+									<MessageBubble
 										message={message}
-									/>
-								</div>
-							);
-						}
-						const grayTipRevokeElement = message.qqElements?.find(
-							(e: any) => e.type === 'grayTipRevoke'
-						);
-						if (grayTipRevokeElement) {
-							return (
-								<div
-									key={message.id}
-									data-message-id={message.id}
-									onContextMenu={(e) => openMessageMenu(e, message)}
-								>
-									<GrayTipRevokeMessage
-										element={grayTipRevokeElement}
-									/>
-								</div>
-							);
-						}
-						const grayTipGroupElement = message.qqElements?.find(
-							(e: any) => e.type === 'grayTipGroup'
-						);
-						if (grayTipGroupElement) {
-							return (
-								<div
-									key={message.id}
-									data-message-id={message.id}
-									onContextMenu={(e) => openMessageMenu(e, message)}
-								>
-									<GrayTipGroupMessage
-										element={grayTipGroupElement}
 										conversation={conversation}
-										message={message}
+										sender={sender}
+										mine={mine}
+										senderName={displayUserName(sender)}
+										senderAvatarUrl={sender.avatarUrl}
+										senderSeed={sender.identityValue}
+										senderKind={sender.kind}
+										showSenderName={showSenderNames}
+										active={contextMenu?.message.id === message.id}
+										renderers={messageRenderers}
+										deleted={deletedIds?.has(message.id) ?? false}
+										deletedKind={message.deletedKind}
+										recallRevokerName={message.recallRevokerName}
+										onRestore={onRestoreMessage}
+										onContextMenu={openMessageMenu}
+										onLongPress={openMobileMessageMenu}
+										onAction={onMessageAction}
+										onAvatarClick={
+											conversation.type === "group" && onOpenGroupMember
+												? onOpenGroupMember
+												: undefined
+										}
 									/>
-								</div>
+								</Fragment>,
 							);
-						}
-						const grayTipInviteElement = message.qqElements?.find(
-							(e: any) => e.type === 'grayTipInvite'
-						);
-						if (grayTipInviteElement) {
-							return (
-								<div
-									key={message.id}
-									data-message-id={message.id}
-									onContextMenu={(e) => openMessageMenu(e, message)}
-								>
-									<GrayTipInviteMessage
-										element={grayTipInviteElement}
-										conversation={conversation}
-									/>
-								</div>
-							);
-						}
-						return (
-							<Fragment key={message.id}>
-								{shouldShowMessageTime(previous, message) ? (
-									<MessageTimeDivider value={message.createdAt} />
-								) : null}
-								<MessageBubble
-									message={message}
-									conversation={conversation}
-									sender={sender}
-									mine={mine}
-									senderName={displayUserName(sender)}
-									senderAvatarUrl={sender.avatarUrl}
-									senderSeed={sender.identityValue}
-									senderKind={sender.kind}
-									showSenderName={showSenderNames}
-									active={contextMenu?.message.id === message.id}
-									renderers={messageRenderers}
-									onContextMenu={openMessageMenu}
-									onLongPress={openMobileMessageMenu}
-									onAction={onMessageAction}
-									onAvatarClick={
-										conversation.type === "group" && onOpenGroupMember
-											? onOpenGroupMember
-											: undefined
-									}
-								/>
-							</Fragment>
-						);
-					})
+						});
+						flushBand();
+						return out;
+					})()
 				)}
 				<div ref={endRef} />
 			</div>
@@ -1582,6 +1579,7 @@ export function ChatPane({
 				</button>
 			) : null}
 
+			{/* biome-ignore lint/correctness/noConstantCondition: 暂时禁用的「跳转首条未读」按钮,保留待恢复 */}
 			{false && unreadJump && unreadJump.remaining > 0 ? (
 				<button
 					className={cn("unread-jump-button")}
@@ -1844,8 +1842,7 @@ export function ChatPane({
 					state={contextMenu}
 					onCopy={copyMessage}
 					onDownloadImage={downloadMessageImage}
-					onDeleteLocal={deleteMessageLocally}
-					onHardDelete={onHardDeleteMessage ? hardDeleteMessageLocally : undefined}
+					onDelete={deleteMessage}
 					onEditRaw={onEditRaw ? editMessageRaw : undefined}
 				/>
 			) : null}
@@ -1942,6 +1939,7 @@ function ComposerPlusPanel({
 			{pageCount > 1 ? (
 				<div className={cn("composer-plus-dots")} aria-hidden="true">
 					{Array.from({ length: pageCount }).map((_, index) => (
+						// biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
 						<span className={cn(index === 0 && "active")} key={index} />
 					))}
 				</div>

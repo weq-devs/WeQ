@@ -40,17 +40,21 @@ function ToolResult({ preview, ok }: { preview: string; ok: boolean }): ReactEle
 export function AssistantSteps({
   steps,
   running,
+  reasoning,
 }: {
   steps: AssistantStep[];
   running: boolean;
+  /** 运行中逐字累积的推理内容（reasoning_delta）；有则在过程面板顶部展示。 */
+  reasoning?: string;
 }): ReactElement | null {
   // 只展示过程类步骤。
   const shown = steps.filter((s) => s.kind === 'thinking' || s.kind === 'tool_call' || s.kind === 'tool_result');
   const [open, setOpen] = useState(running);
   // running 切换时不强制改 open（让用户的手动展开/收起优先），但首次有内容且运行中默认展开。
   const toolCount = steps.filter((s) => s.kind === 'tool_call').length;
+  const reasoningText = reasoning?.trim() ?? '';
 
-  if (shown.length === 0 && !running) return null;
+  if (shown.length === 0 && !reasoningText && !running) return null;
 
   return (
     <div className={`weq-asst-steps${running ? ' is-running' : ''}`}>
@@ -65,6 +69,12 @@ export function AssistantSteps({
 
       {open ? (
         <div className="weq-asst-steps-body">
+          {reasoningText ? (
+            <div className="weq-asst-step weq-asst-step-reasoning">
+              <Brain size={12} className="weq-asst-step-lead" />
+              <span className="weq-asst-step-text weq-asst-reasoning-text">{reasoningText}</span>
+            </div>
+          ) : null}
           {shown.map((s, idx) => {
             const key = `s-${idx}`;
             if (s.kind === 'thinking') {

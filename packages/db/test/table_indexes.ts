@@ -4,10 +4,10 @@
 
 import { loadNative } from '@weq/native';
 import { QqDb } from '../src/qq_db';
+import { testEnv, qqDbDir } from '@weq/testkit';
 
-const UIN = '1707889225';
-const KEY = '^;<kXZ;RI[@]yTD<';
-const NT_DB_DIR = `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db`;
+const KEY = testEnv.key;
+const NT_DB_DIR = qqDbDir();
 
 async function check(name: string, tableName: string) {
   const native = loadNative();
@@ -25,7 +25,9 @@ async function check(name: string, tableName: string) {
 
     const indexes = await db.query(`SELECT name, sql FROM sqlite_master WHERE type='index' AND tbl_name='${tableName}';`);
     console.log(`Found ${indexes.length} indexes:`);
-    indexes.forEach(idx => console.log(`  - ${idx[0]}: ${idx[1]}`));
+    indexes.forEach((idx) => {
+      console.log(`  - ${idx[0]}: ${idx[1]}`);
+    });
   } catch (e) {
     console.log(`Failed to check ${name}:`, (e as any).message);
   } finally {

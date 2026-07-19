@@ -11,7 +11,7 @@
  * Wire types 3/4 (group start/end) are obsolete; we reject them.
  */
 
-import { readVarint, VarintError } from './varint';
+import { readVarint, } from './varint';
 
 export type WireType = 0 | 1 | 2 | 5;
 

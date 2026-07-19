@@ -5,9 +5,9 @@
  * 也为未来导出 bot client 持续积累。按 agentId（personaId 或 'assistant'）分桶。
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
 import type { AssistantStep } from './assistant';
+import { writeFileAtomicSync } from './atomic_write';
 
 export interface ConversationTurn {
   role: 'user' | 'assistant';
@@ -57,8 +57,7 @@ export class ConversationStore {
 
   private persist(): void {
     try {
-      mkdirSync(dirname(this.filePath), { recursive: true });
-      writeFileSync(this.filePath, JSON.stringify(this.data), 'utf-8');
+      writeFileAtomicSync(this.filePath, JSON.stringify(this.data));
     } catch {
       /* 持久化失败不应影响对话本身 */
     }

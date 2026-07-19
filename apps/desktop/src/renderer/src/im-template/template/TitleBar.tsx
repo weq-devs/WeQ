@@ -1,6 +1,5 @@
-import type { ReactNode } from "react";
-import { Minus, Square, X, Maximize2, Minimize2 } from "lucide-react";
-import { cn } from "./classNames";
+
+import { Minus, Square, X, } from "lucide-react";
 import { Avatar } from "./primitives";
 import type { User } from "./types";
 import { displayUserName } from "./user";
@@ -8,15 +7,15 @@ import logoUrl from "@resources/brand/logo.png";
 
 export function TitleBar({ user }: { user: User }) {
 	const handleMinimize = () => {
-		(window as any).electron?.ipcRenderer.send("window-minimize");
+		window.electron?.ipcRenderer.send("window-minimize");
 	};
 
 	const handleMaximize = () => {
-		(window as any).electron?.ipcRenderer.send("window-maximize");
+		window.electron?.ipcRenderer.send("window-maximize");
 	};
 
 	const handleClose = () => {
-		(window as any).electron?.ipcRenderer.send("window-close");
+		window.electron?.ipcRenderer.send("window-close");
 	};
 
 	return (

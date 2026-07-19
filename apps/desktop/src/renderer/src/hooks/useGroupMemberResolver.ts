@@ -46,8 +46,11 @@ export function useGroupMemberResolver<T extends { uid: string }>(): GroupMember
       isCurrent: () => boolean,
     ): void => {
       if (!groupCode) return;
-      const attempted =
-        attemptedRef.current[groupCode] ?? (attemptedRef.current[groupCode] = new Set());
+      let attempted = attemptedRef.current[groupCode];
+      if (!attempted) {
+        attempted = new Set();
+        attemptedRef.current[groupCode] = attempted;
+      }
       const missing: string[] = [];
       for (const uid of uids) {
         if (!uid || known.has(uid) || attempted.has(uid)) continue;

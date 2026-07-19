@@ -6,12 +6,10 @@
 
 import { loadNative } from '@weq/native';
 import { QqDb } from '../src/qq_db';
+import { testEnv } from '@weq/testkit';
 
-const UIN_ME = '1707889225';
-const DB_PATH =
-  process.env.WEQ_TEST_PROFILE_DB_PATH ??
-  `D:\\estkim\\T\\Tencent Files\\${UIN_ME}\\nt_qq\\nt_db\\profile_info.db`;
-const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
+const DB_PATH = testEnv.profileDbPath;
+const KEY = testEnv.key;
 
 const TABLE = 'profile_info_v6';
 
@@ -23,7 +21,7 @@ function describe(v: unknown): string {
   if (v === null || v === undefined) return String(v);
   if (v instanceof Uint8Array) {
     const hex = Buffer.from(v).toString('hex');
-    return `<BLOB ${v.byteLength}b> ${hex.length > 120 ? hex.slice(0, 120) + '…' : hex}`;
+    return `<BLOB ${v.byteLength}b> ${hex.length > 120 ? `${hex.slice(0, 120)}…` : hex}`;
   }
   if (typeof v === 'bigint') return `${v}n`;
   if (typeof v === 'string') return v.length > 160 ? `"${v.slice(0, 160)}…"` : `"${v}"`;

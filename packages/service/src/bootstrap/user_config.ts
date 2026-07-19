@@ -49,6 +49,31 @@ export interface AutoEnterTarget {
   dataDir?: string;
 }
 
+/**
+ * A persisted "this pid is already hook-injected" record (linux only).
+ *
+ * The linux inject is expensive: a pkexec/polkit password dialog + an exclusive
+ * ptrace attach. The in-memory injectHook caches which pids are injected, but a
+ * WeQ restart loses that — so without persistence WeQ would re-inject an
+ * already-hooked, still-running QQ (popping the password dialog again and racing
+ * the hook's control pipe). We persist the record here keyed by pid and prune it
+ * when the pid is gone (see {@link UserConfigService.pruneInjectRecords}).
+ *
+ * `startTime` is the process start time (jiffies from `/proc/<pid>/stat`) taken
+ * at inject time. pids are recycled by the kernel, so on reuse we compare the
+ * live start time against this one; a mismatch means "different process, same
+ * number" and the record is treated as stale.
+ */
+export interface InjectRecord {
+  pid: number;
+  /** `/proc/<pid>/stat` field 22 (starttime, in clock ticks) at inject time. */
+  startTime: string;
+  /** Whether the post-login packet wait also completed (fully ready to fetch). */
+  ready: boolean;
+  /** Epoch ms when the record was written — diagnostics only. */
+  injectedAt: number;
+}
+
 type DeepPartial<T> = {
   [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
 };
@@ -189,6 +214,13 @@ export interface UserConfig {
    * 写在这里，之后恒定复用——见 {@link UserConfigService.getWeqAssistantUid}。
    */
   weqAssistantUid?: string;
+  /**
+   * Persisted hook-inject records (linux only), keyed by pid-as-string. Survives
+   * a WeQ restart so an already-injected, still-running QQ isn't re-injected
+   * (which would re-prompt for the password + race the hook pipe). Pruned
+   * against live processes on startup and before each inject decision.
+   */
+  injectRecords?: Record<string, InjectRecord>;
 }
 
 export class UserConfigService {
@@ -259,6 +291,63 @@ export class UserConfigService {
   clearAutoEnter(): void {
     this.write({ autoEnter: null });
     this.logger.info('cleared auto-enter target', { event: 'clear-auto-enter' });
+  }
+
+  // ---- persisted hook-inject records (linux) ----
+
+  /** All persisted inject records, keyed by pid-as-string. */
+  getInjectRecords(): Record<string, InjectRecord> {
+    return this.read().injectRecords ?? {};
+  }
+
+  /** The record for `pid`, or null if none is stored. */
+  getInjectRecord(pid: number): InjectRecord | null {
+    return this.getInjectRecords()[String(pid)] ?? null;
+  }
+
+  /** Upsert the inject record for a pid (merges over any existing fields). */
+  setInjectRecord(record: InjectRecord): void {
+    const records = { ...this.getInjectRecords(), [String(record.pid)]: record };
+    this.write({ injectRecords: records });
+    this.logger.info('stored inject record', {
+      event: 'inject-record-set',
+      pid: record.pid,
+      ready: record.ready,
+    });
+  }
+
+  /** Drop the record for a single pid (e.g. its hook pipe died). */
+  deleteInjectRecord(pid: number): void {
+    const records = this.getInjectRecords();
+    if (!(String(pid) in records)) return;
+    delete records[String(pid)];
+    this.write({ injectRecords: records });
+    this.logger.info('deleted inject record', { event: 'inject-record-delete', pid });
+  }
+
+  /**
+   * Drop every record whose pid is no longer alive (or was recycled to a
+   * different process — detected by a start-time mismatch). `liveStartTimes`
+   * maps a currently-running pid to its `/proc/<pid>/stat` starttime; a pid
+   * absent from the map is treated as dead. Returns the pruned records map.
+   */
+  pruneInjectRecords(liveStartTimes: Map<number, string>): Record<string, InjectRecord> {
+    const records = this.getInjectRecords();
+    let changed = false;
+    for (const [key, rec] of Object.entries(records)) {
+      const live = liveStartTimes.get(rec.pid);
+      if (live === undefined || live !== rec.startTime) {
+        delete records[key];
+        changed = true;
+        this.logger.info('pruned stale inject record', {
+          event: 'inject-record-prune',
+          pid: rec.pid,
+          reason: live === undefined ? 'pid-dead' : 'pid-recycled',
+        });
+      }
+    }
+    if (changed) this.write({ injectRecords: records });
+    return records;
   }
 
   read(): UserConfig {
@@ -416,7 +505,7 @@ export class UserConfigService {
    */
   getWeqAssistantUid(): string {
     const existing = this.read().weqAssistantUid;
-    if (existing && existing.trim()) return existing;
+    if (existing?.trim()) return existing;
     const uid = generateWeqAssistantUid();
     this.write({ weqAssistantUid: uid });
     this.logger.info('generated weq assistant uid', { event: 'weq-assistant-uid-generated' });
@@ -429,20 +518,20 @@ export class UserConfigService {
 
   cacheBaseDir(): string {
     const o = this.read().cacheDirOverride;
-    return o && o.trim() ? o : this.defaultCacheBase();
+    return o?.trim() ? o : this.defaultCacheBase();
   }
 
   getCacheDirInfo(): { effective: string; override: string | null; default: string } {
     const def = this.defaultCacheBase();
     const o = this.read().cacheDirOverride ?? null;
-    return { effective: o && o.trim() ? o : def, override: o, default: def };
+    return { effective: o?.trim() ? o : def, override: o, default: def };
   }
 
   setCacheDirOverride(dir: string | null): void {
-    this.write({ cacheDirOverride: dir && dir.trim() ? dir : null });
+    this.write({ cacheDirOverride: dir?.trim() ? dir : null });
     this.logger.info('updated cache directory override', {
       event: 'set-cache-dir-override',
-      dir: dir && dir.trim() ? dir : null,
+      dir: dir?.trim() ? dir : null,
     });
   }
 

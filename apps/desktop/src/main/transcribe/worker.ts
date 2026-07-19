@@ -104,7 +104,7 @@ function run(params: WorkerParams): void {
     try {
       sherpa = requireFn('sherpa-onnx-node');
     } catch (e) {
-      emit({ type: 'error', error: '语音识别引擎加载失败: ' + String(e) });
+      emit({ type: 'error', error: `语音识别引擎加载失败: ${String(e)}` });
       process.exit(1);
       return;
     }

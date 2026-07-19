@@ -2,7 +2,7 @@
  * Public type surface of the `@weq/native` package.
  *
  * Mirrors `Qrypt-Native/nt_helper/src/lib.rs` (DB / detect / inject / OIDB)
- * and the `launchQQ` entry of `NineBirdBoot.node` (login bootstrap).
+ * and the `launchQQ` entry of `ninebird_addon.node` (login bootstrap).
  *
  * The actual .node files live under `<repo>/native/<platform>/<arch>/` and
  * are loaded by `loader.ts`. Nothing in this file does I/O — it's purely
@@ -99,6 +99,19 @@ export interface QQInstanceStatus {
   uin: string;
 }
 
+/**
+ * A recv packet observed by the hook. Returned by `waitForRealPacket` once the
+ * hook has seen a genuine post-login packet — on linux this is what tells the
+ * hook the MSF service address, so no OIDB packet can be sent before it lands.
+ */
+export interface HookRecvPacketInfo {
+  sequence: string;
+  error: number;
+  cmd: string;
+  uin: string;
+  body: Buffer;
+}
+
 export interface WindowsHelloAvailabilityInfo {
   code: number;
   available: boolean;
@@ -107,6 +120,17 @@ export interface WindowsHelloAvailabilityInfo {
 export interface WindowsHelloVerifyInfo {
   code: number;
   success: boolean;
+}
+
+/**
+ * appid / QUA extracted from QQ NT's `major.node`. `appid` is always present;
+ * `qua` / `version` / `build` are absent when the QUA anchor isn't found.
+ */
+export interface AppidInfo {
+  appid: string;
+  qua?: string;
+  version?: string;
+  build?: string;
 }
 
 // ---------- nt_helper.node — full surface --------------------------------
@@ -128,12 +152,24 @@ export interface NtHelperBinding {
   decryptLoginDb(loginDbPath: string, algo: DatabaseAlgorithms): LoginAccount[];
   getQqProcesses(): number[];
   /**
-   * Mutex-lock probe: is the QQ account `uin` currently logged in on this
-   * machine? Works without a pid — QQ holds a per-uin named mutex while the
-   * account is online. Used to attribute the single running QQ process to a
-   * concrete account when port-probing can't (see GlobalConfigService).
+   * Is the QQ account currently logged in on this machine? The identifying
+   * inputs differ per platform because the mechanism does:
+   *   - **win32**: inspects QQ NT's per-account named mutex, keyed by numeric
+   *     `uin`. `baseDir` / `uid` are ignored.
+   *   - **linux/macOS**: probes an fcntl lock on the account's `nt_msg.db`,
+   *     located under `baseDir` via the string `uid`. Both are required; if
+   *     either is missing this returns false. `uin` is ignored.
+   *
+   * The native layer never derives `baseDir` itself — the caller passes the
+   * absolute QQ data directory (the folder containing the per-account dirs).
    */
-  isQqLoggedIn(uin: string): boolean;
+  isQqLoggedIn(uin: string, baseDir?: string | null, uid?: string | null): boolean;
+  /**
+   * Extract appid / QUA from QQ NT's `major.node`. Used to feed launchQQ's
+   * `appid` / `qua` so they match the installed QQ build exactly. `appid` is
+   * always present; the rest are absent when the QUA anchor isn't found.
+   */
+  resolveAppidFromMajor(majorPath: string): AppidInfo;
   checkWindowsHelloAvailability(): WindowsHelloAvailabilityInfo;
   verifyWindowsHello(message: string, hwnd?: bigint | number | null): WindowsHelloVerifyInfo;
 
@@ -147,6 +183,14 @@ export interface NtHelperBinding {
   // --- hook injection ---
   injectAndGetStatus(pid: number, dllPath: string): Promise<QQInstanceStatus>;
   injectAndGetStatusEmbedded(pid: number): Promise<QQInstanceStatus>;
+  /**
+   * Wait until the hook observes a genuine post-login recv packet (pre-login
+   * snapshots/commands are ignored). On linux the hook cannot locate the MSF
+   * service address — and therefore cannot send any OIDB packet — until such a
+   * packet arrives, so the instance key/rkey flows must await this first. On
+   * win32 the service address is resolved by port-probe, so this is unused.
+   */
+  waitForRealPacket(pid: number, timeoutMs: number): Promise<HookRecvPacketInfo>;
 
   // --- SQL (cached connection per dbPath) ---
   executeSql(
@@ -209,12 +253,18 @@ export interface NtHelperBinding {
   sendPacket(pid: number, cmd: string, body: Buffer): Promise<Buffer>;
 }
 
-// ---------- NineBirdBoot.node — launch bootstrap -------------------------
+// ---------- ninebird_addon.node — launch bootstrap -----------------------
 
 /**
- * Arguments accepted by `NineBirdBoot.launchQQ`. The bootstrap launches a
- * QQ.exe with the hook DLL pre-loaded and forwards NDJSON events back via
- * a Named Pipe the caller hands in.
+ * Arguments accepted by `ninebird_addon.launchQQ`. The addon launches QQ
+ * with the hook pre-loaded and forwards NDJSON events back over the IPC
+ * channel named by `pipeName`.
+ *
+ * The interface is shared across platforms; a few fields carry different
+ * concrete values per OS:
+ *   - `hookDllPath`  win32: `NineBirdHook.dll`  ·  linux: `ninebird_launcher.so`
+ *   - `pipeName`     win32: `\\.\pipe\…`         ·  linux: a unix socket path
+ *   - `qqntJsonPath` win32: real spoof json      ·  linux: any existing file (placeholder)
  *
  * Both login flows (QR scan / quick UIN) take the same shape — the
  * difference is which `loadJsPath` is passed (`qr-dbkey.js` vs
@@ -230,6 +280,17 @@ export interface LaunchQqOptions {
   /** Required only for the quick-login flow. */
   uin?: string;
   timeoutMs?: number;
+  /**
+   * appid / qua matched to the installed QQ build. Resolved by an upper layer
+   * from QQ's `major.node` (`resolveAppidFromMajor`) and passed through here;
+   * the loader falls back to a per-platform default when absent. A mismatched
+   * value gets the account kicked from QQ's login list (140022017) — never
+   * guess these.
+   */
+  appid?: string;
+  qua?: string;
+  /** Default true — QQ's stdio is silenced. false inherits the parent's stdio. */
+  headless?: boolean;
 }
 
 export interface LaunchQqResult {

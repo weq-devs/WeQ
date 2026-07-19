@@ -7,10 +7,10 @@
 
 import { loadNative } from '@weq/native';
 import { BaseSysEmojiDb } from '../src/emoji/base_sys_emoji';
+import { testEnv, qqDbPath } from '@weq/testkit';
 
-const UIN = '1707889225';
-const KEY = '^;<kXZ;RI[@]yTD<';
-const EMOJI_DB_PATH = `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db\\emoji.db`;
+const KEY = testEnv.key;
+const EMOJI_DB_PATH = qqDbPath('emoji.db');
 
 async function main(): Promise<void> {
   const { ntHelper } = loadNative();

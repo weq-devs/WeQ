@@ -390,7 +390,7 @@ export class MediaResourceService {
     let sawDir = false;
     while (stack.length > 0) {
       const dir = stack.pop()!;
-      let dirents;
+      let dirents: import('node:fs').Dirent[];
       try {
         dirents = await readdir(dir, { withFileTypes: true });
         sawDir = true;
@@ -404,7 +404,7 @@ export class MediaResourceService {
       }
       await Promise.all(
         files.map(async (abs) => {
-          let st;
+          let st: import('node:fs').Stats;
           try {
             st = await stat(abs);
           } catch {
@@ -419,7 +419,11 @@ export class MediaResourceService {
           target.bytes += st.size;
 
           const month = monthKey(st.mtimeMs);
-          const m = agg.byMonth[month] ?? (agg.byMonth[month] = { files: 0, bytes: 0 });
+          let m = agg.byMonth[month];
+          if (!m) {
+            m = { files: 0, bytes: 0 };
+            agg.byMonth[month] = m;
+          }
           m.files += 1;
           m.bytes += st.size;
         }),
@@ -456,7 +460,7 @@ export class MediaResourceService {
 
   /** Immediate sub-directory names (sorted), or null when the dir is absent. */
   private async readSubdirs(dir: string): Promise<string[] | null> {
-    let entries;
+    let entries: import('node:fs').Dirent[];
     try {
       entries = await readdir(dir, { withFileTypes: true });
     } catch {
@@ -481,7 +485,7 @@ export class MediaResourceService {
   private async readFiles(
     dir: string,
   ): Promise<Array<{ name: string; size: number; mtimeMs: number }>> {
-    let dirents;
+    let dirents: import('node:fs').Dirent[];
     try {
       dirents = await readdir(dir, { withFileTypes: true });
     } catch {

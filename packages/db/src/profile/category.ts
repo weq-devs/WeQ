@@ -6,7 +6,7 @@
 
 import { ProtoMsg } from '@weq/codec';
 import { CategoryListBody } from '@weq/codec/proto/profile/25011';
-import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
+import type { DatabaseAlgorithms, NtHelperBinding, } from '@weq/native';
 import { QqDb } from '../qq_db';
 
 const categoryCodec = new ProtoMsg(CategoryListBody);

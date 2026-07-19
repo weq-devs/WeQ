@@ -68,6 +68,7 @@ function renderMarkdownBlocks(blocks: MarkdownBlock[]) {
 			return (
 				<ListTag key={key} className={cn("message-markdown-list")}>
 					{block.items.map((item, itemIndex) => (
+						// biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
 						<li key={`${key}-item-${itemIndex}`}>
 							{renderInlineMarkdown(item, `${key}-item-${itemIndex}`)}
 						</li>

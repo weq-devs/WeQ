@@ -14,6 +14,7 @@ import { once } from 'node:events';
 import type { MsgService } from '../msg';
 import { iterateGroupMessages, toExportedMessage } from './message_source';
 import { annotateLocalPaths } from './element_text';
+import { expandForwards } from './forward_expand';
 import type { ExportedMessage, ExportFormat, ExportResult, GroupExportOptions } from './types';
 
 export interface Framing {
@@ -48,6 +49,7 @@ export async function runGroupExport(
     for await (const m of iterateGroupMessages(msgs, opts.groupCode, { pageSize: opts.pageSize, range: opts.range })) {
       const exported = toExportedMessage(m);
       opts.collectSenders?.add(exported.senderUin);
+      await expandForwards(msgs, 'group', exported);
       if (opts.withMediaPaths) annotateLocalPaths(exported.elements);
       const record = renderRecord(exported);
       await write(count === 0 ? record : framing.between + record);

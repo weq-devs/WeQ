@@ -26,7 +26,10 @@ import {
   getAppContext,
   requireBootstrap,
   requirePlatform,
+  emitKeyFetchStalled,
+  rememberAccountUid,
   type AccountForcedClosedEvent,
+  type KeyFetchStalledEvent,
 } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import {
@@ -57,15 +60,28 @@ const algoSchema = z.object({
 const logger = getLogger().child({ scope: 'bootstrap-router' });
 
 /**
- * QQ pids the embedded hook has been injected into during THIS app session.
- * Re-injecting a live pid forces the native pipe client to reconnect, which
- * races the hook's single-listener pipe and fails with ERROR_PIPE_BUSY — so we
- * inject once per pid and reuse the cached native client thereafter (see
- * `fetchKeyFromInstance`). Process-scoped: a full app restart resets it (and
- * also resets the native client cache), which is exactly when re-injection is
- * actually needed again.
+ * Ensure the uin→uid mapping is registered so linux path resolution
+ * (`platform.ntMsgDbPath(uin)` etc., which hashes uid into the account dir)
+ * works during the login flow — before the account is saved to config. Reads
+ * the decrypted login.db account list and seeds the in-memory registry. No-op
+ * on win32 (paths key off uin there) and when the uid is already known.
  */
-const injectedPids = new Set<number>();
+async function ensureUidForUin(
+  boot: ReturnType<typeof requireBootstrap>,
+  uin: string,
+): Promise<void> {
+  try {
+    const accounts = await boot.detect.listAccounts();
+    const match = accounts.find((a) => a.uin === uin && a.uid);
+    if (match?.uid) rememberAccountUid(uin, match.uid);
+  } catch (e) {
+    logger.warn('ensureUidForUin failed to resolve uid', {
+      event: 'ensure-uid-failed',
+      uin,
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
+}
 
 export const bootstrapRouter = router({
   // ---- native health ----
@@ -87,6 +103,60 @@ export const bootstrapRouter = router({
       };
     });
   }),
+
+  /**
+   * Alive QQ instance stalled without a real recv packet (linux). Central
+   * channel so the renderer surfaces one consistent "poke the account" hint
+   * no matter which flow hit the stall.
+   */
+  onKeyFetchStalled: procedure.subscription(() => {
+    return observable<KeyFetchStalledEvent>((emit) => {
+      const handler = (event: KeyFetchStalledEvent): void => {
+        emit.next(event);
+      };
+      accountEventBus.on('keyFetchStalled', handler);
+      return () => {
+        accountEventBus.off('keyFetchStalled', handler);
+      };
+    });
+  }),
+
+  /**
+   * The renderer login race timed out waiting on an alive instance. It handles
+   * its own continue/kill prompt, but reports the stall here so the stall is
+   * logged and broadcast through the same central channel as background flows.
+   */
+  reportKeyStalled: procedure
+    .input(z.object({ uin: z.string().optional() }))
+    .mutation(({ input }) => {
+      emitKeyFetchStalled('login', input.uin);
+      return { ok: true as const };
+    }),
+
+  /** Platform kind, so the renderer can branch linux-only key behaviour. */
+  systemInfo: procedure.query(() => {
+    return { platformKind: process.platform as NodeJS.Platform };
+  }),
+
+  /**
+   * Force-terminate a QQ process by pid. Used by the login race when the user
+   * opts to abandon the alive-instance path and switch to ninebird.
+   */
+  killQqProcess: procedure
+    .input(z.object({ pid: z.number().int().positive() }))
+    .mutation(({ input }) => {
+      try {
+        process.kill(input.pid);
+        return { ok: true as const };
+      } catch (e) {
+        logger.warn('killQqProcess failed', {
+          event: 'router-kill-qq-failed',
+          pid: input.pid,
+          error: e instanceof Error ? e.message : String(e),
+        });
+        return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+      }
+    }),
 
   // ---- detection (via global config cache) ----
 
@@ -125,22 +195,30 @@ export const bootstrapRouter = router({
   /** Largest database files for an account (language-bar chart). */
   dbFileSizes: procedure
     .input(z.object({ uin: z.string(), topN: z.number().int().positive().max(20).optional() }))
-    .query(({ input }) => {
-      return requireBootstrap().globalConfig.dbFileSizes(input.uin, input.topN ?? 8);
+    .query(async ({ input }) => {
+      const boot = requireBootstrap();
+      // Linux resolves the account dir from uid; seed it before scanning so
+      // the pre-open stats screen works (the account isn't open yet).
+      await ensureUidForUin(boot, input.uin);
+      return boot.globalConfig.dbFileSizes(input.uin, input.topN ?? 8);
     }),
 
   /** nt_data subdirectory sizes for an account (space chart; may be slow). */
   ntDataSizes: procedure
     .input(z.object({ uin: z.string() }))
-    .query(({ input }) => {
-      return requireBootstrap().globalConfig.ntDataSubdirSizes(input.uin);
+    .query(async ({ input }) => {
+      const boot = requireBootstrap();
+      await ensureUidForUin(boot, input.uin);
+      return boot.globalConfig.ntDataSubdirSizes(input.uin);
     }),
 
   /** Total size of the account's user-data directory in bytes (may be slow). */
   accountDirSize: procedure
     .input(z.object({ uin: z.string() }))
-    .query(({ input }) => {
-      return requireBootstrap().globalConfig.accountDirSize(input.uin);
+    .query(async ({ input }) => {
+      const boot = requireBootstrap();
+      await ensureUidForUin(boot, input.uin);
+      return boot.globalConfig.accountDirSize(input.uin);
     }),
 
   // ---- user config ----
@@ -678,6 +756,7 @@ export const bootstrapRouter = router({
     .input(z.object({ uin: z.string(), dbKey: z.string(), dbPathOverride: z.string().optional() }))
     .mutation(async ({ input }) => {
       const platform = requirePlatform();
+      if (!input.dbPathOverride) await ensureUidForUin(requireBootstrap(), input.uin);
       const dbPath = input.dbPathOverride ?? platform.ntMsgDbPath(input.uin);
       if (!dbPath || !existsSync(dbPath)) {
         return { success: false as const, error: `未找到该账号的 nt_msg.db（uin=${input.uin}）` };
@@ -702,55 +781,91 @@ export const bootstrapRouter = router({
   // ---- key flows ----
 
   /**
-   * Flow 1 — alive QQ instance. Caller passes pid + dbPath; we inject the
-   * embedded hook (idempotent inside native), then ask for the key.
+   * Flow 1, step A — inject the hook into the alive QQ instance WITHOUT waiting
+   * for the post-login packet. On linux this is the pkexec-elevated ptrace
+   * inject, so it pops the polkit password dialog and can take arbitrarily long
+   * (the user typing their password). The renderer awaits this UNTIMED, then
+   * runs `fetchKeyFromInstance` (step B) under its 10s stall timer — so the
+   * password-entry time no longer counts against "how long has the packet wait
+   * stalled". Idempotent inside the hook. No-op-ish on win32 (ensure == inject).
+   */
+  prepareInstanceInject: procedure
+    .input(z.object({ pid: z.number().int().positive() }))
+    .mutation(async ({ input }) => {
+      const boot = requireBootstrap();
+      logger.info('router preparing instance inject (untimed)', {
+        event: 'router-prepare-inject',
+        pid: input.pid,
+      });
+      try {
+        await boot.injectHook.inject(input.pid);
+        return { ok: true as const };
+      } catch (e) {
+        logger.warn('prepareInstanceInject failed', {
+          event: 'router-prepare-inject-failed',
+          pid: input.pid,
+          error: e instanceof Error ? e.message : String(e),
+        });
+        return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+      }
+    }),
+
+  /**
+   * Flow 1 — alive QQ instance. Caller passes pid + uin; we resolve the
+   * account's nt_msg.db via the platform (never trust a client-built path —
+   * that leaked Windows separators onto linux), inject the embedded hook
+   * (idempotent inside native), then ask for the key.
    */
   fetchKeyFromInstance: procedure
-    .input(z.object({ pid: z.number().int().positive(), dbPath: z.string() }))
+    .input(z.object({ pid: z.number().int().positive(), uin: z.string() }))
     .mutation(async ({ input }) => {
       const platform = requirePlatform();
       const boot = requireBootstrap();
-      // Validate the db file exists before handing it to native — otherwise the
-      // addon opens it itself and surfaces an opaque "Failed to open db" error.
-      if (!existsSync(input.dbPath)) {
+      // On linux the account dir is derived from uid, which isn't in the config
+      // yet during login. Seed it from the decrypted login.db account list so
+      // `platform.ntMsgDbPath(uin)` can resolve the dir this call.
+      await ensureUidForUin(boot, input.uin);
+      // Resolve the db path from the platform so the layout (win `<uin>/nt_qq/…`
+      // vs linux `nt_qq_<hash>/…`) and separators are always correct.
+      const dbPath = platform.ntMsgDbPath(input.uin);
+      if (!dbPath || !existsSync(dbPath)) {
         logger.warn('key fetch aborted: db file not found', {
           event: 'router-fetch-key-missing-db',
           pid: input.pid,
-          dbPath: input.dbPath,
+          uin: input.uin,
+          dbPath: dbPath ?? null,
         });
-        return { success: false as const, error: `未找到数据库文件：${input.dbPath}` };
+        return {
+          success: false as const,
+          error: dbPath ? `未找到数据库文件：${dbPath}` : `未找到账号 ${input.uin} 的数据库目录`,
+        };
       }
       logger.info('router requested key from running instance', {
         event: 'router-fetch-key-from-instance',
         pid: input.pid,
-        dbPath: input.dbPath,
-        alreadyInjected: injectedPids.has(input.pid),
+        dbPath,
       });
 
-      // Inject the embedded hook once per pid per app session. Re-injecting a
-      // live pid forces a native reconnect that races the hook's single-listener
-      // pipe (ERROR_PIPE_BUSY); skipping it lets the cached native client be
-      // reused. The native side also reuses a healthy connection now, so this is
-      // belt-and-suspenders against that race.
-      if (!injectedPids.has(input.pid)) {
-        await platform.native.ntHelper.injectAndGetStatusEmbedded(input.pid);
-        injectedPids.add(input.pid);
-      }
+      // Make the pid sendable (idempotent). On win32 this injects the embedded
+      // hook once; on linux it pkexec-elevates the inject and waits for the
+      // first post-login packet. Re-injecting a live pid would race the hook's
+      // single-listener pipe (ERROR_PIPE_BUSY), so the hook's per-pid cache
+      // ensures we only do it once.
+      await boot.injectHook.ensure(input.pid);
 
-      let result = await boot.keys.fetchFromInstance(input.pid, input.dbPath);
+      let result = await boot.keys.fetchFromInstance(input.pid, dbPath);
       if (!result.success) {
         // The cached native client may have died (QQ relaunched / hook
-        // unloaded). Re-inject once — a genuinely closed client reconnects
-        // cleanly — and retry a single time.
+        // unloaded). Reset + re-ensure once — a genuinely closed client
+        // reconnects cleanly — and retry a single time.
         logger.warn('key fetch failed; re-injecting and retrying once', {
           event: 'router-fetch-key-retry',
           pid: input.pid,
           error: result.error,
         });
-        injectedPids.delete(input.pid);
-        await platform.native.ntHelper.injectAndGetStatusEmbedded(input.pid);
-        injectedPids.add(input.pid);
-        result = await boot.keys.fetchFromInstance(input.pid, input.dbPath);
+        boot.injectHook.reset(input.pid);
+        await boot.injectHook.ensure(input.pid);
+        result = await boot.keys.fetchFromInstance(input.pid, dbPath);
       }
       return result;
     }),
@@ -844,6 +959,7 @@ export const bootstrapRouter = router({
     .input(
       z.object({
         uin: z.string(),
+        uid: z.string().optional(),
         dbKey: z.string(),
         algo: algoSchema.optional(),
         displayName: z.string().optional(),
@@ -854,6 +970,14 @@ export const bootstrapRouter = router({
     .mutation(async ({ input }) => {
       const ctx = getAppContext();
       const platform = requirePlatform();
+
+      // Register the uid→uin mapping BEFORE any path lookup: on linux the
+      // account directory is derived from uid, and this is a fresh account
+      // whose uid isn't in the saved config yet. Seeding it here lets
+      // `platform.ntMsgDbPath(uin)` resolve during this very call. Prefer the
+      // uid the caller passed; otherwise recover it from the login.db list.
+      if (input.uid) rememberAccountUid(input.uin, input.uid);
+      else await ensureUidForUin(requireBootstrap(), input.uin);
 
       let algo = input.algo;
       if (!algo) {
@@ -877,6 +1001,7 @@ export const bootstrapRouter = router({
       await ctx.setAccount(
         { uin: input.uin, dbKey: input.dbKey, algo },
         {
+          ...(input.uid ? { uid: input.uid } : {}),
           ...(input.displayName ? { displayName: input.displayName } : {}),
           ...(input.avatarUrl ? { avatarUrl: input.avatarUrl } : {}),
           ...(dataDir ? { dataDir } : {}),

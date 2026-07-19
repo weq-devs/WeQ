@@ -18,29 +18,32 @@ import {
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { getQueryKey } from '@trpc/react-query';
-import { Settings } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useUpdateStore } from '../state/update';
 import { client } from '../trpc/client';
 import { useDialog } from '../components/Dialog';
+import { useToast } from '../components/Toast';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { datalineName, isDatalineSelfUid } from '@weq/codec';
 import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
 import { RailAccountFooter } from '../components/RailAccountFooter';
 import { SettingsDialog } from '../components/SettingsDialog';
+import { CollectionDialog } from '../components/CollectionDialog';
 import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
 import { GroupAnalyticsDialog } from '../components/GroupAnalyticsDialog';
 import { MemberProfileCard } from '../components/MemberProfileCard';
 import { BuddyAnalyticsDialog } from '../components/BuddyAnalyticsDialog';
 import { AddMessageModal } from '../components/compose/AddMessageModal';
 import { DeletedMessagesModal } from '../components/compose/DeletedMessagesModal';
-import { loadHiddenMessageIds, saveHiddenMessageIds } from '../im-template/template/hiddenMessages';
+import { RecalledMessagesModal } from '../components/compose/RecalledMessagesModal';
 import { RelationGraphView } from '../components/relationGraph/RelationGraphView';
 import { AgentLabView } from './AgentLabView';
 import { ExportView } from './ExportView';
 import { CacheView } from './cache/CacheView';
+import { QzoneView } from './QzoneView';
+import { ChannelView } from './ChannelView';
 import { ChatHome } from './ChatHome';
 import {
   ChatMainContent,
@@ -112,6 +115,7 @@ function DatabaseDamagedDialogBody({
           <h4>检测详情</h4>
           <ul>
             {safeDetails.map((line, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
               <li key={`${line}:${index}`}>{line}</li>
             ))}
           </ul>
@@ -162,6 +166,10 @@ type MessageWire = {
   elements: unknown[];
   /** Sticker reactions (贴表情, column 40062); group-only, omitted when none. */
   setEmojiList?: SetEmojiItem[];
+  /** Deleted origin: 'weq' (restorable) or 'qq' (native recall, not). */
+  deletedKind?: 'weq' | 'qq';
+  /** Recall marker: message whose QQ recall was intercepted (content intact). */
+  recall?: { revokeUid: string; sameSender: boolean; recallTs: number };
 };
 
 /** One full-text search hit from `account.searchMessages`. */
@@ -250,6 +258,8 @@ type ChatMsgWire = {
   sendTime: string;
   elements: unknown[];
   setEmojiList?: SetEmojiItem[];
+  deletedKind?: 'weq' | 'qq';
+  recall?: { revokeUid: string; sameSender: boolean; recallTs: number };
 };
 
 function toMessageWire(w: ChatMsgWire): MessageWire {
@@ -261,6 +271,8 @@ function toMessageWire(w: ChatMsgWire): MessageWire {
     sendTime: w.sendTime,
     elements: w.elements,
     setEmojiList: w.setEmojiList,
+    deletedKind: w.deletedKind,
+    recall: w.recall,
   };
 }
 
@@ -375,11 +387,6 @@ type GroupEssenceWire = {
   setStatus: number;
   operatorNick: string;
   timestamp: number;
-};
-
-type GroupMemberLevelInfoWire = {
-  memberLevel: number;
-  levelConfigs: Array<{ level: number; levelName: string }>;
 };
 
 type RenderElementWire = {
@@ -565,7 +572,7 @@ function displayProfileName(profile?: UserProfileWire): string | null {
   return profile.remark || profile.nick || profile.qid || profile.uin || null;
 }
 
-function genderLabel(value?: number): string | null {
+function _genderLabel(value?: number): string | null {
   if (value === 1) return '男';
   if (value === 2) return '女';
   return null;
@@ -682,7 +689,7 @@ function groupNotifyToGroupRequest(
   groupsById: Map<string, Conversation>
 ): GroupJoinRequest | null {
   const groupConversation = groupsById.get(notify.groupUin);
-  if (!groupConversation || groupConversation.type !== 'group') return null;
+  if (groupConversation?.type !== 'group') return null;
 
   const profile = profileByUid.get(notify.operatedUid);
   const uin = profile?.uin ?? '';
@@ -728,10 +735,10 @@ function groupNotifyToGroupRequest(
   };
 }
 
-function groupRequestFromBuddyRequest(request: BuddyRequestWire, groupsById: Map<string, Conversation>, profileByUid: Map<string, UserProfileWire>) {
+function _groupRequestFromBuddyRequest(request: BuddyRequestWire, groupsById: Map<string, Conversation>, profileByUid: Map<string, UserProfileWire>) {
   if (!request.sourceGroupCode || request.sourceGroupCode === '0') return null;
   const groupConversation = groupsById.get(request.sourceGroupCode);
-  if (!groupConversation || groupConversation.type !== 'group') return null;
+  if (groupConversation?.type !== 'group') return null;
   const contactRequest = buddyRequestToContactRequest(request, profileByUid);
 
   return {
@@ -919,6 +926,20 @@ function messageToTemplate(message: MessageWire, conversation: Conversation, use
   // without having to thread the renderer-side group lookup through React
   // context. Non-reply elements are passed through untouched.
   const elements = enrichReplyElements(message.elements, conversation, user, memberMap);
+  // Recall reviser's display name: only needed when an admin recalled someone
+  // else's message (sameSender === false). Group → memberMap by uid; c2c → the
+  // peer (the only other party). Falls back to a generic label in the bubble.
+  let recallRevokerName: string | undefined;
+  if (message.recall && !message.recall.sameSender) {
+    const uid = message.recall.revokeUid;
+    if (uid) {
+      recallRevokerName =
+        memberMap?.get(uid)?.displayName ??
+        (conversation.type === 'direct' && conversation.otherUser.id === uid
+          ? conversation.otherUser.displayName
+          : undefined);
+    }
+  }
   return {
     id: message.msgId,
     conversationId: conversation.id,
@@ -931,8 +952,13 @@ function messageToTemplate(message: MessageWire, conversation: Conversation, use
     qqElements: elements,
     // Sticker reactions (贴表情) rendered below the bubble by MessageBubble.
     setEmojiList: message.setEmojiList,
+    // Deleted origin ('weq'/'qq'), carried to the bubble's veil renderer.
+    deletedKind: message.deletedKind,
+    // Recall marker + resolved reviser name, carried to the bubble's 撤回 tag.
+    recall: message.recall,
+    recallRevokerName,
     msgId: message.msgId,
-  } as Message & { qqElements: unknown[]; setEmojiList?: SetEmojiItem[]; msgId: string };
+  } as Message & { qqElements: unknown[]; setEmojiList?: SetEmojiItem[]; deletedKind?: 'weq' | 'qq'; recall?: { revokeUid: string; sameSender: boolean; recallTs: number }; recallRevokerName?: string; msgId: string };
 }
 
 /**
@@ -1081,8 +1107,11 @@ function extractGrayTipUids(elements: unknown[]): string[] {
       const xml = typeof data.grayTipXmlContent === 'string' ? data.grayTipXmlContent : '';
       if (xml) {
         const re = /uin="([^"]+)"/g;
-        let match: RegExpExecArray | null;
-        while ((match = re.exec(xml)) !== null) pushUid(match[1]);
+        let match = re.exec(xml);
+        while (match !== null) {
+          pushUid(match[1]);
+          match = re.exec(xml);
+        }
       }
       const tipJson = typeof data.tipJson === 'string' ? data.tipJson : '';
       if (tipJson) {
@@ -1097,6 +1126,13 @@ function extractGrayTipUids(elements: unknown[]): string[] {
       const mute = (data as Record<string, any>).muteInfo;
       pushUid(mute?.operator?.uid);
       pushUid(mute?.mutedUser?.uid);
+    } else if (type === 'grayTipRevoke') {
+      // Placeholder / offline recall tips often arrive WITHOUT the sender's nick
+      // baked in — only the uids. Pre-resolve them via the group-member resolver
+      // so GrayTipRevokeMessage can show "{昵称} 撤回了一条消息" instead of a
+      // bare placeholder. (Both are `u_`-prefixed; pushUid filters accordingly.)
+      pushUid((data as Record<string, any>).recallSenderUid);
+      pushUid((data as Record<string, any>).recallRevokeUid);
     }
   }
 
@@ -1400,6 +1436,7 @@ export function MainView(): ReactElement {
   const utils = trpc.useUtils();
   const queryClient = useQueryClient();
   const showError = useDialog((s) => s.showError);
+  const pushToast = useToast((s) => s.push);
   const contacts = trpc.account.listRecentContacts.useQuery();
   const selfProfile = trpc.account.getSelfProfile.useQuery();
   const buddies = trpc.account.listBuddies.useQuery({ limit: 2000 });
@@ -1488,6 +1525,24 @@ export function MainView(): ReactElement {
     return () => sub.unsubscribe();
   }, [goTo, queryClient, setHomeStage, setOpenedUin, showError]);
 
+  // Central "alive QQ but packet-stalled" channel. The login race owns its own
+  // continue/kill prompt, so we only surface background-flow stalls (harvest /
+  // on-demand credential) as a non-blocking toast here — login stalls arrive
+  // with source==='login' purely for logging and are skipped.
+  useEffect(() => {
+    const sub = client.bootstrap.onKeyFetchStalled.subscribe(undefined, {
+      onData(event) {
+        if (event?.reason !== 'packet-stalled') return;
+        if (event.source === 'login') return;
+        pushToast({ tone: 'info', title: event.title, message: event.message, ttl: 8000 });
+      },
+      onError(err) {
+        console.error('[account] onKeyFetchStalled subscription error', err);
+      },
+    });
+    return () => sub.unsubscribe();
+  }, [pushToast]);
+
   // Update availability: seed from the last cached check (the background startup
   // check may have already run), then keep it live via the check events. Drives
   // the settings rail red dot. setState via getState() to avoid re-render churn.
@@ -1520,6 +1575,7 @@ export function MainView(): ReactElement {
   const [trackedConversationId, setTrackedConversationId] = useState<string | null>(null);
   const [conversationPrefs, setConversationPrefs] = useState<ConversationPreferences>({});
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [collectionOpen, setCollectionOpen] = useState(false);
   const [requestedAnnouncementGroups, setRequestedAnnouncementGroups] = useState<Record<string, boolean>>({});
   const [albumDialog, setAlbumDialog] = useState<{
     groupCode: string;
@@ -1540,13 +1596,20 @@ export function MainView(): ReactElement {
 
   const [editorState, setEditorState] = useState<{ msgId: string, elements: any[] } | null>(null);
   const [addMessageConv, setAddMessageConv] = useState<Conversation | null>(null);
-  // "查看删除消息" panel: which conversation is open, its fetched deleted rows,
-  // and a bump counter that tells ChatPane to re-read its local hidden set after
-  // a restore (so the message reappears in the live chat immediately).
+  // "删除列表" panel: which conversation is open + its fetched deleted rows.
   const [deletedConv, setDeletedConv] = useState<Conversation | null>(null);
   const [deletedWires, setDeletedWires] = useState<MessageWire[]>([]);
   const [deletedLoading, setDeletedLoading] = useState(false);
-  const [hiddenReloadKey, setHiddenReloadKey] = useState(0);
+  // "撤回列表" panel: which conversation is open + its fetched recalled rows.
+  // Unlike deletes there's no restore — the anti-recall trigger already kept the
+  // original message; this panel just lists what was recalled + by whom.
+  const [recalledConv, setRecalledConv] = useState<Conversation | null>(null);
+  const [recalledWires, setRecalledWires] = useState<MessageWire[]>([]);
+  const [recalledLoading, setRecalledLoading] = useState(false);
+  // msgIds WeQ deleted in the SELECTED conversation — drives the in-place
+  // translucent overlay in the chat. Loaded per conversation, updated
+  // optimistically on delete/restore.
+  const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
 
   const handleEditRaw = useCallback(async (message: Message) => {
     try {
@@ -1575,23 +1638,33 @@ export function MainView(): ReactElement {
     }
   }, [editorState, refreshWindow]);
 
-  const handleDeleteMessage = useCallback(async (message: Message) => {
+  /** kind + conversation key (peer uid / group code) used by the msg endpoints. */
+  const convFetchKey = useCallback(
+    (c: Conversation): { kind: 'c2c' | 'group'; conv: string } =>
+      c.type === 'group'
+        ? { kind: 'group', conv: c.group.identityValue }
+        : { kind: 'c2c', conv: c.otherUser.id },
+    [],
+  );
+
+  // QQ-style delete: rewrites 40011/40012 to (1,1) in the DB — the message
+  // stays in the chat under a translucent overlay. Optimistically mark it
+  // deleted so the overlay appears instantly.
+  const handleDeleteMessage = useCallback(async (message: Message, conversation: Conversation) => {
+    const { kind, conv } = convFetchKey(conversation);
+    setDeletedIds((current) => new Set(current).add(message.id));
     try {
-        await client.account.deleteMessage.mutate({ msgId: message.id });
+        await client.account.deleteMessage.mutate({ msgId: message.id, kind, conv });
     } catch (e) {
         console.error('[MainView] Failed to delete message:', e);
+        // Roll the optimistic overlay back on failure.
+        setDeletedIds((current) => {
+          const next = new Set(current);
+          next.delete(message.id);
+          return next;
+        });
     }
-  }, []);
-
-  const handleHardDeleteMessage = useCallback(async (message: Message) => {
-    try {
-        await client.account.hardDeleteMessage.mutate({ msgId: message.id });
-        // Row is physically gone — refresh so the window reflects the DB.
-        void refreshWindow();
-    } catch (e) {
-        console.error('[MainView] Failed to hard-delete message:', e);
-    }
-  }, [refreshWindow]);
+  }, [convFetchKey]);
 
   const handleOpenGroupAlbums = useCallback((conversation: Extract<Conversation, { type: 'group' }>) => {
     setAlbumDialog({
@@ -1616,15 +1689,6 @@ export function MainView(): ReactElement {
   const handleAddMessage = useCallback((conversation: Conversation) => {
     setAddMessageConv(conversation);
   }, []);
-
-  /** kind + conversation key (peer uid / group code) used by the msg endpoints. */
-  const convFetchKey = useCallback(
-    (c: Conversation): { kind: 'c2c' | 'group'; conv: string } =>
-      c.type === 'group'
-        ? { kind: 'group', conv: c.group.identityValue }
-        : { kind: 'c2c', conv: c.otherUser.id },
-    [],
-  );
 
   const loadDeletedMessages = useCallback(
     async (c: Conversation): Promise<void> => {
@@ -1652,15 +1716,42 @@ export function MainView(): ReactElement {
     [loadDeletedMessages],
   );
 
+  const loadRecalledMessages = useCallback(
+    async (c: Conversation): Promise<void> => {
+      const { kind, conv } = convFetchKey(c);
+      setRecalledLoading(true);
+      try {
+        const rows = await client.account.recalledMessages.query({ kind, conv });
+        setRecalledWires(rows.map(toMessageWire));
+      } catch (e) {
+        console.error('[MainView] Failed to load recalled messages:', e);
+        setRecalledWires([]);
+      } finally {
+        setRecalledLoading(false);
+      }
+    },
+    [convFetchKey],
+  );
+
+  const handleViewRecalled = useCallback(
+    (conversation: Conversation) => {
+      setRecalledWires([]);
+      setRecalledConv(conversation);
+      void loadRecalledMessages(conversation);
+    },
+    [loadRecalledMessages],
+  );
+
   const handleRestoreMessage = useCallback(
     async (msgId: string): Promise<void> => {
       await client.account.restoreMessage.mutate({ msgId });
+      // Clear the in-place overlay for the restored message.
+      setDeletedIds((current) => {
+        const next = new Set(current);
+        next.delete(msgId);
+        return next;
+      });
       if (deletedConv) {
-        // Delete had added this id to the conversation's local hidden set; drop
-        // it so the live chat re-shows the row, then nudge ChatPane to re-read.
-        const ids = loadHiddenMessageIds(deletedConv.id);
-        if (ids.delete(msgId)) saveHiddenMessageIds(deletedConv.id, ids);
-        setHiddenReloadKey((k) => k + 1);
         await loadDeletedMessages(deletedConv);
       }
       void refreshWindow();
@@ -1818,6 +1909,27 @@ export function MainView(): ReactElement {
   const selectedUid = selectedConversation?.id ?? '';
   const isGroup = selectedConversation?.type === 'group';
   const isDirect = selectedConversation?.type === 'direct';
+
+  // Load the WeQ-deleted msgIds whenever the selected conversation changes so
+  // the in-place "deleted" overlay is correct on entry. Stale responses from a
+  // quickly-switched-away conversation are ignored.
+  useEffect(() => {
+    setDeletedIds(new Set());
+    if (!selectedConversation) return;
+    const { kind, conv } = convFetchKey(selectedConversation);
+    let alive = true;
+    client.account.deletedMsgIds
+      .query({ kind, conv })
+      .then((ids) => {
+        if (alive) setDeletedIds(new Set(ids));
+      })
+      .catch(() => {
+        /* overlay silently absent on failure; delete/restore still work */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [selectedConversation, convFetchKey]);
 
   // 群资料灯箱：拉取所选群在 group_member3 里的前若干名成员，用于头像横排展示。
   const groupDetailCode = shell.selectedGroupConversationId ?? '';
@@ -2043,7 +2155,7 @@ export function MainView(): ReactElement {
   // `loaded` is already oldest→newest; the template renders in array order.
   const loadedMessageWires = loaded;
   const currentGroupMembers = useMemo(() => {
-    if (!selectedConversation || selectedConversation.type !== 'group') return [];
+    if (selectedConversation?.type !== 'group') return [];
     
     const detail = groupDetail.data;
     const levelConfigs = groupLevelInfo.data?.levelConfigs ?? [];
@@ -2136,6 +2248,16 @@ export function MainView(): ReactElement {
       .filter((message) => isRenderableMessage(message))
       .map((message) => messageToTemplate(message, deletedConv, user, memberMap));
   }, [deletedWires, deletedConv, user, currentGroupMembers]);
+
+  // Recalled messages through the SAME template pipeline (bubbles match the chat
+  // + carry the 撤回 tag). Same member source as the deleted panel.
+  const recalledTemplateMessages = useMemo(() => {
+    if (!recalledConv) return [];
+    const memberMap = new Map(currentGroupMembers.map((m) => [m.id, m]));
+    return recalledWires
+      .filter((message) => isRenderableMessage(message))
+      .map((message) => messageToTemplate(message, recalledConv, user, memberMap));
+  }, [recalledWires, recalledConv, user, currentGroupMembers]);
 
   const activeConversation = useMemo(() => {
     if (!selectedConversation) return undefined;
@@ -2242,8 +2364,8 @@ export function MainView(): ReactElement {
   // it works right after a conversation switch (before selectionRef settles).
   const centerWindowOnSeq = useCallback(
     async (conv: string, kind: 'group' | 'c2c', targetSeq: string): Promise<boolean> => {
-      let before;
-      let after;
+      let before: ChatMsgWire[];
+      let after: ChatMsgWire[];
       try {
         [before, after] = await Promise.all([
           // `< target+1` is `<= target`, so the centre message is included.
@@ -2320,7 +2442,7 @@ export function MainView(): ReactElement {
       const minSeq = working[0]?.msgSeq;
       if (!minSeq || Number(minSeq) <= targetNum) break;
       if (working.some((m) => m.msgSeq === targetSeq)) break;
-      let older;
+      let older: ChatMsgWire[];
       try {
         older = await client.account.listBefore.query({ kind, conv: sel.id, beforeSeq: minSeq, limit: PAGE_SIZE });
       } catch (err) {
@@ -2736,7 +2858,7 @@ export function MainView(): ReactElement {
         query={shell.query}
         contactTab={shell.contactTab}
         activeNotice={shell.contactNotice}
-        sidebarWidth={shell.view === 'export' || shell.view === 'agentlab' || shell.view === 'cache' ? 0 : shell.sidebarWidth}
+        sidebarWidth={shell.view === 'export' || shell.view === 'agentlab' || shell.view === 'cache' || shell.view === 'qzone' || shell.view === 'channel' ? 0 : shell.sidebarWidth}
         mainOpen={shell.mainOpen}
         messageBadgeCount={0}
         contactBadgeCount={0}
@@ -2752,6 +2874,7 @@ export function MainView(): ReactElement {
         groupNoticeCount={groupRequests.length}
         onViewChange={shell.switchView}
         onOpenSettings={() => setSettingsOpen(true)}
+        onOpenCollection={() => setCollectionOpen(true)}
         onOpenProfile={noopAsync}
         onOpenAbout={noopAsync}
         onOpenHelp={noopAsync}
@@ -2764,7 +2887,7 @@ export function MainView(): ReactElement {
         onContactTabChange={shell.changeContactTab}
         onSidebarWidthChange={shell.updateSidebarWidth}
         sidebarContent={
-          shell.view === 'export' || shell.view === 'agentlab' || shell.view === 'cache' ? null : (
+          shell.view === 'export' || shell.view === 'agentlab' || shell.view === 'cache' || shell.view === 'qzone' || shell.view === 'channel' ? null : (
           <>
             <ChatSidebarContent
               user={user}
@@ -2816,10 +2939,12 @@ export function MainView(): ReactElement {
                           <span className="weq-search-sender">{row.senderName}: </span>
                           {row.runs.map((part, i) =>
                             part.hit ? (
+                              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                               <mark key={i} className="weq-search-hl">
                                 {part.text}
                               </mark>
                             ) : (
+                              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                               <span key={i}>{part.text}</span>
                             ),
                           )}
@@ -2845,6 +2970,10 @@ export function MainView(): ReactElement {
             <AgentLabView />
           ) : shell.view === 'cache' ? (
             <CacheView />
+          ) : shell.view === 'qzone' ? (
+            <QzoneView />
+          ) : shell.view === 'channel' ? (
+            <ChannelView />
           ) : (
           <div className="weq-template-main-wrap">
             <div className="weq-readonly-chat">
@@ -2887,7 +3016,6 @@ export function MainView(): ReactElement {
                 onBackConversation={shell.backConversation}
                 onEditRaw={handleEditRaw}
                 onDeleteMessage={handleDeleteMessage}
-                onHardDeleteMessage={handleHardDeleteMessage}
                 onOpenGroupAlbums={handleOpenGroupAlbums}
                 onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
                 onOpenGroupAnalytics={handleOpenGroupAnalytics}
@@ -2895,7 +3023,9 @@ export function MainView(): ReactElement {
                 onOpenGroupMember={handleOpenGroupMember}
                 onAddMessage={handleAddMessage}
                 onViewDeleted={handleViewDeleted}
-                hiddenReloadKey={hiddenReloadKey}
+                onViewRecalled={handleViewRecalled}
+                deletedIds={deletedIds}
+                onRestoreMessage={handleRestoreMessage}
               />
             </div>
             <OverlayScrollbar
@@ -2923,6 +3053,7 @@ export function MainView(): ReactElement {
       ) : null}
 
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <CollectionDialog open={collectionOpen} onClose={() => setCollectionOpen(false)} />
       {albumDialog ? (
         <GroupAlbumDialog
           groupCode={albumDialog.groupCode}
@@ -2971,6 +3102,19 @@ export function MainView(): ReactElement {
           onClose={() => {
             setDeletedConv(null);
             setDeletedWires([]);
+          }}
+        />
+      ) : null}
+      {recalledConv ? (
+        <RecalledMessagesModal
+          conversation={recalledConv}
+          user={user}
+          messages={recalledTemplateMessages}
+          renderers={messageRenderers}
+          loading={recalledLoading}
+          onClose={() => {
+            setRecalledConv(null);
+            setRecalledWires([]);
           }}
         />
       ) : null}

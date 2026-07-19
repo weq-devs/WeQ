@@ -7,6 +7,7 @@ import {
 	Settings,
 	Hash,
 	Star,
+	Bookmark,
 	HardDrive,
 } from "lucide-react";
 import { useEffect, useRef, useState, useTransition } from "react";
@@ -16,16 +17,16 @@ import { Avatar } from "./primitives";
 import type { MainView, SettingsTab, User } from "./types";
 import { displayUserName } from "./user";
 import { useUpdateStore } from "../../state/update";
-import { useThemeStore } from "../../state/theme";
 
 export function AppRail({
 	user,
 	view,
 	onViewChange,
 	onOpenSettings,
+	onOpenCollection,
 	onOpenProfile,
-	onOpenAbout,
-	onOpenHelp,
+	onOpenAbout: _onOpenAbout,
+	onOpenHelp: _onOpenHelp,
 	onOpenInvite,
 	messageBadgeCount = 0,
 	contactBadgeCount = 0,
@@ -37,6 +38,7 @@ export function AppRail({
 	view: MainView;
 	onViewChange: (view: MainView) => void;
 	onOpenSettings: (tab?: SettingsTab) => void;
+	onOpenCollection: () => void;
 	onOpenProfile: () => void;
 	onOpenAbout: () => void;
 	onOpenHelp: () => void;
@@ -175,17 +177,11 @@ export function AppRail({
 						) : null}
 					</button>
 					<button
-						className={cn("rail-tab rail-tab-qzone")}
-						onClick={() => {
-							setMenuOpen(false);
-							setProfileOpen(false);
-							// Opens a dedicated, per-account browser window
-							// (user.qzone.qq.com) in the main process — not an in-app
-							// view. Pass WeQ's theme so the browser follows 深/浅 mode.
-							void window.weq?.qzone?.open(
-								useThemeStore.getState().preference,
-							);
-						}}
+						className={cn(
+							railButtonClass(activeView === "qzone"),
+							"rail-tab rail-tab-qzone",
+						)}
+						onClick={() => selectView("qzone")}
 						title="QQ 空间"
 						type="button"
 					>
@@ -195,17 +191,11 @@ export function AppRail({
 						<span className={cn("rail-label")}>QQ空间</span>
 					</button>
 					<button
-						className={cn("rail-tab rail-tab-channel")}
-						onClick={() => {
-							setMenuOpen(false);
-							setProfileOpen(false);
-							// Opens a dedicated, per-account browser window (pd.qq.com)
-							// in the main process — not an in-app view. Pass WeQ's
-							// theme so the browser follows 深/浅 mode.
-							void window.weq?.channel?.open(
-								useThemeStore.getState().preference,
-							);
-						}}
+						className={cn(
+							railButtonClass(activeView === "channel"),
+							"rail-tab rail-tab-channel",
+						)}
+						onClick={() => selectView("channel")}
 						title="QQ 频道"
 						type="button"
 					>
@@ -252,6 +242,21 @@ export function AppRail({
 							<HardDrive size={22} strokeWidth={1.5} />
 						</span>
 						<span className={cn("rail-label")}>缓存</span>
+					</button>
+					<button
+						className={cn("rail-tab rail-tab-collection")}
+						onClick={() => {
+							setMenuOpen(false);
+							setProfileOpen(false);
+							onOpenCollection();
+						}}
+						title="我的收藏"
+						type="button"
+					>
+						<span className={cn("rail-tab-icon")}>
+							<Bookmark size={22} strokeWidth={1.5} />
+						</span>
+						<span className={cn("rail-label")}>收藏</span>
 					</button>
 					<button
 						className={cn("rail-tab rail-tab-settings")}

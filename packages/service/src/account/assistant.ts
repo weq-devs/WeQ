@@ -12,10 +12,11 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { basename, dirname, extname, join, resolve, sep } from 'node:path';
+import { basename, extname, join, resolve, sep } from 'node:path';
 import { reportUsage, pickMessageText, type AgentLabEndpoint, type AgentLabModelRef, type AgentLabUsage } from '@weq/agentlab';
 import type { TokenUsageStore } from './agentlab_usage';
 import type { ConversationStore, ConversationTurn } from './agentlab_conversation';
+import { writeFileAtomicSync } from './atomic_write';
 
 export type EndpointResolver = (ref: AgentLabModelRef) => AgentLabEndpoint;
 
@@ -39,9 +40,14 @@ export interface AssistantTools {
   sampleHitokoto?: (n: number) => Array<{ text: string; from: string }>;
 }
 
+/** 思考等级（reasoning effort）。映射为 OpenAI 兼容请求的 `reasoning_effort` 参数（`off` = 不带）。 */
+export type AssistantReasoningEffort = 'off' | 'low' | 'medium' | 'high';
+
 export interface AssistantConfig {
   model?: AgentLabModelRef;
   customPrompt?: string;
+  /** 思考等级（见 {@link AssistantReasoningEffort}）：非 `off` 时以 `reasoning_effort` 传给模型。 */
+  reasoningEffort?: AssistantReasoningEffort;
   /** 外部 MCP 服务器配置（Claude Desktop JSON 或每行 `名字=url`）。 */
   mcpServers?: string;
 }
@@ -96,14 +102,21 @@ function extractArtifactCard(result: unknown): AssistantArtifact | null {
 
 /**
  * 一轮任务推进里可观测的一步。前端按 kind 渲染（thinking/工具调用/工具结果可折叠，
- * final 用 Markdown，artifact 渲染成气泡里的附件卡片）。`error` 为终止态。
+ * final 用 Markdown，artifact 渲染成气泡里的附件卡片）。`error`/`aborted` 为终止态。
+ *
+ * 流式（M2）：正文与推理不再等整段返回，而是逐片以 `text_delta` / `reasoning_delta`
+ * 推出（前端累积进气泡 / 思考面板）。`thinking` 仍保留——工具调用前那段思路会作为
+ * 一条 thinking 写进 steps[] 持久化（但运行时不重复 emit，正文已由 text_delta 送达）。
  */
 export type AssistantStep =
   | { kind: 'thinking'; text: string }
+  | { kind: 'text_delta'; text: string }
+  | { kind: 'reasoning_delta'; text: string }
   | { kind: 'tool_call'; id: string; name: string; args: unknown }
   | { kind: 'tool_result'; id: string; name: string; ok: boolean; preview: string }
   | { kind: 'artifact'; artifact: AssistantArtifact }
   | { kind: 'final'; text: string }
+  | { kind: 'aborted' }
   | { kind: 'error'; message: string };
 
 /** report 文件类型 → 扩展名 / MIME。单一事实源，写盘与读取都走它。 */
@@ -159,7 +172,32 @@ export const ASSISTANT_AGENT_ID = 'assistant';
 const DEFAULT_SESSION_TITLE = '新对话';
 
 /** 单轮任务最多调用工具的轮数。任务型 agent 要敢多试，故给得宽一些。 */
-const TOOL_LOOP_LIMIT = 14;
+const TOOL_LOOP_LIMIT = 24;
+
+/** 单个工具执行的超时上限：到点算失败回灌模型继续，避免某个工具挂住拖死整轮。 */
+const TOOL_TIMEOUT_MS = 60_000;
+/** 整轮任务（多轮工具调用 + LLM）总时限：超时自动中止并给出可读错误，防前端永久转圈。 */
+const RUN_TIMEOUT_MS = 600_000;
+
+/**
+ * 证据追问检测：用户是不是在质疑/追问上一条结论的依据（「真的假的 / 有证据吗 / 原话呢 / 为什么这么说」）。
+ * 命中且**上一轮助手确实用过工具**时，systemPrompt 会注入一条硬规则：本轮必须重新调工具查证再答，
+ * 禁止复述或为旧结论辩护（见 {@link AssistantService.systemPrompt} 的【本轮特别要求】）。
+ * 正则借鉴 WeFlow `EVIDENCE_FOLLOW_UP_PATTERN`。
+ */
+const EVIDENCE_FOLLOW_UP_PATTERN =
+  /真的假的|真(?:的)?吗|你确定|确定(?:吗|么)|有(?:什么)?证据|证据(?:呢|在哪|是什么)?|原话|原文|哪句话?|怎么证明|如何证明|依据(?:呢|是什么)?|出处(?:呢|是什么)?|为什么这么说|凭什么|瞎说|乱说|胡说|不对吧|真有|假的吧/i;
+
+/**
+ * 判定用户这轮是否「想要一份报告/可视化文档」。命中才把体量约 55 行的 rp-* 报告排版
+ * 指南注入 system prompt（见 {@link AssistantService.systemPrompt}）。
+ * 宁可少注入也别误伤日常提问：只匹配明确的成品诉求（报告/网页/看板/海报…）与"生成/做/写一份…"结构，
+ * 不匹配"总结一下""分析下他"这类既可能只是聊天回答、也可能要报告的模糊表达——那种就让模型自己按
+ * 【写报告 / 文档】缺省判断（缺省下模型仍知道有 write_report，只是不带排版细节）。
+ */
+const REPORT_INTENT_PATTERN =
+  /报告|周报|月报|日报|网页|可视化|看板|仪表盘|dashboard|海报|长图|画一?[张份个]|做一?[张份个]|生成一?[张份个]|写一?[份张个](?:.*?)(?:报告|文档|网页|页面|总结|分析)|导出(?:成|为)?(?:报告|文档|网页|html|pdf)|html|排版|封面/i;
+
 /** 单个工具结果回灌给模型 / 落库的字符上限。 */
 const TOOL_RESULT_CAP = 8000;
 const STEP_PREVIEW_CAP = 4000;
@@ -171,11 +209,29 @@ interface ApiMessage {
   tool_call_id?: string;
 }
 
+/** OpenAI 兼容流式响应的一片（`data: {...}`）；只声明我们会读的字段。 */
+interface StreamChunk {
+  choices?: Array<{
+    delta?: {
+      content?: unknown;
+      reasoning_content?: unknown;
+      tool_calls?: Array<{
+        index?: number;
+        id?: string;
+        function?: { name?: string; arguments?: string };
+      }>;
+    };
+  }>;
+  usage?: unknown;
+}
+
 export class AssistantService {
   private readonly configPath: string;
   private readonly sessionsPath: string;
   private config: AssistantConfig;
   private sessions: AssistantSession[];
+  /** provider 若不认 `reasoning_effort`（首次 400）就置真，本进程后续调用不再带该参数。 */
+  private reasoningUnsupported = false;
 
   constructor(
     private readonly rootDir: string,
@@ -201,6 +257,7 @@ export class AssistantService {
     this.config = {
       model: patch.model ?? this.config.model,
       customPrompt: patch.customPrompt !== undefined ? patch.customPrompt : this.config.customPrompt,
+      reasoningEffort: patch.reasoningEffort !== undefined ? patch.reasoningEffort : this.config.reasoningEffort,
       mcpServers: patch.mcpServers !== undefined ? patch.mcpServers : this.config.mcpServers,
     };
     this.persistConfig();
@@ -321,13 +378,19 @@ export class AssistantService {
     sessionId: string,
     text: string,
     onStep?: (step: AssistantStep) => void,
+    signal?: AbortSignal,
   ): Promise<{ text: string; steps: AssistantStep[] }> {
     if (!this.config.model) throw new Error('请先在助手设置里选择聊天模型。');
     const session = this.sessions.find((s) => s.id === sessionId);
     if (!session) throw new Error('对话不存在，请新建一个对话。');
 
     const steps: AssistantStep[] = [];
+    // 累积「当前可见正文」：用户点停止时用它作为已完成的部分答复持久化。
+    // 一批工具调用开始（tool_call）意味着此前那段正文已转为「思考」，故清零重来。
+    let streamed = '';
     const emit = (step: AssistantStep): void => {
+      if (step.kind === 'text_delta') streamed += step.text;
+      else if (step.kind === 'tool_call') streamed = '';
       steps.push(step);
       try {
         onStep?.(step);
@@ -335,19 +398,31 @@ export class AssistantService {
         /* 前端推送失败不应中断任务 */
       }
     };
+    // 仅持久化、不再实时推送：正文/推理已通过 *_delta 到达前端，这里只补一条汇总 step 供重载回看。
+    const record = (step: AssistantStep): void => {
+      steps.push(step);
+    };
+    // text_delta / reasoning_delta 是逐字碎片，不入库（会重复且臃肿）；落库只保留过程性 step。
+    const persistable = (): AssistantStep[] =>
+      steps.filter((s) => s.kind !== 'text_delta' && s.kind !== 'reasoning_delta');
+    const collectToolsUsed = (): string[] => [
+      ...new Set(
+        steps.filter((s): s is Extract<AssistantStep, { kind: 'tool_call' }> => s.kind === 'tool_call').map((s) => s.name),
+      ),
+    ];
 
     try {
-      const reply = await this.runLoop(sessionId, text, emit);
+      const reply = await this.runLoop(sessionId, text, emit, record, signal);
       const now = Date.now();
-      const toolsUsed = steps.filter((s): s is Extract<AssistantStep, { kind: 'tool_call' }> => s.kind === 'tool_call').map((s) => s.name);
+      const toolsUsed = collectToolsUsed();
       this.conversations.append(this.bucketId(sessionId), [
         { role: 'user', text, ts: now },
         {
           role: 'assistant',
           text: reply,
           ts: now,
-          steps,
-          ...(toolsUsed.length ? { toolsUsed: [...new Set(toolsUsed)] } : {}),
+          steps: persistable(),
+          ...(toolsUsed.length ? { toolsUsed } : {}),
         },
       ]);
       // 标题：仍是占位标题（即本会话首轮）时，让模型简单总结对话内容生成标题。
@@ -365,6 +440,28 @@ export class AssistantService {
       emit({ kind: 'final', text: reply });
       return { text: reply, steps };
     } catch (error) {
+      // 用户取消：把已流出的半截正文当作本轮答复持久化（保持 user/assistant 成对、不留悬空 user），
+      // 正常返回而非抛错——这不是失败。
+      const aborted = signal?.aborted || (error instanceof Error && error.name === 'AbortError');
+      if (aborted) {
+        const now = Date.now();
+        const reply = streamed.trim() || '（已停止）';
+        const toolsUsed = collectToolsUsed();
+        this.conversations.append(this.bucketId(sessionId), [
+          { role: 'user', text, ts: now },
+          {
+            role: 'assistant',
+            text: reply,
+            ts: now,
+            steps: persistable(),
+            ...(toolsUsed.length ? { toolsUsed } : {}),
+          },
+        ]);
+        session.updatedAt = now;
+        this.persistSessions();
+        emit({ kind: 'aborted' });
+        return { text: reply, steps };
+      }
       const message = error instanceof Error ? error.message : String(error);
       emit({ kind: 'error', message });
       throw error;
@@ -395,8 +492,17 @@ export class AssistantService {
     return cleanTitle(raw);
   }
 
-  /** 核心多轮循环：返回最终文本。中途只 emit 过程 step，不 emit final。 */
-  private async runLoop(sessionId: string, text: string, emit: (step: AssistantStep) => void): Promise<string> {
+  /**
+   * 核心多轮循环：返回最终文本。中途正文/推理走 `emit`（*_delta 流式），工具调用前的思路
+   * 走 `record`（只落库、不重复推）。`signal` 在每轮与每次工具调用前检查以尽早取消。
+   */
+  private async runLoop(
+    sessionId: string,
+    text: string,
+    emit: (step: AssistantStep) => void,
+    record: (step: AssistantStep) => void,
+    signal?: AbortSignal,
+  ): Promise<string> {
     const endpoint: AgentLabEndpoint = {
       ...this.resolveEndpoint(this.config.model!),
       kind: 'chat',
@@ -413,8 +519,13 @@ export class AssistantService {
     };
 
     const prior = this.conversations.get(this.bucketId(sessionId)).slice(-12);
+    // 证据追问：本轮像在质疑上一结论，且上一条助手回复确实用过工具时，才强制重新查证。
+    // （像开场就问「真的假的」这种没有可查证对象，强制反而诱导模型编造，故要求 prior 用过工具。）
+    const lastAssistant = [...prior].reverse().find((t) => t.role === 'assistant');
+    const evidenceFollowUp =
+      EVIDENCE_FOLLOW_UP_PATTERN.test(text) && !!lastAssistant?.toolsUsed?.length;
     const messages: ApiMessage[] = [
-      { role: 'system', content: this.systemPrompt() },
+      { role: 'system', content: this.systemPrompt(text, evidenceFollowUp) },
       ...prior.map((t) => ({ role: t.role, content: t.text })),
       { role: 'user', content: text },
     ];
@@ -423,87 +534,135 @@ export class AssistantService {
     // 其余来自应用层注入的内置 AI_TOOLS + 外部 MCP。
     const specs = [WRITE_REPORT_SPEC, ...((await this.tools?.specs()) ?? [])];
 
-    for (let loop = 0; loop < TOOL_LOOP_LIMIT; loop += 1) {
-      // 最后一轮强制关闭工具，逼模型给出文字结论，避免"用尽轮数"硬中断。
-      const allowTools = specs.length > 0 && loop < TOOL_LOOP_LIMIT - 1;
-      const data = await this.callApi(endpoint, messages, allowTools ? specs : []);
-      reportUsage(endpoint, data);
-      const msg = data.choices?.[0]?.message;
-      if (!msg) throw new Error('助手返回为空');
-
-      const content = pickMessageText(msg);
-
-      if (allowTools && msg.tool_calls?.length) {
-        // 模型在调用工具前给出的思路 → 作为"思考"展示。
-        if (content) emit({ kind: 'thinking', text: content });
-        messages.push(msg as ApiMessage);
-        for (const call of msg.tool_calls) {
-          const args = this.parseArgs(call.function.arguments);
-          emit({ kind: 'tool_call', id: call.id, name: call.function.name, args });
-
-          // write_report：service 内部处理 —— 写盘 + emit artifact（卡片）。不 emit
-          // tool_result（否则折叠过程里会出现一条与卡片重复的 JSON 预览）；仍 push 一条
-          // 简短成功结果给模型，让它知道写成功、拿到文件名。
-          if (call.function.name === 'write_report') {
-            let toolMsg: string;
-            try {
-              const artifact = this.writeReport(args);
-              emit({ kind: 'artifact', artifact });
-              toolMsg = safeStringify({ ok: true, id: artifact.id, name: artifact.name, kind: artifact.kind });
-            } catch (error) {
-              const message = error instanceof Error ? error.message : String(error);
-              emit({ kind: 'tool_result', id: call.id, name: call.function.name, ok: false, preview: message });
-              toolMsg = safeStringify({ ok: false, error: message });
-            }
-            messages.push({ role: 'tool', tool_call_id: call.id, content: toolMsg });
-            continue;
-          }
-
-          let result: unknown;
-          let ok = true;
-          try {
-            if (!this.tools) throw new Error(`未知工具：${call.function.name}`);
-            result = await this.tools.run(call.function.name, args);
-          } catch (error) {
-            ok = false;
-            result = { error: error instanceof Error ? error.message : String(error) };
-          }
-          const serialized = safeStringify(result);
-          emit({
-            kind: 'tool_result',
-            id: call.id,
-            name: call.function.name,
-            ok,
-            preview: serialized.slice(0, STEP_PREVIEW_CAP),
-          });
-          // 工具若返回 artifactCard（如导出工具的结果文件/文件夹）→ 在聊天里出一张卡片。
-          if (ok) {
-            const card = extractArtifactCard(result);
-            if (card) emit({ kind: 'artifact', artifact: card });
-          }
-          messages.push({ role: 'tool', tool_call_id: call.id, content: serialized.slice(0, TOOL_RESULT_CAP) });
-        }
-        continue;
-      }
-
-      // 没有工具调用 → 这就是最终答复。
-      return content || '（没能得出结论，请换个问法或补充信息。）';
+    // 组合取消源：把「外部 signal（用户点停止）」与「整轮总超时」合流到一个内部 controller。
+    // 全程只把 ac.signal 传给下游（LLM 请求 / throwIfAborted）——任一触发都能尽早收尾。
+    // timedOut 标记用于把总超时与用户主动取消区分开：超时转成普通 Error 走 chat() 的 error 分支
+    // （给可读提示），用户取消则保持 AbortError 走 aborted 分支（留半截答复）。
+    const ac = new AbortController();
+    let timedOut = false;
+    const onExternalAbort = (): void => ac.abort();
+    if (signal) {
+      if (signal.aborted) ac.abort();
+      else signal.addEventListener('abort', onExternalAbort);
     }
-    // 理论上到不了这里（最后一轮已关工具强制出文本）。
-    return '（任务推进超过最大轮数，已中止。）';
+    const runTimer = setTimeout(() => {
+      timedOut = true;
+      ac.abort();
+    }, RUN_TIMEOUT_MS);
+
+    try {
+      for (let loop = 0; loop < TOOL_LOOP_LIMIT; loop += 1) {
+        throwIfAborted(ac.signal);
+        // 最后一轮强制关闭工具，逼模型给出文字结论，避免"用尽轮数"硬中断。
+        const allowTools = specs.length > 0 && loop < TOOL_LOOP_LIMIT - 1;
+        const { content, toolCalls } = await this.callApiStream(
+          endpoint,
+          messages,
+          allowTools ? specs : [],
+          emit,
+          ac.signal,
+        );
+
+        if (allowTools && toolCalls?.length) {
+          // 模型在调用工具前给出的思路 → 已随 text_delta 流式到达前端；这里只补一条 thinking 落库。
+          if (content) record({ kind: 'thinking', text: content });
+          messages.push({ role: 'assistant', content, tool_calls: toolCalls });
+          for (const call of toolCalls) {
+            throwIfAborted(ac.signal);
+            const args = this.parseArgs(call.function.arguments);
+            emit({ kind: 'tool_call', id: call.id, name: call.function.name, args });
+
+            // write_report：service 内部处理 —— 写盘 + emit artifact（卡片）。不 emit
+            // tool_result（否则折叠过程里会出现一条与卡片重复的 JSON 预览）；仍 push 一条
+            // 简短成功结果给模型，让它知道写成功、拿到文件名。
+            if (call.function.name === 'write_report') {
+              let toolMsg: string;
+              try {
+                const artifact = this.writeReport(args);
+                emit({ kind: 'artifact', artifact });
+                toolMsg = safeStringify({ ok: true, id: artifact.id, name: artifact.name, kind: artifact.kind });
+              } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                emit({ kind: 'tool_result', id: call.id, name: call.function.name, ok: false, preview: message });
+                toolMsg = safeStringify({ ok: false, error: message });
+              }
+              messages.push({ role: 'tool', tool_call_id: call.id, content: toolMsg });
+              continue;
+            }
+
+            let result: unknown;
+            let ok = true;
+            try {
+              if (!this.tools) throw new Error(`未知工具：${call.function.name}`);
+              // 单工具超时：到点抛可读错误落进下面 catch → ok:false 回灌模型继续，不拖死整轮。
+              result = await withTimeout(
+                this.tools.run(call.function.name, args),
+                TOOL_TIMEOUT_MS,
+                `工具 ${call.function.name} 执行`,
+              );
+            } catch (error) {
+              ok = false;
+              result = { error: error instanceof Error ? error.message : String(error) };
+            }
+            const serialized = safeStringify(result);
+            emit({
+              kind: 'tool_result',
+              id: call.id,
+              name: call.function.name,
+              ok,
+              preview: serialized.slice(0, STEP_PREVIEW_CAP),
+            });
+            // 工具若返回 artifactCard（如导出工具的结果文件/文件夹）→ 在聊天里出一张卡片。
+            if (ok) {
+              const card = extractArtifactCard(result);
+              if (card) emit({ kind: 'artifact', artifact: card });
+            }
+            // 回灌模型：智能截断（数组截条数并提示翻页，退化才字符硬切）——保证喂给模型的始终是合法 JSON。
+            messages.push({ role: 'tool', tool_call_id: call.id, content: capToolResult(result) });
+          }
+          continue;
+        }
+
+        // 没有工具调用 → 这就是最终答复（正文已随 text_delta 流式送达前端）。
+        return content || '（没能得出结论，请换个问法或补充信息。）';
+      }
+      // 理论上到不了这里（最后一轮已关工具强制出文本）。
+      return '（任务推进超过最大轮数，已中止。）';
+    } catch (error) {
+      // 总超时：外部 signal 未被用户 abort，但内部 ac 因 runTimer 触发。转成普通 Error（name≠AbortError）
+      // 让 chat() 走 error 分支给出清晰提示；用户主动停止则原样抛（AbortError）走 aborted 分支。
+      if (timedOut && !signal?.aborted) {
+        throw new Error('任务运行超过 10 分钟总时限，已自动中止。可缩小时间范围、拆分问题后重试。');
+      }
+      throw error;
+    } finally {
+      clearTimeout(runTimer);
+      signal?.removeEventListener('abort', onExternalAbort);
+    }
   }
 
-  private systemPrompt(): string {
+  private systemPrompt(userText = '', evidenceFollowUp = false): string {
     const today = new Date();
     const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    // 报告排版指南（rp-* 那一大段）只在用户这轮确有「写报告/网页/看板」意图时才注入，
+    // 否则整段剔除：省 token，也避免几十行排版细节稀释调查方法论指令。
+    const wantsReport = REPORT_INTENT_PATTERN.test(userText);
     // 随机抽一批「一言」候选（每轮重抽 → 候选池天然变化 → 报告主题句天然多元）。
-    const verses = this.tools?.sampleHitokoto?.(8) ?? [];
+    const verses = wantsReport ? this.tools?.sampleHitokoto?.(8) ?? [] : [];
     const verseBlock = verses.length
       ? verses.map((v, i) => `  ${i + 1}. ${v.text}${v.from ? `　—— ${v.from}` : ''}`).join('\n')
       : '';
     return [
       '你是 WeQ 助手，运行在用户的 QQ 客户端里，是一个**任务执行者**：你的职责是亲自把用户的问题查清楚、把任务做完，而不是告诉用户"你可以自己去搜索/查看"。',
       `今天是 ${dateStr}。涉及"哪天/什么时候"等时间问题时，结合聊天记录里的日期与今天推算。`,
+      // 证据追问命中：置顶一条硬规则，强制本轮重新取证，压住"复述旧结论/嘴硬辩护"的倾向。
+      evidenceFollowUp
+        ? '\n⚠️【本轮特别要求：这是对上一条结论的证据追问】\n' +
+          '用户在质疑你上一条回答的依据。**本轮必须先重新调用工具查证，再作答**，禁止直接复述或为上一段结论辩护。' +
+          '从上一条结论里挑出人名/事件/日期/关键词去检索（用 inspect_timeline / get_messages / get_messages_by_date / search_messages 等），' +
+          '别拿"真的假的/有没有证据"这类追问原话当搜索词。' +
+          '查证后：能坐实就补上真实原话（谁、何时说的）；查不到支持内容就**老实说这轮没查到能支持该说法的原话，并撤回或降级上一结论**——绝不坚称它存在。'
+        : '',
       '',
       '【工作方式】',
       '- 把用户的每个问题都当成一个需要主动完成的任务，需要数据就调用工具，能查就查，别把活儿甩回给用户。',
@@ -513,11 +672,24 @@ export class AssistantService {
       '- 多轮推进：每一步先想清楚下一步查什么，再调用工具；拿到结果后据此决定继续查还是作答。',
       '- 只有在合理地尝试过多种方式仍查不到时，才如实说明"没找到"，并简要说明你已经查过的范围，给出可能的下一步建议。绝不编造不存在的信息。',
       '',
+      '【调查方法论】（关系/人物/结论类问题必须遵守，避免"看几句话就下判断"）',
+      '- **引用 vs 推断分离**：工具返回的原话只能证明它字面直接支持的事实；任何关系亲疏、态度、动机、情绪的判断都属于你的推断，要另起一句标成"我的推断是……"，并说明依据与不确定性，别把推断当既定事实陈述。',
+      '- **原话必须真实**：引用的每一句都必须严格来自某次工具返回的内容，标清是谁、大概何时说的；字段缺失就写"未知"，绝不凭印象补造原话，也不得声称看过工具没返回的消息。',
+      '- **工具结果只是线索，不是结论**：rank_friends_by_activity / rank_my_groups_by_activity / get_period_overview / list_* 这类排行与聚合只提供"从哪查"的候选和方向，不能代替原文；要坐实一个具体结论，必须再用 inspect_timeline + get_messages / search_messages 读到真实原话核验。',
+      '- **累计消息量 ≠ 关系最好**：消息条数多只代表历史互动体量大。判断"最亲密/最重要/最疏远/谁在升温降温"要综合最近是否仍活跃、90 天变化、最后联系时间、谁更常主动、沉默前后的真实内容，别拿单一排行下断言。多人里选情感候选时，至少对 2-3 个不同候选分别跑 inspect_timeline 并读到原文再比较，别用同一人反复调用冒充多方核对。',
+      '- **信息不足就继续查**：每次拿到工具结果先看它的 range / coverage / hasMore / hint——覆盖不全或还有下一页就换关键词、翻页、换时间段或换工具补查，直到足以可靠回答；确实到头仍不完整，就在结论里明确降低强度、说清局限，而不是硬下定论。',
+      '- **面对追问（真的假的 / 有证据吗 / 原话呢 / 为什么这么说）**：这一轮必须重新调工具查证再答，禁止复述或为上一段结论辩护；从上一结论里挑姓名/事件/日期/关键词去检索，别拿"真的假的"这类追问原句当搜索词。已经展示过的原话不算本轮新证据；查不到支持内容就直说"这轮没查到能支持该说法的原话"，并撤回或降级上一结论，绝不坚称它存在。',
+      '- **认错要分清责任**：被质疑判断错时，区分是"工具确实返回错了"、"工具覆盖范围有限没查全"、还是"我自己取证不足/权重判断错了"。除非工具输出与事实矛盾，别把锅甩给工具；指出当时漏看的时间尺度或候选，本轮重新核验后再修正结论。',
+      '',
       '【回答格式】',
       '- 最终答复用 **Markdown**：可用标题、要点列表、引用（> 原话）、必要时表格或代码块，让结论一眼可读。',
       '- 引用聊天记录原文时用引用块，并尽量带上是谁、大概什么时候说的。',
       '- 简洁、直接给结论，不要复述工具调用过程（过程前端会单独展示）。',
       '',
+      // 报告排版指南（rp-* 皮肤/组件/图表/艺术字约 55 行）体量很大，只在这轮确有写报告
+      // 意图时才注入；平时整段以空数组 spread 出去，既省 token 又不稀释上面的调查方法论。
+      ...(wantsReport
+        ? [
       '【写报告 / 文档】',
       '- 当产出是成体系的长内容（报告、总结、数据清单、人物分析、时间线、可视化网页…）时，用 write_report 工具把它写成本地文件（**优先 kind="html"**），' +
         '用户能在你的回复里「查看」或「另存为」；不要把这种长文整段塞进聊天回复里。',
@@ -587,6 +759,8 @@ export class AssistantService {
       '```',
       '- 需要纯文本、便于用户二次编辑时，才用 kind="markdown" 或 "text"。',
       '- 写完报告后，在聊天里用一两句话说明你写了什么（卡片会自动出现，不用你贴文件内容）。',
+          ]
+        : []),
       this.config.customPrompt ? `\n【用户额外要求】（优先遵守）\n${this.config.customPrompt}` : '',
     ]
       .filter((l) => l !== '')
@@ -620,9 +794,147 @@ export class AssistantService {
     });
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
-      throw new Error(`WeQ 助手接口调用失败: HTTP ${res.status}${detail ? ` — ${detail.slice(0, 300)}` : ''}`);
+      throw new Error(httpErrorMessage(res.status, detail));
     }
     return (await res.json()) as { choices?: Array<{ message?: ApiMessage }>; usage?: unknown };
+  }
+
+  /**
+   * 流式一次 LLM 调用：`stream:true` 边收边 emit（正文→text_delta、推理→reasoning_delta），
+   * 结束后返回累积的 { content, reasoning, toolCalls }。runLoop 用它替代 callApi。
+   *
+   * - 取消：把 `signal` 透传给 fetch —— 用户点停止时在途请求立即中断（抛 AbortError）。
+   * - reasoning：`reasoningEffort` 非 off 时带 `reasoning_effort`；若 provider 不认（400），
+   *   去掉该参数重试一次，并回填 `this.reasoningUnsupported` 让本进程后续不再带（防基础聊天回归）。
+   * - tool_calls：流式下每片是 `delta.tool_calls[]`，需按 `index` 分槽把 name/arguments 碎片拼全。
+   */
+  private async callApiStream(
+    endpoint: AgentLabEndpoint,
+    messages: ApiMessage[],
+    specs: AssistantToolSpec[],
+    emit: (step: AssistantStep) => void,
+    signal?: AbortSignal,
+  ): Promise<{ content: string; reasoning: string; toolCalls: ApiMessage['tool_calls'] }> {
+    const effort = this.config.reasoningEffort;
+    const withReasoning = !!effort && effort !== 'off' && !this.reasoningUnsupported;
+
+    const buildBody = (reasoning: boolean): string =>
+      JSON.stringify({
+        model: endpoint.model,
+        temperature: 0.3,
+        stream: true,
+        stream_options: { include_usage: true },
+        messages,
+        ...(reasoning ? { reasoning_effort: effort } : {}),
+        ...(specs.length ? { tools: specs, tool_choice: 'auto' } : {}),
+      });
+
+    const post = (reasoning: boolean): Promise<Response> =>
+      fetch(`${endpoint.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${endpoint.apiKey}` },
+        body: buildBody(reasoning),
+        signal,
+      });
+
+    let res: Response;
+    try {
+      res = await post(withReasoning);
+      // provider 不识别 reasoning_effort → 400：去掉重试一次，并记住本进程内别再带。
+      if (!res.ok && res.status === 400 && withReasoning) {
+        this.reasoningUnsupported = true;
+        res = await post(false);
+      }
+      // 429 限流/额度：退避 ~1.5s（可被停止打断）后重试一次；仍失败则落到下面的分类报错。
+      if (res.status === 429) {
+        await sleep(1500, signal);
+        res = await post(withReasoning && !this.reasoningUnsupported);
+      }
+    } catch (error) {
+      // 用户取消（AbortError）原样放行，交给上层 aborted 分支；其余多为网络层失败（fetch 抛 TypeError）。
+      if (error instanceof Error && error.name === 'AbortError') throw error;
+      throw new Error(`网络连接失败：无法连接到模型服务（${hostOf(endpoint.baseUrl)}），请检查网络或服务地址是否正确。`);
+    }
+    if (!res.ok || !res.body) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(httpErrorMessage(res.status, detail));
+    }
+
+    let content = '';
+    let reasoning = '';
+    // 按 index 累积的工具调用槽（流式下 arguments 是逐片拼接的）。
+    const toolSlots = new Map<number, { id: string; name: string; args: string }>();
+    let usage: unknown;
+
+    // 消费一个完整 SSE 事件（可能含多行；只认 `data:` 行）。
+    const consumeEvent = (rawEvent: string): void => {
+      for (const line of rawEvent.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) continue;
+        const data = trimmed.slice(5).trim();
+        if (!data || data === '[DONE]') continue;
+        let chunk: StreamChunk;
+        try {
+          chunk = JSON.parse(data) as StreamChunk;
+        } catch {
+          continue; // 半个 JSON（理论上被事件切分保护，兜底跳过）
+        }
+        if (chunk.usage) usage = chunk.usage;
+        const delta = chunk.choices?.[0]?.delta;
+        if (!delta) continue;
+        if (typeof delta.content === 'string' && delta.content) {
+          content += delta.content;
+          emit({ kind: 'text_delta', text: delta.content });
+        }
+        if (typeof delta.reasoning_content === 'string' && delta.reasoning_content) {
+          reasoning += delta.reasoning_content;
+          emit({ kind: 'reasoning_delta', text: delta.reasoning_content });
+        }
+        for (const tc of delta.tool_calls ?? []) {
+          const idx = tc.index ?? 0;
+          const slot = toolSlots.get(idx) ?? { id: '', name: '', args: '' };
+          if (tc.id) slot.id = tc.id;
+          if (tc.function?.name) slot.name = tc.function.name;
+          if (tc.function?.arguments) slot.args += tc.function.arguments;
+          toolSlots.set(idx, slot);
+        }
+      }
+    };
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        // CRLF 归一（部分 provider 用 \r\n\r\n 分隔事件），再按空行切完整事件、残片留到下一片。
+        buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+        let sep = buffer.indexOf('\n\n');
+        while (sep >= 0) {
+          consumeEvent(buffer.slice(0, sep));
+          buffer = buffer.slice(sep + 2);
+          sep = buffer.indexOf('\n\n');
+        }
+      }
+      // 流结束后残留的最后一个事件（provider 未补尾部空行时）。
+      if (buffer.trim()) consumeEvent(buffer);
+    } finally {
+      reader.releaseLock();
+    }
+
+    if (usage) reportUsage(endpoint, { usage });
+
+    const toolCalls = [...toolSlots.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, s]) => ({
+        id: s.id || randomUUID(),
+        type: 'function' as const,
+        function: { name: s.name, arguments: s.args || '{}' },
+      }))
+      .filter((c) => c.function.name);
+
+    return { content, reasoning, toolCalls: toolCalls.length ? toolCalls : undefined };
   }
 
   private loadConfig(): AssistantConfig {
@@ -637,8 +949,7 @@ export class AssistantService {
 
   private persistConfig(): void {
     try {
-      mkdirSync(dirname(this.configPath), { recursive: true });
-      writeFileSync(this.configPath, JSON.stringify(this.config, null, 2), 'utf-8');
+      writeFileAtomicSync(this.configPath, JSON.stringify(this.config, null, 2));
     } catch {
       /* ignore */
     }
@@ -656,8 +967,7 @@ export class AssistantService {
 
   private persistSessions(): void {
     try {
-      mkdirSync(dirname(this.sessionsPath), { recursive: true });
-      writeFileSync(this.sessionsPath, JSON.stringify(this.sessions), 'utf-8');
+      writeFileAtomicSync(this.sessionsPath, JSON.stringify(this.sessions));
     } catch {
       /* 持久化失败不应影响对话本身 */
     }
@@ -724,4 +1034,119 @@ function safeStringify(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+/**
+ * 在对象第一层里找出「最长的数组属性」（如 envelope 形 `{range, count, hasMore, hits[]}` 的 hits）。
+ * 用于 {@link capToolResult} 按条数截断时定位可裁剪的列表字段。找不到（无数组/全是短数组）返回 null。
+ */
+function findBigArray(obj: Record<string, unknown>): { key: string; arr: unknown[] } | null {
+  let best: { key: string; arr: unknown[] } | null = null;
+  for (const [key, value] of Object.entries(obj)) {
+    if (Array.isArray(value) && (!best || value.length > best.arr.length)) {
+      best = { key, arr: value };
+    }
+  }
+  return best;
+}
+
+/**
+ * 回灌给模型的工具结果做智能截断（`TOOL_RESULT_CAP` 上限）：
+ * - 优先按「数组条数」裁剪并注明还有多少、怎么翻页（保留 range/coverage/hasMore 等元信息），
+ *   让模型知道结果不全、该用 offset/before 翻页——而不是拿半截非法 JSON 当全部。
+ * - 结果不是数组形（单个超大对象）时退化为字符硬切，但加明确截断标记。
+ * 与 M1 已完成的分页契约一体。
+ */
+function capToolResult(result: unknown): string {
+  const full = safeStringify(result);
+  if (full.length <= TOOL_RESULT_CAP) return full;
+
+  // result 本身是数组，或含一个可裁剪的大数组字段 → 按条数逐步收窄到放得下。
+  const asObject = result && typeof result === 'object' && !Array.isArray(result) ? (result as Record<string, unknown>) : null;
+  const big = Array.isArray(result) ? { key: '', arr: result as unknown[] } : asObject ? findBigArray(asObject) : null;
+  if (big && big.arr.length > 1) {
+    let keep = big.arr.length;
+    while (keep > 1) {
+      keep = Math.max(1, Math.floor(keep * 0.7));
+      const note = `结果过长，仅保留前 ${keep}/${big.arr.length} 条；用 offset / before 翻页或缩小 limit / 时间范围获取更多。`;
+      const shaped = Array.isArray(result)
+        ? { items: big.arr.slice(0, keep), truncatedNote: note }
+        : { ...(asObject as Record<string, unknown>), [big.key]: big.arr.slice(0, keep), truncatedNote: note };
+      const s = safeStringify(shaped);
+      if (s.length <= TOOL_RESULT_CAP) return s;
+      if (keep === 1) break;
+    }
+  }
+  // 单个超大对象无从按条数裁 → 字符硬切 + 明确标记（让模型知道后面还有、需换更小范围重查）。
+  return `${full.slice(0, TOOL_RESULT_CAP - 80)}\n…[结果因过长被截断，请用更小的 limit / 加时间范围 / 翻页重查]`;
+}
+
+/** 若已请求取消则抛一个名为 AbortError 的错误（与 fetch(signal) 抛出的同名，chat() 统一识别）。 */
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    const err = new Error('已取消');
+    err.name = 'AbortError';
+    throw err;
+  }
+}
+
+/**
+ * 给一个 promise 套超时：到点抛可读的普通 Error（name≠AbortError，故不会被 chat() 误判为用户取消）。
+ * 底层工作（DB 查询等）无法真正中断，这里只保证 loop 不被卡住、能带着「失败」结论继续推进。
+ */
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label}超时（${Math.round(ms / 1000)}s）`)), ms);
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+}
+
+/** 可被 signal 打断的 sleep（用于 429 退避重试；用户点停止时立即抛 AbortError）。 */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      const err = new Error('已取消');
+      err.name = 'AbortError';
+      reject(err);
+      return;
+    }
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      const err = new Error('已取消');
+      err.name = 'AbortError';
+      reject(err);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort);
+  });
+}
+
+/** 从 URL 取 host（网络错误提示用）；解析失败回退原串。 */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+/** 把 HTTP 状态码翻译成对用户可读、可操作的错误文案（401/403 密钥、429 限流、5xx 服务、其余兜底）。 */
+function httpErrorMessage(status: number, detail: string): string {
+  const tail = detail ? ` — ${detail.slice(0, 300)}` : '';
+  if (status === 401 || status === 403) return `模型密钥无效或无权限（${status}）：请在助手设置里检查该模型的 API Key 是否正确。`;
+  if (status === 429) return '请求过于频繁或额度不足（429）：已自动退避重试仍失败，请稍后再试或更换模型。';
+  if (status >= 500) return `模型服务暂时不可用（${status}），请稍后重试。${tail}`;
+  return `WeQ 助手接口调用失败: HTTP ${status}${tail}`;
 }

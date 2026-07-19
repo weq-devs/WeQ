@@ -2,7 +2,7 @@
 import { BellOff, Bot, PenLine, MessageSquare, Users, UserRound, Circle, Smile, Clock, Minus, Ban, MinusCircle, ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 import { cn } from "./classNames";
-import { Avatar, EmptyState, LoadingState } from "./primitives";
+import { Avatar, EmptyState, } from "./primitives";
 import { isBotConversation } from "./conversationDisplay";
 import { messageMentionsUser } from "./mentions";
 import type {

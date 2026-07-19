@@ -42,6 +42,6 @@ for (const rel of targets) {
   const file = join(repoRoot, rel);
   const pkg = JSON.parse(readFileSync(file, 'utf8'));
   pkg.version = version;
-  writeFileSync(file, JSON.stringify(pkg, null, 2) + '\n');
+  writeFileSync(file, `${JSON.stringify(pkg, null, 2)}\n`);
   console.log(`set ${rel} version -> ${version}`);
 }

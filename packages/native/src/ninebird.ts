@@ -1,22 +1,30 @@
 /**
- * High-level wrapper around `NineBirdBoot.launchQQ`.
+ * High-level wrapper around `ninebird_addon.launchQQ`.
  *
  * The raw native API expects the caller to:
- *   - spin up a Windows Named Pipe server,
+ *   - spin up an IPC server (win32 Named Pipe / linux unix socket),
  *   - parse NDJSON frames flowing in,
  *   - keep the QQ pid around for cleanup,
- *   - decide when to resolve.
+ *   - decide when to resolve,
+ *   - (linux only) drop an entry stub into QQ's `resources/app` before launch
+ *     and remove it after — QQ resolves its Electron entry with a raw statx
+ *     syscall that `LD_PRELOAD` can't intercept, so the stub must really hit
+ *     disk. Elevation for a root-owned `resources/app` is the caller's job;
+ *     inject it via `stubHooks`.
  *
  * That boilerplate has nothing to do with the call site's business logic.
  * `NineBirdBootstrap` does it once. Callers get:
  *   - a Promise that resolves with the terminal `result` event,
  *   - typed `onQrcode` / `onState` / `onLoginList` subscriptions,
- *   - an explicit `kill()` that tears QQ + the pipe server down.
+ *   - an explicit `kill()` that tears QQ + the IPC server (+ stub) down.
  */
 
 import { EventEmitter } from 'node:events';
 import { createServer } from 'node:net';
 import type { Server, Socket } from 'node:net';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import type {
   LaunchQqResult,
   NineBirdAccountListEvent,
@@ -29,20 +37,50 @@ import type {
   NineBirdResultEvent,
 } from './types';
 
-export interface QrLoginOptions {
+/**
+ * appid / qua matched to the installed QQ build, resolved by an upper layer
+ * from QQ's `major.node` and threaded through to `launchQQ`. Absent fields
+ * fall back to the loader's per-platform default.
+ */
+export interface AppidQua {
+  appid?: string;
+  qua?: string;
+}
+
+/**
+ * Linux-only injection stub hooks. `dropStub` writes `content` to `path`
+ * (inside QQ's `resources/app`); `removeStub` deletes it. The defaults write
+ * directly with `fs` and throw when the directory isn't writable — inject
+ * elevated implementations (pkexec/polkit/helper daemon) to support
+ * root-owned installs. Ignored on win32.
+ *
+ * Both hooks may be async — the launch flow awaits them — so an elevated
+ * implementation can shell out to `pkexec` and reject on cancel/failure.
+ */
+export interface StubHooks {
+  dropStub(path: string, content: string): void | Promise<void>;
+  removeStub(path: string): void | Promise<void>;
+}
+
+const defaultStubHooks: StubHooks = {
+  dropStub: (path, content) => writeFileSync(path, content),
+  removeStub: (path) => rmSync(path, { force: true }),
+};
+
+export interface QrLoginOptions extends AppidQua {
   qqExePath: string;
   /** Default: 180_000 (3 min — leaves time to scan + confirm). */
   timeoutMs?: number;
 }
 
-export interface QuickLoginOptions {
+export interface QuickLoginOptions extends AppidQua {
   uin: string;
   qqExePath: string;
   /** Default: 60_000. */
   timeoutMs?: number;
 }
 
-export interface AccountListOptions {
+export interface AccountListOptions extends AppidQua {
   qqExePath: string;
   /** Default: 60_000. */
   timeoutMs?: number;
@@ -80,6 +118,8 @@ export class NineBirdBootstrap {
   constructor(
     private readonly binding: NineBirdBootBinding,
     private readonly resources: NineBirdResources,
+    /** Linux-only entry-stub hooks. Defaults write directly with `fs`. */
+    private readonly stubHooks: StubHooks = defaultStubHooks,
   ) {}
 
   startQrLogin(opts: QrLoginOptions): LoginSession {
@@ -87,6 +127,8 @@ export class NineBirdBootstrap {
       loadJsPath: this.resources.qrDbkeyJsPath,
       qqExePath: opts.qqExePath,
       timeoutMs: opts.timeoutMs ?? 180_000,
+      ...(opts.appid !== undefined ? { appid: opts.appid } : {}),
+      ...(opts.qua !== undefined ? { qua: opts.qua } : {}),
     });
   }
 
@@ -96,6 +138,8 @@ export class NineBirdBootstrap {
       loadJsPath: this.resources.quickDbkeyJsPath,
       qqExePath: opts.qqExePath,
       timeoutMs: opts.timeoutMs ?? 60_000,
+      ...(opts.appid !== undefined ? { appid: opts.appid } : {}),
+      ...(opts.qua !== undefined ? { qua: opts.qua } : {}),
     });
   }
 
@@ -110,6 +154,8 @@ export class NineBirdBootstrap {
       loadJsPath: this.resources.accountListJsPath,
       qqExePath: opts.qqExePath,
       timeoutMs: opts.timeoutMs ?? 60_000,
+      ...(opts.appid !== undefined ? { appid: opts.appid } : {}),
+      ...(opts.qua !== undefined ? { qua: opts.qua } : {}),
     });
     return {
       pid: session.pid,
@@ -129,14 +175,52 @@ export class NineBirdBootstrap {
     loadJsPath: string;
     timeoutMs: number;
     uin?: string;
+    appid?: string;
+    qua?: string;
   }): LoginSession {
     const emitter = new EventEmitter();
+    const isLinux = process.platform === 'linux';
     const pipeName = makePipeName();
 
     let qqPid = 0;
     let pipeServer: Server | null = null;
     let killed = false;
     let resultSettled = false;
+
+    // ---- linux entry stub (dropped before launch, removed on teardown) ----
+    // QQ's Electron entry must point at a real file inside `resources/app`;
+    // the stub self-deletes when QQ loads it, then requires the real loader
+    // JS. `removeStub` is the belt-and-suspenders cleanup if QQ never got
+    // that far. On win32 both are no-ops.
+    const stubPath = isLinux
+      ? join(dirname(args.qqExePath), 'resources', 'app', 'loadNineBird.js')
+      : '';
+    let stubDropped = false;
+    const dropStub = async (): Promise<void> => {
+      if (!isLinux || stubDropped) return;
+      // The stub runs inside QQ; if NINEBIRD_LOG is set it writes one line
+      // before requiring the real loader — that line is the proof the
+      // launcher.so injection actually redirected QQ's entry to us (vs. QQ
+      // never loading the stub at all). Self-delete first (zero residue),
+      // then log, then require the loader.
+      const content =
+        "try { require('fs').unlinkSync(__filename); } catch (e) {}\n" +
+        "function __nblog(m){ try { if (process.env.NINEBIRD_LOG) require('fs').appendFileSync(process.env.NINEBIRD_LOG, '[stub pid=' + process.pid + '] ' + m + '\\n'); } catch (e) {} }\n" +
+        `__nblog('loadNineBird.js executed, requiring loader: ' + ${JSON.stringify(args.loadJsPath)});\n` +
+        `try { require(${JSON.stringify(args.loadJsPath)}); }\n` +
+        "catch (e) { __nblog('require(loader) THREW: ' + (e && e.stack || e)); throw e; }\n";
+      await this.stubHooks.dropStub(stubPath, content);
+      stubDropped = true;
+    };
+    const removeStub = (): void => {
+      if (!isLinux || !stubDropped) return;
+      try {
+        void this.stubHooks.removeStub(stubPath);
+      } catch {
+        /* QQ likely self-deleted it already */
+      }
+      stubDropped = false;
+    };
 
     const settleResult = (e: NineBirdResultEvent): void => {
       if (resultSettled) return;
@@ -163,6 +247,7 @@ export class NineBirdBootstrap {
         }
         pipeServer = null;
       }
+      removeStub();
     };
 
     // ---- pipe server ----
@@ -225,6 +310,20 @@ export class NineBirdBootstrap {
         return;
       }
 
+      // ---- linux: drop the entry stub before launch (may throw / elevate) ----
+      try {
+        await dropStub();
+      } catch (e) {
+        const err = e instanceof Error ? e : new Error(String(e));
+        pidReject(err);
+        settleResult({
+          kind: 'result',
+          success: false,
+          error: `stub drop failed: ${err.message}`,
+        });
+        return;
+      }
+
       let launched: LaunchQqResult;
       try {
         launched = await this.binding.launchQQ({
@@ -236,6 +335,8 @@ export class NineBirdBootstrap {
           pipeName,
           timeoutMs: args.timeoutMs,
           ...(args.uin !== undefined ? { uin: args.uin } : {}),
+          ...(args.appid !== undefined ? { appid: args.appid } : {}),
+          ...(args.qua !== undefined ? { qua: args.qua } : {}),
         });
       } catch (e) {
         const err = e instanceof Error ? e : new Error(String(e));
@@ -275,9 +376,18 @@ export class NineBirdBootstrap {
 
 // ---------- helpers -------------------------------------------------------
 
+/**
+ * IPC channel name for the addon → JS event stream. win32 uses a Named Pipe;
+ * linux uses a unix domain socket path under a fresh temp dir (the addon
+ * connects to it). Both are unique per launch (pid + timestamp).
+ */
 function makePipeName(): string {
   const stamp = Date.now().toString(36);
-  return `\\\\.\\pipe\\ninebird-${process.pid}-${stamp}`;
+  if (process.platform === 'win32') {
+    return `\\\\.\\pipe\\ninebird-${process.pid}-${stamp}`;
+  }
+  const dir = mkdtempSync(join(tmpdir(), 'ninebird-'));
+  return join(dir, `${process.pid}-${stamp}.sock`);
 }
 
 /**
@@ -287,10 +397,11 @@ function makePipeName(): string {
 function attachSocket(socket: Socket, emitter: EventEmitter): void {
   let buf = '';
   const drain = (final: boolean): void => {
-    let nl: number;
-    while ((nl = buf.indexOf('\n')) >= 0) {
+    let nl = buf.indexOf('\n');
+    while (nl >= 0) {
       const line = buf.slice(0, nl);
       buf = buf.slice(nl + 1);
+      nl = buf.indexOf('\n');
       if (!line.trim()) continue;
       emitParsed(line, emitter);
     }

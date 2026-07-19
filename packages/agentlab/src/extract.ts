@@ -32,7 +32,7 @@ function coerceStringArray(value: unknown): string[] {
 function extractJson(text: string): unknown {
   let t = text.trim();
   const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fence && fence[1]) t = fence[1].trim();
+  if (fence?.[1]) t = fence[1].trim();
   const start = t.indexOf('{');
   const end = t.lastIndexOf('}');
   if (start >= 0 && end > start) t = t.slice(start, end + 1);

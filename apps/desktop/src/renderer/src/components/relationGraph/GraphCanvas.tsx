@@ -337,7 +337,7 @@ export function GraphCanvas({
 		if (wrapRef.current) wrapRef.current.style.cursor = hit ? "pointer" : "grab";
 	}
 
-	function endPointer(e: React.PointerEvent<HTMLDivElement>) {
+	function endPointer(_e: React.PointerEvent<HTMLDivElement>) {
 		const node = dragNodeRef.current;
 		if (node) {
 			if (movedRef.current < 4) onSelect(node);

@@ -9,7 +9,7 @@
  * (ColumnChart/ColumnSkeleton are kept for reuse but no longer rendered here.)
  */
 
-import { type ReactElement } from 'react';
+import type { ReactElement } from 'react';
 import { FolderOpen, Layers } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import type { GlobalInstallInfo } from '@weq/service';
@@ -54,7 +54,7 @@ function formatBytes(bytes: number): string {
   if (bytes <= 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   const exp = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  const value = bytes / Math.pow(1024, exp);
+  const value = bytes / 1024 ** exp;
   return `${value >= 100 || exp === 0 ? Math.round(value) : value.toFixed(1)} ${units[exp]}`;
 }
 
@@ -191,7 +191,7 @@ function LanguageBar({ items }: { items: Array<{ name: string; bytes: number }> 
   );
 }
 
-function ColumnChart({ items }: { items: Array<{ name: string; bytes: number }> }): ReactElement {
+function _ColumnChart({ items }: { items: Array<{ name: string; bytes: number }> }): ReactElement {
   const top = items.slice(0, 8);
   const max = top.reduce((m, i) => Math.max(m, i.bytes), 0) || 1;
   return (
@@ -221,8 +221,8 @@ function BarSkeleton(): ReactElement {
     <div className="weq-langbar-wrap">
       <div className="weq-langbar weq-skel" />
       <ul className="weq-legend">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <li key={i} className="weq-legend-item">
+        {['one', 'two', 'three', 'four'].map((key) => (
+          <li key={key} className="weq-legend-item">
             <span className="weq-legend-dot weq-skel" />
             <span className="weq-skel-line" style={{ width: '5rem' }} />
           </li>
@@ -232,12 +232,12 @@ function BarSkeleton(): ReactElement {
   );
 }
 
-function ColumnSkeleton(): ReactElement {
+function _ColumnSkeleton(): ReactElement {
   const heights = [70, 52, 88, 40, 64, 30, 76, 46];
   return (
     <div className="weq-cols">
-      {heights.map((h, i) => (
-        <div key={i} className="weq-col">
+      {heights.map((h) => (
+        <div key={h} className="weq-col">
           <span className="weq-col-track">
             <span className="weq-col-fill weq-skel" style={{ height: `${h}%` }} />
           </span>

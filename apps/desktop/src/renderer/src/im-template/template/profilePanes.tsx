@@ -161,7 +161,7 @@ export function ContactProfileDialog({
 
 	const ext = profile.extRelation;
 	const displayId =
-		ext && ext.displayId && ext.displayId > 0
+		ext?.displayId && ext.displayId > 0
 			? ext.displayId
 			: (ext?.preselectedIds?.[0] ?? null);
 	const headline = displayId != null ? relationMeta(displayId) : null;

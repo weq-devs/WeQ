@@ -118,6 +118,20 @@ export interface AvatarPathProbe {
 const DEFAULT_PAGE = 120;
 const MAX_PAGE = 500;
 
+/**
+ * Sentinel "bucket" for avatars that sit DIRECTLY under the scope dir with no
+ * `<hash[:2]>` sub-directory. Windows always buckets by hash prefix; linux QQ
+ * flattens every `b_`/`s_` file straight into `avatar/<scope>/`. `join(dir, '')`
+ * === `dir`, so this reuses {@link AvatarResourceService.mergeBucket} unchanged
+ * — it just reads the scope root, where `isFile()` skips the hex/temp subdirs.
+ */
+const FLAT_BUCKET = '';
+
+/** True for a filename that is an avatar file (`b_`/`s_`/bare hash). */
+function isAvatarFileName(name: string): boolean {
+  return name.startsWith('b_') || name.startsWith('s_') || /^[0-9a-f]{8,}$/i.test(name);
+}
+
 /** Accumulator while merging a bucket's `b_`/`s_`/un-prefixed files by hash. */
 interface Acc {
   hasBig: boolean;
@@ -242,10 +256,14 @@ export class AvatarResourceService {
     const bucket = hash.slice(0, 2).toLowerCase();
     const candidates = [
       join(dir, bucket, `${prefix}${hash}`),
+      // Flat layout (linux): the file sits directly under the scope dir.
+      join(dir, `${prefix}${hash}`),
       // Some hashes live in the staging dir instead of a hex bucket.
       join(dir, 'temp', `${prefix}${hash}`),
       // The rare un-prefixed staging file (both variants map to it).
       join(dir, 'temp', hash),
+      // Bare (un-prefixed) file directly under the scope dir.
+      join(dir, hash),
     ];
 
     const base = resolve(dir);
@@ -334,7 +352,7 @@ export class AvatarResourceService {
       uid = qq; // group uin == uid
     } else {
       const profile = await this.session.profileInfo.getProfileByUin(BigInt(qq));
-      if (!profile || !profile.uid) return blank;
+      if (!profile?.uid) return blank;
       uid = profile.uid;
       nick = profile.remark || profile.nick || '';
     }
@@ -347,18 +365,25 @@ export class AvatarResourceService {
     let hasSmall = false;
     let bigBytes = 0;
     let smallBytes = 0;
+    // Win32 buckets by hash prefix; linux flattens into the scope root. Probe
+    // the bucketed path first, fall back to the flat one, and report the rel
+    // path that actually matched so the UI shows the true on-disk location.
+    let bigRel = `avatar/${scope}/${bucket}/b_${hash}`;
+    let smallRel = `avatar/${scope}/${bucket}/s_${hash}`;
     if (scopeDir) {
       const [big, small] = await Promise.all([
-        statSafe(join(scopeDir, bucket, `b_${hash}`)),
-        statSafe(join(scopeDir, bucket, `s_${hash}`)),
+        statFirst([join(scopeDir, bucket, `b_${hash}`), join(scopeDir, `b_${hash}`)]),
+        statFirst([join(scopeDir, bucket, `s_${hash}`), join(scopeDir, `s_${hash}`)]),
       ]);
       if (big) {
         hasBig = true;
         bigBytes = big.size;
+        if (big.index === 1) bigRel = `avatar/${scope}/b_${hash}`;
       }
       if (small) {
         hasSmall = true;
         smallBytes = small.size;
+        if (small.index === 1) smallRel = `avatar/${scope}/s_${hash}`;
       }
     }
 
@@ -370,8 +395,8 @@ export class AvatarResourceService {
       resolved: true,
       hash,
       bucket,
-      bigRel: `avatar/${scope}/${bucket}/b_${hash}`,
-      smallRel: `avatar/${scope}/${bucket}/s_${hash}`,
+      bigRel,
+      smallRel,
       hasBig,
       hasSmall,
       bigBytes,
@@ -381,9 +406,14 @@ export class AvatarResourceService {
 
   // ── internals ──────────────────────────────────────────────────────────────
 
-  /** Bucket dir names (`00`…`ff`, `temp`, …) under a scope, or null if absent. */
+  /**
+   * Bucket dir names (`00`…`ff`, `temp`, …) under a scope, or null if absent.
+   * When the scope holds avatar files DIRECTLY (linux's flat layout), the
+   * {@link FLAT_BUCKET} sentinel is prepended so those files are enumerated too
+   * without disturbing the win32 hash-bucket dirs.
+   */
   private async readBuckets(scopeDir: string): Promise<string[] | null> {
-    let entries;
+    let entries: import('node:fs').Dirent[];
     try {
       entries = await readdir(scopeDir, { withFileTypes: true });
     } catch {
@@ -399,13 +429,17 @@ export class AvatarResourceService {
       if (hb) return 1;
       return a.localeCompare(b);
     });
+    // Flat layout (linux): `b_`/`s_` files live in the scope root itself.
+    if (entries.some((e) => e.isFile() && isAvatarFileName(e.name))) {
+      buckets.unshift(FLAT_BUCKET);
+    }
     return buckets;
   }
 
   /** Merge one bucket's files into `hash → Acc`, keyed by the shared hash. */
   private async mergeBucket(bucketDir: string): Promise<Map<string, Acc>> {
     const out = new Map<string, Acc>();
-    let files;
+    let files: import('node:fs').Dirent[];
     try {
       files = await readdir(bucketDir, { withFileTypes: true });
     } catch {
@@ -489,4 +523,18 @@ async function statSafe(path: string): Promise<{ size: number } | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * First path in `paths` that is a file, with the index that matched (so the
+ * caller can tell a bucketed hit from a flat one). Null when none exist.
+ */
+async function statFirst(
+  paths: string[],
+): Promise<{ size: number; index: number } | null> {
+  for (let i = 0; i < paths.length; i += 1) {
+    const hit = await statSafe(paths[i]!);
+    if (hit) return { size: hit.size, index: i };
+  }
+  return null;
 }

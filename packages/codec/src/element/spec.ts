@@ -10,14 +10,9 @@
 
 import { z } from 'zod';
 import {
-  ElementType,
-  PicSubType,
   PicType,
   GrayTipSubType,
-  CallSubType,
   CallType,
-  FaceSubType,
-  ActionType,
 } from './types';
 
 const BaseElementFieldsSchema = z.object({

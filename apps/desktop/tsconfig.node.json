@@ -7,8 +7,7 @@
     "moduleResolution": "Bundler",
     "types": ["node", "electron-vite/node"],
     "paths": {
-      "@main/*": ["src/main/*"],
-      "@shared/*": ["../../packages/shared/src/*"]
+      "@main/*": ["src/main/*"]
     },
     "outDir": "out/types-node"
   },

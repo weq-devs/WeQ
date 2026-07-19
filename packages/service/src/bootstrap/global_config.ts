@@ -120,6 +120,10 @@ export class GlobalConfigService {
     if (cache.wrapperNodePath && !existsSync(cache.wrapperNodePath)) return false;
     if (cache.loginDbPath && !existsSync(cache.loginDbPath)) return false;
     if (cache.tencentFilesRoot && !existsSync(cache.tencentFilesRoot)) return false;
+    // A stale cache from before the version reader was fixed can hold a null
+    // version even though QQ is installed — don't serve it; re-probe so the
+    // package.json read runs. (No wrapper ⇒ QQ genuinely absent ⇒ null is fine.)
+    if (cache.wrapperNodePath && !cache.version) return false;
     // If the override changed since the cache was written, re-probe.
     const override = this.userConfig.read().tencentFilesRootOverride ?? null;
     if ((override ?? null) !== (cache.tencentFilesRoot ?? null) && override) return false;
@@ -137,7 +141,7 @@ export class GlobalConfigService {
       wrapperNodePath,
       loginDbPath: this.platform.loginDbPath(),
       tencentFilesRoot,
-      version: parseQqVersion(wrapperNodePath),
+      version: this.platform.qqVersion(),
       userDataPath: tencentFilesRoot,
       probedAt: Date.now(),
     };
@@ -160,17 +164,22 @@ export class GlobalConfigService {
 
   // ---- account data dir helpers (primary key) ----
 
-  /** `<tencentFilesRoot>/<uin>` — the account's user-data directory, or null. */
+  /**
+   * The account's user-data directory, or null. Platform-resolved: win32 is
+   * `<root>/<uin>`, linux is `<root>/nt_qq_<hash>`. The per-OS layout (and its
+   * differing depth) lives entirely in the platform layer — never derive this
+   * by walking up from `nt_db` here, since linux has no `nt_qq` middle segment.
+   */
   accountDataDir(uin: string): string | null {
-    const root = this.describeInstall().tencentFilesRoot;
-    if (!root) return null;
-    const dir = join(root, uin);
-    return existsSync(dir) ? dir : null;
+    return this.platform.accountDir(uin);
   }
 
   /**
-   * Number of user-data directories under the Tencent Files root: all-digit
-   * subdir names that contain an `nt_qq` folder.
+   * Number of local QQ accounts on disk. The account directory naming differs
+   * per-OS, so match accordingly: win32 uses all-digit `<uin>` dirs containing
+   * an `nt_qq` folder; linux uses hashed `nt_qq_<hash>` dirs directly under the
+   * root (the bare `nt_qq` sibling — login.db's home — is excluded by the hash
+   * suffix requirement).
    */
   countUserDataDirs(): number {
     const root = this.describeInstall().tencentFilesRoot;
@@ -181,10 +190,15 @@ export class GlobalConfigService {
     } catch {
       return 0;
     }
+    const isLinux = this.platform.kind === 'linux';
     let count = 0;
     for (const name of entries) {
-      if (!/^\d+$/.test(name)) continue;
-      if (existsSync(join(root, name, 'nt_qq'))) count++;
+      if (isLinux) {
+        if (/^nt_qq_[0-9a-f]+$/i.test(name)) count++;
+      } else {
+        if (!/^\d+$/.test(name)) continue;
+        if (existsSync(join(root, name, 'nt_qq'))) count++;
+      }
     }
     return count;
   }
@@ -209,24 +223,31 @@ export class GlobalConfigService {
       pids = [];
     }
 
+    // Authoritative instance count when the OS records one (linux reads QQ's
+    // own `launcherCounts`); else the process-count probe. On linux QQ is
+    // Electron — one instance forks several `qq`-named processes — so the pid
+    // count is unreliable and only ever used as a last-resort fallback.
+    const reported = this.platform.launcherCount();
+    const baseCount = reported ?? pids.length;
+
     if (pids.length === 1 && knownUins.length > 0) {
       try {
         const byUin: Record<string, boolean> = {};
         let online = 0;
         for (const uin of knownUins) {
-          const ok = nt.isQqLoggedIn(uin);
+          const ok = this.platform.isQqLoggedIn(uin);
           byUin[uin] = ok;
           if (ok) online++;
         }
         // At least the one running process is online even if the mutex probe
-        // attributed nothing — never under-report below the pid count.
-        return { count: Math.max(online, pids.length), byUin };
+        // attributed nothing — never under-report below the base count.
+        return { count: Math.max(online, baseCount), byUin };
       } catch {
-        // isQqLoggedIn unavailable / threw — fall through to pid count.
+        // isQqLoggedIn unavailable / threw — fall through to the base count.
       }
     }
 
-    return { count: pids.length, byUin: null };
+    return { count: baseCount, byUin: null };
   }
 
   // ---- database size stats (charts) ----
@@ -236,9 +257,8 @@ export class GlobalConfigService {
    * `topN`. Scans the `nt_db` folder (where the encrypted databases live).
    */
   dbFileSizes(uin: string, topN = 8): DbFileStat[] {
-    const dataDir = this.accountDataDir(uin);
-    if (!dataDir) return [];
-    const ntDb = join(dataDir, 'nt_qq', 'nt_db');
+    const ntDb = this.platform.ntDbDir(uin);
+    if (!ntDb) return [];
     let entries: string[];
     try {
       entries = readdirSync(ntDb);
@@ -266,9 +286,8 @@ export class GlobalConfigService {
    * (caller should show a placeholder); bounded by a node-count guard.
    */
   async ntDataSubdirSizes(uin: string): Promise<DirSize[]> {
-    const dataDir = this.accountDataDir(uin);
-    if (!dataDir) return [];
-    const ntData = join(dataDir, 'nt_qq', 'nt_data');
+    const ntData = this.platform.ntDataDir(uin);
+    if (!ntData) return [];
     let entries: string[];
     try {
       entries = readdirSync(ntData, { withFileTypes: true }).flatMap((d) =>
@@ -288,21 +307,15 @@ export class GlobalConfigService {
   }
 
   /**
-   * Recursive total size of the account's user-data directory
-   * (`<tencentFilesRoot>/<uin>`), in bytes. Bounded by `dirSize`'s node cap.
+   * Recursive total size of the account's user-data directory (win32
+   * `<root>/<uin>`, linux `<root>/nt_qq_<hash>`), in bytes. Bounded by
+   * `dirSize`'s node cap.
    */
   async accountDirSize(uin: string): Promise<number> {
     const dataDir = this.accountDataDir(uin);
     if (!dataDir) return 0;
     return dirSizeAsync(dataDir, 2_000_000);
   }
-}
-
-/** Parse the QQ version segment out of a `…\versions\<ver>\resources\…` path. */
-export function parseQqVersion(wrapperNodePath: string | null): string | null {
-  if (!wrapperNodePath) return null;
-  const match = wrapperNodePath.match(/[\\/]versions[\\/]([^\\/]+)[\\/]/i);
-  return match ? (match[1] ?? null) : null;
 }
 
 
@@ -312,7 +325,7 @@ export function parseQqVersion(wrapperNodePath: string | null): string | null {
  * (QQ caches can hold hundreds of thousands of tiny files) can't wedge the
  * main process. Returns the summed byte size of files visited.
  */
-function dirSize(root: string, cap = 200_000): number {
+function _dirSize(root: string, cap = 200_000): number {
   let total = 0;
   let visited = 0;
   const stack: string[] = [root];

@@ -1,19 +1,24 @@
 name: Release
 
-# Push a tag like `v0.1.0` to build the Windows installer and publish it as a
-# GitHub Release (with the `latest.yml` manifest the in-app updater consumes).
+# 推送形如 `v0.1.0` 的 tag 触发：分别在 Windows / Linux 上打包，
+# 产物统一发布到同一个 GitHub Release：
+#   - Windows: NSIS 安装包 + latest.yml（应用内自动更新读取）
+#   - Linux  : AppImage / tar.gz，x64 与 arm64 两个架构
+# 最后的 notes job 会用「中文说明 + GitHub 自动生成的 commit 变更列表」
+# 覆写 Release 正文，并特别标注 aarch64 未经真机实测。
 on:
   push:
     tags:
       - 'v*'
 
 permissions:
-  contents: write # create / upload the release
+  contents: write # 创建 / 上传 Release
 
 jobs:
-  release:
-    # Win-only NSIS target + the prebuilt native/.node live under native/win32/x64,
-    # so build on Windows.
+  # ============================ Windows ============================
+  # Win 专属 NSIS 目标 + 预编译的 native/win32/x64/*.node 都在 Windows 下，
+  # 因此在 windows-latest 上构建。此 job 负责建立 Release 并上传 latest.yml。
+  windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,13 +35,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Stamp the version from the tag (v1.2.3 -> 1.2.3) into the package.json
-      # files so electron-builder names artifacts and app.getVersion() reports it.
+      # 把 tag 里的版本号（v1.2.3 -> 1.2.3）写进 package.json，
+      # 让 electron-builder 命名产物、app.getVersion() 也能读到。
       - name: Sync version from tag
         run: node scripts/set-version.mjs ${{ github.ref_name }}
 
-      # Bundle the clone-export bot engine to resources/bot-runtime/bot.mjs so
-      # electron-builder ships it; the "导出好友" feature copies it into products.
+      # 把 clone-export 机器人引擎打包到 resources/bot-runtime/bot.mjs，
+      # 供 electron-builder 一并发布；「导出好友」功能会把它拷进产物。
       - name: Build clone-bot runtime
         run: pnpm run build:bot
 
@@ -52,11 +57,10 @@ jobs:
           Move-Item apps/desktop/package.json apps/desktop/package.dev.json
           Move-Item apps/desktop/package.release.json apps/desktop/package.json
 
-      # ---- Diagnostic dump (always, even on success) ---------------------
-      # electron-builder runs from apps/desktop; we want to know exactly what
-      # it sees: the build output, the manifest it will read, and the
-      # version stamp that set-version.mjs just wrote. Cheap to log, hugely
-      # useful when the next failure is "must be under <appDir>".
+      # ---- 诊断转储（无论成功失败都跑）----------------------------
+      # electron-builder 从 apps/desktop 运行；这里把它将要读到的
+      # 构建输出、manifest、版本号打印出来，方便下次排查
+      # "must be under <appDir>" 之类的问题。
       - name: Dump build inputs
         if: always()
         shell: pwsh
@@ -72,8 +76,8 @@ jobs:
         run: pnpm --filter @weq/desktop exec electron-builder --win --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # electron-builder is chatty at DEBUG=electron-builder; leave the
-          # next failure mode (asar / filter / publish) self-describing.
+          # electron-builder 在 DEBUG=electron-builder 下很啰嗦；
+          # 保留它好让下一次失败（asar / filter / publish）自解释。
           DEBUG: electron-builder
 
       - name: Restore dev manifest
@@ -86,8 +90,8 @@ jobs:
           }
           Remove-Item apps/desktop/package.release.json -ErrorAction SilentlyContinue
 
-      # If electron-builder dies, capture whatever it managed to put on
-      # disk so the next iteration doesn't have to guess.
+      # electron-builder 挂掉时，把它落在磁盘上的东西抓出来，
+      # 省得下一轮靠猜。
       - name: Dump release artifacts on failure
         if: failure()
         shell: pwsh
@@ -99,3 +103,162 @@ jobs:
           Write-Host "== win-unpacked/peek ==";
           $p = Join-Path apps/desktop 'release'
           Get-ChildItem -Depth 3 -Path $p -ErrorAction SilentlyContinue | Select-Object FullName | Format-Table -AutoSize | Out-String | Write-Host
+
+  # ============================ Linux x64 ============================
+  # 原生 x64 runner 构建 AppImage / tar.gz。native/linux/x64/*.node 已预编译，
+  # sherpa-onnx / resvg 等原生依赖由 pnpm install 自动装 x64 版本。
+  linux-x64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Sync version from tag
+        run: node scripts/set-version.mjs ${{ github.ref_name }}
+
+      - name: Build clone-bot runtime
+        run: pnpm run build:bot
+
+      - name: Build renderer + main
+        run: pnpm --filter @weq/desktop exec electron-vite build
+
+      - name: Prepare release manifest
+        run: node scripts/prepare-electron-builder-manifest.mjs
+
+      - name: Swap in release manifest
+        run: |
+          mv apps/desktop/package.json apps/desktop/package.dev.json
+          mv apps/desktop/package.release.json apps/desktop/package.json
+
+      - name: Package + publish release
+        run: pnpm --filter @weq/desktop exec electron-builder --linux --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEBUG: electron-builder
+
+      - name: Restore dev manifest
+        if: always()
+        run: |
+          if [ -f apps/desktop/package.dev.json ]; then
+            rm -f apps/desktop/package.json
+            mv apps/desktop/package.dev.json apps/desktop/package.json
+          fi
+          rm -f apps/desktop/package.release.json
+
+      - name: Dump release artifacts on failure
+        if: failure()
+        run: |
+          echo "== release/ tree =="
+          ls -laR apps/desktop/release 2>/dev/null || echo "(no release/ dir)"
+
+  # ========================== Linux arm64 ==========================
+  # ⚠️ arm64 产物未经真机实测：二进制架构核对无误（native/linux/arm64/*.node
+  # 均为 ELF aarch64），但整体是否可用未验证。用原生 arm64 runner
+  # （公开仓库免费）构建，让 sherpa-onnx / resvg 装到正确的 arm64 版本。
+  linux-arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Sync version from tag
+        run: node scripts/set-version.mjs ${{ github.ref_name }}
+
+      - name: Build clone-bot runtime
+        run: pnpm run build:bot
+
+      - name: Build renderer + main
+        run: pnpm --filter @weq/desktop exec electron-vite build
+
+      - name: Prepare release manifest
+        run: node scripts/prepare-electron-builder-manifest.mjs
+
+      - name: Swap in release manifest
+        run: |
+          mv apps/desktop/package.json apps/desktop/package.dev.json
+          mv apps/desktop/package.release.json apps/desktop/package.json
+
+      - name: Package + publish release
+        run: pnpm --filter @weq/desktop exec electron-builder --linux --arm64 --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEBUG: electron-builder
+
+      - name: Restore dev manifest
+        if: always()
+        run: |
+          if [ -f apps/desktop/package.dev.json ]; then
+            rm -f apps/desktop/package.json
+            mv apps/desktop/package.dev.json apps/desktop/package.json
+          fi
+          rm -f apps/desktop/package.release.json
+
+      - name: Dump release artifacts on failure
+        if: failure()
+        run: |
+          echo "== release/ tree =="
+          ls -laR apps/desktop/release 2>/dev/null || echo "(no release/ dir)"
+
+  # ======================= Release 说明（中文）=======================
+  # 等三个平台都发完（Release 已存在），用「中文说明头 + GitHub 自动
+  # 生成的 commit/PR 变更列表」覆写 Release 正文，并标注 aarch64 未实测。
+  notes:
+    needs: [windows, linux-x64, linux-arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - name: 生成并写入中文 Release 说明
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # 让 GitHub 从上一个 tag 到本 tag 自动生成变更列表（commit/PR）。
+          # 只取其中的正文（.body），拼到我们自己的中文说明后面。
+          CHANGES=$(gh api "repos/${REPO}/releases/generate-notes" \
+            -f tag_name="${TAG}" \
+            --jq '.body')
+
+          NOTES=$(cat <<EOF
+          ## weQ ${TAG}
+
+          > ⚠️ **aarch64 (arm64) 未经真机实测**：二进制架构已核对无误
+          > （native/linux/arm64/*.node 均为 ELF aarch64），但整体是否可用
+          > 尚未在真实设备上验证，不保证能正常运行。遇到问题请提 Issue：
+          > https://github.com/${REPO}/issues
+
+          ### 下载
+          - **Windows**: \`weQ-${TAG#v}-setup.exe\`
+          - **Linux x64**: \`weQ-${TAG#v}-linux-x64.AppImage\` / \`.tar.gz\`
+          - **Linux arm64（未实测）**: \`weQ-${TAG#v}-linux-arm64.AppImage\` / \`.tar.gz\`
+
+          ### 变更
+          ${CHANGES}
+          EOF
+          )
+
+          # 覆写 Release 正文（electron-builder 建 Release 时写的默认正文会被替换）。
+          gh release edit "${TAG}" --repo "${REPO}" --notes "${NOTES}"

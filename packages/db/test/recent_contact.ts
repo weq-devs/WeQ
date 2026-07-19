@@ -1,8 +1,8 @@
 /**
  * Integration test for `RecentContactDb` end-to-end.
  *
- * Hits a real nt_msg.db on disk with the dev credentials hard-coded in
- * `apps/protolab/src/renderer/src/App.tsx`. Verifies the full pipeline:
+ * Hits a real nt_msg.db on disk using the credentials from the root `.env`
+ * (see `@weq/testkit` / `.env.example`). Verifies the full pipeline:
  *   native (SQLCipher) → SQL → protobuf decode (40051 preview) → RecentContact.
  *
  * Run:  pnpm --filter @weq/db test:recent-contact
@@ -14,11 +14,10 @@
 
 import { loadNative } from '@weq/native';
 import { RecentContactDb } from '../src/contact/recent_contact';
+import { testEnv } from '@weq/testkit';
 
-const DB_PATH =
-  process.env.WEQ_TEST_DB_PATH ??
-  String.raw`D:\estkim\T\Tencent Files\1707889225\nt_qq\nt_db\nt_msg.db`;
-const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
+const DB_PATH = testEnv.msgDbPath;
+const KEY = testEnv.key;
 
 async function main(): Promise<void> {
   const native = loadNative();

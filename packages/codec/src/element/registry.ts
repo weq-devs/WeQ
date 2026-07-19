@@ -11,7 +11,7 @@
  */
 
 import type { ProtoDecodeStructType, ProtoEncodeStructType } from '../core';
-import { ElementWire, PreviewElementWire } from '../proto/msg/element';
+import type { ElementWire, PreviewElementWire } from '../proto/msg/element';
 import {
   ElementType,
   GrayTipSubType,

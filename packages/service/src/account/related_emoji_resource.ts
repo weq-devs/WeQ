@@ -201,7 +201,7 @@ export class RelatedEmojiResourceService {
 
   /** Read + sort the `.gif` file names in `<root>/<hash>`. */
   private async readGifs(root: string, hash: string): Promise<string[]> {
-    let files;
+    let files: import('node:fs').Dirent[];
     try {
       files = await readdir(join(root, hash), { withFileTypes: true });
     } catch {

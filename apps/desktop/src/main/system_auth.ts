@@ -1,4 +1,4 @@
-import { systemPreferences, BrowserWindow } from 'electron';
+import { systemPreferences, type BrowserWindow } from 'electron';
 import { requirePlatform } from './context/app_context';
 
 export type SystemAuthStatus = {
@@ -72,7 +72,7 @@ class SystemAuthService {
     return this.getStatus();
   }
 
-  async verify(reason?: string, targetWindow?: BrowserWindow): Promise<SystemAuthVerifyResult> {
+  async verify(reason?: string, _targetWindow?: BrowserWindow): Promise<SystemAuthVerifyResult> {
     if (process.platform === 'win32') {
       try {
         const result = requirePlatform().native.ntHelper.verifyWindowsHello(

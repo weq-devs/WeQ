@@ -22,7 +22,7 @@
  * 频道相关的导出/分析 work (see `channel:get-cookies`).
  */
 
-import { BrowserWindow, ipcMain, nativeTheme, session, shell } from 'electron';
+import { BrowserWindow, ipcMain, nativeTheme, session } from 'electron';
 import { accountConfigId, getLogger, logErrorContext } from '@weq/service';
 import { getAppContext } from './context/app_context';
 
@@ -153,6 +153,23 @@ export function registerChannelIpc(): void {
     applyChannelTheme(theme);
     await openChannelWindow();
     return true;
+  });
+
+  // 内嵌模式（ChannelView 的 <webview>）入口：应用主题、解析 per-account 分区、
+  // 在首次导航前把自动登录 cookie 种进该分区，然后把 partition/url 交给渲染层，
+  // 由 <webview> 用同一个 partition 加载。cookie 注入失败不致命 —— 回退到持久
+  // 分区里已有的 cookie。返回的 partition 与独立窗口用的是同一套，登录状态互通。
+  ipcMain.handle('channel:prepare', async (_event, theme?: ChannelTheme) => {
+    applyChannelTheme(theme);
+    const partition = resolvePartition();
+    await injectAutoLoginCookies(partition).catch((error) => {
+      logger.warn('channel auto-login cookie injection failed', {
+        event: 'channel-autologin-failed',
+        ...logErrorContext(error),
+      });
+    });
+    logger.info('preparing embedded qq channel webview', { event: 'channel-prepare', partition });
+    return { partition, url: CHANNEL_URL };
   });
 
   // Live theme follow: the renderer pushes this whenever WeQ's 深/浅 mode changes

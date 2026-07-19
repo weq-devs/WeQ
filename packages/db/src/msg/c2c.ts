@@ -26,7 +26,7 @@ import { decodeBody, toBigint, toStr } from './util';
 import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './append';
 import { QqDb } from '../qq_db';
 
-const SELECT_COLUMNS = `"40001","40020","40021","40030","40033","40050","40800","40003"`;
+const SELECT_COLUMNS = `"40001","40020","40021","40030","40033","40050","40800","40003","40011","40012"`;
 
 /**
  * Which partition column to filter a c2c conversation by. Prefer `sortNo`
@@ -182,66 +182,87 @@ export class C2cMsgDb {
     return (rows[0]?.[0] as Uint8Array) ?? null;
   }
 
-  /** Update the msgBody (column 40800) for a specific message. */
-  async updateMsgBody(msgId: bigint, blob: Uint8Array): Promise<number> {
-    return this.qq.write(`UPDATE ${this.table} SET "40800" = ? WHERE "40001" = ?`, [blob, msgId]);
-  }
-
   /**
-   * Reversible soft-delete: hide a message from its conversation without
-   * dropping the row. XOR `mask` (a high bit, far above any real sortNo) into
-   * the indexed partition key 40027 so the fast-path query `WHERE "40027" =
-   * sortNo` no longer matches, AND prefix the TEXT key 40021 with `uidPrefix`
-   * so the uid-fallback / dataline query `WHERE "40021" = uid` misses it too.
-   * The `("40027" & mask) = 0` guard makes it idempotent. Returns affected rows.
+   * Update the msgBody (column 40800) for a specific message.
+   *
+   * We ALSO bump 40002 (msgRandom) to a fresh value in the same UPDATE. This is
+   * the "it's me, allow it" signal for the anti-recall trigger: QQ's own recall
+   * rewrites 40800 while leaving 40002 untouched (proven in
+   * test/compare_recall_40002.ts), so the trigger cancels any 40800/40900 change
+   * that keeps 40002 the same. WeQ's legitimate edits change 40002, so they slip
+   * past the trigger while QQ's recall is caught. Harmless when anti-recall is
+   * off — 40002 is just a random tiebreaker column.
    */
-  async softDelete(msgId: bigint, mask: bigint, uidPrefix: string): Promise<number> {
+  async updateMsgBody(msgId: bigint, blob: Uint8Array): Promise<number> {
+    const newRandom = BigInt(Math.floor(Math.random() * 0x7fffffff));
     return this.qq.write(
-      // SQLite has no `^` (XOR) operator; use the identity a^b = (a|b) - (a&b).
-      `UPDATE ${this.table}
-          SET "40027" = ("40027" | ?) - ("40027" & ?), "40021" = ? || "40021"
-        WHERE "40001" = ? AND ("40027" & ?) = 0`,
-      [mask, mask, uidPrefix, msgId, mask],
+      `UPDATE ${this.table} SET "40800" = ?, "40002" = ? WHERE "40001" = ?`,
+      [blob, newRandom, msgId],
     );
   }
 
   /**
-   * List the soft-deleted messages of one peer, newest-first. A {@link softDelete}
-   * always prefixes the TEXT key 40021 with `uidPrefix` (on both the c2c and
-   * dataline tables), so a single equality on the prefixed uid finds exactly the
-   * rows hidden from this conversation — the mask bit on 40027 is left implicit.
-   * Returns them shaped like any other page (seq 40003 is untouched by delete).
+   * Read a message's type columns (40011 msgType / 40012 subType) by msgId, or
+   * null if this table doesn't hold it. QQ itself rewrites these to `(1,1)` on
+   * recall/delete; WeQ's delete mirrors that (see {@link writeMsgType}) and
+   * remembers the originals to restore them.
    */
-  async listDeleted(uid: string, uidPrefix: string, limit = 200): Promise<C2cMsg[]> {
+  async readMsgType(msgId: bigint): Promise<{ msgType: bigint; subType: bigint } | null> {
+    const rows = await this.qq.query(
+      `SELECT "40011","40012" FROM ${this.table} WHERE "40001" = ? LIMIT 1`,
+      [msgId],
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return { msgType: toBigint(row[0]), subType: toBigint(row[1]) };
+  }
+
+  /**
+   * Overwrite a message's type columns (40011/40012) in place. Delete writes
+   * `(1,1)` — byte-identical to QQ's own recall — leaving the 40800 body intact
+   * so the message still renders; restore writes the remembered originals back.
+   */
+  async writeMsgType(msgId: bigint, msgType: bigint, subType: bigint): Promise<number> {
+    return this.qq.write(
+      `UPDATE ${this.table} SET "40011" = ?, "40012" = ? WHERE "40001" = ?`,
+      [msgType, subType, msgId],
+    );
+  }
+
+  /**
+   * Fetch full message rows by msgId (40001), newest-first. Used to render the
+   * "deleted messages" list: WeQ's delete leaves rows in their normal partition
+   * (only 40011/40012 change), so the deleted set is addressed by msgId, not a
+   * hidden partition key. Empty input short-circuits to [].
+   */
+  async listByMsgIds(msgIds: bigint[]): Promise<C2cMsg[]> {
+    if (msgIds.length === 0) return [];
+    const placeholders = msgIds.map(() => '?').join(',');
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM ${this.table}
-        WHERE "40021" = ?
-        ORDER BY "40003" DESC
-        LIMIT ?`,
-      [uidPrefix + uid, BigInt(limit)],
+        WHERE "40001" IN (${placeholders})
+        ORDER BY "40003" DESC`,
+      msgIds,
     );
     return rows.map(rowToC2cMsg);
   }
 
-  /** Reverse {@link softDelete}: XOR 40027 back and strip the 40021 prefix. */
-  async restore(msgId: bigint, mask: bigint, uidPrefix: string): Promise<number> {
-    return this.qq.write(
-      // SQLite has no `^` (XOR) operator; use the identity a^b = (a|b) - (a&b).
-      `UPDATE ${this.table}
-          SET "40027" = ("40027" | ?) - ("40027" & ?),
-              "40021" = CASE WHEN "40021" LIKE ? THEN SUBSTR("40021", ?) ELSE "40021" END
-        WHERE "40001" = ? AND ("40027" & ?) <> 0`,
-      [mask, mask, uidPrefix + '%', BigInt(uidPrefix.length + 1), msgId, mask],
-    );
-  }
-
   /**
-   * Hard-delete: physically drop the row (by msgId 40001) from this table. Unlike
-   * {@link softDelete} this is irreversible — the message is gone, not hidden.
-   * Returns affected rows (0 if this table doesn't hold the msgId).
+   * All rows for one peer carrying the `(1,1)` deleted signature (40011=1 &
+   * 40012=1), newest-first. Covers BOTH WeQ's own deletes and QQ's native
+   * recalls — the caller splits them via the DeletedMsgStore. Lets the "deleted
+   * messages" panel surface QQ recalls the store never recorded. `limit` bounds
+   * a pathologically recall-heavy conversation.
    */
-  async hardDelete(msgId: bigint): Promise<number> {
-    return this.qq.write(`DELETE FROM ${this.table} WHERE "40001" = ?`, [msgId]);
+  async listDeletedByConv(targetUid: string, limit = 200): Promise<C2cMsg[]> {
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM ${this.table}
+        WHERE "40021" = ? AND "40011" = 1 AND "40012" = 1
+        ORDER BY "40003" DESC
+        LIMIT ?`,
+      [targetUid, BigInt(limit)],
+    );
+    return rows.map(rowToC2cMsg);
   }
 
   /**
@@ -254,13 +275,38 @@ export class C2cMsgDb {
     return appendClonedRow(this.qq, this.table, clause, value, fields);
   }
 
-  /** Batch count messages per peer by uid. Returns { uid: count }. */
-  async countByUids(uids: string[]): Promise<Record<string, number>> {
+  /**
+   * Batch count messages per peer by uid. Returns { uid: count }.
+   *
+   * `opts` narrows the count without changing the (indexed) `40021 IN (…)`
+   * grouping — every filter is an extra `AND` on the same scan:
+   *   - `startTime`/`endTime` (unix seconds) → window on `40050` sendTime;
+   *   - `senderUid` → count only messages *this* uid sent (e.g. self, to get
+   *     「我发了多少」 rather than the conversation total).
+   */
+  async countByUids(
+    uids: string[],
+    opts: { startTime?: number; endTime?: number; senderUid?: string } = {},
+  ): Promise<Record<string, number>> {
     if (uids.length === 0) return {};
     const placeholders = uids.map(() => '?').join(',');
+    const conditions = [`"40021" IN (${placeholders})`];
+    const params: SqlValue[] = [...uids];
+    if (opts.startTime != null && opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      params.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime != null && opts.endTime > 0) {
+      conditions.push(`"40050" <= ?`);
+      params.push(BigInt(opts.endTime));
+    }
+    if (opts.senderUid) {
+      conditions.push(`"40020" = ?`);
+      params.push(opts.senderUid);
+    }
     const rows = await this.qq.query(
-      `SELECT "40021", COUNT(*) FROM ${this.table} WHERE "40021" IN (${placeholders}) GROUP BY "40021"`,
-      uids,
+      `SELECT "40021", COUNT(*) FROM ${this.table} WHERE ${conditions.join(' AND ')} GROUP BY "40021"`,
+      params,
     );
     const result: Record<string, number> = {};
     for (const row of rows) {
@@ -287,6 +333,8 @@ function rowToC2cMsg(row: SqlRow): C2cMsg {
     sendTime: toBigint(row[5]),
     elements: decodeBody(row[6]),
     msgSeq: toBigint(row[7]),
+    msgType: toBigint(row[8]),
+    subType: toBigint(row[9]),
   };
 }
 
@@ -302,5 +350,7 @@ function rowToC2cMsgWithRowId(row: SqlRow): C2cMsg & { rowId: bigint } {
     sendTime: toBigint(row[6]),
     elements: decodeBody(row[7]),
     msgSeq: toBigint(row[8]),
+    msgType: toBigint(row[9]),
+    subType: toBigint(row[10]),
   };
 }

@@ -127,6 +127,31 @@ export function parseMcpConfig(raw: string | undefined): McpServerSpec[] {
   return dedupeNames(out);
 }
 
+/**
+ * Validate the user's raw MCP config on explicit save, surfacing errors instead
+ * of silently falling through. {@link parseMcpConfig} stays lenient (used on
+ * startup / runtime where a throw would break the account); this strict pass is
+ * only for the settings-save path so a mistyped JSON reaches the user as a clear
+ * dialog rather than vanishing. Throws with a readable message; returns cleanly
+ * when the config is empty or valid.
+ */
+export function validateMcpConfig(raw: string | undefined): void {
+  const text = (raw ?? '').trim();
+  if (!text) return;
+  // Only the JSON form can fail "invisibly" (bad JSON → silently parsed as lines
+  // → usually zero servers). The `名字=url` line form has no syntax to violate.
+  if (text.startsWith('{')) {
+    try {
+      JSON.parse(text);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `外部 MCP 配置 JSON 解析失败：${detail}。请检查括号/引号/逗号，或改用「名字=https://…」每行一个的写法。`,
+      );
+    }
+  }
+}
+
 function isHttpUrl(value: string): boolean {
   try {
     const u = new URL(value);

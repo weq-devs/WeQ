@@ -5,10 +5,10 @@
 import { loadNative } from '@weq/native';
 import { BuddyMsgFtsDb, GroupMsgFtsDb } from '@weq/db';
 import { MsgSearchService } from '../src/account/msg_search';
+import { testEnv, qqDbDir } from '@weq/testkit';
 
-const UIN = '1707889225';
-const KEY = '^;<kXZ;RI[@]yTD<';
-const NT_DB_DIR = `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db`;
+const KEY = testEnv.key;
+const NT_DB_DIR = qqDbDir();
 
 async function main() {
   const native = loadNative();
@@ -38,17 +38,25 @@ async function main() {
 
     const buddyHits = await service.searchBuddy(keyword, 3);
     console.log(`\nBuddy Hits (${buddyHits.length}):`);
-    buddyHits.forEach(h => console.log(` - [${h.sendTime}] ${h.content.slice(0, 30)}`));
+    buddyHits.forEach((h) => {
+      console.log(` - [${h.sendTime}] ${h.content.slice(0, 30)}`);
+    });
 
     const groupHits = await service.searchGroup(keyword, 3);
     console.log(`\nGroup Hits (${groupHits.length}):`);
-    groupHits.forEach(h => console.log(` - [${h.sendTime}] ${h.content.slice(0, 30)}`));
+    groupHits.forEach((h) => {
+      console.log(` - [${h.sendTime}] ${h.content.slice(0, 30)}`);
+    });
 
     const fileKeyword = 'zip';
     console.log(`\n[test:search] Searching files for: "${fileKeyword}"`);
     const fileHits = await service.searchFiles(fileKeyword, 3);
     console.log(`File Hits (${fileHits.length}):`);
-    fileHits.forEach(h => console.log(` - [${h.sendTime}] File: ${h.fileName}, Content: ${h.content.slice(0, 30)}`));
+    fileHits.forEach((h) => {
+      console.log(
+        ` - [${h.sendTime}] File: ${h.fileName}, Content: ${h.content.slice(0, 30)}`,
+      );
+    });
 
   } catch (err) {
     console.error('[test:search] Failed:', err);

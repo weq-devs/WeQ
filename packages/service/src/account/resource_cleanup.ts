@@ -288,7 +288,7 @@ export class ResourceCleanupService {
     let visited = 0;
     while (stack.length > 0 && visited < NODE_CAP) {
       const dir = stack.pop()!;
-      let dirents;
+      let dirents: import('node:fs').Dirent[];
       try {
         dirents = await readdir(dir, { withFileTypes: true });
         out.sawDir = true;
@@ -303,7 +303,7 @@ export class ResourceCleanupService {
       }
       await Promise.all(
         files.map(async (abs) => {
-          let st;
+          let st: import('node:fs').Stats;
           try {
             st = await stat(abs);
           } catch {
@@ -398,7 +398,7 @@ export class ResourceCleanupService {
 
     while (stack.length > 0 && visited < NODE_CAP) {
       const dir = stack.pop()!;
-      let dirents;
+      let dirents: import('node:fs').Dirent[];
       try {
         dirents = await readdir(dir, { withFileTypes: true });
       } catch {
@@ -450,7 +450,7 @@ function dirSizeBytesSync(root: string, cap = NODE_CAP): number {
   const stack: string[] = [root];
   while (stack.length > 0 && visited < cap) {
     const dir = stack.pop()!;
-    let dirents;
+    let dirents: import('node:fs').Dirent[];
     try {
       dirents = readdirSync(dir, { withFileTypes: true });
     } catch {

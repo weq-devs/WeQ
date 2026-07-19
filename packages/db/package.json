@@ -30,6 +30,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.6",
+    "@weq/testkit": "workspace:*",
     "tsx": "^4.19.2"
   }
 }

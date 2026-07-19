@@ -24,6 +24,7 @@ export { exportGroupToTxt } from './txt_exporter';
 export { exportGroupToCsv, csvFraming, renderCsvRow } from './csv_exporter';
 export { exportToXlsx, type XlsxExportOptions } from './xlsx_exporter';
 export { exportToHtml, type HtmlExportOptions } from './html_exporter';
+export { exportSysFaces, SYSFACE_SUBDIR } from './sysface_export';
 export {
   exportQzone,
   type QzoneExportDeps,
@@ -39,6 +40,15 @@ export {
   type ExportFriendsOpts,
   type ExportGroupMembersOpts,
 } from './contacts_export';
+export {
+  exportCollections,
+  type CollectionExportDeps,
+  type CollectionExportRow,
+  type CollectionExportPic,
+  type CollectionFormat,
+  type CollectionExportResult,
+  type ExportCollectionsOpts,
+} from './collection_export';
 export {
   avatarUrlForUin,
   iterateConv,
@@ -82,6 +92,7 @@ export {
 export {
   scanConvMedia,
   mediaDirsFromAccountDir,
+  mediaDirsFromNtDataDir,
   type MediaKind,
   type MediaDirs,
   type MediaRef,

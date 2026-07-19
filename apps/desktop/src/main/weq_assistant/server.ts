@@ -212,7 +212,7 @@ function dailyPageHtml(): string {
         <div class="feat"><div class="ic">${lucide('shield-check', 18)}</div><div class="ft"><b>完全离线</b> —— 不经过任何外部服务器，仅用于个人数据的本地备份与分析。</div></div>
       </div>
     </div>
-    <div class="foot">${lucide('lock', 13)} Served locally by WeQ · 127.0.0.1</div>
+    <div class="foot">${lucide('lock', 13)} Served locally by WeQ · localhost.weixin.qq.com</div>
   </div>
 </body>
 </html>`;

@@ -8,11 +8,10 @@
 import { loadNative } from '@weq/native';
 import { decode, type RawField, type Guess } from '@weq/codec/raw';
 import { GroupMsgDb } from '../src/msg/group';
+import { testEnv } from '@weq/testkit';
 
-const DB_PATH =
-  process.env.WEQ_TEST_DB_PATH ??
-  String.raw`D:\estkim\T\Tencent Files\1707889225\nt_qq\nt_db\nt_msg.db`;
-const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
+const DB_PATH = testEnv.msgDbPath;
+const KEY = testEnv.key;
 
 const CASES: Array<{ label: string; msgId: bigint }> = [
   { label: '专属红包 (给指定群友)', msgId: 7661607490431795174n },
@@ -55,7 +54,7 @@ function printTree(fields: RawField[], indent: string): void {
     const nested = f.guesses.find((g) => g.kind === 'len-nested');
     if (nested && nested.kind === 'len-nested') {
       console.log(`${indent}#${f.tag}  ${topGuess(nested)}`);
-      printTree(nested.value, indent + '  ');
+      printTree(nested.value, `${indent}  `);
       // 若同一 LEN 字段还能被解释成字符串，附注一下
       const asStr = f.guesses.find((g) => g.kind === 'len-utf8');
       if (asStr && asStr.kind === 'len-utf8' && asStr.value.trim()) {
@@ -76,7 +75,7 @@ async function main(): Promise<void> {
   });
 
   for (const c of CASES) {
-    console.log('\n' + '='.repeat(70));
+    console.log(`\n${'='.repeat(70)}`);
     console.log(`${c.label}  msgId=${c.msgId}`);
     console.log('='.repeat(70));
 

@@ -113,14 +113,14 @@ export class WebCredentialProvider {
 
       // skey / p_skey:优先用 jar 里的,jar 没有就回退 native(OIDB)。两个 fetcher
       // 都走同一条 hook pipe,顺序调用避免争用。
-      let skey = jar['skey'] ?? this.skey ?? undefined;
+      let skey = jar.skey ?? this.skey ?? undefined;
       if (!skey) {
         skey = await this.nt.fetchSkey(pid, this.uin);
         this.logger.info('fetched skey', { event: 'fetch-skey', pid, domain });
       }
       this.skey = skey;
 
-      let pskey = jar['p_skey'] ?? this.pskeyByDomain.get(domain);
+      let pskey = jar.p_skey ?? this.pskeyByDomain.get(domain);
       if (pskey === undefined) {
         pskey = await this.nt.fetchPskey(pid, this.uin, domain);
         this.logger.info('fetched pskey', { event: 'fetch-pskey', pid, domain });
@@ -129,10 +129,10 @@ export class WebCredentialProvider {
 
       // 把回退补来的值并回 jar,拼成完整 cookie 头。jar 为空(ptlogin2 失败)时
       // cookie 退化成 4 字段,等价旧行为。
-      jar['uin'] = jar['uin'] || `o${this.uin}`;
-      jar['p_uin'] = jar['p_uin'] || `o${this.uin}`;
-      jar['skey'] = jar['skey'] || skey;
-      if (pskey) jar['p_skey'] = jar['p_skey'] || pskey;
+      jar.uin = jar.uin || `o${this.uin}`;
+      jar.p_uin = jar.p_uin || `o${this.uin}`;
+      jar.skey = jar.skey || skey;
+      if (pskey) jar.p_skey = jar.p_skey || pskey;
       const cookie = Object.entries(jar)
         .filter(([, v]) => v)
         .map(([k, v]) => `${k}=${v}`)
@@ -179,8 +179,8 @@ export class WebCredentialProvider {
         pid,
         domain,
         cookieKeys: Object.keys(jar).length,
-        hasPskey: Boolean(jar['p_skey']),
-        hasPt4Token: Boolean(jar['pt4_token']),
+        hasPskey: Boolean(jar.p_skey),
+        hasPt4Token: Boolean(jar.pt4_token),
       });
       return jar;
     } catch (error) {

@@ -22,6 +22,7 @@ import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
 import type { AccountConfigService, DownloadRkey, ClientKey } from './user_config';
 import { rkeyExpiryMs, clientKeyExpiryMs } from './user_config';
+import { createDirectInjectHook, type InjectHook } from '../bootstrap/inject';
 import { getLogger, logErrorContext } from '../common/logger';
 
 /** How often to poll for the account becoming logged in. */
@@ -32,13 +33,6 @@ const PID_POLL_MS = 5000;
 const RKEY_REFRESH_SKEW_MS = 5 * 60 * 1000;
 /** Refresh clientkey this long before it expires. */
 const CLIENTKEY_REFRESH_SKEW_MS = 5 * 60 * 1000;
-
-/**
- * Global registry of injected pids — shared across all AccountMonitorService
- * instances to prevent re-injecting the same QQ.exe when switching accounts.
- * Key = pid, Value = true when injected.
- */
-const injectedPids = new Set<number>();
 
 export class AccountMonitorService {
   private running = false;
@@ -57,6 +51,11 @@ export class AccountMonitorService {
    * @param shouldFetchClientKey Checked live before each clientkey fetch — when
    *   it returns false (用户关掉了「自动获取 ClientKey」), clientkey harvesting
    *   is skipped. Defaults to always-off.
+   * @param injectHook Turns a pid into a sendable-state before harvesting.
+   *   Defaults to the in-process direct inject (win32). On linux the desktop
+   *   app passes a pkexec-elevated hook. A single shared instance across all
+   *   monitors keeps its own per-pid idempotency, so switching accounts never
+   *   re-injects the same QQ.
    */
   constructor(
     private readonly session: AccountSession,
@@ -64,6 +63,7 @@ export class AccountMonitorService {
     private readonly accountConfig: AccountConfigService,
     private readonly shouldHarvestRkeys: () => boolean = () => true,
     private readonly shouldFetchClientKey: () => boolean = () => false,
+    private readonly injectHook: InjectHook = createDirectInjectHook(platform.native.ntHelper),
   ) {
     this.logger = getLogger().child({ scope: 'account-monitor', accountUin: this.session.context.uin });
   }
@@ -142,7 +142,7 @@ export class AccountMonitorService {
   private async loginPoll(): Promise<void> {
     let loggedIn = false;
     try {
-      loggedIn = this.nt.isQqLoggedIn(this.uin);
+      loggedIn = this.platform.isQqLoggedIn(this.uin);
     } catch {
       /* probe unavailable — treat as not logged in */
     }
@@ -208,7 +208,7 @@ export class AccountMonitorService {
 
     if (!alive) {
       if (this.attachedPid !== null) {
-        injectedPids.delete(this.attachedPid);
+        this.injectHook.reset(this.attachedPid);
       }
       this.logger.info('attached qq process exited; marking account offline', {
         event: 'account-offline',
@@ -248,10 +248,7 @@ export class AccountMonitorService {
   // ---- rkey / clientkey harvesting ----------------------------------------
 
   private async ensureInjected(pid: number): Promise<void> {
-    if (injectedPids.has(pid)) return;
-    await this.nt.injectAndGetStatusEmbedded(pid);
-    injectedPids.add(pid);
-    this.logger.info('injected helper into qq process', { event: 'inject-qq-helper', pid });
+    await this.injectHook.ensure(pid);
   }
 
   /** Harvest both rkey & clientkey (gated by their respective switches). */

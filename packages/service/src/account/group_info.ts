@@ -831,4 +831,52 @@ export class GroupInfoService {
 
     return { totals, ranking, timeDistribution: hourly, daily: dailyArr, words };
   }
+
+  /**
+   * 我的群活跃排行（近 N 天，days=0 为全部历史）。一次 `GROUP BY 群号` 的聚合数出
+   * 「每个群窗口内的消息数」；by='me' 时叠 `senderUid=self` 只数我发的（回答「我在哪个群最
+   * 活跃」），by='all' 数群总流量（回答「哪个群最热闹」）。**一条 SQL 覆盖全部群、不扫消息体。**
+   *
+   * `window` 传显式 [startTime,endTime]（unix 秒）时忽略 days，直接按该窗口统计——
+   * 供周报做「上一周」环比等任意区间查询复用同一套聚合。
+   *
+   * 返回按 count 降序、已带群名的排行；`windowStart/windowEnd` 回传实际统计窗口
+   * （unix 秒；全部历史时为 null），供上层如实说明覆盖范围。
+   */
+  async rankMyGroupsByActivity(
+    days = 7,
+    by: 'me' | 'all' = 'me',
+    window?: { startTime: number; endTime: number },
+  ): Promise<{
+    windowStart: number | null;
+    windowEnd: number | null;
+    by: 'me' | 'all';
+    items: Array<{ groupCode: string; groupName: string; count: number }>;
+  }> {
+    const now = Math.floor(Date.now() / 1000);
+    const startTime = window ? window.startTime : days > 0 ? now - days * 86400 : undefined;
+    const endTime = window ? window.endTime : days > 0 ? now : undefined;
+    const selfUid =
+      by === 'me' ? this.session.uidMap.uidByUin(BigInt(this.session.context.uin ?? 0)) ?? '' : '';
+
+    const groups = await this.session.groupDetail.listAll(2000, 0);
+    const nameByCode = new Map(groups.map((g) => [String(g.groupCode), g.groupName]));
+    const codes = groups.map((g) => String(g.groupCode));
+    if (codes.length === 0) {
+      return { windowStart: startTime ?? null, windowEnd: endTime ?? null, by, items: [] };
+    }
+
+    const counts = await this.session.groupMsgs.countByGroups(codes, {
+      startTime,
+      endTime,
+      ...(selfUid ? { senderUid: selfUid } : {}),
+    });
+
+    const items = codes
+      .map((code) => ({ groupCode: code, groupName: nameByCode.get(code) || code, count: counts[code] ?? 0 }))
+      .filter((g) => g.count > 0)
+      .sort((a, b) => b.count - a.count);
+
+    return { windowStart: startTime ?? null, windowEnd: endTime ?? null, by, items };
+  }
 }

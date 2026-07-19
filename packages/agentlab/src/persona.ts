@@ -134,7 +134,7 @@ function computeVoiceUsage(messages: AgentLabMessage[]): {
 }
 
 export function computeStats(
-  messages: AgentLabMessage[],
+  _messages: AgentLabMessage[],
   turns: AgentLabTurn[],
   pairCount: number,
   corpusChars: number,

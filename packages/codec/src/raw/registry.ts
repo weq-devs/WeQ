@@ -173,7 +173,7 @@ function checkTypeAgreement(
       return { ok: false, reason: `schema says message but wire type is ${wireName(raw.wireType)}` };
     }
     const nested = preferredNested(raw);
-    if (!nested || !nested.consumedAll) {
+    if (!nested?.consumedAll) {
       return { ok: false, reason: 'schema says message but payload does not parse as nested protobuf' };
     }
     return { ok: true };

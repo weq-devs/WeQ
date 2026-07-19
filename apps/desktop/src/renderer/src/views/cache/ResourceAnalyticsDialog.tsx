@@ -83,7 +83,11 @@ function accumulate(stats: ResourceStat[]): Totals {
     t.other.files += s.other.files;
     t.other.bytes += s.other.bytes;
     for (const [m, v] of Object.entries(s.byMonth)) {
-      const cur = t.byMonth[m] ?? (t.byMonth[m] = { files: 0, bytes: 0 });
+      let cur = t.byMonth[m];
+      if (!cur) {
+        cur = { files: 0, bytes: 0 };
+        t.byMonth[m] = cur;
+      }
       cur.files += v.files;
       cur.bytes += v.bytes;
     }

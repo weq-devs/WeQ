@@ -4,10 +4,10 @@
 
 import { loadNative } from '@weq/native';
 import { QqDb } from '../src/qq_db';
+import { testEnv, qqDbPath } from '@weq/testkit';
 
-const UIN = '1707889225';
-const KEY = '^;<kXZ;RI[@]yTD<';
-const GROUP_INFO_DB_PATH = `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db\\group_info.db`;
+const KEY = testEnv.key;
+const GROUP_INFO_DB_PATH = qqDbPath('group_info.db');
 
 async function main() {
   const native = loadNative();

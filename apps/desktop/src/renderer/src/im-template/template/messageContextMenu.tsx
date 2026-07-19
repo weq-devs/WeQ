@@ -1,4 +1,4 @@
-﻿import { Copy, Download, Trash2, Trash, Edit3 } from "lucide-react";
+﻿import { Copy, Download, Trash2, Edit3 } from "lucide-react";
 import type { Message } from "./types";
 import { cn } from "./classNames";
 
@@ -20,15 +20,14 @@ export function MessageContextMenu({
 	state,
 	onCopy,
 	onDownloadImage,
-	onDeleteLocal,
-	onHardDelete,
+	onDelete,
 	onEditRaw,
 }: {
 	state: MessageContextMenuState;
 	onCopy: (message: Message) => void | Promise<void>;
 	onDownloadImage?: (url: string, message: Message) => void;
-	onDeleteLocal: (message: Message) => void;
-	onHardDelete?: (message: Message) => void;
+	/** QQ-style delete: message stays in the chat under a "deleted" overlay, restorable. */
+	onDelete: (message: Message) => void;
 	onEditRaw?: (message: Message) => void;
 }) {
 	return (
@@ -71,20 +70,10 @@ export function MessageContextMenu({
 					<span>下载</span>
 				</button>
 			) : null}
-			<button type="button" onClick={() => onDeleteLocal(state.message)}>
+			<button type="button" onClick={() => onDelete(state.message)}>
 				<Trash2 size={17} />
-				<span>软删除（实验）</span>
+				<span>删除</span>
 			</button>
-			{onHardDelete ? (
-				<button
-					type="button"
-					className="is-danger"
-					onClick={() => onHardDelete(state.message)}
-				>
-					<Trash size={17} />
-					<span>删除</span>
-				</button>
-			) : null}
 		</div>
 	);
 }

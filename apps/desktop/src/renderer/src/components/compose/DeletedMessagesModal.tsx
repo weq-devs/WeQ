@@ -1,6 +1,10 @@
 /**
- * DeletedMessagesModal — browse a conversation's soft-deleted (hidden but
- * restorable) messages and bring any of them back.
+ * DeletedMessagesModal — the "删除列表": browse the messages WeQ deleted in one
+ * conversation and bring any of them back.
+ *
+ * WeQ's delete mirrors QQ's own recall (40011/40012 → (1,1) in place), so the
+ * deleted messages ALSO stay visible in the chat under a translucent overlay —
+ * this panel is the centralized management view of the same set.
  *
  * To stay visually identical to the live chat, it renders each deleted message
  * with the SAME `MessageBubble` + renderers the chat pane uses, inside a
@@ -74,7 +78,7 @@ export function DeletedMessagesModal({
       <div className="weq-deleted">
         <header className="weq-compose-head">
           <div className="weq-compose-titlewrap">
-            <strong id="weq-deleted-title" className="weq-compose-title">查看删除消息</strong>
+            <strong id="weq-deleted-title" className="weq-compose-title">删除列表</strong>
             <span className="weq-compose-sub">{subtitle}</span>
           </div>
           <button type="button" className="weq-compose-x" onClick={onClose} title="关闭">
@@ -91,12 +95,14 @@ export function DeletedMessagesModal({
                 <div className="weq-deleted-empty">
                   <Trash2 size={26} />
                   <span>没有已删除的消息</span>
-                  <small>在聊天里右键消息「删除」后，会出现在这里，可随时恢复。</small>
+                  <small>在聊天里右键消息「删除」后，消息会以半透明样式留在原位，也会出现在这里，可随时恢复。对方撤回 / 在其他设备删除的消息也会出现在这里（标记为「QQ删除」，无法恢复）。</small>
                 </div>
               ) : (
                 visible.map((message) => {
                   const mine = message.senderId === user.id;
                   const sender = resolveMessageSender(message, conversation, user);
+                  const kind = (message as { deletedKind?: 'weq' | 'qq' }).deletedKind ?? 'weq';
+                  const restorable = kind !== 'qq';
                   return (
                     <div key={message.id} className="weq-deleted-row">
                       <div className="weq-deleted-bubble">
@@ -112,20 +118,27 @@ export function DeletedMessagesModal({
                           showSenderName={showSenderNames}
                           active={false}
                           renderers={renderers}
+                          deletedKind={kind}
                           onContextMenu={noop}
                           onLongPress={noop}
                         />
                       </div>
-                      <button
-                        type="button"
-                        className="weq-deleted-restore"
-                        title="恢复这条消息"
-                        disabled={restoringId === message.id}
-                        onClick={() => void restore(message)}
-                      >
-                        <RotateCcw size={14} />
-                        <span>{restoringId === message.id ? '恢复中…' : '恢复'}</span>
-                      </button>
+                      {restorable ? (
+                        <button
+                          type="button"
+                          className="weq-deleted-restore"
+                          title="恢复这条消息"
+                          disabled={restoringId === message.id}
+                          onClick={() => void restore(message)}
+                        >
+                          <RotateCcw size={14} />
+                          <span>{restoringId === message.id ? '恢复中…' : '恢复'}</span>
+                        </button>
+                      ) : (
+                        <span className="weq-deleted-tag" title="QQ 本体删除/撤回，无法恢复">
+                          QQ删除
+                        </span>
+                      )}
                     </div>
                   );
                 })

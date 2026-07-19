@@ -4,12 +4,13 @@
 
 import { loadNative } from '@weq/native';
 import { ProfileInfoDb } from '@weq/db';
+import { testEnv, qqDbPath } from '@weq/testkit';
 
-const UIN = '1707889225';
-const KEY = '^;<kXZ;RI[@]yTD<';
+const UIN = testEnv.uin;
+const KEY = testEnv.key;
 const ALGO = { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' } as any;
 
-const DB_PATH = `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db\\profile_info.db`;
+const DB_PATH = qqDbPath('profile_info.db');
 
 async function main() {
   const native = loadNative();
@@ -28,7 +29,7 @@ async function main() {
     
     if (profile) {
         console.log('[test:full-profile] Result:');
-        console.log(JSON.stringify(profile, (k, v) => typeof v === 'bigint' ? v.toString() : v, 2));
+        console.log(JSON.stringify(profile, (_k, v) => typeof v === 'bigint' ? v.toString() : v, 2));
     } else {
         console.log('[test:full-profile] Profile not found.');
     }

@@ -41,7 +41,7 @@ function readUninstallString(): string | null {
   //       UninstallString    REG_SZ    "C:\Program Files\Tencent\QQNT\Uninstall.exe"
   for (const line of result.stdout.split(/\r?\n/)) {
     const match = line.match(/^\s*UninstallString\s+REG_\w+\s+(.+?)\s*$/);
-    if (match && match[1]) {
+    if (match?.[1]) {
       let rawPath = match[1].trim();
 
       // Remove surrounding quotes if present

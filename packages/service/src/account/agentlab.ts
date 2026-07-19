@@ -66,7 +66,7 @@ import type { Element } from '@weq/codec';
 import type { C2cMsg, GroupMsg, C2cPartition } from '@weq/db';
 import type { FileSearchService } from './file_search';
 import {
-  MediaDownloadService,
+  type MediaDownloadService,
   PRIVATE_IMAGE_RKEY_TYPE,
   GROUP_IMAGE_RKEY_TYPE,
   PRIVATE_PTT_RKEY_TYPE,
@@ -302,7 +302,7 @@ export class AgentLabService extends EventEmitter {
     usageStore?: TokenUsageStore,
     conversationStore?: ConversationStore,
     /** 语音合成（克隆体发语音 / 语音克隆）。缺失则不发语音。 */
-    private readonly tts?: AgentLabTtsDeps,
+    tts?: AgentLabTtsDeps,
   ) {
     super();
     this.store = new AgentLabStore(rootDir);
@@ -1379,7 +1379,7 @@ export class AgentLabService extends EventEmitter {
     const out: string[] = [];
     for (let i = 0; i < messages.length && out.length < 12; i += 1) {
       const m = messages[i];
-      if (!m || m.role !== 'assistant') continue;
+      if (m?.role !== 'assistant') continue;
       if (!m.text.startsWith('[语音]') || m.text.length <= 4) continue; // 只取转录成功的
       const lines: string[] = [];
       const prev = messages[i - 1];

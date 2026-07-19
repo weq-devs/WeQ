@@ -42,6 +42,15 @@ export function albumMediaUrl(src: string): string {
   return mediaUrl('album', { src });
 }
 
+/**
+ * Proxy a QQ 收藏 (collection) collector-CDN image (`http://shp.qpic.cn/collector/…`)
+ * through the disk-cached avatar bridge. The collector CDN is public (no referer),
+ * so the generic fetch+cache bridge is enough; on failure `<img onError>` falls back.
+ */
+export function collectionImageUrl(src: string): string {
+  return `weq-avatar://fetch?src=${encodeURIComponent(src)}`;
+}
+
 /** Preview a local file under `nt_data/File/Ori` by absolute path (image thumbnails). */
 export function localFileUrl(absPath: string): string {
   return mediaUrl('localfile', { path: absPath });

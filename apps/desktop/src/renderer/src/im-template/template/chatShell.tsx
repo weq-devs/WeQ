@@ -31,10 +31,11 @@ export function ChatShell({
 	children,
 	onViewChange,
 	onOpenSettings,
+	onOpenCollection,
 	onOpenProfile,
 	onOpenAbout,
 	onOpenHelp,
-	onOpenHelp: onOpenHelp_unused, // Not used but kept for interface consistency
+	onOpenHelp: _onOpenHelp, // Not used but kept for interface consistency
 	onOpenInvite,
 	onQueryChange,
 	onQuickInvite,
@@ -62,6 +63,7 @@ export function ChatShell({
 	children?: ReactNode;
 	onViewChange: (view: MainView) => void;
 	onOpenSettings: (tab?: SettingsTab) => void;
+	onOpenCollection: () => void;
 	onOpenProfile: () => void;
 	onOpenAbout: () => void;
 	onOpenHelp: () => void;
@@ -90,6 +92,7 @@ export function ChatShell({
 					view={view}
 					onViewChange={onViewChange}
 					onOpenSettings={onOpenSettings}
+					onOpenCollection={onOpenCollection}
 					onOpenProfile={onOpenProfile}
 					onOpenAbout={onOpenAbout}
 					onOpenHelp={onOpenHelp}
@@ -100,7 +103,7 @@ export function ChatShell({
 					footerContent={railFooterContent}
 					hideAvatar={true}
 				/>
-				<aside className={cn("sidebar", view === "agentlab" && "is-agentlab-view", view === "cache" && "is-cache-view")}>
+				<aside className={cn("sidebar", view === "agentlab" && "is-agentlab-view", view === "cache" && "is-cache-view", view === "qzone" && "is-qzone-view", view === "channel" && "is-channel-view")}>
 					<SidebarHeader
 						user={user}
 						view={view}

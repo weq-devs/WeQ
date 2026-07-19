@@ -12,9 +12,7 @@
  * 和消息导出的头像阶段同构（带独立进度条）。
  */
 
-import ExcelJS from 'exceljs';
-import { once } from 'node:events';
-import { createWriteStream } from 'node:fs';
+import { writeFileStream, writeTable, type Col } from './table_writer';
 
 /** 注入的联系人数据拉取能力（bigint 已归一化为字符串）。 */
 export interface ContactsExportDeps {
@@ -77,15 +75,6 @@ const PROFILE_CHUNK = 500;
 /** 翻页安全上限，防跑飞。 */
 const MAX_PAGES = 200;
 
-type Cell = string | number;
-
-/** 一列的定义：json 键 + 中文表头 + 取值函数。 */
-interface Col<T> {
-  key: string;
-  header: string;
-  get: (row: T) => Cell;
-}
-
 // ---- 通用小工具 ----
 
 /** 性别码 → 文字。 */
@@ -106,88 +95,6 @@ function timeText(sec: number): string {
   const date = new Date(sec * 1000);
   const p = (n: number): string => n.toString().padStart(2, '0');
   return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())} ${p(date.getHours())}:${p(date.getMinutes())}`;
-}
-
-/** CSV 字段转义：含逗号/引号/换行时加引号，内部引号翻倍。 */
-function escapeCsv(value: string): string {
-  return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
-}
-
-/** 一次性把内容写到文件（联系人量级不大）。 */
-async function writeFileStream(outputPath: string, body: string): Promise<void> {
-  const stream = createWriteStream(outputPath, { encoding: 'utf-8' });
-  if (!stream.write(body)) await once(stream, 'drain');
-  stream.end();
-  await once(stream, 'finish');
-}
-
-// ---- 各格式写盘 ----
-
-/** json：对象数组（英文键，便于程序消费）。 */
-async function writeJson<T>(cols: Array<Col<T>>, rows: T[], outputPath: string): Promise<void> {
-  const objects = rows.map((r) => Object.fromEntries(cols.map((c) => [c.key, c.get(r)])));
-  await writeFileStream(outputPath, JSON.stringify(objects, null, 2));
-}
-
-/** csv：UTF-8 BOM + 表头 + 数据行（CRLF，Excel 直开不乱码）。 */
-async function writeCsv<T>(cols: Array<Col<T>>, rows: T[], outputPath: string): Promise<void> {
-  const lines = [`﻿${cols.map((c) => escapeCsv(c.header)).join(',')}`];
-  for (const r of rows) {
-    lines.push(cols.map((c) => escapeCsv(String(c.get(r)))).join(','));
-  }
-  await writeFileStream(outputPath, lines.join('\r\n') + '\r\n');
-}
-
-/** txt：每个联系人一段「表头: 值」+ 分隔线。 */
-async function writeTxt<T>(cols: Array<Col<T>>, rows: T[], outputPath: string): Promise<void> {
-  const blocks = rows.map((r) => {
-    const body = cols
-      .map((c) => `${c.header}: ${String(c.get(r))}`)
-      .join('\n');
-    return `${body}\n${'—'.repeat(24)}`;
-  });
-  await writeFileStream(outputPath, blocks.join('\n') + '\n');
-}
-
-/** xlsx：ExcelJS 流式写一张表（表头 + 每联系人一行）。 */
-async function writeXlsx<T>(
-  cols: Array<Col<T>>,
-  rows: T[],
-  outputPath: string,
-  sheetName: string,
-): Promise<void> {
-  const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
-    filename: outputPath,
-    useStyles: false,
-    useSharedStrings: false,
-  });
-  const sheet = workbook.addWorksheet(sheetName);
-  sheet.addRow(cols.map((c) => c.header)).commit();
-  for (const r of rows) {
-    sheet.addRow(cols.map((c) => c.get(r))).commit();
-  }
-  sheet.commit();
-  await workbook.commit();
-}
-
-/** 按格式分派（vcard 由调用方单独处理）。 */
-async function writeTable<T>(
-  format: Exclude<ContactsFormat, 'vcard'>,
-  cols: Array<Col<T>>,
-  rows: T[],
-  outputPath: string,
-  sheetName: string,
-): Promise<void> {
-  switch (format) {
-    case 'json':
-      return writeJson(cols, rows, outputPath);
-    case 'csv':
-      return writeCsv(cols, rows, outputPath);
-    case 'xlsx':
-      return writeXlsx(cols, rows, outputPath, sheetName);
-    default:
-      return writeTxt(cols, rows, outputPath);
-  }
 }
 
 /** vCard 3.0 文本转义（反斜杠/逗号/分号/换行）。 */
@@ -336,7 +243,7 @@ async function writeFriendsVcard(rows: FriendRow[], outputPath: string): Promise
     ].filter(Boolean);
     return lines.join('\r\n');
   });
-  await writeFileStream(outputPath, cards.join('\r\n') + '\r\n');
+  await writeFileStream(outputPath, `${cards.join('\r\n')}\r\n`);
 }
 
 // ---- 群成员导出 ----

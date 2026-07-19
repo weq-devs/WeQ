@@ -21,7 +21,6 @@ import {
   Terminal,
   X,
   Copy,
-  Binary,
   ArrowUpDown
 } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
@@ -529,6 +528,7 @@ function RawHexModal({ open, onOpenChange, sample, tableName, columnName }: {
             <div className="h-full bg-accent rounded-lg border border-border p-4 overflow-y-auto custom-scrollbar">
               <div className="font-mono text-xs leading-6 space-y-px">
                 {Array.from({ length: Math.ceil(bytes.length / 16) }).map((_, rowIndex) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                   <div key={rowIndex} className="flex gap-4 group/row">
                     <span className="text-muted/25 shrink-0 w-12">{(rowIndex * 16).toString(16).padStart(8, '0')}</span>
                     <span className="text-primary/70 group-hover/row:text-primary transition-colors flex-1">

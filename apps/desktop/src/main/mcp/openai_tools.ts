@@ -6,7 +6,7 @@
  * （string / number / boolean / enum，及 optional / default 包装），不追求通用。
  */
 
-import { z } from 'zod';
+import type { z } from 'zod';
 import { AI_TOOLS } from './tools';
 
 export interface OpenAiToolSpec {

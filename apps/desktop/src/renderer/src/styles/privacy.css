@@ -1,0 +1,53 @@
+/**
+ * 隐私模式遮罩层（全局视觉开关，只写在 WeQ 侧）。
+ *
+ * 由 state/privacy.ts 在根节点切换 `html[data-privacy]` 属性驱动。这里用属性
+ * 前缀挂钩 im-template 输出的稳定语义 class（avatar / message-name /
+ * message-bubble / row-* / weq-profile-name / app-title-bar-nick），把敏感元素
+ * 整屏 blur，hover 临时看清——主要方便截图 / 录屏遮隐私。模板文件零改动：将来
+ * im-template 升级不冲突，新增全局视觉开关也照此再加一层属性即可。
+ *
+ * 命中的 class 来源（均已核对存在）：
+ *   .avatar                 primitives.tsx（会话列表 / 气泡 / 资料卡 / 联系人 通用头像）
+ *   .row-title-text         conversationLists.tsx（会话列表标题）
+ *   .row-message-preview    conversationLists.tsx（会话列表预览文本）
+ *   .message-name           messageBubble.tsx（气泡发送者名）
+ *   .message-bubble         messageBubble.tsx（气泡正文，含文字 / 图片 / 卡片）
+ *   .weq-graytip            components/GrayTip*.tsx（撤回 / 戳一戳 / 群提示 / 入群 灰条）
+ *   .weq-profile-name       profilePanes.tsx（资料卡 / 群资料 姓名）
+ *   .app-title-bar-nick     TitleBar.tsx（顶栏自己的昵称）
+ */
+
+html[data-privacy] .avatar,
+html[data-privacy] .row-title-text,
+html[data-privacy] .row-message-preview,
+html[data-privacy] .message-name,
+html[data-privacy] .message-bubble,
+html[data-privacy] .weq-graytip,
+html[data-privacy] .weq-profile-name,
+html[data-privacy] .app-title-bar-nick {
+  filter: blur(9px);
+  transition: filter 0.18s ease;
+}
+
+/* 悬停临时看清（自己查看时用）。 */
+html[data-privacy] .avatar:hover,
+html[data-privacy] .row-title-text:hover,
+html[data-privacy] .row-message-preview:hover,
+html[data-privacy] .message-name:hover,
+html[data-privacy] .message-bubble:hover,
+html[data-privacy] .weq-graytip:hover,
+html[data-privacy] .weq-profile-name:hover,
+html[data-privacy] .app-title-bar-nick:hover {
+  filter: none;
+}
+
+/* 删除态：气泡正文已被上面的 .message-bubble 规则糊掉；badge / veil 文本也一并
+   糊，避免「已删除 / QQ删除」标签在遮罩下依然清晰暴露会话上下文。hover 同步还原。 */
+html[data-privacy] .message-line.is-deleted .weq-msg-deleted-badge {
+  filter: blur(6px);
+  transition: filter 0.18s ease;
+}
+html[data-privacy] .message-line.is-deleted:hover .weq-msg-deleted-badge {
+  filter: none;
+}

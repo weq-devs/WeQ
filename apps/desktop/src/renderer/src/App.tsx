@@ -19,6 +19,7 @@ import { ForwardWindowHost } from './components/ForwardWindow';
 import { AppLockOverlay } from './components/AppLockOverlay';
 import { setWindowLayout } from './lib/windowLayout';
 import { ensureThemeInitialized } from './state/theme';
+import { usePrivacyStore } from './state/privacy';
 
 export default function App(): ReactElement {
   const view = useViewState((s) => s.view);
@@ -30,6 +31,8 @@ export default function App(): ReactElement {
 
   useEffect(() => {
     ensureThemeInitialized();
+    // 隐私模式：从 localStorage 回填根属性，早于首帧避免闪明文。
+    usePrivacyStore.getState().hydrate();
   }, []);
 
   // Key MainView by openedUin so account switches (without going through

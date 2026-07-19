@@ -130,7 +130,7 @@ export function AvatarPathDialog({ onClose }: { onClose: () => void }): ReactEle
 
         {error ? <div className="weq-avpath-error">{error}</div> : null}
 
-        {probe && probe.resolved ? <ProbeResult probe={probe} /> : null}
+        {probe?.resolved ? <ProbeResult probe={probe} /> : null}
       </div>
     </Modal>
   );

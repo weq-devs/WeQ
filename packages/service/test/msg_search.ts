@@ -16,12 +16,13 @@ import { openAccount } from '@weq/account';
 import { loadNative } from '@weq/native';
 import { createWin32Platform } from '@weq/platform';
 import { MsgSearchService } from '../src/account/msg_search';
+import { testEnv } from '@weq/testkit';
 
-const UIN = process.env.WEQ_TEST_UIN ?? '1707889225';
-const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
+const UIN = testEnv.uin;
+const KEY = testEnv.key;
 // pnpm forwards a literal `--` separator into argv; drop it before reading.
 const KEYWORD =
-  process.argv.slice(2).find((a) => a !== '--') ?? process.env.WEQ_TEST_KEYWORD ?? '你好';
+  process.argv.slice(2).find((a) => a !== '--') ?? testEnv.keyword;
 
 async function main(): Promise<void> {
   const platform = createWin32Platform(loadNative());

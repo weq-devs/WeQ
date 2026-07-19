@@ -60,7 +60,10 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
         configId: cfg.configId,
         dbKey: cfg.dbKey,
         algo: cfg.algo,
-        ...(cfg.dataDir ? { dataDir: cfg.dataDir } : root ? { dataDir: `${root}\\${cfg.uin}` } : {}),
+        // Only thread a saved absolute dataDir; never synthesize `<root>/<uin>`
+        // here — that assumed win32's numeric-uin layout + `\` separator and
+        // was wrong on linux (hashed dir, `/`). Main resolves it from uin.
+        ...(cfg.dataDir ? { dataDir: cfg.dataDir } : {}),
         lastLoginAt: cfg.lastLoginAt,
         ...(cfg.static ? { static: true } : {}),
       }));
@@ -72,7 +75,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
       hasName: !!a.userName,
       avatarUrl: a.avatarUrl || null,
       a1Key: a.a1Key,
-      ...(root ? { dataDir: `${root}\\${a.uin}` } : {}),
+      // No dataDir: main derives the account dir from uin via the platform.
     }));
   }, [mode, savedConfigs.data, historical.data, root]);
 

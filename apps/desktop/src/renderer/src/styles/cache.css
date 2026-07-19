@@ -577,6 +577,84 @@
   cursor: default;
 }
 
+/* ── 数据栏搜索框 ── */
+.weq-cache-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.6);
+  transition: border-color 130ms ease, box-shadow 130ms ease;
+}
+
+.weq-cache-search:focus-within {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+}
+
+.weq-cache-search-icon {
+  color: #8a94a4;
+  flex: 0 0 auto;
+}
+
+.weq-cache-search-input {
+  width: 160px;
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font-size: 12px;
+  outline: none;
+}
+
+.weq-cache-search-input::placeholder {
+  color: #b0b8c4;
+}
+
+.weq-cache-search-clear {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #8a94a4;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.weq-cache-search-clear:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary) 10%, transparent);
+  color: #4a5462;
+}
+
+/* ── 可排序表头 ── */
+.weq-cache-grid-th.is-sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.weq-cache-th-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.weq-cache-grid-th.is-sortable:hover .weq-cache-th-label {
+  color: var(--weq-accent-effective);
+}
+
+.weq-cache-grid-th.is-sorted .weq-cache-th-label {
+  color: var(--weq-accent-effective);
+}
+
+.weq-cache-sort-caret {
+  flex: 0 0 auto;
+  color: var(--weq-accent-effective);
+}
+
 .weq-cache-grid-scroll {
   flex: 1 1 auto;
   min-height: 0;
@@ -2423,6 +2501,24 @@ html[data-theme="dark"] .weq-cache-grid td {
 html[data-theme="dark"] .weq-cache-grid thead th {
   color: #b8c4d2;
   background: color-mix(in srgb, #171d25 92%, var(--weq-accent-effective) 10%);
+}
+
+html[data-theme="dark"] .weq-cache-search {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+html[data-theme="dark"] .weq-cache-search-input {
+  color: #edf2f7;
+}
+
+html[data-theme="dark"] .weq-cache-search-input::placeholder {
+  color: #6c7889;
+}
+
+html[data-theme="dark"] .weq-cache-search-clear:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #c4cede;
 }
 
 html[data-theme="dark"] .weq-cache-cell.is-int,

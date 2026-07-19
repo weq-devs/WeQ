@@ -3,7 +3,7 @@
  * Supports nesting, hex editing for bytes, and numeric inputs.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, } from 'react';
 import { X, Save, ChevronLeft, ChevronRight, Hash, Type, Binary, Box } from 'lucide-react';
 import { cn } from '../im-template/template/classNames';
 
@@ -35,7 +35,7 @@ export function MsgElementEditor({ msgId, msgSeq, elements: initialElements, onC
       onClose();
     } catch (e) {
       console.error('[editor] Save failed:', e);
-      alert('保存失败: ' + (e instanceof Error ? e.message : String(e)));
+      alert(`保存失败: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setSending(false);
     }
@@ -59,6 +59,7 @@ export function MsgElementEditor({ msgId, msgSeq, elements: initialElements, onC
         <div className="weq-editor-tabs">
           {elements.map((_, i) => (
             <button
+              // biome-ignore lint/suspicious/noArrayIndexKey: tab 按位置选中,索引即语义键
               key={i}
               className={cn("weq-editor-tab", i === activeIndex && "active")}
               onClick={() => setActiveIndex(i)}
@@ -152,6 +153,7 @@ function ObjectEditor({ value, onChange, path }: { value: any, onChange: (val: a
       return (
           <div className="weq-array-editor">
               {value.map((v, i) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: 数组项按位置展示,无稳定 id
                   <div key={i} className="weq-array-item">
                       <div className="weq-array-index">[{i}]</div>
                       <ValueEditor 
@@ -181,7 +183,7 @@ function FieldIcon({ val, k }: { val: any, k: string }) {
     return <Box size={14} className="opacity-30"/>;
 }
 
-function ValueEditor({ k, val, onChange, path }: { k: string, val: any, onChange: (v: any) => void, path: string[] }) {
+function ValueEditor({ k: _k, val, onChange, path }: { k: string, val: any, onChange: (v: any) => void, path: string[] }) {
   // Empty (null/undefined) fields still get an editable text box so a value
   // can be filled in. Treated as a string; the schema-driven encoder coerces
   // it to the field's real type on save.

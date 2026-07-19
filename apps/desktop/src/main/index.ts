@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, protocol, shell, Tray } from 'electron';
+import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, protocol, shell, Tray } from 'electron';
 import fs from 'node:fs';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { createRequire } from 'node:module';
@@ -29,7 +29,6 @@ import { registerQzoneIpc } from './qzone';
 import {
   getLogDir,
   getLogger,
-  logErrorContext,
   type MediaElement,
   type WindowCloseBehavior,
 } from '@weq/service';
@@ -222,7 +221,7 @@ function registerMediaIpc(): void {
 
       shell.showItemInFolder(realPath);
       return { success: true };
-    } catch (e) {
+    } catch (_e) {
       return { success: false, error: '查询失败' };
     }
   });
@@ -290,9 +289,9 @@ function registerMediaIpc(): void {
         );
       } catch (e) {
         console.error('[file:download] OIDB resolve failed:', e);
-        return { success: false, error: 'OIDB ?????' + (e instanceof Error ? e.message : String(e)) };
+        return { success: false, error: `OIDB ?????${e instanceof Error ? e.message : String(e)}` };
       }
-      console.log('[file:download] resolved url:', url ? url.slice(0, 120) + '?' : '(empty)');
+      console.log('[file:download] resolved url:', url ? `${url.slice(0, 120)}?` : '(empty)');
       if (!url) return { success: false, error: 'OIDB ??????QQ ??????' };
 
       const { downloadUrlToFile } = await import('@weq/service');
@@ -305,7 +304,7 @@ function registerMediaIpc(): void {
           name: fileName,
           reason: outcome.reason,
         });
-        return { success: false, error: '?????' + outcome.reason };
+        return { success: false, error: `?????${outcome.reason}` };
       }
       console.log('[file:download] saved to', dest);
       logger.info('file downloaded successfully', {
@@ -344,6 +343,26 @@ function registerSystemAuthIpc(): void {
   });
 }
 
+/**
+ * 截图：抓取发起窗口的客户区（不含桌面 / 标题栏外区域）写入系统剪贴板。
+ * 走 webContents.capturePage()——隐私遮罩是 DOM 上的 filter，会如实截到糊后的
+ * 效果，故截图天然与隐私模式联动。截完即可粘贴到聊天 / 文档，暂不落盘。
+ */
+function registerCaptureIpc(): void {
+  ipcMain.handle('capture:window', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return { ok: false, error: '找不到目标窗口' };
+    try {
+      const image = await win.webContents.capturePage();
+      if (image.isEmpty()) return { ok: false, error: '截图为空' };
+      clipboard.writeImage(image);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+}
+
 function resolveWindowIcon(): Electron.NativeImage | undefined {
   const path = resolveResource('brand', 'logo.png');
   if (!path) return undefined;
@@ -353,6 +372,12 @@ function resolveWindowIcon(): Electron.NativeImage | undefined {
 
 function createWindow(): BrowserWindow {
   const icon = resolveWindowIcon();
+  // On tiling Wayland WMs (Hyprland/sway) new toplevels tile by default. Ask
+  // the WM to float us by advertising a non-'normal' window type — 'toolbar'
+  // is the least invasive one that Hyprland/sway treat as floating (unlike
+  // 'splash', it keeps the taskbar entry). Opt-out with WEQ_WINDOW_TYPE=normal
+  // (or override to another value) so this can be disabled per-environment.
+  const windowType = process.env.WEQ_WINDOW_TYPE ?? (process.platform === 'linux' ? 'toolbar' : undefined);
   const win = new BrowserWindow({
     width: 1120,
     height: 580,
@@ -363,11 +388,15 @@ function createWindow(): BrowserWindow {
     autoHideMenuBar: true,
     backgroundColor: '#f0f0f0',
     titleBarStyle: 'hidden',
+    ...(windowType && windowType !== 'normal' ? { type: windowType } : {}),
     ...(icon ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       sandbox: false,
       contextIsolation: true,
+      // 允许在渲染层用 <webview> 内嵌 QQ 空间 / 频道（见 QzoneView / ChannelView）。
+      // webview 自身不挂本 preload，远程内容拿不到 tRPC 特权桥。
+      webviewTag: true,
     },
   });
 
@@ -408,8 +437,8 @@ function createWindow(): BrowserWindow {
     return { action: 'deny' };
   });
 
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    void win.loadURL(process.env['ELECTRON_RENDERER_URL']);
+  if (is.dev && process.env.ELECTRON_RENDERER_URL) {
+    void win.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
     void win.loadFile(join(__dirname, '../renderer/index.html'));
   }
@@ -444,6 +473,7 @@ void app.whenReady().then(() => {
   registerMediaIpc();
   registerLogIpc();
   registerSystemAuthIpc();
+  registerCaptureIpc();
   registerChannelIpc();
   registerQzoneIpc();
   registerWeqAssistantIpc();

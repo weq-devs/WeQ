@@ -5,13 +5,14 @@
 import { loadNative } from '@weq/native';
 import { FileAssistantDb } from '@weq/db';
 import fs from 'node:fs';
+import { testEnv, qqDbPath } from '@weq/testkit';
 
 // Update these with your real values
-const UIN = '1707889225';
-const KEY = '^;<kXZ;RI[@]yTD<';
+const UIN = testEnv.uin;
+const KEY = testEnv.key;
 const ALGO = { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' } as any;
 
-const DB_PATH = `D:\\estkim\\T\\Tencent Files\\${UIN}\\nt_qq\\nt_db\\file_assistant.db`;
+const DB_PATH = qqDbPath('file_assistant.db');
 
 async function main() {
   const native = loadNative();
@@ -37,7 +38,7 @@ async function main() {
     const found = await fileDb.getByMsgId(targetMsgId);
     if (found) {
         console.log('Found match:');
-        console.log(JSON.stringify(found, (k, v) => typeof v === 'bigint' ? v.toString() : v, 2));
+        console.log(JSON.stringify(found, (_k, v) => typeof v === 'bigint' ? v.toString() : v, 2));
     } else {
         console.log('No match found for this msgId.');
     }
@@ -48,12 +49,12 @@ async function main() {
         // listAll already sorts by timestamp DESC
         const newest = files[0]!;
         console.log('\n--- Newest File ---');
-        console.log(JSON.stringify(newest, (k, v) => typeof v === 'bigint' ? v.toString() : v, 2));
+        console.log(JSON.stringify(newest, (_k, v) => typeof v === 'bigint' ? v.toString() : v, 2));
         
         console.log('\n--- Recent 5 Files ---');
         console.table(files.slice(0, 5).map(f => ({
             name: f.fileName,
-            size: (Number(f.fileSize) / 1024 / 1024).toFixed(2) + ' MB',
+            size: `${(Number(f.fileSize) / 1024 / 1024).toFixed(2)} MB`,
             time: new Date(Number(f.timestamp) * 1000).toLocaleString(),
             table: f.sourceTable
         })));

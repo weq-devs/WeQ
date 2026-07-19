@@ -16,6 +16,7 @@
     "test:msg-search-agg": "tsx test/msg_search_aggregate.ts",
     "test:reply": "tsx test/reply_element.ts",
     "test:export": "tsx test/export_group.ts",
+    "test:forward-expand": "tsx test/forward_expand.ts",
     "test:scan-media": "tsx test/scan_group_media.ts",
     "test:download-probe": "tsx test/download_rkey_probe.ts"
   },
@@ -32,6 +33,7 @@
   "devDependencies": {
     "@types/node": "^22.10.6",
     "@types/qrcode": "^1.5.5",
+    "@weq/testkit": "workspace:*",
     "qrcode": "^1.5.4",
     "tsx": "^4.19.2"
   }

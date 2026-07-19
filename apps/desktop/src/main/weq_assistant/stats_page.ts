@@ -263,7 +263,7 @@ function renderWordCloud(report: WeqStatsReport, p: WeqPalette): string {
   // 字号 / 颜色按频次排名（rank 0 = 最大）计算，与最终摆放位置无关。
   const spans = words.map((w, rank) => {
     const t = maxC === minC ? 1 : (w.count - minC) / (maxC - minC);
-    const fs = Math.round(13 + Math.pow(t, 1.6) * (36 - 13));
+    const fs = Math.round(13 + t ** 1.6 * (36 - 13));
     const weight = fs > 30 ? 800 : fs > 22 ? 700 : fs > 16 ? 600 : 500;
     return `<span class="st-wc-word" style="font-size:${fs}px;font-weight:${weight};color:${colors[rank % colors.length]}" title="${esc(
       w.word,
@@ -460,7 +460,7 @@ export function renderStatsPageHtml(report: WeqStatsReport): string {
   const heatmap = `<div class="card"><h2>每日消息热力图</h2>${renderHeatmap(report, p)}</div>`;
   const wordcloud = `<div class="card"><h2>群词云</h2>${renderWordCloud(report, p)}</div>`;
 
-  const foot = `<div class="foot"><span class="lock">🔒</span> 数据全部来自你本机的 WeQ 服务 · 127.0.0.1</div>`;
+  const foot = `<div class="foot"><span class="lock">🔒</span> 数据全部来自你本机的 WeQ 服务 · localhost.weixin.qq.com</div>`;
 
   return pageShell(p, brandRow() + hero + overview + donut + ranking + hourly + heatmap + wordcloud + foot);
 }
@@ -479,7 +479,7 @@ export function statsPendingHtml(): string {
         数据算好后会<b style="color:var(--title)">存下来</b>，稍等片刻，回到会话重新点开本推文即可查看～
       </p>
     </div>
-    <div class="foot"><span class="lock">🔒</span> 数据全部来自你本机的 WeQ 服务 · 127.0.0.1</div>`;
+    <div class="foot"><span class="lock">🔒</span> 数据全部来自你本机的 WeQ 服务 · localhost.weixin.qq.com</div>`;
   return pageShell(p, body);
 }
 

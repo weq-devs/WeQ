@@ -14,13 +14,12 @@ import type {
   BuddyMsgFtsHit,
   BuddyRequest,
   Category,
-  C2cMsg,
+  CollectionItem,
   GroupBulletin,
   GroupDetail,
   GroupEssence,
   GroupMember,
   GroupMemberLevelInfo,
-  GroupMsg,
   GroupNotify,
   RecentContact,
   UserProfile,
@@ -204,6 +203,19 @@ export interface ChatMsgWire {
   elements: unknown[];
   /** Sticker reactions (贴表情, column 40062); group-only, omitted when none. */
   setEmojiList?: SetEmojiItem[];
+  /**
+   * Deleted state: `'weq'` = WeQ deleted (restorable), `'qq'` = QQ-native
+   * recall / delete from another client (NOT restorable). Omitted for a live
+   * message. Drives the in-chat veil + whether a restore button shows.
+   */
+  deletedKind?: 'weq' | 'qq';
+  /**
+   * Recall marker: present when this message's QQ recall was intercepted by the
+   * anti-recall trigger (its original content survives and renders normally).
+   * `sameSender` = author recalled their own message; false = an admin recalled
+   * it. Drives the in-chat 撤回 tag + the 撤回列表 panel. Omitted for a normal message.
+   */
+  recall?: { revokeUid: string; sameSender: boolean; recallTs: number };
 }
 
 export interface RecentContactWire {
@@ -239,6 +251,8 @@ export function c2cMsgToWire(m: RenderC2cMsg): ChatMsgWire {
     senderUin: m.senderUin.toString(),
     sendTime: m.sendTime.toString(),
     elements: sanitize(m.elements),
+    deletedKind: m.deletedKind,
+    recall: m.recall,
   };
 }
 
@@ -253,6 +267,8 @@ export function groupMsgToWire(m: RenderGroupMsg): ChatMsgWire {
     sendTime: m.sendTime.toString(),
     elements: sanitize(m.elements),
     setEmojiList: m.setEmojiList,
+    deletedKind: m.deletedKind,
+    recall: m.recall,
   };
 }
 
@@ -509,32 +525,34 @@ export function forwardRecordToWire(record: MsgCacheRecord): unknown {
  * registry only knows the standard typed arrays, so a raw `Buffer` over IPC
  * throws "Trying to deserialize unknown typed array". Plain objects don't.
  */
-export function elementsToEditable(v: any): any {
+export function elementsToEditable<T>(v: T): T {
   if (v === null || v === undefined) return v;
-  if (typeof v === 'bigint') return v.toString();
+  if (typeof v === 'bigint') return v.toString() as T;
   if (v instanceof Uint8Array) {
-    return { type: 'Buffer', data: Array.from(v) };
+    return { type: 'Buffer', data: Array.from(v) } as T;
   }
-  if (Array.isArray(v)) return v.map(elementsToEditable);
+  if (Array.isArray(v)) return v.map((item) => elementsToEditable(item)) as T;
   if (typeof v === 'object') {
-    const out: Record<string, any> = {};
-    for (const k of Object.keys(v)) out[k] = elementsToEditable(v[k]);
-    return out;
+    const record = v as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(record)) out[k] = elementsToEditable(record[k]);
+    return out as T;
   }
   return v;
 }
 
 /** Reverse {@link elementsToEditable}: `{ type:'Buffer', data }` → Uint8Array. */
-export function elementsFromEditable(v: any): any {
+export function elementsFromEditable<T>(v: T): T {
   if (v === null || v === undefined) return v;
-  if (Array.isArray(v)) return v.map(elementsFromEditable);
+  if (Array.isArray(v)) return v.map((item) => elementsFromEditable(item)) as T;
   if (typeof v === 'object') {
-    if (v.type === 'Buffer' && Array.isArray(v.data)) {
-      return Uint8Array.from(v.data);
+    const record = v as Record<string, unknown>;
+    if (record.type === 'Buffer' && Array.isArray(record.data)) {
+      return Uint8Array.from(record.data as number[]) as T;
     }
-    const out: Record<string, any> = {};
-    for (const k of Object.keys(v)) out[k] = elementsFromEditable(v[k]);
-    return out;
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(record)) out[k] = elementsFromEditable(record[k]);
+    return out as T;
   }
   return v;
 }
@@ -544,19 +562,178 @@ export function elementsFromEditable(v: any): any {
  * - Uint8Array -> hex string
  * - bigint -> string
  */
-function sanitize(v: any): any {
+function sanitize<T>(v: T): T {
   if (v === null || v === undefined) return v;
-  if (typeof v === 'bigint') return v.toString();
+  if (typeof v === 'bigint') return v.toString() as T;
   if (v instanceof Uint8Array) {
-    return Buffer.from(v).toString('hex');
+    return Buffer.from(v).toString('hex') as T;
   }
-  if (Array.isArray(v)) return v.map(sanitize);
+  if (Array.isArray(v)) return v.map((item) => sanitize(item)) as T;
   if (typeof v === 'object') {
-    const out: Record<string, any> = {};
-    for (const k of Object.keys(v)) {
-      out[k] = sanitize(v[k]);
+    const record = v as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(record)) {
+      out[k] = sanitize(record[k]);
     }
-    return out;
+    return out as T;
   }
   return v;
+}
+
+// ---------------------------------------------------------------------------
+// 收藏 (QQ favorites / collection.db) — IPC wire shape.
+//
+// The decoded `CollectionItem` carries bigint ids and raw md5/sha1 byte blobs
+// that the renderer never uses. Rather than deep-`sanitize` the whole object
+// (which would leak those bytes as hex), we project a compact, per-kind shape:
+// bigint → string, byte blobs dropped, only render-relevant fields kept.
+// ---------------------------------------------------------------------------
+
+/** A collection image: the collector-CDN uri plus intrinsic dimensions. */
+export interface CollectionPicWire {
+  uri: string;
+  width: number;
+  height: number;
+}
+
+/** One 收藏 item, flattened for the renderer. At most one content field is set. */
+export interface CollectionItemWire {
+  cid: string;
+  /** 'text' | 'link' | 'gallery' | 'audio' | 'video' | 'file' | 'location' | 'richMedia' | 'unknown' */
+  kind: string;
+  type: number;
+  createTime: number;
+  collectTime: number;
+  /** Collector display name (strId), or '' if unknown. */
+  authorName: string;
+  /** Collector uin as string, or '' if absent. */
+  authorUin: string;
+  /** Source group name if the item came from a group, else ''. */
+  groupName: string;
+  text: string;
+  link: {
+    url: string;
+    title: string;
+    publisher: string;
+    brief: string;
+    pics: CollectionPicWire[];
+  } | null;
+  gallery: { pics: CollectionPicWire[] } | null;
+  audio: { duration: number; stt: string } | null;
+  video: {
+    title: string;
+    duration: number;
+    cover: CollectionPicWire | null;
+    fileName: string;
+    fileSize: string;
+  } | null;
+  file: { name: string; size: string; ext: string } | null;
+  location: { name: string; address: string; latitude: number; longitude: number } | null;
+  richMedia: {
+    title: string;
+    subTitle: string;
+    brief: string;
+    originalUri: string;
+    pics: CollectionPicWire[];
+  } | null;
+}
+
+function collectionPicsToWire(
+  pics: readonly { uri?: string; width?: number; height?: number }[] | undefined,
+): CollectionPicWire[] {
+  return (pics ?? [])
+    .filter((p): p is { uri: string; width?: number; height?: number } => Boolean(p?.uri))
+    .map((p) => ({ uri: p.uri, width: p.width ?? 0, height: p.height ?? 0 }));
+}
+
+function fileExt(name: string): string {
+  const dot = name.lastIndexOf('.');
+  return dot > 0 && dot < name.length - 1 ? name.slice(dot + 1).toLowerCase() : '';
+}
+
+export function collectionItemToWire(it: CollectionItem): CollectionItemWire {
+  const s = it.summary;
+  const author = it.author;
+  const numId = author?.numId ?? 0n;
+
+  const link = s.linkSummary
+    ? {
+        url: s.linkSummary.url ?? '',
+        title: s.linkSummary.title ?? '',
+        publisher: s.linkSummary.publisher ?? '',
+        brief: s.linkSummary.brief ?? '',
+        pics: collectionPicsToWire(s.linkSummary.picList),
+      }
+    : null;
+
+  const gallery = s.gallerySummary
+    ? { pics: collectionPicsToWire(s.gallerySummary.picList) }
+    : null;
+
+  const audio = s.audioSummary
+    ? { duration: s.audioSummary.duration ?? 0, stt: s.audioSummary.stt ?? '' }
+    : null;
+
+  const video = s.videoSummary
+    ? {
+        title: s.videoSummary.title ?? '',
+        duration: s.videoSummary.duration ?? 0,
+        cover: s.videoSummary.previewPicInfo?.uri
+          ? {
+              uri: s.videoSummary.previewPicInfo.uri,
+              width: s.videoSummary.previewPicInfo.width ?? 0,
+              height: s.videoSummary.previewPicInfo.height ?? 0,
+            }
+          : null,
+        fileName: s.videoSummary.storeFileInfo?.name ?? '',
+        fileSize: (s.videoSummary.storeFileInfo?.size ?? 0n).toString(),
+      }
+    : null;
+
+  const fileInfo = s.fileSummary?.fileInfo ?? s.fileSummary?.srcFileInfo;
+  const file = s.fileSummary
+    ? {
+        name: fileInfo?.name ?? '',
+        size: (fileInfo?.size ?? 0n).toString(),
+        ext: fileExt(fileInfo?.name ?? ''),
+      }
+    : null;
+
+  const location = s.locationSummary
+    ? {
+        name: s.locationSummary.name ?? '',
+        address: s.locationSummary.address ?? '',
+        latitude: s.locationSummary.latitude ?? 0,
+        longitude: s.locationSummary.longitude ?? 0,
+      }
+    : null;
+
+  const richMedia = s.richMediaSummary
+    ? {
+        title: s.richMediaSummary.title ?? '',
+        subTitle: s.richMediaSummary.subTitle ?? '',
+        brief: s.richMediaSummary.brief ?? '',
+        originalUri: s.richMediaSummary.originalUri ?? '',
+        pics: collectionPicsToWire(s.richMediaSummary.picList),
+      }
+    : null;
+
+  return {
+    cid: it.cid,
+    kind: it.kind,
+    type: it.type,
+    createTime: it.createTime,
+    collectTime: it.collectTime,
+    authorName: author?.strId ?? '',
+    authorUin: numId > 0n ? numId.toString() : '',
+    groupName: author?.groupName ?? '',
+    text: s.textSummary?.text ?? '',
+    link,
+    gallery,
+    audio,
+    video,
+    file,
+    location,
+    richMedia,
+  };
 }

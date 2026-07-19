@@ -22,6 +22,7 @@ import { resolveResource } from '../../resource';
 import { dialog } from 'electron';
 import { procedure, router } from '../trpc';
 import { dbExplorerRouter } from './db_explorer';
+import { antiRecallRouter } from './anti_recall';
 import { avatarResourceRouter } from './avatar_resource';
 import { sysEmojiRouter } from './sys_emoji';
 import { marketEmojiRouter } from './market_emoji';
@@ -31,6 +32,7 @@ import { fileResourceRouter } from './file_resource';
 import { mediaResourceRouter } from './media_resource';
 import { resourceCleanupRouter } from './resource_cleanup';
 import { assistantBus, type AssistantStreamEvent } from '../../mcp/assistant_bus';
+import { validateMcpConfig } from '../../mcp/external';
 import { groupChatBus, type GroupChatStreamEvent } from '../../mcp/agentlab_group_bus';
 import {
   clientKeyExpiryMs,
@@ -50,6 +52,7 @@ import {
   buddyToWire,
   categoryToWire,
   c2cMsgToWire,
+  collectionItemToWire,
   forwardRecordToWire,
   groupBulletinToWire,
   groupMsgToWire,
@@ -181,6 +184,12 @@ const agentLabModels = z.object({
   vision: agentLabModelRef.optional(),
   voiceClone: agentLabModelRef.optional(),
 });
+
+/**
+ * 进行中的助手任务：runId → AbortController。chatWithAssistant 建、结束时清；
+ * abortAssistantRun 据此掐断（用户点「停止」）。模块级单例，与 assistantBus 同层。
+ */
+const activeAssistantRuns = new Map<string, AbortController>();
 
 /** Wire payload pushed to the renderer when nt_msg.db gains new rows. */
 export interface NewMessagesWire {
@@ -443,6 +452,7 @@ function pickAlbumDownloadUrl(media: AlbumMediaWire): string {
 function sanitizePathSegment(value: string | undefined, fallback: string): string {
   const raw = (value || fallback).trim();
   const cleaned = raw
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: 有意剔除文件名中的控制字符
     .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
     .replace(/\s+/g, ' ')
     .replace(/[. ]+$/g, '')
@@ -561,6 +571,8 @@ async function exportGroupAlbums(
 export const accountRouter = router({
   // ---- database explorer (SQLiteStudio-style browse / query / edit) ----
   dbExplorer: dbExplorerRouter,
+  // ---- 防撤回（拦截 QQ 撤回的 SQL 触发器 + 按会话选择）----
+  antiRecall: antiRecallRouter,
   // ---- local avatar cache browser (nt_data/avatar/*) ----
   avatarResource: avatarResourceRouter,
   // ---- built-in system emoji resource browser ----
@@ -764,7 +776,7 @@ export const accountRouter = router({
       if (!info) throw new Error('这个克隆体还没有导出过，请先导出机器人。');
       const base = (input.url?.trim() || info.url).replace(/\/+$/, '');
       const { probeBotWebUi, openBotWebUiWindow } = await import('../../bot_webui_window');
-      const reachable = await probeBotWebUi(base + '/');
+      const reachable = await probeBotWebUi(`${base}/`);
       if (!reachable) return { opened: false as const, needUrl: true as const, defaultUrl: info.url };
       const persona = svc.getPersona(input.personaId);
       await openBotWebUiWindow(base, info.key, persona?.name);
@@ -978,13 +990,18 @@ export const accountRouter = router({
       z.object({
         model: agentLabModelRef.optional(),
         customPrompt: z.string().optional(),
+        reasoningEffort: z.enum(['off', 'low', 'medium', 'high']).optional(),
         mcpServers: z.string().optional(),
       }),
     )
     .mutation(({ input }) => {
+      // MCP 配置若是 JSON 写法但语法有误：显式保存路径上严格校验、抛可读错误（前端 dialog.error 弹出），
+      // 而不是像 parseMcpConfig 那样静默当空处理——避免用户粘错 JSON 后完全无感。
+      if (input.mcpServers !== undefined) validateMcpConfig(input.mcpServers);
       return requireServices().assistant.setConfig({
         model: input.model,
         customPrompt: input.customPrompt,
+        reasoningEffort: input.reasoningEffort,
         mcpServers: input.mcpServers,
       });
     }),
@@ -1038,10 +1055,22 @@ export const accountRouter = router({
     .mutation(({ input }) => {
       const assistant = requireServices().assistant;
       const runId = randomUUID();
+      // 每轮任务挂一个 AbortController，供 abortAssistantRun 按 runId 掐断（用户点「停止」）。
+      const ac = new AbortController();
+      activeAssistantRuns.set(runId, ac);
       void assistant
-        .chat(input.sessionId, input.text, (step) => assistantBus.emit('step', { runId, step } satisfies AssistantStreamEvent))
-        .catch(() => {});
+        .chat(input.sessionId, input.text, (step) => assistantBus.emit('step', { runId, step } satisfies AssistantStreamEvent), ac.signal)
+        .catch(() => {})
+        .finally(() => activeAssistantRuns.delete(runId));
       return { runId };
+    }),
+
+  /** 取消一轮进行中的助手任务：掐断在途 LLM 请求 + 让 chat() 在轮次边界尽早收尾（emit `aborted`）。 */
+  abortAssistantRun: procedure
+    .input(z.object({ runId: z.string().min(1) }))
+    .mutation(({ input }) => {
+      activeAssistantRuns.get(input.runId)?.abort();
+      return true;
     }),
 
   /**
@@ -1592,37 +1621,61 @@ export const accountRouter = router({
       return requireServices().msgs.updateElements(BigInt(input.msgId), elements);
     }),
 
-  /** Reversible soft-delete of one message (hidden from its conversation). */
+  /**
+   * Delete one message the way QQ does: rewrite 40011/40012 to (1,1) in place.
+   * The row stays in its conversation (rendered under a "deleted" overlay);
+   * the original type columns are remembered per account for restore.
+   */
   deleteMessage: procedure
-    .input(z.object({ msgId: z.string().min(1) }))
+    .input(z.object({ msgId: z.string().min(1), kind: z.enum(['c2c', 'group']), conv: z.string().min(1) }))
     .mutation(async ({ input }) => {
-      return requireServices().msgs.deleteMessage(BigInt(input.msgId));
+      return requireServices().msgs.deleteMessage(BigInt(input.msgId), input.kind, input.conv);
     }),
 
-  /** Restore a soft-deleted message. No-op if it was never soft-deleted. */
+  /** Restore a WeQ-deleted message (write the original 40011/40012 back). */
   restoreMessage: procedure
     .input(z.object({ msgId: z.string().min(1) }))
     .mutation(async ({ input }) => {
       return requireServices().msgs.restoreMessage(BigInt(input.msgId));
     }),
 
-  /** Hard-delete (irreversible): physically drop the message row by msgId. */
-  hardDeleteMessage: procedure
-    .input(z.object({ msgId: z.string().min(1) }))
-    .mutation(async ({ input }) => {
-      return requireServices().msgs.hardDeleteMessage(BigInt(input.msgId));
+  /**
+   * The msgIds WeQ deleted in one conversation — drives the in-chat translucent
+   * overlay without refetching message content.
+   */
+  deletedMsgIds: procedure
+    .input(z.object({ kind: z.enum(['c2c', 'group']), conv: z.string().min(1) }))
+    .query(({ input }): string[] => {
+      return requireServices().msgs.getDeletedMsgIds(input.kind, input.conv);
     }),
 
   /**
-   * List the soft-deleted (hidden, restorable) messages of one conversation,
+   * List the WeQ-deleted (restorable) messages of one conversation,
    * newest-first, serialized like any other message page so the renderer can
-   * reuse its chat bubbles in the "查看删除消息" panel.
+   * reuse its chat bubbles in the "删除列表" panel.
    */
   deletedMessages: procedure
     .input(z.object({ kind: z.enum(['c2c', 'group']), conv: z.string().min(1) }))
     .query(async ({ input }): Promise<ChatMsgWire[]> => {
       const msgs = requireServices().msgs;
       const rows = await msgs.getDeletedMessages(input.kind, input.conv);
+      return input.kind === 'group'
+        ? (rows as RenderGroupMsg[]).map(groupMsgToWire)
+        : (rows as RenderC2cMsg[]).map(c2cMsgToWire);
+    }),
+
+  /**
+   * List the recalled messages of one conversation (newest-recall-first) — the
+   * ones the anti-recall trigger caught and logged. Their original content is
+   * intact (the trigger cancelled QQ's recall in place), so they serialize like
+   * any other message page, each carrying its `recall` marker (who/when), for
+   * the "撤回列表" panel. Empty when anti-recall was never enabled here.
+   */
+  recalledMessages: procedure
+    .input(z.object({ kind: z.enum(['c2c', 'group']), conv: z.string().min(1) }))
+    .query(async ({ input }): Promise<ChatMsgWire[]> => {
+      const msgs = requireServices().msgs;
+      const rows = await msgs.getRecalledMessages(input.kind, input.conv);
       return input.kind === 'group'
         ? (rows as RenderGroupMsg[]).map(groupMsgToWire)
         : (rows as RenderC2cMsg[]).map(c2cMsgToWire);
@@ -1783,6 +1836,40 @@ export const accountRouter = router({
       return exportGroupAlbums(requireServices(), input);
     }),
 
+  // ---- 收藏 (QQ favorites / collection.db) ----
+
+  /**
+   * One page of collected items, newest-collected first, projected to the
+   * IPC wire shape (bigint → string, byte blobs dropped). `hasMore` lets the
+   * renderer page through everything.
+   */
+  listCollections: procedure
+    .input(
+      z
+        .object({
+          limit: z.number().int().min(1).max(200).optional(),
+          offset: z.number().int().min(0).optional(),
+        })
+        .optional(),
+    )
+    .query(async ({ input }) => {
+      const page = await requireServices().collection.listCollections(
+        input?.limit ?? 50,
+        input?.offset ?? 0,
+      );
+      return {
+        offset: page.offset,
+        limit: page.limit,
+        hasMore: page.hasMore,
+        items: page.items.map(collectionItemToWire),
+      };
+    }),
+
+  /** Total number of collected items. */
+  countCollections: procedure.query(async () => {
+    return requireServices().collection.countCollections();
+  }),
+
   // ---- export ----
 
   /** List conversations with message counts (batch query). */
@@ -1922,6 +2009,27 @@ export const accountRouter = router({
     }),
 
   /**
+   * Start a collection (收藏) export — 走本地收藏库，无需在线 QQ。全部或按类型
+   * (`kinds`) 过滤，导出为 json/csv/xlsx/txt 表格。
+   */
+  startCollectionExport: procedure
+    .input(z.object({
+      name: z.string().min(1),
+      format: z.enum(['json', 'csv', 'xlsx', 'txt']),
+      kinds: z.array(z.string()).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      return requireServices().exportManager.startTask({
+        collection: { ...(input.kinds?.length ? { kinds: input.kinds } : {}) },
+        kind: 'c2c',
+        conv: '',
+        name: input.name,
+        format: input.format,
+        total: 0,
+      });
+    }),
+
+  /**
    * Force a one-shot rkey harvest from the online QQ for the open account — the
    * explicit "立即重新获取 rkey" before a media-completing export. Returns true
    * when fresh rkeys were stored.
@@ -1958,8 +2066,8 @@ export const accountRouter = router({
 
   /** Subscribe to export task progress. */
   onExportProgress: procedure.subscription(() => {
-    return observable<any>((emit) => {
-      const handler = (progress: any) => emit.next(progress);
+    return observable<import('@weq/service').TaskProgress>((emit) => {
+      const handler = (progress: import('@weq/service').TaskProgress) => emit.next(progress);
       requireServices().exportManager.on('progress', handler);
       return () => {
         requireServices().exportManager.off('progress', handler);
@@ -2090,7 +2198,7 @@ export const accountRouter = router({
     }))
     .mutation(async ({ input }) => {
       const { dialog } = await import('electron');
-      const { copyFileSync } = await import('fs');
+      const { copyFileSync } = await import('node:fs');
       const result = await dialog.showSaveDialog({
         defaultPath: input.defaultName,
         filters: [{ name: 'Export', extensions: [input.format] }],

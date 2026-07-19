@@ -304,7 +304,7 @@ function buildSystemPrompt(
   else if (persona.profile.relationshipSummary) lines.push('', `【你们的关系】${persona.profile.relationshipSummary}`);
 
   // 群聊 M4：此刻对当前说话人的关系态（好感/情绪）→ 语气指令，随互动动态变化。
-  if (relationNote && relationNote.trim()) lines.push('', `【你此刻的状态】${relationNote.trim()}`);
+  if (relationNote?.trim()) lines.push('', `【你此刻的状态】${relationNote.trim()}`);
 
   // 克隆体对「对方（当前用户）」的记忆：你脑子里记得的关于对方的事，自然知道、别复述。
   if (memories.length > 0) {

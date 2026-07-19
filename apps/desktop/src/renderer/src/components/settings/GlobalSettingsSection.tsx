@@ -17,7 +17,6 @@
 
 import { useEffect, useState, type ReactElement } from 'react';
 import {
-  Check,
   FolderOpen,
   HardDrive,
   Info,

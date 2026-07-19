@@ -1,6 +1,15 @@
 /* Tailwind v4 — single-line import; no tailwind.config.js, no PostCSS needed. */
 @import "tailwindcss";
 @import "../im-template/styles.css";
+/* 全局隐私遮罩（只写在 WeQ 侧，挂钩模板稳定 class）。放在模板样式之后以覆盖。 */
+@import "./privacy.css";
+/* streamdown（WeQ 助手流式 Markdown）自带元素样式。自包含编译产物，无需额外 @source。 */
+@import "streamdown/styles.css";
+
+/* streamdown 代码块用 Tailwind `dark:` 工具类切换 shiki 明/暗配色，但本项目暗色靠
+ * html[data-theme="dark"]（同时 theme.ts 会 toggle .dark 类）。把 `dark:` variant 桥接到这两个
+ * 钩子，代码高亮才能跟随 app 主题。项目其它地方未用 `dark:` 工具类，故此行只点亮 streamdown。 */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *, .dark, .dark *));
 
 /* Tell Tailwind which files to scan for class names */
 @source "../**/*.{ts,tsx}";
@@ -2837,9 +2846,12 @@ html[data-theme="dark"] .app-title-bar-signature {
 }
 
 /* Manual 深/浅 toggle + lock button — both sit just above the account avatar,
-   share the same pill shape so they read as one stacked control cluster. */
+   share the same pill shape so they read as one stacked control cluster.
+   截图 / 隐私 按钮同属这个竖排控件簇，复用同一套 pill 视觉。 */
 .app-shell .rail-footer .weq-rail-theme-btn,
-.app-shell .rail-footer .weq-rail-lock-btn {
+.app-shell .rail-footer .weq-rail-lock-btn,
+.app-shell .rail-footer .weq-rail-capture-btn,
+.app-shell .rail-footer .weq-rail-privacy-btn {
   display: grid;
   place-items: center;
   width: 46px;
@@ -2852,10 +2864,19 @@ html[data-theme="dark"] .app-title-bar-signature {
 }
 
 .app-shell .rail-footer .weq-rail-theme-btn:hover:not(:disabled),
-.app-shell .rail-footer .weq-rail-lock-btn:hover:not(:disabled) {
+.app-shell .rail-footer .weq-rail-lock-btn:hover:not(:disabled),
+.app-shell .rail-footer .weq-rail-capture-btn:hover:not(:disabled),
+.app-shell .rail-footer .weq-rail-privacy-btn:hover:not(:disabled) {
   color: #0099ff;
   border-color: rgba(0, 153, 255, 0.34);
   background: rgba(0, 153, 255, 0.08);
+}
+
+/* 隐私模式开启态：常亮高亮，让「正在遮罩」一眼可见。 */
+.app-shell .rail-footer .weq-rail-privacy-btn.is-on {
+  color: #0099ff;
+  border-color: rgba(0, 153, 255, 0.45);
+  background: rgba(0, 153, 255, 0.12);
 }
 
 .app-shell .rail-footer .weq-rail-lock-btn:disabled {
@@ -2864,7 +2885,9 @@ html[data-theme="dark"] .app-title-bar-signature {
 }
 
 html[data-theme='dark'] .app-shell .rail-footer .weq-rail-theme-btn,
-html[data-theme='dark'] .app-shell .rail-footer .weq-rail-lock-btn {
+html[data-theme='dark'] .app-shell .rail-footer .weq-rail-lock-btn,
+html[data-theme='dark'] .app-shell .rail-footer .weq-rail-capture-btn,
+html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   color: #9fb2c6;
   border-color: rgba(0, 153, 255, 0.28);
 }
@@ -3157,6 +3180,27 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-lock-btn {
     radial-gradient(ellipse at 84% 88%, rgba(83, 206, 144, 0.04) 0, transparent 44%),
     linear-gradient(135deg, #fcfdff 0%, #f6fafd 50%, #fbfbf6 100%);
 }
+
+/* 内嵌浏览器（QQ 空间 / 频道）：占满主内容区，webview 自身撑满。 */
+.weq-embedded-browser {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  overflow: hidden;
+}
+
+.weq-embedded-browser webview {
+  flex: 1 1 auto;
+}
+
+.weq-embedded-browser-loading,
+.weq-embedded-browser-error {
+  align-items: center;
+  justify-content: center;
+  color: var(--weq-text-muted, #8a94a6);
+  font-size: 13px;
+}
+
 
 .weq-readonly-chat .chat-pane {
   grid-template-rows: var(--chat-header-height) minmax(0, 1fr) 0 !important;
@@ -3898,6 +3942,8 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-lock-btn {
 .weq-settings-body {
   padding: 24px 28px;
   overflow-y: auto;
+  overflow-x: hidden;
+  min-width: 0;
 }
 
 .weq-settings-section {
@@ -3935,6 +3981,7 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-lock-btn {
  * ──────────────────────────────────────────────────────────────────── */
 .weq-set {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   color: #1f1f1f;
 }
@@ -3980,6 +4027,7 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-lock-btn {
   display: grid;
   gap: 10px;
   padding: 14px 16px;
+  min-width: 0;
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 10px;
   background: #fcfcfd;
@@ -4148,6 +4196,41 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-lock-btn {
 .weq-set-note svg {
   flex: none;
   margin-top: 2px;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ * 设置面板内嵌的会话选择器（防撤回复用导出页 ConversationPicker）。
+ * 导出页 picker 是为宽布局设计的：搜索框/工具条带 16px 横向 margin、列表撑满
+ * 高度。塞进窄的设置卡片里会撑破容器（横向滚动条）。这里把它收进卡片内：去掉
+ * 多余横向 margin、工具条允许换行、列表限定一个适中的高度。
+ * ──────────────────────────────────────────────────────────────────── */
+.weq-set-picker {
+  display: flex;
+  min-width: 0;
+  margin: 2px -4px 0;
+}
+
+.weq-set-picker .weq-exp-picker {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.weq-set-picker .weq-exp-search {
+  margin: 0 0 8px;
+}
+
+.weq-set-picker .weq-exp-tools {
+  margin: 0 0 8px;
+  flex-wrap: wrap;
+}
+
+.weq-set-picker .weq-exp-list {
+  max-height: 300px;
+  padding: 0;
+}
+
+.weq-set-picker .weq-exp-row {
+  min-width: 0;
 }
 
 /* Spinning refresh icon while a refetch is in flight. */
@@ -6080,8 +6163,8 @@ html[data-theme="dark"] .chat-empty {
   background: #f0f0f0;
   display: block;
 }
-/* 位置占位卡 (Leaflet 替身)：纯 CSS 仿地图底纹 + 居中图钉 + 地名药丸。
-   不取真实瓦片——OSM 对服务端代理抓取回 418，直连又要放开 CSP，得不偿失。 */
+/* 位置卡：真·QQ 位置服务静态图 (.weq-ark-map-img) 铺在最底，图钉/地名叠在上层。
+   下面这层 CSS 仿地图底纹保留为兜底——静态图加载失败 (onError 隐藏 img) 时透出。 */
 .weq-ark-map-view {
   position: relative;
   width: 100%;
@@ -6105,7 +6188,18 @@ html[data-theme="dark"] .chat-empty {
     linear-gradient(90deg, rgba(0, 0, 0, 0.035) 1px, transparent 1px) 0 0 / 24px 100%,
     linear-gradient(160deg, #edf0ea, #e2e6df);
 }
+/* 真·静态地图图层：铺满整卡，压在假底纹之上、图钉/地名之下。 */
+.weq-ark-map-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+}
 .weq-ark-map-pin {
+  position: relative; /* 抬到静态图 (absolute) 之上 */
+  z-index: 1;
   color: #e2403a;
   filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.3));
   pointer-events: none;
@@ -6113,6 +6207,7 @@ html[data-theme="dark"] .chat-empty {
 }
 .weq-ark-map-name {
   position: absolute;
+  z-index: 2;
   left: 6px;
   bottom: 6px;
   max-width: calc(100% - 12px);
@@ -6167,6 +6262,44 @@ html[data-theme="dark"] .chat-empty {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* 名片卡 (contact / cardshare)：左头像 + 右昵称/副标题 */
+.weq-ark-contact-body {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+.weq-ark-contact-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #f0f0f0;
+  flex-shrink: 0;
+}
+.weq-ark-contact-main { min-width: 0; flex: 1; }
+.weq-ark-contact-name {
+  font-size: 15px;
+  font-weight: 500;
+  color: #1f1f1f;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.weq-ark-contact-sub {
+  font-size: 12px;
+  color: #999999;
+  line-height: 1.35;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+html[data-theme="dark"] .weq-ark-contact-avatar { background: rgba(255, 255, 255, 0.06); }
+html[data-theme="dark"] .weq-ark-contact-name { color: var(--weq-fg-primary); }
+html[data-theme="dark"] .weq-ark-contact-sub { color: var(--weq-fg-muted); }
 
 /* ---- Ark 卡片深色模式 ---- The demo only ships light colors; map them onto the
    theme tokens so the structured card reads correctly on the dark canvas. */
@@ -7042,6 +7175,16 @@ html[data-theme="dark"] .weq-forward-bubble {
   color: var(--weq-fg-muted);
 }
 
+/* 停止按钮：busy 时替换发送键，用警示色区分「这是中断动作」。 */
+.weq-asst-stop-btn {
+  background: color-mix(in srgb, var(--weq-danger, #e5484d) 14%, transparent);
+  border-color: color-mix(in srgb, var(--weq-danger, #e5484d) 40%, transparent);
+  color: var(--weq-danger, #e5484d);
+}
+.weq-asst-stop-btn:hover {
+  background: color-mix(in srgb, var(--weq-danger, #e5484d) 22%, transparent);
+}
+
 /* 折叠的过程区 */
 .weq-asst-steps {
   border: 1px solid var(--weq-border-subtle);
@@ -7095,6 +7238,13 @@ html[data-theme="dark"] .weq-forward-bubble {
 .weq-asst-step-think .weq-asst-step-text {
   white-space: pre-wrap;
   color: var(--weq-fg-muted);
+}
+/* reasoning（推理模型思考流）：比 thinking 更淡、斜体，与工具前思路区分开。 */
+.weq-asst-reasoning-text {
+  white-space: pre-wrap;
+  color: var(--weq-fg-muted);
+  font-style: italic;
+  opacity: 0.85;
 }
 .weq-asst-step-tool {
   padding: 1px 6px;
@@ -7268,14 +7418,15 @@ html[data-theme="dark"] .weq-forward-bubble {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
-.weq-asst-md-code {
+/* 行内 code（react-markdown 输出裸 <code>，非 pre 内的那些）。 */
+.weq-asst-md :not(pre) > code {
   padding: 1px 5px;
   border-radius: 5px;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 0.9em;
   background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
 }
-.weq-asst-md-pre {
+.weq-asst-md pre {
   margin: 8px 0;
   padding: 10px 12px;
   overflow: auto;
@@ -7285,22 +7436,53 @@ html[data-theme="dark"] .weq-forward-bubble {
   font-size: 12px;
   line-height: 1.5;
 }
-.weq-asst-md-pre code {
+.weq-asst-md pre code {
   background: none;
   padding: 0;
 }
-.weq-asst-md-quote {
+.weq-asst-md blockquote {
   margin: 8px 0;
   padding: 4px 12px;
   border-left: 3px solid var(--weq-border-strong);
   color: var(--weq-fg-secondary);
   background: color-mix(in srgb, var(--weq-accent-effective) 5%, transparent);
-  white-space: pre-wrap;
 }
-.weq-asst-md-hr {
+.weq-asst-md hr {
   margin: 12px 0;
   border: 0;
   border-top: 1px solid var(--weq-border-subtle);
+}
+/* GFM 表格（remark-gfm）。 */
+.weq-asst-md table {
+  margin: 8px 0;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  width: auto;
+  max-width: 100%;
+  display: block;
+  overflow-x: auto;
+}
+.weq-asst-md th,
+.weq-asst-md td {
+  padding: 5px 10px;
+  border: 1px solid var(--weq-border-subtle);
+  text-align: left;
+}
+.weq-asst-md th {
+  font-weight: 600;
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+}
+.weq-asst-md tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--weq-accent-effective) 3%, transparent);
+}
+/* GFM 任务列表复选框（remark-gfm）：去掉列表符号、复选框与文字对齐。 */
+.weq-asst-md li:has(> input[type='checkbox']) {
+  list-style: none;
+  margin-left: -18px;
+}
+.weq-asst-md input[type='checkbox'] {
+  margin-right: 6px;
+  vertical-align: middle;
 }
 
 .weq-asst-set-hint {
@@ -7575,6 +7757,10 @@ html[data-theme="dark"] .weq-forward-bubble {
 /* 本地缓存资源视图同样隐藏侧栏顶部搜索框（放大镜）——缓存页侧栏宽度为 0，
    search-row 仍在 SidebarHeader 内会溢出到左上角。 */
 .sidebar.is-cache-view .search-row { display: none; }
+
+/* QQ 空间 / 频道内嵌视图同理：侧栏宽度为 0，隐藏顶部搜索框（放大镜）。 */
+.sidebar.is-qzone-view .search-row,
+.sidebar.is-channel-view .search-row { display: none; }
 
 /* ── 新建克隆弹窗 ────────────────────────────────────────────────────────── */
 .weq-clone-modal { display: flex; flex-direction: column; max-height: 78vh; }
@@ -8800,39 +8986,63 @@ html[data-theme="dark"] .weq-persona-modal {
   color: var(--weq-fg-tertiary, var(--weq-fg-secondary));
   max-width: 20rem;
 }
-/* Wrap each reused bubble so the restore action can float over its corner. */
+/* Wrap each reused bubble so the restore action / status tag floats over its
+   top-right corner. Both affordances share one visual language with the in-chat
+   deleted state: solid-accent 恢复 primary, amber frosted QQ删除 tag. Always
+   visible here (this IS the restore surface) — no hover-gating. */
 .weq-deleted-row {
   position: relative;
 }
-.weq-deleted-row .weq-deleted-restore {
+.weq-deleted-row .weq-deleted-restore,
+.weq-deleted-row .weq-deleted-tag {
   position: absolute;
-  top: 2px;
+  top: 4px;
   right: 8px;
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 9px;
+  height: 22px;
+  padding: 0 9px;
   font-size: 12px;
-  font-weight: 600;
-  color: var(--weq-fg-secondary);
-  background: var(--weq-bg-surface);
-  border: 1px solid var(--weq-border-subtle);
-  border-radius: 999px;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  font-weight: 500;
+  line-height: 1;
+  border-radius: 6px;
+  white-space: nowrap;
 }
-.weq-deleted-row:hover .weq-deleted-restore,
-.weq-deleted-row .weq-deleted-restore:disabled {
-  opacity: 1;
+/* 恢复 — accent primary, flattened (small radius, no heavy shadow). */
+.weq-deleted-row .weq-deleted-restore {
+  color: #fff;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--weq-accent-effective) 92%, white),
+    var(--weq-accent-effective)
+  );
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 60%, black 6%);
+  cursor: pointer;
+  transition: transform 0.12s ease, filter 0.12s ease;
 }
 .weq-deleted-row .weq-deleted-restore:hover {
-  color: var(--weq-accent, #2f7bff);
-  border-color: var(--weq-accent, #2f7bff);
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+}
+.weq-deleted-row .weq-deleted-restore:active {
+  transform: translateY(0);
 }
 .weq-deleted-row .weq-deleted-restore:disabled {
   cursor: default;
-  color: var(--weq-fg-tertiary, var(--weq-fg-secondary));
+  color: var(--weq-fg-muted);
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-subtle);
+  transform: none;
+  filter: none;
+}
+/* 撤回者+时间 / QQ删除 — NOT a bubble: a flat accent caption. Small radius, no
+   frosted glass, no bold, faint accent tint. QQ删除 (not restorable) reads a
+   touch quieter via lower opacity + the label itself, not a different hue. */
+.weq-deleted-row .weq-deleted-tag {
+  color: color-mix(in srgb, var(--weq-accent-effective) 78%, var(--weq-fg-muted));
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
 }
 
 /* face picker */
@@ -8970,3 +9180,1117 @@ html[data-theme="dark"] .weq-persona-modal {
   word-break: break-word;
 }
 .weq-msg-preview .message-content { pointer-events: none; }
+
+/* ===========================================================================
+   我的收藏 (CollectionDialog) — settings-style lightbox, theme-accent aware.
+   =========================================================================== */
+.weq-collection-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  background: rgba(246, 247, 248, 0.55);
+  backdrop-filter: blur(4px);
+}
+
+.weq-collection-dialog {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(940px, calc(100vw - 48px));
+  height: min(660px, calc(100vh - 72px));
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.99);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.16);
+  overflow: hidden;
+  color: #161616;
+}
+
+.weq-collection-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #666;
+  cursor: pointer;
+}
+.weq-collection-close:hover,
+.weq-collection-close:focus-visible {
+  background: #eee;
+  color: #111;
+  outline: none;
+}
+
+.weq-collection-head {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px 22px 14px;
+  border-bottom: 1px solid var(--weq-border-subtle, rgba(0, 0, 0, 0.06));
+}
+
+.weq-collection-title-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--weq-accent-effective);
+}
+.weq-collection-title-row h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: inherit;
+}
+.weq-collection-total {
+  margin-left: 2px;
+  padding: 1px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+}
+
+.weq-collection-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 340px;
+  padding: 7px 11px;
+  border: 1px solid var(--weq-border-subtle, rgba(0, 0, 0, 0.1));
+  border-radius: 9px;
+  background: #f6f7f9;
+  color: #888;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.weq-collection-search:focus-within {
+  border-color: var(--weq-accent-effective);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
+}
+.weq-collection-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font-size: 13px;
+  color: #222;
+  outline: none;
+}
+.weq-collection-search-clear {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.08);
+  color: #666;
+  cursor: pointer;
+}
+
+.weq-collection-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 12px 22px;
+  border-bottom: 1px solid var(--weq-border-subtle, rgba(0, 0, 0, 0.06));
+}
+.weq-collection-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 11px;
+  border: 1px solid var(--weq-border-subtle, rgba(0, 0, 0, 0.1));
+  border-radius: 999px;
+  background: transparent;
+  font-size: 12.5px;
+  color: #555;
+  cursor: pointer;
+  transition: all 0.14s;
+}
+.weq-collection-chip:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
+  color: #222;
+}
+.weq-collection-chip.is-active {
+  border-color: transparent;
+  background: var(--weq-accent-effective);
+  color: #fff;
+}
+.weq-collection-chip-n {
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.72;
+}
+
+.weq-collection-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 22px;
+}
+
+.weq-collection-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 14px;
+  align-content: start;
+}
+
+.weq-collection-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 100%;
+  min-height: 220px;
+  color: #999;
+  font-size: 13.5px;
+}
+.weq-collection-state.is-error {
+  color: #d64545;
+}
+
+/* ---- card ---- */
+.weq-col-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--weq-border-subtle, rgba(0, 0, 0, 0.08));
+  border-radius: 10px;
+  background: #fcfcfd;
+  overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.weq-col-card:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 35%, transparent);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.07);
+}
+
+.weq-col-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--weq-border-subtle, rgba(0, 0, 0, 0.05));
+}
+.weq-col-avatar {
+  border-radius: 50%;
+  flex: none;
+}
+.weq-col-card-who {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.weq-col-card-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #222;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.weq-col-card-group {
+  font-size: 11px;
+  color: #999;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.weq-col-kind-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+
+.weq-col-card-body {
+  padding: 11px;
+  flex: 1;
+}
+.weq-col-card-foot {
+  padding: 7px 11px;
+  font-size: 11px;
+  color: #aaa;
+  border-top: 1px solid var(--weq-border-subtle, rgba(0, 0, 0, 0.05));
+}
+
+/* ---- text / rich ---- */
+.weq-col-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #333;
+  white-space: pre-wrap;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.weq-col-text.is-muted {
+  color: #aaa;
+  font-style: italic;
+}
+.weq-col-rich-title {
+  margin: 0 0 6px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #1c1c1c;
+  word-break: break-word;
+}
+
+/* ---- pic grid ---- */
+.weq-col-picgrid {
+  display: grid;
+  gap: 5px;
+  margin-top: 8px;
+  grid-template-columns: repeat(3, 1fr);
+}
+.weq-col-picgrid-1 {
+  grid-template-columns: 1fr;
+}
+.weq-col-picgrid-2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+.weq-col-thumb {
+  position: relative;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  overflow: hidden;
+  background: #eef0f2;
+  cursor: pointer;
+  aspect-ratio: 1 / 1;
+}
+.weq-col-picgrid-1 .weq-col-thumb {
+  aspect-ratio: 16 / 10;
+}
+.weq-col-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.weq-col-thumb.is-broken {
+  display: none;
+}
+.weq-col-picmore {
+  align-self: center;
+  font-size: 12px;
+  color: #999;
+}
+
+/* ---- link ---- */
+.weq-col-link {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--weq-border-subtle, rgba(0, 0, 0, 0.07));
+  border-radius: 8px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.14s;
+}
+.weq-col-link:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 7%, #fff);
+}
+.weq-col-link-thumb {
+  flex: none;
+  width: 52px;
+  height: 52px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: #eef0f2;
+}
+.weq-col-link-thumb.is-fallback {
+  display: grid;
+  place-items: center;
+  color: var(--weq-accent-effective);
+}
+.weq-col-link-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.weq-col-link-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1c1c1c;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.weq-col-link-brief {
+  font-size: 12px;
+  color: #777;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.weq-col-link-host {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--weq-accent-effective);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- media rows (audio / file) ---- */
+.weq-col-media-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.weq-col-media-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+.weq-col-file-ext {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.weq-col-media-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.weq-col-media-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #222;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.weq-col-media-sub {
+  font-size: 11.5px;
+  color: #888;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+/* ---- video ---- */
+.weq-col-video {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.weq-col-video-cover {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  border: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #e9ebee;
+  color: #9aa0a6;
+  cursor: pointer;
+}
+.weq-col-video-cover img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.weq-col-video-play {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.45);
+}
+.weq-col-video-dur {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 11px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+/* ---- location ---- */
+.weq-col-location {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.weq-col-loc-pin {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  color: #fff;
+  background: var(--weq-accent-effective);
+}
+.weq-col-loc-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+.weq-col-loc-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1c1c1c;
+  word-break: break-word;
+}
+.weq-col-loc-addr {
+  font-size: 12px;
+  color: #777;
+  word-break: break-word;
+}
+.weq-col-loc-coord {
+  font-size: 11px;
+  color: #aaa;
+  font-variant-numeric: tabular-nums;
+}
+.weq-col-loc-open {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--weq-border-subtle, rgba(0, 0, 0, 0.1));
+  border-radius: 7px;
+  background: transparent;
+  color: var(--weq-accent-effective);
+  cursor: pointer;
+}
+.weq-col-loc-open:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+
+/* ---- pager ---- */
+.weq-collection-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 12px 22px;
+  border-top: 1px solid var(--weq-border-subtle, rgba(0, 0, 0, 0.06));
+}
+.weq-collection-page-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 13px;
+  border: 1px solid var(--weq-border-subtle, rgba(0, 0, 0, 0.12));
+  border-radius: 8px;
+  background: transparent;
+  font-size: 12.5px;
+  color: #444;
+  cursor: pointer;
+  transition: all 0.14s;
+}
+.weq-collection-page-btn:hover:not(:disabled) {
+  border-color: var(--weq-accent-effective);
+  color: var(--weq-accent-effective);
+}
+.weq-collection-page-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.weq-collection-page-info {
+  font-size: 12.5px;
+  color: #666;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- dark theme ---- */
+html[data-theme="dark"] .weq-collection-layer {
+  background: rgba(10, 12, 16, 0.42);
+}
+html[data-theme="dark"] .weq-collection-dialog {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #161a20;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.45);
+  color: #edf2f7;
+}
+html[data-theme="dark"] .weq-collection-close {
+  color: #98a4b3;
+}
+html[data-theme="dark"] .weq-collection-close:hover,
+html[data-theme="dark"] .weq-collection-close:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f7fbff;
+}
+html[data-theme="dark"] .weq-collection-search {
+  background: #10141a;
+  color: #7b8794;
+}
+html[data-theme="dark"] .weq-collection-search input {
+  color: #e6edf3;
+}
+html[data-theme="dark"] .weq-collection-chip {
+  color: #9aa6b2;
+}
+html[data-theme="dark"] .weq-collection-chip:hover {
+  color: #e6edf3;
+}
+html[data-theme="dark"] .weq-collection-chip.is-active {
+  color: #fff;
+}
+html[data-theme="dark"] .weq-col-card {
+  background: #1b2027;
+  border-color: rgba(255, 255, 255, 0.07);
+}
+html[data-theme="dark"] .weq-col-card-name {
+  color: #e6edf3;
+}
+html[data-theme="dark"] .weq-col-text {
+  color: #c4ccd4;
+}
+html[data-theme="dark"] .weq-col-rich-title,
+html[data-theme="dark"] .weq-col-link-title,
+html[data-theme="dark"] .weq-col-media-title,
+html[data-theme="dark"] .weq-col-loc-name {
+  color: #eef2f6;
+}
+html[data-theme="dark"] .weq-col-link {
+  background: #12161c;
+  border-color: rgba(255, 255, 255, 0.07);
+}
+html[data-theme="dark"] .weq-col-link:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, #12161c);
+}
+html[data-theme="dark"] .weq-collection-page-btn {
+  color: #c4ccd4;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+html[data-theme="dark"] .weq-collection-page-info {
+  color: #9aa6b2;
+}
+html[data-theme="dark"] .weq-collection-state {
+  color: #7b8794;
+}
+
+/* ───────────────────────── WeQ 助手：composer 工具条 + 空状态预设 ────────── */
+
+/* 外层：工具条（模型/思考等级）+ 输入行，共享一条顶部分隔线。 */
+.weq-asst-composer {
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-asst-composer-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px 0;
+}
+
+/* 内层输入行复用 .weq-agentlab-composer 网格，但分隔线由外层负责。 */
+.weq-asst-composer .weq-agentlab-composer {
+  border-top: none;
+  padding-top: 10px;
+}
+
+.weq-asst-tool-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+  background: var(--weq-bg-soft, transparent);
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.weq-asst-tool-select:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 45%, var(--weq-border-subtle));
+  color: var(--weq-fg-primary);
+}
+
+.weq-asst-tool-select > select {
+  appearance: none;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  max-width: 220px;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.weq-asst-tool-select > select:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ * 输入框上方的自定义下拉（模型 / 思考等级）。触发器是胶囊，点开在其上方弹出
+ * 圆角卡片（popover 用 portal 渲染到 body、fixed 定位，故不受会话滚动区裁剪）。
+ * ──────────────────────────────────────────────────────────────────── */
+.weq-asst-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 240px;
+  padding: 5px 9px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+  line-height: 1.4;
+  background: var(--weq-bg-soft, transparent);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.weq-asst-select:hover:not(:disabled),
+.weq-asst-select.is-open {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 48%, var(--weq-border-subtle));
+  color: var(--weq-fg-primary);
+}
+
+.weq-asst-select.is-open {
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+}
+
+.weq-asst-select:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.weq-asst-select-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--weq-accent-effective);
+}
+
+.weq-asst-select-value {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.weq-asst-select-value.is-placeholder {
+  color: var(--weq-fg-muted);
+}
+
+.weq-asst-select-caret {
+  flex: none;
+  opacity: 0.6;
+  transition: transform 0.15s ease;
+}
+
+.weq-asst-select.is-open .weq-asst-select-caret {
+  transform: rotate(180deg);
+}
+
+/* popover：固定定位在触发器正上方，向上展开的选项卡片。 */
+.weq-asst-select-pop {
+  position: fixed;
+  z-index: 60;
+  max-width: 340px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 5px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 12px;
+  background: var(--weq-bg-elevated, #fff);
+  box-shadow: var(--weq-shadow-soft, 0 12px 32px rgba(0, 0, 0, 0.16));
+  animation: weq-asst-pop-in 0.12s ease;
+}
+
+@keyframes weq-asst-pop-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.weq-asst-select-group + .weq-asst-select-group {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-asst-select-group-label {
+  padding: 4px 10px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--weq-fg-muted);
+  text-transform: uppercase;
+}
+
+.weq-asst-select-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.weq-asst-select-opt:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+.weq-asst-select-opt.is-active {
+  color: var(--weq-accent-effective);
+  font-weight: 600;
+}
+
+.weq-asst-select-opt-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.weq-asst-select-opt > svg {
+  flex: none;
+  color: var(--weq-accent-effective);
+}
+
+html[data-theme="dark"] .weq-asst-select {
+  background: #12161c;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+html[data-theme="dark"] .weq-asst-select-pop {
+  background: #12161c;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+/* 空状态：图标 + 标题 + 预设问题 chips。 */
+.weq-asst-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px 16px;
+}
+
+.weq-asst-empty > strong {
+  font-size: 15px;
+  color: var(--weq-fg-primary);
+}
+
+.weq-asst-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  color: #fff;
+  background: linear-gradient(135deg, var(--weq-accent-effective), color-mix(in srgb, var(--weq-accent-effective) 50%, #53ce90));
+  box-shadow: var(--weq-shadow-soft);
+  margin-bottom: 4px;
+}
+
+.weq-asst-presets {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+  max-width: 520px;
+}
+
+.weq-asst-preset {
+  padding: 7px 14px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  background: var(--weq-bg-soft, transparent);
+  color: var(--weq-fg-primary);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+
+.weq-asst-preset:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 55%, var(--weq-border-subtle));
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  transform: translateY(-1px);
+}
+
+.weq-asst-preset:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+html[data-theme="dark"] .weq-asst-tool-select,
+html[data-theme="dark"] .weq-asst-preset {
+  background: #12161c;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+html[data-theme="dark"] .weq-asst-preset:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, #12161c);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   In-place deleted-message overlay (im-template/messageBubble)
+   WeQ's delete mirrors QQ's recall (40011/40012 → (1,1)) but keeps the row in
+   the chat: the bubble dims + desaturates under a translucent veil with an
+   「已删除」pill, and hovering the row reveals a themed 恢复 button. All colors
+   ride the --weq-* tokens so light/dark + custom accent stay consistent.
+   ───────────────────────────────────────────────────────────────────────── */
+.message-line.is-deleted .message-bubble {
+  position: relative;
+  opacity: 0.78;
+  filter: saturate(0.88);
+  transition: opacity 0.16s ease, filter 0.16s ease;
+}
+html[data-theme="dark"] .message-line.is-deleted .message-bubble {
+  opacity: 0.72;
+}
+/* Ease fully back in on hover so content is inspectable before restoring. */
+.message-line.is-deleted:hover .message-bubble {
+  opacity: 0.97;
+  filter: saturate(1);
+}
+/* Avatar rides the same easing so the whole row reads as deleted. */
+.message-line.is-deleted > .avatar,
+.message-line.is-deleted > .message-avatar-button {
+  opacity: 0.6;
+  transition: opacity 0.16s ease;
+}
+.message-line.is-deleted:hover > .avatar,
+.message-line.is-deleted:hover > .message-avatar-button {
+  opacity: 0.85;
+}
+
+/* Veil is now a positioning layer only (no grey wash) — it anchors the status
+   pill + restore button to the bubble's bottom-right. pointer-events pass
+   through except on the button, so bubble text stays selectable. */
+.message-line.is-deleted .weq-msg-deleted-veil {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 6px;
+  border-radius: inherit;
+  background: transparent;
+  pointer-events: none;
+}
+
+/* Flat status caption (not a pill). WeQ delete = accent tint. */
+.message-line.is-deleted .weq-msg-deleted-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.7;
+  letter-spacing: 0.01em;
+  color: color-mix(in srgb, var(--weq-accent-effective) 80%, var(--weq-fg-muted));
+  background: color-mix(in srgb, var(--weq-accent-effective) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
+  border-radius: 6px;
+}
+
+/* Accent 恢复 button — flattened (small radius, no heavy shadow). */
+.message-line.is-deleted .weq-msg-restore {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.7;
+  color: #fff;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--weq-accent-effective) 92%, white),
+    var(--weq-accent-effective)
+  );
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 60%, black 6%);
+  border-radius: 6px;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: transform 0.12s ease, filter 0.12s ease;
+}
+.message-line.is-deleted .weq-msg-restore:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+}
+.message-line.is-deleted .weq-msg-restore:active {
+  transform: translateY(0);
+}
+.message-line.is-deleted .weq-msg-restore:disabled {
+  cursor: default;
+  color: var(--weq-fg-muted);
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-subtle);
+  transform: none;
+  filter: none;
+}
+
+/* QQ-native recall / delete-from-another-client: NOT restorable. Same accent
+   caption as WeQ delete, just quieter (lower opacity) — the "QQ删除" label
+   itself carries the "can't restore" meaning, no separate hue needed. */
+.message-line.is-deleted.is-qq-deleted .weq-msg-deleted-badge {
+  color: color-mix(in srgb, var(--weq-accent-effective) 58%, var(--weq-fg-muted));
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 15%, transparent);
+}
+
+/* "QQ删除" tag: styled together with the restore button under .weq-deleted-row
+   above (shares the in-chat amber frosted-pill language). No standalone rule. */
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Anti-recall 撤回 tag (im-template/messageBubble)
+   Unlike delete, an intercepted recall leaves the message content intact — so
+   there's NO veil. We only show a small, quiet caption below the bubble naming
+   who recalled it (self vs admin). Flat accent caption (not a pill): small
+   radius, non-bold, theme accent instead of amber. */
+.weq-msg-recall-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 3px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.6;
+  letter-spacing: 0.01em;
+  color: color-mix(in srgb, var(--weq-accent-effective) 76%, var(--weq-fg-muted));
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
+  border-radius: 6px;
+  width: fit-content;
+  user-select: none;
+}
+.weq-msg-recall-tag svg {
+  opacity: 0.85;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Gray-tip 液体带 (chatPane)
+   Consecutive gray-tip rows (revoke / poke / group / invite) are wrapped in a
+   single .weq-graytip-band. The band paints a soft, translucent accent-tinted
+   "liquid" fill so a run of system notices reads as one calm zone rather than N
+   loose centered lines. When the run contains a placeholder recall (message not
+   in the local DB), a quiet hint says QQ will backfill it on view. */
+.weq-graytip-band {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 6px;
+  padding: 8px 14px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  background:
+    radial-gradient(
+      120% 80% at 15% 0%,
+      color-mix(in srgb, var(--weq-accent-effective) 12%, transparent) 0%,
+      transparent 60%
+    ),
+    radial-gradient(
+      120% 90% at 85% 100%,
+      color-mix(in srgb, var(--weq-accent-effective) 9%, transparent) 0%,
+      transparent 62%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--weq-accent-effective) 8%, transparent),
+      color-mix(in srgb, var(--weq-accent-effective) 5%, transparent)
+    );
+}
+html[data-theme="dark"] .weq-graytip-band {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+  background:
+    radial-gradient(
+      120% 80% at 15% 0%,
+      color-mix(in srgb, var(--weq-accent-effective) 15%, transparent) 0%,
+      transparent 60%
+    ),
+    radial-gradient(
+      120% 90% at 85% 100%,
+      color-mix(in srgb, var(--weq-accent-effective) 11%, transparent) 0%,
+      transparent 62%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--weq-accent-effective) 10%, transparent),
+      color-mix(in srgb, var(--weq-accent-effective) 6%, transparent)
+    );
+}
+
+/* Base gray-tip line inside the band: centered, quiet, secondary-fg. (No base
+   .weq-graytip rule existed before — the component used Tailwind utilities; the
+   band now owns the color language so it tracks the theme + accent.) */
+.weq-graytip {
+  color: var(--weq-fg-secondary);
+}
+/* Names / actors — theme accent instead of the old hard-coded tailwind blue. */
+.weq-graytip-accent {
+  color: var(--weq-accent-effective);
+}
+.weq-graytip-muted {
+  color: var(--weq-fg-muted, var(--weq-fg-tertiary, var(--weq-fg-secondary)));
+}
+
+/* "本地暂无内容" hint — centered, small, non-bold, accent-leaning. */
+.weq-graytip-band-hint {
+  margin-top: 2px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.6;
+  letter-spacing: 0.01em;
+  color: color-mix(in srgb, var(--weq-accent-effective) 70%, var(--weq-fg-muted));
+}

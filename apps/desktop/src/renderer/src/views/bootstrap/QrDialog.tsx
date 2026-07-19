@@ -4,7 +4,7 @@
  * login, and is hidden in `anonymous` mode (the "登录新的账号" flow).
  */
 
-import { type ReactElement } from 'react';
+import type { ReactElement } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Modal } from '../../components/Dialog';
 import { QqAvatar } from '../../components/QqAvatar';

@@ -536,7 +536,16 @@ html[data-theme="dark"]
 html[data-theme="dark"]
 	.message-line.mine
 	.message-bubble.context-active
-	.message-content.qq-card-only {
+	.message-content.qq-card-only,
+html[data-theme="dark"] .message-content.qq-voice-only,
+html[data-theme="dark"] .message-line.mine .message-content.qq-voice-only,
+html[data-theme="dark"]
+	.message-bubble.context-active
+	.message-content.qq-voice-only,
+html[data-theme="dark"]
+	.message-line.mine
+	.message-bubble.context-active
+	.message-content.qq-voice-only {
 	background: transparent;
 }
 

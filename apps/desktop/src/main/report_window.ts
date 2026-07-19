@@ -75,5 +75,5 @@ export async function openReportWindow(htmlPath: string): Promise<void> {
   // 报告里的链接一律走系统浏览器，不在本窗口内导航/开子窗。
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
 
-  await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(merged));
+  await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(merged)}`);
 }

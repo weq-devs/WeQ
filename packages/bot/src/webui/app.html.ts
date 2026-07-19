@@ -35,7 +35,7 @@ function escapeHtml(s: string): string {
 }
 
 /* ── 样式：复刻 WeQ 视觉语言（极光 + 几何线 + 玻璃拟态）· 浅/深双模式 ────────── */
-const CSS = String.raw`
+const CSS = `
 :root {
   --accent: #0099ff;
   /* WeQ 四色极光板（蓝/青绿/暖黄/柔紫），图表与光晕共用 */
@@ -317,7 +317,7 @@ svg { display: block; }
 `;
 
 /* ── 前端脚本：全部原生，图标用内联 SVG（无 emoji、无三方库） ───────────────── */
-const JS = String.raw`
+const JS = `
 (function () {
   var app = document.getElementById('app');
   var KEY = 'weq-bot-key';

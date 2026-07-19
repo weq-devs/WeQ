@@ -15,11 +15,10 @@ import { ProtoMsg, encodeElement, validateComposeMessage } from '@weq/codec';
 import { MsgBody } from '@weq/codec/proto/msg/40800';
 import { GroupMsgDb } from '../src/msg/group';
 import type { AppendMsgFields } from '../src/msg/append';
+import { testEnv } from '@weq/testkit';
 
-const DB_PATH =
-  process.env.WEQ_TEST_DB_PATH ??
-  String.raw`D:\estkim\T\Tencent Files\1707889225\nt_qq\nt_db\nt_msg.db`;
-const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
+const DB_PATH = testEnv.msgDbPath;
+const KEY = testEnv.key;
 const GROUP_CODE = '1090396070';
 
 const bodyCodec = new ProtoMsg(MsgBody);

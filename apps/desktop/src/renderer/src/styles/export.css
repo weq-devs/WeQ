@@ -2009,6 +2009,60 @@ html[data-theme="dark"] .weq-exp-sched-empty {
   background: transparent;
 }
 
+/* ---- 导出收藏 · 预览行 ---- */
+
+/* 行首 kind 图标块（对齐好友预览的头像位）。 */
+.weq-exp-col-icon {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  color: var(--weq-accent-effective);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+}
+
+/* 行尾：类型标签 + 收藏日期，右对齐竖排。 */
+.weq-exp-col-side {
+  flex: 0 0 auto;
+  margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+.weq-exp-col-kind {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
+}
+
+.weq-exp-col-side small {
+  font-size: 10.5px;
+  color: #8a98ad;
+}
+
+/* 收藏摘要可能是长 brief / 转写全文，单行截断。 */
+.weq-exp-row:has(.weq-exp-col-icon) .weq-exp-row-meta small {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+html[data-theme="dark"] .weq-exp-col-side small {
+  color: #7d8aa0;
+}
+
 html[data-theme="dark"] .weq-exp-friends-head strong {
   color: #e9eef5;
 }

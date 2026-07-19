@@ -28,6 +28,11 @@ import {
   type ContactsExportDeps,
   type ContactsFormat,
 } from './contacts_export';
+import {
+  exportCollections,
+  type CollectionExportDeps,
+  type CollectionFormat,
+} from './collection_export';
 import { exportAvatars } from './avatar_export';
 import {
   copyFoundMedia,
@@ -40,10 +45,12 @@ import {
   type TranscribeVoiceFn,
   type MediaFailure,
 } from './media_export';
-import { scanConvMedia, mediaDirsFromAccountDir, type MediaDirs, type MediaScanResult } from './media_scan';
+import { scanConvMedia, mediaDirsFromAccountDir, mediaDirsFromNtDataDir, type MediaDirs, type MediaScanResult } from './media_scan';
+import { exportSysFaces } from './sysface_export';
 import type { MediaUrlService } from '../media_url';
 import { iterateC2cMessages, toExportedMessage } from './message_source';
-import { type Framing } from './run_export';
+import { expandForwards } from './forward_expand';
+import type { Framing } from './run_export';
 import { bigintReplacer } from './serialize';
 import { messageToText, annotateLocalPaths } from './element_text';
 import type { ConvKind, ExportedMessage, ExportFormat, ExportResult, ExportTimeRange, GroupExportOptions } from './types';
@@ -52,7 +59,7 @@ export type TaskStatus = 'pending' | 'running' | 'paused' | 'completed' | 'faile
 export type { ConvKind };
 
 /** A single stage of a task's pipeline. */
-export type StageKey = 'message' | 'media' | 'avatar' | 'record' | 'image' | 'video' | 'file' | 'transcribe';
+export type StageKey = 'message' | 'media' | 'avatar' | 'record' | 'image' | 'video' | 'file' | 'transcribe' | 'sysface';
 
 export interface TaskStage {
   key: StageKey;
@@ -103,6 +110,8 @@ export interface ExportTask {
   /** 联系人导出（好友列表 / 群成员列表；走独立的资料库拉取流水线）。
    *  `group` 时 `conv` = 群号；`friends` 时 `conv` 为空。 */
   contacts?: { scope: 'friends' | 'group'; categoryIds?: number[] };
+  /** 收藏导出（QQ 收藏；走独立的收藏库拉取流水线）。`kinds` 为空 = 全部类型。 */
+  collection?: { kinds?: string[] };
   /** Media export options, when 导出媒体 is on. */
   media?: MediaExportOptions;
   /** Inclusive send-time window for this export, if narrowed from 全部时间. */
@@ -133,6 +142,15 @@ export interface MediaDeps {
   mediaUrl?: MediaUrlService;
   /** Absolute media base dirs for the open account (`…/<uin>/nt_qq/nt_data/*`). */
   accountDir?: string;
+  /** Account built-in system-emoji resource dir (platform.emojiResourceDir), for HTML face images. */
+  emojiDir?: string | null;
+  /**
+   * Pre-resolved `nt_data` directory for the open account. Preferred over
+   * `accountDir` because the platform already knows the per-OS account layout
+   * (linux's hashed `nt_qq_<hash>/nt_data` has no `nt_qq` middle segment).
+   * When set, media scanning uses this directly; `accountDir` is the fallback.
+   */
+  ntDataDir?: string;
   /** SILK → WAV decode (writes to a given path). Injected from the app. */
   decodeSilk?: DecodeSilk;
   /** SILK voice → text transcription (native engine; injected from the app). */
@@ -143,6 +161,8 @@ export interface MediaDeps {
   qzone?: QzoneExportDeps;
   /** 联系人（好友 / 群成员）资料库拉取能力（由 app 注入）。 */
   contacts?: ContactsExportDeps;
+  /** 收藏（QQ 收藏）拉取能力（由 app 注入；返回已拍平的行）。 */
+  collection?: CollectionExportDeps;
 }
 
 export class ExportTaskManager extends EventEmitter {
@@ -214,6 +234,8 @@ export class ExportTaskManager extends EventEmitter {
     qzone?: boolean;
     /** 联系人导出（好友 / 群成员；走独立流水线）。 */
     contacts?: { scope: 'friends' | 'group'; categoryIds?: number[] };
+    /** 收藏导出（QQ 收藏；走独立流水线）。 */
+    collection?: { kinds?: string[] };
     media?: MediaExportOptions;
     range?: ExportTimeRange;
   }): Promise<string> {
@@ -221,6 +243,29 @@ export class ExportTaskManager extends EventEmitter {
     const wantMedia = Boolean(opts.media?.exportMedia);
     const wantAvatars = Boolean(opts.exportAvatar);
     const wantTranscribe = Boolean(opts.media?.transcribeVoice);
+
+    // 收藏导出是独立流水线（单文件表格产物，无媒体 / 头像），不复用消息流水线。
+    if (opts.collection) {
+      const colTask: ExportTask = {
+        id,
+        kind: opts.kind,
+        conv: opts.conv,
+        name: opts.name,
+        format: opts.format,
+        status: 'pending',
+        progress: 0,
+        current: 0,
+        total: opts.total,
+        collection: opts.collection,
+        stages: [{ key: 'message', label: '导出收藏', status: 'pending', current: 0, total: opts.total }],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      this.tasks.set(id, colTask);
+      this.saveTasks();
+      void this.runCollectionTask(id);
+      return id;
+    }
 
     // 联系人导出（好友 / 群成员）是独立流水线（写表 + 可选头像），不复用消息流水线。
     if (opts.contacts) {
@@ -296,6 +341,11 @@ export class ExportTaskManager extends EventEmitter {
     }
     if (wantTranscribe) {
       stages.push({ key: 'transcribe', label: '语音转写', status: 'pending', current: 0, total: 0 });
+    }
+    // HTML 页内联系统表情（小黄脸）图片：导出消息时收集用到的 faceId，导出后把这些
+    // 表情图片复制进 bundle 的 media/face/。仅 HTML 格式有此阶段。
+    if (opts.format === 'html') {
+      stages.push({ key: 'sysface', label: '导出表情', status: 'pending', current: 0, total: 0 });
     }
     const task: ExportTask = {
       id,
@@ -381,7 +431,7 @@ export class ExportTaskManager extends EventEmitter {
     const aborted = (): boolean => abort.signal.aborted;
 
     try {
-      const { avatarCache, mediaDownload, accountDir, decodeSilk, transcribe } = this.deps;
+      const { avatarCache, mediaDownload, accountDir, ntDataDir, decodeSilk, transcribe } = this.deps;
       const wantAvatars = Boolean(task.exportAvatar && avatarCache);
       const wantMedia = Boolean(task.media?.exportMedia);
       const wantTranscribe = Boolean(task.media?.transcribeVoice && transcribe);
@@ -395,6 +445,10 @@ export class ExportTaskManager extends EventEmitter {
       const outPath = join(outDir, task.format === 'html' ? 'index.html' : `${task.name}.${task.format}`);
       const mediaRoot = join(outDir, 'media');
       const senders = wantAvatars ? new Set<string>() : undefined;
+      // HTML collects the built-in system-emoji face ids it renders, so the
+      // sysface stage can copy just those images into media/face/.
+      const wantSysFaces = task.format === 'html';
+      const faces = wantSysFaces ? new Set<string>() : undefined;
 
       // Defensive: a stage created for a capability that isn't injected (no
       // avatar cache / no transcription engine) is skipped up-front, so the
@@ -413,7 +467,7 @@ export class ExportTaskManager extends EventEmitter {
       const result = await this.exportMessages(task, outPath, senders, wantMedia, (current, note) => {
         if (aborted()) return;
         this.touchStage(task, 'message', { current, note });
-      });
+      }, faces);
       task.filePath = result.filePath;
       task.current = result.messageCount;
       this.touchStage(task, 'message', { status: 'completed', current: result.messageCount, total: result.messageCount, note: `${result.messageCount} 条` }, { persist: true });
@@ -423,14 +477,20 @@ export class ExportTaskManager extends EventEmitter {
       // ---- scan once (shared by 搬运媒体 / 补全 / 转写) ----
       let scan: MediaScanResult | null = null;
       if (needsScan) {
-        if (!accountDir) {
+        // Prefer the platform-resolved nt_data (correct on every OS); fall back
+        // to deriving it from the account dir (win32 layout / static accounts).
+        const dirs: MediaDirs | null = ntDataDir
+          ? mediaDirsFromNtDataDir(ntDataDir)
+          : accountDir
+            ? mediaDirsFromAccountDir(accountDir)
+            : null;
+        if (!dirs) {
           // Can't locate on-disk media — skip every media-dependent stage.
           for (const key of ['media', 'record', 'image', 'video', 'file', 'transcribe'] as StageKey[]) {
             const s = this.stage(task, key);
             if (s) { s.status = 'skipped'; s.note = '无法定位媒体目录'; }
           }
         } else {
-          const dirs: MediaDirs = mediaDirsFromAccountDir(accountDir);
           const scanStage: StageKey = wantMedia ? 'media' : 'transcribe';
           this.touchStage(task, scanStage, { status: 'running', note: '扫描媒体…' }, { persist: true });
           scan = await scanConvMedia(this.msgs, task.kind, task.conv, dirs, { pageSize: 2000, range: task.range });
@@ -450,8 +510,25 @@ export class ExportTaskManager extends EventEmitter {
       }
       if (aborted()) { task.status = 'cancelled'; return; }
 
-      // ---- concurrent batch: 头像 / 解码语音 / 补全图片·视频·文件 / 语音转写 ----
+      // ---- concurrent batch: 头像 / 解码语音 / 补全图片·视频·文件 / 语音转写 / 系统表情 ----
       const jobs: Array<() => Promise<void>> = [];
+
+      if (wantSysFaces && faces) {
+        jobs.push(async () => {
+          const s = this.stage(task, 'sysface');
+          const emojiDir = this.deps.emojiDir;
+          if (!emojiDir) {
+            if (s) { s.status = 'skipped'; s.note = '未找到表情资源目录'; this.saveTasks(); }
+            return;
+          }
+          this.touchStage(task, 'sysface', { status: 'running', total: faces.size, current: 0, note: `导出 0/${faces.size}` }, { persist: true });
+          const r = await exportSysFaces(faces, emojiDir, mediaRoot, (done, total) => {
+            if (aborted()) return;
+            this.touchStage(task, 'sysface', { current: done, total, note: `导出 ${done}/${total}` });
+          });
+          this.touchStage(task, 'sysface', { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已导出 ${r.ok}${r.failed ? ` · 缺失 ${r.failed}` : ''}` }, { persist: true });
+        });
+      }
 
       if (wantAvatars && senders && avatarCache) {
         jobs.push(async () => {
@@ -522,9 +599,9 @@ export class ExportTaskManager extends EventEmitter {
       if (aborted()) { task.status = 'cancelled'; return; }
       task.status = 'completed';
       task.progress = 100;
-    } catch (e: any) {
+    } catch (e) {
       task.status = 'failed';
-      task.error = String(e?.message ?? e);
+      task.error = String((e as Error)?.message ?? e);
       // Mark the running stage failed so the UI shows where it broke.
       const running = task.stages.find((s) => s.status === 'running');
       if (running) { running.status = 'failed'; running.note = task.error; }
@@ -617,9 +694,9 @@ export class ExportTaskManager extends EventEmitter {
       }
       task.status = 'completed';
       task.progress = 100;
-    } catch (e: any) {
+    } catch (e) {
       task.status = 'failed';
-      task.error = String(e?.message ?? e);
+      task.error = String((e as Error)?.message ?? e);
       const running = task.stages.find((s) => s.status === 'running');
       if (running) { running.status = 'failed'; running.note = task.error; }
     } finally {
@@ -729,9 +806,77 @@ export class ExportTaskManager extends EventEmitter {
 
       task.status = 'completed';
       task.progress = 100;
-    } catch (e: any) {
+    } catch (e) {
       task.status = 'failed';
-      task.error = String(e?.message ?? e);
+      task.error = String((e as Error)?.message ?? e);
+      const running = task.stages.find((s) => s.status === 'running');
+      if (running) { running.status = 'failed'; running.note = task.error; }
+    } finally {
+      task.updatedAt = Date.now();
+      this.abortControllers.delete(id);
+      this.saveTasks();
+      this.emit('progress', {
+        taskId: id,
+        status: task.status,
+        progress: task.progress,
+        current: task.current,
+        message: task.status === 'completed' ? '导出完成' : task.error ?? '已取消',
+      });
+    }
+  }
+
+  /**
+   * 收藏导出：翻页拉全收藏 → 写表格文件。独立于消息流水线；拉取能力走注入的
+   * `deps.collection`（返回已拍平的行）。无媒体 / 头像阶段，单文件产物。
+   */
+  private async runCollectionTask(id: string): Promise<void> {
+    const task = this.tasks.get(id);
+    if (!task || task.status === 'cancelled') return;
+
+    task.status = 'running';
+    task.updatedAt = Date.now();
+    this.saveTasks();
+
+    const abort = new AbortController();
+    this.abortControllers.set(id, abort);
+    const aborted = (): boolean => abort.signal.aborted;
+
+    try {
+      const deps = this.deps.collection;
+      if (!deps) throw new Error('收藏数据拉取能力不可用。');
+
+      const outPath = join(this.cacheDir, `${task.name}.${task.format}`);
+
+      this.touchStage(task, 'message', { status: 'running', note: '开始导出' }, { persist: true });
+      const result = await exportCollections(
+        {
+          format: task.format as CollectionFormat,
+          outputPath: outPath,
+          kinds: task.collection?.kinds,
+          onProgress: (current, total, note) => {
+            if (aborted()) return;
+            this.touchStage(task, 'message', { current, total, note });
+          },
+          signal: abort.signal,
+        },
+        deps,
+      );
+      if (aborted()) { task.status = 'cancelled'; return; }
+
+      task.filePath = result.filePath;
+      task.current = result.count;
+      this.touchStage(
+        task,
+        'message',
+        { status: 'completed', current: result.count, total: result.count, note: `${result.count} 条收藏` },
+        { persist: true },
+      );
+
+      task.status = 'completed';
+      task.progress = 100;
+    } catch (e) {
+      task.status = 'failed';
+      task.error = String((e as Error)?.message ?? e);
       const running = task.stages.find((s) => s.status === 'running');
       if (running) { running.status = 'failed'; running.note = task.error; }
     } finally {
@@ -783,6 +928,7 @@ export class ExportTaskManager extends EventEmitter {
     senders: Set<string> | undefined,
     withMediaPaths: boolean,
     onProgress: (current: number, note: string) => void,
+    faces?: Set<string>,
   ): Promise<ExportResult> {
     const progressEvery = 1000;
     const tick = (p: { current: number; message: string }): void => onProgress(p.current, p.message);
@@ -819,6 +965,7 @@ export class ExportTaskManager extends EventEmitter {
           progressEvery,
           onProgress: tick,
           collectSenders: senders,
+          collectFaces: faces,
           withMediaPaths,
         },
         this.deps.chatlab ?? {},
@@ -899,6 +1046,7 @@ export class ExportTaskManager extends EventEmitter {
       for await (const m of iterateC2cMessages(this.msgs, peerUid, { pageSize: 2000, range })) {
         const exported = toExportedMessage(m);
         senders?.add(exported.senderUin);
+        await expandForwards(this.msgs, 'c2c', exported);
         if (withMediaPaths) annotateLocalPaths(exported.elements);
         const record = renderRecord(exported);
         await write(count === 0 ? record : framing.between + record);
@@ -916,7 +1064,7 @@ export class ExportTaskManager extends EventEmitter {
 
   pauseTask(id: string): boolean {
     const task = this.tasks.get(id);
-    if (!task || task.status !== 'running') return false;
+    if (task?.status !== 'running') return false;
     this.abortControllers.get(id)?.abort();
     task.status = 'paused';
     task.updatedAt = Date.now();

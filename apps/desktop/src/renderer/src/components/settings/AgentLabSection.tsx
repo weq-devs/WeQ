@@ -348,6 +348,7 @@ export function AgentLabSection(): ReactElement {
           ) : (
             form.models.map((model, index) => (
               <div
+                // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                 key={index}
                 style={{
                   display: 'flex',

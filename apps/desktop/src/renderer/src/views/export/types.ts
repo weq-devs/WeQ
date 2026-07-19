@@ -8,7 +8,7 @@
  */
 
 /** Left-rail modes. */
-export type ExportMode = 'full' | 'decrypt' | 'chatlab' | 'qzone' | 'contacts' | 'scheduled' | 'album';
+export type ExportMode = 'full' | 'decrypt' | 'chatlab' | 'qzone' | 'contacts' | 'collection' | 'scheduled' | 'album';
 
 /** Every output format the 完整消息 / 定时 flows can request. HTML is one of the
  *  完整消息 chips; `vcard` is contacts-only (导出联系人). */
@@ -59,6 +59,14 @@ export const MEMBER_FORMATS: Array<{ value: ExportFormat; label: string }> = [
   { value: 'csv', label: 'CSV' },
   { value: 'xlsx', label: 'XLSX' },
   { value: 'json', label: 'JSON' },
+  { value: 'txt', label: 'TXT' },
+];
+
+/** 导出收藏：表格类四种（图片仅写 CDN URL，不下载）。 */
+export const COLLECTION_FORMATS: Array<{ value: ExportFormat; label: string }> = [
+  { value: 'json', label: 'JSON' },
+  { value: 'csv', label: 'CSV' },
+  { value: 'xlsx', label: 'XLSX' },
   { value: 'txt', label: 'TXT' },
 ];
 
@@ -215,6 +223,6 @@ export function fmtBytes(bytes: number): string {
   if (!bytes) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  const v = bytes / Math.pow(1024, i);
+  const v = bytes / 1024 ** i;
   return `${v >= 100 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
 }

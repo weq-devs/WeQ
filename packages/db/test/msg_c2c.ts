@@ -1,24 +1,22 @@
 /**
  * Integration test for `C2cMsgDb` end-to-end.
  *
- * Hits a real nt_msg.db on disk with the dev credentials hard-coded in
- * `apps/protolab/src/renderer/src/App.tsx`. Verifies the full pipeline:
+ * Hits a real nt_msg.db on disk using the credentials from the root `.env`
+ * (see `@weq/testkit` / `.env.example`). Verifies the full pipeline:
  *   native (SQLCipher) → SQL → protobuf decode (40800) → C2cMsg.
  *
  * Run:  pnpm --filter @weq/db test:c2c-msg
  *
- * Requires `native/win32/x64/nt_helper.node` to be in place. Skip the
- * test or supply env vars (`WEQ_TEST_DB_PATH` / `WEQ_TEST_DB_KEY`) if
- * you don't have the dev account's credentials.
+ * Requires `native/win32/x64/nt_helper.node` to be in place, plus a configured
+ * `.env` (WEQ_TEST_QQ_ROOT / WEQ_TEST_DB_KEY).
  */
 
 import { loadNative } from '@weq/native';
 import { C2cMsgDb } from '../src/msg/c2c';
+import { testEnv } from '@weq/testkit';
 
-const DB_PATH =
-  process.env.WEQ_TEST_DB_PATH ??
-  String.raw`D:\estkim\T\Tencent Files\1707889225\nt_qq\nt_db\nt_msg.db`;
-const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
+const DB_PATH = testEnv.msgDbPath;
+const KEY = testEnv.key;
 
 async function main(): Promise<void> {
   const native = loadNative();

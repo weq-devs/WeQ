@@ -6,7 +6,7 @@ import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
 import { WebCredentialProvider } from './credential';
 import { getGroupAlbumList, type GroupAlbum } from './group_album';
-import { getHonorList, HonorType, type HonorMember } from './group_honor';
+import { getHonorList, type HonorType, type HonorMember } from './group_honor';
 import { getGroupNotice, type GroupNotice } from './group_notice';
 import {
   getQzoneMsgList,

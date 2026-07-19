@@ -77,6 +77,13 @@ export interface AccountConfig {
   configId: string;
   uin: string;
   /**
+   * The account's string uid (the `u_...` form). Needed on linux to derive the
+   * on-disk account directory `nt_qq_<md5(md5(uid)+"nt_kernel")>`; unused on
+   * win32 (which keys directories by numeric uin). Absent on records written
+   * before this field existed.
+   */
+  uid?: string;
+  /**
    * SQLCipher key. Empty string for already-decrypted static accounts that
    * opened without a key (the record is always written with at least '').
    */
@@ -123,6 +130,8 @@ export interface AccountConfigMetadata {
   displayName?: string;
   avatarUrl?: string;
   dataDir?: string;
+  /** Account string uid (`u_...`), needed for linux account-dir derivation. */
+  uid?: string;
   /** Set when opening a static (offline) account so the badge / re-open
    *  path know which flow to use. */
   static?: boolean;
@@ -186,6 +195,7 @@ export class AccountConfigService {
       uin,
       dbKey: this.session.context.dbKey,
       algo: this.session.context.algo,
+      ...(metadata.uid ? { uid: metadata.uid } : {}),
       ...(metadata.dataDir ? { dataDir: metadata.dataDir } : {}),
       ...(metadata.displayName ? { displayName: metadata.displayName } : {}),
       ...(metadata.avatarUrl ? { avatarUrl: metadata.avatarUrl } : {}),

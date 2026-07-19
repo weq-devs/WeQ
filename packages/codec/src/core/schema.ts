@@ -209,6 +209,7 @@ function is64Bit(t: ScalarType): boolean {
 class ProtoMsgCore<T extends ProtoMessageType> {
   private readonly _field: PartialFieldInfo[];
   private readonly _proto_msg: MessageType<ProtoStructType<T, boolean>>;
+  // biome-ignore lint/suspicious/noExplicitAny: WeakMap 缓存异构 ProtoMsgCore 实例,合理的类型擦除
   private static cache = new WeakMap<ProtoMessageType, ProtoMsgCore<any>>();
 
   private constructor(fields: T) {
@@ -245,10 +246,10 @@ class ProtoMsgCore<T extends ProtoMessageType> {
   }
 
   static getInstance<T extends ProtoMessageType>(fields: T): ProtoMsgCore<T> {
-    let instance = this.cache.get(fields);
+    let instance = ProtoMsgCore.cache.get(fields);
     if (!instance) {
       instance = new ProtoMsgCore(fields);
-      this.cache.set(fields, instance);
+      ProtoMsgCore.cache.set(fields, instance);
     }
     return instance;
   }

@@ -16,13 +16,21 @@
 
 import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react';
 import {
+  Bookmark,
   CalendarClock,
   Contact,
   DatabaseZap,
+  FileText,
+  Film,
   FlaskConical,
   Globe,
+  Image as ImageIcon,
   Images,
+  Layers,
+  Link2,
+  MapPin,
   MessagesSquare,
+  Music,
   Pause,
   Play,
   Search,
@@ -47,6 +55,7 @@ import { AlbumExportLightbox, type AlbumExportResult } from './export/AlbumExpor
 import { FailureLightbox } from './export/FailureLightbox';
 import {
   CHATLAB_FORMATS,
+  COLLECTION_FORMATS,
   DEFAULT_OPTIONS,
   FRIEND_FORMATS,
   FULL_FORMATS,
@@ -80,6 +89,7 @@ const MODES: ModeDef[] = [
   { id: 'chatlab', label: 'ChatLab 格式', desc: '供 AI 分析的结构化 JSON', icon: <FlaskConical size={18} /> },
   { id: 'qzone', label: '好友QQ空间导出', desc: '导出好友空间说说（需在线 QQ）', icon: <Globe size={18} /> },
   { id: 'contacts', label: '导出联系人', desc: '好友列表 / 群成员列表', icon: <Contact size={18} /> },
+  { id: 'collection', label: '导出收藏', desc: 'QQ 收藏导出为表格', icon: <Bookmark size={18} /> },
   { id: 'scheduled', label: '定时导出任务', desc: '按计划自动导出', icon: <CalendarClock size={18} /> },
   { id: 'album', label: '群相册导出', desc: '批量下载群相册', icon: <Images size={18} /> },
 ];
@@ -108,6 +118,103 @@ interface FriendPreviewItem {
   categoryId: number;
 }
 
+/** 导出收藏预览行：从 `CollectionItemWire` 投影出展示用的标题/摘要/来源。 */
+interface CollectionPreviewItem {
+  cid: string;
+  kind: string;
+  /** 主行：标题（链接/视频/图文标题、文件名、地点名…）。 */
+  title: string;
+  /** 次行：正文摘要 / 补充信息。 */
+  sub: string;
+  /** 来源（收藏者昵称 / 群名）。 */
+  source: string;
+  /** 收藏时间（ms）。 */
+  collectTime: number;
+}
+
+/** `account.listCollections` wire 里预览要读的字段（与 CollectionDialog 的声明对齐）。 */
+interface CollectionItemWire {
+  cid: string;
+  kind: string;
+  collectTime: number;
+  authorName: string;
+  groupName: string;
+  text: string;
+  link: { url: string; title: string; publisher: string; brief: string } | null;
+  gallery: { pics: unknown[] } | null;
+  audio: { duration: number; stt: string } | null;
+  video: { title: string; duration: number; fileName: string } | null;
+  file: { name: string; size: string } | null;
+  location: { name: string; address: string; latitude: number; longitude: number } | null;
+  richMedia: { title: string; subTitle: string; brief: string } | null;
+}
+
+/** 秒 → `M:SS` / `S"`（0/空留空）。 */
+function fmtSeconds(sec: number): string {
+  if (!sec || sec <= 0) return '';
+  const s = Math.round(sec);
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return m > 0 ? `${m}:${String(r).padStart(2, '0')}` : `${s}"`;
+}
+
+/** wire → 预览行：每种 kind 收敛出「标题 + 摘要」（对齐收藏弹窗各卡片的主信息）。 */
+function collectionPreview(it: CollectionItemWire): CollectionPreviewItem {
+  let title = '';
+  let sub = '';
+  switch (it.kind) {
+    case 'text':
+      title = it.text || '(空文本)';
+      break;
+    case 'link':
+      title = it.link?.title || it.link?.url || '链接';
+      sub = it.link?.brief || it.link?.publisher || it.link?.url || '';
+      break;
+    case 'gallery': {
+      const n = it.gallery?.pics.length ?? 0;
+      title = `图片 × ${n}`;
+      break;
+    }
+    case 'audio': {
+      const dur = fmtSeconds((it.audio?.duration ?? 0) / 1000);
+      title = dur ? `语音 · ${dur}` : '语音';
+      sub = it.audio?.stt ?? '';
+      break;
+    }
+    case 'video': {
+      title = it.video?.title || it.video?.fileName || '视频';
+      const dur = fmtSeconds(it.video?.duration ?? 0);
+      sub = dur ? `时长 ${dur}` : '';
+      break;
+    }
+    case 'file':
+      title = it.file?.name || '文件';
+      break;
+    case 'location':
+      title = it.location?.name || '未命名地点';
+      sub =
+        it.location?.address ||
+        (it.location && (it.location.latitude || it.location.longitude)
+          ? `${it.location.latitude.toFixed(5)}, ${it.location.longitude.toFixed(5)}`
+          : '');
+      break;
+    case 'richMedia':
+      title = it.richMedia?.title || it.richMedia?.subTitle || it.richMedia?.brief || '(无文本内容)';
+      sub = it.richMedia?.title || it.richMedia?.subTitle ? (it.richMedia?.brief ?? '') : '';
+      break;
+    default:
+      title = '未知类型';
+  }
+  return {
+    cid: it.cid,
+    kind: it.kind,
+    title,
+    sub,
+    source: [it.authorName, it.groupName].filter(Boolean).join(' · '),
+    collectTime: it.collectTime,
+  };
+}
+
 export function ExportView(): ReactElement {
   const utils = trpc.useUtils();
   const dialog = useAppDialog();
@@ -127,6 +234,11 @@ export function ExportView(): ReactElement {
   const [catSelection, setCatSelection] = useState<Set<number>>(new Set());
   /** 群成员导出：选中的群号。 */
   const [contactGroupId, setContactGroupId] = useState<string | null>(null);
+  /** 导出收藏：选中的收藏类型（空 = 全部）。 */
+  const [collectionKinds, setCollectionKinds] = useState<Set<string>>(new Set());
+  /** 收藏预览：加载一次全部收藏（含展示摘要），按类型计数 + 下方列表预览。 */
+  const [collectionItems, setCollectionItems] = useState<CollectionPreviewItem[] | null>(null);
+  const [collectionLoading, setCollectionLoading] = useState(false);
 
   const categories = trpc.account.listCategories.useQuery(undefined, {
     enabled: mode === 'contacts' && contactScope === 'friends',
@@ -163,9 +275,40 @@ export function ExportView(): ReactElement {
           : ['csv', 'xlsx', 'json', 'txt'];
       if (!allowed.includes(format)) setFormat('csv');
     }
+    if (mode === 'collection' && !['json', 'csv', 'xlsx', 'txt'].includes(format)) setFormat('json');
     // vcard 仅联系人可用；离开联系人模式时清掉，避免带进消息/定时导出。
     if (mode !== 'contacts' && format === 'vcard') setFormat('json');
   }, [mode, contactScope, format]);
+
+  // 进入收藏模式时加载一次全部收藏（分页拉全，收藏集通常不大），用于类型计数与预览。
+  useEffect(() => {
+    if (mode !== 'collection' || collectionItems !== null) return;
+    let cancelled = false;
+    setCollectionLoading(true);
+    (async () => {
+      try {
+        const all: CollectionPreviewItem[] = [];
+        let offset = 0;
+        for (;;) {
+          const res = (await client.account.listCollections.query({ limit: 100, offset })) as {
+            items: CollectionItemWire[];
+            hasMore: boolean;
+          };
+          all.push(...res.items.map(collectionPreview));
+          if (!res.hasMore || res.items.length === 0) break;
+          offset += res.items.length;
+        }
+        if (!cancelled) setCollectionItems(all);
+      } catch {
+        if (!cancelled) setCollectionItems([]);
+      } finally {
+        if (!cancelled) setCollectionLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, collectionItems]);
 
   // Live task progress: invalidate the list whenever the backend ticks.
   useEffect(() => {
@@ -221,6 +364,14 @@ export function ExportView(): ReactElement {
   }, [categories.data]);
 
   const friendTotal = useMemo(() => catItems.reduce((sum, c) => sum + c.count, 0), [catItems]);
+
+  // 收藏类型计数（导出收藏）：全部 + 每种 kind。
+  const collectionCounts = useMemo(() => {
+    const items = collectionItems ?? [];
+    const c: Record<string, number> = { all: items.length };
+    for (const it of items) c[it.kind] = (c[it.kind] ?? 0) + 1;
+    return c;
+  }, [collectionItems]);
 
   // 好友预览行：join buddies（分组）× intimacy 列表（昵称）。空选分组 = 全部好友。
   const friendPreview = useMemo<FriendPreviewItem[]>(() => {
@@ -330,6 +481,10 @@ export function ExportView(): ReactElement {
     if (mode === 'contacts') {
       if (contactScope === 'group' && !contactGroupId) return;
       setLightbox('contacts');
+      return;
+    }
+    if (mode === 'collection') {
+      void runCollectionExport();
       return;
     }
     if (convSelection.size === 0) return;
@@ -503,6 +658,26 @@ export function ExportView(): ReactElement {
       refetchTasks();
     } catch (e) {
       dialog.error('启动联系人导出失败', e instanceof Error ? e.message : String(e));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  /** 导出收藏：全部或按类型过滤，格式 json/csv/xlsx/txt（图片仅写 URL，不下载）。 */
+  async function runCollectionExport(): Promise<void> {
+    const cfmt = format as 'json' | 'csv' | 'xlsx' | 'txt';
+    const kinds = [...collectionKinds];
+    setSubmitting(true);
+    try {
+      await client.account.startCollectionExport.mutate({
+        name: kinds.length ? `收藏_${kinds.length}类` : '全部收藏',
+        format: cfmt,
+        ...(kinds.length ? { kinds } : {}),
+      });
+      setCollectionKinds(new Set());
+      refetchTasks();
+    } catch (e) {
+      dialog.error('启动收藏导出失败', e instanceof Error ? e.message : String(e));
     } finally {
       setSubmitting(false);
     }
@@ -766,18 +941,20 @@ export function ExportView(): ReactElement {
   const activeMode = MODES.find((m) => m.id === mode)!;
   const isMultiConvMode =
     mode === 'full' || mode === 'chatlab' || mode === 'scheduled' || mode === 'qzone';
-  // 显示底部格式 chips 的模式（多选会话 + 导出联系人）。
-  const showFormatChips = isMultiConvMode || mode === 'contacts';
+  // 显示底部格式 chips 的模式（多选会话 + 导出联系人 + 导出收藏）。
+  const showFormatChips = isMultiConvMode || mode === 'contacts' || mode === 'collection';
   const formatOptions =
     mode === 'chatlab'
       ? CHATLAB_FORMATS
       : mode === 'qzone'
         ? QZONE_FORMATS
-        : mode === 'contacts'
-          ? contactScope === 'friends'
-            ? FRIEND_FORMATS
-            : MEMBER_FORMATS
-          : FULL_FORMATS;
+        : mode === 'collection'
+          ? COLLECTION_FORMATS
+          : mode === 'contacts'
+            ? contactScope === 'friends'
+              ? FRIEND_FORMATS
+              : MEMBER_FORMATS
+            : FULL_FORMATS;
   // 好友空间导出只列好友（排除群聊）；其余多选模式用全部会话。
   const pickerItems = mode === 'qzone' ? friendItems : convItems;
 
@@ -794,7 +971,9 @@ export function ExportView(): ReactElement {
               ? '导出 ChatLab'
               : mode === 'contacts'
                 ? '导出联系人'
-                : '导出';
+                : mode === 'collection'
+                  ? '导出收藏'
+                  : '导出';
 
   const primaryDisabled =
     mode === 'decrypt'
@@ -803,7 +982,9 @@ export function ExportView(): ReactElement {
         ? !albumGroupId
         : mode === 'contacts'
           ? contactScope === 'group' && !contactGroupId
-          : convSelection.size === 0;
+          : mode === 'collection'
+            ? collectionLoading || (collectionCounts.all ?? 0) === 0
+            : convSelection.size === 0;
 
   // Lightbox summary line.
   const lightboxSummary = (() => {
@@ -951,6 +1132,14 @@ export function ExportView(): ReactElement {
                   />
                 )}
               </div>
+            ) : mode === 'collection' ? (
+              <CollectionScope
+                items={collectionItems ?? []}
+                counts={collectionCounts}
+                loading={collectionLoading}
+                selected={collectionKinds}
+                onChange={setCollectionKinds}
+              />
             ) : mode === 'album' ? (
               <SingleSelectPicker
                 items={groupItems}
@@ -1191,6 +1380,186 @@ function FriendPreview({
   );
 }
 
+/** 收藏类型多选（导出收藏）。空选 = 全部收藏。顺序与「我的收藏」弹窗一致。 */
+const COLLECTION_KIND_FILTERS: Array<{ id: string; label: string }> = [
+  { id: 'richMedia', label: '图文' },
+  { id: 'link', label: '链接' },
+  { id: 'gallery', label: '图片' },
+  { id: 'video', label: '视频' },
+  { id: 'audio', label: '语音' },
+  { id: 'file', label: '文件' },
+  { id: 'location', label: '位置' },
+  { id: 'text', label: '文本' },
+  { id: 'unknown', label: '其他' },
+];
+
+const COLLECTION_KIND_LABEL: Record<string, string> = Object.fromEntries(
+  COLLECTION_KIND_FILTERS.map((k) => [k.id, k.label]),
+);
+
+/** 收藏 kind → 行图标（对齐「我的收藏」弹窗的 kindIcon）。 */
+function collectionKindIcon(kind: string, size = 15): ReactElement {
+  switch (kind) {
+    case 'link':
+      return <Link2 size={size} strokeWidth={1.8} />;
+    case 'gallery':
+      return <ImageIcon size={size} strokeWidth={1.8} />;
+    case 'video':
+      return <Film size={size} strokeWidth={1.8} />;
+    case 'audio':
+      return <Music size={size} strokeWidth={1.8} />;
+    case 'file':
+      return <FileText size={size} strokeWidth={1.8} />;
+    case 'location':
+      return <MapPin size={size} strokeWidth={1.8} />;
+    case 'richMedia':
+      return <Layers size={size} strokeWidth={1.8} />;
+    default:
+      return <Bookmark size={size} strokeWidth={1.8} />;
+  }
+}
+
+/** 收藏时间 → `YYYY/MM/DD`（预览行尾注）。 */
+function fmtCollectDay(ms: number): string {
+  if (!ms) return '';
+  const d = new Date(ms);
+  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * 收藏类型 chips + 预览列表（导出收藏）。跟随类型 chips：未选类型显示全部收藏，
+ * 选了类型则只显示这些类型下的条目 —— 和「导出联系人」的分组 chips + 好友预览
+ * 同构，只读，让用户选完类型「心里有数」。可搜索标题 / 摘要 / 来源。
+ */
+function CollectionScope({
+  items,
+  counts,
+  loading,
+  selected,
+  onChange,
+}: {
+  items: CollectionPreviewItem[];
+  counts: Record<string, number>;
+  loading: boolean;
+  selected: Set<string>;
+  onChange: (next: Set<string>) => void;
+}): ReactElement {
+  const [query, setQuery] = useState('');
+  const total = counts.all ?? 0;
+  const allActive = selected.size === 0;
+  const toggle = (id: string): void => {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    onChange(next);
+  };
+  // 只展示实际有内容的类型 chips。
+  const kinds = COLLECTION_KIND_FILTERS.filter((k) => (counts[k.id] ?? 0) > 0);
+
+  // 预览行 = 类型过滤 × 搜索（标题 / 摘要 / 来源）。
+  const scoped = useMemo(
+    () => (allActive ? items : items.filter((it) => selected.has(it.kind))),
+    [items, allActive, selected],
+  );
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return scoped;
+    return scoped.filter((it) =>
+      `${it.title} ${it.sub} ${it.source}`.toLowerCase().includes(q),
+    );
+  }, [scoped, query]);
+
+  return (
+    <div className="weq-exp-contacts">
+      <div className="weq-exp-cats">
+        <div className="weq-exp-cats-head">
+          <strong>收藏类型</strong>
+          <small>
+            {loading ? '加载中…' : allActive ? `全部收藏 · ${fmtCount(total)} 条` : `已选 ${selected.size} 类 · ${fmtCount(scoped.length)} 条`}
+          </small>
+        </div>
+        {loading ? (
+          <div className="weq-exp-cats-empty"><small>正在加载收藏…</small></div>
+        ) : total === 0 ? (
+          <div className="weq-exp-cats-empty"><small>还没有任何收藏</small></div>
+        ) : (
+          <div className="weq-exp-cats-list">
+            <button
+              type="button"
+              className={`weq-exp-chip${allActive ? ' is-active' : ''}`}
+              onClick={() => onChange(new Set())}
+            >
+              全部收藏 <b>{total}</b>
+            </button>
+            {kinds.map((k) => (
+              <button
+                key={k.id}
+                type="button"
+                className={`weq-exp-chip${selected.has(k.id) ? ' is-active' : ''}`}
+                onClick={() => toggle(k.id)}
+              >
+                {k.label} <b>{counts[k.id] ?? 0}</b>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="weq-exp-friends">
+        <div className="weq-exp-friends-head">
+          <strong>{allActive ? '全部收藏预览' : '所选类型预览'}</strong>
+          <small>{loading ? '加载中…' : `${fmtCount(filtered.length)} 条`}</small>
+        </div>
+        <div className="weq-exp-search">
+          <Search size={15} aria-hidden />
+          <input
+            placeholder="搜索标题 / 内容 / 来源"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          {query ? (
+            <button type="button" title="清空" onClick={() => setQuery('')}>
+              <X size={14} />
+            </button>
+          ) : null}
+        </div>
+        <div className="weq-exp-list">
+          {loading ? (
+            <div className="weq-exp-list-state">
+              <Spinner size={18} />
+              加载中…
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="weq-exp-list-state">
+              <span>{query ? '没有匹配的收藏' : allActive ? '还没有任何收藏' : '所选类型下暂无收藏'}</span>
+            </div>
+          ) : (
+            filtered.map((it) => (
+              <div key={it.cid} className="weq-exp-row is-static">
+                <span className="weq-exp-col-icon" data-kind={it.kind}>
+                  {collectionKindIcon(it.kind)}
+                </span>
+                <span className="weq-exp-row-meta">
+                  <strong title={it.title}>{it.title}</strong>
+                  {it.sub || it.source ? (
+                    <small title={it.sub || undefined}>
+                      {[it.sub, it.source].filter(Boolean).join(' · ')}
+                    </small>
+                  ) : null}
+                </span>
+                <span className="weq-exp-col-side">
+                  <span className="weq-exp-col-kind">{COLLECTION_KIND_LABEL[it.kind] ?? '其他'}</span>
+                  {fmtCollectDay(it.collectTime) ? <small>{fmtCollectDay(it.collectTime)}</small> : null}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Format unix seconds as `MM/DD HH:mm` for the schedule row. */
 function fmtRunAt(sec: number | null): string {
   if (sec == null) return '—';
@@ -1276,6 +1645,7 @@ function ScheduleRow({
           <div className="weq-exp-sched-card-history" title={schedule.history.map((t) => `${fmtRunAt(t.at)} ${outcomeLabel(t)}`).join('\n')}>
             最近触发：
             {schedule.history.slice(0, 8).map((t, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
               <span key={`${t.at}-${i}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                 <span className={`weq-exp-sched-card-history-dot is-${t.outcome}`} />
                 <span>{outcomeLabel(t)}</span>

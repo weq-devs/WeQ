@@ -24,9 +24,8 @@ import type { Platform } from '@weq/platform';
 import {
   NineBirdBootstrap,
   type NineBirdLoginListEvent,
-  type NineBirdQrcodeEvent,
-  type NineBirdQrcodeStateEvent,
   type NineBirdResultEvent,
+  type StubHooks,
 } from '@weq/native';
 import { getLogger, logErrorContext } from '../common/logger';
 
@@ -57,10 +56,15 @@ export class Win32KeyService {
   private readonly bootstrap: NineBirdBootstrap;
   private readonly logger = getLogger().child({ scope: 'win32-key' });
 
-  constructor(private readonly platform: Platform) {
+  constructor(
+    private readonly platform: Platform,
+    /** Linux-only entry-stub hooks (pkexec elevation). Omit for the fs default. */
+    stubHooks?: StubHooks,
+  ) {
     this.bootstrap = new NineBirdBootstrap(
       platform.native.nineBirdBoot,
       platform.native.resources,
+      stubHooks,
     );
   }
 
@@ -108,15 +112,19 @@ export class Win32KeyService {
    */
   quickLoginStream(opts: QuickLoginStreamOptions): AsyncIterable<KeyEvent> {
     const exePath = this.requireQqExe();
+    const appidQua = this.resolveAppidQua();
     this.logger.info('starting quick-login key flow', {
       event: 'quick-login-start',
       accountUin: opts.uin,
       timeoutMs: opts.timeoutMs ?? null,
       exePath,
+      appid: appidQua.appid ?? null,
+      qua: appidQua.qua ?? null,
     });
     const session = this.bootstrap.startQuickLogin({
       uin: opts.uin,
       qqExePath: exePath,
+      ...appidQua,
       ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
     });
     return iterateSession(session);
@@ -131,19 +139,54 @@ export class Win32KeyService {
    */
   qrLoginStream(opts: QrLoginStreamOptions = {}): AsyncIterable<KeyEvent> {
     const exePath = this.requireQqExe();
+    const appidQua = this.resolveAppidQua();
     this.logger.info('starting qr-login key flow', {
       event: 'qr-login-start',
       timeoutMs: opts.timeoutMs ?? null,
       exePath,
+      appid: appidQua.appid ?? null,
+      qua: appidQua.qua ?? null,
     });
     const session = this.bootstrap.startQrLogin({
       qqExePath: exePath,
+      ...appidQua,
       ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
     });
     return iterateSession(session);
   }
 
   // ---- helpers ----
+
+  /**
+   * Resolve the installed QQ build's appid/qua from its `major.node`. These
+   * MUST match the build or the login server rejects with 140022017 (and drops
+   * the account from the history list) — so we never guess. On any failure we
+   * return `{}` and let the ninebird loader fall back to its per-platform
+   * default (which may be stale, hence the warning).
+   */
+  private resolveAppidQua(): { appid?: string; qua?: string } {
+    const majorPath = this.platform.qqMajorNodePath();
+    if (!majorPath) {
+      this.logger.warn('major.node not found; ninebird will use fallback appid/qua', {
+        event: 'appid-qua-major-missing',
+      });
+      return {};
+    }
+    try {
+      const info = this.platform.native.ntHelper.resolveAppidFromMajor(majorPath);
+      return {
+        ...(info.appid ? { appid: info.appid } : {}),
+        ...(info.qua ? { qua: info.qua } : {}),
+      };
+    } catch (e) {
+      this.logger.warn('resolveAppidFromMajor failed; ninebird will use fallback', {
+        event: 'appid-qua-resolve-failed',
+        majorPath,
+        ...logErrorContext(e),
+      });
+      return {};
+    }
+  }
 
   private requireQqExe(): string {
     const exe = this.platform.qqExePath();

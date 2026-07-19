@@ -82,8 +82,8 @@ function Chips({ items }: { items: string[] }): ReactElement {
   if (!items.length) return <span className="weq-pp-dim">—</span>;
   return (
     <span className="weq-pp-chips">
-      {items.map((item, index) => (
-        <span key={`${item}-${index}`} className="weq-pp-chip">
+      {items.map((item) => (
+        <span key={item} className="weq-pp-chip">
           {item}
         </span>
       ))}
@@ -146,8 +146,11 @@ function PersonaParamsPanel({ loading, detail }: { loading: boolean; detail: Per
           <span className="weq-pp-dim">—</span>
         ) : (
           <div className="weq-pp-stickers">
-            {stickers.map((s, index) => (
-              <span key={`sticker-${index}`} className="weq-pp-sticker">
+            {stickers.map((s) => (
+              <span
+                key={`${s.description}-${s.scenario}-${s.count}`}
+                className="weq-pp-sticker"
+              >
                 ×{s.count} {s.description || '（未解读）'}
                 {s.scenario ? `（${s.scenario}）` : ''}
               </span>
@@ -165,8 +168,8 @@ function PersonaParamsPanel({ loading, detail }: { loading: boolean; detail: Per
           代表样本 {fewShots.length} 组 / 真实问答对抽样 {detail.pairs.length} 条
         </summary>
         <div className="weq-pp-samples-body">
-          {fewShots.map((pair, index) => (
-            <div key={`fs-${index}`} className="weq-pp-sample">
+          {fewShots.map((pair) => (
+            <div key={`${pair.prompt}-${pair.reply}`} className="weq-pp-sample">
               <div className="weq-pp-sample-q">我：{pair.prompt}</div>
               <div>{detail.persona.name}：{pair.reply}</div>
             </div>
@@ -179,7 +182,9 @@ function PersonaParamsPanel({ loading, detail }: { loading: boolean; detail: Per
 
 type Selection =
   | { kind: 'home' }
-  | { kind: 'assistant'; sessionId: string | null }
+  // navKey 是右侧 AssistantPanel 的稳定挂载 key：草稿(sessionId=null) 首次发消息
+  // 升级为真会话时只改 sessionId、navKey 不变，故组件不重挂载、流式不中断。
+  | { kind: 'assistant'; sessionId: string | null; navKey: number }
   | { kind: 'persona'; id: string }
   | { kind: 'group'; id: string };
 
@@ -206,7 +211,6 @@ export function AgentLabView(): ReactElement {
   const deletePersona = trpc.account.deleteAgentLabPersona.useMutation();
   const groups = trpc.account.listAgentLabGroups.useQuery();
   const createGroup = trpc.account.createAgentLabGroup.useMutation();
-  const createAssistantSession = trpc.account.createAssistantSession.useMutation();
   const deleteAssistantSession = trpc.account.deleteAssistantSession.useMutation();
   const selfProfile = trpc.account.getSelfProfile.useQuery();
   const systemFaces = trpc.account.getSystemFaces.useQuery(undefined, { staleTime: Infinity });
@@ -271,6 +275,8 @@ export function AgentLabView(): ReactElement {
   const [history, setHistory] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // 递增序号，用来给每次「打开助手」生成一个不重复的挂载 key（见 Selection.navKey）。
+  const assistantNavSeq = useRef(0);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
 
@@ -352,14 +358,16 @@ export function AgentLabView(): ReactElement {
     void utils.account.getAgentLabConversation.invalidate({ personaId: id });
   }
 
-  async function onNewAssistantSession(): Promise<void> {
-    try {
-      const session = await createAssistantSession.mutateAsync();
-      await utils.account.listAssistantSessions.invalidate();
-      setSel({ kind: 'assistant', sessionId: session.id });
-    } catch (error) {
-      dialog.error('新建失败', error instanceof Error ? error.message : String(error));
-    }
+  /** 打开一个全新草稿会话（不落库；用户真发消息才由 AssistantPanel 建会话）。 */
+  function openAssistantDraft(): void {
+    assistantNavSeq.current += 1;
+    setSel({ kind: 'assistant', sessionId: null, navKey: assistantNavSeq.current });
+  }
+
+  /** 打开一段既有会话。 */
+  function openAssistantSession(sessionId: string): void {
+    assistantNavSeq.current += 1;
+    setSel({ kind: 'assistant', sessionId, navKey: assistantNavSeq.current });
   }
 
   async function onDeleteAssistantSession(sessionId: string): Promise<void> {
@@ -371,8 +379,12 @@ export function AgentLabView(): ReactElement {
     try {
       await deleteAssistantSession.mutateAsync({ sessionId });
       await utils.account.listAssistantSessions.invalidate();
-      // 删的是当前打开的会话 → 回到「选择/新建」空态。
-      setSel((cur) => (cur.kind === 'assistant' && cur.sessionId === sessionId ? { kind: 'assistant', sessionId: null } : cur));
+      // 删的是当前打开的会话 → 换成一个新草稿，保持「进来就有个新会话」的体验。
+      assistantNavSeq.current += 1;
+      const draftKey = assistantNavSeq.current;
+      setSel((cur) => (cur.kind === 'assistant' && cur.sessionId === sessionId
+        ? { kind: 'assistant', sessionId: null, navKey: draftKey }
+        : cur));
     } catch (error) {
       dialog.error('删除失败', error instanceof Error ? error.message : String(error));
     }
@@ -495,20 +507,20 @@ export function AgentLabView(): ReactElement {
             <div className="weq-agentlab-list-head weq-asst-list-head">
               <Sparkles size={15} /> WeQ 助手 · 对话
             </div>
-            <button className="weq-agentlab-newclone" onClick={() => void onNewAssistantSession()}>
+            <button className="weq-agentlab-newclone" onClick={openAssistantDraft}>
               <MessageSquarePlus size={15} /> 新建对话
             </button>
             <div className="weq-agentlab-list-scroll">
               {assistantSessions.length === 0 ? (
                 <div className="weq-agentlab-empty" style={{ padding: '8px 10px' }}>
-                  还没有对话，点上方「新建对话」开始。
+                  还没有保存的对话，聊几句就会自动保存到这里。
                 </div>
               ) : (
                 assistantSessions.map((s) => (
                   <button
                     key={s.id}
                     className={`weq-agentlab-item${sel.sessionId === s.id ? ' is-active' : ''}`}
-                    onClick={() => setSel({ kind: 'assistant', sessionId: s.id })}
+                    onClick={() => openAssistantSession(s.id)}
                   >
                     <span className="weq-agentlab-item-avatar is-bot"><MessagesSquare size={16} /></span>
                     <span className="weq-agentlab-item-text">
@@ -537,7 +549,7 @@ export function AgentLabView(): ReactElement {
         <div className="weq-agentlab-list-head">AgentLab</div>
         <button
           className="weq-agentlab-item"
-          onClick={() => setSel({ kind: 'assistant', sessionId: null })}
+          onClick={openAssistantDraft}
         >
           <span className="weq-agentlab-item-avatar is-bot"><Sparkles size={18} /></span>
           <span className="weq-agentlab-item-text">
@@ -655,28 +667,19 @@ export function AgentLabView(): ReactElement {
             personaCount={personaList.length}
           />
         ) : sel.kind === 'assistant' ? (
-          sel.sessionId ? (
-            <AssistantPanel
-              key={sel.sessionId}
-              sessionId={sel.sessionId}
-              chatModels={flatModels.chat}
-              onBack={() => setSel({ kind: 'assistant', sessionId: null })}
-            />
-          ) : (
-            <div className="weq-agentlab-chat">
-              <div className="weq-agentlab-empty">
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, textAlign: 'center' }}>
-                  <Sparkles size={30} strokeWidth={1.5} />
-                  <span>
-                    从左侧选择一段对话继续，或<strong>新建一段对话</strong>，开始和 WeQ 助手聊天。
-                  </span>
-                  <button className="weq-set-btn" onClick={() => void onNewAssistantSession()}>
-                    <MessageSquarePlus size={14} /> 新建对话
-                  </button>
-                </div>
-              </div>
-            </div>
-          )
+          <AssistantPanel
+            key={sel.navKey}
+            sessionId={sel.sessionId}
+            chatModels={flatModels.chat}
+            onBack={() => setSel({ kind: 'home' })}
+            onSessionCreated={(newId) =>
+              setSel((cur) =>
+                cur.kind === 'assistant' && cur.navKey === sel.navKey
+                  ? { ...cur, sessionId: newId }
+                  : cur,
+              )
+            }
+          />
         ) : sel.kind === 'group' ? (
           <GroupChatPanel
             key={sel.id}
@@ -743,6 +746,7 @@ export function AgentLabView(): ReactElement {
                 history.map((item, index) =>
                   item.role === 'user' ? (
                     <ChatBubble
+                      // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                       key={`u-${index}`}
                       mine
                       name="我"
@@ -751,6 +755,7 @@ export function AgentLabView(): ReactElement {
                     />
                   ) : (
                     <ChatBubble
+                      // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                       key={`a-${index}`}
                       mine={false}
                       bot

@@ -10,11 +10,10 @@ import { loadNative } from '@weq/native';
 import { decode, type RawField, type Guess } from '@weq/codec/raw';
 import { QqDb } from '../src/qq_db';
 import type { SqlValue } from '@weq/native';
+import { testEnv } from '@weq/testkit';
 
-const DB_PATH =
-  process.env.WEQ_TEST_DB_PATH ??
-  String.raw`D:\estkim\T\Tencent Files\1707889225\nt_qq\nt_db\nt_msg.db`;
-const KEY = process.env.WEQ_TEST_DB_KEY ?? '^;<kXZ;RI[@]yTD<';
+const DB_PATH = testEnv.msgDbPath;
+const KEY = testEnv.key;
 
 function fmtGuess(g: Guess): string {
   switch (g.kind) {
@@ -46,10 +45,10 @@ function printTree(fields: RawField[], indent: string): void {
       | Extract<Guess, { kind: 'len-utf8' }>
       | undefined;
 
-    if (nested && nested.consumedAll) {
+    if (nested?.consumedAll) {
       const hint = utf8 ? `  (or str ${JSON.stringify(utf8.value)})` : '';
       console.log(`${indent}#${f.tag} {${hint}`);
-      printTree(nested.value, indent + '  ');
+      printTree(nested.value, `${indent}  `);
       console.log(`${indent}}`);
     } else {
       console.log(`${indent}#${f.tag} = ${fmtGuess(f.guesses[0]!)}`);
