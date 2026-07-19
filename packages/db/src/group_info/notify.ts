@@ -77,7 +77,7 @@ export class GroupNotifyDb {
   }
 
   private async listFromTable(
-    tableName: string,
+    tableName: 'group_notify_list' | 'doubt_group_notify_list',
     limit: number,
     offset: number,
   ): Promise<GroupNotify[]> {
@@ -85,7 +85,7 @@ export class GroupNotifyDb {
       `SELECT ${SELECT_COLUMNS} FROM ${tableName} ORDER BY "61001" DESC LIMIT ? OFFSET ?`,
       [limit, offset],
     );
-    return rows.map(row => rowToNotify(row, tableName as any));
+    return rows.map(row => rowToNotify(row, tableName));
   }
 
   close(): void {
