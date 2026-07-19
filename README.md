@@ -85,7 +85,7 @@ pnpm dev
 > 欢迎加入QQ群讨论，代码问题更建议在issue提出哦
 >
 > [![WeQ交流群](https://img.shields.io/badge/WeQ交流群-Join-blue)](https://qm.qq.com/q/ysMZoAcC1a)
-> <img src="./docs/images/image-20260719014708246.png" alt="image-20260719014708246" style="zoom:25%;" />
+> <img src="./docs/images/image-20260719193253644.png" alt="image-20260719193253644" style="zoom: 50%;" />
 >
 > > TG群组正在建设中
 
