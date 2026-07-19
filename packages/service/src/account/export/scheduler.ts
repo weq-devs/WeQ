@@ -369,8 +369,8 @@ export class ExportScheduler extends EventEmitter {
           range,
         });
         taskIds.push(id);
-      } catch (e: any) {
-        if (!firstError) firstError = String(e?.message ?? e);
+      } catch (e) {
+        if (!firstError) firstError = String((e as Error)?.message ?? e);
       }
     }
 
