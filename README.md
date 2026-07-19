@@ -1,4 +1,4 @@
-## WeQ
+![banner](./resources/brand/banner_v2.png)
 
 ![GitHub Repo stars](https://img.shields.io/github/stars/H3CoF6/WeQ?style=flat-square)![GitHub forks](https://img.shields.io/github/forks/H3CoF6/WeQ?style=flat-square)![GitHub issues](https://img.shields.io/github/issues/H3CoF6/WeQ?style=flat-square)![GitHub pull requests](https://img.shields.io/github/issues-pr/H3CoF6/WeQ?style=flat-square)![GitHub all releases](https://img.shields.io/github/downloads/H3CoF6/WeQ/total?style=flat-square)
 
