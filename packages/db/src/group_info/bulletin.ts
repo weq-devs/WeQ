@@ -56,8 +56,9 @@ export class GroupBulletinDb {
 
 function rowToBulletin(row: SqlRow): GroupBulletin {
   const blob = row[1];
-  let detail: any = {};
-  
+  type DecodedDetail = NonNullable<ReturnType<typeof bulletinCodec.decode>['body']>['detail'];
+  let detail: DecodedDetail = {};
+
   if (blob instanceof Uint8Array) {
     try {
       const decoded = bulletinCodec.decode(blob);
@@ -67,8 +68,8 @@ function rowToBulletin(row: SqlRow): GroupBulletin {
   }
 
   // Navigation: detail (64202) -> contentContainer (64227) -> items (64242 repeated) -> textContent (64452)
-  const items = detail.contentContainer?.items ?? [];
-  const textContent = items.map((i: any) => i.textContent ?? '').join('\n');
+  const items = detail?.contentContainer?.items ?? [];
+  const textContent = items.map((i) => i?.textContent ?? '').join('\n');
 
   return {
     groupCode: toBigint(row[0]),

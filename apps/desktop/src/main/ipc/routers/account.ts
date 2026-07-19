@@ -2066,8 +2066,8 @@ export const accountRouter = router({
 
   /** Subscribe to export task progress. */
   onExportProgress: procedure.subscription(() => {
-    return observable<any>((emit) => {
-      const handler = (progress: any) => emit.next(progress);
+    return observable<import('@weq/service').TaskProgress>((emit) => {
+      const handler = (progress: import('@weq/service').TaskProgress) => emit.next(progress);
       requireServices().exportManager.on('progress', handler);
       return () => {
         requireServices().exportManager.off('progress', handler);
