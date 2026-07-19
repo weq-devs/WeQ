@@ -53,19 +53,23 @@ export function GrayTipInviteMessage({ element, conversation }: GrayTipInviteMes
         const member = memberMap.get(uin);
         const name = member ? displayUserName(member) : getNodeValue(node, 'nm') || uin;
         return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
           <span key={index} className="text-blue-500">
             {name}
           </span>
         );
       }
       if (node.nodeName === 'nor') {
+        // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
         return <span key={index}>{getNodeValue(node, 'txt')}</span>;
       }
       if (node.nodeName === 'url') {
+        // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
         return <span key={index} className="text-blue-500">{getNodeValue(node, 'txt')}</span>;
       }
       if (node.nodeName === 'face') {
         const faceId = Number(getNodeValue(node, 'id'));
+        // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
         return <FaceEmoji key={index} element={{ faceId }} size="1.2em" className="inline-block align-middle mx-0.5" />;
       }
       return null;

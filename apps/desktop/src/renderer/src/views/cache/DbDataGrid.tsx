@@ -379,6 +379,7 @@ export function DbDataGrid({
             ) : null}
 
             {page.rows.map((row, ri) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
               <tr key={ri}>
                 <td className="weq-cache-grid-rownum">{ri + 1}</td>
                 {row.map((cell, ci) => {
@@ -387,6 +388,7 @@ export function DbDataGrid({
                   const isBlob = cellKind(cell) === 'blob';
                   return (
                     <td
+                      // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                       key={ci}
                       className={`weq-cache-cell is-${cellKind(cell)}${
                         editableCell ? ' is-editable' : ''

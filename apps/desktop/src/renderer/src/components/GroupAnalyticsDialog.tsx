@@ -479,6 +479,7 @@ export function GroupAnalyticsDialog({
                         {memberAnalytics.commonPhrases.length > 0 ? (
                           <div className="ga-chips">
                             {memberAnalytics.commonPhrases.map((item, idx) => (
+                              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                               <span className="ga-chip" key={idx}>
                                 <span>{item.phrase}</span>
                                 <small>{item.count}</small>
@@ -494,6 +495,7 @@ export function GroupAnalyticsDialog({
                         {memberAnalytics.commonEmojis.length > 0 ? (
                           <div className="ga-chips">
                             {memberAnalytics.commonEmojis.map((item, idx) => (
+                              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                               <span className="ga-chip ga-emoji-chip" key={idx} title={item.faceText}>
                                 <FaceEmoji
                                   element={{ faceId: item.faceId, faceText: item.faceText }}

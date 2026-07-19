@@ -156,6 +156,7 @@ function guessLen(payload: Uint8Array, payloadAbsStart: number): Guess[] {
   if (utf8 !== null) {
     // CJK / high-codepoint strings get bonus confidence — pure-ASCII random
     // bytes are too easy to mistake for "valid" strings.
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: 有意检测非 ASCII(含控制字符)以判断编码
     const hasHighCodepoint = /[^\x00-\x7f]/.test(utf8);
     out.push({
       kind: 'len-utf8',

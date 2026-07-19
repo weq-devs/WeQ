@@ -746,6 +746,7 @@ export function AgentLabView(): ReactElement {
                 history.map((item, index) =>
                   item.role === 'user' ? (
                     <ChatBubble
+                      // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                       key={`u-${index}`}
                       mine
                       name="我"
@@ -754,6 +755,7 @@ export function AgentLabView(): ReactElement {
                     />
                   ) : (
                     <ChatBubble
+                      // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                       key={`a-${index}`}
                       mine={false}
                       bot

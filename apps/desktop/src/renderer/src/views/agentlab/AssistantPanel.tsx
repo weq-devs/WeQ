@@ -574,8 +574,10 @@ export function AssistantPanel({
         ) : (
           turns.map((t, i) =>
             t.role === 'user' ? (
+              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
               <ChatBubble key={`u-${i}`} mine name="我" uin={selfProfile.data?.uin} text={t.text} />
             ) : (
+              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
               <AssistantBubble key={`a-${i}`} turn={t} />
             ),
           )

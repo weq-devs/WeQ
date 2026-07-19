@@ -226,6 +226,7 @@ export function AccountBasicsSection(): ReactElement {
             {rkeys.map((r, i) => {
               const exp = formatExpiry(r.createTime, r.ttlSeconds);
               return (
+                // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                 <li key={`${r.type}-${i}`} className="weq-set-rkey-item">
                   <div className="weq-set-rkey-head">
                     <span className="weq-set-rkey-type">

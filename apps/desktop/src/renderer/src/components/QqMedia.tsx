@@ -445,6 +445,7 @@ export function QqVoice({ data, sendTimeMs }: { data: Data; sendTimeMs: number }
           ) : null}
           <span className="qq-media-voice-wave" aria-hidden>
             {bars.map((v, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
               <i key={i} style={{ height: `${20 + Math.round((v / 255) * 80)}%` }} />
             ))}
           </span>

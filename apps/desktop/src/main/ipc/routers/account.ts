@@ -452,6 +452,7 @@ function pickAlbumDownloadUrl(media: AlbumMediaWire): string {
 function sanitizePathSegment(value: string | undefined, fallback: string): string {
   const raw = (value || fallback).trim();
   const cleaned = raw
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: 有意剔除文件名中的控制字符
     .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
     .replace(/\s+/g, ' ')
     .replace(/[. ]+$/g, '')

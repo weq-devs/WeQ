@@ -115,6 +115,7 @@ function DatabaseDamagedDialogBody({
           <h4>检测详情</h4>
           <ul>
             {safeDetails.map((line, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
               <li key={`${line}:${index}`}>{line}</li>
             ))}
           </ul>
@@ -2938,10 +2939,12 @@ export function MainView(): ReactElement {
                           <span className="weq-search-sender">{row.senderName}: </span>
                           {row.runs.map((part, i) =>
                             part.hit ? (
+                              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                               <mark key={i} className="weq-search-hl">
                                 {part.text}
                               </mark>
                             ) : (
+                              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                               <span key={i}>{part.text}</span>
                             ),
                           )}

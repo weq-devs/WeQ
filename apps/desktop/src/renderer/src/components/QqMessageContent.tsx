@@ -252,6 +252,7 @@ function renderElementNodes(
     out.push(
       <span key={`run-${start}`} className="qq-text-run">
         {items.map((el, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
           <ElementNode key={`el-${start + i}`} element={el} sendTimeMs={sendTimeMs} msgId={msgId} isSender={isSender} />
         ))}
       </span>,
@@ -268,6 +269,7 @@ function renderElementNodes(
     }
     flushRun();
     out.push(
+      // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
       <ElementNode key={`el-${index}`} element={element} sendTimeMs={sendTimeMs} msgId={msgId} isSender={isSender} />,
     );
   });
@@ -443,6 +445,7 @@ function ReplyQuote({
         <div className="qq-reply-quote-body">
           {previewEls.length > 0 ? (
             previewEls.map((element, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
               <ReplyPreviewNode key={`rp-${i}`} element={element} sendTimeMs={quoteTimeMs} />
             ))
           ) : (

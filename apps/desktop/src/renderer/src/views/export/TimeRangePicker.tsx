@@ -169,6 +169,7 @@ export function TimeRangePicker({
               </span>
             ))}
             {weeks.map((cell, i) => {
+              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
               if (cell == null) return <span key={`blank-${i}`} className="weq-exp-cal-cell is-blank" />;
               const dayStart = cell.start;
               const inRange =

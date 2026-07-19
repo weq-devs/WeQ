@@ -236,6 +236,7 @@ function AlbumMediaView({
             const proxiedFull = full ? albumMediaUrl(full) : '';
             return (
               <button
+                // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                 key={`${item.batchId}:${item.fileName}:${index}`}
                 type="button"
                 className="group-album-media-card"

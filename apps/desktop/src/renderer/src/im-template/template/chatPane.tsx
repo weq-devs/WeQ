@@ -1579,6 +1579,7 @@ export function ChatPane({
 				</button>
 			) : null}
 
+			{/* biome-ignore lint/correctness/noConstantCondition: 暂时禁用的「跳转首条未读」按钮,保留待恢复 */}
 			{false && unreadJump && unreadJump.remaining > 0 ? (
 				<button
 					className={cn("unread-jump-button")}
@@ -1938,6 +1939,7 @@ function ComposerPlusPanel({
 			{pageCount > 1 ? (
 				<div className={cn("composer-plus-dots")} aria-hidden="true">
 					{Array.from({ length: pageCount }).map((_, index) => (
+						// biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
 						<span className={cn(index === 0 && "active")} key={index} />
 					))}
 				</div>

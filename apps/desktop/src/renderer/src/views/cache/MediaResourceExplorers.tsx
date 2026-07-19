@@ -429,6 +429,7 @@ function VoiceCard({ entry }: { entry: VoiceMediaEntry }): ReactElement {
         <span className="weq-voice-wave" aria-hidden>
           {bars.map((h, i) => (
             <i
+              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
               key={i}
               className={i < filled ? 'is-played' : ''}
               style={{ height: `${Math.round(h * 100)}%` }}
