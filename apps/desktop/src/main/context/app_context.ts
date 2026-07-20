@@ -703,8 +703,9 @@ export function initAppContext(): AppContext {
       // role / profile resolution), so they're built before the services object.
       const groupInfo = new GroupInfoService(session);
       const profile = new ProfileService(session);
-      // 收藏服务：既进 services，又喂给导出管理器的收藏拉取 dep（拍平投影）。
-      const collectionSvc = new CollectionService(session);
+      // 收藏服务：网络优先(微云 collector)、拿不到 p_skey 回退 collection.db。
+      // 既进 services，又喂给导出管理器的收藏拉取 dep（拍平投影）。
+      const collectionSvc = new CollectionService(platform.native.ntHelper, session, resolveOnlinePid);
       // Built before the services literal so AgentLab can reuse the same media
       // pipeline (媒体寻址 + rkey 补全) for 表情包/语音.
       const fileSearch = new FileSearchService(session, platform);
@@ -1033,8 +1034,8 @@ export function initAppContext(): AppContext {
       const webQuery = new WebQueryService(platform.native.ntHelper, session, noPid);
       const groupInfo = new GroupInfoService(session);
       const profile = new ProfileService(session);
-      // 收藏服务：既进 services，又喂给导出管理器的收藏拉取 dep（拍平投影）。
-      const collectionSvc = new CollectionService(session);
+      // 收藏服务：静态账号 noPid 会让网络路径拿不到 p_skey → 自动回退 collection.db。
+      const collectionSvc = new CollectionService(platform.native.ntHelper, session, noPid);
       const fileSearch = new FileSearchService(session, platform);
       const agentlabRoot = userConfig.cacheDir(join('agentlab', exportConfigId));
       const tokenUsage = new TokenUsageStore(join(agentlabRoot, 'usage.json'));
