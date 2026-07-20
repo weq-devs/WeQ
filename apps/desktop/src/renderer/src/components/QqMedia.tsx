@@ -483,7 +483,7 @@ export function QqVoice({ data, sendTimeMs }: { data: Data; sendTimeMs: number }
 export function QqMarketFace({ data }: { data: Data }) {
   const [broken, setBroken] = useState(false);
   const pack = num(data, 'emojiPackId');
-  const hash = str(data, 'previewMd5Hex');
+  const hash = str(data, 'marketEmoticonIdHex');
   const w = num(data, 'previewWidth');
   const h = num(data, 'previewHeight');
   const size = 120;

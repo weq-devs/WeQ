@@ -133,6 +133,32 @@ export interface AppidInfo {
   build?: string;
 }
 
+// ---------- market-face key (商城表情 图片解密密钥) ----------------------
+
+/**
+ * The decryption key for a market-face (商城表情) image package, recovered by
+ * `getMarketFaceKey`. Mirrors the result struct in `nt_helper`.
+ *
+ * The key is the 16-char ASCII prefix of `md5(str(seed))`, where `seed` is a
+ * unix-seconds timestamp the CDN used when generating the encrypted GIF. The
+ * native side finds it either directly (metadata carried the seed) or by
+ * brute-forcing a time window around the package's `updateTime` (TEA-decrypt
+ * the first two blocks, check for a `GIF8` header).
+ */
+export interface MarketFaceKeyResult {
+  /** 16-char ASCII hex key fed to the XOR/TEA image decryptor. */
+  key: string;
+  /** Unix-seconds timestamp whose `md5` prefix produced `key`. */
+  timestamp: number;
+  /**
+   * How the key was recovered:
+   *   - `'xydata'`      the seed came straight from package metadata (免费包)
+   *   - `'brute-force'` scanned a time window around `updateTime`
+   *                     (TEA-decrypt → `GIF8` check) — needed for 付费包
+   */
+  source: string;
+}
+
 // ---------- nt_helper.node — full surface --------------------------------
 
 /**
@@ -176,6 +202,17 @@ export interface NtHelperBinding {
   // --- key acquisition ---
   /** "Instance" path: ask a running, logged-in QQ for the db key via OIDB. */
   requestDecryptKey(pid: number, dbPath: string): Promise<string>;
+
+  /**
+   * Recover the image decryption key for a market-face (商城表情) package by
+   * its `packetId` (a.k.a. emojiPackId). Fetches the package metadata, then
+   * either reads the seed directly or brute-forces a timestamp window around
+   * `updateTime` (TEA-decrypt first blocks → check `GIF8` header) in native
+   * Rust. Resolves `null` when no key can be recovered (unknown pack / network
+   * failure / window exhausted). Fast (single-digit ms) and result is stable,
+   * so callers should cache it per packetId.
+   */
+  getMarketFaceKey(packetId: string): Promise<MarketFaceKeyResult | null>;
   
   testDatabaseKey(dbPath: string, key: string): Promise<DatabaseProbeResult>;
   checkDatabaseHealth(dbPath: string, key: string, algo: DatabaseAlgorithms): Promise<DatabaseHealthResult>;

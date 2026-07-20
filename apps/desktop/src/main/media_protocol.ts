@@ -11,7 +11,8 @@
  *   weq-media://pic?t=&name=&v=thumb                          → thumbnail bytes
  *   weq-media://video?t=&name=&v=thumb                        → cover image bytes
  *   weq-media://ptt?t=&name=                                  → decoded WAV bytes
- *   weq-media://mface?pack=<emojiPackId>&hash=<previewMd5Hex> → sticker bytes
+ *   weq-media://mface?pack=<emojiPackId>&hash=<marketEmoticonIdHex> → sticker bytes
+ *   weq-media://mface?pack=&hash=&enc=tea&key=<opt> → 商城表情包 CDN 加密流 QQTEA 解密后 GIF
  *   weq-media://agentvoice?persona=&id=<hash.ext>             → clone TTS audio bytes
  *   weq-media://avatar?scope=user&hash=<hash>&v=big|small     → local avatar-cache bytes
  *   weq-media://avatar?scope=user&uin=<qq>&fb=<cdnUrl>        → local by uid-hash, CDN fallback
@@ -229,6 +230,14 @@ export function registerMediaProtocol(): void {
           const pack = q.get('pack') ?? '';
           const hash = q.get('hash') ?? '';
           if (!pack || !hash) return notFound('mface needs pack+hash');
+          // enc=tea → 商城表情包浏览器：下载 CDN 加密流，用 packId 恢复的 QQTEA
+          // 密钥（或前端手动输入时间戳派生的 key）解密成 GIF。否则走聊天里那条
+          // 明文 CDN / 本地缓存路径（不解密）。
+          if (q.get('enc') === 'tea') {
+            const key = q.get('key') ?? '';
+            const path = await services.emoji.getMarketPackImage(pack, hash, key || undefined);
+            return path ? fileResponse(path) : notFound('mface (tea) not found');
+          }
           const path = await services.emoji.getMarketFace(pack, hash);
           return path ? fileResponse(path) : notFound('mface not found');
         }

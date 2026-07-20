@@ -70,32 +70,32 @@ describe('sanitizeBytes', () => {
   });
 
   it('drops the reverse conflict too (STRING tag sent as varint)', () => {
-    // 80824 (emojiId) is STRING in ElementWire. Encode it as a UINT32.
+    // 80824 (encryptKey) is STRING in ElementWire. Encode it as a UINT32.
     const Evil = {
       elementType: ProtoField(45002, ScalarType.UINT32, { optional: true }),
-      emojiId: ProtoField(80824, ScalarType.UINT32, { optional: true }),
+      encryptKey: ProtoField(80824, ScalarType.UINT32, { optional: true }),
       mfaceType: ProtoField(80901, ScalarType.UINT32, { optional: true }),
     };
-    const bytes = new ProtoMsg(Evil).encode({ elementType: 11, emojiId: 7, mfaceType: 3 });
+    const bytes = new ProtoMsg(Evil).encode({ elementType: 11, encryptKey: 7, mfaceType: 3 });
 
     const wire = realElement.decode(sanitizeBytes(bytes, ElementWire));
     expect(wire.elementType).toBe(11);
     expect(wire.mfaceType).toBe(3);
-    expect(wire.emojiId).toBeUndefined();
+    expect(wire.encryptKey).toBeUndefined();
   });
 
   it('drops a STRING field carrying non-UTF-8 bytes (would crash the fatal decoder)', () => {
-    // 80824 (emojiId) is STRING in ElementWire; both STRING and BYTES are wire
+    // 80824 (encryptKey) is STRING in ElementWire; both STRING and BYTES are wire
     // type 2, so the conflict is invisible to wireMatches — only the UTF-8
     // check catches it. Smuggle invalid UTF-8 in via a BYTES-typed evil schema.
     const Evil = {
       elementType: ProtoField(45002, ScalarType.UINT32, { optional: true }),
-      emojiId: ProtoField(80824, ScalarType.BYTES, { optional: true }),
+      encryptKey: ProtoField(80824, ScalarType.BYTES, { optional: true }),
       mfaceType: ProtoField(80901, ScalarType.UINT32, { optional: true }),
     };
     const bytes = new ProtoMsg(Evil).encode({
       elementType: 11,
-      emojiId: new Uint8Array([0xff, 0xfe]), // invalid UTF-8
+      encryptKey: new Uint8Array([0xff, 0xfe]), // invalid UTF-8
       mfaceType: 5,
     });
 
@@ -105,14 +105,14 @@ describe('sanitizeBytes', () => {
     const wire = realElement.decode(sanitizeBytes(bytes, ElementWire));
     expect(wire.elementType).toBe(11);
     expect(wire.mfaceType).toBe(5);
-    expect(wire.emojiId).toBeUndefined(); // bad string dropped, message survives
+    expect(wire.encryptKey).toBeUndefined(); // bad string dropped, message survives
   });
 
   it('leaves a fully valid buffer byte-identical', () => {
     const bytes = realElement.encode({
       elementType: 11,
       emojiPackId: 1,
-      emojiId: 'key',
+      encryptKey: 'key',
       mfaceType: 2,
       previewWidth: 100,
       previewHeight: 80,

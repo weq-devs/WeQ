@@ -7,3 +7,5 @@
 
 export { BaseSysEmojiDb } from './base_sys_emoji';
 export type { SysEmoji } from './base_sys_emoji';
+export { MarketEmoticonPackageDb } from './market_emoticon_package';
+export type { MarketEmoticonPackage } from './market_emoticon_package';

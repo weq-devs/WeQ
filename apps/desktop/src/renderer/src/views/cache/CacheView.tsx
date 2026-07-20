@@ -17,6 +17,7 @@ import {
   Smile,
   Store,
   Sticker,
+  PackageOpen,
   Folder,
   FileDown,
   Film,
@@ -32,6 +33,7 @@ import { DbExplorer } from './DbExplorer';
 import { AvatarExplorer } from './AvatarExplorer';
 import { SysEmojiExplorer } from './SysEmojiExplorer';
 import { MarketEmojiExplorer } from './MarketEmojiExplorer';
+import { MarketPackExplorer } from './MarketPackExplorer';
 import { CustomEmojiExplorer } from './CustomEmojiExplorer';
 import { RelatedEmojiExplorer } from './RelatedEmojiExplorer';
 import { FileDirExplorer } from './FileDirExplorer';
@@ -55,6 +57,7 @@ const CATEGORIES: CacheCategory[] = [
   { id: 'avatar', label: '头像资源', desc: 'nt_data 头像缓存', icon: <ImageIcon size={18} />, ready: true },
   { id: 'sysEmoji', label: '系统表情', desc: '内置表情资源', icon: <Smile size={18} />, ready: true },
   { id: 'marketEmoji', label: '商城表情', desc: '商城下载的贴纸', icon: <Store size={18} />, ready: true },
+  { id: 'marketPack', label: '商城表情包', desc: '我添加的表情包 · 在线解密', icon: <PackageOpen size={18} />, ready: true },
   { id: 'customEmoji', label: '自定义表情', desc: '收到的 / 我的表情', icon: <Sticker size={18} />, ready: true },
   { id: 'relatedEmoji', label: '关联表情', desc: '关键词联想表情', icon: <Smile size={18} />, ready: true },
   { id: 'fileDir', label: 'File 目录', desc: 'nt_data File 目录', icon: <Folder size={18} />, ready: true },
@@ -170,6 +173,8 @@ export function CacheView(): ReactElement {
           <SysEmojiExplorer />
         ) : activeCategory.id === 'marketEmoji' ? (
           <MarketEmojiExplorer />
+        ) : activeCategory.id === 'marketPack' ? (
+          <MarketPackExplorer />
         ) : activeCategory.id === 'customEmoji' ? (
           <CustomEmojiExplorer />
         ) : activeCategory.id === 'relatedEmoji' ? (
