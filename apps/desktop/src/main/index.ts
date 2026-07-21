@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { initAppContext } from './context/app_context';
+import { probeQqProtocolHandler } from './context/qq_protocol';
 import { appRouter } from './ipc/router';
 import { resolveResource } from './resource';
 import {
@@ -458,9 +459,16 @@ if (!hasSingleInstanceLock) {
   });
 }
 
-void app.whenReady().then(() => {
+void app.whenReady().then(async () => {
   if (!hasSingleInstanceLock) return;
   electronApp.setAppUserModelId('app.weq.desktop');
+
+  // win32: resolve QQ's tencent:// handler (timwp.exe) before building the
+  // platform, so install-path detection can anchor on it and skip the fragile
+  // registry lookup. linux QQ doesn't register the scheme — skip the probe.
+  if (process.platform !== 'linux') {
+    await probeQqProtocolHandler();
+  }
 
   // Order matters: AppContext (loads native + platform) before IPC handler.
   initAppContext();

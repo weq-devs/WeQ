@@ -33,16 +33,6 @@ import type { AccountConfig } from '../account/user_config';
 import { generateWeqAssistantUid } from '../account/weq_assistant';
 import { getLogger, logErrorContext } from '../common/logger';
 
-export interface InstallCache {
-  qqExePath: string | null;
-  wrapperNodePath: string | null;
-  loginDbPath: string | null;
-  tencentFilesRoot: string | null;
-  version: string | null;
-  userDataPath: string | null;
-  probedAt: number;
-}
-
 export interface AutoEnterTarget {
   configId: string;
   uin: string;
@@ -202,7 +192,6 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
 };
 
 export interface UserConfig {
-  install?: InstallCache;
   autoEnter?: AutoEnterTarget | null;
   tencentFilesRootOverride?: string | null;
   avatarCacheDir?: string | null;

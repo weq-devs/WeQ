@@ -31,6 +31,7 @@ import { aiToolSpecs, runAiTool } from '../mcp/openai_tools';
 import { getExternalMcpHub, disposeExternalMcp } from '../mcp/external';
 import { sampleHitokoto } from '../hitokoto';
 import { pkexecStubHooks } from '../stub_elevation';
+import { getQqProtocolExe } from './qq_protocol';
 import { createPkexecInjectHook } from '../inject_elevation';
 import {
   accountConfigId,
@@ -531,7 +532,7 @@ export function initAppContext(): AppContext {
   const platform =
     process.platform === 'linux'
       ? createLinuxPlatform(result.bundle, () => readDataRootOverride(), resolveUid)
-      : createWin32Platform(result.bundle, () => readDataRootOverride());
+      : createWin32Platform(result.bundle, () => readDataRootOverride(), getQqProtocolExe);
   initLogger(platform.appDataRoot());
   const logger = getLogger().child({ scope: 'app-context' });
   logger.info('initializing app context', {
@@ -554,9 +555,7 @@ export function initAppContext(): AppContext {
   // user isn't stuck with a path that silently resolves nothing.
   const storedOverride = userConfig.read().tencentFilesRootOverride ?? null;
   if (storedOverride && (!existsSync(storedOverride) || !isTencentFilesRoot(storedOverride))) {
-    // Also drop the cached install probe — it may have been derived from the
-    // bad override and would otherwise be served as still-valid.
-    userConfig.write({ tencentFilesRootOverride: null, install: undefined });
+    userConfig.write({ tencentFilesRootOverride: null });
     logger.warn('cleared invalid Tencent Files override on launch', {
       event: 'sanitize-data-root-override',
       override: storedOverride,
