@@ -96,6 +96,7 @@ export { GroupNotifyService } from './account/group_notify';
 export { ProfileService } from './account/profile';
 export {
   EmojiService,
+  feeTypeLabel as marketFeeTypeLabel,
   type SystemFaceEntry,
   type MarketPackDetail,
   type MarketPackItem,
@@ -309,6 +310,8 @@ export type {
   ExportTask,
   TaskStatus,
   TaskProgress,
+  MarketPackDeps,
+  MarketPackDownloadItem,
 } from './account/export';
 
 // ---- common (account-independent helpers) ----

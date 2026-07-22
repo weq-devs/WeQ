@@ -726,6 +726,9 @@ export function initAppContext(): AppContext {
         platform,
         join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
       );
+      // 商城表情：一个实例同时供 `emoji` 服务字段与 exportManager 的 marketpack
+      // 解密下载依赖复用（避免两处各建一个、密钥/详情缓存不共享）。
+      const emojiService = new EmojiService(session, platform);
       this.services = {
         msgs: new MsgService(session, deletedMsgs, antiRecall),
         recentContacts: new RecentContactService(session),
@@ -743,7 +746,7 @@ export function initAppContext(): AppContext {
         mediaDownload,
         mediaUrl,
         fileAssistant: new FileAssistantService(session),
-        emoji: new EmojiService(session, platform),
+        emoji: emojiService,
         agentLab: new AgentLabService(
           session,
           agentlabRoot,
@@ -882,6 +885,12 @@ export function initAppContext(): AppContext {
                 const page = await collectionSvc.listCollections(limit, offset);
                 return page.items.map(collectionItemToWire);
               },
+            },
+            // 商城表情批量下载：桥接 EmojiService 的解密链（详情 / 密钥 / 解密图片路径）。
+            marketpack: {
+              getPackDetail: (id) => emojiService.getMarketPackDetail(id),
+              getPackKey: (id) => emojiService.getMarketPackKey(id),
+              getPackImagePath: (id, hash, key) => emojiService.getMarketPackImage(id, hash, key),
             },
           },
         ),
@@ -1052,6 +1061,9 @@ export function initAppContext(): AppContext {
         join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
       );
 
+      // 商城表情：一个实例同时供 `emoji` 服务字段与 exportManager 的 marketpack
+      // 解密下载依赖复用（避免两处各建一个、密钥/详情缓存不共享）。
+      const emojiService = new EmojiService(session, platform);
       this.services = {
         msgs: new MsgService(session, deletedMsgs, antiRecall),
         recentContacts: new RecentContactService(session),
@@ -1069,7 +1081,7 @@ export function initAppContext(): AppContext {
         mediaDownload,
         mediaUrl,
         fileAssistant: new FileAssistantService(session),
-        emoji: new EmojiService(session, platform),
+        emoji: emojiService,
         agentLab: new AgentLabService(
           session,
           agentlabRoot,

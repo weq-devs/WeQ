@@ -68,7 +68,7 @@ export interface MediaStageResult {
 /** One file that failed in a media stage — surfaced in the UI's failure lightbox. */
 export interface MediaFailure {
   /** Stage the failure happened in. */
-  stage: 'image' | 'video' | 'file' | 'media' | 'record' | 'transcribe';
+  stage: 'image' | 'video' | 'file' | 'media' | 'record' | 'transcribe' | 'sticker';
   fileName: string;
   /** Human-readable reason (HTTP status, OIDB error, decode failure, …). */
   error: string;

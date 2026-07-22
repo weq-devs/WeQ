@@ -8,7 +8,7 @@
  */
 
 /** Left-rail modes. */
-export type ExportMode = 'full' | 'decrypt' | 'chatlab' | 'qzone' | 'contacts' | 'collection' | 'scheduled' | 'album';
+export type ExportMode = 'full' | 'decrypt' | 'chatlab' | 'qzone' | 'contacts' | 'collection' | 'scheduled' | 'album' | 'marketpack';
 
 /** Every output format the 完整消息 / 定时 flows can request. HTML is one of the
  *  完整消息 chips; `vcard` is contacts-only (导出联系人). */

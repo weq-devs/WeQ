@@ -109,6 +109,8 @@ export {
   type StageKey,
   type MediaExportOptions,
   type MediaDeps,
+  type MarketPackDeps,
+  type MarketPackDownloadItem,
 } from './task_manager';
 export {
   ExportScheduler,

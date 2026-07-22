@@ -47,7 +47,7 @@ export interface MarketPackDetail {
   summary: string;
   /** 收费类型（免费 / 付费 / SVIP / VIP）。 */
   feeType: MarketPackFeeType;
-  /** 原始 feetype 数字（1/2/3/4；缺失为 0）。 */
+  /** 原始 feetype 数字（1免费/2付费/4VIP/5SVIP；缺失或未知为 0/其它）。 */
   feeTypeRaw: number;
   /** 上架时间（Unix 秒；0 表示缺失）——爆破密钥的时间窗提示。 */
   updateTime: number;
@@ -146,7 +146,7 @@ export class EmojiService {
    * **收费类型(feetype)** / 上架时间 / 表情列表(hash+名)。会话内按 packId 缓存
    * （含 in-flight 去重）。网络失败或包不存在返回 null。
    *
-   * feetype 才是 README 那张来源表的枚举来源（1免费/2付费/3SVIP/4VIP）；CDN
+   * feetype 才是 README 那张来源表的枚举来源（1免费/2付费/4VIP/5SVIP）；CDN
    * json 里的 `type` 字段含义不同，不能拿来判来源。
    */
   async getMarketPackDetail(packId: string): Promise<MarketPackDetail | null> {
@@ -431,19 +431,22 @@ function findLocalPng(itemDir: string, hash: string): string | null {
 
 // ── 商城表情包（在线拉取 + QQTEA 解密）helpers ─────────────────────────────────
 
-/** feetype 数字 → 来源标签（README：1免费 / 2付费 / 3SVIP / 4VIP）。 */
-function feeTypeLabel(feetype: number): MarketPackFeeType {
+/**
+ * feetype 数字 → 来源标签。实测枚举：只有 2付费 / 4VIP / 5SVIP 是真正的付费门禁；
+ * 1免费、6活动、27节日、49(含义未知) 以及 0/其它一切取值都当免费解析。
+ * 注意 `3` 并不存在（此前误映射为 SVIP，且把真正的 SVIP=5 漏进 unknown）。
+ */
+export function feeTypeLabel(feetype: number): MarketPackFeeType {
   switch (feetype) {
-    case 1:
-      return 'free';
     case 2:
       return 'paid';
-    case 3:
-      return 'svip';
     case 4:
       return 'vip';
+    case 5:
+      return 'svip';
     default:
-      return 'unknown';
+      // 1免费 / 6活动 / 27节日 / 49未知 / 0 / 其它 —— 均非付费门禁，按免费展示。
+      return 'free';
   }
 }
 
