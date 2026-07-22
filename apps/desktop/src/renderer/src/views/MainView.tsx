@@ -31,6 +31,7 @@ import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
 import { RailAccountFooter } from '../components/RailAccountFooter';
 import { SettingsDialog } from '../components/SettingsDialog';
 import { CollectionDialog } from '../components/CollectionDialog';
+import { MarketEmojiBrowserLightbox } from './export/MarketEmojiBrowserLightbox';
 import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
 import { GroupAnalyticsDialog } from '../components/GroupAnalyticsDialog';
 import { MemberProfileCard } from '../components/MemberProfileCard';
@@ -1576,6 +1577,7 @@ export function MainView(): ReactElement {
   const [conversationPrefs, setConversationPrefs] = useState<ConversationPreferences>({});
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [collectionOpen, setCollectionOpen] = useState(false);
+  const [marketBrowserOpen, setMarketBrowserOpen] = useState(false);
   const [requestedAnnouncementGroups, setRequestedAnnouncementGroups] = useState<Record<string, boolean>>({});
   const [albumDialog, setAlbumDialog] = useState<{
     groupCode: string;
@@ -2875,6 +2877,7 @@ export function MainView(): ReactElement {
         onViewChange={shell.switchView}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenCollection={() => setCollectionOpen(true)}
+        onOpenMarketBrowser={() => setMarketBrowserOpen(true)}
         onOpenProfile={noopAsync}
         onOpenAbout={noopAsync}
         onOpenHelp={noopAsync}
@@ -3054,6 +3057,9 @@ export function MainView(): ReactElement {
 
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <CollectionDialog open={collectionOpen} onClose={() => setCollectionOpen(false)} />
+      {marketBrowserOpen ? (
+        <MarketEmojiBrowserLightbox onClose={() => setMarketBrowserOpen(false)} />
+      ) : null}
       {albumDialog ? (
         <GroupAlbumDialog
           groupCode={albumDialog.groupCode}

@@ -431,6 +431,8 @@ export function ExportView(): ReactElement {
       bundleDir: t.bundleDir,
       avatarCount: t.avatarCount,
       stages: t.stages,
+      // conv === 'marketpack' は商城表情下载タスクの sentinel（task_manager 内で設定）。
+      isMarketPack: (t as unknown as { conv?: string }).conv === 'marketpack',
     }));
   }, [tasks.data]);
 

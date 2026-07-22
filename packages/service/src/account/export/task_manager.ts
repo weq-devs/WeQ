@@ -995,6 +995,8 @@ export class ExportTaskManager extends EventEmitter {
       let done = 0;
       let ok = 0;
       const failures: MediaFailure[] = [];
+      // task.total 起初是包套数（packs.length），下载开始后改成总张数，与 task.current 单位一致。
+      task.total = total;
       this.touchStage(task, 'sticker', { total, current: 0, note: `下载 0/${total}` }, { persist: true });
 
       // 并发解密下载（每张：CDN 加密流 → QQTEA 解密 → 缓存路径 → 复制进 bundle）。
@@ -1019,6 +1021,7 @@ export class ExportTaskManager extends EventEmitter {
           } finally {
             done += 1;
             if (!aborted()) {
+              task.current = done;
               this.touchStage(task, 'sticker', { current: done, total, note: `下载 ${done}/${total}` });
             }
           }
@@ -1029,6 +1032,7 @@ export class ExportTaskManager extends EventEmitter {
 
       const failed = total - ok;
       task.current = ok;
+      task.total = total;
       this.touchStage(
         task,
         'sticker',

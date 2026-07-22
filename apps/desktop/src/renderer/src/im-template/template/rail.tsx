@@ -9,6 +9,7 @@ import {
 	Star,
 	Bookmark,
 	HardDrive,
+	Store,
 } from "lucide-react";
 import { useEffect, useRef, useState, useTransition } from "react";
 import type { ReactNode } from "react";
@@ -24,6 +25,7 @@ export function AppRail({
 	onViewChange,
 	onOpenSettings,
 	onOpenCollection,
+	onOpenMarketBrowser,
 	onOpenProfile,
 	onOpenAbout: _onOpenAbout,
 	onOpenHelp: _onOpenHelp,
@@ -39,6 +41,7 @@ export function AppRail({
 	onViewChange: (view: MainView) => void;
 	onOpenSettings: (tab?: SettingsTab) => void;
 	onOpenCollection: () => void;
+	onOpenMarketBrowser: () => void;
 	onOpenProfile: () => void;
 	onOpenAbout: () => void;
 	onOpenHelp: () => void;
@@ -257,6 +260,21 @@ export function AppRail({
 							<Bookmark size={22} strokeWidth={1.5} />
 						</span>
 						<span className={cn("rail-label")}>收藏</span>
+					</button>
+					<button
+						className={cn("rail-tab rail-tab-marketbrowser")}
+						onClick={() => {
+							setMenuOpen(false);
+							setProfileOpen(false);
+							onOpenMarketBrowser();
+						}}
+						title="商城表情浏览"
+						type="button"
+					>
+						<span className={cn("rail-tab-icon")}>
+							<Store size={22} strokeWidth={1.5} />
+						</span>
+						<span className={cn("rail-label")}>商城表情</span>
 					</button>
 					<button
 						className={cn("rail-tab rail-tab-settings")}
