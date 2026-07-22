@@ -940,6 +940,7 @@ html[data-theme="dark"] .member-badge.level-6 { background-color: rgba(250, 219,
 .qq-reply-preview-media img,
 .qq-reply-preview-media .qq-media-image,
 .qq-reply-preview-media .qq-media-mface,
+.qq-reply-preview-media .qq-mface-wrap,
 .qq-reply-preview-media .qq-media-video,
 .qq-reply-preview-media .qq-market-face,
 .qq-reply-preview-media .qq-market-face img {
@@ -949,6 +950,16 @@ html[data-theme="dark"] .member-badge.level-6 { background-color: rgba(250, 219,
 	height: auto !important;
 	border-radius: 4px;
 	object-fit: cover;
+}
+
+/* 引用预览里的商城表情只作缩略图：让 wrap 不拦点击（点整条跳原消息），
+   并隐藏商城角标——56px 缩略图里再叠角标会显得杂乱。 */
+.qq-reply-preview-media .qq-mface-wrap {
+	pointer-events: none;
+}
+
+.qq-reply-preview-media .qq-mface-badge {
+	display: none;
 }
 
 /* Quote-box video stays a poster only — playback happens by jumping to the

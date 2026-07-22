@@ -1395,12 +1395,27 @@
   border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
 }
 
-/* 暗色适配 */
+/* 暗色适配 —— 头像路径计算器 / 商城密钥计算器共用 .weq-avpath 骨架。
+ * .weq-modal 的土台是写死的白色渐变、没有 dark 变体，需内层自铺深色面盖住；
+ * 同时补齐内部各硬编码亮色元素（分段器/算法块/徽章/预览等）。 */
+html[data-theme="dark"] .weq-avpath {
+  background:
+    radial-gradient(ellipse at 24% 0%, color-mix(in srgb, var(--weq-accent-effective) 14%, transparent), transparent 46%),
+    #171d25;
+}
+
 html[data-theme="dark"] .weq-avpath-title,
 html[data-theme="dark"] .weq-avpath-algo-code,
 html[data-theme="dark"] .weq-avpath-algo-note b,
 html[data-theme="dark"] .weq-avpath-field-val {
   color: #e6ebf2;
+}
+
+html[data-theme="dark"] .weq-avpath-algo-note,
+html[data-theme="dark"] .weq-avpath-field-label,
+html[data-theme="dark"] .weq-avpath-nick,
+html[data-theme="dark"] .weq-avpath-preview-empty {
+  color: #98a3b3;
 }
 
 html[data-theme="dark"] .weq-avpath-input {
@@ -1415,13 +1430,28 @@ html[data-theme="dark"] .weq-avpath-seg {
   border-color: rgba(255, 255, 255, 0.12);
 }
 
+html[data-theme="dark"] .weq-avpath-segbtn {
+  color: #aeb6c2;
+}
+
 html[data-theme="dark"] .weq-avpath-copy {
   background: rgba(255, 255, 255, 0.06);
   border-color: rgba(255, 255, 255, 0.14);
+  color: #aeb6c2;
 }
 
 html[data-theme="dark"] .weq-avpath-path {
   color: #aeb6c2;
+}
+
+html[data-theme="dark"] .weq-avpath-badge.is-off {
+  color: #98a3b3;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .weq-avpath-error {
+  background: color-mix(in srgb, #ef4444 18%, transparent);
+  color: #fca5a5;
 }
 
 /* ---- 网格 ---- */
