@@ -2,8 +2,8 @@
  * CollectionService — read QQ favorites (收藏).
  *
  * 网络优先、数据库回退:能拿到 weiyun.com 的 p_skey 就走微云 collector 网关
- * (最新数据、不依赖本地 collection.db);拿不到凭据(未注入 / 静态账号 / 关了
- * ClientKey)才回退到本地 collection.db。网络请求本身报错直接抛(不静默),便于排查。
+ * (最新数据、不依赖本地 collection.db);拿不到凭据或网络请求失败均回退到本地
+ * collection.db,保证收藏功能始终可用。
  */
 
 import type { AccountSession } from '@weq/account';
@@ -62,8 +62,8 @@ export class CollectionService {
   }
 
   /**
-   * 网络路径:拿 weiyun.com p_skey → collector.fcg 拉取。拿不到 p_skey 返回 null
-   * (让调用方回退 db);网络请求本身失败则抛出。
+   * 网络路径:拿 weiyun.com p_skey → collector.fcg 拉取。拿不到 p_skey 或网络请求
+   * 失败均返回 null,让调用方回退 collection.db。
    */
   private async tryNetwork(limit: number, offset: number): Promise<CollectionPage | null> {
     let cred;
@@ -84,9 +84,18 @@ export class CollectionService {
       return null;
     }
 
-    // 有凭据:网络拉取,报错直接抛(不静默吞成 db 回退)。
+    // 有凭据:网络拉取,失败则回退 db。
     const wanted = offset + limit + 1;
-    const page = await getCollectionListNetwork(cred, wanted);
+    let page;
+    try {
+      page = await getCollectionListNetwork(cred, wanted);
+    } catch (error) {
+      this.logger.warn('collection network fetch failed — falling back to collection.db', {
+        event: 'collection-network-fetch-failed',
+        ...logErrorContext(error),
+      });
+      return null;
+    }
     const window = page.items.slice(offset, offset + limit);
     const hasMore = page.hasMore || page.items.length > offset + limit;
     return { items: window, offset, limit, hasMore, source: 'network' };
