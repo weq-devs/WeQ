@@ -23,7 +23,7 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Platform } from '@weq/platform';
-import type { UserConfigService, InstallCache } from './user_config';
+import type { UserConfigService } from './user_config';
 
 /** Enriched install info the renderer renders + drives error dialogs from. */
 export interface GlobalInstallInfo {
@@ -67,42 +67,45 @@ export interface DirSize {
   bytes: number;
 }
 
-const INSTALL_CACHE_TTL_MS = 24 * 60 * 60_000; // a day; path validation gates correctness anyway
+/**
+ * Short in-memory memo TTL. This is NOT a durability cache — it only collapses
+ * the burst of `describeInstall()` calls that fire in the same tick on launch
+ * (install-warning dialog + StatsPanel + auto-enter all read it at once). It
+ * never persists and never outlives a probe by more than a few seconds, so a
+ * reinstall / path change is always reflected on the next real read. The old
+ * config.json-persisted `install` cache was removed: its only purpose was to
+ * avoid the multi-instance re-probe side effects, and once key acquisition was
+ * reduced to a single probe that reason disappeared — meanwhile a stale entry
+ * would survive a QQ reinstall for a full day and wrongly report "not found".
+ */
+const INSTALL_MEMO_TTL_MS = 10_000;
 
 export class GlobalConfigService {
-  private memo: GlobalInstallInfo | null = null;
+  private memo: { readonly expiresAt: number; readonly value: GlobalInstallInfo } | null = null;
 
   constructor(
     private readonly platform: Platform,
     private readonly userConfig: UserConfigService,
   ) {}
 
-  // ---- install info (cache → validate → reprobe) ----
+  // ---- install info (probe, short-memoized) ----
 
   /**
-   * Resolve the install info, preferring the persisted cache. Each cached
-   * path is re-validated; if any required path is missing or the cache is
-   * older than the TTL we re-probe and persist. Pass `force` to skip the
-   * cache entirely (used after the user changes the data-dir override).
+   * Resolve the install info by probing the filesystem / registry / protocol
+   * handler fresh. A short in-memory memo (see {@link INSTALL_MEMO_TTL_MS})
+   * absorbs same-tick bursts; pass `force` to bypass it (used after the user
+   * changes the data-dir override).
    */
   describeInstall(force = false): GlobalInstallInfo {
-    if (!force && this.memo) return this.memo;
-
-    if (!force) {
-      const cached = this.userConfig.read().install;
-      if (cached && this.cacheStillValid(cached)) {
-        this.memo = this.toInfo(cached);
-        return this.memo;
-      }
+    if (!force && this.memo && this.memo.expiresAt > Date.now()) {
+      return this.memo.value;
     }
-
-    const fresh = this.probe();
-    this.userConfig.write({ install: fresh });
-    this.memo = this.toInfo(fresh);
-    return this.memo;
+    const value = this.probe();
+    this.memo = { expiresAt: Date.now() + INSTALL_MEMO_TTL_MS, value };
+    return value;
   }
 
-  /** Force a fresh probe + persist (e.g. after the data-dir override changes). */
+  /** Force a fresh probe (e.g. after the data-dir override changes). */
   refresh(): GlobalInstallInfo {
     return this.describeInstall(true);
   }
@@ -113,52 +116,24 @@ export class GlobalConfigService {
     return this.refresh();
   }
 
-  private cacheStillValid(cache: InstallCache): boolean {
-    if (Date.now() - cache.probedAt > INSTALL_CACHE_TTL_MS) return false;
-    // A path that was present but has since vanished invalidates the cache.
-    if (cache.qqExePath && !existsSync(cache.qqExePath)) return false;
-    if (cache.wrapperNodePath && !existsSync(cache.wrapperNodePath)) return false;
-    if (cache.loginDbPath && !existsSync(cache.loginDbPath)) return false;
-    if (cache.tencentFilesRoot && !existsSync(cache.tencentFilesRoot)) return false;
-    // A stale cache from before the version reader was fixed can hold a null
-    // version even though QQ is installed — don't serve it; re-probe so the
-    // package.json read runs. (No wrapper ⇒ QQ genuinely absent ⇒ null is fine.)
-    if (cache.wrapperNodePath && !cache.version) return false;
-    // If the override changed since the cache was written, re-probe.
-    const override = this.userConfig.read().tencentFilesRootOverride ?? null;
-    if ((override ?? null) !== (cache.tencentFilesRoot ?? null) && override) return false;
-    return true;
-  }
-
-  private probe(): InstallCache {
+  private probe(): GlobalInstallInfo {
     const qqExePath = this.platform.qqExePath();
     const wrapperNodePath = this.platform.qqWrapperNodePath();
+    const loginDbPath = this.platform.loginDbPath();
     const override = this.userConfig.read().tencentFilesRootOverride ?? null;
     const detectedRoot = this.platform.tencentFilesRoots().find((p) => existsSync(p)) ?? null;
     const tencentFilesRoot = (override && existsSync(override)) ? override : detectedRoot;
     return {
       qqExePath,
       wrapperNodePath,
-      loginDbPath: this.platform.loginDbPath(),
+      loginDbPath,
       tencentFilesRoot,
       version: this.platform.qqVersion(),
       userDataPath: tencentFilesRoot,
-      probedAt: Date.now(),
-    };
-  }
-
-  private toInfo(cache: InstallCache): GlobalInstallInfo {
-    return {
-      qqExePath: cache.qqExePath,
-      wrapperNodePath: cache.wrapperNodePath,
-      loginDbPath: cache.loginDbPath,
-      tencentFilesRoot: cache.tencentFilesRoot,
-      version: cache.version,
-      userDataPath: cache.userDataPath,
-      hasQqExe: !!cache.qqExePath && existsSync(cache.qqExePath),
-      hasWrapper: !!cache.wrapperNodePath && existsSync(cache.wrapperNodePath),
-      hasUserData: !!cache.tencentFilesRoot && existsSync(cache.tencentFilesRoot),
-      hasLoginDb: !!cache.loginDbPath && existsSync(cache.loginDbPath),
+      hasQqExe: !!qqExePath && existsSync(qqExePath),
+      hasWrapper: !!wrapperNodePath && existsSync(wrapperNodePath),
+      hasUserData: !!tencentFilesRoot && existsSync(tencentFilesRoot),
+      hasLoginDb: !!loginDbPath && existsSync(loginDbPath),
     };
   }
 

@@ -341,3 +341,38 @@ export function findQqMajorNode(qqRoot: string): string | null {
   const candidate = join(versionDir, 'resources', 'app', 'major.node');
   return existsSync(candidate) ? candidate : null;
 }
+
+// ---------- QQ install (protocol-handler anchored) ------------------------
+//
+// The QQNT `tencent://` / `mqqapi://` handler is `timwp.exe`, which sits in
+// the SAME `resources/app` directory as `wrapper.node` / `major.node` /
+// `package.json`:
+//   <qqRoot>/versions/<cur>/resources/app/timwp.exe
+// Given that path (resolved by the OS's protocol association, no registry key
+// name to guess) every install path the registry lookup computes can be
+// derived directly — the version dir is the handler's own grandparent, so
+// there's no `versions/config.json` disambiguation either. Each helper
+// validates its target exists and returns null otherwise, so callers can fall
+// back to the registry path when the handler layout is unexpected.
+
+/** `wrapper.node` next to the protocol handler exe. */
+export function findQqWrapperNodeFromProtocolExe(protocolExePath: string): string | null {
+  const candidate = join(dirname(protocolExePath), 'wrapper.node');
+  return existsSync(candidate) ? candidate : null;
+}
+
+/** `major.node` next to the protocol handler exe. */
+export function findQqMajorNodeFromProtocolExe(protocolExePath: string): string | null {
+  const candidate = join(dirname(protocolExePath), 'major.node');
+  return existsSync(candidate) ? candidate : null;
+}
+
+/**
+ * `QQ.exe` at the install root, four levels up from the handler's `app` dir
+ * (`resources/app` → `resources` → `<cur>` → `versions` → `<qqRoot>`).
+ */
+export function findQqExeFromProtocolExe(protocolExePath: string): string | null {
+  const qqRoot = join(dirname(protocolExePath), '..', '..', '..', '..');
+  const exe = join(qqRoot, 'QQ.exe');
+  return existsSync(exe) ? exe : null;
+}

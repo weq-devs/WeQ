@@ -38,10 +38,14 @@ async function main() {
   const native = loadNative();
   const db = new CollectionDb(native.ntHelper, { dbPath: DB_PATH, key: KEY, algo: ALGO });
 
-  // The service only touches `session.collection`, so a minimal stub is enough
-  // to drive the real service → db → codec path.
-  const session = { collection: db } as unknown as AccountSession;
-  const service = new CollectionService(session);
+  // The service only touches `session.collection` on the db path, so a minimal
+  // stub is enough. A throwing resolvePid forces the network path to yield no
+  // credential → db fallback, keeping this a pure codec → db → service chain test.
+  const session = { collection: db, context: { uin: testEnv.uin } } as unknown as AccountSession;
+  const noPid = (): number => {
+    throw new Error('offline (chain test forces db path)');
+  };
+  const service = new CollectionService(native.ntHelper, session, noPid);
 
   try {
     const total = await service.countCollections();

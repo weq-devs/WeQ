@@ -7,11 +7,12 @@
  */
 
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
-import { Cloud, FileText, Loader2, Sparkles, Star } from 'lucide-react';
+import { Cloud, FileText, Loader2, Sparkles, Star, Store } from 'lucide-react';
 import { fileIconUrl, mediaUrl } from '@renderer/lib/resourceUrl';
 import { cn } from '@renderer/lib/utils';
 import { trpc } from '@renderer/trpc/client';
 import { openLightbox } from './ImageLightbox';
+import { openMarketFaceLightbox } from './MarketFaceLightbox';
 
 type Data = Record<string, unknown>;
 
@@ -483,7 +484,7 @@ export function QqVoice({ data, sendTimeMs }: { data: Data; sendTimeMs: number }
 export function QqMarketFace({ data }: { data: Data }) {
   const [broken, setBroken] = useState(false);
   const pack = num(data, 'emojiPackId');
-  const hash = str(data, 'previewMd5Hex');
+  const hash = str(data, 'marketEmoticonIdHex');
   const w = num(data, 'previewWidth');
   const h = num(data, 'previewHeight');
   const size = 120;
@@ -493,15 +494,26 @@ export function QqMarketFace({ data }: { data: Data }) {
   if (broken || !pack || !hash) {
     return <QqMediaMissing label="该表情" style={style} />;
   }
+  // 商城表情与普通图片表情的差异：外层包一层带商城角标的容器，点击弹出
+  // 「这一整组表情」的灯箱（数据同构本地资源页的商城表情包）。
   return (
-    <img
-      className="qq-media-mface"
+    <span
+      className="qq-mface-wrap"
       style={style}
-      src={mediaUrl('mface', { pack, hash })}
-      alt="[动画表情]"
-      draggable={false}
-      onError={() => setBroken(true)}
-    />
+      title="商城表情 · 点击查看整组"
+      onClick={() => openMarketFaceLightbox(String(pack), hash)}
+    >
+      <img
+        className="qq-media-mface"
+        src={mediaUrl('mface', { pack, hash })}
+        alt="[商城表情]"
+        draggable={false}
+        onError={() => setBroken(true)}
+      />
+      <span className="qq-mface-badge" aria-hidden>
+        <Store size={11} strokeWidth={2.4} />
+      </span>
+    </span>
   );
 }
 

@@ -9,6 +9,12 @@
   "scripts": {
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "test:c2c-msg": "tsx test/msg_c2c.ts",
+    "test:market-emoticon-package": "tsx test/market_emoticon_package.ts",
+    "test:dump-mface-elements": "tsx test/dump_mface_elements.ts",
+    "test:mface-tea-decrypt": "tsx test/mface_tea_decrypt.ts",
+    "test:dump-emoji-db": "tsx test/dump_emoji_db.ts",
+    "test:mface-brute": "tsx test/mface_brute.ts",
+    "test:mface-brute-mt": "tsx test/mface_brute_mt.ts",
     "test:group-msg": "tsx test/msg_group.ts",
     "test:recent-contact": "tsx test/recent_contact.ts",
     "test:recent-contact-all": "tsx test/recent_contact_all.ts",

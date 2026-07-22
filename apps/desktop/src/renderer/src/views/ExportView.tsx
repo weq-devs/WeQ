@@ -34,6 +34,7 @@ import {
   Pause,
   Play,
   Search,
+  Sticker,
   Trash2,
   Users,
   UserRound,
@@ -47,6 +48,7 @@ import { datalineName } from '@weq/codec';
 import { Avatar, Segmented, Spinner } from './export/widgets';
 import { ConversationPicker } from './export/ConversationPicker';
 import { SingleSelectPicker } from './export/SingleSelectPicker';
+import { MarketEmojiDownloadPane } from './export/MarketEmojiDownloadPane';
 import { TaskList, type UiTask, type UiFailure } from './export/TaskList';
 import { ExportLightbox, type LightboxResult, type LightboxVariant } from './export/ExportLightbox';
 import { DatabasePicker, type DbPickItem } from './export/DatabasePicker';
@@ -92,6 +94,7 @@ const MODES: ModeDef[] = [
   { id: 'collection', label: '导出收藏', desc: 'QQ 收藏导出为表格', icon: <Bookmark size={18} /> },
   { id: 'scheduled', label: '定时导出任务', desc: '按计划自动导出', icon: <CalendarClock size={18} /> },
   { id: 'album', label: '群相册导出', desc: '批量下载群相册', icon: <Images size={18} /> },
+  { id: 'marketpack', label: '商城表情下载', desc: '搜索并批量下载商城表情包', icon: <Sticker size={18} /> },
 ];
 
 /** Recent-contact wire shape we actually read here. */
@@ -428,6 +431,8 @@ export function ExportView(): ReactElement {
       bundleDir: t.bundleDir,
       avatarCount: t.avatarCount,
       stages: t.stages,
+      // conv === 'marketpack' は商城表情下载タスクの sentinel（task_manager 内で設定）。
+      isMarketPack: (t as unknown as { conv?: string }).conv === 'marketpack',
     }));
   }, [tasks.data]);
 
@@ -1051,7 +1056,9 @@ export function ExportView(): ReactElement {
           </header>
 
           <div className="weq-exp-pane-body">
-            {mode === 'scheduled' ? (
+            {mode === 'marketpack' ? (
+              <MarketEmojiDownloadPane onStarted={refetchTasks} />
+            ) : mode === 'scheduled' ? (
               <div className="weq-exp-sched">
                 <div className="weq-exp-sched-head">
                   <div className="weq-exp-sched-head-text">
@@ -1159,31 +1166,34 @@ export function ExportView(): ReactElement {
             )}
           </div>
 
-          <footer className="weq-exp-pane-foot">
-            {mode === 'scheduled' ? (
-              <span className="weq-exp-foot-hint">
-                {convSelection.size > 0
-                  ? `已选 ${convSelection.size} 个会话 · ${format.toUpperCase()} · 点击新建定时任务`
-                  : '请先选择至少一个会话'}
-              </span>
-            ) : showFormatChips ? (
-              <div className="weq-exp-foot-format">
-                <span className="weq-exp-foot-label">格式</span>
-                <Segmented<ExportFormat> value={format} onChange={setFormat} options={formatOptions} small />
-              </div>
-            ) : (
-              <span className="weq-exp-foot-hint">
-                {mode === 'album'
-                  ? '选择一个群，下一步选择相册与时间范围'
-                  : dbSelection.size > 0
-                    ? `已选 ${dbSelection.size} 个数据库 · ${fmtBytes(selectedDbBytes)}`
-                    : '选择数据库后导出解密副本'}
-              </span>
-            )}
-            <button type="button" className="weq-exp-primary" disabled={primaryDisabled} onClick={onPrimary}>
-              {primaryLabel}
-            </button>
-          </footer>
+          {/* 商城表情下载自带底部操作条，隐藏导出中心的通用 footer。 */}
+          {mode !== 'marketpack' ? (
+            <footer className="weq-exp-pane-foot">
+              {mode === 'scheduled' ? (
+                <span className="weq-exp-foot-hint">
+                  {convSelection.size > 0
+                    ? `已选 ${convSelection.size} 个会话 · ${format.toUpperCase()} · 点击新建定时任务`
+                    : '请先选择至少一个会话'}
+                </span>
+              ) : showFormatChips ? (
+                <div className="weq-exp-foot-format">
+                  <span className="weq-exp-foot-label">格式</span>
+                  <Segmented<ExportFormat> value={format} onChange={setFormat} options={formatOptions} small />
+                </div>
+              ) : (
+                <span className="weq-exp-foot-hint">
+                  {mode === 'album'
+                    ? '选择一个群，下一步选择相册与时间范围'
+                    : dbSelection.size > 0
+                      ? `已选 ${dbSelection.size} 个数据库 · ${fmtBytes(selectedDbBytes)}`
+                      : '选择数据库后导出解密副本'}
+                </span>
+              )}
+              <button type="button" className="weq-exp-primary" disabled={primaryDisabled} onClick={onPrimary}>
+                {primaryLabel}
+              </button>
+            </footer>
+          ) : null}
         </section>
       </div>
 

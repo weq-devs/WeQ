@@ -31,6 +31,7 @@ import { aiToolSpecs, runAiTool } from '../mcp/openai_tools';
 import { getExternalMcpHub, disposeExternalMcp } from '../mcp/external';
 import { sampleHitokoto } from '../hitokoto';
 import { pkexecStubHooks } from '../stub_elevation';
+import { getQqProtocolExe } from './qq_protocol';
 import { createPkexecInjectHook } from '../inject_elevation';
 import {
   accountConfigId,
@@ -531,7 +532,7 @@ export function initAppContext(): AppContext {
   const platform =
     process.platform === 'linux'
       ? createLinuxPlatform(result.bundle, () => readDataRootOverride(), resolveUid)
-      : createWin32Platform(result.bundle, () => readDataRootOverride());
+      : createWin32Platform(result.bundle, () => readDataRootOverride(), getQqProtocolExe);
   initLogger(platform.appDataRoot());
   const logger = getLogger().child({ scope: 'app-context' });
   logger.info('initializing app context', {
@@ -554,9 +555,7 @@ export function initAppContext(): AppContext {
   // user isn't stuck with a path that silently resolves nothing.
   const storedOverride = userConfig.read().tencentFilesRootOverride ?? null;
   if (storedOverride && (!existsSync(storedOverride) || !isTencentFilesRoot(storedOverride))) {
-    // Also drop the cached install probe — it may have been derived from the
-    // bad override and would otherwise be served as still-valid.
-    userConfig.write({ tencentFilesRootOverride: null, install: undefined });
+    userConfig.write({ tencentFilesRootOverride: null });
     logger.warn('cleared invalid Tencent Files override on launch', {
       event: 'sanitize-data-root-override',
       override: storedOverride,
@@ -703,8 +702,9 @@ export function initAppContext(): AppContext {
       // role / profile resolution), so they're built before the services object.
       const groupInfo = new GroupInfoService(session);
       const profile = new ProfileService(session);
-      // 收藏服务：既进 services，又喂给导出管理器的收藏拉取 dep（拍平投影）。
-      const collectionSvc = new CollectionService(session);
+      // 收藏服务：网络优先(微云 collector)、拿不到 p_skey 回退 collection.db。
+      // 既进 services，又喂给导出管理器的收藏拉取 dep（拍平投影）。
+      const collectionSvc = new CollectionService(platform.native.ntHelper, session, resolveOnlinePid);
       // Built before the services literal so AgentLab can reuse the same media
       // pipeline (媒体寻址 + rkey 补全) for 表情包/语音.
       const fileSearch = new FileSearchService(session, platform);
@@ -726,6 +726,9 @@ export function initAppContext(): AppContext {
         platform,
         join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
       );
+      // 商城表情：一个实例同时供 `emoji` 服务字段与 exportManager 的 marketpack
+      // 解密下载依赖复用（避免两处各建一个、密钥/详情缓存不共享）。
+      const emojiService = new EmojiService(session, platform);
       this.services = {
         msgs: new MsgService(session, deletedMsgs, antiRecall),
         recentContacts: new RecentContactService(session),
@@ -743,7 +746,7 @@ export function initAppContext(): AppContext {
         mediaDownload,
         mediaUrl,
         fileAssistant: new FileAssistantService(session),
-        emoji: new EmojiService(session, platform),
+        emoji: emojiService,
         agentLab: new AgentLabService(
           session,
           agentlabRoot,
@@ -882,6 +885,12 @@ export function initAppContext(): AppContext {
                 const page = await collectionSvc.listCollections(limit, offset);
                 return page.items.map(collectionItemToWire);
               },
+            },
+            // 商城表情批量下载：桥接 EmojiService 的解密链（详情 / 密钥 / 解密图片路径）。
+            marketpack: {
+              getPackDetail: (id) => emojiService.getMarketPackDetail(id),
+              getPackKey: (id) => emojiService.getMarketPackKey(id),
+              getPackImagePath: (id, hash, key) => emojiService.getMarketPackImage(id, hash, key),
             },
           },
         ),
@@ -1033,8 +1042,8 @@ export function initAppContext(): AppContext {
       const webQuery = new WebQueryService(platform.native.ntHelper, session, noPid);
       const groupInfo = new GroupInfoService(session);
       const profile = new ProfileService(session);
-      // 收藏服务：既进 services，又喂给导出管理器的收藏拉取 dep（拍平投影）。
-      const collectionSvc = new CollectionService(session);
+      // 收藏服务：静态账号 noPid 会让网络路径拿不到 p_skey → 自动回退 collection.db。
+      const collectionSvc = new CollectionService(platform.native.ntHelper, session, noPid);
       const fileSearch = new FileSearchService(session, platform);
       const agentlabRoot = userConfig.cacheDir(join('agentlab', exportConfigId));
       const tokenUsage = new TokenUsageStore(join(agentlabRoot, 'usage.json'));
@@ -1052,6 +1061,9 @@ export function initAppContext(): AppContext {
         join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
       );
 
+      // 商城表情：一个实例同时供 `emoji` 服务字段与 exportManager 的 marketpack
+      // 解密下载依赖复用（避免两处各建一个、密钥/详情缓存不共享）。
+      const emojiService = new EmojiService(session, platform);
       this.services = {
         msgs: new MsgService(session, deletedMsgs, antiRecall),
         recentContacts: new RecentContactService(session),
@@ -1069,7 +1081,7 @@ export function initAppContext(): AppContext {
         mediaDownload,
         mediaUrl,
         fileAssistant: new FileAssistantService(session),
-        emoji: new EmojiService(session, platform),
+        emoji: emojiService,
         agentLab: new AgentLabService(
           session,
           agentlabRoot,

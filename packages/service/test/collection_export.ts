@@ -103,8 +103,11 @@ function flatten(it: CollectionItem): CollectionExportRow {
 async function main() {
   const native = loadNative();
   const db = new CollectionDb(native.ntHelper, { dbPath: DB_PATH, key: KEY, algo: ALGO });
-  const session = { collection: db } as unknown as AccountSession;
-  const service = new CollectionService(session);
+  const session = { collection: db, context: { uin: testEnv.uin } } as unknown as AccountSession;
+  const noPid = (): number => {
+    throw new Error('offline (export test forces db path)');
+  };
+  const service = new CollectionService(native.ntHelper, session, noPid);
   const outDir = mkdtempSync(join(tmpdir(), 'weq-col-export-'));
 
   try {

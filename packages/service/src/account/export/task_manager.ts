@@ -59,7 +59,7 @@ export type TaskStatus = 'pending' | 'running' | 'paused' | 'completed' | 'faile
 export type { ConvKind };
 
 /** A single stage of a task's pipeline. */
-export type StageKey = 'message' | 'media' | 'avatar' | 'record' | 'image' | 'video' | 'file' | 'transcribe' | 'sysface';
+export type StageKey = 'message' | 'media' | 'avatar' | 'record' | 'image' | 'video' | 'file' | 'transcribe' | 'sysface' | 'sticker';
 
 export interface TaskStage {
   key: StageKey;
@@ -75,9 +75,29 @@ export interface TaskStage {
   failures?: MediaFailure[];
 }
 
+/** 一套待下载的商城表情包（前端勾选后传入）。 */
+export interface MarketPackDownloadItem {
+  /** 表情包 ID（packId）。 */
+  id: string;
+  /** 表情包名称（用作输出子文件夹名）。 */
+  name: string;
+}
+
+/**
+ * 商城表情解密下载能力（由 app 注入，桥接 EmojiService）。所有方法纯离线：
+ * 密钥由资源时间戳派生 / 爆破，图片走公开 CDN 加密流 + QQTEA 解密。
+ */
+export interface MarketPackDeps {
+  /** 拉 android.json 取该包的表情列表（hash + 名）。失败/不存在返回 null。 */
+  getPackDetail(packId: string): Promise<{ items: Array<{ hash: string; name: string }> } | null>;
+  /** 恢复该包的图片解密密钥（每包一次）。失败返回 null。 */
+  getPackKey(packId: string): Promise<{ key: string } | null>;
+  /** 下载并解密一张表情，返回落盘的 GIF 缓存路径。失败返回 null。 */
+  getPackImagePath(packId: string, hash: string, key?: string): Promise<string | null>;
+}
+
 /** Media-export options threaded from the lightbox. */
-export interface MediaExportOptions {
-  /** Export media files alongside the messages (turns the output into a bundle). */
+export interface MediaExportOptions {  /** Export media files alongside the messages (turns the output into a bundle). */
   exportMedia: boolean;
   /** CDN-complete images missing from the local cache (needs a live rkey). */
   completeMedia: boolean;
@@ -112,6 +132,9 @@ export interface ExportTask {
   contacts?: { scope: 'friends' | 'group'; categoryIds?: number[] };
   /** 收藏导出（QQ 收藏；走独立的收藏库拉取流水线）。`kinds` 为空 = 全部类型。 */
   collection?: { kinds?: string[] };
+  /** 商城表情批量下载（`conv` 占位为 'marketpack'；走独立的解密下载流水线）。
+   *  每套包一个以包名命名的子文件夹，内含解密后的 GIF。 */
+  marketpack?: { packs: MarketPackDownloadItem[] };
   /** Media export options, when 导出媒体 is on. */
   media?: MediaExportOptions;
   /** Inclusive send-time window for this export, if narrowed from 全部时间. */
@@ -163,6 +186,8 @@ export interface MediaDeps {
   contacts?: ContactsExportDeps;
   /** 收藏（QQ 收藏）拉取能力（由 app 注入；返回已拍平的行）。 */
   collection?: CollectionExportDeps;
+  /** 商城表情解密下载能力（由 app 注入，桥接 EmojiService）。 */
+  marketpack?: MarketPackDeps;
 }
 
 export class ExportTaskManager extends EventEmitter {
@@ -368,6 +393,34 @@ export class ExportTaskManager extends EventEmitter {
     this.tasks.set(id, task);
     this.saveTasks();
     void this.runTask(id);
+    return id;
+  }
+
+  /**
+   * 商城表情批量下载：为选中的表情包建一个独立任务（单 `sticker` 阶段），交给
+   * {@link runMarketPackTask} 并发解密下载。产物为 bundle 目录，每套一个以包名
+   * 命名的子文件夹。返回 taskId。
+   */
+  async startMarketPackDownload(packs: MarketPackDownloadItem[]): Promise<string> {
+    const id = `marketpack-${Date.now()}`;
+    const task: ExportTask = {
+      id,
+      kind: 'c2c',
+      conv: 'marketpack',
+      name: packs.length === 1 ? packs[0]!.name : `商城表情 ${packs.length} 套`,
+      format: 'json', // 占位（产物是 GIF 文件夹，非消息文件）；TaskList 只读 bundleDir。
+      status: 'pending',
+      progress: 0,
+      current: 0,
+      total: packs.length,
+      marketpack: { packs },
+      stages: [{ key: 'sticker', label: '下载表情', status: 'pending', current: 0, total: 0 }],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    this.tasks.set(id, task);
+    this.saveTasks();
+    void this.runMarketPackTask(id);
     return id;
   }
 
@@ -893,9 +946,130 @@ export class ExportTaskManager extends EventEmitter {
     }
   }
 
+  /**
+   * 商城表情批量下载：对每套包 → 拉表情列表 + 恢复一次密钥 → 并发解密下载每张 GIF
+   * 到 `bundle/<包名>/<表情名>.gif`。独立于消息流水线；解密能力走注入的
+   * `deps.marketpack`（桥接 EmojiService）。单 `sticker` 阶段跨所有包累计进度。
+   */
+  private async runMarketPackTask(id: string): Promise<void> {
+    const task = this.tasks.get(id);
+    if (!task || task.status === 'cancelled') return;
+
+    task.status = 'running';
+    task.updatedAt = Date.now();
+    this.saveTasks();
+
+    const abort = new AbortController();
+    this.abortControllers.set(id, abort);
+    const aborted = (): boolean => abort.signal.aborted;
+
+    try {
+      const deps = this.deps.marketpack;
+      if (!deps) throw new Error('商城表情解密下载能力不可用。');
+      const packs = task.marketpack?.packs ?? [];
+
+      const { mkdir, copyFile } = await import('node:fs/promises');
+      const outDir = join(this.cacheDir, `bundle-${id}`);
+      await mkdir(outDir, { recursive: true });
+      task.bundleDir = outDir;
+
+      // 先把每套包的表情列表拉齐，算出总张数（进度分母）。密钥每包恢复一次并缓存。
+      this.touchStage(task, 'sticker', { status: 'running', note: '获取表情列表…' }, { persist: true });
+      const usedDirs = new Set<string>();
+      const jobs: Array<{ packId: string; packDir: string; hash: string; name: string; key?: string; used: Set<string> }> = [];
+      for (const pack of packs) {
+        if (aborted()) { task.status = 'cancelled'; return; }
+        const detail = await deps.getPackDetail(pack.id);
+        if (!detail || detail.items.length === 0) continue;
+        const key = (await deps.getPackKey(pack.id))?.key;
+        const packDirName = uniqueName(sanitizeSegment(pack.name, pack.id), usedDirs);
+        const packDir = join(outDir, packDirName);
+        await mkdir(packDir, { recursive: true });
+        const usedFiles = new Set<string>();
+        for (const it of detail.items) {
+          jobs.push({ packId: pack.id, packDir, hash: it.hash, name: it.name, key, used: usedFiles });
+        }
+      }
+
+      const total = jobs.length;
+      let done = 0;
+      let ok = 0;
+      const failures: MediaFailure[] = [];
+      // task.total 起初是包套数（packs.length），下载开始后改成总张数，与 task.current 单位一致。
+      task.total = total;
+      this.touchStage(task, 'sticker', { total, current: 0, note: `下载 0/${total}` }, { persist: true });
+
+      // 并发解密下载（每张：CDN 加密流 → QQTEA 解密 → 缓存路径 → 复制进 bundle）。
+      const CONCURRENCY = 6;
+      let next = 0;
+      const worker = async (): Promise<void> => {
+        for (;;) {
+          if (aborted()) return;
+          const idx = next++;
+          if (idx >= jobs.length) return;
+          const job = jobs[idx]!;
+          try {
+            const src = await deps.getPackImagePath(job.packId, job.hash, job.key);
+            if (!src) throw new Error('解密或下载失败');
+            const fileName = `${uniqueName(sanitizeSegment(job.name, job.hash), job.used)}.gif`;
+            await copyFile(src, join(job.packDir, fileName));
+            ok += 1;
+          } catch (e) {
+            if (failures.length < 100) {
+              failures.push({ stage: 'sticker', fileName: job.name || job.hash, error: e instanceof Error ? e.message : String(e) });
+            }
+          } finally {
+            done += 1;
+            if (!aborted()) {
+              task.current = done;
+              this.touchStage(task, 'sticker', { current: done, total, note: `下载 ${done}/${total}` });
+            }
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, jobs.length) }, worker));
+      if (aborted()) { task.status = 'cancelled'; return; }
+
+      const failed = total - ok;
+      task.current = ok;
+      task.total = total;
+      this.touchStage(
+        task,
+        'sticker',
+        {
+          status: 'completed',
+          current: total,
+          total,
+          failed,
+          note: `已下载 ${ok}${failed ? ` · 失败 ${failed}` : ''}`,
+          ...(failures.length ? { failures } : {}),
+        },
+        { persist: true },
+      );
+
+      task.status = 'completed';
+      task.progress = 100;
+    } catch (e) {
+      task.status = 'failed';
+      task.error = String((e as Error)?.message ?? e);
+      const running = task.stages.find((s) => s.status === 'running');
+      if (running) { running.status = 'failed'; running.note = task.error; }
+    } finally {
+      task.updatedAt = Date.now();
+      this.abortControllers.delete(id);
+      this.saveTasks();
+      this.emit('progress', {
+        taskId: id,
+        status: task.status,
+        progress: task.progress,
+        current: task.current,
+        message: task.status === 'completed' ? '下载完成' : task.error ?? '已取消',
+      });
+    }
+  }
+
   /** Run a video/file download stage: gated by its toggle and a usable mediaUrl. */
-  private async runUrlDownloadStage(
-    task: ExportTask,
+  private async runUrlDownloadStage(    task: ExportTask,
     key: 'video' | 'file',
     scan: import('./media_scan').MediaScanResult,
     mediaRoot: string,
@@ -1105,4 +1279,42 @@ export class ExportTaskManager extends EventEmitter {
     this.saveTasks();
     return true;
   }
+}
+
+// ── 路径清洗 helpers（商城表情下载：包名 / 表情名 → 安全文件夹/文件名）───────────
+
+/** Windows 保留设备名（不区分大小写），单独作段名会导致创建失败。 */
+const RESERVED_NAMES = new Set([
+  'con', 'prn', 'aux', 'nul',
+  'com1', 'com2', 'com3', 'com4', 'com5', 'com6', 'com7', 'com8', 'com9',
+  'lpt1', 'lpt2', 'lpt3', 'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9',
+]);
+
+/**
+ * 把任意文本清洗成跨平台安全的单个路径段：剥非法字符 `<>:"/\|?*` + 控制符，折叠
+ * 空白，去首尾点/空格，截到 80 字符，空 / 保留名回退到 `fallback`。
+ */
+function sanitizeSegment(value: string, fallback: string): string {
+  let s = (value ?? '')
+    // 非法路径字符 <>:"/\|?* 与连字符 → 空格（随后由 \s+ 折叠）。
+    .replace(/[<>:"/\\|?*-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[. ]+$/, '')
+    .slice(0, 80)
+    .trim();
+  if (!s || RESERVED_NAMES.has(s.toLowerCase())) s = fallback;
+  return s || fallback;
+}
+
+/** 在 `used` 集合内去重：冲突时追加 `-2` / `-3`…（大小写不敏感）。 */
+function uniqueName(base: string, used: Set<string>): string {
+  let name = base;
+  let i = 2;
+  while (used.has(name.toLowerCase())) {
+    name = `${base}-${i}`;
+    i += 1;
+  }
+  used.add(name.toLowerCase());
+  return name;
 }

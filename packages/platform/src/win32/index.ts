@@ -36,6 +36,9 @@ import {
   findFileDir,
   findQqWrapperNode,
   findQqMajorNode,
+  findQqWrapperNodeFromProtocolExe,
+  findQqMajorNodeFromProtocolExe,
+  findQqExeFromProtocolExe,
 } from './paths';
 import { findQqExe, findQqInstallRoot } from './registry';
 
@@ -52,12 +55,27 @@ import { findQqExe, findQqInstallRoot } from './registry';
 export function createWin32Platform(
   native: NativeBundle,
   getOverrideRoot: () => string | null = () => null,
+  /**
+   * The exe that the OS says handles `tencent://` (QQNT's `timwp.exe`, resolved
+   * in the main process via electron's `getApplicationInfoForProtocol`). It
+   * lives in the same `resources/app` dir as `wrapper.node`, so every install
+   * path derives from it without a registry key — which covers the users whose
+   * `Uninstall\QQ` registry entry is missing / relocated / renamed. Read lazily
+   * so a probe that finishes after platform construction still flows in.
+   * Defaults to "unknown" ⇒ pure registry behavior (tests / non-electron hosts).
+   */
+  getProtocolExe: () => string | null = () => null,
 ): Platform {
   // Resolve the override lazily per call; ignore a stale/removed path so we
   // gracefully fall back to detection rather than returning dead paths.
   const override = (): string | null => {
     const o = getOverrideRoot();
     return o && existsSync(o) ? o : null;
+  };
+  // The protocol-handler exe, only when it still exists on disk.
+  const protocolExe = (): string | null => {
+    const p = getProtocolExe();
+    return p && existsSync(p) ? p : null;
   };
   return {
     kind: 'win32',
@@ -96,16 +114,29 @@ export function createWin32Platform(
     pttDir: (uin: string) => findPttDir(uin, undefined, override()),
     videoDir: (uin: string) => findVideoDir(uin, undefined, override()),
     fileDir: (uin: string) => findFileDir(uin, undefined, override()),
-    qqExePath: () => findQqExe(),
+    qqExePath: () => {
+      const p = protocolExe();
+      const viaProto = p ? findQqExeFromProtocolExe(p) : null;
+      return viaProto ?? findQqExe();
+    },
     qqWrapperNodePath: () => {
+      const p = protocolExe();
+      const viaProto = p ? findQqWrapperNodeFromProtocolExe(p) : null;
+      if (viaProto) return viaProto;
       const root = findQqInstallRoot();
       return root ? findQqWrapperNode(root) : null;
     },
     qqMajorNodePath: () => {
+      const p = protocolExe();
+      const viaProto = p ? findQqMajorNodeFromProtocolExe(p) : null;
+      if (viaProto) return viaProto;
       const root = findQqInstallRoot();
       return root ? findQqMajorNode(root) : null;
     },
     qqVersion: () => {
+      const p = protocolExe();
+      const viaProto = p ? findQqWrapperNodeFromProtocolExe(p) : null;
+      if (viaProto) return readQqVersion(viaProto);
       const root = findQqInstallRoot();
       return readQqVersion(root ? findQqWrapperNode(root) : null);
     },
@@ -149,4 +180,10 @@ export {
   tencentFilesRootFromUserDataInfo,
 } from './paths';
 export { findQqInstallRoot, findQqExe } from './registry';
-export { resolveQqVersionDir, findQqWrapperNode } from './paths';
+export {
+  resolveQqVersionDir,
+  findQqWrapperNode,
+  findQqExeFromProtocolExe,
+  findQqWrapperNodeFromProtocolExe,
+  findQqMajorNodeFromProtocolExe,
+} from './paths';

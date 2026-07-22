@@ -38,3 +38,7 @@ release/
 .agents/
 # 导出 bot 的预打包引擎（由 pnpm build:bot 生成）
 resources/bot-runtime/
+
+# dev
+/tmp
+*.py

@@ -35,7 +35,6 @@ export type { InjectHook } from './bootstrap/inject';
 export { UserConfigService, DEFAULT_APP_SETTINGS } from './bootstrap/user_config';
 export type {
   UserConfig,
-  InstallCache,
   AutoEnterTarget,
   InjectRecord,
   AppSettings,
@@ -95,7 +94,16 @@ export {
 } from './account/buddy_analytics';
 export { GroupNotifyService } from './account/group_notify';
 export { ProfileService } from './account/profile';
-export { EmojiService, type SystemFaceEntry } from './account/emoji';
+export {
+  EmojiService,
+  feeTypeLabel as marketFeeTypeLabel,
+  type SystemFaceEntry,
+  type MarketPackDetail,
+  type MarketPackItem,
+  type MarketPackKey,
+  type MarketPackFeeType,
+} from './account/emoji';
+export type { MarketEmoticonPackage } from '@weq/db';
 export { FileAssistantService } from './account/file_assistant';
 export { CollectionService, type CollectionPage } from './account/collection';
 export { FileSearchService } from './account/file_search';
@@ -302,6 +310,8 @@ export type {
   ExportTask,
   TaskStatus,
   TaskProgress,
+  MarketPackDeps,
+  MarketPackDownloadItem,
 } from './account/export';
 
 // ---- common (account-independent helpers) ----

@@ -78,6 +78,8 @@ export interface UiTask {
   avatarCount?: number;
   /** Per-stage progress (message → media → record → image …). */
   stages?: UiStage[];
+  /** 商城表情批量下载任务：隐藏格式标签、计数单位用「张」而非「条」。 */
+  isMarketPack?: boolean;
 }
 
 /** Percent for one stage's bar. */
@@ -198,7 +200,9 @@ export function TaskList({
                     <strong className="weq-exp-task-name" title={t.name}>
                       {t.name}
                     </strong>
-                    <span className="weq-exp-task-fmt">{t.format.toUpperCase()}</span>
+                    {t.isMarketPack ? null : (
+                      <span className="weq-exp-task-fmt">{t.format.toUpperCase()}</span>
+                    )}
                     <span className={`weq-exp-task-status is-${t.status}`}>
                       <StatusIcon status={t.status} />
                       {t.status === 'running' ? `${pct}%` : STATUS_LABEL[t.status]}
@@ -223,7 +227,7 @@ export function TaskList({
                   <div className="weq-exp-task-sub">
                     <span>
                       {fmtCount(t.current)}
-                      {t.total > 0 ? ` / ${fmtCount(t.total)}` : ''} 条
+                      {t.total > 0 ? ` / ${fmtCount(t.total)}` : ''} {t.isMarketPack ? '张' : '条'}
                       {t.avatarCount ? ` · 含头像 ${fmtCount(t.avatarCount)}` : ''}
                     </span>
                     {hasCompletion ? (

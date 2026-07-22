@@ -673,11 +673,11 @@ export const ElementWire = {
   /** Emoji package / pack ID. Required for MFACE elements. */
   emojiPackId: ProtoField(80810, ScalarType.UINT32, { optional: true }),
 
-  /** Emoji character ID (key). Required for MFACE elements. */
-  emojiId: ProtoField(80824, ScalarType.STRING, { optional: true }),
+  /** Decryption key for the on-disk (XOR-encrypted) emoji image file. */
+  encryptKey: ProtoField(80824, ScalarType.STRING, { optional: true }),
 
-  /** Unknown length-delimited field. Required for MFACE elements. */
-  mfaceFlag80900: ProtoField(80900, ScalarType.STRING, { optional: true }),
+  /** Emoji description text, e.g. "[嗨]". */
+  emojiDesc: ProtoField(80900, ScalarType.STRING, { optional: true }),
 
   /** Emoji type. Required for MFACE elements. */
   mfaceType: ProtoField(80901, ScalarType.UINT32, { optional: true }),
@@ -685,8 +685,8 @@ export const ElementWire = {
   /** Emoji sub-type flag. Required for MFACE elements. */
   mfaceSubType: ProtoField(80902, ScalarType.BOOL, { optional: true }),
 
-  /** Preview image MD5. Required for MFACE elements. */
-  previewMd5: ProtoField(80903, ScalarType.BYTES, { optional: true }),
+  /** Market emoticon ID — the real sticker id (on-disk file name). */
+  marketEmoticonId: ProtoField(80903, ScalarType.BYTES, { optional: true }),
 
   /** Media type flag. Required for MFACE elements. */
   mediaType: ProtoField(80905, ScalarType.UINT32, { optional: true }),
@@ -718,8 +718,8 @@ export const ElementWire = {
   /** 样式 / 空对象. Best guess: bytes. */
   mfaceFlag80942: ProtoField(80942, ScalarType.BYTES, { optional: true }),
 
-  /** 宽高列表. Best guess: packed/nested → bytes. */
-  mfaceFlag80970: ProtoField(80970, ScalarType.BYTES, { optional: true }),
+  /** Protobuf-encoded width/height, e.g. `e0 c1 27 c8 01 e8 c1 27 c8 01`. */
+  sizeInfo: ProtoField(80970, ScalarType.BYTES, { optional: true }),
 
   /** 兼容性标志. Best guess: integer flag. */
   mfaceFlag80975: ProtoField(80975, ScalarType.UINT32, { optional: true }),

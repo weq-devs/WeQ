@@ -32,6 +32,7 @@ export function ChatShell({
 	onViewChange,
 	onOpenSettings,
 	onOpenCollection,
+	onOpenMarketBrowser,
 	onOpenProfile,
 	onOpenAbout,
 	onOpenHelp,
@@ -64,6 +65,7 @@ export function ChatShell({
 	onViewChange: (view: MainView) => void;
 	onOpenSettings: (tab?: SettingsTab) => void;
 	onOpenCollection: () => void;
+	onOpenMarketBrowser: () => void;
 	onOpenProfile: () => void;
 	onOpenAbout: () => void;
 	onOpenHelp: () => void;
@@ -93,6 +95,7 @@ export function ChatShell({
 					onViewChange={onViewChange}
 					onOpenSettings={onOpenSettings}
 					onOpenCollection={onOpenCollection}
+					onOpenMarketBrowser={onOpenMarketBrowser}
 					onOpenProfile={onOpenProfile}
 					onOpenAbout={onOpenAbout}
 					onOpenHelp={onOpenHelp}

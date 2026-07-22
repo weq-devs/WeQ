@@ -271,11 +271,11 @@ export interface RenderMfaceElement {
   type: 'mface';
   data: BaseRenderData & {
     emojiPackId: number;
-    emojiId: string;
+    encryptKey: string;
     mfaceType: number;
     mfaceSubType: boolean;
-    /** Lowercase hex of the preview md5 — the on-disk marketface file name. */
-    previewMd5Hex: string;
+    /** Lowercase hex of the market emoticon id — the on-disk marketface file name. */
+    marketEmoticonIdHex: string;
     mediaType: number;
     // renderFlag: boolean;
     previewWidth: number;
@@ -764,10 +764,10 @@ function mapMface(el: MfaceElement): RenderMfaceElement {
     type: 'mface',
     data: {
       emojiPackId: el.emojiPackId,
-      emojiId: el.emojiId,
+      encryptKey: el.encryptKey,
       mfaceType: el.mfaceType,
       mfaceSubType: el.mfaceSubType,
-      previewMd5Hex: toHex(el.previewMd5),
+      marketEmoticonIdHex: toHex(el.marketEmoticonId),
       mediaType: el.mediaType,
       // renderFlag: el.renderFlag,
       previewWidth: el.previewWidth,
