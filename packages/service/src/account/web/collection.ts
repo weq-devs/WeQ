@@ -151,10 +151,9 @@ function mapItem(item: WireItem): CollectionItem {
           url: s.linkSummary.url,
           title: s.linkSummary.title,
           publisher: s.linkSummary.publisher,
-          brief: s.linkSummary.description,
+          brief: s.linkSummary.brief,
           picList: (s.linkSummary.picList ?? []).map(mapPic),
           type: s.linkSummary.contentType === undefined ? undefined : Number(s.linkSummary.contentType),
-          resourceUrl: s.linkSummary.originalUri,
         }
       : undefined,
     gallerySummary: s.gallerySummary

@@ -157,16 +157,16 @@ export const CollectorLocationSummary = {
   field6: ProtoField(6, ScalarType.STRING, { optional: true }),
 };
 
-/** type 2 — link. */
+/** type 2 — link. Real wire layout verified against 9 live samples:
+ *  f1=url  f2=title  f3=publisher  f4=brief(string)  f5=picList(msg)  f6=contentType  f7=field7 */
 export const CollectorLinkSummary = {
-  title: ProtoField(1, ScalarType.STRING, { optional: true }),
-  description: ProtoField(2, ScalarType.STRING, { optional: true }),
-  url: ProtoField(3, ScalarType.STRING, { optional: true }),
-  picList: ProtoField(4, () => CollectorPicInfo, { optional: true, repeat: true }),
-  contentType: ProtoField(5, ScalarType.UINT32, { optional: true }),
-  originalUri: ProtoField(6, ScalarType.STRING, { optional: true }),
-  publisher: ProtoField(7, ScalarType.STRING, { optional: true }),
-  version: ProtoField(8, ScalarType.UINT32, { optional: true }),
+  url: ProtoField(1, ScalarType.STRING, { optional: true }),
+  title: ProtoField(2, ScalarType.STRING, { optional: true }),
+  publisher: ProtoField(3, ScalarType.STRING, { optional: true }),
+  brief: ProtoField(4, ScalarType.STRING, { optional: true }),
+  picList: ProtoField(5, () => CollectorPicInfo, { optional: true, repeat: true }),
+  contentType: ProtoField(6, ScalarType.UINT32, { optional: true }),
+  field7: ProtoField(7, ScalarType.STRING, { optional: true }),
 };
 
 /**

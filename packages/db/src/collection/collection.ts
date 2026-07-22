@@ -97,7 +97,6 @@ export interface LinkSummary {
   brief?: string;
   picList?: CollectionPicInfo[];
   type?: number;
-  resourceUrl?: string;
 }
 export interface GallerySummary {
   picList?: CollectionPicInfo[];
