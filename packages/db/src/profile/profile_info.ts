@@ -23,11 +23,13 @@
 import { ProtoMsg } from '@weq/codec';
 import { GroupRelationBody } from '@weq/codec/proto/profile/20072';
 import { CustomStatusBody } from '@weq/codec/proto/profile/20057';
+import { ProfileExtBody } from '@weq/codec/proto/profile/21000';
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import { QqDb } from '../qq_db';
 
 const relationCodec = new ProtoMsg(GroupRelationBody);
 const statusCodec = new ProtoMsg(CustomStatusBody);
+const extCodec = new ProtoMsg(ProfileExtBody);
 
 export interface ExtensionRelation {
   preselectedIds: number[];
@@ -37,6 +39,54 @@ export interface ExtensionRelation {
 export interface CustomStatus {
   id?: number;
   desc?: string;
+}
+
+/** 好友互动标识(pat/spray/friend_tree…)。 */
+export interface InteractMark {
+  /** 类型名(pat/spray/friend_tree/fire/…)。 */
+  type?: string;
+  /** 互动标识种类ID(按类型固定, 非用户等级)。 */
+  markId?: number;
+  /** 小图标 URL。 */
+  iconUrl?: string;
+}
+
+/** 单项 VIP/特权。 */
+export interface Privilege {
+  /** 特权业务ID(超会=1, 音乐SVIP=103, 情侣=119…)。 */
+  bizId?: number;
+  /** 等级(与图标 big_light_N 一致)。 */
+  level?: number;
+  /** 是否已开通。 */
+  opened: boolean;
+  /** 图标 URL(gray_N=灰/未开, big_light_N=亮/已开)。 */
+  iconUrl?: string;
+  /** 跳转 URL。 */
+  jumpUrl?: string;
+}
+
+/** QQ空间相册照片(含多尺寸完整 URL)。 */
+export interface AlbumPhoto {
+  /** 照片 hash。 */
+  photoId?: string;
+  /** 时间(秒)。 */
+  time?: number;
+  /** 尺寸→URL(0=原图,2=640,3=160,4=100)。 */
+  urls: Array<{ size?: number; url?: string }>;
+}
+
+/** 21000 列解出的资料扩展信息。 */
+export interface ProfileExtInfo {
+  interactMarks: InteractMark[];
+  privileges: Privilege[];
+  /** 教育经历/学校。 */
+  school?: string;
+  /** 机型编码串(如 "49-102-49")。 */
+  deviceCode?: string;
+  /** 兴趣标签。 */
+  interests: string[];
+  /** QQ空间相册。 */
+  album: AlbumPhoto[];
 }
 
 export interface UserProfile {
@@ -57,6 +107,8 @@ export interface UserProfile {
   gender: number; // 1: male, 2: female, 0: unknown
   customStatus?: CustomStatus;
   extRelation?: ExtensionRelation;
+  /** 21000 列 —— VIP/特权、互动标识、教育、机型、兴趣、相册。 */
+  extInfo?: ProfileExtInfo;
 }
 
 export interface ProfileInfoDbOptions {
@@ -66,7 +118,7 @@ export interface ProfileInfoDbOptions {
   algo?: DatabaseAlgorithms;
 }
 
-const SELECT_COLUMNS = `"1000","1001","1002","20002","20004","20006","20007","20008","20009","20011","20014","20057","20070","20072","24103","24104"`;
+const SELECT_COLUMNS = `"1000","1001","1002","20002","20004","20006","20007","20008","20009","20011","20014","20057","20070","20072","24103","24104","21000"`;
 
 export class ProfileInfoDb {
   private readonly qq: QqDb;
@@ -225,6 +277,8 @@ function rowToProfile(row: SqlRow): UserProfile {
     } catch {}
   }
 
+  const extInfo = parseExtInfo(row[16]);
+
   return {
     uid: String(row[0] ?? ''),
     qid: String(row[1] ?? ''),
@@ -243,6 +297,71 @@ function rowToProfile(row: SqlRow): UserProfile {
     isFriend,
     customStatus,
     extRelation,
+    extInfo,
+  };
+}
+
+/** 解析 21000 列 → 结构化扩展信息(全空则返回 undefined)。 */
+function parseExtInfo(blob: SqlValue | undefined): ProfileExtInfo | undefined {
+  if (!(blob instanceof Uint8Array)) return undefined;
+  let ext: ReturnType<typeof extCodec.decode>['ext'];
+  try {
+    ext = extCodec.decode(blob).ext;
+  } catch {
+    return undefined;
+  }
+  if (!ext) return undefined;
+
+  const interactMarks: InteractMark[] = (ext.interactMarks?.marks ?? []).map((m) => ({
+    type: m.type,
+    markId: m.markId,
+    iconUrl: m.smallIcon,
+  }));
+
+  const container = ext.privilege?.container;
+  const privileges: Privilege[] = [
+    ...(container?.opened ?? []).map((p) => toPrivilege(p, true)),
+    ...(container?.unopened ?? []).map((p) => toPrivilege(p, false)),
+  ];
+
+  const interests = ext.extInfo?.interests?.tags ?? [];
+
+  const album: AlbumPhoto[] = (ext.album?.container?.photos ?? []).map((ph) => ({
+    photoId: ph.photoId,
+    time: ph.time,
+    urls: (ph.sizes ?? []).map((s) => ({ size: s.size, url: s.url })),
+  }));
+
+  const info: ProfileExtInfo = {
+    interactMarks,
+    privileges,
+    school: ext.extInfo?.school || undefined,
+    deviceCode: ext.extInfo?.deviceCode || undefined,
+    interests,
+    album,
+  };
+
+  // 全空则不占位
+  const empty =
+    interactMarks.length === 0 &&
+    privileges.length === 0 &&
+    !info.school &&
+    !info.deviceCode &&
+    interests.length === 0 &&
+    album.length === 0;
+  return empty ? undefined : info;
+}
+
+function toPrivilege(
+  p: { bizId?: number; level?: number; iconUrl?: string; iconUrlAlt?: string; jumpUrl?: string },
+  opened: boolean,
+): Privilege {
+  return {
+    bizId: p.bizId,
+    level: p.level,
+    opened,
+    iconUrl: p.iconUrl || p.iconUrlAlt || undefined,
+    jumpUrl: p.jumpUrl,
   };
 }
 

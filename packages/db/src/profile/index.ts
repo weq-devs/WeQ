@@ -12,7 +12,16 @@ export { BuddyRequestDb } from './buddy_req';
 export type { BuddyRequestDbOptions, BuddyRequest } from './buddy_req';
 
 export { ProfileInfoDb } from './profile_info';
-export type { ProfileInfoDbOptions, UserProfile, ExtensionRelation, CustomStatus } from './profile_info';
+export type {
+  ProfileInfoDbOptions,
+  UserProfile,
+  ExtensionRelation,
+  CustomStatus,
+  ProfileExtInfo,
+  InteractMark,
+  Privilege,
+  AlbumPhoto,
+} from './profile_info';
 
 export { MiscDb } from './misc';
 export type { OnlineStatusData } from './misc';
