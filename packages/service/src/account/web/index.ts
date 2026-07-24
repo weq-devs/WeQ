@@ -5,6 +5,7 @@
 import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
 import { WebCredentialProvider } from './credential';
+import { getFriendDress, type FriendDress } from './friend_dress';
 import { getGroupAlbumList, type GroupAlbum } from './group_album';
 import { getHonorList, type HonorType, type HonorMember } from './group_honor';
 import { getGroupNotice, type GroupNotice } from './group_notice';
@@ -17,6 +18,7 @@ import {
 
 const QUN_DOMAIN = 'qun.qq.com';
 const QZONE_DOMAIN = 'qzone.qq.com';
+const VIP_DOMAIN = 'vip.qq.com';
 
 export class WebQueryService {
   private readonly creds: WebCredentialProvider;
@@ -37,6 +39,11 @@ export class WebQueryService {
     return getGroupAlbumList(await this.creds.forDomain(QZONE_DOMAIN), groupId);
   }
 
+  /** 查某人正在用的好友装扮(挂件/名片/来电/输入状态等)。解析不出返回 null。 */
+  async getFriendDress(targetUin: string): Promise<FriendDress | null> {
+    return getFriendDress(await this.creds.forDomain(VIP_DOMAIN), targetUin);
+  }
+
   async getHonorList(groupCode: string, type: HonorType): Promise<HonorMember[]> {
     return getHonorList(await this.creds.forDomain(QUN_DOMAIN), groupCode, type);
   }
@@ -55,6 +62,8 @@ export class WebQueryService {
 
 export { computeBkn, cookieHeader, WebCredentialProvider } from './credential';
 export type { WebCredential } from './credential';
+export { getFriendDress } from './friend_dress';
+export type { FriendDress, FriendDressItem } from './friend_dress';
 export { getGroupNotice } from './group_notice';
 export type { GroupNotice, GroupNoticeImage } from './group_notice';
 export { getGroupAlbumList } from './group_album';
