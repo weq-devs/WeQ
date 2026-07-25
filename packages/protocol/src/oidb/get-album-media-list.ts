@@ -18,7 +18,7 @@ export namespace GetAlbumMediaList {
   }
 
   export const serialize = (p: Params): Record<string, unknown> => ({
-    reqInfo: { groupId: p.groupId, albumId: p.albumId, attachInfo: p.attachInfo ?? '' },
+    reqInfo: { groupId: p.groupId, albumId: p.albumId, pageInfo: p.attachInfo ?? '' },
     traceId: `_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
     extMap: [{ key: 'fc-appid', value: '100' }],
   });

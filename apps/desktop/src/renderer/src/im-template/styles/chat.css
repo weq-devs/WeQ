@@ -2214,6 +2214,23 @@ html[data-theme="dark"] .member-role-badge.admin {
 	object-fit: cover;
 }
 
+.group-album-media-card.is-video {
+	position: relative;
+	cursor: pointer;
+}
+
+.group-album-media-play {
+	position: absolute;
+	display: grid;
+	width: 34px;
+	height: 34px;
+	place-items: center;
+	border-radius: 50%;
+	background: color-mix(in srgb, black 55%, transparent);
+	color: white;
+	pointer-events: none;
+}
+
 .group-info-detail-dialog,
 .group-profile-detail-dialog {
 	display: grid;

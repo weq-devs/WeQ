@@ -129,7 +129,11 @@ async function albumRemoteResponse(src: string): Promise<Response> {
     host === 'p.qpic.cn' ||
     host.endsWith('.qpic.cn') ||
     host === 'photo.store.qq.com' ||
-    host.endsWith('.photo.store.qq.com');
+    host.endsWith('.photo.store.qq.com') ||
+    // 群相册视频走视频 CDN,和图片不同域。
+    host.endsWith('.video.qq.com') ||
+    host.endsWith('.gtimg.com') ||
+    host.endsWith('.qzone.qq.com');
   if (!allowed) return notFound('album image host not allowed');
   const res = await net.fetch(src, {
     headers: {
