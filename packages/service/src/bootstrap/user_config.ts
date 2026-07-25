@@ -174,6 +174,12 @@ export interface AppSettings {
   agentLab: AgentLabSettings;
   /** 点击关闭按钮时的行为。默认 'ask'（首次弹窗询问）。 */
   windowCloseBehavior: WindowCloseBehavior;
+  /**
+   * 是否把纯文本消息里的 Markdown 也渲染出来。这是 WeQ 自己的 feature——QQ 的语义里
+   * 只有 markdownElement 才是 Markdown，纯文本就该是纯文本（关掉后别人发的 ``` 或 **
+   * 会原样显示）。默认开启。markdownElement 不受此开关影响，始终按 Markdown 渲染。
+   */
+  renderTextMarkdown: boolean;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -189,6 +195,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   weqAssistant: { enabled: false, port: 27182 },
   agentLab: { providers: [] },
   windowCloseBehavior: 'ask',
+  renderTextMarkdown: true,
 };
 
 export interface UserConfig {
@@ -404,6 +411,7 @@ export class UserConfigService {
       autoFetchClientKey: s?.autoFetchClientKey ?? d.autoFetchClientKey,
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
       windowCloseBehavior: normalizeWindowCloseBehavior(s?.windowCloseBehavior) ?? d.windowCloseBehavior,
+      renderTextMarkdown: s?.renderTextMarkdown ?? d.renderTextMarkdown,
       mediaCompletion: {
         enabled: s?.mediaCompletion?.enabled ?? d.mediaCompletion.enabled,
       },
@@ -434,6 +442,7 @@ export class UserConfigService {
       autoLockMinutes: patch.autoLockMinutes ?? current.autoLockMinutes,
       windowCloseBehavior:
         normalizeWindowCloseBehavior(patch.windowCloseBehavior) ?? current.windowCloseBehavior,
+      renderTextMarkdown: patch.renderTextMarkdown ?? current.renderTextMarkdown,
       mediaCompletion: {
         enabled: patch.mediaCompletion?.enabled ?? current.mediaCompletion.enabled,
       },

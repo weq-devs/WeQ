@@ -916,7 +916,7 @@
 		max-width: 77%;
 	}
 
-	.message-bubble.has-code {
+	.message-bubble:has(.qq-md pre) {
 		max-width: 77%;
 	}
 

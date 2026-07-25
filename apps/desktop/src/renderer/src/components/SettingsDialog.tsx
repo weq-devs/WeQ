@@ -35,6 +35,8 @@ import { VoiceTranscribeSection } from './settings/VoiceTranscribeSection';
 import { McpServerSection } from './settings/McpServerSection';
 import { WeqAssistantSection } from './settings/WeqAssistantSection';
 import { AntiRecallSection } from './settings/AntiRecallSection';
+import { Toggle } from './settings/controls';
+import { trpc } from '../trpc/client';
 import {
   useThemeStore,
   type ThemeBackground,
@@ -192,10 +194,37 @@ function AppearanceSection(): ReactElement {
   const setBackground = useThemeStore((state) => state.setBackground);
   const setComponentStyle = useThemeStore((state) => state.setComponentStyle);
 
+  // 「纯文本消息渲染 Markdown」——不像主题那样存 localStorage，而是走 AppSettings
+  // （config.json）：渲染层要通过 App.tsx 的 TextMarkdownContext 广播给每条气泡。
+  const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
+  const setRenderTextMarkdown = trpc.bootstrap.setRenderTextMarkdown.useMutation();
+  const [textMarkdown, setTextMarkdown] = useState(true);
+
+  useEffect(() => {
+    const enabled = settings.data?.renderTextMarkdown;
+    if (typeof enabled === 'boolean') setTextMarkdown(enabled);
+  }, [settings.data?.renderTextMarkdown]);
+
+  // 本地先翻转求手感，失败回滚 + 重新拉服务端值。
+  async function onSetTextMarkdown(next: boolean): Promise<void> {
+    const prev = textMarkdown;
+    setTextMarkdown(next);
+    try {
+      await setRenderTextMarkdown.mutateAsync({ enabled: next });
+    } catch {
+      setTextMarkdown(prev);
+    }
+    await settings.refetch();
+  }
+
   return (
     <section className="weq-settings-section">
       <h3 className="weq-settings-section-title">个性显示</h3>
-      <p>主题模式、主题色、界面背景与组件风格都在这里调整，改动即时生效。</p>
+      <p>主题模式、主题色、界面背景、组件风格与消息渲染都在这里调整，改动即时生效。</p>
 
       <div className="weq-settings-appearance-card">
         <div className="weq-settings-appearance-head">
@@ -235,6 +264,25 @@ function AppearanceSection(): ReactElement {
           </div>
         </div>
         <ComponentStyleRow value={componentStyle} onChange={setComponentStyle} />
+      </div>
+
+      <div className="weq-settings-appearance-card">
+        <div className="weq-settings-appearance-head">
+          <div>
+            <strong>纯文本消息渲染 Markdown</strong>
+            <span>
+              把普通文本消息里的 # 标题、**加粗**、代码块等语法渲染成富文本。这是 WeQ
+              自己的功能——QQ 只把专门的 Markdown 消息当富文本，关掉后纯文本原样显示
+              （QQ 原生 Markdown 消息不受影响）。
+            </span>
+          </div>
+          <Toggle
+            checked={textMarkdown}
+            disabled={settings.isLoading || setRenderTextMarkdown.isLoading}
+            onChange={(next) => void onSetTextMarkdown(next)}
+            label="纯文本消息渲染 Markdown"
+          />
+        </div>
       </div>
     </section>
   );

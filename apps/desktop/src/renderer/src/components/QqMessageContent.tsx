@@ -1,8 +1,9 @@
 /**
  * Renders a QQ message's elements as React nodes, upgrading `face` elements to
- * <FaceEmoji>. Plugs into the im-template via a MessageRenderer that only
- * matches messages containing at least one face — every other message keeps
- * the template's default (string/markdown) rendering untouched.
+ * <FaceEmoji>. Plugs into the im-template via a MessageRenderer that claims every
+ * element kind in HANDLED_KINDS — text included. Only kinds we don't draw
+ * (emojiBounce / qqDynamic / unrecognized-but-has-body) fall through to the
+ * template's plain-text fallback.
  *
  * Sizing rules:
  *   - Face mixed with other elements → text-sized, inline with the text.
@@ -20,6 +21,7 @@ import { ArrowUp } from 'lucide-react';
 import type { MessageRenderer } from '../im-template/template';
 import { FaceEmoji } from './FaceEmoji';
 import { QqImage, QqVideo, QqFile, QqVoice, QqMarketFace, QqOnlineFile } from './QqMedia';
+import { QqMarkdown, looksLikeMarkdown } from './QqMarkdown';
 import { ForwardMultiMsgPreview, isArkMultiMsg } from './ForwardWindow';
 import { QqArk } from './ark/QqArk';
 import { QqFlashTransfer } from './QqFlashTransfer';
@@ -58,6 +60,17 @@ export const ForwardKindContext = createContext<'c2c' | 'group'>('c2c');
  */
 export const ConvContext = createContext<string>('');
 
+/**
+ * 「把纯文本消息里的 Markdown 也渲染」开关（设置 → 全局设置，AppSettings.renderTextMarkdown）。
+ *
+ * 这是 WeQ 自己的 feature，不是 QQ 的语义——QQ 原生只有 markdownElement 才是 Markdown。
+ * 走 context 而不是在本组件里 useQuery：QqMessageContent 是纯组件、每条气泡一个实例，
+ * 挂几百个订阅会在缓存失效时全量重渲。provider 在 App.tsx（必须在那一层——
+ * ForwardWindowHost 挂在 MainView 之外，转发窗口里的气泡也要拿到这个值）。
+ * 默认 true，与 DEFAULT_APP_SETTINGS 一致，settings 还没加载完时不会闪成关。
+ */
+export const TextMarkdownContext = createContext<boolean>(true);
+
 /** Element kinds that render as standalone, borderless media (no bubble). */
 const BORDERLESS_MEDIA = new Set(['pic', 'video', 'mface']);
 /** Element kinds handled by a dedicated media component. */
@@ -86,7 +99,7 @@ type RenderElement = {
 /**
  * A `markdown` element is a QQ 闪传 (flash transfer) card iff it carries a
  * non-empty `flashTransferInfo` object. Returns that info (for the card) or null
- * (plain markdown → falls through to the template's default markdown renderer).
+ * (plain markdown → rendered as Markdown by ElementNode).
  */
 function flashTransferInfoOf(element: RenderElement): Record<string, unknown> | null {
   if (element.type !== 'markdown') return null;
@@ -214,6 +227,13 @@ function ElementNode({
         {text}
       </span>
     );
+  }
+  if (element.type === 'markdown') {
+    // QQ 原生 markdownElement。闪传卡片（带 flashTransferInfo）在 QqMessageContent
+    // 主体里已被提前认领，走不到这里。
+    const data = element.data ?? {};
+    const text = String(data.markdownContent || data.markdownTextSummary || '');
+    return text ? <QqMarkdown text={text} /> : null;
   }
   if (element.type === 'call') {
     const data = element.data ?? {};
@@ -478,6 +498,7 @@ export function QqMessageContent({
   // takes over the whole bubble, rendering as its own self-contained card.
   const arkElement = elements.find((element) => element.type === 'ark');
   const forwardKind = useContext(ForwardKindContext);
+  const textMarkdownOn = useContext(TextMarkdownContext);
   if (arkElement && isArkMultiMsg(arkElement.data?.arkData)) {
     return (
       <div className={cn('message-content', 'qq-card-only', 'qq-has-forward')}>
@@ -498,7 +519,7 @@ export function QqMessageContent({
   }
 
   // A `markdown` element carrying `flashTransferInfo` (QQ 闪传) renders as a flash
-  // transfer file card; plain markdown is left to the template's default renderer.
+  // transfer file card; plain markdown is rendered as Markdown by ElementNode.
   const flashElement = elements.find((element) => flashTransferInfoOf(element) !== null);
   if (flashElement) {
     return (
@@ -604,27 +625,41 @@ export function QqMessageContent({
     }
   }
 
+  // WeQ feature（可在设置里关掉）：一条**全是纯文本**的消息，如果看起来像 Markdown，
+  // 就整段交给 streamdown。两道闸都是必需的：
+  //   · 全 text —— 一旦混有 at/face，整段当 Markdown 渲染会吞掉 @ 高亮和表情图；
+  //   · looksLikeMarkdown —— 绝大多数消息是纯文本，不该为它们各起一个 remark+shiki 管线。
+  if (textMarkdownOn && meaningful.length > 0 && meaningful.every((element) => element.type === 'text')) {
+    const body = meaningful.map((element) => String(element.data?.textContent ?? '')).join('');
+    if (looksLikeMarkdown(body)) {
+      return (
+        <div className={cn('message-content', 'qq-message-inline')}>
+          <QqMarkdown text={body} />
+        </div>
+      );
+    }
+  }
+
   const nodes = renderElementNodes(meaningful, sendTimeMs, msgId, isSender);
 
   return <div className={cn('message-content', 'qq-message-inline')}>{nodes}</div>;
 }
 
-/** Element kinds this renderer claims (reply/face/at + rich media + multiMsg). */
-const HANDLED_KINDS = new Set(['reply', 'face', 'at', 'pic', 'video', 'file', 'ptt', 'mface', 'multiMsg', 'ark', 'wallet', 'call', 'onlineFile', 'onlineFolder']);
+/** Element kinds this renderer claims (text/reply/face/at + rich media + markdown + multiMsg). */
+const HANDLED_KINDS = new Set(['text', 'reply', 'face', 'at', 'pic', 'video', 'file', 'ptt', 'mface', 'markdown', 'multiMsg', 'ark', 'wallet', 'call', 'onlineFile', 'onlineFolder']);
 
-/** MessageRenderer that handles messages carrying face/at or rich-media elements. */
+/**
+ * MessageRenderer that handles every element kind we draw ourselves — text,
+ * face/at, rich media, cards, markdown. Only kinds absent from HANDLED_KINDS
+ * (emojiBounce / qqDynamic / unknown-with-body) fall through to the template's
+ * plain-text fallback.
+ */
 export const qqMessageRenderer: MessageRenderer = {
   id: 'qq-elements',
   match: ({ message }) => {
     const elements = (message as { qqElements?: RenderElement[] }).qqElements;
     if (!Array.isArray(elements)) return false;
-    return elements.some(
-      (element) =>
-        (element?.type !== undefined && HANDLED_KINDS.has(element.type)) ||
-        // Plain markdown stays with the default renderer; only flash-transfer
-        // markdown (flashTransferInfo present) is claimed here.
-        flashTransferInfoOf(element) !== null,
-    );
+    return elements.some((element) => element?.type !== undefined && HANDLED_KINDS.has(element.type));
   },
   render: ({ message, mine }) => {
     const m = message as { qqElements?: RenderElement[]; createdAt?: string; msgId?: string };

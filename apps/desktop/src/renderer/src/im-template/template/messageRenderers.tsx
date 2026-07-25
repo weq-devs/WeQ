@@ -1,6 +1,5 @@
 ﻿// @ts-nocheck
 import type { ReactNode } from "react";
-import { MessageContent } from "./messageContent";
 import type { Conversation, Message, User } from "./types";
 
 export type MessageRendererContext = {
@@ -22,15 +21,25 @@ export type ComposeMessageRenderersOptions = {
 	append?: MessageRenderer[];
 };
 
+/**
+ * 兜底渲染：把 body 当纯文本画出来。
+ *
+ * 只有「没被 qqMessageRenderer 认领」的消息会走到这里——unknown-only 但 body 非空、
+ * emojiBounce、qqDynamic，以及将来新增的 codec 元素类型。真实的文本/媒体/卡片消息都由
+ * qqMessageRenderer 处理。`message-content` 这个 class 必须保留：messageBubble 的
+ * selectMessageContent() 靠它做长按选中。
+ */
 export function renderDefaultMessageContent(message: Message) {
 	return (
-		<MessageContent value={message.body} streamStatus={message.streamStatus} />
+		<span className="message-content qq-message-inline qq-text-run">
+			{message.body}
+		</span>
 	);
 }
 
 export const defaultMessageRenderers: MessageRenderer[] = [
 	{
-		id: "markdown",
+		id: "plain-text",
 		match: () => true,
 		render: ({ message }) => renderDefaultMessageContent(message),
 	},

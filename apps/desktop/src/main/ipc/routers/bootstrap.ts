@@ -341,6 +341,17 @@ export const bootstrapRouter = router({
       return true;
     }),
 
+  /**
+   * 是否把纯文本消息里的 Markdown 也渲染。渲染层通过 App.tsx 的 TextMarkdownContext
+   * 读取（getSettings 查询失效后自动生效）——纯持久化，无需主进程侧应用。
+   */
+  setRenderTextMarkdown: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ renderTextMarkdown: input.enabled });
+      return true;
+    }),
+
   // ---- MCP server (account-bound) ----
 
   /**

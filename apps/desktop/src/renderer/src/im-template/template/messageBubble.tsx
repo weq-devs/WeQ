@@ -5,7 +5,6 @@ import type {
 	PointerEvent as ReactPointerEvent,
 } from "react";
 import { Bot, RotateCcw } from "lucide-react";
-import { parseMarkdownBlocks } from "./messageMarkdown";
 import {
 	renderMessageWithRegistry,
 	type MessageRenderer,
@@ -74,9 +73,6 @@ export function MessageBubble({
 	const bubbleRef = useRef<HTMLDivElement | null>(null);
 	const [pendingActionId, setPendingActionId] = useState<string | null>(null);
 	const [restoring, setRestoring] = useState(false);
-	const hasCode = parseMarkdownBlocks(message.body).some(
-		(block) => block.type === "code",
-	);
 	// Deleted origin — prefer the explicit kind; fall back to the legacy boolean
 	// (which always meant a WeQ delete). `qq` = QQ-native recall, not restorable.
 	const resolvedKind: "weq" | "qq" | null = deletedKind ?? (deleted ? "weq" : null);
@@ -210,7 +206,6 @@ export function MessageBubble({
 				ref={bubbleRef}
 				className={cn(
 					"message-bubble",
-					hasCode && "has-code",
 					active && "context-active",
 				)}
 				onContextMenu={(event) => onContextMenu(event, message)}

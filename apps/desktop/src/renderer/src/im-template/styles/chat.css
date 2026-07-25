@@ -666,7 +666,7 @@
 	gap: 5px;
 }
 
-.message-bubble.has-code {
+.message-bubble:has(.qq-md pre) {
 	max-width: min(75%, 680px);
 }
 
