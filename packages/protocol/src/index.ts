@@ -12,6 +12,7 @@
  *   oidb/get-video-url.ts — GetGroupVideoUrl / GetPrivateVideoUrl namespaces.
  *   oidb/get-file-url.ts  — GetGroupFileUrl / GetPrivateFileUrl namespaces.
  *   oidb/get-album-media-list.ts — GetAlbumMediaList trpc namespace.
+ *   scupdate/            — 个性装扮资源(气泡/字体)的下载地址获取(见该目录 index)。
  */
 
 export { encode, decode, message } from './protobuf';
@@ -33,3 +34,5 @@ export { GetGroupVideoUrl, GetPrivateVideoUrl } from './oidb/get-video-url';
 export { GetGroupFileUrl, GetPrivateFileUrl, composeGroupFileDownloadUrl } from './oidb/get-file-url';
 export type { GroupFileDownload } from './oidb/get-file-url';
 export { GetAlbumMediaList } from './oidb/get-album-media-list';
+
+export * from './scupdate';

@@ -385,6 +385,12 @@ importers:
       '@types/node':
         specifier: ^22.10.6
         version: 22.19.20
+      '@weq/testkit':
+        specifier: workspace:*
+        version: link:../testkit
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.20)(lightningcss@1.32.0)
 
   packages/service:
     dependencies:
