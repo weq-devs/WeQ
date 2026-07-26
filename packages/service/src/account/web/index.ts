@@ -15,6 +15,7 @@ import {
   type QzoneMsgListResult,
   type QzoneFeedsResult,
 } from './qzone';
+import { getSelfDress, type SelfDress } from './self_dress';
 
 const QUN_DOMAIN = 'qun.qq.com';
 const QZONE_DOMAIN = 'qzone.qq.com';
@@ -44,6 +45,11 @@ export class WebQueryService {
     return getFriendDress(await this.creds.forDomain(VIP_DOMAIN), targetUin);
   }
 
+  /** 查**本账号**正在用的全部装扮 —— 含查他人拿不到的气泡/字体。 */
+  async getSelfDress(): Promise<SelfDress> {
+    return getSelfDress(await this.creds.forDomain(VIP_DOMAIN));
+  }
+
   async getHonorList(groupCode: string, type: HonorType): Promise<HonorMember[]> {
     return getHonorList(await this.creds.forDomain(QUN_DOMAIN), groupCode, type);
   }
@@ -64,6 +70,9 @@ export { computeBkn, cookieHeader, WebCredentialProvider } from './credential';
 export type { WebCredential } from './credential';
 export { getFriendDress } from './friend_dress';
 export type { FriendDress, FriendDressItem } from './friend_dress';
+export { getSelfDress } from './self_dress';
+export type { SelfDress, SelfDressItem } from './self_dress';
+export { dressKind } from './dress_kind';
 export { getGroupNotice } from './group_notice';
 export type { GroupNotice, GroupNoticeImage } from './group_notice';
 export { getGroupAlbumList } from './group_album';

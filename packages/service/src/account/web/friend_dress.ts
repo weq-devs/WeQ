@@ -15,6 +15,7 @@
  */
 
 import { cookieHeader, type WebCredential } from './credential';
+import { dressKind } from './dress_kind';
 import { webRequestText } from './http';
 
 /** 一个「好友装扮」项 —— 只留核心内容,不含页面按钮/场景等 UI 态。 */
@@ -46,22 +47,10 @@ export interface FriendDress {
   items: FriendDressItem[];
 }
 
-/** appId → 装扮类别(取自装扮页的 business-name / tab 文案)。 */
-const APP_KIND: Record<number, string> = {
-  2: '气泡',
-  4: '挂件',
-  5: '字体',
-  15: '名片',
-  17: '来电',
-  22: '彩色屏保',
-  23: '头像',
-  47: '头像双击动作',
-  352: '输入状态',
-};
-
 /**
  * 服务器不会回真值的装扮类型:气泡(2)/字体(5)/头像(23)。这几类只按 targetUin 查
  * 永远回默认款,必须客户端在请求里带对应 id 才知道对方用了啥 —— 拿到也是废数据,剔除。
+ * (查**自己**的这三类是可行的,走 {@link ./self_dress}。)
  */
 const UNRESOLVABLE_APPS = new Set([2, 5, 23]);
 
@@ -140,7 +129,9 @@ function resolveVideoUrl(r: RawDressItem): string | undefined {
       return undefined;
     }
   }
-  if (r.appId === 17 && r.image) {
+  // 只有确实以 /image.jpg 结尾才推得出 media.mp4。别用 replace 兜底 —— 匹配不上时
+  // 它原样返回,图片地址就被当成视频 url 发出去了。
+  if (r.appId === 17 && r.image && /\/image\.jpg$/.test(r.image)) {
     return r.image.replace(/\/image\.jpg$/, '/media.mp4');
   }
   return undefined;
@@ -150,7 +141,7 @@ function toItem(r: RawDressItem): FriendDressItem {
   const appId = r.appId ?? 0;
   const item: FriendDressItem = {
     appId,
-    kind: APP_KIND[appId] ?? `appId=${appId}`,
+    kind: dressKind(appId),
     itemId: r.itemId ?? 0,
     name: r.name ?? '',
     previewUrl: r.image ?? '',
