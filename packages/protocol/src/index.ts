@@ -12,6 +12,8 @@
  *   oidb/get-video-url.ts — GetGroupVideoUrl / GetPrivateVideoUrl namespaces.
  *   oidb/get-file-url.ts  — GetGroupFileUrl / GetPrivateFileUrl namespaces.
  *   oidb/get-album-media-list.ts — GetAlbumMediaList trpc namespace.
+ *   oidb/fetch-user-profile.ts   — FetchUserProfile (0xFE1_2, 含 QQ 等级)。
+ *   oidb/get-profile-like.ts     — GetProfileLike (0x7ED_12, 资料卡赞/收藏数)。
  *   scupdate/            — 个性装扮资源(气泡/字体)的下载地址获取(见该目录 index)。
  */
 
@@ -34,5 +36,9 @@ export { GetGroupVideoUrl, GetPrivateVideoUrl } from './oidb/get-video-url';
 export { GetGroupFileUrl, GetPrivateFileUrl, composeGroupFileDownloadUrl } from './oidb/get-file-url';
 export type { GroupFileDownload } from './oidb/get-file-url';
 export { GetAlbumMediaList } from './oidb/get-album-media-list';
+export { FetchUserProfile } from './oidb/fetch-user-profile';
+export type { UserProfileInfo } from './oidb/fetch-user-profile';
+export { GetProfileLike } from './oidb/get-profile-like';
+export type { LikeInfo, InteractionCounts } from './oidb/get-profile-like';
 
 export * from './scupdate';
