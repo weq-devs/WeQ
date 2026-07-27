@@ -2985,7 +2985,7 @@ export function MainView(): ReactElement {
                 view={shell.view}
                 contactTab={shell.contactTab}
                 relationGraphSlot={<RelationGraphView />}
-                chatHomeSlot={<ChatHome nickname={user.displayName} />}
+                chatHomeSlot={<ChatHome nickname={user.displayName} avatarUrl={user.avatarUrl} />}
                 contactNotice={shell.contactNotice}
                 contactRequests={contactRequests}
                 groupRequests={groupRequests}

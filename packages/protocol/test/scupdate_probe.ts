@@ -11,11 +11,14 @@
  *   pnpm tsx packages/protocol/test/scupdate_probe.ts --font 32824
  *   pnpm tsx packages/protocol/test/scupdate_probe.ts --all         # 换清单里全部资源
  *   pnpm tsx packages/protocol/test/scupdate_probe.ts --verify      # 顺带 HTTP 校验外链可下载
+ *
+ * linux 需 root（ptrace 注入）:
+ *   sudo -E node --import tsx packages/protocol/test/scupdate_probe.ts
  */
 
 import { loadNative } from '@weq/native';
 import type { QqPortLoginInfo } from '@weq/native';
-import { testEnv } from '@weq/testkit';
+import { ensureSendable, testEnv } from '@weq/testkit';
 import {
   getBubbleResources,
   getFontResource,
@@ -114,7 +117,7 @@ async function resolveTarget(nt: Nt): Promise<number> {
     pid = hit;
   }
 
-  const status = await nt.injectAndGetStatusEmbedded(pid);
+  const status = await ensureSendable(nt, pid, { label: 'probe' });
   console.log(`[probe] pid=${pid} uin=${status.uin} loggedIn=${status.loggedIn}\n`);
   return pid;
 }

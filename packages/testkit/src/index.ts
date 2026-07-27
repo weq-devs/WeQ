@@ -167,3 +167,9 @@ export const testEnv = {
 
 /** Escape hatch for the rare script that reads a bespoke variable. */
 export { optional as envOptional, required as envRequired, flag as envFlag };
+
+export {
+  ensureSendable,
+  type EnsureSendableOptions,
+  type InjectableNative,
+} from './inject';

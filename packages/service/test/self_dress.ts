@@ -8,10 +8,12 @@
  * 凭证(p_skey@vip.qq.com)由 WebCredentialProvider 走 native 实时取,g_tk 从 p_skey 算。
  *
  * 用法: pnpm tsx packages/service/test/self_dress.ts
+ *   linux 需 root（ptrace 注入）: sudo -E node --import tsx packages/service/test/self_dress.ts
  */
 
 import { loadNative } from '@weq/native';
 import type { AccountSession } from '@weq/account';
+import { ensureSendable } from '@weq/testkit';
 import { WebQueryService } from '../src/account/web';
 
 async function main(): Promise<void> {
@@ -27,9 +29,8 @@ async function main(): Promise<void> {
   console.log(`[self-dress] pid=${pid} 我的uin=${myUin} loggedIn=${info?.loggedIn}`);
   if (!myUin) throw new Error('probe 没拿到 uin');
 
-  console.log(`\n[self-dress] 注入 hook 到 pid=${pid} ...`);
-  const status = await nt.injectAndGetStatusEmbedded(pid);
-  console.log(`[self-dress] 注入结果: pid=${status.pid} uin=${status.uin} loggedIn=${status.loggedIn}`);
+  console.log('');
+  await ensureSendable(nt, pid, { label: 'self-dress' });
 
   const web = new WebQueryService(
     nt,

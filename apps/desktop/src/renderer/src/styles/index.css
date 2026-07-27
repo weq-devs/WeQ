@@ -8431,10 +8431,118 @@ html[data-theme="dark"] .weq-persona-modal {
   text-align: center;
 }
 
-.weq-chathome-logo {
-  width: clamp(58px, 8vh, 74px);
-  height: auto;
-  filter: drop-shadow(0 12px 26px color-mix(in srgb, var(--weq-accent-effective) 26%, transparent));
+/* ── 品牌合影：QQ 头像 ⌇ WeQ logo（流动波浪环）──
+   两枚「光球」= 中心图片 + 两圈反向缓旋的波浪环（正弦扰动圆，转起来波浪就像在环上
+   流动，参考 Gemini 的波浪 loading 边框），中间一条流动波浪线相连。整组用一个变量
+   控制边长，所有间距从它派生，缩放不散。 */
+.weq-chathome-pair {
+  --weq-orb-size: clamp(72px, 10vh, 94px);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--weq-orb-size) * 0.12);
+  animation: weq-orb-enter 720ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* 背后一团主题色柔光，缓慢呼吸，给整组一个「悬浮在光里」的舞台。 */
+.weq-chathome-pair::before {
+  content: '';
+  position: absolute;
+  inset: -46%;
+  border-radius: 50%;
+  background: radial-gradient(
+    closest-side,
+    color-mix(in srgb, var(--weq-accent-effective) 16%, transparent),
+    transparent 72%
+  );
+  animation: weq-orb-breathe 7s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.weq-orb {
+  position: relative;
+  width: var(--weq-orb-size);
+  height: var(--weq-orb-size);
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  animation: weq-orb-float 6.4s ease-in-out infinite;
+}
+
+/* 两球错开浮动相位 + 周期略不同：避免完全同步的机械感。 */
+.weq-orb-self { animation-delay: -3.2s; }
+.weq-orb-weq { animation-duration: 7.2s; }
+
+/* 中心图片占球体约 68%，留出外圈波浪环的呼吸空间。 */
+.weq-orb-img {
+  width: 68%;
+  height: 68%;
+  object-fit: contain;
+  filter: drop-shadow(0 10px 22px color-mix(in srgb, var(--weq-accent-effective) 24%, transparent));
+}
+
+/* 头像来自 CDN，是实心照片 —— 切圆并给一圈极淡描边压住毛边。 */
+.weq-orb-img.is-round {
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--weq-bg-surface);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--weq-fg-primary) 8%, transparent),
+    0 10px 24px color-mix(in srgb, #000 16%, transparent);
+}
+
+/* 波浪环：两条正弦扰动的闭合曲线（路径在 TSX 里按常量生成），各自缓速旋转。
+   外环波瓣多而浅、内环波瓣少而深且反向 → 干涉出「水面微漾」的流动感。 */
+.weq-orb-rings {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.weq-orb-ring {
+  fill: none;
+  stroke-linecap: round;
+  transform-origin: 50% 50%;
+}
+
+.weq-orb-ring-outer {
+  stroke: color-mix(in srgb, var(--weq-accent-effective) 62%, transparent);
+  stroke-width: 1.4;
+  animation: weq-orb-spin 26s linear infinite;
+}
+
+.weq-orb-ring-inner {
+  stroke: color-mix(in srgb, var(--weq-accent-effective) 30%, var(--weq-fg-muted) 18%);
+  stroke-width: 1.1;
+  animation: weq-orb-spin 19s linear infinite reverse;
+}
+
+/* 右球环速略慢 + 方向对调：进一步打散同步感。 */
+.weq-orb-weq .weq-orb-ring-outer { animation-duration: 31s; animation-direction: reverse; }
+.weq-orb-weq .weq-orb-ring-inner { animation-duration: 23s; animation-direction: normal; }
+
+/* 连接线：一段正弦波向左匀速平移一个波长后瞬回 → 视觉上无缝流动，
+   像数据从 QQ 淌进 WeQ。两端用 mask 渐隐，与光球衔接不生硬。 */
+.weq-wavelink {
+  flex: 0 0 auto;
+  display: block;
+  color: color-mix(in srgb, var(--weq-accent-effective) 55%, var(--weq-fg-muted) 20%);
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 22%, #000 78%, transparent);
+  mask-image: linear-gradient(to right, transparent, #000 22%, #000 78%, transparent);
+}
+
+.weq-wavelink svg { display: block; overflow: visible; }
+
+.weq-wavelink-path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  animation: weq-wave-flow 1.9s linear infinite;
 }
 
 .weq-chathome-greet {
@@ -8663,10 +8771,46 @@ html[data-theme="dark"] .weq-persona-modal {
   50.01%, 100% { opacity: 0; }
 }
 
+/* ── 品牌合影动画 ── */
+
+/* 入场：整组从下方轻浮起 + 微缩放，一次到位不回弹。 */
+@keyframes weq-orb-enter {
+  from { opacity: 0; transform: translateY(10px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* 光球上下缓浮（幅度很小，只求「活着」不求抢戏）。 */
+@keyframes weq-orb-float {
+  0%, 100% { transform: translateY(2.5px); }
+  50% { transform: translateY(-2.5px); }
+}
+
+/* 波浪环整圈缓旋 → 正弦波瓣看起来在环上流动。 */
+@keyframes weq-orb-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* 背景柔光呼吸。 */
+@keyframes weq-orb-breathe {
+  0%, 100% { opacity: 0.7; transform: scale(0.94); }
+  50% { opacity: 1; transform: scale(1.04); }
+}
+
+/* 连接波浪线左移一个波长（24px）后瞬回 → 无缝流动。 */
+@keyframes weq-wave-flow {
+  from { transform: translateX(0); }
+  to { transform: translateX(-24px); }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .weq-chathome-logo,
   .weq-chathome-caret { animation: none; }
   .weq-lane-track { animation: none; }
+  .weq-chathome-pair,
+  .weq-chathome-pair::before,
+  .weq-orb,
+  .weq-orb-ring,
+  .weq-wavelink-path { animation: none; }
 }
 
 /* ───────────────────────── 克隆体群聊（M2 群骨架）───────────────────────── */

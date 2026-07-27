@@ -1,7 +1,9 @@
 /**
  * 聊天页门面（无选中会话时的落地页）。三段式，纯装饰、无交互：
  *
- *   ① 品牌 logo + 大字细体问候（按时间 Good morning/… + QQ 昵称）
+ *   ① 品牌合影：自己的 QQ 头像与 WeQ logo 各套一圈「流动波浪环」（正弦扰动的圆缓速
+ *     旋转），中间一条流动的波浪线相连——寓意
+ *     「你的 QQ 数据流入 WeQ」。下接大字细体问候（按时间 Good morning/… + QQ 昵称）
  *   ② 一言打字机：从 hitokoto 池随机取一句，逐字打出后定格（光标继续闪烁、不再切换句）
  *   ③ 记忆长廊：把私聊里「别人发来」的真实短句排成一条时间线，纯 CSS 匀速上浮（悬停
  *     暂停），像回忆浮现又淡去——真·旧消息就是最贴「回忆」主题的素材
@@ -51,7 +53,9 @@ function greetWord(): string {
 function Avatar({ uin, name }: { uin: string; name: string }) {
   const src = avatarUrl(uin);
   if (src) {
-    return <img className="weq-chathome-avatar" src={src} alt="" loading="lazy" draggable={false} />;
+    return (
+      <img className="weq-chathome-avatar" src={src} alt="" loading="lazy" draggable={false} />
+    );
   }
   return (
     <span className="weq-chathome-avatar weq-chathome-avatar-fallback">
@@ -188,7 +192,116 @@ function MemoryLane({ lines }: { lines: StreamLine[] }) {
  */
 const SHOW_MEMORY_LANE = false;
 
-export function ChatHome({ nickname }: { nickname: string }) {
+/**
+ * 生成「波浪圆环」路径：半径为 r 的圆叠加正弦扰动（lobes 个波瓣、振幅 amp），
+ * 采样成闭合折线。采样密度足够高时视觉上即光滑曲线。配合 CSS 缓速旋转，
+ * 波浪看起来就在环上流动（参考 Gemini 的波浪 loading 边框）。
+ */
+function wavyRingPath(r: number, amp: number, lobes: number, size: number): string {
+  const c = size / 2;
+  const steps = 180;
+  const pts: string[] = [];
+  for (let i = 0; i <= steps; i += 1) {
+    const t = (i / steps) * Math.PI * 2;
+    const rr = r + amp * Math.sin(lobes * t);
+    pts.push(`${(c + rr * Math.cos(t)).toFixed(2)} ${(c + rr * Math.sin(t)).toFixed(2)}`);
+  }
+  return `M${pts.join('L')}Z`;
+}
+
+/** 横向正弦波路径（波长 wl、振幅 amp、总宽 w，垂直居中于 h/2）。 */
+function sineWavePath(w: number, h: number, wl: number, amp: number): string {
+  const mid = h / 2;
+  const step = wl / 24; // 每个波长采 24 点，足够光滑
+  const pts: string[] = [];
+  for (let x = 0; x <= w; x += step) {
+    pts.push(`${x.toFixed(2)} ${(mid + amp * Math.sin((x / wl) * Math.PI * 2)).toFixed(2)}`);
+  }
+  return `M${pts.join('L')}`;
+}
+
+/* 波浪环路径是纯几何常量，模块级算一次即可。外环波瓣多而浅、内环波瓣少而深，
+   两环反向旋转 → 干涉出「水面微漾」的错觉。 */
+const ORB_VIEW = 120;
+const ORB_RING_OUTER = wavyRingPath(54, 2.6, 9, ORB_VIEW);
+const ORB_RING_INNER = wavyRingPath(49.5, 2, 6, ORB_VIEW);
+
+/* 连接线：视口 64px 宽，路径多画两个波长（48px），动画平移一个波长即无缝循环。 */
+const LINK_W = 64;
+const LINK_H = 20;
+const LINK_WL = 24;
+const LINK_PATH = sineWavePath(LINK_W + LINK_WL * 2, LINK_H, LINK_WL, 3.1);
+
+/**
+ * 一枚「光球」：中心图片（QQ 头像 / WeQ logo）+ 两圈反向缓旋的波浪环。
+ * kind 区分左右两球（错开浮动相位、环转速略不同，避免完全同步的机械感）。
+ */
+function BrandOrb({
+  src,
+  alt,
+  kind,
+  round,
+}: {
+  src: string;
+  alt: string;
+  kind: 'self' | 'weq';
+  round: boolean;
+}) {
+  return (
+    <span className={`weq-orb weq-orb-${kind}`}>
+      <svg className="weq-orb-rings" viewBox={`0 0 ${ORB_VIEW} ${ORB_VIEW}`} aria-hidden>
+        <path className="weq-orb-ring weq-orb-ring-outer" d={ORB_RING_OUTER} />
+        <path className="weq-orb-ring weq-orb-ring-inner" d={ORB_RING_INNER} />
+      </svg>
+      <img
+        src={src}
+        alt={alt}
+        className={`weq-orb-img${round ? ' is-round' : ''}`}
+        draggable={false}
+      />
+    </span>
+  );
+}
+
+/** 两球之间的流动波浪线：路径向左匀速平移一个波长后瞬回，视觉上无缝流动。 */
+function WaveLink() {
+  return (
+    <span className="weq-wavelink" aria-hidden>
+      <svg viewBox={`0 0 ${LINK_W} ${LINK_H}`} width={LINK_W} height={LINK_H}>
+        <path className="weq-wavelink-path" d={LINK_PATH} />
+      </svg>
+    </span>
+  );
+}
+
+/**
+ * ① 品牌合影：QQ 头像与 WeQ logo 两枚「波浪环光球」，中间一条流动的波浪线相连。
+ * 头像取不到（未登录/CDN 挂）时降级为单独一枚 logo 光球，不留空洞。
+ */
+function BrandPair({ avatarUrl, nickname }: { avatarUrl: string | null; nickname: string }) {
+  if (!avatarUrl) {
+    return (
+      <div className="weq-chathome-pair is-solo">
+        <BrandOrb src={logoUrl} alt="WeQ" kind="weq" round={false} />
+      </div>
+    );
+  }
+  return (
+    <div className="weq-chathome-pair">
+      <BrandOrb src={avatarUrl} alt={nickname} kind="self" round />
+      <WaveLink />
+      <BrandOrb src={logoUrl} alt="WeQ" kind="weq" round={false} />
+    </div>
+  );
+}
+
+export function ChatHome({
+  nickname,
+  avatarUrl: selfAvatarUrl = null,
+}: {
+  nickname: string;
+  avatarUrl?: string | null;
+}) {
   const hitokoto = trpc.account.sampleHitokoto.useQuery(
     { count: 40 },
     { refetchOnMount: 'always', refetchOnWindowFocus: false },
@@ -207,13 +320,7 @@ export function ChatHome({ nickname }: { nickname: string }) {
     <section className="weq-chathome weq-anim-fade">
       <div className="weq-chathome-inner">
         <div className="weq-chathome-hero">
-          <img
-            src={logoUrl}
-            alt="WeQ"
-            className="weq-chathome-logo"
-            width={72}
-            height={72}
-          />
+          <BrandPair avatarUrl={selfAvatarUrl} nickname={name} />
           <h1 className="weq-chathome-greet">
             <span className="weq-chathome-greet-hi">{greetWord()},</span>
             <span className="weq-chathome-greet-name">{name}</span>
