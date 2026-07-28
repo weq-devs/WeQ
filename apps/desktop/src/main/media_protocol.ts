@@ -136,9 +136,11 @@ async function albumRemoteResponse(src: string): Promise<Response> {
     host.endsWith('.gtimg.com') ||
     host.endsWith('.qzone.qq.com');
   if (!allowed) return notFound('album image host not allowed');
+  // Referer 的协议必须跟目标一致：Chromium 禁止 https→http 的 referrer 降级,
+  // 撞上就是 ERR_BLOCKED_BY_CLIENT(资料卡精选图片走的 ugc.qpic.cn 只有 http)。
   const res = await net.fetch(src, {
     headers: {
-      Referer: 'https://user.qzone.qq.com/',
+      Referer: `${target.protocol}//user.qzone.qq.com/`,
       'User-Agent':
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome Safari/537.36',
     },

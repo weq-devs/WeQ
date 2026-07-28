@@ -30,7 +30,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { openLightbox } from "../../components/ImageLightbox";
-import { collectionImageUrl } from "../../lib/resourceUrl";
+import { albumMediaUrl, collectionImageUrl } from "../../lib/resourceUrl";
 import { cn } from "./classNames";
 import { copyTextToClipboard } from "./clipboard";
 import { formatProfileDate } from "./format";
@@ -152,7 +152,7 @@ function educationText(ext?: ProfileExtInfo | null) {
 }
 
 /**
- * 从一张相册照片的多尺寸变体里挑 URL。档位实测 1=原图 2=640 3=160 4=100，
+ * 从一张精选图片的多尺寸变体里挑 URL。档位实测 1=原图 2=640 3=160 4=100，
  * 缩略图优先 160、大图优先 640（原图往往几 MB，点开看也用不着）。
  */
 function albumUrl(
@@ -259,7 +259,7 @@ export function ContactProfileDialog({
 		profile.nick !== profile.remark;
 
 	// 21000 列扩展资料：已开通的特权（未开通的灰图标没必要展示）、所在地、
-	// 教育经历、兴趣标签、QQ空间相册。
+	// 教育经历、兴趣标签、精选图片。
 	const extInfo = profile.extInfo;
 	const openedPrivileges = (extInfo?.privileges ?? []).filter(
 		(item) => item.opened && item.iconUrl,
@@ -407,7 +407,7 @@ export function ContactProfileDialog({
 					<div className="weq-profile-section">
 						<div className="weq-profile-section-head">
 							<Images size={13} />
-							空间相册
+							精选图片
 							<span className="weq-number">{album.length}</span>
 						</div>
 						<div className="weq-profile-album">
@@ -426,17 +426,17 @@ export function ContactProfileDialog({
 										title={
 											photo.time
 												? formatProfileDate(photo.time)
-												: "空间相册图片"
+												: "精选图片"
 										}
 										onClick={() =>
-											full && openLightbox(full, "空间相册图片")
+											full &&
+											openLightbox(albumMediaUrl(full), "精选图片")
 										}
 									>
 										<img
-											src={thumb}
+											src={albumMediaUrl(thumb)}
 											alt=""
 											loading="lazy"
-											referrerPolicy="no-referrer"
 										/>
 									</button>
 								);
