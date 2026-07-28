@@ -5437,6 +5437,89 @@ html[data-theme="dark"] .weq-settings-preset-preview.is-style-soon {
   line-height: 1.5;
 }
 
+/* 已开通特权的 logo 横排（图标 URL 自带等级，直接透传 CDN 图）。 */
+.weq-profile-privileges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.weq-profile-privilege {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+/* 个性标签 / 空间相册的分块（标题 + 内容），视觉上与信息表格同级。 */
+.weq-profile-section {
+  display: grid;
+  gap: 7px;
+  margin-top: 16px;
+}
+
+.weq-profile-section-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #4a5f74;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.weq-profile-section-head svg,
+.weq-profile-section-head .weq-number {
+  color: var(--weq-accent-effective);
+}
+
+.weq-profile-interests {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.weq-profile-interest {
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 5%, transparent);
+  color: #5a6f84;
+  font-size: 11px;
+  line-height: 1.6;
+  word-break: break-all;
+}
+
+/* 相册缩略图：定宽网格，点开进图片灯箱看大图。 */
+.weq-profile-album {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+  gap: 5px;
+}
+
+.weq-profile-photo {
+  overflow: hidden;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 5%, transparent);
+  cursor: zoom-in;
+  transition: border-color 140ms ease, transform 140ms ease;
+}
+
+.weq-profile-photo:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 34%, transparent);
+  transform: translateY(-1px);
+}
+
+.weq-profile-photo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .weq-profile-list {
   display: grid;
   margin-top: 16px;
@@ -5574,6 +5657,21 @@ html[data-theme="dark"] .weq-profile-tag {
 
 html[data-theme="dark"] .weq-profile-sign {
   color: #93a7ba;
+}
+
+html[data-theme="dark"] .weq-profile-section-head {
+  color: #b0b8c2;
+}
+
+html[data-theme="dark"] .weq-profile-interest {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: #9aa3ad;
+}
+
+html[data-theme="dark"] .weq-profile-photo {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 html[data-theme="dark"] .weq-profile-list {

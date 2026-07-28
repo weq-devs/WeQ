@@ -1,7 +1,7 @@
 /**
  * 21000 — Column in profile_info_v6 table.
  *
- * QQ 资料扩展信息(VIP/特权、好友互动标识、教育经历、机型、兴趣标签、QQ空间相册)。
+ * QQ 资料扩展信息(VIP/特权、好友互动标识、教育经历、所在地、兴趣标签、QQ空间相册)。
  * 只声明我们透传给前端会用到的字段；其余大量隐私开关 bool 一律省略。
  *
  * 结构(仅保留有价值分支):
@@ -22,8 +22,11 @@
  *           #20447 bizId   特权业务ID(超会=1, 音乐=103, 情侣=119…)
  *           #20448 level   等级(与图标 big_light_N 一致)
  *     #22005 扩展资料
- *       #20021 deviceCode  机型编码串(如 "49-102-49", 暂不解释)
- *       #20026 school      教育经历/学校
+ *       #20023 degree     学历
+ *       #20026 school     教育经历/学校
+ *       #20027 country    国家
+ *       #20028 province   省份
+ *       #20036 city       城市
  *       #20041
  *         #20410 interest  兴趣标签(repeated)
  *     #22009 QQ空间相册
@@ -32,7 +35,7 @@
  *           #20471 photoId  照片 hash
  *           #20472 time     拍摄/上传时间(秒)
  *           #20473 (repeated) 尺寸变体
- *             #20481 size   档位(0=原图,2=640,3=160,4=100)
+ *             #20481 size   档位(1=原图,2=640,3=160,4=100)
  *             #20482 url    完整可访问 URL
  */
 
@@ -90,19 +93,25 @@ export const InterestGroupWire = {
   tags: ProtoField(20410, ScalarType.STRING, { repeat: true }),
 };
 
-/** #22005 —— 扩展资料(教育/机型/兴趣)。 */
+/** #22005 —— 扩展资料(教育/所在地/兴趣)。 */
 export const ExtInfoWire = {
-  /** #20021: 机型编码串(如 "49-102-49")。 */
-  deviceCode: ProtoField(20021, ScalarType.STRING, { optional: true }),
+  /** #20023: 学历(如 "初二中级")。 */
+  degree: ProtoField(20023, ScalarType.STRING, { optional: true }),
   /** #20026: 教育经历/学校。 */
   school: ProtoField(20026, ScalarType.STRING, { optional: true }),
+  /** #20027: 国家。 */
+  country: ProtoField(20027, ScalarType.STRING, { optional: true }),
+  /** #20028: 省份。 */
+  province: ProtoField(20028, ScalarType.STRING, { optional: true }),
+  /** #20036: 城市。 */
+  city: ProtoField(20036, ScalarType.STRING, { optional: true }),
   /** #20041: 兴趣标签容器。 */
   interests: ProtoField(20041, () => InterestGroupWire, { optional: true }),
 };
 
 /** #22009/#20066/#20461/#20473 —— 相册照片尺寸变体。 */
 export const AlbumPhotoSizeWire = {
-  /** #20481: 尺寸档位(0=原图,2=640,3=160,4=100)。 */
+  /** #20481: 尺寸档位(1=原图,2=640,3=160,4=100)。 */
   size: ProtoField(20481, ScalarType.INT32, { optional: true }),
   /** #20482: 完整可访问 URL。 */
   url: ProtoField(20482, ScalarType.STRING, { optional: true }),
@@ -135,7 +144,7 @@ export const ProfileExtInnerWire = {
   interactMarks: ProtoField(22003, () => InteractMarkGroupWire, { optional: true }),
   /** #22004: VIP/特权。 */
   privilege: ProtoField(22004, () => PrivilegeGroupWire, { optional: true }),
-  /** #22005: 扩展资料(教育/机型/兴趣)。 */
+  /** #22005: 扩展资料(教育/所在地/兴趣)。 */
   extInfo: ProtoField(22005, () => ExtInfoWire, { optional: true }),
   /** #22009: QQ空间相册。 */
   album: ProtoField(22009, () => AlbumGroupWire, { optional: true }),

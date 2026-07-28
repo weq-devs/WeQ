@@ -36,6 +36,17 @@ export interface ContactsExportDeps {
       birthMonth: number;
       birthDay: number;
       intimacy: number;
+      /** 21000 列扩展资料（特权/所在地/教育/兴趣/空间相册）；未缓存时缺省。 */
+      extInfo?: {
+        privileges: Array<{ bizId?: number; level?: number; opened: boolean }>;
+        school?: string;
+        degree?: string;
+        country?: string;
+        province?: string;
+        city?: string;
+        interests: string[];
+        album: Array<{ photoId?: string; time?: number; urls: Array<{ size?: number; url?: string }> }>;
+      };
     }>
   >;
   /** 分页拉某群成员（`group_member3`）。 */
@@ -97,6 +108,39 @@ function timeText(sec: number): string {
   return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())} ${p(date.getHours())}:${p(date.getMinutes())}`;
 }
 
+/** 特权 bizId → 名称（同资料卡片；未知 id 退化成「特权 N」）。 */
+const PRIVILEGE_NAMES: Record<number, string> = {
+  1: '超级会员',
+  102: '黄钻',
+  103: '音乐包',
+  113: '大会员',
+  118: '绿钻',
+  119: '情侣特权',
+};
+
+/** 已开通特权 → `超级会员6级 / 音乐包2级`。 */
+function privilegeText(
+  items: Array<{ bizId?: number; level?: number; opened: boolean }>,
+): string {
+  return items
+    .filter((p) => p.opened)
+    .map((p) => {
+      const name = p.bizId == null ? '特权' : (PRIVILEGE_NAMES[p.bizId] ?? `特权${p.bizId}`);
+      return p.level ? `${name}${p.level}级` : name;
+    })
+    .join(' / ');
+}
+
+/** 国/省/市三级去重拼接。 */
+function regionText(parts: Array<string | undefined>): string {
+  const out: string[] = [];
+  for (const part of parts) {
+    const value = part?.trim();
+    if (value && !out.includes(value)) out.push(value);
+  }
+  return out.join(' ');
+}
+
 /** vCard 3.0 文本转义（反斜杠/逗号/分号/换行）。 */
 function escapeVcard(value: string): string {
   return value
@@ -120,6 +164,22 @@ interface FriendRow {
   birthMonth: number;
   birthDay: number;
   intimacy: number;
+  /** 已开通特权（`超级会员6级 / 音乐包2级`）。 */
+  privileges: string;
+  /** 所在地（国 省 市，去重拼接）。 */
+  region: string;
+  /** 所在地三段原值（vCard 的 ADR 需要分开填）。 */
+  country: string;
+  province: string;
+  city: string;
+  /** 教育经历（学校 · 学历）。 */
+  education: string;
+  /** 个性标签。 */
+  interests: string;
+  /** 空间相册张数。 */
+  albumCount: number;
+  /** 空间相册图片直链（640 档，换行分隔）。 */
+  albumUrls: string;
   uid: string;
 }
 
@@ -133,6 +193,12 @@ const FRIEND_COLS: Array<Col<FriendRow>> = [
   { key: 'age', header: '年龄', get: (r) => (r.age > 0 ? r.age : '') },
   { key: 'birthday', header: '生日', get: (r) => birthdayText(r.birthYear, r.birthMonth, r.birthDay) },
   { key: 'intimacy', header: '亲密度', get: (r) => (r.intimacy > 0 ? r.intimacy : '') },
+  { key: 'privileges', header: '特权', get: (r) => r.privileges },
+  { key: 'region', header: '所在地', get: (r) => r.region },
+  { key: 'education', header: '教育经历', get: (r) => r.education },
+  { key: 'interests', header: '个性标签', get: (r) => r.interests },
+  { key: 'albumCount', header: '空间相册数', get: (r) => (r.albumCount > 0 ? r.albumCount : '') },
+  { key: 'albumUrls', header: '空间相册链接', get: (r) => r.albumUrls },
   { key: 'uid', header: 'uid', get: (r) => r.uid },
 ];
 
@@ -194,6 +260,8 @@ export async function exportFriends(
   const rows: FriendRow[] = buddies.map((b) => {
     const p = profileByUid.get(b.uid);
     opts.collectUins?.add(b.uin);
+    const ext = p?.extInfo;
+    const album = ext?.album ?? [];
     return {
       uin: b.uin,
       nick: p?.nick ?? '',
@@ -206,6 +274,19 @@ export async function exportFriends(
       birthMonth: p?.birthMonth ?? 0,
       birthDay: p?.birthDay ?? 0,
       intimacy: p?.intimacy ?? 0,
+      privileges: privilegeText(ext?.privileges ?? []),
+      region: regionText([ext?.country, ext?.province, ext?.city]),
+      country: ext?.country?.trim() ?? '',
+      province: ext?.province?.trim() ?? '',
+      city: ext?.city?.trim() ?? '',
+      education: [ext?.school?.trim(), ext?.degree?.trim()].filter(Boolean).join(' · '),
+      interests: (ext?.interests ?? []).filter((t) => t.trim()).join(' / '),
+      albumCount: album.length,
+      // 640 档够看且体积可控，缺这档时退回任意一档。
+      albumUrls: album
+        .map((ph) => ph.urls.find((u) => u.size === 2 && u.url)?.url ?? ph.urls.find((u) => u.url)?.url)
+        .filter(Boolean)
+        .join('\n'),
       uid: b.uid,
     };
   });
@@ -228,6 +309,8 @@ async function writeFriendsVcard(rows: FriendRow[], outputPath: string): Promise
       r.remark ? `备注: ${r.remark}` : '',
       r.category ? `分组: ${r.category}` : '',
       r.signature ? `签名: ${r.signature}` : '',
+      r.privileges ? `特权: ${r.privileges}` : '',
+      r.interests ? `个性标签: ${r.interests}` : '',
       `QQ: ${r.uin}`,
     ].filter(Boolean);
     const lines = [
@@ -236,6 +319,9 @@ async function writeFriendsVcard(rows: FriendRow[], outputPath: string): Promise
       `FN:${escapeVcard(display)}`,
       `N:${escapeVcard(r.nick || display)};;;;`,
       r.nick ? `NICKNAME:${escapeVcard(r.nick)}` : '',
+      // vCard ADR 是 `;;街道;市;省;邮编;国` 七段，这里只有省/市/国三段有值。
+      r.region ? `ADR;TYPE=HOME:;;;${escapeVcard(r.city)};${escapeVcard(r.province)};;${escapeVcard(r.country)}` : '',
+      r.education ? `ORG:${escapeVcard(r.education)}` : '',
       `NOTE:${escapeVcard(noteParts.join('\n'))}`,
       `X-QQ:${escapeVcard(r.uin)}`,
       r.gender ? `GENDER:${r.gender === 1 ? 'M' : 'F'}` : '',

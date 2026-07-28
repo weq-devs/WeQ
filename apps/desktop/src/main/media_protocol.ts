@@ -144,7 +144,16 @@ async function albumRemoteResponse(src: string): Promise<Response> {
     },
   });
   if (!res.ok) return new Response(`album image http ${res.status}`, { status: res.status });
-  return res;
+  const contentType = res.headers.get('content-type') ?? '';
+  // 视频原样回传：要保留 range 支持,且不能把整段 mp4 读进内存。
+  if (!contentType.startsWith('image/')) return res;
+  // 图片则重新组装：qpic 带 `connection: keep-alive` 这类逐跳头,原样回传会让
+  // Chromium 的协议处理器直接 ERR_UNEXPECTED。只挑必要的头。
+  const body = await res.arrayBuffer();
+  return new Response(body, {
+    status: 200,
+    headers: { 'Content-Type': contentType, 'Cache-Control': 'public, max-age=86400' },
+  });
 }
 
 /**

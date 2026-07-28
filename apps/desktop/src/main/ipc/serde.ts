@@ -52,7 +52,7 @@ export interface UserProfileWire {
     preselectedIds: number[];
     displayId?: number;
   };
-  /** 21000 列 —— VIP/特权、互动标识、教育、机型、兴趣、相册(全透传)。 */
+  /** 21000 列 —— VIP/特权、互动标识、教育、所在地、兴趣、相册(全透传)。 */
   extInfo?: {
     interactMarks: Array<{ type?: string; markId?: number; iconUrl?: string }>;
     privileges: Array<{
@@ -63,7 +63,10 @@ export interface UserProfileWire {
       jumpUrl?: string;
     }>;
     school?: string;
-    deviceCode?: string;
+    degree?: string;
+    country?: string;
+    province?: string;
+    city?: string;
     interests: string[];
     album: Array<{
       photoId?: string;

@@ -62,6 +62,7 @@ import {
   type GroupUpdateInput,
   type Message,
   type MessageRenderer,
+  type ProfileExtInfo,
   type User,
   useChatShellController,
 } from '../im-template/template';
@@ -301,6 +302,7 @@ type UserProfileWire = {
     preselectedIds: number[];
     displayId?: number;
   };
+  extInfo?: ProfileExtInfo;
 };
 
 type GroupMemberWire = {
@@ -610,6 +612,7 @@ function buddyToContact(
     birthDay: profile?.birthDay,
     intimacy: profile?.intimacy,
     extRelation: profile?.extRelation ?? null,
+    extInfo: profile?.extInfo ?? null,
     customStatus,
     onlineStatus: customStatus,
   };

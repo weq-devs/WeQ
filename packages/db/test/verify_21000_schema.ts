@@ -72,7 +72,8 @@ function printOne(uin: unknown, nick: unknown, isFriend: boolean, blob: unknown)
   }
 
   const ext = d.extInfo;
-  console.log(`  机型=${ext?.deviceCode ?? ''}  学校=${ext?.school ?? ''}`);
+  const region = [ext?.country, ext?.province, ext?.city].filter(Boolean).join(' ');
+  console.log(`  所在地=${region}  学校=${ext?.school ?? ''}  学历=${ext?.degree ?? ''}`);
 
   const photos = d.album?.container?.photos ?? [];
   console.log(`  相册(${photos.length}):`);

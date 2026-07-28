@@ -10,6 +10,29 @@ export type User = {
 	kind?: "human" | "bot";
 };
 
+/** profile_info_v6 21000 列解出的资料扩展信息（特权/互动标识/教育/所在地/兴趣/空间相册）。 */
+export type ProfileExtInfo = {
+	interactMarks: Array<{ type?: string; markId?: number; iconUrl?: string }>;
+	privileges: Array<{
+		bizId?: number;
+		level?: number;
+		opened: boolean;
+		iconUrl?: string;
+		jumpUrl?: string;
+	}>;
+	school?: string;
+	degree?: string;
+	country?: string;
+	province?: string;
+	city?: string;
+	interests: string[];
+	album: Array<{
+		photoId?: string;
+		time?: number;
+		urls: Array<{ size?: number; url?: string }>;
+	}>;
+};
+
 export type Contact = User & {
 	createdAt: string;
 	categoryId?: number;
@@ -29,6 +52,8 @@ export type Contact = User & {
 	onlineStatusObj?: any;
 	/** 扩展（密友）关系：displayId 为当前展示的关系，preselectedIds 为预设标签。 */
 	extRelation?: { preselectedIds: number[]; displayId?: number } | null;
+	/** 21000 列：特权 logo、所在城市、教育经历、兴趣标签、QQ空间相册。 */
+	extInfo?: ProfileExtInfo | null;
 };
 
 export type GroupMemberRole = "owner" | "admin" | "member";

@@ -1,6 +1,6 @@
 /**
  * 从 profile_info_v6 的 21000 列，挑几个好友，抽出「有价值」的人味字段供人工验证：
- *   互动标识(类型+等级+图标) / 特权列表(图标URL透传) / 教育经历 / 机型 / 兴趣标签 / QQ空间相册
+ *   互动标识(类型+等级+图标) / 特权列表(图标URL透传) / 教育经历 / 所在地 / 兴趣标签 / QQ空间相册
  *
  * Run:  pnpm tsx ./packages/db/test/extract_profile_21000.ts
  */
@@ -68,7 +68,6 @@ interface Extracted {
     address?: string;
     zip?: string;
   };
-  phoneModelCode?: string;
   interests: string[];
   albumPhotos: Array<{ hashUrl?: string; time?: number; sizes: number[] }>;
 }
@@ -138,7 +137,6 @@ function extract(uid: string, uin: unknown, nick: string, blob: Uint8Array): Ext
       address: asStr(child(e, 20030)),
       zip: asStr(child(e, 20029)),
     };
-    out.phoneModelCode = asStr(child(e, 20021));
     const tags = asNested(child(e, 20041));
     if (tags) for (const t of children(tags, 20410)) {
       const s = asStr(t);
@@ -197,8 +195,6 @@ function printOne(e: Extracted): void {
     `    学校=${ed.school ?? ''}  学历=${ed.degree ?? ''}  国=${ed.country ?? ''} 省=${ed.province ?? ''} 市=${ed.city ?? ''}`,
   );
   if (ed.address || ed.zip) console.log(`    地址=${ed.address ?? ''}  邮编=${ed.zip ?? ''}`);
-
-  console.log(`\n  【机型码】 ${e.phoneModelCode ?? '(无)'}`);
 
   console.log(`\n  【兴趣标签】(${e.interests.length})  ${e.interests.join(' / ')}`);
 

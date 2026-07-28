@@ -858,6 +858,7 @@ export function initAppContext(): AppContext {
                   birthMonth: p.birthMonth,
                   birthDay: p.birthDay,
                   intimacy: p.intimacy,
+                  extInfo: p.extInfo,
                 }));
               },
               listGroupMembers: async (groupCode, limit, offset) => {

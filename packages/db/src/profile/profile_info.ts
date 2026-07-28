@@ -71,7 +71,7 @@ export interface AlbumPhoto {
   photoId?: string;
   /** 时间(秒)。 */
   time?: number;
-  /** 尺寸→URL(0=原图,2=640,3=160,4=100)。 */
+  /** 尺寸→URL(1=原图,2=640,3=160,4=100)。 */
   urls: Array<{ size?: number; url?: string }>;
 }
 
@@ -81,8 +81,14 @@ export interface ProfileExtInfo {
   privileges: Privilege[];
   /** 教育经历/学校。 */
   school?: string;
-  /** 机型编码串(如 "49-102-49")。 */
-  deviceCode?: string;
+  /** 学历。 */
+  degree?: string;
+  /** 国家。 */
+  country?: string;
+  /** 省份。 */
+  province?: string;
+  /** 城市。 */
+  city?: string;
   /** 兴趣标签。 */
   interests: string[];
   /** QQ空间相册。 */
@@ -107,7 +113,7 @@ export interface UserProfile {
   gender: number; // 1: male, 2: female, 0: unknown
   customStatus?: CustomStatus;
   extRelation?: ExtensionRelation;
-  /** 21000 列 —— VIP/特权、互动标识、教育、机型、兴趣、相册。 */
+  /** 21000 列 —— VIP/特权、互动标识、教育、所在地、兴趣、相册。 */
   extInfo?: ProfileExtInfo;
 }
 
@@ -336,7 +342,10 @@ function parseExtInfo(blob: SqlValue | undefined): ProfileExtInfo | undefined {
     interactMarks,
     privileges,
     school: ext.extInfo?.school || undefined,
-    deviceCode: ext.extInfo?.deviceCode || undefined,
+    degree: ext.extInfo?.degree || undefined,
+    country: ext.extInfo?.country || undefined,
+    province: ext.extInfo?.province || undefined,
+    city: ext.extInfo?.city || undefined,
     interests,
     album,
   };
@@ -346,7 +355,10 @@ function parseExtInfo(blob: SqlValue | undefined): ProfileExtInfo | undefined {
     interactMarks.length === 0 &&
     privileges.length === 0 &&
     !info.school &&
-    !info.deviceCode &&
+    !info.degree &&
+    !info.country &&
+    !info.province &&
+    !info.city &&
     interests.length === 0 &&
     album.length === 0;
   return empty ? undefined : info;
