@@ -20,6 +20,7 @@
  *   weq-media://localfile?path=<absOriPath>                   → File/Ori file bytes (image preview)
  *   weq-media://localmedia?kind=pic&rel=<month/Ori/name>      → PhotoWall/Qzone/Pic/Video cache bytes
  *   weq-media://localvoice?rel=<month/Ori/name>               → decoded WAV for a Ptt cache clip
+ *   weq-media://dress?src=<tianquanUrl>                       → 会员装扮资源(挂件/名片/浮屏/背景)
  *
  * Like the other custom schemes: `registerMediaScheme()` runs before app
  * `ready`; `registerMediaProtocol()` runs after.
@@ -146,11 +147,62 @@ async function albumRemoteResponse(src: string): Promise<Response> {
   return res;
 }
 
+/**
+ * QQ 会员装扮资源(挂件/名片/浮屏/聊天背景)的落盘缓存代理。
+ *
+ * 渲染进程不直连 tianquan CDN:一来每次渲染都要重拉,二来那样得为它撕开 CSP。这里主进程
+ * 代取 + 落盘,渲染进程只见 `weq-media://dress?src=<upstream>`。
+ *
+ * 图片(挂件 APNG / 浮屏 PNG / 背景 PNG)走 {@link AvatarCacheService},和头像共用同一套
+ * 磁盘缓存;名片视频(mp4,实测 2.4MB)体积大且要支持 range 播放,单独落到 media/dress 下
+ * 再按文件流回 —— 走 avatarCache 会把整段读进内存,不划算。
+ */
+async function dressRemoteResponse(src: string): Promise<Response> {
+  if (!/^https:\/\//i.test(src)) return notFound('dress asset needs https url');
+  const host = new URL(src).hostname.toLowerCase();
+  if (host !== 'tianquan.gtimg.cn') return notFound('dress host not allowed');
+
+  // 名片视频:按 url 哈希落盘,命中直接文件流(支持 range),未命中先下再流。
+  if (/\.mp4($|\?)/i.test(src)) {
+    const boot = getAppContext().bootstrap;
+    if (!boot) return notFound('dress cache unavailable');
+    const dir = join(boot.userConfig.cacheDir('media'), 'dress');
+    const path = join(dir, `${createHash('sha1').update(src).digest('hex')}.mp4`);
+    if (existsSync(path)) return fileResponse(path);
+    const outcome = await downloadUrlToFile(src, path);
+    return outcome.ok ? fileResponse(path) : notFound(`dress video failed: ${outcome.reason}`);
+  }
+
+  // 图片一律走头像那套磁盘缓存。注意聊天背景的 aioImage 没有扩展名、Content-Type 是
+  // application/octet-stream,但内容就是 PNG,浏览器按魔数认,不影响渲染。
+  const cache = getAppContext().bootstrap?.avatarCache;
+  if (!cache) return notFound('dress cache unavailable');
+  try {
+    const blob = await cache.get(src);
+    return new Response(new Uint8Array(blob.data), {
+      status: 200,
+      headers: { 'Content-Type': blob.contentType, 'Cache-Control': 'public, max-age=86400' },
+    });
+  } catch {
+    return notFound('dress asset fetch failed');
+  }
+}
+
 export function registerMediaProtocol(): void {
   protocol.handle(MEDIA_SCHEME, async (request) => {
     const url = new URL(request.url);
     const kind = url.hostname;
     const q = url.searchParams;
+
+    // 装扮资源只依赖 bootstrap 的缓存,不需要打开的账号 —— 放在 services 断言之前。
+    if (kind === 'dress') {
+      try {
+        return await dressRemoteResponse(q.get('src') ?? '');
+      } catch (e) {
+        console.error('[media] dress failed:', e);
+        return new Response('media error', { status: 500 });
+      }
+    }
 
     const services = getAppContext().services;
     if (!services) return notFound('no account session');

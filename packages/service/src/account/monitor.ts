@@ -23,6 +23,7 @@ import type { Platform } from '@weq/platform';
 import type { AccountConfigService, DownloadRkey, ClientKey } from './user_config';
 import { rkeyExpiryMs, clientKeyExpiryMs } from './user_config';
 import { createDirectInjectHook, type InjectHook } from '../bootstrap/inject';
+import { fetchHomeDress } from './home_dress';
 import { getLogger, logErrorContext } from '../common/logger';
 
 /** How often to poll for the account becoming logged in. */
@@ -275,6 +276,16 @@ export class AccountMonitorService {
           });
         }
       }
+      // 首页装扮快照：并发抓取，不阻塞 rkey/clientkey 主流程，失败静默降级。
+      void fetchHomeDress(this.nt, this.session, pid)
+        .then((dress) => this.accountConfig.setHomeDress(dress))
+        .catch((e) => {
+          this.logger.warn('home dress fetch failed (non-fatal)', {
+            event: 'home-dress-fetch-failed',
+            pid,
+            ...logErrorContext(e),
+          });
+        });
     } catch (error) {
       this.logger.warn('background harvest failed', {
         event: 'harvest-failed',

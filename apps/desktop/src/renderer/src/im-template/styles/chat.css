@@ -2849,24 +2849,15 @@ html[data-theme="dark"] .member-role-badge.admin {
 	color: #c68100;
 }
 
-/* Empty chat placeholder: large faint QQ logo + small hint. */
-.chat-empty-placeholder {
-	display: grid;
-	place-items: center;
-	gap: 16px;
-	user-select: none;
-}
-
+/* Empty chat placeholder: one large flat-colour QQ penguin, QQ-native style. */
 .chat-empty-logo {
-	width: 132px;
-	height: 132px;
-	color: rgba(0, 153, 255, 0.16);
+	width: 180px;
+	height: 180px;
+	color: rgba(0, 0, 0, 0.055);
 }
 
-.chat-empty-text {
-	color: #b3b3b3;
-	font-size: 14px;
-	letter-spacing: 0.05em;
+html[data-theme="dark"] .chat-empty-logo {
+	color: rgba(255, 255, 255, 0.07);
 }
 
 /* Native window drag: top header/rail areas drag the frameless window; their

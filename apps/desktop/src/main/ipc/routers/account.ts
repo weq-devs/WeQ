@@ -1157,6 +1157,11 @@ export const accountRouter = router({
     .input(z.object({ count: z.number().int().min(1).max(80).default(30) }).optional())
     .query(({ input }) => sampleHitokoto(input?.count ?? 30)),
 
+  /** 首页个性装扮快照（从账号 config 读，bootstrap 阶段在线注入后写入）。 */
+  getHomeDress: procedure.query(() => {
+    return requireServices().accountConfig.getRecord()?.homeDress ?? null;
+  }),
+
   /** 首页门面：私聊纯文本短句池（装饰性「虚拟聊天流」用）。 */
   sampleChatLines: procedure
     .input(z.object({ limit: z.number().int().min(1).max(160).default(80) }).optional())

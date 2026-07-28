@@ -45,6 +45,7 @@ export function ChatShell({
 	onOpenGroupNotices,
 	onContactTabChange,
 	onSidebarWidthChange,
+	onGoHome,
 }: {
 	user: User;
 	view: MainView;
@@ -77,6 +78,7 @@ export function ChatShell({
 	onOpenGroupNotices: () => void;
 	onContactTabChange: (tab: ContactTab) => void;
 	onSidebarWidthChange: (width: number) => void;
+	onGoHome?: () => void;
 }) {
 	const shellStyle = {
 		"--sidebar-width": `${sidebarWidth}px`,
@@ -84,7 +86,7 @@ export function ChatShell({
 
 	return (
 		<div className="app-shell-root">
-			<TitleBar user={user} />
+			<TitleBar user={user} homeActive={view === "home"} onGoHome={onGoHome} />
 			<div
 				className={cn("app-shell", view === "tools" && "app-shell-tools")}
 				style={shellStyle}
@@ -106,7 +108,7 @@ export function ChatShell({
 					footerContent={railFooterContent}
 					hideAvatar={true}
 				/>
-				<aside className={cn("sidebar", view === "agentlab" && "is-agentlab-view", view === "cache" && "is-cache-view", view === "qzone" && "is-qzone-view", view === "channel" && "is-channel-view")}>
+				<aside className={cn("sidebar", view === "home" && "is-home-view", view === "agentlab" && "is-agentlab-view", view === "cache" && "is-cache-view", view === "qzone" && "is-qzone-view", view === "channel" && "is-channel-view")}>
 					<SidebarHeader
 						user={user}
 						view={view}

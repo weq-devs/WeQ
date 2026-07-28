@@ -123,6 +123,14 @@ export interface AccountConfig {
    * vs `setAccount` on re-open.
    */
   static?: boolean;
+  /** 首页个性装扮快照（挂件/名片/浮屏/个性标签），在线注入后写入。 */
+  homeDress?: {
+    widgetUrl: string;
+    cardUrl: string;
+    cardVideoUrl: string;
+    screenUrl: string;
+    tags: string[];
+  };
 }
 
 /** Metadata threaded in from the open flow to enrich the saved record. */
@@ -244,6 +252,12 @@ export class AccountConfigService {
       ttlSeconds: clientKey.ttlSeconds,
       keyIndex: clientKey.keyIndex,
     });
+  }
+
+  /** Persist the home-dress snapshot (widget / card / screen / tags). */
+  setHomeDress(homeDress: AccountConfig['homeDress']): void {
+    this.patch({ homeDress });
+    this.logger.info('stored home dress snapshot', { event: 'set-home-dress' });
   }
 
   private patch(partial: Partial<AccountConfig>): void {

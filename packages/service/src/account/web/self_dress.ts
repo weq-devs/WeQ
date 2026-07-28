@@ -24,6 +24,11 @@ export interface SelfDressItem {
   name: string;
   /** 预览图 url。 */
   previewUrl: string;
+  /**
+   * 高清图 url —— 目前只有聊天背景(appId 8)有。previewUrl 那张是缩略图(实测
+   * 320×568),真正贴在聊天窗上的是这张(720×1280)。见 {@link chatBgUrls}。
+   */
+  hdUrl?: string;
 }
 
 export interface SelfDress {
@@ -57,10 +62,34 @@ interface RawResponse {
 }
 
 /**
+ * 聊天背景(appId 8)的高清 url。
+ *
+ * 接口只回 `newPreview1.png`(实测 320×568 的缩略图)。真正贴在聊天窗上的那张是同目录的
+ * `aioImage` —— 实测 720×1280,虽然 Content-Type 是 `application/octet-stream`,内容就是
+ * PNG(魔数 `\x89PNG`),`<img>` 能直接吃。
+ *
+ * 关键:**目录段不一定是 itemId**。本账号 itemId=67066 但目录段是 `462bb8fde2dec534`,
+ * 拿 itemId 拼出来的 `chatBg/item/67066/aioImage` 是 404。所以只从 img 抠目录、换文件名,
+ * 绝不自己拼 id。匹配不上 chatBg 的形状就返回 undefined(宁可没有,也不发一个错的 url)。
+ */
+function chatBgHdUrl(img: string): string | undefined {
+  const m = img.match(/^(https:\/\/tianquan\.gtimg\.cn\/chatBg\/item\/[^/]+\/)[^/]+$/);
+  return m ? `${m[1]}aioImage` : undefined;
+}
+
+/**
  * 查本账号正在用的全部装扮(含好友装扮页拿不到的气泡/字体)。
  *
  * 注意桶 key 与项内 appId 可能不同:界面字体(305)混在 `apps["5"]` 桶里返回,
  * 故一律以项内 `appId` 为准。
+ *
+ * 每项只有 appId/itemId/img/name 四个字段(已 dump 原始 JSON 确认,没有隐藏字段)。
+ * 所以动态资源得另想办法:
+ *  - 名片(15)的视频不在这里,权威值是好友装扮页的 `extraInfo.immersiveMaterial.videoUrl`
+ *    (见 friend_dress.ts)。别按预览图路径推 —— 实测 `card/item/<id>/newPreview2.mp4`
+ *    虽然也 200,但只有 477×848,而权威的 `immersive/card/<id>/newPreview_<id>.mp4` 是
+ *    720×1280,两者是不同目录的不同文件。
+ *  - 挂件(4)的 newPreview1.png 本身就是 APNG(实测 34 帧),浏览器直接会动,无需另取。
  */
 export async function getSelfDress(cred: WebCredential): Promise<SelfDress> {
   const res = await fetch(`${ENDPOINT}?g_tk=${computeBkn(cred.pskey)}`, {
@@ -92,13 +121,19 @@ export async function getSelfDress(cred: WebCredential): Promise<SelfDress> {
   for (const bucket of Object.values(data.response?.apps ?? {})) {
     for (const r of bucket.usingItems ?? []) {
       const appId = r.appId ?? bucket.appId ?? 0;
-      items.push({
+      const previewUrl = r.img ?? '';
+      const item: SelfDressItem = {
         appId,
         kind: dressKind(appId),
         itemId: r.itemId ?? 0,
         name: r.name ?? '',
-        previewUrl: r.img ?? '',
-      });
+        previewUrl,
+      };
+      if (appId === 8) {
+        const hd = chatBgHdUrl(previewUrl);
+        if (hd) item.hdUrl = hd;
+      }
+      items.push(item);
     }
   }
 

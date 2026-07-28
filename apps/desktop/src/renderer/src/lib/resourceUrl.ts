@@ -51,6 +51,15 @@ export function collectionImageUrl(src: string): string {
   return `weq-avatar://fetch?src=${encodeURIComponent(src)}`;
 }
 
+/**
+ * Proxy a QQ 会员装扮资源 (tianquan.gtimg.cn — 挂件/名片/浮屏/聊天背景) through the
+ * main process's disk cache. 图片走头像缓存、mp4 落盘后按文件流回,渲染进程因此不必
+ * 直连 CDN(也就不用为它放开 CSP)。空串原样返回,方便调用方直接 `url && <img …>`。
+ */
+export function dressUrl(src: string): string {
+  return src ? mediaUrl('dress', { src }) : '';
+}
+
 /** Preview a local file under `nt_data/File/Ori` by absolute path (image thumbnails). */
 export function localFileUrl(absPath: string): string {
   return mediaUrl('localfile', { path: absPath });

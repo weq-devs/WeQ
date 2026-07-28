@@ -61,6 +61,8 @@ export type {
 // ---- account ----
 export { AccountConfigService, accountConfigId, rkeyExpiryMs, clientKeyExpiryMs } from './account/user_config';
 export type { AccountConfig, AccountConfigMetadata, DownloadRkey, ClientKey } from './account/user_config';
+export { fetchHomeDress } from './account/home_dress';
+export type { HomeDressSnapshot } from './account/home_dress';
 export { AccountMonitorService } from './account/monitor';
 export {
   MediaDownloadService,

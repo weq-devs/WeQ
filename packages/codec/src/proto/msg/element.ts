@@ -490,10 +490,10 @@ export const ElementWire = {
   recallFlag47702: ProtoField(47702, ScalarType.UINT32, { optional: true }),
 
   /** Sender UID (subType=1). Required for recall tips. */
-  recallSenderUid: ProtoField(47703, ScalarType.STRING, { optional: true }),
+  recallSenderUid: ProtoField(47704, ScalarType.STRING, { optional: true }),
 
   /** Revoker UID (subType=1). Required for recall tips. */
-  recallRevokeUid: ProtoField(47704, ScalarType.STRING, { optional: true }),
+  recallRevokeUid: ProtoField(47703, ScalarType.STRING, { optional: true }),
 
   /** Sender nickname (subType=1). Required for recall tips. */
   recallSenderNick: ProtoField(47705, ScalarType.STRING, { optional: true }),

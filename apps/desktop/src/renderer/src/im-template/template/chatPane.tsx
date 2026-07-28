@@ -1277,12 +1277,7 @@ export function ChatPane({
 	if (!conversation) {
 		return (
 			<section className={cn("chat-empty")}>
-				<div className={cn("chat-empty-container")}>
-					<FaQq className={cn("chat-empty-logo")} aria-hidden />
-					<p className={cn("chat-empty-text")}>
-						左侧选择会话查看聊天记录
-					</p>
-				</div>
+				<FaQq className={cn("chat-empty-logo")} aria-hidden />
 			</section>
 		);
 	}

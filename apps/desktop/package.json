@@ -54,6 +54,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
+    "@types/d3": "^7.4.3",
     "@types/node": "^22.10.6",
     "@types/qrcode": "^1.5.5",
     "@types/react": "^19.0.7",

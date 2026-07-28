@@ -1889,7 +1889,7 @@ export function MainView(): ReactElement {
   const shellHistory = useMemo(
     () => ({
       isMobileShell,
-      // 从其它页（联系人/导出/助手…）切回「消息」时，落在门面首页而不是自动选中
+      // 从其它页（联系人/导出/助手…）切回「消息」时，落在 QQ 式企鹅占位而不是自动选中
       // 最近一条会话——会话由用户在左栏显式点选后才进入。
       shouldAutoSelectConversation: () => false,
       replaceShell: () => undefined,
@@ -1903,6 +1903,8 @@ export function MainView(): ReactElement {
     contacts: buddyContacts,
     conversationPrefs,
     initialActiveConversationId: null,
+    // 进入应用先落在主页（标题栏 logo 那颗按钮），会话由用户显式点选后才进入。
+    initialView: 'home',
     sidebarWidthStorageKey: 'weq.desktop.sidebarWidth.v2',
     history: shellHistory,
   });
@@ -2850,6 +2852,15 @@ export function MainView(): ReactElement {
     return undefined;
   }
 
+  // 独占整个内容区、不要左侧列表的视图（含主页）。
+  const fullBleedView =
+    shell.view === 'home' ||
+    shell.view === 'export' ||
+    shell.view === 'agentlab' ||
+    shell.view === 'cache' ||
+    shell.view === 'qzone' ||
+    shell.view === 'channel';
+
   return (
     <ReplyJumpContext.Provider value={jumpToSeq}>
       <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
@@ -2860,7 +2871,7 @@ export function MainView(): ReactElement {
         query={shell.query}
         contactTab={shell.contactTab}
         activeNotice={shell.contactNotice}
-        sidebarWidth={shell.view === 'export' || shell.view === 'agentlab' || shell.view === 'cache' || shell.view === 'qzone' || shell.view === 'channel' ? 0 : shell.sidebarWidth}
+        sidebarWidth={fullBleedView ? 0 : shell.sidebarWidth}
         mainOpen={shell.mainOpen}
         messageBadgeCount={0}
         contactBadgeCount={0}
@@ -2875,6 +2886,7 @@ export function MainView(): ReactElement {
         friendNoticeCount={contactRequests.length}
         groupNoticeCount={groupRequests.length}
         onViewChange={shell.switchView}
+        onGoHome={() => shell.switchView('home')}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenCollection={() => setCollectionOpen(true)}
         onOpenMarketBrowser={() => setMarketBrowserOpen(true)}
@@ -2890,7 +2902,7 @@ export function MainView(): ReactElement {
         onContactTabChange={shell.changeContactTab}
         onSidebarWidthChange={shell.updateSidebarWidth}
         sidebarContent={
-          shell.view === 'export' || shell.view === 'agentlab' || shell.view === 'cache' || shell.view === 'qzone' || shell.view === 'channel' ? null : (
+          fullBleedView ? null : (
           <>
             <ChatSidebarContent
               user={user}
@@ -2967,7 +2979,9 @@ export function MainView(): ReactElement {
           )
         }
         mainContent={
-          shell.view === 'export' ? (
+          shell.view === 'home' ? (
+            <ChatHome nickname={user.displayName} avatarUrl={user.avatarUrl} />
+          ) : shell.view === 'export' ? (
             <ExportView />
           ) : shell.view === 'agentlab' ? (
             <AgentLabView />
@@ -2985,7 +2999,6 @@ export function MainView(): ReactElement {
                 view={shell.view}
                 contactTab={shell.contactTab}
                 relationGraphSlot={<RelationGraphView />}
-                chatHomeSlot={<ChatHome nickname={user.displayName} avatarUrl={user.avatarUrl} />}
                 contactNotice={shell.contactNotice}
                 contactRequests={contactRequests}
                 groupRequests={groupRequests}
