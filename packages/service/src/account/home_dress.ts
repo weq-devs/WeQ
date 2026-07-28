@@ -81,11 +81,13 @@ export async function fetchHomeDress(
   nt: Pick<NtHelperBinding, 'fetchSkey' | 'fetchPskey' | 'fetchClientKey'>,
   session: AccountSession,
   pid: number,
+  seedPskey?: Record<string, string>,
 ): Promise<HomeDressSnapshot> {
   const logger = getLogger().child({ scope: 'home-dress', accountUin: session.context.uin });
   const uin = session.context.uin;
 
   const creds = new WebCredentialProvider(nt, uin, () => pid);
+  if (seedPskey) creds.seedPskey(seedPskey);
   const cred = await creds.forDomain(VIP_DOMAIN);
 
   // ---- 1. 自己的装扮（挂件/名片静图/浮屏）----

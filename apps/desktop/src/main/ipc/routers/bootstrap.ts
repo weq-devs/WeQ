@@ -34,7 +34,9 @@ import {
 import { procedure, router } from '../trpc';
 import {
   accountConfigId,
+  fetchHomeDress,
   getLogger,
+  logErrorContext,
   type KeyEvent,
   type VoiceDownloadProgress,
   type TtsProviderConfig,
@@ -976,6 +978,8 @@ export const bootstrapRouter = router({
         displayName: z.string().optional(),
         avatarUrl: z.string().optional(),
         dataDir: z.string().optional(),
+        /** p_skey the login flow harvested (domain → key). Best-effort. */
+        pskey: z.record(z.string(), z.string()).optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -1018,6 +1022,30 @@ export const bootstrapRouter = router({
           ...(dataDir ? { dataDir } : {}),
         },
       );
+      // Must land AFTER setAccount — that's what seeds the config record the
+      // patch writes into.
+      if (input.pskey && Object.keys(input.pskey).length > 0) {
+        const services = ctx.services;
+        const session = ctx.account;
+        services?.accountConfig.setLoginPskey(input.pskey);
+
+        // The login flow already killed QQ, so `monitor.harvest` (which needs a
+        // live, hooked pid) will never run for this open — fetch the home-dress
+        // snapshot here instead, off the seeded ticket. pid=0 is never dialled:
+        // the seed short-circuits the p_skey lookup. Fire-and-forget so a slow
+        // CDN can't hold up entering the account.
+        if (services && session) {
+          void fetchHomeDress(platform.native.ntHelper, session, 0, input.pskey)
+            .then((dress) => services.accountConfig.setHomeDress(dress))
+            .catch((e) => {
+              logger.warn('home dress fetch from login pskey failed (non-fatal)', {
+                event: 'router-home-dress-failed',
+                accountUin: input.uin,
+                ...logErrorContext(e),
+              });
+            });
+        }
+      }
       return ctx.account!.context;
     }),
 

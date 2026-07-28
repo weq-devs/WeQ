@@ -277,7 +277,7 @@ export class AccountMonitorService {
         }
       }
       // 首页装扮快照：并发抓取，不阻塞 rkey/clientkey 主流程，失败静默降级。
-      void fetchHomeDress(this.nt, this.session, pid)
+      void fetchHomeDress(this.nt, this.session, pid, this.accountConfig.getRecord()?.loginPskey)
         .then((dress) => this.accountConfig.setHomeDress(dress))
         .catch((e) => {
           this.logger.warn('home dress fetch failed (non-fatal)', {

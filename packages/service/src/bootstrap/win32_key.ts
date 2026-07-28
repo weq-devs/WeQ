@@ -34,6 +34,11 @@ export interface KeyResult {
   success: boolean;
   dbkey?: string;
   error?: string;
+  /**
+   * Web ticket the login loader grabbed alongside the dbkey (domain → p_skey).
+   * Best-effort: absent on `requestKey`, and on a login whose pskey call failed.
+   */
+  pskey?: Record<string, string>;
 }
 
 /** Events surfaced during a streaming flow. */
@@ -236,10 +241,23 @@ function iterateSession(
   session.onQrcode((e) => emit({ kind: 'qrcode', url: e.url }));
   session.onState((e) => emit({ kind: 'qrcode-state', state: e.state }));
 
+  // The loader always sends `pskey` before the terminal `result`, so this is
+  // populated by the time we build the KeyResult below.
+  let pskey: Record<string, string> | undefined;
+  session.onPskey((e) => {
+    if (e.success && e.pskey) pskey = e.pskey;
+    else getLogger().warn('ninebird: pskey unavailable', { event: 'login-pskey-missing', error: e.error });
+  });
+
   void session.result.then((r: NineBirdResultEvent) => {
     emit({
       kind: 'result',
-      result: { success: r.success, ...(r.dbkey ? { dbkey: r.dbkey } : {}), ...(r.error ? { error: r.error } : {}) },
+      result: {
+        success: r.success,
+        ...(r.dbkey ? { dbkey: r.dbkey } : {}),
+        ...(r.error ? { error: r.error } : {}),
+        ...(pskey ? { pskey } : {}),
+      },
     });
     finish();
   });

@@ -4,6 +4,8 @@
 // `initFieldMap(new int[]{...})` 数组即 wire tag(tag = 值 >> 3)。同一个 SSO 命令
 // `scupdate.handle` 用 `SCUpdateReq.cmd` 分流两种操作:1 = SyncVCR(同步资源版本表)、
 // 2 = GetUrl(换下载外链)。
+//
+// claude 硬编码了一个超低mobileqq版本，已严肃修改
 
 import { message, type ProtoMessage } from '../protobuf';
 
@@ -41,7 +43,7 @@ export const CODE_NOT_FOUND = -20002;
 export const PLAT_ANDROID_QQ = 109;
 
 /** 随包上报的客户端版本。保持与 apk 内硬编码一致。 */
-export const QVER_ANDROID = '8.8.17.5770';
+export const QVER_ANDROID = '9.3.5.37250';
 
 // ─────────────────────────── 请求 ───────────────────────────
 

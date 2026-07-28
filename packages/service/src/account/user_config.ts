@@ -123,6 +123,12 @@ export interface AccountConfig {
    * vs `setAccount` on re-open.
    */
   static?: boolean;
+  /**
+   * p_skey per domain, harvested by the ninebird loader during login (while QQ
+   * was still alive). Seeds `WebCredentialProvider` so the first home-dress
+   * fetch works without a hook round-trip.
+   */
+  loginPskey?: Record<string, string>;
   /** 首页个性装扮快照（挂件/名片/浮屏/个性标签），在线注入后写入。 */
   homeDress?: {
     widgetUrl: string;
@@ -258,6 +264,15 @@ export class AccountConfigService {
   setHomeDress(homeDress: AccountConfig['homeDress']): void {
     this.patch({ homeDress });
     this.logger.info('stored home dress snapshot', { event: 'set-home-dress' });
+  }
+
+  /** Persist p_skey harvested during the ninebird login flow. */
+  setLoginPskey(loginPskey: Record<string, string>): void {
+    this.patch({ loginPskey });
+    this.logger.info('stored login pskey', {
+      event: 'set-login-pskey',
+      domains: Object.keys(loginPskey),
+    });
   }
 
   private patch(partial: Partial<AccountConfig>): void {

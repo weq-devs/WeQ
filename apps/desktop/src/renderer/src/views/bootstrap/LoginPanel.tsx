@@ -57,6 +57,12 @@ export function LoginPanel({
   const confirm = useDialog((s) => s.confirm);
 
   const [key, setKey] = useState('');
+  /**
+   * p_skey the login flow harvested alongside the dbkey. Handed to
+   * `openAccount` so the home-dress fetch has a ticket even though QQ is
+   * already gone. Empty for the alive-instance path (it can hook for one).
+   */
+  const pskeyRef = useRef<Record<string, string> | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
   const [autoEnter, setAutoEnter] = useState(false);
@@ -83,6 +89,9 @@ export function LoginPanel({
   // Reset the key + flags whenever the selected account changes.
   useEffect(() => {
     setKey(mode === 'existing' ? (selected?.dbKey ?? '') : '');
+    // The ticket belongs to the account that was just logged in — never carry
+    // it over to a different one.
+    pskeyRef.current = null;
     setStatus('');
     setAutoEnter(sameTarget(autoTarget, selected));
     setSource('online');
@@ -244,6 +253,7 @@ export function LoginPanel({
           } else if (event.kind === 'result') {
             closeSub();
             if (event.result.success && event.result.dbkey) {
+              if (event.result.pskey) pskeyRef.current = event.result.pskey;
               setKey(event.result.dbkey);
               setStatus('已获取密钥');
               setBusy(false);
@@ -281,6 +291,7 @@ export function LoginPanel({
           closeSub();
           setQr(null);
           if (event.result.success && event.result.dbkey) {
+            if (event.result.pskey) pskeyRef.current = event.result.pskey;
             if (seenUin && seenUin !== selected?.uin) onSelectByUin(seenUin);
             setKey(event.result.dbkey);
             setStatus('已获取密钥');
@@ -378,6 +389,7 @@ export function LoginPanel({
         ...(selected.hasName ? { displayName: selected.name } : {}),
         ...(selected.avatarUrl ? { avatarUrl: selected.avatarUrl } : {}),
         ...(selected.dataDir ? { dataDir: selected.dataDir } : {}),
+        ...(pskeyRef.current ? { pskey: pskeyRef.current } : {}),
       });
 
       if (autoEnter) {

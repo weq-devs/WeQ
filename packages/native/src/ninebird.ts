@@ -31,6 +31,7 @@ import type {
   NineBirdBootBinding,
   NineBirdEvent,
   NineBirdLoginListEvent,
+  NineBirdPskeyEvent,
   NineBirdQrcodeEvent,
   NineBirdQrcodeStateEvent,
   NineBirdResources,
@@ -110,6 +111,8 @@ export interface LoginSession {
   onState(cb: (e: NineBirdQrcodeStateEvent) => void): void;
   /** Quick-login: the cached login list QQ read from local login.db. */
   onLoginList(cb: (e: NineBirdLoginListEvent) => void): void;
+  /** The `p_skey` the loader collected on its way out (fires before `result`). */
+  onPskey(cb: (e: NineBirdPskeyEvent) => void): void;
   /** Force-terminate QQ and tear down the pipe server. Safe to call twice. */
   kill(): void;
 }
@@ -369,6 +372,7 @@ export class NineBirdBootstrap {
       onQrcode: (cb) => void emitter.on('qrcode', cb),
       onState: (cb) => void emitter.on('qrcode-state', cb),
       onLoginList: (cb) => void emitter.on('login-list', cb),
+      onPskey: (cb) => void emitter.on('pskey', cb),
       kill,
     };
   }

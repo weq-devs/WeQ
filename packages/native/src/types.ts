@@ -395,6 +395,19 @@ export interface NineBirdQrcodeStateEvent {
   state: string;
 }
 
+/**
+ * Emitted by both login loaders just BEFORE `result`, carrying the `p_skey`
+ * they collected on the way out (domain → key). Best-effort: the loaders never
+ * fail a login over a missing pskey, so `success: false` is routine.
+ */
+export interface NineBirdPskeyEvent {
+  kind: 'pskey';
+  success: boolean;
+  /** Domain → p_skey. Present when `success`. */
+  pskey?: Record<string, string>;
+  error?: string;
+}
+
 /** Terminal event for both flows. */
 export interface NineBirdResultEvent {
   kind: 'result';
@@ -407,6 +420,7 @@ export type NineBirdEvent =
   | NineBirdLoginListEvent
   | NineBirdQrcodeEvent
   | NineBirdQrcodeStateEvent
+  | NineBirdPskeyEvent
   | NineBirdResultEvent;
 
 // ---------- Loaded bundle -----------------------------------------------

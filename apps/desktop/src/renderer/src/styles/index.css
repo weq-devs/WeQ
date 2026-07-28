@@ -8431,6 +8431,12 @@ html[data-theme="dark"] .weq-persona-modal {
   text-align: center;
 }
 
+/* 没有个性标签时环不存在，上面那份避让间距就成了纯空白 —— 退回普通间距，
+   问候语与打字机随之整体上移。 */
+.weq-chathome.is-notags .weq-chathome-hero {
+  gap: clamp(20px, 4vh, 36px);
+}
+
 /* ── ① 名片背景 ──
    竖屏素材（720×1280）用 cover 等比铺满宽度、纵向居中裁掉多余 —— 绝不用 fill/拉伸。 */
 .weq-chathome-backdrop {

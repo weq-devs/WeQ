@@ -94,6 +94,17 @@ export class WebCredentialProvider {
     this.logger = getLogger().child({ scope: 'web-credential', accountUin: this.uin });
   }
 
+  /**
+   * Pre-load p_skey harvested elsewhere (e.g. by the ninebird login loader,
+   * which grabs it while QQ is still up). Saves a hook round-trip, and works
+   * even after the login process is gone.
+   */
+  seedPskey(byDomain: Record<string, string>): void {
+    for (const [domain, pskey] of Object.entries(byDomain)) {
+      if (pskey) this.pskeyByDomain.set(domain, pskey);
+    }
+  }
+
   /** Credential bundle for `domain` (e.g. 'qun.qq.com', 'qzone.qq.com'). */
   async forDomain(domain: string): Promise<WebCredential> {
     const pid = this.resolvePid();
@@ -113,10 +124,25 @@ export class WebCredentialProvider {
 
       // skey / p_skey:优先用 jar 里的,jar 没有就回退 native(OIDB)。两个 fetcher
       // 都走同一条 hook pipe,顺序调用避免争用。
+      //
+      // 已 seed p_skey 时 skey 允许缺失:seed 的场景是「QQ 已退出、只剩登录时收下的
+      // 票据」,此时 fetchSkey 必然打不通 hook。只认 p_skey 的 cgi(如 vip.qq.com 的
+      // GetNewStyleAppUsing)照样能跑,故这里降级而非整体失败。
       let skey = jar.skey ?? this.skey ?? undefined;
       if (!skey) {
-        skey = await this.nt.fetchSkey(pid, this.uin);
-        this.logger.info('fetched skey', { event: 'fetch-skey', pid, domain });
+        try {
+          skey = await this.nt.fetchSkey(pid, this.uin);
+          this.logger.info('fetched skey', { event: 'fetch-skey', pid, domain });
+        } catch (e) {
+          if (!this.pskeyByDomain.has(domain)) throw e;
+          this.logger.warn('fetchSkey failed; continuing with seeded p_skey only', {
+            event: 'fetch-skey-failed-seeded',
+            pid,
+            domain,
+            ...logErrorContext(e),
+          });
+          skey = '';
+        }
       }
       this.skey = skey;
 
