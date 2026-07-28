@@ -154,9 +154,16 @@ export function RailAccountFooter({
     queryClient.removeQueries({ queryKey: accountKey });
   }
 
+  // staleTime 0 + refetchOnMount always: the account配置 is written by
+  // openAccount, i.e. AFTER bootstrap already cached this query. Without an
+  // immediate refetch the popover would keep serving the pre-login list and a
+  // freshly added account wouldn't show up until the 5min default staleTime
+  // expired.
   const configs = trpc.bootstrap.listAccountConfigs.useQuery(undefined, {
     enabled: open,
     refetchOnWindowFocus: false,
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   useEffect(() => {

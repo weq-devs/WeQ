@@ -44,6 +44,8 @@ export function BootstrapView(): ReactElement {
   const configs = trpc.bootstrap.listAccountConfigs.useQuery(undefined, {
     enabled: nativeOk,
     refetchOnWindowFocus: false,
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
   const autoTarget = trpc.bootstrap.getAutoEnter.useQuery(undefined, {
     enabled: nativeOk,
