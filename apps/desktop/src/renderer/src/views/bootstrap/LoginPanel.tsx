@@ -257,6 +257,12 @@ export function LoginPanel({
               setKey(event.result.dbkey);
               setStatus('已获取密钥');
               setBusy(false);
+            } else if (event.result.hookInstallFailed) {
+              // 注入失败服务层已自动重试过一次。二维码走的是同一条注入路径,
+              // fallback 只会再失败一次 —— 直接请用户重试。
+              setBusy(false);
+              setStatus('');
+              showError('快速登录失败', event.result.error ?? '请重试。');
             } else {
               // Quick login failed → fall back to QR (per spec).
               setStatus('快速登录失败，转二维码…');

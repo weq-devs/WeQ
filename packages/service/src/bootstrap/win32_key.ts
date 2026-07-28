@@ -17,7 +17,11 @@
  *     cleanly without extra plumbing.
  *
  * No service-level retry / backoff — that belongs in the UI layer where
- * the user can be asked "try again?".
+ * the user can be asked "try again?". The one exception is a failed
+ * msf_recv hook install (see {@link isHookInstallFailure}): the loader
+ * installs the hook before it emits anything user-visible, so relaunching
+ * QQ once is invisible, and the dominant cause is a random address-space
+ * race that a fresh process clears. That one is retried once in-place.
  */
 
 import type { Platform } from '@weq/platform';
@@ -34,6 +38,14 @@ export interface KeyResult {
   success: boolean;
   dbkey?: string;
   error?: string;
+  /**
+   * Set when the flow died because the msf_recv hook couldn't be installed,
+   * even after the automatic retry. `error` already carries a user-facing
+   * explanation; this flag tells the UI not to fall back to another login
+   * method (the next one would hit the same address-space problem) and to
+   * just ask the user to try again.
+   */
+  hookInstallFailed?: boolean;
   /**
    * Web ticket the login loader grabbed alongside the dbkey (domain → p_skey).
    * Best-effort: absent on `requestKey`, and on a login whose pskey call failed.
@@ -55,6 +67,38 @@ export interface QuickLoginStreamOptions {
 
 export interface QrLoginStreamOptions {
   timeoutMs?: number;
+}
+
+/**
+ * Did this terminal error come from a failed msf_recv hook install?
+ *
+ * Both platforms' hookers wrap the failure as `install_msf_recv_hook failed`.
+ * win32 appends funchook's detail, so a trampoline-space failure is
+ * identifiable there as `NO_SPACE_NEAR_TARGET_ADDR`; linux's hooker reports
+ * no detail at all. Either way it's worth one retry — the dominant cause is
+ * the address-space race, which a fresh process usually clears.
+ */
+export function isHookInstallFailure(error: string | undefined): boolean {
+  return error?.includes('install_msf_recv_hook failed') ?? false;
+}
+
+/**
+ * Whether the failure is specifically "no trampoline space within ±2GB of the
+ * target" — the random one. Only win32 reports enough detail to tell.
+ */
+function isNoTrampolineSpace(error: string | undefined): boolean {
+  return error?.includes('NO_SPACE_NEAR_TARGET_ADDR') ?? false;
+}
+
+/**
+ * User-facing replacement for the raw native error, used once the retry has
+ * also failed. The original string stays in the logs — it means nothing to a
+ * user. Only claim the address-space cause when the hooker actually confirmed it.
+ */
+function hookInstallHint(error: string | undefined): string {
+  return isNoTrampolineSpace(error)
+    ? '注入 QQ 失败：QQ 进程内存布局导致的偶发错误，已自动重试一次仍未成功。请再试一次，通常重试即可解决。'
+    : '注入 QQ 失败，已自动重试一次仍未成功。这多为偶发错误，请再试一次；若反复失败请反馈。';
 }
 
 export class Win32KeyService {
@@ -126,13 +170,14 @@ export class Win32KeyService {
       appid: appidQua.appid ?? null,
       qua: appidQua.qua ?? null,
     });
-    const session = this.bootstrap.startQuickLogin({
-      uin: opts.uin,
-      qqExePath: exePath,
-      ...appidQua,
-      ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
-    });
-    return iterateSession(session);
+    const startSession = (): ReturnType<NineBirdBootstrap['startQuickLogin']> =>
+      this.bootstrap.startQuickLogin({
+        uin: opts.uin,
+        qqExePath: exePath,
+        ...appidQua,
+        ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+      });
+    return iterateSession(startSession, this.logger);
   }
 
   // -------------- 3. QR-login stream --------------
@@ -152,12 +197,13 @@ export class Win32KeyService {
       appid: appidQua.appid ?? null,
       qua: appidQua.qua ?? null,
     });
-    const session = this.bootstrap.startQrLogin({
-      qqExePath: exePath,
-      ...appidQua,
-      ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
-    });
-    return iterateSession(session);
+    const startSession = (): ReturnType<NineBirdBootstrap['startQrLogin']> =>
+      this.bootstrap.startQrLogin({
+        qqExePath: exePath,
+        ...appidQua,
+        ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+      });
+    return iterateSession(startSession, this.logger);
   }
 
   // ---- helpers ----
@@ -210,17 +256,26 @@ export class Win32KeyService {
  * Bridge a `LoginSession` (callback-based, hot-emitting) into an
  * `AsyncIterable<KeyEvent>` (cold, pull-based).
  *
+ * Takes a session *factory* rather than a session so a failed msf_recv hook
+ * install can be retried transparently: that failure always lands before the
+ * loader emits anything user-visible (the hook goes up before the QR code /
+ * login list), so relaunching QQ once is invisible to the consumer. Only that
+ * one error retries — everything else passes straight through.
+ *
  * Backpressure note: events arriving while no consumer is waiting are
  * queued in memory. NDJSON frames are small and the streams are short, so
  * an unbounded queue is acceptable — but if you ever wire this to a slow
  * IPC channel, swap the queue for a bounded ring buffer.
  */
 function iterateSession(
-  session: ReturnType<NineBirdBootstrap['startQrLogin']>,
+  startSession: () => ReturnType<NineBirdBootstrap['startQrLogin']>,
+  logger: ReturnType<typeof getLogger>,
 ): AsyncIterable<KeyEvent> {
   const queue: KeyEvent[] = [];
   const waiters: Array<(v: IteratorResult<KeyEvent>) => void> = [];
   let done = false;
+  let session: ReturnType<NineBirdBootstrap['startQrLogin']>;
+  let retried = false;
 
   const emit = (e: KeyEvent): void => {
     const waiter = waiters.shift();
@@ -237,30 +292,61 @@ function iterateSession(
     }
   };
 
-  session.onLoginList((e) => emit({ kind: 'login-list', list: e.list }));
-  session.onQrcode((e) => emit({ kind: 'qrcode', url: e.url }));
-  session.onState((e) => emit({ kind: 'qrcode-state', state: e.state }));
+  const attach = (): void => {
+    session = startSession();
+    session.onLoginList((e) => emit({ kind: 'login-list', list: e.list }));
+    session.onQrcode((e) => emit({ kind: 'qrcode', url: e.url }));
+    session.onState((e) => emit({ kind: 'qrcode-state', state: e.state }));
 
-  // The loader always sends `pskey` before the terminal `result`, so this is
-  // populated by the time we build the KeyResult below.
-  let pskey: Record<string, string> | undefined;
-  session.onPskey((e) => {
-    if (e.success && e.pskey) pskey = e.pskey;
-    else getLogger().warn('ninebird: pskey unavailable', { event: 'login-pskey-missing', error: e.error });
-  });
-
-  void session.result.then((r: NineBirdResultEvent) => {
-    emit({
-      kind: 'result',
-      result: {
-        success: r.success,
-        ...(r.dbkey ? { dbkey: r.dbkey } : {}),
-        ...(r.error ? { error: r.error } : {}),
-        ...(pskey ? { pskey } : {}),
-      },
+    // The loader always sends `pskey` before the terminal `result`, so this is
+    // populated by the time we build the KeyResult below.
+    let pskey: Record<string, string> | undefined;
+    session.onPskey((e) => {
+      if (e.success && e.pskey) pskey = e.pskey;
+      else
+        logger.warn('ninebird: pskey unavailable', {
+          event: 'login-pskey-missing',
+          error: e.error,
+        });
     });
-    finish();
-  });
+
+    void session.result.then((r: NineBirdResultEvent) => {
+      if (done) return; // consumer already walked away
+      if (!r.success && isHookInstallFailure(r.error)) {
+        if (!retried) {
+          retried = true;
+          logger.warn('ninebird: msf_recv hook install failed, relaunching QQ once', {
+            event: 'hook-install-retry',
+            error: r.error,
+          });
+          attach();
+          return;
+        }
+        logger.error('ninebird: msf_recv hook install failed after retry', {
+          event: 'hook-install-failed',
+          error: r.error,
+        });
+        emit({
+          kind: 'result',
+          result: { success: false, error: hookInstallHint(r.error), hookInstallFailed: true },
+        });
+        finish();
+        return;
+      }
+      emit({
+        kind: 'result',
+        result: {
+          success: r.success,
+          ...(r.dbkey ? { dbkey: r.dbkey } : {}),
+          ...(r.error ? { error: r.error } : {}),
+          ...(pskey ? { pskey } : {}),
+        },
+      });
+      finish();
+    });
+  };
+
+  attach();
 
   return {
     [Symbol.asyncIterator](): AsyncIterator<KeyEvent> {
@@ -275,8 +361,8 @@ function iterateSession(
         },
         return(): Promise<IteratorResult<KeyEvent>> {
           // Consumer abandoned the stream — tear QQ down.
-          session.kill();
           finish();
+          session.kill();
           return Promise.resolve({ value: undefined, done: true });
         },
       };
