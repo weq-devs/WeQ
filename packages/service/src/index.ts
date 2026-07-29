@@ -70,7 +70,12 @@ export {
 } from './account/bubble_skin';
 export type { BubbleSkin, BubbleSlice, BubbleSource } from './account/bubble_skin';
 export { DressInstallService, fontFamilyFor } from './account/dress_install';
-export type { DressManifest, InstalledFont, DressScope } from './account/dress_install';
+export type {
+  DressManifest,
+  InstalledFont,
+  DressScope,
+  DressBackgroundSource,
+} from './account/dress_install';
 export {
   getDressRank,
   searchDress,

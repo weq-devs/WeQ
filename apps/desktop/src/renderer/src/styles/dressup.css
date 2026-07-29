@@ -423,6 +423,253 @@
   }
 }
 
+/* ===== 换装遮罩 =====
+ * 盖住整个对话框(anchored 在 .weq-dress-dialog 的 position:relative 上)。
+ * 换装期间会重排下面的消息列表,这层既是进度提示,也顺手挡住重复点击。 */
+.weq-dress-applying {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(2px);
+  /* 淡入而不是硬切 —— 资源已在磁盘缓存时整个过程只有几十毫秒,硬切会闪一下。 */
+  animation: weq-dress-fade-in 0.14s ease-out both;
+}
+
+.weq-dress-applying-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
+  color: #303030;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+@keyframes weq-dress-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* 动效敏感:去掉转圈和淡入,只留静态提示。 */
+@media (prefers-reduced-motion: reduce) {
+  .weq-dress-spin,
+  .weq-dress-applying {
+    animation: none;
+  }
+}
+
+/* ===== 聊天背景 / 浮屏挂件 ===== */
+.weq-dress-bg {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding: 4px 2px 8px;
+}
+
+.weq-dress-bg-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.weq-dress-bg-head h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.weq-dress-bg-note {
+  color: #8b93a1;
+  font-size: 12px;
+}
+
+.weq-dress-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 5px 11px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.weq-dress-pick:hover {
+  border-color: var(--weq-accent-effective, #12a8ff);
+  color: var(--weq-accent-effective, #12a8ff);
+}
+
+.weq-dress-bg-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.weq-dress-bg-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0 0 10px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.weq-dress-bg-card:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.weq-dress-bg-card:not(:disabled):hover {
+  border-color: var(--weq-accent-effective, #12a8ff);
+}
+
+.weq-dress-bg-card.is-active {
+  border-color: var(--weq-accent-effective, #12a8ff);
+  box-shadow: 0 0 0 1px var(--weq-accent-effective, #12a8ff) inset;
+}
+
+.weq-dress-bg-card strong {
+  padding: 0 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.weq-dress-bg-card small {
+  padding: 0 10px;
+  overflow: hidden;
+  color: #8b93a1;
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 9:16 —— 与素材(720×1280)同比,预览里看到的裁切就是聊天窗里的裁切。 */
+.weq-dress-bg-preview {
+  position: relative;
+  margin-bottom: 8px;
+  aspect-ratio: 9 / 16;
+  max-height: 190px;
+  background: repeating-conic-gradient(rgba(0, 0, 0, 0.04) 0% 25%, transparent 0% 50%) 50% / 12px
+    12px;
+}
+
+.weq-dress-bg-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.weq-dress-bg-none {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  color: #a8b0bd;
+  font-size: 12px;
+}
+
+.weq-dress-bg-check {
+  display: grid;
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--weq-accent-effective, #12a8ff);
+  color: #fff;
+}
+
+.weq-dress-opacity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  font-size: 12px;
+}
+
+.weq-dress-opacity span {
+  flex: 0 0 auto;
+  color: #6b7280;
+}
+
+.weq-dress-opacity input {
+  flex: 1 1 auto;
+  accent-color: var(--weq-accent-effective, #12a8ff);
+}
+
+.weq-dress-opacity em {
+  flex: 0 0 38px;
+  color: #6b7280;
+  font-style: normal;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-dress-widget-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 10px;
+}
+
+.weq-dress-widget {
+  display: grid;
+  position: relative;
+  aspect-ratio: 9 / 16;
+  max-height: 148px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 9px;
+  background: repeating-conic-gradient(rgba(0, 0, 0, 0.04) 0% 25%, transparent 0% 50%) 50% / 10px
+    10px;
+  cursor: pointer;
+}
+
+.weq-dress-widget:hover {
+  border-color: var(--weq-accent-effective, #12a8ff);
+}
+
+.weq-dress-widget.is-active {
+  border-color: var(--weq-accent-effective, #12a8ff);
+  box-shadow: 0 0 0 1px var(--weq-accent-effective, #12a8ff) inset;
+}
+
+.weq-dress-widget img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 12px;
+}
+
+.weq-dress-widget-id {
+  position: absolute;
+  right: 5px;
+  bottom: 4px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.42);
+  color: #fff;
+  font-size: 10.5px;
+}
+
 /* ===== 深色 ===== */
 html[data-theme="dark"] .weq-dress-layer {
   background: rgba(10, 12, 16, 0.42);
@@ -473,4 +720,26 @@ html[data-theme="dark"] .weq-dress-search-clear:hover {
 html[data-theme="dark"] .weq-dress-card-preview {
   background:
     repeating-conic-gradient(rgba(255, 255, 255, 0.05) 0% 25%, transparent 0% 50%) 50% / 12px 12px;
+}
+
+html[data-theme="dark"] .weq-dress-applying {
+  background: rgba(16, 19, 24, 0.62);
+}
+
+html[data-theme="dark"] .weq-dress-applying-box {
+  background: #1f2429;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42);
+  color: #edf2f7;
+}
+
+html[data-theme="dark"] .weq-dress-bg-card,
+html[data-theme="dark"] .weq-dress-widget,
+html[data-theme="dark"] .weq-dress-pick {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+html[data-theme="dark"] .weq-dress-bg-preview,
+html[data-theme="dark"] .weq-dress-widget {
+  background: repeating-conic-gradient(rgba(255, 255, 255, 0.05) 0% 25%, transparent 0% 50%) 50% /
+    12px 12px;
 }

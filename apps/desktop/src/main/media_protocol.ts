@@ -23,6 +23,7 @@
  *   weq-media://dress?src=<tianquanUrl>                       → 会员装扮资源(挂件/名片/浮屏/背景/气泡切片)
  *   weq-media://dressfont?id=<itemId>                         → 已安装的装扮字体 ttf
  *   weq-media://dressbubble?id=<itemId>                       → 走 protocol 装的气泡九宫格(本地 PNG)
+ *   weq-media://dressbg?v=<stamp>                             → 用户自选的聊天背景(本地图)
  *
  * Like the other custom schemes: `registerMediaScheme()` runs before app
  * `ready`; `registerMediaProtocol()` runs after.
@@ -234,6 +235,13 @@ export function registerMediaProtocol(): void {
       const id = Number(q.get('id') ?? '0');
       const path = id ? services.dressInstall.bubbleFile(id) : null;
       return path ? fileResponse(path) : notFound('dress bubble not installed');
+    }
+
+    // 用户自选的聊天背景:已拷进本账号的装扮目录,路径由清单给 —— 不接受 url 传路径,
+    // 免得变成一个能读任意本地文件的口子。
+    if (kind === 'dressbg') {
+      const path = services.dressInstall.backgroundFile();
+      return path ? fileResponse(path) : notFound('custom background not set');
     }
 
     const name = q.get('name') ?? '';

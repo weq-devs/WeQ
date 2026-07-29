@@ -120,7 +120,7 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
     `  color: ${skin.textColor};`,
     `  border-style: solid;`,
     `  border-width: 0;`,
-    `  border-image-source: url("${skin.localFile ? dressBubbleUrl(skin.itemId) : dressUrl(skin.staticUrl)}");`,
+    `  border-image-source: url("${bubbleImageUrl(skin)}");`,
     `  border-image-slice: ${slice};`,
     `  border-image-width: ${width};`,
     `  border-image-repeat: stretch;`,
@@ -163,27 +163,77 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
 }
 
 function fontRules(font: FontSkinCss, scope: DressScope): string {
-  const family = `weq-dress-${font.itemId}`;
+  // @font-face 不在这里声明 —— 字体经 FontFace API 预加载后注册进 document.fonts
+  // (见 preloadFont)。那样字形在样式落地前就绪,不会触发 swap 的二次重排。
   return [
-    `@font-face {`,
-    `  font-family: "${family}";`,
-    // **不写 `format(...)`**:安装层把字体一律存成 `.ttf`,但 QQ 的装扮字体里有一部分
-    // 其实是 CFF/OTF 外壳。声明成 truetype 时 Chrome 判定格式不符会直接跳过这个 src,
-    // 而且不报错。省掉 format 让它自己嗅探。
-    `  src: url("${font.fontUrl}");`,
-    `  font-display: swap;`,
-    `}`,
     // fallback 必须留着 —— QQ 的装扮字体多是子集化的,缺字要能回退到正文字体。
     // 这里**不能**用 `inherit`:CSS 不允许 inherit 出现在逗号列表里,整条声明会被
     // 浏览器整体丢弃(字体因此永远不生效,且控制台不报错)。要写成真实的字体族名。
     `${bubbleSelector(scope)} {`,
-    `  font-family: "${family}", var(--im-font-body, Inter), ui-sans-serif, system-ui, sans-serif;`,
+    `  font-family: "${fontFamilyFor(font.itemId)}", var(--im-font-body, Inter), ui-sans-serif, system-ui, sans-serif;`,
     `}`,
   ].join('\n');
 }
 
+/** `@font-face` 的 family 名 —— 与 service 侧 dress_install 的约定必须一致。 */
+function fontFamilyFor(itemId: number): string {
+  return `weq-dress-${itemId}`;
+}
+
+/** 气泡静态底图的 url(本地兜底装的走 dressbubble,CDN 直链走 dress)。 */
+function bubbleImageUrl(skin: BubbleSkinCss): string {
+  return skin.localFile ? dressBubbleUrl(skin.itemId) : dressUrl(skin.staticUrl);
+}
+
+/**
+ * 预热一张图。**失败也 resolve** —— 预热只为避开二次重排,不是能否渲染的前提;
+ * 拿不到就照常注入,由 border-image 自己空着(与预热之前的行为一致)。
+ */
+function preloadImage(url: string): Promise<void> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve();
+    img.onerror = () => resolve();
+    img.src = url;
+  });
+}
+
+/** 已注册进 document.fonts 的那个 face。换字体时要先撤掉,否则会越积越多。 */
+let registeredFace: FontFace | null = null;
+
+/**
+ * 加载字体并注册进 `document.fonts`。
+ *
+ * 走 FontFace API 而不是 CSS 的 `@font-face`,是为了能 **await 到字形真正就绪**:
+ * `@font-face` 是声明式的,注入那一刻字体还在下载,`font-display: swap` 会先用兜底
+ * 字体排一遍、字体到了再排一遍 —— 消息列表长的时候这第二遍很显眼。
+ *
+ * 不传 format 描述符的理由同原 CSS 注释:安装层把字体一律存成 `.ttf`,但 QQ 的装扮字体
+ * 有一部分其实是 CFF/OTF 外壳,声明成 truetype 会被 Chrome 判定格式不符而**静默**跳过。
+ */
+async function preloadFont(font: FontSkinCss): Promise<void> {
+  const family = fontFamilyFor(font.itemId);
+  if (registeredFace?.family === family) return;
+
+  if (registeredFace) {
+    document.fonts.delete(registeredFace);
+    registeredFace = null;
+  }
+
+  try {
+    const face = await new FontFace(family, `url("${font.fontUrl}")`).load();
+    document.fonts.add(face);
+    registeredFace = face;
+  } catch {
+    // 字体坏了 / 文件丢了:静默跳过,CSS 里的 fallback 链会接住。
+  }
+}
+
 /**
  * 应用(或清除)当前的装扮。两个 skin 都为 null 时移除样式节点,回到默认外观。
+ *
+ * **同步的,不等资源** —— 进主界面时的首次注入走这条(资源多半已在磁盘缓存里,
+ * 等它反而推迟首屏)。切换装扮请走 {@link applyDressSkinPreloaded}。
  */
 export function applyDressSkin(
   bubble: BubbleSkinCss | null,
@@ -206,5 +256,33 @@ export function applyDressSkin(
     node.id = STYLE_ID;
     document.head.appendChild(node);
   }
-  node.textContent = css;
+  // 内容没变就别写 —— 赋值 textContent 会让浏览器重算整张样式表,而
+  // getState 的每次 invalidate 都会走到这里(清单对象换了引用但内容常常一样)。
+  if (node.textContent !== css) node.textContent = css;
+}
+
+/**
+ * 先把资源拉齐,再注入样式。切换装扮时用这条。
+ *
+ * 分两步的原因:注入瞬间图片还没解码、字体还没下载,消息列表会先按兜底外观排一遍、
+ * 资源到齐再排一遍。列表长的时候这第二遍就是肉眼可见的卡顿。先 await 资源,注入
+ * 就只剩一次重排,而调用方可以在这段等待期间显示加载态。
+ *
+ * 预热失败不阻塞注入(见 {@link preloadImage}) —— 装扮是锦上添花,不该因为一张图
+ * 拉不到就卡在加载态里。
+ */
+export async function applyDressSkinPreloaded(
+  bubble: BubbleSkinCss | null,
+  font: FontSkinCss | null,
+  scope: DressScope = 'mine',
+): Promise<void> {
+  await Promise.all(
+    [
+      bubble ? preloadImage(bubbleImageUrl(bubble)) : null,
+      bubble?.animationUrl ? preloadImage(dressUrl(bubble.animationUrl)) : null,
+      font ? preloadFont(font) : null,
+    ].filter(Boolean),
+  );
+
+  applyDressSkin(bubble, font, scope);
 }

@@ -18,10 +18,21 @@
  * 气泡的 slice / 文字色 / **权威外链**都是解析出来的,不落盘的话每次启动都要重来,而
  * 外链还依赖商城响应或在线实例 —— 离线启动就再也拼不出来了。清单同时也是「我的装扮」
  * 列表的数据源,比扫目录可靠 —— 气泡根本没有自己的目录。
+ *
+ * ## 聊天背景与浮屏挂件
+ *
+ * 也记在同一份清单里(它们同样是「本账号当前的外观选择」)。两点与气泡/字体不同:
+ *
+ *  - **背景有三态**(不用 / QQ 同款 / 自定义)而不是一个 id。QQ 同款那张不落本地,
+ *    渲染时按 config 里的 `homeDress.chatBgUrl` 走 CDN 代理 —— 这样在手机上换了背景,
+ *    这边下次 bootstrap 就跟着变。
+ *  - **自定义图必须拷进来**,理由见 {@link DressInstallService.setCustomBackground}。
+ *
+ * 挂件只存目录名,资源是仓库里 bundle 的 `resources/dress/screen/<id>/`,不需要下载。
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { extname, join } from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 import type { TrpcNative } from '@weq/protocol';
 import { getBubbleResources, getFontResource } from '@weq/protocol';
@@ -55,6 +66,16 @@ export interface InstalledFont {
  */
 export type DressScope = 'mine' | 'all';
 
+/**
+ * 聊天背景的来源。
+ *
+ *  - `none`：不用背景（默认，走主题渐变）。
+ *  - `qq`：用 QQ 里正在用的那张（bootstrap 存在 config 的 homeDress.chatBgUrl，
+ *    走 CDN 代理，不落本地 —— 换手机 QQ 的背景这边跟着变）。
+ *  - `custom`：用户自己选的图，已拷进本账号的装扮目录。
+ */
+export type DressBackgroundSource = 'none' | 'qq' | 'custom';
+
 /** 本地装扮清单。 */
 export interface DressManifest {
   bubbles: BubbleSkin[];
@@ -64,6 +85,20 @@ export interface DressManifest {
   /** 当前生效的字体 itemId(0 = 用默认字体)。 */
   activeFont: number;
   scope: DressScope;
+  /** 聊天背景来源。 */
+  background: DressBackgroundSource;
+  /**
+   * 自定义背景图的绝对路径(在本账号的装扮目录下)。`background !== 'custom'` 时无意义,
+   * 但**保留不清** —— 用户在 QQ 同款和自定义之间来回切时不必重选图。
+   */
+  backgroundFile: string;
+  /**
+   * 背景上叠的浮屏挂件 id(对应 `resources/dress/screen/<id>/`),0 = 不叠。
+   * 存目录名而不是 config.json 里的 id —— 目录名才是取资源的键。
+   */
+  widgetId: string;
+  /** 背景整体不透明度(0–1)。太亮的背景会压过消息,给个可调的档。 */
+  backgroundOpacity: number;
 }
 
 /**
@@ -71,12 +106,34 @@ export interface DressManifest {
  * 若返回同一个对象的浅拷贝,数组仍是同一个引用,一次 push 就把「空清单」永久污染了。
  */
 function emptyManifest(): DressManifest {
-  return { bubbles: [], fonts: [], activeBubble: 0, activeFont: 0, scope: 'mine' };
+  return {
+    bubbles: [],
+    fonts: [],
+    activeBubble: 0,
+    activeFont: 0,
+    scope: 'mine',
+    background: 'none',
+    backgroundFile: '',
+    widgetId: '',
+    backgroundOpacity: 1,
+  };
 }
 
 /** `@font-face` 的 family 名 —— 与渲染侧 dressSkin.ts 的约定必须一致。 */
 export function fontFamilyFor(itemId: number): string {
   return `weq-dress-${itemId}`;
+}
+
+const BACKGROUND_SOURCES: DressBackgroundSource[] = ['none', 'qq', 'custom'];
+
+/** 允许的自定义背景扩展名。与前端的文件选择器 filters 保持一致。 */
+const BACKGROUND_EXTS = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'];
+
+/** 不透明度收进 [0.05, 1] —— 允许很淡,但不允许淡到看不见(那等于没设置却又占着位)。 */
+function clampOpacity(v: unknown): number {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(1, Math.max(0.05, n));
 }
 
 export class DressInstallService {
@@ -107,6 +164,14 @@ export class DressInstallService {
         activeBubble: Number(raw.activeBubble ?? 0),
         activeFont: Number(raw.activeFont ?? 0),
         scope: raw.scope === 'all' ? 'all' : 'mine',
+        // 背景/挂件是后加的字段,老清单里没有 —— 一律按「关」补齐,别让 undefined
+        // 漏到渲染侧(那边只判 'none' 三态,拿到 undefined 会当成有背景)。
+        background: BACKGROUND_SOURCES.includes(raw.background as DressBackgroundSource)
+          ? (raw.background as DressBackgroundSource)
+          : 'none',
+        backgroundFile: typeof raw.backgroundFile === 'string' ? raw.backgroundFile : '',
+        widgetId: typeof raw.widgetId === 'string' ? raw.widgetId : '',
+        backgroundOpacity: clampOpacity(raw.backgroundOpacity),
       };
     } catch {
       return emptyManifest();
@@ -277,6 +342,80 @@ export class DressInstallService {
     const next = { ...this.read(), scope };
     this.write(next);
     return next;
+  }
+
+  /**
+   * 把用户选的图拷进本账号的装扮目录,并切到自定义背景。
+   *
+   * **必须拷贝而不是记路径**:原图可能在 U 盘 / 下载目录 / 临时目录里,记路径的话
+   * 用户一清理背景就没了,而且那时已经没法解释为什么。拷进来之后这张图的生命周期
+   * 就跟账号走。
+   *
+   * 固定文件名 + 换扩展名时删旧文件 —— 每次换背景都留一份的话,目录会无声地涨。
+   */
+  setCustomBackground(sourcePath: string): DressManifest {
+    const ext = extname(sourcePath).toLowerCase();
+    if (!BACKGROUND_EXTS.includes(ext)) {
+      throw new Error(`不支持的图片格式:${ext || '(无扩展名)'}`);
+    }
+
+    const dir = join(this.rootDir, 'background');
+    mkdirSync(dir, { recursive: true });
+    const dest = join(dir, `custom${ext}`);
+    copyFileSync(sourcePath, dest);
+
+    // 换了扩展名时清掉上一张,否则 background/ 下会同时躺着 custom.png 和 custom.jpg。
+    for (const stale of BACKGROUND_EXTS) {
+      if (stale === ext) continue;
+      const path = join(dir, `custom${stale}`);
+      if (existsSync(path)) rmSync(path, { force: true });
+    }
+
+    const next: DressManifest = {
+      ...this.read(),
+      background: 'custom',
+      backgroundFile: dest,
+    };
+    this.write(next);
+    this.logger.info('set custom chat background', {
+      event: 'dress-set-custom-background',
+      ext,
+    });
+    return next;
+  }
+
+  /**
+   * 切换背景来源。切到 `custom` 时要求已经选过图 —— 没有图的自定义态是个死状态,
+   * 界面会显示「有背景」但什么都不画。
+   */
+  setBackground(source: DressBackgroundSource): DressManifest {
+    const manifest = this.read();
+    if (source === 'custom' && !(manifest.backgroundFile && existsSync(manifest.backgroundFile))) {
+      throw new Error('还没有选择自定义背景图');
+    }
+    const next = { ...manifest, background: source };
+    this.write(next);
+    return next;
+  }
+
+  /** 背景不透明度(0.05–1)。 */
+  setBackgroundOpacity(opacity: number): DressManifest {
+    const next = { ...this.read(), backgroundOpacity: clampOpacity(opacity) };
+    this.write(next);
+    return next;
+  }
+
+  /** 选一款浮屏挂件(传空串表示不叠)。id 是 `resources/dress/screen/` 下的目录名。 */
+  setWidget(widgetId: string): DressManifest {
+    const next = { ...this.read(), widgetId };
+    this.write(next);
+    return next;
+  }
+
+  /** 自定义背景图的路径。未设 / 文件丢失时返回 null。 */
+  backgroundFile(): string | null {
+    const hit = this.read().backgroundFile;
+    return hit && existsSync(hit) ? hit : null;
   }
 
   /** 已装字体的 ttf 路径。未装 / 文件丢失时返回 null。 */

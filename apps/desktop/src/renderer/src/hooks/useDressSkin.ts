@@ -9,16 +9,15 @@
 import { useEffect } from 'react';
 import type { DressManifest } from '@weq/service';
 import { trpc } from '../trpc/client';
-import { applyDressSkin } from '../lib/dressSkin';
-import { dressFontUrl } from '../lib/resourceUrl';
+import { applyDressSkin, applyDressSkinPreloaded } from '../lib/dressSkin';
+import { dressBackgroundUrl, dressFontUrl, dressUrl } from '../lib/resourceUrl';
 
-/** 把清单里生效的那两款翻成 CSS 并注入。 */
-export function syncDressSkin(manifest: DressManifest | undefined): void {
-  if (!manifest) return;
+/** 从清单里挑出生效的那两款,翻成注入层要的形状。 */
+function activeSkins(manifest: DressManifest) {
   const bubble = manifest.bubbles.find((b) => b.itemId === manifest.activeBubble) ?? null;
   const font = manifest.fonts.find((f) => f.itemId === manifest.activeFont) ?? null;
-  applyDressSkin(
-    bubble
+  return {
+    bubble: bubble
       ? {
           itemId: bubble.itemId,
           slice: bubble.slice,
@@ -29,9 +28,27 @@ export function syncDressSkin(manifest: DressManifest | undefined): void {
           animationUrl: bubble.animationUrl,
         }
       : null,
-    font ? { itemId: font.itemId, fontUrl: dressFontUrl(font.itemId) } : null,
-    manifest.scope,
-  );
+    font: font ? { itemId: font.itemId, fontUrl: dressFontUrl(font.itemId) } : null,
+  };
+}
+
+/** 把清单里生效的那两款翻成 CSS 并注入(同步,不等资源)。 */
+export function syncDressSkin(manifest: DressManifest | undefined): void {
+  if (!manifest) return;
+  const { bubble, font } = activeSkins(manifest);
+  applyDressSkin(bubble, font, manifest.scope);
+}
+
+/**
+ * 同上,但先把图片 / 字体拉齐再注入。
+ *
+ * 切换装扮时用这条:调用方 await 它,加载态就能盖住「资源到齐」为止的全过程,
+ * 而不是在样式注入前就收工、把重排甩给用户看(见 lib/dressSkin 的说明)。
+ */
+export function syncDressSkinPreloaded(manifest: DressManifest | undefined): Promise<void> {
+  if (!manifest) return Promise.resolve();
+  const { bubble, font } = activeSkins(manifest);
+  return applyDressSkinPreloaded(bubble, font, manifest.scope);
 }
 
 /** 进主界面就读清单并注入。装扮页共用同一份 query,所以两边不会重复请求。 */
@@ -45,4 +62,35 @@ export function useDressSkin(): void {
   useEffect(() => {
     syncDressSkin(manifest);
   }, [manifest]);
+}
+
+/**
+ * 聊天背景 + 浮屏挂件的当前选择。
+ *
+ * 与 {@link useDressSkin} 共用同一份 query(react-query 会去重),所以多处调用不会
+ * 多打接口。背景走 DOM 而不是注入 CSS —— 它需要一个真实的层来叠挂件动画。
+ */
+export function useChatBackdrop(): { imageUrl: string; widgetId: string; opacity: number } {
+  const state = trpc.account.dressup.getState.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 60_000,
+  });
+
+  const manifest = state.data?.manifest;
+  const source = manifest?.background ?? 'none';
+
+  let imageUrl = '';
+  if (source === 'qq') {
+    // QQ 同款走 CDN 代理(主进程落盘缓存),不占本地空间,换了手机上的背景这边跟着变。
+    imageUrl = dressUrl(state.data?.own.chatBgUrl ?? '');
+  } else if (source === 'custom' && manifest?.backgroundFile) {
+    // 文件名固定,所以拿路径当 stamp 穿透浏览器缓存(见 dressBackgroundUrl)。
+    imageUrl = dressBackgroundUrl(manifest.backgroundFile);
+  }
+
+  return {
+    imageUrl,
+    widgetId: manifest?.widgetId ?? '',
+    opacity: manifest?.backgroundOpacity ?? 1,
+  };
 }

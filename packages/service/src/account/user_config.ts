@@ -140,6 +140,11 @@ export interface AccountConfig {
     bubbleId?: number;
     /** 正在用的聊天字体 itemId（不含界面字体 305）。字体文件得走 protocol 另取。 */
     fontId?: number;
+    /**
+     * 正在用的聊天背景图（720×1280 原图直链）。与 screenUrl（浮屏）不是一回事。
+     * 这里存 url 而非 itemId —— 背景的目录段是服务端 nonce，推不出来。
+     */
+    chatBgUrl?: string;
   };
 }
 

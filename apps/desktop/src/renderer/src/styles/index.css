@@ -3352,6 +3352,13 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   scrollbar-width: none !important;
 }
 
+/* 有聊天背景时让消息区透出来。上面那条是 !important，所以这条也得是 —— 它给的
+ * --chat-surface 是不透明的，会把 .chat-pane 里的背景层整个盖掉（现象：只有群资料
+ * 栏能看见背景，聊天区一片纯色）。 */
+.weq-readonly-chat .chat-pane:has(> .weq-chat-backdrop) .message-scroll {
+  background: transparent !important;
+}
+
 .weq-readonly-chat .message-scroll::-webkit-scrollbar {
   width: 0 !important;
   height: 0 !important;

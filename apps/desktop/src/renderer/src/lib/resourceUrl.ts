@@ -78,6 +78,37 @@ export function dressBubbleUrl(itemId: number): string {
   return mediaUrl('dressbubble', { id: itemId });
 }
 
+/**
+ * 用户自选的聊天背景(本地图)。
+ *
+ * `stamp` 是用来穿透缓存的:文件名固定为 `custom.<ext>`,换了图 url 却不变,浏览器
+ * 会继续画旧的那张。传一个换图时必然变的值(清单里的绝对路径)即可。
+ */
+export function dressBackgroundUrl(stamp: string): string {
+  return mediaUrl('dressbg', { v: stamp });
+}
+
+/**
+ * 浮屏挂件的图片目录(`resources/dress/screen/<id>/images/`),用作 lottie 的
+ * `assetsPath`。
+ *
+ * 两个坑合在这一行里:
+ *
+ *  1. **必须指向 images/ 而不是包目录。** 设了 assetsPath 时 lottie 只用 asset 的
+ *     `p`(`"img_0.png"`)、**忽略 `u`**(`"images/"`),见 lottie_light 的
+ *     `getAssetsPath`。指向包目录会拼出 `…/4/img_0.png`,少一层。
+ *  2. **必须带尾斜杠。** 那里是裸字符串拼接,少一个斜杠会拼出 `imagesimg_0.png`。
+ *     所以不能走 {@link resourceUrl} —— 它会把空段过滤掉,尾斜杠留不住。
+ */
+export function screenWidgetAssetsPath(widgetId: string): string {
+  return `${resourceUrl('dress', 'screen', widgetId, 'images')}/`;
+}
+
+/** 挂件目录下的某个文件。 */
+export function screenWidgetUrl(widgetId: string, ...segments: string[]): string {
+  return resourceUrl('dress', 'screen', widgetId, ...segments);
+}
+
 /** Preview a local file under `nt_data/File/Ori` by absolute path (image thumbnails). */
 export function localFileUrl(absPath: string): string {
   return mediaUrl('localfile', { path: absPath });

@@ -18,6 +18,12 @@
  *     (immersive/bubble/<itemId>/static-*.png)，渲染侧自己拼；字体得走 protocol
  *     换下载链（见 dress_install），两者都不需要在这里落 url。
  *   - 界面字体(305) 混在 apps["5"] 桶里返回，这里只要聊天字体(5)，故按项内 appId 取。
+ *
+ * 关于 chatBgUrl（聊天背景，appId 8）：
+ *   - 与 screenUrl（浮屏，appId 22）是两回事，别混：那个是飘在界面上的动画。
+ *   - 存 url 而不是 itemId —— 与气泡相反，背景的目录段是服务端 nonce，推不出来。
+ *   - 用 hdUrl（aioImage，720×1280）而不是 previewUrl（320×568 缩略图）。
+ *     两者的换算在 self_dress 的 chatBgHdUrl 里，这里只取结果。
  */
 
 import type { AccountSession } from '@weq/account';
@@ -29,6 +35,7 @@ import { getLogger, logErrorContext } from '../common/logger';
 const BUBBLE = 2;
 const WIDGET = 4;
 const CHAT_FONT = 5;
+const CHAT_BG = 8;
 const CARD = 15;
 const SCREEN = 22;
 
@@ -44,6 +51,13 @@ export interface HomeDressSnapshot {
   bubbleId?: number;
   /** 正在用的聊天字体 itemId（不含界面字体 305）。 */
   fontId?: number;
+  /**
+   * 正在用的聊天背景图（720×1280 原图）。空串 = 没设背景。
+   *
+   * 与 screenUrl 不是一回事：那个是浮屏（appId 22，飘在界面上的动画），
+   * 这个是贴在聊天窗后面的底图（appId 8）。
+   */
+  chatBgUrl?: string;
 }
 
 /** newPreview1.xxx → newPreview2.xxx（同扩展名）。 */
@@ -123,6 +137,7 @@ export async function fetchHomeDress(
   const screenItem = pick(SCREEN);
   const bubbleItem = pick(BUBBLE);
   const fontItem = pick(CHAT_FONT);
+  const chatBgItem = pick(CHAT_BG);
 
   // ---- 2. 并发升级 preview url + 解析名片视频 ----
   const [widgetUrl, cardUrl, screenUrl, cardVideoUrl] = await Promise.all([
@@ -144,6 +159,12 @@ export async function fetchHomeDress(
   const snapshot: HomeDressSnapshot = { widgetUrl, cardUrl, cardVideoUrl, screenUrl, tags };
   if (bubbleItem?.itemId) snapshot.bubbleId = bubbleItem.itemId;
   if (fontItem?.itemId) snapshot.fontId = fontItem.itemId;
+  // 聊天背景**不走 upgradePreview** —— 那套是 newPreview1→2 的换名，与背景无关。
+  // 背景的高清图是同目录的 aioImage（720×1280），getSelfDress 已经算好放在 hdUrl 里
+  // （目录段是服务端 nonce，推不出来，见 self_dress 的 chatBgHdUrl）。没有 hdUrl 时
+  // 退回 previewUrl —— 那是 320×568 的缩略图，糊，但比没有强。
+  const chatBgUrl = chatBgItem?.hdUrl || chatBgItem?.previewUrl || '';
+  if (chatBgUrl) snapshot.chatBgUrl = chatBgUrl;
 
   logger.info('fetched home dress snapshot', {
     event: 'home-dress-fetched',
@@ -154,6 +175,7 @@ export async function fetchHomeDress(
     tagCount: tags.length,
     bubbleId: snapshot.bubbleId ?? 0,
     fontId: snapshot.fontId ?? 0,
+    hasChatBg: Boolean(snapshot.chatBgUrl),
   });
 
   return snapshot;

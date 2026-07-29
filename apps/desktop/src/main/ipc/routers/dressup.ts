@@ -1,7 +1,7 @@
 /**
- * `account.dressup.*` —— 个性装扮(气泡 / 字体)。
+ * `account.dressup.*` —— 个性装扮(气泡 / 字体 / 聊天背景 / 浮屏挂件)。
  *
- * 三块能力,在线要求各不相同,这是本路由分工的主线:
+ * 前三块能力,在线要求各不相同,这是本路由分工的主线:
  *
  *  - **排行榜**:优先打商城接口(要 pskey);没有在线实例时回退到仓库里存的一份静态
  *    响应 `resources/dress/ranking-*.json`。所以离线 / ninebird 账号照样能浏览一个
@@ -10,9 +10,13 @@
  *  - **安装/启用**:气泡不需在线(资源外链纯 itemId 可预测);字体必须在线(要发手Q
  *    独有的 scupdate 包换下载链)。前端据 `getState().qqOnline` 决定禁用哪些按钮,
  *    这里再兜一层错,免得前端漏判。
+ *
+ * 背景与挂件则**一律离线可用**:QQ 同款背景的直链 bootstrap 时已存进 config,
+ * 自定义背景是本地文件,挂件是仓库里 bundle 的 Lottie。
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { z } from 'zod';
 import { DressAppId, normalizeMallItems, type DressMallItem } from '@weq/service';
 import { getAppContext, type AccountServices } from '../../context/app_context';
@@ -72,6 +76,40 @@ function staticRank(kind: DressKindInput): DressMallItem[] {
   }
 }
 
+/**
+ * 排除的挂件。
+ *
+ * `9` 是 10 款里唯一带 After Effects 表达式的(64 处:58 个 `loopOutDuration` +
+ * 3 个 `transform.opacity` + 3 个 `transform.scale`)。渲染侧只能用 `lottie_light`
+ * —— 完整版靠 `eval` 求表达式,而 CSP 的 `script-src` 不含 `unsafe-eval`(见
+ * renderer/index.html),不该为一款挂件把它放开。
+ *
+ * 而 light 版没有求值器,那 58 个 loopOut 里有 41 个的关键帧在 op=150 之前就结束了,
+ * 后半段本来靠表达式循环补 —— 实际效果是动一秒、僵五秒。所以不上架。
+ * 要救它得离线把 loopOut 烘焙成显式关键帧。
+ */
+const EXCLUDED_WIDGETS = new Set(['9']);
+
+/**
+ * 仓库里 bundle 的浮屏挂件目录名。
+ *
+ * 扫目录而不是硬编码列表 —— 加减素材时不必改代码。要求目录里有 `fullscreen.json`
+ * (Lottie 本体),否则不算一款可用的挂件。
+ */
+function listScreenWidgets(): string[] {
+  const root = resolveResource('dress', 'screen');
+  if (!root) return [];
+  try {
+    return readdirSync(root, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && !EXCLUDED_WIDGETS.has(e.name))
+      .filter((e) => existsSync(join(root, e.name, 'fullscreen.json')))
+      .map((e) => e.name)
+      .sort((a, b) => Number(a) - Number(b));
+  } catch {
+    return [];
+  }
+}
+
 export const dressupRouter = router({
   /** 装扮页进场状态:在线与否 + 本地清单(已装/生效)。 */
   getState: procedure.query(() => {
@@ -81,10 +119,12 @@ export const dressupRouter = router({
     return {
       qqOnline: qqOnline(services),
       manifest,
-      /** 自己在 QQ 里正在用的那两款(bootstrap 时从 getSelfDress 存下的)。 */
+      /** 自己在 QQ 里正在用的那几款(bootstrap 时从 getSelfDress 存下的)。 */
       own: {
         bubbleId: record?.homeDress?.bubbleId ?? 0,
         fontId: record?.homeDress?.fontId ?? 0,
+        /** 聊天背景是直链(目录段是服务端 nonce,推不出来),空串表示没设。 */
+        chatBgUrl: record?.homeDress?.chatBgUrl ?? '',
       },
     };
   }),
@@ -179,5 +219,53 @@ export const dressupRouter = router({
   /** 切换作用范围:`mine` 只渲染自己的消息,`all` 连对方的一起渲染。 */
   setScope: procedure.input(z.object({ scope: z.enum(['mine', 'all']) })).mutation(({ input }) => {
     return requireServices().dressInstall.setScope(input.scope);
+  }),
+
+  /**
+   * 选一张本地图当聊天背景 —— 打系统文件框,选中后拷进本账号的装扮目录并立即生效。
+   * 用户取消时返回当前清单(不报错,那不是失败)。
+   */
+  pickBackground: procedure.mutation(async () => {
+    const services = requireServices();
+    const { dialog } = await import('electron');
+    const result = await dialog.showOpenDialog({
+      title: '选择聊天背景图',
+      properties: ['openFile'],
+      filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'] }],
+    });
+    const picked = result.canceled ? '' : (result.filePaths[0] ?? '');
+    if (!picked) return services.dressInstall.read();
+    return services.dressInstall.setCustomBackground(picked);
+  }),
+
+  /** 切换背景来源(不用 / QQ 同款 / 自定义)。 */
+  setBackground: procedure
+    .input(z.object({ source: z.enum(['none', 'qq', 'custom']) }))
+    .mutation(({ input }) => {
+      return requireServices().dressInstall.setBackground(input.source);
+    }),
+
+  /** 背景不透明度。服务端再 clamp 一次,不信前端的滑块范围。 */
+  setBackgroundOpacity: procedure.input(z.object({ opacity: z.number() })).mutation(({ input }) => {
+    return requireServices().dressInstall.setBackgroundOpacity(input.opacity);
+  }),
+
+  /**
+   * 选一款浮屏挂件(空串 = 不叠)。
+   *
+   * 白名单校验:id 是要拼进 `weq-asset://dress/screen/<id>/` 的,虽然那个 protocol
+   * 自己有越界检查,这里也不该把任意字符串放过去 —— 只认真实存在的那几个目录。
+   */
+  setWidget: procedure.input(z.object({ widgetId: z.string() })).mutation(({ input }) => {
+    const id = input.widgetId;
+    if (id && !listScreenWidgets().includes(id)) {
+      throw new Error(`未知的挂件 id: ${id}`);
+    }
+    return requireServices().dressInstall.setWidget(id);
+  }),
+
+  /** 可选的浮屏挂件列表(仓库里 bundle 的那批)。 */
+  widgets: procedure.query(() => {
+    return listScreenWidgets().map((id) => ({ id }));
   }),
 });

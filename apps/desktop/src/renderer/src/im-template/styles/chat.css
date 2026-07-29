@@ -33,6 +33,77 @@
 	grid-column: 1 / -1;
 }
 
+/* ===== 聊天背景（个性装扮） =====
+ *
+ * 挂在 .chat-pane 而不是 .chat-main —— 后者被聊天/联系人/导出三个视图共用，贴在那
+ * 会漏到别的页面去（见 styles/index.css 的 --weq-chat-bg 说明）。
+ *
+ * 720×1280 的手机素材配桌面窗口：cover + 居中，永远填满、只切溢出的那一维。
+ *
+ * 磨砂：背景图全清晰会盖过消息，所以在图上压一层同色半透明 + 模糊。用 ::after 而不是
+ * 直接改 opacity —— opacity 会把挂件动画一起冲淡，而磨砂只该作用在底图上。
+ */
+.weq-chat-backdrop {
+	position: absolute;
+	z-index: 0;
+	inset: 0;
+	background-position: center;
+	background-size: cover;
+	background-repeat: no-repeat;
+	pointer-events: none;
+}
+
+.weq-chat-backdrop::after {
+	position: absolute;
+	inset: 0;
+	backdrop-filter: blur(var(--weq-chat-backdrop-blur, 3px))
+		saturate(var(--weq-chat-backdrop-saturate, 1.05));
+	-webkit-backdrop-filter: blur(var(--weq-chat-backdrop-blur, 3px))
+		saturate(var(--weq-chat-backdrop-saturate, 1.05));
+	background: color-mix(
+		in srgb,
+		var(--weq-bg-surface) var(--weq-chat-backdrop-veil, 30%),
+		transparent
+	);
+	content: "";
+}
+
+/* 挂件画在磨砂层之上 —— 它是前景装饰，不该跟着底图一起被糊。 */
+.weq-chat-widget {
+	position: absolute;
+	z-index: 1;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+}
+
+/* .chat-header / .message-scroll / .composer 都是静态定位的，不给层级就会被上面那个
+ * absolute 盖住。这里**只给 z-index、不加 position** —— 它们是 .chat-pane 的网格项，
+ * 而网格项即使 position:static 也认 z-index（CSS Grid §6 的绘制顺序规则）。加
+ * position:relative 会把它们变成后代绝对定位元素的包含块，平白改掉既有布局。
+ *
+ * 抬到 1 就够：面板里既有的 7~45 那几层（group-info-toggle、未读气泡、右键菜单…）
+ * 都在 .chat-pane 上，层级关系完全不受影响。 */
+.chat-pane > .chat-header,
+.chat-pane > .message-scroll,
+.chat-pane > .composer,
+.chat-pane > .group-info-panel {
+	z-index: 1;
+}
+
+/* 磨砂栏本来是半透明的（好让 chat-main 的渐变透上来），背后换成照片后对比度会塌。
+ * 有背景时把它们调实一档 —— 仍然是玻璃感，但字读得清。 */
+.chat-pane:has(> .weq-chat-backdrop) > .chat-header,
+.chat-pane:has(> .weq-chat-backdrop) > .composer {
+	background: color-mix(in srgb, var(--weq-bg-surface) 82%, transparent);
+}
+
+/* 深色下 --weq-bg-surface 是近黑，同样一层纱会压得更狠，所以模糊给足、纱交给行内的
+ * 强度值（见 ChatBackdrop：那是用户可调的，不该被主题覆盖）。 */
+html[data-theme="dark"] .weq-chat-backdrop {
+	--weq-chat-backdrop-blur: 4px;
+}
+
 .chat-pane.with-group-info .message-scroll,
 .chat-pane.with-group-info .composer {
 	grid-column: 1;

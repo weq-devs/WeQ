@@ -105,6 +105,65 @@ async function main(): Promise<void> {
     check(svc.read().scope === 'all', 'setScope 持久化');
     svc.setScope('mine');
 
+    // ---- 聊天背景:三态 + 拷贝入库 ----
+    check(active.background === 'none', '默认 background=none');
+    check(svc.backgroundFile() === null, '未选图 → backgroundFile null');
+
+    // 没选过图就切自定义 = 死状态(界面说有背景却画不出来),必须报错而不是默默接受。
+    let bgErr = '';
+    try {
+      svc.setBackground('custom');
+    } catch (e) {
+      bgErr = e instanceof Error ? e.message : String(e);
+    }
+    check(bgErr.includes('还没有选择'), '未选图时切 custom 报错', bgErr);
+
+    // 选图要**拷贝**进装扮目录 —— 记路径的话原图一挪就没了。
+    const { writeFileSync: writeSync } = await import('node:fs');
+    const srcPng = join(root, 'source.png');
+    writeSync(srcPng, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const afterPick = svc.setCustomBackground(srcPng);
+    check(afterPick.background === 'custom', '选图后自动切到 custom');
+    check(
+      afterPick.backgroundFile.startsWith(join(root, 'background')) &&
+        existsSync(afterPick.backgroundFile),
+      '自定义背景已拷进装扮目录',
+      afterPick.backgroundFile,
+    );
+    // 原图删掉也不该影响 —— 这正是拷贝而非记路径的意义。
+    rmSync(srcPng, { force: true });
+    check(svc.backgroundFile() !== null, '原图删除后仍可用(已拷贝)');
+
+    // 换扩展名时旧文件要清掉,否则 background/ 下会同时躺着 custom.png 和 custom.jpg。
+    const oldFile = afterPick.backgroundFile;
+    const srcJpg = join(root, 'source.jpg');
+    writeSync(srcJpg, Buffer.from([0xff, 0xd8, 0xff]));
+    svc.setCustomBackground(srcJpg);
+    check(!existsSync(oldFile), '换扩展名后清掉旧图');
+
+    let extErr = '';
+    try {
+      svc.setCustomBackground(join(root, 'source.txt'));
+    } catch (e) {
+      extErr = e instanceof Error ? e.message : String(e);
+    }
+    check(extErr.includes('不支持'), '非图片扩展名被拒', extErr);
+
+    check(svc.setBackground('none').background === 'none', '可以切回不使用');
+
+    // ---- 浮屏挂件 ----
+    check(svc.setWidget('3').widgetId === '3', 'setWidget 持久化');
+    check(svc.setWidget('').widgetId === '', '空串 = 不叠挂件');
+
+    // ---- 不透明度收进 [0.05, 1] ----
+    check(svc.setBackgroundOpacity(2).backgroundOpacity === 1, '不透明度上限 1');
+    check(svc.setBackgroundOpacity(0).backgroundOpacity === 0.05, '不透明度下限 0.05');
+    check(svc.setBackgroundOpacity(0.6).backgroundOpacity === 0.6, '正常值原样保留');
+    check(
+      svc.setBackgroundOpacity(Number.NaN).backgroundOpacity === 1,
+      'NaN → 1(而不是写进一个不可读的清单)',
+    );
+
     // ---- 字体:没有在线实例必须明确报错,而不是静默失败 ----
     let msg = '';
     try {
@@ -122,6 +181,26 @@ async function main(): Promise<void> {
     const { writeFileSync } = await import('node:fs');
     writeFileSync(join(root, 'manifest.json'), '{ this is not json');
     check(svc.read().bubbles.length === 0, '损坏清单 → 空清单(不抛)');
+
+    // ---- 老清单(背景/挂件字段还不存在时写的)要补齐,不能漏 undefined 给渲染侧 ----
+    writeFileSync(
+      join(root, 'manifest.json'),
+      JSON.stringify({ bubbles: [], fonts: [], activeBubble: 0, activeFont: 0, scope: 'mine' }),
+    );
+    const legacy = svc.read();
+    check(legacy.background === 'none', '老清单补 background=none');
+    check(legacy.backgroundFile === '', '老清单补 backgroundFile=""');
+    check(legacy.widgetId === '', '老清单补 widgetId=""');
+    check(legacy.backgroundOpacity === 1, '老清单补 backgroundOpacity=1');
+
+    // 清单被人手改坏了个别字段也不该漏出去。
+    writeFileSync(
+      join(root, 'manifest.json'),
+      JSON.stringify({ bubbles: [], fonts: [], background: 'bogus', backgroundOpacity: 'x' }),
+    );
+    const bogus = svc.read();
+    check(bogus.background === 'none', '未知 background 值 → none');
+    check(bogus.backgroundOpacity === 1, '非法不透明度 → 1');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
