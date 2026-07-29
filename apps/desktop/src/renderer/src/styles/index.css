@@ -1043,6 +1043,28 @@ html[data-theme="dark"] .chat-empty {
 .weq-anim-popc { transform: translateX(-50%); animation: weq-pop-center 170ms cubic-bezier(0.22, 1, 0.36, 1) both; }
 .weq-splash-logo { animation: weq-float 2.6s ease-in-out infinite; }
 
+/* 自动进入时的预热进度条（BootstrapView 的 Splash）。进度是真实的
+   已完成/总步数，不是假动画，所以只给宽度一个短过渡让它不跳变。 */
+.weq-splash-track {
+  height: 4px;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(20, 34, 53, 0.08);
+}
+
+.weq-splash-bar {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #0099ff, #22c3b6);
+  transition: width 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+html[data-theme='dark'] .weq-splash-track {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+
 /* ---- image lightbox (click chat image to view large) ---- */
 .weq-lightbox-layer {
   position: fixed;

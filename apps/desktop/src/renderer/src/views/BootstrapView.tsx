@@ -12,13 +12,16 @@
  *   4. Stage routing — booting → splash, home → landing, select → two-pane.
  */
 
-import { useEffect, useRef, type ReactElement, type ReactNode } from 'react';
-import { Loader2, X } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { X } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useDialog } from '../components/Dialog';
 import { HomeScreen } from './bootstrap/HomeScreen';
 import { SelectScreen } from './bootstrap/SelectScreen';
+import { WarmupSplash } from '../components/WarmupSplash';
+import { runAccountWarmup, type WarmupProgress } from '../lib/accountWarmup';
+import { setWindowLayout } from '../lib/windowLayout';
 import logoUrl from '@resources/brand/logo.png';
 
 function errMsg(e: unknown): string {
@@ -32,6 +35,9 @@ export function BootstrapView(): ReactElement {
   const goTo = useViewState((s) => s.goTo);
   const setOpenedUin = useViewState((s) => s.setOpenedUin);
   const showError = useDialog((s) => s.showError);
+  const utils = trpc.useUtils();
+  /** 非 null 时 splash 显示预热进度条（自动进入的第二段）。 */
+  const [warmup, setWarmup] = useState<WarmupProgress | null>(null);
 
   const nativeStatus = trpc.bootstrap.nativeStatus.useQuery(undefined, { refetchOnWindowFocus: false });
   const nativeErr = nativeStatus.data ?? null;
@@ -121,12 +127,24 @@ export function BootstrapView(): ReactElement {
             ...(cfg.dataDir ? { dataDir: cfg.dataDir } : {}),
           });
         }
+        // 账号已打开，但先别进 MainView。两件事必须发生在它挂载之前：
+        //
+        //  1. resize 到 chat 尺寸。App.tsx 的 layout effect 是在 view 变成 'main'
+        //     *之后* 才发 IPC，也就是 MainView 会先按 home 的 580 高度画一帧——
+        //     左栏上下贴边的按钮在这个高度会重叠。提前调好就不会有这一帧。
+        //  2. 预热 MainView 那 8 个查询，否则首屏是空白头像 + 默认昵称 "WeQ"。
+        setWindowLayout('chat');
+        await runAccountWarmup(utils, setWarmup);
+
         // Land on 'home' so closing the account later returns to the landing
         // screen rather than re-running the (now consumed) boot splash.
         setHomeStage('home');
         setOpenedUin(cfg.uin);
         goTo('main');
       } catch (e) {
+        // 已经调大过窗口就调回来——失败要落回 home 屏，不能留着 chat 的尺寸。
+        setWarmup(null);
+        setWindowLayout('home');
         setHomeStage('home');
         showError('自动进入失败', errMsg(e));
       }
@@ -143,6 +161,7 @@ export function BootstrapView(): ReactElement {
     setOpenedUin,
     goTo,
     showError,
+    utils,
   ]);
 
   // ---- render ----
@@ -162,7 +181,7 @@ export function BootstrapView(): ReactElement {
   if (homeStage === 'booting' || nativeStatus.isLoading) {
     return (
       <Shell>
-        <Splash />
+        <Splash progress={warmup} />
       </Shell>
     );
   }
@@ -213,14 +232,6 @@ function Centered({ children }: { children: ReactNode }): ReactElement {
   return <div className="flex h-full flex-col items-center justify-center">{children}</div>;
 }
 
-function Splash(): ReactElement {
-  return (
-    <Centered>
-      <img src={logoUrl} alt="WeQ" width={80} height={80} className="weq-splash-logo" />
-      <div className="mt-5 flex items-center gap-2 text-[13px] text-[#3c5368]">
-        <Loader2 className="animate-spin text-[#0099ff]" size={15} strokeWidth={1.85} aria-hidden />
-        正在初始化…
-      </div>
-    </Centered>
-  );
+function Splash({ progress }: { progress?: WarmupProgress | null }): ReactElement {
+  return <WarmupSplash progress={progress} />;
 }

@@ -23,6 +23,8 @@ import { useViewState } from '../state/view';
 import { useAppLock } from '../state/lock';
 import { useThemeStore } from '../state/theme';
 import { usePrivacyStore } from '../state/privacy';
+import { useAccountSwitch } from '../state/accountSwitch';
+import { runAccountWarmup } from '../lib/accountWarmup';
 import { useDialog } from './Dialog';
 import { useToast } from './Toast';
 import { QqAvatar } from './QqAvatar';
@@ -53,6 +55,11 @@ export function RailAccountFooter({
   const togglePrivacy = usePrivacyStore((s) => s.toggle);
   const pushToast = useToast((s) => s.push);
   const queryClient = useQueryClient();
+  const utils = trpc.useUtils();
+  const beginSwitch = useAccountSwitch((s) => s.begin);
+  const setSwitchHint = useAccountSwitch((s) => s.setHint);
+  const setSwitchProgress = useAccountSwitch((s) => s.setProgress);
+  const endSwitch = useAccountSwitch((s) => s.end);
 
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -215,6 +222,10 @@ export function RailAccountFooter({
     if (cfg.uin === currentUin) return;
     setBusy(true);
     setOpen(false);
+    // 从这一刻起 App 渲染载入页、不渲染 MainView（见 state/accountSwitch）。
+    // 过渡期间 MainView 完全不挂载，所以下面 setOpenedUin(null) 不会再触发
+    // 一次「打在已关闭账号上」的无效挂载。
+    beginSwitch(`正在打开 ${cfg.displayName || cfg.uin}…`);
     try {
       await client.bootstrap.closeAccount.mutate();
       // Purge BEFORE we drop openedUin: any account-scoped useQuery that
@@ -253,6 +264,9 @@ export function RailAccountFooter({
       // CLOSED backend and either errored or returned old data. Wipe again
       // so the freshly-mounted MainView starts from a clean slate.
       purgeAccountCache();
+      // 预热必须在第二次 purge 之后——否则刚灌进缓存的新账号数据会被一起清掉。
+      setSwitchHint(`正在载入 ${cfg.displayName || cfg.uin}…`);
+      await runAccountWarmup(utils, setSwitchProgress);
       setOpenedUin(cfg.uin);
     } catch (e) {
       // Already closed; fall back to bootstrap so the user can recover.
@@ -261,6 +275,7 @@ export function RailAccountFooter({
       goTo('bootstrap');
       showError('切换账号失败', errMsg(e));
     } finally {
+      endSwitch();
       setBusy(false);
     }
   }

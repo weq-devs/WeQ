@@ -20,11 +20,13 @@ import { ForwardWindowHost } from './components/ForwardWindow';
 import { AppLockOverlay } from './components/AppLockOverlay';
 import { TextMarkdownContext } from './components/QqMessageContent';
 import { SelfPendantContext } from './hooks/useSelfPendant';
+import { WarmupSplash } from './components/WarmupSplash';
 import { trpc } from './trpc/client';
 import { dressUrl } from './lib/resourceUrl';
 import { setWindowLayout } from './lib/windowLayout';
 import { ensureThemeInitialized } from './state/theme';
 import { usePrivacyStore } from './state/privacy';
+import { useAccountSwitch } from './state/accountSwitch';
 
 /**
  * 把「纯文本消息渲染 Markdown」开关广播给所有消息气泡。
@@ -76,6 +78,9 @@ function SelfPendantProvider({
 export default function App(): ReactElement {
   const view = useViewState((s) => s.view);
   const openedUin = useViewState((s) => s.openedUin);
+  const switching = useAccountSwitch((s) => s.active);
+  const switchHint = useAccountSwitch((s) => s.hint);
+  const switchProgress = useAccountSwitch((s) => s.progress);
 
   useEffect(() => {
     setWindowLayout(view === 'main' ? 'chat' : 'home');
@@ -90,10 +95,22 @@ export default function App(): ReactElement {
   // Key MainView by openedUin so account switches (without going through
   // bootstrap) force a remount — drops the old onDbChanged subscription and
   // rebinds against the new account.
+  //
+  // 切号过渡期间整棵 MainView 都不挂载，换成载入页：既盖住「空白头像 + 默认
+  // 昵称」的粗糙首屏，也避免 openedUin 短暂变 null 时白挂载一次（那次的查询
+  // 全打在已关闭的账号上）。
   return (
     <TextMarkdownProvider>
-      <SelfPendantProvider accountOpen={view === 'main'}>
-        {view === 'bootstrap' ? <BootstrapView /> : <MainView key={openedUin ?? ''} />}
+      <SelfPendantProvider accountOpen={view === 'main' && !switching}>
+        {switching ? (
+          <main className="weq-home-shell h-screen overflow-hidden font-sans text-[#142235]">
+            <WarmupSplash progress={switchProgress} hint={switchHint} />
+          </main>
+        ) : view === 'bootstrap' ? (
+          <BootstrapView />
+        ) : (
+          <MainView key={openedUin ?? ''} />
+        )}
         {/* 首次进入账号后弹出的欢迎说明框（自身决定是否显示）。 */}
         {view === 'main' ? <WelcomeDialog /> : null}
         <DialogHost />
