@@ -17,8 +17,20 @@
  * 真正的空空间无法区分。真正的空空间返回空数组,映射为空列表。
  */
 
-import { computeBkn, cookieHeader, type WebCredential } from './credential';
+import { computeBkn, cookieHeader, WebAuthError, type WebCredential } from './credential';
 import { webRequestText } from './http';
+
+/**
+ * 判定「票据不对」的错误码 —— 与群相册同一套判据(见 group_album 的 AUTH_CODES)。
+ * 抛 WebAuthError 而不是普通 Error,好让 withRetry 换票重试一次;其余错码(无权限、
+ * 空间不存在)换票也没用,照常抛普通 Error。
+ */
+const AUTH_CODES = new Set([-3000, -10000]);
+
+function qzoneCodeError(what: string, code: number, message?: string): Error {
+  const msg = `${what} failed: code=${code} ${message ?? ''}`.trim();
+  return AUTH_CODES.has(code) ? new WebAuthError(msg, code) : new Error(msg);
+}
 
 /**
  * 解析可能是裸 JSON 或 JSONP 回调包裹(`_Callback({...});`)的 qzone cgi body。
@@ -315,7 +327,7 @@ export async function getQzoneMsgList(
   const data = parseQzoneJson<RawMsgListRet>(text);
 
   if (typeof data.code === 'number' && data.code !== 0) {
-    throw new Error(`qzone msglist failed: code=${data.code} ${data.message ?? ''}`.trim());
+    throw qzoneCodeError('qzone msglist', data.code, data.message);
   }
   if (!Array.isArray(data.msglist)) {
     throw new Error(`无法获取空间说说列表(响应结构异常): ${text.slice(0, 200)}`);
@@ -441,7 +453,7 @@ export async function getQzoneFeeds(
   const data = parseQzoneCallback<RawFeedsRet>(text);
 
   if (typeof data.code === 'number' && data.code !== 0) {
-    throw new Error(`qzone feeds failed: code=${data.code} ${data.message ?? ''}`.trim());
+    throw qzoneCodeError('qzone feeds', data.code, data.message);
   }
   if (!Array.isArray(data.data?.data)) {
     // 带上响应头片段:cookie 失效 / 无权限 / 风控 各有不同 body,方便对症。

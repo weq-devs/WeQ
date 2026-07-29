@@ -29,14 +29,15 @@ import {
   Type,
   Image as ImageIcon,
   Upload,
+  Trophy,
   X,
 } from 'lucide-react';
 import type { BubbleSkin, DressBackgroundSource, DressMallItem, DressScope } from '@weq/service';
 import { trpc } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
-import { dressBackgroundUrl, dressBubbleUrl, dressUrl, screenWidgetUrl } from '../lib/resourceUrl';
+import { dressBackgroundUrl, dressUrl } from '../lib/resourceUrl';
 import { syncDressSkin, syncDressSkinPreloaded } from '../hooks/useDressSkin';
-import { BACKDROP_VEIL_VAR, backdropVeil } from './ChatBackdrop';
+import { BACKDROP_VEIL_VAR, backdropVeil, ScreenWidget } from './ChatBackdrop';
 import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
 import '../styles/dressup.css';
 
@@ -144,9 +145,19 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
       try {
         if (mallKind === 'bubble') {
           // material 原样回传 —— 外链推不出来,后端靠它零探测装上(见 dressup 路由)。
-          await installBubble.mutateAsync({ itemId: item.itemId, material: item.material });
+          // name/previewUrl 同理:装完只剩 itemId,商城没有按 id 查详情的接口。
+          await installBubble.mutateAsync({
+            itemId: item.itemId,
+            material: item.material,
+            name: item.name,
+            previewUrl: item.previewLargeUrl || item.previewUrl,
+          });
         } else {
-          await installFont.mutateAsync({ itemId: item.itemId, name: item.name });
+          await installFont.mutateAsync({
+            itemId: item.itemId,
+            name: item.name,
+            previewUrl: item.previewLargeUrl || item.previewUrl,
+          });
         }
         const manifest = await setActive.mutateAsync({ kind: mallKind, itemId: item.itemId });
         // setActive 回的就是新清单,直接拿它注入,不必等 refetch 往返。
@@ -259,7 +270,12 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
     itemId: number;
     name: string;
     installed: boolean;
-    /** 已装气泡的预览图就是清单里存的九宫格底图;其余没有可用预览。 */
+    /**
+     * 商城预览图(装的时候落盘的那张)。空串 = 没有,卡片会显示占位。
+     *
+     * **不拿九宫格底图凑数** —— 那是 128×112 的拉伸源图,塞进 110px 的卡片里既糊
+     * 又跟商城列表长得不一样;宁可显示「无预览」也别给个错的。
+     */
     previewUrl: string;
   }> => {
     if (!manifest) return [];
@@ -267,16 +283,15 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
       mallKind === 'bubble'
         ? manifest.bubbles.map((b: BubbleSkin) => ({
             itemId: b.itemId,
-            name: `气泡 ${b.itemId}`,
+            name: b.name || `气泡 ${b.itemId}`,
             installed: true,
-            // 走 protocol 兜底装的没有 CDN 直链,预览要走本地那支。
-            previewUrl: b.localFile ? dressBubbleUrl(b.itemId) : dressUrl(b.staticUrl),
+            previewUrl: b.previewUrl ?? '',
           }))
         : manifest.fonts.map((f) => ({
             itemId: f.itemId,
             name: f.name || `字体 ${f.itemId}`,
             installed: true,
-            previewUrl: '',
+            previewUrl: f.previewUrl ?? '',
           }));
 
     const ownId =
@@ -442,26 +457,22 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
         <section className="weq-dress-bg-section">
           <div className="weq-dress-bg-head">
             <h3>浮屏挂件</h3>
-            <span className="weq-dress-bg-note">叠在背景上循环播放的动画</span>
+            <span className="weq-dress-bg-note">叠在背景上循环播放的动画，再点一次取消</span>
           </div>
           <div className="weq-dress-widget-grid">
-            <button
-              type="button"
-              className={`weq-dress-widget${manifest?.widgetId ? '' : ' is-active'}`}
-              onClick={() => void chooseWidget('')}
-            >
-              <span className="weq-dress-bg-none">无</span>
-            </button>
             {(widgets.data ?? []).map((w) => (
               <button
                 key={w.id}
                 type="button"
                 className={`weq-dress-widget${manifest?.widgetId === w.id ? ' is-active' : ''}`}
-                onClick={() => void chooseWidget(w.id)}
-                title={`挂件 ${w.id}`}
+                // 再点一次当前这款 = 取消。没有单独的「无」格,这是取消挂件的唯一入口,
+                // 所以选中态的 title 必须把它说出来(标题栏那句也提了一遍)。
+                onClick={() => void chooseWidget(manifest?.widgetId === w.id ? '' : w.id)}
+                title={manifest?.widgetId === w.id ? '正在使用 —— 再点一次取消' : `挂件 ${w.id}`}
               >
-                {/* 静态缩略图:拿 Lottie 包里的第一张图当封面,不为了选择器去跑十个动画。 */}
-                <img src={screenWidgetUrl(w.id, 'images', 'img_0.png')} alt="" loading="lazy" />
+                {/* 预览跑真 lottie,与聊天背景是同一个组件 —— 拿包里第一张图当封面
+                    往往只是某一帧的碎片,选之前和选之后看到的会对不上。 */}
+                <ScreenWidget widgetId={w.id} className="weq-dress-widget-anim" />
                 <span className="weq-dress-widget-id">{w.id}</span>
               </button>
             ))}
@@ -502,7 +513,8 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
                 // 清单里没有 material(只有解析后的结果),未装的那款靠后端 protocol 兜底。
                 material: null,
               },
-              m.previewUrl,
+              // 存的是 CDN 裸链,进 <img> 前得跟商城列表一样过 weq-media://dress 代理。
+              m.previewUrl ? dressUrl(m.previewUrl) : '',
             ),
           )}
         </div>
@@ -689,6 +701,13 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
               QQ 未在线：可浏览排行榜，商城里的气泡也能直接使用。搜索、字体下载、以及 「QQ
               正在用的那款」需要登录 QQ 客户端。
             </span>
+          </div>
+        ) : isMall && !mineOnly && !searching ? (
+          // 排行榜只取第一页(pageSize=20,见 dress_mall),不翻页。不说明的话
+          // 用户会以为商城就这 20 款。
+          <div className="weq-dress-notice is-info">
+            <Trophy size={14} />
+            <span>以下是装扮排行榜前 20 名。并不包含完整列表，其他装扮可以尝试搜索。</span>
           </div>
         ) : null}
 

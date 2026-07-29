@@ -183,12 +183,17 @@ export const dressupRouter = router({
       z.object({
         itemId: z.number().int().positive(),
         material: bubbleMaterial.nullish(),
+        // 款名 / 预览图:渲染用不到,但装完之后「我的装扮」只剩 itemId 可查,
+        // 不在这一刻记下来就再也补不回来了(商城没有按 id 查详情的接口)。
+        name: z.string().optional(),
+        previewUrl: z.string().optional(),
       }),
     )
     .mutation(async ({ input }) => {
       const skin = await requireServices().dressInstall.installBubble(
         input.itemId,
         input.material ?? null,
+        { name: input.name, previewUrl: input.previewUrl },
       );
       if (!skin) {
         throw new Error(
@@ -202,11 +207,17 @@ export const dressupRouter = router({
 
   /** 装一款字体。必须在线(见模块头)。 */
   installFont: procedure
-    .input(z.object({ itemId: z.number().int().positive(), name: z.string().default('') }))
+    .input(
+      z.object({
+        itemId: z.number().int().positive(),
+        name: z.string().default(''),
+        previewUrl: z.string().optional(),
+      }),
+    )
     .mutation(async ({ input }) => {
       const services = requireServices();
       if (!qqOnline(services)) throw new Error(OFFLINE_HINT);
-      return services.dressInstall.installFont(input.itemId, input.name);
+      return services.dressInstall.installFont(input.itemId, input.name, input.previewUrl);
     }),
 
   /** 切换生效的装扮。`itemId` 传 0 表示取消该项、回到默认外观。 */

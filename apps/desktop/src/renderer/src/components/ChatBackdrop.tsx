@@ -61,7 +61,21 @@ export function ChatBackdrop({
   );
 }
 
-function ScreenWidget({ widgetId }: { widgetId: string }): ReactElement {
+/**
+ * 一支浮屏挂件的 lottie 播放器。
+ *
+ * 装扮页的挂件选择格直接复用它 —— 预览必须跟真实聊天背景是**同一套渲染**,
+ * 否则「选之前看到的」和「选之后看到的」会不一样(拿包里第一张图当封面时尤其明显:
+ * 那往往只是某一帧的一个碎片)。
+ */
+export function ScreenWidget({
+  widgetId,
+  className = 'weq-chat-widget',
+}: {
+  widgetId: string;
+  /** 容器类名。预览格要自己的尺寸/圆角,所以可换。 */
+  className?: string;
+}): ReactElement {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -90,7 +104,10 @@ function ScreenWidget({ widgetId }: { widgetId: string }): ReactElement {
           // 缺了这个,JSON 里的图片会相对页面 origin 解析而全部 404。
           // 指向 images/ 且带尾斜杠 —— 两个坑都在 screenWidgetAssetsPath 里说明了。
           assetsPath: screenWidgetAssetsPath(widgetId),
-          rendererSettings: { preserveAspectRatio: 'xMidYMid slice' },
+          // `meet`(contain)而不是 `slice`(cover):素材是 720×1280 的竖屏,而聊天区通常
+          // 更宽,cover 会按**宽边**定标(900px 宽 → 放大 1.25 倍)再纵向裁掉一大半 ——
+          // 又大又只剩中间一条。meet 按高边贴合,整支动画完整可见,尺寸也回到正常观感。
+          rendererSettings: { preserveAspectRatio: 'xMidYMid meet' },
         });
       } catch {
         // 挂件是纯装饰,拉不到就当没有 —— 背景底图本身不受影响。
@@ -103,5 +120,5 @@ function ScreenWidget({ widgetId }: { widgetId: string }): ReactElement {
     };
   }, [widgetId]);
 
-  return <div className="weq-chat-widget" ref={containerRef} />;
+  return <div className={className} ref={containerRef} />;
 }

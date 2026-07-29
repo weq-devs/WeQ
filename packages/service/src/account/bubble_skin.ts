@@ -68,6 +68,21 @@ export interface BubbleSlice {
 /** 一款气泡渲染所需的全部参数。 */
 export interface BubbleSkin {
   itemId: number;
+  /**
+   * 商城里的款名(如「橘子汽水」)。装的时候由调用方从商城条目带进来。
+   *
+   * 渲染这款气泡本身用不到它,存下来纯粹是为了「我的装扮」列表能显示人话 ——
+   * 商城只有排行榜和搜索两个查询,都拿不到「按 itemId 查详情」,所以装的那一刻
+   * 不记下来,之后就再也补不回来了(只剩「气泡 2130704」这种)。
+   */
+  name?: string;
+  /**
+   * 商城的预览图外链。同 {@link name},是给「我的装扮」列表复用商城那套卡片用的。
+   *
+   * **不能由 itemId 推出来** —— 新款的目录段是服务端 nonce(见模块头),所以
+   * 同样必须在安装时落盘。缺省时列表回退到拿九宫格整图当预览(会糊)。
+   */
+  previewUrl?: string;
   /** border-image-slice 的四个值。 */
   slice: BubbleSlice;
   /** 源图尺寸,渲染侧据此按 scale 换算 border-image-width。 */
@@ -269,7 +284,9 @@ export async function resolveBubbleSkin(
         });
         return null;
       }
-      const corner = pngSize((await cache.get(siblingUrl(src.staticUrl, 'static-top-left-v2.png'))).data);
+      const corner = pngSize(
+        (await cache.get(siblingUrl(src.staticUrl, 'static-top-left-v2.png'))).data,
+      );
       if (!corner) {
         logger.warn('bubble skin: corner slice unavailable', {
           event: 'bubble-skin-no-corner',

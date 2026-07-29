@@ -52,6 +52,8 @@ import { downloadUrlToFile } from './media_url';
 export interface InstalledFont {
   itemId: number;
   name: string;
+  /** 商城预览图外链。同 {@link BubbleSkin.previewUrl},给「我的装扮」列表复用商城卡片。 */
+  previewUrl?: string;
   /** `@font-face` 用的 family 名。 */
   family: string;
   /** ttf 的绝对路径。 */
@@ -187,11 +189,31 @@ export class DressInstallService {
    *
    * @param material 商城条目自带的权威参数。**有它就是快路径**(外链/拉伸点/文字色齐全,
    *                 只下一张整图);没有则回退 {@link resolveBubbleUrl} 去找外链。
+   * @param meta     商城条目的款名 / 预览图。渲染用不到,但「我的装扮」列表要靠它显示
+   *                 人话和缩略图 —— 商城没有「按 itemId 查详情」的接口,装的这一刻
+   *                 不记下来之后就补不回来了(见 BubbleSkin.name)。
    */
-  async installBubble(itemId: number, material?: BubbleMaterial | null): Promise<BubbleSkin | null> {
+  async installBubble(
+    itemId: number,
+    material?: BubbleMaterial | null,
+    meta?: { name?: string; previewUrl?: string },
+  ): Promise<BubbleSkin | null> {
     const manifest = this.read();
     const known = manifest.bubbles.find((b) => b.itemId === itemId);
-    if (known) return known;
+    // 已装过但当初没记下名字/预览时补写一次 —— 否则老清单里的款永远只能显示
+    // 「气泡 2130704」,重装同一款也救不回来(这里会走到 known 分支直接返回)。
+    if (known) {
+      const patched: BubbleSkin = {
+        ...known,
+        name: known.name || meta?.name,
+        previewUrl: known.previewUrl || meta?.previewUrl,
+      };
+      if (patched.name !== known.name || patched.previewUrl !== known.previewUrl) {
+        manifest.bubbles = manifest.bubbles.map((b) => (b.itemId === itemId ? patched : b));
+        this.write(manifest);
+      }
+      return patched;
+    }
 
     const src = material
       ? ({
@@ -203,9 +225,10 @@ export class DressInstallService {
       : await this.resolveBubbleUrl(itemId);
     if (!src) return null;
 
-    const skin = await resolveBubbleSkin(this.avatarCache, itemId, src);
-    if (!skin) return null;
+    const resolved = await resolveBubbleSkin(this.avatarCache, itemId, src);
+    if (!resolved) return null;
 
+    const skin: BubbleSkin = { ...resolved, name: meta?.name, previewUrl: meta?.previewUrl };
     manifest.bubbles.push(skin);
     this.write(manifest);
     this.logger.info('installed bubble', {
@@ -284,10 +307,21 @@ export class DressInstallService {
    *
    * 需要在线实例(见模块头)。已装过且文件还在则直接返回记录。
    */
-  async installFont(itemId: number, name: string): Promise<InstalledFont> {
+  async installFont(itemId: number, name: string, previewUrl?: string): Promise<InstalledFont> {
     const manifest = this.read();
     const known = manifest.fonts.find((f) => f.itemId === itemId);
-    if (known && existsSync(known.file)) return known;
+    if (known && existsSync(known.file)) {
+      // 老清单没有 previewUrl,补一次(同 installBubble 的理由)。
+      if (!known.previewUrl && previewUrl) {
+        const patched = { ...known, previewUrl };
+        this.write({
+          ...manifest,
+          fonts: manifest.fonts.map((f) => (f.itemId === itemId ? patched : f)),
+        });
+        return patched;
+      }
+      return known;
+    }
 
     const pid = this.resolvePid();
     if (!pid) {
@@ -313,7 +347,13 @@ export class DressInstallService {
     const file = join(fontsDir, `${itemId}.ttf`);
     writeFileSync(file, ttf);
 
-    const entry: InstalledFont = { itemId, name, family: fontFamilyFor(itemId), file };
+    const entry: InstalledFont = {
+      itemId,
+      name,
+      previewUrl,
+      family: fontFamilyFor(itemId),
+      file,
+    };
     const next = manifest.fonts.filter((f) => f.itemId !== itemId);
     next.push(entry);
     this.write({ ...manifest, fonts: next });

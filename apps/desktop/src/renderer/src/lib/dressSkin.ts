@@ -116,6 +116,10 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
   const rules = [
     `${sel} {`,
     `  position: relative;`,
+    // 动效层靠负层级压到文字下面,而负层级只在**层叠上下文内部**才是「压到本元素背景之上」;
+    // 不隔离的话它会逃到最近的祖先上下文里,反而跑到静态贴图底下(甚至被行背景整个盖掉)。
+    // 用 isolation 而不是 z-index:0 —— 后者会连带改掉这个气泡相对同级元素的层级。
+    `  isolation: isolate;`,
     `  background: transparent;`,
     `  color: ${skin.textColor};`,
     `  border-style: solid;`,
@@ -132,12 +136,15 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
   ];
 
   // 动效层:同一套 slice/width,叠在静态底之上。APNG 由浏览器自己播,无需 keyframes。
+  // z-index 为负是为了压在**文字**下面 —— 绝对定位的伪元素默认画在在流内容之上,
+  // 不给层级的话动效会糊住消息正文。父元素 isolation:isolate 保证这个负值不外溢。
   if (skin.animationUrl) {
     rules.push(
       `${sel}::after {`,
       `  content: "";`,
       `  position: absolute;`,
       `  inset: 0;`,
+      `  z-index: -1;`,
       `  pointer-events: none;`,
       `  border-style: solid;`,
       `  border-width: 0;`,
