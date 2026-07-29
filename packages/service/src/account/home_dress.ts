@@ -49,8 +49,22 @@ export interface HomeDressSnapshot {
   tags: string[];
   /** 正在用的气泡 itemId（0/缺省表示没有）。渲染侧据此拼九宫格外链。 */
   bubbleId?: number;
+  /** 气泡款名（如「简约鲸鱼」）。接口本来就回，不存下来装扮页就只能显示 id。 */
+  bubbleName?: string;
+  /**
+   * 气泡预览图直链。
+   *
+   * **必须存 url 不能存 id** —— 目录段有时是服务端 nonce（本账号字体 59500 的预览就是
+   * `font/item/bdcb3f9c3b3967be/`，按 itemId 拼一律 404）。气泡碰巧是 itemId 目录，
+   * 但同一个字段两类都要装，一律照抄接口给的。
+   */
+  bubblePreviewUrl?: string;
   /** 正在用的聊天字体 itemId（不含界面字体 305）。 */
   fontId?: number;
+  /** 字体款名。 */
+  fontName?: string;
+  /** 字体预览图直链。理由同 {@link bubblePreviewUrl}。 */
+  fontPreviewUrl?: string;
   /**
    * 正在用的聊天背景图（720×1280 原图）。空串 = 没设背景。
    *
@@ -157,8 +171,18 @@ export async function fetchHomeDress(
   }
 
   const snapshot: HomeDressSnapshot = { widgetUrl, cardUrl, cardVideoUrl, screenUrl, tags };
-  if (bubbleItem?.itemId) snapshot.bubbleId = bubbleItem.itemId;
-  if (fontItem?.itemId) snapshot.fontId = fontItem.itemId;
+  // 气泡/字体:名字和预览图接口本来就回(每项都有 name/img),之前只挑了 itemId,
+  // 结果装扮页只能显示「QQ 正在用的气泡」+ 空白预览。这里一并存下来。
+  if (bubbleItem?.itemId) {
+    snapshot.bubbleId = bubbleItem.itemId;
+    if (bubbleItem.name) snapshot.bubbleName = bubbleItem.name;
+    if (bubbleItem.previewUrl) snapshot.bubblePreviewUrl = bubbleItem.previewUrl;
+  }
+  if (fontItem?.itemId) {
+    snapshot.fontId = fontItem.itemId;
+    if (fontItem.name) snapshot.fontName = fontItem.name;
+    if (fontItem.previewUrl) snapshot.fontPreviewUrl = fontItem.previewUrl;
+  }
   // 聊天背景**不走 upgradePreview** —— 那套是 newPreview1→2 的换名，与背景无关。
   // 背景的高清图是同目录的 aioImage（720×1280），getSelfDress 已经算好放在 hdUrl 里
   // （目录段是服务端 nonce，推不出来，见 self_dress 的 chatBgHdUrl）。没有 hdUrl 时

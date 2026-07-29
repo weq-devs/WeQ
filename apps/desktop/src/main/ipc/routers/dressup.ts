@@ -122,7 +122,11 @@ export const dressupRouter = router({
       /** 自己在 QQ 里正在用的那几款(bootstrap 时从 getSelfDress 存下的)。 */
       own: {
         bubbleId: record?.homeDress?.bubbleId ?? 0,
+        bubbleName: record?.homeDress?.bubbleName ?? '',
+        bubblePreviewUrl: record?.homeDress?.bubblePreviewUrl ?? '',
         fontId: record?.homeDress?.fontId ?? 0,
+        fontName: record?.homeDress?.fontName ?? '',
+        fontPreviewUrl: record?.homeDress?.fontPreviewUrl ?? '',
         /** 聊天背景是直链(目录段是服务端 nonce,推不出来),空串表示没设。 */
         chatBgUrl: record?.homeDress?.chatBgUrl ?? '',
       },

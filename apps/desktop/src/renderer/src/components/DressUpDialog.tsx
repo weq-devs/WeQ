@@ -294,16 +294,20 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
             previewUrl: f.previewUrl ?? '',
           }));
 
-    const ownId =
-      mallKind === 'bubble' ? (state.data?.own.bubbleId ?? 0) : (state.data?.own.fontId ?? 0);
+    const own = state.data?.own;
+    const isBubble = mallKind === 'bubble';
+    const ownId = (isBubble ? own?.bubbleId : own?.fontId) ?? 0;
     if (ownId && !installed.some((i) => i.itemId === ownId)) {
-      // 只有 itemId,外链推不出来(新款目录段是服务端 nonce),所以没有预览图;
-      // 点「使用」时后端走 protocol 换取,那条要在线实例。
+      // 名字和预览图是 getSelfDress 一起回的(见 home_dress),所以这一条也能显示人话 ——
+      // 拿不到时才退回「QQ 正在用的X」。真正缺的只有资源本身:点「使用」时后端走
+      // protocol 换取九宫格 / 字体文件,那条要在线实例。
+      const ownName = (isBubble ? own?.bubbleName : own?.fontName) ?? '';
+      const ownPreview = (isBubble ? own?.bubblePreviewUrl : own?.fontPreviewUrl) ?? '';
       installed.unshift({
         itemId: ownId,
-        name: `QQ 正在用的${mallKind === 'bubble' ? '气泡' : '字体'}`,
+        name: ownName || `QQ 正在用的${isBubble ? '气泡' : '字体'}`,
         installed: false,
-        previewUrl: '',
+        previewUrl: ownPreview,
       });
     }
     return installed;
@@ -503,7 +507,9 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
                 appId: mallKind === 'bubble' ? 2 : 5,
                 itemId: m.itemId,
                 name: m.name,
-                previewUrl: '',
+                // 原样带上 —— use() 会把这两个字段写进清单,置空的话装完又会退回
+                // 「气泡 <id>」+ 空预览(「QQ 正在用的那款」点使用时正好走这条)。
+                previewUrl: m.previewUrl,
                 previewLargeUrl: '',
                 labels: m.installed ? [] : ['QQ 同款'],
                 price: 0,

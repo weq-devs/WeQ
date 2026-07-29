@@ -138,8 +138,16 @@ export interface AccountConfig {
     tags: string[];
     /** 正在用的气泡 itemId。渲染侧据此拼九宫格外链（纯 itemId 可预测，无需下载凭证）。 */
     bubbleId?: number;
+    /** 正在用的气泡款名（如「简约鲸鱼」）。装扮页显示用，缺省时只能显示 id。 */
+    bubbleName?: string;
+    /** 正在用的气泡预览图直链。**目录段有时是服务端 nonce，推不出来**，所以存 url。 */
+    bubblePreviewUrl?: string;
     /** 正在用的聊天字体 itemId（不含界面字体 305）。字体文件得走 protocol 另取。 */
     fontId?: number;
+    /** 正在用的字体款名。 */
+    fontName?: string;
+    /** 正在用的字体预览图直链。同 bubblePreviewUrl，目录段常是 nonce（实测 59500 就是）。 */
+    fontPreviewUrl?: string;
     /**
      * 正在用的聊天背景图（720×1280 原图直链）。与 screenUrl（浮屏）不是一回事。
      * 这里存 url 而非 itemId —— 背景的目录段是服务端 nonce，推不出来。
