@@ -5,7 +5,15 @@ import type { User } from "./types";
 import { displayUserName } from "./user";
 import logoUrl from "@resources/brand/logo.png";
 
-export function TitleBar({ user }: { user: User }) {
+export function TitleBar({
+	user,
+	homeActive = false,
+	onGoHome,
+}: {
+	user: User;
+	homeActive?: boolean;
+	onGoHome?: () => void;
+}) {
 	const handleMinimize = () => {
 		window.electron?.ipcRenderer.send("window-minimize");
 	};
@@ -20,9 +28,14 @@ export function TitleBar({ user }: { user: User }) {
 
 	return (
 		<div className="app-title-bar">
-			<div className="app-title-bar-logo-wrap">
-				<img src={logoUrl} className="app-title-bar-logo" alt="logo" />
-			</div>
+			<button
+				type="button"
+				className={`app-title-bar-logo-wrap${homeActive ? " is-active" : ""}`}
+				title="主页"
+				onClick={onGoHome}
+			>
+				<img src={logoUrl} className="app-title-bar-logo" alt="主页" />
+			</button>
 			<div className="app-title-bar-user">
 				<Avatar
 					name={displayUserName(user)}

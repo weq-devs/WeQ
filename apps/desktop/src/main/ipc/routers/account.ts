@@ -31,6 +31,7 @@ import { relatedEmojiRouter } from './related_emoji';
 import { fileResourceRouter } from './file_resource';
 import { mediaResourceRouter } from './media_resource';
 import { resourceCleanupRouter } from './resource_cleanup';
+import { dressupRouter } from './dressup';
 import { assistantBus, type AssistantStreamEvent } from '../../mcp/assistant_bus';
 import { validateMcpConfig } from '../../mcp/external';
 import { groupChatBus, type GroupChatStreamEvent } from '../../mcp/agentlab_group_bus';
@@ -255,6 +256,7 @@ export interface GroupAlbumAccessState {
 }
 
 export interface AlbumMediaWire extends AlbumMedia {
+  kind: 'image' | 'video';
   previewUrl: string;
   originalUrl: string;
   fileName: string;
@@ -394,22 +396,44 @@ function toSafeBigint(value: string | undefined): bigint {
   }
 }
 
-function mediaUrls(media: AlbumMedia): { previewUrl: string; originalUrl: string; fileName: string } {
-  const image = media.image;
-  if (!image) return { previewUrl: '', originalUrl: '', fileName: '' };
-  const urls = image.photoUrls
+function bestUrls(entries: Array<{ url: { url: string; width: number; height: number } | null }>): Array<{ url: string; width: number; height: number }> {
+  return entries
     .map((entry) => entry.url)
     .filter((entry): entry is NonNullable<typeof entry> => {
       if (!entry?.url) return false;
       return !isAlbumPlaceholderUrl(entry.url);
-    });
-  const sorted = urls
+    })
     .slice()
     .sort((a, b) => (b.width || 0) * (b.height || 0) - (a.width || 0) * (a.height || 0));
+}
+
+function imageUrls(image: NonNullable<AlbumMedia['image']>): { previewUrl: string; originalUrl: string } {
+  const sorted = bestUrls(image.photoUrls);
   const defaultUrl = image.defaultUrl && !isAlbumPlaceholderUrl(image.defaultUrl.url) ? image.defaultUrl.url : '';
-  const previewUrl = defaultUrl || sorted[sorted.length - 1]?.url || sorted[0]?.url || '';
-  const originalUrl = sorted[0]?.url || defaultUrl || '';
-  return { previewUrl, originalUrl, fileName: image.name || '' };
+  return {
+    previewUrl: defaultUrl || sorted[sorted.length - 1]?.url || sorted[0]?.url || '',
+    originalUrl: sorted[0]?.url || defaultUrl || '',
+  };
+}
+
+function mediaUrls(media: AlbumMedia): Omit<AlbumMediaWire, keyof AlbumMedia> {
+  const video = media.video;
+  if (video) {
+    // 视频卡片显示封面图,下载/播放取最高码率的那路;videoUrl 为空时回退到顶层 url。
+    const cover = video.cover ? imageUrls(video.cover) : { previewUrl: '', originalUrl: '' };
+    const streams = bestUrls(video.videoUrls);
+    const src = streams[0]?.url || (video.url && !isAlbumPlaceholderUrl(video.url) ? video.url : '');
+    return {
+      kind: 'video',
+      previewUrl: cover.previewUrl || cover.originalUrl,
+      originalUrl: src,
+      fileName: video.id || '',
+    };
+  }
+
+  const image = media.image;
+  if (!image) return { kind: 'image', previewUrl: '', originalUrl: '', fileName: '' };
+  return { kind: 'image', ...imageUrls(image), fileName: image.name || '' };
 }
 
 function mediaToWire(media: AlbumMedia): AlbumMediaWire {
@@ -462,7 +486,7 @@ function sanitizePathSegment(value: string | undefined, fallback: string): strin
   return /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(name) ? `_${name}` : name;
 }
 
-function filenameFromUrl(url: string, fallback: string, index: number): string {
+function filenameFromUrl(url: string, fallback: string, index: number, defaultExt: string): string {
   let name = fallback;
   if (!name) {
     try {
@@ -471,8 +495,8 @@ function filenameFromUrl(url: string, fallback: string, index: number): string {
       name = '';
     }
   }
-  const safe = sanitizePathSegment(name, `photo-${String(index + 1).padStart(4, '0')}.jpg`);
-  return extname(safe) ? safe : `${safe}.jpg`;
+  const safe = sanitizePathSegment(name, `photo-${String(index + 1).padStart(4, '0')}${defaultExt}`);
+  return extname(safe) ? safe : `${safe}${defaultExt}`;
 }
 
 function uniqueFilename(name: string, used: Set<string>): string {
@@ -535,7 +559,10 @@ async function exportGroupAlbums(
     media.forEach((item, index) => {
       const url = pickAlbumDownloadUrl(item);
       if (!url) return;
-      const fileName = uniqueFilename(filenameFromUrl(url, item.fileName, index), used);
+      const fileName = uniqueFilename(
+        filenameFromUrl(url, item.fileName, index, item.kind === 'video' ? '.mp4' : '.jpg'),
+        used,
+      );
       work.push({
         albumId: album.id,
         albumTitle,
@@ -589,6 +616,8 @@ export const accountRouter = router({
   mediaResource: mediaResourceRouter,
   // ---- nt_data 资源清理释放 (本地资源整理 → 清理释放) ----
   resourceCleanup: resourceCleanupRouter,
+  // ---- 个性装扮（气泡九宫格 / 聊天字体）----
+  dressup: dressupRouter,
 
   // ---- agent lab ----
 
@@ -1130,6 +1159,11 @@ export const accountRouter = router({
   sampleHitokoto: procedure
     .input(z.object({ count: z.number().int().min(1).max(80).default(30) }).optional())
     .query(({ input }) => sampleHitokoto(input?.count ?? 30)),
+
+  /** 首页个性装扮快照（从账号 config 读，bootstrap 阶段在线注入后写入）。 */
+  getHomeDress: procedure.query(() => {
+    return requireServices().accountConfig.getRecord()?.homeDress ?? null;
+  }),
 
   /** 首页门面：私聊纯文本短句池（装饰性「虚拟聊天流」用）。 */
   sampleChatLines: procedure

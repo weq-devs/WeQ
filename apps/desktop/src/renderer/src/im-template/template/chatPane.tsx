@@ -19,6 +19,8 @@ import {
 import { FaQq } from "react-icons/fa";
 import { Fragment, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ReplyJumpContext } from "../../components/QqMessageContent";
+import { ChatBackdrop } from "../../components/ChatBackdrop";
+import { useChatBackdrop } from "../../hooks/useDressSkin";
 import type {
 	ClipboardEvent as ReactClipboardEvent,
 	CSSProperties,
@@ -253,6 +255,7 @@ export function ChatPane({
 }) {
 	// 复用 replyJump 的跳转能力（含翻页/重建窗口），供群精华消息跳转使用。
 	const jumpToSeq = useContext(ReplyJumpContext);
+	const backdrop = useChatBackdrop();
 	const [body, setBody] = useState("");
 	const [sending, setSending] = useState(false);
 	const [composerHeight, setComposerHeight] = useState(() =>
@@ -1277,12 +1280,7 @@ export function ChatPane({
 	if (!conversation) {
 		return (
 			<section className={cn("chat-empty")}>
-				<div className={cn("chat-empty-container")}>
-					<FaQq className={cn("chat-empty-logo")} aria-hidden />
-					<p className={cn("chat-empty-text")}>
-						左侧选择会话查看聊天记录
-					</p>
-				</div>
+				<FaQq className={cn("chat-empty-logo")} aria-hidden />
 			</section>
 		);
 	}
@@ -1332,6 +1330,11 @@ export function ChatPane({
 			)}
 			style={paneStyle}
 		>
+			<ChatBackdrop
+				imageUrl={backdrop.imageUrl}
+				widgetId={backdrop.widgetId}
+				opacity={backdrop.opacity}
+			/>
 			<header className={cn("chat-header")}>
 				<button
 					className={cn("icon-button back-button")}

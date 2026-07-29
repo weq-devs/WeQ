@@ -1,10 +1,11 @@
 // @ts-nocheck
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
-import { Image, Loader2, X } from 'lucide-react';
+import { Image, Loader2, Play, X } from 'lucide-react';
 import { client } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { openLightbox } from './ImageLightbox';
+import { openVideoLightbox } from './VideoLightbox';
 import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
 
 export interface GroupAlbumWire {
@@ -21,6 +22,7 @@ export interface GroupAlbumWire {
 
 interface AlbumMediaWire {
   type: number;
+  kind: 'image' | 'video';
   image: {
     name: string;
     sloc: string;
@@ -210,7 +212,13 @@ function AlbumMediaView({
   onBack: () => void;
 }): ReactElement {
   const items = state.items;
-  const countText = useMemo(() => `${items.length} 张`, [items.length]);
+  const countText = useMemo(() => {
+    const videos = items.filter((item) => item.kind === 'video').length;
+    const photos = items.length - videos;
+    if (!videos) return `${photos} 张`;
+    if (!photos) return `${videos} 个视频`;
+    return `${photos} 张 · ${videos} 个视频`;
+  }, [items]);
   return (
     <div className="group-album-media-view">
       <div className="group-album-toolbar">
@@ -234,15 +242,26 @@ function AlbumMediaView({
             const src = item.previewUrl || item.originalUrl;
             const full = item.originalUrl || item.previewUrl;
             const proxiedFull = full ? albumMediaUrl(full) : '';
+            const isVideo = item.kind === 'video';
             return (
               <button
                 // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                 key={`${item.batchId}:${item.fileName}:${index}`}
                 type="button"
-                className="group-album-media-card"
-                onClick={() => proxiedFull && openLightbox(proxiedFull, item.fileName || '群相册图片')}
+                className={`group-album-media-card${isVideo ? ' is-video' : ''}`}
+                onClick={() => {
+                  if (!proxiedFull) return;
+                  // 视频走 <video> 灯箱,图片走图片灯箱。
+                  if (isVideo) openVideoLightbox(proxiedFull, src ? albumMediaUrl(src) : undefined);
+                  else openLightbox(proxiedFull, item.fileName || '群相册图片');
+                }}
               >
                 <img src={src} alt="" loading="lazy" referrerPolicy="no-referrer" />
+                {isVideo ? (
+                  <span className="group-album-media-play" aria-hidden>
+                    <Play size={18} />
+                  </span>
+                ) : null}
               </button>
             );
           })}

@@ -26,6 +26,7 @@ import {
   getAppContext,
   requireBootstrap,
   requirePlatform,
+  emitDressChanged,
   emitKeyFetchStalled,
   rememberAccountUid,
   type AccountForcedClosedEvent,
@@ -34,7 +35,9 @@ import {
 import { procedure, router } from '../trpc';
 import {
   accountConfigId,
+  fetchHomeDress,
   getLogger,
+  logErrorContext,
   type KeyEvent,
   type VoiceDownloadProgress,
   type TtsProviderConfig,
@@ -338,6 +341,28 @@ export const bootstrapRouter = router({
     .input(z.object({ behavior: z.enum(['ask', 'tray', 'quit']) }))
     .mutation(({ input }) => {
       requireBootstrap().userConfig.setSettings({ windowCloseBehavior: input.behavior });
+      return true;
+    }),
+
+  /**
+   * 是否把纯文本消息里的 Markdown 也渲染。渲染层通过 App.tsx 的 TextMarkdownContext
+   * 读取（getSettings 查询失效后自动生效）——纯持久化，无需主进程侧应用。
+   */
+  setRenderTextMarkdown: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ renderTextMarkdown: input.enabled });
+      return true;
+    }),
+
+  /**
+   * 头像挂件是否叠在聊天页自己的头像上。渲染层通过 App.tsx 的 SelfPendantContext
+   * 读取——纯持久化，无需主进程侧应用。
+   */
+  setShowAvatarPendant: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ showAvatarPendant: input.enabled });
       return true;
     }),
 
@@ -965,6 +990,8 @@ export const bootstrapRouter = router({
         displayName: z.string().optional(),
         avatarUrl: z.string().optional(),
         dataDir: z.string().optional(),
+        /** p_skey the login flow harvested (domain → key). Best-effort. */
+        pskey: z.record(z.string(), z.string()).optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -1007,6 +1034,36 @@ export const bootstrapRouter = router({
           ...(dataDir ? { dataDir } : {}),
         },
       );
+      // Must land AFTER setAccount — that's what seeds the config record the
+      // patch writes into.
+      if (input.pskey && Object.keys(input.pskey).length > 0) {
+        const services = ctx.services;
+        const session = ctx.account;
+        services?.accountConfig.setLoginPskey(input.pskey);
+
+        // The login flow already killed QQ, so `monitor.harvest` (which needs a
+        // live, hooked pid) will never run for this open — fetch the home-dress
+        // snapshot here instead, off the seeded ticket. pid=0 is never dialled:
+        // the seed short-circuits the p_skey lookup. Fire-and-forget so a slow
+        // CDN can't hold up entering the account.
+        if (services && session) {
+          void fetchHomeDress(platform.native.ntHelper, session, 0, input.pskey)
+            .then(async (dress) => {
+              services.accountConfig.setHomeDress(dress);
+              // 顺手把手机 QQ 正在用的气泡/字体装上并切过去。只在用户从没自己选过时
+              // 动手，内部逐项静默失败（见 syncFromQq）。
+              await services.dressInstall.syncFromQq(dress);
+              emitDressChanged();
+            })
+            .catch((e) => {
+              logger.warn('home dress fetch from login pskey failed (non-fatal)', {
+                event: 'router-home-dress-failed',
+                accountUin: input.uin,
+                ...logErrorContext(e),
+              });
+            });
+        }
+      }
       return ctx.account!.context;
     }),
 

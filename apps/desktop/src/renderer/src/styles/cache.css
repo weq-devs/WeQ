@@ -2926,17 +2926,18 @@ html[data-theme="dark"] .weq-related-stage {
   padding: 0 6px;
 }
 
+/* 明度分级同 export.css 的 .weq-mpd-fee —— 两处是同一套收费标签，改一处必须改另一处。 */
 .weq-mpack-fee.is-free {
-  background: #3fa66a;
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 55%, #6b7787);
 }
 .weq-mpack-fee.is-paid {
-  background: #e0872f;
-}
-.weq-mpack-fee.is-svip {
-  background: #c2456a;
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 78%, #2b3948);
 }
 .weq-mpack-fee.is-vip {
-  background: #9b6ad4;
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 90%, #0d2f52);
+}
+.weq-mpack-fee.is-svip {
+  background: var(--weq-accent-effective, #12a8ff);
 }
 .weq-mpack-fee.is-unknown {
   background: #8a94a4;

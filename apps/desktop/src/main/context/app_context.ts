@@ -64,6 +64,7 @@ import {
   AgentLabService,
   AssistantService,
   CollectionService,
+  DressInstallService,
   TokenUsageStore,
   ConversationStore,
   DeletedMsgStore,
@@ -140,6 +141,16 @@ export interface KeyFetchStalledEvent {
 }
 
 export const accountEventBus = new EventEmitter();
+
+/**
+ * 装扮清单被主进程改过了（目前只有开机同步会这么做）。
+ *
+ * 前端的 `dressup.getState` 有 60s staleTime，而同步是网络往返，必然晚于首屏那次
+ * 查询几秒 —— 不推一下的话用户会看到「已装 0」直到下一次 invalidate。
+ */
+export function emitDressChanged(): void {
+  accountEventBus.emit('dressChanged', { at: Date.now() });
+}
 
 /**
  * Process-wide uin→uid registry. On linux the on-disk account directory is
@@ -400,6 +411,8 @@ export interface AccountServices {
   groupAlbumMedia: GroupAlbumMediaService;
   /** QQ 收藏 (favorites) reader over collection.db. */
   collection: CollectionService;
+  /** 个性装扮(气泡/字体)的本地安装与清单。气泡不需在线,字体需在线实例。 */
+  dressInstall: DressInstallService;
 }
 
 /** Classified native-init failure surfaced to the renderer. */
@@ -705,6 +718,13 @@ export function initAppContext(): AppContext {
       // 收藏服务：网络优先(微云 collector)、拿不到 p_skey 回退 collection.db。
       // 既进 services，又喂给导出管理器的收藏拉取 dep（拍平投影）。
       const collectionSvc = new CollectionService(platform.native.ntHelper, session, resolveOnlinePid);
+      // 个性装扮：气泡纯 itemId 可拼外链（离线也能装），字体要在线实例换下载链。
+      const dressInstall = new DressInstallService(
+        platform.native.ntHelper,
+        bootstrap.avatarCache,
+        userConfig.cacheDir(join('dress', exportConfigId)),
+        resolveOnlinePid,
+      );
       // Built before the services literal so AgentLab can reuse the same media
       // pipeline (媒体寻址 + rkey 补全) for 表情包/语音.
       const fileSearch = new FileSearchService(session, platform);
@@ -742,6 +762,7 @@ export function initAppContext(): AppContext {
         msgSearch: new MsgSearchService(session),
         onlineStatus: new OnlineStatusService(session),
         collection: collectionSvc,
+        dressInstall,
         fileSearch,
         mediaDownload,
         mediaUrl,
@@ -858,6 +879,7 @@ export function initAppContext(): AppContext {
                   birthMonth: p.birthMonth,
                   birthDay: p.birthDay,
                   intimacy: p.intimacy,
+                  extInfo: p.extInfo,
                 }));
               },
               listGroupMembers: async (groupCode, limit, offset) => {
@@ -940,6 +962,13 @@ export function initAppContext(): AppContext {
         () => userConfig.getSettings().mediaCompletion.enabled,
         () => userConfig.getSettings().autoFetchClientKey,
         bootstrap.injectHook,
+        // 把手机 QQ 正在用的气泡/字体装上并切过去。monitor 内部只在本次会话第一次
+        // 抓到快照时调，且只在用户从没自己选过时才动手（见 syncFromQq）。
+        async (dress) => {
+          await dressInstall.syncFromQq(dress);
+          // 同步比首屏那次 getState 晚几秒，不推前端会一直显示旧清单。
+          emitDressChanged();
+        },
       );
       accountMonitor.start();
       logger.info('opened account session', {
@@ -1044,6 +1073,13 @@ export function initAppContext(): AppContext {
       const profile = new ProfileService(session);
       // 收藏服务：静态账号 noPid 会让网络路径拿不到 p_skey → 自动回退 collection.db。
       const collectionSvc = new CollectionService(platform.native.ntHelper, session, noPid);
+      // 个性装扮：静态账号 noPid → 气泡照常可装（外链纯 itemId），字体会明确报错。
+      const dressInstall = new DressInstallService(
+        platform.native.ntHelper,
+        bootstrap.avatarCache,
+        userConfig.cacheDir(join('dress', exportConfigId)),
+        noPid,
+      );
       const fileSearch = new FileSearchService(session, platform);
       const agentlabRoot = userConfig.cacheDir(join('agentlab', exportConfigId));
       const tokenUsage = new TokenUsageStore(join(agentlabRoot, 'usage.json'));
@@ -1077,6 +1113,7 @@ export function initAppContext(): AppContext {
         msgSearch: new MsgSearchService(session),
         onlineStatus: new OnlineStatusService(session),
         collection: collectionSvc,
+        dressInstall,
         fileSearch,
         mediaDownload,
         mediaUrl,

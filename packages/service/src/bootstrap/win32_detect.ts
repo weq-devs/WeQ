@@ -24,6 +24,7 @@ import {
   type StubHooks,
 } from '@weq/native';
 import { getLogger, logErrorContext } from '../common/logger';
+import { isHookInstallFailure } from './win32_key';
 
 export interface QqInstallInfo {
   qqExePath: string | null;
@@ -284,26 +285,35 @@ export class Win32DetectService {
    * login list it reports. Resolves `[]` (never rejects) when QQ.exe isn't
    * found or the flow times out without emitting a list — the caller treats
    * this source as best-effort.
+   *
+   * A failed msf_recv hook install is retried once: it's a random
+   * address-space race (see {@link isHookInstallFailure}) that a fresh
+   * process usually clears, and swallowing it would leave the user staring
+   * at an empty account list.
    */
-  private runNinebirdAccountList(
+  private async runNinebirdAccountList(
     timeoutMs = 60_000,
   ): Promise<NineBirdAccountListItem[]> {
     const exe = this.platform.qqExePath();
-    if (!exe) return Promise.resolve([]);
+    if (!exe) return [];
 
-    const session = this.bootstrap.startAccountList({
-      qqExePath: exe,
-      timeoutMs,
-    });
-    return new Promise((resolve) => {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const session = this.bootstrap.startAccountList({ qqExePath: exe, timeoutMs });
       let items: NineBirdAccountListItem[] = [];
       session.onAccountList((e) => {
         items = e.list;
       });
       // The session self-kills on its terminal `result` event (and on
       // timeout). We hand back whatever list arrived, success or not.
-      void session.result.then(() => resolve(items));
-    });
+      const result = await session.result;
+      if (items.length > 0 || !isHookInstallFailure(result.error)) return items;
+      this.logger.warn('ninebird account-list: msf_recv hook install failed', {
+        event: 'account-list-hook-install-failed',
+        attempt,
+        error: result.error,
+      });
+    }
+    return [];
   }
 
   /**

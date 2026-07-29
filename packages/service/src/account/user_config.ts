@@ -123,6 +123,37 @@ export interface AccountConfig {
    * vs `setAccount` on re-open.
    */
   static?: boolean;
+  /**
+   * p_skey per domain, harvested by the ninebird loader during login (while QQ
+   * was still alive). Seeds `WebCredentialProvider` so the first home-dress
+   * fetch works without a hook round-trip.
+   */
+  loginPskey?: Record<string, string>;
+  /** 首页个性装扮快照（挂件/名片/浮屏/个性标签 + 气泡/字体 id），在线注入后写入。 */
+  homeDress?: {
+    widgetUrl: string;
+    cardUrl: string;
+    cardVideoUrl: string;
+    screenUrl: string;
+    tags: string[];
+    /** 正在用的气泡 itemId。渲染侧据此拼九宫格外链（纯 itemId 可预测，无需下载凭证）。 */
+    bubbleId?: number;
+    /** 正在用的气泡款名（如「简约鲸鱼」）。装扮页显示用，缺省时只能显示 id。 */
+    bubbleName?: string;
+    /** 正在用的气泡预览图直链。**目录段有时是服务端 nonce，推不出来**，所以存 url。 */
+    bubblePreviewUrl?: string;
+    /** 正在用的聊天字体 itemId（不含界面字体 305）。字体文件得走 protocol 另取。 */
+    fontId?: number;
+    /** 正在用的字体款名。 */
+    fontName?: string;
+    /** 正在用的字体预览图直链。同 bubblePreviewUrl，目录段常是 nonce（实测 59500 就是）。 */
+    fontPreviewUrl?: string;
+    /**
+     * 正在用的聊天背景图（720×1280 原图直链）。与 screenUrl（浮屏）不是一回事。
+     * 这里存 url 而非 itemId —— 背景的目录段是服务端 nonce，推不出来。
+     */
+    chatBgUrl?: string;
+  };
 }
 
 /** Metadata threaded in from the open flow to enrich the saved record. */
@@ -176,7 +207,10 @@ export class AccountConfigService {
   ) {
     this.accountsDir = join(appDataRoot, 'config', 'accounts');
     this.currentConfigId = accountConfigId(this.session.context.uin);
-    this.logger = getLogger().child({ scope: 'account-config', accountUin: this.session.context.uin });
+    this.logger = getLogger().child({
+      scope: 'account-config',
+      accountUin: this.session.context.uin,
+    });
   }
 
   /**
@@ -243,6 +277,21 @@ export class AccountConfigService {
       event: 'set-client-key',
       ttlSeconds: clientKey.ttlSeconds,
       keyIndex: clientKey.keyIndex,
+    });
+  }
+
+  /** Persist the home-dress snapshot (widget / card / screen / tags). */
+  setHomeDress(homeDress: AccountConfig['homeDress']): void {
+    this.patch({ homeDress });
+    this.logger.info('stored home dress snapshot', { event: 'set-home-dress' });
+  }
+
+  /** Persist p_skey harvested during the ninebird login flow. */
+  setLoginPskey(loginPskey: Record<string, string>): void {
+    this.patch({ loginPskey });
+    this.logger.info('stored login pskey', {
+      event: 'set-login-pskey',
+      domains: Object.keys(loginPskey),
     });
   }
 

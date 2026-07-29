@@ -14,22 +14,30 @@ import {
 	Flower2,
 	FolderClosed,
 	Gamepad2,
+	GraduationCap,
 	Heart,
 	HelpCircle,
+	Images,
 	Info,
+	MapPin,
 	Megaphone,
 	Sparkles,
+	Tags,
 	User,
 	Users,
 	Utensils,
+	Wand2,
 	X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { openLightbox } from "../../components/ImageLightbox";
+import { PersonalityHomeDialog } from "../../components/PersonalityHomeDialog";
+import { albumMediaUrl, collectionImageUrl } from "../../lib/resourceUrl";
 import { cn } from "./classNames";
 import { copyTextToClipboard } from "./clipboard";
 import { formatProfileDate } from "./format";
 import { Avatar, EmptyState } from "./primitives";
-import type { Contact, Conversation } from "./types";
+import type { Contact, Conversation, ProfileExtInfo } from "./types";
 import { displayUserName } from "./user";
 
 /**
@@ -102,6 +110,98 @@ function realCreatedAt(value?: string) {
 }
 
 /**
+ * 特权 bizId → 名称。QQ 的特权位很多，这里只标注常见的几个；未知 id 退化成
+ * 「特权 N」，图标本身仍然照常渲染（图标 URL 自带等级，视觉上不丢信息）。
+ */
+const PRIVILEGE_NAMES: Record<number, string> = {
+	1: "超级会员",
+	102: "黄钻",
+	103: "音乐包",
+	113: "大会员",
+	118: "绿钻",
+	119: "情侣特权",
+};
+
+function privilegeName(bizId?: number) {
+	if (bizId == null) {
+		return "特权";
+	}
+	return PRIVILEGE_NAMES[bizId] ?? `特权 ${bizId}`;
+}
+
+/** 国/省/市三级去重拼接（QQ 常只填其中一两级，重复的省市也要合掉）。 */
+function regionText(ext?: ProfileExtInfo | null) {
+	if (!ext) {
+		return null;
+	}
+	const parts: string[] = [];
+	for (const part of [ext.country, ext.province, ext.city]) {
+		const value = part?.trim();
+		if (value && !parts.includes(value)) {
+			parts.push(value);
+		}
+	}
+	return parts.length ? parts.join(" · ") : null;
+}
+
+/** 学校 + 学历拼成一行（两者都可能单独缺失）。 */
+function educationText(ext?: ProfileExtInfo | null) {
+	if (!ext) {
+		return null;
+	}
+	const parts = [ext.school?.trim(), ext.degree?.trim()].filter(Boolean);
+	return parts.length ? parts.join(" · ") : null;
+}
+
+/**
+ * 从一张精选图片的多尺寸变体里挑 URL。档位实测 1=原图 2=640 3=160 4=100，
+ * 缩略图优先 160、大图优先 640（原图往往几 MB，点开看也用不着）。
+ */
+function albumUrl(
+	photo: ProfileExtInfo["album"][number],
+	preferred: number[],
+): string | null {
+	for (const size of preferred) {
+		const hit = photo.urls.find((u) => u.size === size && u.url);
+		if (hit?.url) {
+			return hit.url;
+		}
+	}
+	return photo.urls.find((u) => u.url)?.url ?? null;
+}
+
+/**
+ * 把资料里的扩展字段（21000 列）翻成个性主页要的形状。
+ *
+ * 好友灯箱和群成员卡片都要用，且两边拿到的 profile 形状不同（一个是 Contact、
+ * 一个是 getProfile 的 wire 对象），所以只吃 `extInfo` + 三个显示字段。
+ */
+export function toPersonalityProfile(
+	base: { name: string; avatarUrl: string | null; signature?: string | null },
+	ext?: ProfileExtInfo | null,
+) {
+	return {
+		...base,
+		interests: (ext?.interests ?? []).filter((tag) => tag.trim()),
+		privileges: (ext?.privileges ?? [])
+			.filter((item) => item.opened && item.iconUrl)
+			.map((item) => ({
+				bizId: item.bizId,
+				level: item.level,
+				iconUrl: item.iconUrl,
+				label: privilegeName(item.bizId),
+			})),
+		region: regionText(ext),
+		album: (ext?.album ?? [])
+			.map((photo) => ({
+				thumb: albumUrl(photo, [3, 4, 2]) ?? "",
+				full: albumUrl(photo, [2, 1, 3]) ?? "",
+			}))
+			.filter((p) => p.thumb && p.full),
+	};
+}
+
+/**
  * 联系人主区域占位。好友资料改为点击弹出灯箱（{@link ContactProfileDialog}），
  * 右半边主区域留白，作为后续功能预留位。
  */
@@ -136,9 +236,11 @@ export function ContactProfileDialog({
 	onClose: () => void;
 }) {
 	const [copied, setCopied] = useState(false);
+	const [homeOpen, setHomeOpen] = useState(false);
 
 	useEffect(() => {
 		setCopied(false);
+		setHomeOpen(false);
 	}, [contact?.id]);
 
 	useEffect(() => {
@@ -190,6 +292,17 @@ export function ContactProfileDialog({
 		profile.nick &&
 		profile.nick !== displayUserName(profile) &&
 		profile.nick !== profile.remark;
+
+	// 21000 列扩展资料：已开通的特权（未开通的灰图标没必要展示）、所在地、
+	// 教育经历、兴趣标签、精选图片。
+	const extInfo = profile.extInfo;
+	const openedPrivileges = (extInfo?.privileges ?? []).filter(
+		(item) => item.opened && item.iconUrl,
+	);
+	const region = regionText(extInfo);
+	const education = educationText(extInfo);
+	const interests = (extInfo?.interests ?? []).filter((tag) => tag.trim());
+	const album = extInfo?.album ?? [];
 
 	async function copyIdentity() {
 		const ok = await copyTextToClipboard(profile.identityValue);
@@ -279,10 +392,93 @@ export function ContactProfileDialog({
 						</div>
 					) : null}
 
+					{openedPrivileges.length ? (
+						<div className="weq-profile-privileges">
+							{openedPrivileges.map((item, index) => (
+								<img
+									// biome-ignore lint/suspicious/noArrayIndexKey: 同一 bizId 可能出现多条,只有位置是稳定键
+									key={`${item.bizId ?? "?"}:${index}`}
+									className="weq-profile-privilege"
+									src={collectionImageUrl(item.iconUrl as string)}
+									alt={privilegeName(item.bizId)}
+									title={
+										item.level
+											? `${privilegeName(item.bizId)} · ${item.level} 级`
+											: privilegeName(item.bizId)
+									}
+									loading="lazy"
+								/>
+							))}
+						</div>
+					) : null}
+
 					{profile.signature ? (
 						<p className="weq-profile-sign">{profile.signature}</p>
 					) : null}
 				</div>
+
+				{interests.length ? (
+					<div className="weq-profile-section">
+						<div className="weq-profile-section-head">
+							<Tags size={13} />
+							个性标签
+							<span className="weq-number">{interests.length}</span>
+						</div>
+						<div className="weq-profile-interests">
+							{interests.map((tag, index) => (
+								<span
+									// biome-ignore lint/suspicious/noArrayIndexKey: 标签可含零宽字符重复,位置才是稳定键
+									key={`${tag}:${index}`}
+									className="weq-profile-interest"
+								>
+									{tag}
+								</span>
+							))}
+						</div>
+					</div>
+				) : null}
+
+				{album.length ? (
+					<div className="weq-profile-section">
+						<div className="weq-profile-section-head">
+							<Images size={13} />
+							精选图片
+							<span className="weq-number">{album.length}</span>
+						</div>
+						<div className="weq-profile-album">
+							{album.map((photo, index) => {
+								const thumb = albumUrl(photo, [3, 4, 2]);
+								const full = albumUrl(photo, [2, 1, 3]);
+								if (!thumb) {
+									return null;
+								}
+								return (
+									<button
+										// biome-ignore lint/suspicious/noArrayIndexKey: photoId 可能缺失,按位置兜底
+										key={`${photo.photoId ?? "?"}:${index}`}
+										type="button"
+										className="weq-profile-photo"
+										title={
+											photo.time
+												? formatProfileDate(photo.time)
+												: "精选图片"
+										}
+										onClick={() =>
+											full &&
+											openLightbox(albumMediaUrl(full), "精选图片")
+										}
+									>
+										<img
+											src={albumMediaUrl(thumb)}
+											alt=""
+											loading="lazy"
+										/>
+									</button>
+								);
+							})}
+						</div>
+					</div>
+				) : null}
 
 				<div className="weq-profile-list">
 					<ProfileRow
@@ -313,6 +509,20 @@ export function ContactProfileDialog({
 							value={statusText}
 						/>
 					) : null}
+					{region ? (
+						<ProfileRow
+							icon={<MapPin size={13} />}
+							label="所在地"
+							value={region}
+						/>
+					) : null}
+					{education ? (
+						<ProfileRow
+							icon={<GraduationCap size={13} />}
+							label="教育经历"
+							value={education}
+						/>
+					) : null}
 					{birthday ? (
 						<ProfileRow
 							icon={<Cake size={13} />}
@@ -337,7 +547,34 @@ export function ContactProfileDialog({
 						/>
 					) : null}
 				</div>
+
+				{/* 个性主页要拿 QQ 号去查会员装扮页——只有 uin 的联系人才给这个入口。 */}
+				{profile.identityLabel === "QQ" ? (
+					<button
+						className="weq-profile-perhome"
+						type="button"
+						onClick={() => setHomeOpen(true)}
+					>
+						<Wand2 size={13} />
+						查看个性主页
+					</button>
+				) : null}
 			</section>
+
+			{homeOpen ? (
+				<PersonalityHomeDialog
+					uin={profile.identityValue}
+					profile={toPersonalityProfile(
+						{
+							name: displayUserName(profile),
+							avatarUrl: profile.avatarUrl,
+							signature: profile.signature,
+						},
+						extInfo,
+					)}
+					onClose={() => setHomeOpen(false)}
+				/>
+			) : null}
 		</div>
 	);
 }

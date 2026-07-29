@@ -1,0 +1,1541 @@
+{
+  "response": {
+    "items": [
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "温馨治愈",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E6%B8%A9%E9%A6%A8%E6%B2%BB%E6%84%88"
+            },
+            {
+              "msg": "萌宠",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E8%90%8C%E5%AE%A0"
+            },
+            {
+              "msg": "黑白灰",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E9%BB%91%E7%99%BD%E7%81%B0"
+            }
+          ],
+          "appId": 2,
+          "itemId": 2130704,
+          "name": "抱抱小黑猫",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/bubble/item/2130704/newPreview1.png",
+          "itemBgColor": "7f8782",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1110633869",
+            "mallname": "为则科技",
+            "sourceId": "1110633869",
+            "productName": "为则科技",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=gy0ylhgk0RA7LoROkawBnw&s=100&t=1600140583",
+            "price": 300,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "1785540732",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/bubble/item/2130704/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "isAiContent": "false",
+              "diyTextPos": "0",
+              "showGif": "0",
+              "immersiveMaterial": "{\"zoomPointX\":68,\"zoomPointY\":67,\"color\":\"0xFF000000\",\"staticTopLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/2130704/static-top-left-v2.png\",\"staticTopRight\":\"https://tianquan.gtimg.cn/immersive/bubble/2130704/static-top-right-v2.png\",\"staticBottomLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/2130704/static-bottom-left-v2.png\",\"staticBottomRight\":\"https://tianquan.gtimg.cn/immersive/bubble/2130704/static-bottom-right-v2.png\",\"staticTopMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2130704/static-top-middle-v2.png\",\"staticLeftMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2130704/static-left-middle-v2.png\",\"staticBottomMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2130704/static-bottom-middle-v2.png\",\"staticRightMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2130704/static-right-middle-v2.png\",\"staticAllMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2130704/static-all-middle-v2.png\",\"staticAll\":\"https://tianquan.gtimg.cn/immersive/bubble/2130704/static-all.png\"}",
+              "extQualDay": "0",
+              "vipLevel": "0",
+              "bubbleGroup": "0",
+              "cornType": "0",
+              "isKuikly": "1",
+              "isLinkage": "0",
+              "isWithNotificationIcon": "0",
+              "bubbleType": "0",
+              "isDiy": "0",
+              "platformId": "0",
+              "showGifNew": "0"
+            },
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "1785540732",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE",
+              "userCanDiscount": true
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "萌宠",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E8%90%8C%E5%AE%A0"
+            },
+            {
+              "msg": "软萌可爱",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E8%BD%AF%E8%90%8C%E5%8F%AF%E7%88%B1"
+            },
+            {
+              "msg": "黑白灰",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E9%BB%91%E7%99%BD%E7%81%B0"
+            }
+          ],
+          "appId": 2,
+          "itemId": 2157482,
+          "name": "哭包喵吃鱼",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/bubble/item/c7dd4c235d6dcc08/newPreview1.png",
+          "itemBgColor": "ede1e4",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1110112648",
+            "mallname": "原创馆",
+            "sourceId": "1110112648",
+            "productName": "原创馆",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=oZkSL5cTYib3RqRVWiaxSYAg&s=100&t=1597221947",
+            "price": 300,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "1785540732",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/bubble/item/c7dd4c235d6dcc08/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "bubbleType": "0",
+              "vipLevel": "0",
+              "showGifNew": "0",
+              "cornType": "0",
+              "isDiy": "0",
+              "isLinkage": "0",
+              "bubbleGroup": "0",
+              "isKuikly": "1",
+              "immersiveMaterial": "{\"zoomPointX\":73,\"zoomPointY\":65,\"color\":\"0xFF8a8a8a\",\"staticTopLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/20ad45c9/797bfea60982f009/static-top-left-v2.png\",\"staticTopRight\":\"https://tianquan.gtimg.cn/immersive/bubble/20ad45c9/797bfea60982f009/static-top-right-v2.png\",\"staticBottomLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/20ad45c9/797bfea60982f009/static-bottom-left-v2.png\",\"staticBottomRight\":\"https://tianquan.gtimg.cn/immersive/bubble/20ad45c9/797bfea60982f009/static-bottom-right-v2.png\",\"staticTopMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/20ad45c9/797bfea60982f009/static-top-middle-v2.png\",\"staticLeftMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/20ad45c9/797bfea60982f009/static-left-middle-v2.png\",\"staticBottomMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/20ad45c9/797bfea60982f009/static-bottom-middle-v2.png\",\"staticRightMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/20ad45c9/797bfea60982f009/static-right-middle-v2.png\",\"staticAllMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/20ad45c9/797bfea60982f009/static-all-middle-v2.png\",\"staticAll\":\"https://tianquan.gtimg.cn/immersive/bubble/20ad45c9/797bfea60982f009/static-all.png\"}",
+              "isAiContent": "false",
+              "platformId": "0",
+              "diyTextPos": "0",
+              "extQualDay": "0",
+              "isWithNotificationIcon": "0",
+              "showGif": "0"
+            },
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "1785540732",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE",
+              "userCanDiscount": true
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "海蓝",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E6%B5%B7%E8%93%9D"
+            },
+            {
+              "msg": "萌宠",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E8%90%8C%E5%AE%A0"
+            },
+            {
+              "msg": "软萌可爱",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E8%BD%AF%E8%90%8C%E5%8F%AF%E7%88%B1"
+            },
+            {
+              "msg": "马卡龙",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E9%A9%AC%E5%8D%A1%E9%BE%99"
+            }
+          ],
+          "appId": 2,
+          "itemId": 2141396,
+          "name": "猫咬雪麻糍",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/bubble/item/2141396/newPreview1.png",
+          "itemBgColor": "d8e9ff",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1112257724",
+            "mallname": "萌物星球",
+            "sourceId": "1112257724",
+            "productName": "萌物星球",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=dG1c4dWLxmoiaxEPqmNib2JA&kti=Y3RT0AAAAAE&s=100&t=1668568016",
+            "price": 600,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "1785540732",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/bubble/item/2141396/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "isDiy": "0",
+              "immersiveMaterial": "{\"zoomPointX\":54,\"zoomPointY\":69,\"color\":\"0xFF91a1b5\",\"staticTopLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/2141396/static-top-left-v2.png\",\"staticTopRight\":\"https://tianquan.gtimg.cn/immersive/bubble/2141396/static-top-right-v2.png\",\"staticBottomLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/2141396/static-bottom-left-v2.png\",\"staticBottomRight\":\"https://tianquan.gtimg.cn/immersive/bubble/2141396/static-bottom-right-v2.png\",\"staticTopMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2141396/static-top-middle-v2.png\",\"staticLeftMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2141396/static-left-middle-v2.png\",\"staticBottomMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2141396/static-bottom-middle-v2.png\",\"staticRightMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2141396/static-right-middle-v2.png\",\"staticAllMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2141396/static-all-middle-v2.png\",\"staticAll\":\"https://tianquan.gtimg.cn/immersive/bubble/2141396/static-all.png\",\"animationTopLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/2141396/animation-top-left-v2.png\",\"animationTopRight\":\"https://tianquan.gtimg.cn/immersive/bubble/2141396/animation-top-right-v2.png\",\"animationBottomLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/2141396/animation-bottom-left-v2.png\",\"animationBottomRight\":\"https://tianquan.gtimg.cn/immersive/bubble/2141396/animation-bottom-right-v2.png\",\"animationTopMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2141396/animation-top-middle-v2.png\",\"animationLeftMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2141396/animation-left-middle-v2.png\",\"animationBottomMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2141396/animation-bottom-middle-v2.png\",\"animationRightMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2141396/animation-right-middle-v2.png\",\"animationAllMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2141396/animation-all-middle-v2.png\",\"animationAll\":\"https://tianquan.gtimg.cn/immersive/bubble/2141396/animation-all.png\"}",
+              "vipLevel": "0",
+              "diyTextPos": "0",
+              "isKuikly": "1",
+              "platformId": "0",
+              "isWithNotificationIcon": "0",
+              "bubbleType": "0",
+              "extQualDay": "0",
+              "showGifNew": "0",
+              "bubbleGroup": "0",
+              "cornType": "0",
+              "isLinkage": "0",
+              "showGif": "0",
+              "isAiContent": "false"
+            },
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "1785540732",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE",
+              "userCanDiscount": true
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "软萌可爱",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E8%BD%AF%E8%90%8C%E5%8F%AF%E7%88%B1"
+            },
+            {
+              "msg": "黑白灰",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E9%BB%91%E7%99%BD%E7%81%B0"
+            }
+          ],
+          "appId": 2,
+          "itemId": 2122487,
+          "name": "纯爱漫对话",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/bubble/item/2122487/newPreview1.png",
+          "itemBgColor": "7f3535",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1110112648",
+            "mallname": "原创馆",
+            "sourceId": "1110112648",
+            "productName": "原创馆",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=oZkSL5cTYib3RqRVWiaxSYAg&s=100&t=1597221947",
+            "price": 300,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "1785540732",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/bubble/item/2122487/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "bubbleType": "0",
+              "isKuikly": "1",
+              "bubbleGroup": "0",
+              "isWithNotificationIcon": "0",
+              "immersiveMaterial": "{\"zoomPointX\":65,\"zoomPointY\":52,\"color\":\"0xFF000000\",\"staticTopLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/2122487/static-top-left-v2.png\",\"staticTopRight\":\"https://tianquan.gtimg.cn/immersive/bubble/2122487/static-top-right-v2.png\",\"staticBottomLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/2122487/static-bottom-left-v2.png\",\"staticBottomRight\":\"https://tianquan.gtimg.cn/immersive/bubble/2122487/static-bottom-right-v2.png\",\"staticTopMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2122487/static-top-middle-v2.png\",\"staticLeftMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2122487/static-left-middle-v2.png\",\"staticBottomMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2122487/static-bottom-middle-v2.png\",\"staticRightMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2122487/static-right-middle-v2.png\",\"staticAllMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2122487/static-all-middle-v2.png\",\"staticAll\":\"https://tianquan.gtimg.cn/immersive/bubble/2122487/static-all.png\"}",
+              "extQualDay": "0",
+              "isLinkage": "0",
+              "isAiContent": "false",
+              "showGif": "0",
+              "cornType": "0",
+              "showGifNew": "0",
+              "vipLevel": "0",
+              "diyTextPos": "0",
+              "isDiy": "0",
+              "platformId": "0"
+            },
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "1785540732",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE",
+              "userCanDiscount": true
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "萌宠",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E8%90%8C%E5%AE%A0"
+            },
+            {
+              "msg": "软萌可爱",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E8%BD%AF%E8%90%8C%E5%8F%AF%E7%88%B1"
+            },
+            {
+              "msg": "黑白灰",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E9%BB%91%E7%99%BD%E7%81%B0"
+            }
+          ],
+          "appId": 2,
+          "itemId": 2155515,
+          "name": "啃猫黑白漫",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/bubble/item/2e87aa17c5029d40/newPreview1.png",
+          "itemBgColor": "b2b2b2",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1110708867",
+            "mallname": "Dazone",
+            "sourceId": "1110708867",
+            "productName": "Dazone",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=WeaOT6pYXlfllcCJaWUnxw&s=100&t=1600140643",
+            "price": 300,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "1785540732",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/bubble/item/2e87aa17c5029d40/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "cornType": "0",
+              "diyTextPos": "0",
+              "isAiContent": "false",
+              "isKuikly": "1",
+              "showGifNew": "0",
+              "vipLevel": "0",
+              "isDiy": "0",
+              "isWithNotificationIcon": "0",
+              "extQualDay": "0",
+              "immersiveMaterial": "{\"zoomPointX\":62,\"zoomPointY\":54,\"color\":\"0xFF000000\",\"staticTopLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/f710a436/840c2872054b248f/static-top-left-v2.png\",\"staticTopRight\":\"https://tianquan.gtimg.cn/immersive/bubble/f710a436/840c2872054b248f/static-top-right-v2.png\",\"staticBottomLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/f710a436/840c2872054b248f/static-bottom-left-v2.png\",\"staticBottomRight\":\"https://tianquan.gtimg.cn/immersive/bubble/f710a436/840c2872054b248f/static-bottom-right-v2.png\",\"staticTopMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/f710a436/840c2872054b248f/static-top-middle-v2.png\",\"staticLeftMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/f710a436/840c2872054b248f/static-left-middle-v2.png\",\"staticBottomMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/f710a436/840c2872054b248f/static-bottom-middle-v2.png\",\"staticRightMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/f710a436/840c2872054b248f/static-right-middle-v2.png\",\"staticAllMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/f710a436/840c2872054b248f/static-all-middle-v2.png\",\"staticAll\":\"https://tianquan.gtimg.cn/immersive/bubble/f710a436/840c2872054b248f/static-all.png\"}",
+              "platformId": "0",
+              "bubbleGroup": "0",
+              "bubbleType": "0",
+              "showGif": "0",
+              "isLinkage": "0"
+            },
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "1785540732",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE",
+              "userCanDiscount": true
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "萌宠",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E8%90%8C%E5%AE%A0"
+            },
+            {
+              "msg": "软萌可爱",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E8%BD%AF%E8%90%8C%E5%8F%AF%E7%88%B1"
+            },
+            {
+              "msg": "麦黄",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E9%BA%A6%E9%BB%84"
+            }
+          ],
+          "appId": 2,
+          "itemId": 2146362,
+          "name": "妖娆奶味龙",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/bubble/item/010a5bac3c5037ba/newPreview1.png",
+          "itemBgColor": "d8c691",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1112309768",
+            "mallname": "清和月",
+            "sourceId": "1112309768",
+            "productName": "清和月",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=NzKYw7icv4Emdu1hT1tGohQ&kti=ZJ5LaAAAAAI&s=100&t=1688095592",
+            "price": 300,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "1785540732",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/bubble/item/010a5bac3c5037ba/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "showGifNew": "0",
+              "extQualDay": "0",
+              "bubbleType": "0",
+              "immersiveMaterial": "{\"zoomPointX\":68,\"zoomPointY\":55,\"color\":\"0xFF000000\",\"staticTopLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/b80891ff/269be364d6ce70c5/static-top-left-v2.png\",\"staticTopRight\":\"https://tianquan.gtimg.cn/immersive/bubble/b80891ff/269be364d6ce70c5/static-top-right-v2.png\",\"staticBottomLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/b80891ff/269be364d6ce70c5/static-bottom-left-v2.png\",\"staticBottomRight\":\"https://tianquan.gtimg.cn/immersive/bubble/b80891ff/269be364d6ce70c5/static-bottom-right-v2.png\",\"staticTopMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/b80891ff/269be364d6ce70c5/static-top-middle-v2.png\",\"staticLeftMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/b80891ff/269be364d6ce70c5/static-left-middle-v2.png\",\"staticBottomMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/b80891ff/269be364d6ce70c5/static-bottom-middle-v2.png\",\"staticRightMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/b80891ff/269be364d6ce70c5/static-right-middle-v2.png\",\"staticAllMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/b80891ff/269be364d6ce70c5/static-all-middle-v2.png\",\"staticAll\":\"https://tianquan.gtimg.cn/immersive/bubble/b80891ff/269be364d6ce70c5/static-all.png\"}",
+              "diyTextPos": "0",
+              "isKuikly": "1",
+              "isAiContent": "false",
+              "isWithNotificationIcon": "0",
+              "isDiy": "0",
+              "vipLevel": "0",
+              "showGif": "0",
+              "bubbleGroup": "0",
+              "cornType": "0",
+              "isLinkage": "0",
+              "platformId": "0"
+            },
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "1785540732",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE",
+              "userCanDiscount": true
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "软萌可爱",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E8%BD%AF%E8%90%8C%E5%8F%AF%E7%88%B1"
+            }
+          ],
+          "appId": 2,
+          "itemId": 2164504,
+          "name": "小鸟游星野",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/bubble/item/aa00799fcd670dd0/newPreview1.png",
+          "itemBgColor": "baa3b7",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1112228891",
+            "sourceId": "1112228891",
+            "price": 600,
+            "isShow": 1,
+            "isHideItemDetailPage": 1
+          },
+          "validlast": "1785540732",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/bubble/item/aa00799fcd670dd0/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "cornType": "0",
+              "platformId": "0",
+              "vipLevel": "0",
+              "bubbleGroup": "0",
+              "extQualDay": "0",
+              "isDiy": "0",
+              "showGif": "0",
+              "bubbleType": "0",
+              "diyTextPos": "0",
+              "isWithNotificationIcon": "0",
+              "isAiContent": "false",
+              "isKuikly": "1",
+              "immersiveMaterial": "{\"zoomPointX\":65,\"zoomPointY\":45,\"color\":\"0xFF897987\",\"staticTopLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/7873cc94/aed3789748fd67db/static-top-left-v2.png\",\"staticTopRight\":\"https://tianquan.gtimg.cn/immersive/bubble/7873cc94/aed3789748fd67db/static-top-right-v2.png\",\"staticBottomLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/7873cc94/aed3789748fd67db/static-bottom-left-v2.png\",\"staticBottomRight\":\"https://tianquan.gtimg.cn/immersive/bubble/7873cc94/aed3789748fd67db/static-bottom-right-v2.png\",\"staticTopMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/7873cc94/aed3789748fd67db/static-top-middle-v2.png\",\"staticLeftMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/7873cc94/aed3789748fd67db/static-left-middle-v2.png\",\"staticBottomMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/7873cc94/aed3789748fd67db/static-bottom-middle-v2.png\",\"staticRightMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/7873cc94/aed3789748fd67db/static-right-middle-v2.png\",\"staticAllMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/7873cc94/aed3789748fd67db/static-all-middle-v2.png\",\"staticAll\":\"https://tianquan.gtimg.cn/immersive/bubble/7873cc94/aed3789748fd67db/static-all.png\",\"animationTopLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/7873cc94/aed3789748fd67db/animation-top-left-v2.png\",\"animationTopRight\":\"https://tianquan.gtimg.cn/immersive/bubble/7873cc94/aed3789748fd67db/animation-top-right-v2.png\",\"animationBottomLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/7873cc94/aed3789748fd67db/animation-bottom-left-v2.png\",\"animationBottomRight\":\"https://tianquan.gtimg.cn/immersive/bubble/7873cc94/aed3789748fd67db/animation-bottom-right-v2.png\",\"animationTopMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/7873cc94/aed3789748fd67db/animation-top-middle-v2.png\",\"animationLeftMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/7873cc94/aed3789748fd67db/animation-left-middle-v2.png\",\"animationBottomMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/7873cc94/aed3789748fd67db/animation-bottom-middle-v2.png\",\"animationRightMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/7873cc94/aed3789748fd67db/animation-right-middle-v2.png\",\"animationAllMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/7873cc94/aed3789748fd67db/animation-all-middle-v2.png\",\"animationAll\":\"https://tianquan.gtimg.cn/immersive/bubble/7873cc94/aed3789748fd67db/animation-all.png\"}",
+              "isLinkage": "0",
+              "showGifNew": "0"
+            },
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "1785540732",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE",
+              "userCanDiscount": true
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "萌宠",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E8%90%8C%E5%AE%A0"
+            },
+            {
+              "msg": "黑白灰",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E9%BB%91%E7%99%BD%E7%81%B0"
+            }
+          ],
+          "appId": 2,
+          "itemId": 2146679,
+          "name": "亚系冷黑喵",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/bubble/item/8301bdbec9b74b77/newPreview1.png",
+          "itemBgColor": "6d797f",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1110702720",
+            "mallname": "一可",
+            "sourceId": "1110702720",
+            "productName": "一可",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=S3D2nSUdkJy9xG8HLHcgYg&s=100&t=1600140570",
+            "price": 600,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "1785540732",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/bubble/item/8301bdbec9b74b77/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "vipLevel": "0",
+              "showGif": "0",
+              "showGifNew": "0",
+              "isKuikly": "1",
+              "isLinkage": "0",
+              "bubbleType": "0",
+              "isWithNotificationIcon": "0",
+              "platformId": "0",
+              "isAiContent": "false",
+              "extQualDay": "0",
+              "bubbleGroup": "0",
+              "diyTextPos": "0",
+              "immersiveMaterial": "{\"zoomPointX\":64,\"zoomPointY\":62,\"color\":\"0xFF000000\",\"staticTopLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/8d346297/bbc2004e26b813f9/static-top-left-v2.png\",\"staticTopRight\":\"https://tianquan.gtimg.cn/immersive/bubble/8d346297/bbc2004e26b813f9/static-top-right-v2.png\",\"staticBottomLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/8d346297/bbc2004e26b813f9/static-bottom-left-v2.png\",\"staticBottomRight\":\"https://tianquan.gtimg.cn/immersive/bubble/8d346297/bbc2004e26b813f9/static-bottom-right-v2.png\",\"staticTopMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/8d346297/bbc2004e26b813f9/static-top-middle-v2.png\",\"staticLeftMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/8d346297/bbc2004e26b813f9/static-left-middle-v2.png\",\"staticBottomMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/8d346297/bbc2004e26b813f9/static-bottom-middle-v2.png\",\"staticRightMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/8d346297/bbc2004e26b813f9/static-right-middle-v2.png\",\"staticAllMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/8d346297/bbc2004e26b813f9/static-all-middle-v2.png\",\"staticAll\":\"https://tianquan.gtimg.cn/immersive/bubble/8d346297/bbc2004e26b813f9/static-all.png\",\"animationTopLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/8d346297/bbc2004e26b813f9/animation-top-left-v2.png\",\"animationTopRight\":\"https://tianquan.gtimg.cn/immersive/bubble/8d346297/bbc2004e26b813f9/animation-top-right-v2.png\",\"animationBottomLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/8d346297/bbc2004e26b813f9/animation-bottom-left-v2.png\",\"animationBottomRight\":\"https://tianquan.gtimg.cn/immersive/bubble/8d346297/bbc2004e26b813f9/animation-bottom-right-v2.png\",\"animationTopMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/8d346297/bbc2004e26b813f9/animation-top-middle-v2.png\",\"animationLeftMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/8d346297/bbc2004e26b813f9/animation-left-middle-v2.png\",\"animationBottomMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/8d346297/bbc2004e26b813f9/animation-bottom-middle-v2.png\",\"animationRightMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/8d346297/bbc2004e26b813f9/animation-right-middle-v2.png\",\"animationAllMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/8d346297/bbc2004e26b813f9/animation-all-middle-v2.png\",\"animationAll\":\"https://tianquan.gtimg.cn/immersive/bubble/8d346297/bbc2004e26b813f9/animation-all.png\"}",
+              "isDiy": "0",
+              "cornType": "0"
+            },
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "1785540732",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE",
+              "userCanDiscount": true
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "萌宠",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E8%90%8C%E5%AE%A0"
+            },
+            {
+              "msg": "黑白灰",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E9%BB%91%E7%99%BD%E7%81%B0"
+            }
+          ],
+          "appId": 2,
+          "itemId": 2144536,
+          "name": "黑猫冷脸萌",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/bubble/item/2144536/newPreview1.png",
+          "itemBgColor": "b1eded",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1110702720",
+            "mallname": "一可",
+            "sourceId": "1110702720",
+            "productName": "一可",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=S3D2nSUdkJy9xG8HLHcgYg&s=100&t=1600140570",
+            "price": 300,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "1785540732",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/bubble/item/2144536/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "extQualDay": "0",
+              "showGifNew": "0",
+              "bubbleType": "0",
+              "isKuikly": "1",
+              "diyTextPos": "0",
+              "isLinkage": "0",
+              "cornType": "0",
+              "immersiveMaterial": "{\"zoomPointX\":62,\"zoomPointY\":62,\"color\":\"0xFF000000\",\"staticTopLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/2144536/static-top-left-v2.png\",\"staticTopRight\":\"https://tianquan.gtimg.cn/immersive/bubble/2144536/static-top-right-v2.png\",\"staticBottomLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/2144536/static-bottom-left-v2.png\",\"staticBottomRight\":\"https://tianquan.gtimg.cn/immersive/bubble/2144536/static-bottom-right-v2.png\",\"staticTopMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2144536/static-top-middle-v2.png\",\"staticLeftMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2144536/static-left-middle-v2.png\",\"staticBottomMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2144536/static-bottom-middle-v2.png\",\"staticRightMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2144536/static-right-middle-v2.png\",\"staticAllMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2144536/static-all-middle-v2.png\",\"staticAll\":\"https://tianquan.gtimg.cn/immersive/bubble/2144536/static-all.png\"}",
+              "platformId": "0",
+              "vipLevel": "0",
+              "isWithNotificationIcon": "0",
+              "showGif": "0",
+              "bubbleGroup": "0",
+              "isDiy": "0",
+              "isAiContent": "false"
+            },
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "1785540732",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE",
+              "userCanDiscount": true
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "萌宠",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E8%90%8C%E5%AE%A0"
+            },
+            {
+              "msg": "软萌可爱",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E8%BD%AF%E8%90%8C%E5%8F%AF%E7%88%B1"
+            }
+          ],
+          "appId": 2,
+          "itemId": 2165620,
+          "name": "垂耳兔小慎",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/bubble/item/8bfbe2543b98b16e/newPreview1.png",
+          "itemBgColor": "f2f2f2",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1110311890",
+            "mallname": "为极",
+            "sourceId": "1110311890",
+            "productName": "为极",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=NIic9CY81blytqxoLleJOXg&s=100&t=1600140612",
+            "price": 300,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "-27471190",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/bubble/item/8bfbe2543b98b16e/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "isLinkage": "0",
+              "vipLevel": "0",
+              "showGifNew": "0",
+              "cornType": "0",
+              "extQualDay": "0",
+              "isAiContent": "false",
+              "diyTextPos": "0",
+              "immersiveMaterial": "{\"zoomPointX\":77,\"zoomPointY\":68,\"color\":\"0xFF618c8f\",\"staticTopLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/36cf5d25/b67b9df892f15563/static-top-left-v2.png\",\"staticTopRight\":\"https://tianquan.gtimg.cn/immersive/bubble/36cf5d25/b67b9df892f15563/static-top-right-v2.png\",\"staticBottomLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/36cf5d25/b67b9df892f15563/static-bottom-left-v2.png\",\"staticBottomRight\":\"https://tianquan.gtimg.cn/immersive/bubble/36cf5d25/b67b9df892f15563/static-bottom-right-v2.png\",\"staticTopMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/36cf5d25/b67b9df892f15563/static-top-middle-v2.png\",\"staticLeftMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/36cf5d25/b67b9df892f15563/static-left-middle-v2.png\",\"staticBottomMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/36cf5d25/b67b9df892f15563/static-bottom-middle-v2.png\",\"staticRightMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/36cf5d25/b67b9df892f15563/static-right-middle-v2.png\",\"staticAllMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/36cf5d25/b67b9df892f15563/static-all-middle-v2.png\",\"staticAll\":\"https://tianquan.gtimg.cn/immersive/bubble/36cf5d25/b67b9df892f15563/static-all.png\"}",
+              "isDiy": "0",
+              "bubbleGroup": "0",
+              "showGif": "0",
+              "bubbleType": "0",
+              "platformId": "0",
+              "isKuikly": "1",
+              "isWithNotificationIcon": "0"
+            },
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "-27471190",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE"
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "软萌可爱",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E8%BD%AF%E8%90%8C%E5%8F%AF%E7%88%B1"
+            },
+            {
+              "msg": "马卡龙",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E9%A9%AC%E5%8D%A1%E9%BE%99"
+            }
+          ],
+          "appId": 2,
+          "itemId": 2164507,
+          "name": "砂狼白子",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/bubble/item/9636b48d59e9e3b9/newPreview1.png",
+          "itemBgColor": "d0e5ea",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1112228891",
+            "sourceId": "1112228891",
+            "price": 600,
+            "isShow": 1,
+            "isHideItemDetailPage": 1
+          },
+          "validlast": "1785540732",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/bubble/item/9636b48d59e9e3b9/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "isLinkage": "0",
+              "vipLevel": "0",
+              "cornType": "0",
+              "diyTextPos": "0",
+              "bubbleType": "0",
+              "platformId": "0",
+              "isWithNotificationIcon": "0",
+              "immersiveMaterial": "{\"zoomPointX\":58,\"zoomPointY\":49,\"color\":\"0xFF546071\",\"staticTopLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/cc7cf080/f9f590be31f9747c/static-top-left-v2.png\",\"staticTopRight\":\"https://tianquan.gtimg.cn/immersive/bubble/cc7cf080/f9f590be31f9747c/static-top-right-v2.png\",\"staticBottomLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/cc7cf080/f9f590be31f9747c/static-bottom-left-v2.png\",\"staticBottomRight\":\"https://tianquan.gtimg.cn/immersive/bubble/cc7cf080/f9f590be31f9747c/static-bottom-right-v2.png\",\"staticTopMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/cc7cf080/f9f590be31f9747c/static-top-middle-v2.png\",\"staticLeftMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/cc7cf080/f9f590be31f9747c/static-left-middle-v2.png\",\"staticBottomMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/cc7cf080/f9f590be31f9747c/static-bottom-middle-v2.png\",\"staticRightMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/cc7cf080/f9f590be31f9747c/static-right-middle-v2.png\",\"staticAllMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/cc7cf080/f9f590be31f9747c/static-all-middle-v2.png\",\"staticAll\":\"https://tianquan.gtimg.cn/immersive/bubble/cc7cf080/f9f590be31f9747c/static-all.png\",\"animationTopLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/cc7cf080/f9f590be31f9747c/animation-top-left-v2.png\",\"animationTopRight\":\"https://tianquan.gtimg.cn/immersive/bubble/cc7cf080/f9f590be31f9747c/animation-top-right-v2.png\",\"animationBottomLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/cc7cf080/f9f590be31f9747c/animation-bottom-left-v2.png\",\"animationBottomRight\":\"https://tianquan.gtimg.cn/immersive/bubble/cc7cf080/f9f590be31f9747c/animation-bottom-right-v2.png\",\"animationTopMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/cc7cf080/f9f590be31f9747c/animation-top-middle-v2.png\",\"animationLeftMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/cc7cf080/f9f590be31f9747c/animation-left-middle-v2.png\",\"animationBottomMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/cc7cf080/f9f590be31f9747c/animation-bottom-middle-v2.png\",\"animationRightMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/cc7cf080/f9f590be31f9747c/animation-right-middle-v2.png\",\"animationAllMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/cc7cf080/f9f590be31f9747c/animation-all-middle-v2.png\",\"animationAll\":\"https://tianquan.gtimg.cn/immersive/bubble/cc7cf080/f9f590be31f9747c/animation-all.png\"}",
+              "showGifNew": "0",
+              "isAiContent": "false",
+              "extQualDay": "0",
+              "showGif": "0",
+              "isKuikly": "1",
+              "isDiy": "0",
+              "bubbleGroup": "0"
+            },
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "1785540732",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE",
+              "userCanDiscount": true
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "萌宠",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E8%90%8C%E5%AE%A0"
+            },
+            {
+              "msg": "软萌可爱",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E8%BD%AF%E8%90%8C%E5%8F%AF%E7%88%B1"
+            },
+            {
+              "msg": "马卡龙",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E9%A9%AC%E5%8D%A1%E9%BE%99"
+            }
+          ],
+          "appId": 2,
+          "itemId": 2129025,
+          "name": "粉棕星星猫",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/bubble/item/2129025/newPreview1.png",
+          "itemBgColor": "ffe2f0",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1111230777",
+            "mallname": "Vicent",
+            "sourceId": "1111230777",
+            "productName": "Vicent",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=maiah3zfk8KZO7ibtcHqB7oQ&s=100&t=1610358645",
+            "price": 300,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "1785540732",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/bubble/item/2129025/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "bubbleGroup": "0",
+              "bubbleType": "0",
+              "immersiveMaterial": "{\"zoomPointX\":62,\"zoomPointY\":60,\"color\":\"0xFF978c8c\",\"staticTopLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/2129025/static-top-left-v2.png\",\"staticTopRight\":\"https://tianquan.gtimg.cn/immersive/bubble/2129025/static-top-right-v2.png\",\"staticBottomLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/2129025/static-bottom-left-v2.png\",\"staticBottomRight\":\"https://tianquan.gtimg.cn/immersive/bubble/2129025/static-bottom-right-v2.png\",\"staticTopMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2129025/static-top-middle-v2.png\",\"staticLeftMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2129025/static-left-middle-v2.png\",\"staticBottomMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2129025/static-bottom-middle-v2.png\",\"staticRightMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2129025/static-right-middle-v2.png\",\"staticAllMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2129025/static-all-middle-v2.png\",\"staticAll\":\"https://tianquan.gtimg.cn/immersive/bubble/2129025/static-all.png\"}",
+              "showGif": "0",
+              "showGifNew": "0",
+              "diyTextPos": "0",
+              "isWithNotificationIcon": "0",
+              "vipLevel": "0",
+              "isDiy": "0",
+              "extQualDay": "0",
+              "platformId": "0",
+              "cornType": "0",
+              "isAiContent": "false",
+              "isKuikly": "1",
+              "isLinkage": "0"
+            },
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "1785540732",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE",
+              "userCanDiscount": true
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "创意有梗",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E5%88%9B%E6%84%8F%E6%9C%89%E6%A2%97"
+            },
+            {
+              "msg": "海蓝",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E6%B5%B7%E8%93%9D"
+            },
+            {
+              "msg": "萌宠",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E8%90%8C%E5%AE%A0"
+            }
+          ],
+          "appId": 2,
+          "itemId": 2030892,
+          "name": "鲨鲨吃鲨鲨",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/bubble/item/2030892/newPreview1.png",
+          "itemBgColor": "9da6c6",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1110759450",
+            "mallname": "泽牛",
+            "sourceId": "1110759450",
+            "productName": "泽牛",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=cwksJnIha9Wp5g1wLh1YCQ&s=100&t=1600140642",
+            "price": 300,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "1785540732",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/bubble/item/2030892/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "isWithNotificationIcon": "0",
+              "isKuikly": "1",
+              "immersiveMaterial": "{\"zoomPointX\":83,\"zoomPointY\":59,\"color\":\"0xFF4d535b\",\"staticTopLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/2030892/static-top-left-v2.png\",\"staticTopRight\":\"https://tianquan.gtimg.cn/immersive/bubble/2030892/static-top-right-v2.png\",\"staticBottomLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/2030892/static-bottom-left-v2.png\",\"staticBottomRight\":\"https://tianquan.gtimg.cn/immersive/bubble/2030892/static-bottom-right-v2.png\",\"staticTopMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2030892/static-top-middle-v2.png\",\"staticLeftMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2030892/static-left-middle-v2.png\",\"staticBottomMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2030892/static-bottom-middle-v2.png\",\"staticRightMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2030892/static-right-middle-v2.png\",\"staticAllMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2030892/static-all-middle-v2.png\",\"staticAll\":\"https://tianquan.gtimg.cn/immersive/bubble/2030892/static-all.png\",\"animationTopLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/2030892/animation-top-left-v2.png\",\"animationTopRight\":\"https://tianquan.gtimg.cn/immersive/bubble/2030892/animation-top-right-v2.png\",\"animationBottomLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/2030892/animation-bottom-left-v2.png\",\"animationBottomRight\":\"https://tianquan.gtimg.cn/immersive/bubble/2030892/animation-bottom-right-v2.png\",\"animationTopMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2030892/animation-top-middle-v2.png\",\"animationLeftMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2030892/animation-left-middle-v2.png\",\"animationBottomMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2030892/animation-bottom-middle-v2.png\",\"animationRightMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2030892/animation-right-middle-v2.png\",\"animationAllMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2030892/animation-all-middle-v2.png\",\"animationAll\":\"https://tianquan.gtimg.cn/immersive/bubble/2030892/animation-all.png\"}",
+              "diyTextPos": "0",
+              "extQualDay": "0",
+              "isDiy": "0",
+              "isLinkage": "0",
+              "vipLevel": "0",
+              "platformId": "0",
+              "showGif": "0",
+              "showGifNew": "0",
+              "bubbleType": "0",
+              "cornType": "0",
+              "bubbleGroup": "0"
+            },
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "1785540732",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE",
+              "userCanDiscount": true
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "创意有梗",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E5%88%9B%E6%84%8F%E6%9C%89%E6%A2%97"
+            },
+            {
+              "msg": "萌宠",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E8%90%8C%E5%AE%A0"
+            },
+            {
+              "msg": "黑白灰",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E9%BB%91%E7%99%BD%E7%81%B0"
+            }
+          ],
+          "appId": 2,
+          "itemId": 2155971,
+          "name": "嘿嘿",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/bubble/item/3d46c182462b0503/newPreview1.png",
+          "itemBgColor": "5cbbd6",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1111629331",
+            "mallname": "方与圆",
+            "sourceId": "1111629331",
+            "productName": "方与圆",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=fxGCPfwgZKCc1KB9qBXsrA&s=100&t=1618212388",
+            "price": 300,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "1785540732",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/bubble/item/3d46c182462b0503/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "isLinkage": "0",
+              "isAiContent": "false",
+              "bubbleType": "0",
+              "extQualDay": "0",
+              "isDiy": "0",
+              "isKuikly": "1",
+              "immersiveMaterial": "{\"zoomPointX\":55,\"zoomPointY\":49,\"color\":\"0xFF000000\",\"staticTopLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/d887bfbb/57744f99ce41070b/static-top-left-v2.png\",\"staticTopRight\":\"https://tianquan.gtimg.cn/immersive/bubble/d887bfbb/57744f99ce41070b/static-top-right-v2.png\",\"staticBottomLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/d887bfbb/57744f99ce41070b/static-bottom-left-v2.png\",\"staticBottomRight\":\"https://tianquan.gtimg.cn/immersive/bubble/d887bfbb/57744f99ce41070b/static-bottom-right-v2.png\",\"staticTopMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/d887bfbb/57744f99ce41070b/static-top-middle-v2.png\",\"staticLeftMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/d887bfbb/57744f99ce41070b/static-left-middle-v2.png\",\"staticBottomMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/d887bfbb/57744f99ce41070b/static-bottom-middle-v2.png\",\"staticRightMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/d887bfbb/57744f99ce41070b/static-right-middle-v2.png\",\"staticAllMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/d887bfbb/57744f99ce41070b/static-all-middle-v2.png\",\"staticAll\":\"https://tianquan.gtimg.cn/immersive/bubble/d887bfbb/57744f99ce41070b/static-all.png\"}",
+              "showGif": "0",
+              "bubbleGroup": "0",
+              "vipLevel": "0",
+              "cornType": "0",
+              "showGifNew": "0",
+              "isWithNotificationIcon": "0",
+              "platformId": "0",
+              "diyTextPos": "0"
+            },
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "1785540732",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE",
+              "userCanDiscount": true
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "莫兰迪",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E8%8E%AB%E5%85%B0%E8%BF%AA"
+            },
+            {
+              "msg": "马卡龙",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E9%A9%AC%E5%8D%A1%E9%BE%99"
+            }
+          ],
+          "appId": 2,
+          "itemId": 2164267,
+          "name": "小夜冷脸萌",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/bubble/item/ad6336b9bae56be4/newPreview1.png",
+          "itemBgColor": "9eaabc",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1112430411",
+            "sourceId": "1112430411",
+            "price": 300,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "1785540732",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/bubble/item/ad6336b9bae56be4/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "isDiy": "0",
+              "isAiContent": "false",
+              "showGif": "0",
+              "bubbleGroup": "0",
+              "isLinkage": "0",
+              "bubbleType": "0",
+              "vipLevel": "0",
+              "cornType": "0",
+              "isKuikly": "1",
+              "showGifNew": "0",
+              "extQualDay": "0",
+              "isWithNotificationIcon": "0",
+              "diyTextPos": "0",
+              "platformId": "0",
+              "immersiveMaterial": "{\"zoomPointX\":64,\"zoomPointY\":56,\"color\":\"0xFF547292\",\"staticTopLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/ad576e6e/5d9c39fae6870875/static-top-left-v2.png\",\"staticTopRight\":\"https://tianquan.gtimg.cn/immersive/bubble/ad576e6e/5d9c39fae6870875/static-top-right-v2.png\",\"staticBottomLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/ad576e6e/5d9c39fae6870875/static-bottom-left-v2.png\",\"staticBottomRight\":\"https://tianquan.gtimg.cn/immersive/bubble/ad576e6e/5d9c39fae6870875/static-bottom-right-v2.png\",\"staticTopMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/ad576e6e/5d9c39fae6870875/static-top-middle-v2.png\",\"staticLeftMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/ad576e6e/5d9c39fae6870875/static-left-middle-v2.png\",\"staticBottomMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/ad576e6e/5d9c39fae6870875/static-bottom-middle-v2.png\",\"staticRightMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/ad576e6e/5d9c39fae6870875/static-right-middle-v2.png\",\"staticAllMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/ad576e6e/5d9c39fae6870875/static-all-middle-v2.png\",\"staticAll\":\"https://tianquan.gtimg.cn/immersive/bubble/ad576e6e/5d9c39fae6870875/static-all.png\"}"
+            },
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "1785540732",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE",
+              "userCanDiscount": true
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "软萌可爱",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E8%BD%AF%E8%90%8C%E5%8F%AF%E7%88%B1"
+            },
+            {
+              "msg": "马卡龙",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E9%A9%AC%E5%8D%A1%E9%BE%99"
+            }
+          ],
+          "appId": 2,
+          "itemId": 2164475,
+          "name": "天童爱丽丝",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/bubble/item/a474652d20d2e67f/newPreview1.png",
+          "itemBgColor": "c9dfe5",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1112228891",
+            "sourceId": "1112228891",
+            "price": 600,
+            "isShow": 1,
+            "isHideItemDetailPage": 1
+          },
+          "validlast": "1785540732",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/bubble/item/a474652d20d2e67f/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "extQualDay": "0",
+              "cornType": "0",
+              "isKuikly": "1",
+              "isLinkage": "0",
+              "isWithNotificationIcon": "0",
+              "showGif": "0",
+              "vipLevel": "0",
+              "immersiveMaterial": "{\"zoomPointX\":57,\"zoomPointY\":52,\"color\":\"0xFF41485a\",\"staticTopLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/d6700156/e955ec1246b971d3/static-top-left-v2.png\",\"staticTopRight\":\"https://tianquan.gtimg.cn/immersive/bubble/d6700156/e955ec1246b971d3/static-top-right-v2.png\",\"staticBottomLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/d6700156/e955ec1246b971d3/static-bottom-left-v2.png\",\"staticBottomRight\":\"https://tianquan.gtimg.cn/immersive/bubble/d6700156/e955ec1246b971d3/static-bottom-right-v2.png\",\"staticTopMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/d6700156/e955ec1246b971d3/static-top-middle-v2.png\",\"staticLeftMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/d6700156/e955ec1246b971d3/static-left-middle-v2.png\",\"staticBottomMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/d6700156/e955ec1246b971d3/static-bottom-middle-v2.png\",\"staticRightMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/d6700156/e955ec1246b971d3/static-right-middle-v2.png\",\"staticAllMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/d6700156/e955ec1246b971d3/static-all-middle-v2.png\",\"staticAll\":\"https://tianquan.gtimg.cn/immersive/bubble/d6700156/e955ec1246b971d3/static-all.png\",\"animationTopLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/d6700156/e955ec1246b971d3/animation-top-left-v2.png\",\"animationTopRight\":\"https://tianquan.gtimg.cn/immersive/bubble/d6700156/e955ec1246b971d3/animation-top-right-v2.png\",\"animationBottomLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/d6700156/e955ec1246b971d3/animation-bottom-left-v2.png\",\"animationBottomRight\":\"https://tianquan.gtimg.cn/immersive/bubble/d6700156/e955ec1246b971d3/animation-bottom-right-v2.png\",\"animationTopMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/d6700156/e955ec1246b971d3/animation-top-middle-v2.png\",\"animationLeftMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/d6700156/e955ec1246b971d3/animation-left-middle-v2.png\",\"animationBottomMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/d6700156/e955ec1246b971d3/animation-bottom-middle-v2.png\",\"animationRightMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/d6700156/e955ec1246b971d3/animation-right-middle-v2.png\",\"animationAllMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/d6700156/e955ec1246b971d3/animation-all-middle-v2.png\",\"animationAll\":\"https://tianquan.gtimg.cn/immersive/bubble/d6700156/e955ec1246b971d3/animation-all.png\"}",
+              "bubbleGroup": "0",
+              "isDiy": "0",
+              "bubbleType": "0",
+              "showGifNew": "0",
+              "diyTextPos": "0",
+              "platformId": "0",
+              "isAiContent": "false"
+            },
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "1785540732",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE",
+              "userCanDiscount": true
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "朱红",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E6%9C%B1%E7%BA%A2"
+            },
+            {
+              "msg": "简约",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E7%AE%80%E7%BA%A6"
+            },
+            {
+              "msg": "黑白灰",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E9%BB%91%E7%99%BD%E7%81%B0"
+            }
+          ],
+          "appId": 2,
+          "itemId": 2140936,
+          "name": "红色十字架",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/bubble/item/2140936/newPreview1.png",
+          "itemBgColor": "7f3131",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1110633869",
+            "mallname": "为则科技",
+            "sourceId": "1110633869",
+            "productName": "为则科技",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=gy0ylhgk0RA7LoROkawBnw&s=100&t=1600140583",
+            "price": 300,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "1785540732",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/bubble/item/2140936/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "cornType": "0",
+              "isAiContent": "false",
+              "bubbleType": "0",
+              "isLinkage": "0",
+              "isWithNotificationIcon": "0",
+              "diyTextPos": "0",
+              "isDiy": "0",
+              "platformId": "0",
+              "showGifNew": "0",
+              "isKuikly": "1",
+              "vipLevel": "0",
+              "bubbleGroup": "0",
+              "extQualDay": "0",
+              "showGif": "0",
+              "immersiveMaterial": "{\"zoomPointX\":64,\"zoomPointY\":76,\"color\":\"0xFFffffff\",\"staticTopLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/2140936/static-top-left-v2.png\",\"staticTopRight\":\"https://tianquan.gtimg.cn/immersive/bubble/2140936/static-top-right-v2.png\",\"staticBottomLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/2140936/static-bottom-left-v2.png\",\"staticBottomRight\":\"https://tianquan.gtimg.cn/immersive/bubble/2140936/static-bottom-right-v2.png\",\"staticTopMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2140936/static-top-middle-v2.png\",\"staticLeftMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2140936/static-left-middle-v2.png\",\"staticBottomMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2140936/static-bottom-middle-v2.png\",\"staticRightMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2140936/static-right-middle-v2.png\",\"staticAllMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2140936/static-all-middle-v2.png\",\"staticAll\":\"https://tianquan.gtimg.cn/immersive/bubble/2140936/static-all.png\"}"
+            },
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "1785540732",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE",
+              "userCanDiscount": true
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "萌宠",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E8%90%8C%E5%AE%A0"
+            },
+            {
+              "msg": "软萌可爱",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E8%BD%AF%E8%90%8C%E5%8F%AF%E7%88%B1"
+            }
+          ],
+          "appId": 2,
+          "itemId": 2165565,
+          "name": "绿色小鸟魈",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/bubble/item/c546fc698fe47374/newPreview1.png",
+          "itemBgColor": "f2f2f2",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1111289474",
+            "mallname": "零星",
+            "sourceId": "1111289474",
+            "productName": "零星",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=N5c6qQfWoLlNFO0xAiaZc6A&s=100&t=1629788809",
+            "price": 300,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "-27471190",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/bubble/item/c546fc698fe47374/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "diyTextPos": "0",
+              "isAiContent": "false",
+              "isLinkage": "0",
+              "immersiveMaterial": "{\"zoomPointX\":64,\"zoomPointY\":56,\"color\":\"0xFF42524a\",\"staticTopLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/6a45ee97/3179c4db5a9aab59/static-top-left-v2.png\",\"staticTopRight\":\"https://tianquan.gtimg.cn/immersive/bubble/6a45ee97/3179c4db5a9aab59/static-top-right-v2.png\",\"staticBottomLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/6a45ee97/3179c4db5a9aab59/static-bottom-left-v2.png\",\"staticBottomRight\":\"https://tianquan.gtimg.cn/immersive/bubble/6a45ee97/3179c4db5a9aab59/static-bottom-right-v2.png\",\"staticTopMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/6a45ee97/3179c4db5a9aab59/static-top-middle-v2.png\",\"staticLeftMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/6a45ee97/3179c4db5a9aab59/static-left-middle-v2.png\",\"staticBottomMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/6a45ee97/3179c4db5a9aab59/static-bottom-middle-v2.png\",\"staticRightMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/6a45ee97/3179c4db5a9aab59/static-right-middle-v2.png\",\"staticAllMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/6a45ee97/3179c4db5a9aab59/static-all-middle-v2.png\",\"staticAll\":\"https://tianquan.gtimg.cn/immersive/bubble/6a45ee97/3179c4db5a9aab59/static-all.png\"}",
+              "bubbleType": "0",
+              "isWithNotificationIcon": "0",
+              "showGifNew": "0",
+              "showGif": "0",
+              "bubbleGroup": "0",
+              "extQualDay": "0",
+              "vipLevel": "0",
+              "isKuikly": "1",
+              "isDiy": "0",
+              "platformId": "0",
+              "cornType": "0"
+            },
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "-27471190",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE"
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "创意有梗",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E5%88%9B%E6%84%8F%E6%9C%89%E6%A2%97"
+            },
+            {
+              "msg": "萌宠",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E8%90%8C%E5%AE%A0"
+            },
+            {
+              "msg": "黑白灰",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=2&classify_name=%E9%BB%91%E7%99%BD%E7%81%B0"
+            }
+          ],
+          "appId": 2,
+          "itemId": 2115118,
+          "name": "路过说话猫",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/bubble/item/2115118/newPreview1.png",
+          "itemBgColor": "f2f2f2",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1112309768",
+            "mallname": "清和月",
+            "sourceId": "1112309768",
+            "productName": "清和月",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=NzKYw7icv4Emdu1hT1tGohQ&kti=ZJ5LaAAAAAI&s=100&t=1688095592",
+            "price": 300,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "1785540732",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/bubble/item/2115118/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "isLinkage": "0",
+              "isWithNotificationIcon": "0",
+              "showGif": "0",
+              "platformId": "0",
+              "diyTextPos": "0",
+              "immersiveMaterial": "{\"zoomPointX\":58,\"zoomPointY\":52,\"color\":\"0xFF545454\",\"staticTopLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/2115118/static-top-left-v2.png\",\"staticTopRight\":\"https://tianquan.gtimg.cn/immersive/bubble/2115118/static-top-right-v2.png\",\"staticBottomLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/2115118/static-bottom-left-v2.png\",\"staticBottomRight\":\"https://tianquan.gtimg.cn/immersive/bubble/2115118/static-bottom-right-v2.png\",\"staticTopMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2115118/static-top-middle-v2.png\",\"staticLeftMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2115118/static-left-middle-v2.png\",\"staticBottomMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2115118/static-bottom-middle-v2.png\",\"staticRightMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2115118/static-right-middle-v2.png\",\"staticAllMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/2115118/static-all-middle-v2.png\",\"staticAll\":\"https://tianquan.gtimg.cn/immersive/bubble/2115118/static-all.png\"}",
+              "bubbleGroup": "0",
+              "showGifNew": "0",
+              "vipLevel": "0",
+              "isKuikly": "1",
+              "cornType": "0",
+              "isDiy": "0",
+              "extQualDay": "0",
+              "bubbleType": "0"
+            },
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "1785540732",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE",
+              "userCanDiscount": true
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [],
+          "appId": 2,
+          "itemId": 2163593,
+          "name": "小夏猫耳萌",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/bubble/item/e2c0ebeeac7c6e95/newPreview1.png",
+          "itemBgColor": "e8e1ed",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1112430411",
+            "sourceId": "1112430411",
+            "price": 300,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "1785540732",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/bubble/item/e2c0ebeeac7c6e95/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "diyTextPos": "0",
+              "vipLevel": "0",
+              "cornType": "0",
+              "isLinkage": "0",
+              "bubbleType": "0",
+              "showGifNew": "0",
+              "isDiy": "0",
+              "isWithNotificationIcon": "0",
+              "extQualDay": "0",
+              "showGif": "0",
+              "isAiContent": "false",
+              "isKuikly": "1",
+              "bubbleGroup": "0",
+              "immersiveMaterial": "{\"zoomPointX\":64,\"zoomPointY\":53,\"color\":\"0xFF482960\",\"staticTopLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/327f7bf6/2212b2ab522b89d3/static-top-left-v2.png\",\"staticTopRight\":\"https://tianquan.gtimg.cn/immersive/bubble/327f7bf6/2212b2ab522b89d3/static-top-right-v2.png\",\"staticBottomLeft\":\"https://tianquan.gtimg.cn/immersive/bubble/327f7bf6/2212b2ab522b89d3/static-bottom-left-v2.png\",\"staticBottomRight\":\"https://tianquan.gtimg.cn/immersive/bubble/327f7bf6/2212b2ab522b89d3/static-bottom-right-v2.png\",\"staticTopMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/327f7bf6/2212b2ab522b89d3/static-top-middle-v2.png\",\"staticLeftMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/327f7bf6/2212b2ab522b89d3/static-left-middle-v2.png\",\"staticBottomMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/327f7bf6/2212b2ab522b89d3/static-bottom-middle-v2.png\",\"staticRightMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/327f7bf6/2212b2ab522b89d3/static-right-middle-v2.png\",\"staticAllMiddle\":\"https://tianquan.gtimg.cn/immersive/bubble/327f7bf6/2212b2ab522b89d3/static-all-middle-v2.png\",\"staticAll\":\"https://tianquan.gtimg.cn/immersive/bubble/327f7bf6/2212b2ab522b89d3/static-all.png\"}",
+              "platformId": "0"
+            },
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "1785540732",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE",
+              "userCanDiscount": true
+            }
+          }
+        }
+      }
+    ]
+  },
+  "retCode": 0,
+  "costTime": 71,
+  "error": {
+    "code": 0,
+    "message": ""
+  },
+  "isCanary": false
+}

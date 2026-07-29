@@ -73,9 +73,14 @@ export type WebNative = Pick<NtHelperBinding, 'fetchSkey' | 'fetchPskey' | 'fetc
  * Resolves {@link WebCredential}s on demand from a hook-injected QQ process.
  *
  * skey is fetched once and cached (it's domain-independent); p_skey is cached
- * per-domain. Both are short-lived server-side, so callers that hold a provider
- * for a long time should construct a fresh one per logical operation — the
- * intended use is "make a provider, fire a query or two, drop it".
+ * per-domain. Both are short-lived server-side, so a cached bundle can go stale
+ * while the provider is still alive — long-lived holders (see `WebQueryService`,
+ * which lives for the whole account session) must call {@link invalidate} when a
+ * cgi rejects the credentials, then retry. {@link withRetry} wraps that loop.
+ *
+ * We deliberately do NOT expire on a timer: p_skey's real server-side TTL isn't
+ * documented anywhere we trust, and a wrong guess either wastes hook round-trips
+ * or leaves the stale window open. Letting the cgi tell us is exact.
  *
  * `resolvePid` is called on every fetch so the provider tolerates the account's
  * QQ.exe being restarted (caller hands back the current pid).
@@ -84,6 +89,7 @@ export class WebCredentialProvider {
   private skey: string | null = null;
   private readonly pskeyByDomain = new Map<string, string>();
   private readonly cookieByDomain = new Map<string, string>();
+  private readonly seededDomains = new Set<string>();
   private readonly logger;
 
   constructor(
@@ -92,6 +98,43 @@ export class WebCredentialProvider {
     private readonly resolvePid: () => number,
   ) {
     this.logger = getLogger().child({ scope: 'web-credential', accountUin: this.uin });
+  }
+
+  /**
+   * Pre-load p_skey harvested elsewhere (e.g. by the ninebird login loader,
+   * which grabs it while QQ is still up). Saves a hook round-trip, and works
+   * even after the login process is gone.
+   */
+  seedPskey(byDomain: Record<string, string>): void {
+    for (const [domain, pskey] of Object.entries(byDomain)) {
+      if (pskey) {
+        this.pskeyByDomain.set(domain, pskey);
+        this.seededDomains.add(domain);
+      }
+    }
+  }
+
+  /**
+   * Drop the cached tokens for `domain` so the next {@link forDomain} re-mints
+   * them. Call this when a cgi rejects the credentials — see {@link withRetry}.
+   *
+   * skey is cleared too: it's domain-independent, so a rejection on any domain
+   * is evidence it went stale, and re-fetching it is one cheap hook round-trip.
+   *
+   * The seeded p_skey (harvested at login, possibly hours ago) is the most
+   * likely thing to be stale, and once seeded it short-circuits the live hook
+   * path — so dropping it here is what actually unblocks the retry.
+   */
+  invalidate(domain: string): void {
+    this.logger.info('invalidating cached web credential', {
+      event: 'invalidate-web-credential',
+      domain,
+      wasSeeded: this.seededDomains.has(domain),
+    });
+    this.skey = null;
+    this.pskeyByDomain.delete(domain);
+    this.cookieByDomain.delete(domain);
+    this.seededDomains.delete(domain);
   }
 
   /** Credential bundle for `domain` (e.g. 'qun.qq.com', 'qzone.qq.com'). */
@@ -113,10 +156,25 @@ export class WebCredentialProvider {
 
       // skey / p_skey:优先用 jar 里的,jar 没有就回退 native(OIDB)。两个 fetcher
       // 都走同一条 hook pipe,顺序调用避免争用。
+      //
+      // 已 seed p_skey 时 skey 允许缺失:seed 的场景是「QQ 已退出、只剩登录时收下的
+      // 票据」,此时 fetchSkey 必然打不通 hook。只认 p_skey 的 cgi(如 vip.qq.com 的
+      // GetNewStyleAppUsing)照样能跑,故这里降级而非整体失败。
       let skey = jar.skey ?? this.skey ?? undefined;
       if (!skey) {
-        skey = await this.nt.fetchSkey(pid, this.uin);
-        this.logger.info('fetched skey', { event: 'fetch-skey', pid, domain });
+        try {
+          skey = await this.nt.fetchSkey(pid, this.uin);
+          this.logger.info('fetched skey', { event: 'fetch-skey', pid, domain });
+        } catch (e) {
+          if (!this.pskeyByDomain.has(domain)) throw e;
+          this.logger.warn('fetchSkey failed; continuing with seeded p_skey only', {
+            event: 'fetch-skey-failed-seeded',
+            pid,
+            domain,
+            ...logErrorContext(e),
+          });
+          skey = '';
+        }
       }
       this.skey = skey;
 
@@ -172,7 +230,9 @@ export class WebCredentialProvider {
       const jar = await fetchPtlogin2Jar(ck, this.uin, domain);
       this.cookieByDomain.set(
         domain,
-        Object.entries(jar).map(([k, v]) => `${k}=${v}`).join('; '),
+        Object.entries(jar)
+          .map(([k, v]) => `${k}=${v}`)
+          .join('; '),
       );
       this.logger.info('harvested ptlogin2 cookie jar', {
         event: 'harvest-jar',
@@ -206,4 +266,46 @@ function parseCookieHeader(header: string): Record<string, string> {
     if (k) jar[k] = v;
   }
   return jar;
+}
+
+/**
+ * Thrown by a cgi wrapper when the response says "these credentials are no
+ * good". {@link withRetry} catches exactly this to decide a retry is worth it —
+ * a parse failure or a 500 would not be.
+ *
+ * QQ's web cgis signal this with an HTTP **200** plus an error code in the body
+ * (-3000 / -10000 / 光 message), so every caller has to check its own body
+ * shape; there's no shared status-code path that could do it for them.
+ */
+export class WebAuthError extends Error {
+  constructor(
+    message: string,
+    /** The cgi's own code, for logs. */
+    readonly code?: number,
+  ) {
+    super(message);
+    this.name = 'WebAuthError';
+  }
+}
+
+/**
+ * Run `fn` with credentials for `domain`; if it throws {@link WebAuthError},
+ * drop the cached tokens and run it once more with freshly-minted ones.
+ *
+ * One retry, not a loop: if newly-minted credentials are also rejected then the
+ * problem isn't staleness (QQ logged out, risk control, no permission) and
+ * hammering the hook won't fix it.
+ */
+export async function withRetry<T>(
+  creds: WebCredentialProvider,
+  domain: string,
+  fn: (cred: WebCredential) => Promise<T>,
+): Promise<T> {
+  try {
+    return await fn(await creds.forDomain(domain));
+  } catch (e) {
+    if (!(e instanceof WebAuthError)) throw e;
+    creds.invalidate(domain);
+    return fn(await creds.forDomain(domain));
+  }
 }

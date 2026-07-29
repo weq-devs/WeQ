@@ -20,6 +20,10 @@
  *   weq-media://localfile?path=<absOriPath>                   → File/Ori file bytes (image preview)
  *   weq-media://localmedia?kind=pic&rel=<month/Ori/name>      → PhotoWall/Qzone/Pic/Video cache bytes
  *   weq-media://localvoice?rel=<month/Ori/name>               → decoded WAV for a Ptt cache clip
+ *   weq-media://dress?src=<tianquanUrl>                       → 会员装扮资源(挂件/名片/浮屏/背景/气泡切片)
+ *   weq-media://dressfont?id=<itemId>                         → 已安装的装扮字体 ttf
+ *   weq-media://dressbubble?id=<itemId>                       → 走 protocol 装的气泡九宫格(本地 PNG)
+ *   weq-media://dressbg?v=<stamp>                             → 用户自选的聊天背景(本地图)
  *
  * Like the other custom schemes: `registerMediaScheme()` runs before app
  * `ready`; `registerMediaProtocol()` runs after.
@@ -129,17 +133,73 @@ async function albumRemoteResponse(src: string): Promise<Response> {
     host === 'p.qpic.cn' ||
     host.endsWith('.qpic.cn') ||
     host === 'photo.store.qq.com' ||
-    host.endsWith('.photo.store.qq.com');
+    host.endsWith('.photo.store.qq.com') ||
+    // 群相册视频走视频 CDN,和图片不同域。
+    host.endsWith('.video.qq.com') ||
+    host.endsWith('.gtimg.com') ||
+    host.endsWith('.qzone.qq.com');
   if (!allowed) return notFound('album image host not allowed');
+  // Referer 的协议必须跟目标一致：Chromium 禁止 https→http 的 referrer 降级,
+  // 撞上就是 ERR_BLOCKED_BY_CLIENT(资料卡精选图片走的 ugc.qpic.cn 只有 http)。
   const res = await net.fetch(src, {
     headers: {
-      Referer: 'https://user.qzone.qq.com/',
+      Referer: `${target.protocol}//user.qzone.qq.com/`,
       'User-Agent':
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome Safari/537.36',
     },
   });
   if (!res.ok) return new Response(`album image http ${res.status}`, { status: res.status });
-  return res;
+  const contentType = res.headers.get('content-type') ?? '';
+  // 视频原样回传：要保留 range 支持,且不能把整段 mp4 读进内存。
+  if (!contentType.startsWith('image/')) return res;
+  // 图片则重新组装：qpic 带 `connection: keep-alive` 这类逐跳头,原样回传会让
+  // Chromium 的协议处理器直接 ERR_UNEXPECTED。只挑必要的头。
+  const body = await res.arrayBuffer();
+  return new Response(body, {
+    status: 200,
+    headers: { 'Content-Type': contentType, 'Cache-Control': 'public, max-age=86400' },
+  });
+}
+
+/**
+ * QQ 会员装扮资源(挂件/名片/浮屏/聊天背景)的落盘缓存代理。
+ *
+ * 渲染进程不直连 tianquan CDN:一来每次渲染都要重拉,二来那样得为它撕开 CSP。这里主进程
+ * 代取 + 落盘,渲染进程只见 `weq-media://dress?src=<upstream>`。
+ *
+ * 图片(挂件 APNG / 浮屏 PNG / 背景 PNG)走 {@link AvatarCacheService},和头像共用同一套
+ * 磁盘缓存;名片视频(mp4,实测 2.4MB)体积大且要支持 range 播放,单独落到 media/dress 下
+ * 再按文件流回 —— 走 avatarCache 会把整段读进内存,不划算。
+ */
+async function dressRemoteResponse(src: string): Promise<Response> {
+  if (!/^https:\/\//i.test(src)) return notFound('dress asset needs https url');
+  const host = new URL(src).hostname.toLowerCase();
+  if (host !== 'tianquan.gtimg.cn') return notFound('dress host not allowed');
+
+  // 名片视频:按 url 哈希落盘,命中直接文件流(支持 range),未命中先下再流。
+  if (/\.mp4($|\?)/i.test(src)) {
+    const boot = getAppContext().bootstrap;
+    if (!boot) return notFound('dress cache unavailable');
+    const dir = join(boot.userConfig.cacheDir('media'), 'dress');
+    const path = join(dir, `${createHash('sha1').update(src).digest('hex')}.mp4`);
+    if (existsSync(path)) return fileResponse(path);
+    const outcome = await downloadUrlToFile(src, path);
+    return outcome.ok ? fileResponse(path) : notFound(`dress video failed: ${outcome.reason}`);
+  }
+
+  // 图片一律走头像那套磁盘缓存。注意聊天背景的 aioImage 没有扩展名、Content-Type 是
+  // application/octet-stream,但内容就是 PNG,浏览器按魔数认,不影响渲染。
+  const cache = getAppContext().bootstrap?.avatarCache;
+  if (!cache) return notFound('dress cache unavailable');
+  try {
+    const blob = await cache.get(src);
+    return new Response(new Uint8Array(blob.data), {
+      status: 200,
+      headers: { 'Content-Type': blob.contentType, 'Cache-Control': 'public, max-age=86400' },
+    });
+  } catch {
+    return notFound('dress asset fetch failed');
+  }
 }
 
 export function registerMediaProtocol(): void {
@@ -148,8 +208,41 @@ export function registerMediaProtocol(): void {
     const kind = url.hostname;
     const q = url.searchParams;
 
+    // 装扮资源只依赖 bootstrap 的缓存,不需要打开的账号 —— 放在 services 断言之前。
+    if (kind === 'dress') {
+      try {
+        return await dressRemoteResponse(q.get('src') ?? '');
+      } catch (e) {
+        console.error('[media] dress failed:', e);
+        return new Response('media error', { status: 500 });
+      }
+    }
+
     const services = getAppContext().services;
     if (!services) return notFound('no account session');
+
+    // 装扮字体:清单里记的 ttf 绝对路径。放在这里(而不是 weq-asset)是因为
+    // weq-asset 只服务仓库的 resources/ 树,读不了账号缓存目录。
+    if (kind === 'dressfont') {
+      const id = Number(q.get('id') ?? '0');
+      const path = id ? services.dressInstall.fontFile(id) : null;
+      return path ? fileResponse(path) : notFound('dress font not installed');
+    }
+
+    // 走 protocol 兜底装上的气泡:九宫格 PNG 是从 static.zip 解出来的本地文件,
+    // 上面的 `dress` 分支只放行 tianquan.gtimg.cn,所以本地这条要单独一支。
+    if (kind === 'dressbubble') {
+      const id = Number(q.get('id') ?? '0');
+      const path = id ? services.dressInstall.bubbleFile(id) : null;
+      return path ? fileResponse(path) : notFound('dress bubble not installed');
+    }
+
+    // 用户自选的聊天背景:已拷进本账号的装扮目录,路径由清单给 —— 不接受 url 传路径,
+    // 免得变成一个能读任意本地文件的口子。
+    if (kind === 'dressbg') {
+      const path = services.dressInstall.backgroundFile();
+      return path ? fileResponse(path) : notFound('custom background not set');
+    }
 
     const name = q.get('name') ?? '';
     const tMs = Number(q.get('t') ?? '0');

@@ -24,11 +24,13 @@ import {
 	Shield,
 	Sparkles,
 	User as UserIcon,
+	Wand2,
 	X,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { client } from "../trpc/client";
+import { PersonalityHomeDialog } from "./PersonalityHomeDialog";
 import { Avatar } from "../im-template/template/primitives";
 import { cn } from "../im-template/template/classNames";
 import { copyTextToClipboard } from "../im-template/template/clipboard";
@@ -39,6 +41,7 @@ import {
 	birthdayText,
 	constellationOf,
 	genderLabel,
+	toPersonalityProfile,
 } from "../im-template/template/profilePanes";
 
 /** ISO 字符串 → zh-CN 年月日；无效 / 空 / epoch 返回 null。 */
@@ -62,6 +65,7 @@ export function MemberProfileCard({ member, anchor, onClose }) {
 	const [profile, setProfile] = useState(null);
 	const [loading, setLoading] = useState(true);
 	const [copied, setCopied] = useState(false);
+	const [homeOpen, setHomeOpen] = useState(false);
 	const cardRef = useRef(null);
 	const [pos, setPos] = useState({ left: anchor.x + 14, top: anchor.y + 8, ready: false });
 
@@ -243,6 +247,18 @@ export function MemberProfileCard({ member, anchor, onClose }) {
 					<ProfileRow icon={<Hash size={13} />} label="UID" value={uid} mono />
 				</div>
 
+				{/* 个性主页要拿 QQ 号去查会员装扮页——profile 还没到或没 uin 时不给入口。 */}
+				{uin ? (
+					<button
+						className="weq-profile-perhome"
+						type="button"
+						onClick={() => setHomeOpen(true)}
+					>
+						<Wand2 size={13} />
+						查看个性主页
+					</button>
+				) : null}
+
 				{loading ? (
 					<div className="weq-member-loading">
 						<Loader2 size={14} />
@@ -250,6 +266,21 @@ export function MemberProfileCard({ member, anchor, onClose }) {
 					</div>
 				) : null}
 			</section>
+
+			{homeOpen ? (
+				<PersonalityHomeDialog
+					uin={uin}
+					profile={toPersonalityProfile(
+						{
+							name,
+							avatarUrl: member.avatarUrl,
+							signature: profile?.signature,
+						},
+						profile?.extInfo,
+					)}
+					onClose={() => setHomeOpen(false)}
+				/>
+			) : null}
 		</div>,
 		document.body,
 	);

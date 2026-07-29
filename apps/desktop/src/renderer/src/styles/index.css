@@ -2782,12 +2782,31 @@ html *::-webkit-scrollbar-corner {
   width: 50px;
   height: 100%;
   flex-shrink: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: background 0.16s ease;
+}
+
+.app-title-bar-logo-wrap:hover {
+  background: rgba(0, 153, 255, 0.1);
+}
+
+.app-title-bar-logo-wrap.is-active {
+  background: rgba(0, 153, 255, 0.16);
 }
 
 .app-title-bar-logo {
   width: 28px;
   height: 28px;
   filter: drop-shadow(0 2px 4px rgba(0, 122, 204, 0.15));
+  transition: transform 0.16s ease;
+}
+
+.app-title-bar-logo-wrap:hover .app-title-bar-logo {
+  transform: scale(1.08);
 }
 
 .app-title-bar-user {
@@ -3331,6 +3350,13 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   background: var(--chat-surface) !important;
   scrollbar-color: transparent transparent !important;
   scrollbar-width: none !important;
+}
+
+/* 有聊天背景时让消息区透出来。上面那条是 !important，所以这条也得是 —— 它给的
+ * --chat-surface 是不透明的，会把 .chat-pane 里的背景层整个盖掉（现象：只有群资料
+ * 栏能看见背景，聊天区一片纯色）。 */
+.weq-readonly-chat .chat-pane:has(> .weq-chat-backdrop) .message-scroll {
+  background: transparent !important;
 }
 
 .weq-readonly-chat .message-scroll::-webkit-scrollbar {
@@ -5418,6 +5444,89 @@ html[data-theme="dark"] .weq-settings-preset-preview.is-style-soon {
   line-height: 1.5;
 }
 
+/* 已开通特权的 logo 横排（图标 URL 自带等级，直接透传 CDN 图）。 */
+.weq-profile-privileges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.weq-profile-privilege {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+/* 个性标签 / 空间相册的分块（标题 + 内容），视觉上与信息表格同级。 */
+.weq-profile-section {
+  display: grid;
+  gap: 7px;
+  margin-top: 16px;
+}
+
+.weq-profile-section-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #4a5f74;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.weq-profile-section-head svg,
+.weq-profile-section-head .weq-number {
+  color: var(--weq-accent-effective);
+}
+
+.weq-profile-interests {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.weq-profile-interest {
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 5%, transparent);
+  color: #5a6f84;
+  font-size: 11px;
+  line-height: 1.6;
+  word-break: break-all;
+}
+
+/* 相册缩略图：定宽网格，点开进图片灯箱看大图。 */
+.weq-profile-album {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+  gap: 5px;
+}
+
+.weq-profile-photo {
+  overflow: hidden;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 5%, transparent);
+  cursor: zoom-in;
+  transition: border-color 140ms ease, transform 140ms ease;
+}
+
+.weq-profile-photo:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 34%, transparent);
+  transform: translateY(-1px);
+}
+
+.weq-profile-photo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .weq-profile-list {
   display: grid;
   margin-top: 16px;
@@ -5555,6 +5664,21 @@ html[data-theme="dark"] .weq-profile-tag {
 
 html[data-theme="dark"] .weq-profile-sign {
   color: #93a7ba;
+}
+
+html[data-theme="dark"] .weq-profile-section-head {
+  color: #b0b8c2;
+}
+
+html[data-theme="dark"] .weq-profile-interest {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: #9aa3ad;
+}
+
+html[data-theme="dark"] .weq-profile-photo {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 html[data-theme="dark"] .weq-profile-list {
@@ -5871,49 +5995,15 @@ html[data-theme="dark"] .chat-empty {
   background: var(--chat-surface);
 }
 
-.chat-empty-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: 48px;
-  animation: weq-fade-in 0.6s ease both;
-}
-
-.chat-empty-icon-wrap {
-  width: 80px;
-  height: 80px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 24px;
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--weq-accent-effective) 10%, transparent),
-    color-mix(in srgb, var(--weq-accent-effective) 4%, white)
-  );
-  margin-bottom: 20px;
-  color: var(--weq-accent-effective);
-  box-shadow: 0 10px 25px -5px color-mix(in srgb, var(--weq-accent-effective) 15%, transparent);
-}
-
 .chat-empty-logo {
-  width: 120px;
-  height: 120px;
-  font-size: 120px;
-  color: #dfe2e7
+  width: 180px;
+  height: 180px;
+  font-size: 180px;
+  color: rgba(0, 0, 0, 0.055);
 }
 
-.chat-empty-title {
-  font-size: 20px;
-  font-weight: 600;
-  color: #0f2d4c;
-  margin-bottom: 8px;
-}
-
-.chat-empty-text {
-  font-size: 13px;
-  color: #9aa3ad;
+html[data-theme="dark"] .chat-empty-logo {
+  color: rgba(255, 255, 255, 0.07);
 }
 
 .member-avatar-wrap {
@@ -7880,7 +7970,8 @@ html[data-theme="dark"] .weq-forward-bubble {
 
 /* QQ 空间 / 频道内嵌视图同理：侧栏宽度为 0，隐藏顶部搜索框（放大镜）。 */
 .sidebar.is-qzone-view .search-row,
-.sidebar.is-channel-view .search-row { display: none; }
+.sidebar.is-channel-view .search-row,
+.sidebar.is-home-view .search-row { display: none; }
 
 /* ── 新建克隆弹窗 ────────────────────────────────────────────────────────── */
 .weq-clone-modal { display: flex; flex-direction: column; max-height: 78vh; }
@@ -8394,8 +8485,8 @@ html[data-theme="dark"] .weq-persona-modal {
 }
 
 /* ──────────────────────────────────────────────────────────────────────
- * 聊天页门面（无选中会话时）：logo + 大字细体问候 + 一言打字机 + 虚拟聊天流。
- * 背景透明，透出父级 .weq-readonly-chat 的 --chat-surface 柔光画布。
+ * 聊天页门面（无选中会话时）：名片背景 + 浮屏雨 + 挂件头像 + 个性标签环。
+ * 素材来自 settings.homeDress；缺哪一样就降级（见 ChatHome.tsx 顶部注释）。
  * ──────────────────────────────────────────────────────────────────── */
 
 .weq-chathome {
@@ -8411,30 +8502,288 @@ html[data-theme="dark"] .weq-persona-modal {
   position: relative;
   user-select: none;
   background: transparent;
+  /*
+   * 两个尺寸变量定在最外层，因为 hero 要用它们算「标签环溢出舞台的高度」来避让问候语。
+   * 挂件+头像是主角，明显大过标签气泡；环半径随头像尺寸走，头像变大标签自动往外让。
+   */
+  --weq-orb-size: clamp(240px, 34vh, 340px);
+  --weq-tag-radius: calc(var(--weq-orb-size) * 0.52 + 78px);
 }
 
 .weq-chathome-inner {
+  position: relative;
+  z-index: 2;
   width: 100%;
   max-width: 680px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  /* 整组仍居中，但拉大间距 → logo+问候落在中上部、一言落在中下部 */
-  gap: clamp(72px, 22vh, 200px);
+  gap: clamp(28px, 7vh, 64px);
 }
 
 .weq-chathome-hero {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 18px;
+  /*
+   * 标签环是绝对定位的，撑不开 hero 的高度 —— 若只留固定 gap，问候语就会被下方那几片
+   * 标签压住。所以按「环半径 + 标签半径 - 舞台半径」把标签溢出舞台的那部分补成间距。
+   * 环半径公式与 ChatHome.tsx 里 d3 forceRadial 的取值一致。
+   */
+  gap: calc(
+    var(--weq-tag-radius) + 37px - (var(--weq-orb-size) / 2) + 12px
+  );
   text-align: center;
 }
 
-.weq-chathome-logo {
-  width: clamp(58px, 8vh, 74px);
-  height: auto;
-  filter: drop-shadow(0 12px 26px color-mix(in srgb, var(--weq-accent-effective) 26%, transparent));
+/* 没有个性标签时环不存在，上面那份避让间距就成了纯空白 —— 退回普通间距，
+   问候语与打字机随之整体上移。 */
+.weq-chathome.is-notags .weq-chathome-hero {
+  gap: clamp(20px, 4vh, 36px);
+}
+
+/* ── ① 名片背景 ──
+   竖屏素材（720×1280）用 cover 等比铺满宽度、纵向居中裁掉多余 —— 绝不用 fill/拉伸。 */
+.weq-chathome-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  animation: weq-backdrop-in 900ms ease both;
+}
+
+.weq-chathome-backdrop-media {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  display: block;
+}
+
+/* 压暗 + 上下轻微加深：保证问候语/标签在任何名片上都读得清。 */
+.weq-chathome-backdrop-scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.42), rgba(0, 0, 0, 0.22) 38%, rgba(0, 0, 0, 0.5)),
+    color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+/* 有背景时整页文字转亮色 + 阴影（名片多是深色照片）。 */
+.weq-chathome.is-onphoto .weq-chathome-greet-hi {
+  color: rgba(255, 255, 255, 0.82);
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.55);
+}
+
+.weq-chathome.is-onphoto .weq-chathome-greet-name {
+  background: none;
+  -webkit-background-clip: initial;
+  background-clip: initial;
+  color: #fff;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.6);
+}
+
+.weq-chathome.is-onphoto .weq-chathome-verse,
+.weq-chathome.is-onphoto .weq-chathome-from {
+  color: rgba(255, 255, 255, 0.88);
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.5);
+}
+
+/* ── ② 浮屏雨：方形小图从上方旋转下落 ──
+   每枚的 left/大小/时长/负延迟在 TSX 里随机定一次；负延迟让它们一挂载就处于动画中途，
+   从而任一时刻屏上恒有 2–4 枚，而不是等第一轮落完才出现。 */
+.weq-flakes {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.weq-flake {
+  position: absolute;
+  top: 0;
+  object-fit: contain;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: transform;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.25));
+}
+
+/* 从视口上方外侧落到下方外侧，边落边转（两条 keyframes 反向，奇偶交替用）。 */
+@keyframes weq-flake-fall {
+  from { transform: translateY(-14vh) rotate(0deg); }
+  to { transform: translateY(112vh) rotate(360deg); }
+}
+
+@keyframes weq-flake-fall-alt {
+  from { transform: translateY(-14vh) rotate(0deg); }
+  to { transform: translateY(112vh) rotate(-420deg); }
+}
+
+/* ── ③ 头像 + 挂件 / 标签环共用的舞台 ──
+   标签用绝对定位绕着头像转，所以舞台本身要是定位上下文且不裁剪。 */
+.weq-chathome-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  /* 尺寸变量在 .weq-chathome 上（hero 也要用它算避让），这里只消费。 */
+  width: var(--weq-orb-size);
+  height: var(--weq-orb-size);
+}
+
+.weq-orb {
+  position: relative;
+  width: var(--weq-orb-size);
+  height: var(--weq-orb-size);
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  animation: weq-orb-enter 720ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* 背后一团主题色柔光，缓慢呼吸。 */
+.weq-orb::before {
+  content: '';
+  position: absolute;
+  inset: -46%;
+  border-radius: 50%;
+  background: radial-gradient(
+    closest-side,
+    color-mix(in srgb, var(--weq-accent-effective) 16%, transparent),
+    transparent 72%
+  );
+  animation: weq-orb-breathe 7s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* 头像：无挂件时占 48%（约为原 68% 的 70%），有挂件时由 has-widget 覆盖。 */
+.weq-orb-img {
+  width: 48%;
+  height: 48%;
+  object-fit: cover;
+  grid-area: 1 / 1;
+}
+
+.weq-orb-img.is-round {
+  border-radius: 50%;
+  background: var(--weq-bg-surface);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--weq-fg-primary) 8%, transparent),
+    0 10px 24px color-mix(in srgb, #000 16%, transparent);
+}
+
+.weq-orb-fallback {
+  display: grid;
+  place-items: center;
+  font-size: calc(var(--weq-orb-size) * 0.3);
+  font-weight: 600;
+  color: var(--weq-accent-effective);
+}
+
+/*
+ * 挂件层。素材（faceAddon newPreview2.png，430×430，APNG）是一条绕圈跳跃的鲸鱼——
+ * 头像该落在**图片正中**、被鱼的运动轨迹包裹，所以挂件与头像同心即可，不要去对齐某一
+ * 帧里鱼的位置（那是动的，对了也只对一帧）。挂件比头像大一圈，留出轨迹的空间。
+ */
+.weq-orb.has-widget {
+  --weq-widget-scale: 1.52;
+}
+
+/* 有挂件时头像缩小，正好嵌在鲸鱼绕行的圈内。 */
+.weq-orb.has-widget .weq-orb-img {
+  width: 58%;
+  height: 58%;
+}
+
+.weq-orb-widget {
+  grid-area: 1 / 1;
+  width: calc(100% * var(--weq-widget-scale));
+  height: calc(100% * var(--weq-widget-scale));
+  object-fit: contain;
+  pointer-events: none;
+}
+
+/* ── ④ 个性标签环 ──
+   位置由 d3-force 写在外层 .weq-tag 的 `translate` 上（见 ChatHome.tsx）。
+   动画拆两层是必须的：外层只放一次性的入场动画，内层 .weq-tag-body 放循环浮动。
+   若把两条动画都挂在外层，拖拽时为了停掉浮动就得改外层的 animation，
+   松手恢复会连带把入场动画（带 delay + both）重播一遍 —— 表现为标签"消失再重现"。 */
+.weq-tagring {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  /* 环本身不吃事件，只有标签片可拖 —— 否则会挡住底下的头像/挂件。 */
+  pointer-events: none;
+}
+
+.weq-tag {
+  position: absolute;
+  /* 每片的中心对齐容器中心；力导给的 translate 即相对中心的偏移。 */
+  left: 50%;
+  top: 50%;
+  margin-left: -2.6em;
+  margin-top: -2.6em;
+  width: 5.2em;
+  height: 5.2em;
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+  animation: weq-tag-appear 700ms cubic-bezier(0.22, 1, 0.36, 1) var(--weq-tag-delay, 0s) both;
+}
+
+.weq-tag-body {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  padding: 0.4em;
+  box-sizing: border-box;
+  border-radius: 50%;
+  font-size: 11.5px;
+  line-height: 1.25;
+  text-align: center;
+  word-break: break-word;
+  color: var(--weq-fg-secondary);
+  background: color-mix(in srgb, var(--weq-bg-surface) 24%, transparent);
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+  backdrop-filter: blur(2.5px);
+  -webkit-backdrop-filter: blur(2.5px);
+  box-shadow: 0 6px 18px color-mix(in srgb, #000 10%, transparent);
+  animation: weq-tag-float var(--weq-tag-float-dur, 5s) ease-in-out
+    calc(var(--weq-tag-delay, 0s) + 700ms) infinite;
+}
+
+.weq-tag.is-dragging {
+  cursor: grabbing;
+  z-index: 1;
+}
+
+/* 拖动时停掉浮动（否则手感会「粘」），只影响内层，入场动画不受牵连。 */
+.weq-tag.is-dragging .weq-tag-body {
+  animation: none;
+  transform: scale(1.06);
+  box-shadow: 0 10px 26px color-mix(in srgb, #000 20%, transparent);
+}
+
+.weq-chathome.is-onphoto .weq-tag-body {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.24);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
+}
+
+/* 入场：从头像处缩放淡入（位置本就从中心被力导推开，动画只补缩放/透明）。 */
+@keyframes weq-tag-appear {
+  from { transform: scale(0.2); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* 展开后原地轻浮（内层只动 transform，外层的 translate 位移不受影响）。 */
+@keyframes weq-tag-float {
+  0%, 100% { transform: translateY(-3px); }
+  50% { transform: translateY(3px); }
 }
 
 .weq-chathome-greet {
@@ -8467,7 +8816,7 @@ html[data-theme="dark"] .weq-persona-modal {
   color: transparent;
 }
 
-/* ── 一言打字机 ── */
+/* ── 一言打字机（无个性标签时的降级） ── */
 .weq-chathome-hitokoto {
   width: 100%;
   max-width: 560px;
@@ -8514,160 +8863,327 @@ html[data-theme="dark"] .weq-persona-modal {
   transform: translateY(0);
 }
 
-/* ── 记忆长廊（旧消息沿时间线匀速上浮，纯 CSS transform；悬停暂停） ── */
-.weq-chathome-lane,
-.weq-lane {
-  width: 100%;
-  max-width: 468px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.weq-lane-head {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  font-size: 12.5px;
-  letter-spacing: 0.14em;
-  color: var(--weq-fg-muted);
-}
-
-.weq-lane-clock {
-  color: color-mix(in srgb, var(--weq-accent-effective) 70%, var(--weq-fg-muted));
-}
-
-.weq-lane-viewport {
-  position: relative;
-  height: clamp(184px, 30vh, 248px);
-  overflow: hidden;
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 16%, #000 84%, transparent 100%);
-  mask-image: linear-gradient(to bottom, transparent 0%, #000 16%, #000 84%, transparent 100%);
-}
-
-/* 左侧一条贯穿的时间线（记忆之路） */
-.weq-lane-viewport::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 14px;
-  width: 1px;
-  background: linear-gradient(
-    to bottom,
-    transparent,
-    var(--weq-border-subtle) 12%,
-    var(--weq-border-subtle) 88%,
-    transparent
-  );
-  pointer-events: none;
-}
-
-.weq-lane-track {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  animation: weq-lane-drift var(--weq-lane-duration, 40s) linear infinite;
-  will-change: transform;
-}
-
-.weq-lane-viewport:hover .weq-lane-track {
-  animation-play-state: paused;
-}
-
-.weq-lane-item {
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  /* 用等值 margin 而非 flex gap：两份副本各占整轨一半，-50% 才能严丝合缝无缝循环 */
-  margin-bottom: 20px;
-  padding-left: 30px;
-  opacity: 0.9;
-}
-
-/* 时间线上的节点小圆点，正对左侧竖线 */
-.weq-lane-node {
-  position: absolute;
-  left: 11px;
-  top: 11px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--weq-accent-effective);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
-}
-
-.weq-chathome-avatar {
-  flex: none;
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
-  object-fit: cover;
-  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
-}
-
-.weq-chathome-avatar-fallback {
-  display: grid;
-  place-items: center;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--weq-accent-effective);
-}
-
-.weq-lane-body {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 3px;
-  padding-top: 1px;
-}
-
-.weq-lane-name {
-  font-size: 11.5px;
-  letter-spacing: 0.01em;
-  color: var(--weq-fg-muted);
-  max-width: 300px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.weq-lane-text {
-  margin: 0;
-  max-width: 340px;
-  font-family: var(--font-serif);
-  font-size: 14.5px;
-  line-height: 1.6;
-  color: var(--weq-fg-secondary);
-  word-break: break-word;
-  /* 最多两行，超出以省略号收束，保持每条记忆高度稳定 */
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-/* 轨道匀速上移一整份（内容复制两份 → -50% 即无缝衔接） */
-@keyframes weq-lane-drift {
-  from { transform: translateY(0); }
-  to { transform: translateY(-50%); }
-}
-
 @keyframes weq-chathome-caret-blink {
   0%, 50% { opacity: 1; }
   50.01%, 100% { opacity: 0; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .weq-chathome-logo,
-  .weq-chathome-caret { animation: none; }
-  .weq-lane-track { animation: none; }
+/* 背景淡入（视频/图片解码完成前不至于「啪」地出现）。 */
+@keyframes weq-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
+
+/* 入场：整组从下方轻浮起 + 微缩放，一次到位不回弹。 */
+@keyframes weq-orb-enter {
+  from { opacity: 0; transform: translateY(10px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* 背景柔光呼吸。 */
+@keyframes weq-orb-breathe {
+  0%, 100% { opacity: 0.7; transform: scale(0.94); }
+  50% { opacity: 1; transform: scale(1.04); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-chathome-caret,
+  .weq-orb,
+  .weq-orb::before,
+  .weq-flake { animation: none; }
+  /* 标签仍要落到位（位置本就由力导算），只是不再浮动。 */
+  .weq-tag {
+    animation: weq-tag-appear 1ms linear both;
+  }
+  .weq-tag-body { animation: none; }
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * 他人的「个性主页」灯箱（PersonalityHomeDialog）。
+ *
+ * 竖屏卡片（9:16 一带），层次与首页完全一致：名片背景 → 浮屏 → 挂件头像 → 标签环，
+ * 故 .weq-chathome-backdrop / .weq-flakes / .weq-orb / .weq-tag 那几套样式直接复用，
+ * 这里只定卡片外框、卡内排版，以及把 --weq-orb-size 调小到适合卡片的尺度。
+ * ──────────────────────────────────────────────────────────────────── */
+/**
+ * 个性主页是从资料卡**里面**打开的，必须盖在调用方之上。群成员卡（.weq-member-pop-scrim）
+ * 的遮罩是 inline `z-index: 90`，比 .weq-profile-layer 的 80 高 —— 沿用后者会被压在下面
+ * 完全看不见。取 100 压过两者。
+ */
+.weq-perhome-layer {
+  z-index: 100;
+}
+
+.weq-perhome {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(360px, calc(100vw - 40px));
+  height: min(640px, calc(100vh - 72px));
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+  border-radius: 18px;
+  /*
+   * 没有名片装扮时卡片就是这层底：主题色柔光 + 一组同心圆几何纹（QQ 的「默认名片」
+   * 素材 card/item/0/new1.png 是会员广告图，后端已按 itemId===0 剔掉，不该拿它当背景）。
+   */
+  background:
+    radial-gradient(
+      ellipse at 50% -6%,
+      color-mix(in srgb, var(--weq-accent-effective) 12%, transparent),
+      transparent 48%
+    ),
+    repeating-radial-gradient(
+      circle at 50% 26%,
+      color-mix(in srgb, var(--weq-accent-effective) 5%, transparent) 0 1px,
+      transparent 1px 34px
+    ),
+    var(--weq-bg-surface);
+  box-shadow: 0 30px 70px -26px rgba(7, 31, 61, 0.5);
+  /* 卡片比首页窄得多，头像和标签环都要跟着缩。 */
+  --weq-orb-size: 168px;
+}
+
+.weq-perhome-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 5;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--weq-bg-surface) 55%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.weq-perhome-close:hover {
+  background: color-mix(in srgb, var(--weq-bg-surface) 85%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+.weq-perhome.is-onphoto .weq-perhome-close {
+  background: rgba(0, 0, 0, 0.28);
+  color: #fff;
+}
+
+.weq-perhome-inner {
+  position: relative;
+  z-index: 3;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  /* 顶部留白要容下标签环溢出舞台的那部分（环半径公式见 dressPieces 的 TagRing）。 */
+  padding: 46px 20px 18px;
+  overflow-y: auto;
+  text-align: center;
+}
+
+/* 标签环是绝对定位的，撑不开高度 —— 按「环半径 + 标签半径 − 舞台半径」补出下方间距，
+   否则下面那几片会压住昵称。没有标签时不补（.has-tags 才加），空白会把昵称挤出卡片。 */
+.weq-perhome-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: var(--weq-orb-size);
+  height: var(--weq-orb-size);
+}
+
+.weq-perhome-stage.has-tags {
+  margin-bottom: calc(var(--weq-orb-size) * 0.02 + 60px);
+}
+
+.weq-perhome-name {
+  margin: 0;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--weq-fg-primary);
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-perhome-sign {
+  margin: 0;
+  max-width: 100%;
+  color: var(--weq-fg-secondary);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.weq-perhome-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.weq-perhome-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 7%, transparent);
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
+.weq-perhome-chip.is-svip {
+  border-color: color-mix(in srgb, #f0a500 42%, transparent);
+  background: color-mix(in srgb, #f0a500 14%, transparent);
+  color: #b87400;
+}
+
+.weq-perhome-privilege {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+
+.weq-perhome-album {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  width: 100%;
+  margin-top: 2px;
+}
+
+.weq-perhome-photo {
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
+  border-radius: 8px;
+  background: none;
+  aspect-ratio: 1;
+  overflow: hidden;
+  cursor: zoom-in;
+  transition: transform 140ms ease;
+}
+
+.weq-perhome-photo:hover {
+  transform: scale(1.03);
+}
+
+.weq-perhome-photo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 装扮那一路是网络请求（SSR 页面，数秒），状态条常驻底部，不挤动上面的排版。 */
+.weq-perhome-status {
+  margin-top: auto;
+  padding-top: 10px;
+  min-height: 20px;
+}
+
+.weq-perhome-loading,
+.weq-perhome-offline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  text-align: left;
+}
+
+.weq-perhome-loading {
+  color: var(--weq-fg-muted);
+}
+
+.weq-perhome-loading svg {
+  flex: none;
+  animation: weq-spin 900ms linear infinite;
+}
+
+.weq-perhome-offline {
+  color: #c2554a;
+}
+
+.weq-perhome-offline svg {
+  flex: none;
+}
+
+/* 有名片背景时卡内文字整体转亮色（名片多是深色照片）。 */
+.weq-perhome.is-onphoto .weq-perhome-name,
+.weq-perhome.is-onphoto .weq-perhome-sign,
+.weq-perhome.is-onphoto .weq-perhome-chip {
+  color: #fff;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.55);
+}
+
+.weq-perhome.is-onphoto .weq-perhome-chip {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.26);
+}
+
+.weq-perhome.is-onphoto .weq-perhome-loading {
+  color: rgba(255, 255, 255, 0.8);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
+}
+
+.weq-perhome.is-onphoto .weq-perhome-offline {
+  color: #ffd0c9;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
+}
+
+/* 卡内的标签片跟着卡片尺度缩小（首页那套是给 340px 头像用的）。 */
+.weq-perhome .weq-tag {
+  margin-left: -2.1em;
+  margin-top: -2.1em;
+  width: 4.2em;
+  height: 4.2em;
+}
+
+.weq-perhome .weq-tag-body {
+  font-size: 10.5px;
+}
+
+.weq-perhome.is-onphoto .weq-tag-body {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.26);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
+}
+
+/* 「个性主页」入口按钮（好友资料灯箱底部）。 */
+.weq-profile-perhome {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 12px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective) 82%, #24455f);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.weq-profile-perhome:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 44%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 15%, transparent);
+}
+
 
 /* ───────────────────────── 克隆体群聊（M2 群骨架）───────────────────────── */
 

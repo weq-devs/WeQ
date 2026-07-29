@@ -174,6 +174,18 @@ export interface AppSettings {
   agentLab: AgentLabSettings;
   /** 点击关闭按钮时的行为。默认 'ask'（首次弹窗询问）。 */
   windowCloseBehavior: WindowCloseBehavior;
+  /**
+   * 是否把纯文本消息里的 Markdown 也渲染出来。这是 WeQ 自己的 feature——QQ 的语义里
+   * 只有 markdownElement 才是 Markdown，纯文本就该是纯文本（关掉后别人发的 ``` 或 **
+   * 会原样显示）。默认开启。markdownElement 不受此开关影响，始终按 Markdown 渲染。
+   */
+  renderTextMarkdown: boolean;
+  /**
+   * 是否把 QQ 挂件叠在聊天页的头像外圈。只作用于**自己**的头像 —— 挂件素材取自
+   * bootstrap 存下的 homeDress.widgetUrl，他人的挂件要逐个走 SSR 页面查，
+   * 每条消息一次网络往返不现实。默认开启，没挂件时该开关无副作用。
+   */
+  showAvatarPendant: boolean;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -189,6 +201,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   weqAssistant: { enabled: false, port: 27182 },
   agentLab: { providers: [] },
   windowCloseBehavior: 'ask',
+  renderTextMarkdown: true,
+  showAvatarPendant: true,
 };
 
 export interface UserConfig {
@@ -404,6 +418,8 @@ export class UserConfigService {
       autoFetchClientKey: s?.autoFetchClientKey ?? d.autoFetchClientKey,
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
       windowCloseBehavior: normalizeWindowCloseBehavior(s?.windowCloseBehavior) ?? d.windowCloseBehavior,
+      renderTextMarkdown: s?.renderTextMarkdown ?? d.renderTextMarkdown,
+      showAvatarPendant: s?.showAvatarPendant ?? d.showAvatarPendant,
       mediaCompletion: {
         enabled: s?.mediaCompletion?.enabled ?? d.mediaCompletion.enabled,
       },
@@ -434,6 +450,8 @@ export class UserConfigService {
       autoLockMinutes: patch.autoLockMinutes ?? current.autoLockMinutes,
       windowCloseBehavior:
         normalizeWindowCloseBehavior(patch.windowCloseBehavior) ?? current.windowCloseBehavior,
+      renderTextMarkdown: patch.renderTextMarkdown ?? current.renderTextMarkdown,
+      showAvatarPendant: patch.showAvatarPendant ?? current.showAvatarPendant,
       mediaCompletion: {
         enabled: patch.mediaCompletion?.enabled ?? current.mediaCompletion.enabled,
       },

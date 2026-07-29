@@ -195,12 +195,14 @@ const EXT_MAP_ENTRY = message([
   { name: 'value', tag: 2, type: 'string' },
 ]);
 
+// 翻页游标走 tag 5(pageInfo);tag 4 是另一个保留串,必须留空 —— 把游标写进
+// tag 4 服务端会当没带游标处理,于是每次都返回第一页。
 const ALBUM_REQ_INFO = message([
   { name: 'groupId', tag: 1, type: 'string' },
   { name: 'albumId', tag: 2, type: 'string' },
   { name: 'field3', tag: 3, type: 'int32' },
-  { name: 'attachInfo', tag: 4, type: 'string' },
-  { name: 'field5', tag: 5, type: 'string' },
+  { name: 'field4', tag: 4, type: 'string' },
+  { name: 'pageInfo', tag: 5, type: 'string' },
 ]);
 
 export const GET_MEDIA_LIST_REQUEST = message([
@@ -233,9 +235,20 @@ const ALBUM_IMAGE_INFO = message([
   { name: 'hasRaw', tag: 7, type: 'bool' },
 ]);
 
+const ALBUM_VIDEO_INFO = message([
+  { name: 'id', tag: 1, type: 'string' },
+  { name: 'url', tag: 2, type: 'string' },
+  { name: 'cover', tag: 3, type: ALBUM_IMAGE_INFO },
+  { name: 'width', tag: 4, type: 'uint32' },
+  { name: 'height', tag: 5, type: 'uint32' },
+  { name: 'videoTime', tag: 6, type: 'uint64' },
+  { name: 'videoUrl', tag: 7, type: ALBUM_PHOTO_URL, repeated: true },
+]);
+
 const ALBUM_MEDIA_INFO = message([
   { name: 'type', tag: 1, type: 'uint32' },
   { name: 'image', tag: 2, type: ALBUM_IMAGE_INFO },
+  { name: 'video', tag: 3, type: ALBUM_VIDEO_INFO },
   { name: 'uploader', tag: 6, type: 'string' },
   { name: 'batchId', tag: 7, type: 'uint64' },
   { name: 'uploadTime', tag: 8, type: 'uint64' },

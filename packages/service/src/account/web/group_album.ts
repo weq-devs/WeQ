@@ -9,7 +9,7 @@
  * (no 'o' prefix), while the cookie's uin keeps the 'o'.
  */
 
-import { computeBkn, cookieHeader, type WebCredential } from './credential';
+import { computeBkn, cookieHeader, WebAuthError, type WebCredential } from './credential';
 import { webRequestJson } from './http';
 
 export interface GroupAlbum {
@@ -52,8 +52,16 @@ interface RawAlbumListRet {
 }
 
 /**
- * List a group's photo albums. Returns `[]` when the group has none or the
- * response carries no album array.
+ * 判定「票据不对」的错误码。-3000 是 QZone 系一贯的登录态失效,-10000 是风控/参数
+ * 校验不过(cookie 缺 pt4_token 等风控字段时就是它)。其余错码(无权限、群不存在)
+ * 换票也没用,不该触发重试。
+ */
+const AUTH_CODES = new Set([-3000, -10000]);
+
+/**
+ * List a group's photo albums. Returns `[]` when the group has none.
+ *
+ * 凭证失效时抛 {@link WebAuthError} 而不是返回空数组 —— 见函数体里的说明。
  */
 export async function getGroupAlbumList(
   cred: WebCredential,
@@ -82,6 +90,14 @@ export async function getGroupAlbumList(
     method: 'GET',
     cookie: cookieHeader(cred),
   });
+
+  // 票据过期时这支 cgi 回的是 **HTTP 200** 加一个错误码,不检查的话空相册和
+  // 「cookie 失效」长得一模一样 —— 用户看到的是「这个群没有相册」,而不是让上层
+  // 有机会换票重试。凭证类的错码单独抛 WebAuthError,由 withRetry 接住。
+  if (typeof ret.code === 'number' && ret.code !== 0) {
+    const msg = `群相册列表失败: code=${ret.code} ${ret.message ?? ''}`.trim();
+    throw AUTH_CODES.has(ret.code) ? new WebAuthError(msg, ret.code) : new Error(msg);
+  }
 
   const albums = ret.data?.album ?? [];
   return albums.map((a) => ({

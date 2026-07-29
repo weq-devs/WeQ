@@ -29,7 +29,13 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
 
   const root = install.tencentFilesRoot;
 
-  const savedConfigs = trpc.bootstrap.listAccountConfigs.useQuery(undefined, { refetchOnWindowFocus: false });
+  // Always refetch on mount: configs get written by openAccount, so the copy
+  // cached before entering an account is stale by the time we come back here.
+  const savedConfigs = trpc.bootstrap.listAccountConfigs.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
   const historical = trpc.bootstrap.listAccounts.useQuery(undefined, { retry: false, refetchOnWindowFocus: false });
   const userDataDirs = trpc.bootstrap.countUserDataDirs.useQuery(undefined, { refetchOnWindowFocus: false });
   const autoTarget = trpc.bootstrap.getAutoEnter.useQuery(undefined, { refetchOnWindowFocus: false });

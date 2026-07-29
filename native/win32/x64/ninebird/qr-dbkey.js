@@ -273,27 +273,61 @@ function getSystemVersion() {
   return import_node_os.default.release();
 }
 
+// ts/pskey.ts
+var DEFAULT_PSKEY_DOMAINS = ["vip.qq.com"];
+async function collectPskey(session, domains = DEFAULT_PSKEY_DOMAINS) {
+  try {
+    const ck = await session.getTipOffService().getPskey(domains, true);
+    if (!ck.domainPskeyMap) {
+      return { success: false, error: "getPskey \u6CA1\u6709\u8FD4\u56DE domainPskeyMap" };
+    }
+    const pskey = Object.fromEntries(ck.domainPskeyMap);
+    if (Object.keys(pskey).length === 0) {
+      return { success: false, error: "domainPskeyMap \u4E3A\u7A7A" };
+    }
+    return { success: true, pskey };
+  } catch (e) {
+    return { success: false, error: String(e) };
+  }
+}
+
 // ts/qr-dbkey.ts
 var import_node_fs2 = __toESM(require("node:fs"));
 var import_node_path2 = __toESM(require("node:path"));
 var PIPE_NAME = process.env.NINEBIRD_PIPE_NAME || "";
 var TIMEOUT_MS = parseInt(process.env.NINEBIRD_TIMEOUT_MS || "180000", 10);
+var NB_LOG = process.env.NINEBIRD_LOG || "";
+function nbLog(msg) {
+  if (!NB_LOG) return;
+  try {
+    import_node_fs2.default.appendFileSync(NB_LOG, `[loader:qr pid=${process.pid}] ${msg}
+`);
+  } catch {
+  }
+}
+nbLog(`loaded. PIPE_NAME=${PIPE_NAME} TIMEOUT_MS=${TIMEOUT_MS}`);
 var pipeClient = null;
 var shutdownCalled = false;
 var dbkey = null;
 function ensurePipeOpen() {
-  if (!PIPE_NAME) return Promise.resolve();
+  if (!PIPE_NAME) {
+    nbLog("ensurePipeOpen: PIPE_NAME empty, skip");
+    return Promise.resolve();
+  }
   if (pipeClient) return Promise.resolve();
+  nbLog(`ensurePipeOpen: connecting to ${PIPE_NAME}`);
   return new Promise((resolve) => {
     const c = import_node_net.default.createConnection(PIPE_NAME);
     const onReady = () => {
       c.removeListener("error", onErr);
       pipeClient = c;
+      nbLog("ensurePipeOpen: connected");
       c.on("error", () => process.exit(1));
       resolve();
     };
-    const onErr = () => {
+    const onErr = (e) => {
       c.removeListener("connect", onReady);
+      nbLog(`ensurePipeOpen: connect FAILED: ${e && e.message}`);
       resolve();
     };
     c.once("connect", onReady);
@@ -321,6 +355,24 @@ async function sendResultAndExit(success, error) {
   try {
     await sendMessage(result);
   } catch {
+  }
+  pipeClient.end(() => {
+    setTimeout(() => process.exit(0), 100);
+  });
+}
+async function sendFinalExit(dbkeyResult, psKeyResult) {
+  if (shutdownCalled) return;
+  shutdownCalled = true;
+  try {
+    await sendMessage({ kind: "pskey", ...psKeyResult });
+  } catch {
+  }
+  try {
+    await sendMessage({ kind: "result", ...dbkeyResult });
+  } catch {
+  }
+  if (!pipeClient) {
+    process.exit(dbkeyResult.success ? 0 : 1);
   }
   pipeClient.end(() => {
     setTimeout(() => process.exit(0), 100);
@@ -357,6 +409,7 @@ function loadQQWrapper(execPath, qqVersion) {
   return nativemodule.exports;
 }
 async function main() {
+  nbLog("main() start");
   await ensurePipeOpen();
   setTimeout(() => {
     if (!shutdownCalled) {
@@ -376,6 +429,12 @@ async function main() {
     }
     const hooker = require(hookerPath);
     const isPrintableAscii = (b) => b >= 32 && b <= 126;
+    let resolveDbkey;
+    let rejectDbkey;
+    const dbkeyGate = new Promise((res, rej) => {
+      resolveDbkey = res;
+      rejectDbkey = rej;
+    });
     hooker.installRecvHook((ev) => {
       const hex = ev.hex_data;
       if (!hex || !hex.startsWith("08de19") && !hex.startsWith("08DE19")) return;
@@ -393,13 +452,13 @@ async function main() {
         }
         if (allAscii) {
           dbkey = slice.toString("ascii");
-          void sendResultAndExit(true);
+          resolveDbkey(dbkey);
           return;
         }
-        void sendResultAndExit(false, "0xcde_2 \u5305\u91CC 16 \u5B57\u8282\u6BB5\u542B\u975E ASCII \u5B57\u8282\uFF0Cdbkey \u83B7\u53D6\u5931\u8D25");
+        rejectDbkey(new Error("0xcde_2 \u5305\u91CC 16 \u5B57\u8282\u6BB5\u542B\u975E ASCII \u5B57\u8282\uFF0Cdbkey \u83B7\u53D6\u5931\u8D25"));
         return;
       }
-      void sendResultAndExit(false, '0xcde_2 \u5305\u91CC\u6CA1\u6709 "0A 10" \u6807\u8BB0\uFF0Cdbkey \u83B7\u53D6\u5931\u8D25');
+      rejectDbkey(new Error('0xcde_2 \u5305\u91CC\u6CA1\u6709 "0A 10" \u6807\u8BB0\uFF0Cdbkey \u83B7\u53D6\u5931\u8D25'));
     });
     let realDataPath = qqInfo.dataPath;
     let dataPathGlobal = qqInfo.dataPathGlobal;
@@ -579,15 +638,24 @@ async function main() {
         ntSession.startNT();
       }
     }
+    const dbkeyResult = await Promise.race([
+      dbkeyGate.then((key) => ({ success: true, dbkey: key })),
+      new Promise(
+        (res) => setTimeout(() => res({ success: false, error: "dbkey timeout" }), 6e4)
+      )
+    ]).catch((e) => ({ success: false, error: e.message }));
     await Promise.race([
       otelGate,
       new Promise((_, rej) => setTimeout(() => rej(new Error("OpenTelemetry init timeout")), 15e3))
     ]).catch(() => {
     });
+    await sendFinalExit(dbkeyResult, await collectPskey(ntSession));
   } catch (error) {
+    nbLog(`main() threw: ${String(error)}`);
     void sendResultAndExit(false, String(error));
   }
 }
 main().catch((err) => {
+  nbLog(`main() rejected: ${String(err)}`);
   void sendResultAndExit(false, String(err));
 });

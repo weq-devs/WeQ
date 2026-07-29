@@ -28,9 +28,11 @@ import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { datalineName, isDatalineSelfUid } from '@weq/codec';
 import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
+import { useDressSkin } from '../hooks/useDressSkin';
 import { RailAccountFooter } from '../components/RailAccountFooter';
 import { SettingsDialog } from '../components/SettingsDialog';
 import { CollectionDialog } from '../components/CollectionDialog';
+import { DressUpDialog } from '../components/DressUpDialog';
 import { MarketEmojiBrowserLightbox } from './export/MarketEmojiBrowserLightbox';
 import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
 import { GroupAnalyticsDialog } from '../components/GroupAnalyticsDialog';
@@ -62,6 +64,7 @@ import {
   type GroupUpdateInput,
   type Message,
   type MessageRenderer,
+  type ProfileExtInfo,
   type User,
   useChatShellController,
 } from '../im-template/template';
@@ -301,6 +304,7 @@ type UserProfileWire = {
     preselectedIds: number[];
     displayId?: number;
   };
+  extInfo?: ProfileExtInfo;
 };
 
 type GroupMemberWire = {
@@ -610,6 +614,7 @@ function buddyToContact(
     birthDay: profile?.birthDay,
     intimacy: profile?.intimacy,
     extRelation: profile?.extRelation ?? null,
+    extInfo: profile?.extInfo ?? null,
     customStatus,
     onlineStatus: customStatus,
   };
@@ -1578,6 +1583,9 @@ export function MainView(): ReactElement {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [collectionOpen, setCollectionOpen] = useState(false);
   const [marketBrowserOpen, setMarketBrowserOpen] = useState(false);
+  const [dressUpOpen, setDressUpOpen] = useState(false);
+  // 装扮样式注入提到这一层 —— 进主界面就生效,不必先打开装扮灯箱。
+  useDressSkin();
   const [requestedAnnouncementGroups, setRequestedAnnouncementGroups] = useState<Record<string, boolean>>({});
   const [albumDialog, setAlbumDialog] = useState<{
     groupCode: string;
@@ -1889,7 +1897,7 @@ export function MainView(): ReactElement {
   const shellHistory = useMemo(
     () => ({
       isMobileShell,
-      // 从其它页（联系人/导出/助手…）切回「消息」时，落在门面首页而不是自动选中
+      // 从其它页（联系人/导出/助手…）切回「消息」时，落在 QQ 式企鹅占位而不是自动选中
       // 最近一条会话——会话由用户在左栏显式点选后才进入。
       shouldAutoSelectConversation: () => false,
       replaceShell: () => undefined,
@@ -1903,6 +1911,8 @@ export function MainView(): ReactElement {
     contacts: buddyContacts,
     conversationPrefs,
     initialActiveConversationId: null,
+    // 进入应用先落在主页（标题栏 logo 那颗按钮），会话由用户显式点选后才进入。
+    initialView: 'home',
     sidebarWidthStorageKey: 'weq.desktop.sidebarWidth.v2',
     history: shellHistory,
   });
@@ -2850,6 +2860,15 @@ export function MainView(): ReactElement {
     return undefined;
   }
 
+  // 独占整个内容区、不要左侧列表的视图（含主页）。
+  const fullBleedView =
+    shell.view === 'home' ||
+    shell.view === 'export' ||
+    shell.view === 'agentlab' ||
+    shell.view === 'cache' ||
+    shell.view === 'qzone' ||
+    shell.view === 'channel';
+
   return (
     <ReplyJumpContext.Provider value={jumpToSeq}>
       <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
@@ -2860,7 +2879,7 @@ export function MainView(): ReactElement {
         query={shell.query}
         contactTab={shell.contactTab}
         activeNotice={shell.contactNotice}
-        sidebarWidth={shell.view === 'export' || shell.view === 'agentlab' || shell.view === 'cache' || shell.view === 'qzone' || shell.view === 'channel' ? 0 : shell.sidebarWidth}
+        sidebarWidth={fullBleedView ? 0 : shell.sidebarWidth}
         mainOpen={shell.mainOpen}
         messageBadgeCount={0}
         contactBadgeCount={0}
@@ -2875,9 +2894,11 @@ export function MainView(): ReactElement {
         friendNoticeCount={contactRequests.length}
         groupNoticeCount={groupRequests.length}
         onViewChange={shell.switchView}
+        onGoHome={() => shell.switchView('home')}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenCollection={() => setCollectionOpen(true)}
         onOpenMarketBrowser={() => setMarketBrowserOpen(true)}
+        onOpenDressUp={() => setDressUpOpen(true)}
         onOpenProfile={noopAsync}
         onOpenAbout={noopAsync}
         onOpenHelp={noopAsync}
@@ -2890,7 +2911,7 @@ export function MainView(): ReactElement {
         onContactTabChange={shell.changeContactTab}
         onSidebarWidthChange={shell.updateSidebarWidth}
         sidebarContent={
-          shell.view === 'export' || shell.view === 'agentlab' || shell.view === 'cache' || shell.view === 'qzone' || shell.view === 'channel' ? null : (
+          fullBleedView ? null : (
           <>
             <ChatSidebarContent
               user={user}
@@ -2967,7 +2988,9 @@ export function MainView(): ReactElement {
           )
         }
         mainContent={
-          shell.view === 'export' ? (
+          shell.view === 'home' ? (
+            <ChatHome nickname={user.displayName} avatarUrl={user.avatarUrl} />
+          ) : shell.view === 'export' ? (
             <ExportView />
           ) : shell.view === 'agentlab' ? (
             <AgentLabView />
@@ -2985,7 +3008,6 @@ export function MainView(): ReactElement {
                 view={shell.view}
                 contactTab={shell.contactTab}
                 relationGraphSlot={<RelationGraphView />}
-                chatHomeSlot={<ChatHome nickname={user.displayName} />}
                 contactNotice={shell.contactNotice}
                 contactRequests={contactRequests}
                 groupRequests={groupRequests}
@@ -3060,6 +3082,7 @@ export function MainView(): ReactElement {
       {marketBrowserOpen ? (
         <MarketEmojiBrowserLightbox onClose={() => setMarketBrowserOpen(false)} />
       ) : null}
+      {dressUpOpen ? <DressUpDialog onClose={() => setDressUpOpen(false)} /> : null}
       {albumDialog ? (
         <GroupAlbumDialog
           groupCode={albumDialog.groupCode}

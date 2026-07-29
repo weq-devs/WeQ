@@ -52,6 +52,28 @@ export interface UserProfileWire {
     preselectedIds: number[];
     displayId?: number;
   };
+  /** 21000 列 —— VIP/特权、互动标识、教育、所在地、兴趣、相册(全透传)。 */
+  extInfo?: {
+    interactMarks: Array<{ type?: string; markId?: number; iconUrl?: string }>;
+    privileges: Array<{
+      bizId?: number;
+      level?: number;
+      opened: boolean;
+      iconUrl?: string;
+      jumpUrl?: string;
+    }>;
+    school?: string;
+    degree?: string;
+    country?: string;
+    province?: string;
+    city?: string;
+    interests: string[];
+    album: Array<{
+      photoId?: string;
+      time?: number;
+      urls: Array<{ size?: number; url?: string }>;
+    }>;
+  };
 }
 
 export interface GroupDetailWire {
@@ -314,6 +336,7 @@ export function userProfileToWire(p: UserProfile): UserProfileWire {
     isFriend: p.isFriend,
     customStatus: p.customStatus,
     extRelation: p.extRelation,
+    extInfo: p.extInfo,
   };
 }
 

@@ -29,9 +29,21 @@ export interface AlbumMediaImage {
   hasRaw: boolean;
 }
 
+export interface AlbumMediaVideo {
+  id: string;
+  url: string;
+  cover: AlbumMediaImage | null;
+  width: number;
+  height: number;
+  /** Duration in seconds. */
+  videoTime: string;
+  videoUrls: AlbumPhotoUrl[];
+}
+
 export interface AlbumMedia {
   type: number;
   image: AlbumMediaImage | null;
+  video: AlbumMediaVideo | null;
   uploader: string;
   batchId: string;
   uploadTime: string;
@@ -59,23 +71,37 @@ function mapUrl(v: unknown): AlbumMediaUrl | null {
   return { url: str(o.url), width: num(o.width), height: num(o.height) };
 }
 
+function mapPhotoUrls(v: unknown): AlbumPhotoUrl[] {
+  return (Array.isArray(v) ? v : []).map((p) => {
+    const po = p as Rec;
+    return { spec: num(po.spec), url: mapUrl(po.url) };
+  });
+}
+
 function mapImage(v: unknown): AlbumMediaImage | null {
   if (v == null || typeof v !== 'object') return null;
   const o = v as Rec;
   return {
     name: str(o.name), sloc: str(o.sloc), lloc: str(o.lloc),
-    photoUrls: (Array.isArray(o.photoUrls) ? o.photoUrls : []).map((p) => {
-      const po = p as Rec;
-      return { spec: num(po.spec), url: mapUrl(po.url) };
-    }),
+    photoUrls: mapPhotoUrls(o.photoUrls),
     defaultUrl: mapUrl(o.defaultUrl),
     isGif: bool(o.isGif), hasRaw: bool(o.hasRaw),
   };
 }
 
+function mapVideo(v: unknown): AlbumMediaVideo | null {
+  if (v == null || typeof v !== 'object') return null;
+  const o = v as Rec;
+  return {
+    id: str(o.id), url: str(o.url), cover: mapImage(o.cover),
+    width: num(o.width), height: num(o.height),
+    videoTime: big(o.videoTime), videoUrls: mapPhotoUrls(o.videoUrl),
+  };
+}
+
 function mapMedia(v: unknown): AlbumMedia {
   const o = (v ?? {}) as Rec;
-  return { type: num(o.type), image: mapImage(o.image), uploader: str(o.uploader), batchId: big(o.batchId), uploadTime: big(o.uploadTime) };
+  return { type: num(o.type), image: mapImage(o.image), video: mapVideo(o.video), uploader: str(o.uploader), batchId: big(o.batchId), uploadTime: big(o.uploadTime) };
 }
 
 export class GroupAlbumMediaService {

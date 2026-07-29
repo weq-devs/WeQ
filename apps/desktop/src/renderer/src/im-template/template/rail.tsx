@@ -10,6 +10,8 @@ import {
 	Bookmark,
 	HardDrive,
 	Store,
+	Palette,
+	MoreHorizontal,
 } from "lucide-react";
 import { useEffect, useRef, useState, useTransition } from "react";
 import type { ReactNode } from "react";
@@ -26,6 +28,7 @@ export function AppRail({
 	onOpenSettings,
 	onOpenCollection,
 	onOpenMarketBrowser,
+	onOpenDressUp,
 	onOpenProfile,
 	onOpenAbout: _onOpenAbout,
 	onOpenHelp: _onOpenHelp,
@@ -42,6 +45,7 @@ export function AppRail({
 	onOpenSettings: (tab?: SettingsTab) => void;
 	onOpenCollection: () => void;
 	onOpenMarketBrowser: () => void;
+	onOpenDressUp: () => void;
 	onOpenProfile: () => void;
 	onOpenAbout: () => void;
 	onOpenHelp: () => void;
@@ -57,8 +61,17 @@ export function AppRail({
 	const [pendingView, setPendingView] = useState<MainView | null>(null);
 	const [, startViewTransition] = useTransition();
 	const railRef = useRef<HTMLElement | null>(null);
+	const moreRef = useRef<HTMLDivElement | null>(null);
 	const activeView = pendingView ?? view;
 	const updateAvailable = useUpdateStore((s) => s.available);
+
+	// 「更多功能」里的三个灯箱。它们都不是视图（不占 MainView 的 view 位），
+	// 所以只有 onSelect，没有 active 态。
+	const moreItems = [
+		{ id: "dressup", label: "个性装扮", icon: Palette, onSelect: onOpenDressUp },
+		{ id: "collection", label: "我的收藏", icon: Bookmark, onSelect: onOpenCollection },
+		{ id: "market", label: "商城表情", icon: Store, onSelect: onOpenMarketBrowser },
+	];
 
 	useEffect(() => {
 		if (pendingView !== null && view === pendingView) {
@@ -76,8 +89,12 @@ export function AppRail({
 			if (!(target instanceof Node)) {
 				return;
 			}
-			if (!railRef.current?.contains(target)) {
+			// 「更多」用自己的容器判定,而不是整条 rail —— 否则点 rail 上别的按钮
+			// (设置、导出…)时弹框会留在屏幕上。
+			if (!moreRef.current?.contains(target)) {
 				setMenuOpen(false);
+			}
+			if (!railRef.current?.contains(target)) {
 				setProfileOpen(false);
 			}
 		}
@@ -246,39 +263,51 @@ export function AppRail({
 						</span>
 						<span className={cn("rail-label")}>缓存</span>
 					</button>
-					<button
-						className={cn("rail-tab rail-tab-collection")}
-						onClick={() => {
-							setMenuOpen(false);
-							setProfileOpen(false);
-							onOpenCollection();
-						}}
-						title="我的收藏"
-						type="button"
-					>
-						<span className={cn("rail-tab-icon")}>
-							<Bookmark size={22} strokeWidth={1.5} />
-						</span>
-						<span className={cn("rail-label")}>收藏</span>
-					</button>
-					<button
-						className={cn("rail-tab rail-tab-marketbrowser")}
-						onClick={() => {
-							setMenuOpen(false);
-							setProfileOpen(false);
-							onOpenMarketBrowser();
-						}}
-						title="商城表情浏览"
-						type="button"
-					>
-						<span className={cn("rail-tab-icon")}>
-							<Store size={22} strokeWidth={1.5} />
-						</span>
-						<span className={cn("rail-label")}>商城表情</span>
-					</button>
+					{/* 相对定位的壳:弹出框要贴在这个按钮右边,而不是整条 rail 的某个固定高度。 */}
+					<div className={cn("rail-more-wrap")} ref={moreRef}>
+						<button
+							className={cn(
+								menuOpen && "active",
+								"rail-tab rail-tab-more",
+							)}
+							onClick={() => {
+								setProfileOpen(false);
+								setMenuOpen((open) => !open);
+							}}
+							title="更多功能"
+							type="button"
+							aria-expanded={menuOpen}
+						>
+							<span className={cn("rail-tab-icon")}>
+								<MoreHorizontal size={22} strokeWidth={1.5} />
+							</span>
+							<span className={cn("rail-label")}>更多</span>
+						</button>
+						{menuOpen ? (
+							<div className={cn("rail-more-popover")} role="menu" aria-label="更多功能">
+								{moreItems.map((item) => (
+									<button
+										key={item.id}
+										type="button"
+										role="menuitem"
+										onClick={() => {
+											setMenuOpen(false);
+											item.onSelect();
+										}}
+									>
+										<item.icon size={17} strokeWidth={1.6} />
+										<span>{item.label}</span>
+									</button>
+								))}
+							</div>
+						) : null}
+					</div>
 					<button
 						className={cn("rail-tab rail-tab-settings")}
-						onClick={() => onOpenSettings()}
+						onClick={() => {
+							setMenuOpen(false);
+							onOpenSettings();
+						}}
 						title={updateAvailable ? "设置 · 有新版本可更新" : "设置"}
 						type="button"
 					>

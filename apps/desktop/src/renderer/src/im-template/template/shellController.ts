@@ -42,6 +42,7 @@ export type UseChatShellControllerOptions = {
 	contacts: Contact[];
 	conversationPrefs: ConversationPreferences;
 	initialActiveConversationId: string | null;
+	initialView?: MainView;
 	sidebarWidthStorageKey: string;
 	history: ChatShellHistoryAdapter;
 	onReadConversation?: (conversationId: string) => void;
@@ -53,12 +54,13 @@ export function useChatShellController({
 	contacts,
 	conversationPrefs,
 	initialActiveConversationId,
+	initialView = "messages",
 	sidebarWidthStorageKey,
 	history,
 	onReadConversation,
 	onOpenContactNotice,
 }: UseChatShellControllerOptions) {
-	const [view, setView] = useState<MainView>("messages");
+	const [view, setView] = useState<MainView>(initialView);
 	const [query, setQuery] = useState("");
 	const [contactTab, setContactTab] = useState<ContactTab>("friends");
 	const [contactNotice, setContactNotice] = useState<ContactNoticeView | null>(
@@ -195,7 +197,7 @@ export function useChatShellController({
 				setContactNotice(null);
 				return;
 			}
-			if (nextView === "tools") {
+			if (nextView === "tools" || nextView === "home") {
 				setActiveConversationId(null);
 				setSelectedContactId(null);
 				setSelectedGroupConversationId(null);

@@ -2305,17 +2305,20 @@ html[data-theme="dark"] .weq-exp-chip.is-active b {
   color: #ffffff;
 }
 
+/* 四档收费标签走同一支主题色，靠明度分级（免费最浅灰 → SVIP 纯主题色）而不是四种色相。
+ * 原来的绿/橙/品红/紫饱和度太高，四个色系凑在一张卡片上很吵。混的是深色而非
+ * transparent —— 标签是白字，且会叠在表情封面图上，半透明底压不住。 */
 .weq-mpd-fee.is-free {
-  background: #3fa66a;
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 55%, #6b7787);
 }
 .weq-mpd-fee.is-paid {
-  background: #e0872f;
-}
-.weq-mpd-fee.is-svip {
-  background: #c2456a;
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 78%, #2b3948);
 }
 .weq-mpd-fee.is-vip {
-  background: #9b6ad4;
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 90%, #0d2f52);
+}
+.weq-mpd-fee.is-svip {
+  background: var(--weq-accent-effective, #12a8ff);
 }
 
 .weq-mpd-card-info {
@@ -2633,11 +2636,12 @@ html[data-theme="dark"] .weq-mpd-clear {
   line-height: 1.6;
 }
 
-.weq-emb-fee.is-free    { background: #3fa66a; }
-.weq-emb-fee.is-paid    { background: #e0872f; }
-.weq-emb-fee.is-svip    { background: #c2456a; }
-.weq-emb-fee.is-vip     { background: #9b6ad4; }
-.weq-emb-fee.is-unknown { background: #3fa66a; }
+/* 明度分级同 .weq-mpd-fee。 */
+.weq-emb-fee.is-free    { background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 55%, #6b7787); }
+.weq-emb-fee.is-paid    { background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 78%, #2b3948); }
+.weq-emb-fee.is-vip     { background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 90%, #0d2f52); }
+.weq-emb-fee.is-svip    { background: var(--weq-accent-effective, #12a8ff); }
+.weq-emb-fee.is-unknown { background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 55%, #6b7787); }
 
 .weq-emb-fee-row {
   display: flex;
