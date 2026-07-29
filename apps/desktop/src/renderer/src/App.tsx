@@ -19,7 +19,9 @@ import { MarketFaceLightbox } from './components/MarketFaceLightbox';
 import { ForwardWindowHost } from './components/ForwardWindow';
 import { AppLockOverlay } from './components/AppLockOverlay';
 import { TextMarkdownContext } from './components/QqMessageContent';
+import { SelfPendantContext } from './hooks/useSelfPendant';
 import { trpc } from './trpc/client';
+import { dressUrl } from './lib/resourceUrl';
 import { setWindowLayout } from './lib/windowLayout';
 import { ensureThemeInitialized } from './state/theme';
 import { usePrivacyStore } from './state/privacy';
@@ -44,6 +46,33 @@ function TextMarkdownProvider({ children }: { children: ReactNode }): ReactEleme
   );
 }
 
+/**
+ * 把「自己头像的挂件」广播给所有气泡。理由同上——每条消息一个 Avatar，不能各自订阅。
+ *
+ * `accountOpen` 为假时不查 getHomeDress：那个 procedure 要求已打开账号，在首页
+ * （bootstrap 视图）调用会抛错。
+ */
+function SelfPendantProvider({
+  accountOpen,
+  children,
+}: {
+  accountOpen: boolean;
+  children: ReactNode;
+}): ReactElement {
+  const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 60_000,
+  });
+  const dress = trpc.account.getHomeDress.useQuery(undefined, {
+    enabled: accountOpen,
+    refetchOnWindowFocus: false,
+    staleTime: 60_000,
+  });
+  const enabled = settings.data?.showAvatarPendant ?? true;
+  const url = enabled ? dressUrl(dress.data?.widgetUrl ?? '') : '';
+  return <SelfPendantContext.Provider value={url}>{children}</SelfPendantContext.Provider>;
+}
+
 export default function App(): ReactElement {
   const view = useViewState((s) => s.view);
   const openedUin = useViewState((s) => s.openedUin);
@@ -63,17 +92,19 @@ export default function App(): ReactElement {
   // rebinds against the new account.
   return (
     <TextMarkdownProvider>
-      {view === 'bootstrap' ? <BootstrapView /> : <MainView key={openedUin ?? ''} />}
-      {/* 首次进入账号后弹出的欢迎说明框（自身决定是否显示）。 */}
-      {view === 'main' ? <WelcomeDialog /> : null}
-      <DialogHost />
-      <ToastHost />
-      <CloseConfirmDialog />
-      <AppLockOverlay />
-      <ImageLightbox />
-      <VideoLightbox />
-      <MarketFaceLightbox />
-      <ForwardWindowHost />
+      <SelfPendantProvider accountOpen={view === 'main'}>
+        {view === 'bootstrap' ? <BootstrapView /> : <MainView key={openedUin ?? ''} />}
+        {/* 首次进入账号后弹出的欢迎说明框（自身决定是否显示）。 */}
+        {view === 'main' ? <WelcomeDialog /> : null}
+        <DialogHost />
+        <ToastHost />
+        <CloseConfirmDialog />
+        <AppLockOverlay />
+        <ImageLightbox />
+        <VideoLightbox />
+        <MarketFaceLightbox />
+        <ForwardWindowHost />
+      </SelfPendantProvider>
     </TextMarkdownProvider>
   );
 }

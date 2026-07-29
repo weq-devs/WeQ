@@ -143,6 +143,16 @@ export interface KeyFetchStalledEvent {
 export const accountEventBus = new EventEmitter();
 
 /**
+ * 装扮清单被主进程改过了（目前只有开机同步会这么做）。
+ *
+ * 前端的 `dressup.getState` 有 60s staleTime，而同步是网络往返，必然晚于首屏那次
+ * 查询几秒 —— 不推一下的话用户会看到「已装 0」直到下一次 invalidate。
+ */
+export function emitDressChanged(): void {
+  accountEventBus.emit('dressChanged', { at: Date.now() });
+}
+
+/**
  * Process-wide uin→uid registry. On linux the on-disk account directory is
  * `nt_qq_<md5(md5(uid)+"nt_kernel")>`, so path resolution needs the string uid
  * for a given uin. A freshly-added account's uid isn't in the saved config yet
@@ -952,6 +962,13 @@ export function initAppContext(): AppContext {
         () => userConfig.getSettings().mediaCompletion.enabled,
         () => userConfig.getSettings().autoFetchClientKey,
         bootstrap.injectHook,
+        // 把手机 QQ 正在用的气泡/字体装上并切过去。monitor 内部只在本次会话第一次
+        // 抓到快照时调，且只在用户从没自己选过时才动手（见 syncFromQq）。
+        async (dress) => {
+          await dressInstall.syncFromQq(dress);
+          // 同步比首屏那次 getState 晚几秒，不推前端会一直显示旧清单。
+          emitDressChanged();
+        },
       );
       accountMonitor.start();
       logger.info('opened account session', {

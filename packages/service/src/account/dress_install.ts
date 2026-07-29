@@ -377,6 +377,76 @@ export class DressInstallService {
     return next;
   }
 
+  /**
+   * 把手机 QQ 正在用的气泡 / 字体 / 聊天背景装上并切过去。
+   *
+   * **只在获取密钥(bootstrap 注入)那一刻跑一次**,不挂在 monitor 的轮询里 ——
+   * 轮询同步会反复覆盖用户在 WeQ 装扮页里的选择。
+   *
+   * 三项都只在用户**从没自己选过**时才动手(activeBubble/activeFont 为 0、
+   * background 为 'none')—— 已经选过就是明确的选择,不该被开机同步冲掉。
+   *
+   * 气泡/字体每项独立 try(要下载资源,会失败);背景不下载,只改一个来源字段。
+   * 整体静默:这是顺手做的锦上添花,不值得打断进入账号的流程。
+   */
+  async syncFromQq(own: {
+    bubbleId?: number;
+    bubbleName?: string;
+    bubblePreviewUrl?: string;
+    fontId?: number;
+    fontName?: string;
+    fontPreviewUrl?: string;
+    /** 手机 QQ 上设的聊天背景直链。有值就把来源切到「QQ 同款」(不下载,直连 CDN)。 */
+    chatBgUrl?: string;
+  }): Promise<void> {
+    const manifest = this.read();
+
+    if (own.bubbleId && manifest.activeBubble === 0) {
+      try {
+        await this.installBubble(own.bubbleId, null, {
+          name: own.bubbleName,
+          previewUrl: own.bubblePreviewUrl,
+        });
+        this.setActive('bubble', own.bubbleId);
+        this.logger.info('synced bubble from QQ', {
+          event: 'dress-sync-bubble',
+          itemId: own.bubbleId,
+        });
+      } catch (e) {
+        this.logger.warn('sync bubble from QQ failed (non-fatal)', {
+          event: 'dress-sync-bubble-failed',
+          itemId: own.bubbleId,
+          ...logErrorContext(e),
+        });
+      }
+    }
+
+    // 重读 —— 上面那步写过清单了,拿旧的会把 activeBubble 覆盖回去。
+    if (own.fontId && this.read().activeFont === 0) {
+      try {
+        await this.installFont(own.fontId, own.fontName ?? '', own.fontPreviewUrl);
+        this.setActive('font', own.fontId);
+        this.logger.info('synced font from QQ', { event: 'dress-sync-font', itemId: own.fontId });
+      } catch (e) {
+        this.logger.warn('sync font from QQ failed (non-fatal)', {
+          event: 'dress-sync-font-failed',
+          itemId: own.fontId,
+          ...logErrorContext(e),
+        });
+      }
+    }
+
+    // 背景:手机 QQ 上设了背景就切到「QQ 同款」。
+    //
+    // 与气泡/字体不同,这里**不下载任何东西** —— 'qq' 这个来源是直接读 config 里的
+    // chatBgUrl 走 CDN 代理的(见 useChatBackdrop),所以不会失败,也没有 try 的必要。
+    // 同样只在用户没自己选过时才动(默认是 'none')。
+    if (own.chatBgUrl && this.read().background === 'none') {
+      this.setBackground('qq');
+      this.logger.info('synced chat background from QQ', { event: 'dress-sync-background' });
+    }
+  }
+
   /** 切换装扮的作用范围(仅自己 / 所有人)。 */
   setScope(scope: DressScope): DressManifest {
     const next = { ...this.read(), scope };

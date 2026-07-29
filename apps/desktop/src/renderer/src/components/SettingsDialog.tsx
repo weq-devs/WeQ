@@ -202,12 +202,19 @@ function AppearanceSection(): ReactElement {
     refetchOnMount: 'always',
   });
   const setRenderTextMarkdown = trpc.bootstrap.setRenderTextMarkdown.useMutation();
+  const setShowAvatarPendant = trpc.bootstrap.setShowAvatarPendant.useMutation();
   const [textMarkdown, setTextMarkdown] = useState(true);
+  const [pendant, setPendant] = useState(true);
 
   useEffect(() => {
     const enabled = settings.data?.renderTextMarkdown;
     if (typeof enabled === 'boolean') setTextMarkdown(enabled);
   }, [settings.data?.renderTextMarkdown]);
+
+  useEffect(() => {
+    const enabled = settings.data?.showAvatarPendant;
+    if (typeof enabled === 'boolean') setPendant(enabled);
+  }, [settings.data?.showAvatarPendant]);
 
   // 本地先翻转求手感，失败回滚 + 重新拉服务端值。
   async function onSetTextMarkdown(next: boolean): Promise<void> {
@@ -217,6 +224,17 @@ function AppearanceSection(): ReactElement {
       await setRenderTextMarkdown.mutateAsync({ enabled: next });
     } catch {
       setTextMarkdown(prev);
+    }
+    await settings.refetch();
+  }
+
+  async function onSetPendant(next: boolean): Promise<void> {
+    const prev = pendant;
+    setPendant(next);
+    try {
+      await setShowAvatarPendant.mutateAsync({ enabled: next });
+    } catch {
+      setPendant(prev);
     }
     await settings.refetch();
   }
@@ -281,6 +299,23 @@ function AppearanceSection(): ReactElement {
             disabled={settings.isLoading || setRenderTextMarkdown.isLoading}
             onChange={(next) => void onSetTextMarkdown(next)}
             label="纯文本消息渲染 Markdown"
+          />
+        </div>
+      </div>
+      <div className="weq-settings-appearance-card">
+        <div className="weq-settings-appearance-head">
+          <div>
+            <strong>聊天头像挂件</strong>
+            <span>
+              把 QQ 里正在用的挂件叠在聊天页头像的外圈。只作用于自己的头像——别人的挂件
+              要逐个联网查，想看请在资料卡里打开「个性主页」。
+            </span>
+          </div>
+          <Toggle
+            checked={pendant}
+            disabled={settings.isLoading || setShowAvatarPendant.isLoading}
+            onChange={(next) => void onSetPendant(next)}
+            label="聊天头像挂件"
           />
         </div>
       </div>

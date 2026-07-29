@@ -713,6 +713,42 @@ html[data-theme="dark"] .weq-chat-backdrop {
 	-webkit-user-select: none;
 }
 
+/*
+ * 头像挂件（设置 → 个性显示，仅自己的头像）。
+ *
+ * 外层保持 36×36 —— 与不带挂件的头像同宽，行内布局不因开关而跳动。挂件本身比头像大
+ * 一圈并溢出到外面（QQ 里也是这样：素材是绕着头像跑的轨迹动画，头像该落在图片正中），
+ * 所以只能绝对定位 + 居中，不能参与流式布局。素材是 APNG，浏览器自己会动。
+ *
+ * 262% 是照首页那套算的：那里挂件占舞台 152%、头像占 58%，即挂件是头像的 2.62 倍。
+ * 这里头像固定 36px（不缩，缩了行高会跟没挂件的消息对不齐），所以倍率直接落在挂件上。
+ */
+.weq-avatar-pendant {
+	position: relative;
+	display: inline-grid;
+	flex: 0 0 auto;
+	place-items: center;
+	width: 36px;
+	height: 36px;
+}
+
+.weq-avatar-pendant-img {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	width: 180%;
+	height: 180%;
+	/* Tailwind preflight 给所有 img 设了 max-width: 100%，那个 100% 是相对包含块
+	   （36px 的外层）算的，会把宽度钳回 36 而高度照常撑到 262% —— 挂件被压成竖条。
+	   其实180%就大概差不多了？  1.8 * 1.8 = 3.24 哈哈 不管了，能看就行
+	   */
+	max-width: none;
+	translate: -50% -50%;
+	object-fit: contain;
+	pointer-events: none;
+	-webkit-user-drag: none;
+}
+
 .message-time-divider {
 	align-self: center;
 	display: inline-flex;

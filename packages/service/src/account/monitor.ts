@@ -23,7 +23,7 @@ import type { Platform } from '@weq/platform';
 import type { AccountConfigService, DownloadRkey, ClientKey } from './user_config';
 import { rkeyExpiryMs, clientKeyExpiryMs } from './user_config';
 import { createDirectInjectHook, type InjectHook } from '../bootstrap/inject';
-import { fetchHomeDress } from './home_dress';
+import { fetchHomeDress, type HomeDressSnapshot } from './home_dress';
 import { getLogger, logErrorContext } from '../common/logger';
 
 /** How often to poll for the account becoming logged in. */
@@ -43,6 +43,8 @@ export class AccountMonitorService {
   /** Last online state written to config — avoids rewriting it every tick. */
   private lastOnline: boolean | null = null;
   private lastPid: number | null | undefined = undefined;
+  /** onHomeDress 已经调过了 —— 每个会话只同步一次装扮,见构造参数说明。 */
+  private homeDressSynced = false;
   private readonly logger;
 
   /**
@@ -57,6 +59,9 @@ export class AccountMonitorService {
    *   app passes a pkexec-elevated hook. A single shared instance across all
    *   monitors keeps its own per-pid idempotency, so switching accounts never
    *   re-injects the same QQ.
+   * @param onHomeDress 抓到装扮快照后调一次。给装扮同步用(把手机 QQ 正在用的
+   *   气泡/字体装上)——**只在本次会话第一次 harvest 时触发**,后续轮询不再调,
+   *   否则会反复覆盖用户在装扮页里的选择。
    */
   constructor(
     private readonly session: AccountSession,
@@ -65,8 +70,12 @@ export class AccountMonitorService {
     private readonly shouldHarvestRkeys: () => boolean = () => true,
     private readonly shouldFetchClientKey: () => boolean = () => false,
     private readonly injectHook: InjectHook = createDirectInjectHook(platform.native.ntHelper),
+    private readonly onHomeDress?: (dress: HomeDressSnapshot) => Promise<void>,
   ) {
-    this.logger = getLogger().child({ scope: 'account-monitor', accountUin: this.session.context.uin });
+    this.logger = getLogger().child({
+      scope: 'account-monitor',
+      accountUin: this.session.context.uin,
+    });
   }
 
   start(): void {
@@ -91,7 +100,11 @@ export class AccountMonitorService {
       const rkeys = parseRkeys(raw);
       if (rkeys.length === 0) return false;
       this.accountConfig.setRkeys(rkeys);
-      this.logger.info('harvested rkeys on demand', { event: 'harvest-rkeys-now', pid, count: rkeys.length });
+      this.logger.info('harvested rkeys on demand', {
+        event: 'harvest-rkeys-now',
+        pid,
+        count: rkeys.length,
+      });
       return true;
     } catch (error) {
       this.logger.warn('failed to harvest rkeys on demand', {
@@ -112,6 +125,7 @@ export class AccountMonitorService {
     this.attachedPid = null;
     this.lastOnline = null;
     this.lastPid = undefined;
+    this.homeDressSynced = false;
     this.logger.info('stopped account monitor', { event: 'monitor-stop' });
   }
 
@@ -261,7 +275,11 @@ export class AccountMonitorService {
         const rkeys = parseRkeys(raw);
         if (rkeys.length > 0) this.accountConfig.setRkeys(rkeys);
         if (rkeys.length > 0) {
-          this.logger.info('harvested download rkeys', { event: 'harvest-rkeys', pid, count: rkeys.length });
+          this.logger.info('harvested download rkeys', {
+            event: 'harvest-rkeys',
+            pid,
+            count: rkeys.length,
+          });
         }
       }
       if (this.shouldFetchClientKey()) {
@@ -278,7 +296,15 @@ export class AccountMonitorService {
       }
       // 首页装扮快照：并发抓取，不阻塞 rkey/clientkey 主流程，失败静默降级。
       void fetchHomeDress(this.nt, this.session, pid, this.accountConfig.getRecord()?.loginPskey)
-        .then((dress) => this.accountConfig.setHomeDress(dress))
+        .then(async (dress) => {
+          this.accountConfig.setHomeDress(dress);
+          // 只在本次会话第一次成功抓到时回调 —— 装扮同步会写清单，轮询触发的话
+          // 会反复覆盖用户在装扮页里的选择。
+          if (!this.homeDressSynced) {
+            this.homeDressSynced = true;
+            await this.onHomeDress?.(dress);
+          }
+        })
         .catch((e) => {
           this.logger.warn('home dress fetch failed (non-fatal)', {
             event: 'home-dress-fetch-failed',

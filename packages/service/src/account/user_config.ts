@@ -207,7 +207,10 @@ export class AccountConfigService {
   ) {
     this.accountsDir = join(appDataRoot, 'config', 'accounts');
     this.currentConfigId = accountConfigId(this.session.context.uin);
-    this.logger = getLogger().child({ scope: 'account-config', accountUin: this.session.context.uin });
+    this.logger = getLogger().child({
+      scope: 'account-config',
+      accountUin: this.session.context.uin,
+    });
   }
 
   /**

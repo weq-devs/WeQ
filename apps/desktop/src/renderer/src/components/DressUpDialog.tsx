@@ -140,22 +140,25 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
    * invalidate 后由 effect 去做。
    */
   const use = useCallback(
-    async (item: DressMallItem): Promise<void> => {
+    async (item: DressMallItem, nameForManifest = item.name): Promise<void> => {
       setBusyId(item.itemId);
       try {
+        // nameForManifest 与卡片上显示的名字可以不同 ——「QQ 正在用的X」那种占位串
+        // 显示可以,落盘不行(存进清单就洗不掉,列表会永远显示占位名)。
+        const name = nameForManifest;
         if (mallKind === 'bubble') {
           // material 原样回传 —— 外链推不出来,后端靠它零探测装上(见 dressup 路由)。
           // name/previewUrl 同理:装完只剩 itemId,商城没有按 id 查详情的接口。
           await installBubble.mutateAsync({
             itemId: item.itemId,
             material: item.material,
-            name: item.name,
+            name,
             previewUrl: item.previewLargeUrl || item.previewUrl,
           });
         } else {
           await installFont.mutateAsync({
             itemId: item.itemId,
-            name: item.name,
+            name,
             previewUrl: item.previewLargeUrl || item.previewUrl,
           });
         }
@@ -269,6 +272,8 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
   const mine = useMemo((): Array<{
     itemId: number;
     name: string;
+    /** true = name 只是「QQ 正在用的X」这种占位串,不能当真名存进清单。 */
+    placeholderName?: boolean;
     installed: boolean;
     /**
      * 商城预览图(装的时候落盘的那张)。空串 = 没有,卡片会显示占位。
@@ -279,7 +284,14 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
     previewUrl: string;
   }> => {
     if (!manifest) return [];
-    const installed =
+    // 显式标注:map 推出来的类型不含 placeholderName,下面 unshift 那条会过不了。
+    const installed: Array<{
+      itemId: number;
+      name: string;
+      placeholderName?: boolean;
+      installed: boolean;
+      previewUrl: string;
+    }> =
       mallKind === 'bubble'
         ? manifest.bubbles.map((b: BubbleSkin) => ({
             itemId: b.itemId,
@@ -305,7 +317,10 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
       const ownPreview = (isBubble ? own?.bubblePreviewUrl : own?.fontPreviewUrl) ?? '';
       installed.unshift({
         itemId: ownId,
+        // 只在真的没名字时才用占位串,而且要标出来 —— 否则它会被 use() 当成真名
+        // 写进清单,以后列表里就永远显示「QQ 正在用的气泡」了(实测踩过)。
         name: ownName || `QQ 正在用的${isBubble ? '气泡' : '字体'}`,
+        placeholderName: !ownName,
         installed: false,
         previewUrl: ownPreview,
       });
@@ -317,8 +332,14 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
    * @param previewSrc 已经解析好的预览图 src(可直接进 `<img>`)。空串 = 无预览。
    *                   由调用方给,因为商城条目要经 `weq-media://dress` 代理,而走
    *                   protocol 装的气泡要经 `weq-media://dressbubble`。
+   * @param nameForManifest 落盘用的名字,省略则同 `item.name`。「我的」里那条
+   *                   「QQ 正在用的X」传空串 —— 占位名显示可以,存进清单洗不掉。
    */
-  function renderCard(item: DressMallItem, previewSrc: string): ReactElement {
+  function renderCard(
+    item: DressMallItem,
+    previewSrc: string,
+    nameForManifest?: string,
+  ): ReactElement {
     const isActive = item.itemId === activeId;
     const busy = busyId === item.itemId;
     // 离线时:字体一律装不了;气泡只有在自带 material 时能装(外链推不出来,没 material
@@ -347,7 +368,7 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
           className="weq-dress-use"
           disabled={busy || isActive || blocked || applying}
           title={blocked ? blockedHint : undefined}
-          onClick={() => void use(item)}
+          onClick={() => void use(item, nameForManifest ?? item.name)}
         >
           {busy ? (
             <Loader2 size={14} className="weq-dress-spin" />
@@ -521,6 +542,9 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
               },
               // 存的是 CDN 裸链,进 <img> 前得跟商城列表一样过 weq-media://dress 代理。
               m.previewUrl ? dressUrl(m.previewUrl) : '',
+              // 占位名只用于显示,不落盘(空串 → 清单里没有 name → 列表退回「气泡 <id>」,
+              // 那是可恢复的;存了假名字反而永远洗不掉)。
+              m.placeholderName ? '' : m.name,
             ),
           )}
         </div>

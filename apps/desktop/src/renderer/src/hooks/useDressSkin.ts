@@ -53,11 +53,21 @@ export function syncDressSkinPreloaded(manifest: DressManifest | undefined): Pro
 
 /** 进主界面就读清单并注入。装扮页共用同一份 query,所以两边不会重复请求。 */
 export function useDressSkin(): void {
+  const utils = trpc.useUtils();
   const state = trpc.account.dressup.getState.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 60_000,
   });
   const manifest = state.data?.manifest;
+
+  // 开机同步(把手机 QQ 正在用的那两款装上)是网络往返,必然比首屏这次查询晚几秒。
+  // 不听这个推送的话,界面会拿着空清单一直等到 staleTime 过期 —— 表现为「已装 0」
+  // 且聊天页没气泡,而清单其实早就写好了。
+  trpc.account.dressup.onChanged.useSubscription(undefined, {
+    onData: () => {
+      void utils.account.dressup.getState.invalidate();
+    },
+  });
 
   useEffect(() => {
     syncDressSkin(manifest);

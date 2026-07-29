@@ -29,6 +29,7 @@
 import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
 import { WebCredentialProvider } from './web/credential';
+import type { FriendDress } from './web/friend_dress';
 import { getSelfDress } from './web/self_dress';
 import { getLogger, logErrorContext } from '../common/logger';
 
@@ -167,7 +168,10 @@ export async function fetchHomeDress(
     const profile = await session.profileInfo.getProfileByUin(BigInt(uin));
     tags = profile?.extInfo?.interests ?? [];
   } catch (e) {
-    logger.warn('failed to read profile interests', { event: 'home-dress-tags-failed', ...logErrorContext(e) });
+    logger.warn('failed to read profile interests', {
+      event: 'home-dress-tags-failed',
+      ...logErrorContext(e),
+    });
   }
 
   const snapshot: HomeDressSnapshot = { widgetUrl, cardUrl, cardVideoUrl, screenUrl, tags };
@@ -215,4 +219,52 @@ async function resolveCred(
   const creds = new WebCredentialProvider(nt, uin, () => pid);
   if (seedPskey) creds.seedPskey(seedPskey);
   return creds.forDomain(VIP_DOMAIN);
+}
+
+/**
+ * 他人的个性主页素材（挂件 / 名片 / 浮屏），由 {@link ./web/friend_dress} 的 SSR
+ * 结果翻成与 {@link HomeDressSnapshot} 同构的形状，供渲染侧与自己的首页共用一套组件。
+ *
+ * 与自己的快照有两点不同：
+ *  - 没有 tags/气泡/字体/聊天背景 —— 个性标签走 profile_info_v6（调用方自己有），
+ *    另外三类 SSR 页面对他人只回默认款（见 friend_dress 的 UNRESOLVABLE_APPS）。
+ *  - 名片视频**优先用 SSR 给的权威 videoUrl**（immersiveMaterial 里那条 720×1280），
+ *    只有它缺失时才回退到按 itemId 拼 immersive 路径的猜测值。
+ */
+export interface PeerDressSnapshot {
+  widgetUrl: string;
+  cardUrl: string;
+  cardVideoUrl: string;
+  screenUrl: string;
+  /** 装扮页附带的对方头像（与本地缓存的头像可能不同尺寸，作为兜底）。 */
+  avatarUrl: string;
+  isSvip: boolean;
+}
+
+export async function toPeerDress(dress: FriendDress): Promise<PeerDressSnapshot> {
+  /**
+   * 没设该类装扮时接口回的是「默认款」（`itemId: 0`），素材是 QQ 自己的推广图
+   * （如 `card/item/0/new1.png`）—— 那是广告不是这个人的装扮，一律当没有。
+   */
+  const pick = (appId: number) =>
+    dress.items.find((i) => i.appId === appId && i.itemId !== 0);
+  const widgetItem = pick(WIDGET);
+  const cardItem = pick(CARD);
+  const screenItem = pick(SCREEN);
+
+  const [widgetUrl, cardUrl, screenUrl, guessedVideo] = await Promise.all([
+    upgradePreview(widgetItem?.previewUrl ?? ''),
+    upgradePreview(cardItem?.previewUrl ?? ''),
+    upgradePreview(screenItem?.previewUrl ?? ''),
+    cardItem?.videoUrl ? Promise.resolve('') : resolveCardVideoUrl(cardItem?.itemId ?? 0),
+  ]);
+
+  return {
+    widgetUrl,
+    cardUrl,
+    cardVideoUrl: cardItem?.videoUrl || guessedVideo,
+    screenUrl,
+    avatarUrl: dress.avatarUrl,
+    isSvip: dress.isSvip,
+  };
 }

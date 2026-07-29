@@ -69,13 +69,14 @@ export type DressScope = 'mine' | 'all';
 const BUBBLE_SCALE = 0.5;
 
 /**
- * 内容内边距 ÷ 切片厚度。
+ * 纵向内边距 ÷ 切片厚度。
  *
  * 取自官方 `.9.png` 的 npTc chunk(唯一能拿到权威 padding 的来源,immersive 分发的 PNG
- * 把 npTc 剥掉了):实测 2078642 是 padding L40/R40/T32/B32 对 slice L64/R62/T55/B55,
- * 即横向 ≈0.63、纵向 ≈0.58。取 0.6 一档,与手 Q 观感基本吻合。
+ * 把 npTc 剥掉了):实测 2078642 是 padding T32/B32 对 slice T55/B55,即 ≈0.58,取 0.6。
+ *
+ * **横向不用这个比例** —— 见 {@link bubbleRules} 里 padding 那行的说明。
  */
-const PAD_RATIO = 0.6;
+const PAD_RATIO_Y = 0.6;
 
 const STYLE_ID = 'weq-dress-skin';
 
@@ -129,7 +130,11 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
     `  border-image-width: ${width};`,
     `  border-image-repeat: stretch;`,
     `  border-radius: 0;`,
-    `  padding: ${px(Math.min(wTop, wBottom) * PAD_RATIO)} ${px(Math.min(wLeft, wRight) * PAD_RATIO)};`,
+    // 横向内边距必须**盖满整条左右切片**,文字只能落在中间那 2px 的拉伸区上。
+    // 用 npTc 那个 0.6 会让文字压进角落的装饰画（实测「简约鲸鱼」那款，鲸鱼和气泡尖
+    // 都在左右切片里，文字直接骑上去）。纵向仍按 0.6 —— 上下切片多是纯边框，
+    // 盖满会让气泡看着空一大截。
+    `  padding: ${px(Math.min(wTop, wBottom) * PAD_RATIO_Y)} ${px(Math.max(wLeft, wRight))};`,
     `  min-width: ${px((left + right) * BUBBLE_SCALE)};`,
     `  min-height: ${px((top + bottom) * BUBBLE_SCALE)};`,
     `}`,
@@ -208,6 +213,13 @@ function preloadImage(url: string): Promise<void> {
 /** 已注册进 document.fonts 的那个 face。换字体时要先撤掉,否则会越积越多。 */
 let registeredFace: FontFace | null = null;
 
+/** 撤掉已注册的 face。取消字体时必须调,否则它会一直赖在 document.fonts 里。 */
+function unregisterFont(): void {
+  if (!registeredFace) return;
+  document.fonts.delete(registeredFace);
+  registeredFace = null;
+}
+
 /**
  * 加载字体并注册进 `document.fonts`。
  *
@@ -222,10 +234,7 @@ async function preloadFont(font: FontSkinCss): Promise<void> {
   const family = fontFamilyFor(font.itemId);
   if (registeredFace?.family === family) return;
 
-  if (registeredFace) {
-    document.fonts.delete(registeredFace);
-    registeredFace = null;
-  }
+  unregisterFont();
 
   try {
     const face = await new FontFace(family, `url("${font.fontUrl}")`).load();
@@ -241,12 +250,22 @@ async function preloadFont(font: FontSkinCss): Promise<void> {
  *
  * **同步的,不等资源** —— 进主界面时的首次注入走这条(资源多半已在磁盘缓存里,
  * 等它反而推迟首屏)。切换装扮请走 {@link applyDressSkinPreloaded}。
+ *
+ * 字体例外:必须**触发**注册(见下面的 preloadFont 调用),只是不 await。因为
+ * `@font-face` 已经不在注入的 CSS 里了 —— family 靠 FontFace API 注册进
+ * document.fonts,不注册的话 `font-family: "weq-dress-<id>"` 解析不出来,浏览器
+ * 静默回退到兜底字体,表现就是「气泡生效了但字体没生效」。
  */
 export function applyDressSkin(
   bubble: BubbleSkinCss | null,
   font: FontSkinCss | null,
   scope: DressScope = 'mine',
 ): void {
+  // 不 await:注册完成后 document.fonts 变化会让浏览器自己重绘用到该 family 的文本,
+  // 不需要我们再动 CSS。放在写 CSS 之前只是为了让下载早开始一点。
+  if (font) void preloadFont(font);
+  else unregisterFont();
+
   const existing = document.getElementById(STYLE_ID);
 
   if (!bubble && !font) {

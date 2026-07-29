@@ -180,6 +180,12 @@ export interface AppSettings {
    * 会原样显示）。默认开启。markdownElement 不受此开关影响，始终按 Markdown 渲染。
    */
   renderTextMarkdown: boolean;
+  /**
+   * 是否把 QQ 挂件叠在聊天页的头像外圈。只作用于**自己**的头像 —— 挂件素材取自
+   * bootstrap 存下的 homeDress.widgetUrl，他人的挂件要逐个走 SSR 页面查，
+   * 每条消息一次网络往返不现实。默认开启，没挂件时该开关无副作用。
+   */
+  showAvatarPendant: boolean;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -196,6 +202,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   agentLab: { providers: [] },
   windowCloseBehavior: 'ask',
   renderTextMarkdown: true,
+  showAvatarPendant: true,
 };
 
 export interface UserConfig {
@@ -412,6 +419,7 @@ export class UserConfigService {
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
       windowCloseBehavior: normalizeWindowCloseBehavior(s?.windowCloseBehavior) ?? d.windowCloseBehavior,
       renderTextMarkdown: s?.renderTextMarkdown ?? d.renderTextMarkdown,
+      showAvatarPendant: s?.showAvatarPendant ?? d.showAvatarPendant,
       mediaCompletion: {
         enabled: s?.mediaCompletion?.enabled ?? d.mediaCompletion.enabled,
       },
@@ -443,6 +451,7 @@ export class UserConfigService {
       windowCloseBehavior:
         normalizeWindowCloseBehavior(patch.windowCloseBehavior) ?? current.windowCloseBehavior,
       renderTextMarkdown: patch.renderTextMarkdown ?? current.renderTextMarkdown,
+      showAvatarPendant: patch.showAvatarPendant ?? current.showAvatarPendant,
       mediaCompletion: {
         enabled: patch.mediaCompletion?.enabled ?? current.mediaCompletion.enabled,
       },

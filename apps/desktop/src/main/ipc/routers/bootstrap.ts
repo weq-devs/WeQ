@@ -26,6 +26,7 @@ import {
   getAppContext,
   requireBootstrap,
   requirePlatform,
+  emitDressChanged,
   emitKeyFetchStalled,
   rememberAccountUid,
   type AccountForcedClosedEvent,
@@ -351,6 +352,17 @@ export const bootstrapRouter = router({
     .input(z.object({ enabled: z.boolean() }))
     .mutation(({ input }) => {
       requireBootstrap().userConfig.setSettings({ renderTextMarkdown: input.enabled });
+      return true;
+    }),
+
+  /**
+   * 头像挂件是否叠在聊天页自己的头像上。渲染层通过 App.tsx 的 SelfPendantContext
+   * 读取——纯持久化，无需主进程侧应用。
+   */
+  setShowAvatarPendant: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ showAvatarPendant: input.enabled });
       return true;
     }),
 
@@ -1036,7 +1048,13 @@ export const bootstrapRouter = router({
         // CDN can't hold up entering the account.
         if (services && session) {
           void fetchHomeDress(platform.native.ntHelper, session, 0, input.pskey)
-            .then((dress) => services.accountConfig.setHomeDress(dress))
+            .then(async (dress) => {
+              services.accountConfig.setHomeDress(dress);
+              // 顺手把手机 QQ 正在用的气泡/字体装上并切过去。只在用户从没自己选过时
+              // 动手，内部逐项静默失败（见 syncFromQq）。
+              await services.dressInstall.syncFromQq(dress);
+              emitDressChanged();
+            })
             .catch((e) => {
               logger.warn('home dress fetch from login pskey failed (non-fatal)', {
                 event: 'router-home-dress-failed',

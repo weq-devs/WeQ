@@ -17,9 +17,10 @@
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { observable } from '@trpc/server/observable';
 import { z } from 'zod';
-import { DressAppId, normalizeMallItems, type DressMallItem } from '@weq/service';
-import { getAppContext, type AccountServices } from '../../context/app_context';
+import { DressAppId, normalizeMallItems, toPeerDress, type DressMallItem } from '@weq/service';
+import { accountEventBus, getAppContext, type AccountServices } from '../../context/app_context';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
 
@@ -39,6 +40,9 @@ function qqOnline(services = requireServices()): boolean {
 
 const OFFLINE_HINT =
   '需要先登录该账号的 QQ 客户端 —— 装扮商城搜索与字体下载都要通过在线实例获取凭证。';
+
+const PEER_HOME_HINT =
+  '获取失败 —— 个性主页要拿该账号的 QQ 会员票据去查，请确认这个账号的 QQ 客户端正在运行。';
 
 const kindInput = z.enum(['bubble', 'font']);
 type DressKindInput = z.infer<typeof kindInput>;
@@ -112,6 +116,22 @@ function listScreenWidgets(): string[] {
 
 export const dressupRouter = router({
   /** 装扮页进场状态:在线与否 + 本地清单(已装/生效)。 */
+  /**
+   * 主进程改过清单了(开机同步)。前端收到就 invalidate getState —— 同步是网络往返,
+   * 必然晚于首屏那次查询几秒,不推的话会一直显示「已装 0」直到 staleTime 过期。
+   */
+  onChanged: procedure.subscription(() => {
+    return observable<{ at: number }>((emit) => {
+      const handler = (e: { at: number }): void => {
+        emit.next(e);
+      };
+      accountEventBus.on('dressChanged', handler);
+      return () => {
+        accountEventBus.off('dressChanged', handler);
+      };
+    });
+  }),
+
   getState: procedure.query(() => {
     const services = requireServices();
     const manifest = services.dressInstall.read();
@@ -283,4 +303,27 @@ export const dressupRouter = router({
   widgets: procedure.query(() => {
     return listScreenWidgets().map((id) => ({ id }));
   }),
+
+  /**
+   * 他人的个性主页素材(挂件 / 名片 / 浮屏)。
+   *
+   * **不预先按 qqOnline 短路** —— 那个标记只说明「本次会话注入过」,票据可能还在有效期内,
+   * 也可能标记为真而实际已过期。一律先打一次,让服务端告诉我们行不行;失败再统一转成
+   * 「需要在线实例」的提示。慢(SSR 页面几秒)但语义准确。
+   */
+  peerHome: procedure
+    .input(z.object({ uin: z.string().regex(/^\d{5,}$/) }))
+    .query(async ({ input }) => {
+      const services = requireServices();
+      let dress: Awaited<ReturnType<typeof services.webQuery.getFriendDress>>;
+      try {
+        dress = await services.webQuery.getFriendDress(input.uin);
+      } catch {
+        throw new Error(PEER_HOME_HINT);
+      }
+      // null = 页面抠不出 __INITIAL_ASYNCDATA__(未登录态 / 风控 / 页面改版),
+      // 与网络失败同因同果,给同一句提示。
+      if (!dress) throw new Error(PEER_HOME_HINT);
+      return toPeerDress(dress);
+    }),
 });

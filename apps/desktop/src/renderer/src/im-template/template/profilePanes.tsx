@@ -26,10 +26,12 @@ import {
 	User,
 	Users,
 	Utensils,
+	Wand2,
 	X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { openLightbox } from "../../components/ImageLightbox";
+import { PersonalityHomeDialog } from "../../components/PersonalityHomeDialog";
 import { albumMediaUrl, collectionImageUrl } from "../../lib/resourceUrl";
 import { cn } from "./classNames";
 import { copyTextToClipboard } from "./clipboard";
@@ -169,6 +171,37 @@ function albumUrl(
 }
 
 /**
+ * 把资料里的扩展字段（21000 列）翻成个性主页要的形状。
+ *
+ * 好友灯箱和群成员卡片都要用，且两边拿到的 profile 形状不同（一个是 Contact、
+ * 一个是 getProfile 的 wire 对象），所以只吃 `extInfo` + 三个显示字段。
+ */
+export function toPersonalityProfile(
+	base: { name: string; avatarUrl: string | null; signature?: string | null },
+	ext?: ProfileExtInfo | null,
+) {
+	return {
+		...base,
+		interests: (ext?.interests ?? []).filter((tag) => tag.trim()),
+		privileges: (ext?.privileges ?? [])
+			.filter((item) => item.opened && item.iconUrl)
+			.map((item) => ({
+				bizId: item.bizId,
+				level: item.level,
+				iconUrl: item.iconUrl,
+				label: privilegeName(item.bizId),
+			})),
+		region: regionText(ext),
+		album: (ext?.album ?? [])
+			.map((photo) => ({
+				thumb: albumUrl(photo, [3, 4, 2]) ?? "",
+				full: albumUrl(photo, [2, 1, 3]) ?? "",
+			}))
+			.filter((p) => p.thumb && p.full),
+	};
+}
+
+/**
  * 联系人主区域占位。好友资料改为点击弹出灯箱（{@link ContactProfileDialog}），
  * 右半边主区域留白，作为后续功能预留位。
  */
@@ -203,9 +236,11 @@ export function ContactProfileDialog({
 	onClose: () => void;
 }) {
 	const [copied, setCopied] = useState(false);
+	const [homeOpen, setHomeOpen] = useState(false);
 
 	useEffect(() => {
 		setCopied(false);
+		setHomeOpen(false);
 	}, [contact?.id]);
 
 	useEffect(() => {
@@ -512,7 +547,34 @@ export function ContactProfileDialog({
 						/>
 					) : null}
 				</div>
+
+				{/* 个性主页要拿 QQ 号去查会员装扮页——只有 uin 的联系人才给这个入口。 */}
+				{profile.identityLabel === "QQ" ? (
+					<button
+						className="weq-profile-perhome"
+						type="button"
+						onClick={() => setHomeOpen(true)}
+					>
+						<Wand2 size={13} />
+						查看个性主页
+					</button>
+				) : null}
 			</section>
+
+			{homeOpen ? (
+				<PersonalityHomeDialog
+					uin={profile.identityValue}
+					profile={toPersonalityProfile(
+						{
+							name: displayUserName(profile),
+							avatarUrl: profile.avatarUrl,
+							signature: profile.signature,
+						},
+						extInfo,
+					)}
+					onClose={() => setHomeOpen(false)}
+				/>
+			) : null}
 		</div>
 	);
 }
