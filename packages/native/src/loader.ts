@@ -21,7 +21,7 @@
  *
  * Resolution order:
  *   1. WEQ_NATIVE_DIR env var  (full override; expects same layout)
- *   2. <resourcesPath>/native  (production, packaged Electron)
+ *   2. <install root>/native   (production, packaged Electron — sibling of resources/)
  *   3. <repo>/native           (dev — found by walking up from this file)
  *
  * `loadNative()` is idempotent: first call resolves + requires + verifies
@@ -154,12 +154,17 @@ function resolveNativeRoot(): string {
     return override;
   }
 
-  // Production: Electron sets process.resourcesPath when packaged.
+  // Production: Electron sets process.resourcesPath when packaged. The bundle
+  // is copied to the install root (sibling of resources/), not into resources/.
   const electronResources = (process as NodeJS.Process & { resourcesPath?: string })
     .resourcesPath;
   if (electronResources) {
-    const packaged = join(electronResources, 'native');
-    if (existsSync(packaged)) return packaged;
+    for (const packaged of [
+      join(dirname(electronResources), 'native'),
+      join(electronResources, 'native'),
+    ]) {
+      if (existsSync(packaged)) return packaged;
+    }
   }
 
   // Dev: bundlers (electron-vite) rewrite `import.meta.url` so it points
@@ -185,7 +190,7 @@ function resolveNativeRoot(): string {
   throw new Error(
     `Could not locate native/ directory. Tried:\n` +
       `  - WEQ_NATIVE_DIR env var (unset)\n` +
-      `  - ${electronResources ? join(electronResources, 'native') : '<not running under Electron>'}\n` +
+      `  - ${electronResources ? join(dirname(electronResources), 'native') : '<not running under Electron>'}\n` +
       tried.map((t) => `  - ${t}`).join('\n') +
       `\nSet WEQ_NATIVE_DIR to override.`,
   );

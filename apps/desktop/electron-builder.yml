@@ -16,12 +16,6 @@ files:
   - "node_modules/**/*"
   - "!node_modules/@weq/**/*"
 extraResources:
-  # native (.node) files live outside the source tree and are bundled at
-  # package time. Source uses the nested layout `native/<os>/<arch>/*.node`
-  # (e.g. native/win32/x64/nt_helper.node); destination keeps the same shape.
-  - from: ../../native/${os}/${arch}
-    to: native/${os}/${arch}
-
   - from: ../../LICENSE
     to: ../LICENSE
 
@@ -41,7 +35,6 @@ extraResources:
     to: out/main/injectWorker.mjs
 
 asarUnpack:
-  - resources/native/**/*
   # @resvg/resvg-js loads a platform .node binding (used by the WeQ 助手 cover
   # renderer in the main process). Native addons can't be loaded from inside the
   # asar, so unpack the resvg packages (base + per-platform binding).
@@ -52,6 +45,15 @@ asarUnpack:
 
 win:
   icon: ../../resources/brand/logo.png
+  # native (.node) files live outside the source tree and are bundled at
+  # package time, into the install root (NOT resources/) so the layout is
+  # `<install>/native/<platform>/<arch>/…` — matching what the loader resolves
+  # from process.platform/process.arch. Written per-platform because the
+  # `${os}` macro expands to electron-builder's key ("win"/"linux"), not to
+  # node's process.platform ("win32"/"linux").
+  extraFiles:
+    - from: ../../native/win32/x64
+      to: native/win32/x64
   target:
     - target: nsis
       arch:
@@ -64,10 +66,13 @@ nsis:
   artifactName: ${productName}-${version}-setup.${ext}
 
 # Linux 目标：AppImage（单文件免安装，最通用）+ tar.gz（解压即用）。
-# x64 与 arm64 都出；native/ 二进制通过上面的 extraResources 按 ${os}/${arch}
+# x64 与 arm64 都出；native/ 二进制通过下面的 extraFiles 按 ${arch}
 # 自动挑对应架构（linux/x64 或 linux/arm64）。arm64 未经真机实测。
 linux:
   icon: ../../resources/brand/logo.png
+  extraFiles:
+    - from: ../../native/linux/${arch}
+      to: native/linux/${arch}
   target:
     - target: AppImage
       arch:
