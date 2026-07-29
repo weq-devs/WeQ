@@ -60,6 +60,24 @@ export function dressUrl(src: string): string {
   return src ? mediaUrl('dress', { src }) : '';
 }
 
+/**
+ * 已安装的装扮字体 ttf。清单里记着绝对路径,主进程按 itemId 查(见 dress_install)。
+ * 走 weq-media 而不是 weq-asset —— 后者只服务仓库的 resources/ 树,读不了账号缓存目录。
+ */
+export function dressFontUrl(itemId: number): string {
+  return mediaUrl('dressfont', { id: itemId });
+}
+
+/**
+ * 走 protocol 兜底装上的气泡九宫格(本地 PNG)。
+ *
+ * 与 {@link dressUrl} 二选一:CDN 直链走那个,本地文件走这个 —— `dress` 分支有
+ * host 白名单(只放行 tianquan.gtimg.cn),喂本地路径会被拒。
+ */
+export function dressBubbleUrl(itemId: number): string {
+  return mediaUrl('dressbubble', { id: itemId });
+}
+
 /** Preview a local file under `nt_data/File/Ori` by absolute path (image thumbnails). */
 export function localFileUrl(absPath: string): string {
   return mediaUrl('localfile', { path: absPath });

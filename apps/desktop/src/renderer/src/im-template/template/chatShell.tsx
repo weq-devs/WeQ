@@ -33,6 +33,7 @@ export function ChatShell({
 	onOpenSettings,
 	onOpenCollection,
 	onOpenMarketBrowser,
+	onOpenDressUp,
 	onOpenProfile,
 	onOpenAbout,
 	onOpenHelp,
@@ -67,6 +68,7 @@ export function ChatShell({
 	onOpenSettings: (tab?: SettingsTab) => void;
 	onOpenCollection: () => void;
 	onOpenMarketBrowser: () => void;
+	onOpenDressUp: () => void;
 	onOpenProfile: () => void;
 	onOpenAbout: () => void;
 	onOpenHelp: () => void;
@@ -98,6 +100,7 @@ export function ChatShell({
 					onOpenSettings={onOpenSettings}
 					onOpenCollection={onOpenCollection}
 					onOpenMarketBrowser={onOpenMarketBrowser}
+					onOpenDressUp={onOpenDressUp}
 					onOpenProfile={onOpenProfile}
 					onOpenAbout={onOpenAbout}
 					onOpenHelp={onOpenHelp}

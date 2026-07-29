@@ -64,6 +64,7 @@ import {
   AgentLabService,
   AssistantService,
   CollectionService,
+  DressInstallService,
   TokenUsageStore,
   ConversationStore,
   DeletedMsgStore,
@@ -400,6 +401,8 @@ export interface AccountServices {
   groupAlbumMedia: GroupAlbumMediaService;
   /** QQ 收藏 (favorites) reader over collection.db. */
   collection: CollectionService;
+  /** 个性装扮(气泡/字体)的本地安装与清单。气泡不需在线,字体需在线实例。 */
+  dressInstall: DressInstallService;
 }
 
 /** Classified native-init failure surfaced to the renderer. */
@@ -705,6 +708,13 @@ export function initAppContext(): AppContext {
       // 收藏服务：网络优先(微云 collector)、拿不到 p_skey 回退 collection.db。
       // 既进 services，又喂给导出管理器的收藏拉取 dep（拍平投影）。
       const collectionSvc = new CollectionService(platform.native.ntHelper, session, resolveOnlinePid);
+      // 个性装扮：气泡纯 itemId 可拼外链（离线也能装），字体要在线实例换下载链。
+      const dressInstall = new DressInstallService(
+        platform.native.ntHelper,
+        bootstrap.avatarCache,
+        userConfig.cacheDir(join('dress', exportConfigId)),
+        resolveOnlinePid,
+      );
       // Built before the services literal so AgentLab can reuse the same media
       // pipeline (媒体寻址 + rkey 补全) for 表情包/语音.
       const fileSearch = new FileSearchService(session, platform);
@@ -742,6 +752,7 @@ export function initAppContext(): AppContext {
         msgSearch: new MsgSearchService(session),
         onlineStatus: new OnlineStatusService(session),
         collection: collectionSvc,
+        dressInstall,
         fileSearch,
         mediaDownload,
         mediaUrl,
@@ -1045,6 +1056,13 @@ export function initAppContext(): AppContext {
       const profile = new ProfileService(session);
       // 收藏服务：静态账号 noPid 会让网络路径拿不到 p_skey → 自动回退 collection.db。
       const collectionSvc = new CollectionService(platform.native.ntHelper, session, noPid);
+      // 个性装扮：静态账号 noPid → 气泡照常可装（外链纯 itemId），字体会明确报错。
+      const dressInstall = new DressInstallService(
+        platform.native.ntHelper,
+        bootstrap.avatarCache,
+        userConfig.cacheDir(join('dress', exportConfigId)),
+        noPid,
+      );
       const fileSearch = new FileSearchService(session, platform);
       const agentlabRoot = userConfig.cacheDir(join('agentlab', exportConfigId));
       const tokenUsage = new TokenUsageStore(join(agentlabRoot, 'usage.json'));
@@ -1078,6 +1096,7 @@ export function initAppContext(): AppContext {
         msgSearch: new MsgSearchService(session),
         onlineStatus: new OnlineStatusService(session),
         collection: collectionSvc,
+        dressInstall,
         fileSearch,
         mediaDownload,
         mediaUrl,

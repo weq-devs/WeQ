@@ -16,6 +16,12 @@ import {
   type QzoneFeedsResult,
 } from './qzone';
 import { getSelfDress, type SelfDress } from './self_dress';
+import {
+  getDressRank,
+  searchDress,
+  type DressAppId,
+  type DressMallItem,
+} from './dress_mall';
 
 const QUN_DOMAIN = 'qun.qq.com';
 const QZONE_DOMAIN = 'qzone.qq.com';
@@ -48,6 +54,30 @@ export class WebQueryService {
   /** 查**本账号**正在用的全部装扮 —— 含查他人拿不到的气泡/字体。 */
   async getSelfDress(): Promise<SelfDress> {
     return getSelfDress(await this.creds.forDomain(VIP_DOMAIN));
+  }
+
+  /** 装扮商城排行榜。 */
+  async getDressRank(
+    appId: DressAppId,
+    pageIndex = 1,
+    pageSize = 20,
+  ): Promise<DressMallItem[]> {
+    return getDressRank(await this.creds.forDomain(VIP_DOMAIN), { appId, pageIndex, pageSize });
+  }
+
+  /** 装扮商城搜索。`pageIndex` 从 0 起(与排行榜不同,照接口)。 */
+  async searchDress(
+    appId: DressAppId,
+    keyword: string,
+    pageIndex = 0,
+    pageSize = 40,
+  ): Promise<{ items: DressMallItem[]; total: number }> {
+    return searchDress(await this.creds.forDomain(VIP_DOMAIN), {
+      appId,
+      keyword,
+      pageIndex,
+      pageSize,
+    });
   }
 
   async getHonorList(groupCode: string, type: HonorType): Promise<HonorMember[]> {

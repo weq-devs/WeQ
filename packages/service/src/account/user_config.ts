@@ -129,13 +129,17 @@ export interface AccountConfig {
    * fetch works without a hook round-trip.
    */
   loginPskey?: Record<string, string>;
-  /** 首页个性装扮快照（挂件/名片/浮屏/个性标签），在线注入后写入。 */
+  /** 首页个性装扮快照（挂件/名片/浮屏/个性标签 + 气泡/字体 id），在线注入后写入。 */
   homeDress?: {
     widgetUrl: string;
     cardUrl: string;
     cardVideoUrl: string;
     screenUrl: string;
     tags: string[];
+    /** 正在用的气泡 itemId。渲染侧据此拼九宫格外链（纯 itemId 可预测，无需下载凭证）。 */
+    bubbleId?: number;
+    /** 正在用的聊天字体 itemId（不含界面字体 305）。字体文件得走 protocol 另取。 */
+    fontId?: number;
   };
 }
 

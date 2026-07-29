@@ -1,0 +1,476 @@
+/* ──────────────────────────────────────────────────────────────────────────
+ * 个性装扮灯箱样式。与收藏灯箱同一套壳(fixed 层 + 居中面板 + 右上关闭),内容区沿用
+ * weq 设计语言：主题色描边、小圆角、轻量留白。所有类名以 weq-dress- 前缀。
+ * 注意与 dressSkin.ts 注入的 `#weq-dress-skin` 无关 —— 那个作用在聊天气泡上。
+ * ────────────────────────────────────────────────────────────────────────── */
+
+.weq-dress-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  background: rgba(246, 247, 248, 0.55);
+  backdrop-filter: blur(4px);
+}
+
+.weq-dress-dialog {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(940px, calc(100vw - 48px));
+  height: min(660px, calc(100vh - 72px));
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.99);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.16);
+  overflow: hidden;
+  color: #161616;
+  font-size: 13px;
+}
+
+.weq-dress-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #6b7686;
+  cursor: pointer;
+}
+
+.weq-dress-close:hover,
+.weq-dress-close:focus-visible {
+  background: rgba(0, 0, 0, 0.05);
+  color: #161616;
+  outline: none;
+}
+
+/* ===== 头部：标题 + 类别切换 + 搜索 ===== */
+.weq-dress-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 52px 12px 16px;
+  border-bottom: 1px solid var(--weq-border, rgba(0, 0, 0, 0.08));
+}
+
+.weq-dress-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--weq-accent-effective, #12a8ff);
+  flex: none;
+}
+
+.weq-dress-title-row h2 {
+  margin: 0;
+  color: inherit;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.weq-dress-kinds {
+  display: flex;
+  gap: 4px;
+  flex: none;
+}
+
+.weq-dress-kind {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #6b7686;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.weq-dress-kind:hover {
+  background: var(--weq-bg-hover, rgba(0, 0, 0, 0.04));
+}
+
+.weq-dress-kind.is-active {
+  background: var(--weq-accent-effective, #12a8ff);
+  color: #fff;
+  font-weight: 600;
+}
+
+.weq-dress-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 5px 10px;
+  border: 1px solid var(--weq-border, rgba(0, 0, 0, 0.12));
+  border-radius: 8px;
+  background: var(--weq-bg-subtle, rgba(0, 0, 0, 0.03));
+  color: #6b7686;
+  flex: none;
+}
+
+.weq-dress-search input {
+  width: 190px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 12.5px;
+  outline: none;
+}
+
+.weq-dress-search input:disabled {
+  cursor: not-allowed;
+}
+
+.weq-dress-search-clear {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.weq-dress-search-clear:hover {
+  background: rgba(0, 0, 0, 0.07);
+}
+
+/* ===== 工具栏：已装筛选 + 渲染范围 + 取消当前 ===== */
+.weq-dress-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--weq-border, rgba(0, 0, 0, 0.06));
+}
+
+.weq-dress-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid var(--weq-border, rgba(0, 0, 0, 0.12));
+  border-radius: 999px;
+  background: transparent;
+  color: #6b7686;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.weq-dress-chip:hover {
+  border-color: var(--weq-accent-effective, #12a8ff);
+}
+
+.weq-dress-chip.is-active {
+  border-color: transparent;
+  background: var(--weq-accent-effective, #12a8ff);
+  color: #fff;
+  font-weight: 600;
+}
+
+.weq-dress-chip-n {
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.weq-dress-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.weq-dress-scope-label {
+  color: #8a94a4;
+  font-size: 11.5px;
+}
+
+/* 两段式开关：仅自己 / 所有人。 */
+.weq-dress-scope {
+  display: flex;
+  padding: 2px;
+  border: 1px solid var(--weq-border, rgba(0, 0, 0, 0.12));
+  border-radius: 8px;
+  background: var(--weq-bg-subtle, rgba(0, 0, 0, 0.03));
+}
+
+.weq-dress-scope-btn {
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #6b7686;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.weq-dress-scope-btn.is-active {
+  background: var(--weq-accent-effective, #12a8ff);
+  color: #fff;
+  font-weight: 600;
+}
+
+.weq-dress-hint {
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(250, 173, 20, 0.14);
+  color: #a86a00;
+  font-size: 11px;
+}
+
+.weq-dress-clear {
+  padding: 4px 10px;
+  border: 1px solid var(--weq-border, rgba(0, 0, 0, 0.12));
+  border-radius: 8px;
+  background: transparent;
+  color: #6b7686;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.weq-dress-clear:hover {
+  border-color: #f5222d;
+  color: #f5222d;
+}
+
+/* 离线提示条：只影响搜索与字体下载，文案要说清楚，别让用户以为整页坏了。 */
+.weq-dress-notice {
+  display: flex;
+  gap: 7px;
+  margin: 10px 16px 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(250, 173, 20, 0.35);
+  border-radius: 9px;
+  background: rgba(250, 173, 20, 0.08);
+  color: #a86a00;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.weq-dress-notice svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.weq-dress-notice.is-bad {
+  border-color: rgba(245, 34, 45, 0.35);
+  background: rgba(245, 34, 45, 0.07);
+  color: #d4380d;
+}
+
+/* ===== 卡片网格 ===== */
+.weq-dress-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px 16px;
+}
+
+.weq-dress-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.weq-dress-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--weq-border, rgba(0, 0, 0, 0.08));
+  border-radius: 10px;
+  background: var(--weq-bg-elevated, #fff);
+  overflow: hidden;
+}
+
+.weq-dress-card.is-active {
+  border-color: var(--weq-accent-effective, #12a8ff);
+  box-shadow: 0 0 0 1px var(--weq-accent-effective, #12a8ff) inset;
+}
+
+.weq-dress-card-preview {
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: 110px;
+  /* 棋盘底：装扮预览多是透明 PNG，纯色底会看不清边缘。 */
+  background:
+    repeating-conic-gradient(rgba(0, 0, 0, 0.045) 0% 25%, transparent 0% 50%) 50% / 12px 12px;
+}
+
+.weq-dress-card-preview img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.weq-dress-card-noimg {
+  color: #a8b0bd;
+  font-size: 11px;
+}
+
+.weq-dress-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: rgba(18, 168, 255, 0.9);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.weq-dress-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px 6px;
+  min-width: 0;
+}
+
+.weq-dress-card-body strong {
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-dress-card-body small {
+  font-size: 11px;
+  color: #8a94a4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-dress-use {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin: 0 10px 10px;
+  padding: 6px 0;
+  border: 1px solid var(--weq-accent-effective, #12a8ff);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--weq-accent-effective, #12a8ff);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.weq-dress-use:hover:not(:disabled) {
+  background: var(--weq-accent-effective, #12a8ff);
+  color: #fff;
+}
+
+.weq-dress-use:disabled {
+  border-color: var(--weq-border, rgba(0, 0, 0, 0.12));
+  color: #a8b0bd;
+  cursor: not-allowed;
+}
+
+/* ===== 空 / 加载 / 错误态 ===== */
+.weq-dress-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 100%;
+  min-height: 220px;
+  color: #8a94a4;
+}
+
+.weq-dress-empty p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.weq-dress-empty span {
+  font-size: 11.5px;
+  color: #a8b0bd;
+}
+
+.weq-dress-empty.is-error {
+  color: #d4380d;
+}
+
+.weq-dress-empty.is-warn {
+  color: #a86a00;
+}
+
+.weq-dress-spin {
+  animation: weq-dress-rotate 0.9s linear infinite;
+}
+
+@keyframes weq-dress-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ===== 深色 ===== */
+html[data-theme="dark"] .weq-dress-layer {
+  background: rgba(10, 12, 16, 0.42);
+}
+
+html[data-theme="dark"] .weq-dress-dialog {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #161a20;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.45);
+  color: #edf2f7;
+}
+
+html[data-theme="dark"] .weq-dress-close {
+  color: #98a4b3;
+}
+
+html[data-theme="dark"] .weq-dress-close:hover,
+html[data-theme="dark"] .weq-dress-close:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f7fbff;
+}
+
+html[data-theme="dark"] .weq-dress-head,
+html[data-theme="dark"] .weq-dress-toolbar {
+  border-color: rgba(255, 255, 255, 0.09);
+}
+
+html[data-theme="dark"] .weq-dress-card {
+  border-color: rgba(255, 255, 255, 0.09);
+  background: #1f2429;
+}
+
+html[data-theme="dark"] .weq-dress-search,
+html[data-theme="dark"] .weq-dress-scope {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .weq-dress-chip,
+html[data-theme="dark"] .weq-dress-clear {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+html[data-theme="dark"] .weq-dress-search-clear:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+html[data-theme="dark"] .weq-dress-card-preview {
+  background:
+    repeating-conic-gradient(rgba(255, 255, 255, 0.05) 0% 25%, transparent 0% 50%) 50% / 12px 12px;
+}

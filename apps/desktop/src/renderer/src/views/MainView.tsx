@@ -28,9 +28,11 @@ import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { datalineName, isDatalineSelfUid } from '@weq/codec';
 import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
+import { useDressSkin } from '../hooks/useDressSkin';
 import { RailAccountFooter } from '../components/RailAccountFooter';
 import { SettingsDialog } from '../components/SettingsDialog';
 import { CollectionDialog } from '../components/CollectionDialog';
+import { DressUpDialog } from '../components/DressUpDialog';
 import { MarketEmojiBrowserLightbox } from './export/MarketEmojiBrowserLightbox';
 import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
 import { GroupAnalyticsDialog } from '../components/GroupAnalyticsDialog';
@@ -1581,6 +1583,9 @@ export function MainView(): ReactElement {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [collectionOpen, setCollectionOpen] = useState(false);
   const [marketBrowserOpen, setMarketBrowserOpen] = useState(false);
+  const [dressUpOpen, setDressUpOpen] = useState(false);
+  // 装扮样式注入提到这一层 —— 进主界面就生效,不必先打开装扮灯箱。
+  useDressSkin();
   const [requestedAnnouncementGroups, setRequestedAnnouncementGroups] = useState<Record<string, boolean>>({});
   const [albumDialog, setAlbumDialog] = useState<{
     groupCode: string;
@@ -2893,6 +2898,7 @@ export function MainView(): ReactElement {
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenCollection={() => setCollectionOpen(true)}
         onOpenMarketBrowser={() => setMarketBrowserOpen(true)}
+        onOpenDressUp={() => setDressUpOpen(true)}
         onOpenProfile={noopAsync}
         onOpenAbout={noopAsync}
         onOpenHelp={noopAsync}
@@ -3076,6 +3082,7 @@ export function MainView(): ReactElement {
       {marketBrowserOpen ? (
         <MarketEmojiBrowserLightbox onClose={() => setMarketBrowserOpen(false)} />
       ) : null}
+      {dressUpOpen ? <DressUpDialog onClose={() => setDressUpOpen(false)} /> : null}
       {albumDialog ? (
         <GroupAlbumDialog
           groupCode={albumDialog.groupCode}

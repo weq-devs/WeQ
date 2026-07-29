@@ -20,7 +20,9 @@
  *   weq-media://localfile?path=<absOriPath>                   → File/Ori file bytes (image preview)
  *   weq-media://localmedia?kind=pic&rel=<month/Ori/name>      → PhotoWall/Qzone/Pic/Video cache bytes
  *   weq-media://localvoice?rel=<month/Ori/name>               → decoded WAV for a Ptt cache clip
- *   weq-media://dress?src=<tianquanUrl>                       → 会员装扮资源(挂件/名片/浮屏/背景)
+ *   weq-media://dress?src=<tianquanUrl>                       → 会员装扮资源(挂件/名片/浮屏/背景/气泡切片)
+ *   weq-media://dressfont?id=<itemId>                         → 已安装的装扮字体 ttf
+ *   weq-media://dressbubble?id=<itemId>                       → 走 protocol 装的气泡九宫格(本地 PNG)
  *
  * Like the other custom schemes: `registerMediaScheme()` runs before app
  * `ready`; `registerMediaProtocol()` runs after.
@@ -217,6 +219,22 @@ export function registerMediaProtocol(): void {
 
     const services = getAppContext().services;
     if (!services) return notFound('no account session');
+
+    // 装扮字体:清单里记的 ttf 绝对路径。放在这里(而不是 weq-asset)是因为
+    // weq-asset 只服务仓库的 resources/ 树,读不了账号缓存目录。
+    if (kind === 'dressfont') {
+      const id = Number(q.get('id') ?? '0');
+      const path = id ? services.dressInstall.fontFile(id) : null;
+      return path ? fileResponse(path) : notFound('dress font not installed');
+    }
+
+    // 走 protocol 兜底装上的气泡:九宫格 PNG 是从 static.zip 解出来的本地文件,
+    // 上面的 `dress` 分支只放行 tianquan.gtimg.cn,所以本地这条要单独一支。
+    if (kind === 'dressbubble') {
+      const id = Number(q.get('id') ?? '0');
+      const path = id ? services.dressInstall.bubbleFile(id) : null;
+      return path ? fileResponse(path) : notFound('dress bubble not installed');
+    }
 
     const name = q.get('name') ?? '';
     const tMs = Number(q.get('t') ?? '0');

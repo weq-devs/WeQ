@@ -31,6 +31,7 @@ import { relatedEmojiRouter } from './related_emoji';
 import { fileResourceRouter } from './file_resource';
 import { mediaResourceRouter } from './media_resource';
 import { resourceCleanupRouter } from './resource_cleanup';
+import { dressupRouter } from './dressup';
 import { assistantBus, type AssistantStreamEvent } from '../../mcp/assistant_bus';
 import { validateMcpConfig } from '../../mcp/external';
 import { groupChatBus, type GroupChatStreamEvent } from '../../mcp/agentlab_group_bus';
@@ -615,6 +616,8 @@ export const accountRouter = router({
   mediaResource: mediaResourceRouter,
   // ---- nt_data 资源清理释放 (本地资源整理 → 清理释放) ----
   resourceCleanup: resourceCleanupRouter,
+  // ---- 个性装扮（气泡九宫格 / 聊天字体）----
+  dressup: dressupRouter,
 
   // ---- agent lab ----
 
