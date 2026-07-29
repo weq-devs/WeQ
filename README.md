@@ -33,6 +33,8 @@
 | ![image-20260719012740048](./docs/images/image-20260719012740048.png) | ![image-20260719012944970](./docs/images/image-20260719012944970.png) |
 | **完整QQ表情资源查看** | **导出html** |
 | ![image-20260719013104790](./docs/images/image-20260719013104790.png) | ![image-20260719013242705](./docs/images/image-20260719013242705.png) |
+| **个性主页** | **字体/气泡/挂件/背景...** |
+| ![image-20260730022017092](./docs/images/image-20260730022017092.png) | ![image-20260730022152964](./docs/images/image-20260730022152964.png) |
 
 > 完整功能请查看[使用手册](./docs/guide/index.md)，更多内容见 [文档中心](./docs/README.md)
 
