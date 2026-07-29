@@ -21,8 +21,6 @@ extraResources:
   # (e.g. native/win32/x64/nt_helper.node); destination keeps the same shape.
   - from: ../../native/${os}/${arch}
     to: native/${os}/${arch}
-    filter:
-      - '*.node'
 
   - from: ../../LICENSE
     to: ../LICENSE
@@ -32,9 +30,6 @@ extraResources:
   # bundled — they stream from the account's QQ NT dir at runtime.
   - from: ../../resources
     to: resources
-
-  - from: ../../native
-    to: ../native
 
   - from: node_modules/sherpa-onnx-node
     to: node_modules/sherpa-onnx-node
