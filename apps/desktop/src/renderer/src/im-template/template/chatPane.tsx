@@ -84,6 +84,8 @@ import { GrayTipPokeMessage } from '../../components/GrayTipPokeMessage';
 import { GrayTipRevokeMessage, isPlaceholderRevoke } from '../../components/GrayTipRevokeMessage';
 import { GrayTipGroupMessage } from '../../components/GrayTipGroupMessage';
 import { GrayTipInviteMessage } from '../../components/GrayTipInviteMessage';
+import { GrayTipFileRecvMessage } from '../../components/GrayTipFileRecvMessage';
+import { GrayTipTempSessionMessage } from '../../components/GrayTipTempSessionMessage';
 
 const composerHeightStorageKey = "chat-template.layout.composerHeight";
 const groupInfoCollapsedStorageKey = "chat-template.layout.groupInfoCollapsed";
@@ -1457,7 +1459,7 @@ export function ChatPane({
 				) : (
 					(() => {
 						// Detect the gray-tip element (if any) a message carries.
-						const GRAY_TIP_KINDS = ['grayTipPoke', 'grayTipRevoke', 'grayTipGroup', 'grayTipInvite'];
+						const GRAY_TIP_KINDS = ['grayTipPoke', 'grayTipRevoke', 'grayTipGroup', 'grayTipInvite', 'grayTipFileRecv', 'grayTipTempSession'];
 						const grayTipOf = (message) => {
 							const els = message.qqElements ?? [];
 							for (const kind of GRAY_TIP_KINDS) {
@@ -1478,6 +1480,10 @@ export function ChatPane({
 									return <GrayTipGroupMessage element={gt.el} conversation={conversation} message={message} />;
 								case 'grayTipInvite':
 									return <GrayTipInviteMessage element={gt.el} conversation={conversation} />;
+								case 'grayTipFileRecv':
+									return <GrayTipFileRecvMessage element={gt.el} />;
+								case 'grayTipTempSession':
+									return <GrayTipTempSessionMessage element={gt.el} />;
 								default:
 									return null;
 							}

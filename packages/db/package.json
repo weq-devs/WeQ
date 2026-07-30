@@ -28,7 +28,8 @@
     "test:forward": "tsx test/forward.ts",
     "test:msg-fts": "tsx test/msg_fts.ts",
     "test:msg-unread-info": "tsx test/msg_unread_info.ts",
-    "test:unread-info": "tsx test/unread_info.ts"
+    "test:unread-info": "tsx test/unread_info.ts",
+    "test:verify-new-elements": "tsx test/verify_new_elements.ts"
   },
   "dependencies": {
     "@weq/codec": "workspace:*",

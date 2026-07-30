@@ -551,6 +551,9 @@ function previewFallbackByKind(preview: { kind?: unknown; recallDisplayText?: un
     case 'grayTipPoke': return '戳一戳消息';
     case 'grayTipGroup': return '群提示消息';
     case 'grayTipInvite': return '入群邀请';
+    case 'grayTipFileRecv': return '[收到文件]';
+    case 'grayTipTempSession': return '临时会话';
+    case 'shareLocation': return '[位置共享]';
     // text/at normally carry displayText; if somehow absent there is nothing
     // better to show than the generic gray-tip label (same as unknown/default).
     default: return '灰条消息';
@@ -1065,7 +1068,10 @@ const RENDERABLE_ELEMENT_TYPES = new Set<string>([
   // Cloud storage links.
   'onlineFile', 'onlineFolder',
   // Misc.
-  'emojiBounce', 'qqDynamic',
+  'emojiBounce', 'qqDynamic', 'shareLocation',
+  // Gray tips that carry no gray-tip fields: FILE (subType=10) reuses the FILE
+  // tag block, AIO_OP (subType=15) only names the group a temp session came from.
+  'grayTipFileRecv', 'grayTipTempSession',
 ]);
 
 /**
@@ -1222,8 +1228,21 @@ function elementText(element: unknown): string {
       return '[Sticker]';
     case 'emojiBounce':
       return stringField(data, 'emojiBounceTextSummary') || stringField(data, 'emojiBouncePcText') || '[Emoji interaction]';
-    case 'qqDynamic':
-      return '[QQ Dynamic]';
+    case 'qqDynamic': {
+      const desc = (data.dynamicDesc ?? {}) as Record<string, unknown>;
+      const main = typeof desc.mainDesc === 'string' ? desc.mainDesc : '';
+      return main ? `[QQ动态] ${main}` : '[QQ动态]';
+    }
+    case 'shareLocation':
+      return stringField(data, 'shareLocationText') || '[位置共享]';
+    case 'grayTipFileRecv': {
+      const name = stringField(data, 'fileName');
+      return name ? `[收到文件: ${name}]` : '[收到文件]';
+    }
+    case 'grayTipTempSession': {
+      const code = stringField(data, 'tempSessionGroupCode');
+      return code ? `[临时会话] 来自群 ${code}` : '[临时会话]';
+    }
     case 'unknown':
       console.warn('[unsupported-element] unknown element type encountered', data);
       return '';

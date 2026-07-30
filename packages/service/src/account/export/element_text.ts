@@ -24,6 +24,8 @@ const LABEL: Record<string, string> = {
   qqDynamic: '[动态]',
   emojiBounce: '[表情]',
   onlineFolder: '[文件夹]',
+  shareLocation: '[位置共享]',
+  grayTipTempSession: '[临时会话]',
 };
 
 function truncate(s: string, max: number): string {
@@ -67,6 +69,20 @@ export function elementToText(el: RenderElement, depth = 0): string {
     case 'grayTipGroup':
     case 'grayTipInvite':
       return '[群提示]';
+    case 'grayTipFileRecv':
+      return el.data.fileName ? `[已接收文件: ${el.data.fileName}]` : '[已接收文件]';
+    case 'grayTipTempSession': {
+      const code = el.data.tempSessionGroupCode;
+      return code ? `[临时会话: 来自群 ${code}]` : '[临时会话]';
+    }
+    case 'shareLocation':
+      return `[${el.data.shareLocationText || '位置共享'}]`;
+    case 'emojiBounce':
+      return el.data.emojiBounceTextSummary || el.data.emojiBouncePcText || '[表情]';
+    case 'qqDynamic': {
+      const main = el.data.dynamicDesc?.mainDesc || el.data.dynamicDesc2?.mainDesc || '';
+      return main ? `[QQ动态: ${main}]` : '[动态]';
+    }
     case 'multiMsg':
       return forwardToText(el.data.forwardMessages, depth + 1);
     case 'unknown':

@@ -77,6 +77,8 @@ const PLACEHOLDER: Record<string, string> = {
   grayTipPoke: '[戳一戳]',
   grayTipGroup: '[群提示]',
   grayTipInvite: '[群提示]',
+  grayTipTempSession: '[临时会话]',
+  shareLocation: '[位置共享]',
 };
 
 /** Escape the five HTML-significant characters (covers text and attribute values). */
@@ -193,6 +195,16 @@ function renderElement(el: RenderElement, collectFaces?: Set<string>): string {
       return renderForward(el.data.forwardMessages, collectFaces);
     case 'grayTipRevoke':
       return `<span class="ph">[${escapeHtml(el.data.recallDisplayText || '撤回了一条消息')}]</span>`;
+    case 'grayTipFileRecv':
+      return `<span class="ph">[已接收文件${el.data.fileName ? `: ${escapeHtml(el.data.fileName)}` : ''}]</span>`;
+    case 'emojiBounce': {
+      const summary = el.data.emojiBounceTextSummary || el.data.emojiBouncePcText || '';
+      return `<span class="ph">${summary ? escapeHtml(summary) : '[表情]'}</span>`;
+    }
+    case 'qqDynamic': {
+      const main = el.data.dynamicDesc?.mainDesc || el.data.dynamicDesc2?.mainDesc || '';
+      return `<span class="ph">[QQ动态]${main ? ` ${escapeHtml(main)}` : ''}</span>`;
+    }
     case 'unknown':
       return '';
     default:
