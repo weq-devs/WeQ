@@ -104,7 +104,7 @@ export function DeletedMessagesModal({
                   const kind = (message as { deletedKind?: 'weq' | 'qq' }).deletedKind ?? 'weq';
                   const restorable = kind !== 'qq';
                   return (
-                    <div key={message.id} className="weq-deleted-row">
+                    <div key={message.id} className={cn('weq-deleted-row', mine && 'is-mine')}>
                       <div className="weq-deleted-bubble">
                         <MessageBubble
                           message={message}

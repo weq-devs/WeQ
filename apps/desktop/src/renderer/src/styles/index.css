@@ -9702,6 +9702,13 @@ html[data-theme="dark"] .weq-persona-modal {
   background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
   border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
 }
+/* Own messages render right-aligned, so the top-RIGHT corner is occupied by the
+   bubble itself — flip the caption to the free left side instead. */
+.weq-deleted-row.is-mine .weq-deleted-restore,
+.weq-deleted-row.is-mine .weq-deleted-tag {
+  right: auto;
+  left: 8px;
+}
 
 /* face picker */
 .weq-face-picker,

@@ -92,7 +92,7 @@ export function RecalledMessagesModal({
                       : `${revokerName?.trim() || '管理员'} 撤回`;
                   const when = recall ? formatRecallTime(recall.recallTs) : '';
                   return (
-                    <div key={message.id} className="weq-deleted-row">
+                    <div key={message.id} className={cn('weq-deleted-row', mine && 'is-mine')}>
                       <div className="weq-deleted-bubble">
                         <MessageBubble
                           message={message}
