@@ -243,8 +243,6 @@ export function MarketEmojiBrowserLightbox({ onClose }: { onClose: () => void })
     });
   };
 
-  const selectedEntry = selectedId ? entries.find((e) => e.id === selectedId) : null;
-
   return (
     <div className="weq-blob-overlay weq-anim-fade" role="presentation" onMouseDown={onClose}>
       <div

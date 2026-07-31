@@ -148,10 +148,12 @@ function CustomEmojiGrid({ scope }: { scope: CustomEmojiScope }): ReactElement {
     }
   }, [scope, cursor, done]);
 
-  // First page on mount.
+  // First page on mount. loadMore 随 cursor 变化，直接当依赖会一路翻到底，
+  // 所以只在挂载时经 ref 调一次。
+  const loadMoreRef = useRef(loadMore);
+  loadMoreRef.current = loadMore;
   useEffect(() => {
-    void loadMore();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    void loadMoreRef.current();
   }, []);
 
   // Auto-load the next page when the sentinel scrolls into view.

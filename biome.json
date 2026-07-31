@@ -44,6 +44,14 @@
       "a11y": {
         "preset": "none"
       },
+      "correctness": {
+        "useExhaustiveDependencies": {
+          "level": "error",
+          "options": {
+            "reportUnnecessaryDependencies": false
+          }
+        }
+      },
       "style": {
         "noNonNullAssertion": "off"
       },

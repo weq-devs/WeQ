@@ -15,7 +15,7 @@
  */
 
 import { loadNative } from '@weq/native';
-import type { SqlRow, SqlValue } from '@weq/native';
+import type { SqlValue } from '@weq/native';
 import { QqDb } from '../src/qq_db';
 import { testEnv, qqDbPath } from '@weq/testkit';
 
@@ -74,7 +74,9 @@ async function main(): Promise<void> {
     set('80963', NEW_PACK.addTime); // 添加时间
 
     console.log('将插入行（克隆模板 + 改 4 列）：');
-    COLS.forEach((c, i) => console.log(`   ${c} = ${preview(values[i])}`));
+    COLS.forEach((c, i) => {
+      console.log(`   ${c} = ${preview(values[i])}`);
+    });
 
     const placeholders = COLS.map(() => '?').join(',');
     const sql = `INSERT INTO "${TABLE}" (${COLS.map((c) => `"${c}"`).join(',')}) VALUES (${placeholders})`;

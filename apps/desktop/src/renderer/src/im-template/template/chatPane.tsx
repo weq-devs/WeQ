@@ -17,7 +17,7 @@ import {
 	Sparkles,
 } from "lucide-react";
 import { FaQq } from "react-icons/fa";
-import { Fragment, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ReplyJumpContext } from "../../components/QqMessageContent";
 import { ChatBackdrop } from "../../components/ChatBackdrop";
 import { useChatBackdrop } from "../../hooks/useDressSkin";
@@ -317,9 +317,22 @@ export function ChatPane({
 	const unreadSeedRef = useRef<UnreadJumpSeed | null>(null);
 	const unreadConversationRef = useRef<string | null>(null);
 	const unreadScrollFrameRef = useRef<number | null>(null);
-	const visibleMessages = messages.filter(
-		(message) => !hiddenMessageIds.has(message.id),
+	const visibleMessages = useMemo(
+		() => messages.filter((message) => !hiddenMessageIds.has(message.id)),
+		[messages, hiddenMessageIds],
 	);
+
+	// 下面几个 effect 只该在会话/消息变化时跑，但正文里要调用这些每次渲染都重建的
+	// 函数。用 ref 转发拿最新实现，避免把它们塞进依赖导致 effect 每次渲染重跑。
+	const scrollMessagesToBottomRef = useRef<() => void>(() => {});
+	const updateUnreadJumpRemainingRef = useRef<() => void>(() => {});
+	const scheduleMobileComposerMeasureRef = useRef<(editor?: HTMLElement | null) => void>(
+		() => {},
+	);
+	const draftRef = useRef(draft);
+	draftRef.current = draft;
+	const bodyRef = useRef(body);
+	bodyRef.current = body;
 
 	useLayoutEffect(() => {
 		const conversationId = conversation?.id ?? null;
@@ -361,7 +374,7 @@ export function ChatPane({
 					}
 				: null,
 		);
-	}, [conversation?.id, loading, visibleMessages.length]);
+	}, [conversation?.id, loading, visibleMessages]);
 
 	useLayoutEffect(() => {
 		const conversationId = conversation?.id ?? null;
@@ -374,8 +387,10 @@ export function ChatPane({
 			lastMessageIdRef.current = newestId;
 			atBottomRef.current = true;
 			setNewMessagePill(0);
-			scrollMessagesToBottom();
-			const frame = window.requestAnimationFrame(scrollMessagesToBottom);
+			scrollMessagesToBottomRef.current();
+			const frame = window.requestAnimationFrame(() =>
+				scrollMessagesToBottomRef.current(),
+			);
 			return () => window.cancelAnimationFrame(frame);
 		}
 
@@ -402,30 +417,35 @@ export function ChatPane({
 		// Pinned to bottom → follow the new message down, no pill.
 		if (atBottomRef.current) {
 			setNewMessagePill(0);
-			scrollMessagesToBottom();
-			const frame = window.requestAnimationFrame(scrollMessagesToBottom);
+			scrollMessagesToBottomRef.current();
+			const frame = window.requestAnimationFrame(() =>
+				scrollMessagesToBottomRef.current(),
+			);
 			return () => window.cancelAnimationFrame(frame);
 		}
 
 		// Reading history → surface the pill instead of yanking the view down.
 		setNewMessagePill((current) => current + appended);
 		return;
-	}, [visibleMessages.length, conversation?.id, loading, atLatest]);
+	}, [visibleMessages, conversation?.id, loading, atLatest]);
+
+	// updateUnreadJumpRemaining 会写回 unreadJump.remaining，所以这里只认「换会话 /
+	// 换未读总数」这两个稳定信号，不能整体依赖 unreadJump，否则每次滚动都要多跑一轮。
+	const unreadJumpKey = unreadJump
+		? `${unreadJump.conversationId}:${unreadJump.total}`
+		: null;
 
 	useLayoutEffect(() => {
-		if (!unreadJump) {
+		if (!unreadJumpKey) {
 			return;
 		}
 
-		updateUnreadJumpRemaining();
-		const frame = window.requestAnimationFrame(updateUnreadJumpRemaining);
+		updateUnreadJumpRemainingRef.current();
+		const frame = window.requestAnimationFrame(() =>
+			updateUnreadJumpRemainingRef.current(),
+		);
 		return () => window.cancelAnimationFrame(frame);
-	}, [
-		unreadJump?.conversationId,
-		unreadJump?.total,
-		visibleMessages.length,
-		loading,
-	]);
+	}, [unreadJumpKey, visibleMessages, loading]);
 
 	useEffect(
 		() => () => {
@@ -449,11 +469,12 @@ export function ChatPane({
 
 	useEffect(() => {
 		const editor = composerEditorRef.current;
-		setBody(draft);
+		const currentDraft = draftRef.current;
+		setBody(currentDraft);
 		composerSelectionRef.current = null;
 		if (editor) {
-			restoreComposer(editor, draft);
-			scheduleMobileComposerMeasure(editor);
+			restoreComposer(editor, currentDraft);
+			scheduleMobileComposerMeasureRef.current(editor);
 		}
 	}, [conversation?.id]);
 
@@ -467,14 +488,20 @@ export function ChatPane({
 			return;
 		}
 
-		restoreComposer(editor, body);
+		restoreComposer(editor, bodyRef.current);
 		composerSelectionRef.current = null;
 		const frame = window.requestAnimationFrame(() => focusComposerEnd(editor));
 		return () => window.cancelAnimationFrame(frame);
 	}, [mobileComposerExpanded]);
 
+	// 只关心「菜单开着 / 关着」和它锚在哪条消息上；重新定位读的是 setContextMenu 的
+	// 函数式更新，所以不需要整体依赖 contextMenu（它每次重定位都会变新对象）。
+	const contextMenuOpen = contextMenu !== null;
+	const contextMenuVariant = contextMenu?.variant ?? null;
+	const contextMenuMessageId = contextMenu?.message.id ?? null;
+
 	useEffect(() => {
-		if (!contextMenu) {
+		if (!contextMenuOpen) {
 			return;
 		}
 
@@ -496,13 +523,13 @@ export function ChatPane({
 			document.removeEventListener("keydown", closeOnEscape);
 			window.removeEventListener("resize", closeMenu);
 		};
-	}, [contextMenu]);
+	}, [contextMenuOpen]);
 
 	// Keep the desktop context menu glued to its message as the list scrolls,
 	// instead of floating in place. Dismisses once the message leaves the list
 	// viewport. Mobile menus (long-press sheet) keep their fixed placement.
 	useEffect(() => {
-		if (!contextMenu || contextMenu.variant === "mobile") {
+		if (!contextMenuMessageId || contextMenuVariant === "mobile") {
 			return;
 		}
 		const scroll = messageScrollRef.current;
@@ -558,7 +585,7 @@ export function ChatPane({
 				window.cancelAnimationFrame(frame);
 			}
 		};
-	}, [contextMenu?.message.id, contextMenu?.variant]);
+	}, [contextMenuMessageId, contextMenuVariant]);
 
 	useEffect(() => {
 		if (!emojiOpen) {
@@ -1032,6 +1059,7 @@ export function ChatPane({
 			);
 		});
 	}
+	scheduleMobileComposerMeasureRef.current = scheduleMobileComposerMeasure;
 
 	function measureComposerContentHeight(editor: HTMLDivElement) {
 		const rect = editor.getBoundingClientRect();
@@ -1108,6 +1136,7 @@ export function ChatPane({
 		atBottomRef.current = true;
 		setNewMessagePill(0);
 	}
+	scrollMessagesToBottomRef.current = scrollMessagesToBottom;
 
 	function isScrolledToBottom() {
 		const scroll = messageScrollRef.current;
@@ -1187,6 +1216,7 @@ export function ChatPane({
 					};
 		});
 	}
+	updateUnreadJumpRemainingRef.current = updateUnreadJumpRemaining;
 
 	function unreadMessageElements(state = unreadJump) {
 		const scroll = messageScrollRef.current;

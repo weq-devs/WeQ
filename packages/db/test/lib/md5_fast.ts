@@ -42,7 +42,7 @@ export function md5Hex16(ts: number, out: Uint8Array): void {
 
   // 2) MD5 单块压缩。
   let a = 0x67452301, b = 0xefcdab89, c = 0x98badcfe, d = 0x10325476;
-  const a0 = a, b0 = b, c0 = c, d0 = d;
+  const a0 = a, b0 = b;
 
   // Round 1
   a = b + rotl((a + ((b & c) | (~b & d)) + M[0]! + 0xd76aa478) | 0, 7); a |= 0;

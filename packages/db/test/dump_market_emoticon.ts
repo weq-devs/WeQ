@@ -28,7 +28,9 @@ async function main(): Promise<void> {
     const rows = await db.query(`SELECT * FROM "market_emoticon_table" LIMIT 3`);
     rows.forEach((row, i) => {
       console.log(`\n===== row ${i} =====`);
-      (row as unknown[]).forEach((v, j) => console.log(`  ${colNames[j]} = ${preview(v)}`));
+      (row as unknown[]).forEach((v, j) => {
+        console.log(`  ${colNames[j]} = ${preview(v)}`);
+      });
     });
   } finally {
     db.close();

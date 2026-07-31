@@ -73,11 +73,14 @@ export function AddMessageModal({
     : conversation.otherUser.id;
   const peerUid = isGroup ? '' : conversation.otherUser.id;
 
-  const self: Person = {
-    uid: selfUid || selfUser.id,
-    uin: selfUser.identityValue,
-    name: selfUser.displayName || '我',
-  };
+  const self: Person = useMemo(
+    () => ({
+      uid: selfUid || selfUser.id,
+      uin: selfUser.identityValue,
+      name: selfUser.displayName || '我',
+    }),
+    [selfUid, selfUser],
+  );
 
   // Candidate people for the sender / @-mention pickers.
   const members: Person[] = useMemo(() => {
