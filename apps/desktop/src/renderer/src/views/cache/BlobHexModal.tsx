@@ -1,28 +1,42 @@
 /**
- * BLOB hex viewer / editor lightbox (opened from a BLOB cell in the database
+ * BLOB viewer / editor lightbox (opened from a BLOB cell in the database
  * explorer's data grid or SQL result table).
  *
- * Classic hexdump layout: an 8-digit offset column, 16 hex bytes per row, and
- * an ASCII gutter (non-printable bytes shown as `.`). When `editable` is set and
- * `onSave` is provided, each byte is an inline 2-char hex input whose edits flow
- * straight into the ASCII gutter, plus a "原始 Hex" textarea that replaces the
- * whole buffer at once (the path for length changes / pasting). Read-only opens
- * (SQL results, or over-large blobs) drop the inputs and only offer view + copy.
+ * Two views over the same bytes:
  *
- * The wire already carries the full lowercase hex (`DbCell` blob → `{ hex }`),
- * and `updateCell` already accepts `{ t: 'blob', hex }`, so nothing here decrypts
- * or touches the backend beyond the parent's existing save mutation.
+ *  - Hex — classic hexdump: an 8-digit offset column, 16 hex bytes per row, and
+ *    an ASCII gutter (non-printable bytes shown as `.`). When editable, each
+ *    byte is an inline 2-char hex input, plus a "原始 Hex" textarea that
+ *    replaces the whole buffer at once (the path for length changes / pasting).
+ *  - Protobuf — only when the bytes parse as protobuf. Shows the schema-free
+ *    decoded tree with field names from the global tag dictionary, and lets the
+ *    user change values, drop fields, and insert new ones.
+ *
+ * Both views write back to one `data` byte array, so "保存" is unchanged: the
+ * wire already carries the full lowercase hex (`DbCell` blob → `{ hex }`) and
+ * `updateCell` already accepts `{ t: 'blob', hex }`. Nothing here decrypts or
+ * touches the backend beyond the parent's existing save mutation.
  */
 
 import { useMemo, useState, type ReactElement } from 'react';
-import { X, Copy, Save } from 'lucide-react';
+import { X, Copy, Save, Binary, Braces } from 'lucide-react';
+import { buildEditTree, encodeEditTree, PbEncodeError, type PbNode } from '@weq/codec/raw';
 import { useAppDialog } from '../../lib/dialogUtils';
+import { BlobProtoTree } from './BlobProtoTree';
 
 /** Bytes beyond this render as read-only spans (too many inputs to be usable). */
 const MAX_EDIT_BYTES = 2048;
 /** Bytes beyond this are elided from the dump entirely (bulk box still has all). */
 const MAX_RENDER_BYTES = 16384;
 const ROW = 16;
+
+type Tab = 'hex' | 'proto';
+
+/** The tree plus the exact buffer it was built from — the encoder needs both. */
+interface ProtoState {
+  nodes: PbNode[];
+  source: Uint8Array;
+}
 
 export function BlobHexModal({
   hex,
@@ -45,9 +59,12 @@ export function BlobHexModal({
   const [data, setData] = useState<number[]>(() => parseHex(hex));
   const [bulk, setBulk] = useState<string>(() => formatHexBlock(parseHex(hex)));
   const [saving, setSaving] = useState(false);
+  const [tab, setTab] = useState<Tab>('hex');
+  const [proto, setProto] = useState<ProtoState | null>(() => buildProto(parseHex(hex)));
 
   const canEdit = editable && Boolean(onSave);
   const inlineEditable = canEdit && data.length <= MAX_EDIT_BYTES;
+  const isProto = tab === 'proto' && proto !== null;
 
   const rendered = data.length > MAX_RENDER_BYTES ? data.slice(0, MAX_RENDER_BYTES) : data;
   const elided = data.length - rendered.length;
@@ -60,19 +77,41 @@ export function BlobHexModal({
     return out;
   }, [rendered]);
 
+  /** Adopt a new byte array from the Hex side and rebuild the tree over it. */
+  function setBytes(next: number[]): void {
+    setData(next);
+    setBulk(formatHexBlock(next));
+    setProto(buildProto(next));
+  }
+
   function setByte(index: number, value: number): void {
-    setData((prev) => {
-      const next = prev.slice();
-      next[index] = value & 0xff;
-      setBulk(formatHexBlock(next));
-      return next;
-    });
+    const next = data.slice();
+    next[index] = value & 0xff;
+    setBytes(next);
   }
 
   function applyBulk(): void {
-    const parsed = parseHex(bulk);
-    setData(parsed);
-    setBulk(formatHexBlock(parsed));
+    setBytes(parseHex(bulk));
+  }
+
+  /** Adopt an edited tree: re-encode to bytes so both tabs stay in sync. */
+  function applyTree(nodes: PbNode[]): void {
+    if (!proto) return;
+    let encoded: Uint8Array;
+    try {
+      encoded = encodeEditTree(nodes, proto.source);
+    } catch (e) {
+      // Keep the edit visible so the user can fix the offending value; the byte
+      // array just doesn't advance until it encodes.
+      setProto({ ...proto, nodes });
+      const where = e instanceof PbEncodeError ? `字段 ${e.path.join(' → ')}：` : '';
+      dialog.error('无法编码', `${where}${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
+    setProto({ nodes, source: proto.source });
+    const bytes = Array.from(encoded);
+    setData(bytes);
+    setBulk(formatHexBlock(bytes));
   }
 
   async function copyHex(): Promise<void> {
@@ -99,7 +138,11 @@ export function BlobHexModal({
 
   return (
     <div className="weq-blob-overlay" role="presentation" onMouseDown={onClose}>
-      <div className="weq-blob-dialog" role="dialog" onMouseDown={(e) => e.stopPropagation()}>
+      <div
+        className={`weq-blob-dialog${isProto ? ' is-proto' : ''}`}
+        role="dialog"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <header className="weq-blob-head">
           <div className="weq-blob-title">
             <h3>二进制数据{columnName ? ` · ${columnName}` : ''}</h3>
@@ -107,13 +150,40 @@ export function BlobHexModal({
               {data.length} 字节{canEdit ? '' : ' · 只读'}
             </code>
           </div>
+          <div className="weq-blob-tabs">
+            <button
+              type="button"
+              className={`weq-blob-tab${tab === 'hex' ? ' is-on' : ''}`}
+              onClick={() => setTab('hex')}
+            >
+              <Binary size={13} />
+              Hex
+            </button>
+            <button
+              type="button"
+              className={`weq-blob-tab${tab === 'proto' ? ' is-on' : ''}`}
+              onClick={() => setTab('proto')}
+              disabled={proto === null}
+              title={proto === null ? '这段数据不是有效的 Protobuf' : undefined}
+            >
+              <Braces size={13} />
+              Protobuf
+            </button>
+          </div>
           <button type="button" className="weq-blob-close" onClick={onClose} title="关闭">
             <X size={18} />
           </button>
         </header>
 
         <div className="weq-blob-body">
-          {data.length === 0 ? (
+          {isProto ? (
+            <BlobProtoTree
+              nodes={proto.nodes}
+              original={proto.source}
+              editable={canEdit}
+              onChange={applyTree}
+            />
+          ) : data.length === 0 ? (
             <div className="weq-blob-empty">空 BLOB（0 字节）</div>
           ) : (
             <div className="weq-blob-dump">
@@ -122,9 +192,7 @@ export function BlobHexModal({
                 return (
                   // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                   <div className="weq-blob-line" key={ri}>
-                    <span className="weq-blob-offset">
-                      {base.toString(16).padStart(8, '0')}
-                    </span>
+                    <span className="weq-blob-offset">{base.toString(16).padStart(8, '0')}</span>
                     <span className="weq-blob-hexes">
                       {bytes.map((b, ci) => {
                         const idx = base + ci;
@@ -171,20 +239,21 @@ export function BlobHexModal({
               })}
               {elided > 0 ? (
                 <div className="weq-blob-elided">
-                  仅显示前 {MAX_RENDER_BYTES} 字节，其余 {elided} 字节已省略（可在下方「原始 Hex」中查看 /
-                  编辑完整内容）。
+                  仅显示前 {MAX_RENDER_BYTES} 字节，其余 {elided} 字节已省略（可在下方「原始
+                  Hex」中查看 / 编辑完整内容）。
                 </div>
               ) : null}
             </div>
           )}
 
-          {canEdit && !inlineEditable && data.length > MAX_EDIT_BYTES ? (
+          {!isProto && canEdit && !inlineEditable && data.length > MAX_EDIT_BYTES ? (
             <div className="weq-blob-note">
-              数据较大（超过 {MAX_EDIT_BYTES} 字节），逐字节编辑已禁用；请使用下方「原始 Hex」整体替换。
+              数据较大（超过 {MAX_EDIT_BYTES} 字节），逐字节编辑已禁用；请使用下方「原始
+              Hex」整体替换。
             </div>
           ) : null}
 
-          {canEdit ? (
+          {!isProto && canEdit ? (
             <div className="weq-blob-bulk">
               <div className="weq-blob-bulk-head">
                 <span>原始 Hex（可整体替换 / 改变长度）</span>
@@ -227,6 +296,26 @@ export function BlobHexModal({
       </div>
     </div>
   );
+}
+
+/**
+ * Build the protobuf view, or null when the bytes aren't protobuf. Requiring
+ * the fields to consume the buffer exactly is what keeps arbitrary binary from
+ * being presented as a (nonsense) message tree.
+ */
+function buildProto(data: number[]): ProtoState | null {
+  if (data.length === 0) return null;
+  const source = Uint8Array.from(data);
+  let nodes: PbNode[];
+  try {
+    nodes = buildEditTree(source);
+  } catch {
+    return null;
+  }
+  if (nodes.length === 0) return null;
+  const last = nodes[nodes.length - 1]!;
+  if (!last.origin || last.origin.start + last.origin.size !== source.length) return null;
+  return { nodes, source };
 }
 
 // ── hex helpers ─────────────────────────────────────────────────────────────

@@ -2190,8 +2190,18 @@ html[data-theme="dark"] .weq-avpath-error {
 .weq-blob-dialog {
   display: flex;
   flex-direction: column;
-  width: min(760px, 94vw);
+  /*
+   * `100%` (not `vw`) is deliberate: `.weq-cache-pane` has a backdrop-filter,
+   * which makes it the containing block for our position:fixed overlay. So the
+   * overlay is pane-sized, not viewport-sized, and a vw-based width overflows
+   * into the pane's `overflow:hidden` and gets clipped on narrow windows.
+   * Percent resolves against the overlay, which is always correct.
+   */
+  width: min(760px, 100%);
   max-height: min(82vh, 760px);
+  /* grid 子项的 min-width 默认是 auto，宽内容(protobuf 树)会顶穿上面的 width。
+   * 压成 0 后声明宽度才真正是上限，内部滚动容器才有机会滚动。 */
+  min-width: 0;
   overflow: hidden;
   border-radius: 14px;
   background: var(--weq-bg-surface, #ffffff);
@@ -2256,6 +2266,8 @@ html[data-theme="dark"] .weq-avpath-error {
 .weq-blob-body {
   flex: 1 1 auto;
   min-height: 0;
+  /* 同理：flex 子项默认不肯缩到内容宽度以下，会把 dialog 撑破。 */
+  min-width: 0;
   overflow-y: auto;
   padding: 14px 16px;
   display: flex;
@@ -4966,4 +4978,440 @@ html[data-theme="dark"] .weq-filerow-name {
 .weq-clean-done-actions {
   justify-content: center;
   padding-top: 8px;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * BLOB 灯箱 — Hex / Protobuf 页签
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+.weq-blob-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  margin-left: auto;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
+}
+
+.weq-blob-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 11px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #6a7280;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.weq-blob-tab:hover:not(:disabled):not(.is-on) {
+  color: #344050;
+}
+
+.weq-blob-tab.is-on {
+  background: var(--weq-bg-surface, #ffffff);
+  color: var(--weq-accent-effective);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.weq-blob-tab:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Protobuf 页签下灯箱放宽，字段名 + 值 + 偏移量三列才不挤。
+ * 同样用 % 而非 vw —— 见 .weq-blob-dialog 的说明。 */
+.weq-blob-dialog.is-proto {
+  width: min(1040px, 100%);
+}
+
+/* ---- protobuf 树 ---- */
+/* 深层嵌套 + 长 filePath 会把行推得很宽，这里横向滚动而不是撑破灯箱。
+ * min-width:0 是关键：flex 子项默认按内容宽度撑，滚动就永远不会触发。 */
+.weq-pb-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 4px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-fg-primary) 3%, transparent);
+  font-family: var(--weq-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.weq-pb-none {
+  padding: 26px;
+  text-align: center;
+  color: #8a94a4;
+}
+
+.weq-pb-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* 行不收缩到容器宽度以下，否则滚动时右侧列会被挤扁。 */
+  min-width: max-content;
+  padding: 3px 8px 3px 0;
+  border-left: 2px solid transparent;
+  border-radius: 6px;
+  transition: background-color 110ms ease;
+}
+
+.weq-pb-row:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent);
+}
+
+/* 改过的字段：左侧一条强调色竖条，一眼看出保存时会写什么。 */
+.weq-pb-row.is-dirty {
+  border-left-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 7%, transparent);
+}
+
+.weq-pb-caret {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #a4adba;
+  cursor: pointer;
+  transition: transform 130ms ease, color 120ms ease;
+}
+
+.weq-pb-caret:disabled {
+  cursor: default;
+}
+
+.weq-pb-caret.is-open {
+  transform: rotate(90deg);
+}
+
+.weq-pb-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #c0c8d2;
+}
+
+/* ---- 字段名（四档状态） ---- */
+.weq-pb-name {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  /* 至少 210px 对齐成一列，名字更长（歧义并列两个名字）就撑开而非截断。 */
+  flex: 0 0 auto;
+  min-width: 210px;
+}
+
+.weq-pb-name-text {
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.weq-pb-tagnum {
+  flex: none;
+  color: #a4adba;
+  font-weight: 400;
+  font-size: 11px;
+}
+
+/* 已定义（唯一名字） */
+.weq-pb-row.is-known .weq-pb-name-text {
+  color: var(--weq-accent-effective);
+}
+
+/* 歧义：多个 schema 给了不同名字，全部并列 */
+.weq-pb-row.is-ambiguous .weq-pb-name-text {
+  color: #9a6a12;
+}
+
+.weq-pb-row.is-ambiguous {
+  background: color-mix(in srgb, #f5a623 7%, transparent);
+}
+
+/* 未定义：>1000 但任何 schema 都没登记过 */
+.weq-pb-row.is-undefined .weq-pb-name-text {
+  color: #c0392b;
+}
+
+/* 小 tag：含义取决于父消息，不命名 */
+.weq-pb-row.is-small .weq-pb-name-text {
+  color: #8a94a4;
+  font-weight: 400;
+}
+
+.weq-pb-wire {
+  flex: none;
+  width: 56px;
+  color: #8a94a4;
+  font-size: 10.5px;
+  letter-spacing: 0.3px;
+}
+
+/* ---- 值 ---- */
+/* 值列有个下限宽度、超出就把行撑宽（外层横向滚动），不再截断成省略号 ——
+ * filePath / fileToken 这类长值截断了等于看不见。 */
+.weq-pb-value {
+  flex: 1 0 auto;
+  min-width: 320px;
+}
+
+.weq-pb-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.weq-pb-input {
+  flex: 1 0 auto;
+  min-width: 320px;
+  padding: 2px 7px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #344050;
+  font-family: inherit;
+  font-size: inherit;
+  outline: none;
+  transition: border-color 110ms ease, background-color 110ms ease;
+}
+
+.weq-pb-input:hover {
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+.weq-pb-input:focus {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+  background: var(--weq-bg-surface);
+}
+
+.weq-pb-static {
+  display: block;
+  white-space: nowrap;
+  padding: 2px 7px;
+  color: #344050;
+}
+
+.weq-pb-hint {
+  flex: none;
+  color: #a4adba;
+  font-size: 10.5px;
+}
+
+.weq-pb-nested {
+  padding: 2px 7px;
+  color: #6a7280;
+  font-size: 11.5px;
+}
+
+.weq-pb-bool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 7px;
+  color: #344050;
+  cursor: pointer;
+}
+
+/* ---- 行内操作 ---- */
+.weq-pb-meta {
+  flex: none;
+  width: 108px;
+  text-align: right;
+  color: #c0c8d2;
+  font-size: 10.5px;
+}
+
+.weq-pb-actions {
+  display: inline-flex;
+  gap: 2px;
+  flex: none;
+  width: 44px;
+  justify-content: flex-end;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.weq-pb-row:hover .weq-pb-actions {
+  opacity: 1;
+}
+
+.weq-pb-act {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #8a94a4;
+  cursor: pointer;
+  transition: background-color 110ms ease, color 110ms ease;
+}
+
+.weq-pb-act:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+.weq-pb-act.is-danger:hover {
+  background: color-mix(in srgb, #c0392b 14%, transparent);
+  color: #c0392b;
+}
+
+/* ---- 新增字段行 ---- */
+.weq-pb-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 0;
+  opacity: 0.5;
+  transition: opacity 120ms ease;
+}
+
+.weq-pb-add:hover,
+.weq-pb-add:focus-within {
+  opacity: 1;
+}
+
+.weq-pb-add-icon {
+  flex: none;
+  color: #a4adba;
+}
+
+.weq-pb-add-tag,
+.weq-pb-add-wire {
+  padding: 3px 7px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 6px;
+  background: var(--weq-bg-surface, #ffffff);
+  color: #344050;
+  font-family: inherit;
+  font-size: 11.5px;
+  outline: none;
+}
+
+.weq-pb-add-tag {
+  width: 74px;
+}
+
+.weq-pb-add-tag:focus,
+.weq-pb-add-wire:focus {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+}
+
+.weq-pb-add-btn {
+  padding: 3px 10px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 34%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  color: var(--weq-accent-effective);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background-color 120ms ease, opacity 120ms ease;
+}
+
+.weq-pb-add-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+}
+
+.weq-pb-add-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ---- 深色模式 ---- */
+html[data-theme="dark"] .weq-blob-tabs {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .weq-blob-tab {
+  color: #99a7b8;
+}
+
+html[data-theme="dark"] .weq-blob-tab:hover:not(:disabled):not(.is-on) {
+  color: #dbe3ec;
+}
+
+html[data-theme="dark"] .weq-blob-tab.is-on {
+  background: #262a30;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+html[data-theme="dark"] .weq-pb-tree {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+html[data-theme="dark"] .weq-pb-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+html[data-theme="dark"] .weq-pb-dot {
+  background: #4a5462;
+}
+
+html[data-theme="dark"] .weq-pb-tagnum,
+html[data-theme="dark"] .weq-pb-wire,
+html[data-theme="dark"] .weq-pb-hint {
+  color: #7a8798;
+}
+
+html[data-theme="dark"] .weq-pb-meta {
+  color: #5c6675;
+}
+
+html[data-theme="dark"] .weq-pb-row.is-ambiguous .weq-pb-name-text {
+  color: #e6c07a;
+}
+
+html[data-theme="dark"] .weq-pb-row.is-undefined .weq-pb-name-text {
+  color: #ef8579;
+}
+
+html[data-theme="dark"] .weq-pb-row.is-small .weq-pb-name-text {
+  color: #8b97a8;
+}
+
+html[data-theme="dark"] .weq-pb-input,
+html[data-theme="dark"] .weq-pb-static,
+html[data-theme="dark"] .weq-pb-bool {
+  color: #c3ceda;
+}
+
+html[data-theme="dark"] .weq-pb-input:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+html[data-theme="dark"] .weq-pb-input:focus {
+  background: #11161d;
+}
+
+html[data-theme="dark"] .weq-pb-nested {
+  color: #99a7b8;
+}
+
+html[data-theme="dark"] .weq-pb-act {
+  color: #7a8798;
+}
+
+html[data-theme="dark"] .weq-pb-act.is-danger:hover {
+  background: rgba(239, 133, 121, 0.16);
+  color: #ef8579;
+}
+
+html[data-theme="dark"] .weq-pb-add-tag,
+html[data-theme="dark"] .weq-pb-add-wire {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: #dbe3ec;
 }

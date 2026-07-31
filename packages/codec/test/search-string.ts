@@ -5,7 +5,7 @@
  * 用法: pnpm tsx packages/codec/test/search-string.ts [needle]
  *   不带参数则搜索默认的 f2e3... 哈希。
  *
- * 所有库共用 protolab 里硬编码的同一把 SQLCipher 密钥。
+ * 所有库共用 @weq/testkit 里配置的同一把 SQLCipher 密钥。
  */
 
 import { readdirSync } from 'node:fs';

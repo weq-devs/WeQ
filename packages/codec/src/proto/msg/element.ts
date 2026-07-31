@@ -234,9 +234,9 @@ export const ElementWire = {
   /** Text envelope flag observed in QQ protocol. */
   textReserve: ProtoField(45102, ScalarType.UINT32, { optional: true }),
 
-  // Category 2 — observed in the wild on TEXT rows. Parsed (so protolab
-  // labels them) but neither lifted into TextElement nor written back. Best
-  // guesses at semantics are kept in the field doc — none verified.
+  // Category 2 — observed in the wild on TEXT rows. Parsed (so the tag
+  // dictionary labels them) but neither lifted into TextElement nor written
+  // back. Best guesses at semantics are kept in the field doc — none verified.
 
   /** 文本编码 / 加密标志. Best guess: integer flag. */
   textEncodingFlag: ProtoField(45103, ScalarType.UINT32, { optional: true }),

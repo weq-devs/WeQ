@@ -13,7 +13,6 @@
     "dev": "pnpm --filter @weq/desktop dev",
     "build": "pnpm run build:bot && pnpm --filter @weq/desktop build",
     "build:bot": "esbuild packages/bot/src/index.ts --bundle --platform=node --format=esm --external:ws --outfile=resources/bot-runtime/bot.mjs",
-    "proto": "pnpm --filter @weq/protolab dev",
     "typecheck": "pnpm -r typecheck",
     "lint": "biome lint --error-on-warnings .",
     "lint:fix": "biome lint --write .",

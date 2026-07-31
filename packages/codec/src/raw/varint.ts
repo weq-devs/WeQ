@@ -45,6 +45,11 @@ export function zigzagDecode(v: bigint): bigint {
   return (v >> 1n) ^ -(v & 1n);
 }
 
+/** Zig-zag encode a signed bigint back into the unsigned form on the wire. */
+export function zigzagEncode(v: bigint): bigint {
+  return (v << 1n) ^ (v >> 63n);
+}
+
 /** Encode a non-negative bigint as varint bytes. Used by tests and future encode path. */
 export function writeVarint(value: bigint): Uint8Array {
   if (value < 0n) {

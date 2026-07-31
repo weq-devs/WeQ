@@ -2,7 +2,7 @@
  * End-to-end tests against the 呜呜呜 sample bytes.
  *
  * Three paths exercised:
- *   1. Raw schema-free decode + SchemaIndex annotation — protolab's path.
+ *   1. Raw schema-free decode + tag-dictionary naming — the BLOB lightbox path.
  *   2. ProtoMsg(MsgBody).decode — Layer 1 round-trip wire decode.
  *   3. decodeElement — Layer 2 dispatch to TextElement.
  *
@@ -14,7 +14,8 @@
 
 import { describe, it, expect } from 'vitest';
 import { ProtoMsg } from '../src/core';
-import { decode, SchemaIndex, annotate } from '../src/raw';
+import { decode, buildEditTree } from '../src/raw';
+import { lookupTag } from '../src/dictionary';
 import { MsgBody } from '../src/proto/msg/40800';
 import { ElementWire } from '../src/proto/msg/element';
 import {
@@ -34,47 +35,24 @@ const SAMPLE = new Uint8Array([
   0x9c, 0xf0, 0x82, 0x16, 0x00,
 ]);
 
-describe('raw + schema annotation', () => {
-  it('annotates the 40800 envelope via MsgBody schema', () => {
-    const tree = decode(SAMPLE);
-    const index = new SchemaIndex(MsgBody, 'msg/40800.MsgBody');
-    const annotated = annotate(tree, index);
-
-    expect(annotated).toHaveLength(1);
-    const env = annotated[0]!;
-    expect(env.raw.tag).toBe(40800);
-    expect(env.match.kind).toBe('matched');
-    if (env.match.kind === 'matched') {
-      expect(env.match.info.name).toBe('elements');
-    }
-    expect(env.children).toBeDefined();
+describe('raw decode + tag dictionary', () => {
+  it('names the 40800 envelope', () => {
+    const tree = buildEditTree(SAMPLE);
+    expect(tree).toHaveLength(1);
+    expect(tree[0]!.tag).toBe(40800);
+    expect(lookupTag(40800).names[0]!.name).toBe('elements');
+    expect(tree[0]!.children).not.toBeNull();
   });
 
-  it('annotates inner fields via ElementWire schema', () => {
-    const tree = decode(SAMPLE);
-    const index = new SchemaIndex(MsgBody, 'msg/40800.MsgBody');
-    const annotated = annotate(tree, index);
+  it('names the inner element fields without walking a schema hierarchy', () => {
+    const tree = buildEditTree(SAMPLE);
+    const byTag = new Map(tree[0]!.children!.map((c) => [c.tag, c]));
 
-    const inner = annotated[0]!.children!;
-    const byTag = new Map(inner.map((c) => [c.raw.tag, c]));
+    expect(lookupTag(45002).names[0]!.name).toBe('elementType');
+    expect(byTag.get(45002)!.value).toEqual({ kind: 'bool', on: true });
 
-    const elementType = byTag.get(45002)!;
-    expect(elementType.match.kind).toBe('matched');
-    if (elementType.match.kind === 'matched') {
-      expect(elementType.match.info.name).toBe('elementType');
-      if (elementType.match.preferredGuess.kind === 'varint-uint64') {
-        expect(elementType.match.preferredGuess.value).toBe(1n);
-      }
-    }
-
-    const textContent = byTag.get(45101)!;
-    expect(textContent.match.kind).toBe('matched');
-    if (textContent.match.kind === 'matched') {
-      expect(textContent.match.info.name).toBe('textContent');
-      if (textContent.match.preferredGuess.kind === 'len-utf8') {
-        expect(textContent.match.preferredGuess.value).toBe('呜呜呜');
-      }
-    }
+    expect(lookupTag(45101).names[0]!.name).toBe('textContent');
+    expect(byTag.get(45101)!.value).toEqual({ kind: 'utf8', text: '呜呜呜' });
   });
 });
 

@@ -102,16 +102,6 @@
           }
         }
       }
-    },
-    {
-      "includes": ["apps/protolab/src/renderer/src/lib/elementValidator.ts"],
-      "linter": {
-        "rules": {
-          "suspicious": {
-            "noExplicitAny": "off"
-          }
-        }
-      }
     }
   ]
 }

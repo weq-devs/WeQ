@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./raw": "./src/raw/index.ts",
+    "./dictionary": "./src/dictionary/index.ts",
     "./element": "./src/element/index.ts",
     "./domain": "./src/domain/index.ts",
     "./proto/*": "./src/proto/*.ts"

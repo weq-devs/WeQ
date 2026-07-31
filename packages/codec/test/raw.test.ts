@@ -1,6 +1,6 @@
 /**
- * End-to-end test: decode the sample bytes the user gave us during the
- * protolab design discussion and prove we get "呜呜呜" out without any schema.
+ * End-to-end test: decode a real c2c message body and prove we get "呜呜呜"
+ * out without any schema.
  *
  * Source bytes (one row of c2c_msg_table.body, hex):
  *   82 f6 13 21 c8 fc 15 a1 d0 e6 a4 d2 b8 b8 80 6a

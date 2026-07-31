@@ -1,11 +1,11 @@
 /**
  * 扫描脚本:遍历 c2c_msg_table 与 group_msg_table 全表的 40800 列,
  * 统计出现过的 elementType,并为「未知类型」(不在 ElementType 枚举里)
- * 收集 rowid 方便用 protolab 定位。type=9(红包)已知,跳过收集。
+ * 收集 rowid 方便在数据库浏览器的 BLOB 灯箱里定位。type=9(红包)已知,跳过收集。
  *
  * 用法: pnpm tsx packages/codec/test/scan-element-types.ts
  *
- * 直接复用 protolab 里硬编码的开发账号库路径与密钥。每行 40800 是一个
+ * 库路径与密钥来自 @weq/testkit 的开发账号配置。每行 40800 是一个
  * repeated ElementWire,解码后读取每个元素的 elementType (tag 45002)。
  */
 

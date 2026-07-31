@@ -25,7 +25,7 @@ function toHex(buf: unknown): string {
 async function main() {
   const { ntHelper } = loadNative();
 
-  // Probe the SQLCipher algorithms (mirrors apps/protolab getDb()).
+  // Probe the SQLCipher algorithms before opening (QQ NT varies them by build).
   const probe = await ntHelper.testDatabaseKey(DB_PATH, DB_KEY);
   if (!probe.success || !probe.pageHmacAlgorithm || !probe.kdfHmacAlgorithm) {
     throw new Error('数据库密钥错误或算法探测失败');
