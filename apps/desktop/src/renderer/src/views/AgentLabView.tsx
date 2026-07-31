@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -301,7 +302,7 @@ export function AgentLabView(): ReactElement {
   );
   const seededPersona = useRef('');
 
-  function scrollTranscriptToBottom(): void {
+  const scrollTranscriptToBottom = useCallback((): void => {
     const el = transcriptRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
@@ -311,7 +312,7 @@ export function AgentLabView(): ReactElement {
         el.scrollTop = el.scrollHeight;
       });
     });
-  }
+  }, []);
 
   // 切换克隆体（personaId 变化）时重置 seed 并清空历史，等新会话数据到位再恢复。
   // 注意：只依赖 personaId——发消息后的 invalidate 不会改变 personaId，于是不会清掉刚揭示的本地历史。
@@ -330,7 +331,7 @@ export function AgentLabView(): ReactElement {
   // 发送、收到分段回复、等待态变化时始终跟随到会话底部。
   useEffect(() => {
     scrollTranscriptToBottom();
-  }, [history, chat.isLoading, personaId]);
+  }, [history, chat.isLoading, personaId, scrollTranscriptToBottom]);
 
   // 选中的 persona 被删除时回退到主页。
   useEffect(() => {

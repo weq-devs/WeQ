@@ -161,7 +161,17 @@ export function MessageBubble({
 		}
 	}
 
-	useEffect(() => clearLongPress, []);
+	// 卸载时清掉未触发的长按计时器。直接操作 ref，免得把每次渲染新建的
+	// clearLongPress 当依赖。
+	useEffect(
+		() => () => {
+			if (longPressTimerRef.current !== null) {
+				window.clearTimeout(longPressTimerRef.current);
+				longPressTimerRef.current = null;
+			}
+		},
+		[],
+	);
 
 	async function handleRestoreClick(event: ReactMouseEvent<HTMLButtonElement>) {
 		event.stopPropagation();

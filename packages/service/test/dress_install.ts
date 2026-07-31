@@ -211,7 +211,7 @@ async function main(): Promise<void> {
     const want = readFileSync(join(zipDir, 'expect.bin'));
     for (const f of ['deflate.zip', 'stored.zip']) {
       const got = extractFirstTtf(readFileSync(join(zipDir, f)));
-      check(got !== null && got.equals(want), `解包 ${f}`, got ? `${got.length}B` : '(null)');
+      check(got?.equals(want) === true, `解包 ${f}`, got ? `${got.length}B` : '(null)');
     }
     check(extractFirstTtf(readFileSync(join(zipDir, 'nottf.zip'))) === null, '包里没有 ttf → null');
   } else {

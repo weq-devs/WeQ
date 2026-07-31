@@ -247,7 +247,7 @@ export class EmojiService {
       const recovered = await this.getMarketPackKey(id);
       key = recovered?.key;
     }
-    if (!key || key.length !== 16) return null;
+    if (key?.length !== 16) return null;
 
     const prefix = hash.slice(0, 2);
     for (const res of ['300_300', '200_200']) {

@@ -13,7 +13,7 @@
  * `refetchOnMount: 'always'` so reopening the dialog always shows fresh state.
  */
 
-import { useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { AudioLines, Check, Download, Loader2, Plus, Play, Save, Trash2, Volume2 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useDialog } from '../Dialog';
@@ -71,18 +71,24 @@ export function VoiceTranscribeSection(): ReactElement {
 
   // Subscribe to download progress (shared stream). On the terminal event
   // (done/error) clear the bar and refresh the model list.
+  // 订阅只该建一次；refetch/showError 通过 ref 取最新引用，避免它们的身份变化把流重连。
+  const refetchModelsRef = useRef(models.refetch);
+  refetchModelsRef.current = models.refetch;
+  const showErrorRef = useRef(showError);
+  showErrorRef.current = showError;
+
   useEffect(() => {
     const sub = client.bootstrap.onVoiceModelProgress.subscribe(undefined, {
       onData: (p) => {
         if (p.error) {
           setProgress(null);
-          void models.refetch();
-          showError('模型下载失败', p.error);
+          void refetchModelsRef.current();
+          showErrorRef.current('模型下载失败', p.error);
           return;
         }
         if (p.done) {
           setProgress(null);
-          void models.refetch();
+          void refetchModelsRef.current();
           return;
         }
         setProgress({
@@ -96,7 +102,6 @@ export function VoiceTranscribeSection(): ReactElement {
       onError: (err) => console.error('[voice] progress subscription error', err),
     });
     return () => sub.unsubscribe();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const selectedId = settings.data?.voiceTranscribe.modelId ?? '';

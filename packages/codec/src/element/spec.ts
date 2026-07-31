@@ -290,7 +290,8 @@ export const GrayTipRevokeElementSchema = BaseElementFieldsSchema.extend({
   recallSenderNick: z.string(),
   recallDisplayText: z.string(),
   recallRevokeNick: z.string(),
-  recallElements: z.array(z.any()).optional(),
+  /** 被撤回消息的原始 element 副本，仅透传给上层、当前无人解析。 */
+  recallElements: z.array(z.unknown()).optional(),
   recallFlag47711: z.number().optional(),
   /** 被撤回者的昵称副本 / 群名片（47706/47707）。 */
   recallSenderNickCopy: z.string().optional(),
@@ -349,6 +350,17 @@ export const GrayTipGroupElementSchema = BaseElementFieldsSchema.extend({
   grayTipTimestamp: z.number().optional(),
 });
 
+/** QQ 动态标签列表（48189），对应 QqDynamicTagWire。 */
+export const QqDynamicTagListSchema = z
+  .array(
+    z.object({
+      flag48191: z.boolean().optional(),
+      tagId: z.number().optional(),
+      tagContent: z.string().optional(),
+    }),
+  )
+  .optional();
+
 export const GrayTipInviteElementSchema = BaseElementFieldsSchema.extend({
   kind: z.literal('grayTipInvite'),
   subType: z.literal(GrayTipSubType.XML_MSG),
@@ -364,8 +376,9 @@ export const GrayTipInviteElementSchema = BaseElementFieldsSchema.extend({
   actionAttributes: z.array(z.object({ key: z.string().optional(), value: z.string().optional() })).optional(),
   tipJson: z.string().optional(),
   tipType: z.number().optional(),
-  dynamicTags: z.any().optional(),
-  recallElements: z.array(z.any()).optional(),
+  dynamicTags: QqDynamicTagListSchema,
+  /** 被撤回消息的原始 element 副本，仅透传给上层、当前无人解析。 */
+  recallElements: z.array(z.unknown()).optional(),
   grayTipFlag48219: z.number().optional(),
   grayTipFlag48220: z.number().optional(),
   grayTipTimestamp: z.number().optional(),
@@ -437,16 +450,52 @@ export const MfaceElementSchema = BaseElementFieldsSchema.extend({
   mfaceFlag80995: z.number().optional(),
 });
 
+/** markdown 元数据（48702），字段对应 MarkdownMetaWire。 */
+export const MarkdownMetaSchema = z.object({
+  flag1: z.number().optional(),
+  buildTimestamp: z.number().optional(),
+  flag3: z.instanceof(Uint8Array).optional(),
+  flag4: z.number().optional(),
+});
+
+/** markdown 48703 块，对应 MarkdownFlag48703Wire。 */
+export const MarkdownFlag48703Schema = z.object({
+  field48720: z.string().optional(),
+  field48721: z.string().optional(),
+  field48722: z.number().optional(),
+});
+
+/** 闪传缩略图 URL（48708 → 4 → 2），对应 FlashTransferThumbUrlWire。 */
+export const FlashTransferThumbUrlSchema = z.object({
+  type: z.number().optional(),
+  url: z.string().optional(),
+});
+
+/** 闪传缩略图备选（48708 → 4），对应 FlashTransferThumbAltWire。 */
+export const FlashTransferThumbAltSchema = z.object({
+  fileId: z.string().optional(),
+  urlInfo: FlashTransferThumbUrlSchema.optional(),
+});
+
+/** QQ 闪传信息（48708），对应 FlashTransferInfoWire。 */
+export const FlashTransferInfoSchema = z.object({
+  fileSetId: z.string().optional(),
+  thumbnailName: z.string().optional(),
+  fileBytes: z.number().optional(),
+  thumbAlt: FlashTransferThumbAltSchema.optional(),
+  createTime: z.number().optional(),
+});
+
 export const MarkdownElementSchema = BaseElementFieldsSchema.extend({
   kind: z.literal('markdown'),
   markdownContent: z.string(),
-  markdownMeta: z.any(),
-  markdownFlag48703: z.any(),
+  markdownMeta: MarkdownMetaSchema,
+  markdownFlag48703: MarkdownFlag48703Schema,
   markdownFlag48704: z.string(),
   markdownTextSummary: z.string(),
   markdownFlag48706: z.number(),
   flashTransferProto1: z.instanceof(Uint8Array).optional(),
-  flashTransferInfo: z.any().optional(),
+  flashTransferInfo: FlashTransferInfoSchema.optional(),
   flashTransferProto3: z.instanceof(Uint8Array).optional(),
 });
 
@@ -468,11 +517,38 @@ export const CallElementSchema = BaseElementFieldsSchema.extend({
   callFlag48156: z.number().optional(),
 });
 
+/** 钱包详情（48403），对应 WalletDetailWire。 */
+export const WalletDetailSchema = z.object({
+  flag48441: z.number().optional(),
+  redbagType: z.number().optional(),
+  redbagTitle: z.string().optional(),
+  openPrompt: z.string().optional(),
+  subTitle: z.string().optional(),
+  flag48446: z.string().optional(),
+  flag48447: z.string().optional(),
+  display: z.string().optional(),
+  flag48449: z.number().optional(),
+  flag48450: z.number().optional(),
+  flag48451: z.string().optional(),
+  flag48452: z.string().optional(),
+  flag48453: z.string().optional(),
+  orderUrl: z.string().optional(),
+  flag48461: z.instanceof(Uint8Array).optional(),
+});
+
+/** 钱包扩展（48421），对应 WalletExtWire。 */
+export const WalletExtSchema = z.object({
+  flag3: z.boolean().optional(),
+  redbagCover: z.string().optional(),
+  flag7: z.boolean().optional(),
+  flag8: z.boolean().optional(),
+});
+
 export const WalletElementSchema = BaseElementFieldsSchema.extend({
   kind: z.literal('wallet'),
   walletTargetUin: z.number().optional(),
   walletTransferProto: z.instanceof(Uint8Array).optional(),
-  walletDetail: z.any().optional(),
+  walletDetail: WalletDetailSchema.optional(),
   walletFlag48404: z.number().optional(),
   walletFlag48405: z.number().optional(),
   walletFlag48406: z.number().optional(),
@@ -486,7 +562,7 @@ export const WalletElementSchema = BaseElementFieldsSchema.extend({
   walletFlag48418: z.string().optional(),
   walletFlag48419: z.number().optional(),
   walletDesignatedUin: z.number().optional(),
-  walletExt: z.any().optional(),
+  walletExt: WalletExtSchema.optional(),
   walletFlag48437: z.number().optional(),
   walletFlag48438: z.number().optional(),
 });
@@ -556,15 +632,7 @@ export const QqDynamicElementSchema = BaseElementFieldsSchema.extend({
   dynamicZoneLogoUrl: z.string(),
   dynamicPublisherUin: z.number(),
   dynamicMeta: z.string(),
-  dynamicTags: z
-    .array(
-      z.object({
-        flag48191: z.boolean().optional(),
-        tagId: z.number().optional(),
-        tagContent: z.string().optional(),
-      }),
-    )
-    .optional(),
+  dynamicTags: QqDynamicTagListSchema,
 });
 
 export const ElementSchema = z.discriminatedUnion('kind', [

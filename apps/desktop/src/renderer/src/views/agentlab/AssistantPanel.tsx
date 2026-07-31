@@ -372,6 +372,9 @@ export function AssistantPanel({
     const id = sessionIdRef.current;
     if (id) void utils.account.getAssistantConversation.invalidate({ sessionId: id });
   }
+  // 事件订阅只该建一次，所以通过 ref 拿最新实现，而不是把它当依赖。
+  const invalidateConversationRef = useRef(invalidateConversation);
+  invalidateConversationRef.current = invalidateConversation;
 
   /** 输入框旁的快捷设置：改了立即落库（与设置弹窗共用同一份配置）。 */
   async function onQuickConfig(patch: { modelKey?: string; effort?: EffortValue }): Promise<void> {
@@ -427,7 +430,7 @@ export function AssistantPanel({
           } else if (step.kind === 'final') {
             next[idx] = { ...turn, text: step.text || '（没能得出结论。）', streamingText: '', reasoning: '', running: false };
             runIdRef.current = null;
-            invalidateConversation();
+            invalidateConversationRef.current();
             // 首轮对话后端会自动总结标题；刷新会话列表让左栏标题跟上。
             void utils.account.listAssistantSessions.invalidate();
           } else if (step.kind === 'aborted') {
@@ -440,7 +443,7 @@ export function AssistantPanel({
               running: false,
             };
             runIdRef.current = null;
-            invalidateConversation();
+            invalidateConversationRef.current();
             void utils.account.listAssistantSessions.invalidate();
           } else if (step.kind === 'error') {
             next[idx] = { ...turn, running: false };
@@ -456,7 +459,6 @@ export function AssistantPanel({
     });
     return () => sub.unsubscribe();
     // 订阅只按 runIdRef 匹配，会话 id 走 ref，不必因 id 变化重订阅。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [utils, dialog]);
 
   // 新内容时滚到底部。

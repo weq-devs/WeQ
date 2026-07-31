@@ -222,6 +222,10 @@ function FaceLottie({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [failed, setFailed] = useState(false);
   const sourcesKey = sources.join('|');
+  // sources 每次渲染都是新数组；用 join 出来的 key 作为唯一触发源，effect 内部读 ref
+  // 拿最新值，避免父组件重渲染就重放动画。
+  const sourcesRef = useRef(sources);
+  sourcesRef.current = sources;
 
   useEffect(() => {
     let destroyed = false;
@@ -235,7 +239,7 @@ function FaceLottie({
         // carry no expressions, so nothing is lost.
         const [{ default: lottie }, ...payloads] = await Promise.all([
           import('lottie-web/build/player/lottie_light'),
-          ...sources.map(async (src) => {
+          ...sourcesRef.current.map(async (src) => {
             const res = await fetch(src);
             if (!res.ok) throw new Error(`lottie fetch ${res.status}`);
             return (await res.json()) as unknown;

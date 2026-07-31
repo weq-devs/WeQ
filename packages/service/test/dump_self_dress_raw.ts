@@ -11,7 +11,6 @@
 
 import { writeFileSync } from 'node:fs';
 import { loadNative } from '@weq/native';
-import type { AccountSession } from '@weq/account';
 import { ensureSendable } from '@weq/testkit';
 import { computeBkn, cookieHeader, WebCredentialProvider } from '../src/account/web/credential';
 

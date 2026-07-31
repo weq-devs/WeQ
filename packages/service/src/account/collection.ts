@@ -11,7 +11,9 @@ import type { NtHelperBinding } from '@weq/native';
 import type { CollectionItem } from '@weq/db';
 import { getLogger, logErrorContext } from '../common/logger';
 import { WebCredentialProvider } from './web/credential';
+import type { WebCredential } from './web/credential';
 import { getCollectionListNetwork } from './web/collection';
+import type { NetworkCollectionPage } from './web/collection';
 
 const WEIYUN_DOMAIN = 'weiyun.com';
 
@@ -66,7 +68,7 @@ export class CollectionService {
    * 失败均返回 null,让调用方回退 collection.db。
    */
   private async tryNetwork(limit: number, offset: number): Promise<CollectionPage | null> {
-    let cred;
+    let cred: WebCredential;
     try {
       cred = await this.creds.forDomain(WEIYUN_DOMAIN);
     } catch (error) {
@@ -86,7 +88,7 @@ export class CollectionService {
 
     // 有凭据:网络拉取,失败则回退 db。
     const wanted = offset + limit + 1;
-    let page;
+    let page: NetworkCollectionPage;
     try {
       page = await getCollectionListNetwork(cred, wanted);
     } catch (error) {

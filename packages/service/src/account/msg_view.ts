@@ -214,7 +214,7 @@ export interface RenderGrayTipRevokeElement {
     recallSenderNick: string;
     recallDisplayText: string;
     recallRevokeNick: string;
-    recallElements?: any[];
+    recallElements?: GrayTipRevokeElement['recallElements'];
   };
 }
 
@@ -293,7 +293,7 @@ export interface RenderMarkdownElement {
   type: 'markdown';
   data: BaseRenderData & {
     markdownContent: string;
-    markdownMeta: any;
+    markdownMeta: MarkdownElement['markdownMeta'];
     // markdownFlag48703: any;
     markdownTextSummary: string;
     /**
@@ -302,7 +302,7 @@ export interface RenderMarkdownElement {
      * transfer file card instead of plain markdown. Shape: { fileSetId,
      * thumbnailName, fileBytes, thumbAlt, createTime }.
      */
-    flashTransferInfo?: any;
+    flashTransferInfo?: MarkdownElement['flashTransferInfo'];
   };
 }
 
@@ -355,11 +355,11 @@ export interface RenderWalletElement {
   type: 'wallet';
   data: BaseRenderData & {
     walletTargetUin?: number;
-    walletDetail?: any;
+    walletDetail?: WalletElement['walletDetail'];
     walletOrderId?: string;
     walletRedbagType?: number;
     walletDesignatedUin?: number;
-    walletExt?: any;
+    walletExt?: WalletElement['walletExt'];
   };
 }
 
@@ -530,8 +530,10 @@ export function toRenderElements(elements: Element[]): RenderElement[] {
       case 'grayTipTempSession': return mapGrayTipTempSession(el as GrayTipTempSessionElement);
       case 'unknown': return mapUnknown(el as UnknownElement);
       default: {
-        const { kind, ...rest } = el as any;
-        return { type: kind, data: rest } as any;
+        // Element 联合已被上面的 case 穷尽；真跑到这里说明 codec 新增了 kind
+        // 而这里没跟上，原样透传避免整条消息渲染失败。
+        const { kind, ...rest } = el as Extract<Element, { kind: string }>;
+        return { type: kind, data: rest } as unknown as RenderElement;
       }
     }
   });

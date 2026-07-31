@@ -403,6 +403,16 @@ type RenderElementWire = {
   data?: Record<string, unknown>;
 };
 
+/** `account.getOnlineStatus` 的返回体（非 null 分支）。 */
+type OnlineStatusWire = NonNullable<
+  Awaited<ReturnType<typeof client.account.getOnlineStatus.query>>
+>;
+
+/** `account.getRawElements` 返回的原始 element 数组，喂给 MsgElementEditor。 */
+type RawElementWire = NonNullable<
+  Awaited<ReturnType<typeof client.account.getRawElements.query>>
+>['elements'];
+
 type PendingScrollRestore = {
   conversationId: string;
   previousHeight: number;
@@ -1171,7 +1181,9 @@ function extractGrayTipUids(elements: unknown[]): string[] {
         }
       }
     } else if (type === 'grayTipGroup') {
-      const mute = (data as Record<string, any>).muteInfo;
+      const mute = data.muteInfo as
+        | { operator?: { uid?: unknown }; mutedUser?: { uid?: unknown } }
+        | undefined;
       pushUid(mute?.operator?.uid);
       pushUid(mute?.mutedUser?.uid);
     } else if (type === 'grayTipRevoke') {
@@ -1179,8 +1191,8 @@ function extractGrayTipUids(elements: unknown[]): string[] {
       // baked in — only the uids. Pre-resolve them via the group-member resolver
       // so GrayTipRevokeMessage can show "{昵称} 撤回了一条消息" instead of a
       // bare placeholder. (Both are `u_`-prefixed; pushUid filters accordingly.)
-      pushUid((data as Record<string, any>).recallSenderUid);
-      pushUid((data as Record<string, any>).recallRevokeUid);
+      pushUid(data.recallSenderUid);
+      pushUid(data.recallRevokeUid);
     }
   }
 
@@ -1655,11 +1667,11 @@ export function MainView(): ReactElement {
     peerName: string;
   } | null>(null);
   const [memberCard, setMemberCard] = useState<{
-    member: any;
+    member: User;
     anchor: { x: number; y: number };
   } | null>(null);
 
-  const [editorState, setEditorState] = useState<{ msgId: string, elements: any[] } | null>(null);
+  const [editorState, setEditorState] = useState<{ msgId: string, elements: RawElementWire } | null>(null);
   const [addMessageConv, setAddMessageConv] = useState<Conversation | null>(null);
   // "删除列表" panel: which conversation is open + its fetched deleted rows.
   const [deletedConv, setDeletedConv] = useState<Conversation | null>(null);
@@ -1687,7 +1699,7 @@ export function MainView(): ReactElement {
     }
   }, []);
 
-  const handleSaveRaw = useCallback(async (elements: any[]) => {
+  const handleSaveRaw = useCallback(async (elements: RawElementWire) => {
     if (!editorState) return;
     try {
         const success = await client.account.updateElements.mutate({
@@ -1825,7 +1837,7 @@ export function MainView(): ReactElement {
   );
 
   const handleOpenGroupMember = useCallback(
-    (member: any, anchor: { x: number; y: number }) => {
+    (member: User, anchor: { x: number; y: number }) => {
       setMemberCard({ member, anchor });
     },
     [],
@@ -1842,7 +1854,9 @@ export function MainView(): ReactElement {
     });
   }, []);
 
-  const [onlineStatusByUid, setOnlineStatusByUid] = useState<Record<string, any>>({});
+  const [onlineStatusByUid, setOnlineStatusByUid] = useState<
+    Record<string, OnlineStatusWire>
+  >({});
   // Unread count per conversation id (latest msgSeq - last read seq). Filled
   // asynchronously after the recent-contact list loads / refreshes.
   const [unreadByConv, setUnreadByConv] = useState<Record<string, number>>({});
@@ -2028,7 +2042,7 @@ export function MainView(): ReactElement {
     let cancelled = false;
 
     async function loadOnlineStatuses(): Promise<void> {
-      const next: Record<string, any> = {};
+      const next: Record<string, OnlineStatusWire> = {};
       const batchSize = 12;
       for (let index = 0; index < buddyList.length && !cancelled; index += batchSize) {
         const batch = buddyList.slice(index, index + batchSize);
