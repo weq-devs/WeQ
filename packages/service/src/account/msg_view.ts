@@ -252,6 +252,8 @@ export interface RenderGrayTipGroupElement {
       timestamp?: bigint;
       duration?: number;
     };
+    /** 提示所指的群名称（改群名 / 跨群邀请时才有）。 */
+    groupTipGroupName?: string;
   };
 }
 
@@ -768,6 +770,7 @@ function mapGrayTipGroup(el: GrayTipGroupElement): RenderGrayTipGroupElement {
       user2Nick: el.user2Nick,
       user2GroupNick: el.user2GroupNick,
       muteInfo: el.muteInfo,
+      groupTipGroupName: el.groupTipGroupName,
       elementId: el.elementId,
       isSender: el.isSender,
       subType: el.subType,

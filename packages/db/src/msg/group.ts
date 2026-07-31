@@ -25,6 +25,16 @@ import { QqDb } from '../qq_db';
 
 const SELECT_COLUMNS = `"40001","40020","40027","40033","40050","40800","40062","40003","40011","40012"`;
 
+/**
+ * Conversation ordering. 40003 alone is NOT a total order: gray tips share the
+ * seq of the message they hang off (12631 colliding groups here), and the
+ * UNIQUE `(40027,40003,40002)` index then breaks the tie on 40002 — a random —
+ * so a same-seq run came back shuffled. Sending time then msgId settle it, and
+ * keeping 40003 first still hits the `(40027,40003)` index.
+ */
+const ORDER_NEWEST_FIRST = `ORDER BY "40003" DESC, "40050" DESC, "40001" DESC`;
+const ORDER_OLDEST_FIRST = `ORDER BY "40003" ASC, "40050" ASC, "40001" ASC`;
+
 export interface GroupMsgDbOptions {
   /** Absolute path to nt_msg.db. */
   dbPath: string;
@@ -46,7 +56,7 @@ export class GroupMsgDb {
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM group_msg_table
         WHERE "40027" = ?
-        ORDER BY "40003" DESC
+        ${ORDER_NEWEST_FIRST}
         LIMIT ?`,
       [targetGroupCode, BigInt(limit)],
     );
@@ -58,7 +68,7 @@ export class GroupMsgDb {
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM group_msg_table
         WHERE "40027" = ? AND "40003" < ?
-        ORDER BY "40003" DESC
+        ${ORDER_NEWEST_FIRST}
         LIMIT ?`,
       [targetGroupCode, beforeSeq, BigInt(limit)],
     );
@@ -70,7 +80,7 @@ export class GroupMsgDb {
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM group_msg_table
         WHERE "40027" = ? AND "40003" > ?
-        ORDER BY "40003" ASC
+        ${ORDER_OLDEST_FIRST}
         LIMIT ?`,
       [targetGroupCode, afterSeq, BigInt(limit)],
     );
@@ -102,7 +112,7 @@ export class GroupMsgDb {
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM group_msg_table
         WHERE ${conditions.join(' AND ')}
-        ORDER BY "40003" ASC
+        ${ORDER_OLDEST_FIRST}
         LIMIT ?`,
       [...params, BigInt(limit)],
     );
@@ -118,7 +128,11 @@ export class GroupMsgDb {
    * block) against the seq stream by sendTime — see `message_source`. Restricting
    * to seq-less rows keeps the two streams disjoint (no dupes).
    */
-  async listSeqlessAfterRowId(targetGroupCode: string, afterRowId: bigint, limit = 50): Promise<Array<GroupMsg & { rowId: bigint }>> {
+  async listSeqlessAfterRowId(
+    targetGroupCode: string,
+    afterRowId: bigint,
+    limit = 50,
+  ): Promise<Array<GroupMsg & { rowId: bigint }>> {
     const rows = await this.qq.query(
       `SELECT rowid, ${SELECT_COLUMNS} FROM group_msg_table
         WHERE "40027" = ? AND rowid > ? AND ("40003" = 0 OR "40003" IS NULL)
@@ -138,7 +152,7 @@ export class GroupMsgDb {
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM group_msg_table
         WHERE "40027" = ? AND "40003" >= ?
-        ORDER BY "40003" DESC
+        ${ORDER_NEWEST_FIRST}
         LIMIT ?`,
       [targetGroupCode, sinceSeq, BigInt(limit)],
     );
@@ -181,7 +195,10 @@ export class GroupMsgDb {
 
   /** Get raw msgBody (column 40800) by msgId. */
   async getMsgBody(msgId: bigint): Promise<Uint8Array | null> {
-    const rows = await this.qq.query(`SELECT "40800" FROM group_msg_table WHERE "40001" = ? LIMIT 1`, [msgId]);
+    const rows = await this.qq.query(
+      `SELECT "40800" FROM group_msg_table WHERE "40001" = ? LIMIT 1`,
+      [msgId],
+    );
     return (rows[0]?.[0] as Uint8Array) ?? null;
   }
 
@@ -195,10 +212,11 @@ export class GroupMsgDb {
    */
   async updateMsgBody(msgId: bigint, blob: Uint8Array): Promise<number> {
     const newRandom = BigInt(Math.floor(Math.random() * 0x7fffffff));
-    return this.qq.write(
-      `UPDATE group_msg_table SET "40800" = ?, "40002" = ? WHERE "40001" = ?`,
-      [blob, newRandom, msgId],
-    );
+    return this.qq.write(`UPDATE group_msg_table SET "40800" = ?, "40002" = ? WHERE "40001" = ?`, [
+      blob,
+      newRandom,
+      msgId,
+    ]);
   }
 
   /**
@@ -223,10 +241,11 @@ export class GroupMsgDb {
    * so the message still renders; restore writes the remembered originals back.
    */
   async writeMsgType(msgId: bigint, msgType: bigint, subType: bigint): Promise<number> {
-    return this.qq.write(
-      `UPDATE group_msg_table SET "40011" = ?, "40012" = ? WHERE "40001" = ?`,
-      [msgType, subType, msgId],
-    );
+    return this.qq.write(`UPDATE group_msg_table SET "40011" = ?, "40012" = ? WHERE "40001" = ?`, [
+      msgType,
+      subType,
+      msgId,
+    ]);
   }
 
   /**
@@ -241,7 +260,7 @@ export class GroupMsgDb {
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM group_msg_table
         WHERE "40001" IN (${placeholders})
-        ORDER BY "40003" DESC`,
+        ${ORDER_NEWEST_FIRST}`,
       msgIds,
     );
     return rows.map(rowToGroupMsg);
@@ -258,7 +277,7 @@ export class GroupMsgDb {
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM group_msg_table
         WHERE "40027" = ? AND "40011" = 1 AND "40012" = 1
-        ORDER BY "40003" DESC
+        ${ORDER_NEWEST_FIRST}
         LIMIT ?`,
       [targetGroupCode, BigInt(limit)],
     );
@@ -270,7 +289,10 @@ export class GroupMsgDb {
    * (see {@link appendClonedRow}). Returns the new msgId/msgSeq, or null if the
    * group has no message to clone.
    */
-  async appendMessage(targetGroupCode: string, fields: AppendMsgFields): Promise<AppendMsgResult | null> {
+  async appendMessage(
+    targetGroupCode: string,
+    fields: AppendMsgFields,
+  ): Promise<AppendMsgResult | null> {
     return appendClonedRow(this.qq, 'group_msg_table', '"40027" = ?', targetGroupCode, fields);
   }
 

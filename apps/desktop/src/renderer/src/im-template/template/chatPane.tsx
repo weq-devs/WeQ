@@ -68,6 +68,7 @@ import type { MessageContextMenuState } from "./messageContextMenu";
 import type { MessageRenderer } from "./messageRenderers";
 import { filterMentionMembers, mentionText } from "./mentions";
 import { MessageTimeDivider, shouldShowMessageTime } from "./messageTime";
+import { MessageGapDivider, messageGapCount } from "./messageGap";
 import { defaultConversationPreference } from "./preferences";
 import { Avatar, EmptyState, LoadingState } from "./primitives";
 import type {
@@ -81,7 +82,7 @@ import type {
 import { displayUserName } from "./user";
 import { OnlineStatus } from "../../components/OnlineStatus";
 import { GrayTipPokeMessage } from '../../components/GrayTipPokeMessage';
-import { GrayTipRevokeMessage, isPlaceholderRevoke } from '../../components/GrayTipRevokeMessage';
+import { GrayTipRevokeMessage } from '../../components/GrayTipRevokeMessage';
 import { GrayTipGroupMessage } from '../../components/GrayTipGroupMessage';
 import { GrayTipInviteMessage } from '../../components/GrayTipInviteMessage';
 import { GrayTipFileRecvMessage } from '../../components/GrayTipFileRecvMessage';
@@ -1519,44 +1520,37 @@ export function ChatPane({
 							}
 						};
 
-						// Collect consecutive gray-tip messages into a "run". The
-						// accent "band" frame is reserved for a run that carries a
-						// placeholder recall (content not in the local DB) — the frame
-						// exists to host the "本地暂无内容" backfill hint. Ordinary gray
-						// tips (pokes, normal recalls, group notices) render as plain
-						// centered lines with no background frame.
+						// Gray tips (pokes, recalls, group notices) render as plain
+						// centered lines, gathered into runs only so a run can be
+						// flushed as a unit when a real message interrupts it.
 						const out = [];
 						let band = null; // { messages: [{ message, gt }] }
 						const flushBand = () => {
 							if (!band) return;
-							const hasPlaceholder = band.messages.some(
-								(b) => b.gt.kind === 'grayTipRevoke' && isPlaceholderRevoke(b.gt.el),
-							);
-							const rows = band.messages.map(({ message, gt }) => (
-								<div
-									key={message.id}
-									data-message-id={message.id}
-									onContextMenu={(e) => openMessageMenu(e, message)}
-								>
-									{renderGrayTip(message, gt)}
-								</div>
-							));
-							if (hasPlaceholder) {
+							for (const { message, gt } of band.messages) {
 								out.push(
-									<div className={cn('weq-graytip-band')} key={`band-${band.messages[0].message.id}`}>
-										{rows}
-										<div className={cn('weq-graytip-band-hint')}>
-											本地暂无这些消息内容 · 用 QQ 查看后会自动补全
-										</div>
+									<div
+										key={message.id}
+										data-message-id={message.id}
+										onContextMenu={(e) => openMessageMenu(e, message)}
+									>
+										{renderGrayTip(message, gt)}
 									</div>,
 								);
-							} else {
-								out.push(...rows);
 							}
 							band = null;
 						};
 
 						visibleMessages.forEach((message, index) => {
+							// A hole in the seq run means QQ has messages here that were
+							// never synced locally. Checked for every row (gray tips
+							// included — they occupy a seq too) and emitted before the row
+							// that follows the hole.
+							const gap = messageGapCount(visibleMessages[index - 1], message);
+							if (gap > 0) {
+								flushBand();
+								out.push(<MessageGapDivider key={`gap-${message.id}`} count={gap} />);
+							}
 							const gt = grayTipOf(message);
 							if (gt) {
 								if (!band) band = { messages: [] };

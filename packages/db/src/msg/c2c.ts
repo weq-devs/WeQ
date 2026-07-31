@@ -29,6 +29,15 @@ import { QqDb } from '../qq_db';
 const SELECT_COLUMNS = `"40001","40020","40021","40030","40033","40050","40800","40003","40011","40012"`;
 
 /**
+ * Conversation ordering. 40003 alone is NOT a total order: gray tips share the
+ * seq of the message they hang off, so a same-seq run's order fell to whatever
+ * index SQLite happened to walk. Sending time then msgId settle it, and keeping
+ * 40003 first still hits the `(40027,40003)` index.
+ */
+const ORDER_NEWEST_FIRST = `ORDER BY "40003" DESC, "40050" DESC, "40001" DESC`;
+const ORDER_OLDEST_FIRST = `ORDER BY "40003" ASC, "40050" ASC, "40001" ASC`;
+
+/**
  * Which partition column to filter a c2c conversation by. Prefer `sortNo`
  * (column 40027 — indexed); `uid` (column 40021 — unindexed) is the fallback
  * for peers missing from the uid map.
@@ -71,7 +80,7 @@ export class C2cMsgDb {
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM ${this.table}
         WHERE ${clause}
-        ORDER BY "40003" DESC
+        ${ORDER_NEWEST_FIRST}
         LIMIT ?`,
       [value, BigInt(limit)],
     );
@@ -84,7 +93,7 @@ export class C2cMsgDb {
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM ${this.table}
         WHERE ${clause} AND "40003" < ?
-        ORDER BY "40003" DESC
+        ${ORDER_NEWEST_FIRST}
         LIMIT ?`,
       [value, beforeSeq, BigInt(limit)],
     );
@@ -97,7 +106,7 @@ export class C2cMsgDb {
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM ${this.table}
         WHERE ${clause} AND "40003" > ?
-        ORDER BY "40003" ASC
+        ${ORDER_OLDEST_FIRST}
         LIMIT ?`,
       [value, afterSeq, BigInt(limit)],
     );
@@ -113,7 +122,11 @@ export class C2cMsgDb {
    * migrated block) against the seq stream by sendTime — see `message_source`.
    * Restricting to seq-less rows keeps the two streams disjoint (no dupes).
    */
-  async listSeqlessAfterRowId(part: C2cPartition, afterRowId: bigint, limit = 50): Promise<Array<C2cMsg & { rowId: bigint }>> {
+  async listSeqlessAfterRowId(
+    part: C2cPartition,
+    afterRowId: bigint,
+    limit = 50,
+  ): Promise<Array<C2cMsg & { rowId: bigint }>> {
     const { clause, value } = partitionWhere(part);
     const rows = await this.qq.query(
       `SELECT rowid, ${SELECT_COLUMNS} FROM ${this.table}
@@ -135,7 +148,7 @@ export class C2cMsgDb {
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM ${this.table}
         WHERE ${clause} AND "40003" >= ?
-        ORDER BY "40003" DESC
+        ${ORDER_NEWEST_FIRST}
         LIMIT ?`,
       [value, sinceSeq, BigInt(limit)],
     );
@@ -178,7 +191,10 @@ export class C2cMsgDb {
 
   /** Get raw msgBody (column 40800) by msgId. */
   async getMsgBody(msgId: bigint): Promise<Uint8Array | null> {
-    const rows = await this.qq.query(`SELECT "40800" FROM ${this.table} WHERE "40001" = ? LIMIT 1`, [msgId]);
+    const rows = await this.qq.query(
+      `SELECT "40800" FROM ${this.table} WHERE "40001" = ? LIMIT 1`,
+      [msgId],
+    );
     return (rows[0]?.[0] as Uint8Array) ?? null;
   }
 
@@ -195,10 +211,11 @@ export class C2cMsgDb {
    */
   async updateMsgBody(msgId: bigint, blob: Uint8Array): Promise<number> {
     const newRandom = BigInt(Math.floor(Math.random() * 0x7fffffff));
-    return this.qq.write(
-      `UPDATE ${this.table} SET "40800" = ?, "40002" = ? WHERE "40001" = ?`,
-      [blob, newRandom, msgId],
-    );
+    return this.qq.write(`UPDATE ${this.table} SET "40800" = ?, "40002" = ? WHERE "40001" = ?`, [
+      blob,
+      newRandom,
+      msgId,
+    ]);
   }
 
   /**
@@ -223,10 +240,11 @@ export class C2cMsgDb {
    * so the message still renders; restore writes the remembered originals back.
    */
   async writeMsgType(msgId: bigint, msgType: bigint, subType: bigint): Promise<number> {
-    return this.qq.write(
-      `UPDATE ${this.table} SET "40011" = ?, "40012" = ? WHERE "40001" = ?`,
-      [msgType, subType, msgId],
-    );
+    return this.qq.write(`UPDATE ${this.table} SET "40011" = ?, "40012" = ? WHERE "40001" = ?`, [
+      msgType,
+      subType,
+      msgId,
+    ]);
   }
 
   /**
@@ -241,7 +259,7 @@ export class C2cMsgDb {
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM ${this.table}
         WHERE "40001" IN (${placeholders})
-        ORDER BY "40003" DESC`,
+        ${ORDER_NEWEST_FIRST}`,
       msgIds,
     );
     return rows.map(rowToC2cMsg);
@@ -258,7 +276,7 @@ export class C2cMsgDb {
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM ${this.table}
         WHERE "40021" = ? AND "40011" = 1 AND "40012" = 1
-        ORDER BY "40003" DESC
+        ${ORDER_NEWEST_FIRST}
         LIMIT ?`,
       [targetUid, BigInt(limit)],
     );
@@ -270,7 +288,10 @@ export class C2cMsgDb {
    * template (see {@link appendClonedRow}). Returns the new msgId/msgSeq, or
    * null if the conversation has no message to clone.
    */
-  async appendMessage(part: C2cPartition, fields: AppendMsgFields): Promise<AppendMsgResult | null> {
+  async appendMessage(
+    part: C2cPartition,
+    fields: AppendMsgFields,
+  ): Promise<AppendMsgResult | null> {
     const { clause, value } = partitionWhere(part);
     return appendClonedRow(this.qq, this.table, clause, value, fields);
   }

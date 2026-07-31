@@ -682,7 +682,10 @@ export const ElementWire = {
 
   // subType=4: group notifications (join, dismiss, removal)
 
-  /** Group tip type (subType=4). 1=join group, 2=dismiss, 3=removed from group. Required for group tips. */
+  /**
+   * Group tip type (subType=4) — see `TipGroupElementType`. Observed here:
+   * 1=入群, 2=解散, 3=被移出, 5=改群名, 8=禁言. Required for group tips.
+   */
   groupTipType: ProtoField(48501, ScalarType.UINT32, { optional: true }),
 
   /** User 1 UID (subType=4). Optional. */

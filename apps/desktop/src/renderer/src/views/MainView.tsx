@@ -967,7 +967,10 @@ function messageToTemplate(message: MessageWire, conversation: Conversation, use
     recall: message.recall,
     recallRevokerName,
     msgId: message.msgId,
-  } as Message & { qqElements: unknown[]; setEmojiList?: SetEmojiItem[]; deletedKind?: 'weq' | 'qq'; recall?: { revokeUid: string; sameSender: boolean; recallTs: number }; recallRevokerName?: string; msgId: string };
+    // Per-conversation sequence, carried through so chatPane can spot the gaps
+    // where messages QQ never synced locally would have been.
+    msgSeq: message.msgSeq,
+  } as Message & { qqElements: unknown[]; setEmojiList?: SetEmojiItem[]; deletedKind?: 'weq' | 'qq'; recall?: { revokeUid: string; sameSender: boolean; recallTs: number }; recallRevokerName?: string; msgId: string; msgSeq: string };
 }
 
 /**

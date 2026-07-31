@@ -204,6 +204,36 @@ export enum GrayTipSubType {
   JSON = 17,
 }
 
+/**
+ * 群通知灰条（GrayTipSubType.GROUP_TIP）的具体事件类型（wire tag 48501）。
+ * 名字取自 QQ NT 的 `TipGroupElementType` 枚举。本地库里出现过 1/2/3/5/8，
+ * 其余声明出来是为了将来遇到时有名字可对，而不是一个裸数字。
+ */
+export enum TipGroupElementType {
+  /** 未知 / 占位. 未观测. */
+  KUNKNOWN = 0,
+  /** 成员入群：user1 是新成员，user2 是邀请人（无邀请人时 QQ 只写 user1）。 */
+  KMEMBERADD = 1,
+  /** 群已解散。 */
+  KDISBANDED = 2,
+  /** 成员被移出群聊：user1Nick 是操作者昵称，user2Uid 是被移出者。 */
+  KQUITTE = 3,
+  /** 群创建成功. 未观测. */
+  KCREATED = 4,
+  /** 群名被修改：user1 是操作者，groupTipGroupName 是新群名。 */
+  KGROUPNAMEMODIFIED = 5,
+  /** 成员被拉黑 / 加入黑名单. 未观测. */
+  KBLOCK = 6,
+  /** 成员被移出黑名单. 未观测. */
+  KUNBLOCK = 7,
+  /** 禁言：详情在 muteInfo（操作者 / 被禁言者 / 时长，时长 0 表示解除）。 */
+  KSHUTUP = 8,
+  /** 群因违规被回收. 未观测. */
+  KBERECYCLED = 9,
+  /** 群被解散或被回收. 未观测. */
+  KDISBANDORBERECYCLED = 10,
+}
+
 export enum CallSubType {
   VIDEO_ACCEPTED = 2,
   VIDEO_REJECTED_BY_US = 3,
