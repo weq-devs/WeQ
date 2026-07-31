@@ -34,6 +34,7 @@ import { useToast } from '../Toast';
 import { QqAvatar } from '../QqAvatar';
 import { Card, Row, SectionHeader } from './controls';
 import { UpdateCard } from './UpdateCard';
+import { DesktopOnly } from '../../lib/target';
 import logoUrl from '@resources/brand/logo.png';
 
 function errMsg(e: unknown): string {
@@ -284,10 +285,13 @@ export function GlobalSettingsSection(): ReactElement {
         </p>
       </Card>
 
-      {/* Software update */}
-      <UpdateCard />
+      {/* Software update — the web build can't replace its own binary. */}
+      <DesktopOnly>
+        <UpdateCard />
+      </DesktopOnly>
 
-      <Card title="应用锁">
+      <DesktopOnly>
+        <Card title="应用锁">
         <Row
           label={
             <span className="weq-set-row-icon">
@@ -363,6 +367,7 @@ export function GlobalSettingsSection(): ReactElement {
           }
         />
       </Card>
+      </DesktopOnly>
 
       {/* Account list */}
       <Card title="现有配置">

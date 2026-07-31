@@ -5,6 +5,7 @@ import { cn } from "./classNames";
 import { Avatar, EmptyState, } from "./primitives";
 import { isBotConversation } from "./conversationDisplay";
 import { messageMentionsUser } from "./mentions";
+import { resourceUrl } from "../../lib/resourceUrl";
 import type {
 	Contact,
 	Conversation,
@@ -366,7 +367,7 @@ function ContactOnlineStatusIcon({ status }: { status: OnlineStatusInfo | undefi
 	if (!status) return null;
 	const filename = status.type === 10 && SUB_ICONS[status.subType];
 	if (filename) {
-		return <img src={`weq-asset://OnlineStatus/${filename}`} alt="" style={{ width: 14, height: 14 }} />;
+		return <img src={resourceUrl('OnlineStatus', filename)} alt="" style={{ width: 14, height: 14 }} />;
 	}
 	const TypeIcon = TYPE_ICONS[status.type];
 	return TypeIcon ? <TypeIcon /> : null;

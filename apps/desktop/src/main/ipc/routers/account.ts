@@ -19,7 +19,6 @@ import { basename, dirname, extname, join } from 'node:path';
 import { getAppContext, dbEventBus, type AccountServices } from '../../context/app_context';
 import { sampleHitokoto } from '../../hitokoto';
 import { resolveResource } from '../../resource';
-import { dialog } from 'electron';
 import { procedure, router } from '../trpc';
 import { dbExplorerRouter } from './db_explorer';
 import { antiRecallRouter } from './anti_recall';
@@ -40,8 +39,10 @@ import {
   toRenderElements,
   PRIVATE_PTT_RKEY_TYPE,
   GROUP_PTT_RKEY_TYPE,
+  getHost,
   getVoiceModel,
   buildBotExport,
+  probeBotWebUi,
   type AlbumMedia,
   type NewMessages,
   type DbChange,
@@ -752,13 +753,10 @@ export const accountRouter = router({
       if (!botMjs) throw new Error('找不到 bot 引擎 bot.mjs（开发环境请先运行 pnpm build:bot）');
 
       // 选输出位置。
-      const picked = await dialog.showOpenDialog({
-        title: '选择导出位置',
-        properties: ['openDirectory', 'createDirectory'],
-      });
-      if (picked.canceled || !picked.filePaths[0]) return { canceled: true as const };
+      const pickedDir = await getHost().pickDirectory({ title: '选择导出位置' });
+      if (!pickedDir) return { canceled: true as const };
       const safeName = (persona.name || 'clone').replace(/[^\w一-龥-]+/g, '_').slice(0, 40) || 'clone';
-      const outDir = join(picked.filePaths[0], `${safeName}-bot`);
+      const outDir = join(pickedDir, `${safeName}-bot`);
 
       const result = await buildBotExport({
         outDir,
@@ -804,12 +802,19 @@ export const accountRouter = router({
       const info = svc.getExportInfo(input.personaId);
       if (!info) throw new Error('这个克隆体还没有导出过，请先导出机器人。');
       const base = (input.url?.trim() || info.url).replace(/\/+$/, '');
-      const { probeBotWebUi, openBotWebUiWindow } = await import('../../bot_webui_window');
       const reachable = await probeBotWebUi(`${base}/`);
       if (!reachable) return { opened: false as const, needUrl: true as const, defaultUrl: info.url };
       const persona = svc.getPersona(input.personaId);
-      await openBotWebUiWindow(base, info.key, persona?.name);
-      return { opened: true as const, needUrl: false as const };
+      const opened = await getHost().openBotConsole({
+        url: base,
+        key: info.key,
+        title: persona?.name,
+      });
+      return {
+        opened: true as const,
+        needUrl: false as const,
+        openUrl: opened?.url ?? null,
+      };
     }),
 
   // ── 克隆体群聊（M2 群骨架）─────────────────────────────────────────────
@@ -1110,15 +1115,10 @@ export const accountRouter = router({
     .input(z.object({ id: z.string().min(1) }))
     .mutation(async ({ input }) => {
       const { path, kind } = requireServices().assistant.artifactInfo(input.id);
-      if (kind === 'html') {
-        const { openReportWindow } = await import('../../report_window');
-        await openReportWindow(path);
-      } else {
-        const { shell } = await import('electron');
-        const err = await shell.openPath(path);
-        if (err) throw new Error(err);
-      }
-      return true;
+      const host = getHost();
+      const opened = kind === 'html' ? await host.openHtmlReport(path) : null;
+      if (kind !== 'html') await host.revealPath(path);
+      return { ok: true as const, openUrl: opened?.url ?? null };
     }),
 
   /** 把助手写的报告文件另存到用户选定位置（复用 saveExportFile 范式）。 */
@@ -1126,15 +1126,14 @@ export const accountRouter = router({
     .input(z.object({ id: z.string().min(1), name: z.string().min(1) }))
     .mutation(async ({ input }) => {
       const { path } = requireServices().assistant.artifactInfo(input.id);
-      const { dialog } = await import('electron');
       const { copyFileSync } = await import('node:fs');
       const ext = extname(input.name).replace(/^\./, '') || 'html';
-      const result = await dialog.showSaveDialog({
-        defaultPath: input.name,
-        filters: [{ name: 'Report', extensions: [ext] }],
+      const target = await getHost().pickSaveTarget({
+        defaultName: input.name,
+        extension: ext,
       });
-      if (result.canceled || !result.filePath) return false;
-      copyFileSync(path, result.filePath);
+      if (!target) return false;
+      copyFileSync(path, target.path);
       return true;
     }),
 
@@ -1816,13 +1815,7 @@ export const accountRouter = router({
 
   /** Folder dialog for decrypted database output. */
   pickDecryptOutputDir: procedure.mutation(async () => {
-    const { dialog } = await import('electron');
-    const result = await dialog.showOpenDialog({
-      title: '选择解密保存文件夹',
-      properties: ['openDirectory', 'createDirectory'],
-    });
-    if (result.canceled || result.filePaths.length === 0) return null;
-    return result.filePaths[0] ?? null;
+    return getHost().pickDirectory({ title: '选择解密保存文件夹' });
   }),
 
   /** Bulk decrypt selected databases into the chosen folder. */
@@ -1854,13 +1847,7 @@ export const accountRouter = router({
 
   /** Folder dialog for group album export output. */
   pickGroupAlbumExportDir: procedure.mutation(async () => {
-    const { dialog } = await import('electron');
-    const result = await dialog.showOpenDialog({
-      title: '选择群相册保存文件夹',
-      properties: ['openDirectory', 'createDirectory'],
-    });
-    if (result.canceled || result.filePaths.length === 0) return null;
-    return result.filePaths[0] ?? null;
+    return getHost().pickDirectory({ title: '选择群相册保存文件夹' });
   }),
 
   /** Enumerate selected albums first, then concurrently download all media. */
@@ -2231,14 +2218,13 @@ export const accountRouter = router({
       format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']),
     }))
     .mutation(async ({ input }) => {
-      const { dialog } = await import('electron');
       const { copyFileSync } = await import('node:fs');
-      const result = await dialog.showSaveDialog({
-        defaultPath: input.defaultName,
-        filters: [{ name: 'Export', extensions: [input.format] }],
+      const target = await getHost().pickSaveTarget({
+        defaultName: input.defaultName,
+        extension: input.format,
       });
-      if (result.canceled || !result.filePath) return false;
-      copyFileSync(input.sourcePath, result.filePath);
+      if (!target) return false;
+      copyFileSync(input.sourcePath, target.path);
       return true;
     }),
 
@@ -2254,13 +2240,9 @@ export const accountRouter = router({
       if (!task?.bundleDir) return false;
       const { existsSync, cpSync } = await import('node:fs');
       if (!existsSync(task.bundleDir)) return false;
-      const { dialog } = await import('electron');
-      const result = await dialog.showOpenDialog({
-        title: '选择导出保存文件夹',
-        properties: ['openDirectory', 'createDirectory'],
-      });
-      if (result.canceled || result.filePaths.length === 0) return false;
-      const dest = join(result.filePaths[0]!, sanitizePathSegment(task.name, task.id));
+      const picked = await getHost().pickDirectory({ title: '选择导出保存文件夹' });
+      if (!picked) return false;
+      const dest = join(picked, sanitizePathSegment(task.name, task.id));
       cpSync(task.bundleDir, dest, { recursive: true });
       return true;
     }),
@@ -2275,9 +2257,7 @@ export const accountRouter = router({
       const task = requireServices().exportManager.getTask(input.taskId);
       const path = task?.bundleDir || task?.filePath;
       if (!path) throw new Error('导出结果不存在（可能已被清理）。');
-      const { shell } = await import('electron');
-      const err = await shell.openPath(path);
-      if (err) throw new Error(err);
+      await getHost().revealPath(path);
       return true;
     }),
 
@@ -2290,27 +2270,24 @@ export const accountRouter = router({
     .mutation(async ({ input }) => {
       const task = requireServices().exportManager.getTask(input.taskId);
       if (!task) throw new Error('导出结果不存在（可能已被清理）。');
-      const { dialog } = await import('electron');
+      const host = getHost();
       if (task.bundleDir) {
         const { existsSync, cpSync } = await import('node:fs');
         if (!existsSync(task.bundleDir)) return false;
-        const result = await dialog.showOpenDialog({
-          title: '选择导出保存文件夹',
-          properties: ['openDirectory', 'createDirectory'],
-        });
-        if (result.canceled || result.filePaths.length === 0) return false;
-        const dest = join(result.filePaths[0]!, sanitizePathSegment(task.name, task.id));
+        const picked = await host.pickDirectory({ title: '选择导出保存文件夹' });
+        if (!picked) return false;
+        const dest = join(picked, sanitizePathSegment(task.name, task.id));
         cpSync(task.bundleDir, dest, { recursive: true });
         return true;
       }
       if (!task.filePath) return false;
       const { copyFileSync } = await import('node:fs');
-      const result = await dialog.showSaveDialog({
-        defaultPath: `${task.name}.${task.format}`,
-        filters: [{ name: 'Export', extensions: [task.format] }],
+      const target = await host.pickSaveTarget({
+        defaultName: `${task.name}.${task.format}`,
+        extension: task.format,
       });
-      if (result.canceled || !result.filePath) return false;
-      copyFileSync(task.filePath, result.filePath);
+      if (!target) return false;
+      copyFileSync(task.filePath, target.path);
       return true;
     }),
 

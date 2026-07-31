@@ -3,6 +3,7 @@ import { Fragment, useRef, useState, type ReactElement, type ReactNode } from 'r
 import { Bot, Pause, Play } from 'lucide-react';
 import { QqAvatar } from '../../components/QqAvatar';
 import { FaceEmoji } from '../../components/FaceEmoji';
+import { mediaUrl } from '../../lib/resourceUrl';
 
 /** 系统表情匹配上下文：whitelist=本克隆体用过的 faceText；descToId=外显文字→faceId。 */
 export interface FaceContext {
@@ -55,7 +56,7 @@ const VOICE_MARKER = /^\[\[voice:([0-9a-zA-Z._-]+)\]\]$/;
 function VoiceBubble({ personaId, voiceId }: { personaId: string; voiceId: string }): ReactElement {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
-  const src = `weq-media://agentvoice?persona=${encodeURIComponent(personaId)}&id=${encodeURIComponent(voiceId)}`;
+  const src = mediaUrl('agentvoice', { persona: personaId, id: voiceId });
   const toggle = (): void => {
     let audio = audioRef.current;
     if (!audio) {
@@ -132,7 +133,7 @@ export function ChatBubble({
           {stickerMatch ? (
             <img
               className="weq-agentlab-sticker-img"
-              src={`weq-media://sticker?persona=${encodeURIComponent(personaId!)}&md5=${encodeURIComponent(stickerMatch[1] ?? '')}`}
+              src={mediaUrl('sticker', { persona: personaId!, md5: stickerMatch[1] ?? '' })}
               alt="[表情]"
               draggable={false}
               onLoad={onMediaLoad}

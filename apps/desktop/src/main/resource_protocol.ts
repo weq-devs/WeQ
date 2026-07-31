@@ -19,10 +19,9 @@
  * Protocol()` MUST run after.
  */
 
-import { net, protocol } from 'electron';
 import { join, normalize, sep } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { resolveResourceRoot } from './resource';
+import { fileResponse } from './file_response';
 import { getAppContext } from './context/app_context';
 
 export const RESOURCE_SCHEME = 'weq-asset';
@@ -58,26 +57,28 @@ function resolveEmojiRoot(): string | null {
   return null;
 }
 
-export function registerResourceProtocol(): void {
-  protocol.handle(RESOURCE_SCHEME, async (request) => {
-    const url = new URL(request.url);
-    const isEmoji = url.hostname === 'emoji';
+/**
+ * Serve one `weq-asset://` request. Pure `Request`→`Response`, so the web app
+ * can mount it on a plain HTTP route (see `apps/web`) without Electron.
+ */
+export async function handleResourceRequest(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const isEmoji = url.hostname === 'emoji';
 
-    const root = isEmoji ? resolveEmojiRoot() : resolveResourceRoot();
-    if (!root) return new Response('resource root not found', { status: 404 });
+  const root = isEmoji ? resolveEmojiRoot() : resolveResourceRoot();
+  if (!root) return new Response('resource root not found', { status: 404 });
 
-    // Emoji lives under its own root, so drop the `emoji` host segment; other
-    // hosts are a path segment under the bundled resources root.
-    const relative = isEmoji
-      ? decodeURIComponent(url.pathname)
-      : decodeURIComponent(`${url.hostname}${url.pathname}`);
-    const target = normalize(join(root, relative));
+  // Emoji lives under its own root, so drop the `emoji` host segment; other
+  // hosts are a path segment under the bundled resources root.
+  const relative = isEmoji
+    ? decodeURIComponent(url.pathname)
+    : decodeURIComponent(`${url.hostname}${url.pathname}`);
+  const target = normalize(join(root, relative));
 
-    // Containment check — refuse anything that escapes the resources root.
-    if (target !== root && !target.startsWith(root + sep)) {
-      return new Response('forbidden', { status: 403 });
-    }
+  // Containment check — refuse anything that escapes the resources root.
+  if (target !== root && !target.startsWith(root + sep)) {
+    return new Response('forbidden', { status: 403 });
+  }
 
-    return net.fetch(pathToFileURL(target).toString());
-  });
+  return fileResponse(target, request);
 }

@@ -5,8 +5,7 @@
  * site is all the renderer has to do.
  */
 
-const SCHEME = 'weq-avatar';
-const MEDIA_SCHEME = 'weq-media';
+import { avatarFetchUrl, mediaUrl } from './resourceUrl';
 
 /**
  * Build the local-first avatar URL: the main process resolves the peer's cached
@@ -15,8 +14,7 @@ const MEDIA_SCHEME = 'weq-media';
  * falls back to the thumbnail when that's all QQ cached.
  */
 function localFirst(params: Record<string, string>, fb: string): string {
-  const q = new URLSearchParams({ ...params, v: 'big', fb });
-  return `${MEDIA_SCHEME}://avatar?${q.toString()}`;
+  return mediaUrl('avatar', { ...params, v: 'big', fb });
 }
 
 /**
@@ -40,5 +38,5 @@ export function cachedAvatarUrl(src: string | null | undefined): string | null {
   if (groupGh) return localFirst({ scope: 'group', uid: groupGh[1]! }, src);
 
   // Non-QQ remote avatar (e.g. GitHub in demo/agentlab): plain URL disk cache.
-  return `${SCHEME}://fetch?src=${encodeURIComponent(src)}`;
+  return avatarFetchUrl(src);
 }

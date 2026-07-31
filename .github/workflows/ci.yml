@@ -130,3 +130,39 @@ jobs:
             mv apps/desktop/package.dev.json apps/desktop/package.json
           fi
           rm -f apps/desktop/package.release.json
+
+  # 浏览器版打包冒烟：构建 → 两个守卫 → 启动真实产物走一遍鉴权流程。
+  # 守卫防的是同一类回归：Electron-only 的代码混进 web 构建后不会报错，
+  # 只在运行时炸成一句看不懂的 "does not provide an export named 'app'"。
+  build-web:
+    runs-on: ubuntu-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 鉴权闸 + 端到端路由测试。不需要构建产物，先跑、失败得早。
+      - name: Test auth gate
+        run: pnpm --filter @weq/web test
+
+      # build 内含 check：check-electron-free（走真实 import 图）
+      # + check-bundle（扫前端产物里残留的自定义协议 URL）。
+      - name: Build + guards
+        run: pnpm --filter @weq/web build
+
+      # 启动打包好的 server.mjs 走一遍完整流程 —— 覆盖 esbuild 的 CJS 互操作
+      # 和原生模块解析，这些只有真跑起来才会暴露。
+      - name: Smoke-test packaged server
+        run: pnpm --filter @weq/web test:dist

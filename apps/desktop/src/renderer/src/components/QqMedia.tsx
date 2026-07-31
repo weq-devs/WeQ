@@ -13,6 +13,7 @@ import { cn } from '@renderer/lib/utils';
 import { trpc } from '@renderer/trpc/client';
 import { openLightbox } from './ImageLightbox';
 import { openMarketFaceLightbox } from './MarketFaceLightbox';
+import { IS_ELECTRON } from '@renderer/lib/target';
 
 type Data = Record<string, unknown>;
 
@@ -274,12 +275,13 @@ export function QqFile({
     if (busy) return;
     setError(null);
     void (async () => {
-      // 1. Local first: file_assistant.db → reveal in OS file manager.
-      if (msgId && (await revealFile(msgId))) return;
+      // 1. Local first: file_assistant.db → reveal in OS file manager. There's
+      //    no file manager to reveal into on web, so skip straight to (2).
+      if (IS_ELECTRON && msgId && (await revealFile(msgId))) return;
       // 2. Not on disk → OIDB completion (needs an online QQ). Only msgId is
       //    required; token just disambiguates multiple files in one message.
       if (!msgId) {
-        revealMedia(sendTimeMs, name, 'file');
+        if (IS_ELECTRON) revealMedia(sendTimeMs, name, 'file');
         return;
       }
       setBusy(true);
@@ -298,7 +300,7 @@ export function QqFile({
     <div
       className="qq-media-file"
       role="button"
-      title={error ?? (busy ? '正在下载…' : '在文件夹中打开（本地无则尝试下载）')}
+      title={error ?? (busy ? '正在下载…' : IS_ELECTRON ? '在文件夹中打开（本地无则尝试下载）' : '下载')}
       onClick={onClick}
     >
       <img className="qq-media-file-icon" src={fileIconUrl(iconForName(name))} alt="" draggable={false} />

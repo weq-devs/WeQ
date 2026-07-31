@@ -25,9 +25,9 @@
  */
 
 import { createTRPCReact } from '@trpc/react-query';
-import { createTRPCClientProxy, type TRPCLink } from '@trpc/client';
-import { ipcLink } from 'electron-trpc/renderer';
+import { createTRPCClientProxy } from '@trpc/client';
 import superjson from 'superjson';
+import { createLinks } from '@transport';
 import type { AppRouter } from '../../../shared/router';
 
 export const trpc = createTRPCReact<AppRouter>();
@@ -36,9 +36,12 @@ export const trpc = createTRPCReact<AppRouter>();
  * The single underlying (untyped) client for the whole renderer. Passed to
  * <trpc.Provider> in provider.tsx; do NOT call `trpc.createClient` a second
  * time — every consumer must share this one instance / id space.
+ *
+ * `@transport` resolves per build target: IPC in Electron, HTTP + WebSocket in
+ * the browser (see each app's vite alias).
  */
 export const trpcClient = trpc.createClient({
-  links: [ipcLink() as unknown as TRPCLink<AppRouter>],
+  links: createLinks(),
   transformer: superjson,
 });
 

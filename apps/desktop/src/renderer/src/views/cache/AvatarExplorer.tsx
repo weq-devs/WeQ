@@ -18,6 +18,7 @@ import { Users, UsersRound, Image as ImageIcon, RefreshCw, Calculator } from 'lu
 import type { AvatarEntry, AvatarScope, AvatarScopeInfo } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { AvatarPathDialog } from './AvatarPathDialog';
+import { mediaUrl } from '../../lib/resourceUrl';
 
 const PAGE = 120;
 
@@ -41,7 +42,7 @@ function fmtBytes(bytes: number): string {
 
 /** weq-media URL for one avatar file. */
 function avatarSrc(scope: AvatarScope, hash: string, variant: 'big' | 'small'): string {
-  return `weq-media://avatar?scope=${scope}&hash=${hash}&v=${variant}`;
+  return mediaUrl('avatar', { scope, hash, v: variant });
 }
 
 export function AvatarExplorer(): ReactElement {

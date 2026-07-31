@@ -18,6 +18,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { observable } from '@trpc/server/observable';
+import { getHost } from '@weq/service';
 import { z } from 'zod';
 import { DressAppId, normalizeMallItems, toPeerDress, type DressMallItem } from '@weq/service';
 import { accountEventBus, getAppContext, type AccountServices } from '../../context/app_context';
@@ -262,13 +263,10 @@ export const dressupRouter = router({
    */
   pickBackground: procedure.mutation(async () => {
     const services = requireServices();
-    const { dialog } = await import('electron');
-    const result = await dialog.showOpenDialog({
+    const picked = await getHost().pickFile({
       title: '选择聊天背景图',
-      properties: ['openFile'],
-      filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'] }],
+      extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'],
     });
-    const picked = result.canceled ? '' : (result.filePaths[0] ?? '');
     if (!picked) return services.dressInstall.read();
     return services.dressInstall.setCustomBackground(picked);
   }),

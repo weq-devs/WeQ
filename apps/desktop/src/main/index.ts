@@ -8,31 +8,30 @@ import { initAppContext } from './context/app_context';
 import { probeQqProtocolHandler } from './context/qq_protocol';
 import { appRouter } from './ipc/router';
 import { resolveResource } from './resource';
+import { RESOURCE_PRIVILEGED_SCHEME } from './resource_protocol';
+import { AVATAR_PRIVILEGED_SCHEME } from './avatar_protocol';
+import { MEDIA_PRIVILEGED_SCHEME } from './media_protocol';
 import {
   registerResourceProtocol,
-  RESOURCE_PRIVILEGED_SCHEME,
-} from './resource_protocol';
-import {
   registerAvatarProtocol,
-  AVATAR_PRIVILEGED_SCHEME,
-} from './avatar_protocol';
-import {
   registerMediaProtocol,
-  MEDIA_PRIVILEGED_SCHEME,
-} from './media_protocol';
+} from './protocol_register';
 import { getAppContext } from './context/app_context';
-import { checkForUpdate } from './update/updater';
+import { checkForUpdate, installUpdateActions } from './update/updater';
 import { stopMcpServer } from './mcp/server';
-import { stopWeqServer, registerWeqAssistantIpc } from './weq_assistant/server';
+import { stopWeqServer } from './weq_assistant/server';
+import { registerWeqAssistantIpc } from './weq_assistant/ipc';
 import { disposeExternalMcp } from './mcp/external';
 import { registerChannelIpc } from './channel';
 import { registerQzoneIpc } from './qzone';
 import {
   getLogDir,
   getLogger,
+  setHost,
   type MediaElement,
   type WindowCloseBehavior,
 } from '@weq/service';
+import { electronHost } from './host';
 import { systemAuthService } from './system_auth';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -471,6 +470,9 @@ void app.whenReady().then(async () => {
   }
 
   // Order matters: AppContext (loads native + platform) before IPC handler.
+  // The host bridge must be installed before any router runs.
+  setHost(electronHost);
+  installUpdateActions();
   initAppContext();
   logger.info('electron app ready', { event: 'app-ready' });
 

@@ -1,0 +1,43 @@
+{
+  "name": "@weq/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && node scripts/build-server.mjs && pnpm check",
+    "pack:release": "node scripts/pack-release.mjs",
+    "check": "tsx scripts/check-electron-free.ts && tsx scripts/check-bundle.ts",
+    "start": "node dist/server.mjs",
+    "test": "tsx src/server/auth.test.ts && tsx src/server/http.test.ts",
+    "test:dist": "tsx scripts/smoke-dist.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.server.json"
+  },
+  "dependencies": {
+    "@trpc/client": "^10.45.4",
+    "@trpc/react-query": "^10.45.4",
+    "@trpc/server": "^10.45.4",
+    "@weq/account": "workspace:*",
+    "@weq/agentlab": "workspace:*",
+    "@weq/codec": "workspace:*",
+    "@weq/db": "workspace:*",
+    "@weq/desktop": "workspace:*",
+    "@weq/native": "workspace:*",
+    "@weq/platform": "workspace:*",
+    "@weq/service": "workspace:*",
+    "superjson": "^2.2.2",
+    "ws": "^8.18.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/node": "^22.10.6",
+    "@types/ws": "^8.5.13",
+    "@vitejs/plugin-react": "^4.3.4",
+    "esbuild": "^0.28.1",
+    "tailwindcss": "^4.0.0",
+    "tsx": "^4.22.4",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.0"
+  }
+}

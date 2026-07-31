@@ -9,27 +9,32 @@
  *   - `onEvent`    — available / downloaded / error (state machine + red dot)
  *
  * Mirrors the EventEmitter→observable bridge used by `bootstrap.onVoiceModelProgress`.
+ *
+ * The actual work is behind {@link UpdateActions}, installed by the shell — the
+ * desktop app wires `electron-updater`, other hosts get no-ops. That keeps this
+ * router (and the shared `AppRouter` type) free of Electron imports.
  */
 
 import { observable } from '@trpc/server/observable';
 import { procedure, router } from '../trpc';
 import {
-  checkForUpdate,
+  getUpdateActions,
   getUpdateState,
-  quitAndInstall,
-  startDownload,
   updateBus,
   type UpdateEvent,
   type UpdateProgress,
   type UpdateState,
-} from '../../update/updater';
+} from '../../update/state';
 
 export const updateRouter = router({
   /** Last cached check result, or null if not checked yet this session. */
   getState: procedure.query((): UpdateState | null => getUpdateState()),
 
+  /** True when this host can actually install updates (false on web). */
+  isSupported: procedure.query((): boolean => getUpdateActions().supported),
+
   /** Speed-test mirrors + compare versions. Rejects if no mirror is reachable. */
-  check: procedure.mutation((): Promise<UpdateState> => checkForUpdate(true)),
+  check: procedure.mutation((): Promise<UpdateState> => getUpdateActions().check(true)),
 
   /**
    * Kick off the download. Returns immediately — progress and the terminal
@@ -37,13 +42,13 @@ export const updateRouter = router({
    * event (so we swallow the rejection here).
    */
   download: procedure.mutation((): boolean => {
-    void startDownload().catch(() => {});
+    void getUpdateActions().startDownload().catch(() => {});
     return true;
   }),
 
   /** Quit, install the downloaded update silently, relaunch. */
   install: procedure.mutation((): boolean => {
-    quitAndInstall();
+    getUpdateActions().quitAndInstall();
     return true;
   }),
 

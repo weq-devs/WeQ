@@ -1,9 +1,18 @@
 /**
  * URL builders for the `weq-asset://` protocol (served by the main process
  * from the shared `resources/` tree — see src/main/resource_protocol.ts).
+ *
+ * In the browser build there are no custom schemes, so the same handlers are
+ * mounted on HTTP routes and these builders emit `/_asset/…` / `/_media/…`
+ * instead. `VITE_WEQ_TARGET` is set by each app's vite config.
  */
 
-const SCHEME = 'weq-asset';
+const IS_WEB = import.meta.env.VITE_WEQ_TARGET === 'web';
+
+/** `weq-asset://` on Electron, `/_asset/` in the browser. */
+const SCHEME_PREFIX = IS_WEB ? '/_asset/' : 'weq-asset://';
+const MEDIA_PREFIX = IS_WEB ? '/_media/' : 'weq-media://';
+const AVATAR_PREFIX = IS_WEB ? '/_avatar/' : 'weq-avatar://';
 
 /** `weq-asset://<segments joined by '/'>` */
 export function resourceUrl(...segments: string[]): string {
@@ -12,7 +21,7 @@ export function resourceUrl(...segments: string[]): string {
     .filter(Boolean)
     .map(encodeURIComponent)
     .join('/');
-  return `${SCHEME}://${path}`;
+  return `${SCHEME_PREFIX}${path}`;
 }
 
 /** Shorthand for assets under `resources/emoji/…`. */
@@ -25,8 +34,6 @@ export function fileIconUrl(iconBasename: string): string {
   return resourceUrl('fileIcon', iconBasename);
 }
 
-const MEDIA_SCHEME = 'weq-media';
-
 /**
  * `weq-media://<kind>?<query>` — streams a chat message's on-disk media (served
  * by src/main/media_protocol.ts). `kind` is pic/video/ptt/mface.
@@ -34,12 +41,17 @@ const MEDIA_SCHEME = 'weq-media';
 export function mediaUrl(kind: string, params: Record<string, string | number>): string {
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) q.set(k, String(v));
-  return `${MEDIA_SCHEME}://${kind}?${q.toString()}`;
+  return `${MEDIA_PREFIX}${kind}?${q.toString()}`;
 }
 
 /** Proxy a remote QQ album image through the main process so Qzone referer is attached. */
 export function albumMediaUrl(src: string): string {
   return mediaUrl('album', { src });
+}
+
+/** `weq-avatar://fetch?src=…` — the disk-cached bridge for a remote image. */
+export function avatarFetchUrl(src: string): string {
+  return `${AVATAR_PREFIX}fetch?src=${encodeURIComponent(src)}`;
 }
 
 /**
@@ -48,7 +60,7 @@ export function albumMediaUrl(src: string): string {
  * so the generic fetch+cache bridge is enough; on failure `<img onError>` falls back.
  */
 export function collectionImageUrl(src: string): string {
-  return `weq-avatar://fetch?src=${encodeURIComponent(src)}`;
+  return avatarFetchUrl(src);
 }
 
 /**

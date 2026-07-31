@@ -4,6 +4,7 @@ import { Avatar } from "./primitives";
 import type { User } from "./types";
 import { displayUserName } from "./user";
 import logoUrl from "@resources/brand/logo.png";
+import { DesktopOnly } from "../../lib/target";
 
 export function TitleBar({
 	user,
@@ -48,17 +49,19 @@ export function TitleBar({
 				)}
 				</div>
 			<div className="app-title-bar-drag" />
-			<div className="app-title-bar-actions">
-				<button onClick={handleMinimize} title="最小化">
-					<Minus size={14} />
-				</button>
-				<button onClick={handleMaximize} title="全屏/还原">
-					<Square size={12} />
-				</button>
-				<button onClick={handleClose} className="close" title="关闭">
-					<X size={16} />
-				</button>
-			</div>
+			<DesktopOnly>
+				<div className="app-title-bar-actions">
+					<button onClick={handleMinimize} title="最小化">
+						<Minus size={14} />
+					</button>
+					<button onClick={handleMaximize} title="全屏/还原">
+						<Square size={12} />
+					</button>
+					<button onClick={handleClose} className="close" title="关闭">
+						<X size={16} />
+					</button>
+				</div>
+			</DesktopOnly>
 		</div>
 	);
 }

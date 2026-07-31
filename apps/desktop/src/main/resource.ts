@@ -21,8 +21,14 @@ const moduleDir = dirname(fileURLToPath(import.meta.url));
 
 /** First existing `resources/` root among the candidates, or null. */
 export function resolveResourceRoot(): string | null {
+  // `resourcesPath` is injected by Electron and absent under plain Node (the
+  // web app), where the bundle ships its own sibling `resources/`. Same probe
+  // shape as `@weq/native`'s loader.
+  const electronResources = (process as NodeJS.Process & { resourcesPath?: string })
+    .resourcesPath;
   const candidates = [
-    join(process.resourcesPath ?? '', 'resources'), // packaged
+    join(electronResources ?? '', 'resources'), // packaged (Electron)
+    join(moduleDir, 'resources'), // packaged (web: dist/resources)
     join(moduleDir, '../../../../resources'), // dev (out/main → repo root)
     join(process.cwd(), 'resources'),
   ];

@@ -64,6 +64,23 @@ async function copyIfExists(src: string, dest: string): Promise<boolean> {
   return true;
 }
 
+/**
+ * 探活：GET <url> 判断导出 bot 的 WebUI 是否在跑（3s 超时）。
+ * 200 页面 或 401（服务在跑，只是缺鉴权）都算可达。
+ */
+export async function probeBotWebUi(url: string): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3000);
+  try {
+    const res = await fetch(url, { method: 'GET', signal: controller.signal });
+    return res.ok || res.status === 401;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function buildBotExport(input: BotExportInput): Promise<BotExportResult> {
   const personaDir = join(input.outDir, 'persona');
   const stickersDir = join(personaDir, 'stickers');
