@@ -30,4 +30,5 @@ NTQQ 各数据库表结构与字段解析（并入 [QQBackup](https://github.com
 
 ---
 
-> 文档正在持续补充中，欢迎在 [Issue](../../issues) 或 [交流群](https://qm.qq.com/q/ysMZoAcC1a) 反馈。
+> 文档正在持续补充中 —— 编写进度与待办见 [文档待办总目录](./TODO.md)。
+> 欢迎在 [Issue](../../issues) 或 [交流群](https://qm.qq.com/q/ysMZoAcC1a) 反馈。
