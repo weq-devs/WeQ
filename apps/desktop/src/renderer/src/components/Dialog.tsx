@@ -13,6 +13,7 @@ import { useEffect, type ReactElement, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { create } from 'zustand';
 import { AlertTriangle, Info, ShieldAlert, X } from 'lucide-react';
+import { useOverlayLayer } from '../lib/overlayStack';
 
 export type DialogTone = 'error' | 'warning' | 'info';
 
@@ -90,6 +91,8 @@ export function Modal({
   labelledBy?: string;
   width?: number | string;
 }): ReactElement | null {
+  const layer = useOverlayLayer(true);
+
   useEffect(() => {
     if (typeof document === 'undefined' || !onClose) return;
     function onKeyDown(event: KeyboardEvent): void {
@@ -102,7 +105,7 @@ export function Modal({
   if (typeof document === 'undefined') return null;
 
   return createPortal(
-    <div className="weq-dialog-layer weq-anim-fade" onMouseDown={onClose}>
+    <div className="weq-dialog-layer weq-anim-fade" style={{ zIndex: layer }} onMouseDown={onClose}>
       <div
         className="weq-modal weq-anim-pop"
         role="dialog"

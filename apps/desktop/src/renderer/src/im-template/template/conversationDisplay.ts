@@ -8,7 +8,9 @@ export function chatHeaderTitle(conversation: Conversation) {
 	}
 	const userName = displayUserName(conversation.otherUser);
 	const chatType = String(conversation.chatType || '');
-	return chatType.includes('TEMPC2CFROMGROUP') ? `${userName} 临时会话` : userName;
+	if (!chatType.includes('TEMPC2CFROMGROUP')) return userName;
+	const from = conversation.tempSourceGroupName;
+	return from ? `来自 ${from} 的 ${userName} 临时会话` : `${userName} 临时会话`;
 }
 
 export function isBotConversation(conversation: Conversation) {

@@ -156,8 +156,12 @@ type RecentContactWire = {
   senderRemark: string;
   targetAvatar: string;
   targetRemark: string;
+  /** 41148 — peer's group card; only set on temp c2c-from-group conversations. */
+  targetGroupNick: string;
   /** 41220 — message-notify level. 1 = notify normally; else (observed 4) 免打扰/muted. */
   notifyLevel: number;
+  /** 60001 — group code a temp c2c conversation started from; "0" when absent. */
+  tempSourceGroupCode: string;
 };
 
 type MessageWire = {
@@ -399,6 +403,16 @@ type RenderElementWire = {
   data?: Record<string, unknown>;
 };
 
+/** `account.getOnlineStatus` 的返回体（非 null 分支）。 */
+type OnlineStatusWire = NonNullable<
+  Awaited<ReturnType<typeof client.account.getOnlineStatus.query>>
+>;
+
+/** `account.getRawElements` 返回的原始 element 数组，喂给 MsgElementEditor。 */
+type RawElementWire = NonNullable<
+  Awaited<ReturnType<typeof client.account.getRawElements.query>>
+>['elements'];
+
 type PendingScrollRestore = {
   conversationId: string;
   previousHeight: number;
@@ -443,11 +457,10 @@ function groupAvatarSrc(groupCode: string): string | null {
 
 /** Public-CDN avatar URL for a conversation (undefined -> template fallback). */
 function avatarSrc(c: Pick<RecentContactWire, 'chatType' | 'targetUid' | 'targetUin'>): string | null {
-  const t = String(c.chatType);
-  if (t.includes('GROUP')) return `https://p.qlogo.cn/gh/${c.targetUid}/${c.targetUid}/0`;
-  if (t.includes('C2C') && c.targetUin && c.targetUin !== '0') {
-    return `https://thirdqq.qlogo.cn/g?b=sdk&s=0&nk=${c.targetUin}`;
-  }
+  // C2C 必须先判：KCHATTYPETEMPC2CFROMGROUP 的名字里同时含 C2C 和 GROUP，先匹配
+  // GROUP 会把对方 uid 当群号去拼 p.qlogo.cn，临时会话头像必裂。走 uin 外链才是真人头像。
+  if (chatTypeKind(c.chatType) === 'direct') return senderAvatarSrc(c.targetUin);
+  if (String(c.chatType).includes('GROUP')) return groupAvatarSrc(c.targetUid);
   return null;
 }
 
@@ -482,8 +495,20 @@ function toIsoTime(seconds: string | undefined): string {
 }
 
 function contactTitle(c: RecentContactWire): string {
-  // 数据线会话往往不带 targetDisplayName，会回退成原始 uid；优先给出设备名。
-  return c.targetDisplayName || c.targetRemark || c.senderDisplayName || c.senderNick || datalineName(c.targetUid) || c.targetUid;
+  // 私聊优先显示备注：40095 是「发送者」维度的列，群会话里存的是发言人的好友备注
+  // （群名在 40094），所以只在单聊/临时会话上认它。41148 是对方在共同群里的群名片，
+  // 群聊发起的临时会话往往只有它才是人能认出的名字。
+  const remark = chatTypeKind(c.chatType) === 'direct' ? c.senderRemark || c.targetGroupNick : '';
+  return (
+    remark ||
+    c.targetDisplayName ||
+    c.targetRemark ||
+    c.senderDisplayName ||
+    c.senderNick ||
+    // 数据线会话往往不带 targetDisplayName，会回退成原始 uid；优先给出设备名。
+    datalineName(c.targetUid) ||
+    c.targetUid
+  );
 }
 
 /**
@@ -551,6 +576,9 @@ function previewFallbackByKind(preview: { kind?: unknown; recallDisplayText?: un
     case 'grayTipPoke': return '戳一戳消息';
     case 'grayTipGroup': return '群提示消息';
     case 'grayTipInvite': return '入群邀请';
+    case 'grayTipFileRecv': return '[收到文件]';
+    case 'grayTipTempSession': return '临时会话';
+    case 'shareLocation': return '[位置共享]';
     // text/at normally carry displayText; if somehow absent there is nothing
     // better to show than the generic gray-tip label (same as unknown/default).
     default: return '灰条消息';
@@ -794,7 +822,24 @@ function mutedFromNotifyLevel(notifyLevel: number | undefined): boolean {
   return notifyLevel !== undefined && notifyLevel !== 0 && notifyLevel !== 1;
 }
 
-function contactToConversation(c: RecentContactWire, user: User): Conversation | null {
+/**
+ * 群聊发起的临时会话的来源群名（60001 是原始群号）。群不在我的群列表里（退群 /
+ * 从未加入）时退化为群号，至少还能认出是哪个群。
+ */
+function tempSourceGroupName(
+  c: RecentContactWire,
+  groupNameByCode: Map<string, string>,
+): string | null {
+  const code = c.tempSourceGroupCode;
+  if (!code || code === '0') return null;
+  return groupNameByCode.get(code) || code;
+}
+
+function contactToConversation(
+  c: RecentContactWire,
+  user: User,
+  groupNameByCode: Map<string, string>,
+): Conversation | null {
   const kind = chatTypeKind(c.chatType);
   const title = contactTitle(c);
   const preview = previewText(c.preview);
@@ -832,6 +877,7 @@ function contactToConversation(c: RecentContactWire, user: User): Conversation |
       unreadCount: 0,
       lastMessage,
       chatType: c.chatType,
+      tempSourceGroupName: tempSourceGroupName(c, groupNameByCode),
     };
   }
 
@@ -964,7 +1010,10 @@ function messageToTemplate(message: MessageWire, conversation: Conversation, use
     recall: message.recall,
     recallRevokerName,
     msgId: message.msgId,
-  } as Message & { qqElements: unknown[]; setEmojiList?: SetEmojiItem[]; deletedKind?: 'weq' | 'qq'; recall?: { revokeUid: string; sameSender: boolean; recallTs: number }; recallRevokerName?: string; msgId: string };
+    // Per-conversation sequence, carried through so chatPane can spot the gaps
+    // where messages QQ never synced locally would have been.
+    msgSeq: message.msgSeq,
+  } as Message & { qqElements: unknown[]; setEmojiList?: SetEmojiItem[]; deletedKind?: 'weq' | 'qq'; recall?: { revokeUid: string; sameSender: boolean; recallTs: number }; recallRevokerName?: string; msgId: string; msgSeq: string };
 }
 
 /**
@@ -1065,7 +1114,10 @@ const RENDERABLE_ELEMENT_TYPES = new Set<string>([
   // Cloud storage links.
   'onlineFile', 'onlineFolder',
   // Misc.
-  'emojiBounce', 'qqDynamic',
+  'emojiBounce', 'qqDynamic', 'shareLocation',
+  // Gray tips that carry no gray-tip fields: FILE (subType=10) reuses the FILE
+  // tag block, AIO_OP (subType=15) only names the group a temp session came from.
+  'grayTipFileRecv', 'grayTipTempSession',
 ]);
 
 /**
@@ -1129,7 +1181,9 @@ function extractGrayTipUids(elements: unknown[]): string[] {
         }
       }
     } else if (type === 'grayTipGroup') {
-      const mute = (data as Record<string, any>).muteInfo;
+      const mute = data.muteInfo as
+        | { operator?: { uid?: unknown }; mutedUser?: { uid?: unknown } }
+        | undefined;
       pushUid(mute?.operator?.uid);
       pushUid(mute?.mutedUser?.uid);
     } else if (type === 'grayTipRevoke') {
@@ -1137,8 +1191,8 @@ function extractGrayTipUids(elements: unknown[]): string[] {
       // baked in — only the uids. Pre-resolve them via the group-member resolver
       // so GrayTipRevokeMessage can show "{昵称} 撤回了一条消息" instead of a
       // bare placeholder. (Both are `u_`-prefixed; pushUid filters accordingly.)
-      pushUid((data as Record<string, any>).recallSenderUid);
-      pushUid((data as Record<string, any>).recallRevokeUid);
+      pushUid(data.recallSenderUid);
+      pushUid(data.recallRevokeUid);
     }
   }
 
@@ -1222,8 +1276,21 @@ function elementText(element: unknown): string {
       return '[Sticker]';
     case 'emojiBounce':
       return stringField(data, 'emojiBounceTextSummary') || stringField(data, 'emojiBouncePcText') || '[Emoji interaction]';
-    case 'qqDynamic':
-      return '[QQ Dynamic]';
+    case 'qqDynamic': {
+      const desc = (data.dynamicDesc ?? {}) as Record<string, unknown>;
+      const main = typeof desc.mainDesc === 'string' ? desc.mainDesc : '';
+      return main ? `[QQ动态] ${main}` : '[QQ动态]';
+    }
+    case 'shareLocation':
+      return stringField(data, 'shareLocationText') || '[位置共享]';
+    case 'grayTipFileRecv': {
+      const name = stringField(data, 'fileName');
+      return name ? `[收到文件: ${name}]` : '[收到文件]';
+    }
+    case 'grayTipTempSession': {
+      const code = stringField(data, 'tempSessionGroupCode');
+      return code ? `[临时会话] 来自群 ${code}` : '[临时会话]';
+    }
     case 'unknown':
       console.warn('[unsupported-element] unknown element type encountered', data);
       return '';
@@ -1600,11 +1667,11 @@ export function MainView(): ReactElement {
     peerName: string;
   } | null>(null);
   const [memberCard, setMemberCard] = useState<{
-    member: any;
+    member: User;
     anchor: { x: number; y: number };
   } | null>(null);
 
-  const [editorState, setEditorState] = useState<{ msgId: string, elements: any[] } | null>(null);
+  const [editorState, setEditorState] = useState<{ msgId: string, elements: RawElementWire } | null>(null);
   const [addMessageConv, setAddMessageConv] = useState<Conversation | null>(null);
   // "删除列表" panel: which conversation is open + its fetched deleted rows.
   const [deletedConv, setDeletedConv] = useState<Conversation | null>(null);
@@ -1632,7 +1699,7 @@ export function MainView(): ReactElement {
     }
   }, []);
 
-  const handleSaveRaw = useCallback(async (elements: any[]) => {
+  const handleSaveRaw = useCallback(async (elements: RawElementWire) => {
     if (!editorState) return;
     try {
         const success = await client.account.updateElements.mutate({
@@ -1770,7 +1837,7 @@ export function MainView(): ReactElement {
   );
 
   const handleOpenGroupMember = useCallback(
-    (member: any, anchor: { x: number; y: number }) => {
+    (member: User, anchor: { x: number; y: number }) => {
       setMemberCard({ member, anchor });
     },
     [],
@@ -1787,7 +1854,9 @@ export function MainView(): ReactElement {
     });
   }, []);
 
-  const [onlineStatusByUid, setOnlineStatusByUid] = useState<Record<string, any>>({});
+  const [onlineStatusByUid, setOnlineStatusByUid] = useState<
+    Record<string, OnlineStatusWire>
+  >({});
   // Unread count per conversation id (latest msgSeq - last read seq). Filled
   // asynchronously after the recent-contact list loads / refreshes.
   const [unreadByConv, setUnreadByConv] = useState<Record<string, number>>({});
@@ -1851,12 +1920,14 @@ export function MainView(): ReactElement {
   );
   const conversations = useMemo(
     () => {
+      const groups = (allGroups.data ?? []) as GroupDetailWire[];
+      const groupNameByCode = new Map(groups.map((g) => [g.groupCode, g.groupName]));
       const recentConversations = ((contacts.data ?? []) as RecentContactWire[])
-        .map((contact) => contactToConversation(contact, user))
+        .map((contact) => contactToConversation(contact, user, groupNameByCode))
         .filter((conversation): conversation is Conversation => conversation !== null);
       const byId = new Map(recentConversations.map((conversation) => [conversation.id, conversation]));
 
-      for (const detail of (allGroups.data ?? []) as GroupDetailWire[]) {
+      for (const detail of groups) {
         byId.set(detail.groupCode, groupDetailToConversation(detail, byId.get(detail.groupCode), user));
       }
 
@@ -1971,7 +2042,7 @@ export function MainView(): ReactElement {
     let cancelled = false;
 
     async function loadOnlineStatuses(): Promise<void> {
-      const next: Record<string, any> = {};
+      const next: Record<string, OnlineStatusWire> = {};
       const batchSize = 12;
       for (let index = 0; index < buddyList.length && !cancelled; index += batchSize) {
         const batch = buddyList.slice(index, index + batchSize);

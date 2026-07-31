@@ -21,6 +21,7 @@ import { X, Store, RefreshCw } from 'lucide-react';
 import type { MarketPackFeeType } from '@weq/service';
 import { trpc } from '@renderer/trpc/client';
 import { mediaUrl } from '@renderer/lib/resourceUrl';
+import { useOverlayLayer } from '@renderer/lib/overlayStack';
 
 /** 来源徽章元信息（与 MarketPackExplorer 保持一致）。 */
 const FEE_META: Record<MarketPackFeeType, { label: string; tone: string }> = {
@@ -65,6 +66,7 @@ export function MarketFaceLightbox(): ReactElement | null {
   const packId = useMarketFaceLightbox((s) => s.packId);
   const activeHash = useMarketFaceLightbox((s) => s.activeHash);
   const close = useMarketFaceLightbox((s) => s.close);
+  const layer = useOverlayLayer(packId !== null);
 
   useEffect(() => {
     if (!packId) return;
@@ -78,7 +80,7 @@ export function MarketFaceLightbox(): ReactElement | null {
   if (typeof document === 'undefined' || !packId) return null;
 
   return createPortal(
-    <div className="weq-lightbox-layer weq-anim-fade" onMouseDown={close}>
+    <div className="weq-lightbox-layer weq-anim-fade" style={{ zIndex: layer }} onMouseDown={close}>
       <button className="weq-lightbox-close" type="button" onClick={close} aria-label="关闭">
         <X size={22} />
       </button>

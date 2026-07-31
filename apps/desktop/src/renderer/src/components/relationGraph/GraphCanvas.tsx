@@ -41,6 +41,11 @@ export function GraphCanvas({
 
 	const [hoverNode, setHoverNode] = useState<GNode | null>(null);
 
+	// draw / centerView 每次渲染都是新函数。effect 只该在 graph 变化（或挂载）时重跑，
+	// 所以通过 ref 转发取最新实现，而不是把它们当依赖。
+	const drawRef = useRef<() => void>(() => {});
+	const centerViewRef = useRef<() => void>(() => {});
+
 	// Coalesce redraws into one per frame — when many avatars finish loading at
 	// once we don't want a draw() per image.
 	function scheduleDraw(): void {
@@ -72,6 +77,7 @@ export function GraphCanvas({
 		viewRef.current.x = (w / 2) * (1 - s);
 		viewRef.current.y = (h / 2) * (1 - s);
 	}
+	centerViewRef.current = centerView;
 
 	function screenToWorld(sx: number, sy: number): { x: number; y: number } {
 		const v = viewRef.current;
@@ -133,7 +139,7 @@ export function GraphCanvas({
 			.force("collide", d3.forceCollide<GNode>().radius(d => d.radius + 3).iterations(2))
 			.force("center", d3.forceCenter(w / 2 || 400, h / 2 || 300));
 
-		sim.on("tick", draw);
+		sim.on("tick", () => drawRef.current());
 
 		simulationRef.current = sim;
 
@@ -166,7 +172,7 @@ export function GraphCanvas({
 
 			if (!didInitViewRef.current && rect.width > 0) {
 				didInitViewRef.current = true;
-				centerView();
+				centerViewRef.current();
 			}
 		}
 
@@ -283,6 +289,7 @@ export function GraphCanvas({
 		}
 		ctx.globalAlpha = 1;
 	}
+	drawRef.current = draw;
 
 	function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
 		const rect = wrapRef.current!.getBoundingClientRect();

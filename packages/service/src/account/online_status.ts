@@ -84,9 +84,7 @@ export class OnlineStatusService {
    * Get formatted online status for a user.
    */
   async getOnlineStatus(uid: string): Promise<FormattedOnlineStatus | null> {
-    // We need to ensure MiscDb is available in AccountSession. 
-    // Assuming we'll add it there.
-    const raw = await (this.session as any).misc?.getUserOnlineStatus(uid);
+    const raw = await this.session.misc.getUserOnlineStatus(uid);
     if (!raw) return null;
 
     const typeName = ONLINE_TYPE_NAMES[raw.type] || '未知';

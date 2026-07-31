@@ -26,6 +26,9 @@ import type {
   OnlineFolderElement,
   EmojiBounceElement,
   QqDynamicElement,
+  ShareLocationElement,
+  GrayTipFileRecvElement,
+  GrayTipTempSessionElement,
   UnknownElement,
   AtElement,
 } from '@weq/codec';
@@ -211,7 +214,7 @@ export interface RenderGrayTipRevokeElement {
     recallSenderNick: string;
     recallDisplayText: string;
     recallRevokeNick: string;
-    recallElements?: any[];
+    recallElements?: GrayTipRevokeElement['recallElements'];
   };
 }
 
@@ -249,6 +252,8 @@ export interface RenderGrayTipGroupElement {
       timestamp?: bigint;
       duration?: number;
     };
+    /** 提示所指的群名称（改群名 / 跨群邀请时才有）。 */
+    groupTipGroupName?: string;
   };
 }
 
@@ -288,7 +293,7 @@ export interface RenderMarkdownElement {
   type: 'markdown';
   data: BaseRenderData & {
     markdownContent: string;
-    markdownMeta: any;
+    markdownMeta: MarkdownElement['markdownMeta'];
     // markdownFlag48703: any;
     markdownTextSummary: string;
     /**
@@ -297,7 +302,7 @@ export interface RenderMarkdownElement {
      * transfer file card instead of plain markdown. Shape: { fileSetId,
      * thumbnailName, fileBytes, thumbAlt, createTime }.
      */
-    flashTransferInfo?: any;
+    flashTransferInfo?: MarkdownElement['flashTransferInfo'];
   };
 }
 
@@ -350,11 +355,11 @@ export interface RenderWalletElement {
   type: 'wallet';
   data: BaseRenderData & {
     walletTargetUin?: number;
-    walletDetail?: any;
+    walletDetail?: WalletElement['walletDetail'];
     walletOrderId?: string;
     walletRedbagType?: number;
     walletDesignatedUin?: number;
-    walletExt?: any;
+    walletExt?: WalletElement['walletExt'];
   };
 }
 
@@ -420,6 +425,38 @@ export interface RenderQqDynamicElement {
   };
 }
 
+export interface RenderShareLocationElement {
+  type: 'shareLocation';
+  data: BaseRenderData & {
+    shareLocationText: string;
+  };
+}
+
+/**
+ * 文件接收灰条 (GRAY_TIP subType=10). Structurally a FILE element in an
+ * elementType=8 wrapper — the sender is always the peer, so it reads as
+ * "已接收文件".
+ */
+export interface RenderGrayTipFileRecvElement {
+  type: 'grayTipFileRecv';
+  data: BaseRenderData & {
+    fileName: string;
+    fileSize?: number;
+    fileToken?: string;
+  };
+}
+
+/**
+ * 临时会话灰条 (GRAY_TIP subType=15). `tempSessionGroupCode` is the SOURCE
+ * GROUP's code (verified against group_msg_table), not the peer's uin.
+ */
+export interface RenderGrayTipTempSessionElement {
+  type: 'grayTipTempSession';
+  data: BaseRenderData & {
+    tempSessionGroupCode: string;
+  };
+}
+
 export interface RenderUnknownElement {
   type: 'unknown';
   data: BaseRenderData & {
@@ -450,6 +487,9 @@ export type RenderElement =
   | RenderOnlineFolderElement
   | RenderEmojiBounceElement
   | RenderQqDynamicElement
+  | RenderShareLocationElement
+  | RenderGrayTipFileRecvElement
+  | RenderGrayTipTempSessionElement
   | RenderUnknownElement;
 
 /** Lowercase hex of a byte array (empty string when absent). */
@@ -485,10 +525,15 @@ export function toRenderElements(elements: Element[]): RenderElement[] {
       case 'onlineFolder': return mapOnlineFolder(el as OnlineFolderElement);
       case 'emojiBounce': return mapEmojiBounce(el as EmojiBounceElement);
       case 'qqDynamic': return mapQqDynamic(el as QqDynamicElement);
+      case 'shareLocation': return mapShareLocation(el as ShareLocationElement);
+      case 'grayTipFileRecv': return mapGrayTipFileRecv(el as GrayTipFileRecvElement);
+      case 'grayTipTempSession': return mapGrayTipTempSession(el as GrayTipTempSessionElement);
       case 'unknown': return mapUnknown(el as UnknownElement);
       default: {
-        const { kind, ...rest } = el as any;
-        return { type: kind, data: rest } as any;
+        // Element 联合已被上面的 case 穷尽；真跑到这里说明 codec 新增了 kind
+        // 而这里没跟上，原样透传避免整条消息渲染失败。
+        const { kind, ...rest } = el as Extract<Element, { kind: string }>;
+        return { type: kind, data: rest } as unknown as RenderElement;
       }
     }
   });
@@ -727,6 +772,7 @@ function mapGrayTipGroup(el: GrayTipGroupElement): RenderGrayTipGroupElement {
       user2Nick: el.user2Nick,
       user2GroupNick: el.user2GroupNick,
       muteInfo: el.muteInfo,
+      groupTipGroupName: el.groupTipGroupName,
       elementId: el.elementId,
       isSender: el.isSender,
       subType: el.subType,
@@ -903,6 +949,44 @@ function mapQqDynamic(el: QqDynamicElement): RenderQqDynamicElement {
       dynamicPublisherUin: el.dynamicPublisherUin,
       dynamicMeta: el.dynamicMeta,
       dynamicTags: el.dynamicTags,
+      elementId: el.elementId,
+      isSender: el.isSender,
+      subType: el.subType,
+    },
+  };
+}
+
+function mapShareLocation(el: ShareLocationElement): RenderShareLocationElement {
+  return {
+    type: 'shareLocation',
+    data: {
+      shareLocationText: el.shareLocationText,
+      elementId: el.elementId,
+      isSender: el.isSender,
+      subType: el.subType,
+    },
+  };
+}
+
+function mapGrayTipFileRecv(el: GrayTipFileRecvElement): RenderGrayTipFileRecvElement {
+  return {
+    type: 'grayTipFileRecv',
+    data: {
+      fileName: el.fileName,
+      fileSize: el.fileSize,
+      fileToken: el.fileToken,
+      elementId: el.elementId,
+      isSender: el.isSender,
+      subType: el.subType,
+    },
+  };
+}
+
+function mapGrayTipTempSession(el: GrayTipTempSessionElement): RenderGrayTipTempSessionElement {
+  return {
+    type: 'grayTipTempSession',
+    data: {
+      tempSessionGroupCode: el.tempSessionGroupCode,
       elementId: el.elementId,
       isSender: el.isSender,
       subType: el.subType,

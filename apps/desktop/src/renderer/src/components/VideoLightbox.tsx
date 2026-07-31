@@ -16,6 +16,7 @@ import { useEffect, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { create } from 'zustand';
 import { X } from 'lucide-react';
+import { useOverlayLayer } from '../lib/overlayStack';
 import { useZoomPan } from './useZoomPan';
 
 interface VideoLightboxStore {
@@ -48,6 +49,7 @@ export function VideoLightbox(): ReactElement | null {
   const poster = useVideoLightbox((s) => s.poster);
   const close = useVideoLightbox((s) => s.close);
   const zoom = useZoomPan(src, { clickZoom: false });
+  const layer = useOverlayLayer(src !== null);
 
   useEffect(() => {
     if (!src) return;
@@ -61,7 +63,7 @@ export function VideoLightbox(): ReactElement | null {
   if (typeof document === 'undefined' || !src) return null;
 
   return createPortal(
-    <div className="weq-lightbox-layer weq-anim-fade" onMouseDown={close}>
+    <div className="weq-lightbox-layer weq-anim-fade" style={{ zIndex: layer }} onMouseDown={close}>
       <button className="weq-lightbox-close" type="button" onClick={close} aria-label="关闭">
         <X size={22} />
       </button>

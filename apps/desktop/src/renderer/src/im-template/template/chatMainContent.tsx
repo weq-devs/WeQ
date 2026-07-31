@@ -140,7 +140,7 @@ export function ChatMainContent({
 	onOpenGroupAnnouncements?: (conversation: GroupConversation) => void;
 	onOpenGroupAnalytics?: (conversation: GroupConversation) => void;
 	onOpenBuddyAnalytics?: (conversation: DirectConversation) => void;
-	onOpenGroupMember?: (member: any, anchor: { x: number; y: number }) => void;
+	onOpenGroupMember?: (member: User, anchor: { x: number; y: number }) => void;
 	onAddMessage?: (conversation: Conversation) => void;
 	onViewDeleted?: (conversation: Conversation) => void;
 	onViewRecalled?: (conversation: Conversation) => void;

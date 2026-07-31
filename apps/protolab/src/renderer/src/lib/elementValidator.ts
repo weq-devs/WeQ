@@ -235,7 +235,7 @@ function getTagForField(fieldName: string): number {
 }
 
 function isExpectedTag(tag: number, elementType: ElementType): boolean {
-  const ranges: Record<ElementType, number[][]> = {
+  const ranges: Partial<Record<ElementType, number[][]>> = {
     [ElementType.TEXT]: [[45101, 45112]],
     [ElementType.PIC]: [[45402, 45828], [45600, 45600]],
     [ElementType.FILE]: [[45402, 45550]],

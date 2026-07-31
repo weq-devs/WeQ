@@ -163,7 +163,9 @@ async function main(): Promise<void> {
   console.log(`\n=== HTTP 响应 ===`);
   console.log(`status: ${res.status} ${res.statusText}`);
   console.log(`headers:`);
-  res.headers.forEach((v, k) => console.log(`  ${k}: ${v}`));
+  res.headers.forEach((v, k) => {
+    console.log(`  ${k}: ${v}`);
+  });
 
   const respBytes = new Uint8Array(await res.arrayBuffer());
   dumpBytes('响应报文 (收到的)', respBytes);

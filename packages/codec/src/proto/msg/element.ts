@@ -193,6 +193,22 @@ export const WalletExtWire = {
   flag8: ProtoField(8, ScalarType.BOOL, { optional: true }),
 };
 
+/** Nested block for VIDEO tag 45856. Every observed row has all five empty/0. */
+export const VideoFlag45856Wire = {
+  flag45857: ProtoField(45857, ScalarType.STRING, { optional: true }),
+  flag45858: ProtoField(45858, ScalarType.STRING, { optional: true }),
+  flag45859: ProtoField(45859, ScalarType.STRING, { optional: true }),
+  flag45860: ProtoField(45860, ScalarType.STRING, { optional: true }),
+  flag45861: ProtoField(45861, ScalarType.UINT32, { optional: true }),
+};
+
+/** Nested block for PTT tag 45908. Every observed row has all three at 0. */
+export const PttFlag45908Wire = {
+  flag1: ProtoField(1, ScalarType.UINT32, { optional: true }),
+  flag5: ProtoField(5, ScalarType.UINT32, { optional: true }),
+  flag7: ProtoField(7, ScalarType.UINT32, { optional: true }),
+};
+
 export const ElementWire = {
   /**
    * Whether this device originated the message. Absent for messages received
@@ -224,7 +240,6 @@ export const ElementWire = {
 
   /** 文本编码 / 加密标志. Best guess: integer flag. */
   textEncodingFlag: ProtoField(45103, ScalarType.UINT32, { optional: true }),
-
   /** 字体 / 样式相关. Best guess: integer flag. */
   fontStyle: ProtoField(45104, ScalarType.UINT32, { optional: true }),
 
@@ -289,6 +304,18 @@ export const ElementWire = {
   /** Upload/processing timestamp. Required for PIC elements. */
   uploadTime: ProtoField(45505, ScalarType.UINT32, { optional: true }),
 
+  // 45507 / 45509 always appear together, on PIC, FILE and VIDEO alike.
+
+  /**
+   * Near-constant sentinel, only meaningful as a signed int64: the value is
+   * almost always 18446744073704048574 (= -5503042). Encoded as INT64 so the
+   * varint round-trips instead of being truncated to 32 bits.
+   */
+  transferFlag45507: ProtoField(45507, ScalarType.INT64, { optional: true }),
+
+  /** Always 1 wherever 45507 is present. */
+  transferFlag45509: ProtoField(45509, ScalarType.UINT32, { optional: true }),
+
   /** Transfer state flag. */
   picTransferState: ProtoField(45511, ScalarType.UINT32, { optional: true }),
 
@@ -309,6 +336,28 @@ export const ElementWire = {
 
   /** Original image download URL. Required for PIC elements. */
   originalUrl: ProtoField(45804, ScalarType.STRING, { optional: true }),
+
+  /** Unknown flag — always 0 across every observed row. */
+  picFlag45805: ProtoField(45805, ScalarType.UINT32, { optional: true }),
+
+  /**
+   * CDN server address for the download URLs, as a big-endian packed IPv4
+   * (e.g. 3082863821 → 183.192.196.205). Pairs with the port in 45807.
+   * 0 when QQ expects the client to resolve `cdnHost` (45816) itself.
+   */
+  cdnServerIp: ProtoField(45806, ScalarType.UINT32, { optional: true }),
+
+  /** CDN server port. Observed: 80, 443, 8080, 14000, 57897, or 0. */
+  cdnServerPort: ProtoField(45807, ScalarType.UINT32, { optional: true }),
+
+  /** Local cache path of the thumbnail (`…_0.jpg`) — counterpart to 45802. */
+  thumbnailLocalPath: ProtoField(45812, ScalarType.STRING, { optional: true }),
+
+  /** Local cache path of the preview (`…_198.jpg`) — counterpart to 45803. */
+  previewLocalPath: ProtoField(45813, ScalarType.STRING, { optional: true }),
+
+  /** Local cache path of the large image (`…_720.jpg`) — counterpart to 45804. */
+  originalLocalPath: ProtoField(45814, ScalarType.STRING, { optional: true }),
 
   /** Image summary/description. Repeated field. Required for PIC elements. */
   summary: ProtoField(45815, ScalarType.STRING, { repeat: true }),
@@ -335,6 +384,27 @@ export const ElementWire = {
 
   picFlag45828: ProtoField(45828, ScalarType.STRING, { optional: true }),
 
+  // Observed on PIC rows, semantics unverified — all near-constant, so they
+  // carry no information we can act on. Parsed for round-trip fidelity.
+
+  /** Observed only on subType=13 rows. Values 1 (×93) / 2 (×2). */
+  picFlag45425: ProtoField(45425, ScalarType.UINT32, { optional: true }),
+
+  /** Empty string in the single observed row. */
+  picFlag45801: ProtoField(45801, ScalarType.STRING, { optional: true }),
+
+  /** Always 0. */
+  picFlag45829: ProtoField(45829, ScalarType.UINT32, { optional: true }),
+
+  /** Always 0. */
+  picFlag45830: ProtoField(45830, ScalarType.UINT32, { optional: true }),
+
+  /** Always 0. */
+  picFlag45831: ProtoField(45831, ScalarType.UINT32, { optional: true }),
+
+  /** Always 0 in the single observed row. */
+  picFlag45557: ProtoField(45557, ScalarType.UINT32, { optional: true }),
+
   /** Complex nested protobuf structure (image redundancy). Parsed as raw bytes. Optional for PIC elements. */
   picFlag45600: ProtoField(45600, ScalarType.BYTES, { optional: true }),
 
@@ -360,6 +430,33 @@ export const ElementWire = {
 
   /** Unknown bool flag. Required for FILE elements. */
   fileFlag45514: ProtoField(45514, ScalarType.BOOL, { optional: true }),
+
+  /** Human-readable transfer error, e.g. 「传输失败，请稍后重试」. */
+  transferErrorText: ProtoField(45554, ScalarType.STRING, { optional: true }),
+
+  /** Observed once (=2) on a subType=4 row. */
+  fileFlag45533: ProtoField(45533, ScalarType.UINT32, { optional: true }),
+
+  /** Sender-side thumbnail path (mobile client, `.thumbnails/…`). */
+  fileThumbPathRemote: ProtoField(45951, ScalarType.STRING, { optional: true }),
+
+  /** Secondary sender-side thumbnail path (`qlarge-dsc-…`). */
+  fileThumbPathRemote2: ProtoField(45953, ScalarType.STRING, { optional: true }),
+
+  /** Local cache path of this file's thumbnail (`nt_data/File/Thumb/…`). */
+  fileThumbLocalPath: ProtoField(45954, ScalarType.STRING, { optional: true }),
+
+  /** Empty in every observed row. */
+  fileFlag45966: ProtoField(45966, ScalarType.BYTES, { optional: true }),
+
+  /** Empty in every observed row. */
+  fileFlag45967: ProtoField(45967, ScalarType.BYTES, { optional: true }),
+
+  /**
+   * Group-file metadata blob (uploader uin/nick, file uuid, upload time, …).
+   * Kept as raw bytes: seen exactly once, and the sub-tags are unverified.
+   */
+  fileGroupMeta: ProtoField(45968, ScalarType.BYTES, { optional: true }),
 
   // ---- VIDEO (elementType=5) ----
   // Short video. Reuses PIC/FILE tags: 45402 (fileName), 45405 (fileSize),
@@ -407,6 +504,30 @@ export const ElementWire = {
   /** Unknown integer. Required for VIDEO elements. */
   videoFlag45863: ProtoField(45863, ScalarType.UINT32, { optional: true }),
 
+  /** Local cache path of the video cover (`nt_data/Video/…/Thumb/…_0.png`). */
+  videoCoverLocalPath: ProtoField(45404, ScalarType.STRING, { optional: true }),
+
+  /** Always 2 across every observed row. */
+  videoFlag45851: ProtoField(45851, ScalarType.UINT32, { optional: true }),
+
+  /** Near-constant 0 (one row had 1). */
+  videoFlag45852: ProtoField(45852, ScalarType.UINT32, { optional: true }),
+
+  /** Near-constant 0 (one row had 1). */
+  videoFlag45853: ProtoField(45853, ScalarType.UINT32, { optional: true }),
+
+  /** Near-constant 0 (one row had 1). */
+  videoFlag45854: ProtoField(45854, ScalarType.UINT32, { optional: true }),
+
+  /** Always 0. */
+  videoFlag45855: ProtoField(45855, ScalarType.UINT32, { optional: true }),
+
+  /** Nested block 45857..45861 — every sub-field empty/0 in all observed rows. */
+  videoFlag45856: ProtoField(45856, () => VideoFlag45856Wire, { optional: true }),
+
+  /** Values 0 (×30) / 2 (×4). */
+  videoFlag45865: ProtoField(45865, ScalarType.UINT32, { optional: true }),
+
   // ---- PTT (elementType=4) ----
   // PTT reuses most PIC tags (45402-45518, 45815) for file metadata.
 
@@ -438,6 +559,34 @@ export const ElementWire = {
 
   /** Audio waveform data for visualization. Required for PTT elements. */
   waveform: ProtoField(45925, ScalarType.BYTES, { optional: true }),
+
+  /**
+   * 语音转文字结果 — QQ's own speech-to-text transcript of this clip, cached
+   * on the row. Present only after 「转文字」has been run at least once;
+   * empty string when the transcription produced nothing.
+   */
+  pttTranscript: ProtoField(45923, ScalarType.STRING, { optional: true }),
+
+  /** Always 1 wherever present — likely "transcript available". */
+  pttFlag45924: ProtoField(45924, ScalarType.UINT32, { optional: true }),
+
+  /** Always 2 wherever present. */
+  pttFlag45926: ProtoField(45926, ScalarType.UINT32, { optional: true }),
+
+  /** Always 0. */
+  pttFlag45903: ProtoField(45903, ScalarType.UINT32, { optional: true }),
+
+  /** Values 2 (×39) / 1 (×1). */
+  pttFlag45912: ProtoField(45912, ScalarType.UINT32, { optional: true }),
+
+  /** Server-side voice id, e.g. `98PO#bjWUtk8qVPcpAiG57xZrOeS28AXRNmR`. */
+  pttVoiceId: ProtoField(45905, ScalarType.STRING, { optional: true }),
+
+  /** Nested {1,5,7} — all 0 in every observed row. */
+  pttFlag45908: ProtoField(45908, () => PttFlag45908Wire, { optional: true }),
+
+  /** Nested {2:{37}, 4:{1,2}} — empty/0 in every observed row. */
+  pttFlag45601: ProtoField(45601, ScalarType.BYTES, { optional: true }),
 
   // ---- GRAY_TIP (elementType=8) ----
   // subType=17: action interactions (poke, red packet, etc.)
@@ -510,9 +659,33 @@ export const ElementWire = {
   /** Revoker nickname (subType=1). Required for recall tips. */
   recallRevokeNick: ProtoField(47714, ScalarType.STRING, { optional: true }),
 
+  // 47706/47715 mirror 47705/47714 (the nickname), while 47707/47716 carry the
+  // 群名片 — verified on a group revoke where the nickname was
+  // "🍬🐱帕罗丁，然后8年之誓" but the card read "期中考试加油". QQ writes a
+  // sender copy and a revoker copy of each even when they are the same person,
+  // so all six fields agree whenever someone revokes their own message.
+
+  /** 被撤回者昵称副本 (subType=1). Duplicate of recallSenderNick (47705). */
+  recallSenderNickCopy: ProtoField(47706, ScalarType.STRING, { optional: true }),
+
+  /** 被撤回者的群名片 (subType=1). Differs from the nickname in groups. */
+  recallSenderGroupNick: ProtoField(47707, ScalarType.STRING, { optional: true }),
+
+  /** 撤回者昵称副本 (subType=1). Duplicate of recallRevokeNick (47714). */
+  recallRevokeNickCopy: ProtoField(47715, ScalarType.STRING, { optional: true }),
+
+  /** 撤回者的群名片 (subType=1). Differs from the nickname in groups. */
+  recallRevokeGroupNick: ProtoField(47716, ScalarType.STRING, { optional: true }),
+
+  /** Always 1 in the two observed rows (subType=1). */
+  recallFlag47712: ProtoField(47712, ScalarType.UINT32, { optional: true }),
+
   // subType=4: group notifications (join, dismiss, removal)
 
-  /** Group tip type (subType=4). 1=join group, 2=dismiss, 3=removed from group. Required for group tips. */
+  /**
+   * Group tip type (subType=4) — see `TipGroupElementType`. Observed here:
+   * 1=入群, 2=解散, 3=被移出, 5=改群名, 8=禁言. Required for group tips.
+   */
   groupTipType: ProtoField(48501, ScalarType.UINT32, { optional: true }),
 
   /** User 1 UID (subType=4). Optional. */
@@ -535,6 +708,60 @@ export const ElementWire = {
 
   /** Mute info (subType=4). Nested: {48521: operator, 48522: mutedUser, 48531: timestamp, 48532: duration}. Optional. */
   muteInfo: ProtoField(48541, () => MuteInfoWire, { optional: true }),
+
+  /** Values 0/1/2 (subType=4). */
+  groupTipFlag48502: ProtoField(48502, ScalarType.UINT32, { optional: true }),
+
+  /**
+   * 群名称 (subType=4) — the group this tip refers to, spelled out. Present
+   * on 「XX 邀请你加入 <群名>」-style tips where the group isn't the current
+   * conversation.
+   */
+  groupTipGroupName: ProtoField(48509, ScalarType.STRING, { optional: true }),
+
+  /** Always 1 wherever present (subType=4). */
+  groupTipFlag48510: ProtoField(48510, ScalarType.UINT32, { optional: true }),
+
+  /** Values 0 (×2874) / 2 / 1 / 3 (subType=4). */
+  groupTipFlag48511: ProtoField(48511, ScalarType.UINT32, { optional: true }),
+
+  /**
+   * Tip timestamp, unix seconds (subType=4/12/17). ~9700 distinct values,
+   * all consistent with the message's own send time.
+   */
+  grayTipTimestamp: ProtoField(48542, ScalarType.UINT32, { optional: true }),
+
+  /** Values 0 (×49) / 1 (×1) (subType=12/17). */
+  grayTipFlag48219: ProtoField(48219, ScalarType.UINT32, { optional: true }),
+
+  /** Values 0 (×59) / 64 (×1) (subType=12/17). */
+  grayTipFlag48220: ProtoField(48220, ScalarType.UINT32, { optional: true }),
+
+  /**
+   * 互动标识提示原文 (subType=17), e.g.「你和XX互发消息连续超过7天，已获得畅聊之火标识」.
+   * Plain text alternative to the rich `tipJson` (48271).
+   */
+  grayTipPlainText: ProtoField(48274, ScalarType.STRING, { optional: true }),
+
+  // ---- GRAY_TIP subType=15 (AIO_OP) — 临时会话提示 ----
+  // QQ renders these as 「该用户通过 xxx 群聊向你发起临时会话」. Always the
+  // first message (seq=1) of a c2c conversation with a non-friend, and the
+  // row itself carries no sender (40020 empty).
+
+  /** Always 1 — likely the tip variant, only one seen so far. */
+  aioOpFlag47501: ProtoField(47501, ScalarType.UINT32, { optional: true }),
+
+  /**
+   * 发起临时会话的来源群号 (subType=15), as a decimal string. Verified against
+   * group_msg_table: every observed value has real group history, and none
+   * matches the peer's own uin.
+   */
+  tempSessionGroupCode: ProtoField(47502, ScalarType.STRING, { optional: true }),
+
+  // ---- SHARE_LOCATION / 位置共享 (elementType=28) ----
+
+  /** 位置共享提示文案, e.g.「发起了位置共享」. */
+  shareLocationText: ProtoField(52152, ScalarType.STRING, { optional: true }),
 
   // ---- FACE (elementType=6) ----
 
@@ -576,6 +803,46 @@ export const ElementWire = {
 
   /** Whether emoji supports chain reaction. Optional for FACE elements. */
   canChain: ProtoField(47622, ScalarType.BOOL, { optional: true }),
+
+  // 47611..47621 — a block that rides along on nearly every FACE element
+  // regardless of subType. Only 47612/47615/47616/47621 ever carry content;
+  // the rest are flags that are 0 in the overwhelming majority of rows.
+
+  /** Values 0/1 mostly, occasionally 2..6 or 126. */
+  faceFlag47611: ProtoField(47611, ScalarType.UINT32, { optional: true }),
+
+  /** 互动表情名称, e.g. "模了个块". Usually empty. */
+  interactiveFaceName: ProtoField(47612, ScalarType.STRING, { optional: true }),
+
+  /** Always 0 (one row had 1). */
+  faceFlag47613: ProtoField(47613, ScalarType.UINT32, { optional: true }),
+
+  /** Always 0 (three rows had 2003). */
+  faceFlag47614: ProtoField(47614, ScalarType.UINT32, { optional: true }),
+
+  /** 互动表情名称副本 — same value as 47612 in every observed row. */
+  interactiveFaceName2: ProtoField(47615, ScalarType.STRING, { optional: true }),
+
+  /** 互动表情版本号, e.g. "7.2.0". Usually empty. */
+  interactiveFaceVersion: ProtoField(47616, ScalarType.STRING, { optional: true }),
+
+  /** Values 0/1/2/3. */
+  faceFlag47617: ProtoField(47617, ScalarType.UINT32, { optional: true }),
+
+  /** Always 0. */
+  faceFlag47618: ProtoField(47618, ScalarType.UINT32, { optional: true }),
+
+  /** Always 0. */
+  faceFlag47619: ProtoField(47619, ScalarType.UINT32, { optional: true }),
+
+  /** Always 0. */
+  faceFlag47620: ProtoField(47620, ScalarType.UINT32, { optional: true }),
+
+  /**
+   * 旧版客户端降级文案, e.g.「[戳一戳]请使用最新版手机QQ体验新功能。」.
+   * Empty on faces every client can render.
+   */
+  faceFallbackText: ProtoField(47621, ScalarType.STRING, { optional: true }),
 
   // ---- REPLY (elementType=7) ----
   // Quote-reply to an earlier message. Reuses 40020/40021 (envelope-level
@@ -623,6 +890,31 @@ export const ElementWire = {
   /** Unknown bool flag. Optional for REPLY elements. */
   replyFlag47418: ProtoField(47418, ScalarType.BOOL, { optional: true }),
 
+  /** Values 1 (×290) / 0 (×14). */
+  replyFlag47405: ProtoField(47405, ScalarType.UINT32, { optional: true }),
+
+  /** Values 1 (×207) / 0 (×96). */
+  replyFlag47407: ProtoField(47407, ScalarType.UINT32, { optional: true }),
+
+  /**
+   * Full sender snapshot of the quoted message (uin, uid, group card, msg
+   * seq/time, …). Kept as raw bytes — the nested layout is deeply nested and
+   * every field it carries is already available via 47402..47423.
+   */
+  replyOrigSenderBlob: ProtoField(47410, ScalarType.BYTES, { optional: true }),
+
+  /** 被回复者的群名片/昵称, e.g. "小枳壳". */
+  replyOrigSenderNick: ProtoField(47421, ScalarType.STRING, { optional: true }),
+
+  /** Always 1. */
+  replyFlag47424: ProtoField(47424, ScalarType.UINT32, { optional: true }),
+
+  /** Always 1. */
+  replyFlag47425: ProtoField(47425, ScalarType.UINT32, { optional: true }),
+
+  /** Duplicate of origMsgSeq (47402) — identical in every observed row. */
+  replyOrigMsgSeqCopy: ProtoField(48101, ScalarType.UINT32, { optional: true }),
+
   // ---- MARKDOWN (elementType=14) ----
   // Rich-text markdown message. Complex nested structures (48707/48708/48711)
   // for QQ flash-transfer are kept as raw bytes (not parsed into sub-messages)
@@ -663,6 +955,12 @@ export const ElementWire = {
    * and `SAMPLE_GAME_CENTER_AD` in `element/ark.ts` for a worked example.
    */
   arkData: ProtoField(47901, ScalarType.STRING, { optional: true }),
+
+  /** 64-char base64 card signature — pairs with `config.token` in the JSON. */
+  arkSignature: ProtoField(47902, ScalarType.STRING, { optional: true }),
+
+  /** Card instance UUID, e.g. `33cad47c-09f0-42a6-ab42-6329c0898765`. */
+  arkCardId: ProtoField(47904, ScalarType.STRING, { optional: true }),
 
   // ---- MFACE / marketface (elementType=11) ----
   // Market emoji (commercial sticker). Uses the disjoint 80xxx tag block.

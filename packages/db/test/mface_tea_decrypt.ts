@@ -105,7 +105,7 @@ async function main(): Promise<void> {
     const ok = magic === 'GIF89a' || magic === 'GIF87a';
     console.log(`   res=${usedRes} 密文=${ct.length}B → 明文=${dec.length}B  magic=${JSON.stringify(magic)}  ${ok ? '✅' : '❌'}  解密耗时=${ms.toFixed(3)}ms`);
     if (ok) {
-      const p = `mface_${s.pack}_${s.desc.replace(/[\[\]]/g, '')}.gif`;
+      const p = `mface_${s.pack}_${s.desc.replace(/[[\]]/g, '')}.gif`;
       writeFileSync(p, dec);
       console.log(`   → 已保存 ${p}`);
     }

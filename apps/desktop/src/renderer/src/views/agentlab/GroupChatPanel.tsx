@@ -8,7 +8,7 @@
  * M2 群骨架：还没有意愿 gate / 关系 / 连锁（M3–M6）。事件按 groupId 过滤（而非事后才拿到的
  * groupRunId），避免「用户那条消息比 mutation 响应更早到达」的竞态把它漏掉。
  */
-import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { ArrowLeft, AtSign, Send, Trash2, Users, UserMinus, UserPlus, X } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
@@ -84,10 +84,10 @@ export function GroupChatPanel({
   };
   const nameById = useMemo(() => new Map(members.map((m) => [m.memberId, m.displayName])), [members]);
 
-  function scrollToBottom(): void {
+  const scrollToBottom = useCallback((): void => {
     const el = transcriptRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }
+  }, []);
 
   // 把持久化群消息合并进本地历史：按 id 去重、只补不删（流式已在的不动）、按时间排序。
   // 这样切走再切回 / 漏事件时都能从磁盘补齐，不会像「只 seed 一次」那样卡在陈旧缓存上。
@@ -123,11 +123,11 @@ export function GroupChatPanel({
       onError: (err) => console.error('[groupchat] event subscription error', err),
     });
     return () => sub.unsubscribe();
-  }, [groupId, dialog]);
+  }, [groupId, dialog, utils]);
 
   useEffect(() => {
     scrollToBottom();
-  }, [history, busy]);
+  }, [history, busy, scrollToBottom]);
 
   // 输入框末尾的 @token（@ 后到光标、无空格）→ 驱动成员浮层。
   const mentionQuery = useMemo(() => {

@@ -137,6 +137,17 @@ function renderContent(elements: RenderElement[]): string {
       case 'grayTipInvite':
         out += '[群提示]';
         break;
+      case 'grayTipFileRecv':
+        out += el.data.fileName ? `[已接收文件: ${el.data.fileName}]` : '[已接收文件]';
+        break;
+      case 'grayTipTempSession':
+        out += el.data.tempSessionGroupCode
+          ? `[临时会话: 来自群 ${el.data.tempSessionGroupCode}]`
+          : '[临时会话]';
+        break;
+      case 'shareLocation':
+        out += `[${el.data.shareLocationText || '位置共享'}]`;
+        break;
       case 'onlineFolder':
         out += '[文件夹]';
         break;
@@ -152,7 +163,7 @@ function renderContent(elements: RenderElement[]): string {
 const TYPE_PRIORITY: Array<{ test: (el: RenderElement) => boolean; type: ChatlabMessageType }> = [
   { test: (el) => el.type === 'ptt', type: ChatlabMessageType.VOICE },
   { test: (el) => el.type === 'video', type: ChatlabMessageType.VIDEO },
-  { test: (el) => el.type === 'file' || el.type === 'onlineFile', type: ChatlabMessageType.FILE },
+  { test: (el) => el.type === 'file' || el.type === 'onlineFile' || el.type === 'grayTipFileRecv', type: ChatlabMessageType.FILE },
   { test: (el) => el.type === 'multiMsg', type: ChatlabMessageType.FORWARD },
   { test: (el) => el.type === 'ark' || el.type === 'qqDynamic', type: ChatlabMessageType.SHARE },
   { test: (el) => el.type === 'call', type: ChatlabMessageType.CALL },
@@ -165,6 +176,10 @@ const TYPE_PRIORITY: Array<{ test: (el: RenderElement) => boolean; type: Chatlab
   { test: (el) => el.type === 'grayTipRevoke', type: ChatlabMessageType.RECALL },
   { test: (el) => el.type === 'grayTipPoke', type: ChatlabMessageType.POKE },
   { test: (el) => el.type === 'grayTipGroup' || el.type === 'grayTipInvite', type: ChatlabMessageType.SYSTEM },
+  {
+    test: (el) => el.type === 'grayTipTempSession' || el.type === 'shareLocation',
+    type: ChatlabMessageType.SYSTEM,
+  },
   { test: (el) => el.type === 'markdown', type: ChatlabMessageType.OTHER },
 ];
 

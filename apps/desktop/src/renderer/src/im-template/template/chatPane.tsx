@@ -17,7 +17,7 @@ import {
 	Sparkles,
 } from "lucide-react";
 import { FaQq } from "react-icons/fa";
-import { Fragment, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ReplyJumpContext } from "../../components/QqMessageContent";
 import { ChatBackdrop } from "../../components/ChatBackdrop";
 import { useChatBackdrop } from "../../hooks/useDressSkin";
@@ -68,6 +68,7 @@ import type { MessageContextMenuState } from "./messageContextMenu";
 import type { MessageRenderer } from "./messageRenderers";
 import { filterMentionMembers, mentionText } from "./mentions";
 import { MessageTimeDivider, shouldShowMessageTime } from "./messageTime";
+import { MessageGapDivider, messageGapCount } from "./messageGap";
 import { defaultConversationPreference } from "./preferences";
 import { Avatar, EmptyState, LoadingState } from "./primitives";
 import type {
@@ -81,9 +82,11 @@ import type {
 import { displayUserName } from "./user";
 import { OnlineStatus } from "../../components/OnlineStatus";
 import { GrayTipPokeMessage } from '../../components/GrayTipPokeMessage';
-import { GrayTipRevokeMessage, isPlaceholderRevoke } from '../../components/GrayTipRevokeMessage';
+import { GrayTipRevokeMessage } from '../../components/GrayTipRevokeMessage';
 import { GrayTipGroupMessage } from '../../components/GrayTipGroupMessage';
 import { GrayTipInviteMessage } from '../../components/GrayTipInviteMessage';
+import { GrayTipFileRecvMessage } from '../../components/GrayTipFileRecvMessage';
+import { GrayTipTempSessionMessage } from '../../components/GrayTipTempSessionMessage';
 
 const composerHeightStorageKey = "chat-template.layout.composerHeight";
 const groupInfoCollapsedStorageKey = "chat-template.layout.groupInfoCollapsed";
@@ -244,7 +247,7 @@ export function ChatPane({
 	onOpenGroupAnnouncements?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenGroupAnalytics?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenBuddyAnalytics?: (conversation: Extract<Conversation, { type: "direct" }>) => void;
-	onOpenGroupMember?: (member: any, anchor: { x: number; y: number }) => void;
+	onOpenGroupMember?: (member: User, anchor: { x: number; y: number }) => void;
 	onAddMessage?: (conversation: Conversation) => void;
 	onViewDeleted?: (conversation: Conversation) => void;
 	onViewRecalled?: (conversation: Conversation) => void;
@@ -315,9 +318,22 @@ export function ChatPane({
 	const unreadSeedRef = useRef<UnreadJumpSeed | null>(null);
 	const unreadConversationRef = useRef<string | null>(null);
 	const unreadScrollFrameRef = useRef<number | null>(null);
-	const visibleMessages = messages.filter(
-		(message) => !hiddenMessageIds.has(message.id),
+	const visibleMessages = useMemo(
+		() => messages.filter((message) => !hiddenMessageIds.has(message.id)),
+		[messages, hiddenMessageIds],
 	);
+
+	// 下面几个 effect 只该在会话/消息变化时跑，但正文里要调用这些每次渲染都重建的
+	// 函数。用 ref 转发拿最新实现，避免把它们塞进依赖导致 effect 每次渲染重跑。
+	const scrollMessagesToBottomRef = useRef<() => void>(() => {});
+	const updateUnreadJumpRemainingRef = useRef<() => void>(() => {});
+	const scheduleMobileComposerMeasureRef = useRef<(editor?: HTMLElement | null) => void>(
+		() => {},
+	);
+	const draftRef = useRef(draft);
+	draftRef.current = draft;
+	const bodyRef = useRef(body);
+	bodyRef.current = body;
 
 	useLayoutEffect(() => {
 		const conversationId = conversation?.id ?? null;
@@ -359,7 +375,7 @@ export function ChatPane({
 					}
 				: null,
 		);
-	}, [conversation?.id, loading, visibleMessages.length]);
+	}, [conversation?.id, loading, visibleMessages]);
 
 	useLayoutEffect(() => {
 		const conversationId = conversation?.id ?? null;
@@ -372,8 +388,10 @@ export function ChatPane({
 			lastMessageIdRef.current = newestId;
 			atBottomRef.current = true;
 			setNewMessagePill(0);
-			scrollMessagesToBottom();
-			const frame = window.requestAnimationFrame(scrollMessagesToBottom);
+			scrollMessagesToBottomRef.current();
+			const frame = window.requestAnimationFrame(() =>
+				scrollMessagesToBottomRef.current(),
+			);
 			return () => window.cancelAnimationFrame(frame);
 		}
 
@@ -400,30 +418,35 @@ export function ChatPane({
 		// Pinned to bottom → follow the new message down, no pill.
 		if (atBottomRef.current) {
 			setNewMessagePill(0);
-			scrollMessagesToBottom();
-			const frame = window.requestAnimationFrame(scrollMessagesToBottom);
+			scrollMessagesToBottomRef.current();
+			const frame = window.requestAnimationFrame(() =>
+				scrollMessagesToBottomRef.current(),
+			);
 			return () => window.cancelAnimationFrame(frame);
 		}
 
 		// Reading history → surface the pill instead of yanking the view down.
 		setNewMessagePill((current) => current + appended);
 		return;
-	}, [visibleMessages.length, conversation?.id, loading, atLatest]);
+	}, [visibleMessages, conversation?.id, loading, atLatest]);
+
+	// updateUnreadJumpRemaining 会写回 unreadJump.remaining，所以这里只认「换会话 /
+	// 换未读总数」这两个稳定信号，不能整体依赖 unreadJump，否则每次滚动都要多跑一轮。
+	const unreadJumpKey = unreadJump
+		? `${unreadJump.conversationId}:${unreadJump.total}`
+		: null;
 
 	useLayoutEffect(() => {
-		if (!unreadJump) {
+		if (!unreadJumpKey) {
 			return;
 		}
 
-		updateUnreadJumpRemaining();
-		const frame = window.requestAnimationFrame(updateUnreadJumpRemaining);
+		updateUnreadJumpRemainingRef.current();
+		const frame = window.requestAnimationFrame(() =>
+			updateUnreadJumpRemainingRef.current(),
+		);
 		return () => window.cancelAnimationFrame(frame);
-	}, [
-		unreadJump?.conversationId,
-		unreadJump?.total,
-		visibleMessages.length,
-		loading,
-	]);
+	}, [unreadJumpKey, visibleMessages, loading]);
 
 	useEffect(
 		() => () => {
@@ -447,11 +470,12 @@ export function ChatPane({
 
 	useEffect(() => {
 		const editor = composerEditorRef.current;
-		setBody(draft);
+		const currentDraft = draftRef.current;
+		setBody(currentDraft);
 		composerSelectionRef.current = null;
 		if (editor) {
-			restoreComposer(editor, draft);
-			scheduleMobileComposerMeasure(editor);
+			restoreComposer(editor, currentDraft);
+			scheduleMobileComposerMeasureRef.current(editor);
 		}
 	}, [conversation?.id]);
 
@@ -465,14 +489,20 @@ export function ChatPane({
 			return;
 		}
 
-		restoreComposer(editor, body);
+		restoreComposer(editor, bodyRef.current);
 		composerSelectionRef.current = null;
 		const frame = window.requestAnimationFrame(() => focusComposerEnd(editor));
 		return () => window.cancelAnimationFrame(frame);
 	}, [mobileComposerExpanded]);
 
+	// 只关心「菜单开着 / 关着」和它锚在哪条消息上；重新定位读的是 setContextMenu 的
+	// 函数式更新，所以不需要整体依赖 contextMenu（它每次重定位都会变新对象）。
+	const contextMenuOpen = contextMenu !== null;
+	const contextMenuVariant = contextMenu?.variant ?? null;
+	const contextMenuMessageId = contextMenu?.message.id ?? null;
+
 	useEffect(() => {
-		if (!contextMenu) {
+		if (!contextMenuOpen) {
 			return;
 		}
 
@@ -494,13 +524,13 @@ export function ChatPane({
 			document.removeEventListener("keydown", closeOnEscape);
 			window.removeEventListener("resize", closeMenu);
 		};
-	}, [contextMenu]);
+	}, [contextMenuOpen]);
 
 	// Keep the desktop context menu glued to its message as the list scrolls,
 	// instead of floating in place. Dismisses once the message leaves the list
 	// viewport. Mobile menus (long-press sheet) keep their fixed placement.
 	useEffect(() => {
-		if (!contextMenu || contextMenu.variant === "mobile") {
+		if (!contextMenuMessageId || contextMenuVariant === "mobile") {
 			return;
 		}
 		const scroll = messageScrollRef.current;
@@ -556,7 +586,7 @@ export function ChatPane({
 				window.cancelAnimationFrame(frame);
 			}
 		};
-	}, [contextMenu?.message.id, contextMenu?.variant]);
+	}, [contextMenuMessageId, contextMenuVariant]);
 
 	useEffect(() => {
 		if (!emojiOpen) {
@@ -1030,6 +1060,7 @@ export function ChatPane({
 			);
 		});
 	}
+	scheduleMobileComposerMeasureRef.current = scheduleMobileComposerMeasure;
 
 	function measureComposerContentHeight(editor: HTMLDivElement) {
 		const rect = editor.getBoundingClientRect();
@@ -1106,6 +1137,7 @@ export function ChatPane({
 		atBottomRef.current = true;
 		setNewMessagePill(0);
 	}
+	scrollMessagesToBottomRef.current = scrollMessagesToBottom;
 
 	function isScrolledToBottom() {
 		const scroll = messageScrollRef.current;
@@ -1185,6 +1217,7 @@ export function ChatPane({
 					};
 		});
 	}
+	updateUnreadJumpRemainingRef.current = updateUnreadJumpRemaining;
 
 	function unreadMessageElements(state = unreadJump) {
 		const scroll = messageScrollRef.current;
@@ -1457,7 +1490,7 @@ export function ChatPane({
 				) : (
 					(() => {
 						// Detect the gray-tip element (if any) a message carries.
-						const GRAY_TIP_KINDS = ['grayTipPoke', 'grayTipRevoke', 'grayTipGroup', 'grayTipInvite'];
+						const GRAY_TIP_KINDS = ['grayTipPoke', 'grayTipRevoke', 'grayTipGroup', 'grayTipInvite', 'grayTipFileRecv', 'grayTipTempSession'];
 						const grayTipOf = (message) => {
 							const els = message.qqElements ?? [];
 							for (const kind of GRAY_TIP_KINDS) {
@@ -1478,49 +1511,46 @@ export function ChatPane({
 									return <GrayTipGroupMessage element={gt.el} conversation={conversation} message={message} />;
 								case 'grayTipInvite':
 									return <GrayTipInviteMessage element={gt.el} conversation={conversation} />;
+								case 'grayTipFileRecv':
+									return <GrayTipFileRecvMessage element={gt.el} />;
+								case 'grayTipTempSession':
+									return <GrayTipTempSessionMessage element={gt.el} />;
 								default:
 									return null;
 							}
 						};
 
-						// Collect consecutive gray-tip messages into a "run". The
-						// accent "band" frame is reserved for a run that carries a
-						// placeholder recall (content not in the local DB) — the frame
-						// exists to host the "本地暂无内容" backfill hint. Ordinary gray
-						// tips (pokes, normal recalls, group notices) render as plain
-						// centered lines with no background frame.
+						// Gray tips (pokes, recalls, group notices) render as plain
+						// centered lines, gathered into runs only so a run can be
+						// flushed as a unit when a real message interrupts it.
 						const out = [];
 						let band = null; // { messages: [{ message, gt }] }
 						const flushBand = () => {
 							if (!band) return;
-							const hasPlaceholder = band.messages.some(
-								(b) => b.gt.kind === 'grayTipRevoke' && isPlaceholderRevoke(b.gt.el),
-							);
-							const rows = band.messages.map(({ message, gt }) => (
-								<div
-									key={message.id}
-									data-message-id={message.id}
-									onContextMenu={(e) => openMessageMenu(e, message)}
-								>
-									{renderGrayTip(message, gt)}
-								</div>
-							));
-							if (hasPlaceholder) {
+							for (const { message, gt } of band.messages) {
 								out.push(
-									<div className={cn('weq-graytip-band')} key={`band-${band.messages[0].message.id}`}>
-										{rows}
-										<div className={cn('weq-graytip-band-hint')}>
-											本地暂无这些消息内容 · 用 QQ 查看后会自动补全
-										</div>
+									<div
+										key={message.id}
+										data-message-id={message.id}
+										onContextMenu={(e) => openMessageMenu(e, message)}
+									>
+										{renderGrayTip(message, gt)}
 									</div>,
 								);
-							} else {
-								out.push(...rows);
 							}
 							band = null;
 						};
 
 						visibleMessages.forEach((message, index) => {
+							// A hole in the seq run means QQ has messages here that were
+							// never synced locally. Checked for every row (gray tips
+							// included — they occupy a seq too) and emitted before the row
+							// that follows the hole.
+							const gap = messageGapCount(visibleMessages[index - 1], message);
+							if (gap > 0) {
+								flushBand();
+								out.push(<MessageGapDivider key={`gap-${message.id}`} count={gap} />);
+							}
 							const gt = grayTipOf(message);
 							if (gt) {
 								if (!band) band = { messages: [] };

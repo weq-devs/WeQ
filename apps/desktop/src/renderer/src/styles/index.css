@@ -6455,6 +6455,28 @@ html[data-theme="dark"] .chat-empty-logo {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
 
+/* 表情弹射 (elementType=27)：静态表情 + 右下角 ×N 角标。 */
+.weq-emoji-bounce {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+}
+.weq-emoji-bounce-count {
+  position: absolute;
+  right: -4px;
+  bottom: -2px;
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #e2403a;
+  color: #ffffff;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
 /* 动作按钮 */
 .weq-ark-action-btn {
   text-align: center;
@@ -9701,6 +9723,13 @@ html[data-theme="dark"] .weq-persona-modal {
   color: color-mix(in srgb, var(--weq-accent-effective) 78%, var(--weq-fg-muted));
   background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
   border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
+}
+/* Own messages render right-aligned, so the top-RIGHT corner is occupied by the
+   bubble itself — flip the caption to the free left side instead. */
+.weq-deleted-row.is-mine .weq-deleted-restore,
+.weq-deleted-row.is-mine .weq-deleted-tag {
+  right: auto;
+  left: 8px;
 }
 
 /* face picker */

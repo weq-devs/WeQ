@@ -64,7 +64,7 @@ async function main(): Promise<void> {
 
       for (const row of rows) {
         const blob = Array.isArray(row) ? row[0] : (row as Record<string, unknown>)['40800'];
-        let msg;
+        let msg: ReturnType<typeof rowToC2cMessage>;
         try {
           msg = rowToC2cMessage({ '40800': blob } as never);
         } catch {

@@ -27,6 +27,9 @@ import { QqArk } from './ark/QqArk';
 import { QqFlashTransfer } from './QqFlashTransfer';
 import { QqWallet } from './QqWallet';
 import { QqCall } from './QqCall';
+import { QqShareLocation } from './QqShareLocation';
+import { QqDynamic } from './QqDynamic';
+import { QqEmojiBounce } from './QqEmojiBounce';
 import { cn } from '@renderer/lib/utils';
 
 /**
@@ -546,6 +549,49 @@ export function QqMessageContent({
     );
   }
 
+  // 位置共享 (elementType=28) — a card with no coordinates to plot; see
+  // QqShareLocation for why a real map is impossible.
+  const shareLocationElement = elements.find((element) => element.type === 'shareLocation');
+  if (shareLocationElement) {
+    return (
+      <div className={cn('message-content', 'qq-card-only')}>
+        <QqShareLocation text={shareLocationElement.data?.shareLocationText as string | undefined} />
+      </div>
+    );
+  }
+
+  // QQ 动态分享卡 (elementType=26) — takes over the bubble like an ark card.
+  const qqDynamicElement = elements.find((element) => element.type === 'qqDynamic');
+  if (qqDynamicElement) {
+    const d = (qqDynamicElement.data ?? {}) as Record<string, unknown>;
+    return (
+      <div className={cn('message-content', 'qq-card-only')}>
+        <QqDynamic
+          desc={d.dynamicDesc as { mainDesc?: string; subDesc?: string } | undefined}
+          desc2={d.dynamicDesc2 as { mainDesc?: string; subDesc?: string } | undefined}
+          coverUrl={d.dynamicCoverUrl as string | undefined}
+          zoneLogoUrl={d.dynamicZoneLogoUrl as string | undefined}
+        />
+      </div>
+    );
+  }
+
+  // 表情弹射 (elementType=27) — a sticker, so it gets the borderless treatment.
+  const emojiBounceElement = elements.find((element) => element.type === 'emojiBounce');
+  if (emojiBounceElement) {
+    const d = (emojiBounceElement.data ?? {}) as Record<string, unknown>;
+    return (
+      <div className={cn('message-content', 'sticker-only')}>
+        <QqEmojiBounce
+          emojiBounceId={d.emojiBounceId as number | undefined}
+          name={d.emojiBounceName as string | undefined}
+          textSummary={d.emojiBounceTextSummary as string | undefined}
+          pcText={d.emojiBouncePcText as string | undefined}
+        />
+      </div>
+    );
+  }
+
   const multiMsgElement = elements.find((element) => element.type === 'multiMsg');
   if (multiMsgElement) {
     return (
@@ -645,14 +691,14 @@ export function QqMessageContent({
   return <div className={cn('message-content', 'qq-message-inline')}>{nodes}</div>;
 }
 
-/** Element kinds this renderer claims (text/reply/face/at + rich media + markdown + multiMsg). */
-const HANDLED_KINDS = new Set(['text', 'reply', 'face', 'at', 'pic', 'video', 'file', 'ptt', 'mface', 'markdown', 'multiMsg', 'ark', 'wallet', 'call', 'onlineFile', 'onlineFolder']);
+/** Element kinds this renderer claims (text/reply/face/at + rich media + markdown + multiMsg + cards). */
+const HANDLED_KINDS = new Set(['text', 'reply', 'face', 'at', 'pic', 'video', 'file', 'ptt', 'mface', 'markdown', 'multiMsg', 'ark', 'wallet', 'call', 'onlineFile', 'onlineFolder', 'shareLocation', 'qqDynamic', 'emojiBounce']);
 
 /**
  * MessageRenderer that handles every element kind we draw ourselves — text,
  * face/at, rich media, cards, markdown. Only kinds absent from HANDLED_KINDS
- * (emojiBounce / qqDynamic / unknown-with-body) fall through to the template's
- * plain-text fallback.
+ * (gray tips, which chatPane renders itself, and unknown-with-body) fall
+ * through to the template's plain-text fallback.
  */
 export const qqMessageRenderer: MessageRenderer = {
   id: 'qq-elements',

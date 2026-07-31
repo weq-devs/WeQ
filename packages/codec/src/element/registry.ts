@@ -34,6 +34,8 @@ const KIND_TO_TYPE: Record<KnownKind, ElementType> = {
   grayTipPoke: ElementType.GRAY_TIP,
   grayTipGroup: ElementType.GRAY_TIP,
   grayTipInvite: ElementType.GRAY_TIP,
+  grayTipFileRecv: ElementType.GRAY_TIP,
+  grayTipTempSession: ElementType.GRAY_TIP,
   wallet: ElementType.WALLET,
   ark: ElementType.ARK,
   mface: ElementType.MFACE,
@@ -44,6 +46,7 @@ const KIND_TO_TYPE: Record<KnownKind, ElementType> = {
   onlineFolder: ElementType.ONLINE_FOLDER,
   emojiBounce: ElementType.EMOJI_BOUNCE,
   qqDynamic: ElementType.QQ_DYNAMIC,
+  shareLocation: ElementType.SHARE_LOCATION,
 };
 
 const TYPE_TO_KIND: Partial<Record<ElementType, KnownKind>> = {
@@ -64,6 +67,7 @@ const TYPE_TO_KIND: Partial<Record<ElementType, KnownKind>> = {
   [ElementType.ONLINE_FOLDER]: 'onlineFolder',
   [ElementType.EMOJI_BOUNCE]: 'emojiBounce',
   [ElementType.QQ_DYNAMIC]: 'qqDynamic',
+  [ElementType.SHARE_LOCATION]: 'shareLocation',
 };
 
 export function decodeElement(wire: ProtoDecodeStructType<typeof ElementWire>): Element {
@@ -78,8 +82,10 @@ export function decodeElement(wire: ProtoDecodeStructType<typeof ElementWire>): 
     const subType = wire.subType ?? 0;
     const kind = subType === GrayTipSubType.REVOKE ? 'grayTipRevoke' :
                  subType === GrayTipSubType.GROUP_TIP ? 'grayTipGroup' :
-                 subType === GrayTipSubType.INVITE ? 'grayTipInvite' :
-                 subType === GrayTipSubType.POKE ? 'grayTipPoke' : null;
+                 subType === GrayTipSubType.XML_MSG ? 'grayTipInvite' :
+                 subType === GrayTipSubType.JSON ? 'grayTipPoke' :
+                 subType === GrayTipSubType.FILE ? 'grayTipFileRecv' :
+                 subType === GrayTipSubType.AIO_OP ? 'grayTipTempSession' : null;
     if (!kind) return makeUnknown(wire, wire.elementType ?? 0);
     return { kind, ...wire } as Element;
   }

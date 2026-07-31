@@ -259,8 +259,12 @@ export interface RecentContactWire {
   /** Local absolute path to the avatar file (unused by the renderer for now). */
   targetAvatar: string;
   targetRemark: string;
+  /** 41148 — peer's group card; only set on temp c2c-from-group conversations. */
+  targetGroupNick: string;
   /** 41220 — message-notify level. 1 = notify normally; else (observed 4) 免打扰/muted. */
   notifyLevel: number;
+  /** 60001 — group code a temp c2c conversation started from; "0" when absent. */
+  tempSourceGroupCode: string;
 }
 
 export function c2cMsgToWire(m: RenderC2cMsg): ChatMsgWire {
@@ -309,7 +313,9 @@ export function recentContactToWire(c: RecentContact): RecentContactWire {
     senderRemark: c.senderRemark,
     targetAvatar: c.targetAvatar,
     targetRemark: c.targetRemark,
+    targetGroupNick: c.targetGroupNick,
     notifyLevel: c.notifyLevel,
+    tempSourceGroupCode: c.tempSourceGroupCode.toString(),
   };
 }
 

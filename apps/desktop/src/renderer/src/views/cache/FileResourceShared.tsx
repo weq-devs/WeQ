@@ -196,12 +196,12 @@ export interface PagedResult<T> {
 
 /**
  * Offset-paged loader with an IntersectionObserver sentinel. `fetchPage` pulls
- * one page for the current filter; changing any value in `deps` resets the list
- * and reloads from offset 0. All fetches are async off the render thread.
+ * one page for the current filter; changing `filterKey` resets the list and
+ * reloads from offset 0. All fetches are async off the render thread.
  */
 export function usePagedList<T>(
   fetchPage: (offset: number, limit: number) => Promise<{ entries: T[]; total: number }>,
-  deps: unknown[],
+  filterKey: string,
 ): PagedResult<T> {
   const [entries, setEntries] = useState<T[]>([]);
   const [total, setTotal] = useState(0);
@@ -259,8 +259,7 @@ export function usePagedList<T>(
     setDone(false);
     setError(null);
     void loadMore();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
+  }, [filterKey, loadMore]);
 
   // Auto-load the next page as the sentinel scrolls into view.
   useEffect(() => {

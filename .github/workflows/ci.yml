@@ -1,6 +1,6 @@
 name: CI
 
-# Type-check gate for every push / PR onto the long-lived branches.
+# Lint + type-check gate for every push / PR onto the long-lived branches.
 on:
   push:
     branches: [main, dev]
@@ -13,6 +13,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # warning 也算失败：存量告警已清零 / 豁免，新增的必须当场处理。
+      - name: Lint
+        run: pnpm lint
+
   typecheck:
     runs-on: ubuntu-latest
     env:

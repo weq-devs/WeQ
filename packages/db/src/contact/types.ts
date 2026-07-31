@@ -39,9 +39,19 @@ export interface RecentContact {
   /** 41135 — conversation remark name. */
   targetRemark: string;
   /**
+   * 41148 — the peer's group card, populated on temp c2c-from-group rows
+   * (a stranger who messaged you out of a shared group). Empty elsewhere.
+   */
+  targetGroupNick: string;
+  /**
    * 41220 — message-notify level. 1 = notify normally; other values
    * (observed 4) mean 免打扰/muted. Consumers derive a boolean from this
    * (see the renderer's mute resolution).
    */
   notifyLevel: number;
+  /**
+   * 60001 — the group a temp c2c conversation was started from. 0 when the
+   * conversation isn't a temp session.
+   */
+  tempSourceGroupCode: bigint;
 }
