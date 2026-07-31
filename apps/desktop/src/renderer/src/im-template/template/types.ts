@@ -108,6 +108,11 @@ export type DirectConversation = ConversationBase & {
 	group: null;
 	members: [];
 	chatType?: string | number;
+	/**
+	 * 群聊发起的临时会话的来源群名（60001 → 群列表解析）。群不在我的群列表里时
+	 * 退化为群号；非临时会话为空。
+	 */
+	tempSourceGroupName?: string | null;
 };
 
 export type GroupConversation = ConversationBase & {

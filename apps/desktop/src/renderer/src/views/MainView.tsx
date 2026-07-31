@@ -156,8 +156,12 @@ type RecentContactWire = {
   senderRemark: string;
   targetAvatar: string;
   targetRemark: string;
+  /** 41148 — peer's group card; only set on temp c2c-from-group conversations. */
+  targetGroupNick: string;
   /** 41220 — message-notify level. 1 = notify normally; else (observed 4) 免打扰/muted. */
   notifyLevel: number;
+  /** 60001 — group code a temp c2c conversation started from; "0" when absent. */
+  tempSourceGroupCode: string;
 };
 
 type MessageWire = {
@@ -443,11 +447,10 @@ function groupAvatarSrc(groupCode: string): string | null {
 
 /** Public-CDN avatar URL for a conversation (undefined -> template fallback). */
 function avatarSrc(c: Pick<RecentContactWire, 'chatType' | 'targetUid' | 'targetUin'>): string | null {
-  const t = String(c.chatType);
-  if (t.includes('GROUP')) return `https://p.qlogo.cn/gh/${c.targetUid}/${c.targetUid}/0`;
-  if (t.includes('C2C') && c.targetUin && c.targetUin !== '0') {
-    return `https://thirdqq.qlogo.cn/g?b=sdk&s=0&nk=${c.targetUin}`;
-  }
+  // C2C 必须先判：KCHATTYPETEMPC2CFROMGROUP 的名字里同时含 C2C 和 GROUP，先匹配
+  // GROUP 会把对方 uid 当群号去拼 p.qlogo.cn，临时会话头像必裂。走 uin 外链才是真人头像。
+  if (chatTypeKind(c.chatType) === 'direct') return senderAvatarSrc(c.targetUin);
+  if (String(c.chatType).includes('GROUP')) return groupAvatarSrc(c.targetUid);
   return null;
 }
 
@@ -482,8 +485,20 @@ function toIsoTime(seconds: string | undefined): string {
 }
 
 function contactTitle(c: RecentContactWire): string {
-  // 数据线会话往往不带 targetDisplayName，会回退成原始 uid；优先给出设备名。
-  return c.targetDisplayName || c.targetRemark || c.senderDisplayName || c.senderNick || datalineName(c.targetUid) || c.targetUid;
+  // 私聊优先显示备注：40095 是「发送者」维度的列，群会话里存的是发言人的好友备注
+  // （群名在 40094），所以只在单聊/临时会话上认它。41148 是对方在共同群里的群名片，
+  // 群聊发起的临时会话往往只有它才是人能认出的名字。
+  const remark = chatTypeKind(c.chatType) === 'direct' ? c.senderRemark || c.targetGroupNick : '';
+  return (
+    remark ||
+    c.targetDisplayName ||
+    c.targetRemark ||
+    c.senderDisplayName ||
+    c.senderNick ||
+    // 数据线会话往往不带 targetDisplayName，会回退成原始 uid；优先给出设备名。
+    datalineName(c.targetUid) ||
+    c.targetUid
+  );
 }
 
 /**
@@ -797,7 +812,24 @@ function mutedFromNotifyLevel(notifyLevel: number | undefined): boolean {
   return notifyLevel !== undefined && notifyLevel !== 0 && notifyLevel !== 1;
 }
 
-function contactToConversation(c: RecentContactWire, user: User): Conversation | null {
+/**
+ * 群聊发起的临时会话的来源群名（60001 是原始群号）。群不在我的群列表里（退群 /
+ * 从未加入）时退化为群号，至少还能认出是哪个群。
+ */
+function tempSourceGroupName(
+  c: RecentContactWire,
+  groupNameByCode: Map<string, string>,
+): string | null {
+  const code = c.tempSourceGroupCode;
+  if (!code || code === '0') return null;
+  return groupNameByCode.get(code) || code;
+}
+
+function contactToConversation(
+  c: RecentContactWire,
+  user: User,
+  groupNameByCode: Map<string, string>,
+): Conversation | null {
   const kind = chatTypeKind(c.chatType);
   const title = contactTitle(c);
   const preview = previewText(c.preview);
@@ -835,6 +867,7 @@ function contactToConversation(c: RecentContactWire, user: User): Conversation |
       unreadCount: 0,
       lastMessage,
       chatType: c.chatType,
+      tempSourceGroupName: tempSourceGroupName(c, groupNameByCode),
     };
   }
 
@@ -1873,12 +1906,14 @@ export function MainView(): ReactElement {
   );
   const conversations = useMemo(
     () => {
+      const groups = (allGroups.data ?? []) as GroupDetailWire[];
+      const groupNameByCode = new Map(groups.map((g) => [g.groupCode, g.groupName]));
       const recentConversations = ((contacts.data ?? []) as RecentContactWire[])
-        .map((contact) => contactToConversation(contact, user))
+        .map((contact) => contactToConversation(contact, user, groupNameByCode))
         .filter((conversation): conversation is Conversation => conversation !== null);
       const byId = new Map(recentConversations.map((conversation) => [conversation.id, conversation]));
 
-      for (const detail of (allGroups.data ?? []) as GroupDetailWire[]) {
+      for (const detail of groups) {
         byId.set(detail.groupCode, groupDetailToConversation(detail, byId.get(detail.groupCode), user));
       }
 
