@@ -31,6 +31,7 @@
 | ✅ | [40800.md](./database/nt_msg/40800.md) | ElementWire 信封、tag 分段约定、跨类型共用字段族、容错解码 |
 | ✅ | [40900.md](./database/nt_msg/40900.md) | MsgCache 字段表与递归嵌套 |
 | ✅ | [recent-contact.md](./database/nt_msg/recent-contact.md) | 会话列表：列结构、40051 外显预览、ChatType 全表、免打扰 41220 |
+| ✅ | [recent-contact-top.md](./database/nt_msg/recent-contact-top.md) | 置顶会话：5 列全表、1000/60001 二选一、41103 置顶时间与会话标识归一化 |
 | ✅ | [unread-info.md](./database/nt_msg/unread-info.md) | 未读信息：48902 嵌套结构、未读数算法、50000 提醒类别码枚举 |
 | ⬜ | database/nt_msg/row.md | 消息行本身的列（40001/40003/40011/40012/40050…）与「删除 / 撤回」签名 |
 | ⬜ | database/nt_msg/40062.md | 消息表情回应（贴表情） |

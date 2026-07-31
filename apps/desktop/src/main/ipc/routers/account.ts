@@ -59,6 +59,7 @@ import {
   groupMsgToWire,
   groupNotifyToWire,
   recentContactToWire,
+  recentContactTopToWire,
   userProfileToWire,
   groupDetailToWire,
   groupEssenceToWire,
@@ -1153,6 +1154,12 @@ export const accountRouter = router({
   listRecentContacts: procedure.query(async () => {
     const contacts = await requireServices().recentContacts.getRecentContact(200);
     return contacts.map(recentContactToWire);
+  }),
+
+  /** 置顶会话（recent_contact_top_table），最近置顶的在前。 */
+  listTopContacts: procedure.query(async () => {
+    const tops = await requireServices().recentContacts.getTopContacts();
+    return tops.map(recentContactTopToWire);
   }),
 
   /** 首页门面：随机一言若干（打字机轮播用；已按句长筛过）。 */

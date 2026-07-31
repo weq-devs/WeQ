@@ -11,6 +11,7 @@
 | `group_msg_table` | 群聊消息（结构同 c2c） | [消息行](#消息行) |
 | `dataline_msg_table` | 数据线消息（我的手机 / 电脑 / 平板，结构同 c2c） | [消息行](#消息行) |
 | `recent_contact_v3_table` | 会话列表 | [recent-contact](./recent-contact.md) |
+| `recent_contact_top_table` | 置顶会话 | [recent-contact-top](./recent-contact-top.md) |
 | `msg_unread_info_table` | 未读信息 + 提醒高亮 | [unread-info](./unread-info.md) |
 | `nt_uid_mapping_table` | uid ↔ uin ↔ sortNo 目录 | [下见](#nt_uid_mapping_table) |
 | `draft_storage_table_v1` | 草稿：输入了但还没点发送的内容 | 暂未解析 |

@@ -206,6 +206,9 @@ LIMIT ? OFFSET ?;
 
 `40050` 上有索引，会话数量本身也就几百，所以单条有序 `LIMIT` 足够，不需要分页优化。
 
+> 会话的**置顶**状态不在这张表里，而在独立的
+> [recent_contact_top_table](./recent-contact-top.md)，靠 `40021` / `targetUid` 关联。
+
 ---
 
 [← 返回 nt_msg.db](./index.md)

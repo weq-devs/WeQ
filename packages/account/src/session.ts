@@ -13,6 +13,7 @@ import {
   C2cMsgDb,
   GroupMsgDb,
   RecentContactDb,
+  RecentContactTopDb,
   UidMappingDb,
   UidMap,
   ForwardMsgDb,
@@ -99,6 +100,8 @@ export interface AccountSession {
   readonly groupMsgs: GroupMsgDb;
   /** Recent-conversation list. */
   readonly recentContacts: RecentContactDb;
+  /** 置顶会话（recent_contact_top_table）。 */
+  readonly recentContactTops: RecentContactTopDb;
   /** Merged-forward / quote-reply cache (40900 column). */
   readonly forwardMsgs: ForwardMsgDb;
   /** Full-text-search index over message text (buddy_msg_fts.db). */
@@ -184,6 +187,12 @@ export async function openAccount(
   });
 
   const recentContacts = new RecentContactDb(nt, {
+    dbPath: msgDbPath,
+    key: ctx.dbKey,
+    algo: ctx.algo,
+  });
+
+  const recentContactTops = new RecentContactTopDb(nt, {
     dbPath: msgDbPath,
     key: ctx.dbKey,
     algo: ctx.algo,
@@ -315,6 +324,7 @@ export async function openAccount(
     datalineMsgs,
     groupMsgs,
     recentContacts,
+    recentContactTops,
     forwardMsgs,
     buddyMsgFts,
     groupMsgFts,
@@ -339,6 +349,7 @@ export async function openAccount(
       datalineMsgs.close();
       groupMsgs.close();
       recentContacts.close();
+      recentContactTops.close();
       forwardMsgs.close();
       buddyMsgFts.close();
       groupMsgFts.close();
