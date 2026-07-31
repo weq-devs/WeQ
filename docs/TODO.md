@@ -66,7 +66,9 @@
 | 状态 | 文档 | 内容要点 |
 | ---- | ---- | -------- |
 | ⬜ | database/collection.md | `collection.db` 收藏：type ↔ 子标签公式、8 种类型 |
-| ⬜ | database/profile-group.md | `profile_info.db` / `group_info.db` 中 WeQ 用到的 protobuf 列 |
+| ✅ | [profile_info/index.md](./database/profile_info/index.md) | `profile_info.db` 库总览：好友名单/分组/申请/AI 机器人/FTS 坑 |
+| ✅ | [profile_info/profile-info-v6.md](./database/profile_info/profile-info-v6.md) | `profile_info_v6` 44 列 + `21000` 七大分块 + 两个非 protobuf 的 TLV 列 |
+| ⬜ | database/group-info.md | `group_info.db` 中 WeQ 用到的表与 protobuf 列 |
 | ⬜ | database/emoji.md | `emoji.db` 系统表情 / 商城表情包 |
 | ⬜ | database/login.md | `login.db` 账号列表 |
 

@@ -8,7 +8,7 @@ NTQQ 把数据分散在若干个 SQLCipher 加密数据库里。本栏目记录 
 | 数据库 | 内容 | 文档 |
 | ------ | ---- | ---- |
 | `nt_msg.db` | 聊天记录本体：消息行、会话列表、未读状态 | [nt_msg.db](./nt_msg/index.md) |
-| `profile_info.db` | 好友 / 陌生人资料 | ⬜ 待写 |
+| `profile_info.db` | 好友 / 陌生人资料、好友列表与分组 | [profile_info.db](./profile_info/index.md) |
 | `group_info.db` | 群资料、群成员、公告、精华 | ⬜ 待写 |
 | `collection.db` | QQ 收藏 | ⬜ 待写 |
 | `emoji.db` | 系统表情、商城表情包 | ⬜ 待写 |
