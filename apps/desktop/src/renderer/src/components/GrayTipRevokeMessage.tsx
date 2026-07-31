@@ -17,19 +17,6 @@ interface GrayTipRevokeMessageProps {
   message?: Message;
 }
 
-/**
- * True when this revoke gray-tip is a "placeholder empty message" — the row that
- * sits ABOVE a recall callback for a message whose content isn't in the local
- * DB (QQ backfills it on view). Its tell is a MISSING `recallRevokeNick`: a real
- * recall tip resolves the revoker's nick (47714), a placeholder leaves it empty
- * (the revoker uid is always present, so it can't be used to distinguish them).
- * Exported so the band wrapper (chatPane) can decide whether to show the
- * "本地暂无内容" hint for the whole run.
- */
-export function isPlaceholderRevoke(element: { data?: { recallRevokeNick?: string } }): boolean {
-  return !element.data?.recallRevokeNick;
-}
-
 /** Resolve a `u_`-prefixed uid to a display nick via the conversation. */
 function resolveUidNick(uid: string | undefined, conversation?: Conversation): string {
   if (!uid) return '';
@@ -50,20 +37,7 @@ export function GrayTipRevokeMessage({ element, conversation }: GrayTipRevokeMes
 
   const senderName = resolveUidNick(recallSenderUid, conversation) || recallSenderNick || '某成员';
 
-  // Placeholder empty message: no revoker nick → the recalled message content
-  // isn't in the local DB. Render "{sender} 撤回了一条消息" (sender resolved from
-  // recallSenderUid). The surrounding band conveys the "no local content"
-  // meaning via its liquid fill + hint, so we don't repeat it per-row.
-  if (isPlaceholderRevoke({ data: { recallRevokeNick } })) {
-    return (
-      <div className="weq-graytip text-center text-xs py-2">
-        <span className="weq-graytip-accent">{senderName}</span>
-        <span className="px-1">撤回了一条消息</span>
-      </div>
-    );
-  }
-
-  // Real recall tip: compare by uid (robust vs nick), resolve both names.
+  // Compare by uid (robust vs nick), resolve both names.
   const revokerName = resolveUidNick(recallRevokeUid, conversation) || recallRevokeNick || '管理员';
   const isSamePerson = recallSenderUid
     ? recallSenderUid === recallRevokeUid

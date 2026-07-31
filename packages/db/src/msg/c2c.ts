@@ -29,6 +29,15 @@ import { QqDb } from '../qq_db';
 const SELECT_COLUMNS = `"40001","40020","40021","40030","40033","40050","40800","40003","40011","40012"`;
 
 /**
+ * Conversation ordering. 40003 alone is NOT a total order: gray tips share the
+ * seq of the message they hang off, so a same-seq run's order fell to whatever
+ * index SQLite happened to walk. Sending time then msgId settle it, and keeping
+ * 40003 first still hits the `(40027,40003)` index.
+ */
+const ORDER_NEWEST_FIRST = `ORDER BY "40003" DESC, "40050" DESC, "40001" DESC`;
+const ORDER_OLDEST_FIRST = `ORDER BY "40003" ASC, "40050" ASC, "40001" ASC`;
+
+/**
  * Which partition column to filter a c2c conversation by. Prefer `sortNo`
  * (column 40027 — indexed); `uid` (column 40021 — unindexed) is the fallback
  * for peers missing from the uid map.
@@ -71,7 +80,7 @@ export class C2cMsgDb {
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM ${this.table}
         WHERE ${clause}
-        ORDER BY "40003" DESC
+        ${ORDER_NEWEST_FIRST}
         LIMIT ?`,
       [value, BigInt(limit)],
     );
@@ -84,7 +93,7 @@ export class C2cMsgDb {
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM ${this.table}
         WHERE ${clause} AND "40003" < ?
-        ORDER BY "40003" DESC
+        ${ORDER_NEWEST_FIRST}
         LIMIT ?`,
       [value, beforeSeq, BigInt(limit)],
     );
@@ -97,7 +106,7 @@ export class C2cMsgDb {
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM ${this.table}
         WHERE ${clause} AND "40003" > ?
-        ORDER BY "40003" ASC
+        ${ORDER_OLDEST_FIRST}
         LIMIT ?`,
       [value, afterSeq, BigInt(limit)],
     );
@@ -135,7 +144,7 @@ export class C2cMsgDb {
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM ${this.table}
         WHERE ${clause} AND "40003" >= ?
-        ORDER BY "40003" DESC
+        ${ORDER_NEWEST_FIRST}
         LIMIT ?`,
       [value, sinceSeq, BigInt(limit)],
     );
@@ -241,7 +250,7 @@ export class C2cMsgDb {
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM ${this.table}
         WHERE "40001" IN (${placeholders})
-        ORDER BY "40003" DESC`,
+        ${ORDER_NEWEST_FIRST}`,
       msgIds,
     );
     return rows.map(rowToC2cMsg);
@@ -258,7 +267,7 @@ export class C2cMsgDb {
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM ${this.table}
         WHERE "40021" = ? AND "40011" = 1 AND "40012" = 1
-        ORDER BY "40003" DESC
+        ${ORDER_NEWEST_FIRST}
         LIMIT ?`,
       [targetUid, BigInt(limit)],
     );
