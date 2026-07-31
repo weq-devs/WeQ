@@ -36,6 +36,8 @@ import { validateMcpConfig } from '../../mcp/external';
 import { groupChatBus, type GroupChatStreamEvent } from '../../mcp/agentlab_group_bus';
 import {
   clientKeyExpiryMs,
+  buildPtlogin2JumpUrl,
+  parseClientKeyJson,
   toRenderElements,
   PRIVATE_PTT_RKEY_TYPE,
   GROUP_PTT_RKEY_TYPE,
@@ -1823,6 +1825,43 @@ export const accountRouter = router({
     .input(decryptDbInput)
     .mutation(async ({ input }) => {
       return requireServices().dbDecrypt.decryptDatabases(input);
+    }),
+
+  // ---- 外部站点跳转（QQ 空间 / QQ 频道，网页版用） ----
+
+  /**
+   * A one-shot ptlogin2 jump URL that lands on QQ 空间 / QQ 频道 already logged in.
+   *
+   * 桌面版用 `<webview>` + 手工种 cookie；浏览器里两条路都走不通（对方站点禁 iframe，
+   * 且我们无法跨站写 cookie）。所以改把跳转 URL 交给浏览器开新标签：302 链在浏览器
+   * 里跑完，cookie 落进浏览器自己的 jar，等价于用户手动登录了一次。
+   *
+   * URL 里带着 clientKey，属于一次性凭据 —— 只在点击时现取，不缓存不落库。
+   */
+  getExternalSiteUrl: procedure
+    .input(z.object({ site: z.enum(['qzone', 'channel']) }))
+    .mutation(async ({ input }) => {
+      const ctx = getAppContext();
+      const services = requireServices();
+      const uin = ctx.account?.context.uin;
+      const nt = ctx.platform?.native.ntHelper;
+      const record = services.accountConfig.getRecord();
+      const landing =
+        input.site === 'qzone'
+          ? `https://user.qzone.qq.com/${uin}/infocenter?loginfrom=31`
+          : 'https://pd.qq.com/';
+
+      // 没有在线 QQ 就没有 clientKey 可换 —— 退回裸地址，用户自己在浏览器里登录。
+      if (!uin || !nt || !record?.qqOnline || !record.qqPid) {
+        return { url: landing, autoLogin: false };
+      }
+      try {
+        const ck = parseClientKeyJson(await nt.fetchClientKey(record.qqPid));
+        if (!ck) return { url: landing, autoLogin: false };
+        return { url: buildPtlogin2JumpUrl(ck, String(uin), landing), autoLogin: true };
+      } catch {
+        return { url: landing, autoLogin: false };
+      }
     }),
 
   // ---- group album ----

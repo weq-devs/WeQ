@@ -21,3 +21,14 @@ export function DesktopOnly({ children }: { children: ReactNode }): ReactElement
   if (IS_WEB) return null;
   return <>{children}</>;
 }
+
+/**
+ * The preload bridge, or `undefined` in the browser build.
+ *
+ * `DesktopOnly` only skips JSX — hooks in the same component still run on web,
+ * where `window.weq` was never injected. Any effect touching the bridge must go
+ * through this and bail when it's absent.
+ */
+export function shellBridge(): Window['weq'] | undefined {
+  return IS_WEB ? undefined : window.weq;
+}

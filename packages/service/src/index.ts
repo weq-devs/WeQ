@@ -272,6 +272,7 @@ export type { NewMessages, NtMsgHooks } from './account/nt_msg_hook';
 
 // ---- web cgi (query-only: group notice / album list / honor) ----
 export { WebQueryService, HonorType, computeBkn } from './account/web';
+export { buildPtlogin2JumpUrl, parseClientKeyJson } from './account/web/ptlogin';
 export type {
   GroupNotice,
   GroupNoticeImage,
