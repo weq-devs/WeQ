@@ -33,6 +33,26 @@ export type ProfileExtInfo = {
 	}>;
 };
 
+/**
+ * 在线状态（service 的 FormattedOnlineStatus 在模板层的结构副本）。模板层不依赖
+ * service，所以这里按结构声明而非直接 import。
+ */
+export type OnlineStatusInfo = {
+	uid: string;
+	uin: string;
+	type: number;
+	typeName: string;
+	subType: number;
+	subTypeName: string;
+	displayStatus: string;
+	weather?: {
+		weather: string;
+		city: string;
+		area: string;
+		weatherDesc: string;
+	};
+};
+
 export type Contact = User & {
 	createdAt: string;
 	categoryId?: number;
@@ -49,7 +69,7 @@ export type Contact = User & {
 	intimacy?: number;
 	customStatus?: string | null;
 	onlineStatus?: string | null;
-	onlineStatusObj?: any;
+	onlineStatusObj?: OnlineStatusInfo;
 	/** 扩展（密友）关系：displayId 为当前展示的关系，preselectedIds 为预设标签。 */
 	extRelation?: { preselectedIds: number[]; displayId?: number } | null;
 	/** 21000 列：特权 logo、所在城市、教育经历、兴趣标签、QQ空间相册。 */

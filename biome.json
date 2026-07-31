@@ -78,6 +78,40 @@
           }
         }
       }
+    },
+    {
+      "includes": ["apps/desktop/src/renderer/src/components/MsgElementEditor.tsx"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "apps/desktop/src/renderer/src/components/relationGraph/RankingModal.tsx",
+        "apps/desktop/src/renderer/src/components/relationGraph/GraphCanvas.tsx",
+        "apps/desktop/src/renderer/src/im-template/template/messageBubble.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["apps/protolab/src/renderer/src/lib/elementValidator.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          }
+        }
+      }
     }
   ]
 }

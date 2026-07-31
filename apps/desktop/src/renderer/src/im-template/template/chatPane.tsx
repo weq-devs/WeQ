@@ -247,7 +247,7 @@ export function ChatPane({
 	onOpenGroupAnnouncements?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenGroupAnalytics?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenBuddyAnalytics?: (conversation: Extract<Conversation, { type: "direct" }>) => void;
-	onOpenGroupMember?: (member: any, anchor: { x: number; y: number }) => void;
+	onOpenGroupMember?: (member: User, anchor: { x: number; y: number }) => void;
 	onAddMessage?: (conversation: Conversation) => void;
 	onViewDeleted?: (conversation: Conversation) => void;
 	onViewRecalled?: (conversation: Conversation) => void;

@@ -10,6 +10,7 @@ import type {
 	Conversation,
 	ConversationDrafts,
 	ConversationPreferences,
+	OnlineStatusInfo,
 	User,
 } from "./types";
 import { displayUserName } from "./user";
@@ -361,7 +362,7 @@ const TYPE_ICONS: Record<number, () => JSX.Element> = {
 	40: () => <MinusCircle size={12} stroke="#8c8c8c" />,
 };
 
-function ContactOnlineStatusIcon({ status }: { status: any }) {
+function ContactOnlineStatusIcon({ status }: { status: OnlineStatusInfo | undefined }) {
 	if (!status) return null;
 	const filename = status.type === 10 && SUB_ICONS[status.subType];
 	if (filename) {
