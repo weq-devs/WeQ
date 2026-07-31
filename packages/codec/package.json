@@ -12,9 +12,13 @@
     "./proto/*": "./src/proto/*.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.tools.json",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "tools:scan-element-types": "tsx tools/scan-element-types.ts",
+    "tools:search-string": "tsx tools/search-string.ts",
+    "tools:emoji-decode": "tsx tools/test-emoji-decode.ts",
+    "mutate:ark-modify": "tsx tools/mutate/test-ark-modify.ts"
   },
   "dependencies": {
     "@protobuf-ts/runtime": "^2.11.1",
@@ -24,6 +28,7 @@
   "devDependencies": {
     "@types/node": "^22.10.6",
     "@weq/testkit": "workspace:*",
+    "tsx": "^4.19.2",
     "vitest": "^2.1.8"
   }
 }

@@ -2,7 +2,7 @@
  * scupdate 的离线单元测试:scid 拼装、响应解析、可下载性判定。
  *
  * 全部用真实抓到的字节做黄金样本(见下方 GOLDEN_*),不需要 QQ 在运行。联网的
- * 端到端探测在 `test/scupdate_probe.ts`。
+ * 端到端探测在 `tools/scupdate_probe.ts`。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -20,7 +20,7 @@ import {
   ScUpdateError,
   VasBid,
 } from '../src/scupdate';
-import { SC_UPDATE_RSP } from '../src/scupdate/schemas';
+import { QVER_ANDROID, SC_UPDATE_RSP } from '../src/scupdate/schemas';
 
 const hexToBytes = (hex: string): Uint8Array =>
   Uint8Array.from(
@@ -147,7 +147,7 @@ describe('buildReqComm', () => {
   it('默认伪装成 Android 手Q', () => {
     const comm = buildReqComm();
     expect(comm.plat).toBe(109);
-    expect(new TextDecoder().decode(comm.qver as Uint8Array)).toBe('8.8.17.5770');
+    expect(new TextDecoder().decode(comm.qver as Uint8Array)).toBe(QVER_ANDROID);
     // 手Q 未显式指定时填 2,服务端据此判断是否强制刷新。
     expect(comm.force).toBe(2);
   });
