@@ -7,8 +7,8 @@
  * results come back ranked best-match-first — no scoring done here.
  *
  * Returns the structured `BuddyMsgFtsHit[]`: `msgId` stays `bigint` to keep
- * 64-bit precision (the caller stringifies it at the IPC/JSON boundary, the
- * same way TestMsgService does); `content` is the matched message text.
+ * 64-bit precision (the caller stringifies it at the IPC/JSON boundary);
+ * `content` is the matched message text.
  */
 
 import type { AccountSession } from '@weq/account';

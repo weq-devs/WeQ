@@ -334,6 +334,9 @@ importers:
       '@weq/testkit':
         specifier: workspace:*
         version: link:../testkit
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.4
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.20)(lightningcss@1.32.0)
@@ -368,6 +371,9 @@ importers:
       electron:
         specifier: ^35.0.0
         version: 35.7.5
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.4
 
   packages/platform:
     dependencies:
@@ -391,6 +397,9 @@ importers:
       '@weq/testkit':
         specifier: workspace:*
         version: link:../testkit
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.4
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.20)(lightningcss@1.32.0)

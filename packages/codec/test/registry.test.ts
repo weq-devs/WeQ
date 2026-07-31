@@ -237,9 +237,13 @@ describe('FaceElement (elementType=6)', () => {
   });
 
   it('silently ignores unknown wire tags during decode', () => {
-    // Hand-craft an envelope containing an UNDECLARED tag 47608, sandwiched
-    // between declared fields. protobuf-ts should treat 47608 as an unknown
+    // Hand-craft an envelope containing an UNDECLARED tag 47699, sandwiched
+    // between declared fields. protobuf-ts should treat 47699 as an unknown
     // field, not error out.
+    //
+    // 47699 must stay OUTSIDE ElementWire — an earlier version of this test
+    // used 47608, which was later modelled as `faceFlag47608` (BYTES), so the
+    // varint payload below started decoding as a length prefix and blew up.
     const codec = new ProtoMsg(ElementWire);
     const knownBytes = codec.encode({
       elementId: 5n,
@@ -249,13 +253,11 @@ describe('FaceElement (elementType=6)', () => {
       faceText: 'x',
     });
 
-    // Append an undeclared field manually: tag 47608 (varint = 99).
-    // (47608 << 3) | 0 = 380864 → varint encodes to bytes:
-    const tag47608Varint = encodeVarint(BigInt(47608 << 3) | 0n);
+    const unknownTagVarint = encodeVarint(BigInt(47699 << 3) | 0n);
     const valueVarint = encodeVarint(99n);
     const merged = new Uint8Array([
       ...knownBytes,
-      ...tag47608Varint,
+      ...unknownTagVarint,
       ...valueVarint,
     ]);
 

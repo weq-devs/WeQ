@@ -7,9 +7,10 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.tools.json",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "tools:scupdate-probe": "tsx tools/scupdate_probe.ts"
   },
   "dependencies": {
     "@weq/native": "workspace:*"
@@ -17,6 +18,7 @@
   "devDependencies": {
     "@types/node": "^22.10.6",
     "@weq/testkit": "workspace:*",
+    "tsx": "^4.19.2",
     "vitest": "^2.1.8"
   }
 }

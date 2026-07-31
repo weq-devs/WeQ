@@ -7,12 +7,17 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.tools.json",
+    "tools:clientkey": "tsx tools/clientkey.ts",
+    "tools:pskey": "tsx tools/pskey.ts",
+    "tools:rkey": "tsx tools/rkey.ts",
+    "tools:mface-key": "tsx tools/mface_key.ts"
   },
   "dependencies": {},
   "devDependencies": {
     "@types/node": "^22.10.6",
     "@weq/testkit": "workspace:*",
-    "electron": "^35.0.0"
+    "electron": "^35.0.0",
+    "tsx": "^4.19.2"
   }
 }

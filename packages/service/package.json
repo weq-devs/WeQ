@@ -7,18 +7,18 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
-    "test:win32-detect": "tsx test/win32_detect.ts",
-    "test:key-alive": "tsx test/key_alive_qq.ts",
-    "test:key-quick": "tsx test/key_quick_login.ts",
-    "test:key-qr": "tsx test/key_qr_login.ts",
-    "test:msg-search": "tsx test/msg_search.ts",
-    "test:msg-search-agg": "tsx test/msg_search_aggregate.ts",
-    "test:reply": "tsx test/reply_element.ts",
-    "test:export": "tsx test/export_group.ts",
-    "test:forward-expand": "tsx test/forward_expand.ts",
-    "test:scan-media": "tsx test/scan_group_media.ts",
-    "test:download-probe": "tsx test/download_rkey_probe.ts"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.tools.json",
+    "tools:win32-detect": "tsx tools/win32_detect.ts",
+    "tools:key-alive": "tsx tools/key_alive_qq.ts",
+    "tools:key-quick": "tsx tools/key_quick_login.ts",
+    "tools:key-qr": "tsx tools/key_qr_login.ts",
+    "tools:msg-search": "tsx tools/msg_search.ts",
+    "tools:msg-search-agg": "tsx tools/msg_search_aggregate.ts",
+    "tools:reply": "tsx tools/reply_element.ts",
+    "tools:export": "tsx tools/export_group.ts",
+    "tools:forward-expand": "tsx tools/forward_expand.ts",
+    "tools:scan-media": "tsx tools/scan_group_media.ts",
+    "tools:download-probe": "tsx tools/download_rkey_probe.ts"
   },
   "dependencies": {
     "@weq/agentlab": "workspace:*",

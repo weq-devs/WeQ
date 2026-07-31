@@ -60,6 +60,30 @@ jobs:
       - name: Type-check all packages
         run: pnpm -r typecheck
 
+  # 离线单测（packages/*/test/*.test.ts）。需要真 QQ 环境的探针脚本在
+  # packages/*/tools/ 下，不在这里跑 —— 约定见 docs/develop/testing.md。
+  test:
+    runs-on: ubuntu-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run unit tests
+        run: pnpm -r test
+
   # Linux 打包冒烟：只构建、不发布（--dir），在 PR 阶段就能发现
   # Linux 打包链路（electron-vite build + electron-builder）挂没挂。
   # 只跑 x64 足以覆盖配置正确性；arm64 交给 release 时的原生 runner。

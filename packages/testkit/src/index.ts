@@ -168,6 +168,29 @@ export const testEnv = {
 /** Escape hatch for the rare script that reads a bespoke variable. */
 export { optional as envOptional, required as envRequired, flag as envFlag };
 
+/**
+ * Gate for every script under a `tools/mutate/` directory.
+ *
+ * These scripts write to the live QQ databases — an interrupted run can leave
+ * rows half-written, and QQ itself may be holding the same file open. Requiring
+ * an explicit `--yes` means a stray tab-complete can never mutate real data.
+ *
+ *   requireMutationConsent('往 group_msg_table 插入一条伪造消息');
+ *
+ * Bypass in automation with `WEQ_ASSUME_YES=1`.
+ */
+export function requireMutationConsent(whatItDoes: string): void {
+  if (flag('WEQ_ASSUME_YES') || process.argv.includes('--yes')) return;
+
+  throw new Error(
+    '\n[写库守卫] 该脚本会修改真实的 QQ 数据库：\n' +
+      `  ${whatItDoes}\n\n` +
+      '  确认无误后重跑并加上 --yes：\n' +
+      '    pnpm --filter <pkg> <script> --yes\n\n' +
+      '  跑之前请先退出 QQ，否则可能写入失败或锁库。\n',
+  );
+}
+
 export {
   ensureSendable,
   type EnsureSendableOptions,
