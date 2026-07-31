@@ -17,7 +17,7 @@ Native 部分闭源**仅为防止倒卖**，原理完全公开。
 
 ## 🗄️ 数据库分析
 
-NTQQ 各数据库表结构与字段解析（并入 [QQBackup](https://github.com/QQBackup) 维护）。
+NTQQ 各数据库的表结构与字段解析，全部依据 WeQ 自己的解析实现手写维护。
 
 - [数据库分析入口](./database/index.md)
 

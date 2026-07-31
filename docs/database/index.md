@@ -1,30 +1,31 @@
 # 数据库分析
 
-NTQQ 各数据库的**表结构与字段解析**主要维护在文档站项目 **[QQBackup/QQDecrypt](https://github.com/QQBackup/QQDecrypt)**（在线阅读：<https://qqbackup.github.io/QQDecrypt/>）。
+NTQQ 把数据分散在若干个 SQLCipher 加密数据库里。本栏目记录 WeQ **实际解析过**的表与字段 ——
+全部依据自己的解析实现手写维护，不转述二手资料；未解析过的部分宁可留空，也不写没验证过的东西。
 
-WeQ 文档**不重复**收录通用表结构，仅维护与本项目实现强相关、且文档站尚未系统化的深度解析部分。
+## 数据库一览
 
-## 通用表结构（指向文档站）
+| 数据库 | 内容 | 文档 |
+| ------ | ---- | ---- |
+| `nt_msg.db` | 聊天记录本体：消息行、会话列表、未读状态 | [nt_msg.db](./nt_msg/index.md) |
+| `profile_info.db` | 好友 / 陌生人资料 | ⬜ 待写 |
+| `group_info.db` | 群资料、群成员、公告、精华 | ⬜ 待写 |
+| `collection.db` | QQ 收藏 | ⬜ 待写 |
+| `emoji.db` | 系统表情、商城表情包 | ⬜ 待写 |
+| `login.db` | 登录过的账号列表 | ⬜ 待写 |
 
-各数据库已解密后的表结构、列含义，请前往文档站的「数据库解析」栏目查阅：
+> 📌 数据库**解密**（取密钥、去文件头、SQLCipher 参数）属于原理部分，见
+> [原理总览](../principles/index.md)。
 
-| 数据库             | 文档站链接                                                                              |
-| ------------------ | --------------------------------------------------------------------------------------- |
-| `nt_msg.db`        | <https://qqbackup.github.io/QQDecrypt/view/db_file_analysis/nt_msg.db>                   |
-| `profile_info.db`  | <https://qqbackup.github.io/QQDecrypt/view/db_file_analysis/profile_info.db>             |
-| `group_info.db`    | <https://qqbackup.github.io/QQDecrypt/view/db_file_analysis/group_info.db>               |
-| `collection.db`    | <https://qqbackup.github.io/QQDecrypt/view/db_file_analysis/collection.db>               |
-| `emoji.db`         | <https://qqbackup.github.io/QQDecrypt/view/db_file_analysis/emoji.db>                    |
-| `login.db`         | <https://qqbackup.github.io/QQDecrypt/view/db_file_analysis/login.db>                    |
-| 其它               | <https://qqbackup.github.io/QQDecrypt/view/db_file_analysis/>                            |
+## 字段表约定
 
-> 📌 数据库解密（取密钥、去文件头、SQLCipher 参数）同样见文档站的「数据库解密」栏目。
+各页的字段表统一使用「置信度」一列区分三档：
 
-## WeQ 单独维护的深度解析
-
-以下内容结构复杂、文档站仅有零散引用，由 WeQ 依据实际解析实现单独维护：
-
-- [`nt_msg.db` 消息体解析（40800 / 40900）](./nt_msg/index.md)
+| 档位 | 含义 |
+| ---- | ---- |
+| 已验证 | 主动构造场景 / 前后 diff 确认过语义 |
+| 观测一致 | 大量真实样本上表现一致，但没有主动构造验证 |
+| 推测 | 只是看起来合理，**未验证** —— 会显式标注 |
 
 ---
 
