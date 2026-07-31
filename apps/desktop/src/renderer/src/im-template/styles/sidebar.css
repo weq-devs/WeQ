@@ -526,6 +526,30 @@ html[data-theme="dark"] .contact-cat-count {
 	font-weight: 400;
 }
 
+.row-time-line {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.row-pinned {
+	flex: 0 0 auto;
+	color: var(--weq-accent-effective, #0099f7);
+}
+
+/* 置顶会话：整行浅色底，与普通会话拉开层级（QQ 同款）。 */
+.conversation-row.pinned:not(.active) {
+	background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+}
+
+.conversation-row.pinned:not(.active):hover {
+	background: color-mix(in srgb, var(--weq-accent-effective) 11%, transparent);
+}
+
+.conversation-row.active .row-pinned {
+	color: rgba(255, 255, 255, 0.86);
+}
+
 .conversation-row .avatar,
 .contact-row .avatar {
 	width: 50px;

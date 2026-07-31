@@ -22,13 +22,22 @@
  *           #20447 bizId   特权业务ID(超会=1, 音乐=103, 情侣=119…)
  *           #20448 level   等级(与图标 big_light_N 一致)
  *     #22005 扩展资料
+ *       #20018 constellation 星座(1..12, 由生日算出的冗余值)
+ *       #20019 zodiac        生肖(1..12)
+ *       #20020 bloodType     血型(0=未填)
+ *       #20022 occupation    职业(0=未填)
  *       #20023 degree     学历
  *       #20026 school     教育经历/学校
  *       #20027 country    国家
  *       #20028 province   省份
+ *       #20029 zip        邮编(自由文本)
+ *       #20030 address    详细地址(自由文本)
  *       #20036 city       城市
  *       #20041
  *         #20410 interest  兴趣标签(repeated)
+ *       #20039 —— 老版「个人档案」，**不是 protobuf**，是 [u16 tag][u16 len][utf8] TLV，
+ *                 装着手机/电脑/相机/汽车机型等 2008 年代的问卷答案。详见
+ *                 docs/database/profile_info/profile-info-v6.md 第八节。
  *     #22009 QQ空间相册
  *       #20066
  *         #20461 (repeated) 每张照片
@@ -95,6 +104,14 @@ export const InterestGroupWire = {
 
 /** #22005 —— 扩展资料(教育/所在地/兴趣)。 */
 export const ExtInfoWire = {
+  /** #20018: 星座(1..12 = 水瓶/双鱼/白羊/金牛/双子/巨蟹/狮子/处女/天秤/天蝎/射手/摩羯)。 */
+  constellation: ProtoField(20018, ScalarType.INT32, { optional: true }),
+  /** #20019: 生肖(1..12 = 鼠/牛/虎/兔/龙/蛇/马/羊/猴/鸡/狗/猪)。 */
+  zodiac: ProtoField(20019, ScalarType.INT32, { optional: true }),
+  /** #20020: 血型(0=未填)。 */
+  bloodType: ProtoField(20020, ScalarType.INT32, { optional: true }),
+  /** #20022: 职业(0=未填)。 */
+  occupation: ProtoField(20022, ScalarType.INT32, { optional: true }),
   /** #20023: 学历(如 "初二中级")。 */
   degree: ProtoField(20023, ScalarType.STRING, { optional: true }),
   /** #20026: 教育经历/学校。 */
@@ -103,6 +120,10 @@ export const ExtInfoWire = {
   country: ProtoField(20027, ScalarType.STRING, { optional: true }),
   /** #20028: 省份。 */
   province: ProtoField(20028, ScalarType.STRING, { optional: true }),
+  /** #20029: 邮编(自由文本, 有人填"看地址")。 */
+  zip: ProtoField(20029, ScalarType.STRING, { optional: true }),
+  /** #20030: 详细地址(自由文本)。 */
+  address: ProtoField(20030, ScalarType.STRING, { optional: true }),
   /** #20036: 城市。 */
   city: ProtoField(20036, ScalarType.STRING, { optional: true }),
   /** #20041: 兴趣标签容器。 */

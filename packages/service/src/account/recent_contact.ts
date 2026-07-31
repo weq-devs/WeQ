@@ -8,7 +8,7 @@
  */
 
 import type { AccountSession } from '@weq/account';
-import type { RecentContact } from '@weq/db';
+import type { RecentContact, RecentContactTop } from '@weq/db';
 
 export class RecentContactService {
   constructor(private readonly session: AccountSession) {}
@@ -16,5 +16,10 @@ export class RecentContactService {
   /** Recent conversations, newest first. Defaults to 200. */
   getRecentContact(limit = 200): Promise<RecentContact[]> {
     return this.session.recentContacts.getRecentContact(limit);
+  }
+
+  /** 置顶会话，最近置顶的在前。 */
+  getTopContacts(): Promise<RecentContactTop[]> {
+    return this.session.recentContactTops.getTopContacts();
   }
 }

@@ -55,3 +55,26 @@ export interface RecentContact {
    */
   tempSourceGroupCode: bigint;
 }
+
+/**
+ * Domain shape for one row of `recent_contact_top_table` — one pinned (置顶)
+ * conversation. The table carries no display info at all; it's a pin registry
+ * that consumers join against `RecentContact` via `targetId`.
+ */
+export interface RecentContactTop {
+  /** 41145 — row primary key. Not a conversation identifier. */
+  id: bigint;
+  /** 40010 — mapped ChatType (same enum as `RecentContact.chatType`). */
+  chatType: string | number;
+  /** 41103 — when the pin was applied (unix seconds). Pin ordering key. */
+  topTime: bigint;
+  /** 1000 — c2c peer uid. Empty on group rows. */
+  peerUid: string;
+  /** 60001 — group code. 0 on c2c rows. */
+  groupCode: bigint;
+  /**
+   * The conversation key, matching `RecentContact.targetUid`: peer uid for c2c,
+   * group code (as a string) for groups. Empty if the row has neither.
+   */
+  targetId: string;
+}

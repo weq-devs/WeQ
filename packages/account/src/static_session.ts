@@ -20,6 +20,7 @@ import {
   C2cMsgDb,
   GroupMsgDb,
   RecentContactDb,
+  RecentContactTopDb,
   UidMappingDb,
   UidMap,
   ForwardMsgDb,
@@ -149,6 +150,7 @@ export async function openStaticAccount(
   const datalineMsgs = new C2cMsgDb(nt, { ...opts(msgDbPath), table: 'dataline_msg_table' });
   const groupMsgs = new GroupMsgDb(nt, opts(msgDbPath));
   const recentContacts = new RecentContactDb(nt, opts(msgDbPath));
+  const recentContactTops = new RecentContactTopDb(nt, opts(msgDbPath));
 
   // Load the uid ↔ uin ↔ sortNo directory.
   const uidMappingDb = new UidMappingDb(nt, opts(msgDbPath));
@@ -210,6 +212,7 @@ export async function openStaticAccount(
     datalineMsgs,
     groupMsgs,
     recentContacts,
+    recentContactTops,
     forwardMsgs,
     buddyMsgFts,
     groupMsgFts,
@@ -234,6 +237,7 @@ export async function openStaticAccount(
       datalineMsgs.close();
       groupMsgs.close();
       recentContacts.close();
+      recentContactTops.close();
       forwardMsgs.close();
       buddyMsgFts.close();
       groupMsgFts.close();

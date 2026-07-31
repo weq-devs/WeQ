@@ -35,6 +35,7 @@ interface WarmupStep {
 const STEPS: readonly WarmupStep[] = [
   { label: '账号资料', run: (u) => u.account.getSelfProfile.fetch(undefined) },
   { label: '最近会话', run: (u) => u.account.listRecentContacts.fetch(undefined) },
+  { label: '置顶会话', run: (u) => u.account.listTopContacts.fetch(undefined) },
   { label: '好友列表', run: (u) => u.account.listBuddies.fetch({ limit: 2000 }) },
   { label: '好友分组', run: (u) => u.account.listCategories.fetch(undefined) },
   { label: '好友资料', run: (u) => u.account.listProfiles.fetch({ limit: 2000 }) },
