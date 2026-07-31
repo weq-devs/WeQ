@@ -18,19 +18,48 @@ const NEWEST = `ORDER BY "40003" DESC, "40050" DESC, "40001" DESC`;
 const OLDEST = `ORDER BY "40003" ASC, "40050" ASC, "40001" ASC`;
 
 const QUERIES: Array<[string, string, unknown[]]> = [
-  ['group listLatest', `SELECT ${GROUP_COLS} FROM group_msg_table WHERE "40027" = ? ${NEWEST} LIMIT ?`, ['673646675', 50n]],
-  ['group listBefore', `SELECT ${GROUP_COLS} FROM group_msg_table WHERE "40027" = ? AND "40003" < ? ${NEWEST} LIMIT ?`, ['673646675', 1454n, 50n]],
-  ['group listAfter', `SELECT ${GROUP_COLS} FROM group_msg_table WHERE "40027" = ? AND "40003" > ? ${OLDEST} LIMIT ?`, ['673646675', 1400n, 50n]],
-  ['group listFrom', `SELECT ${GROUP_COLS} FROM group_msg_table WHERE "40027" = ? AND "40003" >= ? ${NEWEST} LIMIT ?`, ['673646675', 1400n, 500n]],
-  ['c2c listLatest', `SELECT ${C2C_COLS} FROM c2c_msg_table WHERE "40027" = ? ${NEWEST} LIMIT ?`, [1n, 50n]],
-  ['c2c listBefore', `SELECT ${C2C_COLS} FROM c2c_msg_table WHERE "40027" = ? AND "40003" < ? ${NEWEST} LIMIT ?`, [1n, 100n, 50n]],
-  ['c2c listAfter', `SELECT ${C2C_COLS} FROM c2c_msg_table WHERE "40027" = ? AND "40003" > ? ${OLDEST} LIMIT ?`, [1n, 100n, 50n]],
+  [
+    'group listLatest',
+    `SELECT ${GROUP_COLS} FROM group_msg_table WHERE "40027" = ? ${NEWEST} LIMIT ?`,
+    ['673646675', 50n],
+  ],
+  [
+    'group listBefore',
+    `SELECT ${GROUP_COLS} FROM group_msg_table WHERE "40027" = ? AND "40003" < ? ${NEWEST} LIMIT ?`,
+    ['673646675', 1454n, 50n],
+  ],
+  [
+    'group listAfter',
+    `SELECT ${GROUP_COLS} FROM group_msg_table WHERE "40027" = ? AND "40003" > ? ${OLDEST} LIMIT ?`,
+    ['673646675', 1400n, 50n],
+  ],
+  [
+    'group listFrom',
+    `SELECT ${GROUP_COLS} FROM group_msg_table WHERE "40027" = ? AND "40003" >= ? ${NEWEST} LIMIT ?`,
+    ['673646675', 1400n, 500n],
+  ],
+  [
+    'c2c listLatest',
+    `SELECT ${C2C_COLS} FROM c2c_msg_table WHERE "40027" = ? ${NEWEST} LIMIT ?`,
+    [1n, 50n],
+  ],
+  [
+    'c2c listBefore',
+    `SELECT ${C2C_COLS} FROM c2c_msg_table WHERE "40027" = ? AND "40003" < ? ${NEWEST} LIMIT ?`,
+    [1n, 100n, 50n],
+  ],
+  [
+    'c2c listAfter',
+    `SELECT ${C2C_COLS} FROM c2c_msg_table WHERE "40027" = ? AND "40003" > ? ${OLDEST} LIMIT ?`,
+    [1n, 100n, 50n],
+  ],
 ];
 
 async function main(): Promise<void> {
   const native = loadNative();
   const db = new QqDb(native.ntHelper, {
-    dbPath: testEnv.msgDbPath, key: testEnv.key,
+    dbPath: testEnv.msgDbPath,
+    key: testEnv.key,
     algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' },
   });
   let bad = 0;
@@ -53,4 +82,7 @@ async function main(): Promise<void> {
   if (bad > 0) process.exit(1);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

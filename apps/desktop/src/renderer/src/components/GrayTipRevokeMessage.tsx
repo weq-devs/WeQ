@@ -32,8 +32,13 @@ function resolveUidNick(uid: string | undefined, conversation?: Conversation): s
 }
 
 export function GrayTipRevokeMessage({ element, conversation }: GrayTipRevokeMessageProps) {
-  const { recallSenderUid, recallRevokeUid, recallSenderNick, recallRevokeNick, recallDisplayText } =
-    element.data || {};
+  const {
+    recallSenderUid,
+    recallRevokeUid,
+    recallSenderNick,
+    recallRevokeNick,
+    recallDisplayText,
+  } = element.data || {};
 
   const senderName = resolveUidNick(recallSenderUid, conversation) || recallSenderNick || '某成员';
 

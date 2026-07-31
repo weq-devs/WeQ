@@ -27,15 +27,18 @@ function ts(v: bigint): string {
 }
 
 function line(m: GroupMsg): string {
-  return `seq=${String(m.msgSeq).padStart(6)} ${ts(m.sendTime)} t=${m.msgType}/${String(m.subType).padEnd(4)} ` +
-    `${(m.senderUid || '(空)').padEnd(26)} msgId=${m.msgId}`;
+  return (
+    `seq=${String(m.msgSeq).padStart(6)} ${ts(m.sendTime)} t=${m.msgType}/${String(m.subType).padEnd(4)} ` +
+    `${(m.senderUid || '(空)').padEnd(26)} msgId=${m.msgId}`
+  );
 }
 
 /** Adjacent pairs where sendTime steps backwards (0 timestamps ignored). */
 function inversions(rows: GroupMsg[]): Array<[GroupMsg, GroupMsg]> {
   const bad: Array<[GroupMsg, GroupMsg]> = [];
   for (let i = 1; i < rows.length; i++) {
-    const a = rows[i - 1]!, b = rows[i]!;
+    const a = rows[i - 1]!,
+      b = rows[i]!;
     if (a.sendTime > 0n && b.sendTime > 0n && b.sendTime < a.sendTime) bad.push([a, b]);
   }
   return bad;
@@ -44,7 +47,8 @@ function inversions(rows: GroupMsg[]): Array<[GroupMsg, GroupMsg]> {
 async function main(): Promise<void> {
   const native = loadNative();
   const db = new GroupMsgDb(native.ntHelper, {
-    dbPath: testEnv.msgDbPath, key: testEnv.key,
+    dbPath: testEnv.msgDbPath,
+    key: testEnv.key,
     algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' },
   });
   let failures = 0;
@@ -58,7 +62,9 @@ async function main(): Promise<void> {
     const inv = inversions(rendered);
     console.log(`\n   时间倒挂 ${inv.length} 对`);
     for (const [a, b] of inv) {
-      console.log(`     ⚠ ${ts(a.sendTime)} (seq ${a.msgSeq}) → ${ts(b.sendTime)} (seq ${b.msgSeq})`);
+      console.log(
+        `     ⚠ ${ts(a.sendTime)} (seq ${a.msgSeq}) → ${ts(b.sendTime)} (seq ${b.msgSeq})`,
+      );
     }
     // A same-seq run must be internally time-ordered. Inversions ACROSS
     // different seqs are real data (QQ's own seq/time disagreement), not ours.
@@ -67,7 +73,9 @@ async function main(): Promise<void> {
       console.log(`\n   ❌ 撞号组内部仍有 ${sameSeqInv.length} 处时间倒挂 —— tie-break 没生效`);
       failures++;
     } else {
-      console.log(`\n   ✅ 撞号组内部时间有序（跨 seq 的 ${inv.length} 处倒挂是库里本来的 seq/时间冲突）`);
+      console.log(
+        `\n   ✅ 撞号组内部时间有序（跨 seq 的 ${inv.length} 处倒挂是库里本来的 seq/时间冲突）`,
+      );
     }
 
     // ── 2. stability: same query twice must agree ─────────────────────────────
@@ -82,17 +90,20 @@ async function main(): Promise<void> {
     const after = await db.listAfter(GROUP, pivot.msgSeq, WINDOW);
     const beforeIds = new Set(before.map((m) => String(m.msgId)));
     const afterIds = new Set(after.map((m) => String(m.msgId)));
-    const overlap = beforeIds.size && afterIds.size
-      ? [...beforeIds].filter((id) => afterIds.has(id))
-      : [];
-    console.log(`## 分页：listBefore(${before.length}) / listAfter(${after.length}) 重叠 ${overlap.length} 条 → ${overlap.length === 0 ? '✅ 无重复' : '❌'}`);
+    const overlap =
+      beforeIds.size && afterIds.size ? [...beforeIds].filter((id) => afterIds.has(id)) : [];
+    console.log(
+      `## 分页：listBefore(${before.length}) / listAfter(${after.length}) 重叠 ${overlap.length} 条 → ${overlap.length === 0 ? '✅ 无重复' : '❌'}`,
+    );
     if (overlap.length > 0) failures++;
 
     const beforeInv = inversions([...before].reverse());
     const afterInv = inversions(after);
     const beforeSame = beforeInv.filter(([a, b]) => a.msgSeq === b.msgSeq).length;
     const afterSame = afterInv.filter(([a, b]) => a.msgSeq === b.msgSeq).length;
-    console.log(`   listBefore 撞号组内倒挂 ${beforeSame} / listAfter 撞号组内倒挂 ${afterSame} → ${beforeSame + afterSame === 0 ? '✅' : '❌'}`);
+    console.log(
+      `   listBefore 撞号组内倒挂 ${beforeSame} / listAfter 撞号组内倒挂 ${afterSame} → ${beforeSame + afterSame === 0 ? '✅' : '❌'}`,
+    );
     if (beforeSame + afterSame > 0) failures++;
   } finally {
     db.close();
@@ -101,4 +112,7 @@ async function main(): Promise<void> {
   if (failures > 0) process.exit(1);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

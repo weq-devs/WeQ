@@ -27,20 +27,25 @@ function gapCount(prev: GroupMsg | undefined, cur: GroupMsg): number {
   if (!prev) return 0;
   if (prev.msgSeq <= 0n || cur.msgSeq <= 0n) return 0;
   const missing = cur.msgSeq - prev.msgSeq - 1n;
-  return missing > 0n ? Number(missing) : 0;
+  // >1, not >0: a single missing seq is almost always one unsynced system
+  // notice (the "file received" tip and friends), not a real lost message.
+  return missing > 1n ? Number(missing) : 0;
 }
 
 async function main(): Promise<void> {
   const groups = process.argv[2] ? [process.argv[2]] : DEFAULT_GROUPS;
   const native = loadNative();
   const db = new GroupMsgDb(native.ntHelper, {
-    dbPath: testEnv.msgDbPath, key: testEnv.key,
+    dbPath: testEnv.msgDbPath,
+    key: testEnv.key,
     algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' },
   });
   try {
     for (const group of groups) {
       const rendered = (await db.listLatest(group, WINDOW)).reverse();
-      console.log(`\n${'='.repeat(80)}\n## 群 ${group} — 最近 ${rendered.length} 条里会画出的空洞\n${'='.repeat(80)}`);
+      console.log(
+        `\n${'='.repeat(80)}\n## 群 ${group} — 最近 ${rendered.length} 条里会画出的空洞\n${'='.repeat(80)}`,
+      );
       let holes = 0;
       let missing = 0;
       for (let i = 0; i < rendered.length; i++) {
@@ -50,7 +55,9 @@ async function main(): Promise<void> {
         holes++;
         missing += n;
         const prev = rendered[i - 1]!;
-        console.log(`   ⌇ 缺 ${String(n).padStart(5)} 条  在 seq ${prev.msgSeq}(${ts(prev.sendTime)}) 与 seq ${cur.msgSeq}(${ts(cur.sendTime)}) 之间`);
+        console.log(
+          `   ⌇ 缺 ${String(n).padStart(5)} 条  在 seq ${prev.msgSeq}(${ts(prev.sendTime)}) 与 seq ${cur.msgSeq}(${ts(cur.sendTime)}) 之间`,
+        );
       }
       console.log(`   → 共 ${holes} 处空洞, 合计缺 ${missing} 条`);
       if (holes === 0) console.log(`   （这一窗内 seq 完全连续，不会画任何提示）`);
@@ -60,4 +67,7 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
