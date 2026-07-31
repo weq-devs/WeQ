@@ -10971,6 +10971,18 @@ html[data-theme="dark"] .weq-graytip-band {
   color: var(--weq-fg-muted, var(--weq-fg-tertiary, var(--weq-fg-secondary)));
 }
 
+/* 群通话灰条：图标与文字同行居中（发起人名字用 .weq-graytip-accent 着色）。 */
+.weq-group-call {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.weq-group-call-icon {
+  flex-shrink: 0;
+  color: currentColor;
+}
+
 /* "本地暂无内容" hint — centered, small, non-bold, accent-leaning. */
 .weq-graytip-band-hint {
   margin-top: 2px;

@@ -17,15 +17,26 @@ import { Phone, Video, MonitorUp, LaptopMinimal, PhoneCall } from 'lucide-react'
 // CallSubType values that mean "the call actually connected". Every other
 // value (rejected by either side, handled on another device, plain failure)
 // gets the red treatment. See packages/codec/src/element/types.ts.
+//
+// 群聊的「发起」（1/26）也算非失败 —— 那是一通电话的开头，不是未接来电。群聊的
+// 「已结束」（16/25）走灰条（GroupCallEndedMessage），走不到这里，但导出/转发等
+// 旁路会，所以一并列上。
 const CONNECTED_SUBTYPES = new Set<number>([
+  1, // GROUP_VOICE_STARTED
   2, // VIDEO_ACCEPTED
+  5, // VIDEO_ACCEPTED_LEGACY — 旧版客户端的视频接通
   7, // VOICE_ACCEPTED
+  16, // GROUP_VOICE_ENDED
   19, // SCREEN_SHARE_ACCEPTED
+  25, // GROUP_VIDEO_ENDED
+  26, // GROUP_VIDEO_STARTED
   33, // REMOTE_ASSIST_ACCEPTED
 ]);
 
-// CallType (callMethod) → display label + lucide icon.
+// CallType (callMethod) → display label + lucide icon. 0 是群通话结束提示，
+// QQ 不在这条消息里区分语音/视频（只能看 subType），所以用中性的话筒图标。
 const CALL_KIND: Record<number, { label: string; Icon: typeof Phone }> = {
+  0: { label: '通话已结束', Icon: PhoneCall },
   1: { label: '语音通话', Icon: Phone },
   2: { label: '视频通话', Icon: Video },
   3: { label: '屏幕共享', Icon: MonitorUp },
