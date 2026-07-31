@@ -20,12 +20,11 @@
  */
 
 import http from 'node:http';
-import { ipcMain } from 'electron';
 import { readFileSync, existsSync } from 'node:fs';
 import { getLogger, logErrorContext } from '@weq/service';
 import { resolveResource } from '../resource';
 import { renderCardPng, dailyCardSpec } from './cover';
-import { buildPalette, getWeqTheme, setWeqTheme } from './theme';
+import { buildPalette, getWeqTheme } from './theme';
 import { getWeqStats } from './stats';
 import { renderStatsPageHtml, statsPendingHtml, statsCardSpec } from './stats_page';
 
@@ -49,17 +48,11 @@ export function isWeqServerRunning(): boolean {
  * whenever accent / 深浅 changes (and once on hydrate), so the 每日推文 封面 + 跳转页
  * — rendered here in the main process — track WeQ Desktop's theme. Idempotent;
  * safe to call once at startup even before the server is enabled.
+ *
+ * Lives in `./ipc` (not here) so this module stays importable outside Electron:
+ * the web app pulls in `startWeqServer` / `isWeqServerRunning` and must not
+ * drag `electron` into its bundle.
  */
-export function registerWeqAssistantIpc(): void {
-  ipcMain.handle(
-    'weqAssistant:set-theme',
-    (_event, theme?: { accent?: string; mode?: 'light' | 'dark' }) => {
-      setWeqTheme(theme);
-      return true;
-    },
-  );
-}
-
 export function runningWeqServerConfig(): WeqServerOptions | null {
   return activeConfig;
 }

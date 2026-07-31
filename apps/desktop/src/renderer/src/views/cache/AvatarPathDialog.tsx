@@ -15,6 +15,7 @@ import { X, Search, User, Users, Copy, Check } from 'lucide-react';
 import type { AvatarPathProbe } from '@weq/service';
 import { Modal } from '../../components/Dialog';
 import { client } from '../../trpc/client';
+import { mediaUrl } from '../../lib/resourceUrl';
 
 type Kind = 'user' | 'group';
 
@@ -32,7 +33,7 @@ function fmtBytes(bytes: number): string {
 
 /** weq-media URL for the resolved avatar (by hash — same as the grid). */
 function previewSrc(probe: AvatarPathProbe, variant: 'big' | 'small'): string {
-  return `weq-media://avatar?scope=${probe.scope}&hash=${probe.hash}&v=${variant}`;
+  return mediaUrl('avatar', { scope: probe.scope, hash: probe.hash, v: variant });
 }
 
 export function AvatarPathDialog({ onClose }: { onClose: () => void }): ReactElement {

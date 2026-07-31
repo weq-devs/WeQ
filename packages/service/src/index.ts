@@ -272,6 +272,7 @@ export type { NewMessages, NtMsgHooks } from './account/nt_msg_hook';
 
 // ---- web cgi (query-only: group notice / album list / honor) ----
 export { WebQueryService, HonorType, computeBkn } from './account/web';
+export { buildPtlogin2JumpUrl, parseClientKeyJson } from './account/web/ptlogin';
 export type {
   GroupNotice,
   GroupNoticeImage,
@@ -345,6 +346,8 @@ export type {
 } from './common/voice_transcribe';
 export { getLogDir, getLogger, initLogger, logErrorContext } from './common/logger';
 export type { Logger, LoggerContext, LogLevel } from './common/logger';
+export { getHost, setHost } from './common/host';
+export type { HostBridge, SaveTarget } from './common/host';
 export { TtsService, TTS_VENDOR_CATALOG, getTtsCatalogEntry, getTtsCapabilities } from '@weq/agentlab';
 export type {
   TtsVendor,
@@ -355,5 +358,5 @@ export type {
   TtsCapabilities,
   TtsVendorCatalogEntry,
 } from '@weq/agentlab';
-export { buildBotExport } from './account/agentlab_export';
+export { buildBotExport, probeBotWebUi } from './account/agentlab_export';
 export type { BotExportInput, BotExportResult, BotExportLlmProvider } from './account/agentlab_export';

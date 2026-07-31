@@ -1,6 +1,7 @@
 import type React from 'react';
 import { trpc } from '../trpc/client';
 import { Circle, Smile, Clock, Minus, Ban, MinusCircle } from 'lucide-react';
+import { resourceUrl } from '../lib/resourceUrl';
 
 const SUB_ICONS: Record<number, string> = {
   1028: 'music@2x.png',
@@ -53,7 +54,7 @@ export function OnlineStatus({ uid }: { uid: string }) {
 
   const filename = status.type === 10 && SUB_ICONS[status.subType];
   const icon = filename
-    ? <img src={`weq-asset://OnlineStatus/${filename}`} alt="" style={{ width: 16, height: 16 }} />
+    ? <img src={resourceUrl('OnlineStatus', filename)} alt="" style={{ width: 16, height: 16 }} />
     : TYPE_ICONS[status.type]?.();
 
   return (

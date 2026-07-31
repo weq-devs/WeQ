@@ -1,6 +1,9 @@
 /**
  * `profile_info_v6` — Detailed user profiles.
  *
+ * 完整 44 列的语义/填充率/未解列见
+ * `docs/database/profile_info/profile-info-v6.md`。下面只列 WeQ 实际读取的列。
+ *
  * Column map:
  *   1000   uid             (TEXT)
  *   1001   qid             (TEXT)
@@ -12,12 +15,16 @@
  *   20008  birthDay        (INTEGER)
  *   20009  remark          (TEXT)
  *   20011  signature       (TEXT)
- *   20014  gender          (INTEGER)
+ *   20014  gender          (INTEGER; 1=男 2=女 0=未知 255=保密)
  *   20057  customStatus    (BLOB/Protobuf)
  *   20070  intimacy        (INTEGER)
  *   20072  extRelation     (BLOB/Protobuf)
+ *   21000  extInfo         (BLOB/Protobuf; 最大列, 七个 2200x 分块)
  *   24103  age             (INTEGER)
  *   24104  sigUpdateTime   (INTEGER)
+ *
+ * 注意这张表是**缓存不是名册**：本机 52243 行里好友只有 195 个，其余全是群里见过的
+ * 陌生人。判定好友必须查 `buddy_list`，`20072` 非空并不等价于好友。
  */
 
 import { ProtoMsg } from '@weq/codec';
@@ -89,6 +96,14 @@ export interface ProfileExtInfo {
   province?: string;
   /** 城市。 */
   city?: string;
+  /** 星座(1..12 = 水瓶→摩羯)。 */
+  constellation?: number;
+  /** 生肖(1..12 = 鼠→猪)。 */
+  zodiac?: number;
+  /** 血型(0/缺省=未填)。 */
+  bloodType?: number;
+  /** 职业(0/缺省=未填)。 */
+  occupation?: number;
   /** 兴趣标签。 */
   interests: string[];
   /** QQ空间相册。 */
@@ -346,6 +361,10 @@ function parseExtInfo(blob: SqlValue | undefined): ProfileExtInfo | undefined {
     country: ext.extInfo?.country || undefined,
     province: ext.extInfo?.province || undefined,
     city: ext.extInfo?.city || undefined,
+    constellation: ext.extInfo?.constellation || undefined,
+    zodiac: ext.extInfo?.zodiac || undefined,
+    bloodType: ext.extInfo?.bloodType || undefined,
+    occupation: ext.extInfo?.occupation || undefined,
     interests,
     album,
   };
@@ -359,6 +378,10 @@ function parseExtInfo(blob: SqlValue | undefined): ProfileExtInfo | undefined {
     !info.country &&
     !info.province &&
     !info.city &&
+    !info.constellation &&
+    !info.zodiac &&
+    !info.bloodType &&
+    !info.occupation &&
     interests.length === 0 &&
     album.length === 0;
   return empty ? undefined : info;

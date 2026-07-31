@@ -234,22 +234,55 @@ export enum TipGroupElementType {
   KDISBANDORBERECYCLED = 10,
 }
 
+/**
+ * CALL 元素的 subType（= wire tag 48151 `answerType`，也等于消息行的 40012 列）。
+ *
+ * 私聊与群聊是两套编号：私聊一条消息就是一整通电话的最终状态（接通 / 未接 /
+ * 拒绝 / 取消），群聊则拆成「发起」与「已结束」两条独立消息，中间状态不落库。
+ *
+ * 2025 年前后 QQ 重构过通话模块，旧客户端与新客户端对同一语义会写不同的编号
+ * （例如视频接通旧版写 5、新版写 2），所以两个都得留着。旧记录还能靠
+ * `callFlag48156 === 0`、`duration` 存的是 unix 秒级时间戳（新版是毫秒时长）、
+ * 以及 callSummary 带「[语音通话] 」前缀来辨认。
+ */
 export enum CallSubType {
+  /** 群聊：某人发起了语音通话（callMethod=VOICE，发送者即发起人）。 */
+  GROUP_VOICE_STARTED = 1,
   VIDEO_ACCEPTED = 2,
   VIDEO_REJECTED_BY_US = 3,
+  /** 视频接通（旧版客户端编号，语义同 VIDEO_ACCEPTED）。 */
+  VIDEO_ACCEPTED_LEGACY = 5,
   VIDEO_REJECTED_BY_PEER = 6,
   VOICE_ACCEPTED = 7,
   VOICE_REJECTED_BY_US = 8,
+  /** 我方拨出、对方一直没接（旧版客户端）。 */
+  VOICE_PEER_NO_ANSWER = 9,
+  /** 我方拨出后自己取消 —「已取消，点击重拨」。 */
+  VOICE_CANCELED_BY_US = 10,
   VOICE_REJECTED_BY_PEER = 11,
   VIDEO_HANDLED_OTHER_DEVICE = 12,
   VOICE_HANDLED_OTHER_DEVICE = 13,
+  /** 群聊：语音通话已结束（callMethod=0，无发送者）。 */
+  GROUP_VOICE_ENDED = 16,
   SCREEN_SHARE_ACCEPTED = 19,
   SCREEN_SHARE_REJECTED = 22,
+  /** 群聊：视频通话已结束（callMethod=0，无发送者）。 */
+  GROUP_VIDEO_ENDED = 25,
+  /** 群聊：某人发起了视频通话（callMethod=VIDEO，发送者即发起人）。 */
+  GROUP_VIDEO_STARTED = 26,
   REMOTE_ASSIST_ACCEPTED = 33,
   REMOTE_ASSIST_FAILED = 34,
 }
 
+/**
+ * CALL 元素的通话方式（wire tag 48154 `callMethod`）。
+ *
+ * 群聊的「通话已结束」消息写 0：那条消息不属于任何发起人（40020 为空），QQ 也
+ * 不再区分是语音还是视频 —— 具体类型只能从 subType（16 / 25）看出来。
+ */
 export enum CallType {
+  /** 群通话结束提示，无方式字段。 */
+  GROUP_ENDED = 0,
   VOICE = 1,
   VIDEO = 2,
   SCREEN_SHARE = 3,

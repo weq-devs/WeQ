@@ -28,6 +28,7 @@ import { runAccountWarmup } from '../lib/accountWarmup';
 import { useDialog } from './Dialog';
 import { useToast } from './Toast';
 import { QqAvatar } from './QqAvatar';
+import { DesktopOnly, shellBridge } from '../lib/target';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -70,8 +71,10 @@ export function RailAccountFooter({
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    const bridge = shellBridge();
+    if (!bridge) return undefined;
     let alive = true;
-    void window.weq.systemAuth
+    void bridge.systemAuth
       .getStatus()
       .then((s) => {
         if (!alive) return;
@@ -284,15 +287,17 @@ export function RailAccountFooter({
 
   return (
     <>
-      <button
-        type="button"
-        className="weq-rail-capture-btn"
-        title="截图当前窗口（复制到剪贴板）"
-        aria-label="截图当前窗口"
-        onClick={() => void captureNow()}
-      >
-        <Camera size={18} strokeWidth={1.8} aria-hidden />
-      </button>
+      <DesktopOnly>
+        <button
+          type="button"
+          className="weq-rail-capture-btn"
+          title="截图当前窗口（复制到剪贴板）"
+          aria-label="截图当前窗口"
+          onClick={() => void captureNow()}
+        >
+          <Camera size={18} strokeWidth={1.8} aria-hidden />
+        </button>
+      </DesktopOnly>
       <button
         type="button"
         className={`weq-rail-privacy-btn${privacyEnabled ? ' is-on' : ''}`}
@@ -320,16 +325,18 @@ export function RailAccountFooter({
           <Moon size={18} strokeWidth={1.8} aria-hidden />
         )}
       </button>
-      <button
-        type="button"
-        className="weq-rail-lock-btn"
-        title={authAvailable === false ? authError ?? '系统认证不可用' : '锁定 WeQ'}
-        aria-label="锁定 WeQ"
-        onClick={lockNow}
-        disabled={busy || authAvailable === false}
-      >
-        <LockKeyhole size={18} strokeWidth={1.8} aria-hidden />
-      </button>
+      <DesktopOnly>
+        <button
+          type="button"
+          className="weq-rail-lock-btn"
+          title={authAvailable === false ? authError ?? '系统认证不可用' : '锁定 WeQ'}
+          aria-label="锁定 WeQ"
+          onClick={lockNow}
+          disabled={busy || authAvailable === false}
+        >
+          <LockKeyhole size={18} strokeWidth={1.8} aria-hidden />
+        </button>
+      </DesktopOnly>
       <div ref={wrapRef} className="weq-rail-account-footer">
       <button
         type="button"

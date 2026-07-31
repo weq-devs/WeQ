@@ -34,6 +34,7 @@ import { useToast } from '../Toast';
 import { QqAvatar } from '../QqAvatar';
 import { Card, Row, SectionHeader } from './controls';
 import { UpdateCard } from './UpdateCard';
+import { DesktopOnly, shellBridge } from '../../lib/target';
 import logoUrl from '@resources/brand/logo.png';
 
 function errMsg(e: unknown): string {
@@ -136,7 +137,9 @@ export function GlobalSettingsSection(): ReactElement {
   }, [settings.data?.windowCloseBehavior]);
 
   useEffect(() => {
-    void window.weq.systemAuth
+    const bridge = shellBridge();
+    if (!bridge) return;
+    void bridge.systemAuth
       .getStatus()
       .then(setSystemAuthStatus)
       .catch(() => setSystemAuthStatus(null));
@@ -284,10 +287,13 @@ export function GlobalSettingsSection(): ReactElement {
         </p>
       </Card>
 
-      {/* Software update */}
-      <UpdateCard />
+      {/* Software update — the web build can't replace its own binary. */}
+      <DesktopOnly>
+        <UpdateCard />
+      </DesktopOnly>
 
-      <Card title="应用锁">
+      <DesktopOnly>
+        <Card title="应用锁">
         <Row
           label={
             <span className="weq-set-row-icon">
@@ -363,6 +369,7 @@ export function GlobalSettingsSection(): ReactElement {
           }
         />
       </Card>
+      </DesktopOnly>
 
       {/* Account list */}
       <Card title="现有配置">
@@ -513,18 +520,20 @@ export function GlobalSettingsSection(): ReactElement {
         </div>
       </Card>
 
-      <Card title="日志">
-        <Row
-          label="日志文件夹"
-          desc="日志按日期拆分保存到 WeQ 缓存目录下的 logs 文件夹。"
-          control={
-            <button type="button" className="weq-set-btn" onClick={() => void onOpenLogDir()}>
-              <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
-              打开日志文件夹
-            </button>
-          }
-        />
-      </Card>
+      <DesktopOnly>
+        <Card title="日志">
+          <Row
+            label="日志文件夹"
+            desc="日志按日期拆分保存到 WeQ 缓存目录下的 logs 文件夹。"
+            control={
+              <button type="button" className="weq-set-btn" onClick={() => void onOpenLogDir()}>
+                <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
+                打开日志文件夹
+              </button>
+            }
+          />
+        </Card>
+      </DesktopOnly>
     </div>
   );
 }

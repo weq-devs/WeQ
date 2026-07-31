@@ -29,8 +29,8 @@
  * `ready`; `registerMediaProtocol()` runs after.
  */
 
-import { net, protocol } from 'electron';
-import { pathToFileURL } from 'node:url';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { fileResponse as streamFile } from './file_response';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -99,8 +99,14 @@ function notFound(reason: string): Response {
   return new Response(reason, { status: 404 });
 }
 
+/**
+ * The in-flight request, so {@link fileResponse} can honor `Range` without
+ * threading a parameter through all ~24 call sites below.
+ */
+const currentRequest = new AsyncLocalStorage<Request>();
+
 function fileResponse(path: string): Promise<Response> {
-  return net.fetch(pathToFileURL(path).toString());
+  return streamFile(path, currentRequest.getStore());
 }
 
 /**
@@ -141,7 +147,7 @@ async function albumRemoteResponse(src: string): Promise<Response> {
   if (!allowed) return notFound('album image host not allowed');
   // Referer 的协议必须跟目标一致：Chromium 禁止 https→http 的 referrer 降级,
   // 撞上就是 ERR_BLOCKED_BY_CLIENT(资料卡精选图片走的 ugc.qpic.cn 只有 http)。
-  const res = await net.fetch(src, {
+  const res = await fetch(src, {
     headers: {
       Referer: `${target.protocol}//user.qzone.qq.com/`,
       'User-Agent':
@@ -202,8 +208,12 @@ async function dressRemoteResponse(src: string): Promise<Response> {
   }
 }
 
-export function registerMediaProtocol(): void {
-  protocol.handle(MEDIA_SCHEME, async (request) => {
+/**
+ * Serve one `weq-media://` request. Pure `Request`→`Response`, so the web app
+ * can mount it on a plain HTTP route (see `apps/web`) without Electron.
+ */
+export function handleMediaRequest(request: Request): Promise<Response> {
+  return currentRequest.run(request, async () => {
     const url = new URL(request.url);
     const kind = url.hostname;
     const q = url.searchParams;

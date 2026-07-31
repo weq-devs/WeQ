@@ -4,6 +4,7 @@ import { trpc } from '../trpc/client';
 import { useDialog, Modal } from './Dialog';
 import { useViewState } from '../state/view';
 import { useAppLock } from '../state/lock';
+import { shellBridge } from '../lib/target';
 
 type SystemAuthStatus = Awaited<ReturnType<typeof window.weq.systemAuth.getStatus>>;
 
@@ -30,7 +31,9 @@ export function AppLockOverlay(): ReactElement | null {
   const inMain = view === 'main';
 
   useEffect(() => {
-    void window.weq.systemAuth
+    const bridge = shellBridge();
+    if (!bridge) return;
+    void bridge.systemAuth
       .getStatus()
       .then(setStatus)
       .catch((error) => {

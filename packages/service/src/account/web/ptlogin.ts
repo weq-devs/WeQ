@@ -80,19 +80,37 @@ export function httpsGetCookies(
 }
 
 /**
+ * ptlogin2 jump URL —— 用 clientKey 换「登录后落到 `landingUrl`」的一次性跳转地址。
+ *
+ * 跟着这个 URL 走一遍 302 链,沿途每一跳都会下发 qq.com 子域的 cookie。服务端用它
+ * 收 jar(见 {@link fetchPtlogin2Jar});网页版则把它直接交给浏览器开新标签 ——
+ * 302 链在浏览器里跑完,cookie 落进浏览器自己的 jar,等价于用户手动登录了一次。
+ *
+ * 参数与 SnowLuma 的 jump URL 逐个对齐。
+ */
+export function buildPtlogin2JumpUrl(
+  ck: ClientKeyInfo,
+  uin: string,
+  landingUrl: string,
+): string {
+  const u1 = encodeURIComponent(landingUrl);
+  return (
+    `https://ssl.ptlogin2.qq.com/jump?ptlang=1033&clientuin=${uin}` +
+    `&clientkey=${ck.clientKey}&u1=${u1}&keyindex=${ck.keyIndex}`
+  );
+}
+
+/**
  * ptlogin2 jump → 某个 qq.com 子域的完整 cookie jar。
  *
  * `u1` 落地页指向目标域的个人页,跳转链会在该域下补齐 p_skey/风控 cookie。
- * 与 SnowLuma 的 jump URL 逐参数对齐。
  */
 export async function fetchPtlogin2Jar(
   ck: ClientKeyInfo,
   uin: string,
   domain: string,
 ): Promise<Record<string, string>> {
-  const u1 = encodeURIComponent(`https://${domain}/${uin}/infocenter`);
-  const url =
-    `https://ssl.ptlogin2.qq.com/jump?ptlang=1033&clientuin=${uin}` +
-    `&clientkey=${ck.clientKey}&u1=${u1}&keyindex=${ck.keyIndex}`;
-  return httpsGetCookies(url);
+  return httpsGetCookies(
+    buildPtlogin2JumpUrl(ck, uin, `https://${domain}/${uin}/infocenter`),
+  );
 }

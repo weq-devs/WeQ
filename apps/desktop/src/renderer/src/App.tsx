@@ -13,6 +13,7 @@ import { DialogHost } from './components/Dialog';
 import { ToastHost } from './components/Toast';
 import { WelcomeDialog } from './components/WelcomeDialog';
 import { CloseConfirmDialog } from './components/CloseConfirmDialog';
+import { DesktopOnly } from './lib/target';
 import { ImageLightbox } from './components/ImageLightbox';
 import { VideoLightbox } from './components/VideoLightbox';
 import { MarketFaceLightbox } from './components/MarketFaceLightbox';
@@ -115,8 +116,12 @@ export default function App(): ReactElement {
         {view === 'main' ? <WelcomeDialog /> : null}
         <DialogHost />
         <ToastHost />
-        <CloseConfirmDialog />
-        <AppLockOverlay />
+        <DesktopOnly>
+          <CloseConfirmDialog />
+        </DesktopOnly>
+        <DesktopOnly>
+          <AppLockOverlay />
+        </DesktopOnly>
         <ImageLightbox />
         <VideoLightbox />
         <MarketFaceLightbox />

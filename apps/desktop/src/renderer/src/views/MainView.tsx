@@ -164,6 +164,15 @@ type RecentContactWire = {
   tempSourceGroupCode: string;
 };
 
+/** 置顶会话一行（recent_contact_top_table）。 */
+type RecentContactTopWire = {
+  chatType: string | number;
+  /** 41103 — 置顶时间，unix 秒。 */
+  topTime: string;
+  /** 会话键：c2c 是对端 uid，群是群号 —— 对齐 RecentContactWire.targetUid。 */
+  targetId: string;
+};
+
 type MessageWire = {
   msgId: string;
   /** In-conversation sequence number (column 40003); the seq-window cursor. */
@@ -1511,6 +1520,7 @@ export function MainView(): ReactElement {
   const showError = useDialog((s) => s.showError);
   const pushToast = useToast((s) => s.push);
   const contacts = trpc.account.listRecentContacts.useQuery();
+  const topContacts = trpc.account.listTopContacts.useQuery();
   const selfProfile = trpc.account.getSelfProfile.useQuery();
   const buddies = trpc.account.listBuddies.useQuery({ limit: 2000 });
   const categories = trpc.account.listCategories.useQuery();
@@ -1569,6 +1579,7 @@ export function MainView(): ReactElement {
     const sub = client.account.onDbChanged.subscribe(undefined, {
       onData() {
         void utils.account.listRecentContacts.invalidate();
+        void utils.account.listTopContacts.invalidate();
         void refreshWindow();
       },
       onError(err) {
@@ -1918,6 +1929,14 @@ export function MainView(): ReactElement {
       ),
     [buddies.data, categoryById, onlineStatusByUid, profileByUid],
   );
+  // 置顶会话（recent_contact_top_table）：会话 id → 置顶时间（41103，秒）。
+  const topTimeByConv = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const top of (topContacts.data ?? []) as RecentContactTopWire[]) {
+      if (top.targetId) map[top.targetId] = Number(top.topTime);
+    }
+    return map;
+  }, [topContacts.data]);
   const conversations = useMemo(
     () => {
       const groups = (allGroups.data ?? []) as GroupDetailWire[];
@@ -1935,20 +1954,30 @@ export function MainView(): ReactElement {
         .map((conversation) => {
           const unread = unreadByConv[conversation.id];
           const highlights = highlightsByConv[conversation.id] ?? null;
-          if (!unread && !highlights) return conversation;
+          const topTime = topTimeByConv[conversation.id];
+          if (!unread && !highlights && topTime === undefined) return conversation;
           return {
             ...conversation,
             ...(unread ? { unreadCount: unread } : {}),
+            ...(topTime === undefined
+              ? {}
+              : { preference: { ...fallbackPreference, ...conversation.preference, pinned: true } }),
             highlights,
           };
         })
+        // 置顶会话整体排在最前，组内按置顶时间（41103）倒序；其余按最后消息时间倒序。
         .sort((a, b) => {
-          const aTime = Date.parse(a.updatedAt);
-          const bTime = Date.parse(b.updatedAt);
-          return bTime - aTime;
+          const aTop = topTimeByConv[a.id];
+          const bTop = topTimeByConv[b.id];
+          if (aTop !== undefined || bTop !== undefined) {
+            if (aTop === undefined) return 1;
+            if (bTop === undefined) return -1;
+            return bTop - aTop;
+          }
+          return Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
         });
     },
-    [allGroups.data, contacts.data, user, unreadByConv, highlightsByConv],
+    [allGroups.data, contacts.data, user, unreadByConv, highlightsByConv, topTimeByConv],
   );
   const groupsById = useMemo(() => new Map(conversations.map((conversation) => [conversation.id, conversation])), [conversations]);
   const contactRequests = useMemo(

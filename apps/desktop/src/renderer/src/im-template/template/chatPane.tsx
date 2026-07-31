@@ -87,6 +87,7 @@ import { GrayTipGroupMessage } from '../../components/GrayTipGroupMessage';
 import { GrayTipInviteMessage } from '../../components/GrayTipInviteMessage';
 import { GrayTipFileRecvMessage } from '../../components/GrayTipFileRecvMessage';
 import { GrayTipTempSessionMessage } from '../../components/GrayTipTempSessionMessage';
+import { GroupCallEndedMessage, GROUP_CALL_ENDED_SUBTYPES } from '../../components/GroupCallEndedMessage';
 
 const composerHeightStorageKey = "chat-template.layout.composerHeight";
 const groupInfoCollapsedStorageKey = "chat-template.layout.groupInfoCollapsed";
@@ -1490,6 +1491,9 @@ export function ChatPane({
 				) : (
 					(() => {
 						// Detect the gray-tip element (if any) a message carries.
+						// 群通话的「已结束」（CALL 元素，subType 16/25）也走灰条：那条消息的
+						// 40020 是空的，谁也不属于，套气泡会凭空多出一个发送者。发起那条有正常
+						// 发送人，和私聊的 CALL 一样继续走气泡。
 						const GRAY_TIP_KINDS = ['grayTipPoke', 'grayTipRevoke', 'grayTipGroup', 'grayTipInvite', 'grayTipFileRecv', 'grayTipTempSession'];
 						const grayTipOf = (message) => {
 							const els = message.qqElements ?? [];
@@ -1497,6 +1501,10 @@ export function ChatPane({
 								const el = els.find((e) => e?.type === kind);
 								if (el) return { kind, el };
 							}
+							const callEnded = els.find(
+								(e) => e?.type === 'call' && GROUP_CALL_ENDED_SUBTYPES.has(Number(e?.data?.subType)),
+							);
+							if (callEnded) return { kind: 'groupCallEnded', el: callEnded };
 							return null;
 						};
 
@@ -1515,6 +1523,8 @@ export function ChatPane({
 									return <GrayTipFileRecvMessage element={gt.el} />;
 								case 'grayTipTempSession':
 									return <GrayTipTempSessionMessage element={gt.el} />;
+								case 'groupCallEnded':
+									return <GroupCallEndedMessage element={gt.el} />;
 								default:
 									return null;
 							}

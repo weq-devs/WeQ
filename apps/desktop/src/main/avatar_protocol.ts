@@ -16,7 +16,6 @@
  * `ready`; `registerAvatarProtocol()` MUST run after.
  */
 
-import { protocol } from 'electron';
 import { getAppContext } from './context/app_context';
 
 export const AVATAR_SCHEME = 'weq-avatar';
@@ -36,32 +35,34 @@ export const AVATAR_PRIVILEGED_SCHEME = {
   },
 } as const;
 
-export function registerAvatarProtocol(): void {
-  protocol.handle(AVATAR_SCHEME, async (request) => {
-    const url = new URL(request.url);
-    const src = url.searchParams.get('src');
-    if (!src) {
-      return new Response('missing src', { status: 400 });
-    }
+/**
+ * Serve one `weq-avatar://` request. Pure `Request`→`Response`, so the web app
+ * can mount it on a plain HTTP route (see `apps/web`) without Electron.
+ */
+export async function handleAvatarRequest(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const src = url.searchParams.get('src');
+  if (!src) {
+    return new Response('missing src', { status: 400 });
+  }
 
-    const ctx = getAppContext();
-    if (!ctx.bootstrap) {
-      return new Response('native unavailable', { status: 503 });
-    }
+  const ctx = getAppContext();
+  if (!ctx.bootstrap) {
+    return new Response('native unavailable', { status: 503 });
+  }
 
-    try {
-      const blob = await ctx.bootstrap.avatarCache.get(src);
-      return new Response(new Uint8Array(blob.data), {
-        status: 200,
-        headers: {
-          'Content-Type': blob.contentType,
-          // Let the renderer / Chromium memory-cache it too; the on-disk cache
-          // is authoritative, this just avoids re-asking the protocol.
-          'Cache-Control': 'public, max-age=86400',
-        },
-      });
-    } catch {
-      return new Response('avatar fetch failed', { status: 502 });
-    }
-  });
+  try {
+    const blob = await ctx.bootstrap.avatarCache.get(src);
+    return new Response(new Uint8Array(blob.data), {
+      status: 200,
+      headers: {
+        'Content-Type': blob.contentType,
+        // Let the renderer / Chromium memory-cache it too; the on-disk cache
+        // is authoritative, this just avoids re-asking the protocol.
+        'Cache-Control': 'public, max-age=86400',
+      },
+    });
+  } catch {
+    return new Response('avatar fetch failed', { status: 502 });
+  }
 }

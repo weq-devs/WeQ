@@ -22,6 +22,7 @@ import type {
   GroupMemberLevelInfo,
   GroupNotify,
   RecentContact,
+  RecentContactTop,
   UserProfile,
 } from '@weq/db';
 import { decodeElement, type MsgCacheRecord, type SetEmojiItem } from '@weq/codec';
@@ -267,6 +268,15 @@ export interface RecentContactWire {
   tempSourceGroupCode: string;
 }
 
+export interface RecentContactTopWire {
+  /** Mapped ChatType name (or raw number). */
+  chatType: string | number;
+  /** 41103 — pin timestamp, unix seconds (string). */
+  topTime: string;
+  /** Conversation key: peer uid for c2c, group code for groups. */
+  targetId: string;
+}
+
 export function c2cMsgToWire(m: RenderC2cMsg): ChatMsgWire {
   return {
     kind: 'c2c',
@@ -316,6 +326,14 @@ export function recentContactToWire(c: RecentContact): RecentContactWire {
     targetGroupNick: c.targetGroupNick,
     notifyLevel: c.notifyLevel,
     tempSourceGroupCode: c.tempSourceGroupCode.toString(),
+  };
+}
+
+export function recentContactTopToWire(t: RecentContactTop): RecentContactTopWire {
+  return {
+    chatType: t.chatType,
+    topTime: t.topTime.toString(),
+    targetId: t.targetId,
   };
 }
 

@@ -58,6 +58,8 @@ export default defineConfig({
       alias: {
         '@renderer': resolve(__dirname, 'src/renderer/src'),
         '@resources': resolve(__dirname, '../../resources'),
+        // Per-target tRPC transport; the web app aliases this to transport.web.
+        '@transport': resolve(__dirname, 'src/renderer/src/trpc/transport.electron.ts'),
       },
     },
     build: {

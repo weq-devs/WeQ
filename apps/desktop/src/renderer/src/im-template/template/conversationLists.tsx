@@ -1,10 +1,11 @@
 ﻿// @ts-nocheck
-import { BellOff, Bot, PenLine, MessageSquare, Users, UserRound, Circle, Smile, Clock, Minus, Ban, MinusCircle, ChevronRight } from "lucide-react";
+import { BellOff, Bot, PenLine, Pin, MessageSquare, Users, UserRound, Circle, Smile, Clock, Minus, Ban, MinusCircle, ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 import { cn } from "./classNames";
 import { Avatar, EmptyState, } from "./primitives";
 import { isBotConversation } from "./conversationDisplay";
 import { messageMentionsUser } from "./mentions";
+import { resourceUrl } from "../../lib/resourceUrl";
 import type {
 	Contact,
 	Conversation,
@@ -40,10 +41,11 @@ export function ConversationList({
 				)
 			: conversations;
 
+		// 置顶会话排最前。sort 是稳定的，所以 MainView 已排好的置顶时间（41103）
+		// 次序在这里被保留。
 		return [...next].sort(
 			(first, second) =>
-				Number(Boolean(preferences[second.id]?.pinned)) -
-				Number(Boolean(preferences[first.id]?.pinned)),
+				Number(isPinned(second, preferences)) - Number(isPinned(first, preferences)),
 		);
 	}, [conversations, preferences, query]);
 
@@ -80,11 +82,12 @@ export function ConversationList({
 					...conversation.preference,
 					...preferences[conversation.id],
 				}.muted);
+				const pinned = isPinned(conversation, preferences);
 
 				return (
 					<button
 						key={conversation.id}
-						className={cn(listRowClass(active, "conversation-row"))}
+						className={cn(listRowClass(active, "conversation-row"), pinned && "pinned")}
 						onClick={() => onSelect(conversation.id)}
 					>
 						<Avatar
@@ -141,7 +144,17 @@ export function ConversationList({
 							</span>
 						</span>
 						<span className={cn("row-meta")}>
-							<span>{formatConversationTime(conversation.updatedAt)}</span>
+							<span className={cn("row-time-line")}>
+								{pinned ? (
+									<Pin
+										className={cn("row-pinned")}
+										size={12}
+										aria-label="置顶"
+										title="置顶会话"
+									/>
+								) : null}
+								{formatConversationTime(conversation.updatedAt)}
+							</span>
 							{unreadCount ? (
 								<span className={cn(unreadClass(muted))}>
 									{formatBadgeCount(unreadCount)}
@@ -366,7 +379,7 @@ function ContactOnlineStatusIcon({ status }: { status: OnlineStatusInfo | undefi
 	if (!status) return null;
 	const filename = status.type === 10 && SUB_ICONS[status.subType];
 	if (filename) {
-		return <img src={`weq-asset://OnlineStatus/${filename}`} alt="" style={{ width: 14, height: 14 }} />;
+		return <img src={resourceUrl('OnlineStatus', filename)} alt="" style={{ width: 14, height: 14 }} />;
 	}
 	const TypeIcon = TYPE_ICONS[status.type];
 	return TypeIcon ? <TypeIcon /> : null;
@@ -488,6 +501,20 @@ function padDatePart(value: number) {
 }
 function formatBadgeCount(value: number) {
 	return value > 99 ? "99+" : String(value);
+}
+
+/**
+ * 置顶：会话自带的 DB 值（recent_contact_top_table）打底，本地手动偏好覆盖 ——
+ * merge 顺序与上面的 muted（41220）保持一致。
+ */
+function isPinned(
+	conversation: Conversation,
+	preferences: ConversationPreferences,
+): boolean {
+	return Boolean({
+		...conversation.preference,
+		...preferences[conversation.id],
+	}.pinned);
 }
 
 function listRowClass(

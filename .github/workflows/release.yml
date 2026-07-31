@@ -221,11 +221,64 @@ jobs:
           echo "== release/ tree =="
           ls -laR apps/desktop/release 2>/dev/null || echo "(no release/ dir)"
 
+  # ============================ Web（浏览器版）============================
+  # 平台无关：一个 tar.gz 同时含 win32-x64 / linux-x64 / linux-arm64 三份
+  # native/，运行时按 process.platform/arch 自动选，所以只构建一次。
+  # 不内置 Node（要求机器上有 Node ≥22），产物约 24 MB。
+  #
+  # 依赖 windows job：Release 由 electron-builder --publish 创建，这里只往
+  # 已存在的 Release 上传，不自己建。
+  web:
+    needs: [windows]
+    runs-on: ubuntu-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 版本号会被 esbuild 烘焙进 server.mjs（设置页显示 + 压缩包命名）。
+      - name: Sync version from tag
+        run: node scripts/set-version.mjs ${{ github.ref_name }}
+
+      # 含 check 守卫：确认没有 Electron 代码泄漏进 web 构建。
+      - name: Build + guards
+        run: pnpm --filter @weq/web build
+
+      # 发布前先启动打包产物验一遍，别把跑不起来的包传上去。
+      - name: Smoke-test packaged server
+        run: pnpm --filter @weq/web test:dist
+
+      - name: Pack tarball
+        run: pnpm --filter @weq/web pack:release ${{ github.ref_name }}
+
+      - name: Upload to release
+        run: gh release upload "${{ github.ref_name }}" apps/web/release/*.tar.gz --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Dump build output on failure
+        if: failure()
+        run: |
+          echo "== apps/web/dist =="
+          ls -laR apps/web/dist 2>/dev/null | head -50 || echo "(no dist/)"
+
   # ======================= Release 说明（中文）=======================
-  # 等三个平台都发完（Release 已存在），用「中文说明头 + GitHub 自动
+  # 等四个产物都发完（Release 已存在），用「中文说明头 + GitHub 自动
   # 生成的 commit/PR 变更列表」覆写 Release 正文，并标注 aarch64 未实测。
   notes:
-    needs: [windows, linux-x64, linux-arm64]
+    needs: [windows, linux-x64, linux-arm64, web]
     runs-on: ubuntu-latest
     steps:
       - name: 生成并写入中文 Release 说明
@@ -254,6 +307,9 @@ jobs:
           - **Windows**: \`weQ-${TAG#v}-setup.exe\`
           - **Linux x64**: \`weQ-${TAG#v}-linux-x64.AppImage\` / \`.tar.gz\`
           - **Linux arm64（未实测）**: \`weQ-${TAG#v}-linux-arm64.AppImage\` / \`.tar.gz\`
+          - **浏览器版**: \`weq-web-${TAG#v}.tar.gz\` —— 三平台通用，需自备 Node ≥22。
+            解压后 \`npm install --omit=dev && node server.mjs\`，
+            详见[使用说明](https://github.com/${REPO}/blob/main/apps/web/README.md)
 
           ### 变更
           ${CHANGES}

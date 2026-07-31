@@ -25,7 +25,7 @@ if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
 }
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
-const targets = ['package.json', 'apps/desktop/package.json'];
+const targets = ['package.json', 'apps/desktop/package.json', 'apps/web/package.json'];
 
 // Also stamp every packages/*/package.json that has a `name` field.
 for (const pkgDir of readdirSync(join(repoRoot, 'packages'))) {

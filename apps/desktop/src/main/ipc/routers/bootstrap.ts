@@ -14,7 +14,6 @@
  */
 
 import { observable } from '@trpc/server/observable';
-import { app, dialog } from 'electron';
 import { z } from 'zod';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -36,6 +35,7 @@ import { procedure, router } from '../trpc';
 import {
   accountConfigId,
   fetchHomeDress,
+  getHost,
   getLogger,
   logErrorContext,
   type KeyEvent,
@@ -272,12 +272,13 @@ export const bootstrapRouter = router({
 
   /** WeQ app version + the runtime versions, for the 全局设置 page. */
   getVersionInfo: procedure.query(() => {
+    const host = getHost();
     return {
-      app: app.getVersion(),
+      app: host.appVersion(),
       electron: process.versions.electron ?? '',
       chrome: process.versions.chrome ?? '',
       node: process.versions.node ?? '',
-      isDev: !app.isPackaged,
+      isDev: !host.isPackaged(),
     };
   }),
 
@@ -682,14 +683,7 @@ export const bootstrapRouter = router({
   /** Folder dialog → set the cache override. Returns the new path info. */
   pickCacheDir: procedure.mutation(async () => {
     const boot = requireBootstrap();
-    const result = await dialog.showOpenDialog({
-      title: '选择缓存目录',
-      properties: ['openDirectory', 'createDirectory'],
-    });
-    if (result.canceled || result.filePaths.length === 0) {
-      return boot.userConfig.getCacheDirInfo();
-    }
-    const picked = result.filePaths[0];
+    const picked = await getHost().pickDirectory({ title: '选择缓存目录' });
     if (picked) boot.userConfig.setCacheDirOverride(picked);
     return boot.userConfig.getCacheDirInfo();
   }),
@@ -720,14 +714,9 @@ export const bootstrapRouter = router({
   // ---- filesystem dialog (Tencent Files fallback / manual db pick) ----
 
   pickTencentFilesRoot: procedure.mutation(async (): Promise<PickRootResult> => {
-    const result = await dialog.showOpenDialog({
+    const picked = await getHost().pickDirectory({
       title: '选择 Tencent Files 目录（必须选到 Tencent Files 文件夹本身）',
-      properties: ['openDirectory'],
     });
-    if (result.canceled || result.filePaths.length === 0) {
-      return { ok: false, path: null };
-    }
-    const picked = result.filePaths[0] ?? null;
     if (!picked) return { ok: false, path: null };
     // Hard rule: the override must point at the `Tencent Files` folder itself,
     // not a parent or the per-account `…\Tencent Files\<uin>` subdir. Reject
@@ -752,22 +741,11 @@ export const bootstrapRouter = router({
   }),
 
   pickMsgDb: procedure.mutation(async () => {
-    const result = await dialog.showOpenDialog({
-      title: '选择 nt_msg.db',
-      filters: [{ name: 'SQLite database', extensions: ['db'] }],
-      properties: ['openFile'],
-    });
-    if (result.canceled || result.filePaths.length === 0) return null;
-    return result.filePaths[0] ?? null;
+    return getHost().pickFile({ title: '选择 nt_msg.db', extensions: ['db'] });
   }),
 
   pickStaticDbDir: procedure.mutation(async () => {
-    const result = await dialog.showOpenDialog({
-      title: '选择已解密的 QQ 数据库目录',
-      properties: ['openDirectory'],
-    });
-    if (result.canceled || result.filePaths.length === 0) return null;
-    return result.filePaths[0] ?? null;
+    return getHost().pickDirectory({ title: '选择已解密的 QQ 数据库目录' });
   }),
 
   // ---- key correctness probe ----

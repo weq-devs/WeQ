@@ -31,7 +31,7 @@ import { aiToolSpecs, runAiTool } from '../mcp/openai_tools';
 import { getExternalMcpHub, disposeExternalMcp } from '../mcp/external';
 import { sampleHitokoto } from '../hitokoto';
 import { pkexecStubHooks } from '../stub_elevation';
-import { getQqProtocolExe } from './qq_protocol';
+import { getQqProtocolExe } from './qq_protocol_cache';
 import { createPkexecInjectHook } from '../inject_elevation';
 import {
   accountConfigId,

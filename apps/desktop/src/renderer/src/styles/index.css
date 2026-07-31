@@ -3362,6 +3362,87 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   font-size: 13px;
 }
 
+/* 网页版的 QQ 空间 / 频道入口：一张居中的「开新标签」卡片。 */
+.weq-extsite {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  padding: 24px;
+}
+
+.weq-extsite-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: 380px;
+  padding: 36px 32px 30px;
+  text-align: center;
+  border: 1px solid var(--weq-border, rgba(0, 153, 255, 0.16));
+  border-radius: 16px;
+  background: var(--weq-surface, rgba(255, 255, 255, 0.6));
+  backdrop-filter: blur(10px);
+}
+
+.weq-extsite-icon {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 4px;
+  border-radius: 16px;
+  color: var(--weq-accent, #0099ff);
+  background: color-mix(in srgb, var(--weq-accent, #0099ff) 12%, transparent);
+}
+
+.weq-extsite-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--weq-fg-primary, #142235);
+}
+
+.weq-extsite-desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--weq-text-muted, #8a94a6);
+}
+
+.weq-extsite-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  padding: 9px 18px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #fff;
+  background: var(--weq-accent, #0099ff);
+  border: 0;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: transform 140ms ease, filter 140ms ease;
+}
+
+.weq-extsite-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+}
+
+.weq-extsite-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.weq-extsite-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--weq-text-muted, #8a94a6);
+}
+
 
 .weq-readonly-chat .chat-pane {
   grid-template-rows: var(--chat-header-height) minmax(0, 1fr) 0 !important;
@@ -10969,6 +11050,18 @@ html[data-theme="dark"] .weq-graytip-band {
 }
 .weq-graytip-muted {
   color: var(--weq-fg-muted, var(--weq-fg-tertiary, var(--weq-fg-secondary)));
+}
+
+/* 群通话灰条：图标与文字同行居中（发起人名字用 .weq-graytip-accent 着色）。 */
+.weq-group-call {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.weq-group-call-icon {
+  flex-shrink: 0;
+  color: currentColor;
 }
 
 /* "本地暂无内容" hint — centered, small, non-bold, accent-leaning. */

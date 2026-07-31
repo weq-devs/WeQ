@@ -16,6 +16,7 @@
 import { z } from 'zod';
 import { existsSync } from 'node:fs';
 import { getAppContext, type AccountServices } from '../../context/app_context';
+import { getHost } from '@weq/service';
 import { procedure, router } from '../trpc';
 
 function requireServices(): AccountServices {
@@ -49,15 +50,17 @@ const listInput = z.object({
 
 /** Reveal a path in the OS file manager; falls back to opening on failure. */
 async function revealInFolder(path: string): Promise<void> {
-  const { shell } = await import('electron');
-  shell.showItemInFolder(path);
+  await getHost().revealInFolder(path);
 }
 
 /** Open a path with the OS default handler. */
 async function openPath(path: string): Promise<{ ok: boolean; error?: string }> {
-  const { shell } = await import('electron');
-  const err = await shell.openPath(path);
-  return err ? { ok: false, error: err } : { ok: true };
+  try {
+    await getHost().revealPath(path);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 export const fileResourceRouter = router({

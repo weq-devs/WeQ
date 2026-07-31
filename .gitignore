@@ -8,6 +8,10 @@ out/
 build/
 *.tsbuildinfo
 
+# weq web runtime dirs (exports / logs, created next to the server)
+weq-exports/
+weq-data/
+
 
 # editor / OS
 .DS_Store

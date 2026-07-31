@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": ["src/server/**/*.ts", "scripts/**/*.mjs"]
+}
