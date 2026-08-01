@@ -74,6 +74,7 @@ import {
   DbExplorerService,
   AvatarResourceService,
   SysEmojiResourceService,
+  SysEmojiDownloadService,
   MarketEmojiResourceService,
   CustomEmojiResourceService,
   RelatedEmojiResourceService,
@@ -396,6 +397,8 @@ export interface AccountServices {
   avatarResource: AvatarResourceService;
   /** Browse the account's built-in system emoji resource dir. */
   sysEmoji: SysEmojiResourceService;
+  /** 内置表情缺失时从官方 CDN 补下（emoji.db 里的资源包地址）。 */
+  sysEmojiDownload: SysEmojiDownloadService;
   /** Browse the account's market-face (store sticker) cache. */
   marketEmoji: import('@weq/service').MarketEmojiResourceService;
   /** Browse the account's custom-emoji cache (received + personal). */
@@ -757,6 +760,14 @@ export function initAppContext(): AppContext {
       // 商城表情：一个实例同时供 `emoji` 服务字段与 exportManager 的 marketpack
       // 解密下载依赖复用（避免两处各建一个、密钥/详情缓存不共享）。
       const emojiService = new EmojiService(session, platform);
+      // 内置表情补全：QQ 的 EmojiSystermResource 目录缺失时按需下 CDN 资源包。
+      // 表情全账号通用，所以缓存不按账号分目录；资源浏览器与 weq-asset 协议
+      // 都把它当作 QQ 目录之后的第二个查找根。
+      const sysEmojiDownload = new SysEmojiDownloadService(
+        session,
+        platform,
+        userConfig.cacheDir('sysemoji'),
+      );
       this.services = {
         msgs: new MsgService(session, deletedMsgs, antiRecall),
         recentContacts: new RecentContactService(session),
@@ -928,7 +939,8 @@ export function initAppContext(): AppContext {
         dbExplorer: new DbExplorerService(session, platform),
         antiRecall,
         avatarResource: new AvatarResourceService(session, platform),
-        sysEmoji: new SysEmojiResourceService(session, platform),
+        sysEmoji: new SysEmojiResourceService(session, platform, () => sysEmojiDownload.root()),
+        sysEmojiDownload,
         marketEmoji: new MarketEmojiResourceService(session, platform),
         customEmoji: new CustomEmojiResourceService(session, platform),
         relatedEmoji: new RelatedEmojiResourceService(session, platform),
@@ -1108,6 +1120,14 @@ export function initAppContext(): AppContext {
       // 商城表情：一个实例同时供 `emoji` 服务字段与 exportManager 的 marketpack
       // 解密下载依赖复用（避免两处各建一个、密钥/详情缓存不共享）。
       const emojiService = new EmojiService(session, platform);
+      // 内置表情补全：QQ 的 EmojiSystermResource 目录缺失时按需下 CDN 资源包。
+      // 表情全账号通用，所以缓存不按账号分目录；资源浏览器与 weq-asset 协议
+      // 都把它当作 QQ 目录之后的第二个查找根。
+      const sysEmojiDownload = new SysEmojiDownloadService(
+        session,
+        platform,
+        userConfig.cacheDir('sysemoji'),
+      );
       this.services = {
         msgs: new MsgService(session, deletedMsgs, antiRecall),
         recentContacts: new RecentContactService(session),
@@ -1209,7 +1229,8 @@ export function initAppContext(): AppContext {
         dbExplorer: new DbExplorerService(session, platform),
         antiRecall,
         avatarResource: new AvatarResourceService(session, platform),
-        sysEmoji: new SysEmojiResourceService(session, platform),
+        sysEmoji: new SysEmojiResourceService(session, platform, () => sysEmojiDownload.root()),
+        sysEmojiDownload,
         marketEmoji: new MarketEmojiResourceService(session, platform),
         customEmoji: new CustomEmojiResourceService(session, platform),
         relatedEmoji: new RelatedEmojiResourceService(session, platform),

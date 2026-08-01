@@ -9,15 +9,20 @@
  * renders EVERY format the face has — PNG / APNG through `<img>`, Lottie through
  * lottie-web — "有几个渲染几个", each in its own labelled panel.
  *
+ * When QQ's directory is missing (fresh install, cleaned cache, static account)
+ * the faces can be fetched from the official CDN instead — the bar exposes a
+ * 补全 button for that, and chat rendering backfills them one at a time anyway.
+ *
  * Bytes stream through the existing `weq-asset://emoji/<name>/<fmt>/<file>`
  * protocol (see main/resource_protocol.ts) — nothing crosses tRPC but metadata.
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
-import { RefreshCw, X, Smile } from 'lucide-react';
+import { RefreshCw, X, Smile, Download } from 'lucide-react';
 import type { SysEmojiEntry } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { emojiUrl } from '../../lib/resourceUrl';
+import { useAppDialog } from '../../lib/dialogUtils';
 
 const PAGE = 120;
 
@@ -27,6 +32,7 @@ function faceUrl(name: string, fmt: 'png' | 'apng' | 'lottie', file: string): st
 }
 
 export function SysEmojiExplorer(): ReactElement {
+  const dialog = useAppDialog();
   const [entries, setEntries] = useState<SysEmojiEntry[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [done, setDone] = useState(false);
@@ -34,6 +40,7 @@ export function SysEmojiExplorer(): ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [total, setTotal] = useState<number | null>(null);
   const [preview, setPreview] = useState<SysEmojiEntry | null>(null);
+  const [filling, setFilling] = useState(false);
   const loadingRef = useRef(false);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
@@ -43,6 +50,14 @@ export function SysEmojiExplorer(): ReactElement {
   useEffect(() => {
     if (totalQuery.data && total === null) setTotal(totalQuery.data.total);
   }, [totalQuery.data, total]);
+
+  // How many faces the CDN could still supply — drives the 补全 button's copy.
+  const statusQuery = trpc.account.sysEmoji.downloadStatus.useQuery(undefined, {
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
+  const status = statusQuery.data;
+  const missing = status ? Math.max(0, status.available - status.present) : 0;
 
   const loadMore = useCallback(async (): Promise<void> => {
     if (loadingRef.current || done) return;
@@ -86,11 +101,30 @@ export function SysEmojiExplorer(): ReactElement {
     return () => io.disconnect();
   }, [loadMore, done]);
 
+  /** Fetch every missing face, then restart paging so the grid picks them up. */
+  const fillMissing = useCallback(async (): Promise<void> => {
+    setFilling(true);
+    try {
+      const result = await client.account.sysEmoji.downloadAll.mutate();
+      setEntries([]);
+      setCursor(null);
+      setDone(false);
+      loadingRef.current = false;
+      await Promise.all([statusQuery.refetch(), loadMoreRef.current()]);
+      dialog.success(
+        '系统表情补全完成',
+        `新下载 ${result.downloaded} 个，已有 ${result.skipped} 个` +
+          (result.failed > 0 ? `，失败 ${result.failed} 个` : ''),
+      );
+    } catch (e) {
+      dialog.error('系统表情补全失败', e instanceof Error ? e.message : String(e));
+    } finally {
+      setFilling(false);
+    }
+  }, [dialog, statusQuery]);
+
   if (error && entries.length === 0) {
     return <div className="weq-cache-grid-state is-error">{error}</div>;
-  }
-  if (!loading && entries.length === 0 && done) {
-    return <div className="weq-cache-grid-state">未找到系统表情资源</div>;
   }
 
   return (
@@ -99,24 +133,43 @@ export function SysEmojiExplorer(): ReactElement {
         <span className="weq-cache-data-name">系统表情</span>
         <span className="weq-cache-data-meta">
           {total ?? entries.length} 个 · 默认动图(APNG)预览，点击查看全部格式
+          {status && !status.qqRoot ? ' · QQ 资源目录缺失，已改用下载补全' : ''}
         </span>
+        {missing > 0 ? (
+          <button
+            type="button"
+            className="weq-cache-sysemoji-fill"
+            onClick={() => void fillMissing()}
+            disabled={filling}
+            title="从官方 CDN 下载缺失的内置表情"
+          >
+            {filling ? <RefreshCw size={13} className="is-spin" /> : <Download size={13} />}
+            {filling ? '补全中…' : `补全 ${missing} 个`}
+          </button>
+        ) : null}
       </div>
 
-      <div className="weq-cache-avatar-scroll">
-        <div className="weq-cache-sysemoji-grid">
-          {entries.map((entry) => (
-            <SysEmojiCard key={entry.name} entry={entry} onOpen={() => setPreview(entry)} />
-          ))}
+      {!loading && entries.length === 0 && done ? (
+        <div className="weq-cache-grid-state">
+          {missing > 0 ? '本地没有系统表情资源，可点击上方补全下载' : '未找到系统表情资源'}
         </div>
-        {!done ? (
-          <div ref={sentinelRef} className="weq-cache-avatar-more">
-            <RefreshCw size={14} className={loading ? 'is-spin' : ''} />
-            {loading ? '加载中…' : '滚动加载更多'}
+      ) : (
+        <div className="weq-cache-avatar-scroll">
+          <div className="weq-cache-sysemoji-grid">
+            {entries.map((entry) => (
+              <SysEmojiCard key={entry.name} entry={entry} onOpen={() => setPreview(entry)} />
+            ))}
           </div>
-        ) : (
-          <div className="weq-cache-avatar-more is-end">已全部加载（{entries.length}）</div>
-        )}
-      </div>
+          {!done ? (
+            <div ref={sentinelRef} className="weq-cache-avatar-more">
+              <RefreshCw size={14} className={loading ? 'is-spin' : ''} />
+              {loading ? '加载中…' : '滚动加载更多'}
+            </div>
+          ) : (
+            <div className="weq-cache-avatar-more is-end">已全部加载（{entries.length}）</div>
+          )}
+        </div>
+      )}
 
       {preview ? <SysEmojiLightbox entry={preview} onClose={() => setPreview(null)} /> : null}
     </div>

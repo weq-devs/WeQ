@@ -1648,6 +1648,32 @@ html[data-theme="dark"] .weq-avpath-error {
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
 }
 
+/* 「补全 N 个」——只在 QQ 资源目录缺表情时出现，靠右站位。 */
+.weq-cache-sysemoji-fill {
+  margin-left: auto;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.6);
+  color: #4a5462;
+  cursor: pointer;
+}
+
+.weq-cache-sysemoji-fill:hover:not(:disabled) {
+  color: var(--weq-accent-effective);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+}
+
+.weq-cache-sysemoji-fill:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .weq-cache-sysemoji-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
@@ -2742,6 +2768,12 @@ html[data-theme="dark"] .weq-cache-avatar-loading {
 /* ---- 系统表情浏览器 ---- */
 html[data-theme="dark"] .weq-cache-sysemoji-bar {
   border-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .weq-cache-sysemoji-fill {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: #b9c2cc;
 }
 
 html[data-theme="dark"] .weq-cache-sysemoji-card {

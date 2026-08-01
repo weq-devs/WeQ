@@ -196,6 +196,13 @@ export type {
   SysEmojiEntry,
   SysEmojiPage,
 } from './account/sys_emoji_resource';
+export { SysEmojiDownloadService } from './account/sys_emoji_download';
+export type {
+  SysEmojiSource,
+  SysEmojiDownloadResult,
+  SysEmojiDownloadStatus,
+  SysEmojiFetchOutcome,
+} from './account/sys_emoji_download';
 export { MarketEmojiResourceService } from './account/market_emoji_resource';
 export type {
   MarketFaceEntry,

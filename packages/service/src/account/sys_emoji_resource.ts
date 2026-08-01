@@ -18,6 +18,10 @@
  *
  * The sibling `emoji.db` and any `*_emojiids.json` index files are intentionally
  * ignored — we render the folders as-is.
+ *
+ * Faces we downloaded ourselves (QQ's directory missing — see
+ * `SysEmojiDownloadService`) live in a mirror root with the identical layout, so
+ * this browser simply walks both roots and merges them by name.
  */
 
 import { readdir } from 'node:fs/promises';
@@ -60,27 +64,42 @@ export class SysEmojiResourceService {
   /** Cached, sorted list of face directory names (the set changes rarely). */
   private names: string[] | null = null;
 
+  /**
+   * @param extraRoot Mirror root for faces WeQ downloaded itself. Resolved
+   *   lazily because the download service creates it on demand.
+   */
   constructor(
     private readonly session: AccountSession,
     private readonly platform: Platform,
+    private readonly extraRoot?: () => string | null,
   ) {}
 
-  private root(): string | null {
-    return this.platform.emojiResourceDir(this.session.context.uin);
+  /** Every root to walk, QQ's own first. */
+  private roots(): string[] {
+    const out: string[] = [];
+    const qq = this.platform.emojiResourceDir(this.session.context.uin);
+    if (qq) out.push(qq);
+    const extra = this.extraRoot?.();
+    if (extra) out.push(extra);
+    return out;
   }
 
-  /** All face directory names, sorted (numeric ids first, then glyphs). */
+  /** All face directory names across every root, deduped and sorted. */
   private async faceNames(): Promise<string[]> {
     if (this.names) return this.names;
-    const root = this.root();
-    if (!root) return [];
-    let entries: import('node:fs').Dirent[];
-    try {
-      entries = await readdir(root, { withFileTypes: true });
-    } catch {
-      return [];
+    const seen = new Set<string>();
+    for (const root of this.roots()) {
+      let entries: import('node:fs').Dirent[];
+      try {
+        entries = await readdir(root, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const e of entries) {
+        if (e.isDirectory()) seen.add(e.name);
+      }
     }
-    const names = entries.filter((e) => e.isDirectory()).map((e) => e.name);
+    const names = [...seen];
     names.sort(compareFaceNames);
     this.names = names;
     return names;
@@ -94,8 +113,8 @@ export class SysEmojiResourceService {
   async listEntries(
     opts: { limit?: number; cursor?: string | null } = {},
   ): Promise<SysEmojiPage> {
-    const root = this.root();
-    if (!root) return { entries: [], nextCursor: null, total: 0 };
+    const roots = this.roots();
+    if (roots.length === 0) return { entries: [], nextCursor: null, total: 0 };
     const names = await this.faceNames();
     const total = names.length;
 
@@ -103,7 +122,7 @@ export class SysEmojiResourceService {
     const start = Math.max(0, Number(opts.cursor ?? 0) || 0);
     const slice = names.slice(start, start + cap);
 
-    const entries = await Promise.all(slice.map((name) => this.probe(root, name)));
+    const entries = await Promise.all(slice.map((name) => this.probe(roots, name)));
     const nextIndex = start + slice.length;
     return {
       entries,
@@ -112,12 +131,21 @@ export class SysEmojiResourceService {
     };
   }
 
-  /** Probe one face directory for which formats it carries + the primary file. */
-  private async probe(root: string, name: string): Promise<SysEmojiEntry> {
+  /** Forget the cached directory listing (after a bulk download adds faces). */
+  invalidate(): void {
+    this.names = null;
+  }
+
+  /**
+   * Probe one face for which formats it carries + the primary file, taking the
+   * first root that has each format (QQ's own copy wins, matching the order the
+   * `weq-asset://emoji` handler resolves in).
+   */
+  private async probe(roots: string[], name: string): Promise<SysEmojiEntry> {
     const [png, apng, lottie] = await Promise.all([
-      pickFile(join(root, name, 'png'), name, '.png'),
-      pickFile(join(root, name, 'apng'), name, '.png'),
-      pickFile(join(root, name, 'lottie'), name, '.json'),
+      pickFileAcross(roots, name, 'png', '.png'),
+      pickFileAcross(roots, name, 'apng', '.png'),
+      pickFileAcross(roots, name, 'lottie', '.json'),
     ]);
     return {
       name,
@@ -132,6 +160,20 @@ export class SysEmojiResourceService {
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
+
+/** {@link pickFile} across every root, returning the first hit. */
+async function pickFileAcross(
+  roots: string[],
+  name: string,
+  fmt: SysEmojiFormat,
+  ext: string,
+): Promise<string | null> {
+  for (const root of roots) {
+    const hit = await pickFile(join(root, name, fmt), name, ext);
+    if (hit) return hit;
+  }
+  return null;
+}
 
 /**
  * Choose the primary file in a format dir: prefer `<name><ext>` when present,
