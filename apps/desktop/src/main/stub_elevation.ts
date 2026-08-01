@@ -1,18 +1,21 @@
 /**
- * Linux privilege-escalated stub hooks for ninebird.
+ * Linux stub hooks for ninebird, elevating only when the host isn't root.
  *
  * The ninebird launch flow drops a tiny entry stub (`loadNineBird.js`) into
  * QQ's `resources/app` so QQ's Electron entry resolves a real file (a raw
  * statx probe that `LD_PRELOAD` can't fake). That directory is root-owned
  * (root:root 0755) on a normal QQ install, so writing the stub needs
- * elevation. We shell out to `pkexec`, which pops the desktop's graphical
- * polkit auth dialog.
+ * elevation — unless we're already root, in which case a plain `fs` write
+ * does. Electron refuses to run as root, so the desktop app always takes the
+ * elevated path; the headless web server usually doesn't need it.
  *
- * Frequency is low — a given account only needs a dbkey once — so a password
- * prompt per drop is acceptable. We deliberately do NOT clean the stub up:
- * polkit's default policy for `org.freedesktop.policykit.exec` is `auth_admin`
- * (no credential caching), so a later cleanup would just pop the dialog again.
- * The stub is a harmless self-`require` shim; the next drop overwrites it.
+ * When elevation IS needed we shell out to `pkexec`, which pops the desktop's
+ * graphical polkit auth dialog. Frequency is low — a given account only needs
+ * a dbkey once — so a password prompt per drop is acceptable. We deliberately
+ * do NOT clean the stub up in that path: polkit's default policy for
+ * `org.freedesktop.policykit.exec` is `auth_admin` (no credential caching), so
+ * a later cleanup would just pop the dialog again. The stub is a harmless
+ * self-`require` shim; the next drop overwrites it.
  *
  * Windows never uses these hooks — `@weq/native` falls back to a direct `fs`
  * write there.
@@ -70,8 +73,10 @@ function pkexecWriteFile(path: string, content: string): Promise<void> {
  * StubHooks backed by pkexec. `removeStub` is intentionally a no-op (see the
  * module header): the stub is harmless and left in place, overwritten on the
  * next drop.
+ *
+ * Only used when the host is NOT already root — see `linuxStubHooks`.
  */
-export const pkexecStubHooks: StubHooks = {
+const pkexecStubHooks: StubHooks = {
   dropStub: async (path: string, content: string): Promise<void> => {
     logger.info('dropping ninebird entry stub via pkexec', {
       event: 'stub-drop-pkexec',
@@ -83,3 +88,13 @@ export const pkexecStubHooks: StubHooks = {
     /* intentionally not cleaned up — see module header */
   },
 };
+
+/**
+ * The linux stub hooks. Running as root (typical for the headless web server)
+ * means we can write QQ's root-owned `resources/app` directly — `undefined`
+ * selects `@weq/native`'s plain-`fs` default, which also cleans the stub up.
+ * Only an unprivileged host (the desktop app, since Electron refuses to run as
+ * root) needs the pkexec detour.
+ */
+export const linuxStubHooks: StubHooks | undefined =
+  process.geteuid?.() === 0 ? undefined : pkexecStubHooks;

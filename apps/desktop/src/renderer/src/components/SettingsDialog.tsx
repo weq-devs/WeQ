@@ -203,8 +203,11 @@ function AppearanceSection(): ReactElement {
   });
   const setRenderTextMarkdown = trpc.bootstrap.setRenderTextMarkdown.useMutation();
   const setShowAvatarPendant = trpc.bootstrap.setShowAvatarPendant.useMutation();
+  const setLinkPreview = trpc.bootstrap.setLinkPreview.useMutation();
   const [textMarkdown, setTextMarkdown] = useState(true);
   const [pendant, setPendant] = useState(true);
+  const [linkCard, setLinkCard] = useState(true);
+  const [linkShot, setLinkShot] = useState(false);
 
   useEffect(() => {
     const enabled = settings.data?.renderTextMarkdown;
@@ -215,6 +218,12 @@ function AppearanceSection(): ReactElement {
     const enabled = settings.data?.showAvatarPendant;
     if (typeof enabled === 'boolean') setPendant(enabled);
   }, [settings.data?.showAvatarPendant]);
+
+  useEffect(() => {
+    const cfg = settings.data?.linkPreview;
+    if (typeof cfg?.enabled === 'boolean') setLinkCard(cfg.enabled);
+    if (typeof cfg?.screenshot === 'boolean') setLinkShot(cfg.screenshot);
+  }, [settings.data?.linkPreview]);
 
   // 本地先翻转求手感，失败回滚 + 重新拉服务端值。
   async function onSetTextMarkdown(next: boolean): Promise<void> {
@@ -235,6 +244,28 @@ function AppearanceSection(): ReactElement {
       await setShowAvatarPendant.mutateAsync({ enabled: next });
     } catch {
       setPendant(prev);
+    }
+    await settings.refetch();
+  }
+
+  async function onSetLinkCard(next: boolean): Promise<void> {
+    const prev = linkCard;
+    setLinkCard(next);
+    try {
+      await setLinkPreview.mutateAsync({ enabled: next });
+    } catch {
+      setLinkCard(prev);
+    }
+    await settings.refetch();
+  }
+
+  async function onSetLinkShot(next: boolean): Promise<void> {
+    const prev = linkShot;
+    setLinkShot(next);
+    try {
+      await setLinkPreview.mutateAsync({ screenshot: next });
+    } catch {
+      setLinkShot(prev);
     }
     await settings.refetch();
   }
@@ -316,6 +347,40 @@ function AppearanceSection(): ReactElement {
             disabled={settings.isLoading || setShowAvatarPendant.isLoading}
             onChange={(next) => void onSetPendant(next)}
             label="聊天头像挂件"
+          />
+        </div>
+      </div>
+      <div className="weq-settings-appearance-card">
+        <div className="weq-settings-appearance-head">
+          <div>
+            <strong>链接预览卡片</strong>
+            <span>
+              一条消息只有一个链接时，抓取网页标题、简介和封面渲染成卡片。会按链接访问
+              对应网页（结果本地缓存），关掉后链接仍标蓝可点，但完全不出网。
+            </span>
+          </div>
+          <Toggle
+            checked={linkCard}
+            disabled={settings.isLoading || setLinkPreview.isLoading}
+            onChange={(next) => void onSetLinkCard(next)}
+            label="链接预览卡片"
+          />
+        </div>
+      </div>
+      <div className="weq-settings-appearance-card">
+        <div className="weq-settings-appearance-head">
+          <div>
+            <strong>无封面时网页截图</strong>
+            <span>
+              网页没提供封面图时，在一个隔离的后台窗口里把它打开并截取首屏当封面。这会
+              真正运行对方页面的脚本（沙盒内、不落盘、退出即清），默认关闭。
+            </span>
+          </div>
+          <Toggle
+            checked={linkShot}
+            disabled={!linkCard || settings.isLoading || setLinkPreview.isLoading}
+            onChange={(next) => void onSetLinkShot(next)}
+            label="无封面时网页截图"
           />
         </div>
       </div>

@@ -5,7 +5,7 @@
 //   2. pkexec env ELECTRON_RUN_AS_NODE=1 <electron> injectWorker.mjs  (ROOT)
 //   3. waitForRealPacket + fetchClientKey                     (unprivileged)
 //
-// This mirrors exactly what createPkexecInjectHook does. Run it AFTER
+// This mirrors the unprivileged-host branch of createLinuxInjectHook. Run it AFTER
 // `electron-vite build` (needs out/main/injectWorker.mjs). Requires a graphical
 // polkit agent (a password dialog pops once) and a logged-in QQ.
 //

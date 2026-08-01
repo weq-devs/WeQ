@@ -2,7 +2,7 @@
  * Render View Model — defines simplified, front-end-friendly Element shapes.
  */
 
-import { decodeElement } from '@weq/codec';
+import { decodeElement, decodeUrlVerify } from '@weq/codec';
 import type {
   Element,
   TextElement,
@@ -31,6 +31,7 @@ import type {
   GrayTipTempSessionElement,
   UnknownElement,
   AtElement,
+  UrlVerifyInfo,
 } from '@weq/codec';
 
 /** Common metadata fields moved inside the 'data' property. */
@@ -50,6 +51,12 @@ export interface RenderTextElement {
   type: 'text';
   data: BaseRenderData & {
     textContent: string;
+    /**
+     * QQ 服务端扫描链接时自己抓好的元数据（wire tag 45112 的嵌套结构）。只有约
+     * 三成带链接的消息带得全（标题/封面/站点）；带了前端就直接画卡片，不必再
+     * 自己出网抓一次。
+     */
+    urlVerify?: UrlVerifyInfo;
   };
 }
 
@@ -165,6 +172,8 @@ export interface RenderPttElement {
     /** Amplitude envelope; decorative only. AI 声聊 clips carry a fixed 30-byte
      * strip, so length/10 is NOT a reliable duration — use pttDuration. */
     waveform: number[];
+    /** 语音转文字结果（wire tag 45923）— QQ 自己转的，或 WeQ 转完写回的。 */
+    pttTranscript?: string;
     // transferState?: number;
     // picTransferState?: number;
     // transferVersion?: number;
@@ -540,10 +549,12 @@ export function toRenderElements(elements: Element[]): RenderElement[] {
 }
 
 function mapText(el: TextElement): RenderTextElement {
+  const urlVerify = decodeUrlVerify(el.urlVerifyFlag);
   return {
     type: 'text',
     data: {
       textContent: el.textContent,
+      ...(urlVerify ? { urlVerify } : {}),
       elementId: el.elementId,
       isSender: el.isSender,
       subType: el.subType,
@@ -663,6 +674,7 @@ function mapPtt(el: PttElement): RenderPttElement {
       voiceChanged: el.voiceChanged,
       isAiVoice: el.isAiVoice,
       waveform: Array.from(el.waveform),
+      pttTranscript: el.pttTranscript,
       // transferState: el.transferState,
       // picTransferState: el.picTransferState,
       // transferVersion: el.transferVersion,

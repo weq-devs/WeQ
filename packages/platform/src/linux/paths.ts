@@ -28,7 +28,10 @@
  * Callers decrypt both and merge, preferring `global/nt_db`.
  *
  * QQ install (for the launch-based key flows):
- *   /opt/QQ/qq                              (binary; no registry on linux)
+ *   /opt/QQ/qq                              (binary; no registry on linux.
+ *                                            NapCat-style `~/NapCat/opt/QQ`
+ *                                            is probed too — see
+ *                                            `candidateQqExePaths`)
  *   <qqRoot>/resources/app/wrapper.node     (protobuf descriptors)
  *   <qqRoot>/resources/app/major.node       (appid/qua anchor)
  *   <qqRoot>/resources/app/package.json     (client `version`, read uniformly
@@ -240,14 +243,33 @@ export function findFileDir(uid: string, home = homedir(), overrideRoot?: string
 
 // ---------- QQ install (binary / wrapper.node / version) ------------------
 
-/** Candidate QQ binary locations on linux, in priority order. */
-export function candidateQqExePaths(): string[] {
-  return ['/opt/QQ/qq', '/usr/share/QQ/qq', '/usr/lib/QQ/qq'];
+/**
+ * Candidate QQ binary locations on linux, in priority order.
+ *
+ * The first three are where a distro package puts QQ. The NapCat entries cover
+ * NapCat-style installs, which unpack QQ into the user's home instead — worth
+ * probing because that layout is also the one a headless server most often has
+ * (no root install, no desktop session). Both casings are tried since linux
+ * paths are case-sensitive and the directory is created by hand as often as by
+ * the installer.
+ *
+ * `WEQ_QQ_EXE` short-circuits the whole list for anything more exotic.
+ */
+export function candidateQqExePaths(home = homedir()): string[] {
+  const override = process.env.WEQ_QQ_EXE;
+  return [
+    ...(override ? [override] : []),
+    '/opt/QQ/qq',
+    '/usr/share/QQ/qq',
+    '/usr/lib/QQ/qq',
+    join(home, 'NapCat', 'opt', 'QQ', 'qq'),
+    join(home, 'Napcat', 'opt', 'QQ', 'qq'),
+  ];
 }
 
 /** First QQ binary that exists on disk, or null. No registry on linux. */
-export function findQqExe(): string | null {
-  for (const p of candidateQqExePaths()) {
+export function findQqExe(home = homedir()): string | null {
+  for (const p of candidateQqExePaths(home)) {
     if (existsSync(p)) return p;
   }
   return null;

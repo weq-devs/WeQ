@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build && node scripts/build-server.mjs && pnpm check",
+    "deps": "node scripts/install-runtime-deps.mjs",
     "pack:release": "node scripts/pack-release.mjs",
     "check": "tsx scripts/check-electron-free.ts && tsx scripts/check-bundle.ts",
     "start": "node dist/server.mjs",

@@ -6636,9 +6636,37 @@ html[data-theme="dark"] .weq-ark-contact-avatar { background: rgba(255, 255, 255
 html[data-theme="dark"] .weq-ark-contact-name { color: var(--weq-fg-primary); }
 html[data-theme="dark"] .weq-ark-contact-sub { color: var(--weq-fg-muted); }
 
+/* ---- 聊天文本里的链接 ---- 用 <button> 而不是 <a>（地址来自不可信的聊天文本，
+   不能让它变成一个真能导航的 href），所以要把按钮的默认外观全部抹掉。 */
+.qq-link {
+  all: unset;
+  color: #1479ff;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  word-break: break-all;
+}
+.qq-link:hover { color: #0f5fd0; }
+html[data-theme="dark"] .qq-link { color: #4ea1ff; }
+html[data-theme="dark"] .qq-link:hover { color: #7cbaff; }
+
+/* 链接卡片：复用 ark 卡片的外壳，只调几处间距 + 页脚图标。 */
+.weq-link-card .weq-link-desc { margin-bottom: 0; }
+.weq-link-footer-icon { flex-shrink: 0; }
+
+/* 卡片挂在气泡下方（同语音转录）：原文的蓝链接始终看得见，卡片只是附加信息。
+   卡片自带白底/边框，压在我方的强调色气泡上也读得清，不用另配色。 */
+.message-content.qq-has-linkcard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.message-content.qq-has-linkcard .weq-link-card { max-width: 280px; }
+/* 我方气泡是强调色，链接文本得跟着翻白才看得见。 */
+.message-line.mine .message-content.qq-has-linkcard .qq-link { color: #ffffff; }
+
 /* ---- Ark 卡片深色模式 ---- The demo only ships light colors; map them onto the
-   theme tokens so the structured card reads correctly on the dark canvas. */
-html[data-theme="dark"] .weq-ark-container {
+   theme tokens so the structured card reads correctly on the dark canvas. */html[data-theme="dark"] .weq-ark-container {
   background: var(--weq-bg-surface);
   border-color: var(--weq-border-subtle);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);

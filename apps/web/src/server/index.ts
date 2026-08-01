@@ -71,6 +71,9 @@ function resolveToken(): string {
 
 async function main(): Promise<void> {
   initLogger(DATA_DIR);
+  // The native addon writes its own log through a separate path that would
+  // otherwise default to `<cwd>/logs`, dropping files into the release bundle.
+  process.env.WEQ_LOG_DIR ??= join(DATA_DIR, 'logs');
 
   const token = resolveToken();
   const generated = !process.env.WEQ_TOKEN?.trim();

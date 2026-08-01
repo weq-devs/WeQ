@@ -367,6 +367,44 @@ export const bootstrapRouter = router({
       return true;
     }),
 
+  /**
+   * 聊天里裸链接的展示方式。`enabled` 关掉后只做蓝色下划线、不出网；`screenshot`
+   * 决定页面没有 og:image 时要不要用离屏窗口截一张。纯持久化。
+   */
+  setLinkPreview: procedure
+    .input(z.object({ enabled: z.boolean().optional(), screenshot: z.boolean().optional() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ linkPreview: input });
+      return true;
+    }),
+
+  /**
+   * 取一条链接的预览卡片（标题/描述/站点/封面）。抓取全程带 SSRF 闸门 —— 只放行
+   * 公网 http(s) 的 80/443，重定向逐跳复检，正文只收 text/html（对方给二进制时
+   * body 根本不读）。结果按 URL 落盘缓存，命中不出网。不可预览返回 null。
+   */
+  linkPreview: procedure
+    .input(z.object({ url: z.string().trim().max(2048) }))
+    .query(async ({ input }) => {
+      const boot = requireBootstrap();
+      if (!boot.userConfig.getSettings().linkPreview.enabled) return null;
+      return boot.linkPreview.get(input.url);
+    }),
+
+  /**
+   * 只落一张封面图（不抓页面），返回 `weq-media://linkpreview?id=` 用的缓存 id。
+   * 给「QQ 自己已经把标题/封面存在消息里」的那条路用 —— 元数据本地就有，缺的只是
+   * 图的字节。走的是抓取路径同一个闸门（公网 http(s) 80/443、魔数校验、大小上限），
+   * 因为这个 URL 一样来自不可信的聊天消息。拿不到返回空串。
+   */
+  linkCover: procedure
+    .input(z.object({ url: z.string().trim().max(2048) }))
+    .query(async ({ input }) => {
+      const boot = requireBootstrap();
+      if (!boot.userConfig.getSettings().linkPreview.enabled) return '';
+      return boot.linkPreview.cacheCover(input.url);
+    }),
+
   // ---- MCP server (account-bound) ----
 
   /**

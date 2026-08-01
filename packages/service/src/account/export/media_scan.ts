@@ -98,6 +98,8 @@ export interface MediaRef {
   expired: boolean;
   /** Resolved absolute path once matched; null while missing. */
   path: string | null;
+  /** ptt only: transcript already stored on the element (wire tag 45923), if any. */
+  transcript?: string;
 }
 
 export interface KindCounts {
@@ -241,6 +243,7 @@ function collectFromElements(
     let uploadTimestamp = 0;
     let fileTTL = 0;
     let expireTimestamp = 0;
+    let transcript = '';
     switch (el.type) {
       case 'pic':
         kind = el.data.subType === 1 ? 'emoji' : 'pic';
@@ -267,6 +270,7 @@ function collectFromElements(
         uploadTime = el.data.uploadTime;
         uploadTimestamp = el.data.uploadTimestamp;
         fileTTL = el.data.fileTTL;
+        transcript = el.data.pttTranscript ?? '';
         break;
       case 'file':
         kind = 'file';
@@ -297,6 +301,7 @@ function collectFromElements(
       expiresAt: computeExpiry(kind, uploadTime, uploadTimestamp, fileTTL, expireTimestamp),
       expired: false,
       path: null,
+      ...(transcript ? { transcript } : {}),
     });
   }
 }

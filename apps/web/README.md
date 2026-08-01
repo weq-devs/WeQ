@@ -18,9 +18,14 @@
 从 [Releases](../../releases) 下载 `weq-web-<版本>.tar.gz`，解压后：
 
 ```bash
-npm install --omit=dev    # 装 3 个依赖，约 10 秒
-node server.mjs
+# Linux（建议 root，原因见下）
+sudo ./start.sh
+
+# Windows：双击 start.bat 即可
 ```
+
+依赖已随包预装，无需联网 `npm install`。启动脚本会先检查 Node 是否存在、
+版本是否 ≥ 22，缺失时给出安装指引。想手动启动就 `node server.mjs`。
 
 终端会打印地址和访问令牌：
 
@@ -34,6 +39,14 @@ node server.mjs
 
 一个压缩包同时支持 **Windows x64 / Linux x64 / Linux arm64**，启动时按当前平台
 自动选择 `native/` 下对应的原生模块。
+
+### Linux 为什么建议 root
+
+取密钥要往运行中的 QQ 进程里注入 hook，这需要 `ptrace` 权限。非 root 时会
+退回 `pkexec` 图形授权 —— 而无桌面环境的服务器根本弹不出授权框，只会报
+`pkexec 无法启动`。root 运行则直接在进程内注入，不经过 pkexec。
+
+（桌面版没有这个选项：Electron 拒绝以 root 运行，所以只能走 pkexec。）
 
 ---
 
@@ -49,6 +62,10 @@ node server.mjs
 | `WEQ_EXPORT_DIR` | `./weq-exports` | 导出文件落盘目录 |
 | `WEQ_DATA_DIR` | `./weq-data` | 日志目录 |
 | `WEQ_NATIVE_DIR` | 随包的 `native/` | 原生模块目录（一般不用管） |
+| `WEQ_QQ_EXE` | 自动探测 | QQ 可执行文件路径。装在非常规位置时手动指定 |
+
+Linux 会依次探测 `/opt/QQ/qq`、`/usr/share/QQ/qq`、`/usr/lib/QQ/qq`、
+`~/NapCat/opt/QQ/qq`；都不匹配时用 `WEQ_QQ_EXE` 指过去。
 
 固定令牌的例子：
 

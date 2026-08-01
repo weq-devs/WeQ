@@ -44,11 +44,15 @@ export type {
   McpServerConfig,
   WeqAssistantConfig,
   AgentLabSettings,
+  LinkPreviewConfig,
 } from './bootstrap/user_config';
 export { AgentLabConfigService } from './bootstrap/agentlab_config';
 
 export { AvatarCacheService } from './bootstrap/avatar_cache';
 export type { AvatarBlob } from './bootstrap/avatar_cache';
+
+export { LinkPreviewService } from './bootstrap/link_preview';
+export type { LinkPreview, ScreenshotHook } from './bootstrap/link_preview';
 
 export { GlobalConfigService } from './bootstrap/global_config';
 export type {
@@ -155,6 +159,8 @@ export { AntiRecallService } from './account/anti_recall';
 export type { AntiRecallConfig, AntiRecallStatus } from './account/anti_recall';
 export { toRenderElements } from './account/msg_view';
 export type { RenderElement, RenderTextElement } from './account/msg_view';
+// 渲染层要按这个类型读 RenderTextElement.urlVerify，从 codec 借道转出去。
+export type { UrlVerifyInfo } from '@weq/codec';
 export { MsgSearchService } from './account/msg_search';
 export { UnreadInfoService } from './account/unread_info';
 export { DbDecryptService } from './account/db_decrypt';

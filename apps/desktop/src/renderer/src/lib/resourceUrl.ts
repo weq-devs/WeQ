@@ -121,8 +121,16 @@ export function screenWidgetUrl(widgetId: string, ...segments: string[]): string
   return resourceUrl('dress', 'screen', widgetId, ...segments);
 }
 
-/** Preview a local file under `nt_data/File/Ori` by absolute path (image thumbnails). */
-export function localFileUrl(absPath: string): string {
+/**
+ * 链接卡片的封面图。`id` 是主进程落盘时给的缓存名 —— 这里刻意**不接受 URL**：
+ * 图片字节由 LinkPreviewService 抓取并验过魔数,渲染层只能取已缓存的那些,
+ * 不能拿这条协议当任意 URL 的代理。
+ */
+export function linkPreviewImageUrl(id: string): string {
+  return mediaUrl('linkpreview', { id });
+}
+
+/** Preview a local file under `nt_data/File/Ori` by absolute path (image thumbnails). */export function localFileUrl(absPath: string): string {
   return mediaUrl('localfile', { path: absPath });
 }
 

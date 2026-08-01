@@ -222,6 +222,11 @@ export async function decodeFoundVoices(
  * each voice file name → recognized text. Concurrency is kept low because each
  * call forks a native sherpa-onnx worker (CPU-heavy). The JSON is written even
  * when there are no voices (an empty map), so the artifact is always present.
+ *
+ * Clips that already carry a transcript on the element (wire tag 45923 — QQ's
+ * own 转文字, or a previous WeQ run that wrote back) are reused as-is and never
+ * re-recognized. `onTranscribed` persists a fresh result back onto the element
+ * so the next export skips it too.
  */
 export async function transcribeFoundVoices(
   scan: MediaScanResult,
@@ -229,26 +234,38 @@ export async function transcribeFoundVoices(
   transcribe: TranscribeVoiceFn,
   onProgress?: StageProgress,
   concurrency = 2,
+  onTranscribed?: (ref: MediaRef, text: string) => Promise<void>,
 ): Promise<MediaStageResult> {
-  const items = scan.found.filter((ref) => ref.kind === 'ptt' && ref.path);
-  const result: MediaStageResult = { total: items.length, ok: 0, failed: 0 };
+  const voices = scan.found.filter((ref) => ref.kind === 'ptt');
   const transcripts: Record<string, string> = {};
+  for (const ref of voices) {
+    if (ref.transcript) transcripts[ref.fileName] = ref.transcript;
+  }
+
+  const items = voices.filter((ref) => ref.path && !ref.transcript);
+  const cached = voices.length - items.length;
+  const result: MediaStageResult = { total: voices.length, ok: cached, failed: 0 };
 
   const flush = async (): Promise<void> => {
     await writeFile(join(bundleDir, TRANSCRIPTS_FILE), JSON.stringify(transcripts, null, 2), 'utf-8');
   };
   if (items.length === 0) {
     await flush();
+    onProgress?.(result.total, result.total);
     return result;
   }
 
-  let done = 0;
+  let done = cached;
+  onProgress?.(done, result.total);
   await runWithConcurrency(items, concurrency, async (ref) => {
     try {
       const r = await transcribe(ref.path!);
       if (r.ok) {
-        transcripts[ref.fileName] = r.text ?? '';
+        const text = r.text ?? '';
+        transcripts[ref.fileName] = text;
         result.ok += 1;
+        // Best-effort back-write; a DB failure must not fail the stage.
+        if (onTranscribed) await onTranscribed(ref, text).catch(() => undefined);
       } else {
         result.failed += 1;
         result.failures = pushFailure(result.failures, {
@@ -266,7 +283,7 @@ export async function transcribeFoundVoices(
       });
     } finally {
       done += 1;
-      onProgress?.(done, items.length);
+      onProgress?.(done, result.total);
     }
   });
 

@@ -352,7 +352,7 @@ export function QqOnlineFile({ data, kind }: { data: Data; kind: 'file' | 'folde
 
 // ---- voice (ptt) --------------------------------------------------------
 
-export function QqVoice({ data, sendTimeMs }: { data: Data; sendTimeMs: number }) {
+export function QqVoice({ data, sendTimeMs, msgId }: { data: Data; sendTimeMs: number; msgId: string }) {
   const name = str(data, 'fileName');
   const token = str(data, 'fileToken');
   const waveform = Array.isArray(data.waveform) ? (data.waveform as number[]) : [];
@@ -375,6 +375,9 @@ export function QqVoice({ data, sendTimeMs }: { data: Data; sendTimeMs: number }
   });
   const canTranscribe = Boolean(settings.data?.voiceTranscribe.modelId);
   const transcribe = trpc.account.transcribeVoice.useMutation();
+  // A transcript already on the element (wire tag 45923) — written either by
+  // QQ's own 转文字 or by a previous WeQ run, which writes back to the same field.
+  const storedTranscript = str(data, 'pttTranscript');
   const [transcript, setTranscript] = useState<string | null>(null);
   const [transcribeError, setTranscribeError] = useState<string | null>(null);
 
@@ -410,7 +413,7 @@ export function QqVoice({ data, sendTimeMs }: { data: Data; sendTimeMs: number }
     if (transcribe.isLoading) return;
     setTranscribeError(null);
     transcribe
-      .mutateAsync({ t: sendTimeMs, name, token })
+      .mutateAsync({ t: sendTimeMs, name, token, msgId })
       .then((res) => {
         if (res.success) setTranscript(res.text ?? '');
         else setTranscribeError(res.error ?? '识别失败');
@@ -424,7 +427,8 @@ export function QqVoice({ data, sendTimeMs }: { data: Data; sendTimeMs: number }
   // wave area also clips as a hard safety net; see .qq-media-voice-wave).
   const barCount = Math.max(12, Math.min(28, 8 + Math.round(seconds)));
   const bars = sampleBars(waveform, barCount);
-  const hasResult = transcript !== null || transcribeError !== null;
+  const shownTranscript = transcript ?? (storedTranscript || null);
+  const hasResult = shownTranscript !== null || transcribeError !== null;
 
   return (
     <div className="qq-voice-wrap">
@@ -474,7 +478,7 @@ export function QqVoice({ data, sendTimeMs }: { data: Data; sendTimeMs: number }
 
       {hasResult ? (
         <div className={cn('qq-voice-transcript', transcribeError && 'is-error')}>
-          {transcribeError ?? (transcript ? transcript : '（未识别到内容）')}
+          {transcribeError ?? (shownTranscript ? shownTranscript : '（未识别到内容）')}
         </div>
       ) : null}
     </div>

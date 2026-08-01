@@ -19,7 +19,7 @@ import { VideoLightbox } from './components/VideoLightbox';
 import { MarketFaceLightbox } from './components/MarketFaceLightbox';
 import { ForwardWindowHost } from './components/ForwardWindow';
 import { AppLockOverlay } from './components/AppLockOverlay';
-import { TextMarkdownContext } from './components/QqMessageContent';
+import { TextMarkdownContext, LinkPreviewContext } from './components/QqMessageContent';
 import { SelfPendantContext } from './hooks/useSelfPendant';
 import { WarmupSplash } from './components/WarmupSplash';
 import { trpc } from './trpc/client';
@@ -30,7 +30,7 @@ import { usePrivacyStore } from './state/privacy';
 import { useAccountSwitch } from './state/accountSwitch';
 
 /**
- * 把「纯文本消息渲染 Markdown」开关广播给所有消息气泡。
+ * 把两个「气泡渲染」开关广播给所有消息气泡：纯文本 Markdown、链接预览卡片。
  *
  * 查询只在这一层做一次——QqMessageContent 每条消息一个实例，让它们各自 useQuery 会挂
  * 几百个订阅。必须包住 ForwardWindowHost（它在 MainView 之外，转发窗口里的气泡同样
@@ -44,7 +44,9 @@ function TextMarkdownProvider({ children }: { children: ReactNode }): ReactEleme
   });
   return (
     <TextMarkdownContext.Provider value={settings.data?.renderTextMarkdown ?? true}>
-      {children}
+      <LinkPreviewContext.Provider value={settings.data?.linkPreview?.enabled ?? true}>
+        {children}
+      </LinkPreviewContext.Provider>
     </TextMarkdownContext.Provider>
   );
 }

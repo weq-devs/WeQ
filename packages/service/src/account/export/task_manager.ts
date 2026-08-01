@@ -634,11 +634,15 @@ export class ExportTaskManager extends EventEmitter {
       if (wantTranscribe && transcribe && scan) {
         const found = scan;
         jobs.push(async () => {
-          const voices = found.found.filter((r) => r.kind === 'ptt' && r.path);
+          const voices = found.found.filter((r) => r.kind === 'ptt');
           this.touchStage(task, 'transcribe', { status: 'running', total: voices.length, current: 0, note: `转写 0/${voices.length}` }, { persist: true });
           const r = await transcribeFoundVoices(found, outDir, transcribe, (done, total) => {
             if (aborted()) return;
             this.touchStage(task, 'transcribe', { current: done, total, note: `转写 ${done}/${total}` });
+          }, 2, async (ref, text) => {
+            // Cache the result on the element (wire tag 45923) so this clip is
+            // skipped on any later export — and shows up in chat right away.
+            await this.msgs.setPttTranscript(BigInt(ref.msgId), ref.fileName, text);
           });
           this.touchStage(task, 'transcribe', { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已转写 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`, ...(r.failures ? { failures: r.failures } : {}) }, { persist: true });
         });
