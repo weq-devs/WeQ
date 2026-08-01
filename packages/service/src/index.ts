@@ -44,11 +44,15 @@ export type {
   McpServerConfig,
   WeqAssistantConfig,
   AgentLabSettings,
+  LinkPreviewConfig,
 } from './bootstrap/user_config';
 export { AgentLabConfigService } from './bootstrap/agentlab_config';
 
 export { AvatarCacheService } from './bootstrap/avatar_cache';
 export type { AvatarBlob } from './bootstrap/avatar_cache';
+
+export { LinkPreviewService } from './bootstrap/link_preview';
+export type { LinkPreview, ScreenshotHook } from './bootstrap/link_preview';
 
 export { GlobalConfigService } from './bootstrap/global_config';
 export type {

@@ -40,6 +40,7 @@ import {
   Win32KeyService,
   GlobalConfigService,
   AvatarCacheService,
+  LinkPreviewService,
   AgentLabConfigService,
   VoiceTranscribeService,
   TtsService,
@@ -339,6 +340,8 @@ export interface BootstrapServices {
   userConfig: UserConfigService;
   globalConfig: GlobalConfigService;
   avatarCache: AvatarCacheService;
+  /** 聊天里裸链接 → og 卡片（抓取带 SSRF 闸门，见 service 侧）。Account-independent。 */
+  linkPreview: LinkPreviewService;
   agentLabConfig: AgentLabConfigService;
   /** Voice-transcription model management (download/select). Account-independent. */
   voiceTranscribe: VoiceTranscribeService;
@@ -592,12 +595,15 @@ export function initAppContext(): AppContext {
       ? createLinuxInjectHook(platform.native.ntHelper, userConfig)
       : createDirectInjectHook(platform.native.ntHelper);
 
+  const linkPreview = new LinkPreviewService(userConfig);
+
   const bootstrap: BootstrapServices = {
     detect: new Win32DetectService(platform, stubHooks),
     keys: new Win32KeyService(platform, stubHooks),
     userConfig,
     globalConfig: new GlobalConfigService(platform, userConfig),
     avatarCache: new AvatarCacheService(platform, userConfig),
+    linkPreview,
     agentLabConfig: new AgentLabConfigService(userConfig),
     voiceTranscribe: new VoiceTranscribeService(platform),
     tts: new TtsService(),

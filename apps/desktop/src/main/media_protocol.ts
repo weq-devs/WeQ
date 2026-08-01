@@ -24,6 +24,7 @@
  *   weq-media://dressfont?id=<itemId>                         → 已安装的装扮字体 ttf
  *   weq-media://dressbubble?id=<itemId>                       → 走 protocol 装的气泡九宫格(本地 PNG)
  *   weq-media://dressbg?v=<stamp>                             → 用户自选的聊天背景(本地图)
+ *   weq-media://linkpreview?id=<hash.ext>                     → 链接卡片封面(已落盘、验过魔数)
  *
  * Like the other custom schemes: `registerMediaScheme()` runs before app
  * `ready`; `registerMediaProtocol()` runs after.
@@ -226,6 +227,18 @@ export function handleMediaRequest(request: Request): Promise<Response> {
         console.error('[media] dress failed:', e);
         return new Response('media error', { status: 500 });
       }
+    }
+
+    // 链接卡片的封面图：字节是 LinkPreviewService 抓来验过魔数后落的盘,只按 id 取,
+    // 不接受 url —— 渲染层无法用它当任意 URL 的代理。同样不需要打开的账号。
+    if (kind === 'linkpreview') {
+      const svc = getAppContext().bootstrap?.linkPreview;
+      const blob = svc ? await svc.readImage(q.get('id') ?? '') : null;
+      if (!blob) return notFound('link preview image not found');
+      return new Response(new Uint8Array(blob.data), {
+        status: 200,
+        headers: { 'Content-Type': blob.contentType, 'Cache-Control': 'public, max-age=86400' },
+      });
     }
 
     const services = getAppContext().services;

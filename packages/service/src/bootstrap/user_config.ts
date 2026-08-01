@@ -159,6 +159,14 @@ export interface AgentLabSettings {
  */
 export type WindowCloseBehavior = 'ask' | 'tray' | 'quit';
 
+/** 聊天里裸链接的展示方式（见 bootstrap/link_preview.ts）。 */
+export interface LinkPreviewConfig {
+  /** 整条消息只有一个链接时，抓取 og 元信息渲染成卡片。关掉则只做蓝色下划线。 */
+  enabled: boolean;
+  /** 页面没有 og:image 时，用离屏窗口截一张网页图当封面。默认关——它要真的把页面跑起来。 */
+  screenshot: boolean;
+}
+
 export interface AppSettings {
   realtimeEnabled: boolean;
   mediaCompletion: MediaCompletionConfig;
@@ -186,6 +194,7 @@ export interface AppSettings {
    * 每条消息一次网络往返不现实。默认开启，没挂件时该开关无副作用。
    */
   showAvatarPendant: boolean;
+  linkPreview: LinkPreviewConfig;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -203,6 +212,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   windowCloseBehavior: 'ask',
   renderTextMarkdown: true,
   showAvatarPendant: true,
+  linkPreview: { enabled: true, screenshot: false },
 };
 
 export interface UserConfig {
@@ -420,6 +430,10 @@ export class UserConfigService {
       windowCloseBehavior: normalizeWindowCloseBehavior(s?.windowCloseBehavior) ?? d.windowCloseBehavior,
       renderTextMarkdown: s?.renderTextMarkdown ?? d.renderTextMarkdown,
       showAvatarPendant: s?.showAvatarPendant ?? d.showAvatarPendant,
+      linkPreview: {
+        enabled: s?.linkPreview?.enabled ?? d.linkPreview.enabled,
+        screenshot: s?.linkPreview?.screenshot ?? d.linkPreview.screenshot,
+      },
       mediaCompletion: {
         enabled: s?.mediaCompletion?.enabled ?? d.mediaCompletion.enabled,
       },
@@ -452,6 +466,10 @@ export class UserConfigService {
         normalizeWindowCloseBehavior(patch.windowCloseBehavior) ?? current.windowCloseBehavior,
       renderTextMarkdown: patch.renderTextMarkdown ?? current.renderTextMarkdown,
       showAvatarPendant: patch.showAvatarPendant ?? current.showAvatarPendant,
+      linkPreview: {
+        enabled: patch.linkPreview?.enabled ?? current.linkPreview.enabled,
+        screenshot: patch.linkPreview?.screenshot ?? current.linkPreview.screenshot,
+      },
       mediaCompletion: {
         enabled: patch.mediaCompletion?.enabled ?? current.mediaCompletion.enabled,
       },

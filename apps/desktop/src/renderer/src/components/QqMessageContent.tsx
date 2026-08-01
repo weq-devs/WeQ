@@ -30,6 +30,8 @@ import { QqCall } from './QqCall';
 import { QqShareLocation } from './QqShareLocation';
 import { QqDynamic } from './QqDynamic';
 import { QqEmojiBounce } from './QqEmojiBounce';
+import { QqLinkCard } from './QqLinkCard';
+import { splitLinks, soleLink, openLink } from '../lib/linkify';
 import { cn } from '@renderer/lib/utils';
 
 /**
@@ -73,6 +75,13 @@ export const ConvContext = createContext<string>('');
  * 默认 true，与 DEFAULT_APP_SETTINGS 一致，settings 还没加载完时不会闪成关。
  */
 export const TextMarkdownContext = createContext<boolean>(true);
+
+/**
+ * 「整条消息只有一个链接时出预览卡片」开关（AppSettings.linkPreview.enabled）。
+ * 同 {@link TextMarkdownContext} 走 context 的理由——每条气泡一个实例，不能各自订阅。
+ * 关掉后链接仍会标蓝可点，只是不再抓取远端页面（也就完全不出网）。
+ */
+export const LinkPreviewContext = createContext<boolean>(true);
 
 /** Element kinds that render as standalone, borderless media (no bubble). */
 const BORDERLESS_MEDIA = new Set(['pic', 'video', 'mface']);
@@ -249,7 +258,36 @@ function ElementNode({
     );
   }
   const text = inlineLabel(element);
-  return text ? <span>{text}</span> : null;
+  if (!text) return null;
+  // 纯文本里的链接标蓝加下划线并可点开（走系统浏览器，见 lib/linkify）。用 <button>
+  // 而不是 <a href>：真 href 一旦被中键/拖拽触发就会在应用内导航，而这里的地址来自
+  // 完全不可信的聊天文本。
+  const parts = splitLinks(text);
+  if (parts.length === 1 && parts[0]!.kind === 'text') return <span>{text}</span>;
+  return (
+    <span>
+      {parts.map((part, i) =>
+        part.kind === 'link' ? (
+          <button
+            // biome-ignore lint/suspicious/noArrayIndexKey: 按位置切分,无稳定唯一键
+            key={`lk-${i}`}
+            type="button"
+            className="qq-link"
+            title={part.href}
+            onClick={(e) => {
+              e.stopPropagation();
+              openLink(part.href);
+            }}
+          >
+            {part.text}
+          </button>
+        ) : (
+          // biome-ignore lint/suspicious/noArrayIndexKey: 按位置切分,无稳定唯一键
+          <span key={`tx-${i}`}>{part.text}</span>
+        ),
+      )}
+    </span>
+  );
 }
 
 /**
@@ -502,6 +540,7 @@ export function QqMessageContent({
   const arkElement = elements.find((element) => element.type === 'ark');
   const forwardKind = useContext(ForwardKindContext);
   const textMarkdownOn = useContext(TextMarkdownContext);
+  const linkPreviewOn = useContext(LinkPreviewContext);
   if (arkElement && isArkMultiMsg(arkElement.data?.arkData)) {
     return (
       <div className={cn('message-content', 'qq-card-only', 'qq-has-forward')}>
@@ -666,6 +705,21 @@ export function QqMessageContent({
       return (
         <div className={cn('message-content', 'qq-message-inline')}>
           <MediaNode element={lone} sendTimeMs={sendTimeMs} msgId={msgId} />
+        </div>
+      );
+    }
+  }
+
+  // 整条消息**只是**一个链接 → 出一张预览卡（标题/描述/封面/站点）。混了别的文字就
+  // 不出卡，那种消息里链接只是句子的一部分，行内标蓝就够了。抓取失败或开关关掉时
+  // QqLinkCard 自己退回成一条普通蓝链接。
+  if (linkPreviewOn && meaningful.length > 0 && meaningful.every((element) => element.type === 'text')) {
+    const body = meaningful.map((element) => String(element.data?.textContent ?? '')).join('');
+    const only = soleLink(body);
+    if (only) {
+      return (
+        <div className={cn('message-content', 'qq-has-ark')}>
+          <QqLinkCard url={only} />
         </div>
       );
     }

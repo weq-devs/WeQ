@@ -33,7 +33,7 @@ import {
 } from '@weq/service';
 import { electronHost } from './host';
 import { systemAuthService } from './system_auth';
-
+import { screenshotPage } from './link_shot';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Privileged-scheme registration must happen before app `ready`, and Electron
@@ -474,6 +474,9 @@ void app.whenReady().then(async () => {
   setHost(electronHost);
   installUpdateActions();
   initAppContext();
+  // 链接卡片抓不到 og:image 时的兜底封面。截图要跑一个真浏览器，服务层不认识
+  // Electron，所以实现在这里注入（app_context 保持 Electron-free，web 端共用它）。
+  getAppContext().bootstrap?.linkPreview.setScreenshotHook(screenshotPage);
   logger.info('electron app ready', { event: 'app-ready' });
 
   registerResourceProtocol();
