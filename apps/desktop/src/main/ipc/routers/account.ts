@@ -2349,9 +2349,18 @@ export const accountRouter = router({
    * Returns `{ success:false, error }` for every failure mode (no model chosen,
    * model not downloaded, silk missing, decode/engine error) so the bubble can
    * show a friendly message instead of throwing.
+   *
+   * On success the text is written back onto the element's `pttTranscript`
+   * (wire tag 45923) when `msgId` is supplied — the same field QQ's own 转文字
+   * fills in, so the result survives a reload and QQ itself shows it.
    */
   transcribeVoice: procedure
-    .input(z.object({ t: z.number(), name: z.string(), token: z.string().default('') }))
+    .input(z.object({
+      t: z.number(),
+      name: z.string(),
+      token: z.string().default(''),
+      msgId: z.string().default(''),
+    }))
     .mutation(async ({ input }): Promise<{ success: boolean; text?: string; error?: string }> => {
       const ctx = getAppContext();
       const boot = ctx.bootstrap;
@@ -2393,6 +2402,13 @@ export const accountRouter = router({
         { engine: model.engine, languages: model.languages },
       );
       if (!result.success) return { success: false, error: result.error ?? '识别失败' };
-      return { success: true, text: result.text ?? '' };
+      const text = result.text ?? '';
+      if (input.msgId) {
+        // Best-effort: a failed back-write must not lose the text we just got.
+        await services.msgs
+          .setPttTranscript(BigInt(input.msgId), input.name, text)
+          .catch(() => false);
+      }
+      return { success: true, text };
     }),
 });

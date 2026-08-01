@@ -269,6 +269,38 @@ export class MsgService {
   }
 
   /**
+   * Write a voice transcript back onto the message's ptt element (wire tag
+   * 45923) — the same field QQ's own 「转文字」fills in, so QQ reads it too and
+   * a re-export skips the clip.
+   *
+   * `fileName` picks the ptt element when a message carries several. Returns
+   * false when the row / element isn't found, or when the value is unchanged.
+   */
+  async setPttTranscript(msgId: bigint, fileName: string, text: string): Promise<boolean> {
+    const { decodeBody } = await import('@weq/db');
+    for (const db of [this.session.c2cMsgs, this.session.datalineMsgs, this.session.groupMsgs] as const) {
+      const blob = await db.getMsgBody(msgId);
+      if (!blob) continue;
+      const elements = decodeBody(blob);
+      const ptt = elements.find(
+        (el): el is Extract<Element, { kind: 'ptt' }> =>
+          el.kind === 'ptt' && (!fileName || el.fileName === fileName),
+      );
+      if (!ptt || ptt.pttTranscript === text) return false;
+      ptt.pttTranscript = text;
+      // 45924 rides along with every QQ-written transcript (always 1 wherever
+      // observed), so mirror it — otherwise QQ may not treat the text as ready.
+      ptt.pttFlag45924 = 1;
+      const affected = await db.updateMsgBody(
+        msgId,
+        bodyCodec.encode({ elements: elements.map(encodeElement) }),
+      );
+      return affected > 0;
+    }
+    return false;
+  }
+
+  /**
    * Delete a message the way QQ itself does: rewrite the type columns
    * 40011/40012 to `(1,1)` in place (verified against a live QQ delete — those
    * are the ONLY two columns QQ touches; the 40800 body stays intact). The row

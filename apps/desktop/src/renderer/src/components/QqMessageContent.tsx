@@ -178,7 +178,7 @@ function MediaNode({
     case 'file':
       return <QqFile data={data} sendTimeMs={sendTimeMs} msgId={msgId} conv={conv} />;
     case 'ptt':
-      return <QqVoice data={data} sendTimeMs={sendTimeMs} />;
+      return <QqVoice data={data} sendTimeMs={sendTimeMs} msgId={msgId} />;
     case 'mface':
       return <QqMarketFace data={data} />;
     case 'onlineFile':
