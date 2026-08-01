@@ -5,7 +5,9 @@
  * compression cost — only the release workflow calls this.
  *
  * One archive covers every platform: `native/` ships all three platform/arch
- * subtrees and the loader picks the right one at runtime.
+ * subtrees and the loader picks the right one at runtime. `node_modules` is
+ * shipped pre-installed (see `install-runtime-deps.mjs`) so an offline server
+ * can start straight out of the tarball.
  *
  *   node scripts/pack-release.mjs [version]
  */
@@ -24,9 +26,20 @@ const version =
   process.argv[2]?.replace(/^v/, '') ??
   JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf8')).version;
 
-for (const entry of ['server.mjs', 'public', 'native', 'resources', 'package.json']) {
+for (const entry of [
+  'server.mjs',
+  'injectWorker.mjs',
+  'transcribeWorker.mjs',
+  'start.sh',
+  'start.bat',
+  'public',
+  'native',
+  'resources',
+  'node_modules',
+  'package.json',
+]) {
   if (existsSync(join(dist, entry))) continue;
-  console.error(`dist/${entry} missing — run \`pnpm build\` first`);
+  console.error(`dist/${entry} missing — run \`pnpm build && pnpm deps\` first`);
   process.exit(1);
 }
 
@@ -44,11 +57,16 @@ const fd = openSync(archive, 'w');
 const res = spawnSync(
   'tar',
   [
-    // Skip anything a local run may have left in dist/.
-    '--exclude=./node_modules',
+    // Runtime droppings from a local run or the pre-pack smoke test. `logs/`
+    // is the native addon's own log dir, which lands in cwd unless WEQ_LOG_DIR
+    // says otherwise — belt and braces, since the smoke test now sets it.
     '--exclude=./weq-exports',
     '--exclude=./weq-data',
+    '--exclude=./logs',
     '--exclude=./package-lock.json',
+    // node_modules IS shipped (pre-installed), but npm's own metadata isn't.
+    '--exclude=./node_modules/.package-lock.json',
+    '--exclude=./node_modules/.bin',
     '-czf',
     '-',
     '-C',

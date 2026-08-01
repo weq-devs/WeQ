@@ -10,12 +10,16 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = resolve(here, '../dist');
+
+/** Scratch dir for the run's logs/exports, so dist/ stays exactly as built. */
+const smokeScratch = mkdtempSync(join(tmpdir(), 'weq-smoke-'));
 
 const TOKEN = 'smoke-dist-token';
 const PORT = 39955;
@@ -26,7 +30,16 @@ function check(ok: boolean, label: string): void {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${label}`);
 }
 
-for (const entry of ['server.mjs', 'public/index.html', 'native', 'resources']) {
+for (const entry of [
+  'server.mjs',
+  'injectWorker.mjs',
+  'transcribeWorker.mjs',
+  'start.sh',
+  'start.bat',
+  'public/index.html',
+  'native',
+  'resources',
+]) {
   if (existsSync(join(dist, entry))) continue;
   console.error(`FAIL  dist/${entry} missing — run \`pnpm build\` first`);
   process.exit(1);
@@ -37,25 +50,39 @@ for (const platform of ['win32/x64', 'linux/x64', 'linux/arm64']) {
   check(existsSync(join(dist, 'native', platform)), `native/${platform} shipped (universal)`);
 }
 
-// The bundle keeps native-loading packages external, so a release needs the
-// same `npm install` the README tells users to run. Do it here, both to test
-// that instruction and because the server won't start without it.
+// The release ships node_modules pre-installed. If a local build skipped that
+// step, run it here — the server won't start without it.
 if (!existsSync(join(dist, 'node_modules'))) {
-  console.log('installing runtime deps into dist/ (as the README instructs)…');
-  const install = spawnSync('npm', ['install', '--omit=dev', '--no-audit', '--no-fund'], {
-    cwd: dist,
+  console.log('installing runtime deps into dist/…');
+  const install = spawnSync(process.execPath, [join(here, 'install-runtime-deps.mjs')], {
     stdio: 'inherit',
-    shell: true,
   });
   if (install.status !== 0) {
-    console.error('FAIL  npm install in dist/ failed');
+    console.error('FAIL  runtime dep install failed');
     process.exit(1);
   }
 }
 
+// resvg picks its binding by platform at require() time, so the universal
+// archive has to carry one per platform we claim to support.
+for (const binding of [
+  '@resvg/resvg-js-win32-x64-msvc',
+  '@resvg/resvg-js-linux-x64-gnu',
+  '@resvg/resvg-js-linux-arm64-gnu',
+]) {
+  check(existsSync(join(dist, 'node_modules', binding)), `${binding} shipped (universal)`);
+}
+
 const server = spawn(process.execPath, [join(dist, 'server.mjs')], {
   cwd: dist,
-  env: { ...process.env, WEQ_TOKEN: TOKEN, WEQ_PORT: String(PORT) },
+  env: {
+    ...process.env,
+    WEQ_TOKEN: TOKEN,
+    WEQ_PORT: String(PORT),
+    // Keep the run's droppings out of dist/, which is about to be tarballed.
+    WEQ_DATA_DIR: join(smokeScratch, 'weq-data'),
+    WEQ_EXPORT_DIR: join(smokeScratch, 'weq-exports'),
+  },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 

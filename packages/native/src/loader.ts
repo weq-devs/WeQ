@@ -263,6 +263,13 @@ function configureNtHelperLogging(ntHelper: NtHelperBinding): void {
 }
 
 function resolveNativeLogRoot(): string {
+  // Explicit override wins. Hosts that already own a data directory (the web
+  // server's WEQ_DATA_DIR) set this so the addon logs land beside the app's
+  // own logs instead of wherever the process happens to be cwd'd — which,
+  // absent this, can be the release bundle itself.
+  const override = process.env.WEQ_LOG_DIR;
+  if (override) return override;
+
   const candidates = new Set<string>();
 
   const electronAppData = process.env.APPDATA;

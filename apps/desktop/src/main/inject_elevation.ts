@@ -1,12 +1,16 @@
 /**
- * Linux privilege-escalated injection — the `InjectHook` used on linux.
+ * Linux injection — the `InjectHook` used on linux.
  *
  * The instance key/rkey/clientkey flows need a QQ process that (a) has the hook
  * injected and (b) has told the hook its MSF service address. On linux those are
  * two distinct, differently-privileged steps:
  *
- *   1. INJECT (root) — ptrace-based, so it runs in a short-lived pkexec child
- *      (`inject_worker`). A graphical polkit password dialog pops once per pid.
+ *   1. INJECT (root) — ptrace-based. Under Electron (which refuses to run as
+ *      root) this means a short-lived pkexec child (`inject_worker`), and a
+ *      graphical polkit password dialog pops once per pid. When the host is
+ *      already running as root — the web server on a headless box — we ptrace
+ *      in-process instead; pkexec would be pointless and, with no polkit agent
+ *      to authenticate against, impossible.
  *   2. WAIT-FOR-PACKET (unprivileged) — the hook only learns the service
  *      address from a genuine post-login recv packet, so no OIDB packet can be
  *      sent until one arrives. This runs here in the main process (no root).
@@ -110,17 +114,28 @@ function pkexecInject(pid: number): Promise<void> {
 }
 
 /**
- * Build the linux `InjectHook`: pkexec-elevated inject + unprivileged
- * wait-for-packet, with per-pid idempotency backed by persisted records.
+ * Build the linux `InjectHook`: inject + unprivileged wait-for-packet, with
+ * per-pid idempotency backed by persisted records.
+ *
+ * The inject half is elevated only when it has to be. Electron refuses to run
+ * as root, so the desktop app is always unprivileged and must shell out to
+ * pkexec. The web server has no such constraint and is typically run as root
+ * on a headless box — where pkexec is both unnecessary (we already have the
+ * ptrace privilege) and unusable (no graphical polkit agent to authenticate
+ * against). So when euid is 0 we ptrace in-process instead.
+ *
+ * The wait-for-packet half is unprivileged either way and always runs here.
  *
  * @param userConfig Persists inject records to config.json so a WeQ restart
  *   reuses an already-hooked, still-running QQ instead of re-injecting it.
  */
-export function createPkexecInjectHook(
+export function createLinuxInjectHook(
   nt: NtHelperBinding,
   userConfig: UserConfigService,
 ): InjectHook {
-  /** pids whose pkexec ptrace inject has completed. */
+  const isRoot = process.geteuid?.() === 0;
+
+  /** pids whose ptrace inject has completed. */
   const injected = new Set<number>();
   /** pids that are injected AND have observed a real post-login packet. */
   const ready = new Set<number>();
@@ -159,7 +174,7 @@ export function createPkexecInjectHook(
     }
   }
 
-  /** The pkexec ptrace inject half — pops the polkit dialog. Untimed by callers. */
+  /** The ptrace inject half — pops the polkit dialog unless we're already root. */
   async function doInject(pid: number): Promise<void> {
     if (injected.has(pid)) return;
     const existing = injectInflight.get(pid);
@@ -168,8 +183,16 @@ export function createPkexecInjectHook(
       return existing;
     }
     const task = (async (): Promise<void> => {
-      logger.info('injecting into qq via pkexec (root)', { event: 'inject-pkexec', pid });
-      await pkexecInject(pid);
+      if (isRoot) {
+        logger.info('injecting into qq in-process (already root)', {
+          event: 'inject-direct-root',
+          pid,
+        });
+        await nt.injectAndGetStatusEmbedded(pid);
+      } else {
+        logger.info('injecting into qq via pkexec (root)', { event: 'inject-pkexec', pid });
+        await pkexecInject(pid);
+      }
       injected.add(pid);
       // Persist so a WeQ restart reuses this hook instead of re-injecting.
       // Skip if the pid vanished between inject and stat (record would be junk).

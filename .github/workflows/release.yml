@@ -256,6 +256,11 @@ jobs:
       - name: Build + guards
         run: pnpm --filter @weq/web build
 
+      # 把 ws / resvg 预装进 dist/node_modules 一起发布，用户解压即可运行，
+      # 不需要联网 npm install。resvg 按平台选 binding，所以三平台的都装上。
+      - name: Install runtime deps into dist/
+        run: pnpm --filter @weq/web deps
+
       # 发布前先启动打包产物验一遍，别把跑不起来的包传上去。
       - name: Smoke-test packaged server
         run: pnpm --filter @weq/web test:dist
@@ -308,7 +313,8 @@ jobs:
           - **Linux x64**: \`weQ-${TAG#v}-linux-x64.AppImage\` / \`.tar.gz\`
           - **Linux arm64（未实测）**: \`weQ-${TAG#v}-linux-arm64.AppImage\` / \`.tar.gz\`
           - **浏览器版**: \`weq-web-${TAG#v}.tar.gz\` —— 三平台通用，需自备 Node ≥22。
-            解压后 \`npm install --omit=dev && node server.mjs\`，
+            解压后 Windows 双击 \`start.bat\`、Linux 跑 \`./start.sh\`（依赖已预装）。
+            Linux 建议用 root 运行，
             详见[使用说明](https://github.com/${REPO}/blob/main/apps/web/README.md)
 
           ### 变更

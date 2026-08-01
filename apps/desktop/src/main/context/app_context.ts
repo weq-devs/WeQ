@@ -30,9 +30,9 @@ import { ensureDefaultTweets, tweetsStorePath } from '../weq_assistant/tweets';
 import { aiToolSpecs, runAiTool } from '../mcp/openai_tools';
 import { getExternalMcpHub, disposeExternalMcp } from '../mcp/external';
 import { sampleHitokoto } from '../hitokoto';
-import { pkexecStubHooks } from '../stub_elevation';
+import { linuxStubHooks } from '../stub_elevation';
 import { getQqProtocolExe } from './qq_protocol_cache';
-import { createPkexecInjectHook } from '../inject_elevation';
+import { createLinuxInjectHook } from '../inject_elevation';
 import {
   accountConfigId,
   UserConfigService,
@@ -578,16 +578,18 @@ export function initAppContext(): AppContext {
   }
 
   // Linux drops a ninebird entry stub into QQ's root-owned resources/app, so
-  // it needs a pkexec-elevated writer. Windows uses the fs default (undefined).
-  const stubHooks = process.platform === 'linux' ? pkexecStubHooks : undefined;
+  // it needs an elevated writer unless the host is already root. Windows uses
+  // the fs default (undefined).
+  const stubHooks = process.platform === 'linux' ? linuxStubHooks : undefined;
 
-  // Injecting the hook into a running QQ needs root (ptrace) on linux, so it
-  // goes through a pkexec child + a wait-for-packet step; other platforms
-  // inject in-process. One shared instance so its per-pid idempotency spans the
-  // bootstrap router and every account monitor.
+  // Injecting the hook into a running QQ needs root (ptrace) on linux, and the
+  // hook must then observe a real post-login packet before it can send; both
+  // halves live in the linux hook. Other platforms inject in-process with no
+  // wait. One shared instance so its per-pid idempotency spans the bootstrap
+  // router and every account monitor.
   const injectHook: InjectHook =
     process.platform === 'linux'
-      ? createPkexecInjectHook(platform.native.ntHelper, userConfig)
+      ? createLinuxInjectHook(platform.native.ntHelper, userConfig)
       : createDirectInjectHook(platform.native.ntHelper);
 
   const bootstrap: BootstrapServices = {
