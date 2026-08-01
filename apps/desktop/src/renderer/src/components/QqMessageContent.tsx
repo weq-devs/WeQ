@@ -182,7 +182,7 @@ function MediaNode({
   const conv = useContext(ConvContext);
   switch (element.type) {
     case 'pic':
-      return <QqImage data={data} sendTimeMs={sendTimeMs} />;
+      return <QqImage data={data} sendTimeMs={sendTimeMs} conv={conv} />;
     case 'video':
       return <QqVideo data={data} sendTimeMs={sendTimeMs} msgId={msgId} conv={conv} />;
     case 'file':
@@ -377,20 +377,21 @@ function ReplyPreviewNode({
   element: RenderElement;
   sendTimeMs: number;
 }): ReactNode {
+  const conv = useContext(ConvContext);
   if (element.type === 'face') {
     return <FaceNode data={element.data ?? {}} size="1.4em" />;
   }
   if (element.type === 'pic') {
     return (
       <span className="qq-reply-preview-media">
-        <QqImage data={element.data ?? {}} sendTimeMs={sendTimeMs} />
+        <QqImage data={element.data ?? {}} sendTimeMs={sendTimeMs} conv={conv} />
       </span>
     );
   }
   if (element.type === 'video') {
     return (
       <span className="qq-reply-preview-media">
-        <QqVideo data={element.data ?? {}} sendTimeMs={sendTimeMs} />
+        <QqVideo data={element.data ?? {}} sendTimeMs={sendTimeMs} conv={conv} />
       </span>
     );
   }

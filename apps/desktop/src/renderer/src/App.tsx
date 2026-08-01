@@ -5,7 +5,7 @@
  * `DialogHost` 常驻挂载，承载全局错误/确认弹窗（替代原生 alert/confirm）。
  */
 
-import { useEffect, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useMemo, type ReactElement, type ReactNode } from 'react';
 import { useViewState } from './state/view';
 import { BootstrapView } from './views/BootstrapView';
 import { MainView } from './views/MainView';
@@ -21,6 +21,7 @@ import { ForwardWindowHost } from './components/ForwardWindow';
 import { AppLockOverlay } from './components/AppLockOverlay';
 import { TextMarkdownContext, LinkPreviewContext } from './components/QqMessageContent';
 import { SelfPendantContext } from './hooks/useSelfPendant';
+import { CdnContext, setPreferCdnFlag } from './lib/cdn';
 import { WarmupSplash } from './components/WarmupSplash';
 import { trpc } from './trpc/client';
 import { dressUrl } from './lib/resourceUrl';
@@ -78,6 +79,45 @@ function SelfPendantProvider({
   return <SelfPendantContext.Provider value={url}>{children}</SelfPendantContext.Provider>;
 }
 
+/**
+ * 把「优先使用 CDN」广播出去：开关本身 + 拼 CDN 直链要用的 rkey。
+ *
+ * 理由同上——每条图片/视频气泡一个实例，不能各自订阅。rkey 约一小时过期，所以开着时
+ * 定期重拉；关着时连查都不查（rkey 只有这一处消费）。`getAccountConfig` 要求已打开
+ * 账号，首页调用会抛错，故用 accountOpen 闸住。
+ *
+ * 还要把开关镜像到 lib/cdn 的模块变量：头像那条路径是纯函数 `cachedAvatarUrl`，被十
+ * 几处非组件代码直接调用，拿不到 context。
+ */
+function CdnProvider({
+  accountOpen,
+  children,
+}: {
+  accountOpen: boolean;
+  children: ReactNode;
+}): ReactElement {
+  const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 60_000,
+  });
+  const enabled = settings.data?.preferCdn ?? false;
+  // 同步镜像（而不是放 effect）：子树在本次 render 里就会读它，effect 要等提交后才跑，
+  // 那一帧的头像会先按旧值拼一遍 URL。赋值幂等，StrictMode 重复渲染也无副作用。
+  setPreferCdnFlag(enabled);
+  const config = trpc.account.getAccountConfig.useQuery(undefined, {
+    enabled: accountOpen && enabled,
+    refetchOnWindowFocus: false,
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
+  });
+
+  const state = useMemo(
+    () => ({ enabled, rkeys: enabled ? (config.data?.rkeys ?? []) : [] }),
+    [enabled, config.data?.rkeys],
+  );
+  return <CdnContext.Provider value={state}>{children}</CdnContext.Provider>;
+}
+
 export default function App(): ReactElement {
   const view = useViewState((s) => s.view);
   const openedUin = useViewState((s) => s.openedUin);
@@ -103,32 +143,34 @@ export default function App(): ReactElement {
   // 昵称」的粗糙首屏，也避免 openedUin 短暂变 null 时白挂载一次（那次的查询
   // 全打在已关闭的账号上）。
   return (
-    <TextMarkdownProvider>
-      <SelfPendantProvider accountOpen={view === 'main' && !switching}>
-        {switching ? (
-          <main className="weq-home-shell h-screen overflow-hidden font-sans text-[#142235]">
-            <WarmupSplash progress={switchProgress} hint={switchHint} />
-          </main>
-        ) : view === 'bootstrap' ? (
-          <BootstrapView />
-        ) : (
-          <MainView key={openedUin ?? ''} />
-        )}
-        {/* 首次进入账号后弹出的欢迎说明框（自身决定是否显示）。 */}
-        {view === 'main' ? <WelcomeDialog /> : null}
-        <DialogHost />
-        <ToastHost />
-        <DesktopOnly>
-          <CloseConfirmDialog />
-        </DesktopOnly>
-        <DesktopOnly>
-          <AppLockOverlay />
-        </DesktopOnly>
-        <ImageLightbox />
-        <VideoLightbox />
-        <MarketFaceLightbox />
-        <ForwardWindowHost />
-      </SelfPendantProvider>
-    </TextMarkdownProvider>
+    <CdnProvider accountOpen={view === 'main' && !switching}>
+      <TextMarkdownProvider>
+        <SelfPendantProvider accountOpen={view === 'main' && !switching}>
+          {switching ? (
+            <main className="weq-home-shell h-screen overflow-hidden font-sans text-[#142235]">
+              <WarmupSplash progress={switchProgress} hint={switchHint} />
+            </main>
+          ) : view === 'bootstrap' ? (
+            <BootstrapView />
+          ) : (
+            <MainView key={openedUin ?? ''} />
+          )}
+          {/* 首次进入账号后弹出的欢迎说明框（自身决定是否显示）。 */}
+          {view === 'main' ? <WelcomeDialog /> : null}
+          <DialogHost />
+          <ToastHost />
+          <DesktopOnly>
+            <CloseConfirmDialog />
+          </DesktopOnly>
+          <DesktopOnly>
+            <AppLockOverlay />
+          </DesktopOnly>
+          <ImageLightbox />
+          <VideoLightbox />
+          <MarketFaceLightbox />
+          <ForwardWindowHost />
+        </SelfPendantProvider>
+      </TextMarkdownProvider>
+    </CdnProvider>
   );
 }

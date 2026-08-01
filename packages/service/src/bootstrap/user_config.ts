@@ -195,6 +195,18 @@ export interface AppSettings {
    */
   showAvatarPendant: boolean;
   linkPreview: LinkPreviewConfig;
+  /**
+   * 头像与聊天图片/视频封面直接由前端向 QQ CDN 取，不经本进程代理。
+   *
+   * 默认关闭。开着时省的是**服务端带宽**——web 部署下每张头像都由服务器下下来再吐给
+   * 浏览器，量大时带宽扛不住；打开后浏览器直连 CDN。代价是本地 `nt_data/avatar` 与
+   * 媒体缓存都绕过了（离线不可用），且要把 rkey 交到渲染层拼 URL。
+   *
+   * 只覆盖「静态 CDN 直链」这三类：用户头像、群头像、图片/视频封面。语音要服务端解
+   * SILK，视频原片与文件走 OIDB 现签 URL，都不受此开关影响。任一 CDN 请求失败都会
+   * 自动回退到原来的 `weq-media://` 代理路径。
+   */
+  preferCdn: boolean;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -213,6 +225,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   renderTextMarkdown: true,
   showAvatarPendant: true,
   linkPreview: { enabled: true, screenshot: false },
+  preferCdn: false,
 };
 
 export interface UserConfig {
@@ -430,6 +443,7 @@ export class UserConfigService {
       windowCloseBehavior: normalizeWindowCloseBehavior(s?.windowCloseBehavior) ?? d.windowCloseBehavior,
       renderTextMarkdown: s?.renderTextMarkdown ?? d.renderTextMarkdown,
       showAvatarPendant: s?.showAvatarPendant ?? d.showAvatarPendant,
+      preferCdn: s?.preferCdn ?? d.preferCdn,
       linkPreview: {
         enabled: s?.linkPreview?.enabled ?? d.linkPreview.enabled,
         screenshot: s?.linkPreview?.screenshot ?? d.linkPreview.screenshot,
@@ -466,6 +480,7 @@ export class UserConfigService {
         normalizeWindowCloseBehavior(patch.windowCloseBehavior) ?? current.windowCloseBehavior,
       renderTextMarkdown: patch.renderTextMarkdown ?? current.renderTextMarkdown,
       showAvatarPendant: patch.showAvatarPendant ?? current.showAvatarPendant,
+      preferCdn: patch.preferCdn ?? current.preferCdn,
       linkPreview: {
         enabled: patch.linkPreview?.enabled ?? current.linkPreview.enabled,
         screenshot: patch.linkPreview?.screenshot ?? current.linkPreview.screenshot,

@@ -17,6 +17,7 @@
 
 import { useEffect, useState, type ReactElement } from 'react';
 import {
+  Cloud,
   FolderOpen,
   HardDrive,
   Info,
@@ -32,7 +33,7 @@ import { trpc } from '../../trpc/client';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
 import { QqAvatar } from '../QqAvatar';
-import { Card, Row, SectionHeader } from './controls';
+import { Card, Row, SectionHeader, Toggle } from './controls';
 import { UpdateCard } from './UpdateCard';
 import { DesktopOnly, shellBridge } from '../../lib/target';
 import logoUrl from '@resources/brand/logo.png';
@@ -79,6 +80,7 @@ export function GlobalSettingsSection(): ReactElement {
   > | null>(null);
   const [autoLockMinutes, setAutoLockMinutes] = useState(0);
   const [closeBehavior, setCloseBehavior] = useState<WindowCloseBehavior>('ask');
+  const [preferCdn, setPreferCdn] = useState(false);
 
   const version = trpc.bootstrap.getVersionInfo.useQuery(undefined, {
     refetchOnWindowFocus: false,
@@ -111,6 +113,7 @@ export function GlobalSettingsSection(): ReactElement {
   const clearCache = trpc.bootstrap.clearCacheDir.useMutation();
   const setAutoLock = trpc.bootstrap.setAutoLockMinutes.useMutation();
   const setWindowClose = trpc.bootstrap.setWindowCloseBehavior.useMutation();
+  const setPreferCdnMut = trpc.bootstrap.setPreferCdn.useMutation();
   const cacheBusy = pickCache.isLoading || clearCache.isLoading;
 
   // ---- WeQ 缓存清理（头像/媒体/商城表情/语音，均可重下）----
@@ -135,6 +138,11 @@ export function GlobalSettingsSection(): ReactElement {
     const behavior = settings.data?.windowCloseBehavior;
     if (behavior) setCloseBehavior(behavior);
   }, [settings.data?.windowCloseBehavior]);
+
+  useEffect(() => {
+    const enabled = settings.data?.preferCdn;
+    if (typeof enabled === 'boolean') setPreferCdn(enabled);
+  }, [settings.data?.preferCdn]);
 
   useEffect(() => {
     const bridge = shellBridge();
@@ -254,6 +262,19 @@ export function GlobalSettingsSection(): ReactElement {
       setCloseBehavior(prev);
       await settings.refetch();
       showError('保存关闭行为设置失败', errMsg(e));
+    }
+  }
+
+  async function onSetPreferCdn(next: boolean): Promise<void> {
+    const prev = preferCdn;
+    setPreferCdn(next);
+    try {
+      await setPreferCdnMut.mutateAsync({ enabled: next });
+      await settings.refetch();
+    } catch (e) {
+      setPreferCdn(prev);
+      await settings.refetch();
+      showError('保存 CDN 设置失败', errMsg(e));
     }
   }
 
@@ -430,6 +451,31 @@ export function GlobalSettingsSection(): ReactElement {
             </button>
           </div>
         ) : null}
+      </Card>
+
+      {/* Prefer CDN */}
+      <Card title="网络">
+        <Row
+          label={
+            <span className="weq-set-row-icon">
+              <Cloud size={15} strokeWidth={1.8} aria-hidden />
+              优先使用 CDN
+            </span>
+          }
+          desc={
+            preferCdn
+              ? '头像与聊天图片、视频封面由界面直接向 QQ 服务器获取，不经 WeQ 中转。本地已存的头像和媒体缓存会被绕过（离线时看不到），获取失败会自动回退到原来的方式。'
+              : '默认由 WeQ 读取本地文件、缺失时代取并缓存——离线可用，但浏览器访问模式下所有图片都要占用服务器带宽。开启后改由界面直连，服务器零流量。语音、视频原片与文件不受影响。'
+          }
+          control={
+            <Toggle
+              checked={preferCdn}
+              disabled={settings.isLoading || setPreferCdnMut.isLoading}
+              onChange={(next) => void onSetPreferCdn(next)}
+              label="优先使用 CDN"
+            />
+          }
+        />
       </Card>
 
       {/* Cache directory */}

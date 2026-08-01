@@ -14,6 +14,7 @@ import { trpc } from '@renderer/trpc/client';
 import { openLightbox } from './ImageLightbox';
 import { openMarketFaceLightbox } from './MarketFaceLightbox';
 import { IS_ELECTRON } from '@renderer/lib/target';
+import { cdnImageUrl, cdnVideoCoverUrl, useCdn } from '@renderer/lib/cdn';
 
 type Data = Record<string, unknown>;
 
@@ -108,7 +109,15 @@ function formatSize(bytes: number): string {
 
 // ---- image --------------------------------------------------------------
 
-export function QqImage({ data, sendTimeMs }: { data: Data; sendTimeMs: number }) {
+export function QqImage({
+  data,
+  sendTimeMs,
+  conv = '',
+}: {
+  data: Data;
+  sendTimeMs: number;
+  conv?: string;
+}) {
   const [broken, setBroken] = useState(false);
   const name = str(data, 'fileName');
   const token = str(data, 'fileToken');
@@ -124,13 +133,20 @@ export function QqImage({ data, sendTimeMs }: { data: Data; sendTimeMs: number }
     ? { width: fit.width, height: fit.height }
     : { maxWidth: maxW, maxHeight: maxH };
 
-  if (broken) {
-    return <QqMediaMissing label={isAnimatedEmoji ? '该表情' : '该图片'} style={style} />;
-  }
   const params: Record<string, string | number> = { t: sendTimeMs, name, token };
   if (isAnimatedEmoji) params.recv = 1;
   if (orig) params.orig = orig;
-  const src = mediaUrl('pic', params);
+  const proxySrc = mediaUrl('pic', params);
+  // 「优先使用 CDN」开着且拼得出直链时先试它（浏览器直连，服务端零流量）；rkey 过期 /
+  // 老图片 / CDN 抽风都会 onError 落回上面这条代理路径，再失败才是「未找到」占位。
+  const cdn = useCdn();
+  const cdnSrc = cdnImageUrl(cdn, conv !== '', token, orig);
+  const [cdnFailed, setCdnFailed] = useState(false);
+  const src = cdnSrc && !cdnFailed ? cdnSrc : proxySrc;
+
+  if (broken) {
+    return <QqMediaMissing label={isAnimatedEmoji ? '该表情' : '该图片'} style={style} />;
+  }
   // Animated emojis open nothing; real photos open the full-size lightbox.
   const openable = !isAnimatedEmoji;
   return (
@@ -141,7 +157,10 @@ export function QqImage({ data, sendTimeMs }: { data: Data; sendTimeMs: number }
       alt={isAnimatedEmoji ? '[动画表情]' : name || '[图片]'}
       draggable={false}
       onClick={openable ? () => openLightbox(src, name || '[图片]') : undefined}
-      onError={() => setBroken(true)}
+      onError={() => {
+        if (src === cdnSrc) setCdnFailed(true);
+        else setBroken(true);
+      }}
     />
   );
 }
@@ -174,6 +193,13 @@ export function QqVideo({
   const style: CSSProperties = fit
     ? { width: fit.width, height: fit.height }
     : { maxWidth: 280, maxHeight: 360 };
+
+  // 封面同图片：CDN 直链优先，失败落回代理。原片不参与——那要 OIDB 现签 URL。
+  const cdn = useCdn();
+  const [coverCdnFailed, setCoverCdnFailed] = useState(false);
+  const coverCdn = cdnVideoCoverUrl(cdn, conv !== '', coverToken);
+  const proxyCover = mediaUrl('video', { t: sendTimeMs, name, v: 'thumb', token: coverToken });
+  const coverSrc = coverCdn && !coverCdnFailed ? coverCdn : proxyCover;
 
   // Original couldn't be located locally or downloaded → missing placeholder.
   if (videoBroken) {
@@ -218,10 +244,13 @@ export function QqVideo({
       ) : (
         <img
           className="qq-media-video-poster"
-          src={mediaUrl('video', { t: sendTimeMs, name, v: 'thumb', token: coverToken })}
+          src={coverSrc}
           alt={name || '[视频]'}
           draggable={false}
-          onError={() => setPosterBroken(true)}
+          onError={() => {
+            if (coverSrc === coverCdn) setCoverCdnFailed(true);
+            else setPosterBroken(true);
+          }}
         />
       )}
       <span className="qq-media-video-play" aria-hidden />
