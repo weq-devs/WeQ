@@ -288,9 +288,11 @@ export class MsgService {
       );
       if (!ptt || ptt.pttTranscript === text) return false;
       ptt.pttTranscript = text;
-      // 45924 rides along with every QQ-written transcript (always 1 wherever
-      // observed), so mirror it — otherwise QQ may not treat the text as ready.
+      // QQ 写转录结果时同时置这两个 flag（参考行 c2c 7669105866341663773，全库
+      // 观测到 45924 恒 1 / 45926 恒 2）。它们是 QQ 判断「这条已经转过文字了」的
+      // 依据 —— 只写 45923 的话 QQ 本体不认，还会再转一次。
       ptt.pttFlag45924 = 1;
+      ptt.pttFlag45926 = 2;
       const affected = await db.updateMsgBody(
         msgId,
         bodyCodec.encode({ elements: elements.map(encodeElement) }),

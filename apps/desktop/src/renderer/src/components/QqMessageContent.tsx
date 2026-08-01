@@ -18,6 +18,7 @@
 
 import { createContext, useContext, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { ArrowUp } from 'lucide-react';
+import type { UrlVerifyInfo } from '@weq/service';
 import type { MessageRenderer } from '../im-template/template';
 import { FaceEmoji } from './FaceEmoji';
 import { QqImage, QqVideo, QqFile, QqVoice, QqMarketFace, QqOnlineFile } from './QqMedia';
@@ -710,19 +711,31 @@ export function QqMessageContent({
     }
   }
 
-  // 整条消息**只是**一个链接 → 出一张预览卡（标题/描述/封面/站点）。混了别的文字就
-  // 不出卡，那种消息里链接只是句子的一部分，行内标蓝就够了。抓取失败或开关关掉时
-  // QqLinkCard 自己退回成一条普通蓝链接。
-  if (linkPreviewOn && meaningful.length > 0 && meaningful.every((element) => element.type === 'text')) {
+  // 整条消息**只是**一个链接 → 在气泡下方补一张预览卡（标题/封面/站点）。混了别的
+  // 文字就不出卡，那种消息里链接只是句子的一部分，行内标蓝就够了。
+  //
+  // 卡片挂在气泡下面（而不是取代气泡）—— 同语音转录的处理：原文始终看得见，卡片只是
+  // 附加信息。数据优先取 QQ 自己扫出来的 urlVerify（本地就有，不出网），没有才让
+  // QqLinkCard 去抓；两个都没有它返回 null，只剩气泡里那条蓝链接。
+  const soleLinkCard = ((): ReactNode => {
+    if (!linkPreviewOn) return null;
+    if (meaningful.length === 0 || !meaningful.every((element) => element.type === 'text')) return null;
     const body = meaningful.map((element) => String(element.data?.textContent ?? '')).join('');
     const only = soleLink(body);
-    if (only) {
-      return (
-        <div className={cn('message-content', 'qq-has-ark')}>
-          <QqLinkCard url={only} />
-        </div>
-      );
-    }
+    if (!only) return null;
+    const verified = meaningful
+      .map((element) => element.data?.urlVerify as UrlVerifyInfo | undefined)
+      .find(Boolean);
+    return <QqLinkCard url={only} info={verified} />;
+  })();
+
+  if (soleLinkCard) {
+    return (
+      <div className={cn('message-content', 'qq-message-inline', 'qq-has-linkcard')}>
+        {renderElementNodes(meaningful, sendTimeMs, msgId, isSender)}
+        {soleLinkCard}
+      </div>
+    );
   }
 
   // WeQ feature（可在设置里关掉）：一条**全是纯文本**的消息，如果看起来像 Markdown，

@@ -477,6 +477,29 @@ export class LinkPreviewService {
     }
   }
 
+  /**
+   * 只落一张封面图，不抓页面 —— 给「QQ 自己已经把标题/封面存在消息里」的那条路
+   * （text 元素 wire tag 45112）用：元数据本地就有，缺的只是图的字节。
+   *
+   * 走的是和抓取路径同一个 {@link cacheImage}，所以 SSRF 闸门、魔数校验、大小上限
+   * 一个都不少 —— 这个 URL 来自聊天消息，跟远端页面给的一样不可信。返回缓存 id，
+   * 任何一步不达标返回空串。
+   */
+  async cacheCover(rawUrl: string): Promise<string> {
+    const url = rawUrl.trim();
+    if (!url) return '';
+    const name = `${this.key(url)}`;
+    for (const ext of ['jpg', 'png', 'gif', 'webp', 'bmp']) {
+      try {
+        await readFile(join(this.dir(), `${name}.${ext}`));
+        return `${name}.${ext}`;
+      } catch {
+        // 没这个扩展名，试下一个。
+      }
+    }
+    return this.cacheImage(url);
+  }
+
   private async readDisk(url: string): Promise<CacheEntry | null> {
     try {
       const raw = await readFile(join(this.dir(), `${this.key(url)}.json`), 'utf-8');

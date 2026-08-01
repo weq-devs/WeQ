@@ -6653,8 +6653,17 @@ html[data-theme="dark"] .qq-link:hover { color: #7cbaff; }
 /* 链接卡片：复用 ark 卡片的外壳，只调几处间距 + 页脚图标。 */
 .weq-link-card .weq-link-desc { margin-bottom: 0; }
 .weq-link-footer-icon { flex-shrink: 0; }
-/* 预览抓取失败时退回的一条普通链接——不要卡片的 padding/边框。 */
-.qq-link-fallback { display: inline; }
+
+/* 卡片挂在气泡下方（同语音转录）：原文的蓝链接始终看得见，卡片只是附加信息。
+   卡片自带白底/边框，压在我方的强调色气泡上也读得清，不用另配色。 */
+.message-content.qq-has-linkcard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.message-content.qq-has-linkcard .weq-link-card { max-width: 280px; }
+/* 我方气泡是强调色，链接文本得跟着翻白才看得见。 */
+.message-line.mine .message-content.qq-has-linkcard .qq-link { color: #ffffff; }
 
 /* ---- Ark 卡片深色模式 ---- The demo only ships light colors; map them onto the
    theme tokens so the structured card reads correctly on the dark canvas. */html[data-theme="dark"] .weq-ark-container {

@@ -35,10 +35,33 @@ const kind = wire.bubbleId ? 'at' : 'text';
 | 值 | 名称 | 说明 |
 | -- | ---- | ---- |
 | 0 | PLAIN | 普通文本，不含链接 |
-| 1 | EXTERNAL_LINK | 外部链接。会附带 `45112 (urlVerifyFlag)` —— QQ 扫描域名后附的 12 / 24 / 248 字节安全校验负载 |
+| 1 | EXTERNAL_LINK | 外部链接。会附带 `45112 (urlVerifyFlag)` —— QQ 扫描域名后附的安全校验 + 抓取结果，见下节 |
 | 2 | TRUSTED_LINK | 可信链接（腾讯系域名：`docs.qq.com` / `mp.weixin.qq.com` …）。**不带 45112**，QQ 对自家域名跳过安全检查 |
 
-## 三、字段
+## 三、45112 — QQ 自己抓好的链接元数据
+
+`45112 (urlVerifyFlag)` 不是一坨不透明的校验负载，而是一段嵌套 protobuf：QQ 服务端
+扫描链接时顺手抓了页面，标题 / 描述 / 封面图都在里面。解析实现见
+`packages/codec/src/element/url_verify.ts`（`decodeUrlVerify`）。
+
+| tag | 字段名 | 类型 | 全库出现次数 | 含义 |
+| --- | ------ | ---- | ------------ | ---- |
+| 50200 | `title` | string | 311 | 页面标题（长了 QQ 会截断加 `...`） |
+| 50201 | `imageUrl` | string | 311 | 封面图 URL |
+| 50202 | `scannedAt` | uint32 | 1087 | 扫描时间（unix 秒），**恒有** |
+| 50204 | `desc` | string | 311 | 页面描述（og:description；页面没写描述时 QQ 拿主机名顶上） |
+| 50205 | — | uint32 | 1087 | 恒为 2，语义未验证 |
+| 50206 | — | uint32 | 19 | 0 或 1，语义未验证 |
+
+两个要点：
+
+- **50204 是描述，不是站点名。** 容易误读成域名，是因为「页面没给描述」时它确实填的是
+  主机名。站点名 QQ 根本没给，要显示得自己从 URL 取 host。
+- **只有约两成带元数据。** 1087 条 payload 里只有 229 条有标题；其余是 12 字节的短包，
+  只有 `50202` + `50205`。所以 `decodeUrlVerify` 在无标题时返回 null，调用方据此决定
+  是直接渲染卡片，还是退回去自己抓（见 `LinkPreviewService`）。
+
+## 四、字段
 
 ### 核心
 
@@ -62,7 +85,7 @@ const kind = wire.bubbleId ? 'at' : 'text';
 | 45109 | `linkDetectionFlag` | uint32 | 链接识别标志 |
 | 45110 | `atMentionMask` | string | @ 相关位掩码（字符串编码） |
 | 45111 | `walletFlag` | uint32 | 红包 / 钱包含义标志 |
-| 45112 | `urlVerifyFlag` | bytes | 网址校验字段，见上方 subType=1 |
+| 45112 | `urlVerifyFlag` | bytes | 网址校验 + 抓取结果，见第三节 |
 
 > `45107` 至今未观测到。
 
