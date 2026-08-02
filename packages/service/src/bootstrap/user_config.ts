@@ -231,7 +231,6 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
 export interface UserConfig {
   autoEnter?: AutoEnterTarget | null;
   tencentFilesRootOverride?: string | null;
-  avatarCacheDir?: string | null;
   settings?: DeepPartial<AppSettings>;
   cacheDirOverride?: string | null;
   welcomeAcknowledged?: boolean;

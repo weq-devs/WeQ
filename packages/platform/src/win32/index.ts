@@ -87,13 +87,6 @@ export function createWin32Platform(
       }
       return join(base, 'weq');
     },
-    avatarCacheDir: () => {
-      const base = process.env.APPDATA;
-      if (!base) {
-        throw new Error('%APPDATA% not set — cannot derive weq avatar cache dir on win32');
-      }
-      return join(base, 'weq', 'cache', 'avatar');
-    },
     tencentFilesRoots: () => candidateTencentFilesRoots(undefined, override()),
     loginDbPath: () => findLoginDb(undefined, override()),
     accountDir: (uin: string) => findAccountDir(uin, undefined, override()),

@@ -57,9 +57,10 @@ export async function handleAvatarRequest(request: Request): Promise<Response> {
       status: 200,
       headers: {
         'Content-Type': blob.contentType,
-        // Let the renderer / Chromium memory-cache it too; the on-disk cache
-        // is authoritative, this just avoids re-asking the protocol.
-        'Cache-Control': 'public, max-age=86400',
+        // Let the renderer / Chromium memory-cache it too; the on-disk cache is
+        // authoritative (and applies the TTL), so keep this short — a long
+        // max-age would outlive the disk entry and pin a stale avatar.
+        'Cache-Control': 'public, max-age=300',
       },
     });
   } catch {

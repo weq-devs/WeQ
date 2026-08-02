@@ -7,23 +7,19 @@
  * we
  *
  *   1. hash the URL → a stable filename under the cache dir,
- *   2. serve the cached bytes if present,
+ *   2. serve the cached bytes if present and not past {@link TTL_MS},
  *   3. otherwise fetch upstream once, persist, and return the bytes.
  *
  * Concurrent requests for the same URL share a single in-flight fetch (so a
  * screen that mounts 50 identical avatars hits the network once).
- *
- * Cache directory resolution (override wins, default never hard-coded here):
- *   `UserConfig.avatarCacheDir`  →  `platform.avatarCacheDir()`
  *
  * The transport (a custom protocol) lives in the desktop app; this service is
  * transport-agnostic and just deals in URLs → bytes.
  */
 
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Platform } from '@weq/platform';
 import type { UserConfigService } from './user_config';
 
 /** Bytes + content type for one resolved avatar. */
@@ -65,19 +61,34 @@ function contentTypeForExt(ext: string): string {
   }
 }
 
+/**
+ * How long a cached avatar stays fresh. QQ's avatar URLs carry no version
+ * (`…/g?b=sdk&nk=<uin>&s=0` is the same string before and after the user
+ * changes their picture), so the sha1(url) key can never invalidate itself —
+ * without an expiry a changed avatar would show the old bytes forever. Seven
+ * days trades a weekly re-fetch per avatar for a bounded staleness window.
+ *
+ * The LOCAL `nt_data/avatar` path (see AvatarResourceService) deliberately has
+ * no TTL: its filename is derived from the uid, so QQ overwrites the same file
+ * in place and our next read already sees the new bytes.
+ */
+const TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
 export class AvatarCacheService {
   /** De-dupe concurrent fetches of the same upstream URL. */
   private readonly inFlight = new Map<string, Promise<AvatarBlob>>();
 
-  constructor(
-    private readonly platform: Platform,
-    private readonly userConfig: UserConfigService,
-  ) {}
+  constructor(private readonly userConfig: UserConfigService) {}
 
-  /** Effective cache directory: config override, else the platform default. */
+  /**
+   * Cache directory — the shared `<cacheBase>/avatar` that the 清理缓存 UI
+   * enumerates and wipes (`UserConfigService.clearCache`). It MUST be derived
+   * from `cacheBaseDir()` so a user-set cache-dir override moves both the
+   * writes and the cleanup; a separately-resolved path would leave the old
+   * directory growing forever while the UI reported 0 bytes.
+   */
   cacheDir(): string {
-    const override = this.userConfig.read().avatarCacheDir;
-    return override?.trim() ? override : this.platform.avatarCacheDir();
+    return this.userConfig.cacheDir('avatar');
   }
 
   /**
@@ -113,16 +124,24 @@ export class AvatarCacheService {
   }
 
   /**
-   * Return cached bytes for `url` if any extension variant exists on disk.
-   * Async (non-blocking) so dozens of concurrent avatar requests interleave on
-   * the main-process event loop instead of each one blocking it in turn — we
-   * just attempt each extension's read and treat a miss as ENOENT.
+   * Return cached bytes for `url` if any extension variant exists on disk and
+   * is still within {@link TTL_MS}. Async (non-blocking) so dozens of concurrent
+   * avatar requests interleave on the main-process event loop instead of each
+   * one blocking it in turn — we just attempt each extension's read and treat a
+   * miss as ENOENT. An expired file is deleted so the refetch below writes a
+   * clean entry (and a different extension can't shadow it).
    */
   private async readFromDisk(url: string): Promise<AvatarBlob | null> {
     const base = this.basePath(url);
     for (const ext of ['png', 'jpg', 'gif', 'webp']) {
+      const path = `${base}.${ext}`;
       try {
-        const data = await readFile(`${base}.${ext}`);
+        const st = await stat(path);
+        if (Date.now() - st.mtimeMs > TTL_MS) {
+          await unlink(path).catch(() => {});
+          continue;
+        }
+        const data = await readFile(path);
         return { data, contentType: contentTypeForExt(ext), fromCache: true };
       } catch {
         // Missing (ENOENT) or unreadable — try the next extension.
@@ -145,8 +164,6 @@ export class AvatarCacheService {
     }
 
     const ext = extFor(contentType, url);
-    const dir = this.cacheDir();
-    await mkdir(dir, { recursive: true });
     try {
       await writeFile(`${this.basePath(url)}.${ext}`, data);
     } catch {
