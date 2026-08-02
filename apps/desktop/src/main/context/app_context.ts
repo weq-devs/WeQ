@@ -488,6 +488,12 @@ export interface AppContext {
    * no account is open / QQ is offline / harvest failed.
    */
   refreshRkeysNow(): Promise<boolean>;
+  /**
+   * Transcribe a SILK file on disk with the globally selected model. Account
+   * independent (the model is a global setting), so callers that already have a
+   * path — e.g. the Ptt cache browser — can skip the message-lookup dance.
+   */
+  transcribeSilk(silkPath: string): Promise<{ ok: boolean; text?: string; error?: string }>;
 }
 
 let cached: AppContext | undefined;
@@ -528,6 +534,9 @@ export function initAppContext(): AppContext {
       },
       refreshRkeysNow(): Promise<boolean> {
         return Promise.resolve(false);
+      },
+      transcribeSilk(): Promise<{ ok: boolean; text?: string; error?: string }> {
+        return Promise.resolve({ ok: false, error: '原生组件未就绪' });
       },
     };
     return cached;
@@ -605,7 +614,7 @@ export function initAppContext(): AppContext {
     keys: new Win32KeyService(platform, stubHooks),
     userConfig,
     globalConfig: new GlobalConfigService(platform, userConfig),
-    avatarCache: new AvatarCacheService(platform, userConfig),
+    avatarCache: new AvatarCacheService(userConfig),
     linkPreview,
     agentLabConfig: new AgentLabConfigService(userConfig),
     voiceTranscribe: new VoiceTranscribeService(platform),
@@ -663,6 +672,7 @@ export function initAppContext(): AppContext {
     account: null,
     services: null,
     scheduler: null,
+    transcribeSilk,
     async setAccount(accountCtx: AccountContext, metadata: AccountConfigMetadata = {}): Promise<void> {
       logger.info('opening account session', {
         event: 'open-account-start',

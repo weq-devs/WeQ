@@ -5,7 +5,8 @@
  * listings. Thin tRPC skin over `MediaResourceService` (see `@weq/service`); all
  * scanning / merging lives there. Bytes are NOT returned here — the renderer
  * points `<img>`/`<video>` at `weq-media://localmedia`, resolved via the same
- * service. Read-only.
+ * service. Read-only apart from `transcribeVoice`, which runs the recognition
+ * engine on a cached clip (it writes nothing).
  */
 
 import { z } from 'zod';
@@ -66,4 +67,23 @@ export const mediaResourceRouter = router({
   analyzeTree: procedure.input(z.object({ key: treeKey })).query(({ input }) => {
     return requireServices().mediaResource.analyzeTree(input.key);
   }),
+
+  /**
+   * Transcribe one cached voice clip (语音 → 转文字). `rel` is the same Ptt-tree
+   * path the browser streams through `weq-media://localvoice`; the service
+   * re-validates it stays inside the tree. There's no message behind a cache
+   * entry, so unlike `account.transcribeVoice` nothing is written back — the
+   * text only lives in the browser's UI.
+   *
+   * Returns `{ success:false, error }` for every failure mode so the card can
+   * show a friendly message instead of throwing.
+   */
+  transcribeVoice: procedure
+    .input(z.object({ rel: z.string() }))
+    .mutation(async ({ input }): Promise<{ success: boolean; text?: string; error?: string }> => {
+      const silk = await requireServices().mediaResource.resolveFile('ptt', input.rel);
+      if (!silk) return { success: false, error: '语音文件不存在' };
+      const r = await getAppContext().transcribeSilk(silk);
+      return r.ok ? { success: true, text: r.text ?? '' } : { success: false, error: r.error };
+    }),
 });

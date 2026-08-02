@@ -111,10 +111,23 @@ function fileResponse(path: string): Promise<Response> {
 }
 
 /**
+ * Like {@link fileResponse} but asking the renderer to revalidate (304 on an
+ * unchanged mtime). For the local avatar cache: the file NAME is a uid hash, so
+ * QQ overwrites it in place when someone changes their picture — caching by
+ * max-age would keep showing the old one.
+ */
+function revalidatingFileResponse(path: string): Promise<Response> {
+  return streamFile(path, currentRequest.getStore(), { revalidate: true });
+}
+
+/**
  * CDN fallback for an avatar the local cache didn't have. Routes through the
  * shared {@link AvatarCacheService} disk cache (so the fetched bytes warm the
  * same cache the rest of the app reads), returning 404 on any failure so the
  * renderer shows its glyph.
+ *
+ * Short `max-age`: the disk cache is the real cache (and applies its own TTL),
+ * so a long browser cache would only delay a changed avatar from showing.
  */
 async function avatarFallbackResponse(src: string): Promise<Response> {
   if (!/^https?:\/\//i.test(src)) return notFound('avatar fallback needs http url');
@@ -124,7 +137,7 @@ async function avatarFallbackResponse(src: string): Promise<Response> {
     const blob = await cache.get(src);
     return new Response(new Uint8Array(blob.data), {
       status: 200,
-      headers: { 'Content-Type': blob.contentType, 'Cache-Control': 'public, max-age=86400' },
+      headers: { 'Content-Type': blob.contentType, 'Cache-Control': 'public, max-age=300' },
     });
   } catch {
     return notFound('avatar fallback failed');
@@ -394,7 +407,7 @@ export function handleMediaRequest(request: Request): Promise<Response> {
           if (hash) path = await services.avatarResource.resolveFile(scope, hash, variant);
           else if (uid) path = await services.avatarResource.resolveByUid(scope, uid, variant);
           else if (uin) path = await services.avatarResource.resolveByUin(scope, uin, variant);
-          if (path) return fileResponse(path);
+          if (path) return revalidatingFileResponse(path);
           // Local miss → CDN fallback (disk-cached by AvatarCacheService).
           if (fb) return avatarFallbackResponse(fb);
           return notFound('avatar not found');

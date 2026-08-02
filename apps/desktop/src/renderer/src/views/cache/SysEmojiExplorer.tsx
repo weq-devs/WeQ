@@ -134,6 +134,7 @@ export function SysEmojiExplorer(): ReactElement {
         <span className="weq-cache-data-meta">
           {total ?? entries.length} 个 · 默认动图(APNG)预览，点击查看全部格式
           {status && !status.qqRoot ? ' · QQ 资源目录缺失，已改用下载补全' : ''}
+          {status?.usingFallback ? ' · emoji.db 无表情数据，用内置地址表兜底' : ''}
         </span>
         {missing > 0 ? (
           <button

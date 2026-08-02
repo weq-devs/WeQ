@@ -20,6 +20,10 @@
  *
  * URL 里的时间戳每个表情不同（多数 1712825561，但 148/55 是 1719222678，443 更
  * 走 `test/sysemoji/v2/` 另一条路径），**必须从库里读，不能拼**。
+ *
+ * 库读不到时退到 `sys_emoji_fallback.ts` 的硬编码表。这不是可选的锦上添花：实测
+ * 存在 `base_sys_emoji_table` **表在但 0 行**的环境（QQ 从没在该机器上同步过内置
+ * 表情），此时 QQ 的资源目录同样是空的 —— 两头皆空，没有兜底就一个表情都渲染不出。
  */
 
 import { existsSync } from 'node:fs';
@@ -29,6 +33,7 @@ import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
 import { BaseSysEmojiDb } from '@weq/db';
 import { readZipEntries } from '../common/zip';
+import { fallbackSysEmojiUrls } from './sys_emoji_fallback';
 
 /** 一个内置表情的 CDN 资源包地址（来自 base_sys_emoji_table）。 */
 export interface SysEmojiSource {
@@ -65,6 +70,8 @@ export interface SysEmojiDownloadStatus {
   available: number;
   /** 其中已在本地（QQ 目录或镜像）的表情数。 */
   present: number;
+  /** 地址来自硬编码兜底表而非 emoji.db（库缺失或 base_sys_emoji_table 为空）。 */
+  usingFallback: boolean;
 }
 
 /** 资源包最大字节数——最大的动画包约 1MB，留足余量后拒绝异常响应。 */
@@ -89,6 +96,8 @@ export class SysEmojiDownloadService {
   private readonly inFlight = new Map<string, Promise<SysEmojiFetchOutcome>>();
   /** id → 上次失败时刻，用于冷却期内直接返回失败而不打网络。 */
   private readonly failedAt = new Map<string, number>();
+  /** 本次解析是否退到了硬编码兜底表（emoji.db 缺失或表为空）。 */
+  private fellBack = false;
 
   /**
    * @param cacheRoot 镜像根目录（`userConfig.cacheDir('sysemoji')` 之类）——
@@ -106,12 +115,19 @@ export class SysEmojiDownloadService {
   }
 
   /**
-   * 读 `base_sys_emoji_table`，得到 id → 资源包地址。缺库 / 解析失败返回空表
-   * （此时补全能力整体不可用，调用方按「没有源」处理）。
+   * id → 资源包地址。优先 `base_sys_emoji_table`（腾讯会更新它），库缺失 / 读失败
+   * / **表为空** 时退到硬编码兜底表。
    */
   async listSources(): Promise<Map<string, SysEmojiSource>> {
     if (!this.sources) {
-      this.sources = this.loadSources().catch(() => new Map<string, SysEmojiSource>());
+      this.sources = this.loadSources()
+        .catch(() => new Map<string, SysEmojiSource>())
+        .then((fromDb) => {
+          // 空表和读失败一样要兜底——实测存在表在但 0 行的环境。
+          if (fromDb.size > 0) return fromDb;
+          this.fellBack = true;
+          return fallbackSources();
+        });
     }
     return this.sources;
   }
@@ -215,6 +231,7 @@ export class SysEmojiDownloadService {
       cacheRoot: this.cacheRoot,
       available,
       present,
+      usingFallback: this.fellBack,
     };
   }
 
@@ -288,6 +305,15 @@ function isAllowedUrl(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** 硬编码兜底表展开成与数据库同形的 id → 地址。 */
+function fallbackSources(): Map<string, SysEmojiSource> {
+  const out = new Map<string, SysEmojiSource>();
+  for (const [id, urls] of fallbackSysEmojiUrls()) {
+    out.set(id, { id, staticUrl: urls.staticUrl, apngUrl: urls.apngUrl });
+  }
+  return out;
 }
 
 /**

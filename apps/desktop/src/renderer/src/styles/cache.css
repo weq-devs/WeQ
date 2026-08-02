@@ -3946,6 +3946,58 @@ html[data-theme="dark"] .weq-filerow-name {
   font-variant-numeric: tabular-nums;
 }
 
+/* 转文字入口：常态低调，hover 卡片时点亮。 */
+.weq-voice-t9n-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 30%, transparent);
+  border-radius: 999px;
+  color: var(--weq-accent-effective);
+  font-size: 10.5px;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, background-color 120ms ease;
+}
+
+.weq-voice-card:hover .weq-voice-t9n-btn,
+.weq-voice-t9n-btn:focus-visible,
+.weq-voice-t9n-btn:disabled {
+  opacity: 1;
+}
+
+.weq-voice-t9n-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+
+.weq-voice-t9n-btn:disabled {
+  cursor: progress;
+  color: var(--weq-fg-muted);
+  border-color: color-mix(in srgb, var(--weq-fg-primary) 14%, transparent);
+}
+
+.weq-voice-t9n {
+  padding: 7px 10px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.weq-voice-t9n.is-error {
+  border-color: color-mix(in srgb, #d94c4c 30%, transparent);
+  background: color-mix(in srgb, #d94c4c 8%, transparent);
+  color: #c0392b;
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
  * 整体资源分析弹窗
  * ════════════════════════════════════════════════════════════════════════ */

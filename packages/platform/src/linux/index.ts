@@ -82,11 +82,6 @@ export function createLinuxPlatform(
       const base = xdg && xdg.length > 0 ? xdg : join(homedir(), '.config');
       return join(base, 'weq');
     },
-    avatarCacheDir: () => {
-      const xdg = process.env.XDG_CACHE_HOME;
-      const base = xdg && xdg.length > 0 ? xdg : join(homedir(), '.cache');
-      return join(base, 'weq', 'avatar');
-    },
     tencentFilesRoots: () => candidateQqRoots(home, override()),
     loginDbPath: () => findLoginDb(home, override()),
     accountDir: (u: string) => findAccountDir(uid(u), home, override()),
