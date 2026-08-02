@@ -154,8 +154,10 @@ export interface GroupNotifyWire {
   groupUin: string;
   groupName: string;
   operatedUid: string;
+  operatedUin: string;
   operatedNick: string;
   operatorUid: string;
+  operatorUin: string;
   operatorNick: string;
   opTime: number;
   remark: string;
@@ -454,8 +456,10 @@ export function groupNotifyToWire(n: GroupNotify): GroupNotifyWire {
     groupUin: n.groupInfo?.groupUin.toString() ?? '0',
     groupName: n.groupInfo?.groupName ?? '',
     operatedUid: n.operatedUser?.uid ?? '',
+    operatedUin: n.operatedUser?.uin ?? '',
     operatedNick: n.operatedUser?.nick ?? '',
     operatorUid: n.operatorUser?.uid ?? '',
+    operatorUin: n.operatorUser?.uin ?? '',
     operatorNick: n.operatorUser?.nick ?? '',
     opTime: n.opTime,
     remark: n.remark,

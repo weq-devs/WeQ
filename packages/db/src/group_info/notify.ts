@@ -22,17 +22,21 @@ export enum GroupNotifyStatus {
   RevokeAdmin = 15,
 }
 
+/** 61003 — 这条通知的处理状态。 */
 export enum GroupNotifyVerifyStatus {
-  Filtered = 1,
-  Normal = 0,
+  /** 无需处理（退群/被踢等纯知会类通知）。 */
+  NoAction = 0,
+  /** 待处理（入群申请挂着，等管理员点同意/拒绝）。 */
+  Pending = 1,
   Agreed = 2,
   Refused = 3,
-  Ignored = 4,
 }
 
 export interface GroupNotifyUserInfo {
   uid: string;
   nick: string;
+  /** QQ 号。列里没有，由 service 层查 profile_info_v6 补上（未命中为 ''）。 */
+  uin?: string;
 }
 
 export interface GroupNotifyGroupInfo {
@@ -128,11 +132,12 @@ function rowToNotify(
     } catch {}
   }
 
-  // Fallback between 61006 and 61007
+  // 处理人：实测 61006 恒为 null，操作人真身在 61007（"操作发起人"）。两列都试，
+  // 先 61007 后 61006。
   let operatorUser: GroupNotifyUserInfo | undefined;
-  if (operatorBlob instanceof Uint8Array) {
+  if (actorBlob instanceof Uint8Array) {
     try {
-      const decoded = operatorCodec.decode(operatorBlob);
+      const decoded = actorCodec.decode(actorBlob);
       if (decoded.body) {
         operatorUser = {
           uid: String(decoded.body.uid ?? ''),
@@ -142,9 +147,9 @@ function rowToNotify(
     } catch {}
   }
 
-  if (!operatorUser && actorBlob instanceof Uint8Array) {
+  if (!operatorUser && operatorBlob instanceof Uint8Array) {
     try {
-      const decoded = actorCodec.decode(actorBlob);
+      const decoded = operatorCodec.decode(operatorBlob);
       if (decoded.body) {
         operatorUser = {
           uid: String(decoded.body.uid ?? ''),

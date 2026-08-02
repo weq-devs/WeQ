@@ -61,6 +61,7 @@ import {
   type ConversationPreferences,
   type GroupJoinRequest,
   type GroupMember,
+  type GroupNoticeHandleState,
   type GroupUpdateInput,
   type Message,
   type MessageRenderer,
@@ -366,8 +367,10 @@ type GroupNotifyWire = {
   groupUin: string;
   groupName: string;
   operatedUid: string;
+  operatedUin: string;
   operatedNick: string;
   operatorUid: string;
+  operatorUin: string;
   operatorNick: string;
   opTime: number;
   remark: string;
@@ -726,6 +729,47 @@ function buddyRequestToContactRequest(request: BuddyRequestWire, profileByUid: M
   } as const;
 }
 
+/** 61002 —— 这条群通知在说什么事。 */
+const GROUP_NOTIFY_ACTION: Record<number, string> = {
+  1: '申请加入',
+  3: '被设置为管理员',
+  6: '被移出群聊',
+  11: '被管理员拒绝加入',
+  13: '退出了群聊',
+  15: '被取消管理员权限',
+};
+
+/** 61003 —— 这条通知的处理状态。 */
+const GROUP_NOTIFY_HANDLE_STATE: Record<number, GroupNoticeHandleState> = {
+  0: 'none',
+  1: 'pending',
+  2: 'agreed',
+  3: 'refused',
+};
+
+/** notify 里的一个人（申请人 / 处理人）→ Contact。uin 由 service 层查库补齐。 */
+function groupNotifyUserToContact(
+  uid: string,
+  uin: string,
+  nick: string,
+  profileByUid: Map<string, UserProfileWire>,
+  createdAt: string,
+): Contact {
+  const profile = profileByUid.get(uid);
+  const hasUin = (v: string | undefined): v is string => !!v && v !== '0';
+  const resolvedUin = hasUin(uin) ? uin : hasUin(profile?.uin) ? profile.uin : '';
+  return {
+    id: uid,
+    identityLabel: resolvedUin ? 'QQ' : 'UID',
+    identityValue: resolvedUin || uid,
+    username: uid,
+    displayName: nick || profile?.remark || profile?.nick || resolvedUin || uid,
+    avatarUrl: senderAvatarSrc(resolvedUin) || profile?.avatarUrl || null,
+    signature: profile?.signature || null,
+    createdAt,
+  };
+}
+
 function groupNotifyToGroupRequest(
   notify: GroupNotifyWire,
   profileByUid: Map<string, UserProfileWire>,
@@ -734,35 +778,35 @@ function groupNotifyToGroupRequest(
   const groupConversation = groupsById.get(notify.groupUin);
   if (groupConversation?.type !== 'group') return null;
 
-  const profile = profileByUid.get(notify.operatedUid);
-  const uin = profile?.uin ?? '';
-  const user: Contact = {
-    id: notify.operatedUid,
-    identityLabel: uin && uin !== '0' ? 'QQ' : 'UID',
-    identityValue: uin && uin !== '0' ? uin : notify.operatedUid,
-    username: notify.operatedUid,
-    displayName: profile?.nick || profile?.remark || notify.operatedNick || notify.operatedUid,
-    avatarUrl: senderAvatarSrc(uin) || profile?.avatarUrl || null,
-    signature: profile?.signature || null,
-    createdAt: millisecondsToIsoTime(notify.msgTime) ?? new Date(0).toISOString(),
-  };
-
-  const statusText = {
-    1: '申请加入',
-    3: '被设置为管理员',
-    6: '被移出群聊',
-    11: '被管理员拒绝加入',
-    13: '自主退出群聊',
-    15: '被取消管理员权限',
-  }[notify.status] || '群通知';
+  const createdAt = millisecondsToIsoTime(notify.msgTime) ?? new Date(0).toISOString();
+  const user = groupNotifyUserToContact(
+    notify.operatedUid,
+    notify.operatedUin,
+    notify.operatedNick,
+    profileByUid,
+    createdAt,
+  );
+  const handleState = GROUP_NOTIFY_HANDLE_STATE[notify.verifyStatus] ?? 'none';
+  // 处理人只在真的有人处理过时才有意义 —— 未处理的申请里 61007 可能残留邀请人。
+  const operator =
+    notify.operatorUid && (handleState === 'agreed' || handleState === 'refused')
+      ? groupNotifyUserToContact(
+          notify.operatorUid,
+          notify.operatorUin,
+          notify.operatorNick,
+          profileByUid,
+          createdAt,
+        )
+      : null;
 
   return {
     id: `group-notify:${notify.groupUin}:${notify.operatedUid}:${notify.msgTime}`,
-    direction: notify.status === 1 ? 'incoming' : 'outgoing',
-    status: notify.verifyStatus === 2 ? 'accepted' : notify.verifyStatus === 3 ? 'rejected' : 'pending',
-    message: notify.remark || statusText,
-    createdAt: user.createdAt,
-    respondedAt: notify.verifyStatus !== 0 ? secondsToIsoTime(notify.opTime) : null,
+    handleState,
+    action: GROUP_NOTIFY_ACTION[notify.status] ?? '群通知',
+    message: notify.remark || null,
+    systemRemark: notify.systemRemark || null,
+    createdAt,
+    respondedAt: notify.opTime > 0 ? secondsToIsoTime(notify.opTime) : null,
     group: {
       id: groupConversation.group.id,
       conversationId: groupConversation.id,
@@ -774,6 +818,7 @@ function groupNotifyToGroupRequest(
       memberCount: groupConversation.group.memberCount,
     },
     user,
+    operator,
     isDoubt: notify.sourceTable === 'doubt_group_notify_list',
   };
 }
@@ -2330,9 +2375,9 @@ export function MainView(): ReactElement {
     for (const buddy of (buddies.data ?? []) as BuddyWire[]) uids.push(buddy.uid);
     for (const request of (buddyRequests.data ?? []) as BuddyRequestWire[]) uids.push(request.peerUid);
     for (const notify of (groupNotifies.data ?? []) as GroupNotifyWire[]) {
-      if ([1, 3, 6, 11, 13, 15].includes(notify.status) && notify.operatedUid) {
-        uids.push(notify.operatedUid);
-      }
+      if (![1, 3, 6, 11, 13, 15].includes(notify.status)) continue;
+      if (notify.operatedUid) uids.push(notify.operatedUid);
+      if (notify.operatorUid) uids.push(notify.operatorUid);
     }
     resolveProfiles(uids);
   }, [buddies.data, buddyRequests.data, groupNotifies.data, resolveProfiles]);

@@ -6024,15 +6024,145 @@ html[data-theme="dark"] .group-info-member-row.is-clickable:hover {
 .weq-notice-scroll {
   display: grid;
   align-content: start;
-  gap: 8px;
+  gap: 14px;
   min-height: 0;
   overflow-y: auto;
-  padding: 14px 16px 18px;
+  padding: 16px 16px 20px;
 }
 
 .weq-notice-scroll.is-empty {
   place-content: center;
   place-items: center;
+}
+
+/* ── 群通知卡片：三行定宽布局 ────────────────────────────────────────────
+ * 群名可以任意长，所以每行都是 nowrap flex + 省略号截断，绝不靠换行把时间 / 状态
+ * 挤出卡片（旧版用 flex-wrap，长群名一换行就撑破边框）。
+ * 卡片背景半透明，所以必须 overflow:hidden —— 否则任何溢出的行会透过下一张卡显出
+ * 来，看着像两条通知的文字叠在一起。 */
+.app-shell .notice-card-group {
+  align-items: start;
+  overflow: hidden;
+  min-height: 78px;
+  padding: 14px 14px;
+  row-gap: 4px;
+}
+
+.app-shell .notice-card-group .avatar {
+  margin-top: 2px;
+}
+
+.app-shell .notice-card-group .notice-copy {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.app-shell .notice-card-group .notice-line-head,
+.app-shell .notice-card-group .notice-line-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+
+.app-shell .notice-card-group .notice-who {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f1f1f;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell .notice-card-group .notice-state {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.app-shell .notice-card-group .notice-state.is-pending {
+  background: rgba(255, 149, 0, 0.14);
+  color: #c86a00;
+}
+
+.app-shell .notice-card-group .notice-state.is-agreed {
+  background: rgba(0, 178, 108, 0.14);
+  color: #0f8f5f;
+}
+
+.app-shell .notice-card-group .notice-state.is-refused {
+  background: rgba(255, 64, 64, 0.13);
+  color: #d03636;
+}
+
+.app-shell .notice-card-group .notice-line-head time {
+  flex: none;
+  margin: 0 0 0 auto;
+  font-size: 11px;
+  color: #999;
+  white-space: nowrap;
+}
+
+.app-shell .notice-card-group .notice-group-name {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--weq-accent-effective, #0099f7);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell .notice-card-group .notice-action-text {
+  flex: none;
+  font-size: 12px;
+  color: #666;
+  white-space: nowrap;
+}
+
+/* 入群问答等附言：单行截断。用过 -webkit-line-clamp 两行，但多行盒的高度不进
+ * grid 的行高计算，会直接溢出卡片底边 —— 全文看 title。 */
+.app-shell .notice-card-group .notice-copy strong {
+  display: block;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 存疑角标压在右下角 36px，尾行留出让位，别被红杠盖住。 */
+.app-shell .notice-card-group .notice-operator,
+.app-shell .notice-card-group .notice-sysremark {
+  overflow: hidden;
+  padding-right: 26px;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell .notice-card-group .notice-operator {
+  color: #8a8a8a;
+}
+
+.app-shell .notice-card-group .notice-sysremark {
+  color: #d03636;
+}
+
+html[data-theme="dark"] .app-shell .notice-card-group .notice-who {
+  color: #eef0f3;
+}
+
+html[data-theme="dark"] .app-shell .notice-card-group .notice-action-text {
+  color: #b6bcc4;
 }
 
 html[data-theme="dark"] .weq-notice-dialog {

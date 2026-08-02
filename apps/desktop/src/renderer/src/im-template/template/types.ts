@@ -237,11 +237,19 @@ export type ContactRequest = {
 	user: User;
 };
 
+/** 群通知的处理状态（QQ 61003 列）。 */
+export type GroupNoticeHandleState = "none" | "pending" | "agreed" | "refused";
+
 export type GroupJoinRequest = {
 	id: string;
-	direction: "incoming" | "outgoing";
-	status: "pending" | "accepted" | "rejected" | "cancelled";
+	/** 61003：无需处理 / 待处理 / 已同意 / 已拒绝。 */
+	handleState: GroupNoticeHandleState;
+	/** 这条通知在说什么（申请加入 / 退出群聊 / 被移出…）。 */
+	action: string;
+	/** 入群问答（"问题：… 答案：…"）等附言，无则 null。 */
 	message: string | null;
+	/** 风险提示等系统备注，无则 null。 */
+	systemRemark: string | null;
 	createdAt: string;
 	respondedAt: string | null;
 	group: {
@@ -255,6 +263,8 @@ export type GroupJoinRequest = {
 		memberCount: number;
 	};
 	user: User;
+	/** 61007：处理这条通知的管理员，未处理时为 null。 */
+	operator: User | null;
 	isDoubt?: boolean;
 };
 

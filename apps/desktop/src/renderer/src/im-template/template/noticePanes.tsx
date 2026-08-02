@@ -99,8 +99,21 @@ export function ContactNoticeDialog({
 	);
 }
 
+/** 61003 处理状态 → 徽标文案 + 配色修饰类。 */
+const HANDLE_STATE_LABEL: Record<
+	GroupJoinRequest["handleState"],
+	{ text: string; tone: string } | null
+> = {
+	none: null,
+	pending: { text: "待处理", tone: "is-pending" },
+	agreed: { text: "已同意", tone: "is-agreed" },
+	refused: { text: "已拒绝", tone: "is-refused" },
+};
+
 /**
  * 群通知灯箱。结构与好友通知一致；保留存疑申请标记（notice-doubt-mark）。
+ * 每条卡片分三行：申请人 + 处理状态 / 群名 + 动作 / 附言，长群名靠 CSS 截断而不是
+ * 把时间挤到下一行。
  */
 export function GroupNoticeDialog({
 	open,
@@ -148,26 +161,52 @@ export function GroupNoticeDialog({
 							icon={<Users />}
 						/>
 					) : (
-						requests.map((request) => (
-							<article className={cn("notice-card")} key={request.id}>
-								<Avatar
-									name={displayUserName(request.user)}
-									avatarUrl={request.user.avatarUrl}
-									seed={request.user.identityValue}
-								/>
-								<div className={cn("notice-copy")}>
-									<p>
-										<span>{displayUserName(request.user)}</span>{" "}
-										<span>{request.group.name}</span>
-										<time>{formatProfileDate(request.createdAt)}</time>
-									</p>
-									<strong>{request.message || "群通知"}</strong>
-								</div>
-								{request.isDoubt ? (
-									<div className={cn("notice-doubt-mark")} />
-								) : null}
-							</article>
-						))
+						requests.map((request) => {
+							const badge = HANDLE_STATE_LABEL[request.handleState];
+							// 附言原文是「问题：…\n答案：…」，单行展示前把换行折成空格。
+							const message = request.message?.replace(/\s*\n\s*/g, "　");
+							return (
+								<article className={cn("notice-card", "notice-card-group")} key={request.id}>
+									<Avatar
+										name={displayUserName(request.user)}
+										avatarUrl={request.user.avatarUrl}
+										seed={request.user.identityValue}
+									/>
+									<div className={cn("notice-copy")}>
+										<p className="notice-line-head">
+											<span className="notice-who" title={displayUserName(request.user)}>
+												{displayUserName(request.user)}
+											</span>
+											{badge ? (
+												<em className={cn("notice-state", badge.tone)}>{badge.text}</em>
+											) : null}
+											<time>{formatProfileDate(request.createdAt)}</time>
+										</p>
+										<p className="notice-line-group">
+											<span className="notice-group-name" title={request.group.name}>
+												{request.group.name}
+											</span>
+											<span className="notice-action-text">{request.action}</span>
+										</p>
+										{message ? <strong title={message}>{message}</strong> : null}
+										{request.operator ? (
+											<span className="notice-operator">
+												由 {displayUserName(request.operator)} 处理
+												{request.respondedAt
+													? ` · ${formatProfileDate(request.respondedAt)}`
+													: ""}
+											</span>
+										) : null}
+										{request.systemRemark ? (
+											<span className="notice-sysremark">{request.systemRemark}</span>
+										) : null}
+									</div>
+									{request.isDoubt ? (
+										<div className={cn("notice-doubt-mark")} />
+									) : null}
+								</article>
+							);
+						})
 					)}
 				</div>
 			</section>

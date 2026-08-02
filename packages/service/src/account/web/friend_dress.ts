@@ -169,6 +169,8 @@ export async function getFriendDress(
       'Accept-Language': 'zh-CN,zh;q=0.9',
     },
   });
+  //
+  // console.log(html);
 
   const data = parseAsyncData(html);
   if (!data?.rawUsingList) return null;
