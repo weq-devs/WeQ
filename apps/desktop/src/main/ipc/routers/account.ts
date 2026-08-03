@@ -1929,6 +1929,11 @@ export const accountRouter = router({
    * One page of collected items, newest-collected first, projected to the
    * IPC wire shape (bigint → string, byte blobs dropped). `hasMore` lets the
    * renderer page through everything.
+   *
+   * `source` picks the backing path: `db` reads only the local collection.db
+   * (instant), `network` only the weiyun collector (fresh but slow, and null
+   * when no p_skey), `auto` keeps the original network-first-then-db behaviour.
+   * The renderer paints `db` first and swaps in `network` when it arrives.
    */
   listCollections: procedure
     .input(
@@ -1936,23 +1941,31 @@ export const accountRouter = router({
         .object({
           limit: z.number().int().min(1).max(200).optional(),
           offset: z.number().int().min(0).optional(),
+          source: z.enum(['auto', 'db', 'network']).optional(),
         })
         .optional(),
     )
     .query(async ({ input }) => {
-      const page = await requireServices().collection.listCollections(
-        input?.limit ?? 50,
-        input?.offset ?? 0,
-      );
+      const svc = requireServices().collection;
+      const limit = input?.limit ?? 50;
+      const offset = input?.offset ?? 0;
+      const page =
+        input?.source === 'db'
+          ? await svc.listCollectionsFromDb(limit, offset)
+          : input?.source === 'network'
+            ? await svc.listCollectionsFromNetwork(limit, offset)
+            : await svc.listCollections(limit, offset);
+      if (!page) return null;
       return {
         offset: page.offset,
         limit: page.limit,
         hasMore: page.hasMore,
+        source: page.source,
         items: page.items.map(collectionItemToWire),
       };
     }),
 
-  /** Total number of collected items. */
+  /** Total number of collected items (0 when collection.db was never created). */
   countCollections: procedure.query(async () => {
     return requireServices().collection.countCollections();
   }),

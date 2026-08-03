@@ -58,7 +58,24 @@ export class CollectionService {
     return this.fromDb(safeLimit, safeOffset);
   }
 
-  /** Total number of collected items (db-backed count). */
+  /**
+   * Local-only path. Instant (no network round-trip) and always succeeds, so
+   * the UI can paint something before the slow collector fetch lands.
+   */
+  async listCollectionsFromDb(limit = 50, offset = 0): Promise<CollectionPage> {
+    return this.fromDb(Math.max(1, Math.min(limit, 200)), Math.max(0, offset));
+  }
+
+  /**
+   * Network-only path. Returns null when no weiyun p_skey is available or the
+   * collector request fails — callers already holding db rows should simply
+   * keep them rather than showing an error.
+   */
+  async listCollectionsFromNetwork(limit = 50, offset = 0): Promise<CollectionPage | null> {
+    return this.tryNetwork(Math.max(1, Math.min(limit, 200)), Math.max(0, offset));
+  }
+
+  /** Total number of collected items (db-backed count, 0 when db/table absent). */
   async countCollections(): Promise<number> {
     return this.session.collection.count();
   }

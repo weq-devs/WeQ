@@ -10335,6 +10335,15 @@ html[data-theme="dark"] .weq-persona-modal {
   background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
 }
 
+/* 本地库已渲染、网络结果还在路上时的轻提示 */
+.weq-collection-syncing {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--weq-fg-muted, #7c8a99);
+}
+
 .weq-collection-search {
   display: flex;
   align-items: center;

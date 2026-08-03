@@ -212,19 +212,42 @@ export class CollectionDb {
     this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
   }
 
-  /** Total number of collected items. */
+  /**
+   * Whether `collection_list_info_table` is actually there.
+   *
+   * QQ only creates `collection.db` (and this table inside it) once 收藏 has
+   * been opened at least once on this machine. Before that the file is absent
+   * or empty — that means "no favourites", not a failure, so both readers below
+   * degrade to an empty result instead of throwing.
+   */
+  private async tableExists(): Promise<boolean> {
+    try {
+      const rows = await this.qq.query(
+        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1`,
+        [TABLE],
+      );
+      return rows.length > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Total number of collected items (0 when the database/table is absent). */
   async count(): Promise<number> {
+    if (!(await this.tableExists())) return 0;
     const rows = await this.qq.query(`SELECT COUNT(*) FROM ${TABLE}`);
     return Number(rows[0]?.[0] ?? 0);
   }
 
   /**
-   * List collected items, newest-collected first.
+   * List collected items, newest-collected first. Empty when the
+   * database/table is absent.
    *
    * @param limit  page size
    * @param offset rows to skip
    */
   async listAll(limit = 50, offset = 0): Promise<CollectionItem[]> {
+    if (!(await this.tableExists())) return [];
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM ${TABLE} ORDER BY "180010" DESC LIMIT ? OFFSET ?`,
       [limit, offset],

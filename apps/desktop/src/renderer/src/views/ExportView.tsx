@@ -14,7 +14,7 @@
  * 前端把配置收集齐后给出「后端待接入」提示，待后端补齐后改为真实调用即可。
  */
 
-import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import {
   Bookmark,
   CalendarClock,
@@ -242,6 +242,7 @@ export function ExportView(): ReactElement {
   /** 收藏预览：加载一次全部收藏（含展示摘要），按类型计数 + 下方列表预览。 */
   const [collectionItems, setCollectionItems] = useState<CollectionPreviewItem[] | null>(null);
   const [collectionLoading, setCollectionLoading] = useState(false);
+  const collectionStartedRef = useRef(false);
 
   const categories = trpc.account.listCategories.useQuery(undefined, {
     enabled: mode === 'contacts' && contactScope === 'friends',
@@ -284,34 +285,51 @@ export function ExportView(): ReactElement {
   }, [mode, contactScope, format]);
 
   // 进入收藏模式时加载一次全部收藏（分页拉全，收藏集通常不大），用于类型计数与预览。
+  // 与收藏灯箱同策略：先出本地 collection.db（秒开），再用微云 collector 的结果替换。
+  // 「已启动」闸门必须是 ref：本体在两段之间 setState，若依赖 state 会中途重跑，
+  // cleanup 置 cancelled 后网络段的 setState 全被跳过，补充结果永远丢失。
   useEffect(() => {
-    if (mode !== 'collection' || collectionItems !== null) return;
+    if (mode !== 'collection' || collectionStartedRef.current) return;
+    collectionStartedRef.current = true;
     let cancelled = false;
     setCollectionLoading(true);
+    const fetchAll = async (source: 'db' | 'network'): Promise<CollectionPreviewItem[] | null> => {
+      const all: CollectionPreviewItem[] = [];
+      let offset = 0;
+      for (;;) {
+        const res = (await client.account.listCollections.query({
+          limit: 100,
+          offset,
+          source,
+        })) as { items: CollectionItemWire[]; hasMore: boolean } | null;
+        if (!res) return null;
+        all.push(...res.items.map(collectionPreview));
+        if (!res.hasMore || res.items.length === 0) break;
+        offset += res.items.length;
+      }
+      return all;
+    };
     (async () => {
       try {
-        const all: CollectionPreviewItem[] = [];
-        let offset = 0;
-        for (;;) {
-          const res = (await client.account.listCollections.query({ limit: 100, offset })) as {
-            items: CollectionItemWire[];
-            hasMore: boolean;
-          };
-          all.push(...res.items.map(collectionPreview));
-          if (!res.hasMore || res.items.length === 0) break;
-          offset += res.items.length;
-        }
-        if (!cancelled) setCollectionItems(all);
+        const local = await fetchAll('db');
+        if (cancelled) return;
+        setCollectionItems(local ?? []);
       } catch {
         if (!cancelled) setCollectionItems([]);
       } finally {
-        if (!cancelled) setCollectionLoading(false);
+        setCollectionLoading(false);
+      }
+      try {
+        const fresh = await fetchAll('network');
+        if (!cancelled && fresh) setCollectionItems(fresh);
+      } catch {
+        /* 网络补充失败：保留本地结果 */
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [mode, collectionItems]);
+  }, [mode]);
 
   // Live task progress: invalidate the list whenever the backend ticks.
   useEffect(() => {

@@ -13,7 +13,7 @@
  * always render even when name/address are empty.
  */
 
-import { useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import {
   Bookmark,
   ChevronLeft,
@@ -75,6 +75,32 @@ interface CollectionItemWire {
 }
 
 const PAGE_SIZE = 8;
+
+type CollectionSource = 'db' | 'network';
+
+interface CollectionPageWire {
+  items: CollectionItemWire[];
+  hasMore: boolean;
+}
+
+/** Page through `account.listCollections` until exhausted. 收藏集通常不大。 */
+async function fetchAllCollections(source: CollectionSource): Promise<CollectionItemWire[] | null> {
+  const all: CollectionItemWire[] = [];
+  let offset = 0;
+  for (;;) {
+    const res = (await client.account.listCollections.query({
+      limit: 100,
+      offset,
+      source,
+    })) as CollectionPageWire | null;
+    // network 路径拿不到 p_skey / 请求失败时返回 null —— 保留已有的 db 结果。
+    if (!res) return null;
+    all.push(...res.items);
+    if (!res.hasMore || res.items.length === 0) break;
+    offset += res.items.length;
+  }
+  return all;
+}
 
 /** Ordered kind filter chips. `all` first, then by rough frequency. */
 const KIND_FILTERS: { id: string; label: string }[] = [
@@ -390,50 +416,60 @@ export function CollectionDialog({
   const [items, setItems] = useState<CollectionItemWire[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState('all');
   const [page, setPage] = useState(0);
+  const startedRef = useRef(false);
 
-  // Load everything once, the first time the dialog opens.
+  // Two-stage load, the first time the dialog opens: paint the local
+  // collection.db immediately (fast, works offline), then quietly swap in the
+  // weiyun collector result once it lands (slow, but authoritative). A network
+  // failure / missing p_skey keeps the db rows — 收藏 is never an error state.
   //
-  // NOTE: `loading` must NOT be an effect dependency. `setLoading(true)` on the
-  // first line would otherwise re-trigger this effect, whose cleanup flips the
-  // in-flight `cancelled` flag — so the original request resolves but every
-  // setState (incl. `setLoading(false)`) is skipped, leaving it spinning
-  // forever. The `loaded` guard alone prevents duplicate loads.
+  // The "already started" gate MUST be a ref, not state: this body sets state
+  // between its two stages, and any state the effect depends on would re-run it
+  // mid-flight, whose cleanup flips `cancelled` — the network stage would then
+  // resolve with every setState skipped, leaving 「同步中」 spinning forever.
+  //
+  // For the same reason `cancelled` only guards the *data* writes. The two
+  // in-flight flags are cleared unconditionally: closing the dialog mid-sync
+  // must not leave `refreshing` stuck on, since the gate stops this effect from
+  // ever running (and clearing it) again.
   useEffect(() => {
-    if (!open || loaded) return;
+    if (!open || startedRef.current) return;
+    startedRef.current = true;
     let cancelled = false;
     setLoading(true);
     setError(null);
     (async () => {
       try {
-        const all: CollectionItemWire[] = [];
-        let offset = 0;
-        for (;;) {
-          const res = (await client.account.listCollections.query({
-            limit: 100,
-            offset,
-          })) as { items: CollectionItemWire[]; hasMore: boolean };
-          all.push(...res.items);
-          if (!res.hasMore || res.items.length === 0) break;
-          offset += res.items.length;
-        }
-        if (!cancelled) {
-          setItems(all);
-          setLoaded(true);
-        }
+        const local = await fetchAllCollections('db');
+        if (cancelled) return;
+        setItems(local ?? []);
+        setLoaded(true);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : '加载收藏失败');
+        return;
       } finally {
-        if (!cancelled) setLoading(false);
+        setLoading(false);
+      }
+
+      setRefreshing(true);
+      try {
+        const fresh = await fetchAllCollections('network');
+        if (!cancelled && fresh) setItems(fresh);
+      } catch {
+        /* 网络补充失败:保留本地结果,不打扰用户 */
+      } finally {
+        setRefreshing(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [open, loaded]);
+  }, [open]);
 
   // Search-filtered set (kind ignored) — drives the per-kind chip counts.
   const bySearch = useMemo(() => {
@@ -481,6 +517,12 @@ export function CollectionDialog({
             <Bookmark size={18} strokeWidth={1.9} />
             <h2 id="weq-collection-title">我的收藏</h2>
             {loaded ? <span className="weq-collection-total">{items.length}</span> : null}
+            {refreshing ? (
+              <span className="weq-collection-syncing" title="正在同步最新收藏">
+                <Loader2 size={13} className="weq-spin" />
+                同步中
+              </span>
+            ) : null}
           </div>
           <div className="weq-collection-search">
             <Search size={15} strokeWidth={1.8} />
@@ -524,7 +566,11 @@ export function CollectionDialog({
             <div className="weq-collection-state is-error">{error}</div>
           ) : filtered.length === 0 ? (
             <div className="weq-collection-state">
-              {items.length === 0 ? '还没有任何收藏' : '没有匹配的收藏'}
+              {items.length === 0
+                ? refreshing
+                  ? '正在同步收藏…'
+                  : '还没有任何收藏'
+                : '没有匹配的收藏'}
             </div>
           ) : (
             <div className="weq-collection-grid">
