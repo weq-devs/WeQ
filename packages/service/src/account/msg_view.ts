@@ -20,6 +20,7 @@ import type {
   MfaceElement,
   MarkdownElement,
   MultiMsgElement,
+  InlineKeyboardElement,
   CallElement,
   WalletElement,
   OnlineFileElement,
@@ -334,6 +335,26 @@ export interface ForwardMessage {
   elements: RenderElement[];
 }
 
+/** 机器人内联键盘的一个按钮。 */
+export interface RenderKeyboardButton {
+  /** 按钮文案。 */
+  label: string;
+  /** 点击目标：链接（actionType=2）或指令文本。 */
+  action: string;
+  /** 动作类型。2 = 打开链接，其余暂未观测。 */
+  actionType: number;
+}
+
+export interface RenderInlineKeyboardElement {
+  type: 'inlineKeyboard';
+  data: BaseRenderData & {
+    /** 按钮，按行分组。 */
+    rows: RenderKeyboardButton[][];
+    /** 机器人 appid（不是 uin）。 */
+    botAppId: string;
+  };
+}
+
 export interface RenderMultiMsgElement {
   type: 'multiMsg';
   data: BaseRenderData & {
@@ -490,6 +511,7 @@ export type RenderElement =
   | RenderMfaceElement
   | RenderMarkdownElement
   | RenderMultiMsgElement
+  | RenderInlineKeyboardElement
   | RenderCallElement
   | RenderWalletElement
   | RenderOnlineFileElement
@@ -528,6 +550,7 @@ export function toRenderElements(elements: Element[]): RenderElement[] {
       case 'mface': return mapMface(el as MfaceElement);
       case 'markdown': return mapMarkdown(el as MarkdownElement);
       case 'multiMsg': return mapMultiMsg(el as MultiMsgElement);
+      case 'inlineKeyboard': return mapInlineKeyboard(el as InlineKeyboardElement);
       case 'call': return mapCall(el as CallElement);
       case 'wallet': return mapWallet(el as WalletElement);
       case 'onlineFile': return mapOnlineFile(el as OnlineFileElement);
@@ -861,6 +884,29 @@ function mapMultiMsg(el: MultiMsgElement): RenderMultiMsgElement {
       resId: el.resId,
       xmlContent: el.xmlContent,
       sessionId: el.sessionId,
+      elementId: el.elementId,
+      isSender: el.isSender,
+      subType: el.subType,
+    },
+  };
+}
+
+function mapInlineKeyboard(el: InlineKeyboardElement): RenderInlineKeyboardElement {
+  return {
+    type: 'inlineKeyboard',
+    data: {
+      rows: (el.keyboardRows ?? [])
+        .map((row) =>
+          (row.buttons ?? [])
+            .filter((b) => b.label)
+            .map((b) => ({
+              label: b.label ?? '',
+              action: b.action ?? '',
+              actionType: b.actionType ?? 0,
+            })),
+        )
+        .filter((row) => row.length > 0),
+      botAppId: el.keyboardBotAppId?.toString() ?? '',
       elementId: el.elementId,
       isSender: el.isSender,
       subType: el.subType,

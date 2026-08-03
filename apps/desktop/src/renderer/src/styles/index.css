@@ -3124,7 +3124,7 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 
 .app-shell .notice-card:hover {
   background: rgba(255, 255, 255, 0.9);
-  border-color: rgba(0, 153, 247, 0.2);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
   transform: translateX(2px);
 }
 
@@ -3197,7 +3197,7 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 .app-shell .notice-doubt-mark::after {
   content: '';
   position: absolute;
-  background: #ff4040;
+  background: color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
   transform: rotate(45deg);
   transform-origin: bottom left;
 }
@@ -3214,7 +3214,7 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   height: 50px;
   bottom: 0;
   left: 14px;
-  box-shadow: 6px 0 0 #ff4040;
+  box-shadow: 6px 0 0 color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
 }
 
 .app-shell .conversation-row,
@@ -5869,6 +5869,80 @@ html[data-theme="dark"] .weq-profile-member .avatar {
   box-shadow: 0 6px 14px -8px rgba(47, 184, 122, 0.6);
 }
 
+/* 机器人 pill：QQ 机器人的蓝，与群主金/管理员绿并列。 */
+.weq-profile-rel.is-bot {
+  border-color: transparent;
+  background: linear-gradient(135deg, #6fb5ff, #1e74ff);
+  color: #ffffff;
+  box-shadow: 0 6px 14px -8px rgba(30, 116, 255, 0.7);
+}
+
+/* 机器人档案分区（欢迎语 / 指令列表）。 */
+.weq-bot-block {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+}
+
+.weq-bot-block-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 6px;
+  color: color-mix(in srgb, var(--weq-accent-effective) 70%, #333);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.weq-bot-cmd-count {
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.weq-bot-welcome {
+  margin: 0;
+  color: #555;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.weq-bot-cmds {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.weq-bot-cmd {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.weq-bot-cmd code {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective) 82%, #000);
+  font-family: var(--weq-mono, ui-monospace, monospace);
+  font-size: 11px;
+}
+
+.weq-bot-cmd span {
+  color: #777;
+  overflow-wrap: anywhere;
+}
+
 /* 专属头衔 pill：主题渐变填充，突出但不喧宾夺主。 */
 .weq-member-title {
   display: inline-flex;
@@ -6035,17 +6109,41 @@ html[data-theme="dark"] .group-info-member-row.is-clickable:hover {
   place-items: center;
 }
 
-/* ── 群通知卡片：三行定宽布局 ────────────────────────────────────────────
- * 群名可以任意长，所以每行都是 nowrap flex + 省略号截断，绝不靠换行把时间 / 状态
- * 挤出卡片（旧版用 flex-wrap，长群名一换行就撑破边框）。
+/* ── 群通知卡片 ─────────────────────────────────────────────────────────
+ * 三列：头像 / 正文 / 右上角状态+时间。每行 nowrap + 省略号截断，绝不靠换行把
+ * 时间挤出卡片（旧版用 flex-wrap，长群名一换行就撑破边框）。
+ * 配色统一收敛到主题色 --weq-accent-effective，只用不透明度和左侧色条区分处理
+ * 状态 —— 原来红/绿/橙三色徽标混在一起太吵。
  * 卡片背景半透明，所以必须 overflow:hidden —— 否则任何溢出的行会透过下一张卡显出
  * 来，看着像两条通知的文字叠在一起。 */
 .app-shell .notice-card-group {
+  position: relative;
   align-items: start;
   overflow: hidden;
   min-height: 78px;
-  padding: 14px 14px;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  padding: 12px 14px 12px 16px;
   row-gap: 4px;
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+}
+
+.app-shell .notice-card-group:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 32%, transparent);
+}
+
+/* 左侧 2px 主题色条：待处理为实心，已处理淡一档。 */
+.app-shell .notice-card-group::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 28%, transparent);
+}
+
+.app-shell .notice-card-group.is-pending::before {
+  background: var(--weq-accent-effective);
 }
 
 .app-shell .notice-card-group .avatar {
@@ -6054,21 +6152,23 @@ html[data-theme="dark"] .group-info-member-row.is-clickable:hover {
 
 .app-shell .notice-card-group .notice-copy {
   display: grid;
-  gap: 5px;
+  gap: 3px;
   min-width: 0;
 }
 
 .app-shell .notice-card-group .notice-line-head,
 .app-shell .notice-card-group .notice-line-group {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 6px;
   margin: 0;
   min-width: 0;
   flex-wrap: nowrap;
 }
 
-.app-shell .notice-card-group .notice-who {
+/* 选择器带上 `p >`：通用的 .notice-copy p > span:first-child / :nth-child(2)
+ * （好友通知用）特异性比裸类名高，不这么写会把下面的配色全盖掉。 */
+.app-shell .notice-card-group .notice-copy p > span.notice-who {
   min-width: 0;
   overflow: hidden;
   font-size: 13px;
@@ -6078,63 +6178,99 @@ html[data-theme="dark"] .group-info-member-row.is-clickable:hover {
   white-space: nowrap;
 }
 
+/* 右上角：状态徽标 + 日期竖排，正文再长也不会把它们挤走。 */
+.app-shell .notice-card-group .notice-meta {
+  display: grid;
+  justify-items: end;
+  align-content: start;
+  gap: 4px;
+  margin-top: 1px;
+}
+
 .app-shell .notice-card-group .notice-state {
   flex: none;
-  padding: 1px 6px;
+  padding: 1px 7px;
   border-radius: 999px;
   font-size: 11px;
   font-style: normal;
   line-height: 1.5;
   white-space: nowrap;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-effective);
 }
 
+/* 待处理需要更强的存在感：实心底 + 反白字。已同意/已拒绝一律淡色，用描边虚实区分。 */
 .app-shell .notice-card-group .notice-state.is-pending {
-  background: rgba(255, 149, 0, 0.14);
-  color: #c86a00;
+  background: var(--weq-accent-effective);
+  color: #fff;
 }
 
 .app-shell .notice-card-group .notice-state.is-agreed {
-  background: rgba(0, 178, 108, 0.14);
-  color: #0f8f5f;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective) 88%, #000);
 }
 
 .app-shell .notice-card-group .notice-state.is-refused {
-  background: rgba(255, 64, 64, 0.13);
-  color: #d03636;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--weq-accent-effective) 34%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective) 70%, #6a6a6a);
 }
 
-.app-shell .notice-card-group .notice-line-head time {
+.app-shell .notice-card-group .notice-meta time {
   flex: none;
-  margin: 0 0 0 auto;
+  margin: 0;
   font-size: 11px;
-  color: #999;
+  color: #a0a6ad;
   white-space: nowrap;
 }
 
-.app-shell .notice-card-group .notice-group-name {
+.app-shell .notice-card-group .notice-copy p > span.notice-group-name {
   min-width: 0;
   overflow: hidden;
   font-size: 12px;
-  font-weight: 500;
-  color: var(--weq-accent-effective, #0099f7);
+  font-weight: 400;
+  color: #7d848c;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.app-shell .notice-card-group .notice-action-text {
+.app-shell .notice-card-group .notice-copy p > span.notice-action-text {
   flex: none;
-  font-size: 12px;
-  color: #666;
+  font-size: 11px;
+  color: var(--weq-accent-effective);
   white-space: nowrap;
 }
 
-/* 入群问答等附言：单行截断。用过 -webkit-line-clamp 两行，但多行盒的高度不进
- * grid 的行高计算，会直接溢出卡片底边 —— 全文看 title。 */
-.app-shell .notice-card-group .notice-copy strong {
-  display: block;
+/* 入群问答：拆成「标签 内容」对，标签弱化、内容走正文色，别糊成一行长文本。
+ * 单行截断 —— 用过 -webkit-line-clamp 两行，但多行盒的高度不进 grid 的行高计算，
+ * 会直接溢出卡片底边。全文看 title。 */
+.app-shell .notice-card-group .notice-fields {
+  display: grid;
+  gap: 2px;
+  margin: 3px 0 0;
+  min-width: 0;
+}
+
+.app-shell .notice-card-group .notice-field {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.app-shell .notice-card-group .notice-field dt {
+  flex: none;
+  font-size: 11px;
+  color: #a0a6ad;
+}
+
+.app-shell .notice-card-group .notice-field dd {
+  min-width: 0;
+  margin: 0;
   overflow: hidden;
   font-size: 12px;
   line-height: 1.5;
+  color: #4a5058;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -6150,19 +6286,32 @@ html[data-theme="dark"] .group-info-member-row.is-clickable:hover {
 }
 
 .app-shell .notice-card-group .notice-operator {
-  color: #8a8a8a;
+  color: #a0a6ad;
 }
 
 .app-shell .notice-card-group .notice-sysremark {
-  color: #d03636;
+  color: color-mix(in srgb, var(--weq-accent-effective) 62%, #8a8a8a);
 }
 
-html[data-theme="dark"] .app-shell .notice-card-group .notice-who {
+html[data-theme='dark'] .app-shell .notice-card-group .notice-copy p > span.notice-who {
   color: #eef0f3;
 }
 
-html[data-theme="dark"] .app-shell .notice-card-group .notice-action-text {
-  color: #b6bcc4;
+html[data-theme='dark'] .app-shell .notice-card-group .notice-copy p > span.notice-group-name {
+  color: #9aa1a9;
+}
+
+html[data-theme='dark'] .app-shell .notice-card-group .notice-field dd {
+  color: #ccd2d9;
+}
+
+html[data-theme='dark'] .app-shell .notice-card-group .notice-state.is-agreed {
+  background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective) 70%, #fff);
+}
+
+html[data-theme='dark'] .app-shell .notice-card-group .notice-state.is-refused {
+  color: color-mix(in srgb, var(--weq-accent-effective) 60%, #cfd4da);
 }
 
 html[data-theme="dark"] .weq-notice-dialog {

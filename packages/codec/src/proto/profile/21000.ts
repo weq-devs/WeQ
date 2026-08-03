@@ -38,6 +38,9 @@
  *       #20039 —— 老版「个人档案」，**不是 protobuf**，是 [u16 tag][u16 len][utf8] TLV，
  *                 装着手机/电脑/相机/汽车机型等 2008 年代的问卷答案。详见
  *                 docs/database/profile_info/profile-info-v6.md 第八节。
+ *     #22007 杂项开关
+ *       #29100 机器人标识 —— 只有机器人有这一块，全库唯一可靠的机器人判据
+ *         #29101 botType  1=第三方机器人, 2=QQ官方AI(小Q)
  *     #22009 QQ空间相册
  *       #20066
  *         #20461 (repeated) 每张照片
@@ -159,6 +162,22 @@ export const AlbumGroupWire = {
   container: ProtoField(20066, () => AlbumContainerWire, { optional: true }),
 };
 
+/**
+ * #22007/#29100 —— 机器人标识。这个子块只在机器人的资料里出现，是全库唯一
+ * 可靠的「这个 uid 是机器人」判据：52336 行 profile_info_v6 里只有 6 行带它，
+ * 6 行全是机器人（含 profile_info_adelie 表里还没写入的 DKbot）。
+ */
+export const BotMarkWire = {
+  /** #29101: 机器人类型。1 = 第三方机器人，2 = QQ 官方 AI（小Q）。 */
+  botType: ProtoField(29101, ScalarType.INT32, { optional: true }),
+};
+
+/** #22007 —— 杂项开关块，机器人标识藏在里面。 */
+export const MiscFlagsWire = {
+  /** #29100: 机器人标识。非空即机器人。 */
+  botMark: ProtoField(29100, () => BotMarkWire, { optional: true }),
+};
+
 /** #21000 内层各分块。 */
 export const ProfileExtInnerWire = {
   /** #22003: 好友互动标识。 */
@@ -167,6 +186,8 @@ export const ProfileExtInnerWire = {
   privilege: ProtoField(22004, () => PrivilegeGroupWire, { optional: true }),
   /** #22005: 扩展资料(教育/所在地/兴趣)。 */
   extInfo: ProtoField(22005, () => ExtInfoWire, { optional: true }),
+  /** #22007: 杂项开关，含机器人标识。 */
+  miscFlags: ProtoField(22007, () => MiscFlagsWire, { optional: true }),
   /** #22009: QQ空间相册。 */
   album: ProtoField(22009, () => AlbumGroupWire, { optional: true }),
 };

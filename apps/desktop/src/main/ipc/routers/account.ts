@@ -53,6 +53,7 @@ import {
 } from '@weq/service';
 import {
   buddyRequestToWire,
+  botProfileToWire,
   buddyToWire,
   categoryToWire,
   c2cMsgToWire,
@@ -1299,6 +1300,25 @@ export const accountRouter = router({
     .query(async ({ input }) => {
       const profile = await requireServices().profile.getProfile(input.uid);
       return profile ? userProfileToWire(profile) : null;
+    }),
+
+  /**
+   * The uids of every bot with a cached profile. The renderer fetches this
+   * once and uses it to badge bots in member / contact / conversation lists.
+   */
+  botUids: procedure.query(async () => {
+    return [...(await requireServices().profile.botUids())];
+  }),
+
+  /**
+   * A bot's own profile (简介 / 指令列表 / 欢迎语). Null when QQ has never
+   * cached that bot's card — callers fall back to the regular profile.
+   */
+  getBotProfile: procedure
+    .input(z.object({ uid: z.string().min(1) }))
+    .query(async ({ input }) => {
+      const profile = await requireServices().profile.getBotProfile(input.uid);
+      return profile ? botProfileToWire(profile) : null;
     }),
 
   /** Get detailed profile by QQ uin. */

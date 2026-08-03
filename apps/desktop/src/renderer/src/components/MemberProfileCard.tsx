@@ -11,6 +11,7 @@
 import {
 	Award,
 	BadgeCheck,
+	Bot,
 	Cake,
 	CalendarDays,
 	Check,
@@ -21,6 +22,9 @@ import {
 	Hash,
 	Heart,
 	Loader2,
+	MessageSquareCode,
+	Megaphone,
+	Terminal,
 	Shield,
 	Sparkles,
 	User as UserIcon,
@@ -66,6 +70,9 @@ export function MemberProfileCard({ member, anchor, onClose }) {
 	const [loading, setLoading] = useState(true);
 	const [copied, setCopied] = useState(false);
 	const [homeOpen, setHomeOpen] = useState(false);
+	// 机器人档案（profile_info_adelie）。QQ 只在客户端打开过该机器人资料卡后才
+	// 写这张表，所以经常是 null —— 那时只展示 v6 那份普通资料。
+	const [botProfile, setBotProfile] = useState(null);
 	const cardRef = useRef(null);
 	const [pos, setPos] = useState({ left: anchor.x + 14, top: anchor.y + 8, ready: false });
 
@@ -96,6 +103,24 @@ export function MemberProfileCard({ member, anchor, onClose }) {
 		};
 	}, [uid]);
 
+	// 机器人才去查 adelie 表；member.kind 来自 MainView 里的 botUids 集合。
+	useEffect(() => {
+		if (member.kind !== "bot") {
+			setBotProfile(null);
+			return undefined;
+		}
+		let alive = true;
+		client.account.getBotProfile
+			.query({ uid })
+			.then((p) => {
+				if (alive) setBotProfile(p);
+			})
+			.catch(() => {});
+		return () => {
+			alive = false;
+		};
+	}, [uid, member.kind]);
+
 	// 测量真实尺寸后把卡片夹在视口内：默认落在光标右下，右 / 下溢出则翻向左 / 上。
 	useLayoutEffect(() => {
 		const el = cardRef.current;
@@ -112,7 +137,7 @@ export function MemberProfileCard({ member, anchor, onClose }) {
 		if (top + h > vh - M) top = vh - h - M;
 		if (top < M) top = M;
 		setPos({ left, top, ready: true });
-	}, [anchor.x, anchor.y, loading, profile]);
+	}, [anchor.x, anchor.y, loading, profile, botProfile]);
 
 	const name = displayUserName(member);
 	const role = ROLE_META[member.role];
@@ -194,8 +219,14 @@ export function MemberProfileCard({ member, anchor, onClose }) {
 						</button>
 					) : null}
 
-					{role || genderAge || zodiac ? (
+					{member.kind === "bot" || role || genderAge || zodiac ? (
 						<div className="weq-profile-chips">
+							{member.kind === "bot" ? (
+								<span className="weq-profile-rel is-bot">
+									<Bot size={13} strokeWidth={2.2} />
+									机器人
+								</span>
+							) : null}
 							{role ? (
 								<span className={cn("weq-profile-rel", role.cls)}>
 									<role.Icon size={13} strokeWidth={2.2} />
@@ -221,7 +252,9 @@ export function MemberProfileCard({ member, anchor, onClose }) {
 						</div>
 					) : null}
 
-					{profile?.signature ? <p className="weq-profile-sign">{profile.signature}</p> : null}
+					{botProfile?.description || profile?.signature ? (
+						<p className="weq-profile-sign">{botProfile?.description || profile.signature}</p>
+					) : null}
 				</div>
 
 				<div className="weq-profile-list">
@@ -245,7 +278,43 @@ export function MemberProfileCard({ member, anchor, onClose }) {
 						<ProfileRow icon={<Fingerprint size={13} />} label="QID" value={profile.qid} mono />
 					) : null}
 					<ProfileRow icon={<Hash size={13} />} label="UID" value={uid} mono />
+					{botProfile?.wakeCommand ? (
+						<ProfileRow
+							icon={<Terminal size={13} />}
+							label="唤醒指令"
+							value={botProfile.wakeCommand}
+							mono
+						/>
+					) : null}
 				</div>
+
+				{botProfile?.welcome ? (
+					<div className="weq-bot-block">
+						<div className="weq-bot-block-head">
+							<Megaphone size={13} />
+							欢迎语
+						</div>
+						<p className="weq-bot-welcome">{botProfile.welcome}</p>
+					</div>
+				) : null}
+
+				{botProfile?.commands?.length ? (
+					<div className="weq-bot-block">
+						<div className="weq-bot-block-head">
+							<MessageSquareCode size={13} />
+							支持的指令
+							<span className="weq-bot-cmd-count">{botProfile.commands.length}</span>
+						</div>
+						<ul className="weq-bot-cmds">
+							{botProfile.commands.map((c) => (
+								<li key={c.id} className="weq-bot-cmd">
+									<code>{c.command}</code>
+									{c.description ? <span>{c.description}</span> : null}
+								</li>
+							))}
+						</ul>
+					</div>
+				) : null}
 
 				{/* 个性主页要拿 QQ 号去查会员装扮页——profile 还没到或没 uin 时不给入口。 */}
 				{uin ? (

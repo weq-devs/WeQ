@@ -38,6 +38,7 @@ import {
   CategoryDb,
   BuddyRequestDb,
   ProfileInfoDb,
+  BotProfileDb,
   MiscDb,
   QqDb,
   UnreadInfoDb,
@@ -194,6 +195,7 @@ export async function openStaticAccount(
   const categories = new CategoryDb(nt, profileOpts);
   const buddyReqs = new BuddyRequestDb(nt, profileOpts);
   const profileInfo = new ProfileInfoDb(nt, profileOpts);
+  const botProfiles = new BotProfileDb(nt, profileOpts);
 
   // ---- misc ----
   const misc = new MiscDb(nt, opts(join(dirPath, 'misc.db')));
@@ -228,6 +230,7 @@ export async function openStaticAccount(
     categories,
     buddyReqs,
     profileInfo,
+    botProfiles,
     misc,
     unreadInfo,
     dispose(): void {
@@ -253,6 +256,7 @@ export async function openStaticAccount(
       categories.close();
       buddyReqs.close();
       profileInfo.close();
+      botProfiles.close();
       misc.close();
       unreadInfo.close();
     },

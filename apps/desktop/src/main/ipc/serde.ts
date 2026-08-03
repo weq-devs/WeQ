@@ -10,6 +10,7 @@
  */
 
 import type {
+  BotProfile,
   Buddy,
   BuddyMsgFtsHit,
   BuddyRequest,
@@ -45,6 +46,8 @@ export interface UserProfileWire {
   intimacy: number;
   sigUpdateTime: number;
   isFriend: boolean;
+  /** 是否 QQ 机器人（21000 里的 22007.29100 标志）。 */
+  isBot: boolean;
   customStatus?: {
     id?: number;
     desc?: string;
@@ -360,10 +363,20 @@ export function userProfileToWire(p: UserProfile): UserProfileWire {
     intimacy: p.intimacy,
     sigUpdateTime: p.sigUpdateTime,
     isFriend: p.isFriend,
+    isBot: p.isBot,
     customStatus: p.customStatus,
     extRelation: p.extRelation,
     extInfo: p.extInfo,
   };
+}
+
+/** 机器人档案（profile_info_adelie）。uin 转字符串，其余结构原样透传。 */
+export interface BotProfileWire extends Omit<BotProfile, 'uin'> {
+  uin: string;
+}
+
+export function botProfileToWire(p: BotProfile): BotProfileWire {
+  return { ...p, uin: p.uin.toString() };
 }
 
 export function groupDetailToWire(d: GroupDetail): GroupDetailWire {

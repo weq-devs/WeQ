@@ -116,6 +116,43 @@ export const MarkdownFlag48703Wire = {
   field48722: ProtoField(48722, ScalarType.UINT32, { optional: true }),
 };
 
+/**
+ * One button of a bot inline keyboard (tag 48753, repeated inside a row).
+ *
+ * Recovered from a 小虾米 (bot uin 2854213832) welcome card: four buttons laid
+ * out 2×2, each opening a `m.q.qq.com` mini-program page. Tags whose meaning is
+ * still unverified keep numeric names — every observed sample has them at 0/""
+ * so there is nothing to infer from.
+ */
+export const InlineKeyboardButtonWire = {
+  /** 按钮 id，形如 "1".."4"（字符串，不是数字）。 */
+  buttonId: ProtoField(48754, ScalarType.STRING, { optional: true }),
+  /** 按钮文案，如「我的钱包」。 */
+  label: ProtoField(48755, ScalarType.STRING, { optional: true }),
+  /** 点击后的文案。观测中恒等于 label。 */
+  visitedLabel: ProtoField(48756, ScalarType.STRING, { optional: true }),
+  /** 样式（1 = 描边蓝字）。 */
+  style: ProtoField(48757, ScalarType.UINT32, { optional: true }),
+  flag48758: ProtoField(48758, ScalarType.UINT32, { optional: true }),
+  flag48759: ProtoField(48759, ScalarType.UINT32, { optional: true }),
+  flag48760: ProtoField(48760, ScalarType.STRING, { optional: true }),
+  /** 点击目标：http(s) 链接或指令文本，取决于 actionType。 */
+  action: ProtoField(48761, ScalarType.STRING, { optional: true }),
+  flag48762: ProtoField(48762, ScalarType.UINT32, { optional: true }),
+  /** 动作类型。观测到的都是 2（打开链接）。 */
+  actionType: ProtoField(48763, ScalarType.UINT32, { optional: true }),
+  flag48766: ProtoField(48766, ScalarType.UINT32, { optional: true }),
+  flag48767: ProtoField(48767, ScalarType.UINT32, { optional: true }),
+  flag48768: ProtoField(48768, ScalarType.UINT32, { optional: true }),
+  flag48772: ProtoField(48772, ScalarType.UINT32, { optional: true }),
+  flag48790: ProtoField(48790, ScalarType.STRING, { optional: true }),
+};
+
+/** One row of a bot inline keyboard (tag 48751, repeated). */
+export const InlineKeyboardRowWire = {
+  buttons: ProtoField(48753, () => InlineKeyboardButtonWire, { optional: true, repeat: true }),
+};
+
 /** Nested message for flash-transfer thumbnail URL info (tag 2 within 4 of 48708). */
 export const FlashTransferThumbUrlWire = {
   type: ProtoField(1, ScalarType.UINT32, { optional: true }),
@@ -946,6 +983,16 @@ export const ElementWire = {
 
   /** QQ flash-transfer proto 3 (tag 48711). Complex nested structure — parsed as raw bytes. Optional. */
   flashTransferProto3: ProtoField(48711, ScalarType.BYTES, { optional: true }),
+
+  // ---- INLINE_KEYBOARD (elementType=17) ----
+  // 机器人消息底部的按钮键盘。通常与一个 MARKDOWN 元素同时出现，是那条消息的
+  // 「下半身」——markdown 是卡片正文，键盘是卡片按钮。
+
+  /** 按钮行列表。每行一个 InlineKeyboardRowWire，行内 48753 是按钮。 */
+  keyboardRows: ProtoField(48751, () => InlineKeyboardRowWire, { optional: true, repeat: true }),
+
+  /** 机器人的 appid（不是 uin），如 101986948。 */
+  keyboardBotAppId: ProtoField(48752, ScalarType.UINT64, { optional: true }),
 
   // ---- ARK (elementType=10) ----
 

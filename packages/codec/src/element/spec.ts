@@ -506,6 +506,36 @@ export const MultiMsgElementSchema = BaseElementFieldsSchema.extend({
   sessionId: z.string(),
 });
 
+/** 机器人内联键盘的单个按钮（48753），对应 InlineKeyboardButtonWire。 */
+export const InlineKeyboardButtonSchema = z.object({
+  buttonId: z.string().optional(),
+  label: z.string().optional(),
+  visitedLabel: z.string().optional(),
+  style: z.number().optional(),
+  flag48758: z.number().optional(),
+  flag48759: z.number().optional(),
+  flag48760: z.string().optional(),
+  action: z.string().optional(),
+  flag48762: z.number().optional(),
+  actionType: z.number().optional(),
+  flag48766: z.number().optional(),
+  flag48767: z.number().optional(),
+  flag48768: z.number().optional(),
+  flag48772: z.number().optional(),
+  flag48790: z.string().optional(),
+});
+
+/** 机器人内联键盘的一行（48751），对应 InlineKeyboardRowWire。 */
+export const InlineKeyboardRowSchema = z.object({
+  buttons: z.array(InlineKeyboardButtonSchema).optional(),
+});
+
+export const InlineKeyboardElementSchema = BaseElementFieldsSchema.extend({
+  kind: z.literal('inlineKeyboard'),
+  keyboardRows: z.array(InlineKeyboardRowSchema),
+  keyboardBotAppId: z.bigint().optional(),
+});
+
 export const CallElementSchema = BaseElementFieldsSchema.extend({
   kind: z.literal('call'),
   answerType: z.number(),
@@ -655,6 +685,7 @@ export const ElementSchema = z.discriminatedUnion('kind', [
   MfaceElementSchema,
   MarkdownElementSchema,
   MultiMsgElementSchema,
+  InlineKeyboardElementSchema,
   CallElementSchema,
   OnlineFileElementSchema,
   OnlineFolderElementSchema,
@@ -683,6 +714,9 @@ export type ArkElement = z.infer<typeof ArkElementSchema>;
 export type MfaceElement = z.infer<typeof MfaceElementSchema>;
 export type MarkdownElement = z.infer<typeof MarkdownElementSchema>;
 export type MultiMsgElement = z.infer<typeof MultiMsgElementSchema>;
+export type InlineKeyboardButton = z.infer<typeof InlineKeyboardButtonSchema>;
+export type InlineKeyboardRow = z.infer<typeof InlineKeyboardRowSchema>;
+export type InlineKeyboardElement = z.infer<typeof InlineKeyboardElementSchema>;
 export type CallElement = z.infer<typeof CallElementSchema>;
 export type WalletElement = z.infer<typeof WalletElementSchema>;
 export type OnlineFileElement = z.infer<typeof OnlineFileElementSchema>;

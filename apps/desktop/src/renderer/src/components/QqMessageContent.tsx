@@ -32,6 +32,7 @@ import { QqShareLocation } from './QqShareLocation';
 import { QqDynamic } from './QqDynamic';
 import { QqEmojiBounce } from './QqEmojiBounce';
 import { QqLinkCard } from './QqLinkCard';
+import { QqInlineKeyboard, type KeyboardButton } from './QqInlineKeyboard';
 import { splitLinks, soleLink, openLink } from '../lib/linkify';
 import { cn } from '@renderer/lib/utils';
 
@@ -633,6 +634,33 @@ export function QqMessageContent({
     );
   }
 
+  // 机器人卡片：QQ 把同一条消息同时写成 markdown 正文 + 一串等效的 text/at 元素
+  // （给不支持 markdown 的老客户端降级用）。两个都渲染会出现重影，所以 markdown
+  // 一旦在场就独占正文，纯文本副本整体丢弃。底部的内联键盘按钮跟在正文后面。
+  //
+  // 闪传卡片（markdown 带 flashTransferInfo）在上面已被认领，走不到这里。
+  const keyboardElement = elements.find((element) => element.type === 'inlineKeyboard');
+  const botMarkdown = elements.find(
+    (element) => element.type === 'markdown' && String(element.data?.markdownContent ?? '') !== '',
+  );
+  if (botMarkdown && (keyboardElement || elements.some((el) => el.type === 'text'))) {
+    const rows = ((keyboardElement?.data?.rows ?? []) as KeyboardButton[][]);
+    return (
+      <div className={cn('message-content', 'qq-message-inline', 'qq-bot-card')}>
+        <QqMarkdown text={String(botMarkdown.data?.markdownContent ?? '')} bot />
+        <QqInlineKeyboard rows={rows} />
+      </div>
+    );
+  }
+  // 只有键盘没有正文（未观测，但 proto 允许）——单渲染按钮组。
+  if (keyboardElement) {
+    return (
+      <div className={cn('message-content', 'qq-message-inline', 'qq-bot-card')}>
+        <QqInlineKeyboard rows={(keyboardElement.data?.rows ?? []) as KeyboardButton[][]} />
+      </div>
+    );
+  }
+
   const multiMsgElement = elements.find((element) => element.type === 'multiMsg');
   if (multiMsgElement) {
     return (
@@ -760,7 +788,7 @@ export function QqMessageContent({
 }
 
 /** Element kinds this renderer claims (text/reply/face/at + rich media + markdown + multiMsg + cards). */
-const HANDLED_KINDS = new Set(['text', 'reply', 'face', 'at', 'pic', 'video', 'file', 'ptt', 'mface', 'markdown', 'multiMsg', 'ark', 'wallet', 'call', 'onlineFile', 'onlineFolder', 'shareLocation', 'qqDynamic', 'emojiBounce']);
+const HANDLED_KINDS = new Set(['text', 'reply', 'face', 'at', 'pic', 'video', 'file', 'ptt', 'mface', 'markdown', 'multiMsg', 'inlineKeyboard', 'ark', 'wallet', 'call', 'onlineFile', 'onlineFolder', 'shareLocation', 'qqDynamic', 'emojiBounce']);
 
 /**
  * MessageRenderer that handles every element kind we draw ourselves — text,

@@ -627,6 +627,7 @@ function buddyToContact(
   buddy: BuddyWire,
   profileByUid: Map<string, UserProfileWire>,
   categoryById: Map<number, CategoryWire>,
+  botUids: Set<string>,
 ): Contact {
   const profile = profileByUid.get(buddy.uid);
   const displayName = displayProfileName(profile) || buddy.qid || buddy.uin || buddy.uid;
@@ -639,6 +640,7 @@ function buddyToContact(
     identityValue: buddy.uin && buddy.uin !== '0' ? buddy.uin : buddy.uid,
     username: buddy.uid,
     displayName,
+    kind: botUids.has(buddy.uid) ? 'bot' : 'human',
     avatarUrl: senderAvatarSrc(buddy.uin) || profile?.avatarUrl || null,
     signature: profile?.signature || null,
     createdAt: new Date(0).toISOString(),
@@ -893,6 +895,7 @@ function contactToConversation(
   c: RecentContactWire,
   user: User,
   groupNameByCode: Map<string, string>,
+  botUids: Set<string>,
 ): Conversation | null {
   const kind = chatTypeKind(c.chatType);
   const title = contactTitle(c);
@@ -917,6 +920,7 @@ function contactToConversation(
       identityValue: c.targetUin && c.targetUin !== '0' ? c.targetUin : c.targetUid,
       username: c.targetUid,
       displayName: title,
+      kind: botUids.has(c.targetUid) ? 'bot' : 'human',
       avatarUrl: isDataline(c.chatType) ? deviceAvatarDataUri(c.targetUid) : avatarSrc(c),
     };
 
@@ -995,7 +999,7 @@ function isMineMessage(message: MessageWire, conversation: Conversation, user: U
   });
 }
 
-function messageSender(message: MessageWire, conversation: Conversation, user: User, memberMap?: Map<string, GroupMember>): User {
+function messageSender(message: MessageWire, conversation: Conversation, user: User, memberMap?: Map<string, GroupMember>, botUids?: Set<string>): User {
   const isMine = isMineMessage(message, conversation, user);
   if (isMine && conversation.type === 'direct') return user;
 
@@ -1011,6 +1015,7 @@ function messageSender(message: MessageWire, conversation: Conversation, user: U
       username: isMine ? user.username : (message.senderUid || message.senderUin),
       displayName: isMine ? user.displayName : (member?.displayName || (message.senderUin && message.senderUin !== '0' ? message.senderUin : 'Member')),
       avatarUrl: isMine ? user.avatarUrl : (member?.avatarUrl || senderAvatarSrc(message.senderUin)),
+      kind: !isMine && botUids?.has(message.senderUid) ? 'bot' : 'human',
       role: !isUinOnly ? member?.role : undefined,
       customTitle: !isUinOnly ? member?.customTitle : undefined,
       levelName: !isUinOnly ? member?.levelName : undefined,
@@ -1023,8 +1028,8 @@ function messageSender(message: MessageWire, conversation: Conversation, user: U
   return conversation.type === 'direct' ? conversation.otherUser : user;
 }
 
-function messageToTemplate(message: MessageWire, conversation: Conversation, user: User, memberMap?: Map<string, GroupMember>): Message {
-  const sender = messageSender(message, conversation, user, memberMap);
+function messageToTemplate(message: MessageWire, conversation: Conversation, user: User, memberMap?: Map<string, GroupMember>, botUids?: Set<string>): Message {
+  const sender = messageSender(message, conversation, user, memberMap, botUids);
   // For any `reply` element in the message, resolve the ORIGINAL message
   // sender's display name (memberMap → self → otherUser → uin/uid fallbacks)
   // and stash it on the reply's data as `origSenderDisplayName` so
@@ -1165,6 +1170,8 @@ const RENDERABLE_ELEMENT_TYPES = new Set<string>([
   'grayTipRevoke', 'grayTipPoke', 'grayTipGroup', 'grayTipInvite',
   // Rich content (some already render as body text; markdown/ark to be wired up).
   'ark', 'markdown', 'multiMsg', 'call', 'wallet',
+  // 机器人内联键盘（与 markdown 正文成对出现）。
+  'inlineKeyboard',
   // Cloud storage links.
   'onlineFile', 'onlineFolder',
   // Misc.
@@ -1568,6 +1575,7 @@ export function MainView(): ReactElement {
   const topContacts = trpc.account.listTopContacts.useQuery();
   const selfProfile = trpc.account.getSelfProfile.useQuery();
   const buddies = trpc.account.listBuddies.useQuery({ limit: 2000 });
+  const botUidList = trpc.account.botUids.useQuery();
   const categories = trpc.account.listCategories.useQuery();
   const profiles = trpc.account.listProfiles.useQuery({ limit: 2000 });
   const buddyRequests = trpc.account.listBuddyRequests.useQuery({ limit: 2000 });
@@ -1959,11 +1967,13 @@ export function MainView(): ReactElement {
   const categoryById = useMemo(() => {
     return new Map(((categories.data ?? []) as CategoryWire[]).map((category) => [category.id, category]));
   }, [categories.data]);
+  /** 机器人 uid 集合 —— 好友/群成员/会话/消息发送者都靠它打「机器人」标。 */
+  const botUids = useMemo(() => new Set((botUidList.data ?? []) as string[]), [botUidList.data]);
   const buddyContacts = useMemo(
     () =>
       ((buddies.data ?? []) as BuddyWire[]).map((buddy) =>
         {
-          const contact = buddyToContact(buddy, profileByUid, categoryById);
+          const contact = buddyToContact(buddy, profileByUid, categoryById, botUids);
           const statusObj = onlineStatusByUid[buddy.uid];
           return {
             ...contact,
@@ -1972,7 +1982,7 @@ export function MainView(): ReactElement {
           };
         },
       ),
-    [buddies.data, categoryById, onlineStatusByUid, profileByUid],
+    [buddies.data, categoryById, onlineStatusByUid, profileByUid, botUids],
   );
   // 置顶会话（recent_contact_top_table）：会话 id → 置顶时间（41103，秒）。
   const topTimeByConv = useMemo(() => {
@@ -1987,7 +1997,7 @@ export function MainView(): ReactElement {
       const groups = (allGroups.data ?? []) as GroupDetailWire[];
       const groupNameByCode = new Map(groups.map((g) => [g.groupCode, g.groupName]));
       const recentConversations = ((contacts.data ?? []) as RecentContactWire[])
-        .map((contact) => contactToConversation(contact, user, groupNameByCode))
+        .map((contact) => contactToConversation(contact, user, groupNameByCode, botUids))
         .filter((conversation): conversation is Conversation => conversation !== null);
       const byId = new Map(recentConversations.map((conversation) => [conversation.id, conversation]));
 
@@ -2022,7 +2032,7 @@ export function MainView(): ReactElement {
           return Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
         });
     },
-    [allGroups.data, contacts.data, user, unreadByConv, highlightsByConv, topTimeByConv],
+    [allGroups.data, contacts.data, user, unreadByConv, highlightsByConv, topTimeByConv, botUids],
   );
   const groupsById = useMemo(() => new Map(conversations.map((conversation) => [conversation.id, conversation])), [conversations]);
   const contactRequests = useMemo(
@@ -2104,11 +2114,12 @@ export function MainView(): ReactElement {
       username: m.uid,
       displayName: m.card || m.nick || m.uin || 'Member',
       avatarUrl: senderAvatarSrc(m.uin),
+      kind: botUids.has(m.uid) ? ('bot' as const) : ('human' as const),
       role: 'member' as const,
       joinedAt: new Date(0).toISOString(),
     }));
     return { ...conv, members };
-  }, [shell.selectedGroupConversation, groupDetailMembers.data]);
+  }, [shell.selectedGroupConversation, groupDetailMembers.data, botUids]);
 
   useEffect(() => {
     const buddyList = ((buddies.data ?? []) as BuddyWire[]).slice(0, 300);
@@ -2333,6 +2344,7 @@ export function MainView(): ReactElement {
       username: m.uid,
       displayName: m.card || m.nick || m.uin || 'Member',
       avatarUrl: senderAvatarSrc(m.uin),
+      kind: botUids.has(m.uid) ? 'bot' : 'human',
       role: m.uid === detail?.ownerUid ? 'owner' : (m.adminFlag > 0 ? 'admin' : 'member'),
       joinedAt: toIsoTime(m.joinTime.toString()),
       lastSpeakAt: secondsToIsoTime(m.lastSpeakTime),
@@ -2346,7 +2358,7 @@ export function MainView(): ReactElement {
         const roleScore = { owner: 0, admin: 1, member: 2 };
         return roleScore[a.role] - roleScore[b.role];
     });
-  }, [selectedConversation, selectedUid, groupDetail.data, groupLevelInfo.data, selectedGroupMemberWires, missingMembers]);
+  }, [selectedConversation, selectedUid, groupDetail.data, groupLevelInfo.data, selectedGroupMemberWires, missingMembers, botUids]);
 
   // Resolve message senders / gray-tip targets that fall outside the loaded
   // member page. Messages render immediately with the uin fallback; the real
@@ -2391,9 +2403,9 @@ export function MainView(): ReactElement {
     return loadedMessageWires
       .filter((message) => isRenderableMessage(message))
       .map((message) =>
-        messageToTemplate(message, selectedConversation, user, memberMap)
+        messageToTemplate(message, selectedConversation, user, memberMap, botUids)
       );
-  }, [loadedMessageWires, selectedConversation, user, currentGroupMembers]);
+  }, [loadedMessageWires, selectedConversation, user, currentGroupMembers, botUids]);
 
   // Deleted messages built through the SAME template pipeline as the live chat,
   // so the panel's bubbles match exactly. The panel only opens for the currently
@@ -2403,8 +2415,8 @@ export function MainView(): ReactElement {
     const memberMap = new Map(currentGroupMembers.map((m) => [m.id, m]));
     return deletedWires
       .filter((message) => isRenderableMessage(message))
-      .map((message) => messageToTemplate(message, deletedConv, user, memberMap));
-  }, [deletedWires, deletedConv, user, currentGroupMembers]);
+      .map((message) => messageToTemplate(message, deletedConv, user, memberMap, botUids));
+  }, [deletedWires, deletedConv, user, currentGroupMembers, botUids]);
 
   // Recalled messages through the SAME template pipeline (bubbles match the chat
   // + carry the 撤回 tag). Same member source as the deleted panel.
@@ -2413,8 +2425,8 @@ export function MainView(): ReactElement {
     const memberMap = new Map(currentGroupMembers.map((m) => [m.id, m]));
     return recalledWires
       .filter((message) => isRenderableMessage(message))
-      .map((message) => messageToTemplate(message, recalledConv, user, memberMap));
-  }, [recalledWires, recalledConv, user, currentGroupMembers]);
+      .map((message) => messageToTemplate(message, recalledConv, user, memberMap, botUids));
+  }, [recalledWires, recalledConv, user, currentGroupMembers, botUids]);
 
   const activeConversation = useMemo(() => {
     if (!selectedConversation) return undefined;

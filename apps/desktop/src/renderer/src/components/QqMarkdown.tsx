@@ -13,13 +13,47 @@
  * 「半截语法」做平滑收尾。
  */
 
-import { memo, type ReactElement } from 'react';
+import { memo, type JSX, type ReactElement } from 'react';
 import { Streamdown } from 'streamdown';
 import remarkGfm from 'remark-gfm';
 import { shikiCodeHighlighter } from '../views/agentlab/shikiHighlighter';
+import { imageSizeHint, normalizeBotMarkdown } from './qqBotMarkdown';
 
 const REMARK_PLUGINS = [remarkGfm];
 const PLUGINS = { code: shikiCodeHighlighter };
+
+/**
+ * 尊重 QQ 写在 alt 里的渲染尺寸（`![img#18px #18px](…)`）。不这么做的话 @ 提及
+ * 前面那个 18px 的小头像会按原图铺满整行 —— 机器人卡片里最扎眼的一处错位。
+ *
+ * 高度必须走 aspect-ratio 而不是内联 height：气泡宽度不够时 max-width 会把宽度收窄，
+ * 而内联 height 的优先级压过样式表里的 height:auto，图就被压扁了。
+ */
+function MarkdownImage({ src, alt, ...rest }: JSX.IntrinsicElements['img']): ReactElement | null {
+  if (!src) return null;
+  const hint = imageSizeHint(alt);
+  return (
+    <img
+      {...rest}
+      src={src}
+      alt={alt ?? ''}
+      width={hint?.width}
+      height={hint?.height}
+      style={
+        hint
+          ? {
+              width: hint.width,
+              maxWidth: '100%',
+              height: 'auto',
+              aspectRatio: hint.height ? `${hint.width} / ${hint.height}` : undefined,
+            }
+          : undefined
+      }
+    />
+  );
+}
+
+const COMPONENTS = { img: MarkdownImage };
 
 /**
  * 廉价的 markdown 嫌疑检测：只在命中时才把这条消息交给 streamdown。
@@ -32,11 +66,27 @@ export function looksLikeMarkdown(text: string): boolean {
   return /(^|\n)(#{1,6} |[-*+] |\d+\. |> |```)|\*\*|~~|\[[^\]\n]+\]\(/.test(text);
 }
 
-export const QqMarkdown = memo(function QqMarkdown({ text }: { text: string }): ReactElement {
+/**
+ * @param bot 机器人卡片正文。会先把 QQ 私有方言（版本标记 / mqqapi 提及链接）翻成
+ *   标准 markdown，否则 streamdown 的 rehype-harden 会把它们渲染成「[blocked]」。
+ */
+export const QqMarkdown = memo(function QqMarkdown({
+  text,
+  bot = false,
+}: {
+  text: string;
+  bot?: boolean;
+}): ReactElement {
+  const body = bot ? normalizeBotMarkdown(text) : text;
   return (
-    <div className="qq-md weq-asst-md">
-      <Streamdown remarkPlugins={REMARK_PLUGINS} plugins={PLUGINS} parseIncompleteMarkdown={false}>
-        {text}
+    <div className={bot ? 'qq-md weq-asst-md qq-md-bot' : 'qq-md weq-asst-md'}>
+      <Streamdown
+        remarkPlugins={REMARK_PLUGINS}
+        plugins={PLUGINS}
+        components={COMPONENTS}
+        parseIncompleteMarkdown={false}
+      >
+        {body}
       </Streamdown>
     </div>
   );

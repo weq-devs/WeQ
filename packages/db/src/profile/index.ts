@@ -25,3 +25,13 @@ export type {
 
 export { MiscDb } from './misc';
 export type { OnlineStatusData } from './misc';
+
+export { BotProfileDb } from './bot_profile';
+export type {
+  BotProfileDbOptions,
+  BotProfile,
+  BotCommand,
+  BotVoice,
+  BotTheme,
+  BotGreeting,
+} from './bot_profile';

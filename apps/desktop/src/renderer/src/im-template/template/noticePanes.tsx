@@ -99,7 +99,7 @@ export function ContactNoticeDialog({
 	);
 }
 
-/** 61003 处理状态 → 徽标文案 + 配色修饰类。 */
+/** 61003 处理状态 → 徽标文案 + 配色修饰类。配色全部走主题色，只用填充/描边区分。 */
 const HANDLE_STATE_LABEL: Record<
 	GroupJoinRequest["handleState"],
 	{ text: string; tone: string } | null
@@ -111,9 +111,27 @@ const HANDLE_STATE_LABEL: Record<
 };
 
 /**
+ * 附言拆成「标签 / 内容」对。入群问答原文是 `问题：…\n答案：…`，整条塞进一行里
+ * 全是文字，看不出层次；拆开后标签走弱化色、内容走正文色。
+ * 拆不出来（普通留言）就整条当内容。
+ */
+const ANSWER_LINE = /^([^：:\n]{1,8})[：:]\s*(.*)$/;
+
+function splitNoticeMessage(message: string): Array<{ label?: string; value: string }> {
+	return message
+		.split("\n")
+		.map((line) => line.trim())
+		.filter(Boolean)
+		.map((line) => {
+			const m = ANSWER_LINE.exec(line);
+			return m?.[2] ? { label: m[1], value: m[2] } : { value: line };
+		});
+}
+
+/**
  * 群通知灯箱。结构与好友通知一致；保留存疑申请标记（notice-doubt-mark）。
- * 每条卡片分三行：申请人 + 处理状态 / 群名 + 动作 / 附言，长群名靠 CSS 截断而不是
- * 把时间挤到下一行。
+ * 卡片三段：头像 / 正文（申请人+群名+动作、附言问答对）/ 右上角状态徽标 + 时间。
+ * 每行 nowrap + 省略号，长群名靠 CSS 截断而不是把时间挤到下一行。
  */
 export function GroupNoticeDialog({
 	open,
@@ -163,32 +181,40 @@ export function GroupNoticeDialog({
 					) : (
 						requests.map((request) => {
 							const badge = HANDLE_STATE_LABEL[request.handleState];
-							// 附言原文是「问题：…\n答案：…」，单行展示前把换行折成空格。
-							const message = request.message?.replace(/\s*\n\s*/g, "　");
+							const who = displayUserName(request.user);
+							const fields = request.message ? splitNoticeMessage(request.message) : [];
 							return (
-								<article className={cn("notice-card", "notice-card-group")} key={request.id}>
+								<article
+									className={cn("notice-card", "notice-card-group", badge?.tone)}
+									key={request.id}
+								>
 									<Avatar
-										name={displayUserName(request.user)}
+										name={who}
 										avatarUrl={request.user.avatarUrl}
 										seed={request.user.identityValue}
 									/>
 									<div className={cn("notice-copy")}>
 										<p className="notice-line-head">
-											<span className="notice-who" title={displayUserName(request.user)}>
-												{displayUserName(request.user)}
+											<span className="notice-who" title={who}>
+												{who}
 											</span>
-											{badge ? (
-												<em className={cn("notice-state", badge.tone)}>{badge.text}</em>
-											) : null}
-											<time>{formatProfileDate(request.createdAt)}</time>
+											<span className="notice-action-text">{request.action}</span>
 										</p>
 										<p className="notice-line-group">
 											<span className="notice-group-name" title={request.group.name}>
 												{request.group.name}
 											</span>
-											<span className="notice-action-text">{request.action}</span>
 										</p>
-										{message ? <strong title={message}>{message}</strong> : null}
+										{fields.length > 0 ? (
+											<dl className="notice-fields">
+												{fields.map((field) => (
+													<div className="notice-field" key={`${field.label ?? ""}${field.value}`}>
+														{field.label ? <dt>{field.label}</dt> : null}
+														<dd title={field.value}>{field.value}</dd>
+													</div>
+												))}
+											</dl>
+										) : null}
 										{request.operator ? (
 											<span className="notice-operator">
 												由 {displayUserName(request.operator)} 处理
@@ -200,6 +226,12 @@ export function GroupNoticeDialog({
 										{request.systemRemark ? (
 											<span className="notice-sysremark">{request.systemRemark}</span>
 										) : null}
+									</div>
+									<div className="notice-meta">
+										{badge ? (
+											<em className={cn("notice-state", badge.tone)}>{badge.text}</em>
+										) : null}
+										<time>{formatProfileDate(request.createdAt)}</time>
 									</div>
 									{request.isDoubt ? (
 										<div className={cn("notice-doubt-mark")} />

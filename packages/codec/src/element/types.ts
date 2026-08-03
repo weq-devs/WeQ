@@ -20,6 +20,9 @@ export type {
   MfaceElement,
   MarkdownElement,
   MultiMsgElement,
+  InlineKeyboardButton,
+  InlineKeyboardRow,
+  InlineKeyboardElement,
   CallElement,
   OnlineFileElement,
   OnlineFolderElement,
@@ -62,7 +65,10 @@ export enum ElementType {
   GIPHY = 15,
   /** 合并转发（QQ 内部名 MULTIFORWARD）。 */
   MULTI_MSG = 16,
-  /** 内联键盘（机器人按钮）. 未观测. */
+  /**
+   * 内联键盘（机器人按钮）。与一个 MARKDOWN 元素成对出现：markdown 是卡片正文，
+   * 键盘是卡片底部的按钮组。行在 48751，按钮在行内的 48753。
+   */
   INLINE_KEYBOARD = 17,
   /** 文字内嵌礼物. 未观测. */
   IN_TEXT_GIFT = 18,

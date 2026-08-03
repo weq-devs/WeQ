@@ -324,6 +324,15 @@ export function ContactList({
 										<span className={cn("row-main", "contact-card-main")}>
 											<span className={cn("contact-card-nickname")}>
 												{displayUserName(contact)}
+												{contact.kind === "bot" ? (
+													<small
+														className={cn("bot-badge")}
+														aria-label="机器人"
+														title="机器人"
+													>
+														<Bot size={12} strokeWidth={2.4} />
+													</small>
+												) : null}
 											</span>
 											<span className={cn("contact-card-bottom")}>
 												{contact.onlineStatusObj &&

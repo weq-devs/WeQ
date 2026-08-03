@@ -781,6 +781,34 @@ html[data-theme="dark"] .weq-chat-backdrop {
 	max-width: min(78%, 760px);
 }
 
+/* 机器人卡片：QQ 自己把这类卡片渲染成窄条（封面图 900×383 缩到 ~370px 宽），
+ * 不设上限的话封面会撑到气泡的 75% 上限，整条消息比周围气泡宽出一大截。 */
+.message-bubble:has(.message-content.qq-bot-card) {
+	max-width: min(75%, 384px);
+}
+
+/* markdown 图片统一限宽。只压 max-width、不碰 height —— 高度交给 aspect-ratio
+ * （QqMarkdown 按 alt 里的原始尺寸算出），否则收窄宽度时图会被压扁。 */
+.message-content .qq-md img {
+	max-width: 100%;
+	height: auto;
+	border-radius: 8px;
+}
+
+.message-content.qq-bot-card .qq-md-bot img {
+	max-width: 100%;
+	height: auto;
+	border-radius: 8px;
+}
+
+/* @ 提及前面的 18px 小头像：QQ 把它和提及文字排在同一行。 */
+.message-content.qq-bot-card .qq-md-bot p img[width="18"] {
+	display: inline-block;
+	vertical-align: text-bottom;
+	margin-right: 2px;
+	border-radius: 4px;
+}
+
 .message-name {
 	display: inline-flex;
 	align-items: center;

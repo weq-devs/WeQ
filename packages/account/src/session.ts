@@ -31,6 +31,7 @@ import {
   CategoryDb,
   BuddyRequestDb,
   ProfileInfoDb,
+  BotProfileDb,
   MiscDb,
   UnreadInfoDb,
   wrapBindingForCorruption,
@@ -132,6 +133,8 @@ export interface AccountSession {
   readonly buddyReqs: BuddyRequestDb;
   /** Detailed user profiles (profile_info.db). */
   readonly profileInfo: ProfileInfoDb;
+  /** Bot profiles / 机器人档案 (profile_info.db). */
+  readonly botProfiles: BotProfileDb;
   /** Misc metadata (misc.db). */
   readonly misc: MiscDb;
   /** Unread info (nt_msg.db). */
@@ -304,6 +307,7 @@ export async function openAccount(
   const categories = new CategoryDb(nt, { dbPath: profileInfoPath, key: ctx.dbKey, algo: ctx.algo });
   const buddyReqs = new BuddyRequestDb(nt, { dbPath: profileInfoPath, key: ctx.dbKey, algo: ctx.algo });
   const profileInfo = new ProfileInfoDb(nt, { dbPath: profileInfoPath, key: ctx.dbKey, algo: ctx.algo });
+  const botProfiles = new BotProfileDb(nt, { dbPath: profileInfoPath, key: ctx.dbKey, algo: ctx.algo });
 
   const miscDbPath = platform.miscDbPath(ctx.uin) ?? join(dirname(msgDbPath), 'misc.db');
   const misc = new MiscDb(nt, { dbPath: miscDbPath, key: ctx.dbKey, algo: ctx.algo });
@@ -340,6 +344,7 @@ export async function openAccount(
     categories,
     buddyReqs,
     profileInfo,
+    botProfiles,
     misc,
     unreadInfo,
     dispose(): void {
@@ -365,6 +370,7 @@ export async function openAccount(
       categories.close();
       buddyReqs.close();
       profileInfo.close();
+      botProfiles.close();
       misc.close();
       unreadInfo.close();
       // Future db instances close here too.

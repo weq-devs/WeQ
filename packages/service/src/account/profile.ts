@@ -3,7 +3,7 @@
  */
 
 import type { AccountSession } from '@weq/account';
-import type { Buddy, Category, BuddyRequest, UserProfile } from '@weq/db';
+import type { Buddy, Category, BuddyRequest, UserProfile, BotProfile } from '@weq/db';
 
 export class ProfileService {
   constructor(private readonly session: AccountSession) {}
@@ -82,4 +82,32 @@ export class ProfileService {
   ): Promise<Array<{ uid: string; uin: string; nick: string; remark: string; intimacy: number }>> {
     return this.session.profileInfo.listFriendsByIntimacy(limit, offset);
   }
+
+  /**
+   * The uids of every bot this account has cached a profile for.
+   *
+   * Cached for the session's lifetime: the underlying scan touches all 50k+
+   * profile rows, and the renderer wants this set on every member / contact /
+   * conversation render to draw the bot badge. New bots only appear once QQ
+   * itself writes a new profile row, so a stale set at worst misses a badge
+   * until the next launch.
+   */
+  async botUids(): Promise<Set<string>> {
+    this.botUidsCache ??= this.session.profileInfo.botUids();
+    return this.botUidsCache;
+  }
+
+  /**
+   * A bot's own profile (简介 / 欢迎语 / 指令列表 / 唤醒指令).
+   *
+   * `profile_info_adelie` is lazily filled by QQ — it only has a row once the
+   * client has opened that bot's profile card. Returns null for bots we've
+   * never looked at, which is normal; callers fall back to the regular
+   * `profile_info_v6` profile.
+   */
+  async getBotProfile(uid: string): Promise<BotProfile | null> {
+    return this.session.botProfiles.getBotProfile(uid);
+  }
+
+  private botUidsCache: Promise<Set<string>> | null = null;
 }
