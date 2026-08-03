@@ -116,6 +116,13 @@ export function MsgElementEditor({ msgId, msgSeq, elements: initialElements, onC
   );
 }
 
+/** True when a value renders as a nested ObjectEditor rather than a single input. */
+function isNestedValue(val: any): boolean {
+  if (!val || typeof val !== 'object') return false;
+  if (val.type === 'Buffer' || (Array.isArray(val.data) && !val.type)) return false;
+  return Array.isArray(val) ? val.length > 0 : Object.keys(val).length > 0;
+}
+
 function ObjectEditor({ value, onChange, path }: { value: any, onChange: (val: any) => void, path: string[] }) {
   if (value === null || value === undefined) return <div className="weq-val-null">null</div>;
 
@@ -130,7 +137,7 @@ function ObjectEditor({ value, onChange, path }: { value: any, onChange: (val: a
     return (
       <div className="weq-obj-fields">
         {keys.map(key => (
-          <div className="weq-field-row" key={key}>
+          <div className={cn("weq-field-row", isNestedValue(value[key]) && "nested")} key={key}>
             <div className="weq-field-label">
               <FieldIcon val={value[key]} k={key}/>
               <span title={key}>{key}</span>

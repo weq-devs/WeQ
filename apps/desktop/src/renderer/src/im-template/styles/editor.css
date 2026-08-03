@@ -43,7 +43,7 @@
 
 	display: flex;
 	flex-direction: column;
-	width: min(680px, 94vw);
+	width: min(780px, 94vw);
 	max-height: min(78vh, 720px);
 	overflow: hidden;
 	border-radius: 14px;
@@ -227,6 +227,17 @@ html[data-theme="dark"] .weq-editor-dialog {
 	background: var(--weq-ed-surface-2);
 }
 
+/* Nested containers stack label-above-value: side-by-side columns would
+   compound at every depth and squeeze the inputs to zero width. */
+.weq-field-row.nested {
+	display: block;
+}
+
+.weq-field-row.nested > .weq-field-label {
+	padding-top: 0;
+	padding-bottom: 4px;
+}
+
 .weq-field-label {
 	display: flex;
 	align-items: center;
@@ -318,6 +329,11 @@ html[data-theme="dark"] .weq-editor-dialog {
 	display: flex;
 	gap: 8px;
 	align-items: flex-start;
+}
+
+.weq-array-item > *:not(.weq-array-index) {
+	flex: 1;
+	min-width: 0;
 }
 
 .weq-array-index {
