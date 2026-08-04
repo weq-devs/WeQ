@@ -182,12 +182,12 @@ export enum GrayTipSubType {
   /** 好友通知（系统下发）. 未观测. */
   BUDDY_NOTIFY = 9,
   /**
-   * 文件接收完成灰条。Carries FILE metadata (45402 fileName ×2, 45405 size,
+   * 文件传输完成灰条。Carries FILE metadata (45402 fileName ×2, 45405 size,
    * 45407 md5, 45503 fileToken) rather than any gray-tip field — QQ writes it
-   * as a separate row alongside the real FILE message. Verified: the sender
-   * (40020) is ALWAYS the peer, never this account, so it marks "对方发来的
-   * 文件已接收完成". Row-level msgType is 40011=5/40012=1 (system tip) or
-   * 40011=1/40012=2.
+   * as a separate row alongside the real FILE message. It marks a finished
+   * transfer in either direction (a file received from the peer, or one we
+   * uploaded successfully). Row-level msgType is 40011=5/40012=1 (system tip)
+   * or 40011=1/40012=2.
    */
   FILE = 10,
   /** 频道消息 Feed. 未观测. */

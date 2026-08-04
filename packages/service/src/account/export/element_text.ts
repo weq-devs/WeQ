@@ -70,7 +70,7 @@ export function elementToText(el: RenderElement, depth = 0): string {
     case 'grayTipInvite':
       return '[群提示]';
     case 'grayTipFileRecv':
-      return el.data.fileName ? `[已接收文件: ${el.data.fileName}]` : '[已接收文件]';
+      return el.data.fileName ? `[文件传输完成: ${el.data.fileName}]` : '[文件传输完成]';
     case 'grayTipTempSession': {
       const code = el.data.tempSessionGroupCode;
       return code ? `[临时会话: 来自群 ${code}]` : '[临时会话]';

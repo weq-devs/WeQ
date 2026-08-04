@@ -18,7 +18,7 @@ const BODY = new ProtoMsg(MsgBody);
 
 /** msgIds picked from the earlier probes, one per thing we want to confirm. */
 const CASES: Array<{ what: string; table: string; msgId: string }> = [
-  { what: '文件接收灰条 (subType=10)', table: 'c2c_msg_table', msgId: '7394768443929600550' },
+  { what: '文件传输完成灰条 (subType=10)', table: 'c2c_msg_table', msgId: '7394768443929600550' },
   { what: '临时会话灰条 (subType=15)', table: 'c2c_msg_table', msgId: '7623777491628169212' },
   { what: 'TEXT 外部链接 (subType=1)', table: 'c2c_msg_table', msgId: '7438986440915208598' },
   { what: 'TEXT 可信链接 (subType=2)', table: 'group_msg_table', msgId: '7549183873220801564' },

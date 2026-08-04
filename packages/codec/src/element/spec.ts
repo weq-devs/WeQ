@@ -385,10 +385,11 @@ export const GrayTipInviteElementSchema = BaseElementFieldsSchema.extend({
 });
 
 /**
- * 文件接收完成灰条 (subType=10). Structurally a FILE element wearing an
+ * 文件传输完成灰条 (subType=10). Structurally a FILE element wearing an
  * elementType=8 hat — it reuses the 454xx/455xx tags and carries no gray-tip
- * fields at all. The sender is always the peer, so this marks 「对方发来的
- * 文件已接收」. `fileName` appears twice on the wire; we keep the first.
+ * fields at all. It marks a finished transfer in either direction (a file
+ * received from the peer, or one we uploaded successfully). `fileName` appears
+ * twice on the wire; we keep the first.
  */
 export const GrayTipFileRecvElementSchema = BaseElementFieldsSchema.extend({
   kind: z.literal('grayTipFileRecv'),

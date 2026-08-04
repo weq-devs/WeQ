@@ -196,7 +196,7 @@ function renderElement(el: RenderElement, collectFaces?: Set<string>): string {
     case 'grayTipRevoke':
       return `<span class="ph">[${escapeHtml(el.data.recallDisplayText || '撤回了一条消息')}]</span>`;
     case 'grayTipFileRecv':
-      return `<span class="ph">[已接收文件${el.data.fileName ? `: ${escapeHtml(el.data.fileName)}` : ''}]</span>`;
+      return `<span class="ph">[文件传输完成${el.data.fileName ? `: ${escapeHtml(el.data.fileName)}` : ''}]</span>`;
     case 'emojiBounce': {
       const summary = el.data.emojiBounceTextSummary || el.data.emojiBouncePcText || '';
       return `<span class="ph">${summary ? escapeHtml(summary) : '[表情]'}</span>`;

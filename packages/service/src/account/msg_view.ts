@@ -463,9 +463,9 @@ export interface RenderShareLocationElement {
 }
 
 /**
- * 文件接收灰条 (GRAY_TIP subType=10). Structurally a FILE element in an
- * elementType=8 wrapper — the sender is always the peer, so it reads as
- * "已接收文件".
+ * 文件传输完成灰条 (GRAY_TIP subType=10). Structurally a FILE element in an
+ * elementType=8 wrapper. Covers both a received file and a successful upload,
+ * so it reads as the direction-neutral "文件传输完成".
  */
 export interface RenderGrayTipFileRecvElement {
   type: 'grayTipFileRecv';

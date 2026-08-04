@@ -1,11 +1,11 @@
 /**
- * 文件接收灰条 (GRAY_TIP subType=10 / GrayTipSubType.FILE).
+ * 文件传输灰条 (GRAY_TIP subType=10 / GrayTipSubType.FILE).
  *
- * QQ writes this as a separate row alongside the real FILE message when a file
- * from the peer finishes transferring. Structurally it is a FILE element in an
- * elementType=8 wrapper — it carries `fileName`/`fileSize`/`fileToken` and no
- * gray-tip fields at all. The sender is always the peer (verified across all
- * 259 occurrences), so it always reads as "收到文件".
+ * QQ writes this as a separate row alongside the real FILE message once a
+ * transfer finishes — either a file received from the peer or one we uploaded.
+ * The row itself carries no direction marker, so the wording stays neutral.
+ * Structurally it is a FILE element in an elementType=8 wrapper: it has
+ * `fileName`/`fileSize`/`fileToken` and no gray-tip fields at all.
  */
 
 interface GrayTipFileRecvMessageProps {
@@ -38,7 +38,7 @@ export function GrayTipFileRecvMessage({ element }: GrayTipFileRecvMessageProps)
 
   return (
     <div className="weq-graytip text-center text-gray-500 text-xs py-2">
-      <span>已接收文件 </span>
+      <span>文件传输完成 </span>
       <span className="text-blue-500">{fileName}</span>
       {size ? <span className="px-1">({size})</span> : null}
     </div>

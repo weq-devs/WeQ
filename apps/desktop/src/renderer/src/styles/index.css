@@ -6928,6 +6928,17 @@ html[data-theme="dark"] .weq-ark-contact-sub { color: var(--weq-fg-muted); }
 .qq-link:hover { color: #0f5fd0; }
 html[data-theme="dark"] .qq-link { color: #4ea1ff; }
 html[data-theme="dark"] .qq-link:hover { color: #7cbaff; }
+/* 我方气泡是强调色底，蓝链接压在上面几乎看不见 —— 翻白。 */
+.message-line.mine .message-content .qq-link,
+html[data-theme="dark"] .message-line.mine .message-content .qq-link {
+  color: #ffffff;
+  text-decoration-color: rgba(255, 255, 255, 0.55);
+}
+.message-line.mine .message-content .qq-link:hover,
+html[data-theme="dark"] .message-line.mine .message-content .qq-link:hover {
+  color: #ffffff;
+  text-decoration-color: #ffffff;
+}
 
 /* 链接卡片：复用 ark 卡片的外壳，只调几处间距 + 页脚图标。 */
 .weq-link-card .weq-link-desc { margin-bottom: 0; }
@@ -6941,8 +6952,6 @@ html[data-theme="dark"] .qq-link:hover { color: #7cbaff; }
   gap: 6px;
 }
 .message-content.qq-has-linkcard .weq-link-card { max-width: 280px; }
-/* 我方气泡是强调色，链接文本得跟着翻白才看得见。 */
-.message-line.mine .message-content.qq-has-linkcard .qq-link { color: #ffffff; }
 
 /* ---- Ark 卡片深色模式 ---- The demo only ships light colors; map them onto the
    theme tokens so the structured card reads correctly on the dark canvas. */html[data-theme="dark"] .weq-ark-container {

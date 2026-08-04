@@ -138,7 +138,7 @@ function renderContent(elements: RenderElement[]): string {
         out += '[群提示]';
         break;
       case 'grayTipFileRecv':
-        out += el.data.fileName ? `[已接收文件: ${el.data.fileName}]` : '[已接收文件]';
+        out += el.data.fileName ? `[文件传输完成: ${el.data.fileName}]` : '[文件传输完成]';
         break;
       case 'grayTipTempSession':
         out += el.data.tempSessionGroupCode

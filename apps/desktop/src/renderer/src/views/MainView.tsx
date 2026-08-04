@@ -588,7 +588,7 @@ function previewFallbackByKind(preview: { kind?: unknown; recallDisplayText?: un
     case 'grayTipPoke': return '戳一戳消息';
     case 'grayTipGroup': return '群提示消息';
     case 'grayTipInvite': return '入群邀请';
-    case 'grayTipFileRecv': return '[收到文件]';
+    case 'grayTipFileRecv': return '[文件传输完成]';
     case 'grayTipTempSession': return '临时会话';
     case 'shareLocation': return '[位置共享]';
     // text/at normally carry displayText; if somehow absent there is nothing
@@ -1346,7 +1346,7 @@ function elementText(element: unknown): string {
       return stringField(data, 'shareLocationText') || '[位置共享]';
     case 'grayTipFileRecv': {
       const name = stringField(data, 'fileName');
-      return name ? `[收到文件: ${name}]` : '[收到文件]';
+      return name ? `[文件传输完成: ${name}]` : '[文件传输完成]';
     }
     case 'grayTipTempSession': {
       const code = stringField(data, 'tempSessionGroupCode');
