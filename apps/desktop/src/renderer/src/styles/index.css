@@ -6940,6 +6940,18 @@ html[data-theme="dark"] .message-line.mine .message-content .qq-link:hover {
   text-decoration-color: #ffffff;
 }
 
+/* ---- @提及 ---- 同 qq-link：我方气泡是强调色底，蓝字压上去几乎看不见。 */
+.qq-at-element {
+  color: #1479ff;
+  font-weight: 500;
+}
+html[data-theme="dark"] .qq-at-element { color: #4ea1ff; }
+.message-line.mine .message-content .qq-at-element,
+html[data-theme="dark"] .message-line.mine .message-content .qq-at-element {
+  color: #ffffff;
+  font-weight: 600;
+}
+
 /* 链接卡片：复用 ark 卡片的外壳，只调几处间距 + 页脚图标。 */
 .weq-link-card .weq-link-desc { margin-bottom: 0; }
 .weq-link-footer-icon { flex-shrink: 0; }
@@ -7978,6 +7990,12 @@ html[data-theme="dark"] .weq-forward-bubble {
   font-size: 13.5px;
   line-height: 1.65;
   word-break: break-word;
+  /* 气泡外层是 white-space: pre-wrap（QQ 纯文本消息要保留换行），而 streamdown 在
+     blockquote / ul / li 之间会吐出真实的 `\n` 文本节点——继承 pre-wrap 时每个都被
+     画成一个空行，引用块和列表项之间因此裂出大片空白。streamdown 自己在根 div 上写了
+     `whitespace-normal`，但那是 Tailwind 类，@source 不扫 node_modules，编译不出来。
+     `<pre>` 不受影响：UA 样式表给它的 white-space: pre 压得过这里的继承值。 */
+  white-space: normal;
 }
 
 /* 报告附件卡片 */
@@ -8042,6 +8060,8 @@ html[data-theme="dark"] .weq-forward-bubble {
 .weq-asst-md p {
   margin: 6px 0;
 }
+.weq-asst-md h1,
+.weq-asst-md h2,
 .weq-asst-md h3,
 .weq-asst-md h4,
 .weq-asst-md h5,
@@ -8049,6 +8069,12 @@ html[data-theme="dark"] .weq-forward-bubble {
   margin: 12px 0 6px;
   font-weight: 600;
   line-height: 1.3;
+}
+.weq-asst-md h1 {
+  font-size: 17px;
+}
+.weq-asst-md h2 {
+  font-size: 16px;
 }
 .weq-asst-md h3 {
   font-size: 15px;
@@ -8068,6 +8094,11 @@ html[data-theme="dark"] .weq-forward-bubble {
   color: var(--weq-accent-effective);
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+/* streamdown 把 `**粗体**` 渲染成 <span class="font-semibold">（不是 <strong>），
+   而那个 Tailwind 类同样编译不出来 —— 粗体会完全不粗。挂它的稳定 data 属性。 */
+.weq-asst-md [data-streamdown='strong'] {
+  font-weight: 600;
 }
 /* 行内 code（react-markdown 输出裸 <code>，非 pre 内的那些）。 */
 .weq-asst-md :not(pre) > code {

@@ -313,9 +313,9 @@ function ArkLocation({
 function HeuristicCard({ p, prompt }: { p: ArkPayload; prompt: string }): ReactElement {
   const appIcon = s(p, 'icon') || null;
   const footerIcon = s(p, 'tagIcon') || null;
-  const mainImg = s(p, 'preview') || s(p, 'cover') || s(p, 'avatar') || null;
+  const mainImg = s(p, 'preview') || s(p, 'cover') || s(p, 'img') || s(p, 'avatar') || null;
   const actionBtnText = s(p, 'button') || null;
-  const jumpUrl = s(p, 'jumpUrl') || s(p, 'qqdocurl') || s(p, 'url') || '#';
+  const jumpUrl = s(p, 'jumpUrl') || s(p, 'qqdocurl') || s(p, 'url') || s(p, 'link') || '#';
 
   let header = '';
   let title = s(p, 'title') || s(p, 'summary') || s(p, 'nickname') || prompt || '';
@@ -335,7 +335,7 @@ function HeuristicCard({ p, prompt }: { p: ArkPayload; prompt: string }): ReactE
   const isBlockLayout = !!(s(p, 'cover') || (appIcon && s(p, 'preview')) || actionBtnText);
   const isCompactLayout = !!(mainImg && !isBlockLayout);
 
-  let footerLabel = s(p, 'tag') || '';
+  let footerLabel = s(p, 'tag') || s(p, 'subTitle') || '';
   if (!footerLabel && prompt) {
     footerLabel = prompt.match(/^\[(.*?)\]/)?.[1] ?? '应用分享';
   }

@@ -17,6 +17,7 @@ import { memo, type JSX, type ReactElement } from 'react';
 import { Streamdown } from 'streamdown';
 import remarkGfm from 'remark-gfm';
 import { shikiCodeHighlighter } from '../views/agentlab/shikiHighlighter';
+import { openLink } from '../lib/linkify';
 import { imageSizeHint, normalizeBotMarkdown } from './qqBotMarkdown';
 
 const REMARK_PLUGINS = [remarkGfm];
@@ -53,7 +54,29 @@ function MarkdownImage({ src, alt, ...rest }: JSX.IntrinsicElements['img']): Rea
   );
 }
 
-const COMPONENTS = { img: MarkdownImage };
+/**
+ * markdown 里的链接。复用纯文本链接那条边界（lib/linkify 的 openLink：只放行
+ * http(s)、可执行后缀先确认、交系统浏览器），并套上 `qq-link` 的配色 —— streamdown
+ * 默认渲染成一个只带 Tailwind 类的 <button>，而本项目的 @source 不扫 node_modules，
+ * 那些类编译不出来，链接会看起来跟纯文本一模一样。
+ */
+function MarkdownLink({ children, href }: JSX.IntrinsicElements['a']): ReactElement {
+  return (
+    <button
+      type="button"
+      className="qq-link"
+      title={href}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (href) openLink(href);
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+const COMPONENTS = { img: MarkdownImage, a: MarkdownLink };
 
 /**
  * 廉价的 markdown 嫌疑检测：只在命中时才把这条消息交给 streamdown。

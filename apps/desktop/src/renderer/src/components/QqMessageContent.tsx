@@ -235,7 +235,7 @@ function ElementNode({
     const text = String(element.data?.textContent ?? '');
     return (
       <span
-        className="qq-at-element text-blue-500 font-medium cursor-pointer hover:underline"
+        className="qq-at-element cursor-pointer hover:underline"
         title={`UID: ${element.data?.buddleId || 'unknown'}`}
       >
         {text}
@@ -405,7 +405,7 @@ function ReplyPreviewNode({
   }
   if (element.type === 'at') {
     const text = String(element.data?.textContent ?? '');
-    return <span className="qq-at-element text-blue-500 font-medium">{text}</span>;
+    return <span className="qq-at-element">{text}</span>;
   }
   if (element.type && REPLY_MEDIA_LABEL[element.type]) {
     const name = inlineLabel(element);
