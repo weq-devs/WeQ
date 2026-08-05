@@ -43,15 +43,22 @@ function decodeBody(blob: unknown): Element[] {
   return (decoded.elements ?? []).map(decodeElement);
 }
 
+/**
+ * 没有贴表情的消息里 40062 不是 NULL 而是 4 字节空占位 `f2c71300`(tag 40062,
+ * 长度 0),会解出一个 emojiId=''/setNum=0 的假条目。真实条目 emojiId 必非空,
+ * 按此过滤。
+ */
 function decodeEmoji(blob: unknown): SetEmojiItem[] {
   if (!(blob instanceof Uint8Array)) return [];
   try {
     const decoded = emojiCodec.decode(sanitizeBytes(blob, MsgEmoji));
-    return (decoded.stickers ?? []).map((s) => ({
-      emojiId: s.emojiId ?? '',
-      setNum: s.emojiNum ?? 0,
-      isSelfSet: !!s.isSelfSet,
-    }));
+    return (decoded.stickers ?? [])
+      .filter((s) => !!s.emojiId)
+      .map((s) => ({
+        emojiId: s.emojiId ?? '',
+        setNum: s.emojiNum ?? 0,
+        isSelfSet: !!s.isSelfSet,
+      }));
   } catch {
     return [];
   }

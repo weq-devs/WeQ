@@ -31,7 +31,9 @@ function getNodeValue(
 interface TipJsonItem {
   type?: string;
   txt?: string;
+  uid?: string;
   uin?: string;
+  nm?: string;
   param?: string[];
   src?: string;
 }
@@ -144,20 +146,23 @@ export function GrayTipPokeMessage({ element, conversation, message }: GrayTipPo
 
         const items = data.items?.map((item) => {
           const txt = item.txt || '';
-          const itemKey = `${item.type ?? 'unknown'}-${item.uin ?? item.param?.[0] ?? ''}-${txt}-${item.src ?? ''}`;
+          const itemKey = `${item.type ?? 'unknown'}-${item.uid ?? item.uin ?? item.param?.[0] ?? ''}-${txt}-${item.src ?? ''}`;
 
-          if (item.type === 'url') {
-            const uin = item.uin || item.param?.[0];
-            if (uin) {
-              const member = memberMap.get(uin);
-              const name = member ? displayUserName(member) : txt;
+          // `qq` / `url` 都是「人」节点：uid 或 uin 命中群成员就用群名片,
+          // 否则退到灰条自带的 nm(手机导入的记录只有 nm、群成员表里查不到),
+          // 再退到 txt / 裸 uin。
+          if (item.type === 'qq' || item.type === 'url') {
+            const key = item.uid || item.uin || item.param?.[0] || '';
+            const member = key ? memberMap.get(key) : undefined;
+            const name = (member ? displayUserName(member) : '') || item.nm || txt || item.uin || '';
+            if (name) {
               return (
                 <span key={itemKey} className="text-blue-500 cursor-pointer hover:underline">
                   {name}
                 </span>
               );
             }
-            return <span key={itemKey} className="text-blue-500">{txt}</span>;
+            return null;
           }
 
           if (item.type === 'nor') {

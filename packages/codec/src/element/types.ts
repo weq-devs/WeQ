@@ -385,6 +385,9 @@ export interface TipJsonItem {
   type: 'img' | 'qq' | 'nor' | 'url' | string;
   src?: string;
   uid?: string;
+  uin?: string;
+  /** 灰条自带的昵称快照;手机导入的记录往往只有它,群成员表里查不到人。 */
+  nm?: string;
   txt?: string;
   col?: string;
   jp?: string;
