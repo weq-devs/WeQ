@@ -2317,6 +2317,99 @@ html[data-theme="dark"] .member-role-badge.admin {
 	color: color-mix(in srgb, var(--weq-accent-effective) 62%, var(--weq-fg-primary));
 }
 
+/* ── 群文件（复用相册灯箱外壳，内容改成文件列表） ── */
+
+.group-file-toolbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	margin-bottom: 12px;
+	color: var(--weq-fg-muted);
+	font-size: 12px;
+}
+
+.group-file-crumbs {
+	display: flex;
+	min-width: 0;
+	align-items: center;
+	gap: 8px;
+}
+
+.group-file-crumbs > span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.group-file-crumbs .group-album-back {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	flex: none;
+}
+
+.group-file-summary {
+	flex: none;
+}
+
+.group-file-list {
+	display: grid;
+	gap: 6px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.group-file-row {
+	display: flex;
+	width: 100%;
+	min-width: 0;
+	align-items: center;
+	gap: 10px;
+	padding: 9px 11px;
+	border: 1px solid var(--weq-border-subtle);
+	border-radius: 10px;
+	background: color-mix(in srgb, var(--weq-bg-surface) 88%, transparent);
+	color: var(--weq-fg-muted);
+	text-align: left;
+	transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+.group-file-row.is-folder {
+	cursor: pointer;
+}
+
+.group-file-row:hover {
+	border-color: var(--weq-border-strong);
+	background: color-mix(in srgb, var(--weq-accent-effective) 7%, var(--weq-bg-surface));
+}
+
+.group-file-main {
+	display: grid;
+	min-width: 0;
+	flex: 1;
+	gap: 2px;
+}
+
+.group-file-main strong,
+.group-file-main small {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.group-file-main strong {
+	color: var(--weq-fg-primary);
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.group-file-main small {
+	color: var(--weq-fg-muted);
+	font-size: 11px;
+}
+
 .group-album-media-grid {
 	display: grid;
 	grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));

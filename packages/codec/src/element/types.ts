@@ -12,7 +12,7 @@ export type {
   GrayTipRevokeElement,
   GrayTipPokeElement,
   GrayTipGroupElement,
-  GrayTipInviteElement,
+  GrayTipXmlElement,
   GrayTipFileRecvElement,
   GrayTipTempSessionElement,
   WalletElement,
@@ -192,7 +192,11 @@ export enum GrayTipSubType {
   FILE = 10,
   /** 频道消息 Feed. 未观测. */
   FEED_CHANNEL_MSG = 11,
-  /** XML 灰条。历史上被 WeQ 当作「邀请」处理，实为通用 XML 消息。 */
+  /**
+   * XML 灰条：`grayTipXmlContent` 里是一段 `<gtip>`，语义完全由内容决定 ——
+   * 入群邀请、「XX 回应了你的消息」、各类互动提示都走这一个 subType。别按
+   * subType 猜文案，要解析 XML。
+   */
   XML_MSG = 12,
   /** 本地消息（仅本端可见）. 未观测. */
   LOCAL_MSG = 13,
@@ -381,6 +385,9 @@ export interface TipJsonItem {
   type: 'img' | 'qq' | 'nor' | 'url' | string;
   src?: string;
   uid?: string;
+  uin?: string;
+  /** 灰条自带的昵称快照;手机导入的记录往往只有它,群成员表里查不到人。 */
+  nm?: string;
   txt?: string;
   col?: string;
   jp?: string;

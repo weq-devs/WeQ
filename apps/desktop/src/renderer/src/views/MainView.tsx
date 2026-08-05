@@ -25,6 +25,7 @@ import { client } from '../trpc/client';
 import { useDialog } from '../components/Dialog';
 import { useToast } from '../components/Toast';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
+import { previewNodes, previewNodesToText } from '../lib/conversationPreview';
 import { datalineName, isDatalineSelfUid } from '@weq/codec';
 import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
@@ -35,6 +36,7 @@ import { CollectionDialog } from '../components/CollectionDialog';
 import { DressUpDialog } from '../components/DressUpDialog';
 import { MarketEmojiBrowserLightbox } from './export/MarketEmojiBrowserLightbox';
 import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
+import { GroupFileDialog } from '../components/GroupFileDialog';
 import { GroupAnalyticsDialog } from '../components/GroupAnalyticsDialog';
 import { MemberProfileCard } from '../components/MemberProfileCard';
 import { BuddyAnalyticsDialog } from '../components/BuddyAnalyticsDialog';
@@ -523,80 +525,6 @@ function contactTitle(c: RecentContactWire): string {
   );
 }
 
-/**
- * Conversation-list preview text for a conversation's latest message.
- *
- * The recent-contact row (40051) decodes to a preview element that usually
- * carries `displayText` — QQ's own out-of-conversation summary ("[图片]", the
- * text body, …). Gray-tip elements (戳一戳 / 撤回 / 群提示 …) frequently OMIT it,
- * which used to leave the list row blank. When it's missing we fall back to a
- * per-kind label via {@link previewFallbackByKind}.
- */
-function previewText(preview: unknown): string | null {
-  if (!preview || typeof preview !== 'object') return null;
-  const p = preview as { displayText?: unknown; kind?: unknown; recallDisplayText?: unknown };
-  // QQ's `displayText` is unreliable for element-only messages: a lone face /
-  // sticker often stores an *invisible* sysface control marker that renders as a
-  // blank conversation-list row. Treat "no visible character" as empty so we
-  // fall back to the kind-derived bracket label ([表情] / [图片] …).
-  if (typeof p.displayText === 'string' && hasVisibleText(p.displayText)) {
-    return p.displayText.trim();
-  }
-  return previewFallbackByKind(p);
-}
-
-/** True when a string has at least one visible (non-control, non-space) char. */
-function hasVisibleText(s: string): boolean {
-  // Visible = any char that is not a C0/C1 control char (QQ sysface markers) or whitespace.
-  for (let i = 0; i < s.length; i++) {
-    const c = s.charCodeAt(i);
-    if (c > 0x20 && c !== 0x7f && !(c >= 0x80 && c <= 0x9f)) return true;
-  }
-  return false;
-}
-
-/**
- * Fallback conversation-list label derived from a preview element's `kind`, used
- * when QQ didn't fill `displayText`. Mirrors the element kinds in @weq/codec:
- * media/content kinds get a QQ-style bracketed tag ("[图片]"…), gray-tip kinds
- * get a friendly label (戳一戳消息 / 撤回消息 …), and anything unrecognized shows
- * as the generic "灰条消息".
- */
-function previewFallbackByKind(preview: { kind?: unknown; recallDisplayText?: unknown }): string {
-  const kind = typeof preview.kind === 'string' ? preview.kind : '';
-  switch (kind) {
-    case 'pic': return '[图片]';
-    case 'file': return '[文件]';
-    case 'video': return '[视频]';
-    case 'ptt': return '[语音]';
-    case 'face': return '[表情]';
-    case 'mface': return '[贴纸]';
-    case 'ark':
-    case 'markdown': return '[卡片消息]';
-    case 'multiMsg': return '[合并转发]';
-    case 'call': return '[通话]';
-    case 'wallet': return '[红包]';
-    case 'onlineFile': return '[在线文件]';
-    case 'onlineFolder': return '[在线文件夹]';
-    case 'emojiBounce': return '[表情互动]';
-    case 'qqDynamic': return '[QQ动态]';
-    case 'reply': return '[回复]';
-    case 'grayTipRevoke':
-      return typeof preview.recallDisplayText === 'string' && preview.recallDisplayText.trim()
-        ? preview.recallDisplayText.trim()
-        : '撤回消息';
-    case 'grayTipPoke': return '戳一戳消息';
-    case 'grayTipGroup': return '群提示消息';
-    case 'grayTipInvite': return '入群邀请';
-    case 'grayTipFileRecv': return '[文件传输完成]';
-    case 'grayTipTempSession': return '临时会话';
-    case 'shareLocation': return '[位置共享]';
-    // text/at normally carry displayText; if somehow absent there is nothing
-    // better to show than the generic gray-tip label (same as unknown/default).
-    default: return '灰条消息';
-  }
-}
-
 function currentUser(openedUin: string | null, selfProfile?: UserProfileWire | null): User {
   const identityValue = openedUin ?? 'unknown';
   return {
@@ -899,7 +827,8 @@ function contactToConversation(
 ): Conversation | null {
   const kind = chatTypeKind(c.chatType);
   const title = contactTitle(c);
-  const preview = previewText(c.preview);
+  const nodes = previewNodes(c.preview);
+  const preview = previewNodesToText(nodes) || null;
   const updatedAt = toIsoTime(c.sendTime);
   const preference: ConversationPreference = {
     ...fallbackPreference,
@@ -910,6 +839,7 @@ function contactToConversation(
     senderId: c.senderUid || null,
     senderDisplayName: c.senderDisplayName || c.senderNick || null,
     body: preview,
+    previewNodes: nodes.length ? nodes : null,
     createdAt: updatedAt,
   };
 
@@ -1167,7 +1097,7 @@ const RENDERABLE_ELEMENT_TYPES = new Set<string>([
   // Reply quote.
   'reply',
   // Gray tips (dedicated components in chatPane.tsx).
-  'grayTipRevoke', 'grayTipPoke', 'grayTipGroup', 'grayTipInvite',
+  'grayTipRevoke', 'grayTipPoke', 'grayTipGroup', 'grayTipXml',
   // Rich content (some already render as body text; markdown/ark to be wired up).
   'ark', 'markdown', 'multiMsg', 'call', 'wallet',
   // 机器人内联键盘（与 markdown 正文成对出现）。
@@ -1222,7 +1152,7 @@ function extractGrayTipUids(elements: unknown[]): string[] {
     if (!element || typeof element !== 'object') continue;
     const { type, data = {} } = element as RenderElementWire;
 
-    if (type === 'grayTipPoke' || type === 'grayTipInvite') {
+    if (type === 'grayTipPoke' || type === 'grayTipXml') {
       const xml = typeof data.grayTipXmlContent === 'string' ? data.grayTipXmlContent : '';
       if (xml) {
         const re = /uin="([^"]+)"/g;
@@ -1722,6 +1652,10 @@ export function MainView(): ReactElement {
     groupCode: string;
     groupName: string;
   } | null>(null);
+  const [groupFileDialog, setGroupFileDialog] = useState<{
+    groupCode: string;
+    groupName: string;
+  } | null>(null);
   const [analyticsDialog, setAnalyticsDialog] = useState<{
     groupCode: string;
     groupName: string;
@@ -1809,6 +1743,13 @@ export function MainView(): ReactElement {
 
   const handleOpenGroupAlbums = useCallback((conversation: Extract<Conversation, { type: 'group' }>) => {
     setAlbumDialog({
+      groupCode: conversation.id,
+      groupName: conversation.group.name,
+    });
+  }, []);
+
+  const handleOpenGroupFiles = useCallback((conversation: Extract<Conversation, { type: 'group' }>) => {
+    setGroupFileDialog({
       groupCode: conversation.id,
       groupName: conversation.group.name,
     });
@@ -3199,6 +3140,7 @@ export function MainView(): ReactElement {
                 onEditRaw={handleEditRaw}
                 onDeleteMessage={handleDeleteMessage}
                 onOpenGroupAlbums={handleOpenGroupAlbums}
+                onOpenGroupFiles={handleOpenGroupFiles}
                 onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
                 onOpenGroupAnalytics={handleOpenGroupAnalytics}
                 onOpenBuddyAnalytics={handleOpenBuddyAnalytics}
@@ -3245,6 +3187,13 @@ export function MainView(): ReactElement {
           groupCode={albumDialog.groupCode}
           groupName={albumDialog.groupName}
           onClose={() => setAlbumDialog(null)}
+        />
+      ) : null}
+      {groupFileDialog ? (
+        <GroupFileDialog
+          groupCode={groupFileDialog.groupCode}
+          groupName={groupFileDialog.groupName}
+          onClose={() => setGroupFileDialog(null)}
         />
       ) : null}
       {analyticsDialog ? (

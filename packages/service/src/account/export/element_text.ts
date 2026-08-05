@@ -67,7 +67,7 @@ export function elementToText(el: RenderElement, depth = 0): string {
     case 'grayTipPoke':
       return '[戳一戳]';
     case 'grayTipGroup':
-    case 'grayTipInvite':
+    case 'grayTipXml':
       return '[群提示]';
     case 'grayTipFileRecv':
       return el.data.fileName ? `[文件传输完成: ${el.data.fileName}]` : '[文件传输完成]';

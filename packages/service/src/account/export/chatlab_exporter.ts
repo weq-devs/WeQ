@@ -134,7 +134,7 @@ function renderContent(elements: RenderElement[]): string {
         out += '[戳一戳]';
         break;
       case 'grayTipGroup':
-      case 'grayTipInvite':
+      case 'grayTipXml':
         out += '[群提示]';
         break;
       case 'grayTipFileRecv':
@@ -175,7 +175,7 @@ const TYPE_PRIORITY: Array<{ test: (el: RenderElement) => boolean; type: Chatlab
   },
   { test: (el) => el.type === 'grayTipRevoke', type: ChatlabMessageType.RECALL },
   { test: (el) => el.type === 'grayTipPoke', type: ChatlabMessageType.POKE },
-  { test: (el) => el.type === 'grayTipGroup' || el.type === 'grayTipInvite', type: ChatlabMessageType.SYSTEM },
+  { test: (el) => el.type === 'grayTipGroup' || el.type === 'grayTipXml', type: ChatlabMessageType.SYSTEM },
   {
     test: (el) => el.type === 'grayTipTempSession' || el.type === 'shareLocation',
     type: ChatlabMessageType.SYSTEM,

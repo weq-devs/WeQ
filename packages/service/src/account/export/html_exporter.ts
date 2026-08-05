@@ -76,7 +76,7 @@ const PLACEHOLDER: Record<string, string> = {
   emojiBounce: '[表情]',
   grayTipPoke: '[戳一戳]',
   grayTipGroup: '[群提示]',
-  grayTipInvite: '[群提示]',
+  grayTipXml: '[群提示]',
   grayTipTempSession: '[临时会话]',
   shareLocation: '[位置共享]',
 };

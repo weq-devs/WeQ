@@ -72,6 +72,7 @@ export function ChatMainContent({
 	onEditRaw,
 	onDeleteMessage,
 	onOpenGroupAlbums,
+	onOpenGroupFiles,
 	onOpenGroupAnnouncements,
 	onOpenGroupAnalytics,
 	onOpenBuddyAnalytics,
@@ -137,6 +138,7 @@ export function ChatMainContent({
 	onEditRaw?: (message: Message) => void;
 	onDeleteMessage?: (message: Message, conversation: Conversation) => void | Promise<void>;
 	onOpenGroupAlbums?: (conversation: GroupConversation) => void;
+	onOpenGroupFiles?: (conversation: GroupConversation) => void;
 	onOpenGroupAnnouncements?: (conversation: GroupConversation) => void;
 	onOpenGroupAnalytics?: (conversation: GroupConversation) => void;
 	onOpenBuddyAnalytics?: (conversation: DirectConversation) => void;
@@ -215,6 +217,7 @@ export function ChatMainContent({
 			onEditRaw={onEditRaw}
 			onDeleteMessage={onDeleteMessage}
 			onOpenGroupAlbums={onOpenGroupAlbums}
+			onOpenGroupFiles={onOpenGroupFiles}
 			onOpenGroupAnnouncements={onOpenGroupAnnouncements}
 			onOpenGroupAnalytics={onOpenGroupAnalytics}
 			onOpenBuddyAnalytics={onOpenBuddyAnalytics}

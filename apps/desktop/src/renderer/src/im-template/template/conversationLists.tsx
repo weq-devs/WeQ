@@ -6,6 +6,8 @@ import { Avatar, EmptyState, } from "./primitives";
 import { isBotConversation } from "./conversationDisplay";
 import { messageMentionsUser } from "./mentions";
 import { resourceUrl } from "../../lib/resourceUrl";
+import { FaceEmoji } from "../../components/FaceEmoji";
+import type { PreviewNode } from "../../lib/conversationPreview";
 import type {
 	Contact,
 	Conversation,
@@ -69,6 +71,8 @@ export function ConversationList({
 					unreadCount > 0 && (highlightKinds.has("atMe") || preview.mentionsMe);
 				// @全体成员：同属「找你」红色告警类。
 				const showAtAll = unreadCount > 0 && highlightKinds.has("atAll");
+				// 回复我：同属「找你」红色告警类。
+				const showReplyMe = unreadCount > 0 && highlightKinds.has("replyMe");
 				// 特别关心：会话存在特别关心好友未读时，行首挂红色标记。
 				const showSpecialCare =
 					unreadCount > 0 && highlightKinds.has("specialCare");
@@ -129,13 +133,18 @@ export function ConversationList({
 										{showAtAll ? (
 											<span className={cn("row-mention-alert")}>[@全体]</span>
 										) : null}
+										{showReplyMe ? (
+											<span className={cn("row-mention-alert")}>[有人回复我]</span>
+										) : null}
 										{showNewFile ? (
 											<span className={cn("row-newfile-alert")}>[新文件]</span>
 										) : null}
 										{showRedPacket ? (
 											<span className={cn("row-redpacket-alert")}>[红包]</span>
 										) : null}
-										{preview.text}
+										{preview.nodes.length ? (
+											<PreviewNodes nodes={preview.nodes} />
+										) : null}
 									</span>
 								)}
 								{!unreadCount && muted ? (
@@ -419,6 +428,7 @@ function conversationLastMessage(conversation: Conversation, user?: User) {
 	// and unread-count next to it already convey "there is activity".
 	if (!conversation.lastMessage?.body) {
 		return {
+			nodes: [],
 			text: "",
 			mentionsMe: false,
 		};
@@ -429,20 +439,39 @@ function conversationLastMessage(conversation: Conversation, user?: User) {
 		conversation.lastMessage.senderId !== user?.id &&
 		messageMentionsUser(conversation.lastMessage.body, user);
 
-	if (
-		conversation.type === "group" &&
-		conversation.lastMessage.senderDisplayName
-	) {
-		return {
-			text: `${conversation.lastMessage.senderDisplayName}：${conversation.lastMessage.body}`,
-			mentionsMe,
-		};
-	}
+	// 富节点（文本 + 表情）优先；没有就把纯文本包成单个文本节点，渲染路径统一。
+	const body: PreviewNode[] = conversation.lastMessage.previewNodes?.length
+		? conversation.lastMessage.previewNodes
+		: [{ t: "text", text: conversation.lastMessage.body }];
+
+	const prefix =
+		conversation.type === "group" && conversation.lastMessage.senderDisplayName
+			? `${conversation.lastMessage.senderDisplayName}：`
+			: "";
 
 	return {
-		text: conversation.lastMessage.body,
+		nodes: prefix ? [{ t: "text", text: prefix } as PreviewNode, ...body] : body,
+		text: `${prefix}${conversation.lastMessage.body}`,
 		mentionsMe,
 	};
+}
+
+/** 预览节点 → React：文本原样输出，表情画成图（与聊天区同一个 FaceEmoji）。 */
+function PreviewNodes({ nodes }: { nodes: PreviewNode[] }) {
+	return nodes.map((node, index) =>
+		node.t === "face" ? (
+			<FaceEmoji
+				// biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
+				key={index}
+				element={{ faceId: node.faceId, faceText: node.label }}
+				size="1.15em"
+				className={cn("row-preview-face")}
+			/>
+		) : (
+			// biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
+			<span key={index}>{node.text}</span>
+		),
+	);
 }
 
 function conversationSearchText(conversation: Conversation) {

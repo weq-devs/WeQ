@@ -188,6 +188,68 @@ export const OIDB_GROUP_FILE_RESP = message([
   { name: 'download', tag: 3, type: OIDB_GROUP_FILE_DOWNLOAD_RESP },
 ]);
 
+// ───────────────────────── group file list — 0x6D8_1 ─────────────────────────
+
+const OIDB_GROUP_FILE_LIST_REQ = message([
+  { name: 'groupUin', tag: 1, type: 'uint32' },
+  { name: 'appId', tag: 2, type: 'uint32' },
+  { name: 'targetDirectory', tag: 3, type: 'string' },
+  { name: 'fileCount', tag: 5, type: 'uint32' },
+  { name: 'sortBy', tag: 9, type: 'uint32' },
+  { name: 'startIndex', tag: 13, type: 'uint32', force: true },
+  { name: 'field17', tag: 17, type: 'uint32' },
+  { name: 'field18', tag: 18, type: 'uint32', force: true },
+]);
+
+export const OIDB_GROUP_FILE_LIST_VIEW_REQ = message([
+  { name: 'list', tag: 2, type: OIDB_GROUP_FILE_LIST_REQ },
+]);
+
+const OIDB_GROUP_FILE_LIST_FOLDER = message([
+  { name: 'folderId', tag: 1, type: 'string' },
+  { name: 'parentDirectoryId', tag: 2, type: 'string' },
+  { name: 'folderName', tag: 3, type: 'string' },
+  { name: 'createTime', tag: 4, type: 'uint32' },
+  { name: 'modifiedTime', tag: 5, type: 'uint32' },
+  { name: 'creatorUin', tag: 6, type: 'uint64' },
+  { name: 'creatorName', tag: 7, type: 'string' },
+  { name: 'totalFileCount', tag: 8, type: 'uint32' },
+  { name: 'modifierUin', tag: 9, type: 'uint64' },
+  { name: 'modifierName', tag: 10, type: 'string' },
+]);
+
+const OIDB_GROUP_FILE_LIST_FILE = message([
+  { name: 'fileId', tag: 1, type: 'string' },
+  { name: 'fileName', tag: 2, type: 'string' },
+  { name: 'fileSize', tag: 3, type: 'uint64' },
+  { name: 'busId', tag: 4, type: 'uint32' },
+  { name: 'uploadedTime', tag: 6, type: 'uint32' },
+  { name: 'expireTime', tag: 7, type: 'uint32' },
+  { name: 'modifiedTime', tag: 8, type: 'uint32' },
+  { name: 'downloadedTimes', tag: 9, type: 'uint32' },
+  { name: 'uploaderName', tag: 14, type: 'string' },
+  { name: 'uploaderUin', tag: 15, type: 'uint64' },
+  { name: 'parentDirectory', tag: 16, type: 'string' },
+]);
+
+const OIDB_GROUP_FILE_LIST_ITEM = message([
+  { name: 'type', tag: 1, type: 'uint32' },
+  { name: 'folderInfo', tag: 2, type: OIDB_GROUP_FILE_LIST_FOLDER },
+  { name: 'fileInfo', tag: 3, type: OIDB_GROUP_FILE_LIST_FILE },
+]);
+
+const OIDB_GROUP_FILE_LIST_BODY = message([
+  { name: 'retCode', tag: 1, type: 'uint32' },
+  { name: 'retMsg', tag: 2, type: 'string' },
+  { name: 'clientWording', tag: 3, type: 'string' },
+  { name: 'isEnd', tag: 4, type: 'bool' },
+  { name: 'items', tag: 5, type: OIDB_GROUP_FILE_LIST_ITEM, repeated: true },
+]);
+
+export const OIDB_GROUP_FILE_LIST_VIEW_RESP = message([
+  { name: 'list', tag: 2, type: OIDB_GROUP_FILE_LIST_BODY },
+]);
+
 // ───────────────────────── group album media list (trpc) ─────────────────────────
 
 const EXT_MAP_ENTRY = message([

@@ -482,6 +482,13 @@ html[data-theme="dark"] .contact-cat-count {
 	flex: 1 1 auto;
 }
 
+/* 会话预览里的内联表情：与文字同高、不撑高行高，随省略号一起被裁掉。 */
+.row-preview-face {
+	display: inline-block;
+	vertical-align: -0.18em;
+	margin: 0 1px;
+}
+
 .row-mention-alert {
 	color: #ff4b3a;
 	font-weight: 500;

@@ -26,6 +26,7 @@ import {
   Globe,
   Image as ImageIcon,
   Images,
+  FolderOpen,
   Layers,
   Link2,
   MapPin,
@@ -54,6 +55,7 @@ import { ExportLightbox, type LightboxResult, type LightboxVariant } from './exp
 import { DatabasePicker, type DbPickItem } from './export/DatabasePicker';
 import { DecryptLightbox, type DecryptLightboxResult } from './export/DecryptLightbox';
 import { AlbumExportLightbox, type AlbumExportResult } from './export/AlbumExportLightbox';
+import { GroupFileExportLightbox, type GroupFileExportResult } from './export/GroupFileExportLightbox';
 import { FailureLightbox } from './export/FailureLightbox';
 import {
   CHATLAB_FORMATS,
@@ -94,6 +96,7 @@ const MODES: ModeDef[] = [
   { id: 'collection', label: '导出收藏', desc: 'QQ 收藏导出为表格', icon: <Bookmark size={18} /> },
   { id: 'scheduled', label: '定时导出任务', desc: '按计划自动导出', icon: <CalendarClock size={18} /> },
   { id: 'album', label: '群相册导出', desc: '批量下载群相册', icon: <Images size={18} /> },
+  { id: 'groupfile', label: '群文件导出', desc: '批量下载群文件', icon: <FolderOpen size={18} /> },
   { id: 'marketpack', label: '商城表情下载', desc: '搜索并批量下载商城表情包', icon: <Sticker size={18} /> },
 ];
 
@@ -262,6 +265,9 @@ export function ExportView(): ReactElement {
   const [albumOutputDir, setAlbumOutputDir] = useState<string | null>(null);
   const [albumExport, setAlbumExport] = useState<{ group: PickItem } | null>(null);
   const [albumGroupId, setAlbumGroupId] = useState<string | null>(null);
+  const [fileOutputDir, setFileOutputDir] = useState<string | null>(null);
+  const [fileExport, setFileExport] = useState<{ group: PickItem } | null>(null);
+  const [fileGroupId, setFileGroupId] = useState<string | null>(null);
   const [format, setFormat] = useState<ExportFormat>('json');
   const [lightbox, setLightbox] = useState<LightboxVariant | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -499,6 +505,12 @@ export function ExportView(): ReactElement {
     if (mode === 'album') {
       if (!albumGroupId) return;
       openAlbumExport();
+      return;
+    }
+    if (mode === 'groupfile') {
+      if (!fileGroupId) return;
+      const group = groupItems.find((it) => it.id === fileGroupId);
+      if (group) setFileExport({ group });
       return;
     }
     if (mode === 'contacts') {
@@ -848,6 +860,38 @@ export function ExportView(): ReactElement {
     }
   }
 
+  async function runGroupFileExport(result: GroupFileExportResult): Promise<void> {
+    if (!fileExport) return;
+    setSubmitting(true);
+    try {
+      const exported = await client.account.exportGroupFiles.mutate({
+        groupCode: fileExport.group.id,
+        outputDir: result.outputDir,
+        files: result.selectedFiles.map((f) => ({
+          fileId: f.fileId,
+          fileName: f.fileName,
+          busId: f.busId,
+          path: f.path,
+        })),
+        concurrency: 4,
+      });
+      if (exported.failed.length === 0) {
+        setFileGroupId(null);
+        setFileExport(null);
+        dialog.info('群文件导出完成', `已保存 ${exported.ok} 个文件到：${exported.outputDir}`);
+      } else {
+        dialog.error(
+          '部分群文件导出失败',
+          `成功 ${exported.ok} 个，失败 ${exported.failed.length} 个。${exported.failed[0]?.fileName ?? ''}${exported.failed[0]?.error ? `：${exported.failed[0].error}` : ''}`,
+        );
+      }
+    } catch (e) {
+      dialog.error('群文件导出失败', e instanceof Error ? e.message : String(e));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   async function onLightboxConfirm(result: LightboxResult): Promise<void> {
     if (lightbox === 'full') {
       // HTML is now one of the 完整消息 formats — pass the selected chip through.
@@ -986,6 +1030,8 @@ export function ExportView(): ReactElement {
       ? '新建定时任务'
       : mode === 'album'
         ? '导出相册'
+        : mode === 'groupfile'
+          ? '导出群文件'
         : mode === 'decrypt'
           ? '解密并导出'
           : mode === 'qzone'
@@ -1003,6 +1049,8 @@ export function ExportView(): ReactElement {
       ? dbSelection.size === 0
       : mode === 'album'
         ? !albumGroupId
+        : mode === 'groupfile'
+          ? !fileGroupId
         : mode === 'contacts'
           ? contactScope === 'group' && !contactGroupId
           : mode === 'collection'
@@ -1174,6 +1222,15 @@ export function ExportView(): ReactElement {
                 searchPlaceholder="搜索群名称或群号"
                 emptyText="暂无群聊"
               />
+            ) : mode === 'groupfile' ? (
+              <SingleSelectPicker
+                items={groupItems}
+                loading={groups.isLoading}
+                selectedId={fileGroupId}
+                onSelect={setFileGroupId}
+                searchPlaceholder="搜索群名称或群号"
+                emptyText="暂无群聊"
+              />
             ) : (
               <DatabasePicker
                 items={dbItems}
@@ -1202,6 +1259,8 @@ export function ExportView(): ReactElement {
                 <span className="weq-exp-foot-hint">
                   {mode === 'album'
                     ? '选择一个群，下一步选择相册与时间范围'
+                    : mode === 'groupfile'
+                    ? '选择一个群，下一步选择要下载的文件'
                     : dbSelection.size > 0
                       ? `已选 ${dbSelection.size} 个数据库 · ${fmtBytes(selectedDbBytes)}`
                       : '选择数据库后导出解密副本'}
@@ -1280,6 +1339,22 @@ export function ExportView(): ReactElement {
           }}
           onClose={() => setAlbumExport(null)}
           onConfirm={(result) => void runAlbumExport(result)}
+        />
+      ) : null}
+
+      {fileExport ? (
+        <GroupFileExportLightbox
+          groupCode={fileExport.group.id}
+          groupName={fileExport.group.name}
+          outputDir={fileOutputDir}
+          submitting={submitting}
+          onPickPath={async () => {
+            const picked = await client.account.pickGroupFileExportDir.mutate();
+            if (picked) setFileOutputDir(picked);
+            return picked;
+          }}
+          onClose={() => setFileExport(null)}
+          onConfirm={(result) => void runGroupFileExport(result)}
         />
       ) : null}
     </div>

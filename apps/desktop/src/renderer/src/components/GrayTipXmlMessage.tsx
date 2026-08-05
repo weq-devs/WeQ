@@ -4,9 +4,9 @@ import { DOMParser, type Node } from '@xmldom/xmldom';
 import { displayUserName } from '../im-template/template/user';
 import { FaceEmoji } from './FaceEmoji';
 
-interface GrayTipInviteMessageProps {
+interface GrayTipXmlMessageProps {
   element: {
-    type: 'grayTipInvite';
+    type: 'grayTipXml';
     data?: {
       grayTipXmlContent?: string;
     };
@@ -26,7 +26,7 @@ function getNodeValue(
   return attributes?.getNamedItem(attribute)?.nodeValue || '';
 }
 
-export function GrayTipInviteMessage({ element, conversation }: GrayTipInviteMessageProps) {
+export function GrayTipXmlMessage({ element, conversation }: GrayTipXmlMessageProps) {
   const { grayTipXmlContent } = element.data || {};
 
   const content = useMemo(() => {

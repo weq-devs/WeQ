@@ -15,7 +15,7 @@ import type {
   GrayTipRevokeElement,
   GrayTipPokeElement,
   GrayTipGroupElement,
-  GrayTipInviteElement,
+  GrayTipXmlElement,
   ArkElement,
   MfaceElement,
   MarkdownElement,
@@ -267,8 +267,8 @@ export interface RenderGrayTipGroupElement {
   };
 }
 
-export interface RenderGrayTipInviteElement {
-  type: 'grayTipInvite';
+export interface RenderGrayTipXmlElement {
+  type: 'grayTipXml';
   data: BaseRenderData & {
     grayTipXmlContent?: string;
     tipJson?: string;
@@ -506,7 +506,7 @@ export type RenderElement =
   | RenderGrayTipRevokeElement
   | RenderGrayTipPokeElement
   | RenderGrayTipGroupElement
-  | RenderGrayTipInviteElement
+  | RenderGrayTipXmlElement
   | RenderArkElement
   | RenderMfaceElement
   | RenderMarkdownElement
@@ -545,7 +545,7 @@ export function toRenderElements(elements: Element[]): RenderElement[] {
       case 'grayTipRevoke': return mapGrayTipRevoke(el as GrayTipRevokeElement);
       case 'grayTipPoke': return mapGrayTipPoke(el as GrayTipPokeElement);
       case 'grayTipGroup': return mapGrayTipGroup(el as GrayTipGroupElement);
-      case 'grayTipInvite': return mapGrayTipInvite(el as GrayTipInviteElement);
+      case 'grayTipXml': return mapGrayTipXml(el as GrayTipXmlElement);
       case 'ark': return mapArk(el as ArkElement);
       case 'mface': return mapMface(el as MfaceElement);
       case 'markdown': return mapMarkdown(el as MarkdownElement);
@@ -815,9 +815,9 @@ function mapGrayTipGroup(el: GrayTipGroupElement): RenderGrayTipGroupElement {
   };
 }
 
-function mapGrayTipInvite(el: GrayTipInviteElement): RenderGrayTipInviteElement {
+function mapGrayTipXml(el: GrayTipXmlElement): RenderGrayTipXmlElement {
   return {
-    type: 'grayTipInvite',
+    type: 'grayTipXml',
     data: {
       grayTipXmlContent: el.grayTipXmlContent,
       tipJson: el.tipJson,

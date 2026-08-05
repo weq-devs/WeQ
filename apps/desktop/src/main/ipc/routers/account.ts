@@ -45,6 +45,7 @@ import {
   getVoiceModel,
   buildBotExport,
   probeBotWebUi,
+  downloadUrlToFile,
   type AlbumMedia,
   type NewMessages,
   type DbChange,
@@ -280,6 +281,53 @@ export interface AlbumExportResult {
   total: number;
   ok: number;
   failed: Array<{ albumId: string; albumTitle: string; fileName: string; url: string; error: string }>;
+}
+
+// ---- 群文件 (OIDB 0x6D8_1 列表 / 0x6D6_2 下载直链) ----
+
+const groupFileInput = z.object({
+  groupCode: z.string().min(1),
+  /** 目录:根目录 '/',子目录传 folderId。 */
+  folderId: z.string().optional(),
+});
+
+const groupFileDownloadInput = z.object({
+  groupCode: z.string().min(1),
+  fileId: z.string().min(1),
+  fileName: z.string().optional(),
+  busId: z.number().int().optional(),
+});
+
+const exportGroupFilesInput = z.object({
+  groupCode: z.string().min(1),
+  outputDir: z.string().min(1),
+  /** 省略则递归导出全群文件(含子文件夹,保留目录结构)。 */
+  files: z
+    .array(
+      z.object({
+        fileId: z.string().min(1),
+        fileName: z.string().min(1),
+        busId: z.number().int().optional(),
+        /** 相对根目录的文件夹路径段,用于在输出目录里重建目录树。 */
+        path: z.array(z.string()).optional(),
+      }),
+    )
+    .optional(),
+  concurrency: z.number().int().min(1).max(8).optional(),
+});
+
+interface GroupFileDownloadWork {
+  fileId: string;
+  fileName: string;
+  busId: number;
+  targetPath: string;
+}
+
+export interface GroupFileExportResult {
+  outputDir: string;
+  total: number;
+  ok: number;
+  failed: Array<{ fileId: string; fileName: string; error: string }>;
 }
 
 async function fetchLatest(kind: ChatKind, conv: string, limit: number): Promise<ChatMsgWire[]> {
@@ -592,6 +640,66 @@ async function exportGroupAlbums(
         albumTitle: item.albumTitle,
         fileName: item.fileName,
         url: item.url,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  });
+
+  return { outputDir: input.outputDir, total: work.length, ok, failed };
+}
+
+async function exportGroupFiles(
+  services: AccountServices,
+  input: z.infer<typeof exportGroupFilesInput>,
+): Promise<GroupFileExportResult> {
+  requireQqOnlineForAlbum(services);
+
+  // 没给具体文件就递归整个群,path 用来在输出目录里重建文件夹结构。
+  const targets =
+    input.files ??
+    (await services.groupFile.listRecursive(Number(input.groupCode))).map((f) => ({
+      fileId: f.fileId,
+      fileName: f.fileName,
+      busId: f.busId,
+      path: f.path,
+    }));
+
+  const work: GroupFileDownloadWork[] = [];
+  // 同名去重按目录分桶 —— 不同子文件夹下的同名文件本来就不冲突。
+  const usedByDir = new Map<string, Set<string>>();
+  targets.forEach((file, index) => {
+    const segments = (file.path ?? []).map((seg, i) => sanitizePathSegment(seg, `folder-${i + 1}`));
+    const dir = join(input.outputDir, ...segments);
+    const used = usedByDir.get(dir) ?? new Set<string>();
+    usedByDir.set(dir, used);
+    const fileName = uniqueFilename(
+      sanitizePathSegment(file.fileName, `file-${String(index + 1).padStart(4, '0')}`),
+      used,
+    );
+    work.push({
+      fileId: file.fileId,
+      fileName,
+      busId: file.busId ?? 102,
+      targetPath: join(dir, fileName),
+    });
+  });
+
+  const failed: GroupFileExportResult['failed'] = [];
+  let ok = 0;
+  await mkdir(input.outputDir, { recursive: true });
+  await runWithConcurrency(work, input.concurrency ?? 4, async (item) => {
+    try {
+      // 直链有时效,逐个文件在下载前才换取。
+      const url = await services.mediaUrl.getGroupFileUrl(
+        Number(input.groupCode), item.fileId, item.busId, item.fileName,
+      );
+      const outcome = await downloadUrlToFile(url, item.targetPath);
+      if (!outcome.ok) throw new Error(outcome.reason);
+      ok += 1;
+    } catch (e) {
+      failed.push({
+        fileId: item.fileId,
+        fileName: item.fileName,
         error: e instanceof Error ? e.message : String(e),
       });
     }
@@ -1921,6 +2029,43 @@ export const accountRouter = router({
     .input(exportGroupAlbumsInput)
     .mutation(async ({ input }) => {
       return exportGroupAlbums(requireServices(), input);
+    }),
+
+  // ---- 群文件 ----
+
+  /** 列出群文件某个目录下的文件+子文件夹 (OIDB 0x6D8_1)。需要在线的 QQ 进程。 */
+  listGroupFiles: procedure
+    .input(groupFileInput)
+    .query(async ({ input }) => {
+      const services = requireServices();
+      requireQqOnlineForAlbum(services);
+      return services.groupFile.list(Number(input.groupCode), input.folderId ?? '/');
+    }),
+
+  /** 换取单个群文件的下载直链 (OIDB 0x6D6_2)。链接有时效,点一次取一次。 */
+  getGroupFileUrl: procedure
+    .input(groupFileDownloadInput)
+    .mutation(async ({ input }) => {
+      const services = requireServices();
+      requireQqOnlineForAlbum(services);
+      return services.mediaUrl.getGroupFileUrl(
+        Number(input.groupCode),
+        input.fileId,
+        input.busId ?? 102,
+        input.fileName ?? '',
+      );
+    }),
+
+  /** Folder dialog for group file export output. */
+  pickGroupFileExportDir: procedure.mutation(async () => {
+    return getHost().pickDirectory({ title: '选择群文件保存文件夹' });
+  }),
+
+  /** 并发下载选中的群文件;不传 files 则递归导出全群并保留目录结构。 */
+  exportGroupFiles: procedure
+    .input(exportGroupFilesInput)
+    .mutation(async ({ input }) => {
+      return exportGroupFiles(requireServices(), input);
     }),
 
   // ---- 收藏 (QQ favorites / collection.db) ----

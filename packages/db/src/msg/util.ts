@@ -34,16 +34,23 @@ export function decodeBody(blob: SqlValue | undefined): Element[] {
  * is a protobuf whose only field is a repeated tag-40062 entry, one per emoji
  * reaction. Returns `undefined` when the column is empty/absent so the field is
  * simply omitted from the message.
+ *
+ * 没有贴表情的消息里这一列不是 NULL 而是 4 字节的空占位 `f2c71300`(tag 40062,
+ * 长度 0),解出来是一个 emojiId=''/setNum=0 的条目 —— 直接渲染就成了「贴了 0
+ * 个表情」。真实条目的 emojiId 非空且 setNum≥1(全库 15346 条无例外),所以按
+ * emojiId 过滤即可。
  */
 export function decodeEmoji(blob: SqlValue | undefined): SetEmojiItem[] | undefined {
   if (!(blob instanceof Uint8Array)) return undefined;
   try {
     const decoded = emojiCodec.decode(sanitizeBytes(blob, MsgEmoji));
-    const list = (decoded.stickers ?? []).map((s) => ({
-      emojiId: s.emojiId ?? '',
-      setNum: s.emojiNum ?? 0,
-      isSelfSet: !!s.isSelfSet,
-    }));
+    const list = (decoded.stickers ?? [])
+      .filter((s) => !!s.emojiId)
+      .map((s) => ({
+        emojiId: s.emojiId ?? '',
+        setNum: s.emojiNum ?? 0,
+        isSelfSet: !!s.isSelfSet,
+      }));
     return list.length > 0 ? list : undefined;
   } catch (e) {
     console.error('[msg] failed to decode 40062 emoji:', e);

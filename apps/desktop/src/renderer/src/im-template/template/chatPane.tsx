@@ -11,6 +11,7 @@ import {
 	RotateCcw,
 	FileText,
 	Images,
+	FolderOpen,
 	MessageSquareText,
 	SendHorizontal,
 	Smile,
@@ -84,7 +85,7 @@ import { OnlineStatus } from "../../components/OnlineStatus";
 import { GrayTipPokeMessage } from '../../components/GrayTipPokeMessage';
 import { GrayTipRevokeMessage } from '../../components/GrayTipRevokeMessage';
 import { GrayTipGroupMessage } from '../../components/GrayTipGroupMessage';
-import { GrayTipInviteMessage } from '../../components/GrayTipInviteMessage';
+import { GrayTipXmlMessage } from '../../components/GrayTipXmlMessage';
 import { GrayTipFileRecvMessage } from '../../components/GrayTipFileRecvMessage';
 import { GrayTipTempSessionMessage } from '../../components/GrayTipTempSessionMessage';
 import { GroupCallEndedMessage, GROUP_CALL_ENDED_SUBTYPES } from '../../components/GroupCallEndedMessage';
@@ -210,6 +211,7 @@ export function ChatPane({
 	onEditRaw,
 	onDeleteMessage,
 	onOpenGroupAlbums,
+	onOpenGroupFiles,
 	onOpenGroupAnnouncements,
 	onOpenGroupAnalytics,
 	onOpenBuddyAnalytics,
@@ -245,6 +247,7 @@ export function ChatPane({
 	onEditRaw?: (message: Message) => void;
 	onDeleteMessage?: (message: Message, conversation: Conversation) => void | Promise<void>;
 	onOpenGroupAlbums?: (conversation: Extract<Conversation, { type: "group" }>) => void;
+	onOpenGroupFiles?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenGroupAnnouncements?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenGroupAnalytics?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenBuddyAnalytics?: (conversation: Extract<Conversation, { type: "direct" }>) => void;
@@ -1460,6 +1463,14 @@ export function ChatPane({
 							<button
 								className={cn("icon-button", "group-header-info-action")}
 								type="button"
+								title="Group files"
+								onClick={() => onOpenGroupFiles?.(conversation)}
+							>
+								<FolderOpen size={18} />
+							</button>
+							<button
+								className={cn("icon-button", "group-header-info-action")}
+								type="button"
 								title="Group analytics"
 								onClick={() => onOpenGroupAnalytics?.(conversation)}
 							>
@@ -1494,7 +1505,7 @@ export function ChatPane({
 						// 群通话的「已结束」（CALL 元素，subType 16/25）也走灰条：那条消息的
 						// 40020 是空的，谁也不属于，套气泡会凭空多出一个发送者。发起那条有正常
 						// 发送人，和私聊的 CALL 一样继续走气泡。
-						const GRAY_TIP_KINDS = ['grayTipPoke', 'grayTipRevoke', 'grayTipGroup', 'grayTipInvite', 'grayTipFileRecv', 'grayTipTempSession'];
+						const GRAY_TIP_KINDS = ['grayTipPoke', 'grayTipRevoke', 'grayTipGroup', 'grayTipXml', 'grayTipFileRecv', 'grayTipTempSession'];
 						const grayTipOf = (message) => {
 							const els = message.qqElements ?? [];
 							for (const kind of GRAY_TIP_KINDS) {
@@ -1517,8 +1528,8 @@ export function ChatPane({
 									return <GrayTipRevokeMessage element={gt.el} conversation={conversation} message={message} />;
 								case 'grayTipGroup':
 									return <GrayTipGroupMessage element={gt.el} conversation={conversation} message={message} />;
-								case 'grayTipInvite':
-									return <GrayTipInviteMessage element={gt.el} conversation={conversation} />;
+								case 'grayTipXml':
+									return <GrayTipXmlMessage element={gt.el} conversation={conversation} />;
 								case 'grayTipFileRecv':
 									return <GrayTipFileRecvMessage element={gt.el} />;
 								case 'grayTipTempSession':
