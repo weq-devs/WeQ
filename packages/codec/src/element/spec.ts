@@ -361,8 +361,8 @@ export const QqDynamicTagListSchema = z
   )
   .optional();
 
-export const GrayTipInviteElementSchema = BaseElementFieldsSchema.extend({
-  kind: z.literal('grayTipInvite'),
+export const GrayTipXmlElementSchema = BaseElementFieldsSchema.extend({
+  kind: z.literal('grayTipXml'),
   subType: z.literal(GrayTipSubType.XML_MSG),
   actionId: z.number().optional(),
   detailId: z.number().optional(),
@@ -678,7 +678,7 @@ export const ElementSchema = z.discriminatedUnion('kind', [
   GrayTipRevokeElementSchema,
   GrayTipPokeElementSchema,
   GrayTipGroupElementSchema,
-  GrayTipInviteElementSchema,
+  GrayTipXmlElementSchema,
   GrayTipFileRecvElementSchema,
   GrayTipTempSessionElementSchema,
   WalletElementSchema,
@@ -708,7 +708,7 @@ export type ReplyElement = z.infer<typeof ReplyElementSchema>;
 export type GrayTipRevokeElement = z.infer<typeof GrayTipRevokeElementSchema>;
 export type GrayTipPokeElement = z.infer<typeof GrayTipPokeElementSchema>;
 export type GrayTipGroupElement = z.infer<typeof GrayTipGroupElementSchema>;
-export type GrayTipInviteElement = z.infer<typeof GrayTipInviteElementSchema>;
+export type GrayTipXmlElement = z.infer<typeof GrayTipXmlElementSchema>;
 export type GrayTipFileRecvElement = z.infer<typeof GrayTipFileRecvElementSchema>;
 export type GrayTipTempSessionElement = z.infer<typeof GrayTipTempSessionElementSchema>;
 export type ArkElement = z.infer<typeof ArkElementSchema>;
