@@ -91,6 +91,7 @@ export type GroupMember = User & {
 export type ConversationHighlightKind =
 	| "atMe"
 	| "atAll"
+	| "replyMe"
 	| "specialCare"
 	| "newFile"
 	| "redPacket"

@@ -69,6 +69,8 @@ export function ConversationList({
 					unreadCount > 0 && (highlightKinds.has("atMe") || preview.mentionsMe);
 				// @全体成员：同属「找你」红色告警类。
 				const showAtAll = unreadCount > 0 && highlightKinds.has("atAll");
+				// 回复我：同属「找你」红色告警类。
+				const showReplyMe = unreadCount > 0 && highlightKinds.has("replyMe");
 				// 特别关心：会话存在特别关心好友未读时，行首挂红色标记。
 				const showSpecialCare =
 					unreadCount > 0 && highlightKinds.has("specialCare");
@@ -128,6 +130,9 @@ export function ConversationList({
 										) : null}
 										{showAtAll ? (
 											<span className={cn("row-mention-alert")}>[@全体]</span>
+										) : null}
+										{showReplyMe ? (
+											<span className={cn("row-mention-alert")}>[有人回复我]</span>
 										) : null}
 										{showNewFile ? (
 											<span className={cn("row-newfile-alert")}>[新文件]</span>

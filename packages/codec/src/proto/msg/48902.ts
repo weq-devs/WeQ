@@ -6,13 +6,12 @@
  * when the conversation has unread messages of special interest:
  * 特别关心 / @我 / @全体 / 回复我 / 新文件 …
  *
- * Only the 特别关心 (special-care) shape is modelled so far — it's the one
- * we've decoded end-to-end. Its nested layout (verified against a real blob):
+ * Nested layout (verified against real blobs):
  *
  *   50005 {                       // conversation extension
  *     50001 peerUid, 50002 chatType
  *     50060 {                     // notify-highlight aggregate (absent when none)
- *       50000 kind                // 1000 = @我, 1006 = 特别关心
+ *       50000 kind                // 1000 = @我, 1002 = 回复我, 1006 = 特别关心
  *       50040 {                   // one entry per highlighted message
  *         50020 msgSeq            // seq of the highlighted message
  *         50022 senderUid         // who sent it
@@ -23,8 +22,7 @@
  *   }
  *
  * One 50060 group appears per active category; the kind code (50000)
- * distinguishes them. Remaining categories (@全体 / 回复我 / 新文件) will slot
- * in as their codes are captured, so `highlight` is modelled as `repeat`.
+ * distinguishes them, so `highlight` is modelled as `repeat`.
  */
 
 import { ProtoField, ScalarType } from '../../core';
@@ -44,7 +42,7 @@ const NotifyHighlightItem = {
 /** 50060 — notify-highlight aggregate; present only when the conversation has
  *  a highlighted unread (e.g. 特别关心). */
 const NotifyHighlight = {
-  /** 50000 — highlight kind. 1000 = @我, 1006 = 特别关心. */
+  /** 50000 — highlight kind. 1000 = @我, 1002 = 回复我, 1006 = 特别关心. */
   kind: ProtoField(50000, ScalarType.UINT32, { optional: true }),
   /** 50040 — highlighted messages (one per message). */
   items: ProtoField(50040, () => NotifyHighlightItem, { optional: true, repeat: true }),
