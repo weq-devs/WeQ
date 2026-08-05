@@ -295,6 +295,9 @@ export type {
 } from './account/web';
 
 // ---- account protocol services (oidb/trpc packets) ----
+export { GroupFileService } from './account/group_file';
+export type { GroupFileItem, GroupFolderItem, GroupFileListing } from './account/group_file';
+
 export { GroupAlbumMediaService } from './account/group_album_media';
 export type {
   AlbumMedia,

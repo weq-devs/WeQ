@@ -36,6 +36,7 @@ import { CollectionDialog } from '../components/CollectionDialog';
 import { DressUpDialog } from '../components/DressUpDialog';
 import { MarketEmojiBrowserLightbox } from './export/MarketEmojiBrowserLightbox';
 import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
+import { GroupFileDialog } from '../components/GroupFileDialog';
 import { GroupAnalyticsDialog } from '../components/GroupAnalyticsDialog';
 import { MemberProfileCard } from '../components/MemberProfileCard';
 import { BuddyAnalyticsDialog } from '../components/BuddyAnalyticsDialog';
@@ -1651,6 +1652,10 @@ export function MainView(): ReactElement {
     groupCode: string;
     groupName: string;
   } | null>(null);
+  const [groupFileDialog, setGroupFileDialog] = useState<{
+    groupCode: string;
+    groupName: string;
+  } | null>(null);
   const [analyticsDialog, setAnalyticsDialog] = useState<{
     groupCode: string;
     groupName: string;
@@ -1738,6 +1743,13 @@ export function MainView(): ReactElement {
 
   const handleOpenGroupAlbums = useCallback((conversation: Extract<Conversation, { type: 'group' }>) => {
     setAlbumDialog({
+      groupCode: conversation.id,
+      groupName: conversation.group.name,
+    });
+  }, []);
+
+  const handleOpenGroupFiles = useCallback((conversation: Extract<Conversation, { type: 'group' }>) => {
+    setGroupFileDialog({
       groupCode: conversation.id,
       groupName: conversation.group.name,
     });
@@ -3128,6 +3140,7 @@ export function MainView(): ReactElement {
                 onEditRaw={handleEditRaw}
                 onDeleteMessage={handleDeleteMessage}
                 onOpenGroupAlbums={handleOpenGroupAlbums}
+                onOpenGroupFiles={handleOpenGroupFiles}
                 onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
                 onOpenGroupAnalytics={handleOpenGroupAnalytics}
                 onOpenBuddyAnalytics={handleOpenBuddyAnalytics}
@@ -3174,6 +3187,13 @@ export function MainView(): ReactElement {
           groupCode={albumDialog.groupCode}
           groupName={albumDialog.groupName}
           onClose={() => setAlbumDialog(null)}
+        />
+      ) : null}
+      {groupFileDialog ? (
+        <GroupFileDialog
+          groupCode={groupFileDialog.groupCode}
+          groupName={groupFileDialog.groupName}
+          onClose={() => setGroupFileDialog(null)}
         />
       ) : null}
       {analyticsDialog ? (

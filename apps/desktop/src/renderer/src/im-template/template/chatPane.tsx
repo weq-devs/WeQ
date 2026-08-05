@@ -11,6 +11,7 @@ import {
 	RotateCcw,
 	FileText,
 	Images,
+	FolderOpen,
 	MessageSquareText,
 	SendHorizontal,
 	Smile,
@@ -210,6 +211,7 @@ export function ChatPane({
 	onEditRaw,
 	onDeleteMessage,
 	onOpenGroupAlbums,
+	onOpenGroupFiles,
 	onOpenGroupAnnouncements,
 	onOpenGroupAnalytics,
 	onOpenBuddyAnalytics,
@@ -245,6 +247,7 @@ export function ChatPane({
 	onEditRaw?: (message: Message) => void;
 	onDeleteMessage?: (message: Message, conversation: Conversation) => void | Promise<void>;
 	onOpenGroupAlbums?: (conversation: Extract<Conversation, { type: "group" }>) => void;
+	onOpenGroupFiles?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenGroupAnnouncements?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenGroupAnalytics?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenBuddyAnalytics?: (conversation: Extract<Conversation, { type: "direct" }>) => void;
@@ -1456,6 +1459,14 @@ export function ChatPane({
 								onClick={() => onOpenGroupAlbums?.(conversation)}
 							>
 								<Images size={18} />
+							</button>
+							<button
+								className={cn("icon-button", "group-header-info-action")}
+								type="button"
+								title="Group files"
+								onClick={() => onOpenGroupFiles?.(conversation)}
+							>
+								<FolderOpen size={18} />
 							</button>
 							<button
 								className={cn("icon-button", "group-header-info-action")}

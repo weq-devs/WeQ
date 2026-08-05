@@ -146,8 +146,11 @@ export class MediaUrlService {
     return GetGroupFileUrl.invoke(this.nt, this.resolvePid(), { groupId, fileId, busId });
   }
 
-  async getGroupFileUrl(groupId: number, fileId: string, busId = 102): Promise<string> {
-    return composeGroupFileDownloadUrl(await this.getGroupFileDownload(groupId, fileId, busId));
+  /** `fileName` 落到 URL 的 `?fname=` 上,决定浏览器/下载器看到的文件名。 */
+  async getGroupFileUrl(groupId: number, fileId: string, busId = 102, fileName = ''): Promise<string> {
+    const download = await this.getGroupFileDownload(groupId, fileId, busId);
+    const name = download.saveFileName || fileName;
+    return `${composeGroupFileDownloadUrl(download)}${encodeURIComponent(name)}`;
   }
 
   async getGroupFileUrlFromElement(groupId: number, element: MediaElement, busId = 102): Promise<string> {
