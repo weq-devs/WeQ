@@ -9,9 +9,12 @@
  *
  * ## 尺寸
  *
- * 素材是手机端的 720×1280(9:16),桌面窗口通常更宽,所以用 `cover` + 居中:永远填满,
+ * 底图素材是手机端的 720×1280(9:16),桌面窗口通常更宽,所以用 `cover` + 居中:永远填满,
  * 只切掉溢出的那一维。不用 `100% auto`(宽对齐) —— 宽窗口下那样会把中间一条横向拉满、
  * 上下切掉极多。
+ *
+ * 挂件动画同样是 9:16,但它不能像底图那样裁 —— 裁掉的是动画内容。那边改的是**画布本身**,
+ * 见 {@link ScreenWidget} 和 lib/widenLottie。
  *
  * ## 挂件为什么不复用 FaceLottie
  *
@@ -21,8 +24,9 @@
  * 求表达式(这也是挂件列表排除第 9 款的原因,见 dressup 路由的 EXCLUDED_WIDGETS)。
  */
 
-import { useEffect, useRef, type CSSProperties, type ReactElement } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactElement } from 'react';
 import { screenWidgetAssetsPath, screenWidgetUrl } from '../lib/resourceUrl';
+import { widenLottie } from '../lib/widenLottie';
 
 /** 背景层的 CSS 变量名。装扮页拖滑块时直接改它做实时预览。 */
 export const BACKDROP_VEIL_VAR = '--weq-chat-backdrop-veil';
@@ -67,6 +71,12 @@ export function ChatBackdrop({
  * 装扮页的挂件选择格直接复用它 —— 预览必须跟真实聊天背景是**同一套渲染**,
  * 否则「选之前看到的」和「选之后看到的」会不一样(拿包里第一张图当封面时尤其明显:
  * 那往往只是某一帧的一个碎片)。
+ *
+ * ## 宽高比
+ *
+ * 素材是 720×1280 的竖屏,而聊天区是横向矩形 —— 直接播的话 `meet` 按高边贴合,动画只占
+ * 中间窄窄一条(容器高 700 时才 394px 宽)。所以先量容器比例、把画布加宽到同比例再播,
+ * 见 {@link widenLottie}:那是**拉范围不拉比例**,挂件的视觉大小与原来逐像素一致。
  */
 export function ScreenWidget({
   widgetId,
@@ -77,8 +87,25 @@ export function ScreenWidget({
   className?: string;
 }): ReactElement {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [aspect, setAspect] = useState(0);
+
+  // 量容器比例。**量化到 0.1 档**再进 state:窗口拖动时逐像素变化会把动画重建几十次,
+  // 而肉眼根本分不出 1.71 和 1.72 的铺法差别。
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => {
+      const { clientWidth, clientHeight } = el;
+      if (!clientWidth || !clientHeight) return;
+      setAspect(Math.round((clientWidth / clientHeight) * 10) / 10);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
+    // 首帧容器还没量出来,等 ResizeObserver 回填 —— 先按 720×1280 播再重建会闪一下。
+    if (!aspect) return;
     let destroyed = false;
     let anim: import('lottie-web').AnimationItem | undefined;
 
@@ -100,13 +127,14 @@ export function ScreenWidget({
           renderer: 'svg',
           loop: true,
           autoplay: true,
-          animationData: data,
+          // 画布加宽到容器比例,粒子横向平铺填满新增的区域。窄容器(装扮页那个 9:16 的
+          // 预览格)会原样返回,那里本来就不需要加宽。
+          animationData: widenLottie(data, widgetId, aspect),
           // 缺了这个,JSON 里的图片会相对页面 origin 解析而全部 404。
           // 指向 images/ 且带尾斜杠 —— 两个坑都在 screenWidgetAssetsPath 里说明了。
           assetsPath: screenWidgetAssetsPath(widgetId),
-          // `meet`(contain)而不是 `slice`(cover):素材是 720×1280 的竖屏,而聊天区通常
-          // 更宽,cover 会按**宽边**定标(900px 宽 → 放大 1.25 倍)再纵向裁掉一大半 ——
-          // 又大又只剩中间一条。meet 按高边贴合,整支动画完整可见,尺寸也回到正常观感。
+          // 画布已经跟容器同比例了,`meet` 于是正好铺满、不裁不留边。仍然按高边定标,
+          // 所以挂件的视觉大小与加宽前一致。
           rendererSettings: { preserveAspectRatio: 'xMidYMid meet' },
         });
       } catch {
@@ -118,7 +146,7 @@ export function ScreenWidget({
       destroyed = true;
       anim?.destroy();
     };
-  }, [widgetId]);
+  }, [widgetId, aspect]);
 
   return <div className={className} ref={containerRef} />;
 }
