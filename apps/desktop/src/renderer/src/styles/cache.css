@@ -85,6 +85,14 @@
   color: var(--weq-accent-effective);
 }
 
+/* 静态账号说明：只有数据库一项时，交代其余资源为何不在这里。 */
+.weq-cache-static-note {
+  margin: 10px 2px 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #8a94a4;
+}
+
 /* 隐藏资源列滚动条（保留滚动）。 */
 .weq-cache-cats-body {
   scrollbar-width: none;

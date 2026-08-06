@@ -41,6 +41,7 @@ import { DownloadFileExplorer } from './DownloadFileExplorer';
 import { FlatMediaExplorer, MonthMediaExplorer, VoiceExplorer } from './MediaResourceExplorers';
 import { ResourceAnalyticsDialog } from './ResourceAnalyticsDialog';
 import { ResourceCleanupDialog } from './ResourceCleanupDialog';
+import { trpc } from '../../trpc/client';
 import '../../styles/cache.css';
 
 /** 一个缓存资源分类。`ready` 为 false 时右侧渲染占位空状态。 */
@@ -77,7 +78,14 @@ export function CacheView(): ReactElement {
   const [showAnalytics, setShowAnalytics] = useState(false);
   // 清理释放弹窗（删除本地缓存以释放磁盘空间）。
   const [showCleanup, setShowCleanup] = useState(false);
-  const activeCategory = CATEGORIES.find((c) => c.id === active) ?? CATEGORIES[0]!;
+  // 静态账号导入的只是一份数据库快照，nt_data 那些资源属于本机在线账号、不属于
+  // 这份快照 —— 既不该在这里浏览，更不该被「清理释放」真删掉。只留数据库一项。
+  const config = trpc.account.getAccountConfig.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+  });
+  const isStatic = config.data?.static ?? false;
+  const categories = isStatic ? CATEGORIES.filter((c) => c.id === 'database') : CATEGORIES;
+  const activeCategory = categories.find((c) => c.id === active) ?? categories[0]!;
 
   return (
     <div className={`weq-cache${catsCollapsed ? ' is-cats-collapsed' : ''}`}>
@@ -93,24 +101,28 @@ export function CacheView(): ReactElement {
           >
             <PanelLeftOpen size={16} />
           </button>
-          <button
-            type="button"
-            className="weq-cache-analyze-rail"
-            onClick={() => setShowAnalytics(true)}
-            title="整体分析"
-            aria-label="整体分析"
-          >
-            <ChartPie size={16} />
-          </button>
-          <button
-            type="button"
-            className="weq-cache-analyze-rail weq-cache-clean-rail"
-            onClick={() => setShowCleanup(true)}
-            title="清理释放"
-            aria-label="清理释放"
-          >
-            <Trash2 size={16} />
-          </button>
+          {!isStatic && (
+            <>
+              <button
+                type="button"
+                className="weq-cache-analyze-rail"
+                onClick={() => setShowAnalytics(true)}
+                title="整体分析"
+                aria-label="整体分析"
+              >
+                <ChartPie size={16} />
+              </button>
+              <button
+                type="button"
+                className="weq-cache-analyze-rail weq-cache-clean-rail"
+                onClick={() => setShowCleanup(true)}
+                title="清理释放"
+                aria-label="清理释放"
+              >
+                <Trash2 size={16} />
+              </button>
+            </>
+          )}
         </div>
       ) : (
         <nav className="weq-cache-cats" aria-label="缓存资源分类">
@@ -126,26 +138,28 @@ export function CacheView(): ReactElement {
               <PanelLeftClose size={16} />
             </button>
           </div>
-          <div className="weq-cache-actions">
-            <button
-              type="button"
-              className="weq-cache-analyze-btn"
-              onClick={() => setShowAnalytics(true)}
-            >
-              <ChartPie size={16} />
-              <span>整体分析</span>
-            </button>
-            <button
-              type="button"
-              className="weq-cache-analyze-btn weq-cache-clean-btn"
-              onClick={() => setShowCleanup(true)}
-            >
-              <Trash2 size={16} />
-              <span>清理释放</span>
-            </button>
-          </div>
+          {!isStatic && (
+            <div className="weq-cache-actions">
+              <button
+                type="button"
+                className="weq-cache-analyze-btn"
+                onClick={() => setShowAnalytics(true)}
+              >
+                <ChartPie size={16} />
+                <span>整体分析</span>
+              </button>
+              <button
+                type="button"
+                className="weq-cache-analyze-btn weq-cache-clean-btn"
+                onClick={() => setShowCleanup(true)}
+              >
+                <Trash2 size={16} />
+                <span>清理释放</span>
+              </button>
+            </div>
+          )}
           <div className="weq-cache-cats-body">
-            {CATEGORIES.map((c) => (
+            {categories.map((c) => (
               <button
                 key={c.id}
                 type="button"
@@ -160,6 +174,12 @@ export function CacheView(): ReactElement {
               </button>
             ))}
           </div>
+          {isStatic && (
+            <p className="weq-cache-static-note">
+              静态账号只有数据库资源。图片、语音等媒体不属于这份导入的快照，
+              可在「设置 → 账号基础」里关联本机原生目录后于聊天页查看。
+            </p>
+          )}
         </nav>
       )}
 
@@ -198,8 +218,8 @@ export function CacheView(): ReactElement {
         )}
       </section>
 
-      <ResourceAnalyticsDialog open={showAnalytics} onClose={() => setShowAnalytics(false)} />
-      <ResourceCleanupDialog open={showCleanup} onClose={() => setShowCleanup(false)} />
+      <ResourceAnalyticsDialog open={showAnalytics && !isStatic} onClose={() => setShowAnalytics(false)} />
+      <ResourceCleanupDialog open={showCleanup && !isStatic} onClose={() => setShowCleanup(false)} />
     </div>
   );
 }

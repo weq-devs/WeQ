@@ -124,6 +124,18 @@ export interface AccountConfig {
    */
   static?: boolean;
   /**
+   * 静态账号「关联本机原生目录」：探测到的本机同账号数据目录（`platform.accountDir`）。
+   * 只用于设置页展示——真正生效的路径每次开账号都重新探测，因为用户可能改了
+   * 全局数据目录覆盖。探测不到则不写。
+   */
+  nativeMediaDir?: string;
+  /**
+   * 是否允许从 {@link AccountConfig.nativeMediaDir} 读媒体。探测到就默认开（缺省视为
+   * true），用户可在设置页关掉——关掉后所有媒体目录解析为 null，聊天里的图片/语音
+   * 自动回落到 CDN 补全（本地 miss 本来就走这条路）。
+   */
+  nativeMediaEnabled?: boolean;
+  /**
    * p_skey per domain, harvested by the ninebird loader during login (while QQ
    * was still alive). Seeds `WebCredentialProvider` so the first home-dress
    * fetch works without a hook round-trip.
@@ -166,6 +178,8 @@ export interface AccountConfigMetadata {
   /** Set when opening a static (offline) account so the badge / re-open
    *  path know which flow to use. */
   static?: boolean;
+  /** Local native data directory detected for this static account, if any. */
+  nativeMediaDir?: string;
 }
 
 /**
@@ -234,6 +248,10 @@ export class AccountConfigService {
       ...(metadata.displayName ? { displayName: metadata.displayName } : {}),
       ...(metadata.avatarUrl ? { avatarUrl: metadata.avatarUrl } : {}),
       ...(metadata.static === true ? { static: true } : {}),
+      // Always overwrite (not merge): the probe re-runs on every open, and a
+      // stale path left over from a since-changed data-dir override would show
+      // the user a directory we are no longer reading from.
+      nativeMediaDir: metadata.nativeMediaDir,
       lastLoginAt: Date.now(),
     };
     this.writeRecord(config);
@@ -284,6 +302,19 @@ export class AccountConfigService {
   setHomeDress(homeDress: AccountConfig['homeDress']): void {
     this.patch({ homeDress });
     this.logger.info('stored home dress snapshot', { event: 'set-home-dress' });
+  }
+
+  /**
+   * Toggle reading media from the detected native directory (static accounts).
+   * Takes effect immediately — the platform wrapper reads this on every path
+   * lookup, so no account reopen is needed.
+   */
+  setNativeMediaEnabled(enabled: boolean): void {
+    this.patch({ nativeMediaEnabled: enabled });
+    this.logger.info('updated native media binding', {
+      event: 'set-native-media-enabled',
+      enabled,
+    });
   }
 
   /** Persist p_skey harvested during the ninebird login flow. */

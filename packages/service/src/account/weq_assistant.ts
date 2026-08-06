@@ -116,6 +116,11 @@ export class WeqAssistantService {
     private readonly platform: Platform,
     /** 本机固定的 WeQ助手 uid（来自 userConfig：随机生成一次后持久化，保证幂等）。 */
     private readonly uid: string,
+    /**
+     * 是否允许往 QQ 原生 `nt_data` 里写文件（助手头像）。静态账号必须传 false：
+     * 它的库来自别处，但 uin 可能与本机某个在线账号相同，写进去就污染了别人的数据。
+     */
+    private readonly allowNativeWrite = true,
   ) {
     const { dbKey, algo } = session.context;
     this.msgDb = new QqDb(platform.native.ntHelper, {
@@ -334,10 +339,11 @@ export class WeqAssistantService {
    * ignores column 41110 and renders from this hashed path, so this is the ONLY write
    * that actually changes the displayed avatar. Returns the absolute path
    * written (also stored in 41110 for our own bookkeeping), or null if no source
-   * given / the account's nt_data dir can't be resolved.
+   * given / native writes are disallowed / the account's nt_data dir can't be resolved.
    */
   private writeAvatarFile(sourcePath?: string): string | null {
     if (!sourcePath) return null;
+    if (!this.allowNativeWrite) return null;
     const ntData = this.platform.ntDataDir(this.session.context.uin);
     if (!ntData) return null;
     const dir = join(ntData, 'avatar', 'user', this.avatarShard);

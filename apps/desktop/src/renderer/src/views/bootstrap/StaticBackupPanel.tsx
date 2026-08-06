@@ -28,7 +28,7 @@ function errMsg(e: unknown): string {
 type Probe =
   | { kind: 'idle' }
   | { kind: 'probing' }
-  | { kind: 'ready'; preview: { uin: string; displayName: string; avatarUrl: string } }
+  | { kind: 'ready'; preview: { uin: string; uid: string; displayName: string; avatarUrl: string } }
   | { kind: 'needKey' }
   | { kind: 'badKey' }
   | { kind: 'badDb'; error: string };

@@ -42,6 +42,14 @@ export const resourceCleanupRouter = router({
       }),
     )
     .mutation(({ input }) => {
+      // Never delete from a static account. Its uin may match an account that
+      // IS installed locally, in which case these paths resolve to that other
+      // account's files — deleting them would destroy data the user never
+      // pointed us at. The service's containment check can't catch this: the
+      // paths are perfectly valid, just not ours to touch.
+      if (getAppContext().accountIsStatic) {
+        throw new Error('静态账号不提供本地资源清理：这些资源不属于导入的数据库快照。');
+      }
       return requireServices().resourceCleanup.cleanup(input.instructions);
     }),
 });

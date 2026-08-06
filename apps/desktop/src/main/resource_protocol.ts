@@ -54,8 +54,10 @@ function resolveEmojiRoots(): string[] {
   const ctx = getAppContext();
   const roots: string[] = [];
   const uin = ctx.account?.context.uin;
-  if (uin && ctx.platform) {
-    const dir = ctx.platform.emojiResourceDir(uin);
+  // `resourcePlatform`, not `platform`: a static account must not resolve emoji
+  // out of the local install's directory for the same uin.
+  if (uin && ctx.resourcePlatform) {
+    const dir = ctx.resourcePlatform.emojiResourceDir(uin);
     if (dir) roots.push(dir);
   }
   const cache = ctx.services?.sysEmojiDownload.root();

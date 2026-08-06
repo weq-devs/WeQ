@@ -24,6 +24,7 @@ import {
   Database,
   Eye,
   EyeOff,
+  FolderSearch,
   ImageDown,
   KeyRound,
   RefreshCw,
@@ -80,6 +81,7 @@ export function AccountBasicsSection(): ReactElement {
   const setRealtime = trpc.bootstrap.setRealtimeEnabled.useMutation();
   const setMedia = trpc.bootstrap.setMediaCompletion.useMutation();
   const setClientKey = trpc.bootstrap.setAutoFetchClientKey.useMutation();
+  const setNativeMediaEnabled = trpc.account.setNativeMediaEnabled.useMutation();
 
   const [revealKey, setRevealKey] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -88,6 +90,9 @@ export function AccountBasicsSection(): ReactElement {
   const [realtime, setRealtimeLocal] = useState(true);
   const [mediaEnabled, setMediaEnabled] = useState(true);
   const [autoClientKey, setAutoClientKey] = useState(true);
+  // 静态账号的原生媒体绑定存在**账号**配置里（不是全局设置），所以单独镜像一份。
+  const [nativeMedia, setNativeMedia] = useState(true);
+  const [savingNativeMedia, setSavingNativeMedia] = useState(false);
 
   useEffect(() => {
     const d = settings.data;
@@ -96,6 +101,12 @@ export function AccountBasicsSection(): ReactElement {
     setMediaEnabled(d.mediaCompletion.enabled);
     setAutoClientKey(d.autoFetchClientKey);
   }, [settings.data]);
+
+  useEffect(() => {
+    const d = config.data;
+    if (!d) return;
+    setNativeMedia(d.nativeMediaEnabled);
+  }, [config.data]);
 
   useEffect(() => {
     if (!copied) return undefined;
@@ -110,6 +121,8 @@ export function AccountBasicsSection(): ReactElement {
   const rkeys = cfg?.rkeys ?? [];
   const clientKey = cfg?.clientKey;
   const settingsLoading = settings.isLoading;
+  const isStatic = cfg?.static ?? false;
+  const nativeMediaDir = cfg?.nativeMediaDir ?? null;
 
   async function copyText(text: string, onOk?: () => void): Promise<void> {
     if (!text) return;
@@ -131,6 +144,22 @@ export function AccountBasicsSection(): ReactElement {
     } catch (e) {
       await settings.refetch();
       showError('保存失败', errMsg(e));
+    }
+  }
+
+  // 原生媒体绑定存在账号配置里，所以刷的是 config 而不是 settings。主进程侧
+  // 装饰器惰性读这个值，翻转后立即生效，无需重开账号。
+  async function toggleNativeMedia(enabled: boolean): Promise<void> {
+    setNativeMedia(enabled);
+    setSavingNativeMedia(true);
+    try {
+      await setNativeMediaEnabled.mutateAsync({ enabled });
+      await config.refetch();
+    } catch (e) {
+      await config.refetch();
+      showError('保存失败', errMsg(e));
+    } finally {
+      setSavingNativeMedia(false);
     }
   }
 
@@ -310,6 +339,33 @@ export function AccountBasicsSection(): ReactElement {
         )}
       </Card>
 
+      {/* 静态账号：关联本机原生目录读媒体 */}
+      {isStatic && (
+        <Card>
+          <Row
+            label={
+              <span className="weq-set-row-icon">
+                <FolderSearch size={15} strokeWidth={1.8} aria-hidden />
+                关联本机媒体目录
+              </span>
+            }
+            desc={
+              nativeMediaDir
+                ? `已在本机找到同账号的原生目录，可用于在聊天页与导出中显示图片、语音等媒体：${nativeMediaDir}`
+                : '本机没有找到同账号的原生目录。聊天里缺失的媒体会在同账号 QQ 登录时自动从服务器补全。'
+            }
+            control={
+              <Toggle
+                checked={Boolean(nativeMediaDir) && nativeMedia}
+                disabled={!nativeMediaDir || savingNativeMedia}
+                onChange={(v) => void toggleNativeMedia(v)}
+                label="关联本机媒体目录"
+              />
+            }
+          />
+        </Card>
+      )}
+
       {/* Realtime / db watch */}
       <Card>
         <Row
@@ -319,11 +375,15 @@ export function AccountBasicsSection(): ReactElement {
               启用数据库监听
             </span>
           }
-          desc="监听 QQ 数据库变化以实时显示新消息、撤回与表情回应。"
+          desc={
+            isStatic
+              ? '静态账号的数据库是离线快照，QQ 不会写入，监听不会有任何变化。'
+              : '监听 QQ 数据库变化以实时显示新消息、撤回与表情回应。'
+          }
           control={
             <Toggle
-              checked={realtime}
-              disabled={settingsLoading}
+              checked={!isStatic && realtime}
+              disabled={settingsLoading || isStatic}
               onChange={(v) =>
                 void persist(
                   () => setRealtimeLocal(v),

@@ -26,6 +26,18 @@ function requireServices(): AccountServices {
   return ctx.services;
 }
 
+/**
+ * Anti-recall only means something against databases a live QQ writes to. A
+ * static account's are an imported snapshot QQ never touches, so a trigger
+ * installed there could never fire — refuse rather than write dead SQL the
+ * user believes is protecting them.
+ */
+function refuseWhenStatic(): void {
+  if (getAppContext().accountIsStatic) {
+    throw new Error('静态账号的数据库是离线快照，QQ 不会写入，防撤回无法生效。');
+  }
+}
+
 const target = z.object({
   kind: z.enum(['c2c', 'group', 'dataline']),
   id: z.string().min(1),
@@ -41,6 +53,9 @@ export const antiRecallRouter = router({
   setEnabled: procedure
     .input(z.object({ enabled: z.boolean() }))
     .mutation(({ input }) => {
+      // Disabling stays allowed: a snapshot imported from a machine that had
+      // triggers installed must still be able to drop them.
+      if (input.enabled) refuseWhenStatic();
       return requireServices().antiRecall.setEnabled(input.enabled);
     }),
 
@@ -48,6 +63,7 @@ export const antiRecallRouter = router({
   setTargets: procedure
     .input(z.object({ targets: z.array(target) }))
     .mutation(({ input }) => {
+      refuseWhenStatic();
       return requireServices().antiRecall.setTargets(input.targets);
     }),
 });

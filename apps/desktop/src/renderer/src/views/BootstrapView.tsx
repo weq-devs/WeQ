@@ -109,6 +109,7 @@ export function BootstrapView(): ReactElement {
             dirPath: cfg.dataDir,
             preview: {
               uin: cfg.uin,
+              uid: cfg.uid ?? '',
               displayName: cfg.displayName ?? '',
               avatarUrl: cfg.avatarUrl ?? '',
             },

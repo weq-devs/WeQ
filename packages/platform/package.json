@@ -8,12 +8,15 @@
     "./win32": "./src/win32/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@weq/native": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^22.10.6"
+    "@types/node": "^22.10.6",
+    "vitest": "^2.1.8"
   }
 }

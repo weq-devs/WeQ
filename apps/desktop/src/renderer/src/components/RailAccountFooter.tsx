@@ -214,6 +214,7 @@ export function RailAccountFooter({
 
   async function switchTo(cfg: {
     uin: string;
+    uid?: string;
     dbKey: string;
     algo?: { pageHmacAlgorithm: string; kdfHmacAlgorithm: string } | null;
     displayName?: string;
@@ -245,6 +246,7 @@ export function RailAccountFooter({
           dirPath: cfg.dataDir,
           preview: {
             uin: cfg.uin,
+            uid: cfg.uid ?? '',
             displayName: cfg.displayName ?? '',
             avatarUrl: cfg.avatarUrl ?? '',
           },
