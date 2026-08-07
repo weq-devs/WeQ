@@ -1367,9 +1367,13 @@ export function initAppContext(): AppContext {
       );
       accountMonitor.start();
 
-      // Still no db watch, no anti-recall triggers, no health check and no
-      // scheduler: the imported databases are a dead snapshot that QQ never
-      // writes to, so watching them can only burn cycles.
+      // 监听走和在线账号完全相同的一套：导入目录里的库照样会变（同步工具落盘、
+      // 手动覆盖、WeQ 自己写入），没理由区别对待。
+      if (userConfig.getSettings().realtimeEnabled) {
+        mountDbWatch(session);
+      }
+
+      // Still no anti-recall triggers, no health check and no scheduler.
     },
     clearAccount(): void {
       logger.info('clearing account session', {
@@ -1399,9 +1403,6 @@ export function initAppContext(): AppContext {
     applyRealtime(enabled: boolean): void {
       const session = this.account;
       if (!session) return;
-      // A static account's databases are a dead snapshot — QQ never appends to
-      // them, so the watcher would fire never and only cost a file handle.
-      if (this.accountIsStatic) return;
       logger.info('toggled realtime db watch', {
         event: 'apply-realtime',
         accountUin: session.context.uin,

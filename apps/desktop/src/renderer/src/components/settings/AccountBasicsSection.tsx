@@ -375,15 +375,11 @@ export function AccountBasicsSection(): ReactElement {
               启用数据库监听
             </span>
           }
-          desc={
-            isStatic
-              ? '静态账号的数据库是离线快照，QQ 不会写入，监听不会有任何变化。'
-              : '监听 QQ 数据库变化以实时显示新消息、撤回与表情回应。'
-          }
+          desc="监听 QQ 数据库变化以实时显示新消息、撤回与表情回应。"
           control={
             <Toggle
-              checked={!isStatic && realtime}
-              disabled={settingsLoading || isStatic}
+              checked={realtime}
+              disabled={settingsLoading}
               onChange={(v) =>
                 void persist(
                   () => setRealtimeLocal(v),
