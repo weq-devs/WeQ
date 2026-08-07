@@ -15,7 +15,8 @@
  */
 
 import { join } from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, openSync, readSync, closeSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import {
   C2cMsgDb,
   GroupMsgDb,
@@ -43,7 +44,7 @@ import {
   QqDb,
   UnreadInfoDb,
 } from '@weq/db';
-import type { DatabaseAlgorithms } from '@weq/native';
+import type { DatabaseAlgorithms, NtHelperBinding } from '@weq/native';
 import type { Platform } from '@weq/platform';
 import type { AccountSession } from './session';
 
@@ -57,6 +58,126 @@ function requireFile(dirPath: string, filename: string): string {
 
 function dbOpts(profileInfoPath: string, dbKey?: string, algo?: DatabaseAlgorithms) {
   return { dbPath: profileInfoPath, ...(dbKey ? { key: dbKey } : {}), ...(algo ? { algo } : {}) };
+}
+
+async function resolveDatabaseAlgorithms(
+  nt: NtHelperBinding,
+  dbPath: string,
+  dbKey?: string,
+  algo?: DatabaseAlgorithms,
+): Promise<DatabaseAlgorithms | undefined> {
+  if (!dbKey || algo) return algo;
+
+  const probe = await nt.testDatabaseKey(dbPath, dbKey);
+  if (!probe.success || !probe.pageHmacAlgorithm || !probe.kdfHmacAlgorithm) {
+    throw new Error('Database key is incorrect or the encryption parameters are unsupported');
+  }
+  return {
+    pageHmacAlgorithm: probe.pageHmacAlgorithm,
+    kdfHmacAlgorithm: probe.kdfHmacAlgorithm,
+  };
+}
+
+// ---- Android backup: derive the SQLCipher key from the directory itself ----
+
+const md5 = (s: string): string => createHash('md5').update(s).digest('hex');
+
+/**
+ * 手机 QQ 的账号目录名是 `nt_qq_<md5(md5(uid) + "nt_kernel")>`，同一个
+ * `md5(uid)` 换个盐就是 dbkey。所以只要拿到 uid 就能自己算出密钥。
+ */
+const DIR_SALT = 'nt_kernel';
+
+/** QQ NT 在真正的 SQLite 页前面塞了 1024 字节自定义头。 */
+const CUSTOM_HEADER_LEN = 1024;
+
+/**
+ * uid 不用猜 —— 安卓目录里有个 `gpro_v1-6_<uid>.db`，文件名直接带着它。
+ * （PC 目录没有这个文件，所以这条路只对手机备份成立。）
+ */
+function findUidFromDirEntries(dirPath: string): string | undefined {
+  let names: string[];
+  try {
+    names = readdirSync(dirPath);
+  } catch {
+    return undefined;
+  }
+  for (const name of names) {
+    const m = /^gpro_v[\d-]+_(u_[A-Za-z0-9_-]+)\.db$/.exec(name);
+    if (m?.[1]) return m[1];
+  }
+  return undefined;
+}
+
+/**
+ * 从 nt_msg.db 的自定义头里取 8 字节 rand。安卓的 rand 是一段可打印
+ * ASCII，紧跟在 `QQ_NT DB` 魔数后面的那一串；PC 的头结构不同（那里是一
+ * 长串 hex），所以这里只认「魔数之后第一段正好 8 字节的可打印串」，
+ * 认不出就返回 undefined 让调用方回退。
+ */
+function readHeaderRand(dbPath: string): string | undefined {
+  const buf = Buffer.alloc(CUSTOM_HEADER_LEN);
+  let fd: number;
+  try {
+    fd = openSync(dbPath, 'r');
+  } catch {
+    return undefined;
+  }
+  try {
+    if (readSync(fd, buf, 0, CUSTOM_HEADER_LEN, 0) < CUSTOM_HEADER_LEN) return undefined;
+  } catch {
+    return undefined;
+  } finally {
+    closeSync(fd);
+  }
+
+  const magicAt = buf.indexOf('QQ_NT DB', 0, 'ascii');
+  if (magicAt < 0) return undefined;
+
+  const ascii = [...buf].map((b) => (b >= 0x21 && b < 0x7f ? String.fromCharCode(b) : '\0')).join('');
+  // 魔数之后的可打印串里，挑长度恰为 8 的那一段。安卓是 8 字节 rand；
+  // PC 那串是 60+ 位 hex，长度不符会被跳过。
+  for (const m of ascii.slice(magicAt + 8).matchAll(/[\x21-\x7e]+/g)) {
+    if (m[0].length === 8) return m[0];
+  }
+  return undefined;
+}
+
+/**
+ * 尝试为一个安卓备份目录直接算出 dbkey。算得出且能开库就返回它，
+ * 任何一步不成立都返回 undefined —— 调用方回退到让用户手输。
+ */
+export async function deriveAndroidDbKey(
+  nt: NtHelperBinding,
+  dirPath: string,
+): Promise<{ dbKey: string; algo: DatabaseAlgorithms } | undefined> {
+  const uid = findUidFromDirEntries(dirPath);
+  if (!uid) return undefined;
+
+  const msgDbPath = join(dirPath, 'nt_msg.db');
+  if (!existsSync(msgDbPath)) return undefined;
+
+  const rand = readHeaderRand(msgDbPath);
+  if (!rand) return undefined;
+
+  const inner = md5(uid);
+  // 目录名自校验：对不上说明这不是「uid 派生目录」的那套规则，别硬算。
+  const dirName = dirPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? '';
+  if (dirName.startsWith('nt_qq_') && dirName.slice(6) !== md5(inner + DIR_SALT)) {
+    return undefined;
+  }
+
+  const dbKey = md5(inner + rand);
+  const probe = await nt.testDatabaseKey(msgDbPath, dbKey);
+  if (!probe.success || !probe.pageHmacAlgorithm || !probe.kdfHmacAlgorithm) return undefined;
+
+  return {
+    dbKey,
+    algo: {
+      pageHmacAlgorithm: probe.pageHmacAlgorithm,
+      kdfHmacAlgorithm: probe.kdfHmacAlgorithm,
+    },
+  };
 }
 
 /**
@@ -79,9 +200,10 @@ export async function peekStaticSelfUin(
 ): Promise<StaticSelfPreview> {
   const nt = platform.native.ntHelper;
   const profileInfoPath = requireFile(dirPath, 'profile_info.db');
+  const resolvedAlgo = await resolveDatabaseAlgorithms(nt, profileInfoPath, dbKey, algo);
   // Probe via QqDb directly (not ProfileInfoDb) so we don't drag every
   // profile column through the codec pipeline just to read 3 fields.
-  const qq = new QqDb(nt, dbOpts(profileInfoPath, dbKey, algo));
+  const qq = new QqDb(nt, dbOpts(profileInfoPath, dbKey, resolvedAlgo));
   try {
     // 1002 = uin, 20002 = nick, 1000 = uid. We intentionally do NOT read the
     // stored avatar (20004) — it's a chat-CDN token that only a live QQ can
@@ -141,10 +263,11 @@ export async function openStaticAccount(
   const { dirPath, dbKey, algo, self } = options;
   const nt = platform.native.ntHelper;
   const uin = self.uin;
-  const opts = (dbPath: string) => dbOpts(dbPath, dbKey, algo);
 
   // ---- core databases ----
   const msgDbPath = requireFile(dirPath, 'nt_msg.db');
+  const resolvedAlgo = await resolveDatabaseAlgorithms(nt, msgDbPath, dbKey, algo);
+  const opts = (dbPath: string) => dbOpts(dbPath, dbKey, resolvedAlgo);
 
   const c2cMsgs = new C2cMsgDb(nt, opts(msgDbPath));
   // 数据线消息表结构同 c2c，复用 C2cMsgDb 只换表名。
@@ -205,7 +328,7 @@ export async function openStaticAccount(
     context: {
       uin,
       dbKey: dbKey ?? '',
-      algo: algo ?? { pageHmacAlgorithm: '', kdfHmacAlgorithm: '' },
+      algo: resolvedAlgo ?? { pageHmacAlgorithm: '', kdfHmacAlgorithm: '' },
     },
     msgDbPath,
     lastRowIdMaps: { c2cRowId: 0n, groupRowId: 0n, guildRowId: 0n },

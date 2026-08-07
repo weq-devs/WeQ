@@ -18,7 +18,7 @@ import { ArrowRight, Database, FolderSearch, HelpCircle, KeyRound, Loader2 } fro
 import { client } from '../../trpc/client';
 import { useDialog } from '../../components/Dialog';
 import { QqAvatar } from '../../components/QqAvatar';
-import { isCompleteKey } from './KeyField';
+import { KEY_LEN_HINT } from './KeyField';
 import qqLogoUrl from '@resources/img/QQ.png';
 
 function errMsg(e: unknown): string {
@@ -28,7 +28,12 @@ function errMsg(e: unknown): string {
 type Probe =
   | { kind: 'idle' }
   | { kind: 'probing' }
-  | { kind: 'ready'; preview: { uin: string; uid: string; displayName: string; avatarUrl: string } }
+  | {
+      kind: 'ready';
+      preview: { uin: string; uid: string; displayName: string; avatarUrl: string };
+      /** 密钥是后端自动算出来的（安卓备份目录），不是用户手输的。 */
+      derived: boolean;
+    }
   | { kind: 'needKey' }
   | { kind: 'badKey' }
   | { kind: 'badDb'; error: string };
@@ -57,12 +62,15 @@ export function StaticBackupPanel({ onEntered }: { onEntered: (uin: string) => v
     setStage('probing');
     setProbe({ kind: 'probing' });
     try {
+      // 只要填了东西就原样送后端 —— 长度不合规也要让后端去判对错，
+      // 静默丢弃会让用户以为「输了密钥但没反应」。
       const r = await client.bootstrap.testStaticDir.mutate({
         dirPath,
-        ...(isCompleteKey(key) ? { dbKey: key } : {}),
+        ...(key ? { dbKey: key } : {}),
       });
       if (!r.ok) {
-        setProbe({ kind: 'badDb', error: r.error });
+        // 带着密钥仍打不开 —— 归为密钥错，保留输入框让用户改。
+        setProbe(key ? { kind: 'badKey' } : { kind: 'badDb', error: r.error });
         setStage('picking');
         return;
       }
@@ -71,7 +79,9 @@ export function StaticBackupPanel({ onEntered }: { onEntered: (uin: string) => v
         setStage('picking');
         return;
       }
-      setProbe({ kind: 'ready', preview: r.preview });
+      // 后端自动算出了密钥（安卓备份目录）—— 收下来，「进入」要拿它开库。
+      if ('derivedKey' in r && r.derivedKey) setKey(r.derivedKey);
+      setProbe({ kind: 'ready', preview: r.preview, derived: 'derivedKey' in r && !!r.derivedKey });
       setStage('done');
     } catch (e) {
       setProbe({ kind: 'badDb', error: errMsg(e) });
@@ -85,7 +95,7 @@ export function StaticBackupPanel({ onEntered }: { onEntered: (uin: string) => v
       await client.bootstrap.openStaticAccount.mutate({
         dirPath,
         preview: probe.preview,
-        ...(isCompleteKey(key) ? { dbKey: key } : {}),
+        ...(key ? { dbKey: key } : {}),
       });
       onEntered(probe.preview.uin);
     } catch (e) {
@@ -159,7 +169,7 @@ export function StaticBackupPanel({ onEntered }: { onEntered: (uin: string) => v
               value={key}
               spellCheck={false}
               autoComplete="off"
-              placeholder="16 位 SQLCipher 密钥（不输则按 SQLite 直接打开）"
+              placeholder={`${KEY_LEN_HINT} 位 SQLCipher 密钥（不输则按 SQLite 直接打开）`}
               onChange={(e) => {
                 setKey(e.target.value.trim());
                 if (probe.kind === 'badKey') setProbe({ kind: 'needKey' });
@@ -180,7 +190,7 @@ export function StaticBackupPanel({ onEntered }: { onEntered: (uin: string) => v
           <span className="weq-static-hint">
             {probe.kind === 'badKey'
               ? '密钥不正确或数据库格式不符，请检查后重试。'
-              : '检测到加密数据库，请输入 16 位密钥后重新测试。'}
+              : `检测到加密数据库，请输入 ${KEY_LEN_HINT} 位密钥后重新测试。`}
           </span>
         </label>
       )}
@@ -207,6 +217,10 @@ export function StaticBackupPanel({ onEntered }: { onEntered: (uin: string) => v
           </button>
         )}
       </div>
+
+      {probe.kind === 'ready' && probe.derived && (
+        <div className="weq-static-hint">已从目录自动推算出数据库密钥，无需手动输入。</div>
+      )}
 
       {probe.kind === 'badDb' && (
         <div className="weq-static-error">打开失败：{probe.error}</div>
