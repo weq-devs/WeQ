@@ -564,6 +564,7 @@ export function ContactProfileDialog({
 			{homeOpen ? (
 				<PersonalityHomeDialog
 					uin={profile.identityValue}
+					isBot={profile.kind === "bot"}
 					profile={toPersonalityProfile(
 						{
 							name: displayUserName(profile),
