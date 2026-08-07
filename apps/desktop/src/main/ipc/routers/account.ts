@@ -1357,6 +1357,9 @@ export const accountRouter = router({
     const record = requireServices().accountConfig.getRecord();
     if (!record) return null;
     return {
+      // 账号身份用 configId（uin + 数据目录哈希），不能用 uin —— 同一个 QQ 号
+      // 可能同时有在线账号和静态账号，只看 uin 会把它们认成一个。
+      configId: record.configId,
       uin: record.uin,
       dbKey: record.dbKey,
       algo: record.algo,

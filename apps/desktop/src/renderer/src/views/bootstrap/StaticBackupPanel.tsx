@@ -35,7 +35,7 @@ type Probe =
       derived: boolean;
     }
   | { kind: 'needKey' }
-  | { kind: 'badKey' }
+  | { kind: 'badKey'; error: string }
   | { kind: 'badDb'; error: string };
 
 type Stage = 'picking' | 'probing' | 'done';
@@ -69,8 +69,9 @@ export function StaticBackupPanel({ onEntered }: { onEntered: (uin: string) => v
         ...(key ? { dbKey: key } : {}),
       });
       if (!r.ok) {
-        // 带着密钥仍打不开 —— 归为密钥错，保留输入框让用户改。
-        setProbe(key ? { kind: 'badKey' } : { kind: 'badDb', error: r.error });
+        // 带着密钥仍打不开 —— 归为密钥错，保留输入框让用户改，并把后端的
+        // 真实原因一起显示出来（否则用户连"是不是没点到按钮"都分不清）。
+        setProbe(key ? { kind: 'badKey', error: r.error } : { kind: 'badDb', error: r.error });
         setStage('picking');
         return;
       }
@@ -84,7 +85,8 @@ export function StaticBackupPanel({ onEntered }: { onEntered: (uin: string) => v
       setProbe({ kind: 'ready', preview: r.preview, derived: 'derivedKey' in r && !!r.derivedKey });
       setStage('done');
     } catch (e) {
-      setProbe({ kind: 'badDb', error: errMsg(e) });
+      // 网络/IPC 层异常：填了密钥就留在密钥态，否则当作目录问题。
+      setProbe(key ? { kind: 'badKey', error: errMsg(e) } : { kind: 'badDb', error: errMsg(e) });
       setStage('picking');
     }
   }
@@ -182,21 +184,32 @@ export function StaticBackupPanel({ onEntered }: { onEntered: (uin: string) => v
               type="button"
               className="weq-action-primary"
               onClick={() => void testOpen()}
-              disabled={!dirPath}
+              disabled={!dirPath || stage === 'probing'}
             >
-              重新测试
+              {stage === 'probing' ? (
+                <Loader2 className="animate-spin" size={15} strokeWidth={1.8} aria-hidden />
+              ) : (
+                <KeyRound size={15} strokeWidth={1.8} aria-hidden />
+              )}
+              {stage === 'probing' ? '验证中…' : '验证密钥'}
             </button>
           </span>
-          <span className="weq-static-hint">
+          <span className={probe.kind === 'badKey' ? 'weq-static-error' : 'weq-static-hint'}>
             {probe.kind === 'badKey'
-              ? '密钥不正确或数据库格式不符，请检查后重试。'
+              ? `密钥验证失败：${probe.error}`
               : `检测到加密数据库，请输入 ${KEY_LEN_HINT} 位密钥后重新测试。`}
           </span>
         </label>
       )}
 
       <div className="weq-static-actions">
-        {probe.kind !== 'ready' ? (
+        {probe.kind === 'ready' ? (
+          <button type="button" className="weq-action-primary" onClick={() => void enter()}>
+            <ArrowRight size={15} strokeWidth={1.85} aria-hidden />
+            进入
+          </button>
+        ) : probe.kind === 'needKey' || probe.kind === 'badKey' ? null : (
+          // 密钥态下验证按钮已经和输入框同行了，这里不再重复一个。
           <button
             type="button"
             className="weq-action-primary"
@@ -208,12 +221,7 @@ export function StaticBackupPanel({ onEntered }: { onEntered: (uin: string) => v
             ) : (
               <Database size={15} strokeWidth={1.8} aria-hidden />
             )}
-            测试打开
-          </button>
-        ) : (
-          <button type="button" className="weq-action-primary" onClick={() => void enter()}>
-            <ArrowRight size={15} strokeWidth={1.85} aria-hidden />
-            进入
+            {stage === 'probing' ? '验证中…' : '测试打开'}
           </button>
         )}
       </div>

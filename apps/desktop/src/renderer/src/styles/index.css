@@ -1795,7 +1795,9 @@ html[data-theme='dark'] .weq-splash-track {
     display: grid;
     grid-template-columns: minmax(19rem, 0.52fr) minmax(0, 1fr);
     gap: 1.6rem;
-    align-items: center;
+    /* stretch（而非 center）：两栏各自撑满可用高度，由自己内部滚动。center
+       会让超高内容向上溢出压到标题上。 */
+    align-items: stretch;
     flex: 1;
     min-height: 0;
     padding-top: 1.15rem;
@@ -1830,6 +1832,11 @@ html[data-theme='dark'] .weq-splash-track {
     min-height: 0;
     flex-direction: column;
     gap: 1.1rem;
+    /* 内容不满一屏时垂直居中（在线账号页的原观感）。用 safe center：内容
+       溢出时退回顶端对齐，不会像普通 center 那样把上边顶出容器、压住标题。
+       注意不能在这一层加 overflow —— 账号选择器的弹层是 absolute 定位，
+       会被裁掉。 */
+    justify-content: safe center;
   }
 
   /* ---- source tabs (新的开始: 在线账号 / 本地备份) ---- */
@@ -1864,6 +1871,12 @@ html[data-theme='dark'] .weq-splash-track {
     display: flex;
     flex-direction: column;
     gap: 0.85rem;
+    /* 这一页比在线账号页高不少。自己滚动，否则内容会撑破外层 grid 向上
+       溢出、把标题压掉一半。这里加 overflow 是安全的 —— 本面板内没有
+       absolute 定位的弹层（账号选择器在另一个分支）。 */
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
   .weq-static-backup-head {
     display: flex;
@@ -1959,6 +1972,10 @@ html[data-theme='dark'] .weq-splash-track {
   .weq-static-actions {
     display: flex;
     justify-content: flex-end;
+  }
+  /* 密钥态下按钮挪到了输入框同行，这里会变成空容器 —— 别让它白占一个 gap。 */
+  .weq-static-actions:empty {
+    display: none;
   }
   .weq-static-actions .weq-action-primary {
     height: 2.5rem;

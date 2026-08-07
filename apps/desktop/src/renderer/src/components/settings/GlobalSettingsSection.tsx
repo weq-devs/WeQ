@@ -99,6 +99,12 @@ export function GlobalSettingsSection(): ReactElement {
     staleTime: 0,
     refetchOnMount: 'always',
   });
+  // 「当前账号」要按 configId 认：同一个 QQ 号可能同时有在线账号和静态账号，
+  // 只比 uin 会给两条记录都打上「当前账号」。
+  const currentConfig = trpc.account.getAccountConfig.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+  });
   const autoEnter = trpc.bootstrap.getAutoEnter.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 0,
@@ -426,13 +432,19 @@ export function GlobalSettingsSection(): ReactElement {
           <div className="weq-set-accounts">
             {accountList.map((acc) => {
               const isAutoEnter = autoEnterTarget?.configId === acc.configId;
-              const isCurrent = !!openedUin && acc.uin === openedUin;
+              const currentConfigId = currentConfig.data?.configId ?? null;
+              const isCurrent = currentConfigId
+                ? acc.configId === currentConfigId
+                : !!openedUin && acc.uin === openedUin;
               return (
                 <div key={acc.configId} className="weq-set-account-item">
                   <QqAvatar uin={acc.uin} size={40} className="weq-set-account-avatar" />
                   <div className="weq-set-account-info">
                     <span className="weq-set-account-name">
                       {acc.displayName || acc.uin}
+                      {acc.static ? (
+                        <span className="weq-set-badge">静态账号</span>
+                      ) : null}
                       {isAutoEnter ? (
                         <span className="weq-set-badge weq-set-badge-ok">默认进入</span>
                       ) : null}

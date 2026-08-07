@@ -17,7 +17,7 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from 'rea
 import { createPortal } from 'react-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { getQueryKey } from '@trpc/react-query';
-import { LockKeyhole, LogOut, Moon, Sun, Trash2, Eye, EyeOff, Camera } from 'lucide-react';
+import { LockKeyhole, LogOut, Moon, Sun, Trash2, Eye, EyeOff, Camera, Database } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useAppLock } from '../state/lock';
@@ -176,6 +176,16 @@ export function RailAccountFooter({
     refetchOnMount: 'always',
   });
 
+  // 当前打开的是哪一条账号记录 —— 必须按 configId 认，不能按 uin：同一个 QQ
+  // 号可以同时存在「在线账号」和「静态账号」两条记录，只比 uin 会把另一条
+  // 也当成自己而从列表里滤掉，于是永远切不过去。
+  const currentConfig = trpc.account.getAccountConfig.useQuery(undefined, {
+    enabled: open,
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+  });
+  const currentConfigId = currentConfig.data?.configId ?? null;
+
   useEffect(() => {
     if (!open) return undefined;
     function onMouseDown(e: MouseEvent): void {
@@ -213,6 +223,7 @@ export function RailAccountFooter({
   }
 
   async function switchTo(cfg: {
+    configId: string;
     uin: string;
     uid?: string;
     dbKey: string;
@@ -223,7 +234,8 @@ export function RailAccountFooter({
     static?: boolean;
   }): Promise<void> {
     if (busy) return;
-    if (cfg.uin === currentUin) return;
+    // 按 configId 判「点的是不是当前账号」—— 同 uin 的另一种账号必须能切过去。
+    if (currentConfigId ? cfg.configId === currentConfigId : cfg.uin === currentUin) return;
     setBusy(true);
     setOpen(false);
     // 从这一刻起 App 渲染载入页、不渲染 MainView（见 state/accountSwitch）。
@@ -285,7 +297,10 @@ export function RailAccountFooter({
     }
   }
 
-  const others = (configs.data ?? []).filter((c) => c.uin !== currentUin);
+  // configId 尚未取到时退回按 uin 过滤（旧行为），避免把当前账号也列出来。
+  const others = (configs.data ?? []).filter((c) =>
+    currentConfigId ? c.configId !== currentConfigId : c.uin !== currentUin,
+  );
 
   return (
     <>
@@ -378,7 +393,18 @@ export function RailAccountFooter({
                     }}
                     disabled={busy}
                   >
-                    <QqAvatar uin={cfg.uin} url={cfg.avatarUrl} size={40} />
+                    <span className="weq-acct-row-avatar-wrap">
+                      <QqAvatar uin={cfg.uin} url={cfg.avatarUrl} size={40} />
+                      {cfg.static && (
+                        <span
+                          className="weq-static-badge"
+                          title="静态离线账号"
+                          aria-label="静态离线账号"
+                        >
+                          <Database size={9} strokeWidth={2.2} aria-hidden />
+                        </span>
+                      )}
+                    </span>
                     <span className="weq-rail-account-item-text">
                       <span className="weq-rail-account-item-name">
                         {cfg.displayName || cfg.uin}
