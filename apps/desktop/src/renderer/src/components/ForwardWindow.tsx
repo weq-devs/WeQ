@@ -19,6 +19,7 @@
 
 import {
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -31,7 +32,7 @@ import { createPortal } from 'react-dom';
 import { create } from 'zustand';
 import { X } from 'lucide-react';
 import { client } from '../trpc/client';
-import { QqMessageContent } from './QqMessageContent';
+import { QqMessageContent, ConvContext, ForwardCarrierContext } from './QqMessageContent';
 
 // ---- types & store -------------------------------------------------------
 
@@ -63,8 +64,18 @@ interface ForwardWindowState {
   title: string;
   /** The forward kind needed for the lookup (c2c vs group). */
   kind: 'c2c' | 'group';
+  /** Group code (群号) of the chat this was opened from; '' for c2c. Only used
+   *  as one of the two scene guesses when downloading a forwarded medium. */
+  conv: string;
   /** Source msgId we asked the backend to look up. */
   msgId: string;
+  /**
+   * msgId of the ROOT message in our own msg tables — the only row that has a
+   * 40900 blob. Equal to {@link msgId} for a window opened from the timeline;
+   * for a nested forward it keeps pointing at that same root, because the root's
+   * 40900 already nests every level. Media downloads resolve through it.
+   */
+  rootMsgId: string;
   /** Inline records (for nested opens we already have the payload). */
   records: ForwardRecordWire[] | null;
   /** Position (top-left), zustand-mutated by the drag handler. */
@@ -84,7 +95,9 @@ interface ForwardStore {
   open(opts: {
     title: string;
     kind: 'c2c' | 'group';
+    conv: string;
     msgId: string;
+    rootMsgId?: string;
     records?: ForwardRecordWire[];
   }): void;
   close(id: number): void;
@@ -132,7 +145,9 @@ const useForwardStore = create<ForwardStore>((set, get) => ({
           id: seq,
           title: opts.title || '聊天记录',
           kind: opts.kind,
+          conv: opts.conv,
           msgId: opts.msgId,
+          rootMsgId: opts.rootMsgId || opts.msgId,
           records: opts.records ?? null,
           x,
           y,
@@ -178,7 +193,9 @@ const useForwardStore = create<ForwardStore>((set, get) => ({
 export function openForwardWindow(opts: {
   title: string;
   kind: 'c2c' | 'group';
+  conv: string;
   msgId: string;
+  rootMsgId?: string;
   records?: ForwardRecordWire[];
 }): void {
   useForwardStore.getState().open(opts);
@@ -314,6 +331,13 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
     [win.x, win.y, win.z],
   );
 
+  // 转发窗口挂在 App 根部、MainView 之外，拿不到聊天区那两个 provider——
+  // 这里补上，否则窗口里的视频/文件下载既不知道群号也不知道自己是转发内容。
+  const carrier = useMemo(
+    (): { msgId: string; kind: 'c2c' | 'group' } => ({ msgId: win.rootMsgId, kind: win.kind }),
+    [win.rootMsgId, win.kind],
+  );
+
   return (
     <section
       className="weq-forward-window weq-anim-pop"
@@ -342,7 +366,11 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
           <X size={16} strokeWidth={1.9} />
         </button>
       </header>
-      <ForwardScroll win={win} />
+      <ConvContext.Provider value={win.conv}>
+        <ForwardCarrierContext.Provider value={carrier}>
+          <ForwardScroll win={win} />
+        </ForwardCarrierContext.Provider>
+      </ConvContext.Provider>
     </section>
   );
 }
@@ -661,15 +689,22 @@ export function ForwardMultiMsgPreview({
     [parsed.previewLines],
   );
   const summaryText = useMemo(() => clampPreviewText(parsed.summary, 18), [parsed.summary]);
+  // 群号：主时间线由 MainView 提供；转发窗口里由 ForwardWindowFrame 再提供一次，
+  // 所以嵌套转发也能把它继续传下去。
+  const conv = useContext(ConvContext);
+  // 已经在转发窗口里 → 保持指向最外层那条真实消息（只有它有 40900）。
+  const carrier = useContext(ForwardCarrierContext);
 
   const open = useCallback(() => {
     openForwardWindow({
       title: parsed.source || parsed.mainTitle,
       kind,
+      conv,
       msgId,
+      rootMsgId: carrier?.msgId || msgId,
       records: nestedRecords && nestedRecords.length > 0 ? nestedRecords : undefined,
     });
-  }, [kind, msgId, nestedRecords, parsed.mainTitle, parsed.source]);
+  }, [kind, conv, carrier, msgId, nestedRecords, parsed.mainTitle, parsed.source]);
 
   return (
     <button type="button" className="weq-forward-preview" onClick={open} title="查看合并转发">

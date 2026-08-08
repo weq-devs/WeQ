@@ -221,6 +221,66 @@ export class MediaUrlService {
     }
     return this.getPrivateFileUrlFromElement(element);
   }
+
+  // ─── unknown-scene resolvers (合并转发) ───
+
+  /**
+   * Resolve a video URL when the media's ORIGINAL conversation is unknown.
+   *
+   * NTV2's scene must match where the media was uploaded, not where we're
+   * viewing it — a video sent in a private chat and then forwarded into a group
+   * still belongs to the c2c scene. Merged-forward snapshots (40900) carry no
+   * chatType, so the only reliable move is to try both and keep the first that
+   * answers. `groupId` 0 makes the group attempt pointless, so it's skipped.
+   */
+  async resolveVideoUrlUnknownScene(groupId: number, element: MediaElement): Promise<string> {
+    return firstResolved([
+      ...(groupId > 0 ? [() => this.getGroupVideoUrlFromElement(groupId, element)] : []),
+      () => this.getPrivateVideoUrlFromElement(element),
+    ]);
+  }
+
+  /**
+   * File counterpart of {@link resolveVideoUrlUnknownScene}. The two scenes use
+   * entirely different commands (group 0x6D6_2 → ftn_handler, private
+   * 0xE37_1200) and different hash inputs, so each attempt has to stand alone.
+   */
+  async resolveFileUrlUnknownScene(
+    groupId: number,
+    element: MediaElement,
+    fileName: string,
+  ): Promise<string> {
+    return firstResolved([
+      ...(groupId > 0
+        ? [
+            async () => {
+              const base = await this.getGroupFileUrlFromElement(groupId, element);
+              return `${base}${encodeURIComponent(fileName)}`;
+            },
+          ]
+        : []),
+      () => this.getPrivateFileUrlFromElement(element),
+    ]);
+  }
+}
+
+/**
+ * Run each resolver in order, returning the first non-empty URL. Throws with
+ * every attempt's error when they all fail — a single scene's message ("group
+ * file not found") would be misleading when the other scene was tried too.
+ */
+async function firstResolved(attempts: Array<() => Promise<string>>): Promise<string> {
+  const errors: string[] = [];
+  for (const attempt of attempts) {
+    try {
+      const url = await attempt();
+      if (url) return url;
+      errors.push('empty url');
+    } catch (e) {
+      errors.push(e instanceof Error ? e.message : String(e));
+    }
+  }
+  throw new Error(`all scenes failed: ${errors.join(' | ')}`);
 }
 
 // ─── streamed download (shared by export pipeline + chat-view completion) ───

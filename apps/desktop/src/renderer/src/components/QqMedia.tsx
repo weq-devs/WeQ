@@ -85,6 +85,8 @@ async function downloadFile(args: {
   name: string;
   token: string;
   conv: string;
+  fwdMsgId?: string;
+  fwdKind?: 'c2c' | 'group';
 }): Promise<{ success: boolean; error?: string }> {
   const bridge = window.electron;
   const result = (await bridge?.ipcRenderer?.invoke?.('file:download', args)) as {
@@ -167,16 +169,25 @@ export function QqImage({
 
 // ---- video --------------------------------------------------------------
 
+/** Identifies a 合并转发 sub-message: which record inside the carrier's 40900
+ *  cache the medium belongs to. Absent for normal timeline messages. */
+export interface ForwardRef {
+  fwdMsgId: string;
+  fwdKind: 'c2c' | 'group';
+}
+
 export function QqVideo({
   data,
   sendTimeMs,
   msgId = '',
   conv = '',
+  fwd,
 }: {
   data: Data;
   sendTimeMs: number;
   msgId?: string;
   conv?: string;
+  fwd?: ForwardRef;
 }) {
   const [posterBroken, setPosterBroken] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -214,7 +225,14 @@ export function QqVideo({
       <div className="qq-media-video" style={style}>
         <video
           className="qq-media-video-player"
-          src={mediaUrl('video', { t: sendTimeMs, name, token: fileToken, msgId, conv })}
+          src={mediaUrl('video', {
+            t: sendTimeMs,
+            name,
+            token: fileToken,
+            msgId,
+            conv,
+            ...(fwd ? { fwdMsgId: fwd.fwdMsgId, fwdKind: fwd.fwdKind } : {}),
+          })}
           controls
           autoPlay
           onCanPlay={() => setLoading(false)}
@@ -288,11 +306,13 @@ export function QqFile({
   sendTimeMs,
   msgId,
   conv = '',
+  fwd,
 }: {
   data: Data;
   sendTimeMs: number;
   msgId: string;
   conv?: string;
+  fwd?: ForwardRef;
 }) {
   const name = str(data, 'fileName');
   const size = num(data, 'fileSize');
@@ -306,7 +326,10 @@ export function QqFile({
     void (async () => {
       // 1. Local first: file_assistant.db → reveal in OS file manager. There's
       //    no file manager to reveal into on web, so skip straight to (2).
-      if (IS_ELECTRON && msgId && (await revealFile(msgId))) return;
+      //    Forwarded files are indexed under their own sub-msgId, so that's the
+      //    id to search by — not the carrier's.
+      const localId = fwd ? fwd.fwdMsgId : msgId;
+      if (IS_ELECTRON && localId && (await revealFile(localId))) return;
       // 2. Not on disk → OIDB completion (needs an online QQ). Only msgId is
       //    required; token just disambiguates multiple files in one message.
       if (!msgId) {
@@ -315,7 +338,7 @@ export function QqFile({
       }
       setBusy(true);
       try {
-        const r = await downloadFile({ msgId, name, token, conv });
+        const r = await downloadFile({ msgId, name, token, conv, ...fwd });
         if (!r.success) setError(r.error ?? '下载失败');
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));

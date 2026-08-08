@@ -229,45 +229,77 @@ function registerMediaIpc(): void {
   // OIDB completion for a chat file that isn't on disk. Resolves the download
   // URL (group vs c2c by the message's own kind), streams it into the media
   // cache, then reveals it in the OS file manager. Needs an online QQ.
+  //
+  // `fwdMsgId` marks a merged-forward sub-message: `msgId` is then the CARRYING
+  // message and the element comes from its 40900 cache instead of the msg
+  // tables. Such a file's original scene is unknowable, so both are tried.
   ipcMain.handle(
     'file:download',
     async (
       _event,
-      input: { msgId: string; name: string; token: string; conv: string },
+      input: {
+        msgId: string;
+        name: string;
+        token: string;
+        conv: string;
+        fwdMsgId?: string;
+        fwdKind?: 'group' | 'c2c';
+      },
     ): Promise<{ success: boolean; error?: string; path?: string }> => {
       const ctx = getAppContext();
       const services = ctx.services;
       const boot = ctx.bootstrap;
       if (!services || !boot) return { success: false, error: '?????' };
-      const { msgId, name, token, conv } = input;
-      console.log('[file:download] request', { msgId, name, token, conv });
+      const { msgId, name, token, conv, fwdMsgId = '', fwdKind = 'c2c' } = input;
+      console.log('[file:download] request', { msgId, name, token, conv, fwdMsgId });
       logger.info('requested file download', {
         event: 'file-download-start',
         msgId,
         name,
         token,
         conv,
+        fwdMsgId,
       });
       if (!msgId) return { success: false, error: '???? ID' };
 
-      let raw: Awaited<ReturnType<typeof services.msgs.getRawElements>>;
-      try {
-        raw = await services.msgs.getRawElements(BigInt(msgId));
-      } catch (e) {
-        console.error('[file:download] getRawElements failed:', e);
-        return { success: false, error: '??????' };
+      // Forwarded sub-message → element from the carrier's 40900 cache, and its
+      // original scene is unknown (null). Otherwise → our own msg tables.
+      let el: MediaElement | undefined;
+      let convKind: 'group' | 'c2c' | null = null;
+      if (fwdMsgId) {
+        try {
+          el =
+            ((await services.msgs.findForwardedMediaElement(
+              fwdKind,
+              BigInt(msgId),
+              BigInt(fwdMsgId),
+              'file',
+              token,
+            )) as unknown as MediaElement | null) ?? undefined;
+        } catch (e) {
+          console.error('[file:download] forward cache lookup failed:', e);
+          return { success: false, error: '??????' };
+        }
+      } else {
+        let raw: Awaited<ReturnType<typeof services.msgs.getRawElements>>;
+        try {
+          raw = await services.msgs.getRawElements(BigInt(msgId));
+        } catch (e) {
+          console.error('[file:download] getRawElements failed:', e);
+          return { success: false, error: '??????' };
+        }
+        if (!raw) return { success: false, error: '??????' };
+        const matches = raw.elements.filter((e) => e.kind === 'file');
+        console.log('[file:download] kind=%s, file elements=%d', raw.kind, matches.length);
+        el = ((token ? matches.find((e) => (e as { fileToken?: string }).fileToken === token) : undefined) ??
+          matches[0]) as unknown as MediaElement | undefined;
+        convKind = raw.kind;
       }
-      if (!raw) return { success: false, error: '??????' };
-      const matches = raw.elements.filter((e) => e.kind === 'file');
-      console.log('[file:download] kind=%s, file elements=%d', raw.kind, matches.length);
-      const el =
-        (token ? matches.find((e) => (e as { fileToken?: string }).fileToken === token) : undefined) ??
-        matches[0];
       if (!el) return { success: false, error: '??????????' };
-      const elToken = (el as { fileToken?: string }).fileToken ?? '';
+      const elToken = el.fileToken ?? '';
       console.log('[file:download] element fileToken=%s', elToken);
 
-      const fileName = name || (el as { fileName?: string }).fileName || elToken || 'download';
+      const fileName = name || el.fileName || elToken || 'download';
       const dest = join(boot.userConfig.cacheDir('media'), 'file', fileName);
       if (fs.existsSync(dest)) {
         logger.info('file download cache hit', {
@@ -279,14 +311,13 @@ function registerMediaIpc(): void {
         return { success: true, path: dest };
       }
 
+      const groupId = Number(conv) || 0;
       let url: string;
       try {
-        url = await services.mediaUrl.resolveFileUrl(
-          raw.kind,
-          Number(conv) || 0,
-          el as unknown as MediaElement,
-          fileName,
-        );
+        url =
+          convKind === null
+            ? await services.mediaUrl.resolveFileUrlUnknownScene(groupId, el, fileName)
+            : await services.mediaUrl.resolveFileUrl(convKind, groupId, el, fileName);
       } catch (e) {
         console.error('[file:download] OIDB resolve failed:', e);
         return { success: false, error: `OIDB ?????${e instanceof Error ? e.message : String(e)}` };

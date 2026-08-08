@@ -17,6 +17,7 @@ import type { AccountSession } from '@weq/account';
 import type { C2cMsg, GroupMsg, C2cPartition, AppendMsgFields, C2cMsgDb } from '@weq/db';
 import {
   ProtoMsg,
+  decodeElement,
   encodeElement,
   type Element,
   ElementType,
@@ -549,6 +550,30 @@ export class MsgService {
     return this.session.uidMap.uidByUin(BigInt(this.session.context.uin ?? 0)) ?? '';
   }
 
+  /**
+   * Find a media element inside a message's 40900 forward cache.
+   *
+   * Forwarded sub-messages are snapshots of rows that live in *someone else's*
+   * conversation — they were never written to our own c2c/group msg tables, so
+   * {@link getRawElements} can't see them. Their elements are only in the
+   * carrying message's 40900 blob, which is exactly what this walks (recursively
+   * — a forward can nest forwards arbitrarily deep).
+   *
+   * `subMsgId` picks the sub-message; `token` disambiguates when one sub-message
+   * carries several media of the same kind.
+   */
+  async findForwardedMediaElement(
+    kind: 'c2c' | 'group',
+    msgId: bigint,
+    subMsgId: bigint,
+    mediaKind: 'video' | 'file',
+    token: string,
+  ): Promise<Element | null> {
+    const records = await this.listForward(kind, msgId);
+    if (records.length === 0) return null;
+    return findMediaInCache(records, subMsgId, mediaKind, token);
+  }
+
   // ---- reply media enrichment ----------------------------------------------
 
   /**
@@ -665,4 +690,71 @@ function cachedQuotedMedia(cache: MsgCacheRecord[]): unknown[] {
   const els = (record as { elements?: unknown[] } | undefined)?.elements;
   if (!Array.isArray(els)) return [];
   return els.some((o) => REPLY_MEDIA_TYPES.has(wireType(o))) ? els : [];
+}
+
+/** A 40900 record as far as the media walk cares. */
+interface CacheRecordLike {
+  msgId?: number | bigint;
+  elements?: unknown[];
+  subMsgs?: MsgCacheRecord[];
+}
+
+/**
+ * Depth-first search of a 40900 cache tree for a sub-message's media element.
+ * Matches the record by msgId, then picks the element by kind + fileToken (the
+ * token only disambiguates — a sub-message with one video/file matches without).
+ *
+ * A record whose msgId doesn't match is still searched for an exact `token` hit:
+ * fileToken uniquely identifies the media regardless of which record carries it,
+ * so this rescues the case where the renderer's sub-msgId went missing. Only
+ * runs after the whole tree failed the id match, so it never shadows it.
+ */
+function findMediaInCache(
+  records: MsgCacheRecord[],
+  subMsgId: bigint,
+  mediaKind: 'video' | 'file',
+  token: string,
+  depth = 0,
+): Element | null {
+  const byId = walkCache(records, mediaKind, depth, (rec) =>
+    rec.msgId != null && BigInt(rec.msgId) === subMsgId,
+  );
+  if (byId) {
+    const hit =
+      (token ? byId.find((e) => (e as { fileToken?: string }).fileToken === token) : undefined) ??
+      byId[0];
+    if (hit) return hit;
+  }
+  if (!token) return null;
+  const anywhere = walkCache(records, mediaKind, depth, () => true);
+  return anywhere?.find((e) => (e as { fileToken?: string }).fileToken === token) ?? null;
+}
+
+/** Collect every media element of `mediaKind` from records passing `accept`. */
+function walkCache(
+  records: MsgCacheRecord[],
+  mediaKind: 'video' | 'file',
+  depth: number,
+  accept: (rec: CacheRecordLike) => boolean,
+): Element[] | null {
+  if (depth > 16) return null;
+  const out: Element[] = [];
+  for (const raw of records) {
+    const rec = raw as CacheRecordLike;
+    if (accept(rec) && Array.isArray(rec.elements)) {
+      for (const wire of rec.elements) {
+        try {
+          const el = decodeElement(wire as never);
+          if (el.kind === mediaKind) out.push(el);
+        } catch {
+          /* skip an element the codec can't parse — others may still match */
+        }
+      }
+    }
+    if (Array.isArray(rec.subMsgs) && rec.subMsgs.length > 0) {
+      const nested = walkCache(rec.subMsgs, mediaKind, depth + 1, accept);
+      if (nested) out.push(...nested);
+    }
+  }
+  return out.length > 0 ? out : null;
 }

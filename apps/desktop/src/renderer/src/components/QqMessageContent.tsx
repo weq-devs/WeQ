@@ -68,6 +68,21 @@ export const ForwardKindContext = createContext<'c2c' | 'group'>('c2c');
 export const ConvContext = createContext<string>('');
 
 /**
+ * Set inside a 合并转发 window: the CARRYING message's id + kind.
+ *
+ * Forwarded sub-messages are 40900 snapshots of rows in someone else's
+ * conversation — they were never written to our own msg tables, so a media
+ * download can't re-read them by their own msgId. It has to go through the
+ * carrier's 40900 cache instead, which is what this identifies. Empty msgId ⇒
+ * a normal timeline message (look it up directly).
+ */
+export interface ForwardCarrier {
+  msgId: string;
+  kind: 'c2c' | 'group';
+}
+export const ForwardCarrierContext = createContext<ForwardCarrier | null>(null);
+
+/**
  * 「把纯文本消息里的 Markdown 也渲染」开关（设置 → 全局设置，AppSettings.renderTextMarkdown）。
  *
  * 这是 WeQ 自己的 feature，不是 QQ 的语义——QQ 原生只有 markdownElement 才是 Markdown。
@@ -181,13 +196,18 @@ function MediaNode({
 }): ReactNode {
   const data = element.data ?? {};
   const conv = useContext(ConvContext);
+  const carrier = useContext(ForwardCarrierContext);
+  // Inside a forward window `msgId` is the sub-message; the download path needs
+  // the carrier's id to reach the 40900 cache, and the sub-id to pick the row.
+  const fwd = carrier ? { fwdMsgId: msgId, fwdKind: carrier.kind } : undefined;
+  const ownerMsgId = carrier ? carrier.msgId : msgId;
   switch (element.type) {
     case 'pic':
       return <QqImage data={data} sendTimeMs={sendTimeMs} conv={conv} />;
     case 'video':
-      return <QqVideo data={data} sendTimeMs={sendTimeMs} msgId={msgId} conv={conv} />;
+      return <QqVideo data={data} sendTimeMs={sendTimeMs} msgId={ownerMsgId} conv={conv} fwd={fwd} />;
     case 'file':
-      return <QqFile data={data} sendTimeMs={sendTimeMs} msgId={msgId} conv={conv} />;
+      return <QqFile data={data} sendTimeMs={sendTimeMs} msgId={ownerMsgId} conv={conv} fwd={fwd} />;
     case 'ptt':
       return <QqVoice data={data} sendTimeMs={sendTimeMs} msgId={msgId} />;
     case 'mface':
