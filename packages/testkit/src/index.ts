@@ -224,53 +224,89 @@ function androidHeaderRand(dbPath: string): string | undefined {
   return undefined;
 }
 
-/** Everything an android-backup script needs; all derived from one env var. */
-export const androidEnv = {
-  /** The `nt_qq_<hash>` directory itself (`WEQ_TEST_ANDROID_ROOT`). */
+/** Everything an android-backup script needs, for one specific directory. */
+export interface AndroidBackup {
+  /** The `nt_qq_<hash>` directory itself. */
+  readonly dir: string;
+  /** Absolute path to `<dir>/<name>`. */
+  dbPath(name: string): string;
+  /** `<dir>/nt_msg.db`. */
+  readonly msgDbPath: string;
+  /** `<dir>/profile_info.db`. */
+  readonly profileDbPath: string;
+  /** uid read off the `gpro_v1-6_<uid>.db` filename. */
+  readonly uid: string;
+  /** SQLCipher key, computed from uid + the rand in `nt_msg.db`'s header. */
+  readonly key: string;
+}
+
+/**
+ * Bind the android helpers to one backup directory. Use this when a script
+ * takes the directory as an argument (e.g. comparing two accounts); use
+ * {@link androidEnv} for the single `WEQ_TEST_ANDROID_ROOT` default.
+ *
+ * `keyOverride` skips the derivation entirely — for directories that were
+ * renamed, or whose header layout we can't parse.
+ */
+export function androidBackup(dir: string, keyOverride?: string): AndroidBackup {
+  const dbPath = (name: string): string => path.join(dir, name);
+  const uid = (): string => {
+    const found = androidUidFromDir(dir);
+    if (!found) throw new Error(`[@weq/testkit] ${dir} 里没找到 gpro_v1-6_<uid>.db，无法取 uid`);
+    return found;
+  };
+
+  return {
+    dir,
+    dbPath,
+    get msgDbPath(): string {
+      return dbPath('nt_msg.db');
+    },
+    get profileDbPath(): string {
+      return dbPath('profile_info.db');
+    },
+    get uid(): string {
+      return uid();
+    },
+    get key(): string {
+      if (keyOverride) return keyOverride;
+
+      const inner = md5hex(uid());
+      const dirName = dir.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? '';
+      if (dirName.startsWith('nt_qq_') && dirName.slice(6) !== md5hex(inner + ANDROID_DIR_SALT)) {
+        throw new Error(
+          `[@weq/testkit] 目录名跟 uid 对不上（${dirName}），不是 uid 派生目录；请手动指定密钥。`,
+        );
+      }
+
+      const rand = androidHeaderRand(dbPath('nt_msg.db'));
+      if (!rand) {
+        throw new Error('[@weq/testkit] nt_msg.db 头部读不出 8 字节 rand；请手动指定密钥。');
+      }
+      return md5hex(inner + rand);
+    },
+  };
+}
+
+/** The android backup at `WEQ_TEST_ANDROID_ROOT` (key overridable via `WEQ_TEST_ANDROID_KEY`). */
+export const androidEnv: AndroidBackup = {
   get dir(): string {
     return androidRoot();
   },
-  /** `<dir>/nt_msg.db`. */
+  dbPath: androidDbPath,
   get msgDbPath(): string {
     return androidDbPath('nt_msg.db');
   },
-  /** `<dir>/profile_info.db`. */
   get profileDbPath(): string {
     return androidDbPath('profile_info.db');
   },
-  /** uid read off the `gpro_v1-6_<uid>.db` filename. */
   get uid(): string {
-    const uid = androidUidFromDir(androidRoot());
-    if (!uid) throw new Error('[@weq/testkit] 安卓目录里没找到 gpro_v1-6_<uid>.db，无法取 uid');
-    return uid;
+    return androidBackup(androidRoot()).uid;
   },
-  /**
-   * SQLCipher key, computed from uid + nt_msg.db 头部的 rand.
-   * `WEQ_TEST_ANDROID_KEY` 可覆盖（比如目录被改名 / 头部格式变了）。
-   */
   get key(): string {
-    const override = optional('WEQ_TEST_ANDROID_KEY');
-    if (override) return override;
-
-    const dir = androidRoot();
-    const uid = androidEnv.uid;
-    const inner = md5hex(uid);
-
-    const dirName = dir.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? '';
-    if (dirName.startsWith('nt_qq_') && dirName.slice(6) !== md5hex(inner + ANDROID_DIR_SALT)) {
-      throw new Error(
-        `[@weq/testkit] 目录名跟 uid 对不上（${dirName}），不是 uid 派生目录；` +
-          '请用 WEQ_TEST_ANDROID_KEY 手动指定密钥。',
-      );
-    }
-
-    const rand = androidHeaderRand(androidEnv.msgDbPath);
-    if (!rand) {
-      throw new Error('[@weq/testkit] nt_msg.db 头部读不出 8 字节 rand；请用 WEQ_TEST_ANDROID_KEY 指定密钥。');
-    }
-    return md5hex(inner + rand);
+    return androidBackup(androidRoot(), optional('WEQ_TEST_ANDROID_KEY')).key;
   },
-} as const;
+};
 
 
 /**

@@ -2,7 +2,8 @@
  * 扫描安卓备份 nt_msg.db 里出现过的 elementType，并跟 PC 库对比，
  * 列出「只在安卓出现」的那些。
  *
- * Run: pnpm --filter @weq/db tools:android-element-types
+ * Run: pnpm --filter @weq/db tools:android-element-types [安卓目录]
+ *      不传目录则用 .env 的 WEQ_TEST_ANDROID_ROOT。
  */
 
 import { loadNative } from '@weq/native';
@@ -10,11 +11,13 @@ import type { NtHelperBinding } from '@weq/native';
 import { ElementType, ProtoMsg } from '@weq/codec';
 import { MsgBody } from '@weq/codec/proto/msg/40800';
 import { sanitizeBytes } from '@weq/codec/raw';
-import { androidEnv, testEnv } from '@weq/testkit';
+import { androidBackup, androidEnv, testEnv } from '@weq/testkit';
 import { QqDb } from '../src/qq_db';
 
 const BODY = new ProtoMsg(MsgBody);
 const TABLES = ['c2c_msg_table', 'group_msg_table', 'dataline_msg_table'];
+/** 大号的库能到 3GB，一次 SELECT 全表会把行全读进内存，所以分页。 */
+const PAGE = 20_000;
 
 async function open(nt: NtHelperBinding, dbPath: string, key: string): Promise<QqDb> {
   const probe = await nt.testDatabaseKey(dbPath, key);
@@ -35,28 +38,39 @@ async function open(nt: NtHelperBinding, dbPath: string, key: string): Promise<Q
 async function scan(db: QqDb, label: string): Promise<Map<number, number>> {
   const counts = new Map<number, number>();
   for (const table of TABLES) {
-    let rows: Awaited<ReturnType<QqDb['query']>>;
-    try {
-      rows = await db.query(`SELECT "40800" FROM "${table}"`);
-    } catch {
-      console.log(`  [${label}] ${table}: 不存在，跳过`);
-      continue;
-    }
+    let seen = 0;
     let bad = 0;
-    for (const row of rows) {
-      const body = row[0];
-      if (!(body instanceof Uint8Array) || body.byteLength === 0) continue;
+    for (let offset = 0; ; offset += PAGE) {
+      let rows: Awaited<ReturnType<QqDb['query']>>;
       try {
-        for (const el of BODY.decode(sanitizeBytes(body, MsgBody)).elements ?? []) {
-          const t = el.elementType;
-          if (typeof t !== 'number') continue;
-          counts.set(t, (counts.get(t) ?? 0) + 1);
-        }
+        rows = await db.query(
+          `SELECT "40800" FROM "${table}" ORDER BY rowid LIMIT ${PAGE} OFFSET ${offset}`,
+        );
       } catch {
-        bad++;
+        if (offset === 0) console.log(`  [${label}] ${table}: 不存在，跳过`);
+        break;
       }
+      if (rows.length === 0) break;
+      seen += rows.length;
+      for (const row of rows) {
+        const body = row[0];
+        if (!(body instanceof Uint8Array) || body.byteLength === 0) continue;
+        try {
+          for (const el of BODY.decode(sanitizeBytes(body, MsgBody)).elements ?? []) {
+            const t = el.elementType;
+            if (typeof t !== 'number') continue;
+            counts.set(t, (counts.get(t) ?? 0) + 1);
+          }
+        } catch {
+          bad++;
+        }
+      }
+      if (rows.length < PAGE) break;
+      if (seen % 200_000 === 0) console.log(`  [${label}] ${table}: …${seen} 行`);
     }
-    console.log(`  [${label}] ${table}: ${rows.length} 行${bad ? `，${bad} 行解析失败` : ''}`);
+    if (seen > 0) {
+      console.log(`  [${label}] ${table}: ${seen} 行${bad ? `，${bad} 行解析失败` : ''}`);
+    }
   }
   return counts;
 }
@@ -66,9 +80,12 @@ const sortedKeys = (m: Map<number, number>): number[] => [...m.keys()].sort((a, 
 
 async function main(): Promise<void> {
   const nt = loadNative().ntHelper;
+  const dirArg = process.argv[2];
+  const backup = dirArg ? androidBackup(dirArg) : androidEnv;
 
-  console.log(`扫描安卓库 ${androidEnv.msgDbPath}`);
-  const androidDb = await open(nt, androidEnv.msgDbPath, androidEnv.key);
+  console.log(`扫描安卓库 ${backup.msgDbPath}`);
+  console.log(`  uid = ${backup.uid}`);
+  const androidDb = await open(nt, backup.msgDbPath, backup.key);
   const android = await scan(androidDb, 'android');
   androidDb.close();
 

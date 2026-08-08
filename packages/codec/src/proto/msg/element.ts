@@ -280,8 +280,8 @@ export const ElementWire = {
   /** 字体 / 样式相关. Best guess: integer flag. */
   fontStyle: ProtoField(45104, ScalarType.UINT32, { optional: true }),
 
-  /** 气泡 ID. Best guess: string id. */
-  bubbleId: ProtoField(45105, ScalarType.STRING, { optional: true }),
+  /** @ 目标的 uid（仅 AtElement 用；名字曾误写成「气泡 ID」，跟装扮系统的气泡皮肤 id 无关）。 */
+  atTargetUid: ProtoField(45105, ScalarType.STRING, { optional: true }),
 
   /** 文本输入状态. Best guess: integer flag. */
   textInputState: ProtoField(45106, ScalarType.UINT32, { optional: true }),

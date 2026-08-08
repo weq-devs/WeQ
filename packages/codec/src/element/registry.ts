@@ -76,7 +76,7 @@ export function decodeElement(wire: ProtoDecodeStructType<typeof ElementWire>): 
   const type = (wire.elementType ?? 0) as ElementType;
 
   if (type === ElementType.TEXT) {
-    const kind = wire.bubbleId ? 'at' : 'text';
+    const kind = wire.atTargetUid ? 'at' : 'text';
     return { kind, ...wire } as Element;
   }
 

@@ -256,7 +256,7 @@ function ElementNode({
     return (
       <span
         className="qq-at-element cursor-pointer hover:underline"
-        title={`UID: ${element.data?.buddleId || 'unknown'}`}
+        title={`UID: ${element.data?.atTargetUid || 'unknown'}`}
       >
         {text}
       </span>
