@@ -24,6 +24,7 @@
     "tools:verify-avatar-hash": "tsx tools/verify_avatar_hash.ts",
     "tools:verify-avatar-probe": "tsx tools/verify_avatar_probe.ts",
     "tools:verify-new-elements": "tsx tools/verify_new_elements.ts",
+    "tools:android-element-types": "tsx tools/android_element_types.ts",
     "tools:inspect-game-center": "tsx tools/inspect_game_center.ts",
     "tools:scan-profile-info": "tsx tools/scan_profile_info.ts",
     "mutate:anti-recall-trigger": "tsx tools/mutate/anti_recall_trigger.ts",
