@@ -27,6 +27,8 @@ import {
   type ComposeKind,
   type FieldSpec,
   type MsgCacheRecord,
+  decodeMsgDressColumn,
+  type MsgDecoration,
 } from '@weq/codec';
 import { MsgBody } from '@weq/codec/proto/msg/40800';
 import { toRenderElements, type RenderElement } from './msg_view';
@@ -301,6 +303,20 @@ export class MsgService {
       return affected > 0;
     }
     return false;
+  }
+
+  /**
+   * Read the decoration data (column 40801) for a message: bubble skin,
+   * chat-font skin, and widget itemIds. Searches c2c → dataline → group.
+   * Returns null when the column is absent, empty, or all ids are 0.
+   */
+  async getMsgDecoration(msgId: bigint): Promise<MsgDecoration | null> {
+    for (const db of [this.session.c2cMsgs, this.session.datalineMsgs, this.session.groupMsgs] as const) {
+      const blob = await db.getMsgDressBlob(msgId);
+      if (!blob) continue;
+      return decodeMsgDressColumn(blob);
+    }
+    return null;
   }
 
   /**

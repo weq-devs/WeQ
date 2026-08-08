@@ -202,6 +202,15 @@ export class GroupMsgDb {
     return (rows[0]?.[0] as Uint8Array) ?? null;
   }
 
+  /** Get raw decoration blob (column 40801) by msgId. */
+  async getMsgDressBlob(msgId: bigint): Promise<Uint8Array | null> {
+    const rows = await this.qq.query(
+      `SELECT "40801" FROM group_msg_table WHERE "40001" = ? LIMIT 1`,
+      [msgId],
+    );
+    return (rows[0]?.[0] as Uint8Array) ?? null;
+  }
+
   /**
    * Update the msgBody (column 40800) for a specific message.
    *
