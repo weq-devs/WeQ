@@ -116,6 +116,13 @@ export function MsgElementEditor({ msgId, msgSeq, elements: initialElements, onC
   );
 }
 
+function isEmpty(val: any): boolean {
+  if (val === null || val === undefined) return true;
+  if (Array.isArray(val)) return val.length === 0;
+  if (typeof val === 'object' && val.type !== 'Buffer') return Object.keys(val).length === 0;
+  return false;
+}
+
 /** True when a value renders as a nested ObjectEditor rather than a single input. */
 function isNestedValue(val: any): boolean {
   if (!val || typeof val !== 'object') return false;
@@ -132,7 +139,7 @@ function ObjectEditor({ value, onChange, path }: { value: any, onChange: (val: a
         if (a === 'kind') return -1;
         if (b === 'kind') return 1;
         return a.localeCompare(b);
-    });
+    }).filter(key => !isEmpty(value[key]));
 
     return (
       <div className="weq-obj-fields">
