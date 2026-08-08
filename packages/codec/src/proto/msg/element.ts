@@ -544,6 +544,9 @@ export const ElementWire = {
   /** Local cache path of the video cover (`nt_data/Video/…/Thumb/…_0.png`). */
   videoCoverLocalPath: ProtoField(45404, ScalarType.STRING, { optional: true }),
 
+  /** Bubble video template name, e.g. "video_penguin_dance" (elementType=49 only). */
+  templateName: ProtoField(45428, ScalarType.STRING, { optional: true }),
+
   /** Always 2 across every observed row. */
   videoFlag45851: ProtoField(45851, ScalarType.UINT32, { optional: true }),
 

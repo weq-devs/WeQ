@@ -89,6 +89,7 @@ import { GrayTipXmlMessage } from '../../components/GrayTipXmlMessage';
 import { GrayTipFileRecvMessage } from '../../components/GrayTipFileRecvMessage';
 import { GrayTipTempSessionMessage } from '../../components/GrayTipTempSessionMessage';
 import { GroupCallEndedMessage, GROUP_CALL_ENDED_SUBTYPES } from '../../components/GroupCallEndedMessage';
+import { QqDynamic } from '../../components/QqDynamic';
 
 const composerHeightStorageKey = "chat-template.layout.composerHeight";
 const groupInfoCollapsedStorageKey = "chat-template.layout.groupInfoCollapsed";
@@ -1505,7 +1506,7 @@ export function ChatPane({
 						// 群通话的「已结束」（CALL 元素，subType 16/25）也走灰条：那条消息的
 						// 40020 是空的，谁也不属于，套气泡会凭空多出一个发送者。发起那条有正常
 						// 发送人，和私聊的 CALL 一样继续走气泡。
-						const GRAY_TIP_KINDS = ['grayTipPoke', 'grayTipRevoke', 'grayTipGroup', 'grayTipXml', 'grayTipFileRecv', 'grayTipTempSession'];
+						const GRAY_TIP_KINDS = ['grayTipPoke', 'grayTipRevoke', 'grayTipGroup', 'grayTipXml', 'grayTipFileRecv', 'grayTipTempSession', 'qqDynamic'];
 						const grayTipOf = (message) => {
 							const els = message.qqElements ?? [];
 							for (const kind of GRAY_TIP_KINDS) {
@@ -1536,6 +1537,19 @@ export function ChatPane({
 									return <GrayTipTempSessionMessage element={gt.el} />;
 								case 'groupCallEnded':
 									return <GroupCallEndedMessage element={gt.el} />;
+								case 'qqDynamic': {
+									const d = (gt.el.data ?? {}) as Record<string, unknown>;
+									return (
+										<div className="flex justify-center py-1">
+											<QqDynamic
+												desc={d.dynamicDesc as { mainDesc?: string; subDesc?: string } | undefined}
+												desc2={d.dynamicDesc2 as { mainDesc?: string; subDesc?: string } | undefined}
+												coverUrl={d.dynamicCoverUrl as string | undefined}
+												zoneLogoUrl={d.dynamicZoneLogoUrl as string | undefined}
+											/>
+										</div>
+									);
+								}
 								default:
 									return null;
 							}

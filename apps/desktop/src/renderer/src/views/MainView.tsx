@@ -1093,7 +1093,7 @@ const RENDERABLE_ELEMENT_TYPES = new Set<string>([
   // Basic text & mention.
   'text', 'at',
   // Rich media (handled by qqMessageRenderer / dedicated media components).
-  'pic', 'file', 'video', 'ptt', 'face', 'mface',
+  'pic', 'file', 'video', 'bubbleVideo', 'ptt', 'face', 'mface',
   // Reply quote.
   'reply',
   // Gray tips (dedicated components in chatPane.tsx).

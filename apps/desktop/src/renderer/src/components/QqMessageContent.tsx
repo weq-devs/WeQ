@@ -101,7 +101,7 @@ export const TextMarkdownContext = createContext<boolean>(true);
 export const LinkPreviewContext = createContext<boolean>(true);
 
 /** Element kinds that render as standalone, borderless media (no bubble). */
-const BORDERLESS_MEDIA = new Set(['pic', 'video', 'mface']);
+const BORDERLESS_MEDIA = new Set(['pic', 'video', 'mface', 'bubbleVideo']);
 /** Element kinds handled by a dedicated media component. */
 const MEDIA_KINDS = new Set(['pic', 'video', 'file', 'ptt', 'mface', 'onlineFile', 'onlineFolder']);
 
@@ -206,6 +206,20 @@ function MediaNode({
       return <QqImage data={data} sendTimeMs={sendTimeMs} conv={conv} />;
     case 'video':
       return <QqVideo data={data} sendTimeMs={sendTimeMs} msgId={ownerMsgId} conv={conv} fwd={fwd} />;
+    case 'bubbleVideo':
+      return (
+        <div style={{ width: 120, height: 120, borderRadius: '50%', overflow: 'hidden', flexShrink: 0 }}>
+          <QqVideo
+            data={data}
+            sendTimeMs={sendTimeMs}
+            msgId={ownerMsgId}
+            conv={conv}
+            fwd={fwd}
+            bubble
+            templateName={(data as Record<string, unknown>)['templateName'] as string | undefined}
+          />
+        </div>
+      );
     case 'file':
       return <QqFile data={data} sendTimeMs={sendTimeMs} msgId={ownerMsgId} conv={conv} fwd={fwd} />;
     case 'ptt':
@@ -694,6 +708,19 @@ export function QqMessageContent({
     );
   }
 
+  const structLongMsgElement = elements.find((element) => element.type === 'structLongMsg');
+  if (structLongMsgElement) {
+    return (
+      <div className={cn('message-content', 'qq-card-only', 'qq-has-forward')}>
+        <ForwardMultiMsgPreview
+          data={{ ...(structLongMsgElement.data ?? {}), _label: '长文本消息' } as Record<string, unknown>}
+          msgId={msgId}
+          kind={forwardKind}
+        />
+      </div>
+    );
+  }
+
   // A `reply` element renders as a quote box above the body; pull it out so the
   // body sizing rules below only consider the actual message content.
   const replyElement = elements.find((element) => element.type === 'reply');
@@ -808,7 +835,7 @@ export function QqMessageContent({
 }
 
 /** Element kinds this renderer claims (text/reply/face/at + rich media + markdown + multiMsg + cards). */
-const HANDLED_KINDS = new Set(['text', 'reply', 'face', 'at', 'pic', 'video', 'file', 'ptt', 'mface', 'markdown', 'multiMsg', 'inlineKeyboard', 'ark', 'wallet', 'call', 'onlineFile', 'onlineFolder', 'shareLocation', 'qqDynamic', 'emojiBounce']);
+const HANDLED_KINDS = new Set(['text', 'reply', 'face', 'at', 'pic', 'video', 'bubbleVideo', 'file', 'ptt', 'mface', 'markdown', 'multiMsg', 'structLongMsg', 'inlineKeyboard', 'ark', 'wallet', 'call', 'onlineFile', 'onlineFolder', 'shareLocation', 'qqDynamic', 'emojiBounce']);
 
 /**
  * MessageRenderer that handles every element kind we draw ourselves — text,

@@ -648,11 +648,12 @@ function parseForwardPreviewData(data: Record<string, unknown>): {
   }
   const parsedArk = parseArkMultiMsg(data.arkData);
   if (parsedArk) return parsedArk;
+  const label = typeof data._label === 'string' ? data._label : '聊天记录';
   return {
-    mainTitle: '聊天记录',
+    mainTitle: label,
     previewLines: [],
-    summary: '查看转发消息',
-    source: '聊天记录',
+    summary: '查看详情',
+    source: label,
   };
 }
 

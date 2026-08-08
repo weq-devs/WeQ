@@ -7,6 +7,7 @@ export type {
   FileElement,
   PttElement,
   VideoElement,
+  BubbleVideoElement,
   FaceElement,
   ReplyElement,
   GrayTipRevokeElement,
@@ -20,6 +21,7 @@ export type {
   MfaceElement,
   MarkdownElement,
   MultiMsgElement,
+  StructLongMsgElement,
   InlineKeyboardButton,
   InlineKeyboardRow,
   InlineKeyboardElement,
@@ -100,6 +102,8 @@ export enum ElementType {
   RECOMMENDED_MSG = 43,
   /** 操作栏. 未观测. */
   ACTION_BAR = 44,
+  /** 泡泡视频（圆形循环短视频，QQ 内部名 BUBBLE）。wire 字段与 VIDEO 完全相同。 */
+  BUBBLE_VIDEO = 49,
 }
 
 /**
