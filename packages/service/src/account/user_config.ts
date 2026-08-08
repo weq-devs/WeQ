@@ -124,6 +124,12 @@ export interface AccountConfig {
    */
   static?: boolean;
   /**
+   * True when the static account was identified as an Android (phone) backup —
+   * directory contains a `gpro_v*_uid.db` file and the SQLCipher key can be
+   * auto-derived. Shows the Android icon instead of the generic database icon.
+   */
+  mobile?: boolean;
+  /**
    * 静态账号「关联本机原生目录」：探测到的本机同账号数据目录（`platform.accountDir`）。
    * 只用于设置页展示——真正生效的路径每次开账号都重新探测，因为用户可能改了
    * 全局数据目录覆盖。探测不到则不写。
@@ -178,6 +184,9 @@ export interface AccountConfigMetadata {
   /** Set when opening a static (offline) account so the badge / re-open
    *  path know which flow to use. */
   static?: boolean;
+  /** Set alongside `static` when the backup was identified as an Android phone
+   *  backup (auto-derived SQLCipher key). Shows the Android icon in the picker. */
+  mobile?: boolean;
   /** Local native data directory detected for this static account, if any. */
   nativeMediaDir?: string;
 }
@@ -248,6 +257,7 @@ export class AccountConfigService {
       ...(metadata.displayName ? { displayName: metadata.displayName } : {}),
       ...(metadata.avatarUrl ? { avatarUrl: metadata.avatarUrl } : {}),
       ...(metadata.static === true ? { static: true } : {}),
+      ...(metadata.mobile === true ? { mobile: true } : {}),
       // Always overwrite (not merge): the probe re-runs on every open, and a
       // stale path left over from a since-changed data-dir override would show
       // the user a directory we are no longer reading from.

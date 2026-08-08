@@ -209,8 +209,11 @@ export async function peekStaticSelfUin(
     // stored avatar (20004) — it's a chat-CDN token that only a live QQ can
     // complete, so it 404s for offline/static accounts. The UI builds a stable
     // avatar URL from the uin instead (see QqAvatar/qqAvatarUrl).
+    // 20003 = lastUpdateTime; the account owner's row has the largest value.
+    // The first row is NOT guaranteed to be self (other contacts appear before it
+    // in some backups), so we ORDER BY 20003 DESC to find the correct self row.
     const rows = await qq.query(
-      `SELECT "1000","1002","20002" FROM profile_info_v6 LIMIT 1`,
+      `SELECT "1000","1002","20002" FROM profile_info_v6 ORDER BY "20003" DESC LIMIT 1`,
     );
     if (rows.length === 0 || rows[0] === undefined) {
       throw new Error('profile_info_v6 为空，无法识别账号');

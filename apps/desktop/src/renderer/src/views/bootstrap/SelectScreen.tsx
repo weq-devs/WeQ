@@ -72,6 +72,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
         ...(cfg.dataDir ? { dataDir: cfg.dataDir } : {}),
         lastLoginAt: cfg.lastLoginAt,
         ...(cfg.static ? { static: true } : {}),
+        ...(cfg.mobile ? { mobile: true } : {}),
       }));
     }
     return (historical.data ?? []).map((a) => ({

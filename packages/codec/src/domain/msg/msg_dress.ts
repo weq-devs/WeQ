@@ -8,7 +8,7 @@
  */
 
 import { ProtoMsg, type ProtoDecodeStructType } from '../../core';
-import { MsgDressBody, MsgDressWire } from '../../proto/msg/40801';
+import { MsgDressBody, type MsgDressWire } from '../../proto/msg/40801';
 import { sanitizeBytes } from '../../raw';
 
 export type MsgDressRecord = ProtoDecodeStructType<typeof MsgDressWire>;

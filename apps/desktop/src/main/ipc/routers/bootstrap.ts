@@ -1155,6 +1155,8 @@ export const bootstrapRouter = router({
           needKey: false as const,
           // 自动算出来的密钥要回给前端 —— 「进入」时要用它开库并持久化。
           ...(derived && dbKey ? { derivedKey: dbKey } : {}),
+          // 能自动推导密钥 ⇒ 安卓手机备份目录，标记为 mobile。
+          ...(derived ? { mobile: true as const } : {}),
           preview: {
             uin: preview.uin,
             uid: preview.uid,
@@ -1184,6 +1186,7 @@ export const bootstrapRouter = router({
         dirPath: z.string().min(1),
         dbKey: z.string().optional(),
         algo: algoSchema.optional(),
+        mobile: z.boolean().optional(),
         preview: z.object({
           uin: z.string().min(1),
           // Needed to derive the account directory on linux (`nt_qq_<hash>` is
@@ -1219,6 +1222,7 @@ export const bootstrapRouter = router({
       await ctx.setStaticAccount(input.dirPath, input.preview, {
         ...(dbKey ? { dbKey } : {}),
         ...(algo ? { algo } : {}),
+        ...(input.mobile ? { mobile: true } : {}),
       });
       return ctx.account!.context;
     }),

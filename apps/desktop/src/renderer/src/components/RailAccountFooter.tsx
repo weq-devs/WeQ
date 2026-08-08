@@ -17,7 +17,7 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from 'rea
 import { createPortal } from 'react-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { getQueryKey } from '@trpc/react-query';
-import { LockKeyhole, LogOut, Moon, Sun, Trash2, Eye, EyeOff, Camera, Database } from 'lucide-react';
+import { LockKeyhole, LogOut, Moon, Sun, Trash2, Eye, EyeOff, Camera, Database, Smartphone } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useAppLock } from '../state/lock';
@@ -232,6 +232,7 @@ export function RailAccountFooter({
     avatarUrl?: string | null;
     dataDir?: string;
     static?: boolean;
+    mobile?: boolean;
   }): Promise<void> {
     if (busy) return;
     // 按 configId 判「点的是不是当前账号」—— 同 uin 的另一种账号必须能切过去。
@@ -264,6 +265,7 @@ export function RailAccountFooter({
           },
           ...(cfg.dbKey ? { dbKey: cfg.dbKey } : {}),
           ...(cfg.algo?.pageHmacAlgorithm ? { algo: cfg.algo } : {}),
+          ...(cfg.mobile ? { mobile: true } : {}),
         });
       } else {
         await client.bootstrap.openAccount.mutate({
@@ -398,10 +400,12 @@ export function RailAccountFooter({
                       {cfg.static && (
                         <span
                           className="weq-static-badge"
-                          title="静态离线账号"
-                          aria-label="静态离线账号"
+                          title={cfg.mobile ? 'Android 手机备份账号' : '静态离线账号'}
+                          aria-label={cfg.mobile ? 'Android 手机备份账号' : '静态离线账号'}
                         >
-                          <Database size={9} strokeWidth={2.2} aria-hidden />
+                          {cfg.mobile
+                            ? <Smartphone size={9} strokeWidth={2.2} aria-hidden />
+                            : <Database size={9} strokeWidth={2.2} aria-hidden />}
                         </span>
                       )}
                     </span>

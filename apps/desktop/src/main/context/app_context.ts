@@ -484,7 +484,7 @@ export interface AppContext {
   setStaticAccount(
     dirPath: string,
     selfPreview: { uin: string; uid?: string; displayName: string; avatarUrl: string },
-    options?: { dbKey?: string; algo?: import('@weq/native').DatabaseAlgorithms },
+    options?: { dbKey?: string; algo?: import('@weq/native').DatabaseAlgorithms; mobile?: boolean },
   ): Promise<void>;
   /** Drop the current account session, if any. */
   clearAccount(): void;
@@ -1085,7 +1085,7 @@ export function initAppContext(): AppContext {
     async setStaticAccount(
       dirPath: string,
       selfPreview: { uin: string; uid?: string; displayName: string; avatarUrl: string },
-      options: { dbKey?: string; algo?: import('@weq/native').DatabaseAlgorithms } = {},
+      options: { dbKey?: string; algo?: import('@weq/native').DatabaseAlgorithms; mobile?: boolean } = {},
     ): Promise<void> {
       logger.info('opening static account session', {
         event: 'open-static-account-start',
@@ -1333,6 +1333,7 @@ export function initAppContext(): AppContext {
       accountConfig.save({
         dataDir: dirPath,
         static: true,
+        ...(options.mobile ? { mobile: true } : {}),
         ...(selfUid ? { uid: selfUid } : {}),
         ...(nativeDir ? { nativeMediaDir: nativeDir } : {}),
         ...(selfPreview.displayName ? { displayName: selfPreview.displayName } : {}),

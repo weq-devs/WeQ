@@ -14,7 +14,7 @@
  */
 
 import { useState, type ReactElement } from 'react';
-import { ArrowRight, Database, FolderSearch, HelpCircle, KeyRound, Loader2 } from 'lucide-react';
+import { ArrowRight, Database, FolderSearch, HelpCircle, KeyRound, Loader2, Smartphone } from 'lucide-react';
 import { client } from '../../trpc/client';
 import { useDialog } from '../../components/Dialog';
 import { QqAvatar } from '../../components/QqAvatar';
@@ -33,6 +33,8 @@ type Probe =
       preview: { uin: string; uid: string; displayName: string; avatarUrl: string };
       /** 密钥是后端自动算出来的（安卓备份目录），不是用户手输的。 */
       derived: boolean;
+      /** 安卓手机备份目录（自动推导出密钥）。 */
+      mobile: boolean;
     }
   | { kind: 'needKey' }
   | { kind: 'badKey'; error: string }
@@ -82,7 +84,7 @@ export function StaticBackupPanel({ onEntered }: { onEntered: (uin: string) => v
       }
       // 后端自动算出了密钥（安卓备份目录）—— 收下来，「进入」要拿它开库。
       if ('derivedKey' in r && r.derivedKey) setKey(r.derivedKey);
-      setProbe({ kind: 'ready', preview: r.preview, derived: 'derivedKey' in r && !!r.derivedKey });
+      setProbe({ kind: 'ready', preview: r.preview, derived: 'derivedKey' in r && !!r.derivedKey, mobile: 'mobile' in r && !!r.mobile });
       setStage('done');
     } catch (e) {
       // 网络/IPC 层异常：填了密钥就留在密钥态，否则当作目录问题。
@@ -98,6 +100,7 @@ export function StaticBackupPanel({ onEntered }: { onEntered: (uin: string) => v
         dirPath,
         preview: probe.preview,
         ...(key ? { dbKey: key } : {}),
+        ...(probe.mobile ? { mobile: true } : {}),
       });
       onEntered(probe.preview.uin);
     } catch (e) {
@@ -117,8 +120,14 @@ export function StaticBackupPanel({ onEntered }: { onEntered: (uin: string) => v
                 size={140}
                 className="weq-acct-avatar"
               />
-              <span className="weq-static-badge is-lg" title="静态离线账号" aria-label="静态离线账号">
-                <Database size={13} strokeWidth={2.2} aria-hidden />
+              <span
+                className="weq-static-badge is-lg"
+                title={probe.mobile ? 'Android 手机备份账号' : '静态离线账号'}
+                aria-label={probe.mobile ? 'Android 手机备份账号' : '静态离线账号'}
+              >
+                {probe.mobile
+                  ? <Smartphone size={13} strokeWidth={2.2} aria-hidden />
+                  : <Database size={13} strokeWidth={2.2} aria-hidden />}
               </span>
             </span>
             <div className="weq-static-backup-title">

@@ -443,7 +443,7 @@ export function GlobalSettingsSection(): ReactElement {
                     <span className="weq-set-account-name">
                       {acc.displayName || acc.uin}
                       {acc.static ? (
-                        <span className="weq-set-badge">静态账号</span>
+                        <span className="weq-set-badge">{acc.mobile ? '手机备份' : '静态账号'}</span>
                       ) : null}
                       {isAutoEnter ? (
                         <span className="weq-set-badge weq-set-badge-ok">默认进入</span>

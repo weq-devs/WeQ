@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
-import { ChevronDown, Database, Trash2 } from 'lucide-react';
+import { ChevronDown, Database, Smartphone, Trash2 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { QqAvatar } from '../../components/QqAvatar';
 import type { UiAccount } from './types';
@@ -102,8 +102,14 @@ export function AccountSelector({
       <span className="weq-static-backup-avatar-wrap">
         <QqAvatar uin={selected?.uin} url={selected?.avatarUrl} size={140} className="weq-acct-avatar" />
         {selected?.static && (
-          <span className="weq-static-badge is-lg" title="静态离线账号" aria-label="静态离线账号">
-            <Database size={13} strokeWidth={2.2} aria-hidden />
+          <span
+            className="weq-static-badge is-lg"
+            title={selected.mobile ? 'Android 手机备份账号' : '静态离线账号'}
+            aria-label={selected.mobile ? 'Android 手机备份账号' : '静态离线账号'}
+          >
+            {selected.mobile
+              ? <Smartphone size={13} strokeWidth={2.2} aria-hidden />
+              : <Database size={13} strokeWidth={2.2} aria-hidden />}
           </span>
         )}
       </span>
@@ -159,8 +165,14 @@ export function AccountSelector({
                       <span className="weq-acct-row-avatar-wrap">
                         <QqAvatar uin={acc.uin} url={acc.avatarUrl} size={38} />
                         {acc.static && (
-                          <span className="weq-static-badge" title="静态离线账号" aria-label="静态离线账号">
-                            <Database size={9} strokeWidth={2.2} aria-hidden />
+                          <span
+                            className="weq-static-badge"
+                            title={acc.mobile ? 'Android 手机备份账号' : '静态离线账号'}
+                            aria-label={acc.mobile ? 'Android 手机备份账号' : '静态离线账号'}
+                          >
+                            {acc.mobile
+                              ? <Smartphone size={9} strokeWidth={2.2} aria-hidden />
+                              : <Database size={9} strokeWidth={2.2} aria-hidden />}
                           </span>
                         )}
                       </span>
