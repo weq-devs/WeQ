@@ -236,6 +236,7 @@ export class DressInstallService {
       itemId,
       animated: skin.animated,
       viaMaterial: Boolean(material),
+      textColor: skin.textColor,
     });
     return skin;
   }
@@ -299,6 +300,9 @@ export class DressInstallService {
       zoomPoint: zoom,
       // zip 路径拿不到动效层,按「无动效」处理。
       animationUrl: '',
+      // config.json 顶层的 color 字段就是权威文字色(`0xAARRGGBB`,与 material.color
+      // 同格式)。拿不到就交给 resolveBubbleSkin 回退主题色 —— 非致命。
+      color: await fetchBubbleColor(res.config?.url),
     };
   }
 
@@ -602,6 +606,25 @@ export function extractFromZip(zip: Buffer, match: (name: string) => boolean): B
 /** 从字体包里解出 ttf。 */
 export function extractFirstTtf(zip: Buffer): Buffer | null {
   return extractFromZip(zip, (n) => /\.ttf$/i.test(n));
+}
+
+/**
+ * 下 config.json 拿顶层 `color` 字段(`0xAARRGGBB`,与 material.color 同格式,
+ * 例:`"0xFFe3712c"`)。实测字段: `{animations, color, id, key_animations,
+ * link_color, loopList, name, version, voice_animation, zoom_point}`。
+ *
+ * 非致命:拿不到(无 url / 网络失败 / 字段缺失)一律返回 undefined,调用方回退主题色。
+ */
+async function fetchBubbleColor(url: string | undefined): Promise<string | undefined> {
+  if (!url) return undefined;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return undefined;
+    const json = (await res.json()) as { color?: unknown };
+    return typeof json.color === 'string' ? json.color : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** HEAD 探一个外链是否真实存在。理由同 bubble_skin 的 probeAnimated:不能跟随重定向。 */

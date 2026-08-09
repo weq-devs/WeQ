@@ -305,10 +305,11 @@ export const dressupRouter = router({
   /**
    * 解析一条消息的装扮（来自 DB 列 40801）的渲染参数。
    *
-   * 同一 itemId 在 service 层有内存缓存：首次需要异步解析（bubble 可能要下载资源），
-   * 之后恒定命中缓存——前端应以 staleTime: Infinity 查询。
+   * 同一 itemId 在 service 层有内存缓存：首次需要异步解析（bubble / font 可能要下载
+   * 资源），之后恒定命中缓存——前端应以 staleTime: Infinity 查询。
    *
-   * font 只返回已安装的字体文件路径，未安装则为 null（字体下载需要在线实例 + 用户操作）。
+   * font 与 bubble 同样是「按需自动装」：未装过就走 scupdate 下载（需要在线实例，
+   * 没有在线实例时该条 fontFile 为 null，前端不渲染自定义字体，不报错）。
    * widget 直接按 itemId 拼 CDN URL，不做探测。
    */
   resolveMsgDecoration: procedure
