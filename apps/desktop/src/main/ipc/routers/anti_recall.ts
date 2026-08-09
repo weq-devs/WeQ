@@ -61,6 +61,17 @@ export const antiRecallRouter = router({
       return requireServices().antiRecall.setEnabled(input.enabled);
     }),
 
+  /**
+   * Switch between protecting only the selected conversations and protecting
+   * every conversation with no session filter (永久全选).
+   */
+  setMode: procedure
+    .input(z.object({ mode: z.enum(['selected', 'all']) }))
+    .mutation(({ input }) => {
+      refuseWhenStatic();
+      return requireServices().antiRecall.setMode(input.mode);
+    }),
+
   /** Replace the set of conversations protected from recall. */
   setTargets: procedure
     .input(z.object({ targets: z.array(target) }))
