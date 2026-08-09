@@ -53,6 +53,7 @@ import {
   getVoiceModel,
   MsgService,
   RecentContactService,
+  HiddenSessionService,
   UnreadInfoService,
   AccountConfigService,
   AccountMonitorService,
@@ -369,6 +370,7 @@ export interface BootstrapServices {
 export interface AccountServices {
   msgs: MsgService;
   recentContacts: RecentContactService;
+  hiddenSessions: HiddenSessionService;
   unreadInfo: UnreadInfoService;
   accountConfig: AccountConfigService;
   forwardMsgs: ForwardMsgService;
@@ -827,6 +829,7 @@ export function initAppContext(): AppContext {
       this.services = {
         msgs: new MsgService(session, deletedMsgs, antiRecall),
         recentContacts: new RecentContactService(session),
+        hiddenSessions: new HiddenSessionService(session),
         unreadInfo: new UnreadInfoService(session),
         accountConfig,
         forwardMsgs: new ForwardMsgService(session),
@@ -1227,6 +1230,7 @@ export function initAppContext(): AppContext {
       this.services = {
         msgs: new MsgService(session, deletedMsgs, antiRecall),
         recentContacts: new RecentContactService(session),
+        hiddenSessions: new HiddenSessionService(session),
         unreadInfo: new UnreadInfoService(session),
         accountConfig,
         forwardMsgs: new ForwardMsgService(session),

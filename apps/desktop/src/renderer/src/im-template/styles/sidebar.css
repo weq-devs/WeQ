@@ -557,6 +557,15 @@ html[data-theme="dark"] .contact-cat-count {
 	color: rgba(255, 255, 255, 0.86);
 }
 
+.row-hidden {
+	flex: 0 0 auto;
+	color: var(--weq-text-muted, #8a8f98);
+}
+
+.conversation-row.active .row-hidden {
+	color: rgba(255, 255, 255, 0.7);
+}
+
 .conversation-row .avatar,
 .contact-row .avatar {
 	width: 50px;

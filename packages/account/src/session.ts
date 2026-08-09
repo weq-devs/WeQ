@@ -14,6 +14,7 @@ import {
   GroupMsgDb,
   RecentContactDb,
   RecentContactTopDb,
+  HiddenSessionDb,
   UidMappingDb,
   UidMap,
   ForwardMsgDb,
@@ -103,6 +104,8 @@ export interface AccountSession {
   readonly recentContacts: RecentContactDb;
   /** 置顶会话（recent_contact_top_table）。 */
   readonly recentContactTops: RecentContactTopDb;
+  /** 隐藏会话（hidden_session_storage_table_v1）。 */
+  readonly hiddenSessions: HiddenSessionDb;
   /** Merged-forward / quote-reply cache (40900 column). */
   readonly forwardMsgs: ForwardMsgDb;
   /** Full-text-search index over message text (buddy_msg_fts.db). */
@@ -196,6 +199,12 @@ export async function openAccount(
   });
 
   const recentContactTops = new RecentContactTopDb(nt, {
+    dbPath: msgDbPath,
+    key: ctx.dbKey,
+    algo: ctx.algo,
+  });
+
+  const hiddenSessions = new HiddenSessionDb(nt, {
     dbPath: msgDbPath,
     key: ctx.dbKey,
     algo: ctx.algo,
@@ -329,6 +338,7 @@ export async function openAccount(
     groupMsgs,
     recentContacts,
     recentContactTops,
+    hiddenSessions,
     forwardMsgs,
     buddyMsgFts,
     groupMsgFts,
@@ -355,6 +365,7 @@ export async function openAccount(
       groupMsgs.close();
       recentContacts.close();
       recentContactTops.close();
+      hiddenSessions.close();
       forwardMsgs.close();
       buddyMsgFts.close();
       groupMsgFts.close();

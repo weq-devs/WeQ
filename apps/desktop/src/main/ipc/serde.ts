@@ -28,7 +28,7 @@ import type {
 } from '@weq/db';
 import { decodeElement, type MsgCacheRecord, type SetEmojiItem } from '@weq/codec';
 import { toRenderElements, type FormattedOnlineStatus, type RenderC2cMsg, type RenderGroupMsg } from '@weq/service';
-import type { GroupNotice } from '@weq/service';
+import type { GroupNotice, HiddenSessionSummary } from '@weq/service';
 
 export interface UserProfileWire {
   uid: string;
@@ -288,6 +288,19 @@ export interface RecentContactTopWire {
   targetId: string;
 }
 
+export interface HiddenSessionWire {
+  storageKey: string;
+  chatType: string | number;
+  targetUid: string;
+  targetUin: string;
+  resolvable: boolean;
+  /** Real last-message time resolved from the msg table (unix seconds, string). "0" if none found. */
+  sendTime: string;
+  senderUid: string;
+  /** Latest message's first element (sanitized), or null. */
+  preview: unknown | null;
+}
+
 export function c2cMsgToWire(m: RenderC2cMsg): ChatMsgWire {
   return {
     kind: 'c2c',
@@ -347,6 +360,19 @@ export function recentContactTopToWire(t: RecentContactTop): RecentContactTopWir
     chatType: t.chatType,
     topTime: t.topTime.toString(),
     targetId: t.targetId,
+  };
+}
+
+export function hiddenSessionToWire(h: HiddenSessionSummary): HiddenSessionWire {
+  return {
+    storageKey: h.storageKey,
+    chatType: h.chatType,
+    targetUid: h.targetUid,
+    targetUin: h.targetUin,
+    resolvable: h.resolvable,
+    sendTime: h.sendTime.toString(),
+    senderUid: h.senderUid,
+    preview: h.preview ? sanitize(h.preview) : null,
   };
 }
 

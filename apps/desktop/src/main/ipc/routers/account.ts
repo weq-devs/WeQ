@@ -65,6 +65,7 @@ import {
   groupNotifyToWire,
   recentContactToWire,
   recentContactTopToWire,
+  hiddenSessionToWire,
   userProfileToWire,
   groupDetailToWire,
   groupEssenceToWire,
@@ -1270,6 +1271,15 @@ export const accountRouter = router({
   listTopContacts: procedure.query(async () => {
     const tops = await requireServices().recentContacts.getTopContacts();
     return tops.map(recentContactTopToWire);
+  }),
+
+  /**
+   * 隐藏会话（hidden_session_storage_table_v1）—— 已解析出的最后消息时间/预览，
+   * 供前端并入会话列表统一渲染、排序。
+   */
+  listHiddenSessions: procedure.query(async () => {
+    const hidden = await requireServices().hiddenSessions.listHiddenSessions();
+    return hidden.map(hiddenSessionToWire);
   }),
 
   /** 首页门面：随机一言若干（打字机轮播用；已按句长筛过）。 */

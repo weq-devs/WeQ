@@ -78,3 +78,33 @@ export interface RecentContactTop {
    */
   targetId: string;
 }
+
+/**
+ * Domain shape for one row of `hidden_session_storage_table_v1` — a
+ * conversation the user hid (「隐藏聊天」). Hiding removes the row from
+ * `recent_contact_v3_table` entirely; this table is where it lives instead.
+ * Carries no timestamp or preview of its own — callers resolve the real
+ * last-message time by querying `c2c_msg_table`/`group_msg_table` for
+ * `targetUid` (see `HiddenSessionService`).
+ */
+export interface HiddenSession {
+  /** 43001 — row primary key. Opaque storage key, not a display id. */
+  storageKey: string;
+  /**
+   * 40010 (nested in 43002) — mapped ChatType, or `'unknown'` when the field
+   * is absent. One sample (of 3, from a real backup) had no chatType/targetUin
+   * at all and a `targetUid` that didn't resolve to a real uid — treat
+   * `'unknown'` as genuinely unresolvable, not a bug in the reader.
+   */
+  chatType: string | number;
+  /** 40021 — target uid (c2c peer) or group code (group), when present. */
+  targetUid: string;
+  /** 40020 — target uin (c2c peer QQ number, as text), when present. */
+  targetUin: string;
+  /**
+   * 49702-49705 — four boolean flags whose exact meaning wasn't pinned down
+   * from so few samples (plausibly a c2c/group discriminator on 49704/49705,
+   * but unconfirmed). Kept raw rather than guessed.
+   */
+  flags: { f49702: boolean; f49703: boolean; f49704: boolean; f49705: boolean };
+}

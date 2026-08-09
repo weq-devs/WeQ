@@ -22,6 +22,7 @@ import {
   GroupMsgDb,
   RecentContactDb,
   RecentContactTopDb,
+  HiddenSessionDb,
   UidMappingDb,
   UidMap,
   ForwardMsgDb,
@@ -278,6 +279,7 @@ export async function openStaticAccount(
   const groupMsgs = new GroupMsgDb(nt, opts(msgDbPath));
   const recentContacts = new RecentContactDb(nt, opts(msgDbPath));
   const recentContactTops = new RecentContactTopDb(nt, opts(msgDbPath));
+  const hiddenSessions = new HiddenSessionDb(nt, opts(msgDbPath));
 
   // Load the uid ↔ uin ↔ sortNo directory.
   const uidMappingDb = new UidMappingDb(nt, opts(msgDbPath));
@@ -341,6 +343,7 @@ export async function openStaticAccount(
     groupMsgs,
     recentContacts,
     recentContactTops,
+    hiddenSessions,
     forwardMsgs,
     buddyMsgFts,
     groupMsgFts,
@@ -367,6 +370,7 @@ export async function openStaticAccount(
       groupMsgs.close();
       recentContacts.close();
       recentContactTops.close();
+      hiddenSessions.close();
       forwardMsgs.close();
       buddyMsgFts.close();
       groupMsgFts.close();

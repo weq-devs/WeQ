@@ -112,6 +112,11 @@ type ConversationBase = {
 	preference?: ConversationPreference;
 	unreadCount?: number;
 	/**
+	 * 该会话来自 hidden_session_storage_table_v1（用户手动隐藏过的聊天），并入
+	 * 普通会话列表渲染时置位，供列表行显示一个小标记。
+	 */
+	hidden?: boolean;
+	/**
 	 * 提醒高亮标记（特别关心 / @我 / …）：该会话存在对应类别的未读时置位，
 	 * 来自 msg_unread_info_table 的 48902 高亮扩展。msgSeq 保留但不展示。
 	 */

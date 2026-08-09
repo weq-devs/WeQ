@@ -101,6 +101,8 @@ export {
 } from './account/media_download';
 export type { DownloadOptions } from './account/media_download';
 export { RecentContactService } from './account/recent_contact';
+export { HiddenSessionService } from './account/hidden_session';
+export type { HiddenSessionSummary } from './account/hidden_session';
 export { ForwardMsgService } from './account/forward';
 export { MsgService } from './account/msg';
 export {

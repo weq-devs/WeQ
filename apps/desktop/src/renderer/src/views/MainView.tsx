@@ -176,6 +176,18 @@ type RecentContactTopWire = {
   targetId: string;
 };
 
+/** 隐藏会话一行（hidden_session_storage_table_v1），最后消息时间/预览已由后端解析。 */
+type HiddenSessionWire = {
+  storageKey: string;
+  chatType: string | number;
+  targetUid: string;
+  targetUin: string;
+  resolvable: boolean;
+  sendTime: string;
+  senderUid: string;
+  preview: unknown | null;
+};
+
 type MessageWire = {
   msgId: string;
   /** In-conversation sequence number (column 40003); the seq-window cursor. */
@@ -599,7 +611,11 @@ function groupDetailToConversation(
   fallback?: Conversation | null,
   user?: User,
 ): Conversation {
-  const updatedAt = fallback?.updatedAt ?? secondsToIsoTime(detail.createTime) ?? new Date(0).toISOString();
+  // 没有 recent_contact 行时（群在列表里被删过 / 从没收发过消息）不拿群创建时间
+  // 顶替「最后消息时间」——两者语义无关，曾经导致这类群按创建时间在会话列表里
+  // 乱序（新建的群创建时间很新，会插到本该排最后的位置）。退化成最旧，交给排序
+  // 沉底，与 lastMessage 仍是 null 的事实一致。
+  const updatedAt = fallback?.updatedAt ?? new Date(0).toISOString();
   const group = fallback?.type === 'group' ? fallback.group : null;
 
   return {
@@ -630,6 +646,88 @@ function groupDetailToConversation(
     unreadCount: fallback?.unreadCount ?? 0,
     lastMessage: fallback?.lastMessage ?? null,
   };
+}
+
+/**
+ * 隐藏会话（hidden_session_storage_table_v1）→ Conversation，供并入普通会话列表。
+ * 该表不带 QQ 预置的显示名/头像列，所以名字走 profileByUid（同 buddy 列表的
+ * 解析路径），时间/预览用后端已经查过 c2c_msg_table/group_msg_table 得到的真实
+ * 值（HiddenSessionService），不会重蹈 groupDetailToConversation 曾经的排序坑。
+ * chatType/targetUid 对不上已知会话类型时（3 个真实样本里出现过 1 个）后端标
+ * 记 resolvable=false，这里直接跳过，不猜身份。
+ */
+function hiddenSessionToConversation(
+  h: HiddenSessionWire,
+  profileByUid: Map<string, UserProfileWire>,
+  groupNameByCode: Map<string, string>,
+  user: User,
+  botUids: Set<string>,
+): Conversation | null {
+  if (!h.resolvable) return null;
+  const kind = chatTypeKind(h.chatType);
+  const nodes = previewNodes(h.preview);
+  const preview = previewNodesToText(nodes) || null;
+  const updatedAt = toIsoTime(h.sendTime);
+  const lastMessage = {
+    id: `hidden:${h.targetUid}:${h.sendTime}`,
+    senderId: h.senderUid || null,
+    senderDisplayName: null,
+    body: preview,
+    previewNodes: nodes.length ? nodes : null,
+    createdAt: updatedAt,
+  };
+
+  if (kind === 'direct') {
+    const profile = profileByUid.get(h.targetUid);
+    const title = displayProfileName(profile) || h.targetUin || h.targetUid;
+    return {
+      id: h.targetUid,
+      type: 'direct',
+      updatedAt,
+      hidden: true,
+      otherUser: {
+        id: h.targetUid,
+        identityLabel: h.targetUin && h.targetUin !== '0' ? 'QQ' : 'UID',
+        identityValue: h.targetUin && h.targetUin !== '0' ? h.targetUin : h.targetUid,
+        username: h.targetUid,
+        displayName: title,
+        kind: botUids.has(h.targetUid) ? 'bot' : 'human',
+        avatarUrl: senderAvatarSrc(h.targetUin) || profile?.avatarUrl || null,
+      },
+      group: null,
+      members: [],
+      preference: fallbackPreference,
+      unreadCount: 0,
+      lastMessage,
+      chatType: h.chatType,
+    };
+  }
+
+  if (kind === 'group') {
+    return {
+      id: h.targetUid,
+      type: 'group',
+      updatedAt,
+      hidden: true,
+      otherUser: null,
+      group: {
+        id: h.targetUid,
+        name: groupNameByCode.get(h.targetUid) || h.targetUid,
+        identityLabel: 'Group',
+        identityValue: h.targetUid,
+        avatarUrl: groupAvatarSrc(h.targetUid),
+        announcement: null,
+        memberCount: 1,
+        role: 'member',
+      },
+      members: [{ ...user, role: 'member', joinedAt: updatedAt }],
+      preference: fallbackPreference,
+      unreadCount: 0,
+      lastMessage,
+    };
+  }
+
+  return null;
 }
 
 function requestStatus(status: number): 'pending' | 'accepted' | 'rejected' | 'cancelled' {
@@ -1509,6 +1607,7 @@ export function MainView(): ReactElement {
   const pushToast = useToast((s) => s.push);
   const contacts = trpc.account.listRecentContacts.useQuery();
   const topContacts = trpc.account.listTopContacts.useQuery();
+  const hiddenSessions = trpc.account.listHiddenSessions.useQuery();
   const selfProfile = trpc.account.getSelfProfile.useQuery();
   const buddies = trpc.account.listBuddies.useQuery({ limit: 2000 });
   const botUidList = trpc.account.botUids.useQuery();
@@ -1569,6 +1668,7 @@ export function MainView(): ReactElement {
       onData() {
         void utils.account.listRecentContacts.invalidate();
         void utils.account.listTopContacts.invalidate();
+        void utils.account.listHiddenSessions.invalidate();
         void refreshWindow();
       },
       onError(err) {
@@ -1952,6 +2052,14 @@ export function MainView(): ReactElement {
         byId.set(detail.groupCode, groupDetailToConversation(detail, byId.get(detail.groupCode), user));
       }
 
+      // 隐藏会话：不在 recent_contact_v3_table 里（隐藏即从那张表移除），单独并入。
+      // 正常情况下 id 不会跟上面的撞——留 has() 只是防御。
+      for (const hidden of (hiddenSessions.data ?? []) as HiddenSessionWire[]) {
+        if (byId.has(hidden.targetUid)) continue;
+        const conversation = hiddenSessionToConversation(hidden, profileByUid, groupNameByCode, user, botUids);
+        if (conversation) byId.set(conversation.id, conversation);
+      }
+
       return Array.from(byId.values())
         .map((conversation) => {
           const unread = unreadByConv[conversation.id];
@@ -1979,7 +2087,7 @@ export function MainView(): ReactElement {
           return Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
         });
     },
-    [allGroups.data, contacts.data, user, unreadByConv, highlightsByConv, topTimeByConv, botUids],
+    [allGroups.data, contacts.data, hiddenSessions.data, profileByUid, user, unreadByConv, highlightsByConv, topTimeByConv, botUids],
   );
   const groupsById = useMemo(() => new Map(conversations.map((conversation) => [conversation.id, conversation])), [conversations]);
   const contactRequests = useMemo(
@@ -2338,8 +2446,12 @@ export function MainView(): ReactElement {
       if (notify.operatedUid) uids.push(notify.operatedUid);
       if (notify.operatorUid) uids.push(notify.operatorUid);
     }
+    // 隐藏会话没有 QQ 预置的显示名列，靠 profile 缓存补昵称/头像（同 buddy 列表）。
+    for (const hidden of (hiddenSessions.data ?? []) as HiddenSessionWire[]) {
+      if (hidden.resolvable && chatTypeKind(hidden.chatType) === 'direct') uids.push(hidden.targetUid);
+    }
     resolveProfiles(uids);
-  }, [buddies.data, buddyRequests.data, groupNotifies.data, resolveProfiles]);
+  }, [buddies.data, buddyRequests.data, groupNotifies.data, hiddenSessions.data, resolveProfiles]);
 
   const templateMessages = useMemo(() => {
     if (!selectedConversation) return [];

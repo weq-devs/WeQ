@@ -1,5 +1,5 @@
 ﻿// @ts-nocheck
-import { BellOff, Bot, PenLine, Pin, MessageSquare, Users, UserRound, Circle, Smile, Clock, Minus, Ban, MinusCircle, ChevronRight } from "lucide-react";
+import { BellOff, Bot, PenLine, Pin, EyeOff, MessageSquare, Users, UserRound, Circle, Smile, Clock, Minus, Ban, MinusCircle, ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 import { cn } from "./classNames";
 import { Avatar, EmptyState, } from "./primitives";
@@ -160,6 +160,14 @@ export function ConversationList({
 										size={12}
 										aria-label="置顶"
 										title="置顶会话"
+									/>
+								) : null}
+								{conversation.hidden ? (
+									<EyeOff
+										className={cn("row-hidden")}
+										size={12}
+										aria-label="隐藏会话"
+										title="隐藏会话"
 									/>
 								) : null}
 								{formatConversationTime(conversation.updatedAt)}
