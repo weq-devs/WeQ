@@ -26,6 +26,9 @@ function activeSkins(manifest: DressManifest) {
           staticUrl: bubble.staticUrl,
           localFile: bubble.localFile,
           animationUrl: bubble.animationUrl,
+          animationFrameCount: bubble.animationFrameCount,
+          animationFrameTimeMs: bubble.animationFrameTimeMs,
+          animationRepeat: bubble.animationRepeat,
         }
       : null,
     font: font ? { itemId: font.itemId, fontUrl: dressFontUrl(font.itemId) } : null,

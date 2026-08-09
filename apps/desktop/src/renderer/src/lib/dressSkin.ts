@@ -37,7 +37,7 @@
  * 仍然明确,又不跟贴图打架。
  */
 
-import { dressBubbleUrl, dressUrl } from './resourceUrl';
+import { dressBubbleUrl, dressBubbleFrameUrl, dressUrl } from './resourceUrl';
 
 /** 与 service 的 BubbleSkin 同构(渲染侧用得到的部分)。 */
 export interface BubbleSkinCss {
@@ -54,6 +54,16 @@ export interface BubbleSkinCss {
   localFile: string | null;
   /** 动效叠加层 url(APNG)。没有动效版本时为 null。 */
   animationUrl: string | null;
+  /**
+   * 整泡帧动画的帧数(见 service 的 BubbleSkin.animationFrameCount)。有值时
+   * {@link bubbleRules} 生成 `@keyframes` 逐帧切换 border-image-source,取代
+   * {@link animationUrl} 那套单张 APNG 叠加层。
+   */
+  animationFrameCount?: number;
+  /** 每帧停留时长(ms)。 */
+  animationFrameTimeMs?: number;
+  /** 循环次数,0 视为无限循环。 */
+  animationRepeat?: number;
 }
 
 export interface FontSkinCss {
@@ -101,6 +111,30 @@ function px(value: number): string {
   return `${Math.round(value * 100) / 100}px`;
 }
 
+/**
+ * 整泡帧动画的 `@keyframes` + `animation` 简写。与 msgDecorationStyle.ts 的同名逻辑
+ * 镜像(那边按 data-bubble 注入、这边按「当前生效装扮」注入,两条渲染路径本就是分开的,
+ * 见文件头)。`steps(1)` 让每帧撑满自己的时间段,而不是按不可插值属性的默认「过半才切」
+ * 语义把每帧显示时长砍半。
+ */
+function frameAnimationCss(
+  itemId: number,
+  frameCount: number,
+  frameTimeMs: number,
+  repeat: number,
+): { keyframes: string; animation: string } {
+  const name = `weq-bubbleframe-${itemId}`;
+  const step = 100 / frameCount;
+  const stops = Array.from({ length: frameCount }, (_, i) => {
+    const pct = Math.round(Math.min(i * step, 100) * 100) / 100;
+    return `  ${pct}% { border-image-source: url("${dressBubbleFrameUrl(itemId, i + 1)}"); }`;
+  });
+  const keyframes = [`@keyframes ${name} {`, ...stops, `}`].join('\n');
+  const duration = frameCount * frameTimeMs;
+  const iterations = repeat > 0 ? repeat : 'infinite';
+  return { keyframes, animation: `${name} ${duration}ms steps(1) ${iterations}` };
+}
+
 function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
   const sel = bubbleSelector(scope);
   const { left, top, right, bottom } = skin.slice;
@@ -114,7 +148,18 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
   const slice = `${top} ${right} ${bottom} ${left} fill`;
   const width = `${px(wTop)} ${px(wRight)} ${px(wBottom)} ${px(wLeft)}`;
 
+  const frameAnim =
+    skin.animationFrameCount && skin.animationFrameTimeMs
+      ? frameAnimationCss(
+          skin.itemId,
+          skin.animationFrameCount,
+          skin.animationFrameTimeMs,
+          skin.animationRepeat ?? 0,
+        )
+      : null;
+
   const rules = [
+    frameAnim?.keyframes ?? '',
     `${sel} {`,
     `  position: relative;`,
     // 动效层靠负层级压到文字下面,而负层级只在**层叠上下文内部**才是「压到本元素背景之上」;
@@ -130,15 +175,21 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
     `  border-image-width: ${width};`,
     `  border-image-repeat: stretch;`,
     `  border-radius: 0;`,
+    frameAnim ? `  animation: ${frameAnim.animation};` : '',
     // 横向内边距必须**盖满整条左右切片**,文字只能落在中间那 2px 的拉伸区上。
-    // 用 npTc 那个 0.6 会让文字压进角落的装饰画（实测「简约鲸鱼」那款，鲸鱼和气泡尖
-    // 都在左右切片里，文字直接骑上去）。纵向仍按 0.6 —— 上下切片多是纯边框，
+    // 用 npTc 那个 0.6 会让文字压进角落的装饰画(实测「简约鲸鱼」那款,鲸鱼和气泡尖
+    // 都在左右切片里,文字直接骑上去)。纵向仍按 0.6 —— 上下切片多是纯边框,
     // 盖满会让气泡看着空一大截。
     `  padding: ${px(Math.min(wTop, wBottom) * PAD_RATIO_Y)} ${px(Math.max(wLeft, wRight))};`,
     `  min-width: ${px((left + right) * BUBBLE_SCALE)};`,
     `  min-height: ${px((top + bottom) * BUBBLE_SCALE)};`,
     `}`,
   ];
+
+  // 减少动态效果偏好:定格在第一帧,不循环切换。
+  if (frameAnim) {
+    rules.push(`@media (prefers-reduced-motion: reduce) {`, `  ${sel} { animation: none; }`, `}`);
+  }
 
   // 动效层:同一套 slice/width,叠在静态底之上。APNG 由浏览器自己播,无需 keyframes。
   // z-index 为负是为了压在**文字**下面 —— 绝对定位的伪元素默认画在在流内容之上,
@@ -192,8 +243,13 @@ function fontFamilyFor(itemId: number): string {
   return `weq-dress-${itemId}`;
 }
 
-/** 气泡静态底图的 url(本地兜底装的走 dressbubble,CDN 直链走 dress)。 */
+/**
+ * 气泡静态底图的 url。整泡帧动画取第 1 帧(见 {@link frameAnimationCss} —— 那套
+ * keyframes 会在动画开始后接管 border-image-source,这里给的是初始/无动画兜底值)。
+ * 没有帧动画时按原规则:本地兜底装的走 dressbubble,CDN 直链走 dress。
+ */
 function bubbleImageUrl(skin: BubbleSkinCss): string {
+  if (skin.animationFrameCount) return dressBubbleFrameUrl(skin.itemId, 1);
   return skin.localFile ? dressBubbleUrl(skin.itemId) : dressUrl(skin.staticUrl);
 }
 

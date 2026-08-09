@@ -108,6 +108,17 @@ export interface BubbleSkin {
    * 一个几乎空白的气泡。
    */
   animationUrl: string | null;
+  /**
+   * 整泡帧动画的帧数(0/undefined = 没有)。只有 protocol 兜底路径(localFile 场景)
+   * 会给这个 —— 每帧是独立的九宫格 PNG(`bubbleframe/0001.9.png`…),不是像
+   * {@link animationUrl} 那样现成的一张 APNG,渲染侧要生成 CSS `@keyframes` 逐帧
+   * 切换 `border-image-source`(见 msgDecorationStyle.ts / dressSkin.ts)。
+   */
+  animationFrameCount?: number;
+  /** 每帧停留时长(ms)。仅 {@link animationFrameCount} 有值时有意义。 */
+  animationFrameTimeMs?: number;
+  /** 循环次数,0 视为无限循环。仅 {@link animationFrameCount} 有值时有意义。 */
+  animationRepeat?: number;
 }
 
 /**
@@ -240,6 +251,11 @@ export interface BubbleSource {
   zoomPoint?: { x: number; y: number };
   /** 权威文字色(`0xAARRGGBB`)。没给则按填充图推断明暗。 */
   color?: string;
+  /**
+   * 整泡帧动画(protocol 兜底路径的 bubbleframe 序列,见 dress_install 的
+   * `extractBubbleFrames`)。给了就在 {@link BubbleSkin} 上原样透出。
+   */
+  animation?: { frameCount: number; frameTimeMs: number; repeat: number };
 }
 
 /**
@@ -344,11 +360,14 @@ export async function resolveBubbleSkin(
       itemId,
       slice,
       imageSize: size,
-      animated: Boolean(animationUrl),
+      animated: Boolean(animationUrl) || Boolean(src.animation?.frameCount),
       textColor,
       staticUrl: src.staticUrl,
       localFile: src.localFile ?? null,
       animationUrl: animationUrl || null,
+      animationFrameCount: src.animation?.frameCount,
+      animationFrameTimeMs: src.animation?.frameTimeMs,
+      animationRepeat: src.animation?.repeat,
     };
   } catch (e) {
     logger.warn('bubble skin resolve failed', {

@@ -16,6 +16,13 @@ import { SetEmojiReactions } from "../../components/SetEmojiReactions";
 import { useSelfPendant } from "../../hooks/useSelfPendant";
 import { useMsgDecoration } from "../../hooks/useMsgDecoration";
 
+// 挂件 URL 是按 itemId 直接拼 CDN 地址、不做探测的（见 msg_decoration.ts），常年会有
+// 下架/过期 404。加载失败就把 <img> 本身藏起来，别让浏览器画那个裂图占位——头像本体
+// 照常显示，只是没有这个装饰角标。
+function hideBrokenImg(event: { currentTarget: HTMLImageElement }) {
+	event.currentTarget.style.display = "none";
+}
+
 export function MessageBubble({
 	message,
 	conversation,
@@ -212,7 +219,7 @@ export function MessageBubble({
 						{msgWidgetUrl ? (
 							<span className={cn("weq-avatar-pendant")}>
 								<Avatar name={senderName} avatarUrl={senderAvatarUrl} seed={senderSeed} />
-								<img className={cn("weq-avatar-pendant-img")} src={msgWidgetUrl} alt="" aria-hidden draggable={false} />
+								<img className={cn("weq-avatar-pendant-img")} src={msgWidgetUrl} alt="" aria-hidden draggable={false} onError={hideBrokenImg} />
 							</span>
 						) : (
 							<Avatar name={senderName} avatarUrl={senderAvatarUrl} seed={senderSeed} />
@@ -221,7 +228,7 @@ export function MessageBubble({
 				) : msgWidgetUrl ? (
 					<span className={cn("weq-avatar-pendant")}>
 						<Avatar name={senderName} avatarUrl={senderAvatarUrl} seed={senderSeed} />
-						<img className={cn("weq-avatar-pendant-img")} src={msgWidgetUrl} alt="" aria-hidden draggable={false} />
+						<img className={cn("weq-avatar-pendant-img")} src={msgWidgetUrl} alt="" aria-hidden draggable={false} onError={hideBrokenImg} />
 					</span>
 				) : (
 					<Avatar
@@ -357,6 +364,7 @@ export function MessageBubble({
 							alt=""
 							aria-hidden
 							draggable={false}
+							onError={hideBrokenImg}
 						/>
 					</span>
 				) : (

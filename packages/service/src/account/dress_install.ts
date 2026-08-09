@@ -198,8 +198,7 @@ export class DressInstallService {
     material?: BubbleMaterial | null,
     meta?: { name?: string; previewUrl?: string },
   ): Promise<BubbleSkin | null> {
-    const manifest = this.read();
-    const known = manifest.bubbles.find((b) => b.itemId === itemId);
+    const known = this.read().bubbles.find((b) => b.itemId === itemId);
     // 已装过但当初没记下名字/预览时补写一次 —— 否则老清单里的款永远只能显示
     // 「气泡 2130704」,重装同一款也救不回来(这里会走到 known 分支直接返回)。
     if (known) {
@@ -209,6 +208,7 @@ export class DressInstallService {
         previewUrl: known.previewUrl || meta?.previewUrl,
       };
       if (patched.name !== known.name || patched.previewUrl !== known.previewUrl) {
+        const manifest = this.read();
         manifest.bubbles = manifest.bubbles.map((b) => (b.itemId === itemId ? patched : b));
         this.write(manifest);
       }
@@ -229,8 +229,19 @@ export class DressInstallService {
     if (!resolved) return null;
 
     const skin: BubbleSkin = { ...resolved, name: meta?.name, previewUrl: meta?.previewUrl };
-    manifest.bubbles.push(skin);
-    this.write(manifest);
+
+    // 重新读一遍清单再写 —— 上面两步是网络请求,期间可能有别的并发安装(不同 itemId
+    // 的 installBubble,聊天一次渲染出多条不同气泡的消息时很常见)已经写过清单。直接
+    // 拿函数开头那份旧 manifest 写回去,会把并发写入的结果整个覆盖掉:文件已经落盘了,
+    // 但清单里的条目凭空消失 —— `weq-media://dressbubble` 按 itemId 现查清单,查不到
+    // 就 404,气泡因此整块不渲染(不是颜色错,是背景图直接读不到)。
+    // 重读后再检查一遍 known:可能就在刚才的网络等待期间,另一次并发调用已经把这款
+    // 装完了,那就直接用它的结果,别塞进重复条目。
+    const fresh = this.read();
+    const already = fresh.bubbles.find((b) => b.itemId === itemId);
+    if (already) return already;
+    fresh.bubbles.push(skin);
+    this.write(fresh);
     this.logger.info('installed bubble', {
       event: 'dress-install-bubble',
       itemId,
@@ -294,16 +305,75 @@ export class DressInstallService {
 
     const pngPath = join(dir, `${itemId}.png`);
     writeFileSync(pngPath, png);
+
+    // config.json 顶层的 color 是权威文字色(`0xAARRGGBB`,与 material.color 同格式);
+    // animation_sets.bubbleframe_anim 描述整泡帧动画(每帧独立九宫格 PNG,与
+    // legacy/material 路径的单张 APNG 是两套机制)。两者都非致命 —— 拿不到就分别
+    // 回退主题色 / 不带动画,不影响静态气泡装成功。
+    const config = await fetchBubbleConfig(res.config?.url);
+    const animation =
+      config?.animation && res.otherZip?.ok
+        ? await this.extractBubbleFrames(itemId, dir, res.otherZip.url, config.animation)
+        : undefined;
+
     return {
       staticUrl: '',
       localFile: pngPath,
       zoomPoint: zoom,
-      // zip 路径拿不到动效层,按「无动效」处理。
+      // zip 路径拿不到 APNG 叠加层(那是 legacy/material 路径的机制),按「无」处理。
       animationUrl: '',
-      // config.json 顶层的 color 字段就是权威文字色(`0xAARRGGBB`,与 material.color
-      // 同格式)。拿不到就交给 resolveBubbleSkin 回退主题色 —— 非致命。
-      color: await fetchBubbleColor(res.config?.url),
+      color: config?.color,
+      animation,
     };
+  }
+
+  /**
+   * 下 other.zip,把 `<zipName>/*.9.png` 全部解出来按序号落盘成
+   * `<itemId>-frame-<n>.png`(n 从 1 开始,供 {@link bubbleFrameFile} 按帧取)。
+   *
+   * 非致命:任何一步失败(下载失败 / 一帧都没解出来)都返回 undefined,调用方据此
+   * 退回纯静态气泡 —— 动画是锦上添花,不该因为它把整款气泡装失败。
+   */
+  private async extractBubbleFrames(
+    itemId: number,
+    dir: string,
+    otherZipUrl: string,
+    anim: { zipName: string; frameTimeMs: number; repeat: number },
+  ): Promise<BubbleSource['animation']> {
+    try {
+      const zipPath = join(dir, `${itemId}-other.zip`);
+      const dl = await downloadUrlToFile(otherZipUrl, zipPath);
+      if (!dl.ok) return undefined;
+
+      const prefix = anim.zipName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const frameRe = new RegExp(`^${prefix}/.*\\.9\\.png$`, 'i');
+      const frames = extractAllFromZip(readFileSync(zipPath), (n) => frameRe.test(n)).sort(
+        (a, b) => {
+          const na = Number(a.name.match(/(\d+)/)?.[1] ?? 0);
+          const nb = Number(b.name.match(/(\d+)/)?.[1] ?? 0);
+          return na - nb;
+        },
+      );
+      if (frames.length === 0) return undefined;
+
+      frames.forEach((frame, i) => {
+        writeFileSync(join(dir, `${itemId}-frame-${i + 1}.png`), frame.data);
+      });
+
+      this.logger.info('extracted bubble frame animation', {
+        event: 'dress-bubble-frames',
+        itemId,
+        frameCount: frames.length,
+      });
+      return { frameCount: frames.length, frameTimeMs: anim.frameTimeMs, repeat: anim.repeat };
+    } catch (e) {
+      this.logger.warn('bubble frame animation extract failed', {
+        event: 'dress-bubble-frames-failed',
+        itemId,
+        ...logErrorContext(e),
+      });
+      return undefined;
+    }
   }
 
   /**
@@ -358,9 +428,14 @@ export class DressInstallService {
       family: fontFamilyFor(itemId),
       file,
     };
-    const next = manifest.fonts.filter((f) => f.itemId !== itemId);
+
+    // 同 installBubble 的坑:上面几步是网络请求,期间可能有别的并发安装写过清单
+    // (消息里出现好几款不同字体时会并发触发)。重新读一遍再合并写,别拿函数开头那份
+    // 旧 manifest 覆盖掉别人的写入。
+    const fresh = this.read();
+    const next = fresh.fonts.filter((f) => f.itemId !== itemId);
     next.push(entry);
-    this.write({ ...manifest, fonts: next });
+    this.write({ ...fresh, fonts: next });
 
     this.logger.info('installed font', {
       event: 'dress-install-font',
@@ -550,6 +625,20 @@ export class DressInstallService {
   }
 
   /**
+   * 已装气泡整泡帧动画的某一帧(`frame` 从 1 开始)。只有当初 {@link resolveBubbleUrl}
+   * 解出过 `bubbleframe` 序列的款才有 —— 校验 `frame` 不超出清单记的帧数,防止读到
+   * 已被换皮覆盖前留下的旧文件(itemId 相同、帧数变小的场景)。
+   *
+   * 供 `weq-media://dressbubble?id=&frame=` 用。
+   */
+  bubbleFrameFile(itemId: number, frame: number): string | null {
+    const hit = this.read().bubbles.find((b) => b.itemId === itemId);
+    if (!hit?.animationFrameCount || frame < 1 || frame > hit.animationFrameCount) return null;
+    const path = join(this.rootDir, 'bubbles', `${itemId}-frame-${frame}.png`);
+    return existsSync(path) ? path : null;
+  }
+
+  /**
    * 补下自己在 QQ 里正在用的字体。
    *
    * ninebird 登录后 QQ 已被 kill,没有 pid 可发包,所以 bootstrap 只存得下 fontId;
@@ -603,25 +692,85 @@ export function extractFromZip(zip: Buffer, match: (name: string) => boolean): B
   return null;
 }
 
+/**
+ * 同 {@link extractFromZip},但收集**全部**满足 `match` 的条目而不是命中第一个就
+ * 返回 —— bubbleframe 动画是几十个独立文件,没法复用「只找一个」的那个函数。
+ */
+export function extractAllFromZip(
+  zip: Buffer,
+  match: (name: string) => boolean,
+): Array<{ name: string; data: Buffer }> {
+  const out: Array<{ name: string; data: Buffer }> = [];
+  let offset = 0;
+  while (offset + 30 <= zip.length) {
+    if (zip.readUInt32LE(offset) !== 0x04034b50) break;
+    const method = zip.readUInt16LE(offset + 8);
+    const compressedSize = zip.readUInt32LE(offset + 18);
+    const nameLen = zip.readUInt16LE(offset + 26);
+    const extraLen = zip.readUInt16LE(offset + 28);
+    const nameStart = offset + 30;
+    const name = zip.toString('utf-8', nameStart, nameStart + nameLen);
+    const dataStart = nameStart + nameLen + extraLen;
+
+    if (match(name)) {
+      const data = zip.subarray(dataStart, dataStart + compressedSize);
+      if (method === 0) out.push({ name, data: Buffer.from(data) });
+      else if (method === 8) out.push({ name, data: inflateRawSync(data) });
+      // 没见过的压缩方式:跳过这条,别硬猜——不影响扫描其余条目。
+    }
+    offset = dataStart + compressedSize;
+  }
+  return out;
+}
+
 /** 从字体包里解出 ttf。 */
 export function extractFirstTtf(zip: Buffer): Buffer | null {
   return extractFromZip(zip, (n) => /\.ttf$/i.test(n));
 }
 
 /**
- * 下 config.json 拿顶层 `color` 字段(`0xAARRGGBB`,与 material.color 同格式,
- * 例:`"0xFFe3712c"`)。实测字段: `{animations, color, id, key_animations,
- * link_color, loopList, name, version, voice_animation, zoom_point}`。
+ * 下 config.json,拿顶层 `color`(权威文字色)与 `animation_sets.bubbleframe_anim`
+ * (整泡帧动画参数)。实测字段:`{animations, color, id, key_animations, link_color,
+ * loopList, name, version, voice_animation, zoom_point, bubbleframe_animation:
+ * {animation_set}, animation_sets: {<set>: {zip_name, count, time, repeat, zoom_point}}}`。
  *
- * 非致命:拿不到(无 url / 网络失败 / 字段缺失)一律返回 undefined,调用方回退主题色。
+ * `bubbleframe_animation.animation_set` 是去 `animation_sets` 里查的键名(非固定
+ * `"bubbleframe_anim"`,虽然实测目前都叫这个);`count` 只是 config 自报的帧数,
+ * 权威数字仍以 other.zip 实际解出的文件数为准(见 {@link extractBubbleFrames})。
+ *
+ * 非致命:拿不到 / 字段缺失一律返回 undefined,调用方回退到「无 color / 无动画」。
  */
-async function fetchBubbleColor(url: string | undefined): Promise<string | undefined> {
+async function fetchBubbleConfig(
+  url: string | undefined,
+): Promise<
+  | { color?: string; animation?: { zipName: string; frameTimeMs: number; repeat: number } }
+  | undefined
+> {
   if (!url) return undefined;
   try {
     const res = await fetch(url);
     if (!res.ok) return undefined;
-    const json = (await res.json()) as { color?: unknown };
-    return typeof json.color === 'string' ? json.color : undefined;
+    const json = (await res.json()) as {
+      color?: unknown;
+      bubbleframe_animation?: { animation_set?: unknown };
+      animation_sets?: Record<
+        string,
+        { zip_name?: unknown; time?: unknown; repeat?: unknown; count?: unknown }
+      >;
+    };
+    const color = typeof json.color === 'string' ? json.color : undefined;
+
+    const setKey = json.bubbleframe_animation?.animation_set;
+    const set = typeof setKey === 'string' ? json.animation_sets?.[setKey] : undefined;
+    const zipName = typeof set?.zip_name === 'string' ? set.zip_name : undefined;
+    const frameTimeMs = Number(set?.time ?? 0);
+    const hasFrames = Number(set?.count ?? 0) > 0;
+    const animation =
+      zipName && hasFrames && frameTimeMs > 0
+        ? { zipName, frameTimeMs, repeat: Number(set?.repeat ?? 0) }
+        : undefined;
+
+    return { color, animation };
   } catch {
     return undefined;
   }

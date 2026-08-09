@@ -10,7 +10,7 @@
  */
 
 import type { BubbleSkin } from '@weq/service';
-import { dressBubbleUrl, dressFontUrl, dressUrl } from './resourceUrl';
+import { dressBubbleUrl, dressBubbleFrameUrl, dressFontUrl, dressUrl } from './resourceUrl';
 
 const STYLE_ID = 'weq-msg-decoration';
 const BUBBLE_SCALE = 0.5;
@@ -55,6 +55,33 @@ function fontSel(fontId: number): string {
 }
 
 /**
+ * Build the `@keyframes` block + `animation` shorthand for a bubbleframe
+ * sequence (each frame its own nine-patch PNG — see BubbleSkin.animationFrameCount).
+ *
+ * `steps(1)` on the shorthand makes each keyframe's `border-image-source` hold
+ * for its whole segment instead of the default discrete-property "flip at the
+ * midpoint" behavior — otherwise every frame would only show for half its
+ * intended duration, offset from the next.
+ */
+function frameAnimationCss(
+  itemId: number,
+  frameCount: number,
+  frameTimeMs: number,
+  repeat: number,
+): { keyframes: string; animation: string } {
+  const name = `weq-bubbleframe-${itemId}`;
+  const step = 100 / frameCount;
+  const stops = Array.from({ length: frameCount }, (_, i) => {
+    const pct = Math.round(Math.min(i * step, 100) * 100) / 100;
+    return `  ${pct}% { border-image-source: url("${dressBubbleFrameUrl(itemId, i + 1)}"); }`;
+  });
+  const keyframes = [`@keyframes ${name} {`, ...stops, `}`].join('\n');
+  const duration = frameCount * frameTimeMs;
+  const iterations = repeat > 0 ? repeat : 'infinite';
+  return { keyframes, animation: `${name} ${duration}ms steps(1) ${iterations}` };
+}
+
+/**
  * Inject CSS rules for one bubble skin.  No-op if already injected.
  * Mirror of dressSkin.ts bubbleRules(), but scoped to data-bubble attribute.
  */
@@ -69,10 +96,28 @@ export function injectBubbleCss(skin: BubbleSkin): void {
   const wLeft = left * BUBBLE_SCALE;
   const slice = `${top} ${right} ${bottom} ${left} fill`;
   const width = `${px(wTop)} ${px(wRight)} ${px(wBottom)} ${px(wLeft)}`;
-  const imageUrl = skin.localFile ? dressBubbleUrl(skin.itemId) : dressUrl(skin.staticUrl);
   const sel = bubbleSel(skin.itemId);
 
+  // Frame animation (protocol fallback path) takes over the base layer's
+  // border-image-source entirely — frame 1 doubles as the static/initial
+  // paint, so the plain static PNG is never referenced once frames exist.
+  const frameAnim =
+    skin.animationFrameCount && skin.animationFrameTimeMs
+      ? frameAnimationCss(
+          skin.itemId,
+          skin.animationFrameCount,
+          skin.animationFrameTimeMs,
+          skin.animationRepeat ?? 0,
+        )
+      : null;
+  const imageUrl = frameAnim
+    ? dressBubbleFrameUrl(skin.itemId, 1)
+    : skin.localFile
+      ? dressBubbleUrl(skin.itemId)
+      : dressUrl(skin.staticUrl);
+
   const rules = [
+    frameAnim?.keyframes ?? '',
     `${sel} {`,
     `  position: relative;`,
     `  isolation: isolate;`,
@@ -85,11 +130,17 @@ export function injectBubbleCss(skin: BubbleSkin): void {
     `  border-image-width: ${width};`,
     `  border-image-repeat: stretch;`,
     `  border-radius: 0;`,
+    frameAnim ? `  animation: ${frameAnim.animation};` : '',
     `  padding: ${px(Math.min(wTop, wBottom) * PAD_RATIO_Y)} ${px(Math.max(wLeft, wRight))};`,
     `  min-width: ${px((left + right) * BUBBLE_SCALE)};`,
     `  min-height: ${px((top + bottom) * BUBBLE_SCALE)};`,
     `}`,
   ];
+
+  // Respect reduced-motion: freeze on frame 1 instead of cycling.
+  if (frameAnim) {
+    rules.push(`@media (prefers-reduced-motion: reduce) {`, `  ${sel} { animation: none; }`, `}`);
+  }
 
   if (skin.animationUrl) {
     const animUrl = dressUrl(skin.animationUrl);
@@ -131,9 +182,17 @@ export function injectFontCss(fontId: number): void {
   const family = `weq-dress-${fontId}`;
 
   // Preload the font via FontFace API so the browser doesn't swap mid-render.
-  void new FontFace(family, `url("${url}")`).load().then((face) => {
-    document.fonts.add(face);
-  });
+  // Some QQ dress fonts fail Chromium's OTS sanitizer ("Failed to decode
+  // downloaded font") — that's a real file-format rejection we can't work
+  // around client-side. Swallow it: document.fonts never gets the face, so
+  // the CSS fallback chain below just takes over, same as dressSkin.ts's
+  // preloadFont for the "own equipped font" path.
+  void new FontFace(family, `url("${url}")`)
+    .load()
+    .then((face) => {
+      document.fonts.add(face);
+    })
+    .catch(() => {});
 
   append(
     `${fontSel(fontId)} {` +

@@ -91,6 +91,14 @@ export function dressBubbleUrl(itemId: number): string {
 }
 
 /**
+ * 整泡帧动画的某一帧(`frame` 从 1 开始)。与 {@link dressBubbleUrl} 同源,
+ * 多带一个 `frame` 参数,由主进程按 `<itemId>-frame-<n>.png` 取文件。
+ */
+export function dressBubbleFrameUrl(itemId: number, frame: number): string {
+  return mediaUrl('dressbubble', { id: itemId, frame });
+}
+
+/**
  * 用户自选的聊天背景(本地图)。
  *
  * `stamp` 是用来穿透缓存的:文件名固定为 `custom.<ext>`,换了图 url 却不变,浏览器

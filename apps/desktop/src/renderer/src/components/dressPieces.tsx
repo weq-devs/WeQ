@@ -7,8 +7,14 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
+import type { CSSProperties, PointerEvent as ReactPointerEvent, SyntheticEvent } from 'react';
 import * as d3 from 'd3';
+
+// 挂件是直接拼 CDN 地址、不做探测的,常年会有下架/过期 404。加载失败就把 <img> 藏起来,
+// 别让浏览器画裂图占位 —— 头像本体照常显示,只是没有这个装饰角标。
+function hideBrokenImg(event: SyntheticEvent<HTMLImageElement>) {
+  event.currentTarget.style.display = 'none';
+}
 
 /** 头像 + 挂件（挂件素材是 APNG，浏览器自己会动）。 */
 export function AvatarOrb({
@@ -30,7 +36,14 @@ export function AvatarOrb({
         </span>
       )}
       {widgetUrl && (
-        <img className="weq-orb-widget" src={widgetUrl} alt="" aria-hidden draggable={false} />
+        <img
+          className="weq-orb-widget"
+          src={widgetUrl}
+          alt=""
+          aria-hidden
+          draggable={false}
+          onError={hideBrokenImg}
+        />
       )}
     </span>
   );

@@ -23,6 +23,7 @@
  *   weq-media://dress?src=<tianquanUrl>                       → 会员装扮资源(挂件/名片/浮屏/背景/气泡切片)
  *   weq-media://dressfont?id=<itemId>                         → 已安装的装扮字体 ttf
  *   weq-media://dressbubble?id=<itemId>                       → 走 protocol 装的气泡九宫格(本地 PNG)
+ *   weq-media://dressbubble?id=<itemId>&frame=<n>              → 同上,整泡帧动画的第 n 帧(n 从 1 开始)
  *   weq-media://dressbg?v=<stamp>                             → 用户自选的聊天背景(本地图)
  *   weq-media://linkpreview?id=<hash.ext>                     → 链接卡片封面(已落盘、验过魔数)
  *
@@ -291,9 +292,15 @@ export function handleMediaRequest(request: Request): Promise<Response> {
 
     // 走 protocol 兜底装上的气泡:九宫格 PNG 是从 static.zip 解出来的本地文件,
     // 上面的 `dress` 分支只放行 tianquan.gtimg.cn,所以本地这条要单独一支。
+    // `frame` 有值时取整泡帧动画的某一帧(other.zip 解出来的,见 bubbleFrameFile)。
     if (kind === 'dressbubble') {
       const id = Number(q.get('id') ?? '0');
-      const path = id ? services.dressInstall.bubbleFile(id) : null;
+      const frame = Number(q.get('frame') ?? '0');
+      const path = !id
+        ? null
+        : frame > 0
+          ? services.dressInstall.bubbleFrameFile(id, frame)
+          : services.dressInstall.bubbleFile(id);
       return path ? fileResponse(path) : notFound('dress bubble not installed');
     }
 
