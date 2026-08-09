@@ -1388,12 +1388,11 @@ export const accountRouter = router({
       return input.enabled;
     }),
 
-  /** List QQ buddies from profile_info.db. */
+  /** List QQ buddies from profile_info.db. Omit input to fetch all (used by AgentLab). */
   listBuddies: procedure
     .input(pageInput.optional())
     .query(async ({ input }) => {
-      const page = input ?? { limit: 200, offset: 0 };
-      const buddies = await requireServices().profile.listBuddies(page.limit, page.offset);
+      const buddies = await requireServices().profile.listBuddies(input?.limit, input?.offset ?? 0);
       return buddies.map(buddyToWire);
     }),
 

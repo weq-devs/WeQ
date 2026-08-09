@@ -11,7 +11,7 @@ export class ProfileService {
   /**
    * List all buddies with pagination.
    */
-  async listBuddies(limit = 200, offset = 0): Promise<Buddy[]> {
+  async listBuddies(limit?: number, offset = 0): Promise<Buddy[]> {
     return this.session.buddies.listBuddies(limit, offset);
   }
 
