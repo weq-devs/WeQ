@@ -389,6 +389,14 @@ export const bootstrapRouter = router({
       return true;
     }),
 
+  /** 是否渲染每条消息里的装扮（气泡/字体/挂件）。纯持久化。 */
+  setShowMsgDecoration: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ showMsgDecoration: input.enabled });
+      return true;
+    }),
+
   /**
    * 取一条链接的预览卡片（标题/描述/站点/封面）。抓取全程带 SSRF 闸门 —— 只放行
    * 公网 http(s) 的 80/443，重定向逐跳复检，正文只收 text/html（对方给二进制时

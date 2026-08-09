@@ -72,6 +72,7 @@ import {
   AssistantService,
   CollectionService,
   DressInstallService,
+  MsgDecorationCacheService,
   TokenUsageStore,
   ConversationStore,
   DeletedMsgStore,
@@ -428,6 +429,8 @@ export interface AccountServices {
   collection: CollectionService;
   /** 个性装扮(气泡/字体)的本地安装与清单。气泡不需在线,字体需在线实例。 */
   dressInstall: DressInstallService;
+  /** 逐条消息装扮解析缓存（来自 DB 列 40801）。同一 itemId 永不重查。 */
+  msgDecoration: MsgDecorationCacheService;
 }
 
 /** Classified native-init failure surfaced to the renderer. */
@@ -825,6 +828,7 @@ export function initAppContext(): AppContext {
         onlineStatus: new OnlineStatusService(session),
         collection: collectionSvc,
         dressInstall,
+        msgDecoration: new MsgDecorationCacheService(dressInstall),
         fileSearch,
         mediaDownload,
         mediaUrl,
@@ -1223,6 +1227,7 @@ export function initAppContext(): AppContext {
         onlineStatus: new OnlineStatusService(session),
         collection: collectionSvc,
         dressInstall,
+        msgDecoration: new MsgDecorationCacheService(dressInstall),
         fileSearch,
         mediaDownload,
         mediaUrl,

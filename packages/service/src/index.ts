@@ -74,6 +74,8 @@ export {
 } from './account/bubble_skin';
 export type { BubbleSkin, BubbleSlice, BubbleSource } from './account/bubble_skin';
 export { DressInstallService, fontFamilyFor } from './account/dress_install';
+export { MsgDecorationCacheService } from './account/msg_decoration';
+export type { ResolvedMsgDecoration } from './account/msg_decoration';
 export type {
   DressManifest,
   InstalledFont,

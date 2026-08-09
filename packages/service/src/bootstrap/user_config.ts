@@ -207,6 +207,11 @@ export interface AppSettings {
    * 自动回退到原来的 `weq-media://` 代理路径。
    */
   preferCdn: boolean;
+  /**
+   * 是否渲染消息里的每条装扮（气泡/字体/挂件，来自 column 40801）。
+   * 关掉后所有消息统一走清单里的全局装扮，不做逐条渲染。默认开启。
+   */
+  showMsgDecoration: boolean;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -226,6 +231,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showAvatarPendant: true,
   linkPreview: { enabled: true, screenshot: false },
   preferCdn: false,
+  showMsgDecoration: true,
 };
 
 export interface UserConfig {
@@ -443,6 +449,7 @@ export class UserConfigService {
       renderTextMarkdown: s?.renderTextMarkdown ?? d.renderTextMarkdown,
       showAvatarPendant: s?.showAvatarPendant ?? d.showAvatarPendant,
       preferCdn: s?.preferCdn ?? d.preferCdn,
+      showMsgDecoration: s?.showMsgDecoration ?? d.showMsgDecoration,
       linkPreview: {
         enabled: s?.linkPreview?.enabled ?? d.linkPreview.enabled,
         screenshot: s?.linkPreview?.screenshot ?? d.linkPreview.screenshot,
@@ -480,6 +487,7 @@ export class UserConfigService {
       renderTextMarkdown: patch.renderTextMarkdown ?? current.renderTextMarkdown,
       showAvatarPendant: patch.showAvatarPendant ?? current.showAvatarPendant,
       preferCdn: patch.preferCdn ?? current.preferCdn,
+      showMsgDecoration: patch.showMsgDecoration ?? current.showMsgDecoration,
       linkPreview: {
         enabled: patch.linkPreview?.enabled ?? current.linkPreview.enabled,
         screenshot: patch.linkPreview?.screenshot ?? current.linkPreview.screenshot,

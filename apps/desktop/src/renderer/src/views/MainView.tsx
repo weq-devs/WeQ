@@ -190,6 +190,8 @@ type MessageWire = {
   deletedKind?: 'weq' | 'qq';
   /** Recall marker: message whose QQ recall was intercepted (content intact). */
   recall?: { revokeUid: string; sameSender: boolean; recallTs: number };
+  /** Per-message decoration from column 40801 (0 = not set). */
+  decoration?: { bubbleId: number; fontId: number; widgetId: number };
 };
 
 /** One full-text search hit from `account.searchMessages`. */
@@ -280,6 +282,7 @@ type ChatMsgWire = {
   setEmojiList?: SetEmojiItem[];
   deletedKind?: 'weq' | 'qq';
   recall?: { revokeUid: string; sameSender: boolean; recallTs: number };
+  decoration?: { bubbleId: number; fontId: number; widgetId: number };
 };
 
 function toMessageWire(w: ChatMsgWire): MessageWire {
@@ -293,6 +296,7 @@ function toMessageWire(w: ChatMsgWire): MessageWire {
     setEmojiList: w.setEmojiList,
     deletedKind: w.deletedKind,
     recall: w.recall,
+    decoration: w.decoration,
   };
 }
 
@@ -1002,7 +1006,9 @@ function messageToTemplate(message: MessageWire, conversation: Conversation, use
     // Per-conversation sequence, carried through so chatPane can spot the gaps
     // where messages QQ never synced locally would have been.
     msgSeq: message.msgSeq,
-  } as Message & { qqElements: unknown[]; setEmojiList?: SetEmojiItem[]; deletedKind?: 'weq' | 'qq'; recall?: { revokeUid: string; sameSender: boolean; recallTs: number }; recallRevokerName?: string; msgId: string; msgSeq: string };
+    // Per-message decoration (bubble/font/widget itemIds from column 40801).
+    decoration: message.decoration,
+  } as Message & { qqElements: unknown[]; setEmojiList?: SetEmojiItem[]; deletedKind?: 'weq' | 'qq'; recall?: { revokeUid: string; sameSender: boolean; recallTs: number }; recallRevokerName?: string; msgId: string; msgSeq: string; decoration?: { bubbleId: number; fontId: number; widgetId: number } };
 }
 
 /**

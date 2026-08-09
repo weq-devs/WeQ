@@ -19,11 +19,11 @@
 
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import type { GroupMsg } from './types';
-import { decodeBody, decodeEmoji, toBigint, toStr } from './util';
+import { decodeBody, decodeEmoji, decodeDress, toBigint, toStr } from './util';
 import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './append';
 import { QqDb } from '../qq_db';
 
-const SELECT_COLUMNS = `"40001","40020","40027","40033","40050","40800","40062","40003","40011","40012"`;
+const SELECT_COLUMNS = `"40001","40020","40027","40033","40050","40800","40062","40003","40011","40012","40801"`;
 
 /**
  * Conversation ordering. 40003 alone is NOT a total order: gray tips share the
@@ -364,6 +364,7 @@ function rowToGroupMsg(row: SqlRow): GroupMsg {
     msgSeq: toBigint(row[7]),
     msgType: toBigint(row[8]),
     subType: toBigint(row[9]),
+    decoration: decodeDress(row[10]),
   };
 }
 
@@ -381,5 +382,6 @@ function rowToGroupMsgWithRowId(row: SqlRow): GroupMsg & { rowId: bigint } {
     msgSeq: toBigint(row[8]),
     msgType: toBigint(row[9]),
     subType: toBigint(row[10]),
+    decoration: decodeDress(row[11]),
   };
 }

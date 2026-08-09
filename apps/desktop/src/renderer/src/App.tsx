@@ -19,7 +19,7 @@ import { VideoLightbox } from './components/VideoLightbox';
 import { MarketFaceLightbox } from './components/MarketFaceLightbox';
 import { ForwardWindowHost } from './components/ForwardWindow';
 import { AppLockOverlay } from './components/AppLockOverlay';
-import { TextMarkdownContext, LinkPreviewContext } from './components/QqMessageContent';
+import { TextMarkdownContext, LinkPreviewContext, MsgDecorationEnabledContext } from './components/QqMessageContent';
 import { SelfPendantContext } from './hooks/useSelfPendant';
 import { CdnContext, setPreferCdnFlag } from './lib/cdn';
 import { WarmupSplash } from './components/WarmupSplash';
@@ -46,7 +46,9 @@ function TextMarkdownProvider({ children }: { children: ReactNode }): ReactEleme
   return (
     <TextMarkdownContext.Provider value={settings.data?.renderTextMarkdown ?? true}>
       <LinkPreviewContext.Provider value={settings.data?.linkPreview?.enabled ?? true}>
-        {children}
+        <MsgDecorationEnabledContext.Provider value={settings.data?.showMsgDecoration ?? true}>
+          {children}
+        </MsgDecorationEnabledContext.Provider>
       </LinkPreviewContext.Provider>
     </TextMarkdownContext.Provider>
   );

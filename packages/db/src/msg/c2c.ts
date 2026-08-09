@@ -22,11 +22,11 @@
 
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import type { C2cMsg } from './types';
-import { decodeBody, toBigint, toStr } from './util';
+import { decodeBody, decodeDress, toBigint, toStr } from './util';
 import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './append';
 import { QqDb } from '../qq_db';
 
-const SELECT_COLUMNS = `"40001","40020","40021","40030","40033","40050","40800","40003","40011","40012"`;
+const SELECT_COLUMNS = `"40001","40020","40021","40030","40033","40050","40800","40003","40011","40012","40801"`;
 
 /**
  * Conversation ordering. 40003 alone is NOT a total order: gray tips share the
@@ -365,6 +365,7 @@ function rowToC2cMsg(row: SqlRow): C2cMsg {
     msgSeq: toBigint(row[7]),
     msgType: toBigint(row[8]),
     subType: toBigint(row[9]),
+    decoration: decodeDress(row[10]),
   };
 }
 
