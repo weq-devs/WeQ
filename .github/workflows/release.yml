@@ -324,3 +324,53 @@ jobs:
 
           # 覆写 Release 正文（electron-builder 建 Release 时写的默认正文会被替换）。
           gh release edit "${TAG}" --repo "${REPO}" --notes "${NOTES}"
+
+  # ========================== QQ 群通知 ==========================
+  # 等所有产物和 Release 说明都完成后，发送 QQ 群通知。
+  # 消息内容取最后一次 commit 正文（用户约定在此写本次更新说明）。
+  # Windows exe 通过分块上传直传 QQ（GitHub CDN 在大陆不可访问）。
+  qq-notify:
+    needs: [notes]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare release info & download exe
+        id: prep
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VER="${VERSION#v}"
+          EXE="weQ-${VER}-setup.exe"
+          EXE_URL="https://github.com/${{ github.repository }}/releases/download/${VERSION}/${EXE}"
+
+          gh release download "${VERSION}" --pattern "${EXE}" --dir /tmp/release
+
+          # 取 commit 正文；若为空则回退到 subject
+          BODY=$(git log -1 --pretty=format:%b)
+          [ -z "$BODY" ] && BODY=$(git log -1 --pretty=format:%s)
+
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "exe=${EXE}"         >> $GITHUB_OUTPUT
+          echo "exe_url=${EXE_URL}" >> $GITHUB_OUTPUT
+          { echo "body<<BODY_EOF"; echo "$BODY"; echo "BODY_EOF"; } >> $GITHUB_OUTPUT
+
+      - name: Send QQ notification
+        uses: H3CoF6/qq-notif-action@main
+        with:
+          appid: ${{ secrets.QQ_APPID }}
+          secret: ${{ secrets.QQ_SECRET }}
+          group_openid: ${{ secrets.QQ_GROUP_OPENID }}
+          message: |
+            ## WeQ 新版本 ${{ steps.prep.outputs.version }} 发布
+
+            详细更改如下：
+            ${{ steps.prep.outputs.body }}
+
+            - Windows 安装包 [下载链接](${{ steps.prep.outputs.exe_url }})
+
+            欢迎大家测试使用新的功能喵~
+          file_path: /tmp/release/${{ steps.prep.outputs.exe }}
+          file_type: file
+          file_name: ${{ steps.prep.outputs.exe }}
