@@ -649,10 +649,14 @@ export function QqMessageContent({
     return (
       <div className={cn('message-content', 'qq-card-only')}>
         <QqDynamic
+          dynamicType={d.dynamicType as number | undefined}
           desc={d.dynamicDesc as { mainDesc?: string; subDesc?: string } | undefined}
           desc2={d.dynamicDesc2 as { mainDesc?: string; subDesc?: string } | undefined}
           coverUrl={d.dynamicCoverUrl as string | undefined}
           zoneLogoUrl={d.dynamicZoneLogoUrl as string | undefined}
+          publisherUin={d.dynamicPublisherUin as number[] | undefined}
+          meta={d.dynamicMeta as string | undefined}
+          tags={d.dynamicTags as { flag48191?: boolean; tagId?: number; tagContent?: string }[] | undefined}
         />
       </div>
     );

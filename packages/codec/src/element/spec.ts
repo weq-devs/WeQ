@@ -714,7 +714,8 @@ export const QqDynamicElementSchema = BaseElementFieldsSchema.extend({
   }),
   dynamicCoverUrl: z.string(),
   dynamicZoneLogoUrl: z.string(),
-  dynamicPublisherUin: z.number(),
+  dynamicPublisherUin: z.array(z.number()),
+  dynamicPublisherUid: z.string().optional(),
   dynamicMeta: z.string(),
   dynamicTags: QqDynamicTagListSchema,
 });

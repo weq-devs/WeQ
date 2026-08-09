@@ -445,7 +445,9 @@ export interface RenderQqDynamicElement {
     };
     dynamicCoverUrl: string;
     dynamicZoneLogoUrl: string;
-    dynamicPublisherUin: number;
+    /** 实测可重复出现两次（如密友绑定场景，双方各自的 uin）。 */
+    dynamicPublisherUin: number[];
+    dynamicPublisherUid?: string;
     dynamicMeta: string;
     dynamicTags?: Array<{
       flag48191?: boolean;
@@ -1005,6 +1007,7 @@ function mapQqDynamic(el: QqDynamicElement): RenderQqDynamicElement {
       dynamicCoverUrl: el.dynamicCoverUrl,
       dynamicZoneLogoUrl: el.dynamicZoneLogoUrl,
       dynamicPublisherUin: el.dynamicPublisherUin,
+      dynamicPublisherUid: el.dynamicPublisherUid,
       dynamicMeta: el.dynamicMeta,
       dynamicTags: el.dynamicTags,
       elementId: el.elementId,

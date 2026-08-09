@@ -1252,16 +1252,20 @@ export const ElementWire = {
   emojiBouncePcText: ProtoField(52139, ScalarType.STRING, { optional: true }),
 
   // ---- QQ_DYNAMIC / QQ动态消息 (elementType=26) ----
-  // Share card for a QQ-zone dynamic (说说/动态). All fields below are
-  // required for QQ_DYNAMIC elements except the repeated tag list.
+  // Share card for a QQ-zone dynamic (说说/动态) — QQ 内部名 TOFU. 除标了
+  // "较老客户端" 的字段外，其余在 QQ_DYNAMIC element 上都是必有的。
 
-  /** 动态类型. Required for QQ_DYNAMIC elements. */
+  /** 动态类型（真实枚举，非任意数字）：1=更新个签 2=发布说说 6=生日礼物提醒
+   *  11=互动认证/认识多久 13=匿名问答回答 15=节日提醒 16/18=点赞/戳一戳类
+   *  17=装扮变更 22=密友绑定提醒。未知取值走兜底展示。Required for QQ_DYNAMIC elements. */
   dynamicType: ProtoField(48172, ScalarType.UINT32, { optional: true }),
 
   /** 动态 id. Required for QQ_DYNAMIC elements. */
   dynamicId: ProtoField(48173, ScalarType.STRING, { optional: true }),
 
-  /** Unknown int. Required for QQ_DYNAMIC elements. */
+  /** 卡片子样式 id：与 dynamicType 近似一一对应（同一 dynamicType 观测到的取值
+   *  稳定），推测用于选择客户端的展示模板；具体枚举未知，先按未知整数保留。
+   *  Required for QQ_DYNAMIC elements. */
   dynamicFlag48174: ProtoField(48174, ScalarType.UINT32, { optional: true }),
 
   /** Primary description block (main + sub desc). Required for QQ_DYNAMIC elements. */
@@ -1276,11 +1280,26 @@ export const ElementWire = {
   /** QQ 空间 logo url. Required for QQ_DYNAMIC elements. */
   dynamicZoneLogoUrl: ProtoField(48181, ScalarType.STRING, { optional: true }),
 
-  /** 动态发布者 QQ uin. Required for QQ_DYNAMIC elements. */
-  dynamicPublisherUin: ProtoField(48182, ScalarType.UINT32, { optional: true }),
+  /** 动态相关方 QQ uin 列表。实测**可重复出现两次**（如密友绑定/节日提醒场景，
+   *  分别是双方各自的 uin）——之前按单值 UINT32 建模会在这类消息上被 wire 上后
+   *  一次出现的值覆盖，静默丢掉前一个 uin。Required for QQ_DYNAMIC elements.
+   *  注意：scalar 字段不能同时给 `optional: true` —— ProtoMsgCore 会把它转成
+   *  protobuf-ts 的 `opt: true`，而 reflectionCreate() 对 `opt` 字段直接
+   *  `continue`、根本不会给 repeat 字段初始化 `[]`，实机解码会在
+   *  ReflectionBinaryReader 里 `target[localName].push(...)` 崩成
+   *  "Cannot read properties of undefined (reading 'push')"。仓库里其余 scalar
+   *  repeat 字段（`summary`/`callSummary`）也都没给 optional，保持一致。 */
+  dynamicPublisherUin: ProtoField(48182, ScalarType.UINT32, { repeat: true }),
 
-  /** 动态 meta 数据. Required for QQ_DYNAMIC elements. */
+  /** 动态 meta 数据：实测三种形态——空字符串 / JSON（常见 key 有 jumpUrl、
+   *  jump_schema、jump_h5，用于卡片点击跳转）/ base64 编码的嵌套 protobuf
+   *  （dynamicType=11 互动认证卡，内含"认识 N 天"之类的可读文案）。
+   *  Required for QQ_DYNAMIC elements. */
   dynamicMeta: ProtoField(48183, ScalarType.STRING, { optional: true }),
+
+  /** 动态发布者 uid（编码形式，配合 dynamicPublisherUin 使用可走 profile 解析拿
+   *  昵称/头像）。仅较老客户端（2024 前后）观测到，新版本未必再下发。 */
+  dynamicPublisherUid: ProtoField(48188, ScalarType.STRING, { optional: true }),
 
   /** 标签列表. Repeated nested {flag, tagId, tagContent}. Optional for QQ_DYNAMIC elements. */
   dynamicTags: ProtoField(48189, () => QqDynamicTagWire, { optional: true, repeat: true }),

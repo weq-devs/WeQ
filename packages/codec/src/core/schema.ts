@@ -227,7 +227,14 @@ class ProtoMsgCore<T extends ProtoMessageType> {
           kind: 'scalar',
           T: field.type,
           L: is64Bit(field.type) ? LongType.BIGINT : undefined,
-          opt: field.optional,
+          // protobuf-ts's reflectionCreate() skips array init for `opt: true`
+          // fields entirely (proto3 has no such thing as "optional repeated" —
+          // presence is inherent in the array), so a scalar repeat field would
+          // decode with `target[localName]` left `undefined` and crash the
+          // first time the reader hits `.push()` on it. Force opt off here so
+          // a caller passing `{ optional: true, repeat: true }` can't
+          // reintroduce that crash.
+          opt: field.repeat ? false : field.optional,
           repeat: repeatType,
         };
       }

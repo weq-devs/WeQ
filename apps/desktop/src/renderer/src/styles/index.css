@@ -7083,6 +7083,148 @@ html[data-theme="dark"] .weq-ark-map-name {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
+/* ================= QQ 动态提示卡 (elementType=26, 独立视觉语言，不再套 weq-ark-*) ================= */
+
+.weq-dynamic-container {
+  width: 280px;
+  max-width: 100%;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  border: 1px solid #e1e2e6;
+  overflow: hidden;
+  cursor: default;
+  user-select: none;
+  transition: background 0.2s;
+}
+.weq-dynamic-container.weq-dynamic-clickable { cursor: pointer; }
+.weq-dynamic-container.weq-dynamic-clickable:hover { background-color: #f9f9fa; }
+
+/* 顶部强调条：来自 dynamicDesc.subDesc 的十六进制色，只当装饰用，不套在文字上
+   （那是给浅色气泡设计的颜色，直接当文字色在深色主题下容易读不清）。 */
+.weq-dynamic-accent { height: 3px; width: 100%; }
+
+.weq-dynamic-body { padding: 10px 12px; }
+
+.weq-dynamic-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #8c8c8c;
+  margin-bottom: 8px;
+}
+
+.weq-dynamic-publisher {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.weq-dynamic-publisher-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #1f1f1f;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-dynamic-content {
+  font-size: 14px;
+  line-height: 1.5;
+  color: #1f1f1f;
+  margin-bottom: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.weq-dynamic-cover {
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  display: block;
+  border-radius: 8px;
+  background: #f0f0f0;
+  margin-bottom: 8px;
+}
+
+/* dynamicMeta 里 schema-free 解出来的可读片段（目前只见于互动认证卡），虚线边框
+   区别于 dynamicTags 的实心徽章，提示这是"尽力而为"解析出来的内容。 */
+.weq-dynamic-highlights {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.weq-dynamic-highlight-item {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px dashed #d8d8db;
+  color: #737373;
+}
+
+.weq-dynamic-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.weq-dynamic-tag {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f2f2f3;
+  color: #606060;
+}
+.weq-dynamic-tag-highlight {
+  background: color-mix(in srgb, var(--weq-accent-effective, #2f71df) 16%, transparent);
+  color: var(--weq-accent-effective, #2f71df);
+  font-weight: 500;
+}
+
+.weq-dynamic-footer {
+  padding: 8px 12px;
+  border-top: 1px solid #f2f3f5;
+  font-size: 11px;
+  color: #a6a6a6;
+  background: #fafafa;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.weq-dynamic-footer-icon { width: 12px; height: 12px; border-radius: 2px; object-fit: cover; }
+
+html[data-theme="dark"] .weq-dynamic-container {
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-subtle);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+html[data-theme="dark"] .weq-dynamic-container.weq-dynamic-clickable:hover {
+  background-color: color-mix(in srgb, var(--weq-bg-surface) 88%, white);
+}
+html[data-theme="dark"] .weq-dynamic-header { color: var(--weq-fg-muted); }
+html[data-theme="dark"] .weq-dynamic-publisher-name { color: var(--weq-fg-primary); }
+html[data-theme="dark"] .weq-dynamic-content { color: var(--weq-fg-secondary); }
+html[data-theme="dark"] .weq-dynamic-cover { background: rgba(255, 255, 255, 0.06); }
+html[data-theme="dark"] .weq-dynamic-highlight-item {
+  border-color: rgba(255, 255, 255, 0.16);
+  color: var(--weq-fg-muted);
+}
+html[data-theme="dark"] .weq-dynamic-tag {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--weq-fg-secondary);
+}
+html[data-theme="dark"] .weq-dynamic-footer {
+  background: color-mix(in srgb, var(--weq-bg-surface) 78%, black);
+  border-top-color: rgba(255, 255, 255, 0.08);
+  color: var(--weq-fg-muted);
+}
+
 /* ================= QQ 闪传卡片 (ported from the Flash Transfer demo) ================= */
 
 .message-content.qq-has-flash {
