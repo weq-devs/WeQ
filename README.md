@@ -89,7 +89,7 @@ pnpm dev
 
 - [NapNeko](https://github.com/NapNeko) —— **大量实现参考**
 - [webark-im-template](https://github.com/dogxii/webark-im-template) —— QQ 聊天界面模板
-- [QQBackup](https://github.com/QQBackup) —— 整理了大量QQ数据库相关信息
+- [QQBackup](https://github.com/QQBackup) —— 整理了大量QQ数据库资料
 
 **同时也感谢每一个为WeQ及相关项目做出贡献的开发者**：
 
