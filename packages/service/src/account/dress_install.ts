@@ -35,7 +35,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSyn
 import { extname, join } from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 import type { TrpcNative } from '@weq/protocol';
-import { getBubbleResources, getFontResource } from '@weq/protocol';
+import { getBubbleResources, getFontResource, getPendantResources } from '@weq/protocol';
 import type { AvatarCacheService } from '../bootstrap/avatar_cache';
 import { getLogger, logErrorContext } from '../common/logger';
 import { writeFileAtomicSync } from './atomic_write';
@@ -58,6 +58,17 @@ export interface InstalledFont {
   family: string;
   /** ttf 的绝对路径。 */
   file: string;
+}
+
+/** 一款头像挂件的动画帧信息(scupdate 兜底路径,见 {@link DressInstallService.resolvePendantAnimation})。 */
+export interface PendantAnimation {
+  itemId: number;
+  /** 帧数(other.zip → aio_file.zip 里实际解出的 png 数量)。 */
+  frameCount: number;
+  /** 每帧停留时长(ms),来自 xydata.js 的 `interval` 字段。 */
+  frameTimeMs: number;
+  /** 循环次数,0 视为无限循环。 */
+  repeat: number;
 }
 
 /**
@@ -445,6 +456,87 @@ export class DressInstallService {
     return entry;
   }
 
+  /**
+   * 只有 itemId 时找头像挂件(scupdate bid=4)的真实动画帧。
+   *
+   * `aio_50.png` 只是静态底图 —— 真正会动的素材是 `other.zip` 里嵌套的
+   * `aio_file.zip`,解出来是一串逐帧 PNG(实测 176016 是 29 帧、250×295,比
+   * 50×50 的静态图清晰得多)。帧时长从 `xydata.js` 里的 `interval` 字段读
+   * (毫秒,同一份 xydata 里所有分包共用同一个时间轴)。
+   *
+   * 不设「静态图」这一档中间兜底 —— 动画帧任何一步拿不到(离线 / 没有 other.zip /
+   * zip 里没有 aio_file.zip / 一帧都没解出来),直接返回 null,由调用方
+   * (msg_decoration.ts)整个回退到 newPreview 猜测拼接,不再退回 aio_50.png。
+   *
+   * 落盘按 itemId 记一份 sidecar json(帧数/帧时长/循环),连同帧图一起放
+   * `pendants/` 目录 —— 与气泡/字体一样,复用同一份磁盘缓存跨会话免重新下载。
+   */
+  async resolvePendantAnimation(itemId: number): Promise<PendantAnimation | null> {
+    const dir = join(this.rootDir, 'pendants');
+    const sidecarPath = join(dir, `${itemId}.json`);
+    const cached = readPendantSidecar(sidecarPath);
+    if (cached && existsSync(join(dir, `${itemId}-frame-1.png`))) return cached;
+
+    const pid = this.resolvePid();
+    if (!pid) return null;
+    try {
+      const res = await getPendantResources(this.nt, pid, itemId);
+      if (!res.otherZip?.ok) return null;
+
+      mkdirSync(dir, { recursive: true });
+      const otherZipPath = join(dir, `${itemId}-other.zip`);
+      const dl = await downloadUrlToFile(res.otherZip.url, otherZipPath);
+      if (!dl.ok) return null;
+
+      const otherZip = readFileSync(otherZipPath);
+      const aioFileZip = extractFromZip(otherZip, (n) => /(^|\/)aio_file\.zip$/i.test(n));
+      if (!aioFileZip) return null;
+
+      const frames = extractAllFromZip(aioFileZip, (n) => /^\d+\.png$/i.test(n)).sort((a, b) => {
+        const na = Number(a.name.match(/(\d+)/)?.[1] ?? 0);
+        const nb = Number(b.name.match(/(\d+)/)?.[1] ?? 0);
+        return na - nb;
+      });
+      if (frames.length === 0) return null;
+
+      frames.forEach((frame, i) => {
+        writeFileSync(join(dir, `${itemId}-frame-${i + 1}.png`), frame.data);
+      });
+
+      const frameTimeMs = (await fetchPendantInterval(res.xydata?.url)) ?? 100;
+      const animation: PendantAnimation = {
+        itemId,
+        frameCount: frames.length,
+        frameTimeMs,
+        repeat: 0,
+      };
+      writeFileSync(sidecarPath, JSON.stringify(animation));
+
+      this.logger.info('resolved pendant animation', {
+        event: 'dress-pendant-frames',
+        itemId,
+        frameCount: frames.length,
+        frameTimeMs,
+      });
+      return animation;
+    } catch (e) {
+      this.logger.warn('pendant animation resolve failed', {
+        event: 'dress-pendant-resolve-failed',
+        itemId,
+        ...logErrorContext(e),
+      });
+      return null;
+    }
+  }
+
+  /**
+   * 已解出的挂件动画某一帧(`frame` 从 1 开始)。供 `weq-media://dresspendant?id=&frame=` 用。
+   */
+  pendantFrameFile(itemId: number, frame: number): string | null {
+    const path = join(this.rootDir, 'pendants', `${itemId}-frame-${frame}.png`);
+    return existsSync(path) ? path : null;
+  }
+
   /** 切换生效的装扮。传 0 表示取消该项。 */
   setActive(kind: 'bubble' | 'font', itemId: number): DressManifest {
     const manifest = this.read();
@@ -783,6 +875,48 @@ async function urlExists(url: string): Promise<boolean> {
     return res.status === 200;
   } catch {
     return false;
+  }
+}
+
+/** 读挂件动画的磁盘 sidecar(`pendants/<itemId>.json`)。损坏 / 不存在时返回 null。 */
+function readPendantSidecar(path: string): PendantAnimation | null {
+  try {
+    const raw = JSON.parse(readFileSync(path, 'utf-8')) as Partial<PendantAnimation>;
+    if (!raw.itemId || !raw.frameCount || !raw.frameTimeMs) return null;
+    return {
+      itemId: Number(raw.itemId),
+      frameCount: Number(raw.frameCount),
+      frameTimeMs: Number(raw.frameTimeMs),
+      repeat: Number(raw.repeat ?? 0),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 下 `xydata.js`,读逐帧动画的时间轴。实测内容是 `var vipFaceAddon_<id> = {…};`
+ * (一条 JS 变量赋值,不是纯 JSON) —— 剥掉赋值头和结尾分号后,`data.faceAddonInfo[0]`
+ * 里的 `interval` 就是帧间隔(ms,实测 176016 是 100)。
+ *
+ * 非致命:格式对不上 / 字段缺失一律返回 undefined,调用方回退到一个保守默认值。
+ */
+async function fetchPendantInterval(url: string | undefined): Promise<number | undefined> {
+  if (!url) return undefined;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return undefined;
+    const text = await res.text();
+    const match = text.match(/=\s*(\{[\s\S]*\})\s*;?\s*$/);
+    const captured = match?.[1];
+    if (!captured) return undefined;
+    const json = JSON.parse(captured) as {
+      data?: { faceAddonInfo?: Array<{ interval?: unknown }> };
+    };
+    const interval = Number(json.data?.faceAddonInfo?.[0]?.interval);
+    return Number.isFinite(interval) && interval > 0 ? interval : undefined;
+  } catch {
+    return undefined;
   }
 }
 

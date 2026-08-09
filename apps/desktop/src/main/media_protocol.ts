@@ -24,6 +24,7 @@
  *   weq-media://dressfont?id=<itemId>                         → 已安装的装扮字体 ttf
  *   weq-media://dressbubble?id=<itemId>                       → 走 protocol 装的气泡九宫格(本地 PNG)
  *   weq-media://dressbubble?id=<itemId>&frame=<n>              → 同上,整泡帧动画的第 n 帧(n 从 1 开始)
+ *   weq-media://dresspendant?id=<itemId>&frame=<n>             → 走 protocol 换的头像挂件动画帧(本地 PNG,n 从 1 开始)
  *   weq-media://dressbg?v=<stamp>                             → 用户自选的聊天背景(本地图)
  *   weq-media://linkpreview?id=<hash.ext>                     → 链接卡片封面(已落盘、验过魔数)
  *
@@ -302,6 +303,16 @@ export function handleMediaRequest(request: Request): Promise<Response> {
           ? services.dressInstall.bubbleFrameFile(id, frame)
           : services.dressInstall.bubbleFile(id);
       return path ? fileResponse(path) : notFound('dress bubble not installed');
+    }
+
+    // 走 protocol 换的头像挂件动画帧:other.zip → aio_file.zip 解出的逐帧 PNG,
+    // 见 dress_install.ts 的 resolvePendantAnimation/pendantFrameFile。没有「不带
+    // frame 取静态图」这一档 —— 挂件不设中间的静态兜底(见该方法头注释)。
+    if (kind === 'dresspendant') {
+      const id = Number(q.get('id') ?? '0');
+      const frame = Number(q.get('frame') ?? '0');
+      const path = id && frame > 0 ? services.dressInstall.pendantFrameFile(id, frame) : null;
+      return path ? fileResponse(path) : notFound('dress pendant frame not available');
     }
 
     // 用户自选的聊天背景:已拷进本账号的装扮目录,路径由清单给 —— 不接受 url 传路径,

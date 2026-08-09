@@ -15,6 +15,8 @@ import {
   CODE_NOT_FOUND,
   fontScid,
   isDownloadable,
+  pendantScid,
+  pendantScids,
   readRspStatus,
   scanScids,
   ScUpdateError,
@@ -76,9 +78,24 @@ describe('scid 拼装', () => {
     expect(fontScid(32824, 'fzfont')).toBe('font.fzfont.android.32824');
   });
 
+  it('挂件默认取 aio_50.png,scid 无 android 段', () => {
+    expect(pendantScid(176016)).toBe('pendant.176016.aio_50.png');
+    expect(pendantScid(176016, 'xydata.js')).toBe('pendant.176016.xydata.js');
+    expect(pendantScid(176016, 'other.zip')).toBe('pendant.176016.other.zip');
+  });
+
+  it('pendantScids 覆盖三个分包', () => {
+    expect(pendantScids(176016)).toEqual([
+      'pendant.176016.aio_50.png',
+      'pendant.176016.xydata.js',
+      'pendant.176016.other.zip',
+    ]);
+  });
+
   it('按前缀推 bid', () => {
     expect(bidFromScid('bubble.android.1.config.json')).toBe(VasBid.Bubble);
     expect(bidFromScid('font.main.android.10060')).toBe(VasBid.Font);
+    expect(bidFromScid('pendant.176016.aio_50.png')).toBe(VasBid.Pendant);
     expect(bidFromScid('praise.android.1')).toBeUndefined();
   });
 });

@@ -310,7 +310,10 @@ export const dressupRouter = router({
    *
    * font 与 bubble 同样是「按需自动装」：未装过就走 scupdate 下载（需要在线实例，
    * 没有在线实例时该条 fontFile 为 null，前端不渲染自定义字体，不报错）。
-   * widget 直接按 itemId 拼 CDN URL，不做探测。
+   * widget 优先走 scupdate 换真实动画帧（other.zip → aio_file.zip，同样需要在线实例，
+   * 不设「静态 aio_50.png」中间兜底），拿不到时直接回退到按 itemId 拼 CDN URL 的
+   * 猜测（成功率不保证，但好过没有）；两种情况 `widget` 字段恒非 null（widgetId > 0
+   * 时），用 `widget.animated` 区分该走 CSS 帧动画还是普通 `<img src>`。
    */
   resolveMsgDecoration: procedure
     .input(

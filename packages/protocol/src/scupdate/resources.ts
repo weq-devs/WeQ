@@ -5,7 +5,16 @@
 
 import type { TrpcNative } from '../transport';
 import { getResourceUrls, type ResourceUrl } from './get-url';
-import { BUBBLE_PARTS, bubbleScid, fontScid, type BubblePart, type FontFamily } from './scid';
+import {
+  BUBBLE_PARTS,
+  PENDANT_PARTS,
+  bubbleScid,
+  fontScid,
+  pendantScid,
+  type BubblePart,
+  type FontFamily,
+  type PendantPart,
+} from './scid';
 import { VasBid } from './schemas';
 import type { ScUpdateClient } from './session';
 
@@ -83,4 +92,52 @@ export async function getFontResource(
     if (hit) lastMiss = hit;
   }
   return lastMiss;
+}
+
+/** 一款头像挂件的全部可用资源。 */
+export interface PendantResources {
+  itemId: number | string;
+  /** 合成到头像上的挂件图。渲染必需,基本必然存在。 */
+  image?: ResourceUrl;
+  /** 动画/配置数据。 */
+  xydata?: ResourceUrl;
+  /** 动效资源包。只有部分挂件有。 */
+  otherZip?: ResourceUrl;
+  /** 全部结果(含没取到的),便于排查。 */
+  all: ResourceUrl[];
+}
+
+/**
+ * 取一款头像挂件的全部资源。一次请求带上三个分包,同 {@link getBubbleResources}。
+ *
+ * `xydata.js` / `other.zip` 不是每款都有;没有时对应字段为 undefined,
+ * 在 {@link PendantResources.all} 里能看到 `reason: 'no-such-part'`。
+ */
+export async function getPendantResources(
+  nt: TrpcNative,
+  pid: number,
+  itemId: number | string,
+  client: ScUpdateClient = {},
+): Promise<PendantResources> {
+  const all = await getResourceUrls(
+    nt,
+    pid,
+    PENDANT_PARTS.map((part) => ({ bid: VasBid.Pendant, scid: pendantScid(itemId, part) })),
+    client,
+  );
+
+  const pick = (part: PendantPart): ResourceUrl | undefined => {
+    const want = pendantScid(itemId, part);
+    const hit = all.find((r) => r.scid === want);
+    return hit?.ok ? hit : undefined;
+  };
+
+  const out: PendantResources = { itemId, all };
+  const image = pick('aio_50.png');
+  const xydata = pick('xydata.js');
+  const otherZip = pick('other.zip');
+  if (image) out.image = image;
+  if (xydata) out.xydata = xydata;
+  if (otherZip) out.otherZip = otherZip;
+  return out;
 }

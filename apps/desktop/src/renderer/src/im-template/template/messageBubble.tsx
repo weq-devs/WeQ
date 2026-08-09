@@ -16,11 +16,53 @@ import { SetEmojiReactions } from "../../components/SetEmojiReactions";
 import { useSelfPendant } from "../../hooks/useSelfPendant";
 import { useMsgDecoration } from "../../hooks/useMsgDecoration";
 
-// 挂件 URL 是按 itemId 直接拼 CDN 地址、不做探测的（见 msg_decoration.ts），常年会有
-// 下架/过期 404。加载失败就把 <img> 本身藏起来，别让浏览器画那个裂图占位——头像本体
-// 照常显示，只是没有这个装饰角标。
+// 猜测式回退（newPreview 拼接，见 msg_decoration.ts）常年会有下架/过期 404。加载失败
+// 就把 <img> 本身藏起来，别让浏览器画那个裂图占位——头像本体照常显示，只是没有这个
+// 装饰角标。真动画帧（CSS 背景图 keyframes）走本地 protocol 文件，不会 404，不需要这层。
 function hideBrokenImg(event: { currentTarget: HTMLImageElement }) {
 	event.currentTarget.style.display = "none";
+}
+
+/**
+ * 头像挂件叠加层。`widget.animated` 时渲染一个空 `<span>`，真正的画面由
+ * `data-widget` 属性选中后注入的 CSS `@keyframes`（见 msgDecorationStyle.ts 的
+ * injectWidgetCss）逐帧切 `background-image`；否则退回普通 `<img src>`（猜测的
+ * newPreview URL，或 mine 消息在没有 per-message widget 时用的自己头像挂件）。
+ */
+function PendantOverlay({
+	name,
+	avatarUrl,
+	seed,
+	widget,
+	fallbackUrl,
+}: {
+	name: string;
+	avatarUrl?: string;
+	seed?: string;
+	widget: { animated: boolean; url?: string } | null;
+	fallbackUrl?: string | null;
+}) {
+	const staticUrl = widget ? (widget.animated ? undefined : widget.url) : fallbackUrl;
+	if (!widget?.animated && !staticUrl) {
+		return <Avatar name={name} avatarUrl={avatarUrl} seed={seed} />;
+	}
+	return (
+		<span className={cn("weq-avatar-pendant")}>
+			<Avatar name={name} avatarUrl={avatarUrl} seed={seed} />
+			{widget?.animated ? (
+				<span className={cn("weq-avatar-pendant-img")} aria-hidden />
+			) : (
+				<img
+					className={cn("weq-avatar-pendant-img")}
+					src={staticUrl}
+					alt=""
+					aria-hidden
+					draggable={false}
+					onError={hideBrokenImg}
+				/>
+			)}
+		</span>
+	);
 }
 
 export function MessageBubble({
@@ -86,7 +128,7 @@ export function MessageBubble({
 	// 一条消息一次网络往返不现实，故只叠自己的。
 	const pendantUrl = useSelfPendant();
 	const msgDec = useMsgDecoration((message as any).decoration);
-	const msgWidgetUrl = msgDec.widgetUrl;
+	const msgWidget = msgDec.widget;
 	const msgBubbleId = msgDec.bubbleId;
 	const msgFontId = msgDec.fontId;
 	// Deleted origin — prefer the explicit kind; fall back to the legacy boolean
@@ -204,6 +246,7 @@ export function MessageBubble({
 			data-message-id={message.id}
 			data-bubble={msgBubbleId || undefined}
 			data-font={msgFontId || undefined}
+			data-widget={msgWidget?.animated ? msgWidget.itemId : undefined}
 		>
 			{!mine ? (
 				onAvatarClick ? (
@@ -216,26 +259,10 @@ export function MessageBubble({
 							onAvatarClick(sender, { x: event.clientX, y: event.clientY })
 						}
 					>
-						{msgWidgetUrl ? (
-							<span className={cn("weq-avatar-pendant")}>
-								<Avatar name={senderName} avatarUrl={senderAvatarUrl} seed={senderSeed} />
-								<img className={cn("weq-avatar-pendant-img")} src={msgWidgetUrl} alt="" aria-hidden draggable={false} onError={hideBrokenImg} />
-							</span>
-						) : (
-							<Avatar name={senderName} avatarUrl={senderAvatarUrl} seed={senderSeed} />
-						)}
+						<PendantOverlay name={senderName} avatarUrl={senderAvatarUrl} seed={senderSeed} widget={msgWidget} />
 					</button>
-				) : msgWidgetUrl ? (
-					<span className={cn("weq-avatar-pendant")}>
-						<Avatar name={senderName} avatarUrl={senderAvatarUrl} seed={senderSeed} />
-						<img className={cn("weq-avatar-pendant-img")} src={msgWidgetUrl} alt="" aria-hidden draggable={false} onError={hideBrokenImg} />
-					</span>
 				) : (
-					<Avatar
-						name={senderName}
-						avatarUrl={senderAvatarUrl}
-						seed={senderSeed}
-					/>
+					<PendantOverlay name={senderName} avatarUrl={senderAvatarUrl} seed={senderSeed} widget={msgWidget} />
 				)
 			) : null}
 			<div
@@ -351,29 +378,13 @@ export function MessageBubble({
 				) : null}
 			</div>
 			{mine ? (
-				(msgWidgetUrl || pendantUrl) ? (
-					<span className={cn("weq-avatar-pendant")}>
-						<Avatar
-							name={senderName}
-							avatarUrl={senderAvatarUrl}
-							seed={senderSeed}
-						/>
-						<img
-							className={cn("weq-avatar-pendant-img")}
-							src={msgWidgetUrl ?? pendantUrl}
-							alt=""
-							aria-hidden
-							draggable={false}
-							onError={hideBrokenImg}
-						/>
-					</span>
-				) : (
-					<Avatar
-						name={senderName}
-						avatarUrl={senderAvatarUrl}
-						seed={senderSeed}
-					/>
-				)
+				<PendantOverlay
+					name={senderName}
+					avatarUrl={senderAvatarUrl}
+					seed={senderSeed}
+					widget={msgWidget}
+					fallbackUrl={pendantUrl}
+				/>
 			) : null}
 		</div>
 	);

@@ -99,6 +99,15 @@ export function dressBubbleFrameUrl(itemId: number, frame: number): string {
 }
 
 /**
+ * 头像挂件动画的某一帧(`frame` 从 1 开始)。与 {@link dressBubbleFrameUrl} 同构,
+ * 只是资源来自 other.zip → aio_file.zip(见 dress_install.ts 的
+ * resolvePendantAnimation)。没有不带 frame 的静态变体 —— 挂件不设中间兜底。
+ */
+export function dressPendantFrameUrl(itemId: number, frame: number): string {
+  return mediaUrl('dresspendant', { id: itemId, frame });
+}
+
+/**
  * 用户自选的聊天背景(本地图)。
  *
  * `stamp` 是用来穿透缓存的:文件名固定为 `custom.<ext>`,换了图 url 却不变,浏览器

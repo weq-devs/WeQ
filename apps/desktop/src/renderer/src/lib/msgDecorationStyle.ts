@@ -9,8 +9,8 @@
  * matching the server-side MsgDecorationCacheService guarantee.
  */
 
-import type { BubbleSkin } from '@weq/service';
-import { dressBubbleUrl, dressBubbleFrameUrl, dressFontUrl, dressUrl } from './resourceUrl';
+import type { BubbleSkin, ResolvedWidget } from '@weq/service';
+import { dressBubbleUrl, dressBubbleFrameUrl, dressPendantFrameUrl, dressFontUrl, dressUrl } from './resourceUrl';
 
 const STYLE_ID = 'weq-msg-decoration';
 const BUBBLE_SCALE = 0.5;
@@ -18,6 +18,7 @@ const PAD_RATIO_Y = 0.6;
 
 const injectedBubbles = new Set<number>();
 const injectedFonts = new Set<number>();
+const injectedWidgets = new Set<number>();
 
 function px(v: number): string {
   return `${Math.round(v * 100) / 100}px`;
@@ -199,4 +200,67 @@ export function injectFontCss(fontId: number): void {
       `  font-family: "${family}", var(--im-font-body, Inter), ui-sans-serif, system-ui, sans-serif;` +
       `}`,
   );
+}
+
+/** Selector: the pendant overlay element inside a message line whose widget id matches. */
+function widgetSel(widgetId: number): string {
+  return `.message-line[data-widget="${widgetId}"] .weq-avatar-pendant-img`;
+}
+
+/**
+ * Same `@keyframes` trick as {@link frameAnimationCss}, but swaps `background-image`
+ * instead of `border-image-source` — the pendant overlay is a plain `<span>` (no
+ * nine-patch geometry to preserve), so a background layer is the simpler fit.
+ */
+function widgetFrameAnimationCss(
+  itemId: number,
+  frameCount: number,
+  frameTimeMs: number,
+  repeat: number,
+): { keyframes: string; animation: string } {
+  const name = `weq-widgetframe-${itemId}`;
+  const step = 100 / frameCount;
+  const stops = Array.from({ length: frameCount }, (_, i) => {
+    const pct = Math.round(Math.min(i * step, 100) * 100) / 100;
+    return `  ${pct}% { background-image: url("${dressPendantFrameUrl(itemId, i + 1)}"); }`;
+  });
+  const keyframes = [`@keyframes ${name} {`, ...stops, `}`].join('\n');
+  const duration = frameCount * frameTimeMs;
+  const iterations = repeat > 0 ? repeat : 'infinite';
+  return { keyframes, animation: `${name} ${duration}ms steps(1) ${iterations}` };
+}
+
+/**
+ * Inject the `@keyframes` + selector rule for one resolved pendant animation.
+ * No-op for the `animated: false` (guessed static URL) shape — that one renders
+ * as a plain `<img src>` in messageBubble.tsx, no CSS needed.
+ */
+export function injectWidgetCss(widget: ResolvedWidget): void {
+  if (!widget.animated) return;
+  if (injectedWidgets.has(widget.itemId)) return;
+  injectedWidgets.add(widget.itemId);
+
+  const frameAnim = widgetFrameAnimationCss(
+    widget.itemId,
+    widget.frameCount,
+    widget.frameTimeMs,
+    widget.repeat,
+  );
+  const sel = widgetSel(widget.itemId);
+
+  const rules = [
+    frameAnim.keyframes,
+    `${sel} {`,
+    `  background-image: url("${dressPendantFrameUrl(widget.itemId, 1)}");`,
+    `  background-size: contain;`,
+    `  background-position: center;`,
+    `  background-repeat: no-repeat;`,
+    `  animation: ${frameAnim.animation};`,
+    `}`,
+    `@media (prefers-reduced-motion: reduce) {`,
+    `  ${sel} { animation: none; }`,
+    `}`,
+  ];
+
+  append(rules.join('\n'));
 }

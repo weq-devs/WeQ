@@ -9,6 +9,7 @@
  *   pnpm tsx packages/protocol/tools/scupdate_probe.ts               # 拉清单 + 抽样换链接
  *   pnpm tsx packages/protocol/tools/scupdate_probe.ts --bubble 2078642
  *   pnpm tsx packages/protocol/tools/scupdate_probe.ts --font 32824
+ *   pnpm tsx packages/protocol/tools/scupdate_probe.ts --widget 176016
  *   pnpm tsx packages/protocol/tools/scupdate_probe.ts --all         # 换清单里全部资源
  *   pnpm tsx packages/protocol/tools/scupdate_probe.ts --verify      # 顺带 HTTP 校验外链可下载
  *
@@ -22,6 +23,7 @@ import { ensureSendable, testEnv } from '@weq/testkit';
 import {
   getBubbleResources,
   getFontResource,
+  getPendantResources,
   getUrlsByScid,
   syncResourceList,
   type ResourceUrl,
@@ -36,6 +38,7 @@ const opt = (f: string): string | undefined => {
 
 const BUBBLE_ID = opt('--bubble');
 const FONT_ID = opt('--font');
+const WIDGET_ID = opt('--widget');
 const RESOLVE_ALL = has('--all');
 const VERIFY = has('--verify');
 /** 不换全部时,每类资源抽样换取的条数。 */
@@ -150,6 +153,15 @@ async function main(): Promise<void> {
     return;
   }
 
+  // ── 指定挂件 ──
+  if (WIDGET_ID) {
+    console.log(`── 挂件 ${WIDGET_ID} ──`);
+    const res = await getPendantResources(nt, pid, WIDGET_ID, CLIENT);
+    const ok = await reportAll(res.all);
+    console.log(`\n${ok > 0 ? '✅' : '❌'} 拿到 ${ok}/${res.all.length} 个资源文件`);
+    return;
+  }
+
   // ── 默认:拉清单 → 换链接 ──
   console.log('── SyncVCR:拉服务端资源清单 ──');
   const listing = await syncResourceList(nt, pid, CLIENT);
@@ -160,7 +172,7 @@ async function main(): Promise<void> {
 
   let total = 0;
   let okCount = 0;
-  for (const business of ['bubble', 'font']) {
+  for (const business of ['bubble', 'font', 'pendant']) {
     const arr = listing.byBusiness.get(business);
     if (!arr?.length) {
       console.log(`\n── ${business}:清单里没有(该账号未拥有此类资源)──`);

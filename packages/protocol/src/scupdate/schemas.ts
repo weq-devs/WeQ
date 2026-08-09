@@ -25,6 +25,8 @@ export enum ScUpdateOp {
 export enum VasBid {
   Bubble = 2,
   Theme = 3,
+  /** 头像挂件。取自 `PendantInfo`/`AvatarPendantUtil` 里 `downloadItem(4L, ...)`。 */
+  Pendant = 4,
   Font = 5,
 }
 

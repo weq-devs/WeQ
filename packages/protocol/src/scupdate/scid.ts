@@ -23,6 +23,15 @@ export type BubblePart = (typeof BUBBLE_PARTS)[number];
 export const FONT_FAMILIES = ['main', 'fzfont'] as const;
 export type FontFamily = (typeof FONT_FAMILIES)[number];
 
+/**
+ * 头像挂件的分包。拼法取自 `AvatarPendantUtil.a(long,int)`:
+ * type=1 → aio_50.png(合成到头像上的挂件图,渲染必需)、type=2/默认 → other.zip
+ * (动效资源包,不是每款都有)、type=4 → xydata.js(动画/配置数据)。
+ * 跟气泡不同,挂件 scid 里没有 `android` 段。
+ */
+export const PENDANT_PARTS = ['aio_50.png', 'xydata.js', 'other.zip'] as const;
+export type PendantPart = (typeof PENDANT_PARTS)[number];
+
 /** 拼气泡 scid:`bubble.android.<id>.<part>`。 */
 export function bubbleScid(itemId: number | string, part: BubblePart = 'config.json'): string {
   return `bubble.android.${itemId}.${part}`;
@@ -33,9 +42,19 @@ export function fontScid(itemId: number | string, family: FontFamily = 'main'): 
   return `font.${family}.android.${itemId}`;
 }
 
+/** 拼挂件 scid:`pendant.<id>.<part>`。 */
+export function pendantScid(itemId: number | string, part: PendantPart = 'aio_50.png'): string {
+  return `pendant.${itemId}.${part}`;
+}
+
 /** 一款气泡的全部分包 scid。 */
 export function bubbleScids(itemId: number | string): string[] {
   return BUBBLE_PARTS.map((p) => bubbleScid(itemId, p));
+}
+
+/** 一款挂件的全部分包 scid。 */
+export function pendantScids(itemId: number | string): string[] {
+  return PENDANT_PARTS.map((p) => pendantScid(itemId, p));
 }
 
 /**
@@ -46,6 +65,7 @@ export function bidFromScid(scid: string): VasBid | undefined {
   if (scid.startsWith('bubble.')) return VasBid.Bubble;
   if (scid.startsWith('font.')) return VasBid.Font;
   if (scid.startsWith('theme.')) return VasBid.Theme;
+  if (scid.startsWith('pendant.')) return VasBid.Pendant;
   return undefined;
 }
 

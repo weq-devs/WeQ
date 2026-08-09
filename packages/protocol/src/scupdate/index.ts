@@ -1,5 +1,5 @@
 /**
- * SC 快更新(scupdate)—— 个性装扮资源(气泡 / 字体)的下载地址获取。
+ * SC 快更新(scupdate)—— 个性装扮资源(气泡 / 字体 / 头像挂件)的下载地址获取。
  *
  * 这是 QQ 会员装扮资源的分发链路,原本是手Q(mobileqq)独有功能。桌面 NTQQ 通过
  * `sendPacket` 发同样的 SSO 包同样被服务端受理,只需在 `comm.plat` 里填 109
@@ -31,13 +31,16 @@ export {
 export {
   BUBBLE_PARTS,
   FONT_FAMILIES,
+  PENDANT_PARTS,
   bubbleScid,
   bubbleScids,
   fontScid,
+  pendantScid,
+  pendantScids,
   bidFromScid,
   scanScids,
 } from './scid';
-export type { BubblePart, FontFamily } from './scid';
+export type { BubblePart, FontFamily, PendantPart } from './scid';
 
 export { buildReqComm, readRspStatus, ScUpdateError } from './session';
 export type { ScUpdateClient, ScUpdateStatus } from './session';
@@ -48,5 +51,5 @@ export type { ResourceUrl, ScidRef } from './get-url';
 export { syncResourceList } from './sync-list';
 export type { ResourceListing } from './sync-list';
 
-export { getBubbleResources, getFontResource } from './resources';
-export type { BubbleResources } from './resources';
+export { getBubbleResources, getFontResource, getPendantResources } from './resources';
+export type { BubbleResources, PendantResources } from './resources';
