@@ -216,7 +216,7 @@ function MediaNode({
             conv={conv}
             fwd={fwd}
             bubble
-            templateName={(data as Record<string, unknown>)['templateName'] as string | undefined}
+            templateName={(data as Record<string, unknown>).templateName as string | undefined}
           />
         </div>
       );

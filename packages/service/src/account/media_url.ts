@@ -83,9 +83,10 @@ export function mediaNodeFromElement(el: MediaElement): MediaIndexNode {
   const fileHash = el.md5 || hexOf(el.md5Bytes);
   const fileSha1 = hexOf(el.contentHash);
 
+  const isVideo = el.kind === 'video' || el.kind === 'bubbleVideo';
   const typeInfo: MediaIndexNode['type'] =
-    el.kind === 'video' ? { type: 2, videoFormat: 1 } :
-    el.kind === 'ptt'   ? { type: 3, voiceFormat: 1 } :
+    isVideo          ? { type: 2, videoFormat: 1 } :
+    el.kind === 'ptt' ? { type: 3, voiceFormat: 1 } :
     {};
 
   return {
@@ -98,12 +99,12 @@ export function mediaNodeFromElement(el: MediaElement): MediaIndexNode {
     height: el.videoHeight ?? el.imgHeight ?? 0,
     time: el.videoDuration ?? 0,
     original: el.isOriginal ? 1 : 0,
-    storeId: el.kind === 'video' ? (el.fileFlag45415 ?? 0) : 0,
+    storeId: isVideo ? (el.fileFlag45415 ?? 0) : 0,
     uploadTime: el.uploadTime ?? 0,
     ttl: el.fileTTL ?? 0,
     subType: el.subType ?? 0,
     type: typeInfo,
-    videoExt: el.kind === 'video'
+    videoExt: isVideo
       ? {
           channelParams: hexOf(el.channelParams),
           videoFlag45421: hexOf(el.videoFlag45421),
@@ -115,6 +116,8 @@ export function mediaNodeFromElement(el: MediaElement): MediaIndexNode {
 
 export class MediaUrlService {
   private readonly selfUid: string;
+  private readonly profileInfo: AccountSession['profileInfo'];
+  private resolvedSelfUid: string | undefined;
 
   constructor(
     private readonly nt: Pick<NtHelperBinding, 'sendOidbPacket'>,
@@ -122,6 +125,14 @@ export class MediaUrlService {
     private readonly resolvePid: () => number,
   ) {
     this.selfUid = session.uidMap.uidByUin(BigInt(session.context.uin)) ?? '';
+    this.profileInfo = session.profileInfo;
+  }
+
+  private async getSelfUid(): Promise<string> {
+    if (this.selfUid) return this.selfUid;
+    if (this.resolvedSelfUid !== undefined) return this.resolvedSelfUid;
+    this.resolvedSelfUid = await this.profileInfo.getSelfUid();
+    return this.resolvedSelfUid;
   }
 
   // ─── group ───
@@ -160,8 +171,9 @@ export class MediaUrlService {
   // ─── private / c2c ───
 
   async getPrivateVideoUrl(node: MediaIndexNode): Promise<string> {
-    if (!this.selfUid) throw new Error('selfUid unavailable — uid map may not cover own uin');
-    return GetPrivateVideoUrl.invoke(this.nt, this.resolvePid(), { selfUid: this.selfUid, node });
+    const selfUid = await this.getSelfUid();
+    if (!selfUid) throw new Error('selfUid unavailable — uid map may not cover own uin');
+    return GetPrivateVideoUrl.invoke(this.nt, this.resolvePid(), { selfUid, node });
   }
 
   async getPrivateVideoUrlFromElement(element: MediaElement): Promise<string> {
@@ -169,14 +181,16 @@ export class MediaUrlService {
   }
 
   async getPrivatePttUrl(node: MediaIndexNode): Promise<string> {
-    if (!this.selfUid) throw new Error('selfUid unavailable — uid map may not cover own uin');
-    return GetPrivatePttUrl.invoke(this.nt, this.resolvePid(), { selfUid: this.selfUid, node });
+    const selfUid = await this.getSelfUid();
+    if (!selfUid) throw new Error('selfUid unavailable — uid map may not cover own uin');
+    return GetPrivatePttUrl.invoke(this.nt, this.resolvePid(), { selfUid, node });
   }
 
   async getPrivateFileUrl(fileId: string, fileHash: string): Promise<string> {
-    if (!this.selfUid) throw new Error('selfUid unavailable — uid map may not cover own uin');
+    const selfUid = await this.getSelfUid();
+    if (!selfUid) throw new Error('selfUid unavailable — uid map may not cover own uin');
     return GetPrivateFileUrl.invoke(this.nt, this.resolvePid(), {
-      selfUid: this.selfUid,
+      selfUid,
       fileId,
       fileHash,
     });

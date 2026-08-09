@@ -281,6 +281,14 @@ export class ProfileInfoDb {
     return rows.map(rowToProfile);
   }
 
+  /** 账号自身的 uid（profile_info_v6 中 20003 最大行的 1000 列）。 */
+  async getSelfUid(): Promise<string> {
+    const rows = await this.qq.query(
+      `SELECT "1000" FROM profile_info_v6 ORDER BY "20003" DESC LIMIT 1`,
+    );
+    return String(rows[0]?.[0] ?? '');
+  }
+
   close(): void {
     this.qq.close();
   }

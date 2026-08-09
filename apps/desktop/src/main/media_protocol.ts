@@ -99,7 +99,9 @@ async function findMediaElement(
     return null;
   }
   if (!raw) return null;
-  const matches = raw.elements.filter((e) => e.kind === kind);
+  const matches = raw.elements.filter(
+    (e) => e.kind === kind || (kind === 'video' && e.kind === 'bubbleVideo'),
+  );
   const el =
     matches.find((e) => (e as { fileToken?: string }).fileToken === token) ?? matches[0];
   if (!el) return null;
