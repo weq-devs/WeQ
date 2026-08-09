@@ -9,6 +9,10 @@
 export type { Platform } from './types';
 export { createWin32Platform } from './win32';
 export { createLinuxPlatform } from './linux';
+// Resource-root redirection: wraps a Platform so a static / imported account
+// resolves its databases and media somewhere other than the local QQ install.
+export { withResourceRoots } from './resource_roots';
+export type { MediaDirKey, ResourceRootOverrides } from './resource_roots';
 // Pure path helpers (used directly by service tests / tooling that don't hold a
 // Platform instance). The win32 barrel is the source of truth.
 export {

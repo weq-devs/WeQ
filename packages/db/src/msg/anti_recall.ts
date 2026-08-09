@@ -243,8 +243,10 @@ function firstElemIsGrayTip(alias: 'OLD' | 'NEW'): string {
 
 /**
  * Build the `CREATE TRIGGER` statement for one table, gated on the given
- * conversation ids. `ids` must be non-empty — the caller drops (not creates)
- * the trigger for tables with no selection.
+ * conversation ids. `ids === null` means "protect every conversation" (永久
+ * 全选) — the `AND OLD."col" IN (...)` clause is omitted entirely so the
+ * trigger fires for the whole table. Otherwise `ids` must be non-empty — the
+ * caller drops (not creates) the trigger for tables with no selection.
  *
  * ── 判据（收窄版，真库数据驱动，见上方 firstElemIsGrayTip）──────────────────────
  * FIRE（拦截+RAISE）当且仅当，一次 UPDATE 把「真消息就地改写成撤回灰条」：
@@ -272,17 +274,20 @@ function firstElemIsGrayTip(alias: 'OLD' | 'NEW'): string {
  * would be `IN ()` — a syntax error — so the caller treats null as "nothing to
  * install for this table".
  */
-function createTriggerSql(spec: TableSpec, ids: readonly string[]): string | null {
-  const inList = ids
-    .map((id) => sqlLiteral(id, spec.filterNumeric))
-    .filter((lit): lit is string => lit !== null)
-    .join(', ');
-  if (inList === '') return null;
+function createTriggerSql(spec: TableSpec, ids: readonly string[] | null): string | null {
+  let filterClause = '';
+  if (ids !== null) {
+    const inList = ids
+      .map((id) => sqlLiteral(id, spec.filterNumeric))
+      .filter((lit): lit is string => lit !== null)
+      .join(', ');
+    if (inList === '') return null;
+    filterClause = `\n  AND OLD."${spec.filterCol}" IN (${inList})`;
+  }
 
   return `CREATE TRIGGER IF NOT EXISTS ${spec.trigger}
 BEFORE UPDATE ON ${spec.table}
-WHEN OLD."40002" IS NEW."40002"
-  AND OLD."${spec.filterCol}" IN (${inList})
+WHEN OLD."40002" IS NEW."40002"${filterClause}
   AND NOT ${firstElemIsGrayTip('OLD')}
   AND (
     ${firstElemIsGrayTip('NEW')}
@@ -368,15 +373,18 @@ export class AntiRecallDb {
 
   /**
    * Reconcile the installed triggers to exactly protect `targets`:
+   *   • `allConversations = true` → every table's trigger is (re)created with
+   *     no session filter (永久全选：不做会话筛选), regardless of `targets`.
    *   • a table with ≥1 selected conversation → its trigger is (re)created with
    *     the current id list (dropped first so the WHEN filter always refreshes);
    *   • a table with no selection → its trigger is dropped.
-   * Passing `[]` therefore uninstalls everything (same as {@link uninstall}).
+   * Passing `[]` with `allConversations = false` therefore uninstalls
+   * everything (same as {@link uninstall}).
    *
    * Each statement runs on its own write (QqDb.write drops the lock after each),
    * so a mid-way failure leaves a consistent, inspectable state.
    */
-  async reconcile(targets: readonly AntiRecallTarget[]): Promise<void> {
+  async reconcile(targets: readonly AntiRecallTarget[], allConversations = false): Promise<void> {
     const byKind = new Map<AntiRecallKind, string[]>();
     for (const t of targets) {
       const list = byKind.get(t.kind) ?? [];
@@ -385,17 +393,17 @@ export class AntiRecallDb {
     }
 
     // 记录表必须先于任何 trigger 存在——trigger body 会 INSERT 进它。幂等。
-    const anySelected = [...byKind.values()].some((l) => l.length > 0);
+    const anySelected = allConversations || [...byKind.values()].some((l) => l.length > 0);
     if (anySelected) {
       await this.ensureRecallLogSchema();
     }
 
     for (const spec of TABLE_SPECS) {
-      const ids = byKind.get(spec.kind) ?? [];
+      const ids: readonly string[] | null = allConversations ? null : (byKind.get(spec.kind) ?? []);
       // Always drop first: refreshing the WHEN id-list means replacing the
       // stored trigger, and DROP-then-CREATE is the only portable way.
       await this.qq.write(`DROP TRIGGER IF EXISTS ${spec.trigger}`);
-      if (ids.length > 0) {
+      if (ids === null || ids.length > 0) {
         const sql = createTriggerSql(spec, ids);
         // null → no storage-class-valid id survived for this table; leave it
         // dropped rather than emit an `IN ()` syntax error.

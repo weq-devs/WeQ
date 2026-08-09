@@ -355,6 +355,7 @@ export function LoginPanel({
           },
           ...(selected.dbKey ? { dbKey: selected.dbKey } : {}),
           ...(selected.algo?.pageHmacAlgorithm ? { algo: selected.algo } : {}),
+          ...(selected.mobile ? { mobile: true } : {}),
         });
         if (autoEnter) {
           await client.bootstrap.setAutoEnter.mutate({

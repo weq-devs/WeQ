@@ -153,6 +153,12 @@ export const InlineKeyboardRowWire = {
   buttons: ProtoField(48753, () => InlineKeyboardButtonWire, { optional: true, repeat: true }),
 };
 
+/** Nested extra struct inside a QUNGIFT element (tag 48864). Semantics unverified from single sample. */
+export const QunGiftExtraWire = {
+  unknown48865: ProtoField(48865, ScalarType.BOOL, { optional: true }),
+  unknown48866: ProtoField(48866, ScalarType.STRING, { optional: true }),
+};
+
 /** Nested message for flash-transfer thumbnail URL info (tag 2 within 4 of 48708). */
 export const FlashTransferThumbUrlWire = {
   type: ProtoField(1, ScalarType.UINT32, { optional: true }),
@@ -280,8 +286,8 @@ export const ElementWire = {
   /** 字体 / 样式相关. Best guess: integer flag. */
   fontStyle: ProtoField(45104, ScalarType.UINT32, { optional: true }),
 
-  /** 气泡 ID. Best guess: string id. */
-  bubbleId: ProtoField(45105, ScalarType.STRING, { optional: true }),
+  /** @ 目标的 uid（仅 AtElement 用；名字曾误写成「气泡 ID」，跟装扮系统的气泡皮肤 id 无关）。 */
+  atTargetUid: ProtoField(45105, ScalarType.STRING, { optional: true }),
 
   /** 文本输入状态. Best guess: integer flag. */
   textInputState: ProtoField(45106, ScalarType.UINT32, { optional: true }),
@@ -543,6 +549,9 @@ export const ElementWire = {
 
   /** Local cache path of the video cover (`nt_data/Video/…/Thumb/…_0.png`). */
   videoCoverLocalPath: ProtoField(45404, ScalarType.STRING, { optional: true }),
+
+  /** Bubble video template name, e.g. "video_penguin_dance" (elementType=49 only). */
+  templateName: ProtoField(45428, ScalarType.STRING, { optional: true }),
 
   /** Always 2 across every observed row. */
   videoFlag45851: ProtoField(45851, ScalarType.UINT32, { optional: true }),
@@ -1008,6 +1017,41 @@ export const ElementWire = {
 
   /** Card instance UUID, e.g. `33cad47c-09f0-42a6-ab42-6329c0898765`. */
   arkCardId: ProtoField(47904, ScalarType.STRING, { optional: true }),
+
+  // ---- QUNGIFT (elementType=18) ---- 群礼物，总与 ARK 共现，只解析不渲染
+
+  /** 礼物 ID，对应 ARK dataForClient.GiftId。 */
+  giftId: ProtoField(48851, ScalarType.STRING, { optional: true }),
+  /** 礼物名称，如"玫瑰花"，对应 ARK meta.giftData.giftName。 */
+  giftName: ProtoField(48852, ScalarType.STRING, { optional: true }),
+  /** 接收者 uin，对应 ARK dataForClient.RecvUin。 */
+  recvUin: ProtoField(48853, ScalarType.STRING, { optional: true }),
+  /** 接收者昵称，对应 ARK meta.giftData.receiverNick。 */
+  recvNick: ProtoField(48854, ScalarType.STRING, { optional: true }),
+  /** 发送者 uin，对应 ARK dataForClient.SendUin。 */
+  sendUin: ProtoField(48855, ScalarType.STRING, { optional: true }),
+  /** 发送者昵称。 */
+  sendNick: ProtoField(48856, ScalarType.STRING, { optional: true }),
+  /** 发送数量，对应 ARK dataForClient.SendCount。 */
+  sendCount: ProtoField(48857, ScalarType.STRING, { optional: true }),
+  /** 订单 ID，对应 ARK dataForClient.OrderId。 */
+  orderId: ProtoField(48858, ScalarType.STRING, { optional: true }),
+  /** 匿名头像索引，对应 ARK dataForClient.AnonymousPortraitIdx，通常为空。 */
+  anonymousPortraitIdx: ProtoField(48859, ScalarType.STRING, { optional: true }),
+  /** 群号，对应 ARK dataForClient.TroopUin。 */
+  giftTroopUin: ProtoField(48860, ScalarType.STRING, { optional: true }),
+  /** 未知 bool（单样本 true）。 */
+  giftUnknown48861: ProtoField(48861, ScalarType.BOOL, { optional: true }),
+  /** 积分/分值，对应 ARK meta.giftData.score。 */
+  score: ProtoField(48862, ScalarType.STRING, { optional: true }),
+  /** 未知 bool（单样本 true）。 */
+  giftUnknown48863: ProtoField(48863, ScalarType.BOOL, { optional: true }),
+  /** 嵌套结构，语义待更多样本确认。 */
+  giftExtra: ProtoField(48864, () => QunGiftExtraWire, { optional: true }),
+  /** 未知 bool（单样本 false）。 */
+  giftUnknown48867: ProtoField(48867, ScalarType.BOOL, { optional: true }),
+  /** 礼物类型，对应 ARK dataForClient.GiftType。 */
+  giftType: ProtoField(48868, ScalarType.STRING, { optional: true }),
 
   // ---- MFACE / marketface (elementType=11) ----
   // Market emoji (commercial sticker). Uses the disjoint 80xxx tag block.

@@ -68,6 +68,21 @@ export const ForwardKindContext = createContext<'c2c' | 'group'>('c2c');
 export const ConvContext = createContext<string>('');
 
 /**
+ * Set inside a 合并转发 window: the CARRYING message's id + kind.
+ *
+ * Forwarded sub-messages are 40900 snapshots of rows in someone else's
+ * conversation — they were never written to our own msg tables, so a media
+ * download can't re-read them by their own msgId. It has to go through the
+ * carrier's 40900 cache instead, which is what this identifies. Empty msgId ⇒
+ * a normal timeline message (look it up directly).
+ */
+export interface ForwardCarrier {
+  msgId: string;
+  kind: 'c2c' | 'group';
+}
+export const ForwardCarrierContext = createContext<ForwardCarrier | null>(null);
+
+/**
  * 「把纯文本消息里的 Markdown 也渲染」开关（设置 → 全局设置，AppSettings.renderTextMarkdown）。
  *
  * 这是 WeQ 自己的 feature，不是 QQ 的语义——QQ 原生只有 markdownElement 才是 Markdown。
@@ -85,8 +100,14 @@ export const TextMarkdownContext = createContext<boolean>(true);
  */
 export const LinkPreviewContext = createContext<boolean>(true);
 
+/**
+ * 「渲染消息里的每条装扮（气泡/字体/挂件）」开关（AppSettings.showMsgDecoration）。
+ * 同上，走 context 是为了避免每条消息各自订阅 getSettings。默认 true。
+ */
+export const MsgDecorationEnabledContext = createContext<boolean>(true);
+
 /** Element kinds that render as standalone, borderless media (no bubble). */
-const BORDERLESS_MEDIA = new Set(['pic', 'video', 'mface']);
+const BORDERLESS_MEDIA = new Set(['pic', 'video', 'mface', 'bubbleVideo']);
 /** Element kinds handled by a dedicated media component. */
 const MEDIA_KINDS = new Set(['pic', 'video', 'file', 'ptt', 'mface', 'onlineFile', 'onlineFolder']);
 
@@ -181,13 +202,32 @@ function MediaNode({
 }): ReactNode {
   const data = element.data ?? {};
   const conv = useContext(ConvContext);
+  const carrier = useContext(ForwardCarrierContext);
+  // Inside a forward window `msgId` is the sub-message; the download path needs
+  // the carrier's id to reach the 40900 cache, and the sub-id to pick the row.
+  const fwd = carrier ? { fwdMsgId: msgId, fwdKind: carrier.kind } : undefined;
+  const ownerMsgId = carrier ? carrier.msgId : msgId;
   switch (element.type) {
     case 'pic':
       return <QqImage data={data} sendTimeMs={sendTimeMs} conv={conv} />;
     case 'video':
-      return <QqVideo data={data} sendTimeMs={sendTimeMs} msgId={msgId} conv={conv} />;
+      return <QqVideo data={data} sendTimeMs={sendTimeMs} msgId={ownerMsgId} conv={conv} fwd={fwd} />;
+    case 'bubbleVideo':
+      return (
+        <div style={{ width: 120, height: 120, borderRadius: '50%', overflow: 'hidden', flexShrink: 0 }}>
+          <QqVideo
+            data={data}
+            sendTimeMs={sendTimeMs}
+            msgId={ownerMsgId}
+            conv={conv}
+            fwd={fwd}
+            bubble
+            templateName={(data as Record<string, unknown>).templateName as string | undefined}
+          />
+        </div>
+      );
     case 'file':
-      return <QqFile data={data} sendTimeMs={sendTimeMs} msgId={msgId} conv={conv} />;
+      return <QqFile data={data} sendTimeMs={sendTimeMs} msgId={ownerMsgId} conv={conv} fwd={fwd} />;
     case 'ptt':
       return <QqVoice data={data} sendTimeMs={sendTimeMs} msgId={msgId} />;
     case 'mface':
@@ -236,7 +276,7 @@ function ElementNode({
     return (
       <span
         className="qq-at-element cursor-pointer hover:underline"
-        title={`UID: ${element.data?.buddleId || 'unknown'}`}
+        title={`UID: ${element.data?.atTargetUid || 'unknown'}`}
       >
         {text}
       </span>
@@ -674,6 +714,19 @@ export function QqMessageContent({
     );
   }
 
+  const structLongMsgElement = elements.find((element) => element.type === 'structLongMsg');
+  if (structLongMsgElement) {
+    return (
+      <div className={cn('message-content', 'qq-card-only', 'qq-has-forward')}>
+        <ForwardMultiMsgPreview
+          data={{ ...(structLongMsgElement.data ?? {}), _label: '长文本消息' } as Record<string, unknown>}
+          msgId={msgId}
+          kind={forwardKind}
+        />
+      </div>
+    );
+  }
+
   // A `reply` element renders as a quote box above the body; pull it out so the
   // body sizing rules below only consider the actual message content.
   const replyElement = elements.find((element) => element.type === 'reply');
@@ -788,7 +841,7 @@ export function QqMessageContent({
 }
 
 /** Element kinds this renderer claims (text/reply/face/at + rich media + markdown + multiMsg + cards). */
-const HANDLED_KINDS = new Set(['text', 'reply', 'face', 'at', 'pic', 'video', 'file', 'ptt', 'mface', 'markdown', 'multiMsg', 'inlineKeyboard', 'ark', 'wallet', 'call', 'onlineFile', 'onlineFolder', 'shareLocation', 'qqDynamic', 'emojiBounce']);
+const HANDLED_KINDS = new Set(['text', 'reply', 'face', 'at', 'pic', 'video', 'bubbleVideo', 'file', 'ptt', 'mface', 'markdown', 'multiMsg', 'structLongMsg', 'inlineKeyboard', 'ark', 'wallet', 'call', 'onlineFile', 'onlineFolder', 'shareLocation', 'qqDynamic', 'emojiBounce']);
 
 /**
  * MessageRenderer that handles every element kind we draw ourselves — text,

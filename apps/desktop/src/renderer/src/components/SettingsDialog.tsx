@@ -204,8 +204,10 @@ function AppearanceSection(): ReactElement {
   const setRenderTextMarkdown = trpc.bootstrap.setRenderTextMarkdown.useMutation();
   const setShowAvatarPendant = trpc.bootstrap.setShowAvatarPendant.useMutation();
   const setLinkPreview = trpc.bootstrap.setLinkPreview.useMutation();
+  const setShowMsgDecoration = trpc.bootstrap.setShowMsgDecoration.useMutation();
   const [textMarkdown, setTextMarkdown] = useState(true);
   const [pendant, setPendant] = useState(true);
+  const [msgDecoration, setMsgDecoration] = useState(true);
   const [linkCard, setLinkCard] = useState(true);
   const [linkShot, setLinkShot] = useState(false);
 
@@ -218,6 +220,11 @@ function AppearanceSection(): ReactElement {
     const enabled = settings.data?.showAvatarPendant;
     if (typeof enabled === 'boolean') setPendant(enabled);
   }, [settings.data?.showAvatarPendant]);
+
+  useEffect(() => {
+    const enabled = settings.data?.showMsgDecoration;
+    if (typeof enabled === 'boolean') setMsgDecoration(enabled);
+  }, [settings.data?.showMsgDecoration]);
 
   useEffect(() => {
     const cfg = settings.data?.linkPreview;
@@ -244,6 +251,17 @@ function AppearanceSection(): ReactElement {
       await setShowAvatarPendant.mutateAsync({ enabled: next });
     } catch {
       setPendant(prev);
+    }
+    await settings.refetch();
+  }
+
+  async function onSetMsgDecoration(next: boolean): Promise<void> {
+    const prev = msgDecoration;
+    setMsgDecoration(next);
+    try {
+      await setShowMsgDecoration.mutateAsync({ enabled: next });
+    } catch {
+      setMsgDecoration(prev);
     }
     await settings.refetch();
   }
@@ -347,6 +365,23 @@ function AppearanceSection(): ReactElement {
             disabled={settings.isLoading || setShowAvatarPendant.isLoading}
             onChange={(next) => void onSetPendant(next)}
             label="聊天头像挂件"
+          />
+        </div>
+      </div>
+      <div className="weq-settings-appearance-card">
+        <div className="weq-settings-appearance-head">
+          <div>
+            <strong>消息装扮（气泡/字体/挂件）</strong>
+            <span>
+              渲染每条消息里的气泡皮肤、聊天字体与挂件（来自消息 DB 列 40801）。关掉后
+              统一使用全局装扮设置，不做逐条渲染。
+            </span>
+          </div>
+          <Toggle
+            checked={msgDecoration}
+            disabled={settings.isLoading || setShowMsgDecoration.isLoading}
+            onChange={(next) => void onSetMsgDecoration(next)}
+            label="消息装扮"
           />
         </div>
       </div>

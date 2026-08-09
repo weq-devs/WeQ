@@ -244,6 +244,12 @@ export interface ChatMsgWire {
    * it. Drives the in-chat 撤回 tag + the 撤回列表 panel. Omitted for a normal message.
    */
   recall?: { revokeUid: string; sameSender: boolean; recallTs: number };
+  /**
+   * Per-message decoration from column 40801: bubbleId / fontId / widgetId.
+   * All three are itemIds (0 = not set). Omitted entirely when the column is
+   * absent or all three are 0.
+   */
+  decoration?: { bubbleId: number; fontId: number; widgetId: number };
 }
 
 export interface RecentContactWire {
@@ -294,6 +300,7 @@ export function c2cMsgToWire(m: RenderC2cMsg): ChatMsgWire {
     elements: sanitize(m.elements),
     deletedKind: m.deletedKind,
     recall: m.recall,
+    decoration: m.decoration,
   };
 }
 
@@ -310,6 +317,7 @@ export function groupMsgToWire(m: RenderGroupMsg): ChatMsgWire {
     setEmojiList: m.setEmojiList,
     deletedKind: m.deletedKind,
     recall: m.recall,
+    decoration: m.decoration,
   };
 }
 

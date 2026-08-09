@@ -3,8 +3,8 @@
  * Supports nesting, hex editing for bytes, and numeric inputs.
  */
 
-import { useState, } from 'react';
-import { X, Save, ChevronLeft, ChevronRight, Hash, Type, Binary, Box } from 'lucide-react';
+import { useState } from 'react';
+import { X, Save, ChevronLeft, ChevronRight, Hash, Type, Binary, Box, Copy } from 'lucide-react';
 import { cn } from '../im-template/template/classNames';
 
 interface Props {
@@ -39,6 +39,16 @@ export function MsgElementEditor({ msgId, msgSeq, elements: initialElements, onC
     } finally {
       setSending(false);
     }
+  };
+
+  const copyJson = async () => {
+    const replacer = (_k: string, v: unknown) => {
+      if (v && typeof v === 'object' && (v as any).type === 'Buffer' && Array.isArray((v as any).data)) {
+        return (v as any).data.map((b: number) => (b as number).toString(16).padStart(2, '0')).join('');
+      }
+      return v;
+    };
+    await navigator.clipboard.writeText(JSON.stringify(elements, replacer, 2));
   };
 
   return (
@@ -101,6 +111,9 @@ export function MsgElementEditor({ msgId, msgSeq, elements: initialElements, onC
              </button>
           </div>
           <div className="weq-editor-actions">
+            <button className="weq-btn-cancel" onClick={() => void copyJson()}>
+              <Copy size={16} /> 复制 JSON
+            </button>
             <button className="weq-btn-cancel" onClick={onClose}>取消</button>
             <button 
               className="weq-btn-save" 
@@ -114,6 +127,13 @@ export function MsgElementEditor({ msgId, msgSeq, elements: initialElements, onC
       </div>
     </div>
   );
+}
+
+function isEmpty(val: any): boolean {
+  if (val === null || val === undefined) return true;
+  if (Array.isArray(val)) return val.length === 0;
+  if (typeof val === 'object' && val.type !== 'Buffer') return Object.keys(val).length === 0;
+  return false;
 }
 
 /** True when a value renders as a nested ObjectEditor rather than a single input. */
@@ -132,7 +152,7 @@ function ObjectEditor({ value, onChange, path }: { value: any, onChange: (val: a
         if (a === 'kind') return -1;
         if (b === 'kind') return 1;
         return a.localeCompare(b);
-    });
+    }).filter(key => !isEmpty(value[key]));
 
     return (
       <div className="weq-obj-fields">

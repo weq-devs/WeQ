@@ -1357,6 +1357,9 @@ export const accountRouter = router({
     const record = requireServices().accountConfig.getRecord();
     if (!record) return null;
     return {
+      // 账号身份用 configId（uin + 数据目录哈希），不能用 uin —— 同一个 QQ 号
+      // 可能同时有在线账号和静态账号，只看 uin 会把它们认成一个。
+      configId: record.configId,
       uin: record.uin,
       dbKey: record.dbKey,
       algo: record.algo,
@@ -1366,15 +1369,31 @@ export const accountRouter = router({
       rkeys: record.rkeys ?? [],
       rkeyUpdatedAt: record.rkeyUpdatedAt ?? null,
       clientKey: record.clientKey ?? null,
+      // 静态账号：渲染层据此收窄本地资源页、置灰实时消息/防撤回，并展示
+      // 「关联本机媒体目录」。nativeMediaDir 为 null 表示本机没有同账号目录。
+      static: record.static ?? false,
+      mobile: record.mobile ?? false,
+      nativeMediaDir: record.nativeMediaDir ?? null,
+      nativeMediaEnabled: record.nativeMediaEnabled ?? true,
     };
   }),
 
-  /** List QQ buddies from profile_info.db. */
+  /**
+   * 静态账号「关联本机原生目录」开关。关掉后所有媒体目录解析为 null，聊天里的
+   * 图片/语音自动回落到 CDN 补全。立即生效，无需重开账号。
+   */
+  setNativeMediaEnabled: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireServices().accountConfig.setNativeMediaEnabled(input.enabled);
+      return input.enabled;
+    }),
+
+  /** List QQ buddies from profile_info.db. Omit input to fetch all (used by AgentLab). */
   listBuddies: procedure
     .input(pageInput.optional())
     .query(async ({ input }) => {
-      const page = input ?? { limit: 200, offset: 0 };
-      const buddies = await requireServices().profile.listBuddies(page.limit, page.offset);
+      const buddies = await requireServices().profile.listBuddies(input?.limit, input?.offset ?? 0);
       return buddies.map(buddyToWire);
     }),
 

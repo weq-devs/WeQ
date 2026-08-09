@@ -14,11 +14,11 @@
  */
 
 import { useState, type ReactElement } from 'react';
-import { ArrowRight, Database, FolderSearch, HelpCircle, KeyRound, Loader2 } from 'lucide-react';
+import { ArrowRight, Database, FolderSearch, HelpCircle, KeyRound, Loader2, Smartphone } from 'lucide-react';
 import { client } from '../../trpc/client';
 import { useDialog } from '../../components/Dialog';
 import { QqAvatar } from '../../components/QqAvatar';
-import { isCompleteKey } from './KeyField';
+import { KEY_LEN_HINT } from './KeyField';
 import qqLogoUrl from '@resources/img/QQ.png';
 
 function errMsg(e: unknown): string {
@@ -28,9 +28,16 @@ function errMsg(e: unknown): string {
 type Probe =
   | { kind: 'idle' }
   | { kind: 'probing' }
-  | { kind: 'ready'; preview: { uin: string; displayName: string; avatarUrl: string } }
+  | {
+      kind: 'ready';
+      preview: { uin: string; uid: string; displayName: string; avatarUrl: string };
+      /** 密钥是后端自动算出来的（安卓备份目录），不是用户手输的。 */
+      derived: boolean;
+      /** 安卓手机备份目录（自动推导出密钥）。 */
+      mobile: boolean;
+    }
   | { kind: 'needKey' }
-  | { kind: 'badKey' }
+  | { kind: 'badKey'; error: string }
   | { kind: 'badDb'; error: string };
 
 type Stage = 'picking' | 'probing' | 'done';
@@ -57,12 +64,16 @@ export function StaticBackupPanel({ onEntered }: { onEntered: (uin: string) => v
     setStage('probing');
     setProbe({ kind: 'probing' });
     try {
+      // 只要填了东西就原样送后端 —— 长度不合规也要让后端去判对错，
+      // 静默丢弃会让用户以为「输了密钥但没反应」。
       const r = await client.bootstrap.testStaticDir.mutate({
         dirPath,
-        ...(isCompleteKey(key) ? { dbKey: key } : {}),
+        ...(key ? { dbKey: key } : {}),
       });
       if (!r.ok) {
-        setProbe({ kind: 'badDb', error: r.error });
+        // 带着密钥仍打不开 —— 归为密钥错，保留输入框让用户改，并把后端的
+        // 真实原因一起显示出来（否则用户连"是不是没点到按钮"都分不清）。
+        setProbe(key ? { kind: 'badKey', error: r.error } : { kind: 'badDb', error: r.error });
         setStage('picking');
         return;
       }
@@ -71,10 +82,13 @@ export function StaticBackupPanel({ onEntered }: { onEntered: (uin: string) => v
         setStage('picking');
         return;
       }
-      setProbe({ kind: 'ready', preview: r.preview });
+      // 后端自动算出了密钥（安卓备份目录）—— 收下来，「进入」要拿它开库。
+      if ('derivedKey' in r && r.derivedKey) setKey(r.derivedKey);
+      setProbe({ kind: 'ready', preview: r.preview, derived: 'derivedKey' in r && !!r.derivedKey, mobile: 'mobile' in r && !!r.mobile });
       setStage('done');
     } catch (e) {
-      setProbe({ kind: 'badDb', error: errMsg(e) });
+      // 网络/IPC 层异常：填了密钥就留在密钥态，否则当作目录问题。
+      setProbe(key ? { kind: 'badKey', error: errMsg(e) } : { kind: 'badDb', error: errMsg(e) });
       setStage('picking');
     }
   }
@@ -85,7 +99,8 @@ export function StaticBackupPanel({ onEntered }: { onEntered: (uin: string) => v
       await client.bootstrap.openStaticAccount.mutate({
         dirPath,
         preview: probe.preview,
-        ...(isCompleteKey(key) ? { dbKey: key } : {}),
+        ...(key ? { dbKey: key } : {}),
+        ...(probe.mobile ? { mobile: true } : {}),
       });
       onEntered(probe.preview.uin);
     } catch (e) {
@@ -105,8 +120,14 @@ export function StaticBackupPanel({ onEntered }: { onEntered: (uin: string) => v
                 size={140}
                 className="weq-acct-avatar"
               />
-              <span className="weq-static-badge is-lg" title="静态离线账号" aria-label="静态离线账号">
-                <Database size={13} strokeWidth={2.2} aria-hidden />
+              <span
+                className="weq-static-badge is-lg"
+                title={probe.mobile ? 'Android 手机备份账号' : '静态离线账号'}
+                aria-label={probe.mobile ? 'Android 手机备份账号' : '静态离线账号'}
+              >
+                {probe.mobile
+                  ? <Smartphone size={13} strokeWidth={2.2} aria-hidden />
+                  : <Database size={13} strokeWidth={2.2} aria-hidden />}
               </span>
             </span>
             <div className="weq-static-backup-title">
@@ -159,7 +180,7 @@ export function StaticBackupPanel({ onEntered }: { onEntered: (uin: string) => v
               value={key}
               spellCheck={false}
               autoComplete="off"
-              placeholder="16 位 SQLCipher 密钥（不输则按 SQLite 直接打开）"
+              placeholder={`${KEY_LEN_HINT} 位 SQLCipher 密钥（不输则按 SQLite 直接打开）`}
               onChange={(e) => {
                 setKey(e.target.value.trim());
                 if (probe.kind === 'badKey') setProbe({ kind: 'needKey' });
@@ -172,21 +193,32 @@ export function StaticBackupPanel({ onEntered }: { onEntered: (uin: string) => v
               type="button"
               className="weq-action-primary"
               onClick={() => void testOpen()}
-              disabled={!dirPath}
+              disabled={!dirPath || stage === 'probing'}
             >
-              重新测试
+              {stage === 'probing' ? (
+                <Loader2 className="animate-spin" size={15} strokeWidth={1.8} aria-hidden />
+              ) : (
+                <KeyRound size={15} strokeWidth={1.8} aria-hidden />
+              )}
+              {stage === 'probing' ? '验证中…' : '验证密钥'}
             </button>
           </span>
-          <span className="weq-static-hint">
+          <span className={probe.kind === 'badKey' ? 'weq-static-error' : 'weq-static-hint'}>
             {probe.kind === 'badKey'
-              ? '密钥不正确或数据库格式不符，请检查后重试。'
-              : '检测到加密数据库，请输入 16 位密钥后重新测试。'}
+              ? `密钥验证失败：${probe.error}`
+              : `检测到加密数据库，请输入 ${KEY_LEN_HINT} 位密钥后重新测试。`}
           </span>
         </label>
       )}
 
       <div className="weq-static-actions">
-        {probe.kind !== 'ready' ? (
+        {probe.kind === 'ready' ? (
+          <button type="button" className="weq-action-primary" onClick={() => void enter()}>
+            <ArrowRight size={15} strokeWidth={1.85} aria-hidden />
+            进入
+          </button>
+        ) : probe.kind === 'needKey' || probe.kind === 'badKey' ? null : (
+          // 密钥态下验证按钮已经和输入框同行了，这里不再重复一个。
           <button
             type="button"
             className="weq-action-primary"
@@ -198,15 +230,14 @@ export function StaticBackupPanel({ onEntered }: { onEntered: (uin: string) => v
             ) : (
               <Database size={15} strokeWidth={1.8} aria-hidden />
             )}
-            测试打开
-          </button>
-        ) : (
-          <button type="button" className="weq-action-primary" onClick={() => void enter()}>
-            <ArrowRight size={15} strokeWidth={1.85} aria-hidden />
-            进入
+            {stage === 'probing' ? '验证中…' : '测试打开'}
           </button>
         )}
       </div>
+
+      {probe.kind === 'ready' && probe.derived && (
+        <div className="weq-static-hint">已从目录自动推算出数据库密钥，无需手动输入。</div>
+      )}
 
       {probe.kind === 'badDb' && (
         <div className="weq-static-error">打开失败：{probe.error}</div>

@@ -109,11 +109,13 @@ export function BootstrapView(): ReactElement {
             dirPath: cfg.dataDir,
             preview: {
               uin: cfg.uin,
+              uid: cfg.uid ?? '',
               displayName: cfg.displayName ?? '',
               avatarUrl: cfg.avatarUrl ?? '',
             },
             ...(cfg.dbKey ? { dbKey: cfg.dbKey } : {}),
             ...(cfg.algo?.pageHmacAlgorithm ? { algo: cfg.algo } : {}),
+            ...(cfg.mobile ? { mobile: true } : {}),
           });
         } else {
           const test = await client.bootstrap.testDatabaseKey.mutate({ uin: cfg.uin, dbKey: cfg.dbKey });

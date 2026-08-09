@@ -303,6 +303,28 @@ export const dressupRouter = router({
   }),
 
   /**
+   * 解析一条消息的装扮（来自 DB 列 40801）的渲染参数。
+   *
+   * 同一 itemId 在 service 层有内存缓存：首次需要异步解析（bubble 可能要下载资源），
+   * 之后恒定命中缓存——前端应以 staleTime: Infinity 查询。
+   *
+   * font 只返回已安装的字体文件路径，未安装则为 null（字体下载需要在线实例 + 用户操作）。
+   * widget 直接按 itemId 拼 CDN URL，不做探测。
+   */
+  resolveMsgDecoration: procedure
+    .input(
+      z.object({
+        bubbleId: z.number().int().min(0).default(0),
+        fontId: z.number().int().min(0).default(0),
+        widgetId: z.number().int().min(0).default(0),
+      }),
+    )
+    .query(async ({ input }) => {
+      const services = requireServices();
+      return services.msgDecoration.resolve(input);
+    }),
+
+  /**
    * 他人的个性主页素材(挂件 / 名片 / 浮屏)。
    *
    * **不预先按 qqOnline 短路** —— 那个标记只说明「本次会话注入过」,票据可能还在有效期内,

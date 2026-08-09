@@ -28,6 +28,7 @@ const KIND_TO_TYPE: Record<KnownKind, ElementType> = {
   file: ElementType.FILE,
   ptt: ElementType.PTT,
   video: ElementType.VIDEO,
+  bubbleVideo: ElementType.BUBBLE_VIDEO,
   face: ElementType.FACE,
   reply: ElementType.REPLY,
   grayTipRevoke: ElementType.GRAY_TIP,
@@ -41,6 +42,7 @@ const KIND_TO_TYPE: Record<KnownKind, ElementType> = {
   mface: ElementType.MFACE,
   markdown: ElementType.MARKDOWN,
   multiMsg: ElementType.MULTI_MSG,
+  structLongMsg: ElementType.STRUCT_LONG_MSG,
   inlineKeyboard: ElementType.INLINE_KEYBOARD,
   call: ElementType.CALL,
   onlineFile: ElementType.ONLINE_FILE,
@@ -56,6 +58,7 @@ const TYPE_TO_KIND: Partial<Record<ElementType, KnownKind>> = {
   [ElementType.FILE]: 'file',
   [ElementType.PTT]: 'ptt',
   [ElementType.VIDEO]: 'video',
+  [ElementType.BUBBLE_VIDEO]: 'bubbleVideo',
   [ElementType.FACE]: 'face',
   [ElementType.REPLY]: 'reply',
   [ElementType.WALLET]: 'wallet',
@@ -63,6 +66,7 @@ const TYPE_TO_KIND: Partial<Record<ElementType, KnownKind>> = {
   [ElementType.MFACE]: 'mface',
   [ElementType.MARKDOWN]: 'markdown',
   [ElementType.MULTI_MSG]: 'multiMsg',
+  [ElementType.STRUCT_LONG_MSG]: 'structLongMsg',
   [ElementType.INLINE_KEYBOARD]: 'inlineKeyboard',
   [ElementType.CALL]: 'call',
   [ElementType.ONLINE_FILE]: 'onlineFile',
@@ -76,7 +80,7 @@ export function decodeElement(wire: ProtoDecodeStructType<typeof ElementWire>): 
   const type = (wire.elementType ?? 0) as ElementType;
 
   if (type === ElementType.TEXT) {
-    const kind = wire.bubbleId ? 'at' : 'text';
+    const kind = wire.atTargetUid ? 'at' : 'text';
     return { kind, ...wire } as Element;
   }
 

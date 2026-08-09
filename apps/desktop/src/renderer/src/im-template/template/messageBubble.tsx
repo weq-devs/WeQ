@@ -14,6 +14,7 @@ import type { Conversation, Message, MessageAction, User } from "./types";
 import { cn } from "./classNames";
 import { SetEmojiReactions } from "../../components/SetEmojiReactions";
 import { useSelfPendant } from "../../hooks/useSelfPendant";
+import { useMsgDecoration } from "../../hooks/useMsgDecoration";
 
 export function MessageBubble({
 	message,
@@ -77,6 +78,10 @@ export function MessageBubble({
 	// 自己头像的挂件（设置 → 个性显示可关）。他人的挂件要逐个走 SSR 页面查，
 	// 一条消息一次网络往返不现实，故只叠自己的。
 	const pendantUrl = useSelfPendant();
+	const msgDec = useMsgDecoration((message as any).decoration);
+	const msgWidgetUrl = msgDec.widgetUrl;
+	const msgBubbleId = msgDec.bubbleId;
+	const msgFontId = msgDec.fontId;
 	// Deleted origin — prefer the explicit kind; fall back to the legacy boolean
 	// (which always meant a WeQ delete). `qq` = QQ-native recall, not restorable.
 	const resolvedKind: "weq" | "qq" | null = deletedKind ?? (deleted ? "weq" : null);
@@ -190,6 +195,8 @@ export function MessageBubble({
 		<div
 			className={cn("message-line", mine ? "mine" : "theirs", isDeleted && "is-deleted", isQqDeleted && "is-qq-deleted")}
 			data-message-id={message.id}
+			data-bubble={msgBubbleId || undefined}
+			data-font={msgFontId || undefined}
 		>
 			{!mine ? (
 				onAvatarClick ? (
@@ -202,12 +209,20 @@ export function MessageBubble({
 							onAvatarClick(sender, { x: event.clientX, y: event.clientY })
 						}
 					>
-						<Avatar
-							name={senderName}
-							avatarUrl={senderAvatarUrl}
-							seed={senderSeed}
-						/>
+						{msgWidgetUrl ? (
+							<span className={cn("weq-avatar-pendant")}>
+								<Avatar name={senderName} avatarUrl={senderAvatarUrl} seed={senderSeed} />
+								<img className={cn("weq-avatar-pendant-img")} src={msgWidgetUrl} alt="" aria-hidden draggable={false} />
+							</span>
+						) : (
+							<Avatar name={senderName} avatarUrl={senderAvatarUrl} seed={senderSeed} />
+						)}
 					</button>
+				) : msgWidgetUrl ? (
+					<span className={cn("weq-avatar-pendant")}>
+						<Avatar name={senderName} avatarUrl={senderAvatarUrl} seed={senderSeed} />
+						<img className={cn("weq-avatar-pendant-img")} src={msgWidgetUrl} alt="" aria-hidden draggable={false} />
+					</span>
 				) : (
 					<Avatar
 						name={senderName}
@@ -329,7 +344,7 @@ export function MessageBubble({
 				) : null}
 			</div>
 			{mine ? (
-				pendantUrl ? (
+				(msgWidgetUrl || pendantUrl) ? (
 					<span className={cn("weq-avatar-pendant")}>
 						<Avatar
 							name={senderName}
@@ -338,7 +353,7 @@ export function MessageBubble({
 						/>
 						<img
 							className={cn("weq-avatar-pendant-img")}
-							src={pendantUrl}
+							src={msgWidgetUrl ?? pendantUrl}
 							alt=""
 							aria-hidden
 							draggable={false}

@@ -32,6 +32,7 @@ import type { WindowCloseBehavior } from '@weq/service';
 import { trpc } from '../../trpc/client';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
+import { useViewState } from '../../state/view';
 import { QqAvatar } from '../QqAvatar';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { UpdateCard } from './UpdateCard';
@@ -75,6 +76,8 @@ export function GlobalSettingsSection(): ReactElement {
   const showError = useDialog((s) => s.showError);
   const confirm = useDialog((s) => s.confirm);
   const pushToast = useToast((s) => s.push);
+  // 用来把「当前已登录的账号」标出来并禁掉它的删除按钮。
+  const openedUin = useViewState((s) => s.openedUin);
   const [systemAuthStatus, setSystemAuthStatus] = useState<Awaited<
     ReturnType<typeof window.weq.systemAuth.getStatus>
   > | null>(null);
@@ -96,6 +99,12 @@ export function GlobalSettingsSection(): ReactElement {
     staleTime: 0,
     refetchOnMount: 'always',
   });
+  // 「当前账号」要按 configId 认：同一个 QQ 号可能同时有在线账号和静态账号，
+  // 只比 uin 会给两条记录都打上「当前账号」。
+  const currentConfig = trpc.account.getAccountConfig.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+  });
   const autoEnter = trpc.bootstrap.getAutoEnter.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 0,
@@ -109,6 +118,7 @@ export function GlobalSettingsSection(): ReactElement {
 
   const setAutoEnter = trpc.bootstrap.setAutoEnter.useMutation();
   const clearAutoEnter = trpc.bootstrap.clearAutoEnter.useMutation();
+  const deleteAccount = trpc.bootstrap.deleteAccountConfig.useMutation();
   const pickCache = trpc.bootstrap.pickCacheDir.useMutation();
   const clearCache = trpc.bootstrap.clearCacheDir.useMutation();
   const setAutoLock = trpc.bootstrap.setAutoLockMinutes.useMutation();
@@ -232,6 +242,26 @@ export function GlobalSettingsSection(): ReactElement {
       await autoEnter.refetch();
     } catch (e) {
       showError('清除默认进入账号失败', errMsg(e));
+    }
+  }
+
+  // 删除账号配置。和 bootstrap 选择页 / 左栏底部弹层走同一个后端接口，
+  // 删的只是 WeQ 侧保存的配置（密钥、数据目录、昵称快照），不动 QQ 本体数据。
+  // 当前已登录的账号不给删——删掉配置后界面还挂在这个账号上，状态会自相矛盾。
+  async function onDeleteAccount(acc: { configId: string; uin: string; displayName?: string }): Promise<void> {
+    const label = acc.displayName || acc.uin;
+    const ok = await confirm(
+      '删除账号配置',
+      `将删除「${label}」在 WeQ 中保存的配置（数据库密钥、数据目录等），下次需要重新获取密钥。QQ 本体的聊天记录不受影响。是否继续？`,
+      { okLabel: '删除', cancelLabel: '取消', tone: 'warning' },
+    );
+    if (!ok) return;
+    try {
+      await deleteAccount.mutateAsync({ configId: acc.configId });
+      await Promise.all([accounts.refetch(), autoEnter.refetch()]);
+      pushToast({ tone: 'success', title: '已删除', message: `账号配置「${label}」已移除` });
+    } catch (e) {
+      showError('删除账号配置失败', errMsg(e));
     }
   }
 
@@ -402,14 +432,24 @@ export function GlobalSettingsSection(): ReactElement {
           <div className="weq-set-accounts">
             {accountList.map((acc) => {
               const isAutoEnter = autoEnterTarget?.configId === acc.configId;
+              const currentConfigId = currentConfig.data?.configId ?? null;
+              const isCurrent = currentConfigId
+                ? acc.configId === currentConfigId
+                : !!openedUin && acc.uin === openedUin;
               return (
                 <div key={acc.configId} className="weq-set-account-item">
                   <QqAvatar uin={acc.uin} size={40} className="weq-set-account-avatar" />
                   <div className="weq-set-account-info">
                     <span className="weq-set-account-name">
                       {acc.displayName || acc.uin}
+                      {acc.static ? (
+                        <span className="weq-set-badge">{acc.mobile ? '手机备份' : '静态账号'}</span>
+                      ) : null}
                       {isAutoEnter ? (
                         <span className="weq-set-badge weq-set-badge-ok">默认进入</span>
+                      ) : null}
+                      {isCurrent ? (
+                        <span className="weq-set-badge weq-set-badge-ok">当前账号</span>
                       ) : null}
                     </span>
                     <span className="weq-set-account-uin weq-number">QQ {acc.uin}</span>
@@ -430,13 +470,24 @@ export function GlobalSettingsSection(): ReactElement {
                       设为默认
                     </button>
                   ) : null}
+                  <button
+                    type="button"
+                    className="weq-set-btn weq-set-btn-soft weq-set-btn-sm weq-set-btn-del"
+                    onClick={() => void onDeleteAccount(acc)}
+                    disabled={deleteAccount.isLoading || isCurrent}
+                    title={isCurrent ? '当前已登录的账号无法删除，请先退出登录' : '删除该账号配置'}
+                  >
+                    <Trash2 size={12} strokeWidth={1.8} aria-hidden />
+                    删除
+                  </button>
                 </div>
               );
             })}
           </div>
         )}
         <p className="weq-set-note">
-          已保存的账号配置，点击「设为默认」后下次打开 WeQ 将自动进入该账号。
+          已保存的账号配置，点击「设为默认」后下次打开 WeQ 将自动进入该账号；「删除」只移除 WeQ
+          侧保存的配置，不影响 QQ 本体数据。
         </p>
         {autoEnterTarget ? (
           <div className="weq-set-actions">

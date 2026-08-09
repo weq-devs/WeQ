@@ -206,7 +206,7 @@ export function AgentLabView(): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   const providers = trpc.bootstrap.listAgentLabProviders.useQuery();
-  const buddies = trpc.account.listBuddies.useQuery({ limit: 300, offset: 0 });
+  const buddies = trpc.account.listBuddies.useQuery(undefined);
   const personas = trpc.account.listAgentLabPersonas.useQuery();
   const chat = trpc.account.chatWithAgentLabPersona.useMutation();
   const deletePersona = trpc.account.deleteAgentLabPersona.useMutation();

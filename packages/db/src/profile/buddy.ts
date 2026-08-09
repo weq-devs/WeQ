@@ -34,13 +34,16 @@ export class BuddyDb {
   }
 
   /**
-   * List all buddies with pagination.
+   * List buddies. Omit limit to fetch all rows (for AgentLab clone picker).
    */
-  async listBuddies(limit = 200, offset = 0): Promise<Buddy[]> {
-    const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM buddy_list LIMIT ? OFFSET ?`,
-      [limit, offset],
-    );
+  async listBuddies(limit?: number, offset = 0): Promise<Buddy[]> {
+    const rows =
+      limit === undefined
+        ? await this.qq.query(`SELECT ${SELECT_COLUMNS} FROM buddy_list`, [])
+        : await this.qq.query(
+            `SELECT ${SELECT_COLUMNS} FROM buddy_list LIMIT ? OFFSET ?`,
+            [limit, offset],
+          );
     return rows.map(rowToBuddy);
   }
 

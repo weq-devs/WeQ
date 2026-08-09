@@ -26,6 +26,8 @@ export interface UiAccount {
   lastLoginAt?: number;
   /** True for static / offline (decrypted-db directory) accounts. */
   static?: boolean;
+  /** True when the static account is an Android phone backup (auto-derived key). */
+  mobile?: boolean;
 
   // ---- new-start mode ----
   /** Non-empty marker ⇒ account is quick-login-able. */

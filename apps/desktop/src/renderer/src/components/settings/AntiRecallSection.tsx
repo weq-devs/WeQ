@@ -2,13 +2,17 @@
  * 设置 → 防撤回.
  *
  * 通过在 QQ 的 nt_msg.db 上安装 SQLite `BEFORE UPDATE` 触发器，拦截 QQ 的撤回
- * 写入（撤回 = 原地改写消息行）。用户按会话勾选要保护的对话，触发器只对这些会话
- * 生效（c2c/数据线按 uid、群按群号过滤）。
+ * 写入（撤回 = 原地改写消息行）。有两种模式：
+ *   - 按会话勾选（'selected'）：触发器只对勾选的会话生效（c2c/数据线按 uid、群按
+ *     群号过滤）。
+ *   - 永久全选（'all'）：触发器不做会话筛选，对该账号下所有会话生效，不需要也
+ *     不看会话选择。
  *
  * 后端契约（account.antiRecall router）：
- *   - getStatus            — { enabled, targets, installed, qqRunning }
+ *   - getStatus            — { enabled, mode, targets, installed, qqRunning }
  *   - setEnabled(enabled)  — 总开关；安装或卸载触发器
- *   - setTargets(targets)  — 替换受保护会话集；重建触发器
+ *   - setMode(mode)        — 切换 'selected' / 'all'；重建触发器
+ *   - setTargets(targets)  — 替换受保护会话集（仅 'selected' 模式下生效）；重建触发器
  *
  * 装/卸触发器无论 QQ 是否运行都会立即执行。但 QQ 若正开着，可能仍按其已加载的旧
  * schema 运行，导致改动要等 QQ 重启才真正生效 —— 因此 qqRunning 为真时 UI 提示
@@ -32,6 +36,15 @@ import { datalineName } from '@weq/codec';
 
 /** 触发器过滤所用的会话类型（与后端 AntiRecallKind 对齐）。 */
 type AntiRecallKind = 'c2c' | 'group' | 'dataline';
+
+/** 保护模式：按会话勾选 / 永久全选（不做会话筛选）。 */
+type AntiRecallMode = 'selected' | 'all';
+
+const MODE_OPTIONS: { value: AntiRecallMode; label: string }[] = [
+  { value: 'selected', label: '按会话勾选' },
+  { value: 'all', label: '永久全选' },
+];
+
 
 interface Target {
   kind: AntiRecallKind;
@@ -83,12 +96,21 @@ export function AntiRecallSection(): ReactElement {
   const conversations = trpc.account.listConversationsWithCount.useQuery(undefined, {
     refetchOnWindowFocus: false,
   });
+  // PC 快照静态账号的库 QQ 不会往里写 —— 触发器拦不到任何东西。
+  // 手机备份（mobile=true）的备份目录可写，允许开启。
+  // 后端也做同样判断（见 anti_recall router），这里只是别让 UI 撒谎。
+  const config = trpc.account.getAccountConfig.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+  });
+  const isStaticPcOnly = (config.data?.static ?? false) && !(config.data?.mobile ?? false);
 
   const setEnabled = trpc.account.antiRecall.setEnabled.useMutation();
+  const setMode = trpc.account.antiRecall.setMode.useMutation();
   const setTargets = trpc.account.antiRecall.setTargets.useMutation();
-  const busy = setEnabled.isLoading || setTargets.isLoading;
+  const busy = setEnabled.isLoading || setMode.isLoading || setTargets.isLoading;
 
   const enabled = status.data?.enabled ?? false;
+  const mode: AntiRecallMode = status.data?.mode ?? 'selected';
   const qqRunning = status.data?.qqRunning ?? false;
   const installedCount = status.data?.installed.length ?? 0;
 
@@ -168,6 +190,27 @@ export function AntiRecallSection(): ReactElement {
     }
   }
 
+  async function onSetMode(next: AntiRecallMode): Promise<void> {
+    if (next === mode) return;
+    try {
+      const res = await setMode.mutateAsync({ mode: next });
+      await status.refetch();
+      const needRestart = enabled && res.qqRunning;
+      pushToast({
+        tone: 'success',
+        title: next === 'all' ? '已切换为永久全选' : '已切换为按会话勾选',
+        message: !enabled
+          ? '已保存（防撤回当前关闭）。'
+          : needRestart
+            ? '触发器已更新。QQ 正在运行，可能需重启 QQ 才生效。'
+            : '触发器已更新。',
+      });
+    } catch (e) {
+      await status.refetch();
+      showError('切换模式失败', errMsg(e));
+    }
+  }
+
   async function onSave(): Promise<void> {
     const targets: Target[] = [...selected].map((id) => ({
       kind: kindById.get(id) ?? 'c2c',
@@ -197,21 +240,50 @@ export function AntiRecallSection(): ReactElement {
       <SectionHeader
         title="防撤回"
         icon={<ShieldCheck size={16} strokeWidth={1.8} />}
-        desc="拦截 QQ 的消息撤回：对方撤回时，消息会原样保留在你的本地记录中。仅对下方勾选的会话生效。"
+        desc="拦截 QQ 的消息撤回：对方撤回时，消息会原样保留在你的本地记录中。"
       />
 
       {/* 总开关 + 运行状态 */}
       <Card title="服务开关">
         <Row
           label="启用防撤回"
-          desc="通过本地数据库触发器拦截撤回写入，仅影响本机记录，不向对方发送任何内容。"
+          desc={
+            isStaticPcOnly
+              ? '静态账号的数据库是导入的离线快照，QQ 不会往里写入，触发器拦不到任何撤回。'
+              : '通过本地数据库触发器拦截撤回写入，仅影响本机记录，不向对方发送任何内容。'
+          }
           control={
             <Toggle
-              checked={enabled}
-              disabled={busy || status.isLoading}
+              checked={enabled && !isStaticPcOnly}
+              disabled={busy || status.isLoading || isStaticPcOnly}
               onChange={(next) => void onToggle(next)}
               label="启用防撤回"
             />
+          }
+        />
+        <Row
+          label="保护范围"
+          desc={
+            mode === 'all'
+              ? '不做会话筛选：该账号下所有会话（含未来新增的会话）都受保护。'
+              : '仅保护下方勾选的会话；未勾选的会话不受影响。'
+          }
+          control={
+            <div className="weq-set-seg" role="radiogroup" aria-label="防撤回保护范围">
+              {MODE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={mode === opt.value}
+                  className={`weq-set-seg-item${mode === opt.value ? ' is-on' : ''}`}
+                  disabled={busy || status.isLoading}
+                  onClick={() => void onSetMode(opt.value)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           }
         />
         <Row
@@ -230,33 +302,35 @@ export function AntiRecallSection(): ReactElement {
         />
       </Card>
 
-      {/* 会话选择 */}
-      <Card
-        title="受保护的会话"
-        action={
-          <button
-            type="button"
-            className="weq-set-btn weq-set-btn-sm"
-            disabled={busy || !dirty}
-            onClick={() => void onSave()}
-          >
-            {dirty ? '保存选择' : '已保存'}
-          </button>
-        }
-      >
-        <div className="weq-set-picker">
-          <ConversationPicker
-            items={items}
-            loading={conversations.isLoading}
-            selected={selected}
-            onChange={setSelected}
-            emptyText="暂无可保护的会话"
-          />
-        </div>
-        <p className="weq-set-note">
-          支持搜索、全选、反选。修改后点「保存选择」写入并重建触发器；若 QQ 正在运行，改动可能需重启 QQ 才生效。
-        </p>
-      </Card>
+      {/* 会话选择：仅「按会话勾选」模式下需要 */}
+      {mode === 'selected' ? (
+        <Card
+          title="受保护的会话"
+          action={
+            <button
+              type="button"
+              className="weq-set-btn weq-set-btn-sm"
+              disabled={busy || !dirty}
+              onClick={() => void onSave()}
+            >
+              {dirty ? '保存选择' : '已保存'}
+            </button>
+          }
+        >
+          <div className="weq-set-picker">
+            <ConversationPicker
+              items={items}
+              loading={conversations.isLoading}
+              selected={selected}
+              onChange={setSelected}
+              emptyText="暂无可保护的会话"
+            />
+          </div>
+          <p className="weq-set-note">
+            支持搜索、全选、反选。修改后点「保存选择」写入并重建触发器；若 QQ 正在运行，改动可能需重启 QQ 才生效。
+          </p>
+        </Card>
+      ) : null}
     </div>
   );
 }

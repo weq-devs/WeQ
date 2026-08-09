@@ -20,7 +20,8 @@
  * your own QQ data-directory root and database key. See that file for details.
  */
 
-import { existsSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readdirSync, readSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -167,6 +168,146 @@ export const testEnv = {
 
 /** Escape hatch for the rare script that reads a bespoke variable. */
 export { optional as envOptional, required as envRequired, flag as envFlag };
+
+// ---------------------------------------------------------------------------
+// Android backup directory
+// ---------------------------------------------------------------------------
+
+/**
+ * 手机 QQ 的数据库目录（`.../com.tencent.mobileqq/databases/nt_db/nt_qq_<hash>`）。
+ * 结构跟 PC 的 `nt_db/` 一样是一堆 .db 平铺，但没有 `nt_data/`，而且密钥不用手输 ——
+ * 目录里的 `gpro_v1-6_<uid>.db` 带着 uid，`nt_msg.db` 头部带着 rand，
+ * `md5(md5(uid) + rand)` 就是 SQLCipher key（同 packages/account 的 deriveAndroidDbKey）。
+ */
+function androidRoot(): string {
+  return required('WEQ_TEST_ANDROID_ROOT');
+}
+
+/** Absolute path to a database file under the android backup directory. */
+export function androidDbPath(name: string): string {
+  return path.join(androidRoot(), name);
+}
+
+const md5hex = (s: string): string => createHash('md5').update(s).digest('hex');
+
+/** 目录名 `nt_qq_<md5(md5(uid) + "nt_kernel")>` 里的那个盐。 */
+const ANDROID_DIR_SALT = 'nt_kernel';
+/** QQ NT 在真正的 SQLite 页前塞的自定义头长度。 */
+const ANDROID_HEADER_LEN = 1024;
+
+/** uid 直接写在 `gpro_v1-6_<uid>.db` 的文件名里。 */
+function androidUidFromDir(dir: string): string | undefined {
+  for (const name of readdirSync(dir)) {
+    const m = /^gpro_v[\d-]+_(u_[A-Za-z0-9_-]+)\.db$/.exec(name);
+    if (m?.[1]) return m[1];
+  }
+  return undefined;
+}
+
+/** 自定义头里紧跟 `QQ_NT DB` 魔数的那段 8 字节可打印 ASCII。 */
+function androidHeaderRand(dbPath: string): string | undefined {
+  const buf = Buffer.alloc(ANDROID_HEADER_LEN);
+  const fd = openSync(dbPath, 'r');
+  try {
+    if (readSync(fd, buf, 0, ANDROID_HEADER_LEN, 0) < ANDROID_HEADER_LEN) return undefined;
+  } finally {
+    closeSync(fd);
+  }
+  const magicAt = buf.indexOf('QQ_NT DB', 0, 'ascii');
+  if (magicAt < 0) return undefined;
+  const ascii = [...buf]
+    .map((b) => (b >= 0x21 && b < 0x7f ? String.fromCharCode(b) : '\0'))
+    .join('');
+  for (const m of ascii.slice(magicAt + 8).matchAll(/[\x21-\x7e]+/g)) {
+    if (m[0].length === 8) return m[0];
+  }
+  return undefined;
+}
+
+/** Everything an android-backup script needs, for one specific directory. */
+export interface AndroidBackup {
+  /** The `nt_qq_<hash>` directory itself. */
+  readonly dir: string;
+  /** Absolute path to `<dir>/<name>`. */
+  dbPath(name: string): string;
+  /** `<dir>/nt_msg.db`. */
+  readonly msgDbPath: string;
+  /** `<dir>/profile_info.db`. */
+  readonly profileDbPath: string;
+  /** uid read off the `gpro_v1-6_<uid>.db` filename. */
+  readonly uid: string;
+  /** SQLCipher key, computed from uid + the rand in `nt_msg.db`'s header. */
+  readonly key: string;
+}
+
+/**
+ * Bind the android helpers to one backup directory. Use this when a script
+ * takes the directory as an argument (e.g. comparing two accounts); use
+ * {@link androidEnv} for the single `WEQ_TEST_ANDROID_ROOT` default.
+ *
+ * `keyOverride` skips the derivation entirely — for directories that were
+ * renamed, or whose header layout we can't parse.
+ */
+export function androidBackup(dir: string, keyOverride?: string): AndroidBackup {
+  const dbPath = (name: string): string => path.join(dir, name);
+  const uid = (): string => {
+    const found = androidUidFromDir(dir);
+    if (!found) throw new Error(`[@weq/testkit] ${dir} 里没找到 gpro_v1-6_<uid>.db，无法取 uid`);
+    return found;
+  };
+
+  return {
+    dir,
+    dbPath,
+    get msgDbPath(): string {
+      return dbPath('nt_msg.db');
+    },
+    get profileDbPath(): string {
+      return dbPath('profile_info.db');
+    },
+    get uid(): string {
+      return uid();
+    },
+    get key(): string {
+      if (keyOverride) return keyOverride;
+
+      const inner = md5hex(uid());
+      const dirName = dir.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? '';
+      if (dirName.startsWith('nt_qq_') && dirName.slice(6) !== md5hex(inner + ANDROID_DIR_SALT)) {
+        throw new Error(
+          `[@weq/testkit] 目录名跟 uid 对不上（${dirName}），不是 uid 派生目录；请手动指定密钥。`,
+        );
+      }
+
+      const rand = androidHeaderRand(dbPath('nt_msg.db'));
+      if (!rand) {
+        throw new Error('[@weq/testkit] nt_msg.db 头部读不出 8 字节 rand；请手动指定密钥。');
+      }
+      return md5hex(inner + rand);
+    },
+  };
+}
+
+/** The android backup at `WEQ_TEST_ANDROID_ROOT` (key overridable via `WEQ_TEST_ANDROID_KEY`). */
+export const androidEnv: AndroidBackup = {
+  get dir(): string {
+    return androidRoot();
+  },
+  dbPath: androidDbPath,
+  get msgDbPath(): string {
+    return androidDbPath('nt_msg.db');
+  },
+  get profileDbPath(): string {
+    return androidDbPath('profile_info.db');
+  },
+  get uid(): string {
+    return androidBackup(androidRoot()).uid;
+  },
+  get key(): string {
+    return androidBackup(androidRoot(), optional('WEQ_TEST_ANDROID_KEY')).key;
+  },
+};
+
 
 /**
  * Gate for every script under a `tools/mutate/` directory.

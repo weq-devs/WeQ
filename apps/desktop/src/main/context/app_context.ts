@@ -22,7 +22,13 @@ import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
-import { createWin32Platform, createLinuxPlatform, isTencentFilesRoot, type Platform } from '@weq/platform';
+import {
+  createWin32Platform,
+  createLinuxPlatform,
+  isTencentFilesRoot,
+  withResourceRoots,
+  type Platform,
+} from '@weq/platform';
 import { startMcpServer, stopMcpServer } from '../mcp/server';
 import { startWeqServer, stopWeqServer } from '../weq_assistant/server';
 import { refreshWeqStats, setWeqStats, statsCachePath } from '../weq_assistant/stats';
@@ -66,6 +72,7 @@ import {
   AssistantService,
   CollectionService,
   DressInstallService,
+  MsgDecorationCacheService,
   TokenUsageStore,
   ConversationStore,
   DeletedMsgStore,
@@ -422,6 +429,8 @@ export interface AccountServices {
   collection: CollectionService;
   /** 个性装扮(气泡/字体)的本地安装与清单。气泡不需在线,字体需在线实例。 */
   dressInstall: DressInstallService;
+  /** 逐条消息装扮解析缓存（来自 DB 列 40801）。同一 itemId 永不重查。 */
+  msgDecoration: MsgDecorationCacheService;
 }
 
 /** Classified native-init failure surfaced to the renderer. */
@@ -445,6 +454,30 @@ export interface AppContext {
   account: AccountSession | null;
   /** Services bound to the current account. `null` if no account is open. */
   services: AccountServices | null;
+  /**
+   * The Platform that resource lookups for the OPEN account must go through.
+   * Same object as `platform` for an online account; for a static one it is the
+   * `withResourceRoots` wrapper pointing at the imported db folder (and at the
+   * native media dir only while bound). Anything resolving account resources
+   * outside the service layer — e.g. `weq-asset://` in resource_protocol.ts —
+   * must read this, not `platform`, or a static account leaks into the local
+   * install's files. Null when no account is open.
+   */
+  resourcePlatform: Platform | null;
+  /**
+   * True while the open account is a static (imported-directory) one. Its
+   * databases are a dead snapshot: QQ never writes to them, so realtime watch
+   * and anti-recall triggers are pointless, and nothing may write to the local
+   * account's native files.
+   */
+  accountIsStatic: boolean;
+  /**
+   * True when the open static account is an Android phone backup (key was
+   * auto-derived). Unlike a PC-snapshot, the backup db directory is writable
+   * and the user may sync/re-import it, so anti-recall triggers installed
+   * there can fire.
+   */
+  accountIsAndroidBackup: boolean;
   /** Per-account scheduled-export manager. Recreated with the account; its
    *  lifecycle is intentionally separate from `services` so the object
    *  literal can be fully constructed before this field is assigned. */
@@ -460,8 +493,8 @@ export interface AppContext {
    */
   setStaticAccount(
     dirPath: string,
-    selfPreview: { uin: string; displayName: string; avatarUrl: string },
-    options?: { dbKey?: string; algo?: import('@weq/native').DatabaseAlgorithms },
+    selfPreview: { uin: string; uid?: string; displayName: string; avatarUrl: string },
+    options?: { dbKey?: string; algo?: import('@weq/native').DatabaseAlgorithms; mobile?: boolean },
   ): Promise<void>;
   /** Drop the current account session, if any. */
   clearAccount(): void;
@@ -514,6 +547,9 @@ export function initAppContext(): AppContext {
       nativeError: { kind: result.kind, status: result.status, message: result.message },
       account: null,
       services: null,
+      resourcePlatform: null,
+      accountIsStatic: false,
+      accountIsAndroidBackup: false,
       scheduler: null,
       setAccount(): Promise<void> {
         throw new Error('native bundle failed to load — cannot open an account');
@@ -674,6 +710,9 @@ export function initAppContext(): AppContext {
     nativeError: null,
     account: null,
     services: null,
+    resourcePlatform: null,
+    accountIsStatic: false,
+    accountIsAndroidBackup: false,
     scheduler: null,
     transcribeSilk,
     async setAccount(accountCtx: AccountContext, metadata: AccountConfigMetadata = {}): Promise<void> {
@@ -710,6 +749,10 @@ export function initAppContext(): AppContext {
         startDbHealthCheck(this, current, platform);
       });
       this.account = session;
+      // Online account: resources resolve against the local install as always.
+      this.resourcePlatform = platform;
+      this.accountIsStatic = false;
+      this.accountIsAndroidBackup = false;
       const accountConfig = new AccountConfigService(session, platform.appDataRoot());
       // Per-account export cache: tasks + outputs must NOT leak across accounts.
       // Keyed by the same (uin, dataDir) id the account record uses.
@@ -795,6 +838,7 @@ export function initAppContext(): AppContext {
         onlineStatus: new OnlineStatusService(session),
         collection: collectionSvc,
         dressInstall,
+        msgDecoration: new MsgDecorationCacheService(dressInstall),
         fileSearch,
         mediaDownload,
         mediaUrl,
@@ -1054,8 +1098,8 @@ export function initAppContext(): AppContext {
     },
     async setStaticAccount(
       dirPath: string,
-      selfPreview: { uin: string; displayName: string; avatarUrl: string },
-      options: { dbKey?: string; algo?: import('@weq/native').DatabaseAlgorithms } = {},
+      selfPreview: { uin: string; uid?: string; displayName: string; avatarUrl: string },
+      options: { dbKey?: string; algo?: import('@weq/native').DatabaseAlgorithms; mobile?: boolean } = {},
     ): Promise<void> {
       logger.info('opening static account session', {
         event: 'open-static-account-start',
@@ -1076,12 +1120,23 @@ export function initAppContext(): AppContext {
       this.scheduler?.stop();
       this.scheduler = null;
 
+      // Seed uin→uid BEFORE anything resolves a path: on linux the account
+      // directory is `nt_qq_<md5(md5(uid)+"nt_kernel")>`, so without this the
+      // native-media probe and `isQqLoggedIn` below can never resolve.
+      const selfUid = selfPreview.uid ?? '';
+      if (selfUid) rememberAccountUid(selfPreview.uin, selfUid);
+
       // Static (backup) accounts are offline snapshots, not the live QQ
       // database — no corruption watch is wired (openStaticAccount uses the raw
       // binding) and no health check is ever triggered.
       const session = await openStaticAccount(platform, {
         dirPath,
-        self: { uin: selfPreview.uin, nick: selfPreview.displayName, avatarUrl: selfPreview.avatarUrl, uid: '' },
+        self: {
+          uin: selfPreview.uin,
+          nick: selfPreview.displayName,
+          avatarUrl: selfPreview.avatarUrl,
+          uid: selfUid,
+        },
         ...(options.dbKey ? { dbKey: options.dbKey } : {}),
         ...(options.algo ? { algo: options.algo } : {}),
       });
@@ -1090,31 +1145,57 @@ export function initAppContext(): AppContext {
       const accountConfig = new AccountConfigService(session, platform.appDataRoot());
       const exportConfigId = accountConfigId(session.context.uin, dirPath);
 
-      // Live QQ is not available for static accounts — PID-dependent services
-      // will simply fail gracefully when called.
-      const noPid = (): number => {
-        throw new Error('QQ account is not online (static account — offline mode).');
+      // Does this machine also hold a native QQ directory for the same account?
+      // Re-probed on every open: the user may have changed the global data-dir
+      // override since last time, so the persisted path is display-only.
+      const nativeDir = platform.accountDir(session.context.uin);
+      const nativeMediaOn = (): boolean =>
+        nativeDir !== null && (accountConfig.getRecord()?.nativeMediaEnabled ?? true);
+
+      // Every service below resolves its resources through this wrapper instead
+      // of the bare platform. Databases point at the imported folder (otherwise
+      // the db browser and emoji.db reads would silently target the local
+      // install), and media resolves to the native dir only while bound — else
+      // null, which makes the media pipeline fall through to CDN completion.
+      const staticPlatform = withResourceRoots(platform, () => ({
+        dbDir: dirPath,
+        media: nativeMediaOn() ? 'passthrough' : 'none',
+      }));
+      this.resourcePlatform = staticPlatform;
+      this.accountIsStatic = true;
+      this.accountIsAndroidBackup = options.mobile ?? false;
+
+      // A same-account QQ may be running even though our databases came from
+      // elsewhere. The monitor (started at the end) records its pid, so this
+      // resolves lazily per call — going online mid-session needs no reopen.
+      const livePid = (): number => {
+        const pid = accountConfig.getRecord()?.qqPid;
+        if (!pid) {
+          throw new Error('QQ 未在线（静态账号需登录同一账号的 QQ 客户端后才能使用在线功能）。');
+        }
+        return pid;
       };
 
       const mediaDownload = new MediaDownloadService(
         accountConfig,
         userConfig.cacheDir('media'),
       );
-      const mediaUrl = new MediaUrlService(platform.native.ntHelper, session, noPid);
-      // 静态账号无在线 QQ —— webQuery 用 noPid，「好友空间导出」会优雅失败（离线）。
-      const webQuery = new WebQueryService(platform.native.ntHelper, session, noPid);
+      const mediaUrl = new MediaUrlService(platform.native.ntHelper, session, livePid);
+      // 同账号 QQ 在线时「好友空间导出」可用；离线则 livePid 抛错，优雅失败。
+      const webQuery = new WebQueryService(platform.native.ntHelper, session, livePid);
       const groupInfo = new GroupInfoService(session);
       const profile = new ProfileService(session);
-      // 收藏服务：静态账号 noPid 会让网络路径拿不到 p_skey → 自动回退 collection.db。
-      const collectionSvc = new CollectionService(platform.native.ntHelper, session, noPid);
-      // 个性装扮：静态账号 noPid → 气泡照常可装（外链纯 itemId），字体会明确报错。
+      // 收藏服务：离线时拿不到 p_skey → 自动回退 collection.db。
+      const collectionSvc = new CollectionService(platform.native.ntHelper, session, livePid);
+      // 个性装扮：全部写在 WeQ 自己的 cache 目录，不碰原生库。气泡离线也能装
+      // （外链纯 itemId），字体要在线实例换下载链。
       const dressInstall = new DressInstallService(
         platform.native.ntHelper,
         bootstrap.avatarCache,
         userConfig.cacheDir(join('dress', exportConfigId)),
-        noPid,
+        livePid,
       );
-      const fileSearch = new FileSearchService(session, platform);
+      const fileSearch = new FileSearchService(session, staticPlatform);
       const agentlabRoot = userConfig.cacheDir(join('agentlab', exportConfigId));
       const tokenUsage = new TokenUsageStore(join(agentlabRoot, 'usage.json'));
       const conversations = new ConversationStore(join(agentlabRoot, 'conversations.json'));
@@ -1124,22 +1205,23 @@ export function initAppContext(): AppContext {
       const deletedMsgs = new DeletedMsgStore(
         join(userConfig.cacheDir(join('deleted', exportConfigId)), 'deleted.json'),
       );
-      // 防撤回 service：装 trigger + 读 weq_recall_log。先建好供 MsgService 打撤回标。
+      // 防撤回 service：PC 快照是死库，trigger 拦不到任何东西，路由层会拒绝开启。
+      // 手机备份（mobile=true）的备份目录可写，trigger 有意义，路由层放行。
       const antiRecall = new AntiRecallService(
         session,
-        platform,
+        staticPlatform,
         join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
       );
 
       // 商城表情：一个实例同时供 `emoji` 服务字段与 exportManager 的 marketpack
       // 解密下载依赖复用（避免两处各建一个、密钥/详情缓存不共享）。
-      const emojiService = new EmojiService(session, platform);
+      const emojiService = new EmojiService(session, staticPlatform);
       // 内置表情补全：QQ 的 EmojiSystermResource 目录缺失时按需下 CDN 资源包。
       // 表情全账号通用，所以缓存不按账号分目录；资源浏览器与 weq-asset 协议
       // 都把它当作 QQ 目录之后的第二个查找根。
       const sysEmojiDownload = new SysEmojiDownloadService(
         session,
-        platform,
+        staticPlatform,
         userConfig.cacheDir('sysemoji'),
       );
       this.services = {
@@ -1156,6 +1238,7 @@ export function initAppContext(): AppContext {
         onlineStatus: new OnlineStatusService(session),
         collection: collectionSvc,
         dressInstall,
+        msgDecoration: new MsgDecorationCacheService(dressInstall),
         fileSearch,
         mediaDownload,
         mediaUrl,
@@ -1192,14 +1275,18 @@ export function initAppContext(): AppContext {
             avatarCache: bootstrap.avatarCache,
             mediaDownload,
             mediaUrl,
-            // For static accounts, the data directory IS the decrypted DB
-            // directory. nt_data media subdirectories won't be present, so
-            // media-copy will skip gracefully and only CDN completion would
-            // work (which requires a live QQ — unavailable here).
+            // The imported folder holds only databases, so `accountDir` alone
+            // yields no media. When the account is bound to a local native
+            // directory we hand over the resolved nt_data and media-copy works
+            // as it does online; unbound, both miss and export falls back to
+            // CDN completion (which needs a same-account QQ running).
             accountDir: dirPath,
+            ...(staticPlatform.ntDataDir(session.context.uin)
+              ? { ntDataDir: staticPlatform.ntDataDir(session.context.uin)! }
+              : {}),
             // Built-in system-emoji resource dir (may be absent for a static
             // account — HTML export then skips face images gracefully).
-            emojiDir: platform.emojiResourceDir(session.context.uin),
+            emojiDir: staticPlatform.emojiResourceDir(session.context.uin),
             decodeSilk: (silk: string, dest: string) =>
               import('../voice').then((m) => m.decodeSilkToFile(silk, dest)),
             transcribe: transcribeSilk,
@@ -1239,21 +1326,21 @@ export function initAppContext(): AppContext {
             },
           },
         ),
-        dbDecrypt: new DbDecryptService(session, platform),
-        dbExplorer: new DbExplorerService(session, platform),
+        dbDecrypt: new DbDecryptService(session, staticPlatform),
+        dbExplorer: new DbExplorerService(session, staticPlatform),
         antiRecall,
-        avatarResource: new AvatarResourceService(session, platform),
-        sysEmoji: new SysEmojiResourceService(session, platform, () => sysEmojiDownload.root()),
+        avatarResource: new AvatarResourceService(session, staticPlatform),
+        sysEmoji: new SysEmojiResourceService(session, staticPlatform, () => sysEmojiDownload.root()),
         sysEmojiDownload,
-        marketEmoji: new MarketEmojiResourceService(session, platform),
-        customEmoji: new CustomEmojiResourceService(session, platform),
-        relatedEmoji: new RelatedEmojiResourceService(session, platform),
-        fileResource: new FileResourceService(session, platform),
-        mediaResource: new MediaResourceService(session, platform),
-        resourceCleanup: new ResourceCleanupService(session, platform),
+        marketEmoji: new MarketEmojiResourceService(session, staticPlatform),
+        customEmoji: new CustomEmojiResourceService(session, staticPlatform),
+        relatedEmoji: new RelatedEmojiResourceService(session, staticPlatform),
+        fileResource: new FileResourceService(session, staticPlatform),
+        mediaResource: new MediaResourceService(session, staticPlatform),
+        resourceCleanup: new ResourceCleanupService(session, staticPlatform),
         webQuery,
-        groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, noPid),
-        groupFile: new GroupFileService(platform.native.ntHelper, session, noPid),
+        groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, livePid),
+        groupFile: new GroupFileService(platform.native.ntHelper, session, livePid),
       };
 
       // Persist metadata keyed by the decrypted-db directory, so re-opening
@@ -1262,6 +1349,9 @@ export function initAppContext(): AppContext {
       accountConfig.save({
         dataDir: dirPath,
         static: true,
+        ...(options.mobile ? { mobile: true } : {}),
+        ...(selfUid ? { uid: selfUid } : {}),
+        ...(nativeDir ? { nativeMediaDir: nativeDir } : {}),
         ...(selfPreview.displayName ? { displayName: selfPreview.displayName } : {}),
         ...(selfPreview.avatarUrl ? { avatarUrl: selfPreview.avatarUrl } : {}),
       });
@@ -1269,10 +1359,38 @@ export function initAppContext(): AppContext {
         event: 'open-static-account-success',
         accountUin: session.context.uin,
         dirPath,
+        nativeMediaDir: nativeDir,
+        nativeMediaEnabled: nativeMediaOn(),
       });
 
-      // No monitor, no db watch, no health check, no scheduler —
-      // static accounts are offline snapshots.
+      // A same-account QQ may still be running on this machine even though our
+      // databases came from elsewhere. The monitor only keys off the uin (and,
+      // on linux, the uid we seeded above), so it works regardless of where the
+      // session's databases live — it records the pid and harvests rkeys, which
+      // is what makes CDN media completion and the OIDB/web paths usable.
+      //
+      // The ORIGINAL platform is passed on purpose: `isQqLoggedIn` must probe
+      // the real machine, not the wrapper's redirected roots.
+      //
+      // `onHomeDress` is deliberately omitted — syncing 装扮 from the live QQ
+      // would overwrite what the user picked for this imported account.
+      accountMonitor = new AccountMonitorService(
+        session,
+        platform,
+        accountConfig,
+        () => userConfig.getSettings().mediaCompletion.enabled,
+        () => userConfig.getSettings().autoFetchClientKey,
+        bootstrap.injectHook,
+      );
+      accountMonitor.start();
+
+      // 监听走和在线账号完全相同的一套：导入目录里的库照样会变（同步工具落盘、
+      // 手动覆盖、WeQ 自己写入），没理由区别对待。
+      if (userConfig.getSettings().realtimeEnabled) {
+        mountDbWatch(session);
+      }
+
+      // Still no anti-recall triggers, no health check and no scheduler.
     },
     clearAccount(): void {
       logger.info('clearing account session', {
@@ -1296,6 +1414,9 @@ export function initAppContext(): AppContext {
       this.account?.dispose();
       this.account = null;
       this.services = null;
+      this.resourcePlatform = null;
+      this.accountIsStatic = false;
+      this.accountIsAndroidBackup = false;
     },
     applyRealtime(enabled: boolean): void {
       const session = this.account;
@@ -1342,7 +1463,14 @@ export function initAppContext(): AppContext {
         enabled: config.enabled,
         port: config.port,
       });
-      const svc = new WeqAssistantService(this.account, this.platform, userConfig.getWeqAssistantUid());
+      // 静态账号禁止往原生 nt_data 写助手头像：库来自别处，uin 却可能与本机某个
+      // 在线账号相同，写进去就污染了别人的数据。
+      const svc = new WeqAssistantService(
+        this.account,
+        this.platform,
+        userConfig.getWeqAssistantUid(),
+        !this.accountIsStatic,
+      );
 
       // 关闭：停 server + 只删会话列表行（recent_contact）。mapping / c2c 一概保留——
       // 推文（消息）与身份目录留在库里，下次开启对比本地补齐即可。best-effort。

@@ -62,14 +62,36 @@ function oidbCachePath(cacheDir: string, token: string, ext: string): string {
  * raw message. Returns the element plus the conversation kind so callers can
  * branch group vs c2c. Matches by fileToken when a message carries several of
  * the same kind; else the first one of that kind.
+ *
+ * `fwdMsgId` marks a merged-forward sub-message: its snapshot lives only in the
+ * carrying message's 40900 cache (never in our own msg tables), so `msgId` is
+ * the CARRIER and `fwdMsgId` the sub-message. Those resolve to `conv: null` —
+ * a forwarded medium's original scene is unknowable, so the caller must try
+ * both. See MediaUrlService.resolveVideoUrlUnknownScene.
  */
 async function findMediaElement(
   msgId: string,
   kind: 'video' | 'file',
   token: string,
-): Promise<{ element: MediaElement; conv: 'group' | 'c2c' } | null> {
+  fwdMsgId = '',
+  fwdKind: 'group' | 'c2c' = 'c2c',
+): Promise<{ element: MediaElement; conv: 'group' | 'c2c' | null } | null> {
   const services = getAppContext().services;
   if (!services || !msgId) return null;
+  if (fwdMsgId) {
+    try {
+      const el = await services.msgs.findForwardedMediaElement(
+        fwdKind,
+        BigInt(msgId),
+        BigInt(fwdMsgId),
+        kind,
+        token,
+      );
+      return el ? { element: el as unknown as MediaElement, conv: null } : null;
+    } catch {
+      return null;
+    }
+  }
   let raw: Awaited<ReturnType<typeof services.msgs.getRawElements>>;
   try {
     raw = await services.msgs.getRawElements(BigInt(msgId));
@@ -77,7 +99,9 @@ async function findMediaElement(
     return null;
   }
   if (!raw) return null;
-  const matches = raw.elements.filter((e) => e.kind === kind);
+  const matches = raw.elements.filter(
+    (e) => e.kind === kind || (kind === 'video' && e.kind === 'bubbleVideo'),
+  );
   const el =
     matches.find((e) => (e as { fileToken?: string }).fileToken === token) ?? matches[0];
   if (!el) return null;
@@ -328,11 +352,17 @@ export function handleMediaRequest(request: Request): Promise<Response> {
 
           const msgId = q.get('msgId') ?? '';
           const conv = q.get('conv') ?? '';
-          const found = await findMediaElement(msgId, 'video', token);
+          const fwdMsgId = q.get('fwdMsgId') ?? '';
+          const fwdKind = q.get('fwdKind') === 'group' ? 'group' : 'c2c';
+          const found = await findMediaElement(msgId, 'video', token, fwdMsgId, fwdKind);
           if (!found) return notFound('video element not found');
+          const groupId = Number(conv) || 0;
           let url: string;
           try {
-            url = await services.mediaUrl.resolveVideoUrl(found.conv, Number(conv) || 0, found.element);
+            url =
+              found.conv === null
+                ? await services.mediaUrl.resolveVideoUrlUnknownScene(groupId, found.element)
+                : await services.mediaUrl.resolveVideoUrl(found.conv, groupId, found.element);
           } catch (e) {
             console.error('[media] video OIDB resolve failed:', e);
             return notFound('video OIDB resolve failed');

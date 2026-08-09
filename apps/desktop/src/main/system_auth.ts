@@ -16,6 +16,14 @@ export type SystemAuthVerifyResult = {
 };
 
 class SystemAuthService {
+  /**
+   * win32 的可用性探测结果。native 的 checkWindowsHelloAvailability() 是同步
+   * 调用（会阻塞主进程 ~百毫秒级），而结果在一次运行内不会变，所以只探一次
+   * 并缓存 —— 否则每次进设置页都要卡一下。
+   */
+  private win32Availability: SystemAuthStatus | null = null;
+  private win32Probe: Promise<SystemAuthStatus> | null = null;
+
   getStatus(): SystemAuthStatus {
     if (process.platform === 'win32') {
       return {
@@ -47,29 +55,43 @@ class SystemAuthService {
     };
   }
 
-  resolveStatus(): SystemAuthStatus {
-    if (process.platform === 'win32') {
-      try {
-        const result = requirePlatform().native.ntHelper.checkWindowsHelloAvailability();
-        return {
-          platform: process.platform,
-          available: result.available,
-          method: result.available ? 'windows-hello' : 'none',
-          displayName: 'Windows Hello',
-          ...(result.available ? {} : { error: this.mapAvailabilityError(result.code) }),
-        };
-      } catch (error) {
-        return {
-          platform: process.platform,
-          available: false,
-          method: 'none',
-          displayName: 'Windows Hello',
-          error: error instanceof Error ? error.message : String(error),
-        };
-      }
-    }
+  /**
+   * 可用性探测。win32 上把同步 native 调用挪到 setImmediate 之后执行，让
+   * ipcMain.handle 先把控制权交回事件循环 —— 渲染层的 await 照常等，但主
+   * 进程不会在 IPC 处理函数里被同步卡住。结果缓存，只探一次。
+   */
+  async resolveStatus(): Promise<SystemAuthStatus> {
+    if (process.platform !== 'win32') return this.getStatus();
+    if (this.win32Availability) return this.win32Availability;
+    this.win32Probe ??= new Promise<SystemAuthStatus>((resolve) => {
+      setImmediate(() => resolve(this.probeWindowsHello()));
+    }).then((status) => {
+      this.win32Availability = status;
+      this.win32Probe = null;
+      return status;
+    });
+    return this.win32Probe;
+  }
 
-    return this.getStatus();
+  private probeWindowsHello(): SystemAuthStatus {
+    try {
+      const result = requirePlatform().native.ntHelper.checkWindowsHelloAvailability();
+      return {
+        platform: process.platform,
+        available: result.available,
+        method: result.available ? 'windows-hello' : 'none',
+        displayName: 'Windows Hello',
+        ...(result.available ? {} : { error: this.mapAvailabilityError(result.code) }),
+      };
+    } catch (error) {
+      return {
+        platform: process.platform,
+        available: false,
+        method: 'none',
+        displayName: 'Windows Hello',
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   async verify(reason?: string, _targetWindow?: BrowserWindow): Promise<SystemAuthVerifyResult> {

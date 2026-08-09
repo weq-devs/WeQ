@@ -27,7 +27,7 @@ export const TextElementSchema = BaseElementFieldsSchema.extend({
   textReserve: z.number().optional(),
   textEncodingFlag: z.number().optional(),
   fontStyle: z.number().optional(),
-  bubbleId: z.string().optional(),
+  atTargetUid: z.string().optional(),
   textInputState: z.number().optional(),
   translationFlag: z.number().optional(),
   linkDetectionFlag: z.number().optional(),
@@ -42,7 +42,7 @@ export const AtElementSchema = BaseElementFieldsSchema.extend({
   textReserve: z.number().optional(),
   textEncodingFlag: z.number().optional(),
   fontStyle: z.number().optional(),
-  bubbleId: z.string().optional(),
+  atTargetUid: z.string().optional(),
   textInputState: z.number().optional(),
   translationFlag: z.number().optional(),
   linkDetectionFlag: z.number().optional(),
@@ -187,6 +187,51 @@ export const VideoElementSchema = BaseElementFieldsSchema.extend({
   fileThumbLocalPath: z.string().optional(),
   transferFlag45507: z.bigint().optional(),
   transferFlag45509: z.number().optional(),
+});
+
+/** elementType=49 BUBBLE_VIDEO：wire 字段与 VIDEO 完全相同，仅渲染为圆形循环视频。 */
+export const BubbleVideoElementSchema = BaseElementFieldsSchema.extend({
+  kind: z.literal('bubbleVideo'),
+  subType: z.number(),
+  fileName: z.string(),
+  fileSize: z.number(),
+  md5Bytes: z.instanceof(Uint8Array),
+  contentHash: z.instanceof(Uint8Array),
+  imgWidth: z.number(),
+  imgHeight: z.number(),
+  fileFlag45415: z.number(),
+  isOriginal: z.boolean(),
+  fileToken: z.string(),
+  uploadTime: z.number(),
+  picTransferState: z.number(),
+  transferVersion: z.number(),
+  uploadTimestamp: z.number(),
+  fileTTL: z.number(),
+  summary: z.array(z.string()),
+  videoDuration: z.number(),
+  videoWidth: z.number(),
+  videoHeight: z.number(),
+  videoFlag45421: z.instanceof(Uint8Array),
+  coverFileName: z.string(),
+  videoFlag45423: z.boolean(),
+  videoToken: z.string(),
+  expireTimestamp: z.number(),
+  validPeriodSec: z.number(),
+  secondExpireTimestamp: z.number(),
+  channelParams: z.instanceof(Uint8Array),
+  videoFlag45863: z.number(),
+  videoCoverLocalPath: z.string().optional(),
+  videoFlag45851: z.number().optional(),
+  videoFlag45852: z.number().optional(),
+  videoFlag45853: z.number().optional(),
+  videoFlag45854: z.number().optional(),
+  videoFlag45855: z.number().optional(),
+  videoFlag45856: z.any().optional(),
+  videoFlag45865: z.number().optional(),
+  fileThumbLocalPath: z.string().optional(),
+  transferFlag45507: z.bigint().optional(),
+  transferFlag45509: z.number().optional(),
+  templateName: z.string().optional(),
 });
 
 export const PttElementSchema = BaseElementFieldsSchema.extend({
@@ -507,6 +552,14 @@ export const MultiMsgElementSchema = BaseElementFieldsSchema.extend({
   sessionId: z.string(),
 });
 
+/** elementType=13 STRUCT_LONG_MSG：结构化长消息。字段参考 MultiMsg，具体结构待观测。 */
+export const StructLongMsgElementSchema = BaseElementFieldsSchema.extend({
+  kind: z.literal('structLongMsg'),
+  resId: z.string().optional(),
+  xmlContent: z.string().optional(),
+  sessionId: z.string().optional(),
+});
+
 /** 机器人内联键盘的单个按钮（48753），对应 InlineKeyboardButtonWire。 */
 export const InlineKeyboardButtonSchema = z.object({
   buttonId: z.string().optional(),
@@ -672,6 +725,7 @@ export const ElementSchema = z.discriminatedUnion('kind', [
   PicElementSchema,
   FileElementSchema,
   VideoElementSchema,
+  BubbleVideoElementSchema,
   PttElementSchema,
   FaceElementSchema,
   ReplyElementSchema,
@@ -686,6 +740,7 @@ export const ElementSchema = z.discriminatedUnion('kind', [
   MfaceElementSchema,
   MarkdownElementSchema,
   MultiMsgElementSchema,
+  StructLongMsgElementSchema,
   InlineKeyboardElementSchema,
   CallElementSchema,
   OnlineFileElementSchema,
@@ -702,6 +757,7 @@ export type AtElement = z.infer<typeof AtElementSchema>;
 export type PicElement = z.infer<typeof PicElementSchema>;
 export type FileElement = z.infer<typeof FileElementSchema>;
 export type VideoElement = z.infer<typeof VideoElementSchema>;
+export type BubbleVideoElement = z.infer<typeof BubbleVideoElementSchema>;
 export type PttElement = z.infer<typeof PttElementSchema>;
 export type FaceElement = z.infer<typeof FaceElementSchema>;
 export type ReplyElement = z.infer<typeof ReplyElementSchema>;
@@ -715,6 +771,7 @@ export type ArkElement = z.infer<typeof ArkElementSchema>;
 export type MfaceElement = z.infer<typeof MfaceElementSchema>;
 export type MarkdownElement = z.infer<typeof MarkdownElementSchema>;
 export type MultiMsgElement = z.infer<typeof MultiMsgElementSchema>;
+export type StructLongMsgElement = z.infer<typeof StructLongMsgElementSchema>;
 export type InlineKeyboardButton = z.infer<typeof InlineKeyboardButtonSchema>;
 export type InlineKeyboardRow = z.infer<typeof InlineKeyboardRowSchema>;
 export type InlineKeyboardElement = z.infer<typeof InlineKeyboardElementSchema>;

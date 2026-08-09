@@ -10,7 +10,7 @@
  * service stringifies them at the JSON boundary.
  */
 
-import type { Element, SetEmojiItem } from '@weq/codec';
+import type { Element, SetEmojiItem, MsgDecoration } from '@weq/codec';
 
 export interface C2cMsg {
   msgId: bigint;
@@ -35,6 +35,8 @@ export interface C2cMsg {
   msgType?: bigint;
   /** Sub message type (column 40012); see {@link msgType}. */
   subType?: bigint;
+  /** Per-message decoration (column 40801): bubble/font/widget itemIds. */
+  decoration?: MsgDecoration;
 }
 
 export interface GroupMsg {
@@ -59,6 +61,8 @@ export interface GroupMsg {
   msgType?: bigint;
   /** Sub message type (column 40012); see {@link msgType}. */
   subType?: bigint;
+  /** Per-message decoration (column 40801): bubble/font/widget itemIds. */
+  decoration?: MsgDecoration;
 }
 
 /**

@@ -1795,7 +1795,9 @@ html[data-theme='dark'] .weq-splash-track {
     display: grid;
     grid-template-columns: minmax(19rem, 0.52fr) minmax(0, 1fr);
     gap: 1.6rem;
-    align-items: center;
+    /* stretch（而非 center）：两栏各自撑满可用高度，由自己内部滚动。center
+       会让超高内容向上溢出压到标题上。 */
+    align-items: stretch;
     flex: 1;
     min-height: 0;
     padding-top: 1.15rem;
@@ -1830,6 +1832,11 @@ html[data-theme='dark'] .weq-splash-track {
     min-height: 0;
     flex-direction: column;
     gap: 1.1rem;
+    /* 内容不满一屏时垂直居中（在线账号页的原观感）。用 safe center：内容
+       溢出时退回顶端对齐，不会像普通 center 那样把上边顶出容器、压住标题。
+       注意不能在这一层加 overflow —— 账号选择器的弹层是 absolute 定位，
+       会被裁掉。 */
+    justify-content: safe center;
   }
 
   /* ---- source tabs (新的开始: 在线账号 / 本地备份) ---- */
@@ -1864,6 +1871,12 @@ html[data-theme='dark'] .weq-splash-track {
     display: flex;
     flex-direction: column;
     gap: 0.85rem;
+    /* 这一页比在线账号页高不少。自己滚动，否则内容会撑破外层 grid 向上
+       溢出、把标题压掉一半。这里加 overflow 是安全的 —— 本面板内没有
+       absolute 定位的弹层（账号选择器在另一个分支）。 */
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
   .weq-static-backup-head {
     display: flex;
@@ -1959,6 +1972,10 @@ html[data-theme='dark'] .weq-splash-track {
   .weq-static-actions {
     display: flex;
     justify-content: flex-end;
+  }
+  /* 密钥态下按钮挪到了输入框同行，这里会变成空容器 —— 别让它白占一个 gap。 */
+  .weq-static-actions:empty {
+    display: none;
   }
   .weq-static-actions .weq-action-primary {
     height: 2.5rem;
@@ -4798,6 +4815,30 @@ html[data-theme='dark'] .weq-set-input {
   filter: brightness(1.06);
 }
 
+/* 账号列表里的「删除」——soft 底 + 红字，比实心 danger 轻，避免整行视觉过重。
+   与 .weq-set-btn 连写提高特异性：深色态的 .weq-set-btn-soft 规则排在本段之后，
+   否则它的 color 会把这里的红字盖掉。 */
+.weq-set-btn.weq-set-btn-del {
+  color: #d32f2f;
+  border-color: rgba(211, 47, 47, 0.24);
+}
+
+.weq-set-btn.weq-set-btn-del:hover:not(:disabled) {
+  background: rgba(211, 47, 47, 0.08);
+  border-color: rgba(211, 47, 47, 0.4);
+  filter: none;
+}
+
+html[data-theme="dark"] .weq-set-btn.weq-set-btn-del {
+  color: #ff6b6b;
+  border-color: rgba(255, 107, 107, 0.26);
+}
+
+html[data-theme="dark"] .weq-set-btn.weq-set-btn-del:hover:not(:disabled) {
+  background: rgba(255, 107, 107, 0.1);
+  border-color: rgba(255, 107, 107, 0.42);
+}
+
 /* 清理缓存 — per-category checkbox rows. */
 .weq-set-cache-list {
   display: flex;
@@ -5131,6 +5172,7 @@ html[data-theme="dark"] .weq-settings-preset-preview.is-style-soon {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  overflow: hidden;
 }
 
 .weq-set-account-item {
@@ -5177,6 +5219,7 @@ html[data-theme="dark"] .weq-settings-preset-preview.is-style-soon {
 }
 
 .weq-set-account-dir {
+  display: block;
   font-size: 11px;
   color: #9ca3af;
   white-space: nowrap;
@@ -6354,6 +6397,34 @@ html[data-theme="dark"] .weq-rail-account-ctx-menu button {
   color: #ff6b6b;
 }
 html[data-theme="dark"] .weq-rail-account-ctx-menu button:hover {
+  background: rgba(255, 107, 107, 0.1);
+}
+
+/* 左栏底部账号切换弹层 — 浅色态是半透明白毛玻璃，深色下必须整体反色，
+   否则白底 + 深色文字会在深色界面上炸出一块亮斑。 */
+html[data-theme="dark"] .weq-rail-account-popover {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(27, 33, 41, 0.86);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  color: #edf2f7;
+}
+
+html[data-theme="dark"] .weq-rail-account-popover-title,
+html[data-theme="dark"] .weq-rail-account-empty,
+html[data-theme="dark"] .weq-rail-account-item-uin {
+  color: #99a7b8;
+}
+
+html[data-theme="dark"] .weq-rail-account-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .weq-rail-account-signout {
+  border-top-color: rgba(255, 255, 255, 0.08);
+  color: #ff6b6b;
+}
+
+html[data-theme="dark"] .weq-rail-account-signout:hover {
   background: rgba(255, 107, 107, 0.1);
 }
 

@@ -42,7 +42,7 @@ import {
   type VoiceDownloadProgress,
   type TtsProviderConfig,
 } from '@weq/service';
-import { peekStaticSelfUin } from '@weq/account';
+import { peekStaticSelfUin, deriveAndroidDbKey } from '@weq/account';
 import { isTencentFilesRoot } from '@weq/platform';
 
 /** Result of the Tencent Files folder picker (with the hard `Tencent Files` rule). */
@@ -386,6 +386,14 @@ export const bootstrapRouter = router({
     .input(z.object({ enabled: z.boolean().optional(), screenshot: z.boolean().optional() }))
     .mutation(({ input }) => {
       requireBootstrap().userConfig.setSettings({ linkPreview: input });
+      return true;
+    }),
+
+  /** 是否渲染每条消息里的装扮（气泡/字体/挂件）。纯持久化。 */
+  setShowMsgDecoration: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ showMsgDecoration: input.enabled });
       return true;
     }),
 
@@ -1134,25 +1142,39 @@ export const bootstrapRouter = router({
       if (!existsSync(ntMsgPath)) {
         return { ok: false as const, error: '未在所选目录中找到 nt_msg.db' };
       }
+      // 用户没给密钥时，先试着自己算 —— 安卓备份目录能从 uid + 头里的
+      // rand 推出 dbkey，省掉手输那一步。算不出来再走原来的流程。
+      let dbKey = input.dbKey;
+      let algo = input.algo;
+      let derived = false;
+      if (!dbKey) {
+        const d = await deriveAndroidDbKey(platform.native.ntHelper, input.dirPath);
+        if (d) {
+          dbKey = d.dbKey;
+          algo = d.algo;
+          derived = true;
+        }
+      }
+
       try {
-        const preview = await peekStaticSelfUin(
-          platform,
-          input.dirPath,
-          input.dbKey,
-          input.algo,
-        );
+        const preview = await peekStaticSelfUin(platform, input.dirPath, dbKey, algo);
         return {
           ok: true as const,
           needKey: false as const,
+          // 自动算出来的密钥要回给前端 —— 「进入」时要用它开库并持久化。
+          ...(derived && dbKey ? { derivedKey: dbKey } : {}),
+          // 能自动推导密钥 ⇒ 安卓手机备份目录，标记为 mobile。
+          ...(derived ? { mobile: true as const } : {}),
           preview: {
             uin: preview.uin,
+            uid: preview.uid,
             displayName: preview.nick,
             avatarUrl: preview.avatarUrl,
           },
         };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        // Caller didn't supply a key — ask for one. NOT a hard error.
+        // 用户没给密钥（自动派生也没成）—— 让 UI 去要，不算硬错误。
         if (!input.dbKey) {
           return { ok: true as const, needKey: true as const };
         }
@@ -1172,8 +1194,13 @@ export const bootstrapRouter = router({
         dirPath: z.string().min(1),
         dbKey: z.string().optional(),
         algo: algoSchema.optional(),
+        mobile: z.boolean().optional(),
         preview: z.object({
           uin: z.string().min(1),
+          // Needed to derive the account directory on linux (`nt_qq_<hash>` is
+          // keyed by uid, not uin) — both for the native-media probe and for
+          // `isQqLoggedIn`. Optional so a client from an older build still opens.
+          uid: z.string().default(''),
           displayName: z.string(),
           avatarUrl: z.string(),
         }),
@@ -1188,9 +1215,22 @@ export const bootstrapRouter = router({
       if (!existsSync(ntMsgPath)) {
         throw new Error(`未在所选目录中找到 nt_msg.db：${input.dirPath}`);
       }
+      // 没带密钥时同样先自己算一遍 —— 覆盖「重开已存账号」以及旧版前端
+      // 不回传 derivedKey 的情况。算不出来就按明文 SQLite 打开（原行为）。
+      let dbKey = input.dbKey;
+      let algo = input.algo;
+      if (!dbKey) {
+        const d = await deriveAndroidDbKey(requirePlatform().native.ntHelper, input.dirPath);
+        if (d) {
+          dbKey = d.dbKey;
+          algo = d.algo;
+        }
+      }
+
       await ctx.setStaticAccount(input.dirPath, input.preview, {
-        ...(input.dbKey ? { dbKey: input.dbKey } : {}),
-        ...(input.algo ? { algo: input.algo } : {}),
+        ...(dbKey ? { dbKey } : {}),
+        ...(algo ? { algo } : {}),
+        ...(input.mobile ? { mobile: true } : {}),
       });
       return ctx.account!.context;
     }),

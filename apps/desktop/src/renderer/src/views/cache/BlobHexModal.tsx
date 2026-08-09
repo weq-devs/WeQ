@@ -114,6 +114,16 @@ export function BlobHexModal({
     setBulk(formatHexBlock(bytes));
   }
 
+  async function copyProtoJson(): Promise<void> {
+    if (!proto) return;
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(pbNodesToJson(proto.nodes), null, 2));
+      dialog.success('已复制', 'Protobuf 已复制为 JSON（bytes 字段以 hex 表示）');
+    } catch (e) {
+      dialog.error('复制失败', e instanceof Error ? e.message : String(e));
+    }
+  }
+
   async function copyHex(): Promise<void> {
     try {
       await navigator.clipboard.writeText(bytesToHex(data));
@@ -277,6 +287,12 @@ export function BlobHexModal({
             <Copy size={14} />
             复制 Hex
           </button>
+          {isProto ? (
+            <button type="button" className="weq-cache-tool" onClick={() => void copyProtoJson()}>
+              <Copy size={14} />
+              复制 JSON
+            </button>
+          ) : null}
           <span className="weq-cache-spacer" />
           <button type="button" className="weq-cache-tool" onClick={onClose}>
             {canEdit ? '取消' : '关闭'}
@@ -353,4 +369,28 @@ function formatHexBlock(data: number[]): string {
 
 function isPrintable(b: number): boolean {
   return b >= 0x20 && b <= 0x7e;
+}
+
+// ── proto → JSON helpers ─────────────────────────────────────────────────────
+
+function pbNodesToJson(nodes: PbNode[]): Record<string, unknown> {
+  const groups = new Map<number, unknown[]>();
+  for (const node of nodes) {
+    const arr = groups.get(node.tag) ?? [];
+    arr.push(pbNodeValue(node));
+    groups.set(node.tag, arr);
+  }
+  const out: Record<string, unknown> = {};
+  for (const [tag, arr] of groups) {
+    out[String(tag)] = arr.length === 1 ? arr[0] : arr;
+  }
+  return out;
+}
+
+function pbNodeValue(node: PbNode): unknown {
+  const v = node.value;
+  if (v.kind === 'nested') return pbNodesToJson(node.children ?? []);
+  if (v.kind === 'bool') return v.on;
+  if (v.kind === 'bytes') return v.hex;
+  return v.text;
 }

@@ -32,9 +32,16 @@ import { dirname } from 'node:path';
 
 /** Persisted anti-recall config for one account. */
 export interface AntiRecallConfig {
-  /** Master switch. When false, no triggers are installed regardless of targets. */
+  /** Master switch. When false, no triggers are installed regardless of targets/mode. */
   enabled: boolean;
-  /** Conversations the user chose to protect. */
+  /**
+   * `'selected'` (default) — only `targets` are protected.
+   * `'all'` — every conversation is protected (永久全选，不做会话筛选);
+   * `targets` is ignored while this mode is active, but kept in the config so
+   * switching back to `'selected'` restores the prior selection.
+   */
+  mode: 'selected' | 'all';
+  /** Conversations the user chose to protect (used when `mode === 'selected'`). */
   targets: AntiRecallTarget[];
 }
 
@@ -46,7 +53,7 @@ export interface AntiRecallStatus extends AntiRecallConfig {
   qqRunning: boolean;
 }
 
-const DEFAULT_CONFIG: AntiRecallConfig = { enabled: false, targets: [] };
+const DEFAULT_CONFIG: AntiRecallConfig = { enabled: false, mode: 'selected', targets: [] };
 
 /**
  * 归一化一个 target 的 kind，修复前端对临时会话的误判。
@@ -85,6 +92,7 @@ export class AntiRecallService {
       const installed = await db.status();
       return {
         enabled: this.config.enabled,
+        mode: this.config.mode,
         targets: this.config.targets,
         installed,
         qqRunning: this.isQqRunning(),
@@ -134,6 +142,17 @@ export class AntiRecallService {
     return this.getStatus();
   }
 
+  /**
+   * Switch between protecting only `targets` (`'selected'`) and protecting
+   * every conversation with no session filter (`'all'`, 永久全选). Persists.
+   */
+  async setMode(mode: 'selected' | 'all'): Promise<AntiRecallStatus> {
+    this.config = { ...this.config, mode };
+    this.persist();
+    await this.applyTriggers();
+    return this.getStatus();
+  }
+
   /** Replace the protected-conversation set, then reconcile. Persists. */
   async setTargets(targets: AntiRecallTarget[]): Promise<AntiRecallStatus> {
     // Normalize (u_ ids can't be group codes), drop empty ids, de-dup by (kind,id)
@@ -156,8 +175,8 @@ export class AntiRecallService {
 
   /**
    * Make the live triggers match the current config: install for the selected
-   * conversations when enabled, drop everything when disabled (or nothing is
-   * selected).
+   * conversations (or every conversation, in `'all'` mode) when enabled, drop
+   * everything when disabled.
    *
    * Works whether or not QQ is running — each statement is a short write that
    * releases the lock immediately (see QqDb.write). Note only: if QQ is open it
@@ -167,8 +186,9 @@ export class AntiRecallService {
   async applyTriggers(): Promise<void> {
     const db = this.openDb();
     try {
+      const allConversations = this.config.enabled && this.config.mode === 'all';
       const active = this.config.enabled ? this.config.targets : [];
-      await db.reconcile(active);
+      await db.reconcile(active, allConversations);
     } finally {
       db.close();
     }
@@ -199,6 +219,7 @@ export class AntiRecallService {
       const parsed = JSON.parse(readFileSync(this.storePath, 'utf-8')) as Partial<AntiRecallConfig>;
       return {
         enabled: parsed.enabled === true,
+        mode: parsed.mode === 'all' ? 'all' : 'selected',
         targets: Array.isArray(parsed.targets)
           ? parsed.targets
               .filter(

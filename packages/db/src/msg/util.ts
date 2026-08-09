@@ -6,8 +6,8 @@
  * the codec wiring.
  */
 
-import { ProtoMsg, decodeElement } from '@weq/codec';
-import type { Element, SetEmojiItem } from '@weq/codec';
+import { ProtoMsg, decodeElement, decodeMsgDressColumn } from '@weq/codec';
+import type { Element, SetEmojiItem, MsgDecoration } from '@weq/codec';
 import { sanitizeBytes } from '@weq/codec/raw';
 import { MsgBody } from '@weq/codec/proto/msg/40800';
 import { MsgEmoji } from '@weq/codec/proto/msg/40062';
@@ -56,6 +56,11 @@ export function decodeEmoji(blob: SqlValue | undefined): SetEmojiItem[] | undefi
     console.error('[msg] failed to decode 40062 emoji:', e);
     return undefined;
   }
+}
+
+export function decodeDress(blob: SqlValue | undefined): MsgDecoration | undefined {
+  if (!(blob instanceof Uint8Array) || blob.byteLength === 0) return undefined;
+  return decodeMsgDressColumn(blob) ?? undefined;
 }
 
 export function toBigint(v: SqlValue | undefined): bigint {

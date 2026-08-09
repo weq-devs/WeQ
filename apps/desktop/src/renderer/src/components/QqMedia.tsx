@@ -85,6 +85,8 @@ async function downloadFile(args: {
   name: string;
   token: string;
   conv: string;
+  fwdMsgId?: string;
+  fwdKind?: 'c2c' | 'group';
 }): Promise<{ success: boolean; error?: string }> {
   const bridge = window.electron;
   const result = (await bridge?.ipcRenderer?.invoke?.('file:download', args)) as {
@@ -167,20 +169,33 @@ export function QqImage({
 
 // ---- video --------------------------------------------------------------
 
+/** Identifies a 合并转发 sub-message: which record inside the carrier's 40900
+ *  cache the medium belongs to. Absent for normal timeline messages. */
+export interface ForwardRef {
+  fwdMsgId: string;
+  fwdKind: 'c2c' | 'group';
+}
+
 export function QqVideo({
   data,
   sendTimeMs,
   msgId = '',
   conv = '',
+  fwd,
+  bubble = false,
+  templateName = '',
 }: {
   data: Data;
   sendTimeMs: number;
   msgId?: string;
   conv?: string;
+  fwd?: ForwardRef;
+  bubble?: boolean;
+  templateName?: string;
 }) {
   const [posterBroken, setPosterBroken] = useState(false);
-  const [playing, setPlaying] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [playing, setPlaying] = useState(bubble);
+  const [loading, setLoading] = useState(bubble);
   const [videoBroken, setVideoBroken] = useState(false);
   const name = str(data, 'fileName');
   // Cover is fetched with videoToken; the original mp4 with fileToken.
@@ -190,9 +205,12 @@ export function QqVideo({
   const h = num(data, 'videoHeight');
   const duration = num(data, 'videoDuration');
   const fit = fitWithin(w, h, 280, 360);
-  const style: CSSProperties = fit
-    ? { width: fit.width, height: fit.height }
-    : { maxWidth: 280, maxHeight: 360 };
+  // bubble mode: container already clips to 120×120 circle, fill it entirely.
+  const style: CSSProperties = bubble
+    ? { width: '100%', height: '100%' }
+    : fit
+      ? { width: fit.width, height: fit.height }
+      : { maxWidth: 280, maxHeight: 360 };
 
   // 封面同图片：CDN 直链优先，失败落回代理。原片不参与——那要 OIDB 现签 URL。
   const cdn = useCdn();
@@ -202,8 +220,37 @@ export function QqVideo({
   const coverSrc = coverCdn && !coverCdnFailed ? coverCdn : proxyCover;
 
   // Original couldn't be located locally or downloaded → missing placeholder.
+  // bubble mode: show templateName as label so the user knows what it was.
   if (videoBroken) {
-    return <QqMediaMissing label="该视频" style={style} />;
+    return <QqMediaMissing label={bubble && templateName ? templateName : '该视频'} style={style} />;
+  }
+
+  const videoSrc = mediaUrl('video', {
+    t: sendTimeMs,
+    name,
+    token: fileToken,
+    msgId,
+    conv,
+    ...(fwd ? { fwdMsgId: fwd.fwdMsgId, fwdKind: fwd.fwdKind } : {}),
+  });
+
+  // bubble mode: auto-play muted loop, no controls, fill the circle container.
+  if (bubble) {
+    return (
+      <div className="qq-media-video" style={style}>
+        <video
+          className="qq-media-video-player"
+          src={videoSrc}
+          muted
+          loop
+          autoPlay
+          playsInline
+          onCanPlay={() => setLoading(false)}
+          onError={() => setVideoBroken(true)}
+        />
+        {loading ? <span className="qq-media-spinner" aria-hidden /> : null}
+      </div>
+    );
   }
 
   // Click → play inline. The media protocol locates the original on disk or
@@ -214,7 +261,7 @@ export function QqVideo({
       <div className="qq-media-video" style={style}>
         <video
           className="qq-media-video-player"
-          src={mediaUrl('video', { t: sendTimeMs, name, token: fileToken, msgId, conv })}
+          src={videoSrc}
           controls
           autoPlay
           onCanPlay={() => setLoading(false)}
@@ -288,11 +335,13 @@ export function QqFile({
   sendTimeMs,
   msgId,
   conv = '',
+  fwd,
 }: {
   data: Data;
   sendTimeMs: number;
   msgId: string;
   conv?: string;
+  fwd?: ForwardRef;
 }) {
   const name = str(data, 'fileName');
   const size = num(data, 'fileSize');
@@ -306,7 +355,10 @@ export function QqFile({
     void (async () => {
       // 1. Local first: file_assistant.db → reveal in OS file manager. There's
       //    no file manager to reveal into on web, so skip straight to (2).
-      if (IS_ELECTRON && msgId && (await revealFile(msgId))) return;
+      //    Forwarded files are indexed under their own sub-msgId, so that's the
+      //    id to search by — not the carrier's.
+      const localId = fwd ? fwd.fwdMsgId : msgId;
+      if (IS_ELECTRON && localId && (await revealFile(localId))) return;
       // 2. Not on disk → OIDB completion (needs an online QQ). Only msgId is
       //    required; token just disambiguates multiple files in one message.
       if (!msgId) {
@@ -315,7 +367,7 @@ export function QqFile({
       }
       setBusy(true);
       try {
-        const r = await downloadFile({ msgId, name, token, conv });
+        const r = await downloadFile({ msgId, name, token, conv, ...fwd });
         if (!r.success) setError(r.error ?? '下载失败');
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));

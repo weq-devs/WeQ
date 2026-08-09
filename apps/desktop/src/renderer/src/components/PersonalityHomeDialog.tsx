@@ -20,6 +20,7 @@ import { AvatarOrb, CardBackdrop, ScreenRain, TagRing } from './dressPieces';
 import { openLightbox } from './ImageLightbox';
 import { albumMediaUrl, collectionImageUrl, dressUrl } from '../lib/resourceUrl';
 import { trpc } from '../trpc/client';
+import botCardUrl from '@resources/img/bot.png';
 
 /** 与资料灯箱同一份形状（profilePanes 的 ProfileExtInfo），只取渲染要用的字段。 */
 export interface PersonalityHomeProfile {
@@ -39,17 +40,20 @@ export interface PersonalityHomeProfile {
 export function PersonalityHomeDialog({
   uin,
   profile,
+  isBot = false,
   onClose,
 }: {
   /** 目标 QQ 号。装扮页只认 uin，拿不到 uin 的联系人不该开这个入口。 */
   uin: string;
   profile: PersonalityHomeProfile;
+  /** 机器人没有会员装扮，跳过联网请求，直接用内置名片。 */
+  isBot?: boolean;
   onClose: () => void;
 }) {
   const dress = trpc.account.dressup.peerHome.useQuery(
     { uin },
     // SSR 页面每次都要几秒，失败多半是票据/风控而不是抖动，重试只会让用户多等一轮。
-    { retry: false, refetchOnWindowFocus: false, staleTime: 5 * 60_000 },
+    { enabled: !isBot, retry: false, refetchOnWindowFocus: false, staleTime: 5 * 60_000 },
   );
 
   useEffect(() => {
@@ -61,7 +65,7 @@ export function PersonalityHomeDialog({
   }, [onClose]);
 
   const widgetUrl = dressUrl(dress.data?.widgetUrl ?? '');
-  const cardUrl = dressUrl(dress.data?.cardUrl ?? '');
+  const cardUrl = isBot ? botCardUrl : dressUrl(dress.data?.cardUrl ?? '');
   const cardVideoUrl = dressUrl(dress.data?.cardVideoUrl ?? '');
   const screenUrl = dressUrl(dress.data?.screenUrl ?? '');
   const hasBackdrop = Boolean(cardUrl || cardVideoUrl);
@@ -159,7 +163,7 @@ export function PersonalityHomeDialog({
           ) : null}
 
           <div className="weq-perhome-status">
-            {dress.isLoading ? (
+            {isBot ? null : dress.isLoading ? (
               <span className="weq-perhome-loading">
                 <Loader2 size={13} />
                 正在获取个性装扮…

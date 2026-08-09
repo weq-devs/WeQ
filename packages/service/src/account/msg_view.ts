@@ -65,7 +65,7 @@ export interface RenderAtElement {
   type: 'at';
   data: BaseRenderData & {
     textContent: string;
-    buddleId?: string;
+    atTargetUid?: string;
   };
 }
 
@@ -590,7 +590,7 @@ function mapAt(el: AtElement): RenderAtElement {
     type: 'at',
     data: {
       textContent: el.textContent,
-      buddleId: el.bubbleId,
+      atTargetUid: el.atTargetUid,
       elementId: el.elementId,
       isSender: el.isSender,
       subType: el.subType,

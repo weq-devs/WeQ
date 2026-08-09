@@ -54,7 +54,7 @@ export function hasContent(segs: Segment[]): boolean {
 /**
  * Convert authored segments into the wire elements posted to insertMessage.
  * Empty text segments are dropped. `@` mentions are encoded as TEXT elements
- * carrying the target uid in `bubbleId` and uin in `textEncodingFlag` — the
+ * carrying the target uid in `atTargetUid` and uin in `textEncodingFlag` — the
  * shape QQ uses (and what decodeElement keys 'at' off of).
  */
 export function toWireElements(segs: Segment[]): Array<Record<string, unknown>> {
@@ -68,7 +68,7 @@ export function toWireElements(segs: Segment[]): Array<Record<string, unknown>> 
       out.push({
         kind: 'at',
         textContent: `@${s.name} `,
-        bubbleId: s.uid,
+        atTargetUid: s.uid,
         textReserve: 2,
         textEncodingFlag: Number(s.uin) || 0,
         atMentionMask: '',
@@ -155,9 +155,7 @@ function toOrigElement(e: RenderEl): Record<string, unknown> {
       return {
         kind: 'at',
         textContent: String(data.textContent ?? ''),
-        // mapAt stores the target uid under `buddleId` (sic); decodeElement keys
-        // 'at' off a present `bubbleId`, so restore the correct wire field name.
-        bubbleId: String(data.buddleId ?? data.bubbleId ?? ''),
+        atTargetUid: String(data.atTargetUid ?? ''),
       };
     case 'face':
       return { kind: 'face', faceId: Number(data.faceId) || 0, faceText: String(data.faceText ?? '') };

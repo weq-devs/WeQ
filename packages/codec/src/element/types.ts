@@ -7,6 +7,7 @@ export type {
   FileElement,
   PttElement,
   VideoElement,
+  BubbleVideoElement,
   FaceElement,
   ReplyElement,
   GrayTipRevokeElement,
@@ -20,6 +21,7 @@ export type {
   MfaceElement,
   MarkdownElement,
   MultiMsgElement,
+  StructLongMsgElement,
   InlineKeyboardButton,
   InlineKeyboardRow,
   InlineKeyboardElement,
@@ -70,8 +72,8 @@ export enum ElementType {
    * 键盘是卡片底部的按钮组。行在 48751，按钮在行内的 48753。
    */
   INLINE_KEYBOARD = 17,
-  /** 文字内嵌礼物. 未观测. */
-  IN_TEXT_GIFT = 18,
+  /** 群礼物（qungift）。总与 ARK(elementType=10) 共现，只解析不渲染。 */
+  QUNGIFT = 18,
   /** 日程 / 日历. 未观测. */
   CALENDAR = 19,
   /** YOLO 小游戏结果. 未观测. */
@@ -100,6 +102,8 @@ export enum ElementType {
   RECOMMENDED_MSG = 43,
   /** 操作栏. 未观测. */
   ACTION_BAR = 44,
+  /** 泡泡视频（圆形循环短视频，QQ 内部名 BUBBLE）。wire 字段与 VIDEO 完全相同。 */
+  BUBBLE_VIDEO = 49,
 }
 
 /**
