@@ -1372,6 +1372,7 @@ export const accountRouter = router({
       // 静态账号：渲染层据此收窄本地资源页、置灰实时消息/防撤回，并展示
       // 「关联本机媒体目录」。nativeMediaDir 为 null 表示本机没有同账号目录。
       static: record.static ?? false,
+      mobile: record.mobile ?? false,
       nativeMediaDir: record.nativeMediaDir ?? null,
       nativeMediaEnabled: record.nativeMediaEnabled ?? true,
     };

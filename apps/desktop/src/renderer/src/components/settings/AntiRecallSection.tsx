@@ -83,12 +83,13 @@ export function AntiRecallSection(): ReactElement {
   const conversations = trpc.account.listConversationsWithCount.useQuery(undefined, {
     refetchOnWindowFocus: false,
   });
-  // 静态账号的库是离线快照，QQ 永远不会往里写 —— 触发器拦不到任何东西。
-  // 后端也会拒绝（见 anti_recall router），这里只是别让 UI 撒谎。
+  // PC 快照静态账号的库 QQ 不会往里写 —— 触发器拦不到任何东西。
+  // 手机备份（mobile=true）的备份目录可写，允许开启。
+  // 后端也做同样判断（见 anti_recall router），这里只是别让 UI 撒谎。
   const config = trpc.account.getAccountConfig.useQuery(undefined, {
     refetchOnWindowFocus: false,
   });
-  const isStatic = config.data?.static ?? false;
+  const isStaticPcOnly = (config.data?.static ?? false) && !(config.data?.mobile ?? false);
 
   const setEnabled = trpc.account.antiRecall.setEnabled.useMutation();
   const setTargets = trpc.account.antiRecall.setTargets.useMutation();
@@ -211,14 +212,14 @@ export function AntiRecallSection(): ReactElement {
         <Row
           label="启用防撤回"
           desc={
-            isStatic
+            isStaticPcOnly
               ? '静态账号的数据库是导入的离线快照，QQ 不会往里写入，触发器拦不到任何撤回。'
               : '通过本地数据库触发器拦截撤回写入，仅影响本机记录，不向对方发送任何内容。'
           }
           control={
             <Toggle
-              checked={enabled && !isStatic}
-              disabled={busy || status.isLoading || isStatic}
+              checked={enabled && !isStaticPcOnly}
+              disabled={busy || status.isLoading || isStaticPcOnly}
               onChange={(next) => void onToggle(next)}
               label="启用防撤回"
             />

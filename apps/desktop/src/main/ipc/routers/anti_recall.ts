@@ -27,13 +27,15 @@ function requireServices(): AccountServices {
 }
 
 /**
- * Anti-recall only means something against databases a live QQ writes to. A
- * static account's are an imported snapshot QQ never touches, so a trigger
- * installed there could never fire — refuse rather than write dead SQL the
- * user believes is protecting them.
+ * Anti-recall only means something against databases a live QQ (or a writable
+ * Android backup) writes to. A PC-snapshot static account's databases are a
+ * dead read-only copy, so refuse rather than write dead SQL the user believes
+ * is protecting them. Android backup accounts (accountIsAndroidBackup) are
+ * writable, so they are allowed through.
  */
 function refuseWhenStatic(): void {
-  if (getAppContext().accountIsStatic) {
+  const ctx = getAppContext();
+  if (ctx.accountIsStatic && !ctx.accountIsAndroidBackup) {
     throw new Error('静态账号的数据库是离线快照，QQ 不会写入，防撤回无法生效。');
   }
 }

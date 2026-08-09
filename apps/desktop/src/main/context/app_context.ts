@@ -471,6 +471,13 @@ export interface AppContext {
    * account's native files.
    */
   accountIsStatic: boolean;
+  /**
+   * True when the open static account is an Android phone backup (key was
+   * auto-derived). Unlike a PC-snapshot, the backup db directory is writable
+   * and the user may sync/re-import it, so anti-recall triggers installed
+   * there can fire.
+   */
+  accountIsAndroidBackup: boolean;
   /** Per-account scheduled-export manager. Recreated with the account; its
    *  lifecycle is intentionally separate from `services` so the object
    *  literal can be fully constructed before this field is assigned. */
@@ -542,6 +549,7 @@ export function initAppContext(): AppContext {
       services: null,
       resourcePlatform: null,
       accountIsStatic: false,
+      accountIsAndroidBackup: false,
       scheduler: null,
       setAccount(): Promise<void> {
         throw new Error('native bundle failed to load — cannot open an account');
@@ -704,6 +712,7 @@ export function initAppContext(): AppContext {
     services: null,
     resourcePlatform: null,
     accountIsStatic: false,
+    accountIsAndroidBackup: false,
     scheduler: null,
     transcribeSilk,
     async setAccount(accountCtx: AccountContext, metadata: AccountConfigMetadata = {}): Promise<void> {
@@ -743,6 +752,7 @@ export function initAppContext(): AppContext {
       // Online account: resources resolve against the local install as always.
       this.resourcePlatform = platform;
       this.accountIsStatic = false;
+      this.accountIsAndroidBackup = false;
       const accountConfig = new AccountConfigService(session, platform.appDataRoot());
       // Per-account export cache: tasks + outputs must NOT leak across accounts.
       // Keyed by the same (uin, dataDir) id the account record uses.
@@ -1153,6 +1163,7 @@ export function initAppContext(): AppContext {
       }));
       this.resourcePlatform = staticPlatform;
       this.accountIsStatic = true;
+      this.accountIsAndroidBackup = options.mobile ?? false;
 
       // A same-account QQ may be running even though our databases came from
       // elsewhere. The monitor (started at the end) records its pid, so this
@@ -1194,8 +1205,8 @@ export function initAppContext(): AppContext {
       const deletedMsgs = new DeletedMsgStore(
         join(userConfig.cacheDir(join('deleted', exportConfigId)), 'deleted.json'),
       );
-      // 防撤回 service：静态库是死快照，QQ 不会往里写，trigger 拦不到任何东西 ——
-      // 这里只是为了满足 MsgService 的依赖，路由层会拒绝静态账号开启。
+      // 防撤回 service：PC 快照是死库，trigger 拦不到任何东西，路由层会拒绝开启。
+      // 手机备份（mobile=true）的备份目录可写，trigger 有意义，路由层放行。
       const antiRecall = new AntiRecallService(
         session,
         staticPlatform,
@@ -1405,6 +1416,7 @@ export function initAppContext(): AppContext {
       this.services = null;
       this.resourcePlatform = null;
       this.accountIsStatic = false;
+      this.accountIsAndroidBackup = false;
     },
     applyRealtime(enabled: boolean): void {
       const session = this.account;

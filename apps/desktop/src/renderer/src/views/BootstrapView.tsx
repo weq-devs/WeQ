@@ -115,6 +115,7 @@ export function BootstrapView(): ReactElement {
             },
             ...(cfg.dbKey ? { dbKey: cfg.dbKey } : {}),
             ...(cfg.algo?.pageHmacAlgorithm ? { algo: cfg.algo } : {}),
+            ...(cfg.mobile ? { mobile: true } : {}),
           });
         } else {
           const test = await client.bootstrap.testDatabaseKey.mutate({ uin: cfg.uin, dbKey: cfg.dbKey });

@@ -5172,6 +5172,7 @@ html[data-theme="dark"] .weq-settings-preset-preview.is-style-soon {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  overflow: hidden;
 }
 
 .weq-set-account-item {
@@ -5218,6 +5219,7 @@ html[data-theme="dark"] .weq-settings-preset-preview.is-style-soon {
 }
 
 .weq-set-account-dir {
+  display: block;
   font-size: 11px;
   color: #9ca3af;
   white-space: nowrap;
