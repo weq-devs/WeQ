@@ -33,7 +33,6 @@
 
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { extname, join } from 'node:path';
-import { inflateRawSync } from 'node:zlib';
 import type { TrpcNative } from '@weq/protocol';
 import { getBubbleResources, getFontResource, getPendantResources } from '@weq/protocol';
 import type { AvatarCacheService } from '../bootstrap/avatar_cache';
@@ -47,6 +46,7 @@ import {
 } from './bubble_skin';
 import type { BubbleMaterial } from './web/dress_mall';
 import { downloadUrlToFile } from './media_url';
+import { readZipEntries } from '../common/zip';
 
 /** 已装的一款字体。 */
 export interface InstalledFont {
@@ -395,7 +395,7 @@ export class DressInstallService {
   async installFont(itemId: number, name: string, previewUrl?: string): Promise<InstalledFont> {
     const manifest = this.read();
     const known = manifest.fonts.find((f) => f.itemId === itemId);
-    if (known && existsSync(known.file)) {
+    if (known && existsSync(known.file) && isRenderableSfnt(readFileSync(known.file))) {
       // 老清单没有 previewUrl,补一次(同 installBubble 的理由)。
       if (!known.previewUrl && previewUrl) {
         const patched = { ...known, previewUrl };
@@ -406,6 +406,12 @@ export class DressInstallService {
         return patched;
       }
       return known;
+    }
+    // 落盘的是这项校验加上之前装的坏字体(见下面 isRenderableSfnt 的注释)——清掉
+    // 陈旧记录,走下面的完整流程重新识别(大概率还是同一份坏数据,直接抛错)。
+    if (known) {
+      if (existsSync(known.file)) rmSync(known.file, { force: true });
+      this.write({ ...manifest, fonts: manifest.fonts.filter((f) => f.itemId !== itemId) });
     }
 
     const pid = this.resolvePid();
@@ -428,6 +434,13 @@ export class DressInstallService {
 
     const ttf = extractFirstTtf(readFileSync(zipPath));
     if (!ttf) throw new Error('字体包里没有找到 ttf 文件');
+    if (!isRenderableSfnt(ttf)) {
+      throw new Error(
+        '该字体用了非标准的压缩/加密格式(head 表的 glyphDataFormat 被改写,真正的轮廓' +
+          '数据塞进了私有表里),无法直接喂给浏览器渲染 —— 大概率是内容保护款,QQ 官方' +
+          '客户端有私有解码器认得这种格式,这边没有',
+      );
+    }
 
     const file = join(fontsDir, `${itemId}.ttf`);
     writeFileSync(file, ttf);
@@ -699,10 +712,22 @@ export class DressInstallService {
     return hit && existsSync(hit) ? hit : null;
   }
 
-  /** 已装字体的 ttf 路径。未装 / 文件丢失时返回 null。 */
+  /**
+   * 已装字体的 ttf 路径。未装 / 文件丢失时返回 null。
+   *
+   * 这一步顺带校验(见 {@link isRenderableSfnt})——不是所有落盘的 ttf 都能被浏览器
+   * 渲染:极少数款(实测 20125/20563)是内容保护款,自愈用:哪怕清单里还记着一个
+   * 装好前(这项校验加上之前)留下的坏文件,这里也会拦下来当「未装」处理,不会再把
+   * 坏字节送进 `weq-media://dressfont`。
+   */
   fontFile(itemId: number): string | null {
     const hit = this.read().fonts.find((f) => f.itemId === itemId);
-    return hit && existsSync(hit.file) ? hit.file : null;
+    if (!hit || !existsSync(hit.file)) return null;
+    try {
+      return isRenderableSfnt(readFileSync(hit.file)) ? hit.file : null;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -754,34 +779,17 @@ export class DressInstallService {
 /**
  * 从 zip 里解出第一个满足 `match` 的文件。
  *
- * 手写而不是引依赖:装扮资源包实测只用 stored(0) 和 deflate(8) 两种压缩方式,两者 node
- * 的 zlib 都能处理。这里直接扫本地文件头(PK\x03\x04)而不读中央目录 —— 包很小(几十 KB)
- * 且只需要找一个文件,扫一遍最省事。
+ * 委托给 {@link readZipEntries}(走中央目录,权威尺寸)—— 这里原先手写过一版扫本地
+ * 文件头(`PK\x03\x04`)取 `compressedSize` 的实现,但天权 CDN 的包时有流式压出来的
+ * (置了 data descriptor 标志位,本地头里的尺寸全是 0),那种扫法会静默解出 0 字节或
+ * 错位的垃圾数据 —— 字体包踩过这个坑:ttf 文件能落盘、体积看着正常,但内容错位,
+ * 送进 Chromium 后 OTS 校验直接拒绝(`head: Failed to parse table`)。
  *
- * 导出是为了可测(见 test/dress_install.ts):手写的二进制解析必须验两种压缩方式、
- * 目标不在包首位、以及包里根本没有目标的情况。
+ * 导出是为了可测(见 tools/dress_install.ts):目标不在包首位、以及包里根本没有目标
+ * 的情况都要验。
  */
 export function extractFromZip(zip: Buffer, match: (name: string) => boolean): Buffer | null {
-  let offset = 0;
-  while (offset + 30 <= zip.length) {
-    if (zip.readUInt32LE(offset) !== 0x04034b50) break; // 不再是本地文件头
-    const method = zip.readUInt16LE(offset + 8);
-    const compressedSize = zip.readUInt32LE(offset + 18);
-    const nameLen = zip.readUInt16LE(offset + 26);
-    const extraLen = zip.readUInt16LE(offset + 28);
-    const nameStart = offset + 30;
-    const name = zip.toString('utf-8', nameStart, nameStart + nameLen);
-    const dataStart = nameStart + nameLen + extraLen;
-
-    if (match(name)) {
-      const data = zip.subarray(dataStart, dataStart + compressedSize);
-      if (method === 0) return Buffer.from(data);
-      if (method === 8) return inflateRawSync(data);
-      return null; // 没见过的压缩方式,别硬猜
-    }
-    offset = dataStart + compressedSize;
-  }
-  return null;
+  return readZipEntries(zip).find((e) => match(e.name))?.data ?? null;
 }
 
 /**
@@ -792,32 +800,46 @@ export function extractAllFromZip(
   zip: Buffer,
   match: (name: string) => boolean,
 ): Array<{ name: string; data: Buffer }> {
-  const out: Array<{ name: string; data: Buffer }> = [];
-  let offset = 0;
-  while (offset + 30 <= zip.length) {
-    if (zip.readUInt32LE(offset) !== 0x04034b50) break;
-    const method = zip.readUInt16LE(offset + 8);
-    const compressedSize = zip.readUInt32LE(offset + 18);
-    const nameLen = zip.readUInt16LE(offset + 26);
-    const extraLen = zip.readUInt16LE(offset + 28);
-    const nameStart = offset + 30;
-    const name = zip.toString('utf-8', nameStart, nameStart + nameLen);
-    const dataStart = nameStart + nameLen + extraLen;
-
-    if (match(name)) {
-      const data = zip.subarray(dataStart, dataStart + compressedSize);
-      if (method === 0) out.push({ name, data: Buffer.from(data) });
-      else if (method === 8) out.push({ name, data: inflateRawSync(data) });
-      // 没见过的压缩方式:跳过这条,别硬猜——不影响扫描其余条目。
-    }
-    offset = dataStart + compressedSize;
-  }
-  return out;
+  return readZipEntries(zip).filter((e) => match(e.name));
 }
 
 /** 从字体包里解出 ttf。 */
 export function extractFirstTtf(zip: Buffer): Buffer | null {
   return extractFromZip(zip, (n) => /\.ttf$/i.test(n));
+}
+
+/**
+ * 校验一份 ttf 是否是能直接喂给浏览器的标准 sfnt。
+ *
+ * 装扮字体库里混杂着少数「内容保护」款(实测 itemId 20125、20563 都是):zip 解压
+ * 完全正确、sfnt 头和 table 目录的 checksum/searchRange 都对得上,但 `glyf` 表只是
+ * 4 字节的桩,真正的轮廓数据被塞进两张私有表 `FTFG`/`FTFH`,并把标准里恒为 0 的
+ * `head.glyphDataFormat` 改写成了 ASCII "FT"(0x4654)当自己的格式标记。这不是
+ * OTS(Chromium 的字体安全校验)认识的 TrueType,送进 `@font-face` 会在解析 head 表
+ * 那步直接被拒(`OTS parsing error: head: Failed to parse table`)——控制台看到的
+ * 「Failed to decode downloaded font」就是这么来的,不是下载/网络问题。
+ *
+ * QQ 官方客户端显然认得这种私有格式(有自己的解码器),这边没有对应的解压算法,
+ * 只能识别出来当「装不了」处理,别让这类文件流到渲染层。
+ */
+export function isRenderableSfnt(buf: Buffer): boolean {
+  if (buf.length < 12) return false;
+  const version = buf.readUInt32BE(0);
+  // 0x00010000 = TrueType outlines,'OTTO' = CFF outlines,'true'/'typ1' 是老 mac 变体。
+  if (![0x00010000, 0x4f54544f, 0x74727565, 0x74797031].includes(version)) return false;
+  const numTables = buf.readUInt16BE(4);
+  if (numTables === 0 || numTables > 128) return false;
+  const dirEnd = 12 + numTables * 16;
+  if (buf.length < dirEnd) return false;
+  for (let i = 0; i < numTables; i += 1) {
+    const off = 12 + i * 16;
+    if (buf.toString('latin1', off, off + 4) !== 'head') continue;
+    const tableOffset = buf.readUInt32BE(off + 8);
+    const tableLength = buf.readUInt32BE(off + 12);
+    if (tableLength < 54 || tableOffset + 54 > buf.length) return false;
+    return buf.readUInt16BE(tableOffset + 52) === 0; // glyphDataFormat,标准恒为 0
+  }
+  return false; // 没有 head 表,肯定不是能渲染的字体
 }
 
 /**
