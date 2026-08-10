@@ -219,6 +219,8 @@ export const ReceiptPayerWire = {
 
 /** Nested message for receipt list (tag 48461, GROUP_RECEIPT wallets). */
 export const ReceiptListWire = {
+  /** 红包皮肤 id（普通红包，varint）*/
+  skinId: ProtoField(5, ScalarType.UINT32, { optional: true }),
   /** 收款人列表 */
   payers: ProtoField(8, () => ReceiptPayerWire, { optional: true, repeat: true }),
 };

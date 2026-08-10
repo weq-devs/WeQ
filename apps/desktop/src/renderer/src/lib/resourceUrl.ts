@@ -147,6 +147,11 @@ export function linkPreviewImageUrl(id: string): string {
   return mediaUrl('linkpreview', { id });
 }
 
+/** 红包皮肤封面（moggy CDN），主进程会落盘缓存，皮肤图只需请求一次。 */
+export function redbagSkinUrl(skinId: string): string {
+  return mediaUrl('redbag', { id: skinId });
+}
+
 /** Preview a local file under `nt_data/File/Ori` by absolute path (image thumbnails). */export function localFileUrl(absPath: string): string {
   return mediaUrl('localfile', { path: absPath });
 }

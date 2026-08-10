@@ -73,7 +73,7 @@ function GroupReceiptDialog({
 
   return (
     <Modal onClose={onClose} width={400}>
-      <div className="weq-modal-scrim" onMouseDown={(e) => closeFromScrim(e, onClose)} />
+      <div className="weq-modal-scrim" onMouseDown={closeFromScrim(onClose)} />
       <div className="weq-group-receipt-dialog">
         {/* 标题栏 */}
         <div className="weq-group-receipt-dialog-header">

@@ -610,6 +610,7 @@ export const ReceiptPayerSchema = z.object({
 
 /** 群收款收款人列表（tag 48461）*/
 export const ReceiptListSchema = z.object({
+  skinId: z.number().optional(),
   payers: z.array(ReceiptPayerSchema).optional(),
 });
 

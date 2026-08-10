@@ -641,6 +641,8 @@ export function QqMessageContent({
           detail={walletElement.data?.walletDetail}
           redbagType={redbagType}
           designatedUin={walletElement.data?.walletDesignatedUin}
+          skinId={((walletElement.data?.walletDetail as Record<string, unknown> | undefined)
+            ?.receiptList as Record<string, unknown> | undefined)?.skinId as number | undefined}
         />
       </div>
     );
