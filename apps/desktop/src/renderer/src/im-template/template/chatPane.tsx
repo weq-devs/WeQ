@@ -1503,7 +1503,7 @@ export function ChatPane({
 				) : (
 					(() => {
 						// Detect the gray-tip element (if any) a message carries.
-						// 群通话的「已结束」（CALL 元素，subType 16/25）也走灰条：那条消息的
+						// 群通话/群课堂的「已结束」（CALL 元素，subType 16/25/29）也走灰条：那条消息的
 						// 40020 是空的，谁也不属于，套气泡会凭空多出一个发送者。发起那条有正常
 						// 发送人，和私聊的 CALL 一样继续走气泡。
 						const GRAY_TIP_KINDS = ['grayTipPoke', 'grayTipRevoke', 'grayTipGroup', 'grayTipXml', 'grayTipFileRecv', 'grayTipTempSession', 'qqDynamic'];

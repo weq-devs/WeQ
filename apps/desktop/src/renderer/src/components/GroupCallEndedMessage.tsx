@@ -10,7 +10,7 @@
  * 多出一个发送者，所以画成居中灰条。
  */
 
-import { Phone, Video } from 'lucide-react';
+import { Phone, Radio, Video } from 'lucide-react';
 
 interface GroupCallEndedMessageProps {
   element: {
@@ -22,21 +22,29 @@ interface GroupCallEndedMessageProps {
   };
 }
 
-/** CALL subType：群通话结束。见 packages/codec/src/element/types.ts。 */
+/** CALL subType：群通话/群课堂结束。见 packages/codec/src/element/types.ts。 */
 const GROUP_VOICE_ENDED = 16;
 const GROUP_VIDEO_ENDED = 25;
+const GROUP_CLASSROOM_ENDED = 29;
 
 export const GROUP_CALL_ENDED_SUBTYPES = new Set<number>([
   GROUP_VOICE_ENDED,
   GROUP_VIDEO_ENDED,
+  GROUP_CLASSROOM_ENDED,
 ]);
 
 export function GroupCallEndedMessage({ element }: GroupCallEndedMessageProps) {
   const { subType, callSummary } = element.data || {};
-  const isVideo = Number(subType) === GROUP_VIDEO_ENDED;
-  const Icon = isVideo ? Video : Phone;
+  const st = Number(subType);
+  const Icon = st === GROUP_VIDEO_ENDED ? Video : st === GROUP_CLASSROOM_ENDED ? Radio : Phone;
+  const fallback =
+    st === GROUP_VIDEO_ENDED
+      ? '视频通话已结束'
+      : st === GROUP_CLASSROOM_ENDED
+        ? '群课堂已结束'
+        : '语音通话已结束';
 
-  // QQ 自己写好的文案（"语音通话已结束"），拿不到就自己拼。
+  // QQ 自己写好的文案，拿不到就用 fallback。
   const summary = Array.isArray(callSummary)
     ? callSummary.filter((s) => typeof s === 'string' && s).join(' ')
     : '';
@@ -44,7 +52,7 @@ export function GroupCallEndedMessage({ element }: GroupCallEndedMessageProps) {
   return (
     <div className="weq-graytip weq-group-call text-center text-xs py-2">
       <Icon className="weq-group-call-icon" size={13} strokeWidth={2} aria-hidden />
-      <span>{summary || `${isVideo ? '视频通话' : '语音通话'}已结束`}</span>
+      <span>{summary || fallback}</span>
     </div>
   );
 }
