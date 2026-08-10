@@ -264,7 +264,9 @@ export class ExportTaskManager extends EventEmitter {
     media?: MediaExportOptions;
     range?: ExportTimeRange;
   }): Promise<string> {
-    const id = `${opts.kind}-${opts.conv}-${Date.now()}`;
+    // 清洗 conv (uid/uin/groupCode) 以避免 Windows 文件名非法字符（陌生人 uid 含 *）
+    const safeConv = opts.conv.replace(/\*/g, 'x');
+    const id = `${opts.kind}-${safeConv}-${Date.now()}`;
     const wantMedia = Boolean(opts.media?.exportMedia);
     const wantAvatars = Boolean(opts.exportAvatar);
     const wantTranscribe = Boolean(opts.media?.transcribeVoice);
