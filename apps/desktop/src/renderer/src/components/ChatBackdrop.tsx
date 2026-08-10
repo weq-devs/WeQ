@@ -89,18 +89,26 @@ export function ScreenWidget({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [aspect, setAspect] = useState(0);
 
-  // 量容器比例。**量化到 0.1 档**再进 state:窗口拖动时逐像素变化会把动画重建几十次,
-  // 而肉眼根本分不出 1.71 和 1.72 的铺法差别。
+  // 量容器比例。**量化到 0.1 档 + 50ms debounce** 再进 state:
+  // - 量化:窗口拖动时逐像素变化不触发重建。
+  // - debounce:初始布局时 ResizeObserver 会快速连发多次(浏览器在稳定前报多个中间尺寸),
+  //   不 debounce 的话每次都会销毁再重建动画 → 闪一堆下。
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const observer = new ResizeObserver(() => {
       const { clientWidth, clientHeight } = el;
       if (!clientWidth || !clientHeight) return;
-      setAspect(Math.round((clientWidth / clientHeight) * 10) / 10);
+      const next = Math.round((clientWidth / clientHeight) * 10) / 10;
+      clearTimeout(timer);
+      timer = setTimeout(() => setAspect(next), 50);
     });
     observer.observe(el);
-    return () => observer.disconnect();
+    return () => {
+      clearTimeout(timer);
+      observer.disconnect();
+    };
   }, []);
 
   useEffect(() => {

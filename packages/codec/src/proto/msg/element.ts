@@ -209,6 +209,22 @@ export const QqDynamicTagWire = {
   tagContent: ProtoField(48193, ScalarType.STRING, { optional: true }),
 };
 
+/** Nested message for one receipt payer (tag 8 within 48461). */
+export const ReceiptPayerWire = {
+  /** 收款人 uin（wire 上是 VARINT，不是 STRING） */
+  uin: ProtoField(1, ScalarType.UINT64, { optional: true }),
+  /** 金额（单位：分） */
+  amount: ProtoField(2, ScalarType.UINT32, { optional: true }),
+};
+
+/** Nested message for receipt list (tag 48461, GROUP_RECEIPT wallets). */
+export const ReceiptListWire = {
+  /** 红包皮肤 id（普通红包，varint）*/
+  skinId: ProtoField(5, ScalarType.UINT32, { optional: true }),
+  /** 收款人列表 */
+  payers: ProtoField(8, () => ReceiptPayerWire, { optional: true, repeat: true }),
+};
+
 /** Nested message for wallet detail (tag 48403, WALLET elements). */
 export const WalletDetailWire = {
   flag48441: ProtoField(48441, ScalarType.UINT32, { optional: true }),
@@ -225,7 +241,8 @@ export const WalletDetailWire = {
   flag48452: ProtoField(48452, ScalarType.STRING, { optional: true }),
   flag48453: ProtoField(48453, ScalarType.STRING, { optional: true }),
   orderUrl: ProtoField(48454, ScalarType.STRING, { optional: true }),
-  flag48461: ProtoField(48461, ScalarType.BYTES, { optional: true }),
+  /** 群收款收款人列表（仅 GROUP_RECEIPT 类型，tag 48412 = 16）*/
+  receiptList: ProtoField(48461, () => ReceiptListWire, { optional: true }),
 };
 
 /** Nested message for wallet extension (tag 48421, WALLET elements). */

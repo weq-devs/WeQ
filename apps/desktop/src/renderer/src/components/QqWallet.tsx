@@ -19,7 +19,7 @@
  */
 
 import { useEffect, useState, type ReactElement } from 'react';
-import { resourceUrl } from '../lib/resourceUrl';
+import { redbagSkinUrl, resourceUrl } from '../lib/resourceUrl';
 import { QqAvatar } from './QqAvatar';
 import { client } from '../trpc/client';
 
@@ -75,12 +75,15 @@ export function QqWallet({
   detail,
   redbagType,
   designatedUin,
+  skinId,
 }: {
   detail: unknown;
   /** 元素级 walletRedbagType（tag 48412）。 */
   redbagType?: unknown;
   /** 专属红包指定领取人 uin（tag 48420）。 */
   designatedUin?: unknown;
+  /** 红包皮肤 id（tag 5 within 48461），有值时用 moggy CDN 封面替换通用图。 */
+  skinId?: unknown;
 }): ReactElement {
   const d = detail && typeof detail === 'object' ? (detail as Record<string, unknown>) : {};
   // 细粒度类型（48412）优先；缺失时回退粗粒度嵌套类型（48442）。
@@ -135,6 +138,7 @@ export function QqWallet({
   const isPassword = fine === 6 || (!fineKnown && coarse === 2);
   const bagImage = isPassword ? 'password_bag.png' : 'normal_bag.png';
   const label = fineKnown ? REDBAG_LABEL[fine] : undefined;
+  const skinIdStr = typeof skinId === 'number' && skinId > 0 ? String(skinId) : null;
 
   return (
     <div
@@ -143,7 +147,7 @@ export function QqWallet({
     >
       <img
         className="weq-redbag-img"
-        src={resourceUrl('img', bagImage)}
+        src={skinIdStr ? redbagSkinUrl(skinIdStr) : resourceUrl('img', bagImage)}
         alt=""
         draggable={false}
       />

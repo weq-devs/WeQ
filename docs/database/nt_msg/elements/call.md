@@ -83,8 +83,10 @@ QQ 已经排好版的 `callSummary`（WeQ 的 `QqCall` 就是这么做的）。
 | -- | ---- | ------------ | --------------- | -------- |
 | 1 | GROUP_VOICE_STARTED | 1 (VOICE) | 发起人 uid | 发起了语音通话 |
 | 26 | GROUP_VIDEO_STARTED | 2 (VIDEO) | 发起人 uid | 发起了视频通话 |
+| 27 | GROUP_CLASSROOM_STARTED | ? | 发起人 uid | 发起了群课堂（直播） |
 | 16 | GROUP_VOICE_ENDED | **0** | **空** | 语音通话已结束 |
 | 25 | GROUP_VIDEO_ENDED | **0** | **空** | 视频通话已结束 |
+| 29 | GROUP_CLASSROOM_ENDED | **0** | **空** | 群课堂已结束 |
 
 结束那条的 `40020` / `40033` 都是空的 —— 它不属于任何人，QQ 电脑端也把它画成居中
 灰条。另外**只有本机发起的通话才会写「发起」消息**：别人在群里发起时本机只收得到

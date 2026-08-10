@@ -12,7 +12,7 @@
  *   64009  muteUntil       (INTEGER) - Last forbidden release timestamp
  *   64010  adminFlag       (INTEGER) - 0: member, 1: admin
  *   64015  field64015      (INTEGER)
- *   64016  memberFlag      (INTEGER) - 0: active member, 1: left
+ *   64016  memberFlag      (INTEGER) - 0 or NULL: active member, 1: left
  *   64023  customTitle     (TEXT) - Custom title/rank
  *   64035  memberLevel     (INTEGER)
  */
@@ -60,7 +60,7 @@ export class GroupMemberDb {
       `SELECT m."60001", m."1000", m."1002", m."64003", m."20002", m."64007", m."64008", m."64009", m."64010", m."64016", m."64023", m."64035"
        FROM group_member3 m
        LEFT JOIN group_detail_info_ver1 d ON m."60001" = d."60001"
-       WHERE m."60001" = ? AND m."64016" = 0
+       WHERE m."60001" = ? AND ("64016" = 0 OR "64016" IS NULL)
        ORDER BY (m."1000" = d."60002") DESC, m."64010" DESC, m."64007" ASC
        LIMIT ? OFFSET ?`,
       [groupCode, limit, offset],
@@ -77,7 +77,7 @@ export class GroupMemberDb {
   async listMembersByLevel(groupCode: bigint, limit = 100, offset = 0): Promise<GroupMember[]> {
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM group_member3
-       WHERE "60001" = ? AND "64016" = 0
+       WHERE "60001" = ? AND ("64016" = 0 OR "64016" IS NULL)
        ORDER BY "64035" DESC, "64007" ASC
        LIMIT ? OFFSET ?`,
       [groupCode, limit, offset],
@@ -90,7 +90,7 @@ export class GroupMemberDb {
    */
   async listUserGroups(uid: string, limit = 100, offset = 0): Promise<GroupMember[]> {
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM group_member3 WHERE "1000" = ? AND "64016" = 0 LIMIT ? OFFSET ?`,
+      `SELECT ${SELECT_COLUMNS} FROM group_member3 WHERE "1000" = ? AND ("64016" = 0 OR "64016" IS NULL) LIMIT ? OFFSET ?`,
       [uid, limit, offset],
     );
     return rows.map(rowToMember);
@@ -107,7 +107,7 @@ export class GroupMemberDb {
     limit = 5000,
   ): Promise<Array<{ uid: string; uin: string; nick: string; card: string; memberLevel: number }>> {
     const rows = await this.qq.query(
-      `SELECT "1000","1002","20002","64003","64035" FROM group_member3 WHERE "60001" = ? AND "64016" = 0 LIMIT ?`,
+      `SELECT "1000","1002","20002","64003","64035" FROM group_member3 WHERE "60001" = ? AND ("64016" = 0 OR "64016" IS NULL) LIMIT ?`,
       [groupCode, limit],
     );
     return rows.map((row) => ({
@@ -142,6 +142,21 @@ export class GroupMemberDb {
     const placeholders = unique.map(() => '?').join(',');
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM group_member3 WHERE "60001" = ? AND "1000" IN (${placeholders})`,
+      [groupCode, ...unique],
+    );
+    return rows.map(rowToMember);
+  }
+
+  /**
+   * Batch-fetch members by uin (QQ number) in a single query.
+   * Used for group-receipt payer lookup where wire data carries numeric uin.
+   */
+  async getMembersByUins(groupCode: bigint, uins: bigint[]): Promise<GroupMember[]> {
+    const unique = [...new Set(uins.filter((u) => u > 0n))];
+    if (unique.length === 0) return [];
+    const placeholders = unique.map(() => '?').join(',');
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM group_member3 WHERE "60001" = ? AND "1002" IN (${placeholders})`,
       [groupCode, ...unique],
     );
     return rows.map(rowToMember);

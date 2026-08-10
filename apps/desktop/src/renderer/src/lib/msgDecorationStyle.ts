@@ -20,6 +20,44 @@ const injectedBubbles = new Set<number>();
 const injectedFonts = new Set<number>();
 const injectedWidgets = new Set<number>();
 
+/**
+ * 持久强引用：已解码的帧图片必须有人持有，否则浏览器在内存压力下可能丢弃解码缓存，
+ * 导致 CSS @keyframes 动画第一圈各帧重新解码，出现高频闪烁。
+ */
+const liveImages = new Map<string, HTMLImageElement>();
+
+/**
+ * 预加载并完全解码一批图片 URL，全部就绪后 resolve（单张失败不阻塞）。
+ *
+ * 用 `img.decode()` 而非 `img.onload`：
+ *   - onload：字节下载完即触发，图片可能还在后台解码线程里，动画启动时逐帧触发解码 → 闪烁
+ *   - decode()：保证图片完全解码进内存，可直接合成
+ *
+ * resolve 后额外等两个绘制帧，让浏览器把解码结果提交到 GPU 纹理缓存，
+ * 避免动画第一圈仍因纹理上传延迟而闪烁。
+ */
+function preloadImages(urls: string[]): Promise<void> {
+  return Promise.all(
+    urls.map(async (url) => {
+      if (liveImages.has(url)) return;
+      const img = new Image();
+      img.src = url;
+      try {
+        await img.decode();
+      } catch {
+        // 404 / 格式错误时 decode() 会 reject，当成成功处理，不阻塞整体。
+      }
+      // 保持强引用，防止 GC 后解码缓存被丢弃。
+      liveImages.set(url, img);
+    }),
+  ).then(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+}
+
 function px(v: number): string {
   return `${Math.round(v * 100) / 100}px`;
 }
@@ -131,17 +169,11 @@ export function injectBubbleCss(skin: BubbleSkin): void {
     `  border-image-width: ${width};`,
     `  border-image-repeat: stretch;`,
     `  border-radius: 0;`,
-    frameAnim ? `  animation: ${frameAnim.animation};` : '',
     `  padding: ${px(Math.min(wTop, wBottom) * PAD_RATIO_Y)} ${px(Math.max(wLeft, wRight))};`,
     `  min-width: ${px((left + right) * BUBBLE_SCALE)};`,
     `  min-height: ${px((top + bottom) * BUBBLE_SCALE)};`,
     `}`,
   ];
-
-  // Respect reduced-motion: freeze on frame 1 instead of cycling.
-  if (frameAnim) {
-    rules.push(`@media (prefers-reduced-motion: reduce) {`, `  ${sel} { animation: none; }`, `}`);
-  }
 
   if (skin.animationUrl) {
     const animUrl = dressUrl(skin.animationUrl);
@@ -172,6 +204,19 @@ export function injectBubbleCss(skin: BubbleSkin): void {
   );
 
   append(rules.join('\n'));
+
+  if (frameAnim) {
+    // 先注入静态帧，等全部帧图片预加载完再开启动画，避免帧未缓存时的闪烁。
+    const frameUrls = Array.from({ length: skin.animationFrameCount! }, (_, i) =>
+      dressBubbleFrameUrl(skin.itemId, i + 1),
+    );
+    void preloadImages(frameUrls).then(() => {
+      append(
+        `${sel} { animation: ${frameAnim.animation}; }\n` +
+          `@media (prefers-reduced-motion: reduce) { ${sel} { animation: none; } }`,
+      );
+    });
+  }
 }
 
 /** Inject a font-family rule for a fontId. No-op if already injected. */
@@ -255,12 +300,19 @@ export function injectWidgetCss(widget: ResolvedWidget): void {
     `  background-size: contain;`,
     `  background-position: center;`,
     `  background-repeat: no-repeat;`,
-    `  animation: ${frameAnim.animation};`,
-    `}`,
-    `@media (prefers-reduced-motion: reduce) {`,
-    `  ${sel} { animation: none; }`,
     `}`,
   ];
 
   append(rules.join('\n'));
+
+  // 先注入静态帧，等全部帧图片预加载完再开启动画，避免帧未缓存时的闪烁。
+  const frameUrls = Array.from({ length: widget.frameCount }, (_, i) =>
+    dressPendantFrameUrl(widget.itemId, i + 1),
+  );
+  void preloadImages(frameUrls).then(() => {
+    append(
+      `${sel} { animation: ${frameAnim.animation}; }\n` +
+        `@media (prefers-reduced-motion: reduce) { ${sel} { animation: none; } }`,
+    );
+  });
 }

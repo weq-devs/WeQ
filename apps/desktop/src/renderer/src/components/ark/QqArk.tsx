@@ -218,6 +218,34 @@ function GenericCard({
   return <HeuristicCard p={payload} prompt={prompt} />;
 }
 
+// ---- 群报名/活动卡 (com.tencent.activity.md) --------------------------------
+
+function ArkActivity({ p }: { p: ArkPayload }): ReactElement {
+  const title = s(p, 'title');
+  const desc = s(p, 'desc');
+  const isEnabled = p.isEnabled === true;
+  const statusLabel = isEnabled ? s(p, 'ongoingStatusLabel') : '已结束';
+  const joinLabel = s(p, 'joinLabel');
+  const freeLabel = s(p, 'freeLabel');
+  const buttonText = s(p, 'buttonText') || '查看详情';
+  const tag = s(p, 'tag');
+  const tagIcon = s(p, 'tagIcon') || undefined;
+  const jumpUrl = s(p, 'jumpUrl') || undefined;
+
+  return (
+    <ArkShell jump={jumpUrl} footer={<ArkFooter source={tag} icon={tagIcon} />}>
+      {title ? <div className="weq-ark-title">{title}</div> : null}
+      {desc ? <div className="weq-ark-desc weq-ark-activity-desc">{desc}</div> : null}
+      <div className="weq-ark-activity-meta">
+        {statusLabel ? <span className="weq-ark-activity-badge">{statusLabel}</span> : null}
+        {joinLabel ? <span className="weq-ark-activity-badge">{joinLabel}</span> : null}
+        {freeLabel ? <span className="weq-ark-activity-badge">{freeLabel}</span> : null}
+      </div>
+      {buttonText ? <div className="weq-ark-activity-btn">{buttonText}</div> : null}
+    </ArkShell>
+  );
+}
+
 // ---- 群公告 (com.tencent.mannounce) --------------------------------------
 
 /**
@@ -388,6 +416,9 @@ export function QqArk({ arkData }: { arkData: unknown }): ReactElement | null {
 
   // 特例1：群公告。
   if (app === 'com.tencent.mannounce') return <ArkGroupAnnounce p={p} />;
+
+  // 特例2：群报名/活动。
+  if (app === 'com.tencent.activity.md') return <ArkActivity p={p} />;
 
   // 特例2：位置分享（任何带 lat/lng 的卡都走静态地图）。
   const lat = s(p, 'lat');

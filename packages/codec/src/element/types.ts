@@ -284,6 +284,10 @@ export enum CallSubType {
   GROUP_VIDEO_ENDED = 25,
   /** 群聊：某人发起了视频通话（callMethod=VIDEO，发送者即发起人）。 */
   GROUP_VIDEO_STARTED = 26,
+  /** 群聊：某人发起了群课堂/直播（发送者即发起人）。 */
+  GROUP_CLASSROOM_STARTED = 27,
+  /** 群聊：群课堂/直播已结束（callMethod=0，无发送者）。 */
+  GROUP_CLASSROOM_ENDED = 29,
   REMOTE_ASSIST_ACCEPTED = 33,
   REMOTE_ASSIST_FAILED = 34,
 }
@@ -323,6 +327,8 @@ export enum RedbagType {
   DESIGNATED = 8,
   /** 语音红包。 */
   VOICE = 15,
+  /** 群收款。48461 内嵌收款人列表（uin + 金额分）。 */
+  GROUP_RECEIPT = 16,
 }
 
 export enum FaceSubType {

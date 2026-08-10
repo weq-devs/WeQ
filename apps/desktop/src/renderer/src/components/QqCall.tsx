@@ -12,7 +12,7 @@
  */
 
 import type { ReactElement } from 'react';
-import { Phone, Video, MonitorUp, LaptopMinimal, PhoneCall } from 'lucide-react';
+import { Phone, Video, MonitorUp, LaptopMinimal, PhoneCall, Radio } from 'lucide-react';
 
 // CallSubType values that mean "the call actually connected". Every other
 // value (rejected by either side, handled on another device, plain failure)
@@ -30,8 +30,16 @@ const CONNECTED_SUBTYPES = new Set<number>([
   19, // SCREEN_SHARE_ACCEPTED
   25, // GROUP_VIDEO_ENDED
   26, // GROUP_VIDEO_STARTED
+  27, // GROUP_CLASSROOM_STARTED
+  29, // GROUP_CLASSROOM_ENDED
   33, // REMOTE_ASSIST_ACCEPTED
 ]);
+
+// subType 优先覆盖 callMethod 选图标（用于 callMethod 未知的新类型）。
+const SUBTYPE_ICON: Record<number, typeof Phone> = {
+  27: Radio, // GROUP_CLASSROOM_STARTED
+  29: Radio, // GROUP_CLASSROOM_ENDED
+};
 
 // CallType (callMethod) → display label + lucide icon. 0 是群通话结束提示，
 // QQ 不在这条消息里区分语音/视频（只能看 subType），所以用中性的话筒图标。
@@ -55,7 +63,7 @@ export function QqCall({
   const method = Number(callMethod);
   const sub = Number(subType);
   const kind = CALL_KIND[method] ?? { label: '通话', Icon: PhoneCall };
-  const Icon = kind.Icon;
+  const Icon = SUBTYPE_ICON[sub] ?? kind.Icon;
 
   // Summary lines are pre-localized by QQ — join them with " · " so multi-line
   // summaries (e.g. "通话时长 00:12 · 已结束") read as one line in the bubble.

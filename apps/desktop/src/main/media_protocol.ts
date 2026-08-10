@@ -27,6 +27,7 @@
  *   weq-media://dresspendant?id=<itemId>&frame=<n>             → 走 protocol 换的头像挂件动画帧(本地 PNG,n 从 1 开始)
  *   weq-media://dressbg?v=<stamp>                             → 用户自选的聊天背景(本地图)
  *   weq-media://linkpreview?id=<hash.ext>                     → 链接卡片封面(已落盘、验过魔数)
+ *   weq-media://redbag?id=<skinId>                            → 红包皮肤封面(moggy CDN，落盘缓存)
  *
  * Like the other custom schemes: `registerMediaScheme()` runs before app
  * `ready`; `registerMediaProtocol()` runs after.
@@ -278,6 +279,24 @@ export function handleMediaRequest(request: Request): Promise<Response> {
         status: 200,
         headers: { 'Content-Type': blob.contentType, 'Cache-Control': 'public, max-age=86400' },
       });
+    }
+
+    // 红包皮肤封面：moggy CDN 公开图片，按 skinId 构造 URL 后走 avatarCache 落盘缓存。
+    if (kind === 'redbag') {
+      const skinId = q.get('id') ?? '';
+      if (!/^\d+$/.test(skinId)) return notFound('invalid skin id');
+      const src = `https://moggy-1251316161.file.myqcloud.com/redpackSkin/${skinId}/aio.png`;
+      const cache = getAppContext().bootstrap?.avatarCache;
+      if (!cache) return notFound('redbag skin cache unavailable');
+      try {
+        const blob = await cache.get(src);
+        return new Response(new Uint8Array(blob.data), {
+          status: 200,
+          headers: { 'Content-Type': blob.contentType, 'Cache-Control': 'public, max-age=86400' },
+        });
+      } catch {
+        return notFound('redbag skin fetch failed');
+      }
     }
 
     const services = getAppContext().services;

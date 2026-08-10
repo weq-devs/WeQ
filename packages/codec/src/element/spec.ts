@@ -602,6 +602,18 @@ export const CallElementSchema = BaseElementFieldsSchema.extend({
 });
 
 /** 钱包详情（48403），对应 WalletDetailWire。 */
+/** 群收款单个收款人（tag 8 within 48461）*/
+export const ReceiptPayerSchema = z.object({
+  uin: z.union([z.string(), z.bigint()]).optional(),
+  amount: z.number().optional(),
+});
+
+/** 群收款收款人列表（tag 48461）*/
+export const ReceiptListSchema = z.object({
+  skinId: z.number().optional(),
+  payers: z.array(ReceiptPayerSchema).optional(),
+});
+
 export const WalletDetailSchema = z.object({
   flag48441: z.number().optional(),
   redbagType: z.number().optional(),
@@ -617,7 +629,7 @@ export const WalletDetailSchema = z.object({
   flag48452: z.string().optional(),
   flag48453: z.string().optional(),
   orderUrl: z.string().optional(),
-  flag48461: z.instanceof(Uint8Array).optional(),
+  receiptList: ReceiptListSchema.optional(),
 });
 
 /** 钱包扩展（48421），对应 WalletExtWire。 */
