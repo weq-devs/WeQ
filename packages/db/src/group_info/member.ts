@@ -147,6 +147,21 @@ export class GroupMemberDb {
     return rows.map(rowToMember);
   }
 
+  /**
+   * Batch-fetch members by uin (QQ number) in a single query.
+   * Used for group-receipt payer lookup where wire data carries numeric uin.
+   */
+  async getMembersByUins(groupCode: bigint, uins: bigint[]): Promise<GroupMember[]> {
+    const unique = [...new Set(uins.filter((u) => u > 0n))];
+    if (unique.length === 0) return [];
+    const placeholders = unique.map(() => '?').join(',');
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM group_member3 WHERE "60001" = ? AND "1002" IN (${placeholders})`,
+      [groupCode, ...unique],
+    );
+    return rows.map(rowToMember);
+  }
+
   close(): void {
     this.qq.close();
   }

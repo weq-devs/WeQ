@@ -341,6 +341,13 @@ export class GroupInfoService {
   }
 
   /**
+   * Batch-fetch members by uin (QQ number). Used for group-receipt payer lookup.
+   */
+  async getMembersByUins(groupCode: bigint, uins: bigint[]): Promise<GroupMember[]> {
+    return this.session.groupMembers.getMembersByUins(groupCode, uins);
+  }
+
+  /**
    * List all groups a user belongs to.
    */
   async listUserGroups(uid: string, limit = 100, offset = 0): Promise<GroupMember[]> {

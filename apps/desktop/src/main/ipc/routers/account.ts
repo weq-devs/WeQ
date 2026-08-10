@@ -1621,6 +1621,22 @@ export const accountRouter = router({
       return members.map(groupMemberToWire);
     }),
 
+  /** Batch-resolve group members by uin (QQ number). Used for group-receipt payer lookup. */
+  getGroupMembersByUins: procedure
+    .input(
+      z.object({
+        groupCode: z.string().min(1),
+        uins: z.array(z.string().min(1)).min(1).max(200),
+      }),
+    )
+    .query(async ({ input }) => {
+      const members = await requireServices().groupInfo.getMembersByUins(
+        BigInt(input.groupCode),
+        input.uins.map((u) => BigInt(u)),
+      );
+      return members.map(groupMemberToWire);
+    }),
+
   /** List groups a specific user belongs to. */
   listUserGroups: procedure
     .input(

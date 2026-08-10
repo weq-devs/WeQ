@@ -27,6 +27,7 @@ import { ForwardMultiMsgPreview, isArkMultiMsg } from './ForwardWindow';
 import { QqArk } from './ark/QqArk';
 import { QqFlashTransfer } from './QqFlashTransfer';
 import { QqWallet } from './QqWallet';
+import { QqGroupReceipt } from './QqGroupReceipt';
 import { QqCall } from './QqCall';
 import { QqShareLocation } from './QqShareLocation';
 import { QqDynamic } from './QqDynamic';
@@ -582,6 +583,7 @@ export function QqMessageContent({
   // takes over the whole bubble, rendering as its own self-contained card.
   const arkElement = elements.find((element) => element.type === 'ark');
   const forwardKind = useContext(ForwardKindContext);
+  const groupCode = useContext(ConvContext);
   const textMarkdownOn = useContext(TextMarkdownContext);
   const linkPreviewOn = useContext(LinkPreviewContext);
   if (arkElement && isArkMultiMsg(arkElement.data?.arkData)) {
@@ -617,14 +619,27 @@ export function QqMessageContent({
     );
   }
 
-  // A `wallet` element (转账 / 红包) renders as its own card.
+  // A `wallet` element (转账 / 红包 / 群收款) renders as its own card.
   const walletElement = elements.find((element) => element.type === 'wallet');
   if (walletElement) {
+    const redbagType = walletElement.data?.walletRedbagType;
+    // 群收款 (walletRedbagType=16) 使用专门的组件
+    if (redbagType === 16) {
+      return (
+        <div className={cn('message-content', 'qq-card-only', 'qq-has-wallet')}>
+          <QqGroupReceipt
+            detail={walletElement.data?.walletDetail}
+            groupCode={groupCode}
+          />
+        </div>
+      );
+    }
+    // 转账 / 红包 使用原有组件
     return (
       <div className={cn('message-content', 'qq-card-only', 'qq-has-wallet')}>
         <QqWallet
           detail={walletElement.data?.walletDetail}
-          redbagType={walletElement.data?.walletRedbagType}
+          redbagType={redbagType}
           designatedUin={walletElement.data?.walletDesignatedUin}
         />
       </div>

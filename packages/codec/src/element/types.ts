@@ -323,6 +323,8 @@ export enum RedbagType {
   DESIGNATED = 8,
   /** 语音红包。 */
   VOICE = 15,
+  /** 群收款。48461 内嵌收款人列表（uin + 金额分）。 */
+  GROUP_RECEIPT = 16,
 }
 
 export enum FaceSubType {
