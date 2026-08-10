@@ -344,6 +344,10 @@ jobs:
           VER="${VERSION#v}"
           EXE="weQ-${VER}-setup.exe"
           EXE_URL="https://github.com/${{ github.repository }}/releases/download/${VERSION}/${EXE}"
+          BASE_URL="https://github.com/${{ github.repository }}/releases/download/${VERSION}"
+          LINUX_X64_URL="${BASE_URL}/weQ-${VER}-linux-x86_64.AppImage"
+          LINUX_ARM64_URL="${BASE_URL}/weQ-${VER}-linux-arm64.AppImage"
+          WEB_URL="${BASE_URL}/weq-web-${VER}.tar.gz"
 
           gh release download "${VERSION}" --pattern "${EXE}" --dir /tmp/release
 
@@ -353,7 +357,10 @@ jobs:
 
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "exe=${EXE}"         >> $GITHUB_OUTPUT
-          echo "exe_url=${EXE_URL}" >> $GITHUB_OUTPUT
+          echo "exe_url=${EXE_URL}"             >> $GITHUB_OUTPUT
+          echo "linux_x64_url=${LINUX_X64_URL}" >> $GITHUB_OUTPUT
+          echo "linux_arm64_url=${LINUX_ARM64_URL}" >> $GITHUB_OUTPUT
+          echo "web_url=${WEB_URL}"             >> $GITHUB_OUTPUT
           { echo "body<<BODY_EOF"; echo "$BODY"; echo "BODY_EOF"; } >> $GITHUB_OUTPUT
 
       - name: Send QQ notification
@@ -368,7 +375,12 @@ jobs:
             详细更改如下：
             ${{ steps.prep.outputs.body }}
 
+            ---
+
             - Windows 安装包 [下载链接](${{ steps.prep.outputs.exe_url }})
+            - Linux x64 AppImage [下载链接](${{ steps.prep.outputs.linux_x64_url }})
+            - Linux arm64 AppImage [下载链接](${{ steps.prep.outputs.linux_arm64_url }})
+            - 浏览器版 Web [下载链接](${{ steps.prep.outputs.web_url }})
 
             欢迎大家测试使用新的功能喵~
           file_path: /tmp/release/${{ steps.prep.outputs.exe }}
