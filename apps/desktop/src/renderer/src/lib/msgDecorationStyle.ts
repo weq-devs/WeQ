@@ -20,6 +20,21 @@ const injectedBubbles = new Set<number>();
 const injectedFonts = new Set<number>();
 const injectedWidgets = new Set<number>();
 
+/** 预加载一批图片 URL，全部落盘后 resolve（单张失败不阻塞）。 */
+function preloadImages(urls: string[]): Promise<void> {
+  return Promise.all(
+    urls.map(
+      (url) =>
+        new Promise<void>((resolve) => {
+          const img = new Image();
+          img.onload = () => resolve();
+          img.onerror = () => resolve();
+          img.src = url;
+        }),
+    ),
+  ).then(() => undefined);
+}
+
 function px(v: number): string {
   return `${Math.round(v * 100) / 100}px`;
 }
@@ -131,17 +146,11 @@ export function injectBubbleCss(skin: BubbleSkin): void {
     `  border-image-width: ${width};`,
     `  border-image-repeat: stretch;`,
     `  border-radius: 0;`,
-    frameAnim ? `  animation: ${frameAnim.animation};` : '',
     `  padding: ${px(Math.min(wTop, wBottom) * PAD_RATIO_Y)} ${px(Math.max(wLeft, wRight))};`,
     `  min-width: ${px((left + right) * BUBBLE_SCALE)};`,
     `  min-height: ${px((top + bottom) * BUBBLE_SCALE)};`,
     `}`,
   ];
-
-  // Respect reduced-motion: freeze on frame 1 instead of cycling.
-  if (frameAnim) {
-    rules.push(`@media (prefers-reduced-motion: reduce) {`, `  ${sel} { animation: none; }`, `}`);
-  }
 
   if (skin.animationUrl) {
     const animUrl = dressUrl(skin.animationUrl);
@@ -172,6 +181,19 @@ export function injectBubbleCss(skin: BubbleSkin): void {
   );
 
   append(rules.join('\n'));
+
+  if (frameAnim) {
+    // 先注入静态帧，等全部帧图片预加载完再开启动画，避免帧未缓存时的闪烁。
+    const frameUrls = Array.from({ length: skin.animationFrameCount! }, (_, i) =>
+      dressBubbleFrameUrl(skin.itemId, i + 1),
+    );
+    void preloadImages(frameUrls).then(() => {
+      append(
+        `${sel} { animation: ${frameAnim.animation}; }\n` +
+          `@media (prefers-reduced-motion: reduce) { ${sel} { animation: none; } }`,
+      );
+    });
+  }
 }
 
 /** Inject a font-family rule for a fontId. No-op if already injected. */
@@ -255,12 +277,19 @@ export function injectWidgetCss(widget: ResolvedWidget): void {
     `  background-size: contain;`,
     `  background-position: center;`,
     `  background-repeat: no-repeat;`,
-    `  animation: ${frameAnim.animation};`,
-    `}`,
-    `@media (prefers-reduced-motion: reduce) {`,
-    `  ${sel} { animation: none; }`,
     `}`,
   ];
 
   append(rules.join('\n'));
+
+  // 先注入静态帧，等全部帧图片预加载完再开启动画，避免帧未缓存时的闪烁。
+  const frameUrls = Array.from({ length: widget.frameCount }, (_, i) =>
+    dressPendantFrameUrl(widget.itemId, i + 1),
+  );
+  void preloadImages(frameUrls).then(() => {
+    append(
+      `${sel} { animation: ${frameAnim.animation}; }\n` +
+        `@media (prefers-reduced-motion: reduce) { ${sel} { animation: none; } }`,
+    );
+  });
 }
