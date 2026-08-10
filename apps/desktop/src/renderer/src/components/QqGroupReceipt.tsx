@@ -87,13 +87,13 @@ function GroupReceiptDialog({
         </div>
         {/* 收款人列表 */}
         <div className="weq-group-receipt-list">
-          {payers.map((payer, idx) => {
+          {payers.map((payer) => {
             if (!payer.uin) return null;
             const profile = profiles[payer.uin];
             const displayName = profile?.card || profile?.nick || payer.uin;
             const amount = payer.amount ?? 0;
             return (
-              <div key={idx} className="weq-group-receipt-item">
+              <div key={payer.uin} className="weq-group-receipt-item">
                 <QqAvatar uin={payer.uin} size={36} />
                 <span className="weq-group-receipt-item-name">{displayName}</span>
                 <span className="weq-group-receipt-item-amount">¥{formatAmount(amount)}</span>

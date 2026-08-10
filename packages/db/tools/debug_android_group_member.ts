@@ -64,6 +64,7 @@ async function main() {
     console.log('\n[diag] top groups by total member rows:');
     for (const row of top) {
       const gc = row[0];
+      if (gc == null) continue;
       const total = row[1];
       const active = await db.query(
         'SELECT COUNT(*) FROM group_member3 WHERE "60001" = ? AND "64016" = 0',
