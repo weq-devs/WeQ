@@ -20,19 +20,42 @@ const injectedBubbles = new Set<number>();
 const injectedFonts = new Set<number>();
 const injectedWidgets = new Set<number>();
 
-/** 预加载一批图片 URL，全部落盘后 resolve（单张失败不阻塞）。 */
+/**
+ * 持久强引用：已解码的帧图片必须有人持有，否则浏览器在内存压力下可能丢弃解码缓存，
+ * 导致 CSS @keyframes 动画第一圈各帧重新解码，出现高频闪烁。
+ */
+const liveImages = new Map<string, HTMLImageElement>();
+
+/**
+ * 预加载并完全解码一批图片 URL，全部就绪后 resolve（单张失败不阻塞）。
+ *
+ * 用 `img.decode()` 而非 `img.onload`：
+ *   - onload：字节下载完即触发，图片可能还在后台解码线程里，动画启动时逐帧触发解码 → 闪烁
+ *   - decode()：保证图片完全解码进内存，可直接合成
+ *
+ * resolve 后额外等两个绘制帧，让浏览器把解码结果提交到 GPU 纹理缓存，
+ * 避免动画第一圈仍因纹理上传延迟而闪烁。
+ */
 function preloadImages(urls: string[]): Promise<void> {
   return Promise.all(
-    urls.map(
-      (url) =>
-        new Promise<void>((resolve) => {
-          const img = new Image();
-          img.onload = () => resolve();
-          img.onerror = () => resolve();
-          img.src = url;
-        }),
-    ),
-  ).then(() => undefined);
+    urls.map(async (url) => {
+      if (liveImages.has(url)) return;
+      const img = new Image();
+      img.src = url;
+      try {
+        await img.decode();
+      } catch {
+        // 404 / 格式错误时 decode() 会 reject，当成成功处理，不阻塞整体。
+      }
+      // 保持强引用，防止 GC 后解码缓存被丢弃。
+      liveImages.set(url, img);
+    }),
+  ).then(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
 }
 
 function px(v: number): string {
