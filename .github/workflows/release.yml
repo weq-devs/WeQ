@@ -364,7 +364,7 @@ jobs:
           { echo "body<<BODY_EOF"; echo "$BODY"; echo "BODY_EOF"; } >> $GITHUB_OUTPUT
 
       - name: Send QQ notification
-        uses: H3CoF6/qq-notif-action@main
+        uses: H3CoF6/qq-notify-action@main
         with:
           appid: ${{ secrets.QQ_APPID }}
           secret: ${{ secrets.QQ_SECRET }}
