@@ -72,6 +72,7 @@ import {
   groupNoticeToBulletinWire,
   groupMemberToWire,
   groupMemberLevelInfoToWire,
+  groupExtToWire,
   msgSearchHitToWire,
   onlineStatusToWire,
   elementsToEditable,
@@ -1512,6 +1513,23 @@ export const accountRouter = router({
     .query(async ({ input }) => {
       const detail = await requireServices().groupInfo.getGroupDetail(BigInt(input.groupCode));
       return detail ? groupDetailToWire(detail) : null;
+    }),
+
+  /** Get extended group metadata (活跃度 / 幸运字符 / 群主 uin 等). */
+  getGroupExt: procedure
+    .input(z.object({ groupCode: z.string().min(1) }))
+    .query(async ({ input }) => {
+      const ext = await requireServices().groupInfo.getGroupExt(BigInt(input.groupCode));
+      return ext ? groupExtToWire(ext) : null;
+    }),
+
+  /** List ext metadata for all groups (活跃度排行等场景). */
+  listAllGroupsExt: procedure
+    .input(pageInput.optional())
+    .query(async ({ input }) => {
+      const page = input ?? { limit: 500, offset: 0 };
+      const list = await requireServices().groupInfo.listAllGroupsExt(page.limit, page.offset);
+      return list.map(groupExtToWire);
     }),
 
   /**

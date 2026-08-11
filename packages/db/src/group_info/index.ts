@@ -20,3 +20,6 @@ export type { GroupMemberDbOptions, GroupMember } from './member';
 export { GroupNotifyDb } from './notify';
 export type { GroupNotifyDbOptions, GroupNotify, GroupNotifyUserInfo, GroupNotifyGroupInfo } from './notify';
 export { GroupNotifyStatus, GroupNotifyVerifyStatus } from './notify';
+
+export { GroupExtDb } from './ext';
+export type { GroupExtDbOptions, GroupExt, GroupOwnerInfo } from './ext';

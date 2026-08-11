@@ -181,6 +181,10 @@
 /* rankings — vertical stack of buttons pinned to the far right of the bar */
 .weq-graph-col-rank {
 	min-width: 168px;
+	/* cap at exactly 3 buttons (label ~20px + 3×32px + 3×8px gap = ~140px) */
+	max-height: 140px;
+	overflow-y: auto;
+	scrollbar-width: thin;
 	margin-left: auto;
 }
 

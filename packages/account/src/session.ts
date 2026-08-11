@@ -26,6 +26,7 @@ import {
   GroupBulletinDb,
   GroupMemberDb,
   GroupNotifyDb,
+  GroupExtDb,
   FileAssistantDb,
   CollectionDb,
   BuddyDb,
@@ -124,6 +125,8 @@ export interface AccountSession {
   readonly groupMembers: GroupMemberDb;
   /** Group notifications (group_info.db). */
   readonly groupNotifies: GroupNotifyDb;
+  /** Extended group metadata — group_ext_list (group_info.db). */
+  readonly groupExt: GroupExtDb;
   /** File assistant metadata (file_assistant.db). */
   readonly fileAssistant: FileAssistantDb;
   /** Favorites / 收藏 (collection.db). */
@@ -296,6 +299,12 @@ export async function openAccount(
     algo: ctx.algo,
   });
 
+  const groupExt = new GroupExtDb(nt, {
+    dbPath: groupInfoDbPath,
+    key: ctx.dbKey,
+    algo: ctx.algo,
+  });
+
   const fileAssistantDbPath = join(dirname(msgDbPath), 'file_assistant.db');
   const fileAssistant = new FileAssistantDb(nt, {
     dbPath: fileAssistantDbPath,
@@ -348,6 +357,7 @@ export async function openAccount(
     groupBulletins,
     groupMembers,
     groupNotifies,
+    groupExt,
     fileAssistant,
     collection,
     buddies,
@@ -375,6 +385,7 @@ export async function openAccount(
       groupBulletins.close();
       groupMembers.close();
       groupNotifies.close();
+      groupExt.close();
       fileAssistant.close();
       collection.close();
       buddies.close();

@@ -34,6 +34,7 @@ import {
   GroupBulletinDb,
   GroupMemberDb,
   GroupNotifyDb,
+  GroupExtDb,
   FileAssistantDb,
   CollectionDb,
   BuddyDb,
@@ -309,6 +310,7 @@ export async function openStaticAccount(
   const groupBulletins = new GroupBulletinDb(nt, groupInfoOpts);
   const groupMembers = new GroupMemberDb(nt, groupInfoOpts);
   const groupNotifies = new GroupNotifyDb(nt, groupInfoOpts);
+  const groupExt = new GroupExtDb(nt, groupInfoOpts);
 
   // ---- file assistant (may not exist) ----
   const fileAssistant = new FileAssistantDb(nt, opts(join(dirPath, 'file_assistant.db')));
@@ -353,6 +355,7 @@ export async function openStaticAccount(
     groupBulletins,
     groupMembers,
     groupNotifies,
+    groupExt,
     fileAssistant,
     collection,
     buddies,
@@ -380,6 +383,7 @@ export async function openStaticAccount(
       groupBulletins.close();
       groupMembers.close();
       groupNotifies.close();
+      groupExt.close();
       fileAssistant.close();
       collection.close();
       buddies.close();
