@@ -1,9 +1,10 @@
 // @ts-nocheck
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
-import { ArrowLeft, Download, File, Folder, Loader2, X } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Download, Loader2, X } from 'lucide-react';
 import { client } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
 import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
+import { fileIconUrl } from '../lib/resourceUrl';
 
 interface GroupFileWire {
   fileId: string;
@@ -34,6 +35,39 @@ interface Listing {
   targetDirectory: string;
   files: GroupFileWire[];
   folders: GroupFolderWire[];
+}
+
+function fileExtIcon(fileName: string): string {
+  const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
+  const map: Record<string, string> = {
+    doc: 'doc.png', docx: 'doc.png',
+    xls: 'xls.png', xlsx: 'xls.png',
+    ppt: 'ppt.png', pptx: 'ppt.png',
+    pdf: 'pdf.png',
+    zip: 'zip.png', '7z': 'zip.png', gz: 'zip.png', tar: 'zip.png',
+    rar: 'rar.png',
+    exe: 'exe.png', msi: 'exe.png',
+    mp3: 'audio.png', wav: 'audio.png', flac: 'audio.png', aac: 'audio.png', ogg: 'audio.png', m4a: 'audio.png',
+    mp4: 'video.png', avi: 'video.png', mov: 'video.png', mkv: 'video.png', flv: 'video.png', wmv: 'video.png',
+    png: 'image.png', jpg: 'image.png', jpeg: 'image.png', gif: 'image.png', webp: 'image.png', bmp: 'image.png', svg: 'image.png',
+    txt: 'txt.png', md: 'txt.png', log: 'txt.png',
+    ai: 'ai.png',
+    apk: 'apk.png',
+    bak: 'bak.png',
+    js: 'code.png', ts: 'code.png', jsx: 'code.png', tsx: 'code.png', py: 'code.png', java: 'code.png',
+    c: 'code.png', cpp: 'code.png', cs: 'code.png', go: 'code.png', rs: 'code.png', html: 'code.png', css: 'code.png',
+    dmg: 'dmg.png',
+    ttf: 'font.png', otf: 'font.png', woff: 'font.png', woff2: 'font.png',
+    ipa: 'ipa.png',
+    key: 'keynote.png',
+    xmind: 'mindmap.png',
+    numbers: 'numbers.png',
+    pages: 'pages.png',
+    pkg: 'pkg.png',
+    psd: 'ps.png',
+    sketch: 'sketch.png',
+  };
+  return map[ext] ?? 'unknown.png';
 }
 
 /** 目录面包屑的一层。根目录的 id 固定是 '/'。 */
@@ -195,7 +229,7 @@ export function GroupFileDialog({
                       ])
                     }
                   >
-                    <Folder size={18} />
+                    <img src={fileIconUrl('folder.png')} className="group-file-icon" alt="" />
                     <span className="group-file-main">
                       <strong>{folder.folderName || '未命名文件夹'}</strong>
                       <small>
@@ -203,13 +237,14 @@ export function GroupFileDialog({
                         {folder.creatorName ? ` · ${folder.creatorName}` : ''}
                       </small>
                     </span>
+                    <ChevronRight size={14} className="group-file-chevron" />
                   </button>
                 </li>
               ))}
               {listing.files.map((file) => (
                 <li key={`${file.fileId}:${file.uploadedTime}`}>
                   <div className="group-file-row">
-                    <File size={18} />
+                    <img src={fileIconUrl(fileExtIcon(file.fileName))} className="group-file-icon" alt="" />
                     <span className="group-file-main">
                       <strong title={file.fileName}>{file.fileName}</strong>
                       <small>

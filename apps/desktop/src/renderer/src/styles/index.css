@@ -6053,6 +6053,7 @@ html[data-theme="dark"] .weq-profile-member .avatar {
   border-radius: 50%;
   background: none;
   cursor: pointer;
+  overflow: visible;
   -webkit-app-region: no-drag;
   transition: transform 130ms ease;
 }
@@ -9565,9 +9566,12 @@ html[data-theme="dark"] .weq-persona-modal {
 }
 
 .weq-orb-widget {
-  grid-area: 1 / 1;
-  width: calc(100% * var(--weq-widget-scale));
-  height: calc(100% * var(--weq-widget-scale));
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: calc(var(--weq-orb-size) * var(--weq-widget-scale));
+  height: calc(var(--weq-orb-size) * var(--weq-widget-scale));
   object-fit: contain;
   pointer-events: none;
 }
