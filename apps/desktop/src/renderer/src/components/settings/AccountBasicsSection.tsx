@@ -220,9 +220,10 @@ export function AccountBasicsSection(): ReactElement {
             </button>
           </div>
         </div>
-        {cfg?.algo ? (
+        {cfg?.algos?.['nt_msg.db'] ? (
           <p className="weq-set-note">
-            算法：page {cfg.algo.pageHmacAlgorithm} · kdf {cfg.algo.kdfHmacAlgorithm}
+            算法：page {cfg.algos['nt_msg.db'].pageHmacAlgorithm} · kdf{' '}
+            {cfg.algos['nt_msg.db'].kdfHmacAlgorithm}
           </p>
         ) : null}
       </Card>
@@ -316,8 +317,7 @@ export function AccountBasicsSection(): ReactElement {
               <span className="weq-set-rkey-type">Key Index {clientKey.keyIndex}</span>
               <span
                 className={`weq-set-rkey-exp${
-                  formatExpiry(Math.floor(clientKey.fetchedAt / 1000), clientKey.ttlSeconds)
-                    .expired
+                  formatExpiry(Math.floor(clientKey.fetchedAt / 1000), clientKey.ttlSeconds).expired
                     ? ' is-expired'
                     : ''
                 }`}

@@ -35,7 +35,7 @@
 import { copyFileSync, mkdirSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
-import type { AccountSession } from '@weq/account';
+import { type AccountSession, algoFor } from '@weq/account';
 import type { Platform } from '@weq/platform';
 import type { SqlValue } from '@weq/native';
 import { QqDb, C2cMsgDb } from '@weq/db';
@@ -122,16 +122,17 @@ export class WeqAssistantService {
      */
     private readonly allowNativeWrite = true,
   ) {
-    const { dbKey, algo } = session.context;
+    const { dbKey } = session.context;
+    const msgAlgo = algoFor(session.context, session.msgDbPath);
     this.msgDb = new QqDb(platform.native.ntHelper, {
       dbPath: session.msgDbPath,
       key: dbKey,
-      algo,
+      algo: msgAlgo,
     });
     this.c2c = new C2cMsgDb(platform.native.ntHelper, {
       dbPath: session.msgDbPath,
       key: dbKey,
-      algo,
+      algo: msgAlgo,
     });
     const hash = avatarHashForUid(uid);
     this.avatarHash = `s_${hash}`;
@@ -145,11 +146,17 @@ export class WeqAssistantService {
   async ensureMapping(): Promise<void> {
     if (await this.exists()) return;
     const newSortNo = (await this.maxBigint('nt_uid_mapping_table', '48901')) + 1n;
-    await this.cloneAndInsert('nt_uid_mapping_table', '48902', '"48901" DESC', {
-      '48901': newSortNo,
-      '48902': this.uid,
-      '1002': WEQ_ASSISTANT_UIN,
-    }, ['48912']);
+    await this.cloneAndInsert(
+      'nt_uid_mapping_table',
+      '48902',
+      '"48901" DESC',
+      {
+        '48901': newSortNo,
+        '48902': this.uid,
+        '1002': WEQ_ASSISTANT_UIN,
+      },
+      ['48912'],
+    );
   }
 
   /**
@@ -169,18 +176,24 @@ export class WeqAssistantService {
     const msgId = (await this.maxBigint('c2c_msg_table', '40001')) + rand31();
     const arkJson = buildArkJson(port, card.createdAt, card);
     const body = await this.buildArkBody(arkJson);
-    await this.cloneAndInsert('c2c_msg_table', '40021', '"40050" DESC', {
-      '40001': msgId,
-      '40002': rand31(),
-      '40020': this.uid,
-      '40021': this.uid,
-      '40027': sortNo,
-      '40030': WEQ_ASSISTANT_UIN,
-      '40033': WEQ_ASSISTANT_UIN,
-      '40050': timeBig,
-      '40058': BigInt(localMidnightSec(card.createdAt)),
-      '40800': body,
-    }, ['40801', '40900', '40062']);
+    await this.cloneAndInsert(
+      'c2c_msg_table',
+      '40021',
+      '"40050" DESC',
+      {
+        '40001': msgId,
+        '40002': rand31(),
+        '40020': this.uid,
+        '40021': this.uid,
+        '40027': sortNo,
+        '40030': WEQ_ASSISTANT_UIN,
+        '40033': WEQ_ASSISTANT_UIN,
+        '40050': timeBig,
+        '40058': BigInt(localMidnightSec(card.createdAt)),
+        '40800': body,
+      },
+      ['40801', '40900', '40062'],
+    );
     return true;
   }
 
@@ -188,7 +201,11 @@ export class WeqAssistantService {
    * ③ recent_contact —— 写/替换会话列表行，让它预览 `card`（应传最新那篇推文）。会话时间
    * (40050/41136) 用该推文的固定时间。同时（若给了源图）刷新头像文件。整行先删后插以幂等。
    */
-  async setContactLatest(port: number, card: WeqTweetCard, avatarSourcePath?: string): Promise<void> {
+  async setContactLatest(
+    port: number,
+    card: WeqTweetCard,
+    avatarSourcePath?: string,
+  ): Promise<void> {
     const sortNo = await this.conversationSortNo();
     const avatarPath = this.writeAvatarFile(avatarSourcePath);
     const timeBig = BigInt(card.createdAt);
@@ -233,10 +250,7 @@ export class WeqAssistantService {
 
   /** 删除会话列表行（仅 recent_contact；mapping / c2c 一概不动）。关闭开关时调用。 */
   async removeContact(): Promise<void> {
-    await this.msgDb.write(
-      `DELETE FROM recent_contact_v3_table WHERE "40021" = ?`,
-      [this.uid],
-    );
+    await this.msgDb.write(`DELETE FROM recent_contact_v3_table WHERE "40021" = ?`, [this.uid]);
   }
 
   /**
@@ -307,10 +321,10 @@ export class WeqAssistantService {
       const rc = rcCodec.decode(rcBlob);
       if (rc.preview?.arkData) {
         const preview = { ...rc.preview, arkData: rewriteArkPort(rc.preview.arkData, newPort) };
-        await this.msgDb.write(
-          `UPDATE recent_contact_v3_table SET "40051" = ? WHERE "40021" = ?`,
-          [rcCodec.encode({ preview }), this.uid],
-        );
+        await this.msgDb.write(`UPDATE recent_contact_v3_table SET "40051" = ? WHERE "40021" = ?`, [
+          rcCodec.encode({ preview }),
+          this.uid,
+        ]);
       }
     }
     return true;

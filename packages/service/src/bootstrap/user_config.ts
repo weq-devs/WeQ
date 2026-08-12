@@ -30,6 +30,7 @@ import { join, basename } from 'node:path';
 import type { Platform } from '@weq/platform';
 import type { AgentLabProviderConfig, TtsProviderConfig } from '@weq/agentlab';
 import type { AccountConfig } from '../account/user_config';
+import { normalizeAccountConfig } from '../account/user_config';
 import { generateWeqAssistantUid } from '../account/weq_assistant';
 import { getLogger, logErrorContext } from '../common/logger';
 
@@ -273,8 +274,8 @@ export class UserConfigService {
       for (const file of files) {
         if (!file.endsWith('.json')) continue;
         try {
-          const raw = readFileSync(join(dir, file), 'utf-8');
-          const parsed = JSON.parse(raw) as AccountConfig;
+          const raw = JSON.parse(readFileSync(join(dir, file), 'utf-8')) as AccountConfig;
+          const parsed = normalizeAccountConfig(raw);
           if (!parsed.configId) parsed.configId = basename(file, '.json');
           configs.push(parsed);
         } catch (error) {
@@ -295,7 +296,11 @@ export class UserConfigService {
     const filePath = join(this.root, 'config', 'accounts', `${configId}.json`);
     try {
       unlinkSync(filePath);
-      this.logger.info('deleted account config', { event: 'delete-account-config', configId, filePath });
+      this.logger.info('deleted account config', {
+        event: 'delete-account-config',
+        configId,
+        filePath,
+      });
     } catch {
       /* ignore if file doesn't exist */
     }
@@ -445,7 +450,8 @@ export class UserConfigService {
       realtimeEnabled: s?.realtimeEnabled ?? d.realtimeEnabled,
       autoFetchClientKey: s?.autoFetchClientKey ?? d.autoFetchClientKey,
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
-      windowCloseBehavior: normalizeWindowCloseBehavior(s?.windowCloseBehavior) ?? d.windowCloseBehavior,
+      windowCloseBehavior:
+        normalizeWindowCloseBehavior(s?.windowCloseBehavior) ?? d.windowCloseBehavior,
       renderTextMarkdown: s?.renderTextMarkdown ?? d.renderTextMarkdown,
       showAvatarPendant: s?.showAvatarPendant ?? d.showAvatarPendant,
       preferCdn: s?.preferCdn ?? d.preferCdn,
@@ -459,7 +465,8 @@ export class UserConfigService {
       },
       voiceTranscribe: {
         modelId: s?.voiceTranscribe?.modelId ?? d.voiceTranscribe.modelId,
-        ttsProviders: normalizeTtsProviders(s?.voiceTranscribe?.ttsProviders) ?? d.voiceTranscribe.ttsProviders,
+        ttsProviders:
+          normalizeTtsProviders(s?.voiceTranscribe?.ttsProviders) ?? d.voiceTranscribe.ttsProviders,
       },
       mcp: {
         enabled: s?.mcp?.enabled ?? d.mcp.enabled,
@@ -620,12 +627,8 @@ export class UserConfigService {
    */
   clearCache(ids?: string[]): { freedBytes: number; cleared: string[] } {
     const base = this.cacheBaseDir();
-    const allowed = new Set(
-      UserConfigService.CLEARABLE_CACHE_CATEGORIES.map((c) => c.id),
-    );
-    const targets = (ids && ids.length > 0 ? ids : [...allowed]).filter((id) =>
-      allowed.has(id),
-    );
+    const allowed = new Set(UserConfigService.CLEARABLE_CACHE_CATEGORIES.map((c) => c.id));
+    const targets = (ids && ids.length > 0 ? ids : [...allowed]).filter((id) => allowed.has(id));
     let freedBytes = 0;
     const cleared: string[] = [];
     for (const id of targets) {

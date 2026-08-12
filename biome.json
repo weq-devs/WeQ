@@ -20,7 +20,9 @@
       "!resources/assistant/tailwind.runtime.js",
       "!native/**/*.js",
       "!pnpm-lock.yaml",
-      "!logs"
+      "!logs",
+      "!scripts/hook_gpro.js",
+      "!scripts/decrypt_gpro.cjs"
     ]
   },
   "formatter": {

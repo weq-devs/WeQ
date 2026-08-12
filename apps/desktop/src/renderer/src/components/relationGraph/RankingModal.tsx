@@ -14,17 +14,18 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Award, ChevronLeft, Heart, Search, Users2, X } from "lucide-react";
+import { Activity, Award, ChevronLeft, Heart, Search, Users2, X } from "lucide-react";
 import { client } from "../../trpc/client";
 import { closeFromScrim, useEscapeToClose } from "../../im-template/template/modalUtils";
 import { groupAvatar, personAvatar } from "./graphModel";
 
-export type RankingKind = "intimacy" | "common" | "memberLevel";
+export type RankingKind = "intimacy" | "common" | "memberLevel" | "groupActivity";
 
 const RANK_META: Record<RankingKind, { title: string; sub: string; icon: JSX.Element }> = {
 	intimacy: { title: "好友亲密度排行", sub: "全部好友 · 按亲密度从高到低", icon: <Heart size={15} /> },
 	common: { title: "共同群聊数排行", sub: "按与你共同所在的群聊数排序", icon: <Users2 size={15} /> },
 	memberLevel: { title: "群成员等级排行", sub: "选择群聊查看成员活跃等级排行", icon: <Award size={15} /> },
+	groupActivity: { title: "群聊活跃度排行", sub: "按群活跃度分值从高到低", icon: <Activity size={15} /> },
 };
 
 /** 共同群：每次滚动渐显的条数（数据已全在内存里）。 */
@@ -71,6 +72,8 @@ export function RankingModal({
 
 				{kind === "intimacy" ? (
 					<FriendIntimacyList />
+				) : kind === "groupActivity" ? (
+					<GroupActivityList />
 				) : kind === "common" ? (
 					<CommonGroupList nodes={data?.nodes ?? []} />
 				) : group ? (
@@ -190,6 +193,73 @@ function FriendIntimacyList() {
 		</>
 	);
 }
+
+/** 群聊活跃度排行：一次性拉全部 ext 数据，同时拉群名，纯前端排序，滚动分批渐显。 */
+function GroupActivityList() {
+	const [allItems, setAllItems] = useState<any[]>([]);
+	const [loading, setLoading] = useState(true);
+	const [shown, setShown] = useState(CLIENT_STEP);
+
+	useEffect(() => {
+		setLoading(true);
+		Promise.all([
+			client.account.listAllGroupsExt.query({ limit: 500, offset: 0 }),
+			client.account.listAllGroups.query({ limit: 500, offset: 0 }),
+		])
+			.then(([extList, groups]) => {
+				const nameByCode = new Map(groups.map((g: any) => [g.groupCode, g.groupName]));
+				const sorted = [...extList]
+					.filter((g) => g.activityScore > 0)
+					.sort((a, b) => b.activityScore - a.activityScore)
+					.map((g) => ({ ...g, groupName: nameByCode.get(g.groupCode) || g.groupCode }));
+				setAllItems(sorted);
+			})
+			.catch((err) => console.error('[ranking] group activity load failed', err))
+			.finally(() => setLoading(false));
+	}, []);
+
+	const visible = allItems.slice(0, shown);
+	const hasMore = shown < allItems.length;
+	const onScroll = useCallback(
+		(e: React.UIEvent<HTMLDivElement>) => {
+			if (hasMore && nearBottom(e.currentTarget)) setShown((s) => s + CLIENT_STEP);
+		},
+		[hasMore],
+	);
+
+	return (
+		<>
+			<div className="weq-rank-list" onScroll={onScroll}>
+				{loading ? (
+					<div className="weq-rank-loading">
+						<span className="weq-rank-spinner" />
+						加载中…
+					</div>
+				) : allItems.length === 0 ? (
+					<p className="weq-rank-empty">暂无群活跃度数据</p>
+				) : (
+					visible.map((g, i) => (
+						<RankRow
+							key={g.groupCode}
+							rank={i + 1}
+							avatar={groupAvatar(g.groupCode)}
+							title={g.groupName}
+							subtitle={g.groupCode}
+							value={String(g.activityScore)}
+						/>
+					))
+				)}
+			</div>
+			{!loading ? (
+				<footer className="weq-rank-foot">
+					<span>共 {allItems.length} 群有活跃数据</span>
+					{hasMore ? <span>下滑加载更多</span> : <span>已全部显示</span>}
+				</footer>
+			) : null}
+		</>
+	);
+}
+
 
 /** 群成员等级排行：后端分页 + 滚动到底加载。 */
 function MemberLevelList({ group, onBack }: { group: any; onBack: () => void }) {

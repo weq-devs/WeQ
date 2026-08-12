@@ -21,15 +21,14 @@ import { testEnv } from '@weq/testkit';
 const UIN = testEnv.uin;
 const KEY = testEnv.key;
 // pnpm forwards a literal `--` separator into argv; drop it before reading.
-const KEYWORD =
-  process.argv.slice(2).find((a) => a !== '--') ?? testEnv.keyword;
+const KEYWORD = process.argv.slice(2).find((a) => a !== '--') ?? testEnv.keyword;
 
 async function main(): Promise<void> {
   const platform = createWin32Platform(loadNative());
   const session = await openAccount(platform, {
     uin: UIN,
     dbKey: KEY,
-    algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' },
+    algos: { 'nt_msg.db': { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' } },
   });
   const search = new MsgSearchService(session);
 

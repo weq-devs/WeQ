@@ -21,7 +21,7 @@ export interface UiAccount {
   // ---- existing-config mode ----
   configId?: string;
   dbKey?: string;
-  algo?: DatabaseAlgorithms;
+  algos?: Record<string, DatabaseAlgorithms>;
   dataDir?: string;
   lastLoginAt?: number;
   /** True for static / offline (decrypted-db directory) accounts. */

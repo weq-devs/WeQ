@@ -1395,6 +1395,15 @@ export function ChatPane({
 								<Bot size={12} strokeWidth={2.4} />
 							</small>
 						) : null}
+						{conversation.type === "group" && conversation.group.luckyChar ? (
+							<img
+								className={cn("lucky-char-badge")}
+								src={`https://tianquan.gtimg.cn/groupluckyword/item/${conversation.group.luckyChar.id}/pic-${conversation.group.luckyChar.litCount}.png`}
+								alt=""
+								title={`幸运字符 · 已点亮 ${conversation.group.luckyChar.litCount} 人`}
+								referrerPolicy="no-referrer"
+							/>
+						) : null}
 					</strong>
 					{conversation.type === "direct" ? (
 						<OnlineStatus uid={conversation.otherUser.id} />

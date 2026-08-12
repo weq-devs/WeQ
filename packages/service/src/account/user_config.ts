@@ -89,10 +89,14 @@ export interface AccountConfig {
    */
   dbKey: string;
   /**
-   * Cryptographic algorithms used for this account's databases. Empty
-   * strings for plain (already-decrypted) static accounts.
+   * Per-database cryptographic algorithms, keyed by filename (e.g. `'nt_msg.db'`).
+   * Different databases in the same directory may use different cipher parameters.
+   * Empty object for plain (already-decrypted) static accounts.
+   *
+   * Migration: older records carry a single `algo` field; {@link normalizeAccountConfig}
+   * converts it to `{ 'nt_msg.db': algo }` transparently at read time.
    */
-  algo: DatabaseAlgorithms;
+  algos: Record<string, DatabaseAlgorithms>;
   /**
    * Absolute path to this account's user-data directory
    * (`…\Tencent Files\<uin>`). The true primary key; same uin + different
@@ -251,7 +255,7 @@ export class AccountConfigService {
       configId,
       uin,
       dbKey: this.session.context.dbKey,
-      algo: this.session.context.algo,
+      algos: this.session.context.algos,
       ...(metadata.uid ? { uid: metadata.uid } : {}),
       ...(metadata.dataDir ? { dataDir: metadata.dataDir } : {}),
       ...(metadata.displayName ? { displayName: metadata.displayName } : {}),
@@ -345,7 +349,8 @@ export class AccountConfigService {
   private readRecord(): AccountConfig | null {
     const filePath = join(this.accountsDir, `${this.currentConfigId}.json`);
     try {
-      return JSON.parse(readFileSync(filePath, 'utf-8')) as AccountConfig;
+      const raw = JSON.parse(readFileSync(filePath, 'utf-8')) as AccountConfig;
+      return normalizeAccountConfig(raw);
     } catch {
       return null;
     }
@@ -366,4 +371,21 @@ export class AccountConfigService {
       throw error;
     }
   }
+}
+
+/**
+ * Normalize an `AccountConfig` read from disk, migrating older records that
+ * carry a single `algo: DatabaseAlgorithms` field to the new per-db
+ * `algos: Record<string, DatabaseAlgorithms>` shape.
+ *
+ * Exported so `UserConfigService.listAccountConfigs` (in bootstrap) can apply
+ * the same migration when listing all saved accounts.
+ */
+export function normalizeAccountConfig(raw: AccountConfig): AccountConfig {
+  const r = raw as AccountConfig & { algo?: DatabaseAlgorithms };
+  if (!r.algos) {
+    const algos: Record<string, DatabaseAlgorithms> = r.algo ? { 'nt_msg.db': r.algo } : {};
+    return { ...r, algos };
+  }
+  return r;
 }

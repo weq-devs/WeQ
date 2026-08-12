@@ -2300,6 +2300,10 @@ export function MainView(): ReactElement {
     { groupCode: selectedUid },
     { enabled: Boolean(selectedUid && isGroup) },
   );
+  const groupExt = trpc.account.getGroupExt.useQuery(
+    { groupCode: selectedUid },
+    { enabled: Boolean(selectedUid && isGroup) },
+  );
   const selectedGroupMemberWires = isGroup ? (groupMemberPages[selectedUid] ?? []) : [];
   const selectedGroupMembersLoading = Boolean(isGroup && groupMemberLoading[selectedUid]);
   const selectedGroupMembersHasMore = Boolean(isGroup && groupMemberHasMore[selectedUid]);
@@ -2529,6 +2533,9 @@ export function MainView(): ReactElement {
           name: item.levelName,
         })),
         role: currentGroupMembers.find(m => m.id === user.id)?.role || 'member',
+        luckyChar: (groupExt.data?.luckyCharId && groupExt.data.luckyCharId !== 0)
+          ? { id: groupExt.data.luckyCharId, litCount: groupExt.data.luckyCharLitCount }
+          : null,
       },
     };
   }, [
@@ -2538,6 +2545,7 @@ export function MainView(): ReactElement {
     groupDetail.data,
     groupEssence.data,
     groupLevelInfo.data,
+    groupExt.data,
     user,
   ]);
   // "loading" only until the first page lands; gating on this (not react-query)

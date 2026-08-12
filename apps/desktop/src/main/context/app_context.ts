@@ -112,7 +112,12 @@ import {
   type InjectHook,
 } from '@weq/service';
 import { resolveResource } from '../resource';
-import { openAccount, openStaticAccount, type AccountContext, type AccountSession } from '@weq/account';
+import {
+  openAccount,
+  openStaticAccount,
+  type AccountContext,
+  type AccountSession,
+} from '@weq/account';
 import { collectionItemToWire } from '../ipc/serde';
 
 /**
@@ -194,10 +199,7 @@ export const KEY_STALL_HINT =
  * `reportKeyStalled` mutation) funnel through here so the copy and the log
  * event stay in one place.
  */
-export function emitKeyFetchStalled(
-  source: KeyFetchStalledEvent['source'],
-  uin?: string,
-): void {
+export function emitKeyFetchStalled(source: KeyFetchStalledEvent['source'], uin?: string): void {
   getLogger()
     .child({ scope: 'key-stall' })
     .warn('alive QQ instance stalled without a real recv packet', {
@@ -496,7 +498,11 @@ export interface AppContext {
   setStaticAccount(
     dirPath: string,
     selfPreview: { uin: string; uid?: string; displayName: string; avatarUrl: string },
-    options?: { dbKey?: string; algo?: import('@weq/native').DatabaseAlgorithms; mobile?: boolean },
+    options?: {
+      dbKey?: string;
+      algos?: Record<string, import('@weq/native').DatabaseAlgorithms>;
+      mobile?: boolean;
+    },
   ): Promise<void>;
   /** Drop the current account session, if any. */
   clearAccount(): void;
@@ -595,8 +601,7 @@ export function initAppContext(): AppContext {
   // we fall back to the saved account configs. Late-bound like the override
   // reader above because `userConfig` is constructed after `platform`.
   let readUidFromConfig: (uin: string) => string | null = () => null;
-  const resolveUid = (uin: string): string | null =>
-    uidRegistry.get(uin) ?? readUidFromConfig(uin);
+  const resolveUid = (uin: string): string | null => uidRegistry.get(uin) ?? readUidFromConfig(uin);
 
   const platform =
     process.platform === 'linux'
@@ -686,7 +691,9 @@ export function initAppContext(): AppContext {
       { model: paths.model, tokens: paths.tokens },
       { engine: model.engine, languages: model.languages },
     );
-    return r.success ? { ok: true, text: r.text ?? '' } : { ok: false, error: r.error ?? '识别失败' };
+    return r.success
+      ? { ok: true, text: r.text ?? '' }
+      : { ok: false, error: r.error ?? '识别失败' };
   };
   /** True only when a transcription model is configured AND downloaded. */
   const voiceReady = (): boolean => {
@@ -717,7 +724,10 @@ export function initAppContext(): AppContext {
     accountIsAndroidBackup: false,
     scheduler: null,
     transcribeSilk,
-    async setAccount(accountCtx: AccountContext, metadata: AccountConfigMetadata = {}): Promise<void> {
+    async setAccount(
+      accountCtx: AccountContext,
+      metadata: AccountConfigMetadata = {},
+    ): Promise<void> {
       logger.info('opening account session', {
         event: 'open-account-start',
         accountUin: accountCtx.uin,
@@ -741,7 +751,11 @@ export function initAppContext(): AppContext {
       const session = await openAccount(platform, accountCtx, (info): void => {
         const current = this.account;
         if (!current) return;
-        console.warn('[account] suspected database corruption from query on', info.dbPath, info.error);
+        console.warn(
+          '[account] suspected database corruption from query on',
+          info.dbPath,
+          info.error,
+        );
         logger.warn('suspected database corruption from query', {
           event: 'suspected-db-corruption',
           accountUin: current.context.uin,
@@ -786,7 +800,11 @@ export function initAppContext(): AppContext {
       const profile = new ProfileService(session);
       // 收藏服务：网络优先(微云 collector)、拿不到 p_skey 回退 collection.db。
       // 既进 services，又喂给导出管理器的收藏拉取 dep（拍平投影）。
-      const collectionSvc = new CollectionService(platform.native.ntHelper, session, resolveOnlinePid);
+      const collectionSvc = new CollectionService(
+        platform.native.ntHelper,
+        session,
+        resolveOnlinePid,
+      );
       // 个性装扮：气泡纯 itemId 可拼外链（离线也能装），字体要在线实例换下载链。
       const dressInstall = new DressInstallService(
         platform.native.ntHelper,
@@ -859,19 +877,28 @@ export function initAppContext(): AppContext {
           {
             service: bootstrap.tts,
             getProvider: (id: string) =>
-              userConfig.getSettings().voiceTranscribe.ttsProviders.find((p) => p.id === id) ?? null,
+              userConfig.getSettings().voiceTranscribe.ttsProviders.find((p) => p.id === id) ??
+              null,
           },
         ),
-        assistant: new AssistantService(agentlabRoot, resolveAgentEndpoint, tokenUsage, conversations, {
-          // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
-          specs: async () => [...aiToolSpecs(), ...(await getExternalMcpHub().specs())],
-          run: (name, args) =>
-            name.startsWith('mcp__') ? getExternalMcpHub().run(name, args) : runAiTool(name, args),
-          // 配置变更/启动时把外部 MCP 配置同步给 Hub（连接惰性建立）。
-          syncExternalMcp: (raw) => getExternalMcpHub().configure(raw),
-          // 写报告时随机抽一批「一言」候选，供模型挑一句做主题大字（多元化）。
-          sampleHitokoto,
-        }),
+        assistant: new AssistantService(
+          agentlabRoot,
+          resolveAgentEndpoint,
+          tokenUsage,
+          conversations,
+          {
+            // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
+            specs: async () => [...aiToolSpecs(), ...(await getExternalMcpHub().specs())],
+            run: (name, args) =>
+              name.startsWith('mcp__')
+                ? getExternalMcpHub().run(name, args)
+                : runAiTool(name, args),
+            // 配置变更/启动时把外部 MCP 配置同步给 Hub（连接惰性建立）。
+            syncExternalMcp: (raw) => getExternalMcpHub().configure(raw),
+            // 写报告时随机抽一批「一言」候选，供模型挑一句做主题大字（多元化）。
+            sampleHitokoto,
+          },
+        ),
         exportManager: new (await import('@weq/service')).ExportTaskManager(
           new MsgService(session),
           userConfig.cacheDir(join('export', exportConfigId)),
@@ -962,7 +989,11 @@ export function initAppContext(): AppContext {
                 }));
               },
               listGroupMembers: async (groupCode, limit, offset) => {
-                const members = await groupInfo.listMembersInGroup(BigInt(groupCode), limit, offset);
+                const members = await groupInfo.listMembersInGroup(
+                  BigInt(groupCode),
+                  limit,
+                  offset,
+                );
                 return members.map((m) => ({
                   uid: m.uid,
                   uin: m.uin.toString(),
@@ -1008,7 +1039,11 @@ export function initAppContext(): AppContext {
         mediaResource: new MediaResourceService(session, platform),
         resourceCleanup: new ResourceCleanupService(session, platform),
         webQuery,
-        groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, resolveOnlinePid),
+        groupAlbumMedia: new GroupAlbumMediaService(
+          platform.native.ntHelper,
+          session,
+          resolveOnlinePid,
+        ),
         groupFile: new GroupFileService(platform.native.ntHelper, session, resolveOnlinePid),
       };
       // Scheduled export manager — fires saved templates through the export
@@ -1102,7 +1137,11 @@ export function initAppContext(): AppContext {
     async setStaticAccount(
       dirPath: string,
       selfPreview: { uin: string; uid?: string; displayName: string; avatarUrl: string },
-      options: { dbKey?: string; algo?: import('@weq/native').DatabaseAlgorithms; mobile?: boolean } = {},
+      options: {
+        dbKey?: string;
+        algos?: Record<string, import('@weq/native').DatabaseAlgorithms>;
+        mobile?: boolean;
+      } = {},
     ): Promise<void> {
       logger.info('opening static account session', {
         event: 'open-static-account-start',
@@ -1141,7 +1180,7 @@ export function initAppContext(): AppContext {
           uid: selfUid,
         },
         ...(options.dbKey ? { dbKey: options.dbKey } : {}),
-        ...(options.algo ? { algo: options.algo } : {}),
+        ...(options.algos ? { algos: options.algos } : {}),
       });
       this.account = session;
 
@@ -1179,10 +1218,7 @@ export function initAppContext(): AppContext {
         return pid;
       };
 
-      const mediaDownload = new MediaDownloadService(
-        accountConfig,
-        userConfig.cacheDir('media'),
-      );
+      const mediaDownload = new MediaDownloadService(accountConfig, userConfig.cacheDir('media'));
       const mediaUrl = new MediaUrlService(platform.native.ntHelper, session, livePid);
       // 同账号 QQ 在线时「好友空间导出」可用；离线则 livePid 抛错，优雅失败。
       const webQuery = new WebQueryService(platform.native.ntHelper, session, livePid);
@@ -1259,19 +1295,28 @@ export function initAppContext(): AppContext {
           {
             service: bootstrap.tts,
             getProvider: (id: string) =>
-              userConfig.getSettings().voiceTranscribe.ttsProviders.find((p) => p.id === id) ?? null,
+              userConfig.getSettings().voiceTranscribe.ttsProviders.find((p) => p.id === id) ??
+              null,
           },
         ),
-        assistant: new AssistantService(agentlabRoot, resolveAgentEndpoint, tokenUsage, conversations, {
-          // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
-          specs: async () => [...aiToolSpecs(), ...(await getExternalMcpHub().specs())],
-          run: (name, args) =>
-            name.startsWith('mcp__') ? getExternalMcpHub().run(name, args) : runAiTool(name, args),
-          // 配置变更/启动时把外部 MCP 配置同步给 Hub（连接惰性建立）。
-          syncExternalMcp: (raw) => getExternalMcpHub().configure(raw),
-          // 写报告时随机抽一批「一言」候选，供模型挑一句做主题大字（多元化）。
-          sampleHitokoto,
-        }),
+        assistant: new AssistantService(
+          agentlabRoot,
+          resolveAgentEndpoint,
+          tokenUsage,
+          conversations,
+          {
+            // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
+            specs: async () => [...aiToolSpecs(), ...(await getExternalMcpHub().specs())],
+            run: (name, args) =>
+              name.startsWith('mcp__')
+                ? getExternalMcpHub().run(name, args)
+                : runAiTool(name, args),
+            // 配置变更/启动时把外部 MCP 配置同步给 Hub（连接惰性建立）。
+            syncExternalMcp: (raw) => getExternalMcpHub().configure(raw),
+            // 写报告时随机抽一批「一言」候选，供模型挑一句做主题大字（多元化）。
+            sampleHitokoto,
+          },
+        ),
         exportManager: new (await import('@weq/service')).ExportTaskManager(
           new MsgService(session),
           userConfig.cacheDir(join('export', exportConfigId)),
@@ -1334,7 +1379,9 @@ export function initAppContext(): AppContext {
         dbExplorer: new DbExplorerService(session, staticPlatform),
         antiRecall,
         avatarResource: new AvatarResourceService(session, staticPlatform),
-        sysEmoji: new SysEmojiResourceService(session, staticPlatform, () => sysEmojiDownload.root()),
+        sysEmoji: new SysEmojiResourceService(session, staticPlatform, () =>
+          sysEmojiDownload.root(),
+        ),
         sysEmojiDownload,
         marketEmoji: new MarketEmojiResourceService(session, staticPlatform),
         customEmoji: new CustomEmojiResourceService(session, staticPlatform),

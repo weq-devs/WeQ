@@ -101,6 +101,17 @@ button {
 	height: 12px;
 }
 
+.lucky-char-badge {
+	display: inline-block;
+	width: 48px;
+	height: 48px;
+	min-width: 48px;
+	border-radius: 4px;
+	object-fit: contain;
+	vertical-align: middle;
+	user-select: none;
+}
+
 input,
 textarea,
 .composer-editor,

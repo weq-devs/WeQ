@@ -19,6 +19,7 @@ import type {
   GroupBulletin,
   GroupDetail,
   GroupEssence,
+  GroupExt,
   GroupMember,
   GroupMemberLevelInfo,
   GroupNotify,
@@ -444,6 +445,34 @@ export function groupDetailToWire(d: GroupDetail): GroupDetailWire {
           locationName: d.address.locationName,
         }
       : undefined,
+  };
+}
+
+export interface GroupExtWire {
+  groupCode: string;
+  activityScore: number;
+  luckyCharId: number;
+  luckyCharLitCount: number;
+  luckyCharContent: string;
+  periodMsgCount: number;
+  hasActivity: boolean;
+  activityRecordId: string;
+  ownerInfo?: { ownerUid: string; ownerUin: string };
+  hasSpecialMark: boolean;
+}
+
+export function groupExtToWire(e: GroupExt): GroupExtWire {
+  return {
+    groupCode: e.groupCode.toString(),
+    activityScore: e.activityScore,
+    luckyCharId: e.luckyCharId,
+    luckyCharLitCount: e.luckyCharLitCount,
+    luckyCharContent: e.luckyCharContent,
+    periodMsgCount: e.periodMsgCount,
+    hasActivity: e.hasActivity,
+    activityRecordId: e.activityRecordId.toString(),
+    ownerInfo: e.ownerInfo,
+    hasSpecialMark: e.hasSpecialMark,
   };
 }
 

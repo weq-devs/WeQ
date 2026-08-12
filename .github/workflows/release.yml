@@ -355,6 +355,14 @@ jobs:
           BODY=$(git log -1 --pretty=format:%b)
           [ -z "$BODY" ] && BODY=$(git log -1 --pretty=format:%s)
 
+          # 检查 exe 大小，超过 200 MB 则不作为附件发送（QQ 限制）
+          EXE_SIZE=$(stat -c%s "/tmp/release/${EXE}")
+          if [ "$EXE_SIZE" -lt $((200 * 1024 * 1024)) ]; then
+            echo "send_file=true"  >> $GITHUB_OUTPUT
+          else
+            echo "send_file=false" >> $GITHUB_OUTPUT
+          fi
+
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "exe=${EXE}"         >> $GITHUB_OUTPUT
           echo "exe_url=${EXE_URL}"             >> $GITHUB_OUTPUT
@@ -363,7 +371,8 @@ jobs:
           echo "web_url=${WEB_URL}"             >> $GITHUB_OUTPUT
           { echo "body<<BODY_EOF"; echo "$BODY"; echo "BODY_EOF"; } >> $GITHUB_OUTPUT
 
-      - name: Send QQ notification
+      - name: Send QQ notification (with exe)
+        if: steps.prep.outputs.send_file == 'true'
         uses: H3CoF6/qq-notify-action@main
         with:
           appid: ${{ secrets.QQ_APPID }}
@@ -386,3 +395,25 @@ jobs:
           file_path: /tmp/release/${{ steps.prep.outputs.exe }}
           file_type: file
           file_name: ${{ steps.prep.outputs.exe }}
+
+      - name: Send QQ notification (exe too large, link only)
+        if: steps.prep.outputs.send_file == 'false'
+        uses: H3CoF6/qq-notify-action@main
+        with:
+          appid: ${{ secrets.QQ_APPID }}
+          secret: ${{ secrets.QQ_SECRET }}
+          group_openid: ${{ secrets.QQ_GROUP_OPENID }}
+          message: |
+            ## WeQ 新版本 ${{ steps.prep.outputs.version }} 发布
+
+            详细更改如下：
+            ${{ steps.prep.outputs.body }}
+
+            ---
+
+            - Windows 安装包 [下载链接](${{ steps.prep.outputs.exe_url }})
+            - Linux x64 AppImage [下载链接](${{ steps.prep.outputs.linux_x64_url }})
+            - Linux arm64 AppImage [下载链接](${{ steps.prep.outputs.linux_arm64_url }})
+            - 浏览器版 Web [下载链接](${{ steps.prep.outputs.web_url }})
+
+            欢迎大家测试使用新的功能喵~

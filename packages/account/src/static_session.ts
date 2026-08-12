@@ -14,7 +14,7 @@
  * opening another account to drop the cached native connections.
  */
 
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { existsSync, readdirSync, openSync, readSync, closeSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import {
@@ -34,6 +34,7 @@ import {
   GroupBulletinDb,
   GroupMemberDb,
   GroupNotifyDb,
+  GroupExtDb,
   FileAssistantDb,
   CollectionDb,
   BuddyDb,
@@ -57,26 +58,38 @@ function requireFile(dirPath: string, filename: string): string {
   return p;
 }
 
-function dbOpts(profileInfoPath: string, dbKey?: string, algo?: DatabaseAlgorithms) {
-  return { dbPath: profileInfoPath, ...(dbKey ? { key: dbKey } : {}), ...(algo ? { algo } : {}) };
-}
-
-async function resolveDatabaseAlgorithms(
-  nt: NtHelperBinding,
+function dbOpts(
   dbPath: string,
   dbKey?: string,
-  algo?: DatabaseAlgorithms,
-): Promise<DatabaseAlgorithms | undefined> {
-  if (!dbKey || algo) return algo;
+  algos?: Record<string, import('@weq/native').DatabaseAlgorithms>,
+) {
+  const algo = algos ? (algos[basename(dbPath)] ?? algos['nt_msg.db']) : undefined;
+  return { dbPath, ...(dbKey ? { key: dbKey } : {}), ...(algo ? { algo } : {}) };
+}
 
-  const probe = await nt.testDatabaseKey(dbPath, dbKey);
-  if (!probe.success || !probe.pageHmacAlgorithm || !probe.kdfHmacAlgorithm) {
-    throw new Error('Database key is incorrect or the encryption parameters are unsupported');
-  }
-  return {
-    pageHmacAlgorithm: probe.pageHmacAlgorithm,
-    kdfHmacAlgorithm: probe.kdfHmacAlgorithm,
-  };
+async function resolveAllAlgorithms(
+  nt: NtHelperBinding,
+  dbPaths: string[],
+  dbKey?: string,
+  algos?: Record<string, DatabaseAlgorithms>,
+): Promise<Record<string, DatabaseAlgorithms>> {
+  if (!dbKey) return algos ?? {};
+  const resolved: Record<string, DatabaseAlgorithms> = { ...algos };
+  await Promise.all(
+    dbPaths.map(async (dbPath) => {
+      if (!existsSync(dbPath)) return;
+      const filename = basename(dbPath);
+      if (resolved[filename]) return;
+      const probe = await nt.testDatabaseKey(dbPath, dbKey);
+      if (probe.success && probe.pageHmacAlgorithm && probe.kdfHmacAlgorithm) {
+        resolved[filename] = {
+          pageHmacAlgorithm: probe.pageHmacAlgorithm,
+          kdfHmacAlgorithm: probe.kdfHmacAlgorithm,
+        };
+      }
+    }),
+  );
+  return resolved;
 }
 
 // ---- Android backup: derive the SQLCipher key from the directory itself ----
@@ -135,7 +148,9 @@ function readHeaderRand(dbPath: string): string | undefined {
   const magicAt = buf.indexOf('QQ_NT DB', 0, 'ascii');
   if (magicAt < 0) return undefined;
 
-  const ascii = [...buf].map((b) => (b >= 0x21 && b < 0x7f ? String.fromCharCode(b) : '\0')).join('');
+  const ascii = [...buf]
+    .map((b) => (b >= 0x21 && b < 0x7f ? String.fromCharCode(b) : '\0'))
+    .join('');
   // 魔数之后的可打印串里，挑长度恰为 8 的那一段。安卓是 8 字节 rand；
   // PC 那串是 60+ 位 hex，长度不符会被跳过。
   for (const m of ascii.slice(magicAt + 8).matchAll(/[\x21-\x7e]+/g)) {
@@ -151,7 +166,7 @@ function readHeaderRand(dbPath: string): string | undefined {
 export async function deriveAndroidDbKey(
   nt: NtHelperBinding,
   dirPath: string,
-): Promise<{ dbKey: string; algo: DatabaseAlgorithms } | undefined> {
+): Promise<{ dbKey: string; algos: Record<string, DatabaseAlgorithms> } | undefined> {
   const uid = findUidFromDirEntries(dirPath);
   if (!uid) return undefined;
 
@@ -163,7 +178,11 @@ export async function deriveAndroidDbKey(
 
   const inner = md5(uid);
   // 目录名自校验：对不上说明这不是「uid 派生目录」的那套规则，别硬算。
-  const dirName = dirPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? '';
+  const dirName =
+    dirPath
+      .replace(/[\\/]+$/, '')
+      .split(/[\\/]/)
+      .pop() ?? '';
   if (dirName.startsWith('nt_qq_') && dirName.slice(6) !== md5(inner + DIR_SALT)) {
     return undefined;
   }
@@ -174,9 +193,11 @@ export async function deriveAndroidDbKey(
 
   return {
     dbKey,
-    algo: {
-      pageHmacAlgorithm: probe.pageHmacAlgorithm,
-      kdfHmacAlgorithm: probe.kdfHmacAlgorithm,
+    algos: {
+      'nt_msg.db': {
+        pageHmacAlgorithm: probe.pageHmacAlgorithm,
+        kdfHmacAlgorithm: probe.kdfHmacAlgorithm,
+      },
     },
   };
 }
@@ -197,14 +218,14 @@ export async function peekStaticSelfUin(
   platform: Platform,
   dirPath: string,
   dbKey?: string,
-  algo?: DatabaseAlgorithms,
+  algos?: Record<string, DatabaseAlgorithms>,
 ): Promise<StaticSelfPreview> {
   const nt = platform.native.ntHelper;
   const profileInfoPath = requireFile(dirPath, 'profile_info.db');
-  const resolvedAlgo = await resolveDatabaseAlgorithms(nt, profileInfoPath, dbKey, algo);
+  const resolvedAlgos = await resolveAllAlgorithms(nt, [profileInfoPath], dbKey, algos);
   // Probe via QqDb directly (not ProfileInfoDb) so we don't drag every
   // profile column through the codec pipeline just to read 3 fields.
-  const qq = new QqDb(nt, dbOpts(profileInfoPath, dbKey, resolvedAlgo));
+  const qq = new QqDb(nt, dbOpts(profileInfoPath, dbKey, resolvedAlgos));
   try {
     // 1002 = uin, 20002 = nick, 1000 = uid. We intentionally do NOT read the
     // stored avatar (20004) — it's a chat-CDN token that only a live QQ can
@@ -240,15 +261,15 @@ export interface OpenStaticAccountOptions {
   dirPath: string;
   /**
    * SQLCipher key. Omit / leave blank for plain (already-decrypted) SQLite.
-   * The native helper auto-probes the matching algorithms when `algo` is
+   * The native helper auto-probes the matching algorithms when `algos` is
    * omitted, so callers don't need to know the exact cipher params.
    */
   dbKey?: string;
   /**
-   * Resolved SQLCipher algorithms. Optional — when omitted AND `dbKey` is
-   * provided, the native helper is asked to probe them.
+   * Per-database SQLCipher algorithms, keyed by filename. Optional — when
+   * omitted AND `dbKey` is provided, each database is probed individually.
    */
-  algo?: DatabaseAlgorithms;
+  algos?: Record<string, DatabaseAlgorithms>;
   /**
    * Pre-resolved self preview. Required — the directory name is not used as
    * a UIN fallback. Run {@link peekStaticSelfUin} first to obtain it.
@@ -264,14 +285,39 @@ export async function openStaticAccount(
   platform: Platform,
   options: OpenStaticAccountOptions,
 ): Promise<AccountSession> {
-  const { dirPath, dbKey, algo, self } = options;
+  const { dirPath, dbKey, algos, self } = options;
   const nt = platform.native.ntHelper;
   const uin = self.uin;
 
   // ---- core databases ----
   const msgDbPath = requireFile(dirPath, 'nt_msg.db');
-  const resolvedAlgo = await resolveDatabaseAlgorithms(nt, msgDbPath, dbKey, algo);
-  const opts = (dbPath: string) => dbOpts(dbPath, dbKey, resolvedAlgo);
+  const groupInfoDbPath = requireFile(dirPath, 'group_info.db');
+  const profileInfoPath = requireFile(dirPath, 'profile_info.db');
+
+  // Probe each db file not already covered by the supplied algos map.
+  const resolvedAlgos = await resolveAllAlgorithms(
+    nt,
+    [
+      msgDbPath,
+      groupInfoDbPath,
+      profileInfoPath,
+      join(dirPath, 'buddy_msg_fts.db'),
+      join(dirPath, 'group_msg_fts.db'),
+      join(dirPath, 'file_assistant.db'),
+      join(dirPath, 'collection.db'),
+      join(dirPath, 'misc.db'),
+    ],
+    dbKey,
+    algos,
+  );
+
+  // probeAllAlgorithms throws when the key is wrong for the primary db; for
+  // plain-SQLite folders dbKey is absent and we get an empty map — that's fine.
+  if (dbKey && !resolvedAlgos['nt_msg.db']) {
+    throw new Error('Database key is incorrect or the encryption parameters are unsupported');
+  }
+
+  const opts = (dbPath: string) => dbOpts(dbPath, dbKey, resolvedAlgos);
 
   const c2cMsgs = new C2cMsgDb(nt, opts(msgDbPath));
   // 数据线消息表结构同 c2c，复用 C2cMsgDb 只换表名。
@@ -301,7 +347,6 @@ export async function openStaticAccount(
   const groupMsgFts = new GroupMsgFtsDb(nt, opts(join(dirPath, 'group_msg_fts.db')));
 
   // ---- group info ----
-  const groupInfoDbPath = requireFile(dirPath, 'group_info.db');
   const groupInfoOpts = opts(groupInfoDbPath);
   const groupEssence = new GroupEssenceDb(nt, groupInfoOpts);
   const memberLevelInfo = new GroupMemberLevelInfoDb(nt, groupInfoOpts);
@@ -309,6 +354,7 @@ export async function openStaticAccount(
   const groupBulletins = new GroupBulletinDb(nt, groupInfoOpts);
   const groupMembers = new GroupMemberDb(nt, groupInfoOpts);
   const groupNotifies = new GroupNotifyDb(nt, groupInfoOpts);
+  const groupExt = new GroupExtDb(nt, groupInfoOpts);
 
   // ---- file assistant (may not exist) ----
   const fileAssistant = new FileAssistantDb(nt, opts(join(dirPath, 'file_assistant.db')));
@@ -317,7 +363,6 @@ export async function openStaticAccount(
   const collection = new CollectionDb(nt, opts(join(dirPath, 'collection.db')));
 
   // ---- profile ----
-  const profileInfoPath = requireFile(dirPath, 'profile_info.db');
   const profileOpts = opts(profileInfoPath);
   const buddies = new BuddyDb(nt, profileOpts);
   const categories = new CategoryDb(nt, profileOpts);
@@ -333,7 +378,7 @@ export async function openStaticAccount(
     context: {
       uin,
       dbKey: dbKey ?? '',
-      algo: resolvedAlgo ?? { pageHmacAlgorithm: '', kdfHmacAlgorithm: '' },
+      algos: resolvedAlgos,
     },
     msgDbPath,
     lastRowIdMaps: { c2cRowId: 0n, groupRowId: 0n, guildRowId: 0n },
@@ -353,6 +398,7 @@ export async function openStaticAccount(
     groupBulletins,
     groupMembers,
     groupNotifies,
+    groupExt,
     fileAssistant,
     collection,
     buddies,
@@ -380,6 +426,7 @@ export async function openStaticAccount(
       groupBulletins.close();
       groupMembers.close();
       groupNotifies.close();
+      groupExt.close();
       fileAssistant.close();
       collection.close();
       buddies.close();

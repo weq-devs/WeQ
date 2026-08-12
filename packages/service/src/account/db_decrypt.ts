@@ -9,8 +9,8 @@ import { mkdirSync } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { Worker } from 'node:worker_threads';
-import type { AccountSession } from '@weq/account';
-import type { DatabaseAlgorithms } from '@weq/native';
+import { type AccountSession, algoFor } from '@weq/account';
+import type { DatabaseAlgorithms, NtHelperBinding } from '@weq/native';
 import type { Platform } from '@weq/platform';
 
 export type DbDecryptMode = 'fast' | 'safe';
@@ -80,14 +80,14 @@ export class DbDecryptService {
     return mapLimit(items, concurrency, async (item) => {
       const outPath = outputPath(opts.outputDir, item.name, item.dbPath);
       try {
-        await decryptOneInWorker(
-          ntHelperPath,
-          item.dbPath,
-          outPath,
-          this.session.context.dbKey,
-          this.session.context.algo,
-          opts.mode,
-        );
+        const guild = isGuildDb(item.dbPath);
+        const key = guild
+          ? this.platform.native.ntHelper.getGuildDbKey(item.dbPath, this.session.context.uin)
+          : this.session.context.dbKey;
+        const algo = guild
+          ? await resolveAlgo(this.platform.native.ntHelper, item.dbPath, key)
+          : algoFor(this.session.context, item.dbPath);
+        await decryptOneInWorker(ntHelperPath, item.dbPath, outPath, key, algo, opts.mode);
         return { name: item.name, dbPath: item.dbPath, outPath, ok: true };
       } catch (e) {
         return {
@@ -136,7 +136,7 @@ function decryptOneInWorker(
   dbPath: string,
   outPath: string,
   key: string,
-  algo: DatabaseAlgorithms,
+  algo: DatabaseAlgorithms | undefined,
   mode: DbDecryptMode,
 ): Promise<void> {
   const code = `
@@ -189,6 +189,22 @@ function outputPath(outputDir: string, nameOrPath: string, sourcePath: string): 
 function outputName(nameOrPath: string): string {
   const name = basename(nameOrPath);
   return name.toLowerCase().endsWith('.db') ? name : `${name}.db`;
+}
+
+function isGuildDb(dbPath: string): boolean {
+  return basename(dbPath).startsWith('gpro_');
+}
+
+async function resolveAlgo(
+  nt: NtHelperBinding,
+  dbPath: string,
+  key: string,
+): Promise<DatabaseAlgorithms | undefined> {
+  const probe = await nt.testDatabaseKey(dbPath, key);
+  if (probe.success && probe.pageHmacAlgorithm && probe.kdfHmacAlgorithm) {
+    return { pageHmacAlgorithm: probe.pageHmacAlgorithm, kdfHmacAlgorithm: probe.kdfHmacAlgorithm };
+  }
+  return undefined;
 }
 
 async function mapLimit<T, R>(

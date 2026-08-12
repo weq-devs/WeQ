@@ -6,6 +6,7 @@ import {
 	Check,
 	CheckCheck,
 	Crosshair,
+	Activity,
 	Filter,
 	Heart,
 	RefreshCw,
@@ -28,6 +29,7 @@ const RANK_BUTTONS: Array<{ kind: RankingKind; label: string; icon: JSX.Element 
 	{ kind: "intimacy", label: "好友亲密度排行", icon: <Heart size={14} /> },
 	{ kind: "common", label: "共同群聊数排行", icon: <Users2 size={14} /> },
 	{ kind: "memberLevel", label: "群成员等级排行", icon: <Award size={14} /> },
+	{ kind: "groupActivity", label: "群聊活跃度排行", icon: <Activity size={14} /> },
 ];
 
 const COMMON_THRESHOLD_RANGES: Record<
@@ -275,8 +277,8 @@ export function RelationGraphView() {
 							key={btn.kind}
 							type="button"
 							className="weq-graph-rank-btn"
-							// 亲密度排行直接查后端、不依赖关系图；共同群 / 群成员等级要先有图数据。
-							disabled={btn.kind !== "intimacy" && !data}
+							// 亲密度/群活跃度直接查后端、不依赖关系图；共同群 / 群成员等级要先有图数据。
+							disabled={btn.kind !== "intimacy" && btn.kind !== "groupActivity" && !data}
 							onClick={() => setRankOpen(btn.kind)}
 						>
 							{btn.icon}

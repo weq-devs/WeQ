@@ -4,7 +4,7 @@
 
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { AccountSession } from '@weq/account';
+import { type AccountSession, algoFor } from '@weq/account';
 import type { Platform } from '@weq/platform';
 
 export const ACCOUNT_HEALTH_DATABASES = [
@@ -77,10 +77,19 @@ async function checkOneDatabase(
   }
 
   try {
+    const algo = algoFor(session.context, dbPath);
+    if (!algo) {
+      return {
+        dbName,
+        dbPath,
+        corruptedTables: [],
+        error: '无加密算法信息，跳过检查',
+      };
+    }
     const result = await platform.native.ntHelper.checkDatabaseHealth(
       dbPath,
       session.context.dbKey,
-      session.context.algo,
+      algo,
     );
     if (result.healthy) return null;
     return {

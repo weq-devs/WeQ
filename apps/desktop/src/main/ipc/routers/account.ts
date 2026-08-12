@@ -72,6 +72,7 @@ import {
   groupNoticeToBulletinWire,
   groupMemberToWire,
   groupMemberLevelInfoToWire,
+  groupExtToWire,
   msgSearchHitToWire,
   onlineStatusToWire,
   elementsToEditable,
@@ -281,7 +282,13 @@ export interface AlbumExportResult {
   outputDir: string;
   total: number;
   ok: number;
-  failed: Array<{ albumId: string; albumTitle: string; fileName: string; url: string; error: string }>;
+  failed: Array<{
+    albumId: string;
+    albumTitle: string;
+    fileName: string;
+    url: string;
+    error: string;
+  }>;
 }
 
 // ---- 群文件 (OIDB 0x6D8_1 列表 / 0x6D6_2 下载直链) ----
@@ -450,7 +457,9 @@ function toSafeBigint(value: string | undefined): bigint {
   }
 }
 
-function bestUrls(entries: Array<{ url: { url: string; width: number; height: number } | null }>): Array<{ url: string; width: number; height: number }> {
+function bestUrls(
+  entries: Array<{ url: { url: string; width: number; height: number } | null }>,
+): Array<{ url: string; width: number; height: number }> {
   return entries
     .map((entry) => entry.url)
     .filter((entry): entry is NonNullable<typeof entry> => {
@@ -461,9 +470,13 @@ function bestUrls(entries: Array<{ url: { url: string; width: number; height: nu
     .sort((a, b) => (b.width || 0) * (b.height || 0) - (a.width || 0) * (a.height || 0));
 }
 
-function imageUrls(image: NonNullable<AlbumMedia['image']>): { previewUrl: string; originalUrl: string } {
+function imageUrls(image: NonNullable<AlbumMedia['image']>): {
+  previewUrl: string;
+  originalUrl: string;
+} {
   const sorted = bestUrls(image.photoUrls);
-  const defaultUrl = image.defaultUrl && !isAlbumPlaceholderUrl(image.defaultUrl.url) ? image.defaultUrl.url : '';
+  const defaultUrl =
+    image.defaultUrl && !isAlbumPlaceholderUrl(image.defaultUrl.url) ? image.defaultUrl.url : '';
   return {
     previewUrl: defaultUrl || sorted[sorted.length - 1]?.url || sorted[0]?.url || '',
     originalUrl: sorted[0]?.url || defaultUrl || '',
@@ -476,7 +489,8 @@ function mediaUrls(media: AlbumMedia): Omit<AlbumMediaWire, keyof AlbumMedia> {
     // 视频卡片显示封面图,下载/播放取最高码率的那路;videoUrl 为空时回退到顶层 url。
     const cover = video.cover ? imageUrls(video.cover) : { previewUrl: '', originalUrl: '' };
     const streams = bestUrls(video.videoUrls);
-    const src = streams[0]?.url || (video.url && !isAlbumPlaceholderUrl(video.url) ? video.url : '');
+    const src =
+      streams[0]?.url || (video.url && !isAlbumPlaceholderUrl(video.url) ? video.url : '');
     return {
       kind: 'video',
       previewUrl: cover.previewUrl || cover.originalUrl,
@@ -514,7 +528,9 @@ async function collectAlbumMedia(
   let attachInfo = '';
   for (let guard = 0; guard < 100; guard += 1) {
     const page = await services.groupAlbumMedia.getMediaList(groupCode, albumId, attachInfo);
-    out.push(...page.mediaList.map(mediaToWire).filter((media) => media.originalUrl || media.previewUrl));
+    out.push(
+      ...page.mediaList.map(mediaToWire).filter((media) => media.originalUrl || media.previewUrl),
+    );
     const next = page.nextAttachInfo || '';
     if (!next || seenAttachInfo.has(next)) break;
     seenAttachInfo.add(next);
@@ -549,7 +565,10 @@ function filenameFromUrl(url: string, fallback: string, index: number, defaultEx
       name = '';
     }
   }
-  const safe = sanitizePathSegment(name, `photo-${String(index + 1).padStart(4, '0')}${defaultExt}`);
+  const safe = sanitizePathSegment(
+    name,
+    `photo-${String(index + 1).padStart(4, '0')}${defaultExt}`,
+  );
   return extname(safe) ? safe : `${safe}${defaultExt}`;
 }
 
@@ -692,7 +711,10 @@ async function exportGroupFiles(
     try {
       // 直链有时效,逐个文件在下载前才换取。
       const url = await services.mediaUrl.getGroupFileUrl(
-        Number(input.groupCode), item.fileId, item.busId, item.fileName,
+        Number(input.groupCode),
+        item.fileId,
+        item.busId,
+        item.fileName,
       );
       const outcome = await downloadUrlToFile(url, item.targetPath);
       if (!outcome.ok) throw new Error(outcome.reason);
@@ -796,12 +818,14 @@ export const accountRouter = router({
       z.object({
         personaId: z.string().min(1),
         text: z.string().min(1),
-        history: z.array(
-          z.object({
-            role: z.enum(['user', 'assistant']),
-            text: z.string().min(1),
-          }),
-        ).default([]),
+        history: z
+          .array(
+            z.object({
+              role: z.enum(['user', 'assistant']),
+              text: z.string().min(1),
+            }),
+          )
+          .default([]),
       }),
     )
     .mutation(async ({ input }) => {
@@ -847,7 +871,12 @@ export const accountRouter = router({
       // 抽 persona 用到的 LLM providers（chat/embedding/vision，去重）。
       // 导出弹窗显式指定的图像模型也并进来（即使克隆时没用 vision，也能让 bot 具备解析新表情的能力）。
       const llmIds = new Set<string>();
-      for (const m of [persona.models.chat, persona.models.embedding, persona.models.vision, input.visionModel]) {
+      for (const m of [
+        persona.models.chat,
+        persona.models.embedding,
+        persona.models.vision,
+        input.visionModel,
+      ]) {
         if (m?.providerId) llmIds.add(m.providerId);
       }
       const llmProviders: Array<{ id: string; baseUrl: string; apiKey: string }> = [];
@@ -858,7 +887,9 @@ export const accountRouter = router({
       }
       // 抽 TTS provider（若绑了语音克隆）。
       const ttsProviders = persona.voice?.providerId
-        ? [cfg.getTtsProvider(persona.voice.providerId)].filter((t): t is NonNullable<typeof t> => t !== null)
+        ? [cfg.getTtsProvider(persona.voice.providerId)].filter(
+            (t): t is NonNullable<typeof t> => t !== null,
+          )
         : [];
 
       // 定位预打包引擎。
@@ -868,7 +899,8 @@ export const accountRouter = router({
       // 选输出位置。
       const pickedDir = await getHost().pickDirectory({ title: '选择导出位置' });
       if (!pickedDir) return { canceled: true as const };
-      const safeName = (persona.name || 'clone').replace(/[^\w一-龥-]+/g, '_').slice(0, 40) || 'clone';
+      const safeName =
+        (persona.name || 'clone').replace(/[^\w一-龥-]+/g, '_').slice(0, 40) || 'clone';
       const outDir = join(pickedDir, `${safeName}-bot`);
 
       const result = await buildBotExport({
@@ -881,7 +913,11 @@ export const accountRouter = router({
         ttsProviders,
         adapter: { type: input.adapterType, wsUrl: input.wsUrl, token: input.token },
         selfId: input.selfId,
-        features: { voice: input.voice ?? false, groupChat: input.groupChat ?? false, groupReplyMode: input.groupReplyMode ?? 'llm' },
+        features: {
+          voice: input.voice ?? false,
+          groupChat: input.groupChat ?? false,
+          groupReplyMode: input.groupReplyMode ?? 'llm',
+        },
         webuiPort: input.webuiPort,
         visionModel: input.visionModel,
       });
@@ -916,7 +952,8 @@ export const accountRouter = router({
       if (!info) throw new Error('这个克隆体还没有导出过，请先导出机器人。');
       const base = (input.url?.trim() || info.url).replace(/\/+$/, '');
       const reachable = await probeBotWebUi(`${base}/`);
-      if (!reachable) return { opened: false as const, needUrl: true as const, defaultUrl: info.url };
+      if (!reachable)
+        return { opened: false as const, needUrl: true as const, defaultUrl: info.url };
       const persona = svc.getPersona(input.personaId);
       const opened = await getHost().openBotConsole({
         url: base,
@@ -935,7 +972,10 @@ export const accountRouter = router({
   createAgentLabGroup: procedure
     .input(z.object({ name: z.string().min(1), personaIds: z.array(z.string().min(1)).min(1) }))
     .mutation(({ input }) => {
-      return requireServices().agentLab.createGroup({ name: input.name, personaIds: input.personaIds });
+      return requireServices().agentLab.createGroup({
+        name: input.name,
+        personaIds: input.personaIds,
+      });
     }),
 
   listAgentLabGroups: procedure.query(() => {
@@ -1015,7 +1055,11 @@ export const accountRouter = router({
           } satisfies GroupChatStreamEvent),
         )
         .then(() =>
-          groupChatBus.emit('event', { groupRunId, groupId, kind: 'done' } satisfies GroupChatStreamEvent),
+          groupChatBus.emit('event', {
+            groupRunId,
+            groupId,
+            kind: 'done',
+          } satisfies GroupChatStreamEvent),
         )
         .catch((err: unknown) =>
           groupChatBus.emit('event', {
@@ -1206,7 +1250,12 @@ export const accountRouter = router({
       const ac = new AbortController();
       activeAssistantRuns.set(runId, ac);
       void assistant
-        .chat(input.sessionId, input.text, (step) => assistantBus.emit('step', { runId, step } satisfies AssistantStreamEvent), ac.signal)
+        .chat(
+          input.sessionId,
+          input.text,
+          (step) => assistantBus.emit('step', { runId, step } satisfies AssistantStreamEvent),
+          ac.signal,
+        )
         .catch(() => {})
         .finally(() => activeAssistantRuns.delete(runId));
       return { runId };
@@ -1329,7 +1378,9 @@ export const accountRouter = router({
         limit: z.number().int().min(1).max(200).default(50),
       }),
     )
-    .query(({ input }) => fetchBefore(input.kind, input.conv, BigInt(input.beforeSeq), input.limit)),
+    .query(({ input }) =>
+      fetchBefore(input.kind, input.conv, BigInt(input.beforeSeq), input.limit),
+    ),
 
   /** The page just newer than `afterSeq` (scroll down / jump context), oldest-first. */
   listAfter: procedure
@@ -1372,7 +1423,7 @@ export const accountRouter = router({
       configId: record.configId,
       uin: record.uin,
       dbKey: record.dbKey,
-      algo: record.algo,
+      algos: record.algos ?? {},
       dataDir: record.dataDir ?? null,
       qqOnline: record.qqOnline ?? false,
       qqPid: record.qqPid ?? null,
@@ -1400,12 +1451,10 @@ export const accountRouter = router({
     }),
 
   /** List QQ buddies from profile_info.db. Omit input to fetch all (used by AgentLab). */
-  listBuddies: procedure
-    .input(pageInput.optional())
-    .query(async ({ input }) => {
-      const buddies = await requireServices().profile.listBuddies(input?.limit, input?.offset ?? 0);
-      return buddies.map(buddyToWire);
-    }),
+  listBuddies: procedure.input(pageInput.optional()).query(async ({ input }) => {
+    const buddies = await requireServices().profile.listBuddies(input?.limit, input?.offset ?? 0);
+    return buddies.map(buddyToWire);
+  }),
 
   /** List QQ buddy categories. */
   listCategories: procedure.query(async () => {
@@ -1414,30 +1463,24 @@ export const accountRouter = router({
   }),
 
   /** List QQ buddy request notifications. */
-  listBuddyRequests: procedure
-    .input(pageInput.optional())
-    .query(async ({ input }) => {
-      const page = input ?? { limit: 100, offset: 0 };
-      const requests = await requireServices().profile.listBuddyRequests(page.limit, page.offset);
-      return requests.map(buddyRequestToWire);
-    }),
+  listBuddyRequests: procedure.input(pageInput.optional()).query(async ({ input }) => {
+    const page = input ?? { limit: 100, offset: 0 };
+    const requests = await requireServices().profile.listBuddyRequests(page.limit, page.offset);
+    return requests.map(buddyRequestToWire);
+  }),
 
   /** List group notifications. */
-  listGroupNotifies: procedure
-    .input(pageInput.optional())
-    .query(async ({ input }) => {
-      const page = input ?? { limit: 100, offset: 0 };
-      const notifies = await requireServices().groupInfo.listGroupNotifies(page.limit, page.offset);
-      return notifies.map(groupNotifyToWire);
-    }),
+  listGroupNotifies: procedure.input(pageInput.optional()).query(async ({ input }) => {
+    const page = input ?? { limit: 100, offset: 0 };
+    const notifies = await requireServices().groupInfo.listGroupNotifies(page.limit, page.offset);
+    return notifies.map(groupNotifyToWire);
+  }),
 
   /** Get detailed profile by NT uid. */
-  getProfile: procedure
-    .input(z.object({ uid: z.string().min(1) }))
-    .query(async ({ input }) => {
-      const profile = await requireServices().profile.getProfile(input.uid);
-      return profile ? userProfileToWire(profile) : null;
-    }),
+  getProfile: procedure.input(z.object({ uid: z.string().min(1) })).query(async ({ input }) => {
+    const profile = await requireServices().profile.getProfile(input.uid);
+    return profile ? userProfileToWire(profile) : null;
+  }),
 
   /**
    * The uids of every bot with a cached profile. The renderer fetches this
@@ -1451,12 +1494,10 @@ export const accountRouter = router({
    * A bot's own profile (简介 / 指令列表 / 欢迎语). Null when QQ has never
    * cached that bot's card — callers fall back to the regular profile.
    */
-  getBotProfile: procedure
-    .input(z.object({ uid: z.string().min(1) }))
-    .query(async ({ input }) => {
-      const profile = await requireServices().profile.getBotProfile(input.uid);
-      return profile ? botProfileToWire(profile) : null;
-    }),
+  getBotProfile: procedure.input(z.object({ uid: z.string().min(1) })).query(async ({ input }) => {
+    const profile = await requireServices().profile.getBotProfile(input.uid);
+    return profile ? botProfileToWire(profile) : null;
+  }),
 
   /** Get detailed profile by QQ uin. */
   getProfileByUin: procedure
@@ -1486,25 +1527,21 @@ export const accountRouter = router({
     }),
 
   /** List cached user profiles. */
-  listProfiles: procedure
-    .input(pageInput.optional())
-    .query(async ({ input }) => {
-      const page = input ?? { limit: 100, offset: 0 };
-      const profiles = await requireServices().profile.listProfiles(page.limit, page.offset);
-      return profiles.map(userProfileToWire);
-    }),
+  listProfiles: procedure.input(pageInput.optional()).query(async ({ input }) => {
+    const page = input ?? { limit: 100, offset: 0 };
+    const profiles = await requireServices().profile.listProfiles(page.limit, page.offset);
+    return profiles.map(userProfileToWire);
+  }),
 
   /**
    * List ALL friends ordered by intimacy (高→低), paginated. Backs the "好友亲密度
    * 排行" lightbox — the payload is already IPC-safe (uin is a string). Includes
    * every friend, not just those sharing groups with me.
    */
-  listFriendsByIntimacy: procedure
-    .input(pageInput.optional())
-    .query(async ({ input }) => {
-      const page = input ?? { limit: 100, offset: 0 };
-      return requireServices().profile.listFriendsByIntimacy(page.limit, page.offset);
-    }),
+  listFriendsByIntimacy: procedure.input(pageInput.optional()).query(async ({ input }) => {
+    const page = input ?? { limit: 100, offset: 0 };
+    return requireServices().profile.listFriendsByIntimacy(page.limit, page.offset);
+  }),
 
   /** Get group metadata and latest announcement. */
   getGroupDetail: procedure
@@ -1513,6 +1550,21 @@ export const accountRouter = router({
       const detail = await requireServices().groupInfo.getGroupDetail(BigInt(input.groupCode));
       return detail ? groupDetailToWire(detail) : null;
     }),
+
+  /** Get extended group metadata (活跃度 / 幸运字符 / 群主 uin 等). */
+  getGroupExt: procedure
+    .input(z.object({ groupCode: z.string().min(1) }))
+    .query(async ({ input }) => {
+      const ext = await requireServices().groupInfo.getGroupExt(BigInt(input.groupCode));
+      return ext ? groupExtToWire(ext) : null;
+    }),
+
+  /** List ext metadata for all groups (活跃度排行等场景). */
+  listAllGroupsExt: procedure.input(pageInput.optional()).query(async ({ input }) => {
+    const page = input ?? { limit: 500, offset: 0 };
+    const list = await requireServices().groupInfo.listAllGroupsExt(page.limit, page.offset);
+    return list.map(groupExtToWire);
+  }),
 
   /**
    * Relation graph: everyone sharing ≥2 of my groups, with profile intimacy /
@@ -1527,32 +1579,26 @@ export const accountRouter = router({
     }),
 
   /** List all groups from group_info.db. */
-  listAllGroups: procedure
-    .input(pageInput.optional())
-    .query(async ({ input }) => {
-      const page = input ?? { limit: 100, offset: 0 };
-      const groups = await requireServices().groupInfo.listAllGroups(page.limit, page.offset);
-      return groups.map(groupDetailToWire);
-    }),
+  listAllGroups: procedure.input(pageInput.optional()).query(async ({ input }) => {
+    const page = input ?? { limit: 100, offset: 0 };
+    const groups = await requireServices().groupInfo.listAllGroups(page.limit, page.offset);
+    return groups.map(groupDetailToWire);
+  }),
 
   /** List group announcements. */
-  listGroupBulletins: procedure
-    .input(groupPageInput)
-    .query(async ({ input }) => {
-      return listGroupBulletinsWithWebFallback(requireServices(), input);
-    }),
+  listGroupBulletins: procedure.input(groupPageInput).query(async ({ input }) => {
+    return listGroupBulletinsWithWebFallback(requireServices(), input);
+  }),
 
   /** List group essence messages. */
-  listGroupEssenceMessages: procedure
-    .input(groupPageInput)
-    .query(async ({ input }) => {
-      const essence = await requireServices().groupInfo.getEssenceMessages(
-        BigInt(input.groupCode),
-        input.limit,
-        input.offset,
-      );
-      return essence.map(groupEssenceToWire);
-    }),
+  listGroupEssenceMessages: procedure.input(groupPageInput).query(async ({ input }) => {
+    const essence = await requireServices().groupInfo.getEssenceMessages(
+      BigInt(input.groupCode),
+      input.limit,
+      input.offset,
+    );
+    return essence.map(groupEssenceToWire);
+  }),
 
   /** Get group member level definitions. */
   getGroupMemberLevelInfo: procedure
@@ -1842,7 +1888,13 @@ export const accountRouter = router({
    * the original type columns are remembered per account for restore.
    */
   deleteMessage: procedure
-    .input(z.object({ msgId: z.string().min(1), kind: z.enum(['c2c', 'group']), conv: z.string().min(1) }))
+    .input(
+      z.object({
+        msgId: z.string().min(1),
+        kind: z.enum(['c2c', 'group']),
+        conv: z.string().min(1),
+      }),
+    )
     .mutation(async ({ input }) => {
       return requireServices().msgs.deleteMessage(BigInt(input.msgId), input.kind, input.conv);
     }),
@@ -2001,11 +2053,9 @@ export const accountRouter = router({
   }),
 
   /** Bulk decrypt selected databases into the chosen folder. */
-  decryptDatabases: procedure
-    .input(decryptDbInput)
-    .mutation(async ({ input }) => {
-      return requireServices().dbDecrypt.decryptDatabases(input);
-    }),
+  decryptDatabases: procedure.input(decryptDbInput).mutation(async ({ input }) => {
+    return requireServices().dbDecrypt.decryptDatabases(input);
+  }),
 
   // ---- 外部站点跳转（QQ 空间 / QQ 频道，网页版用） ----
 
@@ -2047,22 +2097,18 @@ export const accountRouter = router({
   // ---- group album ----
 
   /** List group albums via Qzone web CGI. Requires online QQ + fresh ClientKey. */
-  listGroupAlbums: procedure
-    .input(groupAlbumInput)
-    .query(async ({ input }) => {
-      const services = requireServices();
-      requireFreshClientKeyForAlbum(services);
-      return services.webQuery.getGroupAlbumList(input.groupCode);
-    }),
+  listGroupAlbums: procedure.input(groupAlbumInput).query(async ({ input }) => {
+    const services = requireServices();
+    requireFreshClientKeyForAlbum(services);
+    return services.webQuery.getGroupAlbumList(input.groupCode);
+  }),
 
   /** List all media for one group album. Requires the saved online QQ pid. */
-  listGroupAlbumMedia: procedure
-    .input(groupAlbumMediaInput)
-    .query(async ({ input }) => {
-      const services = requireServices();
-      requireQqOnlineForAlbum(services);
-      return collectAlbumMedia(services, input.groupCode, input.albumId);
-    }),
+  listGroupAlbumMedia: procedure.input(groupAlbumMediaInput).query(async ({ input }) => {
+    const services = requireServices();
+    requireQqOnlineForAlbum(services);
+    return collectAlbumMedia(services, input.groupCode, input.albumId);
+  }),
 
   /** Folder dialog for group album export output. */
   pickGroupAlbumExportDir: procedure.mutation(async () => {
@@ -2070,36 +2116,30 @@ export const accountRouter = router({
   }),
 
   /** Enumerate selected albums first, then concurrently download all media. */
-  exportGroupAlbums: procedure
-    .input(exportGroupAlbumsInput)
-    .mutation(async ({ input }) => {
-      return exportGroupAlbums(requireServices(), input);
-    }),
+  exportGroupAlbums: procedure.input(exportGroupAlbumsInput).mutation(async ({ input }) => {
+    return exportGroupAlbums(requireServices(), input);
+  }),
 
   // ---- 群文件 ----
 
   /** 列出群文件某个目录下的文件+子文件夹 (OIDB 0x6D8_1)。需要在线的 QQ 进程。 */
-  listGroupFiles: procedure
-    .input(groupFileInput)
-    .query(async ({ input }) => {
-      const services = requireServices();
-      requireQqOnlineForAlbum(services);
-      return services.groupFile.list(Number(input.groupCode), input.folderId ?? '/');
-    }),
+  listGroupFiles: procedure.input(groupFileInput).query(async ({ input }) => {
+    const services = requireServices();
+    requireQqOnlineForAlbum(services);
+    return services.groupFile.list(Number(input.groupCode), input.folderId ?? '/');
+  }),
 
   /** 换取单个群文件的下载直链 (OIDB 0x6D6_2)。链接有时效,点一次取一次。 */
-  getGroupFileUrl: procedure
-    .input(groupFileDownloadInput)
-    .mutation(async ({ input }) => {
-      const services = requireServices();
-      requireQqOnlineForAlbum(services);
-      return services.mediaUrl.getGroupFileUrl(
-        Number(input.groupCode),
-        input.fileId,
-        input.busId ?? 102,
-        input.fileName ?? '',
-      );
-    }),
+  getGroupFileUrl: procedure.input(groupFileDownloadInput).mutation(async ({ input }) => {
+    const services = requireServices();
+    requireQqOnlineForAlbum(services);
+    return services.mediaUrl.getGroupFileUrl(
+      Number(input.groupCode),
+      input.fileId,
+      input.busId ?? 102,
+      input.fileName ?? '',
+    );
+  }),
 
   /** Folder dialog for group file export output. */
   pickGroupFileExportDir: procedure.mutation(async () => {
@@ -2107,11 +2147,9 @@ export const accountRouter = router({
   }),
 
   /** 并发下载选中的群文件;不传 files 则递归导出全群并保留目录结构。 */
-  exportGroupFiles: procedure
-    .input(exportGroupFilesInput)
-    .mutation(async ({ input }) => {
-      return exportGroupFiles(requireServices(), input);
-    }),
+  exportGroupFiles: procedure.input(exportGroupFilesInput).mutation(async ({ input }) => {
+    return exportGroupFiles(requireServices(), input);
+  }),
 
   // ---- 收藏 (QQ favorites / collection.db) ----
 
@@ -2166,7 +2204,9 @@ export const accountRouter = router({
   listConversationsWithCount: procedure.query(async () => {
     const services = requireServices();
     // 空 targetUid 的系统/占位会话既不能当消息分区键，也不是可导出目标 —— 直接剔除。
-    const contacts = (await services.recentContacts.getRecentContact(200)).filter(c => c.targetUid);
+    const contacts = (await services.recentContacts.getRecentContact(200)).filter(
+      (c) => c.targetUid,
+    );
 
     // 分类是收集查询集和计数分流的唯一依据，两处必须共用，否则会出现
     // 「归到 c2c 计数、却没被 countByUids 查过」的会话恒显示 0 条 —— 公众号
@@ -2180,53 +2220,61 @@ export const accountRouter = router({
       return 'c2c';
     };
 
-    const groupCodes = contacts.filter(c => kindOf(c.chatType) === 'group').map(c => c.targetUid);
-    const c2cUids = contacts.filter(c => kindOf(c.chatType) === 'c2c').map(c => c.targetUid);
-    const datalineUids = contacts.filter(c => kindOf(c.chatType) === 'dataline').map(c => c.targetUid);
+    const groupCodes = contacts
+      .filter((c) => kindOf(c.chatType) === 'group')
+      .map((c) => c.targetUid);
+    const c2cUids = contacts.filter((c) => kindOf(c.chatType) === 'c2c').map((c) => c.targetUid);
+    const datalineUids = contacts
+      .filter((c) => kindOf(c.chatType) === 'dataline')
+      .map((c) => c.targetUid);
 
     const account = getAppContext().account;
     const [groupCounts, c2cCounts, datalineCounts] = await Promise.all([
       account?.groupMsgs.countByGroups(groupCodes) ?? Promise.resolve({} as Record<string, number>),
       account?.c2cMsgs.countByUids(c2cUids) ?? Promise.resolve({} as Record<string, number>),
-      account?.datalineMsgs.countByUids(datalineUids) ?? Promise.resolve({} as Record<string, number>),
+      account?.datalineMsgs.countByUids(datalineUids) ??
+        Promise.resolve({} as Record<string, number>),
     ]);
 
-    return contacts.map(c => {
+    return contacts.map((c) => {
       const kind = kindOf(c.chatType);
-      const messageCount = kind === 'group'
-        ? (groupCounts[c.targetUid] ?? 0)
-        : kind === 'dataline'
-          ? (datalineCounts[c.targetUid] ?? 0)
-          : (c2cCounts[c.targetUid] ?? 0);
+      const messageCount =
+        kind === 'group'
+          ? (groupCounts[c.targetUid] ?? 0)
+          : kind === 'dataline'
+            ? (datalineCounts[c.targetUid] ?? 0)
+            : (c2cCounts[c.targetUid] ?? 0);
       return { ...recentContactToWire(c), messageCount };
     });
   }),
 
   /** Start an export task. */
   startExport: procedure
-    .input(z.object({
-      kind: z.enum(['group', 'c2c']),
-      conv: z.string().min(1),
-      name: z.string().min(1),
-      format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']),
-      total: z.number().int().min(0),
-      /** Also export every sender's avatar into an avatars/ subfolder. */
-      exportAvatar: z.boolean().optional(),
-      /** ChatLab interchange format (json/jsonl carry ChatLab structure). */
-      chatlab: z.boolean().optional(),
-      /** Media export: copy local media into media/ and CDN-complete images. */
-      media: z
-        .object({
-          exportMedia: z.boolean(),
-          completeMedia: z.boolean(),
-          downloadVideo: z.boolean(),
-          downloadFile: z.boolean(),
-          transcribeVoice: z.boolean(),
-        })
-        .optional(),
-      /** Inclusive send-time window (unix seconds); null bound = open-ended. */
-      range: z.object({ start: z.number().nullable(), end: z.number().nullable() }).optional(),
-    }))
+    .input(
+      z.object({
+        kind: z.enum(['group', 'c2c']),
+        conv: z.string().min(1),
+        name: z.string().min(1),
+        format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']),
+        total: z.number().int().min(0),
+        /** Also export every sender's avatar into an avatars/ subfolder. */
+        exportAvatar: z.boolean().optional(),
+        /** ChatLab interchange format (json/jsonl carry ChatLab structure). */
+        chatlab: z.boolean().optional(),
+        /** Media export: copy local media into media/ and CDN-complete images. */
+        media: z
+          .object({
+            exportMedia: z.boolean(),
+            completeMedia: z.boolean(),
+            downloadVideo: z.boolean(),
+            downloadFile: z.boolean(),
+            transcribeVoice: z.boolean(),
+          })
+          .optional(),
+        /** Inclusive send-time window (unix seconds); null bound = open-ended. */
+        range: z.object({ start: z.number().nullable(), end: z.number().nullable() }).optional(),
+      }),
+    )
     .mutation(async ({ input }) => {
       return requireServices().exportManager.startTask(input);
     }),
@@ -2236,13 +2284,15 @@ export const accountRouter = router({
    * this account's skey/pskey). `conv` carries the friend's uin. Media = 配图.
    */
   startQzoneExport: procedure
-    .input(z.object({
-      targetUin: z.string().min(1),
-      name: z.string().min(1),
-      format: z.enum(['json', 'txt']),
-      downloadMedia: z.boolean(),
-      range: z.object({ start: z.number().nullable(), end: z.number().nullable() }).optional(),
-    }))
+    .input(
+      z.object({
+        targetUin: z.string().min(1),
+        name: z.string().min(1),
+        format: z.enum(['json', 'txt']),
+        downloadMedia: z.boolean(),
+        range: z.object({ start: z.number().nullable(), end: z.number().nullable() }).optional(),
+      }),
+    )
     .mutation(async ({ input }) => {
       const services = requireServices();
       requireQqOnlineForAlbum(services); // 硬性要求：在线 QQ 实例
@@ -2270,14 +2320,16 @@ export const accountRouter = router({
    * 好友支持 vcard；群成员不支持 vcard。
    */
   startContactsExport: procedure
-    .input(z.object({
-      scope: z.enum(['friends', 'group']),
-      groupCode: z.string().optional(),
-      name: z.string().min(1),
-      format: z.enum(['json', 'csv', 'xlsx', 'txt', 'vcard']),
-      exportAvatar: z.boolean().optional(),
-      categoryIds: z.array(z.number().int()).optional(),
-    }))
+    .input(
+      z.object({
+        scope: z.enum(['friends', 'group']),
+        groupCode: z.string().optional(),
+        name: z.string().min(1),
+        format: z.enum(['json', 'csv', 'xlsx', 'txt', 'vcard']),
+        exportAvatar: z.boolean().optional(),
+        categoryIds: z.array(z.number().int()).optional(),
+      }),
+    )
     .mutation(async ({ input }) => {
       if (input.scope === 'group' && !input.groupCode) {
         throw new Error('导出群成员需要指定群号。');
@@ -2303,11 +2355,13 @@ export const accountRouter = router({
    * (`kinds`) 过滤，导出为 json/csv/xlsx/txt 表格。
    */
   startCollectionExport: procedure
-    .input(z.object({
-      name: z.string().min(1),
-      format: z.enum(['json', 'csv', 'xlsx', 'txt']),
-      kinds: z.array(z.string()).optional(),
-    }))
+    .input(
+      z.object({
+        name: z.string().min(1),
+        format: z.enum(['json', 'csv', 'xlsx', 'txt']),
+        kinds: z.array(z.string()).optional(),
+      }),
+    )
     .mutation(async ({ input }) => {
       return requireServices().exportManager.startTask({
         collection: { ...(input.kinds?.length ? { kinds: input.kinds } : {}) },
@@ -2375,36 +2429,42 @@ export const accountRouter = router({
   }),
 
   createSchedule: procedure
-    .input(z.object({
-      name: z.string().min(1),
-      format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']),
-      conversations: z.array(z.object({
-        id: z.string().min(1),
+    .input(
+      z.object({
         name: z.string().min(1),
-        kind: z.enum(['group', 'c2c']),
-        total: z.number().int().min(0),
-      })).min(1),
-      chatlab: z.boolean().optional(),
-      schedule: z.object({
-        mode: z.enum(['daily', 'interval']),
-        time: z.string(),
-        intervalHours: z.number().int().min(1).max(168),
-      }),
-      options: z.object({
-        range: z.object({
-          preset: z.enum(['all', 'today', '7d', '30d', '1y', 'custom']),
-          start: z.number().nullable(),
-          end: z.number().nullable(),
+        format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']),
+        conversations: z
+          .array(
+            z.object({
+              id: z.string().min(1),
+              name: z.string().min(1),
+              kind: z.enum(['group', 'c2c']),
+              total: z.number().int().min(0),
+            }),
+          )
+          .min(1),
+        chatlab: z.boolean().optional(),
+        schedule: z.object({
+          mode: z.enum(['daily', 'interval']),
+          time: z.string(),
+          intervalHours: z.number().int().min(1).max(168),
         }),
-        exportMedia: z.boolean(),
-        exportAvatar: z.boolean(),
-        completeMedia: z.boolean(),
-        downloadVideo: z.boolean(),
-        downloadFile: z.boolean(),
-        transcribeVoice: z.boolean(),
+        options: z.object({
+          range: z.object({
+            preset: z.enum(['all', 'today', '7d', '30d', '1y', 'custom']),
+            start: z.number().nullable(),
+            end: z.number().nullable(),
+          }),
+          exportMedia: z.boolean(),
+          exportAvatar: z.boolean(),
+          completeMedia: z.boolean(),
+          downloadVideo: z.boolean(),
+          downloadFile: z.boolean(),
+          transcribeVoice: z.boolean(),
+        }),
+        enabled: z.boolean().default(true),
       }),
-      enabled: z.boolean().default(true),
-    }))
+    )
     .mutation(({ input }) => {
       // Map renderer-facing `name` (template label) to the manager's ScheduleInput.
       // (ScheduleInput reuses `name` as the export filename stem; the renderer
@@ -2422,39 +2482,50 @@ export const accountRouter = router({
     }),
 
   updateSchedule: procedure
-    .input(z.object({
-      id: z.string().min(1),
-      patch: z.object({
-        name: z.string().min(1).optional(),
-        format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']).optional(),
-        conversations: z.array(z.object({
-          id: z.string().min(1),
-          name: z.string().min(1),
-          kind: z.enum(['group', 'c2c']),
-          total: z.number().int().min(0),
-        })).min(1).optional(),
-        chatlab: z.boolean().optional(),
-        schedule: z.object({
-          mode: z.enum(['daily', 'interval']),
-          time: z.string(),
-          intervalHours: z.number().int().min(1).max(168),
-        }).optional(),
-        options: z.object({
-          range: z.object({
-            preset: z.enum(['all', 'today', '7d', '30d', '1y', 'custom']),
-            start: z.number().nullable(),
-            end: z.number().nullable(),
-          }),
-          exportMedia: z.boolean(),
-          exportAvatar: z.boolean(),
-          completeMedia: z.boolean(),
-          downloadVideo: z.boolean(),
-          downloadFile: z.boolean(),
-          transcribeVoice: z.boolean(),
-        }).optional(),
-        enabled: z.boolean().optional(),
+    .input(
+      z.object({
+        id: z.string().min(1),
+        patch: z.object({
+          name: z.string().min(1).optional(),
+          format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']).optional(),
+          conversations: z
+            .array(
+              z.object({
+                id: z.string().min(1),
+                name: z.string().min(1),
+                kind: z.enum(['group', 'c2c']),
+                total: z.number().int().min(0),
+              }),
+            )
+            .min(1)
+            .optional(),
+          chatlab: z.boolean().optional(),
+          schedule: z
+            .object({
+              mode: z.enum(['daily', 'interval']),
+              time: z.string(),
+              intervalHours: z.number().int().min(1).max(168),
+            })
+            .optional(),
+          options: z
+            .object({
+              range: z.object({
+                preset: z.enum(['all', 'today', '7d', '30d', '1y', 'custom']),
+                start: z.number().nullable(),
+                end: z.number().nullable(),
+              }),
+              exportMedia: z.boolean(),
+              exportAvatar: z.boolean(),
+              completeMedia: z.boolean(),
+              downloadVideo: z.boolean(),
+              downloadFile: z.boolean(),
+              transcribeVoice: z.boolean(),
+            })
+            .optional(),
+          enabled: z.boolean().optional(),
+        }),
       }),
-    }))
+    )
     .mutation(({ input }) => {
       return requireScheduler().update(input.id, input.patch);
     }),
@@ -2465,11 +2536,9 @@ export const accountRouter = router({
       return requireScheduler().setEnabled(input.id, input.enabled);
     }),
 
-  deleteSchedule: procedure
-    .input(z.object({ id: z.string().min(1) }))
-    .mutation(({ input }) => {
-      return requireScheduler().delete(input.id);
-    }),
+  deleteSchedule: procedure.input(z.object({ id: z.string().min(1) })).mutation(({ input }) => {
+    return requireScheduler().delete(input.id);
+  }),
 
   /** Fire a schedule immediately, without disturbing its `nextRunAt`. Returns
    *  the task ids generated so the UI can immediately `refetchTasks()`. */
@@ -2481,11 +2550,13 @@ export const accountRouter = router({
 
   /** Save exported file to user-selected location. */
   saveExportFile: procedure
-    .input(z.object({
-      sourcePath: z.string().min(1),
-      defaultName: z.string().min(1),
-      format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']),
-    }))
+    .input(
+      z.object({
+        sourcePath: z.string().min(1),
+        defaultName: z.string().min(1),
+        format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']),
+      }),
+    )
     .mutation(async ({ input }) => {
       const { copyFileSync } = await import('node:fs');
       const target = await getHost().pickSaveTarget({
@@ -2578,12 +2649,14 @@ export const accountRouter = router({
    * fills in, so the result survives a reload and QQ itself shows it.
    */
   transcribeVoice: procedure
-    .input(z.object({
-      t: z.number(),
-      name: z.string(),
-      token: z.string().default(''),
-      msgId: z.string().default(''),
-    }))
+    .input(
+      z.object({
+        t: z.number(),
+        name: z.string(),
+        token: z.string().default(''),
+        msgId: z.string().default(''),
+      }),
+    )
     .mutation(async ({ input }): Promise<{ success: boolean; text?: string; error?: string }> => {
       const ctx = getAppContext();
       const boot = ctx.bootstrap;

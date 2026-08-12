@@ -25,8 +25,7 @@ import { testEnv } from '@weq/testkit';
 const UIN = testEnv.uin;
 const KEY = testEnv.key;
 // pnpm forwards a literal `--` separator into argv; drop it before reading.
-const KEYWORD =
-  process.argv.slice(2).find((a) => a !== '--') ?? testEnv.keyword;
+const KEYWORD = process.argv.slice(2).find((a) => a !== '--') ?? testEnv.keyword;
 const LIMIT = 20;
 const RUNS = 3;
 
@@ -35,7 +34,14 @@ async function aggregateSearch(
   search: MsgSearchService,
   keyword: string,
   limit: number,
-): Promise<{ merged: BuddyMsgFtsHit[]; buddyMs: number; groupMs: number; buddyN: number; groupN: number; totalMs: number }> {
+): Promise<{
+  merged: BuddyMsgFtsHit[];
+  buddyMs: number;
+  groupMs: number;
+  buddyN: number;
+  groupN: number;
+  totalMs: number;
+}> {
   const t0 = performance.now();
   let buddyMs = 0;
   let groupMs = 0;
@@ -56,7 +62,14 @@ async function aggregateSearch(
   const merged = [...buddy, ...group]
     .sort((a, b) => Number(b.sendTime - a.sendTime))
     .slice(0, limit);
-  return { merged, buddyMs, groupMs, buddyN: buddy.length, groupN: group.length, totalMs: performance.now() - t0 };
+  return {
+    merged,
+    buddyMs,
+    groupMs,
+    buddyN: buddy.length,
+    groupN: group.length,
+    totalMs: performance.now() - t0,
+  };
 }
 
 async function main(): Promise<void> {
@@ -64,7 +77,7 @@ async function main(): Promise<void> {
   const session = await openAccount(platform, {
     uin: UIN,
     dbKey: KEY,
-    algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' },
+    algos: { 'nt_msg.db': { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' } },
   });
   const search = new MsgSearchService(session);
 

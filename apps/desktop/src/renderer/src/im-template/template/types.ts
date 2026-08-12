@@ -169,6 +169,8 @@ export type GroupConversation = ConversationBase & {
 		entranceQ?: string | null;
 		customLabels?: string[];
 		addressName?: string | null;
+		/** 幸运字符（来自 group_ext_list.66721/66722）。null = 未设置。 */
+		luckyChar?: { id: number; litCount: number } | null;
 		bulletins?: Array<{
 			id: string;
 			text: string;

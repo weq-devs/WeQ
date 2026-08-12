@@ -5,7 +5,7 @@
  * Account services (in `@weq/service`) take a session in their constructor.
  */
 
-export { openAccount } from './session';
+export { openAccount, algoFor } from './session';
 export type { AccountContext, AccountSession, LastRowIdMaps } from './session';
 export type { CorruptionSuspectInfo } from '@weq/db';
 export { openStaticAccount, peekStaticSelfUin, deriveAndroidDbKey } from './static_session';

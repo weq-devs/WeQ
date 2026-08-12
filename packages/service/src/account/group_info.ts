@@ -10,6 +10,7 @@ import type {
   GroupBulletin,
   GroupMember,
   GroupNotify,
+  GroupExt,
 } from '@weq/db';
 import { GroupNotifyService } from './group_notify';
 import { segmentWords } from './text_segment';
@@ -297,10 +298,24 @@ export class GroupInfoService {
   }
 
   /**
+   * Get extended metadata (活跃度/幸运字符/群主uin等) for a single group.
+   */
+  async getGroupExt(groupCode: bigint): Promise<GroupExt | null> {
+    return this.session.groupExt.getExt(groupCode);
+  }
+
+  /**
    * List all groups with detailed metadata.
    */
   async listAllGroups(limit = 100, offset = 0): Promise<GroupDetail[]> {
     return this.session.groupDetail.listAll(limit, offset);
+  }
+
+  /**
+   * List ext metadata for all groups (活跃度排行等场景).
+   */
+  async listAllGroupsExt(limit = 500, offset = 0): Promise<GroupExt[]> {
+    return this.session.groupExt.listAll(limit, offset);
   }
 
   /**
