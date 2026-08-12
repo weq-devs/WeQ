@@ -258,7 +258,8 @@ function assertExists(path: string, label: string): void {
 
 function configureNtHelperLogging(ntHelper: NtHelperBinding): void {
   const logRoot = resolveNativeLogRoot();
-  const logPath = join(logRoot, 'nt_helper.log');
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const logPath = join(logRoot, `nt_helper_${today}.log`);
   ntHelper.setLogPath(logPath);
 }
 

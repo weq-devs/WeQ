@@ -1,14 +1,18 @@
 ## Gpro数据库密钥计算 && 解密分析
 
+> [!tip]
+>
+> 这不是教程性文章，更多的是记录逆向（<del>踩坑</del>）经过
+
 ### Gpro 数据库基础信息分析
 
 安卓的数据库目录里面，有一类特殊的数据库，**不能按照标准的消息数据库来解密**，那实际上是**QQ频道Guild模块**的存储数据库
 命名形式为：`gpro_v1-6_{uid}.db`  例如：`gpro_v1-6_u_LKt3AdAIMP-CUfn6ydzDzw.db`
 
 我们通过它里面的`uid`，可以**直接知道本目录的所属账号**，对于android数据库，我们就可以直接计算出数据库密钥：
-```plaintext
-db_key = md5(md5(uid)+key_meta)   // key_meta存储在数据库的开头
-```
+$$
+db\_key = md5(md5(uid)+key\_meta)
+$$
 
 对比Gpro数据库和标准数据库（android）的开头：
 <del>我很喜欢010editor的但是过期了，下面的截图是替代品</del>
@@ -93,7 +97,7 @@ db_key = md5(md5(uid)+key_meta)   // key_meta存储在数据库的开头
 
 - **密钥计算公式**
   $$
-  db\_key= md5(md5(key\_meta)+md5(md5(account)+md5(sha1(account)))
+  db\_key= md5(md5(key\_meta)+md5(md5(account)+md5(sha1(account))))
   $$
   虽然比消息数据库复杂很多，但仍然本地离线可解
 

@@ -1,78 +1,45 @@
 /**
- * 验证单个数据库文件与密钥是否匹配。
+ * 验证数据库路径 + 密钥是否匹配，并打印探测到的加密算法。
  *
  * 用法：
- *   pnpm --filter @weq/db tools:verify-db-key <dbPath> <key> [algo]
+ *   pnpm --filter @weq/db tools:verify-db-key <数据库路径> <密钥>
  *
- * algo 可选值：
- *   standard  (默认) SHA1/SHA512  — nt_msg.db / profile_info.db 等
- *   gpro                          — gpro_v1-6_*.db (kdf_iter=4000, hmac=OFF)
+ * 例：
+ *   pnpm --filter @weq/db tools:verify-db-key D:\QQ\nt_qq\nt_db\nt_msg.db abc123
  *
- * 示例：
- *   pnpm --filter @weq/db tools:verify-db-key \
- *     ".../nt_msg.db" "64d98694043be84bd08855142cb77d46"
- *
- *   pnpm --filter @weq/db tools:verify-db-key \
- *     ".../gpro_v1-6_u_xxx.db" "2a4e04f77fd4ab2f4a42717e3e69e3d3" gpro
+ * 底层调用 nt_helper 的 testDatabaseKey，会自动探测页 HMAC / KDF 算法，
+ * 无需预先知道 algo，也不限制密钥长度或格式。
  */
 
 import { loadNative } from '@weq/native';
-import type { DatabaseAlgorithms } from '@weq/native';
 
-async function main() {
-  const [, , dbPath, key, algoArg] = process.argv;
-  if (!dbPath || !key) {
-    console.error('用法: tsx verify_db_key.ts <dbPath> <key> [standard|gpro]');
-    process.exit(1);
-  }
+const [, , dbPath, key] = process.argv;
 
-  const native = loadNative();
-  const nt = native.ntHelper;
+if (!dbPath || !key) {
+  console.error('用法: verify_db_key <数据库路径> <密钥>');
+  process.exit(1);
+}
 
-  if (algoArg === 'gpro') {
-    // gpro uses kdf_iter=4000, cipher_use_hmac=OFF — testDatabaseKey probes
-    // standard HMAC params and will always fail for gpro even with correct key.
-    // Use executeSqlWithKey with gpro's actual algo params instead.
-    const algo: DatabaseAlgorithms = { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA1' };
-    try {
-      // First try with a dummy algo just to open — gpro has hmac=OFF so neither
-      // SHA1/SHA512 combo is "right", but the native layer may still open it.
-      // Fallback: run PRAGMA to confirm the db is readable.
-      await nt.executeSqlWithKey(dbPath, 'PRAGMA kdf_iter = 4000', key, algo);
-      const rows = await nt.executeSqlWithKey(dbPath, 'SELECT count(*) FROM sqlite_master', key, algo);
-      console.log(`OK    gpro  tables=${rows[0]?.[0] ?? '?'}`);
-      console.log(`      ${dbPath}`);
-    } catch (e) {
-      // Try the other combo
-      const algo2: DatabaseAlgorithms = { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' };
-      try {
-        await nt.executeSqlWithKey(dbPath, 'PRAGMA kdf_iter = 4000', key, algo2);
-        const rows = await nt.executeSqlWithKey(dbPath, 'SELECT count(*) FROM sqlite_master', key, algo2);
-        console.log(`OK    gpro(SHA512)  tables=${rows[0]?.[0] ?? '?'}`);
-        console.log(`      ${dbPath}`);
-      } catch (e2) {
-        console.log(`FAIL  密钥不匹配 (gpro)`);
-        console.log(`      ${dbPath}`);
-        console.log(`      err: ${e2 instanceof Error ? e2.message : e2}`);
-        process.exit(1);
-      }
-    }
-    return;
-  }
+async function main(): Promise<void> {
+  const nt = loadNative().ntHelper;
 
-  // Standard path: use testDatabaseKey probe
+  console.log(`数据库: ${dbPath}`);
+  console.log(`密钥:   ${key}`);
+  console.log('探测中…\n');
+
   const result = await nt.testDatabaseKey(dbPath, key);
+
   if (result.success) {
-    console.log(`OK    pageHmac=${result.pageHmacAlgorithm ?? '?'}  kdfHmac=${result.kdfHmacAlgorithm ?? '?'}`);
-    console.log(`      ${dbPath}`);
+    console.log('结果: 密钥正确 ✓');
+    console.log(`  pageHmacAlgorithm = ${result.pageHmacAlgorithm}`);
+    console.log(`  kdfHmacAlgorithm  = ${result.kdfHmacAlgorithm}`);
   } else {
-    console.log(`FAIL  密钥不匹配`);
-    console.log(`      ${dbPath}`);
-    process.exit(1);
+    console.log('结果: 密钥错误或数据库不可读 ✗');
+    process.exitCode = 1;
   }
 }
 
 main().catch((e) => {
-  console.error(e instanceof Error ? e.message : e);
+  console.error('[verify-db-key] 失败:', e);
   process.exit(1);
 });
