@@ -5,7 +5,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { AccountSession } from '@weq/account';
+import { type AccountSession, algoFor } from '@weq/account';
 import type { Platform } from '@weq/platform';
 import { BaseSysEmojiDb, MarketEmoticonPackageDb } from '@weq/db';
 import type { MarketEmoticonPackage } from '@weq/db';
@@ -101,7 +101,7 @@ export class EmojiService {
       const db = new BaseSysEmojiDb(this.platform.native.ntHelper, {
         dbPath,
         key: this.session.context.dbKey,
-        algo: this.session.context.algo,
+        algo: algoFor(this.session.context, dbPath),
       });
       const rows = await db.listAll();
       this.sysFaces = rows
@@ -132,7 +132,7 @@ export class EmojiService {
       const db = new MarketEmoticonPackageDb(this.platform.native.ntHelper, {
         dbPath,
         key: this.session.context.dbKey,
-        algo: this.session.context.algo,
+        algo: algoFor(this.session.context, dbPath),
       });
       this.marketPackages = await db.listAll();
       return this.marketPackages;

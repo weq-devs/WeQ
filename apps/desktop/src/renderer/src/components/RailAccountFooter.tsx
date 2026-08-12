@@ -17,7 +17,18 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from 'rea
 import { createPortal } from 'react-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { getQueryKey } from '@trpc/react-query';
-import { LockKeyhole, LogOut, Moon, Sun, Trash2, Eye, EyeOff, Camera, Database, Smartphone } from 'lucide-react';
+import {
+  LockKeyhole,
+  LogOut,
+  Moon,
+  Sun,
+  Trash2,
+  Eye,
+  EyeOff,
+  Camera,
+  Database,
+  Smartphone,
+} from 'lucide-react';
 import { trpc, client } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useAppLock } from '../state/lock';
@@ -227,7 +238,7 @@ export function RailAccountFooter({
     uin: string;
     uid?: string;
     dbKey: string;
-    algo?: { pageHmacAlgorithm: string; kdfHmacAlgorithm: string } | null;
+    algos?: Record<string, { pageHmacAlgorithm: string; kdfHmacAlgorithm: string }> | null;
     displayName?: string;
     avatarUrl?: string | null;
     dataDir?: string;
@@ -264,14 +275,14 @@ export function RailAccountFooter({
             avatarUrl: cfg.avatarUrl ?? '',
           },
           ...(cfg.dbKey ? { dbKey: cfg.dbKey } : {}),
-          ...(cfg.algo?.pageHmacAlgorithm ? { algo: cfg.algo } : {}),
+          ...(cfg.algos?.['nt_msg.db'] ? { algo: cfg.algos['nt_msg.db'] } : {}),
           ...(cfg.mobile ? { mobile: true } : {}),
         });
       } else {
         await client.bootstrap.openAccount.mutate({
           uin: cfg.uin,
           dbKey: cfg.dbKey,
-          ...(cfg.algo ? { algo: cfg.algo } : {}),
+          ...(cfg.algos?.['nt_msg.db'] ? { algo: cfg.algos['nt_msg.db'] } : {}),
           ...(cfg.displayName ? { displayName: cfg.displayName } : {}),
           ...(cfg.avatarUrl ? { avatarUrl: cfg.avatarUrl } : {}),
           ...(cfg.dataDir ? { dataDir: cfg.dataDir } : {}),
@@ -348,7 +359,7 @@ export function RailAccountFooter({
         <button
           type="button"
           className="weq-rail-lock-btn"
-          title={authAvailable === false ? authError ?? '系统认证不可用' : '锁定 WeQ'}
+          title={authAvailable === false ? (authError ?? '系统认证不可用') : '锁定 WeQ'}
           aria-label="锁定 WeQ"
           onClick={lockNow}
           disabled={busy || authAvailable === false}
@@ -357,98 +368,100 @@ export function RailAccountFooter({
         </button>
       </DesktopOnly>
       <div ref={wrapRef} className="weq-rail-account-footer">
-      <button
-        type="button"
-        className="weq-rail-account-avatar"
-        title={`${currentName}（点击切换账号）`}
-        aria-label="切换账号"
-        onClick={() => setOpen((v) => !v)}
-        disabled={busy}
-      >
-        <QqAvatar uin={currentUin} url={currentAvatarUrl ?? null} size={44} />
-      </button>
-      {open ? (
-        <section className="weq-rail-account-popover" role="menu">
-          <div className="weq-rail-account-popover-head">
-            <span className="weq-rail-account-popover-title">切换账号</span>
-          </div>
-          {configs.isLoading ? (
-            <div className="weq-rail-account-empty">加载中…</div>
-          ) : others.length === 0 ? (
-            <div className="weq-rail-account-empty">暂无其它账号</div>
-          ) : (
-            <ul className="weq-rail-account-list">
-              {others.map((cfg) => (
-                <li key={cfg.configId}>
-                  <button
-                    type="button"
-                    className="weq-rail-account-item"
-                    onClick={() => void switchTo(cfg)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      setCtxMenu({
-                        configId: cfg.configId,
-                        displayName: cfg.displayName || cfg.uin,
-                        x: e.clientX,
-                        y: e.clientY,
-                      });
-                    }}
-                    disabled={busy}
-                  >
-                    <span className="weq-acct-row-avatar-wrap">
-                      <QqAvatar uin={cfg.uin} url={cfg.avatarUrl} size={40} />
-                      {cfg.static && (
-                        <span
-                          className="weq-static-badge"
-                          title={cfg.mobile ? 'Android 手机备份账号' : '静态离线账号'}
-                          aria-label={cfg.mobile ? 'Android 手机备份账号' : '静态离线账号'}
-                        >
-                          {cfg.mobile
-                            ? <Smartphone size={9} strokeWidth={2.2} aria-hidden />
-                            : <Database size={9} strokeWidth={2.2} aria-hidden />}
-                        </span>
-                      )}
-                    </span>
-                    <span className="weq-rail-account-item-text">
-                      <span className="weq-rail-account-item-name">
-                        {cfg.displayName || cfg.uin}
+        <button
+          type="button"
+          className="weq-rail-account-avatar"
+          title={`${currentName}（点击切换账号）`}
+          aria-label="切换账号"
+          onClick={() => setOpen((v) => !v)}
+          disabled={busy}
+        >
+          <QqAvatar uin={currentUin} url={currentAvatarUrl ?? null} size={44} />
+        </button>
+        {open ? (
+          <section className="weq-rail-account-popover" role="menu">
+            <div className="weq-rail-account-popover-head">
+              <span className="weq-rail-account-popover-title">切换账号</span>
+            </div>
+            {configs.isLoading ? (
+              <div className="weq-rail-account-empty">加载中…</div>
+            ) : others.length === 0 ? (
+              <div className="weq-rail-account-empty">暂无其它账号</div>
+            ) : (
+              <ul className="weq-rail-account-list">
+                {others.map((cfg) => (
+                  <li key={cfg.configId}>
+                    <button
+                      type="button"
+                      className="weq-rail-account-item"
+                      onClick={() => void switchTo(cfg)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setCtxMenu({
+                          configId: cfg.configId,
+                          displayName: cfg.displayName || cfg.uin,
+                          x: e.clientX,
+                          y: e.clientY,
+                        });
+                      }}
+                      disabled={busy}
+                    >
+                      <span className="weq-acct-row-avatar-wrap">
+                        <QqAvatar uin={cfg.uin} url={cfg.avatarUrl} size={40} />
+                        {cfg.static && (
+                          <span
+                            className="weq-static-badge"
+                            title={cfg.mobile ? 'Android 手机备份账号' : '静态离线账号'}
+                            aria-label={cfg.mobile ? 'Android 手机备份账号' : '静态离线账号'}
+                          >
+                            {cfg.mobile ? (
+                              <Smartphone size={9} strokeWidth={2.2} aria-hidden />
+                            ) : (
+                              <Database size={9} strokeWidth={2.2} aria-hidden />
+                            )}
+                          </span>
+                        )}
                       </span>
-                      <span className="weq-rail-account-item-uin">{cfg.uin}</span>
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <button
-            type="button"
-            className="weq-rail-account-signout"
-            onClick={() => void signOut()}
-            disabled={busy}
-          >
-            <span>退出登录</span>
-            <LogOut size={18} strokeWidth={1.8} aria-hidden />
-          </button>
-        </section>
-      ) : null}
-      {ctxMenu &&
-        createPortal(
-          <div
-            className="weq-rail-account-ctx-menu"
-            style={{ left: ctxMenu.x, top: ctxMenu.y }}
-            onMouseDown={(e) => e.stopPropagation()}
-          >
+                      <span className="weq-rail-account-item-text">
+                        <span className="weq-rail-account-item-name">
+                          {cfg.displayName || cfg.uin}
+                        </span>
+                        <span className="weq-rail-account-item-uin">{cfg.uin}</span>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
             <button
               type="button"
-              onClick={() => void deleteAccount(ctxMenu.configId)}
+              className="weq-rail-account-signout"
+              onClick={() => void signOut()}
               disabled={busy}
             >
-              <Trash2 size={15} />
-              <span>删除账号</span>
+              <span>退出登录</span>
+              <LogOut size={18} strokeWidth={1.8} aria-hidden />
             </button>
-          </div>,
-          document.body,
-        )}
+          </section>
+        ) : null}
+        {ctxMenu &&
+          createPortal(
+            <div
+              className="weq-rail-account-ctx-menu"
+              style={{ left: ctxMenu.x, top: ctxMenu.y }}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={() => void deleteAccount(ctxMenu.configId)}
+                disabled={busy}
+              >
+                <Trash2 size={15} />
+                <span>删除账号</span>
+              </button>
+            </div>,
+            document.body,
+          )}
       </div>
     </>
   );

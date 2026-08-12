@@ -83,7 +83,9 @@ async function main(): Promise<void> {
   const infoRows = await db.query(`PRAGMA table_info("group_ext_list")`);
   const cols = infoRows.map(r => String(r[1]));
   console.log(`=== group_ext_list columns (${cols.length}) ===`);
-  infoRows.forEach(r => console.log(`  cid=${r[0]}  name="${r[1]}"  type=${r[2]}`));
+  infoRows.forEach((r) => {
+    console.log(`  cid=${r[0]}  name="${r[1]}"  type=${r[2]}`);
+  });
 
   // ── 2. row count ──────────────────────────────────────────────────────────
   const countRow = await db.query(`SELECT COUNT(*) FROM "group_ext_list"`);
@@ -111,7 +113,9 @@ async function main(): Promise<void> {
         console.log('    hex:', Buffer.from(val).toString('hex').slice(0, 128));
         console.log('    proto-scan:');
         const decoded = tryDecodeProto(val);
-        decoded.split('\n').forEach(l => console.log('    ' + l));
+        for (const l of decoded.split('\n')) {
+          console.log(`    ${l}`);
+        }
       }
     }
   }

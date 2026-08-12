@@ -8,7 +8,8 @@
  * shared mutable state between sessions.
  */
 
-import { dirname, join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import {
   C2cMsgDb,
   GroupMsgDb,
@@ -47,8 +48,22 @@ export interface AccountContext {
   uin: string;
   /** SQLCipher key for this account's databases (hex passphrase). */
   dbKey: string;
-  /** Cryptographic algorithms used for this account's databases. */
-  algo: DatabaseAlgorithms;
+  /**
+   * Per-database cryptographic algorithms, keyed by filename (e.g. `'nt_msg.db'`).
+   * Different databases in the same directory may use different cipher parameters.
+   * Use {@link algoFor} to look up the algo for a specific path.
+   */
+  algos: Record<string, DatabaseAlgorithms>;
+}
+
+/**
+ * Look up the SQLCipher algorithm for a specific database path.
+ * Falls back to the `nt_msg.db` entry when the filename has no own entry,
+ * mirroring QQ's common case where all databases share one set of params.
+ */
+export function algoFor(context: AccountContext, dbPath: string): DatabaseAlgorithms | undefined {
+  const filename = basename(dbPath);
+  return context.algos[filename] ?? context.algos['nt_msg.db'];
 }
 
 /**
@@ -175,42 +190,90 @@ export async function openAccount(
     ? wrapBindingForCorruption(platform.native.ntHelper, onCorruptionSuspected)
     : platform.native.ntHelper;
 
+  // Resolve all db paths upfront so we can probe missing algos before opening.
+  const profileInfoPath = platform.profileInfoDbPath(ctx.uin);
+  if (!profileInfoPath) throw new Error(`profile_info.db not found for uin ${ctx.uin}`);
+  const groupInfoDbPath =
+    platform.groupInfoDbPath(ctx.uin) ?? join(dirname(msgDbPath), 'group_info.db');
+  const ftsDbPath =
+    platform.buddyMsgFtsDbPath(ctx.uin) ?? join(dirname(msgDbPath), 'buddy_msg_fts.db');
+  const groupFtsDbPath =
+    platform.groupMsgFtsDbPath(ctx.uin) ?? join(dirname(msgDbPath), 'group_msg_fts.db');
+  const fileAssistantDbPath = join(dirname(msgDbPath), 'file_assistant.db');
+  const collectionDbPath = join(dirname(msgDbPath), 'collection.db');
+  const miscDbPath = platform.miscDbPath(ctx.uin) ?? join(dirname(msgDbPath), 'misc.db');
+
+  // Probe the algo for each db not yet in ctx.algos, so different databases
+  // in the same directory can carry different cipher parameters.
+  const resolvedAlgos: Record<string, import('@weq/native').DatabaseAlgorithms> = {
+    ...ctx.algos,
+  };
+  if (ctx.dbKey) {
+    await Promise.all(
+      [
+        msgDbPath,
+        profileInfoPath,
+        groupInfoDbPath,
+        ftsDbPath,
+        groupFtsDbPath,
+        fileAssistantDbPath,
+        collectionDbPath,
+        miscDbPath,
+      ].map(async (dbPath) => {
+        const filename = basename(dbPath);
+        if (resolvedAlgos[filename] || !existsSync(dbPath)) return;
+        const probe = await platform.native.ntHelper.testDatabaseKey(dbPath, ctx.dbKey);
+        if (probe.success && probe.pageHmacAlgorithm && probe.kdfHmacAlgorithm) {
+          resolvedAlgos[filename] = {
+            pageHmacAlgorithm: probe.pageHmacAlgorithm,
+            kdfHmacAlgorithm: probe.kdfHmacAlgorithm,
+          };
+        }
+      }),
+    );
+  }
+
+  function a(dbPath: string): import('@weq/native').DatabaseAlgorithms | undefined {
+    const filename = basename(dbPath);
+    return resolvedAlgos[filename] ?? resolvedAlgos['nt_msg.db'];
+  }
+
   const c2cMsgs = new C2cMsgDb(nt, {
     dbPath: msgDbPath,
     key: ctx.dbKey,
-    algo: ctx.algo,
+    algo: a(msgDbPath),
   });
 
   // 数据线（我的手机/我的电脑）消息表结构与 c2c 相同，复用 C2cMsgDb，仅换表名。
   const datalineMsgs = new C2cMsgDb(nt, {
     dbPath: msgDbPath,
     key: ctx.dbKey,
-    algo: ctx.algo,
+    algo: a(msgDbPath),
     table: 'dataline_msg_table',
   });
 
   const groupMsgs = new GroupMsgDb(nt, {
     dbPath: msgDbPath,
     key: ctx.dbKey,
-    algo: ctx.algo,
+    algo: a(msgDbPath),
   });
 
   const recentContacts = new RecentContactDb(nt, {
     dbPath: msgDbPath,
     key: ctx.dbKey,
-    algo: ctx.algo,
+    algo: a(msgDbPath),
   });
 
   const recentContactTops = new RecentContactTopDb(nt, {
     dbPath: msgDbPath,
     key: ctx.dbKey,
-    algo: ctx.algo,
+    algo: a(msgDbPath),
   });
 
   const hiddenSessions = new HiddenSessionDb(nt, {
     dbPath: msgDbPath,
     key: ctx.dbKey,
-    algo: ctx.algo,
+    algo: a(msgDbPath),
   });
 
   // Load the uid ↔ uin ↔ sortNo directory once and keep it resident; the c2c
@@ -220,7 +283,7 @@ export async function openAccount(
   const uidMappingDb = new UidMappingDb(nt, {
     dbPath: msgDbPath,
     key: ctx.dbKey,
-    algo: ctx.algo,
+    algo: a(msgDbPath),
   });
   let uidMap: UidMap;
   try {
@@ -235,110 +298,117 @@ export async function openAccount(
   const forwardMsgs = new ForwardMsgDb(nt, {
     dbPath: msgDbPath,
     key: ctx.dbKey,
-    algo: ctx.algo,
+    algo: a(msgDbPath),
   });
 
   // buddy_msg_fts.db sits next to nt_msg.db in the same nt_db folder. Trust
   // the platform lookup, but fall back to deriving it from msgDbPath so an
   // account whose index file isn't on disk yet still opens (search just errors
   // on first use rather than blocking the whole session).
-  const ftsDbPath =
-    platform.buddyMsgFtsDbPath(ctx.uin) ?? join(dirname(msgDbPath), 'buddy_msg_fts.db');
 
   const buddyMsgFts = new BuddyMsgFtsDb(nt, {
     dbPath: ftsDbPath,
     key: ctx.dbKey,
-    algo: ctx.algo,
+    algo: a(ftsDbPath),
   });
-
-  const groupFtsDbPath =
-    platform.groupMsgFtsDbPath(ctx.uin) ?? join(dirname(msgDbPath), 'group_msg_fts.db');
 
   const groupMsgFts = new GroupMsgFtsDb(nt, {
     dbPath: groupFtsDbPath,
     key: ctx.dbKey,
-    algo: ctx.algo,
+    algo: a(groupFtsDbPath),
   });
-
-  const groupInfoDbPath =
-    platform.groupInfoDbPath(ctx.uin) ?? join(dirname(msgDbPath), 'group_info.db');
 
   const groupEssence = new GroupEssenceDb(nt, {
     dbPath: groupInfoDbPath,
     key: ctx.dbKey,
-    algo: ctx.algo,
+    algo: a(groupInfoDbPath),
   });
 
   const memberLevelInfo = new GroupMemberLevelInfoDb(nt, {
     dbPath: groupInfoDbPath,
     key: ctx.dbKey,
-    algo: ctx.algo,
+    algo: a(groupInfoDbPath),
   });
 
   const groupDetail = new GroupDetailDb(nt, {
     dbPath: groupInfoDbPath,
     key: ctx.dbKey,
-    algo: ctx.algo,
+    algo: a(groupInfoDbPath),
   });
 
   const groupBulletins = new GroupBulletinDb(nt, {
     dbPath: groupInfoDbPath,
     key: ctx.dbKey,
-    algo: ctx.algo,
+    algo: a(groupInfoDbPath),
   });
 
   const groupMembers = new GroupMemberDb(nt, {
     dbPath: groupInfoDbPath,
     key: ctx.dbKey,
-    algo: ctx.algo,
+    algo: a(groupInfoDbPath),
   });
 
   const groupNotifies = new GroupNotifyDb(nt, {
     dbPath: groupInfoDbPath,
     key: ctx.dbKey,
-    algo: ctx.algo,
+    algo: a(groupInfoDbPath),
   });
 
   const groupExt = new GroupExtDb(nt, {
     dbPath: groupInfoDbPath,
     key: ctx.dbKey,
-    algo: ctx.algo,
+    algo: a(groupInfoDbPath),
   });
 
-  const fileAssistantDbPath = join(dirname(msgDbPath), 'file_assistant.db');
   const fileAssistant = new FileAssistantDb(nt, {
     dbPath: fileAssistantDbPath,
     key: ctx.dbKey,
-    algo: ctx.algo,
+    algo: a(fileAssistantDbPath),
   });
 
-  const collectionDbPath = join(dirname(msgDbPath), 'collection.db');
   const collection = new CollectionDb(nt, {
     dbPath: collectionDbPath,
     key: ctx.dbKey,
-    algo: ctx.algo,
+    algo: a(collectionDbPath),
   });
 
-  const profileInfoPath = platform.profileInfoDbPath(ctx.uin);
-  if (!profileInfoPath) throw new Error(`profile_info.db not found for uin ${ctx.uin}`);
-  const buddies = new BuddyDb(nt, { dbPath: profileInfoPath, key: ctx.dbKey, algo: ctx.algo });
-  const categories = new CategoryDb(nt, { dbPath: profileInfoPath, key: ctx.dbKey, algo: ctx.algo });
-  const buddyReqs = new BuddyRequestDb(nt, { dbPath: profileInfoPath, key: ctx.dbKey, algo: ctx.algo });
-  const profileInfo = new ProfileInfoDb(nt, { dbPath: profileInfoPath, key: ctx.dbKey, algo: ctx.algo });
-  const botProfiles = new BotProfileDb(nt, { dbPath: profileInfoPath, key: ctx.dbKey, algo: ctx.algo });
+  const buddies = new BuddyDb(nt, {
+    dbPath: profileInfoPath,
+    key: ctx.dbKey,
+    algo: a(profileInfoPath),
+  });
+  const categories = new CategoryDb(nt, {
+    dbPath: profileInfoPath,
+    key: ctx.dbKey,
+    algo: a(profileInfoPath),
+  });
+  const buddyReqs = new BuddyRequestDb(nt, {
+    dbPath: profileInfoPath,
+    key: ctx.dbKey,
+    algo: a(profileInfoPath),
+  });
+  const profileInfo = new ProfileInfoDb(nt, {
+    dbPath: profileInfoPath,
+    key: ctx.dbKey,
+    algo: a(profileInfoPath),
+  });
+  const botProfiles = new BotProfileDb(nt, {
+    dbPath: profileInfoPath,
+    key: ctx.dbKey,
+    algo: a(profileInfoPath),
+  });
 
-  const miscDbPath = platform.miscDbPath(ctx.uin) ?? join(dirname(msgDbPath), 'misc.db');
-  const misc = new MiscDb(nt, { dbPath: miscDbPath, key: ctx.dbKey, algo: ctx.algo });
+  const misc = new MiscDb(nt, { dbPath: miscDbPath, key: ctx.dbKey, algo: a(miscDbPath) });
 
   const unreadInfo = new UnreadInfoDb(nt, {
     dbPath: msgDbPath,
     key: ctx.dbKey,
-    algo: ctx.algo,
+    algo: a(msgDbPath),
   });
 
   let disposed = false;
   return {
-    context: ctx,
+    context: { ...ctx, algos: resolvedAlgos },
     msgDbPath,
     lastRowIdMaps: { c2cRowId: 0n, groupRowId: 0n, guildRowId: 0n },
     uidMap,

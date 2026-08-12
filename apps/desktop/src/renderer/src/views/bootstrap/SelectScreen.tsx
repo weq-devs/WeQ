@@ -36,9 +36,16 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
     staleTime: 0,
     refetchOnMount: 'always',
   });
-  const historical = trpc.bootstrap.listAccounts.useQuery(undefined, { retry: false, refetchOnWindowFocus: false });
-  const userDataDirs = trpc.bootstrap.countUserDataDirs.useQuery(undefined, { refetchOnWindowFocus: false });
-  const autoTarget = trpc.bootstrap.getAutoEnter.useQuery(undefined, { refetchOnWindowFocus: false });
+  const historical = trpc.bootstrap.listAccounts.useQuery(undefined, {
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+  const userDataDirs = trpc.bootstrap.countUserDataDirs.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+  });
+  const autoTarget = trpc.bootstrap.getAutoEnter.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+  });
 
   const allUins = useMemo(
     () => Array.from(new Set((historical.data ?? []).map((a) => a.uin))),
@@ -65,7 +72,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
         avatarUrl: cfg.avatarUrl ?? null,
         configId: cfg.configId,
         dbKey: cfg.dbKey,
-        algo: cfg.algo,
+        algos: cfg.algos,
         // Only thread a saved absolute dataDir; never synthesize `<root>/<uin>`
         // here — that assumed win32's numeric-uin layout + `\` separator and
         // was wrong on linux (hashed dir, `/`). Main resolves it from uin.
@@ -93,13 +100,14 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
       setSelectedKey(null);
       return;
     }
-    setSelectedKey((prev) => (prev && accounts.some((a) => a.key === prev) ? prev : accounts[0]!.key));
+    setSelectedKey((prev) =>
+      prev && accounts.some((a) => a.key === prev) ? prev : accounts[0]!.key,
+    );
   }, [accounts]);
 
   const selected = accounts.find((a) => a.key === selectedKey) ?? null;
 
-  const loading =
-    (mode === 'existing' ? savedConfigs.isLoading : historical.isLoading);
+  const loading = mode === 'existing' ? savedConfigs.isLoading : historical.isLoading;
 
   function onEntered(uin: string): void {
     setOpenedUin(uin);
@@ -123,11 +131,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
     if (res.ok) {
       // pickTencentFilesRoot already persisted the override + re-probed install.
       await utils.bootstrap.describeInstall.invalidate();
-      await Promise.all([
-        userDataDirs.refetch(),
-        savedConfigs.refetch(),
-        historical.refetch(),
-      ]);
+      await Promise.all([userDataDirs.refetch(), savedConfigs.refetch(), historical.refetch()]);
       return;
     }
     // Rejected because the folder wasn't `Tencent Files` (cancel returns no error).
@@ -143,7 +147,9 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
           <ArrowLeft size={17} strokeWidth={1.85} aria-hidden />
         </button>
         <div className="weq-select-head-title">
-          <span className="weq-select-head-tag">{mode === 'existing' ? '现有账号配置' : '新的开始'}</span>
+          <span className="weq-select-head-tag">
+            {mode === 'existing' ? '现有账号配置' : '新的开始'}
+          </span>
           <h2 className="weq-display weq-select-head-h">选择账号 · 验证密钥</h2>
         </div>
         {/* Drag handle is a dedicated spacer so the title + back button remain
@@ -156,7 +162,12 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
         <section className="weq-select-left">
           {loading ? (
             <div className="weq-select-loading">
-              <Loader2 className="animate-spin text-[#0099ff]" size={22} strokeWidth={1.8} aria-hidden />
+              <Loader2
+                className="animate-spin text-[#0099ff]"
+                size={22}
+                strokeWidth={1.8}
+                aria-hidden
+              />
               <span>正在准备账号…</span>
             </div>
           ) : accounts.length === 0 ? (

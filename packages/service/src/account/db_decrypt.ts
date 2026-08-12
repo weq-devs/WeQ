@@ -9,7 +9,7 @@ import { mkdirSync } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { Worker } from 'node:worker_threads';
-import type { AccountSession } from '@weq/account';
+import { type AccountSession, algoFor } from '@weq/account';
 import type { DatabaseAlgorithms } from '@weq/native';
 import type { Platform } from '@weq/platform';
 
@@ -85,7 +85,7 @@ export class DbDecryptService {
           item.dbPath,
           outPath,
           this.session.context.dbKey,
-          this.session.context.algo,
+          algoFor(this.session.context, item.dbPath),
           opts.mode,
         );
         return { name: item.name, dbPath: item.dbPath, outPath, ok: true };
@@ -136,7 +136,7 @@ function decryptOneInWorker(
   dbPath: string,
   outPath: string,
   key: string,
-  algo: DatabaseAlgorithms,
+  algo: DatabaseAlgorithms | undefined,
   mode: DbDecryptMode,
 ): Promise<void> {
   const code = `

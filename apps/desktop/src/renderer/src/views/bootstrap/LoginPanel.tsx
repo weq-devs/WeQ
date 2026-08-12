@@ -83,7 +83,14 @@ export function LoginPanel({
 
   // QR dialog state. `anonymous` = the "登录新的账号" flow, where the currently
   // selected account is irrelevant, so its identity must not be shown.
-  const [qr, setQr] = useState<{ uin: string; name: string; avatarUrl: string | null; status: string; url: string | null; anonymous: boolean } | null>(null);
+  const [qr, setQr] = useState<{
+    uin: string;
+    name: string;
+    avatarUrl: string | null;
+    status: string;
+    url: string | null;
+    anonymous: boolean;
+  } | null>(null);
   const subRef = useRef<Sub | null>(null);
 
   // Reset the key + flags whenever the selected account changes.
@@ -174,10 +181,7 @@ export function LoginPanel({
    *   - `false` — the user chose to keep waiting; caller should fall back to a
    *               plain awaited `fetchKeyFromInstance`.
    */
-  async function acquireFromInstanceLinux(
-    pid: number,
-    acc: UiAccount,
-  ): Promise<boolean> {
+  async function acquireFromInstanceLinux(pid: number, acc: UiAccount): Promise<boolean> {
     // Step A (untimed): elevate + inject. The password dialog lives here.
     setStatus('正在注入 QQ 进程（可能弹出授权窗口，请输入密码）…');
     const prep = await client.bootstrap.prepareInstanceInject.mutate({ pid });
@@ -281,7 +285,14 @@ export function LoginPanel({
 
   function startQrLogin(acc: UiAccount, anonymous = false): void {
     setStatus('正在获取二维码…');
-    setQr({ uin: acc.uin, name: acc.name, avatarUrl: acc.avatarUrl, status: '正在获取二维码…', url: null, anonymous });
+    setQr({
+      uin: acc.uin,
+      name: acc.name,
+      avatarUrl: acc.avatarUrl,
+      status: '正在获取二维码…',
+      url: null,
+      anonymous,
+    });
     closeSub();
     let seenUin = acc.uin;
     subRef.current = client.bootstrap.qrLogin.subscribe(undefined, {
@@ -354,7 +365,7 @@ export function LoginPanel({
             avatarUrl: selected.avatarUrl ?? '',
           },
           ...(selected.dbKey ? { dbKey: selected.dbKey } : {}),
-          ...(selected.algo?.pageHmacAlgorithm ? { algo: selected.algo } : {}),
+          ...(selected.algos?.['nt_msg.db'] ? { algo: selected.algos['nt_msg.db'] } : {}),
           ...(selected.mobile ? { mobile: true } : {}),
         });
         if (autoEnter) {
@@ -475,7 +486,9 @@ export function LoginPanel({
 
           {status && (
             <div className="weq-login-status">
-              {busy && <Loader2 className="animate-spin" size={13} strokeWidth={1.85} aria-hidden />}
+              {busy && (
+                <Loader2 className="animate-spin" size={13} strokeWidth={1.85} aria-hidden />
+              )}
               {status}
             </div>
           )}
@@ -495,13 +508,7 @@ export function LoginPanel({
               进入（静态离线账号）
             </button>
           ) : (
-            <KeyField
-              mode={mode}
-              value={key}
-              onChange={setKey}
-              onAction={onAction}
-              busy={busy}
-            />
+            <KeyField mode={mode} value={key} onChange={setKey} onAction={onAction} busy={busy} />
           )}
 
           <label className="weq-auto-enter">

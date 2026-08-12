@@ -24,8 +24,13 @@
  * in config so re-enabling restores it.
  */
 
-import { AntiRecallDb, type AntiRecallTarget, type AntiRecallTriggerInfo, type RecallLogRow } from '@weq/db';
-import type { AccountSession } from '@weq/account';
+import {
+  AntiRecallDb,
+  type AntiRecallTarget,
+  type AntiRecallTriggerInfo,
+  type RecallLogRow,
+} from '@weq/db';
+import { type AccountSession, algoFor } from '@weq/account';
 import type { Platform } from '@weq/platform';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -209,7 +214,7 @@ export class AntiRecallService {
     return new AntiRecallDb(this.platform.native.ntHelper, {
       dbPath: this.session.msgDbPath,
       key: this.session.context.dbKey,
-      algo: this.session.context.algo,
+      algo: algoFor(this.session.context, this.session.msgDbPath),
     });
   }
 
@@ -224,7 +229,8 @@ export class AntiRecallService {
           ? parsed.targets
               .filter(
                 (t): t is AntiRecallTarget =>
-                  !!t && typeof t.id === 'string' &&
+                  !!t &&
+                  typeof t.id === 'string' &&
                   (t.kind === 'c2c' || t.kind === 'group' || t.kind === 'dataline'),
               )
               .map(normalizeTarget)

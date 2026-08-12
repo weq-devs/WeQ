@@ -27,9 +27,9 @@
  */
 
 import { existsSync } from 'node:fs';
+import { type AccountSession, algoFor } from '@weq/account';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, normalize, sep } from 'node:path';
-import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
 import { BaseSysEmojiDb } from '@weq/db';
 import { readZipEntries } from '../common/zip';
@@ -141,7 +141,7 @@ export class SysEmojiDownloadService {
     const db = new BaseSysEmojiDb(this.platform.native.ntHelper, {
       dbPath,
       key: this.session.context.dbKey,
-      algo: this.session.context.algo,
+      algo: algoFor(this.session.context, dbPath),
     });
     const rows = await db.listAll();
     const out = new Map<string, SysEmojiSource>();

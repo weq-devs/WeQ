@@ -20,14 +20,18 @@ if (!dbPath || !key) {
   process.exit(1);
 }
 
+// After the guard above both are narrowed to string.
+const resolvedDbPath: string = dbPath;
+const resolvedKey: string = key;
+
 async function main(): Promise<void> {
   const nt = loadNative().ntHelper;
 
-  console.log(`数据库: ${dbPath}`);
-  console.log(`密钥:   ${key}`);
+  console.log(`数据库: ${resolvedDbPath}`);
+  console.log(`密钥:   ${resolvedKey}`);
   console.log('探测中…\n');
 
-  const result = await nt.testDatabaseKey(dbPath, key);
+  const result = await nt.testDatabaseKey(resolvedDbPath, resolvedKey);
 
   if (result.success) {
     console.log('结果: 密钥正确 ✓');

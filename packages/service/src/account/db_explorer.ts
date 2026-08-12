@@ -30,7 +30,7 @@
 
 import { QqDb } from '@weq/db';
 import type { SqlRow, SqlValue } from '@weq/native';
-import type { AccountSession } from '@weq/account';
+import { type AccountSession, algoFor } from '@weq/account';
 import type { Platform } from '@weq/platform';
 import { DbDecryptService, type AccountDbFile } from './db_decrypt';
 
@@ -334,10 +334,10 @@ export class DbExplorerService {
     const db = await this.open(dbPath);
     await this.assertColumn(db, table, column);
     const { clause, params } = buildWhere(rowKey);
-    return db.write(
-      `UPDATE ${quoteId(table)} SET ${quoteId(column)} = ? WHERE ${clause}`,
-      [fromInput(value), ...params],
-    );
+    return db.write(`UPDATE ${quoteId(table)} SET ${quoteId(column)} = ? WHERE ${clause}`, [
+      fromInput(value),
+      ...params,
+    ]);
   }
 
   /** Insert a row. Columns omitted from `values` take their default. */
@@ -382,7 +382,7 @@ export class DbExplorerService {
     const db = new QqDb(this.platform.native.ntHelper, {
       dbPath,
       key: this.session.context.dbKey,
-      algo: this.session.context.algo,
+      algo: algoFor(this.session.context, dbPath),
     });
     this.handles.set(dbPath, db);
     return db;

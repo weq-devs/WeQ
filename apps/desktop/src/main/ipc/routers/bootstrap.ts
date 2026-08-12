@@ -207,22 +207,18 @@ export const bootstrapRouter = router({
     }),
 
   /** nt_data subdirectory sizes for an account (space chart; may be slow). */
-  ntDataSizes: procedure
-    .input(z.object({ uin: z.string() }))
-    .query(async ({ input }) => {
-      const boot = requireBootstrap();
-      await ensureUidForUin(boot, input.uin);
-      return boot.globalConfig.ntDataSubdirSizes(input.uin);
-    }),
+  ntDataSizes: procedure.input(z.object({ uin: z.string() })).query(async ({ input }) => {
+    const boot = requireBootstrap();
+    await ensureUidForUin(boot, input.uin);
+    return boot.globalConfig.ntDataSubdirSizes(input.uin);
+  }),
 
   /** Total size of the account's user-data directory in bytes (may be slow). */
-  accountDirSize: procedure
-    .input(z.object({ uin: z.string() }))
-    .query(async ({ input }) => {
-      const boot = requireBootstrap();
-      await ensureUidForUin(boot, input.uin);
-      return boot.globalConfig.accountDirSize(input.uin);
-    }),
+  accountDirSize: procedure.input(z.object({ uin: z.string() })).query(async ({ input }) => {
+    const boot = requireBootstrap();
+    await ensureUidForUin(boot, input.uin);
+    return boot.globalConfig.accountDirSize(input.uin);
+  }),
 
   // ---- user config ----
 
@@ -234,12 +230,10 @@ export const bootstrapRouter = router({
     return requireBootstrap().userConfig.listAccountConfigs();
   }),
 
-  deleteAccountConfig: procedure
-    .input(z.object({ configId: z.string() }))
-    .mutation(({ input }) => {
-      requireBootstrap().userConfig.deleteAccountConfig(input.configId);
-      return true;
-    }),
+  deleteAccountConfig: procedure.input(z.object({ configId: z.string() })).mutation(({ input }) => {
+    requireBootstrap().userConfig.deleteAccountConfig(input.configId);
+    return true;
+  }),
 
   // ---- auto-enter target ----
 
@@ -293,13 +287,11 @@ export const bootstrapRouter = router({
    * Toggle 启用数据库监听. Persists, then applies live to the open account so the
    * nt_msg.db watcher mounts/unmounts immediately (no re-open needed).
    */
-  setRealtimeEnabled: procedure
-    .input(z.object({ enabled: z.boolean() }))
-    .mutation(({ input }) => {
-      requireBootstrap().userConfig.setSettings({ realtimeEnabled: input.enabled });
-      getAppContext().applyRealtime(input.enabled);
-      return true;
-    }),
+  setRealtimeEnabled: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+    requireBootstrap().userConfig.setSettings({ realtimeEnabled: input.enabled });
+    getAppContext().applyRealtime(input.enabled);
+    return true;
+  }),
 
   /**
    * Patch the 媒体补全 config. The monitor's rkey harvesting reads `enabled`
@@ -371,12 +363,10 @@ export const bootstrapRouter = router({
    * 头像与图片/视频封面是否由渲染层直连 QQ CDN（省服务端带宽，代价是绕开本地缓存）。
    * 渲染层通过 App.tsx 的 PreferCdnContext 读取——纯持久化，无需主进程侧应用。
    */
-  setPreferCdn: procedure
-    .input(z.object({ enabled: z.boolean() }))
-    .mutation(({ input }) => {
-      requireBootstrap().userConfig.setSettings({ preferCdn: input.enabled });
-      return true;
-    }),
+  setPreferCdn: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+    requireBootstrap().userConfig.setSettings({ preferCdn: input.enabled });
+    return true;
+  }),
 
   /**
    * 聊天里裸链接的展示方式。`enabled` 关掉后只做蓝色下划线、不出网；`screenshot`
@@ -448,16 +438,14 @@ export const bootstrapRouter = router({
    * then applies live to the open account (starts/stops the HTTP server without
    * re-opening). Throws (e.g. port already in use) so the renderer can report it.
    */
-  setMcpEnabled: procedure
-    .input(z.object({ enabled: z.boolean() }))
-    .mutation(async ({ input }) => {
-      const userConfig = requireBootstrap().userConfig;
-      const current = userConfig.getSettings().mcp;
-      const token = input.enabled && !current.token ? randomBytes(32).toString('hex') : current.token;
-      userConfig.setSettings({ mcp: { enabled: input.enabled, token } });
-      await getAppContext().applyMcp(userConfig.getSettings().mcp);
-      return userConfig.getSettings().mcp;
-    }),
+  setMcpEnabled: procedure.input(z.object({ enabled: z.boolean() })).mutation(async ({ input }) => {
+    const userConfig = requireBootstrap().userConfig;
+    const current = userConfig.getSettings().mcp;
+    const token = input.enabled && !current.token ? randomBytes(32).toString('hex') : current.token;
+    userConfig.setSettings({ mcp: { enabled: input.enabled, token } });
+    await getAppContext().applyMcp(userConfig.getSettings().mcp);
+    return userConfig.getSettings().mcp;
+  }),
 
   /** Change the listen port. Persists and restarts the server if it's running. */
   setMcpPort: procedure
@@ -567,14 +555,14 @@ export const bootstrapRouter = router({
    * `onVoiceModelProgress` subscription; returns immediately so the renderer's
    * mutation doesn't block on a 245 MB download.
    */
-  downloadVoiceModel: procedure
-    .input(z.object({ id: z.string().min(1) }))
-    .mutation(({ input }) => {
-      // Don't await — the subscription drives the UI. Swallow rejections here;
-      // the terminal 'progress' event already carries the error.
-      void requireBootstrap().voiceTranscribe.downloadModel(input.id).catch(() => {});
-      return true;
-    }),
+  downloadVoiceModel: procedure.input(z.object({ id: z.string().min(1) })).mutation(({ input }) => {
+    // Don't await — the subscription drives the UI. Swallow rejections here;
+    // the terminal 'progress' event already carries the error.
+    void requireBootstrap()
+      .voiceTranscribe.downloadModel(input.id)
+      .catch(() => {});
+    return true;
+  }),
 
   /** Subscribe to voice-model download progress (all models share one stream). */
   onVoiceModelProgress: procedure.subscription(() => {
@@ -589,19 +577,15 @@ export const bootstrapRouter = router({
   }),
 
   /** Delete a downloaded model's files. No-op while a download is in flight. */
-  deleteVoiceModel: procedure
-    .input(z.object({ id: z.string().min(1) }))
-    .mutation(({ input }) => {
-      return requireBootstrap().voiceTranscribe.deleteModel(input.id);
-    }),
+  deleteVoiceModel: procedure.input(z.object({ id: z.string().min(1) })).mutation(({ input }) => {
+    return requireBootstrap().voiceTranscribe.deleteModel(input.id);
+  }),
 
   /** Set (or clear with '') the selected transcription model id. */
-  setVoiceModel: procedure
-    .input(z.object({ modelId: z.string() }))
-    .mutation(({ input }) => {
-      requireBootstrap().userConfig.setSettings({ voiceTranscribe: { modelId: input.modelId } });
-      return true;
-    }),
+  setVoiceModel: procedure.input(z.object({ modelId: z.string() })).mutation(({ input }) => {
+    requireBootstrap().userConfig.setSettings({ voiceTranscribe: { modelId: input.modelId } });
+    return true;
+  }),
 
   // ---- agent lab provider config ----
 
@@ -673,7 +657,15 @@ export const bootstrapRouter = router({
       z.object({
         id: z.string().min(1),
         name: z.string().min(1),
-        vendor: z.enum(['openai-compatible', 'gsv2p', 'minimax', 'mimo', 'doubao', 'gpt-sovits', 'cosyvoice']),
+        vendor: z.enum([
+          'openai-compatible',
+          'gsv2p',
+          'minimax',
+          'mimo',
+          'doubao',
+          'gpt-sovits',
+          'cosyvoice',
+        ]),
         baseUrl: z.string().min(1),
         apiKey: z.string().default(''),
         appId: z.string().optional(),
@@ -690,21 +682,25 @@ export const bootstrapRouter = router({
       const now = Date.now();
       const existing = cfg.getSettings().voiceTranscribe.ttsProviders;
       const prior = existing.find((p) => p.id === input.id);
-      const saved: TtsProviderConfig = { ...input, createdAt: prior?.createdAt ?? now, updatedAt: now };
-      const next = [...existing.filter((p) => p.id !== input.id), saved].sort((a, b) => b.updatedAt - a.updatedAt);
+      const saved: TtsProviderConfig = {
+        ...input,
+        createdAt: prior?.createdAt ?? now,
+        updatedAt: now,
+      };
+      const next = [...existing.filter((p) => p.id !== input.id), saved].sort(
+        (a, b) => b.updatedAt - a.updatedAt,
+      );
       cfg.setSettings({ voiceTranscribe: { ttsProviders: next } });
       return saved;
     }),
 
   /** 删除一个 TTS 服务商。 */
-  deleteTtsProvider: procedure
-    .input(z.object({ id: z.string().min(1) }))
-    .mutation(({ input }) => {
-      const cfg = requireBootstrap().userConfig;
-      const next = cfg.getSettings().voiceTranscribe.ttsProviders.filter((p) => p.id !== input.id);
-      cfg.setSettings({ voiceTranscribe: { ttsProviders: next } });
-      return true;
-    }),
+  deleteTtsProvider: procedure.input(z.object({ id: z.string().min(1) })).mutation(({ input }) => {
+    const cfg = requireBootstrap().userConfig;
+    const next = cfg.getSettings().voiceTranscribe.ttsProviders.filter((p) => p.id !== input.id);
+    cfg.setSettings({ voiceTranscribe: { ttsProviders: next } });
+    return true;
+  }),
 
   /** 「测试」：用该配置合成一句样例，返回 base64 供前端试听。 */
   testTtsProvider: procedure
@@ -712,7 +708,15 @@ export const bootstrapRouter = router({
       z.object({
         id: z.string().default('test'),
         name: z.string().default('test'),
-        vendor: z.enum(['openai-compatible', 'gsv2p', 'minimax', 'mimo', 'doubao', 'gpt-sovits', 'cosyvoice']),
+        vendor: z.enum([
+          'openai-compatible',
+          'gsv2p',
+          'minimax',
+          'mimo',
+          'doubao',
+          'gpt-sovits',
+          'cosyvoice',
+        ]),
         baseUrl: z.string().min(1),
         apiKey: z.string().default(''),
         appId: z.string().optional(),
@@ -786,7 +790,8 @@ export const bootstrapRouter = router({
       return {
         ok: false,
         path: picked,
-        error: '请选择名为「Tencent Files」的文件夹本身（不要选里面的 QQ 号子目录，也不要选它的上级目录）。',
+        error:
+          '请选择名为「Tencent Files」的文件夹本身（不要选里面的 QQ 号子目录，也不要选它的上级目录）。',
       };
     }
     requireBootstrap().globalConfig.setTencentFilesRootOverride(picked);
@@ -972,11 +977,7 @@ export const bootstrapRouter = router({
 
   /** Flow 3 — QR login. Same shape as quickLogin. */
   qrLogin: procedure
-    .input(
-      z
-        .object({ timeoutMs: z.number().int().positive().optional() })
-        .optional(),
-    )
+    .input(z.object({ timeoutMs: z.number().int().positive().optional() }).optional())
     .subscription(({ input }) => {
       return observable<KeyEvent>((emit) => {
         const stream = requireBootstrap().keys.qrLoginStream({
@@ -1041,8 +1042,10 @@ export const bootstrapRouter = router({
       if (input.uid) rememberAccountUid(input.uin, input.uid);
       else await ensureUidForUin(requireBootstrap(), input.uin);
 
-      let algo = input.algo;
-      if (!algo) {
+      let algos: Record<string, import('@weq/native').DatabaseAlgorithms> = {};
+      if (input.algo) {
+        algos = { 'nt_msg.db': input.algo };
+      } else {
         const msgDbPath = platform.ntMsgDbPath(input.uin);
         if (!msgDbPath) {
           throw new Error(`nt_msg.db not found for uin=${input.uin}`);
@@ -1051,9 +1054,11 @@ export const bootstrapRouter = router({
         if (!probe.success || !probe.pageHmacAlgorithm || !probe.kdfHmacAlgorithm) {
           throw new Error('数据库密钥不正确，无法打开。');
         }
-        algo = {
-          pageHmacAlgorithm: probe.pageHmacAlgorithm,
-          kdfHmacAlgorithm: probe.kdfHmacAlgorithm,
+        algos = {
+          'nt_msg.db': {
+            pageHmacAlgorithm: probe.pageHmacAlgorithm,
+            kdfHmacAlgorithm: probe.kdfHmacAlgorithm,
+          },
         };
       }
 
@@ -1061,7 +1066,7 @@ export const bootstrapRouter = router({
         input.dataDir ?? requireBootstrap().globalConfig.accountDataDir(input.uin) ?? undefined;
 
       await ctx.setAccount(
-        { uin: input.uin, dbKey: input.dbKey, algo },
+        { uin: input.uin, dbKey: input.dbKey, algos },
         {
           ...(input.uid ? { uid: input.uid } : {}),
           ...(input.displayName ? { displayName: input.displayName } : {}),
@@ -1145,19 +1150,21 @@ export const bootstrapRouter = router({
       // 用户没给密钥时，先试着自己算 —— 安卓备份目录能从 uid + 头里的
       // rand 推出 dbkey，省掉手输那一步。算不出来再走原来的流程。
       let dbKey = input.dbKey;
-      let algo = input.algo;
+      let algos: Record<string, import('@weq/native').DatabaseAlgorithms> | undefined = input.algo
+        ? { 'nt_msg.db': input.algo }
+        : undefined;
       let derived = false;
       if (!dbKey) {
         const d = await deriveAndroidDbKey(platform.native.ntHelper, input.dirPath);
         if (d) {
           dbKey = d.dbKey;
-          algo = d.algo;
+          algos = d.algos;
           derived = true;
         }
       }
 
       try {
-        const preview = await peekStaticSelfUin(platform, input.dirPath, dbKey, algo);
+        const preview = await peekStaticSelfUin(platform, input.dirPath, dbKey, algos);
         return {
           ok: true as const,
           needKey: false as const,
@@ -1218,18 +1225,20 @@ export const bootstrapRouter = router({
       // 没带密钥时同样先自己算一遍 —— 覆盖「重开已存账号」以及旧版前端
       // 不回传 derivedKey 的情况。算不出来就按明文 SQLite 打开（原行为）。
       let dbKey = input.dbKey;
-      let algo = input.algo;
+      let algos: Record<string, import('@weq/native').DatabaseAlgorithms> | undefined = input.algo
+        ? { 'nt_msg.db': input.algo }
+        : undefined;
       if (!dbKey) {
         const d = await deriveAndroidDbKey(requirePlatform().native.ntHelper, input.dirPath);
         if (d) {
           dbKey = d.dbKey;
-          algo = d.algo;
+          algos = d.algos;
         }
       }
 
       await ctx.setStaticAccount(input.dirPath, input.preview, {
         ...(dbKey ? { dbKey } : {}),
-        ...(algo ? { algo } : {}),
+        ...(algos ? { algos } : {}),
         ...(input.mobile ? { mobile: true } : {}),
       });
       return ctx.account!.context;

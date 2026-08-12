@@ -39,7 +39,9 @@ export function BootstrapView(): ReactElement {
   /** 非 null 时 splash 显示预热进度条（自动进入的第二段）。 */
   const [warmup, setWarmup] = useState<WarmupProgress | null>(null);
 
-  const nativeStatus = trpc.bootstrap.nativeStatus.useQuery(undefined, { refetchOnWindowFocus: false });
+  const nativeStatus = trpc.bootstrap.nativeStatus.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+  });
   const nativeErr = nativeStatus.data ?? null;
   const nativeOk = nativeStatus.isSuccess && nativeStatus.data === null;
 
@@ -64,7 +66,9 @@ export function BootstrapView(): ReactElement {
     if (nativeErr.kind === 'expired') {
       showError('版本过旧', '本地组件版本过旧，请更新到最新版本后再使用。', { dismissible: false });
     } else {
-      showError('安装损坏', 'QQ 助手组件已损坏或被篡改，请重新安装或更新后重试。', { dismissible: false });
+      showError('安装损坏', 'QQ 助手组件已损坏或被篡改，请重新安装或更新后重试。', {
+        dismissible: false,
+      });
     }
   }, [nativeErr, showError]);
 
@@ -114,11 +118,14 @@ export function BootstrapView(): ReactElement {
               avatarUrl: cfg.avatarUrl ?? '',
             },
             ...(cfg.dbKey ? { dbKey: cfg.dbKey } : {}),
-            ...(cfg.algo?.pageHmacAlgorithm ? { algo: cfg.algo } : {}),
+            ...(cfg.algos?.['nt_msg.db'] ? { algo: cfg.algos['nt_msg.db'] } : {}),
             ...(cfg.mobile ? { mobile: true } : {}),
           });
         } else {
-          const test = await client.bootstrap.testDatabaseKey.mutate({ uin: cfg.uin, dbKey: cfg.dbKey });
+          const test = await client.bootstrap.testDatabaseKey.mutate({
+            uin: cfg.uin,
+            dbKey: cfg.dbKey,
+          });
           if (!test.success) throw new Error(test.error ?? '数据库密钥不正确');
           await client.bootstrap.openAccount.mutate({
             uin: cfg.uin,
