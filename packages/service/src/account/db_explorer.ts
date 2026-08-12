@@ -32,6 +32,7 @@ import { QqDb } from '@weq/db';
 import type { SqlRow, SqlValue } from '@weq/native';
 import { type AccountSession, algoFor } from '@weq/account';
 import type { Platform } from '@weq/platform';
+import { basename } from 'node:path';
 import { DbDecryptService, type AccountDbFile } from './db_decrypt';
 
 // ── Wire types (shared with the renderer through tRPC inference) ────────────
@@ -379,11 +380,16 @@ export class DbExplorerService {
     if (!this.allowed.has(dbPath)) {
       throw new Error(`数据库不在当前账号目录下：${dbPath}`);
     }
-    const db = new QqDb(this.platform.native.ntHelper, {
-      dbPath,
-      key: this.session.context.dbKey,
-      algo: algoFor(this.session.context, dbPath),
-    });
+    let key = this.session.context.dbKey;
+    let algo = algoFor(this.session.context, dbPath);
+    if (basename(dbPath).startsWith('gpro_')) {
+      key = this.platform.native.ntHelper.getGuildDbKey(dbPath, this.session.context.uin);
+      const probe = await this.platform.native.ntHelper.testDatabaseKey(dbPath, key);
+      if (probe.success && probe.pageHmacAlgorithm && probe.kdfHmacAlgorithm) {
+        algo = { pageHmacAlgorithm: probe.pageHmacAlgorithm, kdfHmacAlgorithm: probe.kdfHmacAlgorithm };
+      }
+    }
+    const db = new QqDb(this.platform.native.ntHelper, { dbPath, key, algo });
     this.handles.set(dbPath, db);
     return db;
   }

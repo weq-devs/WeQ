@@ -204,6 +204,13 @@ export interface NtHelperBinding {
   requestDecryptKey(pid: number, dbPath: string): Promise<string>;
 
   /**
+   * Derive the SQLCipher key for a QQ Channel (频道 / guild) database.
+   * Guild databases (`gpro_v1-6_u_*.db`) use a per-file key derived from the
+   * path and the account uin, separate from the main account `dbKey`.
+   */
+  getGuildDbKey(dbPath: string, uin: string): string;
+
+  /**
    * Recover the image decryption key for a market-face (商城表情) package by
    * its `packetId` (a.k.a. emojiPackId). Fetches the package metadata, then
    * either reads the seed directly or brute-forces a timestamp window around
