@@ -103,9 +103,9 @@ button {
 
 .lucky-char-badge {
 	display: inline-block;
-	width: 36px;
-	height: 36px;
-	min-width: 36px;
+	width: 48px;
+	height: 48px;
+	min-width: 48px;
 	border-radius: 4px;
 	object-fit: contain;
 	vertical-align: middle;
