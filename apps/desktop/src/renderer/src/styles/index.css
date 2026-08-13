@@ -3,6 +3,8 @@
 @import "../im-template/styles.css";
 /* 全局隐私遮罩（只写在 WeQ 侧，挂钩模板稳定 class）。放在模板样式之后以覆盖。 */
 @import "./privacy.css";
+/* ARK Feed 公众号/服务号消息流样式 */
+@import "./ark-feed.css";
 /* streamdown（WeQ 助手流式 Markdown）自带元素样式。自包含编译产物，无需额外 @source。 */
 @import "streamdown/styles.css";
 

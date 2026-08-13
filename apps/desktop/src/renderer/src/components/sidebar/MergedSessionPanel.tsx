@@ -2,6 +2,7 @@ import { X, EyeOff } from 'lucide-react';
 import { useMemo, useEffect, useRef, useState } from 'react';
 import { Avatar } from '../../im-template/template/primitives';
 import type { Conversation, MergedKind } from '../../im-template/template/types';
+import { trpc } from '../../trpc/client';
 
 interface MergedSessionPanelProps {
   kind: MergedKind;
@@ -10,6 +11,17 @@ interface MergedSessionPanelProps {
   anchorY: number;
   onBack: () => void;
   onSelectConversation: (conv: Conversation) => void;
+}
+
+function senderAvatarSrc(uin: string): string | null {
+  if (!uin || uin === '0') return null;
+  return `https://thirdqq.qlogo.cn/g?b=sdk&s=0&nk=${uin}`;
+}
+
+function toIsoTime(seconds: string | undefined): string {
+  const value = Number(seconds);
+  if (!Number.isFinite(value) || value <= 0) return new Date(0).toISOString();
+  return new Date(value * 1000).toISOString();
 }
 
 export function MergedSessionPanel({
@@ -22,6 +34,14 @@ export function MergedSessionPanel({
 }: MergedSessionPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ x: anchorX, y: anchorY });
+
+  // 获取公众号/服务号原始数据
+  const officialAccounts = trpc.account.listOfficialAccounts.useQuery(undefined, {
+    enabled: kind === 'official',
+  });
+  const serviceAccounts = trpc.account.listServiceAccounts.useQuery(undefined, {
+    enabled: kind === 'service',
+  });
 
   // 计算面板位置，确保不超出视口
   useEffect(() => {
@@ -79,16 +99,73 @@ export function MergedSessionPanel({
 
   const filtered = useMemo(() => {
     if (kind === 'hidden') {
-      return conversations.filter((c) => c.hidden === true);
-    }
-    if (kind === 'service') {
-      return conversations.filter((c) => c.type === 'direct' && c.chatType === 118);
+      return conversations.filter((c) => 'hidden' in c && c.hidden === true);
     }
     if (kind === 'official') {
-      return conversations.filter((c) => c.type === 'direct' && c.chatType === 103);
+      // 从 officialAccounts 数据构建会话列表
+      if (!officialAccounts.data) return [];
+      return officialAccounts.data.map((official: any) => {
+        const avatarUrl = official.targetUin && official.targetUin !== '0'
+          ? senderAvatarSrc(official.targetUin)
+          : null;
+        return {
+          id: official.peerUid,
+          type: 'direct' as const,
+          chatType: 103,
+          updatedAt: toIsoTime(official.sendTime),
+          otherUser: {
+            id: official.peerUid,
+            identityLabel: 'UID' as const,
+            identityValue: official.peerUid,
+            username: official.peerUid,
+            displayName: official.displayName || official.peerUid,
+            kind: 'human' as const,
+            avatarUrl,
+          },
+          group: null,
+          members: [],
+          preference: { pinned: false, muted: false, blocked: false },
+          unreadCount: 0,
+          lastMessage: {
+            id: `official:${official.peerUid}:${official.sendTime}`,
+            senderId: official.peerUid,
+            body: official.prompt,
+            createdAt: toIsoTime(official.sendTime),
+          },
+        };
+      });
+    }
+    if (kind === 'service') {
+      // 从 serviceAccounts 数据构建会话列表
+      if (!serviceAccounts.data) return [];
+      return serviceAccounts.data.map((service: any) => ({
+        id: `service:${service.appId}`,
+        type: 'direct' as const,
+        chatType: 118,
+        updatedAt: toIsoTime(service.sendTime),
+        otherUser: {
+          id: service.appId,
+          identityLabel: 'AppID' as const,
+          identityValue: service.appId,
+          username: service.appId,
+          displayName: service.displayName || service.appId,
+          kind: 'human' as const,
+          avatarUrl: service.avatarUrl || null,
+        },
+        group: null,
+        members: [],
+        preference: { pinned: false, muted: false, blocked: false },
+        unreadCount: 0,
+        lastMessage: {
+          id: `service:${service.appId}:${service.sendTime}`,
+          senderId: service.appId,
+          body: service.prompt,
+          createdAt: toIsoTime(service.sendTime),
+        },
+      }));
     }
     return [];
-  }, [kind, conversations]);
+  }, [kind, conversations, officialAccounts.data, serviceAccounts.data]);
 
   const sortedThreads = useMemo(
     () =>
@@ -148,7 +225,7 @@ export function MergedSessionPanel({
                 type="button"
                 className="weq-merged-popover-item"
                 onClick={() => {
-                  onSelectConversation(conv);
+                  onSelectConversation(conv as Conversation);
                   onBack();
                 }}
               >
@@ -162,7 +239,7 @@ export function MergedSessionPanel({
                     <div className="weq-merged-popover-item-preview">{preview}</div>
                   )}
                 </div>
-                {kind === 'hidden' && conv.hidden && (
+                {kind === 'hidden' && 'hidden' in conv && conv.hidden && (
                   <EyeOff size={14} className="weq-merged-popover-item-badge" />
                 )}
               </button>

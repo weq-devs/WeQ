@@ -193,6 +193,8 @@ type HiddenSessionWire = {
 /** 公众号摘要（listOfficialAccounts）—— wire 格式。 */
 type OfficialAccountWire = {
   peerUid: string;
+  displayName: string;
+  targetUin: string;
   sendTime: string;
   prompt: string | null;
 };
@@ -200,6 +202,8 @@ type OfficialAccountWire = {
 /** 服务号摘要（listServiceAccounts）—— wire 格式。 */
 type ServiceAccountWire = {
   appId: string;
+  displayName: string;
+  avatarUrl: string | null;
   sendTime: string;
   prompt: string | null;
 };
@@ -1642,9 +1646,15 @@ export function MainView(): ReactElement {
   // 合并会话面板状态：包含类型和点击位置
   const [mergedPanel, setMergedPanel] = useState<{
     kind: import('../im-template/template').MergedKind;
-    threadId: string | null;
     anchorX: number;
     anchorY: number;
+  } | null>(null);
+
+  // ARK Feed 显示状态（公众号/服务号消息流）
+  const [arkFeedState, setArkFeedState] = useState<{
+    kind: 'official' | 'service';
+    conversationId: string;
+    title: string;
   } | null>(null);
 
   // Seq-window message model: a single ASC (oldest→newest) list for the open
@@ -2115,34 +2125,10 @@ export function MainView(): ReactElement {
         byId.set('merged:official', merged);
 
         // 把每个公众号的明细也加入 conversations，供 MergedSessionPanel 过滤
+        // 但不要加入 byId，避免在主列表显示
         for (const official of officialList) {
-          const profile = profileByUid[official.peerUid];
-          const conv: Conversation = {
-            id: official.peerUid,
-            type: 'direct',
-            chatType: 103,
-            updatedAt: toIsoTime(official.sendTime),
-            otherUser: {
-              id: official.peerUid,
-              identityLabel: 'UID',
-              identityValue: official.peerUid,
-              username: official.peerUid,
-              displayName: profile?.nick || official.peerUid,
-              kind: 'human',
-              avatarUrl: profile?.avatar || null,
-            },
-            group: null,
-            members: [],
-            preference: fallbackPreference,
-            unreadCount: 0,
-            lastMessage: {
-              id: `official:${official.peerUid}:${official.sendTime}`,
-              senderId: official.peerUid,
-              body: official.prompt,
-              createdAt: toIsoTime(official.sendTime),
-            },
-          };
-          byId.set(official.peerUid, conv);
+          // 这些会话只在 MergedSessionPanel 中通过 conversations.filter 访问
+          // 不加入 byId，就不会出现在主会话列表
         }
       }
 
@@ -2175,33 +2161,10 @@ export function MainView(): ReactElement {
         byId.set('merged:service', merged);
 
         // 把每个服务号的明细也加入 conversations，供 MergedSessionPanel 过滤
+        // 但不要加入 byId，避免在主列表显示
         for (const service of serviceList) {
-          const conv: Conversation = {
-            id: `service:${service.appId}`,
-            type: 'direct',
-            chatType: 118,
-            updatedAt: toIsoTime(service.sendTime),
-            otherUser: {
-              id: service.appId,
-              identityLabel: 'AppID',
-              identityValue: service.appId,
-              username: service.appId,
-              displayName: service.appId,
-              kind: 'human',
-              avatarUrl: null,
-            },
-            group: null,
-            members: [],
-            preference: fallbackPreference,
-            unreadCount: 0,
-            lastMessage: {
-              id: `service:${service.appId}:${service.sendTime}`,
-              senderId: service.appId,
-              body: service.prompt,
-              createdAt: toIsoTime(service.sendTime),
-            },
-          };
-          byId.set(`service:${service.appId}`, conv);
+          // 这些会话只在 MergedSessionPanel 中通过 conversations.filter 访问
+          // 不加入 byId，就不会出现在主会话列表
         }
       }
 
@@ -2238,7 +2201,7 @@ export function MainView(): ReactElement {
           if (!hidden.resolvable) continue;
 
           const kind = chatTypeKind(Number(hidden.chatType));
-          const profile = profileByUid[hidden.targetUid];
+          const profile = profileByUid.get(hidden.targetUid);
           const updatedAt = toIsoTime(hidden.sendTime);
 
           if (kind === 'direct') {
@@ -2255,7 +2218,7 @@ export function MainView(): ReactElement {
                 username: hidden.targetUid,
                 displayName: profile?.nick || hidden.targetUid,
                 kind: 'human',
-                avatarUrl: profile?.avatar || null,
+                avatarUrl: profile?.avatarUrl || null,
               },
               group: null,
               members: [],
@@ -2380,7 +2343,7 @@ export function MainView(): ReactElement {
       if (conv?.type === 'merged') {
         const x = event?.clientX ?? window.innerWidth / 2;
         const y = event?.clientY ?? window.innerHeight / 2;
-        setMergedPanel({ kind: conv.mergedKind, threadId: null, anchorX: x, anchorY: y });
+        setMergedPanel({ kind: conv.mergedKind, anchorX: x, anchorY: y });
         return;
       }
       shell.selectConversation(conversationId);
@@ -3468,17 +3431,16 @@ export function MainView(): ReactElement {
           )
         }
         mainContent={
-          mergedPanel && mergedPanel.threadId ? (
+          arkFeedState ? (
             <ArkFeedView
-              conversationId={mergedPanel.threadId}
-              title={(() => {
-                const conv = conversations.find(c => c.id === mergedPanel.threadId);
-                if (!conv) return '';
-                if (conv.type === 'merged') return conv.title;
-                if (conv.type === 'group') return conv.group?.name || '';
-                return conv.otherUser?.displayName || '';
-              })()}
-              onBack={() => setMergedPanel({ ...mergedPanel, threadId: null })}
+              conversationId={arkFeedState.conversationId}
+              title={arkFeedState.title}
+              onBack={() => {
+                setArkFeedState(null);
+                const x = window.innerWidth / 2;
+                const y = window.innerHeight / 2;
+                setMergedPanel({ kind: arkFeedState.kind, anchorX: x, anchorY: y });
+              }}
             />
           ) : shell.view === 'home' ? (
             <ChatHome nickname={user.displayName} avatarUrl={user.avatarUrl} />
@@ -3574,8 +3536,18 @@ export function MainView(): ReactElement {
             anchorY={mergedPanel.anchorY}
             onBack={() => setMergedPanel(null)}
             onSelectConversation={(conv) => {
-              setMergedPanel(null);
-              shell.selectConversation(conv.id);
+              if (mergedPanel.kind === 'official' || mergedPanel.kind === 'service') {
+                const title = conv.type === 'group'
+                  ? conv.group?.name || ''
+                  : conv.otherUser?.displayName || '';
+                setArkFeedState({
+                  kind: mergedPanel.kind,
+                  conversationId: conv.id,
+                  title,
+                });
+              } else {
+                shell.selectConversation(conv.id);
+              }
             }}
           />
         )}

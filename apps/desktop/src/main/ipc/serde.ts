@@ -304,6 +304,8 @@ export interface HiddenSessionWire {
 
 export interface OfficialAccountSummaryWire {
   peerUid: string;
+  displayName: string;
+  targetUin: string;
   sendTime: string;
   /** ARK element's prompt field (sanitized). */
   prompt: string | null;
@@ -311,6 +313,8 @@ export interface OfficialAccountSummaryWire {
 
 export interface ServiceAccountSummaryWire {
   appId: string;
+  displayName: string;
+  avatarUrl: string | null;
   sendTime: string;
   /** ARK element's prompt field (sanitized). */
   prompt: string | null;
@@ -396,6 +400,8 @@ export function officialAccountSummaryToWire(
 ): OfficialAccountSummaryWire {
   return {
     peerUid: s.peerUid,
+    displayName: s.displayName,
+    targetUin: s.targetUin,
     sendTime: s.sendTime.toString(),
     prompt: s.prompt,
   };
@@ -406,6 +412,8 @@ export function serviceAccountSummaryToWire(
 ): ServiceAccountSummaryWire {
   return {
     appId: s.appId,
+    displayName: s.displayName,
+    avatarUrl: s.avatarUrl,
     sendTime: s.sendTime.toString(),
     prompt: s.prompt,
   };

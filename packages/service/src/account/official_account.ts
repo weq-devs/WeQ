@@ -50,11 +50,24 @@ export class OfficialAccountService {
       const first = arkOnly[0];
       if (!first) continue;
 
+      // 尝试从 profile_info.db 的 public_account_profile 表获取公众号名称和 uin
+      let displayName = c.targetDisplayName;
+      let targetUin = String(c.targetUin);
+      try {
+        const profile = await this.session.profileInfo.getProfile(c.targetUid);
+        if (profile) {
+          if (profile.nick) displayName = profile.nick;
+          if (profile.uin && profile.uin !== 0n) targetUin = String(profile.uin);
+        }
+      } catch {
+        // Fallback to recent_contact fields
+      }
+
       out.push({
         peerUid: c.targetUid,
-        displayName: c.targetDisplayName,
-        avatarUrl: c.targetAvatar || null,
-        targetUin: String(c.targetUin),
+        displayName,
+        avatarUrl: null, // 前端用 targetUin 拼接
+        targetUin,
         sendTime: first.sendTime,
         prompt: first.arkPrompt,
       });
