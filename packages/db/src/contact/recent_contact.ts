@@ -73,6 +73,26 @@ export class RecentContactDb {
     return rows.map(rowToRecentContact);
   }
 
+  /**
+   * Which of the given targetUids (40021) currently have a row in
+   * `recent_contact_v3_table` — an exact, unbounded existence check.
+   *
+   * Callers that need "is this conversation still in the recent-chats list"
+   * (e.g. hidden-session resolution, where the answer must not depend on
+   * whether the row happens to fall inside `getRecentContact`'s LIMIT 200
+   * page) must use this instead of scanning the capped list.
+   */
+  async hasTargetUids(targetUids: readonly string[]): Promise<Set<string>> {
+    const unique = [...new Set(targetUids.filter((uid) => uid))];
+    if (unique.length === 0) return new Set();
+    const placeholders = unique.map(() => '?').join(',');
+    const rows = await this.qq.query(
+      `SELECT DISTINCT "40021" FROM recent_contact_v3_table WHERE "40021" IN (${placeholders})`,
+      unique,
+    );
+    return new Set(rows.map((row) => toStr(row[0])));
+  }
+
   /** Drop the cached native connection. Call on account switch / shutdown. */
   close(): void {
     this.qq.close();

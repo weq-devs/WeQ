@@ -667,88 +667,6 @@ function groupDetailToConversation(
   };
 }
 
-/**
- * 隐藏会话（hidden_session_storage_table_v1）→ Conversation，供并入普通会话列表。
- * 该表不带 QQ 预置的显示名/头像列，所以名字走 profileByUid（同 buddy 列表的
- * 解析路径），时间/预览用后端已经查过 c2c_msg_table/group_msg_table 得到的真实
- * 值（HiddenSessionService），不会重蹈 groupDetailToConversation 曾经的排序坑。
- * chatType/targetUid 对不上已知会话类型时（3 个真实样本里出现过 1 个）后端标
- * 记 resolvable=false，这里直接跳过，不猜身份。
- */
-function hiddenSessionToConversation(
-  h: HiddenSessionWire,
-  profileByUid: Map<string, UserProfileWire>,
-  groupNameByCode: Map<string, string>,
-  user: User,
-  botUids: Set<string>,
-): Conversation | null {
-  if (!h.resolvable) return null;
-  const kind = chatTypeKind(h.chatType);
-  const nodes = previewNodes(h.preview);
-  const preview = previewNodesToText(nodes) || null;
-  const updatedAt = toIsoTime(h.sendTime);
-  const lastMessage = {
-    id: `hidden:${h.targetUid}:${h.sendTime}`,
-    senderId: h.senderUid || null,
-    senderDisplayName: null,
-    body: preview,
-    previewNodes: nodes.length ? nodes : null,
-    createdAt: updatedAt,
-  };
-
-  if (kind === 'direct') {
-    const profile = profileByUid.get(h.targetUid);
-    const title = displayProfileName(profile) || h.targetUin || h.targetUid;
-    return {
-      id: h.targetUid,
-      type: 'direct',
-      updatedAt,
-      hidden: true,
-      otherUser: {
-        id: h.targetUid,
-        identityLabel: h.targetUin && h.targetUin !== '0' ? 'QQ' : 'UID',
-        identityValue: h.targetUin && h.targetUin !== '0' ? h.targetUin : h.targetUid,
-        username: h.targetUid,
-        displayName: title,
-        kind: botUids.has(h.targetUid) ? 'bot' : 'human',
-        avatarUrl: senderAvatarSrc(h.targetUin) || profile?.avatarUrl || null,
-      },
-      group: null,
-      members: [],
-      preference: fallbackPreference,
-      unreadCount: 0,
-      lastMessage,
-      chatType: h.chatType,
-    };
-  }
-
-  if (kind === 'group') {
-    return {
-      id: h.targetUid,
-      type: 'group',
-      updatedAt,
-      hidden: true,
-      otherUser: null,
-      group: {
-        id: h.targetUid,
-        name: groupNameByCode.get(h.targetUid) || h.targetUid,
-        identityLabel: 'Group',
-        identityValue: h.targetUid,
-        avatarUrl: groupAvatarSrc(h.targetUid),
-        announcement: null,
-        memberCount: 1,
-        role: 'member',
-      },
-      members: [{ ...user, role: 'member', joinedAt: updatedAt }],
-      preference: fallbackPreference,
-      unreadCount: 0,
-      lastMessage,
-    };
-  }
-
-  return null;
-}
-
 function requestStatus(status: number): 'pending' | 'accepted' | 'rejected' | 'cancelled' {
   if (status === 2) return 'accepted';
   if (status === 13) return 'cancelled';
@@ -2078,21 +1996,43 @@ export function MainView(): ReactElement {
     }
     return map;
   }, [topContacts.data]);
+  // 群号 → 群名。隐藏会话面板（MergedSessionPanel）解析群聊显示名也要用它，
+  // 提到 conversations useMemo 外面，避免闭包内重复构建两份。
+  const groupNameByCode = useMemo(() => {
+    const groups = (allGroups.data ?? []) as GroupDetailWire[];
+    return new Map(groups.map((g) => [g.groupCode, g.groupName]));
+  }, [allGroups.data]);
   const conversations = useMemo(
     () => {
       const groups = (allGroups.data ?? []) as GroupDetailWire[];
-      const groupNameByCode = new Map(groups.map((g) => [g.groupCode, g.groupName]));
+
+      // 构建隐藏会话 uid Set：hidden_session_storage_table_v1 里有的会话需要从主列表排除
+      const hiddenList = (hiddenSessions.data ?? []) as HiddenSessionWire[];
+      const hiddenUidSet = new Set<string>();
+      for (const hidden of hiddenList) {
+        // 必须同时有 targetUid 和 targetUin（或 targetUin 为有效值）才算有效隐藏记录
+        if (hidden.targetUid && hidden.resolvable) {
+          hiddenUidSet.add(hidden.targetUid);
+        }
+      }
+
       // 只保留非 official/service 的 recent contacts（103/118 走合并会话入口）
+      // 同时排除隐藏会话：hidden_session_storage_table_v1 里有的不出现在主列表
       const recentConversations = ((contacts.data ?? []) as RecentContactWire[])
         .filter((c) => {
           const kind = classifyChatType(c.chatType);
-          return kind !== 'official' && kind !== 'service';
+          if (kind === 'official' || kind === 'service') return false;
+          // 隐藏会话：在 hidden_session_storage_table_v1 里有记录的，不出现在主列表
+          if (hiddenUidSet.has(c.targetUid)) return false;
+          return true;
         })
         .map((contact) => contactToConversation(contact, user, groupNameByCode, botUids))
         .filter((conversation): conversation is Conversation => conversation !== null);
       const byId = new Map(recentConversations.map((conversation) => [conversation.id, conversation]));
 
       for (const detail of groups) {
+        // 群也要检查：如果在 hidden_session_storage_table_v1 里，不加入主列表
+        if (hiddenUidSet.has(detail.groupCode)) continue;
         byId.set(detail.groupCode, groupDetailToConversation(detail, byId.get(detail.groupCode), user));
       }
 
@@ -2123,13 +2063,6 @@ export function MainView(): ReactElement {
           },
         };
         byId.set('merged:official', merged);
-
-        // 把每个公众号的明细也加入 conversations，供 MergedSessionPanel 过滤
-        // 但不要加入 byId，避免在主列表显示
-        for (const official of officialList) {
-          // 这些会话只在 MergedSessionPanel 中通过 conversations.filter 访问
-          // 不加入 byId，就不会出现在主会话列表
-        }
       }
 
       // 服务号合并会话：同理取最新的那条。
@@ -2159,19 +2092,17 @@ export function MainView(): ReactElement {
           },
         };
         byId.set('merged:service', merged);
-
-        // 把每个服务号的明细也加入 conversations，供 MergedSessionPanel 过滤
-        // 但不要加入 byId，避免在主列表显示
-        for (const service of serviceList) {
-          // 这些会话只在 MergedSessionPanel 中通过 conversations.filter 访问
-          // 不加入 byId，就不会出现在主会话列表
-        }
       }
 
       // 隐藏会话合并入口：至少有一个隐藏会话时，置顶显示（不展示内部预览）。
-      const hiddenList = (hiddenSessions.data ?? []) as HiddenSessionWire[];
-      if (hiddenList.length > 0) {
-        const latest = hiddenList.reduce((a, b) =>
+      // 「两表都有才算隐藏会话」这条规则已经在后端 HiddenSessionService 里用不
+      // 受分页限制的精确查询判断过了（resolvable 已经蕴含这个条件），这里不用
+      // 再拿前端这份被 listRecentContacts 截断到 200 条的列表二次校验——用它反
+      // 而会把真正命中、只是排在 200 名开外的隐藏会话又误杀掉。
+      const validHiddenList = hiddenList.filter((h) => h.resolvable);
+
+      if (validHiddenList.length > 0) {
+        const latest = validHiddenList.reduce((a, b) =>
           Number(b.sendTime) > Number(a.sendTime) ? b : a,
         );
         const updatedAt = toIsoTime(latest.sendTime);
@@ -2195,74 +2126,6 @@ export function MainView(): ReactElement {
           },
         };
         byId.set('merged:hidden', merged);
-
-        // 把每个隐藏会话的明细也加入 conversations，供 MergedSessionPanel 过滤
-        for (const hidden of hiddenList) {
-          if (!hidden.resolvable) continue;
-
-          const kind = chatTypeKind(Number(hidden.chatType));
-          const profile = profileByUid.get(hidden.targetUid);
-          const updatedAt = toIsoTime(hidden.sendTime);
-
-          if (kind === 'direct') {
-            const conv: Conversation = {
-              id: hidden.targetUid,
-              type: 'direct',
-              chatType: Number(hidden.chatType),
-              updatedAt,
-              hidden: true,
-              otherUser: {
-                id: hidden.targetUid,
-                identityLabel: hidden.targetUin && hidden.targetUin !== '0' ? 'QQ' : 'UID',
-                identityValue: hidden.targetUin && hidden.targetUin !== '0' ? hidden.targetUin : hidden.targetUid,
-                username: hidden.targetUid,
-                displayName: profile?.nick || hidden.targetUid,
-                kind: 'human',
-                avatarUrl: profile?.avatarUrl || null,
-              },
-              group: null,
-              members: [],
-              preference: fallbackPreference,
-              unreadCount: 0,
-              lastMessage: {
-                id: `hidden:${hidden.targetUid}:${hidden.sendTime}`,
-                senderId: hidden.senderUid,
-                body: null,
-                createdAt: updatedAt,
-              },
-            };
-            byId.set(hidden.targetUid, conv);
-          } else if (kind === 'group') {
-            const groupName = groupNameByCode.get(hidden.targetUid) || hidden.targetUid;
-            const conv: Conversation = {
-              id: hidden.targetUid,
-              type: 'group',
-              updatedAt,
-              hidden: true,
-              otherUser: null,
-              group: {
-                id: hidden.targetUid,
-                name: groupName,
-                identityLabel: 'Group',
-                identityValue: hidden.targetUid,
-                avatarUrl: null,
-                announcement: null,
-                memberCount: 1,
-                role: 'member',
-              },
-              members: [{ ...user, role: 'member', joinedAt: updatedAt }],
-              preference: fallbackPreference,
-              unreadCount: 0,
-              lastMessage: {
-                id: `hidden:${hidden.targetUid}:${hidden.sendTime}`,
-                senderId: hidden.senderUid,
-                body: null,
-                createdAt: updatedAt,
-              },
-            };
-            byId.set(hidden.targetUid, conv);
-          }
-        }
       }
 
       return Array.from(byId.values())
@@ -2292,7 +2155,7 @@ export function MainView(): ReactElement {
           return Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
         });
     },
-    [allGroups.data, contacts.data, officialAccounts.data, serviceAccounts.data, hiddenSessions.data, profileByUid, user, unreadByConv, highlightsByConv, topTimeByConv, botUids],
+    [allGroups.data, contacts.data, officialAccounts.data, serviceAccounts.data, hiddenSessions.data, groupNameByCode, profileByUid, user, unreadByConv, highlightsByConv, topTimeByConv, botUids],
   );
   const groupsById = useMemo(() => new Map(conversations.map((conversation) => [conversation.id, conversation])), [conversations]);
   const contactRequests = useMemo(
@@ -3552,6 +3415,8 @@ export function MainView(): ReactElement {
           <MergedSessionPanel
             kind={mergedPanel.kind}
             conversations={conversations}
+            profileByUid={profileByUid}
+            groupNameByCode={groupNameByCode}
             anchorX={mergedPanel.anchorX}
             anchorY={mergedPanel.anchorY}
             onBack={() => setMergedPanel(null)}

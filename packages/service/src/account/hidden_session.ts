@@ -7,9 +7,17 @@
  * the visible session list is to sort them correctly, so this resolves the
  * REAL last-message time/preview by querying the peer's row in
  * `c2c_msg_table`/`group_msg_table` directly, the same tables the normal
- * chat view reads. A row whose chatType/targetUid don't resolve to a real
- * conversation (observed once in 3 real samples) comes back `resolvable:
- * false` rather than a guessed identity.
+ * chat view reads.
+ *
+ * QQ's hiding is a *marker*, not a removal: the row stays in
+ * `recent_contact_v3_table` and only gets an extra entry in
+ * `hidden_session_storage_table_v1`. A conversation only counts as
+ * genuinely "hidden" (and thus `resolvable: true`) when BOTH tables agree —
+ * present in the hidden table AND still present in `recent_contact_v3_table`.
+ * That existence check goes through `RecentContactDb.hasTargetUids`, an
+ * unbounded exact lookup — NOT `getRecentContact`'s capped top-200 list,
+ * which would silently drop a long-idle hidden conversation that's fallen
+ * off the recent-chats page.
  */
 
 import type { AccountSession } from '@weq/account';
@@ -21,7 +29,7 @@ export interface HiddenSessionSummary {
   chatType: string | number;
   targetUid: string;
   targetUin: string;
-  /** False when chatType/targetUid don't resolve to an addressable conversation. */
+  /** False when chatType/targetUid don't resolve, or the row is no longer in recent_contact_v3_table. */
   resolvable: boolean;
   /** Real last-message time (unix seconds), resolved from the msg table. 0 if none found. */
   sendTime: bigint;
@@ -39,10 +47,15 @@ export class HiddenSessionService {
 
   async listHiddenSessions(): Promise<HiddenSessionSummary[]> {
     const rows = await this.session.hiddenSessions.listHiddenSessions();
-    return Promise.all(rows.map((row) => this.resolve(row)));
+    // 一次性精确查询这些 targetUid 是否还在 recent_contact_v3_table 里 ——
+    // 不受 getRecentContact 的 LIMIT 200 影响,避免久未活跃的隐藏会话被漏判。
+    const inRecentSet = await this.session.recentContacts.hasTargetUids(
+      rows.map((row) => row.targetUid),
+    );
+    return Promise.all(rows.map((row) => this.resolve(row, inRecentSet)));
   }
 
-  private async resolve(row: HiddenSession): Promise<HiddenSessionSummary> {
+  private async resolve(row: HiddenSession, inRecentSet: Set<string>): Promise<HiddenSessionSummary> {
     const base = {
       storageKey: row.storageKey,
       chatType: row.chatType,
@@ -50,11 +63,14 @@ export class HiddenSessionService {
       targetUin: row.targetUin,
     };
 
-    if (row.chatType === 'KCHATTYPEC2C' && UID_PATTERN.test(row.targetUid)) {
+    // 有效条件：targetUid 必须存在且符合格式（targetUin 可选），并且这条会话
+    // 仍然在 recent_contact_v3_table 里 —— 两表都有才算真正「隐藏的会话」。
+    const inRecent = inRecentSet.has(row.targetUid);
+    if (row.chatType === 'KCHATTYPEC2C' && UID_PATTERN.test(row.targetUid) && inRecent) {
       const [latest] = await this.session.c2cMsgs.listLatest({ uid: row.targetUid }, 1);
       return { ...base, resolvable: true, ...summarizeLatest(latest) };
     }
-    if (row.chatType === 'KCHATTYPEGROUP' && GROUP_CODE_PATTERN.test(row.targetUid)) {
+    if (row.chatType === 'KCHATTYPEGROUP' && GROUP_CODE_PATTERN.test(row.targetUid) && inRecent) {
       const [latest] = await this.session.groupMsgs.listLatest(row.targetUid, 1);
       return { ...base, resolvable: true, ...summarizeLatest(latest) };
     }

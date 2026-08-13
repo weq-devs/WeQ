@@ -1,8 +1,18 @@
 import { X, EyeOff } from 'lucide-react';
 import { useMemo, useEffect, useRef, useState } from 'react';
+import { classifyChatType } from '@weq/codec';
 import { Avatar } from '../../im-template/template/primitives';
 import type { Conversation, MergedKind } from '../../im-template/template/types';
 import { trpc } from '../../trpc/client';
+
+/** 隐藏会话昵称/头像解析用的最小 profile 形状（与 MainView 的 UserProfileWire 对齐）。 */
+interface HiddenProfileLike {
+  nick?: string;
+  remark?: string;
+  qid?: string;
+  uin?: string;
+  avatarUrl?: string;
+}
 
 interface MergedSessionPanelProps {
   kind: MergedKind;
@@ -11,11 +21,19 @@ interface MergedSessionPanelProps {
   anchorY: number;
   onBack: () => void;
   onSelectConversation: (conv: Conversation) => void;
+  /** uid → profile，用于隐藏单聊会话解析昵称/头像（该表不带 QQ 预置的显示名列）。 */
+  profileByUid?: Map<string, HiddenProfileLike>;
+  /** 群号 → 群名，用于隐藏群聊会话解析名称。 */
+  groupNameByCode?: Map<string, string>;
 }
 
 function senderAvatarSrc(uin: string): string | null {
   if (!uin || uin === '0') return null;
   return `https://thirdqq.qlogo.cn/g?b=sdk&s=0&nk=${uin}`;
+}
+
+function groupAvatarSrc(groupCode: string): string | null {
+  return groupCode ? `https://p.qlogo.cn/gh/${groupCode}/${groupCode}/0` : null;
 }
 
 function toIsoTime(seconds: string | undefined): string {
@@ -31,6 +49,8 @@ export function MergedSessionPanel({
   anchorY,
   onBack,
   onSelectConversation,
+  profileByUid,
+  groupNameByCode,
 }: MergedSessionPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ x: anchorX, y: anchorY });
@@ -97,9 +117,91 @@ export function MergedSessionPanel({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onBack]);
 
+  // 获取隐藏会话原始数据
+  const hiddenSessions = trpc.account.listHiddenSessions.useQuery(undefined, {
+    enabled: kind === 'hidden',
+  });
+
   const filtered = useMemo(() => {
     if (kind === 'hidden') {
-      return conversations.filter((c) => 'hidden' in c && c.hidden === true);
+      // 直接从 hiddenSessions 数据构建会话列表。「两表都有才算隐藏会话」的判断
+      // 已经在后端 HiddenSessionService 里用不受分页限制的精确查询做过了 ——
+      // resolvable=true 就已经蕴含「hidden_session_storage_table_v1 和
+      // recent_contact_v3_table 两表都有这条记录」，这里不用再判一次。
+      if (!hiddenSessions.data) return [];
+      return hiddenSessions.data
+        .filter((hidden: any) => hidden.resolvable && hidden.targetUid)
+        .map((hidden: any) => {
+          // chatType 是枚举名字符串（如 "KCHATTYPEGROUP"），不是数字 —— 必须走
+          // classifyChatType 判定，不能拿 typeof === 'number' 硬判，否则群聊永远
+          // 落进单聊分支，头像/身份全部判错。
+          const isGroup = classifyChatType(hidden.chatType) === 'group';
+
+          if (isGroup) {
+            const groupName = groupNameByCode?.get(hidden.targetUid) || hidden.targetUid;
+            return {
+              id: hidden.targetUid,
+              type: 'group' as const,
+              chatType: 2,
+              updatedAt: toIsoTime(hidden.sendTime),
+              otherUser: null,
+              group: {
+                id: hidden.targetUid,
+                name: groupName,
+                identityLabel: 'Group' as const,
+                identityValue: hidden.targetUid,
+                avatarUrl: groupAvatarSrc(hidden.targetUid),
+                announcement: null,
+                memberCount: 1,
+                role: 'member' as const,
+              },
+              members: [],
+              preference: { pinned: false, muted: false, blocked: false },
+              unreadCount: 0,
+              lastMessage: {
+                id: `hidden:${hidden.targetUid}:${hidden.sendTime}`,
+                senderId: hidden.senderUid,
+                body: '', // 后端已解析 preview，但这里暂时留空
+                createdAt: toIsoTime(hidden.sendTime),
+              },
+            };
+          }
+
+          const profile = profileByUid?.get(hidden.targetUid);
+          const displayName =
+            profile?.remark || profile?.nick || profile?.qid ||
+            (hidden.targetUin && hidden.targetUin !== '0' ? hidden.targetUin : hidden.targetUid);
+          const avatarUrl =
+            (hidden.targetUin && hidden.targetUin !== '0' ? senderAvatarSrc(hidden.targetUin) : null) ||
+            profile?.avatarUrl ||
+            null;
+
+          return {
+            id: hidden.targetUid,
+            type: 'direct' as const,
+            chatType: 1,
+            updatedAt: toIsoTime(hidden.sendTime),
+            otherUser: {
+              id: hidden.targetUid,
+              identityLabel: (hidden.targetUin && hidden.targetUin !== '0' ? 'QQ' : 'UID') as 'QQ' | 'UID',
+              identityValue: hidden.targetUin && hidden.targetUin !== '0' ? hidden.targetUin : hidden.targetUid,
+              username: hidden.targetUid,
+              displayName,
+              kind: 'human' as const,
+              avatarUrl,
+            },
+            group: null,
+            members: [],
+            preference: { pinned: false, muted: false, blocked: false },
+            unreadCount: 0,
+            lastMessage: {
+              id: `hidden:${hidden.targetUid}:${hidden.sendTime}`,
+              senderId: hidden.senderUid,
+              body: '', // 后端已解析 preview，但这里暂时留空
+              createdAt: toIsoTime(hidden.sendTime),
+            },
+          };
+        });
     }
     if (kind === 'official') {
       // 从 officialAccounts 数据构建会话列表
@@ -165,7 +267,7 @@ export function MergedSessionPanel({
       }));
     }
     return [];
-  }, [kind, conversations, officialAccounts.data, serviceAccounts.data]);
+  }, [kind, hiddenSessions.data, officialAccounts.data, serviceAccounts.data, profileByUid, groupNameByCode]);
 
   const sortedThreads = useMemo(
     () =>
@@ -206,17 +308,9 @@ export function MergedSessionPanel({
                 })
               : '';
             const name =
-              conv.type === 'group'
-                ? conv.group?.name
-                : conv.type === 'direct'
-                  ? conv.otherUser?.displayName
-                  : conv.id;
+              conv.type === 'group' ? conv.group?.name : conv.otherUser?.displayName;
             const avatarUrl =
-              conv.type === 'group'
-                ? conv.group?.avatarUrl
-                : conv.type === 'direct'
-                  ? conv.otherUser?.avatarUrl
-                  : null;
+              conv.type === 'group' ? conv.group?.avatarUrl : conv.otherUser?.avatarUrl;
             const seed = conv.type === 'direct' ? conv.otherUser?.identityValue : conv.id;
 
             return (
@@ -239,7 +333,7 @@ export function MergedSessionPanel({
                     <div className="weq-merged-popover-item-preview">{preview}</div>
                   )}
                 </div>
-                {kind === 'hidden' && 'hidden' in conv && conv.hidden && (
+                {kind === 'hidden' && (
                   <EyeOff size={14} className="weq-merged-popover-item-badge" />
                 )}
               </button>
