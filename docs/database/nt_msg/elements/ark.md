@@ -7,6 +7,9 @@ ARK 是 QQ 的结构化卡片消息：分享链接、小程序、群公告卡、
 
 wire 层极其简单——**只有三个字段**，真正的内容全在一段 JSON 字符串里。
 
+**渲染支持**：WeQ 已支持 **21 个** `app` 类型的精确渲染，覆盖官方资源包里的常见卡片。
+详见 `apps/desktop/src/renderer/src/components/ark/` 里的 `arkCards.ts` / `QqArk.tsx`。
+
 ---
 
 ## 一、字段
@@ -128,13 +131,14 @@ WeQ 的判别式是 `app`（如 `com.tencent.structmsg`）而不是 `view`——
 `slots` 是在其之上自动归一化出的语义槽位（长尾 app 的兜底）；
 常见 app 的权威槽位在 `arkCards.ts` 里手写覆盖。
 
-### 已收录的 16 个 app
+### 已收录的 18 个 app
 
 `defaultMetaKey` 是 payload 的 `meta` 里没有任何已知变体时的兜底选择。
 
 | app | 默认 metaKey | 变体 |
 | --- | ------------ | ---- |
 | `com.tencent.contact.lua` | contact | contact |
+| `com.tencent.gamecenter.mall` | template3 | template3 |
 | `com.tencent.miniapp.lua` | miniapp | miniapp |
 | `com.tencent.mobileqq.cardshare` | contact | contact |
 | `com.tencent.music.lua` | music | music |
@@ -144,6 +148,7 @@ WeQ 的判别式是 `app`（如 `com.tencent.structmsg`）而不是 `view`——
 | `com.tencent.qun.invite` | pic | pic, news, music, video, contact, messages, miniapp |
 | `com.tencent.structmsg` | news | news, music, video, contact, messages |
 | `com.tencent.tdoc.qqpush` | pic | pic, news, music, video, contact, messages, miniapp |
+| `com.tencent.template.public` | mail | mail, singlePic |
 | `com.tencent.template.qqfavorite.share` | news | news |
 | `com.tencent.tianxuan.share` | pic | pic, news, music, video, contact, messages, miniapp |
 | `com.tencent.together` | invite | invite |
@@ -166,6 +171,7 @@ WeQ 的判别式是 `app`（如 `com.tencent.structmsg`）而不是 `view`——
    | `com.tencent.music.lua` | news |
    | `com.tencent.tuwen.lua` | news |
    | `com.tencent.together` | mediaBlock |
+   | `com.tencent.gamecenter.mall` | appBlock |
 
 2. **`METAKEY_LAYOUT`** — 多模板分享类 app（structmsg / troopsharecard / …）按变体名推断：
 
@@ -175,6 +181,8 @@ WeQ 的判别式是 `app`（如 `com.tencent.structmsg`）而不是 `view`——
    | contact / transfercontact | contact |
    | miniapp | appBlock |
    | invite | mediaBlock |
+   | mail | news |
+   | singlePic | appBlock |
 
 3. 两张表都没命中 → `generic`（仍然带槽位值，好过纯猜）。
 

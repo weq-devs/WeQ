@@ -15,7 +15,7 @@ type ContextMenuState = {
   y: number;
 };
 
-export function ArkFeedView({ conversationId, title, onBack }: ArkFeedViewProps) {
+export function ArkFeedView({ conversationId, title, onBack, onEditMessage }: ArkFeedViewProps & { onEditMessage?: (msgId: string) => void }) {
   const [messages, setMessages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -45,11 +45,23 @@ export function ArkFeedView({ conversationId, title, onBack }: ArkFeedViewProps)
   }, [isOfficial, isService, officialFeed.data, officialFeed.isLoading, serviceFeed.data, serviceFeed.isLoading]);
 
   const arkMessages = useMemo(() => {
-    return messages.filter((msg) => {
+    const filtered = messages.filter((msg) => {
       const elements = msg.elements || [];
       return elements.some((el: any) => el.type === 'ark');
     });
+    // 反转顺序：最新的消息在最下面
+    return filtered.reverse();
   }, [messages]);
+
+  // 进入会话时滚动到底部（最新消息）
+  useEffect(() => {
+    if (!loading && arkMessages.length > 0) {
+      const feedBody = document.querySelector('.weq-ark-feed-body');
+      if (feedBody) {
+        feedBody.scrollTop = feedBody.scrollHeight;
+      }
+    }
+  }, [loading, arkMessages.length]);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -78,8 +90,9 @@ export function ArkFeedView({ conversationId, title, onBack }: ArkFeedViewProps)
 
   function handleEditMessage(message: any) {
     setContextMenu(null);
-    // 调用主窗口的编辑消息功能
-    window.api?.openEditMessage?.(message.msgId);
+    if (onEditMessage) {
+      onEditMessage(message.msgId);
+    }
   }
 
   return (
@@ -115,8 +128,8 @@ export function ArkFeedView({ conversationId, title, onBack }: ArkFeedViewProps)
                 className="weq-ark-feed-item"
                 onContextMenu={(e) => openMessageMenu(e, msg)}
               >
-                <QqArk arkData={arkElement.data?.arkData} />
                 <div className="weq-ark-feed-time">{timeStr}</div>
+                <QqArk arkData={arkElement.data?.arkData} />
               </div>
             );
           })

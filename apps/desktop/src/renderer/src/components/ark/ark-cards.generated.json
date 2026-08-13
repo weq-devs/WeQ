@@ -898,5 +898,106 @@
         }
       }
     }
+  },
+  "com.tencent.gamecenter.mall": {
+    "defaultMetaKey": "template3",
+    "variants": {
+      "template3": {
+        "jump": "url",
+        "slots": {
+          "title": "title",
+          "desc": "contentText",
+          "cover": "coverUrl"
+        },
+        "bindings": {
+          "title": "title",
+          "contentText": "contentText",
+          "coverUrl": "coverUrl",
+          "url": "url"
+        }
+      }
+    }
+  },
+  "com.tencent.template.public": {
+    "defaultMetaKey": "mail",
+    "variants": {
+      "mail": {
+        "jump": "mailUrl",
+        "slots": {
+          "title": "title",
+          "desc": "subTitle",
+          "summary": "content"
+        },
+        "bindings": {
+          "title": "title",
+          "subTitle": "subTitle",
+          "content": "content",
+          "mailUrl": "mailUrl",
+          "mailUrlByCode": "mailUrlByCode"
+        }
+      },
+      "singlePic": {
+        "jump": "bannerUrl",
+        "slots": {
+          "cover": "banner",
+          "desc": "label1"
+        },
+        "bindings": {
+          "banner": "banner",
+          "bannerUrl": "bannerUrl",
+          "label1": "label1",
+          "text1": "text1"
+        }
+      },
+      "multiPic": {
+        "jump": "bannerUrl",
+        "slots": {
+          "cover": "banner",
+          "title": "bannerText"
+        },
+        "bindings": {
+          "banner": "banner",
+          "bannerUrl": "bannerUrl",
+          "bannerText": "bannerText"
+        }
+      }
+    }
+  },
+  "com.tencent.qianbao": {
+    "defaultMetaKey": "message",
+    "variants": {
+      "message": {
+        "jump": null,
+        "slots": {
+          "title": "title",
+          "desc": "content"
+        },
+        "bindings": {
+          "title": "title",
+          "content": "content",
+          "informationList": "informationList"
+        }
+      }
+    }
+  },
+  "com.tencent.qqvip.public": {
+    "defaultMetaKey": "singlepic",
+    "variants": {
+      "singlepic": {
+        "jump": "DATA8",
+        "slots": {
+          "cover": "DATA7",
+          "desc": "DATA9",
+          "button": "DATA10"
+        },
+        "bindings": {
+          "DATA7": "DATA7",
+          "DATA8": "DATA8",
+          "DATA9": "DATA9",
+          "DATA10": "DATA10",
+          "DATA11": "DATA11"
+        }
+      }
+    }
   }
 }

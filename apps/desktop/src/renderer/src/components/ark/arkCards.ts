@@ -56,6 +56,7 @@ const APP_LAYOUT: Record<string, LayoutKind> = {
   'com.tencent.music.lua': 'news',
   'com.tencent.tuwen.lua': 'news',
   'com.tencent.together': 'mediaBlock',
+  'com.tencent.gamecenter.mall': 'appBlock',
 };
 
 /** 多模板分享 app：按 metaKey（变体名）决定布局。 */
@@ -69,6 +70,10 @@ const METAKEY_LAYOUT: Record<string, LayoutKind> = {
   transfercontact: 'contact',
   miniapp: 'appBlock',
   invite: 'mediaBlock',
+  mail: 'news',
+  singlePic: 'appBlock',
+  multiPic: 'appBlock',
+  singlepic: 'appBlock',
 };
 
 function str(v: unknown): string {

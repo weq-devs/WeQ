@@ -7,14 +7,19 @@
  * 布局组件。已知常见卡精确渲染，未知/长尾卡走 generic（带槽位值，仍优于纯猜；再无
  * 槽位则退回启发式，保证不白屏）。
  *
- * 两个特例保留独立分支（不走通用槽位）：
+ * 六个特例保留独立分支（不走通用槽位）：
  *   - 群公告 com.tencent.mannounce：title/text 为 base64、无图片素材。
+ *   - 群活动 com.tencent.activity.md：带状态标签 + 按钮。
+ *   - QQ邮箱 com.tencent.template.public (mail)：title/subTitle/content 三段式显示。
+ *   - 单图广告 com.tencent.template.public (singlePic)：大图 + 多行 label 叠加。
+ *   - 安全提醒 com.tencent.security.message：设备风险警告 + 详情字段 + 底部链接。
+ *   - QQ钱包 com.tencent.qianbao：title + content + informationList 标签对列表。
  *   - 位置分享 (lat/lng)：走 QQ 位置服务静态图（见 LocationCard，MAP_KEY 取自 QQ
  *     自己的 com.tencent.map 包），远程图统一走 weq-avatar:// 磁盘缓存。
  */
 
 import { useMemo, type ReactElement, type ReactNode } from 'react';
-import { MapPin, Megaphone } from 'lucide-react';
+import { MapPin, Megaphone, ShieldAlert } from 'lucide-react';
 import { cachedAvatarUrl } from '../../lib/avatarCache';
 import { resolveArkCard, type ArkValues } from './arkCards';
 
@@ -216,6 +221,207 @@ function GenericCard({
     );
   }
   return <HeuristicCard p={payload} prompt={prompt} />;
+}
+
+// ---- QQ邮箱通知卡 (com.tencent.template.public / view: mail) ----------------
+
+/**
+ * QQ邮箱通知卡。显示 title（发件人）、subTitle（邮件主题）、content（正文预览）。
+ */
+function ArkMail({ p }: { p: ArkPayload }): ReactElement {
+  const title = s(p, 'title');
+  const subTitle = s(p, 'subTitle');
+  const content = s(p, 'content');
+  const jumpUrl = s(p, 'mailUrl') || s(p, 'mailUrlByCode') || undefined;
+
+  return (
+    <ArkShell jump={jumpUrl}>
+      {title ? <div className="weq-ark-title">{title}</div> : null}
+      {subTitle ? <div className="weq-ark-desc" style={{ fontWeight: 500, marginBottom: 6 }}>{subTitle}</div> : null}
+      {content ? <div className="weq-ark-desc" style={{ color: '#8c8c8c' }}>{content}</div> : null}
+    </ArkShell>
+  );
+}
+
+// ---- 单图广告卡 (com.tencent.template.public / view: singlePic) -------------
+
+/**
+ * 单图广告卡。通栏大图 + 下方叠加多行文本标签（label1, label2, ...）。
+ */
+function ArkSinglePic({ p }: { p: ArkPayload }): ReactElement {
+  const banner = s(p, 'banner');
+  const bannerUrl = s(p, 'bannerUrl') || undefined;
+
+  // 收集 singlePicItems 数组里的 label1/text1 等（如果有多个项）
+  const items = (p.singlePicItems as Array<Record<string, unknown>> | undefined) || [];
+  const labels: string[] = [];
+
+  // 优先从数组项提取
+  for (const item of items) {
+    const label = s(item, 'label1') || s(item, 'text1');
+    if (label) labels.push(label);
+  }
+
+  // 兜底：直接从 p 里取 label1, label2, label3...
+  if (labels.length === 0) {
+    for (let i = 1; i <= 5; i++) {
+      const label = s(p, `label${i}`);
+      if (label) labels.push(label);
+    }
+  }
+
+  // 如果 banner 和 labels 都为空，至少显示 prompt
+  const hasContent = banner || labels.length > 0;
+
+  return (
+    <ArkShell jump={bannerUrl}>
+      {banner ? <img className="weq-ark-preview-big" src={arkImg(banner)} alt="" loading="lazy" /> : null}
+      {labels.length > 0 ? (
+        <div style={{ marginTop: banner ? 8 : 0 }}>
+          {labels.map((label, idx) => (
+            <div key={idx} className="weq-ark-desc" style={{ marginBottom: idx < labels.length - 1 ? 4 : 0 }}>
+              {label}
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {!hasContent && p.prompt ? <div className="weq-ark-desc">{String(p.prompt)}</div> : undefined}
+    </ArkShell>
+  );
+}
+
+// ---- 安全提醒卡 (com.tencent.security.message / view: message) -------------
+
+/**
+ * 安全提醒卡。显示设备风险警告：顶部文字 + 多个详情字段（detail_title/content）+ 底部链接。
+ */
+function ArkSecurityMessage({ p }: { p: ArkPayload }): ReactElement {
+  const title = s(p, 'title');
+  const topText = s(p, 'topText');
+  const headerIcon = s(p, 'headerIcon') || undefined;
+  const details = (p.details as Array<Record<string, unknown>> | undefined) || [];
+  const links = (p.links as Array<Record<string, unknown>> | undefined) || [];
+
+  // 收集所有有效的详情字段（detail_title1/content1, detail_title2/content2, ...）
+  const detailItems: Array<{ title: string; content: string; color?: string }> = [];
+  for (const detail of details) {
+    // 尝试 detail_title1/content1, detail_title2/content2, ... 直到找不到
+    for (let i = 1; i <= 7; i++) {
+      const detailTitle = s(detail, `detail_title${i}`);
+      const detailContent = s(detail, `detail_content${i}`);
+      const detailColor = s(detail, `detail_color${i}`) || undefined;
+      if (detailTitle || detailContent) {
+        detailItems.push({ title: detailTitle, content: detailContent, color: detailColor });
+      }
+    }
+  }
+
+  // 收集底部链接（link_title1/url1, link_title2/url2, ...）
+  const linkItems: Array<{ title: string; url: string }> = [];
+  for (const link of links) {
+    for (let i = 1; i <= 5; i++) {
+      const linkTitle = s(link, `link_title${i}`);
+      const linkUrl = s(link, `link_url${i}`);
+      if (linkTitle && linkUrl) {
+        linkItems.push({ title: linkTitle, url: linkUrl });
+      }
+    }
+  }
+
+  return (
+    <div className="weq-ark-container weq-ark-security">
+      <div className="weq-ark-content">
+        {/* 头部：图标 + 标题 */}
+        <div className="weq-ark-header" style={{ marginBottom: 8 }}>
+          {headerIcon ? (
+            <img className="weq-ark-icon-app" src={arkImg(headerIcon)} alt="" loading="lazy" />
+          ) : (
+            <ShieldAlert className="weq-ark-security-icon" size={16} strokeWidth={2.2} />
+          )}
+          <span style={{ fontWeight: 600 }}>{title || '安全提醒'}</span>
+        </div>
+
+        {/* 顶部警告文字 */}
+        {topText ? (
+          <div className="weq-ark-desc" style={{ marginBottom: 12, lineHeight: 1.5 }}>
+            {topText}
+          </div>
+        ) : null}
+
+        {/* 详情字段列表 */}
+        {detailItems.length > 0 ? (
+          <div style={{ marginBottom: 12 }}>
+            {detailItems.map((item, idx) => (
+              <div key={idx} style={{ marginBottom: 8 }}>
+                {item.title ? (
+                  <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 2 }}>{item.title}</div>
+                ) : null}
+                {item.content ? (
+                  <div style={{ fontSize: 14, color: item.color || '#000', fontWeight: 500 }}>{item.content}</div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {/* 底部链接 */}
+        {linkItems.length > 0 ? (
+          <div style={{ borderTop: '1px solid #e8e8e8', paddingTop: 8 }}>
+            {linkItems.map((link, idx) => (
+              <div
+                key={idx}
+                style={{
+                  color: '#1677ff',
+                  fontSize: 14,
+                  cursor: 'pointer',
+                  marginBottom: idx < linkItems.length - 1 ? 6 : 0,
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  window.open(link.url, '_blank');
+                }}
+              >
+                {link.title}
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+// ---- QQ钱包通知卡 (com.tencent.qianbao / view: genericMessageView) ----------
+
+/**
+ * QQ钱包通知卡。显示 title + content + informationList（标签-文本对列表）。
+ */
+function ArkQianBaoMessage({ p }: { p: ArkPayload }): ReactElement {
+  const title = s(p, 'title');
+  const content = s(p, 'content');
+  const informationList = (p.informationList as Array<Record<string, unknown>> | undefined) || [];
+
+  return (
+    <ArkShell>
+      {title ? <div className="weq-ark-title">{title}</div> : null}
+      {content ? <div className="weq-ark-desc" style={{ marginBottom: informationList.length > 0 ? 12 : 0 }}>{content}</div> : null}
+      {informationList.length > 0 ? (
+        <div style={{ borderTop: '1px solid #e8e8e8', paddingTop: 8 }}>
+          {informationList.map((item, idx) => {
+            const label = s(item, 'label');
+            const text = s(item, 'text');
+            if (!label && !text) return null;
+            return (
+              <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ fontSize: 13, color: '#8c8c8c' }}>{label}</span>
+                <span style={{ fontSize: 13, color: '#000' }}>{text}</span>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </ArkShell>
+  );
 }
 
 // ---- 群报名/活动卡 (com.tencent.activity.md) --------------------------------
@@ -420,7 +626,19 @@ export function QqArk({ arkData }: { arkData: unknown }): ReactElement | null {
   // 特例2：群报名/活动。
   if (app === 'com.tencent.activity.md') return <ArkActivity p={p} />;
 
-  // 特例2：位置分享（任何带 lat/lng 的卡都走静态地图）。
+  // 特例3：QQ邮箱通知 (view: mail)。
+  if (app === 'com.tencent.template.public' && firstKey === 'mail') return <ArkMail p={p} />;
+
+  // 特例4：单图广告 (view: singlePic)。
+  if (app === 'com.tencent.template.public' && firstKey === 'singlePic') return <ArkSinglePic p={p} />;
+
+  // 特例5：安全提醒卡。
+  if (app === 'com.tencent.security.message') return <ArkSecurityMessage p={p} />;
+
+  // 特例6：QQ钱包通知卡。
+  if (app === 'com.tencent.qianbao') return <ArkQianBaoMessage p={p} />;
+
+  // 特例7：位置分享（任何带 lat/lng 的卡都走静态地图）。
   const lat = s(p, 'lat');
   const lng = s(p, 'lng');
   if (lat && lng) {

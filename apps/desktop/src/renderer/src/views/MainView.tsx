@@ -2339,6 +2339,9 @@ export function MainView(): ReactElement {
 
   const handleSelectConversation = useCallback(
     (conversationId: string, event?: React.MouseEvent) => {
+      // 如果正在查看 ARK Feed，先关闭它
+      setArkFeedState(null);
+
       const conv = conversations.find((c) => c.id === conversationId);
       if (conv?.type === 'merged') {
         const x = event?.clientX ?? window.innerWidth / 2;
@@ -3437,9 +3440,16 @@ export function MainView(): ReactElement {
               title={arkFeedState.title}
               onBack={() => {
                 setArkFeedState(null);
-                const x = window.innerWidth / 2;
-                const y = window.innerHeight / 2;
-                setMergedPanel({ kind: arkFeedState.kind, anchorX: x, anchorY: y });
+              }}
+              onEditMessage={async (msgId: string) => {
+                try {
+                  const result = await client.account.getRawElements.query({ msgId });
+                  if (result) {
+                    setEditorState({ msgId, elements: result.elements });
+                  }
+                } catch (e) {
+                  console.error('[MainView] Failed to fetch raw elements:', e);
+                }
               }}
             />
           ) : shell.view === 'home' ? (
@@ -3459,6 +3469,16 @@ export function MainView(): ReactElement {
               conversationId={activeConversation.id}
               title={activeConversation.title}
               onBack={shell.backConversation}
+              onEditMessage={async (msgId: string) => {
+                try {
+                  const result = await client.account.getRawElements.query({ msgId });
+                  if (result) {
+                    setEditorState({ msgId, elements: result.elements });
+                  }
+                } catch (e) {
+                  console.error('[MainView] Failed to fetch raw elements:', e);
+                }
+              }}
             />
           ) : (
           <div className="weq-template-main-wrap">
