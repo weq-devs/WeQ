@@ -18,7 +18,7 @@ import type { RenderElement } from '../msg_view';
 export type ExportFormat = 'json' | 'jsonl' | 'txt' | 'csv' | 'xlsx' | 'html' | 'vcard';
 
 /** Conversation kind an export targets. */
-export type ConvKind = 'group' | 'c2c';
+export type ConvKind = 'group' | 'c2c' | 'service' | 'official';
 
 /**
  * Inclusive send-time window for an export, in unix *seconds*. `null` on either

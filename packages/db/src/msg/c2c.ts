@@ -40,14 +40,17 @@ const ORDER_OLDEST_FIRST = `ORDER BY "40003" ASC, "40050" ASC, "40001" ASC`;
 /**
  * Which partition column to filter a c2c conversation by. Prefer `sortNo`
  * (column 40027 — indexed); `uid` (column 40021 — unindexed) is the fallback
- * for peers missing from the uid map.
+ * for peers missing from the uid map. `appId` (column 40035) is for
+ * `service_assistant_msg_table` reuse — that table has no per-peer uid (40020/
+ * 40021 are both always the account's own uid), so its conversations partition
+ * by the numeric service/app id instead.
  */
-export type C2cPartition = { sortNo: bigint } | { uid: string };
+export type C2cPartition = { sortNo: bigint } | { uid: string } | { appId: bigint };
 
 export function partitionWhere(part: C2cPartition): { clause: string; value: SqlValue } {
-  return 'sortNo' in part
-    ? { clause: '"40027" = ?', value: part.sortNo }
-    : { clause: '"40021" = ?', value: part.uid };
+  if ('sortNo' in part) return { clause: '"40027" = ?', value: part.sortNo };
+  if ('appId' in part) return { clause: '"40035" = ?', value: part.appId };
+  return { clause: '"40021" = ?', value: part.uid };
 }
 
 export interface C2cMsgDbOptions {

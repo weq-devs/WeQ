@@ -66,6 +66,8 @@ import {
   recentContactToWire,
   recentContactTopToWire,
   hiddenSessionToWire,
+  officialAccountSummaryToWire,
+  serviceAccountSummaryToWire,
   userProfileToWire,
   groupDetailToWire,
   groupEssenceToWire,
@@ -1330,6 +1332,39 @@ export const accountRouter = router({
     const hidden = await requireServices().hiddenSessions.listHiddenSessions();
     return hidden.map(hiddenSessionToWire);
   }),
+
+  /**
+   * 官方号会话列表（chatType=103）—— 仅 ARK 消息,按最新消息时间排序。
+   */
+  listOfficialAccounts: procedure.query(async () => {
+    const summaries = await requireServices().officialAccount.listAccounts();
+    return summaries.map(officialAccountSummaryToWire);
+  }),
+
+  /**
+   * 服务号会话列表（chatType=118，service_assistant_contact 表）—— 仅 ARK 消息，
+   * 按最新消息时间排序。
+   */
+  listServiceAccounts: procedure.query(async () => {
+    const summaries = await requireServices().serviceAccount.listAccounts();
+    return summaries.map(serviceAccountSummaryToWire);
+  }),
+
+  /** 公众号单个会话 ARK 消息流（最近 limit 条）。 */
+  listOfficialAccountArkFeed: procedure
+    .input(z.object({ peerUid: z.string().min(1), limit: z.number().int().min(1).max(500).default(100) }))
+    .query(async ({ input }) => {
+      const msgs = await requireServices().officialAccount.listArkFeed(input.peerUid, input.limit);
+      return msgs.map(c2cMsgToWire);
+    }),
+
+  /** 服务号单个会话 ARK 消息流（最近 limit 条）。 */
+  listServiceAccountArkFeed: procedure
+    .input(z.object({ appId: z.string().min(1), limit: z.number().int().min(1).max(500).default(100) }))
+    .query(async ({ input }) => {
+      const msgs = await requireServices().serviceAccount.listArkFeed(BigInt(input.appId), input.limit);
+      return msgs.map(c2cMsgToWire);
+    }),
 
   /** 首页门面：随机一言若干（打字机轮播用；已按句长筛过）。 */
   sampleHitokoto: procedure

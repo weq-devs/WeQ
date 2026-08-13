@@ -193,7 +193,28 @@ export type GroupConversation = ConversationBase & {
 	members: GroupMember[];
 };
 
-export type Conversation = DirectConversation | GroupConversation;
+export type Conversation = DirectConversation | GroupConversation | MergedConversation;
+
+export type MergedKind = "service" | "official" | "hidden";
+
+export type MergedConversation = ConversationBase & {
+	type: "merged";
+	/** "service" = 服务号 (chatType 118); "official" = 公众号 (chatType 103); "hidden" = 隐藏会话聚合. */
+	mergedKind: MergedKind;
+	/** Human-readable title ("服务号" / "公众号" / "隐藏会话"). */
+	title: string;
+	/** Representative avatar URL (first sub-conversation's avatar). */
+	avatarUrl: string | null;
+	otherUser: null;
+	group: null;
+	members: [];
+};
+
+/** 合并会话面板的状态（当前打开哪个合并会话的二级列表）。 */
+export type MergedPanelState = {
+	kind: MergedKind;
+	threadId: string | null;
+} | null;
 
 export type MessageAction = {
 	id: string;

@@ -13,7 +13,7 @@
  */
 
 import type { MsgService, RenderGroupMsg, RenderC2cMsg } from '../msg';
-import { iterateGroupMessages, iterateC2cMessages } from './message_source';
+import { iterateGroupMessages, iterateC2cMessages, iterateOfficialMessages, iterateServiceMessages } from './message_source';
 import type { ConvKind, ExportedMessage, ExportTimeRange } from './types';
 
 /** A resolved group member (the fields the structured exporters need). */
@@ -68,9 +68,16 @@ export function iterateConv(
   conv: string,
   range?: ExportTimeRange,
 ): AsyncGenerator<RenderGroupMsg | RenderC2cMsg> {
-  return kind === 'group'
-    ? iterateGroupMessages(msgs, conv, { pageSize: 2000, range })
-    : iterateC2cMessages(msgs, conv, { pageSize: 2000, range });
+  if (kind === 'group') {
+    return iterateGroupMessages(msgs, conv, { pageSize: 2000, range });
+  }
+  if (kind === 'official') {
+    return iterateOfficialMessages(msgs, conv, { pageSize: 2000, range });
+  }
+  if (kind === 'service') {
+    return iterateServiceMessages(msgs, conv, { pageSize: 2000, range });
+  }
+  return iterateC2cMessages(msgs, conv, { pageSize: 2000, range });
 }
 
 /**

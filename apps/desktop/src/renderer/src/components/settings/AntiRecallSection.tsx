@@ -32,7 +32,7 @@ import { Card, Row, SectionHeader, Toggle } from './controls';
 import { ConversationPicker } from '../../views/export/ConversationPicker';
 import { convAvatarUrl, fmtCount, type PickItem } from '../../views/export/types';
 import { isDataline, deviceAvatarDataUri } from '../../lib/deviceAvatar';
-import { datalineName } from '@weq/codec';
+import { classifyChatType, datalineName } from '@weq/codec';
 
 /** 触发器过滤所用的会话类型（与后端 AntiRecallKind 对齐）。 */
 type AntiRecallKind = 'c2c' | 'group' | 'dataline';
@@ -72,11 +72,11 @@ interface ConvWire {
  * 怎么说都归 c2c/dataline（走 40021）；只有纯数字 id 且 chatType 含 GROUP 才是真群。
  */
 function kindOf(chatType: string | number, id: string): AntiRecallKind {
-  const t = String(chatType);
-  if (t.includes('DATALINE')) return 'dataline';
+  const kind = classifyChatType(chatType);
+  if (kind === 'dataline') return 'dataline';
   // `u_` 开头 = uid（私聊/临时会话/数据线），绝不是群号 → 用 40021 过滤。
   if (id.startsWith('u_')) return 'c2c';
-  if (t.includes('GROUP')) return 'group';
+  if (kind === 'group') return 'group';
   return 'c2c';
 }
 

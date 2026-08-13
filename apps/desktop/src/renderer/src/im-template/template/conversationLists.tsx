@@ -33,7 +33,7 @@ export function ConversationList({
 	drafts: ConversationDrafts;
 	query: string;
 	user?: User;
-	onSelect: (conversationId: string) => void;
+	onSelect: (conversationId: string, event?: React.MouseEvent) => void;
 }) {
 	const filtered = useMemo(() => {
 		const lower = query.trim().toLowerCase();
@@ -92,13 +92,25 @@ export function ConversationList({
 					<button
 						key={conversation.id}
 						className={cn(listRowClass(active, "conversation-row"), pinned && "pinned")}
-						onClick={() => onSelect(conversation.id)}
+						onClick={(e) => onSelect(conversation.id, e)}
 					>
-						<Avatar
-							name={conversationTitle(conversation)}
-							avatarUrl={conversationAvatarUrl(conversation)}
-							seed={conversationSeed(conversation)}
-						/>
+						{conversation.type === "merged" ? (
+							<span className={cn("avatar", "has-default", "merged-avatar")}>
+								{conversation.mergedKind === "hidden" ? (
+									<EyeOff size={20} strokeWidth={2} />
+								) : conversation.mergedKind === "service" ? (
+									<Users size={20} strokeWidth={2} />
+								) : (
+									<UserRound size={20} strokeWidth={2} />
+								)}
+							</span>
+						) : (
+							<Avatar
+								name={conversationTitle(conversation)}
+								avatarUrl={conversationAvatarUrl(conversation)}
+								seed={conversationSeed(conversation)}
+							/>
+						)}
 						<span className={cn("row-main")}>
 							<strong>
 								<span className={cn("row-title-text")}>
@@ -194,7 +206,7 @@ export function GroupList({
 	conversations: Conversation[];
 	activeConversationId: string | null;
 	query: string;
-	onSelect: (conversationId: string) => void;
+	onSelect: (conversationId: string, event?: React.MouseEvent) => void;
 }) {
 	const groups = useMemo(() => {
 		const lower = query.trim().toLowerCase();
@@ -221,7 +233,7 @@ export function GroupList({
 							"contact-row",
 						),
 					)}
-					onClick={() => onSelect(conversation.id)}
+					onClick={(e) => onSelect(conversation.id, e)}
 				>
 					<Avatar
 						name={conversation.group.name}
@@ -412,18 +424,21 @@ function ContactOnlineStatusIcon({ status }: { status: OnlineStatusInfo | undefi
 }
 
 function conversationTitle(conversation: Conversation) {
+	if (conversation.type === "merged") return conversation.title;
 	return conversation.type === "group"
 		? conversation.group.name
 		: displayUserName(conversation.otherUser);
 }
 
 function conversationAvatarUrl(conversation: Conversation) {
+	if (conversation.type === "merged") return conversation.avatarUrl;
 	return conversation.type === "group"
 		? conversation.group.avatarUrl
 		: conversation.otherUser.avatarUrl;
 }
 
 function conversationSeed(conversation: Conversation) {
+	if (conversation.type === "merged") return conversation.id;
 	return conversation.type === "group"
 		? conversation.id
 		: conversation.otherUser.identityValue;
@@ -483,13 +498,14 @@ function PreviewNodes({ nodes }: { nodes: PreviewNode[] }) {
 }
 
 function conversationSearchText(conversation: Conversation) {
+	if (conversation.type === "merged") return conversation.title.toLowerCase();
 	if (conversation.type === "group") {
 		return `${conversation.group.name} ${conversation.group.announcement ?? ""} ${conversation.group.description ?? ""} ${conversation.group.remark ?? ""} ${conversation.members.map(displayUserName).join(" ")}`.toLowerCase();
 	}
 
 	return `${displayUserName(conversation.otherUser)} ${conversation.otherUser.username} ${conversation.otherUser.identityValue} ${conversation.otherUser.signature ?? ""}`.toLowerCase();
 }
-function formatConversationTime(value: string | undefined) {
+export function formatConversationTime(value: string | undefined) {
 	if (!value) {
 		return "";
 	}

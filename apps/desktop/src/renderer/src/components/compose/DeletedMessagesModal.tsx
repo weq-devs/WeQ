@@ -48,7 +48,7 @@ export function DeletedMessagesModal({
   const isGroup = conversation.type === 'group';
   const convKey = isGroup ? conversation.group.identityValue : '';
   const showSenderNames = conversation.type !== 'direct';
-  const subtitle = isGroup ? conversation.group.name : conversation.otherUser.displayName;
+  const subtitle = isGroup ? conversation.group?.name : conversation.otherUser?.displayName;
 
   // Optimistically drop a row the instant its restore resolves, so the panel
   // feels live even before the parent refetches.

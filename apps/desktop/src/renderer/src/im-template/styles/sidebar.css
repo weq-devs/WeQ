@@ -652,6 +652,16 @@ html[data-theme="dark"] .contact-cat-count {
 	object-fit: cover;
 }
 
+.avatar.merged-avatar {
+	background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 12%, var(--weq-bg-surface, #f4f4f4));
+	color: var(--weq-accent-effective, #0099ff);
+}
+
+.avatar.merged-avatar svg {
+	width: 24px;
+	height: 24px;
+}
+
 .mobile-add-friend-label {
 	display: inline;
 }

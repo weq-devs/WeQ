@@ -108,3 +108,24 @@ export interface HiddenSession {
    */
   flags: { f49702: boolean; f49703: boolean; f49704: boolean; f49705: boolean };
 }
+
+/**
+ * Domain shape for one row of `service_assistant_contact` — a QQ 服务号
+ * (service assistant / official notification channel, chatType 118). Distinct
+ * from `RecentContact`: rows here never appear in `recent_contact_v3_table`,
+ * and the conversation key is a numeric app id (`appId`), not a uid — messages
+ * live in `service_assistant_msg_table` partitioned by that same id (see
+ * `C2cPartition`'s `appId` variant).
+ */
+export interface ServiceAssistantContact {
+  /** 41102 — numeric app id; the conversation key (matches msg table's 40035). */
+  appId: bigint;
+  /** 40094 — display name (e.g. "QQ会员", "功能内测通知"). */
+  displayName: string;
+  /** 41110 — avatar, a direct CDN URL (not uid-derived). */
+  avatarUrl: string;
+  /** 40050 — last-message time (unix seconds). */
+  lastTime: bigint;
+  /** 40001 — latest message id (matches a row in service_assistant_msg_table). */
+  lastMsgId: bigint;
+}

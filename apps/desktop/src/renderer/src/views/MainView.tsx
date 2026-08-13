@@ -26,7 +26,7 @@ import { useDialog } from '../components/Dialog';
 import { useToast } from '../components/Toast';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { previewNodes, previewNodesToText } from '../lib/conversationPreview';
-import { datalineName, isDatalineSelfUid } from '@weq/codec';
+import { classifyChatType, datalineName, isDatalineSelfUid } from '@weq/codec';
 import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
 import { useDressSkin } from '../hooks/useDressSkin';
@@ -75,6 +75,8 @@ import { qqMessageRenderer, ReplyJumpContext, ForwardKindContext, ConvContext, t
 import type { SetEmojiItem } from '@weq/codec';
 import { MsgElementEditor } from '../components/MsgElementEditor';
 import { flashTransferTitle } from '../components/QqFlashTransfer';
+import { MergedSessionPanel } from '../components/sidebar/MergedSessionPanel';
+import { ArkFeedView } from '../components/ArkFeedView';
 
 const DATABASE_ISSUES_URL = 'https://github.com/H3CoF6/WeQ/issues';
 
@@ -186,6 +188,20 @@ type HiddenSessionWire = {
   sendTime: string;
   senderUid: string;
   preview: unknown | null;
+};
+
+/** 公众号摘要（listOfficialAccounts）—— wire 格式。 */
+type OfficialAccountWire = {
+  peerUid: string;
+  sendTime: string;
+  prompt: string | null;
+};
+
+/** 服务号摘要（listServiceAccounts）—— wire 格式。 */
+type ServiceAccountWire = {
+  appId: string;
+  sendTime: string;
+  prompt: string | null;
 };
 
 type MessageWire = {
@@ -490,7 +506,7 @@ function avatarSrc(c: Pick<RecentContactWire, 'chatType' | 'targetUid' | 'target
   // C2C 必须先判：KCHATTYPETEMPC2CFROMGROUP 的名字里同时含 C2C 和 GROUP，先匹配
   // GROUP 会把对方 uid 当群号去拼 p.qlogo.cn，临时会话头像必裂。走 uin 外链才是真人头像。
   if (chatTypeKind(c.chatType) === 'direct') return senderAvatarSrc(c.targetUin);
-  if (String(c.chatType).includes('GROUP')) return groupAvatarSrc(c.targetUid);
+  if (chatTypeKind(c.chatType) === 'group') return groupAvatarSrc(c.targetUid);
   return null;
 }
 
@@ -512,11 +528,10 @@ function millisecondsToIsoTime(ms: number | string | undefined): string | null {
 }
 
 function chatTypeKind(chatType: string | number): 'direct' | 'group' | null {
-  const s = String(chatType);
-  if (s.includes('C2C')) return 'direct';
-  if (s.includes('GROUP')) return 'group';
-  // 数据线（我的手机/我的电脑）按单聊解析，头像用设备图标兜底。
-  if (isDataline(chatType)) return 'direct';
+  const kind = classifyChatType(chatType);
+  // 数据线（我的手机/我的电脑）按单聊解析，头像用设备图标兜底（isDataline()）。
+  if (kind === 'direct' || kind === 'dataline') return 'direct';
+  if (kind === 'group') return 'group';
   return null;
 }
 
@@ -1608,6 +1623,8 @@ export function MainView(): ReactElement {
   const contacts = trpc.account.listRecentContacts.useQuery();
   const topContacts = trpc.account.listTopContacts.useQuery();
   const hiddenSessions = trpc.account.listHiddenSessions.useQuery();
+  const officialAccounts = trpc.account.listOfficialAccounts.useQuery();
+  const serviceAccounts = trpc.account.listServiceAccounts.useQuery();
   const selfProfile = trpc.account.getSelfProfile.useQuery();
   const buddies = trpc.account.listBuddies.useQuery({ limit: 2000 });
   const botUidList = trpc.account.botUids.useQuery();
@@ -1621,6 +1638,15 @@ export function MainView(): ReactElement {
   const goTo = useViewState((s) => s.goTo);
   const setHomeStage = useViewState((s) => s.setHomeStage);
   const setOpenedUin = useViewState((s) => s.setOpenedUin);
+
+  // 合并会话面板状态：包含类型和点击位置
+  const [mergedPanel, setMergedPanel] = useState<{
+    kind: import('../im-template/template').MergedKind;
+    threadId: string | null;
+    anchorX: number;
+    anchorY: number;
+  } | null>(null);
+
   // Seq-window message model: a single ASC (oldest→newest) list for the open
   // conversation, plus whether it still reaches the latest message and whether
   // older history remains. `loaded[0].msgSeq` is the window's lower cursor.
@@ -1669,6 +1695,8 @@ export function MainView(): ReactElement {
         void utils.account.listRecentContacts.invalidate();
         void utils.account.listTopContacts.invalidate();
         void utils.account.listHiddenSessions.invalidate();
+        void utils.account.listOfficialAccounts.invalidate();
+        void utils.account.listServiceAccounts.invalidate();
         void refreshWindow();
       },
       onError(err) {
@@ -1821,10 +1849,11 @@ export function MainView(): ReactElement {
 
   /** kind + conversation key (peer uid / group code) used by the msg endpoints. */
   const convFetchKey = useCallback(
-    (c: Conversation): { kind: 'c2c' | 'group'; conv: string } =>
-      c.type === 'group'
-        ? { kind: 'group', conv: c.group.identityValue }
-        : { kind: 'c2c', conv: c.otherUser.id },
+    (c: Conversation): { kind: 'c2c' | 'group'; conv: string } => {
+      if (c.type === 'group') return { kind: 'group', conv: c.group.identityValue };
+      if (c.type === 'direct') return { kind: 'c2c', conv: c.otherUser.id };
+      return { kind: 'c2c', conv: c.id }; // merged — should never actually be called
+    },
     [],
   );
 
@@ -2043,7 +2072,12 @@ export function MainView(): ReactElement {
     () => {
       const groups = (allGroups.data ?? []) as GroupDetailWire[];
       const groupNameByCode = new Map(groups.map((g) => [g.groupCode, g.groupName]));
+      // 只保留非 official/service 的 recent contacts（103/118 走合并会话入口）
       const recentConversations = ((contacts.data ?? []) as RecentContactWire[])
+        .filter((c) => {
+          const kind = classifyChatType(c.chatType);
+          return kind !== 'official' && kind !== 'service';
+        })
         .map((contact) => contactToConversation(contact, user, groupNameByCode, botUids))
         .filter((conversation): conversation is Conversation => conversation !== null);
       const byId = new Map(recentConversations.map((conversation) => [conversation.id, conversation]));
@@ -2052,12 +2086,220 @@ export function MainView(): ReactElement {
         byId.set(detail.groupCode, groupDetailToConversation(detail, byId.get(detail.groupCode), user));
       }
 
-      // 隐藏会话：不在 recent_contact_v3_table 里（隐藏即从那张表移除），单独并入。
-      // 正常情况下 id 不会跟上面的撞——留 has() 只是防御。
-      for (const hidden of (hiddenSessions.data ?? []) as HiddenSessionWire[]) {
-        if (byId.has(hidden.targetUid)) continue;
-        const conversation = hiddenSessionToConversation(hidden, profileByUid, groupNameByCode, user, botUids);
-        if (conversation) byId.set(conversation.id, conversation);
+      // 公众号合并会话：找所有 103 公众号里最新的那条 sendTime，合成一个 merged 入口。
+      const officialList = (officialAccounts.data ?? []) as OfficialAccountWire[];
+      if (officialList.length > 0) {
+        const latest = officialList.reduce((a, b) =>
+          Number(b.sendTime) > Number(a.sendTime) ? b : a,
+        );
+        const updatedAt = toIsoTime(latest.sendTime);
+        const merged: import('../im-template/template').MergedConversation = {
+          id: 'merged:official',
+          type: 'merged',
+          mergedKind: 'official',
+          title: '公众号',
+          avatarUrl: null,
+          otherUser: null,
+          group: null,
+          members: [],
+          updatedAt,
+          preference: fallbackPreference,
+          unreadCount: 0,
+          lastMessage: {
+            id: `merged:official:${latest.sendTime}`,
+            senderId: null,
+            body: latest.prompt,
+            createdAt: updatedAt,
+          },
+        };
+        byId.set('merged:official', merged);
+
+        // 把每个公众号的明细也加入 conversations，供 MergedSessionPanel 过滤
+        for (const official of officialList) {
+          const profile = profileByUid[official.peerUid];
+          const conv: Conversation = {
+            id: official.peerUid,
+            type: 'direct',
+            chatType: 103,
+            updatedAt: toIsoTime(official.sendTime),
+            otherUser: {
+              id: official.peerUid,
+              identityLabel: 'UID',
+              identityValue: official.peerUid,
+              username: official.peerUid,
+              displayName: profile?.nick || official.peerUid,
+              kind: 'human',
+              avatarUrl: profile?.avatar || null,
+            },
+            group: null,
+            members: [],
+            preference: fallbackPreference,
+            unreadCount: 0,
+            lastMessage: {
+              id: `official:${official.peerUid}:${official.sendTime}`,
+              senderId: official.peerUid,
+              body: official.prompt,
+              createdAt: toIsoTime(official.sendTime),
+            },
+          };
+          byId.set(official.peerUid, conv);
+        }
+      }
+
+      // 服务号合并会话：同理取最新的那条。
+      const serviceList = (serviceAccounts.data ?? []) as ServiceAccountWire[];
+      if (serviceList.length > 0) {
+        const latest = serviceList.reduce((a, b) =>
+          Number(b.sendTime) > Number(a.sendTime) ? b : a,
+        );
+        const updatedAt = toIsoTime(latest.sendTime);
+        const merged: import('../im-template/template').MergedConversation = {
+          id: 'merged:service',
+          type: 'merged',
+          mergedKind: 'service',
+          title: '服务号',
+          avatarUrl: null,
+          otherUser: null,
+          group: null,
+          members: [],
+          updatedAt,
+          preference: fallbackPreference,
+          unreadCount: 0,
+          lastMessage: {
+            id: `merged:service:${latest.sendTime}`,
+            senderId: null,
+            body: latest.prompt,
+            createdAt: updatedAt,
+          },
+        };
+        byId.set('merged:service', merged);
+
+        // 把每个服务号的明细也加入 conversations，供 MergedSessionPanel 过滤
+        for (const service of serviceList) {
+          const conv: Conversation = {
+            id: `service:${service.appId}`,
+            type: 'direct',
+            chatType: 118,
+            updatedAt: toIsoTime(service.sendTime),
+            otherUser: {
+              id: service.appId,
+              identityLabel: 'AppID',
+              identityValue: service.appId,
+              username: service.appId,
+              displayName: service.appId,
+              kind: 'human',
+              avatarUrl: null,
+            },
+            group: null,
+            members: [],
+            preference: fallbackPreference,
+            unreadCount: 0,
+            lastMessage: {
+              id: `service:${service.appId}:${service.sendTime}`,
+              senderId: service.appId,
+              body: service.prompt,
+              createdAt: toIsoTime(service.sendTime),
+            },
+          };
+          byId.set(`service:${service.appId}`, conv);
+        }
+      }
+
+      // 隐藏会话合并入口：至少有一个隐藏会话时，置顶显示（不展示内部预览）。
+      const hiddenList = (hiddenSessions.data ?? []) as HiddenSessionWire[];
+      if (hiddenList.length > 0) {
+        const latest = hiddenList.reduce((a, b) =>
+          Number(b.sendTime) > Number(a.sendTime) ? b : a,
+        );
+        const updatedAt = toIsoTime(latest.sendTime);
+        const merged: import('../im-template/template').MergedConversation = {
+          id: 'merged:hidden',
+          type: 'merged',
+          mergedKind: 'hidden',
+          title: '隐藏会话',
+          avatarUrl: null,
+          otherUser: null,
+          group: null,
+          members: [],
+          updatedAt,
+          preference: { ...fallbackPreference, pinned: true },
+          unreadCount: 0,
+          lastMessage: {
+            id: `merged:hidden:${latest.sendTime}`,
+            senderId: null,
+            body: null,
+            createdAt: updatedAt,
+          },
+        };
+        byId.set('merged:hidden', merged);
+
+        // 把每个隐藏会话的明细也加入 conversations，供 MergedSessionPanel 过滤
+        for (const hidden of hiddenList) {
+          if (!hidden.resolvable) continue;
+
+          const kind = chatTypeKind(Number(hidden.chatType));
+          const profile = profileByUid[hidden.targetUid];
+          const updatedAt = toIsoTime(hidden.sendTime);
+
+          if (kind === 'direct') {
+            const conv: Conversation = {
+              id: hidden.targetUid,
+              type: 'direct',
+              chatType: Number(hidden.chatType),
+              updatedAt,
+              hidden: true,
+              otherUser: {
+                id: hidden.targetUid,
+                identityLabel: hidden.targetUin && hidden.targetUin !== '0' ? 'QQ' : 'UID',
+                identityValue: hidden.targetUin && hidden.targetUin !== '0' ? hidden.targetUin : hidden.targetUid,
+                username: hidden.targetUid,
+                displayName: profile?.nick || hidden.targetUid,
+                kind: 'human',
+                avatarUrl: profile?.avatar || null,
+              },
+              group: null,
+              members: [],
+              preference: fallbackPreference,
+              unreadCount: 0,
+              lastMessage: {
+                id: `hidden:${hidden.targetUid}:${hidden.sendTime}`,
+                senderId: hidden.senderUid,
+                body: null,
+                createdAt: updatedAt,
+              },
+            };
+            byId.set(hidden.targetUid, conv);
+          } else if (kind === 'group') {
+            const groupName = groupNameByCode.get(hidden.targetUid) || hidden.targetUid;
+            const conv: Conversation = {
+              id: hidden.targetUid,
+              type: 'group',
+              updatedAt,
+              hidden: true,
+              otherUser: null,
+              group: {
+                id: hidden.targetUid,
+                name: groupName,
+                identityLabel: 'Group',
+                identityValue: hidden.targetUid,
+                avatarUrl: null,
+                announcement: null,
+                memberCount: 1,
+                role: 'member',
+              },
+              members: [{ ...user, role: 'member', joinedAt: updatedAt }],
+              preference: fallbackPreference,
+              unreadCount: 0,
+              lastMessage: {
+                id: `hidden:${hidden.targetUid}:${hidden.sendTime}`,
+                senderId: hidden.senderUid,
+                body: null,
+                createdAt: updatedAt,
+              },
+            };
+            byId.set(hidden.targetUid, conv);
+          }
+        }
       }
 
       return Array.from(byId.values())
@@ -2087,7 +2329,7 @@ export function MainView(): ReactElement {
           return Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
         });
     },
-    [allGroups.data, contacts.data, hiddenSessions.data, profileByUid, user, unreadByConv, highlightsByConv, topTimeByConv, botUids],
+    [allGroups.data, contacts.data, officialAccounts.data, serviceAccounts.data, hiddenSessions.data, profileByUid, user, unreadByConv, highlightsByConv, topTimeByConv, botUids],
   );
   const groupsById = useMemo(() => new Map(conversations.map((conversation) => [conversation.id, conversation])), [conversations]);
   const contactRequests = useMemo(
@@ -2131,6 +2373,20 @@ export function MainView(): ReactElement {
   const selectedUid = selectedConversation?.id ?? '';
   const isGroup = selectedConversation?.type === 'group';
   const isDirect = selectedConversation?.type === 'direct';
+
+  const handleSelectConversation = useCallback(
+    (conversationId: string, event?: React.MouseEvent) => {
+      const conv = conversations.find((c) => c.id === conversationId);
+      if (conv?.type === 'merged') {
+        const x = event?.clientX ?? window.innerWidth / 2;
+        const y = event?.clientY ?? window.innerHeight / 2;
+        setMergedPanel({ kind: conv.mergedKind, threadId: null, anchorX: x, anchorY: y });
+        return;
+      }
+      shell.selectConversation(conversationId);
+    },
+    [conversations, shell],
+  );
 
   // Load the WeQ-deleted msgIds whenever the selected conversation changes so
   // the in-place "deleted" overlay is correct on entry. Stale responses from a
@@ -3149,7 +3405,7 @@ export function MainView(): ReactElement {
               drafts={emptyDrafts}
               contacts={buddyContacts}
               query={shell.query}
-              onSelectConversation={shell.selectConversation}
+              onSelectConversation={handleSelectConversation}
               onSelectContact={shell.selectContact}
               onSelectGroup={shell.selectGroup}
               activateToolsOnSelect={false}
@@ -3212,7 +3468,19 @@ export function MainView(): ReactElement {
           )
         }
         mainContent={
-          shell.view === 'home' ? (
+          mergedPanel && mergedPanel.threadId ? (
+            <ArkFeedView
+              conversationId={mergedPanel.threadId}
+              title={(() => {
+                const conv = conversations.find(c => c.id === mergedPanel.threadId);
+                if (!conv) return '';
+                if (conv.type === 'merged') return conv.title;
+                if (conv.type === 'group') return conv.group?.name || '';
+                return conv.otherUser?.displayName || '';
+              })()}
+              onBack={() => setMergedPanel({ ...mergedPanel, threadId: null })}
+            />
+          ) : shell.view === 'home' ? (
             <ChatHome nickname={user.displayName} avatarUrl={user.avatarUrl} />
           ) : shell.view === 'export' ? (
             <ExportView />
@@ -3224,6 +3492,12 @@ export function MainView(): ReactElement {
             <QzoneView />
           ) : shell.view === 'channel' ? (
             <ChannelView />
+          ) : activeConversation?.type === 'merged' ? (
+            <ArkFeedView
+              conversationId={activeConversation.id}
+              title={activeConversation.title}
+              onBack={shell.backConversation}
+            />
           ) : (
           <div className="weq-template-main-wrap">
             <div className="weq-readonly-chat">
@@ -3291,8 +3565,22 @@ export function MainView(): ReactElement {
           </div>
         )
         }
-      />
-      
+      >
+        {mergedPanel && (
+          <MergedSessionPanel
+            kind={mergedPanel.kind}
+            conversations={conversations}
+            anchorX={mergedPanel.anchorX}
+            anchorY={mergedPanel.anchorY}
+            onBack={() => setMergedPanel(null)}
+            onSelectConversation={(conv) => {
+              setMergedPanel(null);
+              shell.selectConversation(conv.id);
+            }}
+          />
+        )}
+      </ChatShell>
+
       {editorState ? (
         <MsgElementEditor 
            msgId={editorState.msgId} 

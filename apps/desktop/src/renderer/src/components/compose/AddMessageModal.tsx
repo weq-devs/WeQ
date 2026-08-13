@@ -69,9 +69,9 @@ export function AddMessageModal({
   const isGroup = conversation.type === 'group';
   const kind: 'c2c' | 'group' = isGroup ? 'group' : 'c2c';
   const conv = isGroup
-    ? conversation.group.identityValue
-    : conversation.otherUser.id;
-  const peerUid = isGroup ? '' : conversation.otherUser.id;
+    ? conversation.group?.identityValue ?? ''
+    : conversation.otherUser?.id ?? '';
+  const peerUid = isGroup ? '' : (conversation.otherUser?.id ?? '');
 
   const self: Person = useMemo(
     () => ({
@@ -94,13 +94,13 @@ export function AddMessageModal({
 
   const senderPeople: Person[] = useMemo(() => {
     if (isGroup) return dedupe([self, ...members]);
-    return dedupe([self, personOf(conversation.otherUser)]);
+    return dedupe([self, ...(conversation.otherUser ? [personOf(conversation.otherUser)] : [])]);
   }, [self, members, conversation, isGroup]);
 
   const resolveName = useMemo(() => {
     const map = new Map<string, string>();
     for (const p of [self, ...members]) map.set(p.uid, p.name);
-    if (!isGroup) map.set(conversation.otherUser.id, conversation.otherUser.displayName);
+    if (!isGroup && conversation.otherUser) map.set(conversation.otherUser.id, conversation.otherUser.displayName);
     return (uid: string, uin: string) => map.get(uid) || uin || uid;
   }, [self, members, conversation, isGroup]);
 
@@ -213,7 +213,7 @@ export function AddMessageModal({
     }
   }
 
-  const subtitle = isGroup ? conversation.group.name : conversation.otherUser.displayName;
+  const subtitle = isGroup ? conversation.group?.name : conversation.otherUser?.displayName;
 
   return (
     <Modal onClose={onClose} width={430} labelledBy="weq-compose-title">

@@ -42,9 +42,9 @@ export function ChatSidebarContent({
 	drafts: ConversationDrafts;
 	contacts: Contact[];
 	query: string;
-	onSelectConversation: (conversationId: string) => void;
+	onSelectConversation: (conversationId: string, event?: React.MouseEvent) => void;
 	onSelectContact: (contact: Contact) => void;
-	onSelectGroup: (conversationId: string) => void;
+	onSelectGroup: (conversationId: string, event?: React.MouseEvent) => void;
 	toolRegistry?: ToolPaneGroup[];
 	activateToolsOnSelect?: boolean;
 	onSelectTool?: (item: ToolPaneItem) => void;

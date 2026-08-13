@@ -182,6 +182,85 @@ async function* pageC2cBySeqlessRowId(
   }
 }
 
+/**
+ * Yield every official account (chatType 103) message with a peer, oldest-first,
+ * ARK-only filtered.
+ */
+export async function* iterateOfficialMessages(
+  msgs: MsgService,
+  peerUid: string,
+  opts: IterateOptions = {},
+): AsyncGenerator<RenderC2cMsg> {
+  const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
+  const merged = mergeBySendTime(
+    pageC2cBySeq(msgs, peerUid, pageSize),
+    pageC2cBySeqlessRowId(msgs, peerUid, pageSize),
+  );
+  for await (const m of merged) {
+    if (!withinRange(Number(m.sendTime), opts.range)) continue;
+    if (!hasArkElement(m)) continue;
+    yield m;
+  }
+}
+
+/**
+ * Yield every service account (chatType 118) message for a given appId,
+ * oldest-first, ARK-only filtered.
+ */
+export async function* iterateServiceMessages(
+  msgs: MsgService,
+  appId: string,
+  opts: IterateOptions = {},
+): AsyncGenerator<RenderC2cMsg> {
+  const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
+  const merged = mergeBySendTime(
+    pageServiceBySeq(msgs, appId, pageSize),
+    pageServiceBySeqlessRowId(msgs, appId, pageSize),
+  );
+  for await (const m of merged) {
+    if (!withinRange(Number(m.sendTime), opts.range)) continue;
+    if (!hasArkElement(m)) continue;
+    yield m;
+  }
+}
+
+/** Service seq cursor for service_assistant_msg_table. */
+async function* pageServiceBySeq(
+  msgs: MsgService,
+  appId: string,
+  pageSize: number,
+): AsyncGenerator<RenderC2cMsg> {
+  let cursor = 0n;
+  for (;;) {
+    const page = await msgs.getServiceAfter(appId, cursor, pageSize);
+    if (page.length === 0) break;
+    for (const m of page) yield m;
+    cursor = page[page.length - 1]!.msgSeq;
+    if (page.length < pageSize) break;
+  }
+}
+
+/** Service rowid cursor over seq-less rows. */
+async function* pageServiceBySeqlessRowId(
+  msgs: MsgService,
+  appId: string,
+  pageSize: number,
+): AsyncGenerator<RenderC2cMsg> {
+  let cursor = 0n;
+  for (;;) {
+    const page = await msgs.getServiceSeqlessAfterRowId(appId, cursor, pageSize);
+    if (page.length === 0) break;
+    for (const m of page) yield m;
+    cursor = page[page.length - 1]!.rowId;
+    if (page.length < pageSize) break;
+  }
+}
+
+/** Check if a message contains at least one ARK element. */
+function hasArkElement(m: RenderC2cMsg | RenderGroupMsg): boolean {
+  return m.elements.some(el => 'elementType' in el && el.elementType === 'ark');
+}
+
 /** Normalize a render message into the export record (bigints → strings). */
 export function toExportedMessage(m: RenderGroupMsg | RenderC2cMsg): ExportedMessage {
   return {

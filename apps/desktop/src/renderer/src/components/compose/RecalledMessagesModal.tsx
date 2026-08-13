@@ -53,7 +53,7 @@ export function RecalledMessagesModal({
   const isGroup = conversation.type === 'group';
   const convKey = isGroup ? conversation.group.identityValue : '';
   const showSenderNames = conversation.type !== 'direct';
-  const subtitle = isGroup ? conversation.group.name : conversation.otherUser.displayName;
+  const subtitle = isGroup ? conversation.group?.name : conversation.otherUser?.displayName;
 
   return (
     <Modal onClose={onClose} width={520} labelledBy="weq-recalled-title">

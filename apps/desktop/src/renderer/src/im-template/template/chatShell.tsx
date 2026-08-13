@@ -137,8 +137,8 @@ export function ChatShell({
 				<main className={cn("chat-main", mainOpen && "chat-main-open")}>
 					{mainContent}
 				</main>
-				{children}
 			</div>
+			{children}
 		</div>
 	);
 }

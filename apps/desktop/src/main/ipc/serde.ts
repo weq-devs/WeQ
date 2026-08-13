@@ -302,6 +302,20 @@ export interface HiddenSessionWire {
   preview: unknown | null;
 }
 
+export interface OfficialAccountSummaryWire {
+  peerUid: string;
+  sendTime: string;
+  /** ARK element's prompt field (sanitized). */
+  prompt: string | null;
+}
+
+export interface ServiceAccountSummaryWire {
+  appId: string;
+  sendTime: string;
+  /** ARK element's prompt field (sanitized). */
+  prompt: string | null;
+}
+
 export function c2cMsgToWire(m: RenderC2cMsg): ChatMsgWire {
   return {
     kind: 'c2c',
@@ -374,6 +388,26 @@ export function hiddenSessionToWire(h: HiddenSessionSummary): HiddenSessionWire 
     sendTime: h.sendTime.toString(),
     senderUid: h.senderUid,
     preview: h.preview ? sanitize(h.preview) : null,
+  };
+}
+
+export function officialAccountSummaryToWire(
+  s: import('@weq/service').OfficialAccountSummary,
+): OfficialAccountSummaryWire {
+  return {
+    peerUid: s.peerUid,
+    sendTime: s.sendTime.toString(),
+    prompt: s.prompt,
+  };
+}
+
+export function serviceAccountSummaryToWire(
+  s: import('@weq/service').ServiceAccountSummary,
+): ServiceAccountSummaryWire {
+  return {
+    appId: s.appId,
+    sendTime: s.sendTime.toString(),
+    prompt: s.prompt,
   };
 }
 

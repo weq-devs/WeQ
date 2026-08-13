@@ -16,6 +16,7 @@ import {
   RecentContactDb,
   RecentContactTopDb,
   HiddenSessionDb,
+  ServiceAssistantContactDb,
   UidMappingDb,
   UidMap,
   ForwardMsgDb,
@@ -122,6 +123,10 @@ export interface AccountSession {
   readonly recentContactTops: RecentContactTopDb;
   /** 隐藏会话（hidden_session_storage_table_v1）。 */
   readonly hiddenSessions: HiddenSessionDb;
+  /** 服务号联系人（service_assistant_contact，chatType 118）。 */
+  readonly serviceAssistantContacts: ServiceAssistantContactDb;
+  /** 服务号消息（service_assistant_msg_table），结构同 c2c，分区键是 appId。 */
+  readonly serviceAssistantMsgs: C2cMsgDb;
   /** Merged-forward / quote-reply cache (40900 column). */
   readonly forwardMsgs: ForwardMsgDb;
   /** Full-text-search index over message text (buddy_msg_fts.db). */
@@ -276,6 +281,21 @@ export async function openAccount(
     algo: a(msgDbPath),
   });
 
+  const serviceAssistantContacts = new ServiceAssistantContactDb(nt, {
+    dbPath: msgDbPath,
+    key: ctx.dbKey,
+    algo: a(msgDbPath),
+  });
+
+  // 服务号（118）消息表结构与 c2c 几乎相同，复用 C2cMsgDb；分区键换成 appId
+  // （40035）——该表里 40020/40021 恒等于自己的 uid，不能拿来分会话。
+  const serviceAssistantMsgs = new C2cMsgDb(nt, {
+    dbPath: msgDbPath,
+    key: ctx.dbKey,
+    algo: a(msgDbPath),
+    table: 'service_assistant_msg_table',
+  });
+
   // Load the uid ↔ uin ↔ sortNo directory once and keep it resident; the c2c
   // query path needs uid → sortNo (column 40027) translation on every call.
   // A failure here (e.g. table absent on an older QQ build) must NOT block
@@ -418,6 +438,8 @@ export async function openAccount(
     recentContacts,
     recentContactTops,
     hiddenSessions,
+    serviceAssistantContacts,
+    serviceAssistantMsgs,
     forwardMsgs,
     buddyMsgFts,
     groupMsgFts,
@@ -446,6 +468,8 @@ export async function openAccount(
       recentContacts.close();
       recentContactTops.close();
       hiddenSessions.close();
+      serviceAssistantContacts.close();
+      serviceAssistantMsgs.close();
       forwardMsgs.close();
       buddyMsgFts.close();
       groupMsgFts.close();

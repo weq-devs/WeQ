@@ -13,12 +13,11 @@
  * URIs untouched, so no template change is needed.
  */
 
-import { datalineDevice, type DatalineDevice } from '@weq/codec';
+import { classifyChatType, datalineDevice, type DatalineDevice } from '@weq/codec';
 
 /** True for device-line conversations (accepts the mapped enum string or the raw number). */
 export function isDataline(chatType: string | number): boolean {
-  const s = String(chatType);
-  return s.includes('DATALINE') || s === '8' || s === '134';
+  return classifyChatType(chatType) === 'dataline';
 }
 
 /** White line glyphs (viewBox 0 0 64 64), stroked white in render. */

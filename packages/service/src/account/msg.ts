@@ -517,6 +517,20 @@ export class MsgService {
     return msgs.map((m) => ({ ...renderGroup(m), rowId: m.rowId }));
   }
 
+  // ---- service assistant (chatType 118) ------------------------------------
+
+  /** Service account page just newer than `afterSeq` (export use). */
+  async getServiceAfter(appId: string, afterSeq: bigint, limit = 50): Promise<RenderC2cMsg[]> {
+    const msgs = await this.session.serviceAssistantMsgs.listAfter({ appId: BigInt(appId) }, afterSeq, limit);
+    return msgs.map((m) => renderC2c(m));
+  }
+
+  /** Service account seq-less page (export use). */
+  async getServiceSeqlessAfterRowId(appId: string, afterRowId: bigint, limit = 2000): Promise<Array<RenderC2cMsg & { rowId: bigint }>> {
+    const msgs = await this.session.serviceAssistantMsgs.listSeqlessAfterRowId({ appId: BigInt(appId) }, afterRowId, limit);
+    return msgs.map((m) => ({ ...renderC2c(m), rowId: m.rowId }));
+  }
+
   // ---- count ---------------------------------------------------------------
 
   /**
@@ -551,7 +565,7 @@ export class MsgService {
    * forwards). The export pipeline uses this to expand a `[合并转发]` placeholder
    * into the real forwarded content. Returns [] on any miss / decode error.
    */
-  async listForward(kind: 'c2c' | 'group', msgId: bigint): Promise<MsgCacheRecord[]> {
+  async listForward(kind: 'c2c' | 'group' | 'official' | 'service', msgId: bigint): Promise<MsgCacheRecord[]> {
     try {
       return kind === 'group'
         ? await this.session.forwardMsgs.listGroupForward(msgId)
