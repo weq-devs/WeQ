@@ -63,13 +63,41 @@
 
 .weq-ark-feed-item {
   width: 100%;
-  max-width: 580px;
+  max-width: 870px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
   cursor: pointer;
+}
+
+/* 优化1：公众号/服务号消息流里的卡片整体放大约 1.5 倍（主要是加宽），
+   字号刻意不动——只改容器宽度和图片/头像等非文字尺寸。 */
+.weq-ark-feed-item .weq-ark-container {
+  width: 435px;
+}
+.weq-ark-feed-item .weq-ark-icon-app {
+  width: 24px;
+  height: 24px;
+}
+.weq-ark-feed-item .weq-ark-preview-small {
+  width: 96px;
+  height: 96px;
+}
+.weq-ark-feed-item .weq-ark-preview-big {
+  height: 210px;
+}
+.weq-ark-feed-item .weq-ark-map-view {
+  height: 195px;
+}
+.weq-ark-feed-item .weq-ark-contact-avatar {
+  width: 72px;
+  height: 72px;
+}
+.weq-ark-feed-item .weq-ark-footer-icon {
+  width: 18px;
+  height: 18px;
 }
 
 .weq-ark-feed-time {

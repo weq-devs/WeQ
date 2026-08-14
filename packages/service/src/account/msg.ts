@@ -226,20 +226,17 @@ export class MsgService {
 
   /**
    * Get all raw elements of a message by msgId (not filtered by renderer).
-   * Searches both C2C and Group tables.
+   * Searches C2C-shaped tables (c2c / dataline / service assistant) and Group.
    */
   async getRawElements(msgId: bigint): Promise<{ elements: Element[]; kind: 'c2c' | 'group' } | null> {
     const { decodeBody } = await import('@weq/db');
 
-    const c2cBlob = await this.session.c2cMsgs.getMsgBody(msgId);
-    if (c2cBlob) {
-        return { elements: decodeBody(c2cBlob), kind: 'c2c' };
-    }
-
-    // Device-line messages share the c2c wire shape / edit path.
-    const datalineBlob = await this.session.datalineMsgs.getMsgBody(msgId);
-    if (datalineBlob) {
-        return { elements: decodeBody(datalineBlob), kind: 'c2c' };
+    // c2c / dataline / 服务号(118) 三张表都是 C2cMsgDb（同一 wire shape），
+    // 服务号消息物理存在 service_assistant_msg_table，漏查会导致「服务号 ARK
+    // 消息右键修改」永远 getRawElements 返回 null（编辑框打不开）。
+    for (const db of [this.session.c2cMsgs, this.session.datalineMsgs, this.session.serviceAssistantMsgs] as const) {
+      const blob = await db.getMsgBody(msgId);
+      if (blob) return { elements: decodeBody(blob), kind: 'c2c' };
     }
 
     const groupBlob = await this.session.groupMsgs.getMsgBody(msgId);
@@ -261,14 +258,20 @@ export class MsgService {
         elements: elements.map(encodeElement)
     });
 
-    let affected = 0;
-    if (info.kind === 'c2c') {
-        affected = await this.session.c2cMsgs.updateMsgBody(msgId, blob);
-    } else {
-        affected = await this.session.groupMsgs.updateMsgBody(msgId, blob);
+    if (info.kind === 'group') {
+      return (await this.session.groupMsgs.updateMsgBody(msgId, blob)) > 0;
     }
 
-    return affected > 0;
+    // kind 'c2c' 只告诉我们「不是群消息」，具体是 c2c / dataline / 服务号三张表
+    // 里的哪一张要靠 msgId 命中哪张才知道——写回也得挨个试，只在 getRawElements()
+    // 里判断来源、却在这里无条件写 c2cMsgs 会让 dataline/服务号消息的编辑静默
+    // 不生效（UPDATE 命中 0 行）。msgId 全局唯一，只有真正持有该行的表会写入成功。
+    for (const db of [this.session.c2cMsgs, this.session.datalineMsgs, this.session.serviceAssistantMsgs] as const) {
+      const affected = await db.updateMsgBody(msgId, blob);
+      if (affected > 0) return true;
+    }
+
+    return false;
   }
 
   /**

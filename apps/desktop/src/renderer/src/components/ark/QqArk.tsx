@@ -247,8 +247,11 @@ function ArkMail({ p }: { p: ArkPayload }): ReactElement {
 
 /**
  * 单图广告卡。通栏大图 + 下方叠加多行文本标签（label1, label2, ...）。
+ *
+ * 「访问了你」这类纯文案变体 banner/singlePicItems 里的字段全是空字符串，槽位
+ * 兜底不到东西就只能落回顶层 prompt（如 "H3CoF6访问了你"），否则渲染出空气泡。
  */
-function ArkSinglePic({ p }: { p: ArkPayload }): ReactElement {
+function ArkSinglePic({ p, prompt }: { p: ArkPayload; prompt: string }): ReactElement {
   const banner = s(p, 'banner');
   const bannerUrl = s(p, 'bannerUrl') || undefined;
 
@@ -270,8 +273,10 @@ function ArkSinglePic({ p }: { p: ArkPayload }): ReactElement {
     }
   }
 
-  // 如果 banner 和 labels 都为空，至少显示 prompt
+  // 如果 banner 和 labels 都为空，至少显示 prompt（p.prompt 几乎总是空——真正
+  // 有内容的是顶层 data.prompt，通过参数传进来）
   const hasContent = banner || labels.length > 0;
+  const fallbackText = s(p, 'prompt') || prompt;
 
   return (
     <ArkShell jump={bannerUrl}>
@@ -285,7 +290,7 @@ function ArkSinglePic({ p }: { p: ArkPayload }): ReactElement {
           ))}
         </div>
       ) : null}
-      {!hasContent && p.prompt ? <div className="weq-ark-desc">{String(p.prompt)}</div> : undefined}
+      {!hasContent && fallbackText ? <div className="weq-ark-desc">{fallbackText}</div> : null}
     </ArkShell>
   );
 }
@@ -630,7 +635,7 @@ export function QqArk({ arkData }: { arkData: unknown }): ReactElement | null {
   if (app === 'com.tencent.template.public' && firstKey === 'mail') return <ArkMail p={p} />;
 
   // 特例4：单图广告 (view: singlePic)。
-  if (app === 'com.tencent.template.public' && firstKey === 'singlePic') return <ArkSinglePic p={p} />;
+  if (app === 'com.tencent.template.public' && firstKey === 'singlePic') return <ArkSinglePic p={p} prompt={prompt} />;
 
   // 特例5：安全提醒卡。
   if (app === 'com.tencent.security.message') return <ArkSecurityMessage p={p} />;

@@ -2002,19 +2002,38 @@ export function MainView(): ReactElement {
     const groups = (allGroups.data ?? []) as GroupDetailWire[];
     return new Map(groups.map((g) => [g.groupCode, g.groupName]));
   }, [allGroups.data]);
+  // 隐藏会话 uid 集合：hidden_session_storage_table_v1 里有记录的 targetUid/群号。
+  // 提到 conversations useMemo 外面，因为 hiddenConversationsById（供 shell 解析
+  // 隐藏会话详情用）也要复用它。
+  const hiddenUidSet = useMemo(() => {
+    const list = (hiddenSessions.data ?? []) as HiddenSessionWire[];
+    const set = new Set<string>();
+    for (const hidden of list) {
+      if (hidden.targetUid && hidden.resolvable) set.add(hidden.targetUid);
+    }
+    return set;
+  }, [hiddenSessions.data]);
+  // 隐藏会话不出现在主 conversations 列表里（见下方 useMemo），所以 shell 的
+  // activeConversation 查找会失效——单独建一份供 selectedConversation 兜底解析，
+  // 不然从隐藏会话选择器点进去后消息页面直接打不开。
+  const hiddenConversationsById = useMemo(() => {
+    const map = new Map<string, Conversation>();
+    if (hiddenUidSet.size === 0) return map;
+    for (const contact of (contacts.data ?? []) as RecentContactWire[]) {
+      if (!hiddenUidSet.has(contact.targetUid)) continue;
+      const conv = contactToConversation(contact, user, groupNameByCode, botUids);
+      if (conv) map.set(conv.id, conv);
+    }
+    for (const detail of (allGroups.data ?? []) as GroupDetailWire[]) {
+      if (!hiddenUidSet.has(detail.groupCode)) continue;
+      map.set(detail.groupCode, groupDetailToConversation(detail, map.get(detail.groupCode), user));
+    }
+    return map;
+  }, [hiddenUidSet, contacts.data, allGroups.data, groupNameByCode, user, botUids]);
   const conversations = useMemo(
     () => {
       const groups = (allGroups.data ?? []) as GroupDetailWire[];
-
-      // 构建隐藏会话 uid Set：hidden_session_storage_table_v1 里有的会话需要从主列表排除
       const hiddenList = (hiddenSessions.data ?? []) as HiddenSessionWire[];
-      const hiddenUidSet = new Set<string>();
-      for (const hidden of hiddenList) {
-        // 必须同时有 targetUid 和 targetUin（或 targetUin 为有效值）才算有效隐藏记录
-        if (hidden.targetUid && hidden.resolvable) {
-          hiddenUidSet.add(hidden.targetUid);
-        }
-      }
 
       // 只保留非 official/service 的 recent contacts（103/118 走合并会话入口）
       // 同时排除隐藏会话：hidden_session_storage_table_v1 里有的不出现在主列表
@@ -2155,7 +2174,7 @@ export function MainView(): ReactElement {
           return Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
         });
     },
-    [allGroups.data, contacts.data, officialAccounts.data, serviceAccounts.data, hiddenSessions.data, groupNameByCode, profileByUid, user, unreadByConv, highlightsByConv, topTimeByConv, botUids],
+    [allGroups.data, contacts.data, officialAccounts.data, serviceAccounts.data, hiddenSessions.data, hiddenUidSet, groupNameByCode, profileByUid, user, unreadByConv, highlightsByConv, topTimeByConv, botUids],
   );
   const groupsById = useMemo(() => new Map(conversations.map((conversation) => [conversation.id, conversation])), [conversations]);
   const contactRequests = useMemo(
@@ -2195,23 +2214,29 @@ export function MainView(): ReactElement {
     history: shellHistory,
   });
 
-  const selectedConversation = shell.activeConversation;
+  // shell.activeConversation 只在主 conversations 列表里查找；隐藏会话故意不进
+  // 那份列表（见上方 conversations useMemo），所以查不到时兜底查
+  // hiddenConversationsById —— 否则从隐藏会话选择器点进去，消息页面直接打不开。
+  const selectedConversation =
+    shell.activeConversation ??
+    (shell.activeConversationId ? hiddenConversationsById.get(shell.activeConversationId) : undefined);
   const selectedUid = selectedConversation?.id ?? '';
   const isGroup = selectedConversation?.type === 'group';
   const isDirect = selectedConversation?.type === 'direct';
 
   const handleSelectConversation = useCallback(
     (conversationId: string, event?: React.MouseEvent) => {
-      // 如果正在查看 ARK Feed，先关闭它
-      setArkFeedState(null);
-
       const conv = conversations.find((c) => c.id === conversationId);
       if (conv?.type === 'merged') {
+        // 只是打开会话选择器面板，当前页面（包括正在看的 ARK Feed）先保持不动——
+        // 之前在这里无条件 setArkFeedState(null) 会导致点选择器就直接退出消息页。
         const x = event?.clientX ?? window.innerWidth / 2;
         const y = event?.clientY ?? window.innerHeight / 2;
         setMergedPanel({ kind: conv.mergedKind, anchorX: x, anchorY: y });
         return;
       }
+      // 真正切换到一个普通会话时才关闭 ARK Feed。
+      setArkFeedState(null);
       shell.selectConversation(conversationId);
     },
     [conversations, shell],
@@ -2260,6 +2285,21 @@ export function MainView(): ReactElement {
     }));
     return { ...conv, members };
   }, [shell.selectedGroupConversation, groupDetailMembers.data, botUids]);
+
+  // 切换到独占全屏的视图（home/export/agentlab/cache/qzone/channel）时，
+  // 自动关闭可能还开着的公众号/服务号 ARK Feed 页面，否则会覆盖在新视图上。
+  useEffect(() => {
+    const fullBleed =
+      shell.view === 'home' ||
+      shell.view === 'export' ||
+      shell.view === 'agentlab' ||
+      shell.view === 'cache' ||
+      shell.view === 'qzone' ||
+      shell.view === 'channel';
+    if (fullBleed && arkFeedState) {
+      setArkFeedState(null);
+    }
+  }, [shell.view, arkFeedState]);
 
   useEffect(() => {
     const buddyList = ((buddies.data ?? []) as BuddyWire[]).slice(0, 300);
@@ -2641,14 +2681,18 @@ export function MainView(): ReactElement {
   useEffect(() => {
     if (contacts.isLoading) return;
     // Don't auto-open the first conversation: land on the empty placeholder and
-    // let the user pick. Only clear a selection that no longer exists.
+    // let the user pick. Only clear a selection that no longer exists — hidden
+    // sessions are deliberately absent from `conversations` (see hiddenConversationsById),
+    // so they must be exempted here too or this immediately un-selects them right
+    // after the hidden-session picker sets them.
     if (
       shell.activeConversationId &&
-      !conversations.some((conversation) => conversation.id === shell.activeConversationId)
+      !conversations.some((conversation) => conversation.id === shell.activeConversationId) &&
+      !hiddenConversationsById.has(shell.activeConversationId)
     ) {
       shell.setActiveConversationId(null);
     }
-  }, [contacts.isLoading, conversations, shell.activeConversationId, shell.setActiveConversationId]);
+  }, [contacts.isLoading, conversations, hiddenConversationsById, shell.activeConversationId, shell.setActiveConversationId]);
 
   // Keep the live-subscription's view of "what's open" current without
   // re-subscribing on every selection change.
@@ -3430,7 +3474,11 @@ export function MainView(): ReactElement {
                   conversationId: conv.id,
                   title,
                 });
+                // 优化：选中公众号/服务号会话后，取消其它会话（普通/隐藏）的选中态。
+                shell.backConversation();
               } else {
+                // 从隐藏会话选择器进入普通会话前，先关掉可能开着的 ARK Feed。
+                setArkFeedState(null);
                 shell.selectConversation(conv.id);
               }
             }}
