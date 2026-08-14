@@ -6,6 +6,46 @@ import type { Conversation, MergedKind } from '../../im-template/template/types'
 import { trpc } from '../../trpc/client';
 import { resolveAvatar, avatarFromGroupCode } from '../../lib/avatarResolver';
 
+/** Wire types from tRPC (bigint → string serialization) */
+interface DeletedSessionWire {
+  sessionKey: string;
+  chatType: number;
+  targetUid: string;
+  resolvable: boolean;
+  sendTime: string;
+  senderUid: string;
+  preview: unknown;
+  deleteTime: string;
+}
+
+interface HiddenSessionWire {
+  storageKey: string;
+  chatType: string | number;
+  targetUid: string;
+  targetUin: string;
+  resolvable: boolean;
+  sendTime: string;
+  senderUid: string;
+  preview: unknown;
+}
+
+interface OfficialAccountSummaryWire {
+  peerUid: string;
+  displayName: string;
+  avatarUrl: string | null;
+  targetUin: string;
+  sendTime: string;
+  prompt: string | null;
+}
+
+interface ServiceAccountSummaryWire {
+  appId: string;
+  displayName: string;
+  avatarUrl: string | null;
+  sendTime: string;
+  prompt: string | null;
+}
+
 /** 隐藏会话昵称/头像解析用的最小 profile 形状（与 MainView 的 UserProfileWire 对齐）。 */
 interface HiddenProfileLike {
   nick?: string;
@@ -36,7 +76,7 @@ function toIsoTime(seconds: string | undefined): string {
 
 export function MergedSessionPanel({
   kind,
-  conversations,
+  conversations: _conversations,
   anchorX,
   anchorY,
   onBack,
@@ -124,8 +164,8 @@ export function MergedSessionPanel({
       // 从 deletedSessions 数据构建会话列表
       if (!deletedSessions.data) return [];
       return deletedSessions.data
-        .filter((deleted: any) => deleted.resolvable && deleted.targetUid)
-        .map((deleted: any) => {
+        .filter((deleted: DeletedSessionWire) => deleted.resolvable && deleted.targetUid)
+        .map((deleted: DeletedSessionWire) => {
           const isGroup = deleted.chatType === 2;
 
           if (isGroup) {
@@ -200,8 +240,8 @@ export function MergedSessionPanel({
       // recent_contact_v3_table 两表都有这条记录」，这里不用再判一次。
       if (!hiddenSessions.data) return [];
       return hiddenSessions.data
-        .filter((hidden: any) => hidden.resolvable && hidden.targetUid)
-        .map((hidden: any) => {
+        .filter((hidden: HiddenSessionWire) => hidden.resolvable && hidden.targetUid)
+        .map((hidden: HiddenSessionWire) => {
           // chatType 是枚举名字符串（如 "KCHATTYPEGROUP"），不是数字 —— 必须走
           // classifyChatType 判定，不能拿 typeof === 'number' 硬判，否则群聊永远
           // 落进单聊分支，头像/身份全部判错。
@@ -276,7 +316,7 @@ export function MergedSessionPanel({
     if (kind === 'official') {
       // 从 officialAccounts 数据构建会话列表
       if (!officialAccounts.data) return [];
-      return officialAccounts.data.map((official: any) => {
+      return officialAccounts.data.map((official: OfficialAccountSummaryWire) => {
         const avatarUrl = resolveAvatar({
           uin: official.targetUin && official.targetUin !== '0' ? official.targetUin : undefined,
         });
@@ -310,9 +350,9 @@ export function MergedSessionPanel({
     if (kind === 'service') {
       // 从 serviceAccounts 数据构建会话列表
       if (!serviceAccounts.data) return [];
-      return serviceAccounts.data.map((service: any) => {
+      return serviceAccounts.data.map((service: ServiceAccountSummaryWire) => {
         const avatarUrl = resolveAvatar({
-          uin: service.targetUin && service.targetUin !== '0' ? service.targetUin : undefined,
+          uin: undefined,
           profileAvatarUrl: service.avatarUrl,
         });
         return {

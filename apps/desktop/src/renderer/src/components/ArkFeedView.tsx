@@ -9,14 +9,27 @@ interface ArkFeedViewProps {
   onBack: () => void;
 }
 
+type MessageElement = {
+  type: string;
+  data?: {
+    arkData?: unknown;
+  };
+};
+
+type ArkMessage = {
+  msgId: string;
+  sendTime: string;
+  elements?: MessageElement[];
+};
+
 type ContextMenuState = {
-  message: any;
+  message: ArkMessage;
   x: number;
   y: number;
 };
 
 export function ArkFeedView({ conversationId, title, onBack, onEditMessage }: ArkFeedViewProps & { onEditMessage?: (msgId: string) => void }) {
-  const [messages, setMessages] = useState<any[]>([]);
+  const [messages, setMessages] = useState<ArkMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
@@ -36,10 +49,10 @@ export function ArkFeedView({ conversationId, title, onBack, onEditMessage }: Ar
 
   useEffect(() => {
     if (isOfficial && officialFeed.data) {
-      setMessages(officialFeed.data);
+      setMessages(officialFeed.data as ArkMessage[]);
       setLoading(officialFeed.isLoading);
     } else if (isService && serviceFeed.data) {
-      setMessages(serviceFeed.data);
+      setMessages(serviceFeed.data as ArkMessage[]);
       setLoading(serviceFeed.isLoading);
     }
   }, [isOfficial, isService, officialFeed.data, officialFeed.isLoading, serviceFeed.data, serviceFeed.isLoading]);
@@ -47,7 +60,7 @@ export function ArkFeedView({ conversationId, title, onBack, onEditMessage }: Ar
   const arkMessages = useMemo(() => {
     const filtered = messages.filter((msg) => {
       const elements = msg.elements || [];
-      return elements.some((el: any) => el.type === 'ark');
+      return elements.some((el) => el.type === 'ark');
     });
     // 反转顺序：最新的消息在最下面
     return filtered.reverse();
@@ -78,7 +91,7 @@ export function ArkFeedView({ conversationId, title, onBack, onEditMessage }: Ar
     };
   }, [contextMenu]);
 
-  function openMessageMenu(event: MouseEvent, message: any) {
+  function openMessageMenu(event: MouseEvent, message: ArkMessage) {
     event.preventDefault();
     event.stopPropagation();
     setContextMenu({
@@ -88,7 +101,7 @@ export function ArkFeedView({ conversationId, title, onBack, onEditMessage }: Ar
     });
   }
 
-  function handleEditMessage(message: any) {
+  function handleEditMessage(message: ArkMessage) {
     setContextMenu(null);
     if (onEditMessage) {
       onEditMessage(message.msgId);
@@ -110,7 +123,7 @@ export function ArkFeedView({ conversationId, title, onBack, onEditMessage }: Ar
           <div className="weq-ark-feed-empty">暂无消息</div>
         ) : (
           arkMessages.map((msg) => {
-            const arkElement = msg.elements?.find((el: any) => el.type === 'ark');
+            const arkElement = msg.elements?.find((el) => el.type === 'ark');
             if (!arkElement) return null;
 
             const timestamp = new Date(Number(msg.sendTime) * 1000);

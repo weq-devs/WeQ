@@ -368,6 +368,10 @@ export interface ArkConfig {
   ctime: number;
   /** Card signature token. */
   token: string;
+  /** Round corners flag (observed in qianbao messages). */
+  round?: number;
+  /** Auto-size flag (observed in qianbao messages). */
+  autosize?: number;
 }
 
 /**

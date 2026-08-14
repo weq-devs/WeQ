@@ -97,6 +97,7 @@ export const SAMPLE_GAME_CENTER_AD_2: ArkPayload = {
  */
 export const SAMPLE_MAIL_NOTIFICATION: ArkPayload = {
   app: 'com.tencent.template.public',
+  desc: '',
   meta: {
     mail: {
       title: 'H3CoF6',

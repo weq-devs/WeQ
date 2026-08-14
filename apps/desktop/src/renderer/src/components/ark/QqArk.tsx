@@ -307,8 +307,8 @@ function ArkPlainText({ p }: { p: ArkPayload }): ReactElement {
         {/* 详情列表（纯文本值） */}
         {detailItems.length > 0 ? (
           <div style={{ marginBottom: operationItems.length > 0 ? 12 : 0 }}>
-            {detailItems.map((text, idx) => (
-              <div key={idx} className="weq-ark-desc" style={{ marginBottom: 4 }}>
+            {detailItems.map((text) => (
+              <div key={`detail-${text}`} className="weq-ark-desc" style={{ marginBottom: 4 }}>
                 {text}
               </div>
             ))}
@@ -320,7 +320,7 @@ function ArkPlainText({ p }: { p: ArkPayload }): ReactElement {
           <div style={{ borderTop: '1px solid #e8e8e8', paddingTop: 8 }}>
             {operationItems.map((op, idx) => (
               <div
-                key={idx}
+                key={`${op.label}-${op.url}`}
                 style={{
                   color: '#1677ff',
                   fontSize: 14,
@@ -401,8 +401,8 @@ function ArkSubscribeMessage({ p }: { p: ArkPayload }): ReactElement {
       {/* 信息字段对列表 */}
       {infoItems.length > 0 ? (
         <div style={{ marginBottom: operations.length > 0 ? 12 : 0 }}>
-          {infoItems.map((item, idx) => (
-            <div key={idx} style={{ marginBottom: 8 }}>
+          {infoItems.map((item) => (
+            <div key={`${item.label}-${item.value}`} style={{ marginBottom: 8 }}>
               {item.label ? (
                 <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 2 }}>{item.label}</div>
               ) : null}
@@ -419,7 +419,7 @@ function ArkSubscribeMessage({ p }: { p: ArkPayload }): ReactElement {
         <div style={{ borderTop: '1px solid #e8e8e8', paddingTop: 8 }}>
           {operations.map((op, idx) => (
             <div
-              key={idx}
+              key={`${op.label}-${op.url}`}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -486,8 +486,8 @@ function ArkSinglePic({ p, prompt }: { p: ArkPayload; prompt: string }): ReactEl
       {banner ? <img className="weq-ark-preview-big" src={arkImg(banner)} alt="" loading="lazy" /> : null}
       {labels.length > 0 ? (
         <div style={{ marginTop: banner ? 8 : 0 }}>
-          {labels.map((label, idx) => (
-            <div key={idx} className="weq-ark-desc" style={{ marginBottom: idx < labels.length - 1 ? 4 : 0 }}>
+          {labels.map((label) => (
+            <div key={`label-${label}`} className="weq-ark-desc" style={{ marginBottom: 4 }}>
               {label}
             </div>
           ))}
@@ -559,8 +559,8 @@ function ArkSecurityMessage({ p }: { p: ArkPayload }): ReactElement {
         {/* 详情字段列表 */}
         {detailItems.length > 0 ? (
           <div style={{ marginBottom: 12 }}>
-            {detailItems.map((item, idx) => (
-              <div key={idx} style={{ marginBottom: 8 }}>
+            {detailItems.map((item) => (
+              <div key={`${item.title}-${item.content}`} style={{ marginBottom: 8 }}>
                 {item.title ? (
                   <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 2 }}>{item.title}</div>
                 ) : null}
@@ -577,7 +577,7 @@ function ArkSecurityMessage({ p }: { p: ArkPayload }): ReactElement {
           <div style={{ borderTop: '1px solid #e8e8e8', paddingTop: 8 }}>
             {linkItems.map((link, idx) => (
               <div
-                key={idx}
+                key={`${link.title}-${link.url}`}
                 style={{
                   color: '#1677ff',
                   fontSize: 14,
@@ -615,12 +615,12 @@ function ArkQianBaoMessage({ p }: { p: ArkPayload }): ReactElement {
       {content ? <div className="weq-ark-desc" style={{ marginBottom: informationList.length > 0 ? 12 : 0 }}>{content}</div> : null}
       {informationList.length > 0 ? (
         <div style={{ borderTop: '1px solid #e8e8e8', paddingTop: 8 }}>
-          {informationList.map((item, idx) => {
+          {informationList.map((item) => {
             const label = s(item, 'label');
             const text = s(item, 'text');
             if (!label && !text) return null;
             return (
-              <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+              <div key={`${label}-${text}`} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                 <span style={{ fontSize: 13, color: '#8c8c8c' }}>{label}</span>
                 <span style={{ fontSize: 13, color: '#000' }}>{text}</span>
               </div>

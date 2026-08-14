@@ -1,7 +1,7 @@
 import { loadNative } from './packages/native/src/index.ts';
-import path from 'path';
-import { createHash } from 'crypto';
-import { readdirSync, openSync, readSync, closeSync } from 'fs';
+import path from 'node:path';
+import { createHash } from 'node:crypto';
+import { readdirSync, openSync, readSync, closeSync } from 'node:fs';
 
 const dir = path.join('D:', 'estkim', 'com.tencent.mobileqq', 'databases', 'nt_db', 'nt_qq_2472b5970cc3e5c0348c9601425e4186');
 const dbPath = path.join(dir, 'nt_msg.db');
@@ -71,7 +71,7 @@ try {
   console.log('服务号联系人数量:', serviceRows.length);
   serviceRows.forEach((row, i) => {
     console.log('');
-    console.log('[服务号', (i+1) + ']');
+    console.log('[服务号', `${i+1}]`);
     console.log('  appId (41102):', row[0]);
     console.log('  displayName (40094):', row[1]);
     console.log('  avatarUrl (41110):', row[2]);
@@ -88,7 +88,7 @@ try {
   console.log('公众号联系人数量:', officialRows.length);
   officialRows.forEach((row, i) => {
     console.log('');
-    console.log('[公众号', (i+1) + ']');
+    console.log('[公众号', `${i+1}]`);
     console.log('  targetUid (40011):', row[0]);
     console.log('  chatType (40010):', row[1]);
     console.log('  targetUin (40027):', row[2]);

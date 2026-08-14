@@ -319,6 +319,7 @@ export interface DeletedSessionWire {
 export interface OfficialAccountSummaryWire {
   peerUid: string;
   displayName: string;
+  avatarUrl: string | null;
   targetUin: string;
   sendTime: string;
   /** ARK element's prompt field (sanitized). */
@@ -428,6 +429,7 @@ export function officialAccountSummaryToWire(
   return {
     peerUid: s.peerUid,
     displayName: s.displayName,
+    avatarUrl: s.avatarUrl,
     targetUin: s.targetUin,
     sendTime: s.sendTime.toString(),
     prompt: s.prompt,
