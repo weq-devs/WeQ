@@ -302,6 +302,20 @@ export interface HiddenSessionWire {
   preview: unknown | null;
 }
 
+export interface DeletedSessionWire {
+  sessionKey: string;
+  chatType: number;
+  targetUid: string;
+  resolvable: boolean;
+  /** Real last-message time resolved from the msg table (unix seconds, string). "0" if none found. */
+  sendTime: string;
+  senderUid: string;
+  /** Latest message's first element (sanitized), or null. */
+  preview: unknown | null;
+  /** Deletion timestamp (unix milliseconds, string). */
+  deleteTime: string;
+}
+
 export interface OfficialAccountSummaryWire {
   peerUid: string;
   displayName: string;
@@ -392,6 +406,19 @@ export function hiddenSessionToWire(h: HiddenSessionSummary): HiddenSessionWire 
     sendTime: h.sendTime.toString(),
     senderUid: h.senderUid,
     preview: h.preview ? sanitize(h.preview) : null,
+  };
+}
+
+export function deletedSessionToWire(d: import('@weq/service').DeletedSessionSummary): DeletedSessionWire {
+  return {
+    sessionKey: d.sessionKey,
+    chatType: d.chatType,
+    targetUid: d.targetUid,
+    resolvable: d.resolvable,
+    sendTime: d.sendTime.toString(),
+    senderUid: d.senderUid,
+    preview: d.preview ? sanitize(d.preview) : null,
+    deleteTime: d.deleteTime.toString(),
   };
 }
 

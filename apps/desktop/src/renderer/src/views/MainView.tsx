@@ -190,6 +190,18 @@ type HiddenSessionWire = {
   preview: unknown | null;
 };
 
+/** 删除会话一行（recent_contact_delete_storage），最后消息时间/预览已由后端解析。 */
+type DeletedSessionWire = {
+  sessionKey: string;
+  chatType: number;
+  targetUid: string;
+  resolvable: boolean;
+  sendTime: string;
+  senderUid: string;
+  preview: unknown | null;
+  deleteTime: string;
+};
+
 /** 公众号摘要（listOfficialAccounts）—— wire 格式。 */
 type OfficialAccountWire = {
   peerUid: string;
@@ -1545,6 +1557,7 @@ export function MainView(): ReactElement {
   const contacts = trpc.account.listRecentContacts.useQuery();
   const topContacts = trpc.account.listTopContacts.useQuery();
   const hiddenSessions = trpc.account.listHiddenSessions.useQuery();
+  const deletedSessions = trpc.account.listDeletedSessions.useQuery();
   const officialAccounts = trpc.account.listOfficialAccounts.useQuery();
   const serviceAccounts = trpc.account.listServiceAccounts.useQuery();
   const selfProfile = trpc.account.getSelfProfile.useQuery();
@@ -2013,6 +2026,17 @@ export function MainView(): ReactElement {
     }
     return set;
   }, [hiddenSessions.data]);
+
+  // 删除会话 uid 集合：recent_contact_delete_storage 里有记录且不在 recent_contact 里的。
+  const deletedUidSet = useMemo(() => {
+    const list = (deletedSessions.data ?? []) as DeletedSessionWire[];
+    const set = new Set<string>();
+    for (const deleted of list) {
+      if (deleted.targetUid && deleted.resolvable) set.add(deleted.targetUid);
+    }
+    return set;
+  }, [deletedSessions.data]);
+
   // 隐藏会话不出现在主 conversations 列表里（见下方 useMemo），所以 shell 的
   // activeConversation 查找会失效——单独建一份供 selectedConversation 兜底解析，
   // 不然从隐藏会话选择器点进去后消息页面直接打不开。
@@ -2030,10 +2054,84 @@ export function MainView(): ReactElement {
     }
     return map;
   }, [hiddenUidSet, contacts.data, allGroups.data, groupNameByCode, user, botUids]);
+
+  // 删除会话同样不在主列表（已从 recent_contact 消失），需要单独解析供点击后打开。
+  // 和隐藏会话不同，删除会话已经不在 recent_contact 里，所以只能用 deletedSessions 数据。
+  const deletedConversationsById = useMemo(() => {
+    const map = new Map<string, Conversation>();
+    if (deletedUidSet.size === 0) return map;
+
+    for (const deleted of (deletedSessions.data ?? []) as DeletedSessionWire[]) {
+      if (!deleted.resolvable || !deleted.targetUid) continue;
+
+      const isGroup = deleted.chatType === 2;
+
+      if (isGroup) {
+        // 群聊：尝试从 allGroups 获取详细信息
+        const groupDetail = (allGroups.data ?? []).find(
+          (g: GroupDetailWire) => g.groupCode === deleted.targetUid
+        );
+        if (groupDetail) {
+          map.set(deleted.targetUid, groupDetailToConversation(groupDetail, undefined, user));
+        } else {
+          // 群详情不存在，构建最小会话对象
+          const groupName = groupNameByCode.get(deleted.targetUid) || deleted.targetUid;
+          map.set(deleted.targetUid, {
+            id: deleted.targetUid,
+            type: 'group',
+            updatedAt: toIsoTime(deleted.sendTime),
+            otherUser: null,
+            group: {
+              id: deleted.targetUid,
+              name: groupName,
+              identityLabel: 'Group',
+              identityValue: deleted.targetUid,
+              avatarUrl: groupAvatarSrc(deleted.targetUid),
+              announcement: null,
+              memberCount: 0,
+              role: 'member',
+            },
+            members: [],
+            preference: { pinned: false, muted: false, blocked: false },
+            unreadCount: 0,
+            lastMessage: null,
+          });
+        }
+      } else {
+        // 私聊：从 profiles 或 buddies 获取用户信息
+        const profile = profileByUid.get(deleted.targetUid);
+        const displayName = profile?.remark || profile?.nick || profile?.qid || deleted.targetUid;
+        const avatarUrl = senderAvatarSrc(profile?.uin || '') || profile?.avatarUrl || null;
+
+        map.set(deleted.targetUid, {
+          id: deleted.targetUid,
+          type: 'direct',
+          updatedAt: toIsoTime(deleted.sendTime),
+          otherUser: {
+            id: deleted.targetUid,
+            identityLabel: 'UID',
+            identityValue: deleted.targetUid,
+            username: deleted.targetUid,
+            displayName,
+            kind: 'human',
+            avatarUrl,
+          },
+          group: null,
+          members: [],
+          preference: { pinned: false, muted: false, blocked: false },
+          unreadCount: 0,
+          lastMessage: null,
+        });
+      }
+    }
+
+    return map;
+  }, [deletedUidSet, deletedSessions.data, allGroups.data, groupNameByCode, profileByUid, user, botUids]);
   const conversations = useMemo(
     () => {
       const groups = (allGroups.data ?? []) as GroupDetailWire[];
       const hiddenList = (hiddenSessions.data ?? []) as HiddenSessionWire[];
+      const deletedList = (deletedSessions.data ?? []) as DeletedSessionWire[];
 
       // 只保留非 official/service 的 recent contacts（103/118 走合并会话入口）
       // 同时排除隐藏会话：hidden_session_storage_table_v1 里有的不出现在主列表
@@ -2147,6 +2245,37 @@ export function MainView(): ReactElement {
         byId.set('merged:hidden', merged);
       }
 
+      // 删除会话合并入口：至少有一个删除会话时，置顶显示（不展示内部预览）。
+      // 删除会话已经从 recent_contact_v3_table 消失，后端已过滤掉"复活"的会话。
+      const validDeletedList = deletedList.filter((d) => d.resolvable);
+
+      if (validDeletedList.length > 0) {
+        const latest = validDeletedList.reduce((a, b) =>
+          Number(b.sendTime) > Number(a.sendTime) ? b : a,
+        );
+        const updatedAt = toIsoTime(latest.sendTime);
+        const merged: import('../im-template/template').MergedConversation = {
+          id: 'merged:deleted',
+          type: 'merged',
+          mergedKind: 'deleted',
+          title: '最近删除',
+          avatarUrl: null,
+          otherUser: null,
+          group: null,
+          members: [],
+          updatedAt,
+          preference: { ...fallbackPreference, pinned: true },
+          unreadCount: 0,
+          lastMessage: {
+            id: `merged:deleted:${latest.sendTime}`,
+            senderId: null,
+            body: null,
+            createdAt: updatedAt,
+          },
+        };
+        byId.set('merged:deleted', merged);
+      }
+
       return Array.from(byId.values())
         .map((conversation) => {
           const unread = unreadByConv[conversation.id];
@@ -2174,7 +2303,7 @@ export function MainView(): ReactElement {
           return Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
         });
     },
-    [allGroups.data, contacts.data, officialAccounts.data, serviceAccounts.data, hiddenSessions.data, hiddenUidSet, groupNameByCode, profileByUid, user, unreadByConv, highlightsByConv, topTimeByConv, botUids],
+    [allGroups.data, contacts.data, officialAccounts.data, serviceAccounts.data, hiddenSessions.data, deletedSessions.data, hiddenUidSet, groupNameByCode, profileByUid, user, unreadByConv, highlightsByConv, topTimeByConv, botUids],
   );
   const groupsById = useMemo(() => new Map(conversations.map((conversation) => [conversation.id, conversation])), [conversations]);
   const contactRequests = useMemo(
@@ -2214,12 +2343,13 @@ export function MainView(): ReactElement {
     history: shellHistory,
   });
 
-  // shell.activeConversation 只在主 conversations 列表里查找；隐藏会话故意不进
-  // 那份列表（见上方 conversations useMemo），所以查不到时兜底查
-  // hiddenConversationsById —— 否则从隐藏会话选择器点进去，消息页面直接打不开。
+  // shell.activeConversation 只在主 conversations 列表里查找；隐藏会话和删除会话
+  // 故意不进那份列表（见上方 conversations useMemo），所以查不到时兜底查
+  // hiddenConversationsById 和 deletedConversationsById —— 否则从选择器点进去，消息页面直接打不开。
   const selectedConversation =
     shell.activeConversation ??
-    (shell.activeConversationId ? hiddenConversationsById.get(shell.activeConversationId) : undefined);
+    (shell.activeConversationId ? hiddenConversationsById.get(shell.activeConversationId) : undefined) ??
+    (shell.activeConversationId ? deletedConversationsById.get(shell.activeConversationId) : undefined);
   const selectedUid = selectedConversation?.id ?? '';
   const isGroup = selectedConversation?.type === 'group';
   const isDirect = selectedConversation?.type === 'direct';
@@ -2579,8 +2709,12 @@ export function MainView(): ReactElement {
     for (const hidden of (hiddenSessions.data ?? []) as HiddenSessionWire[]) {
       if (hidden.resolvable && chatTypeKind(hidden.chatType) === 'direct') uids.push(hidden.targetUid);
     }
+    // 删除会话同样需要 profile 缓存补昵称/头像。
+    for (const deleted of (deletedSessions.data ?? []) as DeletedSessionWire[]) {
+      if (deleted.resolvable && (deleted.chatType === 1 || deleted.chatType === 10)) uids.push(deleted.targetUid);
+    }
     resolveProfiles(uids);
-  }, [buddies.data, buddyRequests.data, groupNotifies.data, hiddenSessions.data, resolveProfiles]);
+  }, [buddies.data, buddyRequests.data, groupNotifies.data, hiddenSessions.data, deletedSessions.data, resolveProfiles]);
 
   const templateMessages = useMemo(() => {
     if (!selectedConversation) return [];
@@ -2684,15 +2818,16 @@ export function MainView(): ReactElement {
     // let the user pick. Only clear a selection that no longer exists — hidden
     // sessions are deliberately absent from `conversations` (see hiddenConversationsById),
     // so they must be exempted here too or this immediately un-selects them right
-    // after the hidden-session picker sets them.
+    // after the hidden-session picker sets them. Same for deleted sessions.
     if (
       shell.activeConversationId &&
       !conversations.some((conversation) => conversation.id === shell.activeConversationId) &&
-      !hiddenConversationsById.has(shell.activeConversationId)
+      !hiddenConversationsById.has(shell.activeConversationId) &&
+      !deletedConversationsById.has(shell.activeConversationId)
     ) {
       shell.setActiveConversationId(null);
     }
-  }, [contacts.isLoading, conversations, hiddenConversationsById, shell.activeConversationId, shell.setActiveConversationId]);
+  }, [contacts.isLoading, conversations, hiddenConversationsById, deletedConversationsById, shell.activeConversationId, shell.setActiveConversationId]);
 
   // Keep the live-subscription's view of "what's open" current without
   // re-subscribing on every selection change.
@@ -3477,7 +3612,7 @@ export function MainView(): ReactElement {
                 // 优化：选中公众号/服务号会话后，取消其它会话（普通/隐藏）的选中态。
                 shell.backConversation();
               } else {
-                // 从隐藏会话选择器进入普通会话前，先关掉可能开着的 ARK Feed。
+                // 从隐藏会话或删除会话选择器进入普通会话前，先关掉可能开着的 ARK Feed。
                 setArkFeedState(null);
                 shell.selectConversation(conv.id);
               }

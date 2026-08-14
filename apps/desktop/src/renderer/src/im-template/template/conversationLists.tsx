@@ -1,5 +1,5 @@
 ﻿// @ts-nocheck
-import { BellOff, Bot, PenLine, Pin, EyeOff, MessageSquare, Users, UserRound, Circle, Smile, Clock, Minus, Ban, MinusCircle, ChevronRight } from "lucide-react";
+import { BellOff, Bot, PenLine, Pin, EyeOff, MessageSquare, Users, UserRound, Circle, Smile, Clock, Minus, Ban, MinusCircle, ChevronRight, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { cn } from "./classNames";
 import { Avatar, EmptyState, } from "./primitives";
@@ -98,6 +98,8 @@ export function ConversationList({
 							<span className={cn("avatar", "has-default", "merged-avatar")}>
 								{conversation.mergedKind === "hidden" ? (
 									<EyeOff size={20} strokeWidth={2} />
+								) : conversation.mergedKind === "deleted" ? (
+									<Trash2 size={20} strokeWidth={2} />
 								) : conversation.mergedKind === "service" ? (
 									<Users size={20} strokeWidth={2} />
 								) : (

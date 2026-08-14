@@ -66,6 +66,7 @@ import {
   recentContactToWire,
   recentContactTopToWire,
   hiddenSessionToWire,
+  deletedSessionToWire,
   officialAccountSummaryToWire,
   serviceAccountSummaryToWire,
   userProfileToWire,
@@ -1331,6 +1332,15 @@ export const accountRouter = router({
   listHiddenSessions: procedure.query(async () => {
     const hidden = await requireServices().hiddenSessions.listHiddenSessions();
     return hidden.map(hiddenSessionToWire);
+  }),
+
+  /**
+   * 删除的会话（recent_contact_delete_storage）—— 已解析出的最后消息时间/预览，
+   * 供前端在删除会话合并入口中显示。
+   */
+  listDeletedSessions: procedure.query(async () => {
+    const deleted = await requireServices().deletedSessions.listDeletedSessions();
+    return deleted.map(deletedSessionToWire);
   }),
 
   /**

@@ -23,6 +23,7 @@ import {
   RecentContactDb,
   RecentContactTopDb,
   HiddenSessionDb,
+  DeletedSessionDb,
   ServiceAssistantContactDb,
   UidMappingDb,
   UidMap,
@@ -327,6 +328,7 @@ export async function openStaticAccount(
   const recentContacts = new RecentContactDb(nt, opts(msgDbPath));
   const recentContactTops = new RecentContactTopDb(nt, opts(msgDbPath));
   const hiddenSessions = new HiddenSessionDb(nt, opts(msgDbPath));
+  const deletedSessions = new DeletedSessionDb(nt, opts(msgDbPath));
   const serviceAssistantContacts = new ServiceAssistantContactDb(nt, opts(msgDbPath));
   // 服务号（118）消息表结构同 c2c，复用 C2cMsgDb 只换表名；分区键是 appId（40035）。
   const serviceAssistantMsgs = new C2cMsgDb(nt, { ...opts(msgDbPath), table: 'service_assistant_msg_table' });
@@ -393,6 +395,7 @@ export async function openStaticAccount(
     recentContacts,
     recentContactTops,
     hiddenSessions,
+    deletedSessions,
     serviceAssistantContacts,
     serviceAssistantMsgs,
     forwardMsgs,
@@ -423,6 +426,7 @@ export async function openStaticAccount(
       recentContacts.close();
       recentContactTops.close();
       hiddenSessions.close();
+      deletedSessions.close();
       serviceAssistantContacts.close();
       serviceAssistantMsgs.close();
       forwardMsgs.close();

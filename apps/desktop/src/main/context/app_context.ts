@@ -54,6 +54,7 @@ import {
   MsgService,
   RecentContactService,
   HiddenSessionService,
+  DeletedSessionService,
   OfficialAccountService,
   ServiceAccountService,
   UnreadInfoService,
@@ -375,6 +376,7 @@ export interface AccountServices {
   msgs: MsgService;
   recentContacts: RecentContactService;
   hiddenSessions: HiddenSessionService;
+  deletedSessions: DeletedSessionService;
   officialAccount: OfficialAccountService;
   serviceAccount: ServiceAccountService;
   unreadInfo: UnreadInfoService;
@@ -852,6 +854,7 @@ export function initAppContext(): AppContext {
         msgs: new MsgService(session, deletedMsgs, antiRecall),
         recentContacts: new RecentContactService(session),
         hiddenSessions: new HiddenSessionService(session),
+        deletedSessions: new DeletedSessionService(session),
         officialAccount: new OfficialAccountService(session),
         serviceAccount: new ServiceAccountService(session),
         unreadInfo: new UnreadInfoService(session),
@@ -1273,6 +1276,7 @@ export function initAppContext(): AppContext {
         msgs: new MsgService(session, deletedMsgs, antiRecall),
         recentContacts: new RecentContactService(session),
         hiddenSessions: new HiddenSessionService(session),
+        deletedSessions: new DeletedSessionService(session),
         officialAccount: new OfficialAccountService(session),
         serviceAccount: new ServiceAccountService(session),
         unreadInfo: new UnreadInfoService(session),

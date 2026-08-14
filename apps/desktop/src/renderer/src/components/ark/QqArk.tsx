@@ -7,10 +7,12 @@
  * 布局组件。已知常见卡精确渲染，未知/长尾卡走 generic（带槽位值，仍优于纯猜；再无
  * 槽位则退回启发式，保证不白屏）。
  *
- * 六个特例保留独立分支（不走通用槽位）：
+ * 八个特例保留独立分支（不走通用槽位）：
  *   - 群公告 com.tencent.mannounce：title/text 为 base64、无图片素材。
  *   - 群活动 com.tencent.activity.md：带状态标签 + 按钮。
+ *   - 公众号订阅消息 com.tencent.public.subscribe.standard (message)：appIcon+appName + infoItem 字段对 + operation 按钮。
  *   - QQ邮箱 com.tencent.template.public (mail)：title/subTitle/content 三段式显示。
+ *   - plainText 通知 com.tencent.template.public (plainText)：头像昵称 + 标题摘要 + details 纯值列表 + operations 按钮。
  *   - 单图广告 com.tencent.template.public (singlePic)：大图 + 多行 label 叠加。
  *   - 安全提醒 com.tencent.security.message：设备风险警告 + 详情字段 + 底部链接。
  *   - QQ钱包 com.tencent.qianbao：title + content + informationList 标签对列表。
@@ -239,6 +241,207 @@ function ArkMail({ p }: { p: ArkPayload }): ReactElement {
       {title ? <div className="weq-ark-title">{title}</div> : null}
       {subTitle ? <div className="weq-ark-desc" style={{ fontWeight: 500, marginBottom: 6 }}>{subTitle}</div> : null}
       {content ? <div className="weq-ark-desc" style={{ color: '#8c8c8c' }}>{content}</div> : null}
+    </ArkShell>
+  );
+}
+
+// ---- plainText 通知卡 (com.tencent.template.public / view: plainText) --------
+
+/**
+ * plainText 通知卡。显示头像+昵称、标题、摘要、详情字段对、底部操作按钮。
+ * 用于功能内测通知等官方通知场景。只渲染字段值，不渲染键名（如 title1/desc1）。
+ */
+function ArkPlainText({ p }: { p: ArkPayload }): ReactElement {
+  const avatar = s(p, 'avatar') || undefined;
+  const nick = s(p, 'nick');
+  const title = s(p, 'title');
+  const summary = s(p, 'summary');
+
+  // 提取 details 数组：[{desc1, title1}, {desc2, title2}, ...]
+  // 只渲染 desc 值，忽略 title 键名
+  const detailsArray = (p.details as Array<Record<string, unknown>> | undefined) || [];
+  const detailItems: string[] = [];
+  for (const detail of detailsArray) {
+    for (let i = 1; i <= 10; i++) {
+      const value = s(detail, `desc${i}`);
+      if (value) detailItems.push(value);
+    }
+  }
+
+  // 提取 operations 数组：[{label1, jumpUrl1}, ...]
+  const operationsArray = (p.operations as Array<Record<string, unknown>> | undefined) || [];
+  const operationItems: Array<{ label: string; url: string }> = [];
+  for (const op of operationsArray) {
+    for (let i = 1; i <= 5; i++) {
+      const label = s(op, `label${i}`);
+      const url = s(op, `jumpUrl${i}`);
+      if (label && url) {
+        operationItems.push({ label, url });
+      }
+    }
+  }
+
+  return (
+    <div className="weq-ark-container">
+      <div className="weq-ark-content">
+        {/* 头部：头像 + 昵称 */}
+        {(avatar || nick) ? (
+          <div className="weq-ark-header" style={{ marginBottom: 8 }}>
+            {avatar ? (
+              <img className="weq-ark-icon-app" src={arkImg(avatar)} alt="" loading="lazy" />
+            ) : null}
+            <span style={{ fontWeight: 600 }}>{nick}</span>
+          </div>
+        ) : null}
+
+        {/* 标题 */}
+        {title ? <div className="weq-ark-title">{title}</div> : null}
+
+        {/* 摘要 */}
+        {summary ? (
+          <div className="weq-ark-desc" style={{ marginBottom: detailItems.length > 0 ? 12 : 0 }}>
+            {summary}
+          </div>
+        ) : null}
+
+        {/* 详情列表（纯文本值） */}
+        {detailItems.length > 0 ? (
+          <div style={{ marginBottom: operationItems.length > 0 ? 12 : 0 }}>
+            {detailItems.map((text, idx) => (
+              <div key={idx} className="weq-ark-desc" style={{ marginBottom: 4 }}>
+                {text}
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {/* 底部操作按钮 */}
+        {operationItems.length > 0 ? (
+          <div style={{ borderTop: '1px solid #e8e8e8', paddingTop: 8 }}>
+            {operationItems.map((op, idx) => (
+              <div
+                key={idx}
+                style={{
+                  color: '#1677ff',
+                  fontSize: 14,
+                  cursor: 'pointer',
+                  marginBottom: idx < operationItems.length - 1 ? 6 : 0,
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  window.open(op.url, '_blank');
+                }}
+              >
+                {op.label}
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+// ---- 公众号订阅消息卡 (com.tencent.public.subscribe.standard / view: message) --
+
+/**
+ * 公众号订阅消息卡。显示 appIcon+appName、标题、正文、信息字段对（带标签）、底部操作按钮。
+ * 用于会员到期提醒、订阅通知等场景。
+ */
+function ArkSubscribeMessage({ p }: { p: ArkPayload }): ReactElement {
+  const appIcon = s(p, 'appIcon') || undefined;
+  const appName = s(p, 'appName');
+  const title = s(p, 'title');
+  const contentText = s(p, 'contentText');
+  const jumpUrl = s(p, 'jumpUrl') || s(p, 'appJumpUrl') || undefined;
+
+  // 提取 infoItemTitle/infoItemDes 字段对
+  const infoItems: Array<{ label: string; value: string }> = [];
+  for (let i = 1; i <= 10; i++) {
+    const label = s(p, `infoItemTitle${i}`);
+    const value = s(p, `infoItemDes${i}`);
+    if (label || value) {
+      infoItems.push({ label, value });
+    }
+  }
+
+  // 提取 operationText/operationJump 按钮
+  const operations: Array<{ label: string; url: string; icon?: string }> = [];
+  for (let i = 1; i <= 5; i++) {
+    const label = s(p, `operationText${i}`);
+    const url = s(p, `operationJump${i}`);
+    const icon = s(p, `operationIcon${i}`) || undefined;
+    if (label && url) {
+      operations.push({ label, url, icon });
+    }
+  }
+
+  return (
+    <ArkShell jump={jumpUrl}>
+      {/* 头部：appIcon + appName */}
+      {(appIcon || appName) ? (
+        <div className="weq-ark-header" style={{ marginBottom: 8 }}>
+          {appIcon ? (
+            <img className="weq-ark-icon-app" src={arkImg(appIcon)} alt="" loading="lazy" />
+          ) : null}
+          <span style={{ fontWeight: 600 }}>{appName}</span>
+        </div>
+      ) : null}
+
+      {/* 标题 */}
+      {title ? <div className="weq-ark-title">{title}</div> : null}
+
+      {/* 正文 */}
+      {contentText ? (
+        <div className="weq-ark-desc" style={{ marginBottom: infoItems.length > 0 ? 12 : 0 }}>
+          {contentText}
+        </div>
+      ) : null}
+
+      {/* 信息字段对列表 */}
+      {infoItems.length > 0 ? (
+        <div style={{ marginBottom: operations.length > 0 ? 12 : 0 }}>
+          {infoItems.map((item, idx) => (
+            <div key={idx} style={{ marginBottom: 8 }}>
+              {item.label ? (
+                <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 2 }}>{item.label}</div>
+              ) : null}
+              {item.value ? (
+                <div style={{ fontSize: 14, color: '#000', fontWeight: 500 }}>{item.value}</div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {/* 底部操作按钮 */}
+      {operations.length > 0 ? (
+        <div style={{ borderTop: '1px solid #e8e8e8', paddingTop: 8 }}>
+          {operations.map((op, idx) => (
+            <div
+              key={idx}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                color: '#1677ff',
+                fontSize: 14,
+                cursor: 'pointer',
+                marginBottom: idx < operations.length - 1 ? 6 : 0,
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                window.open(op.url, '_blank');
+              }}
+            >
+              {op.icon ? (
+                <img src={arkImg(op.icon)} alt="" style={{ width: 16, height: 16 }} loading="lazy" />
+              ) : null}
+              <span>{op.label}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </ArkShell>
   );
 }
@@ -631,8 +834,16 @@ export function QqArk({ arkData }: { arkData: unknown }): ReactElement | null {
   // 特例2：群报名/活动。
   if (app === 'com.tencent.activity.md') return <ArkActivity p={p} />;
 
+  // 特例2.5：公众号订阅消息 (com.tencent.public.subscribe.standard / view: message)。
+  if (app === 'com.tencent.public.subscribe.standard' && firstKey === 'message') {
+    return <ArkSubscribeMessage p={p} />;
+  }
+
   // 特例3：QQ邮箱通知 (view: mail)。
   if (app === 'com.tencent.template.public' && firstKey === 'mail') return <ArkMail p={p} />;
+
+  // 特例3.5：plainText 通知卡 (view: plainText)。
+  if (app === 'com.tencent.template.public' && firstKey === 'plainText') return <ArkPlainText p={p} />;
 
   // 特例4：单图广告 (view: singlePic)。
   if (app === 'com.tencent.template.public' && firstKey === 'singlePic') return <ArkSinglePic p={p} prompt={prompt} />;

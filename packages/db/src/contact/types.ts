@@ -129,3 +129,22 @@ export interface ServiceAssistantContact {
   /** 40001 — latest message id (matches a row in service_assistant_msg_table). */
   lastMsgId: bigint;
 }
+
+/**
+ * Domain shape for one row of `recent_contact_delete_storage` — a deleted
+ * (「删除的会话」) conversation. Unlike hidden sessions, deleted sessions are
+ * REMOVED from `recent_contact_v3_table` entirely; they won't appear in the
+ * main list. We show them via a pinned merged session entry.
+ */
+export interface DeletedSession {
+  /** 1005 — session key: "{chatType}_{uid}" where chatType is numeric. */
+  sessionKey: string;
+  /** Parsed chatType from sessionKey (numeric). */
+  chatType: number;
+  /** Parsed targetUid from sessionKey (peer uid for c2c, group code for groups). */
+  targetUid: string;
+  /** 40050 — last message time (unix seconds). */
+  sendTime: bigint;
+  /** 49740 — deletion timestamp (unix milliseconds). */
+  deleteTime: bigint;
+}

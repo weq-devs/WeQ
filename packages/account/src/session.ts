@@ -16,6 +16,7 @@ import {
   RecentContactDb,
   RecentContactTopDb,
   HiddenSessionDb,
+  DeletedSessionDb,
   ServiceAssistantContactDb,
   UidMappingDb,
   UidMap,
@@ -123,6 +124,8 @@ export interface AccountSession {
   readonly recentContactTops: RecentContactTopDb;
   /** 隐藏会话（hidden_session_storage_table_v1）。 */
   readonly hiddenSessions: HiddenSessionDb;
+  /** 删除的会话（recent_contact_delete_storage）。 */
+  readonly deletedSessions: DeletedSessionDb;
   /** 服务号联系人（service_assistant_contact，chatType 118）。 */
   readonly serviceAssistantContacts: ServiceAssistantContactDb;
   /** 服务号消息（service_assistant_msg_table），结构同 c2c，分区键是 appId。 */
@@ -276,6 +279,12 @@ export async function openAccount(
   });
 
   const hiddenSessions = new HiddenSessionDb(nt, {
+    dbPath: msgDbPath,
+    key: ctx.dbKey,
+    algo: a(msgDbPath),
+  });
+
+  const deletedSessions = new DeletedSessionDb(nt, {
     dbPath: msgDbPath,
     key: ctx.dbKey,
     algo: a(msgDbPath),
@@ -438,6 +447,7 @@ export async function openAccount(
     recentContacts,
     recentContactTops,
     hiddenSessions,
+    deletedSessions,
     serviceAssistantContacts,
     serviceAssistantMsgs,
     forwardMsgs,
@@ -468,6 +478,7 @@ export async function openAccount(
       recentContacts.close();
       recentContactTops.close();
       hiddenSessions.close();
+      deletedSessions.close();
       serviceAssistantContacts.close();
       serviceAssistantMsgs.close();
       forwardMsgs.close();

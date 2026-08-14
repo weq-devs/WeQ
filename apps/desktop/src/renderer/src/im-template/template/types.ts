@@ -195,11 +195,11 @@ export type GroupConversation = ConversationBase & {
 
 export type Conversation = DirectConversation | GroupConversation | MergedConversation;
 
-export type MergedKind = "service" | "official" | "hidden";
+export type MergedKind = "service" | "official" | "hidden" | "deleted";
 
 export type MergedConversation = ConversationBase & {
 	type: "merged";
-	/** "service" = 服务号 (chatType 118); "official" = 公众号 (chatType 103); "hidden" = 隐藏会话聚合. */
+	/** "service" = 服务号 (chatType 118); "official" = 公众号 (chatType 103); "hidden" = 隐藏会话聚合; "deleted" = 删除会话聚合. */
 	mergedKind: MergedKind;
 	/** Human-readable title ("服务号" / "公众号" / "隐藏会话"). */
 	title: string;

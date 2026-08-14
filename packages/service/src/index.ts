@@ -104,6 +104,8 @@ export type { DownloadOptions } from './account/media_download';
 export { RecentContactService } from './account/recent_contact';
 export { HiddenSessionService } from './account/hidden_session';
 export type { HiddenSessionSummary } from './account/hidden_session';
+export { DeletedSessionService } from './account/deleted_session';
+export type { DeletedSessionSummary } from './account/deleted_session';
 export { OfficialAccountService } from './account/official_account';
 export type { OfficialAccountSummary } from './account/official_account';
 export { ServiceAccountService } from './account/service_account';

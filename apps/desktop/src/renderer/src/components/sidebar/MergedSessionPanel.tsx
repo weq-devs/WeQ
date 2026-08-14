@@ -1,9 +1,10 @@
-import { X, EyeOff } from 'lucide-react';
+import { X, EyeOff, Trash2 } from 'lucide-react';
 import { useMemo, useEffect, useRef, useState } from 'react';
 import { classifyChatType } from '@weq/codec';
 import { Avatar } from '../../im-template/template/primitives';
 import type { Conversation, MergedKind } from '../../im-template/template/types';
 import { trpc } from '../../trpc/client';
+import { resolveAvatar, avatarFromGroupCode } from '../../lib/avatarResolver';
 
 /** 隐藏会话昵称/头像解析用的最小 profile 形状（与 MainView 的 UserProfileWire 对齐）。 */
 interface HiddenProfileLike {
@@ -25,15 +26,6 @@ interface MergedSessionPanelProps {
   profileByUid?: Map<string, HiddenProfileLike>;
   /** 群号 → 群名，用于隐藏群聊会话解析名称。 */
   groupNameByCode?: Map<string, string>;
-}
-
-function senderAvatarSrc(uin: string): string | null {
-  if (!uin || uin === '0') return null;
-  return `https://thirdqq.qlogo.cn/g?b=sdk&s=0&nk=${uin}`;
-}
-
-function groupAvatarSrc(groupCode: string): string | null {
-  return groupCode ? `https://p.qlogo.cn/gh/${groupCode}/${groupCode}/0` : null;
 }
 
 function toIsoTime(seconds: string | undefined): string {
@@ -122,7 +114,85 @@ export function MergedSessionPanel({
     enabled: kind === 'hidden',
   });
 
+  // 获取删除会话原始数据
+  const deletedSessions = trpc.account.listDeletedSessions.useQuery(undefined, {
+    enabled: kind === 'deleted',
+  });
+
   const filtered = useMemo(() => {
+    if (kind === 'deleted') {
+      // 从 deletedSessions 数据构建会话列表
+      if (!deletedSessions.data) return [];
+      return deletedSessions.data
+        .filter((deleted: any) => deleted.resolvable && deleted.targetUid)
+        .map((deleted: any) => {
+          const isGroup = deleted.chatType === 2;
+
+          if (isGroup) {
+            const groupName = groupNameByCode?.get(deleted.targetUid) || deleted.targetUid;
+            return {
+              id: deleted.targetUid,
+              type: 'group' as const,
+              chatType: 2,
+              updatedAt: toIsoTime(deleted.sendTime),
+              otherUser: null,
+              group: {
+                id: deleted.targetUid,
+                name: groupName,
+                identityLabel: 'Group' as const,
+                identityValue: deleted.targetUid,
+                avatarUrl: avatarFromGroupCode(deleted.targetUid),
+                announcement: null,
+                memberCount: 1,
+                role: 'member' as const,
+              },
+              members: [],
+              preference: { pinned: false, muted: false, blocked: false },
+              unreadCount: 0,
+              lastMessage: {
+                id: `deleted:${deleted.targetUid}:${deleted.sendTime}`,
+                senderId: deleted.senderUid,
+                body: '',
+                createdAt: toIsoTime(deleted.sendTime),
+              },
+            };
+          }
+
+          const profile = profileByUid?.get(deleted.targetUid);
+          const displayName =
+            profile?.remark || profile?.nick || profile?.qid || deleted.targetUid;
+          const avatarUrl = resolveAvatar({
+            uin: profile?.uin,
+            profileAvatarUrl: profile?.avatarUrl,
+          });
+
+          return {
+            id: deleted.targetUid,
+            type: 'direct' as const,
+            chatType: 1,
+            updatedAt: toIsoTime(deleted.sendTime),
+            otherUser: {
+              id: deleted.targetUid,
+              identityLabel: 'UID' as 'UID',
+              identityValue: deleted.targetUid,
+              username: deleted.targetUid,
+              displayName,
+              kind: 'human' as const,
+              avatarUrl,
+            },
+            group: null,
+            members: [],
+            preference: { pinned: false, muted: false, blocked: false },
+            unreadCount: 0,
+            lastMessage: {
+              id: `deleted:${deleted.targetUid}:${deleted.sendTime}`,
+              senderId: deleted.senderUid,
+              body: '',
+              createdAt: toIsoTime(deleted.sendTime),
+            },
+          };
+        });
+    }
     if (kind === 'hidden') {
       // 直接从 hiddenSessions 数据构建会话列表。「两表都有才算隐藏会话」的判断
       // 已经在后端 HiddenSessionService 里用不受分页限制的精确查询做过了 ——
@@ -150,7 +220,7 @@ export function MergedSessionPanel({
                 name: groupName,
                 identityLabel: 'Group' as const,
                 identityValue: hidden.targetUid,
-                avatarUrl: groupAvatarSrc(hidden.targetUid),
+                avatarUrl: avatarFromGroupCode(hidden.targetUid),
                 announcement: null,
                 memberCount: 1,
                 role: 'member' as const,
@@ -171,10 +241,10 @@ export function MergedSessionPanel({
           const displayName =
             profile?.remark || profile?.nick || profile?.qid ||
             (hidden.targetUin && hidden.targetUin !== '0' ? hidden.targetUin : hidden.targetUid);
-          const avatarUrl =
-            (hidden.targetUin && hidden.targetUin !== '0' ? senderAvatarSrc(hidden.targetUin) : null) ||
-            profile?.avatarUrl ||
-            null;
+          const avatarUrl = resolveAvatar({
+            uin: hidden.targetUin && hidden.targetUin !== '0' ? hidden.targetUin : profile?.uin,
+            profileAvatarUrl: profile?.avatarUrl,
+          });
 
           return {
             id: hidden.targetUid,
@@ -207,9 +277,9 @@ export function MergedSessionPanel({
       // 从 officialAccounts 数据构建会话列表
       if (!officialAccounts.data) return [];
       return officialAccounts.data.map((official: any) => {
-        const avatarUrl = official.targetUin && official.targetUin !== '0'
-          ? senderAvatarSrc(official.targetUin)
-          : null;
+        const avatarUrl = resolveAvatar({
+          uin: official.targetUin && official.targetUin !== '0' ? official.targetUin : undefined,
+        });
         return {
           id: official.peerUid,
           type: 'direct' as const,
@@ -240,20 +310,25 @@ export function MergedSessionPanel({
     if (kind === 'service') {
       // 从 serviceAccounts 数据构建会话列表
       if (!serviceAccounts.data) return [];
-      return serviceAccounts.data.map((service: any) => ({
-        id: `service:${service.appId}`,
-        type: 'direct' as const,
-        chatType: 118,
-        updatedAt: toIsoTime(service.sendTime),
-        otherUser: {
-          id: service.appId,
-          identityLabel: 'AppID' as const,
-          identityValue: service.appId,
-          username: service.appId,
-          displayName: service.displayName || service.appId,
-          kind: 'human' as const,
-          avatarUrl: service.avatarUrl || null,
-        },
+      return serviceAccounts.data.map((service: any) => {
+        const avatarUrl = resolveAvatar({
+          uin: service.targetUin && service.targetUin !== '0' ? service.targetUin : undefined,
+          profileAvatarUrl: service.avatarUrl,
+        });
+        return {
+          id: `service:${service.appId}`,
+          type: 'direct' as const,
+          chatType: 118,
+          updatedAt: toIsoTime(service.sendTime),
+          otherUser: {
+            id: service.appId,
+            identityLabel: 'AppID' as const,
+            identityValue: service.appId,
+            username: service.appId,
+            displayName: service.displayName || service.appId,
+            kind: 'human' as const,
+            avatarUrl,
+          },
         group: null,
         members: [],
         preference: { pinned: false, muted: false, blocked: false },
@@ -264,10 +339,11 @@ export function MergedSessionPanel({
           body: service.prompt,
           createdAt: toIsoTime(service.sendTime),
         },
-      }));
+      };
+      });
     }
     return [];
-  }, [kind, hiddenSessions.data, officialAccounts.data, serviceAccounts.data, profileByUid, groupNameByCode]);
+  }, [kind, deletedSessions.data, hiddenSessions.data, officialAccounts.data, serviceAccounts.data, profileByUid, groupNameByCode]);
 
   const sortedThreads = useMemo(
     () =>
@@ -280,7 +356,7 @@ export function MergedSessionPanel({
   );
 
   const title =
-    kind === 'hidden' ? '隐藏的会话' : kind === 'service' ? 'QQ服务号' : 'QQ官方账号';
+    kind === 'hidden' ? '隐藏的会话' : kind === 'deleted' ? '最近删除' : kind === 'service' ? 'QQ服务号' : 'QQ官方账号';
 
   return (
     <div className="weq-merged-overlay">
@@ -335,6 +411,9 @@ export function MergedSessionPanel({
                 </div>
                 {kind === 'hidden' && (
                   <EyeOff size={14} className="weq-merged-popover-item-badge" />
+                )}
+                {kind === 'deleted' && (
+                  <Trash2 size={14} className="weq-merged-popover-item-badge" />
                 )}
               </button>
             );
