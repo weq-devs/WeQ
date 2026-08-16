@@ -295,6 +295,16 @@ export interface NtHelperBinding {
    * already be protobuf-encoded; the raw reply body is returned.
    */
   sendPacket(pid: number, cmd: string, body: Buffer): Promise<Buffer>;
+
+  // --- font conversion ---
+  /**
+   * Convert QQ's modified TTF (with FTFH/FTFG tables) to standard TTF.
+   * Automatically detects if the input is already a standard TTF and copies it directly.
+   * Returns a status string:
+   *   - "success: copied normal TTF" (standard TTF, no conversion needed)
+   *   - "success: converted FTF to TTF" (magic TTF converted to standard)
+   */
+  convertFont(inputPath: string, outputPath: string): string;
 }
 
 // ---------- ninebird_addon.node — launch bootstrap -----------------------

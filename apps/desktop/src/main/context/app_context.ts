@@ -814,6 +814,7 @@ export function initAppContext(): AppContext {
       // 个性装扮：气泡纯 itemId 可拼外链（离线也能装），字体要在线实例换下载链。
       const dressInstall = new DressInstallService(
         platform.native.ntHelper,
+        platform.native.ntHelper,
         bootstrap.avatarCache,
         userConfig.cacheDir(join('dress', exportConfigId)),
         resolveOnlinePid,
@@ -1238,6 +1239,7 @@ export function initAppContext(): AppContext {
       // 个性装扮：全部写在 WeQ 自己的 cache 目录，不碰原生库。气泡离线也能装
       // （外链纯 itemId），字体要在线实例换下载链。
       const dressInstall = new DressInstallService(
+        platform.native.ntHelper,
         platform.native.ntHelper,
         bootstrap.avatarCache,
         userConfig.cacheDir(join('dress', exportConfigId)),

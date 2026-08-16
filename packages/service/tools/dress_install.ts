@@ -25,6 +25,7 @@ import { join } from 'node:path';
 import { DressInstallService, extractFirstTtf, fontFamilyFor } from '../src/account/dress_install';
 import type { AvatarCacheService } from '../src/bootstrap/avatar_cache';
 import type { TrpcNative } from '@weq/protocol';
+import type { NtHelperBinding } from '@weq/native';
 
 /** 直连 CDN 的假缓存 —— 与 bubble_skin 那个测试同一套,不碰真缓存目录。 */
 const directCache = {
@@ -46,6 +47,13 @@ const noNative = {
   },
 } as unknown as TrpcNative;
 
+/** Mock ntHelper with convertFont stub */
+const mockNtHelper = {
+  convertFont: () => {
+    throw new Error('convertFont should not be called in test (no online instance)');
+  },
+} as unknown as NtHelperBinding;
+
 async function main(): Promise<void> {
   let failed = 0;
   const check = (ok: boolean, label: string, extra = ''): void => {
@@ -55,7 +63,7 @@ async function main(): Promise<void> {
 
   const root = mkdtempSync(join(tmpdir(), 'weq-dress-'));
   try {
-    const svc = new DressInstallService(noNative, directCache, root, () => 0);
+    const svc = new DressInstallService(noNative, mockNtHelper, directCache, root, () => 0);
 
     // ---- 清单:空目录要给空清单,不能抛 ----
     const empty = svc.read();

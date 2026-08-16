@@ -36,6 +36,7 @@ import { extname, join } from 'node:path';
 import type { TrpcNative } from '@weq/protocol';
 import { getBubbleResources, getFontResource, getPendantResources } from '@weq/protocol';
 import type { AvatarCacheService } from '../bootstrap/avatar_cache';
+import type { NtHelperBinding } from '@weq/native';
 import { getLogger, logErrorContext } from '../common/logger';
 import { writeFileAtomicSync } from './atomic_write';
 import {
@@ -154,6 +155,7 @@ export class DressInstallService {
 
   constructor(
     private readonly nt: TrpcNative,
+    private readonly ntHelper: NtHelperBinding,
     private readonly avatarCache: AvatarCacheService,
     /** 装扮缓存根目录(通常是 `userConfig.cacheDir('dress')`)。 */
     private readonly rootDir: string,
@@ -434,7 +436,40 @@ export class DressInstallService {
 
     const ttf = extractFirstTtf(readFileSync(zipPath));
     if (!ttf) throw new Error('字体包里没有找到 ttf 文件');
-    if (!isRenderableSfnt(ttf)) {
+
+    // 先写入原始 TTF（可能是标准 TTF 或魔改 TTF）
+    const tempFile = join(fontsDir, `${itemId}_raw.ttf`);
+    writeFileSync(tempFile, ttf);
+
+    // 调用 convertFont 转换（自动检测是否需要转换）
+    const finalFile = join(fontsDir, `${itemId}.ttf`);
+    let convertResult: string;
+    try {
+      convertResult = this.ntHelper.convertFont(tempFile, finalFile);
+      this.logger.info('font conversion completed', {
+        event: 'dress-font-convert',
+        itemId,
+        rawBytes: ttf.length,
+        result: convertResult,
+      });
+    } catch (e) {
+      this.logger.error('font conversion failed', {
+        event: 'dress-font-convert-failed',
+        itemId,
+        ...logErrorContext(e),
+      });
+      // 转换失败，删除临时文件并抛出错误
+      rmSync(tempFile, { force: true });
+      throw new Error(`字体转换失败: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
+    // 转换成功，删除临时文件
+    rmSync(tempFile, { force: true });
+
+    // 校验转换后的 TTF 是否可渲染
+    const finalTtf = readFileSync(finalFile);
+    if (!isRenderableSfnt(finalTtf)) {
+      rmSync(finalFile, { force: true });
       throw new Error(
         '该字体用了非标准的压缩/加密格式(head 表的 glyphDataFormat 被改写,真正的轮廓' +
           '数据塞进了私有表里),无法直接喂给浏览器渲染 —— 大概率是内容保护款,QQ 官方' +
@@ -442,8 +477,7 @@ export class DressInstallService {
       );
     }
 
-    const file = join(fontsDir, `${itemId}.ttf`);
-    writeFileSync(file, ttf);
+    const file = finalFile;
 
     const entry: InstalledFont = {
       itemId,
