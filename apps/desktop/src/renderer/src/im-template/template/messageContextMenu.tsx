@@ -1,4 +1,4 @@
-﻿import { Copy, Download, Trash2, Edit3 } from "lucide-react";
+﻿import { Copy, Download, Trash2, Edit3, Palette } from "lucide-react";
 import type { Message } from "./types";
 import { cn } from "./classNames";
 
@@ -22,6 +22,7 @@ export function MessageContextMenu({
 	onDownloadImage,
 	onDelete,
 	onEditRaw,
+	onViewDecoration,
 }: {
 	state: MessageContextMenuState;
 	onCopy: (message: Message) => void | Promise<void>;
@@ -29,7 +30,11 @@ export function MessageContextMenu({
 	/** QQ-style delete: message stays in the chat under a "deleted" overlay, restorable. */
 	onDelete: (message: Message) => void;
 	onEditRaw?: (message: Message) => void;
+	onViewDecoration?: (message: Message) => void;
 }) {
+	const decoration = (state.message as any).decoration;
+	const hasDecoration = decoration && (decoration.fontId || decoration.bubbleId || decoration.widgetId);
+
 	return (
 		<div
 			className={cn(
@@ -57,6 +62,12 @@ export function MessageContextMenu({
 				<button type="button" onClick={() => onEditRaw(state.message)}>
 					<Edit3 size={17} />
 					<span>修改</span>
+				</button>
+			) : null}
+			{hasDecoration && onViewDecoration ? (
+				<button type="button" onClick={() => onViewDecoration(state.message)}>
+					<Palette size={17} />
+					<span>装扮</span>
 				</button>
 			) : null}
 			{state.downloadUrl && onDownloadImage ? (

@@ -90,6 +90,7 @@ import { GrayTipFileRecvMessage } from '../../components/GrayTipFileRecvMessage'
 import { GrayTipTempSessionMessage } from '../../components/GrayTipTempSessionMessage';
 import { GroupCallEndedMessage, GROUP_CALL_ENDED_SUBTYPES } from '../../components/GroupCallEndedMessage';
 import { QqDynamic } from '../../components/QqDynamic';
+import { MessageDecorationCard } from '../../components/MessageDecorationCard';
 
 const composerHeightStorageKey = "chat-template.layout.composerHeight";
 const groupInfoCollapsedStorageKey = "chat-template.layout.groupInfoCollapsed";
@@ -278,6 +279,10 @@ export function ChatPane({
 	const [activeEmojiPackId, setActiveEmojiPackId] = useState("emoji");
 	const [contextMenu, setContextMenu] =
 		useState<MessageContextMenuState | null>(null);
+	const [decorationCard, setDecorationCard] = useState<{
+		decoration: { fontId: number; bubbleId: number; widgetId: number } | null;
+		anchor: { x: number; y: number };
+	} | null>(null);
 	// Local "清空聊天记录" hide set (localStorage). Per-message delete no longer
 	// touches this — deleted messages stay visible under an overlay; this set
 	// only backs the clear-conversation action.
@@ -1277,7 +1282,14 @@ export function ChatPane({
 			return;
 		}
 		setContextMenu(null);
+		setDecorationCard(null);
 		void onDeleteMessage?.(message, conversation);
+	}
+
+	function viewDecoration(message: Message) {
+		setContextMenu(null);
+		const decoration = (message as any).decoration;
+		setDecorationCard({ decoration, anchor: { x: 0, y: 0 } });
 	}
 
 	function editMessageRaw(message: Message) {
@@ -1921,6 +1933,13 @@ export function ChatPane({
 					onDownloadImage={downloadMessageImage}
 					onDelete={deleteMessage}
 					onEditRaw={onEditRaw ? editMessageRaw : undefined}
+					onViewDecoration={viewDecoration}
+				/>
+			) : null}
+			{decorationCard ? (
+				<MessageDecorationCard
+					decoration={decorationCard.decoration}
+					onClose={() => setDecorationCard(null)}
 				/>
 			) : null}
 			{groupInfoDetail && conversation.type === "group" ? (
