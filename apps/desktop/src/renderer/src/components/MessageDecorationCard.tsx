@@ -28,13 +28,15 @@ function getPreviewUrl(type: 'font' | 'bubble' | 'widget', id: number): string {
 }
 
 function getLocalUrl(type: 'font' | 'bubble' | 'widget', id: number): string {
+  const isWeb = import.meta.env.VITE_WEQ_TARGET === 'web';
+
   if (type === 'font') {
-    return `weq-asset://dress/fonts/${id}.ttf`;
+    return isWeb ? `/_asset/dress/fonts/${id}.ttf` : `weq-asset://dress/fonts/${id}.ttf`;
   }
   if (type === 'bubble') {
-    return `weq-media://dressbubble?id=${id}`;
+    return isWeb ? `/_media/dressbubble?id=${id}` : `weq-media://dressbubble?id=${id}`;
   }
-  return `weq-media://dresspendant?id=${id}&frame=1`;
+  return isWeb ? `/_media/dresspendant?id=${id}&frame=1` : `weq-media://dresspendant?id=${id}&frame=1`;
 }
 
 interface DecorationItemProps {

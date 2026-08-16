@@ -1947,6 +1947,7 @@ export function MainView(): ReactElement {
   const [groupMemberPages, setGroupMemberPages] = useState<Record<string, GroupMemberWire[]>>({});
   const [groupMemberHasMore, setGroupMemberHasMore] = useState<Record<string, boolean>>({});
   const [groupMemberLoading, setGroupMemberLoading] = useState<Record<string, boolean>>({});
+  const [groupMemberError, setGroupMemberError] = useState<Record<string, string>>({});
   const groupMemberLoadingRef = useRef<Record<string, boolean>>({});
   // Off-page message senders resolved on demand (groupCode → uid → member),
   // batched + deduped by useGroupMemberResolver. Kept separate from the global
@@ -2562,6 +2563,7 @@ export function MainView(): ReactElement {
   const selectedGroupMemberWires = isGroup ? (groupMemberPages[selectedUid] ?? []) : [];
   const selectedGroupMembersLoading = Boolean(isGroup && groupMemberLoading[selectedUid]);
   const selectedGroupMembersHasMore = Boolean(isGroup && groupMemberHasMore[selectedUid]);
+  const selectedGroupMembersError = isGroup ? (groupMemberError[selectedUid] ?? null) : null;
 
   const loadGroupMembersPage = useCallback(
     async (groupCode: string, offset: number): Promise<void> => {
@@ -2583,7 +2585,15 @@ export function MainView(): ReactElement {
           offset,
         });
 
-        if (selectionRef.current?.id !== groupCode) return;
+        if (selectionRef.current?.id !== groupCode) {
+          // User switched away during loading - cleanup and bail
+          groupMemberLoadingRef.current = {
+            ...groupMemberLoadingRef.current,
+            [groupCode]: false,
+          };
+          setGroupMemberLoading((current) => ({ ...current, [groupCode]: false }));
+          return;
+        }
 
         setGroupMemberPages((current) => {
           const existing = offset === 0 ? [] : (current[groupCode] ?? []);
@@ -2595,8 +2605,19 @@ export function MainView(): ReactElement {
           ...current,
           [groupCode]: page.length >= GROUP_MEMBER_PAGE_SIZE,
         }));
+        // 如果第一次查询就返回空，说明数据库里没有缓存
+        if (offset === 0 && page.length === 0) {
+          setGroupMemberError((current) => ({
+            ...current,
+            [groupCode]: '数据库中没有该群的成员信息'
+          }));
+        } else {
+          setGroupMemberError((current) => ({ ...current, [groupCode]: '' }));
+        }
       } catch (err) {
         console.error('[group-members] listGroupMembers failed', err);
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        setGroupMemberError((current) => ({ ...current, [groupCode]: errorMessage }));
         setGroupMemberHasMore((current) => ({ ...current, [groupCode]: false }));
       } finally {
         groupMemberLoadingRef.current = {
@@ -2610,8 +2631,9 @@ export function MainView(): ReactElement {
   );
 
   const requestMoreGroupMembers = useCallback((): void => {
-    if (!selectedUid || !isGroup || selectedGroupMembersLoading) return;
-    if (selectedGroupMemberWires.length > 0 && !selectedGroupMembersHasMore) return;
+    if (!selectedUid || !isGroup || selectedGroupMembersLoading || selectedGroupMembersError) return;
+    // 如果已经加载过但没有更多数据，不再重试（包括第一次查询返回空的情况）
+    if (!selectedGroupMembersHasMore && selectedUid in groupMemberHasMore) return;
     void loadGroupMembersPage(selectedUid, selectedGroupMemberWires.length);
   }, [
     isGroup,
@@ -2619,18 +2641,21 @@ export function MainView(): ReactElement {
     selectedGroupMemberWires.length,
     selectedGroupMembersHasMore,
     selectedGroupMembersLoading,
+    selectedGroupMembersError,
     selectedUid,
+    groupMemberHasMore,
   ]);
 
   useEffect(() => {
     if (!selectedUid || !isGroup) return;
-    if (selectedGroupMemberWires.length > 0 || selectedGroupMembersLoading) return;
+    if (selectedGroupMemberWires.length > 0 || selectedGroupMembersLoading || selectedGroupMembersError) return;
     requestMoreGroupMembers();
   }, [
     isGroup,
     requestMoreGroupMembers,
     selectedGroupMemberWires.length,
     selectedGroupMembersLoading,
+    selectedGroupMembersError,
     selectedUid,
   ]);
 
@@ -3556,6 +3581,7 @@ export function MainView(): ReactElement {
                 onUpdateGroup={async (_conversationId: string, _input: GroupUpdateInput) => undefined}
                 onLoadMoreGroupMembers={requestMoreGroupMembers}
                 groupMembersLoading={selectedGroupMembersLoading}
+                groupMembersError={selectedGroupMembersError}
                 onOpenNotificationSettings={noopAsync}
                 onSend={noopAsync}
                 onDraftChange={updateDraft}

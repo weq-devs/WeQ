@@ -2011,6 +2011,17 @@ html[data-theme="dark"] .member-role-badge.admin {
 	font-size: 12px;
 }
 
+.group-info-member-error {
+	display: grid;
+	min-height: 36px;
+	place-items: center;
+	padding: 8px 12px;
+	color: #f87171;
+	font-size: 12px;
+	text-align: center;
+	word-break: break-word;
+}
+
 .group-info-panel .group-info-section {
 	gap: 10px;
 }

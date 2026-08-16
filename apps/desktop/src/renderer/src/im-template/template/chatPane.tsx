@@ -204,6 +204,7 @@ export function ChatPane({
 	preference,
 	onLoadMoreGroupMembers,
 	groupMembersLoading,
+	groupMembersError,
 	onSend,
 	onMessageAction,
 	draft,
@@ -240,6 +241,7 @@ export function ChatPane({
 	preference: ConversationPreference | undefined;
 	onLoadMoreGroupMembers?: () => void;
 	groupMembersLoading?: boolean;
+	groupMembersError?: string | null;
 	onSend: (body: string) => Promise<void>;
 	onMessageAction?: (message: Message, action: MessageAction) => Promise<void>;
 	draft: string;
@@ -1703,6 +1705,7 @@ export function ChatPane({
 							onOpenMember={onOpenGroupMember}
 							onLoadMoreMembers={onLoadMoreGroupMembers}
 							loadingMoreMembers={groupMembersLoading}
+							loadingError={groupMembersError}
 						/>
 					) : null}
 				</>

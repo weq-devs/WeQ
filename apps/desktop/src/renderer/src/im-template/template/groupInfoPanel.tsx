@@ -12,12 +12,14 @@ export function GroupInfoPanel({
 	conversation,
 	onLoadMoreMembers,
 	loadingMoreMembers,
+	loadingError,
 	onOpenDetail,
 	onOpenMember,
 }: {
 	conversation: GroupConversationView;
 	onLoadMoreMembers?: () => void;
 	loadingMoreMembers?: boolean;
+	loadingError?: string | null;
 	onOpenDetail?: (detail: GroupInfoDetail) => void;
 	onOpenMember?: (
 		member: GroupConversationView["members"][number],
@@ -156,7 +158,11 @@ export function GroupInfoPanel({
 							) : null}
 						</div>
 					))}
-					{loadingMoreMembers ? (
+					{loadingError ? (
+						<div className={cn("group-info-member-error")}>
+							加载失败：{loadingError}
+						</div>
+					) : loadingMoreMembers ? (
 						<div className={cn("group-info-member-loading")}>加载中</div>
 					) : null}
 				</div>

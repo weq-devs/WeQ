@@ -63,6 +63,7 @@ export function ChatMainContent({
 	onUpdateGroup: _onUpdateGroup,
 	onLoadMoreGroupMembers,
 	groupMembersLoading,
+	groupMembersError,
 	onOpenNotificationSettings: _onOpenNotificationSettings,
 	onSend,
 	onMessageAction,
@@ -129,6 +130,7 @@ export function ChatMainContent({
 	) => Promise<void>;
 	onLoadMoreGroupMembers?: () => void;
 	groupMembersLoading?: boolean;
+	groupMembersError?: string | null;
 	onOpenNotificationSettings: () => void;
 	onSend: (body: string) => Promise<void>;
 	onMessageAction?: (message: Message, action: MessageAction) => Promise<void>;
@@ -209,6 +211,7 @@ export function ChatMainContent({
 			draft={activeConversation ? (drafts[activeConversation.id] ?? "") : ""}
 			onLoadMoreGroupMembers={onLoadMoreGroupMembers}
 			groupMembersLoading={groupMembersLoading}
+			groupMembersError={groupMembersError}
 			onSend={onSend}
 			onMessageAction={onMessageAction}
 			onDraftChange={onDraftChange}
