@@ -34,7 +34,7 @@ function getLocalUrl(type: 'font' | 'bubble' | 'widget', id: number): string {
   if (type === 'bubble') {
     return `weq-media://dressbubble?id=${id}`;
   }
-  return `weq-asset://dress/pendants/${id}-frame-1.png`;
+  return `weq-media://dresspendant?id=${id}&frame=1`;
 }
 
 interface DecorationItemProps {

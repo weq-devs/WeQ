@@ -29,7 +29,7 @@
  */
 
 import { createRequire } from 'node:module';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync, appendFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -53,6 +53,39 @@ const here = dirname(fileURLToPath(import.meta.url));
 const requireFromHere = createRequire(import.meta.url);
 
 let cached: NativeBundle | undefined;
+let logFilePath: string | undefined;
+
+/** Initialize log file path for loader diagnostics */
+function initLoaderLog(): string {
+  if (logFilePath) return logFilePath;
+
+  const logRoot = resolveNativeLogRoot();
+  try {
+    mkdirSync(logRoot, { recursive: true });
+  } catch {
+    // ignore
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  logFilePath = join(logRoot, `native_loader_${today}.log`);
+  return logFilePath;
+}
+
+/** Write diagnostic log to file */
+function logToFile(message: string, data?: unknown): void {
+  try {
+    const timestamp = new Date().toISOString();
+    const logPath = initLoaderLog();
+    let logLine = `[${timestamp}] ${message}`;
+    if (data !== undefined) {
+      logLine += ` ${typeof data === 'object' ? JSON.stringify(data, null, 2) : String(data)}`;
+    }
+    logLine += '\n';
+    appendFileSync(logPath, logLine, 'utf-8');
+  } catch {
+    // Silent failure - don't break loading if logging fails
+  }
+}
 
 export interface LoadNativeOptions {
   /** Override the entire `native/` root. Useful for tests / non-Electron hosts. */
@@ -61,11 +94,26 @@ export interface LoadNativeOptions {
 
 export function loadNative(opts: LoadNativeOptions = {}): NativeBundle {
   if (cached) return cached;
+
+  logToFile('[loadNative] Starting native module loading...');
+  logToFile('[loadNative] Process info:', {
+    platform: process.platform,
+    arch: process.arch,
+    cwd: process.cwd(),
+    resourcesPath: (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath,
+    env_WEQ_NATIVE_DIR: process.env.WEQ_NATIVE_DIR,
+  });
+
   const nativeRoot = opts.nativeRoot ?? resolveNativeRoot();
+  logToFile('[loadNative] Resolved native root:', nativeRoot);
+
   const platformRoot = resolvePlatformRoot(nativeRoot);
+  logToFile('[loadNative] Platform root:', platformRoot);
 
   const ntHelperPath = join(platformRoot, 'nt_helper.node');
+  logToFile('[loadNative] nt_helper path:', ntHelperPath);
   assertExists(ntHelperPath, 'nt_helper.node');
+  logToFile('[loadNative] nt_helper.node exists, attempting to require...');
 
   const nineBirdDir = join(platformRoot, 'ninebird');
   const nineBirdBootPath = join(nineBirdDir, 'ninebird_addon.node');
@@ -73,8 +121,17 @@ export function loadNative(opts: LoadNativeOptions = {}): NativeBundle {
 
   const resources = buildResources(nineBirdDir);
 
-  const ntHelper = requireFromHere(ntHelperPath) as NtHelperBinding;
+  let ntHelper: NtHelperBinding;
+  try {
+    ntHelper = requireFromHere(ntHelperPath) as NtHelperBinding;
+    logToFile('[loadNative] nt_helper.node loaded successfully');
+  } catch (err) {
+    logToFile('[loadNative] Failed to require nt_helper.node:', err);
+    throw new Error(`Failed to load nt_helper.node from ${ntHelperPath}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   const initStatus = ntHelper.getInitStatus();
+  logToFile('[loadNative] Init status:', { status: initStatus, message: INIT_ERROR_MESSAGES[initStatus] });
 
   if (initStatus !== InitStatus.Success) {
     const message = INIT_ERROR_MESSAGES[initStatus] || INIT_ERROR_MESSAGES[InitStatus.UnknownError];
@@ -88,6 +145,7 @@ export function loadNative(opts: LoadNativeOptions = {}): NativeBundle {
     nineBirdBoot: requireFromHere(nineBirdBootPath) as NineBirdBootBinding,
     resources,
   };
+  logToFile('[loadNative] Native modules loaded and cached successfully');
   return cached;
 }
 
@@ -146,11 +204,16 @@ function parseInitStatus(message: string): InitStatus | null {
 // ---------- internals -----------------------------------------------------
 
 function resolveNativeRoot(): string {
+  logToFile('[resolveNativeRoot] Starting native root resolution...');
+
   const override = process.env.WEQ_NATIVE_DIR;
   if (override) {
+    logToFile('[resolveNativeRoot] Found WEQ_NATIVE_DIR override:', override);
     if (!existsSync(override)) {
+      logToFile('[resolveNativeRoot] WEQ_NATIVE_DIR path does not exist');
       throw new Error(`WEQ_NATIVE_DIR points at non-existent directory: ${override}`);
     }
+    logToFile('[resolveNativeRoot] Using WEQ_NATIVE_DIR:', override);
     return override;
   }
 
@@ -158,13 +221,21 @@ function resolveNativeRoot(): string {
   // is copied to the install root (sibling of resources/), not into resources/.
   const electronResources = (process as NodeJS.Process & { resourcesPath?: string })
     .resourcesPath;
+  logToFile('[resolveNativeRoot] Electron resourcesPath:', electronResources || '<not set>');
+
   if (electronResources) {
-    for (const packaged of [
+    const candidates = [
       join(dirname(electronResources), 'native'),
       join(electronResources, 'native'),
-    ]) {
-      if (existsSync(packaged)) return packaged;
+    ];
+    logToFile('[resolveNativeRoot] Checking Electron packaged paths:', candidates);
+    for (const packaged of candidates) {
+      if (existsSync(packaged)) {
+        logToFile('[resolveNativeRoot] Found packaged native at:', packaged);
+        return packaged;
+      }
     }
+    logToFile('[resolveNativeRoot] No packaged paths exist');
   }
 
   // Dev: bundlers (electron-vite) rewrite `import.meta.url` so it points
@@ -172,13 +243,17 @@ function resolveNativeRoot(): string {
   // file. Walk upward looking for a sibling `native/` so we work
   // regardless of how deep we got bundled. Confirm it's the right dir by
   // checking for the current platform's subdir (not a hardcoded win32).
+  logToFile('[resolveNativeRoot] Trying dev mode path resolution...');
   const tried: string[] = [];
   for (const start of [here, process.cwd()]) {
+    logToFile('[resolveNativeRoot] Walking up from:', start);
     let dir = resolve(start);
     for (let i = 0; i < 8; i++) {
       const candidate = join(dir, 'native');
       tried.push(candidate);
-      if (existsSync(candidate) && existsSync(join(candidate, process.platform))) {
+      const platformCheck = join(candidate, process.platform);
+      if (existsSync(candidate) && existsSync(platformCheck)) {
+        logToFile('[resolveNativeRoot] Found dev native at:', candidate);
         return candidate;
       }
       const parent = dirname(dir);
@@ -187,6 +262,8 @@ function resolveNativeRoot(): string {
     }
   }
 
+  logToFile('[resolveNativeRoot] Could not locate native/ directory');
+  logToFile('[resolveNativeRoot] Tried paths:', tried);
   throw new Error(
     `Could not locate native/ directory. Tried:\n` +
       `  - WEQ_NATIVE_DIR env var (unset)\n` +
@@ -249,10 +326,21 @@ function buildResources(nineBirdDir: string): NineBirdResources {
 }
 
 function assertExists(path: string, label: string): void {
+  logToFile(`[assertExists] Checking ${label} at: ${path}`);
   if (!existsSync(path)) {
+    logToFile(`[assertExists] MISSING: ${label} not found at ${path}`);
     throw new Error(
       `Required native asset missing: ${label}\n  expected at: ${path}`,
     );
+  }
+  try {
+    const stats = statSync(path);
+    logToFile(`[assertExists] Found ${label}`, {
+      size: stats.size,
+      mode: stats.mode.toString(8),
+    });
+  } catch (err) {
+    logToFile(`[assertExists] Could not stat ${label}:`, err);
   }
 }
 
