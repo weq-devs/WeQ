@@ -277,7 +277,7 @@ export function GroupInfoDetailDialog({
 						<div className={cn("group-info-detail-records")}>
 							{essenceMessages.map((item) => (
 								<article
-									className={cn("group-info-detail-record")}
+									className={cn("group-info-detail-record", "essence-message-card")}
 									key={item.id}
 									onClick={() => {
 										if (!onJumpToMessage) {
@@ -290,14 +290,51 @@ export function GroupInfoDetailDialog({
 									}}
 									style={{ cursor: onJumpToMessage ? "pointer" : undefined }}
 								>
-									<span>
-										{formatShortDate(item.createdAt)}
-										{item.operatorName ? ` · ${item.operatorName}` : ""}
-									</span>
-									<p>
-										{item.active ? "已设为精华" : "已取消精华"} ·{" "}
+									<header className={cn("essence-message-header")}>
+										<span className={cn("essence-message-meta")}>
+											{formatShortDate(item.createdAt)}
+											{item.operatorName ? ` · 设为精华：${item.operatorName}` : ""}
+										</span>
+									</header>
+									<div className={cn("essence-message-sender")}>
 										{item.senderName || "Member"}
-									</p>
+									</div>
+									{item.content && item.content.length > 0 ? (
+										<div className={cn("essence-message-content")}>
+											{item.content.map((element, idx) => {
+												const elementKey = `${item.id}-${element.type}-${element.text || element.imageUrl || element.fileName || idx}`;
+												return (
+													<div key={elementKey} className={cn("essence-message-element")}>
+														{element.type === 1 && element.text ? (
+															<p className={cn("essence-text")}>{element.text}</p>
+														) : element.type === 2 && element.faceIndex !== undefined ? (
+															<span className={cn("essence-face")}>[表情{element.faceIndex}]</span>
+														) : element.type === 3 && element.imageUrl ? (
+															<img
+																src={element.imageUrl}
+																alt="精华消息图片"
+																className={cn("essence-image")}
+																loading="lazy"
+															/>
+														) : element.type === 5 && element.fileName ? (
+															<div className={cn("essence-file")}>
+																📎 {element.fileName}
+																{element.fileSize ? ` (${formatFileSize(element.fileSize)})` : ""}
+															</div>
+														) : (
+															<span className={cn("essence-unknown")}>
+																[类型 {element.type}]
+															</span>
+														)}
+													</div>
+												);
+											})}
+										</div>
+									) : (
+										<p className={cn("essence-message-placeholder")}>
+											{item.active ? "已设为精华" : "已取消精华"}
+										</p>
+									)}
 								</article>
 							))}
 							{essenceMessages.length === 0 ? (
@@ -326,4 +363,14 @@ function formatShortDate(value: string | null | undefined) {
 		month: "2-digit",
 		day: "2-digit",
 	}).format(date);
+}
+
+function formatFileSize(size: number | string | undefined): string {
+	if (size == null) return "";
+	const bytes = typeof size === "string" ? Number(size) : size;
+	if (Number.isNaN(bytes) || bytes <= 0) return "";
+	if (bytes < 1024) return `${bytes} B`;
+	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+	if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+	return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }

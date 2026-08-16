@@ -2552,6 +2552,11 @@ export function MainView(): ReactElement {
     { groupCode: selectedUid, limit: 10, offset: 0 },
     { enabled: Boolean(selectedUid && isGroup) },
   );
+  // 尝试从 Web API 获取带消息内容的精华消息（需要在线账号/有效 cookie）
+  const groupEssenceWeb = trpc.account.getGroupEssenceWithContent.useQuery(
+    { groupCode: selectedUid, pageStart: 0, pageLimit: 50 },
+    { enabled: Boolean(selectedUid && isGroup), retry: false, staleTime: 5 * 60 * 1000 },
+  );
   const groupLevelInfo = trpc.account.getGroupMemberLevelInfo.useQuery(
     { groupCode: selectedUid },
     { enabled: Boolean(selectedUid && isGroup) },
@@ -2804,14 +2809,24 @@ export function MainView(): ReactElement {
           createdAt: secondsToIsoTime(bulletin.ctime) ?? secondsToIsoTime(bulletin.msgTime) ?? new Date(0).toISOString(),
           publisherUid: bulletin.publisherUid,
         })),
-        essenceMessages: ((groupEssence.data ?? []) as GroupEssenceWire[]).map((item) => ({
-          id: `essence:${item.msgSeq}:${item.timestamp}`,
-          msgSeq: item.msgSeq,
-          senderName: item.senderNick,
-          operatorName: item.operatorNick,
-          createdAt: secondsToIsoTime(item.timestamp) ?? new Date(0).toISOString(),
-          active: item.setStatus === 1,
-        })),
+        essenceMessages: ((groupEssence.data ?? []) as GroupEssenceWire[]).map((item) => {
+          // 尝试从 Web API 结果中找到匹配的消息内容（按 msgSeq 匹配）
+          const webItem = (groupEssenceWeb.data ?? []).find(
+            (web: GroupEssenceWire) => web.msgSeq === item.msgSeq
+          );
+          return {
+            id: `essence:${item.msgSeq}:${item.timestamp}`,
+            msgSeq: item.msgSeq,
+            senderName: item.senderNick,
+            operatorName: item.operatorNick,
+            createdAt: secondsToIsoTime(item.timestamp) ?? new Date(0).toISOString(),
+            active: item.setStatus === 1,
+            // 从 Web API 补充的字段
+            content: webItem?.content,
+            senderTime: webItem?.senderTime,
+            canRemove: webItem?.canRemove,
+          };
+        }),
         levelConfigs: (groupLevelInfo.data?.levelConfigs ?? []).map((item) => ({
           level: item.level,
           name: item.levelName,
@@ -2828,6 +2843,7 @@ export function MainView(): ReactElement {
     groupBulletins.data,
     groupDetail.data,
     groupEssence.data,
+    groupEssenceWeb.data,
     groupLevelInfo.data,
     groupExt.data,
     user,

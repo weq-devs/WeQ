@@ -17,6 +17,7 @@ import { getFriendDress, type FriendDress } from './friend_dress';
 import { getGroupAlbumList, type GroupAlbum } from './group_album';
 import { getHonorList, type HonorType, type HonorMember } from './group_honor';
 import { getGroupNotice, type GroupNotice } from './group_notice';
+import { getGroupEssence, type GroupEssenceMessage } from './group_essence';
 import {
   getQzoneMsgList,
   getQzoneFeeds,
@@ -43,6 +44,10 @@ export class WebQueryService {
 
   async getGroupNotice(groupCode: string): Promise<GroupNotice[]> {
     return withRetry(this.creds, QUN_DOMAIN, (c) => getGroupNotice(c, groupCode));
+  }
+
+  async getGroupEssence(groupCode: string, pageStart = 0, pageLimit = 50): Promise<GroupEssenceMessage[]> {
+    return withRetry(this.creds, QUN_DOMAIN, (c) => getGroupEssence(c, groupCode, pageStart, pageLimit));
   }
 
   async getGroupAlbumList(groupId: string): Promise<GroupAlbum[]> {
@@ -110,6 +115,8 @@ export type { SelfDress, SelfDressItem } from './self_dress';
 export { dressKind } from './dress_kind';
 export { getGroupNotice } from './group_notice';
 export type { GroupNotice, GroupNoticeImage } from './group_notice';
+export { getGroupEssence } from './group_essence';
+export type { GroupEssenceMessage, GroupEssenceContent } from './group_essence';
 export { getGroupAlbumList } from './group_album';
 export type { GroupAlbum } from './group_album';
 export { getHonorList, HonorType } from './group_honor';

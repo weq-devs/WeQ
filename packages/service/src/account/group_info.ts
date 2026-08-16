@@ -143,9 +143,18 @@ export class GroupInfoService {
   private relationGraphCache: RelationGraphData | null = null;
   /** In-flight build, so concurrent callers share one heavy scan. */
   private relationGraphBuilding: Promise<RelationGraphData> | null = null;
+  /** Optional Web query service for fetching essence message content. */
+  private webQueryService?: { getGroupEssence: (groupCode: string, pageStart?: number, pageLimit?: number) => Promise<unknown[]> };
 
   constructor(private readonly session: AccountSession) {
     this.groupNotifyService = new GroupNotifyService(session);
+  }
+
+  /**
+   * Set the web query service (called by app context after services are assembled).
+   */
+  setWebQueryService(webQuery: { getGroupEssence: (groupCode: string, pageStart?: number, pageLimit?: number) => Promise<unknown[]> }): void {
+    this.webQueryService = webQuery;
   }
 
   /**
@@ -278,9 +287,71 @@ export class GroupInfoService {
 
   /**
    * List essence (pinned) messages for a group, newest first.
+   *
+   * 优先返回数据库内容，如果有在线账号实例或未过期的 cookie，会通过 Web API
+   * 补充消息内容（msg_content）到结果中。数据库只存元信息（seq/random/设置者），
+   * 完整消息体需要走 Web 接口获取。
    */
   async getEssenceMessages(groupCode: bigint, limit = 50, offset = 0): Promise<GroupEssence[]> {
     return this.session.groupEssence.listEssence(groupCode, limit, offset);
+  }
+
+  /**
+   * 从 Web API 获取群精华消息的完整内容（包含消息体）。
+   * 需要有效的 Web 凭证（在线账号或未过期 cookie）。
+   *
+   * 返回的消息包含 msg_content（消息元素）、发送者昵称、设置者昵称等详细信息，
+   * 可用于补充数据库中的基础记录。
+   */
+  async getEssenceMessagesWithContent(
+    groupCode: string,
+    pageStart = 0,
+    pageLimit = 50,
+  ): Promise<Array<{
+    msgSeq: number;
+    msgRandom: number;
+    senderUin: string;
+    senderNick: string;
+    senderTime: number;
+    operatorUin: string;
+    operatorNick: string;
+    operatorTime: number;
+    content: Array<{ type: number; text?: string; imageUrl?: string; [key: string]: unknown }>;
+    canRemove: boolean;
+  }>> {
+    if (!this.webQueryService) return [];
+
+    try {
+      const messages = await this.webQueryService.getGroupEssence(groupCode, pageStart, pageLimit);
+      return messages.map((msg: unknown) => {
+        const m = msg as Record<string, unknown>;
+        return {
+          msgSeq: m.msg_seq as number,
+          msgRandom: m.msg_random as number,
+          senderUin: m.sender_uin as string,
+          senderNick: m.sender_nick as string,
+          senderTime: m.sender_time as number,
+          operatorUin: m.add_digest_uin as string,
+          operatorNick: m.add_digest_nick as string,
+          operatorTime: m.add_digest_time as number,
+          content: (m.msg_content as Array<Record<string, unknown>>).map((c) => ({
+            type: c.msg_type as number,
+            text: c.text as string | undefined,
+            imageUrl: c.image_url as string | undefined,
+            faceIndex: c.face_index as number | undefined,
+            fileName: c.file_name as string | undefined,
+            fileBusId: c.file_bus_id as number | string | undefined,
+            fileId: c.file_id as string | undefined,
+            fileThumbnailUrl: c.file_thumbnail_url as string | undefined,
+            fileSize: c.file_size as number | string | undefined,
+          })),
+          canRemove: m.can_be_removed as boolean,
+        };
+      });
+    } catch {
+      // Web API 失败（凭证过期/无权限/网络错误）返回空数组
+      return [];
+    }
   }
 
   /**

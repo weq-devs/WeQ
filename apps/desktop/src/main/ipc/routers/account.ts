@@ -1645,6 +1645,37 @@ export const accountRouter = router({
     return essence.map(groupEssenceToWire);
   }),
 
+  /** Get group essence messages with full content from Web API. */
+  getGroupEssenceWithContent: procedure
+    .input(
+      z.object({
+        groupCode: z.string().min(1),
+        pageStart: z.number().int().min(0).optional(),
+        pageLimit: z.number().int().min(1).max(100).optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      const messages = await requireServices().groupInfo.getEssenceMessagesWithContent(
+        input.groupCode,
+        input.pageStart ?? 0,
+        input.pageLimit ?? 50,
+      );
+      return messages.map((msg) => ({
+        groupCode: input.groupCode,
+        msgSeq: msg.msgSeq,
+        msgRandom: msg.msgRandom,
+        senderUin: msg.senderUin,
+        senderNick: msg.senderNick,
+        senderTime: msg.senderTime,
+        operatorUin: msg.operatorUin,
+        operatorNick: msg.operatorNick,
+        timestamp: msg.operatorTime,
+        content: msg.content,
+        canRemove: msg.canRemove,
+        setStatus: 1, // Web API 返回的都是已设置的
+      }));
+    }),
+
   /** Get group member level definitions. */
   getGroupMemberLevelInfo: procedure
     .input(z.object({ groupCode: z.string().min(1) }))

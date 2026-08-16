@@ -805,6 +805,7 @@ export function initAppContext(): AppContext {
       // Shared instances also fed to the export manager's ChatLab deps (name /
       // role / profile resolution), so they're built before the services object.
       const groupInfo = new GroupInfoService(session);
+      groupInfo.setWebQueryService(webQuery);
       const profile = new ProfileService(session);
       // 收藏服务：网络优先(微云 collector)、拿不到 p_skey 回退 collection.db。
       // 既进 services，又喂给导出管理器的收藏拉取 dep（拍平投影）。
@@ -1242,6 +1243,7 @@ export function initAppContext(): AppContext {
       // 同账号 QQ 在线时「好友空间导出」可用；离线则 livePid 抛错，优雅失败。
       const webQuery = new WebQueryService(platform.native.ntHelper, session, livePid);
       const groupInfo = new GroupInfoService(session);
+      groupInfo.setWebQueryService(webQuery);
       const profile = new ProfileService(session);
       // 收藏服务：离线时拿不到 p_skey → 自动回退 collection.db。
       const collectionSvc = new CollectionService(platform.native.ntHelper, session, livePid);
