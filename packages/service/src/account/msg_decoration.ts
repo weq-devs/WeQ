@@ -4,13 +4,13 @@
  * Column 40801 gives us {bubbleId, fontId, widgetId} per message. This service
  * resolves those raw itemIds into renderable data:
  *
- *  - bubble: full BubbleSkin (via DressInstallService — tries legacy CDN URL
+ *  - bubble: full BubbleSkin (via DressService — tries legacy CDN URL
  *    then protocol fallback). Cached permanently in memory by itemId.
- *  - font: same pattern as bubble — auto-installs via DressInstallService
+ *  - font: same pattern as bubble — auto-installs via DressService
  *    (requires an online instance; see installFont's doc). Cached permanently
  *    in memory by itemId, so the same itemId across many messages only pays
  *    the scupdate round-trip once per session.
- *  - widget: DressInstallService.resolvePendantAnimation() (scupdate bid=4,
+ *  - widget: DressService.resolvePendantAnimation() (scupdate bid=4,
  *    other.zip → aio_file.zip frame sequence) first — needs an online
  *    instance and isn't guaranteed to hit; falls back straight to the guessed
  *    CDN URL construction (tianquan.gtimg.cn/faceAddon) when it doesn't —
@@ -21,8 +21,9 @@
  * Same itemId → cache hit, never re-fetched for the session lifetime.
  */
 
-import type { DressInstallService } from './dress_install';
+import type { DressService } from './dress_service';
 import type { BubbleSkin } from './bubble_skin';
+import type { PendantSidecar } from './dress_shared_cache';
 import { getLogger, logErrorContext } from '../common/logger';
 
 const WIDGET_BASE = 'https://tianquan.gtimg.cn/faceAddon/item';
@@ -51,7 +52,7 @@ export class MsgDecorationCacheService {
   private readonly widgetResolved = new Map<number, ResolvedWidget>();
   private readonly widgetPending = new Map<number, Promise<ResolvedWidget>>();
 
-  constructor(private readonly dressInstall: DressInstallService) {}
+  constructor(private readonly dressInstall: DressService) {}
 
   async resolve(ids: {
     bubbleId: number;

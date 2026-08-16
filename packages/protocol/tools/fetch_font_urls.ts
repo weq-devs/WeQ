@@ -50,7 +50,6 @@ function getLoginInfo(): { pid: number; port: number } {
         return { pid, port: info.port };
       }
     } catch {
-      continue;
     }
   }
 

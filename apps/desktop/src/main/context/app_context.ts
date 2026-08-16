@@ -76,6 +76,9 @@ import {
   AssistantService,
   CollectionService,
   DressInstallService,
+  createDressService,
+  migrateDressData,
+  DressConfigService,
   MsgDecorationCacheService,
   TokenUsageStore,
   ConversationStore,
@@ -437,8 +440,8 @@ export interface AccountServices {
   groupFile: GroupFileService;
   /** QQ 收藏 (favorites) reader over collection.db. */
   collection: CollectionService;
-  /** 个性装扮(气泡/字体)的本地安装与清单。气泡不需在线,字体需在线实例。 */
-  dressInstall: DressInstallService;
+  /** 个性装扮（气泡/字体/背景）— 新架构：config 账号隔离，cache 全局共享。 */
+  dressInstall: import('@weq/service').DressService;
   /** 逐条消息装扮解析缓存（来自 DB 列 40801）。同一 itemId 永不重查。 */
   msgDecoration: MsgDecorationCacheService;
 }
@@ -811,12 +814,19 @@ export function initAppContext(): AppContext {
         session,
         resolveOnlinePid,
       );
-      // 个性装扮：气泡纯 itemId 可拼外链（离线也能装），字体要在线实例换下载链。
-      const dressInstall = new DressInstallService(
+      // 个性装扮：新架构（cache/config 分离）。
+      // 1. 迁移旧数据（如果存在旧 manifest.json）。
+      const legacyDressDir = userConfig.cacheDir(join('dress', exportConfigId));
+      const dressConfigDir = join(platform.appDataRoot(), 'config', 'accounts', exportConfigId);
+      const sharedDressCache = userConfig.cacheDir('dress_shared');
+      migrateDressData(legacyDressDir, sharedDressCache, new DressConfigService(dressConfigDir));
+      // 2. 创建新的装扮服务。
+      const dressInstall = createDressService(
         platform.native.ntHelper,
         platform.native.ntHelper,
         bootstrap.avatarCache,
-        userConfig.cacheDir(join('dress', exportConfigId)),
+        dressConfigDir,
+        sharedDressCache,
         resolveOnlinePid,
       );
       // Built before the services literal so AgentLab can reuse the same media
@@ -1236,13 +1246,19 @@ export function initAppContext(): AppContext {
       const profile = new ProfileService(session);
       // 收藏服务：离线时拿不到 p_skey → 自动回退 collection.db。
       const collectionSvc = new CollectionService(platform.native.ntHelper, session, livePid);
-      // 个性装扮：全部写在 WeQ 自己的 cache 目录，不碰原生库。气泡离线也能装
-      // （外链纯 itemId），字体要在线实例换下载链。
-      const dressInstall = new DressInstallService(
+      // 个性装扮：新架构（cache/config 分离），静态账号也走全局共享缓存。
+      // 迁移旧数据（如果存在旧 manifest.json）。
+      const legacyDressDir = userConfig.cacheDir(join('dress', exportConfigId));
+      const dressConfigDir = join(platform.appDataRoot(), 'config', 'accounts', exportConfigId);
+      const sharedDressCache = userConfig.cacheDir('dress_shared');
+      migrateDressData(legacyDressDir, sharedDressCache, new DressConfigService(dressConfigDir));
+      // 创建新的装扮服务。
+      const dressInstall = createDressService(
         platform.native.ntHelper,
         platform.native.ntHelper,
         bootstrap.avatarCache,
-        userConfig.cacheDir(join('dress', exportConfigId)),
+        dressConfigDir,
+        sharedDressCache,
         livePid,
       );
       const fileSearch = new FileSearchService(session, staticPlatform);

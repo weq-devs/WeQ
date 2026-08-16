@@ -73,16 +73,28 @@ export {
   legacyBubbleAnimationUrl,
 } from './account/bubble_skin';
 export type { BubbleSkin, BubbleSlice, BubbleSource } from './account/bubble_skin';
-export { DressInstallService, fontFamilyFor } from './account/dress_install';
-export type { PendantAnimation } from './account/dress_install';
-export { MsgDecorationCacheService } from './account/msg_decoration';
-export type { ResolvedMsgDecoration, ResolvedWidget } from './account/msg_decoration';
+// 新装扮系统（cache/config 分离）
+export { DressService, createDressService } from './account/dress_service';
+export { DressConfigService } from './account/dress_config';
+export { DressSharedCache, fontFamilyFor } from './account/dress_shared_cache';
+export { migrateDressData } from './account/dress_migrate';
 export type {
   DressManifest,
   InstalledFont,
-  DressScope,
-  DressBackgroundSource,
+} from './account/dress_service';
+export type { DressScope, DressBackgroundSource } from './account/dress_config';
+export type { BubbleSidecar, PendantSidecar } from './account/dress_shared_cache';
+// 旧装扮系统（已废弃，仅工具函数保留）
+export { DressInstallService } from './account/dress_install';
+export {
+  extractFromZip,
+  extractAllFromZip,
+  extractFirstTtf,
+  isRenderableSfnt,
 } from './account/dress_install';
+export type { PendantAnimation } from './account/dress_install';
+export { MsgDecorationCacheService } from './account/msg_decoration';
+export type { ResolvedMsgDecoration, ResolvedWidget } from './account/msg_decoration';
 export {
   getDressRank,
   searchDress,
