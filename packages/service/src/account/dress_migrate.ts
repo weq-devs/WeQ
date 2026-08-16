@@ -16,7 +16,7 @@
 import { existsSync, readFileSync, copyFileSync, rmSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BubbleSkin } from './bubble_skin';
-import { DressConfigService, type BubbleMeta, type FontMeta } from './dress_config';
+import type { DressConfigService, BubbleMeta, FontMeta } from './dress_config';
 import type { BubbleSidecar } from './dress_shared_cache';
 import { writeFileAtomicSync } from './atomic_write';
 import { getLogger, logErrorContext } from '../common/logger';

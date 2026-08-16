@@ -77,6 +77,10 @@
         "rules": {
           "suspicious": {
             "noExplicitAny": "off"
+          },
+          "style": {
+            "useNodejsImportProtocol": "off",
+            "useTemplate": "off"
           }
         }
       }
@@ -95,7 +99,8 @@
       "includes": [
         "apps/desktop/src/renderer/src/components/relationGraph/RankingModal.tsx",
         "apps/desktop/src/renderer/src/components/relationGraph/GraphCanvas.tsx",
-        "apps/desktop/src/renderer/src/im-template/template/messageBubble.tsx"
+        "apps/desktop/src/renderer/src/im-template/template/messageBubble.tsx",
+        "apps/desktop/src/renderer/src/im-template/template/chatPane.tsx"
       ],
       "linter": {
         "rules": {

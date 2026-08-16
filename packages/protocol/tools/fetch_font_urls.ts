@@ -45,7 +45,7 @@ function getLoginInfo(): { pid: number; port: number } {
   for (const pid of pids) {
     try {
       const info = nt.probeQqLoginInfo(pid);
-      if (info && info.loggedIn) {
+      if (info?.loggedIn) {
         console.log(`[init] 使用 pid=${pid} uin=${info.uin}`);
         return { pid, port: info.port };
       }
@@ -70,6 +70,12 @@ async function fetchFontUrl(id: number, info: { pid: number; port: number }): Pr
       { from: 'WeQFontExport' }
     );
 
+    if (!resource) {
+      result.error = 'resource is null';
+      console.log(`[${id}] ❌ ${result.error}`);
+      return result;
+    }
+
     if (!resource.ok) {
       result.error = resource.reason || 'not found';
       console.log(`[${id}] ❌ ${result.error}`);
@@ -79,7 +85,7 @@ async function fetchFontUrl(id: number, info: { pid: number; port: number }): Pr
     result.success = true;
     result.url = resource.url;
     result.size = resource.size;
-    result.md5 = resource.md5;
+    result.md5 = resource.version || undefined;
     console.log(`[${id}] ✅ ${(resource.size / 1024 / 1024).toFixed(2)} MB`);
 
   } catch (e) {

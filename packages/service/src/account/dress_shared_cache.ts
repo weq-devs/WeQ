@@ -26,7 +26,6 @@ import {
 } from './bubble_skin';
 import type { BubbleMaterial } from './web/dress_mall';
 import { downloadUrlToFile } from './media_url';
-import { readZipEntries } from '../common/zip';
 import { extractFromZip, extractAllFromZip, extractFirstTtf, isRenderableSfnt } from './dress_install';
 
 /** 气泡元数据 sidecar。 */
@@ -65,7 +64,7 @@ export class DressSharedCache {
     private readonly ntHelper: NtHelperBinding,
     private readonly avatarCache: AvatarCacheService,
     /** 共享资源根目录（通常是 `userConfig.cacheDir('dress_shared')`）。 */
-    private readonly sharedDir: string,
+    sharedDir: string,
     /** 当前已注入的 QQ pid；0 表示没有在线实例。 */
     private readonly resolvePid: () => number,
   ) {
@@ -281,7 +280,7 @@ export class DressSharedCache {
   /**
    * 安装一款字体：换下载链 → 下 zip → 解出 ttf → 转换（如需要）→  写入共享缓存。
    */
-  async installFont(itemId: number, name: string): Promise<{ family: string; file: string }> {
+  async installFont(itemId: number, _name: string): Promise<{ family: string; file: string }> {
     const file = this.fontFile(itemId);
     if (file && existsSync(file) && isRenderableSfnt(readFileSync(file))) {
       return { family: fontFamilyFor(itemId), file };

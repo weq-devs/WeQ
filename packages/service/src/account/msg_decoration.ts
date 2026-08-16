@@ -23,7 +23,6 @@
 
 import type { DressService } from './dress_service';
 import type { BubbleSkin } from './bubble_skin';
-import type { PendantSidecar } from './dress_shared_cache';
 import { getLogger, logErrorContext } from '../common/logger';
 
 const WIDGET_BASE = 'https://tianquan.gtimg.cn/faceAddon/item';

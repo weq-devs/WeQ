@@ -32,7 +32,7 @@ export function MessageContextMenu({
 	onEditRaw?: (message: Message) => void;
 	onViewDecoration?: (message: Message) => void;
 }) {
-	const decoration = (state.message as any).decoration;
+	const decoration = (state.message as { decoration?: { fontId?: number; bubbleId?: number; widgetId?: number } }).decoration;
 	const hasDecoration = decoration && (decoration.fontId || decoration.bubbleId || decoration.widgetId);
 
 	return (

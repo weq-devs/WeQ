@@ -75,7 +75,6 @@ import {
   AgentLabService,
   AssistantService,
   CollectionService,
-  DressInstallService,
   createDressService,
   migrateDressData,
   DressConfigService,
