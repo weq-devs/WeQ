@@ -20,9 +20,23 @@ class SystemAuthService {
    * win32 的可用性探测结果。native 的 checkWindowsHelloAvailability() 是同步
    * 调用（会阻塞主进程 ~百毫秒级），而结果在一次运行内不会变，所以只探一次
    * 并缓存 —— 否则每次进设置页都要卡一下。
+   *
+   * 关键改进：启动时就开始探测（warmup()），而不是等到第一次 getStatus() 调用。
+   * 这样 UI 挂载时大概率已经有缓存结果，不会卡顿。
    */
   private win32Availability: SystemAuthStatus | null = null;
   private win32Probe: Promise<SystemAuthStatus> | null = null;
+
+  /**
+   * 应用启动时立即调用，在后台开始探测 Windows Hello 可用性。
+   * 这样等 UI 真正需要时，大概率已经探测完成，不会阻塞渲染。
+   */
+  warmup(): void {
+    if (process.platform !== 'win32') return;
+    if (this.win32Availability || this.win32Probe) return;
+    // 启动探测，不等待结果
+    void this.resolveStatus();
+  }
 
   getStatus(): SystemAuthStatus {
     if (process.platform === 'win32') {

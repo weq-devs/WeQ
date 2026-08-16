@@ -157,10 +157,20 @@ export function GlobalSettingsSection(): ReactElement {
   useEffect(() => {
     const bridge = shellBridge();
     if (!bridge) return;
-    void bridge.systemAuth
+    // 非阻塞：先让 UI 渲染，systemAuth 在后台异步探测，结果回来再更新。
+    // 探测期间「空闲自动锁定」的非零选项会被 disable（见 disabled 判断）。
+    let mounted = true;
+    bridge.systemAuth
       .getStatus()
-      .then(setSystemAuthStatus)
-      .catch(() => setSystemAuthStatus(null));
+      .then((status) => {
+        if (mounted) setSystemAuthStatus(status);
+      })
+      .catch(() => {
+        if (mounted) setSystemAuthStatus(null);
+      });
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   async function onOpenLogDir(): Promise<void> {

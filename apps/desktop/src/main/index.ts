@@ -517,6 +517,8 @@ void app.whenReady().then(async () => {
   registerMediaIpc();
   registerLogIpc();
   registerSystemAuthIpc();
+  // 启动时立即在后台探测 Windows Hello 可用性，避免 UI 首次调用时卡顿。
+  systemAuthService.warmup();
   registerCaptureIpc();
   registerChannelIpc();
   registerQzoneIpc();
