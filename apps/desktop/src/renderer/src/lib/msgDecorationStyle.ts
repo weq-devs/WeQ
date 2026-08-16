@@ -169,7 +169,7 @@ export function injectBubbleCss(skin: BubbleSkin): void {
     `  border-image-width: ${width};`,
     `  border-image-repeat: stretch;`,
     `  border-radius: 0;`,
-    `  padding: ${px(Math.min(wTop, wBottom) * PAD_RATIO_Y)} ${px(Math.max(wLeft, wRight))};`,
+    `  padding: ${px(wTop * PAD_RATIO_Y + 4)} ${px(Math.max(wLeft, wRight))} ${px(wBottom * PAD_RATIO_Y + 4)};`,
     `  min-width: ${px((left + right) * BUBBLE_SCALE)};`,
     `  min-height: ${px((top + bottom) * BUBBLE_SCALE)};`,
     `}`,

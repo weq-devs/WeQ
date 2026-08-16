@@ -178,9 +178,9 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
     frameAnim ? `  animation: ${frameAnim.animation};` : '',
     // 横向内边距必须**盖满整条左右切片**,文字只能落在中间那 2px 的拉伸区上。
     // 用 npTc 那个 0.6 会让文字压进角落的装饰画(实测「简约鲸鱼」那款,鲸鱼和气泡尖
-    // 都在左右切片里,文字直接骑上去)。纵向仍按 0.6 —— 上下切片多是纯边框,
-    // 盖满会让气泡看着空一大截。
-    `  padding: ${px(Math.min(wTop, wBottom) * PAD_RATIO_Y)} ${px(Math.max(wLeft, wRight))};`,
+    // 都在左右切片里,文字直接骑上去)。纵向按各自切片厚度的 0.6 + 4px 安全边距,
+    // 避免文字冲进装饰区或因行高下沉超出气泡边界。
+    `  padding: ${px(wTop * PAD_RATIO_Y + 8)} ${px(Math.max(wLeft, wRight))} ${px(wBottom * PAD_RATIO_Y + 4)};`,
     `  min-width: ${px((left + right) * BUBBLE_SCALE)};`,
     `  min-height: ${px((top + bottom) * BUBBLE_SCALE)};`,
     `}`,

@@ -3,7 +3,7 @@
  *
  * 右键消息气泡时显示该消息的三装扮（字体/气泡/挂件）的 ID 和预览图。
  */
-import { Palette, X, ImageOff } from "lucide-react";
+import { Palette, X, ImageOff, Type, MessageCircle, Sparkles } from "lucide-react";
 import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useEscapeToClose } from "../im-template/template/modalUtils";
@@ -96,13 +96,13 @@ export function MessageDecorationCard({ decoration, onClose }: MessageDecoration
   const items = [];
 
   if (decoration?.fontId) {
-    items.push({ type: 'font' as const, id: decoration.fontId, label: '字体', icon: '🖋️' });
+    items.push({ type: 'font' as const, id: decoration.fontId, label: '字体', icon: <Type size={18} /> });
   }
   if (decoration?.bubbleId) {
-    items.push({ type: 'bubble' as const, id: decoration.bubbleId, label: '气泡', icon: '💬' });
+    items.push({ type: 'bubble' as const, id: decoration.bubbleId, label: '气泡', icon: <MessageCircle size={18} /> });
   }
   if (decoration?.widgetId) {
-    items.push({ type: 'widget' as const, id: decoration.widgetId, label: '挂件', icon: '✨' });
+    items.push({ type: 'widget' as const, id: decoration.widgetId, label: '挂件', icon: <Sparkles size={18} /> });
   }
 
   return createPortal(
