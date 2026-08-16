@@ -279,7 +279,15 @@ export function GroupInfoDetailDialog({
 								<article
 									className={cn("group-info-detail-record")}
 									key={item.id}
-									onClick={() => onJumpToMessage?.(item.msgSeq)}
+									onClick={() => {
+										if (!onJumpToMessage) {
+											return;
+										}
+										if (item.msgSeq == null || item.msgSeq === '') {
+											return;
+										}
+										onJumpToMessage(item.msgSeq);
+									}}
 									style={{ cursor: onJumpToMessage ? "pointer" : undefined }}
 								>
 									<span>

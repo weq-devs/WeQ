@@ -2591,11 +2591,11 @@ html[data-theme='dark'] .weq-splash-track {
   pointer-events: auto;
   display: flex;
   align-items: flex-start;
-  gap: 9px;
-  min-width: 220px;
-  max-width: 340px;
-  padding: 10px 12px;
-  border-radius: 10px;
+  gap: 12px;
+  min-width: 280px;
+  max-width: 400px;
+  padding: 16px 18px;
+  border-radius: 12px;
   background: var(--weq-bg-surface, #ffffff);
   color: var(--weq-fg-primary, #1a1a1a);
   border: 1px solid var(--weq-border-subtle, rgba(0, 0, 0, 0.08));
@@ -2606,8 +2606,8 @@ html[data-theme='dark'] .weq-splash-track {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   flex-shrink: 0;
   border-radius: 50%;
   color: #ffffff;
@@ -2624,16 +2624,16 @@ html[data-theme='dark'] .weq-splash-track {
   flex: 1;
 }
 
-.weq-toast-title { font-size: 13px; font-weight: 600; }
-.weq-toast-msg { font-size: 12px; opacity: 0.7; }
+.weq-toast-title { font-size: 15px; font-weight: 600; }
+.weq-toast-msg { font-size: 13px; opacity: 0.7; }
 
 .weq-toast-x {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   border: none;
   background: transparent;
   color: inherit;
@@ -10679,6 +10679,19 @@ html[data-theme="dark"] .weq-persona-modal {
    visible here (this IS the restore surface) — no hover-gating. */
 .weq-deleted-row {
   position: relative;
+  transition: background 0.15s;
+}
+
+.weq-deleted-row.is-clickable {
+  cursor: pointer;
+}
+
+.weq-deleted-row.is-clickable:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 3%, transparent);
+}
+
+.weq-deleted-row.is-clickable:active {
+  background: color-mix(in srgb, var(--weq-accent-effective) 5%, transparent);
 }
 .weq-deleted-row .weq-deleted-restore,
 .weq-deleted-row .weq-deleted-tag {

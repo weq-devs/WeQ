@@ -180,7 +180,7 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
     // 用 npTc 那个 0.6 会让文字压进角落的装饰画(实测「简约鲸鱼」那款,鲸鱼和气泡尖
     // 都在左右切片里,文字直接骑上去)。纵向按各自切片厚度的 0.6 + 4px 安全边距,
     // 避免文字冲进装饰区或因行高下沉超出气泡边界。
-    `  padding: ${px(wTop * PAD_RATIO_Y + 8)} ${px(Math.max(wLeft, wRight))} ${px(wBottom * PAD_RATIO_Y + 4)};`,
+    `  padding: ${px(wTop * PAD_RATIO_Y )} ${px(Math.max(wLeft, wRight))} ${px(wBottom * PAD_RATIO_Y + 4)};`,
     `  min-width: ${px((left + right) * BUBBLE_SCALE)};`,
     `  min-height: ${px((top + bottom) * BUBBLE_SCALE)};`,
     `}`,

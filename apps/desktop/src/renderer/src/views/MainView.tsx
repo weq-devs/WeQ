@@ -2903,10 +2903,13 @@ export function MainView(): ReactElement {
           client.account.listAfter.query({ kind, conv, afterSeq: targetSeq, limit: PAGE_SIZE }),
         ]);
       } catch (err) {
-        console.error('[jump] centerWindowOnSeq failed', err);
+        console.error('[centerWindowOnSeq] fetch failed', err);
+        pushToast({ tone: 'info', title: '未找到该消息' });
         return false;
       }
-      if (selectionRef.current?.id !== conv) return false; // switched away mid-flight
+      if (selectionRef.current?.id !== conv) {
+        return false; // switched away mid-flight
+      }
 
       const seen = new Set<string>();
       const merged: MessageWire[] = [];
@@ -2918,7 +2921,10 @@ export function MainView(): ReactElement {
       }
 
       const target = merged.find((m) => m.msgSeq === targetSeq);
-      if (!target) return false; // not in DB (e.g. recalled) — leave the view as-is
+      if (!target) {
+        pushToast({ tone: 'info', title: '未找到该消息' });
+        return false; // not in DB (e.g. recalled) — leave the view as-is
+      }
 
       const atLatest = after.length < PAGE_SIZE;
       // Update the live-subscription's window descriptor synchronously: a
@@ -2935,7 +2941,7 @@ export function MainView(): ReactElement {
       window.setTimeout(() => scrollToMsgId(target.msgId), 160);
       return true;
     },
-    [scrollToMsgId],
+    [scrollToMsgId, pushToast],
   );
 
   // Scroll the loaded message list to a reply target, loading older pages first
@@ -2944,11 +2950,16 @@ export function MainView(): ReactElement {
   //   group → origMsgSeq (47402);  c2c → origMsgIndex (47419).
   const jumpToSeq = useCallback(async (jumpTarget: ReplyJumpTarget): Promise<void> => {
     const sel = selectionRef.current;
-    if (!sel) return;
+    if (!sel) {
+      return;
+    }
     const kind: 'group' | 'c2c' = sel.kind === 'group' ? 'group' : 'c2c';
     const rawSeq =
       kind === 'group' ? (jumpTarget.seq ?? jumpTarget.index) : (jumpTarget.index ?? jumpTarget.seq);
-    if (rawSeq === undefined || rawSeq === null || rawSeq === '') return;
+    if (rawSeq === undefined || rawSeq === null || rawSeq === '') {
+      pushToast({ tone: 'info', title: '未找到该消息' });
+      return;
+    }
     const targetSeq = String(rawSeq);
 
     const here = loadedRef.current.find((m) => m.msgSeq === targetSeq);
@@ -2965,16 +2976,23 @@ export function MainView(): ReactElement {
     let reachedTop = false;
     for (let guard = 0; guard < 3; guard += 1) {
       const minSeq = working[0]?.msgSeq;
-      if (!minSeq || Number(minSeq) <= targetNum) break;
-      if (working.some((m) => m.msgSeq === targetSeq)) break;
+      if (!minSeq || Number(minSeq) <= targetNum) {
+        break;
+      }
+      if (working.some((m) => m.msgSeq === targetSeq)) {
+        break;
+      }
       let older: ChatMsgWire[];
       try {
         older = await client.account.listBefore.query({ kind, conv: sel.id, beforeSeq: minSeq, limit: PAGE_SIZE });
       } catch (err) {
-        console.error('[reply-jump] listBefore failed', err);
+        console.error('[jumpToSeq] listBefore failed', err);
+        pushToast({ tone: 'info', title: '加载消息失败' });
         break;
       }
-      if (selectionRef.current?.id !== sel.id) return; // switched away mid-flight
+      if (selectionRef.current?.id !== sel.id) {
+        return; // switched away mid-flight
+      }
       const known = new Set(working.map((m) => m.msgId));
       const fresh = older.map(toMessageWire).reverse().filter((m) => !known.has(m.msgId));
       if (fresh.length === 0) {
@@ -3000,7 +3018,7 @@ export function MainView(): ReactElement {
     // Slow path B: still not found after 3 pages — rebuild a fresh window
     // centred on the target instead of loading everything up to it.
     await centerWindowOnSeq(sel.id, kind, targetSeq);
-  }, [centerWindowOnSeq, scrollToMsgId]);
+  }, [centerWindowOnSeq, scrollToMsgId, pushToast]);
 
   // Debounced global message search: as the user types, search buddy+group and
   // show up to 5 hits. A run counter discards stale responses so only the last
@@ -3727,6 +3745,15 @@ export function MainView(): ReactElement {
           messages={recalledTemplateMessages}
           renderers={messageRenderers}
           loading={recalledLoading}
+          onJumpToMessage={(seq) => {
+            setRecalledConv(null);
+            setRecalledWires([]);
+            if (seq == null) {
+              console.warn('[recall-jump] missing msgSeq, cannot jump', seq);
+              return;
+            }
+            jumpToSeq({ seq });
+          }}
           onClose={() => {
             setRecalledConv(null);
             setRecalledWires([]);
