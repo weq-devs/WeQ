@@ -263,7 +263,7 @@ export class AccountMonitorService {
   // ---- rkey / clientkey harvesting ----------------------------------------
 
   private async ensureInjected(pid: number): Promise<void> {
-    await this.injectHook.ensure(pid);
+    await this.injectHook.ensure(pid, this.uin);
   }
 
   /** Harvest both rkey & clientkey (gated by their respective switches). */

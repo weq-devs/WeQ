@@ -59,8 +59,8 @@ export interface InjectRecord {
   pid: number;
   /** `/proc/<pid>/stat` field 22 (starttime, in clock ticks) at inject time. */
   startTime: string;
-  /** Whether the post-login packet wait also completed (fully ready to fetch). */
-  ready: boolean;
+  /** The account uin the hook was injected with (diagnostics / reuse checks). */
+  uin: string;
   /** Epoch ms when the record was written — diagnostics only. */
   injectedAt: number;
 }
@@ -348,7 +348,7 @@ export class UserConfigService {
     this.logger.info('stored inject record', {
       event: 'inject-record-set',
       pid: record.pid,
-      ready: record.ready,
+      uin: record.uin,
     });
   }
 

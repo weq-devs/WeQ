@@ -72,7 +72,7 @@ async function main(): Promise<void> {
   }
   console.log(`[home-dress] 使用 pid=${pid} uin=${probed_uin}\n`);
 
-  await ensureSendable(nt, pid, { label: 'home-dress' });
+  await ensureSendable(nt, pid, probed_uin, { label: 'home-dress' });
 
   const cred = await new WebCredentialProvider(nt, probed_uin, () => pid).forDomain('vip.qq.com');
 

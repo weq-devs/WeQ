@@ -10,6 +10,9 @@
  * URL shape (standard scheme → authority + path):
  *   weq-asset://brand/logo.png          →  resources/brand/logo.png
  *   weq-asset://emoji/358/apng/358.png  →  <QQ EmojiSystermResource>/358/apng/358.png
+ * Hosts are always lowercase: Chromium lower-cases the authority of a standard
+ * scheme, and the handler lower-cases it again so legacy mixed-case URLs (web
+ * `/_asset/fileIcon/…`) still resolve on case-sensitive filesystems.
  * Non-emoji hosts join host+path onto the bundled resources root. The `emoji`
  * host is special-cased: it streams from the logged-in account's QQ NT emoji
  * directory (the emoji set is no longer bundled — see resolveEmojiRoots). When
@@ -90,7 +93,9 @@ export async function handleResourceRequest(request: Request): Promise<Response>
   if (!root) return new Response('resource root not found', { status: 404 });
 
   // Non-emoji hosts are a path segment under the bundled resources root.
-  const relative = decodeURIComponent(`${url.hostname}${url.pathname}`);
+  // Chromium lower-cases the authority of a standard scheme, so normalize here
+  // too — legacy/web URLs with a mixed-case host still resolve.
+  const relative = decodeURIComponent(`${url.hostname.toLowerCase()}${url.pathname}`);
   const target = containedPath(root, relative);
   if (!target) return new Response('forbidden', { status: 403 });
 

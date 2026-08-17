@@ -33,7 +33,7 @@ async function main(): Promise<void> {
   if (pids.length === 0) throw new Error('no running QQ.exe');
   const pid = pids[0]!;
   console.log(`[verify-c2c-file] pid=${pid} uin=${nt.probeQqLoginInfo(pid)?.uin}`);
-  await nt.injectAndGetStatusEmbedded(pid);
+  await nt.injectAndGetStatusEmbedded(pid, UIN);
 
   const db = new QqDb(nt, { dbPath: DB_PATH, key: KEY, algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' } });
   let fileEl: MediaElement;

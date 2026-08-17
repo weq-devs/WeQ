@@ -59,7 +59,7 @@ async function main(): Promise<void> {
   }
   if (!myUin) throw new Error('所有 QQ 进程都 probe 不到 uin');
 
-  await ensureSendable(nt, pid, { label: 'dump-dress' });
+  await ensureSendable(nt, pid, myUin, { label: 'dump-dress' });
 
   const creds = new WebCredentialProvider(nt, myUin, () => pid);
   const cred = await creds.forDomain('vip.qq.com');

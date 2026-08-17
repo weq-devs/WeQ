@@ -12,7 +12,7 @@
  *     play an intro Lottie then the result clip at `<id>/lottie/<id>_<value>.json`.
  *     A "0"/missing/out-of-range value falls back to the static APNG.
  *   - subType=5 poke faces (戳一戳) render a static PNG from the bundled
- *     `resources/pokeEmoji/<faceId>.png` set (ids 0-6; out-of-range → 0).
+ *     `resources/pokeemoji/<faceId>.png` set (ids 0-6; out-of-range → 0).
  *
  * Sizing/layout (inline vs. sticker) is the caller's concern — pass `size`
  * and/or `className`. Resources stream from disk via `weq-asset://`, so
@@ -37,7 +37,7 @@ const LOTTIE_FACES: Record<number, { max: number; introPlays: number }> = {
   359: { max: 3, introPlays: 2 }, // 石头剪刀布
 };
 
-/** subType=5 poke faces stream from resources/pokeEmoji/<faceId>.png (ids 0-6). */
+/** subType=5 poke faces stream from resources/pokeemoji/<faceId>.png (ids 0-6). */
 const POKE_FACE_SUBTYPE = 5;
 const POKE_FACE_MAX_ID = 6;
 
@@ -97,13 +97,13 @@ export function FaceEmoji({ element, size, animated, className, isSender = true 
   const idStr = String(faceId);
   const apngSrc = emojiUrl(idStr, 'apng', `${faceId}.png`);
 
-  // subType=5 poke faces: static PNG from the bundled pokeEmoji set. Ids run
+  // subType=5 poke faces: static PNG from the bundled pokeemoji set. Ids run
   // 0-6; anything out of range falls back to 0.
   if (subType === POKE_FACE_SUBTYPE) {
     const pokeId = Number.isInteger(faceId) && faceId >= 0 && faceId <= POKE_FACE_MAX_ID ? faceId : 0;
     return (
       <FaceImage
-        src={resourceUrl('pokeEmoji', `${pokeId}.png`)}
+        src={resourceUrl('pokeemoji', `${pokeId}.png`)}
         label={label}
         style={boxStyle}
         className={cn(className, !isSender && 'face-poke-mirror')}

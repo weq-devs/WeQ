@@ -26,10 +26,8 @@ import {
   requireBootstrap,
   requirePlatform,
   emitDressChanged,
-  emitKeyFetchStalled,
   rememberAccountUid,
   type AccountForcedClosedEvent,
-  type KeyFetchStalledEvent,
 } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import {
@@ -107,59 +105,10 @@ export const bootstrapRouter = router({
     });
   }),
 
-  /**
-   * Alive QQ instance stalled without a real recv packet (linux). Central
-   * channel so the renderer surfaces one consistent "poke the account" hint
-   * no matter which flow hit the stall.
-   */
-  onKeyFetchStalled: procedure.subscription(() => {
-    return observable<KeyFetchStalledEvent>((emit) => {
-      const handler = (event: KeyFetchStalledEvent): void => {
-        emit.next(event);
-      };
-      accountEventBus.on('keyFetchStalled', handler);
-      return () => {
-        accountEventBus.off('keyFetchStalled', handler);
-      };
-    });
-  }),
-
-  /**
-   * The renderer login race timed out waiting on an alive instance. It handles
-   * its own continue/kill prompt, but reports the stall here so the stall is
-   * logged and broadcast through the same central channel as background flows.
-   */
-  reportKeyStalled: procedure
-    .input(z.object({ uin: z.string().optional() }))
-    .mutation(({ input }) => {
-      emitKeyFetchStalled('login', input.uin);
-      return { ok: true as const };
-    }),
-
   /** Platform kind, so the renderer can branch linux-only key behaviour. */
   systemInfo: procedure.query(() => {
     return { platformKind: process.platform as NodeJS.Platform };
   }),
-
-  /**
-   * Force-terminate a QQ process by pid. Used by the login race when the user
-   * opts to abandon the alive-instance path and switch to ninebird.
-   */
-  killQqProcess: procedure
-    .input(z.object({ pid: z.number().int().positive() }))
-    .mutation(({ input }) => {
-      try {
-        process.kill(input.pid);
-        return { ok: true as const };
-      } catch (e) {
-        logger.warn('killQqProcess failed', {
-          event: 'router-kill-qq-failed',
-          pid: input.pid,
-          error: e instanceof Error ? e.message : String(e),
-        });
-        return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
-      }
-    }),
 
   // ---- detection (via global config cache) ----
 
@@ -846,24 +795,25 @@ export const bootstrapRouter = router({
   // ---- key flows ----
 
   /**
-   * Flow 1, step A — inject the hook into the alive QQ instance WITHOUT waiting
-   * for the post-login packet. On linux this is the pkexec-elevated ptrace
-   * inject, so it pops the polkit password dialog and can take arbitrarily long
-   * (the user typing their password). The renderer awaits this UNTIMED, then
-   * runs `fetchKeyFromInstance` (step B) under its 10s stall timer — so the
-   * password-entry time no longer counts against "how long has the packet wait
-   * stalled". Idempotent inside the hook. No-op-ish on win32 (ensure == inject).
+   * Flow 1, step A — inject the hook into the alive QQ instance and block until
+   * it is ready to send OIDB packets (the native call waits for the hook to
+   * bind the MSFService instance via `uin`). On linux this is the
+   * pkexec-elevated ptrace inject, so it pops the polkit password dialog and can
+   * take arbitrarily long (the user typing their password) — the renderer
+   * awaits this UNTIMED, then runs `fetchKeyFromInstance` (step B). Idempotent
+   * inside the hook. No-op-ish on win32 (ensure == inject).
    */
   prepareInstanceInject: procedure
-    .input(z.object({ pid: z.number().int().positive() }))
+    .input(z.object({ pid: z.number().int().positive(), uin: z.string() }))
     .mutation(async ({ input }) => {
       const boot = requireBootstrap();
       logger.info('router preparing instance inject (untimed)', {
         event: 'router-prepare-inject',
         pid: input.pid,
+        uin: input.uin,
       });
       try {
-        await boot.injectHook.inject(input.pid);
+        await boot.injectHook.inject(input.pid, input.uin);
         return { ok: true as const };
       } catch (e) {
         logger.warn('prepareInstanceInject failed', {
@@ -912,11 +862,12 @@ export const bootstrapRouter = router({
       });
 
       // Make the pid sendable (idempotent). On win32 this injects the embedded
-      // hook once; on linux it pkexec-elevates the inject and waits for the
-      // first post-login packet. Re-injecting a live pid would race the hook's
-      // single-listener pipe (ERROR_PIPE_BUSY), so the hook's per-pid cache
-      // ensures we only do it once.
-      await boot.injectHook.ensure(input.pid);
+      // hook once; on linux it pkexec-elevates the inject — the native call
+      // blocks until the hook binds the MSFService instance via `uin`.
+      // Re-injecting a live pid would race the hook's single-listener pipe
+      // (ERROR_PIPE_BUSY), so the hook's per-pid cache ensures we only do it
+      // once.
+      await boot.injectHook.ensure(input.pid, input.uin);
 
       let result = await boot.keys.fetchFromInstance(input.pid, dbPath);
       if (!result.success) {
@@ -929,7 +880,7 @@ export const bootstrapRouter = router({
           error: result.error,
         });
         boot.injectHook.reset(input.pid);
-        await boot.injectHook.ensure(input.pid);
+        await boot.injectHook.ensure(input.pid, input.uin);
         result = await boot.keys.fetchFromInstance(input.pid, dbPath);
       }
       return result;

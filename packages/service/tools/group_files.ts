@@ -25,7 +25,7 @@ async function main(): Promise<void> {
   console.log(`[group-files] pid=${pid} uin=${uin} loggedIn=${info?.loggedIn} group=${GROUP} dir=${FOLDER}`);
 
   console.log(`\n[group-files] 注入 hook 到 pid=${pid} ...`);
-  const status = await nt.injectAndGetStatusEmbedded(pid);
+  const status = await nt.injectAndGetStatusEmbedded(pid, uin);
   console.log(`[group-files] 注入结果: pid=${status.pid} uin=${status.uin} loggedIn=${status.loggedIn}`);
 
   const session = {

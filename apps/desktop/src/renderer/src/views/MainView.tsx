@@ -1662,24 +1662,6 @@ export function MainView(): ReactElement {
     return () => sub.unsubscribe();
   }, [goTo, queryClient, setHomeStage, setOpenedUin, showError]);
 
-  // Central "alive QQ but packet-stalled" channel. The login race owns its own
-  // continue/kill prompt, so we only surface background-flow stalls (harvest /
-  // on-demand credential) as a non-blocking toast here — login stalls arrive
-  // with source==='login' purely for logging and are skipped.
-  useEffect(() => {
-    const sub = client.bootstrap.onKeyFetchStalled.subscribe(undefined, {
-      onData(event) {
-        if (event?.reason !== 'packet-stalled') return;
-        if (event.source === 'login') return;
-        pushToast({ tone: 'info', title: event.title, message: event.message, ttl: 8000 });
-      },
-      onError(err) {
-        console.error('[account] onKeyFetchStalled subscription error', err);
-      },
-    });
-    return () => sub.unsubscribe();
-  }, [pushToast]);
-
   // Update availability: seed from the last cached check (the background startup
   // check may have already run), then keep it live via the check events. Drives
   // the settings rail red dot. setState via getState() to avoid re-render churn.

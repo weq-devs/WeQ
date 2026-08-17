@@ -23,9 +23,19 @@ async function main(): Promise<void> {
   const pid = pids[0]!;
   console.log(`[test] 使用 pid=${pid}\n`);
 
+  // uin 不再由 hook 探测 —— 注入时必须由调用方传入。先从进程 probe 拿，失败则回退到 argv[2]。
+  const probed = nt.probeQqLoginInfo(pid);
+  const uin = probed?.uin || process.argv[2];
+  if (!uin) {
+    throw new Error(
+      '无法确定该 QQ 进程的 uin，请用 argv[2] 传入，例如：pnpm tsx rkey_reinject.ts 123456',
+    );
+  }
+  console.log(`[test] 使用 uin=${uin}\n`);
+
   // ===== 场景 1: 注入 → 获取 rkey =====
   console.log('--- 场景 1: 第一次注入 + 获取 rkey ---');
-  const status1 = await nt.injectAndGetStatusEmbedded(pid);
+  const status1 = await nt.injectAndGetStatusEmbedded(pid, uin);
   console.log(`[inject#1] pid=${status1.pid} uin=${status1.uin} loggedIn=${status1.loggedIn}`);
 
   const rkey1 = await nt.fetchDownloadRkeys(pid);
@@ -33,7 +43,7 @@ async function main(): Promise<void> {
 
   // ===== 场景 2: 再次注入 → 再次获取 rkey =====
   console.log('--- 场景 2: 第二次注入 + 获取 rkey ---');
-  const status2 = await nt.injectAndGetStatusEmbedded(pid);
+  const status2 = await nt.injectAndGetStatusEmbedded(pid, uin);
   console.log(`[inject#2] pid=${status2.pid} uin=${status2.uin} loggedIn=${status2.loggedIn}`);
 
   const rkey2 = await nt.fetchDownloadRkeys(pid);
@@ -41,10 +51,10 @@ async function main(): Promise<void> {
 
   // ===== 场景 3: 连续两次注入，然后分别获取 rkey =====
   console.log('--- 场景 3: 连续两次注入 ---');
-  const status3a = await nt.injectAndGetStatusEmbedded(pid);
+  const status3a = await nt.injectAndGetStatusEmbedded(pid, uin);
   console.log(`[inject#3a] pid=${status3a.pid} uin=${status3a.uin}`);
 
-  const status3b = await nt.injectAndGetStatusEmbedded(pid);
+  const status3b = await nt.injectAndGetStatusEmbedded(pid, uin);
   console.log(`[inject#3b] pid=${status3b.pid} uin=${status3b.uin}`);
 
   const rkey3a = await nt.fetchDownloadRkeys(pid);

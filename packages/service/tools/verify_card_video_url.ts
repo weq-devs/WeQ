@@ -37,7 +37,7 @@ async function main(): Promise<void> {
   if (!myUin) throw new Error('没有已登录的 QQ 进程');
   console.log(`[card-video] pid=${pid} uin=${myUin}`);
 
-  await ensureSendable(nt, pid, { label: 'card-video' });
+  await ensureSendable(nt, pid, myUin, { label: 'card-video' });
 
   const creds = new WebCredentialProvider(nt, myUin, () => pid);
   const cred = await creds.forDomain('vip.qq.com');
