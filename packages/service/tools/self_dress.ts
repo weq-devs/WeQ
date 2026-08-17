@@ -30,7 +30,7 @@ async function main(): Promise<void> {
   if (!myUin) throw new Error('probe 没拿到 uin');
 
   console.log('');
-  await ensureSendable(nt, pid, { label: 'self-dress' });
+  await ensureSendable(nt, pid, myUin, { label: 'self-dress' });
 
   const web = new WebQueryService(
     nt,

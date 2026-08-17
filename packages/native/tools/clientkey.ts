@@ -66,7 +66,7 @@ async function main(): Promise<void> {
   // OIDB 接口(取 key / 取 rkey / 取 clientkey)需要先把 hook 注入目标进程,否则
   // mojo 控制管道不存在。
   console.log(`\n[clientkey] 注入 hook 到 pid=${targetPid} ...`);
-  const status = await nt.injectAndGetStatusEmbedded(targetPid);
+  const status = await nt.injectAndGetStatusEmbedded(targetPid, TARGET_UIN);
   console.log(`[clientkey] 注入结果: pid=${status.pid} uin=${status.uin} loggedIn=${status.loggedIn}`);
 
   console.log(`\n[clientkey] 调用 fetchClientKey(${targetPid}) ...`);

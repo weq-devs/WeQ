@@ -30,7 +30,7 @@ async function main(): Promise<void> {
   if (!myUin) throw new Error('probe 没拿到 uin');
 
   console.log(`\n[dress] 注入 hook 到 pid=${pid} ...`);
-  const status = await nt.injectAndGetStatusEmbedded(pid);
+  const status = await nt.injectAndGetStatusEmbedded(pid, myUin);
   console.log(`[dress] 注入结果: pid=${status.pid} uin=${status.uin} loggedIn=${status.loggedIn}`);
 
   const web = new WebQueryService(nt, { context: { uin: myUin } } as unknown as AccountSession, () => pid);

@@ -52,7 +52,7 @@ async function main(): Promise<void> {
     }
 
     console.log(`\n注入 hook 到 pid=${targetPid} ...`);
-    const status = await nt.injectAndGetStatusEmbedded(targetPid);
+    const status = await nt.injectAndGetStatusEmbedded(targetPid, TARGET_UIN);
     console.log(`注入结果: pid=${status.pid} uin=${status.uin} loggedIn=${status.loggedIn}`);
 
     console.log(`\n调用 pskey获取(${targetPid}) ...`);

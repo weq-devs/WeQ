@@ -4,9 +4,10 @@
  * Injection into a running QQ needs ptrace (root); fetching keys afterwards
  * does not (the hook's unix socket is reachable unprivileged). So we isolate
  * ONLY the inject in a short-lived root child: `inject_elevation.ts` spawns this
- * via `pkexec`, we require `nt_helper.node`, call `injectAndGetStatusEmbedded`,
- * print a one-line JSON result to stdout, and exit. The parent then talks to the
- * hook socket unprivileged.
+ * via `pkexec`, we require `nt_helper.node`, call `injectAndGetStatusEmbedded`
+ * (passing the account uin, which the hook needs to bind the MSFService
+ * instance), print a one-line JSON result to stdout, and exit. The parent then
+ * talks to the hook socket unprivileged.
  *
  * Bundled by electron-vite as a SEPARATE `.mjs` entry so the packaged (asar)
  * build can run it via `ELECTRON_RUN_AS_NODE` electron-as-node — end-user
@@ -39,9 +40,11 @@ function fail(error: string, code: number): never {
 async function main(): Promise<void> {
   const pid = Number(process.argv[2]);
   const ntHelperPath = process.argv[3];
+  const uin = process.argv[4];
 
   if (!Number.isInteger(pid) || pid <= 0) fail(`bad pid: ${process.argv[2]}`, 2);
   if (!ntHelperPath) fail('missing nt_helper.node path (argv[3])', 2);
+  if (!uin) fail('missing account uin (argv[4])', 2);
 
   // Must run BEFORE require — the addon's LICENSE check runs on load, and it
   // walks up from cwd. The addon dir's ancestors contain the LICENSE.
@@ -53,7 +56,7 @@ async function main(): Promise<void> {
 
   let nt: {
     getInitStatus(): number;
-    injectAndGetStatusEmbedded(pid: number): Promise<{ pid: number; loggedIn: boolean; uin: string }>;
+    injectAndGetStatusEmbedded(pid: number, uin: string): Promise<{ pid: number; loggedIn: boolean; uin: string }>;
   };
   try {
     nt = requireFn(ntHelperPath);
@@ -65,7 +68,7 @@ async function main(): Promise<void> {
   if (initStatus !== 0) fail(`nt_helper init failed (status ${initStatus})`, 1);
 
   try {
-    const status = await nt.injectAndGetStatusEmbedded(pid);
+    const status = await nt.injectAndGetStatusEmbedded(pid, uin);
     const payload: InjectResult = { ok: true, status };
     process.stdout.write(JSON.stringify(payload));
     process.exit(0);

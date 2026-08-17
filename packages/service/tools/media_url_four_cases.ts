@@ -103,7 +103,7 @@ async function main(): Promise<void> {
   console.log(`[media-url-four-cases] pid=${pid} uin=${uin} loggedIn=${info?.loggedIn}`);
 
   console.log('[media-url-four-cases] injecting hook ...');
-  const status = await nt.injectAndGetStatusEmbedded(pid);
+  const status = await nt.injectAndGetStatusEmbedded(pid, uin);
   console.log(`[media-url-four-cases] inject result: uin=${status.uin} loggedIn=${status.loggedIn}`);
 
   const session = {

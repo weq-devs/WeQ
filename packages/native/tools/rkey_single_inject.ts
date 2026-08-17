@@ -25,9 +25,19 @@ async function main(): Promise<void> {
   const pid = pids[0]!;
   console.log(`[test] 使用 pid=${pid}\n`);
 
+  // uin 不再由 hook 探测 —— 注入时必须由调用方传入。先从进程 probe 拿，失败则回退到 argv[2]。
+  const probed = nt.probeQqLoginInfo(pid);
+  const uin = probed?.uin || process.argv[2];
+  if (!uin) {
+    throw new Error(
+      '无法确定该 QQ 进程的 uin，请用 argv[2] 传入，例如：pnpm tsx rkey_single_inject.ts 123456',
+    );
+  }
+  console.log(`[test] 使用 uin=${uin}\n`);
+
   // 注入一次
   console.log('--- 注入 hook ---');
-  const status = await nt.injectAndGetStatusEmbedded(pid);
+  const status = await nt.injectAndGetStatusEmbedded(pid, uin);
   console.log(`[inject] pid=${status.pid} uin=${status.uin} loggedIn=${status.loggedIn}\n`);
 
   // 第一次获取 rkey

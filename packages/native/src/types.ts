@@ -100,9 +100,10 @@ export interface QQInstanceStatus {
 }
 
 /**
- * A recv packet observed by the hook. Returned by `waitForRealPacket` once the
- * hook has seen a genuine post-login packet — on linux this is what tells the
- * hook the MSF service address, so no OIDB packet can be sent before it lands.
+ * A recv packet observed by the hook. Returned by `waitForRealPacket`. On
+ * linux this is no longer required for readiness (the hook binds the MSF
+ * service via the inject-time uin handshake) — it exists only as a debugging
+ * probe now.
  */
 export interface HookRecvPacketInfo {
   sequence: string;
@@ -225,14 +226,19 @@ export interface NtHelperBinding {
   checkDatabaseHealth(dbPath: string, key: string, algo: DatabaseAlgorithms): Promise<DatabaseHealthResult>;
 
   // --- hook injection ---
-  injectAndGetStatus(pid: number, dllPath: string): Promise<QQInstanceStatus>;
-  injectAndGetStatusEmbedded(pid: number): Promise<QQInstanceStatus>;
+  /**
+   * Inject the hook into `pid` and wait until it is ready to send OIDB
+   * packets. `uin` is required — the native hook no longer derives it from
+   * the process — and is handed to the hook over the pipe on linux so it can
+   * bind the right MSFService instance (injection resolves only once bound,
+   * up to ~30s). The returned `QQInstanceStatus.uin` echoes the passed value.
+   */
+  injectAndGetStatus(pid: number, dllPath: string, uin: string): Promise<QQInstanceStatus>;
+  injectAndGetStatusEmbedded(pid: number, uin: string): Promise<QQInstanceStatus>;
   /**
    * Wait until the hook observes a genuine post-login recv packet (pre-login
-   * snapshots/commands are ignored). On linux the hook cannot locate the MSF
-   * service address — and therefore cannot send any OIDB packet — until such a
-   * packet arrives, so the instance key/rkey flows must await this first. On
-   * win32 the service address is resolved by port-probe, so this is unused.
+   * snapshots/commands are ignored). No longer part of the readiness flow on
+   * linux — keep only as a manual probe.
    */
   waitForRealPacket(pid: number, timeoutMs: number): Promise<HookRecvPacketInfo>;
 

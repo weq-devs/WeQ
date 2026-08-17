@@ -1,9 +1,9 @@
 /**
  * Linux injection — the `InjectHook` used on linux.
  *
- * The instance key/rkey/clientkey flows need a QQ process that (a) has the hook
- * injected and (b) has told the hook its MSF service address. On linux those are
- * two distinct, differently-privileged steps:
+ * The instance key/rkey/clientkey flows need a QQ process with the hook
+ * injected and bound to its MSFService instance. On linux that is one
+ * privileged step:
  *
  *   1. INJECT (root) — ptrace-based. Under Electron (which refuses to run as
  *      root) this means a short-lived pkexec child (`inject_worker`), and a
@@ -11,9 +11,11 @@
  *      already running as root — the web server on a headless box — we ptrace
  *      in-process instead; pkexec would be pointless and, with no polkit agent
  *      to authenticate against, impossible.
- *   2. WAIT-FOR-PACKET (unprivileged) — the hook only learns the service
- *      address from a genuine post-login recv packet, so no OIDB packet can be
- *      sent until one arrives. This runs here in the main process (no root).
+ *
+ * The native inject call hands the account UIN to the hook over the pipe and
+ * blocks until the hook binds the MSFService instance (~30s), so when inject
+ * resolves the pid can already send OIDB packets — there is no separate
+ * unprivileged wait-for-packet half anymore.
  *
  * Frequency is low: a QQ pid is injected once and reused for its whole life
  * (`ensure` no-ops after the first success), so the password prompt is a
@@ -21,7 +23,7 @@
  * caller `reset`s the pid and the next `ensure` re-injects (prompting again).
  *
  * Persistence: the "which pids are injected" cache is ALSO written to
- * config.json (keyed by pid + process start time). A WeQ restart would
+ * config.json (keyed by pid + process start time + uin). A WeQ restart would
  * otherwise forget an already-hooked, still-running QQ and re-inject it —
  * re-popping the password dialog and racing the hook's control pipe. On startup
  * we prune dead pids and seed the in-memory cache from what survives, so a
@@ -37,17 +39,10 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { resolveNtHelperPath, type NtHelperBinding } from '@weq/native';
 import type { InjectHook, UserConfigService } from '@weq/service';
-import { getLogger, logErrorContext } from '@weq/service';
+import { getLogger } from '@weq/service';
 import { readProcStartTime } from './proc_stat';
 
 const logger = getLogger().child({ scope: 'inject-elevation' });
-
-/**
- * How long to wait for the first genuine post-login recv packet. A quiet
- * account only gets one when it receives a message, so this is generous — the
- * UI-layer timeout race (see the key-stall prompt) handles "too slow" separately.
- */
-const REAL_PACKET_TIMEOUT_MS = 120_000;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -69,16 +64,24 @@ function resolveWorkerPath(): string {
  * (`ELECTRON_RUN_AS_NODE=1`) so no system `node` is required. pkexec scrubs the
  * environment, so we re-set it with `env` and pass all inputs as argv.
  */
-function pkexecInject(pid: number): Promise<void> {
+function pkexecInject(pid: number, uin: string): Promise<void> {
   const workerPath = resolveWorkerPath();
   const ntHelperPath = resolveNtHelperPath();
 
   return new Promise((resolve, reject) => {
-    // `pkexec env ELECTRON_RUN_AS_NODE=1 <electron> <worker> <pid> <addon>` —
+    // `pkexec env ELECTRON_RUN_AS_NODE=1 <electron> <worker> <pid> <uin> <addon>` —
     // pkexec clears env, so `env` re-injects the one var electron-as-node needs.
     const child = spawn(
       'pkexec',
-      ['env', 'ELECTRON_RUN_AS_NODE=1', process.execPath, workerPath, String(pid), ntHelperPath],
+      [
+        'env',
+        'ELECTRON_RUN_AS_NODE=1',
+        process.execPath,
+        workerPath,
+        String(pid),
+        uin,
+        ntHelperPath,
+      ],
       { stdio: ['ignore', 'pipe', 'pipe'] },
     );
 
@@ -114,8 +117,8 @@ function pkexecInject(pid: number): Promise<void> {
 }
 
 /**
- * Build the linux `InjectHook`: inject + unprivileged wait-for-packet, with
- * per-pid idempotency backed by persisted records.
+ * Build the linux `InjectHook`: a single inject step (pkexec-elevated ptrace
+ * unless already root), with per-pid idempotency backed by persisted records.
  *
  * The inject half is elevated only when it has to be. Electron refuses to run
  * as root, so the desktop app is always unprivileged and must shell out to
@@ -123,8 +126,6 @@ function pkexecInject(pid: number): Promise<void> {
  * on a headless box — where pkexec is both unnecessary (we already have the
  * ptrace privilege) and unusable (no graphical polkit agent to authenticate
  * against). So when euid is 0 we ptrace in-process instead.
- *
- * The wait-for-packet half is unprivileged either way and always runs here.
  *
  * @param userConfig Persists inject records to config.json so a WeQ restart
  *   reuses an already-hooked, still-running QQ instead of re-injecting it.
@@ -137,23 +138,20 @@ export function createLinuxInjectHook(
 
   /** pids whose ptrace inject has completed. */
   const injected = new Set<number>();
-  /** pids that are injected AND have observed a real post-login packet. */
-  const ready = new Set<number>();
 
-  // Seed the in-memory caches from persisted records, pruned against live
+  // Seed the in-memory cache from persisted records, pruned against live
   // processes. A record survives a WeQ restart only if its pid is still alive
   // AND its process start time matches (guards against pid recycling).
   seedFromPersisted();
 
-  // In-flight per pid, split by half. CRITICAL: ptrace is exclusive, so two
-  // pkexec children injecting the SAME pid concurrently race — one attaches, the
-  // other fails to read `/proc/<pid>/maps` while resolving mmap. Concurrency is
-  // real here: the router retries (reset+ensure) while a slow first attempt
-  // (blocked on the polkit password dialog) is still running, and a second key
-  // request can arrive meanwhile. Coalescing every concurrent call for a pid
-  // onto one promise guarantees a single pkexec / single wait is ever live.
+  // In-flight per pid. CRITICAL: ptrace is exclusive, so two pkexec children
+  // injecting the SAME pid concurrently race — one attaches, the other fails to
+  // read `/proc/<pid>/maps` while resolving mmap. Concurrency is real here: the
+  // router retries (reset+ensure) while a slow first attempt (blocked on the
+  // polkit password dialog) is still running, and a second key request can
+  // arrive meanwhile. Coalescing every concurrent call for a pid onto one
+  // promise guarantees a single pkexec is ever live.
   const injectInflight = new Map<number, Promise<void>>();
-  const waitInflight = new Map<number, Promise<void>>();
 
   function seedFromPersisted(): void {
     const records = userConfig.getInjectRecords();
@@ -165,17 +163,16 @@ export function createLinuxInjectHook(
         continue;
       }
       injected.add(rec.pid);
-      if (rec.ready) ready.add(rec.pid);
       logger.info('reusing persisted inject record for live pid', {
         event: 'inject-record-reuse',
         pid: rec.pid,
-        ready: rec.ready,
+        uin: rec.uin,
       });
     }
   }
 
   /** The ptrace inject half — pops the polkit dialog unless we're already root. */
-  async function doInject(pid: number): Promise<void> {
+  async function doInject(pid: number, uin: string): Promise<void> {
     if (injected.has(pid)) return;
     const existing = injectInflight.get(pid);
     if (existing) {
@@ -188,17 +185,17 @@ export function createLinuxInjectHook(
           event: 'inject-direct-root',
           pid,
         });
-        await nt.injectAndGetStatusEmbedded(pid);
+        await nt.injectAndGetStatusEmbedded(pid, uin);
       } else {
         logger.info('injecting into qq via pkexec (root)', { event: 'inject-pkexec', pid });
-        await pkexecInject(pid);
+        await pkexecInject(pid, uin);
       }
       injected.add(pid);
       // Persist so a WeQ restart reuses this hook instead of re-injecting.
       // Skip if the pid vanished between inject and stat (record would be junk).
       const startTime = readProcStartTime(pid);
       if (startTime !== null) {
-        userConfig.setInjectRecord({ pid, startTime, ready: false, injectedAt: Date.now() });
+        userConfig.setInjectRecord({ pid, startTime, uin, injectedAt: Date.now() });
       }
     })();
     injectInflight.set(pid, task);
@@ -209,61 +206,20 @@ export function createLinuxInjectHook(
     }
   }
 
-  /** The unprivileged wait-for-packet half. Callers time THIS (+ the fetch). */
-  async function doWaitForPacket(pid: number): Promise<void> {
-    if (ready.has(pid)) return;
-    const existing = waitInflight.get(pid);
-    if (existing) return existing;
-    const task = (async (): Promise<void> => {
-      // Block until the hook has seen a real post-login packet, otherwise the
-      // first OIDB send fails ("runtime targets not resolved").
-      logger.info('waiting for first post-login packet', { event: 'inject-wait-packet', pid });
-      try {
-        await nt.waitForRealPacket(pid, REAL_PACKET_TIMEOUT_MS);
-      } catch (e) {
-        logger.warn('no post-login packet observed; pid not ready', {
-          event: 'inject-wait-packet-failed',
-          pid,
-          ...logErrorContext(e),
-        });
-        throw new Error(
-          '已注入，但尚未捕获到登录后数据包，暂时无法取密钥。请让该 QQ 收/发一条消息后重试。',
-        );
-      }
-      ready.add(pid);
-      // Upgrade the persisted record to ready:true (only if the pid is still the
-      // same process we injected — else leave persistence to the next inject).
-      const rec = userConfig.getInjectRecord(pid);
-      if (rec && readProcStartTime(pid) === rec.startTime) {
-        userConfig.setInjectRecord({ ...rec, ready: true });
-      }
-      logger.info('qq pid ready for packet send', { event: 'inject-ready', pid });
-    })();
-    waitInflight.set(pid, task);
-    try {
-      await task;
-    } finally {
-      waitInflight.delete(pid);
-    }
-  }
-
   return {
-    inject(pid: number): Promise<void> {
-      return doInject(pid);
+    inject(pid: number, uin: string): Promise<void> {
+      return doInject(pid, uin);
     },
-    async ensure(pid: number): Promise<void> {
-      if (ready.has(pid)) return;
-      await doInject(pid);
-      await doWaitForPacket(pid);
+    async ensure(pid: number, uin: string): Promise<void> {
+      await doInject(pid, uin);
     },
     reset(pid: number): void {
-      // Forget both caches AND the persisted record — the hook is presumed dead
+      // Forget the cache AND the persisted record — the hook is presumed dead
       // (QQ relaunched / hook unloaded), so nothing should reuse it. In-flight
       // promises (if any) keep running so a concurrent call still coalesces onto
       // them rather than starting a second pkexec; the next call after they
       // settle re-injects cleanly and re-persists.
       injected.delete(pid);
-      ready.delete(pid);
       userConfig.deleteInjectRecord(pid);
     },
   };
