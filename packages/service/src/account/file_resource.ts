@@ -72,7 +72,7 @@ export interface FileResourceEntry {
   /** Lower-case extension without the dot (`''` when the file has none). */
   ext: string;
   category: FileCategory;
-  /** File-icon basename under `resources/fileIcon` (e.g. `code.png`). */
+  /** File-icon basename under `resources/fileicon` (e.g. `code.png`). */
   icon: string;
   size: number;
   mtimeMs: number;
@@ -442,7 +442,7 @@ function clampInt(n: number, lo: number, hi: number): number {
 
 /**
  * One row per extension: its coarse category (tab bucket) and the icon basename
- * under `resources/fileIcon`. Deliberately richer than the chat's table — code
+ * under `resources/fileicon`. Deliberately richer than the chat's table — code
  * gains web/markup/scripting extensions (`.html`, `.css`, `.json`, `.go`, …),
  * images gain `.svg` / `.bmp` / `.heic`, etc. Unknown extensions fall back to
  * `{ other, unknown.png }`.

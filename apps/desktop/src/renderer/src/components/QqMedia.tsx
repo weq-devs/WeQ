@@ -2,7 +2,7 @@
  * Renderers for QQ rich-media message elements: image, video, file, voice
  * (ptt) and market-face sticker. Bytes are streamed from the main process via
  * `weq-media://` (see src/main/media_protocol.ts); file-type icons come from
- * `weq-asset://fileIcon/…`. Images/videos/stickers render borderless (no
+ * `weq-asset://fileicon/…`. Images/videos/stickers render borderless (no
  * bubble); files render as a card; voice as a waveform + duration + play.
  */
 
