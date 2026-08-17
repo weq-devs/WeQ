@@ -3,6 +3,7 @@ import type { ReactElement } from 'react';
 import { X } from 'lucide-react';
 import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
 import { Avatar } from '../im-template/template/primitives';
+import { albumMediaUrl } from '../lib/resourceUrl';
 
 export interface GroupBulletinImage {
   id: string;
@@ -94,7 +95,9 @@ export function GroupAnnouncementsDialog({
                               {bulletin.images.map((img) => (
                                 <img
                                   key={img.id}
-                                  src={`weq-media://album?src=${encodeURIComponent(`https://gdynamic.qpic.cn/gdynamic/${img.id}/628`)}`}
+                                  src={albumMediaUrl(
+                                    `https://gdynamic.qpic.cn/gdynamic/${img.id}/628`,
+                                  )}
                                   alt="公告图片"
                                   loading="lazy"
                                 />
