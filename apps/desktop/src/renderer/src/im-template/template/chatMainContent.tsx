@@ -75,6 +75,7 @@ export function ChatMainContent({
 	onOpenGroupAlbums,
 	onOpenGroupFiles,
 	onOpenGroupAnnouncements,
+	onOpenGroupEssence,
 	onOpenGroupAnalytics,
 	onOpenBuddyAnalytics,
 	onOpenGroupMember,
@@ -142,6 +143,7 @@ export function ChatMainContent({
 	onOpenGroupAlbums?: (conversation: GroupConversation) => void;
 	onOpenGroupFiles?: (conversation: GroupConversation) => void;
 	onOpenGroupAnnouncements?: (conversation: GroupConversation) => void;
+	onOpenGroupEssence?: (conversation: GroupConversation) => void;
 	onOpenGroupAnalytics?: (conversation: GroupConversation) => void;
 	onOpenBuddyAnalytics?: (conversation: DirectConversation) => void;
 	onOpenGroupMember?: (member: User, anchor: { x: number; y: number }) => void;
@@ -222,6 +224,7 @@ export function ChatMainContent({
 			onOpenGroupAlbums={onOpenGroupAlbums}
 			onOpenGroupFiles={onOpenGroupFiles}
 			onOpenGroupAnnouncements={onOpenGroupAnnouncements}
+			onOpenGroupEssence={onOpenGroupEssence}
 			onOpenGroupAnalytics={onOpenGroupAnalytics}
 			onOpenBuddyAnalytics={onOpenBuddyAnalytics}
 			onOpenGroupMember={onOpenGroupMember}

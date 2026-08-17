@@ -38,6 +38,8 @@ import { MarketEmojiBrowserLightbox } from './export/MarketEmojiBrowserLightbox'
 import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
 import { GroupFileDialog } from '../components/GroupFileDialog';
 import { GroupAnalyticsDialog } from '../components/GroupAnalyticsDialog';
+import { GroupAnnouncementsDialog, type GroupBulletinWire } from '../components/GroupAnnouncementsDialog';
+import { GroupEssenceDialog, type GroupEssenceWire as GroupEssenceDisplay } from '../components/GroupEssenceDialog';
 import { MemberProfileCard } from '../components/MemberProfileCard';
 import { BuddyAnalyticsDialog } from '../components/BuddyAnalyticsDialog';
 import { AddMessageModal } from '../components/compose/AddMessageModal';
@@ -444,14 +446,7 @@ type GroupDetailWire = {
   address?: { locationName?: string };
 };
 
-type GroupBulletinWire = {
-  publisherUid: string;
-  fid: string;
-  msgTime: string;
-  ctime: string;
-  textContent: string;
-};
-
+/** 数据库查询返回的原始群精华类型 */
 type GroupEssenceWire = {
   msgSeq: number;
   senderNick: string;
@@ -1722,7 +1717,6 @@ export function MainView(): ReactElement {
   const [dressUpOpen, setDressUpOpen] = useState(false);
   // 装扮样式注入提到这一层 —— 进主界面就生效,不必先打开装扮灯箱。
   useDressSkin();
-  const [requestedAnnouncementGroups, setRequestedAnnouncementGroups] = useState<Record<string, boolean>>({});
   const [albumDialog, setAlbumDialog] = useState<{
     groupCode: string;
     groupName: string;
@@ -1738,6 +1732,14 @@ export function MainView(): ReactElement {
   const [buddyAnalyticsDialog, setBuddyAnalyticsDialog] = useState<{
     peerUid: string;
     peerName: string;
+  } | null>(null);
+  const [announcementsDialog, setAnnouncementsDialog] = useState<{
+    groupCode: string;
+    groupName: string;
+  } | null>(null);
+  const [essenceDialog, setEssenceDialog] = useState<{
+    groupCode: string;
+    groupName: string;
   } | null>(null);
   const [memberCard, setMemberCard] = useState<{
     member: User;
@@ -1832,9 +1834,17 @@ export function MainView(): ReactElement {
   }, []);
 
   const handleOpenGroupAnnouncements = useCallback((conversation: Extract<Conversation, { type: 'group' }>) => {
-    setRequestedAnnouncementGroups((current) => (
-      current[conversation.id] ? current : { ...current, [conversation.id]: true }
-    ));
+    setAnnouncementsDialog({
+      groupCode: conversation.id,
+      groupName: conversation.group.name,
+    });
+  }, []);
+
+  const handleOpenGroupEssence = useCallback((conversation: Extract<Conversation, { type: 'group' }>) => {
+    setEssenceDialog({
+      groupCode: conversation.id,
+      groupName: conversation.group.name,
+    });
   }, []);
 
   const handleOpenGroupAnalytics = useCallback((conversation: Extract<Conversation, { type: 'group' }>) => {
@@ -2546,7 +2556,7 @@ export function MainView(): ReactElement {
   );
   const groupBulletins = trpc.account.listGroupBulletins.useQuery(
     { groupCode: selectedUid, limit: 10, offset: 0 },
-    { enabled: Boolean(selectedUid && isGroup && requestedAnnouncementGroups[selectedUid]) },
+    { enabled: Boolean(selectedUid && isGroup) },
   );
   const groupEssence = trpc.account.listGroupEssenceMessages.useQuery(
     { groupCode: selectedUid, limit: 10, offset: 0 },
@@ -2803,12 +2813,20 @@ export function MainView(): ReactElement {
           ?.map((label) => label.content)
           .filter((label): label is string => Boolean(label)) ?? [],
         addressName: detail?.address?.locationName || null,
-        bulletins: ((groupBulletins.data ?? []) as GroupBulletinWire[]).map((bulletin, index) => ({
-          id: bulletin.fid || `bulletin:${index}`,
-          text: bulletin.textContent,
-          createdAt: secondsToIsoTime(bulletin.ctime) ?? secondsToIsoTime(bulletin.msgTime) ?? new Date(0).toISOString(),
-          publisherUid: bulletin.publisherUid,
-        })),
+        bulletins: ((groupBulletins.data ?? []) as GroupBulletinWire[]).map((bulletin, index) => {
+          // publisherUid 可能是 UID（数据库）或 UIN（Web API），尝试两者匹配
+          const publisher = currentGroupMembers.find(
+            m => m.id === bulletin.publisherUid || m.identityValue === bulletin.publisherUid
+          );
+          return {
+            id: bulletin.fid || `bulletin:${index}`,
+            text: bulletin.textContent,
+            createdAt: secondsToIsoTime(bulletin.ctime) ?? secondsToIsoTime(bulletin.msgTime) ?? new Date(0).toISOString(),
+            publisherUid: bulletin.publisherUid,
+            publisherName: publisher?.displayName,
+            publisherAvatar: publisher?.avatarUrl,
+          };
+        }),
         essenceMessages: ((groupEssence.data ?? []) as GroupEssenceWire[]).map((item) => {
           // 尝试从 Web API 结果中找到匹配的消息内容（按 msgSeq 匹配）
           const webItem = (groupEssenceWeb.data ?? []).find(
@@ -3626,6 +3644,7 @@ export function MainView(): ReactElement {
                 onOpenGroupAlbums={handleOpenGroupAlbums}
                 onOpenGroupFiles={handleOpenGroupFiles}
                 onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
+                onOpenGroupEssence={handleOpenGroupEssence}
                 onOpenGroupAnalytics={handleOpenGroupAnalytics}
                 onOpenBuddyAnalytics={handleOpenBuddyAnalytics}
                 onOpenGroupMember={handleOpenGroupMember}
@@ -3722,6 +3741,62 @@ export function MainView(): ReactElement {
           peerUid={buddyAnalyticsDialog.peerUid}
           peerName={buddyAnalyticsDialog.peerName}
           onClose={() => setBuddyAnalyticsDialog(null)}
+        />
+      ) : null}
+      {announcementsDialog ? (
+        <GroupAnnouncementsDialog
+          groupCode={announcementsDialog.groupCode}
+          groupName={announcementsDialog.groupName}
+          currentAnnouncement={
+            selectedConversation?.type === 'group' && selectedConversation.id === announcementsDialog.groupCode
+              ? selectedConversation.group?.announcement
+              : null
+          }
+          bulletins={((groupBulletins.data ?? []) as GroupBulletinWire[]).map((bulletin, _index) => {
+            // publisherUid 可能是 UID（数据库）或 UIN（Web API），尝试两者匹配
+            const publisher = currentGroupMembers.find(
+              m => m.id === bulletin.publisherUid || m.identityValue === bulletin.publisherUid
+            );
+            return {
+              ...bulletin,
+              publisherName: publisher?.displayName,
+              publisherAvatar: publisher?.avatarUrl ?? undefined,
+            };
+          })}
+          onClose={() => setAnnouncementsDialog(null)}
+        />
+      ) : null}
+      {essenceDialog ? (
+        <GroupEssenceDialog
+          groupCode={essenceDialog.groupCode}
+          groupName={essenceDialog.groupName}
+          essenceMessages={(() => {
+            const essence = (groupEssence.data ?? []) as GroupEssenceWire[];
+            const essenceWeb = groupEssenceWeb.data ?? [];
+            return essence.map((item): GroupEssenceDisplay => {
+              const webItem = essenceWeb.find((web) => web.msgSeq === item.msgSeq);
+              return {
+                id: `essence:${item.msgSeq}:${item.timestamp}`,
+                msgSeq: item.msgSeq,
+                senderName: item.senderNick,
+                operatorName: item.operatorNick,
+                createdAt: secondsToIsoTime(item.timestamp) ?? new Date(0).toISOString(),
+                active: item.setStatus === 1,
+                content: webItem?.content,
+                senderTime: webItem?.senderTime ? String(webItem.senderTime) : undefined,
+                canRemove: webItem?.canRemove,
+              };
+            });
+          })()}
+          onClose={() => setEssenceDialog(null)}
+          onJumpToMessage={(seq) => {
+            setEssenceDialog(null);
+            if (seq == null) {
+              console.warn('[essence-jump] missing msgSeq, cannot jump', seq);
+              return;
+            }
+            jumpToSeq({ seq });
+          }}
         />
       ) : null}
       {memberCard ? (

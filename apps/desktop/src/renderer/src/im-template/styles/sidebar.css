@@ -394,6 +394,10 @@ html[data-theme="dark"] .contact-cat-count {
 	background: #c9cbd0;
 }
 
+html[data-theme="dark"] .row-unread.muted {
+	background: #4a4a52;
+}
+
 .row-muted {
 	position: absolute;
 	right: 18px;
@@ -409,6 +413,10 @@ html[data-theme="dark"] .contact-cat-count {
 .conversation-row.active .row-unread.muted {
 	background: #c9cbd0;
 	color: #ffffff;
+}
+
+html[data-theme="dark"] .conversation-row.active .row-unread.muted {
+	background: #4a4a52;
 }
 
 .conversation-row.active .row-muted {

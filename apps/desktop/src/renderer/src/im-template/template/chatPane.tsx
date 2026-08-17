@@ -216,6 +216,7 @@ export function ChatPane({
 	onOpenGroupAlbums,
 	onOpenGroupFiles,
 	onOpenGroupAnnouncements,
+	onOpenGroupEssence,
 	onOpenGroupAnalytics,
 	onOpenBuddyAnalytics,
 	onOpenGroupMember,
@@ -253,6 +254,7 @@ export function ChatPane({
 	onOpenGroupAlbums?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenGroupFiles?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenGroupAnnouncements?: (conversation: Extract<Conversation, { type: "group" }>) => void;
+	onOpenGroupEssence?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenGroupAnalytics?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenBuddyAnalytics?: (conversation: Extract<Conversation, { type: "direct" }>) => void;
 	onOpenGroupMember?: (member: User, anchor: { x: number; y: number }) => void;
@@ -306,12 +308,10 @@ export function ChatPane({
 	const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
 	const expandedEmojiButtonRef = useRef<HTMLButtonElement | null>(null);
 
-	function openGroupInfoDetail(detail: GroupInfoDetail) {
-		if (detail === "announcements" && conversation?.type === "group") {
-			onOpenGroupAnnouncements?.(conversation);
-		}
+	function handleOpenGroupInfoDetail(detail: GroupInfoDetail) {
 		setGroupInfoDetail(detail);
 	}
+
 	const toolsPanelRef = useRef<HTMLDivElement | null>(null);
 	const toolsButtonRef = useRef<HTMLButtonElement | null>(null);
 	const mentionMenuRef = useRef<HTMLDivElement | null>(null);
@@ -1463,7 +1463,11 @@ export function ChatPane({
 								className={cn("icon-button", "group-header-info-action")}
 								type="button"
 								title="Group announcements"
-								onClick={() => openGroupInfoDetail("announcements")}
+								onClick={() => {
+									if (conversation?.type === "group") {
+										onOpenGroupAnnouncements?.(conversation);
+									}
+								}}
 							>
 								<FileText size={18} />
 							</button>
@@ -1471,8 +1475,12 @@ export function ChatPane({
 								className={cn("icon-button", "group-header-info-action")}
 								type="button"
 								title="Group highlights"
-									disabled={!hasGroupEssence(conversation)}
-									onClick={() => setGroupInfoDetail("essence")}
+								disabled={!hasGroupEssence(conversation)}
+								onClick={() => {
+									if (conversation?.type === "group") {
+										onOpenGroupEssence?.(conversation);
+									}
+								}}
 							>
 								<Sparkles size={18} />
 							</button>
@@ -1701,7 +1709,7 @@ export function ChatPane({
 					{!groupInfoCollapsed ? (
 						<GroupInfoPanel
 							conversation={conversation}
-							onOpenDetail={openGroupInfoDetail}
+							onOpenDetail={handleOpenGroupInfoDetail}
 							onOpenMember={onOpenGroupMember}
 							onLoadMoreMembers={onLoadMoreGroupMembers}
 							loadingMoreMembers={groupMembersLoading}

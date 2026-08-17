@@ -6,7 +6,7 @@ import type { GroupConversationView } from "./conversationDetailsTypes";
 import { displayUserName } from "./user";
 import { cn } from "./classNames";
 
-export type GroupInfoDetail = "profile" | "announcements" | "essence" | "albums";
+export type GroupInfoDetail = "profile" | "albums";
 
 export function GroupInfoPanel({
 	conversation,
@@ -175,17 +175,12 @@ export function GroupInfoDetailDialog({
 	conversation,
 	detail,
 	onClose,
-	onJumpToMessage,
 }: {
 	conversation: GroupConversationView;
 	detail: GroupInfoDetail;
 	onClose: () => void;
-	onJumpToMessage?: (seq: number) => void;
 }) {
 	const group = conversation.group;
-	const rawAnnouncement = group.announcement?.trim();
-	const bulletins = group.bulletins ?? [];
-	const essenceMessages = group.essenceMessages ?? [];
 	const profileRows = [
 		["群名称", group.name],
 		[group.identityLabel, group.identityValue],
@@ -249,108 +244,13 @@ export function GroupInfoDetailDialog({
 							))}
 						</div>
 					) : null}
-
-					{detail === "announcements" ? (
-						<div className={cn("group-info-detail-records")}>
-							{rawAnnouncement ? (
-								<article className={cn("group-info-detail-record")}>
-									<span>当前公告</span>
-									<p>{rawAnnouncement}</p>
-								</article>
-							) : null}
-							{bulletins.map((bulletin) => (
-								<article
-									className={cn("group-info-detail-record")}
-									key={bulletin.id}
-								>
-									<span>历史公告 · {formatShortDate(bulletin.createdAt)}</span>
-									<p>{bulletin.text}</p>
-								</article>
-							))}
-							{!rawAnnouncement && bulletins.length === 0 ? (
-								<p className={cn("placeholder-text")}>暂无群公告</p>
-							) : null}
-						</div>
-					) : null}
-
-					{detail === "essence" ? (
-						<div className={cn("group-info-detail-records")}>
-							{essenceMessages.map((item) => (
-								<article
-									className={cn("group-info-detail-record", "essence-message-card")}
-									key={item.id}
-									onClick={() => {
-										if (!onJumpToMessage) {
-											return;
-										}
-										if (item.msgSeq == null || item.msgSeq === '') {
-											return;
-										}
-										onJumpToMessage(item.msgSeq);
-									}}
-									style={{ cursor: onJumpToMessage ? "pointer" : undefined }}
-								>
-									<header className={cn("essence-message-header")}>
-										<span className={cn("essence-message-meta")}>
-											{formatShortDate(item.createdAt)}
-											{item.operatorName ? ` · 设为精华：${item.operatorName}` : ""}
-										</span>
-									</header>
-									<div className={cn("essence-message-sender")}>
-										{item.senderName || "Member"}
-									</div>
-									{item.content && item.content.length > 0 ? (
-										<div className={cn("essence-message-content")}>
-											{item.content.map((element, idx) => {
-												const elementKey = `${item.id}-${element.type}-${element.text || element.imageUrl || element.fileName || idx}`;
-												return (
-													<div key={elementKey} className={cn("essence-message-element")}>
-														{element.type === 1 && element.text ? (
-															<p className={cn("essence-text")}>{element.text}</p>
-														) : element.type === 2 && element.faceIndex !== undefined ? (
-															<span className={cn("essence-face")}>[表情{element.faceIndex}]</span>
-														) : element.type === 3 && element.imageUrl ? (
-															<img
-																src={element.imageUrl}
-																alt="精华消息图片"
-																className={cn("essence-image")}
-																loading="lazy"
-															/>
-														) : element.type === 5 && element.fileName ? (
-															<div className={cn("essence-file")}>
-																📎 {element.fileName}
-																{element.fileSize ? ` (${formatFileSize(element.fileSize)})` : ""}
-															</div>
-														) : (
-															<span className={cn("essence-unknown")}>
-																[类型 {element.type}]
-															</span>
-														)}
-													</div>
-												);
-											})}
-										</div>
-									) : (
-										<p className={cn("essence-message-placeholder")}>
-											{item.active ? "已设为精华" : "已取消精华"}
-										</p>
-									)}
-								</article>
-							))}
-							{essenceMessages.length === 0 ? (
-								<p className={cn("placeholder-text")}>暂无群精华</p>
-							) : null}
-						</div>
-					) : null}
 				</div>
 			</section>
 		</div>
 	);
 }
 
-function groupInfoDetailTitle(detail: GroupInfoDetail) {
-	if (detail === "announcements") return "群公告";
-	if (detail === "essence") return "群精华";
+function groupInfoDetailTitle(_detail: GroupInfoDetail) {
 	return "群资料";
 }
 
@@ -363,14 +263,4 @@ function formatShortDate(value: string | null | undefined) {
 		month: "2-digit",
 		day: "2-digit",
 	}).format(date);
-}
-
-function formatFileSize(size: number | string | undefined): string {
-	if (size == null) return "";
-	const bytes = typeof size === "string" ? Number(size) : size;
-	if (Number.isNaN(bytes) || bytes <= 0) return "";
-	if (bytes < 1024) return `${bytes} B`;
-	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-	if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-	return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
