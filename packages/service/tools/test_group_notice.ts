@@ -7,7 +7,7 @@ import { loadNative } from '@weq/native';
 import type { AccountSession } from '@weq/account';
 import { WebQueryService } from '../src/account/web';
 
-const TEST_GROUP_CODE = '991352210'; // 测试用的群号
+const TEST_GROUP_CODE = '673646675'; // 测试用的群号
 
 async function main() {
   const nt = loadNative().ntHelper;

@@ -176,6 +176,12 @@ export interface GroupBulletinWire {
   msgTime: string;
   ctime: string;
   textContent: string;
+  readNum?: number;
+  images?: Array<{
+    id: string;
+    width: number;
+    height: number;
+  }>;
 }
 
 export interface GroupEssenceWire {
@@ -653,6 +659,12 @@ export function groupNoticeToBulletinWire(
     msgTime: notice.publishTime.toString(),
     ctime: notice.publishTime.toString(),
     textContent: notice.text,
+    readNum: notice.readNum,
+    images: notice.images.map((img) => ({
+      id: img.id,
+      width: img.width,
+      height: img.height,
+    })),
   };
 }
 

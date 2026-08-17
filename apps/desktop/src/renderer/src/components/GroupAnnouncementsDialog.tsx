@@ -1,8 +1,14 @@
 // @ts-nocheck
-import { useState, type ReactElement } from 'react';
+import type { ReactElement } from 'react';
 import { X } from 'lucide-react';
 import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
 import { Avatar } from '../im-template/template/primitives';
+
+export interface GroupBulletinImage {
+  id: string;
+  width: number;
+  height: number;
+}
 
 export interface GroupBulletinWire {
   fid: string;
@@ -12,6 +18,8 @@ export interface GroupBulletinWire {
   msgTime: string;
   publisherName?: string;
   publisherAvatar?: string;
+  images?: GroupBulletinImage[];
+  readNum?: number;
 }
 
 export function GroupAnnouncementsDialog({
@@ -28,19 +36,6 @@ export function GroupAnnouncementsDialog({
   onClose: () => void;
 }): ReactElement {
   useEscapeToClose(onClose);
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-
-  const toggleBulletin = (id: string) => {
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  };
 
   return (
     <div className="modal-scrim group-announcements-scrim" role="presentation" onMouseDown={closeFromScrim(onClose)}>
@@ -72,38 +67,42 @@ export function GroupAnnouncementsDialog({
               <div className="group-bulletins-list-header">历史公告</div>
               {bulletins.map((bulletin) => {
                 const decodedText = decodeHtmlEntities(bulletin.textContent);
-                const isExpanded = expandedIds.has(bulletin.fid);
-                const preview = decodedText.slice(0, 100);
-                const needsExpand = decodedText.length > 100;
                 return (
-                  <article
-                    key={bulletin.fid}
-                    className={`group-bulletin-item${isExpanded ? ' is-expanded' : ''}`}
-                  >
-                    <div className="group-bulletin-publisher">
-                      <div className="group-bulletin-avatar-block">
-                        <Avatar
-                          name={bulletin.publisherName || bulletin.publisherUid || '未知'}
-                          avatarUrl={bulletin.publisherAvatar}
-                          seed={bulletin.publisherUid}
-                        />
-                        <span className="group-bulletin-publisher-name">
-                          {bulletin.publisherName || `用户 ${bulletin.publisherUid || '未知'}`}
-                        </span>
-                        <span className="group-bulletin-date">{formatShortDate(bulletin.ctime || bulletin.msgTime)}</span>
+                  <article key={bulletin.fid} className="group-bulletin-item">
+                    <div className="group-bulletin-layout">
+                      <Avatar
+                        name={bulletin.publisherName || bulletin.publisherUid || '未知'}
+                        avatarUrl={bulletin.publisherAvatar}
+                        seed={bulletin.publisherUid}
+                      />
+                      <div className="group-bulletin-main">
+                        <div className="group-bulletin-header">
+                          <span className="group-bulletin-publisher-name">
+                            {bulletin.publisherName || `用户 ${bulletin.publisherUid || '未知'}`}
+                          </span>
+                          <span className="group-bulletin-date">
+                            {formatShortDate(bulletin.ctime || bulletin.msgTime)}
+                            {bulletin.readNum !== undefined && bulletin.readNum > 0 && (
+                              <> · {bulletin.readNum} 人已确认</>
+                            )}
+                          </span>
+                        </div>
+                        <div className="group-bulletin-content">
+                          <p>{decodedText}</p>
+                          {bulletin.images && bulletin.images.length > 0 && (
+                            <div className="group-bulletin-images">
+                              {bulletin.images.map((img) => (
+                                <img
+                                  key={img.id}
+                                  src={`weq-media://album?src=${encodeURIComponent(`https://gdynamic.qpic.cn/gdynamic/${img.id}/628`)}`}
+                                  alt="公告图片"
+                                  loading="lazy"
+                                />
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    <div className="group-bulletin-content">
-                      <p>{isExpanded ? decodedText : preview}</p>
-                      {needsExpand && (
-                        <button
-                          type="button"
-                          className="group-bulletin-toggle"
-                          onClick={() => toggleBulletin(bulletin.fid)}
-                        >
-                          {isExpanded ? '收起' : '展开'}
-                        </button>
-                      )}
                     </div>
                   </article>
                 );

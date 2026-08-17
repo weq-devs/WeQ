@@ -184,7 +184,11 @@ async function albumRemoteResponse(src: string): Promise<Response> {
     // 群相册视频走视频 CDN,和图片不同域。
     host.endsWith('.video.qq.com') ||
     host.endsWith('.gtimg.com') ||
-    host.endsWith('.qzone.qq.com');
+    host.endsWith('.qzone.qq.com') ||
+    // 群精华消息图片（腾讯云 COS）
+    host.endsWith('.myqcloud.com') ||
+    // 群公告图片
+    host === 'gdynamic.qpic.cn';
   if (!allowed) return notFound('album image host not allowed');
   // Referer 的协议必须跟目标一致：Chromium 禁止 https→http 的 referrer 降级,
   // 撞上就是 ERR_BLOCKED_BY_CLIENT(资料卡精选图片走的 ugc.qpic.cn 只有 http)。

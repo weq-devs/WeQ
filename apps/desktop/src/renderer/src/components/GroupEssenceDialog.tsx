@@ -2,6 +2,7 @@
 import type { ReactElement } from 'react';
 import { X } from 'lucide-react';
 import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
+import { albumMediaUrl } from '../lib/resourceUrl';
 
 /** 显示用的群精华数据（已转换） */
 export interface GroupEssenceWire {
@@ -89,7 +90,7 @@ export function GroupEssenceDialog({
                                 <span className="essence-face">[表情{element.faceIndex}]</span>
                               ) : element.type === 3 && element.imageUrl ? (
                                 <img
-                                  src={element.imageUrl}
+                                  src={albumMediaUrl(element.imageUrl)}
                                   alt="精华消息图片"
                                   className="essence-image"
                                   loading="lazy"
