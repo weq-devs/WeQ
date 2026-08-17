@@ -62,6 +62,7 @@ sudo ./start.sh
 | `WEQ_EXPORT_DIR` | `./weq-exports` | 导出文件落盘目录 |
 | `WEQ_DATA_DIR` | `./weq-data` | 日志目录 |
 | `WEQ_NATIVE_DIR` | 随包的 `native/` | 原生模块目录（一般不用管） |
+| `WEQ_NINEBIRD_RUNTIME_DIR` | `resources/ninebird-runtime` | NineBird loader JS 目录（一般不用管） |
 | `WEQ_QQ_EXE` | 自动探测 | QQ 可执行文件路径。装在非常规位置时手动指定 |
 
 Linux 会依次探测 `/opt/QQ/qq`、`/usr/share/QQ/qq`、`/usr/lib/QQ/qq`、

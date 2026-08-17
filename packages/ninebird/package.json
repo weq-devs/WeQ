@@ -1,0 +1,15 @@
+{
+  "name": "@weq/ninebird",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "NineBird 注入 QQ 的 loader 脚本源码（编译期打包为 resources/ninebird-runtime/）",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "node scripts/build.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.6",
+    "esbuild": "^0.28.1"
+  }
+}

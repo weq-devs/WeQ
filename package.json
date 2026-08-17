@@ -11,14 +11,15 @@
   },
   "scripts": {
     "dev": "pnpm --filter @weq/desktop dev",
-    "build": "pnpm run build:bot && pnpm --filter @weq/desktop build",
+    "build": "pnpm run build:bot && pnpm run build:ninebird && pnpm --filter @weq/desktop build",
     "build:bot": "esbuild packages/bot/src/index.ts --bundle --platform=node --format=esm --external:ws --outfile=resources/bot-runtime/bot.mjs",
     "typecheck": "pnpm -r typecheck",
     "lint": "biome lint --error-on-warnings .",
     "lint:fix": "biome lint --write .",
     "format": "biome format --write .",
     "format:check": "biome format .",
-    "check": "biome check ."
+    "check": "biome check .",
+    "build:ninebird": "node packages/ninebird/scripts/build.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.4",

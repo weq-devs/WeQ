@@ -43,6 +43,9 @@ release/
 # 导出 bot 的预打包引擎（由 pnpm build:bot 生成）
 resources/bot-runtime/
 
+# NineBird 注入 QQ 的 loader 脚本（由 pnpm build:ninebird 从 packages/ninebird 生成）
+resources/ninebird-runtime/
+
 # dev
 /tmp
 *.py

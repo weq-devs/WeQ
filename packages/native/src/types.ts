@@ -461,7 +461,7 @@ export interface NativeBundle {
 }
 
 export interface NineBirdResources {
-  /** Directory containing all NineBird companion files. */
+  /** Native NineBird dir (contains NineBird.node + the addon; the loader scripts find `NineBird.node` here via NINEBIRD_LOADER_DIR). */
   loaderDir: string;
   /** Hook DLL injected into QQ on launch (win32 only for now). */
   hookDllPath: string;
@@ -469,9 +469,9 @@ export interface NineBirdResources {
   qqntJsonPath: string;
   /** The auxiliary `NineBird.node` that quick-dbkey/qr-dbkey require inside QQ. */
   nineBirdAddonPath: string;
-  /** Script loaded inside QQ for the QR-code login flow. */
+  /** Script loaded inside QQ for the QR-code login flow. Lives in resources/ninebird-runtime (platform-independent). */
   qrDbkeyJsPath: string;
-  /** Script loaded inside QQ for the quick (UIN-cached) login flow. */
+  /** Script loaded inside QQ for the quick (UIN-cached) login flow. Lives in resources/ninebird-runtime. */
   quickDbkeyJsPath: string;
   /**
    * Script loaded inside QQ to enumerate the local login list without

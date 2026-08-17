@@ -50,6 +50,15 @@ for (const platform of ['win32/x64', 'linux/x64', 'linux/arm64']) {
   check(existsSync(join(dist, 'native', platform)), `native/${platform} shipped (universal)`);
 }
 
+// NineBird's loader scripts are platform-independent and ship once (built by
+// pnpm build:ninebird), not per platform/arch.
+for (const js of ['qr-dbkey.js', 'quick-dbkey.js', 'account-list.js']) {
+  check(
+    existsSync(join(dist, 'resources', 'ninebird-runtime', js)),
+    `resources/ninebird-runtime/${js} shipped`,
+  );
+}
+
 // The release ships node_modules pre-installed. If a local build skipped that
 // step, run it here — the server won't start without it.
 if (!existsSync(join(dist, 'node_modules'))) {

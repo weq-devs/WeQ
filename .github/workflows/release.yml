@@ -44,6 +44,8 @@ jobs:
       # 供 electron-builder 一并发布；「导出好友」功能会把它拷进产物。
       - name: Build clone-bot runtime
         run: pnpm run build:bot
+      - name: Build ninebird runtime
+        run: pnpm run build:ninebird
 
       - name: Build renderer + main
         run: pnpm --filter @weq/desktop exec electron-vite build
@@ -129,6 +131,8 @@ jobs:
 
       - name: Build clone-bot runtime
         run: pnpm run build:bot
+      - name: Build ninebird runtime
+        run: pnpm run build:ninebird
 
       - name: Build renderer + main
         run: pnpm --filter @weq/desktop exec electron-vite build
@@ -188,6 +192,8 @@ jobs:
 
       - name: Build clone-bot runtime
         run: pnpm run build:bot
+      - name: Build ninebird runtime
+        run: pnpm run build:ninebird
 
       - name: Build renderer + main
         run: pnpm --filter @weq/desktop exec electron-vite build
@@ -251,6 +257,10 @@ jobs:
       # 版本号会被 esbuild 烘焙进 server.mjs（设置页显示 + 压缩包命名）。
       - name: Sync version from tag
         run: node scripts/set-version.mjs ${{ github.ref_name }}
+
+      # 先打 NineBird loader 运行时，build-server 才会把它拷进 dist/resources/。
+      - name: Build ninebird runtime
+        run: pnpm run build:ninebird
 
       # 含 check 守卫：确认没有 Electron 代码泄漏进 web 构建。
       - name: Build + guards
