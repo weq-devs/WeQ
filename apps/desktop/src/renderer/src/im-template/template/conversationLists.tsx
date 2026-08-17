@@ -419,7 +419,7 @@ function ContactOnlineStatusIcon({ status }: { status: OnlineStatusInfo | undefi
 	if (!status) return null;
 	const filename = status.type === 10 && SUB_ICONS[status.subType];
 	if (filename) {
-		return <img src={resourceUrl('OnlineStatus', filename)} alt="" style={{ width: 14, height: 14 }} />;
+		return <img src={resourceUrl('onlinestatus', filename)} alt="" style={{ width: 14, height: 14 }} />;
 	}
 	const TypeIcon = TYPE_ICONS[status.type];
 	return TypeIcon ? <TypeIcon /> : null;

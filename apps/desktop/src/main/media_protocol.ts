@@ -184,7 +184,11 @@ async function albumRemoteResponse(src: string): Promise<Response> {
     // 群相册视频走视频 CDN,和图片不同域。
     host.endsWith('.video.qq.com') ||
     host.endsWith('.gtimg.com') ||
-    host.endsWith('.qzone.qq.com');
+    host.endsWith('.qzone.qq.com') ||
+    // 群精华消息图片（腾讯云 COS）
+    host.endsWith('.myqcloud.com') ||
+    // 群公告图片
+    host === 'gdynamic.qpic.cn';
   if (!allowed) return notFound('album image host not allowed');
   // Referer 的协议必须跟目标一致：Chromium 禁止 https→http 的 referrer 降级,
   // 撞上就是 ERR_BLOCKED_BY_CLIENT(资料卡精选图片走的 ugc.qpic.cn 只有 http)。
@@ -234,12 +238,12 @@ async function dressRemoteResponse(src: string): Promise<Response> {
     return outcome.ok ? fileResponse(path) : notFound(`dress video failed: ${outcome.reason}`);
   }
 
-  // 图片一律走头像那套磁盘缓存。注意聊天背景的 aioImage 没有扩展名、Content-Type 是
-  // application/octet-stream,但内容就是 PNG,浏览器按魔数认,不影响渲染。
+  // 图片一律走装扮缓存（独立子目录，30天TTL）。注意聊天背景的 aioImage 没有扩展名、
+  // Content-Type 是 application/octet-stream,但内容就是 PNG,浏览器按魔数认,不影响渲染。
   const cache = getAppContext().bootstrap?.avatarCache;
   if (!cache) return notFound('dress cache unavailable');
   try {
-    const blob = await cache.get(src);
+    const blob = await cache.get(src, 'dress');
     return new Response(new Uint8Array(blob.data), {
       status: 200,
       headers: { 'Content-Type': blob.contentType, 'Cache-Control': 'public, max-age=86400' },

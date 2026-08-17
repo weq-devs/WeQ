@@ -137,6 +137,13 @@ export function injectBubbleCss(skin: BubbleSkin): void {
   const width = `${px(wTop)} ${px(wRight)} ${px(wBottom)} ${px(wLeft)}`;
   const sel = bubbleSel(skin.itemId);
 
+  // 纵向 padding:基础按 0.6 比例,不对称时用差值补偿。
+  const avgSlice = (top + bottom) / 2;
+  const topDiff = avgSlice - top;
+  const bottomDiff = avgSlice - bottom;
+  const topPad = wTop * PAD_RATIO_Y + topDiff * BUBBLE_SCALE * 0.6;
+  const bottomPad = wBottom * PAD_RATIO_Y + bottomDiff * BUBBLE_SCALE * 0.6;
+
   // Frame animation (protocol fallback path) takes over the base layer's
   // border-image-source entirely — frame 1 doubles as the static/initial
   // paint, so the plain static PNG is never referenced once frames exist.
@@ -169,7 +176,7 @@ export function injectBubbleCss(skin: BubbleSkin): void {
     `  border-image-width: ${width};`,
     `  border-image-repeat: stretch;`,
     `  border-radius: 0;`,
-    `  padding: ${px(Math.min(wTop, wBottom) * PAD_RATIO_Y)} ${px(Math.max(wLeft, wRight))};`,
+    `  padding: ${px(topPad)} ${px(Math.max(wLeft, wRight))} ${px(bottomPad)};`,
     `  min-width: ${px((left + right) * BUBBLE_SCALE)};`,
     `  min-height: ${px((top + bottom) * BUBBLE_SCALE)};`,
     `}`,

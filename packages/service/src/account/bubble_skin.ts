@@ -51,7 +51,7 @@
 
 import { readFileSync } from 'node:fs';
 import { inflateSync } from 'node:zlib';
-import type { AvatarCacheService } from '../bootstrap/avatar_cache';
+import type { AvatarCacheService } from '../bootstrap/media_cache';
 import { getLogger, logErrorContext } from '../common/logger';
 
 /** 装扮资源 CDN。与 media_protocol 的 `weq-media://dress` host 白名单一致。 */
@@ -277,8 +277,8 @@ export async function resolveBubbleSkin(
   const logger = getLogger().child({ scope: 'bubble-skin' });
 
   try {
-    // 本地文件(protocol 兜底)直接读盘;否则走头像那套磁盘缓存。
-    const png = src.localFile ? readFileSync(src.localFile) : (await cache.get(src.staticUrl)).data;
+    // 本地文件(protocol 兜底)直接读盘;否则走装扮缓存(独立子目录)。
+    const png = src.localFile ? readFileSync(src.localFile) : (await cache.get(src.staticUrl, 'dress')).data;
     const size = pngSize(png);
     if (!size) {
       logger.warn('bubble skin: not a png', {
@@ -301,7 +301,7 @@ export async function resolveBubbleSkin(
         return null;
       }
       const corner = pngSize(
-        (await cache.get(siblingUrl(src.staticUrl, 'static-top-left-v2.png'))).data,
+        (await cache.get(siblingUrl(src.staticUrl, 'static-top-left-v2.png'), 'dress')).data,
       );
       if (!corner) {
         logger.warn('bubble skin: corner slice unavailable', {
@@ -385,7 +385,7 @@ async function readFill(
   staticUrl: string,
 ): Promise<{ r: number; g: number; b: number; a: number } | null> {
   try {
-    return pngFirstPixel((await cache.get(siblingUrl(staticUrl, 'static-all-middle-v2.png'))).data);
+    return pngFirstPixel((await cache.get(siblingUrl(staticUrl, 'static-all-middle-v2.png'), 'dress')).data);
   } catch {
     return null;
   }

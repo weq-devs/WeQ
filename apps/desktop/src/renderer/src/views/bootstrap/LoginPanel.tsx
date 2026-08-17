@@ -54,7 +54,6 @@ export function LoginPanel({
   onDeleteAccount?: (acc: UiAccount) => void;
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
-  const confirm = useDialog((s) => s.confirm);
 
   const [key, setKey] = useState('');
   /**
@@ -130,15 +129,14 @@ export function LoginPanel({
         // The db path is resolved server-side from uin via the platform, so we
         // never build an OS-specific path here (that leaked `\` onto linux).
 
-        // Linux: the alive-instance path can stall for a long time (the hook
-        // needs a real post-login recv packet to locate the MSF service). Race
-        // it against a 10s timer; on timeout ask the user to keep waiting or
-        // kill QQ and fall back to ninebird. Windows keeps the direct path.
+        // Linux: the alive-instance path goes through the pkexec-elevated
+        // inject first (polkit dialog, untimed) and then the key fetch — the
+        // native inject already waits for the hook to bind the MSFService
+        // instance, so there is no packet-wait race on the fetch anymore.
+        // Windows keeps the direct path.
         if (isLinux) {
-          const handled = await acquireFromInstanceLinux(pid, selected);
-          if (handled) return; // key set, or a fallback flow took over
-          // handled === false ⇒ user chose "keep waiting"; fall through to
-          // a plain awaited fetch below.
+          await acquireFromInstanceLinux(pid, selected);
+          return; // key set, or an error was thrown
         }
 
         setStatus('正在从在线实例获取密钥…');
@@ -165,84 +163,33 @@ export function LoginPanel({
   }
 
   /**
-   * Linux alive-instance key fetch with a 10s stall guard.
+   * Linux alive-instance key fetch.
    *
    * The inject half (which pops the polkit password dialog and can take as long
    * as the user needs to type) runs FIRST and UNTIMED via `prepareInstanceInject`
-   * — only after it completes do we start the 10s timer on the actual key fetch
-   * (which internally does the wait-for-packet). So the password-entry time no
-   * longer eats into the 10s, and the "send a message to unblock" prompt fires
-   * only when the packet wait itself is genuinely stalling.
-   *
-   * Returns:
-   *   - `true`  — the key was fetched (state updated), or the user opted to
-   *               kill QQ and a ninebird fallback flow has taken over. Caller
-   *               must stop.
-   *   - `false` — the user chose to keep waiting; caller should fall back to a
-   *               plain awaited `fetchKeyFromInstance`.
+   * — the native inject blocks until the hook binds the MSFService instance via
+   * the account uin, so when it resolves the pid can already send OIDB packets
+   * and the key fetch below is a plain request. Errors propagate to the caller,
+   * which shows the error dialog.
    */
-  async function acquireFromInstanceLinux(pid: number, acc: UiAccount): Promise<boolean> {
+  async function acquireFromInstanceLinux(pid: number, acc: UiAccount): Promise<void> {
     // Step A (untimed): elevate + inject. The password dialog lives here.
     setStatus('正在注入 QQ 进程（可能弹出授权窗口，请输入密码）…');
-    const prep = await client.bootstrap.prepareInstanceInject.mutate({ pid });
+    const prep = await client.bootstrap.prepareInstanceInject.mutate({ pid, uin: acc.uin });
     if (!prep.ok) {
       throw new Error(prep.error ?? '注入 QQ 进程失败，请重试。');
     }
 
-    // Step B (timed from here): fetch the key. Internally waits for the first
-    // post-login packet; that wait — not the password entry — is what the 10s
-    // guards. On timeout, prompt the user to poke the account with a message.
-    setStatus('已注入，正在获取密钥（在线获取较慢，请稍候）…');
-    const fetchPromise = client.bootstrap.fetchKeyFromInstance.mutate({ pid, uin: acc.uin });
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<'timeout'>((res) => {
-      timer = setTimeout(() => res('timeout'), 10_000);
-    });
-
-    const winner = await Promise.race([fetchPromise, timeout]);
-    if (winner !== 'timeout') {
-      if (timer) clearTimeout(timer);
-      const r = winner;
-      if (!r.success || !r.dbkey) {
-        throw new Error(r.error ?? '依赖在线 QQ 客户端获取失败，请退出登录后重试。');
-      }
-      setKey(r.dbkey);
-      setStatus('已获取密钥');
-      setBusy(false);
-      return true;
+    // Step B: fetch the key. The hook is already bound, so this is a plain
+    // request — no stall race to guard anymore.
+    setStatus('已注入，正在获取密钥…');
+    const r = await client.bootstrap.fetchKeyFromInstance.mutate({ pid, uin: acc.uin });
+    if (!r.success || !r.dbkey) {
+      throw new Error(r.error ?? '依赖在线 QQ 客户端获取失败，请退出登录后重试。');
     }
-
-    // Stalled past 10s. Log + broadcast through the central channel, then ask.
-    void client.bootstrap.reportKeyStalled.mutate({ uin: acc.uin });
-    setStatus('在线获取仍未完成…');
-    const keepWaiting = await confirm(
-      '在线取密钥较慢',
-      '已注入该 QQ，但还没收到可用于定位服务地址的登录后数据包，取密钥会一直等待。\n\n用任意小号给该账号发一条消息即可立即解除等待；或直接结束 QQ 进程，改用扫码/快速登录获取（更稳）。',
-      { okLabel: '继续等待', cancelLabel: '结束 QQ 改用登录', tone: 'warning' },
-    );
-
-    if (keepWaiting) {
-      // Keep the in-flight fetch; caller re-awaits it via the plain path.
-      // Guard the already-pending promise so we don't fire a second request.
-      const r = await fetchPromise;
-      if (!r.success || !r.dbkey) {
-        throw new Error(r.error ?? '依赖在线 QQ 客户端获取失败，请退出登录后重试。');
-      }
-      setKey(r.dbkey);
-      setStatus('已获取密钥');
-      setBusy(false);
-      return true;
-    }
-
-    // User opted to abandon the instance path. Kill QQ, then run ninebird.
-    setStatus('正在结束 QQ 进程…');
-    await client.bootstrap.killQqProcess.mutate({ pid });
-    // Don't await the abandoned fetch — it will reject/settle on its own once
-    // the pipe drops; we've already moved on.
-    void fetchPromise.catch(() => undefined);
-    if (acc.a1Key) startQuickLogin(acc);
-    else startQrLogin(acc);
-    return true;
+    setKey(r.dbkey);
+    setStatus('已获取密钥');
+    setBusy(false);
   }
 
   function startQuickLogin(acc: UiAccount): void {

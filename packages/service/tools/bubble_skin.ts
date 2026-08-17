@@ -18,7 +18,7 @@
 import { readFileSync } from 'node:fs';
 import { resolveBubbleSkin, legacyBubbleStaticUrl, type BubbleSkin } from '../src/account/bubble_skin';
 import { normalizeMallItems } from '../src/account/web/dress_mall';
-import type { AvatarCacheService } from '../src/bootstrap/avatar_cache';
+import type { AvatarCacheService } from '../src/bootstrap/media_cache';
 
 /** 手工实测值(见 plan)。 */
 const EXPECTED: Record<number, { slice: [number, number, number, number]; animated: boolean }> = {

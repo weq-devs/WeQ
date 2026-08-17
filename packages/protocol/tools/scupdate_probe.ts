@@ -120,7 +120,7 @@ async function resolveTarget(nt: Nt): Promise<number> {
     pid = hit;
   }
 
-  const status = await ensureSendable(nt, pid, { label: 'probe' });
+  const status = await ensureSendable(nt, pid, testEnv.uin, { label: 'probe' });
   console.log(`[probe] pid=${pid} uin=${status.uin} loggedIn=${status.loggedIn}\n`);
   return pid;
 }

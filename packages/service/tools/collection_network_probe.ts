@@ -131,7 +131,7 @@ async function main(): Promise<void> {
   const pid = await pickPid(nt);
 
   console.log(`\n注入 hook 到 pid=${pid} ...`);
-  const status = await nt.injectAndGetStatusEmbedded(pid);
+  const status = await nt.injectAndGetStatusEmbedded(pid, TARGET_UIN);
   console.log(`注入结果: pid=${status.pid} uin=${status.uin} loggedIn=${status.loggedIn}`);
 
   console.log(`\n获取 weiyun.com p_skey ...`);

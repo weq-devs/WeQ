@@ -2,47 +2,48 @@
  * `InjectHook` — the seam that turns a running QQ pid into a state where the
  * hook can send OIDB packets (instance key / rkey / clientkey flows).
  *
- * Why a seam: the two platforms need different work to reach "sendable":
- *   - **win32**: inject the embedded hook. The MSF service address is resolved
- *     by port-probe, so a fetch can follow immediately.
+ * Why a seam: the two platforms inject differently, but "sendable" is now one
+ * native call on both:
+ *   - **win32**: inject the embedded hook in-process. The MSF service address
+ *     is resolved by port-probe, so a fetch can follow immediately.
  *   - **linux**: injection needs root (ptrace), so it is done by a
- *     pkexec-elevated child (see the desktop app's `inject_elevation`). And the
- *     hook can only learn the MSF service address from a *genuine post-login
- *     recv packet*, so `waitForRealPacket` must succeed before any packet is
- *     sent. That elevated + wait logic lives in the app layer; this default
- *     covers the win32 (and any non-elevated) path.
+ *     pkexec-elevated child (see the desktop app's `inject_elevation`). The
+ *     native inject call hands the account UIN to the hook over the pipe and
+ *     blocks until the hook binds the MSFService instance (~30s), so injection
+ *     resolving already means the pid can send. That elevated flow lives in the
+ *     app layer; this default covers the win32 (and any non-elevated) path.
  *
- * Call sites (`AccountMonitorService`, the bootstrap router) depend only on
- * this interface, so they carry no per-platform branch. The hook owns its own
- * idempotency: `ensure` no-ops once a pid is ready; `reset` forgets a pid so a
- * failed fetch (native client died — QQ relaunched / hook unloaded) can force a
- * fresh inject on the next `ensure`.
+ * The caller must pass the account UIN: the native hook no longer derives it
+ * from the process, and on linux it is what the hook uses to bind the right
+ * instance. Call sites (`AccountMonitorService`, the bootstrap router) depend
+ * only on this interface, so they carry no per-platform branch. The hook owns
+ * its own idempotency: `ensure` no-ops once a pid is ready; `reset` forgets a
+ * pid so a failed fetch (native client died — QQ relaunched / hook unloaded)
+ * can force a fresh inject on the next `ensure`.
  */
 
 import type { NtHelperBinding } from '@weq/native';
 
 export interface InjectHook {
   /**
-   * Do ONLY the platform inject half (linux: the pkexec-elevated ptrace inject,
-   * which pops the polkit password dialog; win32: the in-process embedded
-   * inject). Does NOT run linux's post-login packet wait. Idempotent — a no-op
-   * once the pid is already injected.
+   * Inject the hook into `pid` and block until it is ready to send OIDB
+   * packets. On linux this is the pkexec-elevated ptrace inject (pops the
+   * polkit password dialog); on win32 it is the in-process embedded inject.
+   * The native call itself waits for the hook to bind the MSFService instance
+   * via `uin` on linux, so "inject resolved" already means "sendable".
+   * Idempotent — a no-op once the pid is already injected.
    *
-   * Split out from {@link ensure} so a caller can time the two halves
-   * separately: the password dialog can take arbitrarily long and should NOT
-   * count against a "how long has the packet wait stalled" timer. Await this
-   * first (untimed), then race {@link ensure}/the fetch against a stall timer.
+   * Split out from {@link ensure} so a caller can await the password dialog
+   * untimed instead of under a fetch timeout.
    */
-  inject(pid: number): Promise<void>;
+  inject(pid: number, uin: string): Promise<void>;
   /**
-   * Inject into `pid` (elevating if the platform needs it) and make it ready to
-   * send OIDB packets — i.e. {@link inject} followed by linux's wait-for-packet.
-   * Idempotent — a no-op once the pid is already ready, and skips the inject
-   * half if {@link inject} already ran for this pid. Throws if injection or the
-   * readiness wait fails; callers surface that.
+   * Inject into `pid` and make it ready to send OIDB packets. Same as
+   * {@link inject} — linux no longer has a separate post-inject wait, so there
+   * is no distinct `ensure` half. Idempotent; throws when injection fails.
    */
-  ensure(pid: number): Promise<void>;
-  /** Forget cached inject + readiness for `pid` so the next call re-injects. */
+  ensure(pid: number, uin: string): Promise<void>;
+  /** Forget cached inject state for `pid` so the next call re-injects. */
   reset(pid: number): void;
 }
 
@@ -53,14 +54,14 @@ export interface InjectHook {
  */
 export function createDirectInjectHook(nt: NtHelperBinding): InjectHook {
   const injected = new Set<number>();
-  const doInject = async (pid: number): Promise<void> => {
+  const doInject = async (pid: number, uin: string): Promise<void> => {
     if (injected.has(pid)) return;
-    await nt.injectAndGetStatusEmbedded(pid);
+    await nt.injectAndGetStatusEmbedded(pid, uin);
     injected.add(pid);
   };
   return {
     inject: doInject,
-    // win32 has no packet-wait half, so ensure == inject.
+    // Both platforms reach "sendable" inside the inject call, so ensure == inject.
     ensure: doInject,
     reset(pid: number): void {
       injected.delete(pid);

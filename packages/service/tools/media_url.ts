@@ -43,7 +43,7 @@ async function main(): Promise<void> {
   console.log(`[media-url] pid=${pid} uin=${uin} loggedIn=${info?.loggedIn}`);
 
   console.log('[media-url] injecting hook ...');
-  const status = await nt.injectAndGetStatusEmbedded(pid);
+  const status = await nt.injectAndGetStatusEmbedded(pid, uin);
   console.log(`[media-url] inject result: uin=${status.uin} loggedIn=${status.loggedIn}`);
 
   const stub = { context: { uin }, uidMap: { uidByUin: () => undefined } } as unknown as AccountSession;

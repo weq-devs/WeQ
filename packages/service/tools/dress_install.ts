@@ -23,7 +23,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DressInstallService, extractFirstTtf, fontFamilyFor } from '../src/account/dress_install';
-import type { AvatarCacheService } from '../src/bootstrap/avatar_cache';
+import type { AvatarCacheService } from '../src/bootstrap/media_cache';
 import type { TrpcNative } from '@weq/protocol';
 import type { NtHelperBinding } from '@weq/native';
 

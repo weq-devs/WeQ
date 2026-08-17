@@ -23,6 +23,7 @@ import { resolveMessageSender } from '../../im-template/template/conversationDis
 import { displayUserName } from '../../im-template/template/user';
 import type { MessageRenderer } from '../../im-template/template/messageRenderers';
 import type { Conversation, Message, User } from '../../im-template/template/types';
+import { useToast } from '../Toast';
 
 const noop = (): void => {};
 
@@ -41,6 +42,7 @@ export function RecalledMessagesModal({
   renderers,
   loading,
   onClose,
+  onJumpToMessage,
 }: {
   conversation: Conversation;
   user: User;
@@ -49,11 +51,31 @@ export function RecalledMessagesModal({
   renderers?: MessageRenderer[];
   loading: boolean;
   onClose: () => void;
+  /** 跳转到指定 seq 的消息（参考精华消息的实现）*/
+  onJumpToMessage?: (seq: number | string) => void;
 }): ReactElement {
+  const pushToast = useToast((s) => s.push);
   const isGroup = conversation.type === 'group';
   const convKey = isGroup ? conversation.group.identityValue : '';
   const showSenderNames = conversation.type !== 'direct';
   const subtitle = isGroup ? conversation.group?.name : conversation.otherUser?.displayName;
+
+  const handleClickMessage = (message: Message): void => {
+    if (!onJumpToMessage) {
+      return;
+    }
+
+    // 从 message 中提取 msgSeq (group) 或 msgIndex (c2c)
+    const msgSeq = (message as { msgSeq?: string | number }).msgSeq;
+
+    if (msgSeq == null || msgSeq === '') {
+      pushToast({ tone: 'info', title: '未找到该消息' });
+      return;
+    }
+
+    onClose();
+    onJumpToMessage(msgSeq);
+  };
 
   return (
     <Modal onClose={onClose} width={520} labelledBy="weq-recalled-title">
@@ -92,7 +114,20 @@ export function RecalledMessagesModal({
                       : `${revokerName?.trim() || '管理员'} 撤回`;
                   const when = recall ? formatRecallTime(recall.recallTs) : '';
                   return (
-                    <div key={message.id} className={cn('weq-deleted-row', mine && 'is-mine')}>
+                    <div
+                      key={message.id}
+                      className={cn('weq-deleted-row', mine && 'is-mine', onJumpToMessage && 'is-clickable')}
+                      onClick={() => onJumpToMessage && handleClickMessage(message)}
+                      role={onJumpToMessage ? 'button' : undefined}
+                      tabIndex={onJumpToMessage ? 0 : undefined}
+                      onKeyDown={(e) => {
+                        if (onJumpToMessage && (e.key === 'Enter' || e.key === ' ')) {
+                          e.preventDefault();
+                          handleClickMessage(message);
+                        }
+                      }}
+                      title={onJumpToMessage ? '点击跳转到该消息' : undefined}
+                    >
                       <div className="weq-deleted-bubble">
                         <MessageBubble
                           message={message}

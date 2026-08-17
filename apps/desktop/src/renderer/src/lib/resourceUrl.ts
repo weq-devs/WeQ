@@ -29,9 +29,9 @@ export function emojiUrl(...segments: string[]): string {
   return resourceUrl('emoji', ...segments);
 }
 
-/** Shorthand for a file-type icon under `resources/fileIcon/…`. */
+/** Shorthand for a file-type icon under `resources/fileicon/…`. */
 export function fileIconUrl(iconBasename: string): string {
-  return resourceUrl('fileIcon', iconBasename);
+  return resourceUrl('fileicon', iconBasename);
 }
 
 /**

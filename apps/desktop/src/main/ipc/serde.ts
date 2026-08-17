@@ -176,6 +176,12 @@ export interface GroupBulletinWire {
   msgTime: string;
   ctime: string;
   textContent: string;
+  readNum?: number;
+  images?: Array<{
+    id: string;
+    width: number;
+    height: number;
+  }>;
 }
 
 export interface GroupEssenceWire {
@@ -188,6 +194,22 @@ export interface GroupEssenceWire {
   operatorUin: string;
   operatorNick: string;
   timestamp: number;
+  /** 从 Web API 补充的消息内容（可选，数据库没有）。 */
+  content?: Array<{
+    type: number;
+    text?: string;
+    imageUrl?: string;
+    faceIndex?: number;
+    fileName?: string;
+    fileBusId?: number | string;
+    fileId?: string;
+    fileThumbnailUrl?: string;
+    fileSize?: number | string;
+  }>;
+  /** 发送时间（来自 Web API）。 */
+  senderTime?: number;
+  /** 是否可以取消精华（来自 Web API）。 */
+  canRemove?: boolean;
 }
 
 export interface GroupLevelConfigItemWire {
@@ -637,6 +659,12 @@ export function groupNoticeToBulletinWire(
     msgTime: notice.publishTime.toString(),
     ctime: notice.publishTime.toString(),
     textContent: notice.text,
+    readNum: notice.readNum,
+    images: notice.images.map((img) => ({
+      id: img.id,
+      width: img.width,
+      height: img.height,
+    })),
   };
 }
 

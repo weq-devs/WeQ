@@ -36,7 +36,7 @@ async function main(): Promise<void> {
   const pid = nt.getQqProcesses()[0];
   if (!pid) throw new Error('no running QQ.exe');
   console.log(`[verify-c2c-video] pid=${pid} uin=${nt.probeQqLoginInfo(pid)?.uin}`);
-  await nt.injectAndGetStatusEmbedded(pid);
+  await nt.injectAndGetStatusEmbedded(pid, UIN);
 
   const db = new QqDb(nt, { dbPath: DB_PATH, key: KEY, algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' } });
   let videoEl: MediaElement;

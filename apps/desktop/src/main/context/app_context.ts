@@ -45,7 +45,7 @@ import {
   Win32DetectService,
   Win32KeyService,
   GlobalConfigService,
-  AvatarCacheService,
+  MediaCacheService,
   LinkPreviewService,
   AgentLabConfigService,
   VoiceTranscribeService,
@@ -144,23 +144,6 @@ export interface AccountForcedClosedEvent {
   failures: DbHealthFailure[];
 }
 
-/**
- * The QQ instance is alive but the key/credential request can't complete —
- * on linux this means the injected hook hasn't yet observed a real post-login
- * recv packet, so it doesn't know the MSF service address and the OIDB request
- * stalls. Surfaced to the user with a "send the account any message to unblock"
- * hint. Emitted both by main-side background flows (monitor harvest, on-demand
- * credential fetch) and by the renderer's login race via `reportKeyStalled`.
- */
-export interface KeyFetchStalledEvent {
-  reason: 'packet-stalled';
-  /** Which flow hit the stall — for the log + optional per-context copy. */
-  source: 'login' | 'harvest' | 'credential';
-  uin?: string;
-  title: string;
-  message: string;
-}
-
 export const accountEventBus = new EventEmitter();
 
 /**
@@ -186,39 +169,6 @@ const uidRegistry = new Map<string, string>();
 /** Seed the uin→uid map (called from the openAccount flow). No-op off linux. */
 export function rememberAccountUid(uin: string, uid: string): void {
   if (uin && uid) uidRegistry.set(uin, uid);
-}
-
-/**
- * The single source of truth for the "alive QQ but can't send the packet" copy.
- * The linux hook needs one real post-login recv packet to learn the MSF service
- * address; until then key/credential OIDB requests stall. Telling the user to
- * poke the account with any message is the fastest unblock.
- */
-export const KEY_STALL_TITLE = '在线取密钥较慢';
-export const KEY_STALL_HINT =
-  '当前 QQ 在线，但还没收到可用于定位服务地址的数据包，取密钥/凭据会卡住。用任意小号给该账号发一条消息即可立即解除等待；或改用扫码/快速登录获取。';
-
-/**
- * Log + broadcast a {@link KeyFetchStalledEvent} on the shared bus. Both
- * main-side background flows and the renderer login race (via the
- * `reportKeyStalled` mutation) funnel through here so the copy and the log
- * event stay in one place.
- */
-export function emitKeyFetchStalled(source: KeyFetchStalledEvent['source'], uin?: string): void {
-  getLogger()
-    .child({ scope: 'key-stall' })
-    .warn('alive QQ instance stalled without a real recv packet', {
-      event: 'key-fetch-stalled',
-      source,
-      uin: uin ?? null,
-    });
-  accountEventBus.emit('keyFetchStalled', {
-    reason: 'packet-stalled',
-    source,
-    ...(uin ? { uin } : {}),
-    title: KEY_STALL_TITLE,
-    message: KEY_STALL_HINT,
-  } satisfies KeyFetchStalledEvent);
 }
 
 /** Trailing debounce — coalesces a burst of calls into one after `ms` idle. */
@@ -356,7 +306,7 @@ export interface BootstrapServices {
   keys: Win32KeyService;
   userConfig: UserConfigService;
   globalConfig: GlobalConfigService;
-  avatarCache: AvatarCacheService;
+  avatarCache: MediaCacheService;
   /** 聊天里裸链接 → og 卡片（抓取带 SSRF 闸门，见 service 侧）。Account-independent。 */
   linkPreview: LinkPreviewService;
   agentLabConfig: AgentLabConfigService;
@@ -668,7 +618,7 @@ export function initAppContext(): AppContext {
     keys: new Win32KeyService(platform, stubHooks),
     userConfig,
     globalConfig: new GlobalConfigService(platform, userConfig),
-    avatarCache: new AvatarCacheService(userConfig),
+    avatarCache: new MediaCacheService(userConfig),
     linkPreview,
     agentLabConfig: new AgentLabConfigService(userConfig),
     voiceTranscribe: new VoiceTranscribeService(platform),
@@ -805,6 +755,7 @@ export function initAppContext(): AppContext {
       // Shared instances also fed to the export manager's ChatLab deps (name /
       // role / profile resolution), so they're built before the services object.
       const groupInfo = new GroupInfoService(session);
+      groupInfo.setWebQueryService(webQuery);
       const profile = new ProfileService(session);
       // 收藏服务：网络优先(微云 collector)、拿不到 p_skey 回退 collection.db。
       // 既进 services，又喂给导出管理器的收藏拉取 dep（拍平投影）。
@@ -1242,6 +1193,7 @@ export function initAppContext(): AppContext {
       // 同账号 QQ 在线时「好友空间导出」可用；离线则 livePid 抛错，优雅失败。
       const webQuery = new WebQueryService(platform.native.ntHelper, session, livePid);
       const groupInfo = new GroupInfoService(session);
+      groupInfo.setWebQueryService(webQuery);
       const profile = new ProfileService(session);
       // 收藏服务：离线时拿不到 p_skey → 自动回退 collection.db。
       const collectionSvc = new CollectionService(platform.native.ntHelper, session, livePid);

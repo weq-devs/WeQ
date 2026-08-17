@@ -12,7 +12,7 @@ import { EventEmitter, once } from 'node:events';
 import { writeFileSync, readFileSync, existsSync, mkdirSync, unlinkSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { MsgService } from '../msg';
-import type { AvatarCacheService } from '../../bootstrap/avatar_cache';
+import type { AvatarCacheService } from '../../bootstrap/media_cache';
 import type { MediaDownloadService } from '../media_download';
 import { exportGroupToJson } from './json_exporter';
 import { exportGroupToTxt } from './txt_exporter';

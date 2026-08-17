@@ -4,7 +4,7 @@
  * Mirrors `Qrypt-Native/nt_helper/test/test_protocol.js`:
  *   1. getQqProcesses() → first PID
  *   2. probeQqLoginInfo(pid)
- *   3. injectAndGetStatusEmbedded(pid) with retry on "os error 2"
+ *   3. injectAndGetStatusEmbedded(pid, uin) with retry on "os error 2"
  *      (pipe not ready yet — the hook DLL needs a moment after injection)
  *   4. fetchFromInstance(pid, dbPath) → dbkey
  *
@@ -62,7 +62,7 @@ async function main(): Promise<void> {
   for (let i = 1; i <= 5; i++) {
     log(`attempt ${i}...`);
     try {
-      status = await nt.injectAndGetStatusEmbedded(target.pid);
+      status = await nt.injectAndGetStatusEmbedded(target.pid, target.loginInfo?.uin ?? '');
       break;
     } catch (e) {
       const msg = (e as Error).message;

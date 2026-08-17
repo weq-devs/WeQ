@@ -38,6 +38,8 @@ import { MarketEmojiBrowserLightbox } from './export/MarketEmojiBrowserLightbox'
 import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
 import { GroupFileDialog } from '../components/GroupFileDialog';
 import { GroupAnalyticsDialog } from '../components/GroupAnalyticsDialog';
+import { GroupAnnouncementsDialog, type GroupBulletinWire } from '../components/GroupAnnouncementsDialog';
+import { GroupEssenceDialog, type GroupEssenceWire as GroupEssenceDisplay } from '../components/GroupEssenceDialog';
 import { MemberProfileCard } from '../components/MemberProfileCard';
 import { BuddyAnalyticsDialog } from '../components/BuddyAnalyticsDialog';
 import { AddMessageModal } from '../components/compose/AddMessageModal';
@@ -444,14 +446,7 @@ type GroupDetailWire = {
   address?: { locationName?: string };
 };
 
-type GroupBulletinWire = {
-  publisherUid: string;
-  fid: string;
-  msgTime: string;
-  ctime: string;
-  textContent: string;
-};
-
+/** 数据库查询返回的原始群精华类型 */
 type GroupEssenceWire = {
   msgSeq: number;
   senderNick: string;
@@ -1667,24 +1662,6 @@ export function MainView(): ReactElement {
     return () => sub.unsubscribe();
   }, [goTo, queryClient, setHomeStage, setOpenedUin, showError]);
 
-  // Central "alive QQ but packet-stalled" channel. The login race owns its own
-  // continue/kill prompt, so we only surface background-flow stalls (harvest /
-  // on-demand credential) as a non-blocking toast here — login stalls arrive
-  // with source==='login' purely for logging and are skipped.
-  useEffect(() => {
-    const sub = client.bootstrap.onKeyFetchStalled.subscribe(undefined, {
-      onData(event) {
-        if (event?.reason !== 'packet-stalled') return;
-        if (event.source === 'login') return;
-        pushToast({ tone: 'info', title: event.title, message: event.message, ttl: 8000 });
-      },
-      onError(err) {
-        console.error('[account] onKeyFetchStalled subscription error', err);
-      },
-    });
-    return () => sub.unsubscribe();
-  }, [pushToast]);
-
   // Update availability: seed from the last cached check (the background startup
   // check may have already run), then keep it live via the check events. Drives
   // the settings rail red dot. setState via getState() to avoid re-render churn.
@@ -1722,7 +1699,6 @@ export function MainView(): ReactElement {
   const [dressUpOpen, setDressUpOpen] = useState(false);
   // 装扮样式注入提到这一层 —— 进主界面就生效,不必先打开装扮灯箱。
   useDressSkin();
-  const [requestedAnnouncementGroups, setRequestedAnnouncementGroups] = useState<Record<string, boolean>>({});
   const [albumDialog, setAlbumDialog] = useState<{
     groupCode: string;
     groupName: string;
@@ -1738,6 +1714,14 @@ export function MainView(): ReactElement {
   const [buddyAnalyticsDialog, setBuddyAnalyticsDialog] = useState<{
     peerUid: string;
     peerName: string;
+  } | null>(null);
+  const [announcementsDialog, setAnnouncementsDialog] = useState<{
+    groupCode: string;
+    groupName: string;
+  } | null>(null);
+  const [essenceDialog, setEssenceDialog] = useState<{
+    groupCode: string;
+    groupName: string;
   } | null>(null);
   const [memberCard, setMemberCard] = useState<{
     member: User;
@@ -1832,9 +1816,17 @@ export function MainView(): ReactElement {
   }, []);
 
   const handleOpenGroupAnnouncements = useCallback((conversation: Extract<Conversation, { type: 'group' }>) => {
-    setRequestedAnnouncementGroups((current) => (
-      current[conversation.id] ? current : { ...current, [conversation.id]: true }
-    ));
+    setAnnouncementsDialog({
+      groupCode: conversation.id,
+      groupName: conversation.group.name,
+    });
+  }, []);
+
+  const handleOpenGroupEssence = useCallback((conversation: Extract<Conversation, { type: 'group' }>) => {
+    setEssenceDialog({
+      groupCode: conversation.id,
+      groupName: conversation.group.name,
+    });
   }, []);
 
   const handleOpenGroupAnalytics = useCallback((conversation: Extract<Conversation, { type: 'group' }>) => {
@@ -2546,11 +2538,16 @@ export function MainView(): ReactElement {
   );
   const groupBulletins = trpc.account.listGroupBulletins.useQuery(
     { groupCode: selectedUid, limit: 10, offset: 0 },
-    { enabled: Boolean(selectedUid && isGroup && requestedAnnouncementGroups[selectedUid]) },
+    { enabled: Boolean(selectedUid && isGroup) },
   );
   const groupEssence = trpc.account.listGroupEssenceMessages.useQuery(
     { groupCode: selectedUid, limit: 10, offset: 0 },
     { enabled: Boolean(selectedUid && isGroup) },
+  );
+  // 尝试从 Web API 获取带消息内容的精华消息（需要在线账号/有效 cookie）
+  const groupEssenceWeb = trpc.account.getGroupEssenceWithContent.useQuery(
+    { groupCode: selectedUid, pageStart: 0, pageLimit: 50 },
+    { enabled: Boolean(selectedUid && isGroup), retry: false, staleTime: 5 * 60 * 1000 },
   );
   const groupLevelInfo = trpc.account.getGroupMemberLevelInfo.useQuery(
     { groupCode: selectedUid },
@@ -2798,20 +2795,38 @@ export function MainView(): ReactElement {
           ?.map((label) => label.content)
           .filter((label): label is string => Boolean(label)) ?? [],
         addressName: detail?.address?.locationName || null,
-        bulletins: ((groupBulletins.data ?? []) as GroupBulletinWire[]).map((bulletin, index) => ({
-          id: bulletin.fid || `bulletin:${index}`,
-          text: bulletin.textContent,
-          createdAt: secondsToIsoTime(bulletin.ctime) ?? secondsToIsoTime(bulletin.msgTime) ?? new Date(0).toISOString(),
-          publisherUid: bulletin.publisherUid,
-        })),
-        essenceMessages: ((groupEssence.data ?? []) as GroupEssenceWire[]).map((item) => ({
-          id: `essence:${item.msgSeq}:${item.timestamp}`,
-          msgSeq: item.msgSeq,
-          senderName: item.senderNick,
-          operatorName: item.operatorNick,
-          createdAt: secondsToIsoTime(item.timestamp) ?? new Date(0).toISOString(),
-          active: item.setStatus === 1,
-        })),
+        bulletins: ((groupBulletins.data ?? []) as GroupBulletinWire[]).map((bulletin, index) => {
+          // publisherUid 可能是 UID（数据库）或 UIN（Web API），尝试两者匹配
+          const publisher = currentGroupMembers.find(
+            m => m.id === bulletin.publisherUid || m.identityValue === bulletin.publisherUid
+          );
+          return {
+            id: bulletin.fid || `bulletin:${index}`,
+            text: bulletin.textContent,
+            createdAt: secondsToIsoTime(bulletin.ctime) ?? secondsToIsoTime(bulletin.msgTime) ?? new Date(0).toISOString(),
+            publisherUid: bulletin.publisherUid,
+            publisherName: publisher?.displayName,
+            publisherAvatar: publisher?.avatarUrl,
+          };
+        }),
+        essenceMessages: ((groupEssence.data ?? []) as GroupEssenceWire[]).map((item) => {
+          // 尝试从 Web API 结果中找到匹配的消息内容（按 msgSeq 匹配）
+          const webItem = (groupEssenceWeb.data ?? []).find(
+            (web: GroupEssenceWire) => web.msgSeq === item.msgSeq
+          );
+          return {
+            id: `essence:${item.msgSeq}:${item.timestamp}`,
+            msgSeq: item.msgSeq,
+            senderName: item.senderNick,
+            operatorName: item.operatorNick,
+            createdAt: secondsToIsoTime(item.timestamp) ?? new Date(0).toISOString(),
+            active: item.setStatus === 1,
+            // 从 Web API 补充的字段
+            content: webItem?.content,
+            senderTime: webItem?.senderTime,
+            canRemove: webItem?.canRemove,
+          };
+        }),
         levelConfigs: (groupLevelInfo.data?.levelConfigs ?? []).map((item) => ({
           level: item.level,
           name: item.levelName,
@@ -2828,6 +2843,7 @@ export function MainView(): ReactElement {
     groupBulletins.data,
     groupDetail.data,
     groupEssence.data,
+    groupEssenceWeb.data,
     groupLevelInfo.data,
     groupExt.data,
     user,
@@ -2903,10 +2919,13 @@ export function MainView(): ReactElement {
           client.account.listAfter.query({ kind, conv, afterSeq: targetSeq, limit: PAGE_SIZE }),
         ]);
       } catch (err) {
-        console.error('[jump] centerWindowOnSeq failed', err);
+        console.error('[centerWindowOnSeq] fetch failed', err);
+        pushToast({ tone: 'info', title: '未找到该消息' });
         return false;
       }
-      if (selectionRef.current?.id !== conv) return false; // switched away mid-flight
+      if (selectionRef.current?.id !== conv) {
+        return false; // switched away mid-flight
+      }
 
       const seen = new Set<string>();
       const merged: MessageWire[] = [];
@@ -2918,7 +2937,10 @@ export function MainView(): ReactElement {
       }
 
       const target = merged.find((m) => m.msgSeq === targetSeq);
-      if (!target) return false; // not in DB (e.g. recalled) — leave the view as-is
+      if (!target) {
+        pushToast({ tone: 'info', title: '未找到该消息' });
+        return false; // not in DB (e.g. recalled) — leave the view as-is
+      }
 
       const atLatest = after.length < PAGE_SIZE;
       // Update the live-subscription's window descriptor synchronously: a
@@ -2935,7 +2957,7 @@ export function MainView(): ReactElement {
       window.setTimeout(() => scrollToMsgId(target.msgId), 160);
       return true;
     },
-    [scrollToMsgId],
+    [scrollToMsgId, pushToast],
   );
 
   // Scroll the loaded message list to a reply target, loading older pages first
@@ -2944,11 +2966,16 @@ export function MainView(): ReactElement {
   //   group → origMsgSeq (47402);  c2c → origMsgIndex (47419).
   const jumpToSeq = useCallback(async (jumpTarget: ReplyJumpTarget): Promise<void> => {
     const sel = selectionRef.current;
-    if (!sel) return;
+    if (!sel) {
+      return;
+    }
     const kind: 'group' | 'c2c' = sel.kind === 'group' ? 'group' : 'c2c';
     const rawSeq =
       kind === 'group' ? (jumpTarget.seq ?? jumpTarget.index) : (jumpTarget.index ?? jumpTarget.seq);
-    if (rawSeq === undefined || rawSeq === null || rawSeq === '') return;
+    if (rawSeq === undefined || rawSeq === null || rawSeq === '') {
+      pushToast({ tone: 'info', title: '未找到该消息' });
+      return;
+    }
     const targetSeq = String(rawSeq);
 
     const here = loadedRef.current.find((m) => m.msgSeq === targetSeq);
@@ -2965,16 +2992,23 @@ export function MainView(): ReactElement {
     let reachedTop = false;
     for (let guard = 0; guard < 3; guard += 1) {
       const minSeq = working[0]?.msgSeq;
-      if (!minSeq || Number(minSeq) <= targetNum) break;
-      if (working.some((m) => m.msgSeq === targetSeq)) break;
+      if (!minSeq || Number(minSeq) <= targetNum) {
+        break;
+      }
+      if (working.some((m) => m.msgSeq === targetSeq)) {
+        break;
+      }
       let older: ChatMsgWire[];
       try {
         older = await client.account.listBefore.query({ kind, conv: sel.id, beforeSeq: minSeq, limit: PAGE_SIZE });
       } catch (err) {
-        console.error('[reply-jump] listBefore failed', err);
+        console.error('[jumpToSeq] listBefore failed', err);
+        pushToast({ tone: 'info', title: '加载消息失败' });
         break;
       }
-      if (selectionRef.current?.id !== sel.id) return; // switched away mid-flight
+      if (selectionRef.current?.id !== sel.id) {
+        return; // switched away mid-flight
+      }
       const known = new Set(working.map((m) => m.msgId));
       const fresh = older.map(toMessageWire).reverse().filter((m) => !known.has(m.msgId));
       if (fresh.length === 0) {
@@ -3000,7 +3034,7 @@ export function MainView(): ReactElement {
     // Slow path B: still not found after 3 pages — rebuild a fresh window
     // centred on the target instead of loading everything up to it.
     await centerWindowOnSeq(sel.id, kind, targetSeq);
-  }, [centerWindowOnSeq, scrollToMsgId]);
+  }, [centerWindowOnSeq, scrollToMsgId, pushToast]);
 
   // Debounced global message search: as the user types, search buddy+group and
   // show up to 5 hits. A run counter discards stale responses so only the last
@@ -3592,6 +3626,7 @@ export function MainView(): ReactElement {
                 onOpenGroupAlbums={handleOpenGroupAlbums}
                 onOpenGroupFiles={handleOpenGroupFiles}
                 onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
+                onOpenGroupEssence={handleOpenGroupEssence}
                 onOpenGroupAnalytics={handleOpenGroupAnalytics}
                 onOpenBuddyAnalytics={handleOpenBuddyAnalytics}
                 onOpenGroupMember={handleOpenGroupMember}
@@ -3690,6 +3725,62 @@ export function MainView(): ReactElement {
           onClose={() => setBuddyAnalyticsDialog(null)}
         />
       ) : null}
+      {announcementsDialog ? (
+        <GroupAnnouncementsDialog
+          groupCode={announcementsDialog.groupCode}
+          groupName={announcementsDialog.groupName}
+          currentAnnouncement={
+            selectedConversation?.type === 'group' && selectedConversation.id === announcementsDialog.groupCode
+              ? selectedConversation.group?.announcement
+              : null
+          }
+          bulletins={((groupBulletins.data ?? []) as GroupBulletinWire[]).map((bulletin, _index) => {
+            // publisherUid 可能是 UID（数据库）或 UIN（Web API），尝试两者匹配
+            const publisher = currentGroupMembers.find(
+              m => m.id === bulletin.publisherUid || m.identityValue === bulletin.publisherUid
+            );
+            return {
+              ...bulletin,
+              publisherName: publisher?.displayName,
+              publisherAvatar: publisher?.avatarUrl ?? undefined,
+            };
+          })}
+          onClose={() => setAnnouncementsDialog(null)}
+        />
+      ) : null}
+      {essenceDialog ? (
+        <GroupEssenceDialog
+          groupCode={essenceDialog.groupCode}
+          groupName={essenceDialog.groupName}
+          essenceMessages={(() => {
+            const essence = (groupEssence.data ?? []) as GroupEssenceWire[];
+            const essenceWeb = groupEssenceWeb.data ?? [];
+            return essence.map((item): GroupEssenceDisplay => {
+              const webItem = essenceWeb.find((web) => web.msgSeq === item.msgSeq);
+              return {
+                id: `essence:${item.msgSeq}:${item.timestamp}`,
+                msgSeq: item.msgSeq,
+                senderName: item.senderNick,
+                operatorName: item.operatorNick,
+                createdAt: secondsToIsoTime(item.timestamp) ?? new Date(0).toISOString(),
+                active: item.setStatus === 1,
+                content: webItem?.content,
+                senderTime: webItem?.senderTime ? String(webItem.senderTime) : undefined,
+                canRemove: webItem?.canRemove,
+              };
+            });
+          })()}
+          onClose={() => setEssenceDialog(null)}
+          onJumpToMessage={(seq) => {
+            setEssenceDialog(null);
+            if (seq == null) {
+              console.warn('[essence-jump] missing msgSeq, cannot jump', seq);
+              return;
+            }
+            jumpToSeq({ seq });
+          }}
+        />
+      ) : null}
       {memberCard ? (
         <MemberProfileCard
           member={memberCard.member}
@@ -3727,6 +3818,15 @@ export function MainView(): ReactElement {
           messages={recalledTemplateMessages}
           renderers={messageRenderers}
           loading={recalledLoading}
+          onJumpToMessage={(seq) => {
+            setRecalledConv(null);
+            setRecalledWires([]);
+            if (seq == null) {
+              console.warn('[recall-jump] missing msgSeq, cannot jump', seq);
+              return;
+            }
+            jumpToSeq({ seq });
+          }}
           onClose={() => {
             setRecalledConv(null);
             setRecalledWires([]);

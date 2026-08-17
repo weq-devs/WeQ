@@ -54,7 +54,7 @@ export function OnlineStatus({ uid }: { uid: string }) {
 
   const filename = status.type === 10 && SUB_ICONS[status.subType];
   const icon = filename
-    ? <img src={resourceUrl('OnlineStatus', filename)} alt="" style={{ width: 16, height: 16 }} />
+    ? <img src={resourceUrl('onlinestatus', filename)} alt="" style={{ width: 16, height: 16 }} />
     : TYPE_ICONS[status.type]?.();
 
   return (

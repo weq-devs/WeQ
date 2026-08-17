@@ -33,7 +33,7 @@ async function main(): Promise<void> {
   if (!selfUin) throw new Error('probe 没拿到 uin');
 
   console.log(`\n[profile] 注入 hook 到 pid=${pid} ...`);
-  const status = await nt.injectAndGetStatusEmbedded(pid);
+  const status = await nt.injectAndGetStatusEmbedded(pid, selfUin);
   console.log(`[profile] 注入结果: pid=${status.pid} uin=${status.uin} loggedIn=${status.loggedIn}`);
 
   const targetUin = Number(TARGET_ARG ?? selfUin);

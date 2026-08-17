@@ -14,15 +14,20 @@
  *         NineBirdHook.dll            (win32 injection medium)
  *         ninebird_launcher.so        (linux injection medium; LD_PRELOAD)
  *         qqnt.json
- *         qr-dbkey.js
- *         quick-dbkey.js
- *         account-list.js
  *     darwin/                         (placeholder dirs)
  *
+ *   resources/ninebird-runtime/       (platform-independent; built ONCE by
+ *     qr-dbkey.js                     `pnpm build:ninebird` from packages/ninebird.
+ *     quick-dbkey.js                  The loaders run inside QQ, which receives
+ *     account-list.js                 their absolute path via NINEBIRD_LOAD_PATH,
+ *     package.json                    so they need not live in native/. package.json
+ *                                     is a {"type":"commonjs"} marker for QQ.)
+ *
  * Resolution order:
- *   1. WEQ_NATIVE_DIR env var  (full override; expects same layout)
- *   2. <install root>/native   (production, packaged Electron — sibling of resources/)
- *   3. <repo>/native           (dev — found by walking up from this file)
+ *   1. WEQ_NATIVE_DIR env var          (full override; expects same layout)
+ *   2. WEQ_NINEBIRD_RUNTIME_DIR env var (override for the JS runtime dir)
+ *   3. <install root>/native           (production, packaged Electron — sibling of resources/)
+ *   4. <repo>/native                   (dev — found by walking up from this file)
  *
  * `loadNative()` is idempotent: first call resolves + requires + verifies
  * every file, subsequent calls return the cached bundle.
@@ -119,7 +124,7 @@ export function loadNative(opts: LoadNativeOptions = {}): NativeBundle {
   const nineBirdBootPath = join(nineBirdDir, 'ninebird_addon.node');
   assertExists(nineBirdBootPath, 'ninebird/ninebird_addon.node');
 
-  const resources = buildResources(nineBirdDir);
+  const resources = buildResources(nineBirdDir, nativeRoot);
 
   let ntHelper: NtHelperBinding;
   try {
@@ -301,27 +306,54 @@ function resolvePlatformRoot(nativeRoot: string): string {
   return platformRoot;
 }
 
-function buildResources(nineBirdDir: string): NineBirdResources {
+/**
+ * Directory of the platform-independent NineBird loader bundles. These are
+ * built once by `pnpm build:ninebird` from `packages/ninebird` into
+ * `resources/ninebird-runtime/`; they run inside QQ and never need to sit
+ * next to the native binaries.
+ *
+ * Derived from the native root so the same expression works in every layout:
+ * dev (`<repo>/native` → `<repo>/resources`), packaged desktop
+ * (`<install>/native` → `<install>/resources`, electron-builder copies the
+ * whole resources/ tree), and web dist (`dist/native` → `dist/resources`).
+ */
+function resolveNineBirdRuntimeDir(nativeRoot: string): string {
+  return (
+    process.env.WEQ_NINEBIRD_RUNTIME_DIR || join(nativeRoot, '..', 'resources', 'ninebird-runtime')
+  );
+}
+
+function buildResources(nineBirdDir: string, nativeRoot: string): NineBirdResources {
   // The injection medium is the one file whose name differs per OS: a
   // `LD_PRELOAD` shared object on linux, an injected DLL on win32. Both are
   // passed to launchQQ via the same `hookDllPath` field.
   const injectionMedium =
     process.platform === 'linux' ? 'ninebird_launcher.so' : 'NineBirdHook.dll';
+  const runtimeDir = resolveNineBirdRuntimeDir(nativeRoot);
   const resources: NineBirdResources = {
+    // Must keep pointing at the native ninebird/ dir: the loader scripts find
+    // `NineBird.node` there via NINEBIRD_LOADER_DIR, and @weq/service derives
+    // the nt_helper.node path from `dirname(loaderDir)`.
     loaderDir: nineBirdDir,
     hookDllPath: join(nineBirdDir, injectionMedium),
     qqntJsonPath: join(nineBirdDir, 'qqnt.json'),
     nineBirdAddonPath: join(nineBirdDir, 'NineBird.node'),
-    qrDbkeyJsPath: join(nineBirdDir, 'qr-dbkey.js'),
-    quickDbkeyJsPath: join(nineBirdDir, 'quick-dbkey.js'),
-    accountListJsPath: join(nineBirdDir, 'account-list.js'),
+    qrDbkeyJsPath: join(runtimeDir, 'qr-dbkey.js'),
+    quickDbkeyJsPath: join(runtimeDir, 'quick-dbkey.js'),
+    accountListJsPath: join(runtimeDir, 'account-list.js'),
   };
   assertExists(resources.hookDllPath, `ninebird/${injectionMedium}`);
   assertExists(resources.qqntJsonPath, 'ninebird/qqnt.json');
   assertExists(resources.nineBirdAddonPath, 'ninebird/NineBird.node');
-  assertExists(resources.qrDbkeyJsPath, 'ninebird/qr-dbkey.js');
-  assertExists(resources.quickDbkeyJsPath, 'ninebird/quick-dbkey.js');
-  assertExists(resources.accountListJsPath, 'ninebird/account-list.js');
+  assertExists(resources.qrDbkeyJsPath, 'ninebird-runtime/qr-dbkey.js — run pnpm build:ninebird');
+  assertExists(
+    resources.quickDbkeyJsPath,
+    'ninebird-runtime/quick-dbkey.js — run pnpm build:ninebird',
+  );
+  assertExists(
+    resources.accountListJsPath,
+    'ninebird-runtime/account-list.js — run pnpm build:ninebird',
+  );
   return resources;
 }
 

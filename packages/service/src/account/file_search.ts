@@ -15,7 +15,7 @@ export interface SearchResult {
   source: string | null;
   /**
    * Absolute path to a thumbnail/cover (pic/video), or — for file — a
-   * `<ext>.png` icon basename under `resources/fileIcon`. Never null for file
+   * `<ext>.png` icon basename under `resources/fileicon`. Never null for file
    * (icon is derived from the name even when the source isn't found).
    */
   thumb: string | null;
@@ -239,7 +239,7 @@ export class FileSearchService {
 
     const icon = iconMap[ext] || 'unknown.png';
     // Path relative to weq's asset protocol or absolute path
-    // Assuming the consumer knows how to resolve from /resources/fileIcon
+    // Assuming the consumer knows how to resolve from /resources/fileicon
     return icon;
   }
 }

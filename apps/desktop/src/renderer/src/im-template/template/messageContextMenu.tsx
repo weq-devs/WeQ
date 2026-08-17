@@ -1,4 +1,5 @@
 ﻿import { Copy, Download, Trash2, Edit3, Palette } from "lucide-react";
+import { useLayoutEffect, useRef } from "react";
 import type { Message } from "./types";
 import { cn } from "./classNames";
 
@@ -32,11 +33,40 @@ export function MessageContextMenu({
 	onEditRaw?: (message: Message) => void;
 	onViewDecoration?: (message: Message) => void;
 }) {
+	const menuRef = useRef<HTMLDivElement | null>(null);
 	const decoration = (state.message as { decoration?: { fontId?: number; bubbleId?: number; widgetId?: number } }).decoration;
 	const hasDecoration = decoration && (decoration.fontId || decoration.bubbleId || decoration.widgetId);
 
+	// 菜单是 fixed 定位，但打开时和滚动跟随只按估算尺寸钳制；这里用渲染后的
+	// 实际尺寸把菜单拉回窗口内，避免靠近窗口边缘（尤其底部）时被截断。
+	useLayoutEffect(() => {
+		const el = menuRef.current;
+		if (!el) {
+			return;
+		}
+		const rect = el.getBoundingClientRect();
+		const margin = 8;
+		if (state.variant === "mobile") {
+			const halfWidth = rect.width / 2;
+			el.style.left = `${Math.min(
+				Math.max(state.x, halfWidth + margin),
+				Math.max(halfWidth + margin, window.innerWidth - halfWidth - margin),
+			)}px`;
+		} else {
+			el.style.left = `${Math.min(
+				Math.max(state.x, margin),
+				Math.max(margin, window.innerWidth - rect.width - margin),
+			)}px`;
+		}
+		el.style.top = `${Math.min(
+			Math.max(state.y, margin),
+			Math.max(margin, window.innerHeight - rect.height - margin),
+		)}px`;
+	}, [state.x, state.y, state.variant]);
+
 	return (
 		<div
+			ref={menuRef}
 			className={cn(
 				"message-context-menu",
 				state.variant === "mobile" && "message-context-menu-mobile",

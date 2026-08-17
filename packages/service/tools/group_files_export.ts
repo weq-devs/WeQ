@@ -24,7 +24,7 @@ async function main(): Promise<void> {
   const info = nt.probeQqLoginInfo(pid);
   const uin = info?.uin ?? '';
   console.log(`[export] pid=${pid} uin=${uin} group=${GROUP} out=${OUT}`);
-  await nt.injectAndGetStatusEmbedded(pid);
+  await nt.injectAndGetStatusEmbedded(pid, uin);
 
   const session = {
     context: { uin },

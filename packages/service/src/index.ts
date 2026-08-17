@@ -48,8 +48,8 @@ export type {
 } from './bootstrap/user_config';
 export { AgentLabConfigService } from './bootstrap/agentlab_config';
 
-export { AvatarCacheService } from './bootstrap/avatar_cache';
-export type { AvatarBlob } from './bootstrap/avatar_cache';
+export { MediaCacheService } from './bootstrap/media_cache';
+export type { AvatarCacheService, AvatarBlob, MediaBlob, CacheSubdir } from './bootstrap/media_cache';
 
 export { LinkPreviewService } from './bootstrap/link_preview';
 export type { LinkPreview, ScreenshotHook } from './bootstrap/link_preview';

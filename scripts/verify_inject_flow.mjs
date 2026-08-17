@@ -3,7 +3,7 @@
 //
 //   1. probe a live QQ pid                                    (unprivileged)
 //   2. pkexec env ELECTRON_RUN_AS_NODE=1 <electron> injectWorker.mjs  (ROOT)
-//   3. waitForRealPacket + fetchClientKey                     (unprivileged)
+//   3. fetchClientKey                                         (unprivileged)
 //
 // This mirrors the unprivileged-host branch of createLinuxInjectHook. Run it AFTER
 // `electron-vite build` (needs out/main/injectWorker.mjs). Requires a graphical
@@ -22,11 +22,11 @@ const ELECTRON = join(REPO, 'apps', 'desktop', 'node_modules', 'electron', 'dist
 
 const log = (...a) => console.log(`[${new Date().toISOString().slice(11, 23)}]`, ...a);
 
-function pkexecInject(pid) {
+function pkexecInject(pid, uin) {
   return new Promise((resolve, reject) => {
     const child = spawn(
       'pkexec',
-      ['env', 'ELECTRON_RUN_AS_NODE=1', ELECTRON, WORKER, String(pid), NT_HELPER],
+      ['env', 'ELECTRON_RUN_AS_NODE=1', ELECTRON, WORKER, String(pid), uin, NT_HELPER],
       { stdio: ['ignore', 'pipe', 'pipe'] },
     );
     let out = '';
@@ -50,17 +50,15 @@ async function main() {
   log('QQ pids:', pids);
   if (!pids.length) return log('no QQ running — start + log in first.');
   const pid = pids[0];
-  log('probe:', nt.probeQqLoginInfo(pid));
+  const probe = nt.probeQqLoginInfo(pid);
+  log('probe:', probe);
+  const uin = probe?.uin;
+  if (!uin) throw new Error('probe 没拿到 uin，无法注入（uin 现在必须由调用方传入）。');
 
   log('--- [1] pkexec inject (root, electron-as-node) ---');
-  await pkexecInject(pid);
+  await pkexecInject(pid, uin);
 
-  log('--- [2] waitForRealPacket (unprivileged) ---');
-  log('    若长时间无响应，请给该 QQ 发一条私信以触发登录后收包。');
-  await nt.waitForRealPacket(pid, 120000);
-  log('    got real packet.');
-
-  log('--- [3] fetchClientKey (unprivileged) ---');
+  log('--- [2] fetchClientKey (unprivileged) ---');
   const ck = await nt.fetchClientKey(pid);
   log('fetchClientKey OK:', ck);
   log('>>> FULL FLOW CONFIRMED: elevated inject + unprivileged fetch <<<');

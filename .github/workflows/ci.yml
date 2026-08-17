@@ -107,6 +107,9 @@ jobs:
       - name: Build clone-bot runtime
         run: pnpm run build:bot
 
+      - name: Build ninebird runtime
+        run: pnpm run build:ninebird
+
       - name: Build renderer + main
         run: pnpm --filter @weq/desktop exec electron-vite build
 
@@ -156,6 +159,10 @@ jobs:
       # 鉴权闸 + 端到端路由测试。不需要构建产物，先跑、失败得早。
       - name: Test auth gate
         run: pnpm --filter @weq/web test
+
+      # 先打 NineBird loader 运行时，build-server 才会把它拷进 dist/resources/。
+      - name: Build ninebird runtime
+        run: pnpm run build:ninebird
 
       # build 内含 check：check-electron-free（走真实 import 图）
       # + check-bundle（扫前端产物里残留的自定义协议 URL）。

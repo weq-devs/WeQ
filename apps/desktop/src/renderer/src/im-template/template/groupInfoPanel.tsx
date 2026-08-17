@@ -6,7 +6,7 @@ import type { GroupConversationView } from "./conversationDetailsTypes";
 import { displayUserName } from "./user";
 import { cn } from "./classNames";
 
-export type GroupInfoDetail = "profile" | "announcements" | "essence" | "albums";
+export type GroupInfoDetail = "profile" | "albums";
 
 export function GroupInfoPanel({
 	conversation,
@@ -175,17 +175,12 @@ export function GroupInfoDetailDialog({
 	conversation,
 	detail,
 	onClose,
-	onJumpToMessage,
 }: {
 	conversation: GroupConversationView;
 	detail: GroupInfoDetail;
 	onClose: () => void;
-	onJumpToMessage?: (seq: number) => void;
 }) {
 	const group = conversation.group;
-	const rawAnnouncement = group.announcement?.trim();
-	const bulletins = group.bulletins ?? [];
-	const essenceMessages = group.essenceMessages ?? [];
 	const profileRows = [
 		["群名称", group.name],
 		[group.identityLabel, group.identityValue],
@@ -249,63 +244,13 @@ export function GroupInfoDetailDialog({
 							))}
 						</div>
 					) : null}
-
-					{detail === "announcements" ? (
-						<div className={cn("group-info-detail-records")}>
-							{rawAnnouncement ? (
-								<article className={cn("group-info-detail-record")}>
-									<span>当前公告</span>
-									<p>{rawAnnouncement}</p>
-								</article>
-							) : null}
-							{bulletins.map((bulletin) => (
-								<article
-									className={cn("group-info-detail-record")}
-									key={bulletin.id}
-								>
-									<span>历史公告 · {formatShortDate(bulletin.createdAt)}</span>
-									<p>{bulletin.text}</p>
-								</article>
-							))}
-							{!rawAnnouncement && bulletins.length === 0 ? (
-								<p className={cn("placeholder-text")}>暂无群公告</p>
-							) : null}
-						</div>
-					) : null}
-
-					{detail === "essence" ? (
-						<div className={cn("group-info-detail-records")}>
-							{essenceMessages.map((item) => (
-								<article
-									className={cn("group-info-detail-record")}
-									key={item.id}
-									onClick={() => onJumpToMessage?.(item.msgSeq)}
-									style={{ cursor: onJumpToMessage ? "pointer" : undefined }}
-								>
-									<span>
-										{formatShortDate(item.createdAt)}
-										{item.operatorName ? ` · ${item.operatorName}` : ""}
-									</span>
-									<p>
-										{item.active ? "已设为精华" : "已取消精华"} ·{" "}
-										{item.senderName || "Member"}
-									</p>
-								</article>
-							))}
-							{essenceMessages.length === 0 ? (
-								<p className={cn("placeholder-text")}>暂无群精华</p>
-							) : null}
-						</div>
-					) : null}
 				</div>
 			</section>
 		</div>
 	);
 }
 
-function groupInfoDetailTitle(detail: GroupInfoDetail) {
-	if (detail === "announcements") return "群公告";
-	if (detail === "essence") return "群精华";
+function groupInfoDetailTitle(_detail: GroupInfoDetail) {
 	return "群资料";
 }
 

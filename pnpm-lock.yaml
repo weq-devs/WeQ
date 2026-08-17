@@ -360,6 +360,15 @@ importers:
         specifier: ^4.19.2
         version: 4.22.4
 
+  packages/ninebird:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.6
+        version: 22.19.20
+      esbuild:
+        specifier: ^0.28.1
+        version: 0.28.1
+
   packages/platform:
     dependencies:
       '@weq/native':
