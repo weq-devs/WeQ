@@ -15,7 +15,7 @@
 
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { AvatarCacheService } from '../../bootstrap/avatar_cache';
+import type { AvatarCacheService } from '../../bootstrap/media_cache';
 
 export interface AvatarExportResult {
   /** Distinct senders we attempted. */

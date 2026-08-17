@@ -31,12 +31,12 @@ interface ToastStore {
   seq: number;
   push(input: {
     tone?: ToastTone;
-    /** 主要内容 */
-    message: ReactNode;
+    /** 主要内容（新写法） */
+    message?: ReactNode;
     /** 可选的次要信息 */
     detail?: ReactNode;
     ttl?: number;
-    // 向后兼容：支持旧的 title 字段
+    /** 向后兼容：支持旧的 title 字段 */
     title?: string;
   }): void;
   dismiss(id: number): void;

@@ -234,12 +234,12 @@ async function dressRemoteResponse(src: string): Promise<Response> {
     return outcome.ok ? fileResponse(path) : notFound(`dress video failed: ${outcome.reason}`);
   }
 
-  // 图片一律走头像那套磁盘缓存。注意聊天背景的 aioImage 没有扩展名、Content-Type 是
-  // application/octet-stream,但内容就是 PNG,浏览器按魔数认,不影响渲染。
+  // 图片一律走装扮缓存（独立子目录，30天TTL）。注意聊天背景的 aioImage 没有扩展名、
+  // Content-Type 是 application/octet-stream,但内容就是 PNG,浏览器按魔数认,不影响渲染。
   const cache = getAppContext().bootstrap?.avatarCache;
   if (!cache) return notFound('dress cache unavailable');
   try {
-    const blob = await cache.get(src);
+    const blob = await cache.get(src, 'dress');
     return new Response(new Uint8Array(blob.data), {
       status: 200,
       headers: { 'Content-Type': blob.contentType, 'Cache-Control': 'public, max-age=86400' },

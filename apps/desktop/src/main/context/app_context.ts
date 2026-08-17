@@ -45,7 +45,7 @@ import {
   Win32DetectService,
   Win32KeyService,
   GlobalConfigService,
-  AvatarCacheService,
+  MediaCacheService,
   LinkPreviewService,
   AgentLabConfigService,
   VoiceTranscribeService,
@@ -356,7 +356,7 @@ export interface BootstrapServices {
   keys: Win32KeyService;
   userConfig: UserConfigService;
   globalConfig: GlobalConfigService;
-  avatarCache: AvatarCacheService;
+  avatarCache: MediaCacheService;
   /** 聊天里裸链接 → og 卡片（抓取带 SSRF 闸门，见 service 侧）。Account-independent。 */
   linkPreview: LinkPreviewService;
   agentLabConfig: AgentLabConfigService;
@@ -668,7 +668,7 @@ export function initAppContext(): AppContext {
     keys: new Win32KeyService(platform, stubHooks),
     userConfig,
     globalConfig: new GlobalConfigService(platform, userConfig),
-    avatarCache: new AvatarCacheService(userConfig),
+    avatarCache: new MediaCacheService(userConfig),
     linkPreview,
     agentLabConfig: new AgentLabConfigService(userConfig),
     voiceTranscribe: new VoiceTranscribeService(platform),

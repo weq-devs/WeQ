@@ -158,6 +158,15 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
         )
       : null;
 
+  // 纵向 padding:基础按 0.6 比例,不对称时用差值补偿。
+  // top 小(装饰少) → 需要增大 topPad 把文字往下推离顶部
+  // bottom 小 → 需要增大 bottomPad 把文字往上推离底部
+  const avgSlice = (top + bottom) / 2;
+  const topDiff = avgSlice - top;    // top 小时为正,需要补偿
+  const bottomDiff = avgSlice - bottom;
+  const topPad = wTop * PAD_RATIO_Y + topDiff * BUBBLE_SCALE * 0.5;
+  const bottomPad = wBottom * PAD_RATIO_Y + bottomDiff * BUBBLE_SCALE * 0.5;
+
   const rules = [
     frameAnim?.keyframes ?? '',
     `${sel} {`,
@@ -177,10 +186,9 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
     `  border-radius: 0;`,
     frameAnim ? `  animation: ${frameAnim.animation};` : '',
     // 横向内边距必须**盖满整条左右切片**,文字只能落在中间那 2px 的拉伸区上。
-    // 用 npTc 那个 0.6 会让文字压进角落的装饰画(实测「简约鲸鱼」那款,鲸鱼和气泡尖
-    // 都在左右切片里,文字直接骑上去)。纵向按各自切片厚度的 0.6 + 4px 安全边距,
-    // 避免文字冲进装饰区或因行高下沉超出气泡边界。
-    `  padding: ${px(wTop * PAD_RATIO_Y )} ${px(Math.max(wLeft, wRight))} ${px(wBottom * PAD_RATIO_Y + 4)};`,
+    // 纵向 padding:让文字对齐拉伸源。top < bottom 时拉伸源偏上,减少上 padding;
+    // top > bottom 时拉伸源偏下,增加上 padding。公式源自九宫格恒等式(bubble_skin.ts:323)。
+    `  padding: ${px(topPad)} ${px(Math.max(wLeft, wRight))} ${px(bottomPad)};`,
     `  min-width: ${px((left + right) * BUBBLE_SCALE)};`,
     `  min-height: ${px((top + bottom) * BUBBLE_SCALE)};`,
     `}`,

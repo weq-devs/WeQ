@@ -15,7 +15,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node
 import { join } from 'node:path';
 import type { TrpcNative } from '@weq/protocol';
 import { getBubbleResources, getFontResource, getPendantResources } from '@weq/protocol';
-import type { AvatarCacheService } from '../bootstrap/avatar_cache';
+import type { AvatarCacheService } from '../bootstrap/media_cache';
 import type { NtHelperBinding } from '@weq/native';
 import { getLogger, logErrorContext } from '../common/logger';
 import {

@@ -13,7 +13,7 @@ import { DressConfigService, type DressScope, type DressBackgroundSource } from 
 import { DressSharedCache, fontFamilyFor } from './dress_shared_cache';
 import type { TrpcNative } from '@weq/protocol';
 import type { NtHelperBinding } from '@weq/native';
-import type { AvatarCacheService } from '../bootstrap/avatar_cache';
+import type { AvatarCacheService } from '../bootstrap/media_cache';
 
 /** 已装的一款字体（兼容旧接口）。 */
 export interface InstalledFont {
