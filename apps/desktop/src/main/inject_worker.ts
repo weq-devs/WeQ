@@ -39,12 +39,12 @@ function fail(error: string, code: number): never {
 
 async function main(): Promise<void> {
   const pid = Number(process.argv[2]);
-  const ntHelperPath = process.argv[3];
-  const uin = process.argv[4];
+  const uin = process.argv[3];
+  const ntHelperPath = process.argv[4];
 
   if (!Number.isInteger(pid) || pid <= 0) fail(`bad pid: ${process.argv[2]}`, 2);
-  if (!ntHelperPath) fail('missing nt_helper.node path (argv[3])', 2);
-  if (!uin) fail('missing account uin (argv[4])', 2);
+  if (!uin) fail('missing account uin (argv[3])', 2);
+  if (!ntHelperPath) fail('missing nt_helper.node path (argv[4])', 2);
 
   // Must run BEFORE require — the addon's LICENSE check runs on load, and it
   // walks up from cwd. The addon dir's ancestors contain the LICENSE.
