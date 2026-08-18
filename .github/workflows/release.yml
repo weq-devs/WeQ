@@ -15,9 +15,9 @@ permissions:
   contents: write # 创建 / 上传 Release
 
 jobs:
-  # ============================ 发布门禁 ============================
-  # 只允许「最后一次 commit」以 Release: / chore(release): 开头的 tag 触发发布；
-  # 不匹配时全部构建发布 job 自动跳过（不删 tag，运行显示绿色 no-op）。
+  # ========================= QQ 通知门禁 =========================
+  # 只有「最后一次 commit」以 Release: / chore(release): 开头时才发 QQ 群通知；
+  # 不匹配时仅跳过最后的 qq-notify，构建、发布、Release 说明照常进行。
   gate:
     runs-on: ubuntu-latest
     steps:
@@ -42,8 +42,6 @@ jobs:
   # Win 专属 NSIS 目标 + 预编译的 native/win32/x64/*.node 都在 Windows 下，
   # 因此在 windows-latest 上构建。此 job 负责建立 Release 并上传 latest.yml。
   windows:
-    needs: [gate]
-    if: needs.gate.outputs.release == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -135,8 +133,6 @@ jobs:
   # 原生 x64 runner 构建 AppImage / tar.gz。native/linux/x64/*.node 已预编译，
   # sherpa-onnx / resvg 等原生依赖由 pnpm install 自动装 x64 版本。
   linux-x64:
-    needs: [gate]
-    if: needs.gate.outputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -198,8 +194,6 @@ jobs:
   # 均为 ELF aarch64），但整体是否可用未验证。用原生 arm64 runner
   # （公开仓库免费）构建，让 sherpa-onnx / resvg 装到正确的 arm64 版本。
   linux-arm64:
-    needs: [gate]
-    if: needs.gate.outputs.release == 'true'
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
@@ -369,7 +363,8 @@ jobs:
   # 消息内容取最后一次 commit 正文（用户约定在此写本次更新说明）。
   # Windows exe 通过分块上传直传 QQ（GitHub CDN 在大陆不可访问）。
   qq-notify:
-    needs: [notes]
+    needs: [notes, gate]
+    if: needs.gate.outputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
