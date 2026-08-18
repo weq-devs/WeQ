@@ -97,6 +97,7 @@ import {
   WebQueryService,
   GroupAlbumMediaService,
   GroupFileService,
+  PeerStatsService,
   DbWatchService,
   checkAccountDatabaseHealth,
   createNtMsgDbHook,
@@ -387,6 +388,8 @@ export interface AccountServices {
   groupAlbumMedia: GroupAlbumMediaService;
   /** 群文件目录列表 (OIDB 0x6D8_1),同样需要在线的已注入 QQ 进程。 */
   groupFile: GroupFileService;
+  /** 他人的个性主页统计（QQ 等级 + 资料卡累计获赞），需在线 QQ 发包。 */
+  peerStats: PeerStatsService;
   /** QQ 收藏 (favorites) reader over collection.db. */
   collection: CollectionService;
   /** 个性装扮（气泡/字体/背景）— 新架构：config 账号隔离，cache 全局共享。 */
@@ -1015,6 +1018,7 @@ export function initAppContext(): AppContext {
           resolveOnlinePid,
         ),
         groupFile: new GroupFileService(platform.native.ntHelper, session, resolveOnlinePid),
+        peerStats: new PeerStatsService(platform.native.ntHelper, session, resolveOnlinePid),
       };
       // Scheduled export manager — fires saved templates through the export
       // manager on a single setTimeout wake. Per-account cache mirrors the
@@ -1373,6 +1377,7 @@ export function initAppContext(): AppContext {
         webQuery,
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, livePid),
         groupFile: new GroupFileService(platform.native.ntHelper, session, livePid),
+        peerStats: new PeerStatsService(platform.native.ntHelper, session, livePid),
       };
 
       // Persist metadata keyed by the decrypted-db directory, so re-opening

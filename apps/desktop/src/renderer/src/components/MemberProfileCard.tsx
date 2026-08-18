@@ -339,6 +339,7 @@ export function MemberProfileCard({ member, anchor, onClose }) {
 			{homeOpen ? (
 				<PersonalityHomeDialog
 					uin={uin}
+					uid={member.id}
 					isBot={member.kind === "bot"}
 					profile={toPersonalityProfile(
 						{

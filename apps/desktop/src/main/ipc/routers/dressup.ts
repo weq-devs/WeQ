@@ -45,6 +45,8 @@ const OFFLINE_HINT =
 const PEER_HOME_HINT =
   '获取失败 —— 个性主页要拿该账号的 QQ 会员票据去查，请确认这个账号的 QQ 客户端正在运行。';
 
+const PEER_STATS_HINT = '获取失败 —— 个性主页的 QQ 等级与获赞要发 OIDB 包，请确认这个账号的 QQ 客户端正在运行。';
+
 const kindInput = z.enum(['bubble', 'font']);
 type DressKindInput = z.infer<typeof kindInput>;
 
@@ -349,5 +351,23 @@ export const dressupRouter = router({
       // 与网络失败同因同果,给同一句提示。
       if (!dress) throw new Error(PEER_HOME_HINT);
       return toPeerDress(dress);
+    }),
+
+  /**
+   * 他人的个性主页统计（QQ 等级 + 资料卡累计获赞）。
+   *
+   * 走两条 OIDB：0xFE1_2 按 uin 查等级、0x7ED_12 按 uid 查 voteInfo 累计获赞。
+   * 与 peerHome 同属「个性主页」数据，同样需要在线实例发包；失败统一转成
+   * 「需要在线实例」的提示，前端静默不渲染该行即可。
+   */
+  peerStats: procedure
+    .input(z.object({ uin: z.string().regex(/^\d{5,}$/), uid: z.string().min(1) }))
+    .query(async ({ input }) => {
+      const services = requireServices();
+      try {
+        return await services.peerStats.getPeerStats(input.uin, input.uid);
+      } catch {
+        throw new Error(PEER_STATS_HINT);
+      }
     }),
 });

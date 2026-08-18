@@ -5,22 +5,56 @@
  * 区别是这里不放问候语和打字机，头像下方改为账号信息（特权徽章 / 所在地 / 个性标签 /
  * 精选图）。刻意不显示 uid —— 这是一张给人看的卡片，不是调试面板。
  *
- * 数据分两路：
+ * 数据分三路：
  *  - **装扮**（挂件 / 名片 / 浮屏）必须联网：走 `dressup.peerHome`，后端抓 QQ 会员的
  *    SSR 装扮页，要该账号的 p_skey，因此需要 QQ 客户端在线。SSR 页面本身就慢（数秒），
  *    所以这一路单独一个 query + 骨架动画，不阻塞资料。
  *  - **资料**（标签 / 特权 / 所在地 / 精选图）来自 profile_info_v6，本地库直接有，
  *    调用方（资料灯箱）已经拿在手里，原样传进来即可。
+ *  - **统计**（QQ 等级 + 累计获赞）走 `dressup.peerStats`：两条 OIDB 都要在线实例发包，
+ *    但比 SSR 快得多（毫秒级），数据到了再补一行徽章，不占骨架。
  */
 
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Loader2, MapPin, Sparkles, WifiOff, X } from 'lucide-react';
+import { Heart, Loader2, MapPin, Sparkles, WifiOff, X } from 'lucide-react';
 import { AvatarOrb, CardBackdrop, ScreenRain, TagRing } from './dressPieces';
 import { openLightbox } from './ImageLightbox';
-import { albumMediaUrl, collectionImageUrl, dressUrl } from '../lib/resourceUrl';
+import { albumMediaUrl, collectionImageUrl, dressUrl, resourceUrl } from '../lib/resourceUrl';
 import { trpc } from '../trpc/client';
 import botCardUrl from '@resources/img/bot.png';
+
+/**
+ * QQ 等级按 4 进制拆成图标序列：1 星 / 4 月 / 16 日 / 64 冠 / 256 企鹅，
+ * 从大到小排（企鹅 → 皇冠 → 太阳 → 月亮 → 星星），每档最多 3 个。
+ * 等级 0（新号 / 查询未命中）只画一枚半星。顶位企鹅超过 3 只时补一枚「…」。
+ */
+function qqLevelIconNames(level: number): string[] {
+  if (level <= 0) return ['half'];
+  const units: Array<{ name: string; value: number }> = [
+    { name: 'penguin', value: 256 },
+    { name: 'crown', value: 64 },
+    { name: 'sun', value: 16 },
+    { name: 'moon', value: 4 },
+    { name: 'star', value: 1 },
+  ];
+  const icons: string[] = [];
+  let rest = level;
+  for (const { name, value } of units) {
+    const count = Math.min(Math.floor(rest / value), 3);
+    rest %= value;
+    for (let i = 0; i < count; i++) icons.push(name);
+    if (name === 'penguin' && count === 3 && level >= 4 * value) icons.push('more');
+  }
+  return icons;
+}
+
+/** 获赞数超过一万按「万」缩略（12345 → 1.2万）。 */
+function formatLikeCount(count: number): string {
+  if (count < 10000) return String(count);
+  const wan = count / 10000;
+  return `${Math.round(wan * 10) / 10}万`;
+}
 
 /** 与资料灯箱同一份形状（profilePanes 的 ProfileExtInfo），只取渲染要用的字段。 */
 export interface PersonalityHomeProfile {
@@ -39,12 +73,15 @@ export interface PersonalityHomeProfile {
 
 export function PersonalityHomeDialog({
   uin,
+  uid,
   profile,
   isBot = false,
   onClose,
 }: {
   /** 目标 QQ 号。装扮页只认 uin，拿不到 uin 的联系人不该开这个入口。 */
   uin: string;
+  /** 目标 uid（0x7ED_12 按 uid 查获赞）。资料灯箱/群成员卡都有，拿不到就只显示等级。 */
+  uid?: string;
   profile: PersonalityHomeProfile;
   /** 机器人没有会员装扮，跳过联网请求，直接用内置名片。 */
   isBot?: boolean;
@@ -54,6 +91,15 @@ export function PersonalityHomeDialog({
     { uin },
     // SSR 页面每次都要几秒，失败多半是票据/风控而不是抖动，重试只会让用户多等一轮。
     { enabled: !isBot, retry: false, refetchOnWindowFocus: false, staleTime: 5 * 60_000 },
+  );
+  const stats = trpc.account.dressup.peerStats.useQuery(
+    { uin, uid: uid ?? '' },
+    {
+      enabled: Boolean(uid) && !isBot,
+      retry: false,
+      refetchOnWindowFocus: false,
+      staleTime: 5 * 60_000,
+    },
   );
 
   useEffect(() => {
@@ -116,6 +162,32 @@ export function PersonalityHomeDialog({
 
           <h2 className="weq-perhome-name">{profile.name}</h2>
           {profile.signature ? <p className="weq-perhome-sign">{profile.signature}</p> : null}
+
+          {stats.data ? (
+            <div className="weq-perhome-stats">
+              <span className="weq-perhome-stat" title={`QQ 等级 ${stats.data.level} 级`}>
+                <span className="weq-perhome-level-icons">
+                  {qqLevelIconNames(stats.data.level).map((name, index) => (
+                    <img
+                      // biome-ignore lint/suspicious/noArrayIndexKey: 同名图标可重复,位置才是稳定键
+                      key={`${name}:${index}`}
+                      src={resourceUrl('qqlevel', '4', `${name}.png`)}
+                      alt=""
+                    />
+                  ))}
+                </span>
+                <strong>Lv.{stats.data.level}</strong>
+              </span>
+              <span
+                className="weq-perhome-stat weq-perhome-stat-like"
+                title={`累计获赞 ${stats.data.likeCount}`}
+              >
+                <Heart size={13} fill="currentColor" />
+                <strong>{formatLikeCount(stats.data.likeCount)}</strong>
+                <span>获赞</span>
+              </span>
+            </div>
+          ) : null}
 
           {profile.privileges.length || profile.region ? (
             <div className="weq-perhome-chips">

@@ -10220,6 +10220,64 @@ html[data-theme="dark"] .weq-persona-modal {
   object-fit: contain;
 }
 
+/* QQ 等级 + 累计获赞统计徽章（dressup.peerStats 那一路，毫秒级 OIDB）。 */
+.weq-perhome-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.weq-perhome-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 11px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.weq-perhome-stat strong {
+  color: var(--weq-fg-primary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-perhome-level-icons {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.weq-perhome-level-icons img {
+  width: 17px;
+  height: 17px;
+  object-fit: contain;
+}
+
+/* 获赞徽章：粉色心 + 数字，跟等级徽章同尺寸、不抢戏。 */
+.weq-perhome-stat-like {
+  border-color: color-mix(in srgb, #f25c8d 32%, transparent);
+  background: color-mix(in srgb, #f25c8d 9%, transparent);
+  color: #d4437a;
+}
+
+.weq-perhome-stat-like svg {
+  color: #f25c8d;
+}
+
+.weq-perhome-stat-like strong {
+  color: #d4437a;
+}
+
 .weq-perhome-album {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -10295,6 +10353,26 @@ html[data-theme="dark"] .weq-persona-modal {
 .weq-perhome.is-onphoto .weq-perhome-chip {
   background: rgba(255, 255, 255, 0.12);
   border-color: rgba(255, 255, 255, 0.26);
+}
+
+.weq-perhome.is-onphoto .weq-perhome-stat {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.26);
+  color: #fff;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
+}
+
+.weq-perhome.is-onphoto .weq-perhome-stat strong {
+  color: #fff;
+}
+
+.weq-perhome.is-onphoto .weq-perhome-stat-like {
+  color: #ffd6e4;
+}
+
+.weq-perhome.is-onphoto .weq-perhome-stat-like svg,
+.weq-perhome.is-onphoto .weq-perhome-stat-like strong {
+  color: #ff8fb5;
 }
 
 .weq-perhome.is-onphoto .weq-perhome-loading {

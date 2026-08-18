@@ -332,6 +332,8 @@ export type {
 
 export { MediaUrlService, mediaNodeFromElement, downloadUrlToFile } from './account/media_url';
 export type { MediaElement, GroupFileDownload, DownloadOutcome } from './account/media_url';
+export { PeerStatsService } from './account/peer_stats';
+export type { PeerStats } from './account/peer_stats';
 
 // ---- export pipeline (account/export) ----
 export {
