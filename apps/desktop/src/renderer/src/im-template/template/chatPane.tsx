@@ -1660,7 +1660,8 @@ export function ChatPane({
 										onLongPress={openMobileMessageMenu}
 										onAction={onMessageAction}
 										onAvatarClick={
-											conversation.type === "group" && onOpenGroupMember
+											(conversation.type === "group" || conversation.type === "direct") &&
+											onOpenGroupMember
 												? onOpenGroupMember
 												: undefined
 										}

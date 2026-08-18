@@ -1,12 +1,12 @@
 // @ts-nocheck
 /**
- * 群成员资料卡片（贴光标弹出的 anchored popover）。
+ * 用户资料卡片（贴光标弹出的 anchored popover）。
  *
- * 点击群成员列表某一行时，在鼠标点击处弹出。基础信息（头像 / 群名片 / 角色 /
- * 头衔 / 等级 / 入群时间）直接取自已在手的 GroupMember，QQ 号 / 昵称 / 性别 /
- * 年龄 / 生日 / 签名 / 亲密度等「陌生人资料」字段异步走 account.getProfile(uid)
- * 从 profile_info_v6 补全。视觉沿用好友资料灯箱（weq-profile-*）的设计语言，
- * 只是把居中灯箱换成贴光标的浮层。
+ * 群聊里点击群成员列表某一行、私聊里点击对方消息头像时，在鼠标点击处弹出。
+ * 群聊的基础信息（头像 / 群名片 / 角色 / 头衔 / 等级 / 入群时间）直接取自已在
+ * 手的 GroupMember；QQ 号 / 昵称 / 性别 / 年龄 / 生日 / 签名 / 亲密度等
+ * 「陌生人资料」字段异步走 account.getProfile(uid) 从 profile_info_v6 补全。
+ * 视觉沿用好友资料灯箱（weq-profile-*）的设计语言，只是把居中灯箱换成贴光标的浮层。
  */
 import {
 	Award,
@@ -70,6 +70,7 @@ export function MemberProfileCard({ member, anchor, onClose }) {
 	const [profile, setProfile] = useState(null);
 	const [loading, setLoading] = useState(true);
 	const [copied, setCopied] = useState(false);
+	const [uidCopied, setUidCopied] = useState(false);
 	const [homeOpen, setHomeOpen] = useState(false);
 	const [markOpen, setMarkOpen] = useState(false);
 	// 机器人档案（profile_info_adelie）。QQ 只在客户端打开过该机器人资料卡后才
@@ -175,6 +176,14 @@ export function MemberProfileCard({ member, anchor, onClose }) {
 		}
 	}
 
+	async function copyUid() {
+		const ok = await copyTextToClipboard(uid);
+		if (ok) {
+			setUidCopied(true);
+			window.setTimeout(() => setUidCopied(false), 1500);
+		}
+	}
+
 	return createPortal(
 		<div
 			className="weq-member-pop-scrim"
@@ -193,7 +202,7 @@ export function MemberProfileCard({ member, anchor, onClose }) {
 				}}
 				role="dialog"
 				aria-modal="true"
-				aria-label="群成员资料"
+				aria-label="用户资料"
 				onMouseDown={(event) => event.stopPropagation()}
 			>
 				<button
@@ -279,7 +288,23 @@ export function MemberProfileCard({ member, anchor, onClose }) {
 					{profile?.qid ? (
 						<ProfileRow icon={<Fingerprint size={13} />} label="QID" value={profile.qid} mono />
 					) : null}
-					<ProfileRow icon={<Hash size={13} />} label="UID" value={uid} mono />
+					<ProfileRow
+						icon={<Hash size={13} />}
+						label="UID"
+						value={uid}
+						mono
+						action={
+							<button
+								className="weq-profile-row-copy"
+								type="button"
+								title="复制 UID"
+								aria-label="复制 UID"
+								onClick={copyUid}
+							>
+								{uidCopied ? <Check size={12} /> : <Copy size={12} />}
+							</button>
+						}
+					/>
 					{botProfile?.wakeCommand ? (
 						<ProfileRow
 							icon={<Terminal size={13} />}

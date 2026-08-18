@@ -771,6 +771,7 @@ export function ProfileRow({
 	mono,
 	accent,
 	multiline,
+	action,
 }: {
 	icon?: React.ReactNode;
 	label: string;
@@ -778,6 +779,8 @@ export function ProfileRow({
 	mono?: boolean;
 	accent?: boolean;
 	multiline?: boolean;
+	/** 行尾追加的操作（例如复制按钮），自动与 value 归为一行右侧。 */
+	action?: React.ReactNode;
 }) {
 	if (multiline) {
 		return (
@@ -796,9 +799,18 @@ export function ProfileRow({
 				{icon}
 				{label}
 			</span>
-			<strong className={cn(mono && "weq-number", accent && "is-accent")}>
-				{value}
-			</strong>
+			{action ? (
+				<span className="weq-profile-row-value">
+					<strong className={cn(mono && "weq-number", accent && "is-accent")}>
+						{value}
+					</strong>
+					{action}
+				</span>
+			) : (
+				<strong className={cn(mono && "weq-number", accent && "is-accent")}>
+					{value}
+				</strong>
+			)}
 		</div>
 	);
 }

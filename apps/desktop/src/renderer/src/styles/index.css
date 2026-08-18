@@ -5791,6 +5791,7 @@ html[data-theme="dark"] .weq-settings-preset-preview.is-style-soon {
 
 .weq-profile-list {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   margin-top: 16px;
   padding: 2px 12px;
   border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
@@ -5800,6 +5801,7 @@ html[data-theme="dark"] .weq-settings-preset-preview.is-style-soon {
 
 .weq-profile-row {
   display: flex;
+  min-width: 0;
   min-height: 38px;
   align-items: center;
   justify-content: space-between;
@@ -5838,6 +5840,41 @@ html[data-theme="dark"] .weq-settings-preset-preview.is-style-soon {
 }
 
 .weq-profile-row strong.is-accent {
+  color: var(--weq-accent-effective);
+}
+
+.weq-profile-row-value {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+  max-width: 64%;
+}
+
+.weq-profile-row-value strong {
+  max-width: 100%;
+}
+
+.weq-profile-row-copy {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+  border-radius: 7px;
+  background: transparent;
+  color: #6a8aa3;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.weq-profile-row-copy:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 30%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
   color: var(--weq-accent-effective);
 }
 
@@ -5963,6 +6000,17 @@ html[data-theme="dark"] .weq-profile-row-label svg {
 html[data-theme="dark"] .weq-profile-row strong,
 html[data-theme="dark"] .weq-profile-row-text {
   color: #dfe2e7;
+}
+
+html[data-theme="dark"] .weq-profile-row-copy {
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #9aa3ad;
+}
+
+html[data-theme="dark"] .weq-profile-row-copy:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  color: var(--weq-accent-effective);
 }
 
 html[data-theme="dark"] .weq-profile-members-head {
