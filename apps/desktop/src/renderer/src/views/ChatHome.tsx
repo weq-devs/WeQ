@@ -18,6 +18,7 @@
 import { useEffect, useState } from 'react';
 import { AvatarOrb, CardBackdrop, ScreenRain, TagRing } from '../components/dressPieces';
 import { dressUrl } from '../lib/resourceUrl';
+import { useThemeStore } from '../state/theme';
 import { trpc } from '../trpc/client';
 
 interface Verse {
@@ -95,6 +96,8 @@ export function ChatHome({
   nickname: string;
   avatarUrl?: string | null;
 }) {
+  // 订阅深浅色:被拦截的会员广告占位图按主题换图,主题切换时 URL 要重建重拉。
+  useThemeStore((s) => s.resolved);
   const dressQuery = trpc.account.getHomeDress.useQuery(undefined, {
     refetchOnWindowFocus: false,
     // 首次进入时 fetchHomeDress 可能还在后台写入，轮询直到拿到数据

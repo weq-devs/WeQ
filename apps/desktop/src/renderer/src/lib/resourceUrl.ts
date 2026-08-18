@@ -7,6 +7,8 @@
  * instead. `VITE_WEQ_TARGET` is set by each app's vite config.
  */
 
+import { useThemeStore } from '../state/theme';
+
 const IS_WEB = import.meta.env.VITE_WEQ_TARGET === 'web';
 
 /** `weq-asset://` on Electron, `/_asset/` in the browser. */
@@ -69,7 +71,9 @@ export function collectionImageUrl(src: string): string {
  * 直连 CDN(也就不用为它放开 CSP)。空串原样返回,方便调用方直接 `url && <img …>`。
  */
 export function dressUrl(src: string): string {
-  return src ? mediaUrl('dress', { src }) : '';
+  if (!src) return '';
+  // 带上当前深浅色:被拦截的 QQ 会员广告图按主题回不同占位图(见 media_protocol.ts)。
+  return mediaUrl('dress', { src, theme: useThemeStore.getState().resolved });
 }
 
 /**

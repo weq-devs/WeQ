@@ -36,9 +36,11 @@
 }
 
 .chat-empty img {
-	width: 150px;
-	height: 150px;
-	opacity: 0.96;
+	/* 等比例放大到与 chat-main 等宽,外层 grid 居中;竖版原图(1081×1920)
+	   纵向会超出容器,正好铺出满幅背景效果,深浅模式同一档半透明。 */
+	width: 100%;
+	height: auto;
+	opacity: 0.3;
 }
 
 .loading-state {

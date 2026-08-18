@@ -17,7 +17,8 @@ import {
 	Smile,
 	Sparkles,
 } from "lucide-react";
-import { FaQq } from "react-icons/fa";
+import { resourceUrl } from "../../lib/resourceUrl";
+import { useThemeStore } from "../../state/theme";
 import { Fragment, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ReplyJumpContext } from "../../components/QqMessageContent";
 import { ChatBackdrop } from "../../components/ChatBackdrop";
@@ -266,6 +267,8 @@ export function ChatPane({
 	/** Restore one WeQ-deleted message (the overlay's hover button). */
 	onRestoreMessage?: (msgId: string) => Promise<void>;
 }) {
+	// 空态占位图按深浅色切换(im_1.png / im_2.jpg),订阅主题以即时跟随。
+	const theme = useThemeStore((s) => s.resolved);
 	// 复用 replyJump 的跳转能力（含翻页/重建窗口），供群精华消息跳转使用。
 	const jumpToSeq = useContext(ReplyJumpContext);
 	const backdrop = useChatBackdrop();
@@ -1332,7 +1335,12 @@ export function ChatPane({
 	if (!conversation) {
 		return (
 			<section className={cn("chat-empty")}>
-				<FaQq className={cn("chat-empty-logo")} aria-hidden />
+				<img
+					className={cn("chat-empty-logo")}
+					src={resourceUrl("img", theme === "dark" ? "im_2.jpg" : "im_1.png")}
+					alt=""
+					draggable={false}
+				/>
 			</section>
 		);
 	}

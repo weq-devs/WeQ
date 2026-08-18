@@ -47,6 +47,7 @@ import {
   type MediaElement,
 } from '@weq/service';
 import { getAppContext } from './context/app_context';
+import { resolveResource } from './resource';
 import { decodeSilkToWav } from './voice';
 
 /** rkey types accepted when downloading the video COVER (thumb only; the
@@ -222,9 +223,18 @@ async function albumRemoteResponse(src: string): Promise<Response> {
  * 磁盘缓存;名片视频(mp4,实测 2.4MB)体积大且要支持 range 播放,单独落到 media/dress 下
  * 再按文件流回 —— 走 avatarCache 会把整段读进内存,不划算。
  */
-async function dressRemoteResponse(src: string): Promise<Response> {
+async function dressRemoteResponse(src: string, theme: string | null): Promise<Response> {
   if (!/^https:\/\//i.test(src)) return notFound('dress asset needs https url');
-  const host = new URL(src).hostname.toLowerCase();
+  const url = new URL(src);
+  const host = url.hostname.toLowerCase();
+
+  // QQ 会员「没开装扮」时接口回默认款,素材是官方推广图(实测 card/item/0/new1.png)。
+  // 那是广告不是这个人的装扮,一律不返回。
+  if (url.pathname === '/card/item/0/new1.png') {
+    // 渲染层把它当名片预览用,不能裂图 —— 回本地占位图:浅色 im_1.png,深色 im_2.jpg。
+    const placeholder = resolveResource('img', theme === 'dark' ? 'im_2.jpg' : 'im_1.png');
+    return placeholder ? streamFile(placeholder) : notFound('dress ad blocked');
+  }
   if (host !== 'tianquan.gtimg.cn') return notFound('dress host not allowed');
 
   // 名片视频:按 url 哈希落盘,命中直接文件流(支持 range),未命中先下再流。
@@ -266,7 +276,7 @@ export function handleMediaRequest(request: Request): Promise<Response> {
     // 装扮资源只依赖 bootstrap 的缓存,不需要打开的账号 —— 放在 services 断言之前。
     if (kind === 'dress') {
       try {
-        return await dressRemoteResponse(q.get('src') ?? '');
+        return await dressRemoteResponse(q.get('src') ?? '', q.get('theme'));
       } catch (e) {
         console.error('[media] dress failed:', e);
         return new Response('media error', { status: 500 });
