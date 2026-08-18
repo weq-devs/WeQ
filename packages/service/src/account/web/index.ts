@@ -25,11 +25,13 @@ import {
   type QzoneFeedsResult,
 } from './qzone';
 import { getSelfDress, type SelfDress } from './self_dress';
+import { getFriendMutualMark, type FriendMutualMark } from './friend_mutualmark';
 import { getDressRank, searchDress, type DressAppId, type DressMallItem } from './dress_mall';
 
 const QUN_DOMAIN = 'qun.qq.com';
 const QZONE_DOMAIN = 'qzone.qq.com';
 const VIP_DOMAIN = 'vip.qq.com';
+const TI_DOMAIN = 'ti.qq.com';
 
 export class WebQueryService {
   private readonly creds: WebCredentialProvider;
@@ -62,6 +64,11 @@ export class WebQueryService {
   /** 查**本账号**正在用的全部装扮 —— 含查他人拿不到的气泡/字体。 */
   async getSelfDress(): Promise<SelfDress> {
     return withRetry(this.creds, VIP_DOMAIN, (c) => getSelfDress(c));
+  }
+
+  /** 查 `targetUin` 与你之间的互动标识(任务进度/关系标识),按 ti.qq.com 域取 skey/pskey。 */
+  async getFriendMutualMark(targetUin: string): Promise<FriendMutualMark> {
+    return withRetry(this.creds, TI_DOMAIN, (c) => getFriendMutualMark(c, targetUin));
   }
 
   /** 装扮商城排行榜。 */
@@ -111,6 +118,13 @@ export type { WebCredential } from './credential';
 export { getFriendDress } from './friend_dress';
 export type { FriendDress, FriendDressItem } from './friend_dress';
 export { getSelfDress } from './self_dress';
+export { getFriendMutualMark } from './friend_mutualmark';
+export type {
+  FriendMutualMark,
+  FriendMarkCategory,
+  FriendMark,
+  FriendMarkLevel,
+} from './friend_mutualmark';
 export type { SelfDress, SelfDressItem } from './self_dress';
 export { dressKind } from './dress_kind';
 export { getGroupNotice } from './group_notice';
