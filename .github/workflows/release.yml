@@ -20,8 +20,13 @@ jobs:
   # 不匹配时仅跳过最后的 qq-notify，构建、发布、Release 说明照常进行。
   gate:
     runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.check.outputs.release }}
+
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Check last commit subject
         id: check
