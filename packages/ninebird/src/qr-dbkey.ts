@@ -409,7 +409,6 @@ async function main() {
             );
         });
 
-        // 启动引擎
         if (startupSession) {
             startupSession.start();
         } else {

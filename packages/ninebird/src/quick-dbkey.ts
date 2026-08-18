@@ -26,26 +26,6 @@ const TARGET_UIN = process.env.NINEBIRD_TARGET_UIN || '';
 const PIPE_NAME  = process.env.NINEBIRD_PIPE_NAME || '';
 const TIMEOUT_MS = parseInt(process.env.NINEBIRD_TIMEOUT_MS || '30000', 10);
 
-// ---- 统一日志 -------------------------------------------------------------
-// 与 addon / launcher.so 共用 NINEBIRD_LOG，串起整条注入链。loader 跑在 QQ
-// 进程里、stdio 常被重定向到 /dev/null（headless），所以必须落文件才看得到。
-// 这行日志一旦出现，就证明：stub 被 require、真实 loader 也加载了。
-// const NB_LOG = process.env.NINEBIRD_LOG || '';
-// function nbLog(msg: string): void {
-//     if (!NB_LOG) return;
-//     try {
-//         fs.appendFileSync(NB_LOG, `[loader:quick pid=${process.pid}] ${msg}\n`);
-//     } catch { /* 日志尽力而为，不影响主流程 */ }
-// }
-// nbLog(`loaded. PIPE_NAME=${PIPE_NAME} TARGET_UIN=${TARGET_UIN} TIMEOUT_MS=${TIMEOUT_MS}`);
-
-//
-// Pipe 协议：每条消息一行 NDJSON。
-//   { kind: 'login-list', list: LoginListSummary[] }
-//   { kind: 'result',     success: boolean, dbkey?: string, error?: string }
-//
-// 一条连接的整个生命周期就是 quick-dbkey.js 进程的生命周期，发完 result 再 end。
-//
 
 let pipeClient: net.Socket | null = null;
 let shutdownCalled = false;

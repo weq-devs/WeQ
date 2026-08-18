@@ -13,7 +13,7 @@ import path from 'node:path';
 const PIPE_NAME  = process.env.NINEBIRD_PIPE_NAME || '';
 const TIMEOUT_MS = parseInt(process.env.NINEBIRD_TIMEOUT_MS || '30000', 10);
 
-// ---- 统一日志（见 quick-dbkey.ts 说明）------------------------------------
+
 const NB_LOG = process.env.NINEBIRD_LOG || '';
 function nbLog(msg: string): void {
     if (!NB_LOG) return;
@@ -33,7 +33,9 @@ let pipeClient: net.Socket | null = null;
 let shutdownCalled = false;
 
 function ensurePipeOpen(): Promise<void> {
-    if (!PIPE_NAME)   { nbLog('ensurePipeOpen: PIPE_NAME empty, skip'); return Promise.resolve(); }
+    if (!PIPE_NAME)   {
+        nbLog('ensurePipeOpen: PIPE_NAME empty, skip'); return Promise.resolve();
+    }
     if (pipeClient)   return Promise.resolve();
     nbLog(`ensurePipeOpen: connecting to ${PIPE_NAME}`);
     return new Promise((resolve) => {
@@ -222,18 +224,13 @@ async function main() {
             externalVersion: false,
         });
 
-        // 核心：获取历史登录列表
         const loginList = await loginService.getLoginList();
 
-        // 将获取到的历史列表通过 Pipe 发送出去
         await sendMessage({
             kind: 'login-list',
             list: summarizeLoginList(loginList.LocalLoginInfoList),
         });
 
-        // ==========================================
-        // 目标达成，直接调用成功退出，中断后续所有的登录流程。
-        // ==========================================
         return sendResultAndExit(true);
 
     } catch (error) {

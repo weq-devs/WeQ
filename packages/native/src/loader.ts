@@ -29,6 +29,11 @@
  *   3. <install root>/native           (production, packaged Electron — sibling of resources/)
  *   4. <repo>/native                   (dev — found by walking up from this file)
  *
+ * The loader JS bundle lives in `<repo>/resources/ninebird-runtime` in dev and
+ * `<install>/resources/resources/ninebird-runtime` packaged — electron-builder
+ * copies the whole repo resources/ tree into the app's resources/ dir (see
+ * resolveNineBirdRuntimeDir).
+ *
  * `loadNative()` is idempotent: first call resolves + requires + verifies
  * every file, subsequent calls return the cached bundle.
  */
@@ -312,15 +317,28 @@ function resolvePlatformRoot(nativeRoot: string): string {
  * `resources/ninebird-runtime/`; they run inside QQ and never need to sit
  * next to the native binaries.
  *
- * Derived from the native root so the same expression works in every layout:
- * dev (`<repo>/native` → `<repo>/resources`), packaged desktop
- * (`<install>/native` → `<install>/resources`, electron-builder copies the
- * whole resources/ tree), and web dist (`dist/native` → `dist/resources`).
+ * Probes candidate roots rather than hard-coding one, so the same package
+ * works in every layout:
+ *   - `process.resourcesPath/resources/ninebird-runtime` — packaged desktop
+ *     (electron-builder copies the repo resources/ tree into resources/, so
+ *     the runtime lands at `<install>/resources/resources/ninebird-runtime`);
+ *   - `<nativeRoot>/../resources/ninebird-runtime` — dev (`<repo>/native` →
+ *     `<repo>/resources`) and web dist (`dist/native` → `dist/resources`).
+ * `WEQ_NINEBIRD_RUNTIME_DIR` always wins. The first existing candidate is
+ * returned; when none exists the dev-style candidate is kept so the
+ * assertExists diagnostics point at the most likely location.
  */
 function resolveNineBirdRuntimeDir(nativeRoot: string): string {
-  return (
-    process.env.WEQ_NINEBIRD_RUNTIME_DIR || join(nativeRoot, '..', 'resources', 'ninebird-runtime')
-  );
+  const override = process.env.WEQ_NINEBIRD_RUNTIME_DIR;
+  if (override) return override;
+
+  const electronResources = (process as NodeJS.Process & { resourcesPath?: string })
+    .resourcesPath;
+  const devCandidate = join(nativeRoot, '..', 'resources', 'ninebird-runtime');
+  const candidates = electronResources
+    ? [join(electronResources, 'resources', 'ninebird-runtime'), devCandidate]
+    : [devCandidate];
+  return candidates.find((candidate) => existsSync(candidate)) ?? devCandidate;
 }
 
 function buildResources(nineBirdDir: string, nativeRoot: string): NineBirdResources {
