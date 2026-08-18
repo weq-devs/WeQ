@@ -10427,6 +10427,310 @@ html[data-theme="dark"] .weq-persona-modal {
   background: color-mix(in srgb, var(--weq-accent-effective) 15%, transparent);
 }
 
+/* 「个性主页 / 互动标识」入口按钮行（好友资料灯箱与群成员卡底部）。 */
+.weq-profile-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.weq-profile-actions .weq-profile-perhome {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  margin-top: 0;
+}
+
+/* ───────────────────────── 互动标识灯箱（MutualMarkDialog）───────────────────────── */
+/*
+ * 与个性主页灯箱同层：从资料卡（好友灯箱 / 群成员卡）里面打开，必须盖在调用方
+ * 之上。群成员卡遮罩是 inline `z-index: 90`，比 .weq-profile-layer 的 80 高，
+ * 取 100 压过两者。
+ */
+.weq-mutual-layer {
+  z-index: 100;
+}
+
+.weq-mutual-dialog {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100vw - 40px));
+  max-height: min(640px, calc(100vh - 72px));
+  overflow: hidden;
+  padding: 24px 20px 18px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+  border-radius: 16px;
+  background: var(--weq-bg-surface);
+  box-shadow: 0 30px 70px -26px rgba(7, 31, 61, 0.5);
+}
+
+.weq-mutual-head {
+  flex: none;
+  text-align: center;
+}
+
+.weq-mutual-head h2 {
+  margin: 0;
+  color: var(--weq-fg-primary);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.weq-mutual-head p {
+  margin: 3px 0 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12.5px;
+}
+
+.weq-mutual-head .weq-number {
+  color: var(--weq-accent-effective);
+}
+
+.weq-mutual-body {
+  overflow-y: auto;
+  margin-top: 10px;
+  padding: 0 2px 2px;
+}
+
+.weq-mutual-summary {
+  margin: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  text-align: center;
+}
+
+.weq-mutual-cat {
+  margin-top: 16px;
+}
+
+.weq-mutual-cat:first-of-type {
+  margin-top: 10px;
+}
+
+.weq-mutual-cat h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0 0 8px;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.weq-mutual-cat-count {
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.weq-mutual-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.weq-mutual-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 10px 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 4%, transparent);
+  text-align: center;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.weq-mutual-cell:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+}
+
+.weq-mutual-icon {
+  display: grid;
+  width: 60px;
+  height: 60px;
+  place-items: center;
+  border: 0;
+  padding: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #9aabbd;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.weq-mutual-icon:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+
+.weq-mutual-icon img {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+}
+
+.weq-mutual-days {
+  color: var(--weq-fg-secondary);
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+
+.weq-mutual-cell.is-off .weq-mutual-icon img {
+  opacity: 0.4;
+  filter: grayscale(0.55);
+}
+
+.weq-mutual-name {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 2.7em;
+  width: 100%;
+  color: var(--weq-fg-primary);
+  font-size: 12px;
+  line-height: 1.35;
+  word-break: break-all;
+}
+
+.weq-mutual-state {
+  color: var(--weq-fg-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.weq-mutual-state.is-lit {
+  color: var(--weq-accent-effective);
+  font-weight: 600;
+}
+
+.weq-mutual-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 160px;
+  color: var(--weq-fg-secondary);
+  font-size: 13px;
+}
+
+.weq-mutual-status.is-error {
+  color: #d23f3f;
+}
+
+/* 单个标识的「等级一览」灯箱（MutualMarkLevelDialog）。 */
+.weq-mutual-levels {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100vw - 40px));
+  max-height: min(640px, calc(100vh - 72px));
+  overflow: hidden;
+  padding: 24px 20px 18px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+  border-radius: 16px;
+  background: var(--weq-bg-surface);
+  box-shadow: 0 30px 70px -26px rgba(7, 31, 61, 0.5);
+}
+
+.weq-mutual-levels-intro {
+  margin: 4px 0 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.weq-mutual-levels-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  margin-top: 12px;
+  padding: 0 2px 2px;
+}
+
+.weq-mutual-level {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 4%, transparent);
+}
+
+.weq-mutual-level.is-current {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 38%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 9%, transparent);
+}
+
+.weq-mutual-level-icon {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  flex: none;
+  place-items: center;
+  color: #9aabbd;
+}
+
+.weq-mutual-level-icon img {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+}
+
+.weq-mutual-level.is-off .weq-mutual-level-icon img {
+  opacity: 0.45;
+  filter: grayscale(0.55);
+}
+
+.weq-mutual-level-info {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.weq-mutual-level-info strong {
+  overflow: hidden;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-mutual-level-desc {
+  overflow: hidden;
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-mutual-level-state {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-fg-secondary) 12%, transparent);
+  color: var(--weq-fg-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.weq-mutual-level-state.is-current {
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+  color: var(--weq-accent-effective);
+  font-weight: 600;
+}
+
 
 /* ───────────────────────── 克隆体群聊（M2 群骨架）───────────────────────── */
 

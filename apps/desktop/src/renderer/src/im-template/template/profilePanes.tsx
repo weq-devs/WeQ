@@ -1,6 +1,7 @@
 // @ts-nocheck
 import {
 	Activity,
+	Award,
 	Beer,
 	BookOpen,
 	Bookmark,
@@ -32,6 +33,7 @@ import {
 import { useEffect, useState } from "react";
 import { openLightbox } from "../../components/ImageLightbox";
 import { PersonalityHomeDialog } from "../../components/PersonalityHomeDialog";
+import { MutualMarkDialog } from "../../components/MutualMarkDialog";
 import { albumMediaUrl, collectionImageUrl } from "../../lib/resourceUrl";
 import { cn } from "./classNames";
 import { copyTextToClipboard } from "./clipboard";
@@ -237,10 +239,12 @@ export function ContactProfileDialog({
 }) {
 	const [copied, setCopied] = useState(false);
 	const [homeOpen, setHomeOpen] = useState(false);
+	const [markOpen, setMarkOpen] = useState(false);
 
 	useEffect(() => {
 		setCopied(false);
 		setHomeOpen(false);
+		setMarkOpen(false);
 	}, [contact?.id]);
 
 	useEffect(() => {
@@ -548,16 +552,26 @@ export function ContactProfileDialog({
 					) : null}
 				</div>
 
-				{/* 个性主页要拿 QQ 号去查会员装扮页——只有 uin 的联系人才给这个入口。 */}
+				{/* 个性主页 / 互动标识都要拿 QQ 号去查——只有 uin 的联系人才给入口。 */}
 				{profile.identityLabel === "QQ" ? (
-					<button
-						className="weq-profile-perhome"
-						type="button"
-						onClick={() => setHomeOpen(true)}
-					>
-						<Wand2 size={13} />
-						查看个性主页
-					</button>
+					<div className="weq-profile-actions">
+						<button
+							className="weq-profile-perhome"
+							type="button"
+							onClick={() => setHomeOpen(true)}
+						>
+							<Wand2 size={13} />
+							查看个性主页
+						</button>
+						<button
+							className="weq-profile-perhome"
+							type="button"
+							onClick={() => setMarkOpen(true)}
+						>
+							<Award size={13} />
+							查看互动标识
+						</button>
+					</div>
 				) : null}
 			</section>
 
@@ -575,6 +589,13 @@ export function ContactProfileDialog({
 						extInfo,
 					)}
 					onClose={() => setHomeOpen(false)}
+				/>
+			) : null}
+			{markOpen ? (
+				<MutualMarkDialog
+					uin={profile.identityValue}
+					name={displayUserName(profile)}
+					onClose={() => setMarkOpen(false)}
 				/>
 			) : null}
 		</div>

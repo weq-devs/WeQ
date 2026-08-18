@@ -35,6 +35,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { client } from "../trpc/client";
 import { PersonalityHomeDialog } from "./PersonalityHomeDialog";
+import { MutualMarkDialog } from "./MutualMarkDialog";
 import { Avatar } from "../im-template/template/primitives";
 import { cn } from "../im-template/template/classNames";
 import { copyTextToClipboard } from "../im-template/template/clipboard";
@@ -70,6 +71,7 @@ export function MemberProfileCard({ member, anchor, onClose }) {
 	const [loading, setLoading] = useState(true);
 	const [copied, setCopied] = useState(false);
 	const [homeOpen, setHomeOpen] = useState(false);
+	const [markOpen, setMarkOpen] = useState(false);
 	// 机器人档案（profile_info_adelie）。QQ 只在客户端打开过该机器人资料卡后才
 	// 写这张表，所以经常是 null —— 那时只展示 v6 那份普通资料。
 	const [botProfile, setBotProfile] = useState(null);
@@ -316,16 +318,26 @@ export function MemberProfileCard({ member, anchor, onClose }) {
 					</div>
 				) : null}
 
-				{/* 个性主页要拿 QQ 号去查会员装扮页——profile 还没到或没 uin 时不给入口。 */}
+				{/* 个性主页 / 互动标识都要拿 QQ 号去查——profile 还没到或没 uin 时不给入口。 */}
 				{uin ? (
-					<button
-						className="weq-profile-perhome"
-						type="button"
-						onClick={() => setHomeOpen(true)}
-					>
-						<Wand2 size={13} />
-						查看个性主页
-					</button>
+					<div className="weq-profile-actions">
+						<button
+							className="weq-profile-perhome"
+							type="button"
+							onClick={() => setHomeOpen(true)}
+						>
+							<Wand2 size={13} />
+							查看个性主页
+						</button>
+						<button
+							className="weq-profile-perhome"
+							type="button"
+							onClick={() => setMarkOpen(true)}
+						>
+							<Award size={13} />
+							查看互动标识
+						</button>
+					</div>
 				) : null}
 
 				{loading ? (
@@ -350,6 +362,13 @@ export function MemberProfileCard({ member, anchor, onClose }) {
 						profile?.extInfo,
 					)}
 					onClose={() => setHomeOpen(false)}
+				/>
+			) : null}
+			{markOpen && uin ? (
+				<MutualMarkDialog
+					uin={uin}
+					name={name}
+					onClose={() => setMarkOpen(false)}
 				/>
 			) : null}
 		</div>,

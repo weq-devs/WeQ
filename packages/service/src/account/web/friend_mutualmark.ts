@@ -47,6 +47,8 @@ export interface FriendMark {
   threshold: number;
   /** 下一等级展示名(已满级则 undefined)。 */
   nextLevelName?: string;
+  /** 全部等级(服务端 `info.graded[]`,按等级升序);无分级数据时为空数组。 */
+  levels: FriendMarkLevel[];
   /** 进度计数(如互发消息数/绑定天数),单位随标识而异。 */
   count: number;
   /** 累计天数(act_days)。 */
@@ -181,25 +183,33 @@ function toNum(v: number | string | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** 服务端 `info.graded[]` → 有序等级表(按等级升序,剔除非法序号)。 */
+function toLevels(info: RawMarkInfo): FriendMarkLevel[] {
+  return (info.graded ?? [])
+    .map((g) => ({
+      level: toNum(g.level),
+      name: g.name ?? '',
+      threshold: toNum(g.threshold),
+      desc: g.desc ?? '',
+    }))
+    .filter((l) => l.level > 0)
+    .sort((a, b) => a.level - b.level);
+}
+
 /** 取当前等级(及下一级)的展示信息。 */
 function resolveLevel(
-  info: RawMarkInfo,
+  levels: FriendMarkLevel[],
+  intro: string,
   level: number,
 ): {
   name: string;
   threshold: number;
   nextLevelName?: string;
 } {
-  const graded = (info.graded ?? []).map((g) => ({
-    level: toNum(g.level),
-    name: g.name ?? '',
-    threshold: toNum(g.threshold),
-    desc: g.desc ?? '',
-  }));
-  const current = graded.find((g) => g.level === level) ?? graded[0];
-  const next = graded.find((g) => g.level > level);
+  const current = levels.find((l) => l.level === level) ?? levels[0];
+  const next = levels.find((l) => l.level > level);
   return {
-    name: current?.name || info.intro || '',
+    name: current?.name || intro || '',
     threshold: current?.threshold ?? 0,
     nextLevelName: next?.name,
   };
@@ -209,7 +219,8 @@ function toMark(r: RawMark): FriendMark {
   const info = r.info ?? {};
   const status = r.status ?? {};
   const level = toNum(status.level);
-  const { name, threshold, nextLevelName } = resolveLevel(info, level);
+  const levels = toLevels(info);
+  const { name, threshold, nextLevelName } = resolveLevel(levels, info.intro ?? '', level);
   return {
     id: info.id ?? status.id ?? '',
     name,
@@ -219,6 +230,7 @@ function toMark(r: RawMark): FriendMark {
     level,
     threshold,
     nextLevelName,
+    levels,
     count: toNum(status.count),
     actDays: toNum(status.act_days),
     lightupDays: toNum(status.lightup_days),

@@ -315,6 +315,10 @@ export type {
   GroupAlbum,
   HonorMember,
   WebCredential,
+  FriendMutualMark,
+  FriendMarkCategory,
+  FriendMark,
+  FriendMarkLevel,
 } from './account/web';
 
 // ---- account protocol services (oidb/trpc packets) ----
