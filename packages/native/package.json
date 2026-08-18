@@ -11,7 +11,8 @@
     "tools:clientkey": "tsx tools/clientkey.ts",
     "tools:pskey": "tsx tools/pskey.ts",
     "tools:rkey": "tsx tools/rkey.ts",
-    "tools:mface-key": "tsx tools/mface_key.ts"
+    "tools:mface-key": "tsx tools/mface_key.ts",
+    "tools:packet": "tsx tools/packet.ts"
   },
   "dependencies": {},
   "devDependencies": {

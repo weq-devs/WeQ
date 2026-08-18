@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.tools.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "tools:scupdate-probe": "tsx tools/scupdate_probe.ts"
+    "tools:scupdate-probe": "tsx tools/scupdate_probe.ts",
+    "tools:get-profile-like": "tsx tools/get_profile_like.ts",
+    "tools:get-user-qq-level": "tsx tools/get_user_qq_level.ts"
   },
   "dependencies": {
     "@weq/native": "workspace:*"

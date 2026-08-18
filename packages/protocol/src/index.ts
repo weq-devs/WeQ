@@ -13,7 +13,7 @@
  *   oidb/get-file-url.ts  — GetGroupFileUrl / GetPrivateFileUrl namespaces.
  *   oidb/list-group-files.ts     — ListGroupFiles (0x6D8_1, 群文件/文件夹分页列表)。
  *   oidb/get-album-media-list.ts — GetAlbumMediaList trpc namespace.
- *   oidb/fetch-user-profile.ts   — FetchUserProfile (0xFE1_2, 含 QQ 等级)。
+ *   oidb/get-user-qq-level.ts    — GetUserQqLevel (0xFE1_2, 只查 QQ 等级)。
  *   oidb/get-profile-like.ts     — GetProfileLike (0x7ED_12, 资料卡赞/收藏数)。
  *   scupdate/            — 个性装扮资源(气泡/字体)的下载地址获取(见该目录 index)。
  */
@@ -39,8 +39,8 @@ export type { GroupFileDownload } from './oidb/get-file-url';
 export { ListGroupFiles } from './oidb/list-group-files';
 export type { GroupFileItem, GroupFolderItem, GroupFilePage } from './oidb/list-group-files';
 export { GetAlbumMediaList } from './oidb/get-album-media-list';
-export { FetchUserProfile } from './oidb/fetch-user-profile';
-export type { UserProfileInfo } from './oidb/fetch-user-profile';
+export { GetUserQqLevel } from './oidb/get-user-qq-level';
+export type { QqLevelInfo } from './oidb/get-user-qq-level';
 export { GetProfileLike } from './oidb/get-profile-like';
 export type { LikeInfo, InteractionCounts } from './oidb/get-profile-like';
 

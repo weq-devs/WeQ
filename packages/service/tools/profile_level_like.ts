@@ -1,21 +1,26 @@
 /**
  * 验证 @weq/protocol 的两个用户资料 OIDB:
- *   - FetchUserProfile (0xFE1_2) 取 QQ 等级等资料
- *   - GetProfileLike   (0x7ED_12) 取资料卡点赞/收藏数
+ *   - GetUserQqLevel (0xFE1_2) 取 QQ 等级
+ *   - GetProfileLike (0x7ED_12) 取资料卡点赞/收藏数
  *
  * 流程:取 pids[0] → probe 拿 uin/uid → 注入 hook → 分别发两个包。
- * 不传参数时查自己;传 uin 则查该用户(等级)。
+ * 等级按 uin 查(不传参数时查自己);点赞按 uid 查(0xFE1_2 不回显 uid,
+ * 所以查别人必须 --uid,查自己用 probe 的 uid)。
  *
- * 用法: pnpm tsx packages/service/tools/profile_level_like.ts [uin]
+ * 用法:
+ *   pnpm tsx packages/service/tools/profile_level_like.ts [uin] [--uid <uid>]
  */
 
 import { loadNative } from '@weq/native';
-import { FetchUserProfile, GetProfileLike } from '@weq/protocol';
+import { GetUserQqLevel, GetProfileLike } from '@weq/protocol';
 
-const TARGET_ARG = process.argv[2];
+const argv = process.argv.slice(2);
+const TARGET_ARG = argv.find((a) => !a.startsWith('--'));
+const uidIdx = argv.indexOf('--uid');
+const UID_ARG = uidIdx >= 0 ? argv[uidIdx + 1] : undefined;
 
-// 0x7ED_12 按 uid 查,而端口 probe 往往不带 uid。跟其他 test 脚本一样硬编码
-// 本机账号的 uid;查别人时用 0xFE1_2 响应里回带的 uid。
+// 0x7ED_12 按 uid 查,而端口 probe 有时不带 uid;查自己时退化到这个硬编码的
+// 本机账号 uid(与历史行为一致)。
 const SELF_UID = 'u_mGIBTBW7gF4Wocw8zapc6w';
 
 async function main(): Promise<void> {
@@ -38,13 +43,13 @@ async function main(): Promise<void> {
 
   const targetUin = Number(TARGET_ARG ?? selfUin);
 
-  console.log(`\n[profile] ===== 0xFE1_2 资料 (uin=${targetUin}) =====`);
-  const profile = await FetchUserProfile.invoke(nt, pid, { uin: targetUin });
-  console.dir(profile, { depth: null });
-  console.log(`[profile] >>> QQ 等级: ${profile.level}`);
+  console.log(`\n[profile] ===== 0xFE1_2 QQ 等级 (uin=${targetUin}) =====`);
+  const levelInfo = await GetUserQqLevel.invoke(nt, pid, { uin: targetUin });
+  console.dir(levelInfo, { depth: null });
+  console.log(`[profile] >>> QQ 等级: ${levelInfo.level}`);
 
-  const targetUid = TARGET_ARG ? profile.uid : selfUid || SELF_UID;
-  if (!targetUid) throw new Error('拿不到目标 uid,无法查点赞数');
+  const targetUid = UID_ARG ?? (selfUid || SELF_UID);
+  if (!targetUid) throw new Error('拿不到目标 uid,无法查点赞数(可传 --uid)');
 
   console.log(`\n[profile] ===== 0x7ED_12 点赞 (uid=${targetUid}) =====`);
   const like = await GetProfileLike.invoke(nt, pid, { targetUid });
