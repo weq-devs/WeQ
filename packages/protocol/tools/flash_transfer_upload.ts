@@ -7,7 +7,7 @@
  * multimedia.qfile.qq.com 直传,不占 QQ 进程。
  *
  * 用法:
- *   pnpm --filter @weq/protocol tools:flash-transfer-upload --path <文件或目录> [--name 标题] [--uid u_xxx]
+ *   pnpm --filter @weq/protocol tools:flash-transfer-upload --path <文件或目录> [--name 标题] [--uid u_xxx] [--thumb-path 缩略图.png]
  *   pnpm tsx packages/protocol/tools/flash_transfer_upload.ts --path ./a.mp4
  *
  * 探测不到登录账号 uid 时(probeQqLoginInfo 的 uid 为 null),可用 --uid 手动指定。
@@ -37,6 +37,7 @@ function fail(msg: string): never {
 const PATH_ARG = opt('--path') ?? fail('必须传 --path <文件或目录>');
 const NAME_ARG = opt('--name');
 const UID_ARG = opt('--uid');
+const THUMB_PATH_ARG = opt('--thumb-path');
 
 type Nt = ReturnType<typeof loadNative>['ntHelper'];
 
@@ -65,14 +66,14 @@ async function resolveTarget(nt: Nt): Promise<{ pid: number; info: QqPortLoginIn
   if (pids.length > 1) {
     const candidates = pids.map((p) => ({ pid: p, info: probeSafe(nt, p) }));
     const hit = wantUin
-      ? candidates.find((c) => c.info?.uin === wantUin && c.info.loggedIn)
-      : candidates.find((c) => c.info?.loggedIn);
+        ? candidates.find((c) => c.info?.uin === wantUin && c.info.loggedIn)
+        : candidates.find((c) => c.info?.loggedIn);
     if (!hit) {
       throw new Error(
-        `多个 QQ 进程且无法确定登录账号:${pids.join(', ')}` +
+          `多个 QQ 进程且无法确定登录账号:${pids.join(', ')}` +
           (wantUin
-            ? `(没有 uin=${wantUin} 且已登录的进程)`
-            : '(可用 .env 配置 WEQ_TEST_UIN 来指定)'),
+              ? `(没有 uin=${wantUin} 且已登录的进程)`
+              : '(可用 .env 配置 WEQ_TEST_UIN 来指定)'),
       );
     }
     pid = hit.pid;
@@ -129,8 +130,20 @@ async function main(): Promise<void> {
     fail('--path 必须是文件或目录');
   }
 
+  let thumbPath: string | undefined;
+  if (THUMB_PATH_ARG !== undefined) {
+    thumbPath = resolve(process.env.INIT_CWD || process.cwd(), THUMB_PATH_ARG);
+    const thumbStat = await fsp.stat(thumbPath);
+    if (!thumbStat.isFile()) fail('--thumb-path 必须是 PNG 文件');
+    if (!thumbPath.toLowerCase().endsWith('.png')) fail('--thumb-path 必须指向 .png 文件');
+  }
+
   console.log(`[flash-upload] 上传 ${items.length} 个文件 ...`);
-  const result = await uploadFlashFiles(nt, pid, items, { name: NAME_ARG, uploader });
+  const result = await uploadFlashFiles(nt, pid, items, {
+    name: NAME_ARG,
+    thumbPath,
+    uploader,
+  });
 
   console.log('\n════════ 闪传上传结果 ════════');
   console.log(`  fileset_uuid: ${result.filesetUuid}`);

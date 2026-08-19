@@ -4,6 +4,7 @@
 // 不同避免命中秒传缓存。手写 PNG 编码(zlib),不引入图像库。
 
 import { createHash, randomUUID } from 'node:crypto';
+import { promises as fsp } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 import type { OidbNative } from '../../transport';
 import { buildSliceBody, postSliceupload } from '../../highway/sliceupload';
@@ -83,11 +84,41 @@ export async function uploadThumbnail(
     mainFileUuid: string,
     thumbType: 'png' | 'jpg',
     fileIndex: number,
+    thumbPath?: string,
 ): Promise<void> {
-  // 526x360 是 QQ 客户端缩略图尺寸;1x1 会被服务端拒(HTTP 400,宽高太小)。
-  const width = 526;
-  const height = 360;
-  const thumbBytes = generatePng(width, height);
+  // 真实 QQ 的 0x12a9 PNG 包携带 PNG 文件本体;未传路径时保留原有占位图行为。
+  let thumbBytes: Buffer;
+  let width: number;
+  let height: number;
+  if (thumbPath !== undefined) {
+    if (thumbType !== 'png') throw new Error('custom thumbnail is only supported for png');
+    thumbBytes = await fsp.readFile(thumbPath);
+    if (
+        thumbBytes.length < 24 ||
+        !thumbBytes
+            .subarray(0, 8)
+            .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+    ) {
+      throw new Error(`thumbnail is not a valid PNG: ${thumbPath}`);
+    }
+    const firstChunkLength = thumbBytes.readUInt32BE(8);
+    if (
+        thumbBytes.toString('ascii', 12, 16) !== 'IHDR' ||
+        firstChunkLength < 8 ||
+        thumbBytes.length < 24
+    ) {
+      throw new Error(`thumbnail PNG has no valid IHDR: ${thumbPath}`);
+    }
+    width = thumbBytes.readUInt32BE(16);
+    height = thumbBytes.readUInt32BE(20);
+    if (width === 0 || height === 0)
+      throw new Error(`thumbnail PNG has invalid dimensions: ${thumbPath}`);
+  } else {
+    // 526x360 是 QQ 客户端缩略图尺寸;1x1 会被服务端拒(HTTP 400,宽高太小)。
+    width = 526;
+    height = 360;
+    thumbBytes = generatePng(width, height);
+  }
   const appid = thumbType === 'png' ? FLASH_APPID_PNG_THUMB : FLASH_APPID_JPG_THUMB;
   const fileUuid = thumbType === 'png' ? randomUUID() : mainFileUuid;
   const fileName =

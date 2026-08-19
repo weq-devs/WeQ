@@ -36,6 +36,8 @@ export interface FlashUploadItem {
 export interface FlashUploadOptions {
   /** fileset 标题(卡片名);不传时单文件用文件名,多文件用「<首文件>等N个文件」。 */
   name?: string;
+  /** 可选的 PNG 缩略图路径;传入后用于 0x12a9_100 的 PNG 缩略图上传。 */
+  thumbPath?: string;
   uploader: ApplyFilesetParams['uploader'];
 }
 
@@ -176,7 +178,15 @@ export async function uploadFlashFiles(
   }
 
   // fileset 级缩略图(序号在主文件之后递增),主文件下载入口需要缩略图关联。
-  await uploadThumbnail(nt, pid, filesetUuid, first.fileUuid, 'png', items.length + 1);
+  await uploadThumbnail(
+      nt,
+      pid,
+      filesetUuid,
+      first.fileUuid,
+      'png',
+      items.length + 1,
+      opts.thumbPath,
+  );
   await uploadThumbnail(nt, pid, filesetUuid, first.fileUuid, 'jpg', items.length + 2);
 
   await SetFilesetStatus.invoke(nt, pid, { filesetUuid });

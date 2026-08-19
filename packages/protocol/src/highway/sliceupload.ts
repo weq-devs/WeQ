@@ -74,7 +74,7 @@ export function buildSliceBody(part: SlicePart, opts?: SliceUploadOptions): Uint
 export async function postSliceupload(bodyBytes: Uint8Array, label: string): Promise<void> {
   const resp = await fetch(SLICEUPLOAD_URL, {
     method: 'POST',
-    body: bodyBytes,
+    body: new Uint8Array(bodyBytes),
     headers: {
       Accept: '*/*',
       Connection: 'Keep-Alive',
