@@ -5098,6 +5098,92 @@ html[data-theme='dark'] .weq-set-cache-item svg {
   transform: translateY(-1px) rotate(-45deg);
 }
 
+/* 外部安卓图片缓存：展开的引导教程 */
+.weq-set-details {
+  margin: 2px 0 0;
+  border-top: 1px dashed rgba(0, 0, 0, 0.08);
+  padding-top: 4px;
+}
+
+.weq-set-details summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 2px 4px;
+  color: var(--weq-accent-effective);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.weq-set-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.weq-set-details summary svg {
+  transition: transform 140ms ease;
+}
+
+.weq-set-details[open] summary svg {
+  transform: rotate(180deg);
+}
+
+.weq-set-details-body {
+  padding: 8px 10px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.035);
+  color: #4b5563;
+  font-size: 12.5px;
+  line-height: 1.75;
+}
+
+.weq-set-details-body p {
+  margin: 0 0 6px;
+}
+
+.weq-set-details-body ol {
+  margin: 0 0 8px;
+  padding-left: 18px;
+}
+
+.weq-set-details-body li {
+  margin-bottom: 4px;
+}
+
+.weq-set-details-body code {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.06);
+  color: #1f2937;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.weq-set-details-h {
+  font-weight: 600;
+  color: #374151;
+}
+
+html[data-theme="dark"] .weq-set-details {
+  border-top-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .weq-set-details-body {
+  background: rgba(255, 255, 255, 0.05);
+  color: #9aa4b2;
+}
+
+html[data-theme="dark"] .weq-set-details-body code {
+  background: rgba(255, 255, 255, 0.09);
+  color: #dbe2ea;
+}
+
+html[data-theme="dark"] .weq-set-details-h {
+  color: #c8d1dc;
+}
+
 /* Placeholder badge */
 .weq-set-badge {
   display: inline-flex;

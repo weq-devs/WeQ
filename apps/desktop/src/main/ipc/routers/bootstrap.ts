@@ -39,6 +39,7 @@ import {
   type KeyEvent,
   type VoiceDownloadProgress,
   type TtsProviderConfig,
+  validateChatpicRoot,
 } from '@weq/service';
 import { peekStaticSelfUin, deriveAndroidDbKey } from '@weq/account';
 import { isTencentFilesRoot } from '@weq/platform';
@@ -335,6 +336,36 @@ export const bootstrapRouter = router({
       requireBootstrap().userConfig.setSettings({ showMsgDecoration: input.enabled });
       return true;
     }),
+
+
+  /** 导入/清除外部安卓 chatpic 目录（聊天图片兜底）。`dir` 非空时必须是完整的
+   *  chatpic 备份（含 chatraw / chatimg / chatthumb 三个子目录），否则抛错。 */
+  setExternalChatpic: procedure
+    .input(z.object({ dir: z.string(), enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      if (input.dir) {
+        const check = validateChatpicRoot(input.dir);
+        if (!check.ok) throw new Error(check.error);
+      }
+      requireBootstrap().userConfig.setSettings({
+        externalChatpic: { dir: input.dir, enabled: input.enabled },
+      });
+      return true;
+    }),
+
+  /** 弹窗选目录 → 校验三个子目录 → 持久化并自动启用。返回结果供界面提示。 */
+  pickExternalChatpicDir: procedure.mutation(async () => {
+    const picked = await getHost().pickDirectory({
+      title: '选择安卓 chatpic 目录（…/Tencent/MobileQQ/chatpic）',
+    });
+    if (!picked) return { dir: '', enabled: false, error: '' };
+    const check = validateChatpicRoot(picked);
+    if (!check.ok) return { dir: '', enabled: false, error: check.error };
+    requireBootstrap().userConfig.setSettings({
+      externalChatpic: { dir: picked, enabled: true },
+    });
+    return { dir: picked, enabled: true, error: '' };
+  }),
 
   /**
    * 取一条链接的预览卡片（标题/描述/站点/封面）。抓取全程带 SSRF 闸门 —— 只放行

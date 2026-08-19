@@ -213,6 +213,22 @@ export interface AppSettings {
    * 关掉后所有消息统一走清单里的全局装扮，不做逐条渲染。默认开启。
    */
   showMsgDecoration: boolean;
+  /**
+   * 外部安卓 chatpic 目录（聊天图片本地 miss 后、CDN 下载前的兜底）。
+   * 见 account/chatpic.ts 的寻址与校验。
+   */
+  externalChatpic: ExternalChatpicConfig;
+}
+
+/**
+ * 外部安卓 chatpic 目录（`…/Tencent/MobileQQ/chatpic` 的完整备份）。
+ * 聊天图片在本机 `nt_data` 里找不到时，先到这里按 md5 寻址，再回退 CDN。
+ */
+export interface ExternalChatpicConfig {
+  /** 导入的 chatpic 根目录（须含 chatraw / chatimg / chatthumb 三个子目录）。 */
+  dir: string;
+  /** 是否允许把该目录作为本地媒体兜底。 */
+  enabled: boolean;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -233,6 +249,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   linkPreview: { enabled: true, screenshot: false },
   preferCdn: false,
   showMsgDecoration: true,
+  externalChatpic: { dir: '', enabled: false },
 };
 
 export interface UserConfig {
@@ -456,6 +473,10 @@ export class UserConfigService {
       showAvatarPendant: s?.showAvatarPendant ?? d.showAvatarPendant,
       preferCdn: s?.preferCdn ?? d.preferCdn,
       showMsgDecoration: s?.showMsgDecoration ?? d.showMsgDecoration,
+      externalChatpic: {
+        dir: s?.externalChatpic?.dir ?? d.externalChatpic.dir,
+        enabled: s?.externalChatpic?.enabled ?? d.externalChatpic.enabled,
+      },
       linkPreview: {
         enabled: s?.linkPreview?.enabled ?? d.linkPreview.enabled,
         screenshot: s?.linkPreview?.screenshot ?? d.linkPreview.screenshot,
@@ -495,6 +516,10 @@ export class UserConfigService {
       showAvatarPendant: patch.showAvatarPendant ?? current.showAvatarPendant,
       preferCdn: patch.preferCdn ?? current.preferCdn,
       showMsgDecoration: patch.showMsgDecoration ?? current.showMsgDecoration,
+      externalChatpic: {
+        dir: patch.externalChatpic?.dir ?? current.externalChatpic.dir,
+        enabled: patch.externalChatpic?.enabled ?? current.externalChatpic.enabled,
+      },
       linkPreview: {
         enabled: patch.linkPreview?.enabled ?? current.linkPreview.enabled,
         screenshot: patch.linkPreview?.screenshot ?? current.linkPreview.screenshot,

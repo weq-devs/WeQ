@@ -45,6 +45,7 @@ import {
   PRIVATE_PTT_RKEY_TYPE,
   GROUP_PTT_RKEY_TYPE,
   downloadUrlToFile,
+  resolveChatpicFile,
   type MediaElement,
 } from '@weq/service';
 import { getAppContext } from './context/app_context';
@@ -111,6 +112,19 @@ async function findMediaElement(
     matches.find((e) => (e as { fileToken?: string }).fileToken === token) ?? matches[0];
   if (!el) return null;
   return { element: el as unknown as MediaElement, conv: raw.kind };
+}
+
+/**
+ * 外部安卓 chatpic 目录兜底：设置里导入了完整的 chatpic 备份且开关开启时，
+ * 按 picElement 的 md5 在 chatraw/chatimg/chatthumb 里寻址。找不到返回 null，
+ * 调用方继续走 rkey / CDN 下载。
+ */
+function resolveChatpicFallback(md5: string): string | null {
+  if (!md5) return null;
+  const boot = getAppContext().bootstrap;
+  const cfg = boot?.userConfig.getSettings().externalChatpic;
+  if (!cfg?.enabled || !cfg.dir) return null;
+  return resolveChatpicFile(cfg.dir, md5);
 }
 
 export const MEDIA_SCHEME = 'weq-media';
@@ -409,6 +423,9 @@ export function handleMediaRequest(request: Request): Promise<Response> {
           const { source, thumb } = await services.fileSearch.findFile(tMs, name, picType);
           const path = wantThumb ? (thumb ?? source) : (source ?? thumb);
           if (path) return fileResponse(path);
+          // 本地 miss → 外部安卓 chatpic 备份兜底（按 md5 寻址），再不行才走 CDN。
+          const chatpicFile = resolveChatpicFallback(q.get('md5') ?? '');
+          if (chatpicFile) return fileResponse(chatpicFile);
           // Missing on disk → CDN: digit token → originalUrl (no rkey); else rkey.
           const dl = await services.mediaDownload.download(token, {
             originalUrl: q.get('orig') ?? '',

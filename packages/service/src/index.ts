@@ -45,6 +45,7 @@ export type {
   WeqAssistantConfig,
   AgentLabSettings,
   LinkPreviewConfig,
+  ExternalChatpicConfig,
 } from './bootstrap/user_config';
 export { AgentLabConfigService } from './bootstrap/agentlab_config';
 
@@ -64,6 +65,14 @@ export type {
 
 // ---- account ----
 export { AccountConfigService, accountConfigId, rkeyExpiryMs, clientKeyExpiryMs } from './account/user_config';
+export {
+  chatpicFileName,
+  chatpicRelPaths,
+  resolveChatpicFile,
+  validateChatpicRoot,
+  CHATPIC_FOLDERS,
+  type ChatpicFolder,
+} from './account/chatpic';
 export type { AccountConfig, AccountConfigMetadata, DownloadRkey, ClientKey } from './account/user_config';
 export { fetchHomeDress, toPeerDress } from './account/home_dress';
 export type { HomeDressSnapshot, PeerDressSnapshot } from './account/home_dress';

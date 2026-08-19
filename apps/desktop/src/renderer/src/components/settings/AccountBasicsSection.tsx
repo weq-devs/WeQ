@@ -20,14 +20,18 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import {
   Check,
+  ChevronDown,
   Copy,
   Database,
   Eye,
   EyeOff,
+  FolderOpen,
   FolderSearch,
   ImageDown,
   KeyRound,
   RefreshCw,
+  Smartphone,
+  Trash2,
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useDialog } from '../Dialog';
@@ -82,6 +86,8 @@ export function AccountBasicsSection(): ReactElement {
   const setMedia = trpc.bootstrap.setMediaCompletion.useMutation();
   const setClientKey = trpc.bootstrap.setAutoFetchClientKey.useMutation();
   const setNativeMediaEnabled = trpc.account.setNativeMediaEnabled.useMutation();
+  const setExternalChatpic = trpc.bootstrap.setExternalChatpic.useMutation();
+  const pickExternalChatpicDir = trpc.bootstrap.pickExternalChatpicDir.useMutation();
 
   const [revealKey, setRevealKey] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -93,6 +99,10 @@ export function AccountBasicsSection(): ReactElement {
   // 静态账号的原生媒体绑定存在**账号**配置里（不是全局设置），所以单独镜像一份。
   const [nativeMedia, setNativeMedia] = useState(true);
   const [savingNativeMedia, setSavingNativeMedia] = useState(false);
+  // 外部安卓 chatpic 兜底（存在全局设置里）。
+  const [externalChatpicDir, setExternalChatpicDir] = useState('');
+  const [externalChatpicEnabled, setExternalChatpicEnabled] = useState(false);
+  const [pickingChatpic, setPickingChatpic] = useState(false);
 
   useEffect(() => {
     const d = settings.data;
@@ -107,6 +117,13 @@ export function AccountBasicsSection(): ReactElement {
     if (!d) return;
     setNativeMedia(d.nativeMediaEnabled);
   }, [config.data]);
+
+  useEffect(() => {
+    const d = settings.data;
+    if (!d) return;
+    setExternalChatpicDir(d.externalChatpic.dir);
+    setExternalChatpicEnabled(d.externalChatpic.enabled);
+  }, [settings.data]);
 
   useEffect(() => {
     if (!copied) return undefined;
@@ -160,6 +177,36 @@ export function AccountBasicsSection(): ReactElement {
       showError('保存失败', errMsg(e));
     } finally {
       setSavingNativeMedia(false);
+    }
+  }
+
+  /** 弹窗选目录 → 校验三个子目录 → 持久化并自动启用。 */
+  async function importChatpicDir(): Promise<void> {
+    setPickingChatpic(true);
+    try {
+      const res = await pickExternalChatpicDir.mutateAsync();
+      if (res.error) {
+        showError('导入失败', res.error);
+        return;
+      }
+      if (res.dir) {
+        setExternalChatpicDir(res.dir);
+        setExternalChatpicEnabled(true);
+      }
+      await settings.refetch();
+    } catch (e) {
+      showError('导入失败', errMsg(e));
+    } finally {
+      setPickingChatpic(false);
+    }
+  }
+
+  async function removeChatpicDir(): Promise<void> {
+    try {
+      await setExternalChatpic.mutateAsync({ dir: '', enabled: false });
+      await settings.refetch();
+    } catch (e) {
+      showError('移除失败', errMsg(e));
     }
   }
 
@@ -438,6 +485,107 @@ export function AccountBasicsSection(): ReactElement {
             />
           }
         />
+      </Card>
+
+      {/* 外部安卓图片缓存（放最下面，带引导文案） */}
+      <Card title="外部安卓图片缓存">
+        <Row
+          label={
+            <span className="weq-set-row-icon">
+              <Smartphone size={15} strokeWidth={1.8} aria-hidden />
+              允许使用外部安卓图片缓存
+            </span>
+          }
+          desc={
+            externalChatpicDir
+              ? `聊天图片在本机找不到时，会先到该备份目录按 md5 寻址，再回退到网络下载。 ${externalChatpicDir}`
+              : '未导入。导入安卓 QQ 的 chatpic 缓存备份后，可找回本机缺失的聊天图片。'
+          }
+          control={
+            <Toggle
+              checked={externalChatpicEnabled}
+              disabled={!externalChatpicDir || settingsLoading}
+              onChange={(v) =>
+                void persist(
+                  () => setExternalChatpicEnabled(v),
+                  () =>
+                    setExternalChatpic.mutateAsync({
+                      dir: externalChatpicDir,
+                      enabled: v,
+                    }),
+                )
+              }
+              label="允许使用外部安卓图片缓存"
+            />
+          }
+        />
+        <Row
+          label="导入目录"
+          desc="选择已完整备份的 chatpic 目录，程序会检查 chatraw / chatimg / chatthumb 三个子目录是否齐全。"
+          indent
+          control={
+            <div className="weq-set-btn-group">
+              <button
+                type="button"
+                className="weq-set-btn"
+                disabled={pickingChatpic}
+                onClick={() => void importChatpicDir()}
+              >
+                <FolderOpen size={14} aria-hidden />
+                {pickingChatpic ? '校验中…' : '选择并导入…'}
+              </button>
+              {externalChatpicDir ? (
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-soft weq-set-btn-del"
+                  onClick={() => void removeChatpicDir()}
+                >
+                  <Trash2 size={14} aria-hidden />
+                  移除
+                </button>
+              ) : null}
+            </div>
+          }
+        />
+        <details className="weq-set-details">
+          <summary>
+            <ChevronDown size={13} aria-hidden />
+            安卓 chatpic 备份教程（点击展开）
+          </summary>
+          <div className="weq-set-details-body">
+            <p>
+              手机 QQ 的聊天图片缓存在{' '}
+              <code>/sdcard/Android/data/com.tencent.mobileqq/Tencent/MobileQQ/chatpic</code>{' '}
+              目录（部分机型是{' '}
+              <code>/storage/emulated/0/Android/data/com.tencent.mobileqq/Tencent/MobileQQ/chatpic</code>
+              ）。把这个目录<strong>完整</strong>备份到电脑，三个子目录{' '}
+              <code>chatraw</code> / <code>chatimg</code> / <code>chatthumb</code> 都要保留。
+            </p>
+            <p className="weq-set-details-h">备份方案（任选其一）：</p>
+            <ol>
+              <li>
+                <strong>ADB 命令（推荐，最稳）</strong>：手机开启「开发者选项 → USB
+                调试」，连接电脑后执行
+                <code>adb pull /sdcard/Android/data/com.tencent.mobileqq/Tencent/MobileQQ/chatpic
+                  &lt;电脑上的目标目录&gt;</code>
+                ，把整个目录拉下来。
+              </li>
+              <li>
+                <strong>文件管理器复制</strong>：Android 11+ 的系统文件管理器访问{' '}
+                <code>Android/data</code> 受限，建议用 MT 管理器等第三方文件管理器，或
+                Root 后的文件管理器，把 chatpic 整个文件夹复制到电脑。
+              </li>
+              <li>
+                <strong>手机整机备份</strong>：用手机自带的「备份与恢复」或第三方备份
+                App 把 QQ 数据整体备份，再从备份里取出 chatpic 目录。
+              </li>
+            </ol>
+            <p>
+              导入时请选择电脑上那个 chatpic 目录本身（即里面直接能看到
+              chatraw / chatimg / chatthumb），而不是它的父目录。
+            </p>
+          </div>
+        </details>
       </Card>
     </div>
   );

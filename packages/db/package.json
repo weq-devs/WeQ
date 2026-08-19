@@ -34,7 +34,8 @@
     "tools:verify-db-key": "tsx tools/verify_db_key.ts",
     "mutate:anti-recall-trigger": "tsx tools/mutate/anti_recall_trigger.ts",
     "mutate:insert-weq-assistant": "tsx tools/mutate/insert_weq_assistant.ts",
-    "mutate:delete-weq-assistant": "tsx tools/mutate/delete_weq_assistant.ts"
+    "mutate:delete-weq-assistant": "tsx tools/mutate/delete_weq_assistant.ts",
+    "tools:chatpic-path": "tsx test/chatpic_path_hitrate.ts"
   },
   "dependencies": {
     "@weq/codec": "workspace:*",
