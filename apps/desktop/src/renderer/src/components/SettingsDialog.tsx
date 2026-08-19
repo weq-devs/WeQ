@@ -16,6 +16,7 @@ import {
   AudioLines,
   Bot,
   Check,
+  CloudDownload,
   Lock,
   Monitor,
   Moon,
@@ -33,6 +34,7 @@ import { AccountBasicsSection } from './settings/AccountBasicsSection';
 import { AgentLabSection } from './settings/AgentLabSection';
 import { VoiceTranscribeSection } from './settings/VoiceTranscribeSection';
 import { McpServerSection } from './settings/McpServerSection';
+import { ExternalRkeySection } from './settings/ExternalRkeySection';
 import { WeqAssistantSection } from './settings/WeqAssistantSection';
 import { AntiRecallSection } from './settings/AntiRecallSection';
 import { Toggle } from './settings/controls';
@@ -44,7 +46,16 @@ import {
   type ThemePreference,
 } from '../state/theme';
 
-type SectionId = 'global' | 'appearance' | 'account' | 'voice' | 'agentlab' | 'mcp' | 'weq' | 'antirecall';
+type SectionId =
+  | 'global'
+  | 'appearance'
+  | 'account'
+  | 'antirecall'
+  | 'voice'
+  | 'agentlab'
+  | 'mcp'
+  | 'rkey'
+  | 'weq';
 
 interface SettingsSection {
   id: SectionId;
@@ -95,6 +106,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: 'MCP 服务器',
     icon: <Plug size={16} strokeWidth={1.8} />,
     render: () => <McpServerSection />,
+  },
+  {
+    id: 'rkey',
+    label: '外部 RKEY',
+    icon: <CloudDownload size={16} strokeWidth={1.8} />,
+    render: () => <ExternalRkeySection />,
   },
   {
     id: 'weq',

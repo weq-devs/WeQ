@@ -46,6 +46,8 @@ export type {
   AgentLabSettings,
   LinkPreviewConfig,
   ExternalChatpicConfig,
+  ExternalRkeyConfig,
+  ExternalRkeyServerConfig,
 } from './bootstrap/user_config';
 export { AgentLabConfigService } from './bootstrap/agentlab_config';
 
@@ -121,7 +123,10 @@ export {
   PRIVATE_PTT_RKEY_TYPE,
   GROUP_PTT_RKEY_TYPE,
 } from './account/media_download';
-export type { DownloadOptions } from './account/media_download';
+export type { DownloadOptions, ExternalRkeySource } from './account/media_download';
+export { ExternalRkeyService } from './account/external_rkey';
+export { normalizeNapcatBaseUrl, fetchNapcatRkeys } from './account/rkey_server';
+export type { NapcatRkeyServerResult } from './account/rkey_server';
 export { RecentContactService } from './account/recent_contact';
 export { HiddenSessionService } from './account/hidden_session';
 export type { HiddenSessionSummary } from './account/hidden_session';

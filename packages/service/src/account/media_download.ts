@@ -58,12 +58,22 @@ export interface DownloadOptions {
   originalUrl?: string;
 }
 
+/**
+ * 外部 rkey 服务器的回退源（见 external_rkey.ts）。结构类型接口，避免 account
+ * 层反向依赖 bootstrap 层；MediaDownloadService 只要求能按需解析出可用 rkey。
+ */
+export interface ExternalRkeySource {
+  /** 解析外部服务器当前可用的 rkey（已过滤 allowedTypes、未过期）。 */
+  resolveRkeys(allowedTypes: number[]): Promise<DownloadRkey[]>;
+}
+
 export class MediaDownloadService {
   private readonly logger = getLogger().child({ scope: 'media-download' });
 
   constructor(
     private readonly accountConfig: AccountConfigService,
     private readonly cacheDir: string,
+    private readonly externalRkey?: ExternalRkeySource,
   ) {}
 
   /**
@@ -95,29 +105,45 @@ export class MediaDownloadService {
       urls.push(buildUrl(fileToken, rkey));
     }
 
-    for (const url of urls) {
-      const bytes = await tryFetch(url);
-      if (bytes) {
-        mkdirSync(this.cacheDir, { recursive: true });
-        try {
-          writeFileSync(cachePath, bytes);
-        } catch (error) {
-          this.logger.error('failed to persist downloaded media', {
-            event: 'media-download-write-failed',
-            fileToken,
-            cachePath,
-            ...logErrorContext(error),
-          });
-          throw error;
-        }
-        this.logger.info('downloaded media into cache', {
-          event: 'media-download-success',
+    // 先试本机在线 QQ 自己获取的 rkey（含老图片的原始 URL）；全部失败且配置了
+    // 外部 rkey 服务器时，再回退到它（可能触发一次网络拉取并缓存）。
+    let bytes = await tryEach(urls);
+    if (!bytes && this.externalRkey) {
+      let externalRkeys: DownloadRkey[] = [];
+      try {
+        externalRkeys = await this.externalRkey.resolveRkeys(allowed);
+      } catch (error) {
+        this.logger.warn('external rkey resolve failed', {
+          event: 'media-download-external-resolve-failed',
+          fileToken,
+          ...logErrorContext(error),
+        });
+      }
+      for (const rkey of externalRkeys) {
+        bytes = await tryFetch(buildUrl(fileToken, rkey));
+        if (bytes) break;
+      }
+    }
+    if (bytes) {
+      mkdirSync(this.cacheDir, { recursive: true });
+      try {
+        writeFileSync(cachePath, bytes);
+      } catch (error) {
+        this.logger.error('failed to persist downloaded media', {
+          event: 'media-download-write-failed',
           fileToken,
           cachePath,
-          size: bytes.length,
+          ...logErrorContext(error),
         });
-        return cachePath;
+        throw error;
       }
+      this.logger.info('downloaded media into cache', {
+        event: 'media-download-success',
+        fileToken,
+        cachePath,
+        size: bytes.length,
+      });
+      return cachePath;
     }
     this.logger.warn('media download exhausted all candidates', {
       event: 'media-download-failed',
@@ -154,6 +180,15 @@ function buildUrl(fileToken: string, rkey: DownloadRkey): string {
 const MAX_RETRIES = 3;
 /** Base backoff; grows 300ms → 600ms → 1200ms, plus jitter. */
 const BACKOFF_BASE_MS = 300;
+
+/** Try a list of URLs in order; first non-empty bytes wins. */
+async function tryEach(urls: string[]): Promise<Buffer | null> {
+  for (const url of urls) {
+    const bytes = await tryFetch(url);
+    if (bytes) return bytes;
+  }
+  return null;
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

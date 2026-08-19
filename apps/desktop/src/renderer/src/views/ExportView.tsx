@@ -542,11 +542,22 @@ export function ExportView(): ReactElement {
       return false;
     }
     if (!online) {
-      await dialog.info(
-        '无法补全媒体',
-        '未检测到在线的 QQ 实例。补全缺失媒体需要登录该账号的 QQ 客户端以获取下载凭证（rkey）。请登录后重试，或关闭「补全缺失媒体」后继续导出。',
-      );
-      return false;
+      // 没有在线 QQ 时，若已启用外部 rkey 服务器（如 NapCat），图片/表情仍可由
+      // 它补全（媒体下载会自动回退），不再硬拦截；否则保持原来的提示。
+      let hasExternalRkey = false;
+      try {
+        const settings = await client.bootstrap.getSettings.query();
+        hasExternalRkey = settings.externalRkey.enabledServerId != null;
+      } catch {
+        /* 读取失败按未配置处理，保留硬拦截 */
+      }
+      if (!hasExternalRkey) {
+        await dialog.info(
+          '无法补全媒体',
+          '未检测到在线的 QQ 实例。补全缺失媒体需要登录该账号的 QQ 客户端以获取下载凭证（rkey）。请登录后重试，或关闭「补全缺失媒体」后继续导出。',
+        );
+        return false;
+      }
     }
     let globalOn = true;
     try {

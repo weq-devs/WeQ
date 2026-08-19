@@ -5635,6 +5635,231 @@ html[data-theme="dark"] .weq-settings-preset-preview.is-style-soon {
   height: 12px;
 }
 
+/* ── 外部 RKEY 服务器（ExternalRkeySection）── */
+/* 可展开的「了解 RKEY」卡片，默认收起。 */
+.weq-set-about {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  background: #fcfcfd;
+  overflow: hidden;
+}
+
+.weq-set-about summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 16px;
+  list-style: none;
+  cursor: pointer;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 600;
+  user-select: none;
+}
+
+.weq-set-about summary::-webkit-details-marker {
+  display: none;
+}
+
+.weq-set-about summary:hover {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.weq-set-about-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.weq-set-about-summary svg {
+  color: var(--weq-accent-effective);
+  flex: none;
+}
+
+.weq-set-about-caret {
+  color: #9aa3ad;
+  transition: transform 160ms ease;
+}
+
+.weq-set-about[open] .weq-set-about-caret {
+  transform: rotate(180deg);
+}
+
+.weq-set-about-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 2px 16px 14px 30px;
+  color: #6a7280;
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+.weq-set-about-list b {
+  color: #374151;
+  font-weight: 600;
+}
+
+/* 服务器列表 */
+.weq-set-server-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.weq-set-server-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 9px;
+  background: #ffffff;
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+.weq-set-server-item.is-enabled {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 38%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 4%, #ffffff);
+}
+
+.weq-set-server-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.weq-set-server-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.weq-set-server-ico {
+  color: var(--weq-accent-effective);
+  flex: none;
+}
+
+.weq-set-server-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2933;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-set-server-badge {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective) 82%, #0f2d4c);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.weq-set-server-sub {
+  font-size: 12px;
+  color: #8a93a0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-set-server-cache {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #18a058;
+}
+
+.weq-set-server-cache.is-expired {
+  color: #d9542b;
+}
+
+.weq-set-server-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+
+.weq-set-iconbtn-danger {
+  color: #d32f2f;
+}
+
+.weq-set-iconbtn-danger:hover:not(:disabled) {
+  background: rgba(211, 47, 47, 0.08);
+  color: #d32f2f;
+}
+
+.weq-set-spin {
+  animation: weq-spin 0.8s linear infinite;
+}
+
+/* 导入/编辑表单 */
+.weq-set-server-form {
+  display: grid;
+  gap: 10px;
+}
+
+.weq-set-input-wide {
+  width: 260px;
+}
+
+.weq-set-tokenfield {
+  width: 260px;
+  padding: 4px 6px 4px 10px;
+}
+
+.weq-set-token-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.weq-set-server-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+html[data-theme='dark'] .weq-set-about,
+html[data-theme='dark'] .weq-set-server-item {
+  background: #1b2129;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+html[data-theme='dark'] .weq-set-server-item.is-enabled {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 46%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 9%, #1b2129);
+}
+
+html[data-theme='dark'] .weq-set-about summary:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+html[data-theme='dark'] .weq-set-server-name {
+  color: #e5eaf0;
+}
+
+html[data-theme='dark'] .weq-set-server-sub {
+  color: #8b96a3;
+}
+
 /* ── 语音转录设置（VoiceTranscribeSection）── */
 .weq-voice-models {
   display: flex;
