@@ -73,6 +73,8 @@ export function MemberProfileCard({ member, anchor, onClose }) {
 	const [uidCopied, setUidCopied] = useState(false);
 	const [homeOpen, setHomeOpen] = useState(false);
 	const [markOpen, setMarkOpen] = useState(false);
+	// 打开个性主页 / 互动标识后，卡片本体要自动收起，只留新的弹层。
+	const [dismissed, setDismissed] = useState(false);
 	// 机器人档案（profile_info_adelie）。QQ 只在客户端打开过该机器人资料卡后才
 	// 写这张表，所以经常是 null —— 那时只展示 v6 那份普通资料。
 	const [botProfile, setBotProfile] = useState(null);
@@ -188,7 +190,12 @@ export function MemberProfileCard({ member, anchor, onClose }) {
 		<div
 			className="weq-member-pop-scrim"
 			role="presentation"
-			style={{ position: "fixed", inset: 0, zIndex: 90 }}
+			style={{
+				position: "fixed",
+				inset: 0,
+				zIndex: 90,
+				display: dismissed ? "none" : undefined,
+			}}
 			onMouseDown={onClose}
 		>
 			<section
@@ -349,7 +356,10 @@ export function MemberProfileCard({ member, anchor, onClose }) {
 						<button
 							className="weq-profile-perhome"
 							type="button"
-							onClick={() => setHomeOpen(true)}
+							onClick={() => {
+								setDismissed(true);
+								setHomeOpen(true);
+							}}
 						>
 							<Wand2 size={13} />
 							查看个性主页
@@ -357,7 +367,10 @@ export function MemberProfileCard({ member, anchor, onClose }) {
 						<button
 							className="weq-profile-perhome"
 							type="button"
-							onClick={() => setMarkOpen(true)}
+							onClick={() => {
+								setDismissed(true);
+								setMarkOpen(true);
+							}}
 						>
 							<Award size={13} />
 							查看互动标识
@@ -386,14 +399,20 @@ export function MemberProfileCard({ member, anchor, onClose }) {
 						},
 						profile?.extInfo,
 					)}
-					onClose={() => setHomeOpen(false)}
+					onClose={() => {
+						setHomeOpen(false);
+						onClose();
+					}}
 				/>
 			) : null}
 			{markOpen && uin ? (
 				<MutualMarkDialog
 					uin={uin}
 					name={name}
-					onClose={() => setMarkOpen(false)}
+					onClose={() => {
+						setMarkOpen(false);
+						onClose();
+					}}
 				/>
 			) : null}
 		</div>,
