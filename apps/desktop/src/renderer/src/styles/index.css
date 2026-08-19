@@ -10216,6 +10216,96 @@ html[data-theme="dark"] .weq-persona-modal {
   margin-bottom: calc(var(--weq-orb-size) * 0.02 + 60px);
 }
 
+/* 有 QQ 秀时,舞台改为竖向容器,让全身像撑开高度。
+   切换到头像模式时保持同样高度,确保切换按钮位置不跳动。 */
+.weq-perhome-stage.has-qqshow {
+  height: auto;
+  min-height: 280px;
+  max-height: 320px;
+}
+
+/* QQ 秀形象:四周透明的人物全身像,不套圆框、不叠挂件,与「头像+挂件」一键互切。
+   顶部对齐舞台(上半部透明背景自然融入),靠投影在浅色/深色背景上都立得住。 */
+.weq-qqshow {
+  grid-area: 1 / 1;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 320px;
+  object-fit: contain;
+  object-position: center top;
+  filter: drop-shadow(0 8px 20px rgba(0, 0, 0, 0.3));
+  animation: weq-orb-enter 720ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  align-self: start;
+  justify-self: center;
+}
+
+/* 有 QQ 秀功能时,头像也放大以匹配全身像的视觉比重。 */
+.weq-perhome-stage.has-qqshow .weq-avatar-orb {
+  --weq-orb-size: 300px;
+}
+
+/* QQ 秀 / 头像+挂件 的切换胶囊,浮在舞台底边,半透明毛玻璃。 */
+.weq-perhome-show-switch {
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid color-mix(in srgb, var(--weq-fg-primary) 10%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-bg-surface) 68%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.14);
+}
+
+.weq-perhome-show-switch button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.weq-perhome-show-switch button:hover {
+  color: var(--weq-fg-primary);
+}
+
+.weq-perhome-show-switch button.is-active {
+  background: var(--weq-accent-effective);
+  color: #fff;
+}
+
+/* 有名片背景时切换胶囊跟着转亮。 */
+.weq-perhome.is-onphoto .weq-perhome-show-switch {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.weq-perhome.is-onphoto .weq-perhome-show-switch button {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.weq-perhome.is-onphoto .weq-perhome-show-switch button:hover {
+  color: #fff;
+}
+
+.weq-perhome.is-onphoto .weq-perhome-show-switch button.is-active {
+  background: rgba(255, 255, 255, 0.92);
+  color: #1a1a1a;
+}
+
 .weq-perhome-name {
   margin: 0;
   max-width: 100%;

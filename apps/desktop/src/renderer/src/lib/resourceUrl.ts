@@ -51,6 +51,11 @@ export function albumMediaUrl(src: string): string {
   return mediaUrl('album', { src });
 }
 
+/** Proxy a QQ 秀形象图 (images.qqshow.gtimg.com) through the disk-cached bridge. */
+export function qqShowUrl(src: string): string {
+  return mediaUrl('qqshow', { src });
+}
+
 /** `weq-avatar://fetch?src=…` — the disk-cached bridge for a remote image. */
 export function avatarFetchUrl(src: string): string {
   return `${AVATAR_PREFIX}fetch?src=${encodeURIComponent(src)}`;
