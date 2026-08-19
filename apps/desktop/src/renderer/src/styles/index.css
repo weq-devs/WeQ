@@ -2780,7 +2780,7 @@ html[data-theme='dark'] .weq-splash-track {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  width: 380px;
+  width: 320px;
   max-width: min(420px, calc(100vw - 40px));
   padding: 14px 14px 16px;
   border-radius: 14px;
