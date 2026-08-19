@@ -67,10 +67,10 @@ function displayName(override: string | undefined, fallback: string): string {
 
 /** 阶段1:流式哈希 + prepare(拿 rkey)+ apply(注册 fileId)。秒传(rkey=null)返回 null。 */
 async function prepareAndApply(
-  nt: OidbNative,
-  pid: number,
-  filesetUuid: string,
-  item: StagedItem,
+    nt: OidbNative,
+    pid: number,
+    filesetUuid: string,
+    item: StagedItem,
 ): Promise<PreparedUpload | null> {
   const hashes = await hashFlashFileStreaming(item.path);
   const rkey = await PrepareUpload.invoke(nt, pid, {
@@ -82,8 +82,6 @@ async function prepareAndApply(
     fileIndex: item.fileIndex,
     formatCode: item.formatCode,
   });
-  if (rkey === null) return null; // 秒传
-
   const fileId = buildFileId(hashes.sha1, item.fileSize);
   await ApplyUpload.invoke(nt, pid, {
     filesetUuid,
@@ -96,15 +94,18 @@ async function prepareAndApply(
     fileIndex: item.fileIndex,
     formatCode: item.formatCode,
   });
+
+  // 秒传只跳过实际 sliceupload；当前 fileset 仍必须完成 ApplyUpload 绑定。
+  if (rkey === null) return null;
   return { rkey, sha1StateV: hashes.sha1StateV, sliceCount: hashes.sliceCount };
 }
 
 /** 上传一个/多个本地文件到闪传,返回 filesetUuid + 分享链接。 */
 export async function uploadFlashFiles(
-  nt: OidbNative,
-  pid: number,
-  files: FlashUploadItem[],
-  opts: FlashUploadOptions,
+    nt: OidbNative,
+    pid: number,
+    files: FlashUploadItem[],
+    opts: FlashUploadOptions,
 ): Promise<FlashUploadResult> {
   if (files.length === 0) throw new Error('upload flash files: files is empty');
 
@@ -131,7 +132,7 @@ export async function uploadFlashFiles(
   const first = items[0]!;
   const isMulti = items.length > 1;
   const filesetName =
-    opts.name?.trim() || (isMulti ? `${first.fileName}等${items.length}个文件` : first.fileName);
+      opts.name?.trim() || (isMulti ? `${first.fileName}等${items.length}个文件` : first.fileName);
   const totalSize = items.reduce((sum, item) => sum + item.fileSize, 0);
   const { typeCode } = fileTypeCode(first.fileName);
 
@@ -165,12 +166,12 @@ export async function uploadFlashFiles(
   }
   for (const { item, upload } of prepared) {
     await sliceuploadFile(
-      item.path,
-      item.fileSize,
-      upload.rkey,
-      upload.sha1StateV,
-      upload.sliceCount,
-      item.fileName,
+        item.path,
+        item.fileSize,
+        upload.rkey,
+        upload.sha1StateV,
+        upload.sliceCount,
+        item.fileName,
     );
   }
 

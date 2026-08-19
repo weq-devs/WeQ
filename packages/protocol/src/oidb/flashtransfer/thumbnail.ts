@@ -77,12 +77,12 @@ export function generatePng(width: number, height: number): Buffer {
  * 与 commit f6 对齐。缩略图小,sliceupload 1 片,Sha1StateV=[标准 SHA1]。
  */
 export async function uploadThumbnail(
-  nt: OidbNative,
-  pid: number,
-  filesetUuid: string,
-  mainFileUuid: string,
-  thumbType: 'png' | 'jpg',
-  fileIndex: number,
+    nt: OidbNative,
+    pid: number,
+    filesetUuid: string,
+    mainFileUuid: string,
+    thumbType: 'png' | 'jpg',
+    fileIndex: number,
 ): Promise<void> {
   // 526x360 是 QQ 客户端缩略图尺寸;1x1 会被服务端拒(HTTP 400,宽高太小)。
   const width = 526;
@@ -91,9 +91,9 @@ export async function uploadThumbnail(
   const appid = thumbType === 'png' ? FLASH_APPID_PNG_THUMB : FLASH_APPID_JPG_THUMB;
   const fileUuid = thumbType === 'png' ? randomUUID() : mainFileUuid;
   const fileName =
-    thumbType === 'png'
-      ? `${randomUUID().slice(0, 8)}_one.png`
-      : `${createHash('md5').update(thumbBytes).digest('hex').slice(0, 32)}.jpg`;
+      thumbType === 'png'
+          ? `${randomUUID().slice(0, 8)}_one.png`
+          : `${createHash('md5').update(thumbBytes).digest('hex').slice(0, 32)}.jpg`;
   const hashes = computeHashes(new Uint8Array(thumbBytes));
   const fileSize = thumbBytes.length;
   const thumbFormatCode = thumbType === 'png' ? 26 : 2;
@@ -110,8 +110,6 @@ export async function uploadThumbnail(
     width,
     height,
   });
-  if (rkey === null) return; // 秒传
-
   const fileId = buildFileId(hashes.sha1, fileSize, appid);
   await ApplyUpload.invoke(nt, pid, {
     filesetUuid,
@@ -128,17 +126,20 @@ export async function uploadThumbnail(
     height,
   });
 
+  // 秒传只跳过实际缩略图 sliceupload；当前 fileset 仍必须完成 ApplyUpload 绑定。
+  if (rkey === null) return;
+
   const sha1StateV = computeSha1StateV(new Uint8Array(thumbBytes), 1, fileSize);
   const bodyBytes = buildSliceBody(
-    {
-      rkey,
-      start: 0,
-      end: fileSize - 1,
-      sha1: new Uint8Array(hashes.sha1),
-      sha1StateV,
-      chunk: new Uint8Array(thumbBytes),
-    },
-    { appid },
+      {
+        rkey,
+        start: 0,
+        end: fileSize - 1,
+        sha1: new Uint8Array(hashes.sha1),
+        sha1StateV,
+        chunk: new Uint8Array(thumbBytes),
+      },
+      { appid },
   );
   await postSliceupload(bodyBytes, 'thumbnail sliceupload');
 }
