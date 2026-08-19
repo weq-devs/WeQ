@@ -1491,6 +1491,84 @@ html[data-theme='dark'] .weq-splash-track {
     margin-top: 0.9rem;
   }
 
+  /* ---- ptrace hint dialog (Linux 关闭 ptrace 保护引导) ---- */
+  /* Token-driven, matches the close-confirm dialog's visual language. */
+  .weq-ptrace {
+    display: flex;
+    flex-direction: column;
+    padding: 1.15rem 1.2rem 1rem;
+    color: var(--weq-fg-primary);
+    background: var(--weq-bg-surface);
+  }
+  .weq-ptrace-head {
+    display: flex;
+    flex-direction: column;
+    gap: 0.28rem;
+    margin-bottom: 0.85rem;
+  }
+  .weq-ptrace-title {
+    margin: 0;
+    font-size: 15.5px;
+    font-weight: 650;
+    color: var(--weq-fg-primary);
+  }
+  .weq-ptrace-sub {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--weq-fg-secondary);
+  }
+  .weq-ptrace-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    margin: 0 0 0.7rem;
+    padding: 0.7rem 0.8rem;
+    list-style: none;
+    border-radius: 0.6rem;
+    border: 1px solid var(--weq-border-subtle);
+    background: color-mix(in srgb, var(--weq-accent-effective) 4%, transparent);
+  }
+  .weq-ptrace-steps li {
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--weq-fg-secondary);
+  }
+  .weq-ptrace-cmd {
+    display: block;
+    margin-top: 0.24rem;
+    padding: 0.32rem 0.5rem;
+    overflow-x: auto;
+    border-radius: 0.4rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11.5px;
+    line-height: 1.5;
+    white-space: nowrap;
+    color: var(--weq-fg-primary);
+    background: var(--weq-bg-elevated);
+    border: 1px solid var(--weq-border-subtle);
+  }
+  .weq-ptrace-note {
+    margin: 0 0 0.85rem;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--weq-fg-muted);
+  }
+  .weq-ptrace-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .weq-ptrace-foot {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.32rem;
+    margin: 0.85rem 0 0;
+    font-size: 11.5px;
+    color: var(--weq-fg-muted);
+  }
+
   /* ---- first-run welcome dialog (欢迎使用 WeQ) ---- */
   /* Fully token-driven so it tracks light/dark. The shared `.weq-modal` shell
      paints a fixed white gradient with no dark variant, so `.weq-welcome` lays

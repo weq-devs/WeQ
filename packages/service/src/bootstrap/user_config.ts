@@ -213,6 +213,12 @@ export interface AppSettings {
    * 关掉后所有消息统一走清单里的全局装扮，不做逐条渲染。默认开启。
    */
   showMsgDecoration: boolean;
+  /**
+   * Linux 下是否不再提示关闭 ptrace 保护。首次检测到无法直接注入（内核拒绝
+   * ptrace）时弹窗引导用户关闭 yama ptrace_scope；选择「不再提醒」后写入这里，
+   * 之后直接走 pkexec 提权、不再弹窗。
+   */
+  suppressPtraceHint: boolean;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -233,6 +239,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   linkPreview: { enabled: true, screenshot: false },
   preferCdn: false,
   showMsgDecoration: true,
+  suppressPtraceHint: false,
 };
 
 export interface UserConfig {
@@ -456,6 +463,7 @@ export class UserConfigService {
       showAvatarPendant: s?.showAvatarPendant ?? d.showAvatarPendant,
       preferCdn: s?.preferCdn ?? d.preferCdn,
       showMsgDecoration: s?.showMsgDecoration ?? d.showMsgDecoration,
+      suppressPtraceHint: s?.suppressPtraceHint ?? d.suppressPtraceHint,
       linkPreview: {
         enabled: s?.linkPreview?.enabled ?? d.linkPreview.enabled,
         screenshot: s?.linkPreview?.screenshot ?? d.linkPreview.screenshot,
@@ -495,6 +503,7 @@ export class UserConfigService {
       showAvatarPendant: patch.showAvatarPendant ?? current.showAvatarPendant,
       preferCdn: patch.preferCdn ?? current.preferCdn,
       showMsgDecoration: patch.showMsgDecoration ?? current.showMsgDecoration,
+      suppressPtraceHint: patch.suppressPtraceHint ?? current.suppressPtraceHint,
       linkPreview: {
         enabled: patch.linkPreview?.enabled ?? current.linkPreview.enabled,
         screenshot: patch.linkPreview?.screenshot ?? current.linkPreview.screenshot,

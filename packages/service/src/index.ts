@@ -30,7 +30,7 @@ export type {
 } from './bootstrap/win32_key';
 
 export { createDirectInjectHook } from './bootstrap/inject';
-export type { InjectHook } from './bootstrap/inject';
+export type { InjectHook, PtraceHintChoice } from './bootstrap/inject';
 
 export { UserConfigService, DEFAULT_APP_SETTINGS } from './bootstrap/user_config';
 export type {
