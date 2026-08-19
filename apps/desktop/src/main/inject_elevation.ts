@@ -75,9 +75,14 @@ function resolveWorkerPath(): string {
 function isPermissionError(error: Error): boolean {
   const msg = error.message;
   return (
+    // English libc / kernel phrasings for EPERM / EACCES.
     /operation not permitted|permission denied|not permitted|permission/i.test(msg) ||
+    // zh_CN locales render EPERM as 「不允许的操作」.
+    /不允许的操作|权限不足|没有权限|操作不允许/i.test(msg) ||
     /EPERM|EACCES/i.test(msg) ||
     /os error (1|13)\b/i.test(msg) ||
+    // The native addon surfaces attach failures as `PTRACE_ATTACH failed …`.
+    /PTRACE_ATTACH|ptrace attach/i.test(msg) ||
     /failed to load extracted injector/i.test(msg)
   );
 }

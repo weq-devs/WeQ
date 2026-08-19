@@ -7,7 +7,7 @@
  *   - 「不再提醒，直接提权」→ 回传 `no-remind`，写入 global_config 后走 pkexec；
  *   - 关闭弹窗（✕ / ESC）→ 回传 `skip`，本次直接走 pkexec、不记忆。
  *
- * 复用 <Modal> 外壳（遮罩 / ESC / 动画）与 weq-close 的选项卡片视觉语言。
+ * 复用 <Modal> 外壳（遮罩 / ESC / 动画），按钮同排、教程两步用虚线分隔。
  */
 
 import { useEffect, useState, type ReactElement } from 'react';
@@ -58,18 +58,29 @@ export function PtraceHintDialog(): ReactElement | null {
         </header>
 
         <ol className="weq-ptrace-steps">
-          <li>
-            临时关闭（重启后失效）：
+          <li className="weq-ptrace-step">
+            <span className="weq-ptrace-step-title">
+              <span className="weq-ptrace-step-num" aria-hidden>
+                1
+              </span>
+              临时关闭（重启后失效）
+            </span>
             <code className="weq-ptrace-cmd">
               echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
             </code>
           </li>
-          <li>
-            永久关闭：写入 <code className="weq-ptrace-cmd">/etc/sysctl.d/10-ptrace.conf</code>
-            ，内容为
-            <code className="weq-ptrace-cmd">kernel.yama.ptrace_scope = 0</code>
-            然后执行
-            <code className="weq-ptrace-cmd">sudo sysctl -p /etc/sysctl.d/10-ptrace.conf</code>
+          <li className="weq-ptrace-step">
+            <span className="weq-ptrace-step-title">
+              <span className="weq-ptrace-step-num" aria-hidden>
+                2
+              </span>
+              永久关闭
+            </span>
+            <code className="weq-ptrace-cmd"># 写入/etc/sysctl.d/10-ptrace.conf
+              <br /> # kernel.yama.ptrace_scope = 0
+              <br /> # 然后执行如下命令
+              <br /> sudo sysctl -p /etc/sysctl.d/10-ptrace.conf
+            </code>
           </li>
         </ol>
 
@@ -78,24 +89,21 @@ export function PtraceHintDialog(): ReactElement | null {
         </p>
 
         <div className="weq-ptrace-actions">
-          <button type="button" className="weq-close-opt" onClick={() => void respond('retry')}>
-            <span className="weq-close-opt-ico">
-              <RotateCw size={17} strokeWidth={1.85} aria-hidden />
-            </span>
-            <span className="weq-close-opt-text">
-              <strong>我已关闭，重新尝试</strong>
-              <span>按上面的方案关闭保护后，直接再次注入。</span>
-            </span>
+          <button
+            type="button"
+            className="weq-ptrace-opt weq-ptrace-opt-primary"
+            onClick={() => void respond('retry')}
+          >
+            <RotateCw size={17} strokeWidth={2.5} aria-hidden />
+            <span>重新尝试</span>
           </button>
-
-          <button type="button" className="weq-close-opt" onClick={() => void respond('no-remind')}>
-            <span className="weq-close-opt-ico">
-              <BellOff size={17} strokeWidth={1.85} aria-hidden />
-            </span>
-            <span className="weq-close-opt-text">
-              <strong>不再提醒，直接提权</strong>
-              <span>以后不再弹出本提示，每次直接请求管理员授权。</span>
-            </span>
+          <button
+            type="button"
+            className="weq-ptrace-opt weq-ptrace-opt-danger"
+            onClick={() => void respond('no-remind')}
+          >
+            <BellOff size={17} strokeWidth={2.5} aria-hidden />
+            <span>不再提醒</span>
           </button>
         </div>
 
