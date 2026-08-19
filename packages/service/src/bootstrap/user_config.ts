@@ -218,6 +218,12 @@ export interface AppSettings {
    * 见 account/chatpic.ts 的寻址与校验。
    */
   externalChatpic: ExternalChatpicConfig;
+  /**
+   * Linux 下是否不再提示关闭 ptrace 保护。首次检测到无法直接注入（内核拒绝
+   * ptrace）时弹窗引导用户关闭 yama ptrace_scope；选择「不再提醒」后写入这里，
+   * 之后直接走 pkexec 提权、不再弹窗。
+   */
+  suppressPtraceHint: boolean;
 }
 
 /**
@@ -250,6 +256,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   preferCdn: false,
   showMsgDecoration: true,
   externalChatpic: { dir: '', enabled: false },
+  suppressPtraceHint: false,
 };
 
 export interface UserConfig {
@@ -477,6 +484,7 @@ export class UserConfigService {
         dir: s?.externalChatpic?.dir ?? d.externalChatpic.dir,
         enabled: s?.externalChatpic?.enabled ?? d.externalChatpic.enabled,
       },
+      suppressPtraceHint: s?.suppressPtraceHint ?? d.suppressPtraceHint,
       linkPreview: {
         enabled: s?.linkPreview?.enabled ?? d.linkPreview.enabled,
         screenshot: s?.linkPreview?.screenshot ?? d.linkPreview.screenshot,
@@ -520,6 +528,7 @@ export class UserConfigService {
         dir: patch.externalChatpic?.dir ?? current.externalChatpic.dir,
         enabled: patch.externalChatpic?.enabled ?? current.externalChatpic.enabled,
       },
+      suppressPtraceHint: patch.suppressPtraceHint ?? current.suppressPtraceHint,
       linkPreview: {
         enabled: patch.linkPreview?.enabled ?? current.linkPreview.enabled,
         screenshot: patch.linkPreview?.screenshot ?? current.linkPreview.screenshot,

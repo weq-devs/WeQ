@@ -24,6 +24,8 @@ import { registerWeqAssistantIpc } from './weq_assistant/ipc';
 import { disposeExternalMcp } from './mcp/external';
 import { registerChannelIpc } from './channel';
 import { registerQzoneIpc } from './qzone';
+import { setMainWindow } from './main_window';
+import { registerPtraceHintIpc } from './ptrace_hint_ipc';
 import {
   getLogDir,
   getLogger,
@@ -474,6 +476,8 @@ function createWindow(): BrowserWindow {
     void win.loadFile(join(__dirname, '../renderer/index.html'));
   }
   mainWindow = win;
+  setMainWindow(win);
+  win.on('closed', () => setMainWindow(null));
   return win;
 }
 
@@ -523,6 +527,7 @@ void app.whenReady().then(async () => {
   registerChannelIpc();
   registerQzoneIpc();
   registerWeqAssistantIpc();
+  registerPtraceHintIpc();
 
   app.on('browser-window-created', (_, win) => {
     optimizer.watchWindowShortcuts(win);

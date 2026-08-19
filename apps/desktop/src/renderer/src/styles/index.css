@@ -1491,6 +1491,182 @@ html[data-theme='dark'] .weq-splash-track {
     margin-top: 0.9rem;
   }
 
+  /* ---- ptrace hint dialog (Linux 关闭 ptrace 保护引导) ---- */
+  /* Token-driven, matches the close-confirm dialog's visual language. */
+  .weq-ptrace {
+    display: flex;
+    flex-direction: column;
+    padding: 1rem 1.2rem 0.9rem;
+    color: var(--weq-fg-primary);
+    background: var(--weq-bg-surface);
+  }
+  .weq-ptrace-head {
+    display: flex;
+    flex-direction: column;
+    gap: 0.24rem;
+    margin-bottom: 0.7rem;
+  }
+  .weq-ptrace-title {
+    margin: 0;
+    font-size: 15.5px;
+    font-weight: 650;
+    color: var(--weq-fg-primary);
+  }
+  .weq-ptrace-sub {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--weq-fg-secondary);
+  }
+  .weq-ptrace-steps {
+    display: flex;
+    flex-direction: column;
+    margin: 0 0 0.6rem;
+    padding: 0.55rem 0.8rem;
+    list-style: none;
+    border-radius: 0.6rem;
+    border: 1px solid var(--weq-border-subtle);
+    background: color-mix(in srgb, var(--weq-accent-effective) 4%, transparent);
+  }
+  .weq-ptrace-step {
+    display: flex;
+    flex-direction: column;
+    gap: 0.22rem;
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--weq-fg-secondary);
+  }
+  /* 临时关闭 / 永久关闭 两步之间用虚线分隔，避免教程混在一起 */
+  .weq-ptrace-step + .weq-ptrace-step {
+    margin-top: 0.42rem;
+    padding-top: 0.48rem;
+    border-top: 1px dashed color-mix(in srgb, var(--weq-border-strong) 45%, transparent);
+  }
+  .weq-ptrace-step-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.34rem;
+    font-size: 12px;
+    font-weight: 640;
+    color: var(--weq-fg-primary);
+  }
+  .weq-ptrace-step-num {
+    display: inline-flex;
+    flex: none;
+    width: 1.05rem;
+    height: 1.05rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--weq-accent-effective);
+    background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  }
+  .weq-ptrace-step-desc {
+    margin: 0;
+  }
+  .weq-ptrace-inline {
+    padding: 0.06rem 0.26rem;
+    border-radius: 0.3rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    white-space: nowrap;
+    color: var(--weq-fg-primary);
+    background: var(--weq-bg-elevated);
+    border: 1px solid var(--weq-border-subtle);
+  }
+  .weq-ptrace-cmd {
+    display: block;
+    margin-top: 0.14rem;
+    padding: 0.3rem 0.5rem;
+    overflow-x: auto;
+    border-radius: 0.4rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11.5px;
+    line-height: 1.5;
+    white-space: nowrap;
+    color: var(--weq-fg-primary);
+    background: var(--weq-bg-elevated);
+    border: 1px solid var(--weq-border-subtle);
+  }
+  .weq-ptrace-note {
+    margin: 0 0 0.7rem;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--weq-fg-muted);
+  }
+  .weq-ptrace-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+  .weq-ptrace-opt {
+    flex: 1;
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.38rem;
+    padding: 0.5rem 0.42rem;
+    border-radius: 0.55rem;
+    border: 1px solid var(--weq-border-strong);
+    background: transparent;
+    color: var(--weq-fg-primary);
+    font-size: 12.5px;
+    font-weight: 560;
+    line-height: 1.2;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: border-color 140ms ease, background-color 140ms ease, transform 120ms ease;
+  }
+  .weq-ptrace-opt svg {
+    flex: none;
+    transition: transform 140ms ease;
+  }
+  .weq-ptrace-opt:hover {
+    border-color: var(--weq-accent-effective);
+    background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  }
+  .weq-ptrace-opt:hover svg {
+    transform: scale(1.08);
+  }
+  .weq-ptrace-opt:active {
+    transform: translateY(0.5px);
+  }
+  .weq-ptrace-opt:active svg {
+    transform: scale(0.96);
+  }
+  .weq-ptrace-opt-primary {
+    border-color: color-mix(in srgb, var(--weq-accent-effective) 68%, var(--weq-border-strong));
+    color: var(--weq-fg-primary);
+  }
+  .weq-ptrace-opt-primary:hover {
+    border-color: var(--weq-accent-effective);
+  }
+  .weq-ptrace-opt-primary svg {
+    color: var(--weq-accent-effective);
+  }
+  .weq-ptrace-opt-danger {
+    border-color: color-mix(in srgb, #d5495a 62%, var(--weq-border-strong));
+    color: var(--weq-fg-primary);
+  }
+  .weq-ptrace-opt-danger:hover {
+    border-color: #d5495a;
+    background: color-mix(in srgb, #d5495a 8%, transparent);
+  }
+  .weq-ptrace-opt-danger svg {
+    color: #d5495a;
+  }
+  .weq-ptrace-foot {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.32rem;
+    margin: 0.7rem 0 0;
+    font-size: 11.5px;
+    color: var(--weq-fg-muted);
+  }
+
   /* ---- first-run welcome dialog (欢迎使用 WeQ) ---- */
   /* Fully token-driven so it tracks light/dark. The shared `.weq-modal` shell
      paints a fixed white gradient with no dark variant, so `.weq-welcome` lays
@@ -2538,6 +2714,14 @@ html[data-theme='dark'] .weq-splash-track {
   }
   .weq-skel-line { height: 0.7rem; }
   .weq-langbar.weq-skel { height: 0.5rem; }
+}
+
+/* ptrace 弹窗按钮字体：im-template 的 button { font: inherit } 是无 layer 全局规则，
+   会压掉上方 @layer components 里的字号设置，这里用无 layer 规则显式恢复按钮字体。 */
+.weq-ptrace-opt {
+  font-size: 12.5px;
+  font-weight: 560;
+  line-height: 1.2;
 }
 
 @media (max-width: 980px) {

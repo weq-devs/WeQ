@@ -6,12 +6,15 @@
  * native call on both:
  *   - **win32**: inject the embedded hook in-process. The MSF service address
  *     is resolved by port-probe, so a fetch can follow immediately.
- *   - **linux**: injection needs root (ptrace), so it is done by a
- *     pkexec-elevated child (see the desktop app's `inject_elevation`). The
- *     native inject call hands the account UIN to the hook over the pipe and
- *     blocks until the hook binds the MSFService instance (~30s), so injection
- *     resolving already means the pid can send. That elevated flow lives in the
- *     app layer; this default covers the win32 (and any non-elevated) path.
+ *   - **linux**: injection normally needs root (ptrace), so it is done by a
+ *     pkexec-elevated child (see the desktop app's `inject_elevation`) — unless
+ *     the host can ptrace unprivileged (yama ptrace_scope off / CAP_SYS_PTRACE),
+ *     in which case the app injects in-process and skips the password dialog.
+ *     The native inject call hands the account UIN to the hook over the pipe
+ *     and blocks until the hook binds the MSFService instance (~30s), so
+ *     injection resolving already means the pid can send. That elevated flow
+ *     lives in the app layer; this default covers the win32 (and any
+ *     non-elevated) path.
  *
  * The caller must pass the account UIN: the native hook no longer derives it
  * from the process, and on linux it is what the hook uses to bind the right
@@ -46,6 +49,15 @@ export interface InjectHook {
   /** Forget cached inject state for `pid` so the next call re-injects. */
   reset(pid: number): void;
 }
+
+/**
+ * The user's answer to the linux ptrace-hint dialog (shown once, when the
+ * first unprivileged inject is refused by the kernel):
+ *   - `retry`     — user closed yama ptrace protection; try in-process again
+ *   - `no-remind` — persist the suppression, then escalate via pkexec
+ *   - `skip`      — escalate via pkexec this time, without remembering
+ */
+export type PtraceHintChoice = 'retry' | 'no-remind' | 'skip';
 
 /**
  * The default hook: inject the embedded hook in-process and treat the pid as

@@ -13,6 +13,7 @@ import { DialogHost } from './components/Dialog';
 import { ToastHost } from './components/Toast';
 import { WelcomeDialog } from './components/WelcomeDialog';
 import { CloseConfirmDialog } from './components/CloseConfirmDialog';
+import { PtraceHintDialog } from './components/PtraceHintDialog';
 import { DesktopOnly } from './lib/target';
 import { ImageLightbox } from './components/ImageLightbox';
 import { VideoLightbox } from './components/VideoLightbox';
@@ -163,6 +164,9 @@ export default function App(): ReactElement {
           <ToastHost />
           <DesktopOnly>
             <CloseConfirmDialog />
+          </DesktopOnly>
+          <DesktopOnly>
+            <PtraceHintDialog />
           </DesktopOnly>
           <DesktopOnly>
             <AppLockOverlay />

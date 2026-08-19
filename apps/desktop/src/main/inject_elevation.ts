@@ -3,14 +3,19 @@
  *
  * The instance key/rkey/clientkey flows need a QQ process with the hook
  * injected and bound to its MSFService instance. On linux that is one
- * privileged step:
+ * step, elevated only when it has to be:
  *
- *   1. INJECT (root) — ptrace-based. Under Electron (which refuses to run as
- *      root) this means a short-lived pkexec child (`inject_worker`), and a
- *      graphical polkit password dialog pops once per pid. When the host is
- *      already running as root — the web server on a headless box — we ptrace
- *      in-process instead; pkexec would be pointless and, with no polkit agent
- *      to authenticate against, impossible.
+ *   1. INJECT (ptrace) — under Electron the host is usually unprivileged, but
+ *      with yama ptrace_scope off (or CAP_SYS_PTRACE) a normal user can
+ *      ptrace a same-user QQ, so we try in-process FIRST. Only when the kernel
+ *      refuses (EPERM) do we fall back to a short-lived pkexec child
+ *      (`inject_worker`), which pops the polkit password dialog. The first
+ *      time that refusal happens we ask the renderer to walk the user through
+ *      disabling the protection (see `ptrace_hint.ts`); the user can retry,
+ *      suppress the hint permanently (global_config), or just escalate. When
+ *      the host is already running as root — the web server on a headless
+ *      box — we ptrace in-process directly; pkexec would be pointless and,
+ *      with no polkit agent to authenticate against, impossible.
  *
  * The native inject call hands the account UIN to the hook over the pipe and
  * blocks until the hook binds the MSFService instance (~30s), so when inject
@@ -40,6 +45,7 @@ import { dirname, join } from 'node:path';
 import { resolveNtHelperPath, type NtHelperBinding } from '@weq/native';
 import type { InjectHook, UserConfigService } from '@weq/service';
 import { getLogger } from '@weq/service';
+import { getPtraceHintPrompt } from './ptrace_hint';
 import { readProcStartTime } from './proc_stat';
 
 const logger = getLogger().child({ scope: 'inject-elevation' });
@@ -57,6 +63,28 @@ function resolveWorkerPath(): string {
     join(__dirname, '..', 'injectWorker.mjs'),
   ];
   return candidates.find((p) => existsSync(p)) ?? candidates[0]!;
+}
+
+/**
+ * Best-effort classification of a native inject failure. True when the kernel
+ * refused the ptrace attach / injector extraction (EPERM / EACCES) — the only
+ * failures an elevated retry can actually fix, and the ones worth prompting
+ * about. Everything else (missing db, hook bind timeout, …) is left to the
+ * caller as-is.
+ */
+function isPermissionError(error: Error): boolean {
+  const msg = error.message;
+  return (
+    // English libc / kernel phrasings for EPERM / EACCES.
+    /operation not permitted|permission denied|not permitted|permission/i.test(msg) ||
+    // zh_CN locales render EPERM as 「不允许的操作」.
+    /不允许的操作|权限不足|没有权限|操作不允许/i.test(msg) ||
+    /EPERM|EACCES/i.test(msg) ||
+    /os error (1|13)\b/i.test(msg) ||
+    // The native addon surfaces attach failures as `PTRACE_ATTACH failed …`.
+    /PTRACE_ATTACH|ptrace attach/i.test(msg) ||
+    /failed to load extracted injector/i.test(msg)
+  );
 }
 
 /**
@@ -121,11 +149,13 @@ function pkexecInject(pid: number, uin: string): Promise<void> {
  * unless already root), with per-pid idempotency backed by persisted records.
  *
  * The inject half is elevated only when it has to be. Electron refuses to run
- * as root, so the desktop app is always unprivileged and must shell out to
- * pkexec. The web server has no such constraint and is typically run as root
- * on a headless box — where pkexec is both unnecessary (we already have the
+ * as root, so the desktop app is usually unprivileged — but a normal user can
+ * still ptrace a same-user QQ when yama ptrace_scope is off, so we attempt the
+ * in-process inject first and escalate via pkexec only when the kernel refuses
+ * (or the user suppressed the hint). The web server typically runs as root on
+ * a headless box — where pkexec is both unnecessary (we already have the
  * ptrace privilege) and unusable (no graphical polkit agent to authenticate
- * against). So when euid is 0 we ptrace in-process instead.
+ * against). So when euid is 0 we always ptrace in-process.
  *
  * @param userConfig Persists inject records to config.json so a WeQ restart
  *   reuses an already-hooked, still-running QQ instead of re-injecting it.
@@ -171,6 +201,75 @@ export function createLinuxInjectHook(
     }
   }
 
+  /**
+   * Try the unprivileged ptrace inject in-process. Returns the error when the
+   * native call rejects; the caller decides whether to prompt or escalate.
+   */
+  async function tryDirectInject(pid: number, uin: string): Promise<Error | null> {
+    try {
+      await nt.injectAndGetStatusEmbedded(pid, uin);
+      return null;
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      logger.warn('unprivileged inject failed', {
+        event: 'inject-direct-unprivileged-failed',
+        pid,
+        error: err.message,
+      });
+      return err;
+    }
+  }
+
+  /**
+   * Unprivileged inject with the ptrace-hint flow:
+   *   1. try in-process — success means no password dialog at all;
+   *   2. non-permission failure → escalate via pkexec (unchanged behaviour);
+   *   3. permission failure → ask the renderer once (unless suppressed):
+   *        retry      → try in-process again, then escalate on repeat failure
+   *        no-remind  → persist the suppression, then escalate
+   *        skip/dismiss→ escalate without remembering
+   */
+  async function injectUnprivileged(pid: number, uin: string): Promise<void> {
+    if (userConfig.getSettings().suppressPtraceHint) {
+      logger.info('ptrace hint suppressed by user; escalating directly', {
+        event: 'inject-pkexec-suppressed',
+        pid,
+      });
+      await pkexecInject(pid, uin);
+      return;
+    }
+
+    const first = await tryDirectInject(pid, uin);
+    if (first === null) return;
+    if (!isPermissionError(first)) {
+      await pkexecInject(pid, uin);
+      return;
+    }
+
+    const prompt = getPtraceHintPrompt();
+    const choice = prompt ? await prompt() : 'skip';
+    if (choice === 'retry') {
+      const retry = await tryDirectInject(pid, uin);
+      if (retry === null) return;
+      if (isPermissionError(retry)) {
+        logger.warn('ptrace retry still permission-denied; escalating', {
+          event: 'inject-direct-retry-denied',
+          pid,
+        });
+      }
+      await pkexecInject(pid, uin);
+      return;
+    }
+    if (choice === 'no-remind') {
+      userConfig.setSettings({ suppressPtraceHint: true });
+      logger.info('ptrace hint permanently suppressed', {
+        event: 'ptrace-hint-suppressed',
+        pid,
+      });
+    }
+    await pkexecInject(pid, uin);
+  }
+
   /** The ptrace inject half — pops the polkit dialog unless we're already root. */
   async function doInject(pid: number, uin: string): Promise<void> {
     if (injected.has(pid)) return;
@@ -187,8 +286,7 @@ export function createLinuxInjectHook(
         });
         await nt.injectAndGetStatusEmbedded(pid, uin);
       } else {
-        logger.info('injecting into qq via pkexec (root)', { event: 'inject-pkexec', pid });
-        await pkexecInject(pid, uin);
+        await injectUnprivileged(pid, uin);
       }
       injected.add(pid);
       // Persist so a WeQ restart reuses this hook instead of re-injecting.
