@@ -12,7 +12,8 @@
     "test:watch": "vitest",
     "tools:scupdate-probe": "tsx tools/scupdate_probe.ts",
     "tools:get-profile-like": "tsx tools/get_profile_like.ts",
-    "tools:get-user-qq-level": "tsx tools/get_user_qq_level.ts"
+    "tools:get-user-qq-level": "tsx tools/get_user_qq_level.ts",
+    "tools:get-qq-show-url": "tsx tools/get_qq_show_url.ts"
   },
   "dependencies": {
     "@weq/native": "workspace:*"
