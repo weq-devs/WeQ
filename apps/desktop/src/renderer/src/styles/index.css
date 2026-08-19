@@ -2767,58 +2767,73 @@ html[data-theme='dark'] .weq-splash-track {
   z-index: 4000;
   display: flex;
   flex-direction: column;
+  align-items: flex-end;
   gap: 12px;
   pointer-events: none;
 }
 
 .weq-toast {
+  --weq-toast-color: var(--weq-accent-effective);
+  --weq-toast-bg: color-mix(in srgb, var(--weq-toast-color) 7%, var(--weq-bg-surface, #ffffff));
+  position: relative;
   pointer-events: auto;
   display: flex;
-  align-items: stretch;
-  gap: 14px;
-  min-width: 320px;
-  max-width: 440px;
-  padding: 16px 18px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.95);
+  align-items: flex-start;
+  gap: 12px;
+  width: 380px;
+  max-width: min(420px, calc(100vw - 40px));
+  padding: 14px 14px 16px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--weq-toast-bg);
   color: var(--weq-fg-primary, #1a1a1a);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  border-left: 3px solid;
+  border: 1px solid color-mix(in srgb, var(--weq-toast-color) 20%, transparent);
+  border-left: 3px solid var(--weq-toast-color);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
   backdrop-filter: blur(12px);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+    translate 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .weq-toast:hover {
-  transform: translateY(-2px);
+  translate: 0 -2px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.16), 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
-.weq-toast-info { border-left-color: #3b82f6; }
-.weq-toast-warning { border-left-color: #f59e0b; }
-.weq-toast-error { border-left-color: #ef4444; }
-.weq-toast-success { border-left-color: #22c55e; }
+/* 各等级颜色取自主题色附近的色相偏移，避免风格割裂。 */
+.weq-toast-info { --weq-toast-color: color-mix(in srgb, var(--weq-accent-effective) 82%, #38bdf8); }
+.weq-toast-warning { --weq-toast-color: color-mix(in srgb, var(--weq-accent-effective) 72%, #fbbf24); }
+.weq-toast-error { --weq-toast-color: color-mix(in srgb, var(--weq-accent-effective) 66%, #f87171); }
+.weq-toast-success { --weq-toast-color: color-mix(in srgb, var(--weq-accent-effective) 72%, #34d399); }
 
 html[data-theme="dark"] .weq-toast {
-  background: rgba(30, 30, 30, 0.95);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-left: 3px solid;
+  background: color-mix(in srgb, var(--weq-toast-color) 9%, var(--weq-bg-surface, #1e1e1e));
+  border-color: color-mix(in srgb, var(--weq-toast-color) 28%, transparent);
+  border-left-color: var(--weq-toast-color);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
-html[data-theme="dark"] .weq-toast-info { border-left-color: #60a5fa; }
-html[data-theme="dark"] .weq-toast-warning { border-left-color: #fbbf24; }
-html[data-theme="dark"] .weq-toast-error { border-left-color: #f87171; }
-html[data-theme="dark"] .weq-toast-success { border-left-color: #4ade80; }
+html[data-theme="dark"] .weq-toast-info { --weq-toast-color: color-mix(in srgb, var(--weq-accent-effective) 78%, #7dd3fc); }
+html[data-theme="dark"] .weq-toast-warning { --weq-toast-color: color-mix(in srgb, var(--weq-accent-effective) 68%, #fde047); }
+html[data-theme="dark"] .weq-toast-error { --weq-toast-color: color-mix(in srgb, var(--weq-accent-effective) 62%, #fca5a5); }
+html[data-theme="dark"] .weq-toast-success { --weq-toast-color: color-mix(in srgb, var(--weq-accent-effective) 66%, #6ee7b7); }
 
 .weq-toast-icon {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 48px;
-  flex-shrink: 0;
   border-radius: 12px;
   color: #ffffff;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--weq-toast-color) 80%, #ffffff) 0%,
+    color-mix(in srgb, var(--weq-toast-color) 86%, #000000) 100%
+  );
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--weq-toast-color) 35%, transparent);
   position: relative;
   overflow: hidden;
 }
@@ -2827,97 +2842,125 @@ html[data-theme="dark"] .weq-toast-success { border-left-color: #4ade80; }
   content: '';
   position: absolute;
   inset: 0;
-  opacity: 0.15;
-  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.8), transparent 60%);
-}
-
-.weq-toast-info .weq-toast-icon {
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-}
-
-.weq-toast-warning .weq-toast-icon {
-  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-}
-
-.weq-toast-error .weq-toast-icon {
-  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-}
-
-.weq-toast-success .weq-toast-icon {
-  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
-}
-
-html[data-theme="dark"] .weq-toast-info .weq-toast-icon {
-  background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
-}
-
-html[data-theme="dark"] .weq-toast-warning .weq-toast-icon {
-  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
-}
-
-html[data-theme="dark"] .weq-toast-error .weq-toast-icon {
-  background: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
-}
-
-html[data-theme="dark"] .weq-toast-success .weq-toast-icon {
-  background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%);
+  opacity: 0.18;
+  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.85), transparent 60%);
 }
 
 .weq-toast-text {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-  flex: 1;
-  padding: 2px 0;
+  gap: 3px;
+  padding: 1px 0;
 }
 
 .weq-toast-title {
   font-size: 12px;
-  font-weight: 600;
-  opacity: 0.65;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--weq-toast-color);
 }
 
 .weq-toast-msg {
   font-size: 14px;
   font-weight: 500;
-  line-height: 1.5;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 
 .weq-toast-detail {
   font-size: 13px;
-  opacity: 0.7;
-  line-height: 1.5;
-  margin-top: 2px;
+  line-height: 1.45;
+  opacity: 0.72;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 
-.weq-toast-x {
+.weq-toast-actions {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+}
+
+.weq-toast-action {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border: none;
-  background: transparent;
-  color: inherit;
-  opacity: 0.5;
-  cursor: pointer;
   border-radius: 8px;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  background: transparent;
+  color: var(--weq-fg-secondary, inherit);
+  opacity: 0.55;
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.weq-toast-x:hover {
+.weq-toast-action:hover {
   opacity: 1;
-  background: rgba(127, 127, 127, 0.15);
-  transform: scale(1.05);
+  color: var(--weq-toast-color);
+  background: color-mix(in srgb, var(--weq-toast-color) 14%, transparent);
+  transform: scale(1.08);
 }
 
-.weq-toast-x:active {
-  transform: scale(0.95);
-  background: rgba(127, 127, 127, 0.25);
+.weq-toast-action:active {
+  transform: scale(0.94);
+}
+
+/* 底部倒计时进度条，宽度由 JS 按剩余时间驱动 */
+.weq-toast-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  border-radius: 0 2px 0 0;
+  background: var(--weq-toast-color);
+  opacity: 0.85;
+  transition: width 90ms linear, opacity 160ms ease;
+}
+
+/* 悬停时倒计时暂停，进度条随之变淡 */
+.weq-toast:hover .weq-toast-progress {
+  opacity: 0.45;
+}
+
+@keyframes weq-toast-out {
+  from {
+    opacity: 1;
+    transform: translateX(0) translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(28px) translateY(0) scale(0.96);
+  }
+}
+
+.weq-toast-leaving {
+  animation: weq-toast-out 190ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.weq-toast-leaving .weq-toast-progress {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-toast,
+  .weq-toast-leaving {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 
 .weq-lock {
