@@ -130,8 +130,8 @@ export function QqImage({
   const h = num(data, 'imgHeight');
   // subType 1 = received animated emoji (served from Emoji/emoji-recv).
   const isAnimatedEmoji = num(data, 'subType') === 1;
-  const maxW = isAnimatedEmoji ? 120 : 280;
-  const maxH = isAnimatedEmoji ? 120 : 360;
+  const maxW = isAnimatedEmoji ? 120 : 200;
+  const maxH = isAnimatedEmoji ? 120 : 400;
   const fit = fitWithin(w, h, maxW, maxH);
   const style: CSSProperties = fit
     ? { width: fit.width, height: fit.height }
@@ -207,13 +207,13 @@ export function QqVideo({
   const w = num(data, 'videoWidth');
   const h = num(data, 'videoHeight');
   const duration = num(data, 'videoDuration');
-  const fit = fitWithin(w, h, 280, 360);
+  const fit = fitWithin(w, h, 200, 400);
   // bubble mode: container already clips to 120×120 circle, fill it entirely.
   const style: CSSProperties = bubble
     ? { width: '100%', height: '100%' }
     : fit
       ? { width: fit.width, height: fit.height }
-      : { maxWidth: 280, maxHeight: 360 };
+      : { maxWidth: 200, maxHeight: 400 };
 
   // 封面同图片：CDN 直链优先，失败落回代理。原片不参与——那要 OIDB 现签 URL。
   const cdn = useCdn();
