@@ -13,6 +13,7 @@
 
 import { z } from 'zod';
 import { observable } from '@trpc/server/observable';
+import { shell } from 'electron';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, extname, join } from 'node:path';
@@ -47,6 +48,10 @@ import {
   buildBotExport,
   probeBotWebUi,
   downloadUrlToFile,
+  checkAccountDatabaseHealth,
+  collectDbDamageFeedback,
+  findLatestDbHealthReport,
+  writeDbHealthReport,
   type AlbumMedia,
   type NewMessages,
   type DbChange,
@@ -2928,4 +2933,88 @@ export const accountRouter = router({
       }
       return { success: true, text };
     }),
+
+  /** 数据库损坏反馈：打包日志/settings.db/密钥算法配置/检查报告到缓存目录，并打开文件夹 + GitHub/QQ。 */
+  collectDbDamageFeedback: procedure
+    .input(z.object({ target: z.enum(['github', 'qqgroup']) }))
+    .mutation(
+      async ({
+        input,
+      }): Promise<{
+        ok: boolean;
+        folder?: string;
+        files?: string[];
+        errors?: string[];
+        openError?: string | null;
+      }> => {
+        const ctx = getAppContext();
+        const session = ctx.account;
+        const boot = ctx.bootstrap;
+        const platform = ctx.platform;
+        if (!boot) return { ok: false, errors: ['原生组件未就绪'] };
+        if (!session) return { ok: false, errors: ['未打开账号'] };
+        if (!platform) return { ok: false, errors: ['原生组件未就绪'] };
+
+        const uin = session.context.uin;
+        const dbDir = platform.ntDbDir(uin) ?? dirname(session.msgDbPath);
+        // 复用日志目录里最新一份检查报告；没有的话现场重查并生成一份。
+        let reportPath = findLatestDbHealthReport();
+        if (!reportPath) {
+          try {
+            const failures = await checkAccountDatabaseHealth(session, platform);
+            reportPath = writeDbHealthReport({ failures, uin, dbDir });
+          } catch (e) {
+            reportPath = writeDbHealthReport({
+              failures: [],
+              uin,
+              dbDir,
+              checkError: e instanceof Error ? e.message : String(e),
+            });
+          }
+        }
+
+        const result = collectDbDamageFeedback({
+          uin,
+          dbKey: session.context.dbKey,
+          algos: session.context.algos,
+          dbDir,
+          cacheDir: boot.userConfig.cacheBaseDir(),
+          reportPath,
+        });
+
+        // 打开文件夹 + 默认浏览器（GitHub）或 QQ 深链接（交流群）。
+        let openError: string | null = null;
+        try {
+          const err = await shell.openPath(result.folder);
+          if (err) openError = err;
+        } catch (e) {
+          openError = e instanceof Error ? e.message : String(e);
+        }
+        const openExternal = async (url: string, label: string): Promise<void> => {
+          try {
+            await shell.openExternal(url);
+          } catch (e) {
+            openError =
+              (openError ? `${openError}；` : '') +
+              `${label}：${e instanceof Error ? e.message : String(e)}`;
+          }
+        };
+        if (input.target === 'github') {
+          await openExternal('https://github.com/H3CoF6/WeQ/issues', '打开 GitHub 失败');
+        } else {
+          await openExternal(
+            'tencent://ntqq-open/?subCmd=flashTransfer&action=openTransPage&actionParams={"fileSetId":"","allChecked":"","selectedItems":"","sourceType":"share"}',
+            '唤起 QQ 失败',
+          );
+        }
+
+        return {
+          ok: true,
+          folder: result.folder,
+          files: result.files,
+          errors: result.errors,
+          openError,
+        };
+      },
+    ),
 });

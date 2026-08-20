@@ -1025,6 +1025,11 @@ html[data-theme="dark"] .chat-empty {
   from { opacity: 0; transform: translateX(-50%) translateY(6px) scale(0.985); }
   to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
 }
+/* 反馈下拉菜单：从按钮上方「上拉」展开（transform-origin 在底部，向上生长）。 */
+@keyframes weq-menu-rise {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
 @keyframes weq-shimmer {
   from { background-position: -160% 0; }
   to { background-position: 260% 0; }
@@ -1344,6 +1349,115 @@ html[data-theme='dark'] .weq-splash-track {
   }
   .weq-db-damaged-details li {
     padding-left: 0.1rem;
+  }
+  /* 数据库损坏弹窗：折叠区 / 修复步骤 / 代码块 / 反馈下拉 */
+  .weq-db-damaged .weq-dialog-body {
+    max-height: 46vh;
+    overflow-y: auto;
+  }
+  .weq-db-expand-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    margin: 0;
+    padding: 0.12rem 0;
+    border: none;
+    background: transparent;
+    color: #0076c9;
+    font-size: 12.5px;
+    font-weight: 650;
+    line-height: 1.35;
+    cursor: pointer;
+  }
+  .weq-db-expand-toggle:hover {
+    color: #005da3;
+  }
+  .weq-db-expand-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-top: 0.15rem;
+  }
+  .weq-db-fix-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    margin: 0;
+    padding-left: 1.15rem;
+  }
+  .weq-db-fix-steps li {
+    padding-left: 0.1rem;
+  }
+  .weq-db-fix-steps code {
+    padding: 0.05rem 0.25rem;
+    border-radius: 0.28rem;
+    background: rgba(15, 45, 76, 0.06);
+    font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+    font-size: 12px;
+  }
+  .weq-db-codeblock {
+    margin: 0.28rem 0 0;
+    padding: 0.5rem 0.6rem;
+    border-radius: 0.42rem;
+    background: #101d2c;
+    color: #d9e6f2;
+    font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-all;
+    overflow-x: auto;
+  }
+  .weq-db-report-path {
+    margin-top: 0.3rem;
+    color: #51677c;
+    font-size: 12px;
+    word-break: break-all;
+  }
+  .weq-db-damaged-foot {
+    align-items: center;
+  }
+  .weq-db-feedback-wrap {
+    position: relative;
+    display: inline-flex;
+  }
+  .weq-db-feedback-wrap .weq-action-soft {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .weq-db-feedback-menu {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 0.35rem);
+    display: flex;
+    flex-direction: column;
+    min-width: 9.2rem;
+    padding: 0.3rem;
+    border: 1px solid rgba(15, 45, 76, 0.12);
+    border-radius: 0.5rem;
+    background: #fff;
+    box-shadow: 0 10px 30px -12px rgba(7, 31, 61, 0.35);
+    z-index: 30;
+    transform-origin: bottom center;
+    animation: weq-menu-rise 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .weq-db-feedback-menu button {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.42rem 0.55rem;
+    border: none;
+    border-radius: 0.35rem;
+    background: transparent;
+    color: #0f2d4c;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .weq-db-feedback-menu button:hover {
+    background: rgba(0, 118, 201, 0.1);
+    color: #005da3;
   }
   .weq-dialog-foot {
     display: flex;
@@ -2757,6 +2871,13 @@ html[data-theme='dark'] .weq-splash-track {
   border-radius: 6px;
   font-size: 12px;
   line-height: 1;
+}
+
+/* 反馈下拉菜单按钮：同样是无 layer 覆盖（im-template 的 button { font: inherit }
+   会压掉 @layer components 里的字号），与底部按钮保持一致。 */
+.weq-db-feedback-menu button {
+  font-size: 12px;
+  line-height: 1.2;
 }
 
 /* ── Toasts (transient success/info, bottom-right) ──────────────────────── */

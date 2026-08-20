@@ -339,10 +339,21 @@ export type {
 } from './account/resource_cleanup';
 export {
   ACCOUNT_HEALTH_DATABASES,
+  DB_HEALTH_REPORT_PREFIX,
   checkAccountDatabaseHealth,
+  collectDbDamageFeedback,
+  findLatestDbHealthReport,
   formatDbHealthFailures,
+  renderDbHealthReportMarkdown,
+  writeDbHealthReport,
 } from './account/db_health';
-export type { DbHealthFailure } from './account/db_health';
+export type {
+  DbHealthFailure,
+  DbHealthReportInput,
+  DbDamageFeedbackInput,
+  DbDamageFeedbackResult,
+  DbDamageFeedbackTarget,
+} from './account/db_health';
 
 // A process-wide singleton (NOT bound to AccountSession): a single polling
 // loop you mount/unmount db-watch tasks onto to watch their size for changes.

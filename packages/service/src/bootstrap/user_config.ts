@@ -246,6 +246,11 @@ export interface AppSettings {
    * 之后直接走 pkexec 提权、不再弹窗。
    */
   suppressPtraceHint: boolean;
+  /**
+   * 数据库损坏弹窗是否不再提醒。用户点「不再提醒」后写入全局配置；之后健康检查
+   * 仍照常执行并生成报告，但不再弹出提醒。
+   */
+  suppressDbDamageReminder: boolean;
 }
 
 /**
@@ -313,6 +318,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   externalChatpic: { dir: '', enabled: false },
   externalRkey: { servers: [], enabledServerId: null },
   suppressPtraceHint: false,
+  suppressDbDamageReminder: false,
 };
 
 export interface UserConfig {
@@ -545,6 +551,7 @@ export class UserConfigService {
         enabledServerId: s?.externalRkey?.enabledServerId ?? d.externalRkey.enabledServerId,
       },
       suppressPtraceHint: s?.suppressPtraceHint ?? d.suppressPtraceHint,
+      suppressDbDamageReminder: s?.suppressDbDamageReminder ?? d.suppressDbDamageReminder,
       linkPreview: {
         enabled: s?.linkPreview?.enabled ?? d.linkPreview.enabled,
         screenshot: s?.linkPreview?.screenshot ?? d.linkPreview.screenshot,
@@ -599,6 +606,7 @@ export class UserConfigService {
             : current.externalRkey.enabledServerId,
       },
       suppressPtraceHint: patch.suppressPtraceHint ?? current.suppressPtraceHint,
+      suppressDbDamageReminder: patch.suppressDbDamageReminder ?? current.suppressDbDamageReminder,
       linkPreview: {
         enabled: patch.linkPreview?.enabled ?? current.linkPreview.enabled,
         screenshot: patch.linkPreview?.screenshot ?? current.linkPreview.screenshot,

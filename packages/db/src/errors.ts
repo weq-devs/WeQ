@@ -28,6 +28,7 @@ const CORRUPTION_SIGNATURES = [
   'database is malformed',
   'malformed database schema',
   'file is not a database',
+  'failed to decrypt database with provided key',
   'is not a database',
   'database corruption',
   'sqlite_corrupt',
@@ -62,7 +63,8 @@ function extractMessage(err: unknown): string {
 export function isLikelyCorruptionError(err: unknown): boolean {
   const msg = extractMessage(err).toLowerCase();
   if (!msg) return false;
-  return CORRUPTION_SIGNATURES.some((sig) => msg.includes(sig));
+  // 消息统一转小写，签名也要小写比较，避免大小写不一致导致漏判。
+  return CORRUPTION_SIGNATURES.some((sig) => msg.includes(sig.toLowerCase()));
 }
 
 /** Payload handed to the corruption-suspected hook. */

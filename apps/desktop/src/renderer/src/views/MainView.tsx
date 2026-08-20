@@ -16,13 +16,10 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
 } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { getQueryKey } from '@trpc/react-query';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useUpdateStore } from '../state/update';
 import { client } from '../trpc/client';
-import { useDialog } from '../components/Dialog';
 import { useToast } from '../components/Toast';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { previewNodes, previewNodesToText } from '../lib/conversationPreview';
@@ -101,64 +98,10 @@ import { MsgElementEditor } from '../components/MsgElementEditor';
 import { flashTransferTitle } from '../components/QqFlashTransfer';
 import { MergedSessionPanel } from '../components/sidebar/MergedSessionPanel';
 import { ArkFeedView } from '../components/ArkFeedView';
-
-const DATABASE_ISSUES_URL = 'https://github.com/H3CoF6/WeQ/issues';
-
-function DatabaseDamagedDialogBody({
-  message,
-  details,
-}: {
-  message?: string;
-  details?: string[];
-}): ReactElement {
-  const safeMessage = message ?? '';
-  const safeDetails = details ?? [];
-  const isHealthCheckError = safeMessage.includes('健康状态时发生错误');
-
-  return (
-    <div className="weq-db-damaged-dialog">
-      <section className="weq-db-damaged-section">
-        <h4>发生了什么</h4>
-        <p>
-          {isHealthCheckError ? '检测 QQ 数据库健康状态时发生错误。' : '检测到 QQ 数据库损坏。'}
-        </p>
-        <p>问题通常出在 QQ 数据库本身，不是 WeQ 软件导致。</p>
-      </section>
-
-      <section className="weq-db-damaged-section">
-        <h4>已执行处理</h4>
-        <p>
-          {isHealthCheckError
-            ? '为避免继续读取损坏数据，账号已强制退出并返回主页面。'
-            : '账号已强制退出并返回主页面。'}
-        </p>
-      </section>
-
-      <section className="weq-db-damaged-section">
-        <h4>反馈与后续</h4>
-        <p>
-          可以前往{' '}
-          <a href={DATABASE_ISSUES_URL} target="_blank" rel="noreferrer">
-            WeQ GitHub Issues
-          </a>{' '}
-          提交问题，未来可能会做一个数据库修复工具。
-        </p>
-      </section>
-
-      {safeDetails.length > 0 ? (
-        <section className="weq-db-damaged-section weq-db-damaged-details">
-          <h4>检测详情</h4>
-          <ul>
-            {safeDetails.map((line, index) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-              <li key={`${line}:${index}`}>{line}</li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-    </div>
-  );
-}
+import {
+  DatabaseDamagedDialog,
+  type DatabaseDamagedEvent,
+} from '../components/DatabaseDamagedDialog';
 
 const messageRenderers: MessageRenderer[] = composeMessageRenderers({
   prepend: [qqMessageRenderer],
@@ -263,7 +206,6 @@ type MessageWire = {
   /** Per-message decoration from column 40801 (0 = not set). */
   decoration?: { bubbleId: number; fontId: number; widgetId: number };
 };
-
 
 /** The unified chat-message wire from the account router → local MessageWire. */
 type ChatMsgWire = {
@@ -1586,8 +1528,6 @@ function isMobileShell(): boolean {
 
 export function MainView(): ReactElement {
   const utils = trpc.useUtils();
-  const queryClient = useQueryClient();
-  const showError = useDialog((s) => s.showError);
   const pushToast = useToast((s) => s.push);
   const contacts = trpc.account.listRecentContacts.useQuery();
   const topContacts = trpc.account.listTopContacts.useQuery();
@@ -1604,10 +1544,7 @@ export function MainView(): ReactElement {
   const groupNotifies = trpc.account.listGroupNotifies.useQuery({ limit: 2000 });
   const allGroups = trpc.account.listAllGroups.useQuery({ limit: 2000 });
   const openedUin = useViewState((s) => s.openedUin);
-
-  const goTo = useViewState((s) => s.goTo);
-  const setHomeStage = useViewState((s) => s.setHomeStage);
-  const setOpenedUin = useViewState((s) => s.setOpenedUin);
+  const [damagedEvent, setDamagedEvent] = useState<DatabaseDamagedEvent | null>(null);
 
   // 合并会话面板状态：包含类型和点击位置
   const [mergedPanel, setMergedPanel] = useState<{
@@ -1687,23 +1624,15 @@ export function MainView(): ReactElement {
       onData(event) {
         // Defensive: only react to a real database-damaged event.
         if (event?.reason !== 'database-damaged') return;
-        const accountKey = getQueryKey(trpc.account);
-        void queryClient.cancelQueries({ queryKey: accountKey });
-        queryClient.removeQueries({ queryKey: accountKey });
-        setOpenedUin(null);
-        setHomeStage('home');
-        goTo('bootstrap');
-        showError(
-          event.title,
-          <DatabaseDamagedDialogBody message={event.message} details={event.details} />,
-        );
+        // 不强制退回 bootstrap：只弹窗提示，用户可关闭后继续使用。
+        setDamagedEvent(event);
       },
       onError(err) {
         console.error('[account] onAccountForcedClosed subscription error', err);
       },
     });
     return () => sub.unsubscribe();
-  }, [goTo, queryClient, setHomeStage, setOpenedUin, showError]);
+  }, []);
 
   // Update availability: seed from the last cached check (the background startup
   // check may have already run), then keep it live via the check events. Drives
@@ -3811,6 +3740,7 @@ export function MainView(): ReactElement {
 
           <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
           <CollectionDialog open={collectionOpen} onClose={() => setCollectionOpen(false)} />
+          <DatabaseDamagedDialog event={damagedEvent} onClose={() => setDamagedEvent(null)} />
           {marketBrowserOpen ? (
             <MarketEmojiBrowserLightbox onClose={() => setMarketBrowserOpen(false)} />
           ) : null}

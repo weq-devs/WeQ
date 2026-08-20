@@ -137,11 +137,16 @@ export function loadNative(opts: LoadNativeOptions = {}): NativeBundle {
     logToFile('[loadNative] nt_helper.node loaded successfully');
   } catch (err) {
     logToFile('[loadNative] Failed to require nt_helper.node:', err);
-    throw new Error(`Failed to load nt_helper.node from ${ntHelperPath}: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(
+      `Failed to load nt_helper.node from ${ntHelperPath}: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   const initStatus = ntHelper.getInitStatus();
-  logToFile('[loadNative] Init status:', { status: initStatus, message: INIT_ERROR_MESSAGES[initStatus] });
+  logToFile('[loadNative] Init status:', {
+    status: initStatus,
+    message: INIT_ERROR_MESSAGES[initStatus],
+  });
 
   if (initStatus !== InitStatus.Success) {
     const message = INIT_ERROR_MESSAGES[initStatus] || INIT_ERROR_MESSAGES[InitStatus.UnknownError];
@@ -229,8 +234,7 @@ function resolveNativeRoot(): string {
 
   // Production: Electron sets process.resourcesPath when packaged. The bundle
   // is copied to the install root (sibling of resources/), not into resources/.
-  const electronResources = (process as NodeJS.Process & { resourcesPath?: string })
-    .resourcesPath;
+  const electronResources = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
   logToFile('[resolveNativeRoot] Electron resourcesPath:', electronResources || '<not set>');
 
   if (electronResources) {
@@ -292,9 +296,7 @@ function resolvePlatformRoot(nativeRoot: string): string {
     );
   }
   if (platform === 'win32' && arch !== 'x64') {
-    throw new Error(
-      `Architecture '${arch}' is not supported on win32. Only x64 is implemented.`,
-    );
+    throw new Error(`Architecture '${arch}' is not supported on win32. Only x64 is implemented.`);
   }
   if (platform === 'linux' && arch !== 'x64' && arch !== 'arm64') {
     throw new Error(
@@ -332,8 +334,7 @@ function resolveNineBirdRuntimeDir(nativeRoot: string): string {
   const override = process.env.WEQ_NINEBIRD_RUNTIME_DIR;
   if (override) return override;
 
-  const electronResources = (process as NodeJS.Process & { resourcesPath?: string })
-    .resourcesPath;
+  const electronResources = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
   const devCandidate = join(nativeRoot, '..', 'resources', 'ninebird-runtime');
   const candidates = electronResources
     ? [join(electronResources, 'resources', 'ninebird-runtime'), devCandidate]
@@ -379,9 +380,7 @@ function assertExists(path: string, label: string): void {
   logToFile(`[assertExists] Checking ${label} at: ${path}`);
   if (!existsSync(path)) {
     logToFile(`[assertExists] MISSING: ${label} not found at ${path}`);
-    throw new Error(
-      `Required native asset missing: ${label}\n  expected at: ${path}`,
-    );
+    throw new Error(`Required native asset missing: ${label}\n  expected at: ${path}`);
   }
   try {
     const stats = statSync(path);
@@ -399,6 +398,14 @@ function configureNtHelperLogging(ntHelper: NtHelperBinding): void {
   const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
   const logPath = join(logRoot, `nt_helper_${today}.log`);
   ntHelper.setLogPath(logPath);
+}
+
+/**
+ * Absolute directory the native addons write their diagnostics into
+ * (`nt_helper_<date>.log` / `native_loader_<date>.log`).
+ */
+export function getNativeLogRoot(): string {
+  return resolveNativeLogRoot();
 }
 
 function resolveNativeLogRoot(): string {
