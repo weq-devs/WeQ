@@ -14630,3 +14630,1150 @@ html[data-theme="dark"] .weq-search-skeleton-line {
   background: linear-gradient(90deg, rgba(255, 255, 255, 0.08) 25%, rgba(255, 255, 255, 0.14) 50%, rgba(255, 255, 255, 0.08) 75%);
   background-size: 200% 100%;
 }
+
+/* ────────────────────────────────────────────────────────────────────
+ * 设置 → 帮助（weq-help-*）：日志查看 / 常见问题 / 反馈 bug。
+ * 沿用 weq 设计语言：#0099ff 主题、细描边、小圆角、轻量留白。
+ * ──────────────────────────────────────────────────────────────────── */
+
+/* 子页 tab 条 */
+.weq-help {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.weq-help-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  width: fit-content;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.weq-help-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #5f6b7a;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.weq-help-tab:hover {
+  background: rgba(0, 0, 0, 0.045);
+  color: #232d39;
+}
+
+.weq-help-tab.is-active {
+  background: #ffffff;
+  color: var(--weq-accent-effective);
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+.weq-help-body {
+  display: grid;
+  min-width: 0;
+}
+
+/* ── 日志查看 ──────────────────────────────────────────────────────── */
+.weq-help-log {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.weq-help-log-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.weq-help-log-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.weq-help-log-file svg {
+  color: var(--weq-accent-effective);
+  flex: none;
+}
+
+.weq-help-log-file select {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #2b3440;
+  font-size: 12.5px;
+  outline: none;
+  cursor: pointer;
+}
+
+.weq-help-log-file select:focus {
+  border-color: var(--weq-accent-effective);
+}
+
+.weq-help-log-toolbar-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.weq-help-log-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: #8a93a0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.weq-help-log-live {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: #18a058;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #18a058 20%, transparent);
+  animation: weq-help-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes weq-help-pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.weq-help-log-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.weq-help-log-levels {
+  display: inline-flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.weq-log-lv-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 999px;
+  background: #ffffff;
+  color: #7b8794;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease;
+}
+
+.weq-log-lv-chip:hover {
+  border-color: rgba(0, 0, 0, 0.26);
+}
+
+.weq-log-lv-chip.is-error.is-on {
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
+}
+
+.weq-log-lv-chip.is-warn.is-on {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.12);
+  color: #b45309;
+}
+
+.weq-log-lv-chip.is-info.is-on {
+  border-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
+  color: #2563eb;
+}
+
+.weq-log-lv-chip.is-debug.is-on {
+  border-color: #94a3b8;
+  background: rgba(148, 163, 184, 0.16);
+  color: #64748b;
+}
+
+.weq-help-log-empty-hint {
+  align-self: center;
+  font-size: 11px;
+  color: #9aa3ad;
+}
+
+.weq-help-log-tools-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.weq-help-log-spin {
+  animation: weq-spin 0.8s linear infinite;
+}
+
+.weq-set-btn.is-live {
+  border-color: color-mix(in srgb, #18a058 55%, transparent);
+  background: color-mix(in srgb, #18a058 12%, transparent);
+  color: #0f7a44;
+}
+
+/* 日志内容区：恒定深色控制台（明暗模式下都清晰） */
+.weq-help-log-view {
+  height: 340px;
+  overflow-y: auto;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+  background: #10141d;
+  padding: 6px 0;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 11.5px;
+  line-height: 1.6;
+  scrollbar-gutter: stable;
+}
+
+.weq-help-log-view::-webkit-scrollbar {
+  width: 8px;
+}
+
+.weq-help-log-view::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.weq-help-log-view::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.weq-log-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 1px 10px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.weq-log-line:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.weq-log-line.is-error {
+  background: rgba(255, 90, 90, 0.09);
+}
+
+.weq-log-ts {
+  flex: none;
+  color: rgba(255, 255, 255, 0.38);
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-log-lv {
+  flex: none;
+  width: 46px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.weq-log-line.is-error .weq-log-lv {
+  color: #ff6b6b;
+}
+
+.weq-log-line.is-warn .weq-log-lv {
+  color: #f5b454;
+}
+
+.weq-log-line.is-info .weq-log-lv {
+  color: #7cc0ff;
+}
+
+.weq-log-line.is-debug .weq-log-lv {
+  color: #8fa6bd;
+}
+
+.weq-log-msg {
+  color: #c8d3e1;
+}
+
+.weq-log-line.is-error .weq-log-msg {
+  color: #ff9494;
+}
+
+.weq-log-line.is-warn .weq-log-msg {
+  color: #ffd28a;
+}
+
+.weq-log-line.is-debug .weq-log-msg {
+  color: #8fb7e8;
+}
+
+.weq-log-ctx {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.weq-help-log-empty {
+  padding: 30px 12px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 12px;
+}
+
+.weq-help-log-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 10px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.weq-help-log-more:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.weq-help-log-scrollhint {
+  padding: 6px 10px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 11px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.12);
+  background: rgba(16, 20, 29, 0.9);
+}
+
+.weq-help-log-foot {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: #9aa3ad;
+  line-height: 1.5;
+}
+
+/* ── 常见问题 ──────────────────────────────────────────────────────── */
+.weq-help-faq {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.weq-help-faq-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  background: #fcfcfd;
+}
+
+.weq-help-faq-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 9px;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 13%, transparent);
+}
+
+.weq-help-faq-head > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.weq-help-faq-head strong {
+  font-size: 13.5px;
+  color: #1f2933;
+}
+
+.weq-help-faq-head p {
+  margin: 0;
+  font-size: 12px;
+  color: #8a93a0;
+  line-height: 1.55;
+}
+
+.weq-help-faq-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 2px 9px;
+  flex: none;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.05);
+  color: #8a93a0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+}
+
+.weq-help-faq-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 30px 0;
+  color: #9aa3ad;
+  font-size: 12.5px;
+}
+
+.weq-help-faq-body {
+  padding: 16px 18px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+/* Markdown 通用排版（FAQ / 反馈预览共用） */
+.weq-help-md {
+  font-size: 13.5px;
+  line-height: 1.7;
+  word-break: break-word;
+  white-space: normal;
+  color: #2b3440;
+}
+
+.weq-help-md > :first-child {
+  margin-top: 0;
+}
+
+.weq-help-md > :last-child {
+  margin-bottom: 0;
+}
+
+.weq-help-md p {
+  margin: 6px 0;
+}
+
+.weq-help-md h1,
+.weq-help-md h2,
+.weq-help-md h3,
+.weq-help-md h4,
+.weq-help-md h5,
+.weq-help-md h6 {
+  margin: 14px 0 6px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #1a2530;
+}
+
+.weq-help-md h1 {
+  font-size: 18px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.weq-help-md h2 {
+  font-size: 16px;
+}
+
+.weq-help-md h3 {
+  font-size: 15px;
+}
+
+.weq-help-md h4 {
+  font-size: 14px;
+}
+
+.weq-help-md ul,
+.weq-help-md ol {
+  margin: 6px 0;
+  padding-left: 22px;
+}
+
+.weq-help-md li {
+  margin: 3px 0;
+}
+
+.weq-help-md li:has(> input[type='checkbox']) {
+  list-style: none;
+  margin-left: -20px;
+}
+
+.weq-help-md input[type='checkbox'] {
+  margin-right: 6px;
+  vertical-align: middle;
+  accent-color: var(--weq-accent-effective);
+}
+
+.weq-help-md blockquote {
+  margin: 8px 0;
+  padding: 6px 12px;
+  border-left: 3px solid var(--weq-border-strong);
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+  color: #5b6b7c;
+}
+
+.weq-help-md blockquote p {
+  margin: 4px 0;
+}
+
+.weq-help-md :not(pre) > code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.9em;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: inherit;
+}
+
+.weq-help-md pre {
+  margin: 8px 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border-radius: 8px;
+  background: #10141d;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.weq-help-md pre code {
+  background: none;
+  padding: 0;
+}
+
+.weq-help-md hr {
+  margin: 12px 0;
+  border: 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.weq-help-md table {
+  margin: 8px 0;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  max-width: 100%;
+  display: block;
+  overflow-x: auto;
+}
+
+.weq-help-md th,
+.weq-help-md td {
+  padding: 5px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  text-align: left;
+}
+
+.weq-help-md th {
+  font-weight: 600;
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+}
+
+.weq-help-md a {
+  color: var(--weq-accent-effective);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ── 反馈 bug ──────────────────────────────────────────────────────── */
+.weq-help-bug {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.weq-help-bug-banner {
+  position: relative;
+  height: 116px;
+  border-radius: 12px;
+  overflow: hidden;
+  background-size: cover;
+  background-position: center 26%;
+}
+
+/* 底部渐变 + 模糊遮罩 */
+.weq-help-bug-banner-mask {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 62%;
+  background: linear-gradient(to bottom, transparent, rgba(10, 14, 20, 0.72) 86%);
+  backdrop-filter: blur(16px) saturate(1.15);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 82%);
+  mask-image: linear-gradient(to bottom, transparent, #000 82%);
+  pointer-events: none;
+}
+
+.weq-help-bug-banner-text {
+  position: absolute;
+  left: 16px;
+  bottom: 11px;
+  display: grid;
+  gap: 2px;
+  color: #ffffff;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.45);
+}
+
+.weq-help-bug-banner-text strong {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.weq-help-bug-banner-text span {
+  font-size: 11.5px;
+  opacity: 0.88;
+}
+
+.weq-help-bug-card {
+  display: grid;
+  gap: 10px;
+  padding: 13px 15px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  background: #fcfcfd;
+}
+
+.weq-help-bug-card-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.weq-help-bug-card-head svg {
+  color: var(--weq-accent-effective);
+  flex: none;
+}
+
+.weq-help-bug-sub {
+  margin: 0;
+  font-size: 12px;
+  color: #8a93a0;
+  line-height: 1.6;
+}
+
+.weq-help-bug-tips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.weq-help-bug-tips li {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 12.5px;
+  color: #4b5563;
+  line-height: 1.6;
+}
+
+.weq-help-bug-tips li svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--weq-accent-effective);
+}
+
+.weq-help-bug-tips code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11.5px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.weq-help-inline {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--weq-accent-effective);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.weq-help-bug-hex-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.weq-help-bug-hex {
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.09);
+  border-radius: 10px;
+}
+
+.weq-help-bug-hex-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.045);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11.5px;
+  color: #6b7280;
+}
+
+.weq-help-bug-hex-body {
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  max-height: 190px;
+  background: #10141d;
+  color: #9fd8a8;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.weq-help-bug-title-row {
+  display: flex;
+  gap: 8px;
+}
+
+.weq-help-bug-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1f2933;
+  font-size: 13px;
+  outline: none;
+}
+
+.weq-help-bug-title:focus {
+  border-color: var(--weq-accent-effective);
+}
+
+.weq-help-bug-title::placeholder {
+  color: #a3aeb9;
+}
+
+.weq-help-bug-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.weq-help-bug-editor {
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.weq-help-bug-editor-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 4px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  background: #f7f8fa;
+}
+
+.weq-help-bug-editor-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #6b7280;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.weq-help-bug-editor-tabs button:hover {
+  color: #374151;
+}
+
+.weq-help-bug-editor-tabs button.is-on {
+  background: #ffffff;
+  color: var(--weq-accent-effective);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.09);
+}
+
+.weq-help-bug-textarea {
+  display: block;
+  width: 100%;
+  min-height: 212px;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12.5px;
+  line-height: 1.65;
+  resize: vertical;
+  outline: none;
+}
+
+.weq-help-bug-preview {
+  min-height: 212px;
+  max-height: 330px;
+  overflow-y: auto;
+  padding: 10px 14px;
+}
+
+.weq-help-bug-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.weq-help-bug-action {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.09);
+  border-radius: 10px;
+  background: #ffffff;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease, transform 140ms ease;
+}
+
+.weq-help-bug-action:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 32%, transparent);
+  background: #fbfdff;
+  transform: translateY(-1px);
+}
+
+.weq-help-bug-action:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.weq-help-bug-action-ico {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 9px;
+}
+
+.weq-help-bug-action-ico.is-gh {
+  background: #24292e;
+  color: #ffffff;
+}
+
+.weq-help-bug-action-ico.is-cli {
+  background: color-mix(in srgb, var(--weq-accent-effective) 13%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+.weq-help-bug-action-ico.is-qq {
+  background: rgba(0, 178, 255, 0.15);
+  color: #00a6e8;
+}
+
+.weq-help-bug-action > span:last-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.weq-help-bug-action strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2933;
+}
+
+.weq-help-bug-action small {
+  font-size: 11.5px;
+  color: #8a93a0;
+  line-height: 1.5;
+}
+
+.weq-help-bug-foot {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  font-size: 11.5px;
+  color: #9aa3ad;
+  line-height: 1.5;
+}
+
+.weq-help-bug-foot svg {
+  flex: none;
+}
+
+/* ── 深色模式 ──────────────────────────────────────────────────────── */
+html[data-theme="dark"] .weq-help-tabs {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+html[data-theme="dark"] .weq-help-tab {
+  color: #9aa8b8;
+}
+
+html[data-theme="dark"] .weq-help-tab:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: #e7eef6;
+}
+
+html[data-theme="dark"] .weq-help-tab.is-active {
+  background: #222a34;
+  color: #8cc4ff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+html[data-theme="dark"] .weq-help-log-file select {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: #1b2129;
+  color: #d5dde6;
+}
+
+html[data-theme="dark"] .weq-help-log-file:focus {
+  border-color: var(--weq-accent-effective);
+}
+
+html[data-theme="dark"] .weq-help-log-meta,
+html[data-theme="dark"] .weq-help-log-foot {
+  color: #7e8b9b;
+}
+
+html[data-theme="dark"] .weq-log-lv-chip {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: #1b2129;
+  color: #9aa8b8;
+}
+
+html[data-theme="dark"] .weq-log-lv-chip:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+html[data-theme="dark"] .weq-log-lv-chip.is-error.is-on {
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.16);
+  color: #ff8080;
+}
+
+html[data-theme="dark"] .weq-log-lv-chip.is-warn.is-on {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.16);
+  color: #ffc766;
+}
+
+html[data-theme="dark"] .weq-log-lv-chip.is-info.is-on {
+  border-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.16);
+  color: #7cb3ff;
+}
+
+html[data-theme="dark"] .weq-log-lv-chip.is-debug.is-on {
+  border-color: #94a3b8;
+  background: rgba(148, 163, 184, 0.2);
+  color: #b6c4d4;
+}
+
+html[data-theme="dark"] .weq-help-log-empty-hint {
+  color: #7e8b9b;
+}
+
+html[data-theme="dark"] .weq-help-log-view {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: #0b0e14;
+}
+
+html[data-theme="dark"] .weq-set-btn.is-live {
+  border-color: color-mix(in srgb, #2fd47f 55%, transparent);
+  background: color-mix(in srgb, #2fd47f 14%, transparent);
+  color: #4ade80;
+}
+
+html[data-theme="dark"] .weq-help-faq-head,
+html[data-theme="dark"] .weq-help-bug-card,
+html[data-theme="dark"] .weq-help-bug-action {
+  border-color: rgba(255, 255, 255, 0.09);
+  background: #1b2129;
+}
+
+html[data-theme="dark"] .weq-help-faq-head strong,
+html[data-theme="dark"] .weq-help-bug-card-head,
+html[data-theme="dark"] .weq-help-bug-action strong {
+  color: #e7eef6;
+}
+
+html[data-theme="dark"] .weq-help-faq-head p,
+html[data-theme="dark"] .weq-help-bug-sub,
+html[data-theme="dark"] .weq-help-bug-action small {
+  color: #8d9aab;
+}
+
+html[data-theme="dark"] .weq-help-faq-file {
+  background: rgba(255, 255, 255, 0.08);
+  color: #8d9aab;
+}
+
+html[data-theme="dark"] .weq-help-faq-loading {
+  color: #7e8b9b;
+}
+
+html[data-theme="dark"] .weq-help-faq-body,
+html[data-theme="dark"] .weq-help-bug-editor,
+html[data-theme="dark"] .weq-help-bug-title {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: #141920;
+}
+
+html[data-theme="dark"] .weq-help-md {
+  color: #c6d0dc;
+}
+
+html[data-theme="dark"] .weq-help-md h1,
+html[data-theme="dark"] .weq-help-md h2,
+html[data-theme="dark"] .weq-help-md h3,
+html[data-theme="dark"] .weq-help-md h4,
+html[data-theme="dark"] .weq-help-md h5,
+html[data-theme="dark"] .weq-help-md h6 {
+  color: #edf3f9;
+}
+
+html[data-theme="dark"] .weq-help-md h1 {
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+
+html[data-theme="dark"] .weq-help-md blockquote {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  color: #9fb0c2;
+}
+
+html[data-theme="dark"] .weq-help-md hr {
+  border-top-color: rgba(255, 255, 255, 0.12);
+}
+
+html[data-theme="dark"] .weq-help-md th,
+html[data-theme="dark"] .weq-help-md td {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+html[data-theme="dark"] .weq-help-bug-tips li {
+  color: #aab6c4;
+}
+
+html[data-theme="dark"] .weq-help-bug-tips code {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+html[data-theme="dark"] .weq-help-bug-hex {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+html[data-theme="dark"] .weq-help-bug-hex-head {
+  background: rgba(255, 255, 255, 0.06);
+  color: #8d9aab;
+}
+
+html[data-theme="dark"] .weq-help-bug-editor-tabs {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+html[data-theme="dark"] .weq-help-bug-editor-tabs button {
+  color: #8d9aab;
+}
+
+html[data-theme="dark"] .weq-help-bug-editor-tabs button:hover {
+  color: #d5dde6;
+}
+
+html[data-theme="dark"] .weq-help-bug-editor-tabs button.is-on {
+  background: #222a34;
+  color: #8cc4ff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+html[data-theme="dark"] .weq-help-bug-action {
+  background: #1b2129;
+}
+
+html[data-theme="dark"] .weq-help-bug-action:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+html[data-theme="dark"] .weq-help-bug-action-ico.is-gh {
+  background: #333a44;
+}
+
+html[data-theme="dark"] .weq-help-bug-foot {
+  color: #7e8b9b;
+}
+
+/* 反馈 bug：当前账号数据库下拉 */
+.weq-help-bug-hex-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.weq-help-bug-hex-select svg {
+  color: var(--weq-accent-effective);
+  flex: none;
+}
+
+.weq-help-bug-hex-select select {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #2b3440;
+  font-size: 12.5px;
+  outline: none;
+  cursor: pointer;
+}
+
+.weq-help-bug-hex-select select:focus {
+  border-color: var(--weq-accent-effective);
+}
+
+html[data-theme="dark"] .weq-help-bug-hex-select select {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: #1b2129;
+  color: #d5dde6;
+}
