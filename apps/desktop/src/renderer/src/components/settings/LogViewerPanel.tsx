@@ -25,6 +25,7 @@ import {
 import { trpc, client } from '../../trpc/client';
 import { shellBridge } from '../../lib/target';
 import { useToast } from '../Toast';
+import { IconPicker, type IconPickerOption } from '../ui/iconPicker';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -487,35 +488,42 @@ export function LogViewerPanel(): ReactElement {
       {/* 工具条：文件选择 + 打开目录 */}
       <div className="weq-help-log-toolbar">
         <div className="weq-help-log-file">
-          <FileText size={14} aria-hidden />
-          <select
+          <IconPicker
+            width="100%"
+            maxHeight={220}
+            triggerIcon={<FileText size={14} aria-hidden />}
+            ariaLabel="选择日志文件"
+            placeholder={files.length === 0 ? '（暂无日志文件）' : '选择日志文件'}
             value={selectedPath}
-            onChange={(e) => setSelectedPath(e.target.value)}
-            aria-label="选择日志文件"
-          >
-            {files.length === 0 ? <option value="">（暂无日志文件）</option> : null}
-            {(['weq', 'nt_helper', 'native', 'other'] as const).map((kind) => {
-              const group = files.filter((f) => f.kind === kind).sort((a, b) => b.mtime - a.mtime);
-              if (group.length === 0) return null;
-              const label =
-                kind === 'weq'
-                  ? 'WeQ 日志'
-                  : kind === 'nt_helper'
-                    ? 'nt_helper 日志'
-                    : kind === 'native'
-                      ? '原生加载日志'
-                      : '其它日志';
-              return (
-                <optgroup key={kind} label={label}>
-                  {group.map((f) => (
-                    <option key={f.path} value={f.path}>
-                      {f.name} · {fmtBytes(f.size)}
-                    </option>
-                  ))}
-                </optgroup>
-              );
-            })}
-          </select>
+            onChange={setSelectedPath}
+            options={(() => {
+              const opts: IconPickerOption[] = [];
+              for (const kind of ['weq', 'nt_helper', 'native', 'other'] as const) {
+                const group = files
+                  .filter((f) => f.kind === kind)
+                  .sort((a, b) => b.mtime - a.mtime);
+                if (group.length === 0) continue;
+                const label =
+                  kind === 'weq'
+                    ? 'WeQ 日志'
+                    : kind === 'nt_helper'
+                      ? 'nt_helper 日志'
+                      : kind === 'native'
+                        ? '原生加载日志'
+                        : '其它日志';
+                for (const f of group) {
+                  opts.push({
+                    value: f.path,
+                    label: f.name,
+                    detail: fmtBytes(f.size),
+                    group: label,
+                    icon: <FileText size={13} aria-hidden />,
+                  });
+                }
+              }
+              return opts;
+            })()}
+          />
         </div>
         <div className="weq-help-log-toolbar-right">
           <span className="weq-help-log-meta" title={selectedFile?.path ?? ''}>

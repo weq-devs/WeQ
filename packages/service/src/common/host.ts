@@ -47,6 +47,12 @@ export interface HostBridge {
   revealPath(path: string): Promise<void>;
   /** Select a path in the OS file manager (highlight it). No-op on web. */
   revealInFolder(path: string): Promise<void>;
+  /**
+   * Open an external URL (http/https/deep link) with the OS default handler.
+   * Throws when the host can't open links (web — the client must open them
+   * itself).
+   */
+  openExternal(url: string): Promise<void>;
   /** Whether {@link revealPath} does anything — the UI hides the button when false. */
   readonly canReveal: boolean;
   /**

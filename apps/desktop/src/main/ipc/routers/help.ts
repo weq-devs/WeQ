@@ -25,8 +25,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve, sep } from 'node:path';
-import { shell } from 'electron';
-import { getLogDir, getLogger } from '@weq/service';
+import { getHost, getLogDir, getLogger } from '@weq/service';
 import { getNativeLogRoot } from '@weq/native';
 import { resolveResource } from '../../resource';
 import { getAppContext } from '../../context/app_context';
@@ -276,7 +275,7 @@ export const helpRouter = router({
         return { ok: false, error: '不允许打开的链接协议' };
       }
       try {
-        await shell.openExternal(url);
+        await getHost().openExternal(url);
         return { ok: true };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -288,8 +287,7 @@ export const helpRouter = router({
     .input(z.object({ path: z.string().min(1) }))
     .mutation(async ({ input }): Promise<{ ok: boolean; error?: string }> => {
       try {
-        const err = await shell.openPath(resolve(input.path));
-        if (err) return { ok: false, error: err };
+        await getHost().revealPath(resolve(input.path));
         return { ok: true };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -394,49 +392,59 @@ export const helpRouter = router({
       async ({
         input,
       }): Promise<{ ok: boolean; folder?: string; files?: string[]; errors?: string[] }> => {
-        const boot = getAppContext().bootstrap;
-        if (!boot) return { ok: false, errors: ['原生组件未就绪'] };
-        const cacheBase = boot.userConfig.cacheBaseDir();
-        const folder = join(cacheBase, `feedback-${stampParts().ts}`);
-        const errors: string[] = [];
-        const files: string[] = [];
-        try {
-          mkdirSync(folder, { recursive: true });
-        } catch (e) {
-          throw new Error(`无法创建反馈目录：${e instanceof Error ? e.message : String(e)}`);
-        }
-
-        const md = `# ${input.title}\n\n${input.body.trim()}\n`;
-        try {
-          const mdPath = join(folder, 'issue.md');
-          writeFileSync(mdPath, md, 'utf8');
-          files.push(mdPath);
-        } catch (e) {
-          errors.push(`写入 issue.md 失败：${e instanceof Error ? e.message : String(e)}`);
-        }
-
-        const logs = latestLogs();
-        const copyLog = (src: string | null, label: string): void => {
-          if (!src || !existsSync(src)) {
-            errors.push(`${label}：未找到日志文件`);
-            return;
-          }
-          try {
-            const dest = join(folder, basename(src));
-            copyFileSync(src, dest);
-            files.push(dest);
-          } catch (e) {
-            errors.push(`${label}：${e instanceof Error ? e.message : String(e)}`);
-          }
-        };
-        copyLog(logs.weq, 'WeQ 日志');
-        copyLog(logs.ntHelper, 'nt_helper 日志');
-
-        logger.info('feedback bundle created', { event: 'feedback-bundled', folder });
-        return { ok: true, folder, files, errors };
+        return bundleFeedbackFiles(input);
       },
     ),
 });
+
+/** 把标题 + 正文 + 两份最新日志打包到缓存目录的新建文件夹（help / groupFeedback 共用）。 */
+export function bundleFeedbackFiles(input: { title: string; body: string }): {
+  ok: boolean;
+  folder?: string;
+  files?: string[];
+  errors?: string[];
+} {
+  const boot = getAppContext().bootstrap;
+  if (!boot) return { ok: false, errors: ['原生组件未就绪'] };
+  const cacheBase = boot.userConfig.cacheBaseDir();
+  const folder = join(cacheBase, `feedback-${stampParts().ts}`);
+  const errors: string[] = [];
+  const files: string[] = [];
+  try {
+    mkdirSync(folder, { recursive: true });
+  } catch (e) {
+    throw new Error(`无法创建反馈目录：${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  const md = `# ${input.title}\n\n${input.body.trim()}\n`;
+  try {
+    const mdPath = join(folder, 'issue.md');
+    writeFileSync(mdPath, md, 'utf8');
+    files.push(mdPath);
+  } catch (e) {
+    errors.push(`写入 issue.md 失败：${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  const logs = latestLogs();
+  const copyLog = (src: string | null, label: string): void => {
+    if (!src || !existsSync(src)) {
+      errors.push(`${label}：未找到日志文件`);
+      return;
+    }
+    try {
+      const dest = join(folder, basename(src));
+      copyFileSync(src, dest);
+      files.push(dest);
+    } catch (e) {
+      errors.push(`${label}：${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+  copyLog(logs.weq, 'WeQ 日志');
+  copyLog(logs.ntHelper, 'nt_helper 日志');
+
+  logger.info('feedback bundle created', { event: 'feedback-bundled', folder });
+  return { ok: true, folder, files, errors };
+}
 
 /** 同步跑 gh，返回 stdout/stderr 与是否成功。 */
 function runGh(args: string[]): { ok: boolean; stdout?: string; error?: string } {

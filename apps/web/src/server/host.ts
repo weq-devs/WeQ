@@ -58,6 +58,12 @@ export function createWebHost({ exportDir, version }: WebHostOptions): HostBridg
       // No-op.
     },
 
+    async openExternal() {
+      // The browser runs on the client, not here — the server can't drive it.
+      // Callers surface this as "unsupported" on web.
+      throw new Error('web 环境不支持服务端打开链接，请在浏览器中直接打开');
+    },
+
     async openHtmlReport(path) {
       const id = randomUUID();
       downloads.set(id, { path, name: 'report.html' });

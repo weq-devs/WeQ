@@ -45,6 +45,7 @@ import {
 } from '../components/GroupEssenceDialog';
 import { MemberProfileCard } from '../components/MemberProfileCard';
 import { BuddyAnalyticsDialog } from '../components/BuddyAnalyticsDialog';
+import { GroupBugDialog } from '../components/GroupBugDialog';
 import { AddMessageModal } from '../components/compose/AddMessageModal';
 import { DeletedMessagesModal } from '../components/compose/DeletedMessagesModal';
 import { RecalledMessagesModal } from '../components/compose/RecalledMessagesModal';
@@ -1536,6 +1537,10 @@ export function MainView(): ReactElement {
   const officialAccounts = trpc.account.listOfficialAccounts.useQuery();
   const serviceAccounts = trpc.account.listServiceAccounts.useQuery();
   const selfProfile = trpc.account.getSelfProfile.useQuery();
+  const groupBugStatus = trpc.groupFeedback.status.useQuery(undefined, {
+    refetchOnWindowFocus: true,
+    staleTime: 8000,
+  });
   const buddies = trpc.account.listBuddies.useQuery({ limit: 2000 });
   const botUidList = trpc.account.botUids.useQuery();
   const categories = trpc.account.listCategories.useQuery();
@@ -1695,6 +1700,10 @@ export function MainView(): ReactElement {
     groupCode: string;
     groupName: string;
   } | null>(null);
+  const [groupBugDialog, setGroupBugDialog] = useState<{
+    groupCode: string;
+    groupName: string;
+  } | null>(null);
   const [memberCard, setMemberCard] = useState<{
     member: User;
     anchor: { x: number; y: number };
@@ -1822,6 +1831,16 @@ export function MainView(): ReactElement {
   const handleOpenGroupAnalytics = useCallback(
     (conversation: Extract<Conversation, { type: 'group' }>) => {
       setAnalyticsDialog({
+        groupCode: conversation.id,
+        groupName: conversation.group.name,
+      });
+    },
+    [],
+  );
+
+  const handleOpenGroupBug = useCallback(
+    (conversation: Extract<Conversation, { type: 'group' }>) => {
+      setGroupBugDialog({
         groupCode: conversation.id,
         groupName: conversation.group.name,
       });
@@ -3685,6 +3704,8 @@ export function MainView(): ReactElement {
                       onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
                       onOpenGroupEssence={handleOpenGroupEssence}
                       onOpenGroupAnalytics={handleOpenGroupAnalytics}
+                      onOpenGroupBug={handleOpenGroupBug}
+                      groupBugOnline={groupBugStatus.data?.online ?? false}
                       onOpenBuddyAnalytics={handleOpenBuddyAnalytics}
                       onOpenGroupMember={handleOpenGroupMember}
                       onAddMessage={handleAddMessage}
@@ -3809,6 +3830,13 @@ export function MainView(): ReactElement {
                 },
               )}
               onClose={() => setAnnouncementsDialog(null)}
+            />
+          ) : null}
+          {groupBugDialog ? (
+            <GroupBugDialog
+              groupId={groupBugDialog.groupCode}
+              groupName={groupBugDialog.groupName}
+              onClose={() => setGroupBugDialog(null)}
             />
           ) : null}
           {essenceDialog ? (

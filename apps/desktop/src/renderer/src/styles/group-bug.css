@@ -1,0 +1,402 @@
+/* 项目交流群 → 「反馈 bug」弹窗（token 驱动，自动跟随明/暗主题）。
+ * 弹窗土台 .weq-modal 是写死的白色渐变，容器根层铺底盖住（与克隆设置等同法）。 */
+.weq-group-bug {
+  display: grid;
+  min-width: 0;
+  padding: 14px;
+  background: var(--weq-bg-surface);
+}
+
+html[data-theme="dark"] .weq-group-bug {
+  background: #171d25;
+}
+
+.weq-group-bug-banner {
+  position: relative;
+  height: 108px;
+  border-radius: 14px;
+  overflow: hidden;
+  background-size: cover;
+  background-position: center 26%;
+}
+
+.weq-group-bug-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.28);
+  color: #fff;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: background-color 140ms ease;
+}
+
+.weq-group-bug-close:hover {
+  background: rgba(0, 0, 0, 0.46);
+}
+
+.weq-group-bug-banner-text {
+  position: absolute;
+  left: 16px;
+  bottom: 12px;
+  display: grid;
+  gap: 3px;
+  color: #fff;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
+}
+
+.weq-group-bug-banner-text strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.weq-group-bug-banner-text span {
+  font-size: 11.5px;
+  opacity: 0.9;
+}
+
+.weq-group-bug-banner-text span b {
+  font-weight: 600;
+}
+
+/* ── 模式切换 ── */
+.weq-group-bug-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-top: 12px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--muted);
+}
+
+.weq-group-bug-tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--weq-fg-muted);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.weq-group-bug-tabs button.is-on {
+  background: var(--card);
+  color: var(--weq-fg-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+}
+
+.weq-group-bug-tabs button svg {
+  color: var(--weq-accent-effective);
+}
+
+/* ── 正文区 ── */
+.weq-group-bug-body {
+  display: grid;
+  gap: 12px;
+  padding-top: 12px;
+}
+
+.weq-group-bug-title-row {
+  display: flex;
+  gap: 8px;
+}
+
+.weq-group-bug-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--input);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 140ms ease;
+}
+
+.weq-group-bug-title:focus {
+  border-color: var(--weq-accent-effective);
+}
+
+.weq-group-bug-title::placeholder {
+  color: var(--weq-fg-muted);
+}
+
+.weq-group-bug-editor {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+}
+
+.weq-group-bug-editor-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 4px;
+  border-bottom: 1px solid var(--border);
+  background: var(--muted);
+}
+
+.weq-group-bug-editor-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.weq-group-bug-editor-tabs button.is-on {
+  background: var(--card);
+  color: var(--weq-fg-primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+.weq-group-bug-textarea {
+  display: block;
+  width: 100%;
+  height: 208px;
+  padding: 10px 12px;
+  border: 0;
+  outline: none;
+  resize: vertical;
+  background: var(--card);
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  line-height: 1.65;
+  font-family: inherit;
+}
+
+.weq-group-bug-textarea::placeholder {
+  color: var(--weq-fg-muted);
+}
+
+.weq-group-bug-preview {
+  height: 208px;
+  padding: 10px 12px;
+  overflow: auto;
+  background: var(--card);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+/* ── 按钮 ── */
+.weq-group-bug-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease, opacity 140ms ease;
+}
+
+.weq-group-bug-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.weq-group-bug-btn-soft {
+  background: var(--muted);
+  color: var(--weq-fg-secondary);
+}
+
+.weq-group-bug-btn-soft:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-fg-primary) 8%, var(--muted));
+}
+
+.weq-group-bug-btn-soft.is-on {
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, var(--card));
+  color: var(--weq-accent-effective);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 35%, transparent);
+}
+
+.weq-group-bug-btn-primary {
+  background: var(--weq-accent-effective);
+  color: #ffffff;
+  height: 32px;
+  padding: 0 16px;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--weq-accent-effective) 32%, transparent);
+}
+
+.weq-group-bug-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+/* ── 发送行 ── */
+.weq-group-bug-send-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 4px;
+}
+
+.weq-group-bug-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--weq-fg-muted);
+  line-height: 1.5;
+}
+
+.weq-group-bug-hint svg {
+  flex: none;
+  color: var(--weq-accent-effective);
+}
+
+.weq-group-bug-spin {
+  animation: weq-group-bug-spin 0.9s linear infinite;
+}
+
+@keyframes weq-group-bug-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── 已有 issue/PR ── */
+.weq-group-bug-issues {
+  display: grid;
+  gap: 10px;
+}
+
+.weq-group-bug-issues-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--weq-fg-primary);
+}
+
+.weq-group-bug-issues-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.weq-group-bug-issues-error {
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--destructive) 38%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--destructive) 10%, transparent);
+  color: var(--destructive);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.weq-group-bug-manual {
+  display: grid;
+  grid-template-columns: auto 1fr 1fr;
+  gap: 8px;
+}
+
+.weq-group-bug-manual-kind {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--muted);
+}
+
+.weq-group-bug-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.weq-group-bug-kind.is-on {
+  background: var(--card);
+  color: var(--weq-accent-effective);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+/* 卡片预览（美观性：模拟群里收到的图文卡） */
+.weq-group-bug-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+}
+
+.weq-group-bug-card-preview {
+  width: 64px;
+  height: 64px;
+  flex: none;
+  border-radius: 10px;
+  object-fit: cover;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+
+.weq-group-bug-card-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.weq-group-bug-card-main strong {
+  font-size: 13.5px;
+  color: var(--weq-fg-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-group-bug-card-main span {
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-group-bug-card-main small {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--weq-fg-muted);
+}

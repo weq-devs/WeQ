@@ -1,0 +1,142 @@
+/* IconPicker —— 带图标/分组的下拉（token 驱动，跟随明/暗主题）。 */
+.weq-picker-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--input);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--weq-fg-primary);
+  font-size: 12.5px;
+  outline: none;
+  cursor: pointer;
+  min-width: 0;
+  transition: border-color 140ms ease;
+}
+
+.weq-picker-trigger:hover:not(:disabled) {
+  border-color: var(--weq-accent-effective);
+}
+
+.weq-picker-trigger:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.weq-picker-trigger-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--weq-accent-effective);
+}
+
+.weq-picker-trigger-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-picker-chevron {
+  flex: none;
+  color: var(--weq-fg-muted);
+  transition: transform 140ms ease;
+}
+
+.weq-picker-chevron.is-open {
+  transform: rotate(180deg);
+}
+
+.weq-picker-menu {
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--popover);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+  overflow: auto;
+  font-size: 12.5px;
+}
+
+.weq-picker-group {
+  display: grid;
+}
+
+.weq-picker-group-label {
+  padding: 5px 8px 3px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--weq-fg-muted);
+  letter-spacing: 0.02em;
+}
+
+.weq-picker-option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.weq-picker-option:hover {
+  background: var(--muted);
+  color: var(--weq-fg-primary);
+}
+
+.weq-picker-option.is-on {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+.weq-picker-option-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--weq-fg-muted);
+}
+
+.weq-picker-option.is-on .weq-picker-option-icon {
+  color: var(--weq-accent-effective);
+}
+
+.weq-picker-option-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-picker-option-detail {
+  flex: none;
+  font-size: 11px;
+  color: var(--weq-fg-muted);
+}
+
+/* issue/pr 种类图标配色 */
+.weq-picker-kind-icon {
+  display: inline-flex;
+}
+
+.weq-picker-kind-icon.is-pr {
+  color: #a371f7;
+}
+
+.weq-picker-kind-icon.is-issue {
+  color: var(--weq-accent-effective);
+}
+
+.weq-picker-option.is-on .weq-picker-kind-icon.is-pr,
+.weq-picker-option.is-on .weq-picker-kind-icon.is-issue {
+  color: var(--weq-accent-effective);
+}

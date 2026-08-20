@@ -15,8 +15,14 @@ export { SendFlashMsg } from './send-flash';
 export type { SendFlashMsgParams } from './send-flash';
 export { GetFilesetDetail } from './get-fileset-detail';
 export type { FlashFileInfo } from './get-fileset-detail';
-export { uploadFlashFiles } from './upload';
-export type { FlashUploadItem, FlashUploadOptions, FlashUploadResult } from './upload';
+export { createFlashFileset, finishFlashUpload, uploadFlashFiles } from './upload';
+export type {
+  FlashUploadItem,
+  FlashUploadOptions,
+  FlashUploadResult,
+  FlashFilesetPending,
+  FlashStagedItem,
+} from './upload';
 export { applyThumbnail, prepareThumbnail, sliceuploadThumbnail } from './thumbnail';
 export type { PreparedThumbnail } from './thumbnail';
 export {

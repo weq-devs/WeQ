@@ -35,6 +35,7 @@ import { trpc, client } from '../../trpc/client';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
 import { shikiCodeHighlighter } from '../../views/agentlab/shikiHighlighter';
+import { IconPicker } from '../ui/iconPicker';
 import bugBanner from '@resources/brand/bug_banner.png';
 
 const REMARK_PLUGINS = [remarkGfm];
@@ -403,28 +404,30 @@ export function BugReportPanel(): ReactElement {
         </p>
         <div className="weq-help-bug-hex-tools">
           <div className="weq-help-bug-hex-select">
-            <Database size={13} aria-hidden />
-            <select
-              value={hexdump?.path ?? ''}
+            <IconPicker
+              width="100%"
+              maxHeight={220}
               disabled={databases.isLoading || hexBusy}
-              onChange={(e) => void loadHexdump(e.target.value)}
-              aria-label="选择当前账号的数据库"
-            >
-              <option value="">
-                {databases.isLoading
+              triggerIcon={<Database size={13} aria-hidden />}
+              ariaLabel="选择当前账号的数据库"
+              placeholder={
+                databases.isLoading
                   ? '正在读取当前账号数据库…'
                   : databases.isError
                     ? '需要先打开账号'
                     : (databases.data?.length ?? 0) === 0
                       ? '当前账号暂无数据库'
-                      : '选择当前账号的数据库'}
-              </option>
-              {(databases.data ?? []).map((db) => (
-                <option key={db.path} value={db.path}>
-                  {db.name} · {fmtBytes(db.bytes)}
-                </option>
-              ))}
-            </select>
+                      : '选择当前账号的数据库'
+              }
+              value={hexdump?.path ?? ''}
+              onChange={(v) => void loadHexdump(v)}
+              options={(databases.data ?? []).map((db) => ({
+                value: db.path,
+                label: db.name,
+                detail: fmtBytes(db.bytes),
+                icon: <Database size={13} aria-hidden />,
+              }))}
+            />
           </div>
           {hexdump ? (
             <button

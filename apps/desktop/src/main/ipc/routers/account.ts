@@ -13,7 +13,6 @@
 
 import { z } from 'zod';
 import { observable } from '@trpc/server/observable';
-import { shell } from 'electron';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, extname, join } from 'node:path';
@@ -2985,14 +2984,13 @@ export const accountRouter = router({
         // 打开文件夹 + 默认浏览器（GitHub）或 QQ 深链接（交流群）。
         let openError: string | null = null;
         try {
-          const err = await shell.openPath(result.folder);
-          if (err) openError = err;
+          await getHost().revealPath(result.folder);
         } catch (e) {
           openError = e instanceof Error ? e.message : String(e);
         }
         const openExternal = async (url: string, label: string): Promise<void> => {
           try {
-            await shell.openExternal(url);
+            await getHost().openExternal(url);
           } catch (e) {
             openError =
               (openError ? `${openError}；` : '') +

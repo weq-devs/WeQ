@@ -14701,32 +14701,8 @@ html[data-theme="dark"] .weq-search-skeleton-line {
 .weq-help-log-file {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
   flex: 1 1 auto;
   min-width: 0;
-}
-
-.weq-help-log-file svg {
-  color: var(--weq-accent-effective);
-  flex: none;
-}
-
-.weq-help-log-file select {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 30px;
-  padding: 0 8px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
-  border-radius: 8px;
-  background: #ffffff;
-  color: #2b3440;
-  font-size: 12.5px;
-  outline: none;
-  cursor: pointer;
-}
-
-.weq-help-log-file select:focus {
-  border-color: var(--weq-accent-effective);
 }
 
 .weq-help-log-toolbar-right {
@@ -15558,16 +15534,6 @@ html[data-theme="dark"] .weq-help-tab.is-active {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
 }
 
-html[data-theme="dark"] .weq-help-log-file select {
-  border-color: rgba(255, 255, 255, 0.14);
-  background: #1b2129;
-  color: #d5dde6;
-}
-
-html[data-theme="dark"] .weq-help-log-file:focus {
-  border-color: var(--weq-accent-effective);
-}
-
 html[data-theme="dark"] .weq-help-log-meta,
 html[data-theme="dark"] .weq-help-log-foot {
   color: #7e8b9b;
@@ -15744,36 +15710,6 @@ html[data-theme="dark"] .weq-help-bug-foot {
 .weq-help-bug-hex-select {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
   min-width: 0;
   flex: 1 1 auto;
-}
-
-.weq-help-bug-hex-select svg {
-  color: var(--weq-accent-effective);
-  flex: none;
-}
-
-.weq-help-bug-hex-select select {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 30px;
-  padding: 0 8px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
-  border-radius: 8px;
-  background: #ffffff;
-  color: #2b3440;
-  font-size: 12.5px;
-  outline: none;
-  cursor: pointer;
-}
-
-.weq-help-bug-hex-select select:focus {
-  border-color: var(--weq-accent-effective);
-}
-
-html[data-theme="dark"] .weq-help-bug-hex-select select {
-  border-color: rgba(255, 255, 255, 0.14);
-  background: #1b2129;
-  color: #d5dde6;
 }

@@ -12,6 +12,7 @@ import {
 	FileText,
 	Images,
 	FolderOpen,
+	Bug,
 	MessageSquareText,
 	SendHorizontal,
 	Smile,
@@ -33,6 +34,7 @@ import type {
 import { loadLayoutNumber, saveLayoutNumber } from "./layoutStorage";
 import { copyTextToClipboard } from "./clipboard";
 import { cn } from "./classNames";
+import { PROJECT_GROUP_IDS } from "../../../../shared/project_groups";
 import {
 	chatHeaderTitle,
 	isBotConversation,
@@ -219,6 +221,8 @@ export function ChatPane({
 	onOpenGroupAnnouncements,
 	onOpenGroupEssence,
 	onOpenGroupAnalytics,
+	onOpenGroupBug,
+	groupBugOnline,
 	onOpenBuddyAnalytics,
 	onOpenGroupMember,
 	onAddMessage,
@@ -257,6 +261,9 @@ export function ChatPane({
 	onOpenGroupAnnouncements?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenGroupEssence?: (conversation: Extract<Conversation, { type: "group" }>) => void;
 	onOpenGroupAnalytics?: (conversation: Extract<Conversation, { type: "group" }>) => void;
+	onOpenGroupBug?: (conversation: Extract<Conversation, { type: "group" }>) => void;
+	/** QQ 在线状态 —— 决定「反馈 bug」图标亮/灰。 */
+	groupBugOnline?: boolean;
 	onOpenBuddyAnalytics?: (conversation: Extract<Conversation, { type: "direct" }>) => void;
 	onOpenGroupMember?: (member: User, anchor: { x: number; y: number }) => void;
 	onAddMessage?: (conversation: Conversation) => void;
@@ -1516,6 +1523,17 @@ export function ChatPane({
 							>
 								<BarChart3 size={18} />
 							</button>
+							{onOpenGroupBug && PROJECT_GROUP_IDS.includes(conversation.id) ? (
+								<button
+									className={cn("icon-button", "group-header-info-action", "group-header-bug-action")}
+									type="button"
+									title={groupBugOnline ? "反馈 Bug" : "QQ 未在线，暂不可反馈"}
+									disabled={!groupBugOnline}
+									onClick={() => onOpenGroupBug(conversation)}
+								>
+									<Bug size={18} />
+								</button>
+							) : null}
 						</>
 					) : conversation.type === "direct" ? (
 						<button
