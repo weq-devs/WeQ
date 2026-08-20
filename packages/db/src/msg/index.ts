@@ -22,11 +22,19 @@ export type { BuddyMsgFtsDbOptions } from './buddy_msg_fts';
 export { GroupMsgFtsDb } from './group_msg_fts';
 export type { GroupMsgFtsDbOptions } from './group_msg_fts';
 
+export { MsgSearchIndexDb } from './search_index';
+export type { MsgSearchIndexOptions, MsgSearchIndexPage } from './search_index';
+
 export { UnreadInfoDb } from './unread_info';
 export type { UnreadInfoDbOptions, UnreadInfoResult } from './unread_info';
 
 export { AntiRecallDb } from './anti_recall';
-export type { AntiRecallKind, AntiRecallTarget, AntiRecallTriggerInfo, RecallLogRow } from './anti_recall';
+export type {
+  AntiRecallKind,
+  AntiRecallTarget,
+  AntiRecallTriggerInfo,
+  RecallLogRow,
+} from './anti_recall';
 
 export { decodeBody } from './util';
 export type { C2cMsg, GroupMsg, BuddyMsgFtsHit } from './types';

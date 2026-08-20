@@ -91,6 +91,21 @@ export class GroupDetailDb {
   }
 
   /**
+   * Batch-fetch group details for the given group codes (60001). Returns only
+   * the groups found — no null placeholders / ordering guarantees.
+   */
+  async detailsByGroupCodes(groupCodes: bigint[]): Promise<GroupDetail[]> {
+    const unique = [...new Set(groupCodes.filter((c) => c !== undefined && c !== null))];
+    if (unique.length === 0) return [];
+    const placeholders = unique.map(() => '?').join(',');
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM group_detail_info_ver1 WHERE "60001" IN (${placeholders})`,
+      unique,
+    );
+    return rows.map(rowToDetail);
+  }
+
+  /**
    * List details for all groups.
    */
   async listAll(limit = 100, offset = 0): Promise<GroupDetail[]> {
@@ -114,7 +129,7 @@ function rowToDetail(row: SqlRow): GroupDetail {
   if (customLabelsBlob instanceof Uint8Array) {
     try {
       const decoded = labelsCodec.decode(customLabelsBlob);
-      customLabels = (decoded.labels ?? []).map(item => ({
+      customLabels = (decoded.labels ?? []).map((item) => ({
         groupCode: item.groupCode,
         setterUid: item.setterUid,
         labelId: item.labelId,

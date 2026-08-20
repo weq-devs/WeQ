@@ -1,8 +1,9 @@
-// OIDB 0x12a9_103 — apply-upload(注册 fileId,sliceupload 前调用)。
+// OIDB 0x12a9_103 — apply-upload(注册 fileId)。抓包时序在主文件上传之后、缩略图 sliceupload 之前。
 // uinForm=true。带 MD5 + 客户端构造的 fileId。响应无 rkey(rkey 来自 sub=100)。
 
 import { invokeOidb, type OidbSpec } from '../invoke';
 import type { OidbNative } from '../../transport';
+import { FLASH_FILE_ID_TTL_SECONDS, FLASH_FILE_ID_TTL_THUMB_SECONDS } from './file-id';
 import { FLASH_APPLY_UPLOAD_REQ, FLASH_APPLY_UPLOAD_RESP } from './schemas';
 
 export interface ApplyUploadParams {
@@ -62,7 +63,7 @@ export namespace ApplyUpload {
           fileId: p.fileId,
           field3: 1,
           field4: Math.floor(Date.now() / 1000),
-          field5: 1209600,
+          field5: isThumb ? FLASH_FILE_ID_TTL_THUMB_SECONDS : FLASH_FILE_ID_TTL_SECONDS,
           field6: 0,
         },
         flag2: { field1: 2 },

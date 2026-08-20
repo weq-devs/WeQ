@@ -14,6 +14,7 @@
     "tools:key-qr": "tsx tools/key_qr_login.ts",
     "tools:msg-search": "tsx tools/msg_search.ts",
     "tools:msg-search-agg": "tsx tools/msg_search_aggregate.ts",
+    "tools:unified-search": "tsx tools/test_unified_search.ts",
     "tools:reply": "tsx tools/reply_element.ts",
     "tools:export": "tsx tools/export_group.ts",
     "tools:forward-expand": "tsx tools/forward_expand.ts",
@@ -38,3 +39,4 @@
     "tsx": "^4.19.2"
   }
 }
+

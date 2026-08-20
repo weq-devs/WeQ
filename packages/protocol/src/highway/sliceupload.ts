@@ -72,6 +72,10 @@ export function buildSliceBody(part: SlicePart, opts?: SliceUploadOptions): Uint
 
 /** POST 一片到 sliceupload 并校验响应 status。label 用于错误信息定位来源。 */
 export async function postSliceupload(bodyBytes: Uint8Array, label: string): Promise<void> {
+  const reqAppid = decode(FLASH_SLICE_UPLOAD_BODY, bodyBytes).appid;
+  console.log(
+    `[sliceupload] ${label}: POST ${SLICEUPLOAD_URL} body=${bodyBytes.length}B appid=${reqAppid}`,
+  );
   const resp = await fetch(SLICEUPLOAD_URL, {
     method: 'POST',
     body: new Uint8Array(bodyBytes),
@@ -87,11 +91,16 @@ export async function postSliceupload(bodyBytes: Uint8Array, label: string): Pro
   });
   if (!resp.ok) {
     const errBody = await resp.text().catch(() => '');
+    console.error(`[sliceupload] ${label}: HTTP ${resp.status} 响应=${errBody.slice(0, 300)}`);
     throw new Error(`${label} failed: HTTP ${resp.status} ${errBody.slice(0, 300)}`);
   }
   const respBuf = new Uint8Array(await resp.arrayBuffer());
   const status = decode(FLASH_SLICE_UPLOAD_RESP, respBuf).status;
+  console.log(`[sliceupload] ${label}: HTTP ${resp.status}, status=${JSON.stringify(status)}`);
   if (status !== 'success') {
+    console.error(
+      `[sliceupload] ${label}: 业务失败, 原始响应=${Buffer.from(respBuf).toString('hex').slice(0, 400)}`,
+    );
     throw new Error(
       `${label} failed: ${typeof status === 'string' ? status : 'no status in response'}`,
     );
@@ -112,6 +121,9 @@ export async function sliceuploadFile(
     const chunkLen = Math.min(FLASH_SLICE_SIZE, fileSize - start);
     const chunk = await readFileRange(filePath, start, chunkLen);
     const chunkSha1 = new Uint8Array(createHash('sha1').update(Buffer.from(chunk)).digest());
+    console.log(
+      `[sliceupload] ${fileName} slice ${i}: start=${start} end=${start + chunkLen - 1} len=${chunkLen} sha1=${Buffer.from(chunkSha1).toString('hex')}`,
+    );
     const bodyBytes = buildSliceBody({
       rkey,
       start,

@@ -15,11 +15,15 @@ import { router } from './trpc';
 import { bootstrapRouter } from './routers/bootstrap';
 import { accountRouter } from './routers/account';
 import { updateRouter } from './routers/update';
+import { helpRouter } from './routers/help';
+import { groupFeedbackRouter } from './routers/group_feedback';
 
 export const appRouter = router({
   bootstrap: bootstrapRouter,
   account: accountRouter,
   update: updateRouter,
+  help: helpRouter,
+  groupFeedback: groupFeedbackRouter,
 });
 
 export type AppRouter = typeof appRouter;

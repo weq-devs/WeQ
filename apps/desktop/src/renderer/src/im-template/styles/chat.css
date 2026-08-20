@@ -4336,3 +4336,95 @@ html[data-theme="dark"] .chat-empty-logo {
 	font-weight: 600;
 	flex: 0 0 auto;
 }
+
+/* ---- 聊天消息加载 skeleton 占位（对方/自己混排、大小不一） ---- */
+.chat-skeleton {
+	display: flex;
+	flex-direction: column;
+	gap: 20px;
+	padding: 4px 2px 14px;
+}
+
+.chat-skeleton-time {
+	align-self: center;
+	width: 110px;
+	height: 22px;
+	border-radius: 999px;
+}
+
+.chat-skeleton-line {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+}
+
+.chat-skeleton-line.mine {
+	justify-content: flex-end;
+}
+
+.chat-skeleton-avatar {
+	flex: 0 0 auto;
+	width: 36px;
+	height: 36px;
+	border-radius: 50%;
+}
+
+.chat-skeleton-bubble {
+	display: flex;
+	max-width: 75%;
+	flex-direction: column;
+	gap: 7px;
+	padding: 8px 11px;
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--im-color-line, #dedede) 16%, transparent);
+}
+
+.chat-skeleton-line.mine .chat-skeleton-bubble {
+	background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 9%, transparent);
+}
+
+.chat-skeleton-bar {
+	display: block;
+	width: 160px;
+	height: 12px;
+	border-radius: 999px;
+}
+
+.chat-skeleton-bar.is-first {
+	width: 224px;
+}
+
+.chat-skeleton-bar.is-last {
+	width: 96px;
+}
+
+.chat-skeleton-bar-short {
+	width: 58%;
+}
+
+.chat-skeleton-bubble-image,
+.chat-skeleton-bubble-card,
+.chat-skeleton-line.mine .chat-skeleton-bubble.chat-skeleton-bubble-image,
+.chat-skeleton-line.mine .chat-skeleton-bubble.chat-skeleton-bubble-card {
+	padding: 0;
+	background: transparent;
+}
+
+.chat-skeleton-image {
+	display: block;
+	width: 148px;
+	height: 148px;
+	border-radius: 10px;
+}
+
+.chat-skeleton-bubble-card {
+	width: 240px;
+	max-width: 75%;
+}
+
+.chat-skeleton-card-thumb {
+	display: block;
+	width: 100%;
+	height: 92px;
+	border-radius: 8px;
+}

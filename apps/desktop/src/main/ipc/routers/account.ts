@@ -47,6 +47,10 @@ import {
   buildBotExport,
   probeBotWebUi,
   downloadUrlToFile,
+  checkAccountDatabaseHealth,
+  collectDbDamageFeedback,
+  findLatestDbHealthReport,
+  writeDbHealthReport,
   type AlbumMedia,
   type NewMessages,
   type DbChange,
@@ -77,7 +81,6 @@ import {
   groupMemberToWire,
   groupMemberLevelInfoToWire,
   groupExtToWire,
-  msgSearchHitToWire,
   onlineStatusToWire,
   elementsToEditable,
   elementsFromEditable,
@@ -1383,7 +1386,12 @@ export const accountRouter = router({
 
   /** 公众号单个会话 ARK 消息流（最近 limit 条）。 */
   listOfficialAccountArkFeed: procedure
-    .input(z.object({ peerUid: z.string().min(1), limit: z.number().int().min(1).max(500).default(100) }))
+    .input(
+      z.object({
+        peerUid: z.string().min(1),
+        limit: z.number().int().min(1).max(500).default(100),
+      }),
+    )
     .query(async ({ input }) => {
       const msgs = await requireServices().officialAccount.listArkFeed(input.peerUid, input.limit);
       return msgs.map(c2cMsgToWire);
@@ -1391,9 +1399,14 @@ export const accountRouter = router({
 
   /** 服务号单个会话 ARK 消息流（最近 limit 条）。 */
   listServiceAccountArkFeed: procedure
-    .input(z.object({ appId: z.string().min(1), limit: z.number().int().min(1).max(500).default(100) }))
+    .input(
+      z.object({ appId: z.string().min(1), limit: z.number().int().min(1).max(500).default(100) }),
+    )
     .query(async ({ input }) => {
-      const msgs = await requireServices().serviceAccount.listArkFeed(BigInt(input.appId), input.limit);
+      const msgs = await requireServices().serviceAccount.listArkFeed(
+        BigInt(input.appId),
+        input.limit,
+      );
       return msgs.map(c2cMsgToWire);
     }),
 
@@ -1903,50 +1916,69 @@ export const accountRouter = router({
       return status ? onlineStatusToWire(status) : null;
     }),
 
-  /** Search message FTS indexes. */
-  searchMessages: procedure
+  /** Unified sidebar search — fast categories (conversations / friends / group members). */
+  searchQuick: procedure
     .input(
       z.object({
-        scope: z.enum(['all', 'buddy', 'group', 'files']).default('all'),
         keyword: z.string().trim().min(1),
-        limit: z.number().int().min(1).max(100).default(20),
+        limit: z.number().int().min(1).max(20).default(3),
       }),
     )
     .query(async ({ input }) => {
-      const search = requireServices().msgSearch;
-      const hits =
-        input.scope === 'buddy'
-          ? await search.searchBuddy(input.keyword, input.limit)
-          : input.scope === 'group'
-            ? await search.searchGroup(input.keyword, input.limit)
-            : input.scope === 'files'
-              ? await search.searchFiles(input.keyword, input.limit)
-              : [
-                  ...(await search.searchBuddy(input.keyword, input.limit)),
-                  ...(await search.searchGroup(input.keyword, input.limit)),
-                ]
-                  .sort((a, b) => Number(b.sendTime - a.sendTime))
-                  .slice(0, input.limit);
-      return hits.map(msgSearchHitToWire);
+      return requireServices().unifiedSearch.quickSearch(input.keyword, input.limit);
     }),
 
-  /** Search within the open conversation. */
-  searchConversationMessages: procedure
+  /** Unified sidebar search — slow categories (chat records / files). */
+  searchSlow: procedure
     .input(
-      convInput.extend({
+      z.object({
         keyword: z.string().trim().min(1),
+        limit: z.number().int().min(1).max(20).default(3),
+      }),
+    )
+    .query(async ({ input }) => {
+      return requireServices().unifiedSearch.slowSearch(input.keyword, input.limit);
+    }),
+
+  /** Full paginated results for a search category (the "more" modal). */
+  searchMore: procedure
+    .input(
+      z.object({
+        category: z.enum(['conversation', 'friend', 'groupMember', 'chatRecord', 'file']),
+        keyword: z.string().trim().min(1),
+        offset: z.number().int().min(0).default(0),
         limit: z.number().int().min(1).max(100).default(20),
       }),
     )
     .query(async ({ input }) => {
-      const search = requireServices().msgSearch;
-      const hits =
-        input.kind === 'group'
-          ? await search.searchInGroupConversation(input.conv, input.keyword, input.limit)
-          : await search.searchInBuddyConversation(input.conv, input.keyword, input.limit);
-      return hits.map(msgSearchHitToWire);
+      return requireServices().unifiedSearch.moreSearch(
+        input.category,
+        input.keyword,
+        input.offset,
+        input.limit,
+      );
     }),
 
+  /** Messages of one conversation matching a keyword (chat-record modal). */
+  searchConversationRecords: procedure
+    .input(
+      z.object({
+        source: z.enum(['buddy', 'group']),
+        conv: z.string().min(1),
+        keyword: z.string().trim().min(1),
+        offset: z.number().int().min(0).default(0),
+        limit: z.number().int().min(1).max(100).default(20),
+      }),
+    )
+    .query(async ({ input }) => {
+      return requireServices().unifiedSearch.conversationRecords(
+        input.source,
+        input.conv,
+        input.keyword,
+        input.offset,
+        input.limit,
+      );
+    }),
   /** Get merged-forward / quote-reply cache for one message. */
   getForwardMessages: procedure
     .input(z.object({ kind: z.enum(['c2c', 'group']), msgId: z.string().min(1) }))
@@ -2900,4 +2932,87 @@ export const accountRouter = router({
       }
       return { success: true, text };
     }),
+
+  /** 数据库损坏反馈：打包日志/settings.db/密钥算法配置/检查报告到缓存目录，并打开文件夹 + GitHub/QQ。 */
+  collectDbDamageFeedback: procedure
+    .input(z.object({ target: z.enum(['github', 'qqgroup']) }))
+    .mutation(
+      async ({
+        input,
+      }): Promise<{
+        ok: boolean;
+        folder?: string;
+        files?: string[];
+        errors?: string[];
+        openError?: string | null;
+      }> => {
+        const ctx = getAppContext();
+        const session = ctx.account;
+        const boot = ctx.bootstrap;
+        const platform = ctx.platform;
+        if (!boot) return { ok: false, errors: ['原生组件未就绪'] };
+        if (!session) return { ok: false, errors: ['未打开账号'] };
+        if (!platform) return { ok: false, errors: ['原生组件未就绪'] };
+
+        const uin = session.context.uin;
+        const dbDir = platform.ntDbDir(uin) ?? dirname(session.msgDbPath);
+        // 复用日志目录里最新一份检查报告；没有的话现场重查并生成一份。
+        let reportPath = findLatestDbHealthReport();
+        if (!reportPath) {
+          try {
+            const failures = await checkAccountDatabaseHealth(session, platform);
+            reportPath = writeDbHealthReport({ failures, uin, dbDir });
+          } catch (e) {
+            reportPath = writeDbHealthReport({
+              failures: [],
+              uin,
+              dbDir,
+              checkError: e instanceof Error ? e.message : String(e),
+            });
+          }
+        }
+
+        const result = collectDbDamageFeedback({
+          uin,
+          dbKey: session.context.dbKey,
+          algos: session.context.algos,
+          dbDir,
+          cacheDir: boot.userConfig.cacheBaseDir(),
+          reportPath,
+        });
+
+        // 打开文件夹 + 默认浏览器（GitHub）或 QQ 深链接（交流群）。
+        let openError: string | null = null;
+        try {
+          await getHost().revealPath(result.folder);
+        } catch (e) {
+          openError = e instanceof Error ? e.message : String(e);
+        }
+        const openExternal = async (url: string, label: string): Promise<void> => {
+          try {
+            await getHost().openExternal(url);
+          } catch (e) {
+            openError =
+              (openError ? `${openError}；` : '') +
+              `${label}：${e instanceof Error ? e.message : String(e)}`;
+          }
+        };
+        if (input.target === 'github') {
+          await openExternal('https://github.com/H3CoF6/WeQ/issues', '打开 GitHub 失败');
+        } else {
+          await openExternal(
+            'tencent://ntqq-open/?subCmd=flashTransfer&action=openTransPage&actionParams={"fileSetId":"","allChecked":"","selectedItems":"","sourceType":"share"}',
+            '唤起 QQ 失败',
+          );
+        }
+
+        return {
+          ok: true,
+          folder: result.folder,
+          files: result.files,
+          errors: result.errors,
+          openError,
+        };
+      },
+    ),
 });

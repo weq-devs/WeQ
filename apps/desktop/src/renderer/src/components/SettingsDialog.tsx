@@ -17,6 +17,7 @@ import {
   Bot,
   Check,
   CloudDownload,
+  HelpCircle,
   Lock,
   Monitor,
   Moon,
@@ -37,6 +38,7 @@ import { McpServerSection } from './settings/McpServerSection';
 import { ExternalRkeySection } from './settings/ExternalRkeySection';
 import { WeqAssistantSection } from './settings/WeqAssistantSection';
 import { AntiRecallSection } from './settings/AntiRecallSection';
+import { HelpSection } from './settings/HelpSection';
 import { Toggle } from './settings/controls';
 import { trpc } from '../trpc/client';
 import {
@@ -55,7 +57,8 @@ type SectionId =
   | 'agentlab'
   | 'mcp'
   | 'rkey'
-  | 'weq';
+  | 'weq'
+  | 'help';
 
 interface SettingsSection {
   id: SectionId;
@@ -118,6 +121,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: 'WeQ 助手',
     icon: <Sparkles size={16} strokeWidth={1.8} />,
     render: () => <WeqAssistantSection />,
+  },
+  {
+    id: 'help',
+    label: '帮助',
+    icon: <HelpCircle size={16} strokeWidth={1.8} />,
+    render: () => <HelpSection />,
   },
 ];
 
@@ -355,9 +364,9 @@ function AppearanceSection(): ReactElement {
           <div>
             <strong>纯文本消息渲染 Markdown</strong>
             <span>
-              把普通文本消息里的 # 标题、**加粗**、代码块等语法渲染成富文本。这是 WeQ
-              自己的功能——QQ 只把专门的 Markdown 消息当富文本，关掉后纯文本原样显示
-              （QQ 原生 Markdown 消息不受影响）。
+              把普通文本消息里的 # 标题、**加粗**、代码块等语法渲染成富文本。这是 WeQ 自己的功能——QQ
+              只把专门的 Markdown 消息当富文本，关掉后纯文本原样显示 （QQ 原生 Markdown
+              消息不受影响）。
             </span>
           </div>
           <Toggle
@@ -584,8 +593,7 @@ function ColorPicker({
   const huePct = (hsl.h / 360) * 100;
   const lightFraction = clamp01((hsl.l - LIGHT_MIN) / LIGHT_SPAN);
 
-  const pickHue = (fraction: number) =>
-    onChange(hslToHex(fraction * 360, sat, hsl.l));
+  const pickHue = (fraction: number) => onChange(hslToHex(fraction * 360, sat, hsl.l));
   const pickLight = (fraction: number) =>
     onChange(hslToHex(hsl.h, sat, LIGHT_MIN + fraction * LIGHT_SPAN));
 

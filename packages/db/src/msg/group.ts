@@ -276,6 +276,25 @@ export class GroupMsgDb {
   }
 
   /**
+   * Fetch full rows by msgSeq (40003) within ONE group (40027 = group code),
+   * so the query hits the (40027,40003) composite index. Used to resolve FTS
+   * search hits back to their original 40800 bodies: the FTS rows carry the
+   * same 40027 partition + 40003 seq, so the join never leaves the partition.
+   * Empty input short-circuits to [].
+   */
+  async listBySeqsInPartition(targetGroupCode: string, seqs: bigint[]): Promise<GroupMsg[]> {
+    if (seqs.length === 0) return [];
+    const placeholders = seqs.map(() => '?').join(',');
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
+        WHERE "40027" = ? AND "40003" IN (${placeholders})
+        ${ORDER_NEWEST_FIRST}`,
+      [targetGroupCode, ...seqs],
+    );
+    return rows.map(rowToGroupMsg);
+  }
+
+  /**
    * All rows in one group carrying the `(1,1)` deleted signature (40011=1 &
    * 40012=1), newest-first. Covers BOTH WeQ's own deletes and QQ's native
    * recalls — the caller splits them by consulting the DeletedMsgStore. This is

@@ -24,7 +24,7 @@ const OFFICIAL = new Set<number>([ChatType.KCHATTYPETEMPPUBLICACCOUNT]); // 103�
  * wire chatType 有两种形态：db 层对已知值会用 `enumName()` 映射成枚举成员名字符串
  * （如 "KCHATTYPEC2C"），未知值原样传回数字 —— 这里把两种都转回数字判定。
  */
-function toChatTypeNumber(chatType: string | number): number | null {
+export function toChatTypeNumber(chatType: string | number): number | null {
   if (typeof chatType === 'number') return chatType;
   if (/^-?\d+$/.test(chatType)) return Number(chatType);
   const n = (ChatType as unknown as Record<string, number>)[chatType];

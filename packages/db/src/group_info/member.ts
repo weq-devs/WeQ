@@ -35,6 +35,16 @@ export interface GroupMember {
   memberLevel: number;
 }
 
+/** One group-member search hit (across all groups). */
+export interface GroupMemberSearchHit {
+  /** Group code (60001) of the group the member was found in. */
+  groupCode: string;
+  uid: string;
+  uin: string;
+  nick: string;
+  card: string;
+}
+
 export interface GroupMemberDbOptions {
   dbPath: string;
   key?: string;
@@ -120,6 +130,45 @@ export class GroupMemberDb {
   }
 
   /**
+   * Search group members by uin or nickname across ALL groups. `group_member3`
+   * has no index on 1002/20002, so this is a single bounded scan of the member
+   * table (tens of thousands of rows) — cheap enough for a search dropdown.
+   * Only active members (64016 = 0) are considered. `total` counts every match
+   * for the paginated "more" modal.
+   */
+  async searchMembers(
+    keyword: string,
+    limit = 20,
+    offset = 0,
+  ): Promise<{ items: GroupMemberSearchHit[]; total: number }> {
+    const needle = keyword.trim();
+    if (!needle) return { items: [], total: 0 };
+    const like = `%${escapeLike(needle)}%`;
+    const where =
+      `(CAST("1002" AS TEXT) LIKE ? ESCAPE '\\' OR "20002" LIKE ? ESCAPE '\\')` +
+      ` AND ("64016" = 0 OR "64016" IS NULL)`;
+    const [countRows, rows] = await Promise.all([
+      this.qq.query(`SELECT COUNT(*) FROM group_member3 WHERE ${where}`, [like, like]),
+      this.qq.query(
+        `SELECT "60001","1000","1002","20002","64003" FROM group_member3
+         WHERE ${where}
+         LIMIT ? OFFSET ?`,
+        [like, like, BigInt(limit), BigInt(offset)],
+      ),
+    ]);
+    return {
+      items: rows.map((row) => ({
+        groupCode: String(row[0] ?? ''),
+        uid: String(row[1] ?? ''),
+        uin: row[2] === null || row[2] === undefined ? '' : String(row[2]),
+        nick: String(row[3] ?? ''),
+        card: String(row[4] ?? ''),
+      })),
+      total: Number(countRows[0]?.[0] ?? 0),
+    };
+  }
+
+  /**
    * Get a single member's info.
    */
   async getMember(groupCode: bigint, uid: string): Promise<GroupMember | null> {
@@ -190,4 +239,8 @@ function toBigint(v: SqlValue | undefined): bigint {
   if (typeof v === 'number') return BigInt(v);
   if (typeof v === 'string' && v !== '') return BigInt(v);
   return 0n;
+}
+
+function escapeLike(s: string): string {
+  return s.replace(/[\\%_]/g, (m) => `${m}`);
 }

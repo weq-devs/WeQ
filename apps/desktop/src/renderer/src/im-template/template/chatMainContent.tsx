@@ -77,6 +77,8 @@ export function ChatMainContent({
 	onOpenGroupAnnouncements,
 	onOpenGroupEssence,
 	onOpenGroupAnalytics,
+	onOpenGroupBug,
+	groupBugOnline,
 	onOpenBuddyAnalytics,
 	onOpenGroupMember,
 	onAddMessage,
@@ -145,6 +147,9 @@ export function ChatMainContent({
 	onOpenGroupAnnouncements?: (conversation: GroupConversation) => void;
 	onOpenGroupEssence?: (conversation: GroupConversation) => void;
 	onOpenGroupAnalytics?: (conversation: GroupConversation) => void;
+	onOpenGroupBug?: (conversation: GroupConversation) => void;
+	/** QQ 在线状态 —— 决定「反馈 bug」图标亮/灰。 */
+	groupBugOnline?: boolean;
 	onOpenBuddyAnalytics?: (conversation: DirectConversation) => void;
 	onOpenGroupMember?: (member: User, anchor: { x: number; y: number }) => void;
 	onAddMessage?: (conversation: Conversation) => void;
@@ -226,6 +231,8 @@ export function ChatMainContent({
 			onOpenGroupAnnouncements={onOpenGroupAnnouncements}
 			onOpenGroupEssence={onOpenGroupEssence}
 			onOpenGroupAnalytics={onOpenGroupAnalytics}
+			onOpenGroupBug={onOpenGroupBug}
+			groupBugOnline={groupBugOnline}
 			onOpenBuddyAnalytics={onOpenBuddyAnalytics}
 			onOpenGroupMember={onOpenGroupMember}
 			onAddMessage={onAddMessage}

@@ -51,9 +51,12 @@ export interface BuddyMsgFtsDbOptions {
 }
 
 export class BuddyMsgFtsDb {
+  /** Encrypted source path (mirrors QqDb.dbPath). */
+  readonly dbPath: string;
   private readonly qq: QqDb;
 
   constructor(nt: NtHelperBinding, opts: BuddyMsgFtsDbOptions) {
+    this.dbPath = opts.dbPath;
     this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
   }
 
@@ -83,7 +86,11 @@ export class BuddyMsgFtsDb {
    * unindexed and only used as a fallback for peers missing from the uid map.
    * Callers resolve uid → sortNo via the session's `UidMap` (see MsgSearchService).
    */
-  async searchInConversation(part: C2cPartition, keyword: string, limit = 20): Promise<BuddyMsgFtsHit[]> {
+  async searchInConversation(
+    part: C2cPartition,
+    keyword: string,
+    limit = 20,
+  ): Promise<BuddyMsgFtsHit[]> {
     const needle = keyword.trim();
     if (!needle) return [];
 
@@ -119,6 +126,99 @@ export class BuddyMsgFtsDb {
 
     const hits = rows.map(rowToHit);
     return rankByRelevance(hits, needle).slice(0, limit);
+  }
+
+  /**
+   * Top conversations by match count for `keyword` (text column 41701 only),
+   * most matches first. GROUP BY the indexed 40027 partition — buddy partition
+   * is the peer sortNo; callers translate it back to a uid via the UidMap.
+   */
+  async topConversationsByKeyword(
+    keyword: string,
+    limit = 20,
+  ): Promise<Array<{ partition: bigint; count: number }>> {
+    const needle = keyword.trim();
+    if (!needle) return [];
+    // Bounded inner scan: the GROUP BY/sort only sees the first 200k matching
+    // rows, so a hot keyword can't hash 1.5M rows. Counts for very common
+    // keywords are approximate but the top conversations stay correct enough.
+    const rows = await this.qq.query(
+      `SELECT "40027", COUNT(*) FROM (
+        SELECT "40027" FROM buddy_msg_fts
+          WHERE "41701" LIKE ? ESCAPE '\\'
+          LIMIT 200000
+      ) GROUP BY "40027"
+        ORDER BY COUNT(*) DESC
+        LIMIT ?`,
+      [`%${escapeLike(needle)}%`, BigInt(limit)],
+    );
+    return rows.map((row) => ({
+      partition: toBigint(row[0]),
+      count: Number(row[1] ?? 0),
+    }));
+  }
+
+  /**
+   * Paginated messages of ONE conversation (40027 partition) matching `keyword`
+   * in the text column (41701). Uses the 40027 index to narrow the scan to the
+   * conversation before applying LIKE. Newest first. Used by the chat-record
+   * modal right panel; `total` counts every matching message.
+   */
+  async searchInPartition(
+    partition: bigint,
+    keyword: string,
+    limit = 20,
+    offset = 0,
+  ): Promise<{ items: BuddyMsgFtsHit[]; total: number }> {
+    const needle = keyword.trim();
+    if (!needle) return { items: [], total: 0 };
+    const like = `%${escapeLike(needle)}%`;
+    const [countRows, rows] = await Promise.all([
+      this.qq.query(
+        `SELECT COUNT(*) FROM buddy_msg_fts
+          WHERE "40027" = ? AND "41701" LIKE ? ESCAPE '\\'`,
+        [partition, like],
+      ),
+      this.qq.query(
+        `SELECT ${SELECT_COLUMNS} FROM buddy_msg_fts
+          WHERE "40027" = ? AND "41701" LIKE ? ESCAPE '\\'
+          ORDER BY "40050" DESC
+          LIMIT ? OFFSET ?`,
+        [partition, like, BigInt(limit), BigInt(offset)],
+      ),
+    ]);
+    return {
+      items: rows.map(rowToHit),
+      total: Number(countRows[0]?.[0] ?? 0),
+    };
+  }
+
+  /**
+   * Paginated files (filename column 41702) matching `keyword`, newest first.
+   * `total` counts every matching file row for the "more" modal.
+   */
+  async searchFilesByKeyword(
+    keyword: string,
+    limit = 20,
+    offset = 0,
+  ): Promise<{ items: BuddyMsgFtsHit[]; total: number }> {
+    const needle = keyword.trim();
+    if (!needle) return { items: [], total: 0 };
+    const like = `%${escapeLike(needle)}%`;
+    const [countRows, rows] = await Promise.all([
+      this.qq.query(`SELECT COUNT(*) FROM buddy_msg_fts WHERE "41702" LIKE ? ESCAPE '\\'`, [like]),
+      this.qq.query(
+        `SELECT ${SELECT_COLUMNS} FROM buddy_msg_fts
+          WHERE "41702" LIKE ? ESCAPE '\\'
+          ORDER BY "40050" DESC
+          LIMIT ? OFFSET ?`,
+        [like, BigInt(limit), BigInt(offset)],
+      ),
+    ]);
+    return {
+      items: rows.map(rowToHit),
+      total: Number(countRows[0]?.[0] ?? 0),
+    };
   }
 
   /** Drop the cached native connection. Call on account switch / shutdown. */

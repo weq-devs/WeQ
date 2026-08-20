@@ -20,7 +20,7 @@
 
 import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
 import {
   createWin32Platform,
@@ -72,6 +72,7 @@ import {
   FileSearchService,
   EmojiService,
   MsgSearchService,
+  UnifiedSearchService,
   OnlineStatusService,
   AgentLabService,
   AssistantService,
@@ -105,6 +106,7 @@ import {
   checkAccountDatabaseHealth,
   createNtMsgDbHook,
   formatDbHealthFailures,
+  writeDbHealthReport,
   initLogger,
   getLogger,
   getLogDir,
@@ -142,10 +144,14 @@ export const dbEventBus = new EventEmitter();
 
 export interface AccountForcedClosedEvent {
   reason: 'database-damaged';
+  /** 'confirmed' — integrity scan found damage; 'check-error' — scan itself failed. */
+  kind: 'confirmed' | 'check-error';
   title: string;
   message: string;
   details: string[];
   failures: DbHealthFailure[];
+  /** Absolute path of the damage report written to the log dir (null when writing failed). */
+  reportPath: string | null;
 }
 
 export const accountEventBus = new EventEmitter();
@@ -236,8 +242,9 @@ function unmountDbWatch(): void {
  *
  * Non-reentrant: only one check runs at a time. When it comes back clean the
  * gate reopens, so a later suspicion can re-verify (the trigger was a false
- * alarm / transient). Only a CONFIRMED corruption force-closes the account and
- * returns the user to the home screen.
+ * alarm / transient). A CONFIRMED corruption writes a damage report to the log
+ * dir and surfaces the dialog — the account session is deliberately KEPT open
+ * so the user can close the dialog and continue browsing.
  */
 function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: Platform): void {
   const logger = getLogger().child({ scope: 'db-health', accountUin: session.context.uin });
@@ -246,6 +253,10 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
   if (ctx.account !== session) return;
   dbHealthCheckRunning = true;
   const seq = ++dbHealthCheckSeq;
+  const dbDir = platform.ntDbDir(session.context.uin) ?? dirname(session.msgDbPath);
+  // 用户勾选「不再提醒」后：健康检查照常执行、报告照常生成，但不再发弹窗事件。
+  const reminderSuppressed = (): boolean =>
+    ctx.bootstrap?.userConfig.getSettings().suppressDbDamageReminder ?? false;
   void (async (): Promise<void> => {
     try {
       logger.info('starting database health check', {
@@ -255,28 +266,36 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
       const failures = await checkAccountDatabaseHealth(session, platform);
       // A newer check started or the account changed mid-check — drop the result.
       if (seq !== dbHealthCheckSeq || ctx.account !== session) return;
-      // 没检出损坏就不弹窗、不强退（误报/瞬时错误），放行让后续可再触发。
-      if (failures.length === 0) return;
-
+      // 没检出损坏就不弹窗（误报/瞬时错误），放行让后续可再触发。
       if (failures.length === 0) {
         logger.info('database health check passed', { event: 'db-health-check-clean' });
         return;
       }
 
       const details = formatDbHealthFailures(failures);
+      const reportPath = writeDbHealthReport({ failures, uin: session.context.uin, dbDir });
       logger.error('database corruption confirmed', {
         event: 'db-health-check-failed',
         failureCount: failures.length,
         details,
+        reportPath,
       });
-      ctx.clearAccount();
+      if (reminderSuppressed()) {
+        logger.info('database damage reminder suppressed', {
+          event: 'db-health-reminder-suppressed',
+          reportPath,
+        });
+        return;
+      }
       accountEventBus.emit('forcedClosed', {
         reason: 'database-damaged',
+        kind: 'confirmed',
         title: '数据库损坏',
         message:
-          '检测到 QQ 数据库损坏，问题出在 QQ 数据库本身，不是 WeQ 软件导致。账号已强制退出并返回主页面。可以去 https://github.com/H3CoF6/WeQ/issues 提 issue，未来可能会做一个数据库修复工具。',
+          '检测到 QQ 数据库损坏，问题出在 QQ 数据库本身，不是 WeQ 软件导致。已生成检查报告，可以按弹窗里的修复方案尝试修复，也可以继续使用。',
         details,
         failures,
+        reportPath,
       } satisfies AccountForcedClosedEvent);
     } catch (e) {
       if (seq !== dbHealthCheckSeq || ctx.account !== session) return;
@@ -290,14 +309,28 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
         corruptedTables: [],
         error: e instanceof Error ? e.message : String(e),
       };
-      ctx.clearAccount();
+      const reportPath = writeDbHealthReport({
+        failures: [failure],
+        uin: session.context.uin,
+        dbDir,
+        checkError: e instanceof Error ? e.message : String(e),
+      });
+      if (reminderSuppressed()) {
+        logger.info('database damage reminder suppressed', {
+          event: 'db-health-reminder-suppressed',
+          reportPath,
+        });
+        return;
+      }
       accountEventBus.emit('forcedClosed', {
         reason: 'database-damaged',
+        kind: 'check-error',
         title: '数据库损坏',
         message:
-          '检测 QQ 数据库健康状态时发生错误。为避免继续读取损坏数据，账号已强制退出并返回主页面。问题通常出在 QQ 数据库本身，不是 WeQ 软件导致。可以去 https://github.com/H3CoF6/WeQ/issues 提 issue，未来可能会做一个数据库修复工具。',
+          '检测 QQ 数据库健康状态时发生错误，为避免继续读取损坏数据，建议尽快修复或备份数据库。问题通常出在 QQ 数据库本身，不是 WeQ 软件导致。',
         details: formatDbHealthFailures([failure]),
         failures: [failure],
+        reportPath,
       } satisfies AccountForcedClosedEvent);
     } finally {
       dbHealthCheckRunning = false;
@@ -349,6 +382,7 @@ export interface AccountServices {
   groupNotify: GroupNotifyService;
   profile: ProfileService;
   msgSearch: MsgSearchService;
+  unifiedSearch: UnifiedSearchService;
   onlineStatus: OnlineStatusService;
   /** Locate on-disk media (pic/video/ptt/file) for the media protocol. */
   fileSearch: FileSearchService;
@@ -844,6 +878,12 @@ export function initAppContext(): AppContext {
         groupNotify: new GroupNotifyService(session),
         profile,
         msgSearch: new MsgSearchService(session),
+        unifiedSearch: new UnifiedSearchService(session, {
+          // 本地 trigram 搜索索引：首查后台构建（群库约 20s），之后毫秒级。
+          // 构建失败自动回退 LIKE 扫描，搜索功能不受影响。
+          dataDir: userConfig.cacheDir(join('search-index', exportConfigId)),
+          nt: platform.native.ntHelper,
+        }),
         onlineStatus: new OnlineStatusService(session),
         collection: collectionSvc,
         dressInstall,
@@ -1034,7 +1074,11 @@ export function initAppContext(): AppContext {
         ),
         groupFile: new GroupFileService(platform.native.ntHelper, session, resolveOnlinePid),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, resolveOnlinePid),
-        flashTransfer: new FlashTransferService(platform.native.ntHelper, session, resolveOnlinePid),
+        flashTransfer: new FlashTransferService(
+          platform.native.ntHelper,
+          session,
+          resolveOnlinePid,
+        ),
         flashTransferFiles: new FlashTransferFilesService(userConfig.cacheDir('flash')),
       };
       // Scheduled export manager — fires saved templates through the export
@@ -1281,6 +1325,12 @@ export function initAppContext(): AppContext {
         groupNotify: new GroupNotifyService(session),
         profile,
         msgSearch: new MsgSearchService(session),
+        unifiedSearch: new UnifiedSearchService(session, {
+          // 本地 trigram 搜索索引：首查后台构建（群库约 20s），之后毫秒级。
+          // 构建失败自动回退 LIKE 扫描，搜索功能不受影响。
+          dataDir: userConfig.cacheDir(join('search-index', exportConfigId)),
+          nt: platform.native.ntHelper,
+        }),
         onlineStatus: new OnlineStatusService(session),
         collection: collectionSvc,
         dressInstall,

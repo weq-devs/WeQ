@@ -139,6 +139,15 @@ export interface UserProfile {
   isBot: boolean;
 }
 
+/** One friend-search hit (buddy_list joined with profile_info_v6). */
+export interface FriendSearchHit {
+  uid: string;
+  uin: string;
+  nick: string;
+  remark: string;
+  avatarUrl: string | null;
+}
+
 export interface ProfileInfoDbOptions {
   dbPath: string;
   key?: string;
@@ -216,6 +225,50 @@ export class ProfileInfoDb {
       unique,
     );
     return rows.map(rowToProfile);
+  }
+
+  /**
+   * Search FRIENDS by uin or nickname. The friend set is `buddy_list` (small),
+   * so we join it to `profile_info_v6` on the uid PRIMARY KEY instead of
+   * scanning the whole 50k-row profile cache — the JOIN is indexed and only the
+   * friend rows are scanned. uin is matched as a substring of the numeric
+   * column; nick with a LIKE substring match.
+   */
+  async searchFriends(
+    keyword: string,
+    limit = 20,
+    offset = 0,
+  ): Promise<{ items: FriendSearchHit[]; total: number }> {
+    const needle = keyword.trim();
+    if (!needle) return { items: [], total: 0 };
+    const like = `%${escapeLike(needle)}%`;
+    const where = `CAST(b."1002" AS TEXT) LIKE ? ESCAPE '\\' OR p."20002" LIKE ? ESCAPE '\\'`;
+    const [countRows, rows] = await Promise.all([
+      this.qq.query(
+        `SELECT COUNT(*) FROM buddy_list b
+         LEFT JOIN profile_info_v6 p ON b."1000" = p."1000"
+         WHERE ${where}`,
+        [like, like],
+      ),
+      this.qq.query(
+        `SELECT b."1000", b."1002", p."20002", p."20009", p."20004"
+         FROM buddy_list b
+         LEFT JOIN profile_info_v6 p ON b."1000" = p."1000"
+         WHERE ${where}
+         LIMIT ? OFFSET ?`,
+        [like, like, BigInt(limit), BigInt(offset)],
+      ),
+    ]);
+    return {
+      items: rows.map((row) => ({
+        uid: String(row[0] ?? ''),
+        uin: row[1] === null || row[1] === undefined ? '' : String(row[1]),
+        nick: String(row[2] ?? ''),
+        remark: String(row[3] ?? ''),
+        avatarUrl: String(row[4] ?? '') || null,
+      })),
+      total: Number(countRows[0]?.[0] ?? 0),
+    };
   }
 
   /**
@@ -447,4 +500,8 @@ function toBigint(v: SqlValue | undefined): bigint {
   if (typeof v === 'number') return BigInt(v);
   if (typeof v === 'string' && v !== '') return BigInt(v);
   return 0n;
+}
+
+function escapeLike(s: string): string {
+  return s.replace(/[\\%_]/g, (m) => `${m}`);
 }

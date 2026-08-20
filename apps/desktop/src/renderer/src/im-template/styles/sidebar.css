@@ -687,3 +687,47 @@ html[data-theme="dark"] .conversation-row.active .row-unread.muted {
 		display: inline;
 	}
 }
+
+/* ---- 会话/联系人列表 skeleton 占位 ---- */
+.list-skeleton {
+	display: grid;
+}
+
+.list-skeleton-row {
+	display: grid;
+	width: 100%;
+	min-height: 78px;
+	grid-template-columns: 50px minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 12px;
+	padding: 12px 16px;
+}
+
+.list-skeleton-avatar {
+	width: 50px;
+	height: 50px;
+	border-radius: 50%;
+}
+
+.list-skeleton-main {
+	display: grid;
+	min-width: 0;
+	gap: 9px;
+}
+
+.list-skeleton-line {
+	width: 74%;
+	height: 13px;
+	border-radius: 999px;
+}
+
+.list-skeleton-line-short {
+	width: 46%;
+	height: 11px;
+}
+
+.list-skeleton-meta {
+	width: 36px;
+	height: 11px;
+	border-radius: 999px;
+}

@@ -48,6 +48,10 @@ export const electronHost: HostBridge = {
     shell.showItemInFolder(path);
   },
 
+  async openExternal(url) {
+    await shell.openExternal(url);
+  },
+
   async openHtmlReport(path) {
     const { openReportWindow } = await import('./report_window');
     await openReportWindow(path);
