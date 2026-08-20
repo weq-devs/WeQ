@@ -77,7 +77,6 @@ import {
   groupMemberToWire,
   groupMemberLevelInfoToWire,
   groupExtToWire,
-  msgSearchHitToWire,
   onlineStatusToWire,
   elementsToEditable,
   elementsFromEditable,
@@ -1383,7 +1382,12 @@ export const accountRouter = router({
 
   /** 公众号单个会话 ARK 消息流（最近 limit 条）。 */
   listOfficialAccountArkFeed: procedure
-    .input(z.object({ peerUid: z.string().min(1), limit: z.number().int().min(1).max(500).default(100) }))
+    .input(
+      z.object({
+        peerUid: z.string().min(1),
+        limit: z.number().int().min(1).max(500).default(100),
+      }),
+    )
     .query(async ({ input }) => {
       const msgs = await requireServices().officialAccount.listArkFeed(input.peerUid, input.limit);
       return msgs.map(c2cMsgToWire);
@@ -1391,9 +1395,14 @@ export const accountRouter = router({
 
   /** 服务号单个会话 ARK 消息流（最近 limit 条）。 */
   listServiceAccountArkFeed: procedure
-    .input(z.object({ appId: z.string().min(1), limit: z.number().int().min(1).max(500).default(100) }))
+    .input(
+      z.object({ appId: z.string().min(1), limit: z.number().int().min(1).max(500).default(100) }),
+    )
     .query(async ({ input }) => {
-      const msgs = await requireServices().serviceAccount.listArkFeed(BigInt(input.appId), input.limit);
+      const msgs = await requireServices().serviceAccount.listArkFeed(
+        BigInt(input.appId),
+        input.limit,
+      );
       return msgs.map(c2cMsgToWire);
     }),
 
@@ -1903,50 +1912,69 @@ export const accountRouter = router({
       return status ? onlineStatusToWire(status) : null;
     }),
 
-  /** Search message FTS indexes. */
-  searchMessages: procedure
+  /** Unified sidebar search — fast categories (conversations / friends / group members). */
+  searchQuick: procedure
     .input(
       z.object({
-        scope: z.enum(['all', 'buddy', 'group', 'files']).default('all'),
         keyword: z.string().trim().min(1),
-        limit: z.number().int().min(1).max(100).default(20),
+        limit: z.number().int().min(1).max(20).default(3),
       }),
     )
     .query(async ({ input }) => {
-      const search = requireServices().msgSearch;
-      const hits =
-        input.scope === 'buddy'
-          ? await search.searchBuddy(input.keyword, input.limit)
-          : input.scope === 'group'
-            ? await search.searchGroup(input.keyword, input.limit)
-            : input.scope === 'files'
-              ? await search.searchFiles(input.keyword, input.limit)
-              : [
-                  ...(await search.searchBuddy(input.keyword, input.limit)),
-                  ...(await search.searchGroup(input.keyword, input.limit)),
-                ]
-                  .sort((a, b) => Number(b.sendTime - a.sendTime))
-                  .slice(0, input.limit);
-      return hits.map(msgSearchHitToWire);
+      return requireServices().unifiedSearch.quickSearch(input.keyword, input.limit);
     }),
 
-  /** Search within the open conversation. */
-  searchConversationMessages: procedure
+  /** Unified sidebar search — slow categories (chat records / files). */
+  searchSlow: procedure
     .input(
-      convInput.extend({
+      z.object({
         keyword: z.string().trim().min(1),
+        limit: z.number().int().min(1).max(20).default(3),
+      }),
+    )
+    .query(async ({ input }) => {
+      return requireServices().unifiedSearch.slowSearch(input.keyword, input.limit);
+    }),
+
+  /** Full paginated results for a search category (the "more" modal). */
+  searchMore: procedure
+    .input(
+      z.object({
+        category: z.enum(['conversation', 'friend', 'groupMember', 'chatRecord', 'file']),
+        keyword: z.string().trim().min(1),
+        offset: z.number().int().min(0).default(0),
         limit: z.number().int().min(1).max(100).default(20),
       }),
     )
     .query(async ({ input }) => {
-      const search = requireServices().msgSearch;
-      const hits =
-        input.kind === 'group'
-          ? await search.searchInGroupConversation(input.conv, input.keyword, input.limit)
-          : await search.searchInBuddyConversation(input.conv, input.keyword, input.limit);
-      return hits.map(msgSearchHitToWire);
+      return requireServices().unifiedSearch.moreSearch(
+        input.category,
+        input.keyword,
+        input.offset,
+        input.limit,
+      );
     }),
 
+  /** Messages of one conversation matching a keyword (chat-record modal). */
+  searchConversationRecords: procedure
+    .input(
+      z.object({
+        source: z.enum(['buddy', 'group']),
+        conv: z.string().min(1),
+        keyword: z.string().trim().min(1),
+        offset: z.number().int().min(0).default(0),
+        limit: z.number().int().min(1).max(100).default(20),
+      }),
+    )
+    .query(async ({ input }) => {
+      return requireServices().unifiedSearch.conversationRecords(
+        input.source,
+        input.conv,
+        input.keyword,
+        input.offset,
+        input.limit,
+      );
+    }),
   /** Get merged-forward / quote-reply cache for one message. */
   getForwardMessages: procedure
     .input(z.object({ kind: z.enum(['c2c', 'group']), msgId: z.string().min(1) }))

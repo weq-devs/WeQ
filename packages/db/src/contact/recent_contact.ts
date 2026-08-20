@@ -93,6 +93,60 @@ export class RecentContactDb {
     return new Set(rows.map((row) => toStr(row[0])));
   }
 
+  /**
+   * Search conversations by display name (column 40094), newest first.
+   * The recent-contact table is small (hundreds of rows), so the LIKE scan
+   * over it is cheap; `total` counts every match for pagination.
+   */
+  async searchByName(
+    keyword: string,
+    limit = 20,
+    offset = 0,
+  ): Promise<{ items: RecentContact[]; total: number }> {
+    const needle = keyword.trim();
+    if (!needle) return { items: [], total: 0 };
+    const like = `%${escapeLike(needle)}%`;
+    const blocked = BLOCKED_CHAT_TYPES.join(',');
+    const [countRows, rows] = await Promise.all([
+      this.qq.query(
+        `SELECT COUNT(*) FROM recent_contact_v3_table
+          WHERE "40094" LIKE ? ESCAPE '\\' AND "40094" != ''
+            AND "40010" NOT IN (${blocked})`,
+        [like],
+      ),
+      this.qq.query(
+        `SELECT ${SELECT_COLUMNS} FROM recent_contact_v3_table
+          WHERE "40094" LIKE ? ESCAPE '\\' AND "40094" != ''
+            AND "40010" NOT IN (${blocked})
+          ORDER BY "40050" DESC
+          LIMIT ? OFFSET ?`,
+        [like, BigInt(limit), BigInt(offset)],
+      ),
+    ]);
+    return {
+      items: rows.map(rowToRecentContact),
+      total: Number(countRows[0]?.[0] ?? 0),
+    };
+  }
+
+  /**
+   * Recent-conversation rows for the given target uids (40021), newest first.
+   * Used to resolve a buddy FTS 40027 partition back to a display name /
+   * avatar / chatType without one query per conversation.
+   */
+  async getByTargetUids(targetUids: readonly string[]): Promise<RecentContact[]> {
+    const unique = [...new Set(targetUids.filter((uid) => uid))];
+    if (unique.length === 0) return [];
+    const placeholders = unique.map(() => '?').join(',');
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM recent_contact_v3_table
+        WHERE "40021" IN (${placeholders})
+        ORDER BY "40050" DESC`,
+      unique,
+    );
+    return rows.map(rowToRecentContact);
+  }
+
   /** Drop the cached native connection. Call on account switch / shutdown. */
   close(): void {
     this.qq.close();
@@ -153,4 +207,8 @@ function toNum(v: SqlValue | undefined): number {
 
 function toStr(v: SqlValue | undefined): string {
   return typeof v === 'string' ? v : String(v ?? '');
+}
+
+function escapeLike(s: string): string {
+  return s.replace(/[\\%_]/g, (m) => `${m}`);
 }

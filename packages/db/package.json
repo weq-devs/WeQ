@@ -11,6 +11,7 @@
     "tools:c2c-msg": "tsx tools/msg_c2c.ts",
     "tools:group-msg": "tsx tools/msg_group.ts",
     "tools:msg-fts": "tsx tools/msg_fts.ts",
+    "tools:msg-fts-probe": "tsx tools/msg_fts_probe.ts",
     "tools:msg-unread-info": "tsx tools/msg_unread_info.ts",
     "tools:unread-info": "tsx tools/unread_info.ts",
     "tools:recent-contact": "tsx tools/recent_contact.ts",
@@ -47,3 +48,4 @@
     "tsx": "^4.19.2"
   }
 }
+

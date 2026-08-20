@@ -12,7 +12,6 @@
 import type {
   BotProfile,
   Buddy,
-  BuddyMsgFtsHit,
   BuddyRequest,
   Category,
   CollectionItem,
@@ -28,7 +27,12 @@ import type {
   UserProfile,
 } from '@weq/db';
 import { decodeElement, type MsgCacheRecord, type SetEmojiItem } from '@weq/codec';
-import { toRenderElements, type FormattedOnlineStatus, type RenderC2cMsg, type RenderGroupMsg } from '@weq/service';
+import {
+  toRenderElements,
+  type FormattedOnlineStatus,
+  type RenderC2cMsg,
+  type RenderGroupMsg,
+} from '@weq/service';
 import type { GroupNotice, HiddenSessionSummary } from '@weq/service';
 
 export interface UserProfileWire {
@@ -221,18 +225,6 @@ export interface GroupMemberLevelInfoWire {
   groupCode: string;
   memberLevel: number;
   levelConfigs: GroupLevelConfigItemWire[];
-}
-
-export interface MsgSearchHitWire {
-  msgId: string;
-  /** In-conversation seq (column 40003) — the jump anchor for click-to-locate. */
-  msgSeq: string;
-  chatType: number;
-  targetUid: string;
-  senderUid: string;
-  sendTime: string;
-  content: string;
-  fileName?: string;
 }
 
 export interface OnlineStatusWire extends FormattedOnlineStatus {}
@@ -432,7 +424,9 @@ export function hiddenSessionToWire(h: HiddenSessionSummary): HiddenSessionWire 
   };
 }
 
-export function deletedSessionToWire(d: import('@weq/service').DeletedSessionSummary): DeletedSessionWire {
+export function deletedSessionToWire(
+  d: import('@weq/service').DeletedSessionSummary,
+): DeletedSessionWire {
   return {
     sessionKey: d.sessionKey,
     chatType: d.chatType,
@@ -693,19 +687,6 @@ export function groupMemberLevelInfoToWire(info: GroupMemberLevelInfo): GroupMem
   };
 }
 
-export function msgSearchHitToWire(hit: BuddyMsgFtsHit): MsgSearchHitWire {
-  return {
-    msgId: hit.msgId.toString(),
-    msgSeq: hit.msgSeq.toString(),
-    chatType: hit.chatType,
-    targetUid: hit.targetUid,
-    senderUid: hit.senderUid,
-    sendTime: hit.sendTime.toString(),
-    content: hit.content,
-    fileName: hit.fileName,
-  };
-}
-
 export function onlineStatusToWire(status: FormattedOnlineStatus): OnlineStatusWire {
   return status;
 }
@@ -724,10 +705,14 @@ export function onlineStatusToWire(status: FormattedOnlineStatus): OnlineStatusW
  */
 export function forwardRecordToWire(record: MsgCacheRecord): unknown {
   const elements = Array.isArray((record as { elements?: unknown }).elements)
-    ? toRenderElements(((record as { elements: unknown[] }).elements as never[]).map((w) => decodeElement(w as never)))
+    ? toRenderElements(
+        ((record as { elements: unknown[] }).elements as never[]).map((w) =>
+          decodeElement(w as never),
+        ),
+      )
     : [];
   const subMsgs = Array.isArray((record as { subMsgs?: unknown }).subMsgs)
-    ? ((record as { subMsgs: MsgCacheRecord[] }).subMsgs).map(forwardRecordToWire)
+    ? (record as { subMsgs: MsgCacheRecord[] }).subMsgs.map(forwardRecordToWire)
     : [];
 
   // Sanitize the carrier fields (msgId/senderUin/sendTime + sender avatar block

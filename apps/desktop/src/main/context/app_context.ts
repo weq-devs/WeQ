@@ -72,6 +72,7 @@ import {
   FileSearchService,
   EmojiService,
   MsgSearchService,
+  UnifiedSearchService,
   OnlineStatusService,
   AgentLabService,
   AssistantService,
@@ -349,6 +350,7 @@ export interface AccountServices {
   groupNotify: GroupNotifyService;
   profile: ProfileService;
   msgSearch: MsgSearchService;
+  unifiedSearch: UnifiedSearchService;
   onlineStatus: OnlineStatusService;
   /** Locate on-disk media (pic/video/ptt/file) for the media protocol. */
   fileSearch: FileSearchService;
@@ -844,6 +846,12 @@ export function initAppContext(): AppContext {
         groupNotify: new GroupNotifyService(session),
         profile,
         msgSearch: new MsgSearchService(session),
+        unifiedSearch: new UnifiedSearchService(session, {
+          // 本地 trigram 搜索索引：首查后台构建（群库约 20s），之后毫秒级。
+          // 构建失败自动回退 LIKE 扫描，搜索功能不受影响。
+          dataDir: userConfig.cacheDir(join('search-index', exportConfigId)),
+          nt: platform.native.ntHelper,
+        }),
         onlineStatus: new OnlineStatusService(session),
         collection: collectionSvc,
         dressInstall,
@@ -1034,7 +1042,11 @@ export function initAppContext(): AppContext {
         ),
         groupFile: new GroupFileService(platform.native.ntHelper, session, resolveOnlinePid),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, resolveOnlinePid),
-        flashTransfer: new FlashTransferService(platform.native.ntHelper, session, resolveOnlinePid),
+        flashTransfer: new FlashTransferService(
+          platform.native.ntHelper,
+          session,
+          resolveOnlinePid,
+        ),
         flashTransferFiles: new FlashTransferFilesService(userConfig.cacheDir('flash')),
       };
       // Scheduled export manager — fires saved templates through the export
@@ -1281,6 +1293,12 @@ export function initAppContext(): AppContext {
         groupNotify: new GroupNotifyService(session),
         profile,
         msgSearch: new MsgSearchService(session),
+        unifiedSearch: new UnifiedSearchService(session, {
+          // 本地 trigram 搜索索引：首查后台构建（群库约 20s），之后毫秒级。
+          // 构建失败自动回退 LIKE 扫描，搜索功能不受影响。
+          dataDir: userConfig.cacheDir(join('search-index', exportConfigId)),
+          nt: platform.native.ntHelper,
+        }),
         onlineStatus: new OnlineStatusService(session),
         collection: collectionSvc,
         dressInstall,

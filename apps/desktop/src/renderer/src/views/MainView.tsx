@@ -38,14 +38,30 @@ import { MarketEmojiBrowserLightbox } from './export/MarketEmojiBrowserLightbox'
 import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
 import { GroupFileDialog } from '../components/GroupFileDialog';
 import { GroupAnalyticsDialog } from '../components/GroupAnalyticsDialog';
-import { GroupAnnouncementsDialog, type GroupBulletinWire } from '../components/GroupAnnouncementsDialog';
-import { GroupEssenceDialog, type GroupEssenceWire as GroupEssenceDisplay } from '../components/GroupEssenceDialog';
+import {
+  GroupAnnouncementsDialog,
+  type GroupBulletinWire,
+} from '../components/GroupAnnouncementsDialog';
+import {
+  GroupEssenceDialog,
+  type GroupEssenceWire as GroupEssenceDisplay,
+} from '../components/GroupEssenceDialog';
 import { MemberProfileCard } from '../components/MemberProfileCard';
 import { BuddyAnalyticsDialog } from '../components/BuddyAnalyticsDialog';
 import { AddMessageModal } from '../components/compose/AddMessageModal';
 import { DeletedMessagesModal } from '../components/compose/DeletedMessagesModal';
 import { RecalledMessagesModal } from '../components/compose/RecalledMessagesModal';
 import { RelationGraphView } from '../components/relationGraph/RelationGraphView';
+import { SearchDropdown } from '../components/search/SearchDropdown';
+import { UnifiedSearchModal } from '../components/search/UnifiedSearchModal';
+import { ChatRecordsModal } from '../components/search/ChatRecordsModal';
+import type {
+  ChatRecordSearchHit,
+  QuickSearchResult,
+  SearchCategory,
+  SearchHit,
+  SlowSearchResult,
+} from '../components/search/types';
 import { AgentLabView } from './AgentLabView';
 import { ExportView } from './ExportView';
 import { CacheView } from './cache/CacheView';
@@ -73,7 +89,13 @@ import {
   type User,
   useChatShellController,
 } from '../im-template/template';
-import { qqMessageRenderer, ReplyJumpContext, ForwardKindContext, ConvContext, type ReplyJumpTarget } from '../components/QqMessageContent';
+import {
+  qqMessageRenderer,
+  ReplyJumpContext,
+  ForwardKindContext,
+  ConvContext,
+  type ReplyJumpTarget,
+} from '../components/QqMessageContent';
 import type { SetEmojiItem } from '@weq/codec';
 import { MsgElementEditor } from '../components/MsgElementEditor';
 import { flashTransferTitle } from '../components/QqFlashTransfer';
@@ -97,7 +119,9 @@ function DatabaseDamagedDialogBody({
     <div className="weq-db-damaged-dialog">
       <section className="weq-db-damaged-section">
         <h4>发生了什么</h4>
-        <p>{isHealthCheckError ? '检测 QQ 数据库健康状态时发生错误。' : '检测到 QQ 数据库损坏。'}</p>
+        <p>
+          {isHealthCheckError ? '检测 QQ 数据库健康状态时发生错误。' : '检测到 QQ 数据库损坏。'}
+        </p>
         <p>问题通常出在 QQ 数据库本身，不是 WeQ 软件导致。</p>
       </section>
 
@@ -240,82 +264,6 @@ type MessageWire = {
   decoration?: { bubbleId: number; fontId: number; widgetId: number };
 };
 
-/** One full-text search hit from `account.searchMessages`. */
-type MsgSearchHitWire = {
-  msgId: string;
-  /** In-conversation seq (column 40003) — the click-to-jump anchor. */
-  msgSeq: string;
-  /** ChatType: 2 = group, others = c2c. */
-  chatType: number;
-  /** Conversation key: group code (group) or peer uid (c2c). */
-  targetUid: string;
-  senderUid: string;
-  sendTime: string;
-  content: string;
-  fileName?: string;
-};
-
-/** ChatType 2 = group; everything else treated as a 1-1 (c2c) chat. */
-function isGroupChatType(chatType: number): boolean {
-  return chatType === 2;
-}
-
-/**
- * Build a one-line snippet around the first keyword match and split it into
- * highlighted / plain runs (case-insensitive). Keeps ~10 chars of left context
- * and trims the whole snippet to ~46 chars so the dropdown row stays compact.
- */
-function highlightSnippet(content: string, keyword: string): Array<{ text: string; hit: boolean }> {
-  const text = content.replace(/\s+/g, ' ').trim();
-  const needle = keyword.trim();
-  if (!needle) return [{ text: text.slice(0, 46), hit: false }];
-
-  const lower = text.toLowerCase();
-  const lneedle = needle.toLowerCase();
-  const first = lower.indexOf(lneedle);
-
-  // Window the snippet around the first hit so a long message still shows it.
-  let start = 0;
-  let prefix = '';
-  if (first > 12) {
-    start = first - 10;
-    prefix = '…';
-  }
-  const windowed = text.slice(start, start + 46);
-  const runs: Array<{ text: string; hit: boolean }> = [];
-  if (prefix) runs.push({ text: prefix, hit: false });
-
-  const wLower = windowed.toLowerCase();
-  let i = 0;
-  for (;;) {
-    const at = wLower.indexOf(lneedle, i);
-    if (at === -1) {
-      if (i < windowed.length) runs.push({ text: windowed.slice(i), hit: false });
-      break;
-    }
-    if (at > i) runs.push({ text: windowed.slice(i, at), hit: false });
-    runs.push({ text: windowed.slice(at, at + needle.length), hit: true });
-    i = at + needle.length;
-  }
-  return runs;
-}
-
-/** Short, locale time/date for a search hit (today → HH:MM, else M/D). */
-function searchHitTime(sendTimeSeconds: string): string {
-  const secs = Number(sendTimeSeconds);
-  if (!Number.isFinite(secs) || secs <= 0) return '';
-  const d = new Date(secs * 1000);
-  const now = new Date();
-  const sameDay =
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate();
-  if (sameDay) {
-    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-  }
-  if (d.getFullYear() === now.getFullYear()) return `${d.getMonth() + 1}/${d.getDate()}`;
-  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
-}
 
 /** The unified chat-message wire from the account router → local MessageWire. */
 type ChatMsgWire = {
@@ -513,7 +461,9 @@ function groupAvatarSrc(groupCode: string): string | null {
 }
 
 /** Public-CDN avatar URL for a conversation (undefined -> template fallback). */
-function avatarSrc(c: Pick<RecentContactWire, 'chatType' | 'targetUid' | 'targetUin'>): string | null {
+function avatarSrc(
+  c: Pick<RecentContactWire, 'chatType' | 'targetUid' | 'targetUin'>,
+): string | null {
   // C2C 必须先判：KCHATTYPETEMPC2CFROMGROUP 的名字里同时含 C2C 和 GROUP，先匹配
   // GROUP 会把对方 uid 当群号去拼 p.qlogo.cn，临时会话头像必裂。走 uin 外链才是真人头像。
   if (chatTypeKind(c.chatType) === 'direct') return senderAvatarSrc(c.targetUin);
@@ -664,10 +614,17 @@ function groupDetailToConversation(
       createTime: secondsToIsoTime(detail.createTime),
       labels: detail.labels || null,
       entranceQ: detail.entranceQ || null,
-      customLabels: detail.customLabels.map((label) => label.content).filter((label): label is string => Boolean(label)),
+      customLabels: detail.customLabels
+        .map((label) => label.content)
+        .filter((label): label is string => Boolean(label)),
       addressName: detail.address?.locationName || null,
     },
-    members: fallback?.type === 'group' ? fallback.members : user ? [{ ...user, role: 'member', joinedAt: updatedAt }] : [],
+    members:
+      fallback?.type === 'group'
+        ? fallback.members
+        : user
+          ? [{ ...user, role: 'member', joinedAt: updatedAt }]
+          : [],
     preference: fallback?.preference ?? fallbackPreference,
     unreadCount: fallback?.unreadCount ?? 0,
     lastMessage: fallback?.lastMessage ?? null,
@@ -680,7 +637,10 @@ function requestStatus(status: number): 'pending' | 'accepted' | 'rejected' | 'c
   return 'pending';
 }
 
-function buddyRequestToContactRequest(request: BuddyRequestWire, profileByUid: Map<string, UserProfileWire>) {
+function buddyRequestToContactRequest(
+  request: BuddyRequestWire,
+  profileByUid: Map<string, UserProfileWire>,
+) {
   const profile = profileByUid.get(request.peerUid);
   const uin = profile?.uin ?? '';
   const contact: Contact = {
@@ -749,7 +709,7 @@ function groupNotifyUserToContact(
 function groupNotifyToGroupRequest(
   notify: GroupNotifyWire,
   profileByUid: Map<string, UserProfileWire>,
-  groupsById: Map<string, Conversation>
+  groupsById: Map<string, Conversation>,
 ): GroupJoinRequest | null {
   const groupConversation = groupsById.get(notify.groupUin);
   if (groupConversation?.type !== 'group') return null;
@@ -799,7 +759,11 @@ function groupNotifyToGroupRequest(
   };
 }
 
-function _groupRequestFromBuddyRequest(request: BuddyRequestWire, groupsById: Map<string, Conversation>, profileByUid: Map<string, UserProfileWire>) {
+function _groupRequestFromBuddyRequest(
+  request: BuddyRequestWire,
+  groupsById: Map<string, Conversation>,
+  profileByUid: Map<string, UserProfileWire>,
+) {
   if (!request.sourceGroupCode || request.sourceGroupCode === '0') return null;
   const groupConversation = groupsById.get(request.sourceGroupCode);
   if (groupConversation?.type !== 'group') return null;
@@ -836,7 +800,10 @@ function levelBracketFor(level?: number): number {
   return 6;
 }
 
-function levelNameFor(levelConfigs: Array<{ level: number; levelName: string }>, level?: number): string | null {
+function levelNameFor(
+  levelConfigs: Array<{ level: number; levelName: string }>,
+  level?: number,
+): string | null {
   if (level === undefined || level === 0) return null;
   const bracket = levelBracketFor(level);
   return levelConfigs.find((item) => item.level === bracket)?.levelName || `Lv${level}`;
@@ -975,7 +942,13 @@ function isMineMessage(message: MessageWire, conversation: Conversation, user: U
   });
 }
 
-function messageSender(message: MessageWire, conversation: Conversation, user: User, memberMap?: Map<string, GroupMember>, botUids?: Set<string>): User {
+function messageSender(
+  message: MessageWire,
+  conversation: Conversation,
+  user: User,
+  memberMap?: Map<string, GroupMember>,
+  botUids?: Set<string>,
+): User {
   const isMine = isMineMessage(message, conversation, user);
   if (isMine && conversation.type === 'direct') return user;
 
@@ -985,12 +958,23 @@ function messageSender(message: MessageWire, conversation: Conversation, user: U
     const isUinOnly = !member;
 
     return {
-      id: isMine ? user.id : (message.senderUid || `sender:${message.senderUin}`),
-      identityLabel: isMine ? user.identityLabel : (message.senderUin && message.senderUin !== '0' ? 'QQ' : 'UID'),
-      identityValue: isMine ? user.identityValue : (message.senderUin && message.senderUin !== '0' ? message.senderUin : message.senderUid),
-      username: isMine ? user.username : (message.senderUid || message.senderUin),
-      displayName: isMine ? user.displayName : (member?.displayName || (message.senderUin && message.senderUin !== '0' ? message.senderUin : 'Member')),
-      avatarUrl: isMine ? user.avatarUrl : (member?.avatarUrl || senderAvatarSrc(message.senderUin)),
+      id: isMine ? user.id : message.senderUid || `sender:${message.senderUin}`,
+      identityLabel: isMine
+        ? user.identityLabel
+        : message.senderUin && message.senderUin !== '0'
+          ? 'QQ'
+          : 'UID',
+      identityValue: isMine
+        ? user.identityValue
+        : message.senderUin && message.senderUin !== '0'
+          ? message.senderUin
+          : message.senderUid,
+      username: isMine ? user.username : message.senderUid || message.senderUin,
+      displayName: isMine
+        ? user.displayName
+        : member?.displayName ||
+          (message.senderUin && message.senderUin !== '0' ? message.senderUin : 'Member'),
+      avatarUrl: isMine ? user.avatarUrl : member?.avatarUrl || senderAvatarSrc(message.senderUin),
       kind: !isMine && botUids?.has(message.senderUid) ? 'bot' : 'human',
       role: !isUinOnly ? member?.role : undefined,
       customTitle: !isUinOnly ? member?.customTitle : undefined,
@@ -1004,7 +988,13 @@ function messageSender(message: MessageWire, conversation: Conversation, user: U
   return conversation.type === 'direct' ? conversation.otherUser : user;
 }
 
-function messageToTemplate(message: MessageWire, conversation: Conversation, user: User, memberMap?: Map<string, GroupMember>, botUids?: Set<string>): Message {
+function messageToTemplate(
+  message: MessageWire,
+  conversation: Conversation,
+  user: User,
+  memberMap?: Map<string, GroupMember>,
+  botUids?: Set<string>,
+): Message {
   const sender = messageSender(message, conversation, user, memberMap, botUids);
   // For any `reply` element in the message, resolve the ORIGINAL message
   // sender's display name (memberMap → self → otherUser → uin/uid fallbacks)
@@ -1050,7 +1040,16 @@ function messageToTemplate(message: MessageWire, conversation: Conversation, use
     msgSeq: message.msgSeq,
     // Per-message decoration (bubble/font/widget itemIds from column 40801).
     decoration: message.decoration,
-  } as Message & { qqElements: unknown[]; setEmojiList?: SetEmojiItem[]; deletedKind?: 'weq' | 'qq'; recall?: { revokeUid: string; sameSender: boolean; recallTs: number }; recallRevokerName?: string; msgId: string; msgSeq: string; decoration?: { bubbleId: number; fontId: number; widgetId: number } };
+  } as Message & {
+    qqElements: unknown[];
+    setEmojiList?: SetEmojiItem[];
+    deletedKind?: 'weq' | 'qq';
+    recall?: { revokeUid: string; sameSender: boolean; recallTs: number };
+    recallRevokerName?: string;
+    msgId: string;
+    msgSeq: string;
+    decoration?: { bubbleId: number; fontId: number; widgetId: number };
+  };
 }
 
 /**
@@ -1088,11 +1087,8 @@ function resolveOrigSenderNick(
 ): string | null {
   const uid = typeof data.origSenderUid === 'string' ? data.origSenderUid : '';
   const uinRaw = data.origSenderUin;
-  const uin = typeof uinRaw === 'number'
-    ? String(uinRaw)
-    : typeof uinRaw === 'string'
-      ? uinRaw
-      : '';
+  const uin =
+    typeof uinRaw === 'number' ? String(uinRaw) : typeof uinRaw === 'string' ? uinRaw : '';
 
   // 1) Self — match by uin against the logged-in account's identityValue.
   // (`user.id` is `self:${uin}` so a uid-string comparison never matches.)
@@ -1139,24 +1135,42 @@ function messageBody(elements: unknown[]): string {
  */
 const RENDERABLE_ELEMENT_TYPES = new Set<string>([
   // Basic text & mention.
-  'text', 'at',
+  'text',
+  'at',
   // Rich media (handled by qqMessageRenderer / dedicated media components).
-  'pic', 'file', 'video', 'bubbleVideo', 'ptt', 'face', 'mface',
+  'pic',
+  'file',
+  'video',
+  'bubbleVideo',
+  'ptt',
+  'face',
+  'mface',
   // Reply quote.
   'reply',
   // Gray tips (dedicated components in chatPane.tsx).
-  'grayTipRevoke', 'grayTipPoke', 'grayTipGroup', 'grayTipXml',
+  'grayTipRevoke',
+  'grayTipPoke',
+  'grayTipGroup',
+  'grayTipXml',
   // Rich content (some already render as body text; markdown/ark to be wired up).
-  'ark', 'markdown', 'multiMsg', 'call', 'wallet',
+  'ark',
+  'markdown',
+  'multiMsg',
+  'call',
+  'wallet',
   // 机器人内联键盘（与 markdown 正文成对出现）。
   'inlineKeyboard',
   // Cloud storage links.
-  'onlineFile', 'onlineFolder',
+  'onlineFile',
+  'onlineFolder',
   // Misc.
-  'emojiBounce', 'qqDynamic', 'shareLocation',
+  'emojiBounce',
+  'qqDynamic',
+  'shareLocation',
   // Gray tips that carry no gray-tip fields: FILE (subType=10) reuses the FILE
   // tag block, AIO_OP (subType=15) only names the group a temp session came from.
-  'grayTipFileRecv', 'grayTipTempSession',
+  'grayTipFileRecv',
+  'grayTipTempSession',
 ]);
 
 /**
@@ -1268,8 +1282,10 @@ function elementText(element: unknown): string {
       return stringField(data, 'grayTipXmlContent') || stringField(data, 'tipJson') || '[Poke]';
     case 'grayTipGroup': {
       const muteDuration = data.muteDuration as number | undefined;
-      const user1 = (data.user1GroupNick as string | undefined) || (data.user1Nick as string | undefined);
-      const user2 = (data.user2GroupNick as string | undefined) || (data.user2Nick as string | undefined);
+      const user1 =
+        (data.user1GroupNick as string | undefined) || (data.user1Nick as string | undefined);
+      const user2 =
+        (data.user2GroupNick as string | undefined) || (data.user2Nick as string | undefined);
       const hasMutedUser = data.mutedUserInfo !== undefined;
 
       if (muteDuration !== undefined && user1) {
@@ -1298,7 +1314,11 @@ function elementText(element: unknown): string {
         const title = flashTransferTitle(stringField(data, 'markdownContent'));
         return title ? `[QQ闪传] ${title}` : '[QQ闪传]';
       }
-      return stringField(data, 'markdownContent') || stringField(data, 'markdownTextSummary') || '[Markdown]';
+      return (
+        stringField(data, 'markdownContent') ||
+        stringField(data, 'markdownTextSummary') ||
+        '[Markdown]'
+      );
     }
     case 'multiMsg':
       return '[Merged messages]';
@@ -1314,7 +1334,11 @@ function elementText(element: unknown): string {
     case 'mface':
       return '[Sticker]';
     case 'emojiBounce':
-      return stringField(data, 'emojiBounceTextSummary') || stringField(data, 'emojiBouncePcText') || '[Emoji interaction]';
+      return (
+        stringField(data, 'emojiBounceTextSummary') ||
+        stringField(data, 'emojiBouncePcText') ||
+        '[Emoji interaction]'
+      );
     case 'qqDynamic': {
       const desc = (data.dynamicDesc ?? {}) as Record<string, unknown>;
       const main = typeof desc.mainDesc === 'string' ? desc.mainDesc : '';
@@ -1349,7 +1373,12 @@ function arraySummary(data: Record<string, unknown>, key: string): string {
   return value.filter((item): item is string => typeof item === 'string').join(' ');
 }
 
-function attachmentText(label: string, data: Record<string, unknown>, nameKey: string, summaryKey?: string): string {
+function attachmentText(
+  label: string,
+  data: Record<string, unknown>,
+  nameKey: string,
+  summaryKey?: string,
+): string {
   const summary = summaryKey ? arraySummary(data, summaryKey) : '';
   const name = stringField(data, nameKey);
   return summary || (name ? `[${label}] ${name}` : `[${label}]`);
@@ -1368,12 +1397,16 @@ function quoteText(label: string, data: Record<string, unknown>, key: string): s
 function arkPreview(raw: string): string {
   if (!raw) return '[卡片消息]';
   try {
-    const ark = JSON.parse(raw) as { prompt?: string; meta?: Record<string, Record<string, unknown>> };
+    const ark = JSON.parse(raw) as {
+      prompt?: string;
+      meta?: Record<string, Record<string, unknown>>;
+    };
     if (typeof ark.prompt === 'string' && ark.prompt.trim()) return ark.prompt.trim();
     const meta = ark.meta ? Object.values(ark.meta)[0] : undefined;
     if (meta) {
       const pick = (k: string): string => (typeof meta[k] === 'string' ? (meta[k] as string) : '');
-      const t = pick('title') || pick('nickname') || pick('summary') || pick('desc') || pick('name');
+      const t =
+        pick('title') || pick('nickname') || pick('summary') || pick('desc') || pick('name');
       if (t) return t;
     }
     return '[卡片消息]';
@@ -1502,12 +1535,19 @@ function OverlayScrollbar({
     const startY = event.clientY;
     const startScrollTop = scrollTarget.scrollTop;
     const maxScrollTop = scrollTarget.scrollHeight - scrollTarget.clientHeight;
-    const trackHeight = Math.max(0, scrollTarget.getBoundingClientRect().height - OVERLAY_SCROLLBAR_INSET * 2);
+    const trackHeight = Math.max(
+      0,
+      scrollTarget.getBoundingClientRect().height - OVERLAY_SCROLLBAR_INSET * 2,
+    );
     const maxThumbTravel = Math.max(1, trackHeight - state.thumbHeight);
 
     function handlePointerMove(moveEvent: PointerEvent): void {
       const delta = moveEvent.clientY - startY;
-      scrollTarget.scrollTop = clamp(startScrollTop + (delta / maxThumbTravel) * maxScrollTop, 0, maxScrollTop);
+      scrollTarget.scrollTop = clamp(
+        startScrollTop + (delta / maxThumbTravel) * maxScrollTop,
+        0,
+        maxScrollTop,
+      );
       scheduleUpdate();
     }
 
@@ -1588,7 +1628,7 @@ export function MainView(): ReactElement {
   // older history remains. `loaded[0].msgSeq` is the window's lower cursor.
   const [loaded, setLoaded] = useState<MessageWire[]>([]);
   const [anchoredToLatest, setAnchoredToLatest] = useState(true);
-  
+
   // Latest active-conversation identity, read by the once-mounted live
   // subscription (which must not re-subscribe on every selection change).
   const selectionRef = useRef<{ id: string; kind: 'direct' | 'group' } | null>(null);
@@ -1653,7 +1693,10 @@ export function MainView(): ReactElement {
         setOpenedUin(null);
         setHomeStage('home');
         goTo('bootstrap');
-        showError(event.title, <DatabaseDamagedDialogBody message={event.message} details={event.details} />);
+        showError(
+          event.title,
+          <DatabaseDamagedDialogBody message={event.message} details={event.details} />,
+        );
       },
       onError(err) {
         console.error('[account] onAccountForcedClosed subscription error', err);
@@ -1728,7 +1771,10 @@ export function MainView(): ReactElement {
     anchor: { x: number; y: number };
   } | null>(null);
 
-  const [editorState, setEditorState] = useState<{ msgId: string, elements: RawElementWire } | null>(null);
+  const [editorState, setEditorState] = useState<{
+    msgId: string;
+    elements: RawElementWire;
+  } | null>(null);
   const [addMessageConv, setAddMessageConv] = useState<Conversation | null>(null);
   // "删除列表" panel: which conversation is open + its fetched deleted rows.
   const [deletedConv, setDeletedConv] = useState<Conversation | null>(null);
@@ -1747,50 +1793,51 @@ export function MainView(): ReactElement {
 
   const handleEditRaw = useCallback(async (message: Message) => {
     try {
-        const result = await client.account.getRawElements.query({ msgId: message.id });
-        if (result) {
-            setEditorState({ msgId: message.id, elements: result.elements });
-        }
+      const result = await client.account.getRawElements.query({ msgId: message.id });
+      if (result) {
+        setEditorState({ msgId: message.id, elements: result.elements });
+      }
     } catch (e) {
-        console.error('[MainView] Failed to fetch raw elements:', e);
+      console.error('[MainView] Failed to fetch raw elements:', e);
     }
   }, []);
 
-  const handleSaveRaw = useCallback(async (elements: RawElementWire) => {
-    if (!editorState) return;
-    try {
+  const handleSaveRaw = useCallback(
+    async (elements: RawElementWire) => {
+      if (!editorState) return;
+      try {
         const success = await client.account.updateElements.mutate({
-            msgId: editorState.msgId,
-            elements
+          msgId: editorState.msgId,
+          elements,
         });
         if (success) {
-            void refreshWindow();
+          void refreshWindow();
         }
-    } catch (e) {
+      } catch (e) {
         console.error('[MainView] Failed to update elements:', e);
         throw e;
-    }
-  }, [editorState, refreshWindow]);
+      }
+    },
+    [editorState, refreshWindow],
+  );
 
   /** kind + conversation key (peer uid / group code) used by the msg endpoints. */
-  const convFetchKey = useCallback(
-    (c: Conversation): { kind: 'c2c' | 'group'; conv: string } => {
-      if (c.type === 'group') return { kind: 'group', conv: c.group.identityValue };
-      if (c.type === 'direct') return { kind: 'c2c', conv: c.otherUser.id };
-      return { kind: 'c2c', conv: c.id }; // merged — should never actually be called
-    },
-    [],
-  );
+  const convFetchKey = useCallback((c: Conversation): { kind: 'c2c' | 'group'; conv: string } => {
+    if (c.type === 'group') return { kind: 'group', conv: c.group.identityValue };
+    if (c.type === 'direct') return { kind: 'c2c', conv: c.otherUser.id };
+    return { kind: 'c2c', conv: c.id }; // merged — should never actually be called
+  }, []);
 
   // QQ-style delete: rewrites 40011/40012 to (1,1) in the DB — the message
   // stays in the chat under a translucent overlay. Optimistically mark it
   // deleted so the overlay appears instantly.
-  const handleDeleteMessage = useCallback(async (message: Message, conversation: Conversation) => {
-    const { kind, conv } = convFetchKey(conversation);
-    setDeletedIds((current) => new Set(current).add(message.id));
-    try {
+  const handleDeleteMessage = useCallback(
+    async (message: Message, conversation: Conversation) => {
+      const { kind, conv } = convFetchKey(conversation);
+      setDeletedIds((current) => new Set(current).add(message.id));
+      try {
         await client.account.deleteMessage.mutate({ msgId: message.id, kind, conv });
-    } catch (e) {
+      } catch (e) {
         console.error('[MainView] Failed to delete message:', e);
         // Roll the optimistic overlay back on failure.
         setDeletedIds((current) => {
@@ -1798,43 +1845,60 @@ export function MainView(): ReactElement {
           next.delete(message.id);
           return next;
         });
-    }
-  }, [convFetchKey]);
+      }
+    },
+    [convFetchKey],
+  );
 
-  const handleOpenGroupAlbums = useCallback((conversation: Extract<Conversation, { type: 'group' }>) => {
-    setAlbumDialog({
-      groupCode: conversation.id,
-      groupName: conversation.group.name,
-    });
-  }, []);
+  const handleOpenGroupAlbums = useCallback(
+    (conversation: Extract<Conversation, { type: 'group' }>) => {
+      setAlbumDialog({
+        groupCode: conversation.id,
+        groupName: conversation.group.name,
+      });
+    },
+    [],
+  );
 
-  const handleOpenGroupFiles = useCallback((conversation: Extract<Conversation, { type: 'group' }>) => {
-    setGroupFileDialog({
-      groupCode: conversation.id,
-      groupName: conversation.group.name,
-    });
-  }, []);
+  const handleOpenGroupFiles = useCallback(
+    (conversation: Extract<Conversation, { type: 'group' }>) => {
+      setGroupFileDialog({
+        groupCode: conversation.id,
+        groupName: conversation.group.name,
+      });
+    },
+    [],
+  );
 
-  const handleOpenGroupAnnouncements = useCallback((conversation: Extract<Conversation, { type: 'group' }>) => {
-    setAnnouncementsDialog({
-      groupCode: conversation.id,
-      groupName: conversation.group.name,
-    });
-  }, []);
+  const handleOpenGroupAnnouncements = useCallback(
+    (conversation: Extract<Conversation, { type: 'group' }>) => {
+      setAnnouncementsDialog({
+        groupCode: conversation.id,
+        groupName: conversation.group.name,
+      });
+    },
+    [],
+  );
 
-  const handleOpenGroupEssence = useCallback((conversation: Extract<Conversation, { type: 'group' }>) => {
-    setEssenceDialog({
-      groupCode: conversation.id,
-      groupName: conversation.group.name,
-    });
-  }, []);
+  const handleOpenGroupEssence = useCallback(
+    (conversation: Extract<Conversation, { type: 'group' }>) => {
+      setEssenceDialog({
+        groupCode: conversation.id,
+        groupName: conversation.group.name,
+      });
+    },
+    [],
+  );
 
-  const handleOpenGroupAnalytics = useCallback((conversation: Extract<Conversation, { type: 'group' }>) => {
-    setAnalyticsDialog({
-      groupCode: conversation.id,
-      groupName: conversation.group.name,
-    });
-  }, []);
+  const handleOpenGroupAnalytics = useCallback(
+    (conversation: Extract<Conversation, { type: 'group' }>) => {
+      setAnalyticsDialog({
+        groupCode: conversation.id,
+        groupName: conversation.group.name,
+      });
+    },
+    [],
+  );
 
   const handleAddMessage = useCallback((conversation: Conversation) => {
     setAddMessageConv(conversation);
@@ -1909,33 +1973,31 @@ export function MainView(): ReactElement {
     [deletedConv, loadDeletedMessages, refreshWindow],
   );
 
-  const handleOpenGroupMember = useCallback(
-    (member: User, anchor: { x: number; y: number }) => {
-      setMemberCard({ member, anchor });
+  const handleOpenGroupMember = useCallback((member: User, anchor: { x: number; y: number }) => {
+    setMemberCard({ member, anchor });
+  }, []);
+
+  const handleOpenBuddyAnalytics = useCallback(
+    (conversation: Extract<Conversation, { type: 'direct' }>) => {
+      setBuddyAnalyticsDialog({
+        peerUid: conversation.otherUser.id,
+        peerName:
+          conversation.otherUser.displayName ||
+          conversation.otherUser.username ||
+          conversation.otherUser.identityValue ||
+          'TA',
+      });
     },
     [],
   );
 
-  const handleOpenBuddyAnalytics = useCallback((conversation: Extract<Conversation, { type: 'direct' }>) => {
-    setBuddyAnalyticsDialog({
-      peerUid: conversation.otherUser.id,
-      peerName:
-        conversation.otherUser.displayName ||
-        conversation.otherUser.username ||
-        conversation.otherUser.identityValue ||
-        'TA',
-    });
-  }, []);
-
-  const [onlineStatusByUid, setOnlineStatusByUid] = useState<
-    Record<string, OnlineStatusWire>
-  >({});
+  const [onlineStatusByUid, setOnlineStatusByUid] = useState<Record<string, OnlineStatusWire>>({});
   // Unread count per conversation id (latest msgSeq - last read seq). Filled
   // asynchronously after the recent-contact list loads / refreshes.
   const [unreadByConv, setUnreadByConv] = useState<Record<string, number>>({});
-  const [highlightsByConv, setHighlightsByConv] = useState<
-    Record<string, ConversationHighlight[]>
-  >({});
+  const [highlightsByConv, setHighlightsByConv] = useState<Record<string, ConversationHighlight[]>>(
+    {},
+  );
   const [groupMemberPages, setGroupMemberPages] = useState<Record<string, GroupMemberWire[]>>({});
   const [groupMemberHasMore, setGroupMemberHasMore] = useState<Record<string, boolean>>({});
   const [groupMemberLoading, setGroupMemberLoading] = useState<Record<string, boolean>>({});
@@ -1948,50 +2010,65 @@ export function MainView(): ReactElement {
   const loadingOlderRef = useRef(false);
   const loadingNewerRef = useRef(false);
 
-  // Global message search (sidebar search box → dropdown of ≤5 hits).
-  const [searchHits, setSearchHits] = useState<MsgSearchHitWire[]>([]);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchLoading, setSearchLoading] = useState(false);
+  // Unified sidebar search (sidebar search box → multi-category dropdown).
+  // Fast categories (conversations / friends / group members) land first, then
+  // the slow FTS categories (chat records / files) fill in their skeletons.
+  const [searchQuick, setSearchQuick] = useState<QuickSearchResult | null>(null);
+  const [searchQuickLoading, setSearchQuickLoading] = useState(false);
+  const [searchSlow, setSearchSlow] = useState<SlowSearchResult | null>(null);
+  const [searchSlowLoading, setSearchSlowLoading] = useState(false);
   // Temporary dismiss of the search dropdown — clicking outside it hides it
   // so the user can reach contact/group results underneath. Clicking the
   // search box or typing a new query restores the dropdown.
   const [searchDismissed, setSearchDismissed] = useState(false);
-  // uid → nickname resolved from profile_info.db for search-result senders.
-  const [searchNicks, setSearchNicks] = useState<Record<string, string>>({});
   // Set when a search hit was clicked: the listLatest effect, after the target
   // conversation's newest page lands, rebuilds the window centred on this seq
   // instead of leaving the view pinned to the latest.
-  const pendingSearchJumpRef = useRef<{ conv: string; kind: 'group' | 'c2c'; seq: string } | null>(null);
+  const pendingSearchJumpRef = useRef<{ conv: string; kind: 'group' | 'c2c'; seq: string } | null>(
+    null,
+  );
+  // "更多" modal (full paginated results for one category) + chat-record modal.
+  const [searchMore, setSearchMore] = useState<{
+    category: SearchCategory;
+    keyword: string;
+  } | null>(null);
+  const [chatRecordsTarget, setChatRecordsTarget] = useState<{
+    hit: ChatRecordSearchHit;
+    keyword: string;
+  } | null>(null);
 
   // Mirror of `loaded` for the reply-jump handler (a stable callback that must
   // read the current window without being re-created on every message change).
   const loadedRef = useRef<MessageWire[]>([]);
   const pendingScrollRestoreRef = useRef<PendingScrollRestore | null>(null);
 
-  const user = useMemo(() => currentUser(openedUin, selfProfile.data), [openedUin, selfProfile.data]);
+  const user = useMemo(
+    () => currentUser(openedUin, selfProfile.data),
+    [openedUin, selfProfile.data],
+  );
   // 统一的 profile 内存缓存：listProfiles 预热 + 缺失项按需批量补全，所有消费方
   // （好友列表 / 通知 / 搜索）共用这一个 Map。补全在下方的解析 effect 触发。
   const { profileByUid, resolveProfiles } = useProfileResolver<UserProfileWire>(
     profiles.data as UserProfileWire[] | undefined,
   );
   const categoryById = useMemo(() => {
-    return new Map(((categories.data ?? []) as CategoryWire[]).map((category) => [category.id, category]));
+    return new Map(
+      ((categories.data ?? []) as CategoryWire[]).map((category) => [category.id, category]),
+    );
   }, [categories.data]);
   /** 机器人 uid 集合 —— 好友/群成员/会话/消息发送者都靠它打「机器人」标。 */
   const botUids = useMemo(() => new Set((botUidList.data ?? []) as string[]), [botUidList.data]);
   const buddyContacts = useMemo(
     () =>
-      ((buddies.data ?? []) as BuddyWire[]).map((buddy) =>
-        {
-          const contact = buddyToContact(buddy, profileByUid, categoryById, botUids);
-          const statusObj = onlineStatusByUid[buddy.uid];
-          return {
-            ...contact,
-            onlineStatus: statusObj?.displayStatus || contact.onlineStatus,
-            onlineStatusObj: statusObj,
-          };
-        },
-      ),
+      ((buddies.data ?? []) as BuddyWire[]).map((buddy) => {
+        const contact = buddyToContact(buddy, profileByUid, categoryById, botUids);
+        const statusObj = onlineStatusByUid[buddy.uid];
+        return {
+          ...contact,
+          onlineStatus: statusObj?.displayStatus || contact.onlineStatus,
+          onlineStatusObj: statusObj,
+        };
+      }),
     [buddies.data, categoryById, onlineStatusByUid, profileByUid, botUids],
   );
   // 置顶会话（recent_contact_top_table）：会话 id → 置顶时间（41103，秒）。
@@ -2062,7 +2139,7 @@ export function MainView(): ReactElement {
       if (isGroup) {
         // 群聊：尝试从 allGroups 获取详细信息
         const groupDetail = (allGroups.data ?? []).find(
-          (g: GroupDetailWire) => g.groupCode === deleted.targetUid
+          (g: GroupDetailWire) => g.groupCode === deleted.targetUid,
         );
         if (groupDetail) {
           map.set(deleted.targetUid, groupDetailToConversation(groupDetail, undefined, user));
@@ -2119,157 +2196,170 @@ export function MainView(): ReactElement {
     }
 
     return map;
-  }, [deletedUidSet, deletedSessions.data, allGroups.data, groupNameByCode, profileByUid, user, botUids]);
-  const conversations = useMemo(
-    () => {
-      const groups = (allGroups.data ?? []) as GroupDetailWire[];
-      const hiddenList = (hiddenSessions.data ?? []) as HiddenSessionWire[];
-      const deletedList = (deletedSessions.data ?? []) as DeletedSessionWire[];
+  }, [
+    deletedUidSet,
+    deletedSessions.data,
+    allGroups.data,
+    groupNameByCode,
+    profileByUid,
+    user,
+    botUids,
+  ]);
+  const conversations = useMemo(() => {
+    const groups = (allGroups.data ?? []) as GroupDetailWire[];
+    const hiddenList = (hiddenSessions.data ?? []) as HiddenSessionWire[];
+    const deletedList = (deletedSessions.data ?? []) as DeletedSessionWire[];
 
-      // 只保留非 official/service 的 recent contacts（103/118 走合并会话入口）
-      // 同时排除隐藏会话：hidden_session_storage_table_v1 里有的不出现在主列表
-      const recentConversations = ((contacts.data ?? []) as RecentContactWire[])
-        .filter((c) => {
-          const kind = classifyChatType(c.chatType);
-          if (kind === 'official' || kind === 'service') return false;
-          // 隐藏会话：在 hidden_session_storage_table_v1 里有记录的，不出现在主列表
-          if (hiddenUidSet.has(c.targetUid)) return false;
-          return true;
-        })
-        .map((contact) => contactToConversation(contact, user, groupNameByCode, botUids))
-        .filter((conversation): conversation is Conversation => conversation !== null);
-      const byId = new Map(recentConversations.map((conversation) => [conversation.id, conversation]));
+    // 只保留非 official/service 的 recent contacts（103/118 走合并会话入口）
+    // 同时排除隐藏会话：hidden_session_storage_table_v1 里有的不出现在主列表
+    const recentConversations = ((contacts.data ?? []) as RecentContactWire[])
+      .filter((c) => {
+        const kind = classifyChatType(c.chatType);
+        if (kind === 'official' || kind === 'service') return false;
+        // 隐藏会话：在 hidden_session_storage_table_v1 里有记录的，不出现在主列表
+        if (hiddenUidSet.has(c.targetUid)) return false;
+        return true;
+      })
+      .map((contact) => contactToConversation(contact, user, groupNameByCode, botUids))
+      .filter((conversation): conversation is Conversation => conversation !== null);
+    const byId = new Map(
+      recentConversations.map((conversation) => [conversation.id, conversation]),
+    );
 
-      for (const detail of groups) {
-        // 群也要检查：如果在 hidden_session_storage_table_v1 里，不加入主列表
-        if (hiddenUidSet.has(detail.groupCode)) continue;
-        byId.set(detail.groupCode, groupDetailToConversation(detail, byId.get(detail.groupCode), user));
-      }
+    for (const detail of groups) {
+      // 群也要检查：如果在 hidden_session_storage_table_v1 里，不加入主列表
+      if (hiddenUidSet.has(detail.groupCode)) continue;
+      byId.set(
+        detail.groupCode,
+        groupDetailToConversation(detail, byId.get(detail.groupCode), user),
+      );
+    }
 
-      // 公众号合并会话：找所有 103 公众号里最新的那条 sendTime，合成一个 merged 入口。
-      const officialList = (officialAccounts.data ?? []) as OfficialAccountWire[];
-      if (officialList.length > 0) {
-        const latest = officialList.reduce((a, b) =>
-          Number(b.sendTime) > Number(a.sendTime) ? b : a,
-        );
-        const updatedAt = toIsoTime(latest.sendTime);
-        const merged: import('../im-template/template').MergedConversation = {
-          id: 'merged:official',
-          type: 'merged',
-          mergedKind: 'official',
-          title: '公众号',
-          avatarUrl: null,
-          otherUser: null,
-          group: null,
-          members: [],
-          updatedAt,
-          preference: fallbackPreference,
-          unreadCount: 0,
-          lastMessage: {
-            id: `merged:official:${latest.sendTime}`,
-            senderId: null,
-            body: latest.prompt,
-            createdAt: updatedAt,
-          },
-        };
-        byId.set('merged:official', merged);
-      }
+    // 公众号合并会话：找所有 103 公众号里最新的那条 sendTime，合成一个 merged 入口。
+    const officialList = (officialAccounts.data ?? []) as OfficialAccountWire[];
+    if (officialList.length > 0) {
+      const latest = officialList.reduce((a, b) =>
+        Number(b.sendTime) > Number(a.sendTime) ? b : a,
+      );
+      const updatedAt = toIsoTime(latest.sendTime);
+      const merged: import('../im-template/template').MergedConversation = {
+        id: 'merged:official',
+        type: 'merged',
+        mergedKind: 'official',
+        title: '公众号',
+        avatarUrl: null,
+        otherUser: null,
+        group: null,
+        members: [],
+        updatedAt,
+        preference: fallbackPreference,
+        unreadCount: 0,
+        lastMessage: {
+          id: `merged:official:${latest.sendTime}`,
+          senderId: null,
+          body: latest.prompt,
+          createdAt: updatedAt,
+        },
+      };
+      byId.set('merged:official', merged);
+    }
 
-      // 服务号合并会话：同理取最新的那条。
-      const serviceList = (serviceAccounts.data ?? []) as ServiceAccountWire[];
-      if (serviceList.length > 0) {
-        const latest = serviceList.reduce((a, b) =>
-          Number(b.sendTime) > Number(a.sendTime) ? b : a,
-        );
-        const updatedAt = toIsoTime(latest.sendTime);
-        const merged: import('../im-template/template').MergedConversation = {
-          id: 'merged:service',
-          type: 'merged',
-          mergedKind: 'service',
-          title: '服务号',
-          avatarUrl: null,
-          otherUser: null,
-          group: null,
-          members: [],
-          updatedAt,
-          preference: fallbackPreference,
-          unreadCount: 0,
-          lastMessage: {
-            id: `merged:service:${latest.sendTime}`,
-            senderId: null,
-            body: latest.prompt,
-            createdAt: updatedAt,
-          },
-        };
-        byId.set('merged:service', merged);
-      }
+    // 服务号合并会话：同理取最新的那条。
+    const serviceList = (serviceAccounts.data ?? []) as ServiceAccountWire[];
+    if (serviceList.length > 0) {
+      const latest = serviceList.reduce((a, b) =>
+        Number(b.sendTime) > Number(a.sendTime) ? b : a,
+      );
+      const updatedAt = toIsoTime(latest.sendTime);
+      const merged: import('../im-template/template').MergedConversation = {
+        id: 'merged:service',
+        type: 'merged',
+        mergedKind: 'service',
+        title: '服务号',
+        avatarUrl: null,
+        otherUser: null,
+        group: null,
+        members: [],
+        updatedAt,
+        preference: fallbackPreference,
+        unreadCount: 0,
+        lastMessage: {
+          id: `merged:service:${latest.sendTime}`,
+          senderId: null,
+          body: latest.prompt,
+          createdAt: updatedAt,
+        },
+      };
+      byId.set('merged:service', merged);
+    }
 
-      // 隐藏会话合并入口：至少有一个隐藏会话时，置顶显示（不展示内部预览）。
-      // 「两表都有才算隐藏会话」这条规则已经在后端 HiddenSessionService 里用不
-      // 受分页限制的精确查询判断过了（resolvable 已经蕴含这个条件），这里不用
-      // 再拿前端这份被 listRecentContacts 截断到 200 条的列表二次校验——用它反
-      // 而会把真正命中、只是排在 200 名开外的隐藏会话又误杀掉。
-      const validHiddenList = hiddenList.filter((h) => h.resolvable);
+    // 隐藏会话合并入口：至少有一个隐藏会话时，置顶显示（不展示内部预览）。
+    // 「两表都有才算隐藏会话」这条规则已经在后端 HiddenSessionService 里用不
+    // 受分页限制的精确查询判断过了（resolvable 已经蕴含这个条件），这里不用
+    // 再拿前端这份被 listRecentContacts 截断到 200 条的列表二次校验——用它反
+    // 而会把真正命中、只是排在 200 名开外的隐藏会话又误杀掉。
+    const validHiddenList = hiddenList.filter((h) => h.resolvable);
 
-      if (validHiddenList.length > 0) {
-        const latest = validHiddenList.reduce((a, b) =>
-          Number(b.sendTime) > Number(a.sendTime) ? b : a,
-        );
-        const updatedAt = toIsoTime(latest.sendTime);
-        const merged: import('../im-template/template').MergedConversation = {
-          id: 'merged:hidden',
-          type: 'merged',
-          mergedKind: 'hidden',
-          title: '隐藏会话',
-          avatarUrl: null,
-          otherUser: null,
-          group: null,
-          members: [],
-          updatedAt,
-          preference: { ...fallbackPreference, pinned: true },
-          unreadCount: 0,
-          lastMessage: {
-            id: `merged:hidden:${latest.sendTime}`,
-            senderId: null,
-            body: null,
-            createdAt: updatedAt,
-          },
-        };
-        byId.set('merged:hidden', merged);
-      }
+    if (validHiddenList.length > 0) {
+      const latest = validHiddenList.reduce((a, b) =>
+        Number(b.sendTime) > Number(a.sendTime) ? b : a,
+      );
+      const updatedAt = toIsoTime(latest.sendTime);
+      const merged: import('../im-template/template').MergedConversation = {
+        id: 'merged:hidden',
+        type: 'merged',
+        mergedKind: 'hidden',
+        title: '隐藏会话',
+        avatarUrl: null,
+        otherUser: null,
+        group: null,
+        members: [],
+        updatedAt,
+        preference: { ...fallbackPreference, pinned: true },
+        unreadCount: 0,
+        lastMessage: {
+          id: `merged:hidden:${latest.sendTime}`,
+          senderId: null,
+          body: null,
+          createdAt: updatedAt,
+        },
+      };
+      byId.set('merged:hidden', merged);
+    }
 
-      // 删除会话合并入口：至少有一个删除会话时，置顶显示（不展示内部预览）。
-      // 删除会话已经从 recent_contact_v3_table 消失，后端已过滤掉"复活"的会话。
-      const validDeletedList = deletedList.filter((d) => d.resolvable);
+    // 删除会话合并入口：至少有一个删除会话时，置顶显示（不展示内部预览）。
+    // 删除会话已经从 recent_contact_v3_table 消失，后端已过滤掉"复活"的会话。
+    const validDeletedList = deletedList.filter((d) => d.resolvable);
 
-      if (validDeletedList.length > 0) {
-        const latest = validDeletedList.reduce((a, b) =>
-          Number(b.sendTime) > Number(a.sendTime) ? b : a,
-        );
-        const updatedAt = toIsoTime(latest.sendTime);
-        const merged: import('../im-template/template').MergedConversation = {
-          id: 'merged:deleted',
-          type: 'merged',
-          mergedKind: 'deleted',
-          title: '最近删除',
-          avatarUrl: null,
-          otherUser: null,
-          group: null,
-          members: [],
-          updatedAt,
-          preference: { ...fallbackPreference, pinned: true },
-          unreadCount: 0,
-          lastMessage: {
-            id: `merged:deleted:${latest.sendTime}`,
-            senderId: null,
-            body: null,
-            createdAt: updatedAt,
-          },
-        };
-        byId.set('merged:deleted', merged);
-      }
+    if (validDeletedList.length > 0) {
+      const latest = validDeletedList.reduce((a, b) =>
+        Number(b.sendTime) > Number(a.sendTime) ? b : a,
+      );
+      const updatedAt = toIsoTime(latest.sendTime);
+      const merged: import('../im-template/template').MergedConversation = {
+        id: 'merged:deleted',
+        type: 'merged',
+        mergedKind: 'deleted',
+        title: '最近删除',
+        avatarUrl: null,
+        otherUser: null,
+        group: null,
+        members: [],
+        updatedAt,
+        preference: { ...fallbackPreference, pinned: true },
+        unreadCount: 0,
+        lastMessage: {
+          id: `merged:deleted:${latest.sendTime}`,
+          senderId: null,
+          body: null,
+          createdAt: updatedAt,
+        },
+      };
+      byId.set('merged:deleted', merged);
+    }
 
-      return Array.from(byId.values())
+    return (
+      Array.from(byId.values())
         .map((conversation) => {
           const unread = unreadByConv[conversation.id];
           const highlights = highlightsByConv[conversation.id] ?? null;
@@ -2280,7 +2370,9 @@ export function MainView(): ReactElement {
             ...(unread ? { unreadCount: unread } : {}),
             ...(topTime === undefined
               ? {}
-              : { preference: { ...fallbackPreference, ...conversation.preference, pinned: true } }),
+              : {
+                  preference: { ...fallbackPreference, ...conversation.preference, pinned: true },
+                }),
             highlights,
           };
         })
@@ -2294,22 +2386,40 @@ export function MainView(): ReactElement {
             return bTop - aTop;
           }
           return Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
-        });
-    },
-    [allGroups.data, contacts.data, officialAccounts.data, serviceAccounts.data, hiddenSessions.data, deletedSessions.data, hiddenUidSet, groupNameByCode, profileByUid, user, unreadByConv, highlightsByConv, topTimeByConv, botUids],
+        })
+    );
+  }, [
+    allGroups.data,
+    contacts.data,
+    officialAccounts.data,
+    serviceAccounts.data,
+    hiddenSessions.data,
+    deletedSessions.data,
+    hiddenUidSet,
+    groupNameByCode,
+    profileByUid,
+    user,
+    unreadByConv,
+    highlightsByConv,
+    topTimeByConv,
+    botUids,
+  ]);
+  const groupsById = useMemo(
+    () => new Map(conversations.map((conversation) => [conversation.id, conversation])),
+    [conversations],
   );
-  const groupsById = useMemo(() => new Map(conversations.map((conversation) => [conversation.id, conversation])), [conversations]);
   const contactRequests = useMemo(
     () =>
-      ((buddyRequests.data ?? []) as BuddyRequestWire[])
-        .map((request) => buddyRequestToContactRequest(request, profileByUid)),
+      ((buddyRequests.data ?? []) as BuddyRequestWire[]).map((request) =>
+        buddyRequestToContactRequest(request, profileByUid),
+      ),
     [buddyRequests.data, profileByUid],
   );
   const groupRequests = useMemo(
     () =>
       ((groupNotifies.data ?? []) as GroupNotifyWire[])
-        .filter(n => [1, 3, 6, 11, 13, 15].includes(n.status))
-        .map(n => groupNotifyToGroupRequest(n, profileByUid, groupsById))
+        .filter((n) => [1, 3, 6, 11, 13, 15].includes(n.status))
+        .map((n) => groupNotifyToGroupRequest(n, profileByUid, groupsById))
         .filter((r): r is NonNullable<typeof r> => r !== null),
     [groupNotifies.data, profileByUid, groupsById],
   );
@@ -2341,8 +2451,12 @@ export function MainView(): ReactElement {
   // hiddenConversationsById 和 deletedConversationsById —— 否则从选择器点进去，消息页面直接打不开。
   const selectedConversation =
     shell.activeConversation ??
-    (shell.activeConversationId ? hiddenConversationsById.get(shell.activeConversationId) : undefined) ??
-    (shell.activeConversationId ? deletedConversationsById.get(shell.activeConversationId) : undefined);
+    (shell.activeConversationId
+      ? hiddenConversationsById.get(shell.activeConversationId)
+      : undefined) ??
+    (shell.activeConversationId
+      ? deletedConversationsById.get(shell.activeConversationId)
+      : undefined);
   const selectedUid = selectedConversation?.id ?? '';
   const isGroup = selectedConversation?.type === 'group';
   const isDirect = selectedConversation?.type === 'direct';
@@ -2438,7 +2552,7 @@ export function MainView(): ReactElement {
           batch.map(async (buddy) => {
             try {
               const status = await client.account.getOnlineStatus.query({ uid: buddy.uid });
-              return status ? [buddy.uid, status] as const : null;
+              return status ? ([buddy.uid, status] as const) : null;
             } catch {
               return null;
             }
@@ -2606,7 +2720,7 @@ export function MainView(): ReactElement {
         if (offset === 0 && page.length === 0) {
           setGroupMemberError((current) => ({
             ...current,
-            [groupCode]: '数据库中没有该群的成员信息'
+            [groupCode]: '数据库中没有该群的成员信息',
           }));
         } else {
           setGroupMemberError((current) => ({ ...current, [groupCode]: '' }));
@@ -2628,7 +2742,8 @@ export function MainView(): ReactElement {
   );
 
   const requestMoreGroupMembers = useCallback((): void => {
-    if (!selectedUid || !isGroup || selectedGroupMembersLoading || selectedGroupMembersError) return;
+    if (!selectedUid || !isGroup || selectedGroupMembersLoading || selectedGroupMembersError)
+      return;
     // 如果已经加载过但没有更多数据，不再重试（包括第一次查询返回空的情况）
     if (!selectedGroupMembersHasMore && selectedUid in groupMemberHasMore) return;
     void loadGroupMembersPage(selectedUid, selectedGroupMemberWires.length);
@@ -2645,7 +2760,12 @@ export function MainView(): ReactElement {
 
   useEffect(() => {
     if (!selectedUid || !isGroup) return;
-    if (selectedGroupMemberWires.length > 0 || selectedGroupMembersLoading || selectedGroupMembersError) return;
+    if (
+      selectedGroupMemberWires.length > 0 ||
+      selectedGroupMembersLoading ||
+      selectedGroupMembersError
+    )
+      return;
     requestMoreGroupMembers();
   }, [
     isGroup,
@@ -2660,15 +2780,15 @@ export function MainView(): ReactElement {
   const loadedMessageWires = loaded;
   const currentGroupMembers = useMemo(() => {
     if (selectedConversation?.type !== 'group') return [];
-    
+
     const detail = groupDetail.data;
     const levelConfigs = groupLevelInfo.data?.levelConfigs ?? [];
 
     const allMemberWires = [...selectedGroupMemberWires];
     // Merge in only THIS group's on-demand-resolved senders.
     const groupMissing = missingMembers[selectedUid] ?? {};
-    Object.values(groupMissing).forEach(m => {
-      if (!allMemberWires.find(em => em.uid === m.uid)) {
+    Object.values(groupMissing).forEach((m) => {
+      if (!allMemberWires.find((em) => em.uid === m.uid)) {
         allMemberWires.push(m);
       }
     });
@@ -2681,7 +2801,7 @@ export function MainView(): ReactElement {
       displayName: m.card || m.nick || m.uin || 'Member',
       avatarUrl: senderAvatarSrc(m.uin),
       kind: botUids.has(m.uid) ? 'bot' : 'human',
-      role: m.uid === detail?.ownerUid ? 'owner' : (m.adminFlag > 0 ? 'admin' : 'member'),
+      role: m.uid === detail?.ownerUid ? 'owner' : m.adminFlag > 0 ? 'admin' : 'member',
       joinedAt: toIsoTime(m.joinTime.toString()),
       lastSpeakAt: secondsToIsoTime(m.lastSpeakTime),
       muteUntil: secondsToIsoTime(m.muteUntil),
@@ -2691,10 +2811,18 @@ export function MainView(): ReactElement {
     }));
 
     return mapped.sort((a, b) => {
-        const roleScore = { owner: 0, admin: 1, member: 2 };
-        return roleScore[a.role] - roleScore[b.role];
+      const roleScore = { owner: 0, admin: 1, member: 2 };
+      return roleScore[a.role] - roleScore[b.role];
     });
-  }, [selectedConversation, selectedUid, groupDetail.data, groupLevelInfo.data, selectedGroupMemberWires, missingMembers, botUids]);
+  }, [
+    selectedConversation,
+    selectedUid,
+    groupDetail.data,
+    groupLevelInfo.data,
+    selectedGroupMemberWires,
+    missingMembers,
+    botUids,
+  ]);
 
   // Resolve message senders / gray-tip targets that fall outside the loaded
   // member page. Messages render immediately with the uin fallback; the real
@@ -2721,7 +2849,8 @@ export function MainView(): ReactElement {
   useEffect(() => {
     const uids: string[] = [];
     for (const buddy of (buddies.data ?? []) as BuddyWire[]) uids.push(buddy.uid);
-    for (const request of (buddyRequests.data ?? []) as BuddyRequestWire[]) uids.push(request.peerUid);
+    for (const request of (buddyRequests.data ?? []) as BuddyRequestWire[])
+      uids.push(request.peerUid);
     for (const notify of (groupNotifies.data ?? []) as GroupNotifyWire[]) {
       if (![1, 3, 6, 11, 13, 15].includes(notify.status)) continue;
       if (notify.operatedUid) uids.push(notify.operatedUid);
@@ -2729,26 +2858,33 @@ export function MainView(): ReactElement {
     }
     // 隐藏会话没有 QQ 预置的显示名列，靠 profile 缓存补昵称/头像（同 buddy 列表）。
     for (const hidden of (hiddenSessions.data ?? []) as HiddenSessionWire[]) {
-      if (hidden.resolvable && chatTypeKind(hidden.chatType) === 'direct') uids.push(hidden.targetUid);
+      if (hidden.resolvable && chatTypeKind(hidden.chatType) === 'direct')
+        uids.push(hidden.targetUid);
     }
     // 删除会话同样需要 profile 缓存补昵称/头像。
     for (const deleted of (deletedSessions.data ?? []) as DeletedSessionWire[]) {
-      if (deleted.resolvable && (deleted.chatType === 1 || deleted.chatType === 10)) uids.push(deleted.targetUid);
+      if (deleted.resolvable && (deleted.chatType === 1 || deleted.chatType === 10))
+        uids.push(deleted.targetUid);
     }
     resolveProfiles(uids);
-  }, [buddies.data, buddyRequests.data, groupNotifies.data, hiddenSessions.data, deletedSessions.data, resolveProfiles]);
+  }, [
+    buddies.data,
+    buddyRequests.data,
+    groupNotifies.data,
+    hiddenSessions.data,
+    deletedSessions.data,
+    resolveProfiles,
+  ]);
 
   const templateMessages = useMemo(() => {
     if (!selectedConversation) return [];
 
     // Create a fast lookup map for member info
-    const memberMap = new Map(currentGroupMembers.map(m => [m.id, m]));
+    const memberMap = new Map(currentGroupMembers.map((m) => [m.id, m]));
 
     return loadedMessageWires
       .filter((message) => isRenderableMessage(message))
-      .map((message) =>
-        messageToTemplate(message, selectedConversation, user, memberMap, botUids)
-      );
+      .map((message) => messageToTemplate(message, selectedConversation, user, memberMap, botUids));
   }, [loadedMessageWires, selectedConversation, user, currentGroupMembers, botUids]);
 
   // Deleted messages built through the SAME template pipeline as the live chat,
@@ -2791,19 +2927,23 @@ export function MainView(): ReactElement {
         createTime: secondsToIsoTime(detail?.createTime),
         labels: detail?.labels || null,
         entranceQ: detail?.entranceQ || null,
-        customLabels: detail?.customLabels
-          ?.map((label) => label.content)
-          .filter((label): label is string => Boolean(label)) ?? [],
+        customLabels:
+          detail?.customLabels
+            ?.map((label) => label.content)
+            .filter((label): label is string => Boolean(label)) ?? [],
         addressName: detail?.address?.locationName || null,
         bulletins: ((groupBulletins.data ?? []) as GroupBulletinWire[]).map((bulletin, index) => {
           // publisherUid 可能是 UID（数据库）或 UIN（Web API），尝试两者匹配
           const publisher = currentGroupMembers.find(
-            m => m.id === bulletin.publisherUid || m.identityValue === bulletin.publisherUid
+            (m) => m.id === bulletin.publisherUid || m.identityValue === bulletin.publisherUid,
           );
           return {
             id: bulletin.fid || `bulletin:${index}`,
             text: bulletin.textContent,
-            createdAt: secondsToIsoTime(bulletin.ctime) ?? secondsToIsoTime(bulletin.msgTime) ?? new Date(0).toISOString(),
+            createdAt:
+              secondsToIsoTime(bulletin.ctime) ??
+              secondsToIsoTime(bulletin.msgTime) ??
+              new Date(0).toISOString(),
             publisherUid: bulletin.publisherUid,
             publisherName: publisher?.displayName,
             publisherAvatar: publisher?.avatarUrl,
@@ -2812,7 +2952,7 @@ export function MainView(): ReactElement {
         essenceMessages: ((groupEssence.data ?? []) as GroupEssenceWire[]).map((item) => {
           // 尝试从 Web API 结果中找到匹配的消息内容（按 msgSeq 匹配）
           const webItem = (groupEssenceWeb.data ?? []).find(
-            (web: GroupEssenceWire) => web.msgSeq === item.msgSeq
+            (web: GroupEssenceWire) => web.msgSeq === item.msgSeq,
           );
           return {
             id: `essence:${item.msgSeq}:${item.timestamp}`,
@@ -2831,10 +2971,11 @@ export function MainView(): ReactElement {
           level: item.level,
           name: item.levelName,
         })),
-        role: currentGroupMembers.find(m => m.id === user.id)?.role || 'member',
-        luckyChar: (groupExt.data?.luckyCharId && groupExt.data.luckyCharId !== 0)
-          ? { id: groupExt.data.luckyCharId, litCount: groupExt.data.luckyCharLitCount }
-          : null,
+        role: currentGroupMembers.find((m) => m.id === user.id)?.role || 'member',
+        luckyChar:
+          groupExt.data?.luckyCharId && groupExt.data.luckyCharId !== 0
+            ? { id: groupExt.data.luckyCharId, litCount: groupExt.data.luckyCharLitCount }
+            : null,
       },
     };
   }, [
@@ -2868,7 +3009,14 @@ export function MainView(): ReactElement {
     ) {
       shell.setActiveConversationId(null);
     }
-  }, [contacts.isLoading, conversations, hiddenConversationsById, deletedConversationsById, shell.activeConversationId, shell.setActiveConversationId]);
+  }, [
+    contacts.isLoading,
+    conversations,
+    hiddenConversationsById,
+    deletedConversationsById,
+    shell.activeConversationId,
+    shell.setActiveConversationId,
+  ]);
 
   // Keep the live-subscription's view of "what's open" current without
   // re-subscribing on every selection change.
@@ -2964,202 +3112,204 @@ export function MainView(): ReactElement {
   // if it isn't in the window yet, then briefly flash it. The 40003 anchor lives
   // in a different reply field per kind (verified against the live DB):
   //   group → origMsgSeq (47402);  c2c → origMsgIndex (47419).
-  const jumpToSeq = useCallback(async (jumpTarget: ReplyJumpTarget): Promise<void> => {
-    const sel = selectionRef.current;
-    if (!sel) {
-      return;
-    }
-    const kind: 'group' | 'c2c' = sel.kind === 'group' ? 'group' : 'c2c';
-    const rawSeq =
-      kind === 'group' ? (jumpTarget.seq ?? jumpTarget.index) : (jumpTarget.index ?? jumpTarget.seq);
-    if (rawSeq === undefined || rawSeq === null || rawSeq === '') {
-      pushToast({ tone: 'info', title: '未找到该消息' });
-      return;
-    }
-    const targetSeq = String(rawSeq);
-
-    const here = loadedRef.current.find((m) => m.msgSeq === targetSeq);
-    if (here) {
-      scrollToMsgId(here.msgId);
-      return;
-    }
-
-    const targetNum = Number(targetSeq);
-
-    // Slow path A: the target is just above the window — reach it by loading a
-    // few scroll-up pages (cheap, preserves the current context). Capped at 3.
-    let working = loadedRef.current.slice();
-    let reachedTop = false;
-    for (let guard = 0; guard < 3; guard += 1) {
-      const minSeq = working[0]?.msgSeq;
-      if (!minSeq || Number(minSeq) <= targetNum) {
-        break;
+  const jumpToSeq = useCallback(
+    async (jumpTarget: ReplyJumpTarget): Promise<void> => {
+      const sel = selectionRef.current;
+      if (!sel) {
+        return;
       }
-      if (working.some((m) => m.msgSeq === targetSeq)) {
-        break;
+      const kind: 'group' | 'c2c' = sel.kind === 'group' ? 'group' : 'c2c';
+      const rawSeq =
+        kind === 'group'
+          ? (jumpTarget.seq ?? jumpTarget.index)
+          : (jumpTarget.index ?? jumpTarget.seq);
+      if (rawSeq === undefined || rawSeq === null || rawSeq === '') {
+        pushToast({ tone: 'info', title: '未找到该消息' });
+        return;
       }
-      let older: ChatMsgWire[];
-      try {
-        older = await client.account.listBefore.query({ kind, conv: sel.id, beforeSeq: minSeq, limit: PAGE_SIZE });
-      } catch (err) {
-        console.error('[jumpToSeq] listBefore failed', err);
-        pushToast({ tone: 'info', title: '加载消息失败' });
-        break;
-      }
-      if (selectionRef.current?.id !== sel.id) {
-        return; // switched away mid-flight
-      }
-      const known = new Set(working.map((m) => m.msgId));
-      const fresh = older.map(toMessageWire).reverse().filter((m) => !known.has(m.msgId));
-      if (fresh.length === 0) {
-        reachedTop = true;
-        break;
-      }
-      working = [...fresh, ...working];
-      if (older.length < PAGE_SIZE) {
-        reachedTop = true;
-        break;
-      }
-    }
+      const targetSeq = String(rawSeq);
 
-    const target = working.find((m) => m.msgSeq === targetSeq);
-    if (target) {
-      setLoaded(working);
-      if (reachedTop) setHasOlder(false);
-      // Let the prepended rows paint (and any scroll-restore settle) before scrolling.
-      window.setTimeout(() => scrollToMsgId(target.msgId), 160);
-      return;
-    }
+      const here = loadedRef.current.find((m) => m.msgSeq === targetSeq);
+      if (here) {
+        scrollToMsgId(here.msgId);
+        return;
+      }
 
-    // Slow path B: still not found after 3 pages — rebuild a fresh window
-    // centred on the target instead of loading everything up to it.
-    await centerWindowOnSeq(sel.id, kind, targetSeq);
-  }, [centerWindowOnSeq, scrollToMsgId, pushToast]);
+      const targetNum = Number(targetSeq);
 
-  // Debounced global message search: as the user types, search buddy+group and
-  // show up to 5 hits. A run counter discards stale responses so only the last
-  // keystroke's results win.
+      // Slow path A: the target is just above the window — reach it by loading a
+      // few scroll-up pages (cheap, preserves the current context). Capped at 3.
+      let working = loadedRef.current.slice();
+      let reachedTop = false;
+      for (let guard = 0; guard < 3; guard += 1) {
+        const minSeq = working[0]?.msgSeq;
+        if (!minSeq || Number(minSeq) <= targetNum) {
+          break;
+        }
+        if (working.some((m) => m.msgSeq === targetSeq)) {
+          break;
+        }
+        let older: ChatMsgWire[];
+        try {
+          older = await client.account.listBefore.query({
+            kind,
+            conv: sel.id,
+            beforeSeq: minSeq,
+            limit: PAGE_SIZE,
+          });
+        } catch (err) {
+          console.error('[jumpToSeq] listBefore failed', err);
+          pushToast({ tone: 'info', title: '加载消息失败' });
+          break;
+        }
+        if (selectionRef.current?.id !== sel.id) {
+          return; // switched away mid-flight
+        }
+        const known = new Set(working.map((m) => m.msgId));
+        const fresh = older
+          .map(toMessageWire)
+          .reverse()
+          .filter((m) => !known.has(m.msgId));
+        if (fresh.length === 0) {
+          reachedTop = true;
+          break;
+        }
+        working = [...fresh, ...working];
+        if (older.length < PAGE_SIZE) {
+          reachedTop = true;
+          break;
+        }
+      }
+
+      const target = working.find((m) => m.msgSeq === targetSeq);
+      if (target) {
+        setLoaded(working);
+        if (reachedTop) setHasOlder(false);
+        // Let the prepended rows paint (and any scroll-restore settle) before scrolling.
+        window.setTimeout(() => scrollToMsgId(target.msgId), 160);
+        return;
+      }
+
+      // Slow path B: still not found after 3 pages — rebuild a fresh window
+      // centred on the target instead of loading everything up to it.
+      await centerWindowOnSeq(sel.id, kind, targetSeq);
+    },
+    [centerWindowOnSeq, scrollToMsgId, pushToast],
+  );
+
+  // Debounced unified search: fast categories (conversation/friend/groupMember)
+  // land first, then the slow FTS categories (chat records/files). A run counter
+  // discards stale responses so only the last keystroke's results win.
   const searchQuery = shell.query.trim();
   const searchRunRef = useRef(0);
   useEffect(() => {
-    // Only search messages in messages view
-    if (shell.view !== 'messages') {
-      setSearchHits([]);
-      setSearchOpen(false);
-      setSearchLoading(false);
+    if (shell.view !== 'messages' && shell.view !== 'contacts') {
+      setSearchQuick(null);
+      setSearchSlow(null);
+      setSearchQuickLoading(false);
+      setSearchSlowLoading(false);
       return undefined;
     }
-
     if (!searchQuery) {
-      setSearchHits([]);
-      setSearchOpen(false);
-      setSearchLoading(false);
+      setSearchQuick(null);
+      setSearchSlow(null);
+      setSearchQuickLoading(false);
+      setSearchSlowLoading(false);
       return undefined;
     }
     const run = ++searchRunRef.current;
-    setSearchLoading(true);
+    setSearchQuickLoading(true);
+    setSearchSlowLoading(true);
     setSearchDismissed(false);
     const timer = window.setTimeout(() => {
-      client.account.searchMessages
-        .query({ scope: 'all', keyword: searchQuery, limit: 5 })
-        .then((hits) => {
-          if (searchRunRef.current !== run) return; // a newer keystroke superseded us
-          setSearchHits(hits as MsgSearchHitWire[]);
-          setSearchOpen(true);
-          setSearchLoading(false);
+      client.account.searchQuick
+        .query({ keyword: searchQuery, limit: 3 })
+        .then((result) => {
+          if (searchRunRef.current !== run) return;
+          setSearchQuick(result as QuickSearchResult);
+          setSearchQuickLoading(false);
         })
         .catch((err) => {
           if (searchRunRef.current !== run) return;
-          console.error('[search] searchMessages failed', err);
-          setSearchHits([]);
-          setSearchLoading(false);
+          console.error('[search] searchQuick failed', err);
+          setSearchQuickLoading(false);
+        });
+      client.account.searchSlow
+        .query({ keyword: searchQuery, limit: 3 })
+        .then((result) => {
+          if (searchRunRef.current !== run) return;
+          setSearchSlow(result as SlowSearchResult);
+          setSearchSlowLoading(false);
+        })
+        .catch((err) => {
+          if (searchRunRef.current !== run) return;
+          console.error('[search] searchSlow failed', err);
+          setSearchSlowLoading(false);
         });
     }, 200);
     return () => window.clearTimeout(timer);
   }, [searchQuery, shell.view]);
 
-  // After hits land, batch-resolve group senders' nicknames from profile_info.db
-  // (one extra query). Only the uids we don't already have a name for.
-  useEffect(() => {
-    const unknown = searchHits
-      .filter((hit) => isGroupChatType(hit.chatType) && hit.senderUid)
-      .map((hit) => hit.senderUid)
-      .filter((uid) => !profileByUid.has(uid) && !searchNicks[uid]);
-    const todo = [...new Set(unknown)];
-    if (todo.length === 0) return;
-
-    let cancelled = false;
-    client.account.getNicksByUids
-      .query({ uids: todo })
-      .then((map) => {
-        if (cancelled) return;
-        const resolved = map as Record<string, string>;
-        if (Object.keys(resolved).length > 0) {
-          setSearchNicks((prev) => ({ ...prev, ...resolved }));
-        }
-      })
-      .catch((err) => console.error('[search] getNicksByUids failed', err));
-    return () => {
-      cancelled = true;
-    };
-  }, [searchHits, profileByUid, searchNicks]);
-
-  // Click a search hit → switch to its conversation and jump to the message.
-  const openSearchHit = useCallback(
-    (hit: MsgSearchHitWire): void => {
-      const kind: 'group' | 'c2c' = isGroupChatType(hit.chatType) ? 'group' : 'c2c';
-      const conv = hit.targetUid;
-      setSearchOpen(false);
+  // Jump to a conversation, optionally centred on a message seq (files / chat
+  // records). When no seq anchor exists, just open the chat (+toast on demand).
+  const jumpToConvSeq = useCallback(
+    (kind: 'group' | 'c2c', conv: string, seq?: string, toastOnMissingSeq = false): void => {
+      setSearchDismissed(true);
       shell.setQuery('');
-      if (!hit.msgSeq) {
-        // No seq (shouldn't happen now FTS returns 40003) — just open the chat.
-        console.warn('[search] hit missing msgSeq, opening conversation only');
+      if (!conv) return;
+      if (!seq) {
+        if (toastOnMissingSeq) pushToast({ tone: 'info', title: '未找到该消息位置' });
         shell.selectConversation(conv);
         return;
       }
       if (selectionRef.current?.id === conv) {
         // Already open — jump straight away.
-        void centerWindowOnSeq(conv, kind, hit.msgSeq);
+        void centerWindowOnSeq(conv, kind, seq);
         return;
       }
       // Switch conversations; the listLatest effect performs the centred jump
       // once the placeholder newest page lands.
-      pendingSearchJumpRef.current = { conv, kind, seq: hit.msgSeq };
+      pendingSearchJumpRef.current = { conv, kind, seq };
       shell.selectConversation(conv);
     },
-    [centerWindowOnSeq, shell],
+    [centerWindowOnSeq, pushToast, shell],
   );
 
-  // Resolve display fields (conversation name/avatar, sender name) for each hit
-  // from already-loaded maps; fall back to ids when unresolved.
-  const searchResultRows = useMemo(() => {
-    return searchHits.map((hit) => {
-      const isGroup = isGroupChatType(hit.chatType);
-      const conversation = groupsById.get(hit.targetUid);
-      const convName = isGroup
-        ? conversation?.group?.name || hit.targetUid
-        : conversation?.otherUser?.displayName || conversation?.group?.name || hit.targetUid;
-      const avatarUrl = isGroup
-        ? conversation?.group?.avatarUrl || groupAvatarSrc(hit.targetUid)
-        : conversation?.otherUser?.avatarUrl || null;
-      // Sender name: prefer loaded buddy profile, then the nickname resolved
-      // from profile_info.db, finally a short uid. (c2c sender == the peer.)
-      const senderProfile = profileByUid.get(hit.senderUid);
-      const senderName = isGroup
-        ? displayProfileName(senderProfile) ||
-          searchNicks[hit.senderUid] ||
-          `${hit.senderUid.slice(0, 8)}…`
-        : convName;
-      return {
-        hit,
-        convName,
-        avatarUrl,
-        senderName,
-        time: searchHitTime(hit.sendTime),
-        runs: highlightSnippet(hit.content, searchQuery),
-      };
-    });
-  }, [searchHits, groupsById, profileByUid, searchNicks, searchQuery]);
+  // Click a search hit (dropdown / more modal): resolve conversation key + kind,
+  // then jump. Files additionally carry a seq anchor.
+  const openSearchHit = useCallback(
+    (hit: SearchHit): void => {
+      if (hit.category === 'chatRecord') {
+        // 聊天记录卡片 → 打开双栏模态（左会话 / 右消息），而不是直接跳会话。
+        setChatRecordsTarget({ hit, keyword: searchQuery });
+        return;
+      }
+      const kind: 'group' | 'c2c' =
+        hit.category === 'conversation'
+          ? hit.chatType === 2
+            ? 'group'
+            : 'c2c'
+          : hit.category === 'friend'
+            ? 'c2c'
+            : hit.category === 'groupMember'
+              ? 'group'
+              : hit.source === 'group'
+                ? 'group'
+                : 'c2c';
+      const conv =
+        hit.category === 'conversation' || hit.category === 'file'
+          ? hit.targetUid
+          : hit.category === 'friend'
+            ? hit.uid
+            : hit.groupCode;
+      if (hit.category === 'file') {
+        jumpToConvSeq(kind, conv, hit.msgSeq || undefined, true);
+      } else {
+        jumpToConvSeq(kind, conv);
+      }
+    },
+    [jumpToConvSeq, searchQuery],
+  );
 
   // Load the newest page whenever the open conversation changes. The render-time
   // reset already cleared `loaded`, so this never paints the old chat. Always a
@@ -3335,7 +3485,10 @@ export function MainView(): ReactElement {
     if (!scroll) return undefined;
 
     const apply = (): void => {
-      scroll.scrollTop = Math.max(0, scroll.scrollHeight - restore.previousHeight + restore.previousTop);
+      scroll.scrollTop = Math.max(
+        0,
+        scroll.scrollHeight - restore.previousHeight + restore.previousTop,
+      );
     };
 
     // Restore synchronously (before paint) so the freshly prepended page keeps the
@@ -3355,9 +3508,9 @@ export function MainView(): ReactElement {
   }, [selectedConversation?.id, templateMessages.length]);
 
   useEffect(() => {
-    if (!searchOpen) return undefined;
+    if (!searchQuery) return undefined;
     function onKey(event: KeyboardEvent): void {
-      if (event.key === 'Escape') setSearchOpen(false);
+      if (event.key === 'Escape') setSearchDismissed(true);
     }
     function onMouseDown(event: MouseEvent): void {
       const target = event.target;
@@ -3382,7 +3535,7 @@ export function MainView(): ReactElement {
       document.removeEventListener('keydown', onKey);
       document.removeEventListener('mousedown', onMouseDown);
     };
-  }, [searchOpen]);
+  }, [searchQuery]);
 
   function updateConversationPreference(
     conversationId: string,
@@ -3419,421 +3572,416 @@ export function MainView(): ReactElement {
   return (
     <ReplyJumpContext.Provider value={jumpToSeq}>
       <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
-      <ConvContext.Provider value={isGroup ? (selectedConversation?.id ?? '') : ''}>
-      <ChatShell
-        user={user}
-        view={shell.view}
-        query={shell.query}
-        contactTab={shell.contactTab}
-        activeNotice={shell.contactNotice}
-        sidebarWidth={fullBleedView ? 0 : shell.sidebarWidth}
-        mainOpen={shell.mainOpen}
-        messageBadgeCount={0}
-        contactBadgeCount={0}
-        showTools={false}
-        railFooterContent={
-          <RailAccountFooter
-            currentUin={user.identityValue}
-            currentName={user.displayName}
-            currentAvatarUrl={user.avatarUrl}
-          />
-        }
-        friendNoticeCount={contactRequests.length}
-        groupNoticeCount={groupRequests.length}
-        onViewChange={shell.switchView}
-        onGoHome={() => shell.switchView('home')}
-        onOpenSettings={() => setSettingsOpen(true)}
-        onOpenCollection={() => setCollectionOpen(true)}
-        onOpenMarketBrowser={() => setMarketBrowserOpen(true)}
-        onOpenDressUp={() => setDressUpOpen(true)}
-        onOpenProfile={noopAsync}
-        onOpenAbout={noopAsync}
-        onOpenHelp={noopAsync}
-        onOpenInvite={noopAsync}
-        onQueryChange={shell.setQuery}
-        onQuickInvite={noopAsync}
-        onCreateGroup={noopAsync}
-        onOpenFriendNotices={() => shell.openContactNotice('friend')}
-        onOpenGroupNotices={() => shell.openContactNotice('group')}
-        onContactTabChange={shell.changeContactTab}
-        onSidebarWidthChange={shell.updateSidebarWidth}
-        sidebarContent={
-          fullBleedView ? null : (
-          <>
-            <ChatSidebarContent
-              user={user}
-              view={shell.view}
-              contactTab={shell.contactTab}
-              conversations={conversations}
-              activeConversationId={shell.activeConversationId}
-              selectedGroupConversationId={shell.selectedGroupConversationId}
-              selectedContactId={shell.selectedContactId}
-              conversationPrefs={conversationPrefs}
-              drafts={emptyDrafts}
-              contacts={buddyContacts}
-              query={shell.query}
-              onSelectConversation={handleSelectConversation}
-              onSelectContact={shell.selectContact}
-              onSelectGroup={shell.selectGroup}
-              activateToolsOnSelect={false}
-            />
-            {searchOpen && searchQuery && !searchDismissed ? (
-              <div className="weq-search-dropdown" role="listbox">
-                {searchLoading && searchResultRows.length === 0 ? (
-                  <div className="weq-search-empty">搜索中…</div>
-                ) : searchResultRows.length === 0 ? (
-                  <div className="weq-search-empty">没有找到相关消息</div>
-                ) : (
-                  searchResultRows.map((row) => (
-                    <button
-                      key={`${row.hit.targetUid}:${row.hit.msgId}`}
-                      type="button"
-                      className="weq-search-row"
-                      role="option"
-                      onClick={() => openSearchHit(row.hit)}
-                    >
-                      <span className="weq-search-avatar">
-                        {row.avatarUrl ? (
-                          <img src={row.avatarUrl} alt="" loading="lazy" />
-                        ) : (
-                          <span className="weq-search-avatar-fallback">
-                            {row.convName.slice(0, 1)}
-                          </span>
-                        )}
-                      </span>
-                      <span className="weq-search-text">
-                        <span className="weq-search-row-top">
-                          <span className="weq-search-name">{row.convName}</span>
-                          <span className="weq-search-time">{row.time}</span>
-                        </span>
-                        <span className="weq-search-snippet">
-                          <span className="weq-search-sender">{row.senderName}: </span>
-                          {row.runs.map((part, i) =>
-                            part.hit ? (
-                              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-                              <mark key={i} className="weq-search-hl">
-                                {part.text}
-                              </mark>
-                            ) : (
-                              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-                              <span key={i}>{part.text}</span>
-                            ),
-                          )}
-                        </span>
-                      </span>
-                    </button>
-                  ))
-                )}
-              </div>
-            ) : null}
-            <OverlayScrollbar
-              targetSelector=".app-shell .sidebar-body"
-              className="weq-sidebar-scrollbar"
-              refreshKey={`sidebar:${shell.view}:${shell.query}`}
-            />
-          </>
-          )
-        }
-        mainContent={
-          arkFeedState ? (
-            <ArkFeedView
-              conversationId={arkFeedState.conversationId}
-              title={arkFeedState.title}
-              onBack={() => {
-                setArkFeedState(null);
-              }}
-              onEditMessage={async (msgId: string) => {
-                try {
-                  const result = await client.account.getRawElements.query({ msgId });
-                  if (result) {
-                    setEditorState({ msgId, elements: result.elements });
-                  }
-                } catch (e) {
-                  console.error('[MainView] Failed to fetch raw elements:', e);
-                }
-              }}
-            />
-          ) : shell.view === 'home' ? (
-            <ChatHome nickname={user.displayName} avatarUrl={user.avatarUrl} />
-          ) : shell.view === 'export' ? (
-            <ExportView />
-          ) : shell.view === 'agentlab' ? (
-            <AgentLabView />
-          ) : shell.view === 'cache' ? (
-            <CacheView />
-          ) : shell.view === 'qzone' ? (
-            <QzoneView />
-          ) : shell.view === 'channel' ? (
-            <ChannelView />
-          ) : activeConversation?.type === 'merged' ? (
-            <ArkFeedView
-              conversationId={activeConversation.id}
-              title={activeConversation.title}
-              onBack={shell.backConversation}
-              onEditMessage={async (msgId: string) => {
-                try {
-                  const result = await client.account.getRawElements.query({ msgId });
-                  if (result) {
-                    setEditorState({ msgId, elements: result.elements });
-                  }
-                } catch (e) {
-                  console.error('[MainView] Failed to fetch raw elements:', e);
-                }
-              }}
-            />
-          ) : (
-          <div className="weq-template-main-wrap">
-            <div className="weq-readonly-chat">
-              <ChatMainContent
-                user={user}
-                view={shell.view}
-                contactTab={shell.contactTab}
-                relationGraphSlot={<RelationGraphView />}
-                contactNotice={shell.contactNotice}
-                contactRequests={contactRequests}
-                groupRequests={groupRequests}
-                selectedContact={shell.selectedContact}
-                selectedGroupConversation={selectedGroupConversationForDetail}
-                activeConversation={activeConversation}
-                messages={templateMessages}
-                messageRenderers={messageRenderers}
-                loadingMessages={loadingInitialMessages}
-                atLatest={anchoredToLatest}
-                conversationPrefs={conversationPrefs}
-                drafts={emptyDrafts}
-                query={shell.query}
-                onAcceptContactRequest={noopAsync}
-                onRejectContactRequest={noopAsync}
-                onAcceptGroupRequest={noopAsync}
-                onRejectGroupRequest={noopAsync}
-                onMessageContact={noopAsync}
-                onMessageGroup={noopAsync}
-                onBackContact={shell.backContact}
-                onBackGroup={shell.backGroup}
-                onBackContactNotice={shell.backContactNotice}
-                onUpdateConversationPreference={updateConversationPreference}
-                onUpdateGroup={async (_conversationId: string, _input: GroupUpdateInput) => undefined}
-                onLoadMoreGroupMembers={requestMoreGroupMembers}
-                groupMembersLoading={selectedGroupMembersLoading}
-                groupMembersError={selectedGroupMembersError}
-                onOpenNotificationSettings={noopAsync}
-                onSend={noopAsync}
-                onDraftChange={updateDraft}
-                onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
-                onBackConversation={shell.backConversation}
-                onEditRaw={handleEditRaw}
-                onDeleteMessage={handleDeleteMessage}
-                onOpenGroupAlbums={handleOpenGroupAlbums}
-                onOpenGroupFiles={handleOpenGroupFiles}
-                onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
-                onOpenGroupEssence={handleOpenGroupEssence}
-                onOpenGroupAnalytics={handleOpenGroupAnalytics}
-                onOpenBuddyAnalytics={handleOpenBuddyAnalytics}
-                onOpenGroupMember={handleOpenGroupMember}
-                onAddMessage={handleAddMessage}
-                onViewDeleted={handleViewDeleted}
-                onViewRecalled={handleViewRecalled}
-                deletedIds={deletedIds}
-                onRestoreMessage={handleRestoreMessage}
+        <ConvContext.Provider value={isGroup ? (selectedConversation?.id ?? '') : ''}>
+          <ChatShell
+            user={user}
+            view={shell.view}
+            query={shell.query}
+            contactTab={shell.contactTab}
+            activeNotice={shell.contactNotice}
+            sidebarWidth={fullBleedView ? 0 : shell.sidebarWidth}
+            mainOpen={shell.mainOpen}
+            messageBadgeCount={0}
+            contactBadgeCount={0}
+            showTools={false}
+            railFooterContent={
+              <RailAccountFooter
+                currentUin={user.identityValue}
+                currentName={user.displayName}
+                currentAvatarUrl={user.avatarUrl}
               />
-            </div>
-            <OverlayScrollbar
-              targetSelector=".weq-readonly-chat .message-scroll"
-              className="weq-message-scrollbar"
-              refreshKey={`messages:${selectedConversation?.id ?? 'none'}`}
+            }
+            friendNoticeCount={contactRequests.length}
+            groupNoticeCount={groupRequests.length}
+            onViewChange={shell.switchView}
+            onGoHome={() => shell.switchView('home')}
+            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenCollection={() => setCollectionOpen(true)}
+            onOpenMarketBrowser={() => setMarketBrowserOpen(true)}
+            onOpenDressUp={() => setDressUpOpen(true)}
+            onOpenProfile={noopAsync}
+            onOpenAbout={noopAsync}
+            onOpenHelp={noopAsync}
+            onOpenInvite={noopAsync}
+            onQueryChange={shell.setQuery}
+            onQuickInvite={noopAsync}
+            onCreateGroup={noopAsync}
+            onOpenFriendNotices={() => shell.openContactNotice('friend')}
+            onOpenGroupNotices={() => shell.openContactNotice('group')}
+            onContactTabChange={shell.changeContactTab}
+            onSidebarWidthChange={shell.updateSidebarWidth}
+            sidebarContent={
+              fullBleedView ? null : (
+                <>
+                  <ChatSidebarContent
+                    user={user}
+                    view={shell.view}
+                    contactTab={shell.contactTab}
+                    conversations={conversations}
+                    activeConversationId={shell.activeConversationId}
+                    selectedGroupConversationId={shell.selectedGroupConversationId}
+                    selectedContactId={shell.selectedContactId}
+                    conversationPrefs={conversationPrefs}
+                    drafts={emptyDrafts}
+                    contacts={buddyContacts}
+                    query={shell.query}
+                    onSelectConversation={handleSelectConversation}
+                    onSelectContact={shell.selectContact}
+                    onSelectGroup={shell.selectGroup}
+                    activateToolsOnSelect={false}
+                  />
+                  {searchQuery && !searchDismissed ? (
+                    <SearchDropdown
+                      keyword={searchQuery}
+                      quick={searchQuick}
+                      quickLoading={searchQuickLoading}
+                      slow={searchSlow}
+                      slowLoading={searchSlowLoading}
+                      onSelect={openSearchHit}
+                      onMore={(category) => setSearchMore({ category, keyword: searchQuery })}
+                    />
+                  ) : null}
+                  <OverlayScrollbar
+                    targetSelector=".app-shell .sidebar-body"
+                    className="weq-sidebar-scrollbar"
+                    refreshKey={`sidebar:${shell.view}:${shell.query}`}
+                  />
+                </>
+              )
+            }
+            mainContent={
+              arkFeedState ? (
+                <ArkFeedView
+                  conversationId={arkFeedState.conversationId}
+                  title={arkFeedState.title}
+                  onBack={() => {
+                    setArkFeedState(null);
+                  }}
+                  onEditMessage={async (msgId: string) => {
+                    try {
+                      const result = await client.account.getRawElements.query({ msgId });
+                      if (result) {
+                        setEditorState({ msgId, elements: result.elements });
+                      }
+                    } catch (e) {
+                      console.error('[MainView] Failed to fetch raw elements:', e);
+                    }
+                  }}
+                />
+              ) : shell.view === 'home' ? (
+                <ChatHome nickname={user.displayName} avatarUrl={user.avatarUrl} />
+              ) : shell.view === 'export' ? (
+                <ExportView />
+              ) : shell.view === 'agentlab' ? (
+                <AgentLabView />
+              ) : shell.view === 'cache' ? (
+                <CacheView />
+              ) : shell.view === 'qzone' ? (
+                <QzoneView />
+              ) : shell.view === 'channel' ? (
+                <ChannelView />
+              ) : activeConversation?.type === 'merged' ? (
+                <ArkFeedView
+                  conversationId={activeConversation.id}
+                  title={activeConversation.title}
+                  onBack={shell.backConversation}
+                  onEditMessage={async (msgId: string) => {
+                    try {
+                      const result = await client.account.getRawElements.query({ msgId });
+                      if (result) {
+                        setEditorState({ msgId, elements: result.elements });
+                      }
+                    } catch (e) {
+                      console.error('[MainView] Failed to fetch raw elements:', e);
+                    }
+                  }}
+                />
+              ) : (
+                <div className="weq-template-main-wrap">
+                  <div className="weq-readonly-chat">
+                    <ChatMainContent
+                      user={user}
+                      view={shell.view}
+                      contactTab={shell.contactTab}
+                      relationGraphSlot={<RelationGraphView />}
+                      contactNotice={shell.contactNotice}
+                      contactRequests={contactRequests}
+                      groupRequests={groupRequests}
+                      selectedContact={shell.selectedContact}
+                      selectedGroupConversation={selectedGroupConversationForDetail}
+                      activeConversation={activeConversation}
+                      messages={templateMessages}
+                      messageRenderers={messageRenderers}
+                      loadingMessages={loadingInitialMessages}
+                      atLatest={anchoredToLatest}
+                      conversationPrefs={conversationPrefs}
+                      drafts={emptyDrafts}
+                      query={shell.query}
+                      onAcceptContactRequest={noopAsync}
+                      onRejectContactRequest={noopAsync}
+                      onAcceptGroupRequest={noopAsync}
+                      onRejectGroupRequest={noopAsync}
+                      onMessageContact={noopAsync}
+                      onMessageGroup={noopAsync}
+                      onBackContact={shell.backContact}
+                      onBackGroup={shell.backGroup}
+                      onBackContactNotice={shell.backContactNotice}
+                      onUpdateConversationPreference={updateConversationPreference}
+                      onUpdateGroup={async (_conversationId: string, _input: GroupUpdateInput) =>
+                        undefined
+                      }
+                      onLoadMoreGroupMembers={requestMoreGroupMembers}
+                      groupMembersLoading={selectedGroupMembersLoading}
+                      groupMembersError={selectedGroupMembersError}
+                      onOpenNotificationSettings={noopAsync}
+                      onSend={noopAsync}
+                      onDraftChange={updateDraft}
+                      onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
+                      onBackConversation={shell.backConversation}
+                      onEditRaw={handleEditRaw}
+                      onDeleteMessage={handleDeleteMessage}
+                      onOpenGroupAlbums={handleOpenGroupAlbums}
+                      onOpenGroupFiles={handleOpenGroupFiles}
+                      onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
+                      onOpenGroupEssence={handleOpenGroupEssence}
+                      onOpenGroupAnalytics={handleOpenGroupAnalytics}
+                      onOpenBuddyAnalytics={handleOpenBuddyAnalytics}
+                      onOpenGroupMember={handleOpenGroupMember}
+                      onAddMessage={handleAddMessage}
+                      onViewDeleted={handleViewDeleted}
+                      onViewRecalled={handleViewRecalled}
+                      deletedIds={deletedIds}
+                      onRestoreMessage={handleRestoreMessage}
+                    />
+                  </div>
+                  <OverlayScrollbar
+                    targetSelector=".weq-readonly-chat .message-scroll"
+                    className="weq-message-scrollbar"
+                    refreshKey={`messages:${selectedConversation?.id ?? 'none'}`}
+                  />
+                  <OverlayScrollbar
+                    targetSelector=".weq-readonly-chat .group-info-member-list"
+                    className="weq-group-members-scrollbar"
+                    refreshKey={`group-members:${selectedConversation?.id ?? 'none'}`}
+                  />
+                </div>
+              )
+            }
+          >
+            {mergedPanel && (
+              <MergedSessionPanel
+                kind={mergedPanel.kind}
+                conversations={conversations}
+                profileByUid={profileByUid}
+                groupNameByCode={groupNameByCode}
+                anchorX={mergedPanel.anchorX}
+                anchorY={mergedPanel.anchorY}
+                onBack={() => setMergedPanel(null)}
+                onSelectConversation={(conv) => {
+                  if (mergedPanel.kind === 'official' || mergedPanel.kind === 'service') {
+                    const title =
+                      conv.type === 'group'
+                        ? conv.group?.name || ''
+                        : conv.otherUser?.displayName || '';
+                    setArkFeedState({
+                      kind: mergedPanel.kind,
+                      conversationId: conv.id,
+                      title,
+                    });
+                    // 优化：选中公众号/服务号会话后，取消其它会话（普通/隐藏）的选中态。
+                    shell.backConversation();
+                  } else {
+                    // 从隐藏会话或删除会话选择器进入普通会话前，先关掉可能开着的 ARK Feed。
+                    setArkFeedState(null);
+                    shell.selectConversation(conv.id);
+                  }
+                }}
+              />
+            )}
+          </ChatShell>
+
+          {editorState ? (
+            <MsgElementEditor
+              msgId={editorState.msgId}
+              elements={editorState.elements}
+              onClose={() => setEditorState(null)}
+              onSave={handleSaveRaw}
             />
-            <OverlayScrollbar
-              targetSelector=".weq-readonly-chat .group-info-member-list"
-              className="weq-group-members-scrollbar"
-              refreshKey={`group-members:${selectedConversation?.id ?? 'none'}`}
+          ) : null}
+
+          <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+          <CollectionDialog open={collectionOpen} onClose={() => setCollectionOpen(false)} />
+          {marketBrowserOpen ? (
+            <MarketEmojiBrowserLightbox onClose={() => setMarketBrowserOpen(false)} />
+          ) : null}
+          {dressUpOpen ? <DressUpDialog onClose={() => setDressUpOpen(false)} /> : null}
+          {albumDialog ? (
+            <GroupAlbumDialog
+              groupCode={albumDialog.groupCode}
+              groupName={albumDialog.groupName}
+              onClose={() => setAlbumDialog(null)}
             />
-          </div>
-        )
-        }
-      >
-        {mergedPanel && (
-          <MergedSessionPanel
-            kind={mergedPanel.kind}
-            conversations={conversations}
-            profileByUid={profileByUid}
-            groupNameByCode={groupNameByCode}
-            anchorX={mergedPanel.anchorX}
-            anchorY={mergedPanel.anchorY}
-            onBack={() => setMergedPanel(null)}
-            onSelectConversation={(conv) => {
-              if (mergedPanel.kind === 'official' || mergedPanel.kind === 'service') {
-                const title = conv.type === 'group'
-                  ? conv.group?.name || ''
-                  : conv.otherUser?.displayName || '';
-                setArkFeedState({
-                  kind: mergedPanel.kind,
-                  conversationId: conv.id,
-                  title,
-                });
-                // 优化：选中公众号/服务号会话后，取消其它会话（普通/隐藏）的选中态。
-                shell.backConversation();
-              } else {
-                // 从隐藏会话或删除会话选择器进入普通会话前，先关掉可能开着的 ARK Feed。
-                setArkFeedState(null);
-                shell.selectConversation(conv.id);
+          ) : null}
+          {groupFileDialog ? (
+            <GroupFileDialog
+              groupCode={groupFileDialog.groupCode}
+              groupName={groupFileDialog.groupName}
+              onClose={() => setGroupFileDialog(null)}
+            />
+          ) : null}
+          {analyticsDialog ? (
+            <GroupAnalyticsDialog
+              groupCode={analyticsDialog.groupCode}
+              groupName={analyticsDialog.groupName}
+              onClose={() => setAnalyticsDialog(null)}
+            />
+          ) : null}
+          {buddyAnalyticsDialog ? (
+            <BuddyAnalyticsDialog
+              peerUid={buddyAnalyticsDialog.peerUid}
+              peerName={buddyAnalyticsDialog.peerName}
+              onClose={() => setBuddyAnalyticsDialog(null)}
+            />
+          ) : null}
+          {announcementsDialog ? (
+            <GroupAnnouncementsDialog
+              groupCode={announcementsDialog.groupCode}
+              groupName={announcementsDialog.groupName}
+              currentAnnouncement={
+                selectedConversation?.type === 'group' &&
+                selectedConversation.id === announcementsDialog.groupCode
+                  ? selectedConversation.group?.announcement
+                  : null
               }
-            }}
-          />
-        )}
-      </ChatShell>
-
-      {editorState ? (
-        <MsgElementEditor 
-           msgId={editorState.msgId} 
-           elements={editorState.elements}
-           onClose={() => setEditorState(null)}
-           onSave={handleSaveRaw}
-        />
-      ) : null}
-
-      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      <CollectionDialog open={collectionOpen} onClose={() => setCollectionOpen(false)} />
-      {marketBrowserOpen ? (
-        <MarketEmojiBrowserLightbox onClose={() => setMarketBrowserOpen(false)} />
-      ) : null}
-      {dressUpOpen ? <DressUpDialog onClose={() => setDressUpOpen(false)} /> : null}
-      {albumDialog ? (
-        <GroupAlbumDialog
-          groupCode={albumDialog.groupCode}
-          groupName={albumDialog.groupName}
-          onClose={() => setAlbumDialog(null)}
-        />
-      ) : null}
-      {groupFileDialog ? (
-        <GroupFileDialog
-          groupCode={groupFileDialog.groupCode}
-          groupName={groupFileDialog.groupName}
-          onClose={() => setGroupFileDialog(null)}
-        />
-      ) : null}
-      {analyticsDialog ? (
-        <GroupAnalyticsDialog
-          groupCode={analyticsDialog.groupCode}
-          groupName={analyticsDialog.groupName}
-          onClose={() => setAnalyticsDialog(null)}
-        />
-      ) : null}
-      {buddyAnalyticsDialog ? (
-        <BuddyAnalyticsDialog
-          peerUid={buddyAnalyticsDialog.peerUid}
-          peerName={buddyAnalyticsDialog.peerName}
-          onClose={() => setBuddyAnalyticsDialog(null)}
-        />
-      ) : null}
-      {announcementsDialog ? (
-        <GroupAnnouncementsDialog
-          groupCode={announcementsDialog.groupCode}
-          groupName={announcementsDialog.groupName}
-          currentAnnouncement={
-            selectedConversation?.type === 'group' && selectedConversation.id === announcementsDialog.groupCode
-              ? selectedConversation.group?.announcement
-              : null
-          }
-          bulletins={((groupBulletins.data ?? []) as GroupBulletinWire[]).map((bulletin, _index) => {
-            // publisherUid 可能是 UID（数据库）或 UIN（Web API），尝试两者匹配
-            const publisher = currentGroupMembers.find(
-              m => m.id === bulletin.publisherUid || m.identityValue === bulletin.publisherUid
-            );
-            return {
-              ...bulletin,
-              publisherName: publisher?.displayName,
-              publisherAvatar: publisher?.avatarUrl ?? undefined,
-            };
-          })}
-          onClose={() => setAnnouncementsDialog(null)}
-        />
-      ) : null}
-      {essenceDialog ? (
-        <GroupEssenceDialog
-          groupCode={essenceDialog.groupCode}
-          groupName={essenceDialog.groupName}
-          essenceMessages={(() => {
-            const essence = (groupEssence.data ?? []) as GroupEssenceWire[];
-            const essenceWeb = groupEssenceWeb.data ?? [];
-            return essence.map((item): GroupEssenceDisplay => {
-              const webItem = essenceWeb.find((web) => web.msgSeq === item.msgSeq);
-              return {
-                id: `essence:${item.msgSeq}:${item.timestamp}`,
-                msgSeq: item.msgSeq,
-                senderName: item.senderNick,
-                operatorName: item.operatorNick,
-                createdAt: secondsToIsoTime(item.timestamp) ?? new Date(0).toISOString(),
-                active: item.setStatus === 1,
-                content: webItem?.content,
-                senderTime: webItem?.senderTime ? String(webItem.senderTime) : undefined,
-                canRemove: webItem?.canRemove,
-              };
-            });
-          })()}
-          onClose={() => setEssenceDialog(null)}
-          onJumpToMessage={(seq) => {
-            setEssenceDialog(null);
-            if (seq == null) {
-              console.warn('[essence-jump] missing msgSeq, cannot jump', seq);
-              return;
-            }
-            jumpToSeq({ seq });
-          }}
-        />
-      ) : null}
-      {memberCard ? (
-        <MemberProfileCard
-          member={memberCard.member}
-          anchor={memberCard.anchor}
-          onClose={() => setMemberCard(null)}
-        />
-      ) : null}
-      {addMessageConv ? (
-        <AddMessageModal
-          conversation={addMessageConv}
-          selfUser={user}
-          selfUid={selfProfile.data?.uid}
-          onClose={() => setAddMessageConv(null)}
-          onInserted={() => void refreshWindow()}
-        />
-      ) : null}
-      {deletedConv ? (
-        <DeletedMessagesModal
-          conversation={deletedConv}
-          user={user}
-          messages={deletedTemplateMessages}
-          renderers={messageRenderers}
-          loading={deletedLoading}
-          onRestore={handleRestoreMessage}
-          onClose={() => {
-            setDeletedConv(null);
-            setDeletedWires([]);
-          }}
-        />
-      ) : null}
-      {recalledConv ? (
-        <RecalledMessagesModal
-          conversation={recalledConv}
-          user={user}
-          messages={recalledTemplateMessages}
-          renderers={messageRenderers}
-          loading={recalledLoading}
-          onJumpToMessage={(seq) => {
-            setRecalledConv(null);
-            setRecalledWires([]);
-            if (seq == null) {
-              console.warn('[recall-jump] missing msgSeq, cannot jump', seq);
-              return;
-            }
-            jumpToSeq({ seq });
-          }}
-          onClose={() => {
-            setRecalledConv(null);
-            setRecalledWires([]);
-          }}
-        />
-      ) : null}
-      </ConvContext.Provider>
+              bulletins={((groupBulletins.data ?? []) as GroupBulletinWire[]).map(
+                (bulletin, _index) => {
+                  // publisherUid 可能是 UID（数据库）或 UIN（Web API），尝试两者匹配
+                  const publisher = currentGroupMembers.find(
+                    (m) =>
+                      m.id === bulletin.publisherUid || m.identityValue === bulletin.publisherUid,
+                  );
+                  return {
+                    ...bulletin,
+                    publisherName: publisher?.displayName,
+                    publisherAvatar: publisher?.avatarUrl ?? undefined,
+                  };
+                },
+              )}
+              onClose={() => setAnnouncementsDialog(null)}
+            />
+          ) : null}
+          {essenceDialog ? (
+            <GroupEssenceDialog
+              groupCode={essenceDialog.groupCode}
+              groupName={essenceDialog.groupName}
+              essenceMessages={(() => {
+                const essence = (groupEssence.data ?? []) as GroupEssenceWire[];
+                const essenceWeb = groupEssenceWeb.data ?? [];
+                return essence.map((item): GroupEssenceDisplay => {
+                  const webItem = essenceWeb.find((web) => web.msgSeq === item.msgSeq);
+                  return {
+                    id: `essence:${item.msgSeq}:${item.timestamp}`,
+                    msgSeq: item.msgSeq,
+                    senderName: item.senderNick,
+                    operatorName: item.operatorNick,
+                    createdAt: secondsToIsoTime(item.timestamp) ?? new Date(0).toISOString(),
+                    active: item.setStatus === 1,
+                    content: webItem?.content,
+                    senderTime: webItem?.senderTime ? String(webItem.senderTime) : undefined,
+                    canRemove: webItem?.canRemove,
+                  };
+                });
+              })()}
+              onClose={() => setEssenceDialog(null)}
+              onJumpToMessage={(seq) => {
+                setEssenceDialog(null);
+                if (seq == null) {
+                  console.warn('[essence-jump] missing msgSeq, cannot jump', seq);
+                  return;
+                }
+                jumpToSeq({ seq });
+              }}
+            />
+          ) : null}
+          {memberCard ? (
+            <MemberProfileCard
+              member={memberCard.member}
+              anchor={memberCard.anchor}
+              onClose={() => setMemberCard(null)}
+            />
+          ) : null}
+          {addMessageConv ? (
+            <AddMessageModal
+              conversation={addMessageConv}
+              selfUser={user}
+              selfUid={selfProfile.data?.uid}
+              onClose={() => setAddMessageConv(null)}
+              onInserted={() => void refreshWindow()}
+            />
+          ) : null}
+          {deletedConv ? (
+            <DeletedMessagesModal
+              conversation={deletedConv}
+              user={user}
+              messages={deletedTemplateMessages}
+              renderers={messageRenderers}
+              loading={deletedLoading}
+              onRestore={handleRestoreMessage}
+              onClose={() => {
+                setDeletedConv(null);
+                setDeletedWires([]);
+              }}
+            />
+          ) : null}
+          {recalledConv ? (
+            <RecalledMessagesModal
+              conversation={recalledConv}
+              user={user}
+              messages={recalledTemplateMessages}
+              renderers={messageRenderers}
+              loading={recalledLoading}
+              onJumpToMessage={(seq) => {
+                setRecalledConv(null);
+                setRecalledWires([]);
+                if (seq == null) {
+                  console.warn('[recall-jump] missing msgSeq, cannot jump', seq);
+                  return;
+                }
+                jumpToSeq({ seq });
+              }}
+              onClose={() => {
+                setRecalledConv(null);
+                setRecalledWires([]);
+              }}
+            />
+          ) : null}
+          {searchMore ? (
+            <UnifiedSearchModal
+              category={searchMore.category}
+              initialKeyword={searchMore.keyword}
+              onClose={() => setSearchMore(null)}
+              onSelect={openSearchHit}
+              onOpenChatRecords={(hit) => {
+                setSearchMore(null);
+                setChatRecordsTarget({
+                  hit: hit as ChatRecordSearchHit,
+                  keyword: searchMore.keyword,
+                });
+              }}
+            />
+          ) : null}
+          {chatRecordsTarget ? (
+            <ChatRecordsModal
+              initialHit={chatRecordsTarget.hit}
+              initialKeyword={chatRecordsTarget.keyword}
+              onClose={() => setChatRecordsTarget(null)}
+              onJumpMessage={({ source, targetUid, msgSeq }) =>
+                jumpToConvSeq(source === 'group' ? 'group' : 'c2c', targetUid, msgSeq)
+              }
+              pushToast={pushToast}
+            />
+          ) : null}
+        </ConvContext.Provider>
       </ForwardKindContext.Provider>
     </ReplyJumpContext.Provider>
   );

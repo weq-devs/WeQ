@@ -52,7 +52,12 @@ export type {
 export { AgentLabConfigService } from './bootstrap/agentlab_config';
 
 export { MediaCacheService } from './bootstrap/media_cache';
-export type { AvatarCacheService, AvatarBlob, MediaBlob, CacheSubdir } from './bootstrap/media_cache';
+export type {
+  AvatarCacheService,
+  AvatarBlob,
+  MediaBlob,
+  CacheSubdir,
+} from './bootstrap/media_cache';
 
 export { LinkPreviewService } from './bootstrap/link_preview';
 export type { LinkPreview, ScreenshotHook } from './bootstrap/link_preview';
@@ -66,7 +71,12 @@ export type {
 } from './bootstrap/global_config';
 
 // ---- account ----
-export { AccountConfigService, accountConfigId, rkeyExpiryMs, clientKeyExpiryMs } from './account/user_config';
+export {
+  AccountConfigService,
+  accountConfigId,
+  rkeyExpiryMs,
+  clientKeyExpiryMs,
+} from './account/user_config';
 export {
   chatpicFileName,
   chatpicRelPaths,
@@ -75,7 +85,12 @@ export {
   CHATPIC_FOLDERS,
   type ChatpicFolder,
 } from './account/chatpic';
-export type { AccountConfig, AccountConfigMetadata, DownloadRkey, ClientKey } from './account/user_config';
+export type {
+  AccountConfig,
+  AccountConfigMetadata,
+  DownloadRkey,
+  ClientKey,
+} from './account/user_config';
 export { fetchHomeDress, toPeerDress } from './account/home_dress';
 export type { HomeDressSnapshot, PeerDressSnapshot } from './account/home_dress';
 export {
@@ -173,7 +188,11 @@ export type { FileType, SearchResult } from './account/file_search';
 export { OnlineStatusService } from './account/online_status';
 export type { FormattedOnlineStatus } from './account/online_status';
 export { AgentLabService } from './account/agentlab';
-export type { AgentLabMediaDeps, EndpointResolver, AgentLabBuildProgress } from './account/agentlab';
+export type {
+  AgentLabMediaDeps,
+  EndpointResolver,
+  AgentLabBuildProgress,
+} from './account/agentlab';
 export { TokenUsageStore } from './account/agentlab_usage';
 export type { TokenStats, TokenUsageRecord } from './account/agentlab_usage';
 export { ConversationStore } from './account/agentlab_conversation';
@@ -188,7 +207,15 @@ export {
 } from './account/weq_assistant';
 export type { WeqTweetCard } from './account/weq_assistant';
 export { AssistantService, ASSISTANT_AGENT_ID } from './account/assistant';
-export type { AssistantConfig, AssistantReasoningEffort, AssistantSession, AssistantTools, AssistantToolSpec, AssistantStep, AssistantArtifact } from './account/assistant';
+export type {
+  AssistantConfig,
+  AssistantReasoningEffort,
+  AssistantSession,
+  AssistantTools,
+  AssistantToolSpec,
+  AssistantStep,
+  AssistantArtifact,
+} from './account/assistant';
 export type { RenderC2cMsg, RenderGroupMsg } from './account/msg';
 export { DeletedMsgStore } from './account/deleted_msgs';
 export type { DeletedMsgRecord } from './account/deleted_msgs';
@@ -199,6 +226,20 @@ export type { RenderElement, RenderTextElement } from './account/msg_view';
 // 渲染层要按这个类型读 RenderTextElement.urlVerify，从 codec 借道转出去。
 export type { UrlVerifyInfo } from '@weq/codec';
 export { MsgSearchService } from './account/msg_search';
+export { UnifiedSearchService } from './account/unified_search';
+export type {
+  SearchCategory,
+  FtsSource,
+  ConversationSearchHit,
+  FriendSearchHit,
+  GroupMemberSearchHit,
+  ChatRecordSearchHit,
+  FileSearchHit,
+  ConversationRecordHit,
+  QuickSearchResult,
+  SlowSearchResult,
+  MoreSearchResult,
+} from './account/unified_search';
 export { UnreadInfoService } from './account/unread_info';
 export { DbDecryptService } from './account/db_decrypt';
 export type {
@@ -352,7 +393,12 @@ export { MediaUrlService, mediaNodeFromElement, downloadUrlToFile } from './acco
 export type { MediaElement, GroupFileDownload, DownloadOutcome } from './account/media_url';
 export { PeerStatsService } from './account/peer_stats';
 export { FlashTransferService } from './account/flash_transfer';
-export { FlashTransferFilesService, FlashTransferDownloadManager, FlashTransferClient, FlashTransferResolver } from './account/flashtransfer';
+export {
+  FlashTransferFilesService,
+  FlashTransferDownloadManager,
+  FlashTransferClient,
+  FlashTransferResolver,
+} from './account/flashtransfer';
 export type {
   FlashListFile,
   FlashListResult,
@@ -417,7 +463,12 @@ export { getLogDir, getLogger, initLogger, logErrorContext } from './common/logg
 export type { Logger, LoggerContext, LogLevel } from './common/logger';
 export { getHost, setHost } from './common/host';
 export type { HostBridge, SaveTarget } from './common/host';
-export { TtsService, TTS_VENDOR_CATALOG, getTtsCatalogEntry, getTtsCapabilities } from '@weq/agentlab';
+export {
+  TtsService,
+  TTS_VENDOR_CATALOG,
+  getTtsCatalogEntry,
+  getTtsCapabilities,
+} from '@weq/agentlab';
 export type {
   TtsVendor,
   TtsProviderConfig,
@@ -428,4 +479,8 @@ export type {
   TtsVendorCatalogEntry,
 } from '@weq/agentlab';
 export { buildBotExport, probeBotWebUi } from './account/agentlab_export';
-export type { BotExportInput, BotExportResult, BotExportLlmProvider } from './account/agentlab_export';
+export type {
+  BotExportInput,
+  BotExportResult,
+  BotExportLlmProvider,
+} from './account/agentlab_export';
