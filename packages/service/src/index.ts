@@ -352,6 +352,15 @@ export { MediaUrlService, mediaNodeFromElement, downloadUrlToFile } from './acco
 export type { MediaElement, GroupFileDownload, DownloadOutcome } from './account/media_url';
 export { PeerStatsService } from './account/peer_stats';
 export { FlashTransferService } from './account/flash_transfer';
+export { FlashTransferFilesService, FlashTransferDownloadManager, FlashTransferClient, FlashTransferResolver } from './account/flashtransfer';
+export type {
+  FlashListFile,
+  FlashListResult,
+  FlashSelection,
+  FlashDownloadFile,
+  FlashDownloadTask,
+  FlashTaskStatus,
+} from './account/flashtransfer';
 export type { PeerStats } from './account/peer_stats';
 
 // ---- export pipeline (account/export) ----

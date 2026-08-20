@@ -11,22 +11,14 @@
  * dictionary so we can read `title` / `image` / `desc` / `tailIcon` / `tailText`
  * regardless of how deeply they're nested.
  *
- * Two faithful-but-pragmatic tweaks vs the raw demo:
- *   - Remote images (cover / failedSrc / tail icon) are funnelled through the
- *     `weq-avatar://` disk cache (cachedAvatarUrl) so they clear the renderer
- *     CSP and don't re-hit the CDN.
- *   - The demo's `desc` fallback was a hard-coded "122.21 KB · 1 项 · 14 天后过期"
- *     placeholder; since we now forward the real `flashTransferInfo`, we build it
- *     from the actual file size + create time (the demo's stated intent: "按闪传
- *     文件的标准格式做保底默认显示").
+ * 点击卡片不再换 sharelink 开 webview，而是直接打开文件浏览弹窗
+ * （FlashTransferViewer，匿名 HTTP2RPC 拉列表）。「分享」按钮在浏览弹窗里。
  */
 
 import { useMemo, useState, type ReactElement } from 'react';
-import { Loader2 } from 'lucide-react';
 import { cachedAvatarUrl } from '../lib/avatarCache';
-import { FlashShareDialog } from './FlashShareDialog';
+import { FlashTransferViewer } from './FlashTransferViewer';
 import { useToast } from './Toast';
-import { client } from '../trpc/client';
 
 // ---- parsing (ported from the demo) --------------------------------------
 
@@ -66,7 +58,7 @@ export interface FlashTransferView {
   tailText: string;
   /** desc straight from the JSON (often an empty string — caller may default). */
   descText: string;
-  /** Internal click route (mqqrouter://…) — not openable here, kept for parity. */
+  /** Internal click route (mqqrouter://…) — 可从中兜底解析 fileset_id。 */
   schema: string;
 }
 
@@ -136,6 +128,14 @@ function buildDesc(info: Record<string, unknown> | undefined): string {
   return parts.join(' · ');
 }
 
+/** 从 flashTransferInfo / mqqrouter schema 里兜底拿 filesetId。 */
+function resolveFilesetId(info: Record<string, unknown>, schema: string): string {
+  const direct = typeof info.fileSetId === 'string' ? info.fileSetId : '';
+  if (direct) return direct;
+  const m = schema.match(/fileset_id=([a-zA-Z0-9-]+)/);
+  return m?.[1] ?? '';
+}
+
 // ---- the card ------------------------------------------------------------
 
 export function QqFlashTransfer({
@@ -147,45 +147,23 @@ export function QqFlashTransfer({
 }): ReactElement | null {
   const view = useMemo(() => parseFlashTransfer(markdownContent), [markdownContent]);
   const pushToast = useToast((s) => s.push);
-  const [shareUrl, setShareUrl] = useState<string | null>(null);
-  const [opening, setOpening] = useState(false);
+  const [viewerOpen, setViewerOpen] = useState(false);
   if (!view) return null;
 
   const infoObj = (info ?? {}) as Record<string, unknown>;
-  const fileSetId = typeof infoObj.fileSetId === 'string' ? (infoObj.fileSetId as string) : '';
+  const filesetId = resolveFilesetId(infoObj, view.schema);
   const desc = view.descText || buildDesc(infoObj);
-  const cover = view.coverImg ? cachedAvatarUrl(view.coverImg) ?? view.coverImg : '';
-  const fallbackCover = view.failedSrc ? cachedAvatarUrl(view.failedSrc) ?? view.failedSrc : '';
-  const tailIcon = view.tailIcon ? cachedAvatarUrl(view.tailIcon) ?? view.tailIcon : '';
+  const cover = view.coverImg ? (cachedAvatarUrl(view.coverImg) ?? view.coverImg) : '';
+  const fallbackCover = view.failedSrc ? (cachedAvatarUrl(view.failedSrc) ?? view.failedSrc) : '';
+  const tailIcon = view.tailIcon ? (cachedAvatarUrl(view.tailIcon) ?? view.tailIcon) : '';
 
-  /** 点击卡片：有在线实例就换一次分享链接，成功后在弹窗里打开。 */
-  async function handleOpen(): Promise<void> {
-    if (opening) return;
-    if (!fileSetId) {
-      pushToast({ tone: 'warning', message: '这条闪传消息缺少 filesetId，无法换取分享链接' });
+  /** 点击卡片：直接打开文件浏览弹窗。 */
+  function handleOpen(): void {
+    if (!filesetId) {
+      pushToast({ tone: 'warning', message: '这条闪传消息缺少 filesetId，无法查看文件' });
       return;
     }
-    setOpening(true);
-    try {
-      const res = await client.account.getFlashShareLink.mutate({ fileSetId });
-      if (!res.ok) {
-        if (res.reason === 'offline') {
-          pushToast({ tone: 'warning', message: 'QQ 未在线，无法获取闪传分享链接' });
-        } else {
-          pushToast({ tone: 'error', message: '获取闪传分享链接失败', detail: res.message });
-        }
-        return;
-      }
-      setShareUrl(res.shareUrl);
-    } catch (error) {
-      pushToast({
-        tone: 'error',
-        message: '获取闪传分享链接失败',
-        detail: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      setOpening(false);
-    }
+    setViewerOpen(true);
   }
 
   return (
@@ -194,12 +172,12 @@ export function QqFlashTransfer({
         className="weq-flash-card"
         role="button"
         tabIndex={0}
-        title="点击查看闪传分享"
-        onClick={() => void handleOpen()}
+        title="点击查看闪传文件"
+        onClick={handleOpen}
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
-            void handleOpen();
+            handleOpen();
           }
         }}
       >
@@ -236,14 +214,13 @@ export function QqFlashTransfer({
             <span>{view.tailText}</span>
           </div>
         </div>
-        {opening ? (
-          <div className="weq-flash-opening">
-            <Loader2 size={18} strokeWidth={1.9} className="weq-spin" aria-hidden />
-          </div>
-        ) : null}
       </div>
-      {shareUrl ? (
-        <FlashShareDialog title={view.title} url={shareUrl} onClose={() => setShareUrl(null)} />
+      {viewerOpen ? (
+        <FlashTransferViewer
+          filesetId={filesetId}
+          title={view.title}
+          onClose={() => setViewerOpen(false)}
+        />
       ) : null}
     </>
   );

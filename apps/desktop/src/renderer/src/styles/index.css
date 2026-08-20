@@ -8039,6 +8039,20 @@ html[data-theme="dark"] .weq-dynamic-footer {
   background: rgba(255, 255, 255, 0.55);
 }
 
+/* 闪传消息卡片深色模式：把 demo 的浅色硬编码映射到主题 token，
+ * 与 Ark / 动态卡片保持同一套暗色画布语言。 */
+html[data-theme="dark"] .weq-flash-card {
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-subtle);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+html[data-theme="dark"] .weq-flash-media-box { background-color: rgba(255, 255, 255, 0.06); }
+html[data-theme="dark"] .weq-flash-title { color: var(--weq-fg-primary); }
+html[data-theme="dark"] .weq-flash-desc { color: var(--weq-fg-muted); }
+html[data-theme="dark"] .weq-flash-divider { background-color: rgba(255, 255, 255, 0.08); }
+html[data-theme="dark"] .weq-flash-footer { color: var(--weq-fg-muted); }
+html[data-theme="dark"] .weq-flash-opening { background: rgba(0, 0, 0, 0.55); }
+
 /* ================= 闪传分享弹窗（竖屏小窗口 + 干净头部） ================= */
 .weq-flash-share {
   display: flex;
