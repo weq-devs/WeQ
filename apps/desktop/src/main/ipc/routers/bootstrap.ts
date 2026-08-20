@@ -39,6 +39,8 @@ import {
   type KeyEvent,
   type VoiceDownloadProgress,
   type TtsProviderConfig,
+  validateChatpicRoot,
+  normalizeNapcatBaseUrl,
 } from '@weq/service';
 import { peekStaticSelfUin, deriveAndroidDbKey } from '@weq/account';
 import { isTencentFilesRoot } from '@weq/platform';
@@ -59,6 +61,15 @@ const algoSchema = z.object({
 });
 
 const logger = getLogger().child({ scope: 'bootstrap-router' });
+
+/** 从服务器地址里提取主机名，用作默认展示名。 */
+function hostOfServerUrl(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
 
 /**
  * Ensure the uin→uid mapping is registered so linux path resolution
@@ -334,6 +345,111 @@ export const bootstrapRouter = router({
     .mutation(({ input }) => {
       requireBootstrap().userConfig.setSettings({ showMsgDecoration: input.enabled });
       return true;
+    }),
+
+  /** 导入/清除外部安卓 chatpic 目录（聊天图片兜底）。`dir` 非空时必须是完整的
+   *  chatpic 备份（含 chatraw / chatimg / chatthumb 三个子目录），否则抛错。 */
+  setExternalChatpic: procedure
+    .input(z.object({ dir: z.string(), enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      if (input.dir) {
+        const check = validateChatpicRoot(input.dir);
+        if (!check.ok) throw new Error(check.error);
+      }
+      requireBootstrap().userConfig.setSettings({
+        externalChatpic: { dir: input.dir, enabled: input.enabled },
+      });
+      return true;
+    }),
+
+  /** 弹窗选目录 → 校验三个子目录 → 持久化并自动启用。返回结果供界面提示。 */
+  pickExternalChatpicDir: procedure.mutation(async () => {
+    const picked = await getHost().pickDirectory({
+      title: '选择安卓 chatpic 目录（…/Tencent/MobileQQ/chatpic）',
+    });
+    if (!picked) return { dir: '', enabled: false, error: '' };
+    const check = validateChatpicRoot(picked);
+    if (!check.ok) return { dir: '', enabled: false, error: check.error };
+    requireBootstrap().userConfig.setSettings({
+      externalChatpic: { dir: picked, enabled: true },
+    });
+    return { dir: picked, enabled: true, error: '' };
+  }),
+
+  // ---- 外部 rkey 服务器（NapCat）----
+  // 全局配置：rkey 与账号权限关系不大，一份配置所有账号通用。媒体下载在本地
+  // rkey（需在线 QQ）不可用时会回退到这里，见 service 侧 external_rkey.ts。
+
+  /** 保存（新增或更新）一条外部 rkey 服务器配置。地址自动剥掉 /get_rkey_server 后缀。 */
+  saveExternalRkeyServer: procedure
+    .input(
+      z.object({
+        id: z.string().optional(),
+        name: z.string(),
+        baseUrl: z.string(),
+        accessToken: z.string(),
+      }),
+    )
+    .mutation(({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      const baseUrl = normalizeNapcatBaseUrl(input.baseUrl);
+      if (!baseUrl) throw new Error('服务器地址无效');
+      const token = input.accessToken.trim();
+      if (!token) throw new Error('access_token 不能为空');
+      const cfg = userConfig.getSettings().externalRkey;
+      const existing = input.id ? cfg.servers.find((s) => s.id === input.id) : undefined;
+      const id = existing ? existing.id : randomBytes(16).toString('hex');
+      const name = input.name.trim() || hostOfServerUrl(baseUrl);
+      const entry = { id, name, baseUrl, accessToken: token };
+      const servers = existing
+        ? cfg.servers.map((s) => {
+            if (s.id !== id) return s;
+            // 改了地址或 token，缓存的 rkey 可能来自旧服务器，作废重拉。
+            if (s.baseUrl !== baseUrl || s.accessToken !== token) {
+              const { privateRkey, groupRkey, expiredTime, fetchedAt, ...rest } = s;
+              void privateRkey;
+              void groupRkey;
+              void expiredTime;
+              void fetchedAt;
+              return { ...rest, ...entry };
+            }
+            return { ...s, ...entry };
+          })
+        : [...cfg.servers, entry];
+      // 编辑保留原启用状态；新增不自动启用，由用户决定是否开启。
+      const enabledServerId = cfg.enabledServerId;
+      userConfig.setSettings({ externalRkey: { servers, enabledServerId } });
+      return userConfig.getSettings().externalRkey;
+    }),
+
+  /** 删除一条配置；删除的是当前启用项时自动回到「不启用」。 */
+  deleteExternalRkeyServer: procedure.input(z.object({ id: z.string() })).mutation(({ input }) => {
+    const userConfig = requireBootstrap().userConfig;
+    const cfg = userConfig.getSettings().externalRkey;
+    const servers = cfg.servers.filter((s) => s.id !== input.id);
+    const enabledServerId = cfg.enabledServerId === input.id ? null : cfg.enabledServerId;
+    userConfig.setSettings({ externalRkey: { servers, enabledServerId } });
+    return userConfig.getSettings().externalRkey;
+  }),
+
+  /** 启用/停用某条配置：同时只能启用一条，传 null 表示全部停用。 */
+  setExternalRkeyEnabled: procedure
+    .input(z.object({ serverId: z.string().nullable() }))
+    .mutation(({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      const cfg = userConfig.getSettings().externalRkey;
+      const enabledServerId =
+        input.serverId && cfg.servers.some((s) => s.id === input.serverId) ? input.serverId : null;
+      userConfig.setSettings({ externalRkey: { enabledServerId } });
+      return userConfig.getSettings().externalRkey;
+    }),
+
+  /** 测试与外部服务器的连通性（只探测，不写缓存、不影响启用状态）。 */
+  testExternalRkeyServer: procedure
+    .input(z.object({ baseUrl: z.string(), accessToken: z.string() }))
+    .mutation(async ({ input }) => {
+      const result = await requireBootstrap().externalRkey.test(input.baseUrl, input.accessToken);
+      return { ok: true, name: result.name, expiredTime: result.expiredTime };
     }),
 
   /**

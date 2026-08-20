@@ -60,6 +60,11 @@ const weqBridge = {
         { name: string; value: string; domain?: string; path?: string }[]
       >,
   },
+  flashShare: {
+    /** 闪传分享弹窗打开/关闭时切换进程级 nativeTheme，让 QQ 分享页跟随深/浅。 */
+    setTheme: (theme: 'system' | 'light' | 'dark'): Promise<boolean> =>
+      ipcRenderer.invoke('flashShare:set-theme', theme) as Promise<boolean>,
+  },
   weqAssistant: {
     /**
      * Push WeQ's accent + 深/浅 to the main process so the 每日推文 ARK 封面 / 跳转页

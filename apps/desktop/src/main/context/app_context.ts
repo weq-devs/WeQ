@@ -61,6 +61,7 @@ import {
   AccountConfigService,
   AccountMonitorService,
   MediaDownloadService,
+  ExternalRkeyService,
   MediaUrlService,
   ForwardMsgService,
   GroupInfoService,
@@ -97,6 +98,8 @@ import {
   WebQueryService,
   GroupAlbumMediaService,
   GroupFileService,
+  FlashTransferService,
+  FlashTransferFilesService,
   PeerStatsService,
   DbWatchService,
   checkAccountDatabaseHealth,
@@ -322,6 +325,11 @@ export interface BootstrapServices {
    * idempotency spans the router and every account monitor.
    */
   injectHook: InjectHook;
+  /**
+   * 外部 rkey 服务器（NapCat）。全局配置 + 全局 rkey 缓存，不依赖任何账号；
+   * 媒体下载在本地 rkey 不可用时回退到这里（见 media_download.ts）。
+   */
+  externalRkey: ExternalRkeyService;
 }
 
 /** Services that are re-created whenever an account session opens. */
@@ -390,6 +398,10 @@ export interface AccountServices {
   groupFile: GroupFileService;
   /** 他人的个性主页统计（QQ 等级 + 资料卡累计获赞），需在线 QQ 发包。 */
   peerStats: PeerStatsService;
+  /** QQ 闪传分享链接（OIDB 0x93d3_1，需在线 QQ 发包）。 */
+  flashTransfer: FlashTransferService;
+  /** 闪传浏览 / 下载（匿名 HTTP2RPC，不需 QQ 在线）。 */
+  flashTransferFiles: FlashTransferFilesService;
   /** QQ 收藏 (favorites) reader over collection.db. */
   collection: CollectionService;
   /** 个性装扮（气泡/字体/背景）— 新架构：config 账号隔离，cache 全局共享。 */
@@ -627,6 +639,7 @@ export function initAppContext(): AppContext {
     voiceTranscribe: new VoiceTranscribeService(platform),
     tts: new TtsService(),
     injectHook,
+    externalRkey: new ExternalRkeyService(userConfig),
   };
 
   // Shared voice/transcription closures — both the export manager and AgentLab
@@ -748,6 +761,8 @@ export function initAppContext(): AppContext {
         // Honour the custom 缓存路径 override (设置 → 账号信息). Applied at
         // account-open time; changing it takes effect on the next 进入.
         userConfig.cacheDir('media'),
+        // 本机 rkey 不可用（无在线 QQ / 已过期）时回退到外部 rkey 服务器。
+        bootstrap.externalRkey,
       );
       // OIDB-backed video / file download URL resolver (needs the online QQ pid);
       // injected into the export manager for 视频 / 文件 媒体补全.
@@ -1019,6 +1034,8 @@ export function initAppContext(): AppContext {
         ),
         groupFile: new GroupFileService(platform.native.ntHelper, session, resolveOnlinePid),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, resolveOnlinePid),
+        flashTransfer: new FlashTransferService(platform.native.ntHelper, session, resolveOnlinePid),
+        flashTransferFiles: new FlashTransferFilesService(userConfig.cacheDir('flash')),
       };
       // Scheduled export manager — fires saved templates through the export
       // manager on a single setTimeout wake. Per-account cache mirrors the
@@ -1192,7 +1209,11 @@ export function initAppContext(): AppContext {
         return pid;
       };
 
-      const mediaDownload = new MediaDownloadService(accountConfig, userConfig.cacheDir('media'));
+      const mediaDownload = new MediaDownloadService(
+        accountConfig,
+        userConfig.cacheDir('media'),
+        bootstrap.externalRkey,
+      );
       const mediaUrl = new MediaUrlService(platform.native.ntHelper, session, livePid);
       // 同账号 QQ 在线时「好友空间导出」可用；离线则 livePid 抛错，优雅失败。
       const webQuery = new WebQueryService(platform.native.ntHelper, session, livePid);
@@ -1378,6 +1399,8 @@ export function initAppContext(): AppContext {
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, livePid),
         groupFile: new GroupFileService(platform.native.ntHelper, session, livePid),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, livePid),
+        flashTransfer: new FlashTransferService(platform.native.ntHelper, session, livePid),
+        flashTransferFiles: new FlashTransferFilesService(userConfig.cacheDir('flash')),
       };
 
       // Persist metadata keyed by the decrypted-db directory, so re-opening

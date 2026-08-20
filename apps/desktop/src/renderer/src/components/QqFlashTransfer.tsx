@@ -11,18 +11,14 @@
  * dictionary so we can read `title` / `image` / `desc` / `tailIcon` / `tailText`
  * regardless of how deeply they're nested.
  *
- * Two faithful-but-pragmatic tweaks vs the raw demo:
- *   - Remote images (cover / failedSrc / tail icon) are funnelled through the
- *     `weq-avatar://` disk cache (cachedAvatarUrl) so they clear the renderer
- *     CSP and don't re-hit the CDN.
- *   - The demo's `desc` fallback was a hard-coded "122.21 KB · 1 项 · 14 天后过期"
- *     placeholder; since we now forward the real `flashTransferInfo`, we build it
- *     from the actual file size + create time (the demo's stated intent: "按闪传
- *     文件的标准格式做保底默认显示").
+ * 点击卡片不再换 sharelink 开 webview，而是直接打开文件浏览弹窗
+ * （FlashTransferViewer，匿名 HTTP2RPC 拉列表）。「分享」按钮在浏览弹窗里。
  */
 
-import { useMemo, type ReactElement } from 'react';
+import { useMemo, useState, type ReactElement } from 'react';
 import { cachedAvatarUrl } from '../lib/avatarCache';
+import { FlashTransferViewer } from './FlashTransferViewer';
+import { useToast } from './Toast';
 
 // ---- parsing (ported from the demo) --------------------------------------
 
@@ -62,7 +58,7 @@ export interface FlashTransferView {
   tailText: string;
   /** desc straight from the JSON (often an empty string — caller may default). */
   descText: string;
-  /** Internal click route (mqqrouter://…) — not openable here, kept for parity. */
+  /** Internal click route (mqqrouter://…) — 可从中兜底解析 fileset_id。 */
   schema: string;
 }
 
@@ -132,6 +128,14 @@ function buildDesc(info: Record<string, unknown> | undefined): string {
   return parts.join(' · ');
 }
 
+/** 从 flashTransferInfo / mqqrouter schema 里兜底拿 filesetId。 */
+function resolveFilesetId(info: Record<string, unknown>, schema: string): string {
+  const direct = typeof info.fileSetId === 'string' ? info.fileSetId : '';
+  if (direct) return direct;
+  const m = schema.match(/fileset_id=([a-zA-Z0-9-]+)/);
+  return m?.[1] ?? '';
+}
+
 // ---- the card ------------------------------------------------------------
 
 export function QqFlashTransfer({
@@ -142,46 +146,82 @@ export function QqFlashTransfer({
   info: unknown;
 }): ReactElement | null {
   const view = useMemo(() => parseFlashTransfer(markdownContent), [markdownContent]);
+  const pushToast = useToast((s) => s.push);
+  const [viewerOpen, setViewerOpen] = useState(false);
   if (!view) return null;
 
-  const desc = view.descText || buildDesc(info as Record<string, unknown> | undefined);
-  const cover = view.coverImg ? cachedAvatarUrl(view.coverImg) ?? view.coverImg : '';
-  const fallbackCover = view.failedSrc ? cachedAvatarUrl(view.failedSrc) ?? view.failedSrc : '';
-  const tailIcon = view.tailIcon ? cachedAvatarUrl(view.tailIcon) ?? view.tailIcon : '';
+  const infoObj = (info ?? {}) as Record<string, unknown>;
+  const filesetId = resolveFilesetId(infoObj, view.schema);
+  const desc = view.descText || buildDesc(infoObj);
+  const cover = view.coverImg ? (cachedAvatarUrl(view.coverImg) ?? view.coverImg) : '';
+  const fallbackCover = view.failedSrc ? (cachedAvatarUrl(view.failedSrc) ?? view.failedSrc) : '';
+  const tailIcon = view.tailIcon ? (cachedAvatarUrl(view.tailIcon) ?? view.tailIcon) : '';
+
+  /** 点击卡片：直接打开文件浏览弹窗。 */
+  function handleOpen(): void {
+    if (!filesetId) {
+      pushToast({ tone: 'warning', message: '这条闪传消息缺少 filesetId，无法查看文件' });
+      return;
+    }
+    setViewerOpen(true);
+  }
 
   return (
-    <div className="weq-flash-card">
-      <div className="weq-flash-media-box">
-        {cover ? (
-          <img
-            className="weq-flash-cover"
-            src={cover}
-            alt=""
-            loading="lazy"
-            // 加载失败回退到 JSON 里给的 failedSrc 默认封面（dataset 标志位防止死循环）。
-            onError={
-              fallbackCover
-                ? (e) => {
-                    const img = e.currentTarget;
-                    if (img.dataset.fb !== '1') {
-                      img.dataset.fb = '1';
-                      img.src = fallbackCover;
+    <>
+      <div
+        className="weq-flash-card"
+        role="button"
+        tabIndex={0}
+        title="点击查看闪传文件"
+        onClick={handleOpen}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            handleOpen();
+          }
+        }}
+      >
+        <div className="weq-flash-media-box">
+          {cover ? (
+            <img
+              className="weq-flash-cover"
+              src={cover}
+              alt=""
+              loading="lazy"
+              // 加载失败回退到 JSON 里给的 failedSrc 默认封面（dataset 标志位防止死循环）。
+              onError={
+                fallbackCover
+                  ? (e) => {
+                      const img = e.currentTarget;
+                      if (img.dataset.fb !== '1') {
+                        img.dataset.fb = '1';
+                        img.src = fallbackCover;
+                      }
                     }
-                  }
-                : undefined
-            }
-          />
-        ) : null}
-      </div>
-      <div className="weq-flash-content">
-        <div className="weq-flash-title">{view.title}</div>
-        <div className="weq-flash-desc">{desc}</div>
-        <div className="weq-flash-divider" />
-        <div className="weq-flash-footer">
-          {tailIcon ? <img className="weq-flash-tail-icon" src={tailIcon} alt="" loading="lazy" /> : null}
-          <span>{view.tailText}</span>
+                  : undefined
+              }
+            />
+          ) : null}
+        </div>
+        <div className="weq-flash-content">
+          <div className="weq-flash-title">{view.title}</div>
+          <div className="weq-flash-desc">{desc}</div>
+          <div className="weq-flash-divider" />
+          <div className="weq-flash-footer">
+            {tailIcon ? (
+              <img className="weq-flash-tail-icon" src={tailIcon} alt="" loading="lazy" />
+            ) : null}
+            <span>{view.tailText}</span>
+          </div>
         </div>
       </div>
-    </div>
+      {viewerOpen ? (
+        <FlashTransferViewer
+          filesetId={filesetId}
+          title={view.title}
+          onClose={() => setViewerOpen(false)}
+        />
+      ) : null}
+    </>
   );
 }

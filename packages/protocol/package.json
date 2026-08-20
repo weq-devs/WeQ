@@ -12,7 +12,11 @@
     "test:watch": "vitest",
     "tools:scupdate-probe": "tsx tools/scupdate_probe.ts",
     "tools:get-profile-like": "tsx tools/get_profile_like.ts",
-    "tools:get-user-qq-level": "tsx tools/get_user_qq_level.ts"
+    "tools:get-user-qq-level": "tsx tools/get_user_qq_level.ts",
+    "tools:get-qq-show-url": "tsx tools/get_qq_show_url.ts",
+    "tools:flash-transfer-upload": "tsx tools/flash_transfer_upload.ts",
+    "tools:flash-transfer-send": "tsx tools/flash_transfer_send.ts",
+    "tools:flash-transfer-share-link": "tsx tools/flash_transfer_share_link.ts"
   },
   "dependencies": {
     "@weq/native": "workspace:*"

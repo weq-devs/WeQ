@@ -124,12 +124,14 @@ export function QqImage({
   const name = str(data, 'fileName');
   const token = str(data, 'fileToken');
   const orig = str(data, 'originalUrl');
+  // 安卓 chatpic 兜底寻址用（见 main/media_protocol.ts 的 resolveChatpicFallback）。
+  const md5 = str(data, 'md5');
   const w = num(data, 'imgWidth');
   const h = num(data, 'imgHeight');
   // subType 1 = received animated emoji (served from Emoji/emoji-recv).
   const isAnimatedEmoji = num(data, 'subType') === 1;
-  const maxW = isAnimatedEmoji ? 120 : 280;
-  const maxH = isAnimatedEmoji ? 120 : 360;
+  const maxW = isAnimatedEmoji ? 120 : 200;
+  const maxH = isAnimatedEmoji ? 120 : 400;
   const fit = fitWithin(w, h, maxW, maxH);
   const style: CSSProperties = fit
     ? { width: fit.width, height: fit.height }
@@ -138,6 +140,7 @@ export function QqImage({
   const params: Record<string, string | number> = { t: sendTimeMs, name, token };
   if (isAnimatedEmoji) params.recv = 1;
   if (orig) params.orig = orig;
+  if (md5) params.md5 = md5;
   const proxySrc = mediaUrl('pic', params);
   // 「优先使用 CDN」开着且拼得出直链时先试它（浏览器直连，服务端零流量）；rkey 过期 /
   // 老图片 / CDN 抽风都会 onError 落回上面这条代理路径，再失败才是「未找到」占位。
@@ -204,13 +207,13 @@ export function QqVideo({
   const w = num(data, 'videoWidth');
   const h = num(data, 'videoHeight');
   const duration = num(data, 'videoDuration');
-  const fit = fitWithin(w, h, 280, 360);
+  const fit = fitWithin(w, h, 200, 400);
   // bubble mode: container already clips to 120×120 circle, fill it entirely.
   const style: CSSProperties = bubble
     ? { width: '100%', height: '100%' }
     : fit
       ? { width: fit.width, height: fit.height }
-      : { maxWidth: 280, maxHeight: 360 };
+      : { maxWidth: 200, maxHeight: 400 };
 
   // 封面同图片：CDN 直链优先，失败落回代理。原片不参与——那要 OIDB 现签 URL。
   const cdn = useCdn();

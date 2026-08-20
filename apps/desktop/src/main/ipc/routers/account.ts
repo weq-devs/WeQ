@@ -328,6 +328,24 @@ const exportGroupFilesInput = z.object({
   concurrency: z.number().int().min(1).max(8).optional(),
 });
 
+const flashListFilesInput = z.object({
+  filesetId: z.string().min(1),
+  parentId: z.string().optional().default(''),
+  zipFileId: z.string().optional().default(''),
+});
+
+const flashSelectionSchema = z.object({
+  filesetId: z.string().min(1),
+  fileId: z.string().min(1),
+  physicalId: z.string().optional().default(''),
+  name: z.string().min(1),
+  fileSize: z.number().optional().default(0),
+  path: z.string().min(1),
+  isDir: z.boolean().optional().default(false),
+  isZipContent: z.boolean().optional().default(false),
+  zipFileId: z.string().optional().default(''),
+});
+
 interface GroupFileDownloadWork {
   fileId: string;
   fileName: string;
@@ -2173,6 +2191,102 @@ export const accountRouter = router({
       }
     }),
 
+  // ---- QQ 闪传分享链接 ----
+
+  /**
+   * 用闪传卡片的 filesetId 换一次分享链接（OIDB 0x93d3_1，需在线 QQ 发包）。
+   * 失败不 throw —— 返回结构化结果，让前端区分「QQ 未在线」/「换取失败」。
+   */
+  getFlashShareLink: procedure
+    .input(z.object({ fileSetId: z.string().min(1) }))
+    .mutation(
+      async ({
+        input,
+      }): Promise<
+        | { ok: true; shareUrl: string }
+        | { ok: false; reason: 'offline' | 'error'; message?: string }
+      > => {
+        const ctx = getAppContext();
+        const services = requireServices();
+        const uin = ctx.account?.context.uin;
+        const nt = ctx.platform?.native.ntHelper;
+        const record = services.accountConfig.getRecord();
+        if (!uin || !nt || !record?.qqOnline || !record.qqPid) {
+          return { ok: false, reason: 'offline' };
+        }
+        try {
+          await ctx.bootstrap?.injectHook.ensure(record.qqPid, uin);
+          const shareUrl = await services.flashTransfer.getShareLink(input.fileSetId);
+          if (!shareUrl) {
+            return { ok: false, reason: 'error', message: '没有拿到分享链接（文件可能已过期）' };
+          }
+          return { ok: true, shareUrl };
+        } catch (error) {
+          return {
+            ok: false,
+            reason: 'error',
+            message: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+    ),
+  // ---- 闪传文件浏览 / 下载（匿名 HTTP2RPC，不需 QQ 在线）----
+
+  /** 拉一个闪传目录（普通 / 压缩包内部）的完整文件列表。 */
+  flashListFiles: procedure.input(flashListFilesInput).query(async ({ input }) => {
+    const svc = requireServices().flashTransferFiles;
+    return svc.listFiles(input.filesetId, input.parentId, input.zipFileId);
+  }),
+
+  /** 把勾选条目解析成下载任务并入队（目录解析在调用内完成，下载后台并发跑）。 */
+  flashStartDownloads: procedure
+    .input(
+      z.object({
+        filesetName: z.string().optional().default(''),
+        selections: z.array(flashSelectionSchema).min(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const svc = requireServices().flashTransferFiles;
+      const filesetId = input.selections[0]!.filesetId;
+      return svc.downloads.start(input.filesetName, filesetId, input.selections);
+    }),
+
+  /** 全部下载任务（含历史，新在前）。 */
+  flashListDownloadTasks: procedure.query(() => {
+    return requireServices().flashTransferFiles.downloads.list();
+  }),
+
+  /** 取消单个下载任务（进行中的会中断下载）。 */
+  flashCancelDownloadTask: procedure
+    .input(z.object({ taskId: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      return requireServices().flashTransferFiles.downloads.cancel(input.taskId);
+    }),
+
+  /** 清掉已结束（完成 / 失败 / 取消）的任务，进行中的保留。 */
+  flashClearDownloadTasks: procedure.mutation(async () => {
+    return requireServices().flashTransferFiles.downloads.clearFinished();
+  }),
+
+  /** 在系统文件管理器里打开闪传下载根目录。 */
+  flashRevealDownloadDir: procedure.mutation(async () => {
+    const dir = requireServices().flashTransferFiles.downloads.rootDir;
+    await getHost().revealPath(dir);
+    return { ok: true };
+  }),
+
+  /** 订阅单个下载任务的状态 / 进度变化。 */
+  onFlashDownloadProgress: procedure.subscription(() => {
+    return observable<import('@weq/service').FlashDownloadTask>((emit) => {
+      const manager = requireServices().flashTransferFiles.downloads;
+      const handler = (task: import('@weq/service').FlashDownloadTask) => emit.next(task);
+      manager.on('task', handler);
+      return () => {
+        manager.off('task', handler);
+      };
+    });
+  }),
   // ---- group album ----
 
   /** List group albums via Qzone web CGI. Requires online QQ + fresh ClientKey. */

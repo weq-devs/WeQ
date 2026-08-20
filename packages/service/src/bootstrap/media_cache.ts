@@ -21,7 +21,7 @@ import { join } from 'node:path';
 import type { UserConfigService } from './user_config';
 
 /** Cache subdirectory for organizing different media types. */
-export type CacheSubdir = 'avatar' | 'dress' | 'collection' | 'linkpreview';
+export type CacheSubdir = 'avatar' | 'dress' | 'collection' | 'linkpreview' | 'qqshow';
 
 /** Bytes + content type for one resolved media resource. */
 export interface MediaBlob {
@@ -74,6 +74,8 @@ function contentTypeForExt(ext: string): string {
  *
  * Dress assets (30 days): more stable than avatars, longer TTL reduces refetches.
  *
+ * QQ 秀形象同 dress：URL 自带版本号，换形象即换 URL，30 天 TTL 不会出现旧图。
+ *
  * The LOCAL `nt_data/avatar` path (see AvatarResourceService) deliberately has
  * no TTL: its filename is derived from the uid, so QQ overwrites the same file
  * in place and our next read already sees the new bytes.
@@ -82,7 +84,7 @@ const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DRESS_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 function ttlForSubdir(subdir: CacheSubdir): number {
-  return subdir === 'dress' ? DRESS_TTL_MS : DEFAULT_TTL_MS;
+  return subdir === 'dress' || subdir === 'qqshow' ? DRESS_TTL_MS : DEFAULT_TTL_MS;
 }
 
 export class MediaCacheService {

@@ -13,14 +13,22 @@
  *    调用方（资料灯箱）已经拿在手里，原样传进来即可。
  *  - **统计**（QQ 等级 + 累计获赞）走 `dressup.peerStats`：两条 OIDB 都要在线实例发包，
  *    但比 SSR 快得多（毫秒级），数据到了再补一行徽章，不占骨架。
+ *  - **QQ 秀**（透明全身像）走 `dressup.peerQqShow`：同是毫秒级 OIDB（0xFE1_3），有 QQ 秀时
+ *    默认用全身像替换「头像+挂件」，舞台底部的胶囊可一键切回。
  */
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Heart, Loader2, MapPin, Sparkles, WifiOff, X } from 'lucide-react';
+import { Heart, Loader2, MapPin, Sparkles, UserRound, WifiOff, X } from 'lucide-react';
 import { AvatarOrb, CardBackdrop, ScreenRain, TagRing } from './dressPieces';
 import { openLightbox } from './ImageLightbox';
-import { albumMediaUrl, collectionImageUrl, dressUrl, resourceUrl } from '../lib/resourceUrl';
+import {
+  albumMediaUrl,
+  collectionImageUrl,
+  dressUrl,
+  qqShowUrl,
+  resourceUrl,
+} from '../lib/resourceUrl';
 import { trpc } from '../trpc/client';
 import botCardUrl from '@resources/img/bot.png';
 
@@ -101,6 +109,17 @@ export function PersonalityHomeDialog({
       staleTime: 5 * 60_000,
     },
   );
+  const qqShow = trpc.account.dressup.peerQqShow.useQuery(
+    { uin },
+    // OIDB 毫秒级返回；失败多半是离线/风控，静默回退到头像+挂件即可，不打扰。
+    { enabled: !isBot, retry: false, refetchOnWindowFocus: false, staleTime: 5 * 60_000 },
+  );
+
+  // 有 QQ 秀时默认展示全身像；切换胶囊可随时切回「头像+挂件」。
+  const [showQqShow, setShowQqShow] = useState(true);
+  // 全身像加载失败（CDN 挂了 / 图被删）就回退到头像，避免裂图。
+  const [qqShowFailed, setQqShowFailed] = useState(false);
+  const qqShowUrlValue = qqShow.data?.hasShow ? qqShow.data.url : '';
 
   useEffect(() => {
     function onKey(event: KeyboardEvent): void {
@@ -151,13 +170,53 @@ export function PersonalityHomeDialog({
         <div className="weq-perhome-inner">
           {/* 标签环是绝对定位的，撑不开舞台高度，故靠 .has-tags 补一段下方间距。
               没标签时不能留那段空白——否则昵称被推到卡片外看不见。 */}
-          <div className={`weq-perhome-stage${tags.length ? ' has-tags' : ''}`}>
-            <AvatarOrb
-              avatarUrl={profile.avatarUrl}
-              nickname={profile.name}
-              widgetUrl={widgetUrl}
-            />
+          <div
+            className={`weq-perhome-stage${tags.length ? ' has-tags' : ''}${qqShowUrlValue && showQqShow && !qqShowFailed ? ' has-qqshow' : ''}`}
+          >
+            {showQqShow && qqShowUrlValue && !qqShowFailed ? (
+              <img
+                className="weq-qqshow"
+                src={qqShowUrl(qqShowUrlValue)}
+                alt={profile.name}
+                draggable={false}
+                onError={() => setQqShowFailed(true)}
+              />
+            ) : (
+              <AvatarOrb
+                avatarUrl={profile.avatarUrl}
+                nickname={profile.name}
+                widgetUrl={widgetUrl}
+              />
+            )}
             <TagRing tags={tags} max={8} radiusPad={34} />
+
+            {qqShowUrlValue ? (
+              <div className="weq-perhome-show-switch" role="group" aria-label="切换形象展示">
+                <button
+                  type="button"
+                  className={showQqShow ? 'is-active' : ''}
+                  title="QQ 秀形象"
+                  aria-label="QQ 秀形象"
+                  aria-pressed={showQqShow}
+                  onClick={() => {
+                    setQqShowFailed(false);
+                    setShowQqShow(true);
+                  }}
+                >
+                  <Sparkles size={13} />
+                </button>
+                <button
+                  type="button"
+                  className={!showQqShow ? 'is-active' : ''}
+                  title="头像 + 挂件"
+                  aria-label="头像 + 挂件"
+                  aria-pressed={!showQqShow}
+                  onClick={() => setShowQqShow(false)}
+                >
+                  <UserRound size={13} />
+                </button>
+              </div>
+            ) : null}
           </div>
 
           <h2 className="weq-perhome-name">{profile.name}</h2>

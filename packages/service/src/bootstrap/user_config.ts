@@ -114,6 +114,22 @@ function normalizeTtsProviders(value: unknown): TtsProviderConfig[] {
   return value.filter(isTtsProviderConfig);
 }
 
+function isExternalRkeyServerConfig(value: unknown): value is ExternalRkeyServerConfig {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Partial<ExternalRkeyServerConfig>;
+  return (
+    typeof item.id === 'string' &&
+    typeof item.name === 'string' &&
+    typeof item.baseUrl === 'string' &&
+    typeof item.accessToken === 'string'
+  );
+}
+
+function normalizeExternalRkeyServers(value: unknown): ExternalRkeyServerConfig[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isExternalRkeyServerConfig);
+}
+
 export interface MediaCompletionConfig {
   enabled: boolean;
 }
@@ -213,6 +229,67 @@ export interface AppSettings {
    * 关掉后所有消息统一走清单里的全局装扮，不做逐条渲染。默认开启。
    */
   showMsgDecoration: boolean;
+  /**
+   * 外部安卓 chatpic 目录（聊天图片本地 miss 后、CDN 下载前的兜底）。
+   * 见 account/chatpic.ts 的寻址与校验。
+   */
+  externalChatpic: ExternalChatpicConfig;
+  /**
+   * 外部 rkey 服务器（目前支持 NapCat）。全局配置——rkey 与账号权限关系不大，
+   * 一份配置对所有账号生效。服务器地址 + access_token 之外，还缓存最近一次
+   * 拉取的 rkey（私聊/群聊）与过期时间，供媒体补全在没有在线 QQ 时兜底。
+   */
+  externalRkey: ExternalRkeyConfig;
+  /**
+   * Linux 下是否不再提示关闭 ptrace 保护。首次检测到无法直接注入（内核拒绝
+   * ptrace）时弹窗引导用户关闭 yama ptrace_scope；选择「不再提醒」后写入这里，
+   * 之后直接走 pkexec 提权、不再弹窗。
+   */
+  suppressPtraceHint: boolean;
+}
+
+/**
+ * 外部安卓 chatpic 目录（`…/Tencent/MobileQQ/chatpic` 的完整备份）。
+ * 聊天图片在本机 `nt_data` 里找不到时，先到这里按 md5 寻址，再回退 CDN。
+ */
+export interface ExternalChatpicConfig {
+  /** 导入的 chatpic 根目录（须含 chatraw / chatimg / chatthumb 三个子目录）。 */
+  dir: string;
+  /** 是否允许把该目录作为本地媒体兜底。 */
+  enabled: boolean;
+}
+
+/**
+ * 一条外部 rkey 服务器配置（NapCat HTTP 服务器）。
+ *
+ * 除连接信息外，这里还承担「全局 rkey 存储」：每次向服务器拉取成功后把
+ * private/group 两条 rkey 与其过期时间缓存下来，之后即使 QQ 进程不在线也能
+ * 直接用缓存补全媒体，直到过期。
+ */
+export interface ExternalRkeyServerConfig {
+  /** 稳定 id（uuid），用于列表增删与「启用」标记。 */
+  id: string;
+  /** 展示名（默认取地址的主机部分，可手改）。 */
+  name: string;
+  /** NapCat HTTP 服务器地址（不含 /get_rkey_server 后缀，保存时会自动去掉）。 */
+  baseUrl: string;
+  /** NapCat 的 access_token。 */
+  accessToken: string;
+  /** 缓存的私聊图片 rkey（自带 &rkey= 前缀）。 */
+  privateRkey?: string;
+  /** 缓存的群聊图片 rkey（自带 &rkey= 前缀）。 */
+  groupRkey?: string;
+  /** 缓存 rkey 的过期时间（unix 秒）。 */
+  expiredTime?: number;
+  /** 最近一次成功拉取的时间（unix ms）。 */
+  fetchedAt?: number;
+}
+
+export interface ExternalRkeyConfig {
+  /** 已导入的服务器配置（可多个）。 */
+  servers: ExternalRkeyServerConfig[];
+  /** 当前启用的服务器 id；null = 不启用（可导入多个但只启用一个）。 */
+  enabledServerId: string | null;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -233,6 +310,9 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   linkPreview: { enabled: true, screenshot: false },
   preferCdn: false,
   showMsgDecoration: true,
+  externalChatpic: { dir: '', enabled: false },
+  externalRkey: { servers: [], enabledServerId: null },
+  suppressPtraceHint: false,
 };
 
 export interface UserConfig {
@@ -456,6 +536,15 @@ export class UserConfigService {
       showAvatarPendant: s?.showAvatarPendant ?? d.showAvatarPendant,
       preferCdn: s?.preferCdn ?? d.preferCdn,
       showMsgDecoration: s?.showMsgDecoration ?? d.showMsgDecoration,
+      externalChatpic: {
+        dir: s?.externalChatpic?.dir ?? d.externalChatpic.dir,
+        enabled: s?.externalChatpic?.enabled ?? d.externalChatpic.enabled,
+      },
+      externalRkey: {
+        servers: normalizeExternalRkeyServers(s?.externalRkey?.servers),
+        enabledServerId: s?.externalRkey?.enabledServerId ?? d.externalRkey.enabledServerId,
+      },
+      suppressPtraceHint: s?.suppressPtraceHint ?? d.suppressPtraceHint,
       linkPreview: {
         enabled: s?.linkPreview?.enabled ?? d.linkPreview.enabled,
         screenshot: s?.linkPreview?.screenshot ?? d.linkPreview.screenshot,
@@ -495,6 +584,21 @@ export class UserConfigService {
       showAvatarPendant: patch.showAvatarPendant ?? current.showAvatarPendant,
       preferCdn: patch.preferCdn ?? current.preferCdn,
       showMsgDecoration: patch.showMsgDecoration ?? current.showMsgDecoration,
+      externalChatpic: {
+        dir: patch.externalChatpic?.dir ?? current.externalChatpic.dir,
+        enabled: patch.externalChatpic?.enabled ?? current.externalChatpic.enabled,
+      },
+      externalRkey: {
+        servers:
+          patch.externalRkey?.servers !== undefined
+            ? normalizeExternalRkeyServers(patch.externalRkey.servers)
+            : current.externalRkey.servers,
+        enabledServerId:
+          patch.externalRkey?.enabledServerId !== undefined
+            ? patch.externalRkey.enabledServerId
+            : current.externalRkey.enabledServerId,
+      },
+      suppressPtraceHint: patch.suppressPtraceHint ?? current.suppressPtraceHint,
       linkPreview: {
         enabled: patch.linkPreview?.enabled ?? current.linkPreview.enabled,
         screenshot: patch.linkPreview?.screenshot ?? current.linkPreview.screenshot,
@@ -538,6 +642,8 @@ export class UserConfigService {
       mcpEnabled: next.mcp.enabled,
       mcpPort: next.mcp.port,
       agentLabProviderCount: next.agentLab.providers.length,
+      externalRkeyServerCount: next.externalRkey.servers.length,
+      externalRkeyEnabled: next.externalRkey.enabledServerId !== null,
     });
     return next;
   }

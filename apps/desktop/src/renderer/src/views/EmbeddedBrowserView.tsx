@@ -24,6 +24,7 @@ declare global {
         React.HTMLAttributes<HTMLElement> & {
           src?: string;
           partition?: string;
+          useragent?: string;
           allowpopups?: boolean;
         },
         HTMLElement

@@ -47,6 +47,8 @@ const PEER_HOME_HINT =
 
 const PEER_STATS_HINT = '获取失败 —— 个性主页的 QQ 等级与获赞要发 OIDB 包，请确认这个账号的 QQ 客户端正在运行。';
 
+const PEER_QQ_SHOW_HINT = '获取失败 —— QQ 秀形象要发 OIDB 包，请确认这个账号的 QQ 客户端正在运行。';
+
 const kindInput = z.enum(['bubble', 'font']);
 type DressKindInput = z.infer<typeof kindInput>;
 
@@ -368,6 +370,23 @@ export const dressupRouter = router({
         return await services.peerStats.getPeerStats(input.uin, input.uid);
       } catch {
         throw new Error(PEER_STATS_HINT);
+      }
+    }),
+
+  /**
+   * 他人的 QQ 秀形象（0xFE1_3，透明全身像 URL）。
+   *
+   * 与 peerStats 同属「个性主页」数据，需要在线实例发包；失败统一转成
+   * 「需要在线实例」的提示，前端静默回退到头像+挂件即可。
+   */
+  peerQqShow: procedure
+    .input(z.object({ uin: z.string().regex(/^\d{5,}$/) }))
+    .query(async ({ input }) => {
+      const services = requireServices();
+      try {
+        return await services.peerStats.getQqShow(input.uin);
+      } catch {
+        throw new Error(PEER_QQ_SHOW_HINT);
       }
     }),
 });

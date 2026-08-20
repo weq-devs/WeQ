@@ -21,6 +21,7 @@
  *   weq-media://localmedia?kind=pic&rel=<month/Ori/name>      → PhotoWall/Qzone/Pic/Video cache bytes
  *   weq-media://localvoice?rel=<month/Ori/name>               → decoded WAV for a Ptt cache clip
  *   weq-media://dress?src=<tianquanUrl>                       → 会员装扮资源(挂件/名片/浮屏/背景/气泡切片)
+ *   weq-media://qqshow?src=<qqshowUrl>                       → QQ 秀形象图(透明全身像,落盘缓存)
  *   weq-media://dressfont?id=<itemId>                         → 已安装的装扮字体 ttf
  *   weq-media://dressbubble?id=<itemId>                       → 走 protocol 装的气泡九宫格(本地 PNG)
  *   weq-media://dressbubble?id=<itemId>&frame=<n>              → 同上,整泡帧动画的第 n 帧(n 从 1 开始)
@@ -44,6 +45,7 @@ import {
   PRIVATE_PTT_RKEY_TYPE,
   GROUP_PTT_RKEY_TYPE,
   downloadUrlToFile,
+  resolveChatpicFile,
   type MediaElement,
 } from '@weq/service';
 import { getAppContext } from './context/app_context';
@@ -110,6 +112,19 @@ async function findMediaElement(
     matches.find((e) => (e as { fileToken?: string }).fileToken === token) ?? matches[0];
   if (!el) return null;
   return { element: el as unknown as MediaElement, conv: raw.kind };
+}
+
+/**
+ * 外部安卓 chatpic 目录兜底：设置里导入了完整的 chatpic 备份且开关开启时，
+ * 按 picElement 的 md5 在 chatraw/chatimg/chatthumb 里寻址。找不到返回 null，
+ * 调用方继续走 rkey / CDN 下载。
+ */
+function resolveChatpicFallback(md5: string): string | null {
+  if (!md5) return null;
+  const boot = getAppContext().bootstrap;
+  const cfg = boot?.userConfig.getSettings().externalChatpic;
+  if (!cfg?.enabled || !cfg.dir) return null;
+  return resolveChatpicFile(cfg.dir, md5);
 }
 
 export const MEDIA_SCHEME = 'weq-media';
@@ -264,6 +279,33 @@ async function dressRemoteResponse(src: string, theme: string | null): Promise<R
 }
 
 /**
+ * QQ 秀形象图(images.qqshow.gtimg.com)的落盘缓存代理。
+ *
+ * 与 dress 同款思路:渲染进程不直连 CDN,主进程代取 + 落盘,只放行 qqshow 域名。
+ * 图片走 AvatarCacheService 的 `qqshow` 子目录(30 天 TTL,URL 自带版本号不会旧图)。
+ */
+async function qqshowRemoteResponse(src: string): Promise<Response> {
+  if (!/^https:\/\//i.test(src)) return notFound('qqshow asset needs https url');
+  const host = new URL(src).hostname.toLowerCase();
+  const allowed =
+    host === 'qqshow.gtimg.com' ||
+    host === 'images.qqshow.gtimg.com' ||
+    host.endsWith('.qqshow.gtimg.com');
+  if (!allowed) return notFound('qqshow host not allowed');
+  const cache = getAppContext().bootstrap?.avatarCache;
+  if (!cache) return notFound('qqshow cache unavailable');
+  try {
+    const blob = await cache.get(src, 'qqshow');
+    return new Response(new Uint8Array(blob.data), {
+      status: 200,
+      headers: { 'Content-Type': blob.contentType, 'Cache-Control': 'public, max-age=86400' },
+    });
+  } catch {
+    return notFound('qqshow asset fetch failed');
+  }
+}
+
+/**
  * Serve one `weq-media://` request. Pure `Request`→`Response`, so the web app
  * can mount it on a plain HTTP route (see `apps/web`) without Electron.
  */
@@ -279,6 +321,16 @@ export function handleMediaRequest(request: Request): Promise<Response> {
         return await dressRemoteResponse(q.get('src') ?? '', q.get('theme'));
       } catch (e) {
         console.error('[media] dress failed:', e);
+        return new Response('media error', { status: 500 });
+      }
+    }
+
+    // QQ 秀形象图:同装扮一样只放行 qqshow CDN,主进程代取 + 落盘缓存。
+    if (kind === 'qqshow') {
+      try {
+        return await qqshowRemoteResponse(q.get('src') ?? '');
+      } catch (e) {
+        console.error('[media] qqshow failed:', e);
         return new Response('media error', { status: 500 });
       }
     }
@@ -371,6 +423,9 @@ export function handleMediaRequest(request: Request): Promise<Response> {
           const { source, thumb } = await services.fileSearch.findFile(tMs, name, picType);
           const path = wantThumb ? (thumb ?? source) : (source ?? thumb);
           if (path) return fileResponse(path);
+          // 本地 miss → 外部安卓 chatpic 备份兜底（按 md5 寻址），再不行才走 CDN。
+          const chatpicFile = resolveChatpicFallback(q.get('md5') ?? '');
+          if (chatpicFile) return fileResponse(chatpicFile);
           // Missing on disk → CDN: digit token → originalUrl (no rkey); else rkey.
           const dl = await services.mediaDownload.download(token, {
             originalUrl: q.get('orig') ?? '',

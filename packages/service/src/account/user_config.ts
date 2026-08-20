@@ -36,10 +36,17 @@ export interface DownloadRkey {
   ttlSeconds: number;
   /** Unix seconds the rkey was issued. Expiry = createTime + ttlSeconds. */
   createTime: number;
+  /**
+   * Optional absolute expiry (unix seconds). External rkey servers only return
+   * the expiry moment, not the issue time, so we carry it here instead of
+   * deriving it from createTime + ttlSeconds.
+   */
+  expiredAt?: number;
 }
 
 /** Absolute expiry of an rkey in unix milliseconds. */
 export function rkeyExpiryMs(r: DownloadRkey): number {
+  if (r.expiredAt != null) return r.expiredAt * 1000;
   return (r.createTime + r.ttlSeconds) * 1000;
 }
 

@@ -30,7 +30,7 @@ export type {
 } from './bootstrap/win32_key';
 
 export { createDirectInjectHook } from './bootstrap/inject';
-export type { InjectHook } from './bootstrap/inject';
+export type { InjectHook, PtraceHintChoice } from './bootstrap/inject';
 
 export { UserConfigService, DEFAULT_APP_SETTINGS } from './bootstrap/user_config';
 export type {
@@ -45,6 +45,9 @@ export type {
   WeqAssistantConfig,
   AgentLabSettings,
   LinkPreviewConfig,
+  ExternalChatpicConfig,
+  ExternalRkeyConfig,
+  ExternalRkeyServerConfig,
 } from './bootstrap/user_config';
 export { AgentLabConfigService } from './bootstrap/agentlab_config';
 
@@ -64,6 +67,14 @@ export type {
 
 // ---- account ----
 export { AccountConfigService, accountConfigId, rkeyExpiryMs, clientKeyExpiryMs } from './account/user_config';
+export {
+  chatpicFileName,
+  chatpicRelPaths,
+  resolveChatpicFile,
+  validateChatpicRoot,
+  CHATPIC_FOLDERS,
+  type ChatpicFolder,
+} from './account/chatpic';
 export type { AccountConfig, AccountConfigMetadata, DownloadRkey, ClientKey } from './account/user_config';
 export { fetchHomeDress, toPeerDress } from './account/home_dress';
 export type { HomeDressSnapshot, PeerDressSnapshot } from './account/home_dress';
@@ -112,7 +123,10 @@ export {
   PRIVATE_PTT_RKEY_TYPE,
   GROUP_PTT_RKEY_TYPE,
 } from './account/media_download';
-export type { DownloadOptions } from './account/media_download';
+export type { DownloadOptions, ExternalRkeySource } from './account/media_download';
+export { ExternalRkeyService } from './account/external_rkey';
+export { normalizeNapcatBaseUrl, fetchNapcatRkeys } from './account/rkey_server';
+export type { NapcatRkeyServerResult } from './account/rkey_server';
 export { RecentContactService } from './account/recent_contact';
 export { HiddenSessionService } from './account/hidden_session';
 export type { HiddenSessionSummary } from './account/hidden_session';
@@ -337,6 +351,16 @@ export type {
 export { MediaUrlService, mediaNodeFromElement, downloadUrlToFile } from './account/media_url';
 export type { MediaElement, GroupFileDownload, DownloadOutcome } from './account/media_url';
 export { PeerStatsService } from './account/peer_stats';
+export { FlashTransferService } from './account/flash_transfer';
+export { FlashTransferFilesService, FlashTransferDownloadManager, FlashTransferClient, FlashTransferResolver } from './account/flashtransfer';
+export type {
+  FlashListFile,
+  FlashListResult,
+  FlashSelection,
+  FlashDownloadFile,
+  FlashDownloadTask,
+  FlashTaskStatus,
+} from './account/flashtransfer';
 export type { PeerStats } from './account/peer_stats';
 
 // ---- export pipeline (account/export) ----
