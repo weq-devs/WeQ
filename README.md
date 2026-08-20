@@ -108,4 +108,4 @@ pnpm dev
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=H3CoF6/WeQ&type=Date)](https://star-history.com/#H3CoF6/WeQ&Date)
+> > > > > > > > > 
