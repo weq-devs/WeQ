@@ -3915,6 +3915,7 @@ export function MainView(): ReactElement {
             <ChatRecordsModal
               initialHit={chatRecordsTarget.hit}
               initialKeyword={chatRecordsTarget.keyword}
+              renderers={messageRenderers}
               onClose={() => setChatRecordsTarget(null)}
               onJumpMessage={({ source, targetUid, msgSeq }) =>
                 jumpToConvSeq(source === 'group' ? 'group' : 'c2c', targetUid, msgSeq)

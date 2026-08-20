@@ -15,9 +15,16 @@
  */
 
 import { join } from 'node:path';
-import { classifyChatType, toChatTypeNumber } from '@weq/codec';
+import {
+  classifyChatType,
+  toChatTypeNumber,
+  type MsgDecoration,
+  type SetEmojiItem,
+} from '@weq/codec';
 import { algoFor, type AccountSession } from '@weq/account';
-import { MsgSearchIndexDb, type BuddyMsgFtsHit } from '@weq/db';
+import { MsgSearchIndexDb, type BuddyMsgFtsHit, type C2cMsg, type GroupMsg } from '@weq/db';
+import { toRenderElements, type RenderElement } from './msg_view';
+import { elementsToText } from './export/element_text';
 import type { NtHelperBinding } from '@weq/native';
 
 export interface UnifiedSearchServiceOptions {
@@ -88,7 +95,7 @@ export interface FileSearchHit {
   convName: string;
 }
 
-/** One chat-record modal message row (rendered straight from the FTS text). */
+/** One chat-record modal message row. */
 export interface ConversationRecordHit {
   msgId: string;
   msgSeq: string;
@@ -98,7 +105,21 @@ export interface ConversationRecordHit {
   /** Sender display name (group card/nick, '' when unknown). */
   senderName: string;
   sendTime: string;
+  /**
+   * Rendered display text: the original message's elements flattened to text,
+   * or the FTS plain text when the original row was missing.
+   */
   content: string;
+  /**
+   * Original message render-view elements — present when the original 40800
+   * body was found in c2c/group_msg_table, so the front-end can render a real
+   * bubble. Absent rows fall back to the plain `content` row.
+   */
+  elements?: RenderElement[];
+  /** Group sticker reactions (column 40062). */
+  setEmojiList?: SetEmojiItem[];
+  /** Per-message decoration (column 40801): bubble/font/widget itemIds. */
+  decoration?: MsgDecoration;
 }
 
 export interface QuickSearchResult {
@@ -358,10 +379,35 @@ export class UnifiedSearchService {
 
     const db = source === 'group' ? this.session.groupMsgFts : this.session.buddyMsgFts;
     const r = await db.searchInPartition(partition, needle, limit, offset);
+    // 把 FTS 命中回查原消息表（同一 40027 分区 + 40003 seq），能取到真实
+    // 40800 正文就渲染原消息，取不到（已撤回/未同步/行被删）回退 FTS 纯文本。
+    const originals = await this.loadOriginalMessages(source, partition, r.items);
     return {
-      items: await this.decorateSenders(source, conv, r.items),
+      items: await this.decorateSenders(source, conv, r.items, originals),
       total: r.total,
     };
+  }
+
+  /**
+   * Batch-resolve FTS hits back to their original 40800 bodies. Queries the msg
+   * table by the SAME indexed partition (40027) + msgSeq list (40003), so both
+   * legs of the join hit the (40027,40003) composite index: the FTS rows were
+   * already narrowed by 40027, and the original lookup stays inside that same
+   * partition. Hits whose row is missing (recalled / unsynced / deleted) are
+   * simply absent from the map — the caller falls back to the FTS text.
+   */
+  private async loadOriginalMessages(
+    source: FtsSource,
+    partition: bigint,
+    hits: BuddyMsgFtsHit[],
+  ): Promise<Map<bigint, C2cMsg | GroupMsg>> {
+    const seqs = [...new Set(hits.map((h) => h.msgSeq).filter((s) => s > 0n))];
+    if (seqs.length === 0) return new Map();
+    const rows =
+      source === 'group'
+        ? await this.session.groupMsgs.listBySeqsInPartition(partition.toString(), seqs)
+        : await this.session.c2cMsgs.listBySeqsInPartition({ sortNo: partition }, seqs);
+    return new Map(rows.map((m) => [m.msgId, m]));
   }
 
   /** Resolve each FTS row's sender uid → uin + display name for the avatar row. */
@@ -369,10 +415,16 @@ export class UnifiedSearchService {
     source: FtsSource,
     conv: string,
     hits: BuddyMsgFtsHit[],
+    originals: Map<bigint, C2cMsg | GroupMsg>,
   ): Promise<ConversationRecordHit[]> {
     const uids = [...new Set(hits.map((h) => h.senderUid).filter(Boolean))];
     const uinByUid = new Map<string, bigint>();
     const nameByUid = new Map<string, string>();
+    // 原消息行自带 senderUin（40033），比 FTS 后反查更可靠（含退群/换号场景）。
+    for (const h of hits) {
+      const orig = originals.get(h.msgId);
+      if (orig && orig.senderUin > 0n) uinByUid.set(h.senderUid, orig.senderUin);
+    }
     if (source === 'group') {
       // 群消息：发送者是群成员，批量查 group_member3 拿 uin + 群名片/昵称。
       const members = await this.session.groupMembers.getMembersByUids(BigInt(conv), uids);
@@ -390,7 +442,21 @@ export class UnifiedSearchService {
     }
     return hits.map((h) => {
       const uin = uinByUid.get(h.senderUid);
-      return rowToRecordHit(h, uin ? uin.toString() : '0', nameByUid.get(h.senderUid) ?? '');
+      const orig = originals.get(h.msgId);
+      const rendered = orig ? toRenderElements(orig.elements) : undefined;
+      return rowToRecordHit(
+        h,
+        uin ? uin.toString() : '0',
+        nameByUid.get(h.senderUid) ?? '',
+        orig ? originalContentText(rendered!, h.content) : h.content,
+        orig
+          ? {
+              elements: rendered!,
+              setEmojiList: source === 'group' ? (orig as GroupMsg).setEmojiList : undefined,
+              decoration: orig.decoration,
+            }
+          : undefined,
+      );
     });
   }
 
@@ -580,6 +646,12 @@ function rowToRecordHit(
   h: BuddyMsgFtsHit,
   senderUin = '0',
   senderName = '',
+  content = h.content,
+  original?: {
+    elements: RenderElement[];
+    setEmojiList?: SetEmojiItem[];
+    decoration?: MsgDecoration;
+  },
 ): ConversationRecordHit {
   return {
     msgId: h.msgId.toString(),
@@ -588,8 +660,32 @@ function rowToRecordHit(
     senderUin,
     senderName,
     sendTime: h.sendTime.toString(),
-    content: h.content,
+    content,
+    ...(original
+      ? {
+          elements: original.elements,
+          ...(original.setEmojiList ? { setEmojiList: original.setEmojiList } : {}),
+          ...(original.decoration ? { decoration: original.decoration } : {}),
+        }
+      : {}),
   };
+}
+
+/**
+ * Flatten original-message render elements to display text. Falls back to the
+ * FTS text when the body renders empty, or when it renders as only a bare
+ * media/forward label (`[合并转发]` / `[卡片消息]` …): QQ's FTS column (41701)
+ * carries the expanded forward text / card body there, so it is more complete.
+ */
+function originalContentText(elements: RenderElement[], ftsText: string): string {
+  const text = elementsToText(elements).trim();
+  if (!text) return ftsText;
+  return isBareLabel(text) && ftsText.trim() ? ftsText : text;
+}
+
+/** A bracketed media label like `[图片]` — no readable text beyond the tag. */
+function isBareLabel(text: string): boolean {
+  return /^\[[^[\]]+\]$/.test(text.trim());
 }
 
 /** trigram tokenizer only matches 3+ character substrings. */

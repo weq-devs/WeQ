@@ -14516,6 +14516,15 @@ html[data-theme="dark"] .essence-message-placeholder {
   border-top: 1px solid rgba(0, 0, 0, 0.04);
 }
 
+/* 原消息气泡行：整条消息按真实气泡渲染（不区分发送者左右），hover 仍可点击跳转。 */
+.weq-chatrecords-msg.is-bubble {
+  display: block;
+  padding: 6px 10px;
+}
+.weq-chatrecords-msg.is-bubble .message-line {
+  gap: 8px;
+}
+
 .weq-chatrecords-msg-avatar {
   flex: 0 0 auto;
   width: 36px;

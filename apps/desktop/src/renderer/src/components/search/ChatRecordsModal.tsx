@@ -1,12 +1,19 @@
 /** Chat-record modal: left = matched conversations, right = their matching messages. */
 
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { X } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { SearchListSkeleton } from './SearchSkeleton';
 import { c2cAvatarSrc, groupAvatarSrc, highlightText } from './SearchResultCard';
 import type { ChatRecordSearchHit, ConversationRecordHit, MoreSearchResult } from './types';
 import { client } from '../../trpc/client';
+import { ConvContext, ForwardKindContext, ReplyJumpContext } from '../QqMessageContent';
+import { MessageBubble } from '../../im-template/template/messageBubble';
+import { displayUserName } from '../../im-template/template/user';
+import type { MessageRenderer } from '../../im-template/template/messageRenderers';
+import type { Conversation, Message, User } from '../../im-template/template/types';
+
+const noop = (): void => {};
 
 export function ChatRecordsModal({
   initialHit,
@@ -14,6 +21,7 @@ export function ChatRecordsModal({
   onClose,
   onJumpMessage,
   pushToast,
+  renderers,
 }: {
   initialHit: ChatRecordSearchHit;
   initialKeyword: string;
@@ -21,6 +29,8 @@ export function ChatRecordsModal({
   /** Jump to a conversation + seq (like a file hit). */
   onJumpMessage: (hit: { source: 'buddy' | 'group'; targetUid: string; msgSeq: string }) => void;
   pushToast: (t: { tone: 'info'; title: string }) => void;
+  /** The same message renderers the chat pane uses (qqMessageRenderer etc.). */
+  renderers?: MessageRenderer[];
 }): ReactElement {
   const [keyword, setKeyword] = useState(initialKeyword);
   const [conversations, setConversations] = useState<ChatRecordSearchHit[]>([]);
@@ -33,6 +43,9 @@ export function ChatRecordsModal({
   const convRunRef = useRef(0);
   const msgRunRef = useRef(0);
   const msgScrollRef = useRef<HTMLDivElement | null>(null);
+
+  // A minimal conversation view for the selected hit — enough for MessageBubble.
+  const conversation = useMemo(() => (selected ? conversationFromHit(selected) : null), [selected]);
 
   // Fetch the conversation ranking for the current keyword.
   useEffect(() => {
@@ -126,10 +139,23 @@ export function ChatRecordsModal({
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 120) {
       void loadMoreMessages();
     }
-  }, [messages.length, msgTotal, msgLoading, msgLoadingMore, loadMoreMessages]);
+  }, [loadMoreMessages, msgLoading, msgLoadingMore, messages.length, msgTotal]);
+
+  const jumpTo = useCallback(
+    (msg: ConversationRecordHit) => {
+      if (!selected) return;
+      // 跳转进会话时自动关闭聊天记录模态。
+      onJumpMessage({ source: selected.source, targetUid: selected.targetUid, msgSeq: msg.msgSeq });
+      onClose();
+    },
+    [onJumpMessage, onClose, selected],
+  );
+
+  const isGroup = selected?.source === 'group';
+  const convKey = isGroup && selected ? selected.targetUid : '';
 
   return (
-    <Modal onClose={onClose} labelledBy="weq-chatrecords-title" width={960}>
+    <Modal onClose={onClose} width={960} labelledBy="weq-chatrecords-title">
       <div className="weq-chatrecords">
         <div className="weq-chatrecords-head">
           <h3 id="weq-chatrecords-title" className="weq-search-more-title">
@@ -169,65 +195,187 @@ export function ChatRecordsModal({
             )}
           </div>
           <div className="weq-chatrecords-msgs" ref={msgScrollRef} onScroll={onMsgScroll}>
-            {msgLoading ? (
-              <SearchListSkeleton rows={4} />
-            ) : messages.length === 0 ? (
-              <div className="weq-search-empty">没有找到相关消息</div>
-            ) : (
-              <>
-                {messages.map((msg) => {
-                  const isGroup = selected?.source === 'group';
-                  return (
-                    <button
-                      type="button"
-                      key={msg.msgId}
-                      className="weq-chatrecords-msg"
-                      onClick={() => {
-                        if (!selected) return;
-                        // 跳转进会话时自动关闭聊天记录模态。
-                        onJumpMessage({
-                          source: selected.source,
-                          targetUid: selected.targetUid,
-                          msgSeq: msg.msgSeq,
-                        });
-                        onClose();
-                      }}
-                    >
-                      <img
-                        className="weq-chatrecords-msg-avatar"
-                        src={
-                          msg.senderUin && msg.senderUin !== '0'
-                            ? (c2cAvatarSrc(msg.senderUin) ?? undefined)
-                            : isGroup
-                              ? (groupAvatarSrc(selected?.targetUid ?? '') ?? undefined)
-                              : (c2cAvatarSrc(selected?.targetUin ?? '') ?? undefined)
+            <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
+              <ConvContext.Provider value={convKey}>
+                <ReplyJumpContext.Provider value={noop}>
+                  {msgLoading ? (
+                    <SearchListSkeleton rows={4} />
+                  ) : messages.length === 0 ? (
+                    <div className="weq-search-empty">没有找到相关消息</div>
+                  ) : (
+                    <>
+                      {messages.map((msg) => {
+                        // 能取到原消息 40800 正文的，渲染真实气泡；找不到的回退纯文本行。
+                        if (msg.elements?.length && conversation) {
+                          const sender = senderUserFromHit(msg);
+                          const message = messageFromHit(msg, conversation);
+                          return (
+                            <div
+                              key={msg.msgId}
+                              className="weq-chatrecords-msg is-bubble"
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => jumpTo(msg)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.preventDefault();
+                                  jumpTo(msg);
+                                }
+                              }}
+                              title="点击跳转到该消息"
+                            >
+                              <MessageBubble
+                                message={message}
+                                conversation={conversation}
+                                sender={sender}
+                                mine={false}
+                                senderName={displayUserName(sender)}
+                                senderAvatarUrl={sender.avatarUrl}
+                                senderSeed={sender.identityValue}
+                                senderKind={sender.kind}
+                                showSenderName
+                                active={false}
+                                renderers={renderers}
+                                onContextMenu={noop}
+                                onLongPress={noop}
+                              />
+                            </div>
+                          );
                         }
-                        alt=""
-                        loading="lazy"
-                      />
-                      <span className="weq-chatrecords-msg-text">
-                        <span className="weq-chatrecords-msg-meta">
-                          {msg.senderName ? `${msg.senderName} · ` : ''}
-                          {formatTime(msg.sendTime)} · seq {msg.msgSeq}
-                        </span>
-                        <span className="weq-chatrecords-msg-content">
-                          {highlightText(msg.content, keyword.trim())}
-                        </span>
-                      </span>
-                    </button>
-                  );
-                })}
-                {msgLoadingMore ? <SearchListSkeleton rows={2} /> : null}
-                {messages.length >= msgTotal && messages.length > 0 ? (
-                  <div className="weq-search-more-end">没有更多了</div>
-                ) : null}
-              </>
-            )}
+                        return (
+                          <button
+                            type="button"
+                            key={msg.msgId}
+                            className="weq-chatrecords-msg"
+                            onClick={() => jumpTo(msg)}
+                          >
+                            <img
+                              className="weq-chatrecords-msg-avatar"
+                              src={
+                                msg.senderUin && msg.senderUin !== '0'
+                                  ? (c2cAvatarSrc(msg.senderUin) ?? undefined)
+                                  : isGroup
+                                    ? (groupAvatarSrc(selected?.targetUid ?? '') ?? undefined)
+                                    : (c2cAvatarSrc(selected?.targetUin ?? '') ?? undefined)
+                              }
+                              alt=""
+                              loading="lazy"
+                            />
+                            <span className="weq-chatrecords-msg-text">
+                              <span className="weq-chatrecords-msg-meta">
+                                {msg.senderName ? `${msg.senderName} · ` : ''}
+                                {formatTime(msg.sendTime)} · seq {msg.msgSeq}
+                              </span>
+                              <span className="weq-chatrecords-msg-content">
+                                {highlightText(msg.content, keyword.trim())}
+                              </span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                      {msgLoadingMore ? <SearchListSkeleton rows={2} /> : null}
+                      {messages.length >= msgTotal && messages.length > 0 ? (
+                        <div className="weq-search-more-end">没有更多了</div>
+                      ) : null}
+                    </>
+                  )}
+                </ReplyJumpContext.Provider>
+              </ConvContext.Provider>
+            </ForwardKindContext.Provider>
           </div>
         </div>
       </div>
     </Modal>
   );
+}
+
+/** Build a sender User from the search hit's resolved identity. */
+function senderUserFromHit(hit: ConversationRecordHit): User {
+  const uin = hit.senderUin && hit.senderUin !== '0' ? hit.senderUin : '';
+  return {
+    id: hit.senderUid || `sender:${uin}`,
+    identityLabel: uin ? 'QQ' : 'UID',
+    identityValue: uin || hit.senderUid,
+    username: hit.senderUid || uin,
+    displayName: hit.senderName || uin || hit.senderUid || '成员',
+    avatarUrl: uin ? c2cAvatarSrc(uin) : null,
+    kind: 'human',
+  };
+}
+
+/** A minimal Conversation view for the target hit — enough for MessageBubble. */
+function conversationFromHit(hit: ChatRecordSearchHit): Conversation {
+  if (hit.source === 'group') {
+    const code = hit.targetUid;
+    return {
+      type: 'group',
+      id: `group:${code}`,
+      updatedAt: '',
+      unreadCount: 0,
+      lastMessage: null,
+      otherUser: null,
+      group: {
+        id: code,
+        name: hit.name || code,
+        identityLabel: '群号',
+        identityValue: code,
+        avatarUrl: groupAvatarSrc(code),
+        announcement: null,
+        memberCount: 0,
+        role: 'member',
+      },
+      members: [],
+    } as unknown as Conversation;
+  }
+  const uin = hit.targetUin && hit.targetUin !== '0' ? hit.targetUin : '';
+  const otherUser: User = {
+    id: hit.targetUid || `peer:${uin}`,
+    identityLabel: uin ? 'QQ' : 'UID',
+    identityValue: uin || hit.targetUid,
+    username: hit.targetUid || uin,
+    displayName: hit.name || uin || hit.targetUid || '对方',
+    avatarUrl: uin ? c2cAvatarSrc(uin) : null,
+  };
+  return {
+    type: 'direct',
+    id: `c2c:${hit.targetUid}`,
+    updatedAt: '',
+    unreadCount: 0,
+    lastMessage: null,
+    otherUser,
+    group: null,
+    members: [],
+  } as unknown as Conversation;
+}
+
+/** Build the template Message the bubble renders from a search hit. */
+function messageFromHit(hit: ConversationRecordHit, conversation: Conversation): Message {
+  const sender = senderUserFromHit(hit);
+  return {
+    id: hit.msgId,
+    conversationId: conversation.id,
+    senderId: sender.id,
+    sender,
+    body: hit.content,
+    createdAt: toIsoTime(hit.sendTime),
+    qqElements: hit.elements ?? [],
+    ...(hit.setEmojiList ? { setEmojiList: hit.setEmojiList } : {}),
+    ...(hit.decoration ? { decoration: hit.decoration } : {}),
+    msgId: hit.msgId,
+    msgSeq: hit.msgSeq,
+  } as Message & {
+    qqElements: unknown[];
+    setEmojiList?: unknown;
+    msgId: string;
+    msgSeq: string;
+    decoration?: unknown;
+  };
+}
+
+function toIsoTime(seconds: string): string {
+  const secs = Number(seconds);
+  if (!Number.isFinite(secs) || secs <= 0) return new Date(0).toISOString();
+  return new Date(secs * 1000).toISOString();
 }
 
 function formatTime(sendTimeSeconds: string): string {

@@ -88,7 +88,18 @@ export interface ConversationRecordHit {
   /** Sender display name (group card/nick, '' when unknown). */
   senderName: string;
   sendTime: string;
+  /**
+   * 展示文本：原消息元素压平后的文本；找不到原消息行时是 FTS 纯文本。
+   */
   content: string;
+  /**
+   * 原消息渲染视图元素（能找到原 40800 正文时才有），有它前端就渲染真实气泡。
+   */
+  elements?: unknown[];
+  /** 群消息贴表情（列 40062）。 */
+  setEmojiList?: unknown[];
+  /** 单条消息装扮（列 40801）。 */
+  decoration?: unknown;
 }
 
 /** Category display metadata. */

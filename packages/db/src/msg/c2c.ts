@@ -278,6 +278,26 @@ export class C2cMsgDb {
   }
 
   /**
+   * Fetch full rows by msgSeq (40003) within ONE partition (40027), so the
+   * query hits the (40027,40003) composite index. Used to resolve FTS search
+   * hits back to their original 40800 bodies: the FTS rows carry the same
+   * 40027 partition + 40003 seq, so the join never leaves the partition.
+   * Empty input short-circuits to [].
+   */
+  async listBySeqsInPartition(part: C2cPartition, seqs: bigint[]): Promise<C2cMsg[]> {
+    if (seqs.length === 0) return [];
+    const { clause, value } = partitionWhere(part);
+    const placeholders = seqs.map(() => '?').join(',');
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM ${this.table}
+        WHERE ${clause} AND "40003" IN (${placeholders})
+        ${ORDER_NEWEST_FIRST}`,
+      [value, ...seqs],
+    );
+    return rows.map(rowToC2cMsg);
+  }
+
+  /**
    * All rows for one peer carrying the `(1,1)` deleted signature (40011=1 &
    * 40012=1), newest-first. Covers BOTH WeQ's own deletes and QQ's native
    * recalls — the caller splits them via the DeletedMsgStore. Lets the "deleted
