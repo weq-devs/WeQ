@@ -5,11 +5,7 @@ import { X } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { SearchListSkeleton } from './SearchSkeleton';
 import { c2cAvatarSrc, groupAvatarSrc, highlightText } from './SearchResultCard';
-import type {
-  ChatRecordSearchHit,
-  ConversationRecordHit,
-  MoreSearchResult,
-} from './types';
+import type { ChatRecordSearchHit, ConversationRecordHit, MoreSearchResult } from './types';
 import { client } from '../../trpc/client';
 
 export function ChatRecordsModal({
@@ -186,30 +182,37 @@ export function ChatRecordsModal({
                       type="button"
                       key={msg.msgId}
                       className="weq-chatrecords-msg"
-                      onClick={() =>
-                        selected &&
+                      onClick={() => {
+                        if (!selected) return;
+                        // 跳转进会话时自动关闭聊天记录模态。
                         onJumpMessage({
                           source: selected.source,
                           targetUid: selected.targetUid,
                           msgSeq: msg.msgSeq,
-                        })
-                      }
+                        });
+                        onClose();
+                      }}
                     >
                       <img
                         className="weq-chatrecords-msg-avatar"
                         src={
-                          isGroup
-                            ? (groupAvatarSrc(selected?.targetUid ?? '') ?? undefined)
-                            : (c2cAvatarSrc(selected?.targetUin ?? '') ?? undefined)
+                          msg.senderUin && msg.senderUin !== '0'
+                            ? (c2cAvatarSrc(msg.senderUin) ?? undefined)
+                            : isGroup
+                              ? (groupAvatarSrc(selected?.targetUid ?? '') ?? undefined)
+                              : (c2cAvatarSrc(selected?.targetUin ?? '') ?? undefined)
                         }
                         alt=""
                         loading="lazy"
                       />
                       <span className="weq-chatrecords-msg-text">
                         <span className="weq-chatrecords-msg-meta">
+                          {msg.senderName ? `${msg.senderName} · ` : ''}
                           {formatTime(msg.sendTime)} · seq {msg.msgSeq}
                         </span>
-                        {highlightText(msg.content, keyword.trim())}
+                        <span className="weq-chatrecords-msg-content">
+                          {highlightText(msg.content, keyword.trim())}
+                        </span>
                       </span>
                     </button>
                   );

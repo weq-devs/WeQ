@@ -109,11 +109,12 @@ export function UnifiedSearchModal({
                   key={cardKey(hit)}
                   hit={hit}
                   keyword={keyword.trim()}
-                  onSelect={(selected) =>
-                    selected.category === 'chatRecord'
-                      ? onOpenChatRecords(selected)
-                      : onSelect(selected)
-                  }
+                  onSelect={(selected) => {
+                    // 点击结果跳转会话 / 打开聊天记录时,关闭"更多"模态。
+                    if (selected.category === 'chatRecord') onOpenChatRecords(selected);
+                    else onSelect(selected);
+                    onClose();
+                  }}
                 />
               ))}
               {loadingMore ? <SearchListSkeleton rows={2} /> : null}

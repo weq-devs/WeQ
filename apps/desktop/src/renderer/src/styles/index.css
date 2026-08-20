@@ -14421,3 +14421,82 @@ html[data-theme="dark"] .essence-message-placeholder {
   color: #94a3b8;
 }
 
+.weq-chatrecords-msg-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  word-break: break-word;
+}
+
+/* ---- 搜索模态 / 聊天记录模态 + 共用卡片的深色适配 ----
+ * `.weq-modal` 的土台是写死的白色渐变,靠容器内层铺底盖住(与 clone/persona 模态同法)。
+ * 卡片/下拉里写死的浅色文字、分隔线、骨架屏在深色下全部换成深色面配色。 */
+html[data-theme="dark"] .weq-search-more-modal,
+html[data-theme="dark"] .weq-chatrecords {
+  background:
+    radial-gradient(ellipse at 24% 0%, color-mix(in srgb, var(--weq-accent-effective) 12%, transparent), transparent 46%),
+    #171d25;
+}
+
+html[data-theme="dark"] .weq-search-more-title,
+html[data-theme="dark"] .weq-search-name,
+html[data-theme="dark"] .weq-chatrecords-conv-name {
+  color: #e8edf4;
+}
+
+html[data-theme="dark"] .weq-chatrecords-msg-text {
+  color: #cbd5e1;
+}
+
+html[data-theme="dark"] .weq-search-more-input {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--weq-fg-primary);
+}
+html[data-theme="dark"] .weq-search-more-input:focus {
+  border-color: var(--weq-accent-effective);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .weq-search-muted,
+html[data-theme="dark"] .weq-search-mono,
+html[data-theme="dark"] .weq-search-snippet,
+html[data-theme="dark"] .weq-search-empty,
+html[data-theme="dark"] .weq-search-more-total,
+html[data-theme="dark"] .weq-search-more-end,
+html[data-theme="dark"] .weq-search-section-name,
+html[data-theme="dark"] .weq-chatrecords-conv-meta,
+html[data-theme="dark"] .weq-chatrecords-msg-meta {
+  color: #94a3b8;
+}
+
+html[data-theme="dark"] .weq-search-hl,
+html[data-theme="dark"] .weq-search-strong {
+  color: #4cc2ff;
+}
+
+html[data-theme="dark"] .weq-search-avatar,
+html[data-theme="dark"] .weq-chatrecords-msg-avatar {
+  background: rgba(255, 255, 255, 0.08);
+}
+html[data-theme="dark"] .weq-search-avatar-fallback {
+  color: #94a3b8;
+}
+
+html[data-theme="dark"] .weq-search-row + .weq-search-row,
+html[data-theme="dark"] .weq-search-section + .weq-search-section,
+html[data-theme="dark"] .weq-chatrecords-msg + .weq-chatrecords-msg {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+html[data-theme="dark"] .weq-chatrecords-body {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+html[data-theme="dark"] .weq-chatrecords-convs {
+  border-right-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+html[data-theme="dark"] .weq-search-skeleton-avatar,
+html[data-theme="dark"] .weq-search-skeleton-line {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.08) 25%, rgba(255, 255, 255, 0.14) 50%, rgba(255, 255, 255, 0.08) 75%);
+  background-size: 200% 100%;
+}

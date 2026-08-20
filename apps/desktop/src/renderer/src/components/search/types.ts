@@ -83,6 +83,10 @@ export interface ConversationRecordHit {
   msgId: string;
   msgSeq: string;
   senderUid: string;
+  /** Sender QQ number ('' when unresolvable) — for the real sender avatar. */
+  senderUin: string;
+  /** Sender display name (group card/nick, '' when unknown). */
+  senderName: string;
   sendTime: string;
   content: string;
 }

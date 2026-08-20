@@ -15,7 +15,7 @@
  */
 
 import { join } from 'node:path';
-import { classifyChatType } from '@weq/codec';
+import { classifyChatType, toChatTypeNumber } from '@weq/codec';
 import { algoFor, type AccountSession } from '@weq/account';
 import { MsgSearchIndexDb, type BuddyMsgFtsHit } from '@weq/db';
 import type { NtHelperBinding } from '@weq/native';
@@ -93,6 +93,10 @@ export interface ConversationRecordHit {
   msgId: string;
   msgSeq: string;
   senderUid: string;
+  /** Sender QQ number ('' when unresolvable) — for the real sender avatar. */
+  senderUin: string;
+  /** Sender display name (group card/nick, '' when unknown). */
+  senderName: string;
   sendTime: string;
   content: string;
 }
@@ -224,7 +228,7 @@ export class UnifiedSearchService {
         category: 'conversation' as const,
         targetUid: c.targetUid,
         targetUin: c.targetUin.toString(),
-        chatType: Number(c.chatType) || 0,
+        chatType: toChatTypeNumber(c.chatType) ?? 0,
         name: c.targetDisplayName,
         typeLabel: conversationTypeLabel(c.chatType),
       })),
@@ -282,7 +286,7 @@ export class UnifiedSearchService {
             category: 'conversation' as const,
             targetUid: c.targetUid,
             targetUin: c.targetUin.toString(),
-            chatType: Number(c.chatType) || 0,
+            chatType: toChatTypeNumber(c.chatType) ?? 0,
             name: c.targetDisplayName,
             typeLabel: conversationTypeLabel(c.chatType),
           })),
@@ -355,9 +359,39 @@ export class UnifiedSearchService {
     const db = source === 'group' ? this.session.groupMsgFts : this.session.buddyMsgFts;
     const r = await db.searchInPartition(partition, needle, limit, offset);
     return {
-      items: r.items.map((h) => rowToRecordHit(h)),
+      items: await this.decorateSenders(source, conv, r.items),
       total: r.total,
     };
+  }
+
+  /** Resolve each FTS row's sender uid → uin + display name for the avatar row. */
+  private async decorateSenders(
+    source: FtsSource,
+    conv: string,
+    hits: BuddyMsgFtsHit[],
+  ): Promise<ConversationRecordHit[]> {
+    const uids = [...new Set(hits.map((h) => h.senderUid).filter(Boolean))];
+    const uinByUid = new Map<string, bigint>();
+    const nameByUid = new Map<string, string>();
+    if (source === 'group') {
+      // 群消息：发送者是群成员，批量查 group_member3 拿 uin + 群名片/昵称。
+      const members = await this.session.groupMembers.getMembersByUids(BigInt(conv), uids);
+      for (const m of members) {
+        uinByUid.set(m.uid, m.uin);
+        nameByUid.set(m.uid, m.card || m.nick || '');
+      }
+    }
+    // 兜底：曾在私聊里出现过的 uid 也能从 uid 映射表反查出 uin。
+    for (const uid of uids) {
+      if (!uinByUid.has(uid)) {
+        const uin = this.session.uidMap.uinByUid(uid);
+        if (uin) uinByUid.set(uid, uin);
+      }
+    }
+    return hits.map((h) => {
+      const uin = uinByUid.get(h.senderUid);
+      return rowToRecordHit(h, uin ? uin.toString() : '0', nameByUid.get(h.senderUid) ?? '');
+    });
   }
 
   // ------------------------------------------------------------- internals
@@ -542,11 +576,17 @@ export class UnifiedSearchService {
     };
   }
 }
-function rowToRecordHit(h: BuddyMsgFtsHit): ConversationRecordHit {
+function rowToRecordHit(
+  h: BuddyMsgFtsHit,
+  senderUin = '0',
+  senderName = '',
+): ConversationRecordHit {
   return {
     msgId: h.msgId.toString(),
     msgSeq: h.msgSeq.toString(),
     senderUid: h.senderUid,
+    senderUin,
+    senderName,
     sendTime: h.sendTime.toString(),
     content: h.content,
   };

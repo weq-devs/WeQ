@@ -103,11 +103,13 @@ async function inspectDb(
 
 async function benchmark(db: BuddyMsgFtsDb, label: string): Promise<void> {
   const table = label;
+  // biome-ignore lint/complexity/useLiteralKeys: 探测脚本需直连底层连接,qq 是 private,写成 db.qq 会报 TS2341。
+  const qq = db['qq'];
 
   // Row count (isolated — the FTS5 tokenizer must not be involved here).
   try {
     const t0 = performance.now();
-    const countRows = await db['qq'].query(`SELECT COUNT(*) FROM ${table}`);
+    const countRows = await qq.query(`SELECT COUNT(*) FROM ${table}`);
     console.log(
       `  [count] ${Number(countRows[0]?.[0] ?? 0)} rows in ${(performance.now() - t0).toFixed(0)}ms`,
     );
@@ -118,7 +120,7 @@ async function benchmark(db: BuddyMsgFtsDb, label: string): Promise<void> {
   // Does the keyword exist at all? Full scan COUNT (worst case for LIKE).
   try {
     const t1 = performance.now();
-    const scanRows = await db['qq'].query(
+    const scanRows = await qq.query(
       `SELECT COUNT(*) FROM ${table} WHERE ("41701" LIKE ? ESCAPE '\\' OR "41702" LIKE ? ESCAPE '\\')`,
       [`%${KEYWORD}%`, `%${KEYWORD}%`],
     );
@@ -154,7 +156,7 @@ async function benchmark(db: BuddyMsgFtsDb, label: string): Promise<void> {
   // Probe the FTS5 virtual table (QQ's own pinyin_letter tokenizer).
   try {
     const t3 = performance.now();
-    const fts = await db['qq'].query(
+    const fts = await qq.query(
       `SELECT COUNT(*) FROM ${table}_fts WHERE ${table}_fts MATCH ?`,
       [KEYWORD],
     );
@@ -167,13 +169,13 @@ async function benchmark(db: BuddyMsgFtsDb, label: string): Promise<void> {
 
   // 40027 stats + indexes.
   try {
-    const d27 = await db['qq'].query(
+    const d27 = await qq.query(
       `SELECT COUNT(DISTINCT "40027") AS d, COUNT("40027") AS n, MIN("40027") AS lo, MAX("40027") AS hi FROM ${table}`,
     );
     console.log(
       `  [col 40027] distinct=${d27[0]?.[0]} nonNull=${d27[0]?.[1]} range=[${d27[0]?.[2]}..${d27[0]?.[3]}]`,
     );
-    const idx = await db['qq'].query(`PRAGMA index_list("${table}")`);
+    const idx = await qq.query(`PRAGMA index_list("${table}")`);
     for (const r of idx) {
       console.log(
         `  [pragma index] seq=${r[0]} name=${r[1]} unique=${r[2]} origin=${r[3]} partial=${r[4]}`,
