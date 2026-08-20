@@ -2173,6 +2173,45 @@ export const accountRouter = router({
       }
     }),
 
+  // ---- QQ 闪传分享链接 ----
+
+  /**
+   * 用闪传卡片的 filesetId 换一次分享链接（OIDB 0x93d3_1，需在线 QQ 发包）。
+   * 失败不 throw —— 返回结构化结果，让前端区分「QQ 未在线」/「换取失败」。
+   */
+  getFlashShareLink: procedure
+    .input(z.object({ fileSetId: z.string().min(1) }))
+    .mutation(
+      async ({
+        input,
+      }): Promise<
+        | { ok: true; shareUrl: string }
+        | { ok: false; reason: 'offline' | 'error'; message?: string }
+      > => {
+        const ctx = getAppContext();
+        const services = requireServices();
+        const uin = ctx.account?.context.uin;
+        const nt = ctx.platform?.native.ntHelper;
+        const record = services.accountConfig.getRecord();
+        if (!uin || !nt || !record?.qqOnline || !record.qqPid) {
+          return { ok: false, reason: 'offline' };
+        }
+        try {
+          await ctx.bootstrap?.injectHook.ensure(record.qqPid, uin);
+          const shareUrl = await services.flashTransfer.getShareLink(input.fileSetId);
+          if (!shareUrl) {
+            return { ok: false, reason: 'error', message: '没有拿到分享链接（文件可能已过期）' };
+          }
+          return { ok: true, shareUrl };
+        } catch (error) {
+          return {
+            ok: false,
+            reason: 'error',
+            message: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+    ),
   // ---- group album ----
 
   /** List group albums via Qzone web CGI. Requires online QQ + fresh ClientKey. */

@@ -7987,6 +7987,7 @@ html[data-theme="dark"] .weq-dynamic-footer {
 }
 
 .weq-flash-card {
+  position: relative;
   width: 275px;
   max-width: 100%;
   background: #ffffff;
@@ -8028,6 +8029,121 @@ html[data-theme="dark"] .weq-dynamic-footer {
 .weq-flash-divider { height: 1px; background-color: #f2f3f5; margin: 12px 0 8px 0; }
 .weq-flash-footer { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #909094; }
 .weq-flash-tail-icon { width: 12px; height: 12px; border-radius: 2px; object-fit: cover; }
+/* 点击换取分享链接时卡片上的轻量加载遮罩 */
+.weq-flash-opening {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+/* ================= 闪传分享弹窗（竖屏小窗口 + 干净头部） ================= */
+.weq-flash-share {
+  display: flex;
+  flex-direction: column;
+  width: 430px;
+  height: 640px;
+  max-height: calc(100vh - 3rem);
+  background: #ffffff;
+}
+.weq-flash-share-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 0.75rem 0.65rem 1rem;
+  border-bottom: 1px solid #eef0f2;
+  background: #fbfcfd;
+}
+.weq-flash-share-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f1f1f;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.weq-flash-share-close {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: #8a8f99;
+  cursor: pointer;
+}
+.weq-flash-share-close:hover {
+  background: #eef0f2;
+  color: #1f1f1f;
+}
+.weq-flash-share-body {
+  display: flex;
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: #ffffff;
+}
+.weq-flash-share-webview {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  border: none;
+}
+.weq-flash-share-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  color: #909094;
+  background: #ffffff;
+}
+.weq-flash-share-error {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  padding: 1rem;
+  text-align: center;
+  font-size: 13px;
+  color: #909094;
+}
+
+/* 闪传弹窗深色模式：nativeTheme.themeSource 会随应用主题驱动
+ * prefers-color-scheme，故媒体查询即可跟随深浅色切换。 */
+@media (prefers-color-scheme: dark) {
+  .weq-flash-share {
+    background: #171d25;
+  }
+  .weq-flash-share-head {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+    background: #1b222c;
+  }
+  .weq-flash-share-title {
+    color: #e8ecf1;
+  }
+  .weq-flash-share-close {
+    color: #8a94a6;
+  }
+  .weq-flash-share-close:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #f2f5f8;
+  }
+  .weq-flash-share-body {
+    background: #171d25;
+  }
+  .weq-flash-share-loading {
+    color: #8a94a6;
+    background: #171d25;
+  }
+  .weq-flash-share-error {
+    color: #8a94a6;
+  }
+}
 
 /* ================= 通话记录 (语音 / 视频 / 屏幕共享 / 远程协作) ================= */
 /* Rendered as an INLINE icon+text inside the message's normal bubble — no

@@ -21,8 +21,12 @@
  *     文件的标准格式做保底默认显示").
  */
 
-import { useMemo, type ReactElement } from 'react';
+import { useMemo, useState, type ReactElement } from 'react';
+import { Loader2 } from 'lucide-react';
 import { cachedAvatarUrl } from '../lib/avatarCache';
+import { FlashShareDialog } from './FlashShareDialog';
+import { useToast } from './Toast';
+import { client } from '../trpc/client';
 
 // ---- parsing (ported from the demo) --------------------------------------
 
@@ -142,46 +146,105 @@ export function QqFlashTransfer({
   info: unknown;
 }): ReactElement | null {
   const view = useMemo(() => parseFlashTransfer(markdownContent), [markdownContent]);
+  const pushToast = useToast((s) => s.push);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [opening, setOpening] = useState(false);
   if (!view) return null;
 
-  const desc = view.descText || buildDesc(info as Record<string, unknown> | undefined);
+  const infoObj = (info ?? {}) as Record<string, unknown>;
+  const fileSetId = typeof infoObj.fileSetId === 'string' ? (infoObj.fileSetId as string) : '';
+  const desc = view.descText || buildDesc(infoObj);
   const cover = view.coverImg ? cachedAvatarUrl(view.coverImg) ?? view.coverImg : '';
   const fallbackCover = view.failedSrc ? cachedAvatarUrl(view.failedSrc) ?? view.failedSrc : '';
   const tailIcon = view.tailIcon ? cachedAvatarUrl(view.tailIcon) ?? view.tailIcon : '';
 
+  /** 点击卡片：有在线实例就换一次分享链接，成功后在弹窗里打开。 */
+  async function handleOpen(): Promise<void> {
+    if (opening) return;
+    if (!fileSetId) {
+      pushToast({ tone: 'warning', message: '这条闪传消息缺少 filesetId，无法换取分享链接' });
+      return;
+    }
+    setOpening(true);
+    try {
+      const res = await client.account.getFlashShareLink.mutate({ fileSetId });
+      if (!res.ok) {
+        if (res.reason === 'offline') {
+          pushToast({ tone: 'warning', message: 'QQ 未在线，无法获取闪传分享链接' });
+        } else {
+          pushToast({ tone: 'error', message: '获取闪传分享链接失败', detail: res.message });
+        }
+        return;
+      }
+      setShareUrl(res.shareUrl);
+    } catch (error) {
+      pushToast({
+        tone: 'error',
+        message: '获取闪传分享链接失败',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setOpening(false);
+    }
+  }
+
   return (
-    <div className="weq-flash-card">
-      <div className="weq-flash-media-box">
-        {cover ? (
-          <img
-            className="weq-flash-cover"
-            src={cover}
-            alt=""
-            loading="lazy"
-            // 加载失败回退到 JSON 里给的 failedSrc 默认封面（dataset 标志位防止死循环）。
-            onError={
-              fallbackCover
-                ? (e) => {
-                    const img = e.currentTarget;
-                    if (img.dataset.fb !== '1') {
-                      img.dataset.fb = '1';
-                      img.src = fallbackCover;
+    <>
+      <div
+        className="weq-flash-card"
+        role="button"
+        tabIndex={0}
+        title="点击查看闪传分享"
+        onClick={() => void handleOpen()}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            void handleOpen();
+          }
+        }}
+      >
+        <div className="weq-flash-media-box">
+          {cover ? (
+            <img
+              className="weq-flash-cover"
+              src={cover}
+              alt=""
+              loading="lazy"
+              // 加载失败回退到 JSON 里给的 failedSrc 默认封面（dataset 标志位防止死循环）。
+              onError={
+                fallbackCover
+                  ? (e) => {
+                      const img = e.currentTarget;
+                      if (img.dataset.fb !== '1') {
+                        img.dataset.fb = '1';
+                        img.src = fallbackCover;
+                      }
                     }
-                  }
-                : undefined
-            }
-          />
+                  : undefined
+              }
+            />
+          ) : null}
+        </div>
+        <div className="weq-flash-content">
+          <div className="weq-flash-title">{view.title}</div>
+          <div className="weq-flash-desc">{desc}</div>
+          <div className="weq-flash-divider" />
+          <div className="weq-flash-footer">
+            {tailIcon ? (
+              <img className="weq-flash-tail-icon" src={tailIcon} alt="" loading="lazy" />
+            ) : null}
+            <span>{view.tailText}</span>
+          </div>
+        </div>
+        {opening ? (
+          <div className="weq-flash-opening">
+            <Loader2 size={18} strokeWidth={1.9} className="weq-spin" aria-hidden />
+          </div>
         ) : null}
       </div>
-      <div className="weq-flash-content">
-        <div className="weq-flash-title">{view.title}</div>
-        <div className="weq-flash-desc">{desc}</div>
-        <div className="weq-flash-divider" />
-        <div className="weq-flash-footer">
-          {tailIcon ? <img className="weq-flash-tail-icon" src={tailIcon} alt="" loading="lazy" /> : null}
-          <span>{view.tailText}</span>
-        </div>
-      </div>
-    </div>
+      {shareUrl ? (
+        <FlashShareDialog title={view.title} url={shareUrl} onClose={() => setShareUrl(null)} />
+      ) : null}
+    </>
   );
 }

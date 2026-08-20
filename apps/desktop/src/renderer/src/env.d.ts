@@ -20,6 +20,9 @@ interface Window {
         { name: string; value: string; domain?: string; path?: string }[]
       >;
     };
+    flashShare: {
+      setTheme(theme: 'system' | 'light' | 'dark'): Promise<boolean>;
+    };
     weqAssistant: {
       setTheme(theme: { accent: string; mode: 'light' | 'dark' }): Promise<boolean>;
     };

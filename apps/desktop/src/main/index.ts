@@ -24,6 +24,7 @@ import { registerWeqAssistantIpc } from './weq_assistant/ipc';
 import { disposeExternalMcp } from './mcp/external';
 import { registerChannelIpc } from './channel';
 import { registerQzoneIpc } from './qzone';
+import { registerFlashShareIpc } from './flash_share';
 import { setMainWindow } from './main_window';
 import { registerPtraceHintIpc } from './ptrace_hint_ipc';
 import {
@@ -526,6 +527,7 @@ void app.whenReady().then(async () => {
   registerCaptureIpc();
   registerChannelIpc();
   registerQzoneIpc();
+  registerFlashShareIpc();
   registerWeqAssistantIpc();
   registerPtraceHintIpc();
 
