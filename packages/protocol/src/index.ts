@@ -16,6 +16,7 @@
  *   oidb/get-user-qq-level.ts    — GetUserQqLevel (0xFE1_2, 只查 QQ 等级)。
  *   oidb/get-qq-show-url.ts      — GetQqShowUrl (0xFE1_3, QQ 秀 URL)。
  *   oidb/get-profile-like.ts     — GetProfileLike (0x7ED_12, 资料卡赞/收藏数)。
+ *   oidb/send-tuwen-ark.ts       — SendTuwenArk (0xdc2_34, 图文 Ark 卡片发送)。
  *   scupdate/            — 个性装扮资源(气泡/字体)的下载地址获取(见该目录 index)。
  *   highway/             — 闪传/富媒体传输层(流式哈希 + sliceupload 直传)。
  *   oidb/flashtransfer/  — 闪传 fileset OIDB 服务 + 上传编排。
@@ -52,6 +53,8 @@ export { GetQqShowUrl } from './oidb/get-qq-show-url';
 export type { QqShowInfo } from './oidb/get-qq-show-url';
 export { GetProfileLike } from './oidb/get-profile-like';
 export type { LikeInfo, InteractionCounts } from './oidb/get-profile-like';
+export { SendTuwenArk } from './oidb/send-tuwen-ark';
+export type { SendTuwenArkParams } from './oidb/send-tuwen-ark';
 
 export * from './scupdate';
 export * from './highway';
