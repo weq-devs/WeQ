@@ -159,3 +159,30 @@ body.is-resizing-composer * {
 	white-space: nowrap;
 	border: 0;
 }
+
+/* ---- skeleton 骨架屏公共变量与 shimmer 动画 ---- */
+:root {
+	--im-skel-base: rgba(0, 0, 0, 0.055);
+	--im-skel-glow: rgba(0, 0, 0, 0.1);
+}
+
+html[data-theme="dark"] {
+	--im-skel-base: rgba(255, 255, 255, 0.07);
+	--im-skel-glow: rgba(255, 255, 255, 0.13);
+}
+
+@keyframes weq-skeleton-shimmer {
+	from { background-position: -160% 0; }
+	to { background-position: 260% 0; }
+}
+
+.skel-block {
+	background: linear-gradient(
+		100deg,
+		var(--im-skel-base) 25%,
+		var(--im-skel-glow) 50%,
+		var(--im-skel-base) 75%
+	);
+	background-size: 200% 100%;
+	animation: weq-skeleton-shimmer 1.3s ease-in-out infinite;
+}

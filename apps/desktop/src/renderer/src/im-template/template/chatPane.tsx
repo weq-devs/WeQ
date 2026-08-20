@@ -72,7 +72,7 @@ import { filterMentionMembers, mentionText } from "./mentions";
 import { MessageTimeDivider, shouldShowMessageTime } from "./messageTime";
 import { MessageGapDivider, messageGapCount } from "./messageGap";
 import { defaultConversationPreference } from "./preferences";
-import { Avatar, EmptyState, LoadingState } from "./primitives";
+import { Avatar, ChatMessagesSkeleton, EmptyState } from "./primitives";
 import type {
 	Conversation,
 	ConversationPreference,
@@ -1536,7 +1536,7 @@ export function ChatPane({
 				onScroll={handleMessageScroll}
 			>
 				{loading ? (
-					<LoadingState />
+					<ChatMessagesSkeleton />
 				) : visibleMessages.length === 0 ? (
 					<EmptyState title="还没有消息" body="发出第一条消息。" icon={<MessageSquareText />} />
 				) : (

@@ -3490,6 +3490,16 @@ export function MainView(): ReactElement {
   }
 
   // 独占整个内容区、不要左侧列表的视图（含主页）。
+  // 数据量大时列表查询耗时明显，侧边栏先用 skeleton 占位。
+  const sidebarLoading =
+    shell.view === 'messages'
+      ? contacts.isLoading || allGroups.isLoading
+      : shell.view === 'contacts'
+        ? shell.contactTab === 'friends'
+          ? buddies.isLoading || profiles.isLoading
+          : allGroups.isLoading
+        : false;
+
   const fullBleedView =
     shell.view === 'home' ||
     shell.view === 'export' ||
@@ -3553,6 +3563,7 @@ export function MainView(): ReactElement {
                     conversationPrefs={conversationPrefs}
                     drafts={emptyDrafts}
                     contacts={buddyContacts}
+                    loading={sidebarLoading}
                     query={shell.query}
                     onSelectConversation={handleSelectConversation}
                     onSelectContact={shell.selectContact}

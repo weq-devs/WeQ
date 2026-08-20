@@ -31,6 +31,7 @@ export function ChatSidebarContent({
   drafts,
   contacts,
   query,
+  loading,
   onSelectConversation,
   onSelectContact,
   onSelectGroup,
@@ -49,6 +50,7 @@ export function ChatSidebarContent({
   drafts: ConversationDrafts;
   contacts: Contact[];
   query: string;
+  loading?: boolean;
   onSelectConversation: (conversationId: string, event?: React.MouseEvent) => void;
   onSelectContact: (contact: Contact) => void;
   onSelectGroup: (conversationId: string, event?: React.MouseEvent) => void;
@@ -64,6 +66,7 @@ export function ChatSidebarContent({
         preferences={conversationPrefs}
         drafts={drafts}
         user={user}
+        loading={loading}
         onSelect={onSelectConversation}
       />
     );
@@ -86,6 +89,7 @@ export function ChatSidebarContent({
         <ContactList
           contacts={contacts}
           activeContactId={selectedContactId}
+          loading={loading}
           onSelect={onSelectContact}
         />
       );
@@ -95,6 +99,7 @@ export function ChatSidebarContent({
       <GroupList
         conversations={conversations}
         activeConversationId={selectedGroupConversationId}
+        loading={loading}
         onSelect={onSelectGroup}
       />
     );

@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { cn } from './classNames';
-import { Avatar, EmptyState } from './primitives';
+import { Avatar, EmptyState, ListSkeleton } from './primitives';
 import { isBotConversation } from './conversationDisplay';
 import { messageMentionsUser } from './mentions';
 import { resourceUrl } from '../../lib/resourceUrl';
@@ -42,6 +42,7 @@ export function ConversationList({
   drafts,
   user,
   onSelect,
+  loading,
 }: {
   conversations: Conversation[];
   activeConversationId: string | null;
@@ -49,6 +50,7 @@ export function ConversationList({
   drafts: ConversationDrafts;
   user?: User;
   onSelect: (conversationId: string, event?: React.MouseEvent) => void;
+  loading?: boolean;
 }) {
   const filtered = useMemo(() => {
     // 置顶会话排最前。sort 是稳定的，所以 MainView 已排好的置顶时间（41103）
@@ -58,6 +60,10 @@ export function ConversationList({
         Number(isPinned(second, preferences)) - Number(isPinned(first, preferences)),
     );
   }, [conversations, preferences]);
+
+  if (loading) {
+    return <ListSkeleton rows={9} />;
+  }
 
   if (filtered.length === 0) {
     return <EmptyState title="暂无会话" body="从联系人开始一段聊天。" icon={<MessageSquare />} />;
@@ -189,14 +195,20 @@ export function GroupList({
   conversations,
   activeConversationId,
   onSelect,
+  loading,
 }: {
   conversations: Conversation[];
   activeConversationId: string | null;
   onSelect: (conversationId: string, event?: React.MouseEvent) => void;
+  loading?: boolean;
 }) {
   const groups = useMemo(() => {
     return conversations.filter((conversation) => conversation.type === 'group');
   }, [conversations]);
+
+  if (loading) {
+    return <ListSkeleton rows={9} />;
+  }
 
   if (groups.length === 0) {
     return <EmptyState title="暂无群聊" body="从左上角 + 创建一个群聊。" icon={<Users />} />;
@@ -231,10 +243,12 @@ export function ContactList({
   contacts,
   activeContactId,
   onSelect,
+  loading,
 }: {
   contacts: Contact[];
   activeContactId: string | null;
   onSelect: (contact: Contact) => void;
+  loading?: boolean;
 }) {
   const filtered = useMemo(() => contacts, [contacts]);
 
@@ -257,6 +271,10 @@ export function ContactList({
 
   // 默认全部折叠。
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
+
+  if (loading) {
+    return <ListSkeleton rows={9} />;
+  }
 
   if (filtered.length === 0) {
     return (
