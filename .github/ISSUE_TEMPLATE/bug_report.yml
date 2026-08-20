@@ -1,0 +1,65 @@
+name: Bug 反馈
+description: 反馈 WeQ 使用中遇到的问题（功能建议请前往 Discussions 或 QQ 交流群）
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！发起前请确认：
+
+        - 已完整阅读 [H3CoF6/WeQ](https://github.com/H3CoF6/WeQ) 的全部 issue，确认没有重复
+        - 使用的是最新版本，或最新代码的构建（`pnpm dev`）
+        - 已准备好当天的日志；UI 问题附截图；密钥问题附数据库头部 hexdump（可在「设置 → 帮助 → 反馈 bug」里一键生成）
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 反馈前检查
+      options:
+        - label: 我反馈的是一个 bug（feature 意见请删除本模板，前往 Discussions / QQ 群交流）
+          required: true
+        - label: 我已阅读全部已有 issue，确认没有重复
+          required: true
+        - label: 我使用的是最新版本或最新代码的构建
+          required: true
+        - label: 我知道错误的原因（选填）
+          required: false
+        - label: 我愿意 PR 修复（选填）
+          required: false
+
+  - type: input
+    id: system
+    attributes:
+      label: 系统版本
+      description: 操作系统 + 版本（如 Windows 11 23H2 / Ubuntu 24.04 / macOS 15）
+      placeholder: Windows 11 23H2
+    validations:
+      required: true
+
+  - type: input
+    id: weq-version
+    attributes:
+      label: weq 版本
+      description: 设置 → 全局设置 里显示的版本号，或 dev 构建的 commit
+      placeholder: 0.1.0
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 错误的功能描述
+      description: 发生了什么？贴上报错文本，附上日志 / 截图 / hexdump
+      placeholder: 详细描述你遇到的问题……
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期的功能描述
+      description: 你期望的行为是什么？
+      placeholder: 描述预期的行为……
+    validations:
+      required: true
