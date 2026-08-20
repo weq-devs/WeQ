@@ -1,5 +1,5 @@
 // 闪传上传编排:0x93cf 申请 fileset → 0x93d0 commit → 0x93db complete →
-// 逐文件 0x12a9 prepare/apply + highway sliceupload → 缩略图 → 0x93d1 状态。
+// 缩略图 prepare → 逐文件 0x12a9 prepare/apply + highway sliceupload → 缩略图 apply/sliceupload → 0x93d1 状态。
 //
 // 多文件:0x93d0 的 f4 是 repeated,一个 commit 请求同时携带 fileset 内全部文件条目,
 // 每条 f6=文件序号(1,2,3...)。prepare/apply 的 filesetWrap.f4 必须与 commit 的 f6
@@ -22,7 +22,7 @@ import { buildFileId } from './file-id';
 import { fileTypeCode } from './file-type';
 import { PrepareUpload } from './prepare-upload';
 import { SetFilesetStatus } from './set-status';
-import { uploadThumbnail } from './thumbnail';
+import { applyThumbnail, prepareThumbnail, sliceuploadThumbnail } from './thumbnail';
 
 /** 单文件上传上限(与群文件相同,4 GiB)。 */
 const MAX_FLASH_BYTES = 4 * 1024 * 1024 * 1024;
@@ -36,7 +36,7 @@ export interface FlashUploadItem {
 export interface FlashUploadOptions {
   /** fileset 标题(卡片名);不传时单文件用文件名,多文件用「<首文件>等N个文件」。 */
   name?: string;
-  /** 可选的 PNG 缩略图路径;传入后用于 0x12a9_100 的 PNG 缩略图上传。 */
+  /** 可选的真实 PNG 缩略图路径;不传则不传缩略图(不再上传默认占位图)。 */
   thumbPath?: string;
   uploader: ApplyFilesetParams['uploader'];
 }
@@ -160,6 +160,12 @@ export async function uploadFlashFiles(
   await CommitFile.invoke(nt, pid, { filesetUuid, entries });
   await CompleteFileset.invoke(nt, pid, { filesetUuid });
 
+  // 抓包时序:缩略图 prepare → 主文件上传 → 缩略图 apply → 缩略图 sliceupload。
+  const thumb =
+      opts.thumbPath !== undefined
+          ? await prepareThumbnail(nt, pid, filesetUuid, opts.thumbPath, items.length + 1)
+          : null;
+
   // 两阶段上传:先全部 prepare+apply 注册 fileId,再全部 sliceupload 落盘。
   const prepared: { item: StagedItem; upload: PreparedUpload }[] = [];
   for (const item of items) {
@@ -177,17 +183,11 @@ export async function uploadFlashFiles(
     );
   }
 
-  // fileset 级缩略图(序号在主文件之后递增),主文件下载入口需要缩略图关联。
-  await uploadThumbnail(
-      nt,
-      pid,
-      filesetUuid,
-      first.fileUuid,
-      'png',
-      items.length + 1,
-      opts.thumbPath,
-  );
-  await uploadThumbnail(nt, pid, filesetUuid, first.fileUuid, 'jpg', items.length + 2);
+  // 主文件上传完再 apply + sliceupload 缩略图。
+  if (thumb !== null) {
+    await applyThumbnail(thumb);
+    await sliceuploadThumbnail(thumb);
+  }
 
   await SetFilesetStatus.invoke(nt, pid, { filesetUuid });
   return { filesetUuid, shareUrl: apply.uploadUrl };

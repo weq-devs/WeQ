@@ -1,133 +1,74 @@
-// 上传占位缩略图(png+jpg)。主文件下载入口(0x93d3 的下载 fileId)需要缩略图关联
-// 才会被服务端填充,不传缩略图时自身上传的 fileset 无法被 download_fileset 解析。
-// 缩略图用随机纯色 526x360 PNG(1x1 会被服务端拒,HTTP 400),每次随机颜色 SHA1
-// 不同避免命中秒传缓存。手写 PNG 编码(zlib),不引入图像库。
+// 上传一张真实 PNG 缩略图(0x12a9_100 prepare / 0x12a9_103 apply + sliceupload 单片)。
+// 主文件下载入口(0x93d3 的下载 fileId)需要缩略图关联才会被服务端填充。
+// 抓包时序:prepare → 主文件上传 → apply → sliceupload,由 upload.ts 编排。
+// 封面图 fileId 的 TTL 与主文件不同(8985599)。
 
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { promises as fsp } from 'node:fs';
-import { deflateSync } from 'node:zlib';
 import type { OidbNative } from '../../transport';
-import { buildSliceBody, postSliceupload } from '../../highway/sliceupload';
-import { computeSha1StateV } from '../../highway/sha1-stream';
-import { computeHashes } from '../../highway/hash-file';
+import { buildSliceBody, postSliceupload } from '../../highway';
+import { computeSha1StateV } from '../../highway';
+import { computeHashes } from '../../highway';
 import { ApplyUpload } from './apply-upload';
-import { FLASH_APPID_JPG_THUMB, FLASH_APPID_PNG_THUMB, buildFileId } from './file-id';
+import { FLASH_APPID_PNG_THUMB, buildFileId } from './file-id';
 import { PrepareUpload } from './prepare-upload';
 
-// ---- 手写 PNG 编码 ----
-
-const CRC_TABLE: Uint32Array = (() => {
-  const table = new Uint32Array(256);
-  for (let n = 0; n < 256; n++) {
-    let c = n;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    table[n] = c >>> 0;
-  }
-  return table;
-})();
-
-function crc32(buf: Buffer): number {
-  let c = 0xffffffff;
-  for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]!) & 0xff]! ^ (c >>> 8);
-  return (c ^ 0xffffffff) >>> 0;
+/** prepare 后的缩略图状态,供 apply / sliceupload 两个阶段使用。 */
+export interface PreparedThumbnail {
+  nt: OidbNative;
+  pid: number;
+  filesetUuid: string;
+  fileIndex: number;
+  /** null 表示秒传命中(无需实际 sliceupload)。 */
+  rkey: string | null;
+  fileId: string;
+  fileUuid: string;
+  fileName: string;
+  fileSize: number;
+  md5Hex: string;
+  sha1Hex: string;
+  sha1: Uint8Array;
+  sha1StateV: Uint8Array[];
+  chunk: Uint8Array;
+  width: number;
+  height: number;
+  appid: number;
 }
 
-function pngChunk(type: string, data: Buffer): Buffer {
-  const len = Buffer.alloc(4);
-  len.writeUInt32BE(data.length, 0);
-  const typeBuf = Buffer.from(type, 'ascii');
-  const crc = crc32(Buffer.concat([typeBuf, data]));
-  const crcBuf = Buffer.alloc(4);
-  crcBuf.writeUInt32BE(crc, 0);
-  return Buffer.concat([len, typeBuf, data, crcBuf]);
-}
-
-/** 生成 width×height 随机纯色 PNG(8-bit RGB)。 */
-export function generatePng(width: number, height: number): Buffer {
-  const r = Math.floor(Math.random() * 256);
-  const g = Math.floor(Math.random() * 256);
-  const b = Math.floor(Math.random() * 256);
-  const rowLen = 1 + width * 3;
-  const raw = Buffer.alloc(rowLen * height);
-  for (let y = 0; y < height; y++) {
-    const off = y * rowLen;
-    raw[off] = 0; // filter none
-    for (let x = 0; x < width; x++) {
-      raw[off + 1 + x * 3] = r;
-      raw[off + 1 + x * 3 + 1] = g;
-      raw[off + 1 + x * 3 + 2] = b;
-    }
-  }
-  const compressed = deflateSync(raw);
-  const sig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(width, 0);
-  ihdr.writeUInt32BE(height, 4);
-  ihdr[8] = 8; // bit depth
-  ihdr[9] = 2; // color type RGB
-  return Buffer.concat([
-    sig,
-    pngChunk('IHDR', ihdr),
-    pngChunk('IDAT', compressed),
-    pngChunk('IEND', Buffer.alloc(0)),
-  ]);
-}
-
-/**
- * 上传一张占位缩略图。fileIndex 为缩略图在 fileset 内的序号(主文件之后递增),
- * 与 commit f6 对齐。缩略图小,sliceupload 1 片,Sha1StateV=[标准 SHA1]。
- */
-export async function uploadThumbnail(
+/** 阶段1:读取并校验 PNG,prepare 拿 rkey + 构造 fileId。 */
+export async function prepareThumbnail(
     nt: OidbNative,
     pid: number,
     filesetUuid: string,
-    mainFileUuid: string,
-    thumbType: 'png' | 'jpg',
+    thumbPath: string,
     fileIndex: number,
-    thumbPath?: string,
-): Promise<void> {
-  // 真实 QQ 的 0x12a9 PNG 包携带 PNG 文件本体;未传路径时保留原有占位图行为。
-  let thumbBytes: Buffer;
-  let width: number;
-  let height: number;
-  if (thumbPath !== undefined) {
-    if (thumbType !== 'png') throw new Error('custom thumbnail is only supported for png');
-    thumbBytes = await fsp.readFile(thumbPath);
-    if (
-        thumbBytes.length < 24 ||
-        !thumbBytes
-            .subarray(0, 8)
-            .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
-    ) {
-      throw new Error(`thumbnail is not a valid PNG: ${thumbPath}`);
-    }
-    const firstChunkLength = thumbBytes.readUInt32BE(8);
-    if (
-        thumbBytes.toString('ascii', 12, 16) !== 'IHDR' ||
-        firstChunkLength < 8 ||
-        thumbBytes.length < 24
-    ) {
-      throw new Error(`thumbnail PNG has no valid IHDR: ${thumbPath}`);
-    }
-    width = thumbBytes.readUInt32BE(16);
-    height = thumbBytes.readUInt32BE(20);
-    if (width === 0 || height === 0)
-      throw new Error(`thumbnail PNG has invalid dimensions: ${thumbPath}`);
-  } else {
-    // 526x360 是 QQ 客户端缩略图尺寸;1x1 会被服务端拒(HTTP 400,宽高太小)。
-    width = 526;
-    height = 360;
-    thumbBytes = generatePng(width, height);
+): Promise<PreparedThumbnail> {
+  const thumbBytes = await fsp.readFile(thumbPath);
+  if (
+      thumbBytes.length < 24 ||
+      !thumbBytes
+          .subarray(0, 8)
+          .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+  ) {
+    throw new Error(`thumbnail is not a valid PNG: ${thumbPath}`);
   }
-  const appid = thumbType === 'png' ? FLASH_APPID_PNG_THUMB : FLASH_APPID_JPG_THUMB;
-  const fileUuid = thumbType === 'png' ? randomUUID() : mainFileUuid;
-  const fileName =
-      thumbType === 'png'
-          ? `${randomUUID().slice(0, 8)}_one.png`
-          : `${createHash('md5').update(thumbBytes).digest('hex').slice(0, 32)}.jpg`;
+  const firstChunkLength = thumbBytes.readUInt32BE(8);
+  if (
+      thumbBytes.toString('ascii', 12, 16) !== 'IHDR' ||
+      firstChunkLength < 8 ||
+      thumbBytes.length < 24
+  ) {
+    throw new Error(`thumbnail PNG has no valid IHDR: ${thumbPath}`);
+  }
+  const width = thumbBytes.readUInt32BE(16);
+  const height = thumbBytes.readUInt32BE(20);
+  if (width === 0 || height === 0)
+    throw new Error(`thumbnail PNG has invalid dimensions: ${thumbPath}`);
+  const appid = FLASH_APPID_PNG_THUMB;
+  const fileUuid = randomUUID();
+  const fileName = `${randomUUID().slice(0, 8)}_one.png`;
   const hashes = computeHashes(new Uint8Array(thumbBytes));
   const fileSize = thumbBytes.length;
-  const thumbFormatCode = thumbType === 'png' ? 26 : 2;
 
   const rkey = await PrepareUpload.invoke(nt, pid, {
     filesetUuid,
@@ -136,41 +77,67 @@ export async function uploadThumbnail(
     fileSize,
     sha1: hashes.sha1Hex,
     fileIndex,
-    formatCode: thumbFormatCode,
-    thumbType,
+    formatCode: 26,
+    thumbType: 'png',
     width,
     height,
   });
-  const fileId = buildFileId(hashes.sha1, fileSize, appid);
-  await ApplyUpload.invoke(nt, pid, {
+
+  return {
+    nt,
+    pid,
     filesetUuid,
+    fileIndex,
+    rkey,
+    fileId: buildFileId(hashes.sha1, fileSize, appid),
     fileUuid,
-    fileId,
     fileName,
     fileSize,
-    md5: hashes.md5Hex,
-    sha1: hashes.sha1Hex,
-    fileIndex,
-    formatCode: thumbFormatCode,
-    thumbType,
+    md5Hex: hashes.md5Hex,
+    sha1Hex: hashes.sha1Hex,
+    sha1: new Uint8Array(hashes.sha1),
+    sha1StateV: computeSha1StateV(new Uint8Array(thumbBytes), 1, fileSize),
+    chunk: new Uint8Array(thumbBytes),
     width,
     height,
+    appid,
+  };
+}
+
+/** 阶段2:apply 注册 fileId 绑定进 fileset。 */
+export async function applyThumbnail(thumb: PreparedThumbnail): Promise<void> {
+  await ApplyUpload.invoke(thumb.nt, thumb.pid, {
+    filesetUuid: thumb.filesetUuid,
+    fileUuid: thumb.fileUuid,
+    fileId: thumb.fileId,
+    fileName: thumb.fileName,
+    fileSize: thumb.fileSize,
+    md5: thumb.md5Hex,
+    sha1: thumb.sha1Hex,
+    fileIndex: thumb.fileIndex,
+    formatCode: 26,
+    thumbType: 'png',
+    width: thumb.width,
+    height: thumb.height,
   });
+}
 
-  // 秒传只跳过实际缩略图 sliceupload；当前 fileset 仍必须完成 ApplyUpload 绑定。
-  if (rkey === null) return;
-
-  const sha1StateV = computeSha1StateV(new Uint8Array(thumbBytes), 1, fileSize);
+/** 阶段3:单片 sliceupload 落盘。秒传命中(rkey=null)时跳过。 */
+export async function sliceuploadThumbnail(thumb: PreparedThumbnail): Promise<void> {
+  if (thumb.rkey === null) {
+    return;
+  }
   const bodyBytes = buildSliceBody(
       {
-        rkey,
+        rkey: thumb.rkey,
         start: 0,
-        end: fileSize - 1,
-        sha1: new Uint8Array(hashes.sha1),
-        sha1StateV,
-        chunk: new Uint8Array(thumbBytes),
+        end: thumb.fileSize - 1,
+        sha1: thumb.sha1,
+        sha1StateV: thumb.sha1StateV,
+        chunk: thumb.chunk,
       },
-      { appid },
+      { appid: thumb.appid },
   );
+
   await postSliceupload(bodyBytes, 'thumbnail sliceupload');
 }
