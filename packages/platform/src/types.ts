@@ -167,10 +167,24 @@ export interface Platform {
   isQqLoggedIn(uin: string): boolean;
 
   /**
+   * Resolve the pid of the QQ instance currently hosting this account, in one
+   * step, from the account's `nt_msg.db` file lock:
+   *   - **win32**: Restart Manager open-handle enumeration, filtered to the
+   *     QQ process by name (case-insensitive).
+   *   - **linux/macOS**: fcntl `F_GETLK` write-lock holder pid, name-checked
+   *     against `/proc/<pid>/comm`.
+   * Returns null when no QQ instance holds the DB (account not signed in) or
+   * the probe is unavailable. When the DB-lock probe itself fails it falls
+   * back to the legacy `getQqProcesses` + `probeQqLoginInfo` port probe.
+   */
+  resolveQqPid(uin: string): number | null;
+
+  /**
    * Number of online QQ instances as QQ itself records it, or null when this
    * OS has no such authoritative source (callers then fall back to the native
-   * process-count probe). On linux this reads `versions/setting.json`'s
-   * `launcherCounts`; win32 returns null.
+   * process-count probe). Reads `versions/setting.json`'s `launcherCounts`
+   * from the QQ root — win32: `<QQ install>/versions/setting.json`, linux:
+   * `~/.config/QQ/versions/setting.json` — one logic across platforms.
    */
   launcherCount(): number | null;
 }

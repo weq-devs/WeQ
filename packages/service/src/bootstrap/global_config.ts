@@ -198,10 +198,11 @@ export class GlobalConfigService {
       pids = [];
     }
 
-    // Authoritative instance count when the OS records one (linux reads QQ's
-    // own `launcherCounts`); else the process-count probe. On linux QQ is
-    // Electron — one instance forks several `qq`-named processes — so the pid
-    // count is unreliable and only ever used as a last-resort fallback.
+    // Authoritative instance count when the OS records one (both platforms
+    // read QQ's own `launcherCounts` from versions/setting.json); else the
+    // process-count probe. QQ is Electron — one instance forks several
+    // `qq`-named processes — so the pid count is unreliable and only ever used
+    // as a last-resort fallback.
     const reported = this.platform.launcherCount();
     const baseCount = reported ?? pids.length;
 

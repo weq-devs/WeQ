@@ -4,13 +4,12 @@
  * rkeys from it while it is.
  *
  * Lifecycle (owned by the open/close of an account session):
- *   start() →  poll `isQqLoggedIn(uin)` until the account is logged in
- *           →  resolve the account's pid (single QQ → it; multiple → match uin
- *              via `probeQqLoginInfo`)
+ *   start() →  poll `resolveQqPid(uin)` until a QQ instance for this account
+ *              appears (db-lock probe: who holds the account's nt_msg.db)
  *           →  record { qqOnline: true, qqPid } into the account config
  *           →  inject the hook once + `fetchDownloadRkeys` → store rkeys
- *           →  poll that pid; when it disappears, clear pid + mark offline and
- *              fall back to login-polling
+ *           →  keep resolving the pid; when the QQ instance disappears, clear
+ *              pid + mark offline and fall back to login-polling
  *   stop()  →  ends all polling.
  *
  * All native calls are best-effort: any throw degrades to "treat as offline,
@@ -155,18 +154,6 @@ export class AccountMonitorService {
   // ---- login phase: wait for the account to come online -------------------
 
   private async loginPoll(): Promise<void> {
-    let loggedIn = false;
-    try {
-      loggedIn = this.platform.isQqLoggedIn(this.uin);
-    } catch {
-      /* probe unavailable — treat as not logged in */
-    }
-
-    if (!loggedIn) {
-      this.markOffline();
-      return this.scheduleLoginPoll(LOGIN_POLL_MS);
-    }
-
     const pid = this.resolvePid();
     if (pid === null) {
       this.markOffline();
@@ -181,57 +168,45 @@ export class AccountMonitorService {
   }
 
   /**
-   * Attribute one running QQ.exe to this account. Single instance → it (the
-   * `isQqLoggedIn` mutex already proved this account is the one online).
-   * Multiple instances → port-probe each and match the uin.
+   * Attribute one running QQ instance to this account via its `nt_msg.db`
+   * file lock (win32 Restart Manager / linux fcntl, QQ-name filtered by the
+   * platform) — one probe that both proves the account is signed in and
+   * yields the exact pid. Falls back to the port probe when the db-lock
+   * probe is unavailable. Null means "no QQ instance for this account right
+   * now".
    */
   private resolvePid(): number | null {
-    let pids: number[] = [];
     try {
-      pids = this.nt.getQqProcesses();
+      return this.platform.resolveQqPid(this.uin);
     } catch {
       return null;
     }
-    if (pids.length === 0) return null;
-    if (pids.length === 1) return pids[0] ?? null;
-
-    for (const pid of pids) {
-      try {
-        const info = this.nt.probeQqLoginInfo(pid);
-        if (info && info.uin === this.uin && info.loggedIn) return pid;
-      } catch {
-        /* skip un-probable pid */
-      }
-    }
-    return null;
   }
 
   // ---- attached phase: watch the pid, keep rkeys fresh --------------------
 
   private async pidPoll(): Promise<void> {
-    const pid = this.attachedPid;
-    if (pid === null) {
+    const attached = this.attachedPid;
+    if (attached === null) {
       return this.scheduleLoginPoll(LOGIN_POLL_MS);
     }
 
-    let alive = false;
-    try {
-      alive = this.nt.getQqProcesses().includes(pid);
-    } catch {
-      alive = false;
-    }
-
-    if (!alive) {
-      if (this.attachedPid !== null) {
-        this.injectHook.reset(this.attachedPid);
-      }
+    const pid = this.resolvePid();
+    if (pid === null) {
+      this.injectHook.reset(attached);
       this.logger.info('attached qq process exited; marking account offline', {
         event: 'account-offline',
-        pid,
+        pid: attached,
       });
       this.attachedPid = null;
       this.markOffline();
       return this.scheduleLoginPoll(LOGIN_POLL_MS);
+    }
+
+    if (pid !== attached) {
+      // The account's QQ instance restarted under a new pid — re-attach.
+      this.injectHook.reset(attached);
+      this.attachedPid = pid;
     }
 
     await this.harvestIfStale(pid);

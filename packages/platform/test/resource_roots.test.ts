@@ -70,6 +70,7 @@ function fakePlatform(): Platform {
     qqMajorNodePath: () => 'local:major',
     qqVersion: () => '9.9.9-1',
     isQqLoggedIn: () => true,
+    resolveQqPid: () => null,
     launcherCount: () => 3,
   };
 }

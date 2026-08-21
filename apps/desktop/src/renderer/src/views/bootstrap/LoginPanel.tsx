@@ -38,7 +38,6 @@ export function LoginPanel({
   selected,
   onSelect,
   installRoot: _installRoot,
-  allUins,
   autoTarget,
   onEntered,
   onDeleteAccount,
@@ -48,7 +47,6 @@ export function LoginPanel({
   selected: UiAccount | null;
   onSelect: (acc: UiAccount) => void;
   installRoot: string | null;
-  allUins: string[];
   autoTarget: AutoEnterTarget | null;
   onEntered: (uin: string) => void;
   onDeleteAccount?: (acc: UiAccount) => void;
@@ -118,12 +116,7 @@ export function LoginPanel({
     setBusy(true);
     setStatus('正在探测在线实例…');
     try {
-      const [procs, probe] = await Promise.all([
-        client.bootstrap.detectRunningProcesses.query(),
-        client.bootstrap.probeOnline.query({ knownUins: allUins }),
-      ]);
-      let pid = procs.find((p) => p.loginInfo?.loggedIn && p.loginInfo.uin === selected.uin)?.pid;
-      if (!pid && procs.length === 1 && probe.byUin?.[selected.uin]) pid = procs[0]?.pid;
+      const pid = await client.bootstrap.resolveQqPid.query({ uin: selected.uin });
 
       if (pid) {
         // The db path is resolved server-side from uin via the platform, so we

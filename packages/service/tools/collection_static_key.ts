@@ -18,7 +18,6 @@ import {
   CollectorReqHead,
   CollectorReqBody,
   CollectorRespHead,
-  CollectorRespBody,
 } from '@weq/codec/proto/collection/index';
 import type { WebCredential } from '../src/account/web/credential';
 import { getCollectionListNetwork } from '../src/account/web/collection';

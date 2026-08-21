@@ -30,3 +30,27 @@ export function readQqVersion(wrapperNodePath: string | null): string | null {
     return null;
   }
 }
+
+/**
+ * Number of running QQ launcher instances, read from `<root>/versions/setting.json`'s
+ * `launcherCounts`. QQ maintains this itself on every platform, so it's a far more
+ * reliable "online instance count" than counting Electron processes (one instance
+ * forks gpu/renderer/utility/zygote, all named `qq`). Win32's root is the QQ install
+ * dir (`C:\Program Files\Tencent\QQNT`), linux's is the data dir (`~/.config/QQ`).
+ *
+ * Returns null when the file is missing / unreadable / has no numeric
+ * `launcherCounts`, so callers can fall back to the process-count probe.
+ * `root` is the QQ root whose `versions/` holds `setting.json`; pass null to
+ * short-circuit.
+ */
+export function readLauncherCount(root: string | null): number | null {
+  if (!root) return null;
+  const settingPath = join(root, 'versions', 'setting.json');
+  try {
+    const parsed = JSON.parse(readFileSync(settingPath, 'utf-8')) as { launcherCounts?: unknown };
+    const n = parsed.launcherCounts;
+    return typeof n === 'number' && Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}

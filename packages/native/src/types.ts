@@ -76,6 +76,29 @@ export interface QqPortLoginInfo {
   loggedIn: boolean;
 }
 
+/**
+ * One process holding an account's database open / locked. Mirrors
+ * `DbLockHolder` in `Qrypt-Native/nt_helper/src/detect/db_lock.rs`.
+ */
+export interface DbLockHolder {
+  pid: number;
+  /** Windows: Restart Manager `strAppName`; Linux: `/proc/<pid>/comm`. Empty when unavailable. */
+  name: string;
+}
+
+/**
+ * Outcome of `probeDbLock`. Mirrors `DbLockProbeResult` in
+ * `Qrypt-Native/nt_helper/src/detect/db_lock.rs`.
+ */
+export interface DbLockProbeResult {
+  /** Whether the probe itself ran. false = file missing / API failed — treat as "not locked / unknown". */
+  success: boolean;
+  msg: string;
+  /** True when at least one process holds the file (i.e. `holders` is non-empty). */
+  locked: boolean;
+  holders: DbLockHolder[];
+}
+
 export interface DatabaseAlgorithms {
   pageHmacAlgorithm: string;
   kdfHmacAlgorithm: string;
@@ -176,6 +199,15 @@ export interface NtHelperBinding {
 
   // --- QQ process / login detection ---
   probeQqLoginInfo(pid: number): QqPortLoginInfo | null;
+  /**
+   * Probe which processes hold an account's `nt_msg.db` open / locked — the
+   * cross-platform way to attribute a running QQ to an account AND recover its
+   * pid in one step. Windows enumerates Restart Manager open-handle holders
+   * (may include non-QQ processes like WeQ itself — filter by name); Linux
+   * reports the fcntl write-lock holder's pid via `F_GETLK`. The holder list
+   * is not filtered here: callers decide which holder is QQ.
+   */
+  probeDbLock(dbPath: string): DbLockProbeResult;
   decryptLoginDb(loginDbPath: string, algo: DatabaseAlgorithms): LoginAccount[];
   getQqProcesses(): number[];
   /**

@@ -137,9 +137,20 @@ export const bootstrapRouter = router({
     return requireBootstrap().detect.listAccounts();
   }),
 
-  detectRunningProcesses: procedure.query(() => {
-    return requireBootstrap().detect.detectRunningProcesses();
-  }),
+  /**
+   * Resolve the running QQ pid hosting this account (db-lock probe, QQ-name
+   * filtered by the platform) — or null when no QQ instance for this account
+   * is around.
+   */
+  resolveQqPid: procedure
+    .input(z.object({ uin: z.string().min(1) }))
+    .query(async ({ input }) => {
+      const boot = requireBootstrap();
+      // Linux resolves the account dir from uid; seed it before probing so a
+      // fresh account (uid not yet saved to config) still resolves.
+      await ensureUidForUin(boot, input.uin);
+      return requirePlatform().resolveQqPid(input.uin);
+    }),
 
   /** Online-instance probe (with the single-process uin-iteration refinement). */
   probeOnline: procedure
