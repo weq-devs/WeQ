@@ -1,5 +1,6 @@
 // 闪传上传编排:0x93cf 申请 fileset → 0x93d0 commit → 0x93db complete →
-// 缩略图 prepare → 逐文件 0x12a9 prepare/apply + highway sliceupload → 缩略图 apply/sliceupload → 0x93d1 状态。
+// 缩略图 prepare/apply/sliceupload → 逐文件 0x12a9 prepare/apply + highway
+// sliceupload → 0x93d1 状态。
 //
 // 多文件:0x93d0 的 f4 是 repeated,一个 commit 请求同时携带 fileset 内全部文件条目,
 // 每条 f6=文件序号(1,2,3...)。prepare/apply 的 filesetWrap.f4 必须与 commit 的 f6
@@ -8,12 +9,14 @@
 // 只有 sliceupload 路径会上报主文件 sha1/size,服务端据此把 fileset 标记为完成
 // (对端可下载);小文件也统一走 sliceupload,不走小文件 PUT。
 //
-// 编排拆成两段,方便「拿到 filesetId 就先发送、上传在后台继续」的调用方:
-//   createFlashFileset —— 校验 + 申请 fileset(发起),返回 pending;
-//   finishFlashUpload   —— commit → complete → 缩略图 prepare → 所有文件并行
-//                          100(prepare)/103(apply)→ 并行分片上传 → 缩略图
-//                          apply/sliceupload → 0x93d1 状态。
-//  uploadFlashFiles    —— 两段连续执行(等价于旧行为)。
+// 编排拆成三段,方便「封面先就绪、先发送、主文件上传在后台继续」的调用方:
+//   createFlashFileset    —— 校验 + 申请 fileset(发起),返回 pending;
+//   stageFlashFileset     —— commit → complete → 缩略图 prepare/apply/sliceupload
+//                            封面就绪,可以先行发送;
+//   uploadFlashMainFiles  —— 主文件并行 100(prepare)/103(apply)→ 并行分片上传
+//                            → 0x93d1 状态;
+//   finishFlashUpload     —— stage + uploadFlashMainFiles 连续执行;
+//   uploadFlashFiles      —— create + finish 连续执行(等价于旧行为)。
 
 import { randomUUID } from 'node:crypto';
 import { promises as fsp } from 'node:fs';
@@ -171,8 +174,8 @@ export async function createFlashFileset(
   };
 }
 
-/** 阶段B:commit → complete → 缩略图 prepare → 并行上传 → 缩略图 → 状态。 */
-export async function finishFlashUpload(
+/** 阶段B1:commit → complete → 缩略图 prepare/apply/sliceupload(封面先就绪)。 */
+export async function stageFlashFileset(
   nt: OidbNative,
   pid: number,
   pending: FlashFilesetPending,
@@ -191,11 +194,21 @@ export async function finishFlashUpload(
   await CommitFile.invoke(nt, pid, { filesetUuid, entries });
   await CompleteFileset.invoke(nt, pid, { filesetUuid });
 
-  // 抓包时序:缩略图 prepare → 主文件上传 → 缩略图 apply → 缩略图 sliceupload。
-  const thumb =
-    pending.thumbPath !== undefined
-      ? await prepareThumbnail(nt, pid, filesetUuid, pending.thumbPath, items.length + 1)
-      : null;
+  // 缩略图在发送前完整上传:prepare → apply → sliceupload,让卡片封面先就绪。
+  if (pending.thumbPath !== undefined) {
+    const thumb = await prepareThumbnail(nt, pid, filesetUuid, pending.thumbPath, items.length + 1);
+    await applyThumbnail(thumb);
+    await sliceuploadThumbnail(thumb);
+  }
+}
+
+/** 阶段B2:主文件 prepare/apply + 并行分片上传 → 0x93d1 状态。 */
+export async function uploadFlashMainFiles(
+  nt: OidbNative,
+  pid: number,
+  pending: FlashFilesetPending,
+): Promise<void> {
+  const { filesetUuid, items } = pending;
 
   // 所有文件并行:先全部 prepare+apply(100→103)注册 fileId,再并行 sliceupload 落盘。
   const results = await Promise.all(
@@ -220,13 +233,17 @@ export async function finishFlashUpload(
     ),
   );
 
-  // 主文件上传完再 apply + sliceupload 缩略图。
-  if (thumb !== null) {
-    await applyThumbnail(thumb);
-    await sliceuploadThumbnail(thumb);
-  }
-
   await SetFilesetStatus.invoke(nt, pid, { filesetUuid });
+}
+
+/** 阶段B:stage + 主文件连续执行(等价于旧行为)。 */
+export async function finishFlashUpload(
+  nt: OidbNative,
+  pid: number,
+  pending: FlashFilesetPending,
+): Promise<void> {
+  await stageFlashFileset(nt, pid, pending);
+  await uploadFlashMainFiles(nt, pid, pending);
 }
 
 /** 完整上传一个/多个本地文件到闪传,返回 filesetUuid + 分享链接。 */

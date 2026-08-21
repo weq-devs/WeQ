@@ -2,7 +2,8 @@
  * 端到端上传:把本地文件/目录传到 QQ 闪传(fileset),输出 fileset_uuid + 分享链接。
  *
  * 依赖 @weq/protocol 的 uploadFlashFiles(0x93cf 建 fileset → 0x93d0 commit →
- * 0x93db complete → 0x12a9 prepare/apply → highway sliceupload → 缩略图 → 0x93d1)。
+ * 0x93db complete → 缩略图 prepare/apply/sliceupload → 主文件 0x12a9
+ * prepare/apply → highway sliceupload → 0x93d1)。
  * 需要目标账号的 QQ 正在运行且已登录;脚本会注入 hook 后发 OIDB 包,文件分片走
  * multimedia.qfile.qq.com 直传,不占 QQ 进程。
  *
