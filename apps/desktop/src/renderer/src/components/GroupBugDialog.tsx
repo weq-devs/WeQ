@@ -29,7 +29,9 @@ import { Modal, useDialog } from './Dialog';
 import { useToast } from './Toast';
 import { IconPicker } from './ui/iconPicker';
 import { shikiCodeHighlighter } from '../views/agentlab/shikiHighlighter';
+import { useThemeStore } from '../state/theme';
 import bugBanner from '@resources/brand/bug_banner.png';
+import bugBannerDark from '@resources/brand/bug_banner_2.png';
 import '../styles/group-bug.css';
 
 const REMARK_PLUGINS = [remarkGfm];
@@ -63,6 +65,7 @@ export function GroupBugDialog({
 }): ReactElement {
   const pushToast = useToast((s) => s.push);
   const showError = useDialog((s) => s.showError);
+  const resolvedTheme = useThemeStore((s) => s.resolved);
   const version = trpc.bootstrap.getVersionInfo.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: Infinity,
@@ -240,7 +243,7 @@ export function GroupBugDialog({
         <div
           className="weq-group-bug-banner"
           style={{
-            backgroundImage: `linear-gradient(to bottom, rgba(16, 20, 26, 0.18) 35%, rgba(16, 20, 26, 0.78) 100%), url(${bugBanner})`,
+            backgroundImage: `linear-gradient(to bottom, rgba(16, 20, 26, 0.18) 35%, rgba(16, 20, 26, 0.78) 100%), url(${resolvedTheme === 'dark' ? bugBannerDark : bugBanner})`,
           }}
         >
           <button

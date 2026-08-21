@@ -853,6 +853,12 @@
 	text-align: center;
 }
 
+html[data-theme="dark"] .qq-media-missing {
+	background: rgba(255, 255, 255, 0.08);
+	border-color: rgba(255, 255, 255, 0.12);
+	color: rgba(255, 255, 255, 0.55);
+}
+
 .face-poke-mirror {
 	transform: scaleX(-1);
 }

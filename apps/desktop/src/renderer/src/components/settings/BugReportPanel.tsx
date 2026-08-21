@@ -1,7 +1,7 @@
 /**
  * 设置 → 帮助 → 反馈 bug。
  *
- * 顶部 banner（bug_banner.png，底部渐变模糊）；中间是反馈前须知、数据库
+ * 顶部 banner（bug_banner.png，深色模式用 bug_banner_2.png，底部渐变模糊）；中间是反馈前须知、数据库
  * hexdump 工具（前 200 字节 + 复制）、标题 + Markdown 正文（编辑/预览，GitHub
  * 式模板：清单 + 系统版本 + weq 版本 + 错误描述 + 预期描述）。
  *
@@ -36,7 +36,9 @@ import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
 import { shikiCodeHighlighter } from '../../views/agentlab/shikiHighlighter';
 import { IconPicker } from '../ui/iconPicker';
+import { useThemeStore } from '../../state/theme';
 import bugBanner from '@resources/brand/bug_banner.png';
+import bugBannerDark from '@resources/brand/bug_banner_2.png';
 
 const REMARK_PLUGINS = [remarkGfm];
 const PLUGINS = { code: shikiCodeHighlighter };
@@ -102,6 +104,7 @@ export function BugReportPanel(): ReactElement {
   const pushToast = useToast((s) => s.push);
   const showError = useDialog((s) => s.showError);
   const confirm = useDialog((s) => s.confirm);
+  const resolvedTheme = useThemeStore((s) => s.resolved);
 
   const version = trpc.bootstrap.getVersionInfo.useQuery(undefined, {
     refetchOnWindowFocus: false,
@@ -176,9 +179,9 @@ export function BugReportPanel(): ReactElement {
   /** 顶部 banner 的底部渐变模糊。 */
   const bannerStyle = useMemo(
     () => ({
-      backgroundImage: `linear-gradient(to bottom, rgba(16, 20, 26, 0.12) 30%, rgba(16, 20, 26, 0.72) 100%), url(${bugBanner})`,
+      backgroundImage: `linear-gradient(to bottom, rgba(16, 20, 26, 0.12) 30%, rgba(16, 20, 26, 0.72) 100%), url(${resolvedTheme === 'dark' ? bugBannerDark : bugBanner})`,
     }),
-    [],
+    [resolvedTheme],
   );
 
   const toggleCheck = (key: 'isBug' | 'knowCause' | 'willingPr', next: boolean): void => {
