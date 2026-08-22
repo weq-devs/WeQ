@@ -13319,7 +13319,8 @@ html[data-theme="dark"] .weq-collection-state {
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: min(380px, calc(100vw - 48px));
+  width: min(620px, calc(100vw - 48px));
+  max-height: calc(100vh - 72px);
   padding: 26px 24px 22px;
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 14px;
@@ -13327,6 +13328,7 @@ html[data-theme="dark"] .weq-collection-state {
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.22);
   color: #161616;
   text-align: center;
+  overflow-y: auto;
 }
 .weq-wtools-result-close {
   position: absolute;
@@ -13445,6 +13447,101 @@ html[data-theme="dark"] .weq-collection-state {
 .weq-wtools-copy:hover {
   filter: brightness(1.06);
 }
+
+/* ---- 密钥内存上下文 hexdump ---- */
+.weq-wtools-hexdump {
+  width: 100%;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-fg-primary) 3%, transparent);
+  overflow: hidden;
+}
+.weq-wtools-hexdump-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+  background: color-mix(in srgb, var(--weq-fg-primary) 2.5%, transparent);
+}
+.weq-wtools-hexdump-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 650;
+  color: #4a5560;
+}
+.weq-wtools-hexdump-title svg {
+  color: var(--weq-accent-effective);
+}
+.weq-wtools-hexdump-legend {
+  font-size: 11px;
+  color: #8a93a0;
+  white-space: nowrap;
+}
+.weq-wtools-hexdump-legend b {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+  color: var(--weq-accent-effective);
+  font-weight: 650;
+}
+.weq-wtools-hexdump-scroll {
+  max-height: min(300px, 40vh);
+  overflow: auto;
+  padding: 8px 12px 10px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 11.5px;
+  line-height: 1.65;
+  text-align: left;
+}
+.weq-wtools-hexline {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  white-space: nowrap;
+}
+.weq-wtools-hex-offset {
+  flex: none;
+  color: #a4adba;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+.weq-wtools-hex-bytes {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+.weq-wtools-hex-byte {
+  width: 18px;
+  text-align: center;
+  color: #344050;
+  font-variant-numeric: tabular-nums;
+}
+.weq-wtools-hex-byte:nth-child(8n) {
+  margin-right: 12px;
+}
+.weq-wtools-hex-byte.is-key {
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+  color: var(--weq-accent-effective);
+  font-weight: 700;
+  border-radius: 4px;
+}
+.weq-wtools-hex-ascii {
+  flex: none;
+  padding-left: 12px;
+  border-left: 1px solid rgba(0, 0, 0, 0.08);
+  color: #6a7280;
+  letter-spacing: 1px;
+}
+.weq-wtools-hex-ch.is-key {
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+  color: var(--weq-accent-effective);
+  font-weight: 700;
+  border-radius: 3px;
+}
 .weq-wtools-result-err p {
   margin: 0;
   font-size: 12.5px;
@@ -13549,6 +13646,30 @@ html[data-theme="dark"] .weq-wtools-result-pid {
 html[data-theme="dark"] .weq-wtools-key-row {
   background: #10141a;
   border-color: rgba(255, 255, 255, 0.09);
+}
+html[data-theme="dark"] .weq-wtools-hexdump {
+  border-color: rgba(255, 255, 255, 0.09);
+  background: #10141a;
+}
+html[data-theme="dark"] .weq-wtools-hexdump-head {
+  border-color: rgba(255, 255, 255, 0.07);
+  background: #13181f;
+}
+html[data-theme="dark"] .weq-wtools-hexdump-title {
+  color: #c8d2dc;
+}
+html[data-theme="dark"] .weq-wtools-hexdump-legend {
+  color: #7b8794;
+}
+html[data-theme="dark"] .weq-wtools-hex-offset {
+  color: #6d7885;
+}
+html[data-theme="dark"] .weq-wtools-hex-byte {
+  color: #cbd5e1;
+}
+html[data-theme="dark"] .weq-wtools-hex-ascii {
+  border-color: rgba(255, 255, 255, 0.09);
+  color: #8b96a3;
 }
 /* ===========================================================================
    帮助弹窗 (HelpDialog) — 「更多功能 → 帮助」，承载 weq-help-* 子页面。

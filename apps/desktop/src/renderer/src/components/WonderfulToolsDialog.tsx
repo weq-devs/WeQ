@@ -7,11 +7,12 @@
  *     platform.resolveQqPid 统一封装）。
  *   - 在线账号卡片亮起（绿色在线点 + 高亮），离线账号置灰。
  *   - 点击卡片 → 卡片加载动画 → 对账号进程做零注入内存扫描
- *     （nt_helper scanKeyFromDatabase），展示恢复的密钥或失败原因。
+ *     （nt_helper scanKeyFromDatabase），展示恢复的密钥、密钥所在内存的
+ *     上下文 hexdump（高亮密钥字节）或失败原因。
  */
 
-import { useCallback, useEffect, useState, type ReactElement } from 'react';
-import { Check, Copy, KeyRound, Loader2, RefreshCw, ScanSearch, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
+import { Binary, Check, Copy, KeyRound, Loader2, RefreshCw, ScanSearch, X } from 'lucide-react';
 import { client } from '../trpc/client';
 import { QqAvatar } from './QqAvatar';
 import { closeFromScrim } from '../im-template/template/modalUtils';
@@ -29,6 +30,7 @@ interface AccountRow {
 interface ScanResultWire {
   success: boolean;
   key?: string;
+  keyContextHex?: string;
   error?: string;
 }
 
@@ -61,6 +63,116 @@ function humanTime(sec: number): string {
   } catch {
     return String(sec);
   }
+}
+
+/** 每行渲染的字节数（经典 hexdump 宽度）。 */
+const HEX_ROW = 16;
+/** 密钥字节数（SQLCipher raw_key 长度）。 */
+const KEY_BYTES = 16;
+
+interface HexRow {
+  base: number;
+  bytes: number[];
+}
+
+interface HexDump {
+  rows: HexRow[];
+  /** 密钥在窗口内的起始字节偏移；-1 表示未定位到。 */
+  keyStart: number;
+}
+
+function parseContextHex(hex: string): number[] {
+  const clean = hex.replace(/[^0-9a-f]/g, '');
+  const bytes: number[] = [];
+  for (let i = 0; i + 2 <= clean.length; i += 2) {
+    bytes.push(parseInt(clean.slice(i, i + 2), 16));
+  }
+  return bytes;
+}
+
+/** 把 ASCII 密钥逐字节转成小写 hex，用于在上下文中定位密钥。 */
+function asciiToHex(key: string): string {
+  let out = '';
+  for (let i = 0; i < key.length; i++) {
+    out += key.charCodeAt(i).toString(16).padStart(2, '0');
+  }
+  return out;
+}
+
+function isPrintableByte(b: number): boolean {
+  return b >= 0x20 && b <= 0x7e;
+}
+
+function buildHexDump(contextHex: string, key: string): HexDump {
+  const bytes = parseContextHex(contextHex);
+  const found = contextHex.indexOf(asciiToHex(key));
+  const keyStart = found >= 0 ? found / 2 : -1;
+  const rows: HexRow[] = [];
+  for (let i = 0; i < bytes.length; i += HEX_ROW) {
+    rows.push({ base: i, bytes: bytes.slice(i, i + HEX_ROW) });
+  }
+  return { rows, keyStart };
+}
+
+/** 密钥内存上下文 hexdump：偏移 + 十六进制 + ASCII，密钥字节高亮。 */
+function KeyContextDump({
+  contextHex,
+  keyText,
+}: {
+  contextHex: string;
+  keyText: string;
+}): ReactElement | null {
+  const dump = useMemo(() => buildHexDump(contextHex, keyText), [contextHex, keyText]);
+  if (!dump || dump.rows.length === 0) return null;
+  const keyActive = dump.keyStart >= 0;
+  const keyEnd = keyActive ? dump.keyStart + KEY_BYTES : -1;
+  return (
+    <div className="weq-wtools-hexdump">
+      <div className="weq-wtools-hexdump-head">
+        <span className="weq-wtools-hexdump-title">
+          <Binary size={13} strokeWidth={1.9} />
+          密钥内存上下文
+        </span>
+        <span className="weq-wtools-hexdump-legend">
+          前 256B + 后 256B · <b>高亮</b> = 密钥
+        </span>
+      </div>
+      <div className="weq-wtools-hexdump-scroll">
+        {dump.rows.map((row, ri) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
+          <div className="weq-wtools-hexline" key={ri}>
+            <span className="weq-wtools-hex-offset">
+              {row.base.toString(16).padStart(8, '0')}
+            </span>
+            <span className="weq-wtools-hex-bytes">
+              {row.bytes.map((b, ci) => {
+                const idx = row.base + ci;
+                const inKey = keyActive && idx >= dump.keyStart && idx < keyEnd;
+                return (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
+                  <span key={ci} className={`weq-wtools-hex-byte${inKey ? ' is-key' : ''}`}>
+                    {b.toString(16).padStart(2, '0')}
+                  </span>
+                );
+              })}
+            </span>
+            <span className="weq-wtools-hex-ascii">
+              {row.bytes.map((b, ci) => {
+                const idx = row.base + ci;
+                const inKey = keyActive && idx >= dump.keyStart && idx < keyEnd;
+                return (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
+                  <span key={ci} className={`weq-wtools-hex-ch${inKey ? ' is-key' : ''}`}>
+                    {isPrintableByte(b) ? String.fromCharCode(b) : '.'}
+                  </span>
+                );
+              })}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function WonderfulToolsDialog({
@@ -357,6 +469,9 @@ export function WonderfulToolsDialog({
                         {copied ? '已复制' : '复制'}
                       </button>
                     </div>
+                    {result.keyContextHex ? (
+                      <KeyContextDump contextHex={result.keyContextHex} keyText={result.key} />
+                    ) : null}
                   </>
                 ) : (
                   <div className="weq-wtools-result-err">
