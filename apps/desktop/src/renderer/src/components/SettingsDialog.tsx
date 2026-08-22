@@ -17,7 +17,6 @@ import {
   Bot,
   Check,
   CloudDownload,
-  HelpCircle,
   Lock,
   Monitor,
   Moon,
@@ -38,7 +37,6 @@ import { McpServerSection } from './settings/McpServerSection';
 import { ExternalRkeySection } from './settings/ExternalRkeySection';
 import { WeqAssistantSection } from './settings/WeqAssistantSection';
 import { AntiRecallSection } from './settings/AntiRecallSection';
-import { HelpSection } from './settings/HelpSection';
 import { Toggle } from './settings/controls';
 import { trpc } from '../trpc/client';
 import {
@@ -57,8 +55,7 @@ type SectionId =
   | 'agentlab'
   | 'mcp'
   | 'rkey'
-  | 'weq'
-  | 'help';
+  | 'weq';
 
 interface SettingsSection {
   id: SectionId;
@@ -121,12 +118,6 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: 'WeQ 助手',
     icon: <Sparkles size={16} strokeWidth={1.8} />,
     render: () => <WeqAssistantSection />,
-  },
-  {
-    id: 'help',
-    label: '帮助',
-    icon: <HelpCircle size={16} strokeWidth={1.8} />,
-    render: () => <HelpSection />,
   },
 ];
 

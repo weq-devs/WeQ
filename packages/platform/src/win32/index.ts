@@ -150,9 +150,14 @@ export function createWin32Platform(
     },
     /**
      * Attribute this account to a running QQ pid via the account's `nt_msg.db`
-     * handle (Restart Manager), falling back to the legacy port probe when the
-     * db-lock probe is unavailable. The RM holder list can contain non-QQ
-     * processes (WeQ itself reads the DB) — filter by process name.
+     * handle (Restart Manager). The RM holder list can contain non-QQ
+     * processes (WeQ itself reads the DB) — filter by process name. A probe
+     * that ran successfully but found no QQ holder means the account is not
+     * signed in: return null instead of falling back to the port probe (which
+     * is slower and known to report stale pids). The legacy port probe is only
+     * reached when the db-lock probe itself could not run (no `nt_msg.db`) or
+     * errored (e.g. permission denied, cross-session) — i.e. we can't trust
+     * the lock-based answer.
      */
     resolveQqPid: (uin: string) => {
       const dbPath = findNtMsgDb(uin, undefined, override());
@@ -161,8 +166,11 @@ export function createWin32Platform(
           const probe = native.ntHelper.probeDbLock(dbPath);
           if (probe.success) {
             const holder = probe.holders.find((h) => isQqProcessName(h.name));
-            if (holder) return holder.pid;
+            // Probe succeeded: no QQ holding the DB ⇒ not logged in. Only a
+            // failed/unavailable probe falls through to the port probe below.
+            return holder ? holder.pid : null;
           }
+          /* probe reported failure (e.g. no permission) — port probe below */
         } catch {
           /* db-lock probe unavailable — fall through to the port probe */
         }
@@ -183,9 +191,12 @@ function isQqProcessName(name: string): boolean {
 
 /**
  * Legacy fallback: enumerate running QQ processes and port-probe each for the
- * account's uin. Only reached when the db-lock probe itself failed — the port
- * probe is strictly weaker (the process scan is known to report stale pids),
- * so every candidate is verified against the account uin before accepting it.
+ * account's uin. Only reached when the db-lock probe could not be trusted: the
+ * `nt_msg.db` wasn't found, the probe threw, or it reported failure (e.g. no
+ * permission) — never when a successful probe found no QQ holder (offline).
+ * The port probe is strictly weaker (the process scan is known to report stale
+ * pids), so every candidate is verified against the account uin before being
+ * accepted.
  */
 function probeQqPidByPort(ntHelper: NtHelperBinding, uin: string): number | null {
   try {

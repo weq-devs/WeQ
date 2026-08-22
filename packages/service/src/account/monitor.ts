@@ -171,9 +171,10 @@ export class AccountMonitorService {
    * Attribute one running QQ instance to this account via its `nt_msg.db`
    * file lock (win32 Restart Manager / linux fcntl, QQ-name filtered by the
    * platform) — one probe that both proves the account is signed in and
-   * yields the exact pid. Falls back to the port probe when the db-lock
-   * probe is unavailable. Null means "no QQ instance for this account right
-   * now".
+   * yields the exact pid. A successful probe with no QQ holder means the
+   * account is offline. The port probe is only reached when the db-lock probe
+   * itself could not run or errored (e.g. permission denied). Null means "no
+   * QQ instance for this account right now".
    */
   private resolvePid(): number | null {
     try {

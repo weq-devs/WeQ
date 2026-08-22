@@ -14,7 +14,7 @@ import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import { Check, Copy, KeyRound, Loader2, RefreshCw, ScanSearch, X } from 'lucide-react';
 import { client } from '../trpc/client';
 import { QqAvatar } from './QqAvatar';
-import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
+import { closeFromScrim } from '../im-template/template/modalUtils';
 
 interface AccountRow {
   uin: string;
@@ -75,10 +75,31 @@ export function WonderfulToolsDialog({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [scanningUin, setScanningUin] = useState<string | null>(null);
+  /** 正在扫描 / 已出结果的账号 —— 存在时弹出结果模态窗口。 */
+  const [scanTarget, setScanTarget] = useState<AccountRow | null>(null);
   const [result, setResult] = useState<ScanResultView | null>(null);
   const [copied, setCopied] = useState(false);
 
-  useEscapeToClose(onClose);
+  const closeResult = useCallback(() => {
+    setScanTarget(null);
+    setScanningUin(null);
+    setResult(null);
+    setCopied(false);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function onKey(e: KeyboardEvent): void {
+      if (e.key !== 'Escape') return;
+      if (scanTarget) {
+        closeResult();
+      } else {
+        onClose();
+      }
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open, scanTarget, closeResult, onClose]);
 
   const loadAccounts = useCallback(async () => {
     setLoading(true);
@@ -88,6 +109,7 @@ export function WonderfulToolsDialog({
       setAccounts(rows);
       // 账号列表刷新后，旧扫描结果不再可靠。
       setResult(null);
+      setScanTarget(null);
     } catch (e) {
       setError(errMsg(e));
     } finally {
@@ -99,11 +121,13 @@ export function WonderfulToolsDialog({
     if (open) {
       setResult(null);
       setScanningUin(null);
+      setScanTarget(null);
       void loadAccounts();
     }
   }, [open, loadAccounts]);
 
   async function scanAccount(acc: AccountRow): Promise<void> {
+    setScanTarget(acc);
     setScanningUin(acc.uin);
     setResult(null);
     try {
@@ -167,6 +191,7 @@ export function WonderfulToolsDialog({
                     setActiveTool(tool.id);
                     setResult(null);
                     setScanningUin(null);
+                    setScanTarget(null);
                   }}
                 >
                   <KeyRound size={16} strokeWidth={1.8} />
@@ -193,15 +218,6 @@ export function WonderfulToolsDialog({
                       </span>
                     ) : null}
                   </div>
-                  <button
-                    type="button"
-                    className="weq-wtools-refresh"
-                    onClick={() => void loadAccounts()}
-                    disabled={loading}
-                  >
-                    <RefreshCw size={14} strokeWidth={1.9} className={loading ? 'weq-spin' : ''} />
-                    刷新
-                  </button>
                 </header>
 
                 <div className="weq-wtools-pane-body">
@@ -218,6 +234,21 @@ export function WonderfulToolsDialog({
                     </div>
                   ) : (
                     <>
+                      <div className="weq-wtools-toolbar">
+                        <button
+                          type="button"
+                          className="weq-wtools-refresh"
+                          onClick={() => void loadAccounts()}
+                          disabled={loading}
+                        >
+                          <RefreshCw
+                            size={14}
+                            strokeWidth={1.9}
+                            className={loading ? 'weq-spin' : ''}
+                          />
+                          刷新
+                        </button>
+                      </div>
                       <div className="weq-wtools-grid">
                         {accounts.map((acc) => {
                           const online = acc.pid !== null;
@@ -256,55 +287,6 @@ export function WonderfulToolsDialog({
                           );
                         })}
                       </div>
-
-                      <div className="weq-wtools-result">
-                        {scanningUin ? (
-                          <div className="weq-wtools-state">
-                            <Loader2 size={20} className="weq-spin" />
-                            <span>正在扫描进程内存并验证密钥…</span>
-                          </div>
-                        ) : result ? (
-                          result.success && result.key ? (
-                            <div className="weq-wtools-result-ok">
-                              <div className="weq-wtools-result-head">
-                                <span className="weq-wtools-result-ok-badge">扫描成功</span>
-                                <span className="weq-wtools-result-meta">
-                                  {result.name} · PID {result.pid ?? '-'}
-                                </span>
-                              </div>
-                              <div className="weq-wtools-key-row">
-                                <code>{result.key}</code>
-                                <button
-                                  type="button"
-                                  className="weq-wtools-copy"
-                                  onClick={copyKey}
-                                  title="复制密钥"
-                                >
-                                  {copied ? <Check size={15} /> : <Copy size={15} />}
-                                  {copied ? '已复制' : '复制'}
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="weq-wtools-result-err">
-                              <div className="weq-wtools-result-head">
-                                <span className="weq-wtools-result-err-badge">扫描未成功</span>
-                                <span className="weq-wtools-result-meta">
-                                  {result.name} · {result.pid ? `PID ${result.pid}` : '离线'}
-                                </span>
-                              </div>
-                              <p>{result.error ?? '未知错误'}</p>
-                            </div>
-                          )
-                        ) : (
-                          <div className="weq-wtools-result-hint">
-                            <KeyRound size={16} strokeWidth={1.7} />
-                            <span>
-                              点击上方账号卡片开始扫描。在线账号显示为亮色，离线账号为灰色。
-                            </span>
-                          </div>
-                        )}
-                      </div>
                     </>
                   )}
                 </div>
@@ -313,6 +295,80 @@ export function WonderfulToolsDialog({
           </section>
         </div>
       </div>
+
+      {/* 扫描结果模态窗口：头像 / 昵称 / QQ 号 / PID + 密钥（复制） */}
+      {scanTarget ? (
+        <div
+          className="weq-wtools-result-layer"
+          role="presentation"
+          onMouseDown={closeFromScrim(closeResult)}
+        >
+          <section
+            className="weq-wtools-result-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="weq-wtools-result-title"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <button
+              className="weq-wtools-result-close"
+              type="button"
+              title="关闭"
+              aria-label="关闭"
+              onClick={closeResult}
+            >
+              <X size={16} strokeWidth={2} />
+            </button>
+            <div className="weq-wtools-result-avatar">
+              <QqAvatar
+                uin={scanTarget.uin}
+                url={scanTarget.avatarUrl}
+                size={64}
+                className="weq-wtools-result-avatar-img"
+              />
+            </div>
+            <strong id="weq-wtools-result-title" className="weq-wtools-result-name">
+              {scanTarget.userName || scanTarget.uin}
+            </strong>
+            <span className="weq-wtools-result-uin">QQ 号 {scanTarget.uin}</span>
+            {scanTarget.pid ? (
+              <span className="weq-wtools-result-pid">PID {scanTarget.pid}</span>
+            ) : null}
+
+            <div className="weq-wtools-result-body">
+              {scanningUin ? (
+                <div className="weq-wtools-state">
+                  <Loader2 size={20} className="weq-spin" />
+                  <span>正在扫描进程内存并验证密钥…</span>
+                </div>
+              ) : result ? (
+                result.success && result.key ? (
+                  <>
+                    <span className="weq-wtools-result-ok-badge">扫描成功</span>
+                    <div className="weq-wtools-key-row">
+                      <code>{result.key}</code>
+                      <button
+                        type="button"
+                        className="weq-wtools-copy"
+                        onClick={copyKey}
+                        title="复制密钥"
+                      >
+                        {copied ? <Check size={15} /> : <Copy size={15} />}
+                        {copied ? '已复制' : '复制'}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="weq-wtools-result-err">
+                    <span className="weq-wtools-result-err-badge">扫描未成功</span>
+                    <p>{result.error ?? '未知错误'}</p>
+                  </div>
+                )
+              ) : null}
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }

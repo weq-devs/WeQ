@@ -11,6 +11,10 @@
  * 平台差异（win32 / linux）由 `platform.resolveQqPid` 封装：
  *   - win32: Restart Manager 句柄枚举
  *   - linux: /proc fcntl 写锁持有者 + uid 哈希目录解析
+ *
+ * 在线判定以 db 锁探测为准：探测成功但没有 QQ 持有者 = 离线；只有在探测
+ * 本身报错（如无权限、会话隔离）或找不到数据库文件时才回退端口扫描，所以
+ * 离线账号列表可以秒出，不会被逐进程端口探测拖慢。
  */
 
 import { z } from 'zod';

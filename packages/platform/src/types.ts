@@ -174,8 +174,10 @@ export interface Platform {
    *   - **linux/macOS**: fcntl `F_GETLK` write-lock holder pid, name-checked
    *     against `/proc/<pid>/comm`.
    * Returns null when no QQ instance holds the DB (account not signed in) or
-   * the probe is unavailable. When the DB-lock probe itself fails it falls
-   * back to the legacy `getQqProcesses` + `probeQqLoginInfo` port probe.
+   * the probe is unavailable. A successful probe that finds no QQ holder is
+   * treated as "not signed in" — the legacy `getQqProcesses` +
+   * `probeQqLoginInfo` port probe is only used when the DB-lock probe itself
+   * could not run or errored (e.g. permission denied).
    */
   resolveQqPid(uin: string): number | null;
 
