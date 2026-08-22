@@ -115,6 +115,19 @@ export interface DatabaseHealthResult {
   corruptedTables: string[];
 }
 
+/**
+ * Outcome of a `scanKeyFromDatabase` run (zero-injection memory scan).
+ * Mirrors `KeyScanResult` in `Qrypt-Native/nt_helper/src/key_scan/mod.rs`.
+ */
+export interface KeyScanResult {
+  /** Whether the scan succeeded (a candidate verified against `db_path`). */
+  success: boolean;
+  /** The recovered 16-byte raw master key as a string, `None` on failure. */
+  key?: string;
+  /** Failure reason when `success` is `false`, `None` on success. */
+  error?: string;
+}
+
 /** Status returned after injecting the hook DLL into a QQ process. */
 export interface QQInstanceStatus {
   pid: number;
@@ -254,6 +267,13 @@ export interface NtHelperBinding {
    */
   getMarketFaceKey(packetId: string): Promise<MarketFaceKeyResult | null>;
   
+  /**
+   * Zero-injection key scan: read the memory of the QQ process `pid` for the
+   * NTQQ raw master key (HMAC_SHA1 anchor scan) and verify candidates against
+   * the caller-supplied encrypted database at `dbPath` (e.g. `nt_msg.db`).
+   * Mirrors `scan_key_from_database` in nt_helper.
+   */
+  scanKeyFromDatabase(dbPath: string, pid: number): Promise<KeyScanResult>;
   testDatabaseKey(dbPath: string, key: string): Promise<DatabaseProbeResult>;
   checkDatabaseHealth(dbPath: string, key: string, algo: DatabaseAlgorithms): Promise<DatabaseHealthResult>;
 

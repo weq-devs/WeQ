@@ -12978,7 +12978,485 @@ html[data-theme="dark"] .weq-collection-page-info {
 html[data-theme="dark"] .weq-collection-state {
   color: #7b8794;
 }
+/* ===========================================================================
+   妙妙工具 (WonderfulToolsDialog) — 左工具列表 + 右工具面板 lightbox.
+   =========================================================================== */
+.weq-wtools-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  background: rgba(246, 247, 248, 0.55);
+  backdrop-filter: blur(4px);
+}
 
+.weq-wtools-dialog {
+  position: relative;
+  display: flex;
+  width: min(880px, calc(100vw - 48px));
+  height: min(600px, calc(100vh - 72px));
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.99);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.16);
+  overflow: hidden;
+  color: #161616;
+}
+
+.weq-wtools-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #666;
+  cursor: pointer;
+}
+.weq-wtools-close:hover,
+.weq-wtools-close:focus-visible {
+  background: #eee;
+  color: #111;
+  outline: none;
+}
+
+.weq-wtools-shell {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ---- 左栏：工具列表 ---- */
+.weq-wtools-nav {
+  display: flex;
+  flex-direction: column;
+  width: 210px;
+  flex-shrink: 0;
+  padding: 16px 10px 14px;
+  border-right: 1px solid var(--weq-border-subtle, rgba(0, 0, 0, 0.06));
+  background: #f6f7f9;
+}
+
+.weq-wtools-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 2px 10px 16px;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--weq-accent-effective);
+}
+.weq-wtools-brand-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: #fff;
+  background: var(--weq-accent-effective);
+}
+
+.weq-wtools-nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.weq-wtools-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #4a5560;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.weq-wtools-nav-item:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #1a1a1a;
+}
+.weq-wtools-nav-item.is-active {
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  color: var(--weq-accent-effective);
+}
+.weq-wtools-nav-item > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.weq-wtools-nav-item strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.weq-wtools-nav-item em {
+  font-size: 11px;
+  font-style: normal;
+  color: inherit;
+  opacity: 0.72;
+}
+
+/* ---- 右栏：工具面板 ---- */
+.weq-wtools-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  background: #fff;
+}
+
+.weq-wtools-pane-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid var(--weq-border-subtle, rgba(0, 0, 0, 0.06));
+}
+.weq-wtools-pane-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  color: var(--weq-accent-effective);
+}
+.weq-wtools-pane-title h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: inherit;
+}
+.weq-wtools-total {
+  margin-left: 2px;
+  padding: 1px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  white-space: nowrap;
+}
+.weq-wtools-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--weq-border-subtle, rgba(0, 0, 0, 0.1));
+  border-radius: 8px;
+  background: transparent;
+  color: #666;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.weq-wtools-refresh:hover:not(:disabled) {
+  background: #f0f2f5;
+  color: #222;
+}
+.weq-wtools-refresh:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.weq-wtools-pane-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 22px 20px;
+}
+
+.weq-wtools-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 200px;
+  color: #7c8a99;
+  font-size: 13px;
+}
+.weq-wtools-state.is-error {
+  color: #d64545;
+}
+
+/* ---- 账号卡片 ---- */
+.weq-wtools-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(188px, 1fr));
+  gap: 12px;
+}
+.weq-wtools-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 12px 13px;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 12px;
+  background: #fbfbfc;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s, background 0.15s, opacity 0.15s;
+}
+.weq-wtools-card:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+}
+.weq-wtools-card:disabled {
+  cursor: default;
+}
+.weq-wtools-card.is-online {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 7%, #fbfbfc);
+}
+.weq-wtools-card.is-offline {
+  opacity: 0.6;
+  filter: saturate(0.35);
+}
+.weq-wtools-card.is-offline:hover:not(:disabled) {
+  opacity: 0.85;
+  filter: saturate(0.55);
+}
+.weq-wtools-card.is-busy {
+  pointer-events: none;
+}
+
+.weq-wtools-card-avatar {
+  position: relative;
+  display: inline-flex;
+}
+.weq-wtools-card-dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: #b6bec7;
+  transition: background 0.2s;
+}
+.weq-wtools-card.is-online .weq-wtools-card-dot {
+  background: #2fbf71;
+  animation: weq-wtools-pulse 1.8s ease-in-out infinite;
+}
+@keyframes weq-wtools-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, #2fbf71 20%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, #2fbf71 6%, transparent);
+  }
+}
+
+.weq-wtools-card-id {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+}
+.weq-wtools-card-id strong {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: #222;
+}
+.weq-wtools-card-id em {
+  font-size: 11.5px;
+  font-style: normal;
+  color: #8a93a0;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-wtools-card-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  min-height: 15px;
+}
+.weq-wtools-card-status .is-online-text {
+  color: #1f9d57;
+  font-weight: 600;
+}
+.weq-wtools-card-status .is-offline-text {
+  color: #9aa3ad;
+}
+
+/* ---- 扫描结果区 ---- */
+.weq-wtools-result {
+  margin-top: 16px;
+  border-top: 1px dashed var(--weq-border-subtle, rgba(0, 0, 0, 0.08));
+  padding-top: 16px;
+  min-height: 76px;
+}
+.weq-wtools-result-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #8a93a0;
+  font-size: 12.5px;
+}
+.weq-wtools-result-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.weq-wtools-result-meta {
+  font-size: 12px;
+  color: #8a93a0;
+}
+.weq-wtools-result-ok-badge,
+.weq-wtools-result-err-badge {
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.weq-wtools-result-ok-badge {
+  color: #1f9d57;
+  background: color-mix(in srgb, #2fbf71 14%, transparent);
+}
+.weq-wtools-result-err-badge {
+  color: #d64545;
+  background: color-mix(in srgb, #d64545 12%, transparent);
+}
+
+.weq-wtools-key-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  background: #f6f8fa;
+}
+.weq-wtools-key-row code {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 15px;
+  letter-spacing: 1px;
+  color: var(--weq-accent-effective);
+  word-break: break-all;
+}
+.weq-wtools-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--weq-accent-effective);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: filter 0.15s;
+}
+.weq-wtools-copy:hover {
+  filter: brightness(1.06);
+}
+.weq-wtools-result-err p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: #b3352e;
+  word-break: break-all;
+}
+
+/* ---- dark theme ---- */
+html[data-theme="dark"] .weq-wtools-layer {
+  background: rgba(10, 12, 16, 0.42);
+}
+html[data-theme="dark"] .weq-wtools-dialog {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #161a20;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.45);
+  color: #edf2f7;
+}
+html[data-theme="dark"] .weq-wtools-close {
+  color: #98a4b3;
+}
+html[data-theme="dark"] .weq-wtools-close:hover,
+html[data-theme="dark"] .weq-wtools-close:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f7fbff;
+}
+html[data-theme="dark"] .weq-wtools-nav {
+  background: #12161c;
+  border-color: rgba(255, 255, 255, 0.07);
+}
+html[data-theme="dark"] .weq-wtools-nav-item {
+  color: #9aa6b2;
+}
+html[data-theme="dark"] .weq-wtools-nav-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e6edf3;
+}
+html[data-theme="dark"] .weq-wtools-pane {
+  background: #161a20;
+}
+html[data-theme="dark"] .weq-wtools-refresh {
+  color: #9aa6b2;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+html[data-theme="dark"] .weq-wtools-refresh:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e6edf3;
+}
+html[data-theme="dark"] .weq-wtools-card {
+  background: #1b2027;
+  border-color: rgba(255, 255, 255, 0.07);
+}
+html[data-theme="dark"] .weq-wtools-card.is-online {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, #1b2027);
+}
+html[data-theme="dark"] .weq-wtools-card-id strong {
+  color: #e6edf3;
+}
+html[data-theme="dark"] .weq-wtools-card-id em {
+  color: #7b8794;
+}
+html[data-theme="dark"] .weq-wtools-card-dot {
+  border-color: #1b2027;
+}
+html[data-theme="dark"] .weq-wtools-result-hint {
+  color: #7b8794;
+}
+html[data-theme="dark"] .weq-wtools-key-row {
+  background: #10141a;
+  border-color: rgba(255, 255, 255, 0.09);
+}
+html[data-theme="dark"] .weq-wtools-result-meta {
+  color: #7b8794;
+}
+html[data-theme="dark"] .weq-wtools-state {
+  color: #7b8794;
+}
+html[data-theme="dark"] .weq-wtools-state.is-error {
+  color: #e06c5f;
+}
+html[data-theme="dark"] .weq-wtools-result-err p {
+  color: #e06c5f;
+}
 /* ───────────────────────── WeQ 助手：composer 工具条 + 空状态预设 ────────── */
 
 /* 外层：工具条（模型/思考等级）+ 输入行，共享一条顶部分隔线。 */

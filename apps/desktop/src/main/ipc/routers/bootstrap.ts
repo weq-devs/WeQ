@@ -78,7 +78,7 @@ function hostOfServerUrl(url: string): string {
  * the decrypted login.db account list and seeds the in-memory registry. No-op
  * on win32 (paths key off uin there) and when the uid is already known.
  */
-async function ensureUidForUin(
+export async function ensureUidForUin(
   boot: ReturnType<typeof requireBootstrap>,
   uin: string,
 ): Promise<void> {

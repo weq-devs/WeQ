@@ -17,6 +17,7 @@ import { accountRouter } from './routers/account';
 import { updateRouter } from './routers/update';
 import { helpRouter } from './routers/help';
 import { groupFeedbackRouter } from './routers/group_feedback';
+import { wonderfulToolsRouter } from './routers/wonderful_tools';
 
 export const appRouter = router({
   bootstrap: bootstrapRouter,
@@ -24,6 +25,7 @@ export const appRouter = router({
   update: updateRouter,
   help: helpRouter,
   groupFeedback: groupFeedbackRouter,
+  wonderfulTools: wonderfulToolsRouter,
 });
 
 export type AppRouter = typeof appRouter;

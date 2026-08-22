@@ -12,6 +12,7 @@ import {
 	Store,
 	Palette,
 	MoreHorizontal,
+	Wand2,
 } from "lucide-react";
 import { useEffect, useRef, useState, useTransition } from "react";
 import type { ReactNode } from "react";
@@ -33,6 +34,7 @@ export function AppRail({
 	onOpenAbout: _onOpenAbout,
 	onOpenHelp: _onOpenHelp,
 	onOpenInvite,
+	onOpenWonderfulTools,
 	messageBadgeCount = 0,
 	contactBadgeCount = 0,
 	showTools = true,
@@ -50,6 +52,7 @@ export function AppRail({
 	onOpenAbout: () => void;
 	onOpenHelp: () => void;
 	onOpenInvite: () => void;
+	onOpenWonderfulTools: () => void;
 	messageBadgeCount?: number;
 	contactBadgeCount?: number;
 	showTools?: boolean;
@@ -71,6 +74,7 @@ export function AppRail({
 		{ id: "dressup", label: "个性装扮", icon: Palette, onSelect: onOpenDressUp },
 		{ id: "collection", label: "我的收藏", icon: Bookmark, onSelect: onOpenCollection },
 		{ id: "market", label: "商城表情", icon: Store, onSelect: onOpenMarketBrowser },
+		{ id: "wonderful", label: "妙妙工具", icon: Wand2, onSelect: onOpenWonderfulTools },
 	];
 
 	useEffect(() => {
