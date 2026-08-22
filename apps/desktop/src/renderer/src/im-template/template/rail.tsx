@@ -12,6 +12,8 @@ import {
 	Store,
 	Palette,
 	MoreHorizontal,
+	Wand2,
+	HelpCircle,
 } from "lucide-react";
 import { useEffect, useRef, useState, useTransition } from "react";
 import type { ReactNode } from "react";
@@ -31,8 +33,9 @@ export function AppRail({
 	onOpenDressUp,
 	onOpenProfile,
 	onOpenAbout: _onOpenAbout,
-	onOpenHelp: _onOpenHelp,
+	onOpenHelp,
 	onOpenInvite,
+	onOpenWonderfulTools,
 	messageBadgeCount = 0,
 	contactBadgeCount = 0,
 	showTools = true,
@@ -50,6 +53,7 @@ export function AppRail({
 	onOpenAbout: () => void;
 	onOpenHelp: () => void;
 	onOpenInvite: () => void;
+	onOpenWonderfulTools: () => void;
 	messageBadgeCount?: number;
 	contactBadgeCount?: number;
 	showTools?: boolean;
@@ -65,12 +69,14 @@ export function AppRail({
 	const activeView = pendingView ?? view;
 	const updateAvailable = useUpdateStore((s) => s.available);
 
-	// 「更多功能」里的三个灯箱。它们都不是视图（不占 MainView 的 view 位），
-	// 所以只有 onSelect，没有 active 态。
+	// 「更多功能」里的功能入口（灯箱弹窗 + 帮助对话框）。它们都不是视图
+	// （不占 MainView 的 view 位），所以只有 onSelect，没有 active 态。
 	const moreItems = [
 		{ id: "dressup", label: "个性装扮", icon: Palette, onSelect: onOpenDressUp },
 		{ id: "collection", label: "我的收藏", icon: Bookmark, onSelect: onOpenCollection },
 		{ id: "market", label: "商城表情", icon: Store, onSelect: onOpenMarketBrowser },
+		{ id: "wonderful", label: "妙妙工具", icon: Wand2, onSelect: onOpenWonderfulTools },
+		{ id: "help", label: "帮助", icon: HelpCircle, onSelect: onOpenHelp },
 	];
 
 	useEffect(() => {
@@ -290,13 +296,14 @@ export function AppRail({
 										key={item.id}
 										type="button"
 										role="menuitem"
+										className={cn("rail-more-tile")}
+										title={item.label}
 										onClick={() => {
 											setMenuOpen(false);
 											item.onSelect();
 										}}
 									>
-										<item.icon size={17} strokeWidth={1.6} />
-										<span>{item.label}</span>
+										<item.icon size={20} strokeWidth={1.6} />
 									</button>
 								))}
 							</div>

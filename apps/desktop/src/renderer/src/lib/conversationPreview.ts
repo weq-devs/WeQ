@@ -175,7 +175,7 @@ function parseGtipXml(xml: string, names: NameLookup): PreviewNode[] {
       }
       case 'nor':
       case 'url':
-        pushText(nodes, attr(node, 'txt'));
+        pushText(nodes, attr(node, 'txt') || nodeText(node));
         break;
       case 'face': {
         const faceId = Number(attr(node, 'id'));
@@ -290,6 +290,11 @@ function attr(node: Node, name: string): string {
     }
   ).attributes;
   return attrs?.getNamedItem(name)?.nodeValue || '';
+}
+
+/** `<nor>正文</nor>` 这种把文字写在元素内容里的写法,属性里没有 `txt`。 */
+function nodeText(node: Node): string {
+  return (typeof node.textContent === 'string' ? node.textContent : '').trim();
 }
 
 function str(v: unknown): string {

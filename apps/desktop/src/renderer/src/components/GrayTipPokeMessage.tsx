@@ -28,6 +28,11 @@ function getNodeValue(
   return attributes?.getNamedItem(attribute)?.nodeValue || '';
 }
 
+/** `<nor>正文</nor>` 这种把文字写在元素内容里的写法,属性里没有 `txt`。 */
+function getNodeText(node: Node): string {
+  return (typeof node.textContent === 'string' ? node.textContent : '').trim();
+}
+
 interface TipJsonItem {
   type?: string;
   txt?: string;
@@ -101,11 +106,11 @@ export function GrayTipPokeMessage({ element, conversation, message }: GrayTipPo
         }
         if (node.nodeName === 'nor') {
           // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-          return <span key={index} className="text-gray-500 px-1">{getNodeValue(node, 'txt')}</span>;
+          return <span key={index} className="text-gray-500 px-1">{getNodeValue(node, 'txt') || getNodeText(node)}</span>;
         }
         if (node.nodeName === 'url') {
           // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-          return <span key={index} className="text-blue-500">{getNodeValue(node, 'txt')}</span>;
+          return <span key={index} className="text-blue-500">{getNodeValue(node, 'txt') || getNodeText(node)}</span>;
         }
         if (node.nodeName === 'img') {
           const src = resolveTipImgSrc(getNodeValue(node, 'src'));

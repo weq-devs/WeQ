@@ -26,6 +26,11 @@ function getNodeValue(
   return attributes?.getNamedItem(attribute)?.nodeValue || '';
 }
 
+/** `<nor>正文</nor>` 这种把文字写在元素内容里的写法,属性里没有 `txt`。 */
+function getNodeText(node: Node): string {
+  return (typeof node.textContent === 'string' ? node.textContent : '').trim();
+}
+
 export function GrayTipXmlMessage({ element, conversation }: GrayTipXmlMessageProps) {
   const { grayTipXmlContent } = element.data || {};
 
@@ -61,11 +66,11 @@ export function GrayTipXmlMessage({ element, conversation }: GrayTipXmlMessagePr
       }
       if (node.nodeName === 'nor') {
         // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-        return <span key={index}>{getNodeValue(node, 'txt')}</span>;
+        return <span key={index}>{getNodeValue(node, 'txt') || getNodeText(node)}</span>;
       }
       if (node.nodeName === 'url') {
         // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-        return <span key={index} className="text-blue-500">{getNodeValue(node, 'txt')}</span>;
+        return <span key={index} className="text-blue-500">{getNodeValue(node, 'txt') || getNodeText(node)}</span>;
       }
       if (node.nodeName === 'face') {
         const faceId = Number(getNodeValue(node, 'id'));

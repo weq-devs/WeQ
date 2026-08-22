@@ -182,7 +182,6 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
               onSelect={(a) => setSelectedKey(a.key)}
               onDeleteAccount={mode === 'existing' ? (a) => void onDeleteAccount(a) : undefined}
               installRoot={root}
-              allUins={allUins}
               autoTarget={autoTarget.data ?? null}
               onEntered={onEntered}
             />

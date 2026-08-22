@@ -30,6 +30,8 @@ import { useDressSkin } from '../hooks/useDressSkin';
 import { RailAccountFooter } from '../components/RailAccountFooter';
 import { SettingsDialog } from '../components/SettingsDialog';
 import { CollectionDialog } from '../components/CollectionDialog';
+import { WonderfulToolsDialog } from '../components/WonderfulToolsDialog';
+import { HelpDialog } from '../components/HelpDialog';
 import { DressUpDialog } from '../components/DressUpDialog';
 import { MarketEmojiBrowserLightbox } from './export/MarketEmojiBrowserLightbox';
 import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
@@ -1671,7 +1673,9 @@ export function MainView(): ReactElement {
   const [trackedConversationId, setTrackedConversationId] = useState<string | null>(null);
   const [conversationPrefs, setConversationPrefs] = useState<ConversationPreferences>({});
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [collectionOpen, setCollectionOpen] = useState(false);
+  const [wonderfulToolsOpen, setWonderfulToolsOpen] = useState(false);
   const [marketBrowserOpen, setMarketBrowserOpen] = useState(false);
   const [dressUpOpen, setDressUpOpen] = useState(false);
   // 装扮样式注入提到这一层 —— 进主界面就生效,不必先打开装扮灯箱。
@@ -3555,11 +3559,12 @@ export function MainView(): ReactElement {
             onGoHome={() => shell.switchView('home')}
             onOpenSettings={() => setSettingsOpen(true)}
             onOpenCollection={() => setCollectionOpen(true)}
+            onOpenWonderfulTools={() => setWonderfulToolsOpen(true)}
             onOpenMarketBrowser={() => setMarketBrowserOpen(true)}
             onOpenDressUp={() => setDressUpOpen(true)}
             onOpenProfile={noopAsync}
             onOpenAbout={noopAsync}
-            onOpenHelp={noopAsync}
+            onOpenHelp={() => setHelpOpen(true)}
             onOpenInvite={noopAsync}
             onQueryChange={shell.setQuery}
             onQuickInvite={noopAsync}
@@ -3771,7 +3776,12 @@ export function MainView(): ReactElement {
           ) : null}
 
           <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+          <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
           <CollectionDialog open={collectionOpen} onClose={() => setCollectionOpen(false)} />
+          <WonderfulToolsDialog
+            open={wonderfulToolsOpen}
+            onClose={() => setWonderfulToolsOpen(false)}
+          />
           <DatabaseDamagedDialog event={damagedEvent} onClose={() => setDamagedEvent(null)} />
           {marketBrowserOpen ? (
             <MarketEmojiBrowserLightbox onClose={() => setMarketBrowserOpen(false)} />

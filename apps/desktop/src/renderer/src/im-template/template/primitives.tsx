@@ -67,7 +67,7 @@ export function LoadingState({ text = "加载中..." }: { text?: string }) {
  * 用于数据量较大、列表尚未就绪时替代空白/转圈。
  * 加载很快时不会闪现，超过 `delayMs` 才显示（防抖）。
  */
-export function ListSkeleton({ rows = 8, delayMs = 200 }: { rows?: number; delayMs?: number }) {
+export function ListSkeleton({ rows = 8, delayMs = 100 }: { rows?: number; delayMs?: number }) {
 	const visible = useDebouncedLoading(true, delayMs);
 	if (!visible) return null;
 	return (
@@ -92,7 +92,7 @@ export function ListSkeleton({ rows = 8, delayMs = 200 }: { rows?: number; delay
  * （长文本 / 短文本 / 图片方块 / 卡片），模拟真实会话布局。
  * 加载很快时不会闪现，超过 `delayMs` 才显示（防抖）。
  */
-export function ChatMessagesSkeleton({ delayMs = 200 }: { delayMs?: number }) {
+export function ChatMessagesSkeleton({ delayMs = 100 }: { delayMs?: number }) {
 	const visible = useDebouncedLoading(true, delayMs);
 	if (!visible) return null;
 	const rows = [

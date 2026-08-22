@@ -76,6 +76,29 @@ export interface QqPortLoginInfo {
   loggedIn: boolean;
 }
 
+/**
+ * One process holding an account's database open / locked. Mirrors
+ * `DbLockHolder` in `Qrypt-Native/nt_helper/src/detect/db_lock.rs`.
+ */
+export interface DbLockHolder {
+  pid: number;
+  /** Windows: Restart Manager `strAppName`; Linux: `/proc/<pid>/comm`. Empty when unavailable. */
+  name: string;
+}
+
+/**
+ * Outcome of `probeDbLock`. Mirrors `DbLockProbeResult` in
+ * `Qrypt-Native/nt_helper/src/detect/db_lock.rs`.
+ */
+export interface DbLockProbeResult {
+  /** Whether the probe itself ran. false = file missing / API failed — treat as "not locked / unknown". */
+  success: boolean;
+  msg: string;
+  /** True when at least one process holds the file (i.e. `holders` is non-empty). */
+  locked: boolean;
+  holders: DbLockHolder[];
+}
+
 export interface DatabaseAlgorithms {
   pageHmacAlgorithm: string;
   kdfHmacAlgorithm: string;
@@ -90,6 +113,19 @@ export interface DatabaseProbeResult {
 export interface DatabaseHealthResult {
   healthy: boolean;
   corruptedTables: string[];
+}
+
+/**
+ * Outcome of a `scanKeyFromDatabase` run (zero-injection memory scan).
+ * Mirrors `KeyScanResult` in `Qrypt-Native/nt_helper/src/key_scan/mod.rs`.
+ */
+export interface KeyScanResult {
+  /** Whether the scan succeeded (a candidate verified against `db_path`). */
+  success: boolean;
+  /** The recovered 16-byte raw master key as a string, `None` on failure. */
+  key?: string;
+  /** Failure reason when `success` is `false`, `None` on success. */
+  error?: string;
 }
 
 /** Status returned after injecting the hook DLL into a QQ process. */
@@ -176,6 +212,15 @@ export interface NtHelperBinding {
 
   // --- QQ process / login detection ---
   probeQqLoginInfo(pid: number): QqPortLoginInfo | null;
+  /**
+   * Probe which processes hold an account's `nt_msg.db` open / locked — the
+   * cross-platform way to attribute a running QQ to an account AND recover its
+   * pid in one step. Windows enumerates Restart Manager open-handle holders
+   * (may include non-QQ processes like WeQ itself — filter by name); Linux
+   * reports the fcntl write-lock holder's pid via `F_GETLK`. The holder list
+   * is not filtered here: callers decide which holder is QQ.
+   */
+  probeDbLock(dbPath: string): DbLockProbeResult;
   decryptLoginDb(loginDbPath: string, algo: DatabaseAlgorithms): LoginAccount[];
   getQqProcesses(): number[];
   /**
@@ -222,6 +267,13 @@ export interface NtHelperBinding {
    */
   getMarketFaceKey(packetId: string): Promise<MarketFaceKeyResult | null>;
   
+  /**
+   * Zero-injection key scan: read the memory of the QQ process `pid` for the
+   * NTQQ raw master key (HMAC_SHA1 anchor scan) and verify candidates against
+   * the caller-supplied encrypted database at `dbPath` (e.g. `nt_msg.db`).
+   * Mirrors `scan_key_from_database` in nt_helper.
+   */
+  scanKeyFromDatabase(dbPath: string, pid: number): Promise<KeyScanResult>;
   testDatabaseKey(dbPath: string, key: string): Promise<DatabaseProbeResult>;
   checkDatabaseHealth(dbPath: string, key: string, algo: DatabaseAlgorithms): Promise<DatabaseHealthResult>;
 

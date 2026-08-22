@@ -15,7 +15,13 @@ export { SendFlashMsg } from './send-flash';
 export type { SendFlashMsgParams } from './send-flash';
 export { GetFilesetDetail } from './get-fileset-detail';
 export type { FlashFileInfo } from './get-fileset-detail';
-export { createFlashFileset, finishFlashUpload, uploadFlashFiles } from './upload';
+export {
+  createFlashFileset,
+  stageFlashFileset,
+  uploadFlashMainFiles,
+  finishFlashUpload,
+  uploadFlashFiles,
+} from './upload';
 export type {
   FlashUploadItem,
   FlashUploadOptions,

@@ -4,17 +4,19 @@
  * 与 PeerStatsService 同构：注入发生在账号 bootstrap，这里只负责在已注入的
  * 在线 pid 上发包。QQ 离线 / 风控失败原样上抛，由 router 统一转成用户提示。
  *
- * 群反馈路径（uploadBundleToGroup）：「发起 fileset → 拿到 filesetId 立即发闪传
- * 消息 → 上传在后台继续」。消息先到，文件随后传完即可被对端下载。
+ * 群反馈路径（uploadBundleToGroup）：「发起 fileset → commit/complete → 缩略图
+ * 全流程（封面先就绪）→ 发闪传消息 → 主文件上传在后台继续」。消息到达时封面
+ * 已可显示，主文件随后传完即可被对端下载。
  */
 import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
 import {
   createFlashFileset,
-  finishFlashUpload,
   GetFilesetDetail,
   SendFlashMsg,
   SendTuwenArk,
+  stageFlashFileset,
+  uploadFlashMainFiles,
   type FlashUploadItem,
   type FlashUploadOptions,
 } from '@weq/protocol';
@@ -40,9 +42,10 @@ export class FlashTransferService {
   /**
    * 群反馈：把一组本地文件（正文 + 日志）以闪传形式发到群聊。
    *
-   * 0x93cf 申请到 filesetId 后立刻 0x93d7 发消息，不等上传完成；commit →
-   * complete → 缩略图 prepare → 并行 100/103/分片上传等剩余步骤在后台执行。
-   * 返回时消息已发出；上传结果只记日志（失败则对端暂时无法下载该 fileset）。
+   * 时序：0x93cf 申请 fileset → 0x93d0 commit → 0x93db complete → 缩略图
+   * prepare/apply/sliceupload（封面先就绪）→ 0x93d7 发消息 → 主文件并行
+   * 100/103/分片上传 + 0x93d1 在后台执行。返回时消息已发出，封面已可显示；
+   * 主文件上传结果只记日志（失败则对端暂时无法下载该 fileset）。
    */
   async uploadBundleToGroup(params: {
     files: FlashUploadItem[];
@@ -51,14 +54,17 @@ export class FlashTransferService {
   }): Promise<{ filesetUuid: string; shareUrl: string }> {
     const pid = this.resolvePid();
     const pending = await createFlashFileset(this.nt, pid, params.files, params.options);
+
+    // 先 commit + complete + 缩略图全流程，封面就绪后再发群消息。
+    await stageFlashFileset(this.nt, pid, pending);
     await SendFlashMsg.invoke(this.nt, pid, {
       filesetUuid: pending.filesetUuid,
       groupId: params.groupId,
     });
 
-    // 消息已发出；上传继续在后台完成（不阻塞调用方）。
-    void finishFlashUpload(this.nt, pid, pending).catch((error: unknown) => {
-      logger.error('feedback flash upload failed in background', {
+    // 消息已发出；主文件上传继续在后台完成（不阻塞调用方）。
+    void uploadFlashMainFiles(this.nt, pid, pending).catch((error: unknown) => {
+      logger.error('feedback flash main files upload failed in background', {
         event: 'feedback-flash-upload-failed',
         filesetUuid: pending.filesetUuid,
         error: error instanceof Error ? (error.stack ?? error.message) : String(error),

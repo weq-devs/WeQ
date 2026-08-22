@@ -8,11 +8,11 @@
  * real bundle in production.
  */
 
-import type { NativeBundle } from '@weq/native';
+import type { NativeBundle, NtHelperBinding } from '@weq/native';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { Platform } from '../types';
-import { readQqVersion } from '../qq_meta';
+import { readLauncherCount, readQqVersion } from '../qq_meta';
 import {
   candidateTencentFilesRoots,
   findAccountDir,
@@ -141,9 +141,73 @@ export function createWin32Platform(
         return false;
       }
     },
-    // No authoritative instance count on win32 — caller uses the process probe.
-    launcherCount: () => null,
+    // QQ records its own running-instance count in versions/setting.json —
+    // same source as linux, so the bootstrap display reads one value everywhere.
+    launcherCount: () => {
+      const p = protocolExe();
+      const root = p ? join(dirname(p), '..', '..', '..', '..') : findQqInstallRoot();
+      return readLauncherCount(root);
+    },
+    /**
+     * Attribute this account to a running QQ pid via the account's `nt_msg.db`
+     * handle (Restart Manager). The RM holder list can contain non-QQ
+     * processes (WeQ itself reads the DB) — filter by process name. A probe
+     * that ran successfully but found no QQ holder means the account is not
+     * signed in: return null instead of falling back to the port probe (which
+     * is slower and known to report stale pids). The legacy port probe is only
+     * reached when the db-lock probe itself could not run (no `nt_msg.db`) or
+     * errored (e.g. permission denied, cross-session) — i.e. we can't trust
+     * the lock-based answer.
+     */
+    resolveQqPid: (uin: string) => {
+      const dbPath = findNtMsgDb(uin, undefined, override());
+      if (dbPath) {
+        try {
+          const probe = native.ntHelper.probeDbLock(dbPath);
+          if (probe.success) {
+            const holder = probe.holders.find((h) => isQqProcessName(h.name));
+            // Probe succeeded: no QQ holding the DB ⇒ not logged in. Only a
+            // failed/unavailable probe falls through to the port probe below.
+            return holder ? holder.pid : null;
+          }
+          /* probe reported failure (e.g. no permission) — port probe below */
+        } catch {
+          /* db-lock probe unavailable — fall through to the port probe */
+        }
+      }
+      return probeQqPidByPort(native.ntHelper, uin);
+    },
   };
+}
+
+/**
+ * Match a holder's process name against QQ, case-insensitively — Restart
+ * Manager `strAppName` reports `QQ` / `QQ.exe`, Linux `/proc/<pid>/comm`
+ * reports `qq`. A trailing `.exe` is stripped so one rule covers both.
+ */
+function isQqProcessName(name: string): boolean {
+  return name.trim().toLowerCase().replace(/\.exe$/, '') === 'qq';
+}
+
+/**
+ * Legacy fallback: enumerate running QQ processes and port-probe each for the
+ * account's uin. Only reached when the db-lock probe could not be trusted: the
+ * `nt_msg.db` wasn't found, the probe threw, or it reported failure (e.g. no
+ * permission) — never when a successful probe found no QQ holder (offline).
+ * The port probe is strictly weaker (the process scan is known to report stale
+ * pids), so every candidate is verified against the account uin before being
+ * accepted.
+ */
+function probeQqPidByPort(ntHelper: NtHelperBinding, uin: string): number | null {
+  try {
+    for (const pid of ntHelper.getQqProcesses()) {
+      const info = ntHelper.probeQqLoginInfo(pid);
+      if (info && info.uin === uin && info.loggedIn) return pid;
+    }
+  } catch {
+    /* probe unavailable */
+  }
+  return null;
 }
 
 // Re-export the pure helpers so the service layer / tests can use them
