@@ -26,7 +26,12 @@ import type {
   RecentContactTop,
   UserProfile,
 } from '@weq/db';
-import { decodeElement, type MsgCacheRecord, type SetEmojiItem } from '@weq/codec';
+import {
+  decodeElement,
+  decodeMsgDressWire,
+  type MsgCacheRecord,
+  type SetEmojiItem,
+} from '@weq/codec';
 import {
   toRenderElements,
   type FormattedOnlineStatus,
@@ -717,10 +722,14 @@ export function forwardRecordToWire(record: MsgCacheRecord): unknown {
 
   // Sanitize the carrier fields (msgId/senderUin/sendTime + sender avatar block
   // etc.) but drop the proto `elements` / `subMsgs` from the spread — we replace
-  // them with the lifted versions above.
-  const { elements: _e, subMsgs: _s, ...rest } = record as unknown as Record<string, unknown>;
+  // them with the lifted versions above. proto40801 is the per-sub-message
+  // decoration (bubble/font/widget), lifted into the same `decoration` shape the
+  // main timeline carries so the forward window can render it with the shared
+  // useMsgDecoration pipeline.
+  const { elements: _e, subMsgs: _s, proto40801, ...rest } = record as unknown as Record<string, unknown>;
   const carrier = sanitize(rest) as Record<string, unknown>;
-  return { ...carrier, elements, subMsgs };
+  const decoration = proto40801 instanceof Uint8Array ? decodeMsgDressWire(proto40801) : null;
+  return { ...carrier, elements, subMsgs, ...(decoration ? { decoration } : {}) };
 }
 
 /**

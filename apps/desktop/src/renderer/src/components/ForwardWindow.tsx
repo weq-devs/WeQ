@@ -33,6 +33,8 @@ import { create } from 'zustand';
 import { X } from 'lucide-react';
 import { client } from '../trpc/client';
 import { QqMessageContent, ConvContext, ForwardCarrierContext } from './QqMessageContent';
+import { useMsgDecoration } from '../hooks/useMsgDecoration';
+import type { ResolvedWidget } from '@weq/service';
 
 // ---- types & store -------------------------------------------------------
 
@@ -56,6 +58,8 @@ export interface ForwardRecordWire {
   elements: Array<{ type?: string; data?: Record<string, unknown> }>;
   /** Recursive: nested 40900 forward cache (multi-forward inside multi-forward). */
   subMsgs?: ForwardRecordWire[];
+  /** Per-message decoration from the nested proto40801 (0 = not set). */
+  decoration?: { bubbleId: number; fontId: number; widgetId: number };
 }
 
 interface ForwardWindowState {
@@ -421,6 +425,25 @@ function ForwardScroll({ win }: { win: ForwardWindowState }): ReactElement {
   );
 }
 
+/** 转发头像上的挂件叠加层，与 messageBubble 的 PendantOverlay 同构。 */
+function PendantLayer({ widget }: { widget: ResolvedWidget }): ReactElement | null {
+  if (widget.animated) {
+    return <span className="weq-avatar-pendant-img" aria-hidden />;
+  }
+  return (
+    <img
+      className="weq-avatar-pendant-img"
+      src={widget.url}
+      alt=""
+      aria-hidden
+      draggable={false}
+      onError={(event) => {
+        event.currentTarget.style.display = 'none';
+      }}
+    />
+  );
+}
+
 function ForwardRow({
   record,
   kind,
@@ -428,14 +451,21 @@ function ForwardRow({
   record: ForwardRecordWire;
   kind: 'c2c' | 'group';
 }): ReactElement {
+  const msgDec = useMsgDecoration(record.decoration);
   const avatar =
     senderAvatarFromUin(record.senderUin) || record.senderInfo?.avatar?.avatarUrl || null;
   const displayName = record.sendNick || record.senderUin || record.senderUid || 'Unknown';
   const time = formatForwardTime(record.sendTime);
   const sendTimeMs = (Number(record.sendTime) || 0) * 1000;
+  const widget = msgDec.widget;
 
   return (
-    <div className="weq-forward-row">
+    <div
+      className="weq-forward-row"
+      data-bubble={msgDec.bubbleId || undefined}
+      data-font={msgDec.fontId || undefined}
+      data-widget={widget?.animated ? widget.itemId : undefined}
+    >
       <div className="weq-forward-avatar">
         {avatar ? (
           <img src={avatar} alt="" loading="lazy" />
@@ -444,6 +474,7 @@ function ForwardRow({
             {displayName.slice(0, 1)}
           </span>
         )}
+        {widget ? <PendantLayer widget={widget} /> : null}
       </div>
       <div className="weq-forward-row-main">
         <div className="weq-forward-row-meta">

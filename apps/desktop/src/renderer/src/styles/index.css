@@ -8999,6 +8999,33 @@ html[data-theme="dark"] .weq-decoration-card-preview {
   background: transparent;
 }
 
+/* 转发子消息带气泡装扮时，剥掉外层默认白底/边框/圆角/内边距，让注入的 nine-patch
+   气泡（msgDecorationStyle 里 data-bubble 选中的 .message-content）直接接管。 */
+.weq-forward-row[data-bubble] .weq-forward-bubble {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+}
+
+/* 转发头像挂件：叠加层是绝对定位，需要祖先可见 + 可定位；挂件略大于 32px 头像。 */
+.weq-forward-avatar {
+  position: relative;
+}
+
+.weq-forward-avatar:has(.weq-avatar-pendant-img) {
+  overflow: visible;
+}
+
+.weq-forward-avatar img {
+  border-radius: 50%;
+}
+
+.weq-forward-avatar .weq-avatar-pendant-img {
+  width: 48px;
+  height: 48px;
+}
+
 /* A nested multiMsg preview lives inside .weq-forward-bubble; flatten the
    double-bordered look by removing the outer bubble chrome. */
 .weq-forward-bubble:has(.weq-forward-preview) {

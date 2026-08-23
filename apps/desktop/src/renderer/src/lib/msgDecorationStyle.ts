@@ -77,20 +77,27 @@ function append(css: string): void {
   el.textContent = `${el.textContent ?? ''}\n${css}`;
 }
 
-/** Selector: any message line whose bubble id matches. */
-function bubbleSel(bubbleId: number): string {
-  const base = `.message-line[data-bubble="${bubbleId}"]`;
+/**
+ * 展开成完整选择器列表。CSS 的 `a, b c` 只给最后一项加后缀，所以 `LINE_ATTR` 的两份
+ * 前缀必须各自带上 `.message-content` 后缀显式展开，不能合并成一条再拼。
+ */
+function lineContentSel(attr: 'bubble' | 'font', id: number): string {
+  const content =
+    '.message-content' +
+    ':not(.sticker-only):not(.markdown-image-only):not(.qq-card-only):not(.qq-voice-only)';
   return (
-    `${base} .message-content` +
-    ':not(.sticker-only):not(.markdown-image-only):not(.qq-card-only):not(.qq-voice-only)'
+    `.message-line[data-${attr}="${id}"] ${content}, ` +
+    `.weq-forward-row[data-${attr}="${id}"] ${content}`
   );
 }
 
+/** Selector: any message line (timeline or forward row) whose bubble id matches. */
+function bubbleSel(bubbleId: number): string {
+  return lineContentSel('bubble', bubbleId);
+}
+
 function fontSel(fontId: number): string {
-  return (
-    `.message-line[data-font="${fontId}"] .message-content` +
-    ':not(.sticker-only):not(.markdown-image-only):not(.qq-card-only):not(.qq-voice-only)'
-  );
+  return lineContentSel('font', fontId);
 }
 
 /**
@@ -256,7 +263,10 @@ export function injectFontCss(fontId: number): void {
 
 /** Selector: the pendant overlay element inside a message line whose widget id matches. */
 function widgetSel(widgetId: number): string {
-  return `.message-line[data-widget="${widgetId}"] .weq-avatar-pendant-img`;
+  return (
+    `.message-line[data-widget="${widgetId}"] .weq-avatar-pendant-img, ` +
+    `.weq-forward-row[data-widget="${widgetId}"] .weq-avatar-pendant-img`
+  );
 }
 
 /**
