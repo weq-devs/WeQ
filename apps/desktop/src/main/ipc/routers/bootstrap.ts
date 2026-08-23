@@ -249,7 +249,7 @@ export const bootstrapRouter = router({
 
   // ---- app settings (设置 → 账号基础 / 全局设置) ----
 
-  /** Full, defaulted global settings (realtime / media-completion / clientkey). */
+  /** Full, defaulted global settings (realtime / 自动注入 QQ / …). */
   getSettings: procedure.query(() => {
     return requireBootstrap().userConfig.getSettings();
   }),
@@ -265,26 +265,14 @@ export const bootstrapRouter = router({
   }),
 
   /**
-   * Patch the 媒体补全 config. The monitor's rkey harvesting reads `enabled`
-   * live on its next poll.
+   * Toggle 自动注入 QQ（完整功能总闸）. Persists, and the account monitor reads
+   * it live on its next poll so injection / harvesting starts or stops
+   * immediately (no re-open needed). 关闭 = 完全离线模式。
    */
-  setMediaCompletion: procedure
-    .input(z.object({ enabled: z.boolean().optional() }))
-    .mutation(({ input }) => {
-      requireBootstrap().userConfig.setSettings({ mediaCompletion: input });
-      return true;
-    }),
-
-  /**
-   * Toggle 自动获取 ClientKey. Persists, and the monitor reads it live on its
-   * next poll so clientkey harvesting starts/stops immediately (no re-open needed).
-   */
-  setAutoFetchClientKey: procedure
-    .input(z.object({ enabled: z.boolean() }))
-    .mutation(({ input }) => {
-      requireBootstrap().userConfig.setSettings({ autoFetchClientKey: input.enabled });
-      return true;
-    }),
+  setAutoInjectQq: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+    requireBootstrap().userConfig.setSettings({ autoInjectQq: input.enabled });
+    return true;
+  }),
 
   /**
    * 空闲自动上锁阈值（分钟）。0 = 关闭自动上锁。渲染层的 AppLockOverlay

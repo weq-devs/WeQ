@@ -133,6 +133,8 @@ export function GroupBugDialog({
       if (!res.ok) {
         if (res.reason === 'offline') {
           pushToast({ tone: 'error', title: 'QQ 未在线', detail: res.message });
+        } else if (res.reason === 'offline-mode') {
+          pushToast({ tone: 'error', title: '完全离线模式已开启', detail: res.message });
         } else {
           pushToast({ tone: 'error', title: '发送失败', detail: res.message });
         }
@@ -220,7 +222,12 @@ export function GroupBugDialog({
       if (!res.ok) {
         pushToast({
           tone: 'error',
-          title: res.reason === 'offline' ? 'QQ 未在线' : '发送失败',
+          title:
+            res.reason === 'offline-mode'
+              ? '完全离线模式已开启'
+              : res.reason === 'offline'
+                ? 'QQ 未在线'
+                : '发送失败',
           detail: res.message,
         });
         return;

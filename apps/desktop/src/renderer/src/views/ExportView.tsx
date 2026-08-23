@@ -530,8 +530,8 @@ export function ExportView(): ReactElement {
 
   /**
    * Pre-flight for 补全缺失媒体: needs an online QQ (to harvest a fresh rkey).
-   * Returns false to abort the export. Offline → hard block; global 媒体补全 off
-   * → warn but allow; then force one fresh rkey harvest.
+   * Returns false to abort the export. Offline → hard block; 完全离线模式（自动
+   * 注入 QQ 关闭）→ warn but allow; then force one fresh rkey harvest.
    */
   async function preflightMediaCompletion(): Promise<boolean> {
     let online = false;
@@ -559,16 +559,16 @@ export function ExportView(): ReactElement {
         return false;
       }
     }
-    let globalOn = true;
+    let injectOn = true;
     try {
-      globalOn = (await client.bootstrap.getSettings.query()).mediaCompletion.enabled;
+      injectOn = (await client.bootstrap.getSettings.query()).autoInjectQq;
     } catch {
       /* treat as on; the forced harvest below still runs */
     }
-    if (!globalOn) {
+    if (!injectOn) {
       const ok = await dialog.confirm(
-        '媒体补全未开启',
-        '全局设置中的「媒体补全（rkey）」已关闭，后台不会持续刷新下载凭证，可能有大量图片无法补全。是否仍要继续？',
+        '完全离线模式已开启',
+        '「自动注入 QQ（完整功能）」已关闭（完全离线模式），缺失的图片 / 表情无法从云端补全。是否仍要继续导出？',
         { okLabel: '继续导出', cancelLabel: '返回', tone: 'warning' },
       );
       if (!ok) return false;

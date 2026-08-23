@@ -130,10 +130,6 @@ function normalizeExternalRkeyServers(value: unknown): ExternalRkeyServerConfig[
   return value.filter(isExternalRkeyServerConfig);
 }
 
-export interface MediaCompletionConfig {
-  enabled: boolean;
-}
-
 export interface VoiceTranscribeConfig {
   /** 离线转录模型 id（空 = 关）。 */
   modelId: string;
@@ -186,8 +182,14 @@ export interface LinkPreviewConfig {
 
 export interface AppSettings {
   realtimeEnabled: boolean;
-  mediaCompletion: MediaCompletionConfig;
-  autoFetchClientKey: boolean;
+  /**
+   * 完全离线总闸（设置 → 账号基础 → 自动注入 QQ）。
+   * 默认开启：后台自动注入登录中的 QQ，采集 rKey / ClientKey / 装扮快照等
+   * 凭证，驱动媒体补全、群相册、Web 凭证（skey/pskey）等在线功能。
+   * 关闭后进入完全离线模式：不再注入、不再采集、不再联网换取凭证，
+   * 仅使用本地数据库与本地文件。唯一豁免：登录时的数据库密钥提取。
+   */
+  autoInjectQq: boolean;
   /**
    * 空闲自动上锁阈值（分钟）。0 = 关闭自动上锁（仍可在左栏手动上锁）。
    * 解锁强制走系统认证（Windows Hello / Touch ID），无绕过入口。
@@ -299,8 +301,7 @@ export interface ExternalRkeyConfig {
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   realtimeEnabled: true,
-  mediaCompletion: { enabled: true },
-  autoFetchClientKey: true,
+  autoInjectQq: true,
   autoLockMinutes: 0,
   voiceTranscribe: { modelId: '', ttsProviders: [] },
   // 8765 在 Windows 上常被百度输入法等占用，默认改用不常冲突的高端口；
@@ -534,7 +535,7 @@ export class UserConfigService {
     const d = DEFAULT_APP_SETTINGS;
     return {
       realtimeEnabled: s?.realtimeEnabled ?? d.realtimeEnabled,
-      autoFetchClientKey: s?.autoFetchClientKey ?? d.autoFetchClientKey,
+      autoInjectQq: s?.autoInjectQq ?? d.autoInjectQq,
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
       windowCloseBehavior:
         normalizeWindowCloseBehavior(s?.windowCloseBehavior) ?? d.windowCloseBehavior,
@@ -555,9 +556,6 @@ export class UserConfigService {
       linkPreview: {
         enabled: s?.linkPreview?.enabled ?? d.linkPreview.enabled,
         screenshot: s?.linkPreview?.screenshot ?? d.linkPreview.screenshot,
-      },
-      mediaCompletion: {
-        enabled: s?.mediaCompletion?.enabled ?? d.mediaCompletion.enabled,
       },
       voiceTranscribe: {
         modelId: s?.voiceTranscribe?.modelId ?? d.voiceTranscribe.modelId,
@@ -583,7 +581,7 @@ export class UserConfigService {
     const current = this.getSettings();
     const next: AppSettings = {
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
-      autoFetchClientKey: patch.autoFetchClientKey ?? current.autoFetchClientKey,
+      autoInjectQq: patch.autoInjectQq ?? current.autoInjectQq,
       autoLockMinutes: patch.autoLockMinutes ?? current.autoLockMinutes,
       windowCloseBehavior:
         normalizeWindowCloseBehavior(patch.windowCloseBehavior) ?? current.windowCloseBehavior,
@@ -610,9 +608,6 @@ export class UserConfigService {
       linkPreview: {
         enabled: patch.linkPreview?.enabled ?? current.linkPreview.enabled,
         screenshot: patch.linkPreview?.screenshot ?? current.linkPreview.screenshot,
-      },
-      mediaCompletion: {
-        enabled: patch.mediaCompletion?.enabled ?? current.mediaCompletion.enabled,
       },
       voiceTranscribe: {
         modelId: patch.voiceTranscribe?.modelId ?? current.voiceTranscribe.modelId,
@@ -642,9 +637,8 @@ export class UserConfigService {
       event: 'set-settings',
       patchKeys: Object.keys(patch),
       realtimeEnabled: next.realtimeEnabled,
-      autoFetchClientKey: next.autoFetchClientKey,
+      autoInjectQq: next.autoInjectQq,
       autoLockMinutes: next.autoLockMinutes,
-      mediaCompletionEnabled: next.mediaCompletion.enabled,
       voiceModelId: next.voiceTranscribe.modelId,
       ttsProviderCount: next.voiceTranscribe.ttsProviders.length,
       mcpEnabled: next.mcp.enabled,

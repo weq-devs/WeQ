@@ -211,7 +211,7 @@ export class WebCredentialProvider {
   /**
    * ptlogin2 jump 拿 `domain` 的完整 cookie jar(按域缓存)。clientKey 取不到 / 跳转
    * 失败时返回空对象 —— 调用方会回退到 native skey/p_skey,不让风控 cookie 缺失成为
-   * 致命错误(也兼容关掉了「自动获取 ClientKey」的账号)。
+   * 致命错误(也兼容完全离线模式、自动注入 QQ 关闭的账号)。
    */
   private async harvestJar(pid: number, domain: string): Promise<Record<string, string>> {
     const cached = this.cookieByDomain.get(domain);

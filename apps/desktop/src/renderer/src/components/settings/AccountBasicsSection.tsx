@@ -2,9 +2,9 @@
  * 设置 → 账号基础.
  *
  * Everything tied to the open account: self profile, the database key, the live
- * download rkeys, clientkey, plus the behaviour switches (实时消息 / 媒体补全 /
- * ClientKey). Realtime + media-completion + clientkey are stored globally but
- * read most naturally here next to the account they affect.
+ * download rkeys, clientkey, plus the behaviour switch (实时消息 / 自动注入 QQ).
+ * Realtime + 自动注入 QQ are stored globally but read most naturally here next
+ * to the account they affect.
  *
  * Freshness: the QueryClient keeps data fresh 5 min and does NOT refetch on
  * mount by default, which made this panel show stale rkeys/settings after they
@@ -27,8 +27,8 @@ import {
   EyeOff,
   FolderOpen,
   FolderSearch,
-  ImageDown,
   KeyRound,
+  Plug,
   RefreshCw,
   Smartphone,
   Trash2,
@@ -83,8 +83,7 @@ export function AccountBasicsSection(): ReactElement {
   });
 
   const setRealtime = trpc.bootstrap.setRealtimeEnabled.useMutation();
-  const setMedia = trpc.bootstrap.setMediaCompletion.useMutation();
-  const setClientKey = trpc.bootstrap.setAutoFetchClientKey.useMutation();
+  const setAutoInjectQq = trpc.bootstrap.setAutoInjectQq.useMutation();
   const setNativeMediaEnabled = trpc.account.setNativeMediaEnabled.useMutation();
   const setExternalChatpic = trpc.bootstrap.setExternalChatpic.useMutation();
   const pickExternalChatpicDir = trpc.bootstrap.pickExternalChatpicDir.useMutation();
@@ -94,8 +93,7 @@ export function AccountBasicsSection(): ReactElement {
 
   // Local mirror for snappy toggles; re-seeded whenever server data changes.
   const [realtime, setRealtimeLocal] = useState(true);
-  const [mediaEnabled, setMediaEnabled] = useState(true);
-  const [autoClientKey, setAutoClientKey] = useState(true);
+  const [autoInject, setAutoInject] = useState(true);
   // 静态账号的原生媒体绑定存在**账号**配置里（不是全局设置），所以单独镜像一份。
   const [nativeMedia, setNativeMedia] = useState(true);
   const [savingNativeMedia, setSavingNativeMedia] = useState(false);
@@ -108,8 +106,7 @@ export function AccountBasicsSection(): ReactElement {
     const d = settings.data;
     if (!d) return;
     setRealtimeLocal(d.realtimeEnabled);
-    setMediaEnabled(d.mediaCompletion.enabled);
-    setAutoClientKey(d.autoFetchClientKey);
+    setAutoInject(d.autoInjectQq);
   }, [settings.data]);
 
   useEffect(() => {
@@ -295,8 +292,10 @@ export function AccountBasicsSection(): ReactElement {
             {config.isLoading
               ? '读取中…'
               : cfg?.qqOnline
-                ? '在线实例已连接，正在等待获取 rKey…'
-                : '未获取到 rKey（需要登录中的 QQ 在线，且开启「自动获取 rKey」）。'}
+                ? autoInject
+                  ? '在线实例已连接，正在等待获取 rKey…'
+                  : '完全离线模式已开启（自动注入 QQ 已关闭），不会获取 rKey。'
+                : '未获取到 rKey（需要登录中的 QQ 在线，且开启「自动注入 QQ（完整功能）」）。'}
           </div>
         ) : (
           <ul className="weq-set-rkey-list">
@@ -355,8 +354,10 @@ export function AccountBasicsSection(): ReactElement {
             {config.isLoading
               ? '读取中…'
               : cfg?.qqOnline
-                ? '在线实例已连接，正在等待获取 ClientKey…'
-                : '未获取到 ClientKey（需要登录中的 QQ 在线，且开启「自动获取 ClientKey」）。'}
+                ? autoInject
+                  ? '在线实例已连接，正在等待获取 ClientKey…'
+                  : '完全离线模式已开启（自动注入 QQ 已关闭），不会获取 ClientKey。'
+                : '未获取到 ClientKey（需要登录中的 QQ 在线，且开启「自动注入 QQ（完整功能）」）。'}
           </div>
         ) : (
           <div className="weq-set-rkey-item">
@@ -439,49 +440,27 @@ export function AccountBasicsSection(): ReactElement {
         />
       </Card>
 
-      {/* Media completion (simplified) */}
+      {/* 完全离线总闸：自动注入 QQ（完整功能） */}
       <Card>
         <Row
           label={
             <span className="weq-set-row-icon">
-              <ImageDown size={15} strokeWidth={1.8} aria-hidden />
-              自动获取 rKey
+              <Plug size={15} strokeWidth={1.8} aria-hidden />
+              自动注入 QQ（完整功能）
             </span>
           }
-          desc="自动从登录的 QQ 获取 rKey 补全缺失媒体（图片/表情）。"
+          desc="默认开启：后台自动注入登录中的 QQ，采集 rKey / ClientKey 等凭证，启用媒体补全、群相册、装扮等在线功能。关闭后进入完全离线模式——不再注入 QQ、不再联网换取任何凭证，仅使用本地数据与本地文件。"
           control={
             <Toggle
-              checked={mediaEnabled}
+              checked={autoInject}
               disabled={settingsLoading}
               onChange={(v) =>
                 void persist(
-                  () => setMediaEnabled(v),
-                  () => setMedia.mutateAsync({ enabled: v }),
+                  () => setAutoInject(v),
+                  () => setAutoInjectQq.mutateAsync({ enabled: v }),
                 )
               }
-              label="自动获取 rKey"
-            />
-          }
-        />
-        <Row
-          label={
-            <span className="weq-set-row-icon">
-              <KeyRound size={15} strokeWidth={1.8} aria-hidden />
-              自动获取 ClientKey
-            </span>
-          }
-          desc="自动从登录的 QQ 获取 ClientKey 用于接管 QQ h5 服务。"
-          control={
-            <Toggle
-              checked={autoClientKey}
-              disabled={settingsLoading}
-              onChange={(v) =>
-                void persist(
-                  () => setAutoClientKey(v),
-                  () => setClientKey.mutateAsync({ enabled: v }),
-                )
-              }
-              label="自动获取 ClientKey"
+              label="自动注入 QQ（完整功能）"
             />
           }
         />

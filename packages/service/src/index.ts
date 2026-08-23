@@ -39,7 +39,6 @@ export type {
   InjectRecord,
   AppSettings,
   WindowCloseBehavior,
-  MediaCompletionConfig,
   VoiceTranscribeConfig,
   McpServerConfig,
   WeqAssistantConfig,

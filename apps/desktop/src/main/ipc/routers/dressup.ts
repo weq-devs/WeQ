@@ -21,7 +21,12 @@ import { observable } from '@trpc/server/observable';
 import { getHost } from '@weq/service';
 import { z } from 'zod';
 import { DressAppId, normalizeMallItems, toPeerDress, type DressMallItem } from '@weq/service';
-import { accountEventBus, getAppContext, type AccountServices } from '../../context/app_context';
+import {
+  accountEventBus,
+  getAppContext,
+  requireInjectEnabled,
+  type AccountServices,
+} from '../../context/app_context';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
 
@@ -33,10 +38,11 @@ function requireServices(): AccountServices {
   return ctx.services;
 }
 
-/** 该账号是否有在线且已注入的 QQ 实例。 */
+/** 该账号是否有在线且已注入的 QQ 实例。完全离线模式下视为不可用。 */
 function qqOnline(services = requireServices()): boolean {
   const record = services.accountConfig.getRecord();
-  return Boolean(record?.qqOnline && record.qqPid);
+  if (!(record?.qqOnline && record.qqPid)) return false;
+  return getAppContext().bootstrap?.userConfig.getSettings().autoInjectQq ?? true;
 }
 
 const OFFLINE_HINT =
@@ -45,7 +51,8 @@ const OFFLINE_HINT =
 const PEER_HOME_HINT =
   '获取失败 —— 个性主页要拿该账号的 QQ 会员票据去查，请确认这个账号的 QQ 客户端正在运行。';
 
-const PEER_STATS_HINT = '获取失败 —— 个性主页的 QQ 等级与获赞要发 OIDB 包，请确认这个账号的 QQ 客户端正在运行。';
+const PEER_STATS_HINT =
+  '获取失败 —— 个性主页的 QQ 等级与获赞要发 OIDB 包，请确认这个账号的 QQ 客户端正在运行。';
 
 const PEER_QQ_SHOW_HINT = '获取失败 —— QQ 秀形象要发 OIDB 包，请确认这个账号的 QQ 客户端正在运行。';
 
@@ -342,6 +349,7 @@ export const dressupRouter = router({
   peerHome: procedure
     .input(z.object({ uin: z.string().regex(/^\d{5,}$/) }))
     .query(async ({ input }) => {
+      requireInjectEnabled();
       const services = requireServices();
       let dress: Awaited<ReturnType<typeof services.webQuery.getFriendDress>>;
       try {
@@ -365,6 +373,7 @@ export const dressupRouter = router({
   peerStats: procedure
     .input(z.object({ uin: z.string().regex(/^\d{5,}$/), uid: z.string().min(1) }))
     .query(async ({ input }) => {
+      requireInjectEnabled();
       const services = requireServices();
       try {
         return await services.peerStats.getPeerStats(input.uin, input.uid);
@@ -382,6 +391,7 @@ export const dressupRouter = router({
   peerQqShow: procedure
     .input(z.object({ uin: z.string().regex(/^\d{5,}$/) }))
     .query(async ({ input }) => {
+      requireInjectEnabled();
       const services = requireServices();
       try {
         return await services.peerStats.getQqShow(input.uin);

@@ -6,7 +6,7 @@
  * session partition, so login state survives restarts and每个账号各用各的 cookie
  * jar (keyed by the same (uin, dataDir) id the rest of the app uses).
  *
- * Auto-login: when 设置 → 自动获取 ClientKey is on AND a logged-in QQ.exe for the
+ * Auto-login: when 设置 → 自动注入 QQ（完整功能） is on AND a logged-in QQ.exe for the
  * account is running, we swap its credential for Qzone's web tokens via the
  * native helper and seed the jar with `uin` / `p_uin` / `skey` / `p_skey` — Qzone
  * needs the plain `skey` (for its g_tk csrf) on top of the `p_skey` that 频道 uses,
@@ -71,14 +71,14 @@ function resolvePartition(): string {
 
 /**
  * Best-effort auto-login: seed `uin` / `p_uin` / `skey` / `p_skey` into the Qzone
- * jar from the live QQ instance. No-op (returns silently) unless 自动获取
- * ClientKey is on and a logged-in QQ.exe is online. On any failure we leave the
+ * jar from the live QQ instance. No-op (returns silently) unless 自动注入 QQ
+ * （完整功能） is on and a logged-in QQ.exe is online. On any failure we leave the
  * jar untouched and let the persistent cookies (if any) carry login.
  */
 async function injectAutoLoginCookies(partition: string): Promise<void> {
   const ctx = getAppContext();
-  const autoFetch = ctx.bootstrap?.userConfig.getSettings().autoFetchClientKey ?? false;
-  if (!autoFetch) return;
+  const autoInject = ctx.bootstrap?.userConfig.getSettings().autoInjectQq ?? true;
+  if (!autoInject) return;
 
   const uin = ctx.account?.context.uin;
   const nt = ctx.platform?.native.ntHelper;

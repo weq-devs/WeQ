@@ -1,7 +1,9 @@
 /**
  * AccountMonitorService — per-account background task that tracks whether a
- * logged-in QQ.exe instance for this account is running, and harvests download
- * rkeys from it while it is.
+ * logged-in QQ.exe instance for this account is running, and while it is,
+ * injects the hook and harvests download rkeys / clientkey / home-dress
+ * snapshot — unless 完全离线模式 (自动注入 QQ) is on, in which case it only
+ * tracks online/pid state and never touches the QQ process.
  *
  * Lifecycle (owned by the open/close of an account session):
  *   start() →  poll `resolveQqPid(uin)` until a QQ instance for this account
@@ -47,12 +49,10 @@ export class AccountMonitorService {
   private readonly logger;
 
   /**
-   * @param shouldHarvestRkeys Checked live before each rkey fetch — when it
-   *   returns false (用户关掉了「自动获取 rkey 补全媒体」), online/pid tracking
-   *   keeps running but rkey harvesting is skipped. Defaults to always-on.
-   * @param shouldFetchClientKey Checked live before each clientkey fetch — when
-   *   it returns false (用户关掉了「自动获取 ClientKey」), clientkey harvesting
-   *   is skipped. Defaults to always-off.
+   * @param shouldAutoInject Checked live before each injection — when it
+   *   returns false (用户关掉了「自动注入 QQ」, 完全离线模式), online/pid
+   *   tracking keeps running but hook injection AND all harvesting
+   *   (rkey / clientkey / 首页装扮快照) are skipped. Defaults to always-on.
    * @param injectHook Turns a pid into a sendable-state before harvesting.
    *   Defaults to the in-process direct inject (win32). On linux the desktop
    *   app passes a pkexec-elevated hook. A single shared instance across all
@@ -66,8 +66,7 @@ export class AccountMonitorService {
     private readonly session: AccountSession,
     private readonly platform: Platform,
     private readonly accountConfig: AccountConfigService,
-    private readonly shouldHarvestRkeys: () => boolean = () => true,
-    private readonly shouldFetchClientKey: () => boolean = () => false,
+    private readonly shouldAutoInject: () => boolean = () => true,
     private readonly injectHook: InjectHook = createDirectInjectHook(platform.native.ntHelper),
     private readonly onHomeDress?: (dress: HomeDressSnapshot) => Promise<void>,
   ) {
@@ -91,6 +90,7 @@ export class AccountMonitorService {
    * were stored. Best-effort: any failure resolves false rather than throwing.
    */
   async harvestRkeysNow(): Promise<boolean> {
+    if (!this.shouldAutoInject()) return false;
     const pid = this.attachedPid ?? this.resolvePid();
     if (pid === null) return false;
     try {
@@ -242,33 +242,33 @@ export class AccountMonitorService {
     await this.injectHook.ensure(pid, this.uin);
   }
 
-  /** Harvest both rkey & clientkey (gated by their respective switches). */
+  /**
+   * Inject + harvest rkey / clientkey / 首页装扮快照. 完全离线模式（自动注入
+   * QQ 关闭）下整体跳过——不注入、不采集任何凭证。
+   */
   private async harvest(pid: number): Promise<void> {
+    if (!this.shouldAutoInject()) return;
     try {
       await this.ensureInjected(pid);
-      if (this.shouldHarvestRkeys()) {
-        const raw = await this.nt.fetchDownloadRkeys(pid);
-        const rkeys = parseRkeys(raw);
-        if (rkeys.length > 0) this.accountConfig.setRkeys(rkeys);
-        if (rkeys.length > 0) {
-          this.logger.info('harvested download rkeys', {
-            event: 'harvest-rkeys',
-            pid,
-            count: rkeys.length,
-          });
-        }
+      const raw = await this.nt.fetchDownloadRkeys(pid);
+      const rkeys = parseRkeys(raw);
+      if (rkeys.length > 0) this.accountConfig.setRkeys(rkeys);
+      if (rkeys.length > 0) {
+        this.logger.info('harvested download rkeys', {
+          event: 'harvest-rkeys',
+          pid,
+          count: rkeys.length,
+        });
       }
-      if (this.shouldFetchClientKey()) {
-        const raw = await this.nt.fetchClientKey(pid);
-        const key = parseClientKey(raw);
-        if (key) this.accountConfig.setClientKey(key);
-        if (key) {
-          this.logger.info('harvested client key', {
-            event: 'harvest-client-key',
-            pid,
-            ttlSeconds: key.ttlSeconds,
-          });
-        }
+      const rawCk = await this.nt.fetchClientKey(pid);
+      const key = parseClientKey(rawCk);
+      if (key) this.accountConfig.setClientKey(key);
+      if (key) {
+        this.logger.info('harvested client key', {
+          event: 'harvest-client-key',
+          pid,
+          ttlSeconds: key.ttlSeconds,
+        });
       }
       // 首页装扮快照：并发抓取，不阻塞 rkey/clientkey 主流程，失败静默降级。
       void fetchHomeDress(this.nt, this.session, pid, this.accountConfig.getRecord()?.loginPskey)
@@ -298,26 +298,17 @@ export class AccountMonitorService {
     }
   }
 
-  /** Refresh rkey/clientkey when they're stale (按开关独立判断). */
+  /** Refresh rkey/clientkey when they're stale. 完全离线模式下不采集。 */
   private async harvestIfStale(pid: number): Promise<void> {
+    if (!this.shouldAutoInject()) return;
     const rec = this.accountConfig.getRecord();
     const now = Date.now();
-    let needHarvest = false;
-
-    if (this.shouldHarvestRkeys()) {
-      const rkeys = rec?.rkeys ?? [];
-      const rkeyStale =
-        rkeys.length === 0 || rkeys.some((r) => rkeyExpiryMs(r) - now < RKEY_REFRESH_SKEW_MS);
-      if (rkeyStale) needHarvest = true;
-    }
-
-    if (this.shouldFetchClientKey()) {
-      const ck = rec?.clientKey;
-      const ckStale = !ck || clientKeyExpiryMs(ck) - now < CLIENTKEY_REFRESH_SKEW_MS;
-      if (ckStale) needHarvest = true;
-    }
-
-    if (needHarvest) await this.harvest(pid);
+    const rkeys = rec?.rkeys ?? [];
+    const rkeyStale =
+      rkeys.length === 0 || rkeys.some((r) => rkeyExpiryMs(r) - now < RKEY_REFRESH_SKEW_MS);
+    const ck = rec?.clientKey;
+    const ckStale = !ck || clientKeyExpiryMs(ck) - now < CLIENTKEY_REFRESH_SKEW_MS;
+    if (rkeyStale || ckStale) await this.harvest(pid);
   }
 }
 

@@ -266,6 +266,8 @@ const exportGroupAlbumsInput = groupAlbumInput.extend({
 export interface GroupAlbumAccessState {
   qqOnline: boolean;
   qqPid: number | null;
+  /** 「自动注入 QQ（完整功能）」总闸——关闭即完全离线模式，在线功能不可用。 */
+  injectEnabled: boolean;
   clientKeyValid: boolean;
   clientKeyExpiresAt: number | null;
   clientKeySecondsLeft: number;
@@ -414,6 +416,7 @@ function albumAccessState(services = requireServices()): GroupAlbumAccessState {
   return {
     qqOnline: Boolean(record?.qqOnline && record.qqPid),
     qqPid: record?.qqPid ?? null,
+    injectEnabled: getAppContext().bootstrap?.userConfig.getSettings().autoInjectQq ?? true,
     clientKeyValid: Boolean(expiresAt && expiresAt > Date.now()),
     clientKeyExpiresAt: expiresAt,
     clientKeySecondsLeft: secondsLeft,
@@ -425,6 +428,9 @@ function requireQqOnlineForAlbum(services = requireServices()): void {
   if (!state.qqOnline) {
     throw new Error('需要先登录该账号的 QQ 客户端。');
   }
+  if (!state.injectEnabled) {
+    throw new Error('已开启完全离线模式（自动注入 QQ 已关闭），该功能需要在线 QQ 实例。');
+  }
 }
 
 function requireFreshClientKeyForAlbum(services = requireServices()): void {
@@ -432,8 +438,13 @@ function requireFreshClientKeyForAlbum(services = requireServices()): void {
   if (!state.qqOnline) {
     throw new Error('需要先登录该账号的 QQ 客户端。');
   }
+  if (!state.injectEnabled) {
+    throw new Error('已开启完全离线模式（自动注入 QQ 已关闭），群相册等在线功能不可用。');
+  }
   if (!state.clientKeyValid) {
-    throw new Error('ClientKey 未获取或已过期，请在设置中开启自动获取 ClientKey 并等待刷新。');
+    throw new Error(
+      'ClientKey 未获取或已过期，请确认 QQ 在线且已开启「自动注入 QQ（完整功能）」。',
+    );
   }
 }
 
@@ -451,7 +462,7 @@ async function listGroupBulletinsWithWebFallback(
   const localPage = localWindow.slice(input.offset, input.offset + input.limit);
 
   const state = albumAccessState(services);
-  if (!state.qqOnline || !state.clientKeyValid) return localPage;
+  if (!state.qqOnline || !state.injectEnabled || !state.clientKeyValid) return localPage;
 
   try {
     const webNotices = await services.webQuery.getGroupNotice(input.groupCode);
@@ -2254,8 +2265,10 @@ export const accountRouter = router({
           ? `https://user.qzone.qq.com/${uin}/infocenter?loginfrom=31`
           : 'https://pd.qq.com/';
 
-      // 没有在线 QQ 就没有 clientKey 可换 —— 退回裸地址，用户自己在浏览器里登录。
-      if (!uin || !nt || !record?.qqOnline || !record.qqPid) {
+      // 没有在线 QQ（或处于完全离线模式）就没有 clientKey 可换 —— 退回裸地址，
+      // 用户自己在浏览器里登录。
+      const offlineMode = ctx.bootstrap?.userConfig.getSettings().autoInjectQq === false;
+      if (!uin || !nt || !record?.qqOnline || !record.qqPid || offlineMode) {
         return { url: landing, autoLogin: false };
       }
       try {
@@ -2287,7 +2300,15 @@ export const accountRouter = router({
         const uin = ctx.account?.context.uin;
         const nt = ctx.platform?.native.ntHelper;
         const record = services.accountConfig.getRecord();
-        if (!uin || !nt || !record?.qqOnline || !record.qqPid) {
+        const offlineMode = ctx.bootstrap?.userConfig.getSettings().autoInjectQq === false;
+        if (!uin || !nt || !record?.qqOnline || !record.qqPid || offlineMode) {
+          if (offlineMode) {
+            return {
+              ok: false,
+              reason: 'offline',
+              message: '已开启完全离线模式（自动注入 QQ 已关闭），闪传分享需要在线 QQ。',
+            };
+          }
           return { ok: false, reason: 'offline' };
         }
         try {
@@ -2446,10 +2467,15 @@ export const accountRouter = router({
       const svc = requireServices().collection;
       const limit = input?.limit ?? 50;
       const offset = input?.offset ?? 0;
+      // 完全离线模式（自动注入 QQ 关闭）：网络同步需要 weiyun p_skey（在线实例），
+      // 一律回退本地 collection.db，避免白打一次网络 + 凭证换取。
+      const offlineMode =
+        getAppContext().bootstrap?.userConfig.getSettings().autoInjectQq === false;
+      const source = offlineMode ? 'db' : (input?.source ?? 'auto');
       const page =
-        input?.source === 'db'
+        source === 'db'
           ? await svc.listCollectionsFromDb(limit, offset)
-          : input?.source === 'network'
+          : source === 'network'
             ? await svc.listCollectionsFromNetwork(limit, offset)
             : await svc.listCollections(limit, offset);
       if (!page) return null;
@@ -2645,7 +2671,7 @@ export const accountRouter = router({
   /**
    * Force a one-shot rkey harvest from the online QQ for the open account — the
    * explicit "立即重新获取 rkey" before a media-completing export. Returns true
-   * when fresh rkeys were stored.
+   * when fresh rkeys were stored. 完全离线模式（自动注入 QQ 关闭）下直接返回 false。
    */
   refreshRkeys: procedure.mutation(() => {
     return getAppContext().refreshRkeysNow();

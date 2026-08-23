@@ -8,7 +8,7 @@
  *   - each account gets its own jar keyed by the same (uin, dataDir) id the rest
  *     of the app uses ("按账号隔离") — switching accounts switches the partition.
  *
- * Auto-login: when 设置 → 自动获取 ClientKey is on AND a logged-in QQ.exe for the
+ * Auto-login: when 设置 → 自动注入 QQ（完整功能） is on AND a logged-in QQ.exe for the
  * account is running (already hook-injected by the account monitor), we swap its
  * credential for a `pd.qq.com` p_skey via the native helper and seed the jar with
  * `uin` / `p_uin` / `p_skey` — enough for pd.qq.com to treat the page as logged
@@ -68,15 +68,15 @@ function resolvePartition(): string {
 
 /**
  * Best-effort auto-login: seed `uin` / `p_uin` / `p_skey` into the channel jar
- * from the live QQ instance. No-op (returns silently) unless 自动获取 ClientKey is
- * on and a logged-in QQ.exe is online — the monitor injects the hook on
+ * from the live QQ instance. No-op (returns silently) unless 自动注入 QQ（完整功能）
+ * is on and a logged-in QQ.exe is online — the monitor injects the hook on
  * account-online, so `fetchPskey` works off the recorded pid. On any failure we
  * leave the jar untouched and let the persistent cookies (if any) carry login.
  */
 async function injectAutoLoginCookies(partition: string): Promise<void> {
   const ctx = getAppContext();
-  const autoFetch = ctx.bootstrap?.userConfig.getSettings().autoFetchClientKey ?? false;
-  if (!autoFetch) return;
+  const autoInject = ctx.bootstrap?.userConfig.getSettings().autoInjectQq ?? true;
+  if (!autoInject) return;
 
   const uin = ctx.account?.context.uin;
   const nt = ctx.platform?.native.ntHelper;
