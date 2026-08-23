@@ -106,6 +106,4 @@ pnpm dev
 >
 > > TG群组正在建设中
 
-## Star History
-
-> > > > > > > > > 
+> 没有Star History了喵  
