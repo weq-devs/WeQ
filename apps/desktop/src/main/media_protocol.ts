@@ -197,7 +197,9 @@ async function albumRemoteResponse(src: string): Promise<Response> {
     host.endsWith('.qpic.cn') ||
     host === 'photo.store.qq.com' ||
     host.endsWith('.photo.store.qq.com') ||
-    // 群相册视频走视频 CDN,和图片不同域。
+    // 群相册视频走视频 CDN,和图片不同域。实测直链域是
+    // groupvideo.photo.qq.com(属于 *.photo.qq.com),还有 .video.qq.com。
+    host.endsWith('.photo.qq.com') ||
     host.endsWith('.video.qq.com') ||
     host.endsWith('.gtimg.com') ||
     host.endsWith('.qzone.qq.com') ||

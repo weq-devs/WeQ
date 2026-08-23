@@ -52,6 +52,7 @@ import {
   findLatestDbHealthReport,
   writeDbHealthReport,
   type AlbumMedia,
+  type AlbumMediaPage,
   type NewMessages,
   type DbChange,
   type RenderC2cMsg,
@@ -533,6 +534,43 @@ function mediaToWire(media: AlbumMedia): AlbumMediaWire {
   return { ...media, ...mediaUrls(media) };
 }
 
+function albumMediaKey(media: AlbumMediaWire): string {
+  const image = media.image;
+  if (image?.lloc) return `img:${image.lloc}`;
+  const video = media.video;
+  if (video?.id) return `vid:${video.id}`;
+  return `url:${media.originalUrl || media.previewUrl}`;
+}
+
+/**
+ * 群相册末页的 nextAttachInfo 依然是非空游标（指向本页最后一条的
+ * batch_id/lloc），拿它翻页服务端会原样重发本页。解析游标确认已到结尾。
+ */
+interface AlbumNextAttachInfo {
+  Loc?: { batch_id?: number | string; lloc?: string };
+  Lloc?: string;
+}
+
+function attachInfoAtEnd(page: AlbumMediaPage, nextAttachInfo: string): boolean {
+  const last = page.mediaList[page.mediaList.length - 1];
+  if (!last) return false;
+  let info: AlbumNextAttachInfo | null = null;
+  try {
+    info = JSON.parse(nextAttachInfo) as AlbumNextAttachInfo | null;
+  } catch {
+    return false;
+  }
+  const loc = info?.Loc;
+  if (loc?.batch_id != null && last.batchId && String(loc.batch_id) === last.batchId) {
+    return true;
+  }
+  const lastLloc = last.image?.lloc || last.video?.cover?.lloc || '';
+  if (lastLloc && (loc?.lloc === lastLloc || info?.Lloc === lastLloc)) {
+    return true;
+  }
+  return false;
+}
+
 function isAlbumPlaceholderUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
@@ -549,15 +587,21 @@ async function collectAlbumMedia(
   albumId: string,
 ): Promise<AlbumMediaWire[]> {
   const out: AlbumMediaWire[] = [];
+  const seenKeys = new Set<string>();
   const seenAttachInfo = new Set<string>();
   let attachInfo = '';
   for (let guard = 0; guard < 100; guard += 1) {
     const page = await services.groupAlbumMedia.getMediaList(groupCode, albumId, attachInfo);
-    out.push(
-      ...page.mediaList.map(mediaToWire).filter((media) => media.originalUrl || media.previewUrl),
-    );
+    for (const wire of page.mediaList
+      .map(mediaToWire)
+      .filter((media) => media.originalUrl || media.previewUrl)) {
+      const key = albumMediaKey(wire);
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      out.push(wire);
+    }
     const next = page.nextAttachInfo || '';
-    if (!next || seenAttachInfo.has(next)) break;
+    if (!next || seenAttachInfo.has(next) || attachInfoAtEnd(page, next)) break;
     seenAttachInfo.add(next);
     attachInfo = next;
   }
