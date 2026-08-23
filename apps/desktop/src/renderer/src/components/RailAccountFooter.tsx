@@ -79,7 +79,15 @@ export function RailAccountFooter({
   // it can't, otherwise the lock screen would be unsolvable.
   const [authAvailable, setAuthAvailable] = useState<boolean | null>(null);
   const [authError, setAuthError] = useState<string | undefined>(undefined);
+  const [totpConfigured, setTotpConfigured] = useState<boolean | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  // 应用锁配置（解锁方式 / 总开关），供上锁按钮做可上锁判断。
+  const lockSettings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
 
   useEffect(() => {
     const bridge = shellBridge();
@@ -95,15 +103,58 @@ export function RailAccountFooter({
       .catch(() => {
         if (alive) setAuthAvailable(false);
       });
+    void bridge.totp
+      .getStatus()
+      .then((s) => {
+        if (alive) setTotpConfigured(s.configured);
+      })
+      .catch(() => {
+        if (alive) setTotpConfigured(false);
+      });
     return () => {
       alive = false;
     };
   }, []);
 
-  function lockNow(): void {
-    if (!authAvailable) {
-      showError('无法上锁', authError ?? '当前设备的系统认证不可用，启用后才能使用应用锁。');
-      return;
+  const appLock = lockSettings.data?.appLock;
+  const lockMethod = appLock?.method ?? 'totp';
+
+  /** 按钮禁用时的提示原因；null = 当前可上锁。 */
+  function lockBlockReason(): string | null {
+    if (appLock?.enabled === false) return '应用锁已关闭，请在 设置 → 应用锁 中开启。';
+    if (lockMethod === 'system') {
+      return authAvailable === false ? (authError ?? '当前设备系统认证不可用。') : null;
+    }
+    return totpConfigured === false ? '验证器未绑定，请先在 设置 → 应用锁 中完成绑定。' : null;
+  }
+
+  // 上锁前拉一次最新配置，避免缓存陈旧导致上锁后无法解锁。
+  async function lockNow(): Promise<void> {
+    try {
+      const fresh = await lockSettings.refetch();
+      const cfg = fresh.data?.appLock;
+      if (cfg?.enabled === false) {
+        showError('无法上锁', '应用锁已关闭，请在 设置 → 应用锁 中开启。');
+        return;
+      }
+      const method = cfg?.method ?? 'totp';
+      if (method === 'system') {
+        const bridge = shellBridge();
+        const status = bridge ? await bridge.systemAuth.getStatus() : null;
+        if (!status?.available) {
+          showError('无法上锁', status?.error ?? '当前设备系统认证不可用。');
+          return;
+        }
+      } else {
+        const bridge = shellBridge();
+        const status = bridge ? await bridge.totp.getStatus() : null;
+        if (!status?.configured) {
+          showError('无法上锁', '验证器未绑定，请先在 设置 → 应用锁 中完成绑定。');
+          return;
+        }
+      }
+    } catch {
+      // 读取失败时照常上锁，解锁弹窗会自己校验当前配置。
     }
     setOpen(false);
     lock();
@@ -359,10 +410,10 @@ export function RailAccountFooter({
         <button
           type="button"
           className="weq-rail-lock-btn"
-          title={authAvailable === false ? (authError ?? '系统认证不可用') : '锁定 WeQ'}
+          title={lockBlockReason() ?? '锁定 WeQ'}
           aria-label="锁定 WeQ"
-          onClick={lockNow}
-          disabled={busy || authAvailable === false}
+          onClick={() => void lockNow()}
+          disabled={busy || lockBlockReason() !== null}
         >
           <LockKeyhole size={18} strokeWidth={1.8} aria-hidden />
         </button>

@@ -18,6 +18,7 @@ import {
   Check,
   CloudDownload,
   Lock,
+  LockKeyhole,
   Monitor,
   Moon,
   Palette,
@@ -30,6 +31,7 @@ import {
   X,
 } from 'lucide-react';
 import { GlobalSettingsSection } from './settings/GlobalSettingsSection';
+import { AppLockSection } from './settings/AppLockSection';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
 import { AgentLabSection } from './settings/AgentLabSection';
 import { VoiceTranscribeSection } from './settings/VoiceTranscribeSection';
@@ -49,6 +51,7 @@ import {
 type SectionId =
   | 'global'
   | 'appearance'
+  | 'applock'
   | 'account'
   | 'antirecall'
   | 'voice'
@@ -76,6 +79,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: '个性显示',
     icon: <Palette size={16} strokeWidth={1.8} />,
     render: () => <AppearanceSection />,
+  },
+  {
+    id: 'applock',
+    label: '应用锁',
+    icon: <LockKeyhole size={16} strokeWidth={1.8} />,
+    render: () => <AppLockSection />,
   },
   {
     id: 'account',

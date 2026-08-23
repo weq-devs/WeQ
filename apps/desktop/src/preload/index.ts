@@ -90,10 +90,28 @@ const weqBridge = {
         error?: string;
       }>,
   },
+  totp: {
+    /** 是否已绑定 WeQ 验证器（密钥由主进程持有，这里不返回密钥）。 */
+    getStatus: () =>
+      ipcRenderer.invoke('totp:getStatus') as Promise<{
+        configured: boolean;
+        issuer: string;
+        label: string;
+      }>,
+    /** 生成新密钥（仅内存待确认），返回一次性展示材料（明文密钥 + otpauth URL）。 */
+    generateSetup: () =>
+      ipcRenderer.invoke('totp:generate-setup') as Promise<{ secret: string; otpauthUrl: string }>,
+    /** 取消绑定流程，丢弃待确认的新密钥。 */
+    cancelSetup: () => ipcRenderer.invoke('totp:cancel-setup') as Promise<{ ok: boolean }>,
+    /** 校验 6 位验证码（解锁 / 绑定确认共用）。 */
+    verify: (code: string) =>
+      ipcRenderer.invoke('totp:verify', code) as Promise<{ ok: boolean; error?: string }>,
+    /** 解除绑定，清除密钥。 */
+    remove: () => ipcRenderer.invoke('totp:remove') as Promise<{ ok: boolean }>,
+  },
   capture: {
     /** 抓取 WeQ 窗口客户区写入系统剪贴板（含隐私遮罩效果）。截完即可粘贴。 */
-    window: () =>
-      ipcRenderer.invoke('capture:window') as Promise<{ ok: boolean; error?: string }>,
+    window: () => ipcRenderer.invoke('capture:window') as Promise<{ ok: boolean; error?: string }>,
   },
 };
 

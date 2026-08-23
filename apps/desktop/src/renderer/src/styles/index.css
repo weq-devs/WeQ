@@ -16867,3 +16867,551 @@ html[data-theme="dark"] .weq-help-bug-foot {
   min-width: 0;
   flex: 1 1 auto;
 }
+
+/* ────────────────────────────────────────────────────────────────────────
+ * 应用锁：WeQ 验证器（TOTP）—— 数字格子、解锁弹窗、成功/错误动画。
+ * ──────────────────────────────────────────────────────────────────────── */
+
+/* 一格一位的数字输入 */
+.weq-totp-digits {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.weq-totp-digit {
+  width: 44px;
+  height: 54px;
+  border-radius: 10px;
+  border: 1.5px solid color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
+  background: rgba(255, 255, 255, 0.88);
+  color: #0f2d4c;
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  caret-color: var(--weq-accent-effective);
+  outline: none;
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    background-color 140ms ease,
+    transform 90ms ease;
+}
+
+.weq-totp-digit:focus {
+  border-color: var(--weq-accent-effective);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--weq-accent-effective) 24%, transparent);
+  background: #ffffff;
+  transform: translateY(-1px);
+}
+
+.weq-totp-digit:disabled {
+  opacity: 0.6;
+}
+
+/* 大号：解锁弹窗 */
+.weq-totp-digits.is-lg {
+  gap: 10px;
+}
+
+.weq-totp-digits.is-lg .weq-totp-digit {
+  width: 52px;
+  height: 62px;
+  border-radius: 12px;
+  font-size: 26px;
+}
+
+/* 小号：设置页绑定确认 */
+.weq-totp-digits.is-sm .weq-totp-digit {
+  width: 40px;
+  height: 48px;
+  font-size: 19px;
+}
+
+/* 错误抖动 */
+.weq-totp-digits.is-shake .weq-totp-digit {
+  border-color: rgba(214, 69, 69, 0.72);
+  animation: weq-totp-shake 420ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+@keyframes weq-totp-shake {
+  10%,
+  90% {
+    transform: translateX(-1px);
+  }
+  20%,
+  80% {
+    transform: translateX(2px);
+  }
+  30%,
+  50%,
+  70% {
+    transform: translateX(-5px);
+  }
+  40%,
+  60% {
+    transform: translateX(5px);
+  }
+}
+
+/* 解锁弹窗主体 */
+.weq-lock-totp {
+  gap: 1rem;
+}
+
+.weq-totp-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 1.1rem 1.15rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+  border-radius: 14px;
+  background:
+    radial-gradient(
+      ellipse at 50% 0%,
+      color-mix(in srgb, var(--weq-accent-effective) 9%, transparent),
+      transparent 55%
+    ),
+    linear-gradient(165deg, rgba(255, 255, 255, 0.82), rgba(247, 251, 255, 0.6));
+}
+
+.weq-totp-panel-icon {
+  display: inline-flex;
+  width: 2.3rem;
+  height: 2.3rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.65rem;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+
+.weq-totp-panel .weq-lock-desc {
+  text-align: center;
+}
+
+.weq-totp-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  min-height: 1.4em;
+}
+
+.weq-totp-error {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #9aa3ad;
+}
+
+.weq-totp-error.is-show {
+  color: #c0392b;
+  font-weight: 500;
+}
+
+.weq-totp-countdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex: none;
+}
+
+.weq-totp-countdown-bar {
+  display: block;
+  width: 56px;
+  height: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 50%, transparent);
+}
+
+.weq-totp-countdown-num {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: #76899b;
+}
+
+/* 解锁成功动画 */
+.weq-totp-success {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 2.2rem 1rem 2.5rem;
+  text-align: center;
+}
+
+.weq-totp-success-ring {
+  display: inline-flex;
+  width: 66px;
+  height: 66px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: #ffffff;
+  background: #2fb36b;
+  box-shadow: 0 0 0 0 rgba(47, 179, 107, 0.4);
+  animation: weq-totp-success-pop 620ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes weq-totp-success-pop {
+  0% {
+    transform: scale(0.35);
+    opacity: 0;
+  }
+  55% {
+    transform: scale(1.12);
+    opacity: 1;
+    box-shadow: 0 0 0 10px rgba(47, 179, 107, 0);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+    box-shadow: 0 0 0 10px rgba(47, 179, 107, 0);
+  }
+}
+
+.weq-totp-success strong {
+  font-size: 16px;
+  font-weight: 600;
+  color: #0f2d4c;
+  animation: weq-fade-in 320ms ease 140ms both;
+}
+
+.weq-totp-success small {
+  font-size: 12px;
+  color: #76899b;
+  animation: weq-fade-in 320ms ease 240ms both;
+}
+
+/* 设置 → 应用锁 */
+.weq-applock-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  padding: 9px 11px;
+  border-radius: 8px;
+  border: 1px solid rgba(224, 161, 33, 0.35);
+  background: rgba(247, 181, 50, 0.1);
+  color: #8a5a00;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.weq-applock-warn svg {
+  flex: none;
+  margin-top: 2px;
+  color: #d99a1b;
+}
+
+.weq-applock-methods {
+  display: grid;
+  gap: 8px;
+}
+
+.weq-applock-method {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 13px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #ffffff;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.weq-applock-method:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+}
+
+.weq-applock-method.is-active {
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, #ffffff);
+  box-shadow: inset 0 0 0 1px var(--weq-accent-effective);
+}
+
+.weq-applock-method:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.weq-applock-method-icon {
+  display: inline-flex;
+  width: 2.2rem;
+  height: 2.2rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.6rem;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+.weq-applock-method-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.weq-applock-method-main strong {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #1f2933;
+}
+
+.weq-applock-method-main small {
+  font-size: 12px;
+  color: #8a93a0;
+  line-height: 1.45;
+}
+
+.weq-applock-method-radio {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(0, 0, 0, 0.22);
+  background: transparent;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.weq-applock-method.is-active .weq-applock-method-radio {
+  border-color: var(--weq-accent-effective);
+  background: var(--weq-accent-effective);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
+}
+
+.weq-applock-bound-badge,
+.weq-applock-bound-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1e9e55;
+}
+
+.weq-applock-bound-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(30, 158, 85, 0.12);
+}
+
+.weq-applock-setup-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.weq-applock-setup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.weq-applock-setup-qr {
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #ffffff;
+}
+
+.weq-applock-setup-qr img {
+  display: block;
+  border-radius: 4px;
+}
+
+.weq-applock-setup-step {
+  margin: 0;
+  width: 100%;
+  font-size: 12.5px;
+  color: #6a7280;
+  line-height: 1.55;
+  text-align: left;
+}
+
+.weq-applock-secret {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #ffffff;
+}
+
+.weq-applock-secret code {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  color: #2b3440;
+  word-break: break-all;
+}
+
+.weq-applock-error,
+.weq-applock-ok {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  width: 100%;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.weq-applock-error {
+  color: #c0392b;
+}
+
+.weq-applock-ok {
+  align-items: center;
+  color: #1e9e55;
+  font-weight: 500;
+}
+
+.weq-applock-error svg,
+.weq-applock-ok svg {
+  flex: none;
+}
+
+.weq-applock-setup-actions {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+}
+
+.weq-applock-bound {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ * 应用锁：深色模式。
+ * ──────────────────────────────────────────────────────────────────────── */
+html[data-theme="dark"] .weq-modal.weq-lock-modal {
+  border-color: rgba(255, 255, 255, 0.1);
+  background:
+    radial-gradient(
+      ellipse at 24% 0%,
+      color-mix(in srgb, var(--weq-accent-effective) 15%, transparent),
+      transparent 46%
+    ),
+    linear-gradient(160deg, #161a20, #1b2129);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.45);
+}
+
+html[data-theme="dark"] .weq-lock-title,
+html[data-theme="dark"] .weq-totp-success strong {
+  color: #edf2f7;
+}
+
+html[data-theme="dark"] .weq-lock-desc {
+  color: #b9c4d1;
+}
+
+html[data-theme="dark"] .weq-lock-badge,
+html[data-theme="dark"] .weq-lock-tip,
+html[data-theme="dark"] .weq-totp-countdown-num,
+html[data-theme="dark"] .weq-totp-success small,
+html[data-theme="dark"] .weq-totp-error {
+  color: #99a7b8;
+}
+
+html[data-theme="dark"] .weq-totp-error.is-show {
+  color: #ff7b72;
+}
+
+html[data-theme="dark"] .weq-totp-panel {
+  border-color: rgba(255, 255, 255, 0.08);
+  background:
+    radial-gradient(
+      ellipse at 50% 0%,
+      color-mix(in srgb, var(--weq-accent-effective) 14%, transparent),
+      transparent 55%
+    ),
+    linear-gradient(165deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015));
+}
+
+html[data-theme="dark"] .weq-totp-digit {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: #1b2129;
+  color: #edf2f7;
+}
+
+html[data-theme="dark"] .weq-totp-digit:focus {
+  border-color: var(--weq-accent-effective);
+  background: #222a34;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
+}
+
+html[data-theme="dark"] .weq-totp-digits.is-shake .weq-totp-digit {
+  border-color: rgba(255, 123, 114, 0.72);
+}
+
+html[data-theme="dark"] .weq-applock-warn {
+  border-color: rgba(247, 181, 50, 0.3);
+  background: rgba(247, 181, 50, 0.08);
+  color: #e8c170;
+}
+
+html[data-theme="dark"] .weq-applock-warn svg {
+  color: #e8a93d;
+}
+
+html[data-theme="dark"] .weq-applock-method {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: #1b2129;
+}
+
+html[data-theme="dark"] .weq-applock-method.is-active {
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, #161a20);
+}
+
+html[data-theme="dark"] .weq-applock-method-main strong {
+  color: #edf2f7;
+}
+
+html[data-theme="dark"] .weq-applock-method-main small {
+  color: #99a7b8;
+}
+
+html[data-theme="dark"] .weq-applock-method-radio {
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+html[data-theme="dark"] .weq-applock-setup-qr,
+html[data-theme="dark"] .weq-applock-secret {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: #141920;
+}
+
+html[data-theme="dark"] .weq-applock-secret code {
+  color: #e6edf4;
+}
+
+html[data-theme="dark"] .weq-applock-setup-step {
+  color: #99a7b8;
+}

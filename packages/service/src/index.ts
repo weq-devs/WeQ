@@ -38,6 +38,8 @@ export type {
   AutoEnterTarget,
   InjectRecord,
   AppSettings,
+  AppLockConfig,
+  AppLockMethod,
   WindowCloseBehavior,
   VoiceTranscribeConfig,
   McpServerConfig,
