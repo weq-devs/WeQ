@@ -13758,6 +13758,289 @@ html[data-theme="dark"] .weq-wtools-hex-ascii {
   border-color: rgba(255, 255, 255, 0.09);
   color: #8b96a3;
 }
+
+/* ---- 其它设备密钥 ---- */
+.weq-wtools-online-badge {
+  margin-left: 2px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #8a93a0;
+  background: #eef1f4;
+  white-space: nowrap;
+}
+.weq-wtools-online-badge.is-online {
+  color: #1d8f56;
+  background: color-mix(in srgb, #41af74 13%, transparent);
+}
+
+.weq-wtools-odev-pick {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.weq-wtools-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 7px 14px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 9px;
+  background: #fff;
+  color: #2f3a46;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+.weq-wtools-pick:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, #fff);
+}
+.weq-wtools-pick:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.weq-wtools-odev-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  color: #98a2ad;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+}
+.weq-wtools-odev-path.is-picked {
+  color: #5c6a78;
+}
+
+.weq-wtools-odev-state {
+  min-height: 120px;
+}
+
+.weq-wtools-odev-dump {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.weq-wtools-odev-salt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border: 1px dashed rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  background: #fafbfc;
+}
+.weq-wtools-odev-salt.is-valid {
+  border-color: color-mix(in srgb, #41af74 40%, transparent);
+  background: color-mix(in srgb, #41af74 6%, #fafbfc);
+}
+.weq-wtools-odev-salt.is-invalid {
+  border-color: color-mix(in srgb, #c9534d 40%, transparent);
+  background: color-mix(in srgb, #c9534d 6%, #fafbfc);
+}
+.weq-wtools-odev-salt-label {
+  flex: none;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #7c8a99;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+}
+.weq-wtools-odev-salt code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  color: #344050;
+}
+.weq-wtools-odev-salt-badge {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.weq-wtools-odev-salt.is-valid .weq-wtools-odev-salt-badge {
+  color: #1d8f56;
+  background: color-mix(in srgb, #41af74 14%, transparent);
+}
+.weq-wtools-odev-salt.is-invalid .weq-wtools-odev-salt-badge {
+  color: #c9534d;
+  background: color-mix(in srgb, #c9534d 12%, transparent);
+}
+
+.weq-wtools-odev-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 150px;
+  border: 1px dashed rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+  color: #a4adba;
+  font-size: 12.5px;
+}
+
+.weq-wtools-odev-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+.weq-wtools-fetch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--weq-accent-effective);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--weq-accent-effective) 28%, transparent);
+  transition: filter 0.15s, opacity 0.15s, box-shadow 0.15s;
+}
+.weq-wtools-fetch:hover:not(:disabled) {
+  filter: brightness(1.06);
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--weq-accent-effective) 34%, transparent);
+}
+.weq-wtools-fetch:disabled {
+  background: #cdd3da;
+  color: #fff;
+  cursor: default;
+  box-shadow: none;
+}
+.weq-wtools-odev-hint {
+  font-size: 12px;
+  color: #98a2ad;
+}
+
+.weq-wtools-odev-fetching {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 10px;
+  background: #f7f9fb;
+  color: #5c6a78;
+  font-size: 12.5px;
+}
+
+.weq-wtools-odev-result {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.weq-wtools-odev-result.is-error {
+  align-items: flex-start;
+  padding: 12px 14px;
+  border: 1px solid rgba(201, 83, 77, 0.28);
+  border-radius: 10px;
+  background: color-mix(in srgb, #c9534d 6%, transparent);
+}
+.weq-wtools-odev-result.is-error p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: #a8443e;
+  word-break: break-all;
+}
+.weq-wtools-odev-pid {
+  font-size: 11.5px;
+  color: #8a93a0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 面板头内的刷新按钮不要额外下边距（默认 .weq-wtools-toolbar 有 margin-bottom）。 */
+.weq-wtools-pane-head .weq-wtools-toolbar {
+  margin-bottom: 0;
+}
+
+html[data-theme="dark"] .weq-wtools-online-badge {
+  color: #7b8794;
+  background: rgba(255, 255, 255, 0.07);
+}
+html[data-theme="dark"] .weq-wtools-online-badge.is-online {
+  color: #5fd494;
+  background: color-mix(in srgb, #41af74 16%, transparent);
+}
+html[data-theme="dark"] .weq-wtools-pick {
+  background: #1b2027;
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #d7e0e9;
+}
+html[data-theme="dark"] .weq-wtools-pick:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, #1b2027);
+}
+html[data-theme="dark"] .weq-wtools-odev-path {
+  color: #5f6b78;
+}
+html[data-theme="dark"] .weq-wtools-odev-path.is-picked {
+  color: #98a4b3;
+}
+html[data-theme="dark"] .weq-wtools-odev-salt {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: #10141a;
+}
+html[data-theme="dark"] .weq-wtools-odev-salt.is-valid {
+  border-color: color-mix(in srgb, #41af74 45%, transparent);
+  background: color-mix(in srgb, #41af74 8%, #10141a);
+}
+html[data-theme="dark"] .weq-wtools-odev-salt.is-invalid {
+  border-color: color-mix(in srgb, #c9534d 45%, transparent);
+  background: color-mix(in srgb, #c9534d 8%, #10141a);
+}
+html[data-theme="dark"] .weq-wtools-odev-salt-label {
+  color: #7b8794;
+}
+html[data-theme="dark"] .weq-wtools-odev-salt code {
+  color: #cbd5e1;
+}
+html[data-theme="dark"] .weq-wtools-odev-placeholder {
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #5f6b78;
+}
+html[data-theme="dark"] .weq-wtools-fetch:disabled {
+  background: #2a313a;
+  color: #7b8794;
+}
+html[data-theme="dark"] .weq-wtools-odev-hint {
+  color: #5f6b78;
+}
+html[data-theme="dark"] .weq-wtools-odev-fetching {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #13181f;
+  color: #98a4b3;
+}
+html[data-theme="dark"] .weq-wtools-odev-result.is-error {
+  border-color: rgba(224, 108, 95, 0.3);
+  background: color-mix(in srgb, #c9534d 10%, transparent);
+}
+html[data-theme="dark"] .weq-wtools-odev-result.is-error p {
+  color: #e06c5f;
+}
+html[data-theme="dark"] .weq-wtools-odev-pid {
+  color: #7b8794;
+}
 /* ===========================================================================
    帮助弹窗 (HelpDialog) — 「更多功能 → 帮助」，承载 weq-help-* 子页面。
    =========================================================================== */
