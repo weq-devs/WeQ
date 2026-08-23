@@ -241,7 +241,7 @@ export type {
   MoreSearchResult,
 } from './account/unified_search';
 export { UnreadInfoService } from './account/unread_info';
-export { DbDecryptService } from './account/db_decrypt';
+export { DbDecryptService, isLoginDb, LOGIN_DB_KEY } from './account/db_decrypt';
 export type {
   AccountDbFile,
   DbDecryptItem,
