@@ -19,7 +19,9 @@
     "tools:export": "tsx tools/export_group.ts",
     "tools:forward-expand": "tsx tools/forward_expand.ts",
     "tools:scan-media": "tsx tools/scan_group_media.ts",
-    "tools:download-probe": "tsx tools/download_rkey_probe.ts"
+    "tools:download-probe": "tsx tools/download_rkey_probe.ts",
+    "tools:group-albums": "tsx tools/group_albums.ts",
+    "tools:group-album-media": "tsx tools/group_album_media.ts"
   },
   "dependencies": {
     "@weq/agentlab": "workspace:*",
@@ -39,4 +41,3 @@
     "tsx": "^4.19.2"
   }
 }
-

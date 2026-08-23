@@ -6,7 +6,7 @@
  */
 
 import { mkdirSync } from 'node:fs';
-import { readdir, stat } from 'node:fs/promises';
+import { copyFile, readdir, stat } from 'node:fs/promises';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { type AccountSession, algoFor } from '@weq/account';
@@ -15,10 +15,33 @@ import type { Platform } from '@weq/platform';
 
 export type DbDecryptMode = 'fast' | 'safe';
 
+/**
+ * login.db（`nt_qq/global/nt_db/login.db`）的固定 SQLCipher 密钥。
+ * 它是全局数据库，不属于任何账号，密钥也是固定的；需要解密 / 查看 / 修改时
+ * 走通用的 SQLCipher 路径（testDatabaseKey + fast/safeDecryptDatabase 或
+ * executeSqlWithKey），不要走 native 专门为 login.db 设计的 decryptLoginDb
+ * 接口（那个只吐 LoginAccount 行，改不了内容）。
+ */
+export const LOGIN_DB_KEY = 'BD156D6710D54D8782F4';
+
+/** True when `dbPath` points at the global `login.db`. */
+export function isLoginDb(dbPath: string): boolean {
+  return basename(dbPath).toLowerCase() === 'login.db';
+}
+
+/**
+ * `bc_09.db` 是纯 SQLite（未加密），不走 SQLCipher：无密钥，解密就是直接拷贝。
+ */
+export function isPlainSqliteDb(dbPath: string): boolean {
+  return basename(dbPath).toLowerCase() === 'bc_09.db';
+}
+
 export interface AccountDbFile {
   name: string;
   path: string;
   bytes: number;
+  /** 'login' 表示全局 login.db（独立固定密钥），否则为账号目录下的库。 */
+  kind: 'account' | 'login';
 }
 
 export interface DbDecryptItem {
@@ -53,7 +76,23 @@ export class DbDecryptService {
   listDatabases(): Promise<AccountDbFile[]> {
     const dir = this.resolveNtDbDir();
     if (!dir) return Promise.resolve([]);
-    return listDbFiles(dir);
+    return listDbFiles(dir).then(async (files) => {
+      const login = await this.loginDbFile();
+      return login ? [...files, login] : files;
+    });
+  }
+
+  /** The global `login.db`（固定密钥 {@link LOGIN_DB_KEY}），不存在时为 null。 */
+  async loginDbFile(): Promise<AccountDbFile | null> {
+    const path = this.platform.loginDbPath();
+    if (!path) return null;
+    try {
+      const st = await stat(path);
+      if (!st.isFile()) return null;
+      return { name: 'login.db', path, bytes: st.size, kind: 'login' };
+    } catch {
+      return null;
+    }
   }
 
   isQqLoggedIn(): boolean {
@@ -80,13 +119,22 @@ export class DbDecryptService {
     return mapLimit(items, concurrency, async (item) => {
       const outPath = outputPath(opts.outputDir, item.name, item.dbPath);
       try {
+        if (isPlainSqliteDb(item.dbPath)) {
+          await copyFile(item.dbPath, outPath);
+          return { name: item.name, dbPath: item.dbPath, outPath, ok: true };
+        }
         const guild = isGuildDb(item.dbPath);
+        const login = isLoginDb(item.dbPath);
         const key = guild
           ? this.platform.native.ntHelper.getGuildDbKey(item.dbPath, this.session.context.uin)
-          : this.session.context.dbKey;
-        const algo = guild
-          ? await resolveAlgo(this.platform.native.ntHelper, item.dbPath, key)
-          : algoFor(this.session.context, item.dbPath);
+          : login
+            ? LOGIN_DB_KEY
+            : this.session.context.dbKey;
+        const algo =
+          guild || login
+            ? await resolveAlgo(this.platform.native.ntHelper, item.dbPath, key)
+            : algoFor(this.session.context, item.dbPath);
+        if (login && !algo) throw new Error('login.db 密钥不正确，无法解密');
         await decryptOneInWorker(ntHelperPath, item.dbPath, outPath, key, algo, opts.mode);
         return { name: item.name, dbPath: item.dbPath, outPath, ok: true };
       } catch (e) {
@@ -121,7 +169,7 @@ async function listDbFiles(dir: string): Promise<AccountDbFile[]> {
       const path = join(dir, entry.name);
       try {
         const st = await stat(path);
-        if (st.isFile()) files.push({ name: entry.name, path, bytes: st.size });
+        if (st.isFile()) files.push({ name: entry.name, path, bytes: st.size, kind: 'account' });
       } catch {
         /* skip unreadable files */
       }

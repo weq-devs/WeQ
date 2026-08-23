@@ -1,5 +1,5 @@
 ﻿// @ts-nocheck
-import { useEffect, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { cn } from "./classNames";
 import { DefaultAvatar } from "./defaultAvatar";
 import { cachedAvatarUrl } from "../../lib/avatarCache";
@@ -15,27 +15,45 @@ export function Avatar({
 	seed?: string;
 }) {
 	const [failed, setFailed] = useState(false);
+	const [loaded, setLoaded] = useState(false);
+	const imgRef = useRef<HTMLImageElement | null>(null);
 	const resolved = cachedAvatarUrl(avatarUrl);
 
-	useEffect(() => {
+	useLayoutEffect(() => {
 		setFailed(false);
-	}, [avatarUrl]);
+		setLoaded(false);
+		// 图片已缓存（或 data: 立即完成）时直接显示，避免 shimmer 闪现。
+		if (imgRef.current?.complete && imgRef.current.naturalWidth > 0) {
+			setLoaded(true);
+		}
+	}, [resolved]);
+
+	const hasImage = Boolean(resolved) && !failed;
+	const showShimmer = hasImage && !loaded;
 
 	return (
 		<span
 			className={cn(
 				"avatar",
-				resolved && !failed ? "has-image" : "has-default",
+				hasImage ? "has-image" : "has-default",
+				showShimmer && "is-loading",
 			)}
 		>
-			{resolved && !failed ? (
-				<img
-					src={resolved}
-					alt=""
-					loading="lazy"
-					referrerPolicy="no-referrer"
-					onError={() => setFailed(true)}
-				/>
+			{hasImage ? (
+				<>
+					{showShimmer ? (
+						<span className={cn("skel-block", "avatar-shimmer")} aria-hidden />
+					) : null}
+					<img
+						ref={imgRef}
+						src={resolved}
+						alt=""
+						loading="lazy"
+						referrerPolicy="no-referrer"
+						onLoad={() => setLoaded(true)}
+						onError={() => setFailed(true)}
+					/>
+				</>
 			) : (
 				<DefaultAvatar seed={seed || name} />
 			)}

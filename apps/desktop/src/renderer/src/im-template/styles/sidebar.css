@@ -640,6 +640,7 @@ html[data-theme="dark"] .conversation-row.active .row-unread.muted {
 	height: 54px;
 	place-items: center;
 	flex: 0 0 auto;
+	position: relative;
 	border-radius: 50%;
 	background: color-mix(in srgb, var(--weq-bg-surface, #f4f4f4) 78%, var(--weq-bg-app, #f4f4f4));
 	line-height: 1;
@@ -658,6 +659,22 @@ html[data-theme="dark"] .conversation-row.active .row-unread.muted {
 	width: 100%;
 	height: 100%;
 	object-fit: cover;
+}
+
+.avatar img {
+	position: relative;
+	transition: opacity 0.25s ease;
+}
+
+.avatar.is-loading img {
+	opacity: 0;
+}
+
+.avatar-shimmer {
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+	pointer-events: none;
 }
 
 .avatar.merged-avatar {

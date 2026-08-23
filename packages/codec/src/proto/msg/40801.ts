@@ -25,7 +25,7 @@
  *   41528  uint32  — widget / 挂件 itemId (~104 228–156 358)  ← CONFIRMED
  *   41529  bool    — unknown flag (always false in sample)
  *   41530  uint32  — unknown itemId (~154 016–156 365)
- *   41531  uint32  — unknown itemId (~65 536–164 024)
+ *   41531  uint32  — fallback font itemId, byte-swapped uint16
  *   41532  bool    — unknown flag
  *   41533  bool    — unknown flag
  *   41534  bool    — unknown flag
@@ -70,6 +70,7 @@ export const MsgDressWire = {
   widgetId: ProtoField(41528, ScalarType.UINT32, { optional: true }),
   flag41529: ProtoField(41529, ScalarType.BOOL, { optional: true }),
   flag41530: ProtoField(41530, ScalarType.UINT32, { optional: true }),
+  /** Fallback font itemId, encoded as ((stored & 0xFF) << 8) | ((stored >> 8) & 0xFF). */
   flag41531: ProtoField(41531, ScalarType.UINT32, { optional: true }),
   flag41532: ProtoField(41532, ScalarType.BOOL, { optional: true }),
   flag41533: ProtoField(41533, ScalarType.BOOL, { optional: true }),

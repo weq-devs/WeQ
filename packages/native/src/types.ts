@@ -124,6 +124,12 @@ export interface KeyScanResult {
   success: boolean;
   /** The recovered 16-byte raw master key as a string, `None` on failure. */
   key?: string;
+  /**
+   * Lowercase hex of the memory context around the recovered key: the 256
+   * bytes before it and the 256 bytes after it (clamped to the containing
+   * memory region). Present only when `success` and the context read worked.
+   */
+  keyContextHex?: string;
   /** Failure reason when `success` is `false`, `None` on success. */
   error?: string;
 }
