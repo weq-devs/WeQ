@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getQueryKey } from '@trpc/react-query';
 import {
   LockKeyhole,
@@ -36,6 +36,12 @@ import { useThemeStore } from '../state/theme';
 import { usePrivacyStore } from '../state/privacy';
 import { useAccountSwitch } from '../state/accountSwitch';
 import { runAccountWarmup } from '../lib/accountWarmup';
+import {
+  fetchSystemAuthStatus,
+  fetchTotpStatus,
+  SYSTEM_AUTH_STATUS_QUERY_KEY,
+  TOTP_STATUS_QUERY_KEY,
+} from '../lib/appLockStatus';
 import { useDialog } from './Dialog';
 import { useToast } from './Toast';
 import { QqAvatar } from './QqAvatar';
@@ -75,35 +81,75 @@ export function RailAccountFooter({
 
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  // Whether the platform can actually verify identity. We refuse to lock when
-  // it can't, otherwise the lock screen would be unsolvable.
-  const [authAvailable, setAuthAvailable] = useState<boolean | null>(null);
-  const [authError, setAuthError] = useState<string | undefined>(undefined);
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    const bridge = shellBridge();
-    if (!bridge) return undefined;
-    let alive = true;
-    void bridge.systemAuth
-      .getStatus()
-      .then((s) => {
-        if (!alive) return;
-        setAuthAvailable(s.available);
-        setAuthError(s.error);
-      })
-      .catch(() => {
-        if (alive) setAuthAvailable(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
+  // 应用锁配置（解锁方式 / 总开关），供上锁按钮做可上锁判断。
+  const lockSettings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
 
-  function lockNow(): void {
-    if (!authAvailable) {
-      showError('无法上锁', authError ?? '当前设备的系统认证不可用，启用后才能使用应用锁。');
-      return;
+  // 验证器 / 系统认证是否可用：与设置页、锁屏遮罩共用同一查询，
+  // 绑定 / 解绑后由设置页 invalidate，按钮状态即时刷新。
+  const systemAuthQuery = useQuery({
+    queryKey: SYSTEM_AUTH_STATUS_QUERY_KEY,
+    queryFn: fetchSystemAuthStatus,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
+  });
+  const totpQuery = useQuery({
+    queryKey: TOTP_STATUS_QUERY_KEY,
+    queryFn: fetchTotpStatus,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
+  });
+
+  const appLock = lockSettings.data?.appLock;
+  const lockMethod = appLock?.method ?? 'totp';
+
+  /** 按钮禁用时的提示原因；null = 当前可上锁。 */
+  function lockBlockReason(): string | null {
+    if (appLock?.enabled === false) return '应用锁已关闭，请在 设置 → 应用锁 中开启。';
+    if (lockMethod === 'system') {
+      return systemAuthQuery.data?.available === false
+        ? (systemAuthQuery.data?.error ?? '当前设备系统认证不可用。')
+        : null;
+    }
+    return totpQuery.data?.configured === false
+      ? '验证器未绑定，请先在 设置 → 应用锁 中完成绑定。'
+      : null;
+  }
+
+  // 上锁前拉一次最新配置，避免缓存陈旧导致上锁后无法解锁。
+  async function lockNow(): Promise<void> {
+    try {
+      const fresh = await lockSettings.refetch();
+      const cfg = fresh.data?.appLock;
+      if (cfg?.enabled === false) {
+        showError('无法上锁', '应用锁已关闭，请在 设置 → 应用锁 中开启。');
+        return;
+      }
+      const method = cfg?.method ?? 'totp';
+      if (method === 'system') {
+        const bridge = shellBridge();
+        const status = bridge ? await bridge.systemAuth.getStatus() : null;
+        if (!status?.available) {
+          showError('无法上锁', status?.error ?? '当前设备系统认证不可用。');
+          return;
+        }
+      } else {
+        const bridge = shellBridge();
+        const status = bridge ? await bridge.totp.getStatus() : null;
+        if (!status?.configured) {
+          showError('无法上锁', '验证器未绑定，请先在 设置 → 应用锁 中完成绑定。');
+          return;
+        }
+      }
+    } catch {
+      // 读取失败时照常上锁，解锁弹窗会自己校验当前配置。
     }
     setOpen(false);
     lock();
@@ -359,10 +405,10 @@ export function RailAccountFooter({
         <button
           type="button"
           className="weq-rail-lock-btn"
-          title={authAvailable === false ? (authError ?? '系统认证不可用') : '锁定 WeQ'}
+          title={lockBlockReason() ?? '锁定 WeQ'}
           aria-label="锁定 WeQ"
-          onClick={lockNow}
-          disabled={busy || authAvailable === false}
+          onClick={() => void lockNow()}
+          disabled={busy || lockBlockReason() !== null}
         >
           <LockKeyhole size={18} strokeWidth={1.8} aria-hidden />
         </button>

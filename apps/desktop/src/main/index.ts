@@ -1,4 +1,14 @@
-import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, protocol, shell, Tray } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  ipcMain,
+  Menu,
+  nativeImage,
+  protocol,
+  shell,
+  Tray,
+} from 'electron';
 import fs from 'node:fs';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { createRequire } from 'node:module';
@@ -36,6 +46,7 @@ import {
 } from '@weq/service';
 import { electronHost } from './host';
 import { systemAuthService } from './system_auth';
+import { totpAuthService } from './totp_auth';
 import { screenshotPage } from './link_shot';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -49,7 +60,9 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 const requireFromHere = createRequire(import.meta.url);
-const { createIPCHandler } = requireFromHere('electron-trpc/main') as typeof import('electron-trpc/main');
+const { createIPCHandler } = requireFromHere(
+  'electron-trpc/main',
+) as typeof import('electron-trpc/main');
 
 /**
  * Per-view window sizes. The home/bootstrap screen is compact; the chat view
@@ -294,8 +307,9 @@ function registerMediaIpc(): void {
         if (!raw) return { success: false, error: '??????' };
         const matches = raw.elements.filter((e) => e.kind === 'file');
         console.log('[file:download] kind=%s, file elements=%d', raw.kind, matches.length);
-        el = ((token ? matches.find((e) => (e as { fileToken?: string }).fileToken === token) : undefined) ??
-          matches[0]) as unknown as MediaElement | undefined;
+        el = ((token
+          ? matches.find((e) => (e as { fileToken?: string }).fileToken === token)
+          : undefined) ?? matches[0]) as unknown as MediaElement | undefined;
         convKind = raw.kind;
       }
       if (!el) return { success: false, error: '??????????' };
@@ -357,7 +371,9 @@ function registerLogIpc(): void {
   ipcMain.handle('logs:open-dir', async () => {
     const dir = getLogDir();
     if (!dir) {
-      logger.warn('log directory requested before logger init', { event: 'open-log-dir-unavailable' });
+      logger.warn('log directory requested before logger init', {
+        event: 'open-log-dir-unavailable',
+      });
       return false;
     }
     logger.info('opening log directory', { event: 'open-log-dir', dir });
@@ -374,6 +390,29 @@ function registerSystemAuthIpc(): void {
   ipcMain.handle('systemAuth:verify', async (event, reason?: string) => {
     const targetWin = BrowserWindow.fromWebContents(event.sender) ?? undefined;
     return systemAuthService.verify(reason, targetWin);
+  });
+}
+
+/** WeQ 验证器（应用锁 TOTP）。密钥只在主进程持有，渲染层仅拿到状态 / 校验结果。 */
+function registerTotpIpc(): void {
+  ipcMain.handle('totp:getStatus', async () => {
+    return totpAuthService.getStatus();
+  });
+
+  ipcMain.handle('totp:generate-setup', async () => {
+    return totpAuthService.generateSetup();
+  });
+
+  ipcMain.handle('totp:cancel-setup', async () => {
+    return totpAuthService.cancelSetup();
+  });
+
+  ipcMain.handle('totp:verify', async (_event, code: unknown) => {
+    return totpAuthService.verify(code);
+  });
+
+  ipcMain.handle('totp:remove', async () => {
+    return totpAuthService.remove();
   });
 }
 
@@ -411,7 +450,8 @@ function createWindow(): BrowserWindow {
   // is the least invasive one that Hyprland/sway treat as floating (unlike
   // 'splash', it keeps the taskbar entry). Opt-out with WEQ_WINDOW_TYPE=normal
   // (or override to another value) so this can be disabled per-environment.
-  const windowType = process.env.WEQ_WINDOW_TYPE ?? (process.platform === 'linux' ? 'toolbar' : undefined);
+  const windowType =
+    process.env.WEQ_WINDOW_TYPE ?? (process.platform === 'linux' ? 'toolbar' : undefined);
   const win = new BrowserWindow({
     width: 1120,
     height: 580,
@@ -522,6 +562,7 @@ void app.whenReady().then(async () => {
   registerMediaIpc();
   registerLogIpc();
   registerSystemAuthIpc();
+  registerTotpIpc();
   // 启动时立即在后台探测 Windows Hello 可用性，避免 UI 首次调用时卡顿。
   systemAuthService.warmup();
   registerCaptureIpc();

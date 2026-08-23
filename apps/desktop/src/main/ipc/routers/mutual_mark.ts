@@ -7,7 +7,11 @@
  * 失败统一转成「需要在线实例」的提示，底层票据错误不透给前端。
  */
 import { z } from 'zod';
-import { getAppContext, type AccountServices } from '../../context/app_context';
+import {
+  getAppContext,
+  requireInjectEnabled,
+  type AccountServices,
+} from '../../context/app_context';
 import { procedure, router } from '../trpc';
 
 function requireServices(): AccountServices {
@@ -24,6 +28,7 @@ const MUTUAL_MARK_HINT =
 export const mutualMarkRouter = router({
   /** 查 `uin` 与你之间的互动标识（任务 / 惊喜 / 限定 / 幸运字符）。 */
   get: procedure.input(z.object({ uin: z.string().regex(/^\d{5,}$/) })).query(async ({ input }) => {
+    requireInjectEnabled();
     const services = requireServices();
     try {
       return await services.webQuery.getFriendMutualMark(input.uin);

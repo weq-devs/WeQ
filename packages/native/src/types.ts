@@ -99,6 +99,33 @@ export interface DbLockProbeResult {
   holders: DbLockHolder[];
 }
 
+/**
+ * pt_login 本地快速登录端口探测结果。Mirrors `PtLoginPortProbeResult` in
+ * `Qrypt-Native/nt_helper/src/detect/port.rs`（napi-rs 自动把 snake_case 转 camelCase）。
+ */
+export interface PtLoginPortProbeResult {
+  /** 探测是否成功（进程监听候选端口且 TCP 可达）。 */
+  success: boolean;
+  /** 成功 / 失败原因。 */
+  msg: string;
+  /** 可用端口：奇数 = HTTPS，偶数 = HTTP；失败时为 0。 */
+  port: number;
+}
+
+/** `ptFetchSkey` 的返回：通过 ptlogin2 本地快速登录拿 skey（无需注入 hook）。 */
+export interface PtFetchSkeyResult {
+  success: boolean;
+  msg: string;
+  skey: string;
+}
+
+/** `ptFetchPskey` 的返回：通过 ptlogin2 本地快速登录拿指定域 p_skey（无需注入 hook）。 */
+export interface PtFetchPskeyResult {
+  success: boolean;
+  msg: string;
+  pskey: string;
+}
+
 export interface DatabaseAlgorithms {
   pageHmacAlgorithm: string;
   kdfHmacAlgorithm: string;
@@ -219,6 +246,21 @@ export interface NtHelperBinding {
   // --- QQ process / login detection ---
   probeQqLoginInfo(pid: number): QqPortLoginInfo | null;
   /**
+   * 探测 QQ 进程 pt_login 本地快速登录端口（4301-4310，奇数 = HTTPS、偶数 = HTTP，优先 HTTPS）。
+   * 无需注入 hook，只要该账号的 QQ 客户端在线即可用。结果在 success / msg / port 字段。
+   */
+  probePtLoginPort(pid: number): PtLoginPortProbeResult;
+  /**
+   * 通过 ptlogin2 本地快速登录（qun.qq.com 配置）获取 skey，无需注入 hook。
+   * 失败时 success=false 且 msg 带原因，不抛异常。
+   */
+  ptFetchSkey(port: number, uin: string): Promise<PtFetchSkeyResult>;
+  /**
+   * 通过 ptlogin2 本地快速登录获取指定域 p_skey，无需注入 hook。
+   * 仅支持已验证的四域：qun.qq.com / qzone.qq.com / pd.qq.com / vip.qq.com。
+   */
+  ptFetchPskey(port: number, uin: string, domain: string): Promise<PtFetchPskeyResult>;
+  /**
    * Probe which processes hold an account's `nt_msg.db` open / locked — the
    * cross-platform way to attribute a running QQ to an account AND recover its
    * pid in one step. Windows enumerates Restart Manager open-handle holders
@@ -272,7 +314,7 @@ export interface NtHelperBinding {
    * so callers should cache it per packetId.
    */
   getMarketFaceKey(packetId: string): Promise<MarketFaceKeyResult | null>;
-  
+
   /**
    * Zero-injection key scan: read the memory of the QQ process `pid` for the
    * NTQQ raw master key (HMAC_SHA1 anchor scan) and verify candidates against
@@ -281,7 +323,11 @@ export interface NtHelperBinding {
    */
   scanKeyFromDatabase(dbPath: string, pid: number): Promise<KeyScanResult>;
   testDatabaseKey(dbPath: string, key: string): Promise<DatabaseProbeResult>;
-  checkDatabaseHealth(dbPath: string, key: string, algo: DatabaseAlgorithms): Promise<DatabaseHealthResult>;
+  checkDatabaseHealth(
+    dbPath: string,
+    key: string,
+    algo: DatabaseAlgorithms,
+  ): Promise<DatabaseHealthResult>;
 
   // --- hook injection ---
   /**
@@ -301,11 +347,7 @@ export interface NtHelperBinding {
   waitForRealPacket(pid: number, timeoutMs: number): Promise<HookRecvPacketInfo>;
 
   // --- SQL (cached connection per dbPath) ---
-  executeSql(
-    dbPath: string,
-    sql: string,
-    params?: SqlValue[] | null,
-  ): Promise<SqlRow[]>;
+  executeSql(dbPath: string, sql: string, params?: SqlValue[] | null): Promise<SqlRow[]>;
   executeSqlWithKey(
     dbPath: string,
     sql: string,
@@ -313,11 +355,7 @@ export interface NtHelperBinding {
     algo: DatabaseAlgorithms,
     params?: SqlValue[] | null,
   ): Promise<SqlRow[]>;
-  executeSqlWrite(
-    dbPath: string,
-    sql: string,
-    params?: SqlValue[] | null,
-  ): Promise<number>;
+  executeSqlWrite(dbPath: string, sql: string, params?: SqlValue[] | null): Promise<number>;
   executeSqlWriteWithKey(
     dbPath: string,
     sql: string,

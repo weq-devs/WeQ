@@ -125,7 +125,7 @@ export interface AccountConfig {
   rkeys?: DownloadRkey[];
   /** Unix ms the rkeys were last refreshed. */
   rkeyUpdatedAt?: number;
-  /** Latest clientkey harvested from the online instance (when 自动获取 ClientKey is on). */
+  /** Latest clientkey harvested from the online instance (when 自动注入 QQ is on). */
   clientKey?: ClientKey;
   /**
    * True for static / offline accounts opened from a directory of

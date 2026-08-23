@@ -95,6 +95,11 @@ function normalizeWindowCloseBehavior(value: unknown): WindowCloseBehavior | und
   return value === 'ask' || value === 'tray' || value === 'quit' ? value : undefined;
 }
 
+/** Coerce a persisted / patched app-lock method to the known union. */
+function normalizeAppLockMethod(value: unknown): AppLockMethod | undefined {
+  return value === 'totp' || value === 'system' ? value : undefined;
+}
+
 function isTtsProviderConfig(value: unknown): value is TtsProviderConfig {
   if (!value || typeof value !== 'object') return false;
   const item = value as Partial<TtsProviderConfig>;
@@ -128,10 +133,6 @@ function isExternalRkeyServerConfig(value: unknown): value is ExternalRkeyServer
 function normalizeExternalRkeyServers(value: unknown): ExternalRkeyServerConfig[] {
   if (!Array.isArray(value)) return [];
   return value.filter(isExternalRkeyServerConfig);
-}
-
-export interface MediaCompletionConfig {
-  enabled: boolean;
 }
 
 export interface VoiceTranscribeConfig {
@@ -176,6 +177,21 @@ export interface AgentLabSettings {
  */
 export type WindowCloseBehavior = 'ask' | 'tray' | 'quit';
 
+/** 应用锁的解锁方式。 */
+export type AppLockMethod = 'totp' | 'system';
+
+/** 应用锁配置（设置 → 应用锁）。 */
+export interface AppLockConfig {
+  /** 应用锁总开关。关闭后手动上锁与空闲自动上锁都不生效。 */
+  enabled: boolean;
+  /**
+   * 解锁方式：
+   *   - 'totp'   WeQ 自带的验证器（RFC 6238 TOTP），默认值，不依赖系统能力
+   *   - 'system' 系统认证（Windows Hello / Touch ID）
+   */
+  method: AppLockMethod;
+}
+
 /** 聊天里裸链接的展示方式（见 bootstrap/link_preview.ts）。 */
 export interface LinkPreviewConfig {
   /** 整条消息只有一个链接时，抓取 og 元信息渲染成卡片。关掉则只做蓝色下划线。 */
@@ -186,13 +202,20 @@ export interface LinkPreviewConfig {
 
 export interface AppSettings {
   realtimeEnabled: boolean;
-  mediaCompletion: MediaCompletionConfig;
-  autoFetchClientKey: boolean;
+  /**
+   * 完全离线总闸（设置 → 账号基础 → 自动注入 QQ）。
+   * 默认开启：后台自动注入登录中的 QQ，采集 rKey / ClientKey / 装扮快照等
+   * 凭证，驱动媒体补全、群相册、Web 凭证（skey/pskey）等在线功能。
+   * 关闭后进入完全离线模式：不再注入、不再采集、不再联网换取凭证，
+   * 仅使用本地数据库与本地文件。唯一豁免：登录时的数据库密钥提取。
+   */
+  autoInjectQq: boolean;
   /**
    * 空闲自动上锁阈值（分钟）。0 = 关闭自动上锁（仍可在左栏手动上锁）。
-   * 解锁强制走系统认证（Windows Hello / Touch ID），无绕过入口。
+   * 解锁方式见 {@link AppLockConfig.method}，无绕过入口。
    */
   autoLockMinutes: number;
+  appLock: AppLockConfig;
   voiceTranscribe: VoiceTranscribeConfig;
   mcp: McpServerConfig;
   weqAssistant: WeqAssistantConfig;
@@ -299,9 +322,9 @@ export interface ExternalRkeyConfig {
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   realtimeEnabled: true,
-  mediaCompletion: { enabled: true },
-  autoFetchClientKey: true,
+  autoInjectQq: true,
   autoLockMinutes: 0,
+  appLock: { enabled: true, method: 'totp' },
   voiceTranscribe: { modelId: '', ttsProviders: [] },
   // 8765 在 Windows 上常被百度输入法等占用，默认改用不常冲突的高端口；
   // 即便仍冲突，启动时也会自动向上探测可用端口（见 mcp/server.ts）。
@@ -327,6 +350,11 @@ export interface UserConfig {
   settings?: DeepPartial<AppSettings>;
   cacheDirOverride?: string | null;
   welcomeAcknowledged?: boolean;
+  /**
+   * WeQ 验证器（应用锁，RFC 6238 TOTP）的 Base32 密钥。仅主进程读写，
+   * 不通过 getSettings 暴露给渲染层，避免解锁凭证泄漏进 UI。
+   */
+  totpSecret?: string;
   /**
    * 本机 WeQ助手 的固定 uid（`u_` + 22 位 [A-Za-z0-9-_]）。首次启用助手时随机生成一次并
    * 写在这里，之后恒定复用——见 {@link UserConfigService.getWeqAssistantUid}。
@@ -534,8 +562,12 @@ export class UserConfigService {
     const d = DEFAULT_APP_SETTINGS;
     return {
       realtimeEnabled: s?.realtimeEnabled ?? d.realtimeEnabled,
-      autoFetchClientKey: s?.autoFetchClientKey ?? d.autoFetchClientKey,
+      autoInjectQq: s?.autoInjectQq ?? d.autoInjectQq,
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
+      appLock: {
+        enabled: s?.appLock?.enabled ?? d.appLock.enabled,
+        method: normalizeAppLockMethod(s?.appLock?.method) ?? d.appLock.method,
+      },
       windowCloseBehavior:
         normalizeWindowCloseBehavior(s?.windowCloseBehavior) ?? d.windowCloseBehavior,
       renderTextMarkdown: s?.renderTextMarkdown ?? d.renderTextMarkdown,
@@ -555,9 +587,6 @@ export class UserConfigService {
       linkPreview: {
         enabled: s?.linkPreview?.enabled ?? d.linkPreview.enabled,
         screenshot: s?.linkPreview?.screenshot ?? d.linkPreview.screenshot,
-      },
-      mediaCompletion: {
-        enabled: s?.mediaCompletion?.enabled ?? d.mediaCompletion.enabled,
       },
       voiceTranscribe: {
         modelId: s?.voiceTranscribe?.modelId ?? d.voiceTranscribe.modelId,
@@ -579,12 +608,26 @@ export class UserConfigService {
     };
   }
 
+  /** WeQ 验证器（应用锁 TOTP）的 Base32 密钥，未配置时为 null。 */
+  getTotpSecret(): string | null {
+    return this.read().totpSecret ?? null;
+  }
+
+  /** 写入 / 清除 WeQ 验证器密钥。传 null 表示解除绑定。 */
+  setTotpSecret(secret: string | null): void {
+    this.write({ totpSecret: secret ?? undefined });
+  }
+
   setSettings(patch: DeepPartial<AppSettings>): AppSettings {
     const current = this.getSettings();
     const next: AppSettings = {
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
-      autoFetchClientKey: patch.autoFetchClientKey ?? current.autoFetchClientKey,
+      autoInjectQq: patch.autoInjectQq ?? current.autoInjectQq,
       autoLockMinutes: patch.autoLockMinutes ?? current.autoLockMinutes,
+      appLock: {
+        enabled: patch.appLock?.enabled ?? current.appLock.enabled,
+        method: normalizeAppLockMethod(patch.appLock?.method) ?? current.appLock.method,
+      },
       windowCloseBehavior:
         normalizeWindowCloseBehavior(patch.windowCloseBehavior) ?? current.windowCloseBehavior,
       renderTextMarkdown: patch.renderTextMarkdown ?? current.renderTextMarkdown,
@@ -610,9 +653,6 @@ export class UserConfigService {
       linkPreview: {
         enabled: patch.linkPreview?.enabled ?? current.linkPreview.enabled,
         screenshot: patch.linkPreview?.screenshot ?? current.linkPreview.screenshot,
-      },
-      mediaCompletion: {
-        enabled: patch.mediaCompletion?.enabled ?? current.mediaCompletion.enabled,
       },
       voiceTranscribe: {
         modelId: patch.voiceTranscribe?.modelId ?? current.voiceTranscribe.modelId,
@@ -642,9 +682,8 @@ export class UserConfigService {
       event: 'set-settings',
       patchKeys: Object.keys(patch),
       realtimeEnabled: next.realtimeEnabled,
-      autoFetchClientKey: next.autoFetchClientKey,
+      autoInjectQq: next.autoInjectQq,
       autoLockMinutes: next.autoLockMinutes,
-      mediaCompletionEnabled: next.mediaCompletion.enabled,
       voiceModelId: next.voiceTranscribe.modelId,
       ttsProviderCount: next.voiceTranscribe.ttsProviders.length,
       mcpEnabled: next.mcp.enabled,

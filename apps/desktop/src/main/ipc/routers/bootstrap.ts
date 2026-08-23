@@ -142,15 +142,13 @@ export const bootstrapRouter = router({
    * filtered by the platform) — or null when no QQ instance for this account
    * is around.
    */
-  resolveQqPid: procedure
-    .input(z.object({ uin: z.string().min(1) }))
-    .query(async ({ input }) => {
-      const boot = requireBootstrap();
-      // Linux resolves the account dir from uid; seed it before probing so a
-      // fresh account (uid not yet saved to config) still resolves.
-      await ensureUidForUin(boot, input.uin);
-      return requirePlatform().resolveQqPid(input.uin);
-    }),
+  resolveQqPid: procedure.input(z.object({ uin: z.string().min(1) })).query(async ({ input }) => {
+    const boot = requireBootstrap();
+    // Linux resolves the account dir from uid; seed it before probing so a
+    // fresh account (uid not yet saved to config) still resolves.
+    await ensureUidForUin(boot, input.uin);
+    return requirePlatform().resolveQqPid(input.uin);
+  }),
 
   /** Online-instance probe (with the single-process uin-iteration refinement). */
   probeOnline: procedure
@@ -249,7 +247,7 @@ export const bootstrapRouter = router({
 
   // ---- app settings (设置 → 账号基础 / 全局设置) ----
 
-  /** Full, defaulted global settings (realtime / media-completion / clientkey). */
+  /** Full, defaulted global settings (realtime / 自动注入 QQ / …). */
   getSettings: procedure.query(() => {
     return requireBootstrap().userConfig.getSettings();
   }),
@@ -265,26 +263,14 @@ export const bootstrapRouter = router({
   }),
 
   /**
-   * Patch the 媒体补全 config. The monitor's rkey harvesting reads `enabled`
-   * live on its next poll.
+   * Toggle 自动注入 QQ（完整功能总闸）. Persists, and the account monitor reads
+   * it live on its next poll so injection / harvesting starts or stops
+   * immediately (no re-open needed). 关闭 = 完全离线模式。
    */
-  setMediaCompletion: procedure
-    .input(z.object({ enabled: z.boolean().optional() }))
-    .mutation(({ input }) => {
-      requireBootstrap().userConfig.setSettings({ mediaCompletion: input });
-      return true;
-    }),
-
-  /**
-   * Toggle 自动获取 ClientKey. Persists, and the monitor reads it live on its
-   * next poll so clientkey harvesting starts/stops immediately (no re-open needed).
-   */
-  setAutoFetchClientKey: procedure
-    .input(z.object({ enabled: z.boolean() }))
-    .mutation(({ input }) => {
-      requireBootstrap().userConfig.setSettings({ autoFetchClientKey: input.enabled });
-      return true;
-    }),
+  setAutoInjectQq: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+    requireBootstrap().userConfig.setSettings({ autoInjectQq: input.enabled });
+    return true;
+  }),
 
   /**
    * 空闲自动上锁阈值（分钟）。0 = 关闭自动上锁。渲染层的 AppLockOverlay
@@ -294,6 +280,23 @@ export const bootstrapRouter = router({
     .input(z.object({ minutes: z.number().int().min(0).max(120) }))
     .mutation(({ input }) => {
       requireBootstrap().userConfig.setSettings({ autoLockMinutes: input.minutes });
+      return true;
+    }),
+
+  /** 应用锁总开关（设置 → 应用锁）。关闭后手动 / 自动上锁都不生效。 */
+  setAppLockEnabled: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+    requireBootstrap().userConfig.setSettings({ appLock: { enabled: input.enabled } });
+    return true;
+  }),
+
+  /**
+   * 应用锁解锁方式（设置 → 应用锁）：'totp' = WeQ 验证器（默认），
+   * 'system' = Windows Hello / Touch ID。
+   */
+  setAppLockMethod: procedure
+    .input(z.object({ method: z.enum(['totp', 'system']) }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ appLock: { method: input.method } });
       return true;
     }),
 

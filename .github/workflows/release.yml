@@ -34,7 +34,7 @@ jobs:
           MSG=$(git log -1 --pretty=format:%s)
           LOWER=$(printf '%s' "$MSG" | tr '[:upper:]' '[:lower:]')
           case "$LOWER" in
-            release:*|chore\(release\):*)
+            merge*|release:*|chore\(release\):*)
               echo "release=true"  >> "$GITHUB_OUTPUT"
               ;;
             *)

@@ -256,6 +256,12 @@ export const wonderfulToolsRouter = router({
         if (!existsSync(input.dbPath)) {
           return { success: false, error: `未找到数据库文件：${input.dbPath}` };
         }
+        if (boot.userConfig.getSettings().autoInjectQq === false) {
+          return {
+            success: false,
+            error: '已开启完全离线模式（自动注入 QQ 已关闭），无法向在线 QQ 请求密钥。',
+          };
+        }
         const pids = await resolveOnlinePids(boot, platform);
         if (pids.length === 0) {
           return {

@@ -6,7 +6,7 @@
  * session partition, so login state survives restarts and每个账号各用各的 cookie
  * jar (keyed by the same (uin, dataDir) id the rest of the app uses).
  *
- * Auto-login: when 设置 → 自动获取 ClientKey is on AND a logged-in QQ.exe for the
+ * Auto-login: when 设置 → 自动注入 QQ（完整功能） is on AND a logged-in QQ.exe for the
  * account is running, we swap its credential for Qzone's web tokens via the
  * native helper and seed the jar with `uin` / `p_uin` / `skey` / `p_skey` — Qzone
  * needs the plain `skey` (for its g_tk csrf) on top of the `p_skey` that 频道 uses,
@@ -19,7 +19,7 @@
  */
 
 import { BrowserWindow, ipcMain, nativeTheme, session } from 'electron';
-import { accountConfigId, getLogger, logErrorContext } from '@weq/service';
+import { accountConfigId, fetchWebTokens, getLogger, logErrorContext } from '@weq/service';
 import { getAppContext } from './context/app_context';
 
 /** Domain the Qzone skey / p_skey are minted for (native fetch arguments). */
@@ -31,9 +31,7 @@ const QZONE_PSKEY_DOMAIN = 'qzone.qq.com';
  * which redirects through login.
  */
 function qzoneUrl(uin: string | number | undefined): string {
-  return uin
-    ? `https://user.qzone.qq.com/${uin}/infocenter?loginfrom=31`
-    : 'https://qzone.qq.com/';
+  return uin ? `https://user.qzone.qq.com/${uin}/infocenter?loginfrom=31` : 'https://qzone.qq.com/';
 }
 
 /** WeQ's theme preference, mirrored 1:1 onto `nativeTheme.themeSource`. */
@@ -71,24 +69,21 @@ function resolvePartition(): string {
 
 /**
  * Best-effort auto-login: seed `uin` / `p_uin` / `skey` / `p_skey` into the Qzone
- * jar from the live QQ instance. No-op (returns silently) unless 自动获取
- * ClientKey is on and a logged-in QQ.exe is online. On any failure we leave the
+ * jar from the live QQ instance. No-op (returns silently) unless 自动注入 QQ
+ * （完整功能） is on and a logged-in QQ.exe is online. On any failure we leave the
  * jar untouched and let the persistent cookies (if any) carry login.
  */
 async function injectAutoLoginCookies(partition: string): Promise<void> {
   const ctx = getAppContext();
-  const autoFetch = ctx.bootstrap?.userConfig.getSettings().autoFetchClientKey ?? false;
-  if (!autoFetch) return;
-
   const uin = ctx.account?.context.uin;
   const nt = ctx.platform?.native.ntHelper;
   const record = ctx.services?.accountConfig.getRecord();
   if (!uin || !nt || !record?.qqOnline || !record.qqPid) return;
 
-  // Sequential, not parallel: both fetchers drive OIDB over the same hook pipe
-  // for this pid, so overlapping them risks contention (see web/credential.ts).
-  const skey = await nt.fetchSkey(record.qqPid, String(uin));
-  const pskey = await nt.fetchPskey(record.qqPid, String(uin), QZONE_PSKEY_DOMAIN);
+  // 已注入时走 hook；未注入 / 完全离线模式回退 ptlogin2 本地快速登录。
+  const { skey, pskey } = await fetchWebTokens(nt, String(uin), record.qqPid, QZONE_PSKEY_DOMAIN, {
+    needSkey: true,
+  });
   if (!skey && !pskey) return;
 
   const ses = session.fromPartition(partition);
@@ -103,7 +98,9 @@ async function injectAutoLoginCookies(partition: string): Promise<void> {
     { name: 'p_skey', value: pskey },
   ];
   await Promise.all(
-    jar.filter((c) => c.value).map((c) => ses.cookies.set({ ...base, name: c.name, value: c.value })),
+    jar
+      .filter((c) => c.value)
+      .map((c) => ses.cookies.set({ ...base, name: c.name, value: c.value })),
   );
   logger.info('seeded qq zone login cookies', { event: 'qzone-autologin', uin: String(uin) });
 }

@@ -33,7 +33,11 @@ interface DialogStore {
   seq: number;
   showError(title: string, message: ReactNode, opts?: { dismissible?: boolean }): void;
   showInfo(title: string, message: ReactNode): void;
-  confirm(title: string, message: ReactNode, opts?: { okLabel?: string; cancelLabel?: string; tone?: DialogTone }): Promise<boolean>;
+  confirm(
+    title: string,
+    message: ReactNode,
+    opts?: { okLabel?: string; cancelLabel?: string; tone?: DialogTone },
+  ): Promise<boolean>;
   close(): void;
 }
 
@@ -42,7 +46,10 @@ export const useDialog = create<DialogStore>((set, get) => ({
   seq: 0,
   showError(title, message, opts) {
     const id = get().seq + 1;
-    set({ seq: id, current: { id, tone: 'error', title, message, dismissible: opts?.dismissible ?? true } });
+    set({
+      seq: id,
+      current: { id, tone: 'error', title, message, dismissible: opts?.dismissible ?? true },
+    });
   },
   showInfo(title, message) {
     const id = get().seq + 1;
@@ -85,11 +92,17 @@ export function Modal({
   children,
   labelledBy,
   width,
+  className,
+  layerClassName,
 }: {
   onClose?: () => void;
   children: ReactNode;
   labelledBy?: string;
   width?: number | string;
+  /** Extra class for the `.weq-modal` card itself (e.g. lock-screen theming). */
+  className?: string;
+  /** Extra class for the full-screen overlay layer. */
+  layerClassName?: string;
 }): ReactElement | null {
   const layer = useOverlayLayer(true);
 
@@ -105,9 +118,13 @@ export function Modal({
   if (typeof document === 'undefined') return null;
 
   return createPortal(
-    <div className="weq-dialog-layer weq-anim-fade" style={{ zIndex: layer }} onMouseDown={onClose}>
+    <div
+      className={`weq-dialog-layer weq-anim-fade${layerClassName ? ` ${layerClassName}` : ''}`}
+      style={{ zIndex: layer }}
+      onMouseDown={onClose}
+    >
       <div
-        className="weq-modal weq-anim-pop"
+        className={`weq-modal weq-anim-pop${className ? ` ${className}` : ''}`}
         role="dialog"
         aria-modal="true"
         {...(labelledBy ? { 'aria-labelledby': labelledBy } : {})}

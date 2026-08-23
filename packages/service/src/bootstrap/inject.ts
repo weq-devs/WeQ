@@ -23,6 +23,12 @@
  * its own idempotency: `ensure` no-ops once a pid is ready; `reset` forgets a
  * pid so a failed fetch (native client died — QQ relaunched / hook unloaded)
  * can force a fresh inject on the next `ensure`.
+ *
+ * ⚠️ 完全离线模式（设置 → 账号基础 → 自动注入 QQ）关闭时禁止注入。所有会触发
+ * 注入的调用方必须在调用前检查 `userConfig.getSettings().autoInjectQq`（或调用
+ * app_context 的 `requireInjectEnabled`）。唯一豁免：登录时的数据库密钥提取
+ * （bootstrap 的 `fetchKeyFromInstance` / `prepareInstanceInject`）——那是打开
+ * 账号的前提。
  */
 
 import type { NtHelperBinding } from '@weq/native';

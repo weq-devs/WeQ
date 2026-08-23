@@ -11,8 +11,7 @@
  * 群相册踩过这个坑(过期回的是 200 + code:-3000,被当成「这个群没有相册」)。
  */
 import type { AccountSession } from '@weq/account';
-import type { NtHelperBinding } from '@weq/native';
-import { WebCredentialProvider, withRetry } from './credential';
+import { WebCredentialProvider, withRetry, type WebNative } from './credential';
 import { getFriendDress, type FriendDress } from './friend_dress';
 import { getGroupAlbumList, type GroupAlbum } from './group_album';
 import { getHonorList, type HonorType, type HonorMember } from './group_honor';
@@ -36,11 +35,7 @@ const TI_DOMAIN = 'ti.qq.com';
 export class WebQueryService {
   private readonly creds: WebCredentialProvider;
 
-  constructor(
-    nt: Pick<NtHelperBinding, 'fetchSkey' | 'fetchPskey' | 'fetchClientKey'>,
-    session: AccountSession,
-    resolvePid: () => number,
-  ) {
+  constructor(nt: WebNative, session: AccountSession, resolvePid: () => number) {
     this.creds = new WebCredentialProvider(nt, session.context.uin, resolvePid);
   }
 
@@ -48,8 +43,14 @@ export class WebQueryService {
     return withRetry(this.creds, QUN_DOMAIN, (c) => getGroupNotice(c, groupCode));
   }
 
-  async getGroupEssence(groupCode: string, pageStart = 0, pageLimit = 50): Promise<GroupEssenceMessage[]> {
-    return withRetry(this.creds, QUN_DOMAIN, (c) => getGroupEssence(c, groupCode, pageStart, pageLimit));
+  async getGroupEssence(
+    groupCode: string,
+    pageStart = 0,
+    pageLimit = 50,
+  ): Promise<GroupEssenceMessage[]> {
+    return withRetry(this.creds, QUN_DOMAIN, (c) =>
+      getGroupEssence(c, groupCode, pageStart, pageLimit),
+    );
   }
 
   async getGroupAlbumList(groupId: string): Promise<GroupAlbum[]> {
@@ -108,6 +109,10 @@ export class WebQueryService {
 }
 
 export {
+  PT_LOGIN_DOMAINS,
+  fetchSkeyViaPtLogin,
+  fetchPskeyViaPtLogin,
+  fetchWebTokens,
   computeBkn,
   cookieHeader,
   WebAuthError,
@@ -115,6 +120,7 @@ export {
   withRetry,
 } from './credential';
 export type { WebCredential } from './credential';
+export type { WebTokens } from './credential';
 export { getFriendDress } from './friend_dress';
 export type { FriendDress, FriendDressItem } from './friend_dress';
 export { getSelfDress } from './self_dress';

@@ -273,6 +273,8 @@ export function WonderfulToolsDialog({
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** 全局「自动注入 QQ（完整功能）」——关闭即完全离线模式。 */
+  const [autoInjectQq, setAutoInjectQq] = useState(true);
   const [scanningUin, setScanningUin] = useState<string | null>(null);
   /** 正在扫描 / 已出结果的账号 —— 存在时弹出结果模态窗口。 */
   const [scanTarget, setScanTarget] = useState<AccountRow | null>(null);
@@ -299,8 +301,26 @@ export function WonderfulToolsDialog({
   } | null>(null);
   const [otherCopied, setOtherCopied] = useState(false);
 
-  /** 当前在线的 QQ 实例数（决定「其它设备密钥」的获取按钮是否可用）。 */
+  /** 当前在线的 QQ 实例数（密钥扫描用：零注入，离线模式下仍可用）。 */
   const onlineCount = accounts.filter((a) => a.pid !== null).length;
+  /** 其它设备密钥需要「已注入」的在线实例；完全离线模式下视为 0。 */
+  const otherKeyOnline = autoInjectQq ? onlineCount : 0;
+
+  useEffect(() => {
+    if (!open) return undefined;
+    let alive = true;
+    void client.bootstrap.getSettings
+      .query()
+      .then((s) => {
+        if (alive) setAutoInjectQq(s.autoInjectQq);
+      })
+      .catch(() => {
+        /* 读不到就按默认开启处理 */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [open]);
 
   const closeResult = useCallback(() => {
     setScanTarget(null);
@@ -587,9 +607,13 @@ export function WonderfulToolsDialog({
                     <Database size={17} strokeWidth={1.9} />
                     <h2 id="weq-wtools-title">其它设备密钥</h2>
                     <span
-                      className={`weq-wtools-online-badge${onlineCount > 0 ? ' is-online' : ''}`}
+                      className={`weq-wtools-online-badge${otherKeyOnline > 0 ? ' is-online' : ''}`}
                     >
-                      {onlineCount > 0 ? `${onlineCount} 个在线实例可用` : '无在线实例'}
+                      {autoInjectQq
+                        ? otherKeyOnline > 0
+                          ? `${otherKeyOnline} 个在线实例可用`
+                          : '无在线实例'
+                        : '完全离线模式'}
                     </span>
                   </div>
                   <div className="weq-wtools-toolbar">
@@ -674,11 +698,15 @@ export function WonderfulToolsDialog({
                       type="button"
                       className="weq-wtools-fetch"
                       onClick={() => void fetchOtherKey()}
-                      disabled={!otherDbPath || onlineCount === 0 || fetchingKey || headerLoading}
+                      disabled={
+                        !otherDbPath || otherKeyOnline === 0 || fetchingKey || headerLoading
+                      }
                       title={
-                        onlineCount === 0
-                          ? '没有可用的在线 QQ 实例，无法发包获取密钥'
-                          : '按 bootstrap 取密钥流程，向在线 QQ 请求该数据库的密钥'
+                        !autoInjectQq
+                          ? '已开启完全离线模式，无法向 QQ 请求密钥'
+                          : otherKeyOnline === 0
+                            ? '没有可用的在线 QQ 实例，无法发包获取密钥'
+                            : '按 bootstrap 取密钥流程，向在线 QQ 请求该数据库的密钥'
                       }
                     >
                       {fetchingKey ? (
@@ -688,9 +716,11 @@ export function WonderfulToolsDialog({
                       )}
                       {fetchingKey ? '正在获取…' : '获取密钥'}
                     </button>
-                    {onlineCount === 0 && !fetchingKey ? (
+                    {otherKeyOnline === 0 && !fetchingKey ? (
                       <span className="weq-wtools-odev-hint">
-                        无在线实例，按钮保持灰色：请先登录 QQ 并保持在线
+                        {autoInjectQq
+                          ? '无在线实例，按钮保持灰色：请先登录 QQ 并保持在线'
+                          : '已开启完全离线模式（自动注入 QQ 已关闭），无法向 QQ 请求密钥'}
                       </span>
                     ) : null}
                   </div>

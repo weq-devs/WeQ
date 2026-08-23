@@ -1102,16 +1102,15 @@ export function initAppContext(): AppContext {
       // before the monitor starts so its patches land on an existing record.
       accountConfig.save(metadata);
 
-      // Start the background login/pid monitor for this account. rkey
-      // harvesting inside it is gated live by the 媒体补全 master switch, so
-      // toggling that setting takes effect on the next poll without a re-open.
-      // clientkey harvesting is gated by the autoFetchClientKey setting.
+      // Start the background login/pid monitor for this account. Injection +
+      // harvesting (rkey / clientkey / 装扮快照) inside it is gated live by the
+      // 自动注入 QQ master switch (完全离线模式), so toggling that setting takes
+      // effect on the next poll without a re-open.
       accountMonitor = new AccountMonitorService(
         session,
         platform,
         accountConfig,
-        () => userConfig.getSettings().mediaCompletion.enabled,
-        () => userConfig.getSettings().autoFetchClientKey,
+        () => userConfig.getSettings().autoInjectQq,
         bootstrap.injectHook,
         // 把手机 QQ 正在用的气泡/字体装上并切过去。monitor 内部只在本次会话第一次
         // 抓到快照时调，且只在用户从没自己选过时才动手（见 syncFromQq）。
@@ -1488,8 +1487,7 @@ export function initAppContext(): AppContext {
         session,
         platform,
         accountConfig,
-        () => userConfig.getSettings().mediaCompletion.enabled,
-        () => userConfig.getSettings().autoFetchClientKey,
+        () => userConfig.getSettings().autoInjectQq,
         bootstrap.injectHook,
       );
       accountMonitor.start();
@@ -1655,6 +1653,18 @@ export function getAppContext(): AppContext {
     throw new Error('AppContext not initialized — call initAppContext() in main first.');
   }
   return cached;
+}
+
+/**
+ * 完全离线模式提示。所有会触发 hook 注入 / 读取在线凭证的功能入口都应先调用
+ * {@link requireInjectEnabled}，避免在「自动注入 QQ」关闭时仍悄悄注入。
+ * 唯一豁免：登录时的数据库密钥提取（bootstrap 登录流程）——那是打开账号的前提。
+ */
+export function requireInjectEnabled(): void {
+  const ctx = getAppContext();
+  if (ctx.bootstrap?.userConfig.getSettings().autoInjectQq === false) {
+    throw new Error('已开启完全离线模式（自动注入 QQ 已关闭），该功能需要在线 QQ 实例。');
+  }
 }
 
 /** Bootstrap services, asserting native loaded. Throws a friendly error otherwise. */

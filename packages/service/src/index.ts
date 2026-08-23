@@ -38,8 +38,9 @@ export type {
   AutoEnterTarget,
   InjectRecord,
   AppSettings,
+  AppLockConfig,
+  AppLockMethod,
   WindowCloseBehavior,
-  MediaCompletionConfig,
   VoiceTranscribeConfig,
   McpServerConfig,
   WeqAssistantConfig,
@@ -373,7 +374,15 @@ export { createNtMsgDbHook } from './account/nt_msg_hook';
 export type { NewMessages, NtMsgHooks } from './account/nt_msg_hook';
 
 // ---- web cgi (query-only: group notice / album list / honor) ----
-export { WebQueryService, HonorType, computeBkn } from './account/web';
+export {
+  WebQueryService,
+  HonorType,
+  computeBkn,
+  PT_LOGIN_DOMAINS,
+  fetchWebTokens,
+  fetchSkeyViaPtLogin,
+  fetchPskeyViaPtLogin,
+} from './account/web';
 export { buildPtlogin2JumpUrl, parseClientKeyJson } from './account/web/ptlogin';
 export type {
   GroupNotice,

@@ -8,7 +8,7 @@
  *   - each account gets its own jar keyed by the same (uin, dataDir) id the rest
  *     of the app uses ("按账号隔离") — switching accounts switches the partition.
  *
- * Auto-login: when 设置 → 自动获取 ClientKey is on AND a logged-in QQ.exe for the
+ * Auto-login: when 设置 → 自动注入 QQ（完整功能） is on AND a logged-in QQ.exe for the
  * account is running (already hook-injected by the account monitor), we swap its
  * credential for a `pd.qq.com` p_skey via the native helper and seed the jar with
  * `uin` / `p_uin` / `p_skey` — enough for pd.qq.com to treat the page as logged
@@ -23,7 +23,7 @@
  */
 
 import { BrowserWindow, ipcMain, nativeTheme, session } from 'electron';
-import { accountConfigId, getLogger, logErrorContext } from '@weq/service';
+import { accountConfigId, fetchWebTokens, getLogger, logErrorContext } from '@weq/service';
 import { getAppContext } from './context/app_context';
 
 const CHANNEL_URL = 'https://pd.qq.com/';
@@ -68,22 +68,20 @@ function resolvePartition(): string {
 
 /**
  * Best-effort auto-login: seed `uin` / `p_uin` / `p_skey` into the channel jar
- * from the live QQ instance. No-op (returns silently) unless 自动获取 ClientKey is
- * on and a logged-in QQ.exe is online — the monitor injects the hook on
+ * from the live QQ instance. No-op (returns silently) unless 自动注入 QQ（完整功能）
+ * is on and a logged-in QQ.exe is online — the monitor injects the hook on
  * account-online, so `fetchPskey` works off the recorded pid. On any failure we
  * leave the jar untouched and let the persistent cookies (if any) carry login.
  */
 async function injectAutoLoginCookies(partition: string): Promise<void> {
   const ctx = getAppContext();
-  const autoFetch = ctx.bootstrap?.userConfig.getSettings().autoFetchClientKey ?? false;
-  if (!autoFetch) return;
-
   const uin = ctx.account?.context.uin;
   const nt = ctx.platform?.native.ntHelper;
   const record = ctx.services?.accountConfig.getRecord();
   if (!uin || !nt || !record?.qqOnline || !record.qqPid) return;
 
-  const pskey = await nt.fetchPskey(record.qqPid, String(uin), CHANNEL_PSKEY_DOMAIN);
+  // 已注入时走 hook；未注入 / 完全离线模式回退 ptlogin2 本地快速登录。
+  const { pskey } = await fetchWebTokens(nt, String(uin), record.qqPid, CHANNEL_PSKEY_DOMAIN);
   if (!pskey) return;
 
   const ses = session.fromPartition(partition);

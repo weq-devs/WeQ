@@ -119,7 +119,15 @@ async function resolveCardVideoUrl(itemId: number): Promise<string> {
  * @param pid      已注入的 QQ 进程 pid
  */
 export async function fetchHomeDress(
-  nt: Pick<NtHelperBinding, 'fetchSkey' | 'fetchPskey' | 'fetchClientKey'>,
+  nt: Pick<
+    NtHelperBinding,
+    | 'fetchSkey'
+    | 'fetchPskey'
+    | 'fetchClientKey'
+    | 'probePtLoginPort'
+    | 'ptFetchSkey'
+    | 'ptFetchPskey'
+  >,
   session: AccountSession,
   pid: number,
   seedPskey?: Record<string, string>,
@@ -211,7 +219,15 @@ export async function fetchHomeDress(
 
 /** vip.qq.com 的凭证。`seedPskey` 为空时强制走活 hook。 */
 async function resolveCred(
-  nt: Pick<NtHelperBinding, 'fetchSkey' | 'fetchPskey' | 'fetchClientKey'>,
+  nt: Pick<
+    NtHelperBinding,
+    | 'fetchSkey'
+    | 'fetchPskey'
+    | 'fetchClientKey'
+    | 'probePtLoginPort'
+    | 'ptFetchSkey'
+    | 'ptFetchPskey'
+  >,
   uin: string,
   pid: number,
   seedPskey: Record<string, string> | undefined,
@@ -246,8 +262,7 @@ export async function toPeerDress(dress: FriendDress): Promise<PeerDressSnapshot
    * 没设该类装扮时接口回的是「默认款」（`itemId: 0`），素材是 QQ 自己的推广图
    * （如 `card/item/0/new1.png`）—— 那是广告不是这个人的装扮，一律当没有。
    */
-  const pick = (appId: number) =>
-    dress.items.find((i) => i.appId === appId && i.itemId !== 0);
+  const pick = (appId: number) => dress.items.find((i) => i.appId === appId && i.itemId !== 0);
   const widgetItem = pick(WIDGET);
   const cardItem = pick(CARD);
   const screenItem = pick(SCREEN);

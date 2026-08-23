@@ -22,7 +22,6 @@ import {
   HardDrive,
   Info,
   Loader2,
-  LockKeyhole,
   Minimize2,
   RotateCcw,
   Trash2,
@@ -36,7 +35,7 @@ import { useViewState } from '../../state/view';
 import { QqAvatar } from '../QqAvatar';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { UpdateCard } from './UpdateCard';
-import { DesktopOnly, shellBridge } from '../../lib/target';
+import { DesktopOnly } from '../../lib/target';
 import logoUrl from '@resources/brand/logo.png';
 
 function errMsg(e: unknown): string {
@@ -56,15 +55,6 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(unit === 0 ? 0 : value >= 100 ? 0 : 1)} ${units[unit]}`;
 }
 
-/** 空闲自动锁定时长选项。0 = 关闭（仍可手动上锁）。 */
-const AUTO_LOCK_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
-  { value: 0, label: '关闭' },
-  { value: 1, label: '1 分钟' },
-  { value: 5, label: '5 分钟' },
-  { value: 10, label: '10 分钟' },
-  { value: 30, label: '30 分钟' },
-];
-
 /** 点击关闭按钮（标题栏 ✕）时的行为。 */
 const CLOSE_BEHAVIOR_OPTIONS: ReadonlyArray<{ value: WindowCloseBehavior; label: string }> = [
   { value: 'ask', label: '每次询问' },
@@ -78,10 +68,6 @@ export function GlobalSettingsSection(): ReactElement {
   const pushToast = useToast((s) => s.push);
   // 用来把「当前已登录的账号」标出来并禁掉它的删除按钮。
   const openedUin = useViewState((s) => s.openedUin);
-  const [systemAuthStatus, setSystemAuthStatus] = useState<Awaited<
-    ReturnType<typeof window.weq.systemAuth.getStatus>
-  > | null>(null);
-  const [autoLockMinutes, setAutoLockMinutes] = useState(0);
   const [closeBehavior, setCloseBehavior] = useState<WindowCloseBehavior>('ask');
   const [preferCdn, setPreferCdn] = useState(false);
 
@@ -121,7 +107,6 @@ export function GlobalSettingsSection(): ReactElement {
   const deleteAccount = trpc.bootstrap.deleteAccountConfig.useMutation();
   const pickCache = trpc.bootstrap.pickCacheDir.useMutation();
   const clearCache = trpc.bootstrap.clearCacheDir.useMutation();
-  const setAutoLock = trpc.bootstrap.setAutoLockMinutes.useMutation();
   const setWindowClose = trpc.bootstrap.setWindowCloseBehavior.useMutation();
   const setPreferCdnMut = trpc.bootstrap.setPreferCdn.useMutation();
   const cacheBusy = pickCache.isLoading || clearCache.isLoading;
@@ -140,11 +125,6 @@ export function GlobalSettingsSection(): ReactElement {
   const totalCacheBytes = cacheItems.reduce((sum, it) => sum + it.bytes, 0);
 
   useEffect(() => {
-    const minutes = settings.data?.autoLockMinutes;
-    if (typeof minutes === 'number') setAutoLockMinutes(minutes);
-  }, [settings.data?.autoLockMinutes]);
-
-  useEffect(() => {
     const behavior = settings.data?.windowCloseBehavior;
     if (behavior) setCloseBehavior(behavior);
   }, [settings.data?.windowCloseBehavior]);
@@ -153,25 +133,6 @@ export function GlobalSettingsSection(): ReactElement {
     const enabled = settings.data?.preferCdn;
     if (typeof enabled === 'boolean') setPreferCdn(enabled);
   }, [settings.data?.preferCdn]);
-
-  useEffect(() => {
-    const bridge = shellBridge();
-    if (!bridge) return;
-    // 非阻塞：先让 UI 渲染，systemAuth 在后台异步探测，结果回来再更新。
-    // 探测期间「空闲自动锁定」的非零选项会被 disable（见 disabled 判断）。
-    let mounted = true;
-    bridge.systemAuth
-      .getStatus()
-      .then((status) => {
-        if (mounted) setSystemAuthStatus(status);
-      })
-      .catch(() => {
-        if (mounted) setSystemAuthStatus(null);
-      });
-    return () => {
-      mounted = false;
-    };
-  }, []);
 
   async function onOpenLogDir(): Promise<void> {
     try {
@@ -215,8 +176,7 @@ export function GlobalSettingsSection(): ReactElement {
     // Nothing selected → clear all listed categories.
     const targets = ids.length > 0 ? cacheItems.filter((c) => pickedCats.has(c.id)) : cacheItems;
     const willFree = targets.reduce((sum, it) => sum + it.bytes, 0);
-    const label =
-      ids.length > 0 ? targets.map((t) => t.label).join('、') : '全部可清理缓存';
+    const label = ids.length > 0 ? targets.map((t) => t.label).join('、') : '全部可清理缓存';
     const ok = await confirm(
       '清理 WeQ 缓存',
       `将删除「${label}」，预计释放约 ${formatBytes(willFree)}。这些缓存会在下次需要时自动重新下载，不影响聊天记录。是否继续？`,
@@ -258,7 +218,11 @@ export function GlobalSettingsSection(): ReactElement {
   // 删除账号配置。和 bootstrap 选择页 / 左栏底部弹层走同一个后端接口，
   // 删的只是 WeQ 侧保存的配置（密钥、数据目录、昵称快照），不动 QQ 本体数据。
   // 当前已登录的账号不给删——删掉配置后界面还挂在这个账号上，状态会自相矛盾。
-  async function onDeleteAccount(acc: { configId: string; uin: string; displayName?: string }): Promise<void> {
+  async function onDeleteAccount(acc: {
+    configId: string;
+    uin: string;
+    displayName?: string;
+  }): Promise<void> {
     const label = acc.displayName || acc.uin;
     const ok = await confirm(
       '删除账号配置',
@@ -272,23 +236,6 @@ export function GlobalSettingsSection(): ReactElement {
       pushToast({ tone: 'success', title: '已删除', message: `账号配置「${label}」已移除` });
     } catch (e) {
       showError('删除账号配置失败', errMsg(e));
-    }
-  }
-
-  async function onSetAutoLock(minutes: number): Promise<void> {
-    if (minutes > 0 && !systemAuthStatus?.available) {
-      showError('无法开启自动锁定', systemAuthStatus?.error ?? '当前设备的系统认证不可用。');
-      return;
-    }
-    const prev = autoLockMinutes;
-    setAutoLockMinutes(minutes);
-    try {
-      await setAutoLock.mutateAsync({ minutes });
-      await settings.refetch();
-    } catch (e) {
-      setAutoLockMinutes(prev);
-      await settings.refetch();
-      showError('保存自动锁定设置失败', errMsg(e));
     }
   }
 
@@ -353,83 +300,42 @@ export function GlobalSettingsSection(): ReactElement {
         <UpdateCard />
       </DesktopOnly>
 
-      <DesktopOnly>
-        <Card title="应用锁">
-        <Row
-          label={
-            <span className="weq-set-row-icon">
-              <LockKeyhole size={15} strokeWidth={1.8} aria-hidden />
-              空闲自动锁定
-            </span>
-          }
-          desc={
-            systemAuthStatus?.available
-              ? `无操作超过所选时长后自动锁定，需用 ${systemAuthStatus.displayName} 验证才能解锁。随时可在左栏头像上方手动上锁。`
-              : systemAuthStatus?.error ?? '当前设备或系统环境暂不可用，自动锁定不可开启。'
-          }
-          control={
-            <div
-              className="weq-set-seg"
-              role="radiogroup"
-              aria-label="空闲自动锁定时长"
-            >
-              {AUTO_LOCK_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={autoLockMinutes === opt.value}
-                  className={`weq-set-seg-item${autoLockMinutes === opt.value ? ' is-on' : ''}`}
-                  disabled={
-                    settings.isLoading ||
-                    setAutoLock.isLoading ||
-                    (opt.value > 0 && !systemAuthStatus?.available)
-                  }
-                  onClick={() => void onSetAutoLock(opt.value)}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          }
-        />
-      </Card>
-
       {/* Window close behavior */}
-      <Card title="窗口">
-        <Row
-          label={
-            <span className="weq-set-row-icon">
-              <Minimize2 size={15} strokeWidth={1.8} aria-hidden />
-              关闭按钮
-            </span>
-          }
-          desc={
-            closeBehavior === 'tray'
-              ? '点击关闭按钮后最小化到系统托盘，进程常驻后台，可从托盘图标恢复。'
-              : closeBehavior === 'quit'
-                ? '点击关闭按钮后直接完全退出应用。'
-                : '每次点击关闭按钮时弹窗询问，可选择最小化到托盘或完全退出。'
-          }
-          control={
-            <div className="weq-set-seg" role="radiogroup" aria-label="关闭按钮行为">
-              {CLOSE_BEHAVIOR_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={closeBehavior === opt.value}
-                  className={`weq-set-seg-item${closeBehavior === opt.value ? ' is-on' : ''}`}
-                  disabled={settings.isLoading || setWindowClose.isLoading}
-                  onClick={() => void onSetCloseBehavior(opt.value)}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          }
-        />
-      </Card>
+      <DesktopOnly>
+        <Card title="窗口">
+          <Row
+            label={
+              <span className="weq-set-row-icon">
+                <Minimize2 size={15} strokeWidth={1.8} aria-hidden />
+                关闭按钮
+              </span>
+            }
+            desc={
+              closeBehavior === 'tray'
+                ? '点击关闭按钮后最小化到系统托盘，进程常驻后台，可从托盘图标恢复。'
+                : closeBehavior === 'quit'
+                  ? '点击关闭按钮后直接完全退出应用。'
+                  : '每次点击关闭按钮时弹窗询问，可选择最小化到托盘或完全退出。'
+            }
+            control={
+              <div className="weq-set-seg" role="radiogroup" aria-label="关闭按钮行为">
+                {CLOSE_BEHAVIOR_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={closeBehavior === opt.value}
+                    className={`weq-set-seg-item${closeBehavior === opt.value ? ' is-on' : ''}`}
+                    disabled={settings.isLoading || setWindowClose.isLoading}
+                    onClick={() => void onSetCloseBehavior(opt.value)}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            }
+          />
+        </Card>
       </DesktopOnly>
 
       {/* Account list */}
@@ -453,7 +359,9 @@ export function GlobalSettingsSection(): ReactElement {
                     <span className="weq-set-account-name">
                       {acc.displayName || acc.uin}
                       {acc.static ? (
-                        <span className="weq-set-badge">{acc.mobile ? '手机备份' : '静态账号'}</span>
+                        <span className="weq-set-badge">
+                          {acc.mobile ? '手机备份' : '静态账号'}
+                        </span>
                       ) : null}
                       {isAutoEnter ? (
                         <span className="weq-set-badge weq-set-badge-ok">默认进入</span>

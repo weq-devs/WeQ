@@ -57,6 +57,9 @@ function requireOnlineQq(): {
   if (!nt || !uin || !record?.qqOnline || !record.qqPid) {
     throw new Error('需要先登录该账号的 QQ 客户端。');
   }
+  if (ctx.bootstrap?.userConfig.getSettings().autoInjectQq === false) {
+    throw new Error('已开启完全离线模式（自动注入 QQ 已关闭），反馈发送需要在线 QQ。');
+  }
   return { nt, pid: record.qqPid, uin };
 }
 
@@ -136,7 +139,7 @@ export const groupFeedbackRouter = router({
         input,
       }): Promise<
         | { ok: true; filesetUuid: string; shareUrl: string; folder: string }
-        | { ok: false; reason: 'offline' | 'bundle' | 'send'; message: string }
+        | { ok: false; reason: 'offline' | 'offline-mode' | 'bundle' | 'send'; message: string }
       > => {
         if (!PROJECT_GROUP_IDS.includes(input.groupId)) {
           return { ok: false, reason: 'send', message: '该群不在项目交流群列表中' };
@@ -145,9 +148,11 @@ export const groupFeedbackRouter = router({
         try {
           online = requireOnlineQq();
         } catch (e) {
+          const offlineMode =
+            getAppContext().bootstrap?.userConfig.getSettings().autoInjectQq === false;
           return {
             ok: false,
-            reason: 'offline',
+            reason: offlineMode ? ('offline-mode' as const) : ('offline' as const),
             message: e instanceof Error ? e.message : String(e),
           };
         }
@@ -226,7 +231,9 @@ export const groupFeedbackRouter = router({
     .mutation(
       async ({
         input,
-      }): Promise<{ ok: true } | { ok: false; reason: 'offline' | 'send'; message: string }> => {
+      }): Promise<
+        { ok: true } | { ok: false; reason: 'offline' | 'offline-mode' | 'send'; message: string }
+      > => {
         if (!PROJECT_GROUP_IDS.includes(input.groupId)) {
           return { ok: false, reason: 'send', message: '该群不在项目交流群列表中' };
         }
@@ -234,9 +241,11 @@ export const groupFeedbackRouter = router({
         try {
           online = requireOnlineQq();
         } catch (e) {
+          const offlineMode =
+            getAppContext().bootstrap?.userConfig.getSettings().autoInjectQq === false;
           return {
             ok: false,
-            reason: 'offline',
+            reason: offlineMode ? ('offline-mode' as const) : ('offline' as const),
             message: e instanceof Error ? e.message : String(e),
           };
         }
