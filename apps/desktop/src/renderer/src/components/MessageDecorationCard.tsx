@@ -4,9 +4,12 @@
  * 右键消息气泡时显示该消息的三装扮（字体/气泡/挂件）的 ID 和预览图。
  */
 import { Palette, X, ImageOff, Type, MessageCircle, Sparkles } from "lucide-react";
-import { useRef, useState } from "react";
+import { Loader2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useEscapeToClose } from "../im-template/template/modalUtils";
+import { trpc } from "../trpc/client";
+import { dressFontUrl } from "../lib/resourceUrl";
 
 interface MessageDecorationCardProps {
   decoration: {
@@ -30,14 +33,14 @@ function getPreviewUrl(type: 'font' | 'bubble' | 'widget', id: number): string {
 function getLocalUrl(type: 'font' | 'bubble' | 'widget', id: number): string {
   const isWeb = import.meta.env.VITE_WEQ_TARGET === 'web';
 
-  if (type === 'font') {
-    return isWeb ? `/_asset/dress/fonts/${id}.ttf` : `weq-asset://dress/fonts/${id}.ttf`;
-  }
   if (type === 'bubble') {
     return isWeb ? `/_media/dressbubble?id=${id}` : `weq-media://dressbubble?id=${id}`;
   }
   return isWeb ? `/_media/dresspendant?id=${id}&frame=1` : `weq-media://dresspendant?id=${id}&frame=1`;
 }
+
+type ImageState = 'cdn' | 'local' | 'font' | 'fallback';
+type FontPreviewState = 'loading' | 'ready' | 'unavailable';
 
 interface DecorationItemProps {
   type: 'font' | 'bubble' | 'widget';
@@ -47,9 +50,76 @@ interface DecorationItemProps {
 }
 
 function DecorationItem({ type, id, label, icon }: DecorationItemProps) {
-  const [imageState, setImageState] = useState<'cdn' | 'local' | 'fallback'>('cdn');
+  const [imageState, setImageState] = useState<ImageState>('cdn');
+  const [fontPreviewState, setFontPreviewState] = useState<FontPreviewState>('loading');
   const cdnUrl = getPreviewUrl(type, id);
-  const localUrl = getLocalUrl(type, id);
+  const localUrl = type === 'font' ? '' : getLocalUrl(type, id);
+  const fontFamily = `weq-message-decoration-${id}`;
+  const fontResource = trpc.account.dressup.resolveMsgDecoration.useQuery(
+    { bubbleId: 0, fontId: type === 'font' ? id : 0, widgetId: 0 },
+    {
+      enabled: type === 'font' && imageState === 'font',
+      staleTime: Infinity,
+    },
+  );
+
+  useEffect(() => {
+    if (type !== 'font' || imageState !== 'font') return;
+    if (fontResource.isInitialLoading) {
+      setFontPreviewState('loading');
+      return;
+    }
+    if (!fontResource.data?.fontFile) {
+      setFontPreviewState('unavailable');
+      return;
+    }
+
+    let cancelled = false;
+    setFontPreviewState('loading');
+    void new FontFace(fontFamily, `url("${dressFontUrl(id)}")`)
+      .load()
+      .then((face) => {
+        if (cancelled) return;
+        document.fonts.add(face);
+        setFontPreviewState('ready');
+      })
+      .catch(() => {
+        if (!cancelled) setFontPreviewState('unavailable');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fontFamily, fontResource.data?.fontFile, fontResource.isInitialLoading, id, imageState, type]);
+
+  const showFontPreview = type === 'font' && imageState === 'font' && fontPreviewState === 'ready';
+
+  function renderFontPreview() {
+    if (showFontPreview) {
+      return (
+        <div className="weq-decoration-card-font-preview" style={{ fontFamily: `"${fontFamily}"` }}>
+          <span className="is-symbol">!@#$%^&amp;*()[]{}+-=</span>
+          <span className="is-english">Aa Bb Cc Xx Yy Zz</span>
+          <span className="is-number">0123456789</span>
+          <span className="is-chinese">中文（WeQ装扮管理器）</span>
+        </div>
+      );
+    }
+    if (fontPreviewState === 'loading') {
+      return (
+        <div className="weq-decoration-card-empty">
+          <Loader2 size={26} strokeWidth={1.5} className="weq-decoration-card-spin" />
+          <span>正在加载字体</span>
+        </div>
+      );
+    }
+    return (
+      <div className="weq-decoration-card-empty">
+        <ImageOff size={32} strokeWidth={1.5} />
+        <span>暂无预览</span>
+      </div>
+    );
+  }
 
   return (
     <div className="weq-decoration-card-item">
@@ -61,7 +131,9 @@ function DecorationItem({ type, id, label, icon }: DecorationItemProps) {
         </div>
       </div>
       <div className="weq-decoration-card-preview">
-        {imageState === 'fallback' ? (
+        {imageState === 'font' ? (
+          renderFontPreview()
+        ) : imageState === 'fallback' ? (
           <div className="weq-decoration-card-empty">
             <ImageOff size={32} strokeWidth={1.5} />
             <span>暂无预览</span>
@@ -71,7 +143,9 @@ function DecorationItem({ type, id, label, icon }: DecorationItemProps) {
             src={imageState === 'cdn' ? cdnUrl : localUrl}
             alt={`${label}预览`}
             onError={() => {
-              if (imageState === 'cdn') {
+              if (type === 'font') {
+                setImageState('font');
+              } else if (imageState === 'cdn') {
                 setImageState('local');
               } else {
                 setImageState('fallback');

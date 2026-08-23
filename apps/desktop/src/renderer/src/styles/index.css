@@ -8782,6 +8782,44 @@ html[data-theme="dark"] .weq-flash-opening { background: rgba(0, 0, 0, 0.55); }
   transition: transform 0.2s ease;
 }
 
+.weq-decoration-card-font-preview {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  height: 100%;
+  padding: 8px 12px;
+  overflow: hidden;
+  color: var(--weq-fg-primary);
+  line-height: 1.05;
+  text-align: center;
+}
+
+.weq-decoration-card-font-preview span {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.weq-decoration-card-font-preview .is-symbol {
+  color: var(--weq-fg-secondary);
+  font-size: 13px;
+}
+
+.weq-decoration-card-font-preview .is-english {
+  font-size: 16px;
+}
+
+.weq-decoration-card-font-preview .is-number {
+  font-size: 18px;
+}
+
+.weq-decoration-card-font-preview .is-chinese {
+  font-size: 15px;
+}
+
 .weq-decoration-card-item:hover .weq-decoration-card-preview img {
   transform: scale(1.05);
 }
@@ -8799,6 +8837,16 @@ html[data-theme="dark"] .weq-flash-opening { background: rgba(0, 0, 0, 0.55); }
 
 .weq-decoration-card-empty svg {
   opacity: 0.5;
+}
+
+.weq-decoration-card-spin {
+  animation: weq-decoration-card-spin 0.9s linear infinite;
+}
+
+@keyframes weq-decoration-card-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .weq-decoration-card-empty span {

@@ -29,6 +29,12 @@ export interface MsgDecoration {
   widgetId: number;
 }
 
+/** Decode the fallback font itemId stored in tag 41531 (byte-swapped uint16). */
+function decodeFallbackFontId(stored: number | undefined): number {
+  if (stored == null || stored === 0) return 0;
+  return ((stored & 0xff) << 8) | ((stored >>> 8) & 0xff);
+}
+
 export function decodeMsgDressColumn(blob: unknown): MsgDecoration | null {
   if (!(blob instanceof Uint8Array) || blob.byteLength === 0) return null;
   try {
@@ -36,7 +42,7 @@ export function decodeMsgDressColumn(blob: unknown): MsgDecoration | null {
     const d = outer.dress;
     if (!d) return null;
     const bubbleId = d.bubbleId ?? 0;
-    const fontId = d.fontId ?? 0;
+    const fontId = d.fontId && d.fontId !== 0 ? d.fontId : decodeFallbackFontId(d.flag41531);
     const widgetId = d.widgetId ?? 0;
     if (bubbleId === 0 && fontId === 0 && widgetId === 0) return null;
     return { bubbleId, fontId, widgetId };
