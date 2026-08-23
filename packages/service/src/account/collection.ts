@@ -35,7 +35,15 @@ export class CollectionService {
   private readonly logger;
 
   constructor(
-    nt: Pick<NtHelperBinding, 'fetchSkey' | 'fetchPskey' | 'fetchClientKey'>,
+    nt: Pick<
+      NtHelperBinding,
+      | 'fetchSkey'
+      | 'fetchPskey'
+      | 'fetchClientKey'
+      | 'probePtLoginPort'
+      | 'ptFetchSkey'
+      | 'ptFetchPskey'
+    >,
     private readonly session: AccountSession,
     resolvePid: () => number,
   ) {

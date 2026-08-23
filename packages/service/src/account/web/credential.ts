@@ -66,8 +66,95 @@ export function cookieHeader(cred: WebCredential): string {
     .join('; ');
 }
 
-/** Minimal native surface the web layer needs — key fetchers + clientKey. */
-export type WebNative = Pick<NtHelperBinding, 'fetchSkey' | 'fetchPskey' | 'fetchClientKey'>;
+/** Minimal native surface the web layer needs — key fetchers + clientKey + pt_login fallback. */
+export type WebNative = Pick<
+  NtHelperBinding,
+  | 'fetchSkey'
+  | 'fetchPskey'
+  | 'fetchClientKey'
+  | 'probePtLoginPort'
+  | 'ptFetchSkey'
+  | 'ptFetchPskey'
+>;
+
+/**
+ * pt_login（本地快速登录）已验证可用的业务域。ti.qq.com（互动标识）与
+ * weiyun.com（我的收藏）没有可用的 appid/daid，native 侧不支持，不在列表内。
+ */
+export const PT_LOGIN_DOMAINS: ReadonlySet<string> = new Set([
+  'qun.qq.com',
+  'qzone.qq.com',
+  'pd.qq.com',
+  'vip.qq.com',
+]);
+
+/** 探测 QQ 进程的 pt_login 端口（奇数 = HTTPS，偶数 = HTTP）；失败抛错。 */
+export async function probePtLoginPort(nt: WebNative, pid: number): Promise<number> {
+  const probe = nt.probePtLoginPort(pid);
+  if (!probe.success) throw new Error(`pt_login 端口不可用：${probe.msg}`);
+  return probe.port;
+}
+
+/** 通过 ptlogin2 本地快速登录获取 skey（无需注入 hook）；失败抛错。 */
+export async function fetchSkeyViaPtLogin(
+  nt: WebNative,
+  pid: number,
+  uin: string,
+): Promise<string> {
+  const port = await probePtLoginPort(nt, pid);
+  const res = await nt.ptFetchSkey(port, uin);
+  if (!res.success || !res.skey) throw new Error(`pt_login 获取 skey 失败：${res.msg}`);
+  return res.skey;
+}
+
+/** 通过 ptlogin2 本地快速登录获取指定域 p_skey（无需注入 hook）；失败抛错。 */
+export async function fetchPskeyViaPtLogin(
+  nt: WebNative,
+  pid: number,
+  uin: string,
+  domain: string,
+): Promise<string> {
+  const port = await probePtLoginPort(nt, pid);
+  const res = await nt.ptFetchPskey(port, uin, domain);
+  if (!res.success || !res.pskey)
+    throw new Error(`pt_login 获取 ${domain} p_skey 失败：${res.msg}`);
+  return res.pskey;
+}
+
+/** 窗口自动登录用的一次性 skey / p_skey。hook 优先，pt_login 兜底。 */
+export interface WebTokens {
+  skey: string;
+  pskey: string;
+}
+
+/**
+ * 取某个在线 QQ 进程的 skey / p_skey（用于窗口自动登录等一次性场景）。
+ * 已注入时走 native fetch（秒回）；未注入 / 完全离线模式回退 ptlogin2 本地快速登录。
+ * 仅支持 PT_LOGIN_DOMAINS；任一步失败返回空串，不抛错。
+ */
+export async function fetchWebTokens(
+  nt: WebNative,
+  uin: string,
+  pid: number,
+  domain: string,
+  opts: { needSkey?: boolean } = {},
+): Promise<WebTokens> {
+  if (!PT_LOGIN_DOMAINS.has(domain)) return { skey: '', pskey: '' };
+  try {
+    const skey = opts.needSkey ? await nt.fetchSkey(pid, uin) : '';
+    const pskey = await nt.fetchPskey(pid, uin, domain);
+    if (pskey && (opts.needSkey ? skey : true)) return { skey, pskey };
+  } catch {
+    /* 未注入 / 注入掉了 → 走 pt_login 兜底 */
+  }
+  try {
+    const skey = opts.needSkey ? await fetchSkeyViaPtLogin(nt, pid, uin) : '';
+    const pskey = await fetchPskeyViaPtLogin(nt, pid, uin, domain);
+    return { skey, pskey };
+  } catch {
+    return { skey: '', pskey: '' };
+  }
+}
 
 /**
  * Resolves {@link WebCredential}s on demand from a hook-injected QQ process.
@@ -165,23 +252,28 @@ export class WebCredentialProvider {
         try {
           skey = await this.nt.fetchSkey(pid, this.uin);
           this.logger.info('fetched skey', { event: 'fetch-skey', pid, domain });
-        } catch (e) {
-          if (!this.pskeyByDomain.has(domain)) throw e;
-          this.logger.warn('fetchSkey failed; continuing with seeded p_skey only', {
-            event: 'fetch-skey-failed-seeded',
-            pid,
-            domain,
-            ...logErrorContext(e),
-          });
-          skey = '';
+        } catch (hookError) {
+          // hook 不可用（未注入 / 注入掉了 / 完全离线模式）→ ptlogin2 本地快速登录兜底。
+          skey = await this.fetchSkeyWithFallback(pid, domain, hookError);
         }
       }
       this.skey = skey;
 
       let pskey = jar.p_skey ?? this.pskeyByDomain.get(domain);
       if (pskey === undefined) {
-        pskey = await this.nt.fetchPskey(pid, this.uin, domain);
-        this.logger.info('fetched pskey', { event: 'fetch-pskey', pid, domain });
+        try {
+          pskey = await this.nt.fetchPskey(pid, this.uin, domain);
+          this.logger.info('fetched pskey', { event: 'fetch-pskey', pid, domain });
+        } catch (hookError) {
+          // 未注入拿不到 p_skey → 回退 ptlogin2 本地快速登录（仅支持已验证的四域）。
+          if (!PT_LOGIN_DOMAINS.has(domain)) throw hookError;
+          pskey = await fetchPskeyViaPtLogin(this.nt, pid, this.uin, domain);
+          this.logger.info('fetched pskey via pt_login', {
+            event: 'fetch-pskey-ptlogin',
+            pid,
+            domain,
+          });
+        }
       }
       this.pskeyByDomain.set(domain, pskey);
 
@@ -205,6 +297,49 @@ export class WebCredentialProvider {
         ...logErrorContext(error),
       });
       throw error;
+    }
+  }
+
+  /**
+   * skey 的 pt_login 兜底。仅支持 PT_LOGIN_DOMAINS 内的域；拿到 seed p_skey
+   * 时可容忍 skey 缺失（降级为 ""），否则抛错。
+   */
+  private async fetchSkeyWithFallback(
+    pid: number,
+    domain: string,
+    hookError: unknown,
+  ): Promise<string> {
+    if (!PT_LOGIN_DOMAINS.has(domain)) {
+      if (this.pskeyByDomain.has(domain)) {
+        this.logger.warn('fetchSkey failed; continuing with seeded p_skey only', {
+          event: 'fetch-skey-failed-seeded',
+          pid,
+          domain,
+          ...logErrorContext(hookError),
+        });
+        return '';
+      }
+      throw hookError;
+    }
+    try {
+      const skey = await fetchSkeyViaPtLogin(this.nt, pid, this.uin);
+      this.logger.info('fetched skey via pt_login', {
+        event: 'fetch-skey-ptlogin',
+        pid,
+        domain,
+      });
+      return skey;
+    } catch (fallbackError) {
+      if (this.pskeyByDomain.has(domain)) {
+        this.logger.warn('pt_login skey failed; continuing with seeded p_skey only', {
+          event: 'fetch-skey-failed-seeded-ptlogin',
+          pid,
+          domain,
+          ...logErrorContext(fallbackError),
+        });
+        return '';
+      }
+      throw fallbackError;
     }
   }
 

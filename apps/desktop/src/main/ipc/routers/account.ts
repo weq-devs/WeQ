@@ -448,6 +448,17 @@ function requireFreshClientKeyForAlbum(services = requireServices()): void {
   }
 }
 
+/**
+ * 仅要求在线 QQ 实例（不要求注入 / ClientKey）—— 走 Web CGI 的接口用：
+ * qzone.qq.com / qun.qq.com 的 p_skey 可经 ptlogin2 本地快速登录兜底获取。
+ */
+function requireOnlineQqForWeb(services = requireServices()): void {
+  const state = albumAccessState(services);
+  if (!state.qqOnline) {
+    throw new Error('需要先登录该账号的 QQ 客户端。');
+  }
+}
+
 async function listGroupBulletinsWithWebFallback(
   services: AccountServices,
   input: z.infer<typeof groupPageInput>,
@@ -462,7 +473,8 @@ async function listGroupBulletinsWithWebFallback(
   const localPage = localWindow.slice(input.offset, input.offset + input.limit);
 
   const state = albumAccessState(services);
-  if (!state.qqOnline || !state.injectEnabled || !state.clientKeyValid) return localPage;
+  // 仅要求在线：qun.qq.com 的 skey/pskey 可由 pt_login 兜底，无需注入与 ClientKey。
+  if (!state.qqOnline) return localPage;
 
   try {
     const webNotices = await services.webQuery.getGroupNotice(input.groupCode);
@@ -2386,10 +2398,11 @@ export const accountRouter = router({
   }),
   // ---- group album ----
 
-  /** List group albums via Qzone web CGI. Requires online QQ + fresh ClientKey. */
+  /** List group albums via Qzone web CGI. Requires online QQ (pt_login can mint p_skey). */
   listGroupAlbums: procedure.input(groupAlbumInput).query(async ({ input }) => {
     const services = requireServices();
-    requireFreshClientKeyForAlbum(services);
+    // qzone.qq.com 的 p_skey 可由 ptlogin2 本地快速登录兜底，无需注入 / ClientKey。
+    requireOnlineQqForWeb(services);
     return services.webQuery.getGroupAlbumList(input.groupCode);
   }),
 

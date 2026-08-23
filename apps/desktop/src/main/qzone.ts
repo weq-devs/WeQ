@@ -19,7 +19,7 @@
  */
 
 import { BrowserWindow, ipcMain, nativeTheme, session } from 'electron';
-import { accountConfigId, getLogger, logErrorContext } from '@weq/service';
+import { accountConfigId, fetchWebTokens, getLogger, logErrorContext } from '@weq/service';
 import { getAppContext } from './context/app_context';
 
 /** Domain the Qzone skey / p_skey are minted for (native fetch arguments). */
@@ -31,9 +31,7 @@ const QZONE_PSKEY_DOMAIN = 'qzone.qq.com';
  * which redirects through login.
  */
 function qzoneUrl(uin: string | number | undefined): string {
-  return uin
-    ? `https://user.qzone.qq.com/${uin}/infocenter?loginfrom=31`
-    : 'https://qzone.qq.com/';
+  return uin ? `https://user.qzone.qq.com/${uin}/infocenter?loginfrom=31` : 'https://qzone.qq.com/';
 }
 
 /** WeQ's theme preference, mirrored 1:1 onto `nativeTheme.themeSource`. */
@@ -77,18 +75,15 @@ function resolvePartition(): string {
  */
 async function injectAutoLoginCookies(partition: string): Promise<void> {
   const ctx = getAppContext();
-  const autoInject = ctx.bootstrap?.userConfig.getSettings().autoInjectQq ?? true;
-  if (!autoInject) return;
-
   const uin = ctx.account?.context.uin;
   const nt = ctx.platform?.native.ntHelper;
   const record = ctx.services?.accountConfig.getRecord();
   if (!uin || !nt || !record?.qqOnline || !record.qqPid) return;
 
-  // Sequential, not parallel: both fetchers drive OIDB over the same hook pipe
-  // for this pid, so overlapping them risks contention (see web/credential.ts).
-  const skey = await nt.fetchSkey(record.qqPid, String(uin));
-  const pskey = await nt.fetchPskey(record.qqPid, String(uin), QZONE_PSKEY_DOMAIN);
+  // 已注入时走 hook；未注入 / 完全离线模式回退 ptlogin2 本地快速登录。
+  const { skey, pskey } = await fetchWebTokens(nt, String(uin), record.qqPid, QZONE_PSKEY_DOMAIN, {
+    needSkey: true,
+  });
   if (!skey && !pskey) return;
 
   const ses = session.fromPartition(partition);
@@ -103,7 +98,9 @@ async function injectAutoLoginCookies(partition: string): Promise<void> {
     { name: 'p_skey', value: pskey },
   ];
   await Promise.all(
-    jar.filter((c) => c.value).map((c) => ses.cookies.set({ ...base, name: c.name, value: c.value })),
+    jar
+      .filter((c) => c.value)
+      .map((c) => ses.cookies.set({ ...base, name: c.name, value: c.value })),
   );
   logger.info('seeded qq zone login cookies', { event: 'qzone-autologin', uin: String(uin) });
 }

@@ -23,7 +23,7 @@
  */
 
 import { BrowserWindow, ipcMain, nativeTheme, session } from 'electron';
-import { accountConfigId, getLogger, logErrorContext } from '@weq/service';
+import { accountConfigId, fetchWebTokens, getLogger, logErrorContext } from '@weq/service';
 import { getAppContext } from './context/app_context';
 
 const CHANNEL_URL = 'https://pd.qq.com/';
@@ -75,15 +75,13 @@ function resolvePartition(): string {
  */
 async function injectAutoLoginCookies(partition: string): Promise<void> {
   const ctx = getAppContext();
-  const autoInject = ctx.bootstrap?.userConfig.getSettings().autoInjectQq ?? true;
-  if (!autoInject) return;
-
   const uin = ctx.account?.context.uin;
   const nt = ctx.platform?.native.ntHelper;
   const record = ctx.services?.accountConfig.getRecord();
   if (!uin || !nt || !record?.qqOnline || !record.qqPid) return;
 
-  const pskey = await nt.fetchPskey(record.qqPid, String(uin), CHANNEL_PSKEY_DOMAIN);
+  // 已注入时走 hook；未注入 / 完全离线模式回退 ptlogin2 本地快速登录。
+  const { pskey } = await fetchWebTokens(nt, String(uin), record.qqPid, CHANNEL_PSKEY_DOMAIN);
   if (!pskey) return;
 
   const ses = session.fromPartition(partition);

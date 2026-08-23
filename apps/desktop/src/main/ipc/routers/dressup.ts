@@ -45,6 +45,12 @@ function qqOnline(services = requireServices()): boolean {
   return getAppContext().bootstrap?.userConfig.getSettings().autoInjectQq ?? true;
 }
 
+/** 仅要求在线 QQ 实例（不要求注入）—— 走 Web CGI 的接口用（pt_login 可兜底）。 */
+function webQqOnline(services = requireServices()): boolean {
+  const record = services.accountConfig.getRecord();
+  return Boolean(record?.qqOnline && record.qqPid);
+}
+
 const OFFLINE_HINT =
   '需要先登录该账号的 QQ 客户端 —— 装扮商城搜索与字体下载都要通过在线实例获取凭证。';
 
@@ -173,7 +179,7 @@ export const dressupRouter = router({
     .input(z.object({ kind: kindInput, pageIndex: z.number().int().min(1).optional() }))
     .query(async ({ input }) => {
       const services = requireServices();
-      if (qqOnline(services)) {
+      if (webQqOnline(services)) {
         try {
           const items = await services.webQuery.getDressRank(
             appIdFor(input.kind),
@@ -199,7 +205,7 @@ export const dressupRouter = router({
     )
     .query(async ({ input }) => {
       const services = requireServices();
-      if (!qqOnline(services)) throw new Error(OFFLINE_HINT);
+      if (!webQqOnline(services)) throw new Error(OFFLINE_HINT);
       return services.webQuery.searchDress(
         appIdFor(input.kind),
         input.keyword,
@@ -349,8 +355,8 @@ export const dressupRouter = router({
   peerHome: procedure
     .input(z.object({ uin: z.string().regex(/^\d{5,}$/) }))
     .query(async ({ input }) => {
-      requireInjectEnabled();
       const services = requireServices();
+      if (!webQqOnline(services)) throw new Error(PEER_HOME_HINT);
       let dress: Awaited<ReturnType<typeof services.webQuery.getFriendDress>>;
       try {
         dress = await services.webQuery.getFriendDress(input.uin);
