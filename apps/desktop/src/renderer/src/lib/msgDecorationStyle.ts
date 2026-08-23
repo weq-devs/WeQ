@@ -80,14 +80,18 @@ function append(css: string): void {
 /**
  * 展开成完整选择器列表。CSS 的 `a, b c` 只给最后一项加后缀，所以 `LINE_ATTR` 的两份
  * 前缀必须各自带上 `.message-content` 后缀显式展开，不能合并成一条再拼。
+ *
+ * `suffix` 用于伪元素（如 `::after`）—— 它同样必须拼到**每一项**末尾，否则只加到
+ * 逗号列表最后一项，前一项会命中真实元素本身（历史上导致气泡被误应用
+ * `position:absolute; inset:0` 而拉满整个消息列表，见 git blame 2066029 修复）。
  */
-function lineContentSel(attr: 'bubble' | 'font', id: number): string {
+function lineContentSel(attr: 'bubble' | 'font', id: number, suffix = ''): string {
   const content =
     '.message-content' +
     ':not(.sticker-only):not(.markdown-image-only):not(.qq-card-only):not(.qq-voice-only)';
   return (
-    `.message-line[data-${attr}="${id}"] ${content}, ` +
-    `.weq-forward-row[data-${attr}="${id}"] ${content}`
+    `.message-line[data-${attr}="${id}"] ${content}${suffix}, ` +
+    `.weq-forward-row[data-${attr}="${id}"] ${content}${suffix}`
   );
 }
 
@@ -191,8 +195,9 @@ export function injectBubbleCss(skin: BubbleSkin): void {
 
   if (skin.animationUrl) {
     const animUrl = dressUrl(skin.animationUrl);
+    const selAfter = lineContentSel('bubble', skin.itemId, '::after');
     rules.push(
-      `${sel}::after {`,
+      `${selAfter} {`,
       `  content: "";`,
       `  position: absolute;`,
       `  inset: 0;`,
