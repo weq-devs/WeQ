@@ -3,7 +3,7 @@
  * URL from a uin when no explicit URL is given.
  */
 
-import { useEffect, useState, type ReactElement } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactElement } from 'react';
 import { UserRound } from 'lucide-react';
 import { cachedAvatarUrl } from '../lib/avatarCache';
 
@@ -24,9 +24,18 @@ export function QqAvatar({
 }): ReactElement {
   const resolved = cachedAvatarUrl(url || (uin ? qqAvatarUrl(uin) : null));
   const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const imgRef = useRef<HTMLImageElement | null>(null);
 
-  // Reset the failure flag when the source changes (account switch).
-  useEffect(() => setFailed(false), [resolved]);
+  // Reset the failure/loading flags when the source changes (account switch).
+  useLayoutEffect(() => {
+    setFailed(false);
+    setLoaded(false);
+    // 图片已缓存（或 data: 立即完成）时直接显示，避免 shimmer 闪现。
+    if (imgRef.current?.complete && imgRef.current.naturalWidth > 0) {
+      setLoaded(true);
+    }
+  }, [resolved]);
 
   if (!resolved || failed) {
     return (
@@ -42,12 +51,14 @@ export function QqAvatar({
 
   return (
     <img
+      ref={imgRef}
       src={resolved}
       alt=""
       width={size}
       height={size}
-      className={`weq-avatar-img ${className}`}
+      className={`weq-avatar-img ${className}${loaded ? '' : ' is-pending'}`}
       style={{ width: size, height: size }}
+      onLoad={() => setLoaded(true)}
       onError={() => setFailed(true)}
     />
   );

@@ -17,7 +17,7 @@ import {
   ChevronRight,
   Trash2,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { cn } from './classNames';
 import { Avatar, EmptyState, ListSkeleton } from './primitives';
 import { isBotConversation } from './conversationDisplay';
@@ -34,6 +34,47 @@ import type {
   User,
 } from './types';
 import { displayUserName } from './user';
+
+/**
+ * Progressive rendering for large lists:
+ * render only the first INITIAL_PROGRESSIVE_ROWS rows on the first frame,
+ * then append the rest in small batches over following frames, so mounting
+ * a list with thousands of rows never blocks the main thread for long.
+ * Resets to the first batch whenever the total row count changes.
+ */
+const INITIAL_PROGRESSIVE_ROWS = 50;
+const PROGRESSIVE_BATCH_ROWS = 80;
+const PROGRESSIVE_BATCH_MS = 20;
+
+function useProgressiveRowCount(total: number): number {
+  const [count, setCount] = useState(() => Math.min(total, INITIAL_PROGRESSIVE_ROWS));
+
+  useEffect(() => {
+    setCount(Math.min(total, INITIAL_PROGRESSIVE_ROWS));
+    if (total <= INITIAL_PROGRESSIVE_ROWS) return undefined;
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let next = INITIAL_PROGRESSIVE_ROWS;
+
+    const tick = (): void => {
+      if (cancelled) return;
+      next = Math.min(next + PROGRESSIVE_BATCH_ROWS, total);
+      setCount(next);
+      if (next < total) {
+        timer = window.setTimeout(tick, PROGRESSIVE_BATCH_MS);
+      }
+    };
+
+    timer = window.setTimeout(tick, PROGRESSIVE_BATCH_MS);
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [total]);
+
+  return count;
+}
 
 export function ConversationList({
   conversations,
@@ -61,6 +102,8 @@ export function ConversationList({
     );
   }, [conversations, preferences]);
 
+  const visibleCount = useProgressiveRowCount(filtered.length);
+
   if (loading) {
     return <ListSkeleton rows={9} />;
   }
@@ -71,7 +114,7 @@ export function ConversationList({
 
   return (
     <div className={cn('list-stack')}>
-      {filtered.map((conversation) => {
+      {filtered.slice(0, visibleCount).map((conversation) => {
         const active = conversation.id === activeConversationId;
         const unreadCount = conversation.unreadCount ?? 0;
         const hasDraft = !active && Boolean(drafts[conversation.id]?.trim());
@@ -206,6 +249,8 @@ export function GroupList({
     return conversations.filter((conversation) => conversation.type === 'group');
   }, [conversations]);
 
+  const visibleCount = useProgressiveRowCount(groups.length);
+
   if (loading) {
     return <ListSkeleton rows={9} />;
   }
@@ -216,7 +261,7 @@ export function GroupList({
 
   return (
     <div className={cn('list-stack')}>
-      {groups.map((conversation) => (
+      {groups.slice(0, visibleCount).map((conversation) => (
         <button
           key={conversation.id}
           className={cn(listRowClass(conversation.id === activeConversationId, 'contact-row'))}
