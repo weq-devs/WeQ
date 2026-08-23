@@ -17178,25 +17178,6 @@ html[data-theme="dark"] .weq-help-bug-foot {
   line-height: 1.45;
 }
 
-.weq-applock-method-radio {
-  flex: none;
-  width: 15px;
-  height: 15px;
-  border-radius: 999px;
-  border: 1.5px solid rgba(0, 0, 0, 0.22);
-  background: transparent;
-  transition:
-    border-color 140ms ease,
-    background-color 140ms ease,
-    box-shadow 140ms ease;
-}
-
-.weq-applock-method.is-active .weq-applock-method-radio {
-  border-color: var(--weq-accent-effective);
-  background: var(--weq-accent-effective);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
-}
-
 .weq-applock-bound-badge,
 .weq-applock-bound-ok {
   display: inline-flex;
@@ -17220,34 +17201,6 @@ html[data-theme="dark"] .weq-help-bug-foot {
   gap: 10px;
 }
 
-.weq-applock-setup {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-}
-
-.weq-applock-setup-qr {
-  padding: 8px;
-  border-radius: 10px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  background: #ffffff;
-}
-
-.weq-applock-setup-qr img {
-  display: block;
-  border-radius: 4px;
-}
-
-.weq-applock-setup-step {
-  margin: 0;
-  width: 100%;
-  font-size: 12.5px;
-  color: #6a7280;
-  line-height: 1.55;
-  text-align: left;
-}
-
 .weq-applock-secret {
   display: flex;
   align-items: center;
@@ -17269,8 +17222,7 @@ html[data-theme="dark"] .weq-help-bug-foot {
   word-break: break-all;
 }
 
-.weq-applock-error,
-.weq-applock-ok {
+.weq-applock-error {
   display: flex;
   align-items: flex-start;
   gap: 6px;
@@ -17284,27 +17236,215 @@ html[data-theme="dark"] .weq-help-bug-foot {
   color: #c0392b;
 }
 
-.weq-applock-ok {
-  align-items: center;
-  color: #1e9e55;
-  font-weight: 500;
-}
-
-.weq-applock-error svg,
-.weq-applock-ok svg {
+.weq-applock-error svg {
   flex: none;
-}
-
-.weq-applock-setup-actions {
-  display: flex;
-  justify-content: flex-end;
-  width: 100%;
 }
 
 .weq-applock-bound {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ * 应用锁：验证器绑定弹窗（两步：扫码 → 输码）。
+ * ──────────────────────────────────────────────────────────────────────── */
+.weq-applock-bind {
+  display: flex;
+  flex-direction: column;
+  padding: 18px 20px 16px;
+}
+
+.weq-applock-bind-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.weq-applock-bind-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.weq-applock-bind-title h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #0f2d4c;
+}
+
+.weq-applock-bind-icon {
+  display: inline-flex;
+  width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border-radius: 0.55rem;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+.weq-applock-bind-x {
+  display: inline-flex;
+  width: 1.7rem;
+  height: 1.7rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.45rem;
+  color: #51677c;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.weq-applock-bind-x:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: #0f2d4c;
+}
+
+.weq-applock-bind-x:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.weq-applock-bind-steps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 0;
+  list-style: none;
+}
+
+.weq-applock-bind-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: #8a93a0;
+  transition: color 160ms ease;
+}
+
+.weq-applock-bind-step.is-active {
+  color: var(--weq-accent-effective);
+  font-weight: 600;
+}
+
+.weq-applock-bind-step.is-done {
+  color: #1e9e55;
+}
+
+.weq-applock-bind-step-sep {
+  flex: 1;
+  height: 1px;
+  min-width: 20px;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.weq-applock-bind-step-num {
+  display: inline-flex;
+  width: 1.25rem;
+  height: 1.25rem;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.18);
+  transition: background-color 160ms ease;
+}
+
+.weq-applock-bind-step.is-active .weq-applock-bind-step-num {
+  background: var(--weq-accent-effective);
+}
+
+.weq-applock-bind-step.is-done .weq-applock-bind-step-num {
+  background: #1e9e55;
+}
+
+.weq-applock-bind-body {
+  display: grid;
+  gap: 12px;
+}
+
+.weq-applock-bind-scan,
+.weq-applock-bind-verify {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.weq-applock-bind-qr {
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #ffffff;
+}
+
+.weq-applock-bind-qr img {
+  display: block;
+  border-radius: 4px;
+}
+
+.weq-applock-bind-qr-loading {
+  display: grid;
+  width: 208px;
+  height: 208px;
+  place-items: center;
+  color: var(--weq-accent-effective);
+}
+
+.weq-applock-bind-tip {
+  margin: 0;
+  width: 100%;
+  font-size: 12.5px;
+  color: #6a7280;
+  line-height: 1.6;
+  text-align: left;
+}
+
+.weq-applock-bind-verify {
+  padding-top: 2px;
+}
+
+.weq-applock-bind-success {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 0 10px;
+  text-align: center;
+  color: #1e9e55;
+}
+
+.weq-applock-bind-success strong {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2933;
+}
+
+.weq-applock-bind-success small {
+  font-size: 12.5px;
+  color: #6a7280;
+  line-height: 1.55;
+}
+
+.weq-applock-bind-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
 }
 
 /* ────────────────────────────────────────────────────────────────────────
@@ -17398,11 +17538,6 @@ html[data-theme="dark"] .weq-applock-method-main small {
   color: #99a7b8;
 }
 
-html[data-theme="dark"] .weq-applock-method-radio {
-  border-color: rgba(255, 255, 255, 0.35);
-}
-
-html[data-theme="dark"] .weq-applock-setup-qr,
 html[data-theme="dark"] .weq-applock-secret {
   border-color: rgba(255, 255, 255, 0.1);
   background: #141920;
@@ -17412,6 +17547,49 @@ html[data-theme="dark"] .weq-applock-secret code {
   color: #e6edf4;
 }
 
-html[data-theme="dark"] .weq-applock-setup-step {
+html[data-theme="dark"] .weq-applock-bind {
+  background:
+    radial-gradient(
+      ellipse at 24% 0%,
+      color-mix(in srgb, var(--weq-accent-effective) 14%, transparent),
+      transparent 46%
+    ),
+    #171d25;
+}
+
+html[data-theme="dark"] .weq-applock-bind-title h3 {
+  color: #edf2f7;
+}
+
+html[data-theme="dark"] .weq-applock-bind-x {
+  color: #99a7b8;
+}
+
+html[data-theme="dark"] .weq-applock-bind-x:hover:not(:disabled) {
+  color: #edf2f7;
+}
+
+html[data-theme="dark"] .weq-applock-bind-step {
+  color: #8b96a6;
+}
+
+html[data-theme="dark"] .weq-applock-bind-step-sep {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+html[data-theme="dark"] .weq-applock-bind-qr {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: #141920;
+}
+
+html[data-theme="dark"] .weq-applock-bind-tip {
+  color: #99a7b8;
+}
+
+html[data-theme="dark"] .weq-applock-bind-success strong {
+  color: #edf2f7;
+}
+
+html[data-theme="dark"] .weq-applock-bind-success small {
   color: #99a7b8;
 }

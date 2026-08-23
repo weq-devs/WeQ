@@ -1,20 +1,23 @@
 /**
  * 应用锁遮罩。解锁方式由设置（appLock.method）决定：
- *   - 'totp'   WeQ 验证器 —— 大号 6 位动态验证码输入框，错误抖动、成功展开
+ *   - 'totp'   WeQ 验证器 —— 先点「立即解锁」再展开 6 位动态验证码输入框
  *   - 'system' 系统认证（Windows Hello / Touch ID）
  */
 
 import { useEffect, useState, type ReactElement } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Check, KeyRound, Loader2, LockKeyhole, ShieldCheck, Smartphone } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { Modal } from './Dialog';
 import { useViewState } from '../state/view';
 import { useAppLock } from '../state/lock';
-import { shellBridge } from '../lib/target';
+import {
+  fetchSystemAuthStatus,
+  fetchTotpStatus,
+  SYSTEM_AUTH_STATUS_QUERY_KEY,
+  TOTP_STATUS_QUERY_KEY,
+} from '../lib/appLockStatus';
 import { TotpDigits } from './TotpDigits';
-
-type SystemAuthStatus = Awaited<ReturnType<typeof window.weq.systemAuth.getStatus>>;
-type TotpStatus = Awaited<ReturnType<typeof window.weq.totp.getStatus>>;
 
 /** Reset the idle timer on any of these. */
 const IDLE_EVENTS = ['mousemove', 'mousedown', 'keydown', 'wheel', 'touchstart'] as const;
@@ -32,8 +35,22 @@ export function AppLockOverlay(): ReactElement | null {
     refetchOnMount: 'always',
   });
 
-  const [status, setStatus] = useState<SystemAuthStatus | null>(null);
-  const [totpStatus, setTotpStatus] = useState<TotpStatus | null>(null);
+  // 验证器 / 系统认证可用性：与左栏上锁按钮、设置页共用同一查询，
+  // 设置页在绑定 / 解绑后 invalidate，锁屏拿到的一直是最新状态。
+  const systemAuthQuery = useQuery({
+    queryKey: SYSTEM_AUTH_STATUS_QUERY_KEY,
+    queryFn: fetchSystemAuthStatus,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
+  });
+  const totpQuery = useQuery({
+    queryKey: TOTP_STATUS_QUERY_KEY,
+    queryFn: fetchTotpStatus,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
+  });
   const [unlocking, setUnlocking] = useState(false);
 
   const autoLockMinutes = settings.data?.autoLockMinutes ?? 0;
@@ -41,31 +58,6 @@ export function AppLockOverlay(): ReactElement | null {
   const inMain = view === 'main';
   const method = appLock?.method ?? 'totp';
   const lockEnabled = appLock?.enabled ?? true;
-
-  useEffect(() => {
-    const bridge = shellBridge();
-    if (!bridge) return;
-    let alive = true;
-    void bridge.systemAuth
-      .getStatus()
-      .then((s) => {
-        if (alive) setStatus(s);
-      })
-      .catch(() => {
-        if (alive) setStatus(null);
-      });
-    void bridge.totp
-      .getStatus()
-      .then((s) => {
-        if (alive) setTotpStatus(s);
-      })
-      .catch(() => {
-        if (alive) setTotpStatus(null);
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   // Leaving the main view (switch account / sign out) clears the lock — the
   // bootstrap home is its own gate and a stale lock there would trap the user.
@@ -75,8 +67,8 @@ export function AppLockOverlay(): ReactElement | null {
 
   // Idle auto-lock. Only armed in the main view, when the lock is enabled, a
   // positive threshold is set, and the chosen method can actually unlock.
-  const systemUnlockable = status?.available === true;
-  const totpUnlockable = totpStatus?.configured === true;
+  const systemUnlockable = systemAuthQuery.data?.available === true;
+  const totpUnlockable = totpQuery.data?.configured === true;
   const unlockable = method === 'system' ? systemUnlockable : totpUnlockable;
   const idleArmed = inMain && !locked && lockEnabled && autoLockMinutes > 0 && unlockable;
 
@@ -121,16 +113,28 @@ export function AppLockOverlay(): ReactElement | null {
   const [shakeSignal, setShakeSignal] = useState(0);
   const [resetSignal, setResetSignal] = useState(0);
   const [totpSuccess, setTotpSuccess] = useState(false);
+  /** 锁定后先展示「立即解锁」按钮，点击后才展开验证码输入框。 */
+  const [totpArmed, setTotpArmed] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(TOTP_STEP_SECONDS);
 
+  // 每次重新锁定都回到「先点解锁」的初始态，并清掉上次的报错 / 成功动画。
   useEffect(() => {
+    if (!locked) return;
+    setTotpArmed(false);
+    setSystemError(null);
+    setTotpError(null);
+    setTotpSuccess(false);
+  }, [locked]);
+
+  useEffect(() => {
+    if (!totpArmed || totpSuccess) return undefined;
     const tick = (): void => {
       setSecondsLeft(TOTP_STEP_SECONDS - (Math.floor(Date.now() / 1000) % TOTP_STEP_SECONDS));
     };
     tick();
     const id = window.setInterval(tick, 1000);
     return () => window.clearInterval(id);
-  }, []);
+  }, [totpArmed, totpSuccess]);
 
   async function doTotpUnlock(code: string): Promise<void> {
     if (unlocking || totpSuccess) return;
@@ -183,7 +187,8 @@ export function AppLockOverlay(): ReactElement | null {
           </div>
 
           <p className="weq-lock-desc">
-            请使用 {status?.displayName ?? '系统认证'} 验证身份后继续访问当前账号数据。
+            请使用 {systemAuthQuery.data?.displayName ?? '系统认证'}{' '}
+            验证身份后继续访问当前账号数据。
           </p>
           {systemError ? (
             <p className="weq-totp-error is-show">{systemError}</p>
@@ -242,7 +247,7 @@ export function AppLockOverlay(): ReactElement | null {
             <strong>解锁成功</strong>
             <small>欢迎回来</small>
           </div>
-        ) : (
+        ) : totpArmed ? (
           <div className="weq-totp-panel">
             <div className="weq-totp-panel-icon">
               <Smartphone size={18} strokeWidth={1.8} aria-hidden />
@@ -271,10 +276,28 @@ export function AppLockOverlay(): ReactElement | null {
               </span>
             </div>
 
-            {totpStatus?.configured !== true ? (
+            {totpQuery.data?.configured !== true ? (
               <p className="weq-lock-tip">验证器尚未配置，请在 设置 → 应用锁 中完成绑定。</p>
             ) : null}
           </div>
+        ) : (
+          <>
+            <p className="weq-lock-desc">解锁需要验证器 App 中的 6 位动态验证码。</p>
+            {totpQuery.data?.configured !== true ? (
+              <p className="weq-lock-tip">验证器尚未配置，请在 设置 → 应用锁 中完成绑定。</p>
+            ) : null}
+            <div className="weq-lock-foot">
+              <button
+                type="button"
+                className="weq-action-primary"
+                onClick={() => setTotpArmed(true)}
+                disabled={unlocking || totpQuery.data?.configured !== true}
+              >
+                <KeyRound size={14} aria-hidden />
+                立即解锁
+              </button>
+            </div>
+          </>
         )}
       </div>
     </Modal>

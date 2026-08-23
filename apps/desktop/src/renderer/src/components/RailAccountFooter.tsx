@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getQueryKey } from '@trpc/react-query';
 import {
   LockKeyhole,
@@ -36,6 +36,12 @@ import { useThemeStore } from '../state/theme';
 import { usePrivacyStore } from '../state/privacy';
 import { useAccountSwitch } from '../state/accountSwitch';
 import { runAccountWarmup } from '../lib/accountWarmup';
+import {
+  fetchSystemAuthStatus,
+  fetchTotpStatus,
+  SYSTEM_AUTH_STATUS_QUERY_KEY,
+  TOTP_STATUS_QUERY_KEY,
+} from '../lib/appLockStatus';
 import { useDialog } from './Dialog';
 import { useToast } from './Toast';
 import { QqAvatar } from './QqAvatar';
@@ -75,11 +81,6 @@ export function RailAccountFooter({
 
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  // Whether the platform can actually verify identity. We refuse to lock when
-  // it can't, otherwise the lock screen would be unsolvable.
-  const [authAvailable, setAuthAvailable] = useState<boolean | null>(null);
-  const [authError, setAuthError] = useState<string | undefined>(undefined);
-  const [totpConfigured, setTotpConfigured] = useState<boolean | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
   // 应用锁配置（解锁方式 / 总开关），供上锁按钮做可上锁判断。
@@ -89,32 +90,22 @@ export function RailAccountFooter({
     refetchOnMount: 'always',
   });
 
-  useEffect(() => {
-    const bridge = shellBridge();
-    if (!bridge) return undefined;
-    let alive = true;
-    void bridge.systemAuth
-      .getStatus()
-      .then((s) => {
-        if (!alive) return;
-        setAuthAvailable(s.available);
-        setAuthError(s.error);
-      })
-      .catch(() => {
-        if (alive) setAuthAvailable(false);
-      });
-    void bridge.totp
-      .getStatus()
-      .then((s) => {
-        if (alive) setTotpConfigured(s.configured);
-      })
-      .catch(() => {
-        if (alive) setTotpConfigured(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
+  // 验证器 / 系统认证是否可用：与设置页、锁屏遮罩共用同一查询，
+  // 绑定 / 解绑后由设置页 invalidate，按钮状态即时刷新。
+  const systemAuthQuery = useQuery({
+    queryKey: SYSTEM_AUTH_STATUS_QUERY_KEY,
+    queryFn: fetchSystemAuthStatus,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
+  });
+  const totpQuery = useQuery({
+    queryKey: TOTP_STATUS_QUERY_KEY,
+    queryFn: fetchTotpStatus,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
+  });
 
   const appLock = lockSettings.data?.appLock;
   const lockMethod = appLock?.method ?? 'totp';
@@ -123,9 +114,13 @@ export function RailAccountFooter({
   function lockBlockReason(): string | null {
     if (appLock?.enabled === false) return '应用锁已关闭，请在 设置 → 应用锁 中开启。';
     if (lockMethod === 'system') {
-      return authAvailable === false ? (authError ?? '当前设备系统认证不可用。') : null;
+      return systemAuthQuery.data?.available === false
+        ? (systemAuthQuery.data?.error ?? '当前设备系统认证不可用。')
+        : null;
     }
-    return totpConfigured === false ? '验证器未绑定，请先在 设置 → 应用锁 中完成绑定。' : null;
+    return totpQuery.data?.configured === false
+      ? '验证器未绑定，请先在 设置 → 应用锁 中完成绑定。'
+      : null;
   }
 
   // 上锁前拉一次最新配置，避免缓存陈旧导致上锁后无法解锁。
