@@ -4,7 +4,7 @@
 * 打印：
 *   1. 原始响应长度 + 顶层字段 + 消息数量；
 *   2. 指定消息（默认第一条）的原始 hex；
- *   3. 该消息解码后的简化 msg JSON（head / sender / session / elements / dress）。
+ *   3. 该消息的原始 tag:value 树 + 解码后的简化 msg JSON（head / sender / session / elements / dress）。
 *
 * 用法：
 *   pnpm --filter @weq/protocol tools:fetch-msg-history --kind group --id 123456789 --start 100 --end 110
@@ -14,8 +14,8 @@
 * 可选参数：
 *   --index N       打印第 N 条消息（默认 0 = 第一条）
 *   --no-hex        不打印消息原始 hex
- *   --no-json       不打印消息解码 JSON
- *   --raw-json      额外打印全字段 tag:value 树（不依赖 schema）
+ *   --no-json       不打印解码 msg JSON
+ *   --no-raw-json   不打印原始 tag:value 树
 *   --resp-hex      额外打印整个响应的 hex
 *   --resp-json     额外打印整个响应的 tag:value JSON
  *
@@ -64,7 +64,7 @@ const SHOW_HEX = !has('--no-hex');
 const SHOW_JSON = !has('--no-json');
 const SHOW_RESP_HEX = has('--resp-hex');
 const SHOW_RESP_JSON = has('--resp-json');
-const SHOW_RAW_JSON = has('--raw-json');
+const SHOW_RAW_JSON = !has('--no-raw-json');
 
 type Nt = ReturnType<typeof loadNative>['ntHelper'];
 
@@ -175,8 +175,8 @@ async function main(): Promise<void> {
       console.log('\n──── 原始 hex ────');
       console.log(bytesToHex(msgBytes));
     }
+    if (SHOW_RAW_JSON) printJson('原始 tag:value JSON', msgBytes);
     if (SHOW_JSON) printDecoded('解码 msg JSON', decodeMessage(msgBytes));
-    if (SHOW_RAW_JSON) printJson('全部字段 tag:value JSON', msgBytes);
   }
   console.log(`\n[history] 消息序号提示: 群聊用群内 seq，私聊用会话级 NT seq${KIND === 'c2c' ? '（不是发送者本地 clientSeq）' : ''}`);
 }
