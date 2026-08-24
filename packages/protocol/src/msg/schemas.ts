@@ -299,12 +299,23 @@ export const COMMON_ELEM: ProtoMessage = message([
   f('businessType', 3, 'uint32'),
 ]);
 
+export const FONT_INFO: ProtoMessage = message([
+  f('fontId2', 15, 'uint32'),
+  f('fontId1', 56, 'uint32'),
+]);
+
 export const GENERAL_FLAGS: ProtoMessage = message([
   f('bubbleDiyTextId', 1, 'int32'),
   f('groupFlagNew', 2, 'int32'),
   f('uin', 3, 'uint64'),
   f('longTextFlag', 6, 'int32'),
   f('longTextResId', 7, 'string'),
+  f('widgetId', 17, 'uint32'),
+  f('font', 19, FONT_INFO),
+]);
+
+export const BUBBLE_ELEM: ProtoMessage = message([
+  f('id', 1, 'uint32'),
 ]);
 
 export const ELEM: ProtoMessage = message([
@@ -315,6 +326,7 @@ export const ELEM: ProtoMessage = message([
   f('transElem', 5, TRANS_ELEM),
   f('marketFace', 6, MARKET_FACE),
   f('customFace', 8, CUSTOM_FACE),
+  f('bubble', 9, BUBBLE_ELEM),
   f('richMsg', 12, RICH_MSG),
   f('groupFile', 13, GROUP_FILE_ELEM),
   f('extraInfo', 16, EXTRA_INFO),

@@ -225,22 +225,18 @@ export function dumpProto(bytes: Uint8Array, opts: DumpOptions = {}): string {
 
 // ---------- JSON 树输出 ----------
 //
-// 叶子节点用单字母键区分类型，尽量简洁：
-//   v   varint 十进制（字符串，保留 64 位精度）
-//   s   UTF-8 文本
-//   b   bytes / fixed32 / fixed64 的 hex
-// 嵌套消息只有 `children`（key=字段号，重复字段为数组）。
+// 叶子直接是裸值，不标类型：
+//   varint  -> number（超出 2^53-1 时保留为字符串，避免丢精度）
+//   UTF-8   -> string
+//   bytes   -> hex 字符串
+// 嵌套 message 直接是普通对象（key=字段号，重复字段为数组）。
 
-export type ProtoJsonLeaf = { v: string } | { s: string } | { b: string };
+export type ProtoJsonLeaf = number | string;
 
-export interface ProtoJsonMessage {
-  children: ProtoJsonMap;
-}
-
-export type ProtoJsonNode = ProtoJsonLeaf | ProtoJsonMessage;
+export type ProtoJsonNode = ProtoJsonLeaf | ProtoJsonMap;
 
 /** 字段号字符串 -> 节点；同一字段重复出现时收敛为数组（按出现顺序）。 */
-export type ProtoJsonMap = Record<string, ProtoJsonNode | ProtoJsonNode[]>;
+export type ProtoJsonMap = { [key: string]: ProtoJsonNode | ProtoJsonNode[] };
 
 /**
  * 把一段 protobuf 字节转成嵌套 JSON 树，key 是字段号（重复字段为数组）。
@@ -267,33 +263,34 @@ export function protoToJson(bytes: Uint8Array): ProtoJsonMap {
       switch (wire) {
         case 0: {
           const v = r.varint();
-          push(target, key, { v: v.toString() });
+          const n = Number(v);
+          push(target, key, Number.isSafeInteger(n) ? n : v.toString());
           break;
         }
         case 1: {
           const b = r.take(8);
-          push(target, key, { b: bytesToHex(b) });
+          push(target, key, bytesToHex(b));
           break;
         }
         case 2: {
           const b = r.lenDelim();
           if (looksLikeText(b)) {
-            push(target, key, { s: new TextDecoder().decode(b) });
+            push(target, key, new TextDecoder().decode(b));
             break;
           }
           const nested = tryParseMessage(b);
           if (nested && b.length >= 2) {
             const children: ProtoJsonMap = {};
             walk(b, children);
-            push(target, key, { children });
+            push(target, key, children);
             break;
           }
-          push(target, key, { b: bytesToHex(b) });
+          push(target, key, bytesToHex(b));
           break;
         }
         case 5: {
           const b = r.take(4);
-          push(target, key, { b: bytesToHex(b) });
+          push(target, key, bytesToHex(b));
           break;
         }
         default:

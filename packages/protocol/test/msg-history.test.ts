@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { decode, encode } from '../src/protobuf';
 import { dumpProto, extractPath, walkProto, protoToJson } from '../src/msg/dump';
-import { GetGroupHistory, GetC2cHistory } from '../src/index';
+import { ELEM, GetGroupHistory, GetC2cHistory } from '../src/index';
 
 const hexToBytes = (hex: string): Uint8Array =>
   Uint8Array.from(
@@ -119,33 +119,45 @@ describe('dumpProto 全字段 tag:value', () => {
 });
 
 describe('protoToJson 简洁 JSON 树', () => {
-  it('字段号 key + 递归 children + 单字母叶子(v/s/b)', () => {
+  it('字段号 key + 递归展开 + 叶子为裸值（数字/字符串）', () => {
     const tree = protoToJson(MESSAGE_HEX);
-    const msg = (n: unknown): { children: Record<string, unknown> } => n as { children: Record<string, unknown> };
-    const leaf = (n: unknown): { v?: string; s?: string; b?: string } => n as { v?: string; s?: string; b?: string };
-    // 顶层: responseHead(1) / contentHead(2) / body(3)，消息节点只有 children
+    // 顶层: responseHead(1) / contentHead(2) / body(3)
     expect(Object.keys(tree)).toEqual(['1', '2', '3']);
-    const head = msg(tree['2']);
-    expect(leaf(head.children['1']).v).toBe('1'); // msgType
-    expect(leaf(head.children['5']).v).toBe('7'); // sequence
-    expect('tag' in (tree['1'] as object)).toBe(false);
-    expect('wire' in (tree['1'] as object)).toBe(false);
+    const head = tree['2'] as Record<string, unknown>;
+    expect(head['1']).toBe(1); // msgType
+    expect(head['5']).toBe(7); // sequence
     // body(3) -> richText(1) -> elems(2) -> text(1) -> str(1)
-    const body = msg(tree['3']);
-    const richText = msg(body.children['1']);
-    const elem = msg(richText.children['2']);
-    const text = msg(elem.children['1']);
-    expect(leaf(text.children['1']).s).toBe('hi');
+    const body = tree['3'] as Record<string, unknown>;
+    const richText = body['1'] as Record<string, unknown>;
+    const elem = richText['2'] as Record<string, unknown>;
+    const text = elem['1'] as Record<string, unknown>;
+    expect(text['1']).toBe('hi');
   });
 
   it('重复字段收敛为数组（保持顺序）', () => {
     const two = hexToBytes('1a 0e 0a 0c 12 06 0a 04 0a 02 68 69 12 02 10 01');
     const tree = protoToJson(two);
-    const msg = (n: unknown): { children: Record<string, unknown> } => n as { children: Record<string, unknown> };
-    const body = msg(tree['3']);
-    const richText = msg(body.children['1']);
-    const elems = richText.children['2'];
+    const body = tree['3'] as Record<string, unknown>;
+    const richText = body['1'] as Record<string, unknown>;
+    const elems = richText['2'];
     expect(Array.isArray(elems)).toBe(true);
     expect((elems as unknown[]).length).toBe(2);
+  });
+});
+
+describe('装扮三大 id schema', () => {
+  it('generalFlags.widgetId / font.fontId2 / elem.bubble.id 编解码', () => {
+    const obj = {
+      generalFlags: { widgetId: 156358, font: { fontId1: 22004, fontId2: 290024 } },
+      bubble: { id: 2144536 },
+    };
+    const decoded = decode(ELEM, encode(ELEM, obj)) as {
+      generalFlags?: { widgetId?: number; font?: { fontId1?: number; fontId2?: number } };
+      bubble?: { id?: number };
+    };
+    expect(decoded.generalFlags?.widgetId).toBe(156358); // 挂件 id
+    expect(decoded.generalFlags?.font?.fontId1).toBe(22004); // 字体 id_1
+    expect(decoded.generalFlags?.font?.fontId2).toBe(290024); // 字体 id_2
+    expect(decoded.bubble?.id).toBe(2144536); // 气泡 id
   });
 });

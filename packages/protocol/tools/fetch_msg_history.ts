@@ -1,23 +1,23 @@
 /**
  * 主动拉取历史消息探查工具 —— SsoGetGroupMsg / SsoGetC2cMsg（按 seq 范围）。
  *
- * 打印：
- *   1. 原始响应长度 + 顶层字段 + 消息数量；
- *   2. 指定消息（默认第一条）的原始 hex；
- *   3. 该消息全字段 tag:value —— 以嵌套 JSON 树输出（key=字段号，重复字段为数组），
- *      含未知字段 / 装扮等，不依赖 schema，方便直接喂给映射数据库。
- *
- * 用法：
- *   pnpm --filter @weq/protocol tools:fetch-msg-history --kind group --id 123456789 --start 100 --end 110
- *   pnpm --filter @weq/protocol tools:fetch-msg-history --kind c2c --id u_mGI... --start 100 --end 110
- *   pnpm tsx packages/protocol/tools/fetch_msg_history.ts --kind group --id ... --start ... --end ...
- *
- * 可选参数：
- *   --index N       打印第 N 条消息（默认 0 = 第一条）
- *   --no-hex        不打印消息原始 hex
- *   --no-json       不打印消息 tag:value JSON
- *   --resp-hex      额外打印整个响应的 hex
- *   --resp-json     额外打印整个响应的 tag:value JSON
+* 打印：
+*   1. 原始响应长度 + 顶层字段 + 消息数量；
+*   2. 指定消息（默认第一条）的原始 hex；
+ *   3. 该消息解码后的简化 msg JSON（head / sender / session / elements / dress）。
+*
+* 用法：
+*   pnpm --filter @weq/protocol tools:fetch-msg-history --kind group --id 123456789 --start 100 --end 110
+*   pnpm --filter @weq/protocol tools:fetch-msg-history --kind c2c --id u_mGI... --start 100 --end 110
+*   pnpm tsx packages/protocol/tools/fetch_msg_history.ts --kind group --id ... --start ... --end ...
+*
+* 可选参数：
+*   --index N       打印第 N 条消息（默认 0 = 第一条）
+*   --no-hex        不打印消息原始 hex
+ *   --no-json       不打印消息解码 JSON
+ *   --raw-json      额外打印全字段 tag:value 树（不依赖 schema）
+*   --resp-hex      额外打印整个响应的 hex
+*   --resp-json     额外打印整个响应的 tag:value JSON
  *
  * linux 需要 root(ptrace 注入)：
  *   sudo -E node --import tsx packages/protocol/tools/fetch_msg_history.ts ...
@@ -32,9 +32,9 @@ import {
   extractPath,
   fetchC2cHistoryRaw,
   fetchGroupHistoryRaw,
-  type HistoryFetchResult,
   type PathStep,
 } from '../src/index';
+import { decodeMessage } from '../src/index';
 
 const argv = process.argv.slice(2);
 const opt = (flag: string): string | undefined => {
@@ -64,6 +64,7 @@ const SHOW_HEX = !has('--no-hex');
 const SHOW_JSON = !has('--no-json');
 const SHOW_RESP_HEX = has('--resp-hex');
 const SHOW_RESP_JSON = has('--resp-json');
+const SHOW_RAW_JSON = has('--raw-json');
 
 type Nt = ReturnType<typeof loadNative>['ntHelper'];
 
@@ -110,32 +111,21 @@ async function resolveTarget(nt: Nt): Promise<{ pid: number; loginUin: string }>
   return { pid, loginUin };
 }
 
-function printDecodedSummary(res: HistoryFetchResult, index: number): void {
-  const msg = res.messages[index];
-  if (!msg) {
-    console.log(`[history] 第 ${index} 条消息不存在`);
-    return;
-  }
-  const head = (msg as { contentHead?: Record<string, unknown> }).contentHead ?? {};
-  const respHead = (msg as { responseHead?: Record<string, unknown> }).responseHead ?? {};
-  const elems = (msg as {
-    body?: { richText?: { elems?: unknown[] } };
-  }).body?.richText?.elems;
-  console.log(`[history] 解码摘要(按 SnowLuma schema):`);
-  console.log(`  fromUin=${String(respHead.fromUin ?? '?')} fromUid=${String(respHead.fromUid ?? '?')}`);
-  console.log(`  msgType=${String(head.msgType ?? '?')} subType=${String(head.subType ?? '?')} c2cCmd=${String(head.c2cCmd ?? '?')}`);
-  console.log(`  msgId=${String(head.msgId ?? '?')} sequence=${String(head.sequence ?? '?')} ntMsgSeq=${String(head.ntMsgSeq ?? '?')}`);
-  console.log(`  timestamp=${String(head.timestamp ?? '?')} newId=${String(head.newId ?? '?')}`);
-  console.log(`  elems=${Array.isArray(elems) ? elems.length : 0}`);
-  const grp = (respHead as { grp?: Record<string, unknown> }).grp;
-  if (grp) {
-    console.log(`  grp.groupUin=${String(grp.groupUin ?? '?')} memberName=${String(grp.memberName ?? '?')} memberCard=${String(grp.memberCard ?? '?')}`);
-  }
-}
 
 function printJson(label: string, bytes: Uint8Array): void {
   console.log(`\n──── ${label} ────`);
   console.log(JSON.stringify(protoToJson(bytes), null, 2));
+}
+
+const jsonReplacer = (_key: string, value: unknown): unknown => {
+  if (typeof value === 'bigint') return value.toString();
+  if (value instanceof Uint8Array) return bytesToHex(value);
+  return value;
+};
+
+function printDecoded(label: string, msg: ReturnType<typeof decodeMessage>): void {
+  console.log(`\n──── ${label} ────`);
+  console.log(JSON.stringify(msg, jsonReplacer, 2));
 }
 
 async function main(): Promise<void> {
@@ -181,12 +171,12 @@ async function main(): Promise<void> {
     console.log('[history] 无法从响应中抠出该消息的原始字节（extractPath 失败）');
   } else {
     console.log(`  原始长度:    ${msgBytes.length} 字节`);
-    printDecodedSummary(res, index);
     if (SHOW_HEX) {
       console.log('\n──── 原始 hex ────');
       console.log(bytesToHex(msgBytes));
     }
-    if (SHOW_JSON) printJson('全部字段 tag:value JSON', msgBytes);
+    if (SHOW_JSON) printDecoded('解码 msg JSON', decodeMessage(msgBytes));
+    if (SHOW_RAW_JSON) printJson('全部字段 tag:value JSON', msgBytes);
   }
   console.log(`\n[history] 消息序号提示: 群聊用群内 seq，私聊用会话级 NT seq${KIND === 'c2c' ? '（不是发送者本地 clientSeq）' : ''}`);
 }
