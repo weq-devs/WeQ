@@ -17,7 +17,8 @@
     "tools:flash-transfer-upload": "tsx tools/flash_transfer_upload.ts",
     "tools:flash-transfer-send": "tsx tools/flash_transfer_send.ts",
     "tools:flash-transfer-share-link": "tsx tools/flash_transfer_share_link.ts",
-    "tools:send-tuwen-ark": "tsx tools/send_tuwen_ark.ts"
+    "tools:send-tuwen-ark": "tsx tools/send_tuwen_ark.ts",
+    "tools:fetch-msg-history": "tsx tools/fetch_msg_history.ts"
   },
   "dependencies": {
     "@weq/native": "workspace:*"
