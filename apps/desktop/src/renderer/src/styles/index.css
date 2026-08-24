@@ -14063,6 +14063,390 @@ html[data-theme="dark"] .weq-wtools-odev-result.is-error p {
 html[data-theme="dark"] .weq-wtools-odev-pid {
   color: #7b8794;
 }
+/* ---- 妙妙工具：Protobuf / JCE 逆向 ---- */
+.weq-wtools-rv {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.weq-wtools-rv-input {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 12px;
+  background: #f6f8fa;
+}
+.weq-wtools-rv-input-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.weq-wtools-rv-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #4a5560;
+}
+.weq-wtools-rv-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.06);
+}
+.weq-wtools-rv-seg-btn {
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #4a5560;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.weq-wtools-rv-seg-btn:hover {
+  color: #1a1a1a;
+}
+.weq-wtools-rv-seg-btn.is-on {
+  background: #fff;
+  color: var(--weq-accent-effective);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+.weq-wtools-rv-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 9px;
+  background: #fff;
+  color: #1a1a1a;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  resize: vertical;
+}
+.weq-wtools-rv-textarea:focus {
+  outline: none;
+  border-color: var(--weq-accent-effective);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+}
+.weq-wtools-rv-textarea::placeholder {
+  color: #9aa7b4;
+}
+.weq-wtools-rv-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.weq-wtools-rv-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--weq-accent-effective);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+.weq-wtools-rv-primary:hover {
+  filter: brightness(1.06);
+}
+.weq-wtools-rv-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  background: #fff;
+  color: #4a5560;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.weq-wtools-rv-btn:hover {
+  border-color: var(--weq-accent-effective);
+  color: var(--weq-accent-effective);
+}
+.weq-wtools-rv-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: #9aa7b4;
+}
+.weq-wtools-rv-error {
+  padding: 10px 14px;
+  border: 1px solid rgba(214, 69, 69, 0.35);
+  border-radius: 10px;
+  background: rgba(214, 69, 69, 0.07);
+  color: #c03a3a;
+  font-size: 12.5px;
+}
+.weq-wtools-rv-result {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.weq-wtools-rv-result-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.weq-wtools-rv-kind {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+.weq-wtools-rv-kind.is-protobuf {
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  color: var(--weq-accent-effective);
+}
+.weq-wtools-rv-kind.is-jce {
+  background: rgba(15, 150, 120, 0.12);
+  color: #0f8a6d;
+}
+.weq-wtools-rv-meta {
+  font-size: 12px;
+  color: #7c8a99;
+}
+.weq-wtools-rv-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--weq-accent-effective);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+.weq-wtools-rv-copy:hover {
+  filter: brightness(1.06);
+}
+.weq-wtools-rv-json {
+  overflow: auto;
+  padding: 12px 14px;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 12px;
+  background: #f6f8fa;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: #24292f;
+}
+.weq-wtools-rv-row {
+  display: flex;
+  align-items: flex-start;
+  white-space: nowrap;
+}
+.weq-wtools-rv-brace,
+.weq-wtools-rv-punct,
+.weq-wtools-rv-comma {
+  color: #8b98a5;
+}
+.weq-wtools-rv-key {
+  color: #0550ae;
+}
+.weq-wtools-rv-num {
+  color: #953800;
+}
+.weq-wtools-rv-str {
+  color: #1a7f37;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.weq-wtools-rv-converted {
+  padding: 0 3px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 9%, transparent);
+}
+.weq-wtools-rv-value {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.weq-wtools-rv-mini {
+  padding: 1px 7px;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 5px;
+  background: transparent;
+  color: #6b7a8a;
+  font-size: 10.5px;
+  line-height: 1.5;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.weq-wtools-rv-mini:hover {
+  border-color: var(--weq-accent-effective);
+  color: var(--weq-accent-effective);
+}
+.weq-wtools-rv-mini.is-on {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-effective);
+  font-weight: 600;
+}
+.weq-wtools-rv-tag {
+  margin-right: 6px;
+  color: #8b98a5;
+  font-size: 10.5px;
+}
+.weq-wtools-rv-fold {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #8b98a5;
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.weq-wtools-rv-fold:hover {
+  color: var(--weq-accent-effective);
+}
+.weq-wtools-rv-container {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.weq-wtools-rv-nested {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.weq-wtools-rv-nested-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #7c8a99;
+}
+.weq-wtools-rv-inline-arr,
+.weq-wtools-rv-block-arr {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.weq-wtools-rv-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  padding: 40px 20px;
+  border: 1px dashed rgba(0, 0, 0, 0.12);
+  border-radius: 12px;
+  color: #7c8a99;
+  font-size: 12.5px;
+  text-align: center;
+}
+html[data-theme="dark"] .weq-wtools-rv-input {
+  background: #1b2027;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+html[data-theme="dark"] .weq-wtools-rv-label {
+  color: #b8c2cc;
+}
+html[data-theme="dark"] .weq-wtools-rv-seg {
+  background: rgba(255, 255, 255, 0.06);
+}
+html[data-theme="dark"] .weq-wtools-rv-seg-btn {
+  color: #98a4b3;
+}
+html[data-theme="dark"] .weq-wtools-rv-seg-btn:hover {
+  color: #e6edf3;
+}
+html[data-theme="dark"] .weq-wtools-rv-seg-btn.is-on {
+  background: #262d36;
+  color: #7ab7ff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+html[data-theme="dark"] .weq-wtools-rv-textarea {
+  background: #10141a;
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #e6edf3;
+}
+html[data-theme="dark"] .weq-wtools-rv-textarea::placeholder {
+  color: #56606c;
+}
+html[data-theme="dark"] .weq-wtools-rv-hint {
+  color: #56606c;
+}
+html[data-theme="dark"] .weq-wtools-rv-btn {
+  background: #262d36;
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #b8c2cc;
+}
+html[data-theme="dark"] .weq-wtools-rv-btn:hover {
+  border-color: var(--weq-accent-effective);
+  color: #7ab7ff;
+}
+html[data-theme="dark"] .weq-wtools-rv-error {
+  border-color: rgba(224, 108, 95, 0.35);
+  background: rgba(224, 108, 95, 0.1);
+  color: #e06c5f;
+}
+html[data-theme="dark"] .weq-wtools-rv-kind.is-jce {
+  background: rgba(46, 160, 128, 0.16);
+  color: #57c7a3;
+}
+html[data-theme="dark"] .weq-wtools-rv-meta {
+  color: #7b8794;
+}
+html[data-theme="dark"] .weq-wtools-rv-json {
+  background: #10141a;
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #d6dee6;
+}
+html[data-theme="dark"] .weq-wtools-rv-brace,
+html[data-theme="dark"] .weq-wtools-rv-punct,
+html[data-theme="dark"] .weq-wtools-rv-comma,
+html[data-theme="dark"] .weq-wtools-rv-tag,
+html[data-theme="dark"] .weq-wtools-rv-fold {
+  color: #6e7b89;
+}
+html[data-theme="dark"] .weq-wtools-rv-key {
+  color: #79b8ff;
+}
+html[data-theme="dark"] .weq-wtools-rv-num {
+  color: #ffa657;
+}
+html[data-theme="dark"] .weq-wtools-rv-str {
+  color: #7ee787;
+}
+html[data-theme="dark"] .weq-wtools-rv-mini {
+  border-color: rgba(255, 255, 255, 0.16);
+  color: #98a4b3;
+}
+html[data-theme="dark"] .weq-wtools-rv-mini:hover {
+  border-color: var(--weq-accent-effective);
+  color: #7ab7ff;
+}
+html[data-theme="dark"] .weq-wtools-rv-nested-badge {
+  color: #7b8794;
+}
+html[data-theme="dark"] .weq-wtools-rv-empty {
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #7b8794;
+}
 /* ===========================================================================
    帮助弹窗 (HelpDialog) — 「更多功能 → 帮助」，承载 weq-help-* 子页面。
    =========================================================================== */
