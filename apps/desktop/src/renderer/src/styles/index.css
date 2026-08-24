@@ -13139,6 +13139,7 @@ html[data-theme="dark"] .weq-collection-state {
   display: flex;
   flex: 1;
   min-height: 0;
+  min-width: 0;
 }
 
 /* ---- 左栏：工具列表 ---- */
@@ -14243,6 +14244,8 @@ html[data-theme="dark"] .weq-wtools-odev-pid {
 }
 .weq-wtools-rv-json {
   overflow: auto;
+  min-width: 0;
+  max-width: 100%;
   padding: 12px 14px;
   border: 1px solid rgba(0, 0, 0, 0.07);
   border-radius: 12px;
@@ -14270,8 +14273,7 @@ html[data-theme="dark"] .weq-wtools-odev-pid {
 }
 .weq-wtools-rv-str {
   color: #1a7f37;
-  white-space: pre-wrap;
-  word-break: break-all;
+  white-space: pre;
 }
 .weq-wtools-rv-converted {
   padding: 0 3px;
