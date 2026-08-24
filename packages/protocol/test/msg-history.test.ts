@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { decode, encode } from '../src/protobuf';
-import { dumpProto, extractPath, walkProto } from '../src/msg/dump';
+import { dumpProto, extractPath, walkProto, protoToJson } from '../src/msg/dump';
 import { GetGroupHistory, GetC2cHistory } from '../src/index';
 
 const hexToBytes = (hex: string): Uint8Array =>
@@ -115,5 +115,37 @@ describe('dumpProto 全字段 tag:value', () => {
     const paths = entries.map((e) => e.path);
     expect(paths).toContain('3.1.2');
     expect(paths).toContain('3.1.2[1]');
+  });
+});
+
+describe('protoToJson 简洁 JSON 树', () => {
+  it('字段号 key + 递归 children + 单字母叶子(v/s/b)', () => {
+    const tree = protoToJson(MESSAGE_HEX);
+    const msg = (n: unknown): { children: Record<string, unknown> } => n as { children: Record<string, unknown> };
+    const leaf = (n: unknown): { v?: string; s?: string; b?: string } => n as { v?: string; s?: string; b?: string };
+    // 顶层: responseHead(1) / contentHead(2) / body(3)，消息节点只有 children
+    expect(Object.keys(tree)).toEqual(['1', '2', '3']);
+    const head = msg(tree['2']);
+    expect(leaf(head.children['1']).v).toBe('1'); // msgType
+    expect(leaf(head.children['5']).v).toBe('7'); // sequence
+    expect('tag' in (tree['1'] as object)).toBe(false);
+    expect('wire' in (tree['1'] as object)).toBe(false);
+    // body(3) -> richText(1) -> elems(2) -> text(1) -> str(1)
+    const body = msg(tree['3']);
+    const richText = msg(body.children['1']);
+    const elem = msg(richText.children['2']);
+    const text = msg(elem.children['1']);
+    expect(leaf(text.children['1']).s).toBe('hi');
+  });
+
+  it('重复字段收敛为数组（保持顺序）', () => {
+    const two = hexToBytes('1a 0e 0a 0c 12 06 0a 04 0a 02 68 69 12 02 10 01');
+    const tree = protoToJson(two);
+    const msg = (n: unknown): { children: Record<string, unknown> } => n as { children: Record<string, unknown> };
+    const body = msg(tree['3']);
+    const richText = msg(body.children['1']);
+    const elems = richText.children['2'];
+    expect(Array.isArray(elems)).toBe(true);
+    expect((elems as unknown[]).length).toBe(2);
   });
 });

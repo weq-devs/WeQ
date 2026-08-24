@@ -1,15 +1,23 @@
-﻿/**
+/**
  * 主动拉取历史消息探查工具 —— SsoGetGroupMsg / SsoGetC2cMsg（按 seq 范围）。
  *
  * 打印：
  *   1. 原始响应长度 + 顶层字段 + 消息数量；
  *   2. 指定消息（默认第一条）的原始 hex；
- *   3. 该消息全字段 tag:value 递归展开（含未知字段 / 装扮等，不依赖 schema）。
+ *   3. 该消息全字段 tag:value —— 以嵌套 JSON 树输出（key=字段号，重复字段为数组），
+ *      含未知字段 / 装扮等，不依赖 schema，方便直接喂给映射数据库。
  *
  * 用法：
  *   pnpm --filter @weq/protocol tools:fetch-msg-history --kind group --id 123456789 --start 100 --end 110
  *   pnpm --filter @weq/protocol tools:fetch-msg-history --kind c2c --id u_mGI... --start 100 --end 110
  *   pnpm tsx packages/protocol/tools/fetch_msg_history.ts --kind group --id ... --start ... --end ...
+ *
+ * 可选参数：
+ *   --index N       打印第 N 条消息（默认 0 = 第一条）
+ *   --no-hex        不打印消息原始 hex
+ *   --no-json       不打印消息 tag:value JSON
+ *   --resp-hex      额外打印整个响应的 hex
+ *   --resp-json     额外打印整个响应的 tag:value JSON
  *
  * linux 需要 root(ptrace 注入)：
  *   sudo -E node --import tsx packages/protocol/tools/fetch_msg_history.ts ...
@@ -20,7 +28,7 @@ import type { QqPortLoginInfo } from '@weq/native';
 import { ensureSendable, testEnv } from '@weq/testkit';
 import {
   bytesToHex,
-  dumpProto,
+  protoToJson,
   extractPath,
   fetchC2cHistoryRaw,
   fetchGroupHistoryRaw,
@@ -53,9 +61,9 @@ if (!Number.isSafeInteger(START) || !Number.isSafeInteger(END) || START > END ||
 const MSG_INDEX = Number(opt('--index') ?? '0');
 if (!Number.isSafeInteger(MSG_INDEX) || MSG_INDEX < 0) fail(`--index 非法: ${String(MSG_INDEX)}`);
 const SHOW_HEX = !has('--no-hex');
-const SHOW_DUMP = !has('--no-dump');
+const SHOW_JSON = !has('--no-json');
 const SHOW_RESP_HEX = has('--resp-hex');
-const SHOW_RESP_DUMP = has('--resp-dump');
+const SHOW_RESP_JSON = has('--resp-json');
 
 type Nt = ReturnType<typeof loadNative>['ntHelper'];
 
@@ -102,10 +110,6 @@ async function resolveTarget(nt: Nt): Promise<{ pid: number; loginUin: string }>
   return { pid, loginUin };
 }
 
-function fmtMsgIndexes(total: number): string {
-  return total > 0 ? `0..${total - 1}` : '无';
-}
-
 function printDecodedSummary(res: HistoryFetchResult, index: number): void {
   const msg = res.messages[index];
   if (!msg) {
@@ -127,6 +131,11 @@ function printDecodedSummary(res: HistoryFetchResult, index: number): void {
   if (grp) {
     console.log(`  grp.groupUin=${String(grp.groupUin ?? '?')} memberName=${String(grp.memberName ?? '?')} memberCard=${String(grp.memberCard ?? '?')}`);
   }
+}
+
+function printJson(label: string, bytes: Uint8Array): void {
+  console.log(`\n──── ${label} ────`);
+  console.log(JSON.stringify(protoToJson(bytes), null, 2));
 }
 
 async function main(): Promise<void> {
@@ -154,10 +163,7 @@ async function main(): Promise<void> {
     console.log('\n──── 完整响应 hex ────');
     console.log(bytesToHex(res.rawResponse));
   }
-  if (SHOW_RESP_DUMP) {
-    console.log('\n──── 完整响应 tag:value ────');
-    console.log(dumpProto(res.rawResponse));
-  }
+  if (SHOW_RESP_JSON) printJson('完整响应 tag:value JSON', res.rawResponse);
 
   if (res.messages.length === 0) {
     console.log('\n[history] 该窗口没有返回任何消息');
@@ -180,10 +186,7 @@ async function main(): Promise<void> {
       console.log('\n──── 原始 hex ────');
       console.log(bytesToHex(msgBytes));
     }
-    if (SHOW_DUMP) {
-      console.log('\n──── 全部字段 tag:value ────');
-      console.log(dumpProto(msgBytes));
-    }
+    if (SHOW_JSON) printJson('全部字段 tag:value JSON', msgBytes);
   }
   console.log(`\n[history] 消息序号提示: 群聊用群内 seq，私聊用会话级 NT seq${KIND === 'c2c' ? '（不是发送者本地 clientSeq）' : ''}`);
 }

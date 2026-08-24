@@ -1,9 +1,9 @@
-﻿export { GetGroupHistory, GetC2cHistory, fetchGroupHistoryRaw, fetchC2cHistoryRaw } from './get-history';
+export { GetGroupHistory, GetC2cHistory, fetchGroupHistoryRaw, fetchC2cHistoryRaw } from './get-history';
 export type { GroupHistoryParams, C2cHistoryParams, HistoryFetchResult } from './get-history';
 export { SSO_GET_GROUP_MSG_CMD, SSO_GET_C2C_MSG_CMD } from './get-history';
 
-export { dumpProto, walkProto, extractPath } from './dump';
-export type { DumpOptions, DumpEntry, PathStep } from './dump';
+export { dumpProto, walkProto, extractPath, protoToJson } from './dump';
+export type { DumpOptions, DumpEntry, PathStep, ProtoJsonMap, ProtoJsonNode, ProtoJsonLeaf, ProtoJsonMessage } from './dump';
 
 export {
   PUSH_MSG_BODY, PUSH_MSG, RESPONSE_HEAD, CONTENT_HEAD, MESSAGE_BODY, RICH_TEXT, ELEM,
