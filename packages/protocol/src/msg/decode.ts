@@ -76,6 +76,9 @@ function liftFaceElem(face: Record<string, unknown>): Record<string, unknown> {
   if (face.AniStickerId !== undefined) out.AniStickerId = face.AniStickerId;
   if (face.diceValue !== undefined) out.diceValue = face.diceValue;
   if (face.superEmojiFlag1 === 1) out.superEmojiFlag1 = face.superEmojiFlag1;
+  // 老 wire 不下发 NT 的 subType(45003)，前端靠它区分内联小黄脸(1/2)和贴纸(3+)。
+  // 这里按字段派生：骰子/超级表情 -> 3(SUPER_EMOJI)，其余经典表情 -> 1。
+  out.subType = face.superEmojiFlag1 === 1 || face.diceValue !== undefined ? 3 : 1;
   return out;
 }
 
@@ -166,7 +169,9 @@ function liftMarkdownElem(pb: Record<string, unknown>): Record<string, unknown> 
   const out: Record<string, unknown> = { kind: 'markdown' };
   if (pb.markdownContent !== undefined) out.markdownContent = pb.markdownContent;
   if (pb.markdownTextSummary !== undefined) out.markdownTextSummary = pb.markdownTextSummary;
-  if (flash?.fileSetId !== undefined) out.fileSetId = flash.fileSetId;
+  // 与 codec 命名对齐：闪传信息挂在 flashTransferInfo 下（前端 QqMessageContent 靠
+  // data.flashTransferInfo 识别闪传卡片并传给 QqFlashTransfer），而不是平铺 fileSetId。
+  if (flash?.fileSetId !== undefined) out.flashTransferInfo = { fileSetId: flash.fileSetId };
   return out;
 }
 
@@ -241,10 +246,16 @@ function liftWalletElem(wallet: Record<string, unknown>): Record<string, unknown
   const detail = body?.detail as Record<string, unknown> | undefined;
   const skin = detail?.skin as Record<string, unknown> | undefined;
   const out: Record<string, unknown> = { kind: 'wallet' };
-  if (detail?.redbagTitle !== undefined) out.redbagTitle = detail.redbagTitle;
-  if (detail?.openPrompt !== undefined) out.openPrompt = detail.openPrompt;
-  if (detail?.subTitle !== undefined) out.subTitle = detail.subTitle;
-  if (skin?.skinId !== undefined) out.skinId = skin.skinId;
+  // 老 wire 不下发 walletRedbagType(48412)，涉及钱的字段卡得严、拿不到，
+  // 前端只能按普通红包回退渲染（QqWallet 在 redbagType 缺失时走 normal_bag）。
+  // 字段名对齐 codec：详情挂在 walletDetail 下，skinId 放 receiptList.skinId
+  // （与 QqMessageContent 的读取位置一致）。
+  const walletDetail: Record<string, unknown> = {};
+  if (detail?.redbagTitle !== undefined) walletDetail.redbagTitle = detail.redbagTitle;
+  if (detail?.openPrompt !== undefined) walletDetail.openPrompt = detail.openPrompt;
+  if (detail?.subTitle !== undefined) walletDetail.subTitle = detail.subTitle;
+  if (skin?.skinId !== undefined) walletDetail.receiptList = { skinId: skin.skinId };
+  if (Object.keys(walletDetail).length > 0) out.walletDetail = walletDetail;
   if (body?.walletDesignatedUin !== undefined) out.walletDesignatedUin = Number(body.walletDesignatedUin);
   return out;
 }

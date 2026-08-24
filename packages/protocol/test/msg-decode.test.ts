@@ -117,7 +117,7 @@ describe('decodeMessage 简化消息解码', () => {
     });
     const msg = decodeMessage(bytes);
     expect(msg.elements).toEqual([
-      { kind: 'face', faceId: 358, faceText: '/骰子', AniStickerId: '33', diceValue: '4', superEmojiFlag1: 1 },
+      { kind: 'face', faceId: 358, faceText: '/骰子', AniStickerId: '33', diceValue: '4', superEmojiFlag1: 1, subType: 3 },
     ]);
   });
 
@@ -331,7 +331,7 @@ describe('decodeMessage 简化消息解码', () => {
         kind: 'markdown',
         markdownContent: '[闪传](mqqapi://markdown/node)',
         markdownTextSummary: '[QQ闪传] QQ20260824-141626.png',
-        fileSetId: '866cbaa1-a092-408d-a8d4-52706d764138',
+        flashTransferInfo: { fileSetId: '866cbaa1-a092-408d-a8d4-52706d764138' },
       },
     ]);
 
@@ -423,7 +423,7 @@ describe('decodeMessage 简化消息解码', () => {
       },
     });
     const msg = decodeMessage(bytes);
-    expect(msg.elements).toEqual([{ kind: 'face', faceId: 324, faceText: '/吃糖' }]);
+    expect(msg.elements).toEqual([{ kind: 'face', faceId: 324, faceText: '/吃糖', subType: 1 }]);
   });
 
   it('未知元素类型直接丢弃，不再原样输出', () => {
@@ -469,10 +469,12 @@ describe('decodeMessage 简化消息解码', () => {
     expect(msg.elements).toEqual([
       {
         kind: 'wallet',
-        redbagTitle: '恭喜发财',
-        openPrompt: '赶紧点击拆开吧',
-        subTitle: 'QQ红包',
-        skinId: 2309,
+        walletDetail: {
+          redbagTitle: '恭喜发财',
+          openPrompt: '赶紧点击拆开吧',
+          subTitle: 'QQ红包',
+          receiptList: { skinId: 2309 },
+        },
         walletDesignatedUin: 2863253201,
       },
     ]);
