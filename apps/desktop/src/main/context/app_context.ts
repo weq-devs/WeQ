@@ -118,7 +118,9 @@ import {
   type DbHealthFailure,
   type McpServerConfig,
   type WeqAssistantConfig,
+  type SsePushConfig,
   WeqAssistantService,
+  SsePushService,
   createDirectInjectHook,
   type InjectHook,
 } from '@weq/service';
@@ -200,6 +202,8 @@ function trailingDebounce<A extends unknown[]>(
 const dbWatch = new DbWatchService();
 /** Handle for the currently-watched account db, if any. */
 let dbWatchHandle: DbWatchHandle | null = null;
+/** SSE 消息推送服务（随账号开关），null = 未启用 / 无账号。 */
+let ssePush: SsePushService | null = null;
 /** Background login/pid/rkey monitor for the open account, if any. */
 let accountMonitor: AccountMonitorService | null = null;
 let dbHealthCheckSeq = 0;
@@ -519,6 +523,13 @@ export interface AppContext {
    * takes effect immediately. No-op when no account is open.
    */
   applyRealtime(enabled: boolean): void;
+
+  /**
+   * Apply the SSE 消息推送 config to the open account (start / stop / retarget
+   * the nt_msg.db push watcher) without re-opening it. Called whenever the
+   * 设置 → SSE 推送 config changes. No-op when no account is open / disabled.
+   */
+  applySsePush(config: SsePushConfig): Promise<void>;
   /**
    * Apply the MCP server config to the open account (start / stop / restart the
    * account-bound HTTP server) without re-opening the account. No-op start when
@@ -577,6 +588,10 @@ export function initAppContext(): AppContext {
       },
       applyRealtime(): void {
         /* no account to watch */
+      },
+      applySsePush(): Promise<void> {
+        /* no account — nothing to push */
+        return Promise.resolve();
       },
       applyMcp(): Promise<void> {
         /* no account — nothing to serve */
@@ -752,6 +767,8 @@ export function initAppContext(): AppContext {
       this.account?.dispose();
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
+      ssePush?.stop();
+      ssePush = null;
       // A live query failing with a corruption-signature error is what triggers
       // the (otherwise unrun) full health check — not account-open. `this.account`
       // is only set after this resolves, so callbacks that fire mid-open (e.g.
@@ -1132,6 +1149,8 @@ export function initAppContext(): AppContext {
       if (userConfig.getSettings().realtimeEnabled) {
         mountDbWatch(session);
       }
+      // SSE 推送监听同一份 nt_msg.db，随账号打开按配置启动/停用。
+      void this.applySsePush(userConfig.getSettings().ssePush);
 
       // MCP server is account-bound: only listen while an account is open.
       // Start it now if enabled; live toggling is handled by `applyMcp`.
@@ -1193,6 +1212,8 @@ export function initAppContext(): AppContext {
       this.account?.dispose();
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
+      ssePush?.stop();
+      ssePush = null;
       this.scheduler?.stop();
       this.scheduler = null;
 
@@ -1497,6 +1518,8 @@ export function initAppContext(): AppContext {
       if (userConfig.getSettings().realtimeEnabled) {
         mountDbWatch(session);
       }
+      // SSE 推送监听同一份 nt_msg.db，随账号打开按配置启动/停用。
+      void this.applySsePush(userConfig.getSettings().ssePush);
 
       // Still no anti-recall triggers, no health check and no scheduler.
     },
@@ -1519,6 +1542,8 @@ export function initAppContext(): AppContext {
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
       unmountDbWatch();
+      ssePush?.stop();
+      ssePush = null;
       this.account?.dispose();
       this.account = null;
       this.services = null;
@@ -1536,6 +1561,34 @@ export function initAppContext(): AppContext {
       });
       if (enabled) mountDbWatch(session);
       else unmountDbWatch();
+    },
+
+    async applySsePush(config: SsePushConfig): Promise<void> {
+      const session = this.account;
+      const server = config.servers.find((s) => s.id === config.enabledServerId);
+      if (!session || !server) {
+        ssePush?.stop();
+        ssePush = null;
+        return;
+      }
+      if (!ssePush) {
+        ssePush = new SsePushService(session, {
+          debounceMs: config.debounceMs,
+          massThreshold: config.massThreshold,
+        });
+        ssePush.start();
+      } else {
+        ssePush.setTuning({
+          debounceMs: config.debounceMs,
+          massThreshold: config.massThreshold,
+        });
+      }
+      ssePush.setTarget({ pushUrl: server.pushUrl, accessToken: server.accessToken });
+      logger.info('applied sse push config', {
+        event: 'apply-sse-push',
+        accountUin: session.context.uin,
+        serverId: server.id,
+      });
     },
     async applyMcp(config: McpServerConfig): Promise<void> {
       // Only live accounts host the MCP server. With no account open we just

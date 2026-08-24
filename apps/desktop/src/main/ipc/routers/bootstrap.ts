@@ -41,6 +41,8 @@ import {
   type TtsProviderConfig,
   validateChatpicRoot,
   normalizeNapcatBaseUrl,
+  normalizeSsePushUrl,
+  testSsePushTarget,
 } from '@weq/service';
 import { peekStaticSelfUin, deriveAndroidDbKey } from '@weq/account';
 import { isTencentFilesRoot } from '@weq/platform';
@@ -472,6 +474,97 @@ export const bootstrapRouter = router({
     .mutation(async ({ input }) => {
       const result = await requireBootstrap().externalRkey.test(input.baseUrl, input.accessToken);
       return { ok: true, name: result.name, expiredTime: result.expiredTime };
+    }),
+
+  // ---- SSE 消息推送（设置 → SSE 推送）----
+
+  /** 新增 / 编辑一条推送目标；编辑保留原启用状态，新增不自动启用。 */
+  saveSsePushServer: procedure
+    .input(
+      z.object({
+        id: z.string().optional(),
+        name: z.string(),
+        pushUrl: z.string(),
+        accessToken: z.string(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      const pushUrl = normalizeSsePushUrl(input.pushUrl);
+      if (!pushUrl) throw new Error('推送地址无效，需以 http(s):// 开头');
+      const token = input.accessToken.trim();
+      if (!token) throw new Error('access_token 不能为空');
+      const cfg = userConfig.getSettings().ssePush;
+      const existing = input.id ? cfg.servers.find((s) => s.id === input.id) : undefined;
+      const id = existing ? existing.id : randomBytes(16).toString('hex');
+      const name = input.name.trim() || hostOfServerUrl(pushUrl);
+      const entry = { id, name, pushUrl, accessToken: token };
+      const servers = existing
+        ? cfg.servers.map((s) => (s.id === id ? { ...s, ...entry } : s))
+        : [...cfg.servers, entry];
+      userConfig.setSettings({ ssePush: { servers, enabledServerId: cfg.enabledServerId } });
+      const next = userConfig.getSettings().ssePush;
+      await getAppContext().applySsePush(next);
+      return next;
+    }),
+
+  /** 删除一条推送目标；删的是当前启用项时自动回到「未启用」。 */
+  deleteSsePushServer: procedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      const cfg = userConfig.getSettings().ssePush;
+      const servers = cfg.servers.filter((s) => s.id !== input.id);
+      const enabledServerId = cfg.enabledServerId === input.id ? null : cfg.enabledServerId;
+      userConfig.setSettings({ ssePush: { servers, enabledServerId } });
+      const next = userConfig.getSettings().ssePush;
+      await getAppContext().applySsePush(next);
+      return next;
+    }),
+
+  /** 启用 / 停用某条推送目标：同时只能启用一条，传 null 表示全部停用。 */
+  setSsePushEnabled: procedure
+    .input(z.object({ serverId: z.string().nullable() }))
+    .mutation(async ({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      const cfg = userConfig.getSettings().ssePush;
+      const enabledServerId =
+        input.serverId && cfg.servers.some((s) => s.id === input.serverId)
+          ? input.serverId
+          : null;
+      userConfig.setSettings({ ssePush: { enabledServerId } });
+      const next = userConfig.getSettings().ssePush;
+      await getAppContext().applySsePush(next);
+      return next;
+    }),
+
+  /** 调整防抖毫秒与大量消息阈值（全局调优）。 */
+  setSsePushTuning: procedure
+    .input(
+      z.object({
+        debounceMs: z.number().int().min(100).max(60_000),
+        massThreshold: z.number().int().min(1).max(10_000),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      userConfig.setSettings({
+        ssePush: { debounceMs: input.debounceMs, massThreshold: input.massThreshold },
+      });
+      const next = userConfig.getSettings().ssePush;
+      await getAppContext().applySsePush(next);
+      return next;
+    }),
+
+  /** 测试推送目标连通性：发一条 ping 事件（只探测，不写配置）。 */
+  testSsePushServer: procedure
+    .input(z.object({ pushUrl: z.string(), accessToken: z.string() }))
+    .mutation(async ({ input }) => {
+      const result = await testSsePushTarget({
+        pushUrl: input.pushUrl,
+        accessToken: input.accessToken,
+      });
+      return { ok: true, latencyMs: result.latencyMs };
     }),
 
   /**

@@ -49,6 +49,8 @@ export type {
   ExternalChatpicConfig,
   ExternalRkeyConfig,
   ExternalRkeyServerConfig,
+  SsePushConfig,
+  SsePushServerConfig,
 } from './bootstrap/user_config';
 export { AgentLabConfigService } from './bootstrap/agentlab_config';
 
@@ -372,6 +374,23 @@ export type {
 // onNewMessages (rowid-delta). Mount the returned task on a DbWatchService.
 export { createNtMsgDbHook } from './account/nt_msg_hook';
 export type { NewMessages, NtMsgHooks } from './account/nt_msg_hook';
+
+// SSE 消息推送：监听 nt_msg.db（同 db_watch_listen 的实现路径），防抖 + seq 跳变
+// 阈值合并后把事件 POST 到用户配置的推送地址。
+export {
+  SsePushService,
+  normalizeSsePushUrl,
+  postSsePushEvents,
+  testSsePushTarget,
+} from './account/sse_push';
+export type {
+  SsePushTarget,
+  SsePushOptions,
+  SsePushEvent,
+  SseMessageEvent,
+  SseMassEvent,
+  SsePushPayload,
+} from './account/sse_push';
 
 // ---- web cgi (query-only: group notice / album list / honor) ----
 export {
