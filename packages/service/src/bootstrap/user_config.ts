@@ -22,10 +22,10 @@ import {
   writeFileSync,
   readdirSync,
   unlinkSync,
-  statSync,
   rmSync,
   existsSync,
 } from 'node:fs';
+import { readdir, stat } from 'node:fs/promises';
 import { join, basename } from 'node:path';
 import type { Platform } from '@weq/platform';
 import type { AgentLabProviderConfig, TtsProviderConfig } from '@weq/agentlab';
@@ -763,13 +763,15 @@ export class UserConfigService {
   ];
 
   /** Per-category on-disk size (bytes) for the clearable cache categories. */
-  listClearableCache(): Array<{ id: string; label: string; bytes: number }> {
+  async listClearableCache(): Promise<Array<{ id: string; label: string; bytes: number }>> {
     const base = this.cacheBaseDir();
-    return UserConfigService.CLEARABLE_CACHE_CATEGORIES.map(({ id, label }) => ({
-      id,
-      label,
-      bytes: dirSizeBytes(join(base, id)),
-    }));
+    return Promise.all(
+      UserConfigService.CLEARABLE_CACHE_CATEGORIES.map(async ({ id, label }) => ({
+        id,
+        label,
+        bytes: await dirSizeBytes(join(base, id)),
+      })),
+    );
   }
 
   /**
@@ -778,7 +780,7 @@ export class UserConfigService {
    * the whitelist, so this can't touch agentlab / export / config / logs.
    * Returns the number of bytes freed.
    */
-  clearCache(ids?: string[]): { freedBytes: number; cleared: string[] } {
+  async clearCache(ids?: string[]): Promise<{ freedBytes: number; cleared: string[] }> {
     const base = this.cacheBaseDir();
     const allowed = new Set(UserConfigService.CLEARABLE_CACHE_CATEGORIES.map((c) => c.id));
     const targets = (ids && ids.length > 0 ? ids : [...allowed]).filter((id) => allowed.has(id));
@@ -787,7 +789,7 @@ export class UserConfigService {
     for (const id of targets) {
       const dir = join(base, id);
       if (!existsSync(dir)) continue;
-      freedBytes += dirSizeBytes(dir);
+      freedBytes += await dirSizeBytes(dir);
       try {
         // Remove the category folder wholesale, then recreate it empty so the
         // next writer's mkdir -p is a no-op and nothing breaks mid-session.
@@ -815,9 +817,10 @@ export class UserConfigService {
 /**
  * Recursive directory byte size with a hard node-visit cap so a pathological
  * tree (the avatar/media caches can hold tens of thousands of tiny files)
- * can't wedge the caller. Missing dirs return 0.
+ * can't wedge the caller. Missing dirs return 0. Async so a huge tree never
+ * blocks the main process / UI while the settings page computes cache usage.
  */
-function dirSizeBytes(root: string, cap = 500_000): number {
+async function dirSizeBytes(root: string, cap = 500_000): Promise<number> {
   let total = 0;
   let visited = 0;
   const stack: string[] = [root];
@@ -825,23 +828,25 @@ function dirSizeBytes(root: string, cap = 500_000): number {
     const dir = stack.pop() as string;
     let dirents: import('node:fs').Dirent[];
     try {
-      dirents = readdirSync(dir, { withFileTypes: true });
+      dirents = await readdir(dir, { withFileTypes: true });
     } catch {
       continue;
     }
+    const sizes: Promise<number>[] = [];
     for (const d of dirents) {
       if (++visited > cap) return total;
       const full = join(dir, d.name);
       if (d.isDirectory()) {
         stack.push(full);
       } else if (d.isFile()) {
-        try {
-          total += statSync(full).size;
-        } catch {
-          /* skip */
-        }
+        sizes.push(
+          stat(full)
+            .then((s) => s.size)
+            .catch(() => 0),
+        );
       }
     }
+    total += (await Promise.all(sizes)).reduce((sum, size) => sum + size, 0);
   }
   return total;
 }

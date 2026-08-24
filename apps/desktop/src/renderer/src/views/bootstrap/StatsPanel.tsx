@@ -9,10 +9,10 @@
  * (ColumnChart/ColumnSkeleton are kept for reuse but no longer rendered here.)
  */
 
-import type { ReactElement } from 'react';
+import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { FolderOpen, Layers } from 'lucide-react';
-import { trpc } from '../../trpc/client';
-import type { GlobalInstallInfo } from '@weq/service';
+import { client, trpc } from '../../trpc/client';
+import type { DirSizeProgress, GlobalInstallInfo } from '@weq/service';
 import logoUrl from '@resources/img/QQ.png';
 
 /** Vivid, GitHub-style language colors (TS, JS, HTML, CSS, Python, Java, C++, C#). */
@@ -73,10 +73,6 @@ export function StatsPanel({
     { uin: selectedUin ?? '' },
     { enabled: !!selectedUin, refetchOnWindowFocus: false },
   );
-  const dirSize = trpc.bootstrap.accountDirSize.useQuery(
-    { uin: selectedUin ?? '' },
-    { enabled: !!selectedUin, refetchOnWindowFocus: false },
-  );
 
   return (
     <div className="weq-stats">
@@ -110,10 +106,7 @@ export function StatsPanel({
       {/* Stat cards */}
       <section className="weq-bignums">
         <BigNumber value={counts.userData} label="本地账号" />
-        <BigNumber
-          value={!selectedUin ? '—' : dirSize.isLoading ? '…' : formatBytes(dirSize.data ?? 0)}
-          label="目录大小"
-        />
+        <DirSizeCard uin={selectedUin} />
         <BigNumber value={counts.online} label="在线实例" accent />
       </section>
 
@@ -134,19 +127,89 @@ export function StatsPanel({
   );
 }
 
+/**
+ * Animate `display` toward `target` with a short ease-out so the directory
+ * size count visibly glides upward while the scan streams progress.
+ */
+function useAnimatedNumber(target: number, durationMs = 320): number {
+  const [display, setDisplay] = useState(target);
+  const currentRef = useRef(target);
+
+  useEffect(() => {
+    const from = currentRef.current;
+    if (from === target) {
+      setDisplay(target);
+      return;
+    }
+    const start = performance.now();
+    let raf = 0;
+    const tick = (now: number): void => {
+      const t = Math.min(1, (now - start) / durationMs);
+      const eased = 1 - (1 - t) ** 3;
+      const next = from + (target - from) * eased;
+      currentRef.current = next;
+      setDisplay(next);
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, durationMs]);
+
+  return display;
+}
+
+/**
+ * Directory-size stat: subscribes to the live scan so a huge QQ data dir
+ * animates the number upward instead of sitting on a static ellipsis while
+ * it counts.
+ */
+function DirSizeCard({ uin }: { uin: string | null }): ReactElement {
+  const [progress, setProgress] = useState<DirSizeProgress | null>(null);
+  const bytes = useAnimatedNumber(progress?.bytes ?? 0);
+
+  useEffect(() => {
+    if (!uin) {
+      setProgress(null);
+      return;
+    }
+    setProgress(null);
+    const sub = client.bootstrap.accountDirSizeProgress.subscribe(
+      { uin },
+      {
+        onData: setProgress,
+        onError: (err) => {
+          console.error('[stats] account dir size progress error', err);
+          setProgress({ bytes: 0, done: true });
+        },
+      },
+    );
+    return () => sub.unsubscribe();
+  }, [uin]);
+
+  const scanning = progress === null || !progress.done;
+  const value = uin === null ? '—' : progress === null ? '…' : formatBytes(bytes);
+
+  return <BigNumber value={value} label="目录大小" scanning={scanning} />;
+}
+
 function BigNumber({
   value,
   label,
   accent,
+  scanning,
 }: {
   value: number | string;
   label: string;
   accent?: boolean;
+  scanning?: boolean;
 }): ReactElement {
   return (
     <div className="weq-bignum">
       <div className={`weq-bignum-v weq-number ${accent ? 'is-accent' : ''}`}>{value}</div>
-      <div className="weq-bignum-l">{label}</div>
+      <div className="weq-bignum-l">
+        {label}
+        {scanning ? <span className="weq-bignum-scan" aria-hidden /> : null}
+      </div>
     </div>
   );
 }

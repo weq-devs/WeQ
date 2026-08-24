@@ -39,6 +39,7 @@ import {
   type KeyEvent,
   type VoiceDownloadProgress,
   type TtsProviderConfig,
+  type DirSizeProgress,
   validateChatpicRoot,
   normalizeNapcatBaseUrl,
 } from '@weq/service';
@@ -182,12 +183,38 @@ export const bootstrapRouter = router({
     return boot.globalConfig.ntDataSubdirSizes(input.uin);
   }),
 
-  /** Total size of the account's user-data directory in bytes (may be slow). */
-  accountDirSize: procedure.input(z.object({ uin: z.string() })).query(async ({ input }) => {
-    const boot = requireBootstrap();
-    await ensureUidForUin(boot, input.uin);
-    return boot.globalConfig.accountDirSize(input.uin);
-  }),
+  /**
+   * Live total size of the account's user-data directory: emits
+   * `{ bytes, done }` every ~100 ms while scanning (huge trees take a while),
+   * with a terminal `done: true` event. The UI animates the growing number
+   * instead of sitting on a static spinner.
+   */
+  accountDirSizeProgress: procedure
+    .input(z.object({ uin: z.string() }))
+    .subscription(({ input }) => {
+      return observable<DirSizeProgress>((emit) => {
+        const boot = requireBootstrap();
+        void ensureUidForUin(boot, input.uin);
+        const iterator = boot.globalConfig.accountDirSizeStream(input.uin)[Symbol.asyncIterator]();
+        let cancelled = false;
+        void (async (): Promise<void> => {
+          try {
+            for (;;) {
+              const next = await iterator.next();
+              if (next.done || cancelled) break;
+              emit.next(next.value);
+            }
+            emit.complete();
+          } catch (e) {
+            emit.error(e);
+          }
+        })();
+        return () => {
+          cancelled = true;
+          void iterator.return?.(undefined);
+        };
+      });
+    }),
 
   // ---- user config ----
 
@@ -848,14 +875,14 @@ export const bootstrapRouter = router({
    * Only these re-downloadable/re-generatable categories are listed —
    * agentlab / weq-assistant / export are user content and stay untouched.
    */
-  listClearableCache: procedure.query(() => {
+  listClearableCache: procedure.query(async () => {
     return requireBootstrap().userConfig.listClearableCache();
   }),
 
   /** Delete the given clearable cache categories (all when omitted). */
   clearWeqCache: procedure
     .input(z.object({ ids: z.array(z.string()).optional() }).optional())
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       return requireBootstrap().userConfig.clearCache(input?.ids);
     }),
 

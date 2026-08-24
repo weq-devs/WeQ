@@ -1038,6 +1038,10 @@ html[data-theme="dark"] .chat-empty {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-5px); }
 }
+@keyframes weq-scan-pulse {
+  0%, 100% { opacity: 0.25; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
 
 .weq-anim-fade { animation: weq-fade-in 220ms ease both; }
 .weq-anim-pop { animation: weq-pop-in 170ms cubic-bezier(0.22, 1, 0.36, 1) both; }
@@ -2716,7 +2720,14 @@ html[data-theme='dark'] .weq-splash-track {
     text-overflow: ellipsis;
   }
   .weq-bignum-v.is-accent { color: var(--weq-accent-effective); }
-  .weq-bignum-l { font-size: 11.5px; color: #5a6f84; }
+  .weq-bignum-l { display: flex; align-items: center; gap: 0.35rem; font-size: 11.5px; color: #5a6f84; }
+  .weq-bignum-scan {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--weq-accent-effective);
+    animation: weq-scan-pulse 1.1s ease-in-out infinite;
+  }
 
   /* Chart cards */
   .weq-chart {

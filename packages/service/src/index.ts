@@ -69,6 +69,7 @@ export type {
   OnlineProbe,
   DbFileStat,
   DirSize,
+  DirSizeProgress,
 } from './bootstrap/global_config';
 
 // ---- account ----
