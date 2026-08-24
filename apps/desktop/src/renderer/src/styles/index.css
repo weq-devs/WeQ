@@ -5986,6 +5986,20 @@ html[data-theme="dark"] .weq-settings-preset-preview.is-style-soon {
   gap: 10px;
 }
 
+.weq-set-server-form-wrap {
+  display: grid;
+  gap: 10px;
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px dashed rgba(0, 0, 0, 0.1);
+}
+
+.weq-set-server-form-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+
 .weq-set-input-wide {
   width: 260px;
 }
@@ -6029,6 +6043,14 @@ html[data-theme='dark'] .weq-set-about summary:hover {
 }
 
 html[data-theme='dark'] .weq-set-server-name {
+  color: #e5eaf0;
+}
+
+html[data-theme='dark'] .weq-set-server-form-wrap {
+  border-top-color: rgba(255, 255, 255, 0.12);
+}
+
+html[data-theme='dark'] .weq-set-server-form-title {
   color: #e5eaf0;
 }
 

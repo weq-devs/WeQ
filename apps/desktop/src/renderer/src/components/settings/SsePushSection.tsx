@@ -112,10 +112,6 @@ export function SsePushSection(): ReactElement {
       showError('缺少推送地址', '请填写接收端 HTTP 地址，例如 http://127.0.0.1:8899/push');
       return;
     }
-    if (!token) {
-      showError('缺少 access_token', '请填写接收端要求的 access_token。');
-      return;
-    }
     try {
       await saveServer.mutateAsync({
         id: form.id || undefined,
@@ -176,11 +172,11 @@ export function SsePushSection(): ReactElement {
 
   async function onTest(): Promise<void> {
     const pushUrl = form?.pushUrl.trim() ?? '';
-    const accessToken = form?.accessToken.trim() ?? '';
-    if (!pushUrl || !accessToken) {
-      showError('信息不完整', '请先填写推送地址与 access_token。');
+    if (!pushUrl) {
+      showError('信息不完整', '请先填写推送地址。');
       return;
     }
+    const accessToken = form?.accessToken.trim() ?? '';
     setTesting(true);
     try {
       const result = await testServer.mutateAsync({ pushUrl, accessToken });
@@ -204,7 +200,7 @@ export function SsePushSection(): ReactElement {
     <div className="weq-set">
       <SectionHeader
         title="SSE 消息推送"
-        desc="把 QQ 新消息实时推送到你指定的地址（HTTP POST + Bearer access_token）。监听实现与 tools:db-watch-listen 一致：防抖合并 + seq 跳变阈值，QQ 刚启动大量写表时只推一条 mass 事件预览最新一条。"
+        desc="把 QQ 新消息实时推送到你指定的地址（HTTP POST，可选 Bearer access_token）。监听实现与 tools:db-watch-listen 一致：防抖合并 + seq 跳变阈值，QQ 刚启动大量写表时只推一条 mass 事件预览最新一条。"
       />
 
       <Card
@@ -239,7 +235,8 @@ export function SsePushSection(): ReactElement {
                       {isEnabled ? <span className="weq-set-server-badge">推送中</span> : null}
                     </div>
                     <div className="weq-set-server-sub">
-                      {server.pushUrl} · access_token 已设置
+                      {server.pushUrl} ·{' '}
+                      {server.accessToken ? 'access_token 已设置' : 'access_token 未设置'}
                     </div>
                   </div>
                   <div className="weq-set-server-actions">
@@ -275,6 +272,92 @@ export function SsePushSection(): ReactElement {
             })}
           </ul>
         )}
+        {form ? (
+          <div className="weq-set-server-form-wrap">
+            <div className="weq-set-server-form-title">
+              {form.id ? '编辑推送目标' : '新增推送目标'}
+            </div>
+            <form className="weq-set-server-form" onSubmit={(e) => void onSave(e)}>
+              <Row
+                label="名称"
+                desc="可选，默认取推送地址的主机部分。"
+                control={
+                  <input
+                    className="weq-set-input"
+                    value={form.name}
+                    spellCheck={false}
+                    placeholder="例如：家里的接收端"
+                    onChange={(e) => updateField('name', e.target.value)}
+                  />
+                }
+              />
+              <Row
+                label="推送地址"
+                desc="接收端 HTTP 接口。示例接收端见仓库 scripts/sse_receive.mjs。"
+                control={
+                  <input
+                    className="weq-set-input weq-set-input-wide"
+                    value={form.pushUrl}
+                    spellCheck={false}
+                    autoComplete="off"
+                    placeholder="http://127.0.0.1:8899/push"
+                    onChange={(e) => updateField('pushUrl', e.target.value)}
+                  />
+                }
+              />
+              <Row
+                label="access_token"
+                desc="可选。接收端要求鉴权时填写，推送时以 Bearer 方式发送；留空则不发送 Authorization 头。"
+                control={
+                  <div className="weq-set-keyfield weq-set-tokenfield">
+                    <KeyRound
+                      size={15}
+                      strokeWidth={1.8}
+                      className="weq-set-keyfield-icon"
+                      aria-hidden
+                    />
+                    <input
+                      className="weq-set-token-input"
+                      type={revealToken ? 'text' : 'password'}
+                      value={form.accessToken}
+                      spellCheck={false}
+                      autoComplete="off"
+                      placeholder="可选，留空则无需鉴权"
+                      onChange={(e) => updateField('accessToken', e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className="weq-set-iconbtn"
+                      title={revealToken ? '隐藏' : '显示'}
+                      aria-label={revealToken ? '隐藏 token' : '显示 token'}
+                      onClick={() => setRevealToken((v) => !v)}
+                    >
+                      {revealToken ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
+                }
+              />
+              <div className="weq-set-server-form-actions">
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-soft"
+                  disabled={testing}
+                  onClick={() => void onTest()}
+                >
+                  {testing ? (
+                    <Loader2 size={13} className="weq-set-spin" />
+                  ) : (
+                    <RefreshCw size={13} />
+                  )}
+                  测试连接
+                </button>
+                <button type="submit" className="weq-set-btn" disabled={busy}>
+                  保存
+                </button>
+              </div>
+            </form>
+          </div>
+        ) : null}
       </Card>
 
       <Card title="推送调优">
@@ -334,86 +417,6 @@ export function SsePushSection(): ReactElement {
           </button>
         </div>
       </Card>
-
-      {form ? (
-        <Card title={form.id ? '编辑推送目标' : '新增推送目标'}>
-          <form className="weq-set-server-form" onSubmit={(e) => void onSave(e)}>
-            <Row
-              label="名称"
-              desc="可选，默认取推送地址的主机部分。"
-              control={
-                <input
-                  className="weq-set-input"
-                  value={form.name}
-                  spellCheck={false}
-                  placeholder="例如：家里的接收端"
-                  onChange={(e) => updateField('name', e.target.value)}
-                />
-              }
-            />
-            <Row
-              label="推送地址"
-              desc="接收端 HTTP 接口。示例接收端见仓库 scripts/sse_receive.mjs。"
-              control={
-                <input
-                  className="weq-set-input weq-set-input-wide"
-                  value={form.pushUrl}
-                  spellCheck={false}
-                  autoComplete="off"
-                  placeholder="http://127.0.0.1:8899/push"
-                  onChange={(e) => updateField('pushUrl', e.target.value)}
-                />
-              }
-            />
-            <Row
-              label="access_token"
-              desc="接收端要求的访问令牌，推送时以 Bearer 方式发送。"
-              control={
-                <div className="weq-set-keyfield weq-set-tokenfield">
-                  <KeyRound
-                    size={15}
-                    strokeWidth={1.8}
-                    className="weq-set-keyfield-icon"
-                    aria-hidden
-                  />
-                  <input
-                    className="weq-set-token-input"
-                    type={revealToken ? 'text' : 'password'}
-                    value={form.accessToken}
-                    spellCheck={false}
-                    autoComplete="off"
-                    placeholder="access_token"
-                    onChange={(e) => updateField('accessToken', e.target.value)}
-                  />
-                  <button
-                    type="button"
-                    className="weq-set-iconbtn"
-                    title={revealToken ? '隐藏' : '显示'}
-                    aria-label={revealToken ? '隐藏 token' : '显示 token'}
-                    onClick={() => setRevealToken((v) => !v)}
-                  >
-                    {revealToken ? <EyeOff size={15} /> : <Eye size={15} />}
-                  </button>
-                </div>
-              }
-            />
-            <div className="weq-set-server-form-actions">
-              <button
-                type="button"
-                className="weq-set-btn weq-set-btn-soft"
-                disabled={testing}
-                onClick={() => void onTest()}
-              >
-                {testing ? <Loader2 size={13} className="weq-set-spin" /> : <RefreshCw size={13} />}
-                测试连接
-              </button>
-              <button type="submit" className="weq-set-btn" disabled={busy}>
-                保存
-              </button>
-            </div>
-          </form>
-        </Card>
-      ) : null}
 
       <p className="weq-set-note">
         <ChevronRight size={13} strokeWidth={2} />

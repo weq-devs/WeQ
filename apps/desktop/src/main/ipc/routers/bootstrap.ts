@@ -493,7 +493,6 @@ export const bootstrapRouter = router({
       const pushUrl = normalizeSsePushUrl(input.pushUrl);
       if (!pushUrl) throw new Error('推送地址无效，需以 http(s):// 开头');
       const token = input.accessToken.trim();
-      if (!token) throw new Error('access_token 不能为空');
       const cfg = userConfig.getSettings().ssePush;
       const existing = input.id ? cfg.servers.find((s) => s.id === input.id) : undefined;
       const id = existing ? existing.id : randomBytes(16).toString('hex');
