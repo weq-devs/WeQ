@@ -51,6 +51,18 @@ export interface RecentContactDbOptions {
   algo?: DatabaseAlgorithms;
 }
 
+/** One conversation's seq watermark, read straight from `recent_contact_v3_table`. */
+export interface RecentContactSeq {
+  /** 40021 — conversation key (peer uid for c2c, group code for group). */
+  targetUid: string;
+  /** 40010 — raw numeric chat type (classify via `classifyChatType`). */
+  chatType: number;
+  /** 40003 — latest message seq in this conversation. */
+  msgSeq: bigint;
+  /** 40050 — latest message sendTime (unix seconds). */
+  sendTime: bigint;
+}
+
 export class RecentContactDb {
   private readonly qq: QqDb;
 
@@ -93,6 +105,24 @@ export class RecentContactDb {
     return new Set(rows.map((row) => toStr(row[0])));
   }
 
+
+  /**
+   * Every conversation's current seq watermark (40021 -> 40003). The table is
+   * small (the recent-chats list), so re-reading it whole per poll is cheap and
+   * never touches the big msg tables. Drives the new-message watcher: a grown
+   * 40003 means new rows landed in that conversation's msg table.
+   */
+  async listSeqWatermarks(): Promise<RecentContactSeq[]> {
+    const rows = await this.qq.query(
+      `SELECT "40021","40010","40003","40050" FROM recent_contact_v3_table`,
+    );
+    return rows.map((row) => ({
+      targetUid: toStr(row[0]),
+      chatType: toNum(row[1]),
+      msgSeq: toBigint(row[2]),
+      sendTime: toBigint(row[3]),
+    }));
+  }
   /**
    * Search conversations by display name (column 40094), newest first.
    * The recent-contact table is small (hundreds of rows), so the LIKE scan
