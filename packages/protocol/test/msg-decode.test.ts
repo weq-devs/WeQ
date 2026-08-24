@@ -1,6 +1,6 @@
 import { deflateSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
-import { decodeMessage, encode, ELEM, FACE_ELEM, FILE_TRANS_TOP, INLINE_KEYBOARD_PB, MARKDOWN_COMMON_PB, PIC_COMMON_PB, PTT_COMMON_PB, PUSH_MSG_BODY, REPLY_PB_RESERVE, TEXT_PB_RESERVE, VIDEO_COMMON_PB } from '../src/index';
+import { decodeMessage, encode, ELEM, FACE_COMMON_PB, FACE_ELEM, FILE_TRANS_TOP, INLINE_KEYBOARD_PB, MARKDOWN_COMMON_PB, PIC_COMMON_PB, PTT_COMMON_PB, PUSH_MSG_BODY, REPLY_PB_RESERVE, TEXT_PB_RESERVE, VIDEO_COMMON_PB } from '../src/index';
 
 describe('decodeMessage 简化消息解码', () => {
   it('把 PushMsgBody 映射成 head/sender/session/elements/dress', () => {
@@ -410,6 +410,36 @@ describe('decodeMessage 简化消息解码', () => {
         keyboardBotAppId: 1905356414,
       },
     ]);
+  });
+
+  it('把 commonElem(serviceType=33) 普通表情解析成 codec 风格 face', () => {
+    const pbElem = encode(FACE_COMMON_PB, { faceId: 324, faceText: '/吃糖' });
+    const bytes = encode(PUSH_MSG_BODY, {
+      contentHead: { msgId: 1, sequence: 1, timestamp: 1 },
+      body: {
+        richText: {
+          elems: [{ commonElem: { serviceType: 33, pbElem, businessType: 1 } }],
+        },
+      },
+    });
+    const msg = decodeMessage(bytes);
+    expect(msg.elements).toEqual([{ kind: 'face', faceId: 324, faceText: '/吃糖' }]);
+  });
+
+  it('未知元素类型直接丢弃，不再原样输出', () => {
+    const bytes = encode(PUSH_MSG_BODY, {
+      contentHead: { msgId: 1, sequence: 1, timestamp: 1 },
+      body: {
+        richText: {
+          elems: [
+            { groupFile: { filename: 'x.zip', fileSize: 100 } },
+            { text: { str: 'hi' } },
+          ],
+        },
+      },
+    });
+    const msg = decodeMessage(bytes);
+    expect(msg.elements).toEqual([{ kind: 'text', textContent: 'hi' }]);
   });
 
   it('把 wallet 红包解析成 codec 风格 wallet，专属红包带 walletDesignatedUin', () => {

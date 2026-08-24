@@ -11,7 +11,7 @@
 
 import { inflateSync } from 'node:zlib';
 import { decode } from '../protobuf';
-import { ELEM, FACE_ELEM, FILE_TRANS_TOP, INLINE_KEYBOARD_PB, MARKDOWN_COMMON_PB, PIC_COMMON_PB, PTT_COMMON_PB, PUSH_MSG_BODY, REPLY_PB_RESERVE, TEXT_PB_RESERVE, VIDEO_COMMON_PB } from './schemas';
+import { ELEM, FACE_COMMON_PB, FACE_ELEM, FILE_TRANS_TOP, INLINE_KEYBOARD_PB, MARKDOWN_COMMON_PB, PIC_COMMON_PB, PTT_COMMON_PB, PUSH_MSG_BODY, REPLY_PB_RESERVE, TEXT_PB_RESERVE, VIDEO_COMMON_PB } from './schemas';
 
 export interface DecodedDress {
   /** 气泡 itemId，无则为 0（elem tag 9.1）。 */
@@ -340,6 +340,9 @@ function liftElem(elem: Record<string, unknown>, dress: DecodedDress | null): Re
   const common = elem.commonElem as
     | { serviceType?: number; businessType?: number; pbElem?: Uint8Array }
     | undefined;
+  if (common?.serviceType === 33 && common.pbElem) {
+    return liftFaceElem(decode(FACE_COMMON_PB, common.pbElem) as Record<string, unknown>);
+  }
   if (common?.serviceType === 37 && common.pbElem) {
     return liftFaceElem(decode(FACE_ELEM, common.pbElem) as Record<string, unknown>);
   }
@@ -374,7 +377,8 @@ function liftElem(elem: Record<string, unknown>, dress: DecodedDress | null): Re
   if (light?.data) return liftArkElem(light);
   const wallet = elem.wallet as Record<string, unknown> | undefined;
   if (wallet) return liftWalletElem(wallet);
-  return elem;
+  // 未适配的未知元素类型直接丢弃，不再原样输出。
+  return undefined;
 }
 export interface DecodedMessage {
   head: {

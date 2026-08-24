@@ -130,6 +130,14 @@ export const TEXT_PB_RESERVE: ProtoMessage = message([
  * tag 2=aniStickerId、3=faceId、4=超级表情标识（1 为超级表情）、
  * 6=diceValue、7=faceText；其余字段一律丢弃（decode 会自动跳过未声明 tag）。
  */
+/**
+ * 普通 QQ 表情（commonElem serviceType=33）的 pbElem：
+ * tag 1=faceId、2=faceText；其余字段一律丢弃。
+ */
+export const FACE_COMMON_PB: ProtoMessage = message([
+  f('faceId', 1, 'int32'),
+  f('faceText', 2, 'string'),
+]);
 export const FACE_ELEM: ProtoMessage = message([
   f('AniStickerId', 2, 'string'),
   f('faceId', 3, 'int32'),
