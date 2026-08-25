@@ -2074,13 +2074,32 @@ export const accountRouter = router({
     }),
   /** Get merged-forward / quote-reply cache for one message. */
   getForwardMessages: procedure
-    .input(z.object({ kind: z.enum(['c2c', 'group']), msgId: z.string().min(1) }))
+    .input(
+      z.object({
+        kind: z.enum(['c2c', 'group']),
+        msgId: z.string().min(1),
+        /**
+         * Optional server resource id of the merged forward. When the local
+         * 40900 cache misses (gap messages are never stored locally), the
+         * router falls back to SsoRecvLongMsg over the live QQ connection.
+         */
+        resId: z.string().optional(),
+      }),
+    )
     .query(async ({ input }) => {
       const service = requireServices().forwardMsgs;
       const records =
         input.kind === 'group'
           ? await service.getGroupForward(BigInt(input.msgId))
           : await service.getC2cForward(BigInt(input.msgId));
+      if (records.length === 0 && input.resId) {
+        // 40900 缓存为空 -> 走协议在线拉取。要求 QQ 在线且未开「完全离线模式」。
+        const state = albumAccessState();
+        if (!state.qqOnline || !state.injectEnabled) {
+          throw new Error('QQ 未在线或处于完全离线模式，无法拉取合并转发');
+        }
+        return await service.fetchRemote(input.resId);
+      }
       return records.map(forwardRecordToWire);
     }),
 
