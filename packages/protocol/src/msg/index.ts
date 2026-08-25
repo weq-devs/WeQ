@@ -5,6 +5,10 @@ export { SSO_GET_GROUP_MSG_CMD, SSO_GET_C2C_MSG_CMD } from './get-history';
 export { decodeMessage } from './decode';
 export type { DecodedMessage, DecodedDress } from './decode';
 
+export { RecvLongMsg, fetchForwardRaw, SSO_RECV_LONG_MSG_CMD } from './get-forward';
+export type { RecvLongMsgParams, ForwardFetchResult } from './get-forward';
+export { LONG_MSG_UID, LONG_MSG_SETTINGS, RECV_LONG_MSG_INFO, RECV_LONG_MSG_REQ, RECV_LONG_MSG_RESP_RESULT, RECV_LONG_MSG_RESP, LONG_MSG_CONTENT, LONG_MSG_ACTION, LONG_MSG_RESULT } from './get-forward';
+
 export { dumpProto, walkProto, extractPath, protoToJson } from './dump';
 export type { DumpOptions, DumpEntry, PathStep, ProtoJsonMap, ProtoJsonNode, ProtoJsonLeaf } from './dump';
 

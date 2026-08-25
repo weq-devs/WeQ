@@ -71,7 +71,7 @@ export type GapFetchResult =
  * toRenderElements 的 reply 分支假设它们是原始 wire（会再 decodeElement 一次），
  * 直接复用会把引用内容打成 unknown，所以这里对 reply 单独处理。
  */
-function renderDecodedElements(elements: Record<string, unknown>[]): RenderElement[] {
+export function renderDecodedElements(elements: Record<string, unknown>[]): RenderElement[] {
   return elements.map((el) => {
     if (el.kind === 'reply') {
       const { kind: _kind, origElements, ...rest } = el;

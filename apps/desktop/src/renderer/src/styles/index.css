@@ -8625,7 +8625,10 @@ html[data-theme="dark"] .weq-flash-opening { background: rgba(0, 0, 0, 0.55); }
   position: fixed;
   inset: 0;
   /* Above .app-title-bar (z-index: 100) so the floating window's header and
-     close button are never covered by the OS drag region when near the top. */
+     close button are never covered by the OS drag region when near the top.
+     ForwardWindowHost claims a dynamic overlay layer (useOverlayLayer) once a
+     window opens, so the stack also sits above any modal (missing-messages,
+     etc.) — this static value is only a fallback for the empty state. */
   z-index: 110;
   pointer-events: none;
 }
