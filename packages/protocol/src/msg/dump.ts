@@ -294,7 +294,7 @@ export function protoToJson(bytes: Uint8Array): ProtoJsonMap {
           break;
         }
         default:
-          throw new Error('protobuf: 未知 wire type ' + wire);
+          throw new Error(`protobuf: 未知 wire type ${wire}`);
       }
     }
   };
