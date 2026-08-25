@@ -14640,6 +14640,36 @@ html[data-theme="dark"] .weq-graytip-band {
   color: color-mix(in srgb, var(--weq-accent-effective) 70%, var(--weq-fg-muted));
 }
 
+/* 缺失消息占位条按钮：重置 button 默认样式，hover 高亮提示可点击。 */
+.weq-graytip-band .weq-gap-band-button {
+  display: inline-block;
+  margin-top: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: color-mix(in srgb, var(--weq-accent-effective) 70%, var(--weq-fg-muted));
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+.weq-graytip-band .weq-gap-band-button:hover:not(:disabled) {
+  color: var(--weq-accent-effective);
+  text-decoration: underline;
+}
+.weq-graytip-band .weq-gap-band-button:disabled {
+  cursor: default;
+}
+
+/* 缺失消息弹窗：拉取中图标旋转。 */
+.weq-gap-spin {
+  animation: weq-gap-spin 0.9s linear infinite;
+}
+@keyframes weq-gap-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* ---- Merged session panel (service/official/hidden aggregated view) ---- */
 .sidebar {
   overflow: hidden;

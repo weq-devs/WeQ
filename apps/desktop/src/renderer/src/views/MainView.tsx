@@ -51,6 +51,7 @@ import { GroupBugDialog } from '../components/GroupBugDialog';
 import { AddMessageModal } from '../components/compose/AddMessageModal';
 import { DeletedMessagesModal } from '../components/compose/DeletedMessagesModal';
 import { RecalledMessagesModal } from '../components/compose/RecalledMessagesModal';
+import { GapMessagesModal } from '../components/compose/GapMessagesModal';
 import { RelationGraphView } from '../components/relationGraph/RelationGraphView';
 import { SearchDropdown } from '../components/search/SearchDropdown';
 import { UnifiedSearchModal } from '../components/search/UnifiedSearchModal';
@@ -1728,6 +1729,17 @@ export function MainView(): ReactElement {
   const [recalledConv, setRecalledConv] = useState<Conversation | null>(null);
   const [recalledWires, setRecalledWires] = useState<MessageWire[]>([]);
   const [recalledLoading, setRecalledLoading] = useState(false);
+  // 缺失消息面板：占位条点击后打开，从 QQ 服务端按 seq 窗口拉取。
+  const [gapDialog, setGapDialog] = useState<{
+    conversation: Conversation;
+    previousSeq: string;
+    currentSeq: string;
+    count: number;
+  } | null>(null);
+  const [gapWires, setGapWires] = useState<MessageWire[]>([]);
+  const [gapLoading, setGapLoading] = useState(false);
+  const [gapError, setGapError] = useState<string | null>(null);
+  const [gapTruncated, setGapTruncated] = useState(false);
   // msgIds WeQ deleted in the SELECTED conversation — drives the in-place
   // translucent overlay in the chat. Loaded per conversation, updated
   // optimistically on delete/restore.
@@ -1906,6 +1918,86 @@ export function MainView(): ReactElement {
       void loadRecalledMessages(conversation);
     },
     [loadRecalledMessages],
+  );
+
+  /** 拉取占位条两侧 seq 开区间内的缺失消息。 */
+  const loadGapMessages = useCallback(
+    async (c: Conversation, previousSeq: string, currentSeq: string): Promise<void> => {
+      const { kind, conv } = convFetchKey(c);
+      setGapLoading(true);
+      setGapError(null);
+      setGapTruncated(false);
+      try {
+        const startSeq = BigInt(previousSeq) + 1n;
+        const endSeq = BigInt(currentSeq) - 1n;
+        if (startSeq > endSeq) {
+          setGapWires([]);
+          setGapTruncated(false);
+          setGapError('拉取失败：未开启消息漫游或者消息已过期');
+          return;
+        }
+        const res = await client.account.fetchGapMessages.query({
+          kind,
+          conv,
+          startSeq: Number(startSeq),
+          endSeq: Number(endSeq),
+        });
+        if (!res.ok) {
+          setGapWires([]);
+          setGapTruncated(false);
+          if (res.reason === 'no-messages') {
+            setGapError('拉取失败：未开启消息漫游或者消息已过期');
+          } else if (res.reason === 'offline') {
+            setGapError('QQ 未在线，无法拉取缺失消息');
+          } else {
+            setGapError(`拉取失败：${res.message}`);
+          }
+          return;
+        }
+        setGapError(null);
+        setGapTruncated(res.truncated);
+        setGapWires(res.messages.map(toMessageWire));
+      } catch (e) {
+        console.error('[MainView] Failed to fetch gap messages:', e);
+        setGapWires([]);
+        setGapTruncated(false);
+        setGapError('拉取失败：未开启消息漫游或者消息已过期');
+      } finally {
+        setGapLoading(false);
+      }
+    },
+    [convFetchKey],
+  );
+
+  /** 占位条点击：无在线 QQ / 完全离线模式不打开窗口，直接 toast 提示。 */
+  const handleOpenGapMessages = useCallback(
+    async (gap: {
+      conversation: Conversation;
+      previousSeq: string;
+      currentSeq: string;
+      count: number;
+    }) => {
+      try {
+        const state = await client.account.getGroupAlbumAccessState.query();
+        if (!state.qqOnline || !state.injectEnabled) {
+          pushToast({
+            tone: 'warning',
+            message: 'QQ 未在线或处于完全离线模式，无法拉取缺失消息',
+          });
+          return;
+        }
+      } catch (e) {
+        console.error('[MainView] Gap online check failed:', e);
+        pushToast({ tone: 'warning', message: 'QQ 未在线，无法拉取缺失消息' });
+        return;
+      }
+      setGapWires([]);
+      setGapError(null);
+      setGapTruncated(false);
+      setGapDialog(gap);
+      void loadGapMessages(gap.conversation, gap.previousSeq, gap.currentSeq);
+    },
+    [loadGapMessages, pushToast],
   );
 
   const handleRestoreMessage = useCallback(
@@ -2860,6 +2952,17 @@ export function MainView(): ReactElement {
       .map((message) => messageToTemplate(message, recalledConv, user, memberMap, botUids));
   }, [recalledWires, recalledConv, user, currentGroupMembers, botUids]);
 
+  // 缺失消息走同一条模板管线（气泡与主时间线一致：头像 / 昵称 / 装扮 / 消息体）。
+  const gapTemplateMessages = useMemo(() => {
+    if (!gapDialog) return [];
+    const memberMap = new Map(currentGroupMembers.map((m) => [m.id, m]));
+    return gapWires
+      .filter((message) => isRenderableMessage(message))
+      .map((message) =>
+        messageToTemplate(message, gapDialog.conversation, user, memberMap, botUids),
+      );
+  }, [gapWires, gapDialog, user, currentGroupMembers, botUids]);
+
   const activeConversation = useMemo(() => {
     if (!selectedConversation) return undefined;
     if (selectedConversation.type !== 'group') return selectedConversation;
@@ -3716,6 +3819,7 @@ export function MainView(): ReactElement {
                       onAddMessage={handleAddMessage}
                       onViewDeleted={handleViewDeleted}
                       onViewRecalled={handleViewRecalled}
+                      onOpenGapMessages={handleOpenGapMessages}
                       deletedIds={deletedIds}
                       onRestoreMessage={handleRestoreMessage}
                     />
@@ -3931,6 +4035,23 @@ export function MainView(): ReactElement {
               onClose={() => {
                 setRecalledConv(null);
                 setRecalledWires([]);
+              }}
+            />
+          ) : null}
+          {gapDialog ? (
+            <GapMessagesModal
+              conversation={gapDialog.conversation}
+              user={user}
+              messages={gapTemplateMessages}
+              renderers={messageRenderers}
+              loading={gapLoading}
+              error={gapError}
+              truncated={gapTruncated}
+              onClose={() => {
+                setGapDialog(null);
+                setGapWires([]);
+                setGapError(null);
+                setGapTruncated(false);
               }}
             />
           ) : null}

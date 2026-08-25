@@ -2145,6 +2145,30 @@ export const accountRouter = router({
     }),
 
   /**
+   * 拉取聊天时间线中缺失的远端消息（按 seq 窗口，含端点）。聊天里的占位条
+   * 点击后调用：窗口 = 占位条两侧消息 seq 之间的开区间。依赖在线 QQ 发包，
+   * 离线 / 完全离线模式由服务层判定并返回 { ok: false, reason: 'offline' }；
+   * 拉回零条（漫游未开 / 消息过期）返回 reason: 'no-messages'。
+   */
+  fetchGapMessages: procedure
+    .input(
+      z.object({
+        kind: z.enum(['c2c', 'group']),
+        conv: z.string().min(1),
+        startSeq: z.number().int().min(0),
+        endSeq: z.number().int().min(0),
+      }),
+    )
+    .query(async ({ input }) => {
+      return requireServices().gapHistory.fetch(
+        input.kind,
+        input.conv,
+        input.startSeq,
+        input.endSeq,
+      );
+    }),
+
+  /**
    * Field descriptors for the compose form — required/optional/type per
    * authorable element kind, derived from the codec Zod schemas.
    */
