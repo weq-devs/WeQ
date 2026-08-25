@@ -23,6 +23,9 @@ import type { Element } from '@weq/codec';
 import type { C2cMsg, GroupMsg } from '@weq/db';
 import { getLogger, logErrorContext } from '../common/logger';
 import { DbWatchService, type DbWatchHandle } from './db_watch';
+import { liftForwardRecords } from './export/forward_expand';
+import { bigintReplacer } from './export/serialize';
+import { toRenderElements, type RenderElement } from './msg_view';
 import { createNtMsgDbHook, type NewMessages } from './nt_msg_hook';
 
 /** 推送目标：接收端地址 + access_token。 */
@@ -56,6 +59,8 @@ export interface SseMessageEvent {
   sendTime: string;
   /** 文本摘要：text/at 取正文，其余元素只给标签。 */
   text: string;
+  /** 完整消息元素（与导出同构的 RenderElement[]，bigint 序列化时转字符串）。 */
+  elements: RenderElement[];
 }
 
 /** 大量消息合并事件：seq 跳变过大时替代逐条推送，只预览最新一条。 */
@@ -315,7 +320,9 @@ export class SsePushService {
       let maxSeq = safePrev;
       for (const row of group.rows) {
         if (row.msg.msgSeq <= safePrev) continue;
-        events.push(toMessageEvent(group.kind, row.msg));
+        const event = toMessageEvent(group.kind, row.msg);
+        await this.expandForwardCache(event);
+        events.push(event);
         if (row.msg.msgSeq > maxSeq) maxSeq = row.msg.msgSeq;
       }
       if (maxSeq > safePrev) nextSeqs.set(key, maxSeq);
@@ -334,11 +341,19 @@ export class SsePushService {
       // listLatest 返回 newest-first（DESC by seq），所以最新一条是 msgs[0]。
       if (kind === 'group') {
         const msgs = await this.session.groupMsgs.listLatest(convId, 5);
-        if (msgs.length > 0) return toMessageEvent('group', msgs[0]!);
+        if (msgs.length > 0) {
+          const latest = toMessageEvent('group', msgs[0]!);
+          await this.expandForwardCache(latest);
+          return latest;
+        }
       } else {
         const part = c2cPartition(this.session, convId);
         const msgs = await this.session.c2cMsgs.listLatest(part, 5);
-        if (msgs.length > 0) return toMessageEvent('c2c', msgs[0]!);
+        if (msgs.length > 0) {
+          const latest = toMessageEvent('c2c', msgs[0]!);
+          await this.expandForwardCache(latest);
+          return latest;
+        }
       }
     } catch (error) {
       this.logger.warn('fetch latest preview failed, using batch tail', {
@@ -346,7 +361,38 @@ export class SsePushService {
         ...logErrorContext(error),
       });
     }
-    return toMessageEvent(kind, fallback);
+    const fallbackEvent = toMessageEvent(kind, fallback);
+    await this.expandForwardCache(fallbackEvent);
+    return fallbackEvent;
+  }
+
+  /**
+   * 合并转发展开：事件带 multiMsg 元素时，读该消息的 40900 缓存（合并转发的
+   * 真实内容）并注入 forwardMessages，与导出管线的 expandForwards 一致。
+   * 缓存缺失 / 解析失败时保留占位，不阻塞推送。
+   */
+  private async expandForwardCache(event: SseMessageEvent): Promise<void> {
+    const hasForward = event.elements.some((el) => el.type === 'multiMsg');
+    if (!hasForward) return;
+    try {
+      const msgId = BigInt(event.msgId);
+      const records =
+        event.chatType === 'group'
+          ? await this.session.forwardMsgs.listGroupForward(msgId)
+          : await this.session.forwardMsgs.listC2cForward(msgId);
+      const lifted = liftForwardRecords(records);
+      if (lifted.length === 0) return;
+      for (const el of event.elements) {
+        if (el.type === 'multiMsg') el.data.forwardMessages = lifted;
+      }
+    } catch (error) {
+      this.logger.warn('expand forward cache failed, keep placeholder', {
+        event: 'sse-push-forward-failed',
+        chatType: event.chatType,
+        msgId: event.msgId,
+        ...logErrorContext(error),
+      });
+    }
   }
 
   private clearTimers(): void {
@@ -398,6 +444,7 @@ function toMessageEvent(kind: 'c2c' | 'group', msg: C2cMsg | GroupMsg): SseMessa
     senderUin: msg.senderUin.toString(),
     sendTime: msg.sendTime.toString(),
     text: summarizeElements(msg.elements),
+    elements: toRenderElements(msg.elements),
   };
 }
 
@@ -445,7 +492,7 @@ export async function postSsePushEvents(
   return fetch(target.pushUrl, {
     method: 'POST',
     headers,
-    body: JSON.stringify(payload),
+    body: JSON.stringify(payload, bigintReplacer),
     signal: AbortSignal.timeout(timeoutMs),
   });
 }
@@ -471,6 +518,7 @@ export async function testSsePushTarget(
         senderUin: '',
         sendTime: String(Math.floor(Date.now() / 1000)),
         text: 'WeQ 连接测试 ping',
+        elements: [],
       },
     ],
     timeoutMs,

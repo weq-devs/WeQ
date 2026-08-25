@@ -134,36 +134,7 @@ function broadcast(events) {
 
 function printEvent(event) {
   if (!event || typeof event !== 'object') return;
-  if (event.type === 'mass') {
-    const preview = event.preview;
-    console.log(
-      `[大量消息] ${event.chatType === 'group' ? '群聊' : '私聊'} 会话=${event.convId} ` +
-        `seq ${event.fromSeq} → ${event.toSeq} 共 ${event.count} 条`,
-    );
-    if (preview) {
-      console.log(
-        `          最新一条: ${formatTime(preview.sendTime)} 发送者=${preview.senderUin} ` +
-          `seq=${preview.msgSeq} msgId=${preview.msgId}`,
-      );
-      console.log(`          内容: ${preview.text}`);
-    }
-    return;
-  }
-  console.log(
-    `[消息] ${event.chatType === 'group' ? '群聊' : '私聊'} ${formatTime(event.sendTime)} ` +
-      `会话=${event.convId} 发送者=${event.senderUin}(${event.senderUid}) ` +
-      `seq=${event.msgSeq} msgId=${event.msgId}`,
-  );
-  console.log(`       内容: ${event.text ?? '(no text)'}`);
-}
-
-function formatTime(epochSeconds) {
-  const d = new Date(Number(epochSeconds) * 1000);
-  const pad = (n) => String(n).padStart(2, '0');
-  return (
-    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
-    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-  );
+  console.log(JSON.stringify(event, null, 2));
 }
 
 function parseArgs(argv) {
