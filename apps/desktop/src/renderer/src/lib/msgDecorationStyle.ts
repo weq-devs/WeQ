@@ -10,7 +10,14 @@
  */
 
 import type { BubbleSkin, ResolvedWidget } from '@weq/service';
-import { dressBubbleUrl, dressBubbleFrameUrl, dressPendantFrameUrl, dressFontUrl, dressUrl } from './resourceUrl';
+import {
+  dressBubbleUrl,
+  dressBubbleFrameUrl,
+  dressPendantFrameUrl,
+  dressFontUrl,
+  dressUrl,
+} from './resourceUrl';
+import { bubbleLinkMentionRules, bubbleRestrictsTextColor } from './dressSkin';
 
 const STYLE_ID = 'weq-msg-decoration';
 const BUBBLE_SCALE = 0.5;
@@ -221,6 +228,11 @@ export function injectBubbleCss(skin: BubbleSkin): void {
     `  outline-offset: -1px;`,
     `}`,
   );
+
+  // 文字色受限的气泡：链接 / @提及不再标蓝（会和气泡文字色冲突），改为继承气泡色 + 下划线。
+  if (bubbleRestrictsTextColor(skin.textColor)) {
+    rules.push(bubbleLinkMentionRules(sel));
+  }
 
   append(rules.join('\n'));
 
