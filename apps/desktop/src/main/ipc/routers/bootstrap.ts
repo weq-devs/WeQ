@@ -42,6 +42,8 @@ import {
   type DirSizeProgress,
   validateChatpicRoot,
   normalizeNapcatBaseUrl,
+  normalizeSsePushUrl,
+  testSsePushTarget,
 } from '@weq/service';
 import { peekStaticSelfUin, deriveAndroidDbKey } from '@weq/account';
 import { isTencentFilesRoot } from '@weq/platform';
@@ -280,6 +282,26 @@ export const bootstrapRouter = router({
   }),
 
   /**
+   * 设置导出中心的默认保存目录（null = 清除，恢复逐任务弹窗）。
+   */
+  setDefaultExportDir: procedure
+    .input(z.object({ dir: z.string().min(1).nullable() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ defaultExportDir: input.dir });
+      return true;
+    }),
+
+  /**
+   * 弹系统目录选择框并保存为导出默认保存目录。取消返回 null（不修改设置）。
+   */
+  pickDefaultExportDir: procedure.mutation(async (): Promise<string | null> => {
+    const picked = await getHost().pickDirectory({ title: '选择默认导出保存文件夹' });
+    if (!picked) return null;
+    requireBootstrap().userConfig.setSettings({ defaultExportDir: picked });
+    return picked;
+  }),
+
+  /**
    * Toggle 启用数据库监听. Persists, then applies live to the open account so the
    * nt_msg.db watcher mounts/unmounts immediately (no re-open needed).
    */
@@ -293,8 +315,12 @@ export const bootstrapRouter = router({
    * Toggle 自动注入 QQ（完整功能总闸）. Persists, and the account monitor reads
    * it live on its next poll so injection / harvesting starts or stops
    * immediately (no re-open needed). 关闭 = 完全离线模式。
+   * macOS 不支持注入（SIP 限制）：开启请求直接拒绝，开关恒为关闭。
    */
   setAutoInjectQq: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+    if (input.enabled && process.platform === 'darwin') {
+      throw new Error('macOS 版不支持注入 QQ（SIP 限制），此开关无法开启。请手动填入数据库密钥使用。');
+    }
     requireBootstrap().userConfig.setSettings({ autoInjectQq: input.enabled });
     return true;
   }),
@@ -499,6 +525,96 @@ export const bootstrapRouter = router({
     .mutation(async ({ input }) => {
       const result = await requireBootstrap().externalRkey.test(input.baseUrl, input.accessToken);
       return { ok: true, name: result.name, expiredTime: result.expiredTime };
+    }),
+
+  // ---- SSE 消息推送（设置 → SSE 推送）----
+
+  /** 新增 / 编辑一条推送目标；编辑保留原启用状态，新增不自动启用。 */
+  saveSsePushServer: procedure
+    .input(
+      z.object({
+        id: z.string().optional(),
+        name: z.string(),
+        pushUrl: z.string(),
+        accessToken: z.string(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      const pushUrl = normalizeSsePushUrl(input.pushUrl);
+      if (!pushUrl) throw new Error('推送地址无效，需以 http(s):// 开头');
+      const token = input.accessToken.trim();
+      const cfg = userConfig.getSettings().ssePush;
+      const existing = input.id ? cfg.servers.find((s) => s.id === input.id) : undefined;
+      const id = existing ? existing.id : randomBytes(16).toString('hex');
+      const name = input.name.trim() || hostOfServerUrl(pushUrl);
+      const entry = { id, name, pushUrl, accessToken: token };
+      const servers = existing
+        ? cfg.servers.map((s) => (s.id === id ? { ...s, ...entry } : s))
+        : [...cfg.servers, entry];
+      userConfig.setSettings({ ssePush: { servers, enabledServerId: cfg.enabledServerId } });
+      const next = userConfig.getSettings().ssePush;
+      await getAppContext().applySsePush(next);
+      return next;
+    }),
+
+  /** 删除一条推送目标；删的是当前启用项时自动回到「未启用」。 */
+  deleteSsePushServer: procedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      const cfg = userConfig.getSettings().ssePush;
+      const servers = cfg.servers.filter((s) => s.id !== input.id);
+      const enabledServerId = cfg.enabledServerId === input.id ? null : cfg.enabledServerId;
+      userConfig.setSettings({ ssePush: { servers, enabledServerId } });
+      const next = userConfig.getSettings().ssePush;
+      await getAppContext().applySsePush(next);
+      return next;
+    }),
+
+  /** 启用 / 停用某条推送目标：同时只能启用一条，传 null 表示全部停用。 */
+  setSsePushEnabled: procedure
+    .input(z.object({ serverId: z.string().nullable() }))
+    .mutation(async ({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      const cfg = userConfig.getSettings().ssePush;
+      const enabledServerId =
+        input.serverId && cfg.servers.some((s) => s.id === input.serverId)
+          ? input.serverId
+          : null;
+      userConfig.setSettings({ ssePush: { enabledServerId } });
+      const next = userConfig.getSettings().ssePush;
+      await getAppContext().applySsePush(next);
+      return next;
+    }),
+
+  /** 调整防抖毫秒与大量消息阈值（全局调优）。 */
+  setSsePushTuning: procedure
+    .input(
+      z.object({
+        debounceMs: z.number().int().min(100).max(60_000),
+        massThreshold: z.number().int().min(1).max(10_000),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      userConfig.setSettings({
+        ssePush: { debounceMs: input.debounceMs, massThreshold: input.massThreshold },
+      });
+      const next = userConfig.getSettings().ssePush;
+      await getAppContext().applySsePush(next);
+      return next;
+    }),
+
+  /** 测试推送目标连通性：发一条 ping 事件（只探测，不写配置）。 */
+  testSsePushServer: procedure
+    .input(z.object({ pushUrl: z.string(), accessToken: z.string() }))
+    .mutation(async ({ input }) => {
+      const result = await testSsePushTarget({
+        pushUrl: input.pushUrl,
+        accessToken: input.accessToken,
+      });
+      return { ok: true, latencyMs: result.latencyMs };
     }),
 
   /**

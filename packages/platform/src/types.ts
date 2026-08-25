@@ -1,11 +1,10 @@
 /**
  * Platform interface — what every OS adapter must provide.
  *
- * Win32 is the only implementation today; mac/linux will land later. The
- * interface deliberately stays small: it exposes paths + a few QQ probe
- * primitives, then hands the native binding & resources off to higher
- * layers (service package). Path resolution is the only thing that
- * genuinely varies per-OS.
+ * win32 / linux / darwin each have an implementation. The interface
+ * deliberately stays small: it exposes paths + a few QQ probe primitives,
+ * then hands the native binding & resources off to higher layers (service
+ * package). Path resolution is the only thing that genuinely varies per-OS.
  */
 
 import type { NativeBundle } from '@weq/native';

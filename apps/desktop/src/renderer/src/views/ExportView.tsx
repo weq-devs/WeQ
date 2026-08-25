@@ -230,6 +230,7 @@ export function ExportView(): ReactElement {
   const groups = trpc.account.listAllGroups.useQuery({ limit: 2000 });
   const tasks = trpc.account.listExportTasks.useQuery();
   const schedules = trpc.account.listSchedules.useQuery();
+  const exportDirSettings = trpc.bootstrap.getSettings.useQuery();
 
   const [mode, setMode] = useState<ExportMode>('full');
   const [convSelection, setConvSelection] = useState<Set<string>>(new Set());
@@ -492,6 +493,55 @@ export function ExportView(): ReactElement {
       }
     } catch (e) {
       dialog.error('保存失败', e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  /** 一键把全部已完成任务保存到默认导出目录（未配置时先引导选择一次）。 */
+  const onSaveAll = async (): Promise<void> => {
+    const completed = uiTasks.filter((t) => t.status === 'completed');
+    if (completed.length === 0) return;
+    // 未配置默认目录：先弹一次目录选择并写入设置。
+    let defaultDir = exportDirSettings.data?.defaultExportDir ?? null;
+    if (!defaultDir) {
+      defaultDir = await client.bootstrap.pickDefaultExportDir.mutate();
+      if (!defaultDir) return; // 用户取消
+      void exportDirSettings.refetch();
+    }
+    const failed: string[] = [];
+    let okCount = 0;
+    for (const t of completed) {
+      try {
+        let ok = false;
+        if (t.bundleDir) {
+          ok = await client.account.saveExportBundle.mutate({ taskId: t.id });
+        } else if (t.filePath) {
+          const fmt: BackendFormat = isBackendFormat(t.format as ExportFormat)
+            ? (t.format as BackendFormat)
+            : 'json';
+          ok = await client.account.saveExportFile.mutate({
+            sourcePath: t.filePath,
+            defaultName: `${t.name}.${t.format}`,
+            format: fmt,
+          });
+        }
+        if (ok) {
+          await client.account.deleteExportTask.mutate({ taskId: t.id });
+          okCount += 1;
+        } else {
+          failed.push(t.name);
+        }
+      } catch {
+        failed.push(t.name);
+      }
+    }
+    refetchTasks();
+    if (failed.length > 0) {
+      dialog.error(
+        '部分任务保存失败',
+        `成功 ${okCount} 个，失败 ${failed.length} 个：${failed.slice(0, 8).join('、')}${failed.length > 8 ? '…' : ''}`,
+      );
+    } else {
+      await dialog.info('批量保存完成', `已保存 ${okCount} 个导出任务到默认目录。`);
     }
   };
 
@@ -1292,6 +1342,7 @@ export function ExportView(): ReactElement {
         onCancel={onCancel}
         onDownload={(t) => void onDownload(t)}
         onDelete={onDelete}
+        onSaveAll={() => void onSaveAll()}
         onShowFailures={(t, failures) => setFailureView({ name: t.name, failures })}
       />
 

@@ -2,19 +2,18 @@
  * Resolve and load the two closed-source `.node` addons plus their
  * companion resource files.
  *
- * Repo layout (win32 + linux implemented; darwin throws with a clear
- * "not yet implemented" message):
+ * Repo layout (win32 + linux + darwin implemented):
  *
  *   native/
- *     win32/x64/  ·  linux/x64/  ·  linux/arm64/
+ *     win32/x64/  ·  linux/x64/  ·  linux/arm64/  ·  darwin/x64/  ·  darwin/arm64/
  *       nt_helper.node                (renamed from index.<platform>-<arch>-*.node)
- *       ninebird/
+ *       ninebird/                     (win32 + linux only — mac has no
+ *                                      injection, so no hooker bundle)
  *         NineBird.node               (hooker; loader JS requires it by this exact name)
  *         ninebird_addon.node         (launchQQ entry)
  *         NineBirdHook.dll            (win32 injection medium)
  *         ninebird_launcher.so        (linux injection medium; LD_PRELOAD)
  *         qqnt.json
- *     darwin/                         (placeholder dirs)
  *
  *   resources/ninebird-runtime/       (platform-independent; built ONCE by
  *     qr-dbkey.js                     `pnpm build:ninebird` from packages/ninebird.
@@ -44,6 +43,7 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
+  LaunchQqResult,
   NativeBundle,
   NineBirdBootBinding,
   NineBirdResources,
@@ -126,9 +126,6 @@ export function loadNative(opts: LoadNativeOptions = {}): NativeBundle {
   logToFile('[loadNative] nt_helper.node exists, attempting to require...');
 
   const nineBirdDir = join(platformRoot, 'ninebird');
-  const nineBirdBootPath = join(nineBirdDir, 'ninebird_addon.node');
-  assertExists(nineBirdBootPath, 'ninebird/ninebird_addon.node');
-
   const resources = buildResources(nineBirdDir, nativeRoot);
 
   let ntHelper: NtHelperBinding;
@@ -155,9 +152,33 @@ export function loadNative(opts: LoadNativeOptions = {}): NativeBundle {
 
   configureNtHelperLogging(ntHelper);
 
+  // macOS has no injection (SIP) and therefore no hooker bundle — stub the
+  // launch bootstrap with a clear error so the login/key flows degrade
+  // gracefully instead of crashing on a missing addon. The db-decrypt worker
+  // still resolves nt_helper.node from `resources.loaderDir` (see
+  // packages/service/src/account/db_decrypt.ts), which is why loaderDir is
+  // kept pointing at the platform root's ninebird path even though nothing is
+  // shipped there on darwin.
+  let nineBirdBoot: NineBirdBootBinding;
+  if (process.platform === 'darwin') {
+    nineBirdBoot = {
+      async launchQQ(): Promise<LaunchQqResult> {
+        return {
+          success: false,
+          pid: 0,
+          error: 'macOS 暂不支持注入 QQ（SIP 限制），无法启动登录/密钥提取流程。',
+        };
+      },
+    };
+  } else {
+    const nineBirdBootPath = join(nineBirdDir, 'ninebird_addon.node');
+    assertExists(nineBirdBootPath, 'ninebird/ninebird_addon.node');
+    nineBirdBoot = requireFromHere(nineBirdBootPath) as NineBirdBootBinding;
+  }
+
   cached = {
     ntHelper,
-    nineBirdBoot: requireFromHere(nineBirdBootPath) as NineBirdBootBinding,
+    nineBirdBoot,
     resources,
   };
   logToFile('[loadNative] Native modules loaded and cached successfully');
@@ -289,18 +310,17 @@ function resolveNativeRoot(): string {
 
 function resolvePlatformRoot(nativeRoot: string): string {
   const { platform, arch } = process;
-  if (platform !== 'win32' && platform !== 'linux') {
+  if (platform !== 'win32' && platform !== 'linux' && platform !== 'darwin') {
     throw new Error(
-      `Platform '${platform}' is not yet supported. win32 and linux are implemented; ` +
-        `darwin port is pending.`,
+      `Platform '${platform}' is not supported. win32, linux and darwin are implemented.`,
     );
   }
   if (platform === 'win32' && arch !== 'x64') {
     throw new Error(`Architecture '${arch}' is not supported on win32. Only x64 is implemented.`);
   }
-  if (platform === 'linux' && arch !== 'x64' && arch !== 'arm64') {
+  if ((platform === 'linux' || platform === 'darwin') && arch !== 'x64' && arch !== 'arm64') {
     throw new Error(
-      `Architecture '${arch}' is not supported on linux. Only x64 and arm64 are implemented.`,
+      `Architecture '${arch}' is not supported on ${platform}. Only x64 and arm64 are implemented.`,
     );
   }
   const platformRoot = join(nativeRoot, platform, arch);
@@ -345,9 +365,16 @@ function resolveNineBirdRuntimeDir(nativeRoot: string): string {
 function buildResources(nineBirdDir: string, nativeRoot: string): NineBirdResources {
   // The injection medium is the one file whose name differs per OS: a
   // `LD_PRELOAD` shared object on linux, an injected DLL on win32. Both are
-  // passed to launchQQ via the same `hookDllPath` field.
-  const injectionMedium =
-    process.platform === 'linux' ? 'ninebird_launcher.so' : 'NineBirdHook.dll';
+  // passed to launchQQ via the same `hookDllPath` field. macOS ships no
+  // injection medium (SIP) and no hooker bundle — the paths below are kept as
+  // placeholders so the resource shape stays uniform, but nothing is asserted
+  // (the stub `nineBirdBoot` fails before any of them is read).
+  const isMac = process.platform === 'darwin';
+  const injectionMedium = isMac
+    ? ''
+    : process.platform === 'linux'
+      ? 'ninebird_launcher.so'
+      : 'NineBirdHook.dll';
   const runtimeDir = resolveNineBirdRuntimeDir(nativeRoot);
   const resources: NineBirdResources = {
     // Must keep pointing at the native ninebird/ dir: the loader scripts find
@@ -361,18 +388,20 @@ function buildResources(nineBirdDir: string, nativeRoot: string): NineBirdResour
     quickDbkeyJsPath: join(runtimeDir, 'quick-dbkey.js'),
     accountListJsPath: join(runtimeDir, 'account-list.js'),
   };
-  assertExists(resources.hookDllPath, `ninebird/${injectionMedium}`);
-  assertExists(resources.qqntJsonPath, 'ninebird/qqnt.json');
-  assertExists(resources.nineBirdAddonPath, 'ninebird/NineBird.node');
-  assertExists(resources.qrDbkeyJsPath, 'ninebird-runtime/qr-dbkey.js — run pnpm build:ninebird');
-  assertExists(
-    resources.quickDbkeyJsPath,
-    'ninebird-runtime/quick-dbkey.js — run pnpm build:ninebird',
-  );
-  assertExists(
-    resources.accountListJsPath,
-    'ninebird-runtime/account-list.js — run pnpm build:ninebird',
-  );
+  if (!isMac) {
+    assertExists(resources.hookDllPath, `ninebird/${injectionMedium}`);
+    assertExists(resources.qqntJsonPath, 'ninebird/qqnt.json');
+    assertExists(resources.nineBirdAddonPath, 'ninebird/NineBird.node');
+    assertExists(resources.qrDbkeyJsPath, 'ninebird-runtime/qr-dbkey.js — run pnpm build:ninebird');
+    assertExists(
+      resources.quickDbkeyJsPath,
+      'ninebird-runtime/quick-dbkey.js — run pnpm build:ninebird',
+    );
+    assertExists(
+      resources.accountListJsPath,
+      'ninebird-runtime/account-list.js — run pnpm build:ninebird',
+    );
+  }
   return resources;
 }
 
@@ -428,10 +457,15 @@ function resolveNativeLogRoot(): string {
     candidates.add(join(localAppData, 'WeQ', 'logs'));
   }
 
-  // Linux/macOS: XDG-style per-user config dir.
+  // macOS: Library/Application Support (system convention; matches
+  // platform.appDataRoot()). Linux: XDG-style per-user config dir.
   if (process.platform !== 'win32') {
-    const xdg = process.env.XDG_CONFIG_HOME || join(homedir(), '.config');
-    candidates.add(join(xdg, 'WeQ', 'logs'));
+    if (process.platform === 'darwin') {
+      candidates.add(join(homedir(), 'Library', 'Application Support', 'WeQ', 'logs'));
+    } else {
+      const xdg = process.env.XDG_CONFIG_HOME || join(homedir(), '.config');
+      candidates.add(join(xdg, 'WeQ', 'logs'));
+    }
   }
 
   const cwdLogDir = join(process.cwd(), 'logs');

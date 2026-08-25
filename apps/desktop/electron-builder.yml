@@ -85,6 +85,23 @@ linux:
   artifactName: ${productName}-${version}-linux-${arch}.${ext}
   category: Network
 
+# macOS 目标：dmg（x64 + arm64）。native/ 二进制与 win/linux 一样在打包时
+# 拷到安装根目录的 native/<platform>/<arch>，与加载器按 process.arch 解析的
+# 约定一致（darwin/x64 与 darwin/arm64，见 packages/native/src/loader.ts）。
+# macOS 没有注入（SIP），只打包 nt_helper.node；ninebird 注入相关文件不随包。
+mac:
+  icon: ../../resources/brand/logo.png
+  extraFiles:
+    - from: ../../native/darwin/${arch}
+      to: native/darwin/${arch}
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+  category: public.app-category.social-networking
+
 # GitHub publish target for `electron-builder --publish always` (Release workflow).
 # Generates + uploads latest.yml / *.blockmap that the in-app updater reads.
 # releaseType: release => the Release is published (not a draft) and marked latest.

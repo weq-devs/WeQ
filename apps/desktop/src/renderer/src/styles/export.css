@@ -1035,6 +1035,26 @@
   font-weight: 600;
 }
 
+.weq-exp-tasks-save-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 35%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  color: var(--weq-accent-effective);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.weq-exp-tasks-save-all:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+}
+
 .weq-exp-tasks-list {
   flex: 1 1 auto;
   min-height: 0;
