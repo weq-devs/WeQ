@@ -14672,7 +14672,8 @@ html[data-theme="dark"] .weq-graytip-band {
   }
 }
 
-/* 缺失消息弹窗：分页 footer（滚动加载更多 / 加载中 / 失败重试 / 已到底）。 */
+/* 缺失消息弹窗：分页状态条，位于列表顶部（向上滚动加载更多 / 加载中 /
+ * 失败重试 / 已到底），哨兵触发时把更旧的一页 prepend 到头部。 */
 .weq-deleted-empty.weq-gap-loading {
   font-size: 12px;
   color: var(--weq-fg-muted, var(--weq-fg-tertiary, var(--weq-fg-secondary)));
@@ -14682,7 +14683,7 @@ html[data-theme="dark"] .weq-graytip-band {
   align-items: center;
   justify-content: center;
   gap: 5px;
-  padding: 8px 12px 14px;
+  padding: 14px 12px 8px;
   font-size: 11px;
   line-height: 1.6;
   color: var(--weq-fg-muted, var(--weq-fg-tertiary, var(--weq-fg-secondary)));

@@ -1968,8 +1968,9 @@ export function MainView(): ReactElement {
           return;
         }
         setGapError(null);
-        // 服务端按 seq 升序返回本窗口；弹窗最新在最上，故反转为降序。
-        setGapWires(res.messages.map(toMessageWire).reverse());
+        // 服务端按 seq 升序返回本窗口（小 seq = 旧消息）；时间线按旧在上、
+        // 新在下排列，直接保持升序。
+        setGapWires(res.messages.map(toMessageWire));
         setGapHasMore(res.nextEndSeq !== null);
         setGapNextEndSeq(res.nextEndSeq);
       } catch (e) {
@@ -1983,7 +1984,7 @@ export function MainView(): ReactElement {
     [convFetchKey],
   );
 
-  /** 缺口超过 30 条：滚动到底后拉取更旧的一页（30 个 seq），追加到列表末尾。 */
+  /** 缺口超过 30 条：向上滚动到顶后拉取更旧的一页（30 个 seq），prepend 到列表头部。 */
   const loadMoreGapMessages = useCallback(async (): Promise<void> => {
     if (gapLoadMoreLockRef.current) return;
     if (!gapDialog || gapLoading || gapLoadingMore || !gapHasMore || gapNextEndSeq === null) {
@@ -2010,7 +2011,8 @@ export function MainView(): ReactElement {
         setGapNextEndSeq(null);
         return;
       }
-      setGapWires((prev) => [...prev, ...res.messages.map(toMessageWire).reverse()]);
+      // 更旧的一页 seq 更小，应排在更上面：prepend 到头部，列表整体保持升序。
+      setGapWires((prev) => [...res.messages.map(toMessageWire), ...prev]);
       setGapHasMore(res.nextEndSeq !== null);
       setGapNextEndSeq(res.nextEndSeq);
     } catch (e) {

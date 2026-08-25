@@ -28,12 +28,18 @@ function decodeFallbackFontId(stored: number): number {
   return ((stored & 0xff) << 8) | ((stored >>> 8) & 0xff);
 }
 
-/** TEXT_ELEM.pbReserve 里 @ 消息的目标 uid（field 9），解析不到返回 undefined。 */
-function atTargetUidOf(pbReserve: unknown): string | undefined {
+/**
+ * TEXT_ELEM.pbReserve（tag 12）里 @ 消息的目标 uin（field 4）/ uid（field 9）。
+ * 只有 uid 没有 uin 的 @ 元素是服务端重复项（带 uin 的紧随其后），直接从源头丢弃。
+ */
+function atMarkerOf(
+  pbReserve: unknown,
+): { uin: number; uid: string } | { uid: string } | undefined {
   if (!(pbReserve instanceof Uint8Array) || pbReserve.length === 0) return undefined;
   try {
-    const pb = decode(TEXT_PB_RESERVE, pbReserve) as { atTargetUid?: string };
-    return pb.atTargetUid || undefined;
+    const pb = decode(TEXT_PB_RESERVE, pbReserve) as { fromUin?: number; atTargetUid?: string };
+    if (!pb.atTargetUid) return undefined;
+    return pb.fromUin ? { uin: pb.fromUin, uid: pb.atTargetUid } : { uid: pb.atTargetUid };
   } catch {
     return undefined;
   }
@@ -41,13 +47,14 @@ function atTargetUidOf(pbReserve: unknown): string | undefined {
 
 /**
  * 把老 wire 的 TEXT_ELEM 提升成 codec 风格元素（str → textContent）：
- * 带 @ 标记（attr6Buf 或 pbReserve 里的目标 uid）的拆成 kind='at'。
+ * pbReserve 里同时带目标 uin + uid 的拆成 kind='at'；只有 uid 的重复项直接丢弃。
  */
-function liftTextElem(text: Record<string, unknown>): Record<string, unknown> {
-  const atTargetUid = atTargetUidOf(text.pbReserve);
-  const isAt = text.attr6Buf !== undefined || atTargetUid !== undefined;
+function liftTextElem(text: Record<string, unknown>): Record<string, unknown> | undefined {
+  const marker = atMarkerOf(text.pbReserve);
+  if (marker !== undefined && !('uin' in marker)) return undefined;
+  const isAt = marker !== undefined;
   const out: Record<string, unknown> = { kind: isAt ? 'at' : 'text', textContent: text.str ?? '' };
-  if (isAt && atTargetUid !== undefined) out.atTargetUid = atTargetUid;
+  if (isAt) out.atTargetUid = marker.uid;
   return out;
 }
 

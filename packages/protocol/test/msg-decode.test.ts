@@ -99,6 +99,26 @@ describe('decodeMessage 简化消息解码', () => {
     ]);
   });
 
+  it('只有 uid 没有 uin 的 @ 元素直接丢弃（避免重复）', () => {
+    const pbReserve = encode(TEXT_PB_RESERVE, {
+      subType: 2,
+      atTargetUid: 'u_mGIBTBW7gF4Wocw8zapc6w',
+    });
+    const bytes = encode(PUSH_MSG_BODY, {
+      contentHead: { msgId: 1, sequence: 1, timestamp: 1 },
+      body: {
+        richText: {
+          elems: [
+            { text: { str: ' 123' } },
+            { text: { str: '@1-H3CoF6', attr6Buf: new Uint8Array([0, 1]), pbReserve } },
+          ],
+        },
+      },
+    });
+    const msg = decodeMessage(bytes);
+    expect(msg.elements).toEqual([{ kind: 'text', textContent: ' 123' }]);
+  });
+
   it('把 commonElem(serviceType=37) 里的 face 解析成 codec 风格（骰子/超级表情）', () => {
     const pbElem = encode(FACE_ELEM, {
       AniStickerId: '33',
