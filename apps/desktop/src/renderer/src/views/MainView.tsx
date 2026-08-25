@@ -2049,19 +2049,36 @@ export function MainView(): ReactElement {
       currentSeq: string;
       count: number;
     }) => {
+      // 先查本机漫游缓存：缺口里有缓存消息就直接打开弹窗展示，QQ 不在线也能看；
+      // 一条缓存都没有才要求在线 QQ 拉取。
+      const { kind, conv } = convFetchKey(gap.conversation);
+      let cachedCount = 0;
       try {
-        const state = await client.account.getGroupAlbumAccessState.query();
-        if (!state.qqOnline || !state.injectEnabled) {
-          pushToast({
-            tone: 'warning',
-            message: 'QQ 未在线或处于完全离线模式，无法拉取缺失消息',
-          });
+        const cached = await client.account.cachedGapMessages.query({
+          kind,
+          conv,
+          startSeq: Number(BigInt(gap.previousSeq) + 1n),
+          endSeq: Number(BigInt(gap.currentSeq) - 1n),
+        });
+        cachedCount = cached.length;
+      } catch (e) {
+        console.error('[MainView] Gap cache check failed:', e);
+      }
+      if (cachedCount === 0) {
+        try {
+          const state = await client.account.getGroupAlbumAccessState.query();
+          if (!state.qqOnline || !state.injectEnabled) {
+            pushToast({
+              tone: 'warning',
+              message: 'QQ 未在线或处于完全离线模式，无法拉取缺失消息',
+            });
+            return;
+          }
+        } catch (e) {
+          console.error('[MainView] Gap online check failed:', e);
+          pushToast({ tone: 'warning', message: 'QQ 未在线，无法拉取缺失消息' });
           return;
         }
-      } catch (e) {
-        console.error('[MainView] Gap online check failed:', e);
-        pushToast({ tone: 'warning', message: 'QQ 未在线，无法拉取缺失消息' });
-        return;
       }
       setGapWires([]);
       setGapError(null);
@@ -2072,7 +2089,7 @@ export function MainView(): ReactElement {
       setGapDialog(gap);
       void loadGapMessages(gap.conversation, gap.previousSeq, gap.currentSeq);
     },
-    [loadGapMessages, pushToast],
+    [convFetchKey, loadGapMessages, pushToast],
   );
 
   const handleRestoreMessage = useCallback(
