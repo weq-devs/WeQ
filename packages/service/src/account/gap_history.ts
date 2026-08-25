@@ -7,8 +7,9 @@
  * 解成 codec 风格元素，最后统一提升成渲染视图（{ type, data }），让前端可以
  * 像普通消息一样完整渲染（头像 / 昵称 / 装扮 / 消息体）。
  *
- * 注意：服务端单次请求最多返回约 30 条，所以窗口按 30 分段、从窗口末尾
- * （最新）向前拉取，再按 msgId 去重合并。
+ * 注意：服务端单次请求最多返回约 30 条，所以按 30 个 seq 一段分页拉取：
+ * 第一页从缺口末端（最新）往回拉一段，之后每次把上一页返回的 nextEndSeq
+ * 作为新的 endSeq 继续向更旧的方向推，直到缺口拉完或漫游中断。
  */
 
 import type { AccountSession } from '@weq/account';
@@ -24,10 +25,6 @@ import { toRenderElements, type RenderElement } from './msg_view';
 
 /** 服务端单次最多返回约 30 条（见 packages/protocol/tools/scan_msg_history.ts）。 */
 const SERVER_MAX_WINDOW = 30;
-/** 单次点击最多拉取的条数；缺口超过时取窗口最新的一段，避免请求风暴。 */
-const MAX_GAP_MESSAGES = 500;
-/** 分段请求数上限：缺口再大也只扫最近的 100×30 = 3000 个 seq。 */
-const MAX_GAP_CHUNKS = 100;
 
 /** 一条拉取到的远端消息，形状与主时间线的 ChatMsgWire 对齐。 */
 export interface GapFetchedMessage {
@@ -49,15 +46,15 @@ export type GapFetchResult =
   | {
       ok: true;
       messages: GapFetchedMessage[];
-      requested: number;
+      /** 下一段（更旧）30-seq 窗口的结束 seq（含）；null = 缺口已拉完 / 漫游中断。 */
+      nextEndSeq: number | null;
+      /** 本次窗口实际拉到的条数。 */
       fetched: number;
-      /** 缺口超过拉取上限（500 条 / 3000 个 seq），只拉到了最新的一段。 */
-      truncated: boolean;
     }
   | {
       ok: false;
-      /** offline = 没有在线 QQ / 完全离线模式；no-messages = 拉取返回零条；error = 其它。 */
-      reason: 'offline' | 'no-messages' | 'error';
+      /** offline = 没有在线 QQ / 完全离线模式；error = 其它。 */
+      reason: 'offline' | 'error';
       message: string;
     };
 
@@ -114,11 +111,15 @@ export class GapHistoryService {
   ) {}
 
   /**
-   * 按 [startSeq, endSeq] 窗口拉取缺失的远端消息（含端点）。
+   * 拉取缺口 [startSeq, endSeq] 中「以 endSeq 结尾」的一段（最多 30 个 seq）。
    *
-   * 窗口从最新端向前按 SERVER_MAX_WINDOW 分段请求；任一分段返回零条即停止
-   * （QQ 漫游覆盖的是从最新向前的连续一段，更旧的窗口必然也是空的）。
-   * 返回按 seq 升序排好。
+   * 分页契约：调用方第一次传整个缺口的末端（占位条下一条消息的 seq - 1），
+   * 之后把返回的 nextEndSeq 原样作为下一次的 endSeq 传入，每次向更旧的方向
+   * 推一个 30-seq 窗口，直到 nextEndSeq 为 null。返回按 seq 升序排好。
+   *
+   * 窗口返回零条 = 漫游未覆盖（或消息已过期）。QQ 漫游覆盖的是从最新向前的
+   * 连续一段，更旧的窗口必然也是空的，所以此时直接收尾（nextEndSeq = null），
+   * 由调用方决定首屏空窗如何提示。
    */
   async fetch(
     kind: 'c2c' | 'group',
@@ -140,44 +141,30 @@ export class GapHistoryService {
       return { ok: false, reason: 'offline', message: 'QQ 未在线，无法拉取缺失消息' };
     }
 
+    const windowStart = Math.max(startSeq, endSeq - SERVER_MAX_WINDOW + 1);
     const rawBySeq = new Map<number, Uint8Array>();
-    let truncated = false;
-    let chunks = 0;
     try {
-      for (
-        let end = endSeq;
-        end >= startSeq && rawBySeq.size < MAX_GAP_MESSAGES && chunks < MAX_GAP_CHUNKS;
-        end -= SERVER_MAX_WINDOW
-      ) {
-        chunks += 1;
-        const start = Math.max(startSeq, end - SERVER_MAX_WINDOW + 1);
-        const res =
-          kind === 'group'
-            ? await fetchGroupHistoryRaw(this.nt, pid, {
-                groupUin: Number(conv),
-                startSeq: start,
-                endSeq: end,
-              })
-            : await fetchC2cHistoryRaw(this.nt, pid, {
-                friendUid: conv,
-                startSeq: start,
-                endSeq: end,
-              });
+      const res =
+        kind === 'group'
+          ? await fetchGroupHistoryRaw(this.nt, pid, {
+              groupUin: Number(conv),
+              startSeq: windowStart,
+              endSeq,
+            })
+          : await fetchC2cHistoryRaw(this.nt, pid, {
+              friendUid: conv,
+              startSeq: windowStart,
+              endSeq,
+            });
 
-        const stepsFor = (index: number): PathStep[] =>
-          kind === 'group' ? [{ tag: 3 }, { tag: 6, index }] : [{ tag: 7, index }];
+      const stepsFor = (index: number): PathStep[] =>
+        kind === 'group' ? [{ tag: 3 }, { tag: 6, index }] : [{ tag: 7, index }];
 
-        let filled = 0;
-        for (let index = 0; index < res.messages.length; index += 1) {
-          const bytes = extractPath(res.rawResponse, stepsFor(index));
-          if (!bytes) continue;
-          const decoded = decodeMessage(bytes);
-          rawBySeq.set(decoded.head.sequence, bytes);
-          filled += 1;
-        }
-        // 任一分段返回零条即停止：QQ 漫游覆盖的是从最新向前的连续一段，
-        // 更旧的窗口必然也是空的，没必要继续发请求。
-        if (filled === 0) break;
+      for (let index = 0; index < res.messages.length; index += 1) {
+        const bytes = extractPath(res.rawResponse, stepsFor(index));
+        if (!bytes) continue;
+        const decoded = decodeMessage(bytes);
+        rawBySeq.set(decoded.head.sequence, bytes);
       }
     } catch (e) {
       return {
@@ -187,25 +174,20 @@ export class GapHistoryService {
       };
     }
 
-    // 循环因条数 / 请求数上限提前退出 = 缺口没有拉全。
-    truncated = rawBySeq.size >= MAX_GAP_MESSAGES || chunks >= MAX_GAP_CHUNKS;
-
     if (rawBySeq.size === 0) {
-      return {
-        ok: false,
-        reason: 'no-messages',
-        message: '拉取失败：未开启消息漫游或者消息已过期',
-      };
+      return { ok: true, messages: [], nextEndSeq: null, fetched: 0 };
     }
 
     const seqs = [...rawBySeq.keys()].sort((a, b) => a - b);
     const messages = seqs.map((seq) => toGapMessage(kind, conv, decodeMessage(rawBySeq.get(seq)!)));
+    // 窗口下界还没到缺口的 startSeq = 更旧的 seq 还在缺口内，继续分页；
+    // 反之这一页已经把缺口最旧的一端盖住了。
+    const hasOlder = windowStart > startSeq;
     return {
       ok: true,
       messages,
-      requested: endSeq - startSeq + 1,
+      nextEndSeq: hasOlder ? endSeq - SERVER_MAX_WINDOW : null,
       fetched: messages.length,
-      truncated,
     };
   }
 }

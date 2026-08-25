@@ -14647,7 +14647,9 @@ html[data-theme="dark"] .weq-graytip-band {
   padding: 0;
   border: 0;
   background: transparent;
-  font: inherit;
+  /* 不要用 font: inherit —— 那会覆盖掉同元素 .weq-graytip-band-hint 的 11px，
+     把占位条文字顶成 16px（html 默认）。只继承字体族，字号仍走 hint。 */
+  font-family: inherit;
   color: color-mix(in srgb, var(--weq-accent-effective) 70%, var(--weq-fg-muted));
   cursor: pointer;
   transition: color 0.12s ease;
@@ -14668,6 +14670,45 @@ html[data-theme="dark"] .weq-graytip-band {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* 缺失消息弹窗：分页 footer（滚动加载更多 / 加载中 / 失败重试 / 已到底）。 */
+.weq-deleted-empty.weq-gap-loading {
+  font-size: 12px;
+  color: var(--weq-fg-muted, var(--weq-fg-tertiary, var(--weq-fg-secondary)));
+}
+.weq-gap-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 8px 12px 14px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--weq-fg-muted, var(--weq-fg-tertiary, var(--weq-fg-secondary)));
+  text-align: center;
+}
+.weq-gap-footer-spin {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.weq-gap-footer-retry {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 24%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective) 80%, var(--weq-fg-muted));
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.weq-gap-footer-retry:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  color: var(--weq-accent-effective);
 }
 
 /* ---- Merged session panel (service/official/hidden aggregated view) ---- */
