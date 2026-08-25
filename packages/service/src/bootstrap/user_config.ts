@@ -421,12 +421,14 @@ export interface UserConfig {
 }
 
 export class UserConfigService {
+  private readonly platform: Platform;
   private readonly root: string;
   private readonly configPath: string;
   private cached: UserConfig | undefined;
   private readonly logger = getLogger().child({ scope: 'user-config' });
 
   constructor(platform: Platform) {
+    this.platform = platform;
     this.root = platform.appDataRoot();
     this.configPath = join(this.root, 'config.json');
   }
@@ -611,9 +613,14 @@ export class UserConfigService {
   getSettings(): AppSettings {
     const s = this.read().settings;
     const d = DEFAULT_APP_SETTINGS;
+    // macOS 不支持注入（SIP 限制），此开关恒为 false：即使旧配置（从
+    // win/linux 迁移或手动篡改）里存了 true，也在这里归一化掉，保证
+    // 「完全离线」行为在 macOS 上不可绕过。
+    const autoInjectQq =
+      this.platform.kind === 'darwin' ? false : (s?.autoInjectQq ?? d.autoInjectQq);
     return {
       realtimeEnabled: s?.realtimeEnabled ?? d.realtimeEnabled,
-      autoInjectQq: s?.autoInjectQq ?? d.autoInjectQq,
+      autoInjectQq,
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
       appLock: {
         enabled: s?.appLock?.enabled ?? d.appLock.enabled,
@@ -684,9 +691,12 @@ export class UserConfigService {
 
   setSettings(patch: DeepPartial<AppSettings>): AppSettings {
     const current = this.getSettings();
+    // macOS: 注入不可用，开关写不进 true（写 false 也恒为 false）。
+    const autoInjectQq =
+      this.platform.kind === 'darwin' ? false : (patch.autoInjectQq ?? current.autoInjectQq);
     const next: AppSettings = {
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
-      autoInjectQq: patch.autoInjectQq ?? current.autoInjectQq,
+      autoInjectQq,
       autoLockMinutes: patch.autoLockMinutes ?? current.autoLockMinutes,
       appLock: {
         enabled: patch.appLock?.enabled ?? current.appLock.enabled,

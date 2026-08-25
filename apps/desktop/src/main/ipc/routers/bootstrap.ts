@@ -315,8 +315,12 @@ export const bootstrapRouter = router({
    * Toggle 自动注入 QQ（完整功能总闸）. Persists, and the account monitor reads
    * it live on its next poll so injection / harvesting starts or stops
    * immediately (no re-open needed). 关闭 = 完全离线模式。
+   * macOS 不支持注入（SIP 限制）：开启请求直接拒绝，开关恒为关闭。
    */
   setAutoInjectQq: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+    if (input.enabled && process.platform === 'darwin') {
+      throw new Error('macOS 版不支持注入 QQ（SIP 限制），此开关无法开启。请手动填入数据库密钥使用。');
+    }
     requireBootstrap().userConfig.setSettings({ autoInjectQq: input.enabled });
     return true;
   }),

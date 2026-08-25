@@ -25,6 +25,7 @@ import { loadNativeSafe } from '@weq/native';
 import {
   createWin32Platform,
   createLinuxPlatform,
+  createDarwinPlatform,
   isTencentFilesRoot,
   withResourceRoots,
   type Platform,
@@ -628,7 +629,9 @@ export function initAppContext(): AppContext {
   const platform =
     process.platform === 'linux'
       ? createLinuxPlatform(result.bundle, () => readDataRootOverride(), resolveUid)
-      : createWin32Platform(result.bundle, () => readDataRootOverride(), getQqProtocolExe);
+      : process.platform === 'darwin'
+        ? createDarwinPlatform(result.bundle, () => readDataRootOverride(), resolveUid)
+        : createWin32Platform(result.bundle, () => readDataRootOverride(), getQqProtocolExe);
   initLogger(platform.appDataRoot());
   const logger = getLogger().child({ scope: 'app-context' });
   logger.info('initializing app context', {

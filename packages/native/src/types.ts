@@ -270,7 +270,18 @@ export interface NtHelperBinding {
    */
   probeDbLock(dbPath: string): DbLockProbeResult;
   decryptLoginDb(loginDbPath: string, algo: DatabaseAlgorithms): LoginAccount[];
-  getQqProcesses(): number[];
+  /**
+   * Get all QQ main process IDs.
+   *
+   * macOS picks the enumeration mechanism via `headless` (no auto-fallback):
+   *   - `false` (default): `NSRunningApplication` by bundle id
+   *     `com.tencent.qq` — precise, needs a GUI session;
+   *   - `true`: `libproc` full enumeration filtered by the
+   *     `/QQ.app/Contents/MacOS/QQ` executable path — works headless.
+   * Ignored on win32/linux (the arg exists only because the native signature
+   * is shared).
+   */
+  getQqProcesses(headless?: boolean): number[];
   /**
    * Is the QQ account currently logged in on this machine? The identifying
    * inputs differ per platform because the mechanism does:

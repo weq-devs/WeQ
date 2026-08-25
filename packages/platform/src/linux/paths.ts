@@ -100,9 +100,22 @@ function firstExistingUnderAccount(
   overrideRoot: string | null | undefined,
   ...segments: string[]
 ): string | null {
+  return firstExistingUnderAccountRoots(uid, candidateQqRoots(home, overrideRoot), ...segments);
+}
+
+/**
+ * Same as {@link firstExistingUnderAccount} but takes an explicit root list
+ * instead of deriving it from `home` + `overrideRoot` — the seam the darwin
+ * adapter uses (its data root is the macOS container path, not XDG).
+ */
+export function firstExistingUnderAccountRoots(
+  uid: string,
+  roots: readonly string[],
+  ...segments: string[]
+): string | null {
   if (!uid) return null;
   const dir = accountDirName(uid);
-  for (const root of candidateQqRoots(home, overrideRoot)) {
+  for (const root of roots) {
     const candidate = join(root, dir, ...segments);
     if (existsSync(candidate)) return candidate;
   }
@@ -115,7 +128,18 @@ function firstExistingUnderRoot(
   overrideRoot: string | null | undefined,
   ...segments: string[]
 ): string | null {
-  for (const root of candidateQqRoots(home, overrideRoot)) {
+  return firstExistingUnderRoots(candidateQqRoots(home, overrideRoot), ...segments);
+}
+
+/**
+ * Same as {@link firstExistingUnderRoot} but takes an explicit root list —
+ * the darwin adapter's counterpart to {@link firstExistingUnderAccountRoots}.
+ */
+export function firstExistingUnderRoots(
+  roots: readonly string[],
+  ...segments: string[]
+): string | null {
+  for (const root of roots) {
     const candidate = join(root, ...segments);
     if (existsSync(candidate)) return candidate;
   }

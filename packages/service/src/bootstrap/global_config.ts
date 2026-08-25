@@ -173,10 +173,13 @@ export class GlobalConfigService {
     } catch {
       return 0;
     }
-    const isLinux = this.platform.kind === 'linux';
+    // linux/macOS both name account dirs `nt_qq_<hash>` directly under the
+    // data root; win32 uses all-digit `<uin>` dirs with an `nt_qq` subdir.
+    const hashedAccounts =
+      this.platform.kind === 'linux' || this.platform.kind === 'darwin';
     let count = 0;
     for (const name of entries) {
-      if (isLinux) {
+      if (hashedAccounts) {
         if (/^nt_qq_[0-9a-f]+$/i.test(name)) count++;
       } else {
         if (!/^\d+$/.test(name)) continue;
