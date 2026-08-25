@@ -417,6 +417,8 @@ export type {
 } from './account/web';
 
 // ---- account protocol services (oidb/trpc packets) ----
+export { GapHistoryService } from './account/gap_history';
+export type { GapFetchedMessage, GapFetchResult } from './account/gap_history';
 export { GroupFileService } from './account/group_file';
 export type { GroupFileItem, GroupFolderItem, GroupFileListing } from './account/group_file';
 

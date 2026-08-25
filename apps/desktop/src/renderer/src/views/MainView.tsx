@@ -51,6 +51,7 @@ import { GroupBugDialog } from '../components/GroupBugDialog';
 import { AddMessageModal } from '../components/compose/AddMessageModal';
 import { DeletedMessagesModal } from '../components/compose/DeletedMessagesModal';
 import { RecalledMessagesModal } from '../components/compose/RecalledMessagesModal';
+import { GapMessagesModal } from '../components/compose/GapMessagesModal';
 import { RelationGraphView } from '../components/relationGraph/RelationGraphView';
 import { SearchDropdown } from '../components/search/SearchDropdown';
 import { UnifiedSearchModal } from '../components/search/UnifiedSearchModal';
@@ -1745,6 +1746,25 @@ export function MainView(): ReactElement {
   const [recalledConv, setRecalledConv] = useState<Conversation | null>(null);
   const [recalledWires, setRecalledWires] = useState<MessageWire[]>([]);
   const [recalledLoading, setRecalledLoading] = useState(false);
+  // 缺失消息面板：占位条点击后打开，从 QQ 服务端按 seq 窗口拉取。
+  const [gapDialog, setGapDialog] = useState<{
+    conversation: Conversation;
+    previousSeq: string;
+    currentSeq: string;
+    count: number;
+  } | null>(null);
+  const [gapWires, setGapWires] = useState<MessageWire[]>([]);
+  const [gapLoading, setGapLoading] = useState(false);
+  const [gapLoadingMore, setGapLoadingMore] = useState(false);
+  const [gapError, setGapError] = useState<string | null>(null);
+  /** 缺口还有更旧的一页（30 个 seq）可拉。 */
+  const [gapHasMore, setGapHasMore] = useState(false);
+  /** 下一页（更旧）的 endSeq 游标；null 表示没有更多。 */
+  const [gapNextEndSeq, setGapNextEndSeq] = useState<number | null>(null);
+  /** 滚动加载更多失败：哨兵停止自动触发，footer 显示重试。 */
+  const [gapMoreFailed, setGapMoreFailed] = useState(false);
+  /** 加载更多的同步锁：哨兵同一帧内重复触发时避免并发请求。 */
+  const gapLoadMoreLockRef = useRef(false);
   // msgIds WeQ deleted in the SELECTED conversation — drives the in-place
   // translucent overlay in the chat. Loaded per conversation, updated
   // optimistically on delete/restore.
@@ -1923,6 +1943,136 @@ export function MainView(): ReactElement {
       void loadRecalledMessages(conversation);
     },
     [loadRecalledMessages],
+  );
+
+  /** 拉取占位条两侧 seq 开区间内缺失消息的第一页（最新的 30 个 seq）。 */
+  const loadGapMessages = useCallback(
+    async (c: Conversation, previousSeq: string, currentSeq: string): Promise<void> => {
+      const { kind, conv } = convFetchKey(c);
+      setGapLoading(true);
+      setGapError(null);
+      gapLoadMoreLockRef.current = false;
+      setGapLoadingMore(false);
+      setGapHasMore(false);
+      setGapNextEndSeq(null);
+      setGapMoreFailed(false);
+      try {
+        const startSeq = BigInt(previousSeq) + 1n;
+        const endSeq = BigInt(currentSeq) - 1n;
+        if (startSeq > endSeq) {
+          setGapWires([]);
+          setGapError('拉取失败：未开启消息漫游或者消息已过期');
+          return;
+        }
+        const res = await client.account.fetchGapMessages.query({
+          kind,
+          conv,
+          startSeq: Number(startSeq),
+          endSeq: Number(endSeq),
+        });
+        if (!res.ok) {
+          setGapWires([]);
+          if (res.reason === 'offline') {
+            setGapError('QQ 未在线，无法拉取缺失消息');
+          } else {
+            setGapError(`拉取失败：${res.message}`);
+          }
+          return;
+        }
+        if (res.messages.length === 0) {
+          setGapWires([]);
+          setGapError('拉取失败：未开启消息漫游或者消息已过期');
+          return;
+        }
+        setGapError(null);
+        // 服务端按 seq 升序返回本窗口（小 seq = 旧消息）；时间线按旧在上、
+        // 新在下排列，直接保持升序。
+        setGapWires(res.messages.map(toMessageWire));
+        setGapHasMore(res.nextEndSeq !== null);
+        setGapNextEndSeq(res.nextEndSeq);
+      } catch (e) {
+        console.error('[MainView] Failed to fetch gap messages:', e);
+        setGapWires([]);
+        setGapError('拉取失败：未开启消息漫游或者消息已过期');
+      } finally {
+        setGapLoading(false);
+      }
+    },
+    [convFetchKey],
+  );
+
+  /** 缺口超过 30 条：向上滚动到顶后拉取更旧的一页（30 个 seq），prepend 到列表头部。 */
+  const loadMoreGapMessages = useCallback(async (): Promise<void> => {
+    if (gapLoadMoreLockRef.current) return;
+    if (!gapDialog || gapLoading || gapLoadingMore || !gapHasMore || gapNextEndSeq === null) {
+      return;
+    }
+    const { kind, conv } = convFetchKey(gapDialog.conversation);
+    const startSeq = BigInt(gapDialog.previousSeq) + 1n;
+    gapLoadMoreLockRef.current = true;
+    setGapLoadingMore(true);
+    setGapMoreFailed(false);
+    try {
+      const res = await client.account.fetchGapMessages.query({
+        kind,
+        conv,
+        startSeq: Number(startSeq),
+        endSeq: gapNextEndSeq,
+      });
+      if (!res.ok) {
+        setGapMoreFailed(true);
+        return;
+      }
+      if (res.messages.length === 0) {
+        setGapHasMore(false);
+        setGapNextEndSeq(null);
+        return;
+      }
+      // 更旧的一页 seq 更小，应排在更上面：prepend 到头部，列表整体保持升序。
+      setGapWires((prev) => [...res.messages.map(toMessageWire), ...prev]);
+      setGapHasMore(res.nextEndSeq !== null);
+      setGapNextEndSeq(res.nextEndSeq);
+    } catch (e) {
+      console.error('[MainView] Failed to load more gap messages:', e);
+      setGapMoreFailed(true);
+    } finally {
+      gapLoadMoreLockRef.current = false;
+      setGapLoadingMore(false);
+    }
+  }, [gapDialog, gapLoading, gapLoadingMore, gapHasMore, gapNextEndSeq, convFetchKey]);
+
+  /** 占位条点击：无在线 QQ / 完全离线模式不打开窗口，直接 toast 提示。 */
+  const handleOpenGapMessages = useCallback(
+    async (gap: {
+      conversation: Conversation;
+      previousSeq: string;
+      currentSeq: string;
+      count: number;
+    }) => {
+      try {
+        const state = await client.account.getGroupAlbumAccessState.query();
+        if (!state.qqOnline || !state.injectEnabled) {
+          pushToast({
+            tone: 'warning',
+            message: 'QQ 未在线或处于完全离线模式，无法拉取缺失消息',
+          });
+          return;
+        }
+      } catch (e) {
+        console.error('[MainView] Gap online check failed:', e);
+        pushToast({ tone: 'warning', message: 'QQ 未在线，无法拉取缺失消息' });
+        return;
+      }
+      setGapWires([]);
+      setGapError(null);
+      setGapLoadingMore(false);
+      setGapHasMore(false);
+      setGapNextEndSeq(null);
+      setGapMoreFailed(false);
+      setGapDialog(gap);
+      void loadGapMessages(gap.conversation, gap.previousSeq, gap.currentSeq);
+    },
+    [loadGapMessages, pushToast],
   );
 
   const handleRestoreMessage = useCallback(
@@ -2811,6 +2961,23 @@ export function MainView(): ReactElement {
     resolveMembers(groupCode, referencedUids, known, () => selectionRef.current?.id === groupCode);
   }, [loaded, selectedUid, isGroup, selectedGroupMemberWires, resolveMembers]);
 
+  // 缺失消息的发送者可能落在已加载成员分页之外（甚至已退群），而上面的解析
+  // effect 只喂了 loaded 窗口，看不到缺口里的 uid。这里单独把缺口消息的发送者
+  // + 灰条引用 uid 交给同一个 getGroupMembersByUids 批量解析，回填进
+  // missingMembers[groupCode] 后由 currentGroupMembers 合并，气泡的昵称 / 身份 /
+  // 等级 / 头衔随之补全 —— 与主消息窗口完全同一套按需查询。
+  useEffect(() => {
+    if (gapDialog?.conversation.type !== 'group' || gapWires.length === 0) return;
+    const groupCode = gapDialog.conversation.id;
+    if (!groupCode) return;
+    const known = new Set(selectedGroupMemberWires.map((m) => m.uid));
+    const referencedUids = [
+      ...gapWires.map((m) => m.senderUid),
+      ...gapWires.flatMap((m) => extractGrayTipUids(m.elements)),
+    ];
+    resolveMembers(groupCode, referencedUids, known, () => selectionRef.current?.id === groupCode);
+  }, [gapWires, gapDialog, selectedGroupMemberWires, resolveMembers]);
+
   // Resolve display profiles for everyone we render a name/avatar for: buddies,
   // buddy requests, and the operated user in each group notify. resolveProfiles
   // dedupes against the primed set + in-flight requests, so handing it the whole
@@ -2876,6 +3043,17 @@ export function MainView(): ReactElement {
       .filter((message) => isRenderableMessage(message))
       .map((message) => messageToTemplate(message, recalledConv, user, memberMap, botUids));
   }, [recalledWires, recalledConv, user, currentGroupMembers, botUids]);
+
+  // 缺失消息走同一条模板管线（气泡与主时间线一致：头像 / 昵称 / 装扮 / 消息体）。
+  const gapTemplateMessages = useMemo(() => {
+    if (!gapDialog) return [];
+    const memberMap = new Map(currentGroupMembers.map((m) => [m.id, m]));
+    return gapWires
+      .filter((message) => isRenderableMessage(message))
+      .map((message) =>
+        messageToTemplate(message, gapDialog.conversation, user, memberMap, botUids),
+      );
+  }, [gapWires, gapDialog, user, currentGroupMembers, botUids]);
 
   const activeConversation = useMemo(() => {
     if (!selectedConversation) return undefined;
@@ -3736,6 +3914,7 @@ export function MainView(): ReactElement {
                       onAddMessage={handleAddMessage}
                       onViewDeleted={handleViewDeleted}
                       onViewRecalled={handleViewRecalled}
+                      onOpenGapMessages={handleOpenGapMessages}
                       deletedIds={deletedIds}
                       onRestoreMessage={handleRestoreMessage}
                     />
@@ -3951,6 +4130,30 @@ export function MainView(): ReactElement {
               onClose={() => {
                 setRecalledConv(null);
                 setRecalledWires([]);
+              }}
+            />
+          ) : null}
+          {gapDialog ? (
+            <GapMessagesModal
+              conversation={gapDialog.conversation}
+              user={user}
+              messages={gapTemplateMessages}
+              renderers={messageRenderers}
+              loading={gapLoading}
+              loadingMore={gapLoadingMore}
+              error={gapError}
+              hasMore={gapHasMore}
+              moreFailed={gapMoreFailed}
+              totalCount={gapDialog.count}
+              onLoadMore={loadMoreGapMessages}
+              onClose={() => {
+                setGapDialog(null);
+                setGapWires([]);
+                setGapError(null);
+                setGapLoadingMore(false);
+                setGapHasMore(false);
+                setGapNextEndSeq(null);
+                setGapMoreFailed(false);
               }}
             />
           ) : null}

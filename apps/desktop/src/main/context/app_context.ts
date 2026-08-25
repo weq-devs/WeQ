@@ -97,6 +97,7 @@ import {
   MediaResourceService,
   ResourceCleanupService,
   WebQueryService,
+  GapHistoryService,
   GroupAlbumMediaService,
   GroupFileService,
   FlashTransferService,
@@ -434,6 +435,8 @@ export interface AccountServices {
   groupAlbumMedia: GroupAlbumMediaService;
   /** 群文件目录列表 (OIDB 0x6D8_1),同样需要在线的已注入 QQ 进程。 */
   groupFile: GroupFileService;
+  /** 拉取聊天时间线缺失的远端消息（需在线 QQ 发包）。 */
+  gapHistory: GapHistoryService;
   /** 他人的个性主页统计（QQ 等级 + 资料卡累计获赞），需在线 QQ 发包。 */
   peerStats: PeerStatsService;
   /** QQ 闪传分享链接（OIDB 0x93d3_1，需在线 QQ 发包）。 */
@@ -1089,6 +1092,7 @@ export function initAppContext(): AppContext {
           session,
           resolveOnlinePid,
         ),
+        gapHistory: new GapHistoryService(platform.native.ntHelper, session, resolveOnlinePid),
         groupFile: new GroupFileService(platform.native.ntHelper, session, resolveOnlinePid),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, resolveOnlinePid),
         flashTransfer: new FlashTransferService(
@@ -1467,6 +1471,7 @@ export function initAppContext(): AppContext {
         resourceCleanup: new ResourceCleanupService(session, staticPlatform),
         webQuery,
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, livePid),
+        gapHistory: new GapHistoryService(platform.native.ntHelper, session, livePid),
         groupFile: new GroupFileService(platform.native.ntHelper, session, livePid),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, livePid),
         flashTransfer: new FlashTransferService(platform.native.ntHelper, session, livePid),
