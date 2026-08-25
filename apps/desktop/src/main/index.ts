@@ -265,7 +265,7 @@ function registerMediaIpc(): void {
       const ctx = getAppContext();
       const services = ctx.services;
       const boot = ctx.bootstrap;
-      if (!services || !boot) return { success: false, error: '?????' };
+      if (!services || !boot) return { success: false, error: '未打开账号' };
       const { msgId, name, token, conv, fwdMsgId = '', fwdKind = 'c2c' } = input;
       console.log('[file:download] request', { msgId, name, token, conv, fwdMsgId });
       logger.info('requested file download', {
@@ -276,7 +276,7 @@ function registerMediaIpc(): void {
         conv,
         fwdMsgId,
       });
-      if (!msgId) return { success: false, error: '???? ID' };
+      if (!msgId) return { success: false, error: '缺少消息 ID' };
 
       // Forwarded sub-message → element from the carrier's 40900 cache, and its
       // original scene is unknown (null). Otherwise → our own msg tables.
@@ -294,7 +294,7 @@ function registerMediaIpc(): void {
             )) as unknown as MediaElement | null) ?? undefined;
         } catch (e) {
           console.error('[file:download] forward cache lookup failed:', e);
-          return { success: false, error: '??????' };
+          return { success: false, error: '转发消息查找失败' };
         }
       } else {
         let raw: Awaited<ReturnType<typeof services.msgs.getRawElements>>;
@@ -302,9 +302,9 @@ function registerMediaIpc(): void {
           raw = await services.msgs.getRawElements(BigInt(msgId));
         } catch (e) {
           console.error('[file:download] getRawElements failed:', e);
-          return { success: false, error: '??????' };
+          return { success: false, error: '读取消息失败' };
         }
-        if (!raw) return { success: false, error: '??????' };
+        if (!raw) return { success: false, error: '未找到该消息' };
         const matches = raw.elements.filter((e) => e.kind === 'file');
         console.log('[file:download] kind=%s, file elements=%d', raw.kind, matches.length);
         el = ((token
@@ -312,7 +312,7 @@ function registerMediaIpc(): void {
           : undefined) ?? matches[0]) as unknown as MediaElement | undefined;
         convKind = raw.kind;
       }
-      if (!el) return { success: false, error: '??????????' };
+      if (!el) return { success: false, error: '消息中未找到文件元素' };
       const elToken = el.fileToken ?? '';
       console.log('[file:download] element fileToken=%s', elToken);
 
@@ -337,10 +337,13 @@ function registerMediaIpc(): void {
             : await services.mediaUrl.resolveFileUrl(convKind, groupId, el, fileName);
       } catch (e) {
         console.error('[file:download] OIDB resolve failed:', e);
-        return { success: false, error: `OIDB ?????${e instanceof Error ? e.message : String(e)}` };
+        return {
+          success: false,
+          error: `OIDB 解析失败：${e instanceof Error ? e.message : String(e)}`,
+        };
       }
       console.log('[file:download] resolved url:', url ? `${url.slice(0, 120)}?` : '(empty)');
-      if (!url) return { success: false, error: 'OIDB ??????QQ ??????' };
+      if (!url) return { success: false, error: 'OIDB 返回空链接（QQ 是否在线？）' };
 
       const { downloadUrlToFile } = await import('@weq/service');
       const outcome = await downloadUrlToFile(url, dest);
@@ -352,7 +355,7 @@ function registerMediaIpc(): void {
           name: fileName,
           reason: outcome.reason,
         });
-        return { success: false, error: `?????${outcome.reason}` };
+        return { success: false, error: `下载失败：${outcome.reason}` };
       }
       console.log('[file:download] saved to', dest);
       logger.info('file downloaded successfully', {
