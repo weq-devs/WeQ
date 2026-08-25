@@ -135,6 +135,22 @@ function normalizeExternalRkeyServers(value: unknown): ExternalRkeyServerConfig[
   return value.filter(isExternalRkeyServerConfig);
 }
 
+function isSsePushServerConfig(value: unknown): value is SsePushServerConfig {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Partial<SsePushServerConfig>;
+  return (
+    typeof item.id === 'string' &&
+    typeof item.name === 'string' &&
+    typeof item.pushUrl === 'string' &&
+    typeof item.accessToken === 'string'
+  );
+}
+
+function normalizeSsePushServers(value: unknown): SsePushServerConfig[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isSsePushServerConfig);
+}
+
 export interface VoiceTranscribeConfig {
   /** 离线转录模型 id（空 = 关）。 */
   modelId: string;
@@ -263,6 +279,7 @@ export interface AppSettings {
    * 拉取的 rkey（私聊/群聊）与过期时间，供媒体补全在没有在线 QQ 时兜底。
    */
   externalRkey: ExternalRkeyConfig;
+  ssePush: SsePushConfig;
   /**
    * Linux 下是否不再提示关闭 ptrace 保护。首次检测到无法直接注入（内核拒绝
    * ptrace）时弹窗引导用户关闭 yama ptrace_scope；选择「不再提醒」后写入这里，
@@ -325,6 +342,33 @@ export interface ExternalRkeyConfig {
   enabledServerId: string | null;
 }
 
+/** 一条 SSE 消息推送目标：WeQ 把新消息 POST 到 `pushUrl`，带 `accessToken` 鉴权。 */
+export interface SsePushServerConfig {
+  /** 稳定 id（随机 hex），用于列表增删与「启用」标记。 */
+  id: string;
+  /** 展示名（默认取推送地址的主机部分，可手改）。 */
+  name: string;
+  /** 推送地址（接收端 HTTP 接口，保存时自动补协议 / 去尾部斜杠）。 */
+  pushUrl: string;
+  /** 接收端要求的 access_token。 */
+  accessToken: string;
+}
+
+/** 设置 → SSE 消息推送。全局配置，一份对当前账号生效。 */
+export interface SsePushConfig {
+  /** 已配置的推送目标（可多个，同时只启用一个）。 */
+  servers: SsePushServerConfig[];
+  /** 当前启用的推送目标 id；null = 停用。 */
+  enabledServerId: string | null;
+  /** 防抖毫秒：收到新消息后等待这段「空闲」再合并推送（默认 2000）。 */
+  debounceMs: number;
+  /**
+   * 大量消息阈值：某个会话的 seq 一次跳变超过该值时，不再逐条推送，
+   * 而是合并成一条 `mass` 事件并预览最新一条（典型场景：QQ 刚启动正在写表）。
+   */
+  massThreshold: number;
+}
+
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   realtimeEnabled: true,
   autoInjectQq: true,
@@ -345,6 +389,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showMsgDecoration: true,
   externalChatpic: { dir: '', enabled: false },
   externalRkey: { servers: [], enabledServerId: null },
+  ssePush: { servers: [], enabledServerId: null, debounceMs: 2000, massThreshold: 50 },
   suppressPtraceHint: false,
   suppressDbDamageReminder: false,
   defaultExportDir: null,
@@ -588,6 +633,18 @@ export class UserConfigService {
         servers: normalizeExternalRkeyServers(s?.externalRkey?.servers),
         enabledServerId: s?.externalRkey?.enabledServerId ?? d.externalRkey.enabledServerId,
       },
+      ssePush: {
+        servers: normalizeSsePushServers(s?.ssePush?.servers),
+        enabledServerId: s?.ssePush?.enabledServerId ?? d.ssePush.enabledServerId,
+        debounceMs:
+          typeof s?.ssePush?.debounceMs === 'number' && s.ssePush.debounceMs > 0
+            ? s.ssePush.debounceMs
+            : d.ssePush.debounceMs,
+        massThreshold:
+          typeof s?.ssePush?.massThreshold === 'number' && s.ssePush.massThreshold > 0
+            ? s.ssePush.massThreshold
+            : d.ssePush.massThreshold,
+      },
       suppressPtraceHint: s?.suppressPtraceHint ?? d.suppressPtraceHint,
       suppressDbDamageReminder: s?.suppressDbDamageReminder ?? d.suppressDbDamageReminder,
       defaultExportDir: s?.defaultExportDir ?? d.defaultExportDir,
@@ -655,6 +712,24 @@ export class UserConfigService {
             ? patch.externalRkey.enabledServerId
             : current.externalRkey.enabledServerId,
       },
+      ssePush: {
+        servers:
+          patch.ssePush?.servers !== undefined
+            ? normalizeSsePushServers(patch.ssePush.servers)
+            : current.ssePush.servers,
+        enabledServerId:
+          patch.ssePush?.enabledServerId !== undefined
+            ? patch.ssePush.enabledServerId
+            : current.ssePush.enabledServerId,
+        debounceMs:
+          patch.ssePush?.debounceMs !== undefined && patch.ssePush.debounceMs > 0
+            ? patch.ssePush.debounceMs
+            : current.ssePush.debounceMs,
+        massThreshold:
+          patch.ssePush?.massThreshold !== undefined && patch.ssePush.massThreshold > 0
+            ? patch.ssePush.massThreshold
+            : current.ssePush.massThreshold,
+      },
       suppressPtraceHint: patch.suppressPtraceHint ?? current.suppressPtraceHint,
       suppressDbDamageReminder: patch.suppressDbDamageReminder ?? current.suppressDbDamageReminder,
       defaultExportDir:
@@ -699,6 +774,8 @@ export class UserConfigService {
       mcpPort: next.mcp.port,
       agentLabProviderCount: next.agentLab.providers.length,
       externalRkeyServerCount: next.externalRkey.servers.length,
+      ssePushServerCount: next.ssePush.servers.length,
+      ssePushEnabled: next.ssePush.enabledServerId !== null,
       externalRkeyEnabled: next.externalRkey.enabledServerId !== null,
     });
     return next;

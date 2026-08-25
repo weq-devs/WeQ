@@ -17,5 +17,6 @@ export type { DeletedSessionDbOptions } from './deleted_session';
 export { ServiceAssistantContactDb } from './service_assistant_contact';
 export type { ServiceAssistantContactDbOptions } from './service_assistant_contact';
 export type { RecentContact, RecentContactTop, HiddenSession, DeletedSession, ServiceAssistantContact } from './types';
+export type { RecentContactSeq } from './recent_contact';
 export { UidMappingDb, UidMap } from './uid_mapping';
 export type { UidMappingDbOptions, UidMappingRow } from './uid_mapping';

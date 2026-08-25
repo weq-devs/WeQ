@@ -23,6 +23,7 @@ import {
   Moon,
   Palette,
   Plug,
+  Radio,
   Settings2,
   ShieldCheck,
   Sparkles,
@@ -37,6 +38,7 @@ import { AgentLabSection } from './settings/AgentLabSection';
 import { VoiceTranscribeSection } from './settings/VoiceTranscribeSection';
 import { McpServerSection } from './settings/McpServerSection';
 import { ExternalRkeySection } from './settings/ExternalRkeySection';
+import { SsePushSection } from './settings/SsePushSection';
 import { WeqAssistantSection } from './settings/WeqAssistantSection';
 import { AntiRecallSection } from './settings/AntiRecallSection';
 import { Toggle } from './settings/controls';
@@ -58,6 +60,7 @@ type SectionId =
   | 'agentlab'
   | 'mcp'
   | 'rkey'
+  | 'sse'
   | 'weq';
 
 interface SettingsSection {
@@ -121,6 +124,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: '外部 RKEY',
     icon: <CloudDownload size={16} strokeWidth={1.8} />,
     render: () => <ExternalRkeySection />,
+  },
+  {
+    id: 'sse',
+    label: 'SSE 推送',
+    icon: <Radio size={16} strokeWidth={1.8} />,
+    render: () => <SsePushSection />,
   },
   {
     id: 'weq',

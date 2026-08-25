@@ -25,6 +25,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
 import {
   Binary,
+  Braces,
   Check,
   Copy,
   Database,
@@ -38,6 +39,7 @@ import {
 import { client } from '../trpc/client';
 import { QqAvatar } from './QqAvatar';
 import { closeFromScrim } from '../im-template/template/modalUtils';
+import { ReverseTool } from './ReverseTool';
 
 interface AccountRow {
   uin: string;
@@ -62,16 +64,18 @@ interface ScanResultView extends ScanResultWire {
   pid: number | null;
 }
 
-type ToolId = 'key-scan' | 'other-device-key';
+type ToolId = 'key-scan' | 'other-device-key' | 'reverse';
 
 const TOOLS: { id: ToolId; label: string; desc: string }[] = [
   { id: 'key-scan', label: '密钥扫描', desc: '零注入内存扫描主密钥' },
   { id: 'other-device-key', label: '其它设备密钥', desc: '获取账号其它设备的密钥' },
+  { id: 'reverse', label: 'Protobuf/JCE 逆向', desc: 'hex/base64 → 简洁 JSON' },
 ];
 
 const TOOL_ICONS: Record<ToolId, typeof KeyRound> = {
   'key-scan': KeyRound,
   'other-device-key': Database,
+  reverse: Braces,
 };
 
 function errMsg(e: unknown): string {
@@ -760,6 +764,20 @@ export function WonderfulToolsDialog({
                       </div>
                     )
                   ) : null}
+                </div>
+              </>
+            ) : null}
+
+            {activeTool === 'reverse' ? (
+              <>
+                <header className="weq-wtools-pane-head">
+                  <div className="weq-wtools-pane-title">
+                    <Braces size={17} strokeWidth={1.9} />
+                    <h2 id="weq-wtools-title">Protobuf / JCE 逆向</h2>
+                  </div>
+                </header>
+                <div className="weq-wtools-pane-body">
+                  <ReverseTool />
                 </div>
               </>
             ) : null}
