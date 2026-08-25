@@ -17,6 +17,7 @@ import type { MediaDownloadService } from '../media_download';
 import { exportGroupToJson } from './json_exporter';
 import { exportGroupToTxt } from './txt_exporter';
 import { exportGroupToJsonl } from './jsonl_exporter';
+import { exportJsonConversation } from './json_meta_exporter';
 import { exportGroupToCsv, csvFraming, renderCsvRow } from './csv_exporter';
 import { exportToXlsx } from './xlsx_exporter';
 import { exportToChatlab, type ChatlabDeps } from './chatlab_exporter';
@@ -1167,6 +1168,7 @@ export class ExportTaskManager extends EventEmitter {
     if (task.kind === 'group') {
       const opts: GroupExportOptions = {
         groupCode: task.conv,
+        name: task.name,
         outputPath,
         progressEvery,
         onProgress: tick,
@@ -1176,19 +1178,32 @@ export class ExportTaskManager extends EventEmitter {
       };
       switch (task.format) {
         case 'json':
-          return exportGroupToJson(this.msgs, opts);
+          return exportGroupToJson(this.msgs, opts, this.deps.chatlab);
         case 'jsonl':
-          return exportGroupToJsonl(this.msgs, opts);
+          return exportGroupToJsonl(this.msgs, opts, this.deps.chatlab);
         case 'csv':
           return exportGroupToCsv(this.msgs, opts);
         default:
           return exportGroupToTxt(this.msgs, opts);
       }
     }
-    return this.exportC2c(task.conv, outputPath, task.format, progressEvery, tick, senders, task.range, withMediaPaths);
+    return this.exportC2c(
+      task.kind,
+      task.name,
+      task.conv,
+      outputPath,
+      task.format,
+      progressEvery,
+      tick,
+      senders,
+      task.range,
+      withMediaPaths,
+    );
   }
 
   private async exportC2c(
+    kind: ConvKind,
+    convName: string,
     peerUid: string,
     outPath: string,
     format: ExportFormat,
@@ -1198,6 +1213,25 @@ export class ExportTaskManager extends EventEmitter {
     range?: ExportTimeRange,
     withMediaPaths?: boolean,
   ): Promise<ExportResult> {
+    // 私聊/官方号/服务号的 JSON 同样带上成员昵称（meta + members + senderName）。
+    if ((format === 'json' || format === 'jsonl') && this.deps.chatlab) {
+      return exportJsonConversation(
+        this.msgs,
+        {
+          kind,
+          conv: peerUid,
+          name: convName,
+          outputPath: outPath,
+          format,
+          range,
+          progressEvery,
+          onProgress,
+          collectSenders: senders,
+          withMediaPaths,
+        },
+        this.deps.chatlab,
+      );
+    }
     const framing: Framing =
       format === 'json'
         ? { head: '[\n', between: ',\n', tail: '\n]\n' }

@@ -279,6 +279,35 @@
 	gap: 0;
 }
 
+.conversation-list-load-more {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	min-height: 40px;
+	padding: 6px 12px;
+	color: var(--weq-fg-muted, #999999);
+	font-size: 12px;
+}
+
+.conversation-list-load-more button {
+	padding: 5px 14px;
+	border: 1px solid color-mix(in srgb, var(--weq-accent-effective, #4c8dff) 35%, transparent);
+	border-radius: 999px;
+	background: transparent;
+	color: var(--weq-accent-effective, #4c8dff);
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.conversation-list-load-more button:hover {
+	background: color-mix(in srgb, var(--weq-accent-effective, #4c8dff) 12%, transparent);
+}
+
+.conversation-list-load-more .spin {
+	animation: weq-spin 0.9s linear infinite;
+}
+
 /* 好友分组（可折叠，默认折叠） */
 .contact-cat-header {
 	display: flex;

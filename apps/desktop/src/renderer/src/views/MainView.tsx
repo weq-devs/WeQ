@@ -1532,8 +1532,25 @@ function isMobileShell(): boolean {
 export function MainView(): ReactElement {
   const utils = trpc.useUtils();
   const pushToast = useToast((s) => s.push);
-  const contacts = trpc.account.listRecentContacts.useQuery();
+  const contacts = trpc.account.listRecentContacts.useInfiniteQuery(
+    {},
+    { getNextPageParam: (lastPage) => lastPage.nextCursor },
+  );
   const topContacts = trpc.account.listTopContacts.useQuery();
+
+  // Flatten the paginated recent-contact pages into one list for the memos
+  // below (the sidebar can scroll-load more pages past the first window).
+  const recentContactsData = useMemo<RecentContactWire[]>(
+    () => (contacts.data?.pages ?? []).flatMap((page) => page.items),
+    [contacts.data],
+  );
+  const contactsHasMore = Boolean(contacts.hasNextPage);
+  const contactsLoadingMore = contacts.isFetchingNextPage;
+  const loadMoreContacts = (): void => {
+    if (contacts.hasNextPage && !contacts.isFetchingNextPage) {
+      void contacts.fetchNextPage();
+    }
+  };
   const hiddenSessions = trpc.account.listHiddenSessions.useQuery();
   const deletedSessions = trpc.account.listDeletedSessions.useQuery();
   const officialAccounts = trpc.account.listOfficialAccounts.useQuery();
@@ -2065,7 +2082,7 @@ export function MainView(): ReactElement {
   const hiddenConversationsById = useMemo(() => {
     const map = new Map<string, Conversation>();
     if (hiddenUidSet.size === 0) return map;
-    for (const contact of (contacts.data ?? []) as RecentContactWire[]) {
+    for (const contact of recentContactsData) {
       if (!hiddenUidSet.has(contact.targetUid)) continue;
       const conv = contactToConversation(contact, user, groupNameByCode, botUids);
       if (conv) map.set(conv.id, conv);
@@ -2075,7 +2092,7 @@ export function MainView(): ReactElement {
       map.set(detail.groupCode, groupDetailToConversation(detail, map.get(detail.groupCode), user));
     }
     return map;
-  }, [hiddenUidSet, contacts.data, allGroups.data, groupNameByCode, user, botUids]);
+  }, [hiddenUidSet, recentContactsData, allGroups.data, groupNameByCode, user, botUids]);
 
   // 删除会话同样不在主列表（已从 recent_contact 消失），需要单独解析供点击后打开。
   // 和隐藏会话不同，删除会话已经不在 recent_contact 里，所以只能用 deletedSessions 数据。
@@ -2164,7 +2181,7 @@ export function MainView(): ReactElement {
 
     // 只保留非 official/service 的 recent contacts（103/118 走合并会话入口）
     // 同时排除隐藏会话：hidden_session_storage_table_v1 里有的不出现在主列表
-    const recentConversations = ((contacts.data ?? []) as RecentContactWire[])
+    const recentConversations = recentContactsData
       .filter((c) => {
         const kind = classifyChatType(c.chatType);
         if (kind === 'official' || kind === 'service') return false;
@@ -2342,7 +2359,7 @@ export function MainView(): ReactElement {
     );
   }, [
     allGroups.data,
-    contacts.data,
+    recentContactsData,
     officialAccounts.data,
     serviceAccounts.data,
     hiddenSessions.data,
@@ -2530,7 +2547,7 @@ export function MainView(): ReactElement {
   // updates (every db change invalidates listRecentContacts). chatType: 1=c2c,
   // 2=group — matching the "chatType_uid" key in msg_unread_info_table.
   useEffect(() => {
-    const list = (contacts.data ?? []) as RecentContactWire[];
+    const list = recentContactsData;
     if (list.length === 0) return undefined;
     let cancelled = false;
 
@@ -2579,7 +2596,7 @@ export function MainView(): ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [contacts.data]);
+  }, [recentContactsData]);
 
   // Reset paging *synchronously* when the open conversation changes. Doing this
   // during render (instead of in an effect) means React discards this render
@@ -3588,6 +3605,9 @@ export function MainView(): ReactElement {
                     drafts={emptyDrafts}
                     contacts={buddyContacts}
                     loading={sidebarLoading}
+                    onLoadMoreConversations={loadMoreContacts}
+                    conversationsHasMore={contactsHasMore}
+                    conversationsLoadingMore={contactsLoadingMore}
                     query={shell.query}
                     onSelectConversation={handleSelectConversation}
                     onSelectContact={shell.selectContact}

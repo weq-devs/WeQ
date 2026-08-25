@@ -59,6 +59,8 @@ export type ProgressCallback = (progress: ExportProgress) => void;
 export interface GroupExportOptions {
   /** Group code (群号) to export. */
   groupCode: string;
+  /** Conversation display name (used by enriched JSON meta). */
+  name?: string;
   /** Absolute path of the file to write. */
   outputPath: string;
   /** Messages per DB round-trip (default 2000). */

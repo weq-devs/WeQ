@@ -280,6 +280,26 @@ export const bootstrapRouter = router({
   }),
 
   /**
+   * 设置导出中心的默认保存目录（null = 清除，恢复逐任务弹窗）。
+   */
+  setDefaultExportDir: procedure
+    .input(z.object({ dir: z.string().min(1).nullable() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ defaultExportDir: input.dir });
+      return true;
+    }),
+
+  /**
+   * 弹系统目录选择框并保存为导出默认保存目录。取消返回 null（不修改设置）。
+   */
+  pickDefaultExportDir: procedure.mutation(async (): Promise<string | null> => {
+    const picked = await getHost().pickDirectory({ title: '选择默认导出保存文件夹' });
+    if (!picked) return null;
+    requireBootstrap().userConfig.setSettings({ defaultExportDir: picked });
+    return picked;
+  }),
+
+  /**
    * Toggle 启用数据库监听. Persists, then applies live to the open account so the
    * nt_msg.db watcher mounts/unmounts immediately (no re-open needed).
    */

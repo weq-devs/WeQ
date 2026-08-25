@@ -16,7 +16,12 @@ import { observable } from '@trpc/server/observable';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, extname, join } from 'node:path';
-import { getAppContext, dbEventBus, type AccountServices } from '../../context/app_context';
+import {
+  getAppContext,
+  requireBootstrap,
+  dbEventBus,
+  type AccountServices,
+} from '../../context/app_context';
 import { sampleHitokoto } from '../../hitokoto';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
@@ -1404,11 +1409,32 @@ export const accountRouter = router({
     });
   }),
 
-  /** Recent conversations (recent_contact_v3_table), newest first. */
-  listRecentContacts: procedure.query(async () => {
-    const contacts = await requireServices().recentContacts.getRecentContact(200);
-    return contacts.map(recentContactToWire);
-  }),
+  /**
+   * Recent conversations (recent_contact_v3_table), newest first, paginated.
+   * Official (103) / service (118) rows are excluded before the limit 鈥?they
+   * surface as separate merged entries, so they must not consume main-list
+   * window slots. `cursor` is the row offset; `nextCursor` is null at the end.
+   */
+  listRecentContacts: procedure
+    .input(
+      z
+        .object({
+          limit: z.number().int().min(1).max(500).default(200),
+          cursor: z.number().int().min(0).default(0),
+        })
+        .default({}),
+    )
+    .query(async ({ input }) => {
+      const svc = requireServices().recentContacts;
+      // 103 = 公众号, 118 = 服务号 (see @weq/codec chat_kind).
+      const excludeChatTypes = [103, 118];
+      const [items, total] = await Promise.all([
+        svc.getRecentContact(input.limit, input.cursor, { excludeChatTypes }),
+        svc.countRecentContact({ excludeChatTypes }),
+      ]);
+      const next = input.cursor + items.length < total ? input.cursor + items.length : undefined;
+      return { items: items.map(recentContactToWire), total, nextCursor: next };
+    }),
 
   /** 置顶会话（recent_contact_top_table），最近置顶的在前。 */
   listTopContacts: procedure.query(async () => {
@@ -2866,7 +2892,15 @@ export const accountRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      const { copyFileSync } = await import('node:fs');
+      const { copyFileSync, mkdirSync } = await import('node:fs');
+      const defaultDir = requireBootstrap().userConfig.getSettings().defaultExportDir;
+      if (defaultDir) {
+        // 已配置默认保存目录：免弹窗直接拷贝到 <默认目录>/<文件名>。
+        const dest = join(defaultDir, sanitizePathSegment(input.defaultName, 'export'));
+        mkdirSync(dirname(dest), { recursive: true });
+        copyFileSync(input.sourcePath, dest);
+        return true;
+      }
       const target = await getHost().pickSaveTarget({
         defaultName: input.defaultName,
         extension: input.format,
@@ -2886,8 +2920,16 @@ export const accountRouter = router({
     .mutation(async ({ input }) => {
       const task = requireServices().exportManager.getTask(input.taskId);
       if (!task?.bundleDir) return false;
-      const { existsSync, cpSync } = await import('node:fs');
+      const { existsSync, cpSync, mkdirSync } = await import('node:fs');
       if (!existsSync(task.bundleDir)) return false;
+      const defaultDir = requireBootstrap().userConfig.getSettings().defaultExportDir;
+      if (defaultDir) {
+        // 已配置默认保存目录：免弹窗把整个 bundle 拷到 <默认目录>/<任务名>/。
+        const dest = join(defaultDir, sanitizePathSegment(task.name, task.id));
+        mkdirSync(dirname(dest), { recursive: true });
+        cpSync(task.bundleDir, dest, { recursive: true });
+        return true;
+      }
       const picked = await getHost().pickDirectory({ title: '选择导出保存文件夹' });
       if (!picked) return false;
       const dest = join(picked, sanitizePathSegment(task.name, task.id));

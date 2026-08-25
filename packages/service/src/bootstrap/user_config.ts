@@ -274,6 +274,11 @@ export interface AppSettings {
    * 仍照常执行并生成报告，但不再弹出提醒。
    */
   suppressDbDamageReminder: boolean;
+  /**
+   * 导出中心的默认保存目录。设置后，导出任务完成保存（单文件/整目录）直接拷贝到
+   * 该目录，不再逐个弹系统保存对话框；未设置时保持原有逐任务选择路径的行为。
+   */
+  defaultExportDir: string | null;
 }
 
 /**
@@ -342,6 +347,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   externalRkey: { servers: [], enabledServerId: null },
   suppressPtraceHint: false,
   suppressDbDamageReminder: false,
+  defaultExportDir: null,
 };
 
 export interface UserConfig {
@@ -584,6 +590,7 @@ export class UserConfigService {
       },
       suppressPtraceHint: s?.suppressPtraceHint ?? d.suppressPtraceHint,
       suppressDbDamageReminder: s?.suppressDbDamageReminder ?? d.suppressDbDamageReminder,
+      defaultExportDir: s?.defaultExportDir ?? d.defaultExportDir,
       linkPreview: {
         enabled: s?.linkPreview?.enabled ?? d.linkPreview.enabled,
         screenshot: s?.linkPreview?.screenshot ?? d.linkPreview.screenshot,
@@ -650,6 +657,8 @@ export class UserConfigService {
       },
       suppressPtraceHint: patch.suppressPtraceHint ?? current.suppressPtraceHint,
       suppressDbDamageReminder: patch.suppressDbDamageReminder ?? current.suppressDbDamageReminder,
+      defaultExportDir:
+        patch.defaultExportDir !== undefined ? patch.defaultExportDir : current.defaultExportDir,
       linkPreview: {
         enabled: patch.linkPreview?.enabled ?? current.linkPreview.enabled,
         screenshot: patch.linkPreview?.screenshot ?? current.linkPreview.screenshot,

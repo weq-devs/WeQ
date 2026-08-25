@@ -14,8 +14,17 @@ export class RecentContactService {
   constructor(private readonly session: AccountSession) {}
 
   /** Recent conversations, newest first. Defaults to 200. */
-  getRecentContact(limit = 200): Promise<RecentContact[]> {
-    return this.session.recentContacts.getRecentContact(limit);
+  getRecentContact(
+    limit = 200,
+    offset = 0,
+    opts: { excludeChatTypes?: readonly number[] } = {},
+  ): Promise<RecentContact[]> {
+    return this.session.recentContacts.getRecentContact(limit, offset, opts);
+  }
+
+  /** Total count matching {@link getRecentContact} (same exclusion rules). */
+  countRecentContact(opts: { excludeChatTypes?: readonly number[] } = {}): Promise<number> {
+    return this.session.recentContacts.countRecentContact(opts);
   }
 
   /** 置顶会话，最近置顶的在前。 */

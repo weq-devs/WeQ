@@ -62,15 +62,30 @@ export class RecentContactDb {
    * Recent conversations, newest first. Defaults to 200 — the recent-chats
    * list is small, so a single ordered LIMIT over the 40050 index is cheap.
    */
-  async getRecentContact(limit = 200, offset = 0): Promise<RecentContact[]> {
+  async getRecentContact(
+    limit = 200,
+    offset = 0,
+    opts: { excludeChatTypes?: readonly number[] } = {},
+  ): Promise<RecentContact[]> {
+    const excluded = [...BLOCKED_CHAT_TYPES, ...(opts.excludeChatTypes ?? [])];
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM recent_contact_v3_table
-        WHERE "40010" NOT IN (${BLOCKED_CHAT_TYPES.join(',')})
+        WHERE "40010" NOT IN (${excluded.join(',')})
         ORDER BY "40050" DESC
         LIMIT ? OFFSET ?`,
       [BigInt(limit), BigInt(offset)],
     );
     return rows.map(rowToRecentContact);
+  }
+
+  /** Total rows visible to {@link getRecentContact} (same exclusion rules). */
+  async countRecentContact(opts: { excludeChatTypes?: readonly number[] } = {}): Promise<number> {
+    const excluded = [...BLOCKED_CHAT_TYPES, ...(opts.excludeChatTypes ?? [])];
+    const rows = await this.qq.query(
+      `SELECT COUNT(*) FROM recent_contact_v3_table
+        WHERE "40010" NOT IN (${excluded.join(',')})`,
+    );
+    return Number(rows[0]?.[0] ?? 0);
   }
 
   /**

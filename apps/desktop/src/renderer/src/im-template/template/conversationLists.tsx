@@ -16,8 +16,9 @@ import {
   MinusCircle,
   ChevronRight,
   Trash2,
+  Loader2,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from './classNames';
 import { Avatar, EmptyState, ListSkeleton } from './primitives';
 import { isBotConversation } from './conversationDisplay';
@@ -76,6 +77,49 @@ function useProgressiveRowCount(total: number): number {
   return count;
 }
 
+/**
+ * 会话列表底部的「加载更多」哨兵：滚到可见区域自动拉下一页，同时给出手动按钮兜底。
+ */
+function ConversationListLoadMore({
+  loading,
+  onLoadMore,
+}: {
+  loading?: boolean;
+  onLoadMore?: () => void;
+}) {
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !onLoadMore) return undefined;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const hit = entries.some((entry) => entry.isIntersecting);
+        setVisible(hit);
+        if (hit && !loading) onLoadMore();
+      },
+      { rootMargin: '240px 0px' },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [onLoadMore, loading]);
+
+  return (
+    <div ref={sentinelRef} className="conversation-list-load-more">
+      {loading ? (
+        <Loader2 size={14} className="spin" />
+      ) : visible ? (
+        '加载中…'
+      ) : (
+        <button type="button" onClick={onLoadMore}>
+          加载更多会话
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function ConversationList({
   conversations,
   activeConversationId,
@@ -84,6 +128,9 @@ export function ConversationList({
   user,
   onSelect,
   loading,
+  onLoadMore,
+  hasMore,
+  loadingMore,
 }: {
   conversations: Conversation[];
   activeConversationId: string | null;
@@ -92,6 +139,9 @@ export function ConversationList({
   user?: User;
   onSelect: (conversationId: string, event?: React.MouseEvent) => void;
   loading?: boolean;
+  onLoadMore?: () => void;
+  hasMore?: boolean;
+  loadingMore?: boolean;
 }) {
   const filtered = useMemo(() => {
     // 置顶会话排最前。sort 是稳定的，所以 MainView 已排好的置顶时间（41103）
@@ -230,6 +280,7 @@ export function ConversationList({
           </button>
         );
       })}
+      {hasMore ? <ConversationListLoadMore loading={loadingMore} onLoadMore={onLoadMore} /> : null}
     </div>
   );
 }
