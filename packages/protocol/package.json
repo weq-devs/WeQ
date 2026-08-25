@@ -19,6 +19,7 @@
     "tools:flash-transfer-share-link": "tsx tools/flash_transfer_share_link.ts",
     "tools:send-tuwen-ark": "tsx tools/send_tuwen_ark.ts",
     "tools:fetch-msg-history": "tsx tools/fetch_msg_history.ts",
+    "tools:fetch-forward": "tsx tools/fetch_forward.ts",
     "tools:scan-msg-history": "tsx tools/scan_msg_history.ts"
   },
   "dependencies": {
