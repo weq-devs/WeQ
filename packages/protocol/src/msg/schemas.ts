@@ -126,7 +126,17 @@ export const TEXT_PB_RESERVE: ProtoMessage = message([
 ]);
 
 /**
- * FACE_ELEM —— 按实测的骰子/超级表情 JSON 结构解析：
+ * 老 wire 直出的 Elem.face（im_msg_body.proto message Face，Elem tag 2）：
+ * tag 1=index（经典表情的真实 faceId）、2=old（老版兼容数据，实测 2 字节）、
+ * 11=buf；其余字段一律丢弃（decode 会自动跳过未声明 tag）。
+ */
+export const FACE_OLD_PB: ProtoMessage = message([
+  f('index', 1, 'int32'),
+  f('old', 2, 'bytes'),
+  f('buf', 11, 'bytes'),
+]);
+/**
+ * 骰子/超级表情（commonElem serviceType=37）的 pbElem —— 按实测解析：
  * tag 2=aniStickerId、3=faceId、4=超级表情标识（1 为超级表情）、
  * 6=diceValue、7=faceText；其余字段一律丢弃（decode 会自动跳过未声明 tag）。
  */
@@ -558,7 +568,7 @@ export const BUBBLE_ELEM: ProtoMessage = message([
 
 export const ELEM: ProtoMessage = message([
   f('text', 1, TEXT_ELEM),
-  f('face', 2, FACE_ELEM),
+  f('face', 2, FACE_OLD_PB),
   f('onlineImage', 3, ONLINE_IMAGE),
   f('notOnlineImage', 4, NOT_ONLINE_IMAGE),
   f('transElem', 5, TRANS_ELEM),

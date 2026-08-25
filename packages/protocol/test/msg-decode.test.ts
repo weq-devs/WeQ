@@ -446,6 +446,19 @@ describe('decodeMessage 简化消息解码', () => {
     expect(msg.elements).toEqual([{ kind: 'face', faceId: 324, faceText: '/吃糖', subType: 1 }]);
   });
 
+  it('把老 wire 直出的 elem.face 解析成 codec 风格 face（index→faceId，old 丢弃）', () => {
+    const bytes = encode(PUSH_MSG_BODY, {
+      contentHead: { msgId: 1, sequence: 1, timestamp: 1 },
+      body: {
+        richText: {
+          elems: [{ face: { index: 178, old: new Uint8Array([0x14, 0xf3]) } }],
+        },
+      },
+    });
+    const msg = decodeMessage(bytes);
+    expect(msg.elements).toEqual([{ kind: 'face', faceId: 178, subType: 1 }]);
+  });
+
   it('未知元素类型直接丢弃，不再原样输出', () => {
     const bytes = encode(PUSH_MSG_BODY, {
       contentHead: { msgId: 1, sequence: 1, timestamp: 1 },
