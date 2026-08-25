@@ -59,3 +59,6 @@ export type { SendTuwenArkParams } from './oidb/send-tuwen-ark';
 export * from './scupdate';
 export * from './highway';
 export * from './oidb/flashtransfer';
+
+export * from './msg';
+

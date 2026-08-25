@@ -6,10 +6,27 @@ import { cn } from './classNames';
  * A run of messages QQ never synced to this device. Rendered between the two
  * messages that straddle the hole.
  */
-export function MessageGapDivider({ count }: { count: number }) {
+export function MessageGapDivider({
+  count,
+  onOpen,
+}: {
+  count: number;
+  /** 提供后占位条变为可点击按钮，点击拉起「缺失消息」弹窗（需在线 QQ 发包拉取）。 */
+  onOpen?: () => void;
+}) {
   return (
     <div className={cn('weq-graytip-band')}>
-      <div className={cn('weq-graytip-band-hint')}>此处有 {count} 条消息需要打开 QQ 本体同步</div>
+      <button
+        type="button"
+        className={cn('weq-graytip-band-hint', 'weq-gap-band-button')}
+        onClick={onOpen}
+        disabled={!onOpen}
+        title={onOpen ? '点击拉取并查看这些缺失消息' : undefined}
+      >
+        {onOpen
+          ? `此处有 ${count} 条消息缺失 · 点击拉取`
+          : `此处有 ${count} 条消息需要打开 QQ 本体同步`}
+      </button>
     </div>
   );
 }

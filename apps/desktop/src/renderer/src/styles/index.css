@@ -15048,6 +15048,78 @@ html[data-theme="dark"] .weq-graytip-band {
   color: color-mix(in srgb, var(--weq-accent-effective) 70%, var(--weq-fg-muted));
 }
 
+/* 缺失消息占位条按钮：重置 button 默认样式，hover 高亮提示可点击。 */
+.weq-graytip-band .weq-gap-band-button {
+  display: inline-block;
+  margin-top: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  /* 不要用 font: inherit —— 那会覆盖掉同元素 .weq-graytip-band-hint 的 11px，
+     把占位条文字顶成 16px（html 默认）。只继承字体族，字号仍走 hint。 */
+  font-family: inherit;
+  color: color-mix(in srgb, var(--weq-accent-effective) 70%, var(--weq-fg-muted));
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+.weq-graytip-band .weq-gap-band-button:hover:not(:disabled) {
+  color: var(--weq-accent-effective);
+  text-decoration: underline;
+}
+.weq-graytip-band .weq-gap-band-button:disabled {
+  cursor: default;
+}
+
+/* 缺失消息弹窗：拉取中图标旋转。 */
+.weq-gap-spin {
+  animation: weq-gap-spin 0.9s linear infinite;
+}
+@keyframes weq-gap-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 缺失消息弹窗：分页状态条，位于列表顶部（向上滚动加载更多 / 加载中 /
+ * 失败重试 / 已到底），哨兵触发时把更旧的一页 prepend 到头部。 */
+.weq-deleted-empty.weq-gap-loading {
+  font-size: 12px;
+  color: var(--weq-fg-muted, var(--weq-fg-tertiary, var(--weq-fg-secondary)));
+}
+.weq-gap-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 14px 12px 8px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--weq-fg-muted, var(--weq-fg-tertiary, var(--weq-fg-secondary)));
+  text-align: center;
+}
+.weq-gap-footer-spin {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.weq-gap-footer-retry {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 24%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective) 80%, var(--weq-fg-muted));
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.weq-gap-footer-retry:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  color: var(--weq-accent-effective);
+}
+
 /* ---- Merged session panel (service/official/hidden aggregated view) ---- */
 .sidebar {
   overflow: hidden;
