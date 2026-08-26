@@ -323,7 +323,9 @@ export function LoginPanel({
       if (status == null) return true;
 
       const needsInstall =
-        status.kind === 'original' || (status.kind === 'ninebird' && status.loaderOk === false);
+        status.kind === 'original' ||
+        (status.kind === 'ninebird' && status.loaderOk === false) ||
+        (status.kind === 'ninebird' && status.fresh === false);
       if (!needsInstall) {
         if (status.kind !== 'ninebird') {
           showError(

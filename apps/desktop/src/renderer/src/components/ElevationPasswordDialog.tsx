@@ -24,7 +24,9 @@ export function ElevationPasswordDialog(): null {
   const promptPassword = useDialog((s) => s.promptPassword);
 
   useEffect(() => {
-    const off = ipc()?.on('elev:request-password', (raw: unknown) => {
+    // `ipcRenderer.on` 的回调签名是 `(event, ...args)`——payload 是第二个
+    // 参数（第一个是 IpcRendererEvent）。与 CloseConfirmDialog 一致。
+    const off = ipc()?.on('elev:request-password', (_event, raw: unknown) => {
       const payload = (raw ?? {}) as { token?: number; title?: string; message?: string };
       if (typeof payload.token !== 'number') return;
       void (async () => {
