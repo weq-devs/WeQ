@@ -41,6 +41,7 @@ export async function exportGroupToJson(
         onProgress: opts.onProgress,
         collectSenders: opts.collectSenders,
         withMediaPaths: opts.withMediaPaths,
+        roam: opts.roam,
       },
       deps,
     );

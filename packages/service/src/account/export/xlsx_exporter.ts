@@ -16,7 +16,12 @@
 import ExcelJS from 'exceljs';
 import { statSync } from 'node:fs';
 import type { MsgService } from '../msg';
-import { iterateC2cMessages, iterateGroupMessages, toExportedMessage } from './message_source';
+import {
+  iterateC2cMessages,
+  iterateGroupMessages,
+  toExportedMessage,
+  type RoamMessageSource,
+} from './message_source';
 import { TABLE_HEADERS, messageToCells, annotateLocalPaths } from './element_text';
 import { expandForwards } from './forward_expand';
 import type { ConvKind, ExportResult, ExportTimeRange, ProgressCallback } from './types';
@@ -43,6 +48,8 @@ export interface XlsxExportOptions {
   range?: ExportTimeRange;
   /** Stamp media elements with their bundle relative path (`data.localPath`). */
   withMediaPaths?: boolean;
+  /** 漫游补全消息（导出「消息补全」拉回缓存后，消息流按 sendTime 合并）。 */
+  roam?: RoamMessageSource;
 }
 
 /** Append a header row to a freshly-created worksheet. */
@@ -71,8 +78,8 @@ export async function exportToXlsx(
 
   const iterator =
     opts.kind === 'group'
-      ? iterateGroupMessages(msgs, opts.conv, { pageSize: opts.pageSize, range: opts.range })
-      : iterateC2cMessages(msgs, opts.conv, { pageSize: opts.pageSize, range: opts.range });
+      ? iterateGroupMessages(msgs, opts.conv, { pageSize: opts.pageSize, range: opts.range, roam: opts.roam })
+      : iterateC2cMessages(msgs, opts.conv, { pageSize: opts.pageSize, range: opts.range, roam: opts.roam });
 
   let count = 0;
   for await (const m of iterator) {

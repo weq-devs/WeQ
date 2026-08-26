@@ -520,6 +520,23 @@ export class MsgService {
     return msgs.map((m) => ({ ...renderGroup(m), rowId: m.rowId }));
   }
 
+  /**
+   * All distinct per-group seqs (40003 > 0), newest-first. Index-only scan on
+   * the `(40027,40003)` composite index — powers the export 「消息补全」seq 空窗
+   * 扫描 (which holes to fetch from the roam server).
+   */
+  async getGroupSeqDesc(targetGroupCode: string): Promise<bigint[]> {
+    return this.session.groupMsgs.listSeqDesc(targetGroupCode);
+  }
+
+  /**
+   * All distinct per-conversation seqs (40003 > 0) for a private chat,
+   * newest-first. See {@link getGroupSeqDesc}.
+   */
+  async getC2cSeqDesc(targetUid: string): Promise<bigint[]> {
+    return this.c2cDbFor(targetUid).listSeqDesc(this.c2cPartition(targetUid));
+  }
+
   // ---- service assistant (chatType 118) ------------------------------------
 
   /** Service account page just newer than `afterSeq` (export use). */

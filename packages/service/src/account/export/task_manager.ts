@@ -12,6 +12,7 @@ import { EventEmitter, once } from 'node:events';
 import { writeFileSync, readFileSync, existsSync, mkdirSync, unlinkSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { MsgService } from '../msg';
+import type { GapFetchedMessage } from '../gap_history';
 import type { AvatarCacheService } from '../../bootstrap/media_cache';
 import type { MediaDownloadService } from '../media_download';
 import { exportGroupToJson } from './json_exporter';
@@ -49,18 +50,19 @@ import {
 import { scanConvMedia, mediaDirsFromAccountDir, mediaDirsFromNtDataDir, type MediaDirs, type MediaScanResult } from './media_scan';
 import { exportSysFaces } from './sysface_export';
 import type { MediaUrlService } from '../media_url';
-import { iterateC2cMessages, toExportedMessage } from './message_source';
+import { iterateC2cMessages, toExportedMessage, type RoamMessageSource } from './message_source';
 import { expandForwards } from './forward_expand';
 import type { Framing } from './run_export';
 import { bigintReplacer } from './serialize';
 import { messageToText, annotateLocalPaths } from './element_text';
+import { backfillConversationMessages, type MessageBackfillDeps } from './msg_backfill';
 import type { ConvKind, ExportedMessage, ExportFormat, ExportResult, ExportTimeRange, GroupExportOptions } from './types';
 
 export type TaskStatus = 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
 export type { ConvKind };
 
 /** A single stage of a task's pipeline. */
-export type StageKey = 'message' | 'media' | 'avatar' | 'record' | 'image' | 'video' | 'file' | 'transcribe' | 'sysface' | 'sticker';
+export type StageKey = 'backfill' | 'message' | 'media' | 'avatar' | 'record' | 'image' | 'video' | 'file' | 'transcribe' | 'sysface' | 'sticker';
 
 export interface TaskStage {
   key: StageKey;
@@ -100,6 +102,8 @@ export interface MarketPackDeps {
 /** Media-export options threaded from the lightbox. */
 export interface MediaExportOptions {  /** Export media files alongside the messages (turns the output into a bundle). */
   exportMedia: boolean;
+  /** 消息补全：扫描 seq 空窗，从 QQ 服务端拉取本机缺失的消息（需在线 QQ）。 */
+  completeMessages: boolean;
   /** CDN-complete images missing from the local cache (needs a live rkey). */
   completeMedia: boolean;
   /** Reserved: include videos when downloading (download deferred). */
@@ -156,6 +160,8 @@ export interface TaskProgress {
   progress: number;
   current: number;
   message: string;
+  /** 一次性提示（如「可能被限流」），前端收到后 toast。 */
+  notice?: string;
 }
 
 /** Main-process dependencies injected for media export (silk-wasm lives in the app). */
@@ -189,6 +195,8 @@ export interface MediaDeps {
   collection?: CollectionExportDeps;
   /** 商城表情解密下载能力（由 app 注入，桥接 EmojiService）。 */
   marketpack?: MarketPackDeps;
+  /** 消息补全能力（由 app 注入，桥接聊天页 GapHistoryService：缓存+拉取共用）。 */
+  messageBackfill?: MessageBackfillDeps;
 }
 
 export class ExportTaskManager extends EventEmitter {
@@ -353,6 +361,11 @@ export class ExportTaskManager extends EventEmitter {
     // Stage order is the display order. message + 搬运媒体 run first (sequential);
     // the rest (avatar / record / image / video / file / transcribe) run together.
     const stages: TaskStage[] = [{ key: 'message', label: '导出消息', status: 'pending', current: 0, total: opts.total }];
+    // 消息补全必须在所有步骤之前：先把 seq 空窗从服务端拉回漫游缓存，后面导出
+    // 的消息 / 媒体扫描才能带上这些补全消息。
+    if (opts.media?.completeMessages) {
+      stages.unshift({ key: 'backfill', label: '补全缺失消息', status: 'pending', current: 0, total: 0 });
+    }
     if (wantMedia) {
       stages.push({ key: 'media', label: '搬运媒体', status: 'pending', current: 0, total: 0 });
     }
@@ -431,6 +444,20 @@ export class ExportTaskManager extends EventEmitter {
 
   private stage(task: ExportTask, key: StageKey): TaskStage | undefined {
     return task.stages.find((s) => s.key === key);
+  }
+
+  /**
+   * 惰性、记忆化的漫游补全消息来源：消息导出与媒体扫描各自会读一遍，这里只
+   * 真正查一次缓存（读整个会话的 [1, uint32 max] 区间，一次索引区间扫描）。
+   */
+  private roamSource(task: ExportTask): RoamMessageSource {
+    const deps = this.deps.messageBackfill;
+    let promise: Promise<GapFetchedMessage[]> | null = null;
+    return () => {
+      if (!deps || (task.kind !== 'group' && task.kind !== 'c2c')) return [];
+      promise ??= deps.cached(task.kind, task.conv, 1, 0xffffffff);
+      return promise;
+    };
   }
 
   /** A single stage's completion percent (0–100). */
@@ -518,12 +545,82 @@ export class ExportTaskManager extends EventEmitter {
         if (s) { s.status = 'skipped'; s.note = '转录引擎不可用'; }
       }
 
+      // ---- stage: 消息补全 (runs FIRST — fills the roam cache so the message
+      // stage + media scan below can include the backfilled messages) ----
+      const wantBackfill = Boolean(task.media?.completeMessages);
+      let rateLimitedNotified = false;
+      if (wantBackfill) {
+        const backfillDeps = this.deps.messageBackfill;
+        const s = this.stage(task, 'backfill');
+        if (!backfillDeps) {
+          if (s) { s.status = 'skipped'; s.note = '消息补全能力不可用'; }
+        } else {
+          this.touchStage(task, 'backfill', { status: 'running', note: '扫描 seq 空窗…' }, { persist: true });
+          try {
+            let backfilled = 0;
+            const summary = await backfillConversationMessages({
+              kind: task.kind === 'group' ? 'group' : 'c2c',
+              conv: task.conv,
+              listSeqsDesc: () =>
+                task.kind === 'group'
+                  ? this.msgs.getGroupSeqDesc(task.conv)
+                  : this.msgs.getC2cSeqDesc(task.conv),
+              fetch: (k, c, start, end) => backfillDeps.fetch(k, c, start, end),
+              concurrency: 8,
+              signal: abort.signal,
+              onWindow: (fetched) => {
+                if (aborted()) return;
+                backfilled += fetched;
+                this.touchStage(task, 'backfill', { current: backfilled, note: `已拉取 ${backfilled} 条…` });
+              },
+              onRateLimited: () => {
+                if (rateLimitedNotified) return;
+                rateLimitedNotified = true;
+                this.emit('progress', {
+                  taskId: task.id,
+                  status: 'running',
+                  progress: task.progress,
+                  current: task.current,
+                  message: '消息补全可能被限流，请耐心等待',
+                  notice: `「${task.name}」消息补全请求响应较慢，可能被限流，请耐心等待拉取完成`,
+                });
+              },
+            });
+            if (aborted()) { task.status = 'cancelled'; return; }
+            const tail = summary.stoppedByEmpty
+              ? '，更早的消息已过期'
+              : summary.stoppedByError
+                ? '，在线状态中断'
+                : '';
+            this.touchStage(
+              task,
+              'backfill',
+              {
+                status: 'completed',
+                current: summary.fetched,
+                total: summary.fetched,
+                note: `已补全 ${summary.fetched} 条${tail}`,
+              },
+              { persist: true },
+            );
+          } catch (e) {
+            // 补全失败不阻断导出：以本地已有消息继续，阶段标记失败供 UI 查看。
+            if (s) {
+              s.status = 'failed';
+              s.note = e instanceof Error ? e.message : String(e);
+              this.saveTasks();
+            }
+          }
+        }
+      }
+
       // ---- stage: message (sequential, first) ----
+      const roam = wantBackfill ? this.roamSource(task) : undefined;
       this.touchStage(task, 'message', { status: 'running', note: '开始导出' }, { persist: true });
       const result = await this.exportMessages(task, outPath, senders, wantMedia, (current, note) => {
         if (aborted()) return;
         this.touchStage(task, 'message', { current, note });
-      }, faces);
+      }, faces, roam);
       task.filePath = result.filePath;
       task.current = result.messageCount;
       this.touchStage(task, 'message', { status: 'completed', current: result.messageCount, total: result.messageCount, note: `${result.messageCount} 条` }, { persist: true });
@@ -549,7 +646,7 @@ export class ExportTaskManager extends EventEmitter {
         } else {
           const scanStage: StageKey = wantMedia ? 'media' : 'transcribe';
           this.touchStage(task, scanStage, { status: 'running', note: '扫描媒体…' }, { persist: true });
-          scan = await scanConvMedia(this.msgs, task.kind, task.conv, dirs, { pageSize: 2000, range: task.range });
+          scan = await scanConvMedia(this.msgs, task.kind, task.conv, dirs, { pageSize: 2000, range: task.range, roam });
           if (aborted()) { task.status = 'cancelled'; return; }
         }
       }
@@ -1110,6 +1207,7 @@ export class ExportTaskManager extends EventEmitter {
     withMediaPaths: boolean,
     onProgress: (current: number, note: string) => void,
     faces?: Set<string>,
+    roam?: RoamMessageSource,
   ): Promise<ExportResult> {
     const progressEvery = 1000;
     const tick = (p: { current: number; message: string }): void => onProgress(p.current, p.message);
@@ -1125,6 +1223,7 @@ export class ExportTaskManager extends EventEmitter {
           format: task.format,
           outputPath,
           range: task.range,
+          roam,
           progressEvery,
           onProgress: tick,
           collectSenders: senders,
@@ -1143,6 +1242,7 @@ export class ExportTaskManager extends EventEmitter {
           name: task.name,
           outputPath,
           range: task.range,
+          roam,
           progressEvery,
           onProgress: tick,
           collectSenders: senders,
@@ -1163,6 +1263,7 @@ export class ExportTaskManager extends EventEmitter {
         collectSenders: senders,
         range: task.range,
         withMediaPaths,
+        roam,
       });
     }
     if (task.kind === 'group') {
@@ -1175,6 +1276,7 @@ export class ExportTaskManager extends EventEmitter {
         collectSenders: senders,
         range: task.range,
         withMediaPaths,
+        roam,
       };
       switch (task.format) {
         case 'json':
@@ -1198,6 +1300,7 @@ export class ExportTaskManager extends EventEmitter {
       senders,
       task.range,
       withMediaPaths,
+      roam,
     );
   }
 
@@ -1212,6 +1315,7 @@ export class ExportTaskManager extends EventEmitter {
     senders?: Set<string>,
     range?: ExportTimeRange,
     withMediaPaths?: boolean,
+    roam?: RoamMessageSource,
   ): Promise<ExportResult> {
     // 私聊/官方号/服务号的 JSON 同样带上成员昵称（meta + members + senderName）。
     if ((format === 'json' || format === 'jsonl') && this.deps.chatlab) {
@@ -1224,6 +1328,7 @@ export class ExportTaskManager extends EventEmitter {
           outputPath: outPath,
           format,
           range,
+          roam,
           progressEvery,
           onProgress,
           collectSenders: senders,
@@ -1257,7 +1362,7 @@ export class ExportTaskManager extends EventEmitter {
     let count = 0;
     try {
       if (framing.head) await write(framing.head);
-      for await (const m of iterateC2cMessages(this.msgs, peerUid, { pageSize: 2000, range })) {
+      for await (const m of iterateC2cMessages(this.msgs, peerUid, { pageSize: 2000, range, roam })) {
         const exported = toExportedMessage(m);
         senders?.add(exported.senderUin);
         await expandForwards(this.msgs, 'c2c', exported);

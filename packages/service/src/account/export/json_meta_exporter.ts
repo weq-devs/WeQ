@@ -15,7 +15,7 @@
 import { createWriteStream, statSync } from 'node:fs';
 import { once } from 'node:events';
 import type { MsgService } from '../msg';
-import { toExportedMessage } from './message_source';
+import { toExportedMessage, type RoamMessageSource } from './message_source';
 import { expandForwards } from './forward_expand';
 import { annotateLocalPaths } from './element_text';
 import { bigintReplacer } from './serialize';
@@ -48,6 +48,8 @@ export interface JsonMetaExportOptions {
   onProgress?: ProgressCallback;
   collectSenders?: Set<string>;
   withMediaPaths?: boolean;
+  /** 漫游补全消息（导出「消息补全」拉回缓存后，消息流按 sendTime 合并）。 */
+  roam?: RoamMessageSource;
 }
 
 /** One member row in the members block. */
@@ -111,7 +113,7 @@ export async function exportJsonConversation(
     if (meta?.name) groupName = opts.name || meta.name;
     const ownerUid = meta?.ownerUid ?? '';
     opts.onProgress?.({ current: 0, message: '解析成员…' });
-    senders = await resolveGroupSenders(msgs, opts.conv, opts.range, deps, ownerUid);
+    senders = await resolveGroupSenders(msgs, opts.conv, opts.range, deps, ownerUid, opts.roam);
     if (ownerUid) ownerId = senders.get(ownerUid)?.platformId;
   } else {
     const r = await resolveC2cSenders(opts.conv, deps);
@@ -141,7 +143,7 @@ export async function exportJsonConversation(
       for (const member of members) {
         await write(`${JSON.stringify({ _type: 'member', ...member }, bigintReplacer)}\n`);
       }
-      for await (const raw of iterateConv(msgs, opts.kind, opts.conv, opts.range)) {
+      for await (const raw of iterateConv(msgs, opts.kind, opts.conv, opts.range, opts.roam)) {
         const exported = toExportedMessage(raw);
         opts.collectSenders?.add(exported.senderUin);
         await expandForwards(msgs, opts.kind, exported);
@@ -160,7 +162,7 @@ export async function exportJsonConversation(
         `"members": ${JSON.stringify(members)},\n` +
         '"messages": [\n';
       await write(head);
-      for await (const raw of iterateConv(msgs, opts.kind, opts.conv, opts.range)) {
+      for await (const raw of iterateConv(msgs, opts.kind, opts.conv, opts.range, opts.roam)) {
         const exported = toExportedMessage(raw);
         opts.collectSenders?.add(exported.senderUin);
         await expandForwards(msgs, opts.kind, exported);

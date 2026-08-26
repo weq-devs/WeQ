@@ -44,6 +44,7 @@ import {
 } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
+import { useToast } from '../components/Toast';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { datalineName } from '@weq/codec';
 import { Avatar, Segmented, Spinner } from './export/widgets';
@@ -224,6 +225,7 @@ function collectionPreview(it: CollectionItemWire): CollectionPreviewItem {
 export function ExportView(): ReactElement {
   const utils = trpc.useUtils();
   const dialog = useAppDialog();
+  const pushToast = useToast((s) => s.push);
 
   const conversations = trpc.account.listConversationsWithCount.useQuery();
   const databases = trpc.account.listDatabases.useQuery();
@@ -341,11 +343,16 @@ export function ExportView(): ReactElement {
   // Live task progress: invalidate the list whenever the backend ticks.
   useEffect(() => {
     const sub = client.account.onExportProgress.subscribe(undefined, {
-      onData: () => void utils.account.listExportTasks.invalidate(),
+      onData: (progress) => {
+        void utils.account.listExportTasks.invalidate();
+        if (progress.notice) {
+          pushToast({ tone: 'warning', title: '消息补全', message: progress.notice, ttl: 5000 });
+        }
+      },
       onError: (err) => console.error('[export] progress subscription error', err),
     });
     return () => sub.unsubscribe();
-  }, [utils]);
+  }, [utils, pushToast]);
 
   const convItems = useMemo<PickItem[]>(() => {
     return ((conversations.data ?? []) as ConvWire[]).map((c) => {
@@ -670,6 +677,36 @@ export function ExportView(): ReactElement {
   }
 
   /**
+   * Pre-flight for 补全缺失消息: needs an online QQ *and* 完全离线模式 off
+   * (自动注入 QQ 开启) — the roam pull goes through the live SSO channel, so
+   * unlike 媒体补全 there is no offline fallback. Hard block otherwise.
+   */
+  async function preflightMessageCompletion(): Promise<boolean> {
+    let state: { qqOnline: boolean; injectEnabled: boolean };
+    try {
+      state = await client.account.getGroupAlbumAccessState.query();
+    } catch (e) {
+      dialog.error('检查在线状态失败', e instanceof Error ? e.message : String(e));
+      return false;
+    }
+    if (!state.qqOnline) {
+      await dialog.info(
+        '需要打开 QQ',
+        '「补全缺失消息」需要登录该账号的 QQ 客户端以拉取服务端历史消息。请打开并登录 QQ 后重试，或关闭「补全缺失消息」后继续导出。',
+      );
+      return false;
+    }
+    if (!state.injectEnabled) {
+      await dialog.info(
+        '完全离线模式已开启',
+        '「自动注入 QQ（完整功能）」已关闭（完全离线模式），无法拉取服务端缺失消息。请开启后重试，或关闭「补全缺失消息」后继续导出。',
+      );
+      return false;
+    }
+    return true;
+  }
+
+  /**
    * Pre-flight for 好友空间导出: a live QQ instance must be logged in (the QZone
    * web CGI needs this account's skey/pskey). Returns false to abort with a
    * prompt to open QQ.
@@ -788,11 +825,18 @@ export function ExportView(): ReactElement {
     const range = { start: options.range.start, end: options.range.end };
     const media = {
       exportMedia: options.exportMedia,
+      completeMessages: options.completeMessages,
       completeMedia: options.exportMedia && options.completeMedia,
       downloadVideo: options.exportMedia && options.completeMedia && options.downloadVideo,
       downloadFile: options.exportMedia && options.completeMedia && options.downloadFile,
       transcribeVoice: options.transcribeVoice,
     };
+
+    // 消息补全跑在所有导出步骤之前，必须在线 QQ + 未开启完全离线模式。
+    if (media.completeMessages) {
+      const ok = await preflightMessageCompletion();
+      if (!ok) return;
+    }
 
     if (media.completeMedia) {
       const ok = await preflightMediaCompletion();
@@ -1012,6 +1056,7 @@ export function ExportView(): ReactElement {
             end: result.options.range.end,
           },
           exportMedia: result.options.exportMedia,
+          completeMessages: result.options.completeMessages,
           exportAvatar: result.options.exportAvatar,
           completeMedia: result.options.completeMedia,
           downloadVideo: result.options.downloadVideo,

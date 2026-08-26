@@ -200,6 +200,16 @@ export function ExportLightbox({
           {!isAlbum && !isQzone && !isContacts ? (
             <Card title="媒体与内容">
               <Row
+                label="补全缺失消息"
+                desc="扫描 seq 空窗并从 QQ 服务端拉取本机缺失的历史消息（需在线 QQ 且未开启完全离线模式）"
+                control={
+                  <Toggle
+                    checked={opts.completeMessages}
+                    onChange={(v) => patch({ completeMessages: v })}
+                  />
+                }
+              />
+              <Row
                 label="导出媒体文件"
                 desc="图片、表情、视频、文件等随消息一并导出"
                 control={<Toggle checked={opts.exportMedia} onChange={(v) => patch({ exportMedia: v })} />}
