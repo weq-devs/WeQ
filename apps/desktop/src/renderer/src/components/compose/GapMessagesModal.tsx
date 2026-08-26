@@ -144,7 +144,7 @@ export function GapMessagesModal({
                 ) : messages.length === 0 ? (
                   <div className="weq-deleted-empty">
                     <CloudOff size={26} />
-                    <span>没有可拉取的消息</span>
+                    <span className="weq-gap-empty-hint">没有可拉取的消息</span>
                   </div>
                 ) : (
                   <>

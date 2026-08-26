@@ -15089,6 +15089,11 @@ html[data-theme="dark"] .weq-graytip-band {
   font-size: 12px;
   color: var(--weq-fg-muted, var(--weq-fg-tertiary, var(--weq-fg-secondary)));
 }
+/* 缺失消息弹窗：空结果文案（“没有可拉取的消息”）字号收紧。 */
+.weq-deleted-empty .weq-gap-empty-hint {
+  font-size: 12px;
+  color: var(--weq-fg-muted, var(--weq-fg-tertiary, var(--weq-fg-secondary)));
+}
 .weq-gap-footer {
   display: flex;
   align-items: center;
