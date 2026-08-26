@@ -1489,6 +1489,45 @@ html[data-theme='dark'] .weq-splash-track {
     font-size: 12px;
   }
 
+  /* ---- 密码输入弹窗（NineBird 提权 / sudo -S）----
+   * 共享 .weq-modal 土台是写死的浅色渐变，这里整体换成 token 驱动的
+   * 表面色，深浅模式都能自洽。 */
+  .weq-password-modal {
+    background: var(--weq-bg-surface);
+  }
+  .weq-dialog-password .weq-dialog-title {
+    color: var(--weq-fg-primary);
+  }
+  .weq-dialog-password .weq-dialog-body {
+    color: var(--weq-fg-secondary);
+  }
+  .weq-password-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .weq-password-input {
+    width: 100%;
+    height: 2.35rem;
+    padding: 0 0.75rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--weq-border-strong);
+    background: var(--weq-bg-elevated);
+    color: var(--weq-fg-primary);
+    font-size: 13.5px;
+    outline: none;
+    transition:
+      border-color 140ms ease,
+      box-shadow 140ms ease;
+  }
+  .weq-password-input::placeholder {
+    color: var(--weq-fg-muted);
+  }
+  .weq-password-input:focus {
+    border-color: var(--weq-accent-effective);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+  }
+
   /* ---- close-confirm dialog (关闭 WeQ：托盘 / 退出) ---- */
   /* Token-driven so it tracks light/dark, like the welcome dialog. */
   .weq-close {

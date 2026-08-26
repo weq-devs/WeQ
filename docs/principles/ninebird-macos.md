@@ -43,29 +43,37 @@ QQ（App Store 版）是沙箱应用，只能读写自己的容器
 macOS 没有 polkit / pkexec。但 Linux 提权注入的**架构**可以照搬：非特权主进程
 只做数据准备，特权部分收敛成一个短命子进程。
 
-这里用的是 `osascript` 的 Authorization Services：
-
-```text
-do shell script "<sh>" with administrator privileges
-```
-
-由系统弹原生授权框，root 只执行两个字节级 `cp`：
+这里照抄 napcat-mac-installer 的 `sudo -S`：渲染层弹密码框，密码经 stdin 喂给
+`/usr/bin/sudo -S /bin/sh -c <sh>`，root 只执行两个字节级 `cp`：
 
 - 备份：`[ -f package.json.bak ] || cp -p package.json package.json.bak`
 - 覆盖：`cp <临时 patched JSON> package.json`
 
 Patched JSON 由 WeQ 自己（非特权）写进临时文件，root 永远不碰内容生成逻辑。
-其余所有操作（容器文件、热更新 package.json）都在用户权限内，无需提权。
+密码不落盘、不进日志；sudo 是 WeQ 的直接子进程，TCC 责任归属 WeQ，
+Sequoia+ 在「系统设置 → 隐私与安全性 → App 管理」中加入 WeQ 后即可写入
+QQ.app（安装器已内置该提示文案）。其余所有操作（容器文件、热更新
+package.json）都在用户权限内，无需提权。
 
-> 注意：Sequoia+ 需要在「系统设置 → 隐私与安全性 → App 管理」中加入 WeQ，
-> 否则 osascript 会报 `not permitted`（安装器已内置该提示文案）。
+### 踩坑记录：osascript 提权是一条死路
+
+曾照抄 WeFlow 用 `osascript ... do shell script ... with administrator
+privileges` 弹系统授权框，结果 `cp` 到 QQ.app 内始终 `Operation not permitted`
+（-60007 那步能过，写入被拒），即使把 WeQ 加进「App 管理」也一样。
+
+原因：macOS 15「App 管理」TCC 禁止跨应用修改其它 app 的 bundle，而授权服务
+拉起的 root 进程责任归属不在 WeQ，WeQ 拿到授权也没用。WeFlow 能用 osascript
+是因为它只 `chmod` / 运行自己的 helper，从不写别的 app 的 bundle；我们的场景
+（改 `/Applications/QQ.app` 入口）恰好踩中它没踩过的雷。因此**不要**再切回
+osascript / hardened runtime 方案，`sudo -S` + 密码框（napcat 同款）是验证过
+的可行路线。
 
 ## 启动流程（QR / 快捷登录）
 
 ```text
 WeQ (非特权)
   └─ launchQQ (TS, darwin/boot.ts)
-       ├─ ensureInstalled()  幂等部署 + 入口补丁（首次弹授权框）
+       ├─ ensureInstalled()  幂等部署 + 入口校验（未安装抛错引导去设置）
        ├─ spawn QQ --no-sandbox
        │    env: NINEBIRD_PIPE_NAME / NINEBIRD_LOAD_PATH /
        │         NINEBIRD_LOADER_DIR / NINEBIRD_TIMEOUT_MS /
@@ -82,7 +90,7 @@ macOS 是单实例 QQ，启动前先 `SIGKILL` 掉已有 QQ（等同 napcat 的 
 
 ## 代码位置
 
-- `packages/native/src/darwin/install.ts` — 路径 / 状态 / osascript 提权 / 补丁 / 热更新 / 卸载
+- `packages/native/src/darwin/install.ts` — 路径 / 状态 / `sudo -S` 提权 / 补丁 / 热更新 / 卸载
 - `packages/native/src/darwin/boot.ts` — TS 版 `launchQQ`（部署 + spawn QQ）
 - `packages/native/src/loader.ts` — darwin 不再 stub，改用 TS boot
 - `packages/native/src/ninebird.ts` — darwin 的 pipe socket 放 QQ 容器 tmp

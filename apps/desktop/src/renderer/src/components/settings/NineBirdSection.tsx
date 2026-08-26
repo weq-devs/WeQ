@@ -3,8 +3,9 @@
  *
  * 移植 napcat-mac-installer 的机制：把 NineBird 的 hooker + loader 部署进
  * QQ 沙箱容器，并把 `/Applications/QQ.app/…/package.json` 的 main 指向容器
- * 内的 `loadNineBird.js`（提权操作，走 osascript 系统授权框，WeQ 自身保持
- * 非特权）。安装完成后，扫码 / 快捷登录流程即可在 macOS 上拉起 QQ 取 dbkey。
+ * 内的 `loadNineBird.js`（提权操作，napcat 同款 `sudo -S`：渲染层弹密码框，
+ * 密码经 stdin 喂给 sudo，WeQ 自身保持非特权）。安装完成后，扫码 / 快捷登录
+ * 流程即可在 macOS 上拉起 QQ 取 dbkey。
  *
  * 非 macOS 平台渲染为空（导航入口由 SettingsDialog 按平台过滤）。
  */
@@ -30,6 +31,7 @@ const STATUS_TEXT: Record<string, string> = {
 
 export function NineBirdSection(): ReactElement | null {
   const showError = useDialog((s) => s.showError);
+  const promptPassword = useDialog((s) => s.promptPassword);
   const pushToast = useToast((s) => s.push);
 
   const systemInfo = trpc.bootstrap.systemInfo.useQuery(undefined, {
@@ -52,8 +54,15 @@ export function NineBirdSection(): ReactElement | null {
   const busy = install.isPending || uninstall.isPending;
 
   const doInstall = async (): Promise<void> => {
+    const password = await promptPassword(
+      'NineBird 安装',
+      '需要管理员权限修改 QQ 程序入口（/Applications/QQ.app/Contents/Resources/app/package.json），' +
+        '请输入电脑开机密码。',
+      { placeholder: '管理员密码' },
+    );
+    if (password === null) return;
     try {
-      await install.mutateAsync();
+      await install.mutateAsync({ password });
       pushToast({
         tone: 'success',
         title: 'NineBird 安装成功',
@@ -67,8 +76,14 @@ export function NineBirdSection(): ReactElement | null {
   };
 
   const doUninstall = async (): Promise<void> => {
+    const password = await promptPassword(
+      '还原原版 QQ',
+      '需要管理员权限恢复 QQ 的原始程序入口，请输入电脑开机密码。',
+      { placeholder: '管理员密码' },
+    );
+    if (password === null) return;
     try {
-      await uninstall.mutateAsync();
+      await uninstall.mutateAsync({ password });
       pushToast({ tone: 'success', title: '已还原原版 QQ 入口' });
       status.refetch();
     } catch (e) {
@@ -82,7 +97,7 @@ export function NineBirdSection(): ReactElement | null {
       <SectionHeader
         icon={<Plug size={16} />}
         title="NineBird（macOS）"
-        desc="安装后可用扫码 / 快捷登录自动提取数据库密钥。首次安装会弹出系统授权框以修改 QQ 程序入口。"
+        desc="安装后可用扫码 / 快捷登录自动提取数据库密钥。首次安装需要输入管理员密码以修改 QQ 程序入口。"
       />
       <Card>
         <Row
