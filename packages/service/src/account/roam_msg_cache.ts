@@ -48,7 +48,9 @@ function toBigIntSafe(value: string | undefined, fallback = 0n): bigint {
 }
 
 function rowToMessage(row: SqlRow): GapFetchedMessage {
-  const [msgId, msgSeq, senderUid, senderUin, sendTime, elements, decoration] = row;
+  // The SELECT below returns kind, conv first; they are read via row[0]/row[1],
+  // so the destructure must skip those two columns.
+  const [, , msgId, msgSeq, senderUid, senderUin, sendTime, elements, decoration] = row;
   const message: GapFetchedMessage = {
     kind: String(row[0] ?? '') as GapFetchedMessage['kind'],
     conv: String(row[1] ?? ''),
