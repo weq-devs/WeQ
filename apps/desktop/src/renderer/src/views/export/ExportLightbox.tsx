@@ -251,6 +251,18 @@ export function ExportLightbox({
                 }
               />
               <Row
+                indent
+                label="下载语音"
+                desc="需先开启「补全缺失媒体」（需在线 QQ，下载后解码为 WAV）"
+                control={
+                  <Toggle
+                    checked={opts.downloadPtt && opts.completeMedia}
+                    disabled={!opts.exportMedia || !opts.completeMedia}
+                    onChange={(v) => patch({ downloadPtt: v })}
+                  />
+                }
+              />
+              <Row
                 label="导出头像"
                 desc="发送者头像存入 avatars/ 子目录（缓存优先，缺失走 CDN 补齐）；导出结果将保存为文件夹"
                 control={<Toggle checked={opts.exportAvatar} onChange={(v) => patch({ exportAvatar: v })} />}

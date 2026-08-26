@@ -2672,6 +2672,7 @@ export const accountRouter = router({
             completeMedia: z.boolean(),
             downloadVideo: z.boolean(),
             downloadFile: z.boolean(),
+            downloadPtt: z.boolean(),
             transcribeVoice: z.boolean(),
           })
           .optional(),
@@ -2713,6 +2714,7 @@ export const accountRouter = router({
           completeMedia: false,
           downloadVideo: false,
           downloadFile: false,
+          downloadPtt: false,
           transcribeVoice: false,
         },
         ...(input.range ? { range: input.range } : {}),
@@ -2866,6 +2868,7 @@ export const accountRouter = router({
           completeMedia: z.boolean(),
           downloadVideo: z.boolean(),
           downloadFile: z.boolean(),
+          downloadPtt: z.boolean(),
           transcribeVoice: z.boolean(),
         }),
         enabled: z.boolean().default(true),
@@ -2926,6 +2929,7 @@ export const accountRouter = router({
               completeMedia: z.boolean(),
               downloadVideo: z.boolean(),
               downloadFile: z.boolean(),
+              downloadPtt: z.boolean(),
               transcribeVoice: z.boolean(),
             })
             .optional(),

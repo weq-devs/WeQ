@@ -829,6 +829,7 @@ export function ExportView(): ReactElement {
       completeMedia: options.exportMedia && options.completeMedia,
       downloadVideo: options.exportMedia && options.completeMedia && options.downloadVideo,
       downloadFile: options.exportMedia && options.completeMedia && options.downloadFile,
+      downloadPtt: options.exportMedia && options.completeMedia && options.downloadPtt,
       transcribeVoice: options.transcribeVoice,
     };
 
@@ -1061,6 +1062,7 @@ export function ExportView(): ReactElement {
           completeMedia: result.options.completeMedia,
           downloadVideo: result.options.downloadVideo,
           downloadFile: result.options.downloadFile,
+          downloadPtt: result.options.downloadPtt,
           transcribeVoice: result.options.transcribeVoice,
         },
         enabled: true,

@@ -436,7 +436,21 @@ export function QqOnlineFile({ data, kind }: { data: Data; kind: 'file' | 'folde
 
 // ---- voice (ptt) --------------------------------------------------------
 
-export function QqVoice({ data, sendTimeMs, msgId }: { data: Data; sendTimeMs: number; msgId: string }) {
+export function QqVoice({
+  data,
+  sendTimeMs,
+  msgId = '',
+  mediaMsgId = '',
+  conv = '',
+  fwd,
+}: {
+  data: Data;
+  sendTimeMs: number;
+  msgId?: string;
+  mediaMsgId?: string;
+  conv?: string;
+  fwd?: ForwardRef;
+}) {
   const name = str(data, 'fileName');
   const token = str(data, 'fileToken');
   const waveform = Array.isArray(data.waveform) ? (data.waveform as number[]) : [];
@@ -479,7 +493,18 @@ export function QqVoice({ data, sendTimeMs, msgId }: { data: Data; sendTimeMs: n
   const toggle = (): void => {
     let audio = audioRef.current;
     if (!audio) {
-      audio = new Audio(mediaUrl('ptt', { t: sendTimeMs, name, token }));
+      // mediaMsgId/conv/fwd 让主进程在本地 Ptt 文件缺失时能定位元素做 OIDB
+      // 补全（转发子消息时是 carrier 的 msgId；`msgId` 留给转写写回用）。
+      audio = new Audio(
+        mediaUrl('ptt', {
+          t: sendTimeMs,
+          name,
+          token,
+          msgId: mediaMsgId || msgId,
+          conv,
+          ...(fwd ? { fwdMsgId: fwd.fwdMsgId, fwdKind: fwd.fwdKind } : {}),
+        }),
+      );
       audio.onended = () => setPlaying(false);
       audio.onerror = () => setPlaying(false);
       audioRef.current = audio;

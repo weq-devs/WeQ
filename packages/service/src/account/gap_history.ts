@@ -169,7 +169,7 @@ export class GapHistoryService {
   }
 
   /**
-   * 在漫游缓存里按 msgId 定位视频 / 文件元素，返回元素 + 会话类型。
+   * 在漫游缓存里按 msgId 定位视频 / 文件 / 语音元素，返回元素 + 会话类型。
    *
    * 缺失消息弹窗拉到的漫游消息不在本地 msg 表（getRawElements 查不到），媒体协议
    * 的 OIDB 补全和 `file:download` 需要回退到这里拿元素。`token` 只用于同一消息里
@@ -177,7 +177,7 @@ export class GapHistoryService {
    */
   async findMediaElement(
     msgId: string,
-    kind: 'video' | 'file',
+    kind: 'video' | 'file' | 'ptt',
     token: string,
   ): Promise<{ element: MediaElement; conv: 'c2c' | 'group' } | null> {
     const gap = await this.findByMsgId(msgId);

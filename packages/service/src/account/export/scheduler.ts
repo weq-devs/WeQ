@@ -54,6 +54,7 @@ export interface ScheduleOptions {
   completeMedia: boolean;
   downloadVideo: boolean;
   downloadFile: boolean;
+  downloadPtt: boolean;
   transcribeVoice: boolean;
 }
 
@@ -365,6 +366,7 @@ export class ExportScheduler extends EventEmitter {
                   completeMedia: t.options.exportMedia && t.options.completeMedia,
                   downloadVideo: t.options.exportMedia && t.options.completeMedia && t.options.downloadVideo,
                   downloadFile: t.options.exportMedia && t.options.completeMedia && t.options.downloadFile,
+                  downloadPtt: t.options.exportMedia && t.options.completeMedia && t.options.downloadPtt,
                   transcribeVoice: t.options.transcribeVoice,
                 },
               }
@@ -491,6 +493,7 @@ function defaultOptions(): ScheduleOptions {
     completeMedia: false,
     downloadVideo: false,
     downloadFile: false,
+    downloadPtt: false,
     transcribeVoice: false,
   };
 }

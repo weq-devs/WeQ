@@ -53,7 +53,8 @@ import { resolveResource } from './resource';
 import { decodeSilkToWav } from './voice';
 
 /** rkey types accepted when downloading the video COVER (thumb only; the
- *  original mp4 now goes through OIDB). ptt still uses rkey end-to-end. */
+ *  original mp4 now goes through OIDB). ptt tries rkey first and falls back
+ *  to OIDB when the local Ptt file is missing. */
 const VIDEO_RKEY_TYPES = [PRIVATE_VIDEO_RKEY_TYPE, GROUP_VIDEO_RKEY_TYPE];
 const PTT_RKEY_TYPES = [PRIVATE_PTT_RKEY_TYPE, GROUP_PTT_RKEY_TYPE];
 
@@ -64,10 +65,10 @@ function oidbCachePath(cacheDir: string, token: string, ext: string): string {
 }
 
 /**
- * Find the video / file element a chat media URL refers to by re-reading its
- * raw message. Returns the element plus the conversation kind so callers can
- * branch group vs c2c. Matches by fileToken when a message carries several of
- * the same kind; else the first one of that kind.
+ * Find the video / file / ptt element a chat media URL refers to by re-reading
+ * its raw message. Returns the element plus the conversation kind so callers
+ * can branch group vs c2c. Matches by fileToken when a message carries several
+ * of the same kind; else the first one of that kind.
  *
  * `fwdMsgId` marks a merged-forward sub-message: its snapshot lives only in the
  * carrying message's 40900 cache (never in our own msg tables), so `msgId` is
@@ -77,7 +78,7 @@ function oidbCachePath(cacheDir: string, token: string, ext: string): string {
  */
 async function findMediaElement(
   msgId: string,
-  kind: 'video' | 'file',
+  kind: 'video' | 'file' | 'ptt',
   token: string,
   fwdMsgId = '',
   fwdKind: 'group' | 'c2c' = 'c2c',
@@ -491,11 +492,45 @@ export function handleMediaRequest(request: Request): Promise<Response> {
           const { source } = await services.fileSearch.findFile(tMs, name, 'ptt');
           let silk = source;
           if (!silk) {
-            // Missing on disk → download the silk, then decode as usual.
+            // Missing on disk → try rkey first, then OIDB completion. The OIDB
+            // fallback matters most for missing-history roam messages (no local
+            // Ptt file at all); it needs an online QQ.
             silk = await services.mediaDownload.download(token, {
               ext: '.silk',
               rkeyTypes: PTT_RKEY_TYPES,
             });
+          }
+          if (!silk) {
+            const boot = getAppContext().bootstrap;
+            if (boot && token) {
+              const cacheDir = join(boot.userConfig.cacheDir('media'), 'ptt');
+              const cachePath = oidbCachePath(cacheDir, token, '.silk');
+              if (existsSync(cachePath)) {
+                silk = cachePath;
+              } else {
+                const msgId = q.get('msgId') ?? '';
+                const conv = q.get('conv') ?? '';
+                const fwdMsgId = q.get('fwdMsgId') ?? '';
+                const fwdKind = q.get('fwdKind') === 'group' ? 'group' : 'c2c';
+                const found = await findMediaElement(msgId, 'ptt', token, fwdMsgId, fwdKind);
+                if (found) {
+                  const groupId = Number(conv) || 0;
+                  let url: string | undefined;
+                  try {
+                    url =
+                      found.conv === null
+                        ? await services.mediaUrl.resolvePttUrlUnknownScene(groupId, found.element)
+                        : await services.mediaUrl.resolvePttUrl(found.conv, groupId, found.element);
+                  } catch (e) {
+                    console.error('[media] ptt OIDB resolve failed:', e);
+                  }
+                  if (url) {
+                    const outcome = await downloadUrlToFile(url, cachePath);
+                    if (outcome.ok) silk = cachePath;
+                  }
+                }
+              }
+            }
           }
           if (!silk) return notFound('ptt not found');
           const wav = await decodeSilkToWav(silk);

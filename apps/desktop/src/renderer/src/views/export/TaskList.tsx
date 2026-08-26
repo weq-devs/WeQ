@@ -40,7 +40,7 @@ export interface UiStage {
 }
 
 /** The CDN-completion stages (download missing → bundle). */
-const COMPLETION_KEYS = new Set(['image', 'video', 'file']);
+const COMPLETION_KEYS = new Set(['image', 'video', 'file', 'ptt']);
 
 /** Aggregate completion (image/video/file) success / fail across a task's stages. */
 function completionSummary(stages: UiStage[] | undefined): {

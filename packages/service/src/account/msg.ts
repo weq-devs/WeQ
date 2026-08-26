@@ -616,7 +616,7 @@ export class MsgService {
     kind: 'c2c' | 'group',
     msgId: bigint,
     subMsgId: bigint,
-    mediaKind: 'video' | 'file',
+    mediaKind: 'video' | 'file' | 'ptt',
     token: string,
   ): Promise<Element | null> {
     const records = await this.listForward(kind, msgId);
@@ -762,7 +762,7 @@ interface CacheRecordLike {
 function findMediaInCache(
   records: MsgCacheRecord[],
   subMsgId: bigint,
-  mediaKind: 'video' | 'file',
+  mediaKind: 'video' | 'file' | 'ptt',
   token: string,
   depth = 0,
 ): Element | null {
@@ -783,7 +783,7 @@ function findMediaInCache(
 /** Collect every media element of `mediaKind` from records passing `accept`. */
 function walkCache(
   records: MsgCacheRecord[],
-  mediaKind: 'video' | 'file',
+  mediaKind: 'video' | 'file' | 'ptt',
   depth: number,
   accept: (rec: CacheRecordLike) => boolean,
 ): Element[] | null {

@@ -230,7 +230,16 @@ function MediaNode({
     case 'file':
       return <QqFile data={data} sendTimeMs={sendTimeMs} msgId={ownerMsgId} conv={conv} fwd={fwd} />;
     case 'ptt':
-      return <QqVoice data={data} sendTimeMs={sendTimeMs} msgId={msgId} />;
+      return (
+        <QqVoice
+          data={data}
+          sendTimeMs={sendTimeMs}
+          msgId={msgId}
+          mediaMsgId={ownerMsgId}
+          conv={conv}
+          fwd={fwd}
+        />
+      );
     case 'mface':
       return <QqMarketFace data={data} />;
     case 'onlineFile':

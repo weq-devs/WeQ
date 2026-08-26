@@ -115,6 +115,8 @@ export interface ExportOptions {
   downloadVideo: boolean;
   /** Include files when downloading media. */
   downloadFile: boolean;
+  /** Include missing voice clips when downloading media (OIDB + SILK-decode). */
+  downloadPtt: boolean;
   /** Auto-transcribe voice messages to text. */
   transcribeVoice: boolean;
 }
@@ -127,6 +129,7 @@ export const DEFAULT_OPTIONS: ExportOptions = {
   completeMedia: false,
   downloadVideo: false,
   downloadFile: false,
+  downloadPtt: false,
   transcribeVoice: false,
 };
 
@@ -163,6 +166,7 @@ export interface ScheduleOptions {
   completeMedia: boolean;
   downloadVideo: boolean;
   downloadFile: boolean;
+  downloadPtt: boolean;
   transcribeVoice: boolean;
 }
 

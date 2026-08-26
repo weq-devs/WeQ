@@ -56,6 +56,8 @@ export interface MediaElement {
   videoFlag45421?: Uint8Array;
   /** Duration in seconds (video / ptt). */
   videoDuration?: number;
+  /** Clip duration in seconds (ptt only; NTV2 node 的 time 槽位）。 */
+  pttDuration?: number;
   uploadTime?: number;
   fileTTL?: number;
   subType?: number;
@@ -96,6 +98,7 @@ export function mediaElementFromRenderElement(el: {
     videoWidth: n('videoWidth'),
     videoHeight: n('videoHeight'),
     videoDuration: n('videoDuration'),
+    pttDuration: n('pttDuration'),
     uploadTime: n('uploadTime'),
     fileTTL: n('fileTTL'),
     subType: n('subType'),
@@ -150,9 +153,10 @@ export function mediaNodeFromElement(el: MediaElement): MediaIndexNode {
     fileName: el.fileName ?? '',
     width: el.videoWidth ?? el.imgWidth ?? 0,
     height: el.videoHeight ?? el.imgHeight ?? 0,
-    time: el.videoDuration ?? 0,
+    // ptt 的时长走 pttDuration（videoDuration 只在 video 元素上有）。
+    time: el.videoDuration ?? el.pttDuration ?? 0,
     original: el.isOriginal ? 1 : 0,
-    storeId: isVideo ? (el.storeId ?? el.fileFlag45415 ?? 0) : 0,
+    storeId: el.storeId ?? (isVideo ? el.fileFlag45415 : 0),
     uploadTime: el.uploadTime ?? 0,
     ttl: el.fileTTL ?? 0,
     subType: el.subType ?? 0,
@@ -202,6 +206,10 @@ export class MediaUrlService {
     return GetGroupPttUrl.invoke(this.nt, this.resolvePid(), { groupId, node });
   }
 
+  async getGroupPttUrlFromElement(groupId: number, element: MediaElement): Promise<string> {
+    return this.getGroupPttUrl(groupId, mediaNodeFromElement(element));
+  }
+
   /**
    * Returns {@link GroupFileDownload}; caller composes:
    * `https://${d.dns}/ftn_handler/${d.urlHex}/?fname=${encodeURIComponent(fileId)}`
@@ -231,6 +239,10 @@ export class MediaUrlService {
 
   async getPrivateVideoUrlFromElement(element: MediaElement): Promise<string> {
     return this.getPrivateVideoUrl(mediaNodeFromElement(element));
+  }
+
+  async getPrivatePttUrlFromElement(element: MediaElement): Promise<string> {
+    return this.getPrivatePttUrl(mediaNodeFromElement(element));
   }
 
   async getPrivatePttUrl(node: MediaIndexNode): Promise<string> {
@@ -269,6 +281,28 @@ export class MediaUrlService {
     return kind === 'group'
       ? this.getGroupVideoUrlFromElement(groupId, element)
       : this.getPrivateVideoUrlFromElement(element);
+  }
+
+  /**
+   * Resolve a ptt (voice) element's download URL, branching on conversation
+   * kind — SnowLuma 同款 NTV2 0x126E_200 / 0x126D_200。`groupId` 只在群聊分支用。
+   */
+  async resolvePttUrl(kind: 'group' | 'c2c', groupId: number, element: MediaElement): Promise<string> {
+    return kind === 'group'
+      ? this.getGroupPttUrlFromElement(groupId, element)
+      : this.getPrivatePttUrlFromElement(element);
+  }
+
+  /**
+   * Ptt counterpart of {@link resolveVideoUrlUnknownScene}: merged-forward voice
+   * snapshots (40900) carry no chatType, so try the group scene first (when a
+   * groupId is known) and fall back to c2c.
+   */
+  async resolvePttUrlUnknownScene(groupId: number, element: MediaElement): Promise<string> {
+    return firstResolved([
+      ...(groupId > 0 ? [() => this.getGroupPttUrlFromElement(groupId, element)] : []),
+      () => this.getPrivatePttUrlFromElement(element),
+    ]);
   }
 
   /**

@@ -1085,6 +1085,8 @@ export function initAppContext(): AppContext {
             },
             // 消息补全：与聊天页共用漫游缓存与拉取能力（在线 QQ + 非完全离线模式）。
             messageBackfill: gapHistory,
+            // 漫游缓存元素回退：补全消息不在本地 msg 表，导出下载按 msgId 定位媒体元素。
+            gapHistory,
           },
         ),
         dbDecrypt: new DbDecryptService(session, platform),
@@ -1476,6 +1478,8 @@ export function initAppContext(): AppContext {
             },
             // 消息补全：与聊天页共用漫游缓存与拉取能力（在线 QQ + 非完全离线模式）。
             messageBackfill: gapHistory,
+            // 漫游缓存元素回退：补全消息不在本地 msg 表，导出下载按 msgId 定位媒体元素。
+            gapHistory,
           },
         ),
         dbDecrypt: new DbDecryptService(session, staticPlatform),

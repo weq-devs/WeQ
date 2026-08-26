@@ -12,7 +12,7 @@ import { EventEmitter, once } from 'node:events';
 import { writeFileSync, readFileSync, existsSync, mkdirSync, unlinkSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { MsgService } from '../msg';
-import type { GapFetchedMessage } from '../gap_history';
+import type { GapFetchedMessage, GapHistoryService } from '../gap_history';
 import type { AvatarCacheService } from '../../bootstrap/media_cache';
 import type { MediaDownloadService } from '../media_download';
 import { exportGroupToJson } from './json_exporter';
@@ -43,6 +43,7 @@ import {
   downloadMissingImages,
   downloadMissingVideos,
   downloadMissingFiles,
+  downloadMissingVoices,
   type DecodeSilk,
   type TranscribeVoiceFn,
   type MediaFailure,
@@ -62,7 +63,7 @@ export type TaskStatus = 'pending' | 'running' | 'paused' | 'completed' | 'faile
 export type { ConvKind };
 
 /** A single stage of a task's pipeline. */
-export type StageKey = 'backfill' | 'message' | 'media' | 'avatar' | 'record' | 'image' | 'video' | 'file' | 'transcribe' | 'sysface' | 'sticker';
+export type StageKey = 'backfill' | 'message' | 'media' | 'avatar' | 'record' | 'image' | 'video' | 'file' | 'ptt' | 'transcribe' | 'sysface' | 'sticker';
 
 export interface TaskStage {
   key: StageKey;
@@ -110,6 +111,8 @@ export interface MediaExportOptions {  /** Export media files alongside the mess
   downloadVideo: boolean;
   /** Reserved: include files when downloading (download deferred). */
   downloadFile: boolean;
+  /** Include missing voices when downloading (OIDB-resolve + SILK-decode). */
+  downloadPtt: boolean;
   /** Transcribe locally-found voice clips into a `transcripts.json` (needs a model). */
   transcribeVoice: boolean;
 }
@@ -197,6 +200,8 @@ export interface MediaDeps {
   marketpack?: MarketPackDeps;
   /** 消息补全能力（由 app 注入，桥接聊天页 GapHistoryService：缓存+拉取共用）。 */
   messageBackfill?: MessageBackfillDeps;
+  /** 漫游缓存元素回退（缺失消息补全的消息不在本地 msg 表，导出下载用它定位媒体元素）。 */
+  gapHistory?: Pick<GapHistoryService, 'findMediaElement'>;
 }
 
 export class ExportTaskManager extends EventEmitter {
@@ -378,6 +383,7 @@ export class ExportTaskManager extends EventEmitter {
         stages.push({ key: 'image', label: '补全图片', status: 'pending', current: 0, total: 0 });
         stages.push({ key: 'video', label: '补全视频', status: 'pending', current: 0, total: 0 });
         stages.push({ key: 'file', label: '补全文件', status: 'pending', current: 0, total: 0 });
+        stages.push({ key: 'ptt', label: '补全语音', status: 'pending', current: 0, total: 0 });
       }
     }
     if (wantTranscribe) {
@@ -728,6 +734,8 @@ export class ExportTaskManager extends EventEmitter {
           // 补全视频 / 文件 — OIDB-resolve + download (each gated by its toggle).
           jobs.push(() => this.runUrlDownloadStage(task, 'video', found, mediaRoot, Boolean(task.media?.downloadVideo), aborted));
           jobs.push(() => this.runUrlDownloadStage(task, 'file', found, mediaRoot, Boolean(task.media?.downloadFile), aborted));
+          // 补全语音 — OIDB-resolve + SILK-decode into media/record/*.wav.
+          jobs.push(() => this.runUrlDownloadStage(task, 'ptt', found, mediaRoot, Boolean(task.media?.downloadPtt), aborted));
         }
       }
 
@@ -1172,9 +1180,9 @@ export class ExportTaskManager extends EventEmitter {
     }
   }
 
-  /** Run a video/file download stage: gated by its toggle and a usable mediaUrl. */
+  /** Run a video/file/ptt download stage: gated by its toggle and a usable mediaUrl. */
   private async runUrlDownloadStage(    task: ExportTask,
-    key: 'video' | 'file',
+    key: 'video' | 'file' | 'ptt',
     scan: import('./media_scan').MediaScanResult,
     mediaRoot: string,
     enabled: boolean,
@@ -1184,9 +1192,16 @@ export class ExportTaskManager extends EventEmitter {
     if (!s) return;
     if (!enabled) { s.status = 'skipped'; s.note = '未勾选下载'; this.saveTasks(); return; }
     if (!this.deps.mediaUrl) { s.status = 'skipped'; s.note = '无法获取下载地址'; this.saveTasks(); return; }
+    if (key === 'ptt' && !this.deps.decodeSilk) { s.status = 'skipped'; s.note = '解码不可用'; this.saveTasks(); return; }
 
-    const label = key === 'video' ? '视频' : '文件';
-    const ctx = { mediaUrl: this.deps.mediaUrl, msgs: this.msgs, kind: task.kind, conv: task.conv };
+    const label = key === 'video' ? '视频' : key === 'ptt' ? '语音' : '文件';
+    const ctx = {
+      mediaUrl: this.deps.mediaUrl,
+      msgs: this.msgs,
+      kind: task.kind,
+      conv: task.conv,
+      gapHistory: this.deps.gapHistory,
+    };
     this.touchStage(task, key, { status: 'running', note: `下载${label} 0` }, { persist: true });
     const onP = (done: number, total: number): void => {
       if (aborted()) return;
@@ -1195,7 +1210,9 @@ export class ExportTaskManager extends EventEmitter {
     const r =
       key === 'video'
         ? await downloadMissingVideos(scan, mediaRoot, ctx, onP)
-        : await downloadMissingFiles(scan, mediaRoot, ctx, onP);
+        : key === 'ptt'
+          ? await downloadMissingVoices(scan, mediaRoot, ctx, this.deps.decodeSilk!, onP)
+          : await downloadMissingFiles(scan, mediaRoot, ctx, onP);
     this.touchStage(task, key, { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已下载 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`, ...(r.failures ? { failures: r.failures } : {}) }, { persist: true });
   }
 
