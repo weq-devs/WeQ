@@ -3486,6 +3486,14 @@ html[data-theme="dark"] .app-title-bar-signature {
   padding-top: 18px;
 }
 
+/* macOS: the native traffic lights float over the hidden title bar's left
+   edge, making the rail (chat/contacts etc.) look pushed down. Nudge the rail
+   content up on macOS only; Windows/Linux keep their in-app window controls. */
+.app-shell-root.is-mac .app-shell .app-rail,
+.app-shell-root.is-mac .app-shell .app-rail.hide-avatar {
+  padding-top: 8px;
+}
+
 .app-shell .rail-avatar,
 .app-shell .rail-nav button,
 .app-shell .rail-footer button {

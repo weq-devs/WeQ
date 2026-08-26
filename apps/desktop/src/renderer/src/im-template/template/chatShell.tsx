@@ -4,6 +4,7 @@ import { cn } from "./classNames";
 import { AppRail } from "./rail";
 import { SidebarHeader, SidebarResizeHandle } from "./sidebar";
 import { TitleBar } from "./TitleBar";
+import { IS_MAC } from "../../lib/target";
 import type {
 	ContactNoticeView,
 	ContactTab,
@@ -89,7 +90,7 @@ export function ChatShell({
 	} as CSSProperties;
 
 	return (
-		<div className="app-shell-root">
+		<div className={cn("app-shell-root", IS_MAC && "is-mac")}>
 			<TitleBar user={user} homeActive={view === "home"} onGoHome={onGoHome} />
 			<div
 				className={cn("app-shell", view === "tools" && "app-shell-tools")}
