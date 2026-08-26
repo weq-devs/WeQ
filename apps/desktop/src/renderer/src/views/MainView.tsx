@@ -1757,10 +1757,10 @@ export function MainView(): ReactElement {
   const [gapLoading, setGapLoading] = useState(false);
   const [gapLoadingMore, setGapLoadingMore] = useState(false);
   const [gapError, setGapError] = useState<string | null>(null);
-  /** 缺口还有更旧的一页（30 个 seq）可拉。 */
+  /** 缺口还有更新的一页（30 个 seq）可拉。 */
   const [gapHasMore, setGapHasMore] = useState(false);
-  /** 下一页（更旧）的 endSeq 游标；null 表示没有更多。 */
-  const [gapNextEndSeq, setGapNextEndSeq] = useState<number | null>(null);
+  /** 下一页（更新）的 startSeq 游标；null 表示没有更多。 */
+  const [gapNextStartSeq, setGapNextStartSeq] = useState<number | null>(null);
   /** 滚动加载更多失败：哨兵停止自动触发，footer 显示重试。 */
   const [gapMoreFailed, setGapMoreFailed] = useState(false);
   /** 加载更多的同步锁：哨兵同一帧内重复触发时避免并发请求。 */
@@ -1945,7 +1945,7 @@ export function MainView(): ReactElement {
     [loadRecalledMessages],
   );
 
-  /** 拉取占位条两侧 seq 开区间内缺失消息的第一页（最新的 30 个 seq）。 */
+  /** 拉取占位条两侧 seq 开区间内缺失消息的第一页（最旧的 30 个 seq）。 */
   const loadGapMessages = useCallback(
     async (c: Conversation, previousSeq: string, currentSeq: string): Promise<void> => {
       const { kind, conv } = convFetchKey(c);
@@ -1954,7 +1954,7 @@ export function MainView(): ReactElement {
       gapLoadMoreLockRef.current = false;
       setGapLoadingMore(false);
       setGapHasMore(false);
-      setGapNextEndSeq(null);
+      setGapNextStartSeq(null);
       setGapMoreFailed(false);
       try {
         const startSeq = BigInt(previousSeq) + 1n;
@@ -1979,17 +1979,17 @@ export function MainView(): ReactElement {
           }
           return;
         }
-        if (res.messages.length === 0) {
+        if (res.messages.length === 0 && res.nextStartSeq === null) {
           setGapWires([]);
           setGapError('拉取失败：未开启消息漫游或者消息已过期');
           return;
         }
         setGapError(null);
         // 服务端按 seq 升序返回本窗口（小 seq = 旧消息）；时间线按旧在上、
-        // 新在下排列，直接保持升序。
+        // 新在下排列，直接保持升序。首屏是最旧的一段，用户从顶部向下浏览。
         setGapWires(res.messages.map(toMessageWire));
-        setGapHasMore(res.nextEndSeq !== null);
-        setGapNextEndSeq(res.nextEndSeq);
+        setGapHasMore(res.nextStartSeq !== null);
+        setGapNextStartSeq(res.nextStartSeq);
       } catch (e) {
         console.error('[MainView] Failed to fetch gap messages:', e);
         setGapWires([]);
@@ -2001,14 +2001,14 @@ export function MainView(): ReactElement {
     [convFetchKey],
   );
 
-  /** 缺口超过 30 条：向上滚动到顶后拉取更旧的一页（30 个 seq），prepend 到列表头部。 */
+  /** 缺口超过 30 条：向下滚动到底后拉取更新的一页（30 个 seq），append 到列表尾部。 */
   const loadMoreGapMessages = useCallback(async (): Promise<void> => {
     if (gapLoadMoreLockRef.current) return;
-    if (!gapDialog || gapLoading || gapLoadingMore || !gapHasMore || gapNextEndSeq === null) {
+    if (!gapDialog || gapLoading || gapLoadingMore || !gapHasMore || gapNextStartSeq === null) {
       return;
     }
     const { kind, conv } = convFetchKey(gapDialog.conversation);
-    const startSeq = BigInt(gapDialog.previousSeq) + 1n;
+    const endSeq = BigInt(gapDialog.currentSeq) - 1n;
     gapLoadMoreLockRef.current = true;
     setGapLoadingMore(true);
     setGapMoreFailed(false);
@@ -2016,22 +2016,24 @@ export function MainView(): ReactElement {
       const res = await client.account.fetchGapMessages.query({
         kind,
         conv,
-        startSeq: Number(startSeq),
-        endSeq: gapNextEndSeq,
+        startSeq: gapNextStartSeq,
+        endSeq: Number(endSeq),
       });
       if (!res.ok) {
         setGapMoreFailed(true);
         return;
       }
       if (res.messages.length === 0) {
-        setGapHasMore(false);
-        setGapNextEndSeq(null);
+        // 空窗不停止：QQ 漫游覆盖从最新向前连续，缺口最旧端可能未覆盖，
+        // 继续向更新方向推进；只有遍历完整个缺口（nextStartSeq 为 null）才收尾。
+        setGapHasMore(res.nextStartSeq !== null);
+        setGapNextStartSeq(res.nextStartSeq);
         return;
       }
-      // 更旧的一页 seq 更小，应排在更上面：prepend 到头部，列表整体保持升序。
-      setGapWires((prev) => [...res.messages.map(toMessageWire), ...prev]);
-      setGapHasMore(res.nextEndSeq !== null);
-      setGapNextEndSeq(res.nextEndSeq);
+      // 更新的一页 seq 更大，应排在更下面：append 到列表尾部，列表整体保持升序。
+      setGapWires((prev) => [...prev, ...res.messages.map(toMessageWire)]);
+      setGapHasMore(res.nextStartSeq !== null);
+      setGapNextStartSeq(res.nextStartSeq);
     } catch (e) {
       console.error('[MainView] Failed to load more gap messages:', e);
       setGapMoreFailed(true);
@@ -2039,7 +2041,7 @@ export function MainView(): ReactElement {
       gapLoadMoreLockRef.current = false;
       setGapLoadingMore(false);
     }
-  }, [gapDialog, gapLoading, gapLoadingMore, gapHasMore, gapNextEndSeq, convFetchKey]);
+  }, [gapDialog, gapLoading, gapLoadingMore, gapHasMore, gapNextStartSeq, convFetchKey]);
 
   /** 占位条点击：无在线 QQ / 完全离线模式不打开窗口，直接 toast 提示。 */
   const handleOpenGapMessages = useCallback(
@@ -2084,7 +2086,7 @@ export function MainView(): ReactElement {
       setGapError(null);
       setGapLoadingMore(false);
       setGapHasMore(false);
-      setGapNextEndSeq(null);
+      setGapNextStartSeq(null);
       setGapMoreFailed(false);
       setGapDialog(gap);
       void loadGapMessages(gap.conversation, gap.previousSeq, gap.currentSeq);
@@ -4169,7 +4171,7 @@ export function MainView(): ReactElement {
                 setGapError(null);
                 setGapLoadingMore(false);
                 setGapHasMore(false);
-                setGapNextEndSeq(null);
+                setGapNextStartSeq(null);
                 setGapMoreFailed(false);
               }}
             />

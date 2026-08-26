@@ -2214,11 +2214,11 @@ export const accountRouter = router({
 
   /**
    * 拉取聊天时间线中缺失的远端消息（按 seq 窗口，含端点）。分页契约：
-   * 首次传整个缺口末端（占位条下一条消息的 seq - 1），之后把返回的
-   * nextEndSeq 原样作为下一次的 endSeq，每页向更旧方向推 30 个 seq，
-   * 直到 nextEndSeq 为 null。依赖在线 QQ 发包，离线 / 完全离线模式由服务层
-   * 判定并返回 { ok: false, reason: 'offline' }；窗口内零条（漫游未开 / 消息
-   * 过期）返回 ok: true + 空 messages，由调用方决定首屏空窗如何提示。
+   * 首次传整个缺口起始（占位条上一条消息的 seq + 1），之后把返回的
+   * nextStartSeq 原样作为下一次的 startSeq，每页向更新方向推 30 个 seq，
+   * 直到 nextStartSeq 为 null。依赖在线 QQ 发包，离线 / 完全离线模式由服务层
+   * 判定并返回 { ok: false, reason: 'offline' }；空窗不停止（QQ 漫游覆盖从
+   * 最新向前连续，缺口最旧端可能未覆盖），由调用方决定首屏空窗如何提示。
    * 已拉到的消息会全部写入本机漫游缓存（按账号一个库），下次命中缓存直接返回。
    */
   fetchGapMessages: procedure
