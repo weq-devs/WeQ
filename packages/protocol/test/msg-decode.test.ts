@@ -185,6 +185,59 @@ describe('decodeMessage 简化消息解码', () => {
     ]);
   });
 
+  it('把 commonElem(serviceType=48) 的完整 pic（含媒体索引字段）解析成 codec 风格', () => {
+    const pbElem = encode(PIC_COMMON_PB, {
+      file: {
+        body: {
+          info: {
+            fileSize: 138475,
+            md5Bytes: '94cb55bb1442e8105f0d1cd8a1754c24',
+            contentHash: 'c1f08e001a49949fbb1560ca963d1c7355c56765',
+            fileName: '94CB55BB1442E8105F0D1CD8A1754C24.jpg',
+            imgType: { imgType: 1000 },
+            imgWidth: 1440,
+            imgHeight: 1920,
+            original: 1,
+          },
+          fileToken: 'EhSvnu9IsaXDXYs0o5A7QyLJKlHM-Bin8BAg_wooxZXMuJe6lgMyBHByb2RQgL2jAVoQHxWlE-PjsO9N6fPiDydU-XoCgziCAQJneg',
+          storeId: 1,
+          uploadTime: 1787775592,
+          ttl: 604800,
+          subType: 0,
+        },
+        url: { originalUrl: '/download?appid=1407&fileid=EhSvnu9IsaXDXYs0o5A7QyLJKlHM-Bin8BAg_wooxZXMuJe6lgMyBHByb2RQgL2jAVoQHxWlE-PjsO9N6fPiDydU-XoCgziCAQJneg' },
+      },
+    });
+    const bytes = encode(PUSH_MSG_BODY, {
+      contentHead: { msgId: 1, sequence: 1, timestamp: 1 },
+      body: {
+        richText: {
+          elems: [{ commonElem: { serviceType: 48, pbElem, businessType: 20 } }],
+        },
+      },
+    });
+    const msg = decodeMessage(bytes);
+    expect(msg.elements).toEqual([
+      {
+        kind: 'pic',
+        fileName: '94CB55BB1442E8105F0D1CD8A1754C24.jpg',
+        fileToken: 'EhSvnu9IsaXDXYs0o5A7QyLJKlHM-Bin8BAg_wooxZXMuJe6lgMyBHByb2RQgL2jAVoQHxWlE-PjsO9N6fPiDydU-XoCgziCAQJneg',
+        fileSize: 138475,
+        md5Bytes: hexBytes('94cb55bb1442e8105f0d1cd8a1754c24'),
+        contentHash: hexBytes('c1f08e001a49949fbb1560ca963d1c7355c56765'),
+        originalUrl: '/download?appid=1407&fileid=EhSvnu9IsaXDXYs0o5A7QyLJKlHM-Bin8BAg_wooxZXMuJe6lgMyBHByb2RQgL2jAVoQHxWlE-PjsO9N6fPiDydU-XoCgziCAQJneg',
+        imgWidth: 1440,
+        imgHeight: 1920,
+        imgType: 1000,
+        isOriginal: true,
+        storeId: 1,
+        uploadTime: 1787775592,
+        fileTTL: 604800,
+        subType: 0,
+      },
+    ]);
+  });
+
   it('把 commonElem(serviceType=48, businessType=21) 里的 video 解析成 codec 风格', () => {
     const pbElem = encode(VIDEO_COMMON_PB, {
       files: [
@@ -655,6 +708,27 @@ describe('decodeMessage 简化消息解码', () => {
     expect(msg.elements).toEqual([{ kind: 'multiMsg', xmlContent: xml }]);
   });
 
+  it('把带 m_resid 的合并转发解析出 resId（供 SsoRecvLongMsg 重新拉取）', () => {
+    const xml = '<?xml version="1.0" encoding="UTF-8"?><msg serviceID="35" templateID="1" action="viewMultiMsg" brief="[聊天记录]" m_resid="f26265be-d9d4-11f1-8db2-93b16d2d5c42" tSum="4" flag="3"><item layout="1"><title>群聊的聊天记录</title></item></msg>';
+    const payload = new Uint8Array([0x01, ...deflateSync(Buffer.from(xml, 'utf8'))]);
+    const bytes = encode(PUSH_MSG_BODY, {
+      contentHead: { msgId: 1, sequence: 1, timestamp: 1 },
+      body: {
+        richText: {
+          elems: [{ richMsg: { template1: payload, serviceId: 35 } }],
+        },
+      },
+    });
+    const msg = decodeMessage(bytes);
+    expect(msg.elements).toEqual([
+      {
+        kind: 'multiMsg',
+        xmlContent: xml,
+        resId: 'f26265be-d9d4-11f1-8db2-93b16d2d5c42',
+      },
+    ]);
+  });
+
   it('把 srcMsg 解析成 codec 风格 reply，origElements 嵌套解析', () => {
     const quotedText = encode(ELEM, { text: { str: '[在做了]' } });
     const pbReserve = encode(REPLY_PB_RESERVE, { origSenderUid: 'u_mGIBTBW7gF4Wocw8zapc6w' });
@@ -724,6 +798,62 @@ describe('decodeMessage 简化消息解码', () => {
         fileName: '06854585bfdbfcf2e6549e343d84b288.amr',
         fileToken: 'EhRzCKeU1416OieJeT0cy5L1zHRupRjwNyD7Cij6qvjgnLqWAzIEcHJvZFCA9SRaEOy9a8N_VG_60e1iZMx1dOh6AlEuggECZ3o',
         pttDuration: 4,
+        waveform,
+      },
+    ]);
+  });
+
+  it('把 commonElem(serviceType=48, businessType=22) 的完整 ptt（含媒体索引字段）解析成 codec 风格', () => {
+    const waveform = new Uint8Array(
+      '440175aca4c8a6afb4acbba1a5b9b599c5a7acbfb09cb0a9bfa7b3a8c6bbadc7a8a294bf9dc2a4d6b8b7a200'
+        .match(/../g)!
+        .map((hex) => Number.parseInt(hex, 16)),
+    );
+    const pbElem = encode(PTT_COMMON_PB, {
+      file: {
+        body: {
+          info: {
+            fileSize: 21248,
+            md5Bytes: '06854585bfdbfcf2e6549e343d84b288',
+            contentHash: 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4',
+            fileName: '06854585bfdbfcf2e6549e343d84b288.amr',
+            pttDuration: 4,
+            original: 1,
+          },
+          fileToken: 'EhRzCKeU1416OieJeT0cy5L1zHRupRjwNyD7Cij6qvjgnLqWAzIEcHJvZFCA9SRaEOy9a8N_VG_60e1iZMx1dOh6AlEuggECZ3o',
+          storeId: 1,
+          uploadTime: 1787775592,
+          ttl: 604800,
+          subType: 0,
+        },
+      },
+      extra: {
+        meta: { wave: { waveform } },
+      },
+    });
+    const bytes = encode(PUSH_MSG_BODY, {
+      contentHead: { msgId: 1, sequence: 1, timestamp: 1 },
+      body: {
+        richText: {
+          elems: [{ commonElem: { serviceType: 48, pbElem, businessType: 22 } }],
+        },
+      },
+    });
+    const msg = decodeMessage(bytes);
+    expect(msg.elements).toEqual([
+      {
+        kind: 'ptt',
+        fileName: '06854585bfdbfcf2e6549e343d84b288.amr',
+        fileToken: 'EhRzCKeU1416OieJeT0cy5L1zHRupRjwNyD7Cij6qvjgnLqWAzIEcHJvZFCA9SRaEOy9a8N_VG_60e1iZMx1dOh6AlEuggECZ3o',
+        fileSize: 21248,
+        md5Bytes: hexBytes('06854585bfdbfcf2e6549e343d84b288'),
+        contentHash: hexBytes('a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4'),
+        pttDuration: 4,
+        isOriginal: true,
+        storeId: 1,
+        uploadTime: 1787775592,
+        fileTTL: 604800,
+        subType: 0,
         waveform,
       },
     ]);

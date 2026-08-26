@@ -370,18 +370,26 @@ export const PIC_COMMON_IMG_TYPE: ProtoMessage = message([
   f('imgType', 2, 'uint32'),
 ]);
 
-/** 图片信息（file.body.info）：fileName / imgWidth / imgHeight / imgType。 */
+/** 图片信息（file.body.info）：fileSize / md5 / contentHash / fileName / imgType / 尺寸 / 原图标记（与 VIDEO_COMMON_INFO 同构）。 */
 export const PIC_COMMON_INFO: ProtoMessage = message([
+  f('fileSize', 1, 'uint32'),
+  f('md5Bytes', 2, 'string'),
+  f('contentHash', 3, 'string'),
   f('fileName', 4, 'string'),
   f('imgType', 5, PIC_COMMON_IMG_TYPE),
   f('imgWidth', 6, 'uint32'),
   f('imgHeight', 7, 'uint32'),
+  f('original', 9, 'uint32', { force: true }),
 ]);
 
-/** file.body：图片信息 + fileToken。 */
+/** file.body：图片信息 + fileToken + storeId / uploadTime / ttl / subType（与 VIDEO_COMMON_BODY 同构）。 */
 export const PIC_COMMON_BODY: ProtoMessage = message([
   f('info', 1, PIC_COMMON_INFO),
   f('fileToken', 2, 'string'),
+  f('storeId', 3, 'uint32'),
+  f('uploadTime', 4, 'uint32'),
+  f('ttl', 5, 'uint32'),
+  f('subType', 6, 'uint32', { force: true }),
 ]);
 
 /** file.url：originalUrl 下载路径。 */
@@ -463,16 +471,24 @@ export const FILE_TRANS_TOP: ProtoMessage = message([
 
 // ---------- commonElem(serviceType=48, businessType=22) 语音 ----------
 
-/** 语音信息（body.info）：fileName / pttDuration，其余字段丢弃。 */
+/** 语音信息（body.info）：fileSize / md5 / contentHash / fileName / pttDuration / 原图标记（与 VIDEO_COMMON_INFO 同构）。 */
 export const PTT_COMMON_INFO: ProtoMessage = message([
+  f('fileSize', 1, 'uint32'),
+  f('md5Bytes', 2, 'string'),
+  f('contentHash', 3, 'string'),
   f('fileName', 4, 'string'),
   f('pttDuration', 8, 'uint32'),
+  f('original', 9, 'uint32', { force: true }),
 ]);
 
-/** body：语音信息 + fileToken。 */
+/** body：语音信息 + fileToken + storeId / uploadTime / ttl / subType（与 VIDEO_COMMON_BODY 同构）。 */
 export const PTT_COMMON_BODY: ProtoMessage = message([
   f('info', 1, PTT_COMMON_INFO),
   f('fileToken', 2, 'string'),
+  f('storeId', 3, 'uint32'),
+  f('uploadTime', 4, 'uint32'),
+  f('ttl', 5, 'uint32'),
+  f('subType', 6, 'uint32', { force: true }),
 ]);
 
 /** pbElem.1：body。 */

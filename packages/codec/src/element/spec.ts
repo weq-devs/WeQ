@@ -61,6 +61,8 @@ export const PicElementSchema = BaseElementFieldsSchema.extend({
   imgHeight: z.number(),
   imgType: z.nativeEnum(PicType),
   isOriginal: z.boolean(),
+  /** StoreId（@weq/protocol 老 wire 解码带出，本地 codec 元素无此字段）。 */
+  storeId: z.number().optional(),
   md5: z.string(),
   fileToken: z.string(),
   uploadTime: z.number(),
@@ -253,6 +255,8 @@ export const PttElementSchema = BaseElementFieldsSchema.extend({
   uploadTime: z.number(),
   uploadTimestamp: z.number(),
   fileTTL: z.number(),
+  /** StoreId（@weq/protocol 老 wire 解码带出，本地 codec 元素无此字段）。 */
+  storeId: z.number().optional(),
   summary: z.array(z.string()),
   /** Clip duration in seconds (wire tag 45906). Authoritative for both the
    * 时长 label and bubble width — waveform length is not. */

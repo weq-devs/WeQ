@@ -94,7 +94,9 @@ function liftFaceElem(face: Record<string, unknown>): Record<string, unknown> {
 
 /**
  * 把 commonElem(serviceType=48) 的 pbElem 提升成 codec 风格 pic 元素：
- * 只保留 fileName / fileToken / originalUrl / imgWidth / imgHeight / imgType。
+ * 保留 fileName / fileToken / originalUrl / imgWidth / imgHeight / imgType，
+ * 另带媒体索引字段（fileSize / md5Bytes / contentHash / isOriginal / storeId /
+ * uploadTime / fileTTL / subType，与 video / ptt 同构），供下载 URL 解析与导出用。
  */
 function liftPicElem(pb: Record<string, unknown>): Record<string, unknown> {
   const file = pb.file as Record<string, unknown> | undefined;
@@ -105,10 +107,18 @@ function liftPicElem(pb: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = { kind: 'pic' };
   if (info?.fileName !== undefined) out.fileName = info.fileName;
   if (body?.fileToken !== undefined) out.fileToken = body.fileToken;
+  if (info?.fileSize !== undefined) out.fileSize = info.fileSize;
+  if (typeof info?.md5Bytes === 'string' && info.md5Bytes) out.md5Bytes = hexToBytes(info.md5Bytes);
+  if (typeof info?.contentHash === 'string' && info.contentHash) out.contentHash = hexToBytes(info.contentHash);
   if (url?.originalUrl !== undefined) out.originalUrl = url.originalUrl;
   if (info?.imgWidth !== undefined) out.imgWidth = info.imgWidth;
   if (info?.imgHeight !== undefined) out.imgHeight = info.imgHeight;
   if (typeWrap?.imgType !== undefined) out.imgType = typeWrap.imgType;
+  if (info?.original !== undefined) out.isOriginal = info.original === 1;
+  if (body?.storeId !== undefined) out.storeId = body.storeId;
+  if (body?.uploadTime !== undefined) out.uploadTime = body.uploadTime;
+  if (body?.ttl !== undefined) out.fileTTL = body.ttl;
+  if (body?.subType !== undefined) out.subType = body.subType;
   return out;
 }
 
@@ -154,7 +164,9 @@ function hexToBytes(hex: string): Uint8Array {
 }
 /**
  * 把 commonElem(serviceType=48, businessType=22) 的 pbElem 提升成 codec 风格 ptt 元素：
- * 只保留 fileName / fileToken / pttDuration / waveform。
+ * 保留 fileName / fileToken / pttDuration / waveform，另带媒体索引字段
+ * （fileSize / md5Bytes / contentHash / isOriginal / storeId / uploadTime /
+ * fileTTL / subType，与 video 同构），供语音下载 URL 解析用。
  */
 function liftPttElem(pb: Record<string, unknown>): Record<string, unknown> {
   const file = pb.file as Record<string, unknown> | undefined;
@@ -166,7 +178,15 @@ function liftPttElem(pb: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = { kind: 'ptt' };
   if (info?.fileName !== undefined) out.fileName = info.fileName;
   if (body?.fileToken !== undefined) out.fileToken = body.fileToken;
+  if (info?.fileSize !== undefined) out.fileSize = info.fileSize;
+  if (typeof info?.md5Bytes === 'string' && info.md5Bytes) out.md5Bytes = hexToBytes(info.md5Bytes);
+  if (typeof info?.contentHash === 'string' && info.contentHash) out.contentHash = hexToBytes(info.contentHash);
   if (info?.pttDuration !== undefined) out.pttDuration = info.pttDuration;
+  if (info?.original !== undefined) out.isOriginal = info.original === 1;
+  if (body?.storeId !== undefined) out.storeId = body.storeId;
+  if (body?.uploadTime !== undefined) out.uploadTime = body.uploadTime;
+  if (body?.ttl !== undefined) out.fileTTL = body.ttl;
+  if (body?.subType !== undefined) out.subType = body.subType;
   if (wave?.waveform !== undefined) out.waveform = wave.waveform;
   return out;
 }
@@ -218,16 +238,24 @@ function inflatePayload(raw: Uint8Array): string | undefined {
   return undefined;
 }
 
+/** 合并转发 xml 里的 resId 属性（`m_resid="..."`，与 SnowLuma 同款提取）。 */
+const MULTI_MSG_RESID_RE = /\bm_resid="([^"]+)"/;
+
 /**
  * 把 richMsg(serviceId=35) 的合并转发提升成 codec 风格 multiMsg 元素：
- * 只保留 xmlContent（由 template1 解压得到）。
+ * xmlContent 由 template1 解压得到；xml 里带 m_resid 时同时给出 resId
+ * （SsoRecvLongMsg 重新拉取合并转发内容需要，导出/补全受益）。
  */
 function liftMultiMsgElem(rich: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = { kind: 'multiMsg' };
   const raw = rich.template1 as Uint8Array | undefined;
   if (raw) {
     const xml = inflatePayload(raw);
-    if (xml !== undefined) out.xmlContent = xml;
+    if (xml !== undefined) {
+      out.xmlContent = xml;
+      const match = MULTI_MSG_RESID_RE.exec(xml);
+      if (match?.[1]) out.resId = match[1];
+    }
   }
   return out;
 }
