@@ -60,6 +60,36 @@ export interface MediaElement {
   videoFlag45863?: number;
 }
 
+/**
+ * 把缺失消息漫游缓存里的渲染元素（RenderElement）还原成 {@link MediaElement}，
+ * 供 OIDB 下载 URL 解析。缺失消息不在本地 msg 表，媒体补全/下载回查时用它兜底。
+ * 渲染元素只保留前端展示需要的字段，下载必需的 fileToken 等都在里面；私聊文件的
+ * fileHash（transferFlag45504 / md5）在缺失消息解码链路里没有保留，这里如实缺省。
+ */
+export function mediaElementFromRenderElement(el: {
+  type: string;
+  data?: unknown;
+}): MediaElement {
+  const d = (el.data ?? {}) as Record<string, unknown>;
+  const s = (k: string): string => (typeof d[k] === 'string' ? d[k] : '');
+  const n = (k: string): number => (typeof d[k] === 'number' ? d[k] : Number(d[k]) || 0);
+  return {
+    kind: el.type,
+    fileToken: s('fileToken'),
+    fileName: s('fileName'),
+    fileSize: n('fileSize'),
+    imgWidth: n('imgWidth'),
+    imgHeight: n('imgHeight'),
+    videoWidth: n('videoWidth'),
+    videoHeight: n('videoHeight'),
+    videoDuration: n('videoDuration'),
+    uploadTime: n('uploadTime'),
+    fileTTL: n('fileTTL'),
+    subType: n('subType'),
+    isOriginal: Boolean(d.isOriginal),
+  };
+}
+
 /** Bytes → lowercase hex. */
 function hexOf(bytes: Uint8Array | undefined): string {
   if (!bytes?.length) return '';

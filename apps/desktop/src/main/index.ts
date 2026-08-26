@@ -304,13 +304,20 @@ function registerMediaIpc(): void {
           console.error('[file:download] getRawElements failed:', e);
           return { success: false, error: '读取消息失败' };
         }
-        if (!raw) return { success: false, error: '未找到该消息' };
-        const matches = raw.elements.filter((e) => e.kind === 'file');
-        console.log('[file:download] kind=%s, file elements=%d', raw.kind, matches.length);
-        el = ((token
-          ? matches.find((e) => (e as { fileToken?: string }).fileToken === token)
-          : undefined) ?? matches[0]) as unknown as MediaElement | undefined;
-        convKind = raw.kind;
+        if (!raw) {
+          // 缺失消息弹窗拉到的漫游消息不在本地 msg 表：按 msgId 回退漫游缓存。
+          const gap = await services.gapHistory.findMediaElement(msgId, 'file', token);
+          if (!gap) return { success: false, error: '未找到该消息' };
+          el = gap.element;
+          convKind = gap.conv;
+        } else {
+          const matches = raw.elements.filter((e) => e.kind === 'file');
+          console.log('[file:download] kind=%s, file elements=%d', raw.kind, matches.length);
+          el = ((token
+            ? matches.find((e) => (e as { fileToken?: string }).fileToken === token)
+            : undefined) ?? matches[0]) as unknown as MediaElement | undefined;
+          convKind = raw.kind;
+        }
       }
       if (!el) return { success: false, error: '消息中未找到文件元素' };
       const elToken = el.fileToken ?? '';

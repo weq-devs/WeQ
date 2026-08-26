@@ -102,6 +102,20 @@ export class RoamMsgCacheDb {
     return rows.map(rowToMessage);
   }
 
+  /** 按 msgId 找一条已缓存的缺失消息（媒体补全 / 文件下载回查用）。 */
+  async findByMsgId(msgId: string): Promise<GapFetchedMessage | null> {
+    if (!msgId) return null;
+    await this.ensureSchema();
+    const rows = await this.nt.executeSql(
+      this.dbPath,
+      `SELECT kind, conv, msg_id, msg_seq, sender_uid, sender_uin, send_time, elements, decoration
+         FROM ${TABLE}
+        WHERE msg_id = ? LIMIT 1`,
+      [msgId],
+    );
+    return rows.length > 0 ? rowToMessage(rows[0]!) : null;
+  }
+
   /** 把拉取到的消息全部写入缓存（幂等：同一 seq 覆盖为最新）。 */
   async store(messages: GapFetchedMessage[]): Promise<void> {
     if (messages.length === 0) return;

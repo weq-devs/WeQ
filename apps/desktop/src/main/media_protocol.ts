@@ -104,7 +104,11 @@ async function findMediaElement(
   } catch {
     return null;
   }
-  if (!raw) return null;
+  if (!raw) {
+    // 缺失消息弹窗拉到的漫游消息不在本地 msg 表（getRawElements 查不到），
+    // 回退到漫游缓存按 msgId 定位媒体元素。
+    return services.gapHistory.findMediaElement(msgId, kind, token);
+  }
   const matches = raw.elements.filter(
     (e) => e.kind === kind || (kind === 'video' && e.kind === 'bubbleVideo'),
   );

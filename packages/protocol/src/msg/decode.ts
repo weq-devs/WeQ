@@ -116,6 +116,11 @@ function liftPicElem(pb: Record<string, unknown>): Record<string, unknown> {
  * 把 commonElem(serviceType=48, businessType=21) 的 pbElem 提升成 codec 风格 video 元素：
  * 第 0 项取 fileName/fileToken/videoWidth/videoHeight/videoDuration，
  * 第 1 项的 fileToken 作为 videoToken（封面缩略图）。
+ *
+ * 已知缺口（下次补）：正常消息的视频 OIDB 请求会带 videoExt（channelParams=45862 /
+ * videoFlag45421=45421 / videoFlag45863=45863）与 storeId（fileFlag45415=45415）；
+ * 旧 wire 的 VIDEO_COMMON_PB 没声明这些 tag，缺失消息窗口的原片补全因此缺 video
+ * 扩展块。若实测旧 wire 带对应字段，把 tag 补进 schema 与本函数即可。
  */
 function liftVideoElem(pb: Record<string, unknown>): Record<string, unknown> {
   const files = (pb.files as Record<string, unknown>[] | undefined) ?? [];
@@ -155,6 +160,11 @@ function liftPttElem(pb: Record<string, unknown>): Record<string, unknown> {
 /**
  * 把 transElem(elemType=24) 的 elemValue 提升成 codec 风格 file 元素：
  * 只保留 fileName / fileSize / fileToken。
+ *
+ * 已知缺口（下次补）：私聊文件下载（OIDB 0xE37_1200）除 fileToken（fileUuid）外还
+ * 需要 fileHash（正常路径 = transferFlag45504 / md5Bytes2 / md5Bytes）。旧 wire 的
+ * FILE_TRANS_INFO 字段 7/8/9 目前未保留，若其中是 md5/fileHash，补进 schema 与
+ * 本函数后缺失消息窗口的私聊文件才能走通。
  */
 /**
  * transElem(elemType=24) 的 elemValue 实测带 3 字节多余头（01 00 93）。

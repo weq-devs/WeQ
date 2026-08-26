@@ -27,6 +27,7 @@ import {
 } from '@weq/protocol';
 import { toRenderElements, type RenderElement } from './msg_view';
 import { RoamMsgCacheDb } from './roam_msg_cache';
+import { mediaElementFromRenderElement, type MediaElement } from './media_url';
 
 /** 服务端单次最多返回约 30 条（见 packages/protocol/tools/scan_msg_history.ts）。 */
 const SERVER_MAX_WINDOW = 30;
@@ -154,6 +155,41 @@ export class GapHistoryService {
       console.error('[GapHistory] failed to read roam cache:', e);
       return [];
     }
+  }
+
+  /** 按 msgId 找一条已缓存的缺失消息（媒体补全 / 文件下载回查用）。 */
+  async findByMsgId(msgId: string): Promise<GapFetchedMessage | null> {
+    if (!msgId) return null;
+    try {
+      return await this.cache.findByMsgId(msgId);
+    } catch (e) {
+      console.error('[GapHistory] failed to find cached message by msgId:', e);
+      return null;
+    }
+  }
+
+  /**
+   * 在漫游缓存里按 msgId 定位视频 / 文件元素，返回元素 + 会话类型。
+   *
+   * 缺失消息弹窗拉到的漫游消息不在本地 msg 表（getRawElements 查不到），媒体协议
+   * 的 OIDB 补全和 `file:download` 需要回退到这里拿元素。`token` 只用于同一消息里
+   * 有多个同类媒体时消歧，其余情况取第一个。
+   */
+  async findMediaElement(
+    msgId: string,
+    kind: 'video' | 'file',
+    token: string,
+  ): Promise<{ element: MediaElement; conv: 'c2c' | 'group' } | null> {
+    const gap = await this.findByMsgId(msgId);
+    if (!gap) return null;
+    // 缺失消息解码只产出 codec 风格的 'video' / 'file'（没有 bubbleVideo）。
+    const matches = gap.elements.filter((el) => el.type === kind);
+    const el =
+      (token
+        ? matches.find((m) => (m.data as { fileToken?: unknown } | undefined)?.fileToken === token)
+        : undefined) ?? matches[0];
+    if (!el) return null;
+    return { element: mediaElementFromRenderElement(el), conv: gap.kind };
   }
 
   /**
