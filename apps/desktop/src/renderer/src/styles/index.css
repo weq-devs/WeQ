@@ -8681,7 +8681,10 @@ html[data-theme="dark"] .weq-flash-opening { background: rgba(0, 0, 0, 0.55); }
   position: fixed;
   inset: 0;
   /* Above .app-title-bar (z-index: 100) so the floating window's header and
-     close button are never covered by the OS drag region when near the top. */
+     close button are never covered by the OS drag region when near the top.
+     ForwardWindowHost claims a dynamic overlay layer (useOverlayLayer) once a
+     window opens, so the stack also sits above any modal (missing-messages,
+     etc.) — this static value is only a fallback for the empty state. */
   z-index: 110;
   pointer-events: none;
 }
@@ -15139,6 +15142,11 @@ html[data-theme="dark"] .weq-graytip-band {
 /* 缺失消息弹窗：分页状态条，位于列表顶部（向上滚动加载更多 / 加载中 /
  * 失败重试 / 已到底），哨兵触发时把更旧的一页 prepend 到头部。 */
 .weq-deleted-empty.weq-gap-loading {
+  font-size: 12px;
+  color: var(--weq-fg-muted, var(--weq-fg-tertiary, var(--weq-fg-secondary)));
+}
+/* 缺失消息弹窗：空结果文案（“没有可拉取的消息”）字号收紧。 */
+.weq-deleted-empty .weq-gap-empty-hint {
   font-size: 12px;
   color: var(--weq-fg-muted, var(--weq-fg-tertiary, var(--weq-fg-secondary)));
 }

@@ -8,8 +8,12 @@
  * 像普通消息一样完整渲染（头像 / 昵称 / 装扮 / 消息体）。
  *
  * 注意：服务端单次请求最多返回约 30 条，所以按 30 个 seq 一段分页拉取：
- * 第一页从缺口末端（最新）往回拉一段，之后每次把上一页返回的 nextEndSeq
- * 作为新的 endSeq 继续向更旧的方向推，直到缺口拉完或漫游中断。
+ * 第一页从缺口起始（最旧）往后拉一段，之后每次把上一页返回的 nextStartSeq
+ * 作为新的 startSeq 继续向更新的方向推，直到缺口拉完或漫游中断。
+ *
+ * 拉到的消息会全部写入本机漫游缓存（RoamMsgCacheDb，weq 缓存目录下按账号
+ * 一个库），下次遇到同一个缺口先查缓存：窗口全部命中就直接返回、不联网，
+ * 部分命中则把缓存与本次新拉的合并后返回。
  */
 
 import type { AccountSession } from '@weq/account';
@@ -22,6 +26,7 @@ import {
   type PathStep,
 } from '@weq/protocol';
 import { toRenderElements, type RenderElement } from './msg_view';
+import { RoamMsgCacheDb } from './roam_msg_cache';
 
 /** 服务端单次最多返回约 30 条（见 packages/protocol/tools/scan_msg_history.ts）。 */
 const SERVER_MAX_WINDOW = 30;
@@ -46,8 +51,8 @@ export type GapFetchResult =
   | {
       ok: true;
       messages: GapFetchedMessage[];
-      /** 下一段（更旧）30-seq 窗口的结束 seq（含）；null = 缺口已拉完 / 漫游中断。 */
-      nextEndSeq: number | null;
+      /** 下一段（更新）30-seq 窗口的起始 seq（含）；null = 缺口已拉完 / 漫游中断。 */
+      nextStartSeq: number | null;
       /** 本次窗口实际拉到的条数。 */
       fetched: number;
     }
@@ -66,7 +71,7 @@ export type GapFetchResult =
  * toRenderElements 的 reply 分支假设它们是原始 wire（会再 decodeElement 一次），
  * 直接复用会把引用内容打成 unknown，所以这里对 reply 单独处理。
  */
-function renderDecodedElements(elements: Record<string, unknown>[]): RenderElement[] {
+export function renderDecodedElements(elements: Record<string, unknown>[]): RenderElement[] {
   return elements.map((el) => {
     if (el.kind === 'reply') {
       const { kind: _kind, origElements, ...rest } = el;
@@ -103,23 +108,65 @@ function toGapMessage(
   };
 }
 
+/** 缓存命中 + 新拉取的消息按 seq 去重合并，保持升序（旧在上、新在下）。 */
+function mergeBySeq(
+  cached: GapFetchedMessage[],
+  fetched: GapFetchedMessage[],
+): GapFetchedMessage[] {
+  const bySeq = new Map<number, GapFetchedMessage>();
+  for (const message of cached) bySeq.set(Number(message.msgSeq), message);
+  for (const message of fetched) bySeq.set(Number(message.msgSeq), message);
+  return [...bySeq.values()].sort((a, b) => Number(a.msgSeq) - Number(b.msgSeq));
+}
+
 export class GapHistoryService {
+  private readonly cache: RoamMsgCacheDb;
+
   constructor(
-    private readonly nt: Pick<NtHelperBinding, 'sendPacket'>,
+    private readonly nt: Pick<
+      NtHelperBinding,
+      'sendPacket' | 'executeSql' | 'executeSqlWrite' | 'closeDb'
+    >,
     _session: AccountSession,
     private readonly resolvePid: () => number,
-  ) {}
+    /** 本账号漫游消息缓存库的绝对路径（weq 缓存目录 /roam-msg/<uin>.db）。 */
+    cacheDbPath: string,
+  ) {
+    this.cache = new RoamMsgCacheDb(nt, cacheDbPath);
+  }
 
   /**
-   * 拉取缺口 [startSeq, endSeq] 中「以 endSeq 结尾」的一段（最多 30 个 seq）。
+   * 读本机漫游缓存中 [startSeq, endSeq] 的缺失消息（按 seq 升序）。
+   * 前端打开缺口弹窗前先探一下缓存：命中就不强制要求 QQ 在线。
+   */
+  async cached(
+    kind: 'c2c' | 'group',
+    conv: string,
+    startSeq: number,
+    endSeq: number,
+  ): Promise<GapFetchedMessage[]> {
+    if (!Number.isSafeInteger(startSeq) || !Number.isSafeInteger(endSeq) || startSeq > endSeq) {
+      return [];
+    }
+    try {
+      return await this.cache.query(kind, conv, startSeq, endSeq);
+    } catch (e) {
+      console.error('[GapHistory] failed to read roam cache:', e);
+      return [];
+    }
+  }
+
+  /**
+   * 拉取缺口 [startSeq, endSeq] 中「以 startSeq 开头」的一段（最多 30 个 seq）。
    *
-   * 分页契约：调用方第一次传整个缺口的末端（占位条下一条消息的 seq - 1），
-   * 之后把返回的 nextEndSeq 原样作为下一次的 endSeq 传入，每次向更旧的方向
-   * 推一个 30-seq 窗口，直到 nextEndSeq 为 null。返回按 seq 升序排好。
+   * 分页契约：调用方第一次传整个缺口的起始（占位条上一条消息的 seq + 1），
+   * 之后把返回的 nextStartSeq 原样作为下一次的 startSeq 传入，每次向更新的
+   * 方向推一个 30-seq 窗口，直到 nextStartSeq 为 null。返回按 seq 升序排好。
    *
-   * 窗口返回零条 = 漫游未覆盖（或消息已过期）。QQ 漫游覆盖的是从最新向前的
-   * 连续一段，更旧的窗口必然也是空的，所以此时直接收尾（nextEndSeq = null），
-   * 由调用方决定首屏空窗如何提示。
+   * 窗口返回零条不代表缺口拉完：QQ 漫游覆盖的是从最新向前的连续一段，缺口
+   * 最旧的一端可能不在覆盖范围内，所以空窗继续向更新方向推进；只有
+   * nextStartSeq 为 null（整个缺口已遍历完）才收尾，由调用方决定首屏空窗
+   * 如何提示。
    */
   async fetch(
     kind: 'c2c' | 'group',
@@ -134,27 +181,50 @@ export class GapHistoryService {
       return { ok: false, reason: 'error', message: 'seq 超出 uint32 范围，无法拉取' };
     }
 
+    // 本次要拉的服务端窗口：缺口起始最多 30 个 seq。
+    const windowEnd = Math.min(endSeq, startSeq + SERVER_MAX_WINDOW - 1);
+    const windowWidth = windowEnd - startSeq + 1;
+
+    // 1) 先查本机漫游缓存：窗口全部命中就直接返回，不联网（QQ 不在线也能看）。
+    let cached: GapFetchedMessage[] = [];
+    try {
+      cached = await this.cache.query(kind, conv, startSeq, windowEnd);
+    } catch (e) {
+      console.error('[GapHistory] failed to read roam cache:', e);
+    }
+    if (cached.length === windowWidth) {
+      const hasNewer = windowEnd < endSeq;
+      return {
+        ok: true,
+        messages: cached,
+        nextStartSeq: hasNewer ? windowEnd + 1 : null,
+        fetched: 0,
+      };
+    }
+
     let pid: number;
     try {
       pid = this.resolvePid();
     } catch {
-      return { ok: false, reason: 'offline', message: 'QQ 未在线，无法拉取缺失消息' };
+      // 离线时至少把已缓存的部分展示出来。
+      return cached.length > 0
+        ? { ok: true, messages: cached, nextStartSeq: null, fetched: 0 }
+        : { ok: false, reason: 'offline', message: 'QQ 未在线，无法拉取缺失消息' };
     }
 
-    const windowStart = Math.max(startSeq, endSeq - SERVER_MAX_WINDOW + 1);
     const rawBySeq = new Map<number, Uint8Array>();
     try {
       const res =
         kind === 'group'
           ? await fetchGroupHistoryRaw(this.nt, pid, {
               groupUin: Number(conv),
-              startSeq: windowStart,
-              endSeq,
+              startSeq,
+              endSeq: windowEnd,
             })
           : await fetchC2cHistoryRaw(this.nt, pid, {
               friendUid: conv,
-              startSeq: windowStart,
-              endSeq,
+              startSeq,
+              endSeq: windowEnd,
             });
 
       const stepsFor = (index: number): PathStep[] =>
@@ -167,6 +237,9 @@ export class GapHistoryService {
         rawBySeq.set(decoded.head.sequence, bytes);
       }
     } catch (e) {
+      if (cached.length > 0) {
+        return { ok: true, messages: cached, nextStartSeq: null, fetched: 0 };
+      }
       return {
         ok: false,
         reason: 'error',
@@ -175,19 +248,37 @@ export class GapHistoryService {
     }
 
     if (rawBySeq.size === 0) {
-      return { ok: true, messages: [], nextEndSeq: null, fetched: 0 };
+      // 空窗不证明缺口已拉完：QQ 漫游覆盖的是从最新向前的连续一段，缺口最旧
+      // 的一端可能不在覆盖范围内。继续向更新方向推进；已缓存的部分照常展示。
+      const hasNewer = windowEnd < endSeq;
+      return {
+        ok: true,
+        messages: cached,
+        nextStartSeq: hasNewer ? windowEnd + 1 : null,
+        fetched: 0,
+      };
     }
 
     const seqs = [...rawBySeq.keys()].sort((a, b) => a - b);
-    const messages = seqs.map((seq) => toGapMessage(kind, conv, decodeMessage(rawBySeq.get(seq)!)));
-    // 窗口下界还没到缺口的 startSeq = 更旧的 seq 还在缺口内，继续分页；
-    // 反之这一页已经把缺口最旧的一端盖住了。
-    const hasOlder = windowStart > startSeq;
+    const fetchedMessages = seqs.map((seq) =>
+      toGapMessage(kind, conv, decodeMessage(rawBySeq.get(seq)!)),
+    );
+    // 2) 拉到的消息全部写入本机漫游缓存（best-effort，写失败不影响返回）。
+    try {
+      await this.cache.store(fetchedMessages);
+    } catch (e) {
+      console.error('[GapHistory] failed to store roam cache:', e);
+    }
+    // 3) 缓存命中 + 新拉取的合并（去重、升序）。
+    const messages = mergeBySeq(cached, fetchedMessages);
+    // 窗口上界还没到缺口的 endSeq = 更新的 seq 还在缺口内，继续分页；
+    // 反之这一页已经把缺口最新的一端盖住了。
+    const hasNewer = windowEnd < endSeq;
     return {
       ok: true,
       messages,
-      nextEndSeq: hasOlder ? endSeq - SERVER_MAX_WINDOW : null,
-      fetched: messages.length,
+      nextStartSeq: hasNewer ? windowEnd + 1 : null,
+      fetched: fetchedMessages.length,
     };
   }
 }

@@ -9,9 +9,9 @@
  * 状态机：
  *   - loading     拉取中（首屏）
  *   - error       拉取失败（漫游未开 / 消息过期 / 其它），整窗显示错误文案
- *   - messages    拉取成功，逐条渲染。缺口超过 30 条时分页：首屏拿最新一段
- *                 垫底，列表按 seq 升序（旧在上、新在下）；滚动到顶（顶部哨
- *                 兵进入视口）触发 onLoadMore 拉更旧的一段 prepend 到头部，
+ *   - messages    拉取成功，逐条渲染。缺口超过 30 条时分页：首屏拿最旧一段
+ *                 垫底，列表按 seq 升序（旧在上、新在下）；滚动到底（底部哨
+ *                 兵进入视口）触发 onLoadMore 拉更新的一段 append 到尾部，
  *                 直到 hasMore 为 false。
  *
  * 两个刻意限制：
@@ -21,7 +21,7 @@
  *     本组件只负责渲染。
  */
 
-import { useEffect, useLayoutEffect, useRef, type ReactElement } from 'react';
+import { useEffect, useRef, type ReactElement } from 'react';
 import { CloudOff, RefreshCw, X } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { ConvContext, ForwardKindContext, ReplyJumpContext } from '../QqMessageContent';
@@ -75,26 +75,10 @@ export function GapMessagesModal({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
-  // 更旧的一页 prepend 到列表头部后，阅读位置需要下移新增内容的高度才能保持
-  // 稳定（滚动容器是 flex 列，Chromium 的 scroll anchoring 不生效，得手动推）。
-  const prevCountRef = useRef(0);
-  const prevScrollHeightRef = useRef<number | null>(null);
-  useLayoutEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const prevCount = prevCountRef.current;
-    const prevHeight = prevScrollHeightRef.current;
-    prevCountRef.current = messages.length;
-    prevScrollHeightRef.current = el.scrollHeight;
-    // 首屏（0 → 第一页）从列表顶部开始看，不锚定；只有后续 load-more prepend
-    // 才把 scrollTop 往下推，保持当前阅读的消息不跳动。
-    if (prevCount === 0 || prevHeight === null || messages.length <= prevCount) return;
-    el.scrollTop += el.scrollHeight - prevHeight;
-  }, [messages]);
-
-  // 哨兵可见（距滚动容器顶部 400px 内）即自动拉更旧一页；失败/加载中时哨兵
-  // 换成重试/加载态，观察器随之断开，避免空转重复请求。
-  const sentinelVisible = !loading && !error && messages.length > 0 && hasMore && !moreFailed;
+  // 哨兵可见（距滚动容器底部 400px 内）即自动拉更新一页；失败/加载中时哨兵
+  // 换成重试/加载态，观察器随之断开，避免空转重复请求。列表为空但 hasMore 时
+  // 哨兵也保持挂载，让空窗（漫游未覆盖的旧端）能自动向后推进。
+  const sentinelVisible = !loading && !error && hasMore && !moreFailed;
   useEffect(() => {
     if (!sentinelVisible) return undefined;
     const root = scrollRef.current;
@@ -141,31 +125,13 @@ export function GapMessagesModal({
                     <CloudOff size={26} />
                     <span>{error}</span>
                   </div>
-                ) : messages.length === 0 ? (
+                ) : messages.length === 0 && !hasMore ? (
                   <div className="weq-deleted-empty">
                     <CloudOff size={26} />
-                    <span>没有可拉取的消息</span>
+                    <span className="weq-gap-empty-hint">没有可拉取的消息</span>
                   </div>
                 ) : (
                   <>
-                    <div className="weq-gap-footer">
-                      {loadingMore ? (
-                        <span className="weq-gap-footer-spin">
-                          <RefreshCw size={13} className="weq-gap-spin" />
-                          正在加载更早的消息…
-                        </span>
-                      ) : moreFailed ? (
-                        <button type="button" className="weq-gap-footer-retry" onClick={onLoadMore}>
-                          加载失败，点击重试
-                        </button>
-                      ) : hasMore ? (
-                        <div ref={sentinelRef}>
-                          已加载 {messages.length} / 共 {totalCount} 条 · 向上滚动加载更多
-                        </div>
-                      ) : (
-                        <span>已加载全部 {messages.length} 条</span>
-                      )}
-                    </div>
                     {messages.map((message) => {
                       const mine = message.senderId === user.id;
                       const sender = resolveMessageSender(message, conversation, user);
@@ -191,6 +157,24 @@ export function GapMessagesModal({
                         </div>
                       );
                     })}
+                    <div className="weq-gap-footer">
+                      {loadingMore ? (
+                        <span className="weq-gap-footer-spin">
+                          <RefreshCw size={13} className="weq-gap-spin" />
+                          正在加载更新的消息…
+                        </span>
+                      ) : moreFailed ? (
+                        <button type="button" className="weq-gap-footer-retry" onClick={onLoadMore}>
+                          加载失败，点击重试
+                        </button>
+                      ) : hasMore ? (
+                        <div ref={sentinelRef}>
+                          已加载 {messages.length} / 共 {totalCount} 条 · 向下滚动加载更多
+                        </div>
+                      ) : (
+                        <span>已加载全部 {messages.length} 条</span>
+                      )}
+                    </div>
                   </>
                 )}
               </div>

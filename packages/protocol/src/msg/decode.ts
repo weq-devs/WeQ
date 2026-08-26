@@ -59,7 +59,7 @@ function liftTextElem(text: Record<string, unknown>): Record<string, unknown> | 
 }
 
 /**
- * 把老 wire 的 FACE_ELEM 提升成 codec 风格元素：只保留 faceId / faceText /
+ * 把老 wire 的 Face 元素提升成 codec 风格元素：只保留 faceId / faceText /
  * AniStickerId / diceValue / superEmojiFlag1（tag 4=1 视为超级表情），其余字段一律丢掉。
  */
 /**
@@ -78,7 +78,10 @@ function liftMfaceElem(market: Record<string, unknown>): Record<string, unknown>
 
 function liftFaceElem(face: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = { kind: 'face' };
-  if (face.faceId !== undefined) out.faceId = face.faceId;
+  // 老 wire 直出的 Elem.face 用 index 存 faceId（im_msg_body.proto message Face），
+  // 骰子/超级表情（commonElem 37）用 faceId，两者都收进来。
+  const faceId = face.faceId ?? face.index;
+  if (faceId !== undefined) out.faceId = faceId;
   if (face.faceText !== undefined) out.faceText = face.faceText;
   if (face.AniStickerId !== undefined) out.AniStickerId = face.AniStickerId;
   if (face.diceValue !== undefined) out.diceValue = face.diceValue;
@@ -364,7 +367,8 @@ function liftElem(elem: Record<string, unknown>, dress: DecodedDress | null): Re
   if (common?.serviceType === 37 && common.pbElem) {
     return liftFaceElem(decode(FACE_ELEM, common.pbElem) as Record<string, unknown>);
   }
-  if (common?.serviceType === 48 && common.businessType === 20 && common.pbElem) {
+  // 普通聊天图片 businessType=20；合并转发（SsoRecvLongMsg）里的图片实测是 10，两者都收。
+  if (common?.serviceType === 48 && (common.businessType === 20 || common.businessType === 10) && common.pbElem) {
     return liftPicElem(decode(PIC_COMMON_PB, common.pbElem) as Record<string, unknown>);
   }
   if (common?.serviceType === 48 && common.businessType === 21 && common.pbElem) {
