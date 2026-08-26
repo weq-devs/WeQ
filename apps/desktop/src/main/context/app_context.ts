@@ -886,6 +886,14 @@ export function initAppContext(): AppContext {
         platform,
         userConfig.cacheDir('sysemoji'),
       );
+      // 漫游消息缓存：聊天页「缺失消息」与导出「消息补全」共用同一实例 / 同一库，
+      // 先建好再喂给 exportManager 的 messageBackfill dep（缓存命中 / 拉取复用）。
+      const gapHistory = new GapHistoryService(
+        platform.native.ntHelper,
+        session,
+        resolveOnlinePid,
+        join(userConfig.cacheDir('roam-msg'), `${session.context.uin}.db`),
+      );
       this.services = {
         msgs: new MsgService(session, deletedMsgs, antiRecall),
         recentContacts: new RecentContactService(session),
@@ -1075,6 +1083,8 @@ export function initAppContext(): AppContext {
               getPackKey: (id) => emojiService.getMarketPackKey(id),
               getPackImagePath: (id, hash, key) => emojiService.getMarketPackImage(id, hash, key),
             },
+            // 消息补全：与聊天页共用漫游缓存与拉取能力（在线 QQ + 非完全离线模式）。
+            messageBackfill: gapHistory,
           },
         ),
         dbDecrypt: new DbDecryptService(session, platform),
@@ -1095,12 +1105,7 @@ export function initAppContext(): AppContext {
           session,
           resolveOnlinePid,
         ),
-        gapHistory: new GapHistoryService(
-          platform.native.ntHelper,
-          session,
-          resolveOnlinePid,
-          join(userConfig.cacheDir('roam-msg'), `${session.context.uin}.db`),
-        ),
+        gapHistory,
         groupFile: new GroupFileService(platform.native.ntHelper, session, resolveOnlinePid),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, resolveOnlinePid),
         flashTransfer: new FlashTransferService(
@@ -1342,6 +1347,14 @@ export function initAppContext(): AppContext {
         staticPlatform,
         userConfig.cacheDir('sysemoji'),
       );
+      // 漫游消息缓存：聊天页「缺失消息」与导出「消息补全」共用同一实例 / 同一库
+      // （静态账号需要同一账号的 QQ 在线时才能拉取，与聊天页一致）。
+      const gapHistory = new GapHistoryService(
+        platform.native.ntHelper,
+        session,
+        livePid,
+        join(userConfig.cacheDir('roam-msg'), `${session.context.uin}.db`),
+      );
       this.services = {
         msgs: new MsgService(session, deletedMsgs, antiRecall),
         recentContacts: new RecentContactService(session),
@@ -1461,6 +1474,8 @@ export function initAppContext(): AppContext {
                 return page.items.map(collectionItemToWire);
               },
             },
+            // 消息补全：与聊天页共用漫游缓存与拉取能力（在线 QQ + 非完全离线模式）。
+            messageBackfill: gapHistory,
           },
         ),
         dbDecrypt: new DbDecryptService(session, staticPlatform),
@@ -1479,12 +1494,7 @@ export function initAppContext(): AppContext {
         resourceCleanup: new ResourceCleanupService(session, staticPlatform),
         webQuery,
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, livePid),
-        gapHistory: new GapHistoryService(
-          platform.native.ntHelper,
-          session,
-          livePid,
-          join(userConfig.cacheDir('roam-msg'), `${session.context.uin}.db`),
-        ),
+        gapHistory,
         groupFile: new GroupFileService(platform.native.ntHelper, session, livePid),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, livePid),
         flashTransfer: new FlashTransferService(platform.native.ntHelper, session, livePid),

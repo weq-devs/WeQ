@@ -36,6 +36,7 @@ export async function exportGroupToJsonl(
         onProgress: opts.onProgress,
         collectSenders: opts.collectSenders,
         withMediaPaths: opts.withMediaPaths,
+        roam: opts.roam,
       },
       deps,
     );

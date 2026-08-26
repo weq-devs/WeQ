@@ -2668,6 +2668,7 @@ export const accountRouter = router({
         media: z
           .object({
             exportMedia: z.boolean(),
+            completeMessages: z.boolean(),
             completeMedia: z.boolean(),
             downloadVideo: z.boolean(),
             downloadFile: z.boolean(),
@@ -2708,6 +2709,7 @@ export const accountRouter = router({
         total: 0,
         media: {
           exportMedia: input.downloadMedia,
+          completeMessages: false,
           completeMedia: false,
           downloadVideo: false,
           downloadFile: false,
@@ -2859,6 +2861,7 @@ export const accountRouter = router({
             end: z.number().nullable(),
           }),
           exportMedia: z.boolean(),
+          completeMessages: z.boolean(),
           exportAvatar: z.boolean(),
           completeMedia: z.boolean(),
           downloadVideo: z.boolean(),
@@ -2918,6 +2921,7 @@ export const accountRouter = router({
                 end: z.number().nullable(),
               }),
               exportMedia: z.boolean(),
+              completeMessages: z.boolean(),
               exportAvatar: z.boolean(),
               completeMedia: z.boolean(),
               downloadVideo: z.boolean(),

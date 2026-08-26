@@ -13,6 +13,7 @@
  */
 
 import type { RenderElement } from '../msg_view';
+import type { RoamMessageSource } from './message_source';
 
 /** Output formats, mirroring QCE (+ jsonl). `vcard` is contacts-only (联系人导出). */
 export type ExportFormat = 'json' | 'jsonl' | 'txt' | 'csv' | 'xlsx' | 'html' | 'vcard';
@@ -75,6 +76,8 @@ export interface GroupExportOptions {
   range?: ExportTimeRange;
   /** Stamp media elements with their bundle relative path (`data.localPath`). */
   withMediaPaths?: boolean;
+  /** 漫游补全消息（导出「消息补全」拉回缓存后，消息流按 sendTime 合并）。 */
+  roam?: RoamMessageSource;
 }
 
 /** Result of a completed export. */

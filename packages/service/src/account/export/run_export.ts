@@ -46,7 +46,7 @@ export async function runGroupExport(
   let count = 0;
   try {
     if (framing.head) await write(framing.head);
-    for await (const m of iterateGroupMessages(msgs, opts.groupCode, { pageSize: opts.pageSize, range: opts.range })) {
+    for await (const m of iterateGroupMessages(msgs, opts.groupCode, { pageSize: opts.pageSize, range: opts.range, roam: opts.roam })) {
       const exported = toExportedMessage(m);
       opts.collectSenders?.add(exported.senderUin);
       await expandForwards(msgs, 'group', exported);

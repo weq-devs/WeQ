@@ -119,6 +119,13 @@ export {
   type MarketPackDownloadItem,
 } from './task_manager';
 export {
+  backfillConversationMessages,
+  buildBackfillWindows,
+  type MessageBackfillDeps,
+  type MessageBackfillOptions,
+  type MessageBackfillSummary,
+} from './msg_backfill';
+export {
   ExportScheduler,
   computeNextRun,
   resolveRange,

@@ -13,7 +13,13 @@
  */
 
 import type { MsgService, RenderGroupMsg, RenderC2cMsg } from '../msg';
-import { iterateGroupMessages, iterateC2cMessages, iterateOfficialMessages, iterateServiceMessages } from './message_source';
+import {
+  iterateGroupMessages,
+  iterateC2cMessages,
+  iterateOfficialMessages,
+  iterateServiceMessages,
+  type RoamMessageSource,
+} from './message_source';
 import type { ConvKind, ExportedMessage, ExportTimeRange } from './types';
 
 /** A resolved group member (the fields the structured exporters need). */
@@ -67,17 +73,18 @@ export function iterateConv(
   kind: ConvKind,
   conv: string,
   range?: ExportTimeRange,
+  roam?: RoamMessageSource,
 ): AsyncGenerator<RenderGroupMsg | RenderC2cMsg> {
   if (kind === 'group') {
-    return iterateGroupMessages(msgs, conv, { pageSize: 2000, range });
+    return iterateGroupMessages(msgs, conv, { pageSize: 2000, range, roam });
   }
   if (kind === 'official') {
-    return iterateOfficialMessages(msgs, conv, { pageSize: 2000, range });
+    return iterateOfficialMessages(msgs, conv, { pageSize: 2000, range, roam });
   }
   if (kind === 'service') {
-    return iterateServiceMessages(msgs, conv, { pageSize: 2000, range });
+    return iterateServiceMessages(msgs, conv, { pageSize: 2000, range, roam });
   }
-  return iterateC2cMessages(msgs, conv, { pageSize: 2000, range });
+  return iterateC2cMessages(msgs, conv, { pageSize: 2000, range, roam });
 }
 
 /**
@@ -92,10 +99,11 @@ export async function resolveGroupSenders(
   range: ExportTimeRange | undefined,
   deps: SenderResolveDeps,
   ownerUid: string,
+  roam?: RoamMessageSource,
 ): Promise<Map<string, ResolvedSender>> {
   // Pass 1: distinct sender uid → uin (from the message rows).
   const uinByUid = new Map<string, string>();
-  for await (const m of iterateConv(msgs, 'group', conv, range)) {
+  for await (const m of iterateConv(msgs, 'group', conv, range, roam)) {
     const uid = m.senderUid;
     if (!uid) continue;
     if (!uinByUid.has(uid)) uinByUid.set(uid, m.senderUin.toString());

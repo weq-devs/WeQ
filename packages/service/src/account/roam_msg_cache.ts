@@ -73,6 +73,12 @@ export class RoamMsgCacheDb {
   readonly dbPath: string;
   private readonly nt: Pick<NtHelperBinding, 'executeSql' | 'executeSqlWrite' | 'closeDb'>;
   private schemaReady = false;
+  /**
+   * 写串行化：导出「消息补全」会 5-10 路并发拉窗，每个窗口都 store 一批并
+   * `closeDb` 释放写连接——并发写同一库文件会让 closeDb 与在途写竞争。这里把
+   * store 排成一条 promise 链，写永远逐个进行。
+   */
+  private storeQueue: Promise<void> = Promise.resolve();
 
   constructor(
     nt: Pick<NtHelperBinding, 'executeSql' | 'executeSqlWrite' | 'closeDb'>,
@@ -106,34 +112,42 @@ export class RoamMsgCacheDb {
   async store(messages: GapFetchedMessage[]): Promise<void> {
     if (messages.length === 0) return;
     await this.ensureSchema();
-    const fetchedAt = BigInt(Date.now());
-    for (const message of messages) {
-      const params: SqlValue[] = [
-        message.kind,
-        message.conv,
-        toBigIntSafe(message.msgSeq),
-        message.msgId,
-        message.senderUid,
-        message.senderUin,
-        toBigIntSafe(message.sendTime),
-        serializeJson(message.elements),
-        message.decoration ? serializeJson(message.decoration) : null,
-        fetchedAt,
-      ];
-      await this.nt.executeSqlWrite(
-        this.dbPath,
-        `INSERT OR REPLACE INTO ${TABLE}
-           (kind, conv, msg_seq, msg_id, sender_uid, sender_uin, send_time, elements, decoration, fetched_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        params,
-      );
-    }
-    // 写完释放写连接，避免长期持有 RESERVED 锁（与 QqDb.write 同一约定）。
-    try {
-      this.nt.closeDb(this.dbPath);
-    } catch {
-      /* ignore */
-    }
+    const run = async (): Promise<void> => {
+      const fetchedAt = BigInt(Date.now());
+      for (const message of messages) {
+        const params: SqlValue[] = [
+          message.kind,
+          message.conv,
+          toBigIntSafe(message.msgSeq),
+          message.msgId,
+          message.senderUid,
+          message.senderUin,
+          toBigIntSafe(message.sendTime),
+          serializeJson(message.elements),
+          message.decoration ? serializeJson(message.decoration) : null,
+          fetchedAt,
+        ];
+        await this.nt.executeSqlWrite(
+          this.dbPath,
+          `INSERT OR REPLACE INTO ${TABLE}
+             (kind, conv, msg_seq, msg_id, sender_uid, sender_uin, send_time, elements, decoration, fetched_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          params,
+        );
+      }
+      // 写完释放写连接，避免长期持有 RESERVED 锁（与 QqDb.write 同一约定）。
+      try {
+        this.nt.closeDb(this.dbPath);
+      } catch {
+        /* ignore */
+      }
+    };
+    const next = this.storeQueue.then(run, run);
+    this.storeQueue = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    await next;
   }
 
   /** 关闭缓存的 native 连接（账号切换 / 退出时调用）。 */

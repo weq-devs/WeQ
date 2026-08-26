@@ -170,6 +170,21 @@ export class GroupMsgDb {
     return rows.map(rowToGroupMsg);
   }
 
+  /**
+   * All distinct per-group seqs (40003 > 0), newest-first (DESC). Index-only
+   * scan over the `(40027,40003)` composite index — powers the export
+   * 「消息补全」seq 空窗扫描.
+   */
+  async listSeqDesc(targetGroupCode: string): Promise<bigint[]> {
+    const rows = await this.qq.query(
+      `SELECT DISTINCT "40003" FROM group_msg_table
+        WHERE "40027" = ? AND "40003" > 0
+        ORDER BY "40003" DESC`,
+      [targetGroupCode],
+    );
+    return rows.map((row) => toBigint(row[0]));
+  }
+
   /** Largest SQLite rowid currently in the table, or 0n if empty. */
   async latestRowId(): Promise<bigint> {
     const rows = await this.qq.query(`SELECT MAX(rowid) FROM group_msg_table`);

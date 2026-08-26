@@ -105,6 +105,8 @@ export interface ExportOptions {
   range: TimeRange;
   /** Export media files alongside the messages. */
   exportMedia: boolean;
+  /** 消息补全：扫描 seq 空窗，从 QQ 服务端拉取本机缺失的消息（需在线 QQ）。 */
+  completeMessages: boolean;
   /** Export sender avatars. */
   exportAvatar: boolean;
   /** Re-download media missing from the local cache (needs rkey). */
@@ -120,6 +122,7 @@ export interface ExportOptions {
 export const DEFAULT_OPTIONS: ExportOptions = {
   range: DEFAULT_RANGE,
   exportMedia: true,
+  completeMessages: false,
   exportAvatar: true,
   completeMedia: false,
   downloadVideo: false,
@@ -154,6 +157,8 @@ export interface ScheduleRange {
 export interface ScheduleOptions {
   range: ScheduleRange;
   exportMedia: boolean;
+  /** 消息补全：扫描 seq 空窗，从 QQ 服务端拉取本机缺失的消息（需在线 QQ）。 */
+  completeMessages: boolean;
   exportAvatar: boolean;
   completeMedia: boolean;
   downloadVideo: boolean;
