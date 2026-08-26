@@ -127,9 +127,14 @@ export class RoamMsgCacheDb {
     if (messages.length === 0) return;
     await this.ensureSchema();
     const run = async (): Promise<void> => {
+      // 一批合成单条多行 INSERT：一次 native 调用 + 一个事务写完，避免每条
+      // 消息一次 executeSqlWrite 往返（导出补全并发时尤其明显）。
       const fetchedAt = BigInt(Date.now());
+      const rowSql: string[] = [];
+      const params: SqlValue[] = [];
       for (const message of messages) {
-        const params: SqlValue[] = [
+        rowSql.push('(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        params.push(
           message.kind,
           message.conv,
           toBigIntSafe(message.msgSeq),
@@ -140,15 +145,15 @@ export class RoamMsgCacheDb {
           serializeJson(message.elements),
           message.decoration ? serializeJson(message.decoration) : null,
           fetchedAt,
-        ];
-        await this.nt.executeSqlWrite(
-          this.dbPath,
-          `INSERT OR REPLACE INTO ${TABLE}
-             (kind, conv, msg_seq, msg_id, sender_uid, sender_uin, send_time, elements, decoration, fetched_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          params,
         );
       }
+      await this.nt.executeSqlWrite(
+        this.dbPath,
+        `INSERT OR REPLACE INTO ${TABLE}
+           (kind, conv, msg_seq, msg_id, sender_uid, sender_uin, send_time, elements, decoration, fetched_at)
+         VALUES ${rowSql.join(', ')}`,
+        params,
+      );
       // 写完释放写连接，避免长期持有 RESERVED 锁（与 QqDb.write 同一约定）。
       try {
         this.nt.closeDb(this.dbPath);
