@@ -230,7 +230,16 @@ function MediaNode({
     case 'file':
       return <QqFile data={data} sendTimeMs={sendTimeMs} msgId={ownerMsgId} conv={conv} fwd={fwd} />;
     case 'ptt':
-      return <QqVoice data={data} sendTimeMs={sendTimeMs} msgId={msgId} />;
+      return (
+        <QqVoice
+          data={data}
+          sendTimeMs={sendTimeMs}
+          msgId={msgId}
+          mediaMsgId={ownerMsgId}
+          conv={conv}
+          fwd={fwd}
+        />
+      );
     case 'mface':
       return <QqMarketFace data={data} />;
     case 'onlineFile':
@@ -619,7 +628,9 @@ export function QqMessageContent({
     );
   }
 
-  // A `wallet` element (转账 / 红包 / 群收款) renders as its own card.
+  // A `wallet` element (转账 / 红包 / 群收款) renders as its own card and takes
+  // over the whole bubble - any trailing equivalent text copy is dropped, same
+  // rule as the markdown / mface bot-card branch below.
   const walletElement = elements.find((element) => element.type === 'wallet');
   if (walletElement) {
     const redbagType = walletElement.data?.walletRedbagType;
@@ -698,17 +709,24 @@ export function QqMessageContent({
   // 机器人卡片：QQ 把同一条消息同时写成 markdown 正文 + 一串等效的 text/at 元素
   // （给不支持 markdown 的老客户端降级用）。两个都渲染会出现重影，所以 markdown
   // 一旦在场就独占正文，纯文本副本整体丢弃。底部的内联键盘按钮跟在正文后面。
+  // 商城表情（mface）也会携带等效 text 副本，按同一规则独占正文。
   //
   // 闪传卡片（markdown 带 flashTransferInfo）在上面已被认领，走不到这里。
   const keyboardElement = elements.find((element) => element.type === 'inlineKeyboard');
   const botMarkdown = elements.find(
     (element) => element.type === 'markdown' && String(element.data?.markdownContent ?? '') !== '',
   );
-  if (botMarkdown && (keyboardElement || elements.some((el) => el.type === 'text'))) {
+  const botMface = elements.find((element) => element.type === 'mface');
+  if ((botMarkdown || botMface) && (keyboardElement || elements.some((el) => el.type === 'text'))) {
     const rows = ((keyboardElement?.data?.rows ?? []) as KeyboardButton[][]);
+    const body = botMarkdown ? (
+      <QqMarkdown text={String(botMarkdown.data?.markdownContent ?? '')} bot />
+    ) : botMface ? (
+      <MediaNode element={botMface} sendTimeMs={sendTimeMs} msgId={msgId} />
+    ) : null;
     return (
       <div className={cn('message-content', 'qq-message-inline', 'qq-bot-card')}>
-        <QqMarkdown text={String(botMarkdown.data?.markdownContent ?? '')} bot />
+        {body}
         <QqInlineKeyboard rows={rows} />
       </div>
     );

@@ -5,3 +5,4 @@ export * from './decode';
 export * from './encode';
 export * from './registry';
 export * from './sanitize';
+export * from './reverse';

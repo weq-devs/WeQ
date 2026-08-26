@@ -20,6 +20,7 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { isMcpRunning } from '../../mcp/server';
 import { isWeqServerRunning } from '../../weq_assistant/server';
+import { runElevatedKeyScan } from '../../mac_scan_elevation';
 import {
   accountEventBus,
   getAppContext,
@@ -39,11 +40,24 @@ import {
   type KeyEvent,
   type VoiceDownloadProgress,
   type TtsProviderConfig,
+  type DirSizeProgress,
   validateChatpicRoot,
   normalizeNapcatBaseUrl,
+  normalizeSsePushUrl,
+  testSsePushTarget,
 } from '@weq/service';
 import { peekStaticSelfUin, deriveAndroidDbKey } from '@weq/account';
 import { isTencentFilesRoot } from '@weq/platform';
+import {
+  darwinPaths,
+  getPatchStatus,
+  installNineBird,
+  installNineBirdLinux,
+  linuxPaths,
+  linuxStubStatus,
+  uninstallNineBird,
+  uninstallNineBirdLinux,
+} from '@weq/native';
 
 /** Result of the Tencent Files folder picker (with the hard `Tencent Files` rule). */
 export interface PickRootResult {
@@ -121,6 +135,126 @@ export const bootstrapRouter = router({
     return { platformKind: process.platform as NodeJS.Platform };
   }),
 
+  // ---- NineBird 安装（macOS napcat 机制 / Linux 持久 stub，sudo -S 提权） ----
+
+  /**
+   * 入口状态：
+   *   - darwin：package.json main 的补丁状态（原版 / NineBird / 自定义 /
+   *     缺失），外加 bundle shim 是否在位；
+   *   - linux：持久 stub（loadNineBird.js）是否就位（Linux 不动 package.json，
+   *     所以只有 已装/未装 两种）。
+   * 其它平台返回 null。
+   */
+  nineBirdInstallStatus: procedure.query(() => {
+    const platform = requirePlatform();
+    const exe = platform.qqExePath();
+    if (!exe) return { kind: 'missing', loaderOk: false } as const;
+    if (platform.kind === 'darwin') {
+      const paths = darwinPaths(exe);
+      return { ...getPatchStatus(paths), loaderOk: existsSync(paths.loaderJs) };
+    }
+    if (platform.kind === 'linux') {
+      const status = linuxStubStatus(linuxPaths(exe));
+      return {
+        kind: status.installed ? 'ninebird' : 'original',
+        loaderOk: status.installed,
+        fresh: status.fresh,
+      } as const;
+    }
+    return null;
+  }),
+
+  /**
+   * 安装 NineBird：darwin = 部署容器文件 + 提权切换 package.json 入口；
+   * linux = 提权写入持久 stub（loadNineBird.js）。密码由渲染层密码框输入，
+   * 经 `sudo -S` stdin 使用，不在 main 里落盘 / 记日志。
+   */
+  nineBirdInstall: procedure
+    .input(z.object({ password: z.string() }))
+    .mutation(async ({ input }) => {
+      const platform = requirePlatform();
+      const exe = platform.qqExePath();
+      if (!exe) throw new Error('未找到 QQ，请确认已安装 QQ');
+      if (platform.kind === 'darwin') {
+        await installNineBird(exe, platform.native.resources, input.password);
+        return getPatchStatus(darwinPaths(exe));
+      }
+      if (platform.kind === 'linux') {
+        await installNineBirdLinux(exe, platform.native.resources.qrDbkeyJsPath, input.password);
+        return linuxStubStatus(linuxPaths(exe));
+      }
+      throw new Error('仅 macOS / Linux 支持 NineBird 安装');
+    }),
+
+  /** 还原：darwin = 恢复 package.json 入口（提权）+ 删容器部署目录；
+   *  linux = 删除 loadNineBird.js（提权）。 */
+  nineBirdUninstall: procedure
+    .input(z.object({ password: z.string() }))
+    .mutation(async ({ input }) => {
+      const platform = requirePlatform();
+      const exe = platform.qqExePath();
+      if (!exe) throw new Error('未找到 QQ，请确认已安装 QQ');
+      if (platform.kind === 'darwin') {
+        await uninstallNineBird(exe, input.password);
+        return getPatchStatus(darwinPaths(exe));
+      }
+      if (platform.kind === 'linux') {
+        await uninstallNineBirdLinux(exe, input.password);
+        return linuxStubStatus(linuxPaths(exe));
+      }
+      throw new Error('仅 macOS / Linux 支持 NineBird 卸载');
+    }),
+
+  /**
+   * macOS：提权扫描在线 QQ 进程内存，直接恢复数据库密钥。
+   * 读取其它进程内存受 SIP / task_for_pid 限制，需要解除 SIP 并且以管理员
+   * 权限执行（密码经 sudo -S stdin 传入，与 ninebird 安装同一套提权姿势，
+   * 不在 main 里落盘 / 记日志）。扫描失败（如未解除 SIP）返回
+   * `{ success: false, pid }`，由渲染层引导用户解除 SIP 重试或重启 QQ。
+   * 非 macOS 平台直接拒绝，win/linux 不受影响。
+   */
+  macScanKeyFromMemory: procedure
+    .input(z.object({ uin: z.string().min(1), password: z.string() }))
+    .mutation(async ({ input }) => {
+      const platform = requirePlatform();
+      if (platform.kind !== 'darwin') throw new Error('仅 macOS 支持内存扫描获取密钥');
+      const boot = requireBootstrap();
+      await ensureUidForUin(boot, input.uin);
+
+      const dbPath = platform.ntMsgDbPath(input.uin);
+      if (!dbPath || !existsSync(dbPath)) {
+        return {
+          success: false as const,
+          pid: 0,
+          error: `未找到账号 ${input.uin} 的数据库文件（nt_msg.db）`,
+        };
+      }
+
+      let pid: number | null = null;
+      try {
+        pid = platform.resolveQqPid(input.uin);
+      } catch {
+        pid = null;
+      }
+      if (pid === null) {
+        return {
+          success: false as const,
+          pid: 0,
+          error: `账号 ${input.uin} 当前离线，无法扫描其进程内存`,
+        };
+      }
+
+      try {
+        return await runElevatedKeyScan(pid, dbPath, input.password);
+      } catch (e) {
+        return {
+          success: false as const,
+          pid,
+          error: e instanceof Error ? e.message : String(e),
+        };
+      }
+    }),
+
   // ---- detection (via global config cache) ----
 
   /** Enriched, cached install info (paths + version + user-data + health flags). */
@@ -182,12 +316,38 @@ export const bootstrapRouter = router({
     return boot.globalConfig.ntDataSubdirSizes(input.uin);
   }),
 
-  /** Total size of the account's user-data directory in bytes (may be slow). */
-  accountDirSize: procedure.input(z.object({ uin: z.string() })).query(async ({ input }) => {
-    const boot = requireBootstrap();
-    await ensureUidForUin(boot, input.uin);
-    return boot.globalConfig.accountDirSize(input.uin);
-  }),
+  /**
+   * Live total size of the account's user-data directory: emits
+   * `{ bytes, done }` every ~100 ms while scanning (huge trees take a while),
+   * with a terminal `done: true` event. The UI animates the growing number
+   * instead of sitting on a static spinner.
+   */
+  accountDirSizeProgress: procedure
+    .input(z.object({ uin: z.string() }))
+    .subscription(({ input }) => {
+      return observable<DirSizeProgress>((emit) => {
+        const boot = requireBootstrap();
+        void ensureUidForUin(boot, input.uin);
+        const iterator = boot.globalConfig.accountDirSizeStream(input.uin)[Symbol.asyncIterator]();
+        let cancelled = false;
+        void (async (): Promise<void> => {
+          try {
+            for (;;) {
+              const next = await iterator.next();
+              if (next.done || cancelled) break;
+              emit.next(next.value);
+            }
+            emit.complete();
+          } catch (e) {
+            emit.error(e);
+          }
+        })();
+        return () => {
+          cancelled = true;
+          void iterator.return?.(undefined);
+        };
+      });
+    }),
 
   // ---- user config ----
 
@@ -253,6 +413,26 @@ export const bootstrapRouter = router({
   }),
 
   /**
+   * 设置导出中心的默认保存目录（null = 清除，恢复逐任务弹窗）。
+   */
+  setDefaultExportDir: procedure
+    .input(z.object({ dir: z.string().min(1).nullable() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ defaultExportDir: input.dir });
+      return true;
+    }),
+
+  /**
+   * 弹系统目录选择框并保存为导出默认保存目录。取消返回 null（不修改设置）。
+   */
+  pickDefaultExportDir: procedure.mutation(async (): Promise<string | null> => {
+    const picked = await getHost().pickDirectory({ title: '选择默认导出保存文件夹' });
+    if (!picked) return null;
+    requireBootstrap().userConfig.setSettings({ defaultExportDir: picked });
+    return picked;
+  }),
+
+  /**
    * Toggle 启用数据库监听. Persists, then applies live to the open account so the
    * nt_msg.db watcher mounts/unmounts immediately (no re-open needed).
    */
@@ -266,8 +446,14 @@ export const bootstrapRouter = router({
    * Toggle 自动注入 QQ（完整功能总闸）. Persists, and the account monitor reads
    * it live on its next poll so injection / harvesting starts or stops
    * immediately (no re-open needed). 关闭 = 完全离线模式。
+   * macOS 不支持注入（SIP 限制）：开启请求直接拒绝，开关恒为关闭。
    */
   setAutoInjectQq: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+    if (input.enabled && process.platform === 'darwin') {
+      throw new Error(
+        'macOS 版不支持注入 QQ（SIP 限制），此开关无法开启。请手动填入数据库密钥使用。',
+      );
+    }
     requireBootstrap().userConfig.setSettings({ autoInjectQq: input.enabled });
     return true;
   }),
@@ -472,6 +658,92 @@ export const bootstrapRouter = router({
     .mutation(async ({ input }) => {
       const result = await requireBootstrap().externalRkey.test(input.baseUrl, input.accessToken);
       return { ok: true, name: result.name, expiredTime: result.expiredTime };
+    }),
+
+  // ---- SSE 消息推送（设置 → SSE 推送）----
+
+  /** 新增 / 编辑一条推送目标；编辑保留原启用状态，新增不自动启用。 */
+  saveSsePushServer: procedure
+    .input(
+      z.object({
+        id: z.string().optional(),
+        name: z.string(),
+        pushUrl: z.string(),
+        accessToken: z.string(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      const pushUrl = normalizeSsePushUrl(input.pushUrl);
+      if (!pushUrl) throw new Error('推送地址无效，需以 http(s):// 开头');
+      const token = input.accessToken.trim();
+      const cfg = userConfig.getSettings().ssePush;
+      const existing = input.id ? cfg.servers.find((s) => s.id === input.id) : undefined;
+      const id = existing ? existing.id : randomBytes(16).toString('hex');
+      const name = input.name.trim() || hostOfServerUrl(pushUrl);
+      const entry = { id, name, pushUrl, accessToken: token };
+      const servers = existing
+        ? cfg.servers.map((s) => (s.id === id ? { ...s, ...entry } : s))
+        : [...cfg.servers, entry];
+      userConfig.setSettings({ ssePush: { servers, enabledServerId: cfg.enabledServerId } });
+      const next = userConfig.getSettings().ssePush;
+      await getAppContext().applySsePush(next);
+      return next;
+    }),
+
+  /** 删除一条推送目标；删的是当前启用项时自动回到「未启用」。 */
+  deleteSsePushServer: procedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+    const userConfig = requireBootstrap().userConfig;
+    const cfg = userConfig.getSettings().ssePush;
+    const servers = cfg.servers.filter((s) => s.id !== input.id);
+    const enabledServerId = cfg.enabledServerId === input.id ? null : cfg.enabledServerId;
+    userConfig.setSettings({ ssePush: { servers, enabledServerId } });
+    const next = userConfig.getSettings().ssePush;
+    await getAppContext().applySsePush(next);
+    return next;
+  }),
+
+  /** 启用 / 停用某条推送目标：同时只能启用一条，传 null 表示全部停用。 */
+  setSsePushEnabled: procedure
+    .input(z.object({ serverId: z.string().nullable() }))
+    .mutation(async ({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      const cfg = userConfig.getSettings().ssePush;
+      const enabledServerId =
+        input.serverId && cfg.servers.some((s) => s.id === input.serverId) ? input.serverId : null;
+      userConfig.setSettings({ ssePush: { enabledServerId } });
+      const next = userConfig.getSettings().ssePush;
+      await getAppContext().applySsePush(next);
+      return next;
+    }),
+
+  /** 调整防抖毫秒与大量消息阈值（全局调优）。 */
+  setSsePushTuning: procedure
+    .input(
+      z.object({
+        debounceMs: z.number().int().min(100).max(60_000),
+        massThreshold: z.number().int().min(1).max(10_000),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      userConfig.setSettings({
+        ssePush: { debounceMs: input.debounceMs, massThreshold: input.massThreshold },
+      });
+      const next = userConfig.getSettings().ssePush;
+      await getAppContext().applySsePush(next);
+      return next;
+    }),
+
+  /** 测试推送目标连通性：发一条 ping 事件（只探测，不写配置）。 */
+  testSsePushServer: procedure
+    .input(z.object({ pushUrl: z.string(), accessToken: z.string() }))
+    .mutation(async ({ input }) => {
+      const result = await testSsePushTarget({
+        pushUrl: input.pushUrl,
+        accessToken: input.accessToken,
+      });
+      return { ok: true, latencyMs: result.latencyMs };
     }),
 
   /**
@@ -848,14 +1120,14 @@ export const bootstrapRouter = router({
    * Only these re-downloadable/re-generatable categories are listed —
    * agentlab / weq-assistant / export are user content and stay untouched.
    */
-  listClearableCache: procedure.query(() => {
+  listClearableCache: procedure.query(async () => {
     return requireBootstrap().userConfig.listClearableCache();
   }),
 
   /** Delete the given clearable cache categories (all when omitted). */
   clearWeqCache: procedure
     .input(z.object({ ids: z.array(z.string()).optional() }).optional())
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       return requireBootstrap().userConfig.clearCache(input?.ids);
     }),
 
@@ -936,8 +1208,8 @@ export const bootstrapRouter = router({
    * Flow 1, step A — inject the hook into the alive QQ instance and block until
    * it is ready to send OIDB packets (the native call waits for the hook to
    * bind the MSFService instance via `uin`). On linux this is the
-   * pkexec-elevated ptrace inject, so it pops the polkit password dialog and can
-   * take arbitrarily long (the user typing their password) — the renderer
+   * sudo-elevated ptrace inject, so it pops the self-drawn password dialog and
+   * can take arbitrarily long (the user typing their password) — the renderer
    * awaits this UNTIMED, then runs `fetchKeyFromInstance` (step B). Idempotent
    * inside the hook. No-op-ish on win32 (ensure == inject).
    */
@@ -1000,7 +1272,7 @@ export const bootstrapRouter = router({
       });
 
       // Make the pid sendable (idempotent). On win32 this injects the embedded
-      // hook once; on linux it pkexec-elevates the inject — the native call
+      // hook once; on linux it sudo-elevates the inject — the native call
       // blocks until the hook binds the MSFService instance via `uin`.
       // Re-injecting a live pid would race the hook's single-listener pipe
       // (ERROR_PIPE_BUSY), so the hook's per-pid cache ensures we only do it

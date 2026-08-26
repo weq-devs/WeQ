@@ -48,10 +48,13 @@ export interface ScheduleRange {
 export interface ScheduleOptions {
   range: ScheduleRange;
   exportMedia: boolean;
+  /** 消息补全：扫描 seq 空窗，从 QQ 服务端拉取本机缺失的消息（需在线 QQ）。 */
+  completeMessages: boolean;
   exportAvatar: boolean;
   completeMedia: boolean;
   downloadVideo: boolean;
   downloadFile: boolean;
+  downloadPtt: boolean;
   transcribeVoice: boolean;
 }
 
@@ -355,13 +358,15 @@ export class ExportScheduler extends EventEmitter {
           // ExportTask.exportAvatar mirrors the template, not "undefined".
           exportAvatar: Boolean(t.options.exportAvatar),
           ...(t.chatlab ? { chatlab: true } : {}),
-          ...(t.options.exportMedia || t.options.exportAvatar || t.options.transcribeVoice
+          ...(t.options.exportMedia || t.options.exportAvatar || t.options.transcribeVoice || t.options.completeMessages
             ? {
                 media: {
                   exportMedia: t.options.exportMedia,
+                  completeMessages: t.options.completeMessages,
                   completeMedia: t.options.exportMedia && t.options.completeMedia,
                   downloadVideo: t.options.exportMedia && t.options.completeMedia && t.options.downloadVideo,
                   downloadFile: t.options.exportMedia && t.options.completeMedia && t.options.downloadFile,
+                  downloadPtt: t.options.exportMedia && t.options.completeMedia && t.options.downloadPtt,
                   transcribeVoice: t.options.transcribeVoice,
                 },
               }
@@ -483,10 +488,12 @@ function defaultOptions(): ScheduleOptions {
   return {
     range: { preset: 'all', start: null, end: null },
     exportMedia: true,
+    completeMessages: false,
     exportAvatar: true,
     completeMedia: false,
     downloadVideo: false,
     downloadFile: false,
+    downloadPtt: false,
     transcribeVoice: false,
   };
 }

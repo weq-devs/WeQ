@@ -36,6 +36,7 @@ import { QqAvatar } from '../QqAvatar';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { UpdateCard } from './UpdateCard';
 import { DesktopOnly } from '../../lib/target';
+import { NineBirdSection } from './NineBirdSection';
 import logoUrl from '@resources/brand/logo.png';
 
 function errMsg(e: unknown): string {
@@ -107,6 +108,8 @@ export function GlobalSettingsSection(): ReactElement {
   const deleteAccount = trpc.bootstrap.deleteAccountConfig.useMutation();
   const pickCache = trpc.bootstrap.pickCacheDir.useMutation();
   const clearCache = trpc.bootstrap.clearCacheDir.useMutation();
+  const pickExportDir = trpc.bootstrap.pickDefaultExportDir.useMutation();
+  const setExportDir = trpc.bootstrap.setDefaultExportDir.useMutation();
   const setWindowClose = trpc.bootstrap.setWindowCloseBehavior.useMutation();
   const setPreferCdnMut = trpc.bootstrap.setPreferCdn.useMutation();
   const cacheBusy = pickCache.isLoading || clearCache.isLoading;
@@ -159,6 +162,28 @@ export function GlobalSettingsSection(): ReactElement {
       pushToast({ tone: 'success', title: '已重置为默认缓存目录' });
     } catch (e) {
       showError('重置缓存目录失败', errMsg(e));
+    }
+  }
+
+  async function onPickExportDir(): Promise<void> {
+    try {
+      const picked = await pickExportDir.mutateAsync();
+      if (picked) {
+        await settings.refetch();
+        pushToast({ tone: 'success', title: '导出保存目录已更新' });
+      }
+    } catch (e) {
+      showError('选择导出保存目录失败', errMsg(e));
+    }
+  }
+
+  async function onResetExportDir(): Promise<void> {
+    try {
+      await setExportDir.mutateAsync({ dir: null });
+      await settings.refetch();
+      pushToast({ tone: 'success', title: '已清除默认导出保存目录' });
+    } catch (e) {
+      showError('清除导出保存目录失败', errMsg(e));
     }
   }
 
@@ -488,6 +513,47 @@ export function GlobalSettingsSection(): ReactElement {
         />
       </Card>
 
+      {/* Default export save directory */}
+      <Card title="导出保存目录">
+        <Row
+          label={
+            <span className="weq-set-path" title={settings.data?.defaultExportDir ?? ''}>
+              <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
+              <span className="weq-set-path-txt">
+                {settings.data?.defaultExportDir ?? (settings.isLoading ? '读取中…' : '未设置')}
+              </span>
+            </span>
+          }
+          desc={
+            settings.data?.defaultExportDir
+              ? '导出任务保存时直接拷贝到该目录，不再逐个弹窗选择路径。'
+              : '未设置。导出完成后仍需对每个任务选择保存位置；设置后即可一键批量保存。'
+          }
+          control={
+            <div className="weq-set-btn-group">
+              <button
+                type="button"
+                className="weq-set-btn"
+                disabled={pickExportDir.isLoading}
+                onClick={() => void onPickExportDir()}
+              >
+                <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
+                选择目录
+              </button>
+              <button
+                type="button"
+                className="weq-set-btn weq-set-btn-soft"
+                disabled={setExportDir.isLoading || !settings.data?.defaultExportDir}
+                onClick={() => void onResetExportDir()}
+              >
+                <RotateCcw size={14} strokeWidth={1.8} aria-hidden />
+                清除设置
+              </button>
+            </div>
+          }
+        />
+      </Card>
+
       {/* Clear WeQ cache */}
       <Card title="清理缓存">
         <p className="weq-set-note">
@@ -549,6 +615,9 @@ export function GlobalSettingsSection(): ReactElement {
           />
         </Card>
       </DesktopOnly>
+
+      {/* NineBird（macOS 专属）：非 darwin 平台内部渲染为空。 */}
+      <NineBirdSection />
     </div>
   );
 }

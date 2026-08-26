@@ -13,6 +13,7 @@ const STAGE_LABEL: Record<string, string> = {
   image: '图片',
   video: '视频',
   file: '文件',
+  ptt: '语音',
   media: '搬运',
   record: '语音',
 };

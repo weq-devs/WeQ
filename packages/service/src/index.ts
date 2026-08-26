@@ -30,7 +30,7 @@ export type {
 } from './bootstrap/win32_key';
 
 export { createDirectInjectHook } from './bootstrap/inject';
-export type { InjectHook, PtraceHintChoice } from './bootstrap/inject';
+export type { InjectHook, PtraceHintChoice, PtraceHintAnswer } from './bootstrap/inject';
 
 export { UserConfigService, DEFAULT_APP_SETTINGS } from './bootstrap/user_config';
 export type {
@@ -49,6 +49,8 @@ export type {
   ExternalChatpicConfig,
   ExternalRkeyConfig,
   ExternalRkeyServerConfig,
+  SsePushConfig,
+  SsePushServerConfig,
 } from './bootstrap/user_config';
 export { AgentLabConfigService } from './bootstrap/agentlab_config';
 
@@ -69,6 +71,7 @@ export type {
   OnlineProbe,
   DbFileStat,
   DirSize,
+  DirSizeProgress,
 } from './bootstrap/global_config';
 
 // ---- account ----
@@ -373,6 +376,23 @@ export type {
 export { createNtMsgDbHook } from './account/nt_msg_hook';
 export type { NewMessages, NtMsgHooks } from './account/nt_msg_hook';
 
+// SSE 消息推送：监听 nt_msg.db（同 db_watch_listen 的实现路径），防抖 + seq 跳变
+// 阈值合并后把事件 POST 到用户配置的推送地址。
+export {
+  SsePushService,
+  normalizeSsePushUrl,
+  postSsePushEvents,
+  testSsePushTarget,
+} from './account/sse_push';
+export type {
+  SsePushTarget,
+  SsePushOptions,
+  SsePushEvent,
+  SseMessageEvent,
+  SseMassEvent,
+  SsePushPayload,
+} from './account/sse_push';
+
 // ---- web cgi (query-only: group notice / album list / honor) ----
 export {
   WebQueryService,
@@ -397,6 +417,8 @@ export type {
 } from './account/web';
 
 // ---- account protocol services (oidb/trpc packets) ----
+export { GapHistoryService } from './account/gap_history';
+export type { GapFetchedMessage, GapFetchResult } from './account/gap_history';
 export { GroupFileService } from './account/group_file';
 export type { GroupFileItem, GroupFolderItem, GroupFileListing } from './account/group_file';
 

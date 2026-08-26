@@ -7,7 +7,7 @@
  *   - **win32**: inject the embedded hook in-process. The MSF service address
  *     is resolved by port-probe, so a fetch can follow immediately.
  *   - **linux**: injection normally needs root (ptrace), so it is done by a
- *     pkexec-elevated child (see the desktop app's `inject_elevation`) — unless
+ *     sudo-elevated child (see the desktop app's `inject_elevation`) — unless
  *     the host can ptrace unprivileged (yama ptrace_scope off / CAP_SYS_PTRACE),
  *     in which case the app injects in-process and skips the password dialog.
  *     The native inject call hands the account UIN to the hook over the pipe
@@ -36,8 +36,9 @@ import type { NtHelperBinding } from '@weq/native';
 export interface InjectHook {
   /**
    * Inject the hook into `pid` and block until it is ready to send OIDB
-   * packets. On linux this is the pkexec-elevated ptrace inject (pops the
-   * polkit password dialog); on win32 it is the in-process embedded inject.
+   * packets. On linux this is the sudo-elevated ptrace inject (password comes
+   * from a self-drawn renderer dialog); on win32 it is the in-process embedded
+   * inject.
    * The native call itself waits for the hook to bind the MSFService instance
    * via `uin` on linux, so "inject resolved" already means "sendable".
    * Idempotent — a no-op once the pid is already injected.
@@ -60,10 +61,18 @@ export interface InjectHook {
  * The user's answer to the linux ptrace-hint dialog (shown once, when the
  * first unprivileged inject is refused by the kernel):
  *   - `retry`     — user closed yama ptrace protection; try in-process again
- *   - `no-remind` — persist the suppression, then escalate via pkexec
- *   - `skip`      — escalate via pkexec this time, without remembering
+ *   - `no-remind` — persist the suppression, then escalate via sudo
+ *   - `skip`      — escalate via sudo this time, without remembering
+ *   - `cancel`    — close the dialog; do not escalate (inject fails)
  */
-export type PtraceHintChoice = 'retry' | 'no-remind' | 'skip';
+export type PtraceHintChoice = 'retry' | 'no-remind' | 'skip' | 'cancel';
+
+/** The hint dialog's answer: the choice plus the password typed in it. */
+export interface PtraceHintAnswer {
+  choice: PtraceHintChoice;
+  /** 提权路径用；用户没输入密码时为空字符串。 */
+  password: string;
+}
 
 /**
  * The default hook: inject the embedded hook in-process and treat the pid as

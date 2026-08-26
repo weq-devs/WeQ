@@ -6,11 +6,15 @@
  *   - parse NDJSON frames flowing in,
  *   - keep the QQ pid around for cleanup,
  *   - decide when to resolve,
- *   - (linux only) drop an entry stub into QQ's `resources/app` before launch
- *     and remove it after — QQ resolves its Electron entry with a raw statx
- *     syscall that `LD_PRELOAD` can't intercept, so the stub must really hit
- *     disk. Elevation for a root-owned `resources/app` is the caller's job;
- *     inject it via `stubHooks`.
+ *   - (linux only) ensure a persistent entry stub sits in QQ's `resources/app`
+ *     before launch — QQ resolves its Electron entry with a raw statx syscall
+ *     that `LD_PRELOAD` can't intercept, so the stub must really hit disk.
+ *     The stub is installed once (settings 「安装 NineBird」 or auto-install
+ *     before login) and stays; it never self-deletes. Elevation for a
+ *     root-owned `resources/app` is the caller's job; inject it via
+ *     `stubHooks`. `dropStub` is idempotent: it skips when the on-disk stub
+ *     already carries the WeQ marker, and (re)writes — possibly elevated —
+ *     only when missing or stale.
  *
  * That boilerplate has nothing to do with the call site's business logic.
  * `NineBirdBootstrap` does it once. Callers get:
@@ -22,9 +26,16 @@
 import { EventEmitter } from 'node:events';
 import { createServer } from 'node:net';
 import type { Server, Socket } from 'node:net';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
+import { qqContainerDataRoot } from './darwin/install';
+import {
+  linuxLoaderShimContent,
+  linuxOriginalMain,
+  linuxPaths,
+  linuxStubStatus,
+} from './linux/install';
 import type {
   LaunchQqResult,
   NineBirdAccountListEvent,
@@ -50,13 +61,14 @@ export interface AppidQua {
 
 /**
  * Linux-only injection stub hooks. `dropStub` writes `content` to `path`
- * (inside QQ's `resources/app`); `removeStub` deletes it. The defaults write
+ * (inside QQ's `resources/app`); `removeStub` is expected to be a no-op on
+ * linux (stub is persistent — see the module header). The defaults write
  * directly with `fs` and throw when the directory isn't writable — inject
- * elevated implementations (pkexec/polkit/helper daemon) to support
+ * elevated implementations (sudo -S + self-drawn password dialog) to support
  * root-owned installs. Ignored on win32.
  *
  * Both hooks may be async — the launch flow awaits them — so an elevated
- * implementation can shell out to `pkexec` and reject on cancel/failure.
+ * implementation can shell out to `sudo` and reject on cancel/failure.
  */
 export interface StubHooks {
   dropStub(path: string, content: string): void | Promise<void>;
@@ -166,9 +178,7 @@ export class NineBirdBootstrap {
       // Same `login-list` wire frame as quick-login, but account-list.js
       // fills it with the richer NineBirdAccountListItem payload.
       onAccountList: (cb) =>
-        session.onLoginList(
-          cb as unknown as (e: NineBirdLoginListEvent) => void,
-        ),
+        session.onLoginList(cb as unknown as (e: NineBirdLoginListEvent) => void),
       kill: session.kill,
     };
   }
@@ -190,39 +200,34 @@ export class NineBirdBootstrap {
     let killed = false;
     let resultSettled = false;
 
-    // ---- linux entry stub (dropped before launch, removed on teardown) ----
-    // QQ's Electron entry must point at a real file inside `resources/app`;
-    // the stub self-deletes when QQ loads it, then requires the real loader
-    // JS. `removeStub` is the belt-and-suspenders cleanup if QQ never got
-    // that far. On win32 both are no-ops.
-    const stubPath = isLinux
-      ? join(dirname(args.qqExePath), 'resources', 'app', 'loadNineBird.js')
-      : '';
-    let stubDropped = false;
+    // ---- linux entry stub (ensured before launch, never removed) ----
+    // The launcher.so (LD_PRELOAD) redirects QQ's Electron entry to
+    // `<QQ>/resources/app/loadNineBird.js`, which must really exist on disk
+    // (raw statx). The stub is a PERSISTENT shim (see linux/install.ts): it
+    // does not self-delete and does not embed any per-launch loader path — it
+    // requires `NINEBIRD_LOAD_PATH` (set by launchQQ), so once installed it
+    // works for every future launch without re-elevation. `dropStub` is an
+    // idempotent ensure: skip when the on-disk stub carries our marker (e.g.
+    // installed via settings), rewrite when missing or stale (old
+    // self-deleting stubs have no marker). `removeStub` is a no-op — cleanup
+    // only happens via the explicit 「还原 NineBird」 action in settings.
+    // On win32 both are no-ops.
+    const stubPath = isLinux ? linuxPaths(args.qqExePath).loaderJs : '';
+    let stubEnsured = false;
     const dropStub = async (): Promise<void> => {
-      if (!isLinux || stubDropped) return;
-      // The stub runs inside QQ; if NINEBIRD_LOG is set it writes one line
-      // before requiring the real loader — that line is the proof the
-      // launcher.so injection actually redirected QQ's entry to us (vs. QQ
-      // never loading the stub at all). Self-delete first (zero residue),
-      // then log, then require the loader.
-      const content =
-        "try { require('fs').unlinkSync(__filename); } catch (e) {}\n" +
-        "function __nblog(m){ try { if (process.env.NINEBIRD_LOG) require('fs').appendFileSync(process.env.NINEBIRD_LOG, '[stub pid=' + process.pid + '] ' + m + '\\n'); } catch (e) {} }\n" +
-        `__nblog('loadNineBird.js executed, requiring loader: ' + ${JSON.stringify(args.loadJsPath)});\n` +
-        `try { require(${JSON.stringify(args.loadJsPath)}); }\n` +
-        "catch (e) { __nblog('require(loader) THREW: ' + (e && e.stack || e)); throw e; }\n";
+      if (!isLinux || stubEnsured) return;
+      const paths = linuxPaths(args.qqExePath);
+      const status = linuxStubStatus(paths);
+      if (status.installed && status.fresh) {
+        stubEnsured = true;
+        return;
+      }
+      const content = linuxLoaderShimContent(args.loadJsPath, linuxOriginalMain(paths.appDir));
       await this.stubHooks.dropStub(stubPath, content);
-      stubDropped = true;
+      stubEnsured = true;
     };
     const removeStub = (): void => {
-      if (!isLinux || !stubDropped) return;
-      try {
-        void this.stubHooks.removeStub(stubPath);
-      } catch {
-        /* QQ likely self-deleted it already */
-      }
-      stubDropped = false;
+      /* intentionally not cleaned up — see module header */
     };
 
     const settleResult = (e: NineBirdResultEvent): void => {
@@ -389,6 +394,20 @@ function makePipeName(): string {
   const stamp = Date.now().toString(36);
   if (process.platform === 'win32') {
     return `\\\\.\\pipe\\ninebird-${process.pid}-${stamp}`;
+  }
+  if (process.platform === 'darwin') {
+    // QQ 是沙箱应用，连不上 /tmp 里任意 unix socket；把 socket 放进 QQ
+    // 自己的容器 tmp（WeQ 非沙箱可以写，QQ 沙箱内也可以连），并压缩名字
+    // 长度以避开 unix socket 路径 104 字节上限。
+    const dir = join(qqContainerDataRoot(), 'tmp');
+    try {
+      mkdirSync(dir, { recursive: true });
+    } catch {
+      // 目录建不出来就退回系统 tmpdir（QQ 连不上时报错，日志可查）。
+      const fallback = mkdtempSync(join(tmpdir(), 'ninebird-'));
+      return join(fallback, `${process.pid}-${stamp}.sock`);
+    }
+    return join(dir, `nb-${process.pid}-${stamp.slice(-6)}.sock`);
   }
   const dir = mkdtempSync(join(tmpdir(), 'ninebird-'));
   return join(dir, `${process.pid}-${stamp}.sock`);

@@ -6,12 +6,14 @@
  * yama ptrace protection when the first unprivileged inject is refused. The
  * actual dialog lives in the desktop renderer, so `index.ts` injects the real
  * implementation here at startup. On the headless web server nothing is
- * injected, and the prompt degrades to 'skip' (straight to pkexec).
+ * injected, and the prompt degrades to an immediate sudo escalation — which
+ * then hits `sudo_prompt`'s headless guard (no password dialog available) and
+ * surfaces a clear "run as root" error instead.
  */
 
-import type { PtraceHintChoice } from '@weq/service';
+import type { PtraceHintAnswer } from '@weq/service';
 
-export type PtraceHintPrompt = () => Promise<PtraceHintChoice>;
+export type PtraceHintPrompt = () => Promise<PtraceHintAnswer>;
 
 let current: PtraceHintPrompt | null = null;
 

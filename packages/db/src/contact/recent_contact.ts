@@ -51,6 +51,18 @@ export interface RecentContactDbOptions {
   algo?: DatabaseAlgorithms;
 }
 
+/** One conversation's seq watermark, read straight from `recent_contact_v3_table`. */
+export interface RecentContactSeq {
+  /** 40021 — conversation key (peer uid for c2c, group code for group). */
+  targetUid: string;
+  /** 40010 — raw numeric chat type (classify via `classifyChatType`). */
+  chatType: number;
+  /** 40003 — latest message seq in this conversation. */
+  msgSeq: bigint;
+  /** 40050 — latest message sendTime (unix seconds). */
+  sendTime: bigint;
+}
+
 export class RecentContactDb {
   private readonly qq: QqDb;
 
@@ -62,15 +74,30 @@ export class RecentContactDb {
    * Recent conversations, newest first. Defaults to 200 — the recent-chats
    * list is small, so a single ordered LIMIT over the 40050 index is cheap.
    */
-  async getRecentContact(limit = 200, offset = 0): Promise<RecentContact[]> {
+  async getRecentContact(
+    limit = 200,
+    offset = 0,
+    opts: { excludeChatTypes?: readonly number[] } = {},
+  ): Promise<RecentContact[]> {
+    const excluded = [...BLOCKED_CHAT_TYPES, ...(opts.excludeChatTypes ?? [])];
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM recent_contact_v3_table
-        WHERE "40010" NOT IN (${BLOCKED_CHAT_TYPES.join(',')})
+        WHERE "40010" NOT IN (${excluded.join(',')})
         ORDER BY "40050" DESC
         LIMIT ? OFFSET ?`,
       [BigInt(limit), BigInt(offset)],
     );
     return rows.map(rowToRecentContact);
+  }
+
+  /** Total rows visible to {@link getRecentContact} (same exclusion rules). */
+  async countRecentContact(opts: { excludeChatTypes?: readonly number[] } = {}): Promise<number> {
+    const excluded = [...BLOCKED_CHAT_TYPES, ...(opts.excludeChatTypes ?? [])];
+    const rows = await this.qq.query(
+      `SELECT COUNT(*) FROM recent_contact_v3_table
+        WHERE "40010" NOT IN (${excluded.join(',')})`,
+    );
+    return Number(rows[0]?.[0] ?? 0);
   }
 
   /**
@@ -93,6 +120,24 @@ export class RecentContactDb {
     return new Set(rows.map((row) => toStr(row[0])));
   }
 
+
+  /**
+   * Every conversation's current seq watermark (40021 -> 40003). The table is
+   * small (the recent-chats list), so re-reading it whole per poll is cheap and
+   * never touches the big msg tables. Drives the new-message watcher: a grown
+   * 40003 means new rows landed in that conversation's msg table.
+   */
+  async listSeqWatermarks(): Promise<RecentContactSeq[]> {
+    const rows = await this.qq.query(
+      `SELECT "40021","40010","40003","40050" FROM recent_contact_v3_table`,
+    );
+    return rows.map((row) => ({
+      targetUid: toStr(row[0]),
+      chatType: toNum(row[1]),
+      msgSeq: toBigint(row[2]),
+      sendTime: toBigint(row[3]),
+    }));
+  }
   /**
    * Search conversations by display name (column 40094), newest first.
    * The recent-contact table is small (hundreds of rows), so the LIKE scan

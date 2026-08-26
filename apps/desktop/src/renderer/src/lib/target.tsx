@@ -13,6 +13,13 @@ export const IS_WEB = import.meta.env.VITE_WEQ_TARGET === 'web';
 export const IS_ELECTRON = !IS_WEB;
 
 /**
+ * True when running in the Electron build on macOS. Windows/Linux keep their
+ * in-app window controls; macOS shows native traffic lights instead, so the
+ * renderer must leave the top-left cluster clear (and skip duplicate buttons).
+ */
+export const IS_MAC = !IS_WEB && window.electron?.process.platform === 'darwin';
+
+/**
  * Render `children` only in the Electron build. Use for anything that depends
  * on a native shell: window controls, tray, file-manager reveal, screenshots,
  * system auth, in-app updates.

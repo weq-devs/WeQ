@@ -158,6 +158,12 @@ export class MediaCacheService {
           continue;
         }
         const data = await readFile(path);
+        // A 0-byte file is a broken cache entry (e.g. an interrupted write);
+        // treat it as a miss and clean it up so the caller refetches upstream.
+        if (data.length === 0) {
+          await unlink(path).catch(() => {});
+          continue;
+        }
         return { data, contentType: contentTypeForExt(ext), fromCache: true };
       } catch {
         // Missing (ENOENT) or unreadable — try the next extension.

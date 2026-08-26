@@ -40,7 +40,7 @@ export interface UiStage {
 }
 
 /** The CDN-completion stages (download missing → bundle). */
-const COMPLETION_KEYS = new Set(['image', 'video', 'file']);
+const COMPLETION_KEYS = new Set(['image', 'video', 'file', 'ptt']);
 
 /** Aggregate completion (image/video/file) success / fail across a task's stages. */
 function completionSummary(stages: UiStage[] | undefined): {
@@ -154,6 +154,7 @@ export function TaskList({
   onDownload,
   onDelete,
   onShowFailures,
+  onSaveAll,
 }: {
   tasks: UiTask[];
   onPause: (t: UiTask) => void;
@@ -162,12 +163,26 @@ export function TaskList({
   onDelete: (t: UiTask) => void;
   /** Open the failure-detail lightbox for a task's media-completion failures. */
   onShowFailures: (t: UiTask, failures: UiFailure[]) => void;
+  /** 一键把全部已完成任务保存到默认导出目录（未配置默认目录时先引导设置）。 */
+  onSaveAll?: () => void;
 }): ReactElement {
+  const completedCount = tasks.filter((t) => t.status === 'completed').length;
   return (
     <section className="weq-exp-tasks">
       <header className="weq-exp-tasks-head">
         <span className="weq-exp-tasks-title">导出任务</span>
         <span className="weq-exp-tasks-count">{tasks.length}</span>
+        {onSaveAll && completedCount > 0 ? (
+          <button
+            type="button"
+            className="weq-exp-tasks-save-all"
+            title="将全部已完成任务保存到默认导出目录"
+            onClick={onSaveAll}
+          >
+            <Download size={14} />
+            全部保存（{completedCount}）
+          </button>
+        ) : null}
       </header>
 
       <div className="weq-exp-tasks-list">

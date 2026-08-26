@@ -16,7 +16,12 @@ import { observable } from '@trpc/server/observable';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, extname, join } from 'node:path';
-import { getAppContext, dbEventBus, type AccountServices } from '../../context/app_context';
+import {
+  getAppContext,
+  requireBootstrap,
+  dbEventBus,
+  type AccountServices,
+} from '../../context/app_context';
 import { sampleHitokoto } from '../../hitokoto';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
@@ -1404,11 +1409,32 @@ export const accountRouter = router({
     });
   }),
 
-  /** Recent conversations (recent_contact_v3_table), newest first. */
-  listRecentContacts: procedure.query(async () => {
-    const contacts = await requireServices().recentContacts.getRecentContact(200);
-    return contacts.map(recentContactToWire);
-  }),
+  /**
+   * Recent conversations (recent_contact_v3_table), newest first, paginated.
+   * Official (103) / service (118) rows are excluded before the limit 鈥?they
+   * surface as separate merged entries, so they must not consume main-list
+   * window slots. `cursor` is the row offset; `nextCursor` is null at the end.
+   */
+  listRecentContacts: procedure
+    .input(
+      z
+        .object({
+          limit: z.number().int().min(1).max(500).default(200),
+          cursor: z.number().int().min(0).default(0),
+        })
+        .default({}),
+    )
+    .query(async ({ input }) => {
+      const svc = requireServices().recentContacts;
+      // 103 = 公众号, 118 = 服务号 (see @weq/codec chat_kind).
+      const excludeChatTypes = [103, 118];
+      const [items, total] = await Promise.all([
+        svc.getRecentContact(input.limit, input.cursor, { excludeChatTypes }),
+        svc.countRecentContact({ excludeChatTypes }),
+      ]);
+      const next = input.cursor + items.length < total ? input.cursor + items.length : undefined;
+      return { items: items.map(recentContactToWire), total, nextCursor: next };
+    }),
 
   /** 置顶会话（recent_contact_top_table），最近置顶的在前。 */
   listTopContacts: procedure.query(async () => {
@@ -2048,13 +2074,32 @@ export const accountRouter = router({
     }),
   /** Get merged-forward / quote-reply cache for one message. */
   getForwardMessages: procedure
-    .input(z.object({ kind: z.enum(['c2c', 'group']), msgId: z.string().min(1) }))
+    .input(
+      z.object({
+        kind: z.enum(['c2c', 'group']),
+        msgId: z.string().min(1),
+        /**
+         * Optional server resource id of the merged forward. When the local
+         * 40900 cache misses (gap messages are never stored locally), the
+         * router falls back to SsoRecvLongMsg over the live QQ connection.
+         */
+        resId: z.string().optional(),
+      }),
+    )
     .query(async ({ input }) => {
       const service = requireServices().forwardMsgs;
       const records =
         input.kind === 'group'
           ? await service.getGroupForward(BigInt(input.msgId))
           : await service.getC2cForward(BigInt(input.msgId));
+      if (records.length === 0 && input.resId) {
+        // 40900 缓存为空 -> 走协议在线拉取。要求 QQ 在线且未开「完全离线模式」。
+        const state = albumAccessState();
+        if (!state.qqOnline || !state.injectEnabled) {
+          throw new Error('QQ 未在线或处于完全离线模式，无法拉取合并转发');
+        }
+        return await service.fetchRemote(input.resId);
+      }
       return records.map(forwardRecordToWire);
     }),
 
@@ -2142,6 +2187,56 @@ export const accountRouter = router({
       return input.kind === 'group'
         ? (rows as RenderGroupMsg[]).map(groupMsgToWire)
         : (rows as RenderC2cMsg[]).map(c2cMsgToWire);
+    }),
+
+  /**
+   * 读本机漫游缓存中 [startSeq, endSeq] 的缺失消息（按 seq 升序，不联网）。
+   * 前端打开「缺失消息」弹窗前先探一下缓存：有命中就不强制要求 QQ 在线，
+   * 弹窗内直接展示已缓存的部分；其余再由 fetchGapMessages 联网补齐并入库。
+   */
+  cachedGapMessages: procedure
+    .input(
+      z.object({
+        kind: z.enum(['c2c', 'group']),
+        conv: z.string().min(1),
+        startSeq: z.number().int().min(0),
+        endSeq: z.number().int().min(0),
+      }),
+    )
+    .query(async ({ input }) => {
+      return requireServices().gapHistory.cached(
+        input.kind,
+        input.conv,
+        input.startSeq,
+        input.endSeq,
+      );
+    }),
+
+  /**
+   * 拉取聊天时间线中缺失的远端消息（按 seq 窗口，含端点）。分页契约：
+   * 首次传整个缺口起始（占位条上一条消息的 seq + 1），之后把返回的
+   * nextStartSeq 原样作为下一次的 startSeq，每页向更新方向推 30 个 seq，
+   * 直到 nextStartSeq 为 null。依赖在线 QQ 发包，离线 / 完全离线模式由服务层
+   * 判定并返回 { ok: false, reason: 'offline' }；空窗不停止（QQ 漫游覆盖从
+   * 最新向前连续，缺口最旧端可能未覆盖），由调用方决定首屏空窗如何提示。
+   * 已拉到的消息会全部写入本机漫游缓存（按账号一个库），下次命中缓存直接返回。
+   */
+  fetchGapMessages: procedure
+    .input(
+      z.object({
+        kind: z.enum(['c2c', 'group']),
+        conv: z.string().min(1),
+        startSeq: z.number().int().min(0),
+        endSeq: z.number().int().min(0),
+      }),
+    )
+    .query(async ({ input }) => {
+      return requireServices().gapHistory.fetch(
+        input.kind,
+        input.conv,
+        input.startSeq,
+        input.endSeq,
+      );
     }),
 
   /**
@@ -2573,9 +2668,11 @@ export const accountRouter = router({
         media: z
           .object({
             exportMedia: z.boolean(),
+            completeMessages: z.boolean(),
             completeMedia: z.boolean(),
             downloadVideo: z.boolean(),
             downloadFile: z.boolean(),
+            downloadPtt: z.boolean(),
             transcribeVoice: z.boolean(),
           })
           .optional(),
@@ -2613,9 +2710,11 @@ export const accountRouter = router({
         total: 0,
         media: {
           exportMedia: input.downloadMedia,
+          completeMessages: false,
           completeMedia: false,
           downloadVideo: false,
           downloadFile: false,
+          downloadPtt: false,
           transcribeVoice: false,
         },
         ...(input.range ? { range: input.range } : {}),
@@ -2764,10 +2863,12 @@ export const accountRouter = router({
             end: z.number().nullable(),
           }),
           exportMedia: z.boolean(),
+          completeMessages: z.boolean(),
           exportAvatar: z.boolean(),
           completeMedia: z.boolean(),
           downloadVideo: z.boolean(),
           downloadFile: z.boolean(),
+          downloadPtt: z.boolean(),
           transcribeVoice: z.boolean(),
         }),
         enabled: z.boolean().default(true),
@@ -2823,10 +2924,12 @@ export const accountRouter = router({
                 end: z.number().nullable(),
               }),
               exportMedia: z.boolean(),
+              completeMessages: z.boolean(),
               exportAvatar: z.boolean(),
               completeMedia: z.boolean(),
               downloadVideo: z.boolean(),
               downloadFile: z.boolean(),
+              downloadPtt: z.boolean(),
               transcribeVoice: z.boolean(),
             })
             .optional(),
@@ -2866,7 +2969,15 @@ export const accountRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      const { copyFileSync } = await import('node:fs');
+      const { copyFileSync, mkdirSync } = await import('node:fs');
+      const defaultDir = requireBootstrap().userConfig.getSettings().defaultExportDir;
+      if (defaultDir) {
+        // 已配置默认保存目录：免弹窗直接拷贝到 <默认目录>/<文件名>。
+        const dest = join(defaultDir, sanitizePathSegment(input.defaultName, 'export'));
+        mkdirSync(dirname(dest), { recursive: true });
+        copyFileSync(input.sourcePath, dest);
+        return true;
+      }
       const target = await getHost().pickSaveTarget({
         defaultName: input.defaultName,
         extension: input.format,
@@ -2886,8 +2997,16 @@ export const accountRouter = router({
     .mutation(async ({ input }) => {
       const task = requireServices().exportManager.getTask(input.taskId);
       if (!task?.bundleDir) return false;
-      const { existsSync, cpSync } = await import('node:fs');
+      const { existsSync, cpSync, mkdirSync } = await import('node:fs');
       if (!existsSync(task.bundleDir)) return false;
+      const defaultDir = requireBootstrap().userConfig.getSettings().defaultExportDir;
+      if (defaultDir) {
+        // 已配置默认保存目录：免弹窗把整个 bundle 拷到 <默认目录>/<任务名>/。
+        const dest = join(defaultDir, sanitizePathSegment(task.name, task.id));
+        mkdirSync(dirname(dest), { recursive: true });
+        cpSync(task.bundleDir, dest, { recursive: true });
+        return true;
+      }
       const picked = await getHost().pickDirectory({ title: '选择导出保存文件夹' });
       if (!picked) return false;
       const dest = join(picked, sanitizePathSegment(task.name, task.id));

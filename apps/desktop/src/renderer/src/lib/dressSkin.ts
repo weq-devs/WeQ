@@ -135,6 +135,34 @@ function frameAnimationCss(
   return { keyframes, animation: `${name} ${duration}ms steps(1) ${iterations}` };
 }
 
+/** 气泡是否「限制」了文字颜色。 */
+export function bubbleRestrictsTextColor(textColor: string): boolean {
+  // service 侧解析（bubble_skin.ts 的 resolveTextColor）：只有这款气泡自己规定颜色（material
+  // color / 不透明纯色填充推断）才是具体色值；回退主题正文色时是 var()，不算限制。
+  return !textColor.trim().startsWith('var(');
+}
+
+/** 文字色受限的气泡里，链接 / @提及不标蓝，一律继承气泡文字色、用下划线区分。 */
+export function bubbleLinkMentionRules(sel: string): string {
+  // sel 可能是逗号分隔的多选择器（msgDecorationStyle 的 data-bubble 路径同时选
+  // .message-line 和 .weq-forward-row）。后缀必须展开到每一项——CSS 的 `a, b c` 只会给
+  // 最后一项加后缀，直接拼接会让前面那项变成选中整个 .message-content，整条消息都被下划线。
+  const sels = sel.split(',').map((s) => s.trim());
+  const link = sels.map((s) => `${s} .qq-link`).join(',\n');
+  const hover = sels.map((s) => `${s} .qq-link:hover`).join(',\n');
+  const at = sels.map((s) => `${s} .qq-at-element`).join(',\n');
+  return [
+    `${link},\n${hover},\n${at} {`,
+    `  color: inherit;`,
+    `  text-decoration-color: currentColor;`,
+    `}`,
+    `${at} {`,
+    `  text-decoration: underline;`,
+    `  text-underline-offset: 2px;`,
+    `}`,
+  ].join('\n');
+}
+
 function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
   const sel = bubbleSelector(scope);
   const { left, top, right, bottom } = skin.slice;
@@ -162,7 +190,7 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
   // top 小(装饰少) → 需要增大 topPad 把文字往下推离顶部
   // bottom 小 → 需要增大 bottomPad 把文字往上推离底部
   const avgSlice = (top + bottom) / 2;
-  const topDiff = avgSlice - top;    // top 小时为正,需要补偿
+  const topDiff = avgSlice - top; // top 小时为正,需要补偿
   const bottomDiff = avgSlice - bottom;
   const topPad = wTop * PAD_RATIO_Y + topDiff * BUBBLE_SCALE * 0.5;
   const bottomPad = wBottom * PAD_RATIO_Y + bottomDiff * BUBBLE_SCALE * 0.5;
@@ -229,6 +257,11 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
     `  outline-offset: -1px;`,
     `}`,
   );
+
+  // 文字色受限的气泡：链接 / @提及不再标蓝（会和气泡文字色冲突），改为继承气泡色 + 下划线。
+  if (bubbleRestrictsTextColor(skin.textColor)) {
+    rules.push(bubbleLinkMentionRules(sel));
+  }
 
   return rules.filter(Boolean).join('\n');
 }

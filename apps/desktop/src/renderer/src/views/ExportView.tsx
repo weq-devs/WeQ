@@ -44,6 +44,7 @@ import {
 } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
+import { useToast } from '../components/Toast';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { datalineName } from '@weq/codec';
 import { Avatar, Segmented, Spinner } from './export/widgets';
@@ -224,12 +225,14 @@ function collectionPreview(it: CollectionItemWire): CollectionPreviewItem {
 export function ExportView(): ReactElement {
   const utils = trpc.useUtils();
   const dialog = useAppDialog();
+  const pushToast = useToast((s) => s.push);
 
   const conversations = trpc.account.listConversationsWithCount.useQuery();
   const databases = trpc.account.listDatabases.useQuery();
   const groups = trpc.account.listAllGroups.useQuery({ limit: 2000 });
   const tasks = trpc.account.listExportTasks.useQuery();
   const schedules = trpc.account.listSchedules.useQuery();
+  const exportDirSettings = trpc.bootstrap.getSettings.useQuery();
 
   const [mode, setMode] = useState<ExportMode>('full');
   const [convSelection, setConvSelection] = useState<Set<string>>(new Set());
@@ -340,11 +343,16 @@ export function ExportView(): ReactElement {
   // Live task progress: invalidate the list whenever the backend ticks.
   useEffect(() => {
     const sub = client.account.onExportProgress.subscribe(undefined, {
-      onData: () => void utils.account.listExportTasks.invalidate(),
+      onData: (progress) => {
+        void utils.account.listExportTasks.invalidate();
+        if (progress.notice) {
+          pushToast({ tone: 'warning', title: '消息补全', message: progress.notice, ttl: 5000 });
+        }
+      },
       onError: (err) => console.error('[export] progress subscription error', err),
     });
     return () => sub.unsubscribe();
-  }, [utils]);
+  }, [utils, pushToast]);
 
   const convItems = useMemo<PickItem[]>(() => {
     return ((conversations.data ?? []) as ConvWire[]).map((c) => {
@@ -495,6 +503,55 @@ export function ExportView(): ReactElement {
     }
   };
 
+  /** 一键把全部已完成任务保存到默认导出目录（未配置时先引导选择一次）。 */
+  const onSaveAll = async (): Promise<void> => {
+    const completed = uiTasks.filter((t) => t.status === 'completed');
+    if (completed.length === 0) return;
+    // 未配置默认目录：先弹一次目录选择并写入设置。
+    let defaultDir = exportDirSettings.data?.defaultExportDir ?? null;
+    if (!defaultDir) {
+      defaultDir = await client.bootstrap.pickDefaultExportDir.mutate();
+      if (!defaultDir) return; // 用户取消
+      void exportDirSettings.refetch();
+    }
+    const failed: string[] = [];
+    let okCount = 0;
+    for (const t of completed) {
+      try {
+        let ok = false;
+        if (t.bundleDir) {
+          ok = await client.account.saveExportBundle.mutate({ taskId: t.id });
+        } else if (t.filePath) {
+          const fmt: BackendFormat = isBackendFormat(t.format as ExportFormat)
+            ? (t.format as BackendFormat)
+            : 'json';
+          ok = await client.account.saveExportFile.mutate({
+            sourcePath: t.filePath,
+            defaultName: `${t.name}.${t.format}`,
+            format: fmt,
+          });
+        }
+        if (ok) {
+          await client.account.deleteExportTask.mutate({ taskId: t.id });
+          okCount += 1;
+        } else {
+          failed.push(t.name);
+        }
+      } catch {
+        failed.push(t.name);
+      }
+    }
+    refetchTasks();
+    if (failed.length > 0) {
+      dialog.error(
+        '部分任务保存失败',
+        `成功 ${okCount} 个，失败 ${failed.length} 个：${failed.slice(0, 8).join('、')}${failed.length > 8 ? '…' : ''}`,
+      );
+    } else {
+      await dialog.info('批量保存完成', `已保存 ${okCount} 个导出任务到默认目录。`);
+    }
+  };
+
   // ---- primary action per mode ----
   function onPrimary(): void {
     if (mode === 'decrypt') {
@@ -620,6 +677,36 @@ export function ExportView(): ReactElement {
   }
 
   /**
+   * Pre-flight for 补全缺失消息: needs an online QQ *and* 完全离线模式 off
+   * (自动注入 QQ 开启) — the roam pull goes through the live SSO channel, so
+   * unlike 媒体补全 there is no offline fallback. Hard block otherwise.
+   */
+  async function preflightMessageCompletion(): Promise<boolean> {
+    let state: { qqOnline: boolean; injectEnabled: boolean };
+    try {
+      state = await client.account.getGroupAlbumAccessState.query();
+    } catch (e) {
+      dialog.error('检查在线状态失败', e instanceof Error ? e.message : String(e));
+      return false;
+    }
+    if (!state.qqOnline) {
+      await dialog.info(
+        '需要打开 QQ',
+        '「补全缺失消息」需要登录该账号的 QQ 客户端以拉取服务端历史消息。请打开并登录 QQ 后重试，或关闭「补全缺失消息」后继续导出。',
+      );
+      return false;
+    }
+    if (!state.injectEnabled) {
+      await dialog.info(
+        '完全离线模式已开启',
+        '「自动注入 QQ（完整功能）」已关闭（完全离线模式），无法拉取服务端缺失消息。请开启后重试，或关闭「补全缺失消息」后继续导出。',
+      );
+      return false;
+    }
+    return true;
+  }
+
+  /**
    * Pre-flight for 好友空间导出: a live QQ instance must be logged in (the QZone
    * web CGI needs this account's skey/pskey). Returns false to abort with a
    * prompt to open QQ.
@@ -738,11 +825,19 @@ export function ExportView(): ReactElement {
     const range = { start: options.range.start, end: options.range.end };
     const media = {
       exportMedia: options.exportMedia,
+      completeMessages: options.completeMessages,
       completeMedia: options.exportMedia && options.completeMedia,
       downloadVideo: options.exportMedia && options.completeMedia && options.downloadVideo,
       downloadFile: options.exportMedia && options.completeMedia && options.downloadFile,
+      downloadPtt: options.exportMedia && options.completeMedia && options.downloadPtt,
       transcribeVoice: options.transcribeVoice,
     };
+
+    // 消息补全跑在所有导出步骤之前，必须在线 QQ + 未开启完全离线模式。
+    if (media.completeMessages) {
+      const ok = await preflightMessageCompletion();
+      if (!ok) return;
+    }
 
     if (media.completeMedia) {
       const ok = await preflightMediaCompletion();
@@ -962,10 +1057,12 @@ export function ExportView(): ReactElement {
             end: result.options.range.end,
           },
           exportMedia: result.options.exportMedia,
+          completeMessages: result.options.completeMessages,
           exportAvatar: result.options.exportAvatar,
           completeMedia: result.options.completeMedia,
           downloadVideo: result.options.downloadVideo,
           downloadFile: result.options.downloadFile,
+          downloadPtt: result.options.downloadPtt,
           transcribeVoice: result.options.transcribeVoice,
         },
         enabled: true,
@@ -1292,6 +1389,7 @@ export function ExportView(): ReactElement {
         onCancel={onCancel}
         onDownload={(t) => void onDownload(t)}
         onDelete={onDelete}
+        onSaveAll={() => void onSaveAll()}
         onShowFailures={(t, failures) => setFailureView({ name: t.name, failures })}
       />
 

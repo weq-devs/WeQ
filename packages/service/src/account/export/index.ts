@@ -20,6 +20,12 @@ export {
 } from './element_text';
 export { exportGroupToJson, type JsonExportOptions } from './json_exporter';
 export { exportGroupToJsonl } from './jsonl_exporter';
+export {
+  exportJsonConversation,
+  type JsonMetaExportOptions,
+  type JsonExportedMember,
+  type JsonExportedMessage,
+} from './json_meta_exporter';
 export { exportGroupToTxt } from './txt_exporter';
 export { exportGroupToCsv, csvFraming, renderCsvRow } from './csv_exporter';
 export { exportToXlsx, type XlsxExportOptions } from './xlsx_exporter';
@@ -112,6 +118,13 @@ export {
   type MarketPackDeps,
   type MarketPackDownloadItem,
 } from './task_manager';
+export {
+  backfillConversationMessages,
+  buildBackfillWindows,
+  type MessageBackfillDeps,
+  type MessageBackfillOptions,
+  type MessageBackfillSummary,
+} from './msg_backfill';
 export {
   ExportScheduler,
   computeNextRun,

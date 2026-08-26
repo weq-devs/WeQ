@@ -81,6 +81,9 @@ export function AccountBasicsSection(): ReactElement {
     staleTime: 0,
     refetchOnMount: 'always',
   });
+  const systemInfo = trpc.bootstrap.systemInfo.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+  });
 
   const setRealtime = trpc.bootstrap.setRealtimeEnabled.useMutation();
   const setAutoInjectQq = trpc.bootstrap.setAutoInjectQq.useMutation();
@@ -137,6 +140,8 @@ export function AccountBasicsSection(): ReactElement {
   const settingsLoading = settings.isLoading;
   const isStatic = cfg?.static ?? false;
   const nativeMediaDir = cfg?.nativeMediaDir ?? null;
+  // macOS 不支持注入（SIP 限制）：开关置灰 + 专属文案。
+  const isMac = systemInfo.data?.platformKind === 'darwin';
 
   async function copyText(text: string, onOk?: () => void): Promise<void> {
     if (!text) return;
@@ -449,11 +454,15 @@ export function AccountBasicsSection(): ReactElement {
               自动注入 QQ（完整功能）
             </span>
           }
-          desc="默认开启：后台自动注入登录中的 QQ，采集 rKey / ClientKey 等凭证，启用媒体补全、群相册、装扮等在线功能。关闭后进入完全离线模式——不再注入 QQ、不再联网换取任何凭证，仅使用本地数据与本地文件。"
+          desc={
+            isMac
+              ? 'macOS 版不支持注入 QQ（SIP 限制），此开关不可用。请手动填入数据库密钥使用。'
+              : '默认开启：后台自动注入登录中的 QQ，采集 rKey / ClientKey 等凭证，启用媒体补全、群相册、装扮等在线功能。关闭后进入完全离线模式——不再注入 QQ、不再联网换取任何凭证，仅使用本地数据与本地文件。'
+          }
           control={
             <Toggle
-              checked={autoInject}
-              disabled={settingsLoading}
+              checked={isMac ? false : autoInject}
+              disabled={settingsLoading || isMac}
               onChange={(v) =>
                 void persist(
                   () => setAutoInject(v),

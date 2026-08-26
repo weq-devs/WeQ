@@ -20,6 +20,36 @@ export {
 } from './loader';
 export type { LoadNativeOptions, NativeLoadResult } from './loader';
 export { NineBirdBootstrap } from './ninebird';
+export {
+  darwinPaths,
+  getPatchStatus,
+  installEntry,
+  restoreEntry,
+  ensureInstalled,
+  installNineBird,
+  deployNineBirdFiles,
+  uninstallNineBird,
+  loaderMain,
+  runSudo,
+} from './darwin/install';
+export type {
+  DarwinInstallPaths,
+  NineBirdPatchStatus,
+  ElevatedResult,
+} from './darwin/install';
+export {
+  STUB_MARKER,
+  linuxAppDir,
+  linuxPaths,
+  linuxStubStatus,
+  linuxLoaderShimContent,
+  installNineBirdLinux,
+  uninstallNineBirdLinux,
+  writeFileAsRoot,
+  resolveSudoPath,
+  linuxSudoErrorHint,
+} from './linux/install';
+export type { LinuxInstallPaths, LinuxStubStatus } from './linux/install';
 export type {
   QrLoginOptions,
   QuickLoginOptions,

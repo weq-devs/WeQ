@@ -22,10 +22,10 @@ import {
   writeFileSync,
   readdirSync,
   unlinkSync,
-  statSync,
   rmSync,
   existsSync,
 } from 'node:fs';
+import { readdir, stat } from 'node:fs/promises';
 import { join, basename } from 'node:path';
 import type { Platform } from '@weq/platform';
 import type { AgentLabProviderConfig, TtsProviderConfig } from '@weq/agentlab';
@@ -43,7 +43,7 @@ export interface AutoEnterTarget {
 /**
  * A persisted "this pid is already hook-injected" record (linux only).
  *
- * The linux inject is expensive: a pkexec/polkit password dialog + an exclusive
+ * The linux inject is expensive: a sudo password dialog + an exclusive
  * ptrace attach. The in-memory injectHook caches which pids are injected, but a
  * WeQ restart loses that — so without persistence WeQ would re-inject an
  * already-hooked, still-running QQ (popping the password dialog again and racing
@@ -133,6 +133,22 @@ function isExternalRkeyServerConfig(value: unknown): value is ExternalRkeyServer
 function normalizeExternalRkeyServers(value: unknown): ExternalRkeyServerConfig[] {
   if (!Array.isArray(value)) return [];
   return value.filter(isExternalRkeyServerConfig);
+}
+
+function isSsePushServerConfig(value: unknown): value is SsePushServerConfig {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Partial<SsePushServerConfig>;
+  return (
+    typeof item.id === 'string' &&
+    typeof item.name === 'string' &&
+    typeof item.pushUrl === 'string' &&
+    typeof item.accessToken === 'string'
+  );
+}
+
+function normalizeSsePushServers(value: unknown): SsePushServerConfig[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isSsePushServerConfig);
 }
 
 export interface VoiceTranscribeConfig {
@@ -263,10 +279,11 @@ export interface AppSettings {
    * 拉取的 rkey（私聊/群聊）与过期时间，供媒体补全在没有在线 QQ 时兜底。
    */
   externalRkey: ExternalRkeyConfig;
+  ssePush: SsePushConfig;
   /**
    * Linux 下是否不再提示关闭 ptrace 保护。首次检测到无法直接注入（内核拒绝
    * ptrace）时弹窗引导用户关闭 yama ptrace_scope；选择「不再提醒」后写入这里，
-   * 之后直接走 pkexec 提权、不再弹窗。
+   * 之后直接走 sudo 提权、不再弹窗。
    */
   suppressPtraceHint: boolean;
   /**
@@ -274,6 +291,11 @@ export interface AppSettings {
    * 仍照常执行并生成报告，但不再弹出提醒。
    */
   suppressDbDamageReminder: boolean;
+  /**
+   * 导出中心的默认保存目录。设置后，导出任务完成保存（单文件/整目录）直接拷贝到
+   * 该目录，不再逐个弹系统保存对话框；未设置时保持原有逐任务选择路径的行为。
+   */
+  defaultExportDir: string | null;
 }
 
 /**
@@ -320,6 +342,33 @@ export interface ExternalRkeyConfig {
   enabledServerId: string | null;
 }
 
+/** 一条 SSE 消息推送目标：WeQ 把新消息 POST 到 `pushUrl`，带 `accessToken` 鉴权。 */
+export interface SsePushServerConfig {
+  /** 稳定 id（随机 hex），用于列表增删与「启用」标记。 */
+  id: string;
+  /** 展示名（默认取推送地址的主机部分，可手改）。 */
+  name: string;
+  /** 推送地址（接收端 HTTP 接口，保存时自动补协议 / 去尾部斜杠）。 */
+  pushUrl: string;
+  /** 接收端要求的 access_token。 */
+  accessToken: string;
+}
+
+/** 设置 → SSE 消息推送。全局配置，一份对当前账号生效。 */
+export interface SsePushConfig {
+  /** 已配置的推送目标（可多个，同时只启用一个）。 */
+  servers: SsePushServerConfig[];
+  /** 当前启用的推送目标 id；null = 停用。 */
+  enabledServerId: string | null;
+  /** 防抖毫秒：收到新消息后等待这段「空闲」再合并推送（默认 2000）。 */
+  debounceMs: number;
+  /**
+   * 大量消息阈值：某个会话的 seq 一次跳变超过该值时，不再逐条推送，
+   * 而是合并成一条 `mass` 事件并预览最新一条（典型场景：QQ 刚启动正在写表）。
+   */
+  massThreshold: number;
+}
+
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   realtimeEnabled: true,
   autoInjectQq: true,
@@ -340,8 +389,10 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showMsgDecoration: true,
   externalChatpic: { dir: '', enabled: false },
   externalRkey: { servers: [], enabledServerId: null },
+  ssePush: { servers: [], enabledServerId: null, debounceMs: 2000, massThreshold: 50 },
   suppressPtraceHint: false,
   suppressDbDamageReminder: false,
+  defaultExportDir: null,
 };
 
 export interface UserConfig {
@@ -370,12 +421,14 @@ export interface UserConfig {
 }
 
 export class UserConfigService {
+  private readonly platform: Platform;
   private readonly root: string;
   private readonly configPath: string;
   private cached: UserConfig | undefined;
   private readonly logger = getLogger().child({ scope: 'user-config' });
 
   constructor(platform: Platform) {
+    this.platform = platform;
     this.root = platform.appDataRoot();
     this.configPath = join(this.root, 'config.json');
   }
@@ -560,9 +613,14 @@ export class UserConfigService {
   getSettings(): AppSettings {
     const s = this.read().settings;
     const d = DEFAULT_APP_SETTINGS;
+    // macOS 不支持注入（SIP 限制），此开关恒为 false：即使旧配置（从
+    // win/linux 迁移或手动篡改）里存了 true，也在这里归一化掉，保证
+    // 「完全离线」行为在 macOS 上不可绕过。
+    const autoInjectQq =
+      this.platform.kind === 'darwin' ? false : (s?.autoInjectQq ?? d.autoInjectQq);
     return {
       realtimeEnabled: s?.realtimeEnabled ?? d.realtimeEnabled,
-      autoInjectQq: s?.autoInjectQq ?? d.autoInjectQq,
+      autoInjectQq,
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
       appLock: {
         enabled: s?.appLock?.enabled ?? d.appLock.enabled,
@@ -582,8 +640,21 @@ export class UserConfigService {
         servers: normalizeExternalRkeyServers(s?.externalRkey?.servers),
         enabledServerId: s?.externalRkey?.enabledServerId ?? d.externalRkey.enabledServerId,
       },
+      ssePush: {
+        servers: normalizeSsePushServers(s?.ssePush?.servers),
+        enabledServerId: s?.ssePush?.enabledServerId ?? d.ssePush.enabledServerId,
+        debounceMs:
+          typeof s?.ssePush?.debounceMs === 'number' && s.ssePush.debounceMs > 0
+            ? s.ssePush.debounceMs
+            : d.ssePush.debounceMs,
+        massThreshold:
+          typeof s?.ssePush?.massThreshold === 'number' && s.ssePush.massThreshold > 0
+            ? s.ssePush.massThreshold
+            : d.ssePush.massThreshold,
+      },
       suppressPtraceHint: s?.suppressPtraceHint ?? d.suppressPtraceHint,
       suppressDbDamageReminder: s?.suppressDbDamageReminder ?? d.suppressDbDamageReminder,
+      defaultExportDir: s?.defaultExportDir ?? d.defaultExportDir,
       linkPreview: {
         enabled: s?.linkPreview?.enabled ?? d.linkPreview.enabled,
         screenshot: s?.linkPreview?.screenshot ?? d.linkPreview.screenshot,
@@ -620,9 +691,12 @@ export class UserConfigService {
 
   setSettings(patch: DeepPartial<AppSettings>): AppSettings {
     const current = this.getSettings();
+    // macOS: 注入不可用，开关写不进 true（写 false 也恒为 false）。
+    const autoInjectQq =
+      this.platform.kind === 'darwin' ? false : (patch.autoInjectQq ?? current.autoInjectQq);
     const next: AppSettings = {
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
-      autoInjectQq: patch.autoInjectQq ?? current.autoInjectQq,
+      autoInjectQq,
       autoLockMinutes: patch.autoLockMinutes ?? current.autoLockMinutes,
       appLock: {
         enabled: patch.appLock?.enabled ?? current.appLock.enabled,
@@ -648,8 +722,28 @@ export class UserConfigService {
             ? patch.externalRkey.enabledServerId
             : current.externalRkey.enabledServerId,
       },
+      ssePush: {
+        servers:
+          patch.ssePush?.servers !== undefined
+            ? normalizeSsePushServers(patch.ssePush.servers)
+            : current.ssePush.servers,
+        enabledServerId:
+          patch.ssePush?.enabledServerId !== undefined
+            ? patch.ssePush.enabledServerId
+            : current.ssePush.enabledServerId,
+        debounceMs:
+          patch.ssePush?.debounceMs !== undefined && patch.ssePush.debounceMs > 0
+            ? patch.ssePush.debounceMs
+            : current.ssePush.debounceMs,
+        massThreshold:
+          patch.ssePush?.massThreshold !== undefined && patch.ssePush.massThreshold > 0
+            ? patch.ssePush.massThreshold
+            : current.ssePush.massThreshold,
+      },
       suppressPtraceHint: patch.suppressPtraceHint ?? current.suppressPtraceHint,
       suppressDbDamageReminder: patch.suppressDbDamageReminder ?? current.suppressDbDamageReminder,
+      defaultExportDir:
+        patch.defaultExportDir !== undefined ? patch.defaultExportDir : current.defaultExportDir,
       linkPreview: {
         enabled: patch.linkPreview?.enabled ?? current.linkPreview.enabled,
         screenshot: patch.linkPreview?.screenshot ?? current.linkPreview.screenshot,
@@ -690,6 +784,8 @@ export class UserConfigService {
       mcpPort: next.mcp.port,
       agentLabProviderCount: next.agentLab.providers.length,
       externalRkeyServerCount: next.externalRkey.servers.length,
+      ssePushServerCount: next.ssePush.servers.length,
+      ssePushEnabled: next.ssePush.enabledServerId !== null,
       externalRkeyEnabled: next.externalRkey.enabledServerId !== null,
     });
     return next;
@@ -763,13 +859,15 @@ export class UserConfigService {
   ];
 
   /** Per-category on-disk size (bytes) for the clearable cache categories. */
-  listClearableCache(): Array<{ id: string; label: string; bytes: number }> {
+  async listClearableCache(): Promise<Array<{ id: string; label: string; bytes: number }>> {
     const base = this.cacheBaseDir();
-    return UserConfigService.CLEARABLE_CACHE_CATEGORIES.map(({ id, label }) => ({
-      id,
-      label,
-      bytes: dirSizeBytes(join(base, id)),
-    }));
+    return Promise.all(
+      UserConfigService.CLEARABLE_CACHE_CATEGORIES.map(async ({ id, label }) => ({
+        id,
+        label,
+        bytes: await dirSizeBytes(join(base, id)),
+      })),
+    );
   }
 
   /**
@@ -778,7 +876,7 @@ export class UserConfigService {
    * the whitelist, so this can't touch agentlab / export / config / logs.
    * Returns the number of bytes freed.
    */
-  clearCache(ids?: string[]): { freedBytes: number; cleared: string[] } {
+  async clearCache(ids?: string[]): Promise<{ freedBytes: number; cleared: string[] }> {
     const base = this.cacheBaseDir();
     const allowed = new Set(UserConfigService.CLEARABLE_CACHE_CATEGORIES.map((c) => c.id));
     const targets = (ids && ids.length > 0 ? ids : [...allowed]).filter((id) => allowed.has(id));
@@ -787,7 +885,7 @@ export class UserConfigService {
     for (const id of targets) {
       const dir = join(base, id);
       if (!existsSync(dir)) continue;
-      freedBytes += dirSizeBytes(dir);
+      freedBytes += await dirSizeBytes(dir);
       try {
         // Remove the category folder wholesale, then recreate it empty so the
         // next writer's mkdir -p is a no-op and nothing breaks mid-session.
@@ -815,9 +913,10 @@ export class UserConfigService {
 /**
  * Recursive directory byte size with a hard node-visit cap so a pathological
  * tree (the avatar/media caches can hold tens of thousands of tiny files)
- * can't wedge the caller. Missing dirs return 0.
+ * can't wedge the caller. Missing dirs return 0. Async so a huge tree never
+ * blocks the main process / UI while the settings page computes cache usage.
  */
-function dirSizeBytes(root: string, cap = 500_000): number {
+async function dirSizeBytes(root: string, cap = 500_000): Promise<number> {
   let total = 0;
   let visited = 0;
   const stack: string[] = [root];
@@ -825,23 +924,25 @@ function dirSizeBytes(root: string, cap = 500_000): number {
     const dir = stack.pop() as string;
     let dirents: import('node:fs').Dirent[];
     try {
-      dirents = readdirSync(dir, { withFileTypes: true });
+      dirents = await readdir(dir, { withFileTypes: true });
     } catch {
       continue;
     }
+    const sizes: Promise<number>[] = [];
     for (const d of dirents) {
       if (++visited > cap) return total;
       const full = join(dir, d.name);
       if (d.isDirectory()) {
         stack.push(full);
       } else if (d.isFile()) {
-        try {
-          total += statSync(full).size;
-        } catch {
-          /* skip */
-        }
+        sizes.push(
+          stat(full)
+            .then((s) => s.size)
+            .catch(() => 0),
+        );
       }
     }
+    total += (await Promise.all(sizes)).reduce((sum, size) => sum + size, 0);
   }
   return total;
 }

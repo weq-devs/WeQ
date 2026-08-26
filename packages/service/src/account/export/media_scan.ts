@@ -24,7 +24,7 @@ import { readdir } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import type { MsgService } from '../msg';
 import type { RenderElement } from '../msg_view';
-import { iterateC2cMessages, iterateGroupMessages } from './message_source';
+import { iterateC2cMessages, iterateGroupMessages, type RoamMessageSource } from './message_source';
 import type { ConvKind, ExportTimeRange } from './types';
 
 export type MediaKind = 'pic' | 'video' | 'ptt' | 'emoji' | 'file';
@@ -151,6 +151,8 @@ export interface ScanOptions {
   concurrency?: number;
   /** Inclusive send-time window; references outside it are ignored. */
   range?: ExportTimeRange;
+  /** 漫游补全消息（补全消息里的媒体同样参与搬运 / 补全 / 下载）。 */
+  roam?: RoamMessageSource;
 }
 
 /** Drop a trailing extension and lowercase: `AB.MP4` → `ab`. */
@@ -357,8 +359,8 @@ export async function scanConvMedia(
   const rawRefs: MediaRef[] = [];
   const iterator =
     kind === 'group'
-      ? iterateGroupMessages(msgs, conv, { pageSize: opts.pageSize, range: opts.range })
-      : iterateC2cMessages(msgs, conv, { pageSize: opts.pageSize, range: opts.range });
+      ? iterateGroupMessages(msgs, conv, { pageSize: opts.pageSize, range: opts.range, roam: opts.roam })
+      : iterateC2cMessages(msgs, conv, { pageSize: opts.pageSize, range: opts.range, roam: opts.roam });
   // Private (c2c) files expire from the CDN after ~7 days; stamp them so the
   // scan drops expired ones. Group files persist, so no synthetic TTL there.
   const fileTtlSec = kind === 'c2c' ? PRIVATE_FILE_TTL_SEC : 0;

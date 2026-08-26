@@ -169,6 +169,22 @@ export class C2cMsgDb {
     return rows.map(rowToC2cMsg);
   }
 
+  /**
+   * All distinct per-conversation seqs (40003 > 0), newest-first (DESC).
+   * Index-only scan over the `(40027,40003)` composite index — powers the
+   * export 「消息补全」seq 空窗扫描.
+   */
+  async listSeqDesc(part: C2cPartition): Promise<bigint[]> {
+    const { clause, value } = partitionWhere(part);
+    const rows = await this.qq.query(
+      `SELECT DISTINCT "40003" FROM ${this.table}
+        WHERE ${clause} AND "40003" > 0
+        ORDER BY "40003" DESC`,
+      [value],
+    );
+    return rows.map((row) => toBigint(row[0]));
+  }
+
   /** Largest SQLite rowid currently in the table, or 0n if empty. */
   async latestRowId(): Promise<bigint> {
     const rows = await this.qq.query(`SELECT MAX(rowid) FROM ${this.table}`);

@@ -25,6 +25,7 @@ import { loadNativeSafe } from '@weq/native';
 import {
   createWin32Platform,
   createLinuxPlatform,
+  createDarwinPlatform,
   isTencentFilesRoot,
   withResourceRoots,
   type Platform,
@@ -97,6 +98,7 @@ import {
   MediaResourceService,
   ResourceCleanupService,
   WebQueryService,
+  GapHistoryService,
   GroupAlbumMediaService,
   GroupFileService,
   FlashTransferService,
@@ -118,7 +120,9 @@ import {
   type DbHealthFailure,
   type McpServerConfig,
   type WeqAssistantConfig,
+  type SsePushConfig,
   WeqAssistantService,
+  SsePushService,
   createDirectInjectHook,
   type InjectHook,
 } from '@weq/service';
@@ -200,6 +204,8 @@ function trailingDebounce<A extends unknown[]>(
 const dbWatch = new DbWatchService();
 /** Handle for the currently-watched account db, if any. */
 let dbWatchHandle: DbWatchHandle | null = null;
+/** SSE 消息推送服务（随账号开关），null = 未启用 / 无账号。 */
+let ssePush: SsePushService | null = null;
 /** Background login/pid/rkey monitor for the open account, if any. */
 let accountMonitor: AccountMonitorService | null = null;
 let dbHealthCheckSeq = 0;
@@ -353,7 +359,7 @@ export interface BootstrapServices {
   tts: TtsService;
   /**
    * Turns a QQ pid into a sendable state before instance-key/rkey fetches.
-   * linux → pkexec-elevated inject + wait-for-packet; other platforms →
+   * linux → sudo-elevated inject + wait-for-packet; other platforms →
    * in-process direct inject. Shared (single instance) so its per-pid
    * idempotency spans the router and every account monitor.
    */
@@ -430,6 +436,8 @@ export interface AccountServices {
   groupAlbumMedia: GroupAlbumMediaService;
   /** 群文件目录列表 (OIDB 0x6D8_1),同样需要在线的已注入 QQ 进程。 */
   groupFile: GroupFileService;
+  /** 拉取聊天时间线缺失的远端消息（需在线 QQ 发包）。 */
+  gapHistory: GapHistoryService;
   /** 他人的个性主页统计（QQ 等级 + 资料卡累计获赞），需在线 QQ 发包。 */
   peerStats: PeerStatsService;
   /** QQ 闪传分享链接（OIDB 0x93d3_1，需在线 QQ 发包）。 */
@@ -519,6 +527,13 @@ export interface AppContext {
    * takes effect immediately. No-op when no account is open.
    */
   applyRealtime(enabled: boolean): void;
+
+  /**
+   * Apply the SSE 消息推送 config to the open account (start / stop / retarget
+   * the nt_msg.db push watcher) without re-opening it. Called whenever the
+   * 设置 → SSE 推送 config changes. No-op when no account is open / disabled.
+   */
+  applySsePush(config: SsePushConfig): Promise<void>;
   /**
    * Apply the MCP server config to the open account (start / stop / restart the
    * account-bound HTTP server) without re-opening the account. No-op start when
@@ -578,6 +593,10 @@ export function initAppContext(): AppContext {
       applyRealtime(): void {
         /* no account to watch */
       },
+      applySsePush(): Promise<void> {
+        /* no account — nothing to push */
+        return Promise.resolve();
+      },
       applyMcp(): Promise<void> {
         /* no account — nothing to serve */
         return Promise.resolve();
@@ -613,7 +632,9 @@ export function initAppContext(): AppContext {
   const platform =
     process.platform === 'linux'
       ? createLinuxPlatform(result.bundle, () => readDataRootOverride(), resolveUid)
-      : createWin32Platform(result.bundle, () => readDataRootOverride(), getQqProtocolExe);
+      : process.platform === 'darwin'
+        ? createDarwinPlatform(result.bundle, () => readDataRootOverride(), resolveUid)
+        : createWin32Platform(result.bundle, () => readDataRootOverride(), getQqProtocolExe);
   initLogger(platform.appDataRoot());
   const logger = getLogger().child({ scope: 'app-context' });
   logger.info('initializing app context', {
@@ -752,6 +773,8 @@ export function initAppContext(): AppContext {
       this.account?.dispose();
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
+      ssePush?.stop();
+      ssePush = null;
       // A live query failing with a corruption-signature error is what triggers
       // the (otherwise unrun) full health check — not account-open. `this.account`
       // is only set after this resolves, so callbacks that fire mid-open (e.g.
@@ -863,6 +886,14 @@ export function initAppContext(): AppContext {
         platform,
         userConfig.cacheDir('sysemoji'),
       );
+      // 漫游消息缓存：聊天页「缺失消息」与导出「消息补全」共用同一实例 / 同一库，
+      // 先建好再喂给 exportManager 的 messageBackfill dep（缓存命中 / 拉取复用）。
+      const gapHistory = new GapHistoryService(
+        platform.native.ntHelper,
+        session,
+        resolveOnlinePid,
+        join(userConfig.cacheDir('roam-msg'), `${session.context.uin}.db`),
+      );
       this.services = {
         msgs: new MsgService(session, deletedMsgs, antiRecall),
         recentContacts: new RecentContactService(session),
@@ -872,7 +903,7 @@ export function initAppContext(): AppContext {
         serviceAccount: new ServiceAccountService(session),
         unreadInfo: new UnreadInfoService(session),
         accountConfig,
-        forwardMsgs: new ForwardMsgService(session),
+        forwardMsgs: new ForwardMsgService(session, platform.native.ntHelper, resolveOnlinePid),
         groupInfo,
         buddyAnalytics: new BuddyAnalyticsService(session),
         groupNotify: new GroupNotifyService(session),
@@ -1052,6 +1083,10 @@ export function initAppContext(): AppContext {
               getPackKey: (id) => emojiService.getMarketPackKey(id),
               getPackImagePath: (id, hash, key) => emojiService.getMarketPackImage(id, hash, key),
             },
+            // 消息补全：与聊天页共用漫游缓存与拉取能力（在线 QQ + 非完全离线模式）。
+            messageBackfill: gapHistory,
+            // 漫游缓存元素回退：补全消息不在本地 msg 表，导出下载按 msgId 定位媒体元素。
+            gapHistory,
           },
         ),
         dbDecrypt: new DbDecryptService(session, platform),
@@ -1072,6 +1107,7 @@ export function initAppContext(): AppContext {
           session,
           resolveOnlinePid,
         ),
+        gapHistory,
         groupFile: new GroupFileService(platform.native.ntHelper, session, resolveOnlinePid),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, resolveOnlinePid),
         flashTransfer: new FlashTransferService(
@@ -1132,6 +1168,8 @@ export function initAppContext(): AppContext {
       if (userConfig.getSettings().realtimeEnabled) {
         mountDbWatch(session);
       }
+      // SSE 推送监听同一份 nt_msg.db，随账号打开按配置启动/停用。
+      void this.applySsePush(userConfig.getSettings().ssePush);
 
       // MCP server is account-bound: only listen while an account is open.
       // Start it now if enabled; live toggling is handled by `applyMcp`.
@@ -1193,6 +1231,8 @@ export function initAppContext(): AppContext {
       this.account?.dispose();
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
+      ssePush?.stop();
+      ssePush = null;
       this.scheduler?.stop();
       this.scheduler = null;
 
@@ -1309,6 +1349,14 @@ export function initAppContext(): AppContext {
         staticPlatform,
         userConfig.cacheDir('sysemoji'),
       );
+      // 漫游消息缓存：聊天页「缺失消息」与导出「消息补全」共用同一实例 / 同一库
+      // （静态账号需要同一账号的 QQ 在线时才能拉取，与聊天页一致）。
+      const gapHistory = new GapHistoryService(
+        platform.native.ntHelper,
+        session,
+        livePid,
+        join(userConfig.cacheDir('roam-msg'), `${session.context.uin}.db`),
+      );
       this.services = {
         msgs: new MsgService(session, deletedMsgs, antiRecall),
         recentContacts: new RecentContactService(session),
@@ -1318,7 +1366,7 @@ export function initAppContext(): AppContext {
         serviceAccount: new ServiceAccountService(session),
         unreadInfo: new UnreadInfoService(session),
         accountConfig,
-        forwardMsgs: new ForwardMsgService(session),
+        forwardMsgs: new ForwardMsgService(session, platform.native.ntHelper, livePid),
         groupInfo,
         buddyAnalytics: new BuddyAnalyticsService(session),
         groupNotify: new GroupNotifyService(session),
@@ -1428,6 +1476,10 @@ export function initAppContext(): AppContext {
                 return page.items.map(collectionItemToWire);
               },
             },
+            // 消息补全：与聊天页共用漫游缓存与拉取能力（在线 QQ + 非完全离线模式）。
+            messageBackfill: gapHistory,
+            // 漫游缓存元素回退：补全消息不在本地 msg 表，导出下载按 msgId 定位媒体元素。
+            gapHistory,
           },
         ),
         dbDecrypt: new DbDecryptService(session, staticPlatform),
@@ -1446,6 +1498,7 @@ export function initAppContext(): AppContext {
         resourceCleanup: new ResourceCleanupService(session, staticPlatform),
         webQuery,
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, livePid),
+        gapHistory,
         groupFile: new GroupFileService(platform.native.ntHelper, session, livePid),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, livePid),
         flashTransfer: new FlashTransferService(platform.native.ntHelper, session, livePid),
@@ -1497,6 +1550,8 @@ export function initAppContext(): AppContext {
       if (userConfig.getSettings().realtimeEnabled) {
         mountDbWatch(session);
       }
+      // SSE 推送监听同一份 nt_msg.db，随账号打开按配置启动/停用。
+      void this.applySsePush(userConfig.getSettings().ssePush);
 
       // Still no anti-recall triggers, no health check and no scheduler.
     },
@@ -1519,6 +1574,8 @@ export function initAppContext(): AppContext {
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
       unmountDbWatch();
+      ssePush?.stop();
+      ssePush = null;
       this.account?.dispose();
       this.account = null;
       this.services = null;
@@ -1536,6 +1593,34 @@ export function initAppContext(): AppContext {
       });
       if (enabled) mountDbWatch(session);
       else unmountDbWatch();
+    },
+
+    async applySsePush(config: SsePushConfig): Promise<void> {
+      const session = this.account;
+      const server = config.servers.find((s) => s.id === config.enabledServerId);
+      if (!session || !server) {
+        ssePush?.stop();
+        ssePush = null;
+        return;
+      }
+      if (!ssePush) {
+        ssePush = new SsePushService(session, {
+          debounceMs: config.debounceMs,
+          massThreshold: config.massThreshold,
+        });
+        ssePush.start();
+      } else {
+        ssePush.setTuning({
+          debounceMs: config.debounceMs,
+          massThreshold: config.massThreshold,
+        });
+      }
+      ssePush.setTarget({ pushUrl: server.pushUrl, accessToken: server.accessToken });
+      logger.info('applied sse push config', {
+        event: 'apply-sse-push',
+        accountUin: session.context.uin,
+        serverId: server.id,
+      });
     },
     async applyMcp(config: McpServerConfig): Promise<void> {
       // Only live accounts host the MCP server. With no account open we just

@@ -1,88 +1,67 @@
 /**
  * Linux stub hooks for ninebird, elevating only when the host isn't root.
  *
- * The ninebird launch flow drops a tiny entry stub (`loadNineBird.js`) into
- * QQ's `resources/app` so QQ's Electron entry resolves a real file (a raw
- * statx probe that `LD_PRELOAD` can't fake). That directory is root-owned
- * (root:root 0755) on a normal QQ install, so writing the stub needs
- * elevation — unless we're already root, in which case a plain `fs` write
- * does. Electron refuses to run as root, so the desktop app always takes the
- * elevated path; the headless web server usually doesn't need it.
+ * The ninebird launch flow ensures a persistent entry stub (`loadNineBird.js`)
+ * sits in QQ's `resources/app` so QQ's Electron entry (redirected by the
+ * injected launcher.so) resolves a real file — a raw statx probe that
+ * `LD_PRELOAD` can't fake. That directory is root-owned on a normal QQ
+ * install, so a missing/stale stub needs elevation — unless we're already
+ * root, in which case a plain `fs` write does (headless web server).
  *
- * When elevation IS needed we shell out to `pkexec`, which pops the desktop's
- * graphical polkit auth dialog. Frequency is low — a given account only needs
- * a dbkey once — so a password prompt per drop is acceptable. We deliberately
- * do NOT clean the stub up in that path: polkit's default policy for
- * `org.freedesktop.policykit.exec` is `auth_admin` (no credential caching), so
- * a later cleanup would just pop the dialog again. The stub is a harmless
- * self-`require` shim; the next drop overwrites it.
+ * Elevation is macOS-style `sudo -S`: the renderer draws the password dialog
+ * (main → renderer via `elevation_ipc`, reuse of the global password UI),
+ * the main process feeds the password to sudo over stdin, and root only does
+ * a byte-level `cp` of a TS-written temp file. No polkit. The stub is
+ * persistent — we deliberately do NOT clean it up here; removal happens only
+ * via the explicit 「还原 NineBird」 action in settings.
  *
  * Windows never uses these hooks — `@weq/native` falls back to a direct `fs`
  * write there.
  */
 
-import { spawn } from 'node:child_process';
 import type { StubHooks } from '@weq/native';
+import { writeFileAsRoot } from '@weq/native';
 import { getLogger } from '@weq/service';
+import { getSudoPasswordPrompt, requestSudoPassword } from './sudo_prompt';
 
 const logger = getLogger().child({ scope: 'stub-elevation' });
 
 /**
- * Write `content` to `path` as root via pkexec. Rejects if pkexec exits
- * non-zero — user cancelled the dialog (exit 126), no auth agent running
- * (127), or the write itself failed. The caller (ninebird `run()`) turns a
- * throw into a `result: { success: false }` the renderer already surfaces.
+ * Write `content` to `path` as root via `sudo -S`. The password comes from
+ * the renderer's self-drawn password dialog; rejecting on cancel keeps the
+ * caller (ninebird `run()`) from launching QQ with a missing entry stub.
  */
-function pkexecWriteFile(path: string, content: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    // `sh -c 'cat > "$1"'` takes the target as an argv positional and the file
-    // body from stdin, so the (world-visible) argv never carries the content.
-    const child = spawn(
-      'pkexec',
-      ['sh', '-c', 'cat > "$1"', 'sh', path],
-      { stdio: ['pipe', 'ignore', 'pipe'] },
+async function sudoWriteFile(path: string, content: string): Promise<void> {
+  const prompt = getSudoPasswordPrompt();
+  if (!prompt) {
+    throw new Error(
+      '无法弹出密码输入框（无图形界面）。请以 root 运行 WeQ 服务，或在有桌面的环境中先安装 NineBird。',
     );
-
-    let stderr = '';
-    child.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString('utf8');
-    });
-    child.on('error', (e) => {
-      reject(new Error(`pkexec 无法启动（是否已安装 polkit？）：${e.message}`));
-    });
-    child.on('close', (code) => {
-      if (code === 0) {
-        resolve();
-        return;
-      }
-      const hint =
-        code === 126
-          ? '授权被取消。请在弹出的密码框中输入密码后重试。'
-          : code === 127
-            ? '未能弹出授权框。请确认桌面的 polkit 认证代理正在运行。'
-            : `pkexec 退出码 ${code}。${stderr.trim()}`;
-      reject(new Error(`向 QQ 目录写入启动文件需要管理员授权：${hint}`));
-    });
-
-    child.stdin.write(content);
-    child.stdin.end();
+  }
+  const password = await requestSudoPassword(
+    '安装 NineBird',
+    `需要管理员权限向 QQ 的启动目录写入入口文件：\n${path}\n\n请输入管理员密码。`,
+  );
+  if (!password) {
+    throw new Error('已取消授权，NineBird 启动文件未写入。');
+  }
+  logger.info('writing ninebird entry stub via sudo', {
+    event: 'stub-drop-sudo',
+    path,
   });
+  await writeFileAsRoot(path, content, password);
 }
 
 /**
- * StubHooks backed by pkexec. `removeStub` is intentionally a no-op (see the
- * module header): the stub is harmless and left in place, overwritten on the
- * next drop.
+ * StubHooks backed by sudo. `removeStub` is intentionally a no-op (see the
+ * module header): the stub is persistent and only removed by the explicit
+ * 「还原 NineBird」 action in settings.
  *
  * Only used when the host is NOT already root — see `linuxStubHooks`.
  */
-const pkexecStubHooks: StubHooks = {
+const sudoStubHooks: StubHooks = {
   dropStub: async (path: string, content: string): Promise<void> => {
-    logger.info('dropping ninebird entry stub via pkexec', {
-      event: 'stub-drop-pkexec',
-      path,
-    });
-    await pkexecWriteFile(path, content);
+    await sudoWriteFile(path, content);
   },
   removeStub: (_path: string): void => {
     /* intentionally not cleaned up — see module header */
@@ -92,9 +71,8 @@ const pkexecStubHooks: StubHooks = {
 /**
  * The linux stub hooks. Running as root (typical for the headless web server)
  * means we can write QQ's root-owned `resources/app` directly — `undefined`
- * selects `@weq/native`'s plain-`fs` default, which also cleans the stub up.
- * Only an unprivileged host (the desktop app, since Electron refuses to run as
- * root) needs the pkexec detour.
+ * selects `@weq/native`'s plain-`fs` default. Only an unprivileged host (the
+ * desktop app, since Electron refuses to run as root) needs the sudo detour.
  */
 export const linuxStubHooks: StubHooks | undefined =
-  process.geteuid?.() === 0 ? undefined : pkexecStubHooks;
+  process.geteuid?.() === 0 ? undefined : sudoStubHooks;

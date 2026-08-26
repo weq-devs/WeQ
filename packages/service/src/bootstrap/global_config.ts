@@ -67,6 +67,14 @@ export interface DirSize {
   bytes: number;
 }
 
+/** Incremental account data-dir size report (for the directory-size stat). */
+export interface DirSizeProgress {
+  /** Bytes counted so far; the full size when done is true. */
+  bytes: number;
+  /** True on the terminal event; the scan is finished. */
+  done: boolean;
+}
+
 /**
  * Short in-memory memo TTL. This is NOT a durability cache — it only collapses
  * the burst of `describeInstall()` calls that fire in the same tick on launch
@@ -165,10 +173,13 @@ export class GlobalConfigService {
     } catch {
       return 0;
     }
-    const isLinux = this.platform.kind === 'linux';
+    // linux/macOS both name account dirs `nt_qq_<hash>` directly under the
+    // data root; win32 uses all-digit `<uin>` dirs with an `nt_qq` subdir.
+    const hashedAccounts =
+      this.platform.kind === 'linux' || this.platform.kind === 'darwin';
     let count = 0;
     for (const name of entries) {
-      if (isLinux) {
+      if (hashedAccounts) {
         if (/^nt_qq_[0-9a-f]+$/i.test(name)) count++;
       } else {
         if (!/^\d+$/.test(name)) continue;
@@ -283,14 +294,56 @@ export class GlobalConfigService {
   }
 
   /**
-   * Recursive total size of the account's user-data directory (win32
-   * `<root>/<uin>`, linux `<root>/nt_qq_<hash>`), in bytes. Bounded by
-   * `dirSize`'s node cap.
+   * Stream the account data directory's total size while scanning it (win32
+   * `<root>/<uin>`, linux `<root>/nt_qq_<hash>`), yielding `{ bytes, done }`
+   * every ~100 ms. A huge tree (tens of GB, hundreds of thousands of small
+   * files) takes a while, so the UI animates the growing number instead of
+   * sitting on a static spinner. The terminal event carries `done: true` with
+   * the final size. Bounded by `dirSize`'s node cap.
    */
-  async accountDirSize(uin: string): Promise<number> {
+  async *accountDirSizeStream(uin: string): AsyncGenerator<DirSizeProgress> {
     const dataDir = this.accountDataDir(uin);
-    if (!dataDir) return 0;
-    return dirSizeAsync(dataDir, 2_000_000);
+    if (!dataDir) {
+      yield { bytes: 0, done: true };
+      return;
+    }
+    let total = 0;
+    let visited = 0;
+    let capped = false;
+    const stack: string[] = [dataDir];
+    let lastYield = 0;
+    while (stack.length > 0) {
+      const dir = stack.pop() as string;
+      let dirents: import('node:fs').Dirent[];
+      try {
+        dirents = await readdir(dir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const d of dirents) {
+        if (++visited > 2_000_000) {
+          capped = true;
+          break;
+        }
+        const full = join(dir, d.name);
+        if (d.isDirectory()) {
+          stack.push(full);
+        } else if (d.isFile()) {
+          try {
+            const st = await stat(full);
+            total += st.size;
+          } catch {
+            /* skip */
+          }
+        }
+        if (Date.now() - lastYield >= 100) {
+          yield { bytes: total, done: false };
+          lastYield = Date.now();
+        }
+      }
+      if (capped) break;
+    }
+    yield { bytes: total, done: true };
   }
 }
 

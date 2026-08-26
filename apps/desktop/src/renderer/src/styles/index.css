@@ -1038,6 +1038,10 @@ html[data-theme="dark"] .chat-empty {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-5px); }
 }
+@keyframes weq-scan-pulse {
+  0%, 100% { opacity: 0.25; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
 
 .weq-anim-fade { animation: weq-fade-in 220ms ease both; }
 .weq-anim-pop { animation: weq-pop-in 170ms cubic-bezier(0.22, 1, 0.36, 1) both; }
@@ -1485,6 +1489,45 @@ html[data-theme='dark'] .weq-splash-track {
     font-size: 12px;
   }
 
+  /* ---- 密码输入弹窗（NineBird 提权 / sudo -S）----
+   * 共享 .weq-modal 土台是写死的浅色渐变，这里整体换成 token 驱动的
+   * 表面色，深浅模式都能自洽。 */
+  .weq-password-modal {
+    background: var(--weq-bg-surface);
+  }
+  .weq-dialog-password .weq-dialog-title {
+    color: var(--weq-fg-primary);
+  }
+  .weq-dialog-password .weq-dialog-body {
+    color: var(--weq-fg-secondary);
+  }
+  .weq-password-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .weq-password-input {
+    width: 100%;
+    height: 2.35rem;
+    padding: 0 0.75rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--weq-border-strong);
+    background: var(--weq-bg-elevated);
+    color: var(--weq-fg-primary);
+    font-size: 13.5px;
+    outline: none;
+    transition:
+      border-color 140ms ease,
+      box-shadow 140ms ease;
+  }
+  .weq-password-input::placeholder {
+    color: var(--weq-fg-muted);
+  }
+  .weq-password-input:focus {
+    border-color: var(--weq-accent-effective);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+  }
+
   /* ---- close-confirm dialog (关闭 WeQ：托盘 / 退出) ---- */
   /* Token-driven so it tracks light/dark, like the welcome dialog. */
   .weq-close {
@@ -1722,6 +1765,28 @@ html[data-theme='dark'] .weq-splash-track {
     line-height: 1.5;
     color: var(--weq-fg-muted);
   }
+  .weq-ptrace-password {
+    display: flex;
+    flex-direction: column;
+    gap: 0.32rem;
+    margin-bottom: 0.7rem;
+    font-size: 11.5px;
+    color: var(--weq-fg-secondary);
+  }
+  .weq-ptrace-password input {
+    padding: 0.5rem 0.62rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--weq-border-strong);
+    background: var(--weq-bg-elevated);
+    color: var(--weq-fg-primary);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 140ms ease, box-shadow 140ms ease;
+  }
+  .weq-ptrace-password input:focus {
+    border-color: var(--weq-accent-effective);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
+  }
   .weq-ptrace-actions {
     display: flex;
     gap: 0.5rem;
@@ -1761,6 +1826,16 @@ html[data-theme='dark'] .weq-splash-track {
   }
   .weq-ptrace-opt:active svg {
     transform: scale(0.96);
+  }
+  .weq-ptrace-opt:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    border-color: var(--weq-border-subtle);
+    background: transparent;
+  }
+  .weq-ptrace-opt:disabled:hover {
+    border-color: var(--weq-border-subtle);
+    background: transparent;
   }
   .weq-ptrace-opt-primary {
     border-color: color-mix(in srgb, var(--weq-accent-effective) 68%, var(--weq-border-strong));
@@ -2716,7 +2791,14 @@ html[data-theme='dark'] .weq-splash-track {
     text-overflow: ellipsis;
   }
   .weq-bignum-v.is-accent { color: var(--weq-accent-effective); }
-  .weq-bignum-l { font-size: 11.5px; color: #5a6f84; }
+  .weq-bignum-l { display: flex; align-items: center; gap: 0.35rem; font-size: 11.5px; color: #5a6f84; }
+  .weq-bignum-scan {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--weq-accent-effective);
+    animation: weq-scan-pulse 1.1s ease-in-out infinite;
+  }
 
   /* Chart cards */
   .weq-chart {
@@ -3269,6 +3351,13 @@ html *::-webkit-scrollbar-corner {
   user-select: none;
 }
 
+/* macOS: the native traffic-light cluster (≈70px wide) floats over the left
+   edge of the hidden title bar, so shift the logo / user block right to clear
+   it. Windows/Linux keep the in-app buttons and need no inset. */
+.app-title-bar.is-mac {
+  padding-left: 80px;
+}
+
 html[data-theme="dark"] .app-title-bar {
   background: rgba(30, 30, 35, 0.5);
   border-bottom-color: rgba(255, 255, 255, 0.08);
@@ -3427,6 +3516,14 @@ html[data-theme="dark"] .app-title-bar-signature {
 
 .app-shell .app-rail.hide-avatar {
   padding-top: 18px;
+}
+
+/* macOS: the native traffic lights float over the hidden title bar's left
+   edge, making the rail (chat/contacts etc.) look pushed down. Nudge the rail
+   content up on macOS only; Windows/Linux keep their in-app window controls. */
+.app-shell-root.is-mac .app-shell .app-rail,
+.app-shell-root.is-mac .app-shell .app-rail.hide-avatar {
+  padding-top: 8px;
 }
 
 .app-shell .rail-avatar,
@@ -4925,6 +5022,16 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   cursor: not-allowed;
 }
 
+.weq-set-seg-item svg.is-spin {
+  animation: weq-set-spin 0.8s linear infinite;
+}
+
+@keyframes weq-set-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .weq-set-note {
   display: flex;
   align-items: flex-start;
@@ -5986,6 +6093,20 @@ html[data-theme="dark"] .weq-settings-preset-preview.is-style-soon {
   gap: 10px;
 }
 
+.weq-set-server-form-wrap {
+  display: grid;
+  gap: 10px;
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px dashed rgba(0, 0, 0, 0.1);
+}
+
+.weq-set-server-form-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+
 .weq-set-input-wide {
   width: 260px;
 }
@@ -6029,6 +6150,14 @@ html[data-theme='dark'] .weq-set-about summary:hover {
 }
 
 html[data-theme='dark'] .weq-set-server-name {
+  color: #e5eaf0;
+}
+
+html[data-theme='dark'] .weq-set-server-form-wrap {
+  border-top-color: rgba(255, 255, 255, 0.12);
+}
+
+html[data-theme='dark'] .weq-set-server-form-title {
   color: #e5eaf0;
 }
 
@@ -8592,7 +8721,10 @@ html[data-theme="dark"] .weq-flash-opening { background: rgba(0, 0, 0, 0.55); }
   position: fixed;
   inset: 0;
   /* Above .app-title-bar (z-index: 100) so the floating window's header and
-     close button are never covered by the OS drag region when near the top. */
+     close button are never covered by the OS drag region when near the top.
+     ForwardWindowHost claims a dynamic overlay layer (useOverlayLayer) once a
+     window opens, so the stack also sits above any modal (missing-messages,
+     etc.) — this static value is only a fallback for the empty state. */
   z-index: 110;
   pointer-events: none;
 }
@@ -12205,6 +12337,7 @@ html[data-theme="dark"] .weq-persona-modal {
   height: 100%;
   padding: 2rem 1.5rem;
   text-align: center;
+  font-size: 12px;
   color: var(--weq-fg-secondary);
 }
 .weq-deleted-empty small {
@@ -13117,6 +13250,7 @@ html[data-theme="dark"] .weq-collection-state {
   display: flex;
   flex: 1;
   min-height: 0;
+  min-width: 0;
 }
 
 /* ---- 左栏：工具列表 ---- */
@@ -14041,6 +14175,391 @@ html[data-theme="dark"] .weq-wtools-odev-result.is-error p {
 html[data-theme="dark"] .weq-wtools-odev-pid {
   color: #7b8794;
 }
+/* ---- 妙妙工具：Protobuf / JCE 逆向 ---- */
+.weq-wtools-rv {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.weq-wtools-rv-input {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 12px;
+  background: #f6f8fa;
+}
+.weq-wtools-rv-input-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.weq-wtools-rv-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #4a5560;
+}
+.weq-wtools-rv-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.06);
+}
+.weq-wtools-rv-seg-btn {
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #4a5560;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.weq-wtools-rv-seg-btn:hover {
+  color: #1a1a1a;
+}
+.weq-wtools-rv-seg-btn.is-on {
+  background: #fff;
+  color: var(--weq-accent-effective);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+.weq-wtools-rv-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 9px;
+  background: #fff;
+  color: #1a1a1a;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  resize: vertical;
+}
+.weq-wtools-rv-textarea:focus {
+  outline: none;
+  border-color: var(--weq-accent-effective);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+}
+.weq-wtools-rv-textarea::placeholder {
+  color: #9aa7b4;
+}
+.weq-wtools-rv-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.weq-wtools-rv-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--weq-accent-effective);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+.weq-wtools-rv-primary:hover {
+  filter: brightness(1.06);
+}
+.weq-wtools-rv-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  background: #fff;
+  color: #4a5560;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.weq-wtools-rv-btn:hover {
+  border-color: var(--weq-accent-effective);
+  color: var(--weq-accent-effective);
+}
+.weq-wtools-rv-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: #9aa7b4;
+}
+.weq-wtools-rv-error {
+  padding: 10px 14px;
+  border: 1px solid rgba(214, 69, 69, 0.35);
+  border-radius: 10px;
+  background: rgba(214, 69, 69, 0.07);
+  color: #c03a3a;
+  font-size: 12.5px;
+}
+.weq-wtools-rv-result {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.weq-wtools-rv-result-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.weq-wtools-rv-kind {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+.weq-wtools-rv-kind.is-protobuf {
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  color: var(--weq-accent-effective);
+}
+.weq-wtools-rv-kind.is-jce {
+  background: rgba(15, 150, 120, 0.12);
+  color: #0f8a6d;
+}
+.weq-wtools-rv-meta {
+  font-size: 12px;
+  color: #7c8a99;
+}
+.weq-wtools-rv-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--weq-accent-effective);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+.weq-wtools-rv-copy:hover {
+  filter: brightness(1.06);
+}
+.weq-wtools-rv-json {
+  overflow: auto;
+  min-width: 0;
+  max-width: 100%;
+  padding: 12px 14px;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 12px;
+  background: #f6f8fa;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: #24292f;
+}
+.weq-wtools-rv-row {
+  display: flex;
+  align-items: flex-start;
+  white-space: nowrap;
+}
+.weq-wtools-rv-brace,
+.weq-wtools-rv-punct,
+.weq-wtools-rv-comma {
+  color: #8b98a5;
+}
+.weq-wtools-rv-key {
+  color: #0550ae;
+}
+.weq-wtools-rv-num {
+  color: #953800;
+}
+.weq-wtools-rv-str {
+  color: #1a7f37;
+  white-space: pre;
+}
+.weq-wtools-rv-converted {
+  padding: 0 3px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 9%, transparent);
+}
+.weq-wtools-rv-value {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.weq-wtools-rv-mini {
+  padding: 1px 7px;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 5px;
+  background: transparent;
+  color: #6b7a8a;
+  font-size: 10.5px;
+  line-height: 1.5;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.weq-wtools-rv-mini:hover {
+  border-color: var(--weq-accent-effective);
+  color: var(--weq-accent-effective);
+}
+.weq-wtools-rv-mini.is-on {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-effective);
+  font-weight: 600;
+}
+.weq-wtools-rv-tag {
+  margin-right: 6px;
+  color: #8b98a5;
+  font-size: 10.5px;
+}
+.weq-wtools-rv-fold {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #8b98a5;
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.weq-wtools-rv-fold:hover {
+  color: var(--weq-accent-effective);
+}
+.weq-wtools-rv-container {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.weq-wtools-rv-nested {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.weq-wtools-rv-nested-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #7c8a99;
+}
+.weq-wtools-rv-inline-arr,
+.weq-wtools-rv-block-arr {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.weq-wtools-rv-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  padding: 40px 20px;
+  border: 1px dashed rgba(0, 0, 0, 0.12);
+  border-radius: 12px;
+  color: #7c8a99;
+  font-size: 12.5px;
+  text-align: center;
+}
+html[data-theme="dark"] .weq-wtools-rv-input {
+  background: #1b2027;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+html[data-theme="dark"] .weq-wtools-rv-label {
+  color: #b8c2cc;
+}
+html[data-theme="dark"] .weq-wtools-rv-seg {
+  background: rgba(255, 255, 255, 0.06);
+}
+html[data-theme="dark"] .weq-wtools-rv-seg-btn {
+  color: #98a4b3;
+}
+html[data-theme="dark"] .weq-wtools-rv-seg-btn:hover {
+  color: #e6edf3;
+}
+html[data-theme="dark"] .weq-wtools-rv-seg-btn.is-on {
+  background: #262d36;
+  color: #7ab7ff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+html[data-theme="dark"] .weq-wtools-rv-textarea {
+  background: #10141a;
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #e6edf3;
+}
+html[data-theme="dark"] .weq-wtools-rv-textarea::placeholder {
+  color: #56606c;
+}
+html[data-theme="dark"] .weq-wtools-rv-hint {
+  color: #56606c;
+}
+html[data-theme="dark"] .weq-wtools-rv-btn {
+  background: #262d36;
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #b8c2cc;
+}
+html[data-theme="dark"] .weq-wtools-rv-btn:hover {
+  border-color: var(--weq-accent-effective);
+  color: #7ab7ff;
+}
+html[data-theme="dark"] .weq-wtools-rv-error {
+  border-color: rgba(224, 108, 95, 0.35);
+  background: rgba(224, 108, 95, 0.1);
+  color: #e06c5f;
+}
+html[data-theme="dark"] .weq-wtools-rv-kind.is-jce {
+  background: rgba(46, 160, 128, 0.16);
+  color: #57c7a3;
+}
+html[data-theme="dark"] .weq-wtools-rv-meta {
+  color: #7b8794;
+}
+html[data-theme="dark"] .weq-wtools-rv-json {
+  background: #10141a;
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #d6dee6;
+}
+html[data-theme="dark"] .weq-wtools-rv-brace,
+html[data-theme="dark"] .weq-wtools-rv-punct,
+html[data-theme="dark"] .weq-wtools-rv-comma,
+html[data-theme="dark"] .weq-wtools-rv-tag,
+html[data-theme="dark"] .weq-wtools-rv-fold {
+  color: #6e7b89;
+}
+html[data-theme="dark"] .weq-wtools-rv-key {
+  color: #79b8ff;
+}
+html[data-theme="dark"] .weq-wtools-rv-num {
+  color: #ffa657;
+}
+html[data-theme="dark"] .weq-wtools-rv-str {
+  color: #7ee787;
+}
+html[data-theme="dark"] .weq-wtools-rv-mini {
+  border-color: rgba(255, 255, 255, 0.16);
+  color: #98a4b3;
+}
+html[data-theme="dark"] .weq-wtools-rv-mini:hover {
+  border-color: var(--weq-accent-effective);
+  color: #7ab7ff;
+}
+html[data-theme="dark"] .weq-wtools-rv-nested-badge {
+  color: #7b8794;
+}
+html[data-theme="dark"] .weq-wtools-rv-empty {
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #7b8794;
+}
 /* ===========================================================================
    帮助弹窗 (HelpDialog) — 「更多功能 → 帮助」，承载 weq-help-* 子页面。
    =========================================================================== */
@@ -14627,6 +15146,83 @@ html[data-theme="dark"] .weq-graytip-band {
   line-height: 1.6;
   letter-spacing: 0.01em;
   color: color-mix(in srgb, var(--weq-accent-effective) 70%, var(--weq-fg-muted));
+}
+
+/* 缺失消息占位条按钮：重置 button 默认样式，hover 高亮提示可点击。 */
+.weq-graytip-band .weq-gap-band-button {
+  display: inline-block;
+  margin-top: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  /* 不要用 font: inherit —— 那会覆盖掉同元素 .weq-graytip-band-hint 的 11px，
+     把占位条文字顶成 16px（html 默认）。只继承字体族，字号仍走 hint。 */
+  font-family: inherit;
+  color: color-mix(in srgb, var(--weq-accent-effective) 70%, var(--weq-fg-muted));
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+.weq-graytip-band .weq-gap-band-button:hover:not(:disabled) {
+  color: var(--weq-accent-effective);
+  text-decoration: underline;
+}
+.weq-graytip-band .weq-gap-band-button:disabled {
+  cursor: default;
+}
+
+/* 缺失消息弹窗：拉取中图标旋转。 */
+.weq-gap-spin {
+  animation: weq-gap-spin 0.9s linear infinite;
+}
+@keyframes weq-gap-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 缺失消息弹窗：分页状态条，位于列表顶部（向上滚动加载更多 / 加载中 /
+ * 失败重试 / 已到底），哨兵触发时把更旧的一页 prepend 到头部。 */
+.weq-deleted-empty.weq-gap-loading {
+  font-size: 12px;
+  color: var(--weq-fg-muted, var(--weq-fg-tertiary, var(--weq-fg-secondary)));
+}
+/* 缺失消息弹窗：空结果文案（“没有可拉取的消息”）字号收紧。 */
+.weq-deleted-empty .weq-gap-empty-hint {
+  font-size: 12px;
+  color: var(--weq-fg-muted, var(--weq-fg-tertiary, var(--weq-fg-secondary)));
+}
+.weq-gap-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 14px 12px 8px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--weq-fg-muted, var(--weq-fg-tertiary, var(--weq-fg-secondary)));
+  text-align: center;
+}
+.weq-gap-footer-spin {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.weq-gap-footer-retry {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 24%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective) 80%, var(--weq-fg-muted));
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.weq-gap-footer-retry:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  color: var(--weq-accent-effective);
 }
 
 /* ---- Merged session panel (service/official/hidden aggregated view) ---- */

@@ -25,7 +25,7 @@ import { createWriteStream, statSync } from 'node:fs';
 import { once } from 'node:events';
 import type { MsgService } from '../msg';
 import type { RenderElement, ForwardMessage } from '../msg_view';
-import { toExportedMessage } from './message_source';
+import { toExportedMessage, type RoamMessageSource } from './message_source';
 import { annotateLocalPaths, elementsToText, formatTime } from './element_text';
 import { expandForwards } from './forward_expand';
 import { UNICODE_FACE_MAP } from './unicode_face_map';
@@ -49,6 +49,8 @@ export interface HtmlExportOptions {
   name: string;
   outputPath: string;
   range?: ExportTimeRange;
+  /** 漫游补全消息（导出「消息补全」拉回缓存后，消息流按 sendTime 合并）。 */
+  roam?: RoamMessageSource;
   onProgress?: ProgressCallback;
   progressEvery?: number;
   /** When provided, each message's sender uin is collected (for avatar export). */
@@ -391,7 +393,7 @@ export async function exportToHtml(
     const meta = deps.groupMeta ? await deps.groupMeta(opts.conv).catch(() => null) : null;
     if (meta?.name) convName = opts.name || meta.name;
     opts.onProgress?.({ current: 0, message: '解析成员…' });
-    senders = await resolveGroupSenders(msgs, opts.conv, opts.range, deps, meta?.ownerUid ?? '');
+    senders = await resolveGroupSenders(msgs, opts.conv, opts.range, deps, meta?.ownerUid ?? '', opts.roam);
   } else {
     const r = await resolveC2cSenders(opts.conv, deps);
     senders = r.senders;
@@ -419,7 +421,7 @@ export async function exportToHtml(
   let count = 0;
   let lastDay = '';
   try {
-    for await (const raw of iterateConv(msgs, opts.kind, opts.conv, opts.range)) {
+    for await (const raw of iterateConv(msgs, opts.kind, opts.conv, opts.range, opts.roam)) {
       const exported = toExportedMessage(raw);
       opts.collectSenders?.add(exported.senderUin);
       await expandForwards(msgs, opts.kind, exported);

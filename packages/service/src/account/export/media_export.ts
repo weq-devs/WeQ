@@ -11,14 +11,15 @@
  * {@link mediaRelPath}), so the message file's injected `localPath` values match
  * what these stages write — whether or not a given download succeeds.
  *
- * video / file CDN download is intentionally deferred (the underlying download
- * interface is still being fixed): only their on-disk copies are exported.
+ * video / file / ptt CDN download is OIDB-backed: missing originals are
+ * re-resolved and streamed into the bundle when the matching toggles are on.
  */
 
-import { copyFile, mkdir, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, unlink, writeFile } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
 import type { Element } from '@weq/codec';
 import type { MsgService } from '../msg';
+import type { GapHistoryService } from '../gap_history';
 import type { MediaDownloadService } from '../media_download';
 import { downloadUrlToFile, type MediaUrlService, type MediaElement } from '../media_url';
 import type { ConvKind } from './types';
@@ -68,7 +69,7 @@ export interface MediaStageResult {
 /** One file that failed in a media stage — surfaced in the UI's failure lightbox. */
 export interface MediaFailure {
   /** Stage the failure happened in. */
-  stage: 'image' | 'video' | 'file' | 'media' | 'record' | 'transcribe' | 'sticker';
+  stage: 'image' | 'video' | 'file' | 'ptt' | 'media' | 'record' | 'transcribe' | 'sticker';
   fileName: string;
   /** Human-readable reason (HTTP status, OIDB error, decode failure, …). */
   error: string;
@@ -169,8 +170,8 @@ export async function copyFoundMedia(
 
 /**
  * Stage `record`: SILK-decode every locally-found voice clip into
- * media/record/<stem>.wav. Missing-but-downloadable voice is not fetched here
- * (voice download is deferred with video/file). Returns decode counts.
+ * media/record/<stem>.wav. Missing-but-downloadable voice is fetched by
+ * {@link downloadMissingVoices} (stage `ptt`) instead. Returns decode counts.
  */
 export async function decodeFoundVoices(
   scan: MediaScanResult,
@@ -353,35 +354,46 @@ function stemOf(filename: string): string {
   return (ext ? filename.slice(0, -ext.length) : filename).toLowerCase();
 }
 
-/** Re-read a ref's message and find the raw codec element it refers to. */
+/**
+ * Re-read a ref's message and find the raw codec element it refers to.
+ * Roam-backfilled messages (缺失消息补全) live only in the roam cache, so when
+ * the local msg tables miss we fall back to the gap-history cache by msgId.
+ */
 async function findRawElement(
-  msgs: Pick<MsgService, 'getRawElements'>,
+  ctx: UrlDownloadCtx,
   ref: MediaRef,
-  kind: 'video' | 'file',
+  kind: 'video' | 'file' | 'ptt',
 ): Promise<Element | null> {
   let raw: Awaited<ReturnType<MsgService['getRawElements']>>;
   try {
-    raw = await msgs.getRawElements(BigInt(ref.msgId));
+    raw = await ctx.msgs.getRawElements(BigInt(ref.msgId));
   } catch {
-    return null;
+    raw = null;
   }
-  if (!raw) return null;
-  const matches = raw.elements.filter((e) => e.kind === kind);
-  // Match by stem when a message carries several of the same kind; else the one.
-  return (
-    matches.find((e) => stemOf(((e as { fileName?: string }).fileName) ?? '') === ref.stem) ??
-    matches[0] ??
-    null
-  );
+  if (raw) {
+    const matches = raw.elements.filter((e) => e.kind === kind);
+    // Match by stem when a message carries several of the same kind; else the one.
+    const el =
+      matches.find((e) => stemOf(((e as { fileName?: string }).fileName) ?? '') === ref.stem) ??
+      matches[0] ??
+      null;
+    if (el) return el;
+  }
+  const gap = ctx.gapHistory;
+  if (!gap) return null;
+  const hit = await gap.findMediaElement(ref.msgId, kind, '');
+  return hit ? (hit.element as unknown as Element) : null;
 }
 
-/** Shared context for the OIDB-backed video / file download stages. */
+/** Shared context for the OIDB-backed video / file / ptt download stages. */
 export interface UrlDownloadCtx {
   mediaUrl: MediaUrlService;
   msgs: Pick<MsgService, 'getRawElements'>;
   kind: ConvKind;
   /** Group code (群号) for group conversations; unused for c2c. */
   conv: string;
+  /** 漫游缓存回退：缺失消息补全的消息不在本地 msg 表，需要按 msgId 定位媒体元素。 */
+  gapHistory?: Pick<GapHistoryService, 'findMediaElement'>;
 }
 
 /**
@@ -406,7 +418,7 @@ export async function downloadMissingVideos(
   let done = 0;
   await runWithConcurrency(items, concurrency, async (ref) => {
     try {
-      const el = await findRawElement(ctx.msgs, ref, 'video');
+      const el = await findRawElement(ctx, ref, 'video');
       if (!el) {
         result.failed += 1;
         result.failures = pushFailure(result.failures, {
@@ -489,7 +501,7 @@ export async function downloadMissingFiles(
   let done = 0;
   await runWithConcurrency(items, concurrency, async (ref) => {
     try {
-      const el = await findRawElement(ctx.msgs, ref, 'file');
+      const el = await findRawElement(ctx, ref, 'file');
       if (!el) {
         result.failed += 1;
         result.failures = pushFailure(result.failures, {
@@ -545,6 +557,109 @@ export async function downloadMissingFiles(
         error: `unexpected: ${e instanceof Error ? e.message : String(e)}`,
       });
     } finally {
+      done += 1;
+      onProgress?.(done, items.length);
+    }
+  });
+  return result;
+}
+
+/**
+ * Stage `ptt`: resolve each missing voice's download URL via OIDB (needs an
+ * online QQ), fetch the silk, then SILK-decode it into media/record/<stem>.wav
+ * — the same path locally-found voices land on, so the message file's
+ * `media/record/…` references resolve either way. The fetched silk is kept only
+ * transiently and removed after decoding.
+ */
+export async function downloadMissingVoices(
+  scan: MediaScanResult,
+  mediaRoot: string,
+  ctx: UrlDownloadCtx,
+  decodeSilk: DecodeSilk,
+  onProgress?: StageProgress,
+  concurrency = 3,
+): Promise<MediaStageResult> {
+  const items = scan.downloadList.filter((r) => r.kind === 'ptt');
+  const result: MediaStageResult = { total: items.length, ok: 0, failed: 0 };
+  if (items.length === 0) return result;
+  const recordDir = join(mediaRoot, MEDIA_SUBDIRS.record);
+  await mkdir(recordDir, { recursive: true });
+  const groupId = ctx.kind === 'group' ? Number(ctx.conv) : 0;
+
+  let done = 0;
+  await runWithConcurrency(items, concurrency, async (ref) => {
+    const tmpSilk = join(recordDir, `${dropExt(ref.fileName)}.silk.tmp`);
+    try {
+      const el = await findRawElement(ctx, ref, 'ptt');
+      if (!el) {
+        result.failed += 1;
+        result.failures = pushFailure(result.failures, {
+          stage: 'ptt',
+          fileName: ref.fileName,
+          error: `raw ptt element not found for msgId=${ref.msgId}`,
+        });
+        return;
+      }
+      const element = el as unknown as MediaElement;
+      let url: string;
+      try {
+        url =
+          ctx.kind === 'group'
+            ? await ctx.mediaUrl.getGroupPttUrlFromElement(groupId, element)
+            : await ctx.mediaUrl.getPrivatePttUrlFromElement(element);
+      } catch (e) {
+        result.failed += 1;
+        result.failures = pushFailure(result.failures, {
+          stage: 'ptt',
+          fileName: ref.fileName,
+          error: `OIDB resolve failed: ${e instanceof Error ? e.message : String(e)}`,
+        });
+        return;
+      }
+      if (!url) {
+        result.failed += 1;
+        result.failures = pushFailure(result.failures, {
+          stage: 'ptt',
+          fileName: ref.fileName,
+          error: 'OIDB resolve returned empty url',
+        });
+        return;
+      }
+      const outcome = await downloadUrlToFile(url, tmpSilk);
+      if (!outcome.ok) {
+        result.failed += 1;
+        result.failures = pushFailure(result.failures, {
+          stage: 'ptt',
+          fileName: ref.fileName,
+          error: outcome.reason,
+        });
+        return;
+      }
+      const dest = join(recordDir, `${dropExt(ref.fileName)}.wav`);
+      const ok = await decodeSilk(tmpSilk, dest);
+      if (ok) {
+        result.ok += 1;
+      } else {
+        result.failed += 1;
+        result.failures = pushFailure(result.failures, {
+          stage: 'ptt',
+          fileName: ref.fileName,
+          error: 'silk decode returned false',
+        });
+      }
+    } catch (e) {
+      result.failed += 1;
+      result.failures = pushFailure(result.failures, {
+        stage: 'ptt',
+        fileName: ref.fileName,
+        error: `unexpected: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    } finally {
+      try {
+        await unlink(tmpSilk);
+      } catch {
+        /* already gone / never written — nothing to clean */
+      }
       done += 1;
       onProgress?.(done, items.length);
     }

@@ -26,13 +26,22 @@
  */
 
 import type { MsgService, RenderGroupMsg, RenderC2cMsg } from '../msg';
+import type { GapFetchedMessage } from '../gap_history';
 import type { ExportedMessage, ExportTimeRange } from './types';
+
+/** 漫游补全消息的惰性来源（导出阶段只读一次缓存；无补全时省略）。 */
+export type RoamMessageSource = () => Promise<GapFetchedMessage[]> | GapFetchedMessage[];
 
 export interface IterateOptions {
   /** Messages per DB round-trip. Larger = fewer queries, more peak memory. */
   pageSize?: number;
   /** Inclusive send-time window (unix seconds); out-of-range messages are skipped. */
   range?: ExportTimeRange;
+  /**
+   * 漫游缓存补全的消息（导出「消息补全」拉回来的缺失消息）。按 sendTime 与
+   * 本地消息合并、按 msgId 去重（同一消息本地已存在时以本地为准）。
+   */
+  roam?: RoamMessageSource;
 }
 
 const DEFAULT_PAGE_SIZE = 2000;
@@ -78,6 +87,42 @@ async function* mergeBySendTime<T extends { sendTime: bigint }>(
 }
 
 /**
+ * 把漫游缓存消息适配成渲染消息流（按 sendTime 升序），并过滤不属于本会话的
+ * 脏数据。GapFetchedMessage 已带渲染元素（{ type, data }），与 DB 渲染消息同形。
+ */
+async function* roamMessageStream<T extends { sendTime: bigint }>(
+  conv: string,
+  source: RoamMessageSource,
+): AsyncGenerator<T> {
+  const messages = await source();
+  const adapted = messages
+    .filter((m) => m.conv === conv)
+    .map((m) => ({
+      msgId: BigInt(m.msgId),
+      msgSeq: BigInt(m.msgSeq),
+      sendTime: BigInt(m.sendTime),
+      senderUid: m.senderUid,
+      senderUin: BigInt(m.senderUin),
+      elements: m.elements,
+    }) as unknown as T);
+  adapted.sort((a, b) => (a.sendTime < b.sendTime ? -1 : a.sendTime > b.sendTime ? 1 : 0));
+  yield* adapted;
+}
+
+/** 合并后按 msgId 去重：本地 DB 行（先到）优先，漫游重复副本丢弃。 */
+async function* dedupeByMsgId<T extends { msgId: bigint }>(
+  source: AsyncGenerator<T>,
+): AsyncGenerator<T> {
+  const seen = new Set<string>();
+  for await (const m of source) {
+    const key = m.msgId.toString();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    yield m;
+  }
+}
+
+/**
  * Yield every message of a group, oldest-first, paging under the hood.
  *
  * NOTE: the seq cursor uses `msgSeq > lastSeq`, which assumes per-group seqs are
@@ -90,11 +135,18 @@ export async function* iterateGroupMessages(
   opts: IterateOptions = {},
 ): AsyncGenerator<RenderGroupMsg> {
   const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
-  const merged = mergeBySendTime(
+  let merged: AsyncGenerator<RenderGroupMsg> = mergeBySendTime(
     pageGroupBySeq(msgs, groupCode, pageSize),
     pageGroupBySeqlessRowId(msgs, groupCode, pageSize),
   );
-  for await (const m of merged) {
+  if (opts.roam) {
+    merged = mergeBySendTime(
+      merged,
+      roamMessageStream<RenderGroupMsg>(groupCode, opts.roam),
+    );
+  }
+  const deduped = opts.roam ? dedupeByMsgId(merged) : merged;
+  for await (const m of deduped) {
     if (withinRange(Number(m.sendTime), opts.range)) yield m;
   }
 }
@@ -141,11 +193,18 @@ export async function* iterateC2cMessages(
   opts: IterateOptions = {},
 ): AsyncGenerator<RenderC2cMsg> {
   const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
-  const merged = mergeBySendTime(
+  let merged: AsyncGenerator<RenderC2cMsg> = mergeBySendTime(
     pageC2cBySeq(msgs, peerUid, pageSize),
     pageC2cBySeqlessRowId(msgs, peerUid, pageSize),
   );
-  for await (const m of merged) {
+  if (opts.roam) {
+    merged = mergeBySendTime(
+      merged,
+      roamMessageStream<RenderC2cMsg>(peerUid, opts.roam),
+    );
+  }
+  const deduped = opts.roam ? dedupeByMsgId(merged) : merged;
+  for await (const m of deduped) {
     if (withinRange(Number(m.sendTime), opts.range)) yield m;
   }
 }

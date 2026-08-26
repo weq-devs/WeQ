@@ -34,6 +34,7 @@ import { X } from 'lucide-react';
 import { client } from '../trpc/client';
 import { QqMessageContent, ConvContext, ForwardCarrierContext } from './QqMessageContent';
 import { useMsgDecoration } from '../hooks/useMsgDecoration';
+import { useOverlayLayer } from '../lib/overlayStack';
 import type { ResolvedWidget } from '@weq/service';
 
 // ---- types & store -------------------------------------------------------
@@ -82,6 +83,12 @@ interface ForwardWindowState {
   rootMsgId: string;
   /** Inline records (for nested opens we already have the payload). */
   records: ForwardRecordWire[] | null;
+  /**
+   * Optional server resource id of the merged forward. When the local 40900
+   * lookup returns nothing (gap messages never live in the DB), the window
+   * falls back to fetching the chain from QQ servers via SsoRecvLongMsg.
+   */
+  resId?: string;
   /** Position (top-left), zustand-mutated by the drag handler. */
   x: number;
   y: number;
@@ -103,6 +110,7 @@ interface ForwardStore {
     msgId: string;
     rootMsgId?: string;
     records?: ForwardRecordWire[];
+    resId?: string;
   }): void;
   close(id: number): void;
   bringToFront(id: number): void;
@@ -153,6 +161,7 @@ const useForwardStore = create<ForwardStore>((set, get) => ({
           msgId: opts.msgId,
           rootMsgId: opts.rootMsgId || opts.msgId,
           records: opts.records ?? null,
+          resId: opts.resId,
           x,
           y,
           z: zTop,
@@ -201,6 +210,7 @@ export function openForwardWindow(opts: {
   msgId: string;
   rootMsgId?: string;
   records?: ForwardRecordWire[];
+  resId?: string;
 }): void {
   useForwardStore.getState().open(opts);
 }
@@ -242,7 +252,7 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
     if (win.records !== null) return;
     let cancelled = false;
     client.account.getForwardMessages
-      .query({ kind: win.kind, msgId: win.msgId })
+      .query({ kind: win.kind, msgId: win.msgId, ...(win.resId ? { resId: win.resId } : {}) })
       .then((records) => {
         if (cancelled) return;
         setRecords(win.id, records as ForwardRecordWire[]);
@@ -257,7 +267,7 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
     };
     // We intentionally depend only on the identity — the rest of the state is
     // mutated by the very setters we call from here.
-  }, [win.id, win.kind, win.msgId, win.records, setRecords, setError]);
+  }, [win.id, win.kind, win.msgId, win.resId, win.records, setRecords, setError]);
 
   // Drag — only the header is a handle. Capture the pointer on the header so a
   // fast drag past the window edge keeps tracking instead of stalling on the
@@ -688,6 +698,38 @@ function parseForwardPreviewData(data: Record<string, unknown>): {
   };
 }
 
+/**
+ * Extract the server resource id from a multiMsg element's render data:
+ *   - `data.resId` (codec MULTI_MSG / structLongMsg),
+ *   - `m_resid` attribute of the XML preview document,
+ *   - `meta.detail.resid` of an Ark `com.tencent.multimsg` wrapper.
+ * Empty string when nothing usable is present (the caller then relies on the
+ * local 40900 cache only).
+ */
+function forwardResIdOf(data: Record<string, unknown>): string {
+  if (typeof data.resId === 'string' && data.resId.trim()) return data.resId.trim();
+  if (typeof data.xmlContent === 'string') {
+    const m = data.xmlContent.match(/m_resid\s*=\s*["']([^"']+)["']/i);
+    if (m?.[1]) return m[1];
+  }
+  let ark: Record<string, unknown> | null = null;
+  if (data.arkData && typeof data.arkData === 'object') {
+    ark = data.arkData as Record<string, unknown>;
+  } else if (typeof data.arkData === 'string' && data.arkData.trim()) {
+    try {
+      ark = JSON.parse(data.arkData) as Record<string, unknown>;
+    } catch {
+      ark = null;
+    }
+  }
+  const detail = (ark?.meta as Record<string, unknown> | undefined)?.detail as
+    | Record<string, unknown>
+    | undefined;
+  const resid = detail?.resid ?? detail?.resId;
+  if (typeof resid === 'string' && resid.trim()) return resid.trim();
+  return '';
+}
+
 function clampPreviewText(value: string, max: number): string {
   const text = value.trim();
   if (!text) return '';
@@ -721,6 +763,7 @@ export function ForwardMultiMsgPreview({
     [parsed.previewLines],
   );
   const summaryText = useMemo(() => clampPreviewText(parsed.summary, 18), [parsed.summary]);
+  const resId = useMemo(() => forwardResIdOf(data), [data]);
   // 群号：主时间线由 MainView 提供；转发窗口里由 ForwardWindowFrame 再提供一次，
   // 所以嵌套转发也能把它继续传下去。
   const conv = useContext(ConvContext);
@@ -735,8 +778,9 @@ export function ForwardMultiMsgPreview({
       msgId,
       rootMsgId: carrier?.msgId || msgId,
       records: nestedRecords && nestedRecords.length > 0 ? nestedRecords : undefined,
+      ...(resId ? { resId } : {}),
     });
-  }, [kind, conv, carrier, msgId, nestedRecords, parsed.mainTitle, parsed.source]);
+  }, [kind, conv, carrier, msgId, nestedRecords, parsed.mainTitle, parsed.source, resId]);
 
   return (
     <button type="button" className="weq-forward-preview" onClick={open} title="查看合并转发">
@@ -764,9 +808,14 @@ export function ForwardMultiMsgPreview({
 /** Mount once near the root. Renders the floating window stack. */
 export function ForwardWindowHost(): ReactElement | null {
   const windows = useForwardStore((s) => s.windows);
+  // Claim a layer above every static overlay (modals included): a forward
+  // window opened from inside a dialog (e.g. the missing-messages window) must
+  // sit on top, otherwise the modal backdrop swallows it. Claimed while at
+  // least one window is open, released when the stack empties.
+  const layer = useOverlayLayer(windows.length > 0);
   if (typeof document === 'undefined' || windows.length === 0) return null;
   return createPortal(
-    <div className="weq-forward-layer" aria-live="polite">
+    <div className="weq-forward-layer" style={{ zIndex: layer }} aria-live="polite">
       {windows.map((w) => (
         <ForwardWindowFrame key={w.id} win={w} />
       ))}

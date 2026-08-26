@@ -23,6 +23,7 @@ import {
   Moon,
   Palette,
   Plug,
+  Radio,
   Settings2,
   ShieldCheck,
   Sparkles,
@@ -37,6 +38,7 @@ import { AgentLabSection } from './settings/AgentLabSection';
 import { VoiceTranscribeSection } from './settings/VoiceTranscribeSection';
 import { McpServerSection } from './settings/McpServerSection';
 import { ExternalRkeySection } from './settings/ExternalRkeySection';
+import { SsePushSection } from './settings/SsePushSection';
 import { WeqAssistantSection } from './settings/WeqAssistantSection';
 import { AntiRecallSection } from './settings/AntiRecallSection';
 import { Toggle } from './settings/controls';
@@ -58,6 +60,7 @@ type SectionId =
   | 'agentlab'
   | 'mcp'
   | 'rkey'
+  | 'sse'
   | 'weq';
 
 interface SettingsSection {
@@ -123,6 +126,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => <ExternalRkeySection />,
   },
   {
+    id: 'sse',
+    label: 'SSE 推送',
+    icon: <Radio size={16} strokeWidth={1.8} />,
+    render: () => <SsePushSection />,
+  },
+  {
     id: 'weq',
     label: 'WeQ 助手',
     icon: <Sparkles size={16} strokeWidth={1.8} />,
@@ -153,6 +162,7 @@ export function SettingsDialog({
   onClose: () => void;
 }): ReactElement | null {
   const [activeId, setActiveId] = useState<SectionId>('global');
+  const sections = SETTINGS_SECTIONS;
 
   useEffect(() => {
     if (!open) return undefined;
@@ -165,7 +175,7 @@ export function SettingsDialog({
 
   if (!open) return null;
 
-  const active = SETTINGS_SECTIONS.find((s) => s.id === activeId) ?? SETTINGS_SECTIONS[0]!;
+  const active = sections.find((s) => s.id === activeId) ?? sections[0] ?? SETTINGS_SECTIONS[0]!;
 
   return (
     <div className="weq-settings-layer" role="presentation" onMouseDown={onClose}>
@@ -190,7 +200,7 @@ export function SettingsDialog({
             设置
           </h2>
           <ul>
-            {SETTINGS_SECTIONS.map((s) => (
+            {sections.map((s) => (
               <li key={s.id}>
                 <button
                   type="button"

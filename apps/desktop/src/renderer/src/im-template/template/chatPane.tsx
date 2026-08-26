@@ -228,6 +228,7 @@ export function ChatPane({
 	onAddMessage,
 	onViewDeleted,
 	onViewRecalled,
+	onOpenGapMessages,
 	deletedIds,
 	onRestoreMessage,
 }: {
@@ -269,6 +270,13 @@ export function ChatPane({
 	onAddMessage?: (conversation: Conversation) => void;
 	onViewDeleted?: (conversation: Conversation) => void;
 	onViewRecalled?: (conversation: Conversation) => void;
+	/** 缺失消息占位条点击：携带占位条两侧消息的 seq（开区间即缺失窗口）。 */
+	onOpenGapMessages?: (gap: {
+		conversation: Conversation;
+		previousSeq: string;
+		currentSeq: string;
+		count: number;
+	}) => void;
 	/** msgIds WeQ deleted in this conversation — rendered in place under a translucent overlay. */
 	deletedIds?: Set<string>;
 	/** Restore one WeQ-deleted message (the overlay's hover button). */
@@ -1641,7 +1649,24 @@ export function ChatPane({
 							const gap = messageGapCount(visibleMessages[index - 1], message);
 							if (gap > 0) {
 								flushBand();
-								out.push(<MessageGapDivider key={`gap-${message.id}`} count={gap} />);
+								const previous = visibleMessages[index - 1];
+								out.push(
+									<MessageGapDivider
+										key={`gap-${message.id}`}
+										count={gap}
+										onOpen={
+											conversation && onOpenGapMessages && previous
+												? () =>
+														onOpenGapMessages({
+															conversation,
+															previousSeq: String(previous.msgSeq ?? ''),
+															currentSeq: String(message.msgSeq ?? ''),
+															count: gap,
+														})
+												: undefined
+										}
+									/>,
+								);
 							}
 							const gt = grayTipOf(message);
 							if (gt) {

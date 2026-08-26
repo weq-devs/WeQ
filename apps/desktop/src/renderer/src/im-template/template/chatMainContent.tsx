@@ -84,6 +84,7 @@ export function ChatMainContent({
 	onAddMessage,
 	onViewDeleted,
 	onViewRecalled,
+	onOpenGapMessages,
 	deletedIds,
 	onRestoreMessage,
 	onOpenTool,
@@ -155,6 +156,12 @@ export function ChatMainContent({
 	onAddMessage?: (conversation: Conversation) => void;
 	onViewDeleted?: (conversation: Conversation) => void;
 	onViewRecalled?: (conversation: Conversation) => void;
+	onOpenGapMessages?: (gap: {
+		conversation: Conversation;
+		previousSeq: string;
+		currentSeq: string;
+		count: number;
+	}) => void;
 	/** msgIds WeQ deleted in the active conversation (in-place overlay). */
 	deletedIds?: Set<string>;
 	/** Restore one WeQ-deleted message (overlay hover button). */
@@ -238,6 +245,7 @@ export function ChatMainContent({
 			onAddMessage={onAddMessage}
 			onViewDeleted={onViewDeleted}
 			onViewRecalled={onViewRecalled}
+			onOpenGapMessages={onOpenGapMessages}
 			deletedIds={deletedIds}
 			onRestoreMessage={onRestoreMessage}
 		/>

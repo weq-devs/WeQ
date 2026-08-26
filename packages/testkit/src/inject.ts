@@ -6,7 +6,7 @@
  * blocks until the hook binds the MSFService instance, so injection resolving
  * means the pid can send — there is no separate post-login packet wait anymore.
  * The only linux-specific prerequisite left is privilege: injection is
- * ptrace-based, so the process must be root. The desktop app spawns a pkexec
+ * ptrace-based, so the process must be root. The desktop app spawns a sudo
  * child for this; a probe script is simply run under sudo.
  */
 

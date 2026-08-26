@@ -12,7 +12,7 @@
  *   weq-media://video?t=&name=&v=thumb                        → cover image bytes
  *   weq-media://ptt?t=&name=                                  → decoded WAV bytes
  *   weq-media://mface?pack=<emojiPackId>&hash=<marketEmoticonIdHex> → sticker bytes
- *   weq-media://mface?pack=&hash=&enc=tea&key=<opt> → 商城表情包 CDN 加密流 QQTEA 解密后 GIF
+ *   weq-media://mface?pack=&hash=&enc=tea&key=<opt> → 商城表情包 CDN 加密流 QQTEA 解密后 GIF（解密失败回退明文 raw GIF/PNG）
  *   weq-media://agentvoice?persona=&id=<hash.ext>             → clone TTS audio bytes
  *   weq-media://avatar?scope=user&hash=<hash>&v=big|small     → local avatar-cache bytes
  *   weq-media://avatar?scope=user&uin=<qq>&fb=<cdnUrl>        → local by uid-hash, CDN fallback
@@ -53,7 +53,8 @@ import { resolveResource } from './resource';
 import { decodeSilkToWav } from './voice';
 
 /** rkey types accepted when downloading the video COVER (thumb only; the
- *  original mp4 now goes through OIDB). ptt still uses rkey end-to-end. */
+ *  original mp4 now goes through OIDB). ptt tries rkey first and falls back
+ *  to OIDB when the local Ptt file is missing. */
 const VIDEO_RKEY_TYPES = [PRIVATE_VIDEO_RKEY_TYPE, GROUP_VIDEO_RKEY_TYPE];
 const PTT_RKEY_TYPES = [PRIVATE_PTT_RKEY_TYPE, GROUP_PTT_RKEY_TYPE];
 
@@ -64,10 +65,10 @@ function oidbCachePath(cacheDir: string, token: string, ext: string): string {
 }
 
 /**
- * Find the video / file element a chat media URL refers to by re-reading its
- * raw message. Returns the element plus the conversation kind so callers can
- * branch group vs c2c. Matches by fileToken when a message carries several of
- * the same kind; else the first one of that kind.
+ * Find the video / file / ptt element a chat media URL refers to by re-reading
+ * its raw message. Returns the element plus the conversation kind so callers
+ * can branch group vs c2c. Matches by fileToken when a message carries several
+ * of the same kind; else the first one of that kind.
  *
  * `fwdMsgId` marks a merged-forward sub-message: its snapshot lives only in the
  * carrying message's 40900 cache (never in our own msg tables), so `msgId` is
@@ -77,7 +78,7 @@ function oidbCachePath(cacheDir: string, token: string, ext: string): string {
  */
 async function findMediaElement(
   msgId: string,
-  kind: 'video' | 'file',
+  kind: 'video' | 'file' | 'ptt',
   token: string,
   fwdMsgId = '',
   fwdKind: 'group' | 'c2c' = 'c2c',
@@ -104,7 +105,11 @@ async function findMediaElement(
   } catch {
     return null;
   }
-  if (!raw) return null;
+  if (!raw) {
+    // 缺失消息弹窗拉到的漫游消息不在本地 msg 表（getRawElements 查不到），
+    // 回退到漫游缓存按 msgId 定位媒体元素。
+    return services.gapHistory.findMediaElement(msgId, kind, token);
+  }
   const matches = raw.elements.filter(
     (e) => e.kind === kind || (kind === 'video' && e.kind === 'bubbleVideo'),
   );
@@ -178,6 +183,10 @@ async function avatarFallbackResponse(src: string): Promise<Response> {
   if (!cache) return notFound('avatar cache unavailable');
   try {
     const blob = await cache.get(src);
+    // Defensive: a broken (empty) cache entry must never become a 200 empty body.
+    if (blob.data.length === 0) {
+      return notFound('avatar fallback empty');
+    }
     return new Response(new Uint8Array(blob.data), {
       status: 200,
       headers: { 'Content-Type': blob.contentType, 'Cache-Control': 'public, max-age=300' },
@@ -483,11 +492,45 @@ export function handleMediaRequest(request: Request): Promise<Response> {
           const { source } = await services.fileSearch.findFile(tMs, name, 'ptt');
           let silk = source;
           if (!silk) {
-            // Missing on disk → download the silk, then decode as usual.
+            // Missing on disk → try rkey first, then OIDB completion. The OIDB
+            // fallback matters most for missing-history roam messages (no local
+            // Ptt file at all); it needs an online QQ.
             silk = await services.mediaDownload.download(token, {
               ext: '.silk',
               rkeyTypes: PTT_RKEY_TYPES,
             });
+          }
+          if (!silk) {
+            const boot = getAppContext().bootstrap;
+            if (boot && token) {
+              const cacheDir = join(boot.userConfig.cacheDir('media'), 'ptt');
+              const cachePath = oidbCachePath(cacheDir, token, '.silk');
+              if (existsSync(cachePath)) {
+                silk = cachePath;
+              } else {
+                const msgId = q.get('msgId') ?? '';
+                const conv = q.get('conv') ?? '';
+                const fwdMsgId = q.get('fwdMsgId') ?? '';
+                const fwdKind = q.get('fwdKind') === 'group' ? 'group' : 'c2c';
+                const found = await findMediaElement(msgId, 'ptt', token, fwdMsgId, fwdKind);
+                if (found) {
+                  const groupId = Number(conv) || 0;
+                  let url: string | undefined;
+                  try {
+                    url =
+                      found.conv === null
+                        ? await services.mediaUrl.resolvePttUrlUnknownScene(groupId, found.element)
+                        : await services.mediaUrl.resolvePttUrl(found.conv, groupId, found.element);
+                  } catch (e) {
+                    console.error('[media] ptt OIDB resolve failed:', e);
+                  }
+                  if (url) {
+                    const outcome = await downloadUrlToFile(url, cachePath);
+                    if (outcome.ok) silk = cachePath;
+                  }
+                }
+              }
+            }
           }
           if (!silk) return notFound('ptt not found');
           const wav = await decodeSilkToWav(silk);
@@ -498,12 +541,13 @@ export function handleMediaRequest(request: Request): Promise<Response> {
           const hash = q.get('hash') ?? '';
           if (!pack || !hash) return notFound('mface needs pack+hash');
           // enc=tea → 商城表情包浏览器：下载 CDN 加密流，用 packId 恢复的 QQTEA
-          // 密钥（或前端手动输入时间戳派生的 key）解密成 GIF。否则走聊天里那条
-          // 明文 CDN / 本地缓存路径（不解密）。
+          // 密钥（或前端手动输入时间戳派生的 key）解密成 GIF。解密失败时回退到
+          // 明文 CDN（raw GIF / PNG）与本地缓存路径，保证贴纸仍可显示。
           if (q.get('enc') === 'tea') {
             const key = q.get('key') ?? '';
-            const path = await services.emoji.getMarketPackImage(pack, hash, key || undefined);
-            return path ? fileResponse(path) : notFound('mface (tea) not found');
+            let path = await services.emoji.getMarketPackImage(pack, hash, key || undefined);
+            if (!path) path = await services.emoji.getMarketFace(pack, hash);
+            return path ? fileResponse(path) : notFound('mface not found');
           }
           const path = await services.emoji.getMarketFace(pack, hash);
           return path ? fileResponse(path) : notFound('mface not found');

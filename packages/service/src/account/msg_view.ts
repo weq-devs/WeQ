@@ -108,7 +108,15 @@ export interface RenderFileElement {
     // imgWidth: number;
     // imgHeight: number;
     fileToken: string;
-    // uploadTime: number;
+    /** Hex md5（旧 wire 私聊文件 fileMd5 / codec md5Bytes2）。 */
+    md5Bytes2?: string;
+    /** Hex contentHash。 */
+    contentHash?: string;
+    /** 私聊文件下载（OIDB 0xE37_1200）需要的 45504 传输 blob。 */
+    transferFlag45504?: string;
+    uploadTime?: number;
+    /** 群文件 busId（0x6D6_2 下载需要，默认 102）。 */
+    busId?: number;
     // picTransferState?: number;
     // transferVersion?: number;
     // transferState?: number;
@@ -143,6 +151,18 @@ export interface RenderVideoElement {
     expireTimestamp: number;
     /** Valid period in seconds from upload, when present. */
     validPeriodSec: number;
+    /** Hex md5（视频本体）。 */
+    md5Bytes?: string;
+    /** Hex sha1（视频本体 contentHash）。 */
+    contentHash?: string;
+    /** Hex channelParams（OIDB videoExt，取自封面缩略图 md5）。 */
+    channelParams?: string;
+    /** Hex videoFlag45421（OIDB videoExt，取自封面缩略图 contentHash）。 */
+    videoFlag45421?: string;
+    videoFlag45863?: number;
+    /** StoreId（老 wire 解码带出；codec 元素的 fileFlag45415 不是 storeId）。 */
+    storeId?: number;
+    fileFlag45415?: number;
     // secondExpireTimestamp: number;
   };
 }
@@ -175,6 +195,12 @@ export interface RenderPttElement {
     waveform: number[];
     /** 语音转文字结果（wire tag 45923）— QQ 自己转的，或 WeQ 转完写回的。 */
     pttTranscript?: string;
+    /** Hex md5（语音本体；OIDB ptt 下载的 fileHash）。 */
+    md5Bytes?: string;
+    /** Hex sha1（语音本体 contentHash）。 */
+    contentHash?: string;
+    /** StoreId（老 wire 解码带出；OIDB ptt 下载按此归桶）。 */
+    storeId?: number;
     // transferState?: number;
     // picTransferState?: number;
     // transferVersion?: number;
@@ -640,7 +666,11 @@ function mapFile(el: FileElement): RenderFileElement {
       // imgWidth: el.imgWidth,
       // imgHeight: el.imgHeight,
       fileToken: el.fileToken,
-      // uploadTime: el.uploadTime,
+      md5Bytes2: toHex(el.md5Bytes2),
+      contentHash: toHex(el.contentHash),
+      transferFlag45504: el.transferFlag45504,
+      uploadTime: el.uploadTime,
+      busId: el.busId,
       // picTransferState: el.picTransferState,
       // transferVersion: el.transferVersion,
       // transferState: el.transferState,
@@ -673,6 +703,13 @@ function mapVideo(el: VideoElement): RenderVideoElement {
       videoToken: el.videoToken,
       expireTimestamp: el.expireTimestamp,
       validPeriodSec: el.validPeriodSec,
+      md5Bytes: toHex(el.md5Bytes),
+      contentHash: toHex(el.contentHash),
+      channelParams: toHex(el.channelParams),
+      videoFlag45421: toHex(el.videoFlag45421),
+      videoFlag45863: el.videoFlag45863,
+      storeId: el.storeId,
+      fileFlag45415: el.fileFlag45415,
       // secondExpireTimestamp: el.secondExpireTimestamp,
       elementId: el.elementId,
       isSender: el.isSender,
@@ -700,6 +737,9 @@ function mapPtt(el: PttElement): RenderPttElement {
       isAiVoice: el.isAiVoice,
       waveform: Array.from(el.waveform),
       pttTranscript: el.pttTranscript,
+      md5Bytes: toHex(el.md5Bytes),
+      contentHash: toHex(el.contentHash),
+      storeId: el.storeId,
       // transferState: el.transferState,
       // picTransferState: el.picTransferState,
       // transferVersion: el.transferVersion,

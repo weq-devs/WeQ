@@ -15,7 +15,7 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Platform } from '@weq/platform';
-import { linuxFindLoginDbs } from '@weq/platform';
+import { darwinFindLoginDbs, linuxFindLoginDbs } from '@weq/platform';
 import {
   NineBirdBootstrap,
   type LoginAccount,
@@ -74,7 +74,7 @@ export class Win32DetectService {
 
   constructor(
     private readonly platform: Platform,
-    /** Linux-only entry-stub hooks (pkexec elevation). Omit for the fs default. */
+    /** Linux-only entry-stub hooks (sudo elevation). Omit for the fs default. */
     stubHooks?: StubHooks,
   ) {
     this.bootstrap = new NineBirdBootstrap(
@@ -91,9 +91,10 @@ export class Win32DetectService {
    * two-location finder there and dedupe against the platform's own pick.
    */
   private loginDbPaths(): string[] {
-    if (this.platform.kind === 'linux') {
+    if (this.platform.kind === 'linux' || this.platform.kind === 'darwin') {
+      const finder = this.platform.kind === 'darwin' ? darwinFindLoginDbs : linuxFindLoginDbs;
       const override = this.platform.tencentFilesRoots()[0] ?? null;
-      const both = linuxFindLoginDbs(undefined, override);
+      const both = finder(undefined, override);
       if (both.length > 0) return [...new Set(both)];
     }
     const single = this.platform.loginDbPath();
@@ -321,13 +322,13 @@ export class Win32DetectService {
    * Only all-digit directory names that actually contain an `nt_qq` subdir
    * count — this skips siblings like `nt_qq`, `NapCat`, `All Users1`.
    *
-   * linux has no numeric-uin directory (accounts are hashed `nt_qq_<hash>`
-   * folders from which the uin can't be recovered), so this uin-list fallback
-   * can't work there — account discovery goes through login.db decryption
-   * instead. Return empty rather than mis-scanning.
+   * linux/macOS have no numeric-uin directory (accounts are hashed
+   * `nt_qq_<hash>` folders from which the uin can't be recovered), so this
+   * uin-list fallback can't work there — account discovery goes through
+   * login.db decryption instead. Return empty rather than mis-scanning.
    */
   private probeAccountDirs(): string[] {
-    if (this.platform.kind === 'linux') return [];
+    if (this.platform.kind === 'linux' || this.platform.kind === 'darwin') return [];
     const uins = new Set<string>();
     for (const root of this.platform.tencentFilesRoots()) {
       let entries: string[];

@@ -4,7 +4,8 @@
  * Injection into a running QQ needs ptrace (root); fetching keys afterwards
  * does not (the hook's unix socket is reachable unprivileged). So we isolate
  * ONLY the inject in a short-lived root child: `inject_elevation.ts` spawns this
- * via `pkexec`, we require `nt_helper.node`, call `injectAndGetStatusEmbedded`
+ * via `sudo -S` (password from a self-drawn renderer dialog), we require
+ * `nt_helper.node`, call `injectAndGetStatusEmbedded`
  * (passing the account uin, which the hook needs to bind the MSFService
  * instance), print a one-line JSON result to stdout, and exit. The parent then
  * talks to the hook socket unprivileged.
@@ -13,11 +14,12 @@
  * build can run it via `ELECTRON_RUN_AS_NODE` electron-as-node — end-user
  * machines aren't assumed to have a system `node`.
  *
- * Two pkexec-specific gotchas handled here:
- *   1. pkexec RESETS cwd, but the addon validates a LICENSE found by walking up
- *      from cwd — so we chdir into the addon's own directory (LICENSE sits a few
- *      levels up in both dev and packaged layouts, within its 5-level search).
- *   2. All inputs arrive as argv positionals (pkexec scrubs the environment).
+ * Gotchas handled here:
+ *   1. The addon validates a LICENSE found by walking up from cwd — so we
+ *      chdir into the addon's own directory (LICENSE sits a few levels up in
+ *      both dev and packaged layouts, within its 5-level search).
+ *   2. All inputs arrive as argv positionals (the parent feeds them explicitly,
+ *      never via the environment).
  */
 
 import { createRequire } from 'node:module';
@@ -56,7 +58,10 @@ async function main(): Promise<void> {
 
   let nt: {
     getInitStatus(): number;
-    injectAndGetStatusEmbedded(pid: number, uin: string): Promise<{ pid: number; loggedIn: boolean; uin: string }>;
+    injectAndGetStatusEmbedded(
+      pid: number,
+      uin: string,
+    ): Promise<{ pid: number; loggedIn: boolean; uin: string }>;
   };
   try {
     nt = requireFn(ntHelperPath);

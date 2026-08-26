@@ -7,22 +7,46 @@
 
 import type { MsgService } from '../msg';
 import { runGroupExport } from './run_export';
+import { exportJsonConversation } from './json_meta_exporter';
+import type { SenderResolveDeps } from './sender_resolve';
 import { bigintReplacer } from './serialize';
 import type { ExportResult, GroupExportOptions } from './types';
 
 /** @deprecated use {@link GroupExportOptions}. Kept for the existing barrel export. */
 export type JsonExportOptions = GroupExportOptions;
 
-/** Export all messages of `groupCode` to `outputPath` as a JSON array. */
+/**
+ * Export all messages of `groupCode` to `outputPath` as JSON.
+ *
+ * With sender-resolve deps (the app always supplies them) the output is the
+ * enriched shape `{ meta, members, messages }` carrying member nicknames;
+ * without deps it degrades to the legacy bare array of messages.
+ */
 export async function exportGroupToJson(
   msgs: MsgService,
   opts: GroupExportOptions,
+  deps?: SenderResolveDeps,
 ): Promise<ExportResult> {
-  return runGroupExport(
-    msgs,
-    opts,
-    'json',
-    { head: '[\n', between: ',\n', tail: '\n]\n' },
-    (m) => JSON.stringify(m, bigintReplacer),
+  if (deps) {
+    return exportJsonConversation(
+      msgs,
+      {
+        kind: 'group',
+        conv: opts.groupCode,
+        name: opts.name,
+        outputPath: opts.outputPath,
+        format: 'json',
+        range: opts.range,
+        progressEvery: opts.progressEvery,
+        onProgress: opts.onProgress,
+        collectSenders: opts.collectSenders,
+        withMediaPaths: opts.withMediaPaths,
+        roam: opts.roam,
+      },
+      deps,
+    );
+  }
+  return runGroupExport(msgs, opts, 'json', { head: '[\n', between: ',\n', tail: '\n]\n' }, (m) =>
+    JSON.stringify(m, bigintReplacer),
   );
 }

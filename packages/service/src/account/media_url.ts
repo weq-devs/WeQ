@@ -49,15 +49,71 @@ export interface MediaElement {
   videoWidth?: number;
   videoHeight?: number;
   fileFlag45415?: number;
+  /** NTV2 storeId（老 wire 解码带出，优先于 fileFlag45415）。 */
+  storeId?: number;
+  /** 群文件 busId（老 wire 解码带出，缺省 102）。 */
+  busId?: number;
   videoFlag45421?: Uint8Array;
   /** Duration in seconds (video / ptt). */
   videoDuration?: number;
+  /** Clip duration in seconds (ptt only; NTV2 node 的 time 槽位）。 */
+  pttDuration?: number;
   uploadTime?: number;
   fileTTL?: number;
   subType?: number;
   isOriginal?: boolean;
   channelParams?: Uint8Array;
   videoFlag45863?: number;
+}
+
+/**
+ * 把缺失消息漫游缓存里的渲染元素（RenderElement）还原成 {@link MediaElement}，
+ * 供 OIDB 下载 URL 解析。缺失消息不在本地 msg 表，媒体补全/下载回查时用它兜底。
+ * 渲染元素只保留前端展示需要的字段，下载必需的 fileToken 等都在里面；私聊文件的
+ * fileHash（transferFlag45504 / md5）在缺失消息解码链路里没有保留，这里如实缺省。
+ */
+export function mediaElementFromRenderElement(el: {
+  type: string;
+  data?: unknown;
+}): MediaElement {
+  const d = (el.data ?? {}) as Record<string, unknown>;
+  const s = (k: string): string => (typeof d[k] === 'string' ? d[k] : '');
+  const n = (k: string): number => (typeof d[k] === 'number' ? d[k] : Number(d[k]) || 0);
+  // 渲染 data 里的字节字段存的是小写 hex 字符串（msg_view.toHex），还原成 bytes。
+  const bytes = (k: string): Uint8Array | undefined => {
+    const v = d[k];
+    if (v instanceof Uint8Array) return v;
+    if (typeof v !== 'string' || v.length === 0 || v.length % 2 !== 0) return undefined;
+    const out = new Uint8Array(v.length / 2);
+    for (let i = 0; i < out.length; i++) out[i] = Number.parseInt(v.slice(i * 2, i * 2 + 2), 16);
+    return out;
+  };
+  return {
+    kind: el.type,
+    fileToken: s('fileToken'),
+    fileName: s('fileName'),
+    fileSize: n('fileSize'),
+    imgWidth: n('imgWidth'),
+    imgHeight: n('imgHeight'),
+    videoWidth: n('videoWidth'),
+    videoHeight: n('videoHeight'),
+    videoDuration: n('videoDuration'),
+    pttDuration: n('pttDuration'),
+    uploadTime: n('uploadTime'),
+    fileTTL: n('fileTTL'),
+    subType: n('subType'),
+    isOriginal: Boolean(d.isOriginal),
+    md5Bytes: bytes('md5Bytes'),
+    md5Bytes2: bytes('md5Bytes2'),
+    contentHash: bytes('contentHash'),
+    channelParams: bytes('channelParams'),
+    videoFlag45421: bytes('videoFlag45421'),
+    videoFlag45863: n('videoFlag45863'),
+    fileFlag45415: n('fileFlag45415'),
+    storeId: n('storeId'),
+    busId: n('busId'),
+    transferFlag45504: s('transferFlag45504') || undefined,
+  };
 }
 
 /** Bytes → lowercase hex. */
@@ -97,9 +153,10 @@ export function mediaNodeFromElement(el: MediaElement): MediaIndexNode {
     fileName: el.fileName ?? '',
     width: el.videoWidth ?? el.imgWidth ?? 0,
     height: el.videoHeight ?? el.imgHeight ?? 0,
-    time: el.videoDuration ?? 0,
+    // ptt 的时长走 pttDuration（videoDuration 只在 video 元素上有）。
+    time: el.videoDuration ?? el.pttDuration ?? 0,
     original: el.isOriginal ? 1 : 0,
-    storeId: isVideo ? (el.fileFlag45415 ?? 0) : 0,
+    storeId: el.storeId ?? (isVideo ? el.fileFlag45415 : 0),
     uploadTime: el.uploadTime ?? 0,
     ttl: el.fileTTL ?? 0,
     subType: el.subType ?? 0,
@@ -149,6 +206,10 @@ export class MediaUrlService {
     return GetGroupPttUrl.invoke(this.nt, this.resolvePid(), { groupId, node });
   }
 
+  async getGroupPttUrlFromElement(groupId: number, element: MediaElement): Promise<string> {
+    return this.getGroupPttUrl(groupId, mediaNodeFromElement(element));
+  }
+
   /**
    * Returns {@link GroupFileDownload}; caller composes:
    * `https://${d.dns}/ftn_handler/${d.urlHex}/?fname=${encodeURIComponent(fileId)}`
@@ -165,7 +226,7 @@ export class MediaUrlService {
   }
 
   async getGroupFileUrlFromElement(groupId: number, element: MediaElement, busId = 102): Promise<string> {
-    return this.getGroupFileUrl(groupId, element.fileToken, busId);
+    return this.getGroupFileUrl(groupId, element.fileToken, element.busId ?? busId);
   }
 
   // ─── private / c2c ───
@@ -178,6 +239,10 @@ export class MediaUrlService {
 
   async getPrivateVideoUrlFromElement(element: MediaElement): Promise<string> {
     return this.getPrivateVideoUrl(mediaNodeFromElement(element));
+  }
+
+  async getPrivatePttUrlFromElement(element: MediaElement): Promise<string> {
+    return this.getPrivatePttUrl(mediaNodeFromElement(element));
   }
 
   async getPrivatePttUrl(node: MediaIndexNode): Promise<string> {
@@ -216,6 +281,28 @@ export class MediaUrlService {
     return kind === 'group'
       ? this.getGroupVideoUrlFromElement(groupId, element)
       : this.getPrivateVideoUrlFromElement(element);
+  }
+
+  /**
+   * Resolve a ptt (voice) element's download URL, branching on conversation
+   * kind — SnowLuma 同款 NTV2 0x126E_200 / 0x126D_200。`groupId` 只在群聊分支用。
+   */
+  async resolvePttUrl(kind: 'group' | 'c2c', groupId: number, element: MediaElement): Promise<string> {
+    return kind === 'group'
+      ? this.getGroupPttUrlFromElement(groupId, element)
+      : this.getPrivatePttUrlFromElement(element);
+  }
+
+  /**
+   * Ptt counterpart of {@link resolveVideoUrlUnknownScene}: merged-forward voice
+   * snapshots (40900) carry no chatType, so try the group scene first (when a
+   * groupId is known) and fall back to c2c.
+   */
+  async resolvePttUrlUnknownScene(groupId: number, element: MediaElement): Promise<string> {
+    return firstResolved([
+      ...(groupId > 0 ? [() => this.getGroupPttUrlFromElement(groupId, element)] : []),
+      () => this.getPrivatePttUrlFromElement(element),
+    ]);
   }
 
   /**

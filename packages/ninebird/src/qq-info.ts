@@ -73,12 +73,18 @@ function getVersionConfigPath(execPath: string): string | undefined {
     if (os.platform() === 'win32') {
         p = path.join(path.dirname(execPath), 'versions', 'config.json');
     } else if (os.platform() === 'darwin') {
-        p = path.resolve(os.homedir(), './Library/Application Support/QQ/versions/config.json');
+        // QQ for macOS is sandboxed: user data lives inside the container.
+        p = path.resolve(
+            darwinContainerDataRoot(os.homedir()),
+            './Library/Application Support/QQ/versions/config.json',
+        );
     } else {
         p = path.resolve(os.homedir(), './.config/QQ/versions/config.json');
     }
     if (!fs.existsSync(p)) {
-        p = path.join(path.dirname(execPath), './resources/app/versions/config.json');
+        p = os.platform() === 'darwin'
+            ? path.join(path.dirname(execPath), '../Resources/app/versions/config.json')
+            : path.join(path.dirname(execPath), './resources/app/versions/config.json');
     }
     return fs.existsSync(p) ? p : undefined;
 }
@@ -120,9 +126,32 @@ function resolveWrapperPath(execPath: string, version: string): string {
     return wp;
 }
 
+/**
+ * macOS 沙箱数据根归一化：QQ 进程内的 os.homedir() 可能是真实家目录，也可能
+ * 直接就是容器路径（~/Library/Containers/com.tencent.qq/Data，App Sandbox 的
+ * NSHomeDirectory 行为）。两种都要归一到容器 Data 根，否则会拼出“容器套
+ * 容器”的嵌套路径（NT 在嵌套根下重建全新 profile，dbkey 对不上真实库）。
+ */
+function darwinContainerDataRoot(home: string): string {
+    const containersTail = path.join('Library', 'Containers', 'com.tencent.qq');
+    if (home.endsWith(path.join(containersTail, 'Data'))) return home;
+    if (home.endsWith(containersTail)) return path.join(home, 'Data');
+    return path.join(home, containersTail, 'Data');
+}
+
 function getDataPaths(execPath: string, getNTUserDataInfoConfig?: () => string): [string, string] {
     if (os.platform() === 'darwin') {
-        const root = path.resolve(os.homedir(), './Library/Application Support/QQ');
+        // Same container root as the version config above (napcat installer
+        // and @weq/platform both resolve it this way).
+        // WeQ 侧把确切数据根经 NINEBIRD_DATA_ROOT 传进来（非沙箱路径一定
+        // 正确）；没传才退回 homedir 推导（兼容两种 homedir 形态）。
+        const envRoot = process.env.NINEBIRD_DATA_ROOT;
+        const root = envRoot
+            ? path.resolve(envRoot)
+            : path.resolve(
+                  darwinContainerDataRoot(os.homedir()),
+                  './Library/Application Support/QQ',
+              );
         return [root, path.join(root, 'global')];
     }
     let dataPath = getNTUserDataInfoConfig?.();

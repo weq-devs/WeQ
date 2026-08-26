@@ -55,7 +55,7 @@ export class AccountMonitorService {
    *   (rkey / clientkey / 首页装扮快照) are skipped. Defaults to always-on.
    * @param injectHook Turns a pid into a sendable-state before harvesting.
    *   Defaults to the in-process direct inject (win32). On linux the desktop
-   *   app passes a pkexec-elevated hook. A single shared instance across all
+   *   app passes a sudo-elevated hook. A single shared instance across all
    *   monitors keeps its own per-pid idempotency, so switching accounts never
    *   re-injects the same QQ.
    * @param onHomeDress 抓到装扮快照后调一次。给装扮同步用(把手机 QQ 正在用的
