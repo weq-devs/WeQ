@@ -36,6 +36,7 @@ import { QqAvatar } from '../QqAvatar';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { UpdateCard } from './UpdateCard';
 import { DesktopOnly } from '../../lib/target';
+import { NineBirdSection } from './NineBirdSection';
 import logoUrl from '@resources/brand/logo.png';
 
 function errMsg(e: unknown): string {
@@ -614,6 +615,9 @@ export function GlobalSettingsSection(): ReactElement {
           />
         </Card>
       </DesktopOnly>
+
+      {/* NineBird（macOS 专属）：非 darwin 平台内部渲染为空。 */}
+      <NineBirdSection />
     </div>
   );
 }

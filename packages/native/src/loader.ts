@@ -7,8 +7,10 @@
  *   native/
  *     win32/x64/  ·  linux/x64/  ·  linux/arm64/  ·  darwin/x64/  ·  darwin/arm64/
  *       nt_helper.node                (renamed from index.<platform>-<arch>-*.node)
- *       ninebird/                     (win32 + linux only — mac has no
- *                                      injection, so no hooker bundle)
+ *       ninebird/                     (all platforms; mac ships only the
+ *                                      hooker + qqnt.json — the darwin boot
+ *                                      copies them into QQ's container at
+ *                                      launch, since QQ is sandboxed)
  *         NineBird.node               (hooker; loader JS requires it by this exact name)
  *         ninebird_addon.node         (launchQQ entry)
  *         NineBirdHook.dll            (win32 injection medium)
@@ -43,13 +45,13 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
-  LaunchQqResult,
   NativeBundle,
   NineBirdBootBinding,
   NineBirdResources,
   NtHelperBinding,
 } from './types';
 import { InitStatus } from './types';
+import { createDarwinNineBirdBoot } from './darwin/boot';
 
 export const INIT_ERROR_MESSAGES: Record<InitStatus, string> = {
   [InitStatus.Success]: 'Initialization successful',
@@ -152,24 +154,17 @@ export function loadNative(opts: LoadNativeOptions = {}): NativeBundle {
 
   configureNtHelperLogging(ntHelper);
 
-  // macOS has no injection (SIP) and therefore no hooker bundle — stub the
-  // launch bootstrap with a clear error so the login/key flows degrade
-  // gracefully instead of crashing on a missing addon. The db-decrypt worker
-  // still resolves nt_helper.node from `resources.loaderDir` (see
-  // packages/service/src/account/db_decrypt.ts), which is why loaderDir is
-  // kept pointing at the platform root's ninebird path even though nothing is
-  // shipped there on darwin.
+  // macOS has no cross-process injection (SIP), so there is no
+  // `ninebird_addon.node` launcher — instead the same `launchQQ` contract is
+  // implemented in pure TS: deploy the hooker + loader scripts into QQ's
+  // sandbox container, patch `package.json`'s main via an elevated
+  // osascript (Authorization Services), then spawn QQ with `--no-sandbox`
+  // and the NINEBIRD_* env (see darwin/boot.ts). The loader runs inside QQ,
+  // dlopens wrapper.node + NineBird.node and installs the in-process recv
+  // hook — SIP does not apply because nothing is injected cross-process.
   let nineBirdBoot: NineBirdBootBinding;
   if (process.platform === 'darwin') {
-    nineBirdBoot = {
-      async launchQQ(): Promise<LaunchQqResult> {
-        return {
-          success: false,
-          pid: 0,
-          error: 'macOS 暂不支持注入 QQ（SIP 限制），无法启动登录/密钥提取流程。',
-        };
-      },
-    };
+    nineBirdBoot = createDarwinNineBirdBoot(resources);
   } else {
     const nineBirdBootPath = join(nineBirdDir, 'ninebird_addon.node');
     assertExists(nineBirdBootPath, 'ninebird/ninebird_addon.node');
@@ -366,9 +361,10 @@ function buildResources(nineBirdDir: string, nativeRoot: string): NineBirdResour
   // The injection medium is the one file whose name differs per OS: a
   // `LD_PRELOAD` shared object on linux, an injected DLL on win32. Both are
   // passed to launchQQ via the same `hookDllPath` field. macOS ships no
-  // injection medium (SIP) and no hooker bundle — the paths below are kept as
-  // placeholders so the resource shape stays uniform, but nothing is asserted
-  // (the stub `nineBirdBoot` fails before any of them is read).
+  // injection medium (SIP) — the hooker is loaded in-process by the loader
+  // script inside QQ, so `hookDllPath` stays empty but the NineBird.node
+  // hooker + qqnt.json + loader JS are real, shipped assets (the darwin boot
+  // copies them into QQ's container at launch time).
   const isMac = process.platform === 'darwin';
   const injectionMedium = isMac
     ? ''
@@ -388,19 +384,24 @@ function buildResources(nineBirdDir: string, nativeRoot: string): NineBirdResour
     quickDbkeyJsPath: join(runtimeDir, 'quick-dbkey.js'),
     accountListJsPath: join(runtimeDir, 'account-list.js'),
   };
-  if (!isMac) {
+  // All platforms now need the loader JS bundle (macOS copies it into the
+  // QQ container at launch; win/linux hand the path to launchQQ directly).
+  assertExists(resources.qrDbkeyJsPath, 'ninebird-runtime/qr-dbkey.js — run pnpm build:ninebird');
+  assertExists(
+    resources.quickDbkeyJsPath,
+    'ninebird-runtime/quick-dbkey.js — run pnpm build:ninebird',
+  );
+  assertExists(
+    resources.accountListJsPath,
+    'ninebird-runtime/account-list.js — run pnpm build:ninebird',
+  );
+  if (isMac) {
+    assertExists(resources.nineBirdAddonPath, 'ninebird/NineBird.node');
+    assertExists(resources.qqntJsonPath, 'ninebird/qqnt.json');
+  } else {
     assertExists(resources.hookDllPath, `ninebird/${injectionMedium}`);
     assertExists(resources.qqntJsonPath, 'ninebird/qqnt.json');
     assertExists(resources.nineBirdAddonPath, 'ninebird/NineBird.node');
-    assertExists(resources.qrDbkeyJsPath, 'ninebird-runtime/qr-dbkey.js — run pnpm build:ninebird');
-    assertExists(
-      resources.quickDbkeyJsPath,
-      'ninebird-runtime/quick-dbkey.js — run pnpm build:ninebird',
-    );
-    assertExists(
-      resources.accountListJsPath,
-      'ninebird-runtime/account-list.js — run pnpm build:ninebird',
-    );
   }
   return resources;
 }

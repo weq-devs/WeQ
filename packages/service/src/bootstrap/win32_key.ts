@@ -170,13 +170,15 @@ export class Win32KeyService {
       appid: appidQua.appid ?? null,
       qua: appidQua.qua ?? null,
     });
-    const startSession = (): ReturnType<NineBirdBootstrap['startQuickLogin']> =>
-      this.bootstrap.startQuickLogin({
-        uin: opts.uin,
-        qqExePath: exePath,
-        ...appidQua,
-        ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
-      });
+    const startSession = (): Promise<ReturnType<NineBirdBootstrap['startQuickLogin']>> =>
+      this.prepareQqLaunch().then(() =>
+        this.bootstrap.startQuickLogin({
+          uin: opts.uin,
+          qqExePath: exePath,
+          ...appidQua,
+          ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+        }),
+      );
     return iterateSession(startSession, this.logger);
   }
 
@@ -197,12 +199,14 @@ export class Win32KeyService {
       appid: appidQua.appid ?? null,
       qua: appidQua.qua ?? null,
     });
-    const startSession = (): ReturnType<NineBirdBootstrap['startQrLogin']> =>
-      this.bootstrap.startQrLogin({
-        qqExePath: exePath,
-        ...appidQua,
-        ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
-      });
+    const startSession = (): Promise<ReturnType<NineBirdBootstrap['startQrLogin']>> =>
+      this.prepareQqLaunch().then(() =>
+        this.bootstrap.startQrLogin({
+          qqExePath: exePath,
+          ...appidQua,
+          ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+        }),
+      );
     return iterateSession(startSession, this.logger);
   }
 
@@ -248,6 +252,42 @@ export class Win32KeyService {
     }
     return exe;
   }
+
+  /**
+   * macOS 是单实例 QQ：正在运行的实例会让新进程直接退场（窗口交还给旧
+   * 实例），loader 永远不会执行。启动前先把已有 QQ 杀掉再等它释放，
+   * 与 napcat 启动器的 terminateQQ 行为一致。win/linux 走注入路径，
+   * 不受此限制，直接放行。
+   */
+  private async prepareQqLaunch(): Promise<void> {
+    if (this.platform.kind !== 'darwin') return;
+    const nt = this.platform.native.ntHelper;
+    let pids: number[] = [];
+    try {
+      pids = nt.getQqProcesses();
+    } catch (e) {
+      this.logger.warn('darwin: failed to enumerate QQ processes before launch', {
+        event: 'darwin-pre-launch-enum-failed',
+        ...logErrorContext(e),
+      });
+      return;
+    }
+    for (const pid of pids) {
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        // 进程已经退出，忽略。
+      }
+    }
+    if (pids.length > 0) {
+      this.logger.info('terminated running QQ before darwin launch', {
+        event: 'darwin-pre-launch-kill',
+        pids,
+      });
+      // 等 QQ 释放单实例锁 / 文件锁，再启动新进程。
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+    }
+  }
 }
 
 // ---------- session → AsyncIterable bridge -------------------------------
@@ -268,7 +308,7 @@ export class Win32KeyService {
  * IPC channel, swap the queue for a bounded ring buffer.
  */
 function iterateSession(
-  startSession: () => ReturnType<NineBirdBootstrap['startQrLogin']>,
+  startSession: () => Promise<ReturnType<NineBirdBootstrap['startQrLogin']>>,
   logger: ReturnType<typeof getLogger>,
 ): AsyncIterable<KeyEvent> {
   const queue: KeyEvent[] = [];
@@ -276,6 +316,7 @@ function iterateSession(
   let done = false;
   let session: ReturnType<NineBirdBootstrap['startQrLogin']>;
   let retried = false;
+  let attaching = false;
 
   const emit = (e: KeyEvent): void => {
     const waiter = waiters.shift();
@@ -293,57 +334,68 @@ function iterateSession(
   };
 
   const attach = (): void => {
-    session = startSession();
-    session.onLoginList((e) => emit({ kind: 'login-list', list: e.list }));
-    session.onQrcode((e) => emit({ kind: 'qrcode', url: e.url }));
-    session.onState((e) => emit({ kind: 'qrcode-state', state: e.state }));
-
-    // The loader always sends `pskey` before the terminal `result`, so this is
-    // populated by the time we build the KeyResult below.
-    let pskey: Record<string, string> | undefined;
-    session.onPskey((e) => {
-      if (e.success && e.pskey) pskey = e.pskey;
-      else
-        logger.warn('ninebird: pskey unavailable', {
-          event: 'login-pskey-missing',
-          error: e.error,
-        });
-    });
-
-    void session.result.then((r: NineBirdResultEvent) => {
-      if (done) return; // consumer already walked away
-      if (!r.success && isHookInstallFailure(r.error)) {
-        if (!retried) {
-          retried = true;
-          logger.warn('ninebird: msf_recv hook install failed, relaunching QQ once', {
-            event: 'hook-install-retry',
-            error: r.error,
-          });
-          attach();
-          return;
-        }
-        logger.error('ninebird: msf_recv hook install failed after retry', {
-          event: 'hook-install-failed',
-          error: r.error,
-        });
-        emit({
-          kind: 'result',
-          result: { success: false, error: hookInstallHint(r.error), hookInstallFailed: true },
-        });
+    if (attaching) return;
+    attaching = true;
+    void (async () => {
+      try {
+        session = await startSession();
+      } catch (e) {
+        emit({ kind: 'result', result: { success: false, error: errorMessage(e) } });
         finish();
         return;
       }
-      emit({
-        kind: 'result',
-        result: {
-          success: r.success,
-          ...(r.dbkey ? { dbkey: r.dbkey } : {}),
-          ...(r.error ? { error: r.error } : {}),
-          ...(pskey ? { pskey } : {}),
-        },
+      session.onLoginList((e) => emit({ kind: 'login-list', list: e.list }));
+      session.onQrcode((e) => emit({ kind: 'qrcode', url: e.url }));
+      session.onState((e) => emit({ kind: 'qrcode-state', state: e.state }));
+
+      // The loader always sends `pskey` before the terminal `result`, so this is
+      // populated by the time we build the KeyResult below.
+      let pskey: Record<string, string> | undefined;
+      session.onPskey((e) => {
+        if (e.success && e.pskey) pskey = e.pskey;
+        else
+          logger.warn('ninebird: pskey unavailable', {
+            event: 'login-pskey-missing',
+            error: e.error,
+          });
       });
-      finish();
-    });
+
+      void session.result.then((r: NineBirdResultEvent) => {
+        if (done) return; // consumer already walked away
+        if (!r.success && isHookInstallFailure(r.error)) {
+          if (!retried) {
+            retried = true;
+            attaching = false;
+            logger.warn('ninebird: msf_recv hook install failed, relaunching QQ once', {
+              event: 'hook-install-retry',
+              error: r.error,
+            });
+            attach();
+            return;
+          }
+          logger.error('ninebird: msf_recv hook install failed after retry', {
+            event: 'hook-install-failed',
+            error: r.error,
+          });
+          emit({
+            kind: 'result',
+            result: { success: false, error: hookInstallHint(r.error), hookInstallFailed: true },
+          });
+          finish();
+          return;
+        }
+        emit({
+          kind: 'result',
+          result: {
+            success: r.success,
+            ...(r.dbkey ? { dbkey: r.dbkey } : {}),
+            ...(r.error ? { error: r.error } : {}),
+            ...(pskey ? { pskey } : {}),
+          },
+        });
+        finish();
+      });
+    })();
   };
 
   attach();

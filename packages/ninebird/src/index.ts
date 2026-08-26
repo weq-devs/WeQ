@@ -177,7 +177,11 @@ export class NineBird extends EventEmitter {
         try {
             const util = (this.wrapper as unknown as { NodeQQNTWrapperUtil: NodeQQNTWrapperUtil })
                 .NodeQQNTWrapperUtil;
-            const real = util.getNTUserDataInfoConfig?.();
+            // darwin：wrapper 返回值是“容器套容器”的嵌套根（见 qr-dbkey.ts
+            // 注释），会重建全新 profile；直接保留 qq-info 的 darwin 路径。
+            const real = process.platform === 'darwin'
+                ? undefined
+                : util.getNTUserDataInfoConfig?.();
             if (real) {
                 this.qqInfo.dataPath = real;
                 this.qqInfo.dataPathGlobal = path.resolve(real, './nt_qq/global');

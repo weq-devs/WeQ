@@ -213,15 +213,30 @@ async function main() {
         let dataPathGlobal = qqInfo.dataPathGlobal;
 
         try {
-            const util = (wrapper as any).NodeQQNTWrapperUtil;
-            const real = util?.getNTUserDataInfoConfig?.();
-            if (real) {
-                realDataPath = real;
-                dataPathGlobal = process.platform === 'linux'
-                    ? path.resolve(real, './global')
-                    : path.resolve(real, './nt_qq/global');
+            if (process.platform === 'darwin') {
+                // 与 linux 一致：数据根取真实 per-user 路径，global 是数据根下
+                // 的裸 global（darwin/linux 都没有 nt_qq 层）。macOS 沙箱内
+                // wrapper 的 getNTUserDataInfoConfig 和 os.homedir 都会拼出
+                // “容器套容器”的嵌套根（NT 在嵌套根下重建全新 profile，dbkey
+                // 对不上真实库），所以用 WeQ 经 NINEBIRD_DATA_ROOT 传入的
+                // 确切路径（非沙箱侧解析，必然正确）。
+                const root = process.env.NINEBIRD_DATA_ROOT || realDataPath;
+                realDataPath = path.resolve(root);
+                dataPathGlobal = path.resolve(root, './global');
+            } else {
+                const util = (wrapper as any).NodeQQNTWrapperUtil;
+                const real = util?.getNTUserDataInfoConfig?.();
+                if (real) {
+                    realDataPath = real;
+                    dataPathGlobal = process.platform === 'linux'
+                        ? path.resolve(real, './global')
+                        : path.resolve(real, './nt_qq/global');
+                }
             }
-        } catch (e) {}
+        } catch (e) {
+            // 解析失败就保留 qq-info 的兜底路径。
+        }
+        nbLog(`dataPath=${realDataPath} dataPathGlobal=${dataPathGlobal}`);
 
         const engine: NodeIQQNTWrapperEngine = wrapper.NodeIQQNTWrapperEngine.get();
 

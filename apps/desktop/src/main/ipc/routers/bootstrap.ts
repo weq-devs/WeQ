@@ -20,6 +20,7 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { isMcpRunning } from '../../mcp/server';
 import { isWeqServerRunning } from '../../weq_assistant/server';
+import { runElevatedKeyScan } from '../../mac_scan_elevation';
 import {
   accountEventBus,
   getAppContext,
@@ -47,6 +48,7 @@ import {
 } from '@weq/service';
 import { peekStaticSelfUin, deriveAndroidDbKey } from '@weq/account';
 import { isTencentFilesRoot } from '@weq/platform';
+import { darwinPaths, getPatchStatus, installNineBird, uninstallNineBird } from '@weq/native';
 
 /** Result of the Tencent Files folder picker (with the hard `Tencent Files` rule). */
 export interface PickRootResult {
@@ -123,6 +125,101 @@ export const bootstrapRouter = router({
   systemInfo: procedure.query(() => {
     return { platformKind: process.platform as NodeJS.Platform };
   }),
+
+  // ---- macOS NineBird 安装（napcat-mac-installer 机制） ----
+
+  /**
+   * 入口补丁状态：原版 / NineBird / 自定义 / 缺失，外加 bundle shim 是否在
+   * 位（入口已补丁但 shim 被删时，登录流程需要重新提权安装修复）。
+   * 非 macOS 返回 null。
+   */
+  nineBirdInstallStatus: procedure.query(() => {
+    const platform = requirePlatform();
+    if (platform.kind !== 'darwin') return null;
+    const exe = platform.qqExePath();
+    if (!exe) return { kind: 'missing', loaderOk: false } as const;
+    const paths = darwinPaths(exe);
+    return { ...getPatchStatus(paths), loaderOk: existsSync(paths.loaderJs) };
+  }),
+
+  /** 部署 NineBird 到 QQ 容器 + 提权切换入口（弹系统授权框）。 */
+  /**
+   * 部署 NineBird 到 QQ 容器 + 提权切换入口。
+   * 密码由渲染层密码框输入，经 `sudo -S` stdin 使用（napcat 同款），
+   * 不在 main 里落盘 / 记日志。
+   */
+  nineBirdInstall: procedure
+    .input(z.object({ password: z.string() }))
+    .mutation(async ({ input }) => {
+      const platform = requirePlatform();
+      if (platform.kind !== 'darwin') throw new Error('仅 macOS 支持 NineBird 安装');
+      const exe = platform.qqExePath();
+      if (!exe) throw new Error('未找到 QQ，请确认已安装 QQ');
+      await installNineBird(exe, platform.native.resources, input.password);
+      return getPatchStatus(darwinPaths(exe));
+    }),
+
+  /** 恢复原版入口（提权）+ 删除容器部署目录。 */
+  nineBirdUninstall: procedure
+    .input(z.object({ password: z.string() }))
+    .mutation(async ({ input }) => {
+      const platform = requirePlatform();
+      if (platform.kind !== 'darwin') throw new Error('仅 macOS 支持 NineBird 卸载');
+      const exe = platform.qqExePath();
+      if (!exe) throw new Error('未找到 QQ，请确认已安装 QQ');
+      await uninstallNineBird(exe, input.password);
+      return getPatchStatus(darwinPaths(exe));
+    }),
+
+  /**
+   * macOS：提权扫描在线 QQ 进程内存，直接恢复数据库密钥。
+   * 读取其它进程内存受 SIP / task_for_pid 限制，需要解除 SIP 并且以管理员
+   * 权限执行（密码经 sudo -S stdin 传入，与 ninebird 安装同一套提权姿势，
+   * 不在 main 里落盘 / 记日志）。扫描失败（如未解除 SIP）返回
+   * `{ success: false, pid }`，由渲染层引导用户解除 SIP 重试或重启 QQ。
+   * 非 macOS 平台直接拒绝，win/linux 不受影响。
+   */
+  macScanKeyFromMemory: procedure
+    .input(z.object({ uin: z.string().min(1), password: z.string() }))
+    .mutation(async ({ input }) => {
+      const platform = requirePlatform();
+      if (platform.kind !== 'darwin') throw new Error('仅 macOS 支持内存扫描获取密钥');
+      const boot = requireBootstrap();
+      await ensureUidForUin(boot, input.uin);
+
+      const dbPath = platform.ntMsgDbPath(input.uin);
+      if (!dbPath || !existsSync(dbPath)) {
+        return {
+          success: false as const,
+          pid: 0,
+          error: `未找到账号 ${input.uin} 的数据库文件（nt_msg.db）`,
+        };
+      }
+
+      let pid: number | null = null;
+      try {
+        pid = platform.resolveQqPid(input.uin);
+      } catch {
+        pid = null;
+      }
+      if (pid === null) {
+        return {
+          success: false as const,
+          pid: 0,
+          error: `账号 ${input.uin} 当前离线，无法扫描其进程内存`,
+        };
+      }
+
+      try {
+        return await runElevatedKeyScan(pid, dbPath, input.password);
+      } catch (e) {
+        return {
+          success: false as const,
+          pid,
+          error: e instanceof Error ? e.message : String(e),
+        };
+      }
+    }),
 
   // ---- detection (via global config cache) ----
 
@@ -319,7 +416,9 @@ export const bootstrapRouter = router({
    */
   setAutoInjectQq: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
     if (input.enabled && process.platform === 'darwin') {
-      throw new Error('macOS 版不支持注入 QQ（SIP 限制），此开关无法开启。请手动填入数据库密钥使用。');
+      throw new Error(
+        'macOS 版不支持注入 QQ（SIP 限制），此开关无法开启。请手动填入数据库密钥使用。',
+      );
     }
     requireBootstrap().userConfig.setSettings({ autoInjectQq: input.enabled });
     return true;
@@ -559,18 +658,16 @@ export const bootstrapRouter = router({
     }),
 
   /** 删除一条推送目标；删的是当前启用项时自动回到「未启用」。 */
-  deleteSsePushServer: procedure
-    .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
-      const userConfig = requireBootstrap().userConfig;
-      const cfg = userConfig.getSettings().ssePush;
-      const servers = cfg.servers.filter((s) => s.id !== input.id);
-      const enabledServerId = cfg.enabledServerId === input.id ? null : cfg.enabledServerId;
-      userConfig.setSettings({ ssePush: { servers, enabledServerId } });
-      const next = userConfig.getSettings().ssePush;
-      await getAppContext().applySsePush(next);
-      return next;
-    }),
+  deleteSsePushServer: procedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+    const userConfig = requireBootstrap().userConfig;
+    const cfg = userConfig.getSettings().ssePush;
+    const servers = cfg.servers.filter((s) => s.id !== input.id);
+    const enabledServerId = cfg.enabledServerId === input.id ? null : cfg.enabledServerId;
+    userConfig.setSettings({ ssePush: { servers, enabledServerId } });
+    const next = userConfig.getSettings().ssePush;
+    await getAppContext().applySsePush(next);
+    return next;
+  }),
 
   /** 启用 / 停用某条推送目标：同时只能启用一条，传 null 表示全部停用。 */
   setSsePushEnabled: procedure
@@ -579,9 +676,7 @@ export const bootstrapRouter = router({
       const userConfig = requireBootstrap().userConfig;
       const cfg = userConfig.getSettings().ssePush;
       const enabledServerId =
-        input.serverId && cfg.servers.some((s) => s.id === input.serverId)
-          ? input.serverId
-          : null;
+        input.serverId && cfg.servers.some((s) => s.id === input.serverId) ? input.serverId : null;
       userConfig.setSettings({ ssePush: { enabledServerId } });
       const next = userConfig.getSettings().ssePush;
       await getAppContext().applySsePush(next);
