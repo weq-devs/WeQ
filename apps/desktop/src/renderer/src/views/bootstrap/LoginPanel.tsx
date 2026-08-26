@@ -158,8 +158,18 @@ export function LoginPanel({
       }
 
       if (selected.a1Key) {
+        if (!(await ensureNineBirdInstalled())) {
+          setBusy(false);
+          setStatus('');
+          return;
+        }
         startQuickLogin(selected);
       } else {
+        if (!(await ensureNineBirdInstalled())) {
+          setBusy(false);
+          setStatus('');
+          return;
+        }
         startQrLogin(selected);
       }
     } catch (e) {
@@ -299,6 +309,50 @@ export function LoginPanel({
     setBusy(false);
   }
 
+  /**
+   * darwin：登录前确保 NineBird 已装好。未装（或入口已补丁但 bundle shim
+   * 缺失）时弹管理员密码框提权安装；取消 / 失败返回 false 并已提示用户。
+   * 其它平台直接放行（linux 的 pkexec / win32 的注入不依赖这一步）。
+   */
+  async function ensureNineBirdInstalled(): Promise<boolean> {
+    if (!isMac) return true;
+    try {
+      const status = await client.bootstrap.nineBirdInstallStatus.query();
+      if (status == null) return true;
+
+      const needsInstall =
+        status.kind === 'original' || (status.kind === 'ninebird' && status.loaderOk === false);
+      if (!needsInstall) {
+        if (status.kind !== 'ninebird') {
+          showError(
+            '无法自动安装 NineBird',
+            status.kind === 'custom'
+              ? `QQ 程序入口被其他程序占用（${status.main}）。请在「设置 → 全局设置」中先还原为原版 QQ，再重试。`
+              : status.kind === 'missing'
+                ? '未找到 QQ 入口配置，请确认 QQ 已安装。'
+                : `读取 QQ 入口配置失败：${status.error}`,
+          );
+          return false;
+        }
+        return true;
+      }
+
+      const password = await promptPassword(
+        'NineBird 安装',
+        '登录流程需要重启 QQ 以获取密钥，需要管理员权限修改 QQ 程序入口。请输入电脑开机密码。',
+        { placeholder: '管理员密码' },
+      );
+      if (password === null) return false;
+      setStatus('正在安装 NineBird…');
+      await client.bootstrap.nineBirdInstall.mutate({ password });
+      setStatus('');
+      return true;
+    } catch (e) {
+      showError('NineBird 安装失败', errMsg(e));
+      return false;
+    }
+  }
+
   function startQuickLogin(acc: UiAccount): void {
     setStatus('正在快速登录…');
     closeSub();
@@ -387,6 +441,13 @@ export function LoginPanel({
   function onSelectByUin(uin: string): void {
     const match = accounts.find((a) => a.uin === uin);
     if (match) onSelect(match);
+  }
+
+  /** 「登录新的账号」：先确保 NineBird 已装，再走匿名扫码。 */
+  async function startNewAccountQr(): Promise<void> {
+    if (!selected) return;
+    if (!(await ensureNineBirdInstalled())) return;
+    startQrLogin(selected, true);
   }
 
   function cancelQr(): void {
@@ -529,7 +590,7 @@ export function LoginPanel({
                 <button
                   type="button"
                   className="weq-acct-new"
-                  onClick={() => selected && startQrLogin(selected, true)}
+                  onClick={() => void startNewAccountQr()}
                 >
                   <UserPlus size={15} strokeWidth={1.8} aria-hidden />
                   登录新的账号

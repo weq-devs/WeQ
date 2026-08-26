@@ -25,7 +25,6 @@ QQ（App Store 版）是沙箱应用，只能读写自己的容器
 
 ```
 ~/Library/Containers/com.tencent.qq/Data/Documents/weq-ninebird/
-  loadNineBird.js    # 入口 shim（package.json.main 指向它）
   NineBird.node      # hooker（从 native/darwin/<arch>/ninebird 拷入）
   qqnt.json          # 占位
   qr-dbkey.js        # loader 运行时（pnpm build:ninebird 产物）
@@ -35,8 +34,16 @@ QQ（App Store 版）是沙箱应用，只能读写自己的容器
 ```
 
 `/Applications/QQ.app/Contents/Resources/app/package.json` 的 `main` 被改成指向
-`loadNineBird.js` 的**相对路径**（备份为 `package.json.bak`），热更新包
+同目录的 `./loadNineBird.js`（备份为 `package.json.bak`），热更新包
 （容器 `versions/<v>/QQUpdate.app/…/package.json`）同步 patch / 还原。
+
+**入口 shim 必须放在 QQ.app bundle 里，不能放容器**：QQ 7.x 自带一个无界面
+Electron 辅助壳 `QQEXDOC.app`（QQ 文档场景），它有自己独立的沙箱容器
+`com.tencent.qqexdoc`，读不了 `com.tencent.qq` 的容器——若 `main` 指向容器里的
+shim，QQEXDOC 加载时直接 `EPERM: operation not permitted`（sandbox deny）。
+它读 QQ.app 自己的 bundle 是放行的，所以 shim 随 `package.json` 一起由提权
+安装写进 bundle；loader / hooker 仍留容器（只有 `--no-sandbox` 分支会 require，
+那条路只有 WeQ 拉起的 QQ 主进程走，主进程读自己容器没问题）。
 
 ## 提权：为什么不抄 pkexec，也不让 Electron 以 root 跑
 
@@ -44,10 +51,11 @@ macOS 没有 polkit / pkexec。但 Linux 提权注入的**架构**可以照搬�
 只做数据准备，特权部分收敛成一个短命子进程。
 
 这里照抄 napcat-mac-installer 的 `sudo -S`：渲染层弹密码框，密码经 stdin 喂给
-`/usr/bin/sudo -S /bin/sh -c <sh>`，root 只执行两个字节级 `cp`：
+`/usr/bin/sudo -S /bin/sh -c <sh>`，root 只执行受控的字节级 `cp`：
 
 - 备份：`[ -f package.json.bak ] || cp -p package.json package.json.bak`
 - 覆盖：`cp <临时 patched JSON> package.json`
+- shim：`cp <临时 shim> loadNineBird.js`（与 package.json 同目录，WeQ 写临时文件）
 
 Patched JSON 由 WeQ 自己（非特权）写进临时文件，root 永远不碰内容生成逻辑。
 密码不落盘、不进日志；sudo 是 WeQ 的直接子进程，TCC 责任归属 WeQ，
@@ -92,6 +100,11 @@ macOS 是单实例 QQ，启动前先 `SIGKILL` 掉已有 QQ（等同 napcat 的 
 
 macOS 的「获取密钥」不再走注入型实例取 key（SIP 下注入本来就不可用），改为：
 
+- **未安装时自动安装**：quick-login / QR 登录 / 「登录新的账号」在拉起 QQ 前
+  先查 `nineBirdInstallStatus`；入口还是原版（或入口已补丁但 bundle shim 缺失）
+  就直接弹管理员密码框提权安装，不再要求先去设置页手动装——新账号用户不需要
+  先有一个可用账号才能走到设置页。
+
 1. **在线** → 弹管理员密码框（`sudo -S`，ninebird 安装同款），提权执行
    `nt_helper.scanKeyFromDatabase(dbPath, pid)`（零注入内存扫描，读取进程内存
    需要解除 SIP / task_for_pid 放行）。命中即直接填入密钥。
@@ -124,3 +137,19 @@ macOS 的「获取密钥」不再走注入型实例取 key（SIP 下注入本来
   是唯一未在真机验证的变量；若 dyld 拒绝，先在安装时 `codesign -s -` 签名再测。
 - WeQ 若以 Rosetta（x64）运行在 Apple Silicon 上，hooker 会选 x64 切片，
   与 arm64 版 QQ 不匹配（与 win/linux 按 process.arch 选产物的限制一致）。
+
+## 踩坑记录：darwin 的“容器套容器”数据根
+
+loader（`qr-dbkey.ts` / `quick-dbkey.ts`）曾在加载 wrapper 后把数据根覆盖成
+`wrapper.NodeQQNTWrapperUtil.getNTUserDataInfoConfig()` 的返回值。macOS 沙箱内
+`NSHomeDirectory()` 已经是 `~/Library/Containers/com.tencent.qq/Data`，wrapper 再
+往上拼一层容器相对路径，得到
+`…/Data/Library/Containers/com.tencent.qq/Data/Library/Application Support/QQ`
+的嵌套根。NT 会在嵌套根下**重建一套全新 profile / 数据库**，登录、hook 全都正常，
+但 0xcde_2 返回的 dbkey 属于嵌套库，对真实 `nt_msg.db` 验不过——症状就是
+“扫码成功但密钥错误”，与 linux 那个 `real/global` vs `real/nt_qq/global` 是同一类
+路径错误。修法：darwin 上跳过 wrapper 覆盖，直接用 `qq-info.ts` 解析出的容器根
+（`process.platform === 'darwin' ? undefined : getNTUserDataInfoConfig()`）。
+
+另：`NINEBIRD_LOG` 必须指向 QQ 容器内（如 `weq-ninebird/ninebird_qq.log`），
+指向 WeQ 的日志目录会在 QQ 沙箱里被静默丢弃，loader 侧日志完全拿不到。

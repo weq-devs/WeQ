@@ -175,19 +175,10 @@ export function Modal({
 export function DialogHost(): ReactElement | null {
   const current = useDialog((s) => s.current);
   const close = useDialog((s) => s.close);
-  const [passwordValue, setPasswordValue] = useState('');
-  const passwordRef = useRef<HTMLInputElement>(null);
-
-  const isPasswordPrompt = Boolean(current?.password);
-
-  useEffect(() => {
-    if (!current?.password) return;
-    setPasswordValue('');
-    const frame = requestAnimationFrame(() => passwordRef.current?.focus());
-    return () => cancelAnimationFrame(frame);
-  }, [current?.id, current?.password]);
 
   if (!current) return null;
+
+  const isPasswordPrompt = Boolean(current?.password);
 
   const handleClose = current.dismissible
     ? () => {
@@ -196,12 +187,6 @@ export function DialogHost(): ReactElement | null {
         close();
       }
     : undefined;
-
-  const submitPassword = (): void => {
-    if (!current.password || !passwordValue) return;
-    current.password.resolve(passwordValue);
-    close();
-  };
 
   return (
     <Modal
@@ -231,74 +216,109 @@ export function DialogHost(): ReactElement | null {
           )}
         </div>
         {current.password ? (
-          <div className="weq-dialog-body weq-password-body">
-            <div>{current.message}</div>
-            <input
-              ref={passwordRef}
-              className="weq-password-input"
-              type="password"
-              value={passwordValue}
-              placeholder={current.password.placeholder}
-              autoComplete="current-password"
-              onChange={(event) => setPasswordValue(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') submitPassword();
-              }}
-            />
-          </div>
+          <PasswordDialogBody
+            key={current.id}
+            request={current}
+            onResolve={(value) => {
+              current.password?.resolve(value);
+              close();
+            }}
+          />
         ) : (
-          <div className="weq-dialog-body">{current.message}</div>
+          <>
+            <div className="weq-dialog-body">{current.message}</div>
+            <div className="weq-dialog-foot">
+              {current.confirm ? (
+                <>
+                  <button
+                    className="weq-action-soft"
+                    onClick={() => {
+                      current.confirm?.resolve(false);
+                      close();
+                    }}
+                  >
+                    {current.confirm.cancelLabel}
+                  </button>
+                  <button
+                    className="weq-action-primary"
+                    onClick={() => {
+                      current.confirm?.resolve(true);
+                      close();
+                    }}
+                  >
+                    {current.confirm.okLabel}
+                  </button>
+                </>
+              ) : (
+                handleClose && (
+                  <button className="weq-action-primary" onClick={handleClose}>
+                    我知道了
+                  </button>
+                )
+              )}
+            </div>
+          </>
         )}
-        <div className="weq-dialog-foot">
-          {current.password ? (
-            <>
-              <button
-                className="weq-action-soft"
-                onClick={() => {
-                  current.password?.resolve(null);
-                  close();
-                }}
-              >
-                {current.password.cancelLabel}
-              </button>
-              <button
-                className="weq-action-primary"
-                disabled={!passwordValue}
-                onClick={submitPassword}
-              >
-                {current.password.okLabel}
-              </button>
-            </>
-          ) : current.confirm ? (
-            <>
-              <button
-                className="weq-action-soft"
-                onClick={() => {
-                  current.confirm?.resolve(false);
-                  close();
-                }}
-              >
-                {current.confirm.cancelLabel}
-              </button>
-              <button
-                className="weq-action-primary"
-                onClick={() => {
-                  current.confirm?.resolve(true);
-                  close();
-                }}
-              >
-                {current.confirm.okLabel}
-              </button>
-            </>
-          ) : (
-            handleClose && (
-              <button className="weq-action-primary" onClick={handleClose}>
-                我知道了
-              </button>
-            )
-          )}
-        </div>
       </div>
     </Modal>
+  );
+}
+
+/**
+ * 密码输入体。按 `key={dialog.id}` 挂载，每个对话框都是全新 state——
+ * 连续弹多个密码框（如内存扫描 + NineBird 安装）时，不会把上一个框的旧值
+ * 提交给 sudo（旧值会导致 sudo 收到错误密码：Sorry, try again）。
+ */
+function PasswordDialogBody({
+  request,
+  onResolve,
+}: {
+  request: DialogRequest;
+  onResolve: (value: string | null) => void;
+}): ReactElement {
+  const [value, setValue] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  const submit = (): void => {
+    if (!value) return;
+    onResolve(value);
+  };
+
+  return (
+    <>
+      <div className="weq-dialog-body weq-password-body">
+        <div>{request.message}</div>
+        <input
+          ref={inputRef}
+          className="weq-password-input"
+          type="password"
+          value={value}
+          placeholder={request.password?.placeholder ?? '请输入密码'}
+          autoComplete="current-password"
+          onChange={(event) => setValue(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') submit();
+          }}
+        />
+      </div>
+      <div className="weq-dialog-foot">
+        <button
+          className="weq-action-soft"
+          onClick={() => {
+            onResolve(null);
+          }}
+        >
+          {request.password?.cancelLabel ?? '取消'}
+        </button>
+        <button className="weq-action-primary" disabled={!value} onClick={submit}>
+          {request.password?.okLabel ?? '确定'}
+        </button>
+      </div>
+    </>
   );
 }

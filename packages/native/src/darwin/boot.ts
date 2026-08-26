@@ -17,8 +17,6 @@
  */
 
 import { spawn } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 
 import type {
@@ -28,12 +26,6 @@ import type {
   NineBirdResources,
 } from '../types';
 import { darwinPaths, ensureInstalled } from './install';
-
-function resolveLogDir(): string {
-  const override = process.env.WEQ_LOG_DIR;
-  if (override) return override;
-  return join(homedir(), 'Library', 'Application Support', 'weq', 'logs');
-}
 
 export function createDarwinNineBirdBoot(resources: NineBirdResources): NineBirdBootBinding {
   return {
@@ -54,19 +46,25 @@ export function createDarwinNineBirdBoot(resources: NineBirdResources): NineBird
       const containerLoader = join(paths.installDir, basename(opts.loadJsPath));
 
       // 3. 环境变量 —— 与 win/linux addon 传给 QQ 的 NINEBIRD_* 完全一致。
-      const logDir = resolveLogDir();
-      try {
-        mkdirSync(logDir, { recursive: true });
-      } catch {
-        // 日志写不进不致命。
-      }
       const env: NodeJS.ProcessEnv = {
         ...process.env,
         NINEBIRD_PIPE_NAME: opts.pipeName,
         NINEBIRD_LOAD_PATH: containerLoader,
         NINEBIRD_LOADER_DIR: paths.installDir,
         NINEBIRD_TIMEOUT_MS: String(opts.timeoutMs ?? 180_000),
-        NINEBIRD_LOG: join(logDir, 'ninebird_qq.log'),
+        // QQ 是沙箱应用，只能写自己的容器；日志必须放容器内（installDir
+        // 已被 ensureInstalled 创建），否则 loader 的 nbLog 静默丢弃。
+        NINEBIRD_LOG: join(paths.installDir, 'ninebird_qq.log'),
+        // WeQ 侧（非沙箱）知道确切的 QQ 数据根；直接传给 loader，避免 loader
+        // 在沙箱里用 os.homedir() 拼出“容器套容器”的嵌套路径。
+        NINEBIRD_DATA_ROOT: join(
+          paths.installDir,
+          '..',
+          '..',
+          'Library',
+          'Application Support',
+          'QQ',
+        ),
         ...(opts.uin !== undefined ? { NINEBIRD_TARGET_UIN: opts.uin } : {}),
         ...(opts.appid !== undefined ? { NINEBIRD_APPID: opts.appid } : {}),
         ...(opts.qua !== undefined ? { NINEBIRD_QUA: opts.qua } : {}),

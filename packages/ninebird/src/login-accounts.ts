@@ -170,7 +170,11 @@ async function main() {
 
         try {
             const util = (wrapper as any).NodeQQNTWrapperUtil;
-            const real = util?.getNTUserDataInfoConfig?.();
+            // darwin：wrapper 返回值是“容器套容器”的嵌套根（见 qr-dbkey.ts
+            // 注释），会重建全新 profile；直接保留 qq-info 解析出的路径。
+            const real = process.platform === 'darwin'
+                ? undefined
+                : util?.getNTUserDataInfoConfig?.();
 
             if (real) {
                 dataPathGlobal = process.platform === 'linux'

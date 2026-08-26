@@ -49,7 +49,7 @@ describe('darwinPaths', () => {
     expect(paths.appDir).toBe(appDirOf());
     expect(paths.packageJson).toBe(join(appDirOf(), 'package.json'));
     expect(paths.installDir).toContain('weq-ninebird');
-    expect(paths.loaderJs).toBe(join(paths.installDir, 'loadNineBird.js'));
+    expect(paths.loaderJs).toBe(join(appDirOf(), 'loadNineBird.js'));
     expect(paths.nineBirdNode).toBe(join(paths.installDir, 'NineBird.node'));
   });
 
@@ -69,6 +69,14 @@ describe('getPatchStatus', () => {
     const paths = darwinPaths(exe);
     writePackage(loaderMain(paths));
     const status = getPatchStatus(paths);
+    expect(status.kind).toBe('ninebird');
+  });
+
+  it('旧版容器 shim 入口仍识别为 NineBird（迁移前不误报占用）', () => {
+    writePackage(
+      '../../../../../home/Library/Containers/com.tencent.qq/Data/Documents/weq-ninebird/loadNineBird.js',
+    );
+    const status = getPatchStatus(darwinPaths(exe));
     expect(status.kind).toBe('ninebird');
   });
 
@@ -136,7 +144,7 @@ describe('热更新包', () => {
     const patched = patchHotUpdatePackages(paths);
     expect(patched).toBe(1);
     const pkg = JSON.parse(readFileSync(hotUpdatePackageUrls(paths)[0]!, 'utf-8'));
-    expect(pkg.main).toBe(loaderMain(paths));
+    expect(pkg.main).toBe(paths.loaderJs);
 
     // 已是 loader 入口时不重复 patch。
     expect(patchHotUpdatePackages(paths)).toBe(0);

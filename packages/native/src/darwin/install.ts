@@ -69,7 +69,11 @@ export interface DarwinInstallPaths {
   packageBackup: string;
   /** 容器内的 NineBird 部署目录。 */
   installDir: string;
-  /** 容器内的入口 shim（package.json main 指向它）。 */
+  /**
+   * QQ.app bundle 内的入口 shim（package.json main 指向它）。
+   * 必须放在 bundle 而不是容器：QQEXDOC 等辅助进程有自己的沙箱容器，
+   * 读不了 com.tencent.qq 的容器（EPERM），但能读 QQ.app 自己的 bundle。
+   */
   loaderJs: string;
   /** 容器内的 hooker（loader JS 用 NINEBIRD_LOADER_DIR 找到它）。 */
   nineBirdNode: string;
@@ -87,7 +91,7 @@ export function darwinPaths(qqExe: string, home = homedir()): DarwinInstallPaths
     packageJson: join(appDir, 'package.json'),
     packageBackup: join(appDir, 'package.json.bak'),
     installDir,
-    loaderJs: join(installDir, 'loadNineBird.js'),
+    loaderJs: join(appDir, 'loadNineBird.js'),
     nineBirdNode: join(installDir, 'NineBird.node'),
     qqntJson: join(installDir, 'qqnt.json'),
     versionsDir: join(
@@ -131,12 +135,19 @@ export function loaderMain(paths: DarwinInstallPaths): string {
   return relative(paths.appDir, paths.loaderJs);
 }
 
+/** 旧版部署：main 指向容器 `Documents/weq-ninebird/loadNineBird.js`。 */
+function isLegacyLoaderMain(main: string): boolean {
+  return main.includes('weq-ninebird') && main.includes('loadNineBird.js');
+}
+
 /** 读取当前入口状态：原版 / NineBird / 自定义 / 缺失。 */
 export function getPatchStatus(paths: DarwinInstallPaths): NineBirdPatchStatus {
   try {
     const main = packageMain(paths);
     if (main === null) return { kind: 'missing' };
-    if (main === loaderMain(paths)) return { kind: 'ninebird', main };
+    if (main === loaderMain(paths) || isLegacyLoaderMain(main)) {
+      return { kind: 'ninebird', main };
+    }
     if (ORIGINAL_LOADERS.includes(main)) return { kind: 'original', main };
     return { kind: 'custom', main };
   } catch (e) {
@@ -202,7 +213,10 @@ function elevatedErrorHint(raw: string): string {
     lower.includes('sorry, try again') ||
     lower.includes('password is required')
   ) {
-    return `管理员密码错误：${raw}`;
+    return (
+      `管理员密码错误：${raw}\n\n` +
+      `请确认输入的密码正确（注意大小写和输入法），然后重新点击按钮重试。`
+    );
   }
   if (lower.includes('not in the sudoers file')) {
     return `当前用户没有 sudo 权限：${raw}`;
@@ -223,6 +237,9 @@ function elevatedErrorHint(raw: string): string {
 
 /** 提权执行；非零退出码抛错并附上友好提示（密码错误 / TCC 修复）。 */
 async function runSudoChecked(script: string, password: string): Promise<void> {
+  if (!password) {
+    throw new Error('管理员密码为空，请重新输入后再试。');
+  }
   const result = await runSudo(script, password);
   if (result.exitCode !== 0) {
     const raw = result.stderr || result.stdout || `sudo 退出码 ${result.exitCode}`;
@@ -235,48 +252,51 @@ async function runSudoChecked(script: string, password: string): Promise<void> {
 /**
  * 备份 + 覆盖 `/Applications/QQ.app/…/package.json`。
  * TS 先把 patched JSON 写到自己的临时文件（非特权），root 只做两次 cp：
- * 备份（.bak 已存在时不覆盖，避免把已补丁的入口当原始入口存下来）+ 覆盖。
+ * 备份（.bak 已存在时不覆盖，避免把已补丁的入口当原始入口存下来）+ 覆盖；
+ * 入口 shim 同样由 TS 写临时文件，root 只负责把它拷进 bundle。
  */
-export async function installEntry(
-  paths: DarwinInstallPaths,
-  password: string,
-): Promise<void> {
+export async function installEntry(paths: DarwinInstallPaths, password: string): Promise<void> {
   if (!existsSync(paths.packageJson)) {
     throw new Error(`未找到 QQ 入口配置：${paths.packageJson}`);
   }
   const pkg = readJson(paths.packageJson);
   const patched = { ...pkg, main: loaderMain(paths) };
   const tmp = join(tmpdir(), `weq-package-${process.pid}-${Date.now()}.json`);
+  const shimTmp = join(tmpdir(), `weq-shim-${process.pid}-${Date.now()}.js`);
   writeFileSync(tmp, `${JSON.stringify(patched, null, 2)}\n`);
+  writeFileSync(shimTmp, loaderShimContent(paths));
   try {
     const script = [
       `PKG=${shq(paths.packageJson)}`,
       `BAK=${shq(paths.packageBackup)}`,
       `TMP=${shq(tmp)}`,
+      `SHIM_TMP=${shq(shimTmp)}`,
+      `SHIM=${shq(paths.loaderJs)}`,
       `[ -f "$BAK" ] || cp -p "$PKG" "$BAK"`,
       `cp "$TMP" "$PKG"`,
+      `cp "$SHIM_TMP" "$SHIM"`,
     ].join('\n');
     await runSudoChecked(script, password);
   } finally {
     rmSync(tmp, { force: true });
+    rmSync(shimTmp, { force: true });
   }
   // 热更新包在容器内，用户权限即可写，无需提权。
   patchHotUpdatePackages(paths);
 }
 
-/** 从 .bak 恢复原版入口（提权），并还原热更新包入口。 */
-export async function restoreEntry(
-  paths: DarwinInstallPaths,
-  password: string,
-): Promise<void> {
+/** 从 .bak 恢复原版入口（提权）、删除 bundle shim，并还原热更新包入口。 */
+export async function restoreEntry(paths: DarwinInstallPaths, password: string): Promise<void> {
   if (!existsSync(paths.packageBackup)) {
     throw new Error(`未找到备份文件：${paths.packageBackup}`);
   }
   const script = [
     `PKG=${shq(paths.packageJson)}`,
     `BAK=${shq(paths.packageBackup)}`,
+    `SHIM=${shq(paths.loaderJs)}`,
     `[ -f "$BAK" ] || { echo "backup missing: $BAK" >&2; exit 1; }`,
     `cp -p "$BAK" "$PKG"`,
+    `rm -f "$SHIM"`,
   ].join('\n');
   await runSudoChecked(script, password);
   restoreHotUpdatePackages(paths);
@@ -314,7 +334,9 @@ function readdirSafe(dir: string): string[] {
 /** 把所有热更新包入口指向我们的 loader（napcat patchHotUpdatePackages 同款）。 */
 export function patchHotUpdatePackages(paths: DarwinInstallPaths): number {
   let patched = 0;
-  const loaderMainPath = loaderMain(paths);
+  // 热更新包 bundle 与主 bundle 不同目录，不能沿用主入口的 `./loadNineBird.js`
+  // 相对路径，直接用 bundle shim 的绝对路径（QQ 主进程可读）。
+  const loaderMainPath = paths.loaderJs;
   for (const pkgUrl of hotUpdatePackageUrls(paths)) {
     try {
       const pkg = readJson(pkgUrl);
@@ -395,7 +417,10 @@ function copyIfChanged(src: string, dst: string): void {
   copyFileSync(src, dst);
 }
 
-/** 把 hooker + loader 脚本拷进 QQ 容器，写入口 shim（不碰 package.json）。 */
+/**
+ * 把 hooker + loader 脚本拷进 QQ 容器（不碰 package.json）。
+ * 入口 shim 需要写进 QQ.app bundle，由提权安装流程（installEntry）负责。
+ */
 export function deployNineBirdFiles(qqExe: string, resources: NineBirdResources): void {
   const paths = darwinPaths(qqExe);
   mkdirSync(paths.installDir, { recursive: true });
@@ -418,7 +443,6 @@ export function deployNineBirdFiles(qqExe: string, resources: NineBirdResources)
     join(paths.installDir, 'package.json'),
     `${JSON.stringify({ type: 'commonjs' })}\n`,
   );
-  writeFileSync(paths.loaderJs, loaderShimContent(paths));
 }
 
 /**
@@ -449,7 +473,11 @@ export async function ensureInstalled(qqExe: string, resources: NineBirdResource
   }
 }
 
-/** 安装：部署文件 + 提权补丁入口 + 同步热更新包。 */
+/**
+ * 安装：部署文件 + 提权补丁入口 + 同步热更新包。
+ * 入口已是 NineBird 但 bundle shim 缺失（旧版容器 shim 部署 / 被删）时，
+ * 补一次 installEntry 完成迁移或修复。
+ */
 export async function installNineBird(
   qqExe: string,
   resources: NineBirdResources,
@@ -460,6 +488,9 @@ export async function installNineBird(
   const status = getPatchStatus(paths);
   switch (status.kind) {
     case 'ninebird':
+      if (!existsSync(paths.loaderJs)) {
+        await installEntry(paths, password);
+      }
       return;
     case 'custom':
       throw new Error(

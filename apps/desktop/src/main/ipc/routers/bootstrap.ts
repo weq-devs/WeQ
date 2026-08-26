@@ -128,13 +128,18 @@ export const bootstrapRouter = router({
 
   // ---- macOS NineBird 安装（napcat-mac-installer 机制） ----
 
-  /** 入口补丁状态：原版 / NineBird / 自定义 / 缺失。非 macOS 返回 null。 */
+  /**
+   * 入口补丁状态：原版 / NineBird / 自定义 / 缺失，外加 bundle shim 是否在
+   * 位（入口已补丁但 shim 被删时，登录流程需要重新提权安装修复）。
+   * 非 macOS 返回 null。
+   */
   nineBirdInstallStatus: procedure.query(() => {
     const platform = requirePlatform();
     if (platform.kind !== 'darwin') return null;
     const exe = platform.qqExePath();
-    if (!exe) return { kind: 'missing' } as const;
-    return getPatchStatus(darwinPaths(exe));
+    if (!exe) return { kind: 'missing', loaderOk: false } as const;
+    const paths = darwinPaths(exe);
+    return { ...getPatchStatus(paths), loaderOk: existsSync(paths.loaderJs) };
   }),
 
   /** 部署 NineBird 到 QQ 容器 + 提权切换入口（弹系统授权框）。 */
