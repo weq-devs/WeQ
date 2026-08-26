@@ -367,7 +367,8 @@ function liftElem(elem: Record<string, unknown>, dress: DecodedDress | null): Re
   if (common?.serviceType === 37 && common.pbElem) {
     return liftFaceElem(decode(FACE_ELEM, common.pbElem) as Record<string, unknown>);
   }
-  if (common?.serviceType === 48 && common.businessType === 20 && common.pbElem) {
+  // 普通聊天图片 businessType=20；合并转发（SsoRecvLongMsg）里的图片实测是 10，两者都收。
+  if (common?.serviceType === 48 && (common.businessType === 20 || common.businessType === 10) && common.pbElem) {
     return liftPicElem(decode(PIC_COMMON_PB, common.pbElem) as Record<string, unknown>);
   }
   if (common?.serviceType === 48 && common.businessType === 21 && common.pbElem) {
