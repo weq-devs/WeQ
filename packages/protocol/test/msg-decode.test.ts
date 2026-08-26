@@ -1,7 +1,14 @@
 import { deflateSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
-import { decodeMessage, encode, ELEM, FACE_COMMON_PB, FACE_ELEM, FILE_TRANS_TOP, INLINE_KEYBOARD_PB, MARKDOWN_COMMON_PB, PIC_COMMON_PB, PTT_COMMON_PB, PUSH_MSG_BODY, REPLY_PB_RESERVE, TEXT_PB_RESERVE, VIDEO_COMMON_PB } from '../src/index';
+import { decodeMessage, encode, ELEM, FACE_COMMON_PB, FACE_ELEM, FILE_TRANS_TOP, INLINE_KEYBOARD_PB, MARKDOWN_COMMON_PB, MSG_CONTENT, PIC_COMMON_PB, PTT_COMMON_PB, PUSH_MSG_BODY, REPLY_PB_RESERVE, TEXT_PB_RESERVE, VIDEO_COMMON_PB } from '../src/index';
 
+
+/** Hex 字符串 → bytes（测试辅助）。 */
+function hexBytes(hex: string): Uint8Array {
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
 describe('decodeMessage 简化消息解码', () => {
   it('把 PushMsgBody 映射成 head/sender/session/elements/dress', () => {
     const bytes = encode(PUSH_MSG_BODY, {
@@ -221,6 +228,109 @@ describe('decodeMessage 简化消息解码', () => {
     ]);
   });
 
+  it('把 commonElem(serviceType=48, businessType=21) 的完整 video（含 videoExt/storeId）解析成 codec 风格', () => {
+    const pbElem = encode(VIDEO_COMMON_PB, {
+      files: [
+        {
+          body: {
+            info: {
+              fileSize: 4627820,
+              md5Bytes: '85736dbff95c16855316709df9f9e6bb',
+              contentHash: 'f661aa75b2fa9f4b84b48db01417517046998007',
+              fileName: '85736dbff95c16855316709df9f9e6bb.mp4',
+              videoWidth: 640,
+              videoHeight: 1138,
+              videoDuration: 12,
+              original: 0,
+            },
+            fileToken: 'EhT2Yap1svqfS4S0jbAUF1FwRpmABxjsupoCIIcLKKad54iPv5YDMgRwcm9kUID1JFoQ6_QiNoSQQMIjeQzItOxLeHoCsSqCAQJneg',
+            storeId: 1,
+            uploadTime: 1787775592,
+            ttl: 604800,
+            subType: 0,
+          },
+        },
+        {
+          body: {
+            info: {
+              fileSize: 96376,
+              md5Bytes: 'f600dc290b9fff77f3597e56c0f218a9',
+              contentHash: 'c1f08e001a49949fbb1560ca963d1c7355c56765',
+              fileName: '85736dbff95c16855316709df9f9e6bb_0.png',
+            },
+            fileToken: 'EhTB8I4AGkmUn7sVYMqWPRxzVcVnZRj48AUgiAsomI7qiI-_lgMyBHByb2RQgPUkWhDALx4bAWbyaTWHNALk_r7degJNUoIBAmd6',
+            storeId: 1,
+            uploadTime: 1787775592,
+            ttl: 604800,
+            subType: 100,
+          },
+        },
+      ],
+    });
+    const bytes = encode(PUSH_MSG_BODY, {
+      contentHead: { msgId: 1, sequence: 1, timestamp: 1 },
+      body: {
+        richText: {
+          elems: [{ commonElem: { serviceType: 48, pbElem, businessType: 21 } }],
+        },
+      },
+    });
+    const msg = decodeMessage(bytes);
+    expect(msg.elements).toEqual([
+      {
+        kind: 'video',
+        fileName: '85736dbff95c16855316709df9f9e6bb.mp4',
+        fileToken: 'EhT2Yap1svqfS4S0jbAUF1FwRpmABxjsupoCIIcLKKad54iPv5YDMgRwcm9kUID1JFoQ6_QiNoSQQMIjeQzItOxLeHoCsSqCAQJneg',
+        fileSize: 4627820,
+        md5Bytes: hexBytes('85736dbff95c16855316709df9f9e6bb'),
+        contentHash: hexBytes('f661aa75b2fa9f4b84b48db01417517046998007'),
+        videoWidth: 640,
+        videoHeight: 1138,
+        videoDuration: 12,
+        isOriginal: false,
+        storeId: 1,
+        uploadTime: 1787775592,
+        fileTTL: 604800,
+        subType: 0,
+        videoToken: 'EhTB8I4AGkmUn7sVYMqWPRxzVcVnZRj48AUgiAsomI7qiI-_lgMyBHByb2RQgPUkWhDALx4bAWbyaTWHNALk_r7degJNUoIBAmd6',
+        channelParams: hexBytes('f600dc290b9fff77f3597e56c0f218a9'),
+        videoFlag45421: hexBytes('c1f08e001a49949fbb1560ca963d1c7355c56765'),
+      },
+    ]);
+  });
+
+  it('把 MsgBody.msgContent 里的 notOnlineFile 解析成 codec 风格 file（私聊文件）', () => {
+    const msgContent = encode(MSG_CONTENT, {
+      notOnlineFile: {
+        fileType: 0,
+        fileUuid: '4952cc65f95b09df4de35ea1c783c368_1b2da186-a18c-11f1-a59d-c946be0004f7',
+        fileMd5: hexBytes('d26ceb7d661d55541aa9579e32b00bc0'),
+        fileName: 'bg.py',
+        fileSize: 1504,
+        subcmd: 1,
+        dangerEvel: 0,
+        expireTime: 1788984854,
+        fileHash: 'D6EATj32CMmksa4GEhRVdVzQUvfiaUHTd6ciaZ8TOePibF04BjgCyChHyjulr3UBjC5uibgDOImQgsgEQANIAQY',
+      },
+    });
+    const bytes = encode(PUSH_MSG_BODY, {
+      contentHead: { msgId: 1, sequence: 1, timestamp: 1 },
+      body: { richText: {}, msgContent },
+    });
+    const msg = decodeMessage(bytes);
+    expect(msg.elements).toEqual([
+      {
+        kind: 'file',
+        fileName: 'bg.py',
+        fileSize: 1504,
+        fileToken: '4952cc65f95b09df4de35ea1c783c368_1b2da186-a18c-11f1-a59d-c946be0004f7',
+        md5Bytes2: hexBytes('d26ceb7d661d55541aa9579e32b00bc0'),
+        transferFlag45504: 'D6EATj32CMmksa4GEhRVdVzQUvfiaUHTd6ciaZ8TOePibF04BjgCyChHyjulr3UBjC5uibgDOImQgsgEQANIAQY',
+        uploadTime: 1788984854,
+        subType: 0,
+      },
+    ]);
+  });
   it('把 transElem(elemType=24) 的 file 解析成 codec 风格（跳过 3 字节前缀）', () => {
     const prefix = new Uint8Array([0x01, 0x00, 0x93]);
     const body = encode(FILE_TRANS_TOP, {
@@ -254,6 +364,7 @@ describe('decodeMessage 简化消息解码', () => {
         fileName: 'misc.db',
         fileSize: 603136,
         fileToken: '/20a1c950-88ad-4011-82d3-81f302be4145',
+        busId: 102,
       },
     ]);
   });
@@ -287,6 +398,7 @@ describe('decodeMessage 简化消息解码', () => {
         fileName: 'misc.db',
         fileSize: 603136,
         fileToken: '/20a1c950-88ad-4011-82d3-81f302be4145',
+        busId: 102,
       },
     ]);
   });

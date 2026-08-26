@@ -11,7 +11,7 @@
 
 import { inflateSync } from 'node:zlib';
 import { decode } from '../protobuf';
-import { ELEM, FACE_COMMON_PB, FACE_ELEM, FILE_TRANS_TOP, INLINE_KEYBOARD_PB, MARKDOWN_COMMON_PB, PIC_COMMON_PB, PTT_COMMON_PB, PUSH_MSG_BODY, REPLY_PB_RESERVE, TEXT_PB_RESERVE, VIDEO_COMMON_PB } from './schemas';
+import { ELEM, FACE_COMMON_PB, FACE_ELEM, FILE_TRANS_TOP, INLINE_KEYBOARD_PB, MARKDOWN_COMMON_PB, MSG_CONTENT, PIC_COMMON_PB, PTT_COMMON_PB, PUSH_MSG_BODY, REPLY_PB_RESERVE, TEXT_PB_RESERVE, VIDEO_COMMON_PB } from './schemas';
 
 export interface DecodedDress {
   /** 气泡 itemId，无则为 0（elem tag 9.1）。 */
@@ -114,13 +114,9 @@ function liftPicElem(pb: Record<string, unknown>): Record<string, unknown> {
 
 /**
  * 把 commonElem(serviceType=48, businessType=21) 的 pbElem 提升成 codec 风格 video 元素：
- * 第 0 项取 fileName/fileToken/videoWidth/videoHeight/videoDuration，
- * 第 1 项的 fileToken 作为 videoToken（封面缩略图）。
- *
- * 已知缺口（下次补）：正常消息的视频 OIDB 请求会带 videoExt（channelParams=45862 /
- * videoFlag45421=45421 / videoFlag45863=45863）与 storeId（fileFlag45415=45415）；
- * 旧 wire 的 VIDEO_COMMON_PB 没声明这些 tag，缺失消息窗口的原片补全因此缺 video
- * 扩展块。若实测旧 wire 带对应字段，把 tag 补进 schema 与本函数即可。
+ * 第 0 项取视频本体（fileName/fileToken/fileSize/md5/contentHash/尺寸/时长/原图标记/
+ * storeId/uploadTime/ttl/subType），第 1 项是封面缩略图：fileToken 作为 videoToken，
+ * 它的 md5/contentHash 正好是 OIDB videoExt 需要的 channelParams / videoFlag45421。
  */
 function liftVideoElem(pb: Record<string, unknown>): Record<string, unknown> {
   const files = (pb.files as Record<string, unknown>[] | undefined) ?? [];
@@ -129,13 +125,31 @@ function liftVideoElem(pb: Record<string, unknown>): Record<string, unknown> {
   const videoBody = video?.body as Record<string, unknown> | undefined;
   const info = videoBody?.info as Record<string, unknown> | undefined;
   const thumbBody = thumb?.body as Record<string, unknown> | undefined;
+  const thumbInfo = thumbBody?.info as Record<string, unknown> | undefined;
   const out: Record<string, unknown> = { kind: 'video' };
   if (info?.fileName !== undefined) out.fileName = info.fileName;
   if (videoBody?.fileToken !== undefined) out.fileToken = videoBody.fileToken;
+  if (info?.fileSize !== undefined) out.fileSize = info.fileSize;
+  if (typeof info?.md5Bytes === 'string' && info.md5Bytes) out.md5Bytes = hexToBytes(info.md5Bytes);
+  if (typeof info?.contentHash === 'string' && info.contentHash) out.contentHash = hexToBytes(info.contentHash);
   if (info?.videoWidth !== undefined) out.videoWidth = info.videoWidth;
   if (info?.videoHeight !== undefined) out.videoHeight = info.videoHeight;
   if (info?.videoDuration !== undefined) out.videoDuration = info.videoDuration;
+  if (info?.original !== undefined) out.isOriginal = info.original === 1;
+  if (videoBody?.storeId !== undefined) out.storeId = videoBody.storeId;
+  if (videoBody?.uploadTime !== undefined) out.uploadTime = videoBody.uploadTime;
+  if (videoBody?.ttl !== undefined) out.fileTTL = videoBody.ttl;
+  if (videoBody?.subType !== undefined) out.subType = videoBody.subType;
   if (thumbBody?.fileToken !== undefined) out.videoToken = thumbBody.fileToken;
+  if (typeof thumbInfo?.md5Bytes === 'string' && thumbInfo.md5Bytes) out.channelParams = hexToBytes(thumbInfo.md5Bytes);
+  if (typeof thumbInfo?.contentHash === 'string' && thumbInfo.contentHash) out.videoFlag45421 = hexToBytes(thumbInfo.contentHash);
+  return out;
+}
+
+/** 旧 wire 视频的 md5 / contentHash 是 hex 字符串，转成二进制 bytes 与 codec 风格对齐。 */
+function hexToBytes(hex: string): Uint8Array {
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
   return out;
 }
 /**
@@ -158,13 +172,9 @@ function liftPttElem(pb: Record<string, unknown>): Record<string, unknown> {
 }
 
 /**
- * 把 transElem(elemType=24) 的 elemValue 提升成 codec 风格 file 元素：
- * 只保留 fileName / fileSize / fileToken。
- *
- * 已知缺口（下次补）：私聊文件下载（OIDB 0xE37_1200）除 fileToken（fileUuid）外还
- * 需要 fileHash（正常路径 = transferFlag45504 / md5Bytes2 / md5Bytes）。旧 wire 的
- * FILE_TRANS_INFO 字段 7/8/9 目前未保留，若其中是 md5/fileHash，补进 schema 与
- * 本函数后缺失消息窗口的私聊文件才能走通。
+ * 把 transElem(elemType=24) 的 elemValue 提升成 codec 风格 file 元素（群文件）：
+ * 保留 fileName / fileSize / fileToken，field1 作为 busId（0x6D6_2 群文件下载需要）。
+ * 私聊文件不在 transElem 里，走 MsgBody.msgContent 的 notOnlineFile（见 liftNotOnlineFileElem）。
  */
 /**
  * transElem(elemType=24) 的 elemValue 实测带 3 字节多余头（01 00 93）。
@@ -297,6 +307,26 @@ function liftFileElem(pb: Record<string, unknown>): Record<string, unknown> {
   if (info?.fileName !== undefined) out.fileName = info.fileName;
   if (info?.fileSize !== undefined) out.fileSize = info.fileSize;
   if (info?.fileToken !== undefined) out.fileToken = info.fileToken;
+  if (info?.field1 !== undefined) out.busId = info.field1;
+  return out;
+}
+
+/**
+ * 把 MsgBody.msgContent / richText.notOnlineFile 提升成 codec 风格 file 元素（私聊文件）：
+ * fileUuid→fileToken、fileMd5→md5Bytes2、fileHash→transferFlag45504（OIDB 0xE37_1200 下载
+ * 必需）、expireTime→uploadTime、fileType→subType。
+ */
+function liftNotOnlineFileElem(pb: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { kind: 'file' };
+  if (pb.fileName !== undefined) out.fileName = pb.fileName;
+  if (pb.fileSize !== undefined) {
+    out.fileSize = typeof pb.fileSize === 'bigint' ? Number(pb.fileSize) : pb.fileSize;
+  }
+  if (pb.fileUuid !== undefined) out.fileToken = pb.fileUuid;
+  if (pb.fileMd5 !== undefined) out.md5Bytes2 = pb.fileMd5;
+  if (pb.fileHash !== undefined) out.transferFlag45504 = pb.fileHash;
+  if (pb.expireTime !== undefined) out.uploadTime = pb.expireTime;
+  if (pb.fileType !== undefined) out.subType = pb.fileType;
   return out;
 }
 
@@ -445,7 +475,10 @@ export function decodeMessage(bytes: Uint8Array): DecodedMessage {
       sequence?: number;
       timestamp?: number;
     };
-    body?: { richText?: { elems?: Record<string, unknown>[] } };
+    body?: {
+      richText?: { elems?: Record<string, unknown>[]; notOnlineFile?: Record<string, unknown> };
+      msgContent?: Uint8Array;
+    };
   };
 
   const head = raw.contentHead ?? {};
@@ -459,6 +492,20 @@ export function decodeMessage(bytes: Uint8Array): DecodedMessage {
   for (const elem of elems) {
     const lifted = liftElem(elem, dress);
     if (lifted !== undefined) elements.push(lifted);
+  }
+
+  // 私聊文件不在 richText.elems 里：老 wire 走 MsgBody.msgContent 的 notOnlineFile
+  //（部分消息也会放在 richText.notOnlineFile，两种都收）。
+  const notOnlineFile = raw.body?.richText?.notOnlineFile;
+  if (notOnlineFile) elements.push(liftNotOnlineFileElem(notOnlineFile));
+  const msgContent = raw.body?.msgContent;
+  if (msgContent && msgContent.length > 0) {
+    try {
+      const content = decode(MSG_CONTENT, msgContent) as { notOnlineFile?: Record<string, unknown> };
+      if (content.notOnlineFile) elements.push(liftNotOnlineFileElem(content.notOnlineFile));
+    } catch {
+      // msgContent 不是 MsgContent 结构时忽略，不影响 richText 元素。
+    }
   }
 
   return {

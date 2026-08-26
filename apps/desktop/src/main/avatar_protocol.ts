@@ -53,6 +53,9 @@ export async function handleAvatarRequest(request: Request): Promise<Response> {
 
   try {
     const blob = await ctx.bootstrap.avatarCache.get(src);
+    if (blob.data.length === 0) {
+      return new Response('avatar empty', { status: 502 });
+    }
     return new Response(new Uint8Array(blob.data), {
       status: 200,
       headers: {

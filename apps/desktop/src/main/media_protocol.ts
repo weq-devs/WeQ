@@ -182,6 +182,10 @@ async function avatarFallbackResponse(src: string): Promise<Response> {
   if (!cache) return notFound('avatar cache unavailable');
   try {
     const blob = await cache.get(src);
+    // Defensive: a broken (empty) cache entry must never become a 200 empty body.
+    if (blob.data.length === 0) {
+      return notFound('avatar fallback empty');
+    }
     return new Response(new Uint8Array(blob.data), {
       status: 200,
       headers: { 'Content-Type': blob.contentType, 'Cache-Control': 'public, max-age=300' },

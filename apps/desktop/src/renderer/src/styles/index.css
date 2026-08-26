@@ -12337,6 +12337,7 @@ html[data-theme="dark"] .weq-persona-modal {
   height: 100%;
   padding: 2rem 1.5rem;
   text-align: center;
+  font-size: 12px;
   color: var(--weq-fg-secondary);
 }
 .weq-deleted-empty small {
