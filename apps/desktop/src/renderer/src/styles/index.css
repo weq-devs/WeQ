@@ -3319,6 +3319,13 @@ html *::-webkit-scrollbar-corner {
   user-select: none;
 }
 
+/* macOS: the native traffic-light cluster (≈70px wide) floats over the left
+   edge of the hidden title bar, so shift the logo / user block right to clear
+   it. Windows/Linux keep the in-app buttons and need no inset. */
+.app-title-bar.is-mac {
+  padding-left: 80px;
+}
+
 html[data-theme="dark"] .app-title-bar {
   background: rgba(30, 30, 35, 0.5);
   border-bottom-color: rgba(255, 255, 255, 0.08);

@@ -131,10 +131,10 @@ export function NineBirdSection(): ReactElement | null {
                   className="weq-set-seg-item"
                   disabled={busy}
                   onClick={() => void doUninstall()}
+                  aria-label="还原原版 QQ"
                 >
                   {uninstall.isPending ? <Loader2 size={14} className="is-spin" /> : null}
                   <Trash2 size={14} />
-                  还原原版
                 </button>
               ) : null}
               <button
