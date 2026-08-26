@@ -4936,6 +4936,16 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   cursor: not-allowed;
 }
 
+.weq-set-seg-item svg.is-spin {
+  animation: weq-set-spin 0.8s linear infinite;
+}
+
+@keyframes weq-set-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .weq-set-note {
   display: flex;
   align-items: flex-start;

@@ -22,9 +22,10 @@
 import { EventEmitter } from 'node:events';
 import { createServer } from 'node:net';
 import type { Server, Socket } from 'node:net';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { qqContainerDataRoot } from './darwin/install';
 import type {
   LaunchQqResult,
   NineBirdAccountListEvent,
@@ -166,9 +167,7 @@ export class NineBirdBootstrap {
       // Same `login-list` wire frame as quick-login, but account-list.js
       // fills it with the richer NineBirdAccountListItem payload.
       onAccountList: (cb) =>
-        session.onLoginList(
-          cb as unknown as (e: NineBirdLoginListEvent) => void,
-        ),
+        session.onLoginList(cb as unknown as (e: NineBirdLoginListEvent) => void),
       kill: session.kill,
     };
   }
@@ -389,6 +388,20 @@ function makePipeName(): string {
   const stamp = Date.now().toString(36);
   if (process.platform === 'win32') {
     return `\\\\.\\pipe\\ninebird-${process.pid}-${stamp}`;
+  }
+  if (process.platform === 'darwin') {
+    // QQ 是沙箱应用，连不上 /tmp 里任意 unix socket；把 socket 放进 QQ
+    // 自己的容器 tmp（WeQ 非沙箱可以写，QQ 沙箱内也可以连），并压缩名字
+    // 长度以避开 unix socket 路径 104 字节上限。
+    const dir = join(qqContainerDataRoot(), 'tmp');
+    try {
+      mkdirSync(dir, { recursive: true });
+    } catch {
+      // 目录建不出来就退回系统 tmpdir（QQ 连不上时报错，日志可查）。
+      const fallback = mkdtempSync(join(tmpdir(), 'ninebird-'));
+      return join(fallback, `${process.pid}-${stamp}.sock`);
+    }
+    return join(dir, `nb-${process.pid}-${stamp.slice(-6)}.sock`);
   }
   const dir = mkdtempSync(join(tmpdir(), 'ninebird-'));
   return join(dir, `${process.pid}-${stamp}.sock`);

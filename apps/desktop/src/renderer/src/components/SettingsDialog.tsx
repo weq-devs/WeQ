@@ -34,6 +34,7 @@ import {
 import { GlobalSettingsSection } from './settings/GlobalSettingsSection';
 import { AppLockSection } from './settings/AppLockSection';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
+import { NineBirdSection } from './settings/NineBirdSection';
 import { AgentLabSection } from './settings/AgentLabSection';
 import { VoiceTranscribeSection } from './settings/VoiceTranscribeSection';
 import { McpServerSection } from './settings/McpServerSection';
@@ -55,6 +56,7 @@ type SectionId =
   | 'appearance'
   | 'applock'
   | 'account'
+  | 'ninebird'
   | 'antirecall'
   | 'voice'
   | 'agentlab'
@@ -94,6 +96,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: '账号基础',
     icon: <User size={16} strokeWidth={1.8} />,
     render: () => <AccountBasicsSection />,
+  },
+  {
+    id: 'ninebird',
+    label: 'NineBird',
+    icon: <Plug size={16} strokeWidth={1.8} />,
+    render: () => <NineBirdSection />,
   },
   {
     id: 'antirecall',
@@ -162,6 +170,15 @@ export function SettingsDialog({
   onClose: () => void;
 }): ReactElement | null {
   const [activeId, setActiveId] = useState<SectionId>('global');
+  const systemInfo = trpc.bootstrap.systemInfo.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: Infinity,
+  });
+
+  // NineBird（macOS 安装）只在 darwin 显示；其它平台不渲染该导航项。
+  const sections = SETTINGS_SECTIONS.filter(
+    (s) => s.id !== 'ninebird' || systemInfo.data?.platformKind === 'darwin',
+  );
 
   useEffect(() => {
     if (!open) return undefined;
@@ -174,7 +191,7 @@ export function SettingsDialog({
 
   if (!open) return null;
 
-  const active = SETTINGS_SECTIONS.find((s) => s.id === activeId) ?? SETTINGS_SECTIONS[0]!;
+  const active = sections.find((s) => s.id === activeId) ?? sections[0] ?? SETTINGS_SECTIONS[0]!;
 
   return (
     <div className="weq-settings-layer" role="presentation" onMouseDown={onClose}>
@@ -199,7 +216,7 @@ export function SettingsDialog({
             设置
           </h2>
           <ul>
-            {SETTINGS_SECTIONS.map((s) => (
+            {sections.map((s) => (
               <li key={s.id}>
                 <button
                   type="button"

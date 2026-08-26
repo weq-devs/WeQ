@@ -73,12 +73,18 @@ function getVersionConfigPath(execPath: string): string | undefined {
     if (os.platform() === 'win32') {
         p = path.join(path.dirname(execPath), 'versions', 'config.json');
     } else if (os.platform() === 'darwin') {
-        p = path.resolve(os.homedir(), './Library/Application Support/QQ/versions/config.json');
+        // QQ for macOS is sandboxed: user data lives inside the container.
+        p = path.resolve(
+            os.homedir(),
+            './Library/Containers/com.tencent.qq/Data/Library/Application Support/QQ/versions/config.json',
+        );
     } else {
         p = path.resolve(os.homedir(), './.config/QQ/versions/config.json');
     }
     if (!fs.existsSync(p)) {
-        p = path.join(path.dirname(execPath), './resources/app/versions/config.json');
+        p = os.platform() === 'darwin'
+            ? path.join(path.dirname(execPath), '../Resources/app/versions/config.json')
+            : path.join(path.dirname(execPath), './resources/app/versions/config.json');
     }
     return fs.existsSync(p) ? p : undefined;
 }
@@ -122,7 +128,12 @@ function resolveWrapperPath(execPath: string, version: string): string {
 
 function getDataPaths(execPath: string, getNTUserDataInfoConfig?: () => string): [string, string] {
     if (os.platform() === 'darwin') {
-        const root = path.resolve(os.homedir(), './Library/Application Support/QQ');
+        // Same container root as the version config above (napcat installer
+        // and @weq/platform both resolve it this way).
+        const root = path.resolve(
+            os.homedir(),
+            './Library/Containers/com.tencent.qq/Data/Library/Application Support/QQ',
+        );
         return [root, path.join(root, 'global')];
     }
     let dataPath = getNTUserDataInfoConfig?.();
