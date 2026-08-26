@@ -34,7 +34,6 @@ import {
 import { GlobalSettingsSection } from './settings/GlobalSettingsSection';
 import { AppLockSection } from './settings/AppLockSection';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
-import { NineBirdSection } from './settings/NineBirdSection';
 import { AgentLabSection } from './settings/AgentLabSection';
 import { VoiceTranscribeSection } from './settings/VoiceTranscribeSection';
 import { McpServerSection } from './settings/McpServerSection';
@@ -56,7 +55,6 @@ type SectionId =
   | 'appearance'
   | 'applock'
   | 'account'
-  | 'ninebird'
   | 'antirecall'
   | 'voice'
   | 'agentlab'
@@ -96,12 +94,6 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: '账号基础',
     icon: <User size={16} strokeWidth={1.8} />,
     render: () => <AccountBasicsSection />,
-  },
-  {
-    id: 'ninebird',
-    label: 'NineBird',
-    icon: <Plug size={16} strokeWidth={1.8} />,
-    render: () => <NineBirdSection />,
   },
   {
     id: 'antirecall',
@@ -170,15 +162,7 @@ export function SettingsDialog({
   onClose: () => void;
 }): ReactElement | null {
   const [activeId, setActiveId] = useState<SectionId>('global');
-  const systemInfo = trpc.bootstrap.systemInfo.useQuery(undefined, {
-    refetchOnWindowFocus: false,
-    staleTime: Infinity,
-  });
-
-  // NineBird（macOS 安装）只在 darwin 显示；其它平台不渲染该导航项。
-  const sections = SETTINGS_SECTIONS.filter(
-    (s) => s.id !== 'ninebird' || systemInfo.data?.platformKind === 'darwin',
-  );
+  const sections = SETTINGS_SECTIONS;
 
   useEffect(() => {
     if (!open) return undefined;

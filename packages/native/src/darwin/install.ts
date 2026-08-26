@@ -436,14 +436,16 @@ export async function ensureInstalled(qqExe: string, resources: NineBirdResource
       return;
     case 'custom':
       throw new Error(
-        `QQ 程序入口被其他程序占用（${status.main}）。请在「设置 → NineBird」中先还原为原版 QQ，再重试。`,
+        `QQ 程序入口被其他程序占用（${status.main}）。请在「设置 → 全局设置」中先还原为原版 QQ，再重试。`,
       );
     case 'missing':
       throw new Error(`未找到 QQ 入口配置：${paths.packageJson}`);
     case 'failed':
       throw new Error(`读取 QQ 入口配置失败：${status.error}`);
     case 'original':
-      throw new Error('QQ 程序入口还是原版。请先在「设置 → NineBird」中安装（需要输入管理员密码），再启动登录流程。');
+      throw new Error(
+        'QQ 程序入口还是原版。请先在「设置 → 全局设置」中安装 NineBird（需要输入管理员密码），再启动登录流程。',
+      );
   }
 }
 
@@ -461,7 +463,7 @@ export async function installNineBird(
       return;
     case 'custom':
       throw new Error(
-        `QQ 程序入口被其他程序占用（${status.main}）。请先在别处还原为原版 QQ，再安装 NineBird。`,
+        `QQ 程序入口被其他程序占用（${status.main}）。请先在「设置 → 全局设置」中还原为原版 QQ，再安装 NineBird。`,
       );
     case 'missing':
       throw new Error(`未找到 QQ 入口配置：${paths.packageJson}`);

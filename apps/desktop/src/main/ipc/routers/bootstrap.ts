@@ -20,6 +20,7 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { isMcpRunning } from '../../mcp/server';
 import { isWeqServerRunning } from '../../weq_assistant/server';
+import { runElevatedKeyScan } from '../../mac_scan_elevation';
 import {
   accountEventBus,
   getAppContext,
@@ -163,6 +164,56 @@ export const bootstrapRouter = router({
       if (!exe) throw new Error('未找到 QQ，请确认已安装 QQ');
       await uninstallNineBird(exe, input.password);
       return getPatchStatus(darwinPaths(exe));
+    }),
+
+  /**
+   * macOS：提权扫描在线 QQ 进程内存，直接恢复数据库密钥。
+   * 读取其它进程内存受 SIP / task_for_pid 限制，需要解除 SIP 并且以管理员
+   * 权限执行（密码经 sudo -S stdin 传入，与 ninebird 安装同一套提权姿势，
+   * 不在 main 里落盘 / 记日志）。扫描失败（如未解除 SIP）返回
+   * `{ success: false, pid }`，由渲染层引导用户解除 SIP 重试或重启 QQ。
+   * 非 macOS 平台直接拒绝，win/linux 不受影响。
+   */
+  macScanKeyFromMemory: procedure
+    .input(z.object({ uin: z.string().min(1), password: z.string() }))
+    .mutation(async ({ input }) => {
+      const platform = requirePlatform();
+      if (platform.kind !== 'darwin') throw new Error('仅 macOS 支持内存扫描获取密钥');
+      const boot = requireBootstrap();
+      await ensureUidForUin(boot, input.uin);
+
+      const dbPath = platform.ntMsgDbPath(input.uin);
+      if (!dbPath || !existsSync(dbPath)) {
+        return {
+          success: false as const,
+          pid: 0,
+          error: `未找到账号 ${input.uin} 的数据库文件（nt_msg.db）`,
+        };
+      }
+
+      let pid: number | null = null;
+      try {
+        pid = platform.resolveQqPid(input.uin);
+      } catch {
+        pid = null;
+      }
+      if (pid === null) {
+        return {
+          success: false as const,
+          pid: 0,
+          error: `账号 ${input.uin} 当前离线，无法扫描其进程内存`,
+        };
+      }
+
+      try {
+        return await runElevatedKeyScan(pid, dbPath, input.password);
+      } catch (e) {
+        return {
+          success: false as const,
+          pid,
+          error: e instanceof Error ? e.message : String(e),
+        };
+      }
     }),
 
   // ---- detection (via global config cache) ----

@@ -88,6 +88,23 @@ WeQ (非特权)
 macOS 是单实例 QQ，启动前先 `SIGKILL` 掉已有 QQ（等同 napcat 的 terminateQQ），
 否则新进程会把窗口让给旧实例直接退场，loader 永远跑不到。
 
+## Bootstrap 页取密钥（在线实例优先扫内存）
+
+macOS 的「获取密钥」不再走注入型实例取 key（SIP 下注入本来就不可用），改为：
+
+1. **在线** → 弹管理员密码框（`sudo -S`，ninebird 安装同款），提权执行
+   `nt_helper.scanKeyFromDatabase(dbPath, pid)`（零注入内存扫描，读取进程内存
+   需要解除 SIP / task_for_pid 放行）。命中即直接填入密钥。
+2. 扫描失败 → 弹窗提示「该账号 QQ 在线，pid：xxx，扫描在线进程获取密钥需要
+   解除 SIP」，可选**确认重启** / 取消。
+3. 确认重启 → 先查 NineBird 安装状态：**已安装不重复安装**；未安装则弹安装
+   密码框提权安装（`installNineBird`）。随后走 quick-login 拉起 QQ（启动前
+   自动杀掉旧实例），loader 一并回传 dbkey + p_skey 等凭据，与 win/linux 的
+   `KeyResult` 契约完全一致。
+
+提权扫描的执行体是独立的 `macScanWorker.mjs`（electron-vite 单独入口），
+父进程 `sudo -S` 拉起，密码经 stdin 传入，root 只做「读内存 + 验库」两件事。
+
 ## 代码位置
 
 - `packages/native/src/darwin/install.ts` — 路径 / 状态 / `sudo -S` 提权 / 补丁 / 热更新 / 卸载
@@ -97,7 +114,9 @@ macOS 是单实例 QQ，启动前先 `SIGKILL` 掉已有 QQ（等同 napcat 的 
 - `packages/ninebird/src/qq-info.ts` — darwin 版本配置 / 数据根指向容器
 - `packages/service/src/bootstrap/win32_key.ts` — darwin 启动前杀 QQ
 - `apps/desktop/src/main/ipc/routers/bootstrap.ts` — 安装状态 / 安装 / 卸载 tRPC
-- `apps/desktop/src/renderer/src/components/settings/NineBirdSection.tsx` — 设置页卡片
+- `apps/desktop/src/main/mac_scan_elevation.ts` / `mac_scan_worker.ts` — 提权扫内存
+- `apps/desktop/src/renderer/src/views/bootstrap/LoginPanel.tsx` — 获取密钥流程分支
+- `apps/desktop/src/renderer/src/components/settings/GlobalSettingsSection.tsx` — 设置页卡片（已并入全局设置，非 darwin 不渲染）
 
 ## 已知边界
 
