@@ -9,7 +9,7 @@
 
 import { message, type ProtoMessage } from '../protobuf';
 
-const f = (name: string, tag: number, type: ProtoMessage['fields'][number]['type'], extra: Partial<{ repeated: boolean }> = {}) => ({ name, tag, type, ...extra });
+const f = (name: string, tag: number, type: ProtoMessage['fields'][number]['type'], extra: Partial<{ repeated: boolean; force: boolean }> = {}) => ({ name, tag, type, ...extra });
 
 // ---------- ResponseHead ----------
 
@@ -66,7 +66,7 @@ export const PTT: ProtoMessage = message([
 ]);
 
 export const NOT_ONLINE_FILE: ProtoMessage = message([
-  f('fileType', 1, 'uint32'),
+  f('fileType', 1, 'uint32', { force: true }),
   f('fileUuid', 3, 'string'),
   f('fileMd5', 4, 'bytes'),
   f('fileName', 5, 'string'),
@@ -402,18 +402,26 @@ export const PIC_COMMON_PB: ProtoMessage = message([
 
 // ---------- commonElem(serviceType=48, businessType=21) 视频 ----------
 
-/** 视频信息（file.body.info）：fileName / videoWidth / videoHeight / videoDuration。 */
+/** 视频信息（file.body.info）：fileSize / md5 / contentHash / fileName / 尺寸 / 时长 / 原图标记。 */
 export const VIDEO_COMMON_INFO: ProtoMessage = message([
+  f('fileSize', 1, 'uint32'),
+  f('md5Bytes', 2, 'string'),
+  f('contentHash', 3, 'string'),
   f('fileName', 4, 'string'),
   f('videoWidth', 6, 'uint32'),
   f('videoHeight', 7, 'uint32'),
   f('videoDuration', 8, 'uint32'),
+  f('original', 9, 'uint32', { force: true }),
 ]);
 
-/** file.body：视频信息 + fileToken。 */
+/** file.body：视频信息 + fileToken + storeId / uploadTime / ttl / subType。 */
 export const VIDEO_COMMON_BODY: ProtoMessage = message([
   f('info', 1, VIDEO_COMMON_INFO),
   f('fileToken', 2, 'string'),
+  f('storeId', 3, 'uint32'),
+  f('uploadTime', 4, 'uint32'),
+  f('ttl', 5, 'uint32'),
+  f('subType', 6, 'uint32', { force: true }),
 ]);
 
 /** pbElem.1 数组里的一项（第 0 项=视频本体，第 1 项=封面缩略图）。 */
@@ -597,6 +605,11 @@ export const RICH_TEXT: ProtoMessage = message([
 export const MESSAGE_BODY: ProtoMessage = message([
   f('richText', 1, RICH_TEXT),
   f('msgContent', 2, 'bytes'),
+]);
+
+/** MsgBody.msgContent（tag 2）——老 wire 私聊文件的承载：notOnlineFile 在 tag 1。 */
+export const MSG_CONTENT: ProtoMessage = message([
+  f('notOnlineFile', 1, NOT_ONLINE_FILE),
 ]);
 
 export const PUSH_MSG_BODY: ProtoMessage = message([

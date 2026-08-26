@@ -49,6 +49,10 @@ export interface MediaElement {
   videoWidth?: number;
   videoHeight?: number;
   fileFlag45415?: number;
+  /** NTV2 storeId（老 wire 解码带出，优先于 fileFlag45415）。 */
+  storeId?: number;
+  /** 群文件 busId（老 wire 解码带出，缺省 102）。 */
+  busId?: number;
   videoFlag45421?: Uint8Array;
   /** Duration in seconds (video / ptt). */
   videoDuration?: number;
@@ -73,6 +77,15 @@ export function mediaElementFromRenderElement(el: {
   const d = (el.data ?? {}) as Record<string, unknown>;
   const s = (k: string): string => (typeof d[k] === 'string' ? d[k] : '');
   const n = (k: string): number => (typeof d[k] === 'number' ? d[k] : Number(d[k]) || 0);
+  // 渲染 data 里的字节字段存的是小写 hex 字符串（msg_view.toHex），还原成 bytes。
+  const bytes = (k: string): Uint8Array | undefined => {
+    const v = d[k];
+    if (v instanceof Uint8Array) return v;
+    if (typeof v !== 'string' || v.length === 0 || v.length % 2 !== 0) return undefined;
+    const out = new Uint8Array(v.length / 2);
+    for (let i = 0; i < out.length; i++) out[i] = Number.parseInt(v.slice(i * 2, i * 2 + 2), 16);
+    return out;
+  };
   return {
     kind: el.type,
     fileToken: s('fileToken'),
@@ -87,6 +100,16 @@ export function mediaElementFromRenderElement(el: {
     fileTTL: n('fileTTL'),
     subType: n('subType'),
     isOriginal: Boolean(d.isOriginal),
+    md5Bytes: bytes('md5Bytes'),
+    md5Bytes2: bytes('md5Bytes2'),
+    contentHash: bytes('contentHash'),
+    channelParams: bytes('channelParams'),
+    videoFlag45421: bytes('videoFlag45421'),
+    videoFlag45863: n('videoFlag45863'),
+    fileFlag45415: n('fileFlag45415'),
+    storeId: n('storeId'),
+    busId: n('busId'),
+    transferFlag45504: s('transferFlag45504') || undefined,
   };
 }
 
@@ -129,7 +152,7 @@ export function mediaNodeFromElement(el: MediaElement): MediaIndexNode {
     height: el.videoHeight ?? el.imgHeight ?? 0,
     time: el.videoDuration ?? 0,
     original: el.isOriginal ? 1 : 0,
-    storeId: isVideo ? (el.fileFlag45415 ?? 0) : 0,
+    storeId: isVideo ? (el.storeId ?? el.fileFlag45415 ?? 0) : 0,
     uploadTime: el.uploadTime ?? 0,
     ttl: el.fileTTL ?? 0,
     subType: el.subType ?? 0,
@@ -195,7 +218,7 @@ export class MediaUrlService {
   }
 
   async getGroupFileUrlFromElement(groupId: number, element: MediaElement, busId = 102): Promise<string> {
-    return this.getGroupFileUrl(groupId, element.fileToken, busId);
+    return this.getGroupFileUrl(groupId, element.fileToken, element.busId ?? busId);
   }
 
   // ─── private / c2c ───

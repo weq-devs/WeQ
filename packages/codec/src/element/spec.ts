@@ -119,6 +119,8 @@ export const FileElementSchema = BaseElementFieldsSchema.extend({
   imgWidth: z.number(),
   imgHeight: z.number(),
   fileFlag45415: z.number(),
+  /** 群文件 busId（@weq/protocol 老 wire 解码带出，本地 codec 元素无此字段）。 */
+  busId: z.number().optional(),
   fileToken: z.string(),
   transferFlag45504: z.string(),
   uploadTime: z.number(),
@@ -156,6 +158,8 @@ export const VideoElementSchema = BaseElementFieldsSchema.extend({
   imgWidth: z.number(),
   imgHeight: z.number(),
   fileFlag45415: z.number(),
+  /** StoreId（@weq/protocol 老 wire 解码带出，本地 codec 元素无此字段）。 */
+  storeId: z.number().optional(),
   isOriginal: z.boolean(),
   fileToken: z.string(),
   uploadTime: z.number(),
@@ -200,6 +204,8 @@ export const BubbleVideoElementSchema = BaseElementFieldsSchema.extend({
   imgWidth: z.number(),
   imgHeight: z.number(),
   fileFlag45415: z.number(),
+  /** StoreId（@weq/protocol 老 wire 解码带出，本地 codec 元素无此字段）。 */
+  storeId: z.number().optional(),
   isOriginal: z.boolean(),
   fileToken: z.string(),
   uploadTime: z.number(),
