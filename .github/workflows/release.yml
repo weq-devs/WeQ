@@ -1,11 +1,12 @@
 name: Release
 
-# 推送形如 `v0.1.0` 的 tag 触发：分别在 Windows / Linux 上打包，
+# 推送形如 `v0.1.0` 的 tag 触发：分别在 Windows / Linux / macOS 上打包，
 # 产物统一发布到同一个 GitHub Release：
 #   - Windows: NSIS 安装包 + latest.yml（应用内自动更新读取）
 #   - Linux  : AppImage / tar.gz，x64 与 arm64 两个架构
+#   - macOS  : dmg + zip（自动更新读取 latest-mac.yml），x64 与 arm64 两个架构
 # 最后的 notes job 会用「中文说明 + GitHub 自动生成的 commit 变更列表」
-# 覆写 Release 正文，并特别标注 aarch64 未经真机实测。
+# 覆写 Release 正文，并标注 aarch64 未经真机实测、macOS 产物未签名。
 on:
   push:
     tags:
@@ -255,6 +256,193 @@ jobs:
           echo "== release/ tree =="
           ls -laR apps/desktop/release 2>/dev/null || echo "(no release/ dir)"
 
+  # ========================== macOS x64 (Intel) ==========================
+  # 在原生 Intel runner（macos-15-intel；macos-13 已于 2025-12 退役）上构建，
+  # 让 sherpa-onnx / resvg 装到 x64 版本，native/darwin/x64 预编译二进制随
+  # extraFiles 进包。
+  # ⚠️ 未配置 Apple Developer 证书（CSC_LINK / CSC_KEY_PASSWORD）时产物不签名，
+  # 首次打开需右键 → 打开；需要签名 / 公证时再补 secrets，这里显式关掉
+  # identity 自动发现，避免 electron-builder 在无证书机器上白等。
+  macos-x64:
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Sync version from tag
+        run: node scripts/set-version.mjs ${{ github.ref_name }}
+
+      - name: Build clone-bot runtime
+        run: pnpm run build:bot
+      - name: Build ninebird runtime
+        run: pnpm run build:ninebird
+
+      - name: Build renderer + main
+        run: pnpm --filter @weq/desktop exec electron-vite build
+
+      - name: Prepare release manifest
+        run: node scripts/prepare-electron-builder-manifest.mjs
+
+      - name: Swap in release manifest
+        run: |
+          mv apps/desktop/package.json apps/desktop/package.dev.json
+          mv apps/desktop/package.release.json apps/desktop/package.json
+
+      - name: Package + publish release (x64)
+        run: pnpm --filter @weq/desktop exec electron-builder --mac --x64 --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          DEBUG: electron-builder
+
+      # macOS 的更新清单不分架构、固定叫 latest-mac.yml，两个架构 job 会互相
+      # 覆盖（跑得晚的赢）。先把这份 x64 清单另存为 latest-mac-x64.yml 上传，
+      # 交给 mac-merge-update-info 合并（见该 job 的注释）。
+      - name: Upload per-arch update manifest
+        run: |
+          VERSION="${{ github.ref_name }}"
+          MANIFEST="apps/desktop/release/${VERSION#v}/latest-mac.yml"
+          test -f "$MANIFEST" || { echo "missing $MANIFEST"; exit 1; }
+          cp "$MANIFEST" /tmp/latest-mac-x64.yml
+          gh release upload "${VERSION}" /tmp/latest-mac-x64.yml --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Restore dev manifest
+        if: always()
+        run: |
+          if [ -f apps/desktop/package.dev.json ]; then
+            rm -f apps/desktop/package.json
+            mv apps/desktop/package.dev.json apps/desktop/package.json
+          fi
+          rm -f apps/desktop/package.release.json
+
+      - name: Dump release artifacts on failure
+        if: failure()
+        run: |
+          echo "== release/ tree =="
+          ls -laR apps/desktop/release 2>/dev/null || echo "(no release/ dir)"
+
+  # ========================= macOS arm64 (Apple Silicon) =========================
+  # 原生 arm64 runner（macos-15，macOS 15 arm64）构建，让 sherpa-onnx / resvg
+  # 装到正确的 arm64 版本；native/darwin/arm64 预编译二进制随 extraFiles 进包。
+  macos-arm64:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Sync version from tag
+        run: node scripts/set-version.mjs ${{ github.ref_name }}
+
+      - name: Build clone-bot runtime
+        run: pnpm run build:bot
+      - name: Build ninebird runtime
+        run: pnpm run build:ninebird
+
+      - name: Build renderer + main
+        run: pnpm --filter @weq/desktop exec electron-vite build
+
+      - name: Prepare release manifest
+        run: node scripts/prepare-electron-builder-manifest.mjs
+
+      - name: Swap in release manifest
+        run: |
+          mv apps/desktop/package.json apps/desktop/package.dev.json
+          mv apps/desktop/package.release.json apps/desktop/package.json
+
+      - name: Package + publish release (arm64)
+        run: pnpm --filter @weq/desktop exec electron-builder --mac --arm64 --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          DEBUG: electron-builder
+
+      - name: Upload per-arch update manifest
+        run: |
+          VERSION="${{ github.ref_name }}"
+          MANIFEST="apps/desktop/release/${VERSION#v}/latest-mac.yml"
+          test -f "$MANIFEST" || { echo "missing $MANIFEST"; exit 1; }
+          cp "$MANIFEST" /tmp/latest-mac-arm64.yml
+          gh release upload "${VERSION}" /tmp/latest-mac-arm64.yml --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Restore dev manifest
+        if: always()
+        run: |
+          if [ -f apps/desktop/package.dev.json ]; then
+            rm -f apps/desktop/package.json
+            mv apps/desktop/package.dev.json apps/desktop/package.json
+          fi
+          rm -f apps/desktop/package.release.json
+
+      - name: Dump release artifacts on failure
+        if: failure()
+        run: |
+          echo "== release/ tree =="
+          ls -laR apps/desktop/release 2>/dev/null || echo "(no release/ dir)"
+
+  # ==================== macOS 更新清单合并 ====================
+  # macOS 的 electron-builder 更新清单固定叫 latest-mac.yml（不分架构，与
+  # Linux 的 latest-linux[-arm64].yml 不同），两个架构 job 各自 publish 会
+  # 互相覆盖。这里把两个 job 额外上传的 latest-mac-x64/arm64.yml 合并成一份
+  # 同时含两个架构 dmg + zip 的 latest-mac.yml 再回传；否则另一个架构的 app
+  # 永远收不到自动更新（MacUpdater 按文件名里有没有 arm64 过滤）。
+  mac-merge-update-info:
+    needs: [macos-x64, macos-arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download per-arch update manifests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${{ github.ref_name }}" \
+            --pattern "latest-mac-x64.yml" --dir /tmp/mac-update --clobber
+          gh release download "${{ github.ref_name }}" \
+            --pattern "latest-mac-arm64.yml" --dir /tmp/mac-update --clobber
+          ls -la /tmp/mac-update
+
+      - name: Merge into latest-mac.yml
+        run: |
+          node scripts/merge-mac-update-info.mjs \
+            /tmp/mac-update/latest-mac-x64.yml \
+            /tmp/mac-update/latest-mac-arm64.yml \
+            /tmp/mac-update/latest-mac.yml
+
+      - name: Upload merged manifest & clean up
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.ref_name }}" /tmp/mac-update/latest-mac.yml --clobber
+          # 合并完成后清掉两个临时清单，别让 Release 资产列表留多余文件。
+          gh release delete-asset "${{ github.ref_name }}" latest-mac-x64.yml --yes || true
+          gh release delete-asset "${{ github.ref_name }}" latest-mac-arm64.yml --yes || true
+
   # ============================ Web（浏览器版）============================
   # 平台无关：一个 tar.gz 同时含 win32-x64 / linux-x64 / linux-arm64 三份
   # native/，运行时按 process.platform/arch 自动选，所以只构建一次。
@@ -318,10 +506,11 @@ jobs:
           ls -laR apps/web/dist 2>/dev/null | head -50 || echo "(no dist/)"
 
   # ======================= Release 说明（中文）=======================
-  # 等四个产物都发完（Release 已存在），用「中文说明头 + GitHub 自动
-  # 生成的 commit/PR 变更列表」覆写 Release 正文，并标注 aarch64 未实测。
+  # 等所有产物都发完（Release 已存在），用「中文说明头 + GitHub 自动
+  # 生成的 commit/PR 变更列表」覆写 Release 正文，并标注 aarch64 未实测、
+  # macOS 未签名。
   notes:
-    needs: [windows, linux-x64, linux-arm64, web]
+    needs: [windows, linux-x64, linux-arm64, macos-x64, macos-arm64, mac-merge-update-info, web]
     runs-on: ubuntu-latest
     steps:
       - name: 生成并写入中文 Release 说明
@@ -341,7 +530,11 @@ jobs:
           NOTES=$(cat <<EOF
           ## weQ ${TAG}
 
-          > ⚠️ **aarch64 (arm64) 未经真机实测**：二进制架构已核对无误
+          > ⚠️ **macOS 产物未签名**：CI 未配置 Apple Developer 证书
+          > （CSC_LINK / CSC_KEY_PASSWORD），dmg 首次打开需右键 → 打开，
+          > 或在系统设置 → 隐私与安全性里放行。配置证书后即可自动签名/公证。
+          >
+          > ⚠️ **Linux aarch64 (arm64) 未经真机实测**：二进制架构已核对无误
           > （native/linux/arm64/*.node 均为 ELF aarch64），但整体是否可用
           > 尚未在真实设备上验证，不保证能正常运行。遇到问题请提 Issue：
           > https://github.com/${REPO}/issues
@@ -350,6 +543,8 @@ jobs:
           - **Windows**: \`weQ-${TAG#v}-setup.exe\`
           - **Linux x64**: \`weQ-${TAG#v}-linux-x64.AppImage\` / \`.tar.gz\`
           - **Linux arm64（未实测）**: \`weQ-${TAG#v}-linux-arm64.AppImage\` / \`.tar.gz\`
+          - **macOS Intel (x64)**: \`weQ-${TAG#v}-mac-x64.dmg\`（未签名）
+          - **macOS Apple Silicon (arm64)**: \`weQ-${TAG#v}-mac-arm64.dmg\`（未签名）
           - **浏览器版**: \`weq-web-${TAG#v}.tar.gz\` —— 三平台通用，需自备 Node ≥22。
             解压后 Windows 双击 \`start.bat\`、Linux 跑 \`./start.sh\`（依赖已预装）。
             Linux 建议用 root 运行，
@@ -386,6 +581,8 @@ jobs:
           BASE_URL="https://github.com/${{ github.repository }}/releases/download/${VERSION}"
           LINUX_X64_URL="${BASE_URL}/weQ-${VER}-linux-x86_64.AppImage"
           LINUX_ARM64_URL="${BASE_URL}/weQ-${VER}-linux-arm64.AppImage"
+          MAC_X64_URL="${BASE_URL}/weQ-${VER}-mac-x64.dmg"
+          MAC_ARM64_URL="${BASE_URL}/weQ-${VER}-mac-arm64.dmg"
           WEB_URL="${BASE_URL}/weq-web-${VER}.tar.gz"
 
           gh release download "${VERSION}" --pattern "${EXE}" --dir /tmp/release
@@ -407,6 +604,8 @@ jobs:
           echo "exe_url=${EXE_URL}"             >> $GITHUB_OUTPUT
           echo "linux_x64_url=${LINUX_X64_URL}" >> $GITHUB_OUTPUT
           echo "linux_arm64_url=${LINUX_ARM64_URL}" >> $GITHUB_OUTPUT
+          echo "mac_x64_url=${MAC_X64_URL}" >> $GITHUB_OUTPUT
+          echo "mac_arm64_url=${MAC_ARM64_URL}" >> $GITHUB_OUTPUT
           echo "web_url=${WEB_URL}"             >> $GITHUB_OUTPUT
           { echo "body<<BODY_EOF"; echo "$BODY"; echo "BODY_EOF"; } >> $GITHUB_OUTPUT
 
@@ -428,6 +627,8 @@ jobs:
             - Windows 安装包 [下载链接](${{ steps.prep.outputs.exe_url }})
             - Linux x64 AppImage [下载链接](${{ steps.prep.outputs.linux_x64_url }})
             - Linux arm64 AppImage [下载链接](${{ steps.prep.outputs.linux_arm64_url }})
+            - macOS Intel dmg（未签名）[下载链接](${{ steps.prep.outputs.mac_x64_url }})
+            - macOS Apple Silicon dmg（未签名）[下载链接](${{ steps.prep.outputs.mac_arm64_url }})
             - 浏览器版 Web [下载链接](${{ steps.prep.outputs.web_url }})
 
             欢迎大家测试使用新的功能喵~
@@ -453,6 +654,8 @@ jobs:
             - Windows 安装包 [下载链接](${{ steps.prep.outputs.exe_url }})
             - Linux x64 AppImage [下载链接](${{ steps.prep.outputs.linux_x64_url }})
             - Linux arm64 AppImage [下载链接](${{ steps.prep.outputs.linux_arm64_url }})
+            - macOS Intel dmg（未签名）[下载链接](${{ steps.prep.outputs.mac_x64_url }})
+            - macOS Apple Silicon dmg（未签名）[下载链接](${{ steps.prep.outputs.mac_arm64_url }})
             - 浏览器版 Web [下载链接](${{ steps.prep.outputs.web_url }})
 
             欢迎大家测试使用新的功能喵~

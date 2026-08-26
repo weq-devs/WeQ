@@ -85,10 +85,18 @@ linux:
   artifactName: ${productName}-${version}-linux-${arch}.${ext}
   category: Network
 
-# macOS 目标：dmg（x64 + arm64）。native/ 二进制与 win/linux 一样在打包时
+# macOS 目标：dmg（手动安装）+ zip（Squirrel.Mac 自动更新必需 ——
+# electron-updater 的 MacUpdater 只认 zip，仅 dmg 会报 "ZIP file not
+# provided"）。x64 与 arm64 都出；native/ 二进制与 win/linux 一样在打包时
 # 拷到安装根目录的 native/<platform>/<arch>，与加载器按 process.arch 解析的
 # 约定一致（darwin/x64 与 darwin/arm64，见 packages/native/src/loader.ts）。
-# macOS 没有注入（SIP），只打包 nt_helper.node；ninebird 注入相关文件不随包。
+# macOS 没有注入型 dll/so（SIP），darwin/ 下只有 nt_helper.node 和
+# ninebird/{NineBird.node, qqnt.json}——darwin boot 启动 QQ 时会把
+# NineBird.node 拷进 QQ 沙箱容器，所以 ninebird/ 也必须随包
+# （win32/linux 专属的 NineBirdHook.dll / ninebird_launcher.so /
+# ninebird_addon.node 不在这边）。
+# 未配置 CSC_LINK / CSC_KEY_PASSWORD secrets 时产物不签名（Gatekeeper 会拦，
+# 首次需右键 → 打开）；配置后 electron-builder 会自动签名，可再开 notarize。
 mac:
   icon: ../../resources/brand/logo.png
   extraFiles:
@@ -96,6 +104,10 @@ mac:
       to: native/darwin/${arch}
   target:
     - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
       arch:
         - x64
         - arm64
