@@ -48,7 +48,10 @@ shim，QQEXDOC 加载时直接 `EPERM: operation not permitted`（sandbox deny�
 ## 提权：为什么不抄 pkexec，也不让 Electron 以 root 跑
 
 macOS 没有 polkit / pkexec。但 Linux 提权注入的**架构**可以照搬：非特权主进程
-只做数据准备，特权部分收敛成一个短命子进程。
+只做数据准备，特权部分收敛成一个短命子进程。Linux 侧随后也统一改成了同一套
+`sudo -S` 姿势（自绘密码框，不再依赖 polkit）：ptrace 注入走短命
+`injectWorker.mjs`，ninebird 安装只提权写一个持久 `loadNineBird.js`（不动
+package.json），还原即删除该文件。
 
 这里照抄 napcat-mac-installer 的 `sudo -S`：渲染层弹密码框，密码经 stdin 喂给
 `/usr/bin/sudo -S /bin/sh -c <sh>`，root 只执行受控的字节级 `cp`：

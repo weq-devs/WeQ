@@ -14,13 +14,18 @@ import { ToastHost } from './components/Toast';
 import { WelcomeDialog } from './components/WelcomeDialog';
 import { CloseConfirmDialog } from './components/CloseConfirmDialog';
 import { PtraceHintDialog } from './components/PtraceHintDialog';
+import { ElevationPasswordDialog } from './components/ElevationPasswordDialog';
 import { DesktopOnly } from './lib/target';
 import { ImageLightbox } from './components/ImageLightbox';
 import { VideoLightbox } from './components/VideoLightbox';
 import { MarketFaceLightbox } from './components/MarketFaceLightbox';
 import { ForwardWindowHost } from './components/ForwardWindow';
 import { AppLockOverlay } from './components/AppLockOverlay';
-import { TextMarkdownContext, LinkPreviewContext, MsgDecorationEnabledContext } from './components/QqMessageContent';
+import {
+  TextMarkdownContext,
+  LinkPreviewContext,
+  MsgDecorationEnabledContext,
+} from './components/QqMessageContent';
 import { SelfPendantContext } from './hooks/useSelfPendant';
 import { CdnContext, setPreferCdnFlag } from './lib/cdn';
 import { WarmupSplash } from './components/WarmupSplash';
@@ -167,6 +172,9 @@ export default function App(): ReactElement {
           </DesktopOnly>
           <DesktopOnly>
             <PtraceHintDialog />
+          </DesktopOnly>
+          <DesktopOnly>
+            <ElevationPasswordDialog />
           </DesktopOnly>
           <DesktopOnly>
             <AppLockOverlay />

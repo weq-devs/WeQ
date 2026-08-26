@@ -188,7 +188,7 @@ export function resetNativeCache(): void {
 /**
  * Absolute path to the `nt_helper.node` that {@link loadNative} would resolve,
  * without loading it. The desktop app needs this to hand an elevated
- * (pkexec) child the exact addon to require for linux injection. Resolution
+ * (sudo) child the exact addon to require for linux injection. Resolution
  * mirrors `loadNative` (WEQ_NATIVE_DIR → packaged → dev walk-up).
  */
 export function resolveNtHelperPath(opts: LoadNativeOptions = {}): string {

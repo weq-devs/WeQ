@@ -48,7 +48,16 @@ import {
 } from '@weq/service';
 import { peekStaticSelfUin, deriveAndroidDbKey } from '@weq/account';
 import { isTencentFilesRoot } from '@weq/platform';
-import { darwinPaths, getPatchStatus, installNineBird, uninstallNineBird } from '@weq/native';
+import {
+  darwinPaths,
+  getPatchStatus,
+  installNineBird,
+  installNineBirdLinux,
+  linuxPaths,
+  linuxStubStatus,
+  uninstallNineBird,
+  uninstallNineBirdLinux,
+} from '@weq/native';
 
 /** Result of the Tencent Files folder picker (with the hard `Tencent Files` rule). */
 export interface PickRootResult {
@@ -126,49 +135,74 @@ export const bootstrapRouter = router({
     return { platformKind: process.platform as NodeJS.Platform };
   }),
 
-  // ---- macOS NineBird 安装（napcat-mac-installer 机制） ----
+  // ---- NineBird 安装（macOS napcat 机制 / Linux 持久 stub，sudo -S 提权） ----
 
   /**
-   * 入口补丁状态：原版 / NineBird / 自定义 / 缺失，外加 bundle shim 是否在
-   * 位（入口已补丁但 shim 被删时，登录流程需要重新提权安装修复）。
-   * 非 macOS 返回 null。
+   * 入口状态：
+   *   - darwin：package.json main 的补丁状态（原版 / NineBird / 自定义 /
+   *     缺失），外加 bundle shim 是否在位；
+   *   - linux：持久 stub（loadNineBird.js）是否就位（Linux 不动 package.json，
+   *     所以只有 已装/未装 两种）。
+   * 其它平台返回 null。
    */
   nineBirdInstallStatus: procedure.query(() => {
     const platform = requirePlatform();
-    if (platform.kind !== 'darwin') return null;
     const exe = platform.qqExePath();
     if (!exe) return { kind: 'missing', loaderOk: false } as const;
-    const paths = darwinPaths(exe);
-    return { ...getPatchStatus(paths), loaderOk: existsSync(paths.loaderJs) };
+    if (platform.kind === 'darwin') {
+      const paths = darwinPaths(exe);
+      return { ...getPatchStatus(paths), loaderOk: existsSync(paths.loaderJs) };
+    }
+    if (platform.kind === 'linux') {
+      const status = linuxStubStatus(linuxPaths(exe));
+      return {
+        kind: status.installed ? 'ninebird' : 'original',
+        loaderOk: status.installed,
+        fresh: status.fresh,
+      } as const;
+    }
+    return null;
   }),
 
-  /** 部署 NineBird 到 QQ 容器 + 提权切换入口（弹系统授权框）。 */
   /**
-   * 部署 NineBird 到 QQ 容器 + 提权切换入口。
-   * 密码由渲染层密码框输入，经 `sudo -S` stdin 使用（napcat 同款），
-   * 不在 main 里落盘 / 记日志。
+   * 安装 NineBird：darwin = 部署容器文件 + 提权切换 package.json 入口；
+   * linux = 提权写入持久 stub（loadNineBird.js）。密码由渲染层密码框输入，
+   * 经 `sudo -S` stdin 使用，不在 main 里落盘 / 记日志。
    */
   nineBirdInstall: procedure
     .input(z.object({ password: z.string() }))
     .mutation(async ({ input }) => {
       const platform = requirePlatform();
-      if (platform.kind !== 'darwin') throw new Error('仅 macOS 支持 NineBird 安装');
       const exe = platform.qqExePath();
       if (!exe) throw new Error('未找到 QQ，请确认已安装 QQ');
-      await installNineBird(exe, platform.native.resources, input.password);
-      return getPatchStatus(darwinPaths(exe));
+      if (platform.kind === 'darwin') {
+        await installNineBird(exe, platform.native.resources, input.password);
+        return getPatchStatus(darwinPaths(exe));
+      }
+      if (platform.kind === 'linux') {
+        await installNineBirdLinux(exe, platform.native.resources.qrDbkeyJsPath, input.password);
+        return linuxStubStatus(linuxPaths(exe));
+      }
+      throw new Error('仅 macOS / Linux 支持 NineBird 安装');
     }),
 
-  /** 恢复原版入口（提权）+ 删除容器部署目录。 */
+  /** 还原：darwin = 恢复 package.json 入口（提权）+ 删容器部署目录；
+   *  linux = 删除 loadNineBird.js（提权）。 */
   nineBirdUninstall: procedure
     .input(z.object({ password: z.string() }))
     .mutation(async ({ input }) => {
       const platform = requirePlatform();
-      if (platform.kind !== 'darwin') throw new Error('仅 macOS 支持 NineBird 卸载');
       const exe = platform.qqExePath();
       if (!exe) throw new Error('未找到 QQ，请确认已安装 QQ');
-      await uninstallNineBird(exe, input.password);
-      return getPatchStatus(darwinPaths(exe));
+      if (platform.kind === 'darwin') {
+        await uninstallNineBird(exe, input.password);
+        return getPatchStatus(darwinPaths(exe));
+      }
+      if (platform.kind === 'linux') {
+        await uninstallNineBirdLinux(exe, input.password);
+        return linuxStubStatus(linuxPaths(exe));
+      }
+      throw new Error('仅 macOS / Linux 支持 NineBird 卸载');
     }),
 
   /**
@@ -1174,8 +1208,8 @@ export const bootstrapRouter = router({
    * Flow 1, step A — inject the hook into the alive QQ instance and block until
    * it is ready to send OIDB packets (the native call waits for the hook to
    * bind the MSFService instance via `uin`). On linux this is the
-   * pkexec-elevated ptrace inject, so it pops the polkit password dialog and can
-   * take arbitrarily long (the user typing their password) — the renderer
+   * sudo-elevated ptrace inject, so it pops the self-drawn password dialog and
+   * can take arbitrarily long (the user typing their password) — the renderer
    * awaits this UNTIMED, then runs `fetchKeyFromInstance` (step B). Idempotent
    * inside the hook. No-op-ish on win32 (ensure == inject).
    */
@@ -1238,7 +1272,7 @@ export const bootstrapRouter = router({
       });
 
       // Make the pid sendable (idempotent). On win32 this injects the embedded
-      // hook once; on linux it pkexec-elevates the inject — the native call
+      // hook once; on linux it sudo-elevates the inject — the native call
       // blocks until the hook binds the MSFService instance via `uin`.
       // Re-injecting a live pid would race the hook's single-listener pipe
       // (ERROR_PIPE_BUSY), so the hook's per-pid cache ensures we only do it

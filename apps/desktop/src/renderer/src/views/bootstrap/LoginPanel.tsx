@@ -136,8 +136,9 @@ export function LoginPanel({
           return; // key set, or the dialog flow ended
         }
 
-        // Linux: the alive-instance path goes through the pkexec-elevated
-        // inject first (polkit dialog, untimed) and then the key fetch — the
+        // Linux: the alive-instance path goes through the sudo-elevated
+        // inject first (self-drawn password dialog, untimed) and then the key
+        // fetch — the
         // native inject already waits for the hook to bind the MSFService
         // instance, so there is no packet-wait race on the fetch anymore.
         // Windows keeps the direct path.
@@ -282,8 +283,8 @@ export function LoginPanel({
   /**
    * Linux alive-instance key fetch.
    *
-   * The inject half (which pops the polkit password dialog and can take as long
-   * as the user needs to type) runs FIRST and UNTIMED via `prepareInstanceInject`
+   * The inject half (which pops the self-drawn password dialog and can take as
+   * long as the user needs to type) runs FIRST and UNTIMED via `prepareInstanceInject`
    * — the native inject blocks until the hook binds the MSFService instance via
    * the account uin, so when it resolves the pid can already send OIDB packets
    * and the key fetch below is a plain request. Errors propagate to the caller,
@@ -310,12 +311,13 @@ export function LoginPanel({
   }
 
   /**
-   * darwin：登录前确保 NineBird 已装好。未装（或入口已补丁但 bundle shim
-   * 缺失）时弹管理员密码框提权安装；取消 / 失败返回 false 并已提示用户。
-   * 其它平台直接放行（linux 的 pkexec / win32 的注入不依赖这一步）。
+   * darwin / linux：登录前确保 NineBird 已装好。darwin 未装（或入口已补丁
+   * 但 bundle shim 缺失）时弹管理员密码框提权安装；linux 未装（loadNineBird.js
+   * 不存在）时同样弹密码框提权写入。取消 / 失败返回 false 并已提示用户。
+   * 其它平台直接放行（win32 的注入不依赖这一步）。
    */
   async function ensureNineBirdInstalled(): Promise<boolean> {
-    if (!isMac) return true;
+    if (!isMac && !isLinux) return true;
     try {
       const status = await client.bootstrap.nineBirdInstallStatus.query();
       if (status == null) return true;
@@ -330,7 +332,9 @@ export function LoginPanel({
               ? `QQ 程序入口被其他程序占用（${status.main}）。请在「设置 → 全局设置」中先还原为原版 QQ，再重试。`
               : status.kind === 'missing'
                 ? '未找到 QQ 入口配置，请确认 QQ 已安装。'
-                : `读取 QQ 入口配置失败：${status.error}`,
+                : 'error' in status && status.error
+                  ? `读取 QQ 入口配置失败：${status.error}`
+                  : 'NineBird 状态异常，请重试。',
           );
           return false;
         }
@@ -339,7 +343,9 @@ export function LoginPanel({
 
       const password = await promptPassword(
         'NineBird 安装',
-        '登录流程需要重启 QQ 以获取密钥，需要管理员权限修改 QQ 程序入口。请输入电脑开机密码。',
+        isMac
+          ? '登录流程需要重启 QQ 以获取密钥，需要管理员权限修改 QQ 程序入口。请输入电脑开机密码。'
+          : '登录流程需要管理员权限向 QQ 的启动目录写入 loadNineBird.js 以获取密钥。请输入管理员密码。',
         { placeholder: '管理员密码' },
       );
       if (password === null) return false;

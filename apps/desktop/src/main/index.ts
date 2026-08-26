@@ -37,6 +37,7 @@ import { registerQzoneIpc } from './qzone';
 import { registerFlashShareIpc } from './flash_share';
 import { setMainWindow } from './main_window';
 import { registerPtraceHintIpc } from './ptrace_hint_ipc';
+import { registerElevationIpc } from './elevation_ipc';
 import {
   getLogDir,
   getLogger,
@@ -581,6 +582,7 @@ void app.whenReady().then(async () => {
   registerFlashShareIpc();
   registerWeqAssistantIpc();
   registerPtraceHintIpc();
+  registerElevationIpc();
 
   app.on('browser-window-created', (_, win) => {
     optimizer.watchWindowShortcuts(win);

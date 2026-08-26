@@ -359,7 +359,7 @@ export interface BootstrapServices {
   tts: TtsService;
   /**
    * Turns a QQ pid into a sendable state before instance-key/rkey fetches.
-   * linux → pkexec-elevated inject + wait-for-packet; other platforms →
+   * linux → sudo-elevated inject + wait-for-packet; other platforms →
    * in-process direct inject. Shared (single instance) so its per-pid
    * idempotency spans the router and every account monitor.
    */

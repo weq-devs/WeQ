@@ -107,7 +107,7 @@ export class Win32KeyService {
 
   constructor(
     private readonly platform: Platform,
-    /** Linux-only entry-stub hooks (pkexec elevation). Omit for the fs default. */
+    /** Linux-only entry-stub hooks (sudo elevation). Omit for the fs default. */
     stubHooks?: StubHooks,
   ) {
     this.bootstrap = new NineBirdBootstrap(

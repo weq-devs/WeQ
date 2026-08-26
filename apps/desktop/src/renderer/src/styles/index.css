@@ -1765,6 +1765,28 @@ html[data-theme='dark'] .weq-splash-track {
     line-height: 1.5;
     color: var(--weq-fg-muted);
   }
+  .weq-ptrace-password {
+    display: flex;
+    flex-direction: column;
+    gap: 0.32rem;
+    margin-bottom: 0.7rem;
+    font-size: 11.5px;
+    color: var(--weq-fg-secondary);
+  }
+  .weq-ptrace-password input {
+    padding: 0.5rem 0.62rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--weq-border-strong);
+    background: var(--weq-bg-elevated);
+    color: var(--weq-fg-primary);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 140ms ease, box-shadow 140ms ease;
+  }
+  .weq-ptrace-password input:focus {
+    border-color: var(--weq-accent-effective);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
+  }
   .weq-ptrace-actions {
     display: flex;
     gap: 0.5rem;
@@ -1804,6 +1826,16 @@ html[data-theme='dark'] .weq-splash-track {
   }
   .weq-ptrace-opt:active svg {
     transform: scale(0.96);
+  }
+  .weq-ptrace-opt:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    border-color: var(--weq-border-subtle);
+    background: transparent;
+  }
+  .weq-ptrace-opt:disabled:hover {
+    border-color: var(--weq-border-subtle);
+    background: transparent;
   }
   .weq-ptrace-opt-primary {
     border-color: color-mix(in srgb, var(--weq-accent-effective) 68%, var(--weq-border-strong));

@@ -43,7 +43,7 @@ export interface AutoEnterTarget {
 /**
  * A persisted "this pid is already hook-injected" record (linux only).
  *
- * The linux inject is expensive: a pkexec/polkit password dialog + an exclusive
+ * The linux inject is expensive: a sudo password dialog + an exclusive
  * ptrace attach. The in-memory injectHook caches which pids are injected, but a
  * WeQ restart loses that — so without persistence WeQ would re-inject an
  * already-hooked, still-running QQ (popping the password dialog again and racing
@@ -283,7 +283,7 @@ export interface AppSettings {
   /**
    * Linux 下是否不再提示关闭 ptrace 保护。首次检测到无法直接注入（内核拒绝
    * ptrace）时弹窗引导用户关闭 yama ptrace_scope；选择「不再提醒」后写入这里，
-   * 之后直接走 pkexec 提权、不再弹窗。
+   * 之后直接走 sudo 提权、不再弹窗。
    */
   suppressPtraceHint: boolean;
   /**
