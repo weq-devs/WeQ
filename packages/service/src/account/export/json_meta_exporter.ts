@@ -12,8 +12,8 @@
  *   { ...message, senderName, ... }    (one per message)
  */
 
-import { createWriteStream, statSync } from 'node:fs';
-import { once } from 'node:events';
+import { statSync } from 'node:fs';
+import { createExportWriter } from './stream_utils';
 import type { MsgService } from '../msg';
 import { toExportedMessage, type RoamMessageSource } from './message_source';
 import { expandForwards } from './forward_expand';
@@ -131,17 +131,14 @@ export async function exportJsonConversation(
   };
 
   // ---- write ----
-  const stream = createWriteStream(opts.outputPath, { encoding: 'utf-8' });
-  const write = async (chunk: string): Promise<void> => {
-    if (!stream.write(chunk)) await once(stream, 'drain');
-  };
+  const writer = createExportWriter(opts.outputPath);
 
   let count = 0;
   try {
     if (isJsonl) {
-      await write(`${JSON.stringify({ _type: 'header', meta }, bigintReplacer)}\n`);
+      await writer.write(`${JSON.stringify({ _type: 'header', meta }, bigintReplacer)}\n`);
       for (const member of members) {
-        await write(`${JSON.stringify({ _type: 'member', ...member }, bigintReplacer)}\n`);
+        await writer.write(`${JSON.stringify({ _type: 'member', ...member }, bigintReplacer)}\n`);
       }
       for await (const raw of iterateConv(msgs, opts.kind, opts.conv, opts.range, opts.roam)) {
         const exported = toExportedMessage(raw);
@@ -149,7 +146,7 @@ export async function exportJsonConversation(
         await expandForwards(msgs, opts.kind, exported);
         if (opts.withMediaPaths) annotateLocalPaths(exported.elements);
         const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
-        await write(`${JSON.stringify(toJsonMessage(exported, sender), bigintReplacer)}\n`);
+        await writer.write(`${JSON.stringify(toJsonMessage(exported, sender), bigintReplacer)}\n`);
         count += 1;
         if (count % progressEvery === 0) {
           opts.onProgress?.({ current: count, message: `已导出 ${count} 条` });
@@ -161,14 +158,14 @@ export async function exportJsonConversation(
         `"meta": ${JSON.stringify(meta)},\n` +
         `"members": ${JSON.stringify(members)},\n` +
         '"messages": [\n';
-      await write(head);
+      await writer.write(head);
       for await (const raw of iterateConv(msgs, opts.kind, opts.conv, opts.range, opts.roam)) {
         const exported = toExportedMessage(raw);
         opts.collectSenders?.add(exported.senderUin);
         await expandForwards(msgs, opts.kind, exported);
         if (opts.withMediaPaths) annotateLocalPaths(exported.elements);
         const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
-        await write(
+        await writer.write(
           (count === 0 ? '' : ',\n') +
             JSON.stringify(toJsonMessage(exported, sender), bigintReplacer),
         );
@@ -177,11 +174,10 @@ export async function exportJsonConversation(
           opts.onProgress?.({ current: count, message: `已导出 ${count} 条` });
         }
       }
-      await write('\n]\n}\n');
+      await writer.write('\n]\n}\n');
     }
   } finally {
-    stream.end();
-    await once(stream, 'finish');
+    await writer.end();
   }
 
   return {

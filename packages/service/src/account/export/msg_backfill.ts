@@ -58,8 +58,10 @@ export interface MessageBackfillOptions {
   rateLimitMs?: number;
   /** 取消信号（任务暂停 / 取消）。 */
   signal?: AbortSignal;
-  /** 每个窗口完成后回调（fetched = 该窗新拉取条数，缓存命中为 0）。 */
-  onWindow?: (fetched: number) => void;
+  /** 扫描出全部空窗后回调（totalWindowSeqs = 待拉取的空窗 seq 总量，用作进度分母）。 */
+  onPlan?: (totalWindowSeqs: number) => void;
+  /** 每个窗口完成后回调（fetched = 该窗新拉取条数，缓存命中为 0；windowSeqs = 该窗 seq 数）。 */
+  onWindow?: (fetched: number, windowSeqs: number) => void;
   /** 出现一次慢请求（可能被限流）时回调（前端 toast）。 */
   onRateLimited?: () => void;
 }
@@ -77,6 +79,8 @@ export interface MessageBackfillSummary {
   stoppedByEmpty: boolean;
   /** 是否因为离线 / 拉取失败提前结束。 */
   stoppedByError: boolean;
+  /** 全部空窗的 seq 总量（进度分母；提前结束时空窗未拉完）。 */
+  totalWindowSeqs: number;
 }
 
 /**
@@ -124,6 +128,7 @@ export async function backfillConversationMessages(
 
   const seqsDesc = (await opts.listSeqsDesc()).filter((s) => s > 0n);
   const windows = buildBackfillWindows(seqsDesc);
+  const totalWindowSeqs = windows.reduce((sum, w) => sum + (w.end - w.start + 1), 0);
   const summary: MessageBackfillSummary = {
     fetched: 0,
     requests: 0,
@@ -131,8 +136,10 @@ export async function backfillConversationMessages(
     rateLimited: 0,
     stoppedByEmpty: false,
     stoppedByError: false,
+    totalWindowSeqs,
   };
   if (windows.length === 0) return summary;
+  opts.onPlan?.(totalWindowSeqs);
 
   // null = 未完成；true = 该窗非空；false = 该窗服务端无消息。
   const results = new Array<boolean | null>(windows.length).fill(null);
@@ -173,7 +180,7 @@ export async function backfillConversationMessages(
         summary.fetched += res.fetched;
         if (!nonEmpty) summary.emptyWindows += 1;
         results[idx] = nonEmpty;
-        opts.onWindow?.(res.fetched);
+        opts.onWindow?.(res.fetched, window.end - window.start + 1);
       }
       // 按扫描顺序结算已完成的窗口。
       while (nextCommit < windows.length && results[nextCommit] !== null) {

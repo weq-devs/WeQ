@@ -10,8 +10,7 @@
  * 说说按发表时间**倒序**，配合时间范围可提前停止翻页。
  */
 
-import { once } from 'node:events';
-import { createWriteStream } from 'node:fs';
+import { createExportWriter } from './stream_utils';
 import { mkdir } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { downloadUrlToFile } from '../media_url';
@@ -191,10 +190,9 @@ export async function exportQzone(
     opts.format === 'json'
       ? JSON.stringify(filtered, null, 2)
       : filtered.map(emotionToTxt).join('\n');
-  const stream = createWriteStream(opts.outputPath, { encoding: 'utf-8' });
-  if (!stream.write(body)) await once(stream, 'drain');
-  stream.end();
-  await once(stream, 'finish');
+  const writer = createExportWriter(opts.outputPath);
+  await writer.write(body);
+  await writer.end();
 
   let mediaOk = 0;
   let mediaFailed = 0;
