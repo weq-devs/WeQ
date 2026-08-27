@@ -238,6 +238,12 @@ export interface MarketFaceKeyResult {
  * fn) are Promise-returning here. Sync-on-Rust-side methods return raw
  * values. Method names use camelCase because napi-rs auto-converts.
  */
+/** One hit from the local dress bundle: full CDN URL + server-reported size. */
+export interface DressResourceUrl {
+  url: string;
+  size: number;
+}
+
 export interface NtHelperBinding {
   // --- init / health ---
   getInitStatus(): InitStatus;
@@ -418,6 +424,23 @@ export interface NtHelperBinding {
    *   - "success: converted FTF to TTF" (magic TTF converted to standard)
    */
   convertFont(inputPath: string, outputPath: string): string;
+
+  // --- dress offline resource index (local .dat bundles, no protocol needed) ---
+  /**
+   * Look up one dress resource's download URL from the local bundle
+   * (`resources/dress/{font|bubble|widget}.dat`; the AES key is baked into the
+   * binary at build time and derived from the commit SHA in CI, so all
+   * platforms share one key). Pure-local: works with no online QQ and in
+   * fully-offline mode. Returns `null` when the bundle is missing,
+   * undecryptable, or the record does not exist - callers fall back to the
+   * protocol (scupdate) query.
+   *
+   * `dtype`: "font" | "bubble" | "widget"
+   * `itemId`: dress item id
+   * `name`: part name - config.json / static.zip / other.zip / aio_50.png /
+   *   xydata.js / main / fzfont
+   */
+    queryDressResourceUrl(dtype: string, itemId: string, name: string): DressResourceUrl | null;
 }
 
 // ---------- ninebird_addon.node — launch bootstrap -----------------------

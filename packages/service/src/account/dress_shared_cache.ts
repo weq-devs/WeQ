@@ -178,12 +178,29 @@ export class DressSharedCache {
   }
 
   /**
-   * 只有 itemId 时找气泡的权威外链（protocol 兜底）。
+   * 只有 itemId 时找气泡的权威外链（本地 bundle 优先，protocol 兜底）。
    */
   private async resolveBubbleUrl(itemId: number): Promise<BubbleSource | null> {
     const legacy = legacyBubbleStaticUrl(itemId);
     if (await urlExists(legacy)) {
       return { staticUrl: legacy };
+    }
+
+    // 本地离线 bundle 优先：不需要在线 QQ，也不触发 resolvePid 闸门。
+    const local = this.ntHelper.queryDressResourceUrl('bubble', String(itemId), 'static.zip');
+    if (local) {
+      const cfg = this.ntHelper.queryDressResourceUrl('bubble', String(itemId), 'config.json');
+      const other = this.ntHelper.queryDressResourceUrl('bubble', String(itemId), 'other.zip');
+      const installed = await this.installBubbleFromUrls(itemId, {
+        staticZipUrl: local.url,
+        configUrl: cfg?.url,
+        otherZipUrl: other?.url,
+      });
+      if (installed) return installed;
+      this.logger.warn('local bubble bundle install failed, fall back to protocol', {
+        event: 'dress-bubble-local-miss',
+        itemId,
+      });
     }
 
     const pid = this.resolvePid();
@@ -198,8 +215,22 @@ export class DressSharedCache {
     const res = await getBubbleResources(this.nt, pid, itemId);
     if (!res.staticZip?.ok) return null;
 
+    return this.installBubbleFromUrls(itemId, {
+      staticZipUrl: res.staticZip.url,
+      configUrl: res.config?.url,
+      otherZipUrl: res.otherZip?.ok ? res.otherZip.url : undefined,
+    });
+  }
+
+  /**
+   * 从权威外链下载气泡 zip、解九宫格、写缓存（本地 bundle 与 protocol 共用）。
+   */
+  private async installBubbleFromUrls(
+    itemId: number,
+    urls: { staticZipUrl: string; configUrl?: string; otherZipUrl?: string },
+  ): Promise<BubbleSource | null> {
     const zipPath = join(this.bubblesDir, `${itemId}.zip`);
-    const dl = await downloadUrlToFile(res.staticZip.url, zipPath);
+    const dl = await downloadUrlToFile(urls.staticZipUrl, zipPath);
     if (!dl.ok) return null;
 
     const png = extractFromZip(readFileSync(zipPath), (n) => /aio_user_bg_nor\.9\.png$/i.test(n));
@@ -217,10 +248,10 @@ export class DressSharedCache {
     const pngPath = join(this.bubblesDir, `${itemId}.png`);
     writeFileSync(pngPath, png);
 
-    const config = await fetchBubbleConfig(res.config?.url);
+    const config = await fetchBubbleConfig(urls.configUrl);
     const animation =
-      config?.animation && res.otherZip?.ok
-        ? await this.extractBubbleFrames(itemId, res.otherZip.url, config.animation)
+      config?.animation && urls.otherZipUrl
+        ? await this.extractBubbleFrames(itemId, urls.otherZipUrl, config.animation)
         : undefined;
 
     return {
@@ -278,12 +309,28 @@ export class DressSharedCache {
   }
 
   /**
-   * 安装一款字体：换下载链 → 下 zip → 解出 ttf → 转换（如需要）→  写入共享缓存。
+   * 安装一款字体：本地 bundle 优先，protocol 兜底。
    */
   async installFont(itemId: number, _name: string): Promise<{ family: string; file: string }> {
     const file = this.fontFile(itemId);
     if (file && existsSync(file) && isRenderableSfnt(readFileSync(file))) {
       return { family: fontFamilyFor(itemId), file };
+    }
+
+    // 本地离线 bundle 优先：不需要在线 QQ，也不触发 resolvePid 闸门。
+    for (const part of ['main', 'fzfont']) {
+      const local = this.ntHelper.queryDressResourceUrl('font', String(itemId), part);
+      if (!local) continue;
+      try {
+        return await this.installFontFromZip(itemId, local.url);
+      } catch (e) {
+        this.logger.warn('local font bundle install failed, try next / protocol', {
+          event: 'dress-font-local-miss',
+          itemId,
+          part,
+          ...logErrorContext(e),
+        });
+      }
     }
 
     const pid = this.resolvePid();
@@ -298,8 +345,18 @@ export class DressSharedCache {
       );
     }
 
+    return this.installFontFromZip(itemId, resource.url);
+  }
+
+  /**
+   * 从权威外链下载字体 zip、解 ttf、转换并写缓存（本地 bundle 与 protocol 共用）。
+   */
+  private async installFontFromZip(
+    itemId: number,
+    zipUrl: string,
+  ): Promise<{ family: string; file: string }> {
     const zipPath = join(this.fontsDir, `${itemId}.zip`);
-    const outcome = await downloadUrlToFile(resource.url, zipPath);
+    const outcome = await downloadUrlToFile(zipUrl, zipPath);
     if (!outcome.ok) throw new Error(`字体下载失败: ${outcome.reason}`);
 
     const ttf = extractFirstTtf(readFileSync(zipPath));
@@ -342,12 +399,32 @@ export class DressSharedCache {
   }
 
   /**
-   * 解析挂件动画帧（scupdate 兜底）。
+   * 解析挂件动画帧（本地 bundle 优先，protocol 兜底）。
    */
   async resolvePendantAnimation(itemId: number): Promise<PendantSidecar | null> {
     const sidecarPath = join(this.pendantsDir, `${itemId}.json`);
     const cached = readPendantSidecar(sidecarPath);
     if (cached && existsSync(join(this.pendantsDir, `${itemId}-frame-1.png`))) return cached;
+
+    // 本地离线 bundle 优先：不需要在线 QQ，也不触发 resolvePid 闸门。
+    try {
+      const local = this.ntHelper.queryDressResourceUrl('widget', String(itemId), 'other.zip');
+      if (local) {
+        const xydata = this.ntHelper.queryDressResourceUrl('widget', String(itemId), 'xydata.js');
+        const installed = await this.installPendantFrames(itemId, local.url, xydata?.url);
+        if (installed) return installed;
+        this.logger.warn('local pendant bundle install failed, fall back to protocol', {
+          event: 'dress-pendant-local-miss',
+          itemId,
+        });
+      }
+    } catch (e) {
+      this.logger.warn('local pendant bundle lookup failed, fall back to protocol', {
+        event: 'dress-pendant-local-miss',
+        itemId,
+        ...logErrorContext(e),
+      });
+    }
 
     const pid = this.resolvePid();
     if (!pid) return null;
@@ -356,41 +433,7 @@ export class DressSharedCache {
       const res = await getPendantResources(this.nt, pid, itemId);
       if (!res.otherZip?.ok) return null;
 
-      const otherZipPath = join(this.pendantsDir, `${itemId}-other.zip`);
-      const dl = await downloadUrlToFile(res.otherZip.url, otherZipPath);
-      if (!dl.ok) return null;
-
-      const otherZip = readFileSync(otherZipPath);
-      const aioFileZip = extractFromZip(otherZip, (n) => /(^|\/)aio_file\.zip$/i.test(n));
-      if (!aioFileZip) return null;
-
-      const frames = extractAllFromZip(aioFileZip, (n) => /^\d+\.png$/i.test(n)).sort((a, b) => {
-        const na = Number(a.name.match(/(\d+)/)?.[1] ?? 0);
-        const nb = Number(b.name.match(/(\d+)/)?.[1] ?? 0);
-        return na - nb;
-      });
-      if (frames.length === 0) return null;
-
-      frames.forEach((frame, i) => {
-        writeFileSync(join(this.pendantsDir, `${itemId}-frame-${i + 1}.png`), frame.data);
-      });
-
-      const frameTimeMs = (await fetchPendantInterval(res.xydata?.url)) ?? 100;
-      const animation: PendantSidecar = {
-        itemId,
-        frameCount: frames.length,
-        frameTimeMs,
-        repeat: 0,
-      };
-      writeFileSync(sidecarPath, JSON.stringify(animation));
-
-      this.logger.info('resolved pendant animation', {
-        event: 'dress-pendant-frames',
-        itemId,
-        frameCount: frames.length,
-        frameTimeMs,
-      });
-      return animation;
+      return this.installPendantFrames(itemId, res.otherZip.url, res.xydata?.url);
     } catch (e) {
       this.logger.warn('pendant animation resolve failed', {
         event: 'dress-pendant-resolve-failed',
@@ -399,6 +442,51 @@ export class DressSharedCache {
       });
       return null;
     }
+  }
+
+  /**
+   * 从权威外链下载挂件 other.zip、解帧、写缓存（本地 bundle 与 protocol 共用）。
+   */
+  private async installPendantFrames(
+    itemId: number,
+    otherZipUrl: string,
+    xydataUrl?: string,
+  ): Promise<PendantSidecar | null> {
+    const otherZipPath = join(this.pendantsDir, `${itemId}-other.zip`);
+    const dl = await downloadUrlToFile(otherZipUrl, otherZipPath);
+    if (!dl.ok) return null;
+
+    const otherZip = readFileSync(otherZipPath);
+    const aioFileZip = extractFromZip(otherZip, (n) => /(^|\/)aio_file\.zip$/i.test(n));
+    if (!aioFileZip) return null;
+
+    const frames = extractAllFromZip(aioFileZip, (n) => /^\d+\.png$/i.test(n)).sort((a, b) => {
+      const na = Number(a.name.match(/(\d+)/)?.[1] ?? 0);
+      const nb = Number(b.name.match(/(\d+)/)?.[1] ?? 0);
+      return na - nb;
+    });
+    if (frames.length === 0) return null;
+
+    frames.forEach((frame, i) => {
+      writeFileSync(join(this.pendantsDir, `${itemId}-frame-${i + 1}.png`), frame.data);
+    });
+
+    const frameTimeMs = (await fetchPendantInterval(xydataUrl)) ?? 100;
+    const animation: PendantSidecar = {
+      itemId,
+      frameCount: frames.length,
+      frameTimeMs,
+      repeat: 0,
+    };
+    writeFileSync(join(this.pendantsDir, `${itemId}.json`), JSON.stringify(animation));
+
+    this.logger.info('resolved pendant animation', {
+      event: 'dress-pendant-frames',
+      itemId,
+      frameCount: frames.length,
+      frameTimeMs,
+    });
+    return animation;
   }
 
   /** 气泡静态图路径（本地文件）。 */
