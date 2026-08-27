@@ -22,8 +22,8 @@
  * produced from the same record stream; the only difference is framing.
  */
 
-import { createWriteStream, statSync } from 'node:fs';
-import { once } from 'node:events';
+import { statSync } from 'node:fs';
+import { createExportWriter } from './stream_utils';
 import type { MsgService } from '../msg';
 import type { RenderElement } from '../msg_view';
 import { toExportedMessage, type RoamMessageSource } from './message_source';
@@ -282,25 +282,22 @@ export async function exportToChatlab(
   };
 
   // ---- write ----
-  const stream = createWriteStream(opts.outputPath, { encoding: 'utf-8' });
-  const write = async (chunk: string): Promise<void> => {
-    if (!stream.write(chunk)) await once(stream, 'drain');
-  };
+  const writer = createExportWriter(opts.outputPath);
 
   let count = 0;
   try {
     if (isJsonl) {
       // JSONL: header line, member lines, then one message per line.
-      await write(`${JSON.stringify(header)}\n`);
+      await writer.write(`${JSON.stringify(header)}\n`);
       for (const s of senders.values()) {
-        await write(`${JSON.stringify(toChatlabMember(s))}\n`);
+        await writer.write(`${JSON.stringify(toChatlabMember(s))}\n`);
       }
       for await (const raw of iterateConv(msgs, opts.kind, opts.conv, opts.range, opts.roam)) {
         const exported = toExportedMessage(raw);
         opts.collectSenders?.add(exported.senderUin);
         await expandForwards(msgs, opts.kind, exported);
         const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
-        await write(`${JSON.stringify(toChatlabMessage(exported, sender))}\n`);
+        await writer.write(`${JSON.stringify(toChatlabMessage(exported, sender))}\n`);
         count += 1;
         if (count % progressEvery === 0) opts.onProgress?.({ current: count, message: `已导出 ${count} 条` });
       }
@@ -317,7 +314,7 @@ export async function exportToChatlab(
         `"meta": ${JSON.stringify(header.meta)},\n` +
         `"members": ${JSON.stringify(memberObjs)},\n` +
         '"messages": [\n';
-      await write(head);
+      await writer.write(head);
       for await (const raw of iterateConv(msgs, opts.kind, opts.conv, opts.range, opts.roam)) {
         const exported = toExportedMessage(raw);
         opts.collectSenders?.add(exported.senderUin);
@@ -325,15 +322,14 @@ export async function exportToChatlab(
         const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
         const { _type, ...rest } = toChatlabMessage(exported, sender);
         void _type;
-        await write((count === 0 ? '' : ',\n') + JSON.stringify(rest));
+        await writer.write((count === 0 ? '' : ',\n') + JSON.stringify(rest));
         count += 1;
         if (count % progressEvery === 0) opts.onProgress?.({ current: count, message: `已导出 ${count} 条` });
       }
-      await write('\n]\n}\n');
+      await writer.write('\n]\n}\n');
     }
   } finally {
-    stream.end();
-    await once(stream, 'finish');
+    await writer.end();
   }
 
   return {

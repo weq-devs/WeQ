@@ -2607,7 +2607,7 @@ export const accountRouter = router({
   listConversationsWithCount: procedure.query(async () => {
     const services = requireServices();
     // 空 targetUid 的系统/占位会话既不能当消息分区键，也不是可导出目标 —— 直接剔除。
-    const contacts = (await services.recentContacts.getRecentContact(200)).filter(
+    const contacts = (await services.recentContacts.getRecentContact(1000)).filter(
       (c) => c.targetUid,
     );
 

@@ -8,7 +8,7 @@
  * single `message` stage writing one file into the cache.
  */
 
-import { EventEmitter, once } from 'node:events';
+import { EventEmitter } from 'node:events';
 import { writeFileSync, readFileSync, existsSync, mkdirSync, unlinkSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { MsgService } from '../msg';
@@ -24,6 +24,7 @@ import { exportToXlsx } from './xlsx_exporter';
 import { exportToChatlab, type ChatlabDeps } from './chatlab_exporter';
 import { exportToHtml } from './html_exporter';
 import { exportQzone, type QzoneExportDeps } from './qzone_export';
+import { createExportWriter } from './stream_utils';
 import {
   exportFriends,
   exportGroupMembers,
@@ -531,7 +532,7 @@ export class ExportTaskManager extends EventEmitter {
       const isBundle = wantAvatars || wantMedia || wantTranscribe || task.format === 'html';
       const outDir = isBundle ? join(this.cacheDir, `bundle-${id}`) : this.cacheDir;
       if (isBundle) mkdirSync(outDir, { recursive: true });
-      const outPath = join(outDir, task.format === 'html' ? 'index.html' : `${task.name}.${task.format}`);
+      const outPath = join(outDir, task.format === 'html' ? 'index.html' : `${sanitizeSegment(task.name, task.conv || task.id)}.${task.format}`);
       const mediaRoot = join(outDir, 'media');
       const senders = wantAvatars ? new Set<string>() : undefined;
       // HTML collects the built-in system-emoji face ids it renders, so the
@@ -564,6 +565,8 @@ export class ExportTaskManager extends EventEmitter {
           this.touchStage(task, 'backfill', { status: 'running', note: '扫描 seq 空窗…' }, { persist: true });
           try {
             let backfilled = 0;
+            let backfillDone = 0;
+            let backfillTotal = 0;
             const summary = await backfillConversationMessages({
               kind: task.kind === 'group' ? 'group' : 'c2c',
               conv: task.conv,
@@ -574,10 +577,19 @@ export class ExportTaskManager extends EventEmitter {
               fetch: (k, c, start, end) => backfillDeps.fetch(k, c, start, end),
               concurrency: 8,
               signal: abort.signal,
-              onWindow: (fetched) => {
+              onPlan: (total) => {
+                backfillTotal = total;
+                this.touchStage(task, 'backfill', { total, current: 0, note: `共 ${total} 个空窗 seq` });
+              },
+              onWindow: (fetched, windowSeqs) => {
                 if (aborted()) return;
                 backfilled += fetched;
-                this.touchStage(task, 'backfill', { current: backfilled, note: `已拉取 ${backfilled} 条…` });
+                backfillDone += windowSeqs;
+                this.touchStage(task, 'backfill', {
+                  current: backfillDone,
+                  total: backfillTotal,
+                  note: `已拉取 ${backfilled} 条…`,
+                });
               },
               onRateLimited: () => {
                 if (rateLimitedNotified) return;
@@ -603,8 +615,8 @@ export class ExportTaskManager extends EventEmitter {
               'backfill',
               {
                 status: 'completed',
-                current: summary.fetched,
-                total: summary.fetched,
+                current: backfillTotal || summary.fetched,
+                total: backfillTotal || summary.fetched,
                 note: `已补全 ${summary.fetched} 条${tail}`,
               },
               { persist: true },
@@ -622,7 +634,29 @@ export class ExportTaskManager extends EventEmitter {
 
       // ---- stage: message (sequential, first) ----
       const roam = wantBackfill ? this.roamSource(task) : undefined;
-      this.touchStage(task, 'message', { status: 'running', note: '开始导出' }, { persist: true });
+      // 预计算导出总量（本地消息按时间窗计数 + 漫游补全消息），让 message 阶段
+      // 从一开始就有分母，且不会出现“已导出条数超过总量”的倒挂。
+      let messageTotal = 0;
+      try {
+        if (task.kind === 'group' || task.kind === 'c2c') {
+          messageTotal = await this.msgs.countConv(task.kind, task.conv, {
+            startTime: task.range?.start ?? undefined,
+            endTime: task.range?.end ?? undefined,
+          });
+          if (roam) {
+            messageTotal += (await roam()).filter(
+              (m) =>
+                m.conv === task.conv &&
+                (task.range == null ||
+                  ((task.range.start == null || Number(m.sendTime) >= task.range.start) &&
+                    (task.range.end == null || Number(m.sendTime) <= task.range.end))),
+            ).length;
+          }
+        }
+      } catch {
+        messageTotal = 0; // 计数失败不阻塞导出，仅退回无分母进度
+      }
+      this.touchStage(task, 'message', { status: 'running', total: messageTotal, note: '开始导出' }, { persist: true });
       const result = await this.exportMessages(task, outPath, senders, wantMedia, (current, note) => {
         if (aborted()) return;
         this.touchStage(task, 'message', { current, note });
@@ -808,7 +842,7 @@ export class ExportTaskManager extends EventEmitter {
       const isBundle = wantMedia;
       const outDir = isBundle ? join(this.cacheDir, `bundle-${id}`) : this.cacheDir;
       if (isBundle) mkdirSync(outDir, { recursive: true });
-      const outPath = join(outDir, `${task.name}.${task.format}`);
+      const outPath = join(outDir, `${sanitizeSegment(task.name, task.conv || task.id)}.${task.format}`);
       const mediaRoot = wantMedia ? join(outDir, 'media') : undefined;
 
       this.touchStage(task, 'message', { status: 'running', note: '拉取说说…' }, { persist: true });
@@ -905,7 +939,7 @@ export class ExportTaskManager extends EventEmitter {
       const outDir = isBundle ? join(this.cacheDir, `bundle-${id}`) : this.cacheDir;
       if (isBundle) mkdirSync(outDir, { recursive: true });
       const ext = task.format === 'vcard' ? 'vcf' : task.format;
-      const outPath = join(outDir, `${task.name}.${ext}`);
+      const outPath = join(outDir, `${sanitizeSegment(task.name, task.conv || task.id)}.${ext}`);
       const uins = wantAvatars ? new Set<string>() : undefined;
 
       if (task.exportAvatar && !avatarCache) {
@@ -1010,7 +1044,7 @@ export class ExportTaskManager extends EventEmitter {
       const deps = this.deps.collection;
       if (!deps) throw new Error('收藏数据拉取能力不可用。');
 
-      const outPath = join(this.cacheDir, `${task.name}.${task.format}`);
+      const outPath = join(this.cacheDir, `${sanitizeSegment(task.name, task.conv || task.id)}.${task.format}`);
 
       this.touchStage(task, 'message', { status: 'running', note: '开始导出' }, { persist: true });
       const result = await exportCollections(
@@ -1370,29 +1404,25 @@ export class ExportTaskManager extends EventEmitter {
             : (m) => JSON.stringify(m, bigintReplacer);
 
     const start = Date.now();
-    const { createWriteStream, statSync } = await import('node:fs');
-    const stream = createWriteStream(outPath, { encoding: 'utf-8' });
-    const write = async (chunk: string): Promise<void> => {
-      if (!stream.write(chunk)) await once(stream, 'drain');
-    };
+    const { statSync } = await import('node:fs');
+    const writer = createExportWriter(outPath);
 
     let count = 0;
     try {
-      if (framing.head) await write(framing.head);
+      if (framing.head) await writer.write(framing.head);
       for await (const m of iterateC2cMessages(this.msgs, peerUid, { pageSize: 2000, range, roam })) {
         const exported = toExportedMessage(m);
         senders?.add(exported.senderUin);
         await expandForwards(this.msgs, 'c2c', exported);
         if (withMediaPaths) annotateLocalPaths(exported.elements);
         const record = renderRecord(exported);
-        await write(count === 0 ? record : framing.between + record);
+        await writer.write(count === 0 ? record : framing.between + record);
         count += 1;
         if (count % progressEvery === 0) onProgress({ current: count, message: `已导出 ${count} 条` });
       }
-      if (framing.tail) await write(framing.tail);
+      if (framing.tail) await writer.write(framing.tail);
     } finally {
-      stream.end();
-      await once(stream, 'finish');
+      await writer.end();
     }
 
     return { filePath: outPath, format, messageCount: count, fileSize: statSync(outPath).size, durationMs: Date.now() - start };

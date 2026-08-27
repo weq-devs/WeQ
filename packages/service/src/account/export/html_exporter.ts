@@ -21,8 +21,8 @@
  *     through {@link escapeHtml} before it reaches the document (XSS guard).
  */
 
-import { createWriteStream, statSync } from 'node:fs';
-import { once } from 'node:events';
+import { statSync } from 'node:fs';
+import { createExportWriter } from './stream_utils';
 import type { MsgService } from '../msg';
 import type { RenderElement, ForwardMessage } from '../msg_view';
 import { toExportedMessage, type RoamMessageSource } from './message_source';
@@ -401,14 +401,11 @@ export async function exportToHtml(
   }
 
   // ---- write ----
-  const stream = createWriteStream(opts.outputPath, { encoding: 'utf-8' });
-  const write = async (chunk: string): Promise<void> => {
-    if (!stream.write(chunk)) await once(stream, 'drain');
-  };
+  const writer = createExportWriter(opts.outputPath);
 
   const title = escapeHtml(convName || (opts.kind === 'group' ? '群聊' : '私聊'));
   const exportedAt = escapeHtml(formatTime(Math.floor(Date.now() / 1000)));
-  await write(
+  await writer.write(
     `<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n` +
       `<meta name="viewport" content="width=device-width,initial-scale=1">\n<title>${title} · 聊天记录</title>\n` +
       `<style>${STYLE}</style>\n</head>\n<body>\n<div class="frame">\n` +
@@ -428,21 +425,20 @@ export async function exportToHtml(
       if (opts.withMediaPaths) annotateLocalPaths(exported.elements);
       const day = dayKey(exported.sendTime);
       if (day !== lastDay) {
-        await write(`<div class="day"><span>${escapeHtml(day)}</span></div>\n`);
+        await writer.write(`<div class="day"><span>${escapeHtml(day)}</span></div>\n`);
         lastDay = day;
       }
       const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
-      await write(renderMessage(exported, sender, selfId, opts.collectFaces));
+      await writer.write(renderMessage(exported, sender, selfId, opts.collectFaces));
       count += 1;
       if (count % progressEvery === 0) opts.onProgress?.({ current: count, message: `已导出 ${count} 条` });
     }
-    await write(
+    await writer.write(
       `</main>\n<footer class="foot">共 ${count} 条消息 · 顶部搜索框可检索并点击跳转</footer>\n</div>\n` +
         `<script>${SCRIPT}</script>\n</body>\n</html>\n`,
     );
   } finally {
-    stream.end();
-    await once(stream, 'finish');
+    await writer.end();
   }
 
   return {

@@ -9,8 +9,8 @@
  *   - `renderRecord`: an {@link ExportedMessage} → string for one record.
  */
 
-import { createWriteStream, statSync } from 'node:fs';
-import { once } from 'node:events';
+import { statSync } from 'node:fs';
+import { createExportWriter } from './stream_utils';
 import type { MsgService } from '../msg';
 import { iterateGroupMessages, toExportedMessage } from './message_source';
 import { annotateLocalPaths } from './element_text';
@@ -36,32 +36,26 @@ export async function runGroupExport(
   const start = Date.now();
   const progressEvery = opts.progressEvery ?? 5000;
 
-  const stream = createWriteStream(opts.outputPath, { encoding: 'utf-8' });
-  // Backpressure: only queue more once the buffer drains, so a fast producer
-  // can't balloon memory while the disk catches up.
-  const write = async (chunk: string): Promise<void> => {
-    if (!stream.write(chunk)) await once(stream, 'drain');
-  };
+  const writer = createExportWriter(opts.outputPath);
 
   let count = 0;
   try {
-    if (framing.head) await write(framing.head);
+    if (framing.head) await writer.write(framing.head);
     for await (const m of iterateGroupMessages(msgs, opts.groupCode, { pageSize: opts.pageSize, range: opts.range, roam: opts.roam })) {
       const exported = toExportedMessage(m);
       opts.collectSenders?.add(exported.senderUin);
       await expandForwards(msgs, 'group', exported);
       if (opts.withMediaPaths) annotateLocalPaths(exported.elements);
       const record = renderRecord(exported);
-      await write(count === 0 ? record : framing.between + record);
+      await writer.write(count === 0 ? record : framing.between + record);
       count += 1;
       if (opts.onProgress && count % progressEvery === 0) {
         opts.onProgress({ current: count, message: `已导出 ${count} 条` });
       }
     }
-    if (framing.tail) await write(framing.tail);
+    if (framing.tail) await writer.write(framing.tail);
   } finally {
-    stream.end();
-    await once(stream, 'finish');
+    await writer.end();
   }
 
   return {

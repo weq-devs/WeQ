@@ -48,3 +48,5 @@ resources/ninebird-runtime/
 
 # dev
 /tmp
+
+/resources/dress/*_resources

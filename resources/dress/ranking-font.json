@@ -1,0 +1,1488 @@
+{
+  "response": {
+    "items": [
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "手写体",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E6%89%8B%E5%86%99%E4%BD%93"
+            },
+            {
+              "msg": "炫动",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E7%82%AB%E5%8A%A8"
+            },
+            {
+              "msg": "细体",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E7%BB%86%E4%BD%93"
+            }
+          ],
+          "appId": 5,
+          "itemId": 59500,
+          "name": "黑猫冷脸萌",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/font/item/bdcb3f9c3b3967be/newPreview1.png",
+          "itemBgColor": "d1d1d1",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1110702720",
+            "mallname": "一可",
+            "sourceId": "1110702720",
+            "productName": "一可",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=S3D2nSUdkJy9xG8HLHcgYg&s=100&t=1600140570",
+            "price": 1200,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "-32913059",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/font/item/bdcb3f9c3b3967be/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [
+              5
+            ],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "fontType": "2",
+              "immersiveMaterial": "{\"ttf\": \"https://tianquan.gtimg.cn/immersive/font/82f585ba/c8fd47ed947b9ba8/59500subset1779961512.ttf\", \"fontName\": \"59500subset1779961512\"}",
+              "isKuikly": "1",
+              "bubbleID": "2144536",
+              "engine": "4",
+              "fontEngine": "4"
+            },
+            "fontType": 290024,
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "-32913059",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE"
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "手写体",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E6%89%8B%E5%86%99%E4%BD%93"
+            },
+            {
+              "msg": "文艺",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E6%96%87%E8%89%BA"
+            },
+            {
+              "msg": "细体",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E7%BB%86%E4%BD%93"
+            }
+          ],
+          "appId": 5,
+          "itemId": 59477,
+          "name": "唯独意难平",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/font/item/dbec626965995046/newPreview1.png",
+          "itemBgColor": "f2f2f2",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1110534042",
+            "mallname": "文道科技",
+            "sourceId": "1110534042",
+            "productName": "文道科技",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=W2FOQYFxcibaK6BZqRH84fw&s=100&t=1601430739",
+            "price": 600,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "-32913059",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/font/item/dbec626965995046/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [
+              5,
+              305
+            ],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "immersiveMaterial": "",
+              "isKuikly": "1",
+              "bubbleID": "0",
+              "engine": "2",
+              "fontEngine": "2",
+              "fontType": "1"
+            },
+            "fontType": 153064,
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "-32913059",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE"
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "常规",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E5%B8%B8%E8%A7%84"
+            },
+            {
+              "msg": "楷书",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E6%A5%B7%E4%B9%A6"
+            },
+            {
+              "msg": "简约",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E7%AE%80%E7%BA%A6"
+            }
+          ],
+          "appId": 5,
+          "itemId": 26527,
+          "name": "楷体大字库",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/font/item/26527/newPreview1.png",
+          "itemBgColor": "e2d3d4",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1112367499",
+            "sourceId": "1112367499",
+            "price": 300,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "-32913059",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/font/item/26527/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [
+              5,
+              305
+            ],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "fontEngine": "2",
+              "fontType": "1",
+              "immersiveMaterial": "{\"ttf\": \"https://tianquan.gtimg.cn/immersive/font/6488517b/1ac18fbc17eebbb0/26527subset1779960925.ttf\", \"fontName\": \"26527subset1779960925\"}",
+              "isKuikly": "1",
+              "bubbleID": "0",
+              "engine": "2"
+            },
+            "fontType": 171879,
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "-32913059",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE"
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "手写体",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E6%89%8B%E5%86%99%E4%BD%93"
+            },
+            {
+              "msg": "文艺",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E6%96%87%E8%89%BA"
+            },
+            {
+              "msg": "细体",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E7%BB%86%E4%BD%93"
+            }
+          ],
+          "appId": 5,
+          "itemId": 33978,
+          "name": "回不去偏爱",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/font/item/33978/newPreview1.png",
+          "itemBgColor": "797984",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1111970903",
+            "mallname": "字言字库",
+            "sourceId": "1111970903",
+            "productName": "字言字库",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=wdwuVW91IQUayTH88Tk0iaQ&s=100&t=1626417081",
+            "price": 300,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "-32913059",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/font/item/33978/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [
+              5
+            ],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "bubbleID": "2040382",
+              "engine": "1",
+              "fontEngine": "1",
+              "fontType": "3",
+              "immersiveMaterial": "",
+              "isKuikly": "1"
+            },
+            "fontType": 113284,
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "-32913059",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE"
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "手写体",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E6%89%8B%E5%86%99%E4%BD%93"
+            },
+            {
+              "msg": "文艺",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E6%96%87%E8%89%BA"
+            },
+            {
+              "msg": "细体",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E7%BB%86%E4%BD%93"
+            }
+          ],
+          "appId": 5,
+          "itemId": 32202,
+          "name": "奶灰简心动",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/font/item/32202/newPreview1.png",
+          "itemBgColor": "c1cddd",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1110274429",
+            "mallname": "AaFont",
+            "sourceId": "1110274429",
+            "productName": "AaFont",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=svDkxwd1KDvUlnwArDqLdg&s=100&t=1596715824",
+            "price": 300,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "-32913059",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/font/item/32202/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [
+              5
+            ],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "bubbleID": "2036217",
+              "engine": "1",
+              "fontEngine": "1",
+              "fontType": "2",
+              "immersiveMaterial": "",
+              "isKuikly": "1"
+            },
+            "fontType": 117373,
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "-32913059",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE"
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "常规",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E5%B8%B8%E8%A7%84"
+            },
+            {
+              "msg": "楷书",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E6%A5%B7%E4%B9%A6"
+            },
+            {
+              "msg": "简约",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E7%AE%80%E7%BA%A6"
+            }
+          ],
+          "appId": 5,
+          "itemId": 31600,
+          "name": "教材楷体",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/font/item/31600/newPreview1.png",
+          "itemBgColor": "eff3ff",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1112367499",
+            "sourceId": "1112367499",
+            "price": 300,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "-32913059",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/font/item/31600/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [
+              5,
+              305
+            ],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "fontType": "1",
+              "immersiveMaterial": "{\"ttf\": \"https://tianquan.gtimg.cn/immersive/font/7c294408/5612bc53336a3893/31600subset1779961009.ttf\", \"fontName\": \"31600subset1779961009\"}",
+              "isKuikly": "1",
+              "bubbleID": "0",
+              "engine": "2",
+              "fontEngine": "2"
+            },
+            "fontType": 159867,
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "-32913059",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE"
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "修符字",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E4%BF%AE%E7%AC%A6%E5%AD%97"
+            },
+            {
+              "msg": "可爱",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E5%8F%AF%E7%88%B1"
+            },
+            {
+              "msg": "常规",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E5%B8%B8%E8%A7%84"
+            }
+          ],
+          "appId": 5,
+          "itemId": 58438,
+          "name": "萌萌的小猫",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/font/item/58438/newPreview1.png",
+          "itemBgColor": "fff2f6",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1110534042",
+            "mallname": "文道科技",
+            "sourceId": "1110534042",
+            "productName": "文道科技",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=W2FOQYFxcibaK6BZqRH84fw&s=100&t=1601430739",
+            "price": 600,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "-32913059",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/font/item/58438/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [
+              5,
+              305
+            ],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "isKuikly": "1",
+              "bubbleID": "0",
+              "engine": "2",
+              "fontEngine": "2",
+              "fontType": "1",
+              "immersiveMaterial": ""
+            },
+            "fontType": 149220,
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "-32913059",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE"
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "古风",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E5%8F%A4%E9%A3%8E"
+            },
+            {
+              "msg": "细体",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E7%BB%86%E4%BD%93"
+            },
+            {
+              "msg": "行楷",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E8%A1%8C%E6%A5%B7"
+            }
+          ],
+          "appId": 5,
+          "itemId": 58305,
+          "name": "李白落墨",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/font/item/58305/newPreview1.png",
+          "itemBgColor": "eae8dc",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1112186428",
+            "mallname": "小熊座",
+            "sourceId": "1112186428",
+            "productName": "小熊座",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=mrtJhRUNW5YDddv9WtWB7g&s=100&t=1647577146",
+            "price": 600,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "-32913059",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/font/item/58305/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [
+              5,
+              305
+            ],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "immersiveMaterial": "{\"ttf\": \"https://tianquan.gtimg.cn/immersive/font/f4399ec5/ec45f441ee5f6e2b/58305subset1779961486.ttf\", \"fontName\": \"58305subset1779961486\"}",
+              "isKuikly": "1",
+              "bubbleID": "0",
+              "engine": "2",
+              "fontEngine": "2",
+              "fontType": "1"
+            },
+            "fontType": 180707,
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "-32913059",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE"
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "古风",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E5%8F%A4%E9%A3%8E"
+            },
+            {
+              "msg": "常规",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E5%B8%B8%E8%A7%84"
+            }
+          ],
+          "appId": 5,
+          "itemId": 60147,
+          "name": "诗仙国风体",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/font/item/d41577134a706309/newPreview1.png",
+          "itemBgColor": "c2c6ce",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1111970027",
+            "mallname": "知鸟字库",
+            "sourceId": "1111970027",
+            "productName": "知鸟字库",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=gzvlqFtId2ctqK26ibymbrA&s=100&t=1626416902",
+            "price": 600,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "-32913059",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/font/item/d41577134a706309/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [
+              5,
+              305
+            ],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "fontType": "1",
+              "immersiveMaterial": "{\"errorMessage\":\"字体校验未通过：glyf 表大小 4 字节 (expected >= 16)，可能为空或损坏\"}",
+              "isKuikly": "1",
+              "bubbleID": "0",
+              "engine": "1",
+              "fontEngine": "1"
+            },
+            "fontType": 127978,
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "-32913059",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE"
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "奶酪体",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E5%A5%B6%E9%85%AA%E4%BD%93"
+            },
+            {
+              "msg": "文艺",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E6%96%87%E8%89%BA"
+            },
+            {
+              "msg": "细体",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E7%BB%86%E4%BD%93"
+            }
+          ],
+          "appId": 5,
+          "itemId": 32767,
+          "name": "最喜欢你",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/font/item/32767/newPreview1.png",
+          "itemBgColor": "efe8e1",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1111974597",
+            "mallname": "金石手迹",
+            "sourceId": "1111974597",
+            "productName": "金石手迹",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=cGQLVO5ImuXic7dIRkVYWJw&s=100&t=1628493306",
+            "price": 300,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "-32913059",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/font/item/32767/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [
+              5,
+              305
+            ],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "fontType": "1",
+              "immersiveMaterial": "",
+              "isKuikly": "1",
+              "bubbleID": "0",
+              "engine": "2",
+              "fontEngine": "2"
+            },
+            "fontType": 196479,
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "-32913059",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE"
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "古风",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E5%8F%A4%E9%A3%8E"
+            },
+            {
+              "msg": "细体",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E7%BB%86%E4%BD%93"
+            }
+          ],
+          "appId": 5,
+          "itemId": 25741,
+          "name": "北梦云兮",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/font/item/25741/newPreview1.png",
+          "itemBgColor": "b7bca9",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1112019523",
+            "mallname": "Hi字",
+            "sourceId": "1112019523",
+            "productName": "Hi字",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=76JvZ8kS8vmGjzjAf1pjyA&s=100&t=1631861306",
+            "price": 300,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "-32913059",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/font/item/25741/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [
+              5,
+              305
+            ],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "bubbleID": "0",
+              "engine": "1",
+              "fontEngine": "1",
+              "fontType": "1",
+              "immersiveMaterial": "",
+              "isKuikly": "1"
+            },
+            "fontType": 101732,
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "-32913059",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE"
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "常规",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E5%B8%B8%E8%A7%84"
+            },
+            {
+              "msg": "手写体",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E6%89%8B%E5%86%99%E4%BD%93"
+            },
+            {
+              "msg": "文艺",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E6%96%87%E8%89%BA"
+            }
+          ],
+          "appId": 5,
+          "itemId": 31498,
+          "name": "黑玫瑰爱恋",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/font/item/31498/newPreview1.png",
+          "itemBgColor": "efefef",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1111970027",
+            "mallname": "知鸟字库",
+            "sourceId": "1111970027",
+            "productName": "知鸟字库",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=gzvlqFtId2ctqK26ibymbrA&s=100&t=1626416902",
+            "price": 300,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "-32913059",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/font/item/31498/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [
+              5
+            ],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "fontEngine": "1",
+              "fontType": "3",
+              "immersiveMaterial": "",
+              "isKuikly": "1",
+              "bubbleID": "2034813",
+              "engine": "1"
+            },
+            "fontType": 68219,
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "-32913059",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE"
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "手写体",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E6%89%8B%E5%86%99%E4%BD%93"
+            },
+            {
+              "msg": "文艺",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E6%96%87%E8%89%BA"
+            },
+            {
+              "msg": "细体",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E7%BB%86%E4%BD%93"
+            }
+          ],
+          "appId": 5,
+          "itemId": 33826,
+          "name": "唯一的解药",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/font/item/33826/newPreview1.png",
+          "itemBgColor": "e2dbd3",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1111974597",
+            "mallname": "金石手迹",
+            "sourceId": "1111974597",
+            "productName": "金石手迹",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=cGQLVO5ImuXic7dIRkVYWJw&s=100&t=1628493306",
+            "price": 300,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "-32913059",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/font/item/33826/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [
+              5,
+              305
+            ],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "immersiveMaterial": "",
+              "isKuikly": "1",
+              "bubbleID": "0",
+              "engine": "2",
+              "fontEngine": "2",
+              "fontType": "1"
+            },
+            "fontType": 139908,
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "-32913059",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE"
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "手写体",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E6%89%8B%E5%86%99%E4%BD%93"
+            },
+            {
+              "msg": "文艺",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E6%96%87%E8%89%BA"
+            },
+            {
+              "msg": "细体",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E7%BB%86%E4%BD%93"
+            }
+          ],
+          "appId": 5,
+          "itemId": 33837,
+          "name": "自以为的爱",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/font/item/33837/newPreview1.png",
+          "itemBgColor": "e8e5e3",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1110790760",
+            "mallname": "字语设计",
+            "sourceId": "1110790760",
+            "productName": "字语设计",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=CSDRwSraVQdXCls6UXUrqw&s=100&t=1622693490",
+            "price": 300,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "-32913059",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/font/item/33837/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [
+              5,
+              305
+            ],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "isKuikly": "1",
+              "bubbleID": "0",
+              "engine": "2",
+              "fontEngine": "2",
+              "fontType": "1",
+              "immersiveMaterial": ""
+            },
+            "fontType": 142724,
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "-32913059",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE"
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "文艺",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E6%96%87%E8%89%BA"
+            },
+            {
+              "msg": "细体",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E7%BB%86%E4%BD%93"
+            },
+            {
+              "msg": "行书",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E8%A1%8C%E4%B9%A6"
+            }
+          ],
+          "appId": 5,
+          "itemId": 22922,
+          "name": "江南诗赋",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/font/item/22922/newPreview1.png",
+          "itemBgColor": "e8fce9",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1112019523",
+            "mallname": "Hi字",
+            "sourceId": "1112019523",
+            "productName": "Hi字",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=76JvZ8kS8vmGjzjAf1pjyA&s=100&t=1631861306",
+            "price": 300,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "-32913059",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/font/item/22922/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [
+              5,
+              305
+            ],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "bubbleID": "0",
+              "engine": "1",
+              "fontEngine": "1",
+              "fontType": "1",
+              "immersiveMaterial": "",
+              "isKuikly": "1"
+            },
+            "fontType": 100953,
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "-32913059",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE"
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "可爱",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E5%8F%AF%E7%88%B1"
+            },
+            {
+              "msg": "奶酪体",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E5%A5%B6%E9%85%AA%E4%BD%93"
+            },
+            {
+              "msg": "常规",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E5%B8%B8%E8%A7%84"
+            }
+          ],
+          "appId": 5,
+          "itemId": 30935,
+          "name": "困困布偶喵",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/font/item/30935/newPreview1.png",
+          "itemBgColor": "ccbeb5",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1110274429",
+            "mallname": "AaFont",
+            "sourceId": "1110274429",
+            "productName": "AaFont",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=svDkxwd1KDvUlnwArDqLdg&s=100&t=1596715824",
+            "price": 300,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "-32913059",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/font/item/30935/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [
+              5
+            ],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "engine": "1",
+              "fontEngine": "1",
+              "fontType": "2",
+              "immersiveMaterial": "",
+              "isKuikly": "1",
+              "bubbleID": "2033702"
+            },
+            "fontType": 120696,
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "-32913059",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE"
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "常规",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E5%B8%B8%E8%A7%84"
+            },
+            {
+              "msg": "楷书",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E6%A5%B7%E4%B9%A6"
+            },
+            {
+              "msg": "炫动",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E7%82%AB%E5%8A%A8"
+            }
+          ],
+          "appId": 5,
+          "itemId": 47271,
+          "name": "灯火阑珊",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/font/item/47271/newPreview1.png",
+          "itemBgColor": "42527f",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1110274429",
+            "mallname": "AaFont",
+            "sourceId": "1110274429",
+            "productName": "AaFont",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=svDkxwd1KDvUlnwArDqLdg&s=100&t=1596715824",
+            "price": 1200,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "-32913059",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/font/item/47271/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [
+              5
+            ],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "engine": "1",
+              "fontEngine": "1",
+              "fontType": "2",
+              "immersiveMaterial": "",
+              "isKuikly": "1",
+              "bubbleID": "2078629"
+            },
+            "fontType": 108472,
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "-32913059",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE"
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "古风",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E5%8F%A4%E9%A3%8E"
+            },
+            {
+              "msg": "细体",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E7%BB%86%E4%BD%93"
+            },
+            {
+              "msg": "行楷",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E8%A1%8C%E6%A5%B7"
+            }
+          ],
+          "appId": 5,
+          "itemId": 22677,
+          "name": "青花手书",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/font/item/22677/newPreview1.png",
+          "itemBgColor": "edf6f9",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1109983912",
+            "mallname": "汉仪字库",
+            "sourceId": "1109983912",
+            "productName": "汉仪字库",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=MmXT357wZYvcPtK7hPGNUA&s=100&t=1612257393",
+            "price": 300,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "-32913059",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/font/item/22677/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [
+              5,
+              305
+            ],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "bubbleID": "0",
+              "engine": "1",
+              "fontEngine": "1",
+              "fontType": "1",
+              "immersiveMaterial": "",
+              "isKuikly": "1"
+            },
+            "fontType": 103768,
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "-32913059",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE"
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "修符字",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E4%BF%AE%E7%AC%A6%E5%AD%97"
+            },
+            {
+              "msg": "可爱",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E5%8F%AF%E7%88%B1"
+            },
+            {
+              "msg": "细体",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E7%BB%86%E4%BD%93"
+            }
+          ],
+          "appId": 5,
+          "itemId": 51636,
+          "name": "线条小狗",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/font/item/51636/newPreview1.png",
+          "itemBgColor": "b2a6a6",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1109887891",
+            "mallname": "麦拉风",
+            "sourceId": "1109887891",
+            "productName": "麦拉风",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=oRGrpaE0FicWJaL1zY7zEAg&s=100&t=1600140661",
+            "price": 1200,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "-32913059",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/font/item/51636/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [
+              5
+            ],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "isKuikly": "1",
+              "bubbleID": "2093843",
+              "engine": "2",
+              "fontEngine": "2",
+              "fontType": "2",
+              "immersiveMaterial": "{\"ttf\": \"https://tianquan.gtimg.cn/immersive/font/e8d9c0dc/51ce726551ba55ef/51636subset1779961339.ttf\", \"fontName\": \"51636subset1779961339\"}"
+            },
+            "fontType": 177353,
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "-32913059",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE"
+            }
+          }
+        }
+      },
+      {
+        "mRecomExtInfo": {},
+        "item": {
+          "labels": [
+            {
+              "msg": "常规",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E5%B8%B8%E8%A7%84"
+            },
+            {
+              "msg": "手写体",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E6%89%8B%E5%86%99%E4%BD%93"
+            },
+            {
+              "msg": "文艺",
+              "fontColorValue": "0xFF909094",
+              "backgroundColorValue": "0x26979FAE",
+              "jumpUrl": "https://club.vip.qq.com/transfer?open_kuikly_info=%7B%22bundle_name%22%3A%22vas_gxh_dress_classification%22%7D&qqmc_config=vas_kuikly_config&page_name=classify_detail&kr_turbo_display=1&app_id=5&classify_name=%E6%96%87%E8%89%BA"
+            }
+          ],
+          "appId": 5,
+          "itemId": 32062,
+          "name": "悄悄暗恋",
+          "feeType": 49,
+          "image": "https://tianquan.gtimg.cn/font/item/32062/newPreview1.png",
+          "itemBgColor": "f7e8e1",
+          "extrainfo": {
+            "isOnShelf": 1,
+            "mallurl": "https://zb.vip.qq.com/v2/pages/beautyMall?supplyerid=1111974597",
+            "mallname": "金石手迹",
+            "sourceId": "1111974597",
+            "productName": "金石手迹",
+            "productIcon": "http://thirdqq.qlogo.cn/g?b=oidb&k=cGQLVO5ImuXic7dIRkVYWJw&s=100&t=1628493306",
+            "price": 300,
+            "validDay": 31,
+            "isShow": 1
+          },
+          "validlast": "-32913059",
+          "extraimage": {
+            "images": [
+              "https://tianquan.gtimg.cn/font/item/32062/newPreview2.png"
+            ]
+          },
+          "extraappinfo": {
+            "usableScene": [
+              5,
+              305
+            ],
+            "funcallOplist": [],
+            "multOperationType": [],
+            "extraInfo": {
+              "fontEngine": "2",
+              "fontType": "1",
+              "immersiveMaterial": "",
+              "isKuikly": "1",
+              "bubbleID": "0",
+              "engine": "2"
+            },
+            "fontType": 147069,
+            "diyEffectFont": {}
+          },
+          "authResult": {},
+          "validlong": "-32913059",
+          "rankInfo": {},
+          "discount": {
+            "acts": [],
+            "itemDiscount": {
+              "type": "DISCOUNT_SVIP_FREE"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "retCode": 0,
+  "costTime": 3,
+  "error": {
+    "code": 0,
+    "message": ""
+  },
+  "isCanary": false
+}
