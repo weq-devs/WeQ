@@ -139,6 +139,7 @@ jobs:
   # 原生 x64 runner 构建 AppImage / tar.gz。native/linux/x64/*.node 已预编译，
   # sherpa-onnx / resvg 等原生依赖由 pnpm install 自动装 x64 版本。
   linux-x64:
+    needs: [windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -200,6 +201,7 @@ jobs:
   # 均为 ELF aarch64），但整体是否可用未验证。用原生 arm64 runner
   # （公开仓库免费）构建，让 sherpa-onnx / resvg 装到正确的 arm64 版本。
   linux-arm64:
+    needs: [windows]
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
@@ -264,6 +266,7 @@ jobs:
   # 首次打开需右键 → 打开；需要签名 / 公证时再补 secrets，这里显式关掉
   # identity 自动发现，避免 electron-builder 在无证书机器上白等。
   macos-x64:
+    needs: [windows]
     runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
@@ -338,6 +341,7 @@ jobs:
   # 原生 arm64 runner（macos-15，macOS 15 arm64）构建，让 sherpa-onnx / resvg
   # 装到正确的 arm64 版本；native/darwin/arm64 预编译二进制随 extraFiles 进包。
   macos-arm64:
+    needs: [windows]
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
