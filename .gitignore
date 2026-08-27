@@ -49,6 +49,4 @@ resources/ninebird-runtime/
 # dev
 /tmp
 
-# 装扮资源抓取脚本与产物（私有，不开源）
-/scripts/fetch_dress_resources.ts
 /resources/dress/*_resources
