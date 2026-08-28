@@ -778,6 +778,13 @@ function tempSourceGroupName(
   return groupNameByCode.get(code) || code;
 }
 
+/** 40051 预览元素的 kind（text / face / grayTip* / …），拿不到返回 null。 */
+function previewElementKind(preview: unknown): string | null {
+  if (!preview || typeof preview !== 'object') return null;
+  const kind = (preview as { kind?: unknown }).kind;
+  return typeof kind === 'string' ? kind : null;
+}
+
 function contactToConversation(
   c: RecentContactWire,
   user: User,
@@ -797,6 +804,8 @@ function contactToConversation(
     id: `preview:${c.targetUid}:${c.sendTime}`,
     senderId: c.senderUid || null,
     senderDisplayName: c.senderDisplayName || c.senderNick || null,
+    // 预览元素的 kind：灰条（grayTip*）在列表里只显示内容、不加"昵称："前缀。
+    kind: previewElementKind(c.preview),
     body: preview,
     previewNodes: nodes.length ? nodes : null,
     createdAt: updatedAt,

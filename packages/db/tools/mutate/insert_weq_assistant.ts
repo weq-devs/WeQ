@@ -217,12 +217,14 @@ async function main(): Promise<void> {
   // Build the recent-list preview blob (40051): a single ark preview element +
   // the conversation-list display text (tag 49093).
   const previewBlob = rcCodec.encode({
-    preview: {
-      elementType: ElementType.ARK,
-      arkData: arkJson,
-      displayText: '[WeQ助手] WeQ 助手已上线',
-      isSender: false,
-    },
+    preview: [
+      {
+        elementType: ElementType.ARK,
+        arkData: arkJson,
+        displayText: '[WeQ助手] WeQ 助手已上线',
+        isSender: false,
+      },
+    ],
   });
 
   // ── cleanup any prior fake rows (idempotent re-run) ───────────────────

@@ -220,12 +220,14 @@ export class WeqAssistantService {
 
     const arkJson = buildArkJson(port, card.createdAt, card);
     const previewBlob = rcCodec.encode({
-      preview: {
-        elementType: ElementType.ARK,
-        arkData: arkJson,
-        displayText: card.previewText,
-        isSender: false,
-      },
+      preview: [
+        {
+          elementType: ElementType.ARK,
+          arkData: arkJson,
+          displayText: card.previewText,
+          isSender: false,
+        },
+      ],
     });
     const recentOv: Record<string, SqlValue> = {
       '41102': (await this.maxBigint('recent_contact_v3_table', '41102')) + rand31(),
@@ -319,12 +321,16 @@ export class WeqAssistantService {
     const rcBlob = rcRows[0]?.[0];
     if (rcBlob instanceof Uint8Array) {
       const rc = rcCodec.decode(rcBlob);
-      if (rc.preview?.arkData) {
-        const preview = { ...rc.preview, arkData: rewriteArkPort(rc.preview.arkData, newPort) };
-        await this.msgDb.write(`UPDATE recent_contact_v3_table SET "40051" = ? WHERE "40021" = ?`, [
-          rcCodec.encode({ preview }),
-          this.uid,
-        ]);
+      const previews = rc.preview ?? [];
+      const arkEl = previews.find((p) => p.arkData);
+      if (arkEl) {
+        const updated = previews.map((p) =>
+          p === arkEl ? { ...p, arkData: rewriteArkPort(p.arkData ?? '', newPort) } : p,
+        );
+        await this.msgDb.write(
+          `UPDATE recent_contact_v3_table SET "40051" = ? WHERE "40021" = ?`,
+          [rcCodec.encode({ preview: updated }), this.uid],
+        );
       }
     }
     return true;

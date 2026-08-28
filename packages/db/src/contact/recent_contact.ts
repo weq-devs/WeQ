@@ -7,7 +7,7 @@
  *   40020  senderUid           (TEXT)
  *   40021  targetUid           (TEXT)
  *   40050  sendTime            (INTEGER, unix seconds)
- *   40051  preview             (BLOB — protobuf {40051: PreviewElementWire})
+ *   40051  preview             (BLOB — protobuf {repeated 40051: PreviewElementWire})
  *   40090  senderDisplayName   (TEXT, mainly group card)
  *   40093  senderNick          (TEXT)
  *   40094  targetDisplayName   (TEXT, conversation name)
@@ -25,6 +25,7 @@
  */
 
 import { ProtoMsg, decodePreviewElement, enumName, ChatType } from '@weq/codec';
+import type { PreviewElement } from '@weq/codec';
 import { sanitizeBytes } from '@weq/codec/raw';
 import { RecentContactBody } from '@weq/codec/proto/msg/40051';
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
@@ -226,11 +227,37 @@ function decodePreview(blob: SqlValue | undefined): RecentContact['preview'] {
   try {
     // Sanitize first so one mis-declared tag can't derail the decode.
     const decoded = contactCodec.decode(sanitizeBytes(blob, RecentContactBody));
-    return decoded.preview ? decodePreviewElement(decoded.preview) : null;
+    // 40051 现在可能重复出现（机器人 markdown 消息 = [markdown, text] 两个元素），
+    // 逐个解出后挑一个最能代表列表预览的。
+    const elements = (decoded.preview ?? [])
+      .map((wire) => (wire ? decodePreviewElement(wire) : null))
+      .filter((el): el is PreviewElement => el !== null);
+    return pickPreviewElement(elements);
   } catch (e) {
     console.error(`[RecentContactDb] failed to decode 40051 preview:`, e);
     return null;
   }
+}
+
+/**
+ * 40051 含多个元素时选「列表该显示的那一个」：优先纯文本元素（textContent 就是
+ * 正文，markdown 机器人消息的兜底），其次挑带 displayText 的，最后退回第一个。
+ */
+function pickPreviewElement(elements: PreviewElement[]): PreviewElement | null {
+  if (elements.length === 0) return null;
+  const textEl = elements.find((el) => el.kind === 'text' && hasVisibleText(el.textContent));
+  if (textEl) return textEl;
+  return elements.find((el) => hasVisibleText(el.displayText)) ?? elements[0]!;
+}
+
+/** 是否含至少一个可见字符（与渲染层 conversationPreview 的判定保持一致）。 */
+function hasVisibleText(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  for (let i = 0; i < value.length; i++) {
+    const c = value.charCodeAt(i);
+    if (c > 0x20 && c !== 0x7f && !(c >= 0x80 && c <= 0x9f)) return true;
+  }
+  return false;
 }
 
 function toBigint(v: SqlValue | undefined): bigint {

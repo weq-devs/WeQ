@@ -547,8 +547,12 @@ function conversationLastMessage(conversation: Conversation, user?: User) {
     ? conversation.lastMessage.previewNodes
     : [{ t: 'text', text: conversation.lastMessage.body }];
 
+  // 群聊前缀「昵称：」只用于普通成员消息；系统灰条（入群 / 退群 / 禁言 / 戳一戳
+  // …）只显示内容本身，前面不加发送者昵称。
   const prefix =
-    conversation.type === 'group' && conversation.lastMessage.senderDisplayName
+    conversation.type === 'group' &&
+    conversation.lastMessage.senderDisplayName &&
+    !conversation.lastMessage.kind?.startsWith('grayTip')
       ? `${conversation.lastMessage.senderDisplayName}：`
       : '';
 

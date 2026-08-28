@@ -998,6 +998,13 @@ export const ElementWire = {
   /** Text summary. Required for MARKDOWN elements. */
   markdownTextSummary: ProtoField(48705, ScalarType.STRING, { optional: true }),
 
+  /**
+   * 机器人 markdown 卡片的可见正文（tag 49099）。观察到的 markdown 预览元素里
+   * 49093(displayText) 只有 "[Markdown]" 标签，真正的消息文本放在 49099 —— 与
+   * 同条消息携带的 TEXT 元素 45101(textContent) 一字不差。列表预览应优先用它。
+   */
+  markdownContent49099: ProtoField(49099, ScalarType.STRING, { optional: true }),
+
   /** Unknown integer flag. Required for MARKDOWN elements. */
   markdownFlag48706: ProtoField(48706, ScalarType.UINT32, { optional: true }),
 

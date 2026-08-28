@@ -66,6 +66,23 @@ export function previewNodes(preview: unknown): PreviewNode[] {
     if (nodes?.length) return nodes;
   }
 
+  // 纯文本元素：displayText 为空时用正文兜底。QQ 的机器人 markdown 消息在 40051
+  // 里存成 [markdown, text] 两个元素，TEXT 元素带 textContent 但 49093 是空的。
+  if (kind === 'text') {
+    const text = str(el.textContent).trim();
+    if (hasVisibleText(text)) return [{ t: 'text', text }];
+  }
+
+  // 机器人 markdown：49093 只有 "[Markdown]" 标签，正文在 49099（次选 48705 摘
+  // 要 / 45101 正文），列表里应该显示正文而不是标签。
+  if (kind === 'markdown') {
+    const content =
+      str(el.markdownContent49099).trim() ||
+      str(el.markdownTextSummary).trim() ||
+      str(el.textContent).trim();
+    if (hasVisibleText(content)) return [{ t: 'text', text: content }];
+  }
+
   const display = str(el.displayText).trim();
   if (hasVisibleText(display)) return [{ t: 'text', text: display }];
 
@@ -132,8 +149,8 @@ function groupTipText(el: Rec): string | null {
 
   switch (num(el.groupTipType)) {
     case 1:
-      // 有邀请人时 user1 是邀请者、user2 是入群者；只有一个人时就是主动加入。
-      if (user1 && user2) return `${user1} 邀请 ${user2} 加入了群聊`;
+      // 群成员加入：直接显示入群者昵称（与聊天区 elementText 一致），
+      // 不区分邀请/主动加入，也无需 user2。
       return user1 ? `${user1} 加入了群聊` : null;
     case 2:
       return '该群已被群主解散';

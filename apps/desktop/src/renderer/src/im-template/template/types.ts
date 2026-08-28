@@ -127,6 +127,11 @@ type ConversationBase = {
 		senderDisplayName?: string | null;
 		body: string | null;
 		/**
+		 * 预览元素的 kind（text / face / grayTip* / markdown / …），来自 40051 解出的元素。
+		 * 列表用它判断是否系统灰条 —— 灰条只显示内容、不加昵称前缀。
+		 */
+		kind?: string | null;
+		/**
 		 * 预览的富节点形式（文本 + 表情），由 lib/conversationPreview 从 40051
 		 * 解析而来。会话列表优先渲染它，这样「看出来了 /斜眼笑」能把表情画出来。
 		 * `body` 是同一份内容的纯文本，搜索 / @我 检测仍走它。

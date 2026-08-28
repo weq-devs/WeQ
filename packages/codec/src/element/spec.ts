@@ -550,6 +550,8 @@ export const MarkdownElementSchema = BaseElementFieldsSchema.extend({
   markdownFlag48704: z.string(),
   markdownTextSummary: z.string(),
   markdownFlag48706: z.number(),
+  /** 机器人 markdown 卡片的可见正文（49099）；49093 只有 "[Markdown]" 标签时用它。 */
+  markdownContent49099: z.string().optional(),
   flashTransferProto1: z.instanceof(Uint8Array).optional(),
   flashTransferInfo: FlashTransferInfoSchema.optional(),
   flashTransferProto3: z.instanceof(Uint8Array).optional(),
