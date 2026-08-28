@@ -8,7 +8,17 @@
  */
 
 /** Left-rail modes. */
-export type ExportMode = 'full' | 'decrypt' | 'chatlab' | 'qzone' | 'contacts' | 'collection' | 'scheduled' | 'album' | 'groupfile' | 'marketpack';
+export type ExportMode =
+  | 'full'
+  | 'decrypt'
+  | 'chatlab'
+  | 'qzone'
+  | 'contacts'
+  | 'collection'
+  | 'scheduled'
+  | 'album'
+  | 'groupfile'
+  | 'marketpack';
 
 /** Every output format the 完整消息 / 定时 flows can request. HTML is one of the
  *  完整消息 chips; `vcard` is contacts-only (导出联系人). */
@@ -100,6 +110,15 @@ export interface TimeRange {
 
 export const DEFAULT_RANGE: TimeRange = { preset: 'all', start: null, end: null };
 
+/** 导出装扮的类别勾选（全部默认关 = 不导出）。 */
+export interface DressKinds {
+  bubble: boolean;
+  font: boolean;
+  widget: boolean;
+}
+
+export const DEFAULT_DRESS: DressKinds = { bubble: false, font: false, widget: false };
+
 /** Media / content options collected in the export lightbox. */
 export interface ExportOptions {
   range: TimeRange;
@@ -119,6 +138,8 @@ export interface ExportOptions {
   downloadPtt: boolean;
   /** Auto-transcribe voice messages to text. */
   transcribeVoice: boolean;
+  /** 导出装扮资源（气泡 / 字体 / 挂件，只导出会话实际用到的款）。 */
+  dress: DressKinds;
 }
 
 export const DEFAULT_OPTIONS: ExportOptions = {
@@ -131,6 +152,7 @@ export const DEFAULT_OPTIONS: ExportOptions = {
   downloadFile: false,
   downloadPtt: false,
   transcribeVoice: false,
+  dress: { ...DEFAULT_DRESS },
 };
 
 /** Schedule config for the 定时导出 flow. */
@@ -168,6 +190,8 @@ export interface ScheduleOptions {
   downloadFile: boolean;
   downloadPtt: boolean;
   transcribeVoice: boolean;
+  /** 导出装扮资源（气泡 / 字体 / 挂件）。 */
+  dress?: DressKinds;
 }
 
 /** One conversation target inside a scheduled template. */

@@ -252,6 +252,14 @@ const decryptDbInput = z.object({
 const groupAlbumInput = z.object({
   groupCode: z.string().min(1),
 });
+/** 导出装扮资源（气泡 / 字体 / 挂件），缺省不导出。 */
+const dressInput = z
+  .object({
+    bubble: z.boolean(),
+    font: z.boolean(),
+    widget: z.boolean(),
+  })
+  .optional();
 
 const groupAlbumMediaInput = groupAlbumInput.extend({
   albumId: z.string().min(1),
@@ -2664,6 +2672,8 @@ export const accountRouter = router({
         exportAvatar: z.boolean().optional(),
         /** ChatLab interchange format (json/jsonl carry ChatLab structure). */
         chatlab: z.boolean().optional(),
+        /** 导出装扮资源（气泡 / 字体 / 挂件，只导出会话实际用到的款）。 */
+        dress: dressInput,
         /** Media export: copy local media into media/ and CDN-complete images. */
         media: z
           .object({
@@ -2870,6 +2880,7 @@ export const accountRouter = router({
           downloadFile: z.boolean(),
           downloadPtt: z.boolean(),
           transcribeVoice: z.boolean(),
+          dress: dressInput,
         }),
         enabled: z.boolean().default(true),
       }),
@@ -2931,6 +2942,7 @@ export const accountRouter = router({
               downloadFile: z.boolean(),
               downloadPtt: z.boolean(),
               transcribeVoice: z.boolean(),
+              dress: dressInput,
             })
             .optional(),
           enabled: z.boolean().optional(),

@@ -14,6 +14,7 @@
 
 import type { RenderElement } from '../msg_view';
 import type { RoamMessageSource } from './message_source';
+import type { MsgDecoration } from '@weq/codec';
 
 /** Output formats, mirroring QCE (+ jsonl). `vcard` is contacts-only (联系人导出). */
 export type ExportFormat = 'json' | 'jsonl' | 'txt' | 'csv' | 'xlsx' | 'html' | 'vcard';
@@ -44,6 +45,8 @@ export interface ExportedMessage {
   senderUid: string;
   /** Render-mapped elements (same shape the front-end consumes). */
   elements: RenderElement[];
+  /** Per-message decoration (DB 列 40801), when 导出装扮 is on. */
+  decoration?: MsgDecoration;
 }
 
 /** Progress tick emitted while exporting. */
@@ -78,6 +81,8 @@ export interface GroupExportOptions {
   withMediaPaths?: boolean;
   /** 漫游补全消息（导出「消息补全」拉回缓存后，消息流按 sendTime 合并）。 */
   roam?: RoamMessageSource;
+  /** 导出装扮时：按 msgId 查该条消息的 decoration（dress 阶段预扫描的结果）。 */
+  dressLookup?: (msgId: string) => MsgDecoration | undefined;
 }
 
 /** Result of a completed export. */

@@ -201,6 +201,16 @@ export class DressService {
     return this.cache.pendantFrameFile(itemId, frame);
   }
 
+  /** 一款气泡的原始 config.json 字节（导出装扮打包用）。 */
+  bubbleConfig(itemId: number): Promise<Buffer | null> {
+    return this.cache.bubbleConfigFile(itemId);
+  }
+
+  /** 一款挂件的静态底图路径（动画帧拿不到时的兜底）。 */
+  pendantStaticFile(itemId: number): Promise<string | null> {
+    return this.cache.pendantStaticFile(itemId);
+  }
+
   /**
    * 同步 QQ 正在用的装扮（bootstrap 时调用一次）。
    */

@@ -465,6 +465,13 @@ export {
 export { ExportTaskManager } from './account/export/task_manager';
 export { ExportScheduler } from './account/export/scheduler';
 export type {
+  DressExportKinds,
+  DressUsage,
+  DressExportManifest,
+  DressExportResult,
+  DressExportFailure,
+} from './account/export/dress_export';
+export type {
   ScheduleConfig,
   ScheduleOptions,
   ScheduleConversation,

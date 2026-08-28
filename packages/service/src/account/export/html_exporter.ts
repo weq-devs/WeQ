@@ -25,6 +25,14 @@ import { statSync } from 'node:fs';
 import { createExportWriter } from './stream_utils';
 import type { MsgService } from '../msg';
 import type { RenderElement, ForwardMessage } from '../msg_view';
+import type { MsgDecoration } from '@weq/codec';
+import type {
+  DressBubbleManifest,
+  DressExportKinds,
+  DressExportManifest,
+  DressFontManifest,
+  DressWidgetManifest,
+} from './dress_export';
 import { toExportedMessage, type RoamMessageSource } from './message_source';
 import { annotateLocalPaths, elementsToText, formatTime } from './element_text';
 import { expandForwards } from './forward_expand';
@@ -39,7 +47,13 @@ import {
   type ResolvedSender,
   type SenderResolveDeps,
 } from './sender_resolve';
-import type { ConvKind, ExportedMessage, ExportResult, ExportTimeRange, ProgressCallback } from './types';
+import type {
+  ConvKind,
+  ExportedMessage,
+  ExportResult,
+  ExportTimeRange,
+  ProgressCallback,
+} from './types';
 
 export interface HtmlExportOptions {
   kind: ConvKind;
@@ -64,6 +78,12 @@ export interface HtmlExportOptions {
   collectFaces?: Set<string>;
   /** Stamp media elements with their bundle relative path (so `<img>` resolves). */
   withMediaPaths?: boolean;
+  /** 导出装扮：勾选的类别（null/undefined = 不导出装扮）。 */
+  dress?: DressExportKinds;
+  /** 导出装扮：dress 阶段预扫描得到的 msgId → decoration。 */
+  dressLookup?: (msgId: string) => MsgDecoration | undefined;
+  /** 导出装扮：dress 阶段写出的资源清单（气泡 slice / 字体 family / 挂件路径）。 */
+  dressManifest?: DressExportManifest | null;
 }
 
 /** Bracket labels for media kinds with no inline rendering / no local file. */
@@ -135,7 +155,8 @@ function renderFace(el: RenderElement, collectFaces?: Set<string>): string {
 
   if (typeof faceId === 'number') {
     const glyph = UNICODE_FACE_MAP[faceId];
-    if (glyph) return `<span class="face-glyph" title="${escapeHtml(label)}">${escapeHtml(glyph)}</span>`;
+    if (glyph)
+      return `<span class="face-glyph" title="${escapeHtml(label)}">${escapeHtml(glyph)}</span>`;
     if (Number.isInteger(faceId) && faceId >= 0) {
       const idStr = String(faceId);
       collectFaces?.add(idStr);
@@ -165,7 +186,8 @@ function renderElement(el: RenderElement, collectFaces?: Set<string>): string {
     case 'pic': {
       const p = localPath(el);
       const cls = el.data.subType === 1 ? 'media emoji' : 'media';
-      if (p) return `<img class="${cls}" loading="lazy" src="${escapeHtml(p)}" alt="${el.data.subType === 1 ? '表情' : '图片'}">`;
+      if (p)
+        return `<img class="${cls}" loading="lazy" src="${escapeHtml(p)}" alt="${el.data.subType === 1 ? '表情' : '图片'}">`;
       return `<span class="ph">${el.data.subType === 1 ? '[表情]' : '[图片]'}</span>`;
     }
     case 'video': {
@@ -175,8 +197,11 @@ function renderElement(el: RenderElement, collectFaces?: Set<string>): string {
     }
     case 'ptt': {
       const p = localPath(el);
-      const name = el.data.fileName ? `<small class="cap">${escapeHtml(el.data.fileName)}</small>` : '';
-      if (p) return `<span class="voice"><audio controls preload="none" src="${escapeHtml(p)}"></audio>${name}</span>`;
+      const name = el.data.fileName
+        ? `<small class="cap">${escapeHtml(el.data.fileName)}</small>`
+        : '';
+      if (p)
+        return `<span class="voice"><audio controls preload="none" src="${escapeHtml(p)}"></audio>${name}</span>`;
       return `<span class="ph">[语音]${el.data.fileName ? ` ${escapeHtml(el.data.fileName)}` : ''}</span>`;
     }
     case 'file':
@@ -192,7 +217,9 @@ function renderElement(el: RenderElement, collectFaces?: Set<string>): string {
       return summary ? `<div class="quote">${escapeMultiline(summary)}</div>` : '';
     }
     case 'markdown':
-      return escapeMultiline(el.data.markdownTextSummary || el.data.markdownContent || '[Markdown]');
+      return escapeMultiline(
+        el.data.markdownTextSummary || el.data.markdownContent || '[Markdown]',
+      );
     case 'multiMsg':
       return renderForward(el.data.forwardMessages, collectFaces);
     case 'grayTipRevoke':
@@ -216,8 +243,14 @@ function renderElement(el: RenderElement, collectFaces?: Set<string>): string {
 
 /** All elements → the bubble body (reply quote floats to the top). */
 function renderBody(elements: RenderElement[], collectFaces?: Set<string>): string {
-  const quotes = elements.filter((e) => e.type === 'reply').map((e) => renderElement(e, collectFaces)).join('');
-  const rest = elements.filter((e) => e.type !== 'reply').map((e) => renderElement(e, collectFaces)).join('');
+  const quotes = elements
+    .filter((e) => e.type === 'reply')
+    .map((e) => renderElement(e, collectFaces))
+    .join('');
+  const rest = elements
+    .filter((e) => e.type !== 'reply')
+    .map((e) => renderElement(e, collectFaces))
+    .join('');
   return quotes + rest;
 }
 
@@ -232,7 +265,9 @@ function renderForward(messages: ForwardMessage[] | undefined, collectFaces?: Se
   const rows = messages
     .map((msg) => {
       const name = escapeHtml(msg.senderName || '匿名');
-      const time = msg.sendTime ? `<span class="fwd-time">${escapeHtml(formatTime(msg.sendTime))}</span>` : '';
+      const time = msg.sendTime
+        ? `<span class="fwd-time">${escapeHtml(formatTime(msg.sendTime))}</span>`
+        : '';
       const body = renderBody(msg.elements, collectFaces);
       return `<div class="fwd-msg"><div class="fwd-meta"><span class="fwd-name">${name}</span>${time}</div><div class="fwd-body">${body}</div></div>`;
     })
@@ -241,7 +276,14 @@ function renderForward(messages: ForwardMessage[] | undefined, collectFaces?: Se
 }
 
 /** One message → a bubble row, or a centered system line for gray-tip-only messages. */
-function renderMessage(m: ExportedMessage, sender: ResolvedSender, selfId: string | undefined, collectFaces?: Set<string>): string {
+function renderMessage(
+  m: ExportedMessage,
+  sender: ResolvedSender,
+  selfId: string | undefined,
+  collectFaces?: Set<string>,
+  dec?: MsgDecoration,
+  widgets?: Map<number, DressWidgetManifest>,
+): string {
   if (isSystemOnly(m.elements)) {
     return `<div class="sys">${escapeHtml(elementsToText(m.elements).replace(/[[\]]/g, ''))}</div>\n`;
   }
@@ -252,14 +294,105 @@ function renderMessage(m: ExportedMessage, sender: ResolvedSender, selfId: strin
     ? `<img class="ava" loading="lazy" src="${escapeHtml(avatarUrlForUin(sender.platformId))}" alt="">`
     : `<span class="ava ava-none">${escapeHtml((sender.accountName || '?').slice(0, 1))}</span>`;
   const role =
-    sender.role === 'owner' ? '<span class="role owner">群主</span>' : sender.role === 'admin' ? '<span class="role">管理员</span>' : '';
+    sender.role === 'owner'
+      ? '<span class="role owner">群主</span>'
+      : sender.role === 'admin'
+        ? '<span class="role">管理员</span>'
+        : '';
   const body = renderBody(m.elements, collectFaces);
+  const attrs = dec
+    ? ` data-bubble="${dec.bubbleId}" data-font="${dec.fontId}" data-widget="${dec.widgetId}"`
+    : '';
+  const widgetImg =
+    dec && dec.widgetId > 0 && widgets?.get(dec.widgetId)
+      ? `<img class="widget" src="${escapeHtml(widgets.get(dec.widgetId)!.file)}" alt="">`
+      : '';
   return (
-    `<div class="msg${isSelf ? ' me' : ''}">${ava}` +
+    `<div class="msg${isSelf ? ' me' : ''}"${attrs}>${widgetImg}${ava}` +
     `<div class="col"><div class="meta"><span class="name">${name}</span>${role}` +
     `<span class="time">${escapeHtml(formatTime(m.sendTime))}</span></div>` +
     `<div class="bubble">${body}</div></div></div>\n`
   );
+}
+
+/** 装扮 CSS 的换算常量 —— 与渲染侧 dressSkin.ts / msgDecorationStyle.ts 保持一致。 */
+const BUBBLE_SCALE = 0.5;
+const PAD_RATIO_Y = 0.6;
+
+function dressPx(v: number): string {
+  return `${Math.round(v * 100) / 100}px`;
+}
+
+/** 由 dress 清单生成页面内的装扮 CSS（字体 / 气泡 border-image / 挂件定位）。 */
+function buildDressCss(manifest: DressExportManifest): string {
+  const rules: string[] = [];
+
+  for (const font of manifest.fonts) {
+    rules.push(
+      `@font-face{font-family:"${font.family}";src:url("${font.file}") format("truetype");font-display:swap}`,
+      `.msg[data-font="${font.itemId}"] .bubble{` +
+        `font-family:"${font.family}",-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif}`,
+    );
+  }
+
+  for (const b of manifest.bubbles) {
+    rules.push(...bubbleRules(b));
+  }
+
+  if (manifest.widgets.length > 0) {
+    rules.push(
+      `.msg{position:relative}`,
+      `.msg .widget{position:absolute;z-index:2;width:46px;height:46px;left:-5px;top:-16px;` +
+        `pointer-events:none;object-fit:contain;filter:drop-shadow(0 1px 2px rgba(0,0,0,.25))}`,
+      `.msg.me .widget{left:auto;right:-5px}`,
+    );
+  }
+
+  return rules.join('\n');
+}
+
+/** 一款气泡的 border-image CSS（含对方消息镜像）。 */
+function bubbleRules(skin: DressBubbleManifest): string[] {
+  const { left, top, right, bottom } = skin.slice;
+  const wTop = top * BUBBLE_SCALE;
+  const wRight = right * BUBBLE_SCALE;
+  const wBottom = bottom * BUBBLE_SCALE;
+  const wLeft = left * BUBBLE_SCALE;
+  const slice = `${top} ${right} ${bottom} ${left} fill`;
+  const width = `${dressPx(wTop)} ${dressPx(wRight)} ${dressPx(wBottom)} ${dressPx(wLeft)}`;
+  const avgSlice = (top + bottom) / 2;
+  const topDiff = avgSlice - top;
+  const bottomDiff = avgSlice - bottom;
+  const topPad = wTop * PAD_RATIO_Y + topDiff * BUBBLE_SCALE * 0.5;
+  const bottomPad = wBottom * PAD_RATIO_Y + bottomDiff * BUBBLE_SCALE * 0.5;
+
+  const sel = `.msg[data-bubble="${skin.itemId}"] .bubble`;
+  const theirsSel = `.msg:not(.me)[data-bubble="${skin.itemId}"] .bubble`;
+  return [
+    `${sel}{`,
+    `  position:relative;isolation:isolate;background:transparent;color:${skin.textColor};`,
+    `  border-style:solid;border-width:0;`,
+    `  border-image-source:url("${skin.gif}");`,
+    `  border-image-slice:${slice};`,
+    `  border-image-width:${width};`,
+    `  border-image-repeat:stretch;border-radius:0;`,
+    `  padding:${dressPx(topPad)} ${dressPx(Math.max(wLeft, wRight))} ${dressPx(bottomPad)};`,
+    `  min-width:${dressPx((left + right) * BUBBLE_SCALE)};`,
+    `  min-height:${dressPx((top + bottom) * BUBBLE_SCALE)};`,
+    `}`,
+    // 对方消息镜像：素材按「自己的右侧气泡」绘制，放左侧要左右翻转。
+    // 不能对整个 .bubble 做 scaleX(-1)（文字会跟着镜像），挪到 ::before 上翻。
+    `${theirsSel}{border-image-source:none}`,
+    `${theirsSel}::before{`,
+    `  content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;`,
+    `  border-style:solid;border-width:0;`,
+    `  border-image-source:url("${skin.gif}");`,
+    `  border-image-slice:${slice};`,
+    `  border-image-width:${width};`,
+    `  border-image-repeat:stretch;border-radius:0;`,
+    `  transform:scaleX(-1);`,
+    `}`,
+  ];
 }
 
 /** `YYYY-MM-DD` local-day key (date dividers fire when it changes). */
@@ -383,6 +516,18 @@ export async function exportToHtml(
   const start = Date.now();
   const progressEvery = opts.progressEvery ?? 1000;
 
+  // 装扮：dress 阶段已经写好资源，这里只需把清单转成「itemId → 资产」的查表。
+  const dressOn = Boolean(opts.dress && opts.dressManifest);
+  const bubbleById = new Map<number, DressBubbleManifest>();
+  const fontById = new Map<number, DressFontManifest>();
+  const widgetById = new Map<number, DressWidgetManifest>();
+  if (dressOn && opts.dressManifest) {
+    for (const b of opts.dressManifest.bubbles) bubbleById.set(b.itemId, b);
+    for (const f of opts.dressManifest.fonts) fontById.set(f.itemId, f);
+    for (const w of opts.dressManifest.widgets) widgetById.set(w.itemId, w);
+  }
+  const dressCss = dressOn && opts.dressManifest ? buildDressCss(opts.dressManifest) : '';
+
   // ---- resolve self (for right-aligning own messages) + members ----
   const self = deps.self ? await deps.self().catch(() => null) : null;
   let selfId = self ? (self.uin && self.uin !== '0' ? self.uin : self.uid) : undefined;
@@ -393,7 +538,14 @@ export async function exportToHtml(
     const meta = deps.groupMeta ? await deps.groupMeta(opts.conv).catch(() => null) : null;
     if (meta?.name) convName = opts.name || meta.name;
     opts.onProgress?.({ current: 0, message: '解析成员…' });
-    senders = await resolveGroupSenders(msgs, opts.conv, opts.range, deps, meta?.ownerUid ?? '', opts.roam);
+    senders = await resolveGroupSenders(
+      msgs,
+      opts.conv,
+      opts.range,
+      deps,
+      meta?.ownerUid ?? '',
+      opts.roam,
+    );
   } else {
     const r = await resolveC2cSenders(opts.conv, deps);
     senders = r.senders;
@@ -408,7 +560,9 @@ export async function exportToHtml(
   await writer.write(
     `<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n` +
       `<meta name="viewport" content="width=device-width,initial-scale=1">\n<title>${title} · 聊天记录</title>\n` +
-      `<style>${STYLE}</style>\n</head>\n<body>\n<div class="frame">\n` +
+      `<style>${STYLE}</style>\n` +
+      (dressCss ? `<style id="dress-css">${dressCss}</style>\n` : '') +
+      `</head>\n<body>\n<div class="frame">\n` +
       `<header class="head">\n` +
       `<div class="head-top"><strong>${title}</strong><small>${opts.kind === 'group' ? '群聊' : '私聊'} · 导出于 ${exportedAt}</small></div>\n` +
       `<div class="search"><input id="q" type="search" placeholder="搜索消息内容…" autocomplete="off" spellcheck="false"><span id="qinfo"></span><div id="results" class="results" hidden></div></div>\n` +
@@ -429,9 +583,13 @@ export async function exportToHtml(
         lastDay = day;
       }
       const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
-      await writer.write(renderMessage(exported, sender, selfId, opts.collectFaces));
+      const dec = opts.dressLookup?.(exported.msgId);
+      await writer.write(
+        renderMessage(exported, sender, selfId, opts.collectFaces, dec, widgetById),
+      );
       count += 1;
-      if (count % progressEvery === 0) opts.onProgress?.({ current: count, message: `已导出 ${count} 条` });
+      if (count % progressEvery === 0)
+        opts.onProgress?.({ current: count, message: `已导出 ${count} 条` });
     }
     await writer.write(
       `</main>\n<footer class="foot">共 ${count} 条消息 · 顶部搜索框可检索并点击跳转</footer>\n</div>\n` +

@@ -21,6 +21,7 @@ import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ExportTaskManager, TaskProgress } from './task_manager';
+import type { DressExportKinds } from './dress_export';
 import type { ExportFormat, ExportTimeRange } from './types';
 
 /** Cadence for a scheduled export. Mirrors the renderer's `Schedule`. */
@@ -56,6 +57,8 @@ export interface ScheduleOptions {
   downloadFile: boolean;
   downloadPtt: boolean;
   transcribeVoice: boolean;
+  /** 导出装扮资源（气泡 / 字体 / 挂件），全 false / 缺省 = 不导出。 */
+  dress?: DressExportKinds;
 }
 
 /** One conversation target — fully serialized (no renderer references). */
@@ -112,10 +115,15 @@ const MAX_HISTORY = 20;
 const SCHEDULE_FILE = 'schedules.json';
 
 /** Input shape for `create` / `update` — server-side fields filled by the manager. */
-export type ScheduleInput = Omit<ScheduledTask, 'id' | 'createdAt' | 'updatedAt' | 'nextRunAt' | 'history'>;
+export type ScheduleInput = Omit<
+  ScheduledTask,
+  'id' | 'createdAt' | 'updatedAt' | 'nextRunAt' | 'history'
+>;
 
 /** Patch for `update` — every field optional. */
-export type SchedulePatch = Partial<Omit<ScheduledTask, 'id' | 'createdAt' | 'updatedAt' | 'nextRunAt' | 'history'>>;
+export type SchedulePatch = Partial<
+  Omit<ScheduledTask, 'id' | 'createdAt' | 'updatedAt' | 'nextRunAt' | 'history'>
+>;
 
 /** Injected dependencies. `isOnline` is consulted at fire-time only — the
  *  scheduler doesn't subscribe to online-status changes itself. */
@@ -334,7 +342,12 @@ export class ExportScheduler extends EventEmitter {
     }
     // Conflict: a previous run for this same schedule still has live tasks.
     if (this.hasRunning(t.history[0]?.taskIds)) {
-      return this.recordOutcome(t, { at, taskIds, outcome: 'skipped', skipReason: '上次任务未结束' });
+      return this.recordOutcome(t, {
+        at,
+        taskIds,
+        outcome: 'skipped',
+        skipReason: '上次任务未结束',
+      });
     }
     if (!this.deps.isOnline()) {
       return this.recordOutcome(t, { at, taskIds, outcome: 'skipped', skipReason: 'QQ 离线' });
@@ -357,16 +370,23 @@ export class ExportScheduler extends EventEmitter {
           // startTask has `exportAvatar?: boolean` — always pass it explicitly so
           // ExportTask.exportAvatar mirrors the template, not "undefined".
           exportAvatar: Boolean(t.options.exportAvatar),
+          ...(t.options.dress ? { dress: t.options.dress } : {}),
           ...(t.chatlab ? { chatlab: true } : {}),
-          ...(t.options.exportMedia || t.options.exportAvatar || t.options.transcribeVoice || t.options.completeMessages
+          ...(t.options.exportMedia ||
+          t.options.exportAvatar ||
+          t.options.transcribeVoice ||
+          t.options.completeMessages
             ? {
                 media: {
                   exportMedia: t.options.exportMedia,
                   completeMessages: t.options.completeMessages,
                   completeMedia: t.options.exportMedia && t.options.completeMedia,
-                  downloadVideo: t.options.exportMedia && t.options.completeMedia && t.options.downloadVideo,
-                  downloadFile: t.options.exportMedia && t.options.completeMedia && t.options.downloadFile,
-                  downloadPtt: t.options.exportMedia && t.options.completeMedia && t.options.downloadPtt,
+                  downloadVideo:
+                    t.options.exportMedia && t.options.completeMedia && t.options.downloadVideo,
+                  downloadFile:
+                    t.options.exportMedia && t.options.completeMedia && t.options.downloadFile,
+                  downloadPtt:
+                    t.options.exportMedia && t.options.completeMedia && t.options.downloadPtt,
                   transcribeVoice: t.options.transcribeVoice,
                 },
               }
@@ -407,7 +427,11 @@ export class ExportScheduler extends EventEmitter {
             this.deps.taskManager.off('progress', onProgress);
             const allDone = [...states.values()].every((s) => s === 'completed');
             const anyFailed = [...states.values()].some((s) => s === 'failed' || s === 'cancelled');
-            const outcome: ScheduleOutcome = allDone ? 'completed' : anyFailed ? 'partial' : 'partial';
+            const outcome: ScheduleOutcome = allDone
+              ? 'completed'
+              : anyFailed
+                ? 'partial'
+                : 'partial';
             this.recordOutcome(t, {
               at: Math.floor(Date.now() / 1000),
               taskIds: [...expected],
@@ -474,8 +498,12 @@ export function computeNextRun(s: ScheduleConfig, fromSec: number): number {
 export function resolveRange(r: ScheduleRange, atSec: number): ExportTimeRange {
   if (r.preset === 'custom') return { start: r.start, end: r.end };
   const now = new Date(atSec * 1000);
-  const startOfDay = (d: Date): number => Math.floor(new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).getTime() / 1000);
-  const endOfDay = (d: Date): number => Math.floor(new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999).getTime() / 1000);
+  const startOfDay = (d: Date): number =>
+    Math.floor(new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).getTime() / 1000);
+  const endOfDay = (d: Date): number =>
+    Math.floor(
+      new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999).getTime() / 1000,
+    );
   if (r.preset === 'all') return { start: null, end: null };
   if (r.preset === 'today') return { start: startOfDay(now), end: endOfDay(now) };
   const days = r.preset === '7d' ? 7 : r.preset === '30d' ? 30 : 365;

@@ -26,7 +26,12 @@ import {
 } from './bubble_skin';
 import type { BubbleMaterial } from './web/dress_mall';
 import { downloadUrlToFile } from './media_url';
-import { extractFromZip, extractAllFromZip, extractFirstTtf, isRenderableSfnt } from './dress_install';
+import {
+  extractFromZip,
+  extractAllFromZip,
+  extractFirstTtf,
+  isRenderableSfnt,
+} from './dress_install';
 
 /** 气泡元数据 sidecar。 */
 export interface BubbleSidecar {
@@ -522,6 +527,62 @@ export class DressSharedCache {
   getPendantSidecar(itemId: number): PendantSidecar | null {
     const path = join(this.pendantsDir, `${itemId}.json`);
     return readPendantSidecar(path);
+  }
+
+  /**
+   * 取一款气泡的原始 config.json 字节（导出装扮时打包用）。
+   *
+   * 与安装流程共用「本地 bundle → protocol」的换链顺序：先查本地离线索引
+   * （nt_helper 的 queryDressResourceUrl），没有再发 scupdate 包问在线实例。
+   */
+  async bubbleConfigFile(itemId: number): Promise<Buffer | null> {
+    const local = this.ntHelper.queryDressResourceUrl('bubble', String(itemId), 'config.json');
+    let url = local?.url ?? null;
+    if (!url) {
+      const pid = this.resolvePid();
+      if (!pid) return null;
+      try {
+        const res = await getBubbleResources(this.nt, pid, itemId);
+        url = res.config?.ok ? res.config.url : null;
+      } catch {
+        return null;
+      }
+    }
+    if (!url) return null;
+    try {
+      const r = await fetch(url);
+      if (!r.ok) return null;
+      return Buffer.from(await r.arrayBuffer());
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * 取一款挂件的静态底图（aio_50.png），落盘到共享缓存后返回路径。
+   *
+   * 只在动画帧解析失败时作兜底（msg_decoration 的「猜测拼接」对导出没有意义，
+   * 这里走真实换链拿可下载的资源）。
+   */
+  async pendantStaticFile(itemId: number): Promise<string | null> {
+    const dest = join(this.pendantsDir, `${itemId}-static.png`);
+    if (existsSync(dest)) return dest;
+
+    const local = this.ntHelper.queryDressResourceUrl('widget', String(itemId), 'aio_50.png');
+    let url = local?.url ?? null;
+    if (!url) {
+      const pid = this.resolvePid();
+      if (!pid) return null;
+      try {
+        const res = await getPendantResources(this.nt, pid, itemId);
+        url = res.image?.ok ? res.image.url : null;
+      } catch {
+        return null;
+      }
+    }
+    if (!url) return null;
+    const dl = await downloadUrlToFile(url, dest);
+    return dl.ok ? dest : null;
   }
 }
 

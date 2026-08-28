@@ -430,10 +430,16 @@ importers:
       exceljs:
         specifier: ^4.4.0
         version: 4.4.0
+      pngjs:
+        specifier: 5.0.0
+        version: 5.0.0
     devDependencies:
       '@types/node':
         specifier: ^22.10.6
         version: 22.19.20
+      '@types/pngjs':
+        specifier: ^6.0.5
+        version: 6.0.5
       '@types/qrcode':
         specifier: ^1.5.5
         version: 1.5.6
@@ -1774,6 +1780,9 @@ packages:
 
   '@types/plist@3.0.5':
     resolution: {integrity: sha512-E6OCaRmAe4WDmWNsL/9RMqdkkzDCY1etutkflWk4c+AcjDU07Pcz1fQwTX0TQz+Pxqn9i4L1TU3UFpjnrcDgxA==}
+
+  '@types/pngjs@6.0.5':
+    resolution: {integrity: sha512-0k5eKfrA83JOZPppLtS2C7OUtyNAl2wKNxfyYl9Q5g9lPkgBl/9hNyAu6HuEH2J4XmIv2znEpkDd0SaZVxW6iQ==}
 
   '@types/qrcode@1.5.6':
     resolution: {integrity: sha512-te7NQcV2BOvdj2b1hCAHzAoMNuj65kNBMz0KBaxM6c3VGBOhU0dURQKOtH8CFNI/dsKkwlv32p26qYQTWoB5bw==}
@@ -5870,6 +5879,10 @@ snapshots:
       '@types/node': 22.19.20
       xmlbuilder: 15.1.1
     optional: true
+
+  '@types/pngjs@6.0.5':
+    dependencies:
+      '@types/node': 22.19.20
 
   '@types/qrcode@1.5.6':
     dependencies:

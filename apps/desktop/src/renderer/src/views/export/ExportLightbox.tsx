@@ -15,12 +15,7 @@ import { Card, Row, Toggle } from '../../components/settings/controls';
 import { Segmented } from './widgets';
 import { TimeRangePicker } from './TimeRangePicker';
 import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
-import {
-  DEFAULT_OPTIONS,
-  DEFAULT_SCHEDULE,
-  type ExportOptions,
-  type Schedule,
-} from './types';
+import { DEFAULT_OPTIONS, DEFAULT_SCHEDULE, type ExportOptions, type Schedule } from './types';
 
 export type LightboxVariant = 'full' | 'chatlab' | 'qzone' | 'scheduled' | 'album' | 'contacts';
 
@@ -87,8 +82,17 @@ export function ExportLightbox({
   }
 
   return (
-    <div className="modal-scrim weq-exp-modal-scrim" role="presentation" onMouseDown={closeFromScrim(onClose)}>
-      <section className="weq-exp-dialog" role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
+    <div
+      className="modal-scrim weq-exp-modal-scrim"
+      role="presentation"
+      onMouseDown={closeFromScrim(onClose)}
+    >
+      <section
+        className="weq-exp-dialog"
+        role="dialog"
+        aria-modal="true"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <header className="weq-exp-dialog-head">
           <div className="weq-exp-dialog-title">
             <strong>{headline}</strong>
@@ -111,8 +115,17 @@ export function ExportLightbox({
                   </span>
                 }
                 control={
-                  <button type="button" className="weq-exp-btn" disabled={pickingPath} onClick={() => void pickPath()}>
-                    {pickingPath ? <Loader2 size={14} className="weq-exp-spin" /> : <FolderOpen size={14} />}
+                  <button
+                    type="button"
+                    className="weq-exp-btn"
+                    disabled={pickingPath}
+                    onClick={() => void pickPath()}
+                  >
+                    {pickingPath ? (
+                      <Loader2 size={14} className="weq-exp-spin" />
+                    ) : (
+                      <FolderOpen size={14} />
+                    )}
                     选择目录
                   </button>
                 }
@@ -136,8 +149,8 @@ export function ExportLightbox({
               <div className="weq-exp-placeholder">
                 <span>导出该好友已发表的说说（内容 / 时间 / 评论数 / 配图链接）</span>
                 <small>
-                  需登录该账号的 QQ 客户端。开启下方「下载配图」后，说说图片存入同目录 media/ 子文件夹；
-                  否则仅在文件中保留图片链接。
+                  需登录该账号的 QQ 客户端。开启下方「下载配图」后，说说图片存入同目录 media/
+                  子文件夹； 否则仅在文件中保留图片链接。
                 </small>
               </div>
             </Card>
@@ -150,7 +163,8 @@ export function ExportLightbox({
                 <span>导出为 ChatLab 交换格式（成员 / 角色 / 消息已标准化）</span>
                 <small>
                   可被 ChatLab 解析分析。媒体在消息内以 [图片]/[文件:名] 等标签呈现；
-                  开启下方「语音自动转写」后，语音转写结果写入 transcripts.json（按语音文件名关联）。
+                  开启下方「语音自动转写」后，语音转写结果写入
+                  transcripts.json（按语音文件名关联）。
                 </small>
               </div>
             </Card>
@@ -162,14 +176,19 @@ export function ExportLightbox({
               <div className="weq-exp-placeholder">
                 <span>导出好友列表 / 群成员列表（QQ号、昵称、备注、分组、角色等）</span>
                 <small>
-                  数据来自本地资料库，无需在线 QQ。开启下方「导出头像」后，头像存入同目录
-                  avatars/ 子文件夹（导出结果保存为文件夹）。
+                  数据来自本地资料库，无需在线 QQ。开启下方「导出头像」后，头像存入同目录 avatars/
+                  子文件夹（导出结果保存为文件夹）。
                 </small>
               </div>
               <Row
                 label="导出头像"
                 desc="联系人头像存入 avatars/ 子目录（缓存优先，缺失走 CDN 补齐）"
-                control={<Toggle checked={opts.exportAvatar} onChange={(v) => patch({ exportAvatar: v })} />}
+                control={
+                  <Toggle
+                    checked={opts.exportAvatar}
+                    onChange={(v) => patch({ exportAvatar: v })}
+                  />
+                }
               />
             </Card>
           ) : null}
@@ -191,7 +210,9 @@ export function ExportLightbox({
               <Row
                 label="下载配图"
                 desc="将说说中的图片下载到 media/ 子目录（导出结果保存为文件夹）"
-                control={<Toggle checked={opts.exportMedia} onChange={(v) => patch({ exportMedia: v })} />}
+                control={
+                  <Toggle checked={opts.exportMedia} onChange={(v) => patch({ exportMedia: v })} />
+                }
               />
             </Card>
           ) : null}
@@ -212,7 +233,9 @@ export function ExportLightbox({
               <Row
                 label="导出媒体文件"
                 desc="图片、表情、视频、文件等随消息一并导出"
-                control={<Toggle checked={opts.exportMedia} onChange={(v) => patch({ exportMedia: v })} />}
+                control={
+                  <Toggle checked={opts.exportMedia} onChange={(v) => patch({ exportMedia: v })} />
+                }
               />
               <Row
                 indent
@@ -265,12 +288,66 @@ export function ExportLightbox({
               <Row
                 label="导出头像"
                 desc="发送者头像存入 avatars/ 子目录（缓存优先，缺失走 CDN 补齐）；导出结果将保存为文件夹"
-                control={<Toggle checked={opts.exportAvatar} onChange={(v) => patch({ exportAvatar: v })} />}
+                control={
+                  <Toggle
+                    checked={opts.exportAvatar}
+                    onChange={(v) => patch({ exportAvatar: v })}
+                  />
+                }
               />
               <Row
                 label="语音自动转写"
                 desc="将语音消息转录为文字一并保存"
-                control={<Toggle checked={opts.transcribeVoice} onChange={(v) => patch({ transcribeVoice: v })} />}
+                control={
+                  <Toggle
+                    checked={opts.transcribeVoice}
+                    onChange={(v) => patch({ transcribeVoice: v })}
+                  />
+                }
+              />
+            </Card>
+          ) : null}
+
+          {/* 装扮数据（可选默认不开启）：只导出会话实际用到的气泡 / 字体 / 挂件 */}
+          {!isAlbum && !isQzone && !isContacts ? (
+            <Card title="装扮数据">
+              <div className="weq-exp-placeholder">
+                <span>随导出附带会话实际使用的装扮资源</span>
+                <small>
+                  字体为转换后的 TTF，气泡 / 挂件合成为单张动画 GIF（气泡另附 config.json
+                  与渲染参数）。资源优先取本地离线索引，缺失时需登录 QQ
+                  客户端在线换取。导出结果将保存为文件夹。
+                </small>
+              </div>
+              <Row
+                label="气泡"
+                desc="会话消息用到的气泡九宫格（含动画）"
+                control={
+                  <Toggle
+                    checked={opts.dress.bubble}
+                    onChange={(v) => patch({ dress: { ...opts.dress, bubble: v } })}
+                  />
+                }
+              />
+              <Row
+                label="字体"
+                desc="会话消息用到的聊天字体 TTF"
+                control={
+                  <Toggle
+                    checked={opts.dress.font}
+                    onChange={(v) => patch({ dress: { ...opts.dress, font: v } })}
+                  />
+                }
+              />
+              <Row
+                label="挂件"
+                desc="会话消息用到的头像挂件动画"
+                control={
+                  <Toggle
+                    checked={opts.dress.widget}
+                    onChange={(v) => patch({ dress: { ...opts.dress, widget: v } })}
+                  />
+                }
               />
             </Card>
           ) : null}
@@ -314,7 +391,10 @@ export function ExportLightbox({
                         max={168}
                         value={schedule.intervalHours}
                         onChange={(e) =>
-                          setSchedule((s) => ({ ...s, intervalHours: Math.max(1, Number(e.target.value) || 1) }))
+                          setSchedule((s) => ({
+                            ...s,
+                            intervalHours: Math.max(1, Number(e.target.value) || 1),
+                          }))
                         }
                       />
                       <span>小时</span>
@@ -330,7 +410,12 @@ export function ExportLightbox({
           <button type="button" className="weq-exp-btn" onClick={onClose} disabled={submitting}>
             取消
           </button>
-          <button type="button" className="weq-exp-btn is-primary" onClick={confirm} disabled={submitting}>
+          <button
+            type="button"
+            className="weq-exp-btn is-primary"
+            onClick={confirm}
+            disabled={submitting}
+          >
             {submitting ? <Loader2 size={15} className="weq-exp-spin" /> : null}
             {isScheduled ? '创建定时任务' : '开始导出'}
           </button>
