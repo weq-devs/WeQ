@@ -138,7 +138,7 @@ export const FACE_OLD_PB: ProtoMessage = message([
 /**
  * 骰子/超级表情（commonElem serviceType=37）的 pbElem —— 按实测解析：
  * tag 2=aniStickerId、3=faceId、4=超级表情标识（1 为超级表情）、
- * 6=diceValue、7=faceText；其余字段一律丢弃（decode 会自动跳过未声明 tag）。
+ * 6=innerId、7=faceText；其余字段一律丢弃（decode 会自动跳过未声明 tag）。
  */
 /**
  * 普通 QQ 表情（commonElem serviceType=33）的 pbElem：
@@ -152,7 +152,7 @@ export const FACE_ELEM: ProtoMessage = message([
   f('AniStickerId', 2, 'string'),
   f('faceId', 3, 'int32'),
   f('superEmojiFlag1', 4, 'int32'),
-  f('diceValue', 6, 'string'),
+  f('innerId', 6, 'string'),
   f('faceText', 7, 'string'),
 ]);
 

@@ -217,7 +217,7 @@ export interface RenderFaceElement {
     AniStickerId?: string;
     superEmojiFlag1?: number;
     superEmojiFlag2?: number;
-    diceValue?: string;
+    innerId?: string;
     superEmojiFlag3?: number;
     superEmojiFlag4?: number;
     canChain?: boolean;
@@ -761,7 +761,7 @@ function mapFace(el: FaceElement): RenderFaceElement {
       AniStickerId: el.AniStickerId,
       // superEmojiFlag1: el.superEmojiFlag1,
       // superEmojiFlag2: el.superEmojiFlag2,
-      diceValue: el.diceValue,
+      innerId: el.innerId,
       // superEmojiFlag3: el.superEmojiFlag3,
       // superEmojiFlag4: el.superEmojiFlag4,
       canChain: el.canChain,

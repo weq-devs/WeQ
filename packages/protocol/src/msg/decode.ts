@@ -60,7 +60,7 @@ function liftTextElem(text: Record<string, unknown>): Record<string, unknown> | 
 
 /**
  * 把老 wire 的 Face 元素提升成 codec 风格元素：只保留 faceId / faceText /
- * AniStickerId / diceValue / superEmojiFlag1（tag 4=1 视为超级表情），其余字段一律丢掉。
+ * AniStickerId / innerId / superEmojiFlag1（tag 4=1 视为超级表情），其余字段一律丢掉。
  */
 /**
  * 把老 wire 的 MARKET_FACE 提升成 codec 风格 mface 元素：
@@ -84,11 +84,11 @@ function liftFaceElem(face: Record<string, unknown>): Record<string, unknown> {
   if (faceId !== undefined) out.faceId = faceId;
   if (face.faceText !== undefined) out.faceText = face.faceText;
   if (face.AniStickerId !== undefined) out.AniStickerId = face.AniStickerId;
-  if (face.diceValue !== undefined) out.diceValue = face.diceValue;
+  if (face.innerId !== undefined) out.innerId = face.innerId;
   if (face.superEmojiFlag1 === 1) out.superEmojiFlag1 = face.superEmojiFlag1;
   // 老 wire 不下发 NT 的 subType(45003)，前端靠它区分内联小黄脸(1/2)和贴纸(3+)。
-  // 这里按字段派生：骰子/超级表情 -> 3(SUPER_EMOJI)，其余经典表情 -> 1。
-  out.subType = face.superEmojiFlag1 === 1 || face.diceValue !== undefined ? 3 : 1;
+  // 这里按字段派生：带 innerId / 超级表情 -> 3(SUPER_EMOJI)，其余经典表情 -> 1。
+  out.subType = face.superEmojiFlag1 === 1 || face.innerId !== undefined ? 3 : 1;
   return out;
 }
 

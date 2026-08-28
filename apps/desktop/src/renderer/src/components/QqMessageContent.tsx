@@ -112,8 +112,8 @@ const BORDERLESS_MEDIA = new Set(['pic', 'video', 'mface', 'bubbleVideo']);
 /** Element kinds handled by a dedicated media component. */
 const MEDIA_KINDS = new Set(['pic', 'video', 'file', 'ptt', 'mface', 'onlineFile', 'onlineFolder']);
 
-/** Box size for a lone sticker face (FaceSubType !== 1). */
-const STICKER_SIZE = 90;
+/** Box size for a lone sticker face (FaceSubType !== 1); 1.5× the old 90px. */
+const STICKER_SIZE = 135;
 /** Inline face size, tracking the surrounding text. */
 const INLINE_SIZE = '1.8em';
 
@@ -123,7 +123,7 @@ const FACE_SUBTYPE_INLINE = new Set([1, 2]);
 type FaceData = {
   faceId: number;
   faceText?: string;
-  diceValue?: string;
+  innerId?: string;
   subType?: number;
 };
 
@@ -162,7 +162,7 @@ function faceProps(data: Record<string, unknown> = {}): FaceData {
   return {
     faceId: Number(data.faceId),
     faceText: typeof data.faceText === 'string' ? data.faceText : undefined,
-    diceValue: typeof data.diceValue === 'string' ? data.diceValue : undefined,
+    innerId: typeof data.innerId === 'string' ? data.innerId : undefined,
     subType: typeof data.subType === 'number' ? data.subType : Number(data.subType) || undefined,
   };
 }

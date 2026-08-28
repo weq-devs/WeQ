@@ -34,7 +34,7 @@ QQ 自带表情，包含普通小黄脸、超级表情、互动表情。
 | 47604 | `AniStickerId` | string | 动画贴纸 ID |
 | 47605 | `superEmojiFlag1` | uint32 | 标志 1 |
 | 47606 | `superEmojiFlag2` | uint32 | 标志 2 |
-| 47607 | `diceValue` | string | **命名为骰子点数**，实际上是随机表情的随机值<br />包括骰子，包剪锤，篮球等等 |
+| 47607 | `innerId` | string | 同一 `faceId` 下的随机表情编号（原"骰子点数"）<br />非零非空时渲染 `lottie/<faceId>_<innerId>.json` |
 | 47609 | `superEmojiFlag3` | uint32 | 标志 3 |
 | 47610 | `superEmojiFlag4` | uint32 | 标志 4 |
 

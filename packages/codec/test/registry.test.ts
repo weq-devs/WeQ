@@ -179,7 +179,7 @@ describe('FaceElement (elementType=6)', () => {
       subType: FaceSubType.SUPER_EMOJI,
       faceId: 358,
       faceText: '骰子',
-      diceValue: '4',
+      innerId: '4',
     };
 
     const wire = encodeElement(original);
@@ -193,11 +193,11 @@ describe('FaceElement (elementType=6)', () => {
       expect(back.subType).toBe(FaceSubType.SUPER_EMOJI);
       expect(back.faceId).toBe(358);
       expect(back.faceText).toBe('骰子');
-      expect(back.diceValue).toBe('4');
+      expect(back.innerId).toBe('4');
     }
   });
 
-  it('drops diceValue when not provided (non-dice face)', () => {
+  it('drops innerId when not provided (non-interactive face)', () => {
     const plain: FaceElement = {
       kind: 'face',
       elementId: 1n,
@@ -211,7 +211,7 @@ describe('FaceElement (elementType=6)', () => {
       new ProtoMsg(MsgBody).decode(bytes).elements![0]!,
     );
     expect(back.kind).toBe('face');
-    if (back.kind === 'face') expect(back.diceValue).toBeUndefined();
+    if (back.kind === 'face') expect(back.innerId).toBeUndefined();
   });
 
   it('silently ignores unknown wire tags during decode', () => {
