@@ -4855,6 +4855,10 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   line-height: 1.25;
 }
 
+.weq-set-title-sm {
+  font-size: 14px;
+}
+
 .weq-set-desc {
   margin: 0;
   color: #6a7280;
