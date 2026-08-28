@@ -8960,9 +8960,10 @@ html[data-theme="dark"] .weq-flash-opening { background: rgba(0, 0, 0, 0.55); }
   font-size: 18px;
 }
 
-.weq-decoration-card-font-preview .is-chinese {
-  font-size: 15px;
-}
+.weq-decoration-card-font-preview .is-size-1 { font-size: 12px; }
+.weq-decoration-card-font-preview .is-size-2 { font-size: 16px; }
+.weq-decoration-card-font-preview .is-size-3 { font-size: 20px; }
+.weq-decoration-card-font-preview .is-size-4 { font-size: 24px; }
 
 .weq-decoration-card-item:hover .weq-decoration-card-preview img {
   transform: scale(1.05);
