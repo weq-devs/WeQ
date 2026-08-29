@@ -114,6 +114,26 @@ export interface DressExportResult {
 
 const DRESS_DIR = 'dress';
 
+/** 装扮资源下载并发数（installBubble/installFont 都有网络/协议开销）。 */
+const DRESS_CONCURRENCY = 4;
+
+/** 并发跑 `fn`，最多 `limit` 个在途。 */
+async function mapLimit<T>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const idx = next++;
+      if (idx >= items.length) return;
+      await fn(items[idx]!);
+    }
+  });
+  await Promise.all(workers);
+}
+
 /**
  * 扫描会话消息，收集实际用到的装扮 id。
  *
@@ -199,73 +219,91 @@ export async function exportDressAssets(
     onProgress?.(done, total, note);
   };
 
+  // 逐款下载 / 转换 / 合成。每项只写自己的目录（bubble/<id>、font/<id>.ttf、
+  // widget/<id>），互不依赖，所以按固定顺序排队后用并发跑（网络等待不串行）。
+  const jobs: Array<() => Promise<void>> = [];
   if (kinds.bubble) {
     for (const itemId of [...usage.bubbles].sort((a, b) => a - b)) {
-      try {
-        if (!complete && !dressInstall.hasLocal('bubble', itemId)) {
-          failures.push({ kind: 'bubble', itemId, error: '本地未缓存（未开启补全下载）' });
-          tick(`气泡 ${itemId} 未缓存`);
-          continue;
+      jobs.push(async () => {
+        try {
+          if (!complete && !dressInstall.hasLocal('bubble', itemId)) {
+            failures.push({ kind: 'bubble', itemId, error: '本地未缓存（未开启补全下载）' });
+            tick(`气泡 ${itemId} 未缓存`);
+            return;
+          }
+          const skin = await dressInstall.installBubble(itemId);
+          if (!skin) throw new Error('装扮服务未能解析该气泡');
+          const entry = await exportBubble(dressInstall, root, itemId, skin);
+          manifest.bubbles.push(entry);
+          tick(`气泡 ${itemId}`);
+        } catch (e) {
+          failures.push({
+            kind: 'bubble',
+            itemId,
+            error: e instanceof Error ? e.message : String(e),
+          });
+          tick(`气泡 ${itemId} 失败`);
         }
-        const skin = await dressInstall.installBubble(itemId);
-        if (!skin) throw new Error('装扮服务未能解析该气泡');
-        const entry = await exportBubble(dressInstall, root, itemId, skin);
-        manifest.bubbles.push(entry);
-        tick(`气泡 ${itemId}`);
-      } catch (e) {
-        failures.push({
-          kind: 'bubble',
-          itemId,
-          error: e instanceof Error ? e.message : String(e),
-        });
-        tick(`气泡 ${itemId} 失败`);
-      }
+      });
     }
   }
 
   if (kinds.font) {
     for (const itemId of [...usage.fonts].sort((a, b) => a - b)) {
-      try {
-        if (!complete && !dressInstall.hasLocal('font', itemId)) {
-          failures.push({ kind: 'font', itemId, error: '本地未缓存（未开启补全下载）' });
-          tick(`字体 ${itemId} 未缓存`);
-          continue;
+      jobs.push(async () => {
+        try {
+          if (!complete && !dressInstall.hasLocal('font', itemId)) {
+            failures.push({ kind: 'font', itemId, error: '本地未缓存（未开启补全下载）' });
+            tick(`字体 ${itemId} 未缓存`);
+            return;
+          }
+          const font = await dressInstall.installFont(itemId, '');
+          const dir = join(root, 'font');
+          mkdirSync(dir, { recursive: true });
+          const rel = `dress/font/${itemId}.ttf`;
+          copyFileSync(font.file, join(outDir, rel));
+          manifest.fonts.push({ itemId, family: font.family, file: rel });
+          tick(`字体 ${itemId}`);
+        } catch (e) {
+          failures.push({
+            kind: 'font',
+            itemId,
+            error: e instanceof Error ? e.message : String(e),
+          });
+          tick(`字体 ${itemId} 失败`);
         }
-        const font = await dressInstall.installFont(itemId, '');
-        const dir = join(root, 'font');
-        mkdirSync(dir, { recursive: true });
-        const rel = `dress/font/${itemId}.ttf`;
-        copyFileSync(font.file, join(outDir, rel));
-        manifest.fonts.push({ itemId, family: font.family, file: rel });
-        tick(`字体 ${itemId}`);
-      } catch (e) {
-        failures.push({ kind: 'font', itemId, error: e instanceof Error ? e.message : String(e) });
-        tick(`字体 ${itemId} 失败`);
-      }
+      });
     }
   }
 
   if (kinds.widget) {
     for (const itemId of [...usage.widgets].sort((a, b) => a - b)) {
-      try {
-        if (!complete && !dressInstall.hasLocal('widget', itemId)) {
-          failures.push({ kind: 'widget', itemId, error: '本地未缓存（未开启补全下载）' });
-          tick(`挂件 ${itemId} 未缓存`);
-          continue;
+      jobs.push(async () => {
+        try {
+          if (!complete && !dressInstall.hasLocal('widget', itemId)) {
+            failures.push({ kind: 'widget', itemId, error: '本地未缓存（未开启补全下载）' });
+            tick(`挂件 ${itemId} 未缓存`);
+            return;
+          }
+          const entry = await exportWidget(dressInstall, root, itemId);
+          manifest.widgets.push(entry);
+          tick(`挂件 ${itemId}`);
+        } catch (e) {
+          failures.push({
+            kind: 'widget',
+            itemId,
+            error: e instanceof Error ? e.message : String(e),
+          });
+          tick(`挂件 ${itemId} 失败`);
         }
-        const entry = await exportWidget(dressInstall, root, itemId);
-        manifest.widgets.push(entry);
-        tick(`挂件 ${itemId}`);
-      } catch (e) {
-        failures.push({
-          kind: 'widget',
-          itemId,
-          error: e instanceof Error ? e.message : String(e),
-        });
-        tick(`挂件 ${itemId} 失败`);
-      }
+      });
     }
   }
+  await mapLimit(jobs, DRESS_CONCURRENCY, (job) => job());
+  // 并发完成顺序不定，按 itemId 排回稳定顺序（HTML CSS 生成依赖固定顺序）。
+  manifest.bubbles.sort((a, b) => a.itemId - b.itemId);
+  manifest.fonts.sort((a, b) => a.itemId - b.itemId);
+  manifest.widgets.sort((a, b) => a.itemId - b.itemId);
 
   writeFileSync(join(root, 'manifest.json'), JSON.stringify(manifest, null, 2));
   logger.info('dress assets exported', {

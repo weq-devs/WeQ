@@ -375,47 +375,50 @@ export class ExportScheduler extends EventEmitter {
     const formats = t.formats?.length ? t.formats : [t.format];
     let firstError: string | null = null;
     for (const c of t.conversations) {
-      for (let i = 0; i < formats.length; i += 1) {
-        const fmt = formats[i]!;
-        // 多格式时只有第一份携带媒体 / 头像 / 装扮（媒体不重复导出）。
-        const carryResources = i === 0;
-        try {
-          const id = await this.deps.taskManager.startTask({
-            kind: c.kind,
-            conv: c.id,
-            name: c.name,
-            format: fmt,
-            total: c.total,
-            // startTask has `exportAvatar?: boolean` — always pass it explicitly so
-            // ExportTask.exportAvatar mirrors the template, not "undefined".
-            exportAvatar: carryResources && Boolean(t.options.exportAvatar),
-            ...(carryResources && t.options.dress ? { dress: t.options.dress } : {}),
-            ...(t.chatlab ? { chatlab: true } : {}),
-            ...(carryResources &&
-            (t.options.exportMedia ||
-              t.options.exportAvatar ||
-              t.options.transcribeVoice ||
-              t.options.completeMessages)
-              ? {
-                  media: {
-                    exportMedia: t.options.exportMedia,
-                    completeMessages: t.options.completeMessages,
-                    completeMedia: t.options.exportMedia && t.options.completeMedia,
-                    downloadVideo: t.options.exportMedia && t.options.downloadVideo,
-                    downloadFile: t.options.exportMedia && t.options.downloadFile,
-                    downloadPtt: t.options.exportMedia && t.options.downloadPtt,
-                    transcribeVoice: t.options.transcribeVoice,
-                    mediaKinds: t.options.mediaKinds,
-                    completeDress: t.options.completeDress,
-                  },
-                }
-              : {}),
-            range,
-          });
-          taskIds.push(id);
-        } catch (e) {
-          if (!firstError) firstError = String((e as Error)?.message ?? e);
-        }
+      // 多格式在同一个任务里完成（同一 bundle，媒体 / 头像 / 装扮只带一份）。
+      const carryResources = true;
+      try {
+        const id = await this.deps.taskManager.startTask({
+          kind: c.kind,
+          conv: c.id,
+          name: c.name,
+          format: formats[0] ?? t.format,
+          formats,
+          total: c.total,
+          // startTask has `exportAvatar?: boolean` — always pass it explicitly so
+          // ExportTask.exportAvatar mirrors the template, not "undefined".
+          exportAvatar: carryResources && Boolean(t.options.exportAvatar),
+          ...(carryResources && t.options.dress ? { dress: t.options.dress } : {}),
+          ...(t.chatlab ? { chatlab: true } : {}),
+          ...(carryResources &&
+          (t.options.exportMedia ||
+            t.options.exportAvatar ||
+            t.options.transcribeVoice ||
+            t.options.completeMessages)
+            ? {
+                media: {
+                  exportMedia: t.options.exportMedia,
+                  completeMessages: t.options.completeMessages,
+                  completeMedia: t.options.exportMedia && t.options.completeMedia,
+                  downloadVideo: t.options.exportMedia && t.options.downloadVideo,
+                  downloadFile: t.options.exportMedia && t.options.downloadFile,
+                  downloadPtt: t.options.exportMedia && t.options.downloadPtt,
+                  transcribeVoice: t.options.transcribeVoice,
+                  mediaKinds: t.options.mediaKinds,
+                  completeDress: t.options.completeDress,
+                },
+              }
+            : {}),
+          range,
+        });
+        taskIds.push(id);
+        this.deps.taskManager.appendLog(
+          id,
+          'task',
+          `由定时任务「${t.name}」触发（${reason === 'manual' ? '手动' : '定时'}）`,
+        );
+      } catch (e) {
+        if (!firstError) firstError = String((e as Error)?.message ?? e);
       }
     }
 

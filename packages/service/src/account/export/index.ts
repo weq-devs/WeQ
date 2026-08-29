@@ -7,7 +7,12 @@
  */
 
 export * from './types';
-export { iterateGroupMessages, iterateC2cMessages, toExportedMessage, type IterateOptions } from './message_source';
+export {
+  iterateGroupMessages,
+  iterateC2cMessages,
+  toExportedMessage,
+  type IterateOptions,
+} from './message_source';
 export { bigintReplacer } from './serialize';
 export { runGroupExport, type Framing } from './run_export';
 export {
@@ -109,6 +114,9 @@ export {
 export {
   ExportTaskManager,
   type ExportTask,
+  type ExportTaskView,
+  type TaskLogLevel,
+  type TaskLogLine,
   type TaskProgress,
   type TaskStatus,
   type TaskStage,

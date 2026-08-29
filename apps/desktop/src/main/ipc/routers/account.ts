@@ -2662,6 +2662,8 @@ export const accountRouter = router({
         conv: z.string().min(1),
         name: z.string().min(1),
         format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']),
+        /** 多格式导出：一次任务产出多个文件进同一 bundle（媒体只带一份）。 */
+        formats: z.array(z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html'])).optional(),
         total: z.number().int().min(0),
         /** Also export every sender's avatar into an avatars/ subfolder. */
         exportAvatar: z.boolean().optional(),
@@ -2711,6 +2713,8 @@ export const accountRouter = router({
         targetUin: z.string().min(1),
         name: z.string().min(1),
         format: z.enum(['json', 'txt']),
+        /** 多格式导出：json / txt 一次任务全出。 */
+        formats: z.array(z.enum(['json', 'txt'])).optional(),
         downloadMedia: z.boolean(),
         range: z.object({ start: z.number().nullable(), end: z.number().nullable() }).optional(),
       }),
@@ -2724,6 +2728,7 @@ export const accountRouter = router({
         conv: input.targetUin,
         name: input.name,
         format: input.format,
+        ...(input.formats?.length ? { formats: input.formats } : {}),
         total: 0,
         media: {
           exportMedia: input.downloadMedia,
@@ -2750,6 +2755,8 @@ export const accountRouter = router({
         groupCode: z.string().optional(),
         name: z.string().min(1),
         format: z.enum(['json', 'jsonl', 'csv', 'xlsx', 'txt', 'vcard']),
+        /** 多格式导出：一次任务产出多个表文件（头像只带一份）。 */
+        formats: z.array(z.enum(['json', 'jsonl', 'csv', 'xlsx', 'txt', 'vcard'])).optional(),
         exportAvatar: z.boolean().optional(),
         categoryIds: z.array(z.number().int()).optional(),
       }),
@@ -2760,6 +2767,9 @@ export const accountRouter = router({
       }
       // vcard 仅好友可用；群成员传 vcard 时回退到 csv。
       const format = input.scope === 'group' && input.format === 'vcard' ? 'csv' : input.format;
+      const formats = (input.formats ?? [input.format]).map((f) =>
+        input.scope === 'group' && f === 'vcard' ? 'csv' : f,
+      ) as Array<'json' | 'jsonl' | 'csv' | 'xlsx' | 'txt' | 'vcard'>;
       return requireServices().exportManager.startTask({
         contacts: {
           scope: input.scope,
@@ -2769,6 +2779,7 @@ export const accountRouter = router({
         conv: input.scope === 'group' ? input.groupCode! : '',
         name: input.name,
         format,
+        formats,
         total: 0,
         exportAvatar: input.exportAvatar ?? false,
       });

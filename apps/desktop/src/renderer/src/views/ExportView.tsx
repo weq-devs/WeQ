@@ -48,7 +48,7 @@ import { Avatar, Segmented, Spinner } from './export/widgets';
 import { ConversationPicker } from './export/ConversationPicker';
 import { SingleSelectPicker } from './export/SingleSelectPicker';
 import { MarketEmojiDownloadPane } from './export/MarketEmojiDownloadPane';
-import { TaskList, type UiTask, type UiFailure } from './export/TaskList';
+import { TaskList, type UiFailure, type UiLogLine, type UiTask } from './export/TaskList';
 import { ExportLightbox, type LightboxResult, type LightboxVariant } from './export/ExportLightbox';
 import { DatabasePicker, type DbPickItem } from './export/DatabasePicker';
 import { DecryptLightbox, type DecryptLightboxResult } from './export/DecryptLightbox';
@@ -495,6 +495,7 @@ export function ExportView(): ReactElement {
       kind: t.kind,
       name: t.name,
       format: t.format,
+      formats: (t as { formats?: string[] }).formats,
       status: t.status,
       progress: t.progress,
       current: t.current,
@@ -504,6 +505,10 @@ export function ExportView(): ReactElement {
       bundleDir: t.bundleDir,
       avatarCount: t.avatarCount,
       stages: t.stages,
+      logs: (t as { logs?: UiLogLine[] }).logs ?? [],
+      isQzone: Boolean((t as { qzone?: boolean }).qzone),
+      isContacts: Boolean((t as { contacts?: unknown }).contacts),
+      isCollection: Boolean((t as { collection?: unknown }).collection),
       // conv === 'marketpack' は商城表情下载タスクの sentinel（task_manager 内で設定）。
       isMarketPack: (t as unknown as { conv?: string }).conv === 'marketpack',
     }));
@@ -775,15 +780,15 @@ export function ExportView(): ReactElement {
     try {
       for (const t of targets) {
         if (!t.uin) continue;
-        for (const f of formats) {
-          await client.account.startQzoneExport.mutate({
-            targetUin: t.uin,
-            name: t.name,
-            format: f === 'txt' ? 'txt' : 'json',
-            downloadMedia: options.exportMedia,
-            range,
-          });
-        }
+        const fmt0 = (formats[0] === 'txt' ? 'txt' : 'json') as 'json' | 'txt';
+        await client.account.startQzoneExport.mutate({
+          targetUin: t.uin,
+          name: t.name,
+          format: fmt0,
+          formats: formats.map((f) => (f === 'txt' ? 'txt' : 'json')) as Array<'json' | 'txt'>,
+          downloadMedia: options.exportMedia,
+          range,
+        });
       }
       setConvSelection(new Set());
       setLightbox(null);
@@ -796,35 +801,33 @@ export function ExportView(): ReactElement {
   }
 
   /** 导出联系人：好友列表（可按分组过滤）或某群成员列表；灯箱多选格式 + 可选头像。 */
-  async function runContactsExport(
-    options: ExportOptions,
-    formats: ExportFormat[],
-  ): Promise<void> {
+  async function runContactsExport(options: ExportOptions, formats: ExportFormat[]): Promise<void> {
     // 联系人格式收窄到 startContactsExport 接受的集合（灯箱 chips 已保证）。
     const cfmts = formats as Array<'json' | 'jsonl' | 'csv' | 'xlsx' | 'txt' | 'vcard'>;
     setSubmitting(true);
     try {
-      for (const cfmt of cfmts) {
-        if (contactScope === 'friends') {
-          const cats = [...catSelection];
-          await client.account.startContactsExport.mutate({
-            scope: 'friends',
-            name: cats.length ? `好友_${cats.length}个分组` : '全部好友',
-            format: cfmt,
-            exportAvatar: options.exportAvatar,
-            ...(cats.length ? { categoryIds: cats } : {}),
-          });
-        } else {
-          const g = groupItems.find((it) => it.id === contactGroupId);
-          if (!g) return;
-          await client.account.startContactsExport.mutate({
-            scope: 'group',
-            groupCode: g.id,
-            name: `${g.name}_群成员`,
-            format: cfmt === 'vcard' ? 'csv' : cfmt,
-            exportAvatar: options.exportAvatar,
-          });
-        }
+      // 多格式合并为同一个任务：所有格式写进同一 bundle，头像只带一份。
+      if (contactScope === 'friends') {
+        const cats = [...catSelection];
+        await client.account.startContactsExport.mutate({
+          scope: 'friends',
+          name: cats.length ? `好友_${cats.length}个分组` : '全部好友',
+          format: cfmts[0] ?? 'csv',
+          formats: cfmts,
+          exportAvatar: options.exportAvatar,
+          ...(cats.length ? { categoryIds: cats } : {}),
+        });
+      } else {
+        const g = groupItems.find((it) => it.id === contactGroupId);
+        if (!g) return;
+        await client.account.startContactsExport.mutate({
+          scope: 'group',
+          groupCode: g.id,
+          name: `${g.name}_群成员`,
+          format: cfmts[0] === 'vcard' ? 'csv' : (cfmts[0] ?? 'csv'),
+          formats: cfmts.map((f) => (f === 'vcard' ? 'csv' : f)) as typeof cfmts,
+          exportAvatar: options.exportAvatar,
+        });
       }
       setLightbox(null);
       setCatSelection(new Set());
@@ -876,17 +879,6 @@ export function ExportView(): ReactElement {
       mediaKinds: options.exportMedia ? options.mediaKinds : undefined,
       completeDress: options.completeDress,
     };
-    /** 多格式时只有第一份携带媒体/头像/装扮等资源（媒体不重复导出）。 */
-    const noResourceMedia = {
-      exportMedia: false,
-      completeMessages: false,
-      completeMedia: false,
-      downloadVideo: false,
-      downloadFile: false,
-      downloadPtt: false,
-      transcribeVoice: false,
-    };
-
     // 消息补全跑在所有导出步骤之前，必须在线 QQ + 未开启完全离线模式。
     if (media.completeMessages) {
       const ok = await preflightMessageCompletion();
@@ -915,26 +907,24 @@ export function ExportView(): ReactElement {
     try {
       const autoSaveTaskIds: string[] = [];
       for (const t of targets) {
-        for (let i = 0; i < formats.length; i += 1) {
-          const fmt = formats[i]!;
-          const carryResources = i === 0;
-          const id = await client.account.startExport.mutate({
-            kind: t.kind ?? 'c2c',
-            conv: t.id,
-            name: t.name,
-            format: fmt as Exclude<ExportFormat, 'vcard'>,
-            total: t.total ?? 0,
-            exportAvatar: carryResources ? options.exportAvatar : false,
-            ...(carryResources &&
-            (options.dress.bubble || options.dress.font || options.dress.widget)
-              ? { dress: options.dress }
-              : {}),
-            ...(options.chatlab ? { chatlab: true } : {}),
-            media: carryResources ? media : noResourceMedia,
-            range,
-          });
-          if (options.autoSave) autoSaveTaskIds.push(id);
-        }
+        // 多格式合并为同一个任务：所有格式写进同一 bundle，媒体/头像/装扮只带一份。
+        const fmt0 = formats[0] ?? format;
+        const id = await client.account.startExport.mutate({
+          kind: t.kind ?? 'c2c',
+          conv: t.id,
+          name: t.name,
+          format: fmt0 as Exclude<ExportFormat, 'vcard'>,
+          formats: formats as Exclude<ExportFormat, 'vcard'>[],
+          total: t.total ?? 0,
+          exportAvatar: options.exportAvatar,
+          ...(options.dress.bubble || options.dress.font || options.dress.widget
+            ? { dress: options.dress }
+            : {}),
+          ...(options.chatlab ? { chatlab: true } : {}),
+          media,
+          range,
+        });
+        if (options.autoSave) autoSaveTaskIds.push(id);
       }
       if (autoSaveTaskIds.length > 0) {
         autoSaveIds.current = new Set([...autoSaveIds.current, ...autoSaveTaskIds]);

@@ -1411,13 +1411,13 @@
   border-radius: 7px;
 }
 
-/* ===== 底部任务列表 ===== */
+/* ===== 导出任务中心（卡片 + 详情 + 滚动日志） ===== */
 .weq-exp-tasks {
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  height: clamp(168px, 30vh, 300px);
+  height: clamp(252px, 46vh, 470px);
   border-top: 1px solid rgba(0, 0, 0, 0.08);
   background: rgba(255, 255, 255, 0.4);
   backdrop-filter: blur(12px);
@@ -1470,16 +1470,6 @@
   background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
 }
 
-.weq-exp-tasks-list {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 0 14px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
 .weq-exp-tasks-empty {
   display: flex;
   flex-direction: column;
@@ -1500,45 +1490,88 @@
   font-size: 11.5px;
 }
 
-.weq-exp-task {
+/* ---- 顶部任务小卡片（横向滚动） ---- */
+.weq-exp-cards {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 11px 13px;
-  border: 1px solid rgba(0, 0, 0, 0.07);
-  border-radius: 11px;
-  background: color-mix(in srgb, #ffffff 52%, transparent);
-  backdrop-filter: blur(8px);
-  box-shadow: 0 6px 18px -16px rgba(7, 31, 61, 0.4);
+  gap: 8px;
+  flex: none;
+  padding: 2px 14px 8px;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
-.weq-exp-task-kind {
+.weq-exp-card {
+  flex: 0 0 164px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 10px;
+  background: color-mix(in srgb, #ffffff 55%, transparent);
+  backdrop-filter: blur(8px);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease, box-shadow 150ms ease,
+    transform 120ms ease;
+}
+
+.weq-exp-card:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 35%, transparent);
+  transform: translateY(-1px);
+}
+
+/* 边框颜色 = 任务状态（不再放独立状态图标）。 */
+.weq-exp-card.is-running {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 48%, transparent);
+}
+
+.weq-exp-card.is-completed {
+  border-color: rgba(43, 174, 102, 0.42);
+  opacity: 0.86;
+}
+
+.weq-exp-card.is-failed {
+  border-color: rgba(220, 68, 68, 0.55);
+}
+
+.weq-exp-card.is-paused {
+  border-color: rgba(201, 138, 46, 0.48);
+}
+
+.weq-exp-card.is-cancelled {
+  border-color: rgba(154, 165, 179, 0.38);
+}
+
+.weq-exp-card.is-active {
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, #ffffff);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--weq-accent-effective) 18%, transparent),
+    0 8px 18px -16px rgba(7, 31, 61, 0.45);
+}
+
+.weq-exp-card-top {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.weq-exp-card-icon {
   display: inline-grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
-  flex: none;
-  border-radius: 9px;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
   background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
   color: var(--weq-accent-effective);
 }
 
-.weq-exp-task-main {
+.weq-exp-card-name {
   flex: 1;
   min-width: 0;
-  display: grid;
-  gap: 5px;
-}
-
-.weq-exp-task-top {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.weq-exp-task-name {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: #283342;
   white-space: nowrap;
@@ -1546,18 +1579,111 @@
   text-overflow: ellipsis;
 }
 
-.weq-exp-task-fmt {
-  flex: none;
-  padding: 1px 6px;
-  border-radius: 5px;
-  background: rgba(0, 0, 0, 0.05);
-  color: #6a7280;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+/* 波浪总进度：宽度 = 总进度，斜纹向右流动；不显示百分比数字。 */
+.weq-exp-card-wave {
+  display: block;
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  overflow: hidden;
 }
 
-.weq-exp-task-status {
+.weq-exp-card-wave-fill {
+  position: relative;
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--weq-accent-effective) 78%, white),
+    var(--weq-accent-effective)
+  );
+  transition: width 0.35s ease;
+  overflow: hidden;
+}
+
+.weq-exp-card-wave-fill.is-running::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(255, 255, 255, 0.4) 0 5px,
+    transparent 5px 10px
+  );
+  animation: weq-exp-wave 0.8s linear infinite;
+}
+
+.weq-exp-card-wave-fill.is-failed {
+  background: #dc4040;
+}
+
+.weq-exp-card-wave-fill.is-paused {
+  background: linear-gradient(90deg, #e2a94f, #c98a2e);
+}
+
+@keyframes weq-exp-wave {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(10px);
+  }
+}
+
+/* ---- 选中任务详情 ---- */
+.weq-exp-detail {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 2px 14px 10px;
+  overflow-y: auto;
+}
+
+.weq-exp-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 2px;
+  flex: none;
+}
+
+.weq-exp-detail-kind {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+.weq-exp-detail-title {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.weq-exp-detail-title strong {
+  font-size: 13px;
+  color: #283342;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weq-exp-detail-meta {
+  font-size: 11px;
+  color: #97a2b0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weq-exp-detail-status {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -1568,23 +1694,142 @@
   color: #6a7280;
 }
 
-.weq-exp-task-status.is-running,
-.weq-exp-task-status.is-completed,
-.weq-exp-task-status.is-failed,
-.weq-exp-task-status.is-paused,
-.weq-exp-task-status.is-cancelled,
-.weq-exp-task-status.is-pending {
+.weq-exp-detail-status.is-running {
   color: var(--weq-accent-effective);
 }
 
-.weq-exp-task-bar {
+.weq-exp-detail-status.is-completed {
+  color: #2bae66;
+}
+
+.weq-exp-detail-status.is-failed {
+  color: #dc4040;
+}
+
+.weq-exp-detail-status.is-paused {
+  color: #c98a2e;
+}
+
+.weq-exp-detail-overall {
+  flex: none;
+  min-width: 46px;
+  text-align: right;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--weq-accent-effective);
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-exp-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+}
+
+.weq-exp-detail-actions button {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #51677c;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease, background-color 140ms ease;
+}
+
+.weq-exp-detail-actions button:hover {
+  border-color: rgba(0, 153, 255, 0.45);
+  color: #0099ff;
+}
+
+.weq-exp-detail-actions button.is-danger:hover {
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #dc4040;
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.weq-exp-detail-err {
+  color: #dc4040;
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weq-exp-detail-queued {
+  color: #97a2b0;
+  font-size: 11.5px;
+}
+
+/* 媒体补全结果摘要（成功 xx · 失败 xx）。 */
+.weq-exp-detail-complete {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #5b9e6a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11.5px;
+}
+
+.weq-exp-detail-complete.is-warn {
+  color: #c98a2e;
+}
+
+button.weq-exp-detail-complete {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  padding: 0;
+}
+
+button.weq-exp-detail-complete.is-clickable {
+  color: #c98a2e;
+  cursor: pointer;
+  text-decoration: underline dotted rgba(201, 138, 46, 0.5);
+  text-underline-offset: 2px;
+}
+
+button.weq-exp-detail-complete.is-clickable:hover {
+  color: #b3771e;
+  text-decoration-color: #b3771e;
+}
+
+/* ---- 子任务行：状态图标 + 名称 + 进度条 + 右侧百分比 ---- */
+.weq-exp-detail-stages {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.weq-exp-detail-stage-head {
+  display: grid;
+  grid-template-columns: 116px 1fr 46px 24px;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+}
+
+.weq-exp-detail-stage-label {
+  font-size: 11.5px;
+  color: #6b7888;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weq-exp-detail-stage-bar {
   height: 5px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
   overflow: hidden;
 }
 
-.weq-exp-task-fill {
+.weq-exp-detail-stage-fill {
   display: block;
   height: 100%;
   border-radius: 999px;
@@ -1596,8 +1841,7 @@
   transition: width 0.35s ease;
 }
 
-/* 进行中：在填充上叠加流动微光 */
-.weq-exp-task-fill.is-active {
+.weq-exp-detail-stage-fill.is-active {
   background-image: linear-gradient(
       90deg,
       color-mix(in srgb, var(--weq-accent-effective) 78%, white),
@@ -1618,170 +1862,169 @@
   }
 }
 
-/* 多阶段进度（媒体 bundle 导出）：每个阶段一行，竖向排列。
- * 行距用每行的 margin-bottom 实现（而非父级 gap），这样某阶段完成收起时，
- * 它的高度与行距能一起平滑塌陷，不会留下空白。容器底部用负 margin 抵消最后
- * 一行的多余间距。 */
-.weq-exp-stages {
-  display: flex;
-  flex-direction: column;
-  margin-bottom: -5px;
-}
-
-.weq-exp-stage {
-  display: grid;
-  grid-template-columns: 56px 1fr 78px;
-  align-items: center;
-  gap: 8px;
-  max-height: 30px;
-  margin-bottom: 5px;
-  overflow: hidden;
-  transform-origin: top center;
-  /* 收起动画：高度 / 透明度 / 上移 / 行距 一起过渡。 */
-  transition: max-height 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 220ms ease,
-    transform 300ms cubic-bezier(0.4, 0, 0.2, 1), margin-bottom 300ms ease;
-}
-
-/* 进入动画（仅对未收起的行）：轻微下滑 + 淡入。 */
-.weq-exp-stage:not(.is-collapsed) {
-  animation: weq-exp-stage-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-@keyframes weq-exp-stage-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* 完成 / 跳过：向上塌陷淡出（消失时上移消失动画）。 */
-.weq-exp-stage.is-collapsed {
-  max-height: 0;
-  margin-bottom: 0;
-  opacity: 0;
-  transform: translateY(-8px);
-  pointer-events: none;
-}
-
-.weq-exp-stage-label {
-  font-size: 11.5px;
-  color: #6b7888;
-  white-space: nowrap;
-}
-
-.weq-exp-stage-bar {
-  height: 4px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
-  overflow: hidden;
-}
-
-.weq-exp-stage-fill {
-  display: block;
-  height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--weq-accent-effective) 78%, white),
-    var(--weq-accent-effective)
-  );
-  transition: width 0.35s ease;
-}
-
-.weq-exp-stage-fill.is-active {
-  background-image: linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--weq-accent-effective) 78%, white),
-      var(--weq-accent-effective)
-    ),
-    linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, 0.55) 50%, transparent 80%);
-  background-size: 100% 100%, 40% 100%;
-  background-repeat: no-repeat;
-  animation: weq-exp-shimmer 1.3s linear infinite;
-}
-
-.weq-exp-stage-note {
+.weq-exp-detail-stage-pct {
   font-size: 11px;
   color: #97a2b0;
   text-align: right;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.weq-exp-stage.is-completed .weq-exp-stage-label {
+/* 进度条右侧的下拉按钮：点击展开该子任务最近日志。 */
+.weq-exp-detail-stage-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 6px;
+  background: transparent;
+  color: #97a2b0;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease, background-color 140ms ease;
+}
+
+.weq-exp-detail-stage-toggle:hover:not(:disabled) {
+  border-color: rgba(0, 153, 255, 0.45);
+  color: #0099ff;
+}
+
+.weq-exp-detail-stage-toggle:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.weq-exp-detail-stage-toggle svg {
+  transition: transform 0.18s ease;
+}
+
+.weq-exp-detail-stage-toggle svg.is-open {
+  transform: rotate(180deg);
+}
+
+.weq-exp-detail-stage.is-completed .weq-exp-detail-stage-label {
   color: #2bae66;
 }
-.weq-exp-stage.is-skipped .weq-exp-stage-label,
-.weq-exp-stage.is-skipped .weq-exp-stage-note {
+
+.weq-exp-detail-stage.is-completed .weq-exp-detail-stage-pct {
+  color: #2bae66;
+}
+
+.weq-exp-detail-stage.is-skipped .weq-exp-detail-stage-label,
+.weq-exp-detail-stage.is-skipped .weq-exp-detail-stage-pct {
   color: #b3bcca;
 }
-.weq-exp-stage.is-skipped .weq-exp-stage-fill {
+
+.weq-exp-detail-stage.is-skipped .weq-exp-detail-stage-fill {
   background: #d6dde6;
 }
-.weq-exp-stage.is-pending .weq-exp-stage-label {
+
+.weq-exp-detail-stage.is-pending .weq-exp-detail-stage-label {
   color: #aab3c0;
 }
-.weq-exp-stage.is-failed .weq-exp-stage-label,
-.weq-exp-stage.is-failed .weq-exp-stage-note {
+
+.weq-exp-detail-stage.is-failed .weq-exp-detail-stage-label,
+.weq-exp-detail-stage.is-failed .weq-exp-detail-stage-pct {
   color: #dc4040;
 }
-.weq-exp-stage.is-failed .weq-exp-stage-fill {
+
+.weq-exp-detail-stage.is-failed .weq-exp-detail-stage-fill {
   background: #dc4040;
 }
 
-.weq-exp-task-sub {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 11.5px;
-  color: #97a2b0;
-  min-width: 0;
+/* ---- 子任务滚动日志（Docker TUI 风格；完成自动收起） ---- */
+.weq-exp-log {
+  height: 108px;
+  margin: 0 0 6px 26px;
+  padding: 6px 9px;
+  overflow-y: auto;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 7px;
+  background: #0d1420;
+  color: #c8d3e0;
+  font: 11px/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  scrollbar-width: thin;
+  transition: height 280ms cubic-bezier(0.4, 0, 0.2, 1), opacity 220ms ease,
+    margin 280ms ease, padding 280ms ease;
 }
 
-.weq-exp-task-err {
-  color: #dc4040;
-  white-space: nowrap;
+.weq-exp-log.is-hidden {
+  height: 0;
+  margin: 0;
+  padding: 0 9px;
+  opacity: 0;
+  border-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
+  pointer-events: none;
 }
 
-/* 媒体补全结果摘要（成功 xx · 失败 xx）。 */
-.weq-exp-task-complete {
+.weq-exp-log-empty {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: #52627a;
+}
+
+.weq-exp-log-more {
+  padding: 1px 0 4px;
+  color: #5f7287;
+  font-style: italic;
+}
+
+.weq-exp-log-line {
+  display: flex;
+  gap: 8px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.weq-exp-log-time {
+  flex: none;
+  color: #5f7287;
+}
+
+.weq-exp-log-line.is-warn .weq-exp-log-text {
+  color: #e2b35a;
+}
+
+.weq-exp-log-line.is-error .weq-exp-log-text {
+  color: #ef6b6b;
+}
+
+/* 任务级日志（扫描摘要 / 起止 / 错误），固定在详情底部。 */
+.weq-exp-detail-tasklog {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 4px;
+}
+
+.weq-exp-detail-tasklog-head {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: #5b9e6a;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.weq-exp-task-complete.is-warn {
-  color: #c98a2e;
-}
-
-button.weq-exp-task-complete {
+  align-self: flex-start;
   border: 0;
   background: transparent;
-  font: inherit;
-  padding: 0;
-}
-
-button.weq-exp-task-complete.is-clickable {
-  color: #c98a2e;
+  padding: 2px;
   cursor: pointer;
-  text-decoration: underline dotted rgba(201, 138, 46, 0.5);
-  text-underline-offset: 2px;
+  color: inherit;
+  font: inherit;
 }
 
-button.weq-exp-task-complete.is-clickable:hover {
-  color: #b3771e;
-  text-decoration-color: #b3771e;
+.weq-exp-detail-tasklog-head svg {
+  color: #97a2b0;
+  transition: transform 0.18s ease;
+}
+
+.weq-exp-detail-tasklog-head svg.is-open {
+  transform: rotate(180deg);
+}
+
+.weq-exp-detail-tasklog-title {
+  font-size: 11px;
+  color: #97a2b0;
+  margin-left: 2px;
 }
 
 /* ---- 失败详情灯箱 ---- */
@@ -1883,37 +2126,6 @@ button.weq-exp-task-complete.is-clickable:hover {
   font-size: 11.5px;
   color: #dc4040;
   word-break: break-all;
-}
-
-.weq-exp-task-actions {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  flex: none;
-}
-
-.weq-exp-task-actions button {
-  display: inline-grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 8px;
-  background: #ffffff;
-  color: #51677c;
-  cursor: pointer;
-  transition: border-color 140ms ease, color 140ms ease, background-color 140ms ease;
-}
-
-.weq-exp-task-actions button:hover {
-  border-color: rgba(0, 153, 255, 0.45);
-  color: #0099ff;
-}
-
-.weq-exp-task-actions button.is-danger:hover {
-  border-color: rgba(239, 68, 68, 0.5);
-  color: #dc4040;
-  background: rgba(239, 68, 68, 0.05);
 }
 
 /* ---- scheduled export list ---- */
@@ -2158,7 +2370,8 @@ html[data-theme="dark"] .weq-exp-mode.is-active .weq-exp-mode-icon {
 html[data-theme="dark"] .weq-exp-mode-text strong,
 html[data-theme="dark"] .weq-exp-pane-title strong,
 html[data-theme="dark"] .weq-exp-row-meta strong,
-html[data-theme="dark"] .weq-exp-task-name,
+html[data-theme="dark"] .weq-exp-card-name,
+html[data-theme="dark"] .weq-exp-detail-title strong,
 html[data-theme="dark"] .weq-exp-sched-head-text strong,
 html[data-theme="dark"] .weq-exp-sched-card-name,
 html[data-theme="dark"] .weq-exp-sched-card-meta b,
@@ -2173,7 +2386,9 @@ html[data-theme="dark"] .weq-exp-foot-hint,
 html[data-theme="dark"] .weq-exp-row-meta small,
 html[data-theme="dark"] .weq-exp-list-state,
 html[data-theme="dark"] .weq-exp-empty-desc,
-html[data-theme="dark"] .weq-exp-task-sub,
+html[data-theme="dark"] .weq-exp-detail-meta,
+html[data-theme="dark"] .weq-exp-detail-tasklog-title,
+html[data-theme="dark"] .weq-exp-log-empty,
 html[data-theme="dark"] .weq-exp-sched-head-text small,
 html[data-theme="dark"] .weq-exp-sched-card-meta,
 html[data-theme="dark"] .weq-exp-sched-card-history,
@@ -2183,7 +2398,8 @@ html[data-theme="dark"] .weq-exp-sched-empty small {
 }
 
 html[data-theme="dark"] .weq-exp-dialog,
-html[data-theme="dark"] .weq-exp-task,
+html[data-theme="dark"] .weq-exp-card,
+html[data-theme="dark"] .weq-exp-detail,
 html[data-theme="dark"] .weq-exp-sched-card {
   border-color: rgba(255, 255, 255, 0.08);
   background: #171d25;
@@ -2204,9 +2420,13 @@ html[data-theme="dark"] .weq-exp-tasks {
 }
 
 /* Frosted task cards in dark (override the opaque shared card surface above). */
-html[data-theme="dark"] .weq-exp-task {
+html[data-theme="dark"] .weq-exp-card {
   background: color-mix(in srgb, #171d25 50%, transparent);
   backdrop-filter: blur(8px);
+}
+
+html[data-theme="dark"] .weq-exp-card.is-active {
+  background: color-mix(in srgb, #56a8f7 14%, #171d25);
 }
 
 /* Translucent search field so the canvas shows through the list pane in dark. */
@@ -2271,7 +2491,8 @@ html[data-theme="dark"] .weq-exp-file-check {
 
 html[data-theme="dark"] .weq-exp-tool,
 html[data-theme="dark"] .weq-exp-btn,
-html[data-theme="dark"] .weq-exp-task-actions button,
+html[data-theme="dark"] .weq-exp-detail-actions button,
+html[data-theme="dark"] .weq-exp-detail-stage-toggle,
 html[data-theme="dark"] .weq-exp-sched-card-actions button,
 html[data-theme="dark"] .weq-exp-dialog-close,
 html[data-theme="dark"] .weq-exp-cal-head button,
@@ -2284,7 +2505,8 @@ html[data-theme="dark"] .weq-exp-seg {
 
 html[data-theme="dark"] .weq-exp-tool:hover:not(:disabled),
 html[data-theme="dark"] .weq-exp-btn:hover:not(:disabled),
-html[data-theme="dark"] .weq-exp-task-actions button:hover,
+html[data-theme="dark"] .weq-exp-detail-actions button:hover,
+html[data-theme="dark"] .weq-exp-detail-stage-toggle:hover:not(:disabled),
 html[data-theme="dark"] .weq-exp-sched-card-actions button:hover,
 html[data-theme="dark"] .weq-exp-dialog-close:hover,
 html[data-theme="dark"] .weq-exp-chip:hover,
