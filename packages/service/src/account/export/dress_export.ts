@@ -7,6 +7,7 @@
  *
  *   1. **扫描**：翻一遍会话消息，从 DB 列 40801 收集实际用到的 bubbleId /
  *      fontId / widgetId（同时缓存 msgId → decoration，供 HTML 逐条打标）。
+ *      漫游补全（roam）消息的 decoration 从缓存自带字段读取。
  *   2. **转换落盘**：逐款调用 dressInstall 装进共享缓存，再把「碎片」转成可直接
  *      使用的资源写进 `outDir/dress/`：
  *        - 字体 → `<id>.ttf`（转换后的标准 TTF）
@@ -112,8 +113,8 @@ const DRESS_DIR = 'dress';
 /**
  * 扫描会话消息，收集实际用到的装扮 id。
  *
- * 漫游补全（roam）来的消息不在本地 msg 表里，`getMsgDecoration` 查不到 →
- * 不计入使用集合、byMsg 里也没有该条 —— HTML 侧对这类消息不打装扮标，不报错。
+ * 优先从本地 msg 表 40801 列查装扮；对于漫游补全（roam）来的消息，
+ * 本地表查不到时回退到漫游缓存自带的 decoration 字段。
  */
 export async function collectDressUsage(
   msgs: MsgService,
@@ -123,6 +124,25 @@ export async function collectDressUsage(
   range?: ExportTimeRange,
   roam?: RoamMessageSource,
 ): Promise<DressUsage> {
+  // 预建漫游消息的 decoration 映射：漫游消息不在本地 msg 表，
+  // getMsgDecoration 查不到，但 GapFetchedMessage 自带 decoration 字段。
+  const roamDecorations = new Map<string, MsgDecoration>();
+  if (roam) {
+    try {
+      const roamMessages = await roam();
+      for (const m of roamMessages) {
+        if (m.conv !== conv) continue;
+        const d = m.decoration;
+        if (!d) continue;
+        if (d.bubbleId > 0 || d.fontId > 0 || d.widgetId > 0) {
+          roamDecorations.set(m.msgId, d as MsgDecoration);
+        }
+      }
+    } catch {
+      // 漫游源失败不阻断导出。
+    }
+  }
+
   const usage: DressUsage = {
     bubbles: new Set(),
     fonts: new Set(),
@@ -131,12 +151,14 @@ export async function collectDressUsage(
   };
   for await (const m of iterateConv(msgs, kind, conv, range, roam)) {
     try {
-      const dec = await msgs.getMsgDecoration(BigInt(m.msgId));
+      // 优先本地 DB（40801 列），本地查不到时回退漫游缓存。
+      const msgId = m.msgId.toString();
+      const dec = (await msgs.getMsgDecoration(BigInt(m.msgId))) ?? roamDecorations.get(msgId) ?? null;
       if (!dec) continue;
       if (kinds.bubble && dec.bubbleId > 0) usage.bubbles.add(dec.bubbleId);
       if (kinds.font && dec.fontId > 0) usage.fonts.add(dec.fontId);
       if (kinds.widget && dec.widgetId > 0) usage.widgets.add(dec.widgetId);
-      usage.byMsg.set(m.msgId.toString(), dec);
+      usage.byMsg.set(msgId, dec);
     } catch {
       // 单条装饰列解析失败不影响整体导出。
     }
