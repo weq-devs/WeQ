@@ -33,12 +33,10 @@
     "@weq/platform": "workspace:*",
     "@weq/protocol": "workspace:*",
     "exceljs": "^4.4.0",
-    "marked": "^16.4.2",
-    "pngjs": "5.0.0"
+    "marked": "^16.4.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.6",
-    "@types/pngjs": "^6.0.5",
     "@types/qrcode": "^1.5.5",
     "@weq/testkit": "workspace:*",
     "qrcode": "^1.5.4",

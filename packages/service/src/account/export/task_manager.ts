@@ -430,7 +430,7 @@ export class ExportTaskManager extends EventEmitter {
         total: 0,
       });
     }
-    // 装扮导出跑在消息流之前：先扫描「实际用到的款」并把资源下载/合成为
+    // 装扮导出跑在消息流之前：先扫描「实际用到的款」并把原始资源导出到
     // dress/ 目录，HTML 消息流写入时才能引用清单生成 CSS。
     if (wantDress) {
       // message 永远是最后一个元素，插到它前面。

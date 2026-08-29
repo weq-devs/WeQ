@@ -433,16 +433,10 @@ importers:
       marked:
         specifier: ^16.4.2
         version: 16.4.2
-      pngjs:
-        specifier: 5.0.0
-        version: 5.0.0
     devDependencies:
       '@types/node':
         specifier: ^22.10.6
         version: 22.19.20
-      '@types/pngjs':
-        specifier: ^6.0.5
-        version: 6.0.5
       '@types/qrcode':
         specifier: ^1.5.5
         version: 1.5.6
@@ -1784,9 +1778,6 @@ packages:
   '@types/plist@3.0.5':
     resolution: {integrity: sha512-E6OCaRmAe4WDmWNsL/9RMqdkkzDCY1etutkflWk4c+AcjDU07Pcz1fQwTX0TQz+Pxqn9i4L1TU3UFpjnrcDgxA==}
 
-  '@types/pngjs@6.0.5':
-    resolution: {integrity: sha512-0k5eKfrA83JOZPppLtS2C7OUtyNAl2wKNxfyYl9Q5g9lPkgBl/9hNyAu6HuEH2J4XmIv2znEpkDd0SaZVxW6iQ==}
-
   '@types/qrcode@1.5.6':
     resolution: {integrity: sha512-te7NQcV2BOvdj2b1hCAHzAoMNuj65kNBMz0KBaxM6c3VGBOhU0dURQKOtH8CFNI/dsKkwlv32p26qYQTWoB5bw==}
 
@@ -1866,6 +1857,7 @@ packages:
   '@xmldom/xmldom@0.9.10':
     resolution: {integrity: sha512-A9gOqLdi6cV4ibazAjcQufGj0B1y/vDqYrcuP6d/6x8P27gRS8643Dj9o1dEKtB6O7fwxb2FgBmJS2mX7gpvdw==}
     engines: {node: '>=14.6'}
+    deprecated: this version has critical issues, please update to the latest version
 
   abbrev@1.1.1:
     resolution: {integrity: sha512-nne9/IiQ/hzIhY6pdDnbBtz7DjPTKrY00P/zvPSm5pOFkl6xuGrGnXn/VtTNNfNtAfZ9/1RtehkszU9qcTii0Q==}
@@ -5882,10 +5874,6 @@ snapshots:
       '@types/node': 22.19.20
       xmlbuilder: 15.1.1
     optional: true
-
-  '@types/pngjs@6.0.5':
-    dependencies:
-      '@types/node': 22.19.20
 
   '@types/qrcode@1.5.6':
     dependencies:

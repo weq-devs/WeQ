@@ -8,36 +8,28 @@
  *   1. **扫描**：翻一遍会话消息，从 DB 列 40801 收集实际用到的 bubbleId /
  *      fontId / widgetId（同时缓存 msgId → decoration，供 HTML 逐条打标）。
  *      漫游补全（roam）消息的 decoration 从缓存自带字段读取。
- *   2. **转换落盘**：逐款调用 dressInstall 装进共享缓存，再把「碎片」转成可直接
- *      使用的资源写进 `outDir/dress/`：
+ *   2. **转换落盘**：逐款调用 dressInstall 装进共享缓存，再把原始资源原样写进
+ *      `outDir/dress/`（不再合成 GIF，静态 / 动态 / json 全量导出）：
  *        - 字体 → `<id>.ttf`（转换后的标准 TTF）
- *        - 气泡 → `<id>/bubble.gif`（静态底 + 动画帧 / APNG 合成为一张）+ 同目录
- *          `static.png` + `config.json` + 渲染参数 `skin.json`
- *        - 挂件 → `<id>/widget.gif`（逐帧 PNG + xydata interval 合成）
+ *        - 气泡 → `<id>/static.png`（静态底）+ 动效资源（逐帧 PNG 或 APNG 原文件）
+ *          + `config.json` + 渲染参数 `skin.json`
+ *        - 挂件 → `<id>/widget.png`（静态底）+ `frames/*.png`（逐帧动画）
+ *          + `widget.json`（时间轴）
  *
  * 产物目录结构：
  *   dress/
  *     font/<id>.ttf
- *     bubble/<id>/{bubble.gif, static.png, config.json, skin.json}
- *     widget/<id>/{widget.gif, widget.json}
+ *     bubble/<id>/{static.png, config.json, skin.json, animation.png?, frames/1..N.png}
+ *     widget/<id>/{widget.png, widget.json, frames/1..N.png}
  *     manifest.json        ← HTML 导出据此生成字体/气泡/挂件 CSS
  */
 
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { MsgDecoration } from '@weq/codec';
 import type { BubbleSkin } from '../bubble_skin';
 import type { DressService } from '../dress_service';
 import { getLogger, logErrorContext } from '../../common/logger';
-import {
-  compositeRgba,
-  decodeApng,
-  encodeGif,
-  fitToCanvas,
-  isApng,
-  pngToRgba,
-  type RgbaFrame,
-} from '../../common/gif';
 import { downloadUrlToFile } from '../media_url';
 import type { MsgService } from '../msg';
 import type { RoamMessageSource } from './message_source';
@@ -66,11 +58,17 @@ export interface DressBubbleManifest {
   slice: BubbleSkin['slice'];
   imageSize: BubbleSkin['imageSize'];
   textColor: string;
-  /** GIF 是否真的多帧（供 prefers-reduced-motion 之类场景参考）。 */
   animated: boolean;
-  /** 相对 bundle 根目录的路径。 */
-  gif: string;
+  /** 相对 bundle 根目录的静态底图路径（HTML border-image 用它）。 */
   staticPng: string;
+  /** 逐帧动画 PNG（protocol / 本地 bundle 路径），没有时为 null。 */
+  frames: string[] | null;
+  /** APNG 动效叠加层原文件（legacy / material 路径），没有时为 null。 */
+  animation: string | null;
+  /** 逐帧动画每帧停留时长（ms）。 */
+  frameTimeMs?: number;
+  /** 动画循环次数，0 = 无限循环。 */
+  repeat?: number;
 }
 
 export interface DressFontManifest {
@@ -82,10 +80,16 @@ export interface DressFontManifest {
 
 export interface DressWidgetManifest {
   itemId: number;
-  /** true = 动画 GIF；false = 静态 PNG。 */
+  /** true = 有动画帧；false = 只有静态图。 */
   animated: boolean;
-  /** 相对 bundle 根目录的路径。 */
+  /** HTML 预览用的单张图（静态底 aio_50.png，缺省时为首帧）。 */
   file: string;
+  /** 动画帧 PNG 列表（相对 bundle 根目录），没有时为 null。 */
+  frames: string[] | null;
+  /** 每帧停留时长（ms）。 */
+  frameTimeMs?: number;
+  /** 动画循环次数，0 = 无限循环。 */
+  repeat?: number;
 }
 
 /** HTML 导出据此生成装扮 CSS 的清单（由 dress 阶段写进 dress/manifest.json）。 */
@@ -153,7 +157,8 @@ export async function collectDressUsage(
     try {
       // 优先本地 DB（40801 列），本地查不到时回退漫游缓存。
       const msgId = m.msgId.toString();
-      const dec = (await msgs.getMsgDecoration(BigInt(m.msgId))) ?? roamDecorations.get(msgId) ?? null;
+      const dec =
+        (await msgs.getMsgDecoration(BigInt(m.msgId))) ?? roamDecorations.get(msgId) ?? null;
       if (!dec) continue;
       if (kinds.bubble && dec.bubbleId > 0) usage.bubbles.add(dec.bubbleId);
       if (kinds.font && dec.fontId > 0) usage.fonts.add(dec.fontId);
@@ -256,7 +261,7 @@ export async function exportDressAssets(
   return { ok: total - failures.length, failed: failures.length, failures, manifest };
 }
 
-/** 一款气泡：静态底 + GIF（动画帧或 APNG 合成）+ config.json + skin.json。 */
+/** 一款气泡：静态底图 + 动效资源（逐帧 PNG / APNG 原文件）+ config.json + skin.json。 */
 async function exportBubble(
   dressInstall: DressService,
   root: string,
@@ -271,10 +276,13 @@ async function exportBubble(
   if (skin.localFile) {
     staticBuf = readFileSync(skin.localFile);
   } else if (skin.staticUrl) {
-    const tmp = join(dir, '.static');
-    const dl = await downloadUrlToFile(skin.staticUrl, tmp);
-    if (!dl.ok) throw new Error(`静态底图下载失败: ${dl.reason}`);
-    staticBuf = readFileSync(tmp);
+    const dest = join(dir, 'static.png');
+    const dl = await downloadUrlToFile(skin.staticUrl, dest);
+    if (!dl.ok) {
+      rmSync(dest, { force: true });
+      throw new Error(`静态底图下载失败: ${dl.reason}`);
+    }
+    staticBuf = readFileSync(dest);
   } else {
     throw new Error('气泡既没有本地文件也没有 CDN 直链');
   }
@@ -294,80 +302,37 @@ async function exportBubble(
       });
   }
 
-  // 3. 合成 GIF。
-  const { w: width, h: height } = skin.imageSize;
-  const staticFrame: RgbaFrame = pngToRgba(staticBuf, 0);
-  let gifFrames: RgbaFrame[] | null = null;
+  // 3. 动效资源原样导出，不再合成 GIF：逐帧九宫格 PNG 或 APNG 叠加层原文件。
+  let frames: string[] | null = null;
+  let animation: string | null = null;
+  let animated = false;
 
   if (skin.animationFrameCount && skin.animationFrameTimeMs) {
     // protocol / 本地 bundle 路径：逐帧九宫格 PNG。
-    const frames: RgbaFrame[] = [];
+    const frameFiles: string[] = [];
+    const framesDir = join(dir, 'frames');
+    mkdirSync(framesDir, { recursive: true });
     for (let i = 1; i <= skin.animationFrameCount; i++) {
       const file = dressInstall.bubbleFrameFile(itemId, i);
       if (!file) break;
-      frames.push(pngToRgba(readFileSync(file), skin.animationFrameTimeMs));
+      copyFileSync(file, join(framesDir, `${i}.png`));
+      frameFiles.push(`dress/bubble/${itemId}/frames/${i}.png`);
     }
-    if (frames.length === skin.animationFrameCount) gifFrames = frames;
+    if (frameFiles.length === skin.animationFrameCount) {
+      frames = frameFiles;
+      animated = true;
+    }
   } else if (skin.animationUrl) {
-    // legacy / material 路径：APNG 叠加层。先下载，APNG 拆帧后与静态底合成；
-    // 普通 PNG 叠加层直接 alpha 合成成一帧。
-    const tmp = join(dir, '.animation');
-    const dl = await downloadUrlToFile(skin.animationUrl, tmp);
+    // legacy / material 路径：APNG 动效叠加层，原文件导出（浏览器可自行播放）。
+    const dest = join(dir, 'animation.png');
+    const dl = await downloadUrlToFile(skin.animationUrl, dest);
     if (dl.ok) {
-      const animBuf = readFileSync(tmp);
-      if (isApng(animBuf)) {
-        const overlayFrames = decodeApng(animBuf);
-        if (overlayFrames && overlayFrames.length > 0) {
-          gifFrames = overlayFrames.map((f) => {
-            const base = fitToCanvas(
-              staticFrame.data,
-              staticFrame.width,
-              staticFrame.height,
-              width,
-              height,
-            );
-            const overlay = fitToCanvas(f.data, f.width, f.height, width, height);
-            compositeRgba(base, width, height, overlay, width, height, 0, 0);
-            return { data: base, width, height, delayMs: f.delayMs };
-          });
-        }
-      } else {
-        // 静态叠加层：合成一帧。
-        const animFrame = pngToRgba(animBuf, 0);
-        const overlay = fitToCanvas(
-          animFrame.data,
-          animFrame.width,
-          animFrame.height,
-          width,
-          height,
-        );
-        const base = fitToCanvas(
-          staticFrame.data,
-          staticFrame.width,
-          staticFrame.height,
-          width,
-          height,
-        );
-        compositeRgba(base, width, height, overlay, width, height, 0, 0);
-        gifFrames = [{ data: base, width, height, delayMs: 0 }];
-      }
+      animation = `dress/bubble/${itemId}/animation.png`;
+      animated = true;
+    } else {
+      rmSync(dest, { force: true });
     }
   }
-
-  if (!gifFrames) {
-    gifFrames = [
-      {
-        data: fitToCanvas(staticFrame.data, staticFrame.width, staticFrame.height, width, height),
-        width,
-        height,
-        delayMs: 0,
-      },
-    ];
-  }
-  const gif = encodeGif(gifFrames, {
-    loop: skin.animationRepeat && skin.animationRepeat > 0 ? skin.animationRepeat : 0,
-  });
-  writeFileSync(join(dir, 'bubble.gif'), gif);
 
   // 4. 渲染参数 sidecar（HTML 侧生成 border-image CSS 用）。
   writeFileSync(
@@ -378,7 +343,15 @@ async function exportBubble(
         slice: skin.slice,
         imageSize: skin.imageSize,
         textColor: skin.textColor,
-        animated: gifFrames.length > 1,
+        animated,
+        ...(frames
+          ? {
+              frames,
+              frameTimeMs: skin.animationFrameTimeMs,
+              repeat: skin.animationRepeat ?? 0,
+            }
+          : {}),
+        ...(animation ? { animation } : {}),
       },
       null,
       2,
@@ -390,13 +363,20 @@ async function exportBubble(
     slice: skin.slice,
     imageSize: skin.imageSize,
     textColor: skin.textColor,
-    animated: gifFrames.length > 1,
-    gif: `dress/bubble/${itemId}/bubble.gif`,
+    animated,
     staticPng: `dress/bubble/${itemId}/static.png`,
+    frames,
+    animation,
+    ...(frames
+      ? {
+          frameTimeMs: skin.animationFrameTimeMs,
+          repeat: skin.animationRepeat ?? 0,
+        }
+      : {}),
   };
 }
 
-/** 一款挂件：动画帧合成 GIF；拿不到动画时回退 aio_50.png 静态图。 */
+/** 一款挂件：动画帧 + 静态底图 + widget.json（时间轴），不再合成 GIF。 */
 async function exportWidget(
   dressInstall: DressService,
   root: string,
@@ -405,17 +385,25 @@ async function exportWidget(
   const dir = join(root, 'widget', String(itemId));
   mkdirSync(dir, { recursive: true });
 
+  // 1. 动画帧原样导出。
   const anim = await dressInstall.resolvePendantAnimation(itemId);
+  let frames: string[] | null = null;
+  let frameTimeMs: number | undefined;
+  let repeat: number | undefined;
   if (anim && anim.frameCount > 0) {
-    const frames: RgbaFrame[] = [];
+    const frameFiles: string[] = [];
+    const framesDir = join(dir, 'frames');
+    mkdirSync(framesDir, { recursive: true });
     for (let i = 1; i <= anim.frameCount; i++) {
       const file = dressInstall.pendantFrameFile(itemId, i);
       if (!file) break;
-      frames.push(pngToRgba(readFileSync(file), anim.frameTimeMs));
+      copyFileSync(file, join(framesDir, `${i}.png`));
+      frameFiles.push(`dress/widget/${itemId}/frames/${i}.png`);
     }
-    if (frames.length === anim.frameCount) {
-      const gif = encodeGif(frames, { loop: anim.repeat > 0 ? anim.repeat : 0 });
-      writeFileSync(join(dir, 'widget.gif'), gif);
+    if (frameFiles.length === anim.frameCount) {
+      frames = frameFiles;
+      frameTimeMs = anim.frameTimeMs;
+      repeat = anim.repeat;
       writeFileSync(
         join(dir, 'widget.json'),
         JSON.stringify(
@@ -429,17 +417,28 @@ async function exportWidget(
           2,
         ),
       );
-      return { itemId, animated: true, file: `dress/widget/${itemId}/widget.gif` };
     }
   }
 
-  // 兜底：静态 aio_50.png。
+  // 2. 静态底图（aio_50.png）：有动画也一并导出，HTML 预览用它。
+  let preview: string | null = null;
   const staticFile = await dressInstall.pendantStaticFile(itemId);
   if (staticFile) {
     copyFileSync(staticFile, join(dir, 'widget.png'));
-    return { itemId, animated: false, file: `dress/widget/${itemId}/widget.png` };
+    preview = `dress/widget/${itemId}/widget.png`;
   }
-  throw new Error('挂件动画帧与静态图都不可用');
+
+  // HTML 预览单图：静态底优先，其次动画首帧。
+  const file = preview ?? frames?.[0] ?? null;
+  if (!file) throw new Error('挂件动画帧与静态图都不可用');
+
+  return {
+    itemId,
+    animated: Boolean(frames),
+    file,
+    frames,
+    ...(frameTimeMs !== undefined ? { frameTimeMs, repeat } : {}),
+  };
 }
 
 /** bundle 目录下的 dress 清单路径。 */
