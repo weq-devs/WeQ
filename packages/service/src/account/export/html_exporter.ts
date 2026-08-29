@@ -26,7 +26,7 @@ import { createExportWriter } from './stream_utils';
 import type { MsgService } from '../msg';
 import type { RenderElement, ForwardMessage } from '../msg_view';
 import type { MsgDecoration } from '@weq/codec';
-import { TipGroupElementType, GrayTipSubType } from '@weq/codec';
+import { TipGroupElementType } from '@weq/codec';
 import { marked } from 'marked';
 import type {
   DressBubbleManifest,
@@ -134,8 +134,9 @@ function grayTipXmlToText(xml: string): string {
   // Collect all child nodes: <qq>, <nor>, <url>, <img>, <face>
   const parts: string[] = [];
   const nodeRe = /<(qq|nor|url|img|face)([^>]*?)(?:\/?)>/gi;
-  let m: RegExpExecArray | null;
-  while ((m = nodeRe.exec(gtip))) {
+  let match = nodeRe.exec(gtip);
+  while (match) {
+    const m = match;
     const tag = m[0];
     const kind = m[1];
     if (kind === 'qq') {
@@ -152,6 +153,7 @@ function grayTipXmlToText(xml: string): string {
       parts.push('[表情]');
     }
     // <img> → no text
+    match = nodeRe.exec(gtip);
   }
   return parts.join('');
 }
