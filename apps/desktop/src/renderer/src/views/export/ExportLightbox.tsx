@@ -314,8 +314,8 @@ export function ExportLightbox({
               <div className="weq-exp-placeholder">
                 <span>随导出附带会话实际使用的装扮资源</span>
                 <small>
-                  字体为转换后的 TTF，气泡 / 挂件合成为单张动画 GIF（气泡另附 config.json
-                  与渲染参数）。资源优先取本地离线索引，缺失时需登录 QQ
+                  字体为转换后的 TTF；气泡 / 挂件导出全部原始资源（静态底图、动画帧 / APNG、
+                  config.json 等）。资源优先取本地离线索引，缺失时需登录 QQ
                   客户端在线换取。导出结果将保存为文件夹。
                 </small>
               </div>
