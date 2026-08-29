@@ -1085,6 +1085,95 @@
   object-fit: cover;
 }
 
+/* ── 群文件导出灯箱：复用聊天页 group-file 卡片样式 + 选择框 ── */
+
+.weq-exp-file-toolbar {
+  margin-top: 12px;
+}
+
+.weq-exp-file-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  margin-bottom: 10px;
+}
+
+.weq-exp-file-list {
+  max-height: min(420px, 54vh);
+  min-height: 180px;
+  align-content: start;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.weq-exp-file-row {
+  gap: 10px;
+  padding: 8px 12px;
+}
+
+.weq-exp-file-row.is-on {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 38%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+.weq-exp-file-nav {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.weq-exp-file-nav:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.weq-exp-file-check {
+  display: inline-grid;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  place-items: center;
+  border: 1.5px solid rgba(0, 0, 0, 0.16);
+  border-radius: 6px;
+  background: transparent;
+  color: #ffffff;
+  cursor: pointer;
+  padding: 0;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.weq-exp-file-check:hover:not(:disabled) {
+  border-color: var(--weq-accent-effective);
+}
+
+.weq-exp-file-check:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.weq-exp-file-check.is-full {
+  border-color: var(--weq-accent-effective);
+  background: var(--weq-accent-effective);
+}
+
+.weq-exp-file-check.is-partial {
+  border-color: var(--weq-accent-effective);
+  color: var(--weq-accent-effective);
+}
+
+.weq-exp-file-row.is-on .group-file-chevron {
+  opacity: 0.7;
+}
+
 .weq-exp-placeholder {
   display: flex;
   flex-direction: column;
@@ -2169,6 +2258,15 @@ html[data-theme="dark"] .weq-exp-row.is-on,
 html[data-theme="dark"] .weq-exp-album-row.is-on {
   border-color: rgba(86, 168, 247, 0.35);
   background: rgba(86, 168, 247, 0.12);
+}
+
+html[data-theme="dark"] .weq-exp-file-row.is-on {
+  border-color: rgba(86, 168, 247, 0.38);
+  background: rgba(86, 168, 247, 0.13);
+}
+
+html[data-theme="dark"] .weq-exp-file-check {
+  border-color: rgba(255, 255, 255, 0.28);
 }
 
 html[data-theme="dark"] .weq-exp-tool,

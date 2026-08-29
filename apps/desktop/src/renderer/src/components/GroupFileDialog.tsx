@@ -5,70 +5,13 @@ import { client } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
 import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
 import { fileIconUrl } from '../lib/resourceUrl';
-
-interface GroupFileWire {
-  fileId: string;
-  fileName: string;
-  fileSize: number;
-  busId: number;
-  uploadedTime: number;
-  expireTime: number;
-  modifiedTime: number;
-  downloadedTimes: number;
-  uploaderUin: number;
-  uploaderName: string;
-  parentDirectory: string;
-}
-
-interface GroupFolderWire {
-  folderId: string;
-  parentDirectoryId: string;
-  folderName: string;
-  createTime: number;
-  modifiedTime: number;
-  creatorUin: number;
-  creatorName: string;
-  totalFileCount: number;
-}
-
-interface Listing {
-  targetDirectory: string;
-  files: GroupFileWire[];
-  folders: GroupFolderWire[];
-}
-
-function fileExtIcon(fileName: string): string {
-  const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
-  const map: Record<string, string> = {
-    doc: 'doc.png', docx: 'doc.png',
-    xls: 'xls.png', xlsx: 'xls.png',
-    ppt: 'ppt.png', pptx: 'ppt.png',
-    pdf: 'pdf.png',
-    zip: 'zip.png', '7z': 'zip.png', gz: 'zip.png', tar: 'zip.png',
-    rar: 'rar.png',
-    exe: 'exe.png', msi: 'exe.png',
-    mp3: 'audio.png', wav: 'audio.png', flac: 'audio.png', aac: 'audio.png', ogg: 'audio.png', m4a: 'audio.png',
-    mp4: 'video.png', avi: 'video.png', mov: 'video.png', mkv: 'video.png', flv: 'video.png', wmv: 'video.png',
-    png: 'image.png', jpg: 'image.png', jpeg: 'image.png', gif: 'image.png', webp: 'image.png', bmp: 'image.png', svg: 'image.png',
-    txt: 'txt.png', md: 'txt.png', log: 'txt.png',
-    ai: 'ai.png',
-    apk: 'apk.png',
-    bak: 'bak.png',
-    js: 'code.png', ts: 'code.png', jsx: 'code.png', tsx: 'code.png', py: 'code.png', java: 'code.png',
-    c: 'code.png', cpp: 'code.png', cs: 'code.png', go: 'code.png', rs: 'code.png', html: 'code.png', css: 'code.png',
-    dmg: 'dmg.png',
-    ttf: 'font.png', otf: 'font.png', woff: 'font.png', woff2: 'font.png',
-    ipa: 'ipa.png',
-    key: 'keynote.png',
-    xmind: 'mindmap.png',
-    numbers: 'numbers.png',
-    pages: 'pages.png',
-    pkg: 'pkg.png',
-    psd: 'ps.png',
-    sketch: 'sketch.png',
-  };
-  return map[ext] ?? 'unknown.png';
-}
+import {
+  fileExtIcon,
+  formatFileTime,
+  formatSize,
+  type GroupFileListing,
+  type GroupFileWire,
+} from '../lib/groupFile';
 
 /** 目录面包屑的一层。根目录的 id 固定是 '/'。 */
 interface Crumb {
@@ -77,21 +20,6 @@ interface Crumb {
 }
 
 const ROOT: Crumb = { id: '/', name: '全部文件' };
-
-function formatSize(bytes: number): string {
-  if (bytes <= 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
-  const value = bytes / 1024 ** i;
-  return `${value >= 100 || i === 0 ? Math.round(value) : value.toFixed(1)} ${units[i]}`;
-}
-
-function formatTime(seconds: number): string {
-  if (!seconds) return '';
-  const d = new Date(seconds * 1000);
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
 
 export function GroupFileDialog({
   groupCode,
@@ -105,7 +33,7 @@ export function GroupFileDialog({
   useEscapeToClose(onClose);
   const dialog = useAppDialog();
   const [crumbs, setCrumbs] = useState<Crumb[]>([ROOT]);
-  const [listing, setListing] = useState<Listing | null>(null);
+  const [listing, setListing] = useState<GroupFileListing | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   /** 正在换取直链的 fileId —— 用来给那一行的下载按钮转圈。 */
@@ -120,7 +48,7 @@ export function GroupFileDialog({
       .query({ groupCode, folderId: current.id })
       .then((res) => {
         if (cancelled) return;
-        setListing(res as Listing);
+        setListing(res as GroupFileListing);
         setError(null);
       })
       .catch((e) => {
@@ -170,7 +98,11 @@ export function GroupFileDialog({
   }, [listing]);
 
   return (
-    <div className="modal-scrim group-album-scrim" role="presentation" onMouseDown={closeFromScrim(onClose)}>
+    <div
+      className="modal-scrim group-album-scrim"
+      role="presentation"
+      onMouseDown={closeFromScrim(onClose)}
+    >
       <section
         className="group-album-dialog group-file-dialog"
         role="dialog"
@@ -244,13 +176,17 @@ export function GroupFileDialog({
               {listing.files.map((file) => (
                 <li key={`${file.fileId}:${file.uploadedTime}`}>
                   <div className="group-file-row">
-                    <img src={fileIconUrl(fileExtIcon(file.fileName))} className="group-file-icon" alt="" />
+                    <img
+                      src={fileIconUrl(fileExtIcon(file.fileName))}
+                      className="group-file-icon"
+                      alt=""
+                    />
                     <span className="group-file-main">
                       <strong title={file.fileName}>{file.fileName}</strong>
                       <small>
                         {formatSize(file.fileSize)}
                         {file.uploaderName ? ` · ${file.uploaderName}` : ''}
-                        {file.uploadedTime ? ` · ${formatTime(file.uploadedTime)}` : ''}
+                        {file.uploadedTime ? ` · ${formatFileTime(file.uploadedTime)}` : ''}
                       </small>
                     </span>
                     <button
