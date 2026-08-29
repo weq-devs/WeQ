@@ -481,8 +481,8 @@ interface FcTlInfo {
 /**
  * APNG → 帧序列。非 APNG（无 acTL）返回 null。解析失败抛错，调用方自行兜底。
  *
- * 帧数据按 chunk 顺序归属：第 0 帧 = 全部 IDAT；第 i 帧 = 位于 fcTL[i-1] 与
- * fcTL[i] 之间的 fdAT（fdAT 的 seq 字段按规范连续递增）。合成遵循 APNG 的
+ * 帧数据按 chunk 顺序归属：第 0 帧 = 全部 IDAT；第 i 帧(i>0) = fcTL[i] 之后、
+ * fcTL[i+1] 之前的 fdAT（fdAT 的 seq 字段按规范连续递增）。合成遵循 APNG 的
  * dispose_op / blend_op。
  */
 export function decodeApng(buf: Buffer): RgbaFrame[] | null {
@@ -553,8 +553,12 @@ export function decodeApng(buf: Buffer): RgbaFrame[] | null {
         canvas[p + 3] = sub.data[p + 3]!;
       }
     } else {
-      const start = orderedFdat.findIndex(([seq]) => seq >= fctl[i - 1]!.seq + 1);
-      const end = orderedFdat.findIndex(([seq]) => seq >= info.seq);
+      // fdAT 属于帧 i：seq 在 (fcTL[i].seq, fcTL[i+1].seq) 区间内。
+      const start = orderedFdat.findIndex(([seq]) => seq >= info.seq + 1);
+      const end =
+        i + 1 < fctl.length
+          ? orderedFdat.findIndex(([seq]) => seq >= fctl[i + 1]!.seq)
+          : orderedFdat.length;
       const parts =
         start >= 0 ? orderedFdat.slice(start, end < 0 ? undefined : end).flatMap(([, d]) => d) : [];
       const frameData = parts.length > 0 ? Buffer.concat(parts) : Buffer.alloc(0);
