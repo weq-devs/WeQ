@@ -52,6 +52,22 @@ export type StageProgress = (done: number, total: number) => void;
 /** 每项文件的详细日志（Docker TUI 风格，前端按 stage 滚动展示）。 */
 export type StageLog = (text: string, level?: 'info' | 'warn' | 'error') => void;
 
+/** 一个并发子任务的状态变化（如媒体搬运中的单个文件）。 */
+export interface SubtaskEvent {
+  /** 子任务唯一 key（前端按 stage + key 归集日志）。 */
+  key: string;
+  /** 展示名（文件路径 / 文件名）。 */
+  label: string;
+  status: 'running' | 'completed' | 'failed';
+  /** 状态附注（失败原因等）。 */
+  note?: string;
+  /** 随状态变化输出的一行终端日志。 */
+  log?: { text: string; level?: 'info' | 'warn' | 'error' };
+}
+
+/** 子任务进度上报回调（并发阶段逐项推送）。 */
+export type SubtaskReporter = (ev: SubtaskEvent) => void;
+
 /** Subdirectory names under the bundle's `media/` folder, by purpose. */
 export const MEDIA_SUBDIRS = {
   image: 'image',
@@ -139,31 +155,45 @@ export async function copyFoundMedia(
   onProgress?: StageProgress,
   concurrency = 8,
   kinds?: { image?: boolean; video?: boolean; file?: boolean },
-  onLog?: StageLog,
+  onSubtask?: SubtaskReporter,
 ): Promise<MediaStageResult> {
-  const items = scan.found.filter((ref) => {
-    if (!ref.path) return false;
-    const dir = copyKindDir(ref.kind);
-    if (!dir) return false;
-    if (dir === MEDIA_SUBDIRS.image && kinds && kinds.image === false) return false;
-    if (dir === MEDIA_SUBDIRS.video && kinds && kinds.video === false) return false;
-    if (dir === MEDIA_SUBDIRS.file && kinds && kinds.file === false) return false;
-    return true;
-  });
+  const items = scan.found
+    .map((ref, index) => ({ ref, key: String(index) }))
+    .filter(({ ref }) => {
+      if (!ref.path) return false;
+      const dir = copyKindDir(ref.kind);
+      if (!dir) return false;
+      if (dir === MEDIA_SUBDIRS.image && kinds && kinds.image === false) return false;
+      if (dir === MEDIA_SUBDIRS.video && kinds && kinds.video === false) return false;
+      if (dir === MEDIA_SUBDIRS.file && kinds && kinds.file === false) return false;
+      return true;
+    });
   const result: MediaStageResult = { total: items.length, ok: 0, failed: 0 };
   if (items.length === 0) return result;
 
   // Pre-create the destination dirs once.
-  const subdirs = new Set(items.map((ref) => copyKindDir(ref.kind)!));
+  const subdirs = new Set(items.map(({ ref }) => copyKindDir(ref.kind)!));
   await Promise.all([...subdirs].map((d) => mkdir(join(mediaRoot, d), { recursive: true })));
 
   let done = 0;
-  await runWithConcurrency(items, concurrency, async (ref) => {
+  await runWithConcurrency(items, concurrency, async ({ ref, key }) => {
+    const dir = copyKindDir(ref.kind)!;
+    const label = `${dir}/${ref.fileName}`;
     try {
-      const dir = copyKindDir(ref.kind)!;
+      onSubtask?.({
+        key,
+        label,
+        status: 'running',
+        log: { text: `开始搬运 ${label}` },
+      });
       await copyFile(ref.path!, join(mediaRoot, dir, ref.fileName));
       result.ok += 1;
-      onLog?.(`已搬运 ${dir}/${ref.fileName}（${done + 1}/${items.length}）`);
+      onSubtask?.({
+        key,
+        label,
+        status: 'completed',
+        log: { text: `已搬运 ${label}（${done + 1}/${items.length}）` },
+      });
     } catch (e) {
       result.failed += 1;
       result.failures = pushFailure(result.failures, {
@@ -171,7 +201,14 @@ export async function copyFoundMedia(
         fileName: ref.fileName,
         error: e instanceof Error ? e.message : String(e),
       });
-      onLog?.(`搬运失败 ${ref.fileName}：${e instanceof Error ? e.message : String(e)}`, 'warn');
+      const reason = e instanceof Error ? e.message : String(e);
+      onSubtask?.({
+        key,
+        label,
+        status: 'failed',
+        note: reason,
+        log: { text: `搬运失败 ${label}：${reason}`, level: 'warn' },
+      });
     } finally {
       done += 1;
       onProgress?.(done, items.length);

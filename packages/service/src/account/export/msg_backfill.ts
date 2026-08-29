@@ -62,6 +62,8 @@ export interface MessageBackfillOptions {
   onPlan?: (totalWindowSeqs: number) => void;
   /** 每个窗口完成后回调（fetched = 该窗新拉取条数，缓存命中为 0；windowSeqs = 该窗 seq 数）。 */
   onWindow?: (fetched: number, windowSeqs: number) => void;
+  /** 单个窗口拉取抛异常时回调（不炸整个补全；该窗按「非空」结算避免误判过期）。 */
+  onWindowError?: (windowSeqs: number, message: string) => void;
   /** 出现一次慢请求（可能被限流）时回调（前端 toast）。 */
   onRateLimited?: () => void;
 }
@@ -75,6 +77,8 @@ export interface MessageBackfillSummary {
   emptyWindows: number;
   /** 限流（慢请求）提示次数。 */
   rateLimited: number;
+  /** 拉取时抛异常（非 ok:false 正常错误路径）的窗口数。 */
+  windowErrors: number;
   /** 是否因为连续空窗提前结束（更早消息判定全部过期）。 */
   stoppedByEmpty: boolean;
   /** 是否因为离线 / 拉取失败提前结束。 */
@@ -134,12 +138,17 @@ export async function backfillConversationMessages(
     requests: 0,
     emptyWindows: 0,
     rateLimited: 0,
+    windowErrors: 0,
     stoppedByEmpty: false,
     stoppedByError: false,
     totalWindowSeqs,
   };
   if (windows.length === 0) return summary;
-  opts.onPlan?.(totalWindowSeqs);
+  try {
+    opts.onPlan?.(totalWindowSeqs);
+  } catch {
+    // UI 回调异常不能打断补全。
+  }
 
   // null = 未完成；true = 该窗非空；false = 该窗服务端无消息。
   const results = new Array<boolean | null>(windows.length).fill(null);
@@ -156,31 +165,55 @@ export async function backfillConversationMessages(
       nextIssue += 1;
       if (idx >= windows.length) return;
       const window = windows[idx]!;
+      const windowSeqs = window.end - window.start + 1;
       const startedAt = Date.now();
-      const res = await opts.fetch(opts.kind, opts.conv, window.start, window.end);
-      const elapsed = Date.now() - startedAt;
-      summary.requests += 1;
-      if (elapsed > rateLimitMs) {
-        summary.rateLimited += 1;
-        if (!rateLimitedNotified) {
-          rateLimitedNotified = true;
-          opts.onRateLimited?.();
+      let res: GapFetchResult | null = null;
+      try {
+        res = await opts.fetch(opts.kind, opts.conv, window.start, window.end);
+      } catch (e) {
+        // 单窗异常不炸整个补全：按「非空」结算（避免连续空窗误判为过期），
+        // 其余窗口继续；失败窗口数进 summary，供任务阶段标注「部分失败」。
+        summary.windowErrors += 1;
+        results[idx] = true;
+        try {
+          opts.onWindowError?.(windowSeqs, e instanceof Error ? e.message : String(e));
+        } catch {
+          // UI 回调异常同样不能打断补全。
         }
       }
-      if (!res.ok) {
-        // 离线 / 窗口错误：不作为空窗（避免误判过期）；离线则整体提前结束。
-        if (res.reason === 'offline') {
-          stopped = true;
-          summary.stoppedByError = true;
-        } else {
-          results[idx] = true; // 拉取失败按非空处理，避免被误判为「过期」。
+      if (res) {
+        const elapsed = Date.now() - startedAt;
+        summary.requests += 1;
+        if (elapsed > rateLimitMs) {
+          summary.rateLimited += 1;
+          if (!rateLimitedNotified) {
+            rateLimitedNotified = true;
+            try {
+              opts.onRateLimited?.();
+            } catch {
+              // UI 回调异常不能打断补全。
+            }
+          }
         }
-      } else {
-        const nonEmpty = res.messages.length > 0;
-        summary.fetched += res.fetched;
-        if (!nonEmpty) summary.emptyWindows += 1;
-        results[idx] = nonEmpty;
-        opts.onWindow?.(res.fetched, window.end - window.start + 1);
+        if (!res.ok) {
+          // 离线 / 窗口错误：不作为空窗（避免误判过期）；离线则整体提前结束。
+          if (res.reason === 'offline') {
+            stopped = true;
+            summary.stoppedByError = true;
+          } else {
+            results[idx] = true; // 拉取失败按非空处理，避免被误判为「过期」。
+          }
+        } else {
+          const nonEmpty = res.messages.length > 0;
+          summary.fetched += res.fetched;
+          if (!nonEmpty) summary.emptyWindows += 1;
+          results[idx] = nonEmpty;
+          try {
+            opts.onWindow?.(res.fetched, windowSeqs);
+          } catch {
+            // UI 回调异常不能打断补全。
+          }
+        }
       }
       // 按扫描顺序结算已完成的窗口。
       while (nextCommit < windows.length && results[nextCommit] !== null) {

@@ -10,7 +10,7 @@
  * 完成后自动隐藏。
  */
 
-import { useEffect, useRef, useState, type ReactElement } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
 import {
   Ban,
   Bookmark,
@@ -46,9 +46,19 @@ export interface UiStage {
   status: StageStatus;
   current: number;
   total: number;
+  /** 并发子任务（媒体搬运 = 每个文件一项），各自进度条 + 日志。 */
+  subtasks?: UiSubtask[];
   failed?: number;
   note?: string;
   failures?: UiFailure[];
+}
+
+/** 阶段下的一个并发子任务（如媒体搬运中的单个文件）。 */
+export interface UiSubtask {
+  key: string;
+  label: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  note?: string;
 }
 
 /** 一行任务日志（后端 ExportTaskManager 环形缓冲下发）。 */
@@ -56,6 +66,8 @@ export interface UiLogLine {
   ts: number;
   seq: number;
   stage: string;
+  /** 所属并发子任务 key；缺省 = 阶段级日志。 */
+  sub?: string;
   level: 'info' | 'warn' | 'error';
   text: string;
 }
@@ -183,13 +195,12 @@ function fmtLogTime(ts: number): string {
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
 }
 
-/** 日志终端最多展示的最近行数（展开时只显示最新几条）。 */
-const MAX_VISIBLE_LOGS = 24;
+/** 日志终端最多展示的最近行数（新的直接把旧的刷出去，不可滚动，如 docker pull）。 */
+const MAX_VISIBLE_LOGS = 5;
 
 /**
- * 滚动日志终端：固定高度、自动滚到底部。只展示最近 {@link MAX_VISIBLE_LOGS}
- * 行；collapsed 时只保留骨架并收起（高度塌陷淡出），对应「子任务完成后自动
- * 隐藏自己的日志」。
+ * 终端日志：只展示最近 {@link MAX_VISIBLE_LOGS} 行，不允许滚动，新的行把旧的
+ * 顶出去（docker pull 风格）；collapsed 时高度塌陷淡出。
  */
 function LogConsole({
   lines,
@@ -198,24 +209,9 @@ function LogConsole({
   lines: UiLogLine[];
   collapsed: boolean;
 }): ReactElement {
-  const ref = useRef<HTMLDivElement>(null);
   const visible = lines.slice(-MAX_VISIBLE_LOGS);
-  const hiddenCount = lines.length - visible.length;
-  useEffect(() => {
-    const el = ref.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [visible.length, collapsed]);
   return (
-    <div
-      ref={ref}
-      className={`weq-exp-log${collapsed ? ' is-hidden' : ''}`}
-      aria-hidden={collapsed}
-    >
-      {hiddenCount > 0 ? (
-        <div className="weq-exp-log-more">
-          … 前面还有 {hiddenCount} 行（仅显示最近 {MAX_VISIBLE_LOGS} 行）
-        </div>
-      ) : null}
+    <div className={`weq-exp-log${collapsed ? ' is-hidden' : ''}`} aria-hidden={collapsed}>
       {visible.length === 0 ? (
         <div className="weq-exp-log-empty">— 暂无日志 —</div>
       ) : (
@@ -230,13 +226,71 @@ function LogConsole({
   );
 }
 
-/** 一个子任务：名称 + 进度条 + 右侧百分比 + 下拉按钮（展开显示最近日志）。 */
+/** 子任务里的一个并发项（如单个媒体文件）：状态 + 小进度条 + 可展开终端日志。 */
+function SubtaskRow({ sub, logs }: { sub: UiSubtask; logs: UiLogLine[] }): ReactElement {
+  const [open, setOpen] = useState(false);
+  // 等待中的文件没有日志；运行 / 完成 / 失败都能展开查看该文件的终端日志。
+  const canOpen = sub.status !== 'pending';
+  const showLog = canOpen && open;
+  return (
+    <div className={`weq-exp-subtask is-${sub.status}`}>
+      <div className="weq-exp-subtask-head">
+        <span className="weq-exp-subtask-icon">
+          <SubtaskIcon status={sub.status} />
+        </span>
+        <span className="weq-exp-subtask-label" title={sub.note}>
+          {sub.label}
+        </span>
+        <span className="weq-exp-subtask-bar">
+          <span className={`weq-exp-subtask-fill${sub.status === 'running' ? ' is-active' : ''}`} />
+        </span>
+        <span className="weq-exp-subtask-state">{SUBTASK_STATE_LABEL[sub.status]}</span>
+        <button
+          type="button"
+          className="weq-exp-detail-stage-toggle"
+          disabled={!canOpen}
+          title={canOpen ? (open ? '收起日志' : '显示最近日志') : undefined}
+          aria-expanded={canOpen && open}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <ChevronDown size={11} className={open ? 'is-open' : ''} />
+        </button>
+      </div>
+      <LogConsole lines={logs} collapsed={!showLog} />
+    </div>
+  );
+}
+
+const SUBTASK_STATE_LABEL: Record<UiSubtask['status'], string> = {
+  pending: '等待',
+  running: '进行中',
+  completed: '完成',
+  failed: '失败',
+};
+
+function SubtaskIcon({ status }: { status: UiSubtask['status'] }): ReactElement {
+  switch (status) {
+    case 'running':
+      return <Loader2 size={11} className="weq-exp-spin" />;
+    case 'completed':
+      return <CircleCheck size={11} />;
+    case 'failed':
+      return <CircleAlert size={11} />;
+    default:
+      return <Clock size={11} />;
+  }
+}
+
+/** 一个子任务阶段：名称 + 进度条 + 右侧百分比 + 下拉按钮（展开显示最近日志）。 */
 function StageRow({ stage, logs }: { stage: UiStage; logs: UiLogLine[] }): ReactElement {
   const [open, setOpen] = useState(false);
   const pct = stagePct(stage);
   // 运行中 / 失败时可展开日志；完成 / 跳过自动收起（按钮禁用）。
   const canOpen = stage.status === 'running' || stage.status === 'failed';
   const showLog = canOpen && open;
+  const subtasks = stage.subtasks ?? [];
+  const stageOwnLogs = logs.filter((l) => !l.sub);
+  const subtaskLogs = (subKey: string): UiLogLine[] => logs.filter((l) => l.sub === subKey);
   return (
     <div className={`weq-exp-detail-stage is-${stage.status}`}>
       <div className="weq-exp-detail-stage-head">
@@ -263,7 +317,14 @@ function StageRow({ stage, logs }: { stage: UiStage; logs: UiLogLine[] }): React
           <ChevronDown size={13} className={open ? 'is-open' : ''} />
         </button>
       </div>
-      <LogConsole lines={logs} collapsed={!showLog} />
+      <LogConsole lines={stageOwnLogs} collapsed={!showLog} />
+      {subtasks.length > 0 ? (
+        <div className="weq-exp-detail-subtasks">
+          {subtasks.map((sub) => (
+            <SubtaskRow key={sub.key} sub={sub} logs={subtaskLogs(sub.key)} />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

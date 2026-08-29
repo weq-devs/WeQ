@@ -1699,7 +1699,7 @@
 }
 
 .weq-exp-detail-status.is-completed {
-  color: #2bae66;
+  color: var(--weq-accent-effective);
 }
 
 .weq-exp-detail-status.is-failed {
@@ -1903,11 +1903,11 @@ button.weq-exp-detail-complete.is-clickable:hover {
 }
 
 .weq-exp-detail-stage.is-completed .weq-exp-detail-stage-label {
-  color: #2bae66;
+  color: var(--weq-accent-effective);
 }
 
 .weq-exp-detail-stage.is-completed .weq-exp-detail-stage-pct {
-  color: #2bae66;
+  color: var(--weq-accent-effective);
 }
 
 .weq-exp-detail-stage.is-skipped .weq-exp-detail-stage-label,
@@ -1932,18 +1932,17 @@ button.weq-exp-detail-complete.is-clickable:hover {
   background: #dc4040;
 }
 
-/* ---- 子任务滚动日志（Docker TUI 风格；完成自动收起） ---- */
+/* ---- 子任务终端日志（docker pull 风格：只显示最近 5 行，不可滚动） ---- */
 .weq-exp-log {
-  height: 108px;
+  height: 104px;
   margin: 0 0 6px 26px;
   padding: 6px 9px;
-  overflow-y: auto;
+  overflow: hidden;
   border: 1px solid rgba(0, 0, 0, 0.1);
   border-radius: 7px;
   background: #0d1420;
   color: #c8d3e0;
   font: 11px/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-  scrollbar-width: thin;
   transition: height 280ms cubic-bezier(0.4, 0, 0.2, 1), opacity 220ms ease,
     margin 280ms ease, padding 280ms ease;
 }
@@ -1956,6 +1955,108 @@ button.weq-exp-detail-complete.is-clickable:hover {
   border-width: 0;
   overflow: hidden;
   pointer-events: none;
+}
+
+.weq-exp-detail-subtasks {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 1px 0 4px 26px;
+  padding: 3px 0 2px 8px;
+  border-left: 1px dashed rgba(0, 0, 0, 0.12);
+}
+
+.weq-exp-subtask-head {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) 56px 46px 22px;
+  align-items: center;
+  gap: 7px;
+  min-height: 22px;
+}
+
+.weq-exp-subtask-icon {
+  display: inline-grid;
+  place-items: center;
+  color: #97a2b0;
+}
+
+.weq-exp-subtask-label {
+  font-size: 11px;
+  color: #6b7888;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weq-exp-subtask-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  overflow: hidden;
+}
+
+.weq-exp-subtask-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--weq-accent-effective) 78%, white),
+    var(--weq-accent-effective)
+  );
+  transition: width 0.35s ease;
+}
+
+.weq-exp-subtask-fill.is-active {
+  background-image: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--weq-accent-effective) 78%, white),
+      var(--weq-accent-effective)
+    ),
+    linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, 0.55) 50%, transparent 80%);
+  background-size: 100% 100%, 40% 100%;
+  background-repeat: no-repeat;
+  animation: weq-exp-shimmer 1.3s linear infinite;
+}
+
+.weq-exp-subtask-state {
+  font-size: 10.5px;
+  color: #97a2b0;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.weq-exp-subtask.is-pending .weq-exp-subtask-fill {
+  width: 0;
+}
+
+.weq-exp-subtask.is-pending .weq-exp-subtask-label {
+  color: #aab3c0;
+}
+
+/* 已完成标记走设置里的主题色（与进度条、选中态一致）。 */
+.weq-exp-subtask.is-completed .weq-exp-subtask-icon,
+.weq-exp-subtask.is-completed .weq-exp-subtask-state,
+.weq-exp-subtask.is-completed .weq-exp-subtask-label {
+  color: var(--weq-accent-effective);
+}
+
+.weq-exp-subtask.is-running .weq-exp-subtask-icon,
+.weq-exp-subtask.is-running .weq-exp-subtask-state {
+  color: var(--weq-accent-effective);
+}
+
+.weq-exp-subtask.is-failed .weq-exp-subtask-icon,
+.weq-exp-subtask.is-failed .weq-exp-subtask-state {
+  color: #dc4040;
+}
+
+.weq-exp-subtask.is-failed .weq-exp-subtask-label {
+  color: #c96a6a;
+}
+
+.weq-exp-subtask.is-failed .weq-exp-subtask-fill {
+  background: #dc4040;
 }
 
 .weq-exp-log-empty {
