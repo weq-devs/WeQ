@@ -33,6 +33,7 @@
     "@weq/platform": "workspace:*",
     "@weq/protocol": "workspace:*",
     "exceljs": "^4.4.0",
+    "marked": "^16.4.2",
     "pngjs": "5.0.0"
   },
   "devDependencies": {

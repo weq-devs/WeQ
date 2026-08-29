@@ -26,6 +26,8 @@ import { createExportWriter } from './stream_utils';
 import type { MsgService } from '../msg';
 import type { RenderElement, ForwardMessage } from '../msg_view';
 import type { MsgDecoration } from '@weq/codec';
+import { TipGroupElementType, GrayTipSubType } from '@weq/codec';
+import { marked } from 'marked';
 import type {
   DressBubbleManifest,
   DressExportKinds,
@@ -92,14 +94,8 @@ const PLACEHOLDER: Record<string, string> = {
   multiMsg: '[合并转发]',
   call: '[通话]',
   wallet: '[红包/转账]',
-  qqDynamic: '[动态]',
   onlineFolder: '[文件夹]',
   mface: '[表情]',
-  emojiBounce: '[表情]',
-  grayTipPoke: '[戳一戳]',
-  grayTipGroup: '[群提示]',
-  grayTipXml: '[群提示]',
-  grayTipTempSession: '[临时会话]',
   shareLocation: '[位置共享]',
 };
 
@@ -122,6 +118,174 @@ function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max)}…` : s;
 }
 
+// ─── Gray-tip XML / JSON content extraction ─────────────────────────────
+
+/** Simple XML node attributes extractor (avoids pulling in a full XML parser). */
+function xmlAttr(tag: string, attr: string): string {
+  const m = tag.match(new RegExp(`${attr}="([^"]*)"`));
+  return m?.[1] ?? '';
+}
+
+/** Extract plain-text content from a `<gtip>` XML string. */
+function grayTipXmlToText(xml: string): string {
+  const gtipMatch = xml.match(/<gtip[\s>][\s\S]*?<\/gtip>/i);
+  if (!gtipMatch) return '';
+  const gtip = gtipMatch[0];
+  // Collect all child nodes: <qq>, <nor>, <url>, <img>, <face>
+  const parts: string[] = [];
+  const nodeRe = /<(qq|nor|url|img|face)([^>]*?)(?:\/?)>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = nodeRe.exec(gtip))) {
+    const tag = m[0];
+    const kind = m[1];
+    if (kind === 'qq') {
+      const nm = xmlAttr(tag, 'nm');
+      const uin = xmlAttr(tag, 'uin');
+      parts.push(nm || uin || '某人');
+    } else if (kind === 'nor') {
+      const txt = xmlAttr(tag, 'txt');
+      parts.push(txt || '');
+    } else if (kind === 'url') {
+      const txt = xmlAttr(tag, 'txt');
+      parts.push(txt || '');
+    } else if (kind === 'face') {
+      parts.push('[表情]');
+    }
+    // <img> → no text
+  }
+  return parts.join('');
+}
+
+/** Extract plain-text from a grayTipPoke `tipJson` string. */
+function grayTipPokeJsonToText(json: string): string {
+  try {
+    const data = JSON.parse(json) as { items?: Array<{ type?: string; txt?: string; uid?: string; uin?: string; nm?: string }> };
+    if (!data.items) return '';
+    return data.items.map((item) => {
+      if (item.type === 'qq' || item.type === 'url') {
+        return item.nm || item.txt || item.uin || '';
+      }
+      return item.txt || '';
+    }).join('');
+  } catch {
+    return '';
+  }
+}
+
+/** Format a grayTipGroup element into a human-readable system line. */
+function renderGrayTipGroupText(el: RenderElement): string {
+  const d = el.data as Record<string, unknown>;
+  const groupTipType = d.groupTipType as number | undefined;
+  const u1 = (d.user1GroupNick || d.user1Nick || '') as string;
+  const u2 = (d.user2GroupNick || d.user2Nick || '') as string;
+  const groupName = (d.groupTipGroupName || '') as string;
+  const muteInfo = d.muteInfo as {
+    operator?: { uid?: string };
+    mutedUser?: { uid?: string; groupNick?: string };
+    duration?: number;
+  } | undefined;
+
+  switch (groupTipType) {
+    case TipGroupElementType.KMEMBERADD:
+      return u1 ? `${u1} 加入了群聊` : '';
+    case TipGroupElementType.KDISBANDED:
+      return '该群已被群主解散';
+    case TipGroupElementType.KQUITTE:
+      return u1 ? `${u1} 已将你移出群聊` : '';
+    case TipGroupElementType.KCREATED:
+      return `${u1 || ''} 创建了群聊${groupName ? ` ${groupName}` : ''}`;
+    case TipGroupElementType.KGROUPNAMEMODIFIED:
+      return `${u1 || ''} 修改群名为 ${groupName || '新群名'}`;
+    case TipGroupElementType.KBLOCK:
+      return u1 ? `${u1} 将 ${u2 || '某成员'} 加入了黑名单` : '';
+    case TipGroupElementType.KUNBLOCK:
+      return u1 ? `${u1} 将 ${u2 || '某成员'} 移出了黑名单` : '';
+    case TipGroupElementType.KSHUTUP: {
+      if (!muteInfo) return '禁言';
+      const dur = muteInfo.duration || 0;
+      const op = u1 || '管理员';
+      const target = muteInfo.mutedUser?.groupNick || u2;
+      if (!target) {
+        return `${op} ${dur > 0 ? '开启' : '关闭'}了全员禁言`;
+      }
+      if (dur > 0) {
+        const days = Math.floor(dur / 86400);
+        const hours = Math.floor((dur % 86400) / 3600);
+        const minutes = Math.floor((dur % 3600) / 60);
+        const durStr = days > 0 ? `${days}天` : hours > 0 ? `${hours}小时` : `${minutes}分钟`;
+        return `${target} 被 ${op} 禁言了${durStr}`;
+      }
+      return `${op} 结束了 ${target} 的禁言`;
+    }
+    case TipGroupElementType.KBERECYCLED:
+      return '该群因违规被回收';
+    case TipGroupElementType.KDISBANDORBERECYCLED:
+      return '该群已被解散或被回收';
+    default:
+      return '';
+  }
+}
+
+/** Render the text content of any gray-tip element as a system line. */
+function renderGrayTipContent(el: RenderElement): string {
+  const d = el.data as Record<string, unknown>;
+  switch (el.type) {
+    case 'grayTipRevoke': {
+      const text = (d.recallDisplayText as string) || '撤回了一条消息';
+      return text;
+    }
+    case 'grayTipPoke': {
+      const xml = (d.grayTipXmlContent as string) || '';
+      const json = (d.tipJson as string) || '';
+      if (xml) {
+        const text = grayTipXmlToText(xml);
+        if (text) return text;
+      }
+      if (json) {
+        const text = grayTipPokeJsonToText(json);
+        if (text) return text;
+      }
+      return '戳一戳';
+    }
+    case 'grayTipGroup':
+      return renderGrayTipGroupText(el) || '群提示';
+    case 'grayTipXml': {
+      const xml = (d.grayTipXmlContent as string) || '';
+      if (xml) {
+        const text = grayTipXmlToText(xml);
+        if (text) return text;
+      }
+      return '群提示';
+    }
+    case 'grayTipFileRecv': {
+      const name = (d.fileName as string) || '';
+      return name ? `文件传输完成: ${name}` : '文件传输完成';
+    }
+    case 'grayTipTempSession': {
+      const code = (d.tempSessionGroupCode as string) || '';
+      return code ? `该用户通过群 ${code} 向你发起临时会话` : '临时会话';
+    }
+    default:
+      return '';
+  }
+}
+
+// ─── Markdown rendering ──────────────────────────────────────────────────
+
+/** Configure marked for safe, compact HTML output. */
+marked.use({
+  gfm: true,
+  breaks: true,
+  pedantic: false,
+});
+
+/** Render markdown source to an HTML fragment (sanitized for inline display). */
+function renderMarkdownHtml(src: string): string {
+  if (!src) return '';
+  const raw: string = marked.parse(src) as string;
+  return raw;
+}
+
 /** Human-readable byte size (service-local; the front-end has its own copy). */
 function fmtBytes(bytes: number): string {
   if (!bytes) return '';
@@ -131,9 +295,16 @@ function fmtBytes(bytes: number): string {
   return `${v >= 100 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
 }
 
+/** Gray-tip and system-only element kinds that render as centered system lines. */
+const SYSTEM_KINDS = new Set([
+  'grayTipRevoke', 'grayTipPoke', 'grayTipGroup', 'grayTipXml',
+  'grayTipFileRecv', 'grayTipTempSession',
+  'emojiBounce', 'qqDynamic', 'call',
+]);
+
 /** A message whose every element is a gray-tip is shown as a centered system line. */
 function isSystemOnly(elements: RenderElement[]): boolean {
-  return elements.length > 0 && elements.every((e) => e.type.startsWith('grayTip'));
+  return elements.length > 0 && elements.every((e) => SYSTEM_KINDS.has(e.type));
 }
 
 /** Local bundle path stamped by `annotateLocalPaths`, if any. */
@@ -216,23 +387,40 @@ function renderElement(el: RenderElement, collectFaces?: Set<string>): string {
       const summary = truncate(elementsToText(el.data.origElements ?? []).trim(), 120);
       return summary ? `<div class="quote">${escapeMultiline(summary)}</div>` : '';
     }
-    case 'markdown':
-      return escapeMultiline(
-        el.data.markdownTextSummary || el.data.markdownContent || '[Markdown]',
-      );
+    case 'markdown': {
+      // Render markdown as rich HTML instead of plain text.
+      const mdSrc = el.data.markdownContent
+        || el.data.markdownTextSummary
+        || '';
+      if (mdSrc) {
+        return `<div class="md-wrap">${renderMarkdownHtml(mdSrc)}</div>`;
+      }
+      return '<span class="ph">[Markdown]</span>';
+    }
     case 'multiMsg':
       return renderForward(el.data.forwardMessages, collectFaces);
     case 'grayTipRevoke':
-      return `<span class="ph">[${escapeHtml(el.data.recallDisplayText || '撤回了一条消息')}]</span>`;
+    case 'grayTipPoke':
+    case 'grayTipGroup':
+    case 'grayTipXml':
     case 'grayTipFileRecv':
-      return `<span class="ph">[文件传输完成${el.data.fileName ? `: ${escapeHtml(el.data.fileName)}` : ''}]</span>`;
+    case 'grayTipTempSession': {
+      const text = renderGrayTipContent(el);
+      return text ? `<span class="graytip-text">${escapeHtml(text)}</span>` : '<span class="ph">[提示]</span>';
+    }
     case 'emojiBounce': {
       const summary = el.data.emojiBounceTextSummary || el.data.emojiBouncePcText || '';
-      return `<span class="ph">${summary ? escapeHtml(summary) : '[表情]'}</span>`;
+      return `<span class="graytip-text">${escapeHtml(summary || '[表情]')}</span>`;
     }
     case 'qqDynamic': {
       const main = el.data.dynamicDesc?.mainDesc || el.data.dynamicDesc2?.mainDesc || '';
-      return `<span class="ph">[QQ动态]${main ? ` ${escapeHtml(main)}` : ''}</span>`;
+      return `<span class="graytip-text">${main ? escapeHtml(main) : '[动态]'}</span>`;
+    }
+    case 'call': {
+      const summary = Array.isArray(el.data.callSummary)
+        ? el.data.callSummary.filter((s) => typeof s === 'string' && s).join(' ')
+        : '';
+      return summary ? `<span class="graytip-text">${escapeHtml(summary)}</span>` : '<span class="ph">[通话]</span>';
     }
     case 'unknown':
       return '';
@@ -285,7 +473,15 @@ function renderMessage(
   widgets?: Map<number, DressWidgetManifest>,
 ): string {
   if (isSystemOnly(m.elements)) {
-    return `<div class="sys">${escapeHtml(elementsToText(m.elements).replace(/[[\]]/g, ''))}</div>\n`;
+    // Render gray-tip content with rich text extraction instead of bracket labels.
+    const parts = m.elements.map((el) => {
+      if (SYSTEM_KINDS.has(el.type)) {
+        return renderGrayTipContent(el) || escapeHtml(elementsToText([el]).replace(/[[\]]/g, ''));
+      }
+      return escapeHtml(elementsToText([el]).replace(/[[\]]/g, ''));
+    }).filter(Boolean);
+    const text = parts.join('\n') || escapeHtml(elementsToText(m.elements).replace(/[[\]]/g, ''));
+    return `<div class="sys">${escapeMultiline(text)}</div>\n`;
   }
   const isSelf = Boolean(selfId) && sender.platformId === selfId;
   const name = escapeHtml(sender.groupNickname || sender.accountName);
@@ -457,7 +653,28 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system
 .fwd-body{font-size:13px;word-break:break-word}
 .fwd .media{max-width:180px;max-height:180px}
 .ph{color:var(--sub)}
+.graytip-text{color:var(--sub);font-size:12px}
 .foot{text-align:center;color:var(--sub);font-size:12px;padding:16px}
+/* Markdown rendering inside bubbles */
+.md-wrap{line-height:1.6}
+.md-wrap h1,.md-wrap h2,.md-wrap h3,.md-wrap h4,.md-wrap h5,.md-wrap h6{margin:8px 0 4px;font-weight:600;line-height:1.3}
+.md-wrap h1{font-size:1.3em}
+.md-wrap h2{font-size:1.15em}
+.md-wrap h3{font-size:1.05em}
+.md-wrap p{margin:4px 0}
+.md-wrap ul,.md-wrap ol{margin:4px 0;padding-left:1.5em}
+.md-wrap li{margin:1px 0}
+.md-wrap code{background:rgba(140,140,140,.15);padding:1px 4px;border-radius:3px;font-family:"SF Mono",Consolas,"Liberation Mono",Menlo,monospace;font-size:.9em}
+.md-wrap pre{background:rgba(140,140,140,.12);border-radius:6px;padding:8px 10px;overflow-x:auto;margin:6px 0}
+.md-wrap pre code{background:none;padding:0;font-size:.85em}
+.md-wrap blockquote{border-left:3px solid var(--accent);color:var(--sub);padding:2px 8px;margin:6px 0}
+.md-wrap a{color:var(--accent);text-decoration:none}
+.md-wrap a:hover{text-decoration:underline}
+.md-wrap img{max-width:240px;max-height:280px;border-radius:6px;display:block;margin:3px 0}
+.md-wrap table{border-collapse:collapse;margin:6px 0;font-size:13px}
+.md-wrap th,.md-wrap td{border:1px solid var(--line);padding:4px 8px;text-align:left}
+.md-wrap th{background:rgba(140,140,140,.1);font-weight:600}
+.md-wrap hr{border:none;border-top:1px solid var(--line);margin:8px 0}
 `;
 
 /**
