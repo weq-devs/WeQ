@@ -79,7 +79,11 @@ export function DatabaseDamagedDialog({
   const suppressReminder = async (): Promise<void> => {
     try {
       await client.bootstrap.setSuppressDbDamageReminder.mutate({ suppressed: true });
-      pushToast({ tone: 'info', title: '已不再提醒数据库损坏弹窗' });
+      pushToast({
+        tone: 'info',
+        title: '已不再提醒数据库损坏弹窗',
+        detail: '之后数据库异常时不会再自动弹出该提醒。',
+      });
     } catch (e) {
       pushToast({
         tone: 'error',

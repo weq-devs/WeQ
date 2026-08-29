@@ -69,7 +69,11 @@ export function RecalledMessagesModal({
     const msgSeq = (message as { msgSeq?: string | number }).msgSeq;
 
     if (msgSeq == null || msgSeq === '') {
-      pushToast({ tone: 'info', title: '未找到该消息' });
+      pushToast({
+        tone: 'info',
+        title: '未找到该消息',
+        detail: '该消息可能已被撤回或删除，无法跳转定位。',
+      });
       return;
     }
 

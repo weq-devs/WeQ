@@ -2974,7 +2974,7 @@ html[data-theme='dark'] .weq-splash-track {
   line-height: 1.2;
 }
 
-/* ── Toasts (transient success/info, bottom-right) ──────────────────────── */
+/* ── Toasts (expandable, bottom-right; mirrors ./tmp/demo.html) ─────────── */
 .weq-toast-host {
   position: fixed;
   right: 20px;
@@ -2982,198 +2982,259 @@ html[data-theme='dark'] .weq-splash-track {
   z-index: 4000;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
   gap: 12px;
   pointer-events: none;
 }
 
+/* Toast 卡片本体 */
 .weq-toast {
-  --weq-toast-color: var(--weq-accent-effective);
-  --weq-toast-bg: color-mix(in srgb, var(--weq-toast-color) 7%, var(--weq-bg-surface, #ffffff));
-  position: relative;
-  pointer-events: auto;
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
+  --weq-toast-color: #3b82f6;
+  --weq-toast-bg: var(--weq-bg-surface, #ffffff);
+  --weq-toast-text: var(--weq-fg-primary, #1f2937);
+  --weq-toast-muted: var(--weq-fg-secondary, #6b7280);
+  --weq-toast-border: var(--weq-border-subtle, #e5e7eb);
+  --weq-toast-footer-bg: #fafafa;
+  --weq-toast-track: #e5e7eb;
+  --weq-toast-hover: #f3f4f6;
   width: 320px;
-  max-width: min(420px, calc(100vw - 40px));
-  padding: 14px 14px 16px;
-  border-radius: 14px;
-  overflow: hidden;
+  max-width: calc(100vw - 40px);
   background: var(--weq-toast-bg);
-  color: var(--weq-fg-primary, #1a1a1a);
-  border: 1px solid color-mix(in srgb, var(--weq-toast-color) 20%, transparent);
-  border-left: 3px solid var(--weq-toast-color);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
-  backdrop-filter: blur(12px);
+  border-radius: 8px;
+  box-shadow:
+    0 10px 15px -3px rgba(0, 0, 0, 0.1),
+    0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(120%);
+  opacity: 0;
   transition:
-    box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1),
-    translate 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 0.4s ease,
+    max-height 0.4s ease;
+  pointer-events: auto;
 }
 
-.weq-toast:hover {
-  translate: 0 -2px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.16), 0 4px 12px rgba(0, 0, 0, 0.1);
+.weq-toast.show {
+  transform: translateX(0);
+  opacity: 1;
 }
 
-/* 各等级颜色取自主题色附近的色相偏移，避免风格割裂。 */
-.weq-toast-info { --weq-toast-color: color-mix(in srgb, var(--weq-accent-effective) 82%, #38bdf8); }
-.weq-toast-warning { --weq-toast-color: color-mix(in srgb, var(--weq-accent-effective) 72%, #fbbf24); }
-.weq-toast-error { --weq-toast-color: color-mix(in srgb, var(--weq-accent-effective) 66%, #f87171); }
-.weq-toast-success { --weq-toast-color: color-mix(in srgb, var(--weq-accent-effective) 72%, #34d399); }
+.weq-toast.fade-out {
+  opacity: 0;
+  transform: translateX(120%);
+}
+
+/* 各等级主题色 */
+.weq-toast-info { --weq-toast-color: #3b82f6; }
+.weq-toast-success { --weq-toast-color: #10b981; }
+.weq-toast-warning { --weq-toast-color: #f59e0b; }
+.weq-toast-error { --weq-toast-color: #ef4444; }
 
 html[data-theme="dark"] .weq-toast {
-  background: color-mix(in srgb, var(--weq-toast-color) 9%, var(--weq-bg-surface, #1e1e1e));
-  border-color: color-mix(in srgb, var(--weq-toast-color) 28%, transparent);
-  border-left-color: var(--weq-toast-color);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
+  --weq-toast-bg: var(--weq-bg-surface, #1e1e1e);
+  --weq-toast-text: var(--weq-fg-primary, #e5e7eb);
+  --weq-toast-muted: var(--weq-fg-secondary, #9ca3af);
+  --weq-toast-border: var(--weq-border-subtle, rgba(255, 255, 255, 0.12));
+  --weq-toast-footer-bg: #24272c;
+  --weq-toast-track: rgba(255, 255, 255, 0.14);
+  --weq-toast-hover: rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 10px 15px -3px rgba(0, 0, 0, 0.45),
+    0 4px 6px -2px rgba(0, 0, 0, 0.3);
 }
 
-html[data-theme="dark"] .weq-toast-info { --weq-toast-color: color-mix(in srgb, var(--weq-accent-effective) 78%, #7dd3fc); }
-html[data-theme="dark"] .weq-toast-warning { --weq-toast-color: color-mix(in srgb, var(--weq-accent-effective) 68%, #fde047); }
-html[data-theme="dark"] .weq-toast-error { --weq-toast-color: color-mix(in srgb, var(--weq-accent-effective) 62%, #fca5a5); }
-html[data-theme="dark"] .weq-toast-success { --weq-toast-color: color-mix(in srgb, var(--weq-accent-effective) 66%, #6ee7b7); }
+html[data-theme="dark"] .weq-toast-info { --weq-toast-color: #60a5fa; }
+html[data-theme="dark"] .weq-toast-success { --weq-toast-color: #34d399; }
+html[data-theme="dark"] .weq-toast-warning { --weq-toast-color: #fbbf24; }
+html[data-theme="dark"] .weq-toast-error { --weq-toast-color: #f87171; }
+
+/* 第一行：标题栏 */
+.weq-toast-header {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+}
 
 .weq-toast-icon {
+  width: 20px;
+  height: 20px;
+  margin-right: 12px;
   flex-shrink: 0;
-  width: 40px;
-  height: 40px;
+  color: var(--weq-toast-color);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 12px;
-  color: #ffffff;
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--weq-toast-color) 80%, #ffffff) 0%,
-    color-mix(in srgb, var(--weq-toast-color) 86%, #000000) 100%
-  );
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--weq-toast-color) 35%, transparent);
-  position: relative;
-  overflow: hidden;
-}
-
-.weq-toast-icon::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  opacity: 0.18;
-  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.85), transparent 60%);
-}
-
-.weq-toast-text {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 1px 0;
 }
 
 .weq-toast-title {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  color: var(--weq-toast-color);
-}
-
-.weq-toast-msg {
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 1.45;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-}
-
-.weq-toast-detail {
-  font-size: 13px;
-  line-height: 1.45;
-  opacity: 0.72;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 1;
-  overflow: hidden;
+  flex: 1;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--weq-toast-text);
   overflow-wrap: anywhere;
 }
 
 .weq-toast-actions {
-  flex-shrink: 0;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: 8px;
 }
 
 .weq-toast-action {
-  flex-shrink: 0;
+  background: none;
+  border: none;
+  padding: 4px;
+  border-radius: 4px;
+  color: var(--weq-toast-muted);
+  cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--weq-fg-secondary, inherit);
-  opacity: 0.55;
-  cursor: pointer;
-  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    background-color 0.2s,
+    color 0.2s;
 }
 
 .weq-toast-action:hover {
-  opacity: 1;
+  background-color: var(--weq-toast-hover);
+  color: var(--weq-toast-text);
+}
+
+.weq-toast-expand-icon {
+  transition: transform 0.3s ease;
+}
+
+/* 展开时箭头旋转 */
+.weq-toast.expanded .weq-toast-expand-icon {
+  transform: rotate(180deg);
+}
+
+/* 中间：详细内容（默认折叠） */
+.weq-toast-body-wrapper {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.3s ease-in-out;
+}
+
+.weq-toast.expanded .weq-toast-body-wrapper {
+  grid-template-rows: 1fr;
+}
+
+.weq-toast-body {
+  overflow: hidden;
+}
+
+.weq-toast-content {
+  padding: 0 16px 12px 16px;
+  font-size: 14px;
+  color: var(--weq-toast-muted);
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.weq-toast-detail {
+  width: 100%;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* 详情复制按钮 */
+.weq-toast-copy {
+  align-self: flex-end;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--weq-toast-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-toast-muted);
+  font-size: 12px;
+  line-height: 1;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition:
+    background-color 0.2s,
+    color 0.2s,
+    border-color 0.2s;
+}
+
+.weq-toast-copy:hover {
   color: var(--weq-toast-color);
-  background: color-mix(in srgb, var(--weq-toast-color) 14%, transparent);
-  transform: scale(1.08);
+  border-color: var(--weq-toast-color);
+  background: color-mix(in srgb, var(--weq-toast-color) 8%, transparent);
 }
 
-.weq-toast-action:active {
-  transform: scale(0.94);
+/* 第二行：倒计时控制区 */
+.weq-toast-footer {
+  padding: 8px 16px;
+  border-top: 1px solid var(--weq-toast-border);
+  background: var(--weq-toast-footer-bg);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  user-select: none;
 }
 
-/* 底部倒计时进度条，宽度由 JS 按剩余时间驱动 */
-.weq-toast-progress {
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  height: 3px;
-  border-radius: 0 2px 0 0;
-  background: var(--weq-toast-color);
-  opacity: 0.85;
-  transition: width 90ms linear, opacity 160ms ease;
+.weq-toast-timer-text {
+  font-size: 12px;
+  color: var(--weq-toast-muted);
+}
+
+.weq-toast-timer-action {
+  font-size: 12px;
+  color: #3b82f6;
+}
+
+.weq-toast-timer-action.paused {
+  color: #f59e0b;
+}
+
+html[data-theme="dark"] .weq-toast-timer-action {
+  color: #60a5fa;
+}
+
+html[data-theme="dark"] .weq-toast-timer-action.paused {
+  color: #fbbf24;
+}
+
+/* 底部倒计时进度条 */
+.weq-toast-progress-container {
+  height: 4px;
+  width: 100%;
+  background: var(--weq-toast-track);
+}
+
+.weq-toast-progress-bar {
+  height: 100%;
+  width: 100%;
+  transform-origin: left;
+  background-color: var(--weq-toast-color);
+  transition:
+    width 0.1s linear,
+    opacity 0.16s ease;
 }
 
 /* 悬停时倒计时暂停，进度条随之变淡 */
-.weq-toast:hover .weq-toast-progress {
+.weq-toast:hover .weq-toast-progress-bar {
   opacity: 0.45;
 }
 
-@keyframes weq-toast-out {
-  from {
-    opacity: 1;
-    transform: translateX(0) translateY(0) scale(1);
-  }
-  to {
-    opacity: 0;
-    transform: translateX(28px) translateY(0) scale(0.96);
-  }
-}
-
-.weq-toast-leaving {
-  animation: weq-toast-out 190ms cubic-bezier(0.4, 0, 0.2, 1) both;
-}
-
-.weq-toast-leaving .weq-toast-progress {
-  opacity: 0;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .weq-toast,
-  .weq-toast-leaving {
-    animation: none !important;
+  .weq-toast {
+    transition: none !important;
+  }
+
+  .weq-toast-body-wrapper {
+    transition: none !important;
+  }
+
+  .weq-toast-expand-icon {
     transition: none !important;
   }
 }

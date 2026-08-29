@@ -2082,12 +2082,17 @@ export function MainView(): ReactElement {
             pushToast({
               tone: 'warning',
               message: 'QQ 未在线或处于完全离线模式，无法拉取缺失消息',
+              detail: '请先登录 QQ 并退出完全离线模式后重试。',
             });
             return;
           }
         } catch (e) {
           console.error('[MainView] Gap online check failed:', e);
-          pushToast({ tone: 'warning', message: 'QQ 未在线，无法拉取缺失消息' });
+          pushToast({
+            tone: 'warning',
+            message: 'QQ 未在线，无法拉取缺失消息',
+            detail: '请先登录 QQ 后重试。',
+          });
           return;
         }
       }
@@ -3243,7 +3248,11 @@ export function MainView(): ReactElement {
         ]);
       } catch (err) {
         console.error('[centerWindowOnSeq] fetch failed', err);
-        pushToast({ tone: 'info', title: '未找到该消息' });
+        pushToast({
+          tone: 'info',
+          title: '未找到该消息',
+          detail: '该消息可能已被撤回或删除。',
+        });
         return false;
       }
       if (selectionRef.current?.id !== conv) {
@@ -3261,7 +3270,11 @@ export function MainView(): ReactElement {
 
       const target = merged.find((m) => m.msgSeq === targetSeq);
       if (!target) {
-        pushToast({ tone: 'info', title: '未找到该消息' });
+        pushToast({
+          tone: 'info',
+          title: '未找到该消息',
+          detail: '该消息可能已被撤回或删除。',
+        });
         return false; // not in DB (e.g. recalled) — leave the view as-is
       }
 
@@ -3299,7 +3312,11 @@ export function MainView(): ReactElement {
           ? (jumpTarget.seq ?? jumpTarget.index)
           : (jumpTarget.index ?? jumpTarget.seq);
       if (rawSeq === undefined || rawSeq === null || rawSeq === '') {
-        pushToast({ tone: 'info', title: '未找到该消息' });
+        pushToast({
+          tone: 'info',
+          title: '未找到该消息',
+          detail: '该消息可能已被撤回或删除。',
+        });
         return;
       }
       const targetSeq = String(rawSeq);
@@ -3334,7 +3351,11 @@ export function MainView(): ReactElement {
           });
         } catch (err) {
           console.error('[jumpToSeq] listBefore failed', err);
-          pushToast({ tone: 'info', title: '加载消息失败' });
+          pushToast({
+            tone: 'info',
+            title: '加载消息失败',
+            detail: '请稍后重试，或检查本地数据库状态。',
+          });
           break;
         }
         if (selectionRef.current?.id !== sel.id) {
@@ -3433,7 +3454,13 @@ export function MainView(): ReactElement {
       shell.setQuery('');
       if (!conv) return;
       if (!seq) {
-        if (toastOnMissingSeq) pushToast({ tone: 'info', title: '未找到该消息位置' });
+        if (toastOnMissingSeq) {
+          pushToast({
+            tone: 'info',
+            title: '未找到该消息位置',
+            detail: '该消息可能已被撤回或删除。',
+          });
+        }
         shell.selectConversation(conv);
         return;
       }

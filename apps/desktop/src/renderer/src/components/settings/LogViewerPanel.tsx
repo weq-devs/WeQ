@@ -476,7 +476,11 @@ export function LogViewerPanel(): ReactElement {
     void shellBridge()
       ?.openLogDir()
       .then(() => {
-        pushToast({ tone: 'success', title: '已打开日志目录' });
+        pushToast({
+          tone: 'success',
+          title: '已打开日志目录',
+          detail: '反馈问题时，可把该目录中的最新日志一并附上。',
+        });
       })
       .catch((e) => {
         pushToast({ tone: 'error', title: '打开日志目录失败', detail: String(e) });
