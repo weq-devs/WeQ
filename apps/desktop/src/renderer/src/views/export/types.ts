@@ -56,18 +56,20 @@ export const QZONE_FORMATS: Array<{ value: ExportFormat; label: string }> = [
 
 /** 导出好友：表格类 + vCard 电子名片。 */
 export const FRIEND_FORMATS: Array<{ value: ExportFormat; label: string }> = [
+  { value: 'json', label: 'JSON' },
+  { value: 'jsonl', label: 'JSONL' },
   { value: 'csv', label: 'CSV' },
   { value: 'xlsx', label: 'XLSX' },
-  { value: 'json', label: 'JSON' },
   { value: 'txt', label: 'TXT' },
   { value: 'vcard', label: 'vCard' },
 ];
 
 /** 导出群成员：表格类（无 vCard）。 */
 export const MEMBER_FORMATS: Array<{ value: ExportFormat; label: string }> = [
+  { value: 'json', label: 'JSON' },
+  { value: 'jsonl', label: 'JSONL' },
   { value: 'csv', label: 'CSV' },
   { value: 'xlsx', label: 'XLSX' },
-  { value: 'json', label: 'JSON' },
   { value: 'txt', label: 'TXT' },
 ];
 

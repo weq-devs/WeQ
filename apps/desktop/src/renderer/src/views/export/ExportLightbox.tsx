@@ -42,8 +42,10 @@ import {
   DEFAULT_MEDIA_KINDS,
   DEFAULT_OPTIONS,
   DEFAULT_SCHEDULE,
+  FRIEND_FORMATS,
   FULL_FORMATS,
   MEDIA_KIND_LABELS,
+  MEMBER_FORMATS,
   QZONE_FORMATS,
   type ExportFormat,
   type ExportOptions,
@@ -179,6 +181,7 @@ export function ExportLightbox({
   variant,
   headline,
   summary,
+  contactScope = 'friends',
   initialOptions = DEFAULT_OPTIONS,
   initialSchedule = DEFAULT_SCHEDULE,
   submitting = false,
@@ -189,6 +192,8 @@ export function ExportLightbox({
   variant: LightboxVariant;
   headline: string;
   summary: string;
+  /** 联系人导出范围（决定灯箱内可选格式：好友含 vCard）。 */
+  contactScope?: 'friends' | 'group';
   initialOptions?: ExportOptions;
   initialSchedule?: Schedule;
   submitting?: boolean;
@@ -240,8 +245,15 @@ export function ExportLightbox({
 
   /** 该变体可选的格式。 */
   const formatOptions = useMemo(
-    () => (variant === 'qzone' ? QZONE_FORMATS : FULL_FORMATS),
-    [variant],
+    () =>
+      variant === 'qzone'
+        ? QZONE_FORMATS
+        : variant === 'contacts'
+          ? contactScope === 'friends'
+            ? FRIEND_FORMATS
+            : MEMBER_FORMATS
+          : FULL_FORMATS,
+    [variant, contactScope],
   );
   const [formats, setFormats] = useState<ExportFormat[]>(() => [formatOptions[0]!.value]);
 
@@ -411,8 +423,8 @@ export function ExportLightbox({
                   </Card>
                 )}
 
-                {/* 补全选项（联系人 / 相册无消息维度，不显示） */}
-                {!isContacts && !isAlbum ? (
+                {/* 补全选项（仅完整消息 / 定时；空间/联系人/相册无消息补全维度） */}
+                {isMessageFlow ? (
                   <Card title="补全选项">
                     <StepRow
                       step="4.1"
@@ -478,8 +490,8 @@ export function ExportLightbox({
                   </Card>
                 ) : null}
 
-                {/* 导出格式（多选；联系人 / 相册的格式仍走外部选择器） */}
-                {!isContacts && !isAlbum ? (
+                {/* 导出格式（多选；相册的格式仍走外部选择器） */}
+                {!isAlbum ? (
                   <Card title="导出格式">
                     <div className="weq-exp-format-grid">
                       {formatOptions.map((f) => {
@@ -511,7 +523,9 @@ export function ExportLightbox({
                       })}
                     </div>
                     <p className="weq-exp-block-hint">
-                      多选时每个格式各产出一份消息文件，媒体资源只导出一份，不会重复。
+                      {isMessageFlow
+                        ? '多选时每个格式各产出一份消息文件，媒体资源只导出一份，不会重复。'
+                        : '多选时每个格式各产出一份文件。'}
                     </p>
                   </Card>
                 ) : null}
@@ -519,23 +533,11 @@ export function ExportLightbox({
                 {/* 导出内容 */}
                 {!isAlbum ? (
                   <Card title="导出内容">
-                    <MasterRow
-                      icon={<MessageSquare size={17} />}
-                      label="消息"
-                      desc={
-                        isQzone ? '好友已发表的说说正文（必选）' : '聊天记录正文（必选，始终导出）'
-                      }
-                      checked
-                      disabled
-                      onChange={() => undefined}
-                      badge="必选"
-                    />
-
                     {isQzone ? (
                       <MasterRow
                         icon={<ImageIcon size={17} />}
                         label="下载配图"
-                        desc="说说配图存入 media/ 子目录"
+                        desc="说说正文始终导出；配图开启后存入 media/ 子目录"
                         checked={opts.exportMedia}
                         onChange={(v) => patch({ exportMedia: v })}
                       />
@@ -549,6 +551,15 @@ export function ExportLightbox({
                       />
                     ) : (
                       <>
+                        <MasterRow
+                          icon={<MessageSquare size={17} />}
+                          label="消息"
+                          desc="聊天记录正文（必选，始终导出）"
+                          checked
+                          disabled
+                          onChange={() => undefined}
+                          badge="必选"
+                        />
                         <MasterRow
                           icon={<ImageIcon size={17} />}
                           label="媒体资源"
@@ -750,6 +761,8 @@ export function ExportLightbox({
                 }`
               : isQzone
                 ? `${formats.length} 种格式${opts.exportMedia ? ' · 含配图' : ''}`
+                : isContacts
+                  ? `${formats.length} 种格式${opts.exportAvatar ? ' · 含头像' : ''}`
                 : null}
           </span>
           <button type="button" className="weq-exp-btn" onClick={onClose} disabled={submitting}>

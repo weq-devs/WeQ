@@ -61,8 +61,6 @@ import { FailureLightbox } from './export/FailureLightbox';
 import {
   COLLECTION_FORMATS,
   DEFAULT_OPTIONS,
-  FRIEND_FORMATS,
-  MEMBER_FORMATS,
   chatKind,
   convAvatarUrl,
   fmtBytes,
@@ -313,8 +311,8 @@ export function ExportView(): ReactElement {
     if (mode === 'contacts') {
       const allowed =
         contactScope === 'friends'
-          ? ['csv', 'xlsx', 'json', 'txt', 'vcard']
-          : ['csv', 'xlsx', 'json', 'txt'];
+          ? ['json', 'jsonl', 'csv', 'xlsx', 'txt', 'vcard']
+          : ['json', 'jsonl', 'csv', 'xlsx', 'txt'];
       if (!allowed.includes(format)) setFormat('csv');
     }
     if (mode === 'collection' && !['json', 'csv', 'xlsx', 'txt'].includes(format))
@@ -797,31 +795,36 @@ export function ExportView(): ReactElement {
     }
   }
 
-  /** 导出联系人：好友列表（可按分组过滤）或某群成员列表；格式 + 可选头像。 */
-  async function runContactsExport(options: ExportOptions): Promise<void> {
-    // 联系人格式收窄到 startContactsExport 接受的集合（chips 已保证）。
-    const cfmt = format as 'json' | 'csv' | 'xlsx' | 'txt' | 'vcard';
+  /** 导出联系人：好友列表（可按分组过滤）或某群成员列表；灯箱多选格式 + 可选头像。 */
+  async function runContactsExport(
+    options: ExportOptions,
+    formats: ExportFormat[],
+  ): Promise<void> {
+    // 联系人格式收窄到 startContactsExport 接受的集合（灯箱 chips 已保证）。
+    const cfmts = formats as Array<'json' | 'jsonl' | 'csv' | 'xlsx' | 'txt' | 'vcard'>;
     setSubmitting(true);
     try {
-      if (contactScope === 'friends') {
-        const cats = [...catSelection];
-        await client.account.startContactsExport.mutate({
-          scope: 'friends',
-          name: cats.length ? `好友_${cats.length}个分组` : '全部好友',
-          format: cfmt,
-          exportAvatar: options.exportAvatar,
-          ...(cats.length ? { categoryIds: cats } : {}),
-        });
-      } else {
-        const g = groupItems.find((it) => it.id === contactGroupId);
-        if (!g) return;
-        await client.account.startContactsExport.mutate({
-          scope: 'group',
-          groupCode: g.id,
-          name: `${g.name}_群成员`,
-          format: cfmt === 'vcard' ? 'csv' : cfmt,
-          exportAvatar: options.exportAvatar,
-        });
+      for (const cfmt of cfmts) {
+        if (contactScope === 'friends') {
+          const cats = [...catSelection];
+          await client.account.startContactsExport.mutate({
+            scope: 'friends',
+            name: cats.length ? `好友_${cats.length}个分组` : '全部好友',
+            format: cfmt,
+            exportAvatar: options.exportAvatar,
+            ...(cats.length ? { categoryIds: cats } : {}),
+          });
+        } else {
+          const g = groupItems.find((it) => it.id === contactGroupId);
+          if (!g) return;
+          await client.account.startContactsExport.mutate({
+            scope: 'group',
+            groupCode: g.id,
+            name: `${g.name}_群成员`,
+            format: cfmt === 'vcard' ? 'csv' : cfmt,
+            exportAvatar: options.exportAvatar,
+          });
+        }
       }
       setLightbox(null);
       setCatSelection(new Set());
@@ -1072,7 +1075,7 @@ export function ExportView(): ReactElement {
       return;
     }
     if (lightbox === 'contacts') {
-      void runContactsExport(result.options);
+      void runContactsExport(result.options, result.formats);
       return;
     }
     if (lightbox === 'scheduled') {
@@ -1179,15 +1182,10 @@ export function ExportView(): ReactElement {
   }
 
   const activeMode = MODES.find((m) => m.id === mode)!;
-  // 底部格式 chips 只保留给不走灯箱的导出联系人 / 导出收藏；
+  // 底部格式 chips 只保留给不走灯箱的导出收藏；
   // 完整消息 / 好友空间 / 定时的格式选择已移入灯箱多选。
-  const showFormatChips = mode === 'contacts' || mode === 'collection';
-  const formatOptions =
-    mode === 'collection'
-      ? COLLECTION_FORMATS
-      : contactScope === 'friends'
-        ? FRIEND_FORMATS
-        : MEMBER_FORMATS;
+  const showFormatChips = mode === 'collection';
+  const formatOptions = COLLECTION_FORMATS;
   // 好友空间导出只列好友（排除群聊）；其余多选模式用全部会话。
   const pickerItems = mode === 'qzone' ? friendItems : convItems;
 
@@ -1227,14 +1225,13 @@ export function ExportView(): ReactElement {
       const g = groupItems.find((it) => it.id === albumGroupId);
       return g ? `群相册 · ${g.name}` : '群相册';
     }
-    const fmt = format.toUpperCase();
     if (lightbox === 'contacts') {
       if (contactScope === 'group') {
         const g = groupItems.find((it) => it.id === contactGroupId);
-        return `${g?.name ?? '群成员'} · ${fmt}`;
+        return g?.name ?? '群成员';
       }
       const n = catSelection.size;
-      return `${n ? `${n} 个分组` : '全部好友'} · ${fmt}`;
+      return n ? `${n} 个分组` : '全部好友';
     }
     const n = convSelection.size;
     return lightbox === 'qzone' ? `${n} 位好友` : `${n} 个会话`;
@@ -1436,6 +1433,16 @@ export function ExportView(): ReactElement {
                       ? `已选 ${convSelection.size} 个会话 · 灯箱内选择格式与内容`
                       : '请先选择至少一个会话'}
                 </span>
+              ) : mode === 'contacts' ? (
+                <span className="weq-exp-foot-hint">
+                  {contactScope === 'friends'
+                    ? catSelection.size > 0
+                      ? `已选 ${catSelection.size} 个分组 · 灯箱内选择格式与头像`
+                      : '全部好友 · 灯箱内选择格式与头像'
+                    : contactGroupId
+                      ? '已选择群 · 灯箱内选择格式与头像'
+                      : '请先选择群'}
+                </span>
               ) : (
                 <span className="weq-exp-foot-hint">
                   {mode === 'album'
@@ -1484,6 +1491,7 @@ export function ExportView(): ReactElement {
           variant={lightbox}
           headline={lightboxHeadline}
           summary={lightboxSummary}
+          contactScope={contactScope}
           // 联系人导出默认不下载头像（大群头像量大），其余沿用默认。
           initialOptions={
             lightbox === 'contacts' ? { ...DEFAULT_OPTIONS, exportAvatar: false } : undefined

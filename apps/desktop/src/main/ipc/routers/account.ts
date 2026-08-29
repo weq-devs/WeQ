@@ -2749,7 +2749,7 @@ export const accountRouter = router({
         scope: z.enum(['friends', 'group']),
         groupCode: z.string().optional(),
         name: z.string().min(1),
-        format: z.enum(['json', 'csv', 'xlsx', 'txt', 'vcard']),
+        format: z.enum(['json', 'jsonl', 'csv', 'xlsx', 'txt', 'vcard']),
         exportAvatar: z.boolean().optional(),
         categoryIds: z.array(z.number().int()).optional(),
       }),
