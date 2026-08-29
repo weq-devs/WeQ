@@ -581,6 +581,27 @@
   animation: weq-exp-pop 170ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* 重构后的分板块宽灯箱 */
+.weq-exp-dialog.is-wide {
+  width: min(920px, 96vw);
+}
+
+.weq-exp-dialog.is-wide .weq-exp-dialog-body {
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  align-items: start;
+}
+
+.weq-exp-col {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-width: 0;
+}
+
+.weq-exp-album-pane {
+  grid-column: 1 / -1;
+}
+
 .weq-exp-album-dialog {
   width: min(620px, 94vw);
 }
@@ -663,6 +684,12 @@
   background: #fbfdff;
 }
 
+.weq-exp-dialog-foot-note {
+  margin-right: auto;
+  font-size: 11.5px;
+  color: #8a94a4;
+}
+
 .weq-exp-btn {
   display: inline-flex;
   align-items: center;
@@ -697,6 +724,269 @@
 .weq-exp-btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+/* ===== 灯箱 · 大按钮主开关 ===== */
+.weq-exp-master {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  background: #fbfdff;
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+.weq-exp-master + .weq-exp-master {
+  margin-top: 7px;
+}
+
+.weq-exp-master.is-on {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 5%, #ffffff);
+}
+
+.weq-exp-master.is-disabled {
+  opacity: 0.62;
+}
+
+.weq-exp-master-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 11%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+.weq-exp-master-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.weq-exp-master-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2430;
+}
+
+.weq-exp-master-badge {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-effective);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.weq-exp-master-desc {
+  font-size: 11px;
+  color: #8a94a4;
+  line-height: 1.4;
+}
+
+/* ===== 灯箱 · 小多选 chips（媒体子类 / 装扮子类 / 补全） ===== */
+.weq-exp-kinds-wrap {
+  display: flex;
+  padding: 7px 0 7px 10px;
+  border-left: 2px solid color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
+  margin: 0 0 7px 12px;
+}
+
+.weq-exp-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.weq-exp-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3.5px 9px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 999px;
+  background: #ffffff;
+  color: #51677c;
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 130ms ease, color 130ms ease, background-color 130ms ease;
+}
+
+.weq-exp-kind:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+.weq-exp-kind.is-on {
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  color: var(--weq-accent-effective);
+  font-weight: 600;
+}
+
+.weq-exp-kind.is-on svg {
+  flex: none;
+}
+
+.weq-exp-kind-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.35;
+}
+
+.weq-exp-kinds.is-disabled .weq-exp-kind {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* ===== 灯箱 · 导出格式多选 ===== */
+.weq-exp-format-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.weq-exp-format {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px 8px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 9px;
+  background: #ffffff;
+  color: #51677c;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 130ms ease, color 130ms ease, background-color 130ms ease;
+}
+
+.weq-exp-format:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+.weq-exp-format.is-on {
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  color: var(--weq-accent-effective);
+  font-weight: 600;
+}
+
+.weq-exp-format.is-on svg {
+  flex: none;
+}
+
+.weq-exp-format.is-blocked {
+  cursor: not-allowed;
+  opacity: 0.45;
+  filter: grayscale(0.4);
+}
+
+.weq-exp-format.is-blocked:hover {
+  border-color: rgba(0, 0, 0, 0.1);
+  color: #51677c;
+}
+
+/* ===== 灯箱 · 补全选项 ===== */
+.weq-exp-block-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #445161;
+}
+
+.weq-exp-block-step {
+  display: inline-grid;
+  place-items: center;
+  min-width: 30px;
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  color: var(--weq-accent-effective);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.weq-exp-block-hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #a0a9b5;
+}
+
+/* ===== 灯箱 · 补全选项（4.1 / 4.2 / 4.3 统一样式） ===== */
+.weq-exp-step-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
+}
+
+.weq-exp-step-row + .weq-exp-step-row {
+  border-top: 1px dashed rgba(0, 0, 0, 0.07);
+}
+
+.weq-exp-step-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.weq-exp-step-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 auto;
+  padding-top: 1px;
+}
+
+.weq-exp-step-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #445161;
+}
+
+.weq-exp-step-desc {
+  font-size: 11px;
+  line-height: 1.45;
+  color: #8a94a4;
+}
+
+.weq-exp-step-ctrl {
+  flex: none;
+  align-self: center;
+}
+
+.weq-exp-step-wide {
+  padding-left: 38px;
+}
+
+@media (max-width: 860px) {
+  .weq-exp-dialog.is-wide .weq-exp-dialog-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .weq-exp-format-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .weq-exp-path {
@@ -882,19 +1172,55 @@
 .weq-exp-range-summary {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
+  padding: 5px 8px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 8px;
+  background: #fbfdff;
   font-size: 12.5px;
   color: #445161;
+}
+
+.weq-exp-range-summary-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .weq-exp-range-arrow {
   color: var(--weq-accent-effective);
 }
 
+.weq-exp-range-tag {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.05);
+  color: #8a94a4;
+  font-size: 10.5px;
+}
+
+.weq-exp-range-clear {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--weq-accent-effective);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+.weq-exp-range-clear:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
 .weq-exp-cal {
   border: 1px solid rgba(0, 0, 0, 0.07);
   border-radius: 11px;
-  padding: 10px 12px 8px;
+  padding: 7px 9px 6px;
   background: #fbfdff;
 }
 
@@ -902,16 +1228,16 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 8px;
+  margin-bottom: 5px;
 }
 
 .weq-exp-cal-head button {
   display: inline-grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 25px;
+  height: 25px;
   border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 8px;
+  border-radius: 7px;
   background: #ffffff;
   color: #51677c;
   cursor: pointer;
@@ -923,7 +1249,7 @@
 }
 
 .weq-exp-cal-title {
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
   color: #283342;
 }
@@ -931,26 +1257,26 @@
 .weq-exp-cal-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 2px;
+  gap: 1px;
 }
 
 .weq-exp-cal-wd {
   display: grid;
   place-items: center;
-  height: 26px;
-  font-size: 11px;
+  height: 21px;
+  font-size: 10.5px;
   color: #97a2b0;
 }
 
 .weq-exp-cal-cell {
   display: grid;
   place-items: center;
-  height: 30px;
+  height: 26px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 7px;
   background: transparent;
   color: #44516a;
-  font-size: 12.5px;
+  font-size: 11.5px;
   cursor: pointer;
   transition: background-color 110ms ease, color 110ms ease;
 }
@@ -975,13 +1301,13 @@
 .weq-exp-cal-cell.is-end {
   background: var(--weq-accent-effective);
   color: #ffffff;
-  border-radius: 8px;
+  border-radius: 7px;
   font-weight: 600;
 }
 
 .weq-exp-cal-hint {
-  margin: 8px 2px 0;
-  font-size: 11px;
+  margin: 6px 2px 0;
+  font-size: 10.5px;
   color: #aeb7c3;
 }
 

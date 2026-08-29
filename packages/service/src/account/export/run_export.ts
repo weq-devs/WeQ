@@ -13,7 +13,7 @@ import { statSync } from 'node:fs';
 import { createExportWriter } from './stream_utils';
 import type { MsgService } from '../msg';
 import { iterateGroupMessages, toExportedMessage } from './message_source';
-import { annotateLocalPaths } from './element_text';
+import { annotateLocalPaths, collectFaceIds } from './element_text';
 import { expandForwards } from './forward_expand';
 import type { ExportedMessage, ExportFormat, ExportResult, GroupExportOptions } from './types';
 
@@ -41,9 +41,14 @@ export async function runGroupExport(
   let count = 0;
   try {
     if (framing.head) await writer.write(framing.head);
-    for await (const m of iterateGroupMessages(msgs, opts.groupCode, { pageSize: opts.pageSize, range: opts.range, roam: opts.roam })) {
+    for await (const m of iterateGroupMessages(msgs, opts.groupCode, {
+      pageSize: opts.pageSize,
+      range: opts.range,
+      roam: opts.roam,
+    })) {
       const exported = toExportedMessage(m);
       opts.collectSenders?.add(exported.senderUin);
+      if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
       await expandForwards(msgs, 'group', exported);
       if (opts.withMediaPaths) annotateLocalPaths(exported.elements);
       const record = renderRecord(exported);

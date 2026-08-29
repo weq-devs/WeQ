@@ -180,6 +180,8 @@ export async function exportDressAssets(
   usage: DressUsage,
   kinds: DressExportKinds,
   onProgress?: (done: number, total: number, note: string) => void,
+  /** 是否在线补全本地未缓存的资源（4.3）。关闭时只导出已缓存部分。 */
+  complete = true,
 ): Promise<DressExportResult> {
   const logger = getLogger().child({ scope: 'dress-export' });
   const root = join(outDir, DRESS_DIR);
@@ -200,6 +202,11 @@ export async function exportDressAssets(
   if (kinds.bubble) {
     for (const itemId of [...usage.bubbles].sort((a, b) => a - b)) {
       try {
+        if (!complete && !dressInstall.hasLocal('bubble', itemId)) {
+          failures.push({ kind: 'bubble', itemId, error: '本地未缓存（未开启补全下载）' });
+          tick(`气泡 ${itemId} 未缓存`);
+          continue;
+        }
         const skin = await dressInstall.installBubble(itemId);
         if (!skin) throw new Error('装扮服务未能解析该气泡');
         const entry = await exportBubble(dressInstall, root, itemId, skin);
@@ -219,6 +226,11 @@ export async function exportDressAssets(
   if (kinds.font) {
     for (const itemId of [...usage.fonts].sort((a, b) => a - b)) {
       try {
+        if (!complete && !dressInstall.hasLocal('font', itemId)) {
+          failures.push({ kind: 'font', itemId, error: '本地未缓存（未开启补全下载）' });
+          tick(`字体 ${itemId} 未缓存`);
+          continue;
+        }
         const font = await dressInstall.installFont(itemId, '');
         const dir = join(root, 'font');
         mkdirSync(dir, { recursive: true });
@@ -236,6 +248,11 @@ export async function exportDressAssets(
   if (kinds.widget) {
     for (const itemId of [...usage.widgets].sort((a, b) => a - b)) {
       try {
+        if (!complete && !dressInstall.hasLocal('widget', itemId)) {
+          failures.push({ kind: 'widget', itemId, error: '本地未缓存（未开启补全下载）' });
+          tick(`挂件 ${itemId} 未缓存`);
+          continue;
+        }
         const entry = await exportWidget(dressInstall, root, itemId);
         manifest.widgets.push(entry);
         tick(`挂件 ${itemId}`);

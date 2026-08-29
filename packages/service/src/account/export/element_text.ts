@@ -196,3 +196,21 @@ export function annotateLocalPaths(elements: RenderElement[]): void {
     }
   }
 }
+
+/**
+ * 收集一条消息里的 QQ 系统表情（小黄脸）faceId，供「导出 QQ 系统表情」阶段
+ * 复制对应图片。只收数字 faceId（Unicode 码点表情按文字渲染，无需图片）；
+ * 递归进入回复引用的原消息。与 HTML 导出的 collectFaces 逻辑一致。
+ */
+export function collectFaceIds(elements: RenderElement[], out: Set<string>): void {
+  for (const el of elements) {
+    if (el.type === 'face') {
+      const id = el.data.faceId;
+      if (typeof id === 'number' && Number.isInteger(id)) out.add(String(id));
+      else if (typeof id === 'string' && /^\d+$/.test(id)) out.add(id);
+    }
+    if (el.type === 'reply' && Array.isArray(el.data.origElements)) {
+      collectFaceIds(el.data.origElements, out);
+    }
+  }
+}

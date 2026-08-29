@@ -85,10 +85,7 @@ function dropExt(filename: string): string {
 const FAILURES_CAP = 200;
 
 /** Append a failure, dropping the oldest entries when the cap is reached. */
-function pushFailure(
-  out: MediaFailure[] | undefined,
-  f: MediaFailure,
-): MediaFailure[] {
+function pushFailure(out: MediaFailure[] | undefined, f: MediaFailure): MediaFailure[] {
   const arr = out ?? [];
   arr.push(f);
   if (arr.length > FAILURES_CAP) arr.splice(0, arr.length - FAILURES_CAP);
@@ -138,8 +135,17 @@ export async function copyFoundMedia(
   mediaRoot: string,
   onProgress?: StageProgress,
   concurrency = 8,
+  kinds?: { image?: boolean; video?: boolean; file?: boolean },
 ): Promise<MediaStageResult> {
-  const items = scan.found.filter((ref) => ref.path && copyKindDir(ref.kind));
+  const items = scan.found.filter((ref) => {
+    if (!ref.path) return false;
+    const dir = copyKindDir(ref.kind);
+    if (!dir) return false;
+    if (dir === MEDIA_SUBDIRS.image && kinds && kinds.image === false) return false;
+    if (dir === MEDIA_SUBDIRS.video && kinds && kinds.video === false) return false;
+    if (dir === MEDIA_SUBDIRS.file && kinds && kinds.file === false) return false;
+    return true;
+  });
   const result: MediaStageResult = { total: items.length, ok: 0, failed: 0 };
   if (items.length === 0) return result;
 
@@ -248,7 +254,11 @@ export async function transcribeFoundVoices(
   const result: MediaStageResult = { total: voices.length, ok: cached, failed: 0 };
 
   const flush = async (): Promise<void> => {
-    await writeFile(join(bundleDir, TRANSCRIPTS_FILE), JSON.stringify(transcripts, null, 2), 'utf-8');
+    await writeFile(
+      join(bundleDir, TRANSCRIPTS_FILE),
+      JSON.stringify(transcripts, null, 2),
+      'utf-8',
+    );
   };
   if (items.length === 0) {
     await flush();
@@ -374,7 +384,7 @@ async function findRawElement(
     const matches = raw.elements.filter((e) => e.kind === kind);
     // Match by stem when a message carries several of the same kind; else the one.
     const el =
-      matches.find((e) => stemOf(((e as { fileName?: string }).fileName) ?? '') === ref.stem) ??
+      matches.find((e) => stemOf((e as { fileName?: string }).fileName ?? '') === ref.stem) ??
       matches[0] ??
       null;
     if (el) return el;

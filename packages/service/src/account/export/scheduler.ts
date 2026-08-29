@@ -49,6 +49,14 @@ export interface ScheduleRange {
 export interface ScheduleOptions {
   range: ScheduleRange;
   exportMedia: boolean;
+  /** 导出媒体时按类别筛选（图片 / 语音 / 视频 / 文件 / QQ 系统表情）。 */
+  mediaKinds?: {
+    image: boolean;
+    voice: boolean;
+    video: boolean;
+    file: boolean;
+    sysface: boolean;
+  };
   /** 消息补全：扫描 seq 空窗，从 QQ 服务端拉取本机缺失的消息（需在线 QQ）。 */
   completeMessages: boolean;
   exportAvatar: boolean;
@@ -56,9 +64,13 @@ export interface ScheduleOptions {
   downloadVideo: boolean;
   downloadFile: boolean;
   downloadPtt: boolean;
+  /** 下载本地未缓存的装扮资源。 */
+  completeDress?: boolean;
   transcribeVoice: boolean;
   /** 导出装扮资源（气泡 / 字体 / 挂件），全 false / 缺省 = 不导出。 */
   dress?: DressExportKinds;
+  /** 导出完成后自动弹保存路径。 */
+  autoSave?: boolean;
 }
 
 /** One conversation target — fully serialized (no renderer references). */
@@ -91,6 +103,8 @@ export interface ScheduleTrigger {
 export interface ScheduledTask {
   id: string;
   name: string;
+  /** 灯箱多选的导出格式（缺省 = [format]）。 */
+  formats?: ExportFormat[];
   /** Export options snapshot. */
   options: ScheduleOptions;
   /** Output format (mirrors `account.startExport`). */
@@ -358,44 +372,50 @@ export class ExportScheduler extends EventEmitter {
 
     // --- run the template via ExportTaskManager.startTask ---
     const range = resolveRange(t.options.range, at);
+    const formats = t.formats?.length ? t.formats : [t.format];
     let firstError: string | null = null;
     for (const c of t.conversations) {
-      try {
-        const id = await this.deps.taskManager.startTask({
-          kind: c.kind,
-          conv: c.id,
-          name: c.name,
-          format: t.format,
-          total: c.total,
-          // startTask has `exportAvatar?: boolean` — always pass it explicitly so
-          // ExportTask.exportAvatar mirrors the template, not "undefined".
-          exportAvatar: Boolean(t.options.exportAvatar),
-          ...(t.options.dress ? { dress: t.options.dress } : {}),
-          ...(t.chatlab ? { chatlab: true } : {}),
-          ...(t.options.exportMedia ||
-          t.options.exportAvatar ||
-          t.options.transcribeVoice ||
-          t.options.completeMessages
-            ? {
-                media: {
-                  exportMedia: t.options.exportMedia,
-                  completeMessages: t.options.completeMessages,
-                  completeMedia: t.options.exportMedia && t.options.completeMedia,
-                  downloadVideo:
-                    t.options.exportMedia && t.options.completeMedia && t.options.downloadVideo,
-                  downloadFile:
-                    t.options.exportMedia && t.options.completeMedia && t.options.downloadFile,
-                  downloadPtt:
-                    t.options.exportMedia && t.options.completeMedia && t.options.downloadPtt,
-                  transcribeVoice: t.options.transcribeVoice,
-                },
-              }
-            : {}),
-          range,
-        });
-        taskIds.push(id);
-      } catch (e) {
-        if (!firstError) firstError = String((e as Error)?.message ?? e);
+      for (let i = 0; i < formats.length; i += 1) {
+        const fmt = formats[i]!;
+        // 多格式时只有第一份携带媒体 / 头像 / 装扮（媒体不重复导出）。
+        const carryResources = i === 0;
+        try {
+          const id = await this.deps.taskManager.startTask({
+            kind: c.kind,
+            conv: c.id,
+            name: c.name,
+            format: fmt,
+            total: c.total,
+            // startTask has `exportAvatar?: boolean` — always pass it explicitly so
+            // ExportTask.exportAvatar mirrors the template, not "undefined".
+            exportAvatar: carryResources && Boolean(t.options.exportAvatar),
+            ...(carryResources && t.options.dress ? { dress: t.options.dress } : {}),
+            ...(t.chatlab ? { chatlab: true } : {}),
+            ...(carryResources &&
+            (t.options.exportMedia ||
+              t.options.exportAvatar ||
+              t.options.transcribeVoice ||
+              t.options.completeMessages)
+              ? {
+                  media: {
+                    exportMedia: t.options.exportMedia,
+                    completeMessages: t.options.completeMessages,
+                    completeMedia: t.options.exportMedia && t.options.completeMedia,
+                    downloadVideo: t.options.exportMedia && t.options.downloadVideo,
+                    downloadFile: t.options.exportMedia && t.options.downloadFile,
+                    downloadPtt: t.options.exportMedia && t.options.downloadPtt,
+                    transcribeVoice: t.options.transcribeVoice,
+                    mediaKinds: t.options.mediaKinds,
+                    completeDress: t.options.completeDress,
+                  },
+                }
+              : {}),
+            range,
+          });
+          taskIds.push(id);
+        } catch (e) {
+          if (!firstError) firstError = String((e as Error)?.message ?? e);
+        }
       }
     }
 

@@ -140,6 +140,16 @@ export class DressService {
     return this.cache.resolvePendantAnimation(itemId);
   }
 
+  /**
+   * 判断某款装扮资源是否已在本地缓存（「下载本地未缓存装扮资源」关闭时，
+   * 导出装扮只带已缓存的部分，不再走在线换链）。
+   */
+  hasLocal(kind: 'bubble' | 'font' | 'widget', itemId: number): boolean {
+    if (kind === 'bubble') return Boolean(this.cache.getBubbleSkin(itemId));
+    if (kind === 'font') return Boolean(this.cache.fontFile(itemId));
+    return Boolean(this.cache.getPendantSidecar(itemId));
+  }
+
   /** 切换生效的装扮。 */
   setActive(kind: 'bubble' | 'font', itemId: number): DressManifest {
     this.config.setActive(kind, itemId);

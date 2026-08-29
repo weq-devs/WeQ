@@ -62,7 +62,7 @@ import { iterateC2cMessages, toExportedMessage, type RoamMessageSource } from '.
 import { expandForwards } from './forward_expand';
 import type { Framing } from './run_export';
 import { bigintReplacer } from './serialize';
-import { messageToText, annotateLocalPaths } from './element_text';
+import { messageToText, annotateLocalPaths, collectFaceIds } from './element_text';
 import { backfillConversationMessages, type MessageBackfillDeps } from './msg_backfill';
 import type { DressService } from '../dress_service';
 import type { MsgDecoration } from '@weq/codec';
@@ -139,6 +139,14 @@ export interface MarketPackDeps {
 export interface MediaExportOptions {
   /** Export media files alongside the messages (turns the output into a bundle). */
   exportMedia: boolean;
+  /** 导出媒体时按类别筛选（图片 / 语音 / 视频 / 文件 / QQ 系统表情）。 */
+  mediaKinds?: {
+    image: boolean;
+    voice: boolean;
+    video: boolean;
+    file: boolean;
+    sysface: boolean;
+  };
   /** 消息补全：扫描 seq 空窗，从 QQ 服务端拉取本机缺失的消息（需在线 QQ）。 */
   completeMessages: boolean;
   /** CDN-complete images missing from the local cache (needs a live rkey). */
@@ -149,6 +157,8 @@ export interface MediaExportOptions {
   downloadFile: boolean;
   /** Include missing voices when downloading (OIDB-resolve + SILK-decode). */
   downloadPtt: boolean;
+  /** 下载本地未缓存的装扮资源（关闭时只导出已缓存的部分）。 */
+  completeDress?: boolean;
   /** Transcribe locally-found voice clips into a `transcripts.json` (needs a model). */
   transcribeVoice: boolean;
 }
@@ -450,7 +460,12 @@ export class ExportTaskManager extends EventEmitter {
     }
     if (wantMedia) {
       stages.push({ key: 'record', label: '解码语音', status: 'pending', current: 0, total: 0 });
-      if (opts.media?.completeMedia) {
+      if (
+        opts.media?.completeMedia ||
+        opts.media?.downloadVideo ||
+        opts.media?.downloadFile ||
+        opts.media?.downloadPtt
+      ) {
         stages.push({ key: 'image', label: '补全图片', status: 'pending', current: 0, total: 0 });
         stages.push({ key: 'video', label: '补全视频', status: 'pending', current: 0, total: 0 });
         stages.push({ key: 'file', label: '补全文件', status: 'pending', current: 0, total: 0 });
@@ -466,9 +481,9 @@ export class ExportTaskManager extends EventEmitter {
         total: 0,
       });
     }
-    // HTML 页内联系统表情（小黄脸）图片：导出消息时收集用到的 faceId，导出后把这些
-    // 表情图片复制进 bundle 的 media/face/。仅 HTML 格式有此阶段。
-    if (opts.format === 'html') {
+    // QQ 系统表情（小黄脸）：导出消息时收集用到的 faceId，导出后把这些表情图片
+    // 复制进 bundle 的 media/face/。由媒体子选项「QQ系统表情」控制（HTML 默认开）。
+    if (opts.media?.mediaKinds?.sysface) {
       stages.push({ key: 'sysface', label: '导出表情', status: 'pending', current: 0, total: 0 });
     }
     const task: ExportTask = {
@@ -608,12 +623,18 @@ export class ExportTaskManager extends EventEmitter {
           (task.dress.bubble || task.dress.font || task.dress.widget) &&
           this.deps.dressInstall,
       );
+      // 收集消息里用到的系统表情 faceId，sysface 阶段据此复制图片到 media/face/。
+      const wantSysFaces = Boolean(task.media?.mediaKinds?.sysface);
       const needsScan = wantMedia || wantTranscribe;
       // Avatars / media / transcription → output is a bundle folder; else a lone
-      // file. HTML is always a bundle (the user's "一会话一文件夹" model) and its
-      // entry file is index.html so the folder opens cleanly.
+      // file. 系统表情也产出 media/face/，需要 bundle。HTML 始终是 bundle。
       const isBundle =
-        wantAvatars || wantMedia || wantTranscribe || wantDress || task.format === 'html';
+        wantAvatars ||
+        wantMedia ||
+        wantTranscribe ||
+        wantDress ||
+        wantSysFaces ||
+        task.format === 'html';
       const outDir = isBundle ? join(this.cacheDir, `bundle-${id}`) : this.cacheDir;
       if (isBundle) mkdirSync(outDir, { recursive: true });
       const outPath = join(
@@ -624,9 +645,6 @@ export class ExportTaskManager extends EventEmitter {
       );
       const mediaRoot = join(outDir, 'media');
       const senders = wantAvatars ? new Set<string>() : undefined;
-      // HTML collects the built-in system-emoji face ids it renders, so the
-      // sysface stage can copy just those images into media/face/.
-      const wantSysFaces = task.format === 'html';
       const faces = wantSysFaces ? new Set<string>() : undefined;
 
       // Defensive: a stage created for a capability that isn't injected (no
@@ -802,6 +820,7 @@ export class ExportTaskManager extends EventEmitter {
                   note: `${note} · ${done}/${total}`,
                 });
               },
+              task.media?.completeDress !== false,
             );
             dressManifest = r.manifest;
             this.touchStage(
@@ -941,17 +960,30 @@ export class ExportTaskManager extends EventEmitter {
 
       // ---- sequential: 搬运媒体 (copy locally-found pic / video / file) ----
       if (wantMedia && scan) {
-        const found = scan.found.filter((r) => r.kind !== 'ptt');
+        const kinds = task.media?.mediaKinds;
+        const found = scan.found.filter((r) => {
+          if (r.kind === 'ptt') return false;
+          if ((r.kind === 'pic' || r.kind === 'emoji') && kinds?.image === false) return false;
+          if (r.kind === 'video' && kinds?.video === false) return false;
+          if (r.kind === 'file' && kinds?.file === false) return false;
+          return true;
+        });
         this.touchStage(
           task,
           'media',
           { status: 'running', total: found.length, current: 0, note: `搬运 0/${found.length}` },
           { persist: true },
         );
-        const r = await copyFoundMedia(scan, mediaRoot, (done, total) => {
-          if (aborted()) return;
-          this.touchStage(task, 'media', { current: done, total, note: `搬运 ${done}/${total}` });
-        });
+        const r = await copyFoundMedia(
+          scan,
+          mediaRoot,
+          (done, total) => {
+            if (aborted()) return;
+            this.touchStage(task, 'media', { current: done, total, note: `搬运 ${done}/${total}` });
+          },
+          8,
+          kinds,
+        );
         this.touchStage(
           task,
           'media',
@@ -1049,7 +1081,7 @@ export class ExportTaskManager extends EventEmitter {
         });
       }
 
-      if (wantMedia && scan) {
+      if (wantMedia && scan && task.media?.mediaKinds?.voice !== false) {
         const found = scan;
         // 解码语音 — SILK-decode locally-found voices.
         jobs.push(async () => {
@@ -1096,58 +1128,65 @@ export class ExportTaskManager extends EventEmitter {
           );
         });
 
-        if (task.media?.completeMedia) {
-          // 补全图片 — CDN-complete missing images.
-          jobs.push(async () => {
-            const imgStage = this.stage(task, 'image');
-            if (!mediaDownload) {
-              if (imgStage) {
-                imgStage.status = 'skipped';
-                imgStage.note = '下载不可用';
+        if (
+          task.media?.completeMedia ||
+          task.media?.downloadVideo ||
+          task.media?.downloadFile ||
+          task.media?.downloadPtt
+        ) {
+          if (task.media?.completeMedia) {
+            // 补全图片 — CDN-complete missing images.
+            jobs.push(async () => {
+              const imgStage = this.stage(task, 'image');
+              if (!mediaDownload) {
+                if (imgStage) {
+                  imgStage.status = 'skipped';
+                  imgStage.note = '下载不可用';
+                }
+                return;
               }
-              return;
-            }
-            const missing = found.downloadList.filter(
-              (r) => r.kind === 'pic' || r.kind === 'emoji',
-            );
-            this.touchStage(
-              task,
-              'image',
-              {
-                status: 'running',
-                total: missing.length,
-                current: 0,
-                note: `下载 0/${missing.length}`,
-              },
-              { persist: true },
-            );
-            const r = await downloadMissingImages(
-              found,
-              mediaRoot,
-              mediaDownload,
-              (done, total) => {
-                if (aborted()) return;
-                this.touchStage(task, 'image', {
-                  current: done,
-                  total,
-                  note: `下载 ${done}/${total}`,
-                });
-              },
-            );
-            this.touchStage(
-              task,
-              'image',
-              {
-                status: 'completed',
-                current: r.total,
-                total: r.total,
-                failed: r.failed,
-                note: `已补全 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`,
-                ...(r.failures ? { failures: r.failures } : {}),
-              },
-              { persist: true },
-            );
-          });
+              const missing = found.downloadList.filter(
+                (r) => r.kind === 'pic' || r.kind === 'emoji',
+              );
+              this.touchStage(
+                task,
+                'image',
+                {
+                  status: 'running',
+                  total: missing.length,
+                  current: 0,
+                  note: `下载 0/${missing.length}`,
+                },
+                { persist: true },
+              );
+              const r = await downloadMissingImages(
+                found,
+                mediaRoot,
+                mediaDownload,
+                (done, total) => {
+                  if (aborted()) return;
+                  this.touchStage(task, 'image', {
+                    current: done,
+                    total,
+                    note: `下载 ${done}/${total}`,
+                  });
+                },
+              );
+              this.touchStage(
+                task,
+                'image',
+                {
+                  status: 'completed',
+                  current: r.total,
+                  total: r.total,
+                  failed: r.failed,
+                  note: `已补全 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`,
+                  ...(r.failures ? { failures: r.failures } : {}),
+                },
+                { persist: true },
+              );
+            });
+          }
           // 补全视频 / 文件 — OIDB-resolve + download (each gated by its toggle).
           jobs.push(() =>
             this.runUrlDownloadStage(
@@ -1876,6 +1915,7 @@ export class ExportTaskManager extends EventEmitter {
           progressEvery,
           onProgress: tick,
           collectSenders: senders,
+          collectFaces: faces,
         },
         this.deps.chatlab ?? {},
       );
@@ -1913,6 +1953,7 @@ export class ExportTaskManager extends EventEmitter {
         progressEvery,
         onProgress: tick,
         collectSenders: senders,
+        collectFaces: faces,
         range: task.range,
         withMediaPaths,
         roam,
@@ -1926,6 +1967,7 @@ export class ExportTaskManager extends EventEmitter {
         progressEvery,
         onProgress: tick,
         collectSenders: senders,
+        collectFaces: faces,
         range: task.range,
         withMediaPaths,
         roam,
@@ -1951,6 +1993,7 @@ export class ExportTaskManager extends EventEmitter {
       progressEvery,
       tick,
       senders,
+      faces,
       task.range,
       withMediaPaths,
       roam,
@@ -1967,6 +2010,7 @@ export class ExportTaskManager extends EventEmitter {
     progressEvery: number,
     onProgress: (p: { current: number; message: string }) => void,
     senders?: Set<string>,
+    faces?: Set<string>,
     range?: ExportTimeRange,
     withMediaPaths?: boolean,
     roam?: RoamMessageSource,
@@ -1987,6 +2031,7 @@ export class ExportTaskManager extends EventEmitter {
           progressEvery,
           onProgress,
           collectSenders: senders,
+          collectFaces: faces,
           withMediaPaths,
           dressLookup,
         },
@@ -2024,6 +2069,7 @@ export class ExportTaskManager extends EventEmitter {
         const dec = dressLookup?.(exported.msgId);
         if (dec) exported.decoration = dec;
         senders?.add(exported.senderUin);
+        if (faces) collectFaceIds(exported.elements, faces);
         await expandForwards(this.msgs, 'c2c', exported);
         if (withMediaPaths) annotateLocalPaths(exported.elements);
         const record = renderRecord(exported);

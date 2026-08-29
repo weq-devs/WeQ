@@ -141,7 +141,7 @@ function StageRow({ stage }: { stage: UiStage }): ReactElement {
         />
       </span>
       <span className="weq-exp-stage-note">
-        {stage.status === 'skipped' ? (stage.note ?? '已跳过') : stage.note ?? `${pct}%`}
+        {stage.status === 'skipped' ? (stage.note ?? '已跳过') : (stage.note ?? `${pct}%`)}
       </span>
     </div>
   );
@@ -163,7 +163,7 @@ export function TaskList({
   onDelete: (t: UiTask) => void;
   /** Open the failure-detail lightbox for a task's media-completion failures. */
   onShowFailures: (t: UiTask, failures: UiFailure[]) => void;
-  /** 一键把全部已完成任务保存到默认导出目录（未配置默认目录时先引导设置）。 */
+  /** 一键把全部已完成任务逐个保存（每个都弹系统路径选择）。 */
   onSaveAll?: () => void;
 }): ReactElement {
   const completedCount = tasks.filter((t) => t.status === 'completed').length;
@@ -176,7 +176,7 @@ export function TaskList({
           <button
             type="button"
             className="weq-exp-tasks-save-all"
-            title="将全部已完成任务保存到默认导出目录"
+            title="逐个选择路径保存全部已完成任务"
             onClick={onSaveAll}
           >
             <Download size={14} />
@@ -253,7 +253,8 @@ export function TaskList({
                           title="点击查看失败详情"
                           onClick={() => onShowFailures(t, completion.failures)}
                         >
-                          媒体补全 成功 {fmtCount(completion.ok)} · 失败 {fmtCount(completion.failed)}
+                          媒体补全 成功 {fmtCount(completion.ok)} · 失败{' '}
+                          {fmtCount(completion.failed)}
                         </button>
                       ) : (
                         <span
@@ -280,7 +281,11 @@ export function TaskList({
                     </button>
                   ) : null}
                   {t.status === 'completed' ? (
-                    <button type="button" title={t.bundleDir ? '保存文件夹…' : '保存到…'} onClick={() => onDownload(t)}>
+                    <button
+                      type="button"
+                      title={t.bundleDir ? '保存文件夹…' : '保存到…'}
+                      onClick={() => onDownload(t)}
+                    >
                       <Download size={15} />
                     </button>
                   ) : null}
@@ -290,7 +295,12 @@ export function TaskList({
                     </button>
                   ) : null}
                   {t.status !== 'running' ? (
-                    <button type="button" title="删除" className="is-danger" onClick={() => onDelete(t)}>
+                    <button
+                      type="button"
+                      title="删除"
+                      className="is-danger"
+                      onClick={() => onDelete(t)}
+                    >
                       <Trash2 size={15} />
                     </button>
                   ) : null}

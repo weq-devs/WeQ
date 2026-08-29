@@ -11,7 +11,6 @@
 export type ExportMode =
   | 'full'
   | 'decrypt'
-  | 'chatlab'
   | 'qzone'
   | 'contacts'
   | 'collection'
@@ -119,11 +118,44 @@ export interface DressKinds {
 
 export const DEFAULT_DRESS: DressKinds = { bubble: false, font: false, widget: false };
 
+/** 媒体资源按类别勾选（导出内容 → 媒体资源 的子选项）。 */
+export interface MediaKinds {
+  /** 图片 / 表情图片。 */
+  image: boolean;
+  /** 语音（含本地解码为 WAV）。 */
+  voice: boolean;
+  /** 视频。 */
+  video: boolean;
+  /** 文件 / 群文件。 */
+  file: boolean;
+  /** QQ 系统表情（小黄脸，参考 HTML 导出的 media/face/ 收集方式）。 */
+  sysface: boolean;
+}
+
+export const DEFAULT_MEDIA_KINDS: MediaKinds = {
+  image: true,
+  voice: true,
+  video: true,
+  file: true,
+  sysface: true,
+};
+
+/** 媒体子选项的展示文案（与后端 stage 一一对应）。 */
+export const MEDIA_KIND_LABELS: Record<keyof MediaKinds, string> = {
+  image: '图片',
+  voice: '语音',
+  video: '视频',
+  file: '文件',
+  sysface: 'QQ系统表情',
+};
+
 /** Media / content options collected in the export lightbox. */
 export interface ExportOptions {
   range: TimeRange;
   /** Export media files alongside the messages. */
   exportMedia: boolean;
+  /** 导出媒体时按类别筛选（图片 / 语音 / 视频 / 文件 / QQ 系统表情）。 */
+  mediaKinds: MediaKinds;
   /** 消息补全：扫描 seq 空窗，从 QQ 服务端拉取本机缺失的消息（需在线 QQ）。 */
   completeMessages: boolean;
   /** Export sender avatars. */
@@ -136,23 +168,33 @@ export interface ExportOptions {
   downloadFile: boolean;
   /** Include missing voice clips when downloading media (OIDB + SILK-decode). */
   downloadPtt: boolean;
+  /** 下载本地未缓存的装扮资源（关闭时只导出已缓存的部分）。 */
+  completeDress: boolean;
   /** Auto-transcribe voice messages to text. */
   transcribeVoice: boolean;
   /** 导出装扮资源（气泡 / 字体 / 挂件，只导出会话实际用到的款）。 */
   dress: DressKinds;
+  /** 导出完成后自动弹保存路径（不再记忆上次目录）。 */
+  autoSave: boolean;
+  /** ChatLab 交换格式（仅 JSON / JSONL 可选）。 */
+  chatlab: boolean;
 }
 
 export const DEFAULT_OPTIONS: ExportOptions = {
   range: DEFAULT_RANGE,
   exportMedia: true,
+  mediaKinds: { ...DEFAULT_MEDIA_KINDS },
   completeMessages: false,
   exportAvatar: true,
   completeMedia: false,
   downloadVideo: false,
   downloadFile: false,
   downloadPtt: false,
+  completeDress: true,
   transcribeVoice: false,
   dress: { ...DEFAULT_DRESS },
+  autoSave: false,
+  chatlab: false,
 };
 
 /** Schedule config for the 定时导出 flow. */
@@ -182,6 +224,7 @@ export interface ScheduleRange {
 export interface ScheduleOptions {
   range: ScheduleRange;
   exportMedia: boolean;
+  mediaKinds?: MediaKinds;
   /** 消息补全：扫描 seq 空窗，从 QQ 服务端拉取本机缺失的消息（需在线 QQ）。 */
   completeMessages: boolean;
   exportAvatar: boolean;
@@ -189,9 +232,12 @@ export interface ScheduleOptions {
   downloadVideo: boolean;
   downloadFile: boolean;
   downloadPtt: boolean;
+  completeDress?: boolean;
   transcribeVoice: boolean;
   /** 导出装扮资源（气泡 / 字体 / 挂件）。 */
   dress?: DressKinds;
+  /** 导出完成后自动弹保存路径。 */
+  autoSave?: boolean;
 }
 
 /** One conversation target inside a scheduled template. */
@@ -217,6 +263,8 @@ export interface ScheduleTrigger {
 export interface ScheduledTask {
   id: string;
   name: string;
+  /** 灯箱多选的导出格式（向后兼容：无此字段时读 `format`）。 */
+  formats?: ExportFormat[];
   format: ExportFormat;
   conversations: ScheduleConversation[];
   chatlab?: boolean;

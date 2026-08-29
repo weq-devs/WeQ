@@ -1,6 +1,7 @@
 /**
- * 时间范围选择器：上方预设快捷（全部 / 今天 / 近 7 天 / 近 30 天 / 近一年 /
- * 自定义），自定义时展开一个月历，点选起止两端形成区间。
+ * 时间范围选择器：预设快捷（全部 / 今天 / 近 7 天 / 近 30 天 / 近一年 / 自定义）
+ * + 常驻的精简月历。点选预设后，对应区间直接在月历上高亮；点选日期会切到
+ * 「自定义」并形成起止两端。
  *
  * 区间以 unix 秒存储：start = 当天 00:00:00，end = 当天 23:59:59。preset 为
  * 'all' 时两端都为 null（不限）。月历自带上/下月切换，选中端点高亮、区间淡染。
@@ -47,11 +48,26 @@ function rangeForPreset(preset: RangePreset): TimeRange {
  *  days I picked this preset". */
 const PRESET_HINTS: Record<RangePreset, { single: string; scheduled: string }> = {
   all: { single: '不限制时间', scheduled: '每次触发都导出全量消息' },
-  today: { single: '今天的 00:00 ~ 23:59', scheduled: '每次触发 = 当天 00:00 ~ 23:59（按触发日滚动）' },
-  '7d': { single: '今天往前 7 天（含今天）', scheduled: '每次触发 = 触发日往前 7 天（窗口会滚动）' },
-  '30d': { single: '今天往前 30 天（含今天）', scheduled: '每次触发 = 触发日往前 30 天（窗口会滚动）' },
-  '1y': { single: '今天往前 365 天（含今天）', scheduled: '每次触发 = 触发日往前 365 天（窗口会滚动）' },
-  custom: { single: '月历里点选的具体起止日', scheduled: '起止日是固定的，每次触发都按相同区间导出' },
+  today: {
+    single: '今天的 00:00 ~ 23:59',
+    scheduled: '每次触发 = 当天 00:00 ~ 23:59（按触发日滚动）',
+  },
+  '7d': {
+    single: '今天往前 7 天（含今天）',
+    scheduled: '每次触发 = 触发日往前 7 天（窗口会滚动）',
+  },
+  '30d': {
+    single: '今天往前 30 天（含今天）',
+    scheduled: '每次触发 = 触发日往前 30 天（窗口会滚动）',
+  },
+  '1y': {
+    single: '今天往前 365 天（含今天）',
+    scheduled: '每次触发 = 触发日往前 365 天（窗口会滚动）',
+  },
+  custom: {
+    single: '月历里点选的具体起止日',
+    scheduled: '起止日是固定的，每次触发都按相同区间导出',
+  },
 };
 
 function fmtDay(secs: number | null): string {
@@ -118,7 +134,10 @@ export function TimeRangePicker({
     setViewY(y);
   }
 
-  const isCustom = value.preset === 'custom';
+  /** 回到「全部时间」。 */
+  function resetAll(): void {
+    onChange({ preset: 'all', start: null, end: null });
+  }
 
   return (
     <div className="weq-exp-range">
@@ -144,60 +163,70 @@ export function TimeRangePicker({
       </div>
 
       <div className="weq-exp-range-summary">
-        <span>{fmtDay(value.start)}</span>
-        <span className="weq-exp-range-arrow">→</span>
-        <span>{fmtDay(value.end)}</span>
+        <span className="weq-exp-range-summary-main">
+          <span>{fmtDay(value.start)}</span>
+          <span className="weq-exp-range-arrow">→</span>
+          <span>{fmtDay(value.end)}</span>
+        </span>
+        {value.preset !== 'all' ? (
+          <button type="button" className="weq-exp-range-clear" onClick={resetAll}>
+            不限
+          </button>
+        ) : (
+          <span className="weq-exp-range-tag">全部时间</span>
+        )}
       </div>
 
-      {isCustom ? (
-        <div className="weq-exp-cal">
-          <div className="weq-exp-cal-head">
-            <button type="button" onClick={() => shiftMonth(-1)} title="上个月">
-              <ChevronLeft size={16} />
-            </button>
-            <span className="weq-exp-cal-title">
-              {viewY} 年 {viewM + 1} 月
-            </span>
-            <button type="button" onClick={() => shiftMonth(1)} title="下个月">
-              <ChevronRight size={16} />
-            </button>
-          </div>
-          <div className="weq-exp-cal-grid">
-            {WEEKDAYS.map((w) => (
-              <span key={w} className="weq-exp-cal-wd">
-                {w}
-              </span>
-            ))}
-            {weeks.map((cell, i) => {
-              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-              if (cell == null) return <span key={`blank-${i}`} className="weq-exp-cal-cell is-blank" />;
-              const dayStart = cell.start;
-              const inRange =
-                value.start != null &&
-                value.end != null &&
-                dayStart >= value.start &&
-                dayStart <= value.end;
-              const isEnd = dayStart === value.start || dayStart === startOfDay(new Date((value.end ?? 0) * 1000));
-              return (
-                <button
-                  key={dayStart}
-                  type="button"
-                  className={`weq-exp-cal-cell${inRange ? ' is-range' : ''}${isEnd ? ' is-end' : ''}${
-                    cell.today ? ' is-today' : ''
-                  }`}
-                  onClick={() => pickDay(dayStart)}
-                >
-                  {cell.day}
-                </button>
-              );
-            })}
-          </div>
-          <p className="weq-exp-cal-hint">
-            点选两次：第一次为起始日，第二次为结束日。
-            {mode === 'scheduled' ? '（起止日固定，每次触发都按相同区间导出）' : ''}
-          </p>
+      <div className="weq-exp-cal">
+        <div className="weq-exp-cal-head">
+          <button type="button" onClick={() => shiftMonth(-1)} title="上个月">
+            <ChevronLeft size={15} />
+          </button>
+          <span className="weq-exp-cal-title">
+            {viewY} 年 {viewM + 1} 月
+          </span>
+          <button type="button" onClick={() => shiftMonth(1)} title="下个月">
+            <ChevronRight size={15} />
+          </button>
         </div>
-      ) : null}
+        <div className="weq-exp-cal-grid">
+          {WEEKDAYS.map((w) => (
+            <span key={w} className="weq-exp-cal-wd">
+              {w}
+            </span>
+          ))}
+          {weeks.map((cell, i) => {
+            if (cell == null)
+              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
+              return <span key={`blank-${i}`} className="weq-exp-cal-cell is-blank" />;
+            const dayStart = cell.start;
+            const inRange =
+              value.start != null &&
+              value.end != null &&
+              dayStart >= value.start &&
+              dayStart <= value.end;
+            const isStart = dayStart === value.start;
+            const isEnd = value.end != null && dayStart === startOfDay(new Date(value.end * 1000));
+            return (
+              <button
+                key={dayStart}
+                type="button"
+                className={`weq-exp-cal-cell${inRange ? ' is-range' : ''}${
+                  isStart || isEnd ? ' is-end' : ''
+                }${cell.today ? ' is-today' : ''}`}
+                onClick={() => pickDay(dayStart)}
+                title={value.preset === 'all' ? '点选开始日期' : '点选切换为自定义区间'}
+              >
+                {cell.day}
+              </button>
+            );
+          })}
+        </div>
+        <p className="weq-exp-cal-hint">
+          点选两次：第一次为起始日，第二次为结束日。
+          {mode === 'scheduled' ? '（自定义起止日固定，每次触发都按相同区间导出）' : ''}
+        </p>
+      </div>
     </div>
   );
 }

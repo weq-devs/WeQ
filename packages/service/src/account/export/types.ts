@@ -75,6 +75,8 @@ export interface GroupExportOptions {
   progressEvery?: number;
   /** When provided, each message's sender uin is collected (avatar export). */
   collectSenders?: Set<string>;
+  /** When provided, each message's QQ 系统表情 faceId is collected (sysface export). */
+  collectFaces?: Set<string>;
   /** Inclusive send-time window; messages outside it are skipped. */
   range?: ExportTimeRange;
   /** Stamp media elements with their bundle relative path (`data.localPath`). */
