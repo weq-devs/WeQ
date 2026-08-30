@@ -51,6 +51,11 @@ export type {
   ExternalRkeyServerConfig,
   SsePushConfig,
   SsePushServerConfig,
+  ExportPresets,
+  ExportPresetVariant,
+  ExportLightboxPreset,
+  ExportScheduledPreset,
+  ExportPresetOptions,
 } from './bootstrap/user_config';
 export { AgentLabConfigService } from './bootstrap/agentlab_config';
 

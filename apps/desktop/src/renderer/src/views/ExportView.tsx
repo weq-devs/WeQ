@@ -44,6 +44,7 @@ import { useAppDialog } from '../lib/dialogUtils';
 import { useToast } from '../components/Toast';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { datalineName } from '@weq/codec';
+import type { ExportPresets } from '@weq/service';
 import { Avatar, Segmented, Spinner } from './export/widgets';
 import { ConversationPicker } from './export/ConversationPicker';
 import { SingleSelectPicker } from './export/SingleSelectPicker';
@@ -304,10 +305,28 @@ export function ExportView(): ReactElement {
   const [format, setFormat] = useState<ExportFormat>('json');
   const [lightbox, setLightbox] = useState<LightboxVariant | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  /** 各模式最近一次导出的灯箱配置快照，打开面板时自动回填。 */
+  const [exportPresets, setExportPresets] = useState<ExportPresets | null>(null);
   /** Media-completion failure detail, when the user opens a task's failure list. */
   const [failureView, setFailureView] = useState<{ name: string; failures: UiFailure[] } | null>(
     null,
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    void client.bootstrap.getExportPresets
+      .query()
+      .then((p) => {
+        if (!cancelled) setExportPresets(p);
+      })
+      .catch(() => {
+        // 缓存读不出来就按默认配置打开，不影响导出。
+        if (!cancelled) setExportPresets({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // 好友空间 only json/txt; 联系人受子类限制 — clamp。
   useEffect(() => {
@@ -1095,6 +1114,15 @@ export function ExportView(): ReactElement {
   }
 
   async function onLightboxConfirm(result: LightboxResult): Promise<void> {
+    // 先把这次确认的配置写进全局 user_config（失败不阻断导出，只影响下次回填）。
+    if (
+      lightbox === 'full' ||
+      lightbox === 'scheduled' ||
+      lightbox === 'qzone' ||
+      lightbox === 'contacts'
+    ) {
+      rememberPreset(lightbox, result);
+    }
     if (lightbox === 'full') {
       void runFullExport(result.options, { formats: result.formats });
       return;
@@ -1114,6 +1142,24 @@ export function ExportView(): ReactElement {
     // album — config collected, backend pending.
     setLightbox(null);
     dialog.info('配置已记录', '群相册导出后端待接入，已记录本次导出配置。');
+  }
+
+  /** 保存某个导出模式的最近一次灯箱配置，供下次打开自动回填。 */
+  function rememberPreset(
+    variant: 'full' | 'scheduled' | 'qzone' | 'contacts',
+    result: LightboxResult,
+  ): void {
+    void client.bootstrap.setExportPreset
+      .mutate({
+        variant,
+        formats: result.formats,
+        options: result.options,
+        ...(variant === 'scheduled' && result.schedule ? { schedule: result.schedule } : {}),
+      })
+      .then((next) => setExportPresets(next))
+      .catch(() => {
+        // 缓存写入失败只影响下次自动回填，这里静默跳过。
+      });
   }
 
   /** Persist a scheduled template. Mirrors the per-task `media/range` shape
@@ -1524,10 +1570,17 @@ export function ExportView(): ReactElement {
           headline={lightboxHeadline}
           summary={lightboxSummary}
           contactScope={contactScope}
-          // 联系人导出默认不下载头像（大群头像量大），其余沿用默认。
+          // 优先回填最近一次导出的配置；联系人导出默认不下载头像（大群头像量大）。
           initialOptions={
-            lightbox === 'contacts' ? { ...DEFAULT_OPTIONS, exportAvatar: false } : undefined
+            lightbox !== 'album'
+              ? (exportPresets?.[lightbox]?.options ??
+                (lightbox === 'contacts'
+                  ? { ...DEFAULT_OPTIONS, exportAvatar: false }
+                  : DEFAULT_OPTIONS))
+              : undefined
           }
+          initialFormats={lightbox !== 'album' ? exportPresets?.[lightbox]?.formats : undefined}
+          initialSchedule={exportPresets?.scheduled?.schedule}
           submitting={submitting}
           onPickPath={async () => {
             dialog.info('选择目录', '目录选择接口待接入，开始导出时将使用系统对话框。');

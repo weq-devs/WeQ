@@ -31,6 +31,7 @@ import type { Platform } from '@weq/platform';
 import type { AgentLabProviderConfig, TtsProviderConfig } from '@weq/agentlab';
 import type { AccountConfig } from '../account/user_config';
 import { normalizeAccountConfig } from '../account/user_config';
+import type { ExportFormat } from '../account/export/types';
 import { generateWeqAssistantUid } from '../account/weq_assistant';
 import { getLogger, logErrorContext } from '../common/logger';
 
@@ -117,6 +118,192 @@ function isTtsProviderConfig(value: unknown): value is TtsProviderConfig {
 function normalizeTtsProviders(value: unknown): TtsProviderConfig[] {
   if (!Array.isArray(value)) return [];
   return value.filter(isTtsProviderConfig);
+}
+
+/** 导出灯箱的选项快照（与渲染层 `ExportOptions` 一一对应，字段缺一不可）。 */
+export interface ExportPresetOptions {
+  range: {
+    preset: 'all' | 'today' | '7d' | '30d' | '1y' | 'custom';
+    start: number | null;
+    end: number | null;
+  };
+  exportMedia: boolean;
+  mediaKinds: {
+    image: boolean;
+    voice: boolean;
+    video: boolean;
+    file: boolean;
+    sysface: boolean;
+  };
+  completeMessages: boolean;
+  exportAvatar: boolean;
+  completeMedia: boolean;
+  downloadVideo: boolean;
+  downloadFile: boolean;
+  downloadPtt: boolean;
+  completeDress: boolean;
+  transcribeVoice: boolean;
+  dress: {
+    bubble: boolean;
+    font: boolean;
+    widget: boolean;
+  };
+  autoSave: boolean;
+  chatlab: boolean;
+}
+
+/** 一次完整消息 / QQ空间 / 联系人导出的配置快照。 */
+export interface ExportLightboxPreset {
+  /** 灯箱里多选的导出格式（至少一种）。 */
+  formats: ExportFormat[];
+  options: ExportPresetOptions;
+}
+
+/** 定时导出在普通快照基础上多一份调度配置。 */
+export interface ExportScheduledPreset extends ExportLightboxPreset {
+  schedule: {
+    mode: 'daily' | 'interval';
+    /** HH:MM，daily 模式使用。 */
+    time: string;
+    /** 间隔小时数，interval 模式使用。 */
+    intervalHours: number;
+  };
+}
+
+/** 按导出模式分别缓存最近一次使用的灯箱配置。 */
+export interface ExportPresets {
+  full?: ExportLightboxPreset;
+  scheduled?: ExportScheduledPreset;
+  qzone?: ExportLightboxPreset;
+  contacts?: ExportLightboxPreset;
+}
+
+export type ExportPresetVariant = keyof ExportPresets;
+
+const EXPORT_RANGE_PRESETS = ['all', 'today', '7d', '30d', '1y', 'custom'] as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object';
+}
+
+/** Coerce an unknown persisted options object to a valid preset, or undefined. */
+function normalizeExportPresetOptions(value: unknown): ExportPresetOptions | undefined {
+  if (!isRecord(value)) return undefined;
+  const o = value as Record<string, unknown>;
+  const range = o.range as Record<string, unknown> | undefined;
+  const mediaKinds = o.mediaKinds as Record<string, unknown> | undefined;
+  const dress = o.dress as Record<string, unknown> | undefined;
+  if (!isRecord(range) || !isRecord(mediaKinds) || !isRecord(dress)) return undefined;
+  const bool = (v: unknown): v is boolean => typeof v === 'boolean';
+  if (
+    !bool(o.exportMedia) ||
+    !bool(o.completeMessages) ||
+    !bool(o.exportAvatar) ||
+    !bool(o.completeMedia) ||
+    !bool(o.downloadVideo) ||
+    !bool(o.downloadFile) ||
+    !bool(o.downloadPtt) ||
+    !bool(o.completeDress) ||
+    !bool(o.transcribeVoice) ||
+    !bool(o.autoSave) ||
+    !bool(o.chatlab)
+  ) {
+    return undefined;
+  }
+  if (
+    !bool(mediaKinds.image) ||
+    !bool(mediaKinds.voice) ||
+    !bool(mediaKinds.video) ||
+    !bool(mediaKinds.file) ||
+    !bool(mediaKinds.sysface) ||
+    !bool(dress.bubble) ||
+    !bool(dress.font) ||
+    !bool(dress.widget)
+  ) {
+    return undefined;
+  }
+  if (
+    !EXPORT_RANGE_PRESETS.includes(range.preset as (typeof EXPORT_RANGE_PRESETS)[number]) ||
+    (typeof range.start !== 'number' && range.start !== null) ||
+    (typeof range.end !== 'number' && range.end !== null)
+  ) {
+    return undefined;
+  }
+  return {
+    range: {
+      preset: range.preset as ExportPresetOptions['range']['preset'],
+      start: range.start,
+      end: range.end,
+    },
+    exportMedia: o.exportMedia,
+    mediaKinds: {
+      image: mediaKinds.image,
+      voice: mediaKinds.voice,
+      video: mediaKinds.video,
+      file: mediaKinds.file,
+      sysface: mediaKinds.sysface,
+    },
+    completeMessages: o.completeMessages,
+    exportAvatar: o.exportAvatar,
+    completeMedia: o.completeMedia,
+    downloadVideo: o.downloadVideo,
+    downloadFile: o.downloadFile,
+    downloadPtt: o.downloadPtt,
+    completeDress: o.completeDress,
+    transcribeVoice: o.transcribeVoice,
+    dress: {
+      bubble: dress.bubble,
+      font: dress.font,
+      widget: dress.widget,
+    },
+    autoSave: o.autoSave,
+    chatlab: o.chatlab,
+  };
+}
+
+/** Coerce one persisted variant to a valid preset, or undefined. */
+function normalizeExportLightboxPreset(value: unknown): ExportLightboxPreset | undefined {
+  if (!isRecord(value)) return undefined;
+  const p = value as Record<string, unknown>;
+  if (!Array.isArray(p.formats) || p.formats.length === 0) return undefined;
+  if (!p.formats.every((f): f is ExportFormat => typeof f === 'string')) return undefined;
+  const options = normalizeExportPresetOptions(p.options);
+  if (!options) return undefined;
+  return { formats: p.formats as ExportFormat[], options };
+}
+
+/** Coerce a persisted / patched presets map; malformed variants are dropped. */
+function normalizeExportPresets(value: unknown): ExportPresets {
+  if (!isRecord(value)) return {};
+  const p = value as Record<string, unknown>;
+  const presets: ExportPresets = {};
+  const plain = normalizeExportLightboxPreset(p.full);
+  if (plain) presets.full = plain;
+  const scheduled = normalizeExportLightboxPreset(p.scheduled);
+  if (scheduled && isRecord(p.scheduled)) {
+    const s = p.scheduled as Record<string, unknown>;
+    const schedule = s.schedule as Record<string, unknown> | undefined;
+    if (
+      isRecord(schedule) &&
+      (schedule.mode === 'daily' || schedule.mode === 'interval') &&
+      typeof schedule.time === 'string' &&
+      typeof schedule.intervalHours === 'number'
+    ) {
+      presets.scheduled = {
+        ...scheduled,
+        schedule: {
+          mode: schedule.mode,
+          time: schedule.time,
+          intervalHours: schedule.intervalHours,
+        },
+      };
+    }
+  }
+  const qzone = normalizeExportLightboxPreset(p.qzone);
+  if (qzone) presets.qzone = qzone;
+  const contacts = normalizeExportLightboxPreset(p.contacts);
+  if (contacts) presets.contacts = contacts;
+  return presets;
 }
 
 function isExternalRkeyServerConfig(value: unknown): value is ExternalRkeyServerConfig {
@@ -418,6 +605,11 @@ export interface UserConfig {
    * against live processes on startup and before each inject decision.
    */
   injectRecords?: Record<string, InjectRecord>;
+  /**
+   * 导出中心最近一次使用的灯箱配置（按模式缓存）。下次打开面板时自动回填，
+   * 省去每次重新勾选。纯 UI 缓存，不影响导出流程本身。
+   */
+  exportPresets?: ExportPresets;
 }
 
 export class UserConfigService {
@@ -787,6 +979,41 @@ export class UserConfigService {
       ssePushServerCount: next.ssePush.servers.length,
       ssePushEnabled: next.ssePush.enabledServerId !== null,
       externalRkeyEnabled: next.externalRkey.enabledServerId !== null,
+    });
+    return next;
+  }
+
+  /** 导出中心各模式的最近一次灯箱配置；无缓存时返回空对象。 */
+  getExportPresets(): ExportPresets {
+    return normalizeExportPresets(this.read().exportPresets);
+  }
+
+  /** 覆盖某一个导出模式的最近一次配置快照，其余模式保持不变。 */
+  setExportPreset(input: {
+    variant: ExportPresetVariant;
+    formats: ExportFormat[];
+    options: ExportPresetOptions;
+    schedule?: ExportScheduledPreset['schedule'];
+  }): ExportPresets {
+    const current = this.getExportPresets();
+    const next: ExportPresets = { ...current };
+    const preset: ExportLightboxPreset = {
+      formats: input.formats.length > 0 ? input.formats : ['json'],
+      options: input.options,
+    };
+    if (input.variant === 'scheduled') {
+      next.scheduled = {
+        ...preset,
+        schedule: input.schedule ?? { mode: 'daily', time: '03:00', intervalHours: 6 },
+      };
+    } else {
+      next[input.variant] = preset;
+    }
+    this.write({ exportPresets: next });
+    this.logger.info('saved export lightbox preset', {
+      event: 'export-preset-set',
+      variant: input.variant,
+      formats: preset.formats,
     });
     return next;
   }

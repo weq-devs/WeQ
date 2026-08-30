@@ -183,6 +183,7 @@ export function ExportLightbox({
   summary,
   contactScope = 'friends',
   initialOptions = DEFAULT_OPTIONS,
+  initialFormats,
   initialSchedule = DEFAULT_SCHEDULE,
   submitting = false,
   onPickPath,
@@ -195,6 +196,8 @@ export function ExportLightbox({
   /** 联系人导出范围（决定灯箱内可选格式：好友含 vCard）。 */
   contactScope?: 'friends' | 'group';
   initialOptions?: ExportOptions;
+  /** 上次使用的导出格式；缺失或不在当前变体可选范围内时退回默认格式。 */
+  initialFormats?: ExportFormat[];
   initialSchedule?: Schedule;
   submitting?: boolean;
   /** Optional async directory picker; returns the chosen path or null. */
@@ -255,7 +258,10 @@ export function ExportLightbox({
           : FULL_FORMATS,
     [variant, contactScope],
   );
-  const [formats, setFormats] = useState<ExportFormat[]>(() => [formatOptions[0]!.value]);
+  const [formats, setFormats] = useState<ExportFormat[]>(() => {
+    const allowed = initialFormats?.filter((f) => formatOptions.some((o) => o.value === f));
+    return allowed && allowed.length > 0 ? allowed : [formatOptions[0]!.value];
+  });
 
   function patch(next: Partial<ExportOptions>): void {
     setOpts((o) => ({ ...o, ...next }));
