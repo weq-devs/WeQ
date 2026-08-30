@@ -1,6 +1,6 @@
 // @ts-nocheck
 import type { ReactElement } from 'react';
-import { X } from 'lucide-react';
+import { RefreshCw, Sparkles, X } from 'lucide-react';
 import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
 import { albumMediaUrl } from '../lib/resourceUrl';
 
@@ -28,12 +28,15 @@ export function GroupEssenceDialog({
   groupCode: _groupCode,
   groupName,
   essenceMessages,
+  loading,
   onClose,
   onJumpToMessage,
 }: {
   groupCode: string;
   groupName: string;
   essenceMessages?: GroupEssenceWire[];
+  /** 是否正在拉取（数据库 / 联网） — 首次打开时避免闪现“暂无群精华”。 */
+  loading?: boolean;
   onClose: () => void;
   onJumpToMessage?: (seq: number) => void;
 }): ReactElement {
@@ -53,7 +56,12 @@ export function GroupEssenceDialog({
         </header>
 
         <div className="group-essence-body">
-          {essenceMessages && essenceMessages.length > 0 ? (
+          {loading && (!essenceMessages || essenceMessages.length === 0) ? (
+            <div className="group-essence-empty is-loading">
+              <RefreshCw size={22} className="weq-gap-spin" />
+              <span>正在拉取群精华…</span>
+            </div>
+          ) : essenceMessages && essenceMessages.length > 0 ? (
             <div className="group-essence-list">
               {essenceMessages.map((item) => {
                 const canJump = onJumpToMessage && item.msgSeq != null && item.msgSeq !== '';
@@ -117,7 +125,11 @@ export function GroupEssenceDialog({
               })}
             </div>
           ) : (
-            <div className="group-essence-empty">暂无群精华</div>
+            <div className="group-essence-empty">
+              <Sparkles size={22} />
+              <span>暂无群精华</span>
+              <small>本地与联网都没有找到，去 QQ 群里把消息设为精华后再来看看</small>
+            </div>
           )}
         </div>
       </section>

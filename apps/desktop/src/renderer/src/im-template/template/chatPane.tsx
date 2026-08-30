@@ -134,13 +134,6 @@ function _hasGroupAnnouncements(conversation: Conversation) {
 	);
 }
 
-function hasGroupEssence(conversation: Conversation) {
-	return (
-		conversation.type === "group" &&
-		Boolean(conversation.group.essenceMessages?.length)
-	);
-}
-
 function getMessageDownloadUrl(message: Message) {
 	const markdownImage = message.body.match(
 		/!\[[^\]\n]*\]\((https?:\/\/[^\s)]+)\)/i,
@@ -1498,7 +1491,6 @@ export function ChatPane({
 								className={cn("icon-button", "group-header-info-action")}
 								type="button"
 								title="Group highlights"
-								disabled={!hasGroupEssence(conversation)}
 								onClick={() => {
 									if (conversation?.type === "group") {
 										onOpenGroupEssence?.(conversation);

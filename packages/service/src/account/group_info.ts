@@ -297,6 +297,14 @@ export class GroupInfoService {
   }
 
   /**
+   * 取某个群全部当前为精华的消息 seq（仅查本地数据库 group_essence 表，不联网）。
+   * 用于聊天窗口给消息打「精华」角标。
+   */
+  async getEssenceSeqs(groupCode: bigint): Promise<number[]> {
+    return this.session.groupEssence.listEssenceSeqs(groupCode);
+  }
+
+  /**
    * 从 Web API 获取群精华消息的完整内容（包含消息体）。
    * 需要有效的 Web 凭证（在线账号或未过期 cookie）。
    *

@@ -4,7 +4,7 @@ import type {
 	MouseEvent as ReactMouseEvent,
 	PointerEvent as ReactPointerEvent,
 } from "react";
-import { Bot, RotateCcw } from "lucide-react";
+import { Bot, RotateCcw, Sparkle } from "lucide-react";
 import {
 	renderMessageWithRegistry,
 	type MessageRenderer,
@@ -147,6 +147,13 @@ export function MessageBubble({
 		: recall.sameSender
 			? (mine ? "你撤回了这条消息" : "对方撤回了这条消息")
 			: `${recallRevokerName?.trim() || "管理员"} 撤回了这条消息`;
+
+	// 群精华角标：消息 seq 命中本地 group_essence 表（仅数据库，不联网）时，
+	// 在气泡右下角打「四芒星 精华」标。
+	const isEssence =
+		conversation.type === "group" &&
+		message.msgSeq != null &&
+		(conversation.group.essenceSeqs ?? []).includes(String(message.msgSeq));
 
 	function clearLongPress() {
 		if (longPressTimerRef.current !== null) {
@@ -323,6 +330,12 @@ export function MessageBubble({
 					renderers,
 				)}
 				<SetEmojiReactions list={message.setEmojiList} />
+				{isEssence ? (
+					<span className={cn("weq-msg-essence-badge")} title="该消息为群精华">
+						<Sparkle size={10} strokeWidth={2.6} />
+						<span>精华</span>
+					</span>
+				) : null}
 				{recallText ? (
 					<div className={cn("weq-msg-recall-tag")} title="防撤回已保留原消息">
 						<RotateCcw size={12} />

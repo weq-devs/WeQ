@@ -15126,6 +15126,35 @@ html[data-theme="dark"] .message-line.is-deleted .message-bubble {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
+   群精华角标 (im-template/messageBubble)
+   消息 seq 命中本地 group_essence 表（仅数据库，不联网）时，气泡右下角打一个
+   「四芒星 精华」小标。作为气泡 grid 的最后一行，右对齐、margin-top 上贴气泡
+   底边（视觉上是挂在右下角的角标），不绝对定位、不压正文。 */
+.weq-msg-essence-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  justify-self: end;
+  margin-top: -3px;
+  padding: 1px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.7;
+  letter-spacing: 0.01em;
+  color: color-mix(in srgb, var(--weq-accent-effective) 88%, #fff);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 30%, transparent);
+  border-radius: 999px;
+  backdrop-filter: blur(3px);
+  user-select: none;
+  pointer-events: none;
+}
+
+.weq-msg-essence-badge svg {
+  color: var(--weq-accent-effective);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
    Gray-tip 液体带 (chatPane)
    Consecutive gray-tip rows (revoke / poke / group / invite) are wrapped in a
    single .weq-graytip-band. The band paints a soft, translucent accent-tinted
@@ -15966,11 +15995,35 @@ html[data-theme="dark"] .essence-message-placeholder {
 
 .group-essence-empty {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   min-height: 200px;
+  padding: 2rem 1.5rem;
+  text-align: center;
   color: var(--weq-fg-tertiary);
+  font-size: 13px;
+}
+
+.group-essence-empty svg {
+  color: var(--weq-fg-tertiary);
+}
+
+.group-essence-empty span {
+  color: var(--weq-fg-secondary);
   font-size: 14px;
+}
+
+.group-essence-empty small {
+  max-width: 22rem;
+  color: var(--weq-fg-tertiary);
+  font-size: 12px;
+}
+
+.group-essence-empty.is-loading span {
+  font-size: 13px;
+  color: var(--weq-fg-muted);
 }
 
 .group-essence-list {
