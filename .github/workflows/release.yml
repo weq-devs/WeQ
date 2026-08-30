@@ -534,15 +534,6 @@ jobs:
           NOTES=$(cat <<EOF
           ## weQ ${TAG}
 
-          > ⚠️ **macOS 产物未签名**：CI 未配置 Apple Developer 证书
-          > （CSC_LINK / CSC_KEY_PASSWORD），dmg 首次打开需右键 → 打开，
-          > 或在系统设置 → 隐私与安全性里放行。配置证书后即可自动签名/公证。
-          >
-          > ⚠️ **Linux aarch64 (arm64) 未经真机实测**：二进制架构已核对无误
-          > （native/linux/arm64/*.node 均为 ELF aarch64），但整体是否可用
-          > 尚未在真实设备上验证，不保证能正常运行。遇到问题请提 Issue：
-          > https://github.com/${REPO}/issues
-
           ### 下载
           - **Windows**: \`weQ-${TAG#v}-setup.exe\`
           - **Linux x64**: \`weQ-${TAG#v}-linux-x64.AppImage\` / \`.tar.gz\`
@@ -550,8 +541,6 @@ jobs:
           - **macOS Intel (x64)**: \`weQ-${TAG#v}-mac-x64.dmg\`（未签名）
           - **macOS Apple Silicon (arm64)**: \`weQ-${TAG#v}-mac-arm64.dmg\`（未签名）
           - **浏览器版**: \`weq-web-${TAG#v}.tar.gz\` —— 三平台通用，需自备 Node ≥22。
-            解压后 Windows 双击 \`start.bat\`、Linux 跑 \`./start.sh\`（依赖已预装）。
-            Linux 建议用 root 运行，
             详见[使用说明](https://github.com/${REPO}/blob/main/apps/web/README.md)
 
           ### 变更
