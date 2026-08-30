@@ -15,6 +15,7 @@ import {
   Ban,
   Bookmark,
   ChevronDown,
+  ChevronUp,
   CircleAlert,
   CircleCheck,
   Clock,
@@ -569,7 +570,7 @@ export function TaskList({
               onToggleExpanded();
             }}
           >
-            <ChevronDown size={14} />
+            <ChevronUp size={14} />
           </button>
         ) : null}
         {/* 收拢时底部细进度条 */}
