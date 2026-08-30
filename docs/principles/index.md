@@ -10,6 +10,7 @@ WeQ 的 `native` 部分闭源，**唯一原因是防止倒卖**（本项目为�
 - [数据库主密钥提取](./key-extraction.md) — 直接发包 / hook 收包函数
 - [数据库解密流程](./db-decrypt.md) — SQLCipher / login.db
 - [头像 Hash 定位公式](./avatar-hash.md) — 本地头像文件名如何计算
+- [QQ 私有字体 FTF 分析与转换](./ftf2ttf.md) — `FTFH`/`FTFG` 表、坐标压缩、还原成合法 TTF
 - [Native / JS 边界与打包](./native-boundary.md) — 原生模块的边界约定与坑
 - [macOS NineBird 安装](./ninebird-macos.md) — 入口补丁 + 进程内 hook + 提权设计
 
