@@ -2846,10 +2846,11 @@ export const accountRouter = router({
   /** Subscribe to export task progress. */
   onExportProgress: procedure.subscription(() => {
     return observable<import('@weq/service').TaskProgress>((emit) => {
+      const manager = requireServices().exportManager;
       const handler = (progress: import('@weq/service').TaskProgress) => emit.next(progress);
-      requireServices().exportManager.on('progress', handler);
+      manager.on('progress', handler);
       return () => {
-        requireServices().exportManager.off('progress', handler);
+        manager.off('progress', handler);
       };
     });
   }),

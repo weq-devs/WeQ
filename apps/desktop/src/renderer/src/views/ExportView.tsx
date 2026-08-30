@@ -260,6 +260,10 @@ export function ExportView(): ReactElement {
 
   const [mode, setMode] = useState<ExportMode>('full');
   const [convSelection, setConvSelection] = useState<Set<string>>(new Set());
+  /** 任务面板展开/收起（默认收起）。 */
+  const [taskPanelExpanded, setTaskPanelExpanded] = useState(false);
+  /** 新任务到达时，强制选中该任务。 */
+  const [autoSelectTaskId, setAutoSelectTaskId] = useState<string | null>(null);
   const [dbSelection, setDbSelection] = useState<Set<string>>(new Set());
   /** 导出联系人：好友 or 群成员。 */
   const [contactScope, setContactScope] = useState<'friends' | 'group'>('friends');
@@ -531,6 +535,23 @@ export function ExportView(): ReactElement {
       isMarketPack: (t as unknown as { conv?: string }).conv === 'marketpack',
     }));
   }, [tasks.data]);
+
+  // 新任务到达时自动展开任务栏并选中新任务。
+  const prevTaskIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const currentIds = new Set(uiTasks.map((t) => t.id));
+    const prevIds = prevTaskIdsRef.current;
+    // 找出新增的任务 id（当前有但之前没有的）
+    const newIds: string[] = [];
+    for (const id of currentIds) {
+      if (!prevIds.has(id)) newIds.push(id);
+    }
+    if (newIds.length > 0 && prevIds.size > 0) {
+      setTaskPanelExpanded(true);
+      setAutoSelectTaskId(newIds[newIds.length - 1]!);
+    }
+    prevTaskIdsRef.current = currentIds;
+  }, [uiTasks]);
 
   // ---- task actions (existing backend) ----
   const refetchTasks = (): void => void tasks.refetch();
@@ -1475,7 +1496,7 @@ export function ExportView(): ReactElement {
         </section>
       </div>
 
-      {/* 底部任务列表 */}
+      {/* 底部任务列表（可折叠覆盖层） */}
       <TaskList
         tasks={uiTasks}
         onPause={onPause}
@@ -1484,6 +1505,9 @@ export function ExportView(): ReactElement {
         onDelete={onDelete}
         onSaveAll={() => void onSaveAll()}
         onShowFailures={(t, failures) => setFailureView({ name: t.name, failures })}
+        autoSelectId={autoSelectTaskId}
+        isExpanded={taskPanelExpanded}
+        onToggleExpanded={() => setTaskPanelExpanded((v) => !v)}
       />
 
       {failureView ? (

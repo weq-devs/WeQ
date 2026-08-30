@@ -26,8 +26,10 @@
 .weq-exp-top {
   flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
   display: grid;
   grid-template-columns: 212px minmax(0, 1fr);
+  grid-template-rows: 1fr;
   gap: 14px;
   padding: 14px 14px 10px;
 }
@@ -113,6 +115,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
   border: 1px solid rgba(0, 0, 0, 0.07);
   border-radius: 14px;
   /* Frosted so the themed canvas glows through the export panel. */
@@ -1412,23 +1415,136 @@
 }
 
 /* ===== 导出任务中心（卡片 + 详情 + 滚动日志） ===== */
+/* 收拢 = 底部固定窄条（36px）；展开 = 向上展开覆盖层 */
 .weq-exp-tasks {
-  flex: 0 0 auto;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  height: clamp(252px, 46vh, 470px);
+  /* 定死高度：作为 flex 子项时（空任务态是相对定位、在流内）不能被压缩，
+     否则内容高的模式会把 36px 的 head 挤出窗口底部。 */
+  flex: none;
+  /* 收拢时只露出 header 高度 */
+  height: 36px;
   border-top: 1px solid rgba(0, 0, 0, 0.08);
-  background: rgba(255, 255, 255, 0.4);
-  backdrop-filter: blur(12px);
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(16px);
+  overflow: hidden;
+  transition: height 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 300ms ease;
+}
+
+.weq-exp-tasks.is-expanded {
+  height: clamp(260px, 48vh, 480px);
+  overflow: visible;
+  box-shadow: 0 -10px 36px -10px rgba(7, 31, 61, 0.25);
+}
+
+/* 收拢时隐藏卡片和详情 */
+.weq-exp-tasks:not(.is-expanded) .weq-exp-detail,
+.weq-exp-tasks:not(.is-expanded) .weq-exp-cards {
+  display: none;
+}
+
+/* 空任务状态始终定位为覆盖层（相对定位） */
+.weq-exp-tasks.is-empty-state {
+  position: relative;
+  height: 36px;
+}
+
+.weq-exp-tasks.is-empty-state.is-expanded {
+  height: clamp(260px, 48vh, 480px);
 }
 
 .weq-exp-tasks-head {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 16px 6px;
+  padding: 0 16px;
+  height: 36px;
   flex: none;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid transparent;
+  transition: background 160ms ease, border-color 200ms ease;
+}
+
+.weq-exp-tasks-head:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.weq-exp-tasks.is-expanded .weq-exp-tasks-head {
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+
+/* 展开/收起切换图标 */
+.weq-exp-tasks-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 7px;
+  background: transparent;
+  color: #97a2b0;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease, transform 200ms ease;
+}
+
+.weq-exp-tasks-toggle:hover {
+  border-color: rgba(0, 153, 255, 0.45);
+  color: #0099ff;
+}
+
+.weq-exp-tasks-toggle svg {
+  transition: transform 240ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 展开时箭头朝上（收起时朝下） */
+.weq-exp-tasks.is-expanded .weq-exp-tasks-toggle svg {
+  transform: rotate(180deg);
+}
+
+.weq-exp-tasks-head {
+  position: relative;
+}
+
+/* ---- 收拢时的迷你状态文字 + 底部细进度条 ---- */
+.weq-exp-tasks-mini-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  color: #8a94a4;
+  white-space: nowrap;
+  flex: none;
+}
+
+.weq-exp-tasks-mini-status.is-done {
+  color: var(--weq-accent-effective);
+}
+
+.weq-exp-tasks-mini-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.weq-exp-tasks-mini-bar-fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--weq-accent-effective), color-mix(in srgb, var(--weq-accent-effective) 72%, white));
+  transition: width 0.4s ease;
 }
 
 .weq-exp-tasks-title {
@@ -1498,6 +1614,7 @@
   padding: 2px 14px 8px;
   overflow-x: auto;
   scrollbar-width: thin;
+  transition: padding 200ms ease;
 }
 
 .weq-exp-card {
@@ -2471,7 +2588,38 @@ html[data-theme="dark"] .weq-exp-pane {
 /* Bottom task bar: the light rgba(255,255,255,.6) base reads near-white in dark,
  * so give it a frosted dark surface that matches the panels. */
 html[data-theme="dark"] .weq-exp-tasks {
-  background: color-mix(in srgb, #171d25 48%, transparent);
+  background: color-mix(in srgb, #171d25 68%, transparent);
+}
+
+html[data-theme="dark"] .weq-exp-tasks-toggle {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  color: #99a7b8;
+}
+
+html[data-theme="dark"] .weq-exp-tasks-toggle:hover {
+  border-color: rgba(86, 168, 247, 0.45);
+  color: #56a8f7;
+}
+
+html[data-theme="dark"] .weq-exp-tasks-mini-status {
+  color: #7d8aa0;
+}
+
+html[data-theme="dark"] .weq-exp-tasks-mini-status.is-done {
+  color: #56a8f7;
+}
+
+html[data-theme="dark"] .weq-exp-tasks-mini-bar {
+  background: rgba(86, 168, 247, 0.15);
+}
+
+html[data-theme="dark"] .weq-exp-tasks-head:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+html[data-theme="dark"] .weq-exp-tasks.is-expanded .weq-exp-tasks-head {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
 }
 
 /* Frosted task cards in dark (override the opaque shared card surface above). */

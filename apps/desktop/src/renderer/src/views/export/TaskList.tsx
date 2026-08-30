@@ -466,6 +466,9 @@ export function TaskList({
   onDelete,
   onShowFailures,
   onSaveAll,
+  autoSelectId,
+  isExpanded = false,
+  onToggleExpanded,
 }: {
   tasks: UiTask[];
   onPause: (t: UiTask) => void;
@@ -476,8 +479,15 @@ export function TaskList({
   onShowFailures: (t: UiTask, failures: UiFailure[]) => void;
   /** 一键把全部已完成任务逐个保存（每个都弹系统路径选择）。 */
   onSaveAll?: () => void;
+  /** 外部强制选中的任务 id（新任务到达时由父组件设置）。 */
+  autoSelectId?: string | null;
+  /** 面板展开状态（由父组件控制）。 */
+  isExpanded?: boolean;
+  /** 切换展开/收起。 */
+  onToggleExpanded?: () => void;
 }): ReactElement {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
   // 默认选中第一个任务；选中项被删除 / 不存在时回落到第一个。
   useEffect(() => {
     if (tasks.length === 0) {
@@ -486,24 +496,90 @@ export function TaskList({
     }
     if (!selectedId || !tasks.some((t) => t.id === selectedId)) setSelectedId(tasks[0]!.id);
   }, [tasks, selectedId]);
+
+  // 外部指定新任务时，切换到该任务。
+  useEffect(() => {
+    if (autoSelectId && tasks.some((t) => t.id === autoSelectId)) {
+      setSelectedId(autoSelectId);
+    }
+  }, [autoSelectId, tasks]);
+
   const selected = tasks.find((t) => t.id === selectedId) ?? tasks[0];
   const completedCount = tasks.filter((t) => t.status === 'completed').length;
+  const hasTasks = tasks.length > 0;
+
+  // 收拢时的总进度条（所有任务的加权平均）
+  const overallProgress = hasTasks
+    ? Math.min(100, Math.round(
+        tasks.reduce((sum, t) => sum + taskPct(t), 0) / tasks.length,
+      ))
+    : 0;
+  const runningCount = tasks.filter((t) => t.status === 'running').length;
 
   return (
-    <section className="weq-exp-tasks">
-      <header className="weq-exp-tasks-head">
+    <section
+      className={`weq-exp-tasks${isExpanded ? ' is-expanded' : ''}${!hasTasks ? ' is-empty-state' : ''}`}
+    >
+      <header
+        className="weq-exp-tasks-head"
+        onClick={onToggleExpanded}
+        role={onToggleExpanded ? 'button' : undefined}
+        aria-expanded={hasTasks ? isExpanded : undefined}
+      >
         <span className="weq-exp-tasks-title">导出任务</span>
         <span className="weq-exp-tasks-count">{tasks.length}</span>
+        {/* 收拢时显示迷你进度指示 */}
+        {!isExpanded && hasTasks && runningCount > 0 ? (
+          <span className="weq-exp-tasks-mini-status">
+            <Loader2 size={12} className="weq-exp-spin" />
+            {runningCount} 个导出中…
+          </span>
+        ) : !isExpanded && hasTasks && completedCount === tasks.length ? (
+          <span className="weq-exp-tasks-mini-status is-done">
+            <CircleCheck size={12} />
+            全部完成
+          </span>
+        ) : !isExpanded && hasTasks ? (
+          <span className="weq-exp-tasks-mini-status">
+            {overallProgress}%
+          </span>
+        ) : null}
         {onSaveAll && completedCount > 0 ? (
           <button
             type="button"
             className="weq-exp-tasks-save-all"
             title="逐个选择路径保存全部已完成任务"
-            onClick={onSaveAll}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSaveAll();
+            }}
           >
             <Download size={14} />
             全部保存（{completedCount}）
           </button>
+        ) : null}
+        {hasTasks && onToggleExpanded ? (
+          <button
+            type="button"
+            className="weq-exp-tasks-toggle"
+            title={isExpanded ? '收起任务栏' : '展开任务栏'}
+            aria-label={isExpanded ? '收起任务栏' : '展开任务栏'}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleExpanded();
+            }}
+          >
+            <ChevronDown size={14} />
+          </button>
+        ) : null}
+        {/* 收拢时底部细进度条 */}
+        {!isExpanded && hasTasks ? (
+          <span className="weq-exp-tasks-mini-bar">
+            <span
+              className="weq-exp-tasks-mini-bar-fill"
+              style={{ width: `${overallProgress}%` }}
+            />
+          </span>
         ) : null}
       </header>
 
