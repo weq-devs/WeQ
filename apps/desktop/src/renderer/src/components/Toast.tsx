@@ -1,35 +1,45 @@
 /**
- * Lightweight auto-dismiss toasts — the success/notice counterpart to the modal
- * {@link DialogHost} (which is reserved for errors / confirms that block).
+ * Expandable toasts — bottom-right, auto-dismiss after 10s.
  *
- *   - useToast()    imperative store: push({ tone, message })
- *   - <ToastHost/>  mounted once near the root; stacks + auto-dismisses toasts
+ * Layout / animation / timer behavior mirror ./tmp/demo.html:
+ *   - header row: tone icon + title + actions (expand when detail exists, close)
+ *   - collapsible detail body (grid 0fr -> 1fr), with a copy button
+ *   - footer row: shows the remaining time (hovering the toast pauses it)
+ *   - bottom progress bar driven by the remaining time
  *
- * Kept deliberately tiny (no portal, no deps beyond zustand + lucide) so any
- * call site can fire a transient "保存成功" without wiring a modal.
+ *   - useToast()    imperative store: push({ tone, title, detail })
+ *   - <ToastHost/>  mounted once near the root; stacks toasts bottom-right
+ *
+ * Call sites historically passed `message` (and often `title` as well).
+ * Backward-compatible mapping keeps every existing call working:
+ *   - the single content becomes the title
+ *   - `detail` (or the old `message` when a `title` was also given) becomes
+ *     the expandable detail
  */
 
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactElement,
-  type ReactNode,
-} from 'react';
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { create } from 'zustand';
-import { Check, Info, AlertTriangle, XCircle, X, Copy } from 'lucide-react';
+import {
+  AlertTriangle,
+  Check,
+  ChevronDown,
+  CircleAlert,
+  CircleCheck,
+  CircleX,
+  Copy,
+  X,
+} from 'lucide-react';
 
 export type ToastTone = 'info' | 'warning' | 'error' | 'success';
 
 interface Toast {
   id: number;
   tone: ToastTone;
-  /** 主要内容，显示在标题下方 */
-  message: ReactNode;
-  /** 可选的次要信息，显示在 message 下方 */
+  /** 标题（第一行主内容） */
+  title: ReactNode;
+  /** 可选的详情，传入后显示展开按钮与复制按钮 */
   detail?: ReactNode;
-  /** Auto-dismiss delay in ms. */
+  /** Auto-dismiss delay in ms（默认 10 秒） */
   ttl: number;
 }
 
@@ -40,13 +50,13 @@ interface ToastStore {
   seq: number;
   push(input: {
     tone?: ToastTone;
-    /** 主要内容（新写法） */
+    /** 标题；兼容旧调用点的 message */
+    title?: ReactNode;
+    /** 旧写法的主内容，未传 title 时当作标题 */
     message?: ReactNode;
-    /** 可选的次要信息 */
+    /** 可选的详情（展开区域） */
     detail?: ReactNode;
     ttl?: number;
-    /** 向后兼容：支持旧的 title 字段 */
-    title?: string;
   }): void;
   /** 触发退场动画（自动过期 / 点击关闭） */
   dismiss(id: number): void;
@@ -58,12 +68,15 @@ export const useToast = create<ToastStore>((set, get) => ({
   toasts: [],
   leaving: [],
   seq: 0,
-  push({ tone = 'info', message, detail, title, ttl = 2600 }) {
+  push({ tone = 'info', title, message, detail, ttl = 10000 }) {
     const id = get().seq + 1;
-    // 向后兼容：如果传了 title，把它当作 message；原 message 当作 detail
-    const actualMessage = title || message;
-    const actualDetail = title ? message : detail;
-    set({ seq: id, toasts: [...get().toasts, { id, tone, message: actualMessage, detail: actualDetail, ttl }] });
+    // 兼容旧调用点：只传一个内容时它就是标题；传了 title 时旧 message 变成详情
+    const actualTitle = title ?? message ?? '';
+    const actualDetail = detail ?? (title != null ? message : undefined);
+    set({
+      seq: id,
+      toasts: [...get().toasts, { id, tone, title: actualTitle, detail: actualDetail, ttl }],
+    });
   },
   dismiss(id) {
     if (get().leaving.includes(id)) return;
@@ -77,11 +90,11 @@ export const useToast = create<ToastStore>((set, get) => ({
   },
 }));
 
-const TONE_CONFIG: Record<ToastTone, { icon: ReactElement; label: string }> = {
-  info: { icon: <Info size={20} strokeWidth={2.5} aria-hidden />, label: '提示' },
-  warning: { icon: <AlertTriangle size={20} strokeWidth={2.5} aria-hidden />, label: '警告' },
-  error: { icon: <XCircle size={20} strokeWidth={2.5} aria-hidden />, label: '错误' },
-  success: { icon: <Check size={20} strokeWidth={2.5} aria-hidden />, label: '成功' },
+const TONE_CONFIG: Record<ToastTone, { icon: ReactElement }> = {
+  info: { icon: <CircleAlert size={20} strokeWidth={2} aria-hidden /> },
+  warning: { icon: <AlertTriangle size={20} strokeWidth={2} aria-hidden /> },
+  error: { icon: <CircleX size={20} strokeWidth={2} aria-hidden /> },
+  success: { icon: <CircleCheck size={20} strokeWidth={2} aria-hidden /> },
 };
 
 /** 尽量把 ReactNode 还原成纯文本，用于复制（拿不到字符串时返回空串）。 */
@@ -117,13 +130,27 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-/** 退场动画时长，与 CSS 里 .weq-toast-leaving 保持一致。 */
-const LEAVE_MS = 200;
+/** 退场动画时长，与 CSS 里 .weq-toast.fade-out 的 transition 保持一致。 */
+const LEAVE_MS = 400;
 
 function ToastRow({ toast }: { toast: Toast }): ReactElement {
   const dismiss = useToast((s) => s.dismiss);
   const remove = useToast((s) => s.remove);
   const leaving = useToast((s) => s.leaving.includes(toast.id));
+
+  const [shown, setShown] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(toast.ttl);
+  const [copied, setCopied] = useState(false);
+  const timeLeftRef = useRef(toast.ttl);
+  const copiedTimerRef = useRef<number | undefined>(undefined);
+
+  // 进场动画：挂载后下一帧加上 show
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setShown(true));
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
   // 退场动画结束后真正移除
   useEffect(() => {
@@ -132,71 +159,24 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
     return () => clearTimeout(timer);
   }, [leaving, toast.id, remove]);
 
-  // 倒计时 + 底部进度条（悬停/聚焦时暂停）
-  const [remaining, setRemaining] = useState(toast.ttl);
-  const [paused, setPaused] = useState(false);
-  const startedAtRef = useRef<number>(Date.now());
-  const pausedAtRef = useRef<number>(0);
-
+  // 倒计时引擎：每 50ms 更新一次，暂停时跳过
   useEffect(() => {
-    if (paused || leaving) return;
+    if (leaving) return;
     const id = window.setInterval(() => {
-      const elapsed = Date.now() - startedAtRef.current;
-      if (elapsed >= toast.ttl) {
-        dismiss(toast.id);
-      } else {
-        setRemaining(toast.ttl - elapsed);
-      }
+      if (paused) return;
+      timeLeftRef.current = Math.max(0, timeLeftRef.current - 50);
+      setTimeLeft(timeLeftRef.current);
+      if (timeLeftRef.current <= 0) dismiss(toast.id);
     }, 50);
     return () => window.clearInterval(id);
-  }, [paused, leaving, toast.id, toast.ttl, dismiss]);
+  }, [paused, leaving, toast.id, dismiss]);
 
-  const pause = () => {
-    if (paused || leaving) return;
-    pausedAtRef.current = Date.now();
-    setPaused(true);
-  };
-  const resume = () => {
-    if (!paused) return;
-    startedAtRef.current += Date.now() - pausedAtRef.current;
-    setPaused(false);
-  };
-
-  // 文本溢出检测（message 最多 2 行、detail 最多 1 行），溢出时显示复制按钮
-  const textRef = useRef<HTMLDivElement>(null);
-  const [truncated, setTruncated] = useState(false);
-
-  useLayoutEffect(() => {
-    const el = textRef.current;
-    if (!el) return;
-    const check = () => {
-      // 逐个子元素检测：行数限制发生在每个子元素内部，容器自身量不出溢出
-      let clipped = false;
-      for (const child of Array.from(el.children)) {
-        if (child.scrollHeight > child.clientHeight + 1 || child.scrollWidth > child.clientWidth + 1) {
-          clipped = true;
-          break;
-        }
-      }
-      setTruncated(clipped);
-    };
-    check();
-    const ro = new ResizeObserver(check);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [toast.message, toast.detail]);
-
-  const [copied, setCopied] = useState(false);
-  const copiedTimerRef = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(copiedTimerRef.current), []);
 
-  const copyable = textOf(toast.message).length > 0 || (toast.detail != null && textOf(toast.detail).length > 0);
+  const hasDetail = toast.detail != null && textOf(toast.detail).length > 0;
 
   const handleCopy = async () => {
-    const messageText = textOf(toast.message);
-    const detailText = toast.detail != null ? textOf(toast.detail) : '';
-    const text = detailText ? `${messageText}\n${detailText}` : messageText;
-    const ok = await copyText(text);
+    const ok = await copyText(textOf(toast.detail));
     if (ok) {
       setCopied(true);
       window.clearTimeout(copiedTimerRef.current);
@@ -205,44 +185,93 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
   };
 
   const config = TONE_CONFIG[toast.tone];
-  const progress = toast.ttl > 0 ? Math.max(0, Math.min(100, (remaining / toast.ttl) * 100)) : 0;
+  const progress = toast.ttl > 0 ? Math.max(0, Math.min(100, (timeLeft / toast.ttl) * 100)) : 0;
+  const secondsLeft = Math.ceil(timeLeft / 1000);
 
   return (
     <div
-      className={`weq-toast weq-toast-${toast.tone} weq-anim-pop${leaving ? ' weq-toast-leaving' : ''}`}
+      className={`weq-toast weq-toast-${toast.tone}${shown ? ' show' : ''}${leaving ? ' fade-out' : ''}${expanded ? ' expanded' : ''}`}
       role="status"
-      onMouseEnter={pause}
-      onMouseLeave={resume}
-      onFocus={pause}
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onFocus={() => setPaused(true)}
       onBlur={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) resume();
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setPaused(false);
       }}
     >
-      <span className="weq-toast-icon" aria-hidden>
-        {config.icon}
-      </span>
-      <div className="weq-toast-text" ref={textRef}>
-        <strong className="weq-toast-title">{config.label}</strong>
-        <span className="weq-toast-msg">{toast.message}</span>
-        {toast.detail ? <span className="weq-toast-detail">{toast.detail}</span> : null}
-      </div>
-      <div className="weq-toast-actions">
-        {truncated && copyable ? (
+      {/* 第一行：标题栏 */}
+      <div className="weq-toast-header">
+        <div className="weq-toast-icon">{config.icon}</div>
+        <h3 className="weq-toast-title">{toast.title}</h3>
+        <div className="weq-toast-actions">
+          {hasDetail ? (
+            <button
+              type="button"
+              className="weq-toast-action"
+              onClick={() => setExpanded((v) => !v)}
+              aria-label={expanded ? '折叠详情' : '展开详情'}
+              title={expanded ? '折叠' : '展开'}
+            >
+              <ChevronDown
+                className="weq-toast-expand-icon"
+                size={16}
+                strokeWidth={2}
+                aria-hidden
+              />
+            </button>
+          ) : null}
           <button
             type="button"
             className="weq-toast-action"
-            onClick={handleCopy}
-            aria-label={copied ? '已复制' : '复制内容'}
-            title={copied ? '已复制' : '复制内容'}
+            onClick={() => dismiss(toast.id)}
+            aria-label="关闭"
+            title="关闭"
           >
-            {copied ? <Check size={14} strokeWidth={2.2} aria-hidden /> : <Copy size={14} strokeWidth={2.2} aria-hidden />}
+            <X size={16} strokeWidth={2} aria-hidden />
           </button>
-        ) : null}
-        <button type="button" className="weq-toast-action" onClick={() => dismiss(toast.id)} aria-label="关闭" title="关闭">
-          <X size={14} strokeWidth={2} aria-hidden />
-        </button>
+        </div>
       </div>
-      <span className="weq-toast-progress" style={{ width: `${progress}%` }} aria-hidden />
+
+      {/* 中间：详细内容（默认折叠） */}
+      {hasDetail ? (
+        <div className="weq-toast-body-wrapper">
+          <div className="weq-toast-body">
+            <div className="weq-toast-content">
+              <div className="weq-toast-detail">{toast.detail}</div>
+              <button
+                type="button"
+                className="weq-toast-copy"
+                onClick={handleCopy}
+                aria-label={copied ? '已复制' : '复制详情'}
+              >
+                {copied ? (
+                  <Check size={13} strokeWidth={2.2} aria-hidden />
+                ) : (
+                  <Copy size={13} strokeWidth={2} aria-hidden />
+                )}
+                {copied ? '已复制' : '复制'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* 第二行：倒计时信息区（悬停整张卡片即可暂停） */}
+      <div className="weq-toast-footer">
+        <span className="weq-toast-timer-text">
+          {paused ? '已暂停自动关闭' : `将在 ${secondsLeft} 秒后关闭`}
+        </span>
+
+        {/*<span className={`weq-toast-timer-action${paused ? ' paused' : ''}`}>*/}
+        {/*  {paused ? '移开继续' : '悬停暂停'}*/}
+        {/*</span>*/}
+
+      </div>
+
+      {/* 底部倒计时进度条 */}
+      <div className="weq-toast-progress-container">
+        <div className="weq-toast-progress-bar" style={{ width: `${progress}%` }} aria-hidden />
+      </div>
     </div>
   );
 }

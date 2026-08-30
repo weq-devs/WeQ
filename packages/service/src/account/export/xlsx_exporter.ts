@@ -22,7 +22,7 @@ import {
   toExportedMessage,
   type RoamMessageSource,
 } from './message_source';
-import { TABLE_HEADERS, messageToCells, annotateLocalPaths } from './element_text';
+import { TABLE_HEADERS, messageToCells, annotateLocalPaths, collectFaceIds } from './element_text';
 import { expandForwards } from './forward_expand';
 import type { ConvKind, ExportResult, ExportTimeRange, ProgressCallback } from './types';
 
@@ -44,6 +44,8 @@ export interface XlsxExportOptions {
   progressEvery?: number;
   /** When provided, each message's sender uin is collected (avatar export). */
   collectSenders?: Set<string>;
+  /** 收集 QQ 系统表情 faceId（sysface 导出阶段用）。 */
+  collectFaces?: Set<string>;
   /** Inclusive send-time window; messages outside it are skipped. */
   range?: ExportTimeRange;
   /** Stamp media elements with their bundle relative path (`data.localPath`). */
@@ -78,8 +80,16 @@ export async function exportToXlsx(
 
   const iterator =
     opts.kind === 'group'
-      ? iterateGroupMessages(msgs, opts.conv, { pageSize: opts.pageSize, range: opts.range, roam: opts.roam })
-      : iterateC2cMessages(msgs, opts.conv, { pageSize: opts.pageSize, range: opts.range, roam: opts.roam });
+      ? iterateGroupMessages(msgs, opts.conv, {
+          pageSize: opts.pageSize,
+          range: opts.range,
+          roam: opts.roam,
+        })
+      : iterateC2cMessages(msgs, opts.conv, {
+          pageSize: opts.pageSize,
+          range: opts.range,
+          roam: opts.roam,
+        });
 
   let count = 0;
   for await (const m of iterator) {
@@ -92,6 +102,7 @@ export async function exportToXlsx(
     }
     const exported = toExportedMessage(m);
     opts.collectSenders?.add(exported.senderUin);
+    if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
     await expandForwards(msgs, opts.kind, exported);
     if (opts.withMediaPaths) annotateLocalPaths(exported.elements);
     sheet.addRow(messageToCells(exported)).commit();

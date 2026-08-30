@@ -850,10 +850,11 @@ export const ElementWire = {
   superEmojiFlag2: ProtoField(47606, ScalarType.UINT32, { optional: true }),
 
   /**
-   * Super-emoji dice roll, "1".."6" as string. Only present when subType=3
-   * AND faceId points at the dice face.
+   * Inner id of an interactive face — a per-faceId index ("1".."6" as string)
+   * selecting which `lottie/<faceId>_<innerId>.json` result clip to play.
+   * Only present when subType=3 (super emoji).
    */
-  diceValue: ProtoField(47607, ScalarType.STRING, { optional: true }),
+  innerId: ProtoField(47607, ScalarType.STRING, { optional: true }),
 
   /** Unknown length-delimited field. Optional for FACE elements. */
   faceFlag47608: ProtoField(47608, ScalarType.BYTES, { optional: true }),

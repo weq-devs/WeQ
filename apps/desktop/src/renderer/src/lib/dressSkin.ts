@@ -90,20 +90,29 @@ const PAD_RATIO_Y = 0.6;
 
 const STYLE_ID = 'weq-dress-skin';
 
+/** chat.css 里已声明「自带外观、不要气泡底」的消息类型(贴纸 / 独图 / 卡片 / 语音条)。 */
+const BUBBLE_CONTENT_EXCLUSIONS =
+  ':not(.sticker-only):not(.markdown-image-only):not(.qq-card-only):not(.qq-voice-only)';
+
 /**
  * 装扮生效的消息气泡选择器。
- *
- * `:not(…)` 那串排除的是 chat.css 里已经声明「自带外观、不要气泡底」的几类
- * (贴纸 / 独图 / 卡片 / 语音条),给它们套气泡会把卡片框在一个不该有的框里。
  *
  * scope 决定作用到谁:`mine` 只管自己的消息(手 Q 语义),`all` 连对方的一起。
  */
 function bubbleSelector(scope: DressScope): string {
   const line = scope === 'all' ? '.message-line' : '.message-line.mine';
-  return (
-    `${line} .message-content` +
-    ':not(.sticker-only):not(.markdown-image-only):not(.qq-card-only):not(.qq-voice-only)'
-  );
+  return `${line} .message-content${BUBBLE_CONTENT_EXCLUSIONS}`;
+}
+
+/**
+ * 对方消息的气泡选择器。
+ *
+ * QQ 的九宫格素材按「自己的右侧气泡」绘制(尖角/装饰朝左);放在左侧的对方消息上
+ * 必须左右镜像,尖角才朝右指向会话中心。所以 scope=all 时对 `.message-line.theirs`
+ * 额外注入一组镜像规则。
+ */
+function theirsBubbleSelector(): string {
+  return `.message-line.theirs .message-content${BUBBLE_CONTENT_EXCLUSIONS}`;
 }
 
 /** 四舍五入到 2 位小数,避免 0.5 缩放产生一长串浮点尾巴。 */
@@ -222,9 +231,46 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
     `}`,
   ];
 
+  // 对方消息镜像:同一张素材直接放左侧,尖角/装饰会朝外,看起来「反的」。QQ 自己
+  // 就是把素材左右镜像后贴到对方消息上的。不能对整个 .message-content 做
+  // scaleX(-1) —— 文字会跟着镜像;所以静态底/帧动画挪到 ::before 上翻转,文字
+  // 留在元素自身不动。
+  const theirsSel = scope === 'all' ? theirsBubbleSelector() : null;
+  if (theirsSel) {
+    rules.push(
+      // 元素本体不再贴底(镜像后的贴图由 ::before 承担);帧动画的 keyframes 会
+      // 重写 border-image-source,必须把元素动画一并关掉,否则帧图会盖回来。
+      `${theirsSel} {`,
+      `  border-image-source: none;`,
+      frameAnim ? `  animation: none;` : '',
+      `}`,
+      `${theirsSel}::before {`,
+      `  content: "";`,
+      `  position: absolute;`,
+      `  inset: 0;`,
+      `  z-index: -1;`,
+      `  pointer-events: none;`,
+      `  border-style: solid;`,
+      `  border-width: 0;`,
+      `  border-image-source: url("${bubbleImageUrl(skin)}");`,
+      `  border-image-slice: ${slice};`,
+      `  border-image-width: ${width};`,
+      `  border-image-repeat: stretch;`,
+      `  border-radius: 0;`,
+      `  transform: scaleX(-1);`,
+      frameAnim ? `  animation: ${frameAnim.animation};` : '',
+      `}`,
+    );
+  }
+
   // 减少动态效果偏好:定格在第一帧,不循环切换。
   if (frameAnim) {
-    rules.push(`@media (prefers-reduced-motion: reduce) {`, `  ${sel} { animation: none; }`, `}`);
+    rules.push(
+      `@media (prefers-reduced-motion: reduce) {`,
+      `  ${sel} { animation: none; }`,
+      theirsSel ? `  ${theirsSel}::before { animation: none; }` : '',
+      `}`,
+    );
   }
 
   // 动效层:同一套 slice/width,叠在静态底之上。APNG 由浏览器自己播,无需 keyframes。
@@ -246,6 +292,9 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
       `  border-image-repeat: stretch;`,
       `}`,
     );
+    if (theirsSel) {
+      rules.push(`${theirsSel}::after { transform: scaleX(-1); }`);
+    }
   }
 
   // 右键选中:贴图盖住了 background,改用 outline 提示。

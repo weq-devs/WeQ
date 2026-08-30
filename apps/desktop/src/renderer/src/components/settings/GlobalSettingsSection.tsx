@@ -140,6 +140,11 @@ export function GlobalSettingsSection(): ReactElement {
   async function onOpenLogDir(): Promise<void> {
     try {
       await window.weq.openLogDir();
+      pushToast({
+        tone: 'success',
+        title: '已打开日志文件夹',
+        detail: '日志按日期拆分保存，反馈问题时可将最新日志一并附上。',
+      });
     } catch (e) {
       showError('打开日志文件夹失败', errMsg(e));
     }

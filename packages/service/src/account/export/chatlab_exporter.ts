@@ -28,8 +28,13 @@ import type { MsgService } from '../msg';
 import type { RenderElement } from '../msg_view';
 import { toExportedMessage, type RoamMessageSource } from './message_source';
 import { expandForwards } from './forward_expand';
-import { forwardToText } from './element_text';
-import { ChatlabMessageType, type ChatlabHeader, type ChatlabMember, type ChatlabMessage } from './chatlab_types';
+import { forwardToText, collectFaceIds } from './element_text';
+import {
+  ChatlabMessageType,
+  type ChatlabHeader,
+  type ChatlabMember,
+  type ChatlabMessage,
+} from './chatlab_types';
 import {
   avatarUrlForUin,
   fallbackSender,
@@ -40,7 +45,13 @@ import {
   type ResolvedSender,
   type SenderResolveDeps,
 } from './sender_resolve';
-import type { ConvKind, ExportedMessage, ExportResult, ExportTimeRange, ProgressCallback } from './types';
+import type {
+  ConvKind,
+  ExportedMessage,
+  ExportResult,
+  ExportTimeRange,
+  ProgressCallback,
+} from './types';
 
 /** ChatLab spec version this exporter targets. */
 const CHATLAB_VERSION = '0.0.2';
@@ -70,6 +81,8 @@ export interface ChatlabExportOptions {
   progressEvery?: number;
   /** When provided, each message's sender uin is collected (for avatar export). */
   collectSenders?: Set<string>;
+  /** 收集 QQ 系统表情 faceId（sysface 导出阶段用）。 */
+  collectFaces?: Set<string>;
 }
 
 /** Drop a trailing extension: `AB.MP4` → `AB` (kept for label readability). */
@@ -165,19 +178,28 @@ function renderContent(elements: RenderElement[]): string {
 const TYPE_PRIORITY: Array<{ test: (el: RenderElement) => boolean; type: ChatlabMessageType }> = [
   { test: (el) => el.type === 'ptt', type: ChatlabMessageType.VOICE },
   { test: (el) => el.type === 'video', type: ChatlabMessageType.VIDEO },
-  { test: (el) => el.type === 'file' || el.type === 'onlineFile' || el.type === 'grayTipFileRecv', type: ChatlabMessageType.FILE },
+  {
+    test: (el) => el.type === 'file' || el.type === 'onlineFile' || el.type === 'grayTipFileRecv',
+    type: ChatlabMessageType.FILE,
+  },
   { test: (el) => el.type === 'multiMsg', type: ChatlabMessageType.FORWARD },
   { test: (el) => el.type === 'ark' || el.type === 'qqDynamic', type: ChatlabMessageType.SHARE },
   { test: (el) => el.type === 'call', type: ChatlabMessageType.CALL },
   { test: (el) => el.type === 'wallet', type: ChatlabMessageType.RED_PACKET },
   { test: (el) => el.type === 'pic' && el.data.subType !== 1, type: ChatlabMessageType.IMAGE },
   {
-    test: (el) => (el.type === 'pic' && el.data.subType === 1) || el.type === 'mface' || el.type === 'emojiBounce',
+    test: (el) =>
+      (el.type === 'pic' && el.data.subType === 1) ||
+      el.type === 'mface' ||
+      el.type === 'emojiBounce',
     type: ChatlabMessageType.EMOJI,
   },
   { test: (el) => el.type === 'grayTipRevoke', type: ChatlabMessageType.RECALL },
   { test: (el) => el.type === 'grayTipPoke', type: ChatlabMessageType.POKE },
-  { test: (el) => el.type === 'grayTipGroup' || el.type === 'grayTipXml', type: ChatlabMessageType.SYSTEM },
+  {
+    test: (el) => el.type === 'grayTipGroup' || el.type === 'grayTipXml',
+    type: ChatlabMessageType.SYSTEM,
+  },
   {
     test: (el) => el.type === 'grayTipTempSession' || el.type === 'shareLocation',
     type: ChatlabMessageType.SYSTEM,
@@ -271,7 +293,11 @@ export async function exportToChatlab(
 
   const header: ChatlabHeader = {
     _type: 'header',
-    chatlab: { version: CHATLAB_VERSION, exportedAt: Math.floor(Date.now() / 1000), generator: GENERATOR },
+    chatlab: {
+      version: CHATLAB_VERSION,
+      exportedAt: Math.floor(Date.now() / 1000),
+      generator: GENERATOR,
+    },
     meta: {
       name: groupName,
       platform: PLATFORM,
@@ -295,11 +321,13 @@ export async function exportToChatlab(
       for await (const raw of iterateConv(msgs, opts.kind, opts.conv, opts.range, opts.roam)) {
         const exported = toExportedMessage(raw);
         opts.collectSenders?.add(exported.senderUin);
+        if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
         await expandForwards(msgs, opts.kind, exported);
         const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
         await writer.write(`${JSON.stringify(toChatlabMessage(exported, sender))}\n`);
         count += 1;
-        if (count % progressEvery === 0) opts.onProgress?.({ current: count, message: `已导出 ${count} 条` });
+        if (count % progressEvery === 0)
+          opts.onProgress?.({ current: count, message: `已导出 ${count} 条` });
       }
     } else {
       // JSON: a single object — chatlab + meta + members[] + messages[].
@@ -318,13 +346,15 @@ export async function exportToChatlab(
       for await (const raw of iterateConv(msgs, opts.kind, opts.conv, opts.range, opts.roam)) {
         const exported = toExportedMessage(raw);
         opts.collectSenders?.add(exported.senderUin);
+        if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
         await expandForwards(msgs, opts.kind, exported);
         const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
         const { _type, ...rest } = toChatlabMessage(exported, sender);
         void _type;
         await writer.write((count === 0 ? '' : ',\n') + JSON.stringify(rest));
         count += 1;
-        if (count % progressEvery === 0) opts.onProgress?.({ current: count, message: `已导出 ${count} 条` });
+        if (count % progressEvery === 0)
+          opts.onProgress?.({ current: count, message: `已导出 ${count} 条` });
       }
       await writer.write('\n]\n}\n');
     }

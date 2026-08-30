@@ -51,6 +51,11 @@ export type {
   ExternalRkeyServerConfig,
   SsePushConfig,
   SsePushServerConfig,
+  ExportPresets,
+  ExportPresetVariant,
+  ExportLightboxPreset,
+  ExportScheduledPreset,
+  ExportPresetOptions,
 } from './bootstrap/user_config';
 export { AgentLabConfigService } from './bootstrap/agentlab_config';
 
@@ -464,6 +469,13 @@ export {
 } from './account/export';
 export { ExportTaskManager } from './account/export/task_manager';
 export { ExportScheduler } from './account/export/scheduler';
+export type {
+  DressExportKinds,
+  DressUsage,
+  DressExportManifest,
+  DressExportResult,
+  DressExportFailure,
+} from './account/export/dress_export';
 export type {
   ScheduleConfig,
   ScheduleOptions,

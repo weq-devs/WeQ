@@ -8,9 +8,10 @@
  *   - Inline faces (small, `animated` unset) show the static APNG.
  *   - Big faces (`animated`) prefer the looping Lottie at `<id>/lottie/<id>.json`
  *     when present, falling back to the static APNG when the dir has none.
- *   - Interactive faces (114 篮球, 358 骰子, 359 石头剪刀布) carry a `diceValue` and
- *     play an intro Lottie then the result clip at `<id>/lottie/<id>_<value>.json`.
- *     A "0"/missing/out-of-range value falls back to the static APNG.
+ *   - Any face carrying a non-empty, non-zero `innerId` (the per-faceId index
+ *     behind the old "骰子点数") plays an intro Lottie then the result clip at
+ *     `<id>/lottie/<id>_<innerId>.json`. A missing/"0"/non-numeric value falls
+ *     back to the static APNG.
  *   - subType=5 poke faces (戳一戳) render a static PNG from the bundled
  *     `resources/pokeemoji/<faceId>.png` set (ids 0-6; out-of-range → 0).
  *
@@ -27,14 +28,12 @@ import { cn } from '@renderer/lib/utils';
 import { UNICODE_FACE_MAP } from './unicodeFaceMap';
 
 /**
- * Interactive faces. `max` = highest valid `diceValue` (values run 1..max);
- * `introPlays` = how many times the intro clip repeats before the result clip.
- * QQ shuffles 石头剪刀布 twice before revealing, but tumbles the 骰子 once.
+ * How many times the neutral intro clip (`<id>/lottie/<id>.json`) repeats
+ * before the result clip. Everything defaults to once; QQ shuffles 石头剪刀布
+ * twice before revealing.
  */
-const LOTTIE_FACES: Record<number, { max: number; introPlays: number }> = {
-  114: { max: 6, introPlays: 1 }, // 篮球
-  358: { max: 6, introPlays: 1 }, // 骰子
-  359: { max: 3, introPlays: 2 }, // 石头剪刀布
+const INTRO_PLAYS: Record<number, number> = {
+  359: 2, // 石头剪刀布
 };
 
 /** subType=5 poke faces stream from resources/pokeemoji/<faceId>.png (ids 0-6). */
@@ -42,7 +41,7 @@ const POKE_FACE_SUBTYPE = 5;
 const POKE_FACE_MAX_ID = 6;
 
 export type FaceEmojiProps = {
-  element: Pick<FaceElement, 'faceId' | 'diceValue'> & {
+  element: Pick<FaceElement, 'faceId' | 'innerId'> & {
     faceText?: string;
     subType?: number;
   };
@@ -64,7 +63,7 @@ function toLength(size: number | string | undefined): string | undefined {
 }
 
 export function FaceEmoji({ element, size, animated, className, isSender = true }: FaceEmojiProps) {
-  const { faceId, faceText, diceValue, subType } = element;
+  const { faceId, faceText, innerId, subType } = element;
   const label = faceText || `[表情${faceId}]`;
   const dim = toLength(size);
   const boxStyle = dim ? { width: dim, height: dim } : undefined;
@@ -111,21 +110,19 @@ export function FaceEmoji({ element, size, animated, className, isSender = true 
     );
   }
 
-  const interactive = LOTTIE_FACES[faceId];
-  const diceNum = diceValue ? Number(diceValue) : 0;
-  const useInteractive =
-    interactive !== undefined &&
-    Number.isInteger(diceNum) &&
-    diceNum >= 1 &&
-    diceNum <= interactive.max;
+  // Any face with a non-empty, non-zero innerId is an interactive result: play
+  // the neutral intro (e.g. shuffle/tumble) a few times, then the result clip,
+  // which holds on its final frame.
+  const innerNum = innerId ? Number(innerId) : 0;
+  const useInner = innerId !== undefined && Number.isInteger(innerNum) && innerNum > 0;
 
-  if (useInteractive) {
+  if (useInner) {
     // Repeat the neutral intro (e.g. shuffle) introPlays times, then the result
     // clip, which holds on its final frame.
     const intro = emojiUrl(idStr, 'lottie', `${faceId}.json`);
     const sources = [
-      ...Array.from({ length: interactive.introPlays }, () => intro),
-      emojiUrl(idStr, 'lottie', `${faceId}_${diceNum}.json`),
+      ...Array.from({ length: INTRO_PLAYS[faceId] ?? 1 }, () => intro),
+      emojiUrl(idStr, 'lottie', `${faceId}_${innerNum}.json`),
     ];
     return (
       <FaceLottie

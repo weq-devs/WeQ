@@ -12,8 +12,10 @@
 .weq-exp {
   position: relative;
   isolation: isolate;
-  display: flex;
-  flex-direction: column;
+  /* 上半区 + 底部任务栏：收拢时任务栏在流内占 36px，pane 不会钻到 head 下面；
+     展开时任务栏脱离文档流成为覆盖层，上半区自动占满。 */
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
   height: 100%;
   min-height: 0;
   /* Shared themed canvas (same --chat-surface as chat + contacts). */
@@ -26,8 +28,10 @@
 .weq-exp-top {
   flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
   display: grid;
   grid-template-columns: 212px minmax(0, 1fr);
+  grid-template-rows: 1fr;
   gap: 14px;
   padding: 14px 14px 10px;
 }
@@ -113,6 +117,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
   border: 1px solid rgba(0, 0, 0, 0.07);
   border-radius: 14px;
   /* Frosted so the themed canvas glows through the export panel. */
@@ -581,6 +586,27 @@
   animation: weq-exp-pop 170ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* 重构后的分板块宽灯箱 */
+.weq-exp-dialog.is-wide {
+  width: min(920px, 96vw);
+}
+
+.weq-exp-dialog.is-wide .weq-exp-dialog-body {
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  align-items: start;
+}
+
+.weq-exp-col {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-width: 0;
+}
+
+.weq-exp-album-pane {
+  grid-column: 1 / -1;
+}
+
 .weq-exp-album-dialog {
   width: min(620px, 94vw);
 }
@@ -663,6 +689,12 @@
   background: #fbfdff;
 }
 
+.weq-exp-dialog-foot-note {
+  margin-right: auto;
+  font-size: 11.5px;
+  color: #8a94a4;
+}
+
 .weq-exp-btn {
   display: inline-flex;
   align-items: center;
@@ -697,6 +729,269 @@
 .weq-exp-btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+/* ===== 灯箱 · 大按钮主开关 ===== */
+.weq-exp-master {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  background: #fbfdff;
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+.weq-exp-master + .weq-exp-master {
+  margin-top: 7px;
+}
+
+.weq-exp-master.is-on {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 5%, #ffffff);
+}
+
+.weq-exp-master.is-disabled {
+  opacity: 0.62;
+}
+
+.weq-exp-master-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 11%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+.weq-exp-master-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.weq-exp-master-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2430;
+}
+
+.weq-exp-master-badge {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-effective);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.weq-exp-master-desc {
+  font-size: 11px;
+  color: #8a94a4;
+  line-height: 1.4;
+}
+
+/* ===== 灯箱 · 小多选 chips（媒体子类 / 装扮子类 / 补全） ===== */
+.weq-exp-kinds-wrap {
+  display: flex;
+  padding: 7px 0 7px 10px;
+  border-left: 2px solid color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
+  margin: 0 0 7px 12px;
+}
+
+.weq-exp-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.weq-exp-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3.5px 9px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 999px;
+  background: #ffffff;
+  color: #51677c;
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 130ms ease, color 130ms ease, background-color 130ms ease;
+}
+
+.weq-exp-kind:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+.weq-exp-kind.is-on {
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  color: var(--weq-accent-effective);
+  font-weight: 600;
+}
+
+.weq-exp-kind.is-on svg {
+  flex: none;
+}
+
+.weq-exp-kind-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.35;
+}
+
+.weq-exp-kinds.is-disabled .weq-exp-kind {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* ===== 灯箱 · 导出格式多选 ===== */
+.weq-exp-format-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.weq-exp-format {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px 8px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 9px;
+  background: #ffffff;
+  color: #51677c;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 130ms ease, color 130ms ease, background-color 130ms ease;
+}
+
+.weq-exp-format:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+.weq-exp-format.is-on {
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  color: var(--weq-accent-effective);
+  font-weight: 600;
+}
+
+.weq-exp-format.is-on svg {
+  flex: none;
+}
+
+.weq-exp-format.is-blocked {
+  cursor: not-allowed;
+  opacity: 0.45;
+  filter: grayscale(0.4);
+}
+
+.weq-exp-format.is-blocked:hover {
+  border-color: rgba(0, 0, 0, 0.1);
+  color: #51677c;
+}
+
+/* ===== 灯箱 · 补全选项 ===== */
+.weq-exp-block-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #445161;
+}
+
+.weq-exp-block-step {
+  display: inline-grid;
+  place-items: center;
+  min-width: 30px;
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  color: var(--weq-accent-effective);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.weq-exp-block-hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #a0a9b5;
+}
+
+/* ===== 灯箱 · 补全选项（4.1 / 4.2 / 4.3 统一样式） ===== */
+.weq-exp-step-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
+}
+
+.weq-exp-step-row + .weq-exp-step-row {
+  border-top: 1px dashed rgba(0, 0, 0, 0.07);
+}
+
+.weq-exp-step-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.weq-exp-step-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 auto;
+  padding-top: 1px;
+}
+
+.weq-exp-step-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #445161;
+}
+
+.weq-exp-step-desc {
+  font-size: 11px;
+  line-height: 1.45;
+  color: #8a94a4;
+}
+
+.weq-exp-step-ctrl {
+  flex: none;
+  align-self: center;
+}
+
+.weq-exp-step-wide {
+  padding-left: 38px;
+}
+
+@media (max-width: 860px) {
+  .weq-exp-dialog.is-wide .weq-exp-dialog-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .weq-exp-format-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .weq-exp-path {
@@ -795,6 +1090,95 @@
   object-fit: cover;
 }
 
+/* ── 群文件导出灯箱：复用聊天页 group-file 卡片样式 + 选择框 ── */
+
+.weq-exp-file-toolbar {
+  margin-top: 12px;
+}
+
+.weq-exp-file-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  margin-bottom: 10px;
+}
+
+.weq-exp-file-list {
+  max-height: min(420px, 54vh);
+  min-height: 180px;
+  align-content: start;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.weq-exp-file-row {
+  gap: 10px;
+  padding: 8px 12px;
+}
+
+.weq-exp-file-row.is-on {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 38%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+.weq-exp-file-nav {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.weq-exp-file-nav:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.weq-exp-file-check {
+  display: inline-grid;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  place-items: center;
+  border: 1.5px solid rgba(0, 0, 0, 0.16);
+  border-radius: 6px;
+  background: transparent;
+  color: #ffffff;
+  cursor: pointer;
+  padding: 0;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.weq-exp-file-check:hover:not(:disabled) {
+  border-color: var(--weq-accent-effective);
+}
+
+.weq-exp-file-check:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.weq-exp-file-check.is-full {
+  border-color: var(--weq-accent-effective);
+  background: var(--weq-accent-effective);
+}
+
+.weq-exp-file-check.is-partial {
+  border-color: var(--weq-accent-effective);
+  color: var(--weq-accent-effective);
+}
+
+.weq-exp-file-row.is-on .group-file-chevron {
+  opacity: 0.7;
+}
+
 .weq-exp-placeholder {
   display: flex;
   flex-direction: column;
@@ -882,19 +1266,55 @@
 .weq-exp-range-summary {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
+  padding: 5px 8px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 8px;
+  background: #fbfdff;
   font-size: 12.5px;
   color: #445161;
+}
+
+.weq-exp-range-summary-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .weq-exp-range-arrow {
   color: var(--weq-accent-effective);
 }
 
+.weq-exp-range-tag {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.05);
+  color: #8a94a4;
+  font-size: 10.5px;
+}
+
+.weq-exp-range-clear {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--weq-accent-effective);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+.weq-exp-range-clear:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
 .weq-exp-cal {
   border: 1px solid rgba(0, 0, 0, 0.07);
   border-radius: 11px;
-  padding: 10px 12px 8px;
+  padding: 7px 9px 6px;
   background: #fbfdff;
 }
 
@@ -902,16 +1322,16 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 8px;
+  margin-bottom: 5px;
 }
 
 .weq-exp-cal-head button {
   display: inline-grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 25px;
+  height: 25px;
   border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 8px;
+  border-radius: 7px;
   background: #ffffff;
   color: #51677c;
   cursor: pointer;
@@ -923,7 +1343,7 @@
 }
 
 .weq-exp-cal-title {
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
   color: #283342;
 }
@@ -931,26 +1351,26 @@
 .weq-exp-cal-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 2px;
+  gap: 1px;
 }
 
 .weq-exp-cal-wd {
   display: grid;
   place-items: center;
-  height: 26px;
-  font-size: 11px;
+  height: 21px;
+  font-size: 10.5px;
   color: #97a2b0;
 }
 
 .weq-exp-cal-cell {
   display: grid;
   place-items: center;
-  height: 30px;
+  height: 26px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 7px;
   background: transparent;
   color: #44516a;
-  font-size: 12.5px;
+  font-size: 11.5px;
   cursor: pointer;
   transition: background-color 110ms ease, color 110ms ease;
 }
@@ -975,13 +1395,13 @@
 .weq-exp-cal-cell.is-end {
   background: var(--weq-accent-effective);
   color: #ffffff;
-  border-radius: 8px;
+  border-radius: 7px;
   font-weight: 600;
 }
 
 .weq-exp-cal-hint {
-  margin: 8px 2px 0;
-  font-size: 11px;
+  margin: 6px 2px 0;
+  font-size: 10.5px;
   color: #aeb7c3;
 }
 
@@ -996,24 +1416,136 @@
   border-radius: 7px;
 }
 
-/* ===== 底部任务列表 ===== */
+/* ===== 导出任务中心（卡片 + 详情 + 滚动日志） ===== */
+/* 收拢 = 底部固定窄条（36px）；展开 = 向上展开覆盖层 */
 .weq-exp-tasks {
-  flex: 0 0 auto;
+  position: relative;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  height: clamp(168px, 30vh, 300px);
+  /* 收拢时只露出 header 高度 */
+  height: 36px;
   border-top: 1px solid rgba(0, 0, 0, 0.08);
-  background: rgba(255, 255, 255, 0.4);
-  backdrop-filter: blur(12px);
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(16px);
+  overflow: hidden;
+  transition: height 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 300ms ease;
+}
+
+.weq-exp-tasks.is-expanded {
+  /* 展开时向上覆盖，遮住 pane 底部即可（此时上半区已占满）。 */
+  position: absolute;
+  height: clamp(260px, 48vh, 480px);
+  overflow: visible;
+  box-shadow: 0 -10px 36px -10px rgba(7, 31, 61, 0.25);
+}
+
+/* 收拢时隐藏卡片和详情 */
+.weq-exp-tasks:not(.is-expanded) .weq-exp-detail,
+.weq-exp-tasks:not(.is-expanded) .weq-exp-cards {
+  display: none;
+}
+
+/* 空任务状态始终定位为覆盖层（相对定位） */
+.weq-exp-tasks.is-empty-state {
+  position: relative;
+  height: 36px;
+}
+
+.weq-exp-tasks.is-empty-state.is-expanded {
+  height: clamp(260px, 48vh, 480px);
 }
 
 .weq-exp-tasks-head {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 16px 6px;
+  padding: 0 16px;
+  height: 36px;
   flex: none;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid transparent;
+  transition: background 160ms ease, border-color 200ms ease;
+}
+
+.weq-exp-tasks-head:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.weq-exp-tasks.is-expanded .weq-exp-tasks-head {
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+
+/* 展开/收起切换图标 */
+.weq-exp-tasks-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 7px;
+  background: transparent;
+  color: #97a2b0;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease, transform 200ms ease;
+}
+
+.weq-exp-tasks-toggle:hover {
+  border-color: rgba(0, 153, 255, 0.45);
+  color: #0099ff;
+}
+
+.weq-exp-tasks-toggle svg {
+  transition: transform 240ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 收拢时朝上（向上展开）；展开时旋转朝下（收起回落） */
+.weq-exp-tasks.is-expanded .weq-exp-tasks-toggle svg {
+  transform: rotate(180deg);
+}
+
+.weq-exp-tasks-head {
+  position: relative;
+}
+
+/* ---- 收拢时的迷你状态文字 + 底部细进度条 ---- */
+.weq-exp-tasks-mini-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  color: #8a94a4;
+  white-space: nowrap;
+  flex: none;
+}
+
+.weq-exp-tasks-mini-status.is-done {
+  color: var(--weq-accent-effective);
+}
+
+.weq-exp-tasks-mini-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.weq-exp-tasks-mini-bar-fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--weq-accent-effective), color-mix(in srgb, var(--weq-accent-effective) 72%, white));
+  transition: width 0.4s ease;
 }
 
 .weq-exp-tasks-title {
@@ -1055,16 +1587,6 @@
   background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
 }
 
-.weq-exp-tasks-list {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 0 14px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
 .weq-exp-tasks-empty {
   display: flex;
   flex-direction: column;
@@ -1085,45 +1607,197 @@
   font-size: 11.5px;
 }
 
-.weq-exp-task {
+/* ---- 顶部任务小卡片（横向滚动） ---- */
+.weq-exp-cards {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 11px 13px;
-  border: 1px solid rgba(0, 0, 0, 0.07);
-  border-radius: 11px;
-  background: color-mix(in srgb, #ffffff 52%, transparent);
-  backdrop-filter: blur(8px);
-  box-shadow: 0 6px 18px -16px rgba(7, 31, 61, 0.4);
+  gap: 8px;
+  flex: none;
+  padding: 2px 14px 8px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  transition: padding 200ms ease;
 }
 
-.weq-exp-task-kind {
+.weq-exp-card {
+  position: relative;
+  overflow: hidden;
+  flex: 0 0 164px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 10px;
+  background: color-mix(in srgb, #ffffff 55%, transparent);
+  backdrop-filter: blur(8px);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease, box-shadow 150ms ease,
+  transform 120ms ease;
+}
+
+/* 卡片背景 = 进度条：主题色自左向右填充，右缘为平滑正弦波浪（竖向流动）。 */
+.weq-exp-card-progress {
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 0;
+  /* 填充本体由 .weq-exp-card-wavefill 的正弦波路径绘制（currentColor）。 */
+  color: color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
+  transition: width 0.35s ease;
+}
+
+/* 100% 时切换为完全实色填充（不再显示波浪缺口）。 */
+.weq-exp-card-progress.is-full {
+  background: currentColor;
+}
+
+/* 波浪填充：右缘为平滑正弦曲线，波峰探出填充边界、波谷切回填充内部；
+   动画竖向平移一个波长无缝循环，波浪随进度向右推进。 */
+.weq-exp-card-wavefill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 300%;
+  overflow: visible;
+  pointer-events: none;
+  animation: weq-exp-card-wave-flow 7s linear infinite;
+}
+
+.weq-exp-card-wavefill-body {
+  fill: currentColor;
+}
+
+.weq-exp-card-wavefill-line {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.62);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.weq-exp-card-wavefill-line.is-b {
+  stroke: rgba(255, 255, 255, 0.32);
+}
+
+html[data-theme="dark"] .weq-exp-card-wavefill-line {
+  stroke: rgba(255, 255, 255, 0.28);
+}
+
+html[data-theme="dark"] .weq-exp-card-wavefill-line.is-b {
+  stroke: rgba(255, 255, 255, 0.15);
+}
+
+@keyframes weq-exp-card-wave-flow {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-66.6667%);
+  }
+}
+
+.weq-exp-card-progress.is-failed {
+  color: rgba(220, 68, 68, 0.26);
+}
+
+.weq-exp-card-progress.is-paused {
+  color: rgba(201, 138, 46, 0.26);
+}
+
+/* 排队 / 刚启动还没有进度：skeleton 占位 + shimmer 扫光。 */
+.weq-exp-card-skeleton {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(
+    110deg,
+    transparent 22%,
+    rgba(255, 255, 255, 0.55) 50%,
+    transparent 78%
+  );
+  background-size: 220% 100%;
+  animation: weq-exp-card-shimmer 1.3s linear infinite;
+}
+
+html[data-theme="dark"] .weq-exp-card-skeleton {
+  background: linear-gradient(
+    110deg,
+    transparent 22%,
+    rgba(255, 255, 255, 0.09) 50%,
+    transparent 78%
+  );
+  background-size: 220% 100%;
+}
+
+@keyframes weq-exp-card-shimmer {
+  from {
+    background-position: 180% 0;
+  }
+  to {
+    background-position: -180% 0;
+  }
+}
+
+.weq-exp-card:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 35%, transparent);
+  transform: translateY(-1px);
+}
+
+/* 边框颜色 = 任务状态（不再放独立状态图标）。 */
+.weq-exp-card.is-running {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 48%, transparent);
+}
+
+.weq-exp-card.is-completed {
+  border-color: rgba(43, 174, 102, 0.42);
+  opacity: 0.86;
+}
+
+.weq-exp-card.is-failed {
+  border-color: rgba(220, 68, 68, 0.55);
+}
+
+.weq-exp-card.is-paused {
+  border-color: rgba(201, 138, 46, 0.48);
+}
+
+.weq-exp-card.is-cancelled {
+  border-color: rgba(154, 165, 179, 0.38);
+}
+
+.weq-exp-card.is-active {
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, #ffffff);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--weq-accent-effective) 18%, transparent),
+    0 8px 18px -16px rgba(7, 31, 61, 0.45);
+}
+
+.weq-exp-card-top {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.weq-exp-card-icon {
   display: inline-grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
-  flex: none;
-  border-radius: 9px;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
   background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
   color: var(--weq-accent-effective);
 }
 
-.weq-exp-task-main {
+.weq-exp-card-name {
   flex: 1;
   min-width: 0;
-  display: grid;
-  gap: 5px;
-}
-
-.weq-exp-task-top {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.weq-exp-task-name {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: #283342;
   white-space: nowrap;
@@ -1131,18 +1805,59 @@
   text-overflow: ellipsis;
 }
 
-.weq-exp-task-fmt {
-  flex: none;
-  padding: 1px 6px;
-  border-radius: 5px;
-  background: rgba(0, 0, 0, 0.05);
-  color: #6a7280;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+/* ---- 选中任务详情 ---- */
+.weq-exp-detail {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 2px 14px 10px;
+  overflow-y: auto;
 }
 
-.weq-exp-task-status {
+.weq-exp-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 2px;
+  flex: none;
+}
+
+.weq-exp-detail-kind {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+.weq-exp-detail-title {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.weq-exp-detail-title strong {
+  font-size: 13px;
+  color: #283342;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weq-exp-detail-meta {
+  font-size: 11px;
+  color: #97a2b0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weq-exp-detail-status {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -1153,23 +1868,142 @@
   color: #6a7280;
 }
 
-.weq-exp-task-status.is-running,
-.weq-exp-task-status.is-completed,
-.weq-exp-task-status.is-failed,
-.weq-exp-task-status.is-paused,
-.weq-exp-task-status.is-cancelled,
-.weq-exp-task-status.is-pending {
+.weq-exp-detail-status.is-running {
   color: var(--weq-accent-effective);
 }
 
-.weq-exp-task-bar {
+.weq-exp-detail-status.is-completed {
+  color: var(--weq-accent-effective);
+}
+
+.weq-exp-detail-status.is-failed {
+  color: #dc4040;
+}
+
+.weq-exp-detail-status.is-paused {
+  color: #c98a2e;
+}
+
+.weq-exp-detail-overall {
+  flex: none;
+  min-width: 46px;
+  text-align: right;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--weq-accent-effective);
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-exp-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+}
+
+.weq-exp-detail-actions button {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #51677c;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease, background-color 140ms ease;
+}
+
+.weq-exp-detail-actions button:hover {
+  border-color: rgba(0, 153, 255, 0.45);
+  color: #0099ff;
+}
+
+.weq-exp-detail-actions button.is-danger:hover {
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #dc4040;
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.weq-exp-detail-err {
+  color: #dc4040;
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weq-exp-detail-queued {
+  color: #97a2b0;
+  font-size: 11.5px;
+}
+
+/* 媒体补全结果摘要（成功 xx · 失败 xx）。 */
+.weq-exp-detail-complete {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #5b9e6a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11.5px;
+}
+
+.weq-exp-detail-complete.is-warn {
+  color: #c98a2e;
+}
+
+button.weq-exp-detail-complete {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  padding: 0;
+}
+
+button.weq-exp-detail-complete.is-clickable {
+  color: #c98a2e;
+  cursor: pointer;
+  text-decoration: underline dotted rgba(201, 138, 46, 0.5);
+  text-underline-offset: 2px;
+}
+
+button.weq-exp-detail-complete.is-clickable:hover {
+  color: #b3771e;
+  text-decoration-color: #b3771e;
+}
+
+/* ---- 子任务行：状态图标 + 名称 + 进度条 + 右侧百分比 ---- */
+.weq-exp-detail-stages {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.weq-exp-detail-stage-head {
+  display: grid;
+  grid-template-columns: 116px 1fr 46px 24px;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+}
+
+.weq-exp-detail-stage-label {
+  font-size: 11.5px;
+  color: #6b7888;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weq-exp-detail-stage-bar {
   height: 5px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
   overflow: hidden;
 }
 
-.weq-exp-task-fill {
+.weq-exp-detail-stage-fill {
   display: block;
   height: 100%;
   border-radius: 999px;
@@ -1181,8 +2015,7 @@
   transition: width 0.35s ease;
 }
 
-/* 进行中：在填充上叠加流动微光 */
-.weq-exp-task-fill.is-active {
+.weq-exp-detail-stage-fill.is-active {
   background-image: linear-gradient(
       90deg,
       color-mix(in srgb, var(--weq-accent-effective) 78%, white),
@@ -1203,170 +2036,168 @@
   }
 }
 
-/* 多阶段进度（媒体 bundle 导出）：每个阶段一行，竖向排列。
- * 行距用每行的 margin-bottom 实现（而非父级 gap），这样某阶段完成收起时，
- * 它的高度与行距能一起平滑塌陷，不会留下空白。容器底部用负 margin 抵消最后
- * 一行的多余间距。 */
-.weq-exp-stages {
-  display: flex;
-  flex-direction: column;
-  margin-bottom: -5px;
-}
-
-.weq-exp-stage {
-  display: grid;
-  grid-template-columns: 56px 1fr 78px;
-  align-items: center;
-  gap: 8px;
-  max-height: 30px;
-  margin-bottom: 5px;
-  overflow: hidden;
-  transform-origin: top center;
-  /* 收起动画：高度 / 透明度 / 上移 / 行距 一起过渡。 */
-  transition: max-height 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 220ms ease,
-    transform 300ms cubic-bezier(0.4, 0, 0.2, 1), margin-bottom 300ms ease;
-}
-
-/* 进入动画（仅对未收起的行）：轻微下滑 + 淡入。 */
-.weq-exp-stage:not(.is-collapsed) {
-  animation: weq-exp-stage-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-@keyframes weq-exp-stage-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* 完成 / 跳过：向上塌陷淡出（消失时上移消失动画）。 */
-.weq-exp-stage.is-collapsed {
-  max-height: 0;
-  margin-bottom: 0;
-  opacity: 0;
-  transform: translateY(-8px);
-  pointer-events: none;
-}
-
-.weq-exp-stage-label {
-  font-size: 11.5px;
-  color: #6b7888;
-  white-space: nowrap;
-}
-
-.weq-exp-stage-bar {
-  height: 4px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
-  overflow: hidden;
-}
-
-.weq-exp-stage-fill {
-  display: block;
-  height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--weq-accent-effective) 78%, white),
-    var(--weq-accent-effective)
-  );
-  transition: width 0.35s ease;
-}
-
-.weq-exp-stage-fill.is-active {
-  background-image: linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--weq-accent-effective) 78%, white),
-      var(--weq-accent-effective)
-    ),
-    linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, 0.55) 50%, transparent 80%);
-  background-size: 100% 100%, 40% 100%;
-  background-repeat: no-repeat;
-  animation: weq-exp-shimmer 1.3s linear infinite;
-}
-
-.weq-exp-stage-note {
+.weq-exp-detail-stage-pct {
   font-size: 11px;
   color: #97a2b0;
   text-align: right;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.weq-exp-stage.is-completed .weq-exp-stage-label {
-  color: #2bae66;
+/* 进度条右侧的下拉按钮：点击展开该子任务最近日志。 */
+.weq-exp-detail-stage-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 6px;
+  background: transparent;
+  color: #97a2b0;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease, background-color 140ms ease;
 }
-.weq-exp-stage.is-skipped .weq-exp-stage-label,
-.weq-exp-stage.is-skipped .weq-exp-stage-note {
+
+.weq-exp-detail-stage-toggle:hover:not(:disabled) {
+  border-color: rgba(0, 153, 255, 0.45);
+  color: #0099ff;
+}
+
+.weq-exp-detail-stage-toggle:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.weq-exp-detail-stage-toggle svg {
+  transition: transform 0.18s ease;
+}
+
+.weq-exp-detail-stage-toggle svg.is-open {
+  transform: rotate(180deg);
+}
+
+.weq-exp-detail-stage.is-completed .weq-exp-detail-stage-label {
+  color: var(--weq-accent-effective);
+}
+
+.weq-exp-detail-stage.is-completed .weq-exp-detail-stage-pct {
+  color: var(--weq-accent-effective);
+}
+
+.weq-exp-detail-stage.is-skipped .weq-exp-detail-stage-label,
+.weq-exp-detail-stage.is-skipped .weq-exp-detail-stage-pct {
   color: #b3bcca;
 }
-.weq-exp-stage.is-skipped .weq-exp-stage-fill {
+
+.weq-exp-detail-stage.is-skipped .weq-exp-detail-stage-fill {
   background: #d6dde6;
 }
-.weq-exp-stage.is-pending .weq-exp-stage-label {
+
+.weq-exp-detail-stage.is-pending .weq-exp-detail-stage-label {
   color: #aab3c0;
 }
-.weq-exp-stage.is-failed .weq-exp-stage-label,
-.weq-exp-stage.is-failed .weq-exp-stage-note {
+
+.weq-exp-detail-stage.is-failed .weq-exp-detail-stage-label,
+.weq-exp-detail-stage.is-failed .weq-exp-detail-stage-pct {
   color: #dc4040;
 }
-.weq-exp-stage.is-failed .weq-exp-stage-fill {
+
+.weq-exp-detail-stage.is-failed .weq-exp-detail-stage-fill {
   background: #dc4040;
 }
 
-.weq-exp-task-sub {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 11.5px;
-  color: #97a2b0;
-  min-width: 0;
-}
-
-.weq-exp-task-err {
-  color: #dc4040;
-  white-space: nowrap;
+/* ---- 子任务终端日志（docker pull 风格：只显示最近 5 行，不可滚动） ---- */
+.weq-exp-log {
+  height: 104px;
+  margin: 0 0 6px 26px;
+  padding: 6px 9px;
   overflow: hidden;
-  text-overflow: ellipsis;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 7px;
+  background: #0d1420;
+  color: #c8d3e0;
+  font: 11px/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  transition: height 280ms cubic-bezier(0.4, 0, 0.2, 1), opacity 220ms ease,
+    margin 280ms ease, padding 280ms ease;
 }
 
-/* 媒体补全结果摘要（成功 xx · 失败 xx）。 */
-.weq-exp-task-complete {
+.weq-exp-log.is-hidden {
+  height: 0;
+  margin: 0;
+  padding: 0 9px;
+  opacity: 0;
+  border-width: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.weq-exp-log-empty {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: #52627a;
+}
+
+.weq-exp-log-more {
+  padding: 1px 0 4px;
+  color: #5f7287;
+  font-style: italic;
+}
+
+.weq-exp-log-line {
+  display: flex;
+  gap: 8px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.weq-exp-log-time {
+  flex: none;
+  color: #5f7287;
+}
+
+.weq-exp-log-line.is-warn .weq-exp-log-text {
+  color: #e2b35a;
+}
+
+.weq-exp-log-line.is-error .weq-exp-log-text {
+  color: #ef6b6b;
+}
+
+/* 任务级日志（扫描摘要 / 起止 / 错误），固定在详情底部。 */
+.weq-exp-detail-tasklog {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 4px;
+}
+
+.weq-exp-detail-tasklog-head {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: #5b9e6a;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.weq-exp-task-complete.is-warn {
-  color: #c98a2e;
-}
-
-button.weq-exp-task-complete {
+  align-self: flex-start;
   border: 0;
   background: transparent;
-  font: inherit;
-  padding: 0;
-}
-
-button.weq-exp-task-complete.is-clickable {
-  color: #c98a2e;
+  padding: 2px;
   cursor: pointer;
-  text-decoration: underline dotted rgba(201, 138, 46, 0.5);
-  text-underline-offset: 2px;
+  color: inherit;
+  font: inherit;
 }
 
-button.weq-exp-task-complete.is-clickable:hover {
-  color: #b3771e;
-  text-decoration-color: #b3771e;
+.weq-exp-detail-tasklog-head svg {
+  color: #97a2b0;
+  transition: transform 0.18s ease;
+}
+
+.weq-exp-detail-tasklog-head svg.is-open {
+  transform: rotate(180deg);
+}
+
+.weq-exp-detail-tasklog-title {
+  font-size: 11px;
+  color: #97a2b0;
+  margin-left: 2px;
 }
 
 /* ---- 失败详情灯箱 ---- */
@@ -1468,37 +2299,6 @@ button.weq-exp-task-complete.is-clickable:hover {
   font-size: 11.5px;
   color: #dc4040;
   word-break: break-all;
-}
-
-.weq-exp-task-actions {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  flex: none;
-}
-
-.weq-exp-task-actions button {
-  display: inline-grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 8px;
-  background: #ffffff;
-  color: #51677c;
-  cursor: pointer;
-  transition: border-color 140ms ease, color 140ms ease, background-color 140ms ease;
-}
-
-.weq-exp-task-actions button:hover {
-  border-color: rgba(0, 153, 255, 0.45);
-  color: #0099ff;
-}
-
-.weq-exp-task-actions button.is-danger:hover {
-  border-color: rgba(239, 68, 68, 0.5);
-  color: #dc4040;
-  background: rgba(239, 68, 68, 0.05);
 }
 
 /* ---- scheduled export list ---- */
@@ -1743,7 +2543,8 @@ html[data-theme="dark"] .weq-exp-mode.is-active .weq-exp-mode-icon {
 html[data-theme="dark"] .weq-exp-mode-text strong,
 html[data-theme="dark"] .weq-exp-pane-title strong,
 html[data-theme="dark"] .weq-exp-row-meta strong,
-html[data-theme="dark"] .weq-exp-task-name,
+html[data-theme="dark"] .weq-exp-card-name,
+html[data-theme="dark"] .weq-exp-detail-title strong,
 html[data-theme="dark"] .weq-exp-sched-head-text strong,
 html[data-theme="dark"] .weq-exp-sched-card-name,
 html[data-theme="dark"] .weq-exp-sched-card-meta b,
@@ -1758,7 +2559,9 @@ html[data-theme="dark"] .weq-exp-foot-hint,
 html[data-theme="dark"] .weq-exp-row-meta small,
 html[data-theme="dark"] .weq-exp-list-state,
 html[data-theme="dark"] .weq-exp-empty-desc,
-html[data-theme="dark"] .weq-exp-task-sub,
+html[data-theme="dark"] .weq-exp-detail-meta,
+html[data-theme="dark"] .weq-exp-detail-tasklog-title,
+html[data-theme="dark"] .weq-exp-log-empty,
 html[data-theme="dark"] .weq-exp-sched-head-text small,
 html[data-theme="dark"] .weq-exp-sched-card-meta,
 html[data-theme="dark"] .weq-exp-sched-card-history,
@@ -1768,7 +2571,8 @@ html[data-theme="dark"] .weq-exp-sched-empty small {
 }
 
 html[data-theme="dark"] .weq-exp-dialog,
-html[data-theme="dark"] .weq-exp-task,
+html[data-theme="dark"] .weq-exp-card,
+html[data-theme="dark"] .weq-exp-detail,
 html[data-theme="dark"] .weq-exp-sched-card {
   border-color: rgba(255, 255, 255, 0.08);
   background: #171d25;
@@ -1785,13 +2589,48 @@ html[data-theme="dark"] .weq-exp-pane {
 /* Bottom task bar: the light rgba(255,255,255,.6) base reads near-white in dark,
  * so give it a frosted dark surface that matches the panels. */
 html[data-theme="dark"] .weq-exp-tasks {
-  background: color-mix(in srgb, #171d25 48%, transparent);
+  background: color-mix(in srgb, #171d25 68%, transparent);
+}
+
+html[data-theme="dark"] .weq-exp-tasks-toggle {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  color: #99a7b8;
+}
+
+html[data-theme="dark"] .weq-exp-tasks-toggle:hover {
+  border-color: rgba(86, 168, 247, 0.45);
+  color: #56a8f7;
+}
+
+html[data-theme="dark"] .weq-exp-tasks-mini-status {
+  color: #7d8aa0;
+}
+
+html[data-theme="dark"] .weq-exp-tasks-mini-status.is-done {
+  color: #56a8f7;
+}
+
+html[data-theme="dark"] .weq-exp-tasks-mini-bar {
+  background: rgba(86, 168, 247, 0.15);
+}
+
+html[data-theme="dark"] .weq-exp-tasks-head:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+html[data-theme="dark"] .weq-exp-tasks.is-expanded .weq-exp-tasks-head {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
 }
 
 /* Frosted task cards in dark (override the opaque shared card surface above). */
-html[data-theme="dark"] .weq-exp-task {
+html[data-theme="dark"] .weq-exp-card {
   background: color-mix(in srgb, #171d25 50%, transparent);
   backdrop-filter: blur(8px);
+}
+
+html[data-theme="dark"] .weq-exp-card.is-active {
+  background: color-mix(in srgb, #56a8f7 14%, #171d25);
 }
 
 /* Translucent search field so the canvas shows through the list pane in dark. */
@@ -1845,9 +2684,19 @@ html[data-theme="dark"] .weq-exp-album-row.is-on {
   background: rgba(86, 168, 247, 0.12);
 }
 
+html[data-theme="dark"] .weq-exp-file-row.is-on {
+  border-color: rgba(86, 168, 247, 0.38);
+  background: rgba(86, 168, 247, 0.13);
+}
+
+html[data-theme="dark"] .weq-exp-file-check {
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
 html[data-theme="dark"] .weq-exp-tool,
 html[data-theme="dark"] .weq-exp-btn,
-html[data-theme="dark"] .weq-exp-task-actions button,
+html[data-theme="dark"] .weq-exp-detail-actions button,
+html[data-theme="dark"] .weq-exp-detail-stage-toggle,
 html[data-theme="dark"] .weq-exp-sched-card-actions button,
 html[data-theme="dark"] .weq-exp-dialog-close,
 html[data-theme="dark"] .weq-exp-cal-head button,
@@ -1860,7 +2709,8 @@ html[data-theme="dark"] .weq-exp-seg {
 
 html[data-theme="dark"] .weq-exp-tool:hover:not(:disabled),
 html[data-theme="dark"] .weq-exp-btn:hover:not(:disabled),
-html[data-theme="dark"] .weq-exp-task-actions button:hover,
+html[data-theme="dark"] .weq-exp-detail-actions button:hover,
+html[data-theme="dark"] .weq-exp-detail-stage-toggle:hover:not(:disabled),
 html[data-theme="dark"] .weq-exp-sched-card-actions button:hover,
 html[data-theme="dark"] .weq-exp-dialog-close:hover,
 html[data-theme="dark"] .weq-exp-chip:hover,

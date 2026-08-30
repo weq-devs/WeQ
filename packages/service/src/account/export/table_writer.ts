@@ -1,13 +1,14 @@
 /**
  * 通用「一行一记录」表格写盘器 —— 供联系人 / 收藏等**非消息流**导出复用。
  *
- * 一套列定义（`Col<T>` = json 键 + 中文表头 + 取值函数）驱动四种落盘格式：
+ * 一套列定义（`Col<T>` = json 键 + 中文表头 + 取值函数）驱动五种落盘格式：
  *   json  —— 英文键对象数组，便于程序消费
+ *   jsonl —— 与 json 同构，但每行一条记录，便于流式追加
  *   csv   —— UTF-8 BOM + CRLF，Excel 直开不乱码
  *   xlsx  —— ExcelJS 流式单表
  *   txt   —— 每条一段「表头: 值」+ 分隔线
  *
- * 数据量级都不大（联系人 / 收藏），json/csv/txt 一次性拼好写盘；xlsx 走流式。
+ * 数据量级都不大（联系人 / 收藏），json/jsonl/csv/txt 一次性拼好写盘；xlsx 走流式。
  */
 
 import ExcelJS from 'exceljs';
@@ -24,7 +25,7 @@ export interface Col<T> {
 }
 
 /** 表格格式（vcard 等特殊格式由调用方单独处理）。 */
-export type TableFormat = 'json' | 'csv' | 'xlsx' | 'txt';
+export type TableFormat = 'json' | 'jsonl' | 'csv' | 'xlsx' | 'txt';
 
 /** CSV 字段转义：含逗号/引号/换行时加引号，内部引号翻倍。 */
 export function escapeCsv(value: string): string {
@@ -42,6 +43,18 @@ export async function writeFileStream(outputPath: string, body: string): Promise
 export async function writeJson<T>(cols: Array<Col<T>>, rows: T[], outputPath: string): Promise<void> {
   const objects = rows.map((r) => Object.fromEntries(cols.map((c) => [c.key, c.get(r)])));
   await writeFileStream(outputPath, JSON.stringify(objects, null, 2));
+}
+
+/** jsonl：与 json 同构，但每行一条记录（流式友好）。 */
+export async function writeJsonl<T>(
+  cols: Array<Col<T>>,
+  rows: T[],
+  outputPath: string,
+): Promise<void> {
+  const body = rows
+    .map((r) => JSON.stringify(Object.fromEntries(cols.map((c) => [c.key, c.get(r)]))))
+    .join('\n');
+  await writeFileStream(outputPath, body ? `${body}\n` : '');
 }
 
 /** csv：UTF-8 BOM + 表头 + 数据行（CRLF，Excel 直开不乱码）。 */
@@ -94,6 +107,8 @@ export async function writeTable<T>(
   switch (format) {
     case 'json':
       return writeJson(cols, rows, outputPath);
+    case 'jsonl':
+      return writeJsonl(cols, rows, outputPath);
     case 'csv':
       return writeCsv(cols, rows, outputPath);
     case 'xlsx':

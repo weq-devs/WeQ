@@ -984,6 +984,8 @@ export function initAppContext(): AppContext {
               import('../voice').then((m) => m.decodeSilkToFile(silk, dest)),
             // Voice → text transcription (shared closure; see transcribeSilk above).
             transcribe: transcribeSilk,
+            // 导出装扮：复用聊天页同一套 本地 bundle → nt_helper → protocol 链路。
+            dressInstall,
             // ChatLab name / role / profile resolvers. The service export package
             // is account-agnostic, so the live account services are injected here.
             chatlab: {
@@ -1442,6 +1444,8 @@ export function initAppContext(): AppContext {
             decodeSilk: (silk: string, dest: string) =>
               import('../voice').then((m) => m.decodeSilkToFile(silk, dest)),
             transcribe: transcribeSilk,
+            // 导出装扮：复用聊天页同一套 本地 bundle → nt_helper → protocol 链路。
+            dressInstall,
             chatlab: {
               resolveGroupMembers: async (groupCode, uids) => {
                 const members = await groupInfo.getMembersByUids(BigInt(groupCode), uids);

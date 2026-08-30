@@ -160,7 +160,11 @@ export function QqFlashTransfer({
   /** 点击卡片：直接打开文件浏览弹窗。 */
   function handleOpen(): void {
     if (!filesetId) {
-      pushToast({ tone: 'warning', message: '这条闪传消息缺少 filesetId，无法查看文件' });
+      pushToast({
+        tone: 'warning',
+        message: '这条闪传消息缺少 filesetId，无法查看文件',
+        detail: '该消息可能已过期，或来自不支持的旧版本客户端。',
+      });
       return;
     }
     setViewerOpen(true);

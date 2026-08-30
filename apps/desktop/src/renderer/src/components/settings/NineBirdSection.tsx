@@ -111,6 +111,7 @@ export function NineBirdSection(): ReactElement | null {
       <SectionHeader
         icon={<Plug size={16} />}
         title={isDarwin ? 'NineBird（macOS）' : 'NineBird（Linux）'}
+        titleClassName="weq-set-title-sm"
         desc={
           isDarwin
             ? '安装后可用扫码 / 快捷登录自动提取数据库密钥。首次安装需要输入管理员密码以修改 QQ 程序入口。'

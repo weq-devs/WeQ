@@ -28,7 +28,7 @@ export function ChatRecordsModal({
   onClose: () => void;
   /** Jump to a conversation + seq (like a file hit). */
   onJumpMessage: (hit: { source: 'buddy' | 'group'; targetUid: string; msgSeq: string }) => void;
-  pushToast: (t: { tone: 'info'; title: string }) => void;
+  pushToast: (t: { tone: 'info'; title: string; detail?: string }) => void;
   /** The same message renderers the chat pane uses (qqMessageRenderer etc.). */
   renderers?: MessageRenderer[];
 }): ReactElement {
@@ -99,7 +99,11 @@ export function ChatRecordsModal({
         setMessages(r.items);
         setMsgTotal(r.total);
         if (r.items.length === 0) {
-          pushToast({ tone: 'info', title: '没有找到相关消息' });
+          pushToast({
+            tone: 'info',
+            title: '没有找到相关消息',
+            detail: '试试更换关键词，或切换左侧会话范围后再搜索。',
+          });
         }
       })
       .catch((err) => console.error('[chat-records] messages failed', err))

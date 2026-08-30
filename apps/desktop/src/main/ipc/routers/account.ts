@@ -16,12 +16,7 @@ import { observable } from '@trpc/server/observable';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, extname, join } from 'node:path';
-import {
-  getAppContext,
-  requireBootstrap,
-  dbEventBus,
-  type AccountServices,
-} from '../../context/app_context';
+import { getAppContext, dbEventBus, type AccountServices } from '../../context/app_context';
 import { sampleHitokoto } from '../../hitokoto';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
@@ -252,6 +247,14 @@ const decryptDbInput = z.object({
 const groupAlbumInput = z.object({
   groupCode: z.string().min(1),
 });
+/** 导出装扮资源（气泡 / 字体 / 挂件），缺省不导出。 */
+const dressInput = z
+  .object({
+    bubble: z.boolean(),
+    font: z.boolean(),
+    widget: z.boolean(),
+  })
+  .optional();
 
 const groupAlbumMediaInput = groupAlbumInput.extend({
   albumId: z.string().min(1),
@@ -2659,11 +2662,15 @@ export const accountRouter = router({
         conv: z.string().min(1),
         name: z.string().min(1),
         format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']),
+        /** 多格式导出：一次任务产出多个文件进同一 bundle（媒体只带一份）。 */
+        formats: z.array(z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html'])).optional(),
         total: z.number().int().min(0),
         /** Also export every sender's avatar into an avatars/ subfolder. */
         exportAvatar: z.boolean().optional(),
         /** ChatLab interchange format (json/jsonl carry ChatLab structure). */
         chatlab: z.boolean().optional(),
+        /** 导出装扮资源（气泡 / 字体 / 挂件，只导出会话实际用到的款）。 */
+        dress: dressInput,
         /** Media export: copy local media into media/ and CDN-complete images. */
         media: z
           .object({
@@ -2674,6 +2681,18 @@ export const accountRouter = router({
             downloadFile: z.boolean(),
             downloadPtt: z.boolean(),
             transcribeVoice: z.boolean(),
+            /** 导出媒体时按类别筛选（图片 / 语音 / 视频 / 文件 / QQ 系统表情）。 */
+            mediaKinds: z
+              .object({
+                image: z.boolean(),
+                voice: z.boolean(),
+                video: z.boolean(),
+                file: z.boolean(),
+                sysface: z.boolean(),
+              })
+              .optional(),
+            /** 下载本地未缓存的装扮资源。 */
+            completeDress: z.boolean().optional(),
           })
           .optional(),
         /** Inclusive send-time window (unix seconds); null bound = open-ended. */
@@ -2694,6 +2713,8 @@ export const accountRouter = router({
         targetUin: z.string().min(1),
         name: z.string().min(1),
         format: z.enum(['json', 'txt']),
+        /** 多格式导出：json / txt 一次任务全出。 */
+        formats: z.array(z.enum(['json', 'txt'])).optional(),
         downloadMedia: z.boolean(),
         range: z.object({ start: z.number().nullable(), end: z.number().nullable() }).optional(),
       }),
@@ -2707,6 +2728,7 @@ export const accountRouter = router({
         conv: input.targetUin,
         name: input.name,
         format: input.format,
+        ...(input.formats?.length ? { formats: input.formats } : {}),
         total: 0,
         media: {
           exportMedia: input.downloadMedia,
@@ -2732,7 +2754,9 @@ export const accountRouter = router({
         scope: z.enum(['friends', 'group']),
         groupCode: z.string().optional(),
         name: z.string().min(1),
-        format: z.enum(['json', 'csv', 'xlsx', 'txt', 'vcard']),
+        format: z.enum(['json', 'jsonl', 'csv', 'xlsx', 'txt', 'vcard']),
+        /** 多格式导出：一次任务产出多个表文件（头像只带一份）。 */
+        formats: z.array(z.enum(['json', 'jsonl', 'csv', 'xlsx', 'txt', 'vcard'])).optional(),
         exportAvatar: z.boolean().optional(),
         categoryIds: z.array(z.number().int()).optional(),
       }),
@@ -2743,6 +2767,9 @@ export const accountRouter = router({
       }
       // vcard 仅好友可用；群成员传 vcard 时回退到 csv。
       const format = input.scope === 'group' && input.format === 'vcard' ? 'csv' : input.format;
+      const formats = (input.formats ?? [input.format]).map((f) =>
+        input.scope === 'group' && f === 'vcard' ? 'csv' : f,
+      ) as Array<'json' | 'jsonl' | 'csv' | 'xlsx' | 'txt' | 'vcard'>;
       return requireServices().exportManager.startTask({
         contacts: {
           scope: input.scope,
@@ -2752,6 +2779,7 @@ export const accountRouter = router({
         conv: input.scope === 'group' ? input.groupCode! : '',
         name: input.name,
         format,
+        formats,
         total: 0,
         exportAvatar: input.exportAvatar ?? false,
       });
@@ -2818,10 +2846,11 @@ export const accountRouter = router({
   /** Subscribe to export task progress. */
   onExportProgress: procedure.subscription(() => {
     return observable<import('@weq/service').TaskProgress>((emit) => {
+      const manager = requireServices().exportManager;
       const handler = (progress: import('@weq/service').TaskProgress) => emit.next(progress);
-      requireServices().exportManager.on('progress', handler);
+      manager.on('progress', handler);
       return () => {
-        requireServices().exportManager.off('progress', handler);
+        manager.off('progress', handler);
       };
     });
   }),
@@ -2840,6 +2869,8 @@ export const accountRouter = router({
       z.object({
         name: z.string().min(1),
         format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']),
+        /** 灯箱多选的导出格式（媒体只带一份；缺省 = [format]）。 */
+        formats: z.array(z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html'])).optional(),
         conversations: z
           .array(
             z.object({
@@ -2870,6 +2901,18 @@ export const accountRouter = router({
           downloadFile: z.boolean(),
           downloadPtt: z.boolean(),
           transcribeVoice: z.boolean(),
+          dress: dressInput,
+          mediaKinds: z
+            .object({
+              image: z.boolean(),
+              voice: z.boolean(),
+              video: z.boolean(),
+              file: z.boolean(),
+              sysface: z.boolean(),
+            })
+            .optional(),
+          completeDress: z.boolean().optional(),
+          autoSave: z.boolean().optional(),
         }),
         enabled: z.boolean().default(true),
       }),
@@ -2882,6 +2925,7 @@ export const accountRouter = router({
       return requireScheduler().create({
         name: input.name,
         format: input.format,
+        ...(input.formats ? { formats: input.formats } : {}),
         conversations: input.conversations,
         ...(input.chatlab ? { chatlab: true } : {}),
         schedule: input.schedule,
@@ -2897,6 +2941,7 @@ export const accountRouter = router({
         patch: z.object({
           name: z.string().min(1).optional(),
           format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']).optional(),
+          formats: z.array(z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html'])).optional(),
           conversations: z
             .array(
               z.object({
@@ -2931,6 +2976,18 @@ export const accountRouter = router({
               downloadFile: z.boolean(),
               downloadPtt: z.boolean(),
               transcribeVoice: z.boolean(),
+              dress: dressInput,
+              mediaKinds: z
+                .object({
+                  image: z.boolean(),
+                  voice: z.boolean(),
+                  video: z.boolean(),
+                  file: z.boolean(),
+                  sysface: z.boolean(),
+                })
+                .optional(),
+              completeDress: z.boolean().optional(),
+              autoSave: z.boolean().optional(),
             })
             .optional(),
           enabled: z.boolean().optional(),
@@ -2969,15 +3026,8 @@ export const accountRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      const { copyFileSync, mkdirSync } = await import('node:fs');
-      const defaultDir = requireBootstrap().userConfig.getSettings().defaultExportDir;
-      if (defaultDir) {
-        // 已配置默认保存目录：免弹窗直接拷贝到 <默认目录>/<文件名>。
-        const dest = join(defaultDir, sanitizePathSegment(input.defaultName, 'export'));
-        mkdirSync(dirname(dest), { recursive: true });
-        copyFileSync(input.sourcePath, dest);
-        return true;
-      }
+      // 不再使用默认导出目录记忆：每次都弹系统保存框，避免后续保存无法选择路径。
+      const { copyFileSync } = await import('node:fs');
       const target = await getHost().pickSaveTarget({
         defaultName: input.defaultName,
         extension: input.format,
@@ -2997,16 +3047,9 @@ export const accountRouter = router({
     .mutation(async ({ input }) => {
       const task = requireServices().exportManager.getTask(input.taskId);
       if (!task?.bundleDir) return false;
-      const { existsSync, cpSync, mkdirSync } = await import('node:fs');
+      const { existsSync, cpSync } = await import('node:fs');
       if (!existsSync(task.bundleDir)) return false;
-      const defaultDir = requireBootstrap().userConfig.getSettings().defaultExportDir;
-      if (defaultDir) {
-        // 已配置默认保存目录：免弹窗把整个 bundle 拷到 <默认目录>/<任务名>/。
-        const dest = join(defaultDir, sanitizePathSegment(task.name, task.id));
-        mkdirSync(dirname(dest), { recursive: true });
-        cpSync(task.bundleDir, dest, { recursive: true });
-        return true;
-      }
+      // 每次都弹目录选择（不再记忆默认导出目录）。
       const picked = await getHost().pickDirectory({ title: '选择导出保存文件夹' });
       if (!picked) return false;
       const dest = join(picked, sanitizePathSegment(task.name, task.id));

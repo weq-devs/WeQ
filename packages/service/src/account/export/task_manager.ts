@@ -2,10 +2,16 @@
  * Export task manager: schedule, track, pause/cancel conversation exports.
  * Tasks persist to JSON and survive restarts.
  *
- * A task runs as a sequence of *stages*, each with its own progress
- * (message → [media → record → image] when 导出媒体 is on). The renderer shows
- * one progress bar per stage. A plain export (no avatars / no media) is just the
- * single `message` stage writing one file into the cache.
+ * A task runs as a sequence of *phases*, each with its own progress:
+ *
+ *   1. backfill（可选，最先）—— 消息补全，把 seq 空窗拉回漫游缓存；
+ *   2. 并行扫描 —— 装扮用量 / 媒体清单 / 消息计数同时进行；
+ *   3. 主并行阶段 —— 消息导出、装扮资源导出、媒体搬运、图片/视频/文件/语音
+ *      四路补全下载、语音解码 / 转写、头像 / 表情导出全部并发执行。
+ *
+ * The renderer shows one progress bar per stage, plus a per-stage scrolling log
+ * (Docker TUI style). A plain export (no avatars / no media) is just the single
+ * `message` stage writing one file into the cache.
  */
 
 import { EventEmitter } from 'node:events';
@@ -49,22 +55,75 @@ import {
   type TranscribeVoiceFn,
   type MediaFailure,
 } from './media_export';
-import { scanConvMedia, mediaDirsFromAccountDir, mediaDirsFromNtDataDir, type MediaDirs, type MediaScanResult } from './media_scan';
+import {
+  scanConvMedia,
+  mediaDirsFromAccountDir,
+  mediaDirsFromNtDataDir,
+  type MediaDirs,
+  type MediaScanResult,
+} from './media_scan';
 import { exportSysFaces } from './sysface_export';
 import type { MediaUrlService } from '../media_url';
 import { iterateC2cMessages, toExportedMessage, type RoamMessageSource } from './message_source';
 import { expandForwards } from './forward_expand';
 import type { Framing } from './run_export';
 import { bigintReplacer } from './serialize';
-import { messageToText, annotateLocalPaths } from './element_text';
+import { messageToText, annotateLocalPaths, collectFaceIds } from './element_text';
 import { backfillConversationMessages, type MessageBackfillDeps } from './msg_backfill';
-import type { ConvKind, ExportedMessage, ExportFormat, ExportResult, ExportTimeRange, GroupExportOptions } from './types';
+import type { DressService } from '../dress_service';
+import type { MsgDecoration } from '@weq/codec';
+import {
+  collectDressUsage,
+  exportDressAssets,
+  type DressExportKinds,
+  type DressExportManifest,
+  type DressExportResult,
+} from './dress_export';
+import type {
+  ConvKind,
+  ExportedMessage,
+  ExportFormat,
+  ExportResult,
+  ExportTimeRange,
+  GroupExportOptions,
+} from './types';
+
+/** 每个任务保留的任务日志行数上限（内存环形缓冲，防列表 IPC 膨胀）。 */
+const MAX_TASK_LOGS = 400;
 
 export type TaskStatus = 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
 export type { ConvKind };
 
 /** A single stage of a task's pipeline. */
-export type StageKey = 'backfill' | 'message' | 'media' | 'avatar' | 'record' | 'image' | 'video' | 'file' | 'ptt' | 'transcribe' | 'sysface' | 'sticker';
+export type StageKey =
+  | 'backfill'
+  | 'dress'
+  | 'message'
+  | 'media'
+  | 'avatar'
+  | 'record'
+  | 'image'
+  | 'video'
+  | 'file'
+  | 'ptt'
+  | 'transcribe'
+  | 'sysface'
+  | 'sticker';
+
+/** 任务日志级别。 */
+export type TaskLogLevel = 'info' | 'warn' | 'error';
+
+/** 一行任务日志（前端按 stage 滚动展示，Docker TUI 风格）。 */
+export interface TaskLogLine {
+  /** Unix 毫秒时间戳。 */
+  ts: number;
+  /** 任务内单调递增序号（前端 React key / 排序用）。 */
+  seq: number;
+  /** 所属子任务；`task` = 任务级日志（扫描摘要 / 起止等）。 */
+  stage: StageKey | 'task';
+  level: TaskLogLevel;
+  text: string;
+}
 
 export interface TaskStage {
   key: StageKey;
@@ -102,8 +161,17 @@ export interface MarketPackDeps {
 }
 
 /** Media-export options threaded from the lightbox. */
-export interface MediaExportOptions {  /** Export media files alongside the messages (turns the output into a bundle). */
+export interface MediaExportOptions {
+  /** Export media files alongside the messages (turns the output into a bundle). */
   exportMedia: boolean;
+  /** 导出媒体时按类别筛选（图片 / 语音 / 视频 / 文件 / QQ 系统表情）。 */
+  mediaKinds?: {
+    image: boolean;
+    voice: boolean;
+    video: boolean;
+    file: boolean;
+    sysface: boolean;
+  };
   /** 消息补全：扫描 seq 空窗，从 QQ 服务端拉取本机缺失的消息（需在线 QQ）。 */
   completeMessages: boolean;
   /** CDN-complete images missing from the local cache (needs a live rkey). */
@@ -114,6 +182,8 @@ export interface MediaExportOptions {  /** Export media files alongside the mess
   downloadFile: boolean;
   /** Include missing voices when downloading (OIDB-resolve + SILK-decode). */
   downloadPtt: boolean;
+  /** 下载本地未缓存的装扮资源（关闭时只导出已缓存的部分）。 */
+  completeDress?: boolean;
   /** Transcribe locally-found voice clips into a `transcripts.json` (needs a model). */
   transcribeVoice: boolean;
 }
@@ -124,6 +194,8 @@ export interface ExportTask {
   conv: string; // groupCode or peerUid
   name: string;
   format: ExportFormat;
+  /** 多格式导出（同一次任务写多个文件进同一 bundle；缺省 = [format]）。 */
+  formats?: ExportFormat[];
   status: TaskStatus;
   progress: number; // 0-100 (the active stage's percent, for a coarse summary)
   current: number; // messages exported
@@ -141,6 +213,8 @@ export interface ExportTask {
   contacts?: { scope: 'friends' | 'group'; categoryIds?: number[] };
   /** 收藏导出（QQ 收藏；走独立的收藏库拉取流水线）。`kinds` 为空 = 全部类型。 */
   collection?: { kinds?: string[] };
+  /** 导出装扮资源（气泡 / 字体 / 挂件，只导出会话实际用到的款）。 */
+  dress?: DressExportKinds;
   /** 商城表情批量下载（`conv` 占位为 'marketpack'；走独立的解密下载流水线）。
    *  每套包一个以包名命名的子文件夹，内含解密后的 GIF。 */
   marketpack?: { packs: MarketPackDownloadItem[] };
@@ -166,6 +240,11 @@ export interface TaskProgress {
   message: string;
   /** 一次性提示（如「可能被限流」），前端收到后 toast。 */
   notice?: string;
+}
+
+/** 任务列表 wire 视图：ExportTask + 内存日志（不持久化，重启后清空）。 */
+export interface ExportTaskView extends ExportTask {
+  logs: TaskLogLine[];
 }
 
 /** Main-process dependencies injected for media export (silk-wasm lives in the app). */
@@ -197,6 +276,8 @@ export interface MediaDeps {
   contacts?: ContactsExportDeps;
   /** 收藏（QQ 收藏）拉取能力（由 app 注入；返回已拍平的行）。 */
   collection?: CollectionExportDeps;
+  /** 装扮安装/解析服务（本地 bundle → nt_helper → protocol），导出装扮阶段用。 */
+  dressInstall?: DressService;
   /** 商城表情解密下载能力（由 app 注入，桥接 EmojiService）。 */
   marketpack?: MarketPackDeps;
   /** 消息补全能力（由 app 注入，桥接聊天页 GapHistoryService：缓存+拉取共用）。 */
@@ -208,6 +289,14 @@ export interface MediaDeps {
 export class ExportTaskManager extends EventEmitter {
   private tasks = new Map<string, ExportTask>();
   private abortControllers = new Map<string, AbortController>();
+  /** 任务日志（内存环形缓冲，不随 export_tasks.json 持久化）。 */
+  private taskLogs = new Map<string, TaskLogLine[]>();
+  /**
+   * 全局任务执行队列（并发 1）：同一时刻只跑一个任务。多会话同时导出时，
+   * 后面的任务排队，避免 A 任务的补全还没拉完、B 任务的装扮/消息/媒体已经
+   * 开工（既让「补全永远第一步」在全局成立，也避免并发轰炸 QQ 服务端）。
+   */
+  private queue: Promise<void> = Promise.resolve();
   private persistPath: string;
 
   constructor(
@@ -249,12 +338,19 @@ export class ExportTaskManager extends EventEmitter {
     }
   }
 
+  /** 排队执行一个任务运行器（并发 1；异常吞掉，由 runXTask 内部 catch 处理）。 */
+  private enqueue(run: () => Promise<void>): void {
+    this.queue = this.queue.then(run).catch(() => undefined);
+  }
+
   override emit(event: 'progress', data: TaskProgress): boolean {
     return super.emit(event, data);
   }
 
-  listTasks(): ExportTask[] {
-    return [...this.tasks.values()].sort((a, b) => b.createdAt - a.createdAt);
+  listTasks(): ExportTaskView[] {
+    return [...this.tasks.values()]
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .map((t) => ({ ...t, logs: this.taskLogs.get(t.id) ?? [] }));
   }
 
   getTask(id: string): ExportTask | null {
@@ -266,6 +362,8 @@ export class ExportTaskManager extends EventEmitter {
     conv: string;
     name: string;
     format: ExportFormat;
+    /** 多格式导出：一次任务产出多个格式文件（媒体 / 头像只带一份）。 */
+    formats?: ExportFormat[];
     total: number;
     exportAvatar?: boolean;
     /** ChatLab format (json/jsonl carry ChatLab structure). */
@@ -276,6 +374,8 @@ export class ExportTaskManager extends EventEmitter {
     contacts?: { scope: 'friends' | 'group'; categoryIds?: number[] };
     /** 收藏导出（QQ 收藏；走独立流水线）。 */
     collection?: { kinds?: string[] };
+    /** 导出装扮资源（气泡 / 字体 / 挂件，只导出会话实际用到的款）。 */
+    dress?: DressExportKinds;
     media?: MediaExportOptions;
     range?: ExportTimeRange;
   }): Promise<string> {
@@ -285,6 +385,9 @@ export class ExportTaskManager extends EventEmitter {
     const wantMedia = Boolean(opts.media?.exportMedia);
     const wantAvatars = Boolean(opts.exportAvatar);
     const wantTranscribe = Boolean(opts.media?.transcribeVoice);
+    const wantDress = Boolean(
+      opts.dress && (opts.dress.bubble || opts.dress.font || opts.dress.widget),
+    );
 
     // 收藏导出是独立流水线（单文件表格产物，无媒体 / 头像），不复用消息流水线。
     if (opts.collection) {
@@ -294,18 +397,22 @@ export class ExportTaskManager extends EventEmitter {
         conv: opts.conv,
         name: opts.name,
         format: opts.format,
+        ...(opts.formats?.length ? { formats: opts.formats } : {}),
         status: 'pending',
         progress: 0,
         current: 0,
         total: opts.total,
         collection: opts.collection,
-        stages: [{ key: 'message', label: '导出收藏', status: 'pending', current: 0, total: opts.total }],
+        stages: [
+          { key: 'message', label: '导出收藏', status: 'pending', current: 0, total: opts.total },
+        ],
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
       this.tasks.set(id, colTask);
+      this.log(id, 'task', `任务已创建：导出收藏「${opts.name}」（${opts.format}）`);
       this.saveTasks();
-      void this.runCollectionTask(id);
+      this.enqueue(() => this.runCollectionTask(id));
       return id;
     }
 
@@ -314,13 +421,15 @@ export class ExportTaskManager extends EventEmitter {
       const cStages: TaskStage[] = [
         { key: 'message', label: '导出联系人', status: 'pending', current: 0, total: opts.total },
       ];
-      if (wantAvatars) cStages.push({ key: 'avatar', label: '下载头像', status: 'pending', current: 0, total: 0 });
+      if (wantAvatars)
+        cStages.push({ key: 'avatar', label: '下载头像', status: 'pending', current: 0, total: 0 });
       const cTask: ExportTask = {
         id,
         kind: opts.kind,
         conv: opts.conv,
         name: opts.name,
         format: opts.format,
+        ...(opts.formats?.length ? { formats: opts.formats } : {}),
         status: 'pending',
         progress: 0,
         current: 0,
@@ -332,21 +441,26 @@ export class ExportTaskManager extends EventEmitter {
         updatedAt: Date.now(),
       };
       this.tasks.set(id, cTask);
+      this.log(id, 'task', `任务已创建：导出联系人「${opts.name}」（${opts.format}）`);
       this.saveTasks();
-      void this.runContactsTask(id);
+      this.enqueue(() => this.runContactsTask(id));
       return id;
     }
 
     // 好友空间导出是独立的两段式流水线（说说 + 可选配图），不复用消息流水线。
     if (opts.qzone) {
-      const qStages: TaskStage[] = [{ key: 'message', label: '导出说说', status: 'pending', current: 0, total: opts.total }];
-      if (wantMedia) qStages.push({ key: 'media', label: '下载配图', status: 'pending', current: 0, total: 0 });
+      const qStages: TaskStage[] = [
+        { key: 'message', label: '导出说说', status: 'pending', current: 0, total: opts.total },
+      ];
+      if (wantMedia)
+        qStages.push({ key: 'media', label: '下载配图', status: 'pending', current: 0, total: 0 });
       const qTask: ExportTask = {
         id,
         kind: opts.kind,
         conv: opts.conv,
         name: opts.name,
         format: opts.format,
+        ...(opts.formats?.length ? { formats: opts.formats } : {}),
         status: 'pending',
         progress: 0,
         current: 0,
@@ -359,18 +473,39 @@ export class ExportTaskManager extends EventEmitter {
         updatedAt: Date.now(),
       };
       this.tasks.set(id, qTask);
+      this.log(id, 'task', `任务已创建：导出 QQ 空间「${opts.name}」（${opts.format}）`);
       this.saveTasks();
-      void this.runQzoneTask(id);
+      this.enqueue(() => this.runQzoneTask(id));
       return id;
     }
 
     // Stage order is the display order. message + 搬运媒体 run first (sequential);
     // the rest (avatar / record / image / video / file / transcribe) run together.
-    const stages: TaskStage[] = [{ key: 'message', label: '导出消息', status: 'pending', current: 0, total: opts.total }];
+    const stages: TaskStage[] = [
+      { key: 'message', label: '导出消息', status: 'pending', current: 0, total: opts.total },
+    ];
     // 消息补全必须在所有步骤之前：先把 seq 空窗从服务端拉回漫游缓存，后面导出
     // 的消息 / 媒体扫描才能带上这些补全消息。
     if (opts.media?.completeMessages) {
-      stages.unshift({ key: 'backfill', label: '补全缺失消息', status: 'pending', current: 0, total: 0 });
+      stages.unshift({
+        key: 'backfill',
+        label: '补全缺失消息',
+        status: 'pending',
+        current: 0,
+        total: 0,
+      });
+    }
+    // 装扮导出跑在消息流之前：先扫描「实际用到的款」并把原始资源导出到
+    // dress/ 目录，HTML 消息流写入时才能引用清单生成 CSS。
+    if (wantDress) {
+      // message 永远是最后一个元素，插到它前面。
+      stages.splice(stages.length - 1, 0, {
+        key: 'dress',
+        label: '导出装扮',
+        status: 'pending',
+        current: 0,
+        total: 0,
+      });
     }
     if (wantMedia) {
       stages.push({ key: 'media', label: '搬运媒体', status: 'pending', current: 0, total: 0 });
@@ -380,7 +515,12 @@ export class ExportTaskManager extends EventEmitter {
     }
     if (wantMedia) {
       stages.push({ key: 'record', label: '解码语音', status: 'pending', current: 0, total: 0 });
-      if (opts.media?.completeMedia) {
+      if (
+        opts.media?.completeMedia ||
+        opts.media?.downloadVideo ||
+        opts.media?.downloadFile ||
+        opts.media?.downloadPtt
+      ) {
         stages.push({ key: 'image', label: '补全图片', status: 'pending', current: 0, total: 0 });
         stages.push({ key: 'video', label: '补全视频', status: 'pending', current: 0, total: 0 });
         stages.push({ key: 'file', label: '补全文件', status: 'pending', current: 0, total: 0 });
@@ -388,11 +528,17 @@ export class ExportTaskManager extends EventEmitter {
       }
     }
     if (wantTranscribe) {
-      stages.push({ key: 'transcribe', label: '语音转写', status: 'pending', current: 0, total: 0 });
+      stages.push({
+        key: 'transcribe',
+        label: '语音转写',
+        status: 'pending',
+        current: 0,
+        total: 0,
+      });
     }
-    // HTML 页内联系统表情（小黄脸）图片：导出消息时收集用到的 faceId，导出后把这些
-    // 表情图片复制进 bundle 的 media/face/。仅 HTML 格式有此阶段。
-    if (opts.format === 'html') {
+    // QQ 系统表情（小黄脸）：导出消息时收集用到的 faceId，导出后把这些表情图片
+    // 复制进 bundle 的 media/face/。由媒体子选项「QQ系统表情」控制（HTML 默认开）。
+    if (opts.media?.mediaKinds?.sysface) {
       stages.push({ key: 'sysface', label: '导出表情', status: 'pending', current: 0, total: 0 });
     }
     const task: ExportTask = {
@@ -401,6 +547,7 @@ export class ExportTaskManager extends EventEmitter {
       conv: opts.conv,
       name: opts.name,
       format: opts.format,
+      ...(opts.formats?.length ? { formats: opts.formats } : {}),
       status: 'pending',
       progress: 0,
       current: 0,
@@ -408,14 +555,16 @@ export class ExportTaskManager extends EventEmitter {
       exportAvatar: opts.exportAvatar ?? false,
       ...(opts.chatlab ? { chatlab: true } : {}),
       ...(opts.media ? { media: opts.media } : {}),
+      ...(wantDress && opts.dress ? { dress: opts.dress } : {}),
       ...(opts.range ? { range: opts.range } : {}),
       stages,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
     this.tasks.set(id, task);
+    this.log(id, 'task', `任务已创建：导出「${opts.name}」（${opts.format}）`);
     this.saveTasks();
-    void this.runTask(id);
+    this.enqueue(() => this.runTask(id));
     return id;
   }
 
@@ -442,8 +591,9 @@ export class ExportTaskManager extends EventEmitter {
       updatedAt: Date.now(),
     };
     this.tasks.set(id, task);
+    this.log(id, 'task', `任务已创建：商城表情下载 ${packs.length} 套`);
     this.saveTasks();
-    void this.runMarketPackTask(id);
+    this.enqueue(() => this.runMarketPackTask(id));
     return id;
   }
 
@@ -475,6 +625,25 @@ export class ExportTaskManager extends EventEmitter {
   }
 
   /**
+   * 追加一行任务日志（环形缓冲，上限 {@link MAX_TASK_LOGS}）。日志不单独推
+   * 事件：随下一次 touchStage / 终态 `progress` 事件触发的 listExportTasks
+   * 重新拉取一并下发，避免每行日志都触发一次 IPC 往返。
+   */
+  private log(
+    id: string,
+    stage: StageKey | 'task',
+    text: string,
+    level: TaskLogLevel = 'info',
+  ): void {
+    const arr = this.taskLogs.get(id) ?? [];
+    const seq = arr.length > 0 ? arr[arr.length - 1]!.seq + 1 : 1;
+    const line: TaskLogLine = { ts: Date.now(), seq, stage, level, text };
+    arr.push(line);
+    if (arr.length > MAX_TASK_LOGS) arr.splice(0, arr.length - MAX_TASK_LOGS);
+    this.taskLogs.set(id, arr);
+  }
+
+  /**
    * Coarse overall percent — the mean of every stage's percent. With the
    * post-message stages running concurrently, a single "active stage" percent
    * would jump around; averaging keeps the summary bar smooth and monotonic-ish.
@@ -495,7 +664,20 @@ export class ExportTaskManager extends EventEmitter {
   ): void {
     const s = this.stage(task, key);
     if (!s) return;
+    const prevStatus = s.status;
     Object.assign(s, patch);
+    // 阶段状态翻转时补一条生命周期日志，保证每个阶段都有可看的日志。
+    if (patch.status && patch.status !== prevStatus) {
+      if (patch.status === 'running') {
+        this.log(task.id, key, `开始：${s.label}`);
+      } else if (patch.status === 'completed') {
+        this.log(task.id, key, `${s.label} 完成${s.note ? `：${s.note}` : ''}`);
+      } else if (patch.status === 'failed') {
+        this.log(task.id, key, `${s.label} 失败${s.note ? `：${s.note}` : ''}`, 'error');
+      } else if (patch.status === 'skipped') {
+        this.log(task.id, key, `${s.label} 已跳过${s.note ? `：${s.note}` : ''}`, 'warn');
+      }
+    }
     task.progress = this.overallProgress(task);
     task.updatedAt = Date.now();
     if (opts.persist) this.saveTasks();
@@ -521,23 +703,39 @@ export class ExportTaskManager extends EventEmitter {
     const aborted = (): boolean => abort.signal.aborted;
 
     try {
-      const { avatarCache, mediaDownload, accountDir, ntDataDir, decodeSilk, transcribe } = this.deps;
+      // 先让出事件循环：任务创建 / 列表刷新的 IPC 响应要先回到渲染进程，
+      // 否则下面可能长时间阻塞的 seq 空窗扫描会让任务卡片迟迟不出现。
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      const { avatarCache, mediaDownload, accountDir, ntDataDir, decodeSilk, transcribe } =
+        this.deps;
       const wantAvatars = Boolean(task.exportAvatar && avatarCache);
       const wantMedia = Boolean(task.media?.exportMedia);
       const wantTranscribe = Boolean(task.media?.transcribeVoice && transcribe);
+      const wantDress = Boolean(
+        task.dress &&
+          (task.dress.bubble || task.dress.font || task.dress.widget) &&
+          this.deps.dressInstall,
+      );
+      // 收集消息里用到的系统表情 faceId，sysface 阶段据此复制图片到 media/face/。
+      const wantSysFaces = Boolean(task.media?.mediaKinds?.sysface);
       const needsScan = wantMedia || wantTranscribe;
+      const formats = task.formats?.length ? task.formats : [task.format];
       // Avatars / media / transcription → output is a bundle folder; else a lone
-      // file. HTML is always a bundle (the user's "一会话一文件夹" model) and its
-      // entry file is index.html so the folder opens cleanly.
-      const isBundle = wantAvatars || wantMedia || wantTranscribe || task.format === 'html';
+      // file. 系统表情也产出 media/face/，需要 bundle。HTML 始终是 bundle。
+      // 多格式同任务：多个文件必须放同一个 bundle 目录。
+      const isBundle =
+        wantAvatars ||
+        wantMedia ||
+        wantTranscribe ||
+        wantDress ||
+        wantSysFaces ||
+        task.format === 'html' ||
+        formats.length > 1;
       const outDir = isBundle ? join(this.cacheDir, `bundle-${id}`) : this.cacheDir;
       if (isBundle) mkdirSync(outDir, { recursive: true });
-      const outPath = join(outDir, task.format === 'html' ? 'index.html' : `${sanitizeSegment(task.name, task.conv || task.id)}.${task.format}`);
       const mediaRoot = join(outDir, 'media');
       const senders = wantAvatars ? new Set<string>() : undefined;
-      // HTML collects the built-in system-emoji face ids it renders, so the
-      // sysface stage can copy just those images into media/face/.
-      const wantSysFaces = task.format === 'html';
       const faces = wantSysFaces ? new Set<string>() : undefined;
 
       // Defensive: a stage created for a capability that isn't injected (no
@@ -545,11 +743,24 @@ export class ExportTaskManager extends EventEmitter {
       // overall summary can still reach 100%.
       if (task.exportAvatar && !avatarCache) {
         const s = this.stage(task, 'avatar');
-        if (s) { s.status = 'skipped'; s.note = '头像服务不可用'; }
+        if (s) {
+          s.status = 'skipped';
+          s.note = '头像服务不可用';
+        }
       }
       if (task.media?.transcribeVoice && !transcribe) {
         const s = this.stage(task, 'transcribe');
-        if (s) { s.status = 'skipped'; s.note = '转录引擎不可用'; }
+        if (s) {
+          s.status = 'skipped';
+          s.note = '转录引擎不可用';
+        }
+      }
+      if (task.dress && !this.deps.dressInstall) {
+        const s = this.stage(task, 'dress');
+        if (s) {
+          s.status = 'skipped';
+          s.note = '装扮服务不可用';
+        }
       }
 
       // ---- stage: 消息补全 (runs FIRST — fills the roam cache so the message
@@ -560,9 +771,17 @@ export class ExportTaskManager extends EventEmitter {
         const backfillDeps = this.deps.messageBackfill;
         const s = this.stage(task, 'backfill');
         if (!backfillDeps) {
-          if (s) { s.status = 'skipped'; s.note = '消息补全能力不可用'; }
+          if (s) {
+            s.status = 'skipped';
+            s.note = '消息补全能力不可用';
+          }
         } else {
-          this.touchStage(task, 'backfill', { status: 'running', note: '扫描 seq 空窗…' }, { persist: true });
+          this.touchStage(
+            task,
+            'backfill',
+            { status: 'running', note: '扫描 seq 空窗…' },
+            { persist: true },
+          );
           try {
             let backfilled = 0;
             let backfillDone = 0;
@@ -579,21 +798,43 @@ export class ExportTaskManager extends EventEmitter {
               signal: abort.signal,
               onPlan: (total) => {
                 backfillTotal = total;
-                this.touchStage(task, 'backfill', { total, current: 0, note: `共 ${total} 个空窗 seq` });
+                this.log(id, 'backfill', `扫描到 ${total} 个空窗 seq，开始从服务端拉取…`);
+                this.touchStage(task, 'backfill', {
+                  total,
+                  current: 0,
+                  note: `共 ${total} 个空窗 seq`,
+                });
               },
               onWindow: (fetched, windowSeqs) => {
                 if (aborted()) return;
                 backfilled += fetched;
                 backfillDone += windowSeqs;
+                this.log(
+                  id,
+                  'backfill',
+                  fetched > 0
+                    ? `窗口（${windowSeqs} seq）拉取 ${fetched} 条，累计 ${backfilled} 条`
+                    : `窗口（${windowSeqs} seq）命中缓存 / 无新消息`,
+                );
                 this.touchStage(task, 'backfill', {
                   current: backfillDone,
                   total: backfillTotal,
                   note: `已拉取 ${backfilled} 条…`,
                 });
               },
+              onWindowError: (windowSeqs, message) => {
+                if (aborted()) return;
+                this.log(
+                  id,
+                  'backfill',
+                  `窗口（${windowSeqs} seq）拉取异常（不阻断补全）：${message}`,
+                  'warn',
+                );
+              },
               onRateLimited: () => {
                 if (rateLimitedNotified) return;
                 rateLimitedNotified = true;
+                this.log(id, 'backfill', '请求响应较慢，可能被限流，已放慢节奏等待', 'warn');
                 this.emit('progress', {
                   taskId: task.id,
                   status: 'running',
@@ -604,12 +845,21 @@ export class ExportTaskManager extends EventEmitter {
                 });
               },
             });
-            if (aborted()) { task.status = 'cancelled'; return; }
+            if (aborted()) {
+              task.status = 'cancelled';
+              return;
+            }
             const tail = summary.stoppedByEmpty
               ? '，更早的消息已过期'
               : summary.stoppedByError
                 ? '，在线状态中断'
                 : '';
+            const errTail = summary.windowErrors > 0 ? `，失败 ${summary.windowErrors} 窗` : '';
+            this.log(
+              id,
+              'backfill',
+              `补全完成：新拉取 ${summary.fetched} 条，请求 ${summary.requests} 次，空窗 ${summary.emptyWindows} 次${tail}${errTail}`,
+            );
             this.touchStage(
               task,
               'backfill',
@@ -617,7 +867,7 @@ export class ExportTaskManager extends EventEmitter {
                 status: 'completed',
                 current: backfillTotal || summary.fetched,
                 total: backfillTotal || summary.fetched,
-                note: `已补全 ${summary.fetched} 条${tail}`,
+                note: `已补全 ${summary.fetched} 条${tail}${errTail}`,
               },
               { persist: true },
             );
@@ -628,23 +878,95 @@ export class ExportTaskManager extends EventEmitter {
               s.note = e instanceof Error ? e.message : String(e);
               this.saveTasks();
             }
+            this.log(
+              id,
+              'backfill',
+              `消息补全失败（不阻断导出）：${s?.note ?? (e instanceof Error ? e.message : String(e))}`,
+              'error',
+            );
           }
         }
       }
 
-      // ---- stage: message (sequential, first) ----
+      // 漫游补全消息的来源：装扮扫描 / 媒体扫描 / 消息导出 / 计数共用（惰性只查一次）。
       const roam = wantBackfill ? this.roamSource(task) : undefined;
+      if (wantBackfill) {
+        this.log(id, 'task', '补全完成，进入并行阶段：装扮 / 媒体 / 消息同时进行');
+      }
+
+      // ================= 并行扫描阶段 =================
+      // 装扮用量 / 媒体清单 / 消息计数互不依赖，并行推进；媒体目录解析失败时
+      // 直接把所有媒体相关阶段跳过（保持原有兜底语义）。
+      let dressUsage: Awaited<ReturnType<typeof collectDressUsage>> | null = null;
+      let dressManifest: DressExportManifest | null = null;
+      let scan: MediaScanResult | null = null;
+
+      const dirs: MediaDirs | null = needsScan
+        ? ntDataDir
+          ? mediaDirsFromNtDataDir(ntDataDir)
+          : accountDir
+            ? mediaDirsFromAccountDir(accountDir)
+            : null
+        : null;
+      if (needsScan && !dirs) {
+        // Can't locate on-disk media — skip every media-dependent stage.
+        for (const key of [
+          'media',
+          'record',
+          'image',
+          'video',
+          'file',
+          'transcribe',
+        ] as StageKey[]) {
+          const s = this.stage(task, key);
+          if (s) {
+            s.status = 'skipped';
+            s.note = '无法定位媒体目录';
+          }
+        }
+      }
+
+      if (wantDress && task.dress && this.deps.dressInstall) {
+        this.touchStage(
+          task,
+          'dress',
+          { status: 'running', total: 0, note: '扫描会话装扮…' },
+          { persist: true },
+        );
+      }
+      const scanStage: StageKey | null =
+        needsScan && dirs ? (wantMedia ? 'media' : 'transcribe') : null;
+      if (scanStage) {
+        this.touchStage(
+          task,
+          scanStage,
+          { status: 'running', note: '扫描媒体…' },
+          { persist: true },
+        );
+      }
+
+      const dressScanPromise =
+        wantDress && task.dress && this.deps.dressInstall
+          ? collectDressUsage(this.msgs, task.kind, task.conv, task.dress, task.range, roam)
+          : Promise.resolve(null);
+      const mediaScanPromise = scanStage
+        ? scanConvMedia(this.msgs, task.kind, task.conv, dirs!, {
+            pageSize: 2000,
+            range: task.range,
+            roam,
+          })
+        : Promise.resolve(null);
       // 预计算导出总量（本地消息按时间窗计数 + 漫游补全消息），让 message 阶段
       // 从一开始就有分母，且不会出现“已导出条数超过总量”的倒挂。
-      let messageTotal = 0;
-      try {
-        if (task.kind === 'group' || task.kind === 'c2c') {
-          messageTotal = await this.msgs.countConv(task.kind, task.conv, {
+      const countPromise = (async (): Promise<number> => {
+        if (task.kind !== 'group' && task.kind !== 'c2c') return 0;
+        try {
+          let total = await this.msgs.countConv(task.kind, task.conv, {
             startTime: task.range?.start ?? undefined,
             endTime: task.range?.end ?? undefined,
           });
           if (roam) {
-            messageTotal += (await roam()).filter(
+            total += (await roam()).filter(
               (m) =>
                 m.conv === task.conv &&
                 (task.range == null ||
@@ -652,124 +974,531 @@ export class ExportTaskManager extends EventEmitter {
                     (task.range.end == null || Number(m.sendTime) <= task.range.end))),
             ).length;
           }
+          return total;
+        } catch {
+          return 0; // 计数失败不阻塞导出，仅退回无分母进度
         }
-      } catch {
-        messageTotal = 0; // 计数失败不阻塞导出，仅退回无分母进度
-      }
-      this.touchStage(task, 'message', { status: 'running', total: messageTotal, note: '开始导出' }, { persist: true });
-      const result = await this.exportMessages(task, outPath, senders, wantMedia, (current, note) => {
-        if (aborted()) return;
-        this.touchStage(task, 'message', { current, note });
-      }, faces, roam);
-      task.filePath = result.filePath;
-      task.current = result.messageCount;
-      this.touchStage(task, 'message', { status: 'completed', current: result.messageCount, total: result.messageCount, note: `${result.messageCount} 条` }, { persist: true });
-      if (aborted()) { task.status = 'cancelled'; return; }
-      if (isBundle) task.bundleDir = outDir;
+      })();
 
-      // ---- scan once (shared by 搬运媒体 / 补全 / 转写) ----
-      let scan: MediaScanResult | null = null;
-      if (needsScan) {
-        // Prefer the platform-resolved nt_data (correct on every OS); fall back
-        // to deriving it from the account dir (win32 layout / static accounts).
-        const dirs: MediaDirs | null = ntDataDir
-          ? mediaDirsFromNtDataDir(ntDataDir)
-          : accountDir
-            ? mediaDirsFromAccountDir(accountDir)
-            : null;
-        if (!dirs) {
-          // Can't locate on-disk media — skip every media-dependent stage.
-          for (const key of ['media', 'record', 'image', 'video', 'file', 'transcribe'] as StageKey[]) {
-            const s = this.stage(task, key);
-            if (s) { s.status = 'skipped'; s.note = '无法定位媒体目录'; }
-          }
-        } else {
-          const scanStage: StageKey = wantMedia ? 'media' : 'transcribe';
-          this.touchStage(task, scanStage, { status: 'running', note: '扫描媒体…' }, { persist: true });
-          scan = await scanConvMedia(this.msgs, task.kind, task.conv, dirs, { pageSize: 2000, range: task.range, roam });
-          if (aborted()) { task.status = 'cancelled'; return; }
+      const [dressUsageResult, scanResult, messageTotal] = await Promise.all([
+        dressScanPromise,
+        mediaScanPromise,
+        countPromise,
+      ]);
+      if (aborted()) {
+        task.status = 'cancelled';
+        return;
+      }
+      dressUsage = dressUsageResult;
+      scan = scanResult;
+      if (scan) {
+        this.log(
+          id,
+          scanStage ?? 'media',
+          `媒体扫描：引用 ${scan.totalRefs} → 去重 ${scan.uniqueFiles}，本地命中 ${scan.foundFiles}，缺失 ${scan.missingFiles}（过期 ${scan.expiredFiles} · 可下载 ${scan.downloadableFiles}），耗时 ${scan.durationMs}ms`,
+        );
+        this.log(
+          id,
+          scanStage ?? 'media',
+          `媒体索引：${scan.indexedDirs} 个目录 / ${scan.indexedFiles} 个文件（收集 ${scan.collectMs}ms · 建索引 ${scan.indexBuildMs}ms · 匹配 ${scan.matchMs}ms）`,
+        );
+      }
+      const dressUsed = dressUsage
+        ? dressUsage.bubbles.size + dressUsage.fonts.size + dressUsage.widgets.size
+        : 0;
+      if (dressUsage) {
+        this.log(
+          id,
+          'dress',
+          `装扮扫描：气泡 ${dressUsage.bubbles.size} · 字体 ${dressUsage.fonts.size} · 挂件 ${dressUsage.widgets.size}`,
+        );
+        if (dressUsed === 0) {
+          this.touchStage(
+            task,
+            'dress',
+            { status: 'completed', current: 0, total: 0, note: '会话未使用装扮' },
+            { persist: true },
+          );
         }
       }
 
-      // ---- sequential: 搬运媒体 (copy locally-found pic / video / file) ----
-      if (wantMedia && scan) {
-        const found = scan.found.filter((r) => r.kind !== 'ptt');
-        this.touchStage(task, 'media', { status: 'running', total: found.length, current: 0, note: `搬运 0/${found.length}` }, { persist: true });
-        const r = await copyFoundMedia(scan, mediaRoot, (done, total) => {
-          if (aborted()) return;
-          this.touchStage(task, 'media', { current: done, total, note: `搬运 ${done}/${total}` });
-        });
-        this.touchStage(task, 'media', { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已搬运 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`, ...(r.failures ? { failures: r.failures } : {}) }, { persist: true });
-      }
-      if (aborted()) { task.status = 'cancelled'; return; }
-
-      // ---- concurrent batch: 头像 / 解码语音 / 补全图片·视频·文件 / 语音转写 / 系统表情 ----
+      // ================= 主并行阶段 =================
+      // 消息导出 / 装扮资产 / 媒体搬运 / 四路补全下载 / 语音解码·转写全部并发；
+      // sysface / avatar 依赖消息导出收集的 faceId / 发言者，完成后接续执行。
       const jobs: Array<() => Promise<void>> = [];
+      let dressExportPromise: Promise<DressExportResult | null> | null = null;
+
+      // ---- 装扮资产导出（与消息导出、媒体补全并发，不再单独串行） ----
+      if (dressUsage && dressUsed > 0 && task.dress && this.deps.dressInstall) {
+        const kinds = task.dress;
+        this.touchStage(
+          task,
+          'dress',
+          { status: 'running', total: dressUsed, current: 0, note: '准备 0 项装扮资源' },
+          { persist: true },
+        );
+        dressExportPromise = (async (): Promise<DressExportResult | null> => {
+          try {
+            const r = await exportDressAssets(
+              this.deps.dressInstall!,
+              outDir,
+              dressUsage!,
+              kinds,
+              (done, total, note) => {
+                if (aborted()) return;
+                this.touchStage(task, 'dress', {
+                  current: done,
+                  total,
+                  note: `${note} · ${done}/${total}`,
+                });
+                this.log(id, 'dress', `${note}（${done}/${total}）`);
+              },
+              task.media?.completeDress !== false,
+            );
+            dressManifest = r.manifest;
+            this.touchStage(
+              task,
+              'dress',
+              {
+                status: 'completed',
+                current: r.ok,
+                total: dressUsed,
+                failed: r.failed,
+                note: `已导出 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`,
+              },
+              { persist: true },
+            );
+            if (r.failed > 0) this.log(id, 'dress', `${r.failed} 项装扮资源导出失败`, 'warn');
+            return r;
+          } catch (e) {
+            // 装扮失败不阻断导出：阶段标记失败供 UI 查看。
+            const s = this.stage(task, 'dress');
+            if (s) {
+              s.status = 'failed';
+              s.note = e instanceof Error ? e.message : String(e);
+              this.saveTasks();
+            }
+            this.log(
+              id,
+              'dress',
+              `装扮导出失败（不阻断导出）：${e instanceof Error ? e.message : String(e)}`,
+              'error',
+            );
+            return null;
+          }
+        })();
+        jobs.push(async () => {
+          await dressExportPromise;
+        });
+      }
+
+      // ---- 消息导出（HTML + 装扮需等 manifest；其余格式仅等装扮用量扫描） ----
+      const messageJob = (async (): Promise<ExportResult | null> => {
+        if (task.format === 'html' && dressExportPromise) await dressExportPromise;
+        this.touchStage(
+          task,
+          'message',
+          {
+            status: 'running',
+            total: messageTotal * formats.length,
+            note: formats.length > 1 ? `开始导出 ${formats.length} 种格式` : '开始导出',
+          },
+          { persist: true },
+        );
+        const result = await this.exportMessages(
+          task,
+          outDir,
+          senders,
+          wantMedia,
+          (current, note) => {
+            if (aborted()) return;
+            this.touchStage(task, 'message', { current, note });
+          },
+          faces,
+          roam,
+          dressUsage?.byMsg,
+          dressManifest,
+          task.dress,
+        );
+        task.filePath = result.filePath;
+        task.current = result.messageCount;
+        if (aborted()) {
+          task.status = 'cancelled';
+          return null;
+        }
+        this.touchStage(
+          task,
+          'message',
+          {
+            status: 'completed',
+            current: result.messageCount,
+            total: result.messageCount,
+            note:
+              formats.length > 1
+                ? `${result.messageCount} 条 × ${formats.length} 种格式`
+                : `${result.messageCount} 条`,
+          },
+          { persist: true },
+        );
+        this.log(
+          id,
+          'message',
+          `消息导出完成：${result.messageCount} 条，耗时 ${Math.round(result.durationMs / 1000)}s`,
+        );
+        if (isBundle) task.bundleDir = outDir;
+        return result;
+      })();
+
+      // ---- 搬运媒体（并发）：本地已找到的图片/视频/文件复制进 bundle ----
+      if (wantMedia && scan) {
+        const scanRes = scan;
+        const kinds = task.media?.mediaKinds;
+        const found = scanRes.found.filter((r) => {
+          if (r.kind === 'ptt') return false;
+          if ((r.kind === 'pic' || r.kind === 'emoji') && kinds?.image === false) return false;
+          if (r.kind === 'video' && kinds?.video === false) return false;
+          if (r.kind === 'file' && kinds?.file === false) return false;
+          return true;
+        });
+        jobs.push(async () => {
+          if (found.length === 0) {
+            this.log(id, 'media', '搬运媒体：本地没有已找到的媒体文件（跳过）');
+            this.touchStage(
+              task,
+              'media',
+              {
+                status: 'completed',
+                current: 0,
+                total: 0,
+                note: '本地无媒体文件',
+              },
+              { persist: true },
+            );
+            return;
+          }
+          this.log(id, 'media', `搬运媒体：共 ${found.length} 项本地媒体，开始复制…`);
+          this.touchStage(
+            task,
+            'media',
+            {
+              status: 'running',
+              total: found.length,
+              current: 0,
+              note: `搬运 0/${found.length}`,
+            },
+            { persist: true },
+          );
+          const r = await copyFoundMedia(
+            scanRes,
+            mediaRoot,
+            (done, total) => {
+              if (aborted()) return;
+              this.touchStage(task, 'media', {
+                current: done,
+                total,
+                note: `搬运 ${done}/${total}`,
+              });
+            },
+            8,
+            kinds,
+            (text, level) => this.log(id, 'media', text, level ?? 'info'),
+          );
+          this.touchStage(
+            task,
+            'media',
+            {
+              status: 'completed',
+              current: r.total,
+              total: r.total,
+              failed: r.failed,
+              note: `已搬运 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`,
+              ...(r.failures ? { failures: r.failures } : {}),
+            },
+            { persist: true },
+          );
+          this.log(id, 'media', `搬运完成：成功 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`);
+        });
+      }
 
       if (wantSysFaces && faces) {
         jobs.push(async () => {
+          // 表情集合由消息导出收集，等 message 阶段完成后接续执行。
+          await messageJob.catch(() => null);
+          if (aborted()) return;
+          if (faces.size === 0) {
+            const s0 = this.stage(task, 'sysface');
+            if (s0) {
+              s0.status = 'completed';
+              s0.current = 0;
+              s0.total = 0;
+              s0.note = '会话未使用系统表情';
+              this.saveTasks();
+            }
+            this.log(id, 'sysface', '会话未使用系统表情，跳过导出');
+            return;
+          }
           const s = this.stage(task, 'sysface');
           const emojiDir = this.deps.emojiDir;
           if (!emojiDir) {
-            if (s) { s.status = 'skipped'; s.note = '未找到表情资源目录'; this.saveTasks(); }
+            if (s) {
+              s.status = 'skipped';
+              s.note = '未找到表情资源目录';
+              this.saveTasks();
+            }
             return;
           }
-          this.touchStage(task, 'sysface', { status: 'running', total: faces.size, current: 0, note: `导出 0/${faces.size}` }, { persist: true });
+          this.touchStage(
+            task,
+            'sysface',
+            { status: 'running', total: faces.size, current: 0, note: `导出 0/${faces.size}` },
+            { persist: true },
+          );
+          this.log(id, 'sysface', `导出系统表情：共 ${faces.size} 个`);
           const r = await exportSysFaces(faces, emojiDir, mediaRoot, (done, total) => {
             if (aborted()) return;
-            this.touchStage(task, 'sysface', { current: done, total, note: `导出 ${done}/${total}` });
+            this.touchStage(task, 'sysface', {
+              current: done,
+              total,
+              note: `导出 ${done}/${total}`,
+            });
+            this.log(id, 'sysface', `导出表情 ${done}/${total}`);
           });
-          this.touchStage(task, 'sysface', { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已导出 ${r.ok}${r.failed ? ` · 缺失 ${r.failed}` : ''}` }, { persist: true });
+          this.touchStage(
+            task,
+            'sysface',
+            {
+              status: 'completed',
+              current: r.total,
+              total: r.total,
+              failed: r.failed,
+              note: `已导出 ${r.ok}${r.failed ? ` · 缺失 ${r.failed}` : ''}`,
+            },
+            { persist: true },
+          );
         });
       }
 
       if (wantAvatars && senders && avatarCache) {
         jobs.push(async () => {
-          this.touchStage(task, 'avatar', { status: 'running', total: senders.size, current: 0, note: `下载 0/${senders.size}` }, { persist: true });
+          // 发言者集合由消息导出收集，等 message 阶段完成后接续执行。
+          await messageJob.catch(() => null);
+          if (aborted()) return;
+          if (senders.size === 0) {
+            const s0 = this.stage(task, 'avatar');
+            if (s0) {
+              s0.status = 'completed';
+              s0.current = 0;
+              s0.total = 0;
+              s0.note = '会话无发言者';
+              this.saveTasks();
+            }
+            this.log(id, 'avatar', '会话无发言者，跳过头像下载');
+            return;
+          }
+          this.log(id, 'avatar', `下载头像：共 ${senders.size} 个发言者`);
+          this.touchStage(
+            task,
+            'avatar',
+            { status: 'running', total: senders.size, current: 0, note: `下载 0/${senders.size}` },
+            { persist: true },
+          );
           const r = await exportAvatars(avatarCache, senders, outDir, {
             onProgress: (done, total) => {
               if (aborted()) return;
-              this.touchStage(task, 'avatar', { current: done, total, note: `下载 ${done}/${total}` });
+              this.touchStage(task, 'avatar', {
+                current: done,
+                total,
+                note: `下载 ${done}/${total}`,
+              });
+              if (done % 50 === 0 || done === total) {
+                this.log(id, 'avatar', `下载头像 ${done}/${total}`);
+              }
             },
           });
           task.avatarCount = r.ok;
-          this.touchStage(task, 'avatar', { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已下载 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}` }, { persist: true });
+          this.touchStage(
+            task,
+            'avatar',
+            {
+              status: 'completed',
+              current: r.total,
+              total: r.total,
+              failed: r.failed,
+              note: `已下载 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`,
+            },
+            { persist: true },
+          );
         });
       }
 
-      if (wantMedia && scan) {
+      // 语音类别被取消勾选时，record 阶段不会启动——提前标 skipped，避免整体
+      // 进度永远到不了 100%。
+      if (wantMedia && scan && task.media?.mediaKinds?.voice === false) {
+        const recS = this.stage(task, 'record');
+        if (recS) {
+          recS.status = 'skipped';
+          recS.note = '未勾选语音';
+        }
+      }
+
+      if (wantMedia && scan && task.media?.mediaKinds?.voice !== false) {
         const found = scan;
         // 解码语音 — SILK-decode locally-found voices.
         jobs.push(async () => {
           const voices = found.found.filter((r) => r.kind === 'ptt');
           const recStage = this.stage(task, 'record');
-          if (!decodeSilk) { if (recStage) { recStage.status = 'skipped'; recStage.note = '解码不可用'; } return; }
-          this.touchStage(task, 'record', { status: 'running', total: voices.length, current: 0, note: `解码 0/${voices.length}` }, { persist: true });
-          const r = await decodeFoundVoices(found, mediaRoot, decodeSilk, (done, total) => {
-            if (aborted()) return;
-            this.touchStage(task, 'record', { current: done, total, note: `解码 ${done}/${total}` });
-          });
-          this.touchStage(task, 'record', { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已解码 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`, ...(r.failures ? { failures: r.failures } : {}) }, { persist: true });
+          if (!decodeSilk) {
+            if (recStage) {
+              recStage.status = 'skipped';
+              recStage.note = '解码不可用';
+            }
+            return;
+          }
+          this.log(id, 'record', `解码语音：共 ${voices.length} 条本地语音`);
+          this.touchStage(
+            task,
+            'record',
+            {
+              status: 'running',
+              total: voices.length,
+              current: 0,
+              note: `解码 0/${voices.length}`,
+            },
+            { persist: true },
+          );
+          const r = await decodeFoundVoices(
+            found,
+            mediaRoot,
+            decodeSilk,
+            (done, total) => {
+              if (aborted()) return;
+              this.touchStage(task, 'record', {
+                current: done,
+                total,
+                note: `解码 ${done}/${total}`,
+              });
+            },
+            4,
+            (text, level) => this.log(id, 'record', text, level ?? 'info'),
+          );
+          this.touchStage(
+            task,
+            'record',
+            {
+              status: 'completed',
+              current: r.total,
+              total: r.total,
+              failed: r.failed,
+              note: `已解码 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`,
+              ...(r.failures ? { failures: r.failures } : {}),
+            },
+            { persist: true },
+          );
         });
 
-        if (task.media?.completeMedia) {
-          // 补全图片 — CDN-complete missing images.
-          jobs.push(async () => {
-            const imgStage = this.stage(task, 'image');
-            if (!mediaDownload) { if (imgStage) { imgStage.status = 'skipped'; imgStage.note = '下载不可用'; } return; }
-            const missing = found.downloadList.filter((r) => r.kind === 'pic' || r.kind === 'emoji');
-            this.touchStage(task, 'image', { status: 'running', total: missing.length, current: 0, note: `下载 0/${missing.length}` }, { persist: true });
-            const r = await downloadMissingImages(found, mediaRoot, mediaDownload, (done, total) => {
-              if (aborted()) return;
-              this.touchStage(task, 'image', { current: done, total, note: `下载 ${done}/${total}` });
+        if (
+          task.media?.completeMedia ||
+          task.media?.downloadVideo ||
+          task.media?.downloadFile ||
+          task.media?.downloadPtt
+        ) {
+          if (task.media?.completeMedia) {
+            // 补全图片 — CDN-complete missing images.
+            jobs.push(async () => {
+              const imgStage = this.stage(task, 'image');
+              if (!mediaDownload) {
+                if (imgStage) {
+                  imgStage.status = 'skipped';
+                  imgStage.note = '下载不可用';
+                }
+                return;
+              }
+              const missing = found.downloadList.filter(
+                (r) => r.kind === 'pic' || r.kind === 'emoji',
+              );
+              this.log(
+                id,
+                'image',
+                missing.length > 0
+                  ? `补全图片：共 ${missing.length} 张缺失`
+                  : '补全图片：无缺失图片',
+              );
+              this.touchStage(
+                task,
+                'image',
+                {
+                  status: 'running',
+                  total: missing.length,
+                  current: 0,
+                  note: `下载 0/${missing.length}`,
+                },
+                { persist: true },
+              );
+              const r = await downloadMissingImages(
+                found,
+                mediaRoot,
+                mediaDownload,
+                (done, total) => {
+                  if (aborted()) return;
+                  this.touchStage(task, 'image', {
+                    current: done,
+                    total,
+                    note: `下载 ${done}/${total}`,
+                  });
+                },
+                8,
+                (text, level) => this.log(id, 'image', text, level ?? 'info'),
+              );
+              this.touchStage(
+                task,
+                'image',
+                {
+                  status: 'completed',
+                  current: r.total,
+                  total: r.total,
+                  failed: r.failed,
+                  note: `已补全 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`,
+                  ...(r.failures ? { failures: r.failures } : {}),
+                },
+                { persist: true },
+              );
             });
-            this.touchStage(task, 'image', { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已补全 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`, ...(r.failures ? { failures: r.failures } : {}) }, { persist: true });
-          });
+          }
           // 补全视频 / 文件 — OIDB-resolve + download (each gated by its toggle).
-          jobs.push(() => this.runUrlDownloadStage(task, 'video', found, mediaRoot, Boolean(task.media?.downloadVideo), aborted));
-          jobs.push(() => this.runUrlDownloadStage(task, 'file', found, mediaRoot, Boolean(task.media?.downloadFile), aborted));
+          jobs.push(() =>
+            this.runUrlDownloadStage(
+              task,
+              'video',
+              found,
+              mediaRoot,
+              Boolean(task.media?.downloadVideo),
+              aborted,
+              (text, level) => this.log(id, 'video', text, level ?? 'info'),
+            ),
+          );
+          jobs.push(() =>
+            this.runUrlDownloadStage(
+              task,
+              'file',
+              found,
+              mediaRoot,
+              Boolean(task.media?.downloadFile),
+              aborted,
+              (text, level) => this.log(id, 'file', text, level ?? 'info'),
+            ),
+          );
           // 补全语音 — OIDB-resolve + SILK-decode into media/record/*.wav.
-          jobs.push(() => this.runUrlDownloadStage(task, 'ptt', found, mediaRoot, Boolean(task.media?.downloadPtt), aborted));
+          jobs.push(() =>
+            this.runUrlDownloadStage(
+              task,
+              'ptt',
+              found,
+              mediaRoot,
+              Boolean(task.media?.downloadPtt),
+              aborted,
+              (text, level) => this.log(id, 'ptt', text, level ?? 'info'),
+            ),
+          );
         }
       }
 
@@ -777,25 +1506,80 @@ export class ExportTaskManager extends EventEmitter {
         const found = scan;
         jobs.push(async () => {
           const voices = found.found.filter((r) => r.kind === 'ptt');
-          this.touchStage(task, 'transcribe', { status: 'running', total: voices.length, current: 0, note: `转写 0/${voices.length}` }, { persist: true });
-          const r = await transcribeFoundVoices(found, outDir, transcribe, (done, total) => {
-            if (aborted()) return;
-            this.touchStage(task, 'transcribe', { current: done, total, note: `转写 ${done}/${total}` });
-          }, 2, async (ref, text) => {
-            // Cache the result on the element (wire tag 45923) so this clip is
-            // skipped on any later export — and shows up in chat right away.
-            await this.msgs.setPttTranscript(BigInt(ref.msgId), ref.fileName, text);
-          });
-          this.touchStage(task, 'transcribe', { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已转写 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`, ...(r.failures ? { failures: r.failures } : {}) }, { persist: true });
+          this.log(id, 'transcribe', `语音转写：共 ${voices.length} 条语音`);
+          this.touchStage(
+            task,
+            'transcribe',
+            {
+              status: 'running',
+              total: voices.length,
+              current: 0,
+              note: `转写 0/${voices.length}`,
+            },
+            { persist: true },
+          );
+          const r = await transcribeFoundVoices(
+            found,
+            outDir,
+            transcribe,
+            (done, total) => {
+              if (aborted()) return;
+              this.touchStage(task, 'transcribe', {
+                current: done,
+                total,
+                note: `转写 ${done}/${total}`,
+              });
+            },
+            2,
+            async (ref, text) => {
+              // Cache the result on the element (wire tag 45923) so this clip is
+              // skipped on any later export — and shows up in chat right away.
+              await this.msgs.setPttTranscript(BigInt(ref.msgId), ref.fileName, text);
+            },
+            (text, level) => this.log(id, 'transcribe', text, level ?? 'info'),
+          );
+          this.touchStage(
+            task,
+            'transcribe',
+            {
+              status: 'completed',
+              current: r.total,
+              total: r.total,
+              failed: r.failed,
+              note: `已转写 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`,
+              ...(r.failures ? { failures: r.failures } : {}),
+            },
+            { persist: true },
+          );
         });
       }
 
       // Run the batch concurrently; one stage's failure shouldn't sink the rest.
-      const settled = await Promise.allSettled(jobs.map((j) => j()));
+      const settled = await Promise.allSettled([...jobs.map((j) => j()), messageJob]);
       const firstError = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
       if (firstError) throw firstError.reason;
 
-      if (aborted()) { task.status = 'cancelled'; return; }
+      // 防御：所有子任务都已 settle，不应再有阶段处于 running / pending。
+      // 若仍有（例如某阶段因条件未启动），记录警告便于排查，而不是静默完成。
+      const dangling = task.stages.filter((s) => s.status === 'running' || s.status === 'pending');
+      if (dangling.length > 0) {
+        this.log(
+          id,
+          'task',
+          `警告：阶段 ${dangling.map((s) => s.label).join('、')} 仍处于未完成状态`,
+          'warn',
+        );
+      }
+
+      if (aborted()) {
+        task.status = 'cancelled';
+        return;
+      }
+      this.log(
+        id,
+        'task',
+        `导出完成：${task.current} 条${task.bundleDir ? '（含资源 bundle）' : ''}`,
+      );
       task.status = 'completed';
       task.progress = 100;
     } catch (e) {
@@ -803,7 +1587,11 @@ export class ExportTaskManager extends EventEmitter {
       task.error = String((e as Error)?.message ?? e);
       // Mark the running stage failed so the UI shows where it broke.
       const running = task.stages.find((s) => s.status === 'running');
-      if (running) { running.status = 'failed'; running.note = task.error; }
+      if (running) {
+        running.status = 'failed';
+        running.note = task.error;
+      }
+      this.log(id, 'task', `导出失败：${task.error}`, 'error');
     } finally {
       task.updatedAt = Date.now();
       this.abortControllers.delete(id);
@@ -813,7 +1601,7 @@ export class ExportTaskManager extends EventEmitter {
         status: task.status,
         progress: task.progress,
         current: task.current,
-        message: task.status === 'completed' ? '导出完成' : task.error ?? '已取消',
+        message: task.status === 'completed' ? '导出完成' : (task.error ?? '已取消'),
       });
     }
   }
@@ -838,43 +1626,95 @@ export class ExportTaskManager extends EventEmitter {
       const qzone = this.deps.qzone;
       if (!qzone) throw new Error('QQ 空间拉取能力不可用（需在线 QQ）。');
       const wantMedia = Boolean(task.media?.exportMedia);
-      // 下载配图 → 产物为 bundle 目录（说说文件 + media/），否则单文件。
-      const isBundle = wantMedia;
+      const formats = task.formats?.length ? task.formats : [task.format];
+      // 多格式或下载配图 → 产物为 bundle 目录（多个文件 + media/），否则单文件。
+      const isBundle = wantMedia || formats.length > 1;
       const outDir = isBundle ? join(this.cacheDir, `bundle-${id}`) : this.cacheDir;
       if (isBundle) mkdirSync(outDir, { recursive: true });
-      const outPath = join(outDir, `${sanitizeSegment(task.name, task.conv || task.id)}.${task.format}`);
       const mediaRoot = wantMedia ? join(outDir, 'media') : undefined;
 
-      this.touchStage(task, 'message', { status: 'running', note: '拉取说说…' }, { persist: true });
-      const result = await exportQzone(
+      this.touchStage(
+        task,
+        'message',
         {
-          targetUin: task.conv,
-          name: task.name,
-          format: task.format === 'txt' ? 'txt' : 'json',
-          outputPath: outPath,
-          mediaRoot,
-          range: task.range,
-          onProgress: (current, total, note) => {
-            if (aborted()) return;
-            this.touchStage(task, 'message', { current, total, note });
-          },
-          onMedia: (done, total) => {
-            if (aborted()) return;
-            this.touchStage(task, 'media', { status: 'running', current: done, total, note: `下载 ${done}/${total}` });
-          },
-          signal: abort.signal,
+          status: 'running',
+          note: formats.length > 1 ? `拉取说说 × ${formats.length} 种格式…` : '拉取说说…',
         },
-        qzone,
+        { persist: true },
       );
-      if (aborted()) { task.status = 'cancelled'; return; }
+      let totalCount = 0;
+      let mediaOk = 0;
+      let mediaFailed = 0;
+      let firstFilePath = '';
+      for (let i = 0; i < formats.length; i += 1) {
+        const format = formats[i]!;
+        const outPath = join(
+          outDir,
+          `${sanitizeSegment(task.name, task.conv || task.id)}.${format}`,
+        );
+        if (i === 0) firstFilePath = outPath;
+        const base = totalCount;
+        const result = await exportQzone(
+          {
+            targetUin: task.conv,
+            name: task.name,
+            format: format === 'txt' ? 'txt' : 'json',
+            outputPath: outPath,
+            // 配图只下载一次（第一份格式携带）。
+            mediaRoot: i === 0 ? mediaRoot : undefined,
+            range: task.range,
+            onProgress: (current, total, note) => {
+              if (aborted()) return;
+              const prefix =
+                formats.length > 1 ? `[${i + 1}/${formats.length} ${format.toUpperCase()}] ` : '';
+              this.touchStage(task, 'message', {
+                current: base + current,
+                total: base + (total || current),
+                note: `${prefix}${note}`,
+              });
+              this.log(id, 'message', `${prefix}${note}`);
+            },
+            onMedia: (done, total) => {
+              if (aborted()) return;
+              this.touchStage(task, 'media', {
+                status: 'running',
+                current: done,
+                total,
+                note: `下载 ${done}/${total}`,
+              });
+              this.log(id, 'media', `下载配图 ${done}/${total}`);
+            },
+            signal: abort.signal,
+          },
+          qzone,
+        );
+        if (aborted()) {
+          task.status = 'cancelled';
+          return;
+        }
+        totalCount += result.count;
+        mediaOk += result.mediaOk;
+        mediaFailed += result.mediaFailed;
+        if (formats.length > 1) {
+          this.log(id, 'message', `格式 ${format.toUpperCase()} 完成：${result.count} 条说说`);
+        }
+      }
 
-      task.filePath = result.filePath;
-      task.current = result.count;
+      task.filePath = firstFilePath;
+      task.current = totalCount;
       if (isBundle) task.bundleDir = outDir;
       this.touchStage(
         task,
         'message',
-        { status: 'completed', current: result.count, total: result.count, note: `${result.count} 条说说` },
+        {
+          status: 'completed',
+          current: totalCount,
+          total: totalCount,
+          note:
+            formats.length > 1
+              ? `${totalCount} 条 × ${formats.length} 种格式`
+              : `${totalCount} 条说说`,
+        },
         { persist: true },
       );
       if (wantMedia) {
@@ -883,10 +1723,10 @@ export class ExportTaskManager extends EventEmitter {
           'media',
           {
             status: 'completed',
-            current: result.mediaOk + result.mediaFailed,
-            total: result.mediaOk + result.mediaFailed,
-            failed: result.mediaFailed,
-            note: `已下载 ${result.mediaOk}${result.mediaFailed ? ` · 失败 ${result.mediaFailed}` : ''}`,
+            current: mediaOk + mediaFailed,
+            total: mediaOk + mediaFailed,
+            failed: mediaFailed,
+            note: `已下载 ${mediaOk}${mediaFailed ? ` · 失败 ${mediaFailed}` : ''}`,
           },
           { persist: true },
         );
@@ -897,7 +1737,11 @@ export class ExportTaskManager extends EventEmitter {
       task.status = 'failed';
       task.error = String((e as Error)?.message ?? e);
       const running = task.stages.find((s) => s.status === 'running');
-      if (running) { running.status = 'failed'; running.note = task.error; }
+      if (running) {
+        running.status = 'failed';
+        running.note = task.error;
+      }
+      this.log(id, 'task', `导出失败：${task.error}`, 'error');
     } finally {
       task.updatedAt = Date.now();
       this.abortControllers.delete(id);
@@ -907,7 +1751,7 @@ export class ExportTaskManager extends EventEmitter {
         status: task.status,
         progress: task.progress,
         current: task.current,
-        message: task.status === 'completed' ? '导出完成' : task.error ?? '已取消',
+        message: task.status === 'completed' ? '导出完成' : (task.error ?? '已取消'),
       });
     }
   }
@@ -934,74 +1778,139 @@ export class ExportTaskManager extends EventEmitter {
       const avatarCache = this.deps.avatarCache;
       const wantAvatars = Boolean(task.exportAvatar && avatarCache);
 
-      // 有头像 → 产物为 bundle 目录（表文件 + avatars/），否则单文件。
-      const isBundle = wantAvatars;
+      const formats = task.formats?.length ? task.formats : [task.format];
+      // 有头像或多格式 → 产物为 bundle 目录（表文件 + avatars/），否则单文件。
+      const isBundle = wantAvatars || formats.length > 1;
       const outDir = isBundle ? join(this.cacheDir, `bundle-${id}`) : this.cacheDir;
       if (isBundle) mkdirSync(outDir, { recursive: true });
-      const ext = task.format === 'vcard' ? 'vcf' : task.format;
-      const outPath = join(outDir, `${sanitizeSegment(task.name, task.conv || task.id)}.${ext}`);
       const uins = wantAvatars ? new Set<string>() : undefined;
 
       if (task.exportAvatar && !avatarCache) {
         const s = this.stage(task, 'avatar');
-        if (s) { s.status = 'skipped'; s.note = '头像服务不可用'; }
+        if (s) {
+          s.status = 'skipped';
+          s.note = '头像服务不可用';
+        }
       }
 
-      // ---- stage: 导出联系人 ----
-      this.touchStage(task, 'message', { status: 'running', note: '开始导出' }, { persist: true });
-      const onProgress = (current: number, total: number, note: string): void => {
-        if (aborted()) return;
-        this.touchStage(task, 'message', { current, total, note });
-      };
-      const result =
-        task.contacts?.scope === 'group'
-          ? await exportGroupMembers(
-              {
-                groupCode: task.conv,
-                format: (task.format === 'vcard' ? 'txt' : task.format) as Exclude<ContactsFormat, 'vcard'>,
-                outputPath: outPath,
-                collectUins: uins,
-                onProgress,
-                signal: abort.signal,
-              },
-              deps,
-            )
-          : await exportFriends(
-              {
-                format: task.format as ContactsFormat,
-                outputPath: outPath,
-                categoryIds: task.contacts?.categoryIds,
-                collectUins: uins,
-                onProgress,
-                signal: abort.signal,
-              },
-              deps,
-            );
-      if (aborted()) { task.status = 'cancelled'; return; }
+      // ---- stage: 导出联系人（多格式时逐格式写表，头像只下一份） ----
+      this.touchStage(
+        task,
+        'message',
+        { status: 'running', note: formats.length > 1 ? '开始导出多格式…' : '开始导出' },
+        { persist: true },
+      );
+      let totalCount = 0;
+      let firstFilePath = '';
+      for (let i = 0; i < formats.length; i += 1) {
+        const format = formats[i]!;
+        const ext = format === 'vcard' ? 'vcf' : format;
+        const outPath = join(outDir, `${sanitizeSegment(task.name, task.conv || task.id)}.${ext}`);
+        if (i === 0) firstFilePath = outPath;
+        const base = totalCount;
+        const onProgress = (current: number, total: number, note: string): void => {
+          if (aborted()) return;
+          const prefix =
+            formats.length > 1 ? `[${i + 1}/${formats.length} ${format.toUpperCase()}] ` : '';
+          this.touchStage(task, 'message', {
+            current: base + current,
+            total: base + (total || current),
+            note: `${prefix}${note}`,
+          });
+          this.log(id, 'message', `${prefix}${note}`);
+        };
+        const result =
+          task.contacts?.scope === 'group'
+            ? await exportGroupMembers(
+                {
+                  groupCode: task.conv,
+                  format: (format === 'vcard' ? 'txt' : format) as Exclude<ContactsFormat, 'vcard'>,
+                  outputPath: outPath,
+                  collectUins: uins,
+                  onProgress,
+                  signal: abort.signal,
+                },
+                deps,
+              )
+            : await exportFriends(
+                {
+                  format: format as ContactsFormat,
+                  outputPath: outPath,
+                  categoryIds: task.contacts?.categoryIds,
+                  collectUins: uins,
+                  onProgress,
+                  signal: abort.signal,
+                },
+                deps,
+              );
+        if (aborted()) {
+          task.status = 'cancelled';
+          return;
+        }
+        totalCount += result.count;
+        if (formats.length > 1) {
+          this.log(id, 'message', `格式 ${format.toUpperCase()} 完成：${result.count} 位`);
+        }
+      }
 
-      task.filePath = result.filePath;
-      task.current = result.count;
+      task.filePath = firstFilePath;
+      task.current = totalCount;
       if (isBundle) task.bundleDir = outDir;
       this.touchStage(
         task,
         'message',
-        { status: 'completed', current: result.count, total: result.count, note: `${result.count} 位联系人` },
+        {
+          status: 'completed',
+          current: totalCount,
+          total: totalCount,
+          note:
+            formats.length > 1
+              ? `${totalCount} 位 × ${formats.length} 种格式`
+              : `${totalCount} 位联系人`,
+        },
         { persist: true },
       );
 
       // ---- stage: 下载头像（可选） ----
       if (wantAvatars && uins && avatarCache) {
-        this.touchStage(task, 'avatar', { status: 'running', total: uins.size, current: 0, note: `下载 0/${uins.size}` }, { persist: true });
+        this.touchStage(
+          task,
+          'avatar',
+          { status: 'running', total: uins.size, current: 0, note: `下载 0/${uins.size}` },
+          { persist: true },
+        );
         const r = await exportAvatars(avatarCache, uins, outDir, {
           onProgress: (done, total) => {
             if (aborted()) return;
-            this.touchStage(task, 'avatar', { current: done, total, note: `下载 ${done}/${total}` });
+            this.touchStage(task, 'avatar', {
+              current: done,
+              total,
+              note: `下载 ${done}/${total}`,
+            });
+            // 头像量可能上千，按 50 个一批打日志，避免刷屏。
+            if (done % 50 === 0 || done === total) {
+              this.log(id, 'avatar', `下载头像 ${done}/${total}`);
+            }
           },
         });
         task.avatarCount = r.ok;
-        this.touchStage(task, 'avatar', { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已下载 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}` }, { persist: true });
+        this.touchStage(
+          task,
+          'avatar',
+          {
+            status: 'completed',
+            current: r.total,
+            total: r.total,
+            failed: r.failed,
+            note: `已下载 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`,
+          },
+          { persist: true },
+        );
       }
-      if (aborted()) { task.status = 'cancelled'; return; }
+      if (aborted()) {
+        task.status = 'cancelled';
+        return;
+      }
 
       task.status = 'completed';
       task.progress = 100;
@@ -1009,7 +1918,11 @@ export class ExportTaskManager extends EventEmitter {
       task.status = 'failed';
       task.error = String((e as Error)?.message ?? e);
       const running = task.stages.find((s) => s.status === 'running');
-      if (running) { running.status = 'failed'; running.note = task.error; }
+      if (running) {
+        running.status = 'failed';
+        running.note = task.error;
+      }
+      this.log(id, 'task', `导出失败：${task.error}`, 'error');
     } finally {
       task.updatedAt = Date.now();
       this.abortControllers.delete(id);
@@ -1019,7 +1932,7 @@ export class ExportTaskManager extends EventEmitter {
         status: task.status,
         progress: task.progress,
         current: task.current,
-        message: task.status === 'completed' ? '导出完成' : task.error ?? '已取消',
+        message: task.status === 'completed' ? '导出完成' : (task.error ?? '已取消'),
       });
     }
   }
@@ -1044,7 +1957,10 @@ export class ExportTaskManager extends EventEmitter {
       const deps = this.deps.collection;
       if (!deps) throw new Error('收藏数据拉取能力不可用。');
 
-      const outPath = join(this.cacheDir, `${sanitizeSegment(task.name, task.conv || task.id)}.${task.format}`);
+      const outPath = join(
+        this.cacheDir,
+        `${sanitizeSegment(task.name, task.conv || task.id)}.${task.format}`,
+      );
 
       this.touchStage(task, 'message', { status: 'running', note: '开始导出' }, { persist: true });
       const result = await exportCollections(
@@ -1055,19 +1971,28 @@ export class ExportTaskManager extends EventEmitter {
           onProgress: (current, total, note) => {
             if (aborted()) return;
             this.touchStage(task, 'message', { current, total, note });
+            this.log(id, 'message', note);
           },
           signal: abort.signal,
         },
         deps,
       );
-      if (aborted()) { task.status = 'cancelled'; return; }
+      if (aborted()) {
+        task.status = 'cancelled';
+        return;
+      }
 
       task.filePath = result.filePath;
       task.current = result.count;
       this.touchStage(
         task,
         'message',
-        { status: 'completed', current: result.count, total: result.count, note: `${result.count} 条收藏` },
+        {
+          status: 'completed',
+          current: result.count,
+          total: result.count,
+          note: `${result.count} 条收藏`,
+        },
         { persist: true },
       );
 
@@ -1077,7 +2002,11 @@ export class ExportTaskManager extends EventEmitter {
       task.status = 'failed';
       task.error = String((e as Error)?.message ?? e);
       const running = task.stages.find((s) => s.status === 'running');
-      if (running) { running.status = 'failed'; running.note = task.error; }
+      if (running) {
+        running.status = 'failed';
+        running.note = task.error;
+      }
+      this.log(id, 'task', `导出失败：${task.error}`, 'error');
     } finally {
       task.updatedAt = Date.now();
       this.abortControllers.delete(id);
@@ -1087,7 +2016,7 @@ export class ExportTaskManager extends EventEmitter {
         status: task.status,
         progress: task.progress,
         current: task.current,
-        message: task.status === 'completed' ? '导出完成' : task.error ?? '已取消',
+        message: task.status === 'completed' ? '导出完成' : (task.error ?? '已取消'),
       });
     }
   }
@@ -1120,20 +2049,46 @@ export class ExportTaskManager extends EventEmitter {
       task.bundleDir = outDir;
 
       // 先把每套包的表情列表拉齐，算出总张数（进度分母）。密钥每包恢复一次并缓存。
-      this.touchStage(task, 'sticker', { status: 'running', note: '获取表情列表…' }, { persist: true });
+      this.touchStage(
+        task,
+        'sticker',
+        { status: 'running', note: '获取表情列表…' },
+        { persist: true },
+      );
       const usedDirs = new Set<string>();
-      const jobs: Array<{ packId: string; packDir: string; hash: string; name: string; key?: string; used: Set<string> }> = [];
+      const jobs: Array<{
+        packId: string;
+        packDir: string;
+        hash: string;
+        name: string;
+        key?: string;
+        used: Set<string>;
+      }> = [];
       for (const pack of packs) {
-        if (aborted()) { task.status = 'cancelled'; return; }
+        if (aborted()) {
+          task.status = 'cancelled';
+          return;
+        }
         const detail = await deps.getPackDetail(pack.id);
-        if (!detail || detail.items.length === 0) continue;
+        if (!detail || detail.items.length === 0) {
+          this.log(id, 'sticker', `表情包「${pack.name}」无可用表情列表，已跳过`, 'warn');
+          continue;
+        }
+        this.log(id, 'sticker', `表情包「${pack.name}」：共 ${detail.items.length} 张`);
         const key = (await deps.getPackKey(pack.id))?.key;
         const packDirName = uniqueName(sanitizeSegment(pack.name, pack.id), usedDirs);
         const packDir = join(outDir, packDirName);
         await mkdir(packDir, { recursive: true });
         const usedFiles = new Set<string>();
         for (const it of detail.items) {
-          jobs.push({ packId: pack.id, packDir, hash: it.hash, name: it.name, key, used: usedFiles });
+          jobs.push({
+            packId: pack.id,
+            packDir,
+            hash: it.hash,
+            name: it.name,
+            key,
+            used: usedFiles,
+          });
         }
       }
 
@@ -1143,7 +2098,12 @@ export class ExportTaskManager extends EventEmitter {
       const failures: MediaFailure[] = [];
       // task.total 起初是包套数（packs.length），下载开始后改成总张数，与 task.current 单位一致。
       task.total = total;
-      this.touchStage(task, 'sticker', { total, current: 0, note: `下载 0/${total}` }, { persist: true });
+      this.touchStage(
+        task,
+        'sticker',
+        { total, current: 0, note: `下载 0/${total}` },
+        { persist: true },
+      );
 
       // 并发解密下载（每张：CDN 加密流 → QQTEA 解密 → 缓存路径 → 复制进 bundle）。
       const CONCURRENCY = 6;
@@ -1162,19 +2122,33 @@ export class ExportTaskManager extends EventEmitter {
             ok += 1;
           } catch (e) {
             if (failures.length < 100) {
-              failures.push({ stage: 'sticker', fileName: job.name || job.hash, error: e instanceof Error ? e.message : String(e) });
+              failures.push({
+                stage: 'sticker',
+                fileName: job.name || job.hash,
+                error: e instanceof Error ? e.message : String(e),
+              });
             }
           } finally {
             done += 1;
             if (!aborted()) {
               task.current = done;
-              this.touchStage(task, 'sticker', { current: done, total, note: `下载 ${done}/${total}` });
+              this.touchStage(task, 'sticker', {
+                current: done,
+                total,
+                note: `下载 ${done}/${total}`,
+              });
+              if (done % 50 === 0 || done === total) {
+                this.log(id, 'sticker', `下载表情 ${done}/${total}`);
+              }
             }
           }
         }
       };
       await Promise.all(Array.from({ length: Math.min(CONCURRENCY, jobs.length) }, worker));
-      if (aborted()) { task.status = 'cancelled'; return; }
+      if (aborted()) {
+        task.status = 'cancelled';
+        return;
+      }
 
       const failed = total - ok;
       task.current = ok;
@@ -1199,7 +2173,11 @@ export class ExportTaskManager extends EventEmitter {
       task.status = 'failed';
       task.error = String((e as Error)?.message ?? e);
       const running = task.stages.find((s) => s.status === 'running');
-      if (running) { running.status = 'failed'; running.note = task.error; }
+      if (running) {
+        running.status = 'failed';
+        running.note = task.error;
+      }
+      this.log(id, 'task', `导出失败：${task.error}`, 'error');
     } finally {
       task.updatedAt = Date.now();
       this.abortControllers.delete(id);
@@ -1209,26 +2187,44 @@ export class ExportTaskManager extends EventEmitter {
         status: task.status,
         progress: task.progress,
         current: task.current,
-        message: task.status === 'completed' ? '下载完成' : task.error ?? '已取消',
+        message: task.status === 'completed' ? '下载完成' : (task.error ?? '已取消'),
       });
     }
   }
 
   /** Run a video/file/ptt download stage: gated by its toggle and a usable mediaUrl. */
-  private async runUrlDownloadStage(    task: ExportTask,
+  private async runUrlDownloadStage(
+    task: ExportTask,
     key: 'video' | 'file' | 'ptt',
     scan: import('./media_scan').MediaScanResult,
     mediaRoot: string,
     enabled: boolean,
     aborted: () => boolean,
+    onLog: (text: string, level?: TaskLogLevel) => void,
   ): Promise<void> {
     const s = this.stage(task, key);
     if (!s) return;
-    if (!enabled) { s.status = 'skipped'; s.note = '未勾选下载'; this.saveTasks(); return; }
-    if (!this.deps.mediaUrl) { s.status = 'skipped'; s.note = '无法获取下载地址'; this.saveTasks(); return; }
-    if (key === 'ptt' && !this.deps.decodeSilk) { s.status = 'skipped'; s.note = '解码不可用'; this.saveTasks(); return; }
+    if (!enabled) {
+      s.status = 'skipped';
+      s.note = '未勾选下载';
+      this.saveTasks();
+      return;
+    }
+    if (!this.deps.mediaUrl) {
+      s.status = 'skipped';
+      s.note = '无法获取下载地址';
+      this.saveTasks();
+      return;
+    }
+    if (key === 'ptt' && !this.deps.decodeSilk) {
+      s.status = 'skipped';
+      s.note = '解码不可用';
+      this.saveTasks();
+      return;
+    }
 
     const label = key === 'video' ? '视频' : key === 'ptt' ? '语音' : '文件';
+    onLog(`开始补全${label}…`);
     const ctx = {
       mediaUrl: this.deps.mediaUrl,
       msgs: this.msgs,
@@ -1243,48 +2239,135 @@ export class ExportTaskManager extends EventEmitter {
     };
     const r =
       key === 'video'
-        ? await downloadMissingVideos(scan, mediaRoot, ctx, onP)
+        ? await downloadMissingVideos(scan, mediaRoot, ctx, onP, 4, onLog)
         : key === 'ptt'
-          ? await downloadMissingVoices(scan, mediaRoot, ctx, this.deps.decodeSilk!, onP)
-          : await downloadMissingFiles(scan, mediaRoot, ctx, onP);
-    this.touchStage(task, key, { status: 'completed', current: r.total, total: r.total, failed: r.failed, note: `已下载 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`, ...(r.failures ? { failures: r.failures } : {}) }, { persist: true });
+          ? await downloadMissingVoices(scan, mediaRoot, ctx, this.deps.decodeSilk!, onP, 4, onLog)
+          : await downloadMissingFiles(scan, mediaRoot, ctx, onP, 4, onLog);
+    onLog(`补全${label}完成：成功 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`);
+    this.touchStage(
+      task,
+      key,
+      {
+        status: 'completed',
+        current: r.total,
+        total: r.total,
+        failed: r.failed,
+        note: `已下载 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`,
+        ...(r.failures ? { failures: r.failures } : {}),
+      },
+      { persist: true },
+    );
   }
 
-  /** Dispatch the message stage to the right exporter by format / conversation kind. */
-  private exportMessages(
+  /**
+   * 消息阶段：多格式同任务时逐格式各写一个文件（进度跨格式累计）；单格式保持
+   * 原行为。所有格式复用同一套 senders / faces 收集，媒体只由任务级 media 阶段
+   * 导出一份。返回主格式路径 + 跨格式汇总条数。
+   */
+  private async exportMessages(
     task: ExportTask,
-    outputPath: string,
+    outDir: string,
     senders: Set<string> | undefined,
     withMediaPaths: boolean,
     onProgress: (current: number, note: string) => void,
     faces?: Set<string>,
     roam?: RoamMessageSource,
+    dressByMsg?: Map<string, MsgDecoration>,
+    dressManifest?: DressExportManifest | null,
+    dressKinds?: DressExportKinds,
+  ): Promise<ExportResult> {
+    const formats = task.formats?.length ? task.formats : [task.format];
+    const filePathFor = (format: ExportFormat): string =>
+      format === 'html'
+        ? join(outDir, 'index.html')
+        : join(outDir, `${sanitizeSegment(task.name, task.conv || task.id)}.${format}`);
+    const startedAt = Date.now();
+    let count = 0;
+    let fileSize = 0;
+    for (let i = 0; i < formats.length; i += 1) {
+      const format = formats[i]!;
+      const base = count;
+      const tick = (p: { current: number; message: string }): void => {
+        const prefix =
+          formats.length > 1 ? `[${i + 1}/${formats.length} ${format.toUpperCase()}] ` : '';
+        onProgress(base + p.current, `${prefix}${p.message}`);
+        this.log(task.id, 'message', `${prefix}${p.message}`);
+      };
+      const result = await this.exportMessagesOne(
+        task,
+        format,
+        filePathFor(format),
+        senders,
+        withMediaPaths,
+        tick,
+        faces,
+        roam,
+        dressByMsg,
+        dressManifest,
+        dressKinds,
+      );
+      count += result.messageCount;
+      fileSize += result.fileSize;
+      if (formats.length > 1) {
+        this.log(
+          task.id,
+          'message',
+          `格式 ${format.toUpperCase()} 完成：${result.messageCount} 条`,
+        );
+      }
+    }
+    return {
+      filePath: filePathFor(formats[0]!),
+      format: task.format,
+      messageCount: count,
+      fileSize,
+      durationMs: Date.now() - startedAt,
+    };
+  }
+
+  /** Dispatch one format pass to the right exporter by format / conversation kind. */
+  private async exportMessagesOne(
+    task: ExportTask,
+    format: ExportFormat,
+    outputPath: string,
+    senders: Set<string> | undefined,
+    withMediaPaths: boolean,
+    onProgress: (p: { current: number; message: string }) => void,
+    faces?: Set<string>,
+    roam?: RoamMessageSource,
+    dressByMsg?: Map<string, MsgDecoration>,
+    dressManifest?: DressExportManifest | null,
+    dressKinds?: DressExportKinds,
   ): Promise<ExportResult> {
     const progressEvery = 1000;
-    const tick = (p: { current: number; message: string }): void => onProgress(p.current, p.message);
+    const tick = (p: { current: number; message: string }): void => onProgress(p);
+    const dressLookup = dressByMsg
+      ? (msgId: string): MsgDecoration | undefined => dressByMsg.get(msgId)
+      : undefined;
     // ChatLab reuses json/jsonl but emits its own structure (header + members +
     // normalized messages), and resolves names/roles itself — its own exporter.
-    if (task.chatlab && (task.format === 'json' || task.format === 'jsonl')) {
+    if (task.chatlab && (format === 'json' || format === 'jsonl')) {
       return exportToChatlab(
         this.msgs,
         {
           kind: task.kind,
           conv: task.conv,
           name: task.name,
-          format: task.format,
+          format,
           outputPath,
           range: task.range,
           roam,
           progressEvery,
           onProgress: tick,
           collectSenders: senders,
+          collectFaces: faces,
         },
         this.deps.chatlab ?? {},
       );
     }
     // HTML resolves names / roles / self-alignment itself (like ChatLab) and
     // wraps the records in a document — its own exporter, both kinds.
-    if (task.format === 'html') {
+    if (format === 'html') {
       return exportToHtml(
         this.msgs,
         {
@@ -1299,12 +2382,15 @@ export class ExportTaskManager extends EventEmitter {
           collectSenders: senders,
           collectFaces: faces,
           withMediaPaths,
+          dress: dressKinds,
+          dressLookup,
+          dressManifest: dressManifest ?? undefined,
         },
         this.deps.chatlab ?? {},
       );
     }
     // XLSX is a binary workbook, not a character stream — its own loop, both kinds.
-    if (task.format === 'xlsx') {
+    if (format === 'xlsx') {
       return exportToXlsx(this.msgs, {
         kind: task.kind,
         conv: task.conv,
@@ -1312,6 +2398,7 @@ export class ExportTaskManager extends EventEmitter {
         progressEvery,
         onProgress: tick,
         collectSenders: senders,
+        collectFaces: faces,
         range: task.range,
         withMediaPaths,
         roam,
@@ -1325,11 +2412,13 @@ export class ExportTaskManager extends EventEmitter {
         progressEvery,
         onProgress: tick,
         collectSenders: senders,
+        collectFaces: faces,
         range: task.range,
         withMediaPaths,
         roam,
+        dressLookup,
       };
-      switch (task.format) {
+      switch (format) {
         case 'json':
           return exportGroupToJson(this.msgs, opts, this.deps.chatlab);
         case 'jsonl':
@@ -1345,13 +2434,15 @@ export class ExportTaskManager extends EventEmitter {
       task.name,
       task.conv,
       outputPath,
-      task.format,
+      format,
       progressEvery,
       tick,
       senders,
+      faces,
       task.range,
       withMediaPaths,
       roam,
+      dressLookup,
     );
   }
 
@@ -1364,9 +2455,11 @@ export class ExportTaskManager extends EventEmitter {
     progressEvery: number,
     onProgress: (p: { current: number; message: string }) => void,
     senders?: Set<string>,
+    faces?: Set<string>,
     range?: ExportTimeRange,
     withMediaPaths?: boolean,
     roam?: RoamMessageSource,
+    dressLookup?: (msgId: string) => MsgDecoration | undefined,
   ): Promise<ExportResult> {
     // 私聊/官方号/服务号的 JSON 同样带上成员昵称（meta + members + senderName）。
     if ((format === 'json' || format === 'jsonl') && this.deps.chatlab) {
@@ -1383,7 +2476,9 @@ export class ExportTaskManager extends EventEmitter {
           progressEvery,
           onProgress,
           collectSenders: senders,
+          collectFaces: faces,
           withMediaPaths,
+          dressLookup,
         },
         this.deps.chatlab,
       );
@@ -1410,22 +2505,36 @@ export class ExportTaskManager extends EventEmitter {
     let count = 0;
     try {
       if (framing.head) await writer.write(framing.head);
-      for await (const m of iterateC2cMessages(this.msgs, peerUid, { pageSize: 2000, range, roam })) {
+      for await (const m of iterateC2cMessages(this.msgs, peerUid, {
+        pageSize: 2000,
+        range,
+        roam,
+      })) {
         const exported = toExportedMessage(m);
+        const dec = dressLookup?.(exported.msgId);
+        if (dec) exported.decoration = dec;
         senders?.add(exported.senderUin);
+        if (faces) collectFaceIds(exported.elements, faces);
         await expandForwards(this.msgs, 'c2c', exported);
         if (withMediaPaths) annotateLocalPaths(exported.elements);
         const record = renderRecord(exported);
         await writer.write(count === 0 ? record : framing.between + record);
         count += 1;
-        if (count % progressEvery === 0) onProgress({ current: count, message: `已导出 ${count} 条` });
+        if (count % progressEvery === 0)
+          onProgress({ current: count, message: `已导出 ${count} 条` });
       }
       if (framing.tail) await writer.write(framing.tail);
     } finally {
       await writer.end();
     }
 
-    return { filePath: outPath, format, messageCount: count, fileSize: statSync(outPath).size, durationMs: Date.now() - start };
+    return {
+      filePath: outPath,
+      format,
+      messageCount: count,
+      fileSize: statSync(outPath).size,
+      durationMs: Date.now() - start,
+    };
   }
 
   pauseTask(id: string): boolean {
@@ -1434,8 +2543,15 @@ export class ExportTaskManager extends EventEmitter {
     this.abortControllers.get(id)?.abort();
     task.status = 'paused';
     task.updatedAt = Date.now();
+    this.log(id, 'task', '任务已暂停', 'warn');
     this.saveTasks();
-    this.emit('progress', { taskId: id, status: 'paused', progress: task.progress, current: task.current, message: '已暂停' });
+    this.emit('progress', {
+      taskId: id,
+      status: 'paused',
+      progress: task.progress,
+      current: task.current,
+      message: '已暂停',
+    });
     return true;
   }
 
@@ -1456,9 +2572,16 @@ export class ExportTaskManager extends EventEmitter {
     if (task.status === 'running') this.abortControllers.get(id)?.abort();
     task.status = 'cancelled';
     task.updatedAt = Date.now();
+    this.log(id, 'task', '任务已取消', 'warn');
     this.cleanupOutput(task);
     this.saveTasks();
-    this.emit('progress', { taskId: id, status: 'cancelled', progress: task.progress, current: task.current, message: '已取消' });
+    this.emit('progress', {
+      taskId: id,
+      status: 'cancelled',
+      progress: task.progress,
+      current: task.current,
+      message: '已取消',
+    });
     return true;
   }
 
@@ -1468,8 +2591,19 @@ export class ExportTaskManager extends EventEmitter {
     if (task.status === 'running') return false;
     this.cleanupOutput(task);
     this.tasks.delete(id);
+    this.taskLogs.delete(id);
     this.saveTasks();
     return true;
+  }
+
+  /** 供外部（定时调度器等）向任务追加一行日志。 */
+  appendLog(
+    id: string,
+    stage: StageKey | 'task',
+    text: string,
+    level: TaskLogLevel = 'info',
+  ): void {
+    this.log(id, stage, text, level);
   }
 }
 
@@ -1477,9 +2611,28 @@ export class ExportTaskManager extends EventEmitter {
 
 /** Windows 保留设备名（不区分大小写），单独作段名会导致创建失败。 */
 const RESERVED_NAMES = new Set([
-  'con', 'prn', 'aux', 'nul',
-  'com1', 'com2', 'com3', 'com4', 'com5', 'com6', 'com7', 'com8', 'com9',
-  'lpt1', 'lpt2', 'lpt3', 'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9',
+  'con',
+  'prn',
+  'aux',
+  'nul',
+  'com1',
+  'com2',
+  'com3',
+  'com4',
+  'com5',
+  'com6',
+  'com7',
+  'com8',
+  'com9',
+  'lpt1',
+  'lpt2',
+  'lpt3',
+  'lpt4',
+  'lpt5',
+  'lpt6',
+  'lpt7',
+  'lpt8',
+  'lpt9',
 ]);
 
 /**

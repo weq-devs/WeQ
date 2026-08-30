@@ -98,10 +98,13 @@ function DecorationItem({ type, id, label, icon }: DecorationItemProps) {
     if (showFontPreview) {
       return (
         <div className="weq-decoration-card-font-preview" style={{ fontFamily: `"${fontFamily}"` }}>
-          <span className="is-symbol">!@#$%^&amp;*()[]{}+-=</span>
-          <span className="is-english">Aa Bb Cc Xx Yy Zz</span>
-          <span className="is-number">0123456789</span>
-          <span className="is-chinese">中文（WeQ装扮管理器）</span>
+          <span className="is-symbol">0123456789!@#$%^&amp;*()[]{}+-=</span>
+          <span className="is-symbol">abcdefghijklmnopqrstuvwxyz</span>
+          <span className="is-symbol">ABCDEFGHIJKLMNOPQRSTUVWXYZ</span>
+          <span className="is-chinese is-size-1">WeQ装扮管理器</span>
+          <span className="is-chinese is-size-2">WeQ装扮管理器</span>
+          <span className="is-chinese is-size-3">WeQ装扮管理器</span>
+          <span className="is-chinese is-size-4">WeQ装扮管理器</span>
         </div>
       );
     }

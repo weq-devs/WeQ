@@ -25,14 +25,15 @@
     "tools:group-album-media": "tsx tools/group_album_media.ts"
   },
   "dependencies": {
-    "@weq/agentlab": "workspace:*",
     "@weq/account": "workspace:*",
+    "@weq/agentlab": "workspace:*",
     "@weq/codec": "workspace:*",
     "@weq/db": "workspace:*",
     "@weq/native": "workspace:*",
     "@weq/platform": "workspace:*",
     "@weq/protocol": "workspace:*",
-    "exceljs": "^4.4.0"
+    "exceljs": "^4.4.0",
+    "marked": "^16.4.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.6",

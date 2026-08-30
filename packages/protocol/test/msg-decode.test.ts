@@ -131,7 +131,7 @@ describe('decodeMessage 简化消息解码', () => {
       AniStickerId: '33',
       faceId: 358,
       superEmojiFlag1: 1,
-      diceValue: '4',
+      innerId: '4',
       faceText: '/骰子',
     });
     const bytes = encode(PUSH_MSG_BODY, {
@@ -144,7 +144,7 @@ describe('decodeMessage 简化消息解码', () => {
     });
     const msg = decodeMessage(bytes);
     expect(msg.elements).toEqual([
-      { kind: 'face', faceId: 358, faceText: '/骰子', AniStickerId: '33', diceValue: '4', superEmojiFlag1: 1, subType: 3 },
+      { kind: 'face', faceId: 358, faceText: '/骰子', AniStickerId: '33', innerId: '4', superEmojiFlag1: 1, subType: 3 },
     ]);
   });
 

@@ -49,6 +49,9 @@ export const TRANSCRIPTS_FILE = 'transcripts.json';
 /** Per-stage progress tick. */
 export type StageProgress = (done: number, total: number) => void;
 
+/** 每项文件的详细日志（Docker TUI 风格，前端按 stage 滚动展示）。 */
+export type StageLog = (text: string, level?: 'info' | 'warn' | 'error') => void;
+
 /** Subdirectory names under the bundle's `media/` folder, by purpose. */
 export const MEDIA_SUBDIRS = {
   image: 'image',
@@ -85,10 +88,7 @@ function dropExt(filename: string): string {
 const FAILURES_CAP = 200;
 
 /** Append a failure, dropping the oldest entries when the cap is reached. */
-function pushFailure(
-  out: MediaFailure[] | undefined,
-  f: MediaFailure,
-): MediaFailure[] {
+function pushFailure(out: MediaFailure[] | undefined, f: MediaFailure): MediaFailure[] {
   const arr = out ?? [];
   arr.push(f);
   if (arr.length > FAILURES_CAP) arr.splice(0, arr.length - FAILURES_CAP);
@@ -138,8 +138,18 @@ export async function copyFoundMedia(
   mediaRoot: string,
   onProgress?: StageProgress,
   concurrency = 8,
+  kinds?: { image?: boolean; video?: boolean; file?: boolean },
+  onLog?: StageLog,
 ): Promise<MediaStageResult> {
-  const items = scan.found.filter((ref) => ref.path && copyKindDir(ref.kind));
+  const items = scan.found.filter((ref) => {
+    if (!ref.path) return false;
+    const dir = copyKindDir(ref.kind);
+    if (!dir) return false;
+    if (dir === MEDIA_SUBDIRS.image && kinds && kinds.image === false) return false;
+    if (dir === MEDIA_SUBDIRS.video && kinds && kinds.video === false) return false;
+    if (dir === MEDIA_SUBDIRS.file && kinds && kinds.file === false) return false;
+    return true;
+  });
   const result: MediaStageResult = { total: items.length, ok: 0, failed: 0 };
   if (items.length === 0) return result;
 
@@ -149,10 +159,11 @@ export async function copyFoundMedia(
 
   let done = 0;
   await runWithConcurrency(items, concurrency, async (ref) => {
+    const dir = copyKindDir(ref.kind)!;
     try {
-      const dir = copyKindDir(ref.kind)!;
       await copyFile(ref.path!, join(mediaRoot, dir, ref.fileName));
       result.ok += 1;
+      onLog?.(`已搬运 ${dir}/${ref.fileName}（${done + 1}/${items.length}）`);
     } catch (e) {
       result.failed += 1;
       result.failures = pushFailure(result.failures, {
@@ -160,6 +171,7 @@ export async function copyFoundMedia(
         fileName: ref.fileName,
         error: e instanceof Error ? e.message : String(e),
       });
+      onLog?.(`搬运失败 ${ref.fileName}：${e instanceof Error ? e.message : String(e)}`, 'warn');
     } finally {
       done += 1;
       onProgress?.(done, items.length);
@@ -179,6 +191,7 @@ export async function decodeFoundVoices(
   decodeSilk: DecodeSilk,
   onProgress?: StageProgress,
   concurrency = 4,
+  onLog?: StageLog,
 ): Promise<MediaStageResult> {
   const items = scan.found.filter((ref) => ref.kind === 'ptt' && ref.path);
   const result: MediaStageResult = { total: items.length, ok: 0, failed: 0 };
@@ -194,6 +207,7 @@ export async function decodeFoundVoices(
       const ok = await decodeSilk(ref.path!, dest);
       if (ok) {
         result.ok += 1;
+        onLog?.(`已解码 ${dropExt(ref.fileName)}.wav（${done + 1}/${items.length}）`);
       } else {
         result.failed += 1;
         result.failures = pushFailure(result.failures, {
@@ -201,6 +215,7 @@ export async function decodeFoundVoices(
           fileName: ref.fileName,
           error: 'silk decode returned false',
         });
+        onLog?.(`解码失败 ${ref.fileName}：silk decode returned false`, 'warn');
       }
     } catch (e) {
       result.failed += 1;
@@ -209,6 +224,7 @@ export async function decodeFoundVoices(
         fileName: ref.fileName,
         error: e instanceof Error ? e.message : String(e),
       });
+      onLog?.(`解码异常 ${ref.fileName}：${e instanceof Error ? e.message : String(e)}`, 'warn');
     } finally {
       done += 1;
       onProgress?.(done, items.length);
@@ -236,6 +252,7 @@ export async function transcribeFoundVoices(
   onProgress?: StageProgress,
   concurrency = 2,
   onTranscribed?: (ref: MediaRef, text: string) => Promise<void>,
+  onLog?: StageLog,
 ): Promise<MediaStageResult> {
   const voices = scan.found.filter((ref) => ref.kind === 'ptt');
   const transcripts: Record<string, string> = {};
@@ -248,7 +265,11 @@ export async function transcribeFoundVoices(
   const result: MediaStageResult = { total: voices.length, ok: cached, failed: 0 };
 
   const flush = async (): Promise<void> => {
-    await writeFile(join(bundleDir, TRANSCRIPTS_FILE), JSON.stringify(transcripts, null, 2), 'utf-8');
+    await writeFile(
+      join(bundleDir, TRANSCRIPTS_FILE),
+      JSON.stringify(transcripts, null, 2),
+      'utf-8',
+    );
   };
   if (items.length === 0) {
     await flush();
@@ -265,6 +286,7 @@ export async function transcribeFoundVoices(
         const text = r.text ?? '';
         transcripts[ref.fileName] = text;
         result.ok += 1;
+        onLog?.(`已转写 ${ref.fileName}（${done}/${result.total}）`);
         // Best-effort back-write; a DB failure must not fail the stage.
         if (onTranscribed) await onTranscribed(ref, text).catch(() => undefined);
       } else {
@@ -274,6 +296,7 @@ export async function transcribeFoundVoices(
           fileName: ref.fileName,
           error: r.error ?? '转写失败',
         });
+        onLog?.(`转写失败 ${ref.fileName}：${r.error ?? '转写失败'}`, 'warn');
       }
     } catch (e) {
       result.failed += 1;
@@ -282,6 +305,7 @@ export async function transcribeFoundVoices(
         fileName: ref.fileName,
         error: e instanceof Error ? e.message : String(e),
       });
+      onLog?.(`转写异常 ${ref.fileName}：${e instanceof Error ? e.message : String(e)}`, 'warn');
     } finally {
       done += 1;
       onProgress?.(done, result.total);
@@ -304,6 +328,7 @@ export async function downloadMissingImages(
   mediaDownload: MediaDownloadService,
   onProgress?: StageProgress,
   concurrency = 6,
+  onLog?: StageLog,
 ): Promise<MediaStageResult> {
   const items = scan.downloadList.filter(
     (ref) => (ref.kind === 'pic' || ref.kind === 'emoji') && ref.fileToken,
@@ -325,6 +350,7 @@ export async function downloadMissingImages(
       if (cached) {
         await copyFile(cached, join(imageDir, ref.fileName));
         result.ok += 1;
+        onLog?.(`已补全图片 ${ref.fileName}（${done + 1}/${items.length}）`);
       } else {
         result.failed += 1;
         result.failures = pushFailure(result.failures, {
@@ -332,6 +358,7 @@ export async function downloadMissingImages(
           fileName: ref.fileName,
           error: 'rkey download returned no cached path',
         });
+        onLog?.(`补全图片失败 ${ref.fileName}：rkey download returned no cached path`, 'warn');
       }
     } catch (e) {
       result.failed += 1;
@@ -340,6 +367,10 @@ export async function downloadMissingImages(
         fileName: ref.fileName,
         error: e instanceof Error ? e.message : String(e),
       });
+      onLog?.(
+        `补全图片异常 ${ref.fileName}：${e instanceof Error ? e.message : String(e)}`,
+        'warn',
+      );
     } finally {
       done += 1;
       onProgress?.(done, items.length);
@@ -374,7 +405,7 @@ async function findRawElement(
     const matches = raw.elements.filter((e) => e.kind === kind);
     // Match by stem when a message carries several of the same kind; else the one.
     const el =
-      matches.find((e) => stemOf(((e as { fileName?: string }).fileName) ?? '') === ref.stem) ??
+      matches.find((e) => stemOf((e as { fileName?: string }).fileName ?? '') === ref.stem) ??
       matches[0] ??
       null;
     if (el) return el;
@@ -407,6 +438,7 @@ export async function downloadMissingVideos(
   ctx: UrlDownloadCtx,
   onProgress?: StageProgress,
   concurrency = 3,
+  onLog?: StageLog,
 ): Promise<MediaStageResult> {
   const items = scan.downloadList.filter((r) => r.kind === 'video');
   const result: MediaStageResult = { total: items.length, ok: 0, failed: 0 };
@@ -426,6 +458,7 @@ export async function downloadMissingVideos(
           fileName: ref.fileName,
           error: `raw video element not found for msgId=${ref.msgId}`,
         });
+        onLog?.(`补全视频失败 ${ref.fileName}：找不到原始视频元素`, 'warn');
         return;
       }
       const element = el as unknown as MediaElement;
@@ -442,6 +475,7 @@ export async function downloadMissingVideos(
           fileName: ref.fileName,
           error: `OIDB resolve failed: ${e instanceof Error ? e.message : String(e)}`,
         });
+        onLog?.(`补全视频失败 ${ref.fileName}：OIDB 解析失败`, 'warn');
         return;
       }
       if (!url) {
@@ -451,11 +485,13 @@ export async function downloadMissingVideos(
           fileName: ref.fileName,
           error: 'OIDB resolve returned empty url',
         });
+        onLog?.(`补全视频失败 ${ref.fileName}：OIDB 返回空地址`, 'warn');
         return;
       }
       const outcome = await downloadUrlToFile(url, join(videoDir, ref.fileName));
       if (outcome.ok) {
         result.ok += 1;
+        onLog?.(`已补全视频 ${ref.fileName}（${done + 1}/${items.length}）`);
       } else {
         result.failed += 1;
         result.failures = pushFailure(result.failures, {
@@ -463,6 +499,7 @@ export async function downloadMissingVideos(
           fileName: ref.fileName,
           error: outcome.reason,
         });
+        onLog?.(`补全视频失败 ${ref.fileName}：${outcome.reason}`, 'warn');
       }
     } catch (e) {
       result.failed += 1;
@@ -471,6 +508,10 @@ export async function downloadMissingVideos(
         fileName: ref.fileName,
         error: `unexpected: ${e instanceof Error ? e.message : String(e)}`,
       });
+      onLog?.(
+        `补全视频异常 ${ref.fileName}：${e instanceof Error ? e.message : String(e)}`,
+        'warn',
+      );
     } finally {
       done += 1;
       onProgress?.(done, items.length);
@@ -490,6 +531,7 @@ export async function downloadMissingFiles(
   ctx: UrlDownloadCtx,
   onProgress?: StageProgress,
   concurrency = 3,
+  onLog?: StageLog,
 ): Promise<MediaStageResult> {
   const items = scan.downloadList.filter((r) => r.kind === 'file');
   const result: MediaStageResult = { total: items.length, ok: 0, failed: 0 };
@@ -509,6 +551,7 @@ export async function downloadMissingFiles(
           fileName: ref.fileName,
           error: `raw file element not found for msgId=${ref.msgId}`,
         });
+        onLog?.(`补全文件失败 ${ref.fileName}：找不到原始文件元素`, 'warn');
         return;
       }
       const element = el as unknown as MediaElement;
@@ -528,6 +571,7 @@ export async function downloadMissingFiles(
           fileName: ref.fileName,
           error: `OIDB resolve failed: ${e instanceof Error ? e.message : String(e)}`,
         });
+        onLog?.(`补全文件失败 ${ref.fileName}：OIDB 解析失败`, 'warn');
         return;
       }
       if (!url) {
@@ -537,17 +581,21 @@ export async function downloadMissingFiles(
           fileName: ref.fileName,
           error: 'OIDB resolve returned empty url',
         });
+        onLog?.(`补全文件失败 ${ref.fileName}：OIDB 返回空地址`, 'warn');
         return;
       }
       const outcome = await downloadUrlToFile(url, join(fileDir, ref.fileName));
-      if (outcome.ok) result.ok += 1;
-      else {
+      if (outcome.ok) {
+        result.ok += 1;
+        onLog?.(`已补全文件 ${ref.fileName}（${done + 1}/${items.length}）`);
+      } else {
         result.failed += 1;
         result.failures = pushFailure(result.failures, {
           stage: 'file',
           fileName: ref.fileName,
           error: outcome.reason,
         });
+        onLog?.(`补全文件失败 ${ref.fileName}：${outcome.reason}`, 'warn');
       }
     } catch (e) {
       result.failed += 1;
@@ -556,6 +604,10 @@ export async function downloadMissingFiles(
         fileName: ref.fileName,
         error: `unexpected: ${e instanceof Error ? e.message : String(e)}`,
       });
+      onLog?.(
+        `补全文件异常 ${ref.fileName}：${e instanceof Error ? e.message : String(e)}`,
+        'warn',
+      );
     } finally {
       done += 1;
       onProgress?.(done, items.length);
@@ -578,6 +630,7 @@ export async function downloadMissingVoices(
   decodeSilk: DecodeSilk,
   onProgress?: StageProgress,
   concurrency = 3,
+  onLog?: StageLog,
 ): Promise<MediaStageResult> {
   const items = scan.downloadList.filter((r) => r.kind === 'ptt');
   const result: MediaStageResult = { total: items.length, ok: 0, failed: 0 };
@@ -598,6 +651,7 @@ export async function downloadMissingVoices(
           fileName: ref.fileName,
           error: `raw ptt element not found for msgId=${ref.msgId}`,
         });
+        onLog?.(`补全语音失败 ${ref.fileName}：找不到原始语音元素`, 'warn');
         return;
       }
       const element = el as unknown as MediaElement;
@@ -614,6 +668,7 @@ export async function downloadMissingVoices(
           fileName: ref.fileName,
           error: `OIDB resolve failed: ${e instanceof Error ? e.message : String(e)}`,
         });
+        onLog?.(`补全语音失败 ${ref.fileName}：OIDB 解析失败`, 'warn');
         return;
       }
       if (!url) {
@@ -623,6 +678,7 @@ export async function downloadMissingVoices(
           fileName: ref.fileName,
           error: 'OIDB resolve returned empty url',
         });
+        onLog?.(`补全语音失败 ${ref.fileName}：OIDB 返回空地址`, 'warn');
         return;
       }
       const outcome = await downloadUrlToFile(url, tmpSilk);
@@ -633,12 +689,14 @@ export async function downloadMissingVoices(
           fileName: ref.fileName,
           error: outcome.reason,
         });
+        onLog?.(`补全语音失败 ${ref.fileName}：${outcome.reason}`, 'warn');
         return;
       }
       const dest = join(recordDir, `${dropExt(ref.fileName)}.wav`);
       const ok = await decodeSilk(tmpSilk, dest);
       if (ok) {
         result.ok += 1;
+        onLog?.(`已补全语音 ${dropExt(ref.fileName)}.wav（${done + 1}/${items.length}）`);
       } else {
         result.failed += 1;
         result.failures = pushFailure(result.failures, {
@@ -646,6 +704,7 @@ export async function downloadMissingVoices(
           fileName: ref.fileName,
           error: 'silk decode returned false',
         });
+        onLog?.(`补全语音解码失败 ${ref.fileName}：silk decode returned false`, 'warn');
       }
     } catch (e) {
       result.failed += 1;
@@ -654,6 +713,10 @@ export async function downloadMissingVoices(
         fileName: ref.fileName,
         error: `unexpected: ${e instanceof Error ? e.message : String(e)}`,
       });
+      onLog?.(
+        `补全语音异常 ${ref.fileName}：${e instanceof Error ? e.message : String(e)}`,
+        'warn',
+      );
     } finally {
       try {
         await unlink(tmpSilk);

@@ -207,7 +207,7 @@ export function ExternalRkeySection(): ReactElement {
     <div className="weq-set">
       <SectionHeader
         title="外部 RKEY 服务器"
-        desc="通过外部 rkey 服务器（目前支持 NapCat）为本机补全缺失的聊天图片/表情。全局配置，一次设置所有账号通用。"
+        desc="通过外部 rkey 服务器为本机补全缺失的聊天图片/表情。全局配置，一次设置所有账号通用。"
       />
 
       <details className="weq-set-about">
@@ -341,13 +341,13 @@ export function ExternalRkeySection(): ReactElement {
                   className="weq-set-input"
                   value={form.name}
                   spellCheck={false}
-                  placeholder="例如：家里的 NapCat"
+                  placeholder="例如：瞌睡猫"
                   onChange={(e) => updateField('name', e.target.value)}
                 />
               }
             />
             <Row
-              label="NapCat HTTP 服务器地址"
+              label="HTTP 服务器地址"
               desc="结尾若带 /get_rkey_server 会自动去掉。"
               control={
                 <input
@@ -362,7 +362,7 @@ export function ExternalRkeySection(): ReactElement {
             />
             <Row
               label="access_token"
-              desc="NapCat 的访问令牌，仅本机使用。"
+              desc="访问令牌，仅本机使用。"
               control={
                 <div className="weq-set-keyfield weq-set-tokenfield">
                   <KeyRound
@@ -377,7 +377,7 @@ export function ExternalRkeySection(): ReactElement {
                     value={form.accessToken}
                     spellCheck={false}
                     autoComplete="off"
-                    placeholder="NapCat access_token"
+                    placeholder="access_token"
                     onChange={(e) => updateField('accessToken', e.target.value)}
                   />
                   <button

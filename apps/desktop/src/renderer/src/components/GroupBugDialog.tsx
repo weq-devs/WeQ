@@ -113,7 +113,11 @@ export function GroupBugDialog({
 
   const resetTemplate = (): void => {
     setBody(buildTemplate());
-    pushToast({ tone: 'info', title: '已填入反馈模板' });
+    pushToast({
+      tone: 'info',
+      title: '已填入反馈模板',
+      detail: '请检查模板内容，补充必要信息后再提交。',
+    });
   };
 
   const submitNewBug = async (): Promise<void> => {

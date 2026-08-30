@@ -388,7 +388,7 @@ function registerLogIpc(): void {
       return false;
     }
     logger.info('opening log directory', { event: 'open-log-dir', dir });
-    await shell.openPath(dir);
+    await electronHost.revealPath(dir);
     return true;
   });
 }

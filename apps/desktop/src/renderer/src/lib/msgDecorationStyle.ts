@@ -107,6 +107,26 @@ function bubbleSel(bubbleId: number): string {
   return lineContentSel('bubble', bubbleId);
 }
 
+/**
+ * 对方消息（主时间线的 `.theirs` 行 + 合并转发行）的气泡选择器。
+ *
+ * QQ 的九宫格素材按「自己的右侧气泡」绘制（尖角/装饰朝左），放到左侧的对方消息上
+ * 必须左右镜像，尖角才朝右指向会话中心。转发子消息也是「avatar 在左、气泡在右」的
+ * 对方样式，一并镜像。
+ *
+ * `suffix` 用于伪元素（如 `::before` / `::after`）—— 必须拼到**每一项**末尾，
+ * 否则只加到逗号列表最后一项（见 {@link lineContentSel} 的同款说明）。
+ */
+function theirsBubbleSel(bubbleId: number, suffix = ''): string {
+  const content =
+    '.message-content' +
+    ':not(.sticker-only):not(.markdown-image-only):not(.qq-card-only):not(.qq-voice-only)';
+  return (
+    `.message-line.theirs[data-bubble="${bubbleId}"] ${content}${suffix}, ` +
+    `.weq-forward-row[data-bubble="${bubbleId}"] ${content}${suffix}`
+  );
+}
+
 function fontSel(fontId: number): string {
   return lineContentSel('font', fontId);
 }
@@ -154,6 +174,7 @@ export function injectBubbleCss(skin: BubbleSkin): void {
   const slice = `${top} ${right} ${bottom} ${left} fill`;
   const width = `${px(wTop)} ${px(wRight)} ${px(wBottom)} ${px(wLeft)}`;
   const sel = bubbleSel(skin.itemId);
+  const theirsSel = theirsBubbleSel(skin.itemId);
 
   // 纵向 padding:基础按 0.6 比例,不对称时用差值补偿。
   const avgSlice = (top + bottom) / 2;
@@ -200,6 +221,34 @@ export function injectBubbleCss(skin: BubbleSkin): void {
     `}`,
   ];
 
+  // 对方消息镜像：不能对整个 .message-content 做 scaleX(-1)（文字会跟着镜像），
+  // 所以静态底/帧动画挪到 ::before 上翻转，文字留在元素自身不动。与 dressSkin.ts
+  // bubbleRules() 里 scope=all 的那组镜像规则同构。
+  rules.push(
+    // 元素本体不再贴底；帧动画的 keyframes 会重写 border-image-source，必须把
+    // 元素动画一并关掉，否则帧图会盖回来。
+    `${theirsSel} {`,
+    `  border-image-source: none;`,
+    frameAnim ? `  animation: none;` : '',
+    `}`,
+    `${theirsBubbleSel(skin.itemId, '::before')} {`,
+    `  content: "";`,
+    `  position: absolute;`,
+    `  inset: 0;`,
+    `  z-index: -1;`,
+    `  pointer-events: none;`,
+    `  border-style: solid;`,
+    `  border-width: 0;`,
+    `  border-image-source: url("${imageUrl}");`,
+    `  border-image-slice: ${slice};`,
+    `  border-image-width: ${width};`,
+    `  border-image-repeat: stretch;`,
+    `  border-radius: 0;`,
+    `  transform: scaleX(-1);`,
+    frameAnim ? `  animation: ${frameAnim.animation};` : '',
+    `}`,
+  );
+
   if (skin.animationUrl) {
     const animUrl = dressUrl(skin.animationUrl);
     const selAfter = lineContentSel('bubble', skin.itemId, '::after');
@@ -218,6 +267,7 @@ export function injectBubbleCss(skin: BubbleSkin): void {
       `  border-image-repeat: stretch;`,
       `}`,
     );
+    rules.push(`${theirsBubbleSel(skin.itemId, '::after')} { transform: scaleX(-1); }`);
   }
 
   // context-active highlight (can't rely on background when border-image is set)
@@ -244,7 +294,8 @@ export function injectBubbleCss(skin: BubbleSkin): void {
     void preloadImages(frameUrls).then(() => {
       append(
         `${sel} { animation: ${frameAnim.animation}; }\n` +
-          `@media (prefers-reduced-motion: reduce) { ${sel} { animation: none; } }`,
+          `${theirsBubbleSel(skin.itemId, '::before')} { animation: ${frameAnim.animation}; }\n` +
+          `@media (prefers-reduced-motion: reduce) { ${sel} { animation: none; } ${theirsBubbleSel(skin.itemId, '::before')} { animation: none; } }`,
       );
     });
   }

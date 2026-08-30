@@ -5,10 +5,8 @@
  *
  *   1. 完整消息格式  — 选会话 → 选格式(json/jsonl/xlsx/csv/txt) → 灯箱细项 → 导出
  *   2. 解密数据库    — 选库 → 选导出路径 → 解出原始 sqlite
- *   3. ChatLab 格式  — 同 1，格式限 json/jsonl
- *   4. HTML 格式     — 尚未实现：右栏显示占位空状态，底部按钮禁用
- *   5. 定时导出任务  — 同 1，灯箱多一个定时设置
- *   6. 群相册导出    — 选群 → 灯箱选目录/相册/时间
+ *   3. 定时导出任务  — 同 1，灯箱多一个定时设置
+ *   4. 群相册导出    — 选群 → 灯箱选目录/相册/时间
  *
  * 后端目前仅 `account.startExport`（json/jsonl/txt 纯消息流）就绪；其余流程在
  * 前端把配置收集齐后给出「后端待接入」提示，待后端补齐后改为真实调用即可。
@@ -22,7 +20,6 @@ import {
   DatabaseZap,
   FileText,
   Film,
-  FlaskConical,
   Globe,
   Image as ImageIcon,
   Images,
@@ -47,25 +44,24 @@ import { useAppDialog } from '../lib/dialogUtils';
 import { useToast } from '../components/Toast';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { datalineName } from '@weq/codec';
+import type { ExportPresets } from '@weq/service';
 import { Avatar, Segmented, Spinner } from './export/widgets';
 import { ConversationPicker } from './export/ConversationPicker';
 import { SingleSelectPicker } from './export/SingleSelectPicker';
 import { MarketEmojiDownloadPane } from './export/MarketEmojiDownloadPane';
-import { TaskList, type UiTask, type UiFailure } from './export/TaskList';
+import { TaskList, type UiFailure, type UiLogLine, type UiTask } from './export/TaskList';
 import { ExportLightbox, type LightboxResult, type LightboxVariant } from './export/ExportLightbox';
 import { DatabasePicker, type DbPickItem } from './export/DatabasePicker';
 import { DecryptLightbox, type DecryptLightboxResult } from './export/DecryptLightbox';
 import { AlbumExportLightbox, type AlbumExportResult } from './export/AlbumExportLightbox';
-import { GroupFileExportLightbox, type GroupFileExportResult } from './export/GroupFileExportLightbox';
+import {
+  GroupFileExportLightbox,
+  type GroupFileExportResult,
+} from './export/GroupFileExportLightbox';
 import { FailureLightbox } from './export/FailureLightbox';
 import {
-  CHATLAB_FORMATS,
   COLLECTION_FORMATS,
   DEFAULT_OPTIONS,
-  FRIEND_FORMATS,
-  FULL_FORMATS,
-  MEMBER_FORMATS,
-  QZONE_FORMATS,
   chatKind,
   convAvatarUrl,
   fmtBytes,
@@ -89,16 +85,45 @@ interface ModeDef {
 }
 
 const MODES: ModeDef[] = [
-  { id: 'full', label: '完整消息格式', desc: 'JSON / JSONL / XLSX / CSV / TXT / HTML', icon: <MessagesSquare size={18} /> },
-  { id: 'decrypt', label: '解密数据库', desc: '导出原始 SQLite 供研究', icon: <DatabaseZap size={18} /> },
-  { id: 'chatlab', label: 'ChatLab 格式', desc: '供 AI 分析的结构化 JSON', icon: <FlaskConical size={18} /> },
-  { id: 'qzone', label: '好友QQ空间导出', desc: '导出好友空间说说（需在线 QQ）', icon: <Globe size={18} /> },
-  { id: 'contacts', label: '导出联系人', desc: '好友列表 / 群成员列表', icon: <Contact size={18} /> },
+  {
+    id: 'full',
+    label: '完整消息格式',
+    desc: 'JSON / JSONL / XLSX / CSV / TXT / HTML',
+    icon: <MessagesSquare size={18} />,
+  },
+  {
+    id: 'decrypt',
+    label: '解密数据库',
+    desc: '导出原始 SQLite 供研究',
+    icon: <DatabaseZap size={18} />,
+  },
+  {
+    id: 'qzone',
+    label: '好友QQ空间导出',
+    desc: '导出好友空间说说',
+    icon: <Globe size={18} />,
+  },
+  {
+    id: 'contacts',
+    label: '导出联系人',
+    desc: '好友列表 / 群成员列表',
+    icon: <Contact size={18} />,
+  },
   { id: 'collection', label: '导出收藏', desc: 'QQ 收藏导出为表格', icon: <Bookmark size={18} /> },
-  { id: 'scheduled', label: '定时导出任务', desc: '按计划自动导出', icon: <CalendarClock size={18} /> },
+  {
+    id: 'scheduled',
+    label: '定时导出任务',
+    desc: '按计划自动导出',
+    icon: <CalendarClock size={18} />,
+  },
   { id: 'album', label: '群相册导出', desc: '批量下载群相册', icon: <Images size={18} /> },
   { id: 'groupfile', label: '群文件导出', desc: '批量下载群文件', icon: <FolderOpen size={18} /> },
-  { id: 'marketpack', label: '商城表情下载', desc: '搜索并批量下载商城表情包', icon: <Sticker size={18} /> },
+  {
+    id: 'marketpack',
+    label: '商城表情下载',
+    desc: '搜索并批量下载商城表情包',
+    icon: <Sticker size={18} />,
+  },
 ];
 
 /** Recent-contact wire shape we actually read here. */
@@ -206,7 +231,8 @@ function collectionPreview(it: CollectionItemWire): CollectionPreviewItem {
           : '');
       break;
     case 'richMedia':
-      title = it.richMedia?.title || it.richMedia?.subTitle || it.richMedia?.brief || '(无文本内容)';
+      title =
+        it.richMedia?.title || it.richMedia?.subTitle || it.richMedia?.brief || '(无文本内容)';
       sub = it.richMedia?.title || it.richMedia?.subTitle ? (it.richMedia?.brief ?? '') : '';
       break;
     default:
@@ -232,10 +258,13 @@ export function ExportView(): ReactElement {
   const groups = trpc.account.listAllGroups.useQuery({ limit: 2000 });
   const tasks = trpc.account.listExportTasks.useQuery();
   const schedules = trpc.account.listSchedules.useQuery();
-  const exportDirSettings = trpc.bootstrap.getSettings.useQuery();
 
   const [mode, setMode] = useState<ExportMode>('full');
   const [convSelection, setConvSelection] = useState<Set<string>>(new Set());
+  /** 任务面板展开/收起（默认收起）。 */
+  const [taskPanelExpanded, setTaskPanelExpanded] = useState(false);
+  /** 新任务到达时，强制选中该任务。 */
+  const [autoSelectTaskId, setAutoSelectTaskId] = useState<string | null>(null);
   const [dbSelection, setDbSelection] = useState<Set<string>>(new Set());
   /** 导出联系人：好友 or 群成员。 */
   const [contactScope, setContactScope] = useState<'friends' | 'group'>('friends');
@@ -249,6 +278,8 @@ export function ExportView(): ReactElement {
   const [collectionItems, setCollectionItems] = useState<CollectionPreviewItem[] | null>(null);
   const [collectionLoading, setCollectionLoading] = useState(false);
   const collectionStartedRef = useRef(false);
+  /** 勾选「导出后自动保存」的任务 id：完成后自动弹保存路径。 */
+  const autoSaveIds = useRef<Set<string>>(new Set());
 
   const categories = trpc.account.listCategories.useQuery(undefined, {
     enabled: mode === 'contacts' && contactScope === 'friends',
@@ -274,21 +305,41 @@ export function ExportView(): ReactElement {
   const [format, setFormat] = useState<ExportFormat>('json');
   const [lightbox, setLightbox] = useState<LightboxVariant | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  /** 各模式最近一次导出的灯箱配置快照，打开面板时自动回填。 */
+  const [exportPresets, setExportPresets] = useState<ExportPresets | null>(null);
   /** Media-completion failure detail, when the user opens a task's failure list. */
-  const [failureView, setFailureView] = useState<{ name: string; failures: UiFailure[] } | null>(null);
+  const [failureView, setFailureView] = useState<{ name: string; failures: UiFailure[] } | null>(
+    null,
+  );
 
-  // ChatLab only emits json/jsonl; 好友空间 only json/txt; 联系人受子类限制 — clamp.
   useEffect(() => {
-    if (mode === 'chatlab' && format !== 'json' && format !== 'jsonl') setFormat('json');
+    let cancelled = false;
+    void client.bootstrap.getExportPresets
+      .query()
+      .then((p) => {
+        if (!cancelled) setExportPresets(p);
+      })
+      .catch(() => {
+        // 缓存读不出来就按默认配置打开，不影响导出。
+        if (!cancelled) setExportPresets({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 好友空间 only json/txt; 联系人受子类限制 — clamp。
+  useEffect(() => {
     if (mode === 'qzone' && format !== 'json' && format !== 'txt') setFormat('json');
     if (mode === 'contacts') {
       const allowed =
         contactScope === 'friends'
-          ? ['csv', 'xlsx', 'json', 'txt', 'vcard']
-          : ['csv', 'xlsx', 'json', 'txt'];
+          ? ['json', 'jsonl', 'csv', 'xlsx', 'txt', 'vcard']
+          : ['json', 'jsonl', 'csv', 'xlsx', 'txt'];
       if (!allowed.includes(format)) setFormat('csv');
     }
-    if (mode === 'collection' && !['json', 'csv', 'xlsx', 'txt'].includes(format)) setFormat('json');
+    if (mode === 'collection' && !['json', 'csv', 'xlsx', 'txt'].includes(format))
+      setFormat('json');
     // vcard 仅联系人可用；离开联系人模式时清掉，避免带进消息/定时导出。
     if (mode !== 'contacts' && format === 'vcard') setFormat('json');
   }, [mode, contactScope, format]);
@@ -341,10 +392,22 @@ export function ExportView(): ReactElement {
   }, [mode]);
 
   // Live task progress: invalidate the list whenever the backend ticks.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 进度订阅只挂载一次，引用的 tasks.refetch / autoSaveCompleted 在生命周期内保持稳定
   useEffect(() => {
     const sub = client.account.onExportProgress.subscribe(undefined, {
       onData: (progress) => {
         void utils.account.listExportTasks.invalidate();
+        // 勾选「导出后自动保存」的任务完成后，自动弹保存路径（每份独立选择）。
+        if (progress.status === 'completed' && autoSaveIds.current.size > 0) {
+          void tasks.refetch().then((rows) => {
+            for (const t of (rows.data ?? []) as UiTask[]) {
+              if (t.status === 'completed' && autoSaveIds.current.has(t.id)) {
+                autoSaveIds.current.delete(t.id);
+                void autoSaveCompleted(t);
+              }
+            }
+          });
+        }
         if (progress.notice) {
           pushToast({ tone: 'warning', title: '消息补全', message: progress.notice, ttl: 5000 });
         }
@@ -359,7 +422,8 @@ export function ExportView(): ReactElement {
       const kind = chatKind(c.chatType);
       const count = Number(c.messageCount ?? 0);
       const dataline = isDataline(c.chatType);
-      const name = c.targetDisplayName || (dataline ? datalineName(c.targetUid) : null) || c.targetUid;
+      const name =
+        c.targetDisplayName || (dataline ? datalineName(c.targetUid) : null) || c.targetUid;
       return {
         id: c.targetUid,
         name,
@@ -375,11 +439,29 @@ export function ExportView(): ReactElement {
     });
   }, [conversations.data]);
 
-  // 好友空间导出：只列私聊好友（排除群聊），且需有效 uin。
-  const friendItems = useMemo<PickItem[]>(
-    () => convItems.filter((it) => it.kind === 'c2c' && it.uin && it.uin !== '0'),
-    [convItems],
-  );
+  // 好友空间导出：只列私聊好友（排除群聊、公众号、服务号），且需有效 uin。
+  const friendItems = useMemo<PickItem[]>(() => {
+    const raw = (conversations.data ?? []) as ConvWire[];
+    return raw
+      .filter((c) => {
+        // 排除公众号(103)和服务号(118)
+        const chatTypeNum = Number(c.chatType);
+        if (chatTypeNum === 103 || chatTypeNum === 118) return false;
+        // 排除群聊
+        if (String(c.chatType).includes('GROUP')) return false;
+        // 需要有效的uin
+        return c.targetUin && c.targetUin !== '0';
+      })
+      .map((c) => ({
+        id: c.targetUid,
+        name: c.targetDisplayName || c.targetUid,
+        avatarUrl: convAvatarUrl('c2c', c.targetUid, c.targetUin),
+        kind: 'c2c' as const,
+        uin: c.targetUin,
+        total: Number(c.messageCount ?? 0),
+        meta: `${fmtCount(Number(c.messageCount ?? 0))} 条 · 私聊`,
+      }));
+  }, [conversations.data]);
 
   const groupItems = useMemo<PickItem[]>(() => {
     return ((groups.data ?? []) as GroupWire[]).map((g) => ({
@@ -454,6 +536,7 @@ export function ExportView(): ReactElement {
       kind: t.kind,
       name: t.name,
       format: t.format,
+      formats: (t as { formats?: string[] }).formats,
       status: t.status,
       progress: t.progress,
       current: t.current,
@@ -463,10 +546,31 @@ export function ExportView(): ReactElement {
       bundleDir: t.bundleDir,
       avatarCount: t.avatarCount,
       stages: t.stages,
+      logs: (t as { logs?: UiLogLine[] }).logs ?? [],
+      isQzone: Boolean((t as { qzone?: boolean }).qzone),
+      isContacts: Boolean((t as { contacts?: unknown }).contacts),
+      isCollection: Boolean((t as { collection?: unknown }).collection),
       // conv === 'marketpack' は商城表情下载タスクの sentinel（task_manager 内で設定）。
       isMarketPack: (t as unknown as { conv?: string }).conv === 'marketpack',
     }));
   }, [tasks.data]);
+
+  // 新任务到达时自动展开任务栏并选中新任务。
+  const prevTaskIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const currentIds = new Set(uiTasks.map((t) => t.id));
+    const prevIds = prevTaskIdsRef.current;
+    // 找出新增的任务 id（当前有但之前没有的）
+    const newIds: string[] = [];
+    for (const id of currentIds) {
+      if (!prevIds.has(id)) newIds.push(id);
+    }
+    if (newIds.length > 0 && prevIds.size > 0) {
+      setTaskPanelExpanded(true);
+      setAutoSelectTaskId(newIds[newIds.length - 1]!);
+    }
+    prevTaskIdsRef.current = currentIds;
+  }, [uiTasks]);
 
   // ---- task actions (existing backend) ----
   const refetchTasks = (): void => void tasks.refetch();
@@ -478,7 +582,8 @@ export function ExportView(): ReactElement {
   const onDelete = (t: UiTask): void =>
     void client.account.deleteExportTask.mutate({ taskId: t.id }).then(refetchTasks);
 
-  const onDownload = async (t: UiTask): Promise<void> => {
+  /** 把单个已完成任务保存到用户选择的位置（不再使用默认目录记忆，每次都弹路径）。 */
+  async function saveTask(t: UiTask): Promise<boolean> {
     try {
       let ok = false;
       if (t.bundleDir) {
@@ -497,49 +602,42 @@ export function ExportView(): ReactElement {
       if (ok) {
         await client.account.deleteExportTask.mutate({ taskId: t.id });
         refetchTasks();
+        return true;
       }
+      return false;
     } catch (e) {
       dialog.error('保存失败', e instanceof Error ? e.message : String(e));
+      return false;
     }
+  }
+
+  const onDownload = async (t: UiTask): Promise<void> => {
+    await saveTask(t);
   };
 
-  /** 一键把全部已完成任务保存到默认导出目录（未配置时先引导选择一次）。 */
+  /** 「导出后自动保存」：任务完成时自动弹路径保存。 */
+  async function autoSaveCompleted(t: UiTask): Promise<void> {
+    pushToast({ tone: 'info', title: '导出完成', message: '正在选择保存路径…', ttl: 4000 });
+    const ok = await saveTask(t);
+    if (ok) {
+      pushToast({
+        tone: 'success',
+        title: '已保存',
+        message: `${t.name} 已保存到所选位置。`,
+        ttl: 5000,
+      });
+    }
+  }
+
+  /** 一键把全部已完成任务逐个保存（每个都弹选择路径，不再记忆默认目录）。 */
   const onSaveAll = async (): Promise<void> => {
     const completed = uiTasks.filter((t) => t.status === 'completed');
     if (completed.length === 0) return;
-    // 未配置默认目录：先弹一次目录选择并写入设置。
-    let defaultDir = exportDirSettings.data?.defaultExportDir ?? null;
-    if (!defaultDir) {
-      defaultDir = await client.bootstrap.pickDefaultExportDir.mutate();
-      if (!defaultDir) return; // 用户取消
-      void exportDirSettings.refetch();
-    }
     const failed: string[] = [];
     let okCount = 0;
     for (const t of completed) {
-      try {
-        let ok = false;
-        if (t.bundleDir) {
-          ok = await client.account.saveExportBundle.mutate({ taskId: t.id });
-        } else if (t.filePath) {
-          const fmt: BackendFormat = isBackendFormat(t.format as ExportFormat)
-            ? (t.format as BackendFormat)
-            : 'json';
-          ok = await client.account.saveExportFile.mutate({
-            sourcePath: t.filePath,
-            defaultName: `${t.name}.${t.format}`,
-            format: fmt,
-          });
-        }
-        if (ok) {
-          await client.account.deleteExportTask.mutate({ taskId: t.id });
-          okCount += 1;
-        } else {
-          failed.push(t.name);
-        }
-      } catch {
-        failed.push(t.name);
-      }
+      if (await saveTask(t)) okCount += 1;
+      else failed.push(t.name);
     }
     refetchTasks();
     if (failed.length > 0) {
@@ -548,7 +646,7 @@ export function ExportView(): ReactElement {
         `成功 ${okCount} 个，失败 ${failed.length} 个：${failed.slice(0, 8).join('、')}${failed.length > 8 ? '…' : ''}`,
       );
     } else {
-      await dialog.info('批量保存完成', `已保存 ${okCount} 个导出任务到默认目录。`);
+      await dialog.info('批量保存完成', `已保存 ${okCount} 个导出任务。`);
     }
   };
 
@@ -580,9 +678,7 @@ export function ExportView(): ReactElement {
       return;
     }
     if (convSelection.size === 0) return;
-    setLightbox(
-      mode === 'scheduled' ? 'scheduled' : mode === 'chatlab' ? 'chatlab' : mode === 'qzone' ? 'qzone' : 'full',
-    );
+    setLightbox(mode === 'scheduled' ? 'scheduled' : mode === 'qzone' ? 'qzone' : 'full');
   }
 
   /**
@@ -678,8 +774,9 @@ export function ExportView(): ReactElement {
 
   /**
    * Pre-flight for 补全缺失消息: needs an online QQ *and* 完全离线模式 off
-   * (自动注入 QQ 开启) — the roam pull goes through the live SSO channel, so
-   * unlike 媒体补全 there is no offline fallback. Hard block otherwise.
+   * (自动注入 QQ 开启) — the roam pull goes through the live SSO channel.
+   * 离线时不再硬阻断：仍会从本地漫游缓存读取已缓存的消息（聊天页此前拉过的
+   * 窗口直接命中），只是无法联网补拉。
    */
   async function preflightMessageCompletion(): Promise<boolean> {
     let state: { qqOnline: boolean; injectEnabled: boolean };
@@ -691,17 +788,17 @@ export function ExportView(): ReactElement {
     }
     if (!state.qqOnline) {
       await dialog.info(
-        '需要打开 QQ',
-        '「补全缺失消息」需要登录该账号的 QQ 客户端以拉取服务端历史消息。请打开并登录 QQ 后重试，或关闭「补全缺失消息」后继续导出。',
+        '未检测到在线 QQ',
+        '「补充漫游消息」将只读取本地缓存数据库中的漫游消息，无法联网补拉缺失消息。可稍后打开 QQ 再导出完整版本。',
       );
-      return false;
+      return true;
     }
     if (!state.injectEnabled) {
       await dialog.info(
         '完全离线模式已开启',
-        '「自动注入 QQ（完整功能）」已关闭（完全离线模式），无法拉取服务端缺失消息。请开启后重试，或关闭「补全缺失消息」后继续导出。',
+        '「自动注入 QQ（完整功能）」已关闭，无法联网补拉服务端消息；将仅从本地漫游缓存读取。',
       );
-      return false;
+      return true;
     }
     return true;
   }
@@ -729,8 +826,8 @@ export function ExportView(): ReactElement {
     return true;
   }
 
-  /** 好友空间导出：每个选中好友起一个说说导出任务（json/txt + 可选下载配图）。 */
-  async function runQzoneExport(options: ExportOptions): Promise<void> {
+  /** 好友空间导出：每个选中好友起一个说说导出任务（json/txt 多选 + 可选下载配图）。 */
+  async function runQzoneExport(options: ExportOptions, formats: ExportFormat[]): Promise<void> {
     const targets = friendItems.filter((it) => convSelection.has(it.id));
     if (targets.length === 0) return;
     const ok = await preflightQqOnline();
@@ -741,10 +838,12 @@ export function ExportView(): ReactElement {
     try {
       for (const t of targets) {
         if (!t.uin) continue;
+        const fmt0 = (formats[0] === 'txt' ? 'txt' : 'json') as 'json' | 'txt';
         await client.account.startQzoneExport.mutate({
           targetUin: t.uin,
           name: t.name,
-          format: format === 'txt' ? 'txt' : 'json',
+          format: fmt0,
+          formats: formats.map((f) => (f === 'txt' ? 'txt' : 'json')) as Array<'json' | 'txt'>,
           downloadMedia: options.exportMedia,
           range,
         });
@@ -759,18 +858,20 @@ export function ExportView(): ReactElement {
     }
   }
 
-  /** 导出联系人：好友列表（可按分组过滤）或某群成员列表；格式 + 可选头像。 */
-  async function runContactsExport(options: ExportOptions): Promise<void> {
-    // 联系人格式收窄到 startContactsExport 接受的集合（chips 已保证）。
-    const cfmt = format as 'json' | 'csv' | 'xlsx' | 'txt' | 'vcard';
+  /** 导出联系人：好友列表（可按分组过滤）或某群成员列表；灯箱多选格式 + 可选头像。 */
+  async function runContactsExport(options: ExportOptions, formats: ExportFormat[]): Promise<void> {
+    // 联系人格式收窄到 startContactsExport 接受的集合（灯箱 chips 已保证）。
+    const cfmts = formats as Array<'json' | 'jsonl' | 'csv' | 'xlsx' | 'txt' | 'vcard'>;
     setSubmitting(true);
     try {
+      // 多格式合并为同一个任务：所有格式写进同一 bundle，头像只带一份。
       if (contactScope === 'friends') {
         const cats = [...catSelection];
         await client.account.startContactsExport.mutate({
           scope: 'friends',
           name: cats.length ? `好友_${cats.length}个分组` : '全部好友',
-          format: cfmt,
+          format: cfmts[0] ?? 'csv',
+          formats: cfmts,
           exportAvatar: options.exportAvatar,
           ...(cats.length ? { categoryIds: cats } : {}),
         });
@@ -781,7 +882,8 @@ export function ExportView(): ReactElement {
           scope: 'group',
           groupCode: g.id,
           name: `${g.name}_群成员`,
-          format: cfmt === 'vcard' ? 'csv' : cfmt,
+          format: cfmts[0] === 'vcard' ? 'csv' : (cfmts[0] ?? 'csv'),
+          formats: cfmts.map((f) => (f === 'vcard' ? 'csv' : f)) as typeof cfmts,
           exportAvatar: options.exportAvatar,
         });
       }
@@ -818,28 +920,30 @@ export function ExportView(): ReactElement {
 
   async function runFullExport(
     options: ExportOptions,
-    opts: { chatlab?: boolean; format?: ExportFormat } = {},
+    opts: { formats?: ExportFormat[] } = {},
   ): Promise<void> {
     const targets = convItems.filter((it) => convSelection.has(it.id));
     // null bounds = open-ended; both null (全部时间) means no filtering.
     const range = { start: options.range.start, end: options.range.end };
+    const formats = opts.formats && opts.formats.length > 0 ? opts.formats : [format];
     const media = {
       exportMedia: options.exportMedia,
       completeMessages: options.completeMessages,
       completeMedia: options.exportMedia && options.completeMedia,
-      downloadVideo: options.exportMedia && options.completeMedia && options.downloadVideo,
-      downloadFile: options.exportMedia && options.completeMedia && options.downloadFile,
-      downloadPtt: options.exportMedia && options.completeMedia && options.downloadPtt,
+      downloadVideo: options.exportMedia && options.downloadVideo,
+      downloadFile: options.exportMedia && options.downloadFile,
+      downloadPtt: options.exportMedia && options.downloadPtt,
       transcribeVoice: options.transcribeVoice,
+      mediaKinds: options.exportMedia ? options.mediaKinds : undefined,
+      completeDress: options.completeDress,
     };
-
     // 消息补全跑在所有导出步骤之前，必须在线 QQ + 未开启完全离线模式。
     if (media.completeMessages) {
       const ok = await preflightMessageCompletion();
       if (!ok) return;
     }
 
-    if (media.completeMedia) {
+    if (media.completeMedia || media.downloadVideo || media.downloadFile || media.downloadPtt) {
       const ok = await preflightMediaCompletion();
       if (!ok) return;
     } else if (media.exportMedia) {
@@ -859,18 +963,29 @@ export function ExportView(): ReactElement {
 
     setSubmitting(true);
     try {
+      const autoSaveTaskIds: string[] = [];
       for (const t of targets) {
-        await client.account.startExport.mutate({
+        // 多格式合并为同一个任务：所有格式写进同一 bundle，媒体/头像/装扮只带一份。
+        const fmt0 = formats[0] ?? format;
+        const id = await client.account.startExport.mutate({
           kind: t.kind ?? 'c2c',
           conv: t.id,
           name: t.name,
-          format: (opts.format ?? format) as Exclude<ExportFormat, 'vcard'>,
+          format: fmt0 as Exclude<ExportFormat, 'vcard'>,
+          formats: formats as Exclude<ExportFormat, 'vcard'>[],
           total: t.total ?? 0,
           exportAvatar: options.exportAvatar,
-          ...(opts.chatlab ? { chatlab: true } : {}),
+          ...(options.dress.bubble || options.dress.font || options.dress.widget
+            ? { dress: options.dress }
+            : {}),
+          ...(options.chatlab ? { chatlab: true } : {}),
           media,
           range,
         });
+        if (options.autoSave) autoSaveTaskIds.push(id);
+      }
+      if (autoSaveTaskIds.length > 0) {
+        autoSaveIds.current = new Set([...autoSaveIds.current, ...autoSaveTaskIds]);
       }
       setConvSelection(new Set());
       setLightbox(null);
@@ -999,21 +1114,25 @@ export function ExportView(): ReactElement {
   }
 
   async function onLightboxConfirm(result: LightboxResult): Promise<void> {
-    if (lightbox === 'full') {
-      // HTML is now one of the 完整消息 formats — pass the selected chip through.
-      void runFullExport(result.options, { format });
-      return;
+    // 先把这次确认的配置写进全局 user_config（失败不阻断导出，只影响下次回填）。
+    if (
+      lightbox === 'full' ||
+      lightbox === 'scheduled' ||
+      lightbox === 'qzone' ||
+      lightbox === 'contacts'
+    ) {
+      rememberPreset(lightbox, result);
     }
-    if (lightbox === 'chatlab') {
-      void runFullExport(result.options, { chatlab: true });
+    if (lightbox === 'full') {
+      void runFullExport(result.options, { formats: result.formats });
       return;
     }
     if (lightbox === 'qzone') {
-      void runQzoneExport(result.options);
+      void runQzoneExport(result.options, result.formats);
       return;
     }
     if (lightbox === 'contacts') {
-      void runContactsExport(result.options);
+      void runContactsExport(result.options, result.formats);
       return;
     }
     if (lightbox === 'scheduled') {
@@ -1023,6 +1142,24 @@ export function ExportView(): ReactElement {
     // album — config collected, backend pending.
     setLightbox(null);
     dialog.info('配置已记录', '群相册导出后端待接入，已记录本次导出配置。');
+  }
+
+  /** 保存某个导出模式的最近一次灯箱配置，供下次打开自动回填。 */
+  function rememberPreset(
+    variant: 'full' | 'scheduled' | 'qzone' | 'contacts',
+    result: LightboxResult,
+  ): void {
+    void client.bootstrap.setExportPreset
+      .mutate({
+        variant,
+        formats: result.formats,
+        options: result.options,
+        ...(variant === 'scheduled' && result.schedule ? { schedule: result.schedule } : {}),
+      })
+      .then((next) => setExportPresets(next))
+      .catch(() => {
+        // 缓存写入失败只影响下次自动回填，这里静默跳过。
+      });
   }
 
   /** Persist a scheduled template. Mirrors the per-task `media/range` shape
@@ -1041,14 +1178,16 @@ export function ExportView(): ReactElement {
     try {
       await client.account.createSchedule.mutate({
         name: `定时 · ${targets[0]!.name}${targets.length > 1 ? ` 等 ${targets.length} 个` : ''}`,
-        format: format as Exclude<ExportFormat, 'vcard'>,
+        // 主格式 = 第一份；多选的全部格式存进 formats，触发时媒体只带一份。
+        format: (result.formats[0] ?? format) as Exclude<ExportFormat, 'vcard'>,
+        formats: result.formats as Exclude<ExportFormat, 'vcard'>[],
         conversations: targets.map((t) => ({
           id: t.id,
           name: t.name,
           kind: t.kind ?? 'c2c',
           total: t.total ?? 0,
         })),
-        chatlab: false,
+        chatlab: result.options.chatlab,
         schedule: result.schedule,
         options: {
           range: {
@@ -1057,13 +1196,17 @@ export function ExportView(): ReactElement {
             end: result.options.range.end,
           },
           exportMedia: result.options.exportMedia,
+          mediaKinds: result.options.mediaKinds,
           completeMessages: result.options.completeMessages,
           exportAvatar: result.options.exportAvatar,
           completeMedia: result.options.completeMedia,
           downloadVideo: result.options.downloadVideo,
           downloadFile: result.options.downloadFile,
           downloadPtt: result.options.downloadPtt,
+          completeDress: result.options.completeDress,
           transcribeVoice: result.options.transcribeVoice,
+          dress: result.options.dress,
+          autoSave: result.options.autoSave,
         },
         enabled: true,
       });
@@ -1114,22 +1257,10 @@ export function ExportView(): ReactElement {
   }
 
   const activeMode = MODES.find((m) => m.id === mode)!;
-  const isMultiConvMode =
-    mode === 'full' || mode === 'chatlab' || mode === 'scheduled' || mode === 'qzone';
-  // 显示底部格式 chips 的模式（多选会话 + 导出联系人 + 导出收藏）。
-  const showFormatChips = isMultiConvMode || mode === 'contacts' || mode === 'collection';
-  const formatOptions =
-    mode === 'chatlab'
-      ? CHATLAB_FORMATS
-      : mode === 'qzone'
-        ? QZONE_FORMATS
-        : mode === 'collection'
-          ? COLLECTION_FORMATS
-          : mode === 'contacts'
-            ? contactScope === 'friends'
-              ? FRIEND_FORMATS
-              : MEMBER_FORMATS
-            : FULL_FORMATS;
+  // 底部格式 chips 只保留给不走灯箱的导出收藏；
+  // 完整消息 / 好友空间 / 定时的格式选择已移入灯箱多选。
+  const showFormatChips = mode === 'collection';
+  const formatOptions = COLLECTION_FORMATS;
   // 好友空间导出只列好友（排除群聊）；其余多选模式用全部会话。
   const pickerItems = mode === 'qzone' ? friendItems : convItems;
 
@@ -1140,12 +1271,10 @@ export function ExportView(): ReactElement {
         ? '导出相册'
         : mode === 'groupfile'
           ? '导出群文件'
-        : mode === 'decrypt'
-          ? '解密并导出'
-          : mode === 'qzone'
-            ? '导出空间'
-            : mode === 'chatlab'
-              ? '导出 ChatLab'
+          : mode === 'decrypt'
+            ? '解密并导出'
+            : mode === 'qzone'
+              ? '导出空间'
               : mode === 'contacts'
                 ? '导出联系人'
                 : mode === 'collection'
@@ -1159,11 +1288,11 @@ export function ExportView(): ReactElement {
         ? !albumGroupId
         : mode === 'groupfile'
           ? !fileGroupId
-        : mode === 'contacts'
-          ? contactScope === 'group' && !contactGroupId
-          : mode === 'collection'
-            ? collectionLoading || (collectionCounts.all ?? 0) === 0
-            : convSelection.size === 0;
+          : mode === 'contacts'
+            ? contactScope === 'group' && !contactGroupId
+            : mode === 'collection'
+              ? collectionLoading || (collectionCounts.all ?? 0) === 0
+              : convSelection.size === 0;
 
   // Lightbox summary line.
   const lightboxSummary = (() => {
@@ -1171,17 +1300,16 @@ export function ExportView(): ReactElement {
       const g = groupItems.find((it) => it.id === albumGroupId);
       return g ? `群相册 · ${g.name}` : '群相册';
     }
-    const fmt = format.toUpperCase();
     if (lightbox === 'contacts') {
       if (contactScope === 'group') {
         const g = groupItems.find((it) => it.id === contactGroupId);
-        return `${g?.name ?? '群成员'} · ${fmt}`;
+        return g?.name ?? '群成员';
       }
       const n = catSelection.size;
-      return `${n ? `${n} 个分组` : '全部好友'} · ${fmt}`;
+      return n ? `${n} 个分组` : '全部好友';
     }
     const n = convSelection.size;
-    return lightbox === 'qzone' ? `${n} 位好友 · ${fmt}` : `${n} 个会话 · ${fmt}`;
+    return lightbox === 'qzone' ? `${n} 位好友` : `${n} 个会话`;
   })();
 
   const lightboxHeadline =
@@ -1189,15 +1317,13 @@ export function ExportView(): ReactElement {
       ? '新建定时导出任务'
       : lightbox === 'album'
         ? '导出群相册'
-        : lightbox === 'chatlab'
-          ? '导出 ChatLab 格式'
-          : lightbox === 'qzone'
-            ? '导出好友 QQ 空间'
-            : lightbox === 'contacts'
-              ? contactScope === 'friends'
-                ? '导出好友列表'
-                : '导出群成员列表'
-              : '导出聊天记录';
+        : lightbox === 'qzone'
+          ? '导出好友 QQ 空间'
+          : lightbox === 'contacts'
+            ? contactScope === 'friends'
+              ? '导出好友列表'
+              : '导出群成员列表'
+            : '导出聊天记录';
 
   return (
     <div className="weq-exp">
@@ -1237,7 +1363,9 @@ export function ExportView(): ReactElement {
                 <div className="weq-exp-sched-head">
                   <div className="weq-exp-sched-head-text">
                     <strong>定时导出任务</strong>
-                    <small>选择上方会话与格式后点击「新建定时任务」创建调度；下方为已存在的调度列表。</small>
+                    <small>
+                      选择上方会话与格式后点击「新建定时任务」创建调度；下方为已存在的调度列表。
+                    </small>
                   </div>
                 </div>
                 <ConversationPicker
@@ -1248,7 +1376,9 @@ export function ExportView(): ReactElement {
                 />
                 <div className="weq-exp-sched-list">
                   {schedules.isLoading ? (
-                    <div className="weq-exp-sched-empty"><small>加载中…</small></div>
+                    <div className="weq-exp-sched-empty">
+                      <small>加载中…</small>
+                    </div>
                   ) : (schedules.data ?? []).length === 0 ? (
                     <div className="weq-exp-sched-empty">
                       <strong>暂无定时任务</strong>
@@ -1267,7 +1397,7 @@ export function ExportView(): ReactElement {
                   )}
                 </div>
               </div>
-            ) : mode === 'full' || mode === 'chatlab' || mode === 'qzone' ? (
+            ) : mode === 'full' || mode === 'qzone' ? (
               <ConversationPicker
                 items={pickerItems}
                 loading={conversations.isLoading}
@@ -1355,26 +1485,56 @@ export function ExportView(): ReactElement {
               {mode === 'scheduled' ? (
                 <span className="weq-exp-foot-hint">
                   {convSelection.size > 0
-                    ? `已选 ${convSelection.size} 个会话 · ${format.toUpperCase()} · 点击新建定时任务`
+                    ? `已选 ${convSelection.size} 个会话 · 灯箱内多选格式 · 点击新建定时任务`
                     : '请先选择至少一个会话'}
                 </span>
               ) : showFormatChips ? (
                 <div className="weq-exp-foot-format">
                   <span className="weq-exp-foot-label">格式</span>
-                  <Segmented<ExportFormat> value={format} onChange={setFormat} options={formatOptions} small />
+                  <Segmented<ExportFormat>
+                    value={format}
+                    onChange={setFormat}
+                    options={formatOptions}
+                    small
+                  />
                 </div>
+              ) : mode === 'full' || mode === 'qzone' ? (
+                <span className="weq-exp-foot-hint">
+                  {mode === 'qzone'
+                    ? convSelection.size > 0
+                      ? `已选 ${convSelection.size} 位好友 · 灯箱内选择格式与配图`
+                      : '请先选择至少一位好友'
+                    : convSelection.size > 0
+                      ? `已选 ${convSelection.size} 个会话 · 灯箱内选择格式与内容`
+                      : '请先选择至少一个会话'}
+                </span>
+              ) : mode === 'contacts' ? (
+                <span className="weq-exp-foot-hint">
+                  {contactScope === 'friends'
+                    ? catSelection.size > 0
+                      ? `已选 ${catSelection.size} 个分组 · 灯箱内选择格式与头像`
+                      : '全部好友 · 灯箱内选择格式与头像'
+                    : contactGroupId
+                      ? '已选择群 · 灯箱内选择格式与头像'
+                      : '请先选择群'}
+                </span>
               ) : (
                 <span className="weq-exp-foot-hint">
                   {mode === 'album'
                     ? '选择一个群，下一步选择相册与时间范围'
                     : mode === 'groupfile'
-                    ? '选择一个群，下一步选择要下载的文件'
-                    : dbSelection.size > 0
-                      ? `已选 ${dbSelection.size} 个数据库 · ${fmtBytes(selectedDbBytes)}`
-                      : '选择数据库后导出解密副本'}
+                      ? '选择一个群，下一步选择要下载的文件'
+                      : dbSelection.size > 0
+                        ? `已选 ${dbSelection.size} 个数据库 · ${fmtBytes(selectedDbBytes)}`
+                        : '选择数据库后导出解密副本'}
                 </span>
               )}
-              <button type="button" className="weq-exp-primary" disabled={primaryDisabled} onClick={onPrimary}>
+              <button
+                type="button"
+                className="weq-exp-primary"
+                disabled={primaryDisabled}
+                onClick={onPrimary}
+              >
                 {primaryLabel}
               </button>
             </footer>
@@ -1382,7 +1542,7 @@ export function ExportView(): ReactElement {
         </section>
       </div>
 
-      {/* 底部任务列表 */}
+      {/* 底部任务列表（可折叠覆盖层） */}
       <TaskList
         tasks={uiTasks}
         onPause={onPause}
@@ -1391,6 +1551,9 @@ export function ExportView(): ReactElement {
         onDelete={onDelete}
         onSaveAll={() => void onSaveAll()}
         onShowFailures={(t, failures) => setFailureView({ name: t.name, failures })}
+        autoSelectId={autoSelectTaskId}
+        isExpanded={taskPanelExpanded}
+        onToggleExpanded={() => setTaskPanelExpanded((v) => !v)}
       />
 
       {failureView ? (
@@ -1406,8 +1569,18 @@ export function ExportView(): ReactElement {
           variant={lightbox}
           headline={lightboxHeadline}
           summary={lightboxSummary}
-          // 联系人导出默认不下载头像（大群头像量大），其余沿用默认。
-          initialOptions={lightbox === 'contacts' ? { ...DEFAULT_OPTIONS, exportAvatar: false } : undefined}
+          contactScope={contactScope}
+          // 优先回填最近一次导出的配置；联系人导出默认不下载头像（大群头像量大）。
+          initialOptions={
+            lightbox !== 'album'
+              ? (exportPresets?.[lightbox]?.options ??
+                (lightbox === 'contacts'
+                  ? { ...DEFAULT_OPTIONS, exportAvatar: false }
+                  : DEFAULT_OPTIONS))
+              : undefined
+          }
+          initialFormats={lightbox !== 'album' ? exportPresets?.[lightbox]?.formats : undefined}
+          initialSchedule={exportPresets?.scheduled?.schedule}
           submitting={submitting}
           onPickPath={async () => {
             dialog.info('选择目录', '目录选择接口待接入，开始导出时将使用系统对话框。');
@@ -1498,9 +1671,13 @@ function CategoryChips({
         <small>{allActive ? `全部好友 · ${total} 人` : `已选 ${selected.size} 个分组`}</small>
       </div>
       {loading ? (
-        <div className="weq-exp-cats-empty"><small>加载中…</small></div>
+        <div className="weq-exp-cats-empty">
+          <small>加载中…</small>
+        </div>
       ) : items.length === 0 ? (
-        <div className="weq-exp-cats-empty"><small>暂无分组数据</small></div>
+        <div className="weq-exp-cats-empty">
+          <small>暂无分组数据</small>
+        </div>
       ) : (
         <div className="weq-exp-cats-list">
           <button
@@ -1676,9 +1853,7 @@ function CollectionScope({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return scoped;
-    return scoped.filter((it) =>
-      `${it.title} ${it.sub} ${it.source}`.toLowerCase().includes(q),
-    );
+    return scoped.filter((it) => `${it.title} ${it.sub} ${it.source}`.toLowerCase().includes(q));
   }, [scoped, query]);
 
   return (
@@ -1687,13 +1862,21 @@ function CollectionScope({
         <div className="weq-exp-cats-head">
           <strong>收藏类型</strong>
           <small>
-            {loading ? '加载中…' : allActive ? `全部收藏 · ${fmtCount(total)} 条` : `已选 ${selected.size} 类 · ${fmtCount(scoped.length)} 条`}
+            {loading
+              ? '加载中…'
+              : allActive
+                ? `全部收藏 · ${fmtCount(total)} 条`
+                : `已选 ${selected.size} 类 · ${fmtCount(scoped.length)} 条`}
           </small>
         </div>
         {loading ? (
-          <div className="weq-exp-cats-empty"><small>正在加载收藏…</small></div>
+          <div className="weq-exp-cats-empty">
+            <small>正在加载收藏…</small>
+          </div>
         ) : total === 0 ? (
-          <div className="weq-exp-cats-empty"><small>还没有任何收藏</small></div>
+          <div className="weq-exp-cats-empty">
+            <small>还没有任何收藏</small>
+          </div>
         ) : (
           <div className="weq-exp-cats-list">
             <button
@@ -1743,7 +1926,9 @@ function CollectionScope({
             </div>
           ) : filtered.length === 0 ? (
             <div className="weq-exp-list-state">
-              <span>{query ? '没有匹配的收藏' : allActive ? '还没有任何收藏' : '所选类型下暂无收藏'}</span>
+              <span>
+                {query ? '没有匹配的收藏' : allActive ? '还没有任何收藏' : '所选类型下暂无收藏'}
+              </span>
             </div>
           ) : (
             filtered.map((it) => (
@@ -1760,8 +1945,12 @@ function CollectionScope({
                   ) : null}
                 </span>
                 <span className="weq-exp-col-side">
-                  <span className="weq-exp-col-kind">{COLLECTION_KIND_LABEL[it.kind] ?? '其他'}</span>
-                  {fmtCollectDay(it.collectTime) ? <small>{fmtCollectDay(it.collectTime)}</small> : null}
+                  <span className="weq-exp-col-kind">
+                    {COLLECTION_KIND_LABEL[it.kind] ?? '其他'}
+                  </span>
+                  {fmtCollectDay(it.collectTime) ? (
+                    <small>{fmtCollectDay(it.collectTime)}</small>
+                  ) : null}
                 </span>
               </div>
             ))
@@ -1793,36 +1982,47 @@ function fmtRel(sec: number | null): string {
 
 function outcomeLabel(t: { outcome: string; skipReason?: string }): string {
   switch (t.outcome) {
-    case 'completed': return '完成';
-    case 'partial': return '部分';
-    case 'failed': return '失败';
-    case 'cancelled': return '取消';
+    case 'completed':
+      return '完成';
+    case 'partial':
+      return '部分';
+    case 'failed':
+      return '失败';
+    case 'cancelled':
+      return '取消';
     case 'skipped':
       if (t.skipReason === 'QQ 离线') return '跳过·离线';
       if (t.skipReason === '上次任务未结束') return '跳过·冲突';
       if (t.skipReason === '已暂停') return '跳过·暂停';
       if (t.skipReason === '未选择会话') return '跳过·空';
       return '跳过';
-    default: return t.outcome;
+    default:
+      return t.outcome;
   }
 }
 
 function scheduleSummary(s: ScheduledTask): string {
-  const cadence = s.schedule.mode === 'daily'
-    ? `每天 ${s.schedule.time}`
-    : `每 ${s.schedule.intervalHours} 小时`;
-  const range = s.options.range.preset === 'all'
-    ? '全部时间'
-    : s.options.range.preset === 'today'
-      ? '今天'
-      : s.options.range.preset === 'custom'
-        ? `自定义时间`
-        : `最近 ${s.options.range.preset}`;
-  const media = [
-    s.options.exportAvatar ? '头像' : null,
-    s.options.exportMedia ? '媒体' : null,
-    s.options.transcribeVoice ? '转写' : null,
-  ].filter(Boolean).join('·') || '纯文本';
+  const cadence =
+    s.schedule.mode === 'daily' ? `每天 ${s.schedule.time}` : `每 ${s.schedule.intervalHours} 小时`;
+  const range =
+    s.options.range.preset === 'all'
+      ? '全部时间'
+      : s.options.range.preset === 'today'
+        ? '今天'
+        : s.options.range.preset === 'custom'
+          ? `自定义时间`
+          : `最近 ${s.options.range.preset}`;
+  const media =
+    [
+      s.options.exportAvatar ? '头像' : null,
+      s.options.exportMedia ? '媒体' : null,
+      s.options.dress && (s.options.dress.bubble || s.options.dress.font || s.options.dress.widget)
+        ? '装扮'
+        : null,
+      s.options.transcribeVoice ? '转写' : null,
+    ]
+      .filter(Boolean)
+      .join('·') || '纯文本';
   return `${cadence} · ${range} · ${media}`;
 }
 
@@ -1838,6 +2038,7 @@ function ScheduleRow({
   onRunNow: () => void;
 }): ReactElement {
   const next = schedule.nextRunAt;
+  const formats = schedule.formats?.length ? schedule.formats : [schedule.format];
   return (
     <div className={`weq-exp-sched-card${schedule.enabled ? '' : ' is-disabled'}`}>
       <div className="weq-exp-sched-card-main">
@@ -1846,19 +2047,35 @@ function ScheduleRow({
           <span className={`weq-exp-sched-card-tag${schedule.enabled ? '' : ' is-off'}`}>
             {schedule.enabled ? '运行中' : '已暂停'}
           </span>
-          <span className="weq-exp-sched-card-tag">{schedule.format.toUpperCase()}</span>
+          {formats.map((f) => (
+            <span key={f} className="weq-exp-sched-card-tag">
+              {f.toUpperCase()}
+            </span>
+          ))}
         </div>
         <div className="weq-exp-sched-card-meta">
-          <span>会话 <b>{schedule.conversations.length}</b></span>
-          <span>节奏 <b>{scheduleSummary(schedule)}</b></span>
-          <span>下次 <b>{fmtRunAt(next)}</b> · {fmtRel(next)}</span>
+          <span>
+            会话 <b>{schedule.conversations.length}</b>
+          </span>
+          <span>
+            节奏 <b>{scheduleSummary(schedule)}</b>
+          </span>
+          <span>
+            下次 <b>{fmtRunAt(next)}</b> · {fmtRel(next)}
+          </span>
         </div>
         {schedule.history.length > 0 ? (
-          <div className="weq-exp-sched-card-history" title={schedule.history.map((t) => `${fmtRunAt(t.at)} ${outcomeLabel(t)}`).join('\n')}>
+          <div
+            className="weq-exp-sched-card-history"
+            title={schedule.history.map((t) => `${fmtRunAt(t.at)} ${outcomeLabel(t)}`).join('\n')}
+          >
             最近触发：
             {schedule.history.slice(0, 8).map((t, i) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-              <span key={`${t.at}-${i}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+              <span
+                // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
+                key={`${t.at}-${i}`}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}
+              >
                 <span className={`weq-exp-sched-card-history-dot is-${t.outcome}`} />
                 <span>{outcomeLabel(t)}</span>
               </span>
@@ -1867,13 +2084,24 @@ function ScheduleRow({
         ) : null}
       </div>
       <div className="weq-exp-sched-card-actions">
-        <button type="button" onClick={onToggle} title={schedule.enabled ? '暂停' : '启用'} aria-label={schedule.enabled ? '暂停' : '启用'}>
+        <button
+          type="button"
+          onClick={onToggle}
+          title={schedule.enabled ? '暂停' : '启用'}
+          aria-label={schedule.enabled ? '暂停' : '启用'}
+        >
           {schedule.enabled ? <Pause size={14} /> : <Play size={14} />}
         </button>
         <button type="button" onClick={onRunNow} title="立即运行" aria-label="立即运行">
           <Zap size={14} />
         </button>
-        <button type="button" className="is-danger" onClick={onDelete} title="删除" aria-label="删除">
+        <button
+          type="button"
+          className="is-danger"
+          onClick={onDelete}
+          title="删除"
+          aria-label="删除"
+        >
           <Trash2 size={14} />
         </button>
       </div>

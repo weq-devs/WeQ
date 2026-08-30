@@ -21,6 +21,7 @@ import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ExportTaskManager, TaskProgress } from './task_manager';
+import type { DressExportKinds } from './dress_export';
 import type { ExportFormat, ExportTimeRange } from './types';
 
 /** Cadence for a scheduled export. Mirrors the renderer's `Schedule`. */
@@ -48,6 +49,14 @@ export interface ScheduleRange {
 export interface ScheduleOptions {
   range: ScheduleRange;
   exportMedia: boolean;
+  /** 导出媒体时按类别筛选（图片 / 语音 / 视频 / 文件 / QQ 系统表情）。 */
+  mediaKinds?: {
+    image: boolean;
+    voice: boolean;
+    video: boolean;
+    file: boolean;
+    sysface: boolean;
+  };
   /** 消息补全：扫描 seq 空窗，从 QQ 服务端拉取本机缺失的消息（需在线 QQ）。 */
   completeMessages: boolean;
   exportAvatar: boolean;
@@ -55,7 +64,13 @@ export interface ScheduleOptions {
   downloadVideo: boolean;
   downloadFile: boolean;
   downloadPtt: boolean;
+  /** 下载本地未缓存的装扮资源。 */
+  completeDress?: boolean;
   transcribeVoice: boolean;
+  /** 导出装扮资源（气泡 / 字体 / 挂件），全 false / 缺省 = 不导出。 */
+  dress?: DressExportKinds;
+  /** 导出完成后自动弹保存路径。 */
+  autoSave?: boolean;
 }
 
 /** One conversation target — fully serialized (no renderer references). */
@@ -88,6 +103,8 @@ export interface ScheduleTrigger {
 export interface ScheduledTask {
   id: string;
   name: string;
+  /** 灯箱多选的导出格式（缺省 = [format]）。 */
+  formats?: ExportFormat[];
   /** Export options snapshot. */
   options: ScheduleOptions;
   /** Output format (mirrors `account.startExport`). */
@@ -112,10 +129,15 @@ const MAX_HISTORY = 20;
 const SCHEDULE_FILE = 'schedules.json';
 
 /** Input shape for `create` / `update` — server-side fields filled by the manager. */
-export type ScheduleInput = Omit<ScheduledTask, 'id' | 'createdAt' | 'updatedAt' | 'nextRunAt' | 'history'>;
+export type ScheduleInput = Omit<
+  ScheduledTask,
+  'id' | 'createdAt' | 'updatedAt' | 'nextRunAt' | 'history'
+>;
 
 /** Patch for `update` — every field optional. */
-export type SchedulePatch = Partial<Omit<ScheduledTask, 'id' | 'createdAt' | 'updatedAt' | 'nextRunAt' | 'history'>>;
+export type SchedulePatch = Partial<
+  Omit<ScheduledTask, 'id' | 'createdAt' | 'updatedAt' | 'nextRunAt' | 'history'>
+>;
 
 /** Injected dependencies. `isOnline` is consulted at fire-time only — the
  *  scheduler doesn't subscribe to online-status changes itself. */
@@ -334,7 +356,12 @@ export class ExportScheduler extends EventEmitter {
     }
     // Conflict: a previous run for this same schedule still has live tasks.
     if (this.hasRunning(t.history[0]?.taskIds)) {
-      return this.recordOutcome(t, { at, taskIds, outcome: 'skipped', skipReason: '上次任务未结束' });
+      return this.recordOutcome(t, {
+        at,
+        taskIds,
+        outcome: 'skipped',
+        skipReason: '上次任务未结束',
+      });
     }
     if (!this.deps.isOnline()) {
       return this.recordOutcome(t, { at, taskIds, outcome: 'skipped', skipReason: 'QQ 离线' });
@@ -345,35 +372,51 @@ export class ExportScheduler extends EventEmitter {
 
     // --- run the template via ExportTaskManager.startTask ---
     const range = resolveRange(t.options.range, at);
+    const formats = t.formats?.length ? t.formats : [t.format];
     let firstError: string | null = null;
     for (const c of t.conversations) {
+      // 多格式在同一个任务里完成（同一 bundle，媒体 / 头像 / 装扮只带一份）。
+      const carryResources = true;
       try {
         const id = await this.deps.taskManager.startTask({
           kind: c.kind,
           conv: c.id,
           name: c.name,
-          format: t.format,
+          format: formats[0] ?? t.format,
+          formats,
           total: c.total,
           // startTask has `exportAvatar?: boolean` — always pass it explicitly so
           // ExportTask.exportAvatar mirrors the template, not "undefined".
-          exportAvatar: Boolean(t.options.exportAvatar),
+          exportAvatar: carryResources && Boolean(t.options.exportAvatar),
+          ...(carryResources && t.options.dress ? { dress: t.options.dress } : {}),
           ...(t.chatlab ? { chatlab: true } : {}),
-          ...(t.options.exportMedia || t.options.exportAvatar || t.options.transcribeVoice || t.options.completeMessages
+          ...(carryResources &&
+          (t.options.exportMedia ||
+            t.options.exportAvatar ||
+            t.options.transcribeVoice ||
+            t.options.completeMessages)
             ? {
                 media: {
                   exportMedia: t.options.exportMedia,
                   completeMessages: t.options.completeMessages,
                   completeMedia: t.options.exportMedia && t.options.completeMedia,
-                  downloadVideo: t.options.exportMedia && t.options.completeMedia && t.options.downloadVideo,
-                  downloadFile: t.options.exportMedia && t.options.completeMedia && t.options.downloadFile,
-                  downloadPtt: t.options.exportMedia && t.options.completeMedia && t.options.downloadPtt,
+                  downloadVideo: t.options.exportMedia && t.options.downloadVideo,
+                  downloadFile: t.options.exportMedia && t.options.downloadFile,
+                  downloadPtt: t.options.exportMedia && t.options.downloadPtt,
                   transcribeVoice: t.options.transcribeVoice,
+                  mediaKinds: t.options.mediaKinds,
+                  completeDress: t.options.completeDress,
                 },
               }
             : {}),
           range,
         });
         taskIds.push(id);
+        this.deps.taskManager.appendLog(
+          id,
+          'task',
+          `由定时任务「${t.name}」触发（${reason === 'manual' ? '手动' : '定时'}）`,
+        );
       } catch (e) {
         if (!firstError) firstError = String((e as Error)?.message ?? e);
       }
@@ -407,7 +450,11 @@ export class ExportScheduler extends EventEmitter {
             this.deps.taskManager.off('progress', onProgress);
             const allDone = [...states.values()].every((s) => s === 'completed');
             const anyFailed = [...states.values()].some((s) => s === 'failed' || s === 'cancelled');
-            const outcome: ScheduleOutcome = allDone ? 'completed' : anyFailed ? 'partial' : 'partial';
+            const outcome: ScheduleOutcome = allDone
+              ? 'completed'
+              : anyFailed
+                ? 'partial'
+                : 'partial';
             this.recordOutcome(t, {
               at: Math.floor(Date.now() / 1000),
               taskIds: [...expected],
@@ -474,8 +521,12 @@ export function computeNextRun(s: ScheduleConfig, fromSec: number): number {
 export function resolveRange(r: ScheduleRange, atSec: number): ExportTimeRange {
   if (r.preset === 'custom') return { start: r.start, end: r.end };
   const now = new Date(atSec * 1000);
-  const startOfDay = (d: Date): number => Math.floor(new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).getTime() / 1000);
-  const endOfDay = (d: Date): number => Math.floor(new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999).getTime() / 1000);
+  const startOfDay = (d: Date): number =>
+    Math.floor(new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).getTime() / 1000);
+  const endOfDay = (d: Date): number =>
+    Math.floor(
+      new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999).getTime() / 1000,
+    );
   if (r.preset === 'all') return { start: null, end: null };
   if (r.preset === 'today') return { start: startOfDay(now), end: endOfDay(now) };
   const days = r.preset === '7d' ? 7 : r.preset === '30d' ? 30 : 365;

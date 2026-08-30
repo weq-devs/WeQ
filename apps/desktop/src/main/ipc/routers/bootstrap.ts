@@ -74,6 +74,44 @@ const algoSchema = z.object({
   kdfHmacAlgorithm: z.string(),
 });
 
+/** 导出灯箱选项快照（与渲染层 ExportOptions 一一对应）。 */
+const exportPresetOptionsSchema = z.object({
+  range: z.object({
+    preset: z.enum(['all', 'today', '7d', '30d', '1y', 'custom']),
+    start: z.number().nullable(),
+    end: z.number().nullable(),
+  }),
+  exportMedia: z.boolean(),
+  mediaKinds: z.object({
+    image: z.boolean(),
+    voice: z.boolean(),
+    video: z.boolean(),
+    file: z.boolean(),
+    sysface: z.boolean(),
+  }),
+  completeMessages: z.boolean(),
+  exportAvatar: z.boolean(),
+  completeMedia: z.boolean(),
+  downloadVideo: z.boolean(),
+  downloadFile: z.boolean(),
+  downloadPtt: z.boolean(),
+  completeDress: z.boolean(),
+  transcribeVoice: z.boolean(),
+  dress: z.object({
+    bubble: z.boolean(),
+    font: z.boolean(),
+    widget: z.boolean(),
+  }),
+  autoSave: z.boolean(),
+  chatlab: z.boolean(),
+});
+
+const exportPresetScheduleSchema = z.object({
+  mode: z.enum(['daily', 'interval']),
+  time: z.string(),
+  intervalHours: z.number().int().min(1).max(168),
+});
+
 const logger = getLogger().child({ scope: 'bootstrap-router' });
 
 /** 从服务器地址里提取主机名，用作默认展示名。 */
@@ -431,6 +469,29 @@ export const bootstrapRouter = router({
     requireBootstrap().userConfig.setSettings({ defaultExportDir: picked });
     return picked;
   }),
+
+  /**
+   * 导出中心各模式的最近一次灯箱配置（纯 UI 缓存，用于下次打开时回填状态）。
+   */
+  getExportPresets: procedure.query(() => {
+    return requireBootstrap().userConfig.getExportPresets();
+  }),
+
+  /**
+   * 保存某个导出模式的最近一次灯箱配置（其余模式不变），返回更新后的完整快照。
+   */
+  setExportPreset: procedure
+    .input(
+      z.object({
+        variant: z.enum(['full', 'scheduled', 'qzone', 'contacts']),
+        formats: z.array(z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html', 'vcard'])).min(1),
+        options: exportPresetOptionsSchema,
+        schedule: exportPresetScheduleSchema.optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      return requireBootstrap().userConfig.setExportPreset(input);
+    }),
 
   /**
    * Toggle 启用数据库监听. Persists, then applies live to the open account so the

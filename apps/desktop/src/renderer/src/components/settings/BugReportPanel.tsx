@@ -193,7 +193,11 @@ export function BugReportPanel(): ReactElement {
   const resetTemplate = (): void => {
     setChecks({ isBug: true, knowCause: false, willingPr: false });
     setBody(buildTemplate());
-    pushToast({ tone: 'info', title: '已填入反馈模板' });
+    pushToast({
+      tone: 'info',
+      title: '已填入反馈模板',
+      detail: '请检查模板内容，补充必要信息后再提交。',
+    });
   };
 
   const loadHexdump = async (path: string): Promise<void> => {

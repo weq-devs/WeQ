@@ -13,16 +13,18 @@ export function SectionHeader({
   title,
   desc,
   icon,
+  titleClassName,
 }: {
   title: string;
   desc?: ReactNode;
   icon?: ReactNode;
+  titleClassName?: string;
 }): ReactElement {
   return (
     <header className="weq-set-head">
       <div className="weq-set-head-title">
         {icon ? <span className="weq-set-head-icon" aria-hidden>{icon}</span> : null}
-        <h3 className="weq-set-title">{title}</h3>
+        <h3 className={`weq-set-title${titleClassName ? ` ${titleClassName}` : ''}`}>{title}</h3>
       </div>
       {desc ? <p className="weq-set-desc">{desc}</p> : null}
     </header>

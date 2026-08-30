@@ -25,6 +25,16 @@ import { statSync } from 'node:fs';
 import { createExportWriter } from './stream_utils';
 import type { MsgService } from '../msg';
 import type { RenderElement, ForwardMessage } from '../msg_view';
+import type { MsgDecoration } from '@weq/codec';
+import { TipGroupElementType } from '@weq/codec';
+import { marked } from 'marked';
+import type {
+  DressBubbleManifest,
+  DressExportKinds,
+  DressExportManifest,
+  DressFontManifest,
+  DressWidgetManifest,
+} from './dress_export';
 import { toExportedMessage, type RoamMessageSource } from './message_source';
 import { annotateLocalPaths, elementsToText, formatTime } from './element_text';
 import { expandForwards } from './forward_expand';
@@ -39,7 +49,13 @@ import {
   type ResolvedSender,
   type SenderResolveDeps,
 } from './sender_resolve';
-import type { ConvKind, ExportedMessage, ExportResult, ExportTimeRange, ProgressCallback } from './types';
+import type {
+  ConvKind,
+  ExportedMessage,
+  ExportResult,
+  ExportTimeRange,
+  ProgressCallback,
+} from './types';
 
 export interface HtmlExportOptions {
   kind: ConvKind;
@@ -64,6 +80,12 @@ export interface HtmlExportOptions {
   collectFaces?: Set<string>;
   /** Stamp media elements with their bundle relative path (so `<img>` resolves). */
   withMediaPaths?: boolean;
+  /** 导出装扮：勾选的类别（null/undefined = 不导出装扮）。 */
+  dress?: DressExportKinds;
+  /** 导出装扮：dress 阶段预扫描得到的 msgId → decoration。 */
+  dressLookup?: (msgId: string) => MsgDecoration | undefined;
+  /** 导出装扮：dress 阶段写出的资源清单（气泡 slice / 字体 family / 挂件路径）。 */
+  dressManifest?: DressExportManifest | null;
 }
 
 /** Bracket labels for media kinds with no inline rendering / no local file. */
@@ -72,14 +94,8 @@ const PLACEHOLDER: Record<string, string> = {
   multiMsg: '[合并转发]',
   call: '[通话]',
   wallet: '[红包/转账]',
-  qqDynamic: '[动态]',
   onlineFolder: '[文件夹]',
   mface: '[表情]',
-  emojiBounce: '[表情]',
-  grayTipPoke: '[戳一戳]',
-  grayTipGroup: '[群提示]',
-  grayTipXml: '[群提示]',
-  grayTipTempSession: '[临时会话]',
   shareLocation: '[位置共享]',
 };
 
@@ -102,6 +118,176 @@ function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max)}…` : s;
 }
 
+// ─── Gray-tip XML / JSON content extraction ─────────────────────────────
+
+/** Simple XML node attributes extractor (avoids pulling in a full XML parser). */
+function xmlAttr(tag: string, attr: string): string {
+  const m = tag.match(new RegExp(`${attr}="([^"]*)"`));
+  return m?.[1] ?? '';
+}
+
+/** Extract plain-text content from a `<gtip>` XML string. */
+function grayTipXmlToText(xml: string): string {
+  const gtipMatch = xml.match(/<gtip[\s>][\s\S]*?<\/gtip>/i);
+  if (!gtipMatch) return '';
+  const gtip = gtipMatch[0];
+  // Collect all child nodes: <qq>, <nor>, <url>, <img>, <face>
+  const parts: string[] = [];
+  const nodeRe = /<(qq|nor|url|img|face)([^>]*?)(?:\/?)>/gi;
+  let match = nodeRe.exec(gtip);
+  while (match) {
+    const m = match;
+    const tag = m[0];
+    const kind = m[1];
+    if (kind === 'qq') {
+      const nm = xmlAttr(tag, 'nm');
+      const uin = xmlAttr(tag, 'uin');
+      parts.push(nm || uin || '某人');
+    } else if (kind === 'nor') {
+      const txt = xmlAttr(tag, 'txt');
+      parts.push(txt || '');
+    } else if (kind === 'url') {
+      const txt = xmlAttr(tag, 'txt');
+      parts.push(txt || '');
+    } else if (kind === 'face') {
+      parts.push('[表情]');
+    }
+    // <img> → no text
+    match = nodeRe.exec(gtip);
+  }
+  return parts.join('');
+}
+
+/** Extract plain-text from a grayTipPoke `tipJson` string. */
+function grayTipPokeJsonToText(json: string): string {
+  try {
+    const data = JSON.parse(json) as { items?: Array<{ type?: string; txt?: string; uid?: string; uin?: string; nm?: string }> };
+    if (!data.items) return '';
+    return data.items.map((item) => {
+      if (item.type === 'qq' || item.type === 'url') {
+        return item.nm || item.txt || item.uin || '';
+      }
+      return item.txt || '';
+    }).join('');
+  } catch {
+    return '';
+  }
+}
+
+/** Format a grayTipGroup element into a human-readable system line. */
+function renderGrayTipGroupText(el: RenderElement): string {
+  const d = el.data as Record<string, unknown>;
+  const groupTipType = d.groupTipType as number | undefined;
+  const u1 = (d.user1GroupNick || d.user1Nick || '') as string;
+  const u2 = (d.user2GroupNick || d.user2Nick || '') as string;
+  const groupName = (d.groupTipGroupName || '') as string;
+  const muteInfo = d.muteInfo as {
+    operator?: { uid?: string };
+    mutedUser?: { uid?: string; groupNick?: string };
+    duration?: number;
+  } | undefined;
+
+  switch (groupTipType) {
+    case TipGroupElementType.KMEMBERADD:
+      return u1 ? `${u1} 加入了群聊` : '';
+    case TipGroupElementType.KDISBANDED:
+      return '该群已被群主解散';
+    case TipGroupElementType.KQUITTE:
+      return u1 ? `${u1} 已将你移出群聊` : '';
+    case TipGroupElementType.KCREATED:
+      return `${u1 || ''} 创建了群聊${groupName ? ` ${groupName}` : ''}`;
+    case TipGroupElementType.KGROUPNAMEMODIFIED:
+      return `${u1 || ''} 修改群名为 ${groupName || '新群名'}`;
+    case TipGroupElementType.KBLOCK:
+      return u1 ? `${u1} 将 ${u2 || '某成员'} 加入了黑名单` : '';
+    case TipGroupElementType.KUNBLOCK:
+      return u1 ? `${u1} 将 ${u2 || '某成员'} 移出了黑名单` : '';
+    case TipGroupElementType.KSHUTUP: {
+      if (!muteInfo) return '禁言';
+      const dur = muteInfo.duration || 0;
+      const op = u1 || '管理员';
+      const target = muteInfo.mutedUser?.groupNick || u2;
+      if (!target) {
+        return `${op} ${dur > 0 ? '开启' : '关闭'}了全员禁言`;
+      }
+      if (dur > 0) {
+        const days = Math.floor(dur / 86400);
+        const hours = Math.floor((dur % 86400) / 3600);
+        const minutes = Math.floor((dur % 3600) / 60);
+        const durStr = days > 0 ? `${days}天` : hours > 0 ? `${hours}小时` : `${minutes}分钟`;
+        return `${target} 被 ${op} 禁言了${durStr}`;
+      }
+      return `${op} 结束了 ${target} 的禁言`;
+    }
+    case TipGroupElementType.KBERECYCLED:
+      return '该群因违规被回收';
+    case TipGroupElementType.KDISBANDORBERECYCLED:
+      return '该群已被解散或被回收';
+    default:
+      return '';
+  }
+}
+
+/** Render the text content of any gray-tip element as a system line. */
+function renderGrayTipContent(el: RenderElement): string {
+  const d = el.data as Record<string, unknown>;
+  switch (el.type) {
+    case 'grayTipRevoke': {
+      const text = (d.recallDisplayText as string) || '撤回了一条消息';
+      return text;
+    }
+    case 'grayTipPoke': {
+      const xml = (d.grayTipXmlContent as string) || '';
+      const json = (d.tipJson as string) || '';
+      if (xml) {
+        const text = grayTipXmlToText(xml);
+        if (text) return text;
+      }
+      if (json) {
+        const text = grayTipPokeJsonToText(json);
+        if (text) return text;
+      }
+      return '戳一戳';
+    }
+    case 'grayTipGroup':
+      return renderGrayTipGroupText(el) || '群提示';
+    case 'grayTipXml': {
+      const xml = (d.grayTipXmlContent as string) || '';
+      if (xml) {
+        const text = grayTipXmlToText(xml);
+        if (text) return text;
+      }
+      return '群提示';
+    }
+    case 'grayTipFileRecv': {
+      const name = (d.fileName as string) || '';
+      return name ? `文件传输完成: ${name}` : '文件传输完成';
+    }
+    case 'grayTipTempSession': {
+      const code = (d.tempSessionGroupCode as string) || '';
+      return code ? `该用户通过群 ${code} 向你发起临时会话` : '临时会话';
+    }
+    default:
+      return '';
+  }
+}
+
+// ─── Markdown rendering ──────────────────────────────────────────────────
+
+/** Configure marked for safe, compact HTML output. */
+marked.use({
+  gfm: true,
+  breaks: true,
+  pedantic: false,
+});
+
+/** Render markdown source to an HTML fragment (sanitized for inline display). */
+function renderMarkdownHtml(src: string): string {
+  if (!src) return '';
+  const raw: string = marked.parse(src) as string;
+  return raw;
+}
+
 /** Human-readable byte size (service-local; the front-end has its own copy). */
 function fmtBytes(bytes: number): string {
   if (!bytes) return '';
@@ -111,9 +297,16 @@ function fmtBytes(bytes: number): string {
   return `${v >= 100 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
 }
 
+/** Gray-tip and system-only element kinds that render as centered system lines. */
+const SYSTEM_KINDS = new Set([
+  'grayTipRevoke', 'grayTipPoke', 'grayTipGroup', 'grayTipXml',
+  'grayTipFileRecv', 'grayTipTempSession',
+  'emojiBounce', 'qqDynamic', 'call',
+]);
+
 /** A message whose every element is a gray-tip is shown as a centered system line. */
 function isSystemOnly(elements: RenderElement[]): boolean {
-  return elements.length > 0 && elements.every((e) => e.type.startsWith('grayTip'));
+  return elements.length > 0 && elements.every((e) => SYSTEM_KINDS.has(e.type));
 }
 
 /** Local bundle path stamped by `annotateLocalPaths`, if any. */
@@ -135,7 +328,8 @@ function renderFace(el: RenderElement, collectFaces?: Set<string>): string {
 
   if (typeof faceId === 'number') {
     const glyph = UNICODE_FACE_MAP[faceId];
-    if (glyph) return `<span class="face-glyph" title="${escapeHtml(label)}">${escapeHtml(glyph)}</span>`;
+    if (glyph)
+      return `<span class="face-glyph" title="${escapeHtml(label)}">${escapeHtml(glyph)}</span>`;
     if (Number.isInteger(faceId) && faceId >= 0) {
       const idStr = String(faceId);
       collectFaces?.add(idStr);
@@ -165,7 +359,8 @@ function renderElement(el: RenderElement, collectFaces?: Set<string>): string {
     case 'pic': {
       const p = localPath(el);
       const cls = el.data.subType === 1 ? 'media emoji' : 'media';
-      if (p) return `<img class="${cls}" loading="lazy" src="${escapeHtml(p)}" alt="${el.data.subType === 1 ? '表情' : '图片'}">`;
+      if (p)
+        return `<img class="${cls}" loading="lazy" src="${escapeHtml(p)}" alt="${el.data.subType === 1 ? '表情' : '图片'}">`;
       return `<span class="ph">${el.data.subType === 1 ? '[表情]' : '[图片]'}</span>`;
     }
     case 'video': {
@@ -175,8 +370,11 @@ function renderElement(el: RenderElement, collectFaces?: Set<string>): string {
     }
     case 'ptt': {
       const p = localPath(el);
-      const name = el.data.fileName ? `<small class="cap">${escapeHtml(el.data.fileName)}</small>` : '';
-      if (p) return `<span class="voice"><audio controls preload="none" src="${escapeHtml(p)}"></audio>${name}</span>`;
+      const name = el.data.fileName
+        ? `<small class="cap">${escapeHtml(el.data.fileName)}</small>`
+        : '';
+      if (p)
+        return `<span class="voice"><audio controls preload="none" src="${escapeHtml(p)}"></audio>${name}</span>`;
       return `<span class="ph">[语音]${el.data.fileName ? ` ${escapeHtml(el.data.fileName)}` : ''}</span>`;
     }
     case 'file':
@@ -191,21 +389,40 @@ function renderElement(el: RenderElement, collectFaces?: Set<string>): string {
       const summary = truncate(elementsToText(el.data.origElements ?? []).trim(), 120);
       return summary ? `<div class="quote">${escapeMultiline(summary)}</div>` : '';
     }
-    case 'markdown':
-      return escapeMultiline(el.data.markdownTextSummary || el.data.markdownContent || '[Markdown]');
+    case 'markdown': {
+      // Render markdown as rich HTML instead of plain text.
+      const mdSrc = el.data.markdownContent
+        || el.data.markdownTextSummary
+        || '';
+      if (mdSrc) {
+        return `<div class="md-wrap">${renderMarkdownHtml(mdSrc)}</div>`;
+      }
+      return '<span class="ph">[Markdown]</span>';
+    }
     case 'multiMsg':
       return renderForward(el.data.forwardMessages, collectFaces);
     case 'grayTipRevoke':
-      return `<span class="ph">[${escapeHtml(el.data.recallDisplayText || '撤回了一条消息')}]</span>`;
+    case 'grayTipPoke':
+    case 'grayTipGroup':
+    case 'grayTipXml':
     case 'grayTipFileRecv':
-      return `<span class="ph">[文件传输完成${el.data.fileName ? `: ${escapeHtml(el.data.fileName)}` : ''}]</span>`;
+    case 'grayTipTempSession': {
+      const text = renderGrayTipContent(el);
+      return text ? `<span class="graytip-text">${escapeHtml(text)}</span>` : '<span class="ph">[提示]</span>';
+    }
     case 'emojiBounce': {
       const summary = el.data.emojiBounceTextSummary || el.data.emojiBouncePcText || '';
-      return `<span class="ph">${summary ? escapeHtml(summary) : '[表情]'}</span>`;
+      return `<span class="graytip-text">${escapeHtml(summary || '[表情]')}</span>`;
     }
     case 'qqDynamic': {
       const main = el.data.dynamicDesc?.mainDesc || el.data.dynamicDesc2?.mainDesc || '';
-      return `<span class="ph">[QQ动态]${main ? ` ${escapeHtml(main)}` : ''}</span>`;
+      return `<span class="graytip-text">${main ? escapeHtml(main) : '[动态]'}</span>`;
+    }
+    case 'call': {
+      const summary = Array.isArray(el.data.callSummary)
+        ? el.data.callSummary.filter((s) => typeof s === 'string' && s).join(' ')
+        : '';
+      return summary ? `<span class="graytip-text">${escapeHtml(summary)}</span>` : '<span class="ph">[通话]</span>';
     }
     case 'unknown':
       return '';
@@ -216,8 +433,14 @@ function renderElement(el: RenderElement, collectFaces?: Set<string>): string {
 
 /** All elements → the bubble body (reply quote floats to the top). */
 function renderBody(elements: RenderElement[], collectFaces?: Set<string>): string {
-  const quotes = elements.filter((e) => e.type === 'reply').map((e) => renderElement(e, collectFaces)).join('');
-  const rest = elements.filter((e) => e.type !== 'reply').map((e) => renderElement(e, collectFaces)).join('');
+  const quotes = elements
+    .filter((e) => e.type === 'reply')
+    .map((e) => renderElement(e, collectFaces))
+    .join('');
+  const rest = elements
+    .filter((e) => e.type !== 'reply')
+    .map((e) => renderElement(e, collectFaces))
+    .join('');
   return quotes + rest;
 }
 
@@ -232,7 +455,9 @@ function renderForward(messages: ForwardMessage[] | undefined, collectFaces?: Se
   const rows = messages
     .map((msg) => {
       const name = escapeHtml(msg.senderName || '匿名');
-      const time = msg.sendTime ? `<span class="fwd-time">${escapeHtml(formatTime(msg.sendTime))}</span>` : '';
+      const time = msg.sendTime
+        ? `<span class="fwd-time">${escapeHtml(formatTime(msg.sendTime))}</span>`
+        : '';
       const body = renderBody(msg.elements, collectFaces);
       return `<div class="fwd-msg"><div class="fwd-meta"><span class="fwd-name">${name}</span>${time}</div><div class="fwd-body">${body}</div></div>`;
     })
@@ -241,9 +466,24 @@ function renderForward(messages: ForwardMessage[] | undefined, collectFaces?: Se
 }
 
 /** One message → a bubble row, or a centered system line for gray-tip-only messages. */
-function renderMessage(m: ExportedMessage, sender: ResolvedSender, selfId: string | undefined, collectFaces?: Set<string>): string {
+function renderMessage(
+  m: ExportedMessage,
+  sender: ResolvedSender,
+  selfId: string | undefined,
+  collectFaces?: Set<string>,
+  dec?: MsgDecoration,
+  widgets?: Map<number, DressWidgetManifest>,
+): string {
   if (isSystemOnly(m.elements)) {
-    return `<div class="sys">${escapeHtml(elementsToText(m.elements).replace(/[[\]]/g, ''))}</div>\n`;
+    // Render gray-tip content with rich text extraction instead of bracket labels.
+    const parts = m.elements.map((el) => {
+      if (SYSTEM_KINDS.has(el.type)) {
+        return renderGrayTipContent(el) || escapeHtml(elementsToText([el]).replace(/[[\]]/g, ''));
+      }
+      return escapeHtml(elementsToText([el]).replace(/[[\]]/g, ''));
+    }).filter(Boolean);
+    const text = parts.join('\n') || escapeHtml(elementsToText(m.elements).replace(/[[\]]/g, ''));
+    return `<div class="sys">${escapeMultiline(text)}</div>\n`;
   }
   const isSelf = Boolean(selfId) && sender.platformId === selfId;
   const name = escapeHtml(sender.groupNickname || sender.accountName);
@@ -252,14 +492,105 @@ function renderMessage(m: ExportedMessage, sender: ResolvedSender, selfId: strin
     ? `<img class="ava" loading="lazy" src="${escapeHtml(avatarUrlForUin(sender.platformId))}" alt="">`
     : `<span class="ava ava-none">${escapeHtml((sender.accountName || '?').slice(0, 1))}</span>`;
   const role =
-    sender.role === 'owner' ? '<span class="role owner">群主</span>' : sender.role === 'admin' ? '<span class="role">管理员</span>' : '';
+    sender.role === 'owner'
+      ? '<span class="role owner">群主</span>'
+      : sender.role === 'admin'
+        ? '<span class="role">管理员</span>'
+        : '';
   const body = renderBody(m.elements, collectFaces);
+  const attrs = dec
+    ? ` data-bubble="${dec.bubbleId}" data-font="${dec.fontId}" data-widget="${dec.widgetId}"`
+    : '';
+  const widgetImg =
+    dec && dec.widgetId > 0 && widgets?.get(dec.widgetId)
+      ? `<img class="widget" src="${escapeHtml(widgets.get(dec.widgetId)!.file)}" alt="">`
+      : '';
   return (
-    `<div class="msg${isSelf ? ' me' : ''}">${ava}` +
+    `<div class="msg${isSelf ? ' me' : ''}"${attrs}>${widgetImg}${ava}` +
     `<div class="col"><div class="meta"><span class="name">${name}</span>${role}` +
     `<span class="time">${escapeHtml(formatTime(m.sendTime))}</span></div>` +
     `<div class="bubble">${body}</div></div></div>\n`
   );
+}
+
+/** 装扮 CSS 的换算常量 —— 与渲染侧 dressSkin.ts / msgDecorationStyle.ts 保持一致。 */
+const BUBBLE_SCALE = 0.5;
+const PAD_RATIO_Y = 0.6;
+
+function dressPx(v: number): string {
+  return `${Math.round(v * 100) / 100}px`;
+}
+
+/** 由 dress 清单生成页面内的装扮 CSS（字体 / 气泡 border-image / 挂件定位）。 */
+function buildDressCss(manifest: DressExportManifest): string {
+  const rules: string[] = [];
+
+  for (const font of manifest.fonts) {
+    rules.push(
+      `@font-face{font-family:"${font.family}";src:url("${font.file}") format("truetype");font-display:swap}`,
+      `.msg[data-font="${font.itemId}"] .bubble{` +
+        `font-family:"${font.family}",-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif}`,
+    );
+  }
+
+  for (const b of manifest.bubbles) {
+    rules.push(...bubbleRules(b));
+  }
+
+  if (manifest.widgets.length > 0) {
+    rules.push(
+      `.msg{position:relative}`,
+      `.msg .widget{position:absolute;z-index:2;width:46px;height:46px;left:-5px;top:-16px;` +
+        `pointer-events:none;object-fit:contain;filter:drop-shadow(0 1px 2px rgba(0,0,0,.25))}`,
+      `.msg.me .widget{left:auto;right:-5px}`,
+    );
+  }
+
+  return rules.join('\n');
+}
+
+/** 一款气泡的 border-image CSS（含对方消息镜像）。 */
+function bubbleRules(skin: DressBubbleManifest): string[] {
+  const { left, top, right, bottom } = skin.slice;
+  const wTop = top * BUBBLE_SCALE;
+  const wRight = right * BUBBLE_SCALE;
+  const wBottom = bottom * BUBBLE_SCALE;
+  const wLeft = left * BUBBLE_SCALE;
+  const slice = `${top} ${right} ${bottom} ${left} fill`;
+  const width = `${dressPx(wTop)} ${dressPx(wRight)} ${dressPx(wBottom)} ${dressPx(wLeft)}`;
+  const avgSlice = (top + bottom) / 2;
+  const topDiff = avgSlice - top;
+  const bottomDiff = avgSlice - bottom;
+  const topPad = wTop * PAD_RATIO_Y + topDiff * BUBBLE_SCALE * 0.5;
+  const bottomPad = wBottom * PAD_RATIO_Y + bottomDiff * BUBBLE_SCALE * 0.5;
+
+  const sel = `.msg[data-bubble="${skin.itemId}"] .bubble`;
+  const theirsSel = `.msg:not(.me)[data-bubble="${skin.itemId}"] .bubble`;
+  return [
+    `${sel}{`,
+    `  position:relative;isolation:isolate;background:transparent;color:${skin.textColor};`,
+    `  border-style:solid;border-width:0;`,
+    `  border-image-source:url("${skin.staticPng}");`,
+    `  border-image-slice:${slice};`,
+    `  border-image-width:${width};`,
+    `  border-image-repeat:stretch;border-radius:0;`,
+    `  padding:${dressPx(topPad)} ${dressPx(Math.max(wLeft, wRight))} ${dressPx(bottomPad)};`,
+    `  min-width:${dressPx((left + right) * BUBBLE_SCALE)};`,
+    `  min-height:${dressPx((top + bottom) * BUBBLE_SCALE)};`,
+    `}`,
+    // 对方消息镜像：素材按「自己的右侧气泡」绘制，放左侧要左右翻转。
+    // 不能对整个 .bubble 做 scaleX(-1)（文字会跟着镜像），挪到 ::before 上翻。
+    `${theirsSel}{border-image-source:none}`,
+    `${theirsSel}::before{`,
+    `  content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;`,
+    `  border-style:solid;border-width:0;`,
+    `  border-image-source:url("${skin.staticPng}");`,
+    `  border-image-slice:${slice};`,
+    `  border-image-width:${width};`,
+    `  border-image-repeat:stretch;border-radius:0;`,
+    `  transform:scaleX(-1);`,
+    `}`,
+  ];
 }
 
 /** `YYYY-MM-DD` local-day key (date dividers fire when it changes). */
@@ -324,7 +655,28 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system
 .fwd-body{font-size:13px;word-break:break-word}
 .fwd .media{max-width:180px;max-height:180px}
 .ph{color:var(--sub)}
+.graytip-text{color:var(--sub);font-size:12px}
 .foot{text-align:center;color:var(--sub);font-size:12px;padding:16px}
+/* Markdown rendering inside bubbles */
+.md-wrap{line-height:1.6}
+.md-wrap h1,.md-wrap h2,.md-wrap h3,.md-wrap h4,.md-wrap h5,.md-wrap h6{margin:8px 0 4px;font-weight:600;line-height:1.3}
+.md-wrap h1{font-size:1.3em}
+.md-wrap h2{font-size:1.15em}
+.md-wrap h3{font-size:1.05em}
+.md-wrap p{margin:4px 0}
+.md-wrap ul,.md-wrap ol{margin:4px 0;padding-left:1.5em}
+.md-wrap li{margin:1px 0}
+.md-wrap code{background:rgba(140,140,140,.15);padding:1px 4px;border-radius:3px;font-family:"SF Mono",Consolas,"Liberation Mono",Menlo,monospace;font-size:.9em}
+.md-wrap pre{background:rgba(140,140,140,.12);border-radius:6px;padding:8px 10px;overflow-x:auto;margin:6px 0}
+.md-wrap pre code{background:none;padding:0;font-size:.85em}
+.md-wrap blockquote{border-left:3px solid var(--accent);color:var(--sub);padding:2px 8px;margin:6px 0}
+.md-wrap a{color:var(--accent);text-decoration:none}
+.md-wrap a:hover{text-decoration:underline}
+.md-wrap img{max-width:240px;max-height:280px;border-radius:6px;display:block;margin:3px 0}
+.md-wrap table{border-collapse:collapse;margin:6px 0;font-size:13px}
+.md-wrap th,.md-wrap td{border:1px solid var(--line);padding:4px 8px;text-align:left}
+.md-wrap th{background:rgba(140,140,140,.1);font-weight:600}
+.md-wrap hr{border:none;border-top:1px solid var(--line);margin:8px 0}
 `;
 
 /**
@@ -383,6 +735,18 @@ export async function exportToHtml(
   const start = Date.now();
   const progressEvery = opts.progressEvery ?? 1000;
 
+  // 装扮：dress 阶段已经写好资源，这里只需把清单转成「itemId → 资产」的查表。
+  const dressOn = Boolean(opts.dress && opts.dressManifest);
+  const bubbleById = new Map<number, DressBubbleManifest>();
+  const fontById = new Map<number, DressFontManifest>();
+  const widgetById = new Map<number, DressWidgetManifest>();
+  if (dressOn && opts.dressManifest) {
+    for (const b of opts.dressManifest.bubbles) bubbleById.set(b.itemId, b);
+    for (const f of opts.dressManifest.fonts) fontById.set(f.itemId, f);
+    for (const w of opts.dressManifest.widgets) widgetById.set(w.itemId, w);
+  }
+  const dressCss = dressOn && opts.dressManifest ? buildDressCss(opts.dressManifest) : '';
+
   // ---- resolve self (for right-aligning own messages) + members ----
   const self = deps.self ? await deps.self().catch(() => null) : null;
   let selfId = self ? (self.uin && self.uin !== '0' ? self.uin : self.uid) : undefined;
@@ -393,7 +757,14 @@ export async function exportToHtml(
     const meta = deps.groupMeta ? await deps.groupMeta(opts.conv).catch(() => null) : null;
     if (meta?.name) convName = opts.name || meta.name;
     opts.onProgress?.({ current: 0, message: '解析成员…' });
-    senders = await resolveGroupSenders(msgs, opts.conv, opts.range, deps, meta?.ownerUid ?? '', opts.roam);
+    senders = await resolveGroupSenders(
+      msgs,
+      opts.conv,
+      opts.range,
+      deps,
+      meta?.ownerUid ?? '',
+      opts.roam,
+    );
   } else {
     const r = await resolveC2cSenders(opts.conv, deps);
     senders = r.senders;
@@ -408,7 +779,9 @@ export async function exportToHtml(
   await writer.write(
     `<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n` +
       `<meta name="viewport" content="width=device-width,initial-scale=1">\n<title>${title} · 聊天记录</title>\n` +
-      `<style>${STYLE}</style>\n</head>\n<body>\n<div class="frame">\n` +
+      `<style>${STYLE}</style>\n` +
+      (dressCss ? `<style id="dress-css">${dressCss}</style>\n` : '') +
+      `</head>\n<body>\n<div class="frame">\n` +
       `<header class="head">\n` +
       `<div class="head-top"><strong>${title}</strong><small>${opts.kind === 'group' ? '群聊' : '私聊'} · 导出于 ${exportedAt}</small></div>\n` +
       `<div class="search"><input id="q" type="search" placeholder="搜索消息内容…" autocomplete="off" spellcheck="false"><span id="qinfo"></span><div id="results" class="results" hidden></div></div>\n` +
@@ -429,9 +802,13 @@ export async function exportToHtml(
         lastDay = day;
       }
       const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
-      await writer.write(renderMessage(exported, sender, selfId, opts.collectFaces));
+      const dec = opts.dressLookup?.(exported.msgId);
+      await writer.write(
+        renderMessage(exported, sender, selfId, opts.collectFaces, dec, widgetById),
+      );
       count += 1;
-      if (count % progressEvery === 0) opts.onProgress?.({ current: count, message: `已导出 ${count} 条` });
+      if (count % progressEvery === 0)
+        opts.onProgress?.({ current: count, message: `已导出 ${count} 条` });
     }
     await writer.write(
       `</main>\n<footer class="foot">共 ${count} 条消息 · 顶部搜索框可检索并点击跳转</footer>\n</div>\n` +

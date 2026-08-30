@@ -17,7 +17,7 @@ import { createExportWriter } from './stream_utils';
 import type { MsgService } from '../msg';
 import { toExportedMessage, type RoamMessageSource } from './message_source';
 import { expandForwards } from './forward_expand';
-import { annotateLocalPaths } from './element_text';
+import { annotateLocalPaths, collectFaceIds } from './element_text';
 import { bigintReplacer } from './serialize';
 import {
   avatarUrlForUin,
@@ -28,6 +28,7 @@ import {
   type ResolvedSender,
   type SenderResolveDeps,
 } from './sender_resolve';
+import type { MsgDecoration } from '@weq/codec';
 import type {
   ConvKind,
   ExportedMessage,
@@ -47,9 +48,13 @@ export interface JsonMetaExportOptions {
   progressEvery?: number;
   onProgress?: ProgressCallback;
   collectSenders?: Set<string>;
+  /** 收集 QQ 系统表情 faceId（sysface 导出阶段用）。 */
+  collectFaces?: Set<string>;
   withMediaPaths?: boolean;
   /** 漫游补全消息（导出「消息补全」拉回缓存后，消息流按 sendTime 合并）。 */
   roam?: RoamMessageSource;
+  /** 导出装扮时：按 msgId 查 decoration（dress 阶段预扫描结果）。 */
+  dressLookup?: (msgId: string) => MsgDecoration | undefined;
 }
 
 /** One member row in the members block. */
@@ -142,7 +147,10 @@ export async function exportJsonConversation(
       }
       for await (const raw of iterateConv(msgs, opts.kind, opts.conv, opts.range, opts.roam)) {
         const exported = toExportedMessage(raw);
+        const dec = opts.dressLookup?.(exported.msgId);
+        if (dec) exported.decoration = dec;
         opts.collectSenders?.add(exported.senderUin);
+        if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
         await expandForwards(msgs, opts.kind, exported);
         if (opts.withMediaPaths) annotateLocalPaths(exported.elements);
         const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
@@ -161,7 +169,10 @@ export async function exportJsonConversation(
       await writer.write(head);
       for await (const raw of iterateConv(msgs, opts.kind, opts.conv, opts.range, opts.roam)) {
         const exported = toExportedMessage(raw);
+        const dec = opts.dressLookup?.(exported.msgId);
+        if (dec) exported.decoration = dec;
         opts.collectSenders?.add(exported.senderUin);
+        if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
         await expandForwards(msgs, opts.kind, exported);
         if (opts.withMediaPaths) annotateLocalPaths(exported.elements);
         const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);

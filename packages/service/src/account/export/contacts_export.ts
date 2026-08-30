@@ -1,6 +1,6 @@
 /**
- * 联系人导出器 —— 导出**好友列表**或**某群的成员列表**为 csv / xlsx / json / txt
- * （好友额外支持 vcard 电子名片）。
+ * 联系人导出器 —— 导出**好友列表**或**某群的成员列表**为 json / jsonl / csv / xlsx /
+ * txt（好友额外支持 vcard 电子名片）。
  *
  * 与消息导出流水线无关：数据来自本地资料库（`buddy_list` / `category_list_v2` /
  * `profile_info_v6` / `group_member3`），一次性拉全后写盘。拉取能力由 deps 注入
@@ -72,7 +72,7 @@ export interface ContactsExportDeps {
 }
 
 /** 联系人导出格式。 */
-export type ContactsFormat = 'json' | 'csv' | 'xlsx' | 'txt' | 'vcard';
+export type ContactsFormat = 'json' | 'jsonl' | 'csv' | 'xlsx' | 'txt' | 'vcard';
 
 export interface ContactsExportResult {
   filePath: string;
