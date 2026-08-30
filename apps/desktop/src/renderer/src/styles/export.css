@@ -12,8 +12,10 @@
 .weq-exp {
   position: relative;
   isolation: isolate;
-  display: flex;
-  flex-direction: column;
+  /* 上半区 + 底部任务栏：收拢时任务栏在流内占 36px，pane 不会钻到 head 下面；
+     展开时任务栏脱离文档流成为覆盖层，上半区自动占满。 */
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
   height: 100%;
   min-height: 0;
   /* Shared themed canvas (same --chat-surface as chat + contacts). */
@@ -1417,7 +1419,7 @@
 /* ===== 导出任务中心（卡片 + 详情 + 滚动日志） ===== */
 /* 收拢 = 底部固定窄条（36px）；展开 = 向上展开覆盖层 */
 .weq-exp-tasks {
-  position: absolute;
+  position: relative;
   left: 0;
   right: 0;
   bottom: 0;
@@ -1425,9 +1427,6 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  /* 定死高度：作为 flex 子项时（空任务态是相对定位、在流内）不能被压缩，
-     否则内容高的模式会把 36px 的 head 挤出窗口底部。 */
-  flex: none;
   /* 收拢时只露出 header 高度 */
   height: 36px;
   border-top: 1px solid rgba(0, 0, 0, 0.08);
@@ -1439,6 +1438,8 @@
 }
 
 .weq-exp-tasks.is-expanded {
+  /* 展开时向上覆盖，遮住 pane 底部即可（此时上半区已占满）。 */
+  position: absolute;
   height: clamp(260px, 48vh, 480px);
   overflow: visible;
   box-shadow: 0 -10px 36px -10px rgba(7, 31, 61, 0.25);
