@@ -286,7 +286,7 @@ export function SsePushSection(): ReactElement {
                     className="weq-set-input"
                     value={form.name}
                     spellCheck={false}
-                    placeholder="例如：家里的接收端"
+                    placeholder="例如：SSE 接收端"
                     onChange={(e) => updateField('name', e.target.value)}
                   />
                 }

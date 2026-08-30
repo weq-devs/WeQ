@@ -100,7 +100,7 @@ const MODES: ModeDef[] = [
   {
     id: 'qzone',
     label: '好友QQ空间导出',
-    desc: '导出好友空间说说（需在线 QQ）',
+    desc: '导出好友空间说说',
     icon: <Globe size={18} />,
   },
   {

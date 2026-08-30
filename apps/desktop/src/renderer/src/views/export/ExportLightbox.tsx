@@ -658,7 +658,7 @@ export function ExportLightbox({
                     ) : (
                       <Row
                         label="导出后自动保存"
-                        desc="完成后弹出保存路径（不再记忆上次目录）"
+                        desc="完成后弹出保存路径"
                         control={
                           <Toggle
                             checked={opts.autoSave}
