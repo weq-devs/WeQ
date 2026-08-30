@@ -416,11 +416,29 @@ export function ExportView(): ReactElement {
     });
   }, [conversations.data]);
 
-  // 好友空间导出：只列私聊好友（排除群聊），且需有效 uin。
-  const friendItems = useMemo<PickItem[]>(
-    () => convItems.filter((it) => it.kind === 'c2c' && it.uin && it.uin !== '0'),
-    [convItems],
-  );
+  // 好友空间导出：只列私聊好友（排除群聊、公众号、服务号），且需有效 uin。
+  const friendItems = useMemo<PickItem[]>(() => {
+    const raw = (conversations.data ?? []) as ConvWire[];
+    return raw
+      .filter((c) => {
+        // 排除公众号(103)和服务号(118)
+        const chatTypeNum = Number(c.chatType);
+        if (chatTypeNum === 103 || chatTypeNum === 118) return false;
+        // 排除群聊
+        if (String(c.chatType).includes('GROUP')) return false;
+        // 需要有效的uin
+        return c.targetUin && c.targetUin !== '0';
+      })
+      .map((c) => ({
+        id: c.targetUid,
+        name: c.targetDisplayName || c.targetUid,
+        avatarUrl: convAvatarUrl('c2c', c.targetUid, c.targetUin),
+        kind: 'c2c' as const,
+        uin: c.targetUin,
+        total: Number(c.messageCount ?? 0),
+        meta: `${fmtCount(Number(c.messageCount ?? 0))} 条 · 私聊`,
+      }));
+  }, [conversations.data]);
 
   const groupItems = useMemo<PickItem[]>(() => {
     return ((groups.data ?? []) as GroupWire[]).map((g) => ({
