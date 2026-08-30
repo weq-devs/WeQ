@@ -54,7 +54,6 @@ import {
   type DecodeSilk,
   type TranscribeVoiceFn,
   type MediaFailure,
-  type SubtaskEvent,
 } from './media_export';
 import {
   scanConvMedia,
@@ -122,21 +121,8 @@ export interface TaskLogLine {
   seq: number;
   /** 所属子任务；`task` = 任务级日志（扫描摘要 / 起止等）。 */
   stage: StageKey | 'task';
-  /** 所属并发子任务（如媒体搬运中的单个文件）；缺省 = 阶段级日志。 */
-  sub?: string;
   level: TaskLogLevel;
   text: string;
-}
-
-/** 阶段下的一个并发子任务（如媒体搬运中的单个文件）。 */
-export interface TaskSubtask {
-  /** 子任务唯一 key（阶段内稳定，配合日志的 sub 字段归集）。 */
-  key: string;
-  /** 展示名（文件名等）。 */
-  label: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
-  /** 状态附注（失败原因等）。 */
-  note?: string;
 }
 
 export interface TaskStage {
@@ -145,8 +131,6 @@ export interface TaskStage {
   status: 'pending' | 'running' | 'completed' | 'skipped' | 'failed';
   current: number;
   total: number;
-  /** 并发子任务列表（每个文件 / 每项一项，各自进度 + 日志）。 */
-  subtasks?: TaskSubtask[];
   /** Items that failed in this stage (e.g. images that couldn't be downloaded). */
   failed?: number;
   /** Short note (e.g. "已导出 1234 条", "下载 3/40", "下载接口修复中"). */
@@ -650,11 +634,10 @@ export class ExportTaskManager extends EventEmitter {
     stage: StageKey | 'task',
     text: string,
     level: TaskLogLevel = 'info',
-    sub?: string,
   ): void {
     const arr = this.taskLogs.get(id) ?? [];
     const seq = arr.length > 0 ? arr[arr.length - 1]!.seq + 1 : 1;
-    const line: TaskLogLine = { ts: Date.now(), seq, stage, level, text, ...(sub ? { sub } : {}) };
+    const line: TaskLogLine = { ts: Date.now(), seq, stage, level, text };
     arr.push(line);
     if (arr.length > MAX_TASK_LOGS) arr.splice(0, arr.length - MAX_TASK_LOGS);
     this.taskLogs.set(id, arr);
@@ -720,6 +703,10 @@ export class ExportTaskManager extends EventEmitter {
     const aborted = (): boolean => abort.signal.aborted;
 
     try {
+      // 先让出事件循环：任务创建 / 列表刷新的 IPC 响应要先回到渲染进程，
+      // 否则下面可能长时间阻塞的 seq 空窗扫描会让任务卡片迟迟不出现。
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
       const { avatarCache, mediaDownload, accountDir, ntDataDir, decodeSilk, transcribe } =
         this.deps;
       const wantAvatars = Boolean(task.exportAvatar && avatarCache);
@@ -1198,28 +1185,9 @@ export class ExportTaskManager extends EventEmitter {
               total: found.length,
               current: 0,
               note: `搬运 0/${found.length}`,
-              // 每个本地文件 = 一个并发子任务，前端各自显示进度条 + 终端日志。
-              subtasks: found.map((r, i) => ({
-                key: String(i),
-                label: r.fileName,
-                status: 'pending',
-              })),
             },
             { persist: true },
           );
-          const onSubtask = (ev: SubtaskEvent): void => {
-            if (aborted()) return;
-            const s = this.stage(task, 'media');
-            if (!s?.subtasks) return;
-            const sub = s.subtasks.find((x) => x.key === ev.key);
-            if (!sub) return;
-            sub.status = ev.status;
-            if (ev.note) sub.note = ev.note;
-            if (ev.log) this.log(id, 'media', ev.log.text, ev.log.level ?? 'info', ev.key);
-            // 子任务状态在内存中更新 + 发一次 progress 事件即可；写盘留给阶段收尾，
-            // 避免几百个文件时每项都全量序列化 tasks JSON。
-            this.touchStage(task, 'media', { subtasks: s.subtasks });
-          };
           const r = await copyFoundMedia(
             scanRes,
             mediaRoot,
@@ -1233,7 +1201,7 @@ export class ExportTaskManager extends EventEmitter {
             },
             8,
             kinds,
-            onSubtask,
+            (text, level) => this.log(id, 'media', text, level ?? 'info'),
           );
           this.touchStage(
             task,

@@ -46,19 +46,9 @@ export interface UiStage {
   status: StageStatus;
   current: number;
   total: number;
-  /** 并发子任务（媒体搬运 = 每个文件一项），各自进度条 + 日志。 */
-  subtasks?: UiSubtask[];
   failed?: number;
   note?: string;
   failures?: UiFailure[];
-}
-
-/** 阶段下的一个并发子任务（如媒体搬运中的单个文件）。 */
-export interface UiSubtask {
-  key: string;
-  label: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
-  note?: string;
 }
 
 /** 一行任务日志（后端 ExportTaskManager 环形缓冲下发）。 */
@@ -66,8 +56,6 @@ export interface UiLogLine {
   ts: number;
   seq: number;
   stage: string;
-  /** 所属并发子任务 key；缺省 = 阶段级日志。 */
-  sub?: string;
   level: 'info' | 'warn' | 'error';
   text: string;
 }
@@ -195,6 +183,35 @@ function fmtLogTime(ts: number): string {
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
 }
 
+/**
+ * 波浪填充（viewBox 0 0 32 300，元素高度 = 父级 300%，动画竖向平移一个波长
+ * 即 66.67%，无缝循环）。右缘为平滑正弦曲线：波峰探出填充边界、波谷切回
+ * 填充内部，整体随进度向右推进；100% 时由卡片切换为完全实色填充。
+ */
+const WAVE_BODY_PATH =
+  'M0 0 H32 C32.8 8.3 35.5 16.7 35.5 25 C35.5 33.3 32.8 41.7 32 50 ' +
+  'C31.2 58.3 28.5 66.7 28.5 75 C28.5 83.3 31.2 91.7 32 100 ' +
+  'C32.8 108.3 35.5 116.7 35.5 125 C35.5 133.3 32.8 141.7 32 150 ' +
+  'C31.2 158.3 28.5 166.7 28.5 175 C28.5 183.3 31.2 191.7 32 200 ' +
+  'C32.8 208.3 35.5 216.7 35.5 225 C35.5 233.3 32.8 241.7 32 250 ' +
+  'C31.2 258.3 28.5 266.7 28.5 275 C28.5 283.3 31.2 291.7 32 300 L0 300 Z';
+/** 右缘波浪线（浪花白线）。 */
+const WAVE_LINE_A_PATH =
+  'M32 0 C32.8 8.3 35.5 16.7 35.5 25 C35.5 33.3 32.8 41.7 32 50 ' +
+  'C31.2 58.3 28.5 66.7 28.5 75 C28.5 83.3 31.2 91.7 32 100 ' +
+  'C32.8 108.3 35.5 116.7 35.5 125 C35.5 133.3 32.8 141.7 32 150 ' +
+  'C31.2 158.3 28.5 166.7 28.5 175 C28.5 183.3 31.2 191.7 32 200 ' +
+  'C32.8 208.3 35.5 216.7 35.5 225 C35.5 233.3 32.8 241.7 32 250 ' +
+  'C31.2 258.3 28.5 266.7 28.5 275 C28.5 283.3 31.2 291.7 32 300';
+/** 波浪内侧 1.5px 的并行浪线，给水面加一点层次。 */
+const WAVE_LINE_B_PATH =
+  'M30.5 0 C31.3 8.3 34 16.7 34 25 C34 33.3 31.3 41.7 30.5 50 ' +
+  'C29.7 58.3 27 66.7 27 75 C27 83.3 29.7 91.7 30.5 100 ' +
+  'C31.3 108.3 34 116.7 34 125 C34 133.3 31.3 141.7 30.5 150 ' +
+  'C29.7 158.3 27 166.7 27 175 C27 183.3 29.7 191.7 30.5 200 ' +
+  'C31.3 208.3 34 216.7 34 225 C34 233.3 31.3 241.7 30.5 250 ' +
+  'C29.7 258.3 27 266.7 27 275 C27 283.3 29.7 291.7 30.5 300';
+
 /** 日志终端最多展示的最近行数（新的直接把旧的刷出去，不可滚动，如 docker pull）。 */
 const MAX_VISIBLE_LOGS = 5;
 
@@ -226,61 +243,6 @@ function LogConsole({
   );
 }
 
-/** 子任务里的一个并发项（如单个媒体文件）：状态 + 小进度条 + 可展开终端日志。 */
-function SubtaskRow({ sub, logs }: { sub: UiSubtask; logs: UiLogLine[] }): ReactElement {
-  const [open, setOpen] = useState(false);
-  // 等待中的文件没有日志；运行 / 完成 / 失败都能展开查看该文件的终端日志。
-  const canOpen = sub.status !== 'pending';
-  const showLog = canOpen && open;
-  return (
-    <div className={`weq-exp-subtask is-${sub.status}`}>
-      <div className="weq-exp-subtask-head">
-        <span className="weq-exp-subtask-icon">
-          <SubtaskIcon status={sub.status} />
-        </span>
-        <span className="weq-exp-subtask-label" title={sub.note}>
-          {sub.label}
-        </span>
-        <span className="weq-exp-subtask-bar">
-          <span className={`weq-exp-subtask-fill${sub.status === 'running' ? ' is-active' : ''}`} />
-        </span>
-        <span className="weq-exp-subtask-state">{SUBTASK_STATE_LABEL[sub.status]}</span>
-        <button
-          type="button"
-          className="weq-exp-detail-stage-toggle"
-          disabled={!canOpen}
-          title={canOpen ? (open ? '收起日志' : '显示最近日志') : undefined}
-          aria-expanded={canOpen && open}
-          onClick={() => setOpen((v) => !v)}
-        >
-          <ChevronDown size={11} className={open ? 'is-open' : ''} />
-        </button>
-      </div>
-      <LogConsole lines={logs} collapsed={!showLog} />
-    </div>
-  );
-}
-
-const SUBTASK_STATE_LABEL: Record<UiSubtask['status'], string> = {
-  pending: '等待',
-  running: '进行中',
-  completed: '完成',
-  failed: '失败',
-};
-
-function SubtaskIcon({ status }: { status: UiSubtask['status'] }): ReactElement {
-  switch (status) {
-    case 'running':
-      return <Loader2 size={11} className="weq-exp-spin" />;
-    case 'completed':
-      return <CircleCheck size={11} />;
-    case 'failed':
-      return <CircleAlert size={11} />;
-    default:
-      return <Clock size={11} />;
-  }
-}
-
 /** 一个子任务阶段：名称 + 进度条 + 右侧百分比 + 下拉按钮（展开显示最近日志）。 */
 function StageRow({ stage, logs }: { stage: UiStage; logs: UiLogLine[] }): ReactElement {
   const [open, setOpen] = useState(false);
@@ -288,9 +250,6 @@ function StageRow({ stage, logs }: { stage: UiStage; logs: UiLogLine[] }): React
   // 运行中 / 失败时可展开日志；完成 / 跳过自动收起（按钮禁用）。
   const canOpen = stage.status === 'running' || stage.status === 'failed';
   const showLog = canOpen && open;
-  const subtasks = stage.subtasks ?? [];
-  const stageOwnLogs = logs.filter((l) => !l.sub);
-  const subtaskLogs = (subKey: string): UiLogLine[] => logs.filter((l) => l.sub === subKey);
   return (
     <div className={`weq-exp-detail-stage is-${stage.status}`}>
       <div className="weq-exp-detail-stage-head">
@@ -317,19 +276,16 @@ function StageRow({ stage, logs }: { stage: UiStage; logs: UiLogLine[] }): React
           <ChevronDown size={13} className={open ? 'is-open' : ''} />
         </button>
       </div>
-      <LogConsole lines={stageOwnLogs} collapsed={!showLog} />
-      {subtasks.length > 0 ? (
-        <div className="weq-exp-detail-subtasks">
-          {subtasks.map((sub) => (
-            <SubtaskRow key={sub.key} sub={sub} logs={subtaskLogs(sub.key)} />
-          ))}
-        </div>
-      ) : null}
+      <LogConsole lines={logs} collapsed={!showLog} />
     </div>
   );
 }
 
-/** 顶部任务小卡片：图标 + 名称同一行，边框颜色代表状态，底部波浪总进度。 */
+/**
+ * 顶部任务小卡片：图标 + 名称同一行，边框颜色代表状态；卡片背景就是进度条
+ * （主题色向右填充，右缘波浪动画，不显示百分比）。还没跑出进度的任务（排队 /
+ * 刚启动）用 skeleton 占位 + shimmer 动画。
+ */
 function TaskCard({
   task,
   active,
@@ -340,6 +296,7 @@ function TaskCard({
   onSelect: () => void;
 }): ReactElement {
   const pct = taskPct(task);
+  const idle = task.status === 'pending' || (task.status === 'running' && pct <= 0);
   return (
     <button
       type="button"
@@ -347,12 +304,26 @@ function TaskCard({
       onClick={onSelect}
       title={`${taskTypeLabel(task)} · ${task.name}`}
     >
+      {idle ? (
+        <span className="weq-exp-card-skeleton" aria-hidden />
+      ) : (
+        <span
+          className={`weq-exp-card-progress is-${task.status}${pct >= 100 ? ' is-full' : ''}`}
+          style={{ width: `${pct}%` }}
+          aria-hidden
+        >
+          {pct < 100 ? (
+            <svg className="weq-exp-card-wavefill" viewBox="0 0 32 300" preserveAspectRatio="none">
+              <path className="weq-exp-card-wavefill-body" d={WAVE_BODY_PATH} />
+              <path className="weq-exp-card-wavefill-line is-a" d={WAVE_LINE_A_PATH} />
+              <path className="weq-exp-card-wavefill-line is-b" d={WAVE_LINE_B_PATH} />
+            </svg>
+          ) : null}
+        </span>
+      )}
       <span className="weq-exp-card-top">
         <span className="weq-exp-card-icon">{taskIcon(task)}</span>
         <span className="weq-exp-card-name">{task.name}</span>
-      </span>
-      <span className="weq-exp-card-wave" aria-hidden>
-        <span className={`weq-exp-card-wave-fill is-${task.status}`} style={{ width: `${pct}%` }} />
       </span>
     </button>
   );

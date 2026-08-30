@@ -1501,6 +1501,8 @@
 }
 
 .weq-exp-card {
+  position: relative;
+  overflow: hidden;
   flex: 0 0 164px;
   display: flex;
   flex-direction: column;
@@ -1515,7 +1517,111 @@
   text-align: left;
   cursor: pointer;
   transition: border-color 150ms ease, background 150ms ease, box-shadow 150ms ease,
-    transform 120ms ease;
+  transform 120ms ease;
+}
+
+/* 卡片背景 = 进度条：主题色自左向右填充，右缘为平滑正弦波浪（竖向流动）。 */
+.weq-exp-card-progress {
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 0;
+  /* 填充本体由 .weq-exp-card-wavefill 的正弦波路径绘制（currentColor）。 */
+  color: color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
+  transition: width 0.35s ease;
+}
+
+/* 100% 时切换为完全实色填充（不再显示波浪缺口）。 */
+.weq-exp-card-progress.is-full {
+  background: currentColor;
+}
+
+/* 波浪填充：右缘为平滑正弦曲线，波峰探出填充边界、波谷切回填充内部；
+   动画竖向平移一个波长无缝循环，波浪随进度向右推进。 */
+.weq-exp-card-wavefill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 300%;
+  overflow: visible;
+  pointer-events: none;
+  animation: weq-exp-card-wave-flow 7s linear infinite;
+}
+
+.weq-exp-card-wavefill-body {
+  fill: currentColor;
+}
+
+.weq-exp-card-wavefill-line {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.62);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.weq-exp-card-wavefill-line.is-b {
+  stroke: rgba(255, 255, 255, 0.32);
+}
+
+html[data-theme="dark"] .weq-exp-card-wavefill-line {
+  stroke: rgba(255, 255, 255, 0.28);
+}
+
+html[data-theme="dark"] .weq-exp-card-wavefill-line.is-b {
+  stroke: rgba(255, 255, 255, 0.15);
+}
+
+@keyframes weq-exp-card-wave-flow {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-66.6667%);
+  }
+}
+
+.weq-exp-card-progress.is-failed {
+  color: rgba(220, 68, 68, 0.26);
+}
+
+.weq-exp-card-progress.is-paused {
+  color: rgba(201, 138, 46, 0.26);
+}
+
+/* 排队 / 刚启动还没有进度：skeleton 占位 + shimmer 扫光。 */
+.weq-exp-card-skeleton {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(
+    110deg,
+    transparent 22%,
+    rgba(255, 255, 255, 0.55) 50%,
+    transparent 78%
+  );
+  background-size: 220% 100%;
+  animation: weq-exp-card-shimmer 1.3s linear infinite;
+}
+
+html[data-theme="dark"] .weq-exp-card-skeleton {
+  background: linear-gradient(
+    110deg,
+    transparent 22%,
+    rgba(255, 255, 255, 0.09) 50%,
+    transparent 78%
+  );
+  background-size: 220% 100%;
+}
+
+@keyframes weq-exp-card-shimmer {
+  from {
+    background-position: 180% 0;
+  }
+  to {
+    background-position: -180% 0;
+  }
 }
 
 .weq-exp-card:hover {
@@ -1552,6 +1658,8 @@
 }
 
 .weq-exp-card-top {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -1577,58 +1685,6 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-/* 波浪总进度：宽度 = 总进度，斜纹向右流动；不显示百分比数字。 */
-.weq-exp-card-wave {
-  display: block;
-  height: 5px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
-  overflow: hidden;
-}
-
-.weq-exp-card-wave-fill {
-  position: relative;
-  display: block;
-  height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--weq-accent-effective) 78%, white),
-    var(--weq-accent-effective)
-  );
-  transition: width 0.35s ease;
-  overflow: hidden;
-}
-
-.weq-exp-card-wave-fill.is-running::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-image: repeating-linear-gradient(
-    -45deg,
-    rgba(255, 255, 255, 0.4) 0 5px,
-    transparent 5px 10px
-  );
-  animation: weq-exp-wave 0.8s linear infinite;
-}
-
-.weq-exp-card-wave-fill.is-failed {
-  background: #dc4040;
-}
-
-.weq-exp-card-wave-fill.is-paused {
-  background: linear-gradient(90deg, #e2a94f, #c98a2e);
-}
-
-@keyframes weq-exp-wave {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(10px);
-  }
 }
 
 /* ---- 选中任务详情 ---- */
@@ -1955,108 +2011,6 @@ button.weq-exp-detail-complete.is-clickable:hover {
   border-width: 0;
   overflow: hidden;
   pointer-events: none;
-}
-
-.weq-exp-detail-subtasks {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin: 1px 0 4px 26px;
-  padding: 3px 0 2px 8px;
-  border-left: 1px dashed rgba(0, 0, 0, 0.12);
-}
-
-.weq-exp-subtask-head {
-  display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) 56px 46px 22px;
-  align-items: center;
-  gap: 7px;
-  min-height: 22px;
-}
-
-.weq-exp-subtask-icon {
-  display: inline-grid;
-  place-items: center;
-  color: #97a2b0;
-}
-
-.weq-exp-subtask-label {
-  font-size: 11px;
-  color: #6b7888;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.weq-exp-subtask-bar {
-  height: 4px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
-  overflow: hidden;
-}
-
-.weq-exp-subtask-fill {
-  display: block;
-  height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--weq-accent-effective) 78%, white),
-    var(--weq-accent-effective)
-  );
-  transition: width 0.35s ease;
-}
-
-.weq-exp-subtask-fill.is-active {
-  background-image: linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--weq-accent-effective) 78%, white),
-      var(--weq-accent-effective)
-    ),
-    linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, 0.55) 50%, transparent 80%);
-  background-size: 100% 100%, 40% 100%;
-  background-repeat: no-repeat;
-  animation: weq-exp-shimmer 1.3s linear infinite;
-}
-
-.weq-exp-subtask-state {
-  font-size: 10.5px;
-  color: #97a2b0;
-  text-align: right;
-  white-space: nowrap;
-}
-
-.weq-exp-subtask.is-pending .weq-exp-subtask-fill {
-  width: 0;
-}
-
-.weq-exp-subtask.is-pending .weq-exp-subtask-label {
-  color: #aab3c0;
-}
-
-/* 已完成标记走设置里的主题色（与进度条、选中态一致）。 */
-.weq-exp-subtask.is-completed .weq-exp-subtask-icon,
-.weq-exp-subtask.is-completed .weq-exp-subtask-state,
-.weq-exp-subtask.is-completed .weq-exp-subtask-label {
-  color: var(--weq-accent-effective);
-}
-
-.weq-exp-subtask.is-running .weq-exp-subtask-icon,
-.weq-exp-subtask.is-running .weq-exp-subtask-state {
-  color: var(--weq-accent-effective);
-}
-
-.weq-exp-subtask.is-failed .weq-exp-subtask-icon,
-.weq-exp-subtask.is-failed .weq-exp-subtask-state {
-  color: #dc4040;
-}
-
-.weq-exp-subtask.is-failed .weq-exp-subtask-label {
-  color: #c96a6a;
-}
-
-.weq-exp-subtask.is-failed .weq-exp-subtask-fill {
-  background: #dc4040;
 }
 
 .weq-exp-log-empty {
