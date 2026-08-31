@@ -1173,6 +1173,19 @@ export function initAppContext(): AppContext {
       // SSE 推送监听同一份 nt_msg.db，随账号打开按配置启动/停用。
       void this.applySsePush(userConfig.getSettings().ssePush);
 
+      // Warm the local search index in the background (never blocks the UI):
+      // messages that arrived while WeQ was closed are caught up here, so the
+      // index is already fresh when the user runs their first search.
+      const searchService = this.services?.unifiedSearch;
+      if (searchService) {
+        void searchService.ensureIndexes().catch((error) => {
+          logger.error('failed to warm search index on account open', {
+            event: 'search-index-warm-failed',
+            ...logErrorContext(error),
+          });
+        });
+      }
+
       // MCP server is account-bound: only listen while an account is open.
       // Start it now if enabled; live toggling is handled by `applyMcp`.
       const mcp = userConfig.getSettings().mcp;

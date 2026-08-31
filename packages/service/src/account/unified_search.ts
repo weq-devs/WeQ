@@ -219,7 +219,7 @@ export class UnifiedSearchService {
     const now = Date.now();
     if (now - this.lastIndexSyncAt < 30_000) return Promise.resolve();
     this.lastIndexSyncAt = now;
-    this.indexSyncPromise = Promise.all([this.buddyIndex.sync(), this.groupIndex.sync()])
+    this.indexSyncPromise = this.syncIndexes()
       .then(() => undefined)
       .catch((e) => {
         this.indexFailed = true;
@@ -229,6 +229,54 @@ export class UnifiedSearchService {
         this.indexSyncPromise = null;
       });
     return this.indexSyncPromise;
+  }
+
+  /**
+   * Full rebuild (structural mismatch only) + per-conversation msgSeq watermark
+   * catch-up. Watermarks come from the recent-contact table (small, live); how
+   * far each partition already got comes from the index's own keys table, so
+   * messages that arrived while WeQ was closed are picked up on the next run.
+   * A failed incremental is non-fatal (retried next time); only a failed full
+   * rebuild disables the index.
+   */
+  private async syncIndexes(): Promise<void> {
+    const buddy = this.buddyIndex;
+    const group = this.groupIndex;
+    if (!buddy || !group) return;
+    await Promise.all([buddy.sync(), group.sync()]);
+    // Watermarks read AFTER the rebuild so rows that arrived during it
+    // (incl. the -wal backlog the decrypt snapshot missed) are in the diff.
+    let buddyWm = new Map<string, bigint>();
+    let groupWm = new Map<string, bigint>();
+    try {
+      [buddyWm, groupWm] = await Promise.all([
+        this.watermarkMap('direct'),
+        this.watermarkMap('group'),
+      ]);
+    } catch (e) {
+      console.warn('[unified-search] watermark read failed, skip incremental:', e);
+      return;
+    }
+    await Promise.all([
+      buddy.incrementalFromWatermarks(buddyWm),
+      group.incrementalFromWatermarks(groupWm),
+    ]);
+  }
+
+  /** Per-conversation 40003 watermark map keyed by the FTS partition (40027). */
+  private async watermarkMap(kind: 'direct' | 'group'): Promise<Map<string, bigint>> {
+    const rows = await this.session.recentContacts.listSeqWatermarks();
+    const out = new Map<string, bigint>();
+    for (const r of rows) {
+      if (classifyChatType(r.chatType) !== kind) continue;
+      if (kind === 'group') {
+        out.set(r.targetUid, r.msgSeq);
+      } else {
+        const sortNo = this.session.uidMap.sortNoByUid(r.targetUid);
+        if (sortNo !== undefined) out.set(sortNo.toString(), r.msgSeq);
+      }
+    }
+    return out;
   }
 
   // ---------------------------------------------------------------- public

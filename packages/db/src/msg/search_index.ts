@@ -15,8 +15,13 @@
  *
  * The plain file ends up as a pure search index (the source content table is
  * dropped after the build to keep disk usage down). New messages are synced
- * incrementally by `40001` (msgId) > last indexed id, read from the ENCRYPTED
- * source in JS and inserted in small batches — no re-decrypt needed.
+ * incrementally per conversation by `40003` (msgSeq) watermarks, read from the
+ * ENCRYPTED source in JS and inserted in small batches — no re-decrypt needed.
+ * A global rowid/msgId cursor is NOT usable here: QQ assigns 41700/40001
+ * itself, so a freshly-inserted row can sort below the previous max and a
+ * rowid cursor would silently skip it. A `weq_fts_keys` table tracks every
+ * indexed srcRowid, so re-runs / crashes / retries can never double-index a
+ * row — the index size is hard-bounded by the source row count.
  *
  * If anything fails (QQ running with a locked DB, decrypt error, ...) the
  * caller falls back to the original LIKE scans — search never breaks.
@@ -30,7 +35,9 @@ import { toBigint, toStr } from './util';
 
 const INDEX_TABLE = 'weq_fts_idx';
 const META_TABLE = 'weq_fts_meta';
-const META_VERSION = '4';
+/** Bump to force a full rebuild when the index schema changes. */
+const META_VERSION = '5';
+const KEYS_TABLE = 'weq_fts_keys';
 
 export interface MsgSearchIndexPage {
   items: BuddyMsgFtsHit[];
@@ -82,9 +89,9 @@ export class MsgSearchIndexDb {
   // ------------------------------------------------------------ lifecycle
 
   /**
-   * Ensure the local index matches the source. Full rebuild on first use or
-   * when the source changed beyond an append (fingerprint mismatch); otherwise
-   * incremental sync by msgId. Coalesces concurrent calls.
+   * Ensure the local index exists. Full rebuild on first use or when the index
+   * schema is stale (version / missing tables); incremental catch-up is driven
+   * separately via {@link incrementalFromWatermarks}. Coalesces concurrent calls.
    */
   sync(): Promise<void> {
     if (!this.syncing) {
@@ -121,13 +128,19 @@ export class MsgSearchIndexDb {
     }
     mkdirSync(dirname(this.indexDbPath), { recursive: true });
 
+    // Full rebuild only on structural mismatch (version / missing tables).
+    // Incremental catch-up is NOT done here — it is driven separately with
+    // per-conversation msgSeq watermarks (incrementalFromWatermarks), so the
+    // fingerprint is just a stored fact, not a cursor.
     const meta = await this.readMeta();
-    if (meta.version !== META_VERSION || meta.fingerprint === '' || !(await this.hasIndex())) {
+    const needsRebuild =
+      meta.version !== META_VERSION ||
+      meta.fingerprint === '' ||
+      !(await this.hasIndex()) ||
+      !(await this.hasKeys());
+    if (needsRebuild) {
       await this.fullRebuild(fingerprint);
-      return;
     }
-    if (meta.fingerprint === fingerprint) return; // unchanged — nothing to do
-    await this.incrementalSync(fingerprint, meta.lastRowid);
   }
 
   /** Drop cached native handles + local files (account switch / shutdown). */
@@ -249,7 +262,7 @@ export class MsgSearchIndexDb {
     }
   }
 
-  private async readMeta(): Promise<{ version: string; fingerprint: string; lastRowid: bigint }> {
+  private async readMeta(): Promise<{ version: string; fingerprint: string }> {
     try {
       const rows = await this.nt.executeSql(
         this.indexDbPath,
@@ -260,10 +273,9 @@ export class MsgSearchIndexDb {
       return {
         version: map.get('version') ?? '',
         fingerprint: map.get('fingerprint') ?? '',
-        lastRowid: BigInt(map.get('lastRowid') || '0'),
       };
     } catch {
-      return { version: '', fingerprint: '', lastRowid: 0n };
+      return { version: '', fingerprint: '' };
     }
   }
 
@@ -309,6 +321,17 @@ export class MsgSearchIndexDb {
       )`,
       null,
     );
+    // 2b) Dedup keys table: srcRowid (source 41700) is globally unique, so it
+    //     is the hard guarantee that a row is indexed at most once.
+    await this.nt.executeSqlWrite(
+      path,
+      `CREATE TABLE IF NOT EXISTS ${KEYS_TABLE} (
+         srcRowid INTEGER PRIMARY KEY,
+         partition INTEGER,
+         msgSeq INTEGER
+       )`,
+      null,
+    );
     // 3) Populate in one native INSERT..SELECT (C-speed, no JS marshaling).
     await this.nt.executeSqlWrite(
       path,
@@ -319,19 +342,18 @@ export class MsgSearchIndexDb {
         FROM ${this.tableName}`,
       null,
     );
-    // 4) Baseline: the LAST indexed source rowid must come from the decrypted
-    //    snapshot just populated (reading the live encrypted source here would
-    //    race QQ's appends and permanently skip rows written during the build).
-    //    closeDb first so a fresh read connection sees the committed snapshot.
-    try {
-      this.nt.closeDb(path);
-    } catch {
-      /* ignore */
-    }
-    const maxRowid = await this.readSnapshotMaxRowid();
-    // 5) Reclaim space — the decrypted content table is no longer needed.
+    // 4) Backfill the dedup keys table from what we just indexed (one-time
+    //    full scan of the content we wrote; the keys table is what makes
+    //    later incremental inserts idempotent).
+    await this.nt.executeSqlWrite(
+      path,
+      `INSERT OR IGNORE INTO ${KEYS_TABLE}(srcRowid, partition, msgSeq)
+       SELECT DISTINCT srcRowid, partition, msgSeq FROM ${INDEX_TABLE}`,
+      null,
+    );
+    // 5) Reclaim space - the decrypted content table is no longer needed.
     await this.nt.executeSqlWrite(path, `DROP TABLE IF EXISTS ${this.tableName}`, null);
-    await this.writeMeta(fingerprint, maxRowid);
+    await this.writeMeta(fingerprint);
     // closeDb checkpoints the WAL; an explicit wal_checkpoint here would need
     // an exclusive lock while the read connection still holds the WAL.
     try {
@@ -345,14 +367,56 @@ export class MsgSearchIndexDb {
     }
     // fastDecrypt snapshots the CHECKPOINTED state only — rows still sitting in
     // the source's -wal (plus anything QQ appended during the build) are missed.
-    // Catch up right away so the index matches the live source from the start.
-    await this.incrementalSync(fingerprint, maxRowid);
+    // The caller's incrementalFromWatermarks catches them: the keys table holds
+    // the snapshot seqs, the live recent-contact watermarks are ahead, and the
+    // diff pulls the missing rows in.
   }
 
-  /** Read rows with source rowid > `lastRowid` from the encrypted source and insert them. */
-  private async incrementalSync(fingerprint: string, lastRowid: bigint): Promise<void> {
+  /**
+   * Per-partition (40027) largest msgSeq already indexed, read from the keys
+   * table. Cheap: keys is a small regular table, not the FTS index.
+   */
+  async maxSeqs(): Promise<Map<string, bigint>> {
+    const rows = await this.nt.executeSql(
+      this.indexDbPath,
+      `SELECT partition, MAX(msgSeq) FROM ${KEYS_TABLE} GROUP BY partition`,
+      null,
+    );
+    return new Map(rows.map((r) => [String(r[0]), toBigint(r[1])]));
+  }
+
+  /**
+   * Incremental catch-up driven by per-conversation msgSeq watermarks ? NOT a
+   * global rowid/msgId cursor (QQ assigns 41700/40001 itself, so a fresh row
+   * can sort below the old max and a cursor silently skips it).
+   *
+   * `watermarks` maps the FTS partition key (buddy: sortNo, group: group code)
+   * to the conversation's latest 40003. For every partition whose watermark is
+   * ahead of the largest seq already indexed, rows are pulled from the
+   * ENCRYPTED source by `(40027, 40003)` and inserted in batches. Dedup by
+   * source rowid (keys table) makes the whole thing idempotent: no crash or
+   * retry can ever double-index a row.
+   *
+   * Best-effort: per-partition failures are swallowed and retried on the next
+   * call (progress only advances once rows actually landed).
+   */
+  async incrementalFromWatermarks(watermarks: Map<string, bigint>): Promise<void> {
+    if (!this.ready || !this.key || !this.algo || watermarks.size === 0) return;
+    const synced = await this.maxSeqs();
+    for (const [partition, watermark] of watermarks) {
+      const have = synced.get(partition) ?? 0n;
+      if (watermark <= have) continue;
+      try {
+        await this.syncPartition(partition, have);
+      } catch (e) {
+        this.lastError = `incremental ${partition}: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    }
+  }
+
+  /** Fetch + insert rows of ONE partition with msgSeq > `afterSeq`, batched. */
+  private async syncPartition(partition: string, afterSeq: bigint): Promise<void> {
     const batch = 2000;
-    let maxSeen = lastRowid;
     for (;;) {
       const rows = await this.nt.executeSqlWithKey(
         this.sourcePath,
@@ -360,23 +424,27 @@ export class MsgSearchIndexDb {
                CAST("40021" AS TEXT), CAST("40020" AS TEXT), CAST("40001" AS TEXT),
                CAST("40010" AS INTEGER), rowid, "41701", "41702"
           FROM ${this.tableName}
-          WHERE rowid > ?
-          ORDER BY rowid ASC
+          WHERE "40027" = ? AND "40003" > ?
+          ORDER BY "40003" ASC
           LIMIT ?`,
         this.key!,
         this.algo!,
-        [lastRowid, BigInt(batch)],
+        [partition, BigInt(afterSeq), BigInt(batch)],
       );
       if (rows.length === 0) break;
       await this.batchInsert(rows);
-      maxSeen = toBigint(rows[rows.length - 1]![7]);
+      const lastSeq = toBigint(rows[rows.length - 1]![2]);
       if (rows.length < batch) break;
-    }
-    if (maxSeen > lastRowid) {
-      await this.writeMeta(fingerprint, maxSeen);
+      afterSeq = lastSeq;
     }
   }
 
+  /**
+   * Insert a batch idempotently. The FTS5 insert is guarded by a NOT EXISTS
+   * against the keys table (values-as-table keeps it a single statement), and
+   * the keys rows themselves use INSERT OR IGNORE ? so re-running the same
+   * batch is always a no-op, never a duplicate.
+   */
   private async batchInsert(rows: SqlRow[]): Promise<void> {
     const path = this.indexDbPath;
     const params: SqlValue[] = [];
@@ -397,28 +465,45 @@ export class MsgSearchIndexDb {
     const values = rows
       .map((_r, i) => `(${Array.from({ length: 10 }, (_c, c) => `?${i * 10 + c + 1}`).join(',')})`)
       .join(',');
+    // SQLite names VALUES columns `column1..N`; the `AS v` alias lets the
+    // NOT EXISTS subquery reference v.column8 (the srcRowid).
     await this.nt.executeSqlWrite(
       path,
-      `INSERT INTO ${INDEX_TABLE}(${INSERT_COLUMNS}) VALUES ${values}`,
+      `INSERT INTO ${INDEX_TABLE}(${INSERT_COLUMNS})
+       SELECT DISTINCT column1, column2, column3, column4, column5, column6, column7,
+                       column8, column9, column10
+         FROM (VALUES ${values}) AS v
+        WHERE NOT EXISTS (SELECT 1 FROM ${KEYS_TABLE} k WHERE k.srcRowid = v.column8)`,
       params,
+    );
+    const keyParams: SqlValue[] = [];
+    for (const r of rows) {
+      keyParams.push(Number(r[7] ?? 0), String(r[0] ?? ''), Number(r[2] ?? 0));
+    }
+    const keyValues = rows
+      .map((_r, i) => `(?${i * 3 + 1}, ?${i * 3 + 2}, ?${i * 3 + 3})`)
+      .join(',');
+    await this.nt.executeSqlWrite(
+      path,
+      `INSERT OR IGNORE INTO ${KEYS_TABLE}(srcRowid, partition, msgSeq) VALUES ${keyValues}`,
+      keyParams,
     );
   }
 
-  /** Largest rowid in the freshly-decrypted snapshot (the index baseline). */
-  private async readSnapshotMaxRowid(): Promise<bigint> {
+  private async hasKeys(): Promise<boolean> {
     try {
       const rows = await this.nt.executeSql(
         this.indexDbPath,
-        `SELECT MAX(rowid) FROM ${this.tableName}`,
-        null,
+        `SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`,
+        [KEYS_TABLE],
       );
-      return toBigint(rows[0]?.[0]);
+      return rows.length > 0;
     } catch {
-      return 0n;
+      return false;
     }
   }
 
-  private async writeMeta(fingerprint: string, lastRowid: bigint): Promise<void> {
+  private async writeMeta(fingerprint: string): Promise<void> {
     const path = this.indexDbPath;
     await this.nt.executeSqlWrite(
       path,
@@ -429,7 +514,6 @@ export class MsgSearchIndexDb {
       ON CONFLICT(key) DO UPDATE SET value = excluded.value`;
     await this.nt.executeSqlWrite(path, upsert, ['version', META_VERSION]);
     await this.nt.executeSqlWrite(path, upsert, ['fingerprint', fingerprint]);
-    await this.nt.executeSqlWrite(path, upsert, ['lastRowid', lastRowid.toString()]);
   }
 }
 
