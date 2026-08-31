@@ -68,6 +68,7 @@ import { ExportView } from './ExportView';
 import { CacheView } from './cache/CacheView';
 import { QzoneView } from './QzoneView';
 import { ChannelView } from './ChannelView';
+import { AnnualReportView } from './AnnualReportView';
 import { ChatHome } from './ChatHome';
 import {
   ChatMainContent,
@@ -2724,7 +2725,8 @@ export function MainView(): ReactElement {
       shell.view === 'agentlab' ||
       shell.view === 'cache' ||
       shell.view === 'qzone' ||
-      shell.view === 'channel';
+      shell.view === 'channel' ||
+      shell.view === 'annual';
     if (fullBleed && arkFeedState) {
       setArkFeedState(null);
     }
@@ -3828,7 +3830,8 @@ export function MainView(): ReactElement {
     shell.view === 'agentlab' ||
     shell.view === 'cache' ||
     shell.view === 'qzone' ||
-    shell.view === 'channel';
+    shell.view === 'channel' ||
+    shell.view === 'annual';
 
   return (
     <ReplyJumpContext.Provider value={jumpToSeq}>
@@ -3946,6 +3949,8 @@ export function MainView(): ReactElement {
                 <QzoneView />
               ) : shell.view === 'channel' ? (
                 <ChannelView />
+              ) : shell.view === 'annual' ? (
+                <AnnualReportView />
               ) : activeConversation?.type === 'merged' ? (
                 <ArkFeedView
                   conversationId={activeConversation.id}

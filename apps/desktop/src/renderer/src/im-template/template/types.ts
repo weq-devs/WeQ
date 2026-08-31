@@ -331,7 +331,7 @@ export type GroupJoinRequest = {
 	isDoubt?: boolean;
 };
 
-export type MainView = "home" | "messages" | "contacts" | "export" | "agentlab" | "cache" | "tools" | "qzone" | "channel";
+export type MainView = "home" | "messages" | "contacts" | "export" | "agentlab" | "cache" | "tools" | "qzone" | "channel" | "annual";
 export type ContactTab = "friends" | "groups";
 export type ContactNoticeView = "friend" | "group";
 export type SettingsTab = "general" | "notifications" | "account";
