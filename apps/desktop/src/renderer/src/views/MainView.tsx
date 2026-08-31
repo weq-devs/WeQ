@@ -2143,6 +2143,44 @@ export function MainView(): ReactElement {
     [],
   );
 
+  // 聊天顶栏「搜索聊天记录」：把当前会话固化为搜索目标，打开单会话版聊天记录模态。
+  const handleSearchChatRecords = useCallback((conversation: Conversation) => {
+    if (conversation.type === 'group') {
+      const code = conversation.group.id;
+      setChatRecordsTarget({
+        hit: {
+          category: 'chatRecord',
+          source: 'group',
+          partition: code,
+          targetUid: code,
+          targetUin: '0',
+          name: conversation.group.name || code,
+          count: 0,
+        },
+        keyword: '',
+        fixed: true,
+      });
+      return;
+    }
+    if (conversation.type === 'direct') {
+      const { otherUser } = conversation;
+      const uin = otherUser.username || otherUser.identityValue || '';
+      setChatRecordsTarget({
+        hit: {
+          category: 'chatRecord',
+          source: 'buddy',
+          partition: otherUser.id,
+          targetUid: otherUser.id,
+          targetUin: uin,
+          name: otherUser.displayName || uin || otherUser.id,
+          count: 0,
+        },
+        keyword: '',
+        fixed: true,
+      });
+    }
+  }, []);
+
   const [onlineStatusByUid, setOnlineStatusByUid] = useState<Record<string, OnlineStatusWire>>({});
   // Unread count per conversation id (latest msgSeq - last read seq). Filled
   // asynchronously after the recent-contact list loads / refreshes.
@@ -2187,6 +2225,8 @@ export function MainView(): ReactElement {
   const [chatRecordsTarget, setChatRecordsTarget] = useState<{
     hit: ChatRecordSearchHit;
     keyword: string;
+    /** 顶栏搜索按钮进入：固定在该会话内搜索（隐藏左侧会话列表）。 */
+    fixed?: boolean;
   } | null>(null);
 
   // Mirror of `loaded` for the reply-jump handler (a stable callback that must
@@ -3979,6 +4019,7 @@ export function MainView(): ReactElement {
                       onViewDeleted={handleViewDeleted}
                       onViewRecalled={handleViewRecalled}
                       onOpenGapMessages={handleOpenGapMessages}
+                      onSearchChatRecords={handleSearchChatRecords}
                       deletedIds={deletedIds}
                       onRestoreMessage={handleRestoreMessage}
                     />
@@ -4261,6 +4302,7 @@ export function MainView(): ReactElement {
             <ChatRecordsModal
               initialHit={chatRecordsTarget.hit}
               initialKeyword={chatRecordsTarget.keyword}
+              fixed={chatRecordsTarget.fixed}
               renderers={messageRenderers}
               onClose={() => setChatRecordsTarget(null)}
               onJumpMessage={({ source, targetUid, msgSeq }) =>
