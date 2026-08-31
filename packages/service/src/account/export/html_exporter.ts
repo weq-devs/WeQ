@@ -43,7 +43,7 @@ import { toExportedMessage, type RoamMessageSource } from './message_source';
 import { annotateLocalPaths, elementsToText, formatTime } from './element_text';
 import { expandForwards } from './forward_expand';
 import { UNICODE_FACE_MAP } from './unicode_face_map';
-import { SYSFACE_SUBDIR } from './sysface_export';
+import { SYSFACE_SUBDIR, MFACE_SUBDIR } from './sysface_export';
 import {
   avatarUrlForUin,
   fallbackSender,
@@ -324,6 +324,9 @@ function localPath(el: RenderElement): string | undefined {
  *   - Numeric faces → `<img src="media/face/<id>.png">`; the id is collected so a
  *     later stage copies the image in. `onerror` swaps the img for its `[表情]`
  *     text so a not-copied / unknown face still reads sensibly.
+ *
+ * 商城表情（mface）也在本函数收集：id 形如 `<pack>:<hash>`（非纯数字），不需要在这里
+ * 单独渲染——由 {@link renderElement} 的 `mface` 分支处理并写进同一个　collectFaces。
  */
 function renderFace(el: RenderElement, collectFaces?: Set<string>): string {
   const data = el.data as { faceId?: number; faceText?: string };
@@ -360,6 +363,27 @@ function renderElement(el: RenderElement, collectFaces?: Set<string>): string {
       return `<span class="at">${escapeHtml(el.data.textContent ?? '')}</span>`;
     case 'face':
       return renderFace(el, collectFaces);
+    case 'mface': {
+      // 商城表情（mface）：贴图走 bundle 内 `media/mface/<hash>.gif`，并收集
+      // `<pack>:<hash>` 引用供「QQ系统表情」阶段复制贴图进来。`onerror` 兜底成
+      // `[表情]` 文本（未复制 / 未找到时页面照常可读）。
+      const data = el.data as { emojiPackId?: number; marketEmoticonIdHex?: string };
+      const pack = data.emojiPackId;
+      const hash = data.marketEmoticonIdHex;
+      const label = escapeHtml(PLACEHOLDER.mface ?? '[表情]');
+      if (pack !== undefined && hash !== undefined) {
+        const packNum = typeof pack === 'number' ? pack : Number(pack);
+        if (packNum > 0 && /^[0-9a-f]+$/i.test(hash)) {
+          collectFaces?.add(`${packNum}:${hash}`);
+          return (
+            `<img class="face-emoji mface" loading="lazy" src="media/${MFACE_SUBDIR}/${hash}.gif"` +
+            ` alt="${label}" title="${label}"` +
+            ` onerror="this.replaceWith(document.createTextNode(this.alt))">`
+          );
+        }
+      }
+      return `<span class="face">${label}</span>`;
+    }
     case 'pic': {
       const p = localPath(el);
       const cls = el.data.subType === 1 ? 'media emoji' : 'media';
@@ -647,6 +671,8 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system
 .msg.me .bubble{background:var(--me)}
 .at{color:var(--accent)}
 .face-emoji{display:inline-block;width:1.4em;height:1.4em;vertical-align:-0.28em;margin:0 1px;object-fit:contain}
+.face-emoji.mface{width:96px;height:96px;vertical-align:top;max-width:38%;margin:2px 0}
+@media(max-width:560px){.face-emoji.mface{width:72px;height:72px}}
 .face-glyph{font-size:1.25em;line-height:1;vertical-align:-0.15em}
 .media{max-width:240px;max-height:280px;border-radius:6px;display:block;margin:3px 0}
 .media.emoji{max-width:90px;max-height:90px}
