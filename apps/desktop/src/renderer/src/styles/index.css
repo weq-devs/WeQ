@@ -16300,7 +16300,39 @@ html[data-theme="dark"] .essence-message-placeholder {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   padding: 16px 18px 8px;
+}
+
+/* 顶栏搜索按钮进入的「当前会话」模式：标题下方带会话名小标签。 */
+.weq-chatrecords-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.weq-chatrecords-fixed-conv {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 320px;
+  font-size: 11.5px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weq-chatrecords-fixed-conv svg {
+  flex: 0 0 auto;
+  opacity: 0.7;
+}
+
+/* 单会话模式：隐藏左侧会话列表，结果占满整个宽度。 */
+.weq-chatrecords-body.fixed {
+  grid-template-columns: 1fr;
 }
 
 .weq-chatrecords-body {
@@ -16440,6 +16472,10 @@ html[data-theme="dark"] .weq-search-more-title,
 html[data-theme="dark"] .weq-search-name,
 html[data-theme="dark"] .weq-chatrecords-conv-name {
   color: #e8edf4;
+}
+
+html[data-theme="dark"] .weq-chatrecords-fixed-conv {
+  color: #94a3b8;
 }
 
 html[data-theme="dark"] .weq-chatrecords-msg-text {
