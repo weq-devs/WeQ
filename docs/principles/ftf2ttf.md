@@ -1,9 +1,5 @@
 # QQ 私有字体格式 FTF 分析与 TTF 转换
 
-> 微信公众号排版、群头像、气泡字体……QQ 这些年一直在用一套别家的字体。为了压体积，鹅厂把标准的 TrueType 字体拆改出了一种私有变体——带 `FTFH` / `FTFG` 两张私有表的「FTF」。本页讲清楚它内部到底长什么样，以及 WeQ 的 `font_convert` 是怎么把它安全地还原成一份能过 OTS 校验的标准 TTF 的。
-
----
-
 ## 1. 为什么要折腾字体格式
 
 中文字体动辄几 MB，而 QQ 的产物里要内置十几种字体（还有各种花体、气泡、MJ 风格），直接原样打包明显不划算。于是拿到字体的第一件事往往是「重新压一遍字形数据」。
@@ -275,7 +271,7 @@ pub fn convert_font(input_path: String, output_path: String) -> napi::Result<Str
 
 ## 相关链接
 
-- 源码入口：`../nt_helper/src/font_convert.rs`
+- 源码入口：`nt_helper/src/font_convert.rs`
 - 对外接口：`nt_helper.convertFont` — 见 [nt_helper.node 接口文档](../develop/nt-helper-interface.md)
 
 [← 返回原理总览](./index.md)

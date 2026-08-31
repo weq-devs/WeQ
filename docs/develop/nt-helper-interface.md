@@ -1,7 +1,5 @@
 # nt_helper.node 接口文档
 
-> ⚠️ **写代码前先看这里，别重复造轮子**
->
 > `nt_helper.node` 是一个用 Rust（napi-rs）编译的原生 N-API 模块，已经把「QQ 进程检测、数据库解密 / 直查 / 导出、ptlogin2 cookie、注入 hook、在线协议发包、商城表情 / 字体 / 装扮资源」这些重活全部封装好了。Node 侧（主进程、`@weq/db`、`@weq/protocol`、各种 worker）**直接加载调用即可**，不要重新实现里面的任何一个能力。
 >
 > 下面每个接口往下翻——如果在写代码时发现某件事「看起来很底层」，大概率这里已经提供了现成函数。先搜文档，再决定要不要动手。
@@ -201,7 +199,7 @@ executeSqlWithKey 返回行示例：
 5. **`algo` 别假设**：QQ NT 各库、各客户端版本的 page/KDF HMAC 不固定。未知库一律先 `testDatabaseKey`，得到 `CipherAlgo` 再喂给其它函数；不要硬编码 `SHA1/SHA1`。
 6. **在线接口需先注入**：§6.2 全家、`requestDecryptKey` 的前提都是「已注入的在线 QQ pid」。
 7. **JSON vs 对象**：`fetchDownloadRkeys` / `fetchClientKey` 返回的是 **JSON 字符串**，要先 `JSON.parse`；其余基本返回普通对象 / 数组。
-8. **不要重复造轮子**：上面列的每一项 native 都已实现并经过验证。给 WeQ 加功能前，先在本页 / `packages/db` / `packages/protocol` 里找现成能力；**新增 native 接口应当是个案，而不是惯例**。
+8. **不要重复造轮子**：上面列的每一项 native 都已实现并经过验证。给 WeQ 加功能前，先在本页 / `packages/db` / `packages/protocol` 里找现成能力
 
 ---
 
