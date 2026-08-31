@@ -4308,7 +4308,6 @@ export function MainView(): ReactElement {
               onJumpMessage={({ source, targetUid, msgSeq }) =>
                 jumpToConvSeq(source === 'group' ? 'group' : 'c2c', targetUid, msgSeq)
               }
-              pushToast={pushToast}
             />
           ) : null}
         </ConvContext.Provider>

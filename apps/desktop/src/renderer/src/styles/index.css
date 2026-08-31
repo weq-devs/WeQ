@@ -16330,8 +16330,10 @@ html[data-theme="dark"] .essence-message-placeholder {
   opacity: 0.7;
 }
 
-/* 单会话模式：隐藏左侧会话列表，结果占满整个宽度。 */
-.weq-chatrecords-body.fixed {
+/* 单会话模式：隐藏左侧会话列表，结果占满整个宽度。
+ * 注意：类名不能用 `fixed`，会和 Tailwind v4 的 `position: fixed` 工具类撞名，
+ * 导致整个消息区被钉出文档流、盖在标题上。故用 `is-fixed`。 */
+.weq-chatrecords-body.is-fixed {
   grid-template-columns: 1fr;
 }
 

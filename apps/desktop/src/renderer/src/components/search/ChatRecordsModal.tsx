@@ -21,7 +21,6 @@ export function ChatRecordsModal({
   fixed = false,
   onClose,
   onJumpMessage,
-  pushToast,
   renderers,
 }: {
   initialHit: ChatRecordSearchHit;
@@ -34,7 +33,6 @@ export function ChatRecordsModal({
   onClose: () => void;
   /** Jump to a conversation + seq (like a file hit). */
   onJumpMessage: (hit: { source: 'buddy' | 'group'; targetUid: string; msgSeq: string }) => void;
-  pushToast: (t: { tone: 'info'; title: string; detail?: string }) => void;
   /** The same message renderers the chat pane uses (qqMessageRenderer etc.). */
   renderers?: MessageRenderer[];
 }): ReactElement {
@@ -105,15 +103,7 @@ export function ChatRecordsModal({
         const r = result as { items: ConversationRecordHit[]; total: number };
         setMessages(r.items);
         setMsgTotal(r.total);
-        if (r.items.length === 0) {
-          pushToast({
-            tone: 'info',
-            title: '没有找到相关消息',
-            detail: fixed
-              ? '试试更换关键词后再搜索。'
-              : '试试更换关键词，或切换左侧会话范围后再搜索。',
-          });
-        }
+        // 拼音输入会产生大量无结果的中间态，不弹 Toast，界面上的空态提示已足够。
       })
       .catch((err) => console.error('[chat-records] messages failed', err))
       .finally(() => {
@@ -122,7 +112,7 @@ export function ChatRecordsModal({
     return () => {
       // eslint-disable-next-line react-hooks/exhaustive-deps
     };
-  }, [selected, keyword, pushToast, fixed]);
+  }, [selected, keyword, fixed]);
 
   const loadMoreMessages = useCallback(() => {
     const trimmed = keyword.trim();
@@ -193,7 +183,7 @@ export function ChatRecordsModal({
           placeholder={fixed ? `搜索「${initialHit.name}」的聊天记录` : '搜索聊天记录'}
           autoFocus
         />
-        <div className={`weq-chatrecords-body${fixed ? ' fixed' : ''}`}>
+        <div className={`weq-chatrecords-body${fixed ? ' is-fixed' : ''}`}>
           {fixed ? null : (
             <div className="weq-chatrecords-convs">
               {convLoading ? (
