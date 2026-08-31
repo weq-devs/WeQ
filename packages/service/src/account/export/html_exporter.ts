@@ -8,9 +8,11 @@
  * tail and renders each message into a bubble `<div>` instead of a text line.
  *
  * Design notes:
- *   - Streaming + `content-visibility:auto` on each row + `loading="lazy"` on
- *     images keep a very large log from ballooning memory in the browser, with
- *     no JS framework — the file stays a plain, view-source-readable page.
+ *   - Streaming + `loading="lazy"` on images keep a very large log from
+ *     ballooning memory in the browser, with no JS framework — the file stays a
+ *     plain, view-source-readable page. (`content-visibility:auto` was tried on
+ *     each row but dropped: off-screen rows skip painting entirely, so their
+ *     bubble backgrounds pop in/out as you fast-scroll — a visible flicker.)
  *   - Media is referenced by the same deterministic bundle-relative paths the
  *     other exporters use (`data.localPath`, stamped by `annotateLocalPaths`),
  *     so the media stages don't change — `<img src="media/image/…">` etc.
@@ -538,11 +540,15 @@ function buildDressCss(manifest: DressExportManifest): string {
   }
 
   if (manifest.widgets.length > 0) {
+    // 挂件几何与聊天页保持一致（chat.css 的 .weq-avatar-pendant-img）：60×60，中心对齐
+    // 36px 头像中心再上移 4px。头像位于 .msg 内容盒左上角（me 时右上角），换算成绝对定位：
+    //   垂直 top = 18 - 4 - 30 = -16px
+    //   水平 left(right) = 18 - 30 = -12px
     rules.push(
       `.msg{position:relative}`,
-      `.msg .widget{position:absolute;z-index:2;width:46px;height:46px;left:-5px;top:-16px;` +
+      `.msg .widget{position:absolute;z-index:2;width:60px;height:60px;left:-12px;top:-16px;` +
         `pointer-events:none;object-fit:contain;filter:drop-shadow(0 1px 2px rgba(0,0,0,.25))}`,
-      `.msg.me .widget{left:auto;right:-5px}`,
+      `.msg.me .widget{left:auto;right:-12px}`,
     );
   }
 
@@ -621,7 +627,7 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system
 .log{padding:16px 18px 64px}
 .day{text-align:center;margin:22px 0 12px}.day span{background:rgba(140,140,140,.18);color:var(--sub);font-size:12px;padding:2px 10px;border-radius:10px}
 .sys{text-align:center;color:var(--sub);font-size:12px;margin:14px 0}
-.msg{display:flex;gap:10px;margin:18px 0;content-visibility:auto;contain-intrinsic-size:auto 72px;border-radius:8px;transition:background .2s}
+.msg{display:flex;gap:10px;margin:18px 0;border-radius:8px;transition:background .2s}
 .msg.me{flex-direction:row-reverse}
 .flash{animation:flash 1.7s ease}
 @keyframes flash{0%,18%{background:rgba(245,166,35,.32)}100%{background:transparent}}
