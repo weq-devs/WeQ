@@ -206,6 +206,11 @@ export type GroupConversation = ConversationBase & {
 			/** 是否可以取消精华（来自 Web API） */
 			canRemove?: boolean;
 		}>;
+		/**
+		 * 该群全部当前为精华的消息 msgSeq（仅查本地 group_essence 表，不联网）。
+		 * 供聊天窗口给对应消息打「精华」角标。
+		 */
+		essenceSeqs?: string[];
 		levelConfigs?: Array<{
 			level: number;
 			name: string;
@@ -326,7 +331,7 @@ export type GroupJoinRequest = {
 	isDoubt?: boolean;
 };
 
-export type MainView = "home" | "messages" | "contacts" | "export" | "agentlab" | "cache" | "tools" | "qzone" | "channel";
+export type MainView = "home" | "messages" | "contacts" | "export" | "agentlab" | "cache" | "tools" | "qzone" | "channel" | "annual";
 export type ContactTab = "friends" | "groups";
 export type ContactNoticeView = "friend" | "group";
 export type SettingsTab = "general" | "notifications" | "account";

@@ -1,7 +1,7 @@
 /** Chat-record modal: left = matched conversations, right = their matching messages. */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { X } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { SearchListSkeleton } from './SearchSkeleton';
 import { c2cAvatarSrc, groupAvatarSrc, highlightText } from './SearchResultCard';
@@ -18,23 +18,28 @@ const noop = (): void => {};
 export function ChatRecordsModal({
   initialHit,
   initialKeyword,
+  fixed = false,
   onClose,
   onJumpMessage,
-  pushToast,
   renderers,
 }: {
   initialHit: ChatRecordSearchHit;
   initialKeyword: string;
+  /**
+   * 固定在 `initialHit` 这个会话内搜索（聊天顶栏搜索按钮进入）：隐藏左侧会话
+   * 列表，结果列表占满整个宽度，跳转目标始终是当前会话。
+   */
+  fixed?: boolean;
   onClose: () => void;
   /** Jump to a conversation + seq (like a file hit). */
   onJumpMessage: (hit: { source: 'buddy' | 'group'; targetUid: string; msgSeq: string }) => void;
-  pushToast: (t: { tone: 'info'; title: string; detail?: string }) => void;
   /** The same message renderers the chat pane uses (qqMessageRenderer etc.). */
   renderers?: MessageRenderer[];
 }): ReactElement {
   const [keyword, setKeyword] = useState(initialKeyword);
   const [conversations, setConversations] = useState<ChatRecordSearchHit[]>([]);
   const [convLoading, setConvLoading] = useState(false);
+  // fixed 模式下不请求会话排名，selected 恒为当前会话的 hit。
   const [selected, setSelected] = useState<ChatRecordSearchHit | null>(initialHit);
   const [messages, setMessages] = useState<ConversationRecordHit[]>([]);
   const [msgLoading, setMsgLoading] = useState(false);
@@ -50,7 +55,7 @@ export function ChatRecordsModal({
   // Fetch the conversation ranking for the current keyword.
   useEffect(() => {
     const trimmed = keyword.trim();
-    if (!trimmed) return undefined;
+    if (!trimmed || fixed) return undefined;
     const run = ++convRunRef.current;
     setConvLoading(true);
     const timer = window.setTimeout(() => {
@@ -73,7 +78,7 @@ export function ChatRecordsModal({
         });
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [keyword]);
+  }, [keyword, fixed]);
 
   // Fetch messages for the selected conversation.
   useEffect(() => {
@@ -98,13 +103,7 @@ export function ChatRecordsModal({
         const r = result as { items: ConversationRecordHit[]; total: number };
         setMessages(r.items);
         setMsgTotal(r.total);
-        if (r.items.length === 0) {
-          pushToast({
-            tone: 'info',
-            title: '没有找到相关消息',
-            detail: '试试更换关键词，或切换左侧会话范围后再搜索。',
-          });
-        }
+        // 拼音输入会产生大量无结果的中间态，不弹 Toast，界面上的空态提示已足够。
       })
       .catch((err) => console.error('[chat-records] messages failed', err))
       .finally(() => {
@@ -113,7 +112,7 @@ export function ChatRecordsModal({
     return () => {
       // eslint-disable-next-line react-hooks/exhaustive-deps
     };
-  }, [selected, keyword, pushToast]);
+  }, [selected, keyword, fixed]);
 
   const loadMoreMessages = useCallback(() => {
     const trimmed = keyword.trim();
@@ -162,9 +161,17 @@ export function ChatRecordsModal({
     <Modal onClose={onClose} width={960} labelledBy="weq-chatrecords-title">
       <div className="weq-chatrecords">
         <div className="weq-chatrecords-head">
-          <h3 id="weq-chatrecords-title" className="weq-search-more-title">
-            聊天记录
-          </h3>
+          <div className="weq-chatrecords-title-wrap">
+            <h3 id="weq-chatrecords-title" className="weq-search-more-title">
+              聊天记录
+            </h3>
+            {fixed ? (
+              <span className="weq-chatrecords-fixed-conv" title={initialHit.name}>
+                <Search size={13} aria-hidden />
+                {initialHit.name}
+              </span>
+            ) : null}
+          </div>
           <button type="button" className="weq-dialog-x" onClick={onClose} aria-label="关闭">
             <X size={16} strokeWidth={1.9} aria-hidden />
           </button>
@@ -173,31 +180,33 @@ export function ChatRecordsModal({
           className="weq-search-more-input"
           value={keyword}
           onChange={(event) => setKeyword(event.target.value)}
-          placeholder="搜索聊天记录"
+          placeholder={fixed ? `搜索「${initialHit.name}」的聊天记录` : '搜索聊天记录'}
           autoFocus
         />
-        <div className="weq-chatrecords-body">
-          <div className="weq-chatrecords-convs">
-            {convLoading ? (
-              <SearchListSkeleton rows={4} />
-            ) : conversations.length === 0 ? (
-              <div className="weq-search-empty">无结果</div>
-            ) : (
-              conversations.map((conv) => (
-                <button
-                  type="button"
-                  key={`${conv.source}:${conv.partition}`}
-                  className={`weq-chatrecords-conv ${selected?.partition === conv.partition && selected.source === conv.source ? 'active' : ''}`}
-                  onClick={() => setSelected(conv)}
-                >
-                  <span className="weq-chatrecords-conv-name">{conv.name}</span>
-                  <span className="weq-chatrecords-conv-meta">
-                    搜索到<strong>{conv.count}</strong>条包含{keyword.trim()}的消息
-                  </span>
-                </button>
-              ))
-            )}
-          </div>
+        <div className={`weq-chatrecords-body${fixed ? ' is-fixed' : ''}`}>
+          {fixed ? null : (
+            <div className="weq-chatrecords-convs">
+              {convLoading ? (
+                <SearchListSkeleton rows={4} />
+              ) : conversations.length === 0 ? (
+                <div className="weq-search-empty">无结果</div>
+              ) : (
+                conversations.map((conv) => (
+                  <button
+                    type="button"
+                    key={`${conv.source}:${conv.partition}`}
+                    className={`weq-chatrecords-conv ${selected?.partition === conv.partition && selected.source === conv.source ? 'active' : ''}`}
+                    onClick={() => setSelected(conv)}
+                  >
+                    <span className="weq-chatrecords-conv-name">{conv.name}</span>
+                    <span className="weq-chatrecords-conv-meta">
+                      搜索到<strong>{conv.count}</strong>条包含{keyword.trim()}的消息
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
           <div className="weq-chatrecords-msgs" ref={msgScrollRef} onScroll={onMsgScroll}>
             <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
               <ConvContext.Provider value={convKey}>
@@ -205,7 +214,11 @@ export function ChatRecordsModal({
                   {msgLoading ? (
                     <SearchListSkeleton rows={4} />
                   ) : messages.length === 0 ? (
-                    <div className="weq-search-empty">没有找到相关消息</div>
+                    <div className="weq-search-empty">
+                      {fixed && !keyword.trim()
+                        ? '输入关键词，搜索当前会话的聊天记录'
+                        : '没有找到相关消息'}
+                    </div>
                   ) : (
                     <>
                       {messages.map((msg) => {

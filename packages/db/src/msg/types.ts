@@ -66,6 +66,24 @@ export interface GroupMsg {
 }
 
 /**
+ * The conversation's seq window for a time range, returned by
+ * `*MsgDb.listSeqDesc` — powers the export 「消息补全」seq 空窗扫描.
+ *
+ * `seqs` holds only the seqs (40003 > 0) whose sendTime (40050) falls inside
+ * the requested window; `below` / `above` are the boundary anchors outside it
+ * (newest older-than-`start`, oldest newer-than-`end`), used to clamp the
+ * backfill's bottom gap so it doesn't pull the whole pre-window history.
+ */
+export interface SeqWindow {
+  /** Seq whose sendTime ∈ [startTime, endTime], newest-first. */
+  seqs: bigint[];
+  /** Newest seq with sendTime < startTime; null when no start bound or none exists. */
+  below: bigint | null;
+  /** Oldest seq with sendTime > endTime; null when no end bound or none exists. */
+  above: bigint | null;
+}
+
+/**
  * One hit from the full-text-search index (`buddy_msg_fts` table).
  *
  * The FTS table stores already-flattened plain text per message — no 40800

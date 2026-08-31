@@ -1,20 +1,21 @@
 ﻿// @ts-nocheck
 import {
-	Bot,
-	LayoutGrid,
-	MessageCircle,
-	Download,
-	Settings,
-	Hash,
-	Star,
-	Bookmark,
-	HardDrive,
-	Store,
-	Palette,
-	MoreHorizontal,
-	Wand2,
-	HelpCircle,
-} from "lucide-react";
+		Bot,
+		LayoutGrid,
+		MessageCircle,
+		Download,
+		Settings,
+		Hash,
+		Star,
+		Bookmark,
+		HardDrive,
+		Store,
+		Palette,
+		MoreHorizontal,
+		Wand2,
+		HelpCircle,
+		BarChart3,
+	} from "lucide-react";
 import { useEffect, useRef, useState, useTransition } from "react";
 import type { ReactNode } from "react";
 import { cn } from "./classNames";
@@ -268,6 +269,20 @@ export function AppRail({
 							<HardDrive size={22} strokeWidth={1.5} />
 						</span>
 						<span className={cn("rail-label")}>缓存</span>
+					</button>
+					<button
+						className={cn(
+							railButtonClass(activeView === "annual"),
+							"rail-tab rail-tab-annual",
+						)}
+						onClick={() => selectView("annual")}
+						title="年度报告"
+						type="button"
+					>
+						<span className={cn("rail-tab-icon")}>
+							<BarChart3 size={22} strokeWidth={1.5} />
+						</span>
+						<span className={cn("rail-label")}>年度报告</span>
 					</button>
 					{/* 相对定位的壳:弹出框要贴在这个按钮右边,而不是整条 rail 的某个固定高度。 */}
 					<div className={cn("rail-more-wrap")} ref={moreRef}>

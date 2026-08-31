@@ -16,6 +16,7 @@
 | ⬜ | develop/data-flow.md | 一条消息从加密 DB 到界面的完整链路（解密 → 取行 → 解 protobuf → domain → view） |
 | ⬜ | [build-release.md](./develop/build-release.md) | 构建、打包、Tag 发版、应用内自动更新 |
 | ⬜ | [platform-linux.md](./develop/platform-linux.md) | 跨平台与 Linux 移植现状 |
+| ✅ | [nt-helper-interface.md](./develop/nt-helper-interface.md) | `nt_helper.node` 原生模块接口总览（进程检测 / 数据库 / 密钥 / 注入 / 发包），提醒开发者别重复造轮子 |
 | ✅ | [testing.md](./develop/testing.md) | `@weq/testkit` 测试约定 |
 
 ## 二、数据库分析（`docs/database/`）
@@ -88,6 +89,7 @@
 | ---- | ---- | -------- |
 | ⬜ | principles/anti-recall-trigger.md | 防撤回：用 SQLite trigger 拦截 QQ 本体的撤回写入 |
 | ⬜ | principles/mface-decrypt.md | 商城表情本地文件的解密（`encryptKey` / 80824） |
+| ✅ | [ftf2ttf.md](./principles/ftf2ttf.md) | QQ 私有字体 FTF：`FTFH`/`FTFG` 表、坐标变宽编码、组件合成、还原成合法 TTF |
 | ⬜ | [avatar-hash.md](./principles/avatar-hash.md) | 本地头像文件名的三重 md5 定位公式 |
 | ⬜ | principles/msg-delete.md | 「删除消息」的 QQ 原生改法与可恢复设计 |
 

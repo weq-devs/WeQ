@@ -1,0 +1,301 @@
+/* ──────────────────────────────────────────────────────────────────────
+ * 年度报告占位页（AnnualReportView）。
+ * 颜色全部走 --weq-* 主题变量，深浅模式自适应；动画尊重
+ * prefers-reduced-motion。
+ * ──────────────────────────────────────────────────────────────────── */
+
+.weq-annual {
+  position: relative;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  overflow: hidden;
+  padding: 32px;
+  background: var(--weq-chat-bg, var(--chat-surface, #f0f0f0));
+}
+
+/* ---- 背景漂浮光斑：缓慢漂移的柔和色球，制造「数据流动」的氛围 ---- */
+
+.weq-annual-orb {
+  position: absolute;
+  z-index: 0;
+  border-radius: 50%;
+  filter: blur(56px);
+  pointer-events: none;
+  will-change: transform;
+}
+
+.weq-annual-orb-a {
+  top: 10%;
+  left: 12%;
+  width: 320px;
+  height: 320px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+  animation: weq-annual-drift-a 14s ease-in-out infinite alternate;
+}
+
+.weq-annual-orb-b {
+  right: 10%;
+  bottom: 8%;
+  width: 380px;
+  height: 380px;
+  background: color-mix(
+    in srgb,
+    var(--weq-accent-effective) 12%,
+    rgba(132, 126, 224, 0.14)
+  );
+  animation: weq-annual-drift-b 17s ease-in-out infinite alternate;
+}
+
+.weq-annual-orb-c {
+  top: 46%;
+  right: 18%;
+  width: 220px;
+  height: 220px;
+  background: color-mix(
+    in srgb,
+    var(--weq-accent-effective) 14%,
+    rgba(255, 200, 90, 0.16)
+  );
+  animation: weq-annual-drift-c 12s ease-in-out infinite alternate;
+}
+
+@keyframes weq-annual-drift-a {
+  from { transform: translate3d(-24px, -16px, 0) scale(1); }
+  to   { transform: translate3d(36px, 30px, 0) scale(1.15); }
+}
+
+@keyframes weq-annual-drift-b {
+  from { transform: translate3d(28px, 20px, 0) scale(1.08); }
+  to   { transform: translate3d(-32px, -26px, 0) scale(0.94); }
+}
+
+@keyframes weq-annual-drift-c {
+  from { transform: translate3d(0, 18px, 0) scale(0.96); }
+  to   { transform: translate3d(-22px, -20px, 0) scale(1.12); }
+}
+
+/* ---- 中心卡片：磨砂玻璃 + 入场动画 ---- */
+
+.weq-annual-card {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  max-width: 460px;
+  justify-items: center;
+  gap: 18px;
+  padding: 52px 44px 44px;
+  text-align: center;
+  border: 1px solid var(--weq-border-subtle, rgba(0, 0, 0, 0.08));
+  border-radius: 26px;
+  background: var(--weq-overlay, rgba(255, 255, 255, 0.72));
+  box-shadow: var(--weq-shadow-card, 0 24px 60px -28px rgba(7, 31, 61, 0.18));
+  backdrop-filter: blur(20px);
+  animation: weq-annual-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.weq-annual-card > * {
+  animation: weq-annual-fade-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.weq-annual-card > *:nth-child(1) { animation-delay: 0.08s; }
+.weq-annual-card > *:nth-child(2) { animation-delay: 0.16s; }
+.weq-annual-card > *:nth-child(3) { animation-delay: 0.24s; }
+.weq-annual-card > *:nth-child(4) { animation-delay: 0.32s; }
+.weq-annual-card > *:nth-child(5) { animation-delay: 0.4s; }
+.weq-annual-card > *:nth-child(6) { animation-delay: 0.48s; }
+
+@keyframes weq-annual-rise {
+  from { opacity: 0; transform: translateY(14px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes weq-annual-fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ---- 图标：主题色渐变块 + 扩散的呼吸光圈 ---- */
+
+.weq-annual-icon {
+  position: relative;
+  display: grid;
+  width: 88px;
+  height: 88px;
+  place-items: center;
+  border-radius: 26px;
+  color: #ffffff;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--weq-accent-effective, #0099ff) 78%, #ffffff),
+    var(--weq-accent-effective, #0099ff)
+  );
+  box-shadow: 0 18px 44px -14px
+    color-mix(in srgb, var(--weq-accent-effective, #0099ff) 48%, transparent);
+}
+
+.weq-annual-icon::before {
+  position: absolute;
+  inset: -12px;
+  border: 2px solid
+    color-mix(in srgb, var(--weq-accent-effective, #0099ff) 34%, transparent);
+  border-radius: 34px;
+  content: "";
+  animation: weq-annual-ring 2.6s ease-out infinite;
+}
+
+@keyframes weq-annual-ring {
+  0%   { transform: scale(0.84); opacity: 0.95; }
+  70%  { transform: scale(1.22); opacity: 0; }
+  100% { transform: scale(1.22); opacity: 0; }
+}
+
+/* ---- 迷你柱状图：错落升起的「年度数据」意象 ---- */
+
+.weq-annual-chart {
+  display: flex;
+  height: 40px;
+  align-items: flex-end;
+  gap: 7px;
+  margin-top: -2px;
+}
+
+.weq-annual-bar {
+  display: block;
+  width: 9px;
+  border-radius: 5px 5px 3px 3px;
+  transform-origin: bottom;
+  background: linear-gradient(
+    180deg,
+    var(--weq-accent-effective, #0099ff),
+    color-mix(in srgb, var(--weq-accent-effective, #0099ff) 34%, transparent)
+  );
+  animation: weq-annual-bar-rise 1.7s ease-in-out infinite alternate;
+}
+
+.weq-annual-bar:nth-child(odd) {
+  animation-delay: 0.3s;
+}
+
+.weq-annual-bar:nth-child(3n) {
+  animation-delay: 0.6s;
+}
+
+@keyframes weq-annual-bar-rise {
+  from { transform: scaleY(0.42); opacity: 0.55; }
+  to   { transform: scaleY(1); opacity: 1; }
+}
+
+/* ---- 标题 / 描述 ---- */
+
+.weq-annual-title {
+  margin: 6px 0 0;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  background: linear-gradient(
+    120deg,
+    var(--weq-fg-primary, #111111),
+    color-mix(in srgb, var(--weq-accent-effective, #0099ff) 72%, var(--weq-fg-primary, #111111)) 55%,
+    var(--weq-fg-primary, #111111)
+  );
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+.weq-annual-desc {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--weq-fg-secondary, #5d6b7e);
+}
+
+/* ---- 流动的高光进度条：强调「筹备中」 ---- */
+
+.weq-annual-progress {
+  position: relative;
+  width: 200px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 13%, transparent);
+}
+
+.weq-annual-progress::after {
+  position: absolute;
+  inset: 0;
+  width: 42%;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--weq-accent-effective, #0099ff),
+    transparent
+  );
+  content: "";
+  animation: weq-annual-sweep 1.7s ease-in-out infinite;
+}
+
+@keyframes weq-annual-sweep {
+  from { left: -42%; }
+  to   { left: 100%; }
+}
+
+/* ---- 「即将上线」徽标 ---- */
+
+.weq-annual-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 4px;
+  padding: 7px 16px;
+  border: 1px solid
+    color-mix(in srgb, var(--weq-accent-effective, #0099ff) 26%, transparent);
+  border-radius: 999px;
+  color: var(--weq-accent-effective, #0099ff);
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 9%, transparent);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+/* ---- 深浅模式微调：深色下光斑更收敛、磨砂更实 ---- */
+
+html[data-theme="dark"] .weq-annual-orb-a {
+  background: color-mix(in srgb, var(--weq-accent-effective) 15%, transparent);
+}
+
+html[data-theme="dark"] .weq-annual-orb-b {
+  background: color-mix(
+    in srgb,
+    var(--weq-accent-effective) 11%,
+    rgba(132, 126, 224, 0.1)
+  );
+}
+
+html[data-theme="dark"] .weq-annual-orb-c {
+  background: color-mix(
+    in srgb,
+    var(--weq-accent-effective) 12%,
+    rgba(255, 200, 90, 0.11)
+  );
+}
+
+html[data-theme="dark"] .weq-annual-card {
+  border-color: var(--weq-border-subtle, rgba(255, 255, 255, 0.1));
+}
+
+/* ---- 无障碍：减少动效 ---- */
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-annual-orb,
+  .weq-annual-card,
+  .weq-annual-card > *,
+  .weq-annual-icon::before,
+  .weq-annual-bar,
+  .weq-annual-progress::after {
+    animation: none !important;
+  }
+}

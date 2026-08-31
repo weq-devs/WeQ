@@ -7,6 +7,7 @@ import {
 	ChevronRight,
 	ChevronsUp,
 	CirclePlus,
+	Search,
 	Trash2,
 	RotateCcw,
 	FileText,
@@ -134,13 +135,6 @@ function _hasGroupAnnouncements(conversation: Conversation) {
 	);
 }
 
-function hasGroupEssence(conversation: Conversation) {
-	return (
-		conversation.type === "group" &&
-		Boolean(conversation.group.essenceMessages?.length)
-	);
-}
-
 function getMessageDownloadUrl(message: Message) {
 	const markdownImage = message.body.match(
 		/!\[[^\]\n]*\]\((https?:\/\/[^\s)]+)\)/i,
@@ -229,6 +223,7 @@ export function ChatPane({
 	onViewDeleted,
 	onViewRecalled,
 	onOpenGapMessages,
+	onSearchChatRecords,
 	deletedIds,
 	onRestoreMessage,
 }: {
@@ -270,6 +265,8 @@ export function ChatPane({
 	onAddMessage?: (conversation: Conversation) => void;
 	onViewDeleted?: (conversation: Conversation) => void;
 	onViewRecalled?: (conversation: Conversation) => void;
+	/** 顶栏「搜索聊天记录」按钮：在当前会话内搜索并跳转。 */
+	onSearchChatRecords?: (conversation: Conversation) => void;
 	/** 缺失消息占位条点击：携带占位条两侧消息的 seq（开区间即缺失窗口）。 */
 	onOpenGapMessages?: (gap: {
 		conversation: Conversation;
@@ -1447,6 +1444,17 @@ export function ChatPane({
 					) : null}
 				</div>
 				<div className={cn("chat-actions")}>
+					{onSearchChatRecords &&
+					(conversation.type === "group" || conversation.type === "direct") ? (
+						<button
+							className={cn("icon-button", "group-header-info-action", "chat-header-search-action")}
+							type="button"
+							title="搜索聊天记录"
+							onClick={() => onSearchChatRecords(conversation)}
+						>
+							<Search size={18} />
+						</button>
+					) : null}
 					{onAddMessage &&
 					(conversation.type === "group" || conversation.type === "direct") ? (
 						<button
@@ -1498,7 +1506,6 @@ export function ChatPane({
 								className={cn("icon-button", "group-header-info-action")}
 								type="button"
 								title="Group highlights"
-								disabled={!hasGroupEssence(conversation)}
 								onClick={() => {
 									if (conversation?.type === "group") {
 										onOpenGroupEssence?.(conversation);

@@ -68,6 +68,7 @@ import { ExportView } from './ExportView';
 import { CacheView } from './cache/CacheView';
 import { QzoneView } from './QzoneView';
 import { ChannelView } from './ChannelView';
+import { AnnualReportView } from './AnnualReportView';
 import { ChatHome } from './ChatHome';
 import {
   ChatMainContent,
@@ -2143,6 +2144,44 @@ export function MainView(): ReactElement {
     [],
   );
 
+  // 聊天顶栏「搜索聊天记录」：把当前会话固化为搜索目标，打开单会话版聊天记录模态。
+  const handleSearchChatRecords = useCallback((conversation: Conversation) => {
+    if (conversation.type === 'group') {
+      const code = conversation.group.id;
+      setChatRecordsTarget({
+        hit: {
+          category: 'chatRecord',
+          source: 'group',
+          partition: code,
+          targetUid: code,
+          targetUin: '0',
+          name: conversation.group.name || code,
+          count: 0,
+        },
+        keyword: '',
+        fixed: true,
+      });
+      return;
+    }
+    if (conversation.type === 'direct') {
+      const { otherUser } = conversation;
+      const uin = otherUser.username || otherUser.identityValue || '';
+      setChatRecordsTarget({
+        hit: {
+          category: 'chatRecord',
+          source: 'buddy',
+          partition: otherUser.id,
+          targetUid: otherUser.id,
+          targetUin: uin,
+          name: otherUser.displayName || uin || otherUser.id,
+          count: 0,
+        },
+        keyword: '',
+        fixed: true,
+      });
+    }
+  }, []);
+
   const [onlineStatusByUid, setOnlineStatusByUid] = useState<Record<string, OnlineStatusWire>>({});
   // Unread count per conversation id (latest msgSeq - last read seq). Filled
   // asynchronously after the recent-contact list loads / refreshes.
@@ -2187,6 +2226,8 @@ export function MainView(): ReactElement {
   const [chatRecordsTarget, setChatRecordsTarget] = useState<{
     hit: ChatRecordSearchHit;
     keyword: string;
+    /** 顶栏搜索按钮进入：固定在该会话内搜索（隐藏左侧会话列表）。 */
+    fixed?: boolean;
   } | null>(null);
 
   // Mirror of `loaded` for the reply-jump handler (a stable callback that must
@@ -2684,7 +2725,8 @@ export function MainView(): ReactElement {
       shell.view === 'agentlab' ||
       shell.view === 'cache' ||
       shell.view === 'qzone' ||
-      shell.view === 'channel';
+      shell.view === 'channel' ||
+      shell.view === 'annual';
     if (fullBleed && arkFeedState) {
       setArkFeedState(null);
     }
@@ -2809,6 +2851,12 @@ export function MainView(): ReactElement {
   const groupEssence = trpc.account.listGroupEssenceMessages.useQuery(
     { groupCode: selectedUid, limit: 10, offset: 0 },
     { enabled: Boolean(selectedUid && isGroup) },
+  );
+  // 打开群聊时把该群全部精华 msgSeq 拉下来（只查本地 group_essence 表，不联网），
+  // 供聊天窗口给对应消息打「精华」角标。
+  const groupEssenceSeqs = trpc.account.listGroupEssenceSeqs.useQuery(
+    { groupCode: selectedUid },
+    { enabled: Boolean(selectedUid && isGroup), staleTime: 5 * 60 * 1000 },
   );
   // 尝试从 Web API 获取带消息内容的精华消息（需要在线账号/有效 cookie）
   const groupEssenceWeb = trpc.account.getGroupEssenceWithContent.useQuery(
@@ -3147,6 +3195,8 @@ export function MainView(): ReactElement {
             canRemove: webItem?.canRemove,
           };
         }),
+        // 该群全部当前为精华的 msgSeq（本地数据库，用于消息右下角「精华」角标）。
+        essenceSeqs: (groupEssenceSeqs.data ?? []) as string[],
         levelConfigs: (groupLevelInfo.data?.levelConfigs ?? []).map((item) => ({
           level: item.level,
           name: item.levelName,
@@ -3165,6 +3215,7 @@ export function MainView(): ReactElement {
     groupDetail.data,
     groupEssence.data,
     groupEssenceWeb.data,
+    groupEssenceSeqs.data,
     groupLevelInfo.data,
     groupExt.data,
     user,
@@ -3779,7 +3830,8 @@ export function MainView(): ReactElement {
     shell.view === 'agentlab' ||
     shell.view === 'cache' ||
     shell.view === 'qzone' ||
-    shell.view === 'channel';
+    shell.view === 'channel' ||
+    shell.view === 'annual';
 
   return (
     <ReplyJumpContext.Provider value={jumpToSeq}>
@@ -3897,6 +3949,8 @@ export function MainView(): ReactElement {
                 <QzoneView />
               ) : shell.view === 'channel' ? (
                 <ChannelView />
+              ) : shell.view === 'annual' ? (
+                <AnnualReportView />
               ) : activeConversation?.type === 'merged' ? (
                 <ArkFeedView
                   conversationId={activeConversation.id}
@@ -3970,6 +4024,7 @@ export function MainView(): ReactElement {
                       onViewDeleted={handleViewDeleted}
                       onViewRecalled={handleViewRecalled}
                       onOpenGapMessages={handleOpenGapMessages}
+                      onSearchChatRecords={handleSearchChatRecords}
                       deletedIds={deletedIds}
                       onRestoreMessage={handleRestoreMessage}
                     />
@@ -4110,9 +4165,12 @@ export function MainView(): ReactElement {
               essenceMessages={(() => {
                 const essence = (groupEssence.data ?? []) as GroupEssenceWire[];
                 const essenceWeb = groupEssenceWeb.data ?? [];
-                return essence.map((item): GroupEssenceDisplay => {
+                // 按 msgSeq 去重：数据库记录优先，Web 内容补充到匹配项上；
+                // 数据库没有、但联网拉到的精华也一并展示（联网补全）。
+                const bySeq = new Map<number, GroupEssenceDisplay>();
+                for (const item of essence) {
                   const webItem = essenceWeb.find((web) => web.msgSeq === item.msgSeq);
-                  return {
+                  bySeq.set(item.msgSeq, {
                     id: `essence:${item.msgSeq}:${item.timestamp}`,
                     msgSeq: item.msgSeq,
                     senderName: item.senderNick,
@@ -4122,9 +4180,27 @@ export function MainView(): ReactElement {
                     content: webItem?.content,
                     senderTime: webItem?.senderTime ? String(webItem.senderTime) : undefined,
                     canRemove: webItem?.canRemove,
-                  };
-                });
+                  });
+                }
+                for (const web of essenceWeb) {
+                  if (bySeq.has(web.msgSeq)) continue;
+                  bySeq.set(web.msgSeq, {
+                    id: `essence:web:${web.msgSeq}:${web.senderTime ?? ''}`,
+                    msgSeq: web.msgSeq,
+                    senderName: web.senderNick,
+                    operatorName: web.operatorNick,
+                    createdAt: secondsToIsoTime(web.senderTime) ?? new Date(0).toISOString(),
+                    active: true,
+                    content: web.content,
+                    senderTime: web.senderTime ? String(web.senderTime) : undefined,
+                    canRemove: web.canRemove,
+                  });
+                }
+                return [...bySeq.values()].sort(
+                  (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+                );
               })()}
+              loading={groupEssence.isLoading || groupEssenceWeb.isLoading}
               onClose={() => setEssenceDialog(null)}
               onJumpToMessage={(seq) => {
                 setEssenceDialog(null);
@@ -4231,12 +4307,12 @@ export function MainView(): ReactElement {
             <ChatRecordsModal
               initialHit={chatRecordsTarget.hit}
               initialKeyword={chatRecordsTarget.keyword}
+              fixed={chatRecordsTarget.fixed}
               renderers={messageRenderers}
               onClose={() => setChatRecordsTarget(null)}
               onJumpMessage={({ source, targetUid, msgSeq }) =>
                 jumpToConvSeq(source === 'group' ? 'group' : 'c2c', targetUid, msgSeq)
               }
-              pushToast={pushToast}
             />
           ) : null}
         </ConvContext.Provider>

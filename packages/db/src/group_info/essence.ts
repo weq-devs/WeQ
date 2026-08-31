@@ -56,6 +56,18 @@ export class GroupEssenceDb {
     return rows.map(rowToEssence);
   }
 
+  /**
+   * 只取某个群全部「当前为精华」（setStatus = 1）消息的 msgSeq，供聊天窗口
+   * 给消息打「精华」角标用。不查网络、不拉消息体，表小、一次全量。
+   */
+  async listEssenceSeqs(groupCode: bigint): Promise<number[]> {
+    const rows = await this.qq.query(
+      `SELECT "67501" FROM group_essence WHERE "60001" = ? AND "67505" = 1 ORDER BY "67508" DESC`,
+      [groupCode],
+    );
+    return rows.map((row) => Number(row[0] ?? 0));
+  }
+
   close(): void {
     this.qq.close();
   }

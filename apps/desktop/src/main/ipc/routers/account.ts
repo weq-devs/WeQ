@@ -1775,6 +1775,17 @@ export const accountRouter = router({
     return essence.map(groupEssenceToWire);
   }),
 
+  /**
+   * 取某个群全部当前为精华的消息 seq（仅查本地数据库，不联网）。
+   * 返回 string[] 以便与渲染层 Message.msgSeq 直接匹配。
+   */
+  listGroupEssenceSeqs: procedure
+    .input(z.object({ groupCode: z.string().min(1) }))
+    .query(async ({ input }) => {
+      const seqs = await requireServices().groupInfo.getEssenceSeqs(BigInt(input.groupCode));
+      return seqs.map(String);
+    }),
+
   /** Get group essence messages with full content from Web API. */
   getGroupEssenceWithContent: procedure
     .input(

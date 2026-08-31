@@ -35,7 +35,12 @@ export { exportGroupToTxt } from './txt_exporter';
 export { exportGroupToCsv, csvFraming, renderCsvRow } from './csv_exporter';
 export { exportToXlsx, type XlsxExportOptions } from './xlsx_exporter';
 export { exportToHtml, type HtmlExportOptions } from './html_exporter';
-export { exportSysFaces, SYSFACE_SUBDIR } from './sysface_export';
+export {
+  exportSysFaces,
+  exportMarketFaces,
+  SYSFACE_SUBDIR,
+  MFACE_SUBDIR,
+} from './sysface_export';
 export {
   exportQzone,
   type QzoneExportDeps,

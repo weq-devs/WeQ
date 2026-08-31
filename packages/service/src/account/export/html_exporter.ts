@@ -8,9 +8,13 @@
  * tail and renders each message into a bubble `<div>` instead of a text line.
  *
  * Design notes:
- *   - Streaming + `content-visibility:auto` on each row + `loading="lazy"` on
- *     images keep a very large log from ballooning memory in the browser, with
- *     no JS framework — the file stays a plain, view-source-readable page.
+ *   - The page renders with **virtual scrolling**: message rows are streamed
+ *     into the document as a JSON payload (`<script id="log-data">`), and an
+ *     inline script only keeps a window of DOM rows around the viewport,
+ *     adding/removing them on scroll (top/bottom spacers hold the scrollbar
+ *     height). So a huge log opens instantly and fast-scrolls without the
+ *     background flicker that `content-visibility:auto` on each row caused
+ *     (off-screen rows skip painting entirely → bubble backgrounds pop in/out).
  *   - Media is referenced by the same deterministic bundle-relative paths the
  *     other exporters use (`data.localPath`, stamped by `annotateLocalPaths`),
  *     so the media stages don't change — `<img src="media/image/…">` etc.
@@ -39,7 +43,7 @@ import { toExportedMessage, type RoamMessageSource } from './message_source';
 import { annotateLocalPaths, elementsToText, formatTime } from './element_text';
 import { expandForwards } from './forward_expand';
 import { UNICODE_FACE_MAP } from './unicode_face_map';
-import { SYSFACE_SUBDIR } from './sysface_export';
+import { SYSFACE_SUBDIR, MFACE_SUBDIR } from './sysface_export';
 import {
   avatarUrlForUin,
   fallbackSender,
@@ -320,6 +324,9 @@ function localPath(el: RenderElement): string | undefined {
  *   - Numeric faces → `<img src="media/face/<id>.png">`; the id is collected so a
  *     later stage copies the image in. `onerror` swaps the img for its `[表情]`
  *     text so a not-copied / unknown face still reads sensibly.
+ *
+ * 商城表情（mface）也在本函数收集：id 形如 `<pack>:<hash>`（非纯数字），不需要在这里
+ * 单独渲染——由 {@link renderElement} 的 `mface` 分支处理并写进同一个　collectFaces。
  */
 function renderFace(el: RenderElement, collectFaces?: Set<string>): string {
   const data = el.data as { faceId?: number; faceText?: string };
@@ -356,6 +363,27 @@ function renderElement(el: RenderElement, collectFaces?: Set<string>): string {
       return `<span class="at">${escapeHtml(el.data.textContent ?? '')}</span>`;
     case 'face':
       return renderFace(el, collectFaces);
+    case 'mface': {
+      // 商城表情（mface）：贴图走 bundle 内 `media/mface/<hash>.gif`，并收集
+      // `<pack>:<hash>` 引用供「QQ系统表情」阶段复制贴图进来。`onerror` 兜底成
+      // `[表情]` 文本（未复制 / 未找到时页面照常可读）。
+      const data = el.data as { emojiPackId?: number; marketEmoticonIdHex?: string };
+      const pack = data.emojiPackId;
+      const hash = data.marketEmoticonIdHex;
+      const label = escapeHtml(PLACEHOLDER.mface ?? '[表情]');
+      if (pack !== undefined && hash !== undefined) {
+        const packNum = typeof pack === 'number' ? pack : Number(pack);
+        if (packNum > 0 && /^[0-9a-f]+$/i.test(hash)) {
+          collectFaces?.add(`${packNum}:${hash}`);
+          return (
+            `<img class="face-emoji mface" loading="lazy" src="media/${MFACE_SUBDIR}/${hash}.gif"` +
+            ` alt="${label}" title="${label}"` +
+            ` onerror="this.replaceWith(document.createTextNode(this.alt))">`
+          );
+        }
+      }
+      return `<span class="face">${label}</span>`;
+    }
     case 'pic': {
       const p = localPath(el);
       const cls = el.data.subType === 1 ? 'media emoji' : 'media';
@@ -538,11 +566,15 @@ function buildDressCss(manifest: DressExportManifest): string {
   }
 
   if (manifest.widgets.length > 0) {
+    // 挂件几何与聊天页保持一致（chat.css 的 .weq-avatar-pendant-img）：60×60，中心对齐
+    // 36px 头像中心再上移 4px。头像位于 .msg 内容盒左上角（me 时右上角），换算成绝对定位：
+    //   垂直 top = 18 - 4 - 30 = -16px
+    //   水平 left(right) = 18 - 30 = -12px
     rules.push(
       `.msg{position:relative}`,
-      `.msg .widget{position:absolute;z-index:2;width:46px;height:46px;left:-5px;top:-16px;` +
+      `.msg .widget{position:absolute;z-index:2;width:60px;height:60px;left:-12px;top:-16px;` +
         `pointer-events:none;object-fit:contain;filter:drop-shadow(0 1px 2px rgba(0,0,0,.25))}`,
-      `.msg.me .widget{left:auto;right:-5px}`,
+      `.msg.me .widget{left:auto;right:-12px}`,
     );
   }
 
@@ -619,9 +651,11 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system
 .rsnip mark{background:rgba(245,166,35,.5);color:inherit;border-radius:2px;padding:0 1px}
 .rmore{padding:7px 13px;color:var(--sub);font-size:12px;text-align:center}
 .log{padding:16px 18px 64px}
-.day{text-align:center;margin:22px 0 12px}.day span{background:rgba(140,140,140,.18);color:var(--sub);font-size:12px;padding:2px 10px;border-radius:10px}
-.sys{text-align:center;color:var(--sub);font-size:12px;margin:14px 0}
-.msg{display:flex;gap:10px;margin:18px 0;content-visibility:auto;contain-intrinsic-size:auto 72px;border-radius:8px;transition:background .2s}
+/* 行距用 padding 而不是 margin：虚拟滚动靠 offsetHeight 按行测高，margin 不计入 offsetHeight，
+   换成 padding 后每行实际高度包含行距，定位才准确。 */
+.day{text-align:center;padding:6px 0 18px}.day span{background:rgba(140,140,140,.18);color:var(--sub);font-size:12px;padding:2px 10px;border-radius:10px}
+.sys{text-align:center;color:var(--sub);font-size:12px;padding:0 0 18px}
+.msg{display:flex;gap:10px;padding:0 0 18px;border-radius:8px;transition:background .2s}
 .msg.me{flex-direction:row-reverse}
 .flash{animation:flash 1.7s ease}
 @keyframes flash{0%,18%{background:rgba(245,166,35,.32)}100%{background:transparent}}
@@ -637,6 +671,8 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system
 .msg.me .bubble{background:var(--me)}
 .at{color:var(--accent)}
 .face-emoji{display:inline-block;width:1.4em;height:1.4em;vertical-align:-0.28em;margin:0 1px;object-fit:contain}
+.face-emoji.mface{width:96px;height:96px;vertical-align:top;max-width:38%;margin:2px 0}
+@media(max-width:560px){.face-emoji.mface{width:72px;height:72px}}
 .face-glyph{font-size:1.25em;line-height:1;vertical-align:-0.15em}
 .media{max-width:240px;max-height:280px;border-radius:6px;display:block;margin:3px 0}
 .media.emoji{max-width:90px;max-height:90px}
@@ -680,40 +716,83 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system
 `;
 
 /**
- * Inline page script (no framework): on load jump to the newest message (bottom)
- * so the user scrolls *up* into history; plus a content search that lists
- * matching messages and scroll-jumps + flashes the one clicked. The message
- * index is built lazily on first search to keep load fast on large logs.
+ * Inline page script (no framework): renders a virtual-scroll window of message
+ * rows from the embedded JSON payload, then jumps to the bottom on load (so the
+ * user scrolls *up* into history). A window around the viewport is kept in the
+ * DOM; top/bottom spacer divs hold the scrollbar height so the document length
+ * stays correct without materializing all rows. Search scans the JSON payload
+ * (built lazily on first search) and scroll-jumps + flashes the chosen row.
  */
 const SCRIPT = `
 (function(){
-  function toBottom(){window.scrollTo(0,document.documentElement.scrollHeight);}
-  toBottom();window.addEventListener('load',toBottom);
+  var ds=document.getElementById('log-data');
+  var ROWS=ds?(function(){try{return JSON.parse(ds.textContent)||[];}catch(e){return[];}})():[];
+  var N=ROWS.length;
+  var vp=document.getElementById('log-viewport');
+  var tsp=document.getElementById('log-spacer-top');
+  var rows=document.getElementById('log-rows');
+  var bsp=document.getElementById('log-spacer-bottom');
+  if(!vp||!rows)return;
+  /* 默认行高估计 + 视口缓冲（viewport 的倍数）。 */
+  var EST=84,BUF=3;
+  var hei=[],sum=new Float64Array(N+1);
+  var i; sum[0]=0; for(i=0;i<N;i++)sum[i+1]=sum[i]+EST;
+  function setH(k,h){hei[k]=h;for(var j=k+1;j<=N;j++)sum[j]=sum[j-1]+(hei[j-1]||EST);}
+  /* 第一个底 > y 的行下标。 */
+  function idxAt(y){var lo=0,hi=N;while(lo<hi){var mid=(lo+hi)>>1;if(sum[mid+1]>y)hi=mid;else lo=mid+1;}return lo;}
+  var start=0,end=0,nodes={};
+  function make(h){var t=document.createElement('div');t.innerHTML=h;var c=t.firstChild;return c||document.createElement('div');}
+  var raf=0;
+  function render(){
+    if(N===0){tsp.style.height='0px';bsp.style.height='0px';return;}
+    var vh=window.innerHeight||500,sy=window.pageYOffset||document.documentElement.scrollTop||0;
+    var rel=sy-(vp.getBoundingClientRect().top+sy);
+    var y0=rel-BUF*vh;if(y0<0)y0=0;
+    var y1=rel+(BUF+1)*vh;
+    var a=idxAt(y0),b=idxAt(y1);if(a<0)a=0;if(b>N)b=N;
+    /* 移除窗口外的节点。 */
+    for(var k=start;k<end;k++){if(k<a||k>=b){var n=nodes[k];if(n&&n.parentNode){n.parentNode.removeChild(n);}delete nodes[k];}}
+    /* 补齐窗口内缺失节点，保持文档顺序。 */
+    var bound=b>end?b:end;
+    for(k=a;k<b;k++){if(!nodes[k]){var el=make(ROWS[k].h);var ref=null;for(var j=k+1;j<=bound;j++){if(nodes[j]){ref=nodes[j];break;}}rows.insertBefore(el,ref);nodes[k]=el;}}
+    /* 测高并更新累计高度，再刷新 spacer。 */
+    for(k=a;k<b;k++){var e=nodes[k];if(e){var h=e.offsetHeight||EST;if(!hei[k]||Math.abs(h-hei[k])>1)setH(k,h);}}
+    tsp.style.height=(sum[a]||0)+'px';
+    bsp.style.height=(sum[N]-sum[b])+'px';
+    start=a;end=b;
+  }
+  function schedule(){if(raf)return;raf=requestAnimationFrame(function(){raf=0;render();});}
+  window.addEventListener('scroll',schedule,{passive:true});
+  window.addEventListener('resize',schedule);
+  if(N){render();window.scrollTo(0,sum[N]);window.addEventListener('load',function(){render();});}
+  /* ---- search（索引懒构建，扫描 JSON payload） ---- */
   var q=document.getElementById('q'),results=document.getElementById('results'),qinfo=document.getElementById('qinfo');
   if(!q)return;
   var index=null,timer=0,flashed=null;
-  function build(){index=[];var rows=document.querySelectorAll('.msg,.sys');
-    for(var i=0;i<rows.length;i++){var r=rows[i],t=r.textContent||'',n=r.querySelector('.name'),tm=r.querySelector('.time');
-      index.push({el:r,text:t,low:t.toLowerCase(),name:n?n.textContent:'',time:tm?tm.textContent:''});}}
   function clearFlash(){if(flashed){flashed.classList.remove('flash');flashed=null;}}
-  function jump(it){results.hidden=true;clearFlash();it.el.scrollIntoView({behavior:'smooth',block:'center'});
-    void it.el.offsetWidth;it.el.classList.add('flash');flashed=it.el;}
-  function snip(text,low,term){var i=low.indexOf(term);if(i<0)i=0;var s=Math.max(0,i-18);
+  function build(){index=[];for(var k=0;k<N;k++){var d=document.createElement('div');d.innerHTML=ROWS[k].h;
+      var t=d.textContent||'',n=d.querySelector('.name'),tm=d.querySelector('.time');
+      index.push({i:k,t:t,low:t.toLowerCase(),name:n?n.textContent:'',time:tm?tm.textContent:''});}}
+  function jump(it){results.hidden=true;clearFlash();
+    var y=(sum[it.i]||0)-window.innerHeight/2;if(y<0)y=0;
+    window.scrollTo(0,y);
+    requestAnimationFrame(function(){render();var el=nodes[it.i];if(el){void el.offsetWidth;el.classList.add('flash');flashed=el;}});}
+  function snip(text,low,term){var i2=low.indexOf(term);if(i2<0)i2=0;var s=Math.max(0,i2-18);
     var f=document.createDocumentFragment();
-    f.appendChild(document.createTextNode((s>0?'…':'')+text.slice(s,i)));
-    var m=document.createElement('mark');m.textContent=text.slice(i,i+term.length);f.appendChild(m);
-    var e=i+term.length;f.appendChild(document.createTextNode(text.slice(e,e+44)+(text.length>e+44?'…':'')));return f;}
+    f.appendChild(document.createTextNode((s>0?'…':'')+text.slice(s,i2)));
+    var m=document.createElement('mark');m.textContent=text.slice(i2,i2+term.length);f.appendChild(m);
+    var e=i2+term.length;f.appendChild(document.createTextNode(text.slice(e,e+44)+(text.length>e+44?'…':'')));return f;}
   function run(){var term=q.value.trim().toLowerCase();results.innerHTML='';
     if(!term){results.hidden=true;qinfo.textContent='';return;}
     if(!index)build();var hits=[],total=0;
-    for(var i=0;i<index.length;i++){if(index[i].low.indexOf(term)!==-1){total++;if(hits.length<300)hits.push(index[i]);}}
+    for(var i3=0;i3<index.length;i3++){if(index[i3].low.indexOf(term)!==-1){total++;if(hits.length<300)hits.push(index[i3]);}}
     qinfo.textContent=total?total+' 条结果':'无结果';
     if(!total){results.hidden=true;return;}
     var frag=document.createDocumentFragment();
-    hits.forEach(function(it){var b=document.createElement('button');b.type='button';b.className='ritem';
+    hits.forEach(function(it){var b2=document.createElement('button');b2.type='button';b2.className='ritem';
       var mt=document.createElement('span');mt.className='rmeta';mt.textContent=(it.name?it.name+' · ':'')+it.time;
-      var sn=document.createElement('span');sn.className='rsnip';sn.appendChild(snip(it.text,it.low,term));
-      b.appendChild(mt);b.appendChild(sn);b.addEventListener('click',function(){jump(it);});frag.appendChild(b);});
+      var sn=document.createElement('span');sn.className='rsnip';sn.appendChild(snip(it.t,it.low,term));
+      b2.appendChild(mt);b2.appendChild(sn);b2.addEventListener('click',function(){jump(it);});frag.appendChild(b2);});
     if(total>hits.length){var mo=document.createElement('div');mo.className='rmore';mo.textContent='仅显示前 '+hits.length+' 条，请输入更精确的关键词';frag.appendChild(mo);}
     results.appendChild(frag);results.hidden=false;}
   q.addEventListener('input',function(){clearTimeout(timer);timer=setTimeout(run,150);});
@@ -785,11 +864,18 @@ export async function exportToHtml(
       `<header class="head">\n` +
       `<div class="head-top"><strong>${title}</strong><small>${opts.kind === 'group' ? '群聊' : '私聊'} · 导出于 ${exportedAt}</small></div>\n` +
       `<div class="search"><input id="q" type="search" placeholder="搜索消息内容…" autocomplete="off" spellcheck="false"><span id="qinfo"></span><div id="results" class="results" hidden></div></div>\n` +
-      `</header>\n<main class="log">\n`,
+      `</header>\n<main class="log"><div id="log-viewport"><div id="log-spacer-top"></div><div id="log-rows"></div><div id="log-spacer-bottom"></div></div></main>\n` +
+      `<script type="application/json" id="log-data">\n[\n`,
   );
 
   let count = 0;
   let lastDay = '';
+  let rowFirst = true;
+  /* 每行预渲染成一条 JSON 记录流式写入，浏览器端再按需实例化（虚拟滚动）。 */
+  async function writeRow(h: string): Promise<void> {
+    await writer.write(`${rowFirst ? '' : ',\n'}${JSON.stringify({ h })}`);
+    rowFirst = false;
+  }
   try {
     for await (const raw of iterateConv(msgs, opts.kind, opts.conv, opts.range, opts.roam)) {
       const exported = toExportedMessage(raw);
@@ -798,20 +884,18 @@ export async function exportToHtml(
       if (opts.withMediaPaths) annotateLocalPaths(exported.elements);
       const day = dayKey(exported.sendTime);
       if (day !== lastDay) {
-        await writer.write(`<div class="day"><span>${escapeHtml(day)}</span></div>\n`);
+        await writeRow(`<div class="day"><span>${escapeHtml(day)}</span></div>`);
         lastDay = day;
       }
       const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
       const dec = opts.dressLookup?.(exported.msgId);
-      await writer.write(
-        renderMessage(exported, sender, selfId, opts.collectFaces, dec, widgetById),
-      );
+      await writeRow(renderMessage(exported, sender, selfId, opts.collectFaces, dec, widgetById));
       count += 1;
       if (count % progressEvery === 0)
         opts.onProgress?.({ current: count, message: `已导出 ${count} 条` });
     }
     await writer.write(
-      `</main>\n<footer class="foot">共 ${count} 条消息 · 顶部搜索框可检索并点击跳转</footer>\n</div>\n` +
+      `\n]\n</script>\n<footer class="foot">共 ${count} 条消息 · 顶部搜索框可检索并点击跳转</footer>\n</div>\n` +
         `<script>${SCRIPT}</script>\n</body>\n</html>\n`,
     );
   } finally {
