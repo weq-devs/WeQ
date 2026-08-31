@@ -62,7 +62,7 @@ import {
   type MediaDirs,
   type MediaScanResult,
 } from './media_scan';
-import { exportSysFaces } from './sysface_export';
+import { exportSysFaces, exportMarketFaces } from './sysface_export';
 import type { MediaUrlService } from '../media_url';
 import { iterateC2cMessages, toExportedMessage, type RoamMessageSource } from './message_source';
 import { expandForwards } from './forward_expand';
@@ -280,6 +280,12 @@ export interface MediaDeps {
   dressInstall?: DressService;
   /** 商城表情解密下载能力（由 app 注入，桥接 EmojiService）。 */
   marketpack?: MarketPackDeps;
+  /**
+   * 商城表情「单张贴图」解析（桥接 EmojiService.getMarketFace）：返回该贴图的
+   * 本地解密路径（weq 缓存 → QQ 本地缓存 → CDN 明文 GIF/PNG）。HTML 导出把
+   * 会话里用到的商城表情也归类进「QQ系统表情」资源、复制进 bundle 时用它解析。
+   */
+  marketFace?: (pack: string, hash: string) => Promise<string | null>;
   /** 消息补全能力（由 app 注入，桥接聊天页 GapHistoryService：缓存+拉取共用）。 */
   messageBackfill?: MessageBackfillDeps;
   /** 漫游缓存元素回退（缺失消息补全的消息不在本地 msg 表，导出下载用它定位媒体元素）。 */
@@ -1223,6 +1229,7 @@ export class ExportTaskManager extends EventEmitter {
       if (wantSysFaces && faces) {
         jobs.push(async () => {
           // 表情集合由消息导出收集，等 message 阶段完成后接续执行。
+          // 纯数字 = 系统表情(小黄脸)；`pack:hash` = 商城表情贴图，都归类在「QQ系统表情」。
           await messageJob.catch(() => null);
           if (aborted()) return;
           if (faces.size === 0) {
@@ -1231,21 +1238,17 @@ export class ExportTaskManager extends EventEmitter {
               s0.status = 'completed';
               s0.current = 0;
               s0.total = 0;
-              s0.note = '会话未使用系统表情';
+              s0.note = '会话未使用表情';
               this.saveTasks();
             }
-            this.log(id, 'sysface', '会话未使用系统表情，跳过导出');
+            this.log(id, 'sysface', '会话未使用系统表情 / 商城表情，跳过导出');
             return;
           }
-          const s = this.stage(task, 'sysface');
-          const emojiDir = this.deps.emojiDir;
-          if (!emojiDir) {
-            if (s) {
-              s.status = 'skipped';
-              s.note = '未找到表情资源目录';
-              this.saveTasks();
-            }
-            return;
+          const sysIds: string[] = [];
+          const mfaceRefs: string[] = [];
+          for (const ref of faces) {
+            if (/^\d+$/.test(ref)) sysIds.push(ref);
+            else if (ref.includes(':')) mfaceRefs.push(ref);
           }
           this.touchStage(
             task,
@@ -1253,25 +1256,58 @@ export class ExportTaskManager extends EventEmitter {
             { status: 'running', total: faces.size, current: 0, note: `导出 0/${faces.size}` },
             { persist: true },
           );
-          this.log(id, 'sysface', `导出系统表情：共 ${faces.size} 个`);
-          const r = await exportSysFaces(faces, emojiDir, mediaRoot, (done, total) => {
-            if (aborted()) return;
-            this.touchStage(task, 'sysface', {
-              current: done,
-              total,
-              note: `导出 ${done}/${total}`,
-            });
-            this.log(id, 'sysface', `导出表情 ${done}/${total}`);
-          });
+          this.log(
+            id,
+            'sysface',
+            `导出表情：系统 ${sysIds.length} 个 · 商城 ${mfaceRefs.length} 张`,
+          );
+          let ok = 0;
+          let failed = 0;
+          if (sysIds.length > 0) {
+            const emojiDir = this.deps.emojiDir;
+            if (!emojiDir) {
+              failed += sysIds.length;
+              this.log(id, 'sysface', '未找到系统表情资源目录，跳过系统表情', 'warn');
+            } else {
+              const r = await exportSysFaces(sysIds, emojiDir, mediaRoot, (done, total) => {
+                if (aborted()) return;
+                this.touchStage(task, 'sysface', {
+                  current: done,
+                  total,
+                  note: `导出 ${done}/${total}`,
+                });
+              });
+              ok += r.ok;
+              failed += r.failed;
+            }
+          }
+          if (mfaceRefs.length > 0) {
+            const resolve = this.deps.marketFace;
+            if (!resolve) {
+              failed += mfaceRefs.length;
+              this.log(id, 'sysface', '商城表情服务不可用，跳过商城表情', 'warn');
+            } else {
+              const r = await exportMarketFaces(mfaceRefs, resolve, mediaRoot, (done, total) => {
+                if (aborted()) return;
+                this.touchStage(task, 'sysface', {
+                  current: done,
+                  total,
+                  note: `导出 ${done}/${total}`,
+                });
+              });
+              ok += r.ok;
+              failed += r.failed;
+            }
+          }
           this.touchStage(
             task,
             'sysface',
             {
               status: 'completed',
-              current: r.total,
-              total: r.total,
-              failed: r.failed,
-              note: `已导出 ${r.ok}${r.failed ? ` · 缺失 ${r.failed}` : ''}`,
+              current: faces.size,
+              total: faces.size,
+              failed,
+              note: `已导出 ${ok}${failed ? ` · 失败 ${failed}` : ''}`,
             },
             { persist: true },
           );

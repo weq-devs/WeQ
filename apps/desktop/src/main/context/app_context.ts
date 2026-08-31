@@ -1085,6 +1085,9 @@ export function initAppContext(): AppContext {
               getPackKey: (id) => emojiService.getMarketPackKey(id),
               getPackImagePath: (id, hash, key) => emojiService.getMarketPackImage(id, hash, key),
             },
+            // 商城表情单张贴图解析：HTML 导出把会话用到的商城表情归类进「QQ系统表情」
+            // 资源、复制进 bundle 时用它取本地解密路径（weq 缓存 → QQ 本地 → CDN）。
+            marketFace: (pack, hash) => emojiService.getMarketFace(pack, hash),
             // 消息补全：与聊天页共用漫游缓存与拉取能力（在线 QQ + 非完全离线模式）。
             messageBackfill: gapHistory,
             // 漫游缓存元素回退：补全消息不在本地 msg 表，导出下载按 msgId 定位媒体元素。

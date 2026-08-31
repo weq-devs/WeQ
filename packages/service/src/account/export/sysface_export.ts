@@ -28,6 +28,9 @@ import type { MediaStageResult, StageProgress } from './media_export';
 /** Bundle subdirectory (under `media/`) that system-emoji images land in. */
 export const SYSFACE_SUBDIR = 'face';
 
+/** Bundle subdirectory (under `media/`) that market (store) sticker images land in. */
+export const MFACE_SUBDIR = 'mface';
+
 /**
  * Pick the source image for one face id: prefer `apng/<id>.png`, else the static
  * `png/<id>.png`, else the first image the dir carries. Returns the absolute
@@ -108,6 +111,67 @@ export async function exportSysFaces(
     } finally {
       done += 1;
       onProgress?.(done, ids.length);
+    }
+  });
+
+  return result;
+}
+
+/**
+ * Copy every collected market (store) sticker into `<mediaRoot>/mface/<hash>.gif`,
+ * resolving each via the injected `resolve(pack, hash)` → locally-cached / CDN
+ * decrypted sticker path (bridged from `EmojiService.getMarketFace`).
+ *
+ * Driven by the same「QQ系统表情」media option as {@link exportSysFaces} (商城表情
+ * 归类进该资源)；refs are the `pack:hash` strings collected by the HTML exporter.
+ * A sticker that can't be resolved counts toward `failed` — the HTML page then shows
+ * its `[表情]` alt fallback. Never throws.
+ *
+ * @param refs    distinct `pack:hash` reference strings seen while exporting
+ * @param resolve  `(pack, hash) → absolute sticker path | null`
+ * @param mediaRoot  the bundle's `media/` directory
+ */
+export async function exportMarketFaces(
+  refs: Iterable<string>,
+  resolve: (pack: string, hash: string) => Promise<string | null>,
+  mediaRoot: string,
+  onProgress?: StageProgress,
+  concurrency = 8,
+): Promise<MediaStageResult> {
+  const items: Array<{ pack: string; hash: string }> = [];
+  const seen = new Set<string>();
+  for (const ref of refs) {
+    const i = ref.indexOf(':');
+    if (i <= 0) continue;
+    const pack = ref.slice(0, i);
+    const hash = ref.slice(i + 1);
+    if (!/^\d+$/.test(pack) || !/^[0-9a-f]+$/i.test(hash)) continue;
+    const key = `${pack}:${hash.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    items.push({ pack, hash: key.slice(key.indexOf(':') + 1) });
+  }
+  const result: MediaStageResult = { total: items.length, ok: 0, failed: 0 };
+  if (items.length === 0) return result;
+
+  const faceDir = join(mediaRoot, MFACE_SUBDIR);
+  await mkdir(faceDir, { recursive: true });
+
+  let done = 0;
+  await runWithConcurrency(items, concurrency, async (item) => {
+    try {
+      const src = await resolve(item.pack, item.hash);
+      if (src) {
+        await copyFile(src, join(faceDir, `${item.hash}.gif`));
+        result.ok += 1;
+      } else {
+        result.failed += 1;
+      }
+    } catch {
+      result.failed += 1;
+    } finally {
+      done += 1;
+      onProgress?.(done, items.length);
     }
   });
 
