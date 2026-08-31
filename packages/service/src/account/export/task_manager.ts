@@ -795,10 +795,14 @@ export class ExportTaskManager extends EventEmitter {
             const summary = await backfillConversationMessages({
               kind: task.kind === 'group' ? 'group' : 'c2c',
               conv: task.conv,
-              listSeqsDesc: () =>
-                task.kind === 'group'
-                  ? this.msgs.getGroupSeqDesc(task.conv)
-                  : this.msgs.getC2cSeqDesc(task.conv),
+              // 按导出时间范围收窄 seq 扫描：补全只拉时间窗内的缺失消息。
+              listSeqWindow: () => {
+                const startTime = task.range?.start ?? undefined;
+                const endTime = task.range?.end ?? undefined;
+                return task.kind === 'group'
+                  ? this.msgs.getGroupSeqDesc(task.conv, { startTime, endTime })
+                  : this.msgs.getC2cSeqDesc(task.conv, { startTime, endTime });
+              },
               fetch: (k, c, start, end) => backfillDeps.fetch(k, c, start, end),
               concurrency: 8,
               signal: abort.signal,

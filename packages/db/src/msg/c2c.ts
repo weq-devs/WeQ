@@ -21,7 +21,7 @@
  */
 
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
-import type { C2cMsg } from './types';
+import type { C2cMsg, SeqWindow } from './types';
 import { decodeBody, decodeDress, toBigint, toStr } from './util';
 import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './append';
 import { QqDb } from '../qq_db';
@@ -170,19 +170,55 @@ export class C2cMsgDb {
   }
 
   /**
-   * All distinct per-conversation seqs (40003 > 0), newest-first (DESC).
-   * Index-only scan over the `(40027,40003)` composite index — powers the
-   * export 「消息补全」seq 空窗扫描.
+   * The conversation's seq window for a time range (40003 > 0), newest-first.
+   * Powers the export 「消息补全」seq 空窗扫描.
+   *
+   * No time bounds keeps the original index-only DISTINCT scan over the
+   * `(40027,40003)` composite index. With `startTime`/`endTime` (unix seconds)
+   * it reads each row's 40050 once and returns only the seqs inside the
+   * window, plus the boundary anchors `below` (newest seq older than
+   * `startTime`) and `above` (oldest seq newer than `endTime`) — the caller
+   * clamps its bottom gap with them so a narrow window doesn't pull the whole
+   * pre-window history.
    */
-  async listSeqDesc(part: C2cPartition): Promise<bigint[]> {
+  async listSeqDesc(
+    part: C2cPartition,
+    opts: { startTime?: number; endTime?: number } = {},
+  ): Promise<SeqWindow> {
     const { clause, value } = partitionWhere(part);
+    const { startTime, endTime } = opts;
+    if (startTime == null && endTime == null) {
+      const rows = await this.qq.query(
+        `SELECT DISTINCT "40003" FROM ${this.table}
+          WHERE ${clause} AND "40003" > 0
+          ORDER BY "40003" DESC`,
+        [value],
+      );
+      return { seqs: rows.map((row) => toBigint(row[0])), below: null, above: null };
+    }
     const rows = await this.qq.query(
-      `SELECT DISTINCT "40003" FROM ${this.table}
+      `SELECT "40003", "40050" FROM ${this.table}
         WHERE ${clause} AND "40003" > 0
         ORDER BY "40003" DESC`,
       [value],
     );
-    return rows.map((row) => toBigint(row[0]));
+    const seqs: bigint[] = [];
+    let below: bigint | null = null;
+    let above: bigint | null = null;
+    for (const row of rows) {
+      const seq = toBigint(row[0]);
+      const time = Number(row[1]);
+      if (startTime != null && time < startTime) {
+        below ??= seq; // 新→旧扫描：首个（最新）早于窗的消息即 below。
+        continue;
+      }
+      if (endTime != null && time > endTime) {
+        above = seq; // 覆盖式赋值：最后一个（最旧）晚于窗的消息即 above。
+        continue;
+      }
+      seqs.push(seq);
+    }
+    return { seqs, below, above };
   }
 
   /** Largest SQLite rowid currently in the table, or 0n if empty. */

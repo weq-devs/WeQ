@@ -14,7 +14,7 @@
  */
 
 import type { AccountSession } from '@weq/account';
-import type { C2cMsg, GroupMsg, C2cPartition, AppendMsgFields, C2cMsgDb } from '@weq/db';
+import type { C2cMsg, GroupMsg, C2cPartition, AppendMsgFields, C2cMsgDb, SeqWindow } from '@weq/db';
 import {
   ProtoMsg,
   decodeElement,
@@ -521,20 +521,29 @@ export class MsgService {
   }
 
   /**
-   * All distinct per-group seqs (40003 > 0), newest-first. Index-only scan on
-   * the `(40027,40003)` composite index — powers the export 「消息补全」seq 空窗
-   * 扫描 (which holes to fetch from the roam server).
+   * The conversation's seq window for a time range (40003 > 0), newest-first.
+   * Powers the export 「消息补全」seq 空窗扫描 (which holes to fetch from the roam
+   * server). `startTime`/`endTime` (unix seconds) narrow the seqs to the
+   * window and return the `below`/`above` boundary anchors, so the backfill
+   * only pulls gaps inside the export's time range instead of the whole
+   * pre-window history.
    */
-  async getGroupSeqDesc(targetGroupCode: string): Promise<bigint[]> {
-    return this.session.groupMsgs.listSeqDesc(targetGroupCode);
+  async getGroupSeqDesc(
+    targetGroupCode: string,
+    opts: { startTime?: number; endTime?: number } = {},
+  ): Promise<SeqWindow> {
+    return this.session.groupMsgs.listSeqDesc(targetGroupCode, opts);
   }
 
   /**
-   * All distinct per-conversation seqs (40003 > 0) for a private chat,
-   * newest-first. See {@link getGroupSeqDesc}.
+   * The conversation's seq window for a time range (40003 > 0) of a private
+   * chat, newest-first. See {@link getGroupSeqDesc}.
    */
-  async getC2cSeqDesc(targetUid: string): Promise<bigint[]> {
-    return this.c2cDbFor(targetUid).listSeqDesc(this.c2cPartition(targetUid));
+  async getC2cSeqDesc(
+    targetUid: string,
+    opts: { startTime?: number; endTime?: number } = {},
+  ): Promise<SeqWindow> {
+    return this.c2cDbFor(targetUid).listSeqDesc(this.c2cPartition(targetUid), opts);
   }
 
   // ---- service assistant (chatType 118) ------------------------------------

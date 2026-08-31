@@ -37,6 +37,6 @@ export type {
 } from './anti_recall';
 
 export { decodeBody } from './util';
-export type { C2cMsg, GroupMsg, BuddyMsgFtsHit } from './types';
+export type { C2cMsg, GroupMsg, BuddyMsgFtsHit, SeqWindow } from './types';
 
 export type { AppendMsgFields, AppendMsgResult } from './append';

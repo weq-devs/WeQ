@@ -12,6 +12,11 @@
  *
  * 时序：本阶段在导出流水线最前面执行，之后的消息导出 / 媒体扫描会从漫游缓存
  * 合并这些补全消息，因此它们同样参与媒体补全 / 文件 / 视频下载。
+ *
+ * 时间范围：导出选了时间范围时，seq 扫描只取时间窗内的本地 seq（
+ * {@link MessageBackfillOptions.listSeqWindow} 由 MsgService 按 sendTime 收窄），
+ * 空窗也以窗界锚点 below/above 收窄——补全只拉窗内的缺失消息，不会把整段
+ * 历史拉回来再在导出时丢弃。
  */
 
 import type { GapFetchedMessage, GapFetchResult } from '../gap_history';
@@ -43,12 +48,28 @@ export interface MessageBackfillDeps {
   ): Promise<GapFetchResult>;
 }
 
+/**
+ * 会话 seq 窗口：时间窗内的本地 seq + 窗界锚点，供补全只拉窗内空窗。
+ * 形状与 `@weq/db` 的 `SeqWindow` 一致（MsgService 直接透传）。
+ */
+export interface BackfillSeqWindow {
+  /** sendTime ∈ [range.start, range.end] 的本地 seq（40003 > 0），新→旧。 */
+  seqs: bigint[];
+  /** sendTime < range.start 的最新本地 seq；无下界或无此类消息时为 null。 */
+  below: bigint | null;
+  /** sendTime > range.end 的最旧本地 seq；无上界或无此类消息时为 null。 */
+  above: bigint | null;
+}
+
 export interface MessageBackfillOptions {
   kind: 'c2c' | 'group';
   /** 群号或私聊对方 uid。 */
   conv: string;
-  /** 会话所有 seq（降序，仅 40003 > 0）的来源（MsgService 的索引扫描）。 */
-  listSeqsDesc: () => Promise<bigint[]>;
+  /**
+   * 会话 seq 窗口来源（MsgService 的索引扫描，按导出时间范围收窄）：seqs
+   * 只含时间窗内的本地 seq，below/above 为窗界锚点（无时间范围时均为 null）。
+   */
+  listSeqWindow: () => Promise<BackfillSeqWindow>;
   fetch: MessageBackfillDeps['fetch'];
   /** 并发请求数（默认 8，建议 5-10）。 */
   concurrency?: number;
@@ -88,24 +109,38 @@ export interface MessageBackfillSummary {
 }
 
 /**
- * 从「全部 seq 空窗」生成 30-seq 拉取窗口，按从新到旧排序。
+ * 从「时间窗内全部 seq 空窗」生成 30-seq 拉取窗口，按从新到旧排序。
  *
- * 空窗 = 相邻本地 seq 之间的跳号区间 + 最旧本地 seq 之下的区间（漫游覆盖
- * 之外、更早的消息全部过期之前的那一段）。每个区间从最新端向下切成 30-seq
- * 一段，整体保持 seq 降序。
+ * 空窗 = 相邻窗内 seq 之间的跳号区间 + 最旧窗内 seq 之下的区间。底部区间只
+ * 从锚点 below（sendTime < range.start 的最新本地 seq）之上开始拉——其下消息
+ * 必然早于时间窗，不再整段拉 1..minSeq-1；无锚点（无下界）时保持原语义
+ * 1..minSeq-1（漫游覆盖边界外，靠连续空窗收尾）。时间窗内没有任何本地消息
+ * 时，退化为以 below/above 为界的整段区间（窗内缺失消息只能整段拉回）。
+ * 每个区间从最新端向下切成 30-seq 一段，整体保持 seq 降序。
  */
-export function buildBackfillWindows(seqsDesc: bigint[]): Array<{ start: number; end: number }> {
+export function buildBackfillWindows(
+  seqsDesc: bigint[],
+  opts: { below?: bigint | null; above?: bigint | null } = {},
+): Array<{ start: number; end: number }> {
   const windows: Array<{ start: number; end: number }> = [];
   const gaps: Array<{ start: number; end: number }> = [];
-  if (seqsDesc.length === 0) return windows;
-
-  const minSeq = seqsDesc[seqsDesc.length - 1]!;
-  // 最旧本地消息之下：1..minSeq-1（漫游覆盖边界外，靠连续空窗收尾）。
-  if (minSeq > 1n) gaps.push({ start: 1, end: Number(minSeq - 1n) });
-  for (let i = 0; i < seqsDesc.length - 1; i += 1) {
-    const newer = seqsDesc[i]!;
-    const older = seqsDesc[i + 1]!;
-    if (newer - older > 1n) gaps.push({ start: Number(older + 1n), end: Number(newer - 1n) });
+  if (seqsDesc.length === 0) {
+    // 时间窗内没有任何本地消息：锚点 (below, above) 之间整段拉取。
+    const below = opts.below ?? null;
+    const above = opts.above ?? null;
+    if (below != null && above != null && above - below > 1n) {
+      gaps.push({ start: Number(below + 1n), end: Number(above - 1n) });
+    }
+  } else {
+    const minSeq = seqsDesc[seqsDesc.length - 1]!;
+    // 最旧窗内本地消息之下：从锚点 below 之上开始（其下消息必然早于时间窗）。
+    const lo = opts.below != null ? opts.below + 1n : 1n;
+    if (minSeq > lo) gaps.push({ start: Number(lo), end: Number(minSeq - 1n) });
+    for (let i = 0; i < seqsDesc.length - 1; i += 1) {
+      const newer = seqsDesc[i]!;
+      const older = seqsDesc[i + 1]!;
+      if (newer - older > 1n) gaps.push({ start: Number(older + 1n), end: Number(newer - 1n) });
+    }
   }
   gaps.sort((a, b) => b.end - a.end);
   for (const gap of gaps) {
@@ -130,8 +165,9 @@ export async function backfillConversationMessages(
   const maxEmpty = Math.max(1, opts.maxEmptyWindows ?? DEFAULT_MAX_EMPTY_WINDOWS);
   const rateLimitMs = opts.rateLimitMs ?? DEFAULT_RATE_LIMIT_MS;
 
-  const seqsDesc = (await opts.listSeqsDesc()).filter((s) => s > 0n);
-  const windows = buildBackfillWindows(seqsDesc);
+  const win = await opts.listSeqWindow();
+  const seqsDesc = win.seqs.filter((s) => s > 0n);
+  const windows = buildBackfillWindows(seqsDesc, { below: win.below, above: win.above });
   const totalWindowSeqs = windows.reduce((sum, w) => sum + (w.end - w.start + 1), 0);
   const summary: MessageBackfillSummary = {
     fetched: 0,
