@@ -34,13 +34,17 @@ function faceUrl(name: string, fmt: 'png' | 'apng' | 'lottie', file: string): st
 export function SysEmojiExplorer(): ReactElement {
   const dialog = useAppDialog();
   const [entries, setEntries] = useState<SysEmojiEntry[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [total, setTotal] = useState<number | null>(null);
   const [preview, setPreview] = useState<SysEmojiEntry | null>(null);
   const [filling, setFilling] = useState(false);
+  // cursor / done 也存一份 ref，且随响应同步更新：IntersectionObserver 回调持有
+  // 的是旧渲染闭包，而 done 状态要等 React commit 后才翻转——闭包读到旧值会把
+  // 最后一页再拉一次（重复）。同步写 ref 把这个窗口堵死，state 仅用于渲染。
+  const cursorRef = useRef<string | null>(null);
+  const doneRef = useRef(false);
   const loadingRef = useRef(false);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
@@ -60,32 +64,37 @@ export function SysEmojiExplorer(): ReactElement {
   const missing = status ? Math.max(0, status.available - status.present) : 0;
 
   const loadMore = useCallback(async (): Promise<void> => {
-    if (loadingRef.current || done) return;
+    if (loadingRef.current || doneRef.current) return;
     loadingRef.current = true;
     setLoading(true);
     setError(null);
     try {
-      const page = await client.account.sysEmoji.listEntries.query({ limit: PAGE, cursor });
+      const page = await client.account.sysEmoji.listEntries.query({
+        limit: PAGE,
+        cursor: cursorRef.current,
+      });
       setEntries((prev) => [...prev, ...page.entries]);
       setTotal(page.total);
-      setCursor(page.nextCursor);
-      if (page.nextCursor === null) setDone(true);
+      cursorRef.current = page.nextCursor;
+      if (page.nextCursor === null) {
+        doneRef.current = true;
+        setDone(true);
+      }
     } catch (e) {
+      doneRef.current = true;
       setError(e instanceof Error ? e.message : String(e));
       setDone(true);
     } finally {
       loadingRef.current = false;
       setLoading(false);
     }
-  }, [cursor, done]);
-
-  // First page on mount. loadMore 随 cursor 变化，直接当依赖会一路翻到底，
-  // 所以只在挂载时经 ref 调一次。
-  const loadMoreRef = useRef(loadMore);
-  loadMoreRef.current = loadMore;
-  useEffect(() => {
-    void loadMoreRef.current();
   }, []);
+
+  // First page on mount (the sentinel can't fire before there's content, so
+  // prime the list here). loadMore 稳定，可作 effect 依赖。
+  useEffect(() => {
+    void loadMore();
+  }, [loadMore]);
 
   // Auto-load the next page when the sentinel scrolls into view.
   useEffect(() => {
@@ -107,10 +116,11 @@ export function SysEmojiExplorer(): ReactElement {
     try {
       const result = await client.account.sysEmoji.downloadAll.mutate();
       setEntries([]);
-      setCursor(null);
+      cursorRef.current = null;
+      doneRef.current = false;
       setDone(false);
       loadingRef.current = false;
-      await Promise.all([statusQuery.refetch(), loadMoreRef.current()]);
+      await Promise.all([statusQuery.refetch(), loadMore()]);
       dialog.success(
         '系统表情补全完成',
         `新下载 ${result.downloaded} 个，已有 ${result.skipped} 个` +
@@ -121,7 +131,7 @@ export function SysEmojiExplorer(): ReactElement {
     } finally {
       setFilling(false);
     }
-  }, [dialog, statusQuery]);
+  }, [dialog, statusQuery, loadMore]);
 
   if (error && entries.length === 0) {
     return <div className="weq-cache-grid-state is-error">{error}</div>;

@@ -141,10 +141,14 @@ export function MarketEmojiBrowserLightbox({ onClose }: { onClose: () => void })
   const [feeSel, setFeeSel] = useState<Set<MarketPackFeeType>>(new Set());
 
   const [entries, setEntries] = useState<CatalogEntry[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
+  // cursor / done 也存一份 ref，且随响应同步更新：IntersectionObserver 回调持有
+  // 旧渲染闭包，而 done 状态要等 React commit 后才翻转——闭包读到旧值会把
+  // 最后一页再拉一次（重复）。同步写 ref 堵死该窗口。
+  const cursorRef = useRef<string | null>(null);
+  const doneRef = useRef(false);
   const loadingRef = useRef(false);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
@@ -169,8 +173,9 @@ export function MarketEmojiBrowserLightbox({ onClose }: { onClose: () => void })
   useEffect(() => {
     let cancelled = false;
     loadingRef.current = false;
+    cursorRef.current = null;
+    doneRef.current = false;
     setEntries([]);
-    setCursor(null);
     setDone(false);
     setLoading(true);
     (async () => {
@@ -184,10 +189,16 @@ export function MarketEmojiBrowserLightbox({ onClose }: { onClose: () => void })
         if (cancelled) return;
         setEntries(page.entries);
         setTotal(page.total);
-        setCursor(page.nextCursor);
-        if (page.nextCursor === null) setDone(true);
+        cursorRef.current = page.nextCursor;
+        if (page.nextCursor === null) {
+          doneRef.current = true;
+          setDone(true);
+        }
       } catch {
-        if (!cancelled) setDone(true);
+        if (!cancelled) {
+          doneRef.current = true;
+          setDone(true);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -198,7 +209,7 @@ export function MarketEmojiBrowserLightbox({ onClose }: { onClose: () => void })
   }, [query, feeSel]);
 
   const loadMore = useCallback(async (): Promise<void> => {
-    if (loadingRef.current || done || cursor === null) return;
+    if (loadingRef.current || doneRef.current || cursorRef.current === null) return;
     loadingRef.current = true;
     setLoading(true);
     try {
@@ -206,19 +217,23 @@ export function MarketEmojiBrowserLightbox({ onClose }: { onClose: () => void })
         keyword: query || undefined,
         feeTypes: feeSel.size ? [...feeSel] : undefined,
         limit: PAGE,
-        cursor,
+        cursor: cursorRef.current,
       });
       setEntries((prev) => [...prev, ...page.entries]);
       setTotal(page.total);
-      setCursor(page.nextCursor);
-      if (page.nextCursor === null) setDone(true);
+      cursorRef.current = page.nextCursor;
+      if (page.nextCursor === null) {
+        doneRef.current = true;
+        setDone(true);
+      }
     } catch {
+      doneRef.current = true;
       setDone(true);
     } finally {
       loadingRef.current = false;
       setLoading(false);
     }
-  }, [cursor, done, query, feeSel]);
+  }, [query, feeSel]);
 
   // 滚动到底自动加载下一页。
   useEffect(() => {

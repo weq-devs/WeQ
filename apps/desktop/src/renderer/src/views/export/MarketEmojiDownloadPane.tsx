@@ -58,13 +58,16 @@ export function MarketEmojiDownloadPane({ onStarted }: { onStarted: () => void }
   const [query, setQuery] = useState('');
   const [feeSel, setFeeSel] = useState<Set<MarketPackFeeType>>(new Set());
 
-  // 结果 / 分页。
+  // 结果 / 分页。cursor / done 也存一份 ref，且随响应同步更新：
+  // IntersectionObserver 回调持有旧渲染闭包，而 done 状态要等 React commit 后才
+  // 翻转——闭包读到旧值会把最后一页再拉一次（重复）。同步写 ref 堵死该窗口。
   const [entries, setEntries] = useState<CatalogEntry[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const cursorRef = useRef<string | null>(null);
+  const doneRef = useRef(false);
   const loadingRef = useRef(false);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
@@ -84,8 +87,9 @@ export function MarketEmojiDownloadPane({ onStarted }: { onStarted: () => void }
   useEffect(() => {
     let cancelled = false;
     loadingRef.current = false;
+    cursorRef.current = null;
+    doneRef.current = false;
     setEntries([]);
-    setCursor(null);
     setDone(false);
     setError(null);
     setLoading(true);
@@ -100,10 +104,14 @@ export function MarketEmojiDownloadPane({ onStarted }: { onStarted: () => void }
         if (cancelled) return;
         setEntries(page.entries);
         setTotal(page.total);
-        setCursor(page.nextCursor);
-        if (page.nextCursor === null) setDone(true);
+        cursorRef.current = page.nextCursor;
+        if (page.nextCursor === null) {
+          doneRef.current = true;
+          setDone(true);
+        }
       } catch (e) {
         if (!cancelled) {
+          doneRef.current = true;
           setError(e instanceof Error ? e.message : String(e));
           setDone(true);
         }
@@ -117,7 +125,7 @@ export function MarketEmojiDownloadPane({ onStarted }: { onStarted: () => void }
   }, [query, feeSel]);
 
   const loadMore = useCallback(async (): Promise<void> => {
-    if (loadingRef.current || done || cursor === null) return;
+    if (loadingRef.current || doneRef.current || cursorRef.current === null) return;
     loadingRef.current = true;
     setLoading(true);
     try {
@@ -125,20 +133,24 @@ export function MarketEmojiDownloadPane({ onStarted }: { onStarted: () => void }
         keyword: query || undefined,
         feeTypes: feeSel.size ? [...feeSel] : undefined,
         limit: PAGE,
-        cursor,
+        cursor: cursorRef.current,
       });
       setEntries((prev) => [...prev, ...page.entries]);
       setTotal(page.total);
-      setCursor(page.nextCursor);
-      if (page.nextCursor === null) setDone(true);
+      cursorRef.current = page.nextCursor;
+      if (page.nextCursor === null) {
+        doneRef.current = true;
+        setDone(true);
+      }
     } catch (e) {
+      doneRef.current = true;
       setError(e instanceof Error ? e.message : String(e));
       setDone(true);
     } finally {
       loadingRef.current = false;
       setLoading(false);
     }
-  }, [cursor, done, query, feeSel]);
+  }, [query, feeSel]);
 
   // 滚动到底自动加载下一页。
   useEffect(() => {
