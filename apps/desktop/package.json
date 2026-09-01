@@ -23,6 +23,8 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@radix-ui/react-slot": "^1.1.1",
     "@resvg/resvg-js": "^2.6.2",
+    "@resvg/resvg-js-darwin-arm64": "2.6.2",
+    "@resvg/resvg-js-darwin-x64": "2.6.2",
     "@tanstack/react-query": "^4.44.0",
     "@trpc/client": "^10.45.4",
     "@trpc/react-query": "^10.45.4",

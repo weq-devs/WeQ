@@ -37,7 +37,11 @@ extraResources:
 asarUnpack:
   # @resvg/resvg-js loads a platform .node binding (used by the WeQ 助手 cover
   # renderer in the main process). Native addons can't be loaded from inside the
-  # asar, so unpack the resvg packages (base + per-platform binding).
+  # asar, so unpack the resvg packages (base + per-platform binding). The
+  # darwin bindings (x64 + arm64) are declared as direct deps of the desktop
+  # app and both get unpacked here; js-binding.js picks whichever matches
+  # process.arch at runtime, so the packaging no longer depends on the build
+  # runner's own architecture.
   - node_modules/@resvg/**/*
   # # The voice-transcription worker is forked as a child process (can't run from
   # # inside the asar) and loads the native sherpa-onnx binding from node_modules.

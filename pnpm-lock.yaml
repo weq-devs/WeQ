@@ -41,6 +41,12 @@ importers:
       '@resvg/resvg-js':
         specifier: ^2.6.2
         version: 2.6.2
+      '@resvg/resvg-js-darwin-arm64':
+        specifier: 2.6.2
+        version: 2.6.2
+      '@resvg/resvg-js-darwin-x64':
+        specifier: 2.6.2
+        version: 2.6.2
       '@tanstack/react-query':
         specifier: ^4.44.0
         version: 4.44.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -5413,11 +5419,9 @@ snapshots:
   '@resvg/resvg-js-android-arm64@2.6.2':
     optional: true
 
-  '@resvg/resvg-js-darwin-arm64@2.6.2':
-    optional: true
+  '@resvg/resvg-js-darwin-arm64@2.6.2': {}
 
-  '@resvg/resvg-js-darwin-x64@2.6.2':
-    optional: true
+  '@resvg/resvg-js-darwin-x64@2.6.2': {}
 
   '@resvg/resvg-js-linux-arm-gnueabihf@2.6.2':
     optional: true
