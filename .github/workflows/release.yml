@@ -278,10 +278,19 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          architecture: x64
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # 打包前先确认 Node 架构符合目标，避免再打出「arm64 壳 + x64 binding」
+      # 的坏包（v0.4.4 已踩过一次）。
+      - name: Verify Node architecture
+        run: |
+          ARCH="$(node -p process.arch)"
+          echo "node arch: $ARCH"
+          test "$ARCH" = "x64" || { echo "expected x64, got $ARCH"; exit 1; }
 
       - name: Sync version from tag
         run: node scripts/set-version.mjs ${{ github.ref_name }}
@@ -353,10 +362,24 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          # 显式指定架构：macOS arm64 runner 的默认 shell / setup-node 自带
+          # 运行时可能以 x64（Rosetta）语义报告 process.arch，导致 pnpm 只装
+          # x64 的 native binding（v0.4.4 的 mac-arm64 包缺 resvg arm64 绑定
+          # 就是这么来的）。显式传 architecture 让 setup-node 下载目标架构的
+          # Node，同时 pnpm store 的缓存 key 也会带上正确架构。
+          architecture: arm64
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # 同上：装完依赖后校验 Node 架构，并确认 arm64 binding 真的进包。
+      - name: Verify Node architecture
+        run: |
+          ARCH="$(node -p process.arch)"
+          echo "node arch: $ARCH"
+          test "$ARCH" = "arm64" || { echo "expected arm64, got $ARCH"; exit 1; }
+          test -d "apps/desktop/node_modules/@resvg/resvg-js-darwin-arm64" || { echo "missing arm64 resvg binding"; exit 1; }
 
       - name: Sync version from tag
         run: node scripts/set-version.mjs ${{ github.ref_name }}
