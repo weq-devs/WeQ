@@ -446,38 +446,43 @@ function resolveNativeLogRoot(): string {
   const override = process.env.WEQ_LOG_DIR;
   if (override) return override;
 
-  const candidates = new Set<string>();
-
-  const electronAppData = process.env.APPDATA;
-  if (electronAppData) {
-    candidates.add(join(electronAppData, 'WeQ', 'logs'));
-  }
-
-  const localAppData = process.env.LOCALAPPDATA;
-  if (localAppData) {
-    candidates.add(join(localAppData, 'WeQ', 'logs'));
-  }
-
-  // macOS: Library/Application Support (system convention; matches
-  // platform.appDataRoot()). Linux: XDG-style per-user config dir.
-  if (process.platform !== 'win32') {
-    if (process.platform === 'darwin') {
-      candidates.add(join(homedir(), 'Library', 'Application Support', 'WeQ', 'logs'));
-    } else {
-      const xdg = process.env.XDG_CONFIG_HOME || join(homedir(), '.config');
-      candidates.add(join(xdg, 'WeQ', 'logs'));
-    }
-  }
-
+  const platformRoot = defaultLogRoot();
   const cwdLogDir = join(process.cwd(), 'logs');
-  candidates.add(cwdLogDir);
 
-  for (const candidate of candidates) {
-    const parent = dirname(candidate);
-    if (existsSync(parent) || existsSync(candidate)) {
-      return candidate;
-    }
+  // Existing roots win, so dev / web trees keep their own `logs/` (the repo
+  // and dist ship one). The platform root is chosen once its data dir
+  // exists; the cwd-derived root only when the logs dir itself exists — its
+  // parent is cwd, which always exists, so checking the parent would let
+  // `/logs` win on a fresh GUI launch (cwd `/`) and fail for a normal user.
+  if (platformRoot && existsSync(dirname(platformRoot))) {
+    return platformRoot;
+  }
+  if (existsSync(cwdLogDir)) {
+    return cwdLogDir;
   }
 
-  return cwdLogDir;
+  // Fresh install: no root exists yet (the app data dir is created on first
+  // run). Use the per-OS user data root, created on demand by `mkdirSync` /
+  // nt_helper's `create_dir_all` — NOT the cwd-derived one, which would be
+  // unwritable (e.g. `/logs`) and make setLogPath fail, misreporting the
+  // whole native bundle as damaged/tampered.
+  return platformRoot ?? cwdLogDir;
+}
+
+/**
+ * Per-OS default addon log root, following the same per-user data dir
+ * convention as the candidates above (mirrors `platform.appDataRoot()`).
+ * The directory itself is created on demand (`mkdirSync` /
+ * nt_helper's `create_dir_all`), so it does not need to exist yet.
+ */
+function defaultLogRoot(): string | null {
+  if (process.platform === 'win32') {
+    const appData = process.env.APPDATA || process.env.LOCALAPPDATA;
+    return appData ? join(appData, 'WeQ', 'logs') : null;
+  }
+  if (process.platform === 'darwin') {
+    return join(homedir(), 'Library', 'Application Support', 'WeQ', 'logs');
+  }
+  const xdg = process.env.XDG_CONFIG_HOME || join(homedir(), '.config');
+  return join(xdg, 'WeQ', 'logs');
 }
