@@ -109,15 +109,19 @@ export function AvatarExplorer(): ReactElement {
 /** Paged, lazy-loading grid for one scope. Remounted (via key) on scope change. */
 function AvatarGrid({ scope }: { scope: AvatarScope }): ReactElement {
   const [entries, setEntries] = useState<AvatarEntry[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // cursor / done 也存一份 ref，且随响应同步更新：IntersectionObserver 回调持有
+  // 的是旧渲染闭包，而 done 状态要等 React commit 后才翻转——闭包读到旧值会把
+  // 最后一页再拉一次（14 → 28 重复）。同步写 ref 把这个窗口堵死，state 仅用于渲染。
+  const cursorRef = useRef<string | null>(null);
+  const doneRef = useRef(false);
   const loadingRef = useRef(false);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   const loadMore = useCallback(async (): Promise<void> => {
-    if (loadingRef.current || done) return;
+    if (loadingRef.current || doneRef.current) return;
     loadingRef.current = true;
     setLoading(true);
     setError(null);
@@ -125,27 +129,29 @@ function AvatarGrid({ scope }: { scope: AvatarScope }): ReactElement {
       const page = await client.account.avatarResource.listEntries.query({
         scope,
         limit: PAGE,
-        cursor,
+        cursor: cursorRef.current,
       });
       setEntries((prev) => [...prev, ...page.entries]);
-      setCursor(page.nextCursor);
-      if (page.nextCursor === null) setDone(true);
+      cursorRef.current = page.nextCursor;
+      if (page.nextCursor === null) {
+        doneRef.current = true;
+        setDone(true);
+      }
     } catch (e) {
+      doneRef.current = true;
       setError(e instanceof Error ? e.message : String(e));
       setDone(true); // stop the sentinel from hammering a failing scope
     } finally {
       loadingRef.current = false;
       setLoading(false);
     }
-  }, [scope, cursor, done]);
+  }, [scope]);
 
-  // First page on mount. loadMore 随 cursor 变化，直接当依赖会一路翻到底，
-  // 所以只在挂载时经 ref 调一次。
-  const loadMoreRef = useRef(loadMore);
-  loadMoreRef.current = loadMore;
+  // First page on mount (the sentinel can't fire before there's content, so
+  // prime the list here). loadMore 只依赖 scope，稳定，可作 effect 依赖。
   useEffect(() => {
-    void loadMoreRef.current();
-  }, []);
+    void loadMore();
+  }, [loadMore]);
 
   // Auto-load the next page when the sentinel scrolls into view.
   useEffect(() => {
