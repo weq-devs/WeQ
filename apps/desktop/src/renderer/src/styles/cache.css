@@ -1708,6 +1708,7 @@ html[data-theme="dark"] .weq-avpath-error {
 }
 
 .weq-cache-sysemoji-thumb {
+  position: relative;
   display: grid;
   place-items: center;
   width: 100%;
@@ -1904,6 +1905,7 @@ html[data-theme="dark"] .weq-avpath-error {
 }
 
 .weq-cache-marketemoji-thumb {
+  position: relative;
   display: grid;
   place-items: center;
   width: 100%;
@@ -2043,6 +2045,7 @@ html[data-theme="dark"] .weq-avpath-error {
 }
 
 .weq-cache-customemoji-thumb {
+  position: relative;
   display: grid;
   place-items: center;
   width: 100%;
@@ -2179,6 +2182,7 @@ html[data-theme="dark"] .weq-avpath-error {
 }
 
 .weq-related-stage {
+  position: relative;
   display: grid;
   place-items: center;
   width: 100%;

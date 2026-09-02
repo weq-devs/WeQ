@@ -4,6 +4,7 @@ import { Check, FolderOpen, Image, Loader2, X } from 'lucide-react';
 import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
 import { client } from '../../trpc/client';
 import type { GroupAlbumWire } from '../../components/GroupAlbumDialog';
+import { ShimmerImage } from '../../components/ShimmerImage';
 
 export interface AlbumExportResult {
   outputDir: string;
@@ -220,7 +221,7 @@ function AlbumCover({ album }: { album: GroupAlbumWire }): ReactElement {
   }
   return (
     <span className="weq-exp-album-cover">
-      <img
+      <ShimmerImage
         src={album.coverUrl}
         alt=""
         loading="lazy"

@@ -15,6 +15,7 @@ import { Search, Store, X, RefreshCw, Loader2, SmilePlus } from 'lucide-react';
 import type { MarketPackFeeType } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
+import { ShimmerImage } from '../../components/ShimmerImage';
 import { GridSkeleton } from './ExportSkeleton';
 
 const PAGE = 60;
@@ -95,7 +96,7 @@ function EmojiCell({
         {broken ? (
           <RefreshCw size={18} strokeWidth={1.4} className="weq-mface-lb-fallback" />
         ) : (
-          <img
+          <ShimmerImage
             src={packImageUrl(packId, hash)}
             alt={name || hash}
             loading="lazy"

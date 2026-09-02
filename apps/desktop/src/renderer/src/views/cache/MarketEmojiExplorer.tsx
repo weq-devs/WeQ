@@ -18,6 +18,7 @@ import { Sticker } from 'lucide-react';
 import type { MarketFaceEntry } from '@weq/service';
 import { client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
+import { ShimmerImage } from '../../components/ShimmerImage';
 import { BlobDialog, CURSOR_PAGE, fmtBytes, GridFooter, useCursorPaged } from './CacheShared';
 import { GridSkeleton } from './CacheSkeleton';
 
@@ -103,7 +104,7 @@ function MarketEmojiCard({
         {broken ? (
           <Sticker size={26} strokeWidth={1.4} className="weq-cache-marketemoji-fallback" />
         ) : (
-          <img
+          <ShimmerImage
             src={url}
             alt={entry.hash}
             loading="lazy"

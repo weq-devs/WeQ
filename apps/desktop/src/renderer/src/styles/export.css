@@ -490,6 +490,7 @@
 
 /* ===== 头像 ===== */
 .weq-exp-avatar {
+  position: relative;
   display: inline-grid;
   place-items: center;
   flex: none;
@@ -1073,6 +1074,7 @@
 }
 
 .weq-exp-album-cover {
+  position: relative;
   display: grid;
   width: 44px;
   height: 44px;
@@ -3362,6 +3364,7 @@ html[data-theme="dark"] .weq-exp-chip.is-active b {
 }
 
 .weq-mpd-preview-stage {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;

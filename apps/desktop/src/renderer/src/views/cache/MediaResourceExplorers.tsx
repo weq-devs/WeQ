@@ -26,6 +26,7 @@ import { client, trpc } from '../../trpc/client';
 import { localMediaUrl, localVoiceUrl } from '../../lib/resourceUrl';
 import { openLightbox } from '../../components/ImageLightbox';
 import { openVideoLightbox } from '../../components/VideoLightbox';
+import { ShimmerImage } from '../../components/ShimmerImage';
 import { CURSOR_PAGE, fmtBytes, GridFooter, useCursorPaged } from './CacheShared';
 import { GridSkeleton } from './CacheSkeleton';
 
@@ -79,7 +80,7 @@ function FlatCard({ kind, entry }: { kind: FlatKind; entry: FlatMediaEntry }): R
         className="weq-cache-avatar-thumb weq-cache-media-open"
         onClick={() => openLightbox(src, entry.name)}
       >
-        <img src={src} alt={entry.name} loading="lazy" />
+        <ShimmerImage src={src} alt={entry.name} loading="lazy" />
       </button>
       <figcaption className="weq-cache-avatar-meta">
         <span className="weq-cache-avatar-hash">{entry.name.slice(0, 10)}…</span>
@@ -163,7 +164,7 @@ function MonthCard({ kind, entry }: { kind: MonthKind; entry: MonthMediaEntry })
         disabled={!clickable}
       >
         {previewSrc ? (
-          <img src={previewSrc} alt={entry.hash} loading="lazy" />
+          <ShimmerImage src={previewSrc} alt={entry.hash} loading="lazy" />
         ) : (
           <span className="weq-cache-media-noimg">无缩略图</span>
         )}

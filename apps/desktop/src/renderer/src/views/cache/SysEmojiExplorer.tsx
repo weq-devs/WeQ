@@ -22,6 +22,7 @@ import { RefreshCw, Smile, Download } from 'lucide-react';
 import type { SysEmojiEntry } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { emojiUrl } from '../../lib/resourceUrl';
+import { ShimmerImage } from '../../components/ShimmerImage';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { BlobDialog, CURSOR_PAGE, GridFooter, useCursorPaged } from './CacheShared';
 import { GridSkeleton } from './CacheSkeleton';
@@ -146,7 +147,7 @@ function SysEmojiCard({
         {broken || !file ? (
           <Smile size={26} strokeWidth={1.4} className="weq-cache-sysemoji-fallback" />
         ) : (
-          <img
+          <ShimmerImage
             src={faceUrl(entry.name, fmt, file)}
             alt={entry.name}
             loading="lazy"
@@ -210,7 +211,7 @@ function SysEmojiLightbox({
               {p.fmt === 'lottie' ? (
                 <SysEmojiLottie src={faceUrl(entry.name, 'lottie', p.file)} label={entry.name} />
               ) : (
-                <img
+                <ShimmerImage
                   src={faceUrl(entry.name, p.fmt, p.file)}
                   alt={`${entry.name} ${p.label}`}
                   draggable={false}

@@ -1034,6 +1034,27 @@ html[data-theme="dark"] .chat-empty {
   from { background-position: -160% 0; }
   to { background-position: 260% 0; }
 }
+/* ---- 图片 shimmer 加载占位（ShimmerImage） ----
+ * 渲染在 <img> 底下；img 未就绪时可见，加载完成被 img 盖住。 */
+.weq-shimmer-block {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(90deg, #eef2f7 25%, #e2e8f0 50%, #eef2f7 75%);
+  background-size: 200% 100%;
+  animation: weq-shimmer 1.2s ease-in-out infinite;
+}
+
+html[data-theme="dark"] .weq-shimmer-block {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.06) 25%,
+    rgba(255, 255, 255, 0.12) 50%,
+    rgba(255, 255, 255, 0.06) 75%
+  );
+  background-size: 200% 100%;
+}
 @keyframes weq-float {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-5px); }
@@ -1219,6 +1240,7 @@ html[data-theme='dark'] .weq-splash-track {
 }
 
 .weq-mface-lb-stage {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;

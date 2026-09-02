@@ -26,6 +26,7 @@ import type {
 } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
+import { ShimmerImage } from '../../components/ShimmerImage';
 import { BlobDialog, CURSOR_PAGE, fmtBytes, GridFooter, useCursorPaged } from './CacheShared';
 import { GridSkeleton, InlineSkeleton } from './CacheSkeleton';
 
@@ -173,7 +174,7 @@ function CustomEmojiCard({
         {broken || !url ? (
           <span className="weq-cache-customemoji-fallback">?</span>
         ) : (
-          <img
+          <ShimmerImage
             src={url}
             alt={entry.hash}
             loading="lazy"

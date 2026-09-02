@@ -16,6 +16,7 @@ import { Image as ImageIcon } from 'lucide-react';
 import type { RelatedEmojiKeyword } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
+import { ShimmerImage } from '../../components/ShimmerImage';
 import { BlobDialog, CURSOR_PAGE, GridFooter, useCursorPaged } from './CacheShared';
 import { GridSkeleton } from './CacheSkeleton';
 
@@ -127,7 +128,7 @@ function RelatedEmojiLightbox({
       ) : (
         files.map((file) => (
           <div key={file} className="weq-related-stage">
-            <img src={relemojiUrl(entry.hash, file)} alt={file} draggable={false} />
+            <ShimmerImage src={relemojiUrl(entry.hash, file)} alt={file} draggable={false} />
           </div>
         ))
       )}

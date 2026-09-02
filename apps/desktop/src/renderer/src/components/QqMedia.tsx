@@ -19,6 +19,7 @@ import { cn } from '@renderer/lib/utils';
 import { trpc } from '@renderer/trpc/client';
 import { openLightbox } from './ImageLightbox';
 import { openMarketFaceLightbox } from './MarketFaceLightbox';
+import { ShimmerImage } from './ShimmerImage';
 import { IS_ELECTRON } from '@renderer/lib/target';
 import { cdnImageUrl, cdnVideoCoverUrl, useCdn } from '@renderer/lib/cdn';
 
@@ -304,7 +305,7 @@ export function QqVideo({
       {posterBroken ? (
         <div className="qq-media-video-noposter" />
       ) : (
-        <img
+        <ShimmerImage
           className="qq-media-video-poster"
           src={coverSrc}
           alt={name || '[视频]'}
@@ -687,7 +688,7 @@ export function QqMarketFace({ data }: { data: Data }) {
       title="商城表情 · 点击查看整组"
       onClick={() => openMarketFaceLightbox(String(pack), hash)}
     >
-      <img
+      <ShimmerImage
         className="qq-media-mface"
         src={mediaUrl('mface', { pack, hash })}
         alt="[商城表情]"

@@ -27,6 +27,7 @@ import {
 import type { MarketEmoticonPackage, MarketPackFeeType } from '@weq/service';
 import { trpc } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
+import { ShimmerImage } from '../../components/ShimmerImage';
 import { MarketKeyDialog } from './MarketKeyDialog';
 import { GridSkeleton, InfoPanelSkeleton } from './CacheSkeleton';
 
@@ -158,7 +159,7 @@ function PackCard({
     <button type="button" className="weq-mpack-card" onClick={onOpen} title={pkg.name}>
       <span className="weq-mpack-cover">
         {cover && !broken ? (
-          <img
+          <ShimmerImage
             src={packImageUrl(pkg.packId, cover)}
             alt={pkg.name}
             loading="lazy"

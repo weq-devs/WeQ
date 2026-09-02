@@ -5,6 +5,7 @@
 
 import { useState, type ReactElement, type ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
+import { ShimmerImage } from '../../components/ShimmerImage';
 
 /** Segmented control (single choice). Mirrors the relation-graph segmented. */
 export function Segmented<T extends string>({
@@ -57,7 +58,7 @@ export function Avatar({
   return (
     <span className="weq-exp-avatar" style={{ width: size, height: size }}>
       {showImg ? (
-        <img
+        <ShimmerImage
           src={url}
           alt=""
           referrerPolicy="no-referrer"

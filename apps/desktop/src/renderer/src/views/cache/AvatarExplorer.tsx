@@ -19,6 +19,7 @@ import type { AvatarEntry, AvatarScope, AvatarScopeInfo } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { AvatarPathDialog } from './AvatarPathDialog';
 import { mediaUrl } from '../../lib/resourceUrl';
+import { ShimmerImage } from '../../components/ShimmerImage';
 import { CURSOR_PAGE, fmtBytes, GridFooter, useCursorPaged } from './CacheShared';
 import { GridSkeleton, InlineSkeleton } from './CacheSkeleton';
 
@@ -138,7 +139,7 @@ function AvatarCard({ scope, entry }: { scope: AvatarScope; entry: AvatarEntry }
   return (
     <figure className="weq-cache-avatar-card" title={entry.hash}>
       <div className="weq-cache-avatar-thumb">
-        <img
+        <ShimmerImage
           src={avatarSrc(scope, entry.hash, variant)}
           alt={entry.hash}
           loading="lazy"

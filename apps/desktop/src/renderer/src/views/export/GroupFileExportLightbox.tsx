@@ -14,6 +14,7 @@ import { client } from '../../trpc/client';
 import { useToast } from '../../components/Toast';
 import { PickerListSkeleton } from './ExportSkeleton';
 import { fileIconUrl } from '../../lib/resourceUrl';
+import { ShimmerImage } from '../../components/ShimmerImage';
 import {
   fileExtIcon,
   formatFileTime,
@@ -394,7 +395,11 @@ export function GroupFileExportLightbox({
                           ])
                         }
                       >
-                        <img src={fileIconUrl('folder.png')} className="group-file-icon" alt="" />
+                        <ShimmerImage
+                          src={fileIconUrl('folder.png')}
+                          className="group-file-icon"
+                          alt=""
+                        />
                         <span className="group-file-main">
                           <strong>{folder.folderName || '未命名文件夹'}</strong>
                           <small>
@@ -437,7 +442,7 @@ export function GroupFileExportLightbox({
                       disabled={submitting}
                       onClick={() => toggleFile(file)}
                     >
-                      <img
+                      <ShimmerImage
                         src={fileIconUrl(fileExtIcon(file.fileName))}
                         className="group-file-icon"
                         alt=""

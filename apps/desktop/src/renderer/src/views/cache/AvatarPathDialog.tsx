@@ -16,6 +16,7 @@ import type { AvatarPathProbe } from '@weq/service';
 import { Modal } from '../../components/Dialog';
 import { client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
+import { ShimmerImage } from '../../components/ShimmerImage';
 
 type Kind = 'user' | 'group';
 
@@ -148,7 +149,7 @@ function ProbeResult({ probe }: { probe: AvatarPathProbe }): ReactElement {
     <div className="weq-avpath-result">
       <div className="weq-avpath-preview">
         {onDisk ? (
-          <img
+          <ShimmerImage
             src={previewSrc(probe, variant)}
             alt={probe.hash}
             onError={() => {

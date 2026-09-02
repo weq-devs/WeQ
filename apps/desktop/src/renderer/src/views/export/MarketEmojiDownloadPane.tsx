@@ -16,6 +16,7 @@ import { Search, X, Store, RefreshCw, Download, Check, Loader2 } from 'lucide-re
 import type { MarketPackFeeType } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
+import { ShimmerImage } from '../../components/ShimmerImage';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { FooterSkeleton, GridSkeleton } from './ExportSkeleton';
 
@@ -345,7 +346,7 @@ function PackCard({
       <button type="button" className="weq-mpd-card-body" onClick={onOpen} title={entry.name}>
         <span className="weq-mpd-cover">
           {cover && !broken ? (
-            <img
+            <ShimmerImage
               src={packImageUrl(entry.id, cover)}
               alt={entry.name}
               loading="lazy"
@@ -444,7 +445,7 @@ function PreviewCell({
         {broken ? (
           <RefreshCw size={16} strokeWidth={1.4} className="weq-mpd-cover-fallback" />
         ) : (
-          <img
+          <ShimmerImage
             src={packImageUrl(packId, hash)}
             alt={name || hash}
             loading="lazy"
