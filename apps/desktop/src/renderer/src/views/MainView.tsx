@@ -6,7 +6,7 @@
  * 页面外壳、会话列表和消息气泡由模板负责。
  */
 
-import {
+import React, {
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -484,11 +484,11 @@ function displayProfileName(profile?: UserProfileWire): string | null {
   return profile.remark || profile.nick || profile.qid || profile.uin || null;
 }
 
-function _genderLabel(value?: number): string | null {
-  if (value === 1) return '男';
-  if (value === 2) return '女';
-  return null;
-}
+// function _genderLabel(value?: number): string | null {
+//   if (value === 1) return '男';
+//   if (value === 2) return '女';
+//   return null;
+// }
 
 function buddyToContact(
   buddy: BuddyWire,
@@ -706,36 +706,36 @@ function groupNotifyToGroupRequest(
   };
 }
 
-function _groupRequestFromBuddyRequest(
-  request: BuddyRequestWire,
-  groupsById: Map<string, Conversation>,
-  profileByUid: Map<string, UserProfileWire>,
-) {
-  if (!request.sourceGroupCode || request.sourceGroupCode === '0') return null;
-  const groupConversation = groupsById.get(request.sourceGroupCode);
-  if (groupConversation?.type !== 'group') return null;
-  const contactRequest = buddyRequestToContactRequest(request, profileByUid);
-
-  return {
-    id: `group-request:${request.sourceGroupCode}:${request.peerUid}:${request.timestamp}`,
-    direction: contactRequest.direction,
-    status: contactRequest.status,
-    message: contactRequest.message,
-    createdAt: contactRequest.createdAt,
-    respondedAt: null,
-    group: {
-      id: groupConversation.group.id,
-      conversationId: groupConversation.id,
-      identityLabel: groupConversation.group.identityLabel,
-      identityValue: groupConversation.group.identityValue,
-      name: groupConversation.group.name,
-      avatarUrl: groupConversation.group.avatarUrl,
-      announcement: groupConversation.group.announcement,
-      memberCount: groupConversation.group.memberCount,
-    },
-    user: contactRequest.user,
-  } as const;
-}
+// function _groupRequestFromBuddyRequest(
+//   request: BuddyRequestWire,
+//   groupsById: Map<string, Conversation>,
+//   profileByUid: Map<string, UserProfileWire>,
+// ) {
+//   if (!request.sourceGroupCode || request.sourceGroupCode === '0') return null;
+//   const groupConversation = groupsById.get(request.sourceGroupCode);
+//   if (groupConversation?.type !== 'group') return null;
+//   const contactRequest = buddyRequestToContactRequest(request, profileByUid);
+//
+//   return {
+//     id: `group-request:${request.sourceGroupCode}:${request.peerUid}:${request.timestamp}`,
+//     direction: contactRequest.direction,
+//     status: contactRequest.status,
+//     message: contactRequest.message,
+//     createdAt: contactRequest.createdAt,
+//     respondedAt: null,
+//     group: {
+//       id: groupConversation.group.id,
+//       conversationId: groupConversation.id,
+//       identityLabel: groupConversation.group.identityLabel,
+//       identityValue: groupConversation.group.identityValue,
+//       name: groupConversation.group.name,
+//       avatarUrl: groupConversation.group.avatarUrl,
+//       announcement: groupConversation.group.announcement,
+//       memberCount: groupConversation.group.memberCount,
+//     },
+//     user: contactRequest.user,
+//   } as const;
+// }
 
 function levelBracketFor(level?: number): number {
   if (level === undefined) return 0;
@@ -2410,8 +2410,8 @@ export function MainView(): ReactElement {
         const kind = classifyChatType(c.chatType);
         if (kind === 'official' || kind === 'service') return false;
         // 隐藏会话：在 hidden_session_storage_table_v1 里有记录的，不出现在主列表
-        if (hiddenUidSet.has(c.targetUid)) return false;
-        return true;
+        return !hiddenUidSet.has(c.targetUid);
+
       })
       .map((contact) => contactToConversation(contact, user, groupNameByCode, botUids))
       .filter((conversation): conversation is Conversation => conversation !== null);
