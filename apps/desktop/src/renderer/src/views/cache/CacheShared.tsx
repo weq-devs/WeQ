@@ -1,11 +1,13 @@
 /**
- * Shared bits for the two 文件 browsers (File 目录 + 下载文件):
- * formatting helpers, the category-tab + search + sort toolbar, and a generic
- * offset-paged infinite-scroll hook. Both views render file cards the same way
- * the chat does (icon by extension), enriched with an inline image preview.
+ * Shared bits for the 本地资源 (cache) view: formatting helpers, the file-browser
+ * toolbar + offset-paged infinite-scroll hook, the cursor-paged infinite-scroll
+ * hook used by every emoji / avatar / media grid, the grid footer, and the
+ * generic lightbox shell. Everything here is UI plumbing the explorers would
+ * otherwise each re-implement (they used to carry five near-identical copies of
+ * the cursor hook + footer + lightbox + `fmtBytes`).
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactElement, } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import {
   Files,
   Image as ImageIcon,
@@ -20,6 +22,7 @@ import {
   ArrowDownWideNarrow,
   ArrowUpWideNarrow,
   RefreshCw,
+  X,
 } from 'lucide-react';
 import type { FileCategory, FileSortKey, FileSortOrder } from '@weq/service';
 
@@ -305,5 +308,193 @@ export function ListFooter({
   );
 }
 
-type Cn = (...parts: (string | false | null | undefined)[]) => string
+// ── cursor-paged infinite scroll (emoji / avatar / media grids) ─────────────────
+
+/** Page size for the cursor-paged grids (backend cap is 500). */
+export const CURSOR_PAGE = 120;
+
+/** One page as the backend reports it: entries + an opaque resume cursor. */
+export interface CursorPage<T> {
+  entries: T[];
+  nextCursor: string | null;
+  /** Optional total reported by the backend (header counts); absent for some kinds. */
+  total?: number;
+}
+
+export interface CursorPagedResult<T> {
+  entries: T[];
+  /** Latest `total` the backend reported, else null (no total on some kinds). */
+  total: number | null;
+  loading: boolean;
+  error: string | null;
+  done: boolean;
+  sentinelRef: React.RefObject<HTMLDivElement | null>;
+  /** Reset to page 1 and refetch (e.g. after a bulk download added entries). */
+  reload: () => Promise<void>;
+}
+
+/**
+ * Cursor-based infinite-scroll loader. `fetchPage(cursor)` pulls one page; the
+ * sentinel auto-loads the next as it scrolls into view. Not filter-aware — each
+ * grid mounts its own instance (via `key`), and `reload` imperatively restarts
+ * the walk from page 1 (dropping any in-flight page that raced it).
+ */
+export function useCursorPaged<T>(
+  fetchPage: (cursor: string | null) => Promise<CursorPage<T>>,
+): CursorPagedResult<T> {
+  const [entries, setEntries] = useState<T[]>([]);
+  const [total, setTotal] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  const cursorRef = useRef<string | null>(null);
+  const loadingRef = useRef(false);
+  const doneRef = useRef(false);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const fetchRef = useRef(fetchPage);
+  fetchRef.current = fetchPage;
+  // Bump on every reload so a late in-flight page from the old walk can't
+  // append into the reset list.
+  const genRef = useRef(0);
+
+  const loadMore = useCallback(async (): Promise<void> => {
+    if (loadingRef.current || doneRef.current) return;
+    loadingRef.current = true;
+    setLoading(true);
+    setError(null);
+    const gen = genRef.current;
+    try {
+      const page = await fetchRef.current(cursorRef.current);
+      if (gen !== genRef.current) return; // reload happened mid-flight — drop
+      setEntries((prev) => [...prev, ...page.entries]);
+      if (typeof page.total === 'number') setTotal(page.total);
+      cursorRef.current = page.nextCursor;
+      if (page.nextCursor === null) {
+        doneRef.current = true;
+        setDone(true);
+      }
+    } catch (e) {
+      if (gen !== genRef.current) return;
+      setError(e instanceof Error ? e.message : String(e));
+      // Stop the sentinel from hammering a failing kind.
+      doneRef.current = true;
+      setDone(true);
+    } finally {
+      if (gen === genRef.current) {
+        loadingRef.current = false;
+        setLoading(false);
+      }
+    }
+  }, []);
+
+  // First page on mount (the sentinel can't fire before there's content, so
+  // prime the list here). loadMore 稳定，可作 effect 依赖。
+  useEffect(() => {
+    void loadMore();
+  }, [loadMore]);
+
+  // Auto-load the next page as the sentinel scrolls into view.
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || done) return undefined;
+    const io = new IntersectionObserver(
+      (obs) => {
+        if (obs.some((o) => o.isIntersecting)) void loadMore();
+      },
+      { rootMargin: '500px' },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [loadMore, done, entries.length]);
+
+  // Imperative reset: drop everything and refetch page 1.
+  const reload = useCallback(async (): Promise<void> => {
+    genRef.current += 1;
+    cursorRef.current = null;
+    loadingRef.current = false;
+    doneRef.current = false;
+    setEntries([]);
+    setTotal(null);
+    setDone(false);
+    setError(null);
+    await loadMore();
+  }, [loadMore]);
+
+  return { entries, total, loading, error, done, sentinelRef, reload };
+}
+
+/** Footer row for a cursor-paged grid (sentinel / loading / end state). */
+export function GridFooter({
+  loading,
+  done,
+  count,
+  sentinelRef,
+}: {
+  loading: boolean;
+  done: boolean;
+  count: number;
+  sentinelRef: React.RefObject<HTMLDivElement | null>;
+}): ReactElement {
+  if (done) {
+    return (
+      <div className="weq-cache-avatar-more is-end">
+        {count === 0 ? '该分类暂无缓存' : `已全部加载（${count}）`}
+      </div>
+    );
+  }
+  return (
+    <div ref={sentinelRef} className="weq-cache-avatar-more">
+      <RefreshCw size={14} className={loading ? 'is-spin' : ''} />
+      {loading ? '加载中…' : '滚动加载更多'}
+    </div>
+  );
+}
+
+// ── lightbox shell (blob overlay/dialog) ───────────────────────────────────────
+
+/**
+ * The generic `weq-blob-*` lightbox shell every resource lightbox shares:
+ * dimmed overlay + centered dialog with a title/meta header and a close button.
+ * Clicking the overlay closes it; clicks inside the dialog don't bubble out.
+ * `dialogClass` / `bodyClass` carry each lightbox's specific sizing/grid styles.
+ */
+export function BlobDialog({
+  dialogClass,
+  bodyClass,
+  title,
+  meta,
+  onClose,
+  children,
+}: {
+  dialogClass?: string;
+  bodyClass?: string;
+  title: string;
+  meta: string;
+  onClose: () => void;
+  children: ReactNode;
+}): ReactElement {
+  return (
+    <div className="weq-blob-overlay" role="presentation" onMouseDown={onClose}>
+      <div
+        className={cn('weq-blob-dialog', dialogClass)}
+        role="dialog"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <header className="weq-blob-head">
+          <div className="weq-blob-title">
+            <h3>{title}</h3>
+            <code>{meta}</code>
+          </div>
+          <button type="button" className="weq-blob-close" onClick={onClose} title="关闭">
+            <X size={18} />
+          </button>
+        </header>
+        <div className={cn('weq-blob-body', bodyClass)}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+type Cn = (...parts: (string | false | null | undefined)[]) => string;
 export const cn: Cn = (...parts) => parts.filter(Boolean).join(' ');

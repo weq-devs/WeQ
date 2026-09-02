@@ -82,7 +82,8 @@ export function dressUrl(src: string): string {
 }
 
 /**
- * 已安装的装扮字体 ttf。清单里记着绝对路径,主进程按 itemId 查(见 dress_install)。
+ * 已安装的装扮字体 ttf。清单里记着绝对路径,主进程按 itemId 查(见服务侧
+ * DressService.fontFile)。
  * 走 weq-media 而不是 weq-asset —— 后者只服务仓库的 resources/ 树,读不了账号缓存目录。
  */
 export function dressFontUrl(itemId: number): string {
@@ -109,7 +110,7 @@ export function dressBubbleFrameUrl(itemId: number, frame: number): string {
 
 /**
  * 头像挂件动画的某一帧(`frame` 从 1 开始)。与 {@link dressBubbleFrameUrl} 同构,
- * 只是资源来自 other.zip → aio_file.zip(见 dress_install.ts 的
+ * 只是资源来自 other.zip → aio_file.zip(见服务侧 DressService 的
  * resolvePendantAnimation)。没有不带 frame 的静态变体 —— 挂件不设中间兜底。
  */
 export function dressPendantFrameUrl(itemId: number, frame: number): string {
@@ -161,7 +162,9 @@ export function redbagSkinUrl(skinId: string): string {
   return mediaUrl('redbag', { id: skinId });
 }
 
-/** Preview a local file under `nt_data/File/Ori` by absolute path (image thumbnails). */export function localFileUrl(absPath: string): string {
+/** Preview a local file under `nt_data/File/Ori` by absolute path (image thumbnails). */ export function localFileUrl(
+  absPath: string,
+): string {
   return mediaUrl('localfile', { path: absPath });
 }
 

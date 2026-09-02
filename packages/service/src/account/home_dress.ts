@@ -16,7 +16,7 @@
  * 关于 bubbleId / fontId：
  *   - 只存 itemId，不存 url。气泡的九宫格资源外链纯 itemId 可预测
  *     (immersive/bubble/<itemId>/static-*.png)，渲染侧自己拼；字体得走 protocol
- *     换下载链（见 dress_install），两者都不需要在这里落 url。
+ *     换下载链，两者都不需要在这里落 url。
  *   - 界面字体(305) 混在 apps["5"] 桶里返回，这里只要聊天字体(5)，故按项内 appId 取。
  *
  * 关于 chatBgUrl（聊天背景，appId 8）：

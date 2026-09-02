@@ -4,7 +4,7 @@
  * 这是 {@link DressConfigService} 和 {@link DressSharedCache} 的门面（Facade），
  * 对外提供统一的装扮操作接口，内部协调配置写入和资源下载。
  *
- * 替代旧的 {@link DressInstallService}，但接口尽量兼容以减少迁移成本。
+ * 历史上的旧实现 {@link DressInstallService} 已删除，接口保持兼容。
  */
 
 import type { BubbleSkin } from './bubble_skin';

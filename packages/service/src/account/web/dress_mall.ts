@@ -113,7 +113,7 @@ interface RawResponse {
  * 与 itemId 无关,也不是 md5/sha1/sha256/crc32 对 itemId / 名称 / 各字段组合的任何切片
  * —— 应是服务端的内容摘要或版本 nonce,**推不出来**。静态排行 20 款里 12 款是新式路径,
  * 按 itemId 拼一律 404。所以气泡外链必须由本字段提供(商城路径),或走 protocol 换取
- * (只有 itemId 时,见 dress_install)。
+ * (只有 itemId 时,见 dress_shared_cache 的安装路径)。
  *
  * 顺带:`zoomPointX/Y` 就是九宫格拉伸点,拿到它就不必再下载左上角切片去量尺寸了。
  */

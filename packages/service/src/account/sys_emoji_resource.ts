@@ -28,6 +28,7 @@ import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
+import { pageByIndex } from './resource_paging';
 
 /** Which render formats a face directory exposes. */
 export type SysEmojiFormat = 'png' | 'apng' | 'lottie';
@@ -56,9 +57,6 @@ export interface SysEmojiPage {
   /** Total face directories in the set (handy for a header count). */
   total: number;
 }
-
-const DEFAULT_PAGE = 120;
-const MAX_PAGE = 500;
 
 export class SysEmojiResourceService {
   /** Cached, sorted list of face directory names (the set changes rarely). */
@@ -110,25 +108,13 @@ export class SysEmojiResourceService {
    * index to read, so paging is stable and resumable. Each entry probes its own
    * png/apng/lottie sub-dirs (in parallel) for the present formats.
    */
-  async listEntries(
-    opts: { limit?: number; cursor?: string | null } = {},
-  ): Promise<SysEmojiPage> {
+  async listEntries(opts: { limit?: number; cursor?: string | null } = {}): Promise<SysEmojiPage> {
     const roots = this.roots();
     if (roots.length === 0) return { entries: [], nextCursor: null, total: 0 };
     const names = await this.faceNames();
-    const total = names.length;
-
-    const cap = clampInt(opts.limit ?? DEFAULT_PAGE, 1, MAX_PAGE);
-    const start = Math.max(0, Number(opts.cursor ?? 0) || 0);
-    const slice = names.slice(start, start + cap);
-
+    const { entries: slice, nextCursor, total } = pageByIndex(names, opts);
     const entries = await Promise.all(slice.map((name) => this.probe(roots, name)));
-    const nextIndex = start + slice.length;
-    return {
-      entries,
-      nextCursor: nextIndex < total ? String(nextIndex) : null,
-      total,
-    };
+    return { entries, nextCursor, total };
   }
 
   /** Forget the cached directory listing (after a bulk download adds faces). */
@@ -205,9 +191,4 @@ function compareFaceNames(a: string, b: string): number {
   if (na) return -1;
   if (nb) return 1;
   return a.localeCompare(b);
-}
-
-function clampInt(n: number, lo: number, hi: number): number {
-  const x = Math.floor(Number.isFinite(n) ? n : lo);
-  return Math.min(hi, Math.max(lo, x));
 }

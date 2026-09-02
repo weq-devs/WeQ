@@ -13,32 +13,19 @@
  * Image bytes never cross tRPC — the `<img>` points at `weq-media://avatar`.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { Users, UsersRound, Image as ImageIcon, RefreshCw, Calculator } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
+import { Users, UsersRound, Image as ImageIcon, Calculator } from 'lucide-react';
 import type { AvatarEntry, AvatarScope, AvatarScopeInfo } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { AvatarPathDialog } from './AvatarPathDialog';
 import { mediaUrl } from '../../lib/resourceUrl';
-
-const PAGE = 120;
+import { CURSOR_PAGE, fmtBytes, GridFooter, useCursorPaged } from './CacheShared';
 
 const SCOPE_META: Record<AvatarScope, { label: string; icon: ReactElement }> = {
   user: { label: '好友头像', icon: <Users size={14} /> },
   group: { label: '群头像', icon: <UsersRound size={14} /> },
   cover: { label: '封面', icon: <ImageIcon size={14} /> },
 };
-
-function fmtBytes(bytes: number): string {
-  if (!bytes) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let n = bytes;
-  let i = 0;
-  while (n >= 1024 && i < units.length - 1) {
-    n /= 1024;
-    i += 1;
-  }
-  return `${n.toFixed(n >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
-}
 
 /** weq-media URL for one avatar file. */
 function avatarSrc(scope: AvatarScope, hash: string, variant: 'big' | 'small'): string {
@@ -48,7 +35,7 @@ function avatarSrc(scope: AvatarScope, hash: string, variant: 'big' | 'small'): 
 export function AvatarExplorer(): ReactElement {
   const scopes = trpc.account.avatarResource.listScopes.useQuery();
   const scopeList = useMemo<AvatarScopeInfo[]>(
-    () => ((scopes.data ?? []) as AvatarScopeInfo[]),
+    () => (scopes.data ?? []) as AvatarScopeInfo[],
     [scopes.data],
   );
   // Scopes that actually exist on disk (hide empty ones, but always keep at
@@ -108,64 +95,12 @@ export function AvatarExplorer(): ReactElement {
 
 /** Paged, lazy-loading grid for one scope. Remounted (via key) on scope change. */
 function AvatarGrid({ scope }: { scope: AvatarScope }): ReactElement {
-  const [entries, setEntries] = useState<AvatarEntry[]>([]);
-  const [done, setDone] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // cursor / done 也存一份 ref，且随响应同步更新：IntersectionObserver 回调持有
-  // 的是旧渲染闭包，而 done 状态要等 React commit 后才翻转——闭包读到旧值会把
-  // 最后一页再拉一次（14 → 28 重复）。同步写 ref 把这个窗口堵死，state 仅用于渲染。
-  const cursorRef = useRef<string | null>(null);
-  const doneRef = useRef(false);
-  const loadingRef = useRef(false);
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
-
-  const loadMore = useCallback(async (): Promise<void> => {
-    if (loadingRef.current || doneRef.current) return;
-    loadingRef.current = true;
-    setLoading(true);
-    setError(null);
-    try {
-      const page = await client.account.avatarResource.listEntries.query({
-        scope,
-        limit: PAGE,
-        cursor: cursorRef.current,
-      });
-      setEntries((prev) => [...prev, ...page.entries]);
-      cursorRef.current = page.nextCursor;
-      if (page.nextCursor === null) {
-        doneRef.current = true;
-        setDone(true);
-      }
-    } catch (e) {
-      doneRef.current = true;
-      setError(e instanceof Error ? e.message : String(e));
-      setDone(true); // stop the sentinel from hammering a failing scope
-    } finally {
-      loadingRef.current = false;
-      setLoading(false);
-    }
-  }, [scope]);
-
-  // First page on mount (the sentinel can't fire before there's content, so
-  // prime the list here). loadMore 只依赖 scope，稳定，可作 effect 依赖。
-  useEffect(() => {
-    void loadMore();
-  }, [loadMore]);
-
-  // Auto-load the next page when the sentinel scrolls into view.
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el || done) return undefined;
-    const io = new IntersectionObserver(
-      (obs) => {
-        if (obs.some((o) => o.isIntersecting)) void loadMore();
-      },
-      { rootMargin: '400px' },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [loadMore, done]);
+  const fetchPage = useCallback(
+    (cursor: string | null) =>
+      client.account.avatarResource.listEntries.query({ scope, limit: CURSOR_PAGE, cursor }),
+    [scope],
+  );
+  const { entries, loading, error, done, sentinelRef } = useCursorPaged<AvatarEntry>(fetchPage);
 
   if (error && entries.length === 0) {
     return <div className="weq-cache-grid-state is-error">{error}</div>;
@@ -181,26 +116,13 @@ function AvatarGrid({ scope }: { scope: AvatarScope }): ReactElement {
           <AvatarCard key={`${entry.bucket}:${entry.hash}`} scope={scope} entry={entry} />
         ))}
       </div>
-      {!done ? (
-        <div ref={sentinelRef} className="weq-cache-avatar-more">
-          <RefreshCw size={14} className={loading ? 'is-spin' : ''} />
-          {loading ? '加载中…' : '滚动加载更多'}
-        </div>
-      ) : (
-        <div className="weq-cache-avatar-more is-end">已全部加载（{entries.length}）</div>
-      )}
+      <GridFooter loading={loading} done={done} count={entries.length} sentinelRef={sentinelRef} />
     </div>
   );
 }
 
 /** One merged avatar: prefers the big image, labels its source. */
-function AvatarCard({
-  scope,
-  entry,
-}: {
-  scope: AvatarScope;
-  entry: AvatarEntry;
-}): ReactElement {
+function AvatarCard({ scope, entry }: { scope: AvatarScope; entry: AvatarEntry }): ReactElement {
   // Prefer the big original; if it's missing or fails, fall back to the thumb.
   const [variant, setVariant] = useState<'big' | 'small'>(entry.hasBig ? 'big' : 'small');
 

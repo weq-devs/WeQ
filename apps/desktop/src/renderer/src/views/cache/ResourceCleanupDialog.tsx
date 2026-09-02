@@ -15,7 +15,15 @@
  * user's own downloaded files.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import { createPortal } from 'react-dom';
 import {
   X,
@@ -39,7 +47,7 @@ import {
 } from 'lucide-react';
 import type { CleanupTargetStat, CleanupVariant, CleanupResult } from '@weq/service';
 import { client, trpc } from '../../trpc/client';
-import { fmtBytes } from './FileResourceShared';
+import { fmtBytes } from './CacheShared';
 
 /** One deletion instruction (target + how much). */
 interface Instruction {
@@ -70,7 +78,8 @@ const PRESETS: Preset[] = [
     icon: <ShieldCheck size={20} />,
     desc: '清理头像、商城表情、图片墙、QQ空间、关联表情等完全可再生的缓存，QQ 会在需要时自动重新下载。',
     danger: false,
-    build: (targets) => targets.filter((t) => t.tier === 'safe').map((t) => ({ id: t.id, variant: 'all' })),
+    build: (targets) =>
+      targets.filter((t) => t.tier === 'safe').map((t) => ({ id: t.id, variant: 'all' })),
   },
   {
     id: 'ori',
@@ -80,7 +89,11 @@ const PRESETS: Preset[] = [
     danger: true,
     build: (targets) =>
       targets
-        .filter((t) => VARIANT_TARGET_IDS.includes(t.id as (typeof VARIANT_TARGET_IDS)[number]) && t.ori.files > 0)
+        .filter(
+          (t) =>
+            VARIANT_TARGET_IDS.includes(t.id as (typeof VARIANT_TARGET_IDS)[number]) &&
+            t.ori.files > 0,
+        )
         .map((t) => ({ id: t.id, variant: 'ori' })),
   },
   {
@@ -91,7 +104,11 @@ const PRESETS: Preset[] = [
     danger: false,
     build: (targets) =>
       targets
-        .filter((t) => VARIANT_TARGET_IDS.includes(t.id as (typeof VARIANT_TARGET_IDS)[number]) && t.thumb.files > 0)
+        .filter(
+          (t) =>
+            VARIANT_TARGET_IDS.includes(t.id as (typeof VARIANT_TARGET_IDS)[number]) &&
+            t.thumb.files > 0,
+        )
         .map((t) => ({ id: t.id, variant: 'thumb' })),
   },
   {
@@ -147,7 +164,11 @@ function estimateBytes(targets: CleanupTargetStat[], instructions: Instruction[]
   return total;
 }
 
-const VARIANT_LABEL: Record<CleanupVariant, string> = { all: '全部', ori: '仅原图', thumb: '仅缩略' };
+const VARIANT_LABEL: Record<CleanupVariant, string> = {
+  all: '全部',
+  ori: '仅原图',
+  thumb: '仅缩略',
+};
 
 export function ResourceCleanupDialog({
   open,
@@ -163,7 +184,9 @@ export function ResourceCleanupDialog({
 
   // pick → confirm → running → done
   const [stage, setStage] = useState<'pick' | 'confirm' | 'running' | 'done'>('pick');
-  const [chosen, setChosen] = useState<{ preset: Preset; instructions: Instruction[] } | null>(null);
+  const [chosen, setChosen] = useState<{ preset: Preset; instructions: Instruction[] } | null>(
+    null,
+  );
   const [customMode, setCustomMode] = useState(false);
   const [customSel, setCustomSel] = useState<Record<string, CleanupVariant>>({});
   const [phrase, setPhrase] = useState('');
@@ -236,7 +259,9 @@ export function ResourceCleanupDialog({
   };
 
   const pickCustom = (): void => {
-    const anyCaution = customInstructions.some((ins) => targets.find((t) => t.id === ins.id)?.tier === 'caution');
+    const anyCaution = customInstructions.some(
+      (ins) => targets.find((t) => t.id === ins.id)?.tier === 'caution',
+    );
     const preset: Preset = {
       id: 'custom',
       label: '自定义清理',
@@ -254,7 +279,9 @@ export function ResourceCleanupDialog({
     if (!chosen) return;
     setStage('running');
     try {
-      const res = await client.account.resourceCleanup.cleanup.mutate({ instructions: chosen.instructions });
+      const res = await client.account.resourceCleanup.cleanup.mutate({
+        instructions: chosen.instructions,
+      });
       setResult(res);
       setStage('done');
       // Every browser + 整体分析 reads these trees — force a rescan on next open.
@@ -285,7 +312,10 @@ export function ResourceCleanupDialog({
         if (stage !== 'running') onClose();
       }}
     >
-      <div className="weq-ra-dialog weq-clean-dialog weq-anim-pop" onMouseDown={(e) => e.stopPropagation()}>
+      <div
+        className="weq-ra-dialog weq-clean-dialog weq-anim-pop"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <header className="weq-ra-head">
           <div className="weq-ra-head-title">
             <Trash2 size={18} />
@@ -415,23 +445,32 @@ function PickStage({
             const on = sel !== undefined;
             const disabled = !t.present || t.files === 0;
             return (
-              <div key={t.id} className={`weq-clean-target${on ? ' is-on' : ''}${disabled ? ' is-disabled' : ''}`}>
+              <div
+                key={t.id}
+                className={`weq-clean-target${on ? ' is-on' : ''}${disabled ? ' is-disabled' : ''}`}
+              >
                 <button
                   type="button"
                   className="weq-clean-target-main"
                   onClick={() => !disabled && onToggleCustom(t)}
                   disabled={disabled}
                 >
-                  <span className={`weq-clean-check${on ? ' is-on' : ''}`}>{on ? <CheckCircle2 size={16} /> : null}</span>
+                  <span className={`weq-clean-check${on ? ' is-on' : ''}`}>
+                    {on ? <CheckCircle2 size={16} /> : null}
+                  </span>
                   <span className="weq-clean-target-icon">{TARGET_ICONS[t.id]}</span>
                   <span className="weq-clean-target-text">
                     <strong>
                       {t.label}
-                      <em className={`weq-clean-tier is-${t.tier}`}>{t.tier === 'safe' ? '可再生' : '谨慎'}</em>
+                      <em className={`weq-clean-tier is-${t.tier}`}>
+                        {t.tier === 'safe' ? '可再生' : '谨慎'}
+                      </em>
                     </strong>
                     <small>{t.desc}</small>
                   </span>
-                  <span className="weq-clean-target-size">{disabled ? '空' : fmtBytes(t.bytes)}</span>
+                  <span className="weq-clean-target-size">
+                    {disabled ? '空' : fmtBytes(t.bytes)}
+                  </span>
                 </button>
                 {on && t.hasVariants ? (
                   <div className="weq-clean-variants">
@@ -444,7 +483,11 @@ function PickStage({
                       >
                         {VARIANT_LABEL[v]}
                         <i>
-                          {v === 'all' ? fmtBytes(t.bytes) : v === 'ori' ? fmtBytes(t.ori.bytes) : fmtBytes(t.thumb.bytes)}
+                          {v === 'all'
+                            ? fmtBytes(t.bytes)
+                            : v === 'ori'
+                              ? fmtBytes(t.ori.bytes)
+                              : fmtBytes(t.thumb.bytes)}
                         </i>
                       </button>
                     ))}
@@ -456,9 +499,15 @@ function PickStage({
         </div>
         <div className="weq-clean-custom-foot">
           <span>
-            已选 <strong>{customInstructions.length}</strong> 项 · 预计释放 <strong>{fmtBytes(selBytes)}</strong>
+            已选 <strong>{customInstructions.length}</strong> 项 · 预计释放{' '}
+            <strong>{fmtBytes(selBytes)}</strong>
           </span>
-          <button type="button" className="weq-clean-go is-danger" disabled={!anySel} onClick={onConfirmCustom}>
+          <button
+            type="button"
+            className="weq-clean-go is-danger"
+            disabled={!anySel}
+            onClick={onConfirmCustom}
+          >
             <Trash2 size={15} /> 清理所选
           </button>
         </div>
@@ -486,7 +535,13 @@ function PickStage({
               <small>{p.desc}</small>
             </span>
             <span className="weq-clean-mode-size">
-              {loading ? <Loader2 size={13} className="weq-spin" /> : empty ? '无可清理' : `约 ${fmtBytes(bytes)}`}
+              {loading ? (
+                <Loader2 size={13} className="weq-spin" />
+              ) : empty ? (
+                '无可清理'
+              ) : (
+                `约 ${fmtBytes(bytes)}`
+              )}
             </span>
           </button>
         );
@@ -531,7 +586,9 @@ function ConfirmStage({
       const t = targets.find((x) => x.id === ins.id);
       return t ? { t, variant: ins.variant, bytes: instructionBytes(t, ins.variant) } : null;
     })
-    .filter((r): r is { t: CleanupTargetStat; variant: CleanupVariant; bytes: number } => r !== null)
+    .filter(
+      (r): r is { t: CleanupTargetStat; variant: CleanupVariant; bytes: number } => r !== null,
+    )
     .sort((a, b) => b.bytes - a.bytes);
 
   const phraseOk = !preset.extreme || phrase.trim() === CONFIRM_PHRASE;
@@ -544,7 +601,9 @@ function ConfirmStage({
       </button>
 
       <div className={`weq-clean-summary${preset.danger ? ' is-danger' : ''}`}>
-        <span className="weq-clean-summary-icon">{preset.danger ? <AlertTriangle size={20} /> : <ShieldCheck size={20} />}</span>
+        <span className="weq-clean-summary-icon">
+          {preset.danger ? <AlertTriangle size={20} /> : <ShieldCheck size={20} />}
+        </span>
         <div>
           <strong>{preset.label}</strong>
           <p>{preset.desc}</p>
@@ -563,7 +622,9 @@ function ConfirmStage({
             <div className="weq-clean-review-row" key={`${t.id}:${variant}`}>
               <span className="weq-clean-target-icon">{TARGET_ICONS[t.id]}</span>
               <span className="weq-clean-review-label">{t.label}</span>
-              {t.hasVariants ? <em className="weq-clean-review-variant">{VARIANT_LABEL[variant]}</em> : null}
+              {t.hasVariants ? (
+                <em className="weq-clean-review-variant">{VARIANT_LABEL[variant]}</em>
+              ) : null}
               <span className="weq-clean-review-size">{fmtBytes(b)}</span>
             </div>
           ))}
@@ -573,7 +634,8 @@ function ConfirmStage({
       {preset.extreme ? (
         <label className="weq-clean-phrase">
           <span>
-            这是危险操作，将删除聊天图片 / 视频 / 语音等不可再生内容。请输入 <b>{CONFIRM_PHRASE}</b> 以确认：
+            这是危险操作，将删除聊天图片 / 视频 / 语音等不可再生内容。请输入 <b>{CONFIRM_PHRASE}</b>{' '}
+            以确认：
           </span>
           <input
             type="text"

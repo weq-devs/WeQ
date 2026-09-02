@@ -328,7 +328,7 @@ function fontRules(font: FontSkinCss, scope: DressScope): string {
   ].join('\n');
 }
 
-/** `@font-face` 的 family 名 —— 与 service 侧 dress_install 的约定必须一致。 */
+/** `@font-face` 的 family 名 —— 与 service 侧 dress_shared_cache.fontFamilyFor 的约定必须一致。 */
 function fontFamilyFor(itemId: number): string {
   return `weq-dress-${itemId}`;
 }

@@ -22,7 +22,6 @@
   },
   "dependencies": {
     "@protobuf-ts/runtime": "^2.11.1",
-    "better-sqlite3": "^12.10.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {

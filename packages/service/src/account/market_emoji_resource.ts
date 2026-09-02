@@ -16,6 +16,7 @@ import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
+import { pageByIndex } from './resource_paging';
 
 /** One market-face sticker (may have multiple formats: gif + png). */
 export interface MarketFaceEntry {
@@ -41,9 +42,6 @@ export interface MarketFacePage {
   /** Total sticker files in the set (handy for a header count). */
   total: number;
 }
-
-const DEFAULT_PAGE = 120;
-const MAX_PAGE = 500;
 
 export class MarketEmojiResourceService {
   /** Cached, sorted list of all sticker entries (heavy, so we compute once). */
@@ -100,7 +98,10 @@ export class MarketEmojiResourceService {
     );
 
     // One hash may have both a GIF (encrypted) and a PNG (plaintext).
-    const byHash = new Map<string, { itemId: string; hash: string; gifSize: number; pngSize: number }>();
+    const byHash = new Map<
+      string,
+      { itemId: string; hash: string; gifSize: number; pngSize: number }
+    >();
     for (const records of perItem) {
       for (const rec of records) {
         if (!rec) continue;
@@ -157,19 +158,7 @@ export class MarketEmojiResourceService {
   async listEntries(
     opts: { limit?: number; cursor?: string | null } = {},
   ): Promise<MarketFacePage> {
-    const entries = await this.listAll();
-    const total = entries.length;
-
-    const cap = clampInt(opts.limit ?? DEFAULT_PAGE, 1, MAX_PAGE);
-    const start = Math.max(0, Number(opts.cursor ?? 0) || 0);
-    const slice = entries.slice(start, start + cap);
-
-    const nextIndex = start + slice.length;
-    return {
-      entries: slice,
-      nextCursor: nextIndex < total ? String(nextIndex) : null,
-      total,
-    };
+    return pageByIndex(await this.listAll(), opts);
   }
 }
 
@@ -185,9 +174,4 @@ function stripPngSuffix(file: string): string {
   const lower = file.toLowerCase();
   if (lower.endsWith('_aio.png') || lower.endsWith('_thu.png')) return file.slice(0, -8);
   return file.slice(0, -4); // trailing ".png"
-}
-
-function clampInt(n: number, lo: number, hi: number): number {
-  const x = Math.floor(Number.isFinite(n) ? n : lo);
-  return Math.min(hi, Math.max(lo, x));
 }

@@ -16,8 +16,8 @@
  * Image bytes never cross tRPC — the `<img>` points at `weq-media://cemoji`.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { Search, Star, RefreshCw, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
+import { Search, Star } from 'lucide-react';
 import type {
   CustomEmojiEntry,
   CustomEmojiScope,
@@ -26,25 +26,12 @@ import type {
 } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
-
-const PAGE = 120;
+import { BlobDialog, CURSOR_PAGE, fmtBytes, GridFooter, useCursorPaged } from './CacheShared';
 
 const SCOPE_META: Record<CustomEmojiScope, { label: string; icon: ReactElement }> = {
   recv: { label: '收到的表情', icon: <Search size={14} /> },
   personal: { label: '我的表情', icon: <Star size={14} /> },
 };
-
-function fmtBytes(bytes: number): string {
-  if (!bytes) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let n = bytes;
-  let i = 0;
-  while (n >= 1024 && i < units.length - 1) {
-    n /= 1024;
-    i += 1;
-  }
-  return `${n.toFixed(n >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
-}
 
 /** weq-media URL for one custom-emoji file, or null when that variant is absent. */
 function cemojiSrc(
@@ -67,7 +54,7 @@ function cemojiSrc(
 export function CustomEmojiExplorer(): ReactElement {
   const scopes = trpc.account.customEmoji.listScopes.useQuery();
   const scopeList = useMemo<CustomEmojiScopeInfo[]>(
-    () => ((scopes.data ?? []) as CustomEmojiScopeInfo[]),
+    () => (scopes.data ?? []) as CustomEmojiScopeInfo[],
     [scopes.data],
   );
   // Scopes that actually exist on disk (hide empty ones, but keep `recv` as a
@@ -116,65 +103,14 @@ export function CustomEmojiExplorer(): ReactElement {
 
 /** Paged, lazy-loading grid for one scope. Remounted (via key) on scope change. */
 function CustomEmojiGrid({ scope }: { scope: CustomEmojiScope }): ReactElement {
-  const [entries, setEntries] = useState<CustomEmojiEntry[]>([]);
-  const [done, setDone] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<CustomEmojiEntry | null>(null);
-  // cursor / done 也存一份 ref，且随响应同步更新：IntersectionObserver 回调持有
-  // 的是旧渲染闭包，而 done 状态要等 React commit 后才翻转——闭包读到旧值会把
-  // 最后一页再拉一次（重复）。同步写 ref 把这个窗口堵死，state 仅用于渲染。
-  const cursorRef = useRef<string | null>(null);
-  const doneRef = useRef(false);
-  const loadingRef = useRef(false);
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
-
-  const loadMore = useCallback(async (): Promise<void> => {
-    if (loadingRef.current || doneRef.current) return;
-    loadingRef.current = true;
-    setLoading(true);
-    setError(null);
-    try {
-      const page = await client.account.customEmoji.listEntries.query({
-        scope,
-        limit: PAGE,
-        cursor: cursorRef.current,
-      });
-      setEntries((prev) => [...prev, ...page.entries]);
-      cursorRef.current = page.nextCursor;
-      if (page.nextCursor === null) {
-        doneRef.current = true;
-        setDone(true);
-      }
-    } catch (e) {
-      doneRef.current = true;
-      setError(e instanceof Error ? e.message : String(e));
-      setDone(true); // stop the sentinel from hammering a failing scope
-    } finally {
-      loadingRef.current = false;
-      setLoading(false);
-    }
-  }, [scope]);
-
-  // First page on mount (the sentinel can't fire before there's content, so
-  // prime the list here). loadMore 只依赖 scope，稳定，可作 effect 依赖。
-  useEffect(() => {
-    void loadMore();
-  }, [loadMore]);
-
-  // Auto-load the next page when the sentinel scrolls into view.
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el || done) return undefined;
-    const io = new IntersectionObserver(
-      (obs) => {
-        if (obs.some((o) => o.isIntersecting)) void loadMore();
-      },
-      { rootMargin: '400px' },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [loadMore, done]);
+  const fetchPage = useCallback(
+    (cursor: string | null) =>
+      client.account.customEmoji.listEntries.query({ scope, limit: CURSOR_PAGE, cursor }),
+    [scope],
+  );
+  const { entries, loading, error, done, sentinelRef } =
+    useCursorPaged<CustomEmojiEntry>(fetchPage);
 
   if (error && entries.length === 0) {
     return <div className="weq-cache-grid-state is-error">{error}</div>;
@@ -195,14 +131,7 @@ function CustomEmojiGrid({ scope }: { scope: CustomEmojiScope }): ReactElement {
           />
         ))}
       </div>
-      {!done ? (
-        <div ref={sentinelRef} className="weq-cache-avatar-more">
-          <RefreshCw size={14} className={loading ? 'is-spin' : ''} />
-          {loading ? '加载中…' : '滚动加载更多'}
-        </div>
-      ) : (
-        <div className="weq-cache-avatar-more is-end">已全部加载（{entries.length}）</div>
-      )}
+      <GridFooter loading={loading} done={done} count={entries.length} sentinelRef={sentinelRef} />
 
       {preview ? (
         <CustomEmojiLightbox scope={scope} entry={preview} onClose={() => setPreview(null)} />
@@ -286,48 +215,33 @@ function CustomEmojiLightbox({
   }
 
   return (
-    <div className="weq-blob-overlay" role="presentation" onMouseDown={onClose}>
-      <div
-        className="weq-blob-dialog weq-marketemoji-dialog"
-        role="dialog"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <header className="weq-blob-head">
-          <div className="weq-blob-title">
-            <h3>自定义表情 · {entry.hash.slice(0, 12)}</h3>
-            <code>
-              {entry.bucket ? `${entry.bucket} · ` : ''}
-              {panels.length} 个文件
-            </code>
-          </div>
-          <button type="button" className="weq-blob-close" onClick={onClose} title="关闭">
-            <X size={18} />
-          </button>
-        </header>
-
-        <div className="weq-blob-body weq-marketemoji-panels">
-          {panels.length === 0 ? (
-            <div className="weq-cache-grid-state">该表情无可渲染的资源</div>
-          ) : (
-            panels.map((p) => (
-              <figure key={p.variant} className="weq-marketemoji-panel">
-                <div className="weq-marketemoji-stage">
-                  <img
-                    src={cemojiSrc(scope, entry, p.variant) ?? undefined}
-                    alt={`${entry.hash} ${p.label}`}
-                    draggable={false}
-                  />
-                </div>
-                <figcaption className="weq-marketemoji-panel-cap">
-                  <strong>{p.label}</strong>
-                  <span>{fmtBytes(p.size)}</span>
-                </figcaption>
-              </figure>
-            ))
-          )}
-        </div>
-      </div>
-    </div>
+    <BlobDialog
+      dialogClass="weq-marketemoji-dialog"
+      bodyClass="weq-marketemoji-panels"
+      title={`自定义表情 · ${entry.hash.slice(0, 12)}`}
+      meta={`${entry.bucket ? `${entry.bucket} · ` : ''}${panels.length} 个文件`}
+      onClose={onClose}
+    >
+      {panels.length === 0 ? (
+        <div className="weq-cache-grid-state">该表情无可渲染的资源</div>
+      ) : (
+        panels.map((p) => (
+          <figure key={p.variant} className="weq-marketemoji-panel">
+            <div className="weq-marketemoji-stage">
+              <img
+                src={cemojiSrc(scope, entry, p.variant) ?? undefined}
+                alt={`${entry.hash} ${p.label}`}
+                draggable={false}
+              />
+            </div>
+            <figcaption className="weq-marketemoji-panel-cap">
+              <strong>{p.label}</strong>
+              <span>{fmtBytes(p.size)}</span>
+            </figcaption>
+          </figure>
+        ))
+      )}
+    </BlobDialog>
   );
 }
 

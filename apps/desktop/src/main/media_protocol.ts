@@ -113,8 +113,7 @@ async function findMediaElement(
   const matches = raw.elements.filter(
     (e) => e.kind === kind || (kind === 'video' && e.kind === 'bubbleVideo'),
   );
-  const el =
-    matches.find((e) => (e as { fileToken?: string }).fileToken === token) ?? matches[0];
+  const el = matches.find((e) => (e as { fileToken?: string }).fileToken === token) ?? matches[0];
   if (!el) return null;
   return { element: el as unknown as MediaElement, conv: raw.kind };
 }
@@ -402,8 +401,8 @@ export function handleMediaRequest(request: Request): Promise<Response> {
     }
 
     // 走 protocol 换的头像挂件动画帧:other.zip → aio_file.zip 解出的逐帧 PNG,
-    // 见 dress_install.ts 的 resolvePendantAnimation/pendantFrameFile。没有「不带
-    // frame 取静态图」这一档 —— 挂件不设中间的静态兜底(见该方法头注释)。
+    // 由服务侧 DressService.resolvePendantAnimation 落盘。没有「不带 frame 取静态
+    // 图」这一档 —— 挂件不设中间的静态兜底。
     if (kind === 'dresspendant') {
       const id = Number(q.get('id') ?? '0');
       const frame = Number(q.get('frame') ?? '0');
@@ -486,7 +485,9 @@ export function handleMediaRequest(request: Request): Promise<Response> {
           }
           if (!url) return notFound('video OIDB returned empty url');
           const outcome = await downloadUrlToFile(url, cachePath);
-          return outcome.ok ? fileResponse(cachePath) : notFound(`video download failed: ${outcome.reason}`);
+          return outcome.ok
+            ? fileResponse(cachePath)
+            : notFound(`video download failed: ${outcome.reason}`);
         }
         case 'ptt': {
           const { source } = await services.fileSearch.findFile(tMs, name, 'ptt');

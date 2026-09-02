@@ -32,6 +32,7 @@ import { readdir, stat } from 'node:fs/promises';
 import { join, resolve, sep, extname } from 'node:path';
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
+import { clampLimit, parseBucketCursor, walkBuckets } from './resource_paging';
 
 /** Which media tree to browse. */
 export type MediaResourceKind = 'photoWall' | 'qzone' | 'pic' | 'video' | 'ptt';
@@ -157,9 +158,6 @@ export interface ResourceStat {
   other: ResourceBucket;
 }
 
-const DEFAULT_PAGE = 120;
-const MAX_PAGE = 500;
-
 /**
  * Accumulator while merging one month's `Ori`/`Thumb` files by hash. Carries the
  * bare file names (rel paths are built once the month is known) plus `thumbRank`
@@ -223,40 +221,24 @@ export class MediaResourceService {
     const buckets = await this.readSubdirs(root);
     if (buckets === null) return { entries: [], nextCursor: null };
 
-    const cap = clampInt(opts.limit ?? DEFAULT_PAGE, 1, MAX_PAGE);
-    const start = parseCursor(opts.cursor ?? null);
-
-    const entries: FlatMediaEntry[] = [];
-    let bucketIndex = start.a;
-    let fileIndex = start.b;
-
-    while (bucketIndex < buckets.length && entries.length < cap) {
-      const bucket = buckets[bucketIndex]!;
-      const files = await this.readFiles(join(root, bucket));
-      // Stable within a bucket: sort by name so a cursor points at the same file
-      // across calls (readdir order is not guaranteed stable).
-      files.sort((x, y) => x.name.localeCompare(y.name));
-
-      for (; fileIndex < files.length && entries.length < cap; fileIndex += 1) {
-        const f = files[fileIndex]!;
-        entries.push({
+    return walkBuckets<FlatMediaEntry>(
+      buckets,
+      parseBucketCursor(opts.cursor ?? null),
+      clampLimit(opts.limit),
+      async (bucket) => {
+        const files = await this.readFiles(join(root, bucket));
+        // Stable within a bucket: sort by name so a cursor points at the same
+        // file across calls (readdir order is not guaranteed stable).
+        files.sort((x, y) => x.name.localeCompare(y.name));
+        return files.map((f) => ({
           rel: `${bucket}/${f.name}`,
           name: f.name,
           bucket,
           size: f.size,
           mtimeMs: f.mtimeMs,
-        });
-      }
-
-      if (fileIndex < files.length) {
-        return { entries, nextCursor: `${bucketIndex}:${fileIndex}` };
-      }
-      bucketIndex += 1;
-      fileIndex = 0;
-    }
-
-    const done = bucketIndex >= buckets.length;
-    return { entries, nextCursor: done ? null : `${bucketIndex}:${fileIndex}` };
+        }));
+      },
+    );
   }
 
   // ── 图片 / 视频 (month buckets, Ori + Thumb) ─────────────────────────────────
@@ -277,33 +259,17 @@ export class MediaResourceService {
     const months = await this.readMonths(root);
     if (months === null) return { entries: [], nextCursor: null };
 
-    const cap = clampInt(opts.limit ?? DEFAULT_PAGE, 1, MAX_PAGE);
-    const start = parseCursor(opts.cursor ?? null);
-
-    const entries: MonthMediaEntry[] = [];
-    let monthIndex = start.a;
-    let entryIndex = start.b;
-
-    while (monthIndex < months.length && entries.length < cap) {
-      const month = months[monthIndex]!;
-      // Newest first within a month, hash as a stable tie-break.
-      const sorted = (await this.mergeMonth(root, month)).sort(
-        (x, y) => y.mtimeMs - x.mtimeMs || x.hash.localeCompare(y.hash),
-      );
-
-      for (; entryIndex < sorted.length && entries.length < cap; entryIndex += 1) {
-        entries.push(sorted[entryIndex]!);
-      }
-
-      if (entryIndex < sorted.length) {
-        return { entries, nextCursor: `${monthIndex}:${entryIndex}` };
-      }
-      monthIndex += 1;
-      entryIndex = 0;
-    }
-
-    const done = monthIndex >= months.length;
-    return { entries, nextCursor: done ? null : `${monthIndex}:${entryIndex}` };
+    return walkBuckets<MonthMediaEntry>(
+      months,
+      parseBucketCursor(opts.cursor ?? null),
+      clampLimit(opts.limit),
+      async (month) => {
+        // Newest first within a month, hash as a stable tie-break.
+        return (await this.mergeMonth(root, month)).sort(
+          (x, y) => y.mtimeMs - x.mtimeMs || x.hash.localeCompare(y.hash),
+        );
+      },
+    );
   }
 
   // ── 语音 (Ptt: month buckets, Ori only) ──────────────────────────────────────
@@ -320,41 +286,27 @@ export class MediaResourceService {
     const months = await this.readMonths(root);
     if (months === null) return { entries: [], nextCursor: null };
 
-    const cap = clampInt(opts.limit ?? DEFAULT_PAGE, 1, MAX_PAGE);
-    const start = parseCursor(opts.cursor ?? null);
-
-    const entries: VoiceMediaEntry[] = [];
-    let monthIndex = start.a;
-    let fileIndex = start.b;
-
-    while (monthIndex < months.length && entries.length < cap) {
-      const month = months[monthIndex]!;
-      const files = (await this.readFiles(join(root, month, 'Ori'))).sort(
-        (x, y) => y.mtimeMs - x.mtimeMs || x.name.localeCompare(y.name),
-      );
-
-      for (; fileIndex < files.length && entries.length < cap; fileIndex += 1) {
-        const f = files[fileIndex]!;
-        const ext = extname(f.name);
-        entries.push({
-          rel: `${month}/Ori/${f.name}`,
-          name: f.name,
-          hash: ext ? f.name.slice(0, -ext.length) : f.name,
-          month,
-          bytes: f.size,
-          mtimeMs: f.mtimeMs,
+    return walkBuckets<VoiceMediaEntry>(
+      months,
+      parseBucketCursor(opts.cursor ?? null),
+      clampLimit(opts.limit),
+      async (month) => {
+        const files = (await this.readFiles(join(root, month, 'Ori'))).sort(
+          (x, y) => y.mtimeMs - x.mtimeMs || x.name.localeCompare(y.name),
+        );
+        return files.map((f) => {
+          const ext = extname(f.name);
+          return {
+            rel: `${month}/Ori/${f.name}`,
+            name: f.name,
+            hash: ext ? f.name.slice(0, -ext.length) : f.name,
+            month,
+            bytes: f.size,
+            mtimeMs: f.mtimeMs,
+          };
         });
-      }
-
-      if (fileIndex < files.length) {
-        return { entries, nextCursor: `${monthIndex}:${fileIndex}` };
-      }
-      monthIndex += 1;
-      fileIndex = 0;
-    }
-
-    const done = monthIndex >= months.length;
-    return { entries, nextCursor: done ? null : `${monthIndex}:${fileIndex}` };
+      },
+    );
   }
 
   // ── 整体分析 (recursive tree scan) ────────────────────────────────────────────
@@ -476,9 +428,7 @@ export class MediaResourceService {
   private async readMonths(root: string): Promise<string[] | null> {
     const subs = await this.readSubdirs(root);
     if (subs === null) return null;
-    return subs
-      .filter((n) => /^\d{4}-\d{2}$/.test(n))
-      .sort((a, b) => b.localeCompare(a));
+    return subs.filter((n) => /^\d{4}-\d{2}$/.test(n)).sort((a, b) => b.localeCompare(a));
   }
 
   /** File entries (name + size + mtime) directly under a dir. */
@@ -597,15 +547,4 @@ function variantBucket(relPath: string): 'ori' | 'thumb' | 'other' {
 function monthKey(mtimeMs: number): string {
   const d = new Date(mtimeMs);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-}
-
-function parseCursor(cursor: string | null): { a: number; b: number } {
-  if (!cursor) return { a: 0, b: 0 };
-  const [a, b] = cursor.split(':');
-  return { a: Math.max(0, Number(a) || 0), b: Math.max(0, Number(b) || 0) };
-}
-
-function clampInt(n: number, lo: number, hi: number): number {
-  const x = Math.floor(Number.isFinite(n) ? n : lo);
-  return Math.min(hi, Math.max(lo, x));
 }

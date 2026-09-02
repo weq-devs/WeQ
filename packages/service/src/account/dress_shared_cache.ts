@@ -19,6 +19,12 @@ import type { AvatarCacheService } from '../bootstrap/media_cache';
 import type { NtHelperBinding } from '@weq/native';
 import { getLogger, logErrorContext } from '../common/logger';
 import {
+  extractAllFromZip,
+  extractFirstTtf,
+  extractFromZip,
+  isRenderableSfnt,
+} from '../common/zip';
+import {
   legacyBubbleStaticUrl,
   resolveBubbleSkin,
   type BubbleSkin,
@@ -26,12 +32,6 @@ import {
 } from './bubble_skin';
 import type { BubbleMaterial } from './web/dress_mall';
 import { downloadUrlToFile } from './media_url';
-import {
-  extractFromZip,
-  extractAllFromZip,
-  extractFirstTtf,
-  isRenderableSfnt,
-} from './dress_install';
 
 /** 气泡元数据 sidecar。 */
 export interface BubbleSidecar {

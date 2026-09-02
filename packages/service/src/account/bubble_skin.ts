@@ -21,7 +21,8 @@
  *
  *  - 商城接口的 `immersiveMaterial`(排行/搜索/安装都走这条,零探测)——
  *    见 {@link ./web/dress_mall}.BubbleMaterial。
- *  - 只有 itemId 时走 protocol 的 scupdate 换取(需在线实例)—— 见 {@link ./dress_install}。
+ *  - 只有 itemId 时走 protocol 的 scupdate 换取(需在线实例)—— 见
+ *    {@link ./dress_shared_cache}.DressSharedCache 的安装路径。
  *
  * 另外两条仍然成立的实测结论:
  *
@@ -129,11 +130,6 @@ export interface BubbleSkin {
  */
 export function legacyBubbleStaticUrl(itemId: number | string): string {
   return `${DRESS_CDN}/immersive/bubble/${itemId}/static-all.png`;
-}
-
-/** 老式动效整图(APNG)。不存在时上游回 302。限制同 {@link legacyBubbleStaticUrl}。 */
-export function legacyBubbleAnimationUrl(itemId: number | string): string {
-  return `${DRESS_CDN}/immersive/bubble/${itemId}/animation-all.png`;
 }
 
 /**
@@ -252,8 +248,8 @@ export interface BubbleSource {
   /** 权威文字色(`0xAARRGGBB`)。没给则按填充图推断明暗。 */
   color?: string;
   /**
-   * 整泡帧动画(protocol 兜底路径的 bubbleframe 序列,见 dress_install 的
-   * `extractBubbleFrames`)。给了就在 {@link BubbleSkin} 上原样透出。
+   * 整泡帧动画(protocol 兜底路径的 bubbleframe 序列,由共享缓存解出)。给了就在
+   * {@link BubbleSkin} 上原样透出。
    */
   animation?: { frameCount: number; frameTimeMs: number; repeat: number };
 }
@@ -278,7 +274,9 @@ export async function resolveBubbleSkin(
 
   try {
     // 本地文件(protocol 兜底)直接读盘;否则走装扮缓存(独立子目录)。
-    const png = src.localFile ? readFileSync(src.localFile) : (await cache.get(src.staticUrl, 'dress')).data;
+    const png = src.localFile
+      ? readFileSync(src.localFile)
+      : (await cache.get(src.staticUrl, 'dress')).data;
     const size = pngSize(png);
     if (!size) {
       logger.warn('bubble skin: not a png', {
@@ -385,7 +383,9 @@ async function readFill(
   staticUrl: string,
 ): Promise<{ r: number; g: number; b: number; a: number } | null> {
   try {
-    return pngFirstPixel((await cache.get(siblingUrl(staticUrl, 'static-all-middle-v2.png'), 'dress')).data);
+    return pngFirstPixel(
+      (await cache.get(siblingUrl(staticUrl, 'static-all-middle-v2.png'), 'dress')).data,
+    );
   } catch {
     return null;
   }
