@@ -5,9 +5,8 @@
  * 也为未来导出 bot client 持续积累。按 agentId（personaId 或 'assistant'）分桶。
  */
 
-import { existsSync, readFileSync } from 'node:fs';
 import type { AssistantStep } from './assistant';
-import { writeFileAtomicSync } from './atomic_write';
+import { JsonStore } from '../common/json_store';
 
 export interface ConversationTurn {
   role: 'user' | 'assistant';
@@ -23,43 +22,28 @@ export interface ConversationTurn {
 const MAX_TURNS = 400;
 
 export class ConversationStore {
-  private data: Record<string, ConversationTurn[]>;
+  private readonly store: JsonStore<Record<string, ConversationTurn[]>>;
 
-  constructor(private readonly filePath: string) {
-    this.data = this.load();
+  constructor(filePath: string) {
+    this.store = new JsonStore(filePath, () => ({}), {
+      normalize: (raw) =>
+        raw && typeof raw === 'object' ? (raw as Record<string, ConversationTurn[]>) : {},
+    });
   }
 
   get(agentId: string): ConversationTurn[] {
-    return this.data[agentId] ?? [];
+    return this.store.data[agentId] ?? [];
   }
 
   append(agentId: string, turns: ConversationTurn[]): void {
-    const cur = this.data[agentId] ?? [];
+    const cur = this.store.data[agentId] ?? [];
     const next = [...cur, ...turns];
-    this.data[agentId] = next.length > MAX_TURNS ? next.slice(next.length - MAX_TURNS) : next;
-    this.persist();
+    this.store.data[agentId] = next.length > MAX_TURNS ? next.slice(next.length - MAX_TURNS) : next;
+    this.store.save();
   }
 
   clear(agentId: string): void {
-    delete this.data[agentId];
-    this.persist();
-  }
-
-  private load(): Record<string, ConversationTurn[]> {
-    try {
-      if (!existsSync(this.filePath)) return {};
-      const parsed = JSON.parse(readFileSync(this.filePath, 'utf-8'));
-      return parsed && typeof parsed === 'object' ? (parsed as Record<string, ConversationTurn[]>) : {};
-    } catch {
-      return {};
-    }
-  }
-
-  private persist(): void {
-    try {
-      writeFileAtomicSync(this.filePath, JSON.stringify(this.data));
-    } catch {
-      /* 持久化失败不应影响对话本身 */
-    }
+    delete this.store.data[agentId];
+    this.store.save();
   }
 }

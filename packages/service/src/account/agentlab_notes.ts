@@ -7,9 +7,8 @@
  * 与 MemoryStore 同模式（纯 JSON load/persist + 容量裁剪），但视角不同：
  * memory 记的是「关于对方的事实」，notes 记的是「怎么扮演 TA / 我们聊过什么」。
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
 import type { AgentLabPersonaNotes } from '@weq/agentlab';
+import { JsonStore } from '../common/json_store';
 
 /** corrections 上限（纠正规则，强约束注入 prompt）。 */
 const MAX_CORRECTIONS = 20;
@@ -24,10 +23,21 @@ interface PersonaNotesEntry {
 }
 
 export class NotesStore {
-  private data: Record<string, PersonaNotesEntry>;
+  private readonly store: JsonStore<Record<string, PersonaNotesEntry>>;
 
-  constructor(private readonly filePath: string) {
-    this.data = this.load();
+  constructor(filePath: string) {
+    this.store = new JsonStore(filePath, () => ({}), {
+      normalize: (raw) =>
+        raw && typeof raw === 'object' ? (raw as Record<string, PersonaNotesEntry>) : {},
+    });
+  }
+
+  private get data(): Record<string, PersonaNotesEntry> {
+    return this.store.data;
+  }
+
+  private set data(next: Record<string, PersonaNotesEntry>) {
+    this.store.data = next;
   }
 
   /** 注入 prompt 用的笔记（不含水位）。 */
@@ -56,7 +66,8 @@ export class NotesStore {
     const ep = episode.trim();
     if (ep && !entry.episodes.includes(ep)) {
       entry.episodes.push(ep);
-      if (entry.episodes.length > MAX_EPISODES) entry.episodes = entry.episodes.slice(-MAX_EPISODES);
+      if (entry.episodes.length > MAX_EPISODES)
+        entry.episodes = entry.episodes.slice(-MAX_EPISODES);
       changed = true;
     }
     if (changed) this.persist();
@@ -87,22 +98,7 @@ export class NotesStore {
     return entry;
   }
 
-  private load(): Record<string, PersonaNotesEntry> {
-    try {
-      if (!existsSync(this.filePath)) return {};
-      const parsed = JSON.parse(readFileSync(this.filePath, 'utf-8'));
-      return parsed && typeof parsed === 'object' ? (parsed as Record<string, PersonaNotesEntry>) : {};
-    } catch {
-      return {};
-    }
-  }
-
   private persist(): void {
-    try {
-      mkdirSync(dirname(this.filePath), { recursive: true });
-      writeFileSync(this.filePath, JSON.stringify(this.data), 'utf-8');
-    } catch {
-      /* 持久化失败不应影响对话本身 */
-    }
+    this.store.save();
   }
 }

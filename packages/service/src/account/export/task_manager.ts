@@ -17,6 +17,7 @@
 import { EventEmitter } from 'node:events';
 import { writeFileSync, readFileSync, existsSync, mkdirSync, unlinkSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { sanitizeSegment, uniqueName } from '../../common/path_sanitize';
 import type { MsgService } from '../msg';
 import type { GapFetchedMessage, GapHistoryService } from '../gap_history';
 import type { AvatarCacheService } from '../../bootstrap/media_cache';
@@ -2647,59 +2648,6 @@ export class ExportTaskManager extends EventEmitter {
   }
 }
 
-// ── 路径清洗 helpers（商城表情下载：包名 / 表情名 → 安全文件夹/文件名）───────────
-
-/** Windows 保留设备名（不区分大小写），单独作段名会导致创建失败。 */
-const RESERVED_NAMES = new Set([
-  'con',
-  'prn',
-  'aux',
-  'nul',
-  'com1',
-  'com2',
-  'com3',
-  'com4',
-  'com5',
-  'com6',
-  'com7',
-  'com8',
-  'com9',
-  'lpt1',
-  'lpt2',
-  'lpt3',
-  'lpt4',
-  'lpt5',
-  'lpt6',
-  'lpt7',
-  'lpt8',
-  'lpt9',
-]);
-
-/**
- * 把任意文本清洗成跨平台安全的单个路径段：剥非法字符 `<>:"/\|?*` + 控制符，折叠
- * 空白，去首尾点/空格，截到 80 字符，空 / 保留名回退到 `fallback`。
- */
-function sanitizeSegment(value: string, fallback: string): string {
-  let s = (value ?? '')
-    // 非法路径字符 <>:"/\|?* 与连字符 → 空格（随后由 \s+ 折叠）。
-    .replace(/[<>:"/\\|?*-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/[. ]+$/, '')
-    .slice(0, 80)
-    .trim();
-  if (!s || RESERVED_NAMES.has(s.toLowerCase())) s = fallback;
-  return s || fallback;
-}
-
-/** 在 `used` 集合内去重：冲突时追加 `-2` / `-3`…（大小写不敏感）。 */
-function uniqueName(base: string, used: Set<string>): string {
-  let name = base;
-  let i = 2;
-  while (used.has(name.toLowerCase())) {
-    name = `${base}-${i}`;
-    i += 1;
-  }
-  used.add(name.toLowerCase());
-  return name;
-}
+// 路径清洗 / 文件名去重统一走 packages/service/src/common/path_sanitize.ts（以前这里
+// 与 flashtransfer/manager.ts 各有一份，行为逐步漂移）。商城表情下载用它生成安全
+// 文件夹 / 文件名；导出主任务的文件名截断默认 80 字符。

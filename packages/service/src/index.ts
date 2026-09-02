@@ -506,6 +506,13 @@ export { getLogDir, getLogger, initLogger, logErrorContext } from './common/logg
 export type { Logger, LoggerContext, LogLevel } from './common/logger';
 export { getHost, setHost } from './common/host';
 export type { HostBridge, SaveTarget } from './common/host';
+export { JsonStore, readJsonFile, writeJsonFileAtomic } from './common/json_store';
+export {
+  sanitizeSegment,
+  uniqueName,
+  safeRelSegments,
+  type SanitizeSegmentOpts,
+} from './common/path_sanitize';
 export {
   TtsService,
   TTS_VENDOR_CATALOG,

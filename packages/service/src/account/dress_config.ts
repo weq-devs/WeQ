@@ -14,7 +14,7 @@
 
 import { existsSync, readFileSync, copyFileSync, mkdirSync } from 'node:fs';
 import { join, basename } from 'node:path';
-import { writeFileAtomicSync } from './atomic_write';
+import { writeFileAtomicSync } from '../common/atomic_write';
 
 /** 装扮作用范围。 */
 export type DressScope = 'mine' | 'all';
@@ -100,8 +100,7 @@ export class DressConfigService {
           : 'none',
         backgroundFile: typeof raw.backgroundFile === 'string' ? raw.backgroundFile : '',
         widgetId: typeof raw.widgetId === 'string' ? raw.widgetId : '',
-        backgroundOpacity:
-          typeof raw.backgroundOpacity === 'number' ? raw.backgroundOpacity : 1,
+        backgroundOpacity: typeof raw.backgroundOpacity === 'number' ? raw.backgroundOpacity : 1,
       };
     } catch {
       return this.emptyConfig();

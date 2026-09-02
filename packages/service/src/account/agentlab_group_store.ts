@@ -9,14 +9,13 @@
  * 内存态 + 同步 persist，持久化失败不影响聊天本身。
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
 import type {
   AgentLabGroup,
   AgentLabGroupMember,
   AgentLabGroupMessage,
   AgentLabGroupStore,
 } from '@weq/agentlab';
+import { JsonStore } from '../common/json_store';
 
 /** 每个群最多保留的消息条数（超出丢最旧的，防无限增长）。 */
 const MAX_MESSAGES_PER_GROUP = 2000;
@@ -28,10 +27,36 @@ interface GroupData {
 }
 
 export class JsonGroupStore implements AgentLabGroupStore {
-  private data: GroupData;
+  private readonly store: JsonStore<GroupData>;
 
-  constructor(private readonly filePath: string) {
-    this.data = this.load();
+  constructor(filePath: string) {
+    this.store = new JsonStore(filePath, () => ({ groups: {}, members: {}, messages: {} }), {
+      normalize: (raw): GroupData => {
+        const parsed = (raw ?? {}) as { groups?: unknown; members?: unknown; messages?: unknown };
+        return {
+          groups:
+            parsed.groups && typeof parsed.groups === 'object'
+              ? (parsed.groups as GroupData['groups'])
+              : {},
+          members:
+            parsed.members && typeof parsed.members === 'object'
+              ? (parsed.members as GroupData['members'])
+              : {},
+          messages:
+            parsed.messages && typeof parsed.messages === 'object'
+              ? (parsed.messages as GroupData['messages'])
+              : {},
+        };
+      },
+    });
+  }
+
+  private get data(): GroupData {
+    return this.store.data;
+  }
+
+  private set data(next: GroupData) {
+    this.store.data = next;
   }
 
   createGroup(input: { id: string; name: string; ownerId: string; now: number }): AgentLabGroup {
@@ -119,28 +144,7 @@ export class JsonGroupStore implements AgentLabGroupStore {
     this.persist();
   }
 
-  private load(): GroupData {
-    const empty: GroupData = { groups: {}, members: {}, messages: {} };
-    try {
-      if (!existsSync(this.filePath)) return empty;
-      const parsed = JSON.parse(readFileSync(this.filePath, 'utf-8'));
-      if (!parsed || typeof parsed !== 'object') return empty;
-      return {
-        groups: parsed.groups ?? {},
-        members: parsed.members ?? {},
-        messages: parsed.messages ?? {},
-      };
-    } catch {
-      return empty;
-    }
-  }
-
   private persist(): void {
-    try {
-      mkdirSync(dirname(this.filePath), { recursive: true });
-      writeFileSync(this.filePath, JSON.stringify(this.data), 'utf-8');
-    } catch {
-      /* 持久化失败不应影响群聊本身 */
-    }
+    this.store.save();
   }
 }

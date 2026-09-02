@@ -10,13 +10,13 @@
  *   {@link AssistantTools} 拿到「规格 + 执行」，service 不直接依赖 app。
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { basename, extname, join, resolve, sep } from 'node:path';
 import { reportUsage, pickMessageText, type AgentLabEndpoint, type AgentLabModelRef, type AgentLabUsage } from '@weq/agentlab';
 import type { TokenUsageStore } from './agentlab_usage';
 import type { ConversationStore, ConversationTurn } from './agentlab_conversation';
-import { writeFileAtomicSync } from './atomic_write';
+import { JsonStore } from '../common/json_store';
 
 export type EndpointResolver = (ref: AgentLabModelRef) => AgentLabEndpoint;
 
@@ -228,8 +228,25 @@ interface StreamChunk {
 export class AssistantService {
   private readonly configPath: string;
   private readonly sessionsPath: string;
-  private config: AssistantConfig;
-  private sessions: AssistantSession[];
+  /** 配置 / 会话列表的整文件存储（save() 原子落盘，失败静默）。 */
+  private readonly configStore: JsonStore<AssistantConfig>;
+  private readonly sessionsStore: JsonStore<AssistantSession[]>;
+
+  private get config(): AssistantConfig {
+    return this.configStore.data;
+  }
+
+  private set config(next: AssistantConfig) {
+    this.configStore.data = next;
+  }
+
+  private get sessions(): AssistantSession[] {
+    return this.sessionsStore.data;
+  }
+
+  private set sessions(next: AssistantSession[]) {
+    this.sessionsStore.data = next;
+  }
   /** provider 若不认 `reasoning_effort`（首次 400）就置真，本进程后续调用不再带该参数。 */
   private reasoningUnsupported = false;
 
@@ -242,8 +259,16 @@ export class AssistantService {
   ) {
     this.configPath = join(rootDir, 'assistant.json');
     this.sessionsPath = join(rootDir, 'assistant_sessions.json');
-    this.config = this.loadConfig();
-    this.sessions = this.loadSessions();
+    this.configStore = new JsonStore(this.configPath, () => ({}), {
+      pretty: true,
+      normalize: (raw) => (raw && typeof raw === 'object' ? (raw as AssistantConfig) : {}),
+    });
+    this.sessionsStore = new JsonStore(this.sessionsPath, () => [], {
+      normalize: (raw) =>
+        Array.isArray(raw)
+          ? (raw as AssistantSession[]).filter((s) => s && typeof s.id === 'string')
+          : [],
+    });
     this.migrateLegacyConversation();
     // 启动即把已存的外部 MCP 配置交给 Hub，连接在首次用到时惰性建立。
     this.tools?.syncExternalMcp?.(this.config.mcpServers);
@@ -937,40 +962,12 @@ export class AssistantService {
     return { content, reasoning, toolCalls: toolCalls.length ? toolCalls : undefined };
   }
 
-  private loadConfig(): AssistantConfig {
-    try {
-      if (!existsSync(this.configPath)) return {};
-      const parsed = JSON.parse(readFileSync(this.configPath, 'utf-8'));
-      return parsed && typeof parsed === 'object' ? (parsed as AssistantConfig) : {};
-    } catch {
-      return {};
-    }
-  }
-
   private persistConfig(): void {
-    try {
-      writeFileAtomicSync(this.configPath, JSON.stringify(this.config, null, 2));
-    } catch {
-      /* ignore */
-    }
-  }
-
-  private loadSessions(): AssistantSession[] {
-    try {
-      if (!existsSync(this.sessionsPath)) return [];
-      const parsed = JSON.parse(readFileSync(this.sessionsPath, 'utf-8'));
-      return Array.isArray(parsed) ? (parsed as AssistantSession[]).filter((s) => s && typeof s.id === 'string') : [];
-    } catch {
-      return [];
-    }
+    this.configStore.save();
   }
 
   private persistSessions(): void {
-    try {
-      writeFileAtomicSync(this.sessionsPath, JSON.stringify(this.sessions));
-    } catch {
-      /* 持久化失败不应影响对话本身 */
-    }
+    this.sessionsStore.save();
   }
 
   /**

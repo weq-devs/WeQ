@@ -1,9 +1,11 @@
 /**
  * `account/export` — chat export pipeline.
  *
- * Step 1: streaming JSON / JSONL / TXT exporters on a shared message-source +
- * streaming-runner core. Future steps add Excel / HTML exporters (consuming the
- * same {@link ExportedMessage} stream), media completion, and task scheduling.
+ * 所有格式共享同一套骨架：`message_source` 分页取消息、`run_export` 流式写入、
+ * `element_text` 渲染文本 / 媒体路径，各 exporter（JSON / JSONL / TXT / CSV /
+ * XLSX / HTML / ChatLab）只实现自己的 framing + record 渲染。媒体补全 / 消息补全 /
+ * 语音转写在 `media_export` / `msg_backfill`，任务调度在 `task_manager` +
+ * `scheduler`（含定时导出）。
  */
 
 export * from './types';

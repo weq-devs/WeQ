@@ -12,10 +12,11 @@ import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { join, dirname, extname } from 'node:path';
+import { join, dirname } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { getLogger, logErrorContext } from '../../common/logger';
+import { safeRelSegments, sanitizeSegment, uniqueName } from '../../common/path_sanitize';
 import { FlashTransferClient } from './client';
 import { FlashTransferResolver } from './resolver';
 import type { FlashDownloadTask, FlashSelection, FlashTaskStatus } from './types';
@@ -34,44 +35,6 @@ function sleep(ms: number): Promise<void> {
 function backoffMs(n: number): number {
   const base = DL_BACKOFF_BASE_MS * 2 ** n;
   return base + Math.floor(Math.random() * base * 0.4);
-}
-
-function sanitizeSegment(value: string | undefined, fallback: string): string {
-  const raw = (value || fallback).trim();
-  const cleaned = raw
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: 剔除文件名控制字符
-    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
-    .replace(/\s+/g, ' ')
-    .replace(/[. ]+$/g, '')
-    .slice(0, MAX_NAME_LEN)
-    .trim();
-  const name = cleaned || fallback;
-  return /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(name) ? `_${name}` : name;
-}
-
-/** 把相对路径拆段清洗，防止目录穿越 + 非法字符。 */
-function safeRelSegments(relPath: string): string[] {
-  return relPath
-    .split('/')
-    .map((seg) => sanitizeSegment(seg, 'file'))
-    .filter(Boolean);
-}
-
-function uniqueName(name: string, used: Set<string>): string {
-  if (!used.has(name.toLowerCase())) {
-    used.add(name.toLowerCase());
-    return name;
-  }
-  const ext = extname(name);
-  const base = ext ? name.slice(0, -ext.length) : name;
-  for (let i = 2; ; i += 1) {
-    const next = `${base}-${i}${ext}`;
-    const key = next.toLowerCase();
-    if (!used.has(key)) {
-      used.add(key);
-      return next;
-    }
-  }
 }
 
 /** 流式下载到 dest，回调已收到的字节数；可被 AbortController 中断。 */
@@ -205,10 +168,10 @@ export class FlashTransferDownloadManager extends EventEmitter {
     const usedByDir = new Map<string, Set<string>>();
 
     const newTasks: FlashDownloadTask[] = files.map((f) => {
-      const segments = safeRelSegments(f.relativePath);
+      const segments = safeRelSegments(f.relativePath, { maxLen: MAX_NAME_LEN });
       const dir = join(
         this.baseDir,
-        sanitizeSegment(filesetName || filesetId, 'flash'),
+        sanitizeSegment(filesetName || filesetId, 'flash', { maxLen: MAX_NAME_LEN }),
         ...segments.slice(0, -1),
       );
       const used = usedByDir.get(dir) ?? new Set<string>();

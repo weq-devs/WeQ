@@ -12,8 +12,8 @@
  * 边界清晰：`addTweet`（写本地）→ `WeqAssistantService.injectTweet`（注入库）。
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
+import { readJsonFile, writeJsonFileAtomic } from '@weq/service';
 
 /** 一条推文的完整本地记录（落盘 / 内存同构）。 */
 export interface WeqTweet {
@@ -65,20 +65,14 @@ export function tweetsStorePath(cacheDir: string): string {
 
 /** 读盘推文列表；文件缺失 / 损坏 / 结构不符都回空列表（当作没有）。 */
 export function loadTweets(path: string): WeqTweet[] {
-  try {
-    if (!existsSync(path)) return [];
-    const parsed = JSON.parse(readFileSync(path, 'utf-8')) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isTweet);
-  } catch {
-    return [];
-  }
+  const parsed = readJsonFile(path);
+  if (!Array.isArray(parsed)) return [];
+  return parsed.filter(isTweet);
 }
 
-/** 落盘推文列表（懒建父目录）。 */
+/** 落盘推文列表（懒建父目录，原子写）。 */
 export function saveTweets(path: string, list: WeqTweet[]): void {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(list), 'utf-8');
+  writeJsonFileAtomic(path, list);
 }
 
 /**
