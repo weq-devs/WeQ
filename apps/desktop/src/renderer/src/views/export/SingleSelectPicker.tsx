@@ -5,7 +5,8 @@
 
 import { useMemo, useState, type ReactElement } from 'react';
 import { Circle, CircleDot, Search, X } from 'lucide-react';
-import { Avatar, Spinner } from './widgets';
+import { Avatar } from './widgets';
+import { PickerListSkeleton } from './ExportSkeleton';
 import type { PickItem } from './types';
 
 export function SingleSelectPicker({
@@ -53,10 +54,7 @@ export function SingleSelectPicker({
 
       <div className="weq-exp-list">
         {loading ? (
-          <div className="weq-exp-list-state">
-            <Spinner size={18} />
-            加载中…
-          </div>
+          <PickerListSkeleton />
         ) : filtered.length === 0 ? (
           <div className="weq-exp-list-state">
             <span>{query ? '没有匹配项' : emptyText}</span>

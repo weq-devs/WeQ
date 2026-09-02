@@ -4003,6 +4003,7 @@ export function MainView(): ReactElement {
                       onLoadMoreGroupMembers={requestMoreGroupMembers}
                       groupMembersLoading={selectedGroupMembersLoading}
                       groupMembersError={selectedGroupMembersError}
+                      profileLoading={groupDetail.isLoading}
                       onOpenNotificationSettings={noopAsync}
                       onSend={noopAsync}
                       onDraftChange={updateDraft}

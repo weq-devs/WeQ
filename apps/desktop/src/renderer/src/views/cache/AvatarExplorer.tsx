@@ -20,6 +20,7 @@ import { trpc, client } from '../../trpc/client';
 import { AvatarPathDialog } from './AvatarPathDialog';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { CURSOR_PAGE, fmtBytes, GridFooter, useCursorPaged } from './CacheShared';
+import { GridSkeleton, InlineSkeleton } from './CacheSkeleton';
 
 const SCOPE_META: Record<AvatarScope, { label: string; icon: ReactElement }> = {
   user: { label: '好友头像', icon: <Users size={14} /> },
@@ -74,7 +75,9 @@ export function AvatarExplorer(): ReactElement {
           </button>
         ))}
         {scopes.isLoading && scopeList.length === 0 ? (
-          <span className="weq-cache-avatar-loading">扫描头像缓存中…</span>
+          <span className="weq-cache-avatar-loading">
+            <InlineSkeleton width={104} />
+          </span>
         ) : null}
         <button
           type="button"
@@ -104,6 +107,9 @@ function AvatarGrid({ scope }: { scope: AvatarScope }): ReactElement {
 
   if (error && entries.length === 0) {
     return <div className="weq-cache-grid-state is-error">{error}</div>;
+  }
+  if (loading && entries.length === 0) {
+    return <GridSkeleton />;
   }
   if (!loading && entries.length === 0 && done) {
     return <div className="weq-cache-grid-state">该分类暂无头像缓存</div>;

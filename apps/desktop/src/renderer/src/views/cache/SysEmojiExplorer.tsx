@@ -24,6 +24,7 @@ import { trpc, client } from '../../trpc/client';
 import { emojiUrl } from '../../lib/resourceUrl';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { BlobDialog, CURSOR_PAGE, GridFooter, useCursorPaged } from './CacheShared';
+import { GridSkeleton } from './CacheSkeleton';
 
 /** weq-asset URL for one face's file in a given format dir. */
 function faceUrl(name: string, fmt: 'png' | 'apng' | 'lottie', file: string): string {
@@ -96,7 +97,9 @@ export function SysEmojiExplorer(): ReactElement {
         ) : null}
       </div>
 
-      {!loading && entries.length === 0 && done ? (
+      {loading && entries.length === 0 ? (
+        <GridSkeleton />
+      ) : !loading && entries.length === 0 && done ? (
         <div className="weq-cache-grid-state">
           {missing > 0 ? '本地没有系统表情资源，可点击上方补全下载' : '未找到系统表情资源'}
         </div>

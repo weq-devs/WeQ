@@ -12,6 +12,7 @@ import { ArrowLeft, Check, ChevronRight, FolderOpen, Loader2, Minus, X } from 'l
 import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
 import { client } from '../../trpc/client';
 import { useToast } from '../../components/Toast';
+import { PickerListSkeleton } from './ExportSkeleton';
 import { fileIconUrl } from '../../lib/resourceUrl';
 import {
   fileExtIcon,
@@ -357,10 +358,7 @@ export function GroupFileExportLightbox({
 
           <div className="group-file-list weq-exp-file-list">
             {loading ? (
-              <div className="group-album-state">
-                <Loader2 size={18} className="weq-spin" />
-                <span>正在查询群文件喵~</span>
-              </div>
+              <PickerListSkeleton rows={6} />
             ) : error ? (
               <div className="group-album-state is-error">{error}</div>
             ) : !listing || listing.files.length + listing.folders.length === 0 ? (

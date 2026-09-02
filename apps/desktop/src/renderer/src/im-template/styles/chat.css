@@ -2022,6 +2022,72 @@ html[data-theme="dark"] .member-role-badge.admin {
 	word-break: break-word;
 }
 
+/* ---- 群资料 / 群成员列表 skeleton 占位（shimmer 复用 .skel-block） ---- */
+.group-info-skeleton {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	padding: 0 12px;
+}
+
+.group-info-skeleton-heading {
+	width: 96px;
+	height: 16px;
+	border-radius: 6px;
+}
+
+.group-info-skeleton-rows {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.group-info-skeleton-row {
+	display: grid;
+	min-width: 0;
+	grid-template-columns: 58px minmax(0, 1fr);
+	align-items: center;
+	gap: 10px;
+}
+
+.group-info-skeleton-label {
+	width: 44px;
+	height: 11px;
+	border-radius: 999px;
+}
+
+.group-info-skeleton-value {
+	width: 62%;
+	height: 11px;
+	border-radius: 999px;
+}
+
+.group-members-skeleton {
+	display: flex;
+	flex-direction: column;
+}
+
+.group-members-skeleton-row {
+	display: flex;
+	min-height: 42px;
+	align-items: center;
+	gap: 10px;
+	padding: 0 12px;
+}
+
+.group-members-skeleton-avatar {
+	flex: 0 0 auto;
+	width: 28px;
+	height: 28px;
+	border-radius: 50%;
+}
+
+.group-members-skeleton-name {
+	width: 42%;
+	height: 12px;
+	border-radius: 999px;
+}
+
 .group-info-panel .group-info-section {
 	gap: 10px;
 }

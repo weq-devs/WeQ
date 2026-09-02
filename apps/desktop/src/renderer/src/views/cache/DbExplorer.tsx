@@ -26,6 +26,7 @@ import type { DbObject } from '@weq/service';
 import { trpc } from '../../trpc/client';
 import { DbDataGrid } from './DbDataGrid';
 import { SqlConsole } from './SqlConsole';
+import { InlineSkeleton, TreeSkeleton } from './CacheSkeleton';
 
 type SubTab = 'data' | 'sql';
 
@@ -131,7 +132,8 @@ export function DbExplorer(): ReactElement {
             >
               <Database size={15} />
               <span className="weq-cache-dbpick-name" title={selectedDb?.name}>
-                {selectedDb?.name ?? (databases.isLoading ? '加载中…' : '无数据库')}
+                {selectedDb?.name ??
+                  (databases.isLoading ? <InlineSkeleton width={88} /> : '无数据库')}
               </span>
               <ChevronDown size={14} className="weq-cache-dbpick-caret" />
             </button>
@@ -167,7 +169,7 @@ export function DbExplorer(): ReactElement {
 
           <div className="weq-cache-tree-body">
             {objects.isLoading ? (
-              <div className="weq-cache-tree-state">加载对象中…</div>
+              <TreeSkeleton />
             ) : objectList.length === 0 ? (
               <div className="weq-cache-tree-state">该库无表 / 视图</div>
             ) : (

@@ -45,7 +45,8 @@ import { useToast } from '../components/Toast';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { datalineName } from '@weq/codec';
 import type { ExportPresets } from '@weq/service';
-import { Avatar, Segmented, Spinner } from './export/widgets';
+import { Avatar, Segmented } from './export/widgets';
+import { ChipsSkeleton, PickerListSkeleton, ScheduleListSkeleton } from './export/ExportSkeleton';
 import { ConversationPicker } from './export/ConversationPicker';
 import { SingleSelectPicker } from './export/SingleSelectPicker';
 import { MarketEmojiDownloadPane } from './export/MarketEmojiDownloadPane';
@@ -1376,9 +1377,7 @@ export function ExportView(): ReactElement {
                 />
                 <div className="weq-exp-sched-list">
                   {schedules.isLoading ? (
-                    <div className="weq-exp-sched-empty">
-                      <small>加载中…</small>
-                    </div>
+                    <ScheduleListSkeleton />
                   ) : (schedules.data ?? []).length === 0 ? (
                     <div className="weq-exp-sched-empty">
                       <strong>暂无定时任务</strong>
@@ -1671,9 +1670,7 @@ function CategoryChips({
         <small>{allActive ? `全部好友 · ${total} 人` : `已选 ${selected.size} 个分组`}</small>
       </div>
       {loading ? (
-        <div className="weq-exp-cats-empty">
-          <small>加载中…</small>
-        </div>
+        <ChipsSkeleton />
       ) : items.length === 0 ? (
         <div className="weq-exp-cats-empty">
           <small>暂无分组数据</small>
@@ -1745,10 +1742,7 @@ function FriendPreview({
       </div>
       <div className="weq-exp-list">
         {loading ? (
-          <div className="weq-exp-list-state">
-            <Spinner size={18} />
-            加载中…
-          </div>
+          <PickerListSkeleton rows={6} />
         ) : filtered.length === 0 ? (
           <div className="weq-exp-list-state">
             <span>{query ? '没有匹配的好友' : scoped ? '该分组下暂无好友' : '暂无好友'}</span>
@@ -1870,9 +1864,7 @@ function CollectionScope({
           </small>
         </div>
         {loading ? (
-          <div className="weq-exp-cats-empty">
-            <small>正在加载收藏…</small>
-          </div>
+          <ChipsSkeleton />
         ) : total === 0 ? (
           <div className="weq-exp-cats-empty">
             <small>还没有任何收藏</small>
@@ -1920,10 +1912,7 @@ function CollectionScope({
         </div>
         <div className="weq-exp-list">
           {loading ? (
-            <div className="weq-exp-list-state">
-              <Spinner size={18} />
-              加载中…
-            </div>
+            <PickerListSkeleton rows={6} />
           ) : filtered.length === 0 ? (
             <div className="weq-exp-list-state">
               <span>

@@ -14,6 +14,7 @@
  */
 
 import { useState, type ReactElement } from 'react';
+import { useDebouncedLoading } from '../../hooks/useDebouncedLoading';
 import {
   ArrowLeft,
   KeyRound,
@@ -27,6 +28,7 @@ import type { MarketEmoticonPackage, MarketPackFeeType } from '@weq/service';
 import { trpc } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { MarketKeyDialog } from './MarketKeyDialog';
+import { GridSkeleton, InfoPanelSkeleton } from './CacheSkeleton';
 
 /** 来源徽章元信息（文案 + 色调 class 后缀）。 */
 const FEE_META: Record<MarketPackFeeType, { label: string; tone: string }> = {
@@ -73,7 +75,7 @@ export function MarketPackExplorer(): ReactElement {
   const list = packages.data ?? [];
 
   if (packages.isLoading) {
-    return <div className="weq-cache-grid-state">读取本地表情包清单中…</div>;
+    return <PackListSkeleton />;
   }
   if (packages.error) {
     return <div className="weq-cache-grid-state is-error">{packages.error.message}</div>;
@@ -106,6 +108,33 @@ export function MarketPackExplorer(): ReactElement {
         </div>
       )}
       {keyDialog}
+    </div>
+  );
+}
+
+/** 表情包列表骨架：weq-mpack-card 布局（封面方块 + 两行文字 + 底部小条）。 */
+function PackListSkeleton({
+  cards = 3,
+  delayMs = 80,
+}: {
+  cards?: number;
+  delayMs?: number;
+}): ReactElement | null {
+  const visible = useDebouncedLoading(true, delayMs);
+  if (!visible) return null;
+  return (
+    <div className="weq-mpack-skel-list" aria-hidden>
+      {Array.from({ length: cards }, (_, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: 静态占位列表
+        <div className="weq-mpack-skel-card" key={i}>
+          <span className="weq-cache-skel weq-mpack-skel-cover" />
+          <span className="weq-mpack-skel-info">
+            <span className="weq-cache-skel weq-cache-skel-line" />
+            <span className="weq-cache-skel weq-cache-skel-line is-short" />
+            <span className="weq-cache-skel weq-mpack-skel-foot" />
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -190,7 +219,10 @@ function PackDetail({
       </div>
 
       {detail.isLoading ? (
-        <div className="weq-cache-grid-state">获取表情包详情中…</div>
+        <>
+          <InfoPanelSkeleton />
+          <GridSkeleton cells={12} />
+        </>
       ) : !detail.data ? (
         <div className="weq-cache-grid-state is-error">
           无法获取该表情包详情（网络问题或包不存在）

@@ -17,6 +17,7 @@ import type { MarketPackFeeType } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { useAppDialog } from '../../lib/dialogUtils';
+import { FooterSkeleton, GridSkeleton } from './ExportSkeleton';
 
 const PAGE = 60;
 
@@ -272,8 +273,14 @@ export function MarketEmojiDownloadPane({ onStarted }: { onStarted: () => void }
         )}
         {!done ? (
           <div ref={sentinelRef} className="weq-mpd-more">
-            <RefreshCw size={14} className={loading ? 'is-spin' : ''} />
-            {loading ? '加载中…' : '滚动加载更多'}
+            {loading ? (
+              <FooterSkeleton />
+            ) : (
+              <>
+                <RefreshCw size={14} />
+                滚动加载更多
+              </>
+            )}
           </div>
         ) : entries.length > 0 ? (
           <div className="weq-mpd-more is-end">已全部加载（{entries.length}）</div>
@@ -404,7 +411,7 @@ function PackPreview({
         {entry.mark ? <p className="weq-mpd-preview-mark">{entry.mark}</p> : null}
         <div className="weq-blob-body weq-mpd-preview-body">
           {detail.isLoading ? (
-            <div className="weq-mpd-empty">获取表情列表中…</div>
+            <GridSkeleton cells={10} />
           ) : items.length === 0 ? (
             <div className="weq-mpd-empty">无法获取该表情包（网络问题或包不存在）</div>
           ) : (

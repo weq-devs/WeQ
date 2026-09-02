@@ -15,6 +15,7 @@ import { Search, Store, X, RefreshCw, Loader2, SmilePlus } from 'lucide-react';
 import type { MarketPackFeeType } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
+import { GridSkeleton } from './ExportSkeleton';
 
 const PAGE = 60;
 
@@ -59,10 +60,7 @@ function PackDetailPane({ packId }: { packId: string }): ReactElement {
         {detail.data ? <span className="weq-mface-lb-count">{detail.data.count} 张</span> : null}
       </div>
       {detail.isLoading ? (
-        <div className="weq-mface-lb-state">
-          <Loader2 size={18} className="weq-emb-spin" />
-          获取表情列表中…
-        </div>
+        <GridSkeleton cells={10} />
       ) : !detail.data ? (
         <div className="weq-mface-lb-state is-error">无法获取这组表情（网络问题或包不存在）</div>
       ) : items.length === 0 ? (

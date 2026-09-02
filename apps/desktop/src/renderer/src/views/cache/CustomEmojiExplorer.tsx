@@ -27,6 +27,7 @@ import type {
 import { trpc, client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { BlobDialog, CURSOR_PAGE, fmtBytes, GridFooter, useCursorPaged } from './CacheShared';
+import { GridSkeleton, InlineSkeleton } from './CacheSkeleton';
 
 const SCOPE_META: Record<CustomEmojiScope, { label: string; icon: ReactElement }> = {
   recv: { label: '收到的表情', icon: <Search size={14} /> },
@@ -92,7 +93,9 @@ export function CustomEmojiExplorer(): ReactElement {
           </button>
         ))}
         {scopes.isLoading && scopeList.length === 0 ? (
-          <span className="weq-cache-avatar-loading">扫描表情缓存中…</span>
+          <span className="weq-cache-avatar-loading">
+            <InlineSkeleton width={104} />
+          </span>
         ) : null}
       </div>
 
@@ -114,6 +117,9 @@ function CustomEmojiGrid({ scope }: { scope: CustomEmojiScope }): ReactElement {
 
   if (error && entries.length === 0) {
     return <div className="weq-cache-grid-state is-error">{error}</div>;
+  }
+  if (loading && entries.length === 0) {
+    return <GridSkeleton />;
   }
   if (!loading && entries.length === 0 && done) {
     return <div className="weq-cache-grid-state">该分类暂无表情缓存</div>;

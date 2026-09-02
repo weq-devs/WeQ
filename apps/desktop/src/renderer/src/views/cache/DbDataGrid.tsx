@@ -26,6 +26,7 @@ import { client } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { cellText, cellKind, cellEditText, isCellEditable, textToInput } from './cellFormat';
 import { BlobHexModal } from './BlobHexModal';
+import { TableSkeleton } from './CacheSkeleton';
 
 interface PageState {
   columns: DbColumn[];
@@ -247,7 +248,7 @@ export function DbDataGrid({
   }
 
   if (loading && !page) {
-    return <div className="weq-cache-grid-state">加载数据中…</div>;
+    return <TableSkeleton />;
   }
   if (error) {
     return <div className="weq-cache-grid-state is-error">{error}</div>;

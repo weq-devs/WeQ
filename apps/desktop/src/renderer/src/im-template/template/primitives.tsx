@@ -164,6 +164,55 @@ export function ChatMessagesSkeleton({ delayMs = 100 }: { delayMs?: number }) {
   );
 }
 
+/**
+ * 群资料面板的 skeleton 占位：标题条 + 若干「标签/值」资料行，模拟群资料布局。
+ * 加载很快时不会闪现，超过 `delayMs` 才显示（防抖）。
+ */
+export function GroupInfoSkeleton({ delayMs = 100 }: { delayMs?: number }) {
+  const visible = useDebouncedLoading(true, delayMs);
+  if (!visible) return null;
+  return (
+    <div className={cn('group-info-skeleton')} aria-hidden>
+      <span className={cn('skel-block', 'group-info-skeleton-heading')} />
+      <div className={cn('group-info-skeleton-rows')}>
+        {Array.from({ length: 4 }, (_, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: 静态占位列表
+          <div className={cn('group-info-skeleton-row')} key={i}>
+            <span className={cn('skel-block', 'group-info-skeleton-label')} />
+            <span className={cn('skel-block', 'group-info-skeleton-value')} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 群成员列表的 skeleton 占位：小圆形头像 + 名字条，模拟成员行布局（同 ListSkeleton）。
+ * 加载很快时不会闪现，超过 `delayMs` 才显示（防抖）。
+ */
+export function GroupMembersSkeleton({
+  rows = 8,
+  delayMs = 100,
+}: {
+  rows?: number;
+  delayMs?: number;
+}) {
+  const visible = useDebouncedLoading(true, delayMs);
+  if (!visible) return null;
+  return (
+    <div className={cn('group-members-skeleton')} aria-hidden>
+      {Array.from({ length: rows }, (_, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: 静态占位列表
+        <div className={cn('group-members-skeleton-row')} key={i}>
+          <span className={cn('skel-block', 'group-members-skeleton-avatar')} />
+          <span className={cn('skel-block', 'group-members-skeleton-name')} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function ToggleRow({
   label,
   checked,

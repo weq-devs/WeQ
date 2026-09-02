@@ -4,7 +4,7 @@
 
 import { useMemo, useState, type ReactElement } from 'react';
 import { Check, CheckCheck, Database, FlipHorizontal2, Search, X } from 'lucide-react';
-import { Spinner } from './widgets';
+import { PickerListSkeleton } from './ExportSkeleton';
 import { fmtBytes } from './types';
 
 export interface DbPickItem {
@@ -112,10 +112,7 @@ export function DatabasePicker({
 
       <div className="weq-exp-list">
         {loading ? (
-          <div className="weq-exp-list-state">
-            <Spinner size={18} />
-            加载数据库中…
-          </div>
+          <PickerListSkeleton />
         ) : filtered.length === 0 ? (
           <div className="weq-exp-list-state">
             {query ? '没有匹配的数据库' : '未发现数据库文件'}

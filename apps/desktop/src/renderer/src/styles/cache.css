@@ -5507,3 +5507,274 @@ html[data-theme="dark"] .weq-pb-add-wire {
   background: rgba(255, 255, 255, 0.04);
   color: #dbe3ec;
 }
+
+/* ---- skeleton / shimmer 占位（本地资源各列表加载态） ---- */
+.weq-cache-skel {
+  display: block;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #eef2f7 25%, #e2e8f0 50%, #eef2f7 75%);
+  background-size: 200% 100%;
+  animation: weq-cache-shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes weq-cache-shimmer {
+  from {
+    background-position: 160% 0;
+  }
+  to {
+    background-position: -60% 0;
+  }
+}
+
+html[data-theme="dark"] .weq-cache-skel {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.06) 25%,
+    rgba(255, 255, 255, 0.12) 50%,
+    rgba(255, 255, 255, 0.06) 75%
+  );
+  background-size: 200% 100%;
+}
+
+.weq-cache-skel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 12px;
+}
+
+.weq-cache-skel-filegrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.weq-cache-skel-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.weq-cache-skel-thumb {
+  aspect-ratio: 1 / 1;
+  border-radius: 6px;
+}
+
+.weq-cache-skel-filethumb {
+  aspect-ratio: 4 / 3;
+  border-radius: 7px;
+}
+
+.weq-cache-skel-caption {
+  width: 62%;
+  height: 10px;
+  border-radius: 999px;
+}
+
+.weq-cache-skel-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.weq-cache-skel-row {
+  display: flex;
+  min-height: 46px;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+}
+
+.weq-cache-skel-avatar {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+}
+
+.weq-cache-skel-main {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.weq-cache-skel-line {
+  width: 72%;
+  height: 12px;
+  border-radius: 999px;
+}
+
+.weq-cache-skel-line.is-short {
+  width: 46%;
+  height: 10px;
+}
+
+.weq-cache-skel-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 12px;
+}
+
+.weq-cache-skel-tree-head {
+  width: 90px;
+  height: 13px;
+  border-radius: 999px;
+}
+
+.weq-cache-skel-tree-head.is-muted {
+  width: 66px;
+  opacity: 0.7;
+}
+
+.weq-cache-skel-tree-line {
+  width: 78%;
+  height: 12px;
+  border-radius: 999px;
+}
+
+.weq-cache-skel-tree-line.is-short {
+  width: 56%;
+  opacity: 0.7;
+}
+
+.weq-cache-skel-table {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 10px 14px 18px;
+}
+
+.weq-cache-skel-table-row {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.weq-cache-skel-table-cell {
+  height: 15px;
+  border-radius: 5px;
+}
+
+.weq-cache-skel-table-cell.is-short {
+  width: 62%;
+}
+
+.weq-cache-skel-table-row.is-head .weq-cache-skel-table-cell {
+  height: 12px;
+  opacity: 0.65;
+}
+
+.weq-cache-skel-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 12px;
+}
+
+.weq-cache-skel-chip {
+  width: 70px;
+  height: 26px;
+  border-radius: 999px;
+}
+
+.weq-cache-skel-chip.is-wide {
+  width: 96px;
+}
+
+.weq-cache-skel-infopanel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.weq-cache-skel-infopanel-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.weq-cache-skel-infopanel-label {
+  flex: 0 0 auto;
+  width: 64px;
+  height: 12px;
+  border-radius: 999px;
+}
+
+.weq-cache-skel-infopanel-val {
+  width: 45%;
+  height: 12px;
+  border-radius: 999px;
+}
+
+.weq-cache-skel-footer {
+  display: flex;
+  justify-content: center;
+  padding: 15px;
+}
+
+.weq-cache-skel-footer-bar {
+  width: 120px;
+  height: 12px;
+  border-radius: 999px;
+}
+
+.weq-cache-skel-inline {
+  display: inline-block;
+  height: 12px;
+  border-radius: 999px;
+  vertical-align: middle;
+}
+
+html[data-theme="dark"] .weq-cache-skel-infopanel {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* ---- 商城表情包列表骨架 ---- */
+.weq-mpack-skel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 16px;
+}
+
+.weq-mpack-skel-card {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+html[data-theme="dark"] .weq-mpack-skel-card {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.weq-mpack-skel-cover {
+  flex: 0 0 auto;
+  width: 74px;
+  height: 74px;
+  border-radius: 12px;
+}
+
+.weq-mpack-skel-info {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.weq-mpack-skel-foot {
+  width: 40%;
+  height: 10px;
+  border-radius: 999px;
+  opacity: 0.7;
+}

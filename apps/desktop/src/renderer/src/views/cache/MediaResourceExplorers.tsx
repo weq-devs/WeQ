@@ -27,6 +27,7 @@ import { localMediaUrl, localVoiceUrl } from '../../lib/resourceUrl';
 import { openLightbox } from '../../components/ImageLightbox';
 import { openVideoLightbox } from '../../components/VideoLightbox';
 import { CURSOR_PAGE, fmtBytes, GridFooter, useCursorPaged } from './CacheShared';
+import { GridSkeleton } from './CacheSkeleton';
 
 type FlatKind = 'photoWall' | 'qzone';
 type MonthKind = 'pic' | 'video';
@@ -44,6 +45,9 @@ export function FlatMediaExplorer({ kind }: { kind: FlatKind }): ReactElement {
 
   if (error && entries.length === 0) {
     return <div className="weq-cache-grid-state is-error">{error}</div>;
+  }
+  if (loading && entries.length === 0) {
+    return <GridSkeleton />;
   }
 
   return (
@@ -98,6 +102,9 @@ export function MonthMediaExplorer({ kind }: { kind: MonthKind }): ReactElement 
 
   if (error && entries.length === 0) {
     return <div className="weq-cache-grid-state is-error">{error}</div>;
+  }
+  if (loading && entries.length === 0) {
+    return <GridSkeleton />;
   }
 
   return (
@@ -238,6 +245,9 @@ export function VoiceExplorer(): ReactElement {
 
   if (error && entries.length === 0) {
     return <div className="weq-cache-grid-state is-error">{error}</div>;
+  }
+  if (loading && entries.length === 0) {
+    return <GridSkeleton />;
   }
 
   // Clips arrive newest-month-first and stay in month order, so a divider only

@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { Bot, X } from 'lucide-react';
 import { useCallback, useEffect, useRef } from 'react';
-import { Avatar } from './primitives';
+import { Avatar, GroupInfoSkeleton, GroupMembersSkeleton } from './primitives';
 import type { GroupConversationView } from './conversationDetailsTypes';
 import { displayUserName } from './user';
 import { cn } from './classNames';
@@ -13,6 +13,7 @@ export function GroupInfoPanel({
   onLoadMoreMembers,
   loadingMoreMembers,
   loadingError,
+  profileLoading,
   onOpenDetail,
   onOpenMember,
 }: {
@@ -20,6 +21,8 @@ export function GroupInfoPanel({
   onLoadMoreMembers?: () => void;
   loadingMoreMembers?: boolean;
   loadingError?: string | null;
+  /** 群详情（群资料）拉取中且资料尚未就绪时，meta 区域显示 skeleton。 */
+  profileLoading?: boolean;
   onOpenDetail?: (detail: GroupInfoDetail) => void;
   onOpenMember?: (
     member: GroupConversationView['members'][number],
@@ -81,6 +84,8 @@ export function GroupInfoPanel({
                 <strong>{value}</strong>
               </button>
             ))
+          ) : profileLoading ? (
+            <GroupInfoSkeleton />
           ) : (
             <p className={cn('placeholder-text')}>暂无更多资料</p>
           )}
@@ -154,8 +159,12 @@ export function GroupInfoPanel({
           ))}
           {loadingError ? (
             <div className={cn('group-info-member-error')}>加载失败：{loadingError}</div>
+          ) : loadingMoreMembers && conversation.members.length === 0 ? (
+            <GroupMembersSkeleton rows={8} />
           ) : loadingMoreMembers ? (
-            <div className={cn('group-info-member-loading')}>加载中</div>
+            <div className={cn('group-info-member-loading')}>
+              <GroupMembersSkeleton rows={1} />
+            </div>
           ) : null}
         </div>
       </section>

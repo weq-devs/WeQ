@@ -19,6 +19,7 @@ import type { MarketFaceEntry } from '@weq/service';
 import { client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { BlobDialog, CURSOR_PAGE, fmtBytes, GridFooter, useCursorPaged } from './CacheShared';
+import { GridSkeleton } from './CacheSkeleton';
 
 /** weq-media URL for one market face by pack+hash. */
 function mfaceUrl(itemId: string, hash: string): string {
@@ -37,6 +38,9 @@ export function MarketEmojiExplorer(): ReactElement {
 
   if (error && entries.length === 0) {
     return <div className="weq-cache-grid-state is-error">{error}</div>;
+  }
+  if (loading && entries.length === 0) {
+    return <GridSkeleton />;
   }
   if (!loading && entries.length === 0 && done) {
     return <div className="weq-cache-grid-state">未找到商城表情资源</div>;

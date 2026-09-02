@@ -69,6 +69,7 @@ export function ChatMainContent({
   onLoadMoreGroupMembers,
   groupMembersLoading,
   groupMembersError,
+  profileLoading,
   onOpenNotificationSettings: _onOpenNotificationSettings,
   onSend,
   onMessageAction,
@@ -138,6 +139,8 @@ export function ChatMainContent({
   onLoadMoreGroupMembers?: () => void;
   groupMembersLoading?: boolean;
   groupMembersError?: string | null;
+  /** 群详情（群资料）拉取中，群资料区显示 skeleton。 */
+  profileLoading?: boolean;
   onOpenNotificationSettings: () => void;
   onSend: (body: string) => Promise<void>;
   onMessageAction?: (message: Message, action: MessageAction) => Promise<void>;
@@ -221,6 +224,7 @@ export function ChatMainContent({
       onLoadMoreGroupMembers={onLoadMoreGroupMembers}
       groupMembersLoading={groupMembersLoading}
       groupMembersError={groupMembersError}
+      profileLoading={profileLoading}
       onSend={onSend}
       onMessageAction={onMessageAction}
       onDraftChange={onDraftChange}

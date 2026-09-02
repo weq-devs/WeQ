@@ -191,6 +191,7 @@ export function ChatPane({
   onLoadMoreGroupMembers,
   groupMembersLoading,
   groupMembersError,
+  profileLoading,
   onSend,
   onMessageAction,
   draft,
@@ -233,6 +234,8 @@ export function ChatPane({
   onLoadMoreGroupMembers?: () => void;
   groupMembersLoading?: boolean;
   groupMembersError?: string | null;
+  /** 群详情（群资料）拉取中，群资料区显示 skeleton。 */
+  profileLoading?: boolean;
   onSend: (body: string) => Promise<void>;
   onMessageAction?: (message: Message, action: MessageAction) => Promise<void>;
   draft: string;
@@ -1689,6 +1692,7 @@ export function ChatPane({
               onLoadMoreMembers={onLoadMoreGroupMembers}
               loadingMoreMembers={groupMembersLoading}
               loadingError={groupMembersError}
+              profileLoading={profileLoading}
             />
           ) : null}
         </>

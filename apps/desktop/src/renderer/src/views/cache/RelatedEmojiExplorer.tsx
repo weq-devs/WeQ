@@ -17,6 +17,7 @@ import type { RelatedEmojiKeyword } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { BlobDialog, CURSOR_PAGE, GridFooter, useCursorPaged } from './CacheShared';
+import { GridSkeleton } from './CacheSkeleton';
 
 /** weq-media URL for one related-emoji gif. */
 function relemojiUrl(hash: string, file: string): string {
@@ -120,7 +121,7 @@ function RelatedEmojiLightbox({
       onClose={onClose}
     >
       {gifs.isLoading ? (
-        <div className="weq-cache-grid-state">加载中…</div>
+        <GridSkeleton cells={6} />
       ) : files.length === 0 ? (
         <div className="weq-cache-grid-state">该关键词无可渲染的表情</div>
       ) : (

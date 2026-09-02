@@ -25,6 +25,7 @@ import {
   X,
 } from 'lucide-react';
 import type { FileCategory, FileSortKey, FileSortOrder } from '@weq/service';
+import { FooterSkeleton } from './CacheSkeleton';
 
 /** `all` (the landing tab) plus the real categories. */
 export type CategoryTab = FileCategory | 'all';
@@ -300,10 +301,17 @@ export function ListFooter({
       </div>
     );
   }
+  if (loading) {
+    return (
+      <div ref={sentinelRef} className="weq-filebrowser-more">
+        <FooterSkeleton />
+      </div>
+    );
+  }
   return (
     <div ref={sentinelRef} className="weq-filebrowser-more">
-      <RefreshCw size={14} className={loading ? 'is-spin' : ''} />
-      {loading ? '加载中…' : '滚动加载更多'}
+      <RefreshCw size={14} />
+      滚动加载更多
     </div>
   );
 }
@@ -443,10 +451,17 @@ export function GridFooter({
       </div>
     );
   }
+  if (loading) {
+    return (
+      <div ref={sentinelRef} className="weq-cache-avatar-more">
+        <FooterSkeleton />
+      </div>
+    );
+  }
   return (
     <div ref={sentinelRef} className="weq-cache-avatar-more">
-      <RefreshCw size={14} className={loading ? 'is-spin' : ''} />
-      {loading ? '加载中…' : '滚动加载更多'}
+      <RefreshCw size={14} />
+      滚动加载更多
     </div>
   );
 }
