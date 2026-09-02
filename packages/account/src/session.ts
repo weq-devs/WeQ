@@ -209,7 +209,10 @@ export async function openAccount(
     platform.groupMsgFtsDbPath(ctx.uin) ?? join(dirname(msgDbPath), 'group_msg_fts.db');
   const fileAssistantDbPath = join(dirname(msgDbPath), 'file_assistant.db');
   const collectionDbPath = join(dirname(msgDbPath), 'collection.db');
+
   const miscDbPath = platform.miscDbPath(ctx.uin) ?? join(dirname(msgDbPath), 'misc.db');
+  const guild1DbPath = join(dirname(msgDbPath), 'guild1.db');
+  const guildMsgDbPath = join(dirname(msgDbPath), 'guild_msg.db');
 
   // Probe the algo for each db not yet in ctx.algos, so different databases
   // in the same directory can carry different cipher parameters.
@@ -220,6 +223,8 @@ export async function openAccount(
     await Promise.all(
       [
         msgDbPath,
+        guildMsgDbPath,
+        guild1DbPath,
         profileInfoPath,
         groupInfoDbPath,
         ftsDbPath,
