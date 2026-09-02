@@ -519,9 +519,9 @@ export function GroupAnalyticsDialog({
                         {memberAnalytics.commonEmojis.length > 0 ? (
                           <div className="ga-chips">
                             {memberAnalytics.commonEmojis.map((item, idx) => (
-                              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                               <span
                                 className="ga-chip ga-emoji-chip"
+                                // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                                 key={idx}
                                 title={item.faceText}
                               >

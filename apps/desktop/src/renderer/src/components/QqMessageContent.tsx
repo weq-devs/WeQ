@@ -381,8 +381,8 @@ function renderElementNodes(
     out.push(
       <span key={`run-${start}`} className="qq-text-run">
         {items.map((el, i) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
           <ElementNode
+            // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
             key={`el-${start + i}`}
             element={el}
             sendTimeMs={sendTimeMs}
@@ -404,8 +404,8 @@ function renderElementNodes(
     }
     flushRun();
     out.push(
-      // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
       <ElementNode
+        // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
         key={`el-${index}`}
         element={element}
         sendTimeMs={sendTimeMs}
