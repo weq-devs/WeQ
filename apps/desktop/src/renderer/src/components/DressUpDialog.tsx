@@ -5,17 +5,17 @@
  * 网格。搜索**不单独分页** —— 输入即过滤当前列表来源:有关键词时打商城搜索接口,清空
  * 关键词就回到排行榜。这样用户不必在「排行/搜索/我的」之间跳来跳去。
  *
- * 三栏里前两栏(气泡 / 字体)走商城,第三栏(聊天背景 + 浮屏挂件)完全是本地的,
+ * 前三栏(气泡 / 字体 / 头像挂件)走商城,第四栏(聊天背景 + 浮屏挂件)完全是本地的,
  * 所以搜索框、「已装」筛子、渲染范围那几个控件在它上面都会隐藏 —— 留着禁用的控件
  * 只会让人以为坏了。
  *
  * 在线要求其实只剩搜索这一档,其余一律离线可用:
- *  - **浏览排行 / 安装(气泡 / 字体)**:离线可用 —— 资源先走本地离线 bundle(QQ 自带
+ *  - **浏览排行 / 安装(气泡 / 字体 / 挂件)**:离线可用 —— 资源先走本地离线 bundle(QQ 自带
  *    那批装扮资源),商城条目还自带 material,都不需要凭证;本地没有的款点击后由后端
  *    在需要时再尝试换链,失败才报错。所以**不再按 qqOnline 禁用任何安装按钮**。
  *  - **搜索**:必须有在线 QQ 实例(商城搜索接口要用在线实例取凭证)。
  *
- * 背景与挂件一律离线可用(QQ 同款的直链 bootstrap 时已存进 config,挂件是 bundle 的)。
+ * 聊天背景与浮屏挂件一律离线可用(QQ 同款的直链 bootstrap 时已存进 config,浮屏挂件是 bundle 的)。
  */
 
 import {
@@ -36,6 +36,7 @@ import {
   Palette,
   Type,
   Image as ImageIcon,
+  Gem,
   Upload,
   Trophy,
   X,
@@ -50,16 +51,17 @@ import { BACKDROP_VEIL_VAR, backdropVeil, ScreenWidget } from './ChatBackdrop';
 import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
 import '../styles/dressup.css';
 
-type DressKind = 'bubble' | 'font' | 'background';
+type DressKind = 'bubble' | 'font' | 'widget' | 'background';
 
 const KINDS: Array<{ id: DressKind; label: string; icon: ReactElement }> = [
   { id: 'bubble', label: '聊天气泡', icon: <Palette size={14} /> },
   { id: 'font', label: '聊天字体', icon: <Type size={14} /> },
+  { id: 'widget', label: '头像挂件', icon: <Gem size={14} /> },
   { id: 'background', label: '聊天背景', icon: <ImageIcon size={14} /> },
 ];
 
-/** 商城那两类共用一套列表 UI;背景是另一套形状,单列出来判。 */
-type MallKind = 'bubble' | 'font';
+/** 商城那三类共用一套列表 UI;背景是另一套形状,单列出来判。 */
+type MallKind = 'bubble' | 'font' | 'widget';
 
 const SCOPES: Array<{ id: DressScope; label: string; hint: string }> = [
   { id: 'mine', label: '仅自己', hint: '只渲染我发出的消息(与手机 QQ 一致)' },
@@ -203,7 +205,7 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
   const scope = manifest?.scope ?? 'mine';
 
   // 背景那栏不走商城,列表 query 一律停掉;下面两处的 kind 因此可以安全窄化。
-  const mallKind: MallKind = kind === 'font' ? 'font' : 'bubble';
+  const mallKind: MallKind = kind === 'font' ? 'font' : kind === 'widget' ? 'widget' : 'bubble';
   const isMall = kind !== 'background';
 
   // 关键词为空 → 排行榜;有关键词 → 搜索。两条 query 互斥启用。
@@ -253,6 +255,7 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
 
   const installBubble = trpc.account.dressup.installBubble.useMutation();
   const installFont = trpc.account.dressup.installFont.useMutation();
+  const installWidget = trpc.account.dressup.installWidget.useMutation();
   const setActive = trpc.account.dressup.setActive.useMutation();
   const setScope = trpc.account.dressup.setScope.useMutation();
   const pickBackground = trpc.account.dressup.pickBackground.useMutation();
@@ -288,8 +291,14 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
             name,
             previewUrl: item.previewLargeUrl || item.previewUrl,
           });
-        } else {
+        } else if (mallKind === 'font') {
           await installFont.mutateAsync({
+            itemId: item.itemId,
+            name,
+            previewUrl: item.previewLargeUrl || item.previewUrl,
+          });
+        } else {
+          await installWidget.mutateAsync({
             itemId: item.itemId,
             name,
             previewUrl: item.previewLargeUrl || item.previewUrl,
@@ -305,7 +314,7 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
         setBusyId(0);
       }
     },
-    [mallKind, installBubble, installFont, setActive, refresh, dialog],
+    [mallKind, installBubble, installFont, installWidget, setActive, refresh, dialog],
   );
 
   /** 取消当前生效的装扮,回到默认外观。 */
@@ -394,7 +403,11 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
   const applying = busyId !== 0 || clearing || scoping;
 
   const activeId =
-    mallKind === 'bubble' ? (manifest?.activeBubble ?? 0) : (manifest?.activeFont ?? 0);
+    mallKind === 'bubble'
+      ? (manifest?.activeBubble ?? 0)
+      : mallKind === 'font'
+        ? (manifest?.activeFont ?? 0)
+        : (manifest?.activeWidget ?? 0);
 
   /**
    * 「已装」列表 —— 清单里的 + 自己在 QQ 里正在用的那款。
@@ -432,27 +445,54 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
             installed: true,
             previewUrl: b.previewUrl ?? '',
           }))
-        : manifest.fonts.map((f) => ({
-            itemId: f.itemId,
-            name: f.name || `字体 ${f.itemId}`,
-            installed: true,
-            previewUrl: f.previewUrl ?? '',
-          }));
+        : mallKind === 'font'
+          ? manifest.fonts.map((f) => ({
+              itemId: f.itemId,
+              name: f.name || `字体 ${f.itemId}`,
+              installed: true,
+              previewUrl: f.previewUrl ?? '',
+            }))
+          : manifest.widgets.map((w) => ({
+              itemId: w.itemId,
+              name: w.name || `挂件 ${w.itemId}`,
+              installed: true,
+              previewUrl: w.previewUrl ?? '',
+            }));
 
     const own = state.data?.own;
-    const isBubble = mallKind === 'bubble';
-    const ownId = (isBubble ? own?.bubbleId : own?.fontId) ?? 0;
+    // 三类各自读自己的 own 字段(bootstrap 时从 getSelfDress 存下)。
+    const ownMap = {
+      bubble: {
+        id: own?.bubbleId,
+        name: own?.bubbleName,
+        preview: own?.bubblePreviewUrl,
+        label: '气泡',
+      },
+      font: {
+        id: own?.fontId,
+        name: own?.fontName,
+        preview: own?.fontPreviewUrl,
+        label: '字体',
+      },
+      widget: {
+        id: own?.widgetId,
+        name: own?.widgetName,
+        preview: own?.widgetPreviewUrl,
+        label: '挂件',
+      },
+    }[mallKind];
+    const ownId = ownMap.id ?? 0;
     if (ownId && !installed.some((i) => i.itemId === ownId)) {
       // 名字和预览图是 getSelfDress 一起回的(见 home_dress),所以这一条也能显示人话 ——
       // 拿不到时才退回「QQ 正在用的X」。真正缺的只有资源本身:点「使用」时后端优先
       // 查本地离线 bundle,本地没有才走 protocol(那一步才需要在线实例)。
-      const ownName = (isBubble ? own?.bubbleName : own?.fontName) ?? '';
-      const ownPreview = (isBubble ? own?.bubblePreviewUrl : own?.fontPreviewUrl) ?? '';
+      const ownName = ownMap.name ?? '';
+      const ownPreview = ownMap.preview ?? '';
       installed.unshift({
         itemId: ownId,
         // 只在真的没名字时才用占位串,而且要标出来 —— 否则它会被 use() 当成真名
         // 写进清单,以后列表里就永远显示「QQ 正在用的气泡」了(实测踩过)。
-        name: ownName || `QQ 正在用的${isBubble ? '气泡' : '字体'}`,
+        name: ownName || `QQ 正在用的${ownMap.label}`,
         placeholderName: !ownName,
         installed: false,
         previewUrl: ownPreview,
@@ -676,7 +716,7 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
               ) : undefined;
             return renderCard(
               {
-                appId: mallKind === 'bubble' ? 2 : 5,
+                appId: mallKind === 'bubble' ? 2 : mallKind === 'font' ? 5 : 4,
                 itemId: m.itemId,
                 name: m.name,
                 // 原样带上 —— use() 会把这两个字段写进清单,置空的话装完又会退回
@@ -860,7 +900,8 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
                   disabled={applying}
                   onClick={() => void clear()}
                 >
-                  取消当前{mallKind === 'bubble' ? '气泡' : '字体'}
+                  取消当前
+                  {mallKind === 'bubble' ? '气泡' : mallKind === 'font' ? '字体' : '挂件'}
                 </button>
               ) : null}
             </div>
@@ -876,8 +917,8 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
           <div className="weq-dress-notice">
             <WifiOff size={14} />
             <span>
-              QQ 未在线：排行榜与气泡/字体安装（本地离线资源优先）都能用；只有商城搜索 需要登录 QQ
-              客户端。
+              QQ 未在线：排行榜与气泡/字体/挂件安装（本地离线资源优先）都能用；只有商城搜索 需要登录
+              QQ 客户端。
             </span>
           </div>
         ) : isMall && !mineOnly && !searching ? (

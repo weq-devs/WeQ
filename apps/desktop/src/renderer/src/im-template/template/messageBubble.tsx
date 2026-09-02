@@ -8,6 +8,7 @@ import type { Conversation, Message, MessageAction, User } from './types';
 import { cn } from './classNames';
 import { SetEmojiReactions } from '../../components/SetEmojiReactions';
 import { useSelfPendant } from '../../hooks/useSelfPendant';
+import { useActiveWidget } from '../../hooks/useActiveWidget';
 import { useMsgDecoration } from '../../hooks/useMsgDecoration';
 
 // 猜测式回退（newPreview 拼接，见 msg_decoration.ts）常年会有下架/过期 404。加载失败
@@ -121,10 +122,16 @@ export function MessageBubble({
   // 自己头像的挂件（设置 → 个性显示可关）。他人的挂件要逐个走 SSR 页面查，
   // 一条消息一次网络往返不现实，故只叠自己的。
   const pendantUrl = useSelfPendant();
+  // 个性装扮页选的生效挂件（appId 4）—— 只在没有 per-message 装饰时顶上。
+  const { widget: activeWidget, scope: activeScope } = useActiveWidget();
   const msgDec = useMsgDecoration((message as any).decoration);
   const msgWidget = msgDec.widget;
   const msgBubbleId = msgDec.bubbleId;
   const msgFontId = msgDec.fontId;
+  // 渲染优先级:per-message 装饰（发送者自己的 QQ 挂件）> 生效挂件 > 自己的静态挂件。
+  // 生效挂件的作用范围:mine → 只叠自己的消息;all → 连对方的一起叠。
+  const lineWidget =
+    msgWidget ?? (activeWidget && (mine || activeScope === 'all') ? activeWidget : null);
   // Deleted origin — prefer the explicit kind; fall back to the legacy boolean
   // (which always meant a WeQ delete). `qq` = QQ-native recall, not restorable.
   const resolvedKind: 'weq' | 'qq' | null = deletedKind ?? (deleted ? 'weq' : null);
@@ -271,7 +278,7 @@ export function MessageBubble({
               name={senderName}
               avatarUrl={senderAvatarUrl}
               seed={senderSeed}
-              widget={msgWidget}
+              widget={lineWidget}
             />
           </button>
         ) : (
@@ -279,7 +286,7 @@ export function MessageBubble({
             name={senderName}
             avatarUrl={senderAvatarUrl}
             seed={senderSeed}
-            widget={msgWidget}
+            widget={lineWidget}
           />
         )
       ) : null}
@@ -407,7 +414,7 @@ export function MessageBubble({
           name={senderName}
           avatarUrl={senderAvatarUrl}
           seed={senderSeed}
-          widget={msgWidget}
+          widget={lineWidget}
           fallbackUrl={pendantUrl}
         />
       ) : null}

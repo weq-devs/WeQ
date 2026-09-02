@@ -24,12 +24,30 @@ export interface InstalledFont {
   file: string;
 }
 
+/**
+ * 已装的一款挂件。
+ *
+ * 除了商城元数据，还带上动画 sidecar 的时间轴（frameCount/frameTimeMs/repeat）——
+ * 渲染侧据此直接拼 `weq-media://dresspendant?id=<id>&frame=<n>` 逐帧动画，不必为生效
+ * 的挂件再发一次 resolveMsgDecoration 查询。
+ */
+export interface InstalledWidget {
+  itemId: number;
+  name: string;
+  previewUrl?: string;
+  frameCount: number;
+  frameTimeMs: number;
+  repeat: number;
+}
+
 /** 装扮清单（兼容旧接口）。 */
 export interface DressManifest {
   bubbles: BubbleSkin[];
   fonts: InstalledFont[];
+  widgets: InstalledWidget[];
   activeBubble: number;
   activeFont: number;
+  activeWidget: number;
   scope: DressScope;
   background: DressBackgroundSource;
   backgroundFile: string;
@@ -88,11 +106,30 @@ export class DressService {
       }
     }
 
+    // 挂件：从共享缓存读动画 sidecar（缓存被清 → 条目随之消失，active 指向落空，
+    // 渲染侧会回退到 QQ 自己的挂件，可接受的降级）。
+    const widgets: InstalledWidget[] = [];
+    for (const itemId of cfg.installedWidgets) {
+      const sidecar = this.cache.getPendantSidecar(itemId);
+      if (!sidecar) continue;
+      const meta = cfg.widgetMeta[itemId];
+      widgets.push({
+        itemId,
+        name: meta?.name ?? '',
+        previewUrl: meta?.previewUrl,
+        frameCount: sidecar.frameCount,
+        frameTimeMs: sidecar.frameTimeMs,
+        repeat: sidecar.repeat,
+      });
+    }
+
     return {
       bubbles,
       fonts,
+      widgets,
       activeBubble: cfg.activeBubble,
       activeFont: cfg.activeFont,
+      activeWidget: cfg.activeWidget,
       scope: cfg.scope,
       background: cfg.background,
       backgroundFile: this.config.getBackgroundFile() ?? '',
@@ -141,6 +178,31 @@ export class DressService {
   }
 
   /**
+   * 安装一款挂件：下载动画帧到共享缓存 + 标记已装。
+   *
+   * 与气泡不同，挂件的商城条目不带 material —— 资源解析只有「本地离线 bundle →
+   * protocol 换链」两级（见 dress_shared_cache 的 resolvePendantAnimation），失败时
+   * 如实报错，不做猜测式回退（那是消息 40801 逐条解析的兜底，对「已装清单」没有意义）。
+   */
+  async installWidget(itemId: number, name: string, previewUrl?: string): Promise<InstalledWidget> {
+    const sidecar = await this.cache.resolvePendantAnimation(itemId);
+    if (!sidecar) {
+      throw new Error(
+        '下载挂件需要登录该账号的 QQ 客户端（挂件动画帧只能通过在线实例换取）—— 可能该款已下架',
+      );
+    }
+    this.config.markWidgetInstalled(itemId, { name, previewUrl });
+    return {
+      itemId,
+      name,
+      previewUrl,
+      frameCount: sidecar.frameCount,
+      frameTimeMs: sidecar.frameTimeMs,
+      repeat: sidecar.repeat,
+    };
+  }
+
+  /**
    * 判断某款装扮资源是否已在本地缓存（「下载本地未缓存装扮资源」关闭时，
    * 导出装扮只带已缓存的部分，不再走在线换链）。
    */
@@ -151,7 +213,7 @@ export class DressService {
   }
 
   /** 切换生效的装扮。 */
-  setActive(kind: 'bubble' | 'font', itemId: number): DressManifest {
+  setActive(kind: 'bubble' | 'font' | 'widget', itemId: number): DressManifest {
     this.config.setActive(kind, itemId);
     return this.read();
   }
@@ -231,6 +293,9 @@ export class DressService {
     fontId?: number;
     fontName?: string;
     fontPreviewUrl?: string;
+    widgetId?: number;
+    widgetName?: string;
+    widgetPreviewUrl?: string;
     chatBgUrl?: string;
   }): Promise<void> {
     const cfg = this.config.read();
@@ -253,6 +318,17 @@ export class DressService {
       try {
         await this.installFont(own.fontId, own.fontName ?? '', own.fontPreviewUrl);
         this.config.setActive('font', own.fontId);
+      } catch {
+        // 静默失败，不打断启动。
+      }
+    }
+
+    // 挂件：只在用户从没自己选过时才同步（下载失败静默 —— 头像仍会叠 QQ 的
+    // 静态挂件预览图，见 SelfPendantContext，只是没有逐帧动画）。
+    if (own.widgetId && this.config.read().activeWidget === 0) {
+      try {
+        await this.installWidget(own.widgetId, own.widgetName ?? '', own.widgetPreviewUrl);
+        this.config.setActive('widget', own.widgetId);
       } catch {
         // 静默失败，不打断启动。
       }

@@ -1,19 +1,20 @@
 /**
- * `account.dressup.*` —— 个性装扮(气泡 / 字体 / 聊天背景 / 浮屏挂件)。
+ * `account.dressup.*` —— 个性装扮(气泡 / 字体 / 头像挂件 / 聊天背景 / 浮屏挂件)。
  *
- * 前三块能力,在线要求各不相同,这是本路由分工的主线:
+ * 商城那三类(气泡 / 字体 / 头像挂件)在线要求各不相同,这是本路由分工的主线:
  *
  *  - **排行榜**:优先打商城接口(要 pskey);没有在线实例时回退到仓库里存的一份静态
  *    响应 `resources/dress/ranking-*.json`。所以离线 / ninebird 账号照样能浏览一个
- *    可用的气泡目录 —— 气泡渲染只要 itemId 就够。
+ *    可用的目录 —— 气泡渲染只要 itemId 就够,字体 / 挂件的安装也走本地离线 bundle。
  *  - **搜索**:必须在线,没有兜底(搜索结果没法预存)。离线时明确报错。
- *  - **安装/启用**:气泡与字体都**默认离线可用** —— 资源先走本地离线 bundle
+ *  - **安装/启用**:三类都**默认离线可用** —— 资源先走本地离线 bundle
  *    (QQ 自带那批装扮资源,见 nt_helper 的 queryDressResourceUrl),本地没有的款
- *    才回退到在线换链(气泡走 scupdate / 字体走手Q 专属包)。所以这里**不再按
- *    qqOnline 兜一层错** —— 装得上装不上由服务层的本地 → 在线两级解析如实决定。
+ *    才回退到在线换链(气泡走 scupdate / 字体走手Q 专属包 / 挂件走 scupdate 的
+ *    other.zip 帧动画)。所以这里**不再按 qqOnline 兜一层错** —— 装得上装不上由
+ *    服务层的本地 → 在线两级解析如实决定。
  *
- * 背景与挂件则**一律离线可用**:QQ 同款背景的直链 bootstrap 时已存进 config,
- * 自定义背景是本地文件,挂件是仓库里 bundle 的 Lottie。
+ * 聊天背景与浮屏挂件则**一律离线可用**:QQ 同款背景的直链 bootstrap 时已存进 config,
+ * 自定义背景是本地文件,浮屏挂件是仓库里 bundle 的 Lottie。
  */
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -62,7 +63,7 @@ const PEER_STATS_HINT =
 
 const PEER_QQ_SHOW_HINT = '获取失败 —— QQ 秀形象要发 OIDB 包，请确认这个账号的 QQ 客户端正在运行。';
 
-const kindInput = z.enum(['bubble', 'font']);
+const kindInput = z.enum(['bubble', 'font', 'widget']);
 type DressKindInput = z.infer<typeof kindInput>;
 
 /**
@@ -80,7 +81,8 @@ const bubbleMaterial = z.object({
 });
 
 function appIdFor(kind: DressKindInput): DressAppId {
-  return kind === 'bubble' ? DressAppId.Bubble : DressAppId.Font;
+  if (kind === 'bubble') return DressAppId.Bubble;
+  return kind === 'font' ? DressAppId.Font : DressAppId.Widget;
 }
 
 /**
@@ -165,6 +167,9 @@ export const dressupRouter = router({
         fontId: record?.homeDress?.fontId ?? 0,
         fontName: record?.homeDress?.fontName ?? '',
         fontPreviewUrl: record?.homeDress?.fontPreviewUrl ?? '',
+        widgetId: record?.homeDress?.widgetId ?? 0,
+        widgetName: record?.homeDress?.widgetName ?? '',
+        widgetPreviewUrl: record?.homeDress?.widgetPreviewUrl ?? '',
         /** 聊天背景是直链(目录段是服务端 nonce,推不出来),空串表示没设。 */
         chatBgUrl: record?.homeDress?.chatBgUrl ?? '',
       },
@@ -262,6 +267,29 @@ export const dressupRouter = router({
     )
     .mutation(async ({ input }) => {
       return requireServices().dressInstall.installFont(input.itemId, input.name, input.previewUrl);
+    }),
+
+  /**
+   * 装一款头像挂件。与字体同款策略:资源先走本地离线 bundle(不需要在线实例),
+   * 本地没有才回退 protocol 换链,失败由服务层如实报错(见 installWidget)。
+   *
+   * 款名 / 预览图与气泡同理:装完「我的装扮」只剩 itemId 可查,不在这一刻记下来就
+   * 再也补不回来了。
+   */
+  installWidget: procedure
+    .input(
+      z.object({
+        itemId: z.number().int().positive(),
+        name: z.string().default(''),
+        previewUrl: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      return requireServices().dressInstall.installWidget(
+        input.itemId,
+        input.name,
+        input.previewUrl,
+      );
     }),
 
   /** 切换生效的装扮。`itemId` 传 0 表示取消该项、回到默认外观。 */

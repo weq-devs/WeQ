@@ -45,6 +45,8 @@ const TRPC_OPTIONS = {
 /** 装扮类别。商城接口里排行叫 `appid`、搜索叫 `itemClass`,取值一致。 */
 export const DressAppId = {
   Bubble: 2,
+  /** 头像挂件。 */
+  Widget: 4,
   Font: 5,
 } as const;
 export type DressAppId = (typeof DressAppId)[keyof typeof DressAppId];

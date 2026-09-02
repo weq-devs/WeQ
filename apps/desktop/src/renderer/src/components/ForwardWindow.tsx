@@ -34,6 +34,7 @@ import { X } from 'lucide-react';
 import { client } from '../trpc/client';
 import { QqMessageContent, ConvContext, ForwardCarrierContext } from './QqMessageContent';
 import { useMsgDecoration } from '../hooks/useMsgDecoration';
+import { useActiveWidget } from '../hooks/useActiveWidget';
 import { useOverlayLayer } from '../lib/overlayStack';
 import type { ResolvedWidget } from '@weq/service';
 
@@ -469,12 +470,14 @@ function ForwardRow({
   kind: 'c2c' | 'group';
 }): ReactElement {
   const msgDec = useMsgDecoration(record.decoration);
+  // 转发行都是「对方」样式,生效挂件只在作用范围 all 时叠上来。
+  const { widget: activeWidget, scope: activeScope } = useActiveWidget();
   const avatar =
     senderAvatarFromUin(record.senderUin) || record.senderInfo?.avatar?.avatarUrl || null;
   const displayName = record.sendNick || record.senderUin || record.senderUid || 'Unknown';
   const time = formatForwardTime(record.sendTime);
   const sendTimeMs = (Number(record.sendTime) || 0) * 1000;
-  const widget = msgDec.widget;
+  const widget = msgDec.widget ?? (activeScope === 'all' ? activeWidget : null);
 
   return (
     <div

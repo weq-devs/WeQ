@@ -182,6 +182,12 @@ export interface AccountConfig {
      * 这里存 url 而非 itemId —— 背景的目录段是服务端 nonce，推不出来。
      */
     chatBgUrl?: string;
+    /** 正在用的头像挂件 itemId（appId 4）。渲染侧据此换动画帧。 */
+    widgetId?: number;
+    /** 正在用的挂件款名。 */
+    widgetName?: string;
+    /** 正在用的挂件预览图直链（newPreview2）。 */
+    widgetPreviewUrl?: string;
   };
 }
 

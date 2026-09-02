@@ -2,11 +2,11 @@
  * 商城响应归一化的离线校验。
  *
  * 不需要 QQ 在线 —— 直接喂仓库里已有的原始响应:静态排行榜资源
- * (`resources/dress/ranking-bubble.json`)+ tmp 下四份 HAR(气泡/字体 × 排行/搜索)。
+ * (`resources/dress/ranking-*.json`)+ tmp 下的 HAR(气泡/字体/挂件 × 排行/搜索)。
  *
  * 重点是确认 {@link normalizeMallItems} 对**两种形状通吃**:排行榜包了一层
  * `items[].item`,搜索是直接的 `results[]`。以及字体那边 immersiveMaterial 常常是空串
- * (engine=2 的老字体)时不炸。
+ * (engine=2 的老字体)、挂件那边根本没有 immersiveMaterial 时不炸。
  *
  * 用法: pnpm tsx ./packages/service/tools/dress_mall.ts
  */
@@ -33,6 +33,14 @@ const SAMPLES: Array<{ label: string; path: string; kind: 'json' | 'har'; minIte
   { label: '搜索 HAR(气泡)', path: 'tmp/bubble_search.har', kind: 'har', minItems: 40 },
   { label: '排行 HAR(字体)', path: 'tmp/font.har', kind: 'har', minItems: 20 },
   { label: '搜索 HAR(字体)', path: 'tmp/font_search.har', kind: 'har', minItems: 40 },
+  {
+    label: '静态排行(挂件)',
+    path: 'resources/dress/ranking-widget.json',
+    kind: 'json',
+    minItems: 20,
+  },
+  { label: '排行 HAR(挂件)', path: 'tmp/ranking.har', kind: 'har', minItems: 20 },
+  { label: '搜索 HAR(挂件)', path: 'tmp/search.har', kind: 'har', minItems: 40 },
 ];
 
 function main(): void {

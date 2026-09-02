@@ -37,7 +37,8 @@
  * 仍然明确,又不跟贴图打架。
  */
 
-import { dressBubbleUrl, dressBubbleFrameUrl, dressUrl } from './resourceUrl';
+import type { ResolvedWidget } from '@weq/service';
+import { dressBubbleUrl, dressBubbleFrameUrl, dressPendantFrameUrl, dressUrl } from './resourceUrl';
 
 /** 与 service 的 BubbleSkin 同构(渲染侧用得到的部分)。 */
 export interface BubbleSkinCss {
@@ -70,6 +71,13 @@ export interface FontSkinCss {
   itemId: number;
   /** 字体文件的 url(weq-media://dressfont?id=…)。 */
   fontUrl: string;
+}
+
+/** 生效的挂件在消息头像上的叠加层选择器。 */
+function pendantSelector(scope: DressScope): string {
+  return scope === 'all'
+    ? '.message-line .weq-avatar-pendant-img, .weq-forward-row .weq-avatar-pendant-img'
+    : '.message-line.mine .weq-avatar-pendant-img';
 }
 
 /** 装扮作用范围。与 service 的 DressScope 同构。 */
@@ -373,6 +381,49 @@ export function bubblePreviewCss(skin: BubbleSkinCss, sel: string): string {
   return baseBubbleRule(skin, bubbleMetrics(skin), sel, false);
 }
 
+/**
+ * 生效挂件的逐帧动画 CSS —— 与 msgDecorationStyle 的 widgetFrameAnimationCss 同构,
+ * 只是选择器换成按「作用范围」而不是按 data-widget 属性(生效挂件没有 per-message
+ * 的那条 40801 装饰,所有消息共用一款)。背景图逐帧切换,`steps(1)` 让每帧撑满自己的
+ * 时间段而不是按不可插值属性的默认「过半才切」语义把显示时长砍半。
+ */
+function widgetPendantRules(widget: ResolvedWidget, scope: DressScope): string {
+  if (!widget.animated) return '';
+  const name = `weq-widgetframe-${widget.itemId}`;
+  const step = 100 / widget.frameCount;
+  const stops = Array.from({ length: widget.frameCount }, (_, i) => {
+    const pct = Math.round(Math.min(i * step, 100) * 100) / 100;
+    return `  ${pct}% { background-image: url("${dressPendantFrameUrl(widget.itemId, i + 1)}"); }`;
+  });
+  const keyframes = [`@keyframes ${name} {`, ...stops, `}`].join('\n');
+  const duration = widget.frameCount * widget.frameTimeMs;
+  const iterations = widget.repeat > 0 ? widget.repeat : 'infinite';
+  const sel = pendantSelector(scope);
+  return [
+    keyframes,
+    `${sel} {`,
+    `  background-image: url("${dressPendantFrameUrl(widget.itemId, 1)}");`,
+    `  background-size: contain;`,
+    `  background-position: center;`,
+    `  background-repeat: no-repeat;`,
+    `  animation: ${name} ${duration}ms steps(1) ${iterations};`,
+    `}`,
+    `@media (prefers-reduced-motion: reduce) {`,
+    `  ${sel} { animation: none; }`,
+    `}`,
+  ].join('\n');
+}
+
+/**
+ * 生效挂件的全部帧 url(逐帧预加载用)。
+ */
+function widgetFrameUrls(widget: ResolvedWidget | null): string[] {
+  if (!widget?.animated) return [];
+  return Array.from({ length: widget.frameCount }, (_, i) =>
+    dressPendantFrameUrl(widget.itemId, i + 1),
+  );
+}
+
 function fontRules(font: FontSkinCss, scope: DressScope): string {
   // @font-face 不在这里声明 —— 字体经 FontFace API 预加载后注册进 document.fonts
   // (见 preloadFont)。那样字形在样式落地前就绪,不会触发 swap 的二次重排。
@@ -450,7 +501,7 @@ async function preloadFont(font: FontSkinCss): Promise<void> {
 }
 
 /**
- * 应用(或清除)当前的装扮。两个 skin 都为 null 时移除样式节点,回到默认外观。
+ * 应用(或清除)当前的装扮。三个 skin 都为 null 时移除样式节点,回到默认外观。
  *
  * **同步的,不等资源** —— 进主界面时的首次注入走这条(资源多半已在磁盘缓存里,
  * 等它反而推迟首屏)。切换装扮请走 {@link applyDressSkinPreloaded}。
@@ -463,6 +514,7 @@ async function preloadFont(font: FontSkinCss): Promise<void> {
 export function applyDressSkin(
   bubble: BubbleSkinCss | null,
   font: FontSkinCss | null,
+  widget: ResolvedWidget | null,
   scope: DressScope = 'mine',
 ): void {
   // 不 await:注册完成后 document.fonts 变化会让浏览器自己重绘用到该 family 的文本,
@@ -472,12 +524,16 @@ export function applyDressSkin(
 
   const existing = document.getElementById(STYLE_ID);
 
-  if (!bubble && !font) {
+  if (!bubble && !font && !widget) {
     existing?.remove();
     return;
   }
 
-  const css = [bubble ? bubbleRules(bubble, scope) : '', font ? fontRules(font, scope) : '']
+  const css = [
+    bubble ? bubbleRules(bubble, scope) : '',
+    font ? fontRules(font, scope) : '',
+    widget ? widgetPendantRules(widget, scope) : '',
+  ]
     .filter(Boolean)
     .join('\n\n');
 
@@ -504,6 +560,7 @@ export function applyDressSkin(
 export async function applyDressSkinPreloaded(
   bubble: BubbleSkinCss | null,
   font: FontSkinCss | null,
+  widget: ResolvedWidget | null,
   scope: DressScope = 'mine',
 ): Promise<void> {
   await Promise.all(
@@ -511,8 +568,11 @@ export async function applyDressSkinPreloaded(
       bubble ? preloadImage(bubbleImageUrl(bubble)) : null,
       bubble?.animationUrl ? preloadImage(dressUrl(bubble.animationUrl)) : null,
       font ? preloadFont(font) : null,
+      // 挂件帧是本地 protocol 文件,首帧以后基本秒达;但首帧没解码就开播仍然会闪,
+      // 所以逐帧预加载完再注入(与 msgDecorationStyle 的 preloadImages 同思路)。
+      ...widgetFrameUrls(widget).map((url) => preloadImage(url)),
     ].filter(Boolean),
   );
 
-  applyDressSkin(bubble, font, scope);
+  applyDressSkin(bubble, font, widget, scope);
 }

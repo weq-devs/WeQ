@@ -7,10 +7,29 @@
  */
 
 import { useEffect } from 'react';
-import type { DressManifest } from '@weq/service';
+import type { DressManifest, ResolvedWidget } from '@weq/service';
 import { trpc } from '../trpc/client';
 import { applyDressSkin, applyDressSkinPreloaded } from '../lib/dressSkin';
 import { dressBackgroundUrl, dressFontUrl, dressUrl } from '../lib/resourceUrl';
+
+/**
+ * 从清单里挑出生效的挂件,翻成渲染要的形状(与 service 的 ResolvedWidget 同构)。
+ *
+ * 挂件是安装时下载好的逐帧动画,帧数/时间轴就在清单条目里 —— 不需要再发一次
+ * resolveMsgDecoration 查询,拼 `dressPendantFrameUrl` 就能播。清单里条目缺失
+ * (缓存被清等)时返回 null,调用方回退到 QQ 自己的静态挂件。
+ */
+export function activeWidgetFromManifest(manifest: DressManifest): ResolvedWidget | null {
+  const w = manifest.widgets.find((x) => x.itemId === manifest.activeWidget);
+  if (!w?.frameCount) return null;
+  return {
+    animated: true,
+    itemId: w.itemId,
+    frameCount: w.frameCount,
+    frameTimeMs: w.frameTimeMs,
+    repeat: w.repeat,
+  };
+}
 
 /** 从清单里挑出生效的那两款,翻成注入层要的形状。 */
 function activeSkins(manifest: DressManifest) {
@@ -35,15 +54,15 @@ function activeSkins(manifest: DressManifest) {
   };
 }
 
-/** 把清单里生效的那两款翻成 CSS 并注入(同步,不等资源)。 */
+/** 把清单里生效的那几款翻成 CSS 并注入(同步,不等资源)。 */
 export function syncDressSkin(manifest: DressManifest | undefined): void {
   if (!manifest) return;
   const { bubble, font } = activeSkins(manifest);
-  applyDressSkin(bubble, font, manifest.scope);
+  applyDressSkin(bubble, font, activeWidgetFromManifest(manifest), manifest.scope);
 }
 
 /**
- * 同上,但先把图片 / 字体拉齐再注入。
+ * 同上,但先把图片 / 字体 / 挂件帧拉齐再注入。
  *
  * 切换装扮时用这条:调用方 await 它,加载态就能盖住「资源到齐」为止的全过程,
  * 而不是在样式注入前就收工、把重排甩给用户看(见 lib/dressSkin 的说明)。
@@ -51,7 +70,7 @@ export function syncDressSkin(manifest: DressManifest | undefined): void {
 export function syncDressSkinPreloaded(manifest: DressManifest | undefined): Promise<void> {
   if (!manifest) return Promise.resolve();
   const { bubble, font } = activeSkins(manifest);
-  return applyDressSkinPreloaded(bubble, font, manifest.scope);
+  return applyDressSkinPreloaded(bubble, font, activeWidgetFromManifest(manifest), manifest.scope);
 }
 
 /** 进主界面就读清单并注入。装扮页共用同一份 query,所以两边不会重复请求。 */

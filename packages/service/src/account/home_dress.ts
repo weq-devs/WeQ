@@ -73,6 +73,12 @@ export interface HomeDressSnapshot {
    * 这个是贴在聊天窗后面的底图（appId 8）。
    */
   chatBgUrl?: string;
+  /** 正在用的头像挂件 itemId（appId 4）。 */
+  widgetId?: number;
+  /** 挂件款名。 */
+  widgetName?: string;
+  /** 挂件预览图直链（newPreview2，已 upgradePreview）。 */
+  widgetPreviewUrl?: string;
 }
 
 /** newPreview1.xxx → newPreview2.xxx（同扩展名）。 */
@@ -195,6 +201,14 @@ export async function fetchHomeDress(
     if (fontItem.name) snapshot.fontName = fontItem.name;
     if (fontItem.previewUrl) snapshot.fontPreviewUrl = fontItem.previewUrl;
   }
+  // 挂件：名字/预览图/动画帧要按 itemId 去换，快照里必须存 id（widgetUrl 只是
+  // 预览图，装上之后渲染走帧动画，不再用它）。
+  if (widgetItem?.itemId) {
+    snapshot.widgetId = widgetItem.itemId;
+    if (widgetItem.name) snapshot.widgetName = widgetItem.name;
+    if (widgetUrl) snapshot.widgetPreviewUrl = widgetUrl;
+  }
+
   // 聊天背景**不走 upgradePreview** —— 那套是 newPreview1→2 的换名，与背景无关。
   // 背景的高清图是同目录的 aioImage（720×1280），getSelfDress 已经算好放在 hdUrl 里
   // （目录段是服务端 nonce，推不出来，见 self_dress 的 chatBgHdUrl）。没有 hdUrl 时
@@ -211,6 +225,7 @@ export async function fetchHomeDress(
     tagCount: tags.length,
     bubbleId: snapshot.bubbleId ?? 0,
     fontId: snapshot.fontId ?? 0,
+    widgetId: snapshot.widgetId ?? 0,
     hasChatBg: Boolean(snapshot.chatBgUrl),
   });
 
