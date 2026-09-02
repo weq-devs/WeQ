@@ -68,7 +68,7 @@ import { ExportView } from './ExportView';
 import { CacheView } from './cache/CacheView';
 import { QzoneView } from './QzoneView';
 import { ChannelView } from './ChannelView';
-import { AnnualReportView } from './AnnualReportView';
+import { AnnualReportView } from './annual-report/AnnualReportView';
 import { ChatHome } from './ChatHome';
 import {
   ChatMainContent,
@@ -3949,7 +3949,7 @@ export function MainView(): ReactElement {
               ) : shell.view === 'channel' ? (
                 <ChannelView />
               ) : shell.view === 'annual' ? (
-                <AnnualReportView />
+                <AnnualReportView onBack={() => shell.switchView('home')} />
               ) : activeConversation?.type === 'merged' ? (
                 <ArkFeedView
                   conversationId={activeConversation.id}

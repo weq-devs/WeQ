@@ -1,301 +1,350 @@
-/* ──────────────────────────────────────────────────────────────────────
- * 年度报告占位页（AnnualReportView）。
- * 颜色全部走 --weq-* 主题变量，深浅模式自适应；动画尊重
- * prefers-reduced-motion。
- * ──────────────────────────────────────────────────────────────────── */
-
-.weq-annual {
+.weq-report-root {
   position: relative;
-  display: grid;
+  display: flex;
   width: 100%;
   height: 100%;
-  place-items: center;
+  min-height: 0;
+  flex-direction: column;
   overflow: hidden;
-  padding: 32px;
-  background: var(--weq-chat-bg, var(--chat-surface, #f0f0f0));
+  color: var(--weq-fg-primary, #142235);
+  background:
+    radial-gradient(circle at 12% 12%, color-mix(in srgb, var(--weq-accent-effective, #0099ff) 12%, transparent), transparent 34%),
+    radial-gradient(circle at 88% 82%, rgba(132, 126, 224, 0.14), transparent 36%),
+    var(--weq-chat-bg, var(--chat-surface, #f0f0f0));
 }
 
-/* ---- 背景漂浮光斑：缓慢漂移的柔和色球，制造「数据流动」的氛围 ---- */
-
-.weq-annual-orb {
-  position: absolute;
-  z-index: 0;
-  border-radius: 50%;
-  filter: blur(56px);
-  pointer-events: none;
-  will-change: transform;
-}
-
-.weq-annual-orb-a {
-  top: 10%;
-  left: 12%;
-  width: 320px;
-  height: 320px;
-  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
-  animation: weq-annual-drift-a 14s ease-in-out infinite alternate;
-}
-
-.weq-annual-orb-b {
-  right: 10%;
-  bottom: 8%;
-  width: 380px;
-  height: 380px;
-  background: color-mix(
-    in srgb,
-    var(--weq-accent-effective) 12%,
-    rgba(132, 126, 224, 0.14)
-  );
-  animation: weq-annual-drift-b 17s ease-in-out infinite alternate;
-}
-
-.weq-annual-orb-c {
-  top: 46%;
-  right: 18%;
-  width: 220px;
-  height: 220px;
-  background: color-mix(
-    in srgb,
-    var(--weq-accent-effective) 14%,
-    rgba(255, 200, 90, 0.16)
-  );
-  animation: weq-annual-drift-c 12s ease-in-out infinite alternate;
-}
-
-@keyframes weq-annual-drift-a {
-  from { transform: translate3d(-24px, -16px, 0) scale(1); }
-  to   { transform: translate3d(36px, 30px, 0) scale(1.15); }
-}
-
-@keyframes weq-annual-drift-b {
-  from { transform: translate3d(28px, 20px, 0) scale(1.08); }
-  to   { transform: translate3d(-32px, -26px, 0) scale(0.94); }
-}
-
-@keyframes weq-annual-drift-c {
-  from { transform: translate3d(0, 18px, 0) scale(0.96); }
-  to   { transform: translate3d(-22px, -20px, 0) scale(1.12); }
-}
-
-/* ---- 中心卡片：磨砂玻璃 + 入场动画 ---- */
-
-.weq-annual-card {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  max-width: 460px;
-  justify-items: center;
-  gap: 18px;
-  padding: 52px 44px 44px;
-  text-align: center;
-  border: 1px solid var(--weq-border-subtle, rgba(0, 0, 0, 0.08));
-  border-radius: 26px;
-  background: var(--weq-overlay, rgba(255, 255, 255, 0.72));
-  box-shadow: var(--weq-shadow-card, 0 24px 60px -28px rgba(7, 31, 61, 0.18));
-  backdrop-filter: blur(20px);
-  animation: weq-annual-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-.weq-annual-card > * {
-  animation: weq-annual-fade-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-.weq-annual-card > *:nth-child(1) { animation-delay: 0.08s; }
-.weq-annual-card > *:nth-child(2) { animation-delay: 0.16s; }
-.weq-annual-card > *:nth-child(3) { animation-delay: 0.24s; }
-.weq-annual-card > *:nth-child(4) { animation-delay: 0.32s; }
-.weq-annual-card > *:nth-child(5) { animation-delay: 0.4s; }
-.weq-annual-card > *:nth-child(6) { animation-delay: 0.48s; }
-
-@keyframes weq-annual-rise {
-  from { opacity: 0; transform: translateY(14px) scale(0.97); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-@keyframes weq-annual-fade-up {
-  from { opacity: 0; transform: translateY(10px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-/* ---- 图标：主题色渐变块 + 扩散的呼吸光圈 ---- */
-
-.weq-annual-icon {
-  position: relative;
-  display: grid;
-  width: 88px;
-  height: 88px;
-  place-items: center;
-  border-radius: 26px;
-  color: #ffffff;
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--weq-accent-effective, #0099ff) 78%, #ffffff),
-    var(--weq-accent-effective, #0099ff)
-  );
-  box-shadow: 0 18px 44px -14px
-    color-mix(in srgb, var(--weq-accent-effective, #0099ff) 48%, transparent);
-}
-
-.weq-annual-icon::before {
-  position: absolute;
-  inset: -12px;
-  border: 2px solid
-    color-mix(in srgb, var(--weq-accent-effective, #0099ff) 34%, transparent);
-  border-radius: 34px;
-  content: "";
-  animation: weq-annual-ring 2.6s ease-out infinite;
-}
-
-@keyframes weq-annual-ring {
-  0%   { transform: scale(0.84); opacity: 0.95; }
-  70%  { transform: scale(1.22); opacity: 0; }
-  100% { transform: scale(1.22); opacity: 0; }
-}
-
-/* ---- 迷你柱状图：错落升起的「年度数据」意象 ---- */
-
-.weq-annual-chart {
+.weq-report-chrome {
+  z-index: 2;
   display: flex;
-  height: 40px;
-  align-items: flex-end;
+  min-height: 58px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 22px;
+  border-bottom: 1px solid var(--weq-border-subtle, rgba(0, 0, 0, 0.08));
+  background: color-mix(in srgb, var(--weq-overlay, #fff) 72%, transparent);
+  backdrop-filter: blur(16px);
+}
+
+.weq-report-back,
+.weq-report-controls button,
+.weq-report-page-status button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   gap: 7px;
-  margin-top: -2px;
+  border: 1px solid var(--weq-border-subtle, rgba(0, 0, 0, 0.1));
+  border-radius: 10px;
+  padding: 7px 11px;
+  color: var(--weq-fg-primary, #142235);
+  background: color-mix(in srgb, var(--weq-overlay, #fff) 82%, transparent);
+  cursor: pointer;
 }
 
-.weq-annual-bar {
-  display: block;
-  width: 9px;
-  border-radius: 5px 5px 3px 3px;
-  transform-origin: bottom;
-  background: linear-gradient(
-    180deg,
-    var(--weq-accent-effective, #0099ff),
-    color-mix(in srgb, var(--weq-accent-effective, #0099ff) 34%, transparent)
-  );
-  animation: weq-annual-bar-rise 1.7s ease-in-out infinite alternate;
+.weq-report-back:hover,
+.weq-report-controls button:hover:not(:disabled),
+.weq-report-page-status button:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 45%, transparent);
+  color: var(--weq-accent-effective, #0099ff);
 }
 
-.weq-annual-bar:nth-child(odd) {
-  animation-delay: 0.3s;
+.weq-report-heading {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
 }
 
-.weq-annual-bar:nth-child(3n) {
-  animation-delay: 0.6s;
+.weq-report-heading strong {
+  font-size: 16px;
 }
 
-@keyframes weq-annual-bar-rise {
-  from { transform: scaleY(0.42); opacity: 0.55; }
-  to   { transform: scaleY(1); opacity: 1; }
+.weq-report-heading span,
+.weq-report-year {
+  color: var(--weq-fg-secondary, #64748b);
+  font-size: 12px;
 }
 
-/* ---- 标题 / 描述 ---- */
-
-.weq-annual-title {
-  margin: 6px 0 0;
-  font-size: 30px;
-  font-weight: 700;
-  letter-spacing: 4px;
-  background: linear-gradient(
-    120deg,
-    var(--weq-fg-primary, #111111),
-    color-mix(in srgb, var(--weq-accent-effective, #0099ff) 72%, var(--weq-fg-primary, #111111)) 55%,
-    var(--weq-fg-primary, #111111)
-  );
-  background-clip: text;
-  -webkit-background-clip: text;
-  color: transparent;
-}
-
-.weq-annual-desc {
-  margin: 0;
-  font-size: 15px;
-  line-height: 1.7;
-  color: var(--weq-fg-secondary, #5d6b7e);
-}
-
-/* ---- 流动的高光进度条：强调「筹备中」 ---- */
-
-.weq-annual-progress {
-  position: relative;
-  width: 200px;
-  height: 6px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 13%, transparent);
-}
-
-.weq-annual-progress::after {
-  position: absolute;
-  inset: 0;
-  width: 42%;
-  border-radius: inherit;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    var(--weq-accent-effective, #0099ff),
-    transparent
-  );
-  content: "";
-  animation: weq-annual-sweep 1.7s ease-in-out infinite;
-}
-
-@keyframes weq-annual-sweep {
-  from { left: -42%; }
-  to   { left: 100%; }
-}
-
-/* ---- 「即将上线」徽标 ---- */
-
-.weq-annual-badge {
+.weq-report-year {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  margin-top: 4px;
-  padding: 7px 16px;
-  border: 1px solid
-    color-mix(in srgb, var(--weq-accent-effective, #0099ff) 26%, transparent);
+}
+
+.weq-report-year select {
+  border: 1px solid var(--weq-border-subtle, rgba(0, 0, 0, 0.1));
+  border-radius: 8px;
+  padding: 5px 8px;
+  color: inherit;
+  background: var(--weq-overlay, #fff);
+}
+
+.weq-report-stage-host {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  outline: none;
+  touch-action: none;
+}
+
+.weq-report-stage {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  overflow: hidden;
+  transform-origin: center center;
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--weq-overlay, #fff) 50%, transparent);
+  box-shadow: 0 24px 80px -42px rgba(7, 31, 61, 0.45);
+}
+
+.weq-report-deck {
+  width: 100%;
+  transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
+.weq-report-slide {
+  display: grid;
+  width: 960px;
+  height: 640px;
+  place-items: center;
+  overflow: hidden;
+}
+
+.weq-report-page {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  flex-direction: column;
+  justify-content: center;
+  padding: 72px 96px;
+  box-sizing: border-box;
+}
+
+.weq-report-page-eyebrow {
+  margin-bottom: 12px;
+  color: var(--weq-accent-effective, #0099ff);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+.weq-report-page-title {
+  margin: 0;
+  font-size: 54px;
+  line-height: 1.05;
+  letter-spacing: -2px;
+}
+
+.weq-report-page-description {
+  max-width: 520px;
+  margin: 16px 0 34px;
+  color: var(--weq-fg-secondary, #64748b);
+  font-size: 18px;
+  line-height: 1.6;
+}
+
+.weq-report-overview-grid {
+  display: grid;
+  max-width: 620px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.weq-report-stat {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: 12px;
+  padding: 20px;
+  border: 1px solid var(--weq-border-subtle, rgba(0, 0, 0, 0.08));
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--weq-overlay, #fff) 72%, transparent);
+}
+
+.weq-report-stat svg {
+  grid-row: span 2;
+  color: var(--weq-accent-effective, #0099ff);
+}
+
+.weq-report-stat strong {
+  font-size: 30px;
+}
+
+.weq-report-stat span {
+  color: var(--weq-fg-secondary, #64748b);
+  font-size: 13px;
+}
+
+.weq-report-quote-list {
+  max-width: 620px;
+  margin-top: 24px;
+  color: var(--weq-fg-secondary, #64748b);
+  font-size: 14px;
+}
+
+.weq-report-quote-list p {
+  margin: 7px 0;
+}
+
+.weq-report-hours {
+  display: flex;
+  height: 220px;
+  max-width: 700px;
+  align-items: end;
+  gap: 8px;
+  padding: 20px 18px 0;
+  border-bottom: 1px solid var(--weq-border-subtle, rgba(0, 0, 0, 0.12));
+}
+
+.weq-report-hour {
+  display: flex;
+  height: 100%;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  justify-content: end;
+  align-items: center;
+  gap: 8px;
+  color: var(--weq-fg-secondary, #64748b);
+  font-size: 10px;
+}
+
+.weq-report-hour span {
+  display: block;
+  width: 100%;
+  min-height: 4px;
+  border-radius: 7px 7px 2px 2px;
+  background: linear-gradient(180deg, var(--weq-accent-effective, #0099ff), color-mix(in srgb, var(--weq-accent-effective, #0099ff) 28%, transparent));
+}
+
+.weq-report-empty-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 24px;
+  color: var(--weq-fg-secondary, #64748b);
+  font-size: 14px;
+}
+
+.weq-report-heatmap {
+  display: grid;
+  max-width: 700px;
+  grid-template-columns: repeat(14, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.weq-report-heatmap > span {
+  aspect-ratio: 1;
+  border-radius: 5px;
+  background: var(--weq-accent-effective, #0099ff);
+}
+
+.weq-report-heatmap .weq-report-heatmap-placeholder {
+  display: grid;
+  width: 260px;
+  aspect-ratio: auto;
+  grid-column: 1 / -1;
+  place-items: center;
+  padding: 50px;
+  color: var(--weq-fg-secondary, #64748b);
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 12%, transparent);
+}
+
+.weq-report-unknown,
+.weq-report-page-status,
+.weq-report-loading,
+.weq-report-error,
+.weq-report-empty {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 12px;
+  height: 100%;
+  padding: 32px;
+  text-align: center;
+}
+
+.weq-report-page-status {
+  width: 100%;
+  color: var(--weq-fg-secondary, #64748b);
+}
+
+.weq-report-page-status p {
+  margin: 0;
+}
+
+.weq-report-controls {
+  z-index: 2;
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: var(--weq-fg-secondary, #64748b);
+}
+
+.weq-report-controls button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+
+.weq-report-controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.weq-report-dots {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.weq-report-dots button {
+  width: 7px;
+  height: 7px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.3;
+}
+
+.weq-report-dots button.active {
+  width: 20px;
   border-radius: 999px;
   color: var(--weq-accent-effective, #0099ff);
-  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 9%, transparent);
-  font-size: 12.5px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
+  opacity: 1;
 }
 
-/* ---- 深浅模式微调：深色下光斑更收敛、磨砂更实 ---- */
-
-html[data-theme="dark"] .weq-annual-orb-a {
-  background: color-mix(in srgb, var(--weq-accent-effective) 15%, transparent);
+.weq-report-hint {
+  padding-bottom: 8px;
+  color: var(--weq-fg-secondary, #64748b);
+  font-size: 11px;
+  text-align: center;
+  opacity: 0.75;
 }
 
-html[data-theme="dark"] .weq-annual-orb-b {
-  background: color-mix(
-    in srgb,
-    var(--weq-accent-effective) 11%,
-    rgba(132, 126, 224, 0.1)
-  );
+.weq-report-spin {
+  animation: weq-report-spin 1s linear infinite;
 }
 
-html[data-theme="dark"] .weq-annual-orb-c {
-  background: color-mix(
-    in srgb,
-    var(--weq-accent-effective) 12%,
-    rgba(255, 200, 90, 0.11)
-  );
+@keyframes weq-report-spin {
+  to { transform: rotate(360deg); }
 }
 
-html[data-theme="dark"] .weq-annual-card {
-  border-color: var(--weq-border-subtle, rgba(255, 255, 255, 0.1));
+@media (max-width: 760px) {
+  .weq-report-chrome { padding: 10px 12px; }
+  .weq-report-page { padding: 48px 42px; }
+  .weq-report-page-title { font-size: 40px; }
+  .weq-report-page-description { font-size: 15px; }
+  .weq-report-overview-grid { grid-template-columns: 1fr; }
 }
-
-/* ---- 无障碍：减少动效 ---- */
 
 @media (prefers-reduced-motion: reduce) {
-  .weq-annual-orb,
-  .weq-annual-card,
-  .weq-annual-card > *,
-  .weq-annual-icon::before,
-  .weq-annual-bar,
-  .weq-annual-progress::after {
-    animation: none !important;
-  }
+  .weq-report-deck,
+  .weq-report-spin { animation: none; transition: none; }
 }

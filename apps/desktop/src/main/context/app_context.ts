@@ -42,6 +42,7 @@ import { getQqProtocolExe } from './qq_protocol_cache';
 import { createLinuxInjectHook } from '../inject_elevation';
 import {
   accountConfigId,
+  AnnualReportService,
   UserConfigService,
   Win32DetectService,
   Win32KeyService,
@@ -114,6 +115,7 @@ import {
   getLogDir,
   logErrorContext,
   type AccountConfigMetadata,
+  type AnnualReportPreferences,
   type DbWatchHandle,
   type NewMessages,
   type DbChange,
@@ -381,6 +383,8 @@ export interface AccountServices {
   serviceAccount: ServiceAccountService;
   unreadInfo: UnreadInfoService;
   accountConfig: AccountConfigService;
+  /** Manifest-first, compile-time annual report page service. */
+  annualReport: AnnualReportService;
   forwardMsgs: ForwardMsgService;
   groupInfo: GroupInfoService;
   /** One-on-one (c2c) chat analytics for the private-chat analysis page. */
@@ -903,6 +907,9 @@ export function initAppContext(): AppContext {
         serviceAccount: new ServiceAccountService(session),
         unreadInfo: new UnreadInfoService(session),
         accountConfig,
+        annualReport: new AnnualReportService(session, {
+          preferences: accountConfig.getRecord()?.annualReport,
+        }),
         forwardMsgs: new ForwardMsgService(session, platform.native.ntHelper, resolveOnlinePid),
         groupInfo,
         buddyAnalytics: new BuddyAnalyticsService(session),
@@ -1384,6 +1391,9 @@ export function initAppContext(): AppContext {
         serviceAccount: new ServiceAccountService(session),
         unreadInfo: new UnreadInfoService(session),
         accountConfig,
+        annualReport: new AnnualReportService(session, {
+          preferences: accountConfig.getRecord()?.annualReport,
+        }),
         forwardMsgs: new ForwardMsgService(session, platform.native.ntHelper, livePid),
         groupInfo,
         buddyAnalytics: new BuddyAnalyticsService(session),

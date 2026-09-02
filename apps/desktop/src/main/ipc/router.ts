@@ -5,7 +5,7 @@
  * The three sub-routers split by lifecycle, NOT by URL aesthetics:
  *   - `bootstrap` — usable any time (read-only platform probes, dbkey
  *      acquisition, account open/close)
- *   - `account`   — requires a live AccountSession (msg / peer queries)
+ *   - `account`   — requires a live AccountSession (msg / peer queries / annual report)
  *   - `update`    — in-app updates; the shell installs the implementation
  *      (`UpdateActions`), so this module stays Electron-free and the web app
  *      can mount the very same router.

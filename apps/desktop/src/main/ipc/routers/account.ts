@@ -21,6 +21,7 @@ import { sampleHitokoto } from '../../hitokoto';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
 import { dbExplorerRouter } from './db_explorer';
+import { annualReportRouter } from './annual_report';
 import { antiRecallRouter } from './anti_recall';
 import { avatarResourceRouter } from './avatar_resource';
 import { sysEmojiRouter } from './sys_emoji';
@@ -834,6 +835,8 @@ async function exportGroupFiles(
 export const accountRouter = router({
   // ---- database explorer (SQLiteStudio-style browse / query / edit) ----
   dbExplorer: dbExplorerRouter,
+  // ---- 年度报告（manifest-first, account-scoped）----
+  annualReport: annualReportRouter,
   // ---- 防撤回（拦截 QQ 撤回的 SQL 触发器 + 按会话选择）----
   antiRecall: antiRecallRouter,
   // ---- local avatar cache browser (nt_data/avatar/*) ----
