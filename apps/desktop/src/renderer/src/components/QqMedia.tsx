@@ -166,18 +166,24 @@ export function QqImage({
   // Animated emojis open nothing; real photos open the full-size lightbox.
   const openable = !isAnimatedEmoji;
   return (
-    <img
-      className={isAnimatedEmoji ? 'qq-media-mface' : 'qq-media-image'}
-      style={openable ? { ...style, cursor: 'zoom-in' } : style}
-      src={src}
-      alt={isAnimatedEmoji ? '[动画表情]' : name || '[图片]'}
-      draggable={false}
+    // 外层包一层 relative 容器：ShimmerImage 的扫光占位（absolute inset 0）只
+    // 覆盖图片本身，不会铺满整条消息气泡；点击仍开灯箱。
+    <span
+      className={cn('qq-media-wrap', isAnimatedEmoji && 'qq-media-wrap-emoji')}
       onClick={openable ? () => openLightbox(src, name || '[图片]') : undefined}
-      onError={() => {
-        if (src === cdnSrc) setCdnFailed(true);
-        else setBroken(true);
-      }}
-    />
+    >
+      <ShimmerImage
+        className={isAnimatedEmoji ? 'qq-media-mface' : 'qq-media-image'}
+        style={style}
+        src={src}
+        alt={isAnimatedEmoji ? '[动画表情]' : name || '[图片]'}
+        draggable={false}
+        onError={() => {
+          if (src === cdnSrc) setCdnFailed(true);
+          else setBroken(true);
+        }}
+      />
+    </span>
   );
 }
 
