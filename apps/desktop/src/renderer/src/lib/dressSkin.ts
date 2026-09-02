@@ -172,8 +172,21 @@ export function bubbleLinkMentionRules(sel: string): string {
   ].join('\n');
 }
 
-function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
-  const sel = bubbleSelector(scope);
+/** 一款气泡的九宫格几何量 + 静态底图 —— 聊天渲染与本地预览共用同一份计算。 */
+interface BubbleMetrics {
+  frameAnim: { keyframes: string; animation: string } | null;
+  /** 静态底图 url(本地九宫格 PNG / CDN 直链 / 帧动画第 1 帧,见 bubbleImageUrl)。 */
+  imageUrl: string;
+  slice: string;
+  width: string;
+  topPad: string;
+  rightPad: string;
+  bottomPad: string;
+  minWidth: string;
+  minHeight: string;
+}
+
+function bubbleMetrics(skin: BubbleSkinCss): BubbleMetrics {
   const { left, top, right, bottom } = skin.slice;
 
   // 贴图向内绘制的厚度。slice 是源图像素,乘 scale 得到 CSS 像素。
@@ -201,11 +214,37 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
   const avgSlice = (top + bottom) / 2;
   const topDiff = avgSlice - top; // top 小时为正,需要补偿
   const bottomDiff = avgSlice - bottom;
-  const topPad = wTop * PAD_RATIO_Y + topDiff * BUBBLE_SCALE * 0.5;
-  const bottomPad = wBottom * PAD_RATIO_Y + bottomDiff * BUBBLE_SCALE * 0.5;
+  const topPad = px(wTop * PAD_RATIO_Y + topDiff * BUBBLE_SCALE * 0.5);
+  const bottomPad = px(wBottom * PAD_RATIO_Y + bottomDiff * BUBBLE_SCALE * 0.5);
 
-  const rules = [
-    frameAnim?.keyframes ?? '',
+  return {
+    frameAnim,
+    imageUrl: bubbleImageUrl(skin),
+    slice,
+    width,
+    // 横向内边距必须盖满整条左右切片,文字只能落在中间那 2px 的拉伸区上。
+    rightPad: px(Math.max(wLeft, wRight)),
+    topPad,
+    bottomPad,
+    minWidth: px((left + right) * BUBBLE_SCALE),
+    minHeight: px((top + bottom) * BUBBLE_SCALE),
+  };
+}
+
+/**
+ * 把一款气泡的核心九宫格规则涂到给定的元素选择器上。
+ *
+ * 聊天渲染(bubbleRules)与「已装」列表的本地预览(bubblePreviewCss)共用这一份 ——
+ * 预览和真实消息用的是同一套几何,不会出现「卡片里好看、发出来是另一回事」的偏差。
+ * `animate = false` 用于静态预览(只贴第一帧底图,不播循环动效)。
+ */
+function baseBubbleRule(
+  skin: BubbleSkinCss,
+  m: BubbleMetrics,
+  sel: string,
+  animate = true,
+): string {
+  return [
     `${sel} {`,
     `  position: relative;`,
     // 动效层靠负层级压到文字下面,而负层级只在**层叠上下文内部**才是「压到本元素背景之上」;
@@ -216,33 +255,41 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
     `  color: ${skin.textColor};`,
     `  border-style: solid;`,
     `  border-width: 0;`,
-    `  border-image-source: url("${bubbleImageUrl(skin)}");`,
-    `  border-image-slice: ${slice};`,
-    `  border-image-width: ${width};`,
+    `  border-image-source: url("${m.imageUrl}");`,
+    `  border-image-slice: ${m.slice};`,
+    `  border-image-width: ${m.width};`,
     `  border-image-repeat: stretch;`,
     `  border-radius: 0;`,
-    frameAnim ? `  animation: ${frameAnim.animation};` : '',
-    // 横向内边距必须**盖满整条左右切片**,文字只能落在中间那 2px 的拉伸区上。
+    m.frameAnim && animate ? `  animation: ${m.frameAnim.animation};` : '',
     // 纵向 padding:让文字对齐拉伸源。top < bottom 时拉伸源偏上,减少上 padding;
     // top > bottom 时拉伸源偏下,增加上 padding。公式源自九宫格恒等式(bubble_skin.ts:323)。
-    `  padding: ${px(topPad)} ${px(Math.max(wLeft, wRight))} ${px(bottomPad)};`,
-    `  min-width: ${px((left + right) * BUBBLE_SCALE)};`,
-    `  min-height: ${px((top + bottom) * BUBBLE_SCALE)};`,
+    `  padding: ${m.topPad} ${m.rightPad} ${m.bottomPad};`,
+    `  min-width: ${m.minWidth};`,
+    `  min-height: ${m.minHeight};`,
     `}`,
-  ];
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
+  const sel = bubbleSelector(scope);
+  const theirsSel = scope === 'all' ? theirsBubbleSelector() : null;
+  const m = bubbleMetrics(skin);
+
+  const rules = [m.frameAnim?.keyframes ?? '', baseBubbleRule(skin, m, sel)];
 
   // 对方消息镜像:同一张素材直接放左侧,尖角/装饰会朝外,看起来「反的」。QQ 自己
   // 就是把素材左右镜像后贴到对方消息上的。不能对整个 .message-content 做
   // scaleX(-1) —— 文字会跟着镜像;所以静态底/帧动画挪到 ::before 上翻转,文字
   // 留在元素自身不动。
-  const theirsSel = scope === 'all' ? theirsBubbleSelector() : null;
   if (theirsSel) {
     rules.push(
       // 元素本体不再贴底(镜像后的贴图由 ::before 承担);帧动画的 keyframes 会
       // 重写 border-image-source,必须把元素动画一并关掉,否则帧图会盖回来。
       `${theirsSel} {`,
       `  border-image-source: none;`,
-      frameAnim ? `  animation: none;` : '',
+      m.frameAnim ? `  animation: none;` : '',
       `}`,
       `${theirsSel}::before {`,
       `  content: "";`,
@@ -252,19 +299,19 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
       `  pointer-events: none;`,
       `  border-style: solid;`,
       `  border-width: 0;`,
-      `  border-image-source: url("${bubbleImageUrl(skin)}");`,
-      `  border-image-slice: ${slice};`,
-      `  border-image-width: ${width};`,
+      `  border-image-source: url("${m.imageUrl}");`,
+      `  border-image-slice: ${m.slice};`,
+      `  border-image-width: ${m.width};`,
       `  border-image-repeat: stretch;`,
       `  border-radius: 0;`,
       `  transform: scaleX(-1);`,
-      frameAnim ? `  animation: ${frameAnim.animation};` : '',
+      m.frameAnim ? `  animation: ${m.frameAnim.animation};` : '',
       `}`,
     );
   }
 
   // 减少动态效果偏好:定格在第一帧,不循环切换。
-  if (frameAnim) {
+  if (m.frameAnim) {
     rules.push(
       `@media (prefers-reduced-motion: reduce) {`,
       `  ${sel} { animation: none; }`,
@@ -287,8 +334,8 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
       `  border-style: solid;`,
       `  border-width: 0;`,
       `  border-image-source: url("${dressUrl(skin.animationUrl)}");`,
-      `  border-image-slice: ${slice};`,
-      `  border-image-width: ${width};`,
+      `  border-image-slice: ${m.slice};`,
+      `  border-image-width: ${m.width};`,
       `  border-image-repeat: stretch;`,
       `}`,
     );
@@ -313,6 +360,17 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
   }
 
   return rules.filter(Boolean).join('\n');
+}
+
+/**
+ * 独立气泡预览的九宫格 CSS —— 给非聊天容器用(目前是「已装」列表里没有商城预览图的
+ * 那批气泡,如消息 40801 逐条自动装的款,素材是本地九宫格 PNG)。
+ *
+ * 与 bubbleRules 共用 bubbleMetrics / baseBubbleRule,几何完全一致;静态预览只画
+ * 第一帧,不带循环动效。sel 是调用方自己的容器选择器,样式注入由调用方负责。
+ */
+export function bubblePreviewCss(skin: BubbleSkinCss, sel: string): string {
+  return baseBubbleRule(skin, bubbleMetrics(skin), sel, false);
 }
 
 function fontRules(font: FontSkinCss, scope: DressScope): string {

@@ -395,6 +395,113 @@
   cursor: not-allowed;
 }
 
+/* ===== 列表加载骨架(shimmer) =====
+ * 与 .weq-dress-card 同构:预览格 + 两行文字 + 按钮,避免首屏在「转圈 / 卡片」间跳版。 */
+.weq-dress-skel-block {
+  display: block;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #eceff3 25%, #e0e5ea 50%, #eceff3 75%);
+  background-size: 200% 100%;
+  animation: weq-dress-shimmer 1.3s ease-in-out infinite;
+}
+
+.weq-dress-skel-preview {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+}
+
+.weq-dress-skel-line {
+  width: 68%;
+  height: 10px;
+}
+
+.weq-dress-skel-line.is-short {
+  width: 46%;
+  height: 8px;
+}
+
+.weq-dress-skel-btn {
+  height: 26px;
+  margin: 0 10px 10px;
+  border-radius: 7px;
+}
+
+@keyframes weq-dress-shimmer {
+  from {
+    background-position: -160% 0;
+  }
+  to {
+    background-position: 260% 0;
+  }
+}
+
+/* ===== 「已装」本地预览 =====
+ * 没有商城预览图的气泡 / 字体(消息 40801 逐条自动装的款)直接用本地素材画预览:
+ * 气泡本体样式由 dressSkin.bubblePreviewCss 按 itemId 注入(几何与聊天同源),字体
+ * 是 FontFace 加载本地 ttf 后排样例文字 —— 都不碰 CDN。 */
+.weq-dress-bubble-preview-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 8px;
+  overflow: hidden;
+}
+
+.weq-dress-preview-bubble {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-dress-font-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 10px;
+  color: #23272d;
+  text-align: center;
+}
+
+.weq-dress-font-preview-main {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 20px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-dress-font-preview-sub {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.3;
+  opacity: 0.72;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-dress-font-fallback {
+  color: #a8b0bd;
+  font-size: 11px;
+}
+
+/* 字体预览加载中的骨架块(居中展示,尺寸接近样例文字两行)。 */
+.weq-dress-font-loading {
+  width: 88px;
+  height: 44px;
+}
+
 /* ===== 空 / 加载 / 错误态 ===== */
 .weq-dress-empty {
   display: flex;
@@ -469,9 +576,10 @@
   }
 }
 
-/* 动效敏感:去掉转圈和淡入,只留静态提示。 */
+/* 动效敏感:去掉转圈、骨架扫光和淡入,只留静态提示。 */
 @media (prefers-reduced-motion: reduce) {
   .weq-dress-spin,
+  .weq-dress-skel-block,
   .weq-dress-applying {
     animation: none;
   }
@@ -763,4 +871,18 @@ html[data-theme="dark"] .weq-dress-bg-preview,
 html[data-theme="dark"] .weq-dress-widget {
   background: repeating-conic-gradient(rgba(255, 255, 255, 0.05) 0% 25%, transparent 0% 50%) 50% /
     12px 12px;
+}
+
+html[data-theme="dark"] .weq-dress-skel-block {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.055) 25%,
+    rgba(255, 255, 255, 0.1) 50%,
+    rgba(255, 255, 255, 0.055) 75%
+  );
+  background-size: 200% 100%;
+}
+
+html[data-theme="dark"] .weq-dress-font-preview {
+  color: #edf2f7;
 }
