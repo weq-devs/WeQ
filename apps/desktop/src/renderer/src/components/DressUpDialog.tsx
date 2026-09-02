@@ -9,10 +9,11 @@
  * 所以搜索框、「已装」筛子、渲染范围那几个控件在它上面都会隐藏 —— 留着禁用的控件
  * 只会让人以为坏了。
  *
- * 在线要求分三档,UI 必须把差异讲清楚,否则用户会以为是坏了:
- *  - **浏览排行**:离线可用(仓库里存了一份静态排行,见 dressup 路由)。
- *  - **装气泡**:离线可用 —— 商城条目自带 material,不需要凭证。
- *  - **搜索 / 装字体**:必须有在线 QQ 实例(字体要发手Q 独有的包换下载链)。
+ * 在线要求其实只剩搜索这一档,其余一律离线可用:
+ *  - **浏览排行 / 安装(气泡 / 字体)**:离线可用 —— 资源先走本地离线 bundle(QQ 自带
+ *    那批装扮资源),商城条目还自带 material,都不需要凭证;本地没有的款点击后由后端
+ *    在需要时再尝试换链,失败才报错。所以**不再按 qqOnline 禁用任何安装按钮**。
+ *  - **搜索**:必须有在线 QQ 实例(商城搜索接口要用在线实例取凭证)。
  *
  * 背景与挂件一律离线可用(QQ 同款的直链 bootstrap 时已存进 config,挂件是 bundle 的)。
  */
@@ -81,8 +82,9 @@ const injectedPreviewBubbles = new Set<number>();
 /**
  * 把一款气泡的九宫格 CSS 注入到预览格子里(按 data-bubble-preview 精确命中)。
  *
- * 只给「本地有九宫格 PNG(localFile)」的气泡走这条路 —— 本地素材必然在,不像 CDN
- * 预览图可能失效,「已装」列表一律用本地资源渲染。
+ * 底图按 chat 渲染同一套规则二选一:bubblePreviewCss 有 localFile(持久化的本地
+ * 九宫格 PNG)就走 `weq-media://dressbubble`,没有(旧账号里 CDN 直链装的遗留款)则
+ * 用它渲染真实消息时同一个 dress 代理地址 —— 预览与消息所见即所得,不另猜预览图。
  */
 function injectBubblePreviewCss(skin: BubbleSkin): void {
   if (injectedPreviewBubbles.has(skin.itemId)) return;
@@ -224,13 +226,15 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
     syncDressSkin(manifest);
   }, [manifest]);
 
-  // 「已装」里没有商城预览图、但本地有九宫格 PNG 的气泡(消息 40801 逐条自动装的款),
+  // 「已装」里没有商城预览图的气泡(消息 40801 逐条自动装、以及 CDN 直链装的遗留款),
   // 预先注入本地预览 CSS —— 渲染层只负责摆 DOM,样式写一次就够。用 layout effect
   // 让样式赶在首帧绘制前落地,避免「已装」网格先闪一帧裸文字气泡。
   useLayoutEffect(() => {
     if (!manifest) return;
     for (const b of manifest.bubbles) {
-      if (!b.previewUrl && b.localFile) injectBubblePreviewCss(b);
+      // 只对解析出完整 skin 的款注入(localFile / staticUrl 至少有一);
+      // 注入时底图优先本地 PNG,拿不到才用 chat 同源的 dress 代理地址。
+      if (!b.previewUrl && (b.localFile || b.staticUrl)) injectBubblePreviewCss(b);
     }
   }, [manifest]);
 
@@ -440,8 +444,8 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
     const ownId = (isBubble ? own?.bubbleId : own?.fontId) ?? 0;
     if (ownId && !installed.some((i) => i.itemId === ownId)) {
       // 名字和预览图是 getSelfDress 一起回的(见 home_dress),所以这一条也能显示人话 ——
-      // 拿不到时才退回「QQ 正在用的X」。真正缺的只有资源本身:点「使用」时后端走
-      // protocol 换取九宫格 / 字体文件,那条要在线实例。
+      // 拿不到时才退回「QQ 正在用的X」。真正缺的只有资源本身:点「使用」时后端优先
+      // 查本地离线 bundle,本地没有才走 protocol(那一步才需要在线实例)。
       const ownName = (isBubble ? own?.bubbleName : own?.fontName) ?? '';
       const ownPreview = (isBubble ? own?.bubblePreviewUrl : own?.fontPreviewUrl) ?? '';
       installed.unshift({
@@ -472,13 +476,9 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
   ): ReactElement {
     const isActive = item.itemId === activeId;
     const busy = busyId === item.itemId;
-    // 离线时:字体一律装不了;气泡只有在自带 material 时能装(外链推不出来,没 material
-    // 就得走 protocol 换取,那需要在线实例)。
-    const blocked = !online && (kind === 'font' || !item.material);
-    const blockedHint =
-      kind === 'font'
-        ? '下载字体需要登录该账号的 QQ 客户端'
-        : '这款气泡需要登录该账号的 QQ 客户端才能获取资源地址';
+    // 安装不再按 qqOnline 禁用:资源先走本地离线 bundle(QQ 自带那批装扮资源,
+    // 见 nt_helper 的 queryDressResourceUrl),只有本地没有时才需要在线实例去换外链,
+    // 那一步的失败由后端在点击时如实报错。离线也能装的款不再被按钮拦住。
     return (
       <div key={item.itemId} className={`weq-dress-card${isActive ? ' is-active' : ''}`}>
         <div className="weq-dress-card-preview">
@@ -498,8 +498,7 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
         <button
           type="button"
           className="weq-dress-use"
-          disabled={busy || isActive || blocked || applying}
-          title={blocked ? blockedHint : undefined}
+          disabled={busy || isActive || applying}
           onClick={() => void use(item, nameForManifest ?? item.name)}
         >
           {busy ? (
@@ -655,13 +654,18 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
       return (
         <div className="weq-dress-grid">
           {mine.map((m) => {
-            // 「已装」里没有商城预览图的款(消息 40801 逐条自动装的)—— 不猜 CDN,
-            // 一律用本地资源把预览画出来:气泡走本地九宫格素材,字体走本地 ttf 排样例。
+            // 「已装」里没有商城预览图的款(消息 40801 逐条自动装的)—— 预览直接画
+            // 气泡 / 字体本体:气泡优先本地持久化 PNG,字体走本地 ttf 排样例文字。
             const localPreview =
               mallKind === 'bubble' ? (
                 (() => {
+                  // skin 完整(localFile 本地 PNG 或 staticUrl CDN 直链)就能把气泡本体
+                  // 画出来 —— 底图与 chat 渲染同源、首选项为本地文件,不另猜预览图。
                   const skin = manifest?.bubbles.find((b) => b.itemId === m.itemId);
-                  return m.installed && skin && !skin.previewUrl && skin.localFile ? (
+                  return m.installed &&
+                    skin &&
+                    !skin.previewUrl &&
+                    (skin.localFile || skin.staticUrl) ? (
                     <BubbleLocalPreview itemId={m.itemId} />
                   ) : undefined;
                 })()
@@ -872,8 +876,8 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
           <div className="weq-dress-notice">
             <WifiOff size={14} />
             <span>
-              QQ 未在线：可浏览排行榜，商城里的气泡也能直接使用。搜索、字体下载、以及 「QQ
-              正在用的那款」需要登录 QQ 客户端。
+              QQ 未在线：排行榜与气泡/字体安装（本地离线资源优先）都能用；只有商城搜索 需要登录 QQ
+              客户端。
             </span>
           </div>
         ) : isMall && !mineOnly && !searching ? (

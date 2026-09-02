@@ -110,6 +110,31 @@ export class DressSharedCache {
     const resolved = await resolveBubbleSkin(this.avatarCache, itemId, src);
     if (!resolved) return null;
 
+    // CDN 直链路径（商城 material / 老款 immersive）的整图只经装扮缓存（30 天 TTL）落盘，
+    // dress_shared 里不留文件 → 「已装」列表想做本地资源预览、以及装扮缓存被清之后的
+    // 长期离线渲染都会落空（皮肤只剩 CDN 直链）。装成功这一刻把整图也持久化一份到
+    // `<id>.png`（static-all 与 zip 内九宫格逐像素一致，见 bubble_skin.ts 模块头）——
+    // 与兜底 zip 路径同名同形，loadBubbleSkin 之后自然走 localFile 分支，全程本地。
+    // 字节直接复用 resolve 刚经 avatarCache 拉过的同一份（缓存命中，不重复出网）。
+    const durablePng = join(this.bubblesDir, `${itemId}.png`);
+    if (!src.localFile && !existsSync(durablePng) && src.staticUrl) {
+      try {
+        const blob = await this.avatarCache.get(src.staticUrl, 'dress');
+        writeFileSync(durablePng, blob.data);
+        this.logger.info('persisted bubble png for local rendering', {
+          event: 'dress-bubble-png-persisted',
+          itemId,
+        });
+      } catch (e) {
+        // 落盘失败不打断安装 —— 皮肤退回 CDN 直链分支（与旧行为一致）。
+        this.logger.warn('failed to persist bubble png, keep cdn path', {
+          event: 'dress-bubble-png-persist-failed',
+          itemId,
+          ...logErrorContext(e),
+        });
+      }
+    }
+
     // 写入 sidecar（slice/textColor/animated 等元数据）。
     const sidecar: BubbleSidecar = {
       itemId,
