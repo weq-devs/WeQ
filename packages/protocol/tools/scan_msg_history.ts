@@ -74,7 +74,9 @@ async function resolveTarget(nt: Nt): Promise<{ pid: number; loginUin: string }>
     if (!hit) {
       throw new Error(
         `多个 QQ 进程且无法确定登录账号: ${pids.join(', ')}` +
-          (wantUin ? `(没有 uin=${wantUin} 且已登录的进程)` : '(可用 .env 配置 WEQ_TEST_UIN 来指定)'),
+          (wantUin
+            ? `(没有 uin=${wantUin} 且已登录的进程)`
+            : '(可用 .env 配置 WEQ_TEST_UIN 来指定)'),
       );
     }
     pid = hit.pid;
@@ -99,9 +101,10 @@ async function main(): Promise<void> {
   const batches: { rawResponse: Uint8Array; messages: Record<string, unknown>[] }[] = [];
   for (let s = START; s <= END; s += WINDOW) {
     const e = Math.min(s + WINDOW - 1, END);
-    const res = KIND === 'group'
-      ? await fetchGroupHistoryRaw(nt, pid, { groupUin: Number(ID), startSeq: s, endSeq: e })
-      : await fetchC2cHistoryRaw(nt, pid, { friendUid: ID, startSeq: s, endSeq: e });
+    const res =
+      KIND === 'group'
+        ? await fetchGroupHistoryRaw(nt, pid, { groupUin: Number(ID), startSeq: s, endSeq: e })
+        : await fetchC2cHistoryRaw(nt, pid, { friendUid: ID, startSeq: s, endSeq: e });
     batches.push({ rawResponse: res.rawResponse, messages: res.messages });
     console.log(`[scan] 窗口 ${s}-${e} 返回 ${res.messages.length} 条`);
   }
@@ -116,12 +119,13 @@ async function main(): Promise<void> {
 
   for (const batch of batches) {
     batch.messages.forEach((msg, index) => {
-      const seq = Number((msg.contentHead as { sequence?: unknown } | undefined)?.sequence ?? index);
+      const seq = Number(
+        (msg.contentHead as { sequence?: unknown } | undefined)?.sequence ?? index,
+      );
       if (seenSeqs.has(seq)) return;
       seenSeqs.add(seq);
-      const steps: PathStep[] = KIND === 'group'
-        ? [{ tag: 3 }, { tag: 6, index }]
-        : [{ tag: 7, index }];
+      const steps: PathStep[] =
+        KIND === 'group' ? [{ tag: 3 }, { tag: 6, index }] : [{ tag: 7, index }];
       const raw = extractPath(batch.rawResponse, steps);
       if (!raw) {
         errors.push({ seq, error: 'extractPath 无法从响应中抠出该消息原始字节', raw: '' });
@@ -131,11 +135,18 @@ async function main(): Promise<void> {
         const decoded = decodeMessage(raw);
         ok += 1;
         for (const el of decoded.elements) {
-          const kind = typeof (el as { kind?: unknown }).kind === 'string' ? (el as { kind: string }).kind : '(raw)';
+          const kind =
+            typeof (el as { kind?: unknown }).kind === 'string'
+              ? (el as { kind: string }).kind
+              : '(raw)';
           kindCount.set(kind, (kindCount.get(kind) ?? 0) + 1);
         }
       } catch (e) {
-        errors.push({ seq, error: e instanceof Error ? e.message : String(e), raw: JSON.stringify(protoToJson(raw), null, 2) });
+        errors.push({
+          seq,
+          error: e instanceof Error ? e.message : String(e),
+          raw: JSON.stringify(protoToJson(raw), null, 2),
+        });
       }
     });
   }

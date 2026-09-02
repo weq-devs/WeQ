@@ -117,7 +117,12 @@ export const VOICE_MODELS: TranscribeModelInfo[] = [
     languages: ['zh', 'yue', 'en', 'ja', 'ko'],
     recommended: true,
     files: [
-      { key: 'model', name: 'model.int8.onnx', url: `${SENSEVOICE_BASE}/model.int8.onnx`, weight: 0.8 },
+      {
+        key: 'model',
+        name: 'model.int8.onnx',
+        url: `${SENSEVOICE_BASE}/model.int8.onnx`,
+        weight: 0.8,
+      },
       { key: 'tokens', name: 'tokens.txt', url: `${SENSEVOICE_BASE}/tokens.txt`, weight: 0.2 },
     ],
   },
@@ -204,7 +209,14 @@ export class VoiceTranscribeService extends EventEmitter {
     const model = getVoiceModel(id);
     if (!model) {
       const error = `unknown model: ${id}`;
-      this.emit('progress', { id, percent: 0, downloadedBytes: 0, totalBytes: 0, speed: 0, error } as DownloadProgress);
+      this.emit('progress', {
+        id,
+        percent: 0,
+        downloadedBytes: 0,
+        totalBytes: 0,
+        speed: 0,
+        error,
+      } as DownloadProgress);
       return Promise.resolve({ success: false, error });
     }
 
@@ -247,7 +259,14 @@ export class VoiceTranscribeService extends EventEmitter {
             /* ignore */
           }
         }
-        this.emit('progress', { id, percent: 0, downloadedBytes: 0, totalBytes: model.sizeBytes, speed: 0, error } as DownloadProgress);
+        this.emit('progress', {
+          id,
+          percent: 0,
+          downloadedBytes: 0,
+          totalBytes: model.sizeBytes,
+          speed: 0,
+          error,
+        } as DownloadProgress);
         return { success: false, error };
       } finally {
         this.downloadTasks.delete(id);
@@ -265,7 +284,13 @@ export class VoiceTranscribeService extends EventEmitter {
 
   // ---- internals ----------------------------------------------------------
 
-  private emitProgress(id: string, percent: number, downloadedBytes: number, totalBytes: number, speed: number): void {
+  private emitProgress(
+    id: string,
+    percent: number,
+    downloadedBytes: number,
+    totalBytes: number,
+    speed: number,
+  ): void {
     this.emit('progress', {
       id,
       percent: Math.min(100, Math.max(0, percent)),
@@ -348,7 +373,9 @@ export class VoiceTranscribeService extends EventEmitter {
       await Promise.all(promises);
       onProgress?.(totalSize, totalSize, 0);
     } catch (err) {
-      throw new Error(`${label} 多线程下载失败: ${err instanceof Error ? err.message : String(err)}`);
+      throw new Error(
+        `${label} 多线程下载失败: ${err instanceof Error ? err.message : String(err)}`,
+      );
     } finally {
       clearInterval(speedTimer);
       closeSync(fd);
@@ -361,33 +388,39 @@ export class VoiceTranscribeService extends EventEmitter {
   ): Promise<{ totalSize: number; acceptRanges: boolean; finalUrl: string }> {
     return new Promise((resolve, reject) => {
       const protocol = url.startsWith('https') ? https : http;
-      const req = protocol.get(url, { headers: { ...COMMON_HEADERS, Range: 'bytes=0-0' } }, (res) => {
-        if ([301, 302, 303, 307, 308].includes(res.statusCode ?? 0)) {
-          const location = res.headers.location;
-          if (location && remainingRedirects > 0) {
-            const next = new URL(location, url).href;
+      const req = protocol.get(
+        url,
+        { headers: { ...COMMON_HEADERS, Range: 'bytes=0-0' } },
+        (res) => {
+          if ([301, 302, 303, 307, 308].includes(res.statusCode ?? 0)) {
+            const location = res.headers.location;
+            if (location && remainingRedirects > 0) {
+              const next = new URL(location, url).href;
+              res.destroy();
+              this.probeUrl(next, remainingRedirects - 1)
+                .then(resolve)
+                .catch(reject);
+              return;
+            }
+          }
+          if (res.statusCode !== 206 && res.statusCode !== 200) {
+            reject(new Error(`Probe failed: HTTP ${res.statusCode}`));
             res.destroy();
-            this.probeUrl(next, remainingRedirects - 1).then(resolve).catch(reject);
             return;
           }
-        }
-        if (res.statusCode !== 206 && res.statusCode !== 200) {
-          reject(new Error(`Probe failed: HTTP ${res.statusCode}`));
+          const contentRange = res.headers['content-range'];
+          let totalSize = 0;
+          if (contentRange) {
+            const parts = contentRange.split('/');
+            totalSize = parseInt(parts[parts.length - 1] ?? '0', 10);
+          } else {
+            totalSize = parseInt(res.headers['content-length'] ?? '0', 10);
+          }
+          const acceptRanges = res.headers['accept-ranges'] === 'bytes' || Boolean(contentRange);
+          resolve({ totalSize, acceptRanges, finalUrl: url });
           res.destroy();
-          return;
-        }
-        const contentRange = res.headers['content-range'];
-        let totalSize = 0;
-        if (contentRange) {
-          const parts = contentRange.split('/');
-          totalSize = parseInt(parts[parts.length - 1] ?? '0', 10);
-        } else {
-          totalSize = parseInt(res.headers['content-length'] ?? '0', 10);
-        }
-        const acceptRanges = res.headers['accept-ranges'] === 'bytes' || Boolean(contentRange);
-        resolve({ totalSize, acceptRanges, finalUrl: url });
-        res.destroy();
-      });
+        },
+      );
       req.on('error', reject);
     });
   }
@@ -401,26 +434,30 @@ export class VoiceTranscribeService extends EventEmitter {
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       const protocol = url.startsWith('https') ? https : http;
-      const req = protocol.get(url, { headers: { ...COMMON_HEADERS, Range: `bytes=${start}-${end}` } }, (res) => {
-        if (res.statusCode !== 206) {
-          reject(new Error(`Chunk download failed: HTTP ${res.statusCode}`));
-          res.destroy();
-          return;
-        }
-        let offset = start;
-        res.on('data', (chunk: Buffer) => {
-          try {
-            writeSync(fd, chunk, 0, chunk.length, offset);
-            offset += chunk.length;
-            onData(chunk.length);
-          } catch (err) {
-            reject(err);
+      const req = protocol.get(
+        url,
+        { headers: { ...COMMON_HEADERS, Range: `bytes=${start}-${end}` } },
+        (res) => {
+          if (res.statusCode !== 206) {
+            reject(new Error(`Chunk download failed: HTTP ${res.statusCode}`));
             res.destroy();
+            return;
           }
-        });
-        res.on('end', () => resolve());
-        res.on('error', reject);
-      });
+          let offset = start;
+          res.on('data', (chunk: Buffer) => {
+            try {
+              writeSync(fd, chunk, 0, chunk.length, offset);
+              offset += chunk.length;
+              onData(chunk.length);
+            } catch (err) {
+              reject(err);
+              res.destroy();
+            }
+          });
+          res.on('end', () => resolve());
+          res.on('error', reject);
+        },
+      );
       req.on('error', reject);
     });
   }
@@ -439,7 +476,9 @@ export class VoiceTranscribeService extends EventEmitter {
           if (location && remainingRedirects > 0) {
             const next = new URL(location, url).href;
             res.destroy();
-            this.downloadSingleThread(next, targetPath, onProgress, remainingRedirects - 1).then(resolve).catch(reject);
+            this.downloadSingleThread(next, targetPath, onProgress, remainingRedirects - 1)
+              .then(resolve)
+              .catch(reject);
             return;
           }
         }

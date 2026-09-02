@@ -39,8 +39,17 @@ export function GroupAnnouncementsDialog({
   useEscapeToClose(onClose);
 
   return (
-    <div className="modal-scrim group-announcements-scrim" role="presentation" onMouseDown={closeFromScrim(onClose)}>
-      <section className="group-announcements-dialog" role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
+    <div
+      className="modal-scrim group-announcements-scrim"
+      role="presentation"
+      onMouseDown={closeFromScrim(onClose)}
+    >
+      <section
+        className="group-announcements-dialog"
+        role="dialog"
+        aria-modal="true"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <header>
           <div>
             <strong>群公告</strong>

@@ -16,7 +16,13 @@
  * `qqElements` (see MainView.messageToTemplate).
  */
 
-import { createContext, useContext, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from 'react';
 import { ArrowUp } from 'lucide-react';
 import type { UrlVerifyInfo } from '@weq/service';
 import type { MessageRenderer } from '../im-template/template';
@@ -188,7 +194,9 @@ function FaceNode({
   animated?: boolean;
   isSender?: boolean;
 }) {
-  return <FaceEmoji element={faceProps(data)} size={size} animated={animated} isSender={isSender} />;
+  return (
+    <FaceEmoji element={faceProps(data)} size={size} animated={animated} isSender={isSender} />
+  );
 }
 
 /** Render a media element to its dedicated component, or null if unsupported. */
@@ -212,10 +220,20 @@ function MediaNode({
     case 'pic':
       return <QqImage data={data} sendTimeMs={sendTimeMs} conv={conv} />;
     case 'video':
-      return <QqVideo data={data} sendTimeMs={sendTimeMs} msgId={ownerMsgId} conv={conv} fwd={fwd} />;
+      return (
+        <QqVideo data={data} sendTimeMs={sendTimeMs} msgId={ownerMsgId} conv={conv} fwd={fwd} />
+      );
     case 'bubbleVideo':
       return (
-        <div style={{ width: 120, height: 120, borderRadius: '50%', overflow: 'hidden', flexShrink: 0 }}>
+        <div
+          style={{
+            width: 120,
+            height: 120,
+            borderRadius: '50%',
+            overflow: 'hidden',
+            flexShrink: 0,
+          }}
+        >
           <QqVideo
             data={data}
             sendTimeMs={sendTimeMs}
@@ -228,7 +246,9 @@ function MediaNode({
         </div>
       );
     case 'file':
-      return <QqFile data={data} sendTimeMs={sendTimeMs} msgId={ownerMsgId} conv={conv} fwd={fwd} />;
+      return (
+        <QqFile data={data} sendTimeMs={sendTimeMs} msgId={ownerMsgId} conv={conv} fwd={fwd} />
+      );
     case 'ptt':
       return (
         <QqVoice
@@ -302,11 +322,7 @@ function ElementNode({
   if (element.type === 'call') {
     const data = element.data ?? {};
     return (
-      <QqCall
-        callMethod={data.callMethod}
-        subType={data.subType}
-        callSummary={data.callSummary}
-      />
+      <QqCall callMethod={data.callMethod} subType={data.subType} callSummary={data.callSummary} />
     );
   }
   const text = inlineLabel(element);
@@ -366,7 +382,13 @@ function renderElementNodes(
       <span key={`run-${start}`} className="qq-text-run">
         {items.map((el, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-          <ElementNode key={`el-${start + i}`} element={el} sendTimeMs={sendTimeMs} msgId={msgId} isSender={isSender} />
+          <ElementNode
+            key={`el-${start + i}`}
+            element={el}
+            sendTimeMs={sendTimeMs}
+            msgId={msgId}
+            isSender={isSender}
+          />
         ))}
       </span>,
     );
@@ -383,7 +405,13 @@ function renderElementNodes(
     flushRun();
     out.push(
       // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-      <ElementNode key={`el-${index}`} element={element} sendTimeMs={sendTimeMs} msgId={msgId} isSender={isSender} />,
+      <ElementNode
+        key={`el-${index}`}
+        element={element}
+        sendTimeMs={sendTimeMs}
+        msgId={msgId}
+        isSender={isSender}
+      />,
     );
   });
   flushRun();
@@ -518,15 +546,11 @@ function replyPreviewElements(origElements: RenderElement[]): RenderElement[] {
  *           with the jump-arrow tucked at its end.
  * Clicking anywhere on the box asks the host to scroll to that message.
  */
-function ReplyQuote({
-  data,
-  sendTimeMs,
-}: {
-  data: Record<string, unknown>;
-  sendTimeMs: number;
-}) {
+function ReplyQuote({ data, sendTimeMs }: { data: Record<string, unknown>; sendTimeMs: number }) {
   const jumpToSeq = useContext(ReplyJumpContext);
-  const origElements = Array.isArray(data.origElements) ? (data.origElements as RenderElement[]) : [];
+  const origElements = Array.isArray(data.origElements)
+    ? (data.origElements as RenderElement[])
+    : [];
   const previewEls = replyPreviewElements(origElements);
   const senderName = origSenderDisplay(data);
   const quoteTimeMs = quoteSendTimeMs(data, sendTimeMs);
@@ -565,7 +589,9 @@ function ReplyQuote({
           ) : (
             <span>引用消息</span>
           )}
-          {canJump ? <ArrowUp className="qq-reply-quote-arrow" size={12} strokeWidth={2.4} aria-hidden /> : null}
+          {canJump ? (
+            <ArrowUp className="qq-reply-quote-arrow" size={12} strokeWidth={2.4} aria-hidden />
+          ) : null}
         </div>
       </div>
     </div>
@@ -638,10 +664,7 @@ export function QqMessageContent({
     if (redbagType === 16) {
       return (
         <div className={cn('message-content', 'qq-card-only', 'qq-has-wallet')}>
-          <QqGroupReceipt
-            detail={walletElement.data?.walletDetail}
-            groupCode={groupCode}
-          />
+          <QqGroupReceipt detail={walletElement.data?.walletDetail} groupCode={groupCode} />
         </div>
       );
     }
@@ -652,8 +675,12 @@ export function QqMessageContent({
           detail={walletElement.data?.walletDetail}
           redbagType={redbagType}
           designatedUin={walletElement.data?.walletDesignatedUin}
-          skinId={((walletElement.data?.walletDetail as Record<string, unknown> | undefined)
-            ?.receiptList as Record<string, unknown> | undefined)?.skinId as number | undefined}
+          skinId={
+            (
+              (walletElement.data?.walletDetail as Record<string, unknown> | undefined)
+                ?.receiptList as Record<string, unknown> | undefined
+            )?.skinId as number | undefined
+          }
         />
       </div>
     );
@@ -665,7 +692,9 @@ export function QqMessageContent({
   if (shareLocationElement) {
     return (
       <div className={cn('message-content', 'qq-card-only')}>
-        <QqShareLocation text={shareLocationElement.data?.shareLocationText as string | undefined} />
+        <QqShareLocation
+          text={shareLocationElement.data?.shareLocationText as string | undefined}
+        />
       </div>
     );
   }
@@ -684,7 +713,11 @@ export function QqMessageContent({
           zoneLogoUrl={d.dynamicZoneLogoUrl as string | undefined}
           publisherUin={d.dynamicPublisherUin as number[] | undefined}
           meta={d.dynamicMeta as string | undefined}
-          tags={d.dynamicTags as { flag48191?: boolean; tagId?: number; tagContent?: string }[] | undefined}
+          tags={
+            d.dynamicTags as
+              | { flag48191?: boolean; tagId?: number; tagContent?: string }[]
+              | undefined
+          }
         />
       </div>
     );
@@ -718,7 +751,7 @@ export function QqMessageContent({
   );
   const botMface = elements.find((element) => element.type === 'mface');
   if ((botMarkdown || botMface) && (keyboardElement || elements.some((el) => el.type === 'text'))) {
-    const rows = ((keyboardElement?.data?.rows ?? []) as KeyboardButton[][]);
+    const rows = (keyboardElement?.data?.rows ?? []) as KeyboardButton[][];
     const body = botMarkdown ? (
       <QqMarkdown text={String(botMarkdown.data?.markdownContent ?? '')} bot />
     ) : botMface ? (
@@ -758,7 +791,12 @@ export function QqMessageContent({
     return (
       <div className={cn('message-content', 'qq-card-only', 'qq-has-forward')}>
         <ForwardMultiMsgPreview
-          data={{ ...(structLongMsgElement.data ?? {}), _label: '长文本消息' } as Record<string, unknown>}
+          data={
+            { ...(structLongMsgElement.data ?? {}), _label: '长文本消息' } as Record<
+              string,
+              unknown
+            >
+          }
           msgId={msgId}
           kind={forwardKind}
         />
@@ -769,7 +807,9 @@ export function QqMessageContent({
   // A `reply` element renders as a quote box above the body; pull it out so the
   // body sizing rules below only consider the actual message content.
   const replyElement = elements.find((element) => element.type === 'reply');
-  const bodyElements = replyElement ? elements.filter((element) => element.type !== 'reply') : elements;
+  const bodyElements = replyElement
+    ? elements.filter((element) => element.type !== 'reply')
+    : elements;
   const meaningful = bodyElements.filter(isMeaningful);
   const first = meaningful[0];
   const lone = !replyElement && meaningful.length === 1 ? first : null;
@@ -840,7 +880,8 @@ export function QqMessageContent({
   // QqLinkCard 去抓；两个都没有它返回 null，只剩气泡里那条蓝链接。
   const soleLinkCard = ((): ReactNode => {
     if (!linkPreviewOn) return null;
-    if (meaningful.length === 0 || !meaningful.every((element) => element.type === 'text')) return null;
+    if (meaningful.length === 0 || !meaningful.every((element) => element.type === 'text'))
+      return null;
     const body = meaningful.map((element) => String(element.data?.textContent ?? '')).join('');
     const only = soleLink(body);
     if (!only) return null;
@@ -863,7 +904,11 @@ export function QqMessageContent({
   // 就整段交给 streamdown。两道闸都是必需的：
   //   · 全 text —— 一旦混有 at/face，整段当 Markdown 渲染会吞掉 @ 高亮和表情图；
   //   · looksLikeMarkdown —— 绝大多数消息是纯文本，不该为它们各起一个 remark+shiki 管线。
-  if (textMarkdownOn && meaningful.length > 0 && meaningful.every((element) => element.type === 'text')) {
+  if (
+    textMarkdownOn &&
+    meaningful.length > 0 &&
+    meaningful.every((element) => element.type === 'text')
+  ) {
     const body = meaningful.map((element) => String(element.data?.textContent ?? '')).join('');
     if (looksLikeMarkdown(body)) {
       return (
@@ -880,7 +925,30 @@ export function QqMessageContent({
 }
 
 /** Element kinds this renderer claims (text/reply/face/at + rich media + markdown + multiMsg + cards). */
-const HANDLED_KINDS = new Set(['text', 'reply', 'face', 'at', 'pic', 'video', 'bubbleVideo', 'file', 'ptt', 'mface', 'markdown', 'multiMsg', 'structLongMsg', 'inlineKeyboard', 'ark', 'wallet', 'call', 'onlineFile', 'onlineFolder', 'shareLocation', 'qqDynamic', 'emojiBounce']);
+const HANDLED_KINDS = new Set([
+  'text',
+  'reply',
+  'face',
+  'at',
+  'pic',
+  'video',
+  'bubbleVideo',
+  'file',
+  'ptt',
+  'mface',
+  'markdown',
+  'multiMsg',
+  'structLongMsg',
+  'inlineKeyboard',
+  'ark',
+  'wallet',
+  'call',
+  'onlineFile',
+  'onlineFolder',
+  'shareLocation',
+  'qqDynamic',
+  'emojiBounce',
+]);
 
 /**
  * MessageRenderer that handles every element kind we draw ourselves — text,
@@ -893,13 +961,17 @@ export const qqMessageRenderer: MessageRenderer = {
   match: ({ message }) => {
     const elements = (message as { qqElements?: RenderElement[] }).qqElements;
     if (!Array.isArray(elements)) return false;
-    return elements.some((element) => element?.type !== undefined && HANDLED_KINDS.has(element.type));
+    return elements.some(
+      (element) => element?.type !== undefined && HANDLED_KINDS.has(element.type),
+    );
   },
   render: ({ message, mine }) => {
     const m = message as { qqElements?: RenderElement[]; createdAt?: string; msgId?: string };
     const elements = m.qqElements ?? [];
     const sendTimeMs = m.createdAt ? Date.parse(m.createdAt) : 0;
     const msgId = m.msgId ?? '';
-    return <QqMessageContent elements={elements} sendTimeMs={sendTimeMs} msgId={msgId} isSender={mine} />;
+    return (
+      <QqMessageContent elements={elements} sendTimeMs={sendTimeMs} msgId={msgId} isSender={mine} />
+    );
   },
 };

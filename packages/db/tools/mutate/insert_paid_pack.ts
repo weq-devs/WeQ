@@ -31,10 +31,38 @@ const NEW_PACK = {
 
 /** 列顺序（建表顺序，32 列），供按位克隆 + 改写。 */
 const COLS = [
-  '80943', '80944', '80945', '80946', '80947', '80948', '80949', '80950',
-  '80951', '80952', '80953', '80954', '80955', '80956', '80957', '80958',
-  '80959', '80960', '80961', '80962', '80963', '80964', '80965', '80966',
-  '80967', '80968', '80969', '80970', '80971', '80972', '80973', '80974',
+  '80943',
+  '80944',
+  '80945',
+  '80946',
+  '80947',
+  '80948',
+  '80949',
+  '80950',
+  '80951',
+  '80952',
+  '80953',
+  '80954',
+  '80955',
+  '80956',
+  '80957',
+  '80958',
+  '80959',
+  '80960',
+  '80961',
+  '80962',
+  '80963',
+  '80964',
+  '80965',
+  '80966',
+  '80967',
+  '80968',
+  '80969',
+  '80970',
+  '80971',
+  '80972',
+  '80973',
+  '80974',
 ];
 
 async function main(): Promise<void> {
@@ -47,7 +75,10 @@ async function main(): Promise<void> {
   if (!probe.success || !probe.pageHmacAlgorithm || !probe.kdfHmacAlgorithm) {
     throw new Error('emoji.db 密钥错误或算法探测失败');
   }
-  const algo = { pageHmacAlgorithm: probe.pageHmacAlgorithm, kdfHmacAlgorithm: probe.kdfHmacAlgorithm };
+  const algo = {
+    pageHmacAlgorithm: probe.pageHmacAlgorithm,
+    kdfHmacAlgorithm: probe.kdfHmacAlgorithm,
+  };
   const db = new QqDb(ntHelper, { dbPath, key, algo });
 
   try {
@@ -60,7 +91,9 @@ async function main(): Promise<void> {
     }
 
     // 取一行真实模板（任意现有行即可）。
-    const templates = await db.query(`SELECT ${COLS.map((c) => `"${c}"`).join(',')} FROM "${TABLE}" LIMIT 1`);
+    const templates = await db.query(
+      `SELECT ${COLS.map((c) => `"${c}"`).join(',')} FROM "${TABLE}" LIMIT 1`,
+    );
     const template = templates[0];
     if (!template) throw new Error('表里没有任何现有行可当模板');
 

@@ -146,7 +146,11 @@ export class MsgService {
    * then tells WeQ-deleted (restorable) apart from a QQ-native recall (not).
    * `undefined` when the columns weren't selected or the message is live.
    */
-  private classifyDeleted(m: { msgId: bigint; msgType?: bigint; subType?: bigint }): DeletedKind | undefined {
+  private classifyDeleted(m: {
+    msgId: bigint;
+    msgType?: bigint;
+    subType?: bigint;
+  }): DeletedKind | undefined {
     if (m.msgType !== DELETED_MSG_TYPE || m.subType !== DELETED_SUB_TYPE) return undefined;
     return this.deleted?.get(m.msgId.toString()) ? 'weq' : 'qq';
   }
@@ -159,7 +163,11 @@ export class MsgService {
   private classifyRecall(m: { msgId: bigint }, recallMap?: RecallMap): RecallInfo | undefined {
     const r = recallMap?.get(m.msgId.toString());
     if (!r) return undefined;
-    return { revokeUid: r.revokeUid, sameSender: r.revokeUid !== '' && r.revokeUid === r.senderUid, recallTs: r.recallTs };
+    return {
+      revokeUid: r.revokeUid,
+      sameSender: r.revokeUid !== '' && r.revokeUid === r.senderUid,
+      recallTs: r.recallTs,
+    };
   }
 
   /** Fetch the conversation's recall map once (empty when anti-recall is off). */
@@ -169,12 +177,20 @@ export class MsgService {
 
   /** {@link renderC2c} plus the computed deleted/recall state. */
   private renderC2cWithState(m: C2cMsg, recallMap?: RecallMap): RenderC2cMsg {
-    return { ...renderC2c(m), deletedKind: this.classifyDeleted(m), recall: this.classifyRecall(m, recallMap) };
+    return {
+      ...renderC2c(m),
+      deletedKind: this.classifyDeleted(m),
+      recall: this.classifyRecall(m, recallMap),
+    };
   }
 
   /** {@link renderGroup} plus the computed deleted/recall state. */
   private renderGroupWithState(m: GroupMsg, recallMap?: RecallMap): RenderGroupMsg {
-    return { ...renderGroup(m), deletedKind: this.classifyDeleted(m), recall: this.classifyRecall(m, recallMap) };
+    return {
+      ...renderGroup(m),
+      deletedKind: this.classifyDeleted(m),
+      recall: this.classifyRecall(m, recallMap),
+    };
   }
 
   // ---- compose / insert ----------------------------------------------------
@@ -195,7 +211,10 @@ export class MsgService {
   }
 
   /** Insert a new group message into `targetGroupCode`. */
-  async insertGroupMessage(targetGroupCode: string, input: InsertMsgInput): Promise<InsertMsgResult | null> {
+  async insertGroupMessage(
+    targetGroupCode: string,
+    input: InsertMsgInput,
+  ): Promise<InsertMsgResult | null> {
     const fields = this.buildAppendFields(input);
     return this.session.groupMsgs.appendMessage(targetGroupCode, fields);
   }
@@ -228,20 +247,26 @@ export class MsgService {
    * Get all raw elements of a message by msgId (not filtered by renderer).
    * Searches C2C-shaped tables (c2c / dataline / service assistant) and Group.
    */
-  async getRawElements(msgId: bigint): Promise<{ elements: Element[]; kind: 'c2c' | 'group' } | null> {
+  async getRawElements(
+    msgId: bigint,
+  ): Promise<{ elements: Element[]; kind: 'c2c' | 'group' } | null> {
     const { decodeBody } = await import('@weq/db');
 
     // c2c / dataline / 服务号(118) 三张表都是 C2cMsgDb（同一 wire shape），
     // 服务号消息物理存在 service_assistant_msg_table，漏查会导致「服务号 ARK
     // 消息右键修改」永远 getRawElements 返回 null（编辑框打不开）。
-    for (const db of [this.session.c2cMsgs, this.session.datalineMsgs, this.session.serviceAssistantMsgs] as const) {
+    for (const db of [
+      this.session.c2cMsgs,
+      this.session.datalineMsgs,
+      this.session.serviceAssistantMsgs,
+    ] as const) {
       const blob = await db.getMsgBody(msgId);
       if (blob) return { elements: decodeBody(blob), kind: 'c2c' };
     }
 
     const groupBlob = await this.session.groupMsgs.getMsgBody(msgId);
     if (groupBlob) {
-        return { elements: decodeBody(groupBlob), kind: 'group' };
+      return { elements: decodeBody(groupBlob), kind: 'group' };
     }
 
     return null;
@@ -255,7 +280,7 @@ export class MsgService {
     if (!info) return false;
 
     const blob = bodyCodec.encode({
-        elements: elements.map(encodeElement)
+      elements: elements.map(encodeElement),
     });
 
     if (info.kind === 'group') {
@@ -266,7 +291,11 @@ export class MsgService {
     // 里的哪一张要靠 msgId 命中哪张才知道——写回也得挨个试，只在 getRawElements()
     // 里判断来源、却在这里无条件写 c2cMsgs 会让 dataline/服务号消息的编辑静默
     // 不生效（UPDATE 命中 0 行）。msgId 全局唯一，只有真正持有该行的表会写入成功。
-    for (const db of [this.session.c2cMsgs, this.session.datalineMsgs, this.session.serviceAssistantMsgs] as const) {
+    for (const db of [
+      this.session.c2cMsgs,
+      this.session.datalineMsgs,
+      this.session.serviceAssistantMsgs,
+    ] as const) {
       const affected = await db.updateMsgBody(msgId, blob);
       if (affected > 0) return true;
     }
@@ -284,7 +313,11 @@ export class MsgService {
    */
   async setPttTranscript(msgId: bigint, fileName: string, text: string): Promise<boolean> {
     const { decodeBody } = await import('@weq/db');
-    for (const db of [this.session.c2cMsgs, this.session.datalineMsgs, this.session.groupMsgs] as const) {
+    for (const db of [
+      this.session.c2cMsgs,
+      this.session.datalineMsgs,
+      this.session.groupMsgs,
+    ] as const) {
       const blob = await db.getMsgBody(msgId);
       if (!blob) continue;
       const elements = decodeBody(blob);
@@ -314,7 +347,11 @@ export class MsgService {
    * Returns null when the column is absent, empty, or all ids are 0.
    */
   async getMsgDecoration(msgId: bigint): Promise<MsgDecoration | null> {
-    for (const db of [this.session.c2cMsgs, this.session.datalineMsgs, this.session.groupMsgs] as const) {
+    for (const db of [
+      this.session.c2cMsgs,
+      this.session.datalineMsgs,
+      this.session.groupMsgs,
+    ] as const) {
       const blob = await db.getMsgDressBlob(msgId);
       if (!blob) continue;
       return decodeMsgDressColumn(blob);
@@ -339,7 +376,11 @@ export class MsgService {
    * Returns true if a row was rewritten.
    */
   async deleteMessage(msgId: bigint, kind: 'c2c' | 'group', conv: string): Promise<boolean> {
-    for (const db of [this.session.c2cMsgs, this.session.datalineMsgs, this.session.groupMsgs] as const) {
+    for (const db of [
+      this.session.c2cMsgs,
+      this.session.datalineMsgs,
+      this.session.groupMsgs,
+    ] as const) {
       const orig = await db.readMsgType(msgId);
       if (!orig) continue;
       this.deleted?.add(msgId.toString(), {
@@ -362,7 +403,11 @@ export class MsgService {
   async restoreMessage(msgId: bigint): Promise<boolean> {
     const rec = this.deleted?.get(msgId.toString());
     if (!rec) return false;
-    for (const db of [this.session.c2cMsgs, this.session.datalineMsgs, this.session.groupMsgs] as const) {
+    for (const db of [
+      this.session.c2cMsgs,
+      this.session.datalineMsgs,
+      this.session.groupMsgs,
+    ] as const) {
       const cur = await db.readMsgType(msgId);
       if (!cur) continue;
       const n = await db.writeMsgType(msgId, BigInt(rec.origMsgType), BigInt(rec.origSubType));
@@ -379,7 +424,10 @@ export class MsgService {
    * own deletes AND QQ-native recalls the store never recorded — then tags each
    * with `deletedKind` ('weq' restorable vs 'qq' not) via {@link classifyDeleted}.
    */
-  async getDeletedMessages(kind: 'c2c' | 'group', conv: string): Promise<RenderC2cMsg[] | RenderGroupMsg[]> {
+  async getDeletedMessages(
+    kind: 'c2c' | 'group',
+    conv: string,
+  ): Promise<RenderC2cMsg[] | RenderGroupMsg[]> {
     const recallMap = await this.recallMapFor(kind, conv);
     if (kind === 'group') {
       const msgs = await this.session.groupMsgs.listDeletedByConv(conv);
@@ -410,7 +458,10 @@ export class MsgService {
    * match the log's newest-first order (listByMsgIds sorts by seq, not recall
    * time). Each row is tagged with its `recall` marker.
    */
-  async getRecalledMessages(kind: 'c2c' | 'group', conv: string): Promise<RenderC2cMsg[] | RenderGroupMsg[]> {
+  async getRecalledMessages(
+    kind: 'c2c' | 'group',
+    conv: string,
+  ): Promise<RenderC2cMsg[] | RenderGroupMsg[]> {
     const recallMap = await this.recallMapFor(kind, conv);
     if (!recallMap || recallMap.size === 0) return [];
     const ids = [...recallMap.keys()];
@@ -444,7 +495,11 @@ export class MsgService {
 
   /** Private-chat page just older than `beforeSeq` (scroll-up). */
   async getC2cBefore(targetUid: string, beforeSeq: bigint, limit = 50): Promise<RenderC2cMsg[]> {
-    const msgs = await this.c2cDbFor(targetUid).listBefore(this.c2cPartition(targetUid), beforeSeq, limit);
+    const msgs = await this.c2cDbFor(targetUid).listBefore(
+      this.c2cPartition(targetUid),
+      beforeSeq,
+      limit,
+    );
     await this.enrichReplyMedia(msgs, 'c2c');
     const recallMap = await this.recallMapFor('c2c', targetUid);
     return msgs.map((m) => this.renderC2cWithState(m, recallMap));
@@ -452,7 +507,11 @@ export class MsgService {
 
   /** Private-chat page just newer than `afterSeq` (scroll-down / jump context). */
   async getC2cAfter(targetUid: string, afterSeq: bigint, limit = 50): Promise<RenderC2cMsg[]> {
-    const msgs = await this.c2cDbFor(targetUid).listAfter(this.c2cPartition(targetUid), afterSeq, limit);
+    const msgs = await this.c2cDbFor(targetUid).listAfter(
+      this.c2cPartition(targetUid),
+      afterSeq,
+      limit,
+    );
     await this.enrichReplyMedia(msgs, 'c2c');
     const recallMap = await this.recallMapFor('c2c', targetUid);
     return msgs.map((m) => this.renderC2cWithState(m, recallMap));
@@ -460,7 +519,11 @@ export class MsgService {
 
   /** Re-read private-chat messages with seq >= `sinceSeq` (live refresh). */
   async getC2cFrom(targetUid: string, sinceSeq: bigint, limit = 500): Promise<RenderC2cMsg[]> {
-    const msgs = await this.c2cDbFor(targetUid).listFrom(this.c2cPartition(targetUid), sinceSeq, limit);
+    const msgs = await this.c2cDbFor(targetUid).listFrom(
+      this.c2cPartition(targetUid),
+      sinceSeq,
+      limit,
+    );
     await this.enrichReplyMedia(msgs, 'c2c');
     const recallMap = await this.recallMapFor('c2c', targetUid);
     return msgs.map((m) => this.renderC2cWithState(m, recallMap));
@@ -471,8 +534,16 @@ export class MsgService {
    * newer than `afterRowId` (rowid order). Export-only — the seq scan misses
    * these; see `C2cMsgDb.listSeqlessAfterRowId` and `message_source`.
    */
-  async getC2cSeqlessAfterRowId(targetUid: string, afterRowId: bigint, limit = 2000): Promise<Array<RenderC2cMsg & { rowId: bigint }>> {
-    const msgs = await this.c2cDbFor(targetUid).listSeqlessAfterRowId(this.c2cPartition(targetUid), afterRowId, limit);
+  async getC2cSeqlessAfterRowId(
+    targetUid: string,
+    afterRowId: bigint,
+    limit = 2000,
+  ): Promise<Array<RenderC2cMsg & { rowId: bigint }>> {
+    const msgs = await this.c2cDbFor(targetUid).listSeqlessAfterRowId(
+      this.c2cPartition(targetUid),
+      afterRowId,
+      limit,
+    );
     return msgs.map((m) => ({ ...renderC2c(m), rowId: m.rowId }));
   }
 
@@ -487,7 +558,11 @@ export class MsgService {
   }
 
   /** Group page just older than `beforeSeq` (scroll-up). */
-  async getGroupBefore(targetGroupCode: string, beforeSeq: bigint, limit = 50): Promise<RenderGroupMsg[]> {
+  async getGroupBefore(
+    targetGroupCode: string,
+    beforeSeq: bigint,
+    limit = 50,
+  ): Promise<RenderGroupMsg[]> {
     const msgs = await this.session.groupMsgs.listBefore(targetGroupCode, beforeSeq, limit);
     await this.enrichReplyMedia(msgs, 'group');
     const recallMap = await this.recallMapFor('group', targetGroupCode);
@@ -495,7 +570,11 @@ export class MsgService {
   }
 
   /** Group page just newer than `afterSeq` (scroll-down / jump context). */
-  async getGroupAfter(targetGroupCode: string, afterSeq: bigint, limit = 50): Promise<RenderGroupMsg[]> {
+  async getGroupAfter(
+    targetGroupCode: string,
+    afterSeq: bigint,
+    limit = 50,
+  ): Promise<RenderGroupMsg[]> {
     const msgs = await this.session.groupMsgs.listAfter(targetGroupCode, afterSeq, limit);
     await this.enrichReplyMedia(msgs, 'group');
     const recallMap = await this.recallMapFor('group', targetGroupCode);
@@ -503,7 +582,11 @@ export class MsgService {
   }
 
   /** Re-read group messages with seq >= `sinceSeq` (live refresh). */
-  async getGroupFrom(targetGroupCode: string, sinceSeq: bigint, limit = 500): Promise<RenderGroupMsg[]> {
+  async getGroupFrom(
+    targetGroupCode: string,
+    sinceSeq: bigint,
+    limit = 500,
+  ): Promise<RenderGroupMsg[]> {
     const msgs = await this.session.groupMsgs.listFrom(targetGroupCode, sinceSeq, limit);
     await this.enrichReplyMedia(msgs, 'group');
     const recallMap = await this.recallMapFor('group', targetGroupCode);
@@ -515,8 +598,16 @@ export class MsgService {
    * than `afterRowId` (rowid order). Export-only — the seq scan misses these;
    * see `GroupMsgDb.listSeqlessAfterRowId` and `message_source`.
    */
-  async getGroupSeqlessAfterRowId(targetGroupCode: string, afterRowId: bigint, limit = 2000): Promise<Array<RenderGroupMsg & { rowId: bigint }>> {
-    const msgs = await this.session.groupMsgs.listSeqlessAfterRowId(targetGroupCode, afterRowId, limit);
+  async getGroupSeqlessAfterRowId(
+    targetGroupCode: string,
+    afterRowId: bigint,
+    limit = 2000,
+  ): Promise<Array<RenderGroupMsg & { rowId: bigint }>> {
+    const msgs = await this.session.groupMsgs.listSeqlessAfterRowId(
+      targetGroupCode,
+      afterRowId,
+      limit,
+    );
     return msgs.map((m) => ({ ...renderGroup(m), rowId: m.rowId }));
   }
 
@@ -550,13 +641,25 @@ export class MsgService {
 
   /** Service account page just newer than `afterSeq` (export use). */
   async getServiceAfter(appId: string, afterSeq: bigint, limit = 50): Promise<RenderC2cMsg[]> {
-    const msgs = await this.session.serviceAssistantMsgs.listAfter({ appId: BigInt(appId) }, afterSeq, limit);
+    const msgs = await this.session.serviceAssistantMsgs.listAfter(
+      { appId: BigInt(appId) },
+      afterSeq,
+      limit,
+    );
     return msgs.map((m) => renderC2c(m));
   }
 
   /** Service account seq-less page (export use). */
-  async getServiceSeqlessAfterRowId(appId: string, afterRowId: bigint, limit = 2000): Promise<Array<RenderC2cMsg & { rowId: bigint }>> {
-    const msgs = await this.session.serviceAssistantMsgs.listSeqlessAfterRowId({ appId: BigInt(appId) }, afterRowId, limit);
+  async getServiceSeqlessAfterRowId(
+    appId: string,
+    afterRowId: bigint,
+    limit = 2000,
+  ): Promise<Array<RenderC2cMsg & { rowId: bigint }>> {
+    const msgs = await this.session.serviceAssistantMsgs.listSeqlessAfterRowId(
+      { appId: BigInt(appId) },
+      afterRowId,
+      limit,
+    );
     return msgs.map((m) => ({ ...renderC2c(m), rowId: m.rowId }));
   }
 
@@ -594,7 +697,10 @@ export class MsgService {
    * forwards). The export pipeline uses this to expand a `[合并转发]` placeholder
    * into the real forwarded content. Returns [] on any miss / decode error.
    */
-  async listForward(kind: 'c2c' | 'group' | 'official' | 'service', msgId: bigint): Promise<MsgCacheRecord[]> {
+  async listForward(
+    kind: 'c2c' | 'group' | 'official' | 'service',
+    msgId: bigint,
+  ): Promise<MsgCacheRecord[]> {
     try {
       return kind === 'group'
         ? await this.session.forwardMsgs.listGroupForward(msgId)
@@ -651,10 +757,7 @@ export class MsgService {
    * Mutates the passed messages in place (before render mapping) and swallows
    * per-message lookup failures so a bad cache never breaks the page.
    */
-  private async enrichReplyMedia(
-    msgs: ReplyBearer[],
-    kind: 'c2c' | 'group',
-  ): Promise<void> {
+  private async enrichReplyMedia(msgs: ReplyBearer[], kind: 'c2c' | 'group'): Promise<void> {
     const pending = msgs.filter((m) => m.elements.some(isMediaLessReply));
     if (pending.length === 0) return;
 
@@ -775,8 +878,11 @@ function findMediaInCache(
   token: string,
   depth = 0,
 ): Element | null {
-  const byId = walkCache(records, mediaKind, depth, (rec) =>
-    rec.msgId != null && BigInt(rec.msgId) === subMsgId,
+  const byId = walkCache(
+    records,
+    mediaKind,
+    depth,
+    (rec) => rec.msgId != null && BigInt(rec.msgId) === subMsgId,
   );
   if (byId) {
     const hit =

@@ -10,9 +10,7 @@ import { CollectionDb } from '../src/collection';
 import { testEnv, qqDbPath } from '@weq/testkit';
 
 const KEY = testEnv.key;
-const DB_PATH =
-  process.env.WEQ_TEST_DB_PATH ??
-  qqDbPath('collection.db');
+const DB_PATH = process.env.WEQ_TEST_DB_PATH ?? qqDbPath('collection.db');
 
 function safe(_k: string, v: unknown) {
   if (typeof v === 'bigint') return `${v}n`;
@@ -43,7 +41,9 @@ async function main() {
   for (const it of all) {
     if (seen.has(it.type)) continue;
     seen.add(it.type);
-    console.log(`\n#### type=${it.type} kind=${it.kind} cid=${it.cid.slice(0, 20)} collect=${new Date(it.collectTime).toISOString()}`);
+    console.log(
+      `\n#### type=${it.type} kind=${it.kind} cid=${it.cid.slice(0, 20)} collect=${new Date(it.collectTime).toISOString()}`,
+    );
     console.log('  author :', JSON.stringify(it.author, safe));
     console.log('  summary:', JSON.stringify(it.summary, safe).slice(0, 500));
   }

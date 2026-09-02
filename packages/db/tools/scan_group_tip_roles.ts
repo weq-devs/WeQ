@@ -20,10 +20,7 @@ async function main(): Promise<void> {
     algo: ALGO,
   });
 
-  const rows = await db.query(
-    `SELECT "40001","40027","40020","40800" FROM group_msg_table`,
-    [],
-  );
+  const rows = await db.query(`SELECT "40001","40027","40020","40800" FROM group_msg_table`, []);
 
   const type1: any[] = [];
   const type3: any[] = [];

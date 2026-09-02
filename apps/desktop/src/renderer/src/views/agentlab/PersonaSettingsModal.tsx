@@ -76,7 +76,12 @@ function MemoryTab({ personaId }: { personaId: string }): ReactElement {
           {list.map((m) => (
             <li key={m.id}>
               <span className="weq-persona-memtext">{m.text}</span>
-              <button type="button" className="weq-persona-memforget" title="忘掉这条" onClick={() => void onForget(m.id)}>
+              <button
+                type="button"
+                className="weq-persona-memforget"
+                title="忘掉这条"
+                onClick={() => void onForget(m.id)}
+              >
                 <X size={13} />
               </button>
             </li>
@@ -85,7 +90,10 @@ function MemoryTab({ personaId }: { personaId: string }): ReactElement {
       )}
       {list.length > 0 && (
         <div className="weq-clone-actions">
-          <button className="weq-set-btn weq-set-btn-soft weq-set-btn-sm" onClick={() => void onClear()}>
+          <button
+            className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+            onClick={() => void onClear()}
+          >
             清空全部记忆
           </button>
         </div>
@@ -126,7 +134,9 @@ function WillingTab({
   const [gatePrivate, setGatePrivate] = useState(!!persona.willing?.gatePrivate);
   const [typoOn, setTypoOn] = useState(persona.typo?.enabled !== false);
   // 内部按百分比操作（0–30），存库时 /100 成 intensity。
-  const [typoPct, setTypoPct] = useState(Math.round((persona.typo?.intensity ?? DEFAULT_TYPO_INTENSITY) * 100));
+  const [typoPct, setTypoPct] = useState(
+    Math.round((persona.typo?.intensity ?? DEFAULT_TYPO_INTENSITY) * 100),
+  );
   const [saving, setSaving] = useState(false);
 
   async function save(): Promise<void> {
@@ -146,7 +156,8 @@ function WillingTab({
     }
   }
 
-  const levelHint = level >= 70 ? '话痨，很爱接话' : level <= 30 ? '高冷，多数时候潜水' : '看心情和话题';
+  const levelHint =
+    level >= 70 ? '话痨，很爱接话' : level <= 30 ? '高冷，多数时候潜水' : '看心情和话题';
   const typoHint = typoPct >= 20 ? '经常手滑' : typoPct <= 5 ? '几乎不出错' : '偶尔手滑';
 
   return (
@@ -155,21 +166,39 @@ function WillingTab({
         控制这个克隆体多爱说话。群聊里始终按意愿决定要不要接话；私聊默认必回，可在下方开启「私聊也按意愿」。
       </p>
       <label className="weq-agentlab-field">
-        <span>总体发言意愿：{level} · {levelHint}</span>
-        <input type="range" min={0} max={100} step={5} value={level} onChange={(e) => setLevel(Number(e.target.value))} />
+        <span>
+          总体发言意愿：{level} · {levelHint}
+        </span>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          step={5}
+          value={level}
+          onChange={(e) => setLevel(Number(e.target.value))}
+        />
       </label>
       <label className="weq-clone-check">
-        <input type="checkbox" checked={mustReply} onChange={(e) => setMustReply(e.target.checked)} />
+        <input
+          type="checkbox"
+          checked={mustReply}
+          onChange={(e) => setMustReply(e.target.checked)}
+        />
         <span>被 @ 时必定回复（关掉后被 @ 也可能不接）</span>
       </label>
       <label className="weq-clone-check">
-        <input type="checkbox" checked={gatePrivate} onChange={(e) => setGatePrivate(e.target.checked)} />
+        <input
+          type="checkbox"
+          checked={gatePrivate}
+          onChange={(e) => setGatePrivate(e.target.checked)}
+        />
         <span>私聊也按意愿（开启后 1:1 私聊里 TA 也可能懒得回你）</span>
       </label>
 
       <div className="weq-persona-divider" />
       <p className="weq-persona-note">
-        错别字（人味）：偶尔把「在/再」这类同音字写错、吞掉句尾句号，削弱 AI 感。嫌太频繁就调低频率或直接关掉。
+        错别字（人味）：偶尔把「在/再」这类同音字写错、吞掉句尾句号，削弱 AI
+        感。嫌太频繁就调低频率或直接关掉。
       </p>
       <label className="weq-clone-check">
         <input type="checkbox" checked={typoOn} onChange={(e) => setTypoOn(e.target.checked)} />
@@ -177,7 +206,9 @@ function WillingTab({
       </label>
       {typoOn ? (
         <label className="weq-agentlab-field">
-          <span>手滑频率：{typoPct}% · {typoHint}</span>
+          <span>
+            手滑频率：{typoPct}% · {typoHint}
+          </span>
           <input
             type="range"
             min={0}
@@ -226,7 +257,8 @@ function VoiceTab({
   });
 
   const providerList = providers.data ?? [];
-  const hasVoiceMsgs = (persona.voiceProfile?.ratio ?? 0) > 0 || (persona.voiceProfile?.refClips?.length ?? 0) > 0;
+  const hasVoiceMsgs =
+    (persona.voiceProfile?.ratio ?? 0) > 0 || (persona.voiceProfile?.refClips?.length ?? 0) > 0;
   const hasRefClips = (persona.voiceProfile?.refClips?.length ?? 0) > 0;
   const hasTts = providerList.length > 0;
   const canEnable = hasVoiceMsgs && hasTts;
@@ -253,7 +285,11 @@ function VoiceTab({
               voice: effMode === 'preset' ? voice.trim() || undefined : undefined,
             }
           : (persona.voice ?? null);
-      await update.mutateAsync({ personaId: persona.id, voiceCloneEnabled: nextEnabled, voice: binding });
+      await update.mutateAsync({
+        personaId: persona.id,
+        voiceCloneEnabled: nextEnabled,
+        voice: binding,
+      });
       onSaved();
     } catch (e) {
       dialog.error('保存失败', e instanceof Error ? e.message : String(e));
@@ -303,7 +339,11 @@ function VoiceTab({
         <>
           <label className="weq-agentlab-field">
             <span>TTS 服务商</span>
-            <select className="weq-set-input" value={currentProvider?.id ?? ''} onChange={(e) => setProviderId(e.target.value)}>
+            <select
+              className="weq-set-input"
+              value={currentProvider?.id ?? ''}
+              onChange={(e) => setProviderId(e.target.value)}
+            >
               {providerList.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -313,7 +353,11 @@ function VoiceTab({
           </label>
           <label className="weq-agentlab-field">
             <span>音色方式</span>
-            <select className="weq-set-input" value={effMode} onChange={(e) => setMode(e.target.value as 'clone' | 'preset')}>
+            <select
+              className="weq-set-input"
+              value={effMode}
+              onChange={(e) => setMode(e.target.value as 'clone' | 'preset')}
+            >
               <option value="clone" disabled={!cloneOk}>
                 用 TA 的声音（复刻）{cloneOk ? '' : '（不支持 / 无参考音频）'}
               </option>
@@ -358,7 +402,10 @@ function ExportRuntimeCard({ personaId }: { personaId: string }): ReactElement |
       const r = await openMut.mutateAsync({ personaId, url });
       if (r.needUrl) {
         setUrlInput(url ?? r.defaultUrl);
-        dialog.error('连不上控制台', '默认地址没响应。请确认 bot 已 npm start，或在下方填入实际访问地址后重试。');
+        dialog.error(
+          '连不上控制台',
+          '默认地址没响应。请确认 bot 已 npm start，或在下方填入实际访问地址后重试。',
+        );
       } else if (r.opened) {
         setUrlInput(null);
       }
@@ -376,7 +423,9 @@ function ExportRuntimeCard({ personaId }: { personaId: string }): ReactElement |
     }
   }
 
-  const maskedKey = showKey ? data.key : `${data.key.slice(0, 6)}${'·'.repeat(12)}${data.key.slice(-4)}`;
+  const maskedKey = showKey
+    ? data.key
+    : `${data.key.slice(0, 6)}${'·'.repeat(12)}${data.key.slice(-4)}`;
 
   return (
     <div className="weq-bot-runtime">
@@ -388,10 +437,20 @@ function ExportRuntimeCard({ personaId }: { personaId: string }): ReactElement |
       <div className="weq-bot-keyrow">
         <KeyRound size={13} />
         <code className="weq-bot-key">{maskedKey}</code>
-        <button type="button" className="weq-bot-iconbtn" title={showKey ? '隐藏' : '显示'} onClick={() => setShowKey((v) => !v)}>
+        <button
+          type="button"
+          className="weq-bot-iconbtn"
+          title={showKey ? '隐藏' : '显示'}
+          onClick={() => setShowKey((v) => !v)}
+        >
           {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
         </button>
-        <button type="button" className="weq-bot-iconbtn" title="复制密钥" onClick={() => void copyKey()}>
+        <button
+          type="button"
+          className="weq-bot-iconbtn"
+          title="复制密钥"
+          onClick={() => void copyKey()}
+        >
           <Copy size={14} />
         </button>
       </div>
@@ -403,13 +462,21 @@ function ExportRuntimeCard({ personaId }: { personaId: string }): ReactElement |
             onChange={(e) => setUrlInput(e.target.value)}
             placeholder="http://127.0.0.1:8090"
           />
-          <button className="weq-set-btn weq-set-btn-sm" disabled={openMut.isLoading} onClick={() => void openConsole(urlInput)}>
+          <button
+            className="weq-set-btn weq-set-btn-sm"
+            disabled={openMut.isLoading}
+            onClick={() => void openConsole(urlInput)}
+          >
             连接
           </button>
         </div>
       ) : null}
       <div className="weq-clone-actions">
-        <button className="weq-set-btn" disabled={openMut.isLoading} onClick={() => void openConsole()}>
+        <button
+          className="weq-set-btn"
+          disabled={openMut.isLoading}
+          onClick={() => void openConsole()}
+        >
           <ExternalLink size={14} /> {openMut.isLoading ? '连接中…' : '打开控制台'}
         </button>
       </div>
@@ -444,7 +511,12 @@ function ExportTab({
       (providers.data ?? []).flatMap((p) =>
         p.models
           .filter((m) => m.capabilities.includes('vision'))
-          .map((m) => ({ key: `${p.id}::${m.id}`, providerId: p.id, model: m.id, label: `${p.name} · ${m.label ?? m.id}` })),
+          .map((m) => ({
+            key: `${p.id}::${m.id}`,
+            providerId: p.id,
+            model: m.id,
+            label: `${p.name} · ${m.label ?? m.id}`,
+          })),
       ),
     [providers.data],
   );
@@ -501,8 +573,9 @@ function ExportTab({
         </button>
         {introOpen ? (
           <p className="weq-persona-note weq-collapse-body">
-            把「{persona.name}」导出成独立机器人：连接 NapCat / SnowLuma 后即可作为真 QQ 机器人上线。导出时会自动生成
-            WebUI 控制台的访问密钥与编号（可查看 token 消耗、收发统计与克隆体总览）。导出的
+            把「{persona.name}」导出成独立机器人：连接 NapCat / SnowLuma 后即可作为真 QQ
+            机器人上线。导出时会自动生成 WebUI 控制台的访问密钥与编号（可查看 token
+            消耗、收发统计与克隆体总览）。导出的
             <code>config.json</code> 含 API Key 与访问密钥，请妥善保管产物文件夹。
           </p>
         ) : null}
@@ -511,30 +584,55 @@ function ExportTab({
       <ExportRuntimeCard personaId={persona.id} />
 
       <label className="weq-agentlab-field">
-        <span><Plug size={13} /> 适配器</span>
-        <select value={adapterType} onChange={(e) => setAdapterType(e.target.value as 'napcat' | 'snowluma')}>
+        <span>
+          <Plug size={13} /> 适配器
+        </span>
+        <select
+          value={adapterType}
+          onChange={(e) => setAdapterType(e.target.value as 'napcat' | 'snowluma')}
+        >
           <option value="napcat">NapCat</option>
           <option value="snowluma">SnowLuma</option>
         </select>
       </label>
 
       <label className="weq-agentlab-field">
-        <span><Link2 size={13} /> WebSocket 地址</span>
-        <input value={wsUrl} onChange={(e) => setWsUrl(e.target.value)} placeholder="ws://127.0.0.1:8081" />
+        <span>
+          <Link2 size={13} /> WebSocket 地址
+        </span>
+        <input
+          value={wsUrl}
+          onChange={(e) => setWsUrl(e.target.value)}
+          placeholder="ws://127.0.0.1:8081"
+        />
       </label>
 
       <label className="weq-agentlab-field">
-        <span><KeyRound size={13} /> 连接 Token（没有可留空）</span>
-        <input value={token} onChange={(e) => setToken(e.target.value)} placeholder="Authorization 鉴权 token" />
+        <span>
+          <KeyRound size={13} /> 连接 Token（没有可留空）
+        </span>
+        <input
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          placeholder="Authorization 鉴权 token"
+        />
       </label>
 
       <label className="weq-agentlab-field">
-        <span><UserRound size={13} /> 机器人 QQ 号</span>
-        <input value={selfId} onChange={(e) => setSelfId(e.target.value)} placeholder="机器人登录的 QQ 号" />
+        <span>
+          <UserRound size={13} /> 机器人 QQ 号
+        </span>
+        <input
+          value={selfId}
+          onChange={(e) => setSelfId(e.target.value)}
+          placeholder="机器人登录的 QQ 号"
+        />
       </label>
 
       <label className="weq-agentlab-field">
-        <span><Globe size={13} /> WebUI 控制台端口</span>
+        <span>
+          <Globe size={13} /> WebUI 控制台端口
+        </span>
         <input
           value={webuiPort}
           onChange={(e) => setWebuiPort(e.target.value.replace(/[^\d]/g, ''))}
@@ -544,11 +642,15 @@ function ExportTab({
       </label>
 
       <label className="weq-agentlab-field">
-        <span><ImageIcon size={13} /> 图像模型（可选，解析上传的新表情）</span>
+        <span>
+          <ImageIcon size={13} /> 图像模型（可选，解析上传的新表情）
+        </span>
         <select value={visionKey} onChange={(e) => setVisionKey(e.target.value)}>
           <option value="">（不设置 · 沿用克隆时的图像模型）</option>
           {visionOptions.map((o) => (
-            <option key={o.key} value={o.key}>{o.label}</option>
+            <option key={o.key} value={o.key}>
+              {o.label}
+            </option>
           ))}
         </select>
       </label>
@@ -565,7 +667,11 @@ function ExportTab({
       </label>
 
       <label className="weq-clone-check">
-        <input type="checkbox" checked={groupChat} onChange={(e) => setGroupChat(e.target.checked)} />
+        <input
+          type="checkbox"
+          checked={groupChat}
+          onChange={(e) => setGroupChat(e.target.checked)}
+        />
         <Users size={14} />
         <span>参与群聊（被 @ 或聊到感兴趣的话题时才接话）</span>
       </label>
@@ -573,15 +679,24 @@ function ExportTab({
       {groupChat && (
         <label className="weq-agentlab-field">
           <span>群聊回复方式</span>
-          <select value={groupReplyMode} onChange={(e) => setGroupReplyMode(e.target.value as 'llm' | 'heuristic')}>
-            <option value="llm">拟人判断（默认 · 像桌面群聊，更自然，每条消息多一次 LLM 调用）</option>
+          <select
+            value={groupReplyMode}
+            onChange={(e) => setGroupReplyMode(e.target.value as 'llm' | 'heuristic')}
+          >
+            <option value="llm">
+              拟人判断（默认 · 像桌面群聊，更自然，每条消息多一次 LLM 调用）
+            </option>
             <option value="heuristic">启发式（快 · 省 token，按 @ / 点名 / 关系打分）</option>
           </select>
         </label>
       )}
 
       <div className="weq-clone-actions">
-        <button className="weq-set-btn" disabled={exportMut.isLoading} onClick={() => void doExport()}>
+        <button
+          className="weq-set-btn"
+          disabled={exportMut.isLoading}
+          onClick={() => void doExport()}
+        >
           {exportMut.isLoading ? '导出中…' : '导出机器人'}
         </button>
       </div>
@@ -659,7 +774,11 @@ export function PersonaSettingsModal({
                   />
                 </label>
                 <div className="weq-clone-actions">
-                  <button className="weq-set-btn" disabled={update.isLoading} onClick={() => void savePrompt()}>
+                  <button
+                    className="weq-set-btn"
+                    disabled={update.isLoading}
+                    onClick={() => void savePrompt()}
+                  >
                     保存
                   </button>
                 </div>

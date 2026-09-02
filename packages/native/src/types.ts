@@ -440,7 +440,7 @@ export interface NtHelperBinding {
    * `name`: part name - config.json / static.zip / other.zip / aio_50.png /
    *   xydata.js / main / fzfont
    */
-    queryDressResourceUrl(dtype: string, itemId: string, name: string): DressResourceUrl | null;
+  queryDressResourceUrl(dtype: string, itemId: string, name: string): DressResourceUrl | null;
 }
 
 // ---------- ninebird_addon.node — launch bootstrap -----------------------

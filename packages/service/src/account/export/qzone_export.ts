@@ -102,7 +102,11 @@ async function fetchAllEmotions(
       }
     }
     pos += res.list.length;
-    onProgress(all.length, total || all.length, `已获取 ${all.length}${total ? `/${total}` : ''} 条`);
+    onProgress(
+      all.length,
+      total || all.length,
+      `已获取 ${all.length}${total ? `/${total}` : ''} 条`,
+    );
 
     if (fresh === 0) break; // 整页都是旧条目 → 到底了
     if (total && all.length >= total) break;
@@ -151,7 +155,10 @@ async function downloadImages(
     });
   }
   const total = jobs.length;
-  if (total === 0) { onMedia?.(0, 0); return { ok: 0, failed: 0 }; }
+  if (total === 0) {
+    onMedia?.(0, 0);
+    return { ok: 0, failed: 0 };
+  }
   await mkdir(mediaRoot, { recursive: true });
 
   let done = 0;
@@ -165,7 +172,8 @@ async function downloadImages(
       if (idx >= total) return;
       const job = jobs[idx]!;
       const outcome = await downloadUrlToFile(job.url, job.dest);
-      if (outcome.ok) ok += 1; else failed += 1;
+      if (outcome.ok) ok += 1;
+      else failed += 1;
       done += 1;
       onMedia?.(done, total);
     }
@@ -182,7 +190,13 @@ export async function exportQzone(
   deps: QzoneExportDeps,
 ): Promise<QzoneExportResult> {
   opts.onProgress(0, 0, '拉取说说…');
-  const fetched = await fetchAllEmotions(deps, opts.targetUin, opts.range, opts.onProgress, opts.signal);
+  const fetched = await fetchAllEmotions(
+    deps,
+    opts.targetUin,
+    opts.range,
+    opts.onProgress,
+    opts.signal,
+  );
   const filtered = fetched.filter((e) => inRange(e, opts.range));
 
   // 写盘（说说量级不大，一次性写；json 带缩进便于阅读）。

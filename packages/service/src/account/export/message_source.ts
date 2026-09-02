@@ -97,14 +97,17 @@ async function* roamMessageStream<T extends { sendTime: bigint }>(
   const messages = await source();
   const adapted = messages
     .filter((m) => m.conv === conv)
-    .map((m) => ({
-      msgId: BigInt(m.msgId),
-      msgSeq: BigInt(m.msgSeq),
-      sendTime: BigInt(m.sendTime),
-      senderUid: m.senderUid,
-      senderUin: BigInt(m.senderUin),
-      elements: m.elements,
-    }) as unknown as T);
+    .map(
+      (m) =>
+        ({
+          msgId: BigInt(m.msgId),
+          msgSeq: BigInt(m.msgSeq),
+          sendTime: BigInt(m.sendTime),
+          senderUid: m.senderUid,
+          senderUin: BigInt(m.senderUin),
+          elements: m.elements,
+        }) as unknown as T,
+    );
   adapted.sort((a, b) => (a.sendTime < b.sendTime ? -1 : a.sendTime > b.sendTime ? 1 : 0));
   yield* adapted;
 }
@@ -140,10 +143,7 @@ export async function* iterateGroupMessages(
     pageGroupBySeqlessRowId(msgs, groupCode, pageSize),
   );
   if (opts.roam) {
-    merged = mergeBySendTime(
-      merged,
-      roamMessageStream<RenderGroupMsg>(groupCode, opts.roam),
-    );
+    merged = mergeBySendTime(merged, roamMessageStream<RenderGroupMsg>(groupCode, opts.roam));
   }
   const deduped = opts.roam ? dedupeByMsgId(merged) : merged;
   for await (const m of deduped) {
@@ -198,10 +198,7 @@ export async function* iterateC2cMessages(
     pageC2cBySeqlessRowId(msgs, peerUid, pageSize),
   );
   if (opts.roam) {
-    merged = mergeBySendTime(
-      merged,
-      roamMessageStream<RenderC2cMsg>(peerUid, opts.roam),
-    );
+    merged = mergeBySendTime(merged, roamMessageStream<RenderC2cMsg>(peerUid, opts.roam));
   }
   const deduped = opts.roam ? dedupeByMsgId(merged) : merged;
   for await (const m of deduped) {
@@ -317,7 +314,7 @@ async function* pageServiceBySeqlessRowId(
 
 /** Check if a message contains at least one ARK element. */
 function hasArkElement(m: RenderC2cMsg | RenderGroupMsg): boolean {
-  return m.elements.some(el => 'elementType' in el && el.elementType === 'ark');
+  return m.elements.some((el) => 'elementType' in el && el.elementType === 'ark');
 }
 
 /** Normalize a render message into the export record (bigints → strings). */

@@ -86,7 +86,9 @@ export function RecalledMessagesModal({
       <div className="weq-deleted">
         <header className="weq-compose-head">
           <div className="weq-compose-titlewrap">
-            <strong id="weq-recalled-title" className="weq-compose-title">撤回列表</strong>
+            <strong id="weq-recalled-title" className="weq-compose-title">
+              撤回列表
+            </strong>
             <span className="weq-compose-sub">{subtitle}</span>
           </div>
           <button type="button" className="weq-compose-x" onClick={onClose} title="关闭">
@@ -103,24 +105,36 @@ export function RecalledMessagesModal({
                 <div className="weq-deleted-empty">
                   <RotateCcw size={26} />
                   <span>没有被撤回的消息</span>
-                  <small>开启防撤回后，对方撤回的消息会被拦截并保留在原位，也会出现在这里，标注撤回者与时间。</small>
+                  <small>
+                    开启防撤回后，对方撤回的消息会被拦截并保留在原位，也会出现在这里，标注撤回者与时间。
+                  </small>
                 </div>
               ) : (
                 messages.map((message) => {
                   const mine = message.senderId === user.id;
                   const sender = resolveMessageSender(message, conversation, user);
-                  const recall = (message as { recall?: { revokeUid: string; sameSender: boolean; recallTs: number } }).recall;
+                  const recall = (
+                    message as {
+                      recall?: { revokeUid: string; sameSender: boolean; recallTs: number };
+                    }
+                  ).recall;
                   const revokerName = (message as { recallRevokerName?: string }).recallRevokerName;
                   const who = !recall
                     ? ''
                     : recall.sameSender
-                      ? (mine ? '你撤回' : '本人撤回')
+                      ? mine
+                        ? '你撤回'
+                        : '本人撤回'
                       : `${revokerName?.trim() || '管理员'} 撤回`;
                   const when = recall ? formatRecallTime(recall.recallTs) : '';
                   return (
                     <div
                       key={message.id}
-                      className={cn('weq-deleted-row', mine && 'is-mine', onJumpToMessage && 'is-clickable')}
+                      className={cn(
+                        'weq-deleted-row',
+                        mine && 'is-mine',
+                        onJumpToMessage && 'is-clickable',
+                      )}
                       onClick={() => onJumpToMessage && handleClickMessage(message)}
                       role={onJumpToMessage ? 'button' : undefined}
                       tabIndex={onJumpToMessage ? 0 : undefined}
@@ -151,7 +165,8 @@ export function RecalledMessagesModal({
                         />
                       </div>
                       <span className="weq-deleted-tag" title="撤回者与撤回时间">
-                        {who}{when ? ` · ${when}` : ''}
+                        {who}
+                        {when ? ` · ${when}` : ''}
                       </span>
                     </div>
                   );

@@ -34,7 +34,9 @@ function paths(value: unknown, prefix = '', depth = 0, out: string[] = []): stri
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
     const p = prefix ? `${prefix}.${k}` : k;
     const t = v === null ? 'null' : Array.isArray(v) ? `array(${v.length})` : typeof v;
-    out.push(`${p}: ${t}${t === 'string' || t === 'number' || t === 'boolean' ? ` = ${JSON.stringify(v)?.slice(0, 120)}` : ''}`);
+    out.push(
+      `${p}: ${t}${t === 'string' || t === 'number' || t === 'boolean' ? ` = ${JSON.stringify(v)?.slice(0, 120)}` : ''}`,
+    );
     paths(v, p, depth + 1, out);
   }
   return out;
@@ -87,7 +89,9 @@ async function main(): Promise<void> {
 
   const data = JSON.parse(text) as {
     retCode?: number;
-    response?: { apps?: Record<string, { appId?: number; usingItems?: Record<string, unknown>[] }> };
+    response?: {
+      apps?: Record<string, { appId?: number; usingItems?: Record<string, unknown>[] }>;
+    };
   };
   console.log(`[dump-dress] retCode=${data.retCode}`);
 

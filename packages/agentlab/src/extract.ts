@@ -63,7 +63,9 @@ async function chatCompletion(
   if (!res.ok) {
     throw new Error(`AgentLab 提炼接口调用失败: HTTP ${res.status}`);
   }
-  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string; reasoning_content?: string } }> };
+  const data = (await res.json()) as {
+    choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
+  };
   reportUsage(endpoint, data);
   return pickMessageText(data.choices?.[0]?.message);
 }
@@ -103,7 +105,9 @@ async function visionCompletion(
   if (!res.ok) {
     throw new Error(`AgentLab 视觉接口调用失败: HTTP ${res.status}`);
   }
-  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string; reasoning_content?: string } }> };
+  const data = (await res.json()) as {
+    choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
+  };
   reportUsage(endpoint, data);
   return pickMessageText(data.choices?.[0]?.message);
 }
@@ -157,7 +161,10 @@ function parseProfile(raw: Record<string, unknown>): AgentLabPersonaDeepProfile 
   return {
     facts: coerceStringArray(raw.facts).slice(0, PROFILE_CAPS.facts),
     relationship: coerceString(raw.relationship),
-    reactionPatterns: coerceStringArray(raw.reactionPatterns).slice(0, PROFILE_CAPS.reactionPatterns),
+    reactionPatterns: coerceStringArray(raw.reactionPatterns).slice(
+      0,
+      PROFILE_CAPS.reactionPatterns,
+    ),
     boundaries: coerceStringArray(raw.boundaries).slice(0, PROFILE_CAPS.boundaries),
     sharedEvents: coerceStringArray(raw.sharedEvents).slice(0, PROFILE_CAPS.sharedEvents),
   };
@@ -169,7 +176,11 @@ const FEWSHOT_JSON_SHAPE = `{
   ]
 }`;
 
-function corpusPreamble(friendName: string, stats: AgentLabPersonaStats, corpusText: string): string {
+function corpusPreamble(
+  friendName: string,
+  stats: AgentLabPersonaStats,
+  corpusText: string,
+): string {
   return [
     `下面是「我」和「${friendName}」的聊天记录（按时间正序，一行一轮；同一人连发多条时用「／」分隔）。`,
     `已知统计：${friendName} 共 ${stats.friendMessageCount} 条消息，单条平均 ${stats.avgFriendMsgChars} 字，平均一轮连发 ${stats.avgFriendBurst} 条。`,
@@ -354,7 +365,10 @@ export async function distillMemories(
     .map((t) => `${t.role === 'user' ? '对方' : '你'}：${t.text}`)
     .join('\n');
   if (!lines.trim()) return [];
-  const knownBlock = known.length > 0 ? `\n\n你已经记住的（不要重复）：\n${known.map((k) => `- ${k}`).join('\n')}` : '';
+  const knownBlock =
+    known.length > 0
+      ? `\n\n你已经记住的（不要重复）：\n${known.map((k) => `- ${k}`).join('\n')}`
+      : '';
   let raw: Record<string, unknown>;
   try {
     raw = await generateJson(
@@ -453,7 +467,9 @@ export async function decideGroupReply(
     `你是「${input.personaName}」，正在一个群聊里。`,
     input.tone ? `你的性格/语气：${input.tone}` : '',
     input.relationNote ? input.relationNote : '',
-    input.memories && input.memories.length > 0 ? `你记得关于 TA：${input.memories.join('；')}` : '',
+    input.memories && input.memories.length > 0
+      ? `你记得关于 TA：${input.memories.join('；')}`
+      : '',
     input.dispositionHint ?? '',
     input.crowdedHint ?? '',
   ].filter(Boolean);

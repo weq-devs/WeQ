@@ -12,7 +12,7 @@ const PROFILE_DB_PATH = qqDbPath('profile_info.db');
 
 async function main() {
   const native = loadNative();
-  
+
   const profileDb = new ProfileInfoDb(native.ntHelper, {
     dbPath: PROFILE_DB_PATH,
     key: KEY,
@@ -29,20 +29,19 @@ async function main() {
     // We'll use the UID of "klare" we found earlier
     const targetUid = 'u_-5G5s2u1eRSwl5MPLaWV2Q';
     console.log(`[test:profile] Fetching profile for: ${targetUid}`);
-    
+
     const profile = await service.getProfile(targetUid);
     if (profile) {
-        console.log('[test:profile] Result:');
-        const display = {
-            ...profile,
-            uin: profile.uin.toString(),
-            genderName: profile.gender === 1 ? '男' : (profile.gender === 2 ? '女' : '未知')
-        };
-        console.log(JSON.stringify(display, null, 2));
+      console.log('[test:profile] Result:');
+      const display = {
+        ...profile,
+        uin: profile.uin.toString(),
+        genderName: profile.gender === 1 ? '男' : profile.gender === 2 ? '女' : '未知',
+      };
+      console.log(JSON.stringify(display, null, 2));
     } else {
-        console.log('[test:profile] Profile not found.');
+      console.log('[test:profile] Profile not found.');
     }
-
   } catch (err) {
     console.error('[test:profile] Failed:', err);
   } finally {

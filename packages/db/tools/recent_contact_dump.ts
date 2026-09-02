@@ -49,7 +49,9 @@ async function main(): Promise<void> {
     // PRAGMA table_info → [cid, name, type, notnull, dflt_value, pk]
     const name = String(row[1]);
     colNames.push(name);
-    console.log(`  ${name.padEnd(10)} ${String(row[2] || '').padEnd(10)} notnull=${row[3]} pk=${row[5]}`);
+    console.log(
+      `  ${name.padEnd(10)} ${String(row[2] || '').padEnd(10)} notnull=${row[3]} pk=${row[5]}`,
+    );
   }
 
   // 2) one row (most recent), every column.

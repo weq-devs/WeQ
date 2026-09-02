@@ -82,7 +82,10 @@ export function GroupChatPanel({
       : undefined;
     return { name: p?.name ?? fallbackName, uin, bot: true, personaId: senderId, faces };
   };
-  const nameById = useMemo(() => new Map(members.map((m) => [m.memberId, m.displayName])), [members]);
+  const nameById = useMemo(
+    () => new Map(members.map((m) => [m.memberId, m.displayName])),
+    [members],
+  );
 
   const scrollToBottom = useCallback((): void => {
     const el = transcriptRef.current;
@@ -150,7 +153,9 @@ export function GroupChatPanel({
     const text = input.trim();
     if (!text || busy) return;
     // 文本里出现 @某克隆体名 → 定向 @；一个都没有 → 全体应答（后端逻辑）。
-    const mentions = personaMembers.filter((m) => text.includes(`@${m.displayName}`)).map((m) => m.memberId);
+    const mentions = personaMembers
+      .filter((m) => text.includes(`@${m.displayName}`))
+      .map((m) => m.memberId);
     setInput('');
     if (inputRef.current) inputRef.current.style.height = 'auto';
     setBusy(true);
@@ -165,7 +170,10 @@ export function GroupChatPanel({
   }
 
   async function onClear(): Promise<void> {
-    const ok = await dialog.confirm('清空群聊', '确认清空这个群的聊天记录？', { okLabel: '清空', tone: 'warning' });
+    const ok = await dialog.confirm('清空群聊', '确认清空这个群的聊天记录？', {
+      okLabel: '清空',
+      tone: 'warning',
+    });
     if (!ok) return;
     await clear.mutateAsync({ groupId });
     setHistory([]);
@@ -214,23 +222,43 @@ export function GroupChatPanel({
     <div className="weq-agentlab-chat">
       <header className="weq-agentlab-head">
         <div className="weq-agentlab-head-left">
-          <button type="button" className="weq-set-iconbtn" onClick={onBack} aria-label="返回主页" title="返回">
+          <button
+            type="button"
+            className="weq-set-iconbtn"
+            onClick={onBack}
+            aria-label="返回主页"
+            title="返回"
+          >
             <ArrowLeft size={16} />
           </button>
           <div>
             <strong>{groupName}</strong>
-            <span>{personaMembers.length} 个克隆体 + 我 · 共 {history.length} 条</span>
+            <span>
+              {personaMembers.length} 个克隆体 + 我 · 共 {history.length} 条
+            </span>
           </div>
         </div>
         <div className="weq-agentlab-head-actions">
-          <button type="button" className="weq-set-btn weq-set-btn-soft weq-set-btn-sm" onClick={() => setMembersOpen(true)}>
+          <button
+            type="button"
+            className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+            onClick={() => setMembersOpen(true)}
+          >
             <Users size={12} />
             成员
           </button>
-          <button type="button" className="weq-set-btn weq-set-btn-soft weq-set-btn-sm" onClick={() => void onClear()}>
+          <button
+            type="button"
+            className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+            onClick={() => void onClear()}
+          >
             清空
           </button>
-          <button type="button" className="weq-set-btn weq-set-btn-soft weq-set-btn-sm" onClick={() => void onDelete()}>
+          <button
+            type="button"
+            className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+            onClick={() => void onDelete()}
+          >
             <Trash2 size={12} />
             删除
           </button>
@@ -240,7 +268,8 @@ export function GroupChatPanel({
       <div className="weq-agentlab-transcript" ref={transcriptRef}>
         {history.length === 0 ? (
           <div className="weq-agentlab-empty">
-            这是一个群聊，有 {personaMembers.map((m) => m.displayName).join('、') || '（暂无克隆体）'}。
+            这是一个群聊，有{' '}
+            {personaMembers.map((m) => m.displayName).join('、') || '（暂无克隆体）'}。
             发一句话试试，或用 @ 点名某个克隆体。
           </div>
         ) : (
@@ -299,14 +328,23 @@ export function GroupChatPanel({
           placeholder="在群里说点什么（@ 点名克隆体，Enter 发送，Shift+Enter 换行）"
           disabled={busy}
         />
-        <button type="button" className="weq-set-btn" onClick={() => void onSend()} disabled={busy || !input.trim()}>
+        <button
+          type="button"
+          className="weq-set-btn"
+          onClick={() => void onSend()}
+          disabled={busy || !input.trim()}
+        >
           <Send size={14} />
           发送
         </button>
       </div>
 
       {membersOpen ? (
-        <Modal onClose={() => setMembersOpen(false)} width={460} labelledBy="weq-group-members-title">
+        <Modal
+          onClose={() => setMembersOpen(false)}
+          width={460}
+          labelledBy="weq-group-members-title"
+        >
           <div className="weq-clone-modal">
             <header className="weq-clone-modal-head">
               <Users size={18} />
@@ -367,7 +405,11 @@ export function GroupChatPanel({
               ) : null}
 
               <div className="weq-clone-actions">
-                <button type="button" className="weq-set-btn weq-set-btn-soft" onClick={() => setMembersOpen(false)}>
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-soft"
+                  onClick={() => setMembersOpen(false)}
+                >
                   <X size={13} /> 关闭
                 </button>
               </div>

@@ -10,13 +10,7 @@
 
 import { loadNative } from '@weq/native';
 import type { NtHelperBinding } from '@weq/native';
-import {
-  ElementType,
-  GrayTipSubType,
-  PicSubType,
-  ProtoMsg,
-  TipGroupElementType,
-} from '@weq/codec';
+import { ElementType, GrayTipSubType, PicSubType, ProtoMsg, TipGroupElementType } from '@weq/codec';
 import { MsgBody } from '@weq/codec/proto/msg/40800';
 import { sanitizeBytes } from '@weq/codec/raw';
 import { MsgType } from '@weq/codec/proto/msg/40900';

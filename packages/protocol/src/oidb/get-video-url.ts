@@ -27,7 +27,13 @@ export namespace GetGroupVideoUrl {
   export const serialize = (p: Params): Record<string, unknown> =>
     buildNtv2DownloadReq(
       GROUP_VIDEO_REQUEST_ID,
-      { requestType: 2, businessType: 2, subBusinessType: 0, sceneType: 2, group: { groupUin: p.groupId } },
+      {
+        requestType: 2,
+        businessType: 2,
+        subBusinessType: 0,
+        sceneType: 2,
+        group: { groupUin: p.groupId },
+      },
       p.node,
     );
 
@@ -52,7 +58,13 @@ export namespace GetPrivateVideoUrl {
   export const serialize = (p: Params): Record<string, unknown> =>
     buildNtv2DownloadReq(
       PRIVATE_VIDEO_REQUEST_ID,
-      { requestType: 2, businessType: 2, subBusinessType: 0, sceneType: 1, c2c: { accountType: 2, targetUid: p.selfUid } },
+      {
+        requestType: 2,
+        businessType: 2,
+        subBusinessType: 0,
+        sceneType: 1,
+        c2c: { accountType: 2, targetUid: p.selfUid },
+      },
       p.node,
     );
 

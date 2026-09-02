@@ -55,8 +55,7 @@ export interface GroupExtDbOptions {
   algo?: DatabaseAlgorithms;
 }
 
-const SELECT_COLUMNS =
-  `"60001","66720","66721","66722","66723","66726","66730","66731","66732","66733"`;
+const SELECT_COLUMNS = `"60001","66720","66721","66722","66723","66726","66730","66731","66732","66733"`;
 
 export class GroupExtDb {
   private readonly qq: QqDb;

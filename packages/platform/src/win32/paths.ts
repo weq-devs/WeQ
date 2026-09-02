@@ -95,10 +95,7 @@ export function candidateTencentFilesRoots(
   if (overrideRoot && existsSync(overrideRoot)) roots.push(overrideRoot);
   const fromIni = tencentFilesRootFromUserDataInfo(home);
   if (fromIni) roots.push(fromIni);
-  roots.push(
-    join(home, 'Documents', 'Tencent Files'),
-    join(home, 'Tencent Files'),
-  );
+  roots.push(join(home, 'Documents', 'Tencent Files'), join(home, 'Tencent Files'));
   // Walk one level deep for `<home>/<Admin*>/Documents/Tencent Files`.
   // Some Windows builds nest the real Documents under a legacy admin profile.
   try {
@@ -149,17 +146,29 @@ export function findLoginDb(home = homedir(), overrideRoot?: string | null): str
 }
 
 /** `<root>/<uin>` — the account's user-data directory — for the first root that has it. */
-export function findAccountDir(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findAccountDir(
+  uin: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnder(home, overrideRoot, uin);
 }
 
 /** `<root>/<uin>/nt_qq/nt_db/nt_msg.db` for the first root that has it. */
-export function findNtMsgDb(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findNtMsgDb(
+  uin: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_db', 'nt_msg.db');
 }
 
 /** `<root>/<uin>/nt_qq/nt_db` for the first root that has it. */
-export function findNtDbDir(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findNtDbDir(
+  uin: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_db');
 }
 
@@ -168,22 +177,38 @@ export function findNtDbDir(uin: string, home = homedir(), overrideRoot?: string
  * data root (holds Pic/Video/Ptt/File/avatar/…). Used to place the WeQ 助手
  * avatar file where QQ itself reads it (`nt_data/avatar/weq/…`).
  */
-export function findNtDataDir(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findNtDataDir(
+  uin: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_data');
 }
 
 /** `<root>/<uin>/nt_qq/nt_db/group_info.db` for the first root that has it. */
-export function findGroupInfoDb(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findGroupInfoDb(
+  uin: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_db', 'group_info.db');
 }
 
 /** `<root>/<uin>/nt_qq/nt_db/profile_info.db` for the first root that has it. */
-export function findProfileInfoDb(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findProfileInfoDb(
+  uin: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_db', 'profile_info.db');
 }
 
 /** `<root>/<uin>/nt_qq/nt_db/misc.db` for the first root that has it. */
-export function findMiscDb(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findMiscDb(
+  uin: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_db', 'misc.db');
 }
 
@@ -193,7 +218,11 @@ export function findMiscDb(uin: string, home = homedir(), overrideRoot?: string 
  * QQ's full-text-search index for friends, co-located with `nt_msg.db` in the
  * same `nt_db` folder. Returns null if the account never built a search index.
  */
-export function findBuddyMsgFtsDb(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findBuddyMsgFtsDb(
+  uin: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_db', 'buddy_msg_fts.db');
 }
 
@@ -203,7 +232,11 @@ export function findBuddyMsgFtsDb(uin: string, home = homedir(), overrideRoot?: 
  * QQ's full-text-search index for groups, co-located with `nt_msg.db` in the
  * same `nt_db` folder. Returns null if the account never built a search index.
  */
-export function findGroupMsgFtsDb(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findGroupMsgFtsDb(
+  uin: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_db', 'group_msg_fts.db');
 }
 
@@ -217,14 +250,29 @@ export function findGroupMsgFtsDb(uin: string, home = homedir(), overrideRoot?: 
  * uin resolves an equivalent set. `BaseEmojiSyastems` is QQ's own (misspelled)
  * folder name; copied verbatim.
  */
-export function findEmojiResourceDir(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findEmojiResourceDir(
+  uin: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnder(
-    home, overrideRoot, uin, 'nt_qq', 'nt_data', 'Emoji', 'BaseEmojiSyastems', 'EmojiSystermResource',
+    home,
+    overrideRoot,
+    uin,
+    'nt_qq',
+    'nt_data',
+    'Emoji',
+    'BaseEmojiSyastems',
+    'EmojiSystermResource',
   );
 }
 
 /** `<root>/<uin>/nt_qq/nt_data/Emoji/marketface` for the first root that has it. */
-export function findMarketFaceDir(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findMarketFaceDir(
+  uin: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_data', 'Emoji', 'marketface');
 }
 
@@ -233,7 +281,11 @@ export function findMarketFaceDir(uin: string, home = homedir(), overrideRoot?: 
  * Holds received animated emoji (pic subType 1): `<YYYY-MM>/Ori` and `/Thumb`,
  * no separate "original" file.
  */
-export function findEmojiRecvDir(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findEmojiRecvDir(
+  uin: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_data', 'Emoji', 'emoji-recv');
 }
 
@@ -243,7 +295,11 @@ export function findEmojiRecvDir(uin: string, home = homedir(), overrideRoot?: s
  * `Ori/<hash>.<ext>` (original — jpg/gif/png, extension unreliable) and
  * `Thumb/<hash>.png` (still preview).
  */
-export function findPersonalEmojiDir(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findPersonalEmojiDir(
+  uin: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_data', 'Emoji', 'personal_emoji');
 }
 
@@ -253,27 +309,56 @@ export function findPersonalEmojiDir(uin: string, home = homedir(), overrideRoot
  * plus one sub-dir per keyword named `md5(keyword)` (UTF-8) containing plaintext
  * `.gif` files. (An `__MACOSX` junk dir may sit beside the hash dirs.)
  */
-export function findEmojiRelatedDir(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
-  return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_data', 'Emoji', 'emoji-related', 'emoji');
+export function findEmojiRelatedDir(
+  uin: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
+  return firstExistingUnder(
+    home,
+    overrideRoot,
+    uin,
+    'nt_qq',
+    'nt_data',
+    'Emoji',
+    'emoji-related',
+    'emoji',
+  );
 }
 
 /** `<root>/<uin>/nt_qq/nt_data/Pic` for the first root that has it. */
-export function findPicDir(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findPicDir(
+  uin: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_data', 'Pic');
 }
 
 /** `<root>/<uin>/nt_qq/nt_data/Ptt` for the first root that has it. */
-export function findPttDir(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findPttDir(
+  uin: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_data', 'Ptt');
 }
 
 /** `<root>/<uin>/nt_qq/nt_data/Video` for the first root that has it. */
-export function findVideoDir(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findVideoDir(
+  uin: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_data', 'Video');
 }
 
 /** `<root>/<uin>/nt_qq/nt_data/File` for the first root that has it. */
-export function findFileDir(uin: string, home = homedir(), overrideRoot?: string | null): string | null {
+export function findFileDir(
+  uin: string,
+  home = homedir(),
+  overrideRoot?: string | null,
+): string | null {
   return firstExistingUnder(home, overrideRoot, uin, 'nt_qq', 'nt_data', 'File');
 }
 

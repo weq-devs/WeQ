@@ -115,7 +115,11 @@ export function MarketKeyDialog({
               if (e.key === 'Enter') void run();
             }}
           />
-          <button className="weq-action-primary weq-avpath-go" onClick={() => void run()} disabled={loading}>
+          <button
+            className="weq-action-primary weq-avpath-go"
+            onClick={() => void run()}
+            disabled={loading}
+          >
             <Search size={14} /> {loading ? '计算中…' : mode === 'timestamp' ? '派生' : '查询'}
           </button>
         </div>
@@ -174,7 +178,12 @@ function KeyResult({
           <span className="weq-avpath-field-label">密钥</span>
           <div className="weq-avpath-field-val weq-avpath-pathrow">
             <span className="weq-avpath-mono weq-avpath-hash">{result.key}</span>
-            <button className="weq-avpath-copy" onClick={copy} title="复制密钥" aria-label="复制密钥">
+            <button
+              className="weq-avpath-copy"
+              onClick={copy}
+              title="复制密钥"
+              aria-label="复制密钥"
+            >
               {copied ? <Check size={13} /> : <Copy size={13} />}
             </button>
           </div>

@@ -156,34 +156,64 @@ export function walkProto(bytes: Uint8Array, opts: DumpOptions = {}): DumpEntry[
         case 1: {
           const b = r.take(8);
           out.push({
-            path, tag: field, wire, kind: 'fixed64', value: bytesToHex(b), hex: bytesToHex(b), len: 8,
+            path,
+            tag: field,
+            wire,
+            kind: 'fixed64',
+            value: bytesToHex(b),
+            hex: bytesToHex(b),
+            len: 8,
           });
           break;
         }
         case 2: {
           const b = r.lenDelim();
           if (looksLikeText(b)) {
-            out.push({ path, tag: field, wire, kind: 'string', value: quoteText(b), len: b.length });
+            out.push({
+              path,
+              tag: field,
+              wire,
+              kind: 'string',
+              value: quoteText(b),
+              len: b.length,
+            });
             break;
           }
           const nested = tryParseMessage(b);
           if (nested && b.length >= 2) {
             out.push({
-              path, tag: field, wire, kind: 'message', value: '', len: b.length,
+              path,
+              tag: field,
+              wire,
+              kind: 'message',
+              value: '',
+              len: b.length,
               hex: opts.hexNested ? bytesToHex(b) : undefined,
             });
             walk(b, path);
             break;
           }
           out.push({
-            path, tag: field, wire, kind: 'bytes', value: bytesToHex(b), hex: bytesToHex(b), len: b.length,
+            path,
+            tag: field,
+            wire,
+            kind: 'bytes',
+            value: bytesToHex(b),
+            hex: bytesToHex(b),
+            len: b.length,
           });
           break;
         }
         case 5: {
           const b = r.take(4);
           out.push({
-            path, tag: field, wire, kind: 'fixed32', value: bytesToHex(b), hex: bytesToHex(b), len: 4,
+            path,
+            tag: field,
+            wire,
+            kind: 'fixed32',
+            value: bytesToHex(b),
+            hex: bytesToHex(b),
+            len: 4,
           });
           break;
         }
@@ -210,7 +240,9 @@ function formatEntry(e: DumpEntry): string {
     case 'fixed32':
       return `${head} ${e.kind}=${e.value}`;
     case 'message':
-      return e.hex ? `${head} message${e.hex.length > 120 ? ` hex=${e.hex.slice(0, 120)}…(+${e.hex.length - 120})` : ` hex=${e.hex}`}` : `${head} message`;
+      return e.hex
+        ? `${head} message${e.hex.length > 120 ? ` hex=${e.hex.slice(0, 120)}…(+${e.hex.length - 120})` : ` hex=${e.hex}`}`
+        : `${head} message`;
   }
 }
 
@@ -329,10 +361,17 @@ export function extractPath(bytes: Uint8Array, steps: PathStep[]): Uint8Array | 
       if (wire !== 2) {
         // 非 len-delimited 直接跳过，保持游标正确。
         switch (wire) {
-          case 0: r.varint(); break;
-          case 1: r.take(8); break;
-          case 5: r.take(4); break;
-          default: return null;
+          case 0:
+            r.varint();
+            break;
+          case 1:
+            r.take(8);
+            break;
+          case 5:
+            r.take(4);
+            break;
+          default:
+            return null;
         }
         continue;
       }

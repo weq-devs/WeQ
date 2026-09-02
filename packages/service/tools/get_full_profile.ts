@@ -14,7 +14,7 @@ const DB_PATH = qqDbPath('profile_info.db');
 
 async function main() {
   const native = loadNative();
-  
+
   const profileDb = new ProfileInfoDb(native.ntHelper, {
     dbPath: DB_PATH,
     key: KEY,
@@ -23,17 +23,18 @@ async function main() {
 
   try {
     console.log(`[test:full-profile] Fetching info for UIN: ${UIN}`);
-    
+
     // Use the service method to get the parsed object
     const profile = await profileDb.getProfileByUin(BigInt(UIN));
-    
-    if (profile) {
-        console.log('[test:full-profile] Result:');
-        console.log(JSON.stringify(profile, (_k, v) => typeof v === 'bigint' ? v.toString() : v, 2));
-    } else {
-        console.log('[test:full-profile] Profile not found.');
-    }
 
+    if (profile) {
+      console.log('[test:full-profile] Result:');
+      console.log(
+        JSON.stringify(profile, (_k, v) => (typeof v === 'bigint' ? v.toString() : v), 2),
+      );
+    } else {
+      console.log('[test:full-profile] Profile not found.');
+    }
   } catch (err) {
     console.error('[test:full-profile] Failed:', err);
   } finally {

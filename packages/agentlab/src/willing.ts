@@ -10,7 +10,24 @@ import type { AgentLabChatTurn } from './types';
 const QUESTION_RE = /[?？]|吗[?？。!！]?$|呢[?？。!！]?$|怎么|为什么|为啥|咋|多少|哪|几点/;
 const REQUEST_RE = /帮我|帮忙|能不能|可不可以|可以吗|行不行|给我|教我|怎么弄|怎么搞/;
 const OPINION_RE = /你觉得|你认为|你说|你看|怎么样|如何|好不好|对吧/;
-const SHORT_REACTIONS = new Set(['嗯', '哦', '噢', '额', '啊', '在', '？', '?', '。', '哈', '哈哈', '嗯嗯', '好', '好的', 'ok', 'OK']);
+const SHORT_REACTIONS = new Set([
+  '嗯',
+  '哦',
+  '噢',
+  '额',
+  '啊',
+  '在',
+  '？',
+  '?',
+  '。',
+  '哈',
+  '哈哈',
+  '嗯嗯',
+  '好',
+  '好的',
+  'ok',
+  'OK',
+]);
 
 export interface WillingnessResult {
   /** 0~1，越高越上心。 */
@@ -24,7 +41,10 @@ export interface WillingnessResult {
 /**
  * 评估克隆体对这句话的回复意愿。`history` 不含当前这句（用于算克隆体最近的存在感）。
  */
-export function scoreReplyWillingness(input: string, history: AgentLabChatTurn[]): WillingnessResult {
+export function scoreReplyWillingness(
+  input: string,
+  history: AgentLabChatTurn[],
+): WillingnessResult {
   const text = input.trim();
   let score = 0.6; // 1:1 私聊基准就不低
 
@@ -40,7 +60,8 @@ export function scoreReplyWillingness(input: string, history: AgentLabChatTurn[]
 
   // 存在感惩罚：最近几轮里克隆体说得越多，越收着点（避免一直滔滔不绝）。
   const recent = history.slice(-8);
-  const selfShare = recent.length > 0 ? recent.filter((t) => t.role === 'assistant').length / recent.length : 0;
+  const selfShare =
+    recent.length > 0 ? recent.filter((t) => t.role === 'assistant').length / recent.length : 0;
   if (selfShare > 0.6) score -= 0.12;
 
   score = Math.max(0.15, Math.min(1, score));

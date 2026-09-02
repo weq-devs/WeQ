@@ -74,10 +74,7 @@ async function main() {
     }
 
     // 4. 看一个实际样本行的 64016 值
-    const sample = await db.query(
-      'SELECT "60001","1000","64016" FROM group_member3 LIMIT 10',
-      [],
-    );
+    const sample = await db.query('SELECT "60001","1000","64016" FROM group_member3 LIMIT 10', []);
     console.log('\n[diag] sample rows (groupCode / uid / 64016):');
     for (const row of sample) {
       console.log(`  group=${row[0]}  uid=${row[1]}  64016=${row[2]}`);

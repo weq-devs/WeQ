@@ -22,14 +22,17 @@ async function main() {
   });
 
   // Try to find a groupCode to test with.
-  const anyRows = await (db as any).qq.query('SELECT "60001" FROM group_member_level_info LIMIT 1', []);
-  
+  const anyRows = await (db as any).qq.query(
+    'SELECT "60001" FROM group_member_level_info LIMIT 1',
+    [],
+  );
+
   if (anyRows.length === 0) {
     console.log('[test:group-member-level] No records found in table.');
   } else {
     const groupCode = anyRows[0][0];
     console.log('[test:group-member-level] Found groupCode:', groupCode);
-    
+
     const info = await db.getLevelInfo(BigInt(groupCode));
     console.log('[test:group-member-level] Result:');
     console.log(JSON.stringify(info, bigintReplacer, 2));

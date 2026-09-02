@@ -60,7 +60,9 @@ async function main(): Promise<void> {
 
   log('[4] counts…');
   const total = (await db.query(`SELECT COUNT(*) FROM "${TABLE}"`))[0]?.[0];
-  const withRel = (await db.query(`SELECT COUNT(*) FROM "${TABLE}" WHERE "20072" IS NOT NULL`))[0]?.[0];
+  const withRel = (
+    await db.query(`SELECT COUNT(*) FROM "${TABLE}" WHERE "20072" IS NOT NULL`)
+  )[0]?.[0];
   const noRel = (await db.query(`SELECT COUNT(*) FROM "${TABLE}" WHERE "20072" IS NULL`))[0]?.[0];
   log(`  总行数=${total}  有密友关系(好友)=${withRel}  无20072(陌生人)=${noRel}`);
 

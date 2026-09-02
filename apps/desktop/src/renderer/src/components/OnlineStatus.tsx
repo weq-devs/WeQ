@@ -53,12 +53,22 @@ export function OnlineStatus({ uid }: { uid: string }) {
   if (!status || status.typeName === '未知') return null;
 
   const filename = status.type === 10 && SUB_ICONS[status.subType];
-  const icon = filename
-    ? <img src={resourceUrl('onlinestatus', filename)} alt="" style={{ width: 16, height: 16 }} />
-    : TYPE_ICONS[status.type]?.();
+  const icon = filename ? (
+    <img src={resourceUrl('onlinestatus', filename)} alt="" style={{ width: 16, height: 16 }} />
+  ) : (
+    TYPE_ICONS[status.type]?.()
+  );
 
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#8c8c8c' }}>
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        fontSize: 12,
+        color: '#8c8c8c',
+      }}
+    >
       {icon}
       <span>{status.displayStatus}</span>
     </span>

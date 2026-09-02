@@ -69,7 +69,9 @@ export function httpsGetCookies(
         const loc = res.headers.location;
         if ((res.statusCode === 301 || res.statusCode === 302) && loc && maxRedirects > 0) {
           const next = new URL(loc, url).href;
-          httpsGetCookies(next, jar, maxRedirects - 1).then(resolve).catch(reject);
+          httpsGetCookies(next, jar, maxRedirects - 1)
+            .then(resolve)
+            .catch(reject);
         } else {
           resolve(jar);
         }
@@ -88,11 +90,7 @@ export function httpsGetCookies(
  *
  * 参数与 SnowLuma 的 jump URL 逐个对齐。
  */
-export function buildPtlogin2JumpUrl(
-  ck: ClientKeyInfo,
-  uin: string,
-  landingUrl: string,
-): string {
+export function buildPtlogin2JumpUrl(ck: ClientKeyInfo, uin: string, landingUrl: string): string {
   const u1 = encodeURIComponent(landingUrl);
   return (
     `https://ssl.ptlogin2.qq.com/jump?ptlang=1033&clientuin=${uin}` +
@@ -110,7 +108,5 @@ export async function fetchPtlogin2Jar(
   uin: string,
   domain: string,
 ): Promise<Record<string, string>> {
-  return httpsGetCookies(
-    buildPtlogin2JumpUrl(ck, uin, `https://${domain}/${uin}/infocenter`),
-  );
+  return httpsGetCookies(buildPtlogin2JumpUrl(ck, uin, `https://${domain}/${uin}/infocenter`));
 }

@@ -115,7 +115,9 @@ async function cloneAndInsert(
     [templateWhereVal],
   );
   if (tmpl.length === 0) {
-    throw new Error(`[${table}] no template row for ${templateWhereCol}=${String(templateWhereVal)}`);
+    throw new Error(
+      `[${table}] no template row for ${templateWhereCol}=${String(templateWhereVal)}`,
+    );
   }
 
   const values = [...tmpl[0]!] as SqlValue[];
@@ -130,7 +132,12 @@ async function cloneAndInsert(
 }
 
 /** Log which overridden columns went in. */
-function logInserted(table: string, cols: string[], values: SqlValue[], overrideKeys: string[]): void {
+function logInserted(
+  table: string,
+  cols: string[],
+  values: SqlValue[],
+  overrideKeys: string[],
+): void {
   console.log(`\n[${table}] ${DRY_RUN ? 'PLANNED' : 'inserted'} — overrides:`);
   for (const c of overrideKeys) {
     const i = cols.indexOf(c);
@@ -188,14 +195,18 @@ async function main(): Promise<void> {
   const nowSec = Math.floor(Date.now() / 1000);
   const nowSecBig = BigInt(nowSec);
   const nowMsBig = BigInt(nowSec) * 1000n;
-  const midnightSec = BigInt(Math.floor(new Date(new Date().setHours(0, 0, 0, 0)).getTime() / 1000));
+  const midnightSec = BigInt(
+    Math.floor(new Date(new Date().setHours(0, 0, 0, 0)).getTime() / 1000),
+  );
 
   const newSortNo = (await maxBigint(msgDb, 'nt_uid_mapping_table', '48901')) + 1n;
   const newMsgId = (await maxBigint(msgDb, 'c2c_msg_table', '40001')) + rand31();
   const newMsgRandom = rand31();
   const newRecentPk = (await maxBigint(msgDb, 'recent_contact_v3_table', '41102')) + rand31();
 
-  console.log(`\n[ids] sortNo=${newSortNo}n  msgId=${newMsgId}n  msgRandom=${newMsgRandom}n  recentPk=${newRecentPk}n`);
+  console.log(
+    `\n[ids] sortNo=${newSortNo}n  msgId=${newMsgId}n  msgRandom=${newMsgRandom}n  recentPk=${newRecentPk}n`,
+  );
 
   // Build the new ARK message body: clone game-center's newest c2c body, swap
   // the ark payload (proven round-trip from test-ark-modify).
@@ -205,7 +216,8 @@ async function main(): Promise<void> {
     [TEMPLATE_UID],
   );
   const tmplBlob = tmplBodyRows[0]?.[0];
-  if (!(tmplBlob instanceof Uint8Array)) throw new Error('no game-center c2c body to use as template');
+  if (!(tmplBlob instanceof Uint8Array))
+    throw new Error('no game-center c2c body to use as template');
   const decoded = bodyCodec.decode(tmplBlob);
   const elements = (decoded.elements ?? []).map(decodeElement);
   const arkEl = elements.find((e) => e.kind === 'ark') as ArkElement | undefined;
@@ -249,9 +261,19 @@ async function main(): Promise<void> {
 
   // ── 1) nt_uid_mapping_table ───────────────────────────────────────────
   {
-    const ov: Record<string, SqlValue> = { '48901': newSortNo, '48902': FAKE_UID, '1002': FAKE_UIN };
+    const ov: Record<string, SqlValue> = {
+      '48901': newSortNo,
+      '48902': FAKE_UID,
+      '1002': FAKE_UIN,
+    };
     const { cols, values } = await cloneAndInsert(
-      msgDb, 'nt_uid_mapping_table', '48902', TEMPLATE_UID, '"48901" DESC', ov, ['48912'],
+      msgDb,
+      'nt_uid_mapping_table',
+      '48902',
+      TEMPLATE_UID,
+      '"48901" DESC',
+      ov,
+      ['48912'],
     );
     logInserted('nt_uid_mapping_table', cols, values, Object.keys(ov));
   }
@@ -259,20 +281,26 @@ async function main(): Promise<void> {
   // ── 2) c2c_msg_table (the ARK message) ────────────────────────────────
   {
     const ov: Record<string, SqlValue> = {
-      '40001': newMsgId,          // msgId (PK)
-      '40002': newMsgRandom,      // msgRandom (part of UNIQUE(40027,40002,40005))
-      '40020': FAKE_UID,          // senderUid
-      '40021': FAKE_UID,          // targetUid
-      '40027': newSortNo,         // sortNo (partition key)
-      '40030': FAKE_UIN,          // targetUin
-      '40033': FAKE_UIN,          // senderUin
-      '40050': nowSecBig,         // sendTime
-      '40058': midnightSec,       // dayTimestamp
-      '40800': newBody,           // msgBody (new ark)
+      '40001': newMsgId, // msgId (PK)
+      '40002': newMsgRandom, // msgRandom (part of UNIQUE(40027,40002,40005))
+      '40020': FAKE_UID, // senderUid
+      '40021': FAKE_UID, // targetUid
+      '40027': newSortNo, // sortNo (partition key)
+      '40030': FAKE_UIN, // targetUin
+      '40033': FAKE_UIN, // senderUin
+      '40050': nowSecBig, // sendTime
+      '40058': midnightSec, // dayTimestamp
+      '40800': newBody, // msgBody (new ark)
     };
     // Null the display-text / source caches so they get rebuilt (per append.ts).
     const { cols, values } = await cloneAndInsert(
-      msgDb, 'c2c_msg_table', '40021', TEMPLATE_UID, '"40050" DESC', ov, ['40801', '40900', '40062'],
+      msgDb,
+      'c2c_msg_table',
+      '40021',
+      TEMPLATE_UID,
+      '"40050" DESC',
+      ov,
+      ['40801', '40900', '40062'],
     );
     logInserted('c2c_msg_table', cols, values, Object.keys(ov));
   }
@@ -280,23 +308,28 @@ async function main(): Promise<void> {
   // ── 3) recent_contact_v3_table ────────────────────────────────────────
   {
     const ov: Record<string, SqlValue> = {
-      '41102': newRecentPk,       // PK
-      '40010': 103n,              // chatType (public account) — inherited, set explicit
-      '40011': 11n,               // msgType (ark) — inherited, set explicit
+      '41102': newRecentPk, // PK
+      '40010': 103n, // chatType (public account) — inherited, set explicit
+      '40011': 11n, // msgType (ark) — inherited, set explicit
       '40027': newSortNo,
-      '40021': FAKE_UID,          // targetUid
-      '40020': FAKE_UID,          // senderUid
-      '40030': FAKE_UIN,          // targetUin
-      '40033': FAKE_UIN,          // senderUin
-      '40001': newMsgId,          // link to the c2c message
-      '40094': NICK,              // targetDisplayName → "WeQ助手"
-      '40050': nowSecBig,         // sendTime
-      '41136': nowSecBig,         // mirror time
-      '40051': previewBlob,       // preview (ark + displayText)
+      '40021': FAKE_UID, // targetUid
+      '40020': FAKE_UID, // senderUid
+      '40030': FAKE_UIN, // targetUin
+      '40033': FAKE_UIN, // senderUin
+      '40001': newMsgId, // link to the c2c message
+      '40094': NICK, // targetDisplayName → "WeQ助手"
+      '40050': nowSecBig, // sendTime
+      '41136': nowSecBig, // mirror time
+      '40051': previewBlob, // preview (ark + displayText)
       // 41110 (local avatar path) rides along from game-center as a temp stand-in.
     };
     const { cols, values } = await cloneAndInsert(
-      msgDb, 'recent_contact_v3_table', '40021', TEMPLATE_UID, '"40050" DESC', ov,
+      msgDb,
+      'recent_contact_v3_table',
+      '40021',
+      TEMPLATE_UID,
+      '"40050" DESC',
+      ov,
     );
     logInserted('recent_contact_v3_table', cols, values, [...Object.keys(ov), '41110']);
   }
@@ -310,11 +343,17 @@ async function main(): Promise<void> {
       const ov: Record<string, SqlValue> = {
         '1000': FAKE_UID,
         '1002': FAKE_UIN,
-        '20002': NICK,              // nick
+        '20002': NICK, // nick
         '20004': GAME_CENTER_AVATAR_URL, // avatarUrl (外链, 暂借游戏中心)
       };
       const { cols, values } = await cloneAndInsert(
-        profileDb, 'profile_info_v6', '1000', TEMPLATE_UID, '"1000"', ov, ['20017'],
+        profileDb,
+        'profile_info_v6',
+        '1000',
+        TEMPLATE_UID,
+        '"1000"',
+        ov,
+        ['20017'],
       );
       logInserted('profile_info_v6', cols, values, Object.keys(ov));
     }
@@ -324,15 +363,22 @@ async function main(): Promise<void> {
         '1000': FAKE_UID,
         '1002': FAKE_UIN,
         '20002': NICK,
-        '410002': nowMsBig,         // last-active ms
+        '410002': nowMsBig, // last-active ms
       };
       const { cols, values } = await cloneAndInsert(
-        profileDb, 'profile_info_public_account', '1000', TEMPLATE_UID, '"1000"', ov,
+        profileDb,
+        'profile_info_public_account',
+        '1000',
+        TEMPLATE_UID,
+        '"1000"',
+        ov,
       );
       logInserted('profile_info_public_account', cols, values, Object.keys(ov));
     }
   } else {
-    console.log('\n[profile] skipped profile_info_v6 + profile_info_public_account (WRITE_PROFILE unset).');
+    console.log(
+      '\n[profile] skipped profile_info_v6 + profile_info_public_account (WRITE_PROFILE unset).',
+    );
   }
 
   // ── verify ────────────────────────────────────────────────────────────
@@ -351,7 +397,9 @@ async function main(): Promise<void> {
     ];
     for (const [db, table, col, sel] of checks) {
       const rows = await db.query(`SELECT ${sel} FROM "${table}" WHERE "${col}" = ?`, [FAKE_UID]);
-      console.log(`  ${table.padEnd(28)} rows=${rows.length}  ${rows[0] ? rows[0].map(describe).join('  ') : ''}`);
+      console.log(
+        `  ${table.padEnd(28)} rows=${rows.length}  ${rows[0] ? rows[0].map(describe).join('  ') : ''}`,
+      );
     }
   }
 

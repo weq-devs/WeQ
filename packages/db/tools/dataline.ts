@@ -74,7 +74,9 @@ async function main(): Promise<void> {
   );
   console.log(`\ntargetUid × senderUid distribution:`);
   for (const r of pairs) {
-    console.log(`  target=${toStr(r[0]).padEnd(26)} sender=${toStr(r[1]).padEnd(26)} n=${describe(r[2])}`);
+    console.log(
+      `  target=${toStr(r[0]).padEnd(26)} sender=${toStr(r[1]).padEnd(26)} n=${describe(r[2])}`,
+    );
   }
 
   // 3) a few decoded recent rows — confirm 40800 decodes like c2c.

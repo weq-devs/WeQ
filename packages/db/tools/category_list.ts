@@ -21,7 +21,8 @@ async function main() {
     algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' },
   });
 
-  const list = await db.listCategories();  console.log(`[test:category-list] Found ${list.length} categories.`);
+  const list = await db.listCategories();
+  console.log(`[test:category-list] Found ${list.length} categories.`);
   if (list.length > 0) {
     console.log('[test:category-list] Result:');
     console.log(JSON.stringify(list, null, 2));

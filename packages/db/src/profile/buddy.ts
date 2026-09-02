@@ -40,10 +40,10 @@ export class BuddyDb {
     const rows =
       limit === undefined
         ? await this.qq.query(`SELECT ${SELECT_COLUMNS} FROM buddy_list`, [])
-        : await this.qq.query(
-            `SELECT ${SELECT_COLUMNS} FROM buddy_list LIMIT ? OFFSET ?`,
-            [limit, offset],
-          );
+        : await this.qq.query(`SELECT ${SELECT_COLUMNS} FROM buddy_list LIMIT ? OFFSET ?`, [
+            limit,
+            offset,
+          ]);
     return rows.map(rowToBuddy);
   }
 

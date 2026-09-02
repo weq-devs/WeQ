@@ -58,7 +58,7 @@ export function DbExplorer(): ReactElement {
   const [treeCollapsed, setTreeCollapsed] = useState(false);
 
   const dbList = useMemo<AccountDbFile[]>(
-    () => ((databases.data ?? []) as AccountDbFile[]),
+    () => (databases.data ?? []) as AccountDbFile[],
     [databases.data],
   );
 
@@ -80,10 +80,7 @@ export function DbExplorer(): ReactElement {
   }, [dbPath]);
 
   // Auto-select the first table when a database's objects load.
-  const objectList = useMemo<DbObject[]>(
-    () => ((objects.data ?? []) as DbObject[]),
-    [objects.data],
-  );
+  const objectList = useMemo<DbObject[]>(() => (objects.data ?? []) as DbObject[], [objects.data]);
   useEffect(() => {
     if (selectedTable === null && objectList.length > 0) {
       const firstTable = objectList.find((o) => o.type === 'table') ?? objectList[0];

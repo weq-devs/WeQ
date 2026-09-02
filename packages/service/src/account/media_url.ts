@@ -72,10 +72,7 @@ export interface MediaElement {
  * 渲染元素只保留前端展示需要的字段，下载必需的 fileToken 等都在里面；私聊文件的
  * fileHash（transferFlag45504 / md5）在缺失消息解码链路里没有保留，这里如实缺省。
  */
-export function mediaElementFromRenderElement(el: {
-  type: string;
-  data?: unknown;
-}): MediaElement {
+export function mediaElementFromRenderElement(el: { type: string; data?: unknown }): MediaElement {
   const d = (el.data ?? {}) as Record<string, unknown>;
   const s = (k: string): string => (typeof d[k] === 'string' ? d[k] : '');
   const n = (k: string): number => (typeof d[k] === 'number' ? d[k] : Number(d[k]) || 0);
@@ -140,10 +137,11 @@ export function mediaNodeFromElement(el: MediaElement): MediaIndexNode {
   const fileSha1 = hexOf(el.contentHash);
 
   const isVideo = el.kind === 'video' || el.kind === 'bubbleVideo';
-  const typeInfo: MediaIndexNode['type'] =
-    isVideo          ? { type: 2, videoFormat: 1 } :
-    el.kind === 'ptt' ? { type: 3, voiceFormat: 1 } :
-    {};
+  const typeInfo: MediaIndexNode['type'] = isVideo
+    ? { type: 2, videoFormat: 1 }
+    : el.kind === 'ptt'
+      ? { type: 3, voiceFormat: 1 }
+      : {};
 
   return {
     fileUuid: el.fileToken,
@@ -214,18 +212,31 @@ export class MediaUrlService {
    * Returns {@link GroupFileDownload}; caller composes:
    * `https://${d.dns}/ftn_handler/${d.urlHex}/?fname=${encodeURIComponent(fileId)}`
    */
-  async getGroupFileDownload(groupId: number, fileId: string, busId = 102): Promise<GroupFileDownload> {
+  async getGroupFileDownload(
+    groupId: number,
+    fileId: string,
+    busId = 102,
+  ): Promise<GroupFileDownload> {
     return GetGroupFileUrl.invoke(this.nt, this.resolvePid(), { groupId, fileId, busId });
   }
 
   /** `fileName` 落到 URL 的 `?fname=` 上,决定浏览器/下载器看到的文件名。 */
-  async getGroupFileUrl(groupId: number, fileId: string, busId = 102, fileName = ''): Promise<string> {
+  async getGroupFileUrl(
+    groupId: number,
+    fileId: string,
+    busId = 102,
+    fileName = '',
+  ): Promise<string> {
     const download = await this.getGroupFileDownload(groupId, fileId, busId);
     const name = download.saveFileName || fileName;
     return `${composeGroupFileDownloadUrl(download)}${encodeURIComponent(name)}`;
   }
 
-  async getGroupFileUrlFromElement(groupId: number, element: MediaElement, busId = 102): Promise<string> {
+  async getGroupFileUrlFromElement(
+    groupId: number,
+    element: MediaElement,
+    busId = 102,
+  ): Promise<string> {
     return this.getGroupFileUrl(groupId, element.fileToken, element.busId ?? busId);
   }
 
@@ -265,7 +276,10 @@ export class MediaUrlService {
     // OIDB 0xe37_1200 wants the 45504 transfer blob as the fileHash (verified
     // against real rows); md5 is only a fallback for older rows lacking it.
     const fileHash =
-      element.transferFlag45504 || textOrHexOf(element.md5Bytes2) || element.md5 || hexOf(element.md5Bytes);
+      element.transferFlag45504 ||
+      textOrHexOf(element.md5Bytes2) ||
+      element.md5 ||
+      hexOf(element.md5Bytes);
     if (!fileHash) throw new Error('private file element missing transferFlag45504/md5');
     return this.getPrivateFileUrl(element.fileToken, fileHash);
   }
@@ -277,7 +291,11 @@ export class MediaUrlService {
    * Non-group conversations are all treated as private (c2c). `groupId` is only
    * read for the group branch.
    */
-  async resolveVideoUrl(kind: 'group' | 'c2c', groupId: number, element: MediaElement): Promise<string> {
+  async resolveVideoUrl(
+    kind: 'group' | 'c2c',
+    groupId: number,
+    element: MediaElement,
+  ): Promise<string> {
     return kind === 'group'
       ? this.getGroupVideoUrlFromElement(groupId, element)
       : this.getPrivateVideoUrlFromElement(element);
@@ -287,7 +305,11 @@ export class MediaUrlService {
    * Resolve a ptt (voice) element's download URL, branching on conversation
    * kind — SnowLuma 同款 NTV2 0x126E_200 / 0x126D_200。`groupId` 只在群聊分支用。
    */
-  async resolvePttUrl(kind: 'group' | 'c2c', groupId: number, element: MediaElement): Promise<string> {
+  async resolvePttUrl(
+    kind: 'group' | 'c2c',
+    groupId: number,
+    element: MediaElement,
+  ): Promise<string> {
     return kind === 'group'
       ? this.getGroupPttUrlFromElement(groupId, element)
       : this.getPrivatePttUrlFromElement(element);
@@ -423,19 +445,31 @@ export async function downloadUrlToFile(url: string, dest: string): Promise<Down
     try {
       const res = await fetch(url);
       if (res.status === 429 || res.status >= 500) {
-        if (attempt < DL_RETRIES) { await sleep(backoffMs(attempt)); continue; }
+        if (attempt < DL_RETRIES) {
+          await sleep(backoffMs(attempt));
+          continue;
+        }
         return { ok: false, reason: `HTTP ${res.status}${await readErrBody(res)}` };
       }
       const ct = res.headers.get('content-type') ?? '';
       // Non-2xx, empty, or a JSON/text body → CDN error envelope, not media.
       if (!res.ok || !res.body || ct.startsWith('text/') || ct.includes('json')) {
-        return { ok: false, reason: `HTTP ${res.status} ct=${ct || 'n/a'}${await readErrBody(res)}` };
+        return {
+          ok: false,
+          reason: `HTTP ${res.status} ct=${ct || 'n/a'}${await readErrBody(res)}`,
+        };
       }
       await mkdir(dirname(dest), { recursive: true });
-      await pipeline(Readable.fromWeb(res.body as WebReadableStream<Uint8Array>), createWriteStream(dest));
+      await pipeline(
+        Readable.fromWeb(res.body as WebReadableStream<Uint8Array>),
+        createWriteStream(dest),
+      );
       return { ok: true };
     } catch (e) {
-      if (attempt < DL_RETRIES) { await sleep(backoffMs(attempt)); continue; }
+      if (attempt < DL_RETRIES) {
+        await sleep(backoffMs(attempt));
+        continue;
+      }
       return { ok: false, reason: e instanceof Error ? e.message : String(e) };
     }
   }

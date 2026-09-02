@@ -38,10 +38,9 @@ async function main(): Promise<void> {
     const info = await db.query(`PRAGMA table_info("group_msg_table")`);
     const cols = info.map((r) => String(r[1]));
     const sel = cols.map((c) => `"${c}"`).join(',');
-    const rows = await db.query(
-      `SELECT ${sel} FROM group_msg_table WHERE "40001" = ? LIMIT 1`,
-      [MSG_ID],
-    );
+    const rows = await db.query(`SELECT ${sel} FROM group_msg_table WHERE "40001" = ? LIMIT 1`, [
+      MSG_ID,
+    ]);
     if (!rows.length) {
       console.log(`[${LABEL}] msgId ${MSG_ID} NOT FOUND`);
       return;

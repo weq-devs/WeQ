@@ -769,7 +769,7 @@ export function ExportLightbox({
                 ? `${formats.length} 种格式${opts.exportMedia ? ' · 含配图' : ''}`
                 : isContacts
                   ? `${formats.length} 种格式${opts.exportAvatar ? ' · 含头像' : ''}`
-                : null}
+                  : null}
           </span>
           <button type="button" className="weq-exp-btn" onClick={onClose} disabled={submitting}>
             取消

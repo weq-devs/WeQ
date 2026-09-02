@@ -59,15 +59,11 @@ const PROCESS_DETECT_CACHE_TTL_MS = 5 * 60_000;
 const FALLBACK_QUICK_A1 = 'ninebird:quick-login';
 
 export class Win32DetectService {
-  private installCache:
-    | { readonly expiresAt: number; readonly value: QqInstallInfo }
-    | null = null;
-  private accountCache:
-    | { readonly expiresAt: number; readonly value: LoginAccount[] }
-    | null = null;
-  private processCache:
-    | { readonly expiresAt: number; readonly value: DetectedQqProcess[] }
-    | null = null;
+  private installCache: { readonly expiresAt: number; readonly value: QqInstallInfo } | null = null;
+  private accountCache: { readonly expiresAt: number; readonly value: LoginAccount[] } | null =
+    null;
+  private processCache: { readonly expiresAt: number; readonly value: DetectedQqProcess[] } | null =
+    null;
 
   private readonly bootstrap: NineBirdBootstrap;
   private readonly logger = getLogger().child({ scope: 'win32-detect' });
@@ -146,7 +142,10 @@ export class Win32DetectService {
       let anyDecrypted = false;
       for (const dbPath of dbPaths) {
         try {
-          const probe = await this.platform.native.ntHelper.testDatabaseKey(dbPath, 'BD156D6710D54D8782F4');
+          const probe = await this.platform.native.ntHelper.testDatabaseKey(
+            dbPath,
+            'BD156D6710D54D8782F4',
+          );
           if (probe.success && probe.pageHmacAlgorithm && probe.kdfHmacAlgorithm) {
             anyDecrypted = true;
             const rows = this.platform.native.ntHelper.decryptLoginDb(dbPath, {
@@ -292,9 +291,7 @@ export class Win32DetectService {
    * process usually clears, and swallowing it would leave the user staring
    * at an empty account list.
    */
-  private async runNinebirdAccountList(
-    timeoutMs = 60_000,
-  ): Promise<NineBirdAccountListItem[]> {
+  private async runNinebirdAccountList(timeoutMs = 60_000): Promise<NineBirdAccountListItem[]> {
     const exe = this.platform.qqExePath();
     if (!exe) return [];
 

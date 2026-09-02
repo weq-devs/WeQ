@@ -169,10 +169,7 @@ export function McpServerSection(): ReactElement {
         <Row
           label={
             <span className="weq-set-mcp-state">
-              <span
-                className={`weq-set-mcp-dot${running ? ' is-on' : ''}`}
-                aria-hidden
-              />
+              <span className={`weq-set-mcp-dot${running ? ' is-on' : ''}`} aria-hidden />
               {running ? '运行中' : enabled ? '已启用（等待账号）' : '已停止'}
             </span>
           }

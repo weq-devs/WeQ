@@ -50,12 +50,23 @@ export function DecryptLightbox({
   }
 
   return (
-    <div className="modal-scrim weq-exp-modal-scrim" role="presentation" onMouseDown={closeFromScrim(onClose)}>
-      <section className="weq-exp-dialog" role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
+    <div
+      className="modal-scrim weq-exp-modal-scrim"
+      role="presentation"
+      onMouseDown={closeFromScrim(onClose)}
+    >
+      <section
+        className="weq-exp-dialog"
+        role="dialog"
+        aria-modal="true"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <header className="weq-exp-dialog-head">
           <div className="weq-exp-dialog-title">
             <strong>解密数据库</strong>
-            <span>{count} 个数据库 · {formatBytes(totalBytes)}</span>
+            <span>
+              {count} 个数据库 · {formatBytes(totalBytes)}
+            </span>
           </div>
           <button type="button" className="weq-exp-dialog-close" onClick={onClose} title="关闭">
             <X size={18} />
@@ -72,8 +83,17 @@ export function DecryptLightbox({
                 </span>
               }
               control={
-                <button type="button" className="weq-exp-btn" disabled={pickingPath || submitting} onClick={() => void pickPath()}>
-                  {pickingPath ? <Loader2 size={14} className="weq-exp-spin" /> : <FolderOpen size={14} />}
+                <button
+                  type="button"
+                  className="weq-exp-btn"
+                  disabled={pickingPath || submitting}
+                  onClick={() => void pickPath()}
+                >
+                  {pickingPath ? (
+                    <Loader2 size={14} className="weq-exp-spin" />
+                  ) : (
+                    <FolderOpen size={14} />
+                  )}
                   选择目录
                 </button>
               }

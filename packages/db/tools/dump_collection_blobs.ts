@@ -54,9 +54,7 @@ function describeGuess(g: Guess, indent: number): string {
 }
 
 const KEY = testEnv.key;
-const DB_PATH =
-  process.env.WEQ_TEST_DB_PATH ??
-  qqDbPath('collection.db');
+const DB_PATH = process.env.WEQ_TEST_DB_PATH ?? qqDbPath('collection.db');
 
 const TABLE = 'collection_list_info_table';
 

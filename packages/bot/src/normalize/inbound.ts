@@ -23,7 +23,10 @@ export interface NormalizedMessage {
 }
 
 /** 把 OneBot 的 message 字段规整成段数组（兼容 array 上报；string 上报退化为单个 text 段）。 */
-function toSegments(message: OneBotSegment[] | string | undefined, rawMessage?: string): OneBotSegment[] {
+function toSegments(
+  message: OneBotSegment[] | string | undefined,
+  rawMessage?: string,
+): OneBotSegment[] {
   if (Array.isArray(message)) return message;
   const text = typeof message === 'string' ? message : (rawMessage ?? '');
   return text ? [{ type: 'text', data: { text } }] : [];

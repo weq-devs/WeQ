@@ -87,7 +87,9 @@ for (const entry of ENTRIES) {
 }
 
 if (offenders.length > 0) {
-  console.error(`\nFAIL  ${offenders.length} module(s) reachable from the web app import 'electron':\n`);
+  console.error(
+    `\nFAIL  ${offenders.length} module(s) reachable from the web app import 'electron':\n`,
+  );
   for (const { via } of offenders) {
     console.error(`  ${via.map(rel).join('\n    → ')}\n`);
   }

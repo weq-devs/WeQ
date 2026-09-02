@@ -73,11 +73,15 @@ async function main(): Promise<void> {
     const row = rows[0]!;
     console.log(`\n=== c2c_msg_table row ===`);
     console.log(`rowid=${row[0]}  msgId(40001)=${row[1]}  seq(40003)=${row[2]}`);
-    console.log(`senderUid(40020)=${row[3]}  targetUid(40021)=${row[4]}  sendTime(40050)=${row[5]}`);
+    console.log(
+      `senderUid(40020)=${row[3]}  targetUid(40021)=${row[4]}  sendTime(40050)=${row[5]}`,
+    );
 
     const wire = decodeBodyBlob(row[6]);
     const elements = wire.map((w) => decodeElement(w as never));
-    console.log(`\n--- elements: ${elements.length}, kinds = ${elements.map((e) => (e as { kind?: string }).kind).join(', ')}`);
+    console.log(
+      `\n--- elements: ${elements.length}, kinds = ${elements.map((e) => (e as { kind?: string }).kind).join(', ')}`,
+    );
 
     const fileEl = elements.find((e) => (e as { kind?: string }).kind === 'file') as
       | Record<string, unknown>
@@ -107,7 +111,9 @@ async function main(): Promise<void> {
     console.log(`fileSize             = ${fe.fileSize}`);
     console.log(`md5 (string)         = ${JSON.stringify(fe.md5)}`);
     console.log(`md5Bytes len         = ${fe.md5Bytes?.length ?? 0}`);
-    console.log(`md5Bytes2 len        = ${fe.md5Bytes2?.length ?? 0}  text="${decode(fe.md5Bytes2)}"`);
+    console.log(
+      `md5Bytes2 len        = ${fe.md5Bytes2?.length ?? 0}  text="${decode(fe.md5Bytes2)}"`,
+    );
     console.log(`contentHash len      = ${fe.contentHash?.length ?? 0}`);
     // What MediaUrlService.getPrivateFileUrlFromElement would pick as fileHash:
     const fileHash = decode(fe.md5Bytes2) || fe.md5 || '';

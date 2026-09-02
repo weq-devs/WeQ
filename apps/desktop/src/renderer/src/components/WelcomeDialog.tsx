@@ -64,8 +64,7 @@ export function WelcomeDialog(): ReactElement | null {
             </span>
             <div className="weq-welcome-text">
               <p>
-                WeQ 完全自主解密、解析本地 QQ 数据库读取聊天记录，密钥等凭据的获取依赖
-                hook 等手段。
+                WeQ 完全自主解密、解析本地 QQ 数据库读取聊天记录，密钥等凭据的获取依赖 hook 等手段。
               </p>
               <p className="weq-welcome-sub">
                 开源、完全免费 ——{' '}

@@ -7,9 +7,27 @@
  * 弹窗配置：额外提示 / 外部 MCP 服务器。空会话展示预设问题，点击直接发送。
  */
 
-import { memo, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import {
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, Brain, Check, ChevronDown, Cpu, Send, Settings, Sparkles, Square } from 'lucide-react';
+import {
+  ArrowLeft,
+  Brain,
+  Check,
+  ChevronDown,
+  Cpu,
+  Send,
+  Settings,
+  Sparkles,
+  Square,
+} from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { autoGrowTextarea } from '../../lib/textareaAutoGrow';
@@ -207,11 +225,7 @@ const PRESET_QUESTIONS = [
   '找找最近有谁跟我约过「吃饭」',
 ];
 
-function AssistantSettings({
-  onClose,
-}: {
-  onClose: () => void;
-}): ReactElement {
+function AssistantSettings({ onClose }: { onClose: () => void }): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   const config = trpc.account.getAssistantConfig.useQuery();
@@ -250,7 +264,12 @@ function AssistantSettings({
         <div className="weq-clone-config">
           <label className="weq-agentlab-field">
             <span>额外提示（可选）</span>
-            <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3} placeholder="例如：回答尽量简洁" />
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              rows={3}
+              placeholder="例如：回答尽量简洁"
+            />
           </label>
           <label className="weq-agentlab-field">
             <span>外部 MCP 服务器（可选）</span>
@@ -266,12 +285,16 @@ function AssistantSettings({
             />
           </label>
           <div className="weq-asst-set-hint">
-            外部工具会在对话中自动合并进可用工具（命名空间 <code>mcp__服务器__工具</code>），连接在首次使用时建立；
-            某个服务器不可用不会影响内置工具。
+            外部工具会在对话中自动合并进可用工具（命名空间 <code>mcp__服务器__工具</code>
+            ），连接在首次使用时建立； 某个服务器不可用不会影响内置工具。
           </div>
           <div className="weq-clone-actions">
-            <button className="weq-set-btn weq-set-btn-soft" onClick={onClose}>取消</button>
-            <button className="weq-set-btn" disabled={save.isLoading} onClick={() => void onSave()}>保存</button>
+            <button className="weq-set-btn weq-set-btn-soft" onClick={onClose}>
+              取消
+            </button>
+            <button className="weq-set-btn" disabled={save.isLoading} onClick={() => void onSave()}>
+              保存
+            </button>
           </div>
         </div>
       </div>
@@ -303,12 +326,18 @@ const AssistantBubble = memo(function AssistantBubble({ turn }: { turn: Turn }):
           </small>
         </span>
         <div className="message-content weq-asst-content">
-          <AssistantSteps steps={turn.steps ?? []} running={!!turn.running} reasoning={turn.reasoning} />
+          <AssistantSteps
+            steps={turn.steps ?? []}
+            running={!!turn.running}
+            reasoning={turn.reasoning}
+          />
           {body ? (
             <AssistantMessage text={body} streaming={!!turn.running} />
           ) : turn.running ? (
             <div className="weq-agentlab-typing weq-asst-typing">
-              <span /><span /><span />
+              <span />
+              <span />
+              <span />
             </div>
           ) : null}
           {artifacts.map((a) => (
@@ -428,7 +457,13 @@ export function AssistantPanel({
             steps.push(step);
             next[idx] = { ...turn, steps, streamingText: '', reasoning: '' };
           } else if (step.kind === 'final') {
-            next[idx] = { ...turn, text: step.text || '（没能得出结论。）', streamingText: '', reasoning: '', running: false };
+            next[idx] = {
+              ...turn,
+              text: step.text || '（没能得出结论。）',
+              streamingText: '',
+              reasoning: '',
+              running: false,
+            };
             runIdRef.current = null;
             invalidateConversationRef.current();
             // 首轮对话后端会自动总结标题；刷新会话列表让左栏标题跟上。
@@ -487,7 +522,11 @@ export function AssistantPanel({
       setInput('');
       if (inputRef.current) inputRef.current.style.height = 'auto';
     }
-    setTurns((prev) => [...prev, { role: 'user', text }, { role: 'assistant', text: '', steps: [], running: true }]);
+    setTurns((prev) => [
+      ...prev,
+      { role: 'user', text },
+      { role: 'assistant', text: '', steps: [], running: true },
+    ]);
     try {
       // 草稿会话：真正发第一条消息时才落库建会话，拿到真 id 后续都走它。
       // 建好立刻通知父组件刷新列表 + 把选中态指向新会话（不换组件 key，避免闪断）。
@@ -511,7 +550,10 @@ export function AssistantPanel({
   }
 
   async function onClear(): Promise<void> {
-    const ok = await dialog.confirm('清空对话', '确认清空当前这段对话的内容？', { okLabel: '清空', tone: 'warning' });
+    const ok = await dialog.confirm('清空对话', '确认清空当前这段对话的内容？', {
+      okLabel: '清空',
+      tone: 'warning',
+    });
     if (!ok) return;
     const id = sessionIdRef.current;
     // 草稿会话还没落库，直接清本地即可。
@@ -535,7 +577,13 @@ export function AssistantPanel({
     <div className="weq-agentlab-chat">
       <header className="weq-agentlab-head">
         <div className="weq-agentlab-head-left">
-          <button type="button" className="weq-set-iconbtn" onClick={onBack} aria-label="返回主页" title="返回">
+          <button
+            type="button"
+            className="weq-set-iconbtn"
+            onClick={onBack}
+            aria-label="返回主页"
+            title="返回"
+          >
             <ArrowLeft size={16} />
           </button>
           <div>
@@ -544,7 +592,10 @@ export function AssistantPanel({
           </div>
         </div>
         <div className="weq-agentlab-head-actions">
-          <button className="weq-set-btn weq-set-btn-soft weq-set-btn-sm" onClick={() => setSettingsOpen(true)}>
+          <button
+            className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+            onClick={() => setSettingsOpen(true)}
+          >
             <Settings size={12} /> 设置
           </button>
           <button
@@ -567,7 +618,13 @@ export function AssistantPanel({
             <span>它会自己查聊天记录、找联系人、多轮推进直到给出结论。试试：</span>
             <div className="weq-asst-presets">
               {PRESET_QUESTIONS.map((q) => (
-                <button key={q} type="button" className="weq-asst-preset" disabled={busy} onClick={() => void onSend(q)}>
+                <button
+                  key={q}
+                  type="button"
+                  className="weq-asst-preset"
+                  disabled={busy}
+                  onClick={() => void onSend(q)}
+                >
                   {q}
                 </button>
               ))}
@@ -602,7 +659,12 @@ export function AssistantPanel({
             title="思考等级"
             placeholder="思考等级"
             value={effort}
-            groups={[{ label: '', options: EFFORT_OPTIONS.map((o) => ({ value: o.value, label: o.label })) }]}
+            groups={[
+              {
+                label: '',
+                options: EFFORT_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+              },
+            ]}
             disabled={busy || saveConfig.isLoading}
             onChange={(v) => void onQuickConfig({ effort: v as EffortValue })}
           />

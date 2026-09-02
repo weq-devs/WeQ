@@ -39,7 +39,8 @@ function describe(v: unknown): string {
   if (v === null || v === undefined) return String(v);
   if (v instanceof Uint8Array) return `<BLOB ${v.byteLength} bytes>`;
   if (typeof v === 'bigint') return `${v}n`;
-  if (typeof v === 'string') return v.length > 120 ? `${v.slice(0, 120)}… (${v.length} chars)` : JSON.stringify(v);
+  if (typeof v === 'string')
+    return v.length > 120 ? `${v.slice(0, 120)}… (${v.length} chars)` : JSON.stringify(v);
   return String(v);
 }
 
@@ -57,7 +58,11 @@ async function dumpRow(db: QqDb, table: string, msgId: bigint): Promise<void> {
   const typeVal = row[info.findIndex((r) => String(r[1]) === '40011')];
   const subVal = row[info.findIndex((r) => String(r[1]) === '40012')];
   const asBig = (v: unknown): bigint | null => {
-    try { return typeof v === 'bigint' ? v : BigInt(String(v)); } catch { return null; }
+    try {
+      return typeof v === 'bigint' ? v : BigInt(String(v));
+    } catch {
+      return null;
+    }
   };
   const isDeleted = asBig(typeVal) === DELETED_MSG_TYPE && asBig(subVal) === DELETED_SUB_TYPE;
   info.forEach((r, i) => {
@@ -92,7 +97,9 @@ async function main(): Promise<void> {
   });
 
   console.log(`[dump-msg] opening ${DB_PATH}`);
-  console.log(`[dump-msg] deleted signature: 40011=${DELETED_MSG_TYPE} & 40012=${DELETED_SUB_TYPE}\n`);
+  console.log(
+    `[dump-msg] deleted signature: 40011=${DELETED_MSG_TYPE} & 40012=${DELETED_SUB_TYPE}\n`,
+  );
 
   for (const id of ids) {
     console.log(`\n════════════ msgId ${id} ════════════`);

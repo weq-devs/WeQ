@@ -46,7 +46,9 @@ async function main(): Promise<void> {
   // 这个端点存在的唯一理由就是这两类 —— 拿不到说明凭证/接口有问题,直接判失败。
   const bubble = dress.items.find((i) => i.appId === 2);
   const font = dress.items.find((i) => i.appId === 5 || i.appId === 305);
-  console.log(`\n[self-dress] 气泡: ${bubble ? `${bubble.name} (itemId=${bubble.itemId})` : '(无)'}`);
+  console.log(
+    `\n[self-dress] 气泡: ${bubble ? `${bubble.name} (itemId=${bubble.itemId})` : '(无)'}`,
+  );
   console.log(`[self-dress] 字体: ${font ? `${font.name} (itemId=${font.itemId})` : '(无)'}`);
   if (dress.items.length === 0) throw new Error('一项装扮都没拿到,检查 p_skey/g_tk');
 }

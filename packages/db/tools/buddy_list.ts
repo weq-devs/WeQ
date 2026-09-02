@@ -13,7 +13,7 @@ const PROFILE_INFO_DB_PATH = qqDbPath('profile_info.db');
 
 async function main() {
   const native = loadNative();
-  
+
   console.log('[test:buddy-list] Opening:', PROFILE_INFO_DB_PATH);
   const db = new BuddyDb(native.ntHelper, {
     dbPath: PROFILE_INFO_DB_PATH,

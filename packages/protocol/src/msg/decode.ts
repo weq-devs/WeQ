@@ -11,7 +11,21 @@
 
 import { inflateSync } from 'node:zlib';
 import { decode } from '../protobuf';
-import { ELEM, FACE_COMMON_PB, FACE_ELEM, FILE_TRANS_TOP, INLINE_KEYBOARD_PB, MARKDOWN_COMMON_PB, MSG_CONTENT, PIC_COMMON_PB, PTT_COMMON_PB, PUSH_MSG_BODY, REPLY_PB_RESERVE, TEXT_PB_RESERVE, VIDEO_COMMON_PB } from './schemas';
+import {
+  ELEM,
+  FACE_COMMON_PB,
+  FACE_ELEM,
+  FILE_TRANS_TOP,
+  INLINE_KEYBOARD_PB,
+  MARKDOWN_COMMON_PB,
+  MSG_CONTENT,
+  PIC_COMMON_PB,
+  PTT_COMMON_PB,
+  PUSH_MSG_BODY,
+  REPLY_PB_RESERVE,
+  TEXT_PB_RESERVE,
+  VIDEO_COMMON_PB,
+} from './schemas';
 
 export interface DecodedDress {
   /** 气泡 itemId，无则为 0（elem tag 9.1）。 */
@@ -109,7 +123,8 @@ function liftPicElem(pb: Record<string, unknown>): Record<string, unknown> {
   if (body?.fileToken !== undefined) out.fileToken = body.fileToken;
   if (info?.fileSize !== undefined) out.fileSize = info.fileSize;
   if (typeof info?.md5Bytes === 'string' && info.md5Bytes) out.md5Bytes = hexToBytes(info.md5Bytes);
-  if (typeof info?.contentHash === 'string' && info.contentHash) out.contentHash = hexToBytes(info.contentHash);
+  if (typeof info?.contentHash === 'string' && info.contentHash)
+    out.contentHash = hexToBytes(info.contentHash);
   if (url?.originalUrl !== undefined) out.originalUrl = url.originalUrl;
   if (info?.imgWidth !== undefined) out.imgWidth = info.imgWidth;
   if (info?.imgHeight !== undefined) out.imgHeight = info.imgHeight;
@@ -141,7 +156,8 @@ function liftVideoElem(pb: Record<string, unknown>): Record<string, unknown> {
   if (videoBody?.fileToken !== undefined) out.fileToken = videoBody.fileToken;
   if (info?.fileSize !== undefined) out.fileSize = info.fileSize;
   if (typeof info?.md5Bytes === 'string' && info.md5Bytes) out.md5Bytes = hexToBytes(info.md5Bytes);
-  if (typeof info?.contentHash === 'string' && info.contentHash) out.contentHash = hexToBytes(info.contentHash);
+  if (typeof info?.contentHash === 'string' && info.contentHash)
+    out.contentHash = hexToBytes(info.contentHash);
   if (info?.videoWidth !== undefined) out.videoWidth = info.videoWidth;
   if (info?.videoHeight !== undefined) out.videoHeight = info.videoHeight;
   if (info?.videoDuration !== undefined) out.videoDuration = info.videoDuration;
@@ -151,8 +167,10 @@ function liftVideoElem(pb: Record<string, unknown>): Record<string, unknown> {
   if (videoBody?.ttl !== undefined) out.fileTTL = videoBody.ttl;
   if (videoBody?.subType !== undefined) out.subType = videoBody.subType;
   if (thumbBody?.fileToken !== undefined) out.videoToken = thumbBody.fileToken;
-  if (typeof thumbInfo?.md5Bytes === 'string' && thumbInfo.md5Bytes) out.channelParams = hexToBytes(thumbInfo.md5Bytes);
-  if (typeof thumbInfo?.contentHash === 'string' && thumbInfo.contentHash) out.videoFlag45421 = hexToBytes(thumbInfo.contentHash);
+  if (typeof thumbInfo?.md5Bytes === 'string' && thumbInfo.md5Bytes)
+    out.channelParams = hexToBytes(thumbInfo.md5Bytes);
+  if (typeof thumbInfo?.contentHash === 'string' && thumbInfo.contentHash)
+    out.videoFlag45421 = hexToBytes(thumbInfo.contentHash);
   return out;
 }
 
@@ -180,7 +198,8 @@ function liftPttElem(pb: Record<string, unknown>): Record<string, unknown> {
   if (body?.fileToken !== undefined) out.fileToken = body.fileToken;
   if (info?.fileSize !== undefined) out.fileSize = info.fileSize;
   if (typeof info?.md5Bytes === 'string' && info.md5Bytes) out.md5Bytes = hexToBytes(info.md5Bytes);
-  if (typeof info?.contentHash === 'string' && info.contentHash) out.contentHash = hexToBytes(info.contentHash);
+  if (typeof info?.contentHash === 'string' && info.contentHash)
+    out.contentHash = hexToBytes(info.contentHash);
   if (info?.pttDuration !== undefined) out.pttDuration = info.pttDuration;
   if (info?.original !== undefined) out.isOriginal = info.original === 1;
   if (body?.storeId !== undefined) out.storeId = body.storeId;
@@ -314,7 +333,8 @@ function liftWalletElem(wallet: Record<string, unknown>): Record<string, unknown
   if (detail?.subTitle !== undefined) walletDetail.subTitle = detail.subTitle;
   if (skin?.skinId !== undefined) walletDetail.receiptList = { skinId: skin.skinId };
   if (Object.keys(walletDetail).length > 0) out.walletDetail = walletDetail;
-  if (body?.walletDesignatedUin !== undefined) out.walletDesignatedUin = Number(body.walletDesignatedUin);
+  if (body?.walletDesignatedUin !== undefined)
+    out.walletDesignatedUin = Number(body.walletDesignatedUin);
   return out;
 }
 
@@ -401,7 +421,10 @@ function liftReplyElem(src: Record<string, unknown>): Record<string, unknown> {
  * 把单个 ELEM 提升成 codec 风格元素；装扮（generalFlags/bubble）和
  * extraInfo 只在本层消费/丢弃，返回 undefined 表示不进入 elements。
  */
-function liftElem(elem: Record<string, unknown>, dress: DecodedDress | null): Record<string, unknown> | undefined {
+function liftElem(
+  elem: Record<string, unknown>,
+  dress: DecodedDress | null,
+): Record<string, unknown> | undefined {
   const gf = elem.generalFlags as
     | { widgetId?: number; font?: { fontId1?: number; fontId2?: number } }
     | undefined;
@@ -436,7 +459,11 @@ function liftElem(elem: Record<string, unknown>, dress: DecodedDress | null): Re
     return liftFaceElem(decode(FACE_ELEM, common.pbElem) as Record<string, unknown>);
   }
   // 普通聊天图片 businessType=20；合并转发（SsoRecvLongMsg）里的图片实测是 10，两者都收。
-  if (common?.serviceType === 48 && (common.businessType === 20 || common.businessType === 10) && common.pbElem) {
+  if (
+    common?.serviceType === 48 &&
+    (common.businessType === 20 || common.businessType === 10) &&
+    common.pbElem
+  ) {
     return liftPicElem(decode(PIC_COMMON_PB, common.pbElem) as Record<string, unknown>);
   }
   if (common?.serviceType === 48 && common.businessType === 21 && common.pbElem) {
@@ -449,14 +476,17 @@ function liftElem(elem: Record<string, unknown>, dress: DecodedDress | null): Re
     return liftMarkdownElem(decode(MARKDOWN_COMMON_PB, common.pbElem) as Record<string, unknown>);
   }
   if (common?.serviceType === 46 && common.pbElem) {
-    return liftInlineKeyboardElem(decode(INLINE_KEYBOARD_PB, common.pbElem) as Record<string, unknown>);
+    return liftInlineKeyboardElem(
+      decode(INLINE_KEYBOARD_PB, common.pbElem) as Record<string, unknown>,
+    );
   }
-  const trans = elem.transElem as
-    | { elemType?: number; elemValue?: Uint8Array }
-    | undefined;
+  const trans = elem.transElem as { elemType?: number; elemValue?: Uint8Array } | undefined;
   if (trans?.elemType === 24 && trans.elemValue) {
     return liftFileElem(
-      decode(FILE_TRANS_TOP, trans.elemValue.subarray(fileElemValueOffset(trans.elemValue))) as Record<string, unknown>,
+      decode(
+        FILE_TRANS_TOP,
+        trans.elemValue.subarray(fileElemValueOffset(trans.elemValue)),
+      ) as Record<string, unknown>,
     );
   }
   const reply = elem.replyElement as Record<string, unknown> | undefined;
@@ -529,7 +559,9 @@ export function decodeMessage(bytes: Uint8Array): DecodedMessage {
   const msgContent = raw.body?.msgContent;
   if (msgContent && msgContent.length > 0) {
     try {
-      const content = decode(MSG_CONTENT, msgContent) as { notOnlineFile?: Record<string, unknown> };
+      const content = decode(MSG_CONTENT, msgContent) as {
+        notOnlineFile?: Record<string, unknown>;
+      };
       if (content.notOnlineFile) elements.push(liftNotOnlineFileElem(content.notOnlineFile));
     } catch {
       // msgContent 不是 MsgContent 结构时忽略，不影响 richText 元素。

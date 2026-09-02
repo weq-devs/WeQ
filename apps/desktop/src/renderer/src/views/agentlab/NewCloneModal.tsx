@@ -126,11 +126,17 @@ export function NewCloneModal({
       <div className="weq-clone-modal">
         <header className="weq-clone-modal-head">
           {target ? (
-            <button className="weq-set-iconbtn" onClick={() => setTarget(null)} aria-label="返回选择好友">
+            <button
+              className="weq-set-iconbtn"
+              onClick={() => setTarget(null)}
+              aria-label="返回选择好友"
+            >
               <ArrowLeft size={16} />
             </button>
           ) : (
-            <span className="weq-clone-modal-icon"><Sparkles size={16} /></span>
+            <span className="weq-clone-modal-icon">
+              <Sparkles size={16} />
+            </span>
           )}
           <strong>{!target ? '选择要克隆的好友' : `配置克隆：${target.label}`}</strong>
         </header>
@@ -154,11 +160,22 @@ export function NewCloneModal({
             </div>
             <div className="weq-exp-list">
               {filtered.length === 0 ? (
-                <div className="weq-exp-list-state">{query ? '没有匹配的好友' : '没有可克隆的好友'}</div>
+                <div className="weq-exp-list-state">
+                  {query ? '没有匹配的好友' : '没有可克隆的好友'}
+                </div>
               ) : (
                 filtered.map((b) => (
-                  <button key={b.uid} type="button" className="weq-exp-row" onClick={() => setTarget(b)}>
-                    <Avatar url={b.uin ? qqAvatarUrl(b.uin) : b.avatarUrl} name={b.label} size={38} />
+                  <button
+                    key={b.uid}
+                    type="button"
+                    className="weq-exp-row"
+                    onClick={() => setTarget(b)}
+                  >
+                    <Avatar
+                      url={b.uin ? qqAvatarUrl(b.uin) : b.avatarUrl}
+                      name={b.label}
+                      size={38}
+                    />
                     <span className="weq-exp-row-meta">
                       <strong title={b.label}>{b.label}</strong>
                       <small>{b.uin}</small>
@@ -173,26 +190,36 @@ export function NewCloneModal({
           <div className="weq-clone-config">
             <label className="weq-agentlab-field">
               <span>克隆体名称（可选，默认用好友昵称）</span>
-              <input value={name} onChange={(e) => setName(e.target.value)} placeholder={target.label} />
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={target.label}
+              />
             </label>
             <label className="weq-agentlab-field">
               <span>聊天模型</span>
               <select value={chatSel} onChange={(e) => setChatSel(e.target.value)}>
                 <option value="">请选择聊天模型</option>
                 {flatModels.chat.map((m) => (
-                  <option key={m.key} value={m.key}>{m.label}</option>
+                  <option key={m.key} value={m.key}>
+                    {m.label}
+                  </option>
                 ))}
               </select>
             </label>
             {flatModels.chat.length === 0 ? (
-              <div className="weq-agentlab-empty">还没有可用聊天模型，请先到「设置 → 模型服务商」添加。</div>
+              <div className="weq-agentlab-empty">
+                还没有可用聊天模型，请先到「设置 → 模型服务商」添加。
+              </div>
             ) : null}
             <label className="weq-agentlab-field">
               <span>向量模型（可选，配了才做相似检索）</span>
               <select value={embSel} onChange={(e) => setEmbSel(e.target.value)}>
                 <option value="">不使用向量</option>
                 {flatModels.embedding.map((m) => (
-                  <option key={m.key} value={m.key}>{m.label}</option>
+                  <option key={m.key} value={m.key}>
+                    {m.label}
+                  </option>
                 ))}
               </select>
             </label>
@@ -221,7 +248,9 @@ export function NewCloneModal({
                       <select value={visSel} onChange={(e) => setVisSel(e.target.value)}>
                         <option value="">请选择视觉模型</option>
                         {flatModels.vision.map((m) => (
-                          <option key={m.key} value={m.key}>{m.label}</option>
+                          <option key={m.key} value={m.key}>
+                            {m.label}
+                          </option>
                         ))}
                       </select>
                     </label>
@@ -266,7 +295,9 @@ export function NewCloneModal({
             </label>
 
             <div className="weq-clone-actions">
-              <button className="weq-set-btn weq-set-btn-soft" onClick={onClose}>取消</button>
+              <button className="weq-set-btn weq-set-btn-soft" onClick={onClose}>
+                取消
+              </button>
               <button className="weq-set-btn" onClick={onStartClick} disabled={!chatSel}>
                 开始克隆
               </button>

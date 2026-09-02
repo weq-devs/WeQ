@@ -70,7 +70,9 @@ export class JsonMemoryStore implements MemorySink {
   }
   getAbout(personaId: string, aboutIds: string[], includeUntagged = false): AgentLabMemoryItem[] {
     const ids = new Set(aboutIds);
-    return (this.data[personaId] ?? []).filter((m) => (m.aboutId ? ids.has(m.aboutId) : includeUntagged));
+    return (this.data[personaId] ?? []).filter((m) =>
+      m.aboutId ? ids.has(m.aboutId) : includeUntagged,
+    );
   }
   touch(personaId: string, ids: string[], now: number): void {
     if (ids.length === 0) return;
@@ -102,7 +104,10 @@ export class JsonMemoryStore implements MemorySink {
       seen.add(key);
       const emb = embeddings?.[i];
       cur.push({
-        id: createHash('sha1').update(`${personaId}|${t}|${now + i}`).digest('hex').slice(0, 16),
+        id: createHash('sha1')
+          .update(`${personaId}|${t}|${now + i}`)
+          .digest('hex')
+          .slice(0, 16),
         text: t,
         keywords: keywordsOf(t),
         ...(emb && emb.length > 0 ? { embedding: emb } : {}),
@@ -122,10 +127,10 @@ export class JsonNotesStore implements NotesSink {
   private readonly notes: Record<string, AgentLabPersonaNotes>;
   private readonly reflected: Record<string, number>;
   constructor(private readonly filePath: string) {
-    const loaded = loadJson<{ notes?: Record<string, AgentLabPersonaNotes>; reflected?: Record<string, number> }>(
-      filePath,
-      {},
-    );
+    const loaded = loadJson<{
+      notes?: Record<string, AgentLabPersonaNotes>;
+      reflected?: Record<string, number>;
+    }>(filePath, {});
     this.notes = loaded.notes ?? {};
     this.reflected = loaded.reflected ?? {};
   }
@@ -179,7 +184,8 @@ export class JsonRelationStore implements AgentLabRelationStore {
     now: number,
   ): AgentLabRelation {
     const base =
-      this.get(subjectPersonaId, objectId) ?? makeBaseRelation(subjectPersonaId, objectId, objectKind, now);
+      this.get(subjectPersonaId, objectId) ??
+      makeBaseRelation(subjectPersonaId, objectId, objectKind, now);
     const next = applyRelationDelta(base, delta, now);
     this.upsert(next);
     return next;

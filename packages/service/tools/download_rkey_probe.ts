@@ -81,7 +81,8 @@ async function probeOne(token: string): Promise<Probe> {
     const buf = await res.arrayBuffer();
     const ms = Date.now() - t0;
     // A wrong/expired rkey commonly returns a 200 text/HTML/JSON error page.
-    if (ct.startsWith('text/') || ct.includes('json')) return { ...base, ms, bytes: buf.byteLength, klass: 'error_page' };
+    if (ct.startsWith('text/') || ct.includes('json'))
+      return { ...base, ms, bytes: buf.byteLength, klass: 'error_page' };
     if (buf.byteLength === 0) return { ...base, ms, bytes: 0, klass: 'empty' };
     return { ...base, ms, bytes: buf.byteLength, klass: 'ok' };
   } catch (e) {
@@ -91,7 +92,10 @@ async function probeOne(token: string): Promise<Probe> {
   }
 }
 
-async function runWave(tokens: string[], concurrency: number): Promise<{ probes: Probe[]; wallMs: number }> {
+async function runWave(
+  tokens: string[],
+  concurrency: number,
+): Promise<{ probes: Probe[]; wallMs: number }> {
   const probes: Probe[] = new Array(tokens.length);
   let next = 0;
   const workers = Array.from({ length: Math.min(concurrency, tokens.length) }, async () => {
@@ -171,7 +175,9 @@ async function main(): Promise<void> {
   const expiresInMin = Math.round((RKEY_CREATE_TIME + RKEY_TTL - Date.now() / 1000) / 60);
   console.log(`[probe] rkey type=${RKEY_TYPE} expires in ~${expiresInMin} min`);
   if (expiresInMin <= 0) {
-    console.warn('[probe] ⚠ rkey appears EXPIRED — downloads will likely fail; re-supply a fresh rkey.');
+    console.warn(
+      '[probe] ⚠ rkey appears EXPIRED — downloads will likely fail; re-supply a fresh rkey.',
+    );
   }
 
   const native = loadNative();
@@ -187,19 +193,30 @@ async function main(): Promise<void> {
   try {
     console.log('[probe] scanning for downloadable group images…');
     const scan = await scanConvMedia(msgs, 'group', GROUP_CODE, dirs, { pageSize: 2000 });
-    const candidates: MediaRef[] = scan.downloadList.filter((m) => m.kind === 'pic' && m.fileToken.length > 0);
+    const candidates: MediaRef[] = scan.downloadList.filter(
+      (m) => m.kind === 'pic' && m.fileToken.length > 0,
+    );
     console.log(`[probe] downloadable group-image candidates: ${candidates.length}\n`);
 
     if (candidates.length === 0) throw new Error('no downloadable group-image candidates to probe');
 
-    const verdicts: Array<{ concurrency: number; okRate: number; p95: number; riskFails: number; itemFails: number }> = [];
+    const verdicts: Array<{
+      concurrency: number;
+      okRate: number;
+      p95: number;
+      riskFails: number;
+      itemFails: number;
+    }> = [];
     const allProbes: Probe[] = [];
     let offset = 0;
     for (const concurrency of WAVES) {
       const slice = candidates.slice(offset, offset + PER_WAVE);
       offset += PER_WAVE;
       if (slice.length === 0) break;
-      const { probes, wallMs } = await runWave(slice.map((m) => m.fileToken), concurrency);
+      const { probes, wallMs } = await runWave(
+        slice.map((m) => m.fileToken),
+        concurrency,
+      );
       allProbes.push(...probes);
       const s = summarize(`conc=${concurrency}`, probes, wallMs);
       verdicts.push({ concurrency, ...s });
@@ -230,14 +247,22 @@ async function main(): Promise<void> {
     const maxConc = Math.max(...verdicts.map((v) => v.concurrency));
 
     if (totalRisk === 0 && !latencyBlowup) {
-      console.log(`  ✓ 稳定，无风控迹象：并发至 ${maxConc} 无 403/429/超时/重置，延迟无系统性劣化。`);
+      console.log(
+        `  ✓ 稳定，无风控迹象：并发至 ${maxConc} 无 403/429/超时/重置，延迟无系统性劣化。`,
+      );
     } else if (totalRisk === 0) {
-      console.log(`  ✓ 无风控（无 403/429/超时），但延迟随并发上升（p95 ${firstP95}→${lastP95}ms）：建议限并发。`);
+      console.log(
+        `  ✓ 无风控（无 403/429/超时），但延迟随并发上升（p95 ${firstP95}→${lastP95}ms）：建议限并发。`,
+      );
     } else {
-      console.log(`  ✗ 疑似风控：风控类失败 ${totalRisk} 个（403/429/超时/重置）。建议限并发 + 退避重试。`);
+      console.log(
+        `  ✗ 疑似风控：风控类失败 ${totalRisk} 个（403/429/超时/重置）。建议限并发 + 退避重试。`,
+      );
     }
     if (totalItem > 0) {
-      console.log(`  ℹ 另有 ${totalItem} 个个别 token 失败（http_400/error_page，与并发无关）：逐项跳过即可。`);
+      console.log(
+        `  ℹ 另有 ${totalItem} 个个别 token 失败（http_400/error_page，与并发无关）：逐项跳过即可。`,
+      );
     }
 
     console.log('\n[probe] done');

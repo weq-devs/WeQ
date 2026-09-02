@@ -14,12 +14,14 @@ const LIVE = testEnv.msgDbPath;
 const GROUP = process.argv[2] ?? '673646675';
 
 const brief = (els: any[]): string =>
-  els.map((e) => {
-    if (e.kind === 'text') return `text:${JSON.stringify(e.textContent?.slice(0, 20))}`;
-    if (e.kind === 'grayTipPoke') return `灰条tipJson:${String(e.tipJson).slice(0, 90)}`;
-    if (String(e.kind).startsWith('grayTip')) return `${e.kind}`;
-    return e.kind;
-  }).join(' + ');
+  els
+    .map((e) => {
+      if (e.kind === 'text') return `text:${JSON.stringify(e.textContent?.slice(0, 20))}`;
+      if (e.kind === 'grayTipPoke') return `灰条tipJson:${String(e.tipJson).slice(0, 90)}`;
+      if (String(e.kind).startsWith('grayTip')) return `${e.kind}`;
+      return e.kind;
+    })
+    .join(' + ');
 
 async function main(): Promise<void> {
   const nt = loadNative();
@@ -34,18 +36,30 @@ async function main(): Promise<void> {
   console.log(`=== 群 ${GROUP} 最新 12 条（rowid desc = 真实插入顺序）===`);
   for (const r of recent) {
     const els = decodeBody(r[7]) as any[];
-    console.log(`  rowid=${r[0]} msg=${r[1]} type=${r[2]}/${r[3]} time=${r[4]} nick=${r[5] === null ? 'NULL' : JSON.stringify(r[5])} :: ${brief(els)}`);
+    console.log(
+      `  rowid=${r[0]} msg=${r[1]} type=${r[2]}/${r[3]} time=${r[4]} nick=${r[5] === null ? 'NULL' : JSON.stringify(r[5])} :: ${brief(els)}`,
+    );
   }
 
   // 记录表
   console.log(`\n=== weq_recall_log ===`);
   try {
-    const log = await db.query(`SELECT msgid,sender_uid,revoke_uid,orig_seq,recall_ts,length(orig_body) FROM weq_recall_log ORDER BY seq DESC LIMIT 5`);
+    const log = await db.query(
+      `SELECT msgid,sender_uid,revoke_uid,orig_seq,recall_ts,length(orig_body) FROM weq_recall_log ORDER BY seq DESC LIMIT 5`,
+    );
     if (!log.length) console.log('  (空 — 已被 cleanup 删表，或本次没记录)');
-    for (const r of log) console.log(`  msg=${r[0]} sender=${r[1]} revoke=${r[2]} seq=${r[3]} ts=${r[4]} bodyLen=${r[5]}`);
-  } catch { console.log('  (表不存在 — cleanup 已 DROP)'); }
+    for (const r of log)
+      console.log(
+        `  msg=${r[0]} sender=${r[1]} revoke=${r[2]} seq=${r[3]} ts=${r[4]} bodyLen=${r[5]}`,
+      );
+  } catch {
+    console.log('  (表不存在 — cleanup 已 DROP)');
+  }
 
   db.close();
 }
 
-main().catch((e) => { console.error('failed:', e instanceof Error ? e.message : e); process.exit(1); });
+main().catch((e) => {
+  console.error('failed:', e instanceof Error ? e.message : e);
+  process.exit(1);
+});

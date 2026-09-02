@@ -11,9 +11,7 @@ import { QqDb } from '../src/qq_db';
 import { testEnv, qqDbPath } from '@weq/testkit';
 
 const KEY = testEnv.key;
-const DB_PATH =
-  process.env.WEQ_TEST_DB_PATH ??
-  qqDbPath('collection.db');
+const DB_PATH = process.env.WEQ_TEST_DB_PATH ?? qqDbPath('collection.db');
 
 async function main(): Promise<void> {
   const native = loadNative();

@@ -13,7 +13,7 @@ const DB_PATH = qqDbPath('nt_msg.db');
 
 async function main() {
   const native = loadNative();
-  
+
   const groupMsgsDb = new GroupMsgDb(native.ntHelper, {
     dbPath: DB_PATH,
     key: KEY,
@@ -29,23 +29,22 @@ async function main() {
 
   try {
     console.log(`[test:group-msg-seq] Fetching messages for group: ${GROUP_CODE}`);
-    
+
     const messages = await service.getGroupLatest(GROUP_CODE, 5);
     console.log(`[test:group-msg-seq] Found ${messages.length} messages:`);
-    
+
     messages.forEach((m, i) => {
-        console.log(`${i+1}. [Seq: ${m.msgSeq}] [Time: ${m.sendTime}] ID: ${m.msgId}`);
+      console.log(`${i + 1}. [Seq: ${m.msgSeq}] [Time: ${m.sendTime}] ID: ${m.msgId}`);
     });
 
     if (messages.length >= 2) {
-        const m0 = messages[0];
-        const m1 = messages[1];
-        if (m0 && m1) {
-            const isCorrectOrder = m0.msgSeq >= m1.msgSeq;
-            console.log(`[test:group-msg-seq] Order by Seq correct: ${isCorrectOrder}`);
-        }
+      const m0 = messages[0];
+      const m1 = messages[1];
+      if (m0 && m1) {
+        const isCorrectOrder = m0.msgSeq >= m1.msgSeq;
+        console.log(`[test:group-msg-seq] Order by Seq correct: ${isCorrectOrder}`);
+      }
     }
-
   } catch (err) {
     console.error('[test:group-msg-seq] Failed:', err);
   } finally {

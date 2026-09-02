@@ -35,7 +35,13 @@ export interface CollectionExportRow {
   authorUin: string;
   groupName: string;
   text: string;
-  link: { url: string; title: string; publisher: string; brief: string; pics: CollectionExportPic[] } | null;
+  link: {
+    url: string;
+    title: string;
+    publisher: string;
+    brief: string;
+    pics: CollectionExportPic[];
+  } | null;
   gallery: { pics: CollectionExportPic[] } | null;
   audio: { duration: number; stt: string } | null;
   video: {
@@ -47,7 +53,13 @@ export interface CollectionExportRow {
   } | null;
   file: { name: string; size: string; ext: string } | null;
   location: { name: string; address: string; latitude: number; longitude: number } | null;
-  richMedia: { title: string; subTitle: string; brief: string; originalUri: string; pics: CollectionExportPic[] } | null;
+  richMedia: {
+    title: string;
+    subTitle: string;
+    brief: string;
+    originalUri: string;
+    pics: CollectionExportPic[];
+  } | null;
 }
 
 /** 注入的收藏数据拉取能力（返回已拍平的行）。 */
@@ -117,7 +129,10 @@ function sizeText(raw: string): string {
 
 /** 把一组图片拍成用竖线分隔的 URL 串（导出到单元格）。 */
 function picUrls(pics: CollectionExportPic[] | undefined): string {
-  return (pics ?? []).map((p) => p.uri).filter(Boolean).join(' | ');
+  return (pics ?? [])
+    .map((p) => p.uri)
+    .filter(Boolean)
+    .join(' | ');
 }
 
 // ---- 列定义：每种 kind 收敛到统一列 ----

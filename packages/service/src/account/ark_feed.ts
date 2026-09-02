@@ -14,8 +14,12 @@ import type { RenderElement } from './msg_view';
  * Returns `null` if the element isn't ARK / the JSON is malformed / prompt absent.
  */
 export function extractArkPrompt(el: RenderElement | Element): string | null {
-  const arkData = 'kind' in el && el.kind === 'ark' ? el.arkData :
-                  'type' in el && el.type === 'ark' ? el.data?.arkData : null;
+  const arkData =
+    'kind' in el && el.kind === 'ark'
+      ? el.arkData
+      : 'type' in el && el.type === 'ark'
+        ? el.data?.arkData
+        : null;
   if (!arkData || typeof arkData !== 'string') return null;
   try {
     const parsed = JSON.parse(arkData);

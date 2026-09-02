@@ -309,12 +309,16 @@ async function fetchType(
 
   const total = tasks.length;
   const idCount = TO - FROM + 1;
-  console.log(`══ ${type}  ${FROM}-${TO}（${idCount} 个 id × ${parts.length} 分包 = ${idCount * parts.length} 任务）══`);
+  console.log(
+    `══ ${type}  ${FROM}-${TO}（${idCount} 个 id × ${parts.length} 分包 = ${idCount * parts.length} 任务）══`,
+  );
   if (total === 0) {
     console.log(`  全部已在 ${file} 中，无需抓取\n`);
     return;
   }
-  console.log(`  需抓取 ${total} 个（已有 ${skipped} 个跳过）  batch=${BATCH} 并发=${CONCURRENCY} 重试=${RETRY}\n`);
+  console.log(
+    `  需抓取 ${total} 个（已有 ${skipped} 个跳过）  batch=${BATCH} 并发=${CONCURRENCY} 重试=${RETRY}\n`,
+  );
 
   const batches = chunk(tasks, BATCH);
   const progress = new Progress();
@@ -342,7 +346,9 @@ async function fetchType(
     }
     reqCount++;
     if (results === null) {
-      console.error(`\n  ⚠ 批次失败（重试 ${RETRY} 次后放弃）: ${lastErr instanceof Error ? lastErr.message : lastErr}`);
+      console.error(
+        `\n  ⚠ 批次失败（重试 ${RETRY} 次后放弃）: ${lastErr instanceof Error ? lastErr.message : lastErr}`,
+      );
       doneCount += batch.length;
       progress.tick(doneCount, total, hitCount, writtenCount, writtenBytes);
       return;
@@ -389,5 +395,5 @@ main().catch((e) => {
 });
 
 /*
-* 2026/08/28  font 1-60000  bubble 1-60000 widget 100000-200000
-* */
+ * 2026/08/28  font 1-60000  bubble 1-60000 widget 100000-200000
+ * */

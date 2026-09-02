@@ -36,6 +36,11 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      # 格式统一由 biome 一把抓：未按 biome.json 规范格式化的代码在此即失败，
+      # 本地用 `pnpm format` 一次性刷平即可。
+      - name: Format check
+        run: pnpm format:check
+
   typecheck:
     runs-on: ubuntu-latest
     env:

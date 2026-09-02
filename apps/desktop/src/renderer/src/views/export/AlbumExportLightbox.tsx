@@ -33,7 +33,10 @@ export function AlbumExportLightbox({
   const [albumError, setAlbumError] = useState<string | null>(null);
   const [selection, setSelection] = useState<Set<string>>(() => new Set());
   const [picking, setPicking] = useState(false);
-  const selectedAlbums = useMemo(() => albums.filter((album) => selection.has(album.id)), [albums, selection]);
+  const selectedAlbums = useMemo(
+    () => albums.filter((album) => selection.has(album.id)),
+    [albums, selection],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -82,8 +85,17 @@ export function AlbumExportLightbox({
   }
 
   return (
-    <div className="modal-scrim weq-exp-modal-scrim" role="presentation" onMouseDown={closeFromScrim(onClose)}>
-      <section className="weq-exp-dialog weq-exp-album-dialog" role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
+    <div
+      className="modal-scrim weq-exp-modal-scrim"
+      role="presentation"
+      onMouseDown={closeFromScrim(onClose)}
+    >
+      <section
+        className="weq-exp-dialog weq-exp-album-dialog"
+        role="dialog"
+        aria-modal="true"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <header className="weq-exp-dialog-head">
           <div className="weq-exp-dialog-title">
             <strong>导出群相册</strong>
@@ -100,14 +112,24 @@ export function AlbumExportLightbox({
               <FolderOpen size={14} aria-hidden />
               <span className="weq-exp-path-txt">{outputDir ?? '未选择保存目录'}</span>
             </span>
-            <button type="button" className="weq-exp-btn" disabled={picking || submitting} onClick={() => void pickPath()}>
+            <button
+              type="button"
+              className="weq-exp-btn"
+              disabled={picking || submitting}
+              onClick={() => void pickPath()}
+            >
               {picking ? <Loader2 size={14} className="weq-exp-spin" /> : <FolderOpen size={14} />}
               选择目录
             </button>
           </section>
 
           <section className="weq-exp-album-tools">
-            <button type="button" className="weq-exp-tool" disabled={loadingAlbums || albums.length === 0 || submitting} onClick={() => setSelection(new Set(albums.map((album) => album.id)))}>
+            <button
+              type="button"
+              className="weq-exp-tool"
+              disabled={loadingAlbums || albums.length === 0 || submitting}
+              onClick={() => setSelection(new Set(albums.map((album) => album.id)))}
+            >
               全选
             </button>
             <button
@@ -115,7 +137,12 @@ export function AlbumExportLightbox({
               className="weq-exp-tool"
               disabled={loadingAlbums || albums.length === 0 || submitting}
               onClick={() =>
-                setSelection((current) => new Set(albums.filter((album) => !current.has(album.id)).map((album) => album.id)))
+                setSelection(
+                  (current) =>
+                    new Set(
+                      albums.filter((album) => !current.has(album.id)).map((album) => album.id),
+                    ),
+                )
               }
             >
               反选
@@ -148,7 +175,9 @@ export function AlbumExportLightbox({
                     <strong>{album.title || '未命名相册'}</strong>
                     <small>{album.photoCount ?? 0} 张</small>
                   </span>
-                  <span className="weq-exp-row-check">{selection.has(album.id) ? <Check size={14} /> : null}</span>
+                  <span className="weq-exp-row-check">
+                    {selection.has(album.id) ? <Check size={14} /> : null}
+                  </span>
                 </button>
               ))
             )}
@@ -162,7 +191,13 @@ export function AlbumExportLightbox({
           <button
             type="button"
             className="weq-exp-btn is-primary"
-            disabled={submitting || loadingAlbums || Boolean(albumError) || !outputDir || selectedAlbums.length === 0}
+            disabled={
+              submitting ||
+              loadingAlbums ||
+              Boolean(albumError) ||
+              !outputDir ||
+              selectedAlbums.length === 0
+            }
             onClick={() => outputDir && onConfirm({ outputDir, selectedAlbums })}
           >
             {submitting ? <Loader2 size={15} className="weq-exp-spin" /> : null}
@@ -185,7 +220,13 @@ function AlbumCover({ album }: { album: GroupAlbumWire }): ReactElement {
   }
   return (
     <span className="weq-exp-album-cover">
-      <img src={album.coverUrl} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setBroken(true)} />
+      <img
+        src={album.coverUrl}
+        alt=""
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onError={() => setBroken(true)}
+      />
     </span>
   );
 }

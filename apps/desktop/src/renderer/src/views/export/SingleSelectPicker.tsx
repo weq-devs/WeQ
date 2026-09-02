@@ -30,14 +30,20 @@ export function SingleSelectPicker({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return items;
-    return items.filter((it) => it.name.toLowerCase().includes(q) || it.id.toLowerCase().includes(q));
+    return items.filter(
+      (it) => it.name.toLowerCase().includes(q) || it.id.toLowerCase().includes(q),
+    );
   }, [items, query]);
 
   return (
     <div className="weq-exp-picker">
       <div className="weq-exp-search">
         <Search size={15} aria-hidden />
-        <input placeholder={searchPlaceholder} value={query} onChange={(e) => setQuery(e.target.value)} />
+        <input
+          placeholder={searchPlaceholder}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
         {query ? (
           <button type="button" title="清空" onClick={() => setQuery('')}>
             <X size={14} />

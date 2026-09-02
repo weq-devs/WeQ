@@ -16,10 +16,10 @@ const DB_PATH = qqDbPath('file_assistant.db');
 
 async function main() {
   const native = loadNative();
-  
+
   if (!fs.existsSync(DB_PATH)) {
-      console.error(`[test:file-assistant] Could not find file_assistant.db at ${DB_PATH}`);
-      return;
+    console.error(`[test:file-assistant] Could not find file_assistant.db at ${DB_PATH}`);
+    return;
   }
 
   const fileDb = new FileAssistantDb(native.ntHelper, {
@@ -30,39 +30,39 @@ async function main() {
 
   try {
     console.log(`[test:file-assistant] Fetching files for UIN: ${UIN}`);
-    
+
     const files = await fileDb.listAll(100);
-    
+
     const targetMsgId = 7652484344240255125n;
     console.log(`\n--- Searching for msgId: ${targetMsgId} ---`);
     const found = await fileDb.getByMsgId(targetMsgId);
     if (found) {
-        console.log('Found match:');
-        console.log(JSON.stringify(found, (_k, v) => typeof v === 'bigint' ? v.toString() : v, 2));
+      console.log('Found match:');
+      console.log(JSON.stringify(found, (_k, v) => (typeof v === 'bigint' ? v.toString() : v), 2));
     } else {
-        console.log('No match found for this msgId.');
+      console.log('No match found for this msgId.');
     }
 
     if (files.length > 0) {
-        console.log(`[test:file-assistant] Found ${files.length} files.`);
-        
-        // listAll already sorts by timestamp DESC
-        const newest = files[0]!;
-        console.log('\n--- Newest File ---');
-        console.log(JSON.stringify(newest, (_k, v) => typeof v === 'bigint' ? v.toString() : v, 2));
-        
-        console.log('\n--- Recent 5 Files ---');
-        console.table(files.slice(0, 5).map(f => ({
-            name: f.fileName,
-            size: `${(Number(f.fileSize) / 1024 / 1024).toFixed(2)} MB`,
-            time: new Date(Number(f.timestamp) * 1000).toLocaleString(),
-            table: f.sourceTable
-        })));
+      console.log(`[test:file-assistant] Found ${files.length} files.`);
 
+      // listAll already sorts by timestamp DESC
+      const newest = files[0]!;
+      console.log('\n--- Newest File ---');
+      console.log(JSON.stringify(newest, (_k, v) => (typeof v === 'bigint' ? v.toString() : v), 2));
+
+      console.log('\n--- Recent 5 Files ---');
+      console.table(
+        files.slice(0, 5).map((f) => ({
+          name: f.fileName,
+          size: `${(Number(f.fileSize) / 1024 / 1024).toFixed(2)} MB`,
+          time: new Date(Number(f.timestamp) * 1000).toLocaleString(),
+          table: f.sourceTable,
+        })),
+      );
     } else {
-        console.log('[test:file-assistant] No files found.');
+      console.log('[test:file-assistant] No files found.');
     }
-
   } catch (err) {
     console.error('[test:file-assistant] Failed:', err);
   } finally {

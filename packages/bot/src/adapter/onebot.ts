@@ -84,10 +84,16 @@ export abstract class BaseOneBotAdapter implements OneBot11Adapter {
     this.handlers.push(handler);
   }
 
-  abstract sendMessage(target: SendTarget, segments: OneBotSegment[]): Promise<{ messageId?: string }>;
+  abstract sendMessage(
+    target: SendTarget,
+    segments: OneBotSegment[],
+  ): Promise<{ messageId?: string }>;
 
   /** 子类发消息后统一解析回包里的 message_id。 */
-  protected async send(action: string, params: Record<string, unknown>): Promise<{ messageId?: string }> {
+  protected async send(
+    action: string,
+    params: Record<string, unknown>,
+  ): Promise<{ messageId?: string }> {
     const data = (await this.callAction(action, params)) as { message_id?: number | string } | null;
     const id = data?.message_id;
     return { messageId: id != null ? String(id) : undefined };
@@ -162,7 +168,9 @@ export class SnowLumaAdapter extends BaseOneBotAdapter {
 
   sendMessage(target: SendTarget, segments: OneBotSegment[]): Promise<{ messageId?: string }> {
     const idField =
-      target.chatType === 'group' ? { group_id: Number(target.peerId) } : { user_id: Number(target.peerId) };
+      target.chatType === 'group'
+        ? { group_id: Number(target.peerId) }
+        : { user_id: Number(target.peerId) };
     return this.send('send_msg', { message_type: target.chatType, ...idField, message: segments });
   }
 }

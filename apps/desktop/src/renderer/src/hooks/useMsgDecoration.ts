@@ -31,7 +31,9 @@ export function useMsgDecoration(decoration: DecorationIds): {
   fontId: number;
 } {
   const enabled = useContext(MsgDecorationEnabledContext);
-  const hasDec = Boolean(decoration && (decoration.bubbleId || decoration.fontId || decoration.widgetId));
+  const hasDec = Boolean(
+    decoration && (decoration.bubbleId || decoration.fontId || decoration.widgetId),
+  );
 
   const result = trpc.account.dressup.resolveMsgDecoration.useQuery(
     {

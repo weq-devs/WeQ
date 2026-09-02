@@ -265,7 +265,6 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
         {/*<span className={`weq-toast-timer-action${paused ? ' paused' : ''}`}>*/}
         {/*  {paused ? '移开继续' : '悬停暂停'}*/}
         {/*</span>*/}
-
       </div>
 
       {/* 底部倒计时进度条 */}

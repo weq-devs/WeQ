@@ -40,7 +40,11 @@ export async function writeFileStream(outputPath: string, body: string): Promise
 }
 
 /** json：对象数组（英文键，便于程序消费）。 */
-export async function writeJson<T>(cols: Array<Col<T>>, rows: T[], outputPath: string): Promise<void> {
+export async function writeJson<T>(
+  cols: Array<Col<T>>,
+  rows: T[],
+  outputPath: string,
+): Promise<void> {
   const objects = rows.map((r) => Object.fromEntries(cols.map((c) => [c.key, c.get(r)])));
   await writeFileStream(outputPath, JSON.stringify(objects, null, 2));
 }
@@ -58,7 +62,11 @@ export async function writeJsonl<T>(
 }
 
 /** csv：UTF-8 BOM + 表头 + 数据行（CRLF，Excel 直开不乱码）。 */
-export async function writeCsv<T>(cols: Array<Col<T>>, rows: T[], outputPath: string): Promise<void> {
+export async function writeCsv<T>(
+  cols: Array<Col<T>>,
+  rows: T[],
+  outputPath: string,
+): Promise<void> {
   const lines = [`﻿${cols.map((c) => escapeCsv(c.header)).join(',')}`];
   for (const r of rows) {
     lines.push(cols.map((c) => escapeCsv(String(c.get(r)))).join(','));
@@ -67,7 +75,11 @@ export async function writeCsv<T>(cols: Array<Col<T>>, rows: T[], outputPath: st
 }
 
 /** txt：每条记录一段「表头: 值」+ 分隔线。 */
-export async function writeTxt<T>(cols: Array<Col<T>>, rows: T[], outputPath: string): Promise<void> {
+export async function writeTxt<T>(
+  cols: Array<Col<T>>,
+  rows: T[],
+  outputPath: string,
+): Promise<void> {
   const blocks = rows.map((r) => {
     const body = cols.map((c) => `${c.header}: ${String(c.get(r))}`).join('\n');
     return `${body}\n${'—'.repeat(24)}`;

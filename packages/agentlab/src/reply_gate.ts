@@ -13,7 +13,24 @@
 const QUESTION_RE = /[?？]|吗[?？。!！]?$|呢[?？。!！]?$|怎么|为什么|为啥|咋|多少|哪|几点/;
 const REQUEST_RE = /帮我|帮忙|能不能|可不可以|可以吗|行不行|给我|教我|怎么弄|怎么搞/;
 const OPINION_RE = /你觉得|你认为|你说|你看|怎么样|如何|好不好|对吧/;
-const SHORT_REACTIONS = new Set(['嗯', '哦', '噢', '额', '啊', '在', '？', '?', '。', '哈', '哈哈', '嗯嗯', '好', '好的', 'ok', 'OK']);
+const SHORT_REACTIONS = new Set([
+  '嗯',
+  '哦',
+  '噢',
+  '额',
+  '啊',
+  '在',
+  '？',
+  '?',
+  '。',
+  '哈',
+  '哈哈',
+  '嗯嗯',
+  '好',
+  '好的',
+  'ok',
+  'OK',
+]);
 
 /** 群聊回复阈值：低于此分就不接话。基准刻意压低，让「不必回」成为常态。 */
 export const GROUP_REPLY_THRESHOLD = 0.5;
@@ -70,7 +87,9 @@ function clamp01(x: number): number {
 
 function nameMentioned(text: string, name: string, aliases?: string[]): boolean {
   const hay = text.toLowerCase();
-  const names = [name, ...(aliases ?? [])].map((n) => n.trim().toLowerCase()).filter((n) => n.length >= 2);
+  const names = [name, ...(aliases ?? [])]
+    .map((n) => n.trim().toLowerCase())
+    .filter((n) => n.length >= 2);
   return names.some((n) => hay.includes(n));
 }
 
@@ -90,7 +109,14 @@ export function scoreReplyGate(inp: ReplyGateInput): ReplyDecision {
 
   // 被 @ 且设置为必回 → 硬触发；否则被 @ 只是强加分，仍要过阈值（见下）。
   if (inp.mentioned && inp.mustReplyOnMention !== false) {
-    return { shouldReply: true, score: 1, reason: '被@必回', effort: 0.85, replyDelayMs: Math.round(300 + Math.random() * 500), maxSegments: 4 };
+    return {
+      shouldReply: true,
+      score: 1,
+      reason: '被@必回',
+      effort: 0.85,
+      replyDelayMs: Math.round(300 + Math.random() * 500),
+      maxSegments: 4,
+    };
   }
 
   // 群聊基准低：默认可以不接话。

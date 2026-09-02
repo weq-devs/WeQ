@@ -10,12 +10,12 @@ import {
   Type as TypeIcon,
   X,
   Zap,
-} from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
-import { client } from "../trpc/client";
-import { Avatar } from "../im-template/template/primitives";
-import { closeFromScrim, useEscapeToClose } from "../im-template/template/modalUtils";
-import { FaceEmoji } from "./FaceEmoji";
+} from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { client } from '../trpc/client';
+import { Avatar } from '../im-template/template/primitives';
+import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
+import { FaceEmoji } from './FaceEmoji';
 import {
   ContributionHeatmap,
   DonutChart,
@@ -24,24 +24,24 @@ import {
   formatDate,
   formatDuration,
   formatNumber,
-} from "./analyticsCharts";
+} from './analyticsCharts';
 
-const SELF_COLOR = "var(--weq-accent-effective)";
-const PEER_COLOR = "#8b5cf6";
+const SELF_COLOR = 'var(--weq-accent-effective)';
+const PEER_COLOR = '#8b5cf6';
 
 const TYPE_META: Array<{ key: string; label: string; color: string }> = [
-  { key: "text", label: "文本", color: "#3b82f6" },
-  { key: "image", label: "图片", color: "#22c55e" },
-  { key: "voice", label: "语音", color: "#f97316" },
-  { key: "video", label: "视频", color: "#a855f7" },
-  { key: "emoji", label: "表情", color: "#ec4899" },
-  { key: "other", label: "其他", color: "#6b7280" },
+  { key: 'text', label: '文本', color: '#3b82f6' },
+  { key: 'image', label: '图片', color: '#22c55e' },
+  { key: 'voice', label: '语音', color: '#f97316' },
+  { key: 'video', label: '视频', color: '#a855f7' },
+  { key: 'emoji', label: '表情', color: '#ec4899' },
+  { key: 'other', label: '其他', color: '#6b7280' },
 ];
 
 type BuddyAnalyticsData = Awaited<ReturnType<typeof client.account.getBuddyAnalytics.query>>;
 
 function avatarUrl(uin: string | undefined | null): string | null {
-  return uin && uin !== "0" ? `https://thirdqq.qlogo.cn/g?b=sdk&nk=${uin}&s=0` : null;
+  return uin && uin !== '0' ? `https://thirdqq.qlogo.cn/g?b=sdk&nk=${uin}&s=0` : null;
 }
 
 /** Reply-speed card for one side. */
@@ -96,7 +96,11 @@ function PhraseChips({ items }: { items: Array<{ phrase: string; count: number }
   );
 }
 
-function EmojiChips({ items }: { items: Array<{ faceId: number; faceText: string; count: number }> }) {
+function EmojiChips({
+  items,
+}: {
+  items: Array<{ faceId: number; faceText: string; count: number }>;
+}) {
   if (!items || items.length === 0) return <span className="ga-chip-empty">暂无表情数据</span>;
   return (
     <div className="ga-chips">
@@ -223,7 +227,7 @@ export function BuddyAnalyticsDialog({
                   <DonutChart
                     size={116}
                     segments={[
-                      { label: "我", value: stats.selfMessages, color: SELF_COLOR },
+                      { label: '我', value: stats.selfMessages, color: SELF_COLOR },
                       { label: peerName, value: stats.peerMessages, color: PEER_COLOR },
                     ]}
                     centerLabel={formatNumber(stats.totalMessages)}
@@ -238,7 +242,7 @@ export function BuddyAnalyticsDialog({
                   <DonutChart
                     size={116}
                     segments={[
-                      { label: "我", value: data.initiation?.self ?? 0, color: SELF_COLOR },
+                      { label: '我', value: data.initiation?.self ?? 0, color: SELF_COLOR },
                       { label: peerName, value: data.initiation?.peer ?? 0, color: PEER_COLOR },
                     ]}
                     centerLabel={String(data.initiation?.total ?? 0)}
@@ -269,7 +273,7 @@ export function BuddyAnalyticsDialog({
                         {TYPE_META.filter((t) => (data.messageTypes[t.key] ?? 0) > 0).map((t) => {
                           const v = data.messageTypes[t.key] ?? 0;
                           const pctNum = (v / typeTotal) * 100;
-                          const pct = pctNum >= 0.5 ? `${Math.round(pctNum)}%` : "<1%";
+                          const pct = pctNum >= 0.5 ? `${Math.round(pctNum)}%` : '<1%';
                           return (
                             <span className="ba-langlegend-item" key={t.key} title={`${v} 条`}>
                               <i style={{ background: t.color }} />

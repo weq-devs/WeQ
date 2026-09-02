@@ -34,18 +34,12 @@ export function AnnualReportView(): ReactElement {
 
         <div className="weq-annual-chart" aria-hidden>
           {BARS.map(({ id, height }) => (
-            <span
-              key={id}
-              className="weq-annual-bar"
-              style={{ height: `${height}%` }}
-            />
+            <span key={id} className="weq-annual-bar" style={{ height: `${height}%` }} />
           ))}
         </div>
 
         <h2 className="weq-annual-title">年度报告</h2>
-        <p className="weq-annual-desc">
-          年度报告功能即将上线，敬请期待
-        </p>
+        <p className="weq-annual-desc">年度报告功能即将上线，敬请期待</p>
 
         <div className="weq-annual-progress" role="presentation" aria-hidden />
 

@@ -152,8 +152,7 @@ export class SsePushService {
   /** 更新推送目标（地址 / token）。传 null 表示停用（清空待推队列）。 */
   setTarget(target: SsePushTarget | null): void {
     const changed =
-      target?.pushUrl !== this.target?.pushUrl ||
-      target?.accessToken !== this.target?.accessToken;
+      target?.pushUrl !== this.target?.pushUrl || target?.accessToken !== this.target?.accessToken;
     this.target = target;
     if (!target) {
       this.pending = [];
@@ -226,10 +225,7 @@ export class SsePushService {
       });
     } catch (error) {
       this.retryCount += 1;
-      const delay = Math.min(
-        RETRY_MAX_MS,
-        RETRY_BASE_MS * 2 ** Math.min(this.retryCount - 1, 5),
-      );
+      const delay = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** Math.min(this.retryCount - 1, 5));
       this.logger.warn('sse push failed, will retry', {
         event: 'sse-push-failed',
         retry: this.retryCount,

@@ -24,7 +24,9 @@ async function main() {
 
   console.log(`\n[test:essence] 注入 hook 到 pid=${pid} ...`);
   const status = await nt.injectAndGetStatusEmbedded(pid, uin);
-  console.log(`[test:essence] 注入结果: pid=${status.pid} uin=${status.uin} loggedIn=${status.loggedIn}`);
+  console.log(
+    `[test:essence] 注入结果: pid=${status.pid} uin=${status.uin} loggedIn=${status.loggedIn}`,
+  );
 
   const web = new WebQueryService(nt, { context: { uin } } as unknown as AccountSession, () => pid);
 
@@ -54,7 +56,8 @@ async function main() {
         if (content.text) console.log(`      文本: ${content.text}`);
         if (content.image_url) console.log(`      图片: ${content.image_url}`);
         if (content.face_index !== undefined) console.log(`      表情: ${content.face_index}`);
-        if (content.file_name) console.log(`      文件: ${content.file_name} (${content.file_size} bytes)`);
+        if (content.file_name)
+          console.log(`      文件: ${content.file_name} (${content.file_size} bytes)`);
       }
     }
 

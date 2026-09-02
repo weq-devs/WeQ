@@ -169,7 +169,14 @@ export class StatsStore implements UsageSink {
     const key = dayKey(ts);
     let bucket = this.data.byDay[key];
     if (!bucket) {
-      bucket = { date: key, promptTokens: 0, completionTokens: 0, totalTokens: 0, messagesIn: 0, messagesOut: 0 };
+      bucket = {
+        date: key,
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        messagesIn: 0,
+        messagesOut: 0,
+      };
       this.data.byDay[key] = bucket;
     }
     return bucket;

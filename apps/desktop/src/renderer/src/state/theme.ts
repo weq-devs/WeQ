@@ -2,13 +2,7 @@ import { create } from 'zustand';
 
 export type ThemePreference = 'system' | 'light' | 'dark';
 export type ThemeResolved = 'light' | 'dark';
-export type ThemeBackground =
-  | 'plain'
-  | 'paper'
-  | 'grid'
-  | 'dots'
-  | 'wash'
-  | 'telegram';
+export type ThemeBackground = 'plain' | 'paper' | 'grid' | 'dots' | 'wash' | 'telegram';
 /**
  * Component skin pack. Only `classic` ships today; the field exists so the
  * settings page can present a (placeholder) switcher and so future packs slot

@@ -72,9 +72,10 @@ function loadFont(): Buffer {
 function loadLogoUri(): string | null {
   if (logoUriCache !== undefined) return logoUriCache;
   const path = resolveResource('brand', 'logo.png');
-  logoUriCache = path && existsSync(path)
-    ? `data:image/png;base64,${readFileSync(path).toString('base64')}`
-    : null;
+  logoUriCache =
+    path && existsSync(path)
+      ? `data:image/png;base64,${readFileSync(path).toString('base64')}`
+      : null;
   return logoUriCache;
 }
 
@@ -191,37 +192,33 @@ function buildCardTree(spec: CardSpec, width: number, height: number): El {
   }
   if (spec.footer) {
     content.push(
-      el(
-        'div',
-        { display: 'flex', marginTop: 'auto', alignItems: 'center' },
-        [
-          el(
-            'div',
-            {
+      el('div', { display: 'flex', marginTop: 'auto', alignItems: 'center' }, [
+        el(
+          'div',
+          {
+            display: 'flex',
+            alignItems: 'center',
+            fontSize: 16,
+            fontWeight: 600,
+            color: p.pillInk,
+            backgroundColor: p.pillBg,
+            border: `1px solid ${p.pillBorder}`,
+            padding: '8px 15px',
+            borderRadius: 999,
+          },
+          [
+            el('div', {
               display: 'flex',
-              alignItems: 'center',
-              fontSize: 16,
-              fontWeight: 600,
-              color: p.pillInk,
-              backgroundColor: p.pillBg,
-              border: `1px solid ${p.pillBorder}`,
-              padding: '8px 15px',
+              width: 7,
+              height: 7,
               borderRadius: 999,
-            },
-            [
-              el('div', {
-                display: 'flex',
-                width: 7,
-                height: 7,
-                borderRadius: 999,
-                backgroundColor: p.accentInk,
-                marginRight: 9,
-              }),
-              spec.footer,
-            ],
-          ),
-        ],
-      ),
+              backgroundColor: p.accentInk,
+              marginRight: 9,
+            }),
+            spec.footer,
+          ],
+        ),
+      ]),
     );
   }
 

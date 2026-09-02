@@ -67,7 +67,9 @@ async function main(): Promise<void> {
   // mojo 控制管道不存在。
   console.log(`\n[clientkey] 注入 hook 到 pid=${targetPid} ...`);
   const status = await nt.injectAndGetStatusEmbedded(targetPid, TARGET_UIN);
-  console.log(`[clientkey] 注入结果: pid=${status.pid} uin=${status.uin} loggedIn=${status.loggedIn}`);
+  console.log(
+    `[clientkey] 注入结果: pid=${status.pid} uin=${status.uin} loggedIn=${status.loggedIn}`,
+  );
 
   console.log(`\n[clientkey] 调用 fetchClientKey(${targetPid}) ...`);
   const raw = await nt.fetchClientKey(targetPid);

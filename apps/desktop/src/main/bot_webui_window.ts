@@ -24,7 +24,11 @@ export async function probeBotWebUi(url: string): Promise<boolean> {
 }
 
 /** 打开控制台窗口并用密钥自动登录。url 为基址（如 http://127.0.0.1:8090）。 */
-export async function openBotWebUiWindow(url: string, key: string, botName?: string): Promise<void> {
+export async function openBotWebUiWindow(
+  url: string,
+  key: string,
+  botName?: string,
+): Promise<void> {
   const win = new BrowserWindow({
     width: 1040,
     height: 800,

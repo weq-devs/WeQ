@@ -79,7 +79,11 @@ function dayIndex(dateStr: string): number {
 function bumpEmoji(tally: EmojiTally, faceId: number, faceText: string): void {
   const key = String(faceId);
   const prev = tally.get(key);
-  tally.set(key, { faceId, faceText: faceText || prev?.faceText || '', count: (prev?.count ?? 0) + 1 });
+  tally.set(key, {
+    faceId,
+    faceText: faceText || prev?.faceText || '',
+    count: (prev?.count ?? 0) + 1,
+  });
 }
 
 function topEmojis(tally: EmojiTally, n: number) {
@@ -207,7 +211,11 @@ export class BuddyAnalyticsService {
               hasEmoji = true;
               const faceId = Number(el.faceId);
               if (Number.isFinite(faceId)) {
-                bumpEmoji(isSelf ? emojisSelf : emojisPeer, faceId, el.faceText ? String(el.faceText) : '');
+                bumpEmoji(
+                  isSelf ? emojisSelf : emojisPeer,
+                  faceId,
+                  el.faceText ? String(el.faceText) : '',
+                );
               }
               break;
             }

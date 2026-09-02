@@ -23,13 +23,13 @@ async function main() {
 
   // 1. Find a group and list its members
   const anyRows = await (db as any).qq.query('SELECT "60001" FROM group_member3 LIMIT 1', []);
-  
+
   if (anyRows.length === 0) {
     console.log('[test:group-member] No records found in table.');
   } else {
     const groupCode = anyRows[0][0];
     console.log('[test:group-member] Testing with groupCode:', groupCode);
-    
+
     const members = await db.listMembersInGroup(BigInt(groupCode), 5);
     console.log(`[test:group-member] Found ${members.length} members in group.`);
     if (members.length > 0) {
@@ -41,7 +41,13 @@ async function main() {
       console.log('[test:group-member] Listing groups for user UID:', userUid);
       const userGroups = await db.listUserGroups(userUid, 5);
       console.log(`[test:group-member] User is in ${userGroups.length} groups (sampled).`);
-      console.log(JSON.stringify(userGroups.map(g => g.groupCode.toString()), null, 2));
+      console.log(
+        JSON.stringify(
+          userGroups.map((g) => g.groupCode.toString()),
+          null,
+          2,
+        ),
+      );
     }
   }
 

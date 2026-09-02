@@ -35,9 +35,7 @@ export const relatedEmojiRouter = router({
     }),
 
   /** All gif file names in one keyword's hash dir (for the lightbox). */
-  listGifs: procedure
-    .input(z.object({ hash: z.string() }))
-    .query(({ input }) => {
-      return requireServices().relatedEmoji.listGifs(input.hash);
-    }),
+  listGifs: procedure.input(z.object({ hash: z.string() })).query(({ input }) => {
+    return requireServices().relatedEmoji.listGifs(input.hash);
+  }),
 });

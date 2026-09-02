@@ -134,7 +134,8 @@ function dayWindow(date?: string): { startSec: number; endSec: number; label: st
   const raw = (date ?? '').trim();
   if (raw) {
     const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(raw);
-    if (!m) throw new Error(`无效日期：${date}（应为 YYYY-MM-DD，例如 2026-06-30；不传则默认今天）`);
+    if (!m)
+      throw new Error(`无效日期：${date}（应为 YYYY-MM-DD，例如 2026-06-30；不传则默认今天）`);
     d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
     if (Number.isNaN(d.getTime())) throw new Error(`无效日期：${date}`);
   } else {
@@ -142,14 +143,21 @@ function dayWindow(date?: string): { startSec: number; endSec: number; label: st
     d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   }
   const startSec = Math.floor(d.getTime() / 1000);
-  return { startSec, endSec: startSec + 86400, label: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}` };
+  return {
+    startSec,
+    endSec: startSec + 86400,
+    label: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`,
+  };
 }
 
 /**
  * 解析一个「日期区间」为本地 [startSec, endSec) 半开窗口（秒）。start/end 均为
  * YYYY-MM-DD，end 含当天（内部 +1 天转半开）。给 compare_periods 的任意两段对比用。
  */
-function rangeWindow(start: string, end: string): { startSec: number; endSec: number; label: string } {
+function rangeWindow(
+  start: string,
+  end: string,
+): { startSec: number; endSec: number; label: string } {
   const parse = (s: string): Date => {
     const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec((s ?? '').trim());
     if (!m) throw new Error(`无效日期：${s}（应为 YYYY-MM-DD，例如 2026-06-30）`);
@@ -212,7 +220,10 @@ function waitForExport(
       if (p?.taskId === taskId) check();
     };
     const timer = setTimeout(
-      () => settle(() => reject(new Error('导出耗时过长已超时；如需带媒体或大批量，请在「导出中心」里操作。'))),
+      () =>
+        settle(() =>
+          reject(new Error('导出耗时过长已超时；如需带媒体或大批量，请在「导出中心」里操作。')),
+        ),
       timeoutMs,
     );
     mgr.on('progress', onProgress);
@@ -307,14 +318,17 @@ export const AI_TOOLS: AiTool[] = [
           ? await search.searchBuddy(keyword, probe)
           : scope === 'group'
             ? await search.searchGroup(keyword, probe)
-            : [...(await search.searchBuddy(keyword, probe)), ...(await search.searchGroup(keyword, probe))].sort(
-                (a, b) => Number(b.sendTime - a.sendTime),
-              );
+            : [
+                ...(await search.searchBuddy(keyword, probe)),
+                ...(await search.searchGroup(keyword, probe)),
+              ].sort((a, b) => Number(b.sendTime - a.sendTime));
       const hasMore = raw.length > limit;
       const hits = raw.slice(0, limit);
 
       const selfUid = (await svc.profile.getSelfProfile())?.uid ?? '';
-      const otherUids = [...new Set(hits.filter((h) => h.senderUid !== selfUid).map((h) => h.senderUid))];
+      const otherUids = [
+        ...new Set(hits.filter((h) => h.senderUid !== selfUid).map((h) => h.senderUid)),
+      ];
       const nameByUid = otherUids.length ? await svc.profile.nicksByUids(otherUids) : {};
 
       const items = hits.map((h) => ({
@@ -335,9 +349,13 @@ export const AI_TOOLS: AiTool[] = [
         coverage: RANK_COVERAGE,
         hits: items,
         ...(items.length === 0
-          ? { hint: `没搜到含「${keyword}」的消息；换更短/近义的关键词再试，或改用 get_messages 直接读会话判断。零命中不代表内容不存在。` }
+          ? {
+              hint: `没搜到含「${keyword}」的消息；换更短/近义的关键词再试，或改用 get_messages 直接读会话判断。零命中不代表内容不存在。`,
+            }
           : hasMore
-            ? { hint: `命中较多，只返回按时间最新的 ${limit} 条；调大 limit 或换更具体的关键词收窄。` }
+            ? {
+                hint: `命中较多，只返回按时间最新的 ${limit} 条；调大 limit 或换更具体的关键词收窄。`,
+              }
             : {}),
       };
     },
@@ -368,7 +386,9 @@ export const AI_TOOLS: AiTool[] = [
       const hits = raw.slice(0, limit);
 
       const selfUid = (await svc.profile.getSelfProfile())?.uid ?? '';
-      const otherUids = [...new Set(hits.filter((h) => h.senderUid !== selfUid).map((h) => h.senderUid))];
+      const otherUids = [
+        ...new Set(hits.filter((h) => h.senderUid !== selfUid).map((h) => h.senderUid)),
+      ];
       const nameByUid = otherUids.length ? await svc.profile.nicksByUids(otherUids) : {};
 
       const items = hits.map((h) => ({
@@ -388,7 +408,9 @@ export const AI_TOOLS: AiTool[] = [
         coverage: RANK_COVERAGE,
         hits: items,
         ...(items.length === 0
-          ? { hint: `该会话里没搜到含「${keyword}」的消息；换更短/近义关键词，或用 get_messages 顺读判断。零命中不代表没说过。` }
+          ? {
+              hint: `该会话里没搜到含「${keyword}」的消息；换更短/近义关键词，或用 get_messages 顺读判断。零命中不代表没说过。`,
+            }
           : hasMore
             ? { hint: `命中较多，只返回 ${limit} 条；调大 limit 或换更具体的关键词。` }
             : {}),
@@ -421,7 +443,10 @@ export const AI_TOOLS: AiTool[] = [
           ? await svc.msgSearch.searchBuddy(keyword, POOL)
           : scope === 'group'
             ? await svc.msgSearch.searchGroup(keyword, POOL)
-            : [...(await svc.msgSearch.searchBuddy(keyword, POOL)), ...(await svc.msgSearch.searchGroup(keyword, POOL))];
+            : [
+                ...(await svc.msgSearch.searchBuddy(keyword, POOL)),
+                ...(await svc.msgSearch.searchGroup(keyword, POOL)),
+              ];
 
       const selfUid = (await svc.profile.getSelfProfile())?.uid ?? '';
       const cutoff = days > 0 ? Math.floor(Date.now() / 1000) - days * 86400 : 0;
@@ -445,7 +470,13 @@ export const AI_TOOLS: AiTool[] = [
         const kindScope: 'c2c' | 'group' = Number(h.chatType) === 2 ? 'group' : 'c2c';
         const cur = byUid.get(h.senderUid);
         if (!cur) {
-          byUid.set(h.senderUid, { uid: h.senderUid, hits: 1, lastSec: sec, sample: h.content, scopes: new Set([kindScope]) });
+          byUid.set(h.senderUid, {
+            uid: h.senderUid,
+            hits: 1,
+            lastSec: sec,
+            sample: h.content,
+            scopes: new Set([kindScope]),
+          });
         } else {
           cur.hits += 1;
           cur.scopes.add(kindScope);
@@ -456,7 +487,9 @@ export const AI_TOOLS: AiTool[] = [
         }
       }
 
-      const ranked = [...byUid.values()].sort((a, b) => b.hits - a.hits || b.lastSec - a.lastSec).slice(0, limit);
+      const ranked = [...byUid.values()]
+        .sort((a, b) => b.hits - a.hits || b.lastSec - a.lastSec)
+        .slice(0, limit);
       const nameByUid = ranked.length
         ? await svc.profile.nicksByUids(ranked.map((r) => r.uid).filter((u) => u !== selfUid))
         : {};
@@ -487,7 +520,8 @@ export const AI_TOOLS: AiTool[] = [
 
   tool({
     name: 'list_conversations',
-    description: '列出最近会话（私聊与群聊），最新在前。用来给后续工具挑选目标会话——从返回的 conv/kind 接 get_messages / get_messages_by_date 读原文，或先看「最近在跟谁来往」。想按活跃量排行别用它（那用 rank_friends_by_activity / get_period_overview）。',
+    description:
+      '列出最近会话（私聊与群聊），最新在前。用来给后续工具挑选目标会话——从返回的 conv/kind 接 get_messages / get_messages_by_date 读原文，或先看「最近在跟谁来往」。想按活跃量排行别用它（那用 rank_friends_by_activity / get_period_overview）。',
     input: z.object({
       limit: z.number().int().min(1).max(200).default(50).describe('返回条数上限'),
     }),
@@ -509,7 +543,10 @@ export const AI_TOOLS: AiTool[] = [
       kind: z.enum(['c2c', 'group']).describe('会话类型'),
       conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
       limit: z.number().int().min(1).max(100).default(30).describe('返回条数上限'),
-      before: z.string().default('').describe('翻页游标：上一次返回的 nextBefore（读更早的一页）；不传=最新一页'),
+      before: z
+        .string()
+        .default('')
+        .describe('翻页游标：上一次返回的 nextBefore（读更早的一页）；不传=最新一页'),
     }),
     run: async ({ kind, conv, limit, before }) => {
       const svc = services();
@@ -532,7 +569,9 @@ export const AI_TOOLS: AiTool[] = [
       const nextBefore = hasMore && page.length ? String(page[page.length - 1]!.msgSeq) : '';
 
       // 名字解析：自己=「我」，其余批量取昵称（私聊就对方一个人，群聊各发言人）。
-      const otherUids = [...new Set(page.filter((r) => r.senderUin !== selfUin).map((r) => r.senderUid))];
+      const otherUids = [
+        ...new Set(page.filter((r) => r.senderUin !== selfUin).map((r) => r.senderUid)),
+      ];
       const nameByUid = otherUids.length ? await svc.profile.nicksByUids(otherUids) : {};
 
       const ordered = [...page].reverse(); // 翻成旧→新方便顺读
@@ -560,7 +599,12 @@ export const AI_TOOLS: AiTool[] = [
         coverage: RANK_COVERAGE,
         messages,
         ...(messages.length === 0
-          ? { hint: beforeSeq != null ? '没有更早的消息了。' : '该会话本地没有消息记录（确认 conv 是否正确、或消息尚未同步）。' }
+          ? {
+              hint:
+                beforeSeq != null
+                  ? '没有更早的消息了。'
+                  : '该会话本地没有消息记录（确认 conv 是否正确、或消息尚未同步）。',
+            }
           : hasMore
             ? { hint: `还有更早的消息；把 nextBefore 传回 before 可继续往前读。` }
             : {}),
@@ -570,7 +614,8 @@ export const AI_TOOLS: AiTool[] = [
 
   tool({
     name: 'list_groups',
-    description: '列出当前账号加入的群聊（群号、群名等）。用来枚举/挑群，或把群名对上群号（只找某一个群更快的是 find_contact / search_groups）。拿到群号后接 get_messages / get_group_activity / list_group_members 等。',
+    description:
+      '列出当前账号加入的群聊（群号、群名等）。用来枚举/挑群，或把群名对上群号（只找某一个群更快的是 find_contact / search_groups）。拿到群号后接 get_messages / get_group_activity / list_group_members 等。',
     input: z.object({
       limit: z.number().int().min(1).max(500).default(100).describe('返回条数上限'),
       offset: z.number().int().min(0).default(0).describe('分页偏移'),
@@ -583,7 +628,8 @@ export const AI_TOOLS: AiTool[] = [
 
   tool({
     name: 'list_buddies',
-    description: '列出当前账号的 QQ 好友（uid、uin、昵称、备注等）。用来枚举好友或把昵称对上 uid（只找某一个人更快的是 find_contact / search_buddies）。拿到 uid 后接 get_messages / inspect_timeline / get_user_profile 等。想要「和谁聊得最多」的排行用 rank_friends_by_activity，别自己遍历。',
+    description:
+      '列出当前账号的 QQ 好友（uid、uin、昵称、备注等）。用来枚举好友或把昵称对上 uid（只找某一个人更快的是 find_contact / search_buddies）。拿到 uid 后接 get_messages / inspect_timeline / get_user_profile 等。想要「和谁聊得最多」的排行用 rank_friends_by_activity，别自己遍历。',
     input: z.object({
       limit: z.number().int().min(1).max(500).default(100).describe('返回条数上限'),
       offset: z.number().int().min(0).default(0).describe('分页偏移'),
@@ -600,7 +646,10 @@ export const AI_TOOLS: AiTool[] = [
       '按昵称或备注模糊搜索好友（用于「找一下叫XX的好友」「我和谁的好友名字里有YY」等场景）。' +
       '支持部分匹配，返回 uid、uin、昵称、备注。不传 query 时返回所有好友。',
     input: z.object({
-      query: z.string().default('').describe('搜索关键词（昵称/备注，不区分大小写，空字符串=全部）'),
+      query: z
+        .string()
+        .default('')
+        .describe('搜索关键词（昵称/备注，不区分大小写，空字符串=全部）'),
       limit: z.number().int().min(1).max(200).default(50).describe('返回条数上限'),
     }),
     run: async ({ query, limit }) => {
@@ -609,10 +658,7 @@ export const AI_TOOLS: AiTool[] = [
       const profiles = await svc.profile.profilesByUids(buddies.map((b) => b.uid));
       const q = query.toLowerCase();
       const matched = profiles.filter(
-        (p) =>
-          !q ||
-          (p.nick?.toLowerCase().includes(q)) ||
-          (p.remark?.toLowerCase().includes(q)),
+        (p) => !q || p.nick?.toLowerCase().includes(q) || p.remark?.toLowerCase().includes(q),
       );
       return matched.slice(0, limit).map((p) => ({
         uid: p.uid,
@@ -636,7 +682,7 @@ export const AI_TOOLS: AiTool[] = [
     run: async ({ query, limit }) => {
       const all = await services().groupInfo.listAllGroups(500, 0);
       const q = query.toLowerCase();
-      const matched = all.filter((g) => !q || (g.groupName?.toLowerCase().includes(q)));
+      const matched = all.filter((g) => !q || g.groupName?.toLowerCase().includes(q));
       return matched.slice(0, limit).map(groupDetailToWire);
     },
   }),
@@ -693,7 +739,12 @@ export const AI_TOOLS: AiTool[] = [
         .slice(0, limit)
         .map((g) => {
           const w = groupDetailToWire(g);
-          return { groupCode: w.groupCode, groupName: w.groupName, remark: w.remark, memberCount: w.memberCount };
+          return {
+            groupCode: w.groupCode,
+            groupName: w.groupName,
+            remark: w.remark,
+            memberCount: w.memberCount,
+          };
         });
 
       return {
@@ -745,7 +796,13 @@ export const AI_TOOLS: AiTool[] = [
       '用来回答「我和谁最亲密」「亲密度最高的好友」「好友亲密度排行」。' +
       '返回每位：rank 名次、nick 昵称、remark 备注、uin QQ号、uid、intimacy 亲密度分值。',
     input: z.object({
-      limit: z.number().int().min(1).max(200).default(30).describe('返回条数上限（取亲密度最高的若干位）'),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(200)
+        .default(30)
+        .describe('返回条数上限（取亲密度最高的若干位）'),
       offset: z.number().int().min(0).default(0).describe('分页偏移（翻看排行后段）'),
     }),
     run: async ({ limit, offset }) => {
@@ -788,7 +845,9 @@ export const AI_TOOLS: AiTool[] = [
         remark: w.remark,
         gender: w.gender === 1 ? '男' : w.gender === 2 ? '女' : '未知',
         ...(w.age ? { age: w.age } : {}),
-        ...(w.birthYear ? { birthday: `${w.birthYear}-${pad2(w.birthMonth)}-${pad2(w.birthDay)}` } : {}),
+        ...(w.birthYear
+          ? { birthday: `${w.birthYear}-${pad2(w.birthMonth)}-${pad2(w.birthDay)}` }
+          : {}),
         ...(w.signature ? { signature: w.signature } : {}),
         intimacy: w.intimacy,
         isFriend: w.isFriend,
@@ -813,7 +872,11 @@ export const AI_TOOLS: AiTool[] = [
       }
       const d = await services().groupInfo.getGroupDetail(gc);
       if (!d) {
-        return { groupCode, found: false, hint: '找不到该群资料；确认群号是否正确（可用 find_contact 解析群名）。' };
+        return {
+          groupCode,
+          found: false,
+          hint: '找不到该群资料；确认群号是否正确（可用 find_contact 解析群名）。',
+        };
       }
       const w = groupDetailToWire(d);
       return {
@@ -957,8 +1020,16 @@ export const AI_TOOLS: AiTool[] = [
         streak: analytics.streak,
         phrasesSelf: analytics.phrasesSelf,
         phrasesPeer: analytics.phrasesPeer,
-        emojisSelf: analytics.emojisSelf.map((e) => ({ faceId: e.faceId, faceText: e.faceText, count: e.count })),
-        emojisPeer: analytics.emojisPeer.map((e) => ({ faceId: e.faceId, faceText: e.faceText, count: e.count })),
+        emojisSelf: analytics.emojisSelf.map((e) => ({
+          faceId: e.faceId,
+          faceText: e.faceText,
+          count: e.count,
+        })),
+        emojisPeer: analytics.emojisPeer.map((e) => ({
+          faceId: e.faceId,
+          faceText: e.faceText,
+          count: e.count,
+        })),
         wordCloud: analytics.wordCloud,
       };
     },
@@ -1001,7 +1072,8 @@ export const AI_TOOLS: AiTool[] = [
         const prev = new Date(`${daily[i - 1]!.date}T00:00:00`).getTime();
         const cur = new Date(`${daily[i]!.date}T00:00:00`).getTime();
         const gap = Math.round((cur - prev) / dayMs);
-        if (gap > longestSilence.days) longestSilence = { days: gap, from: daily[i - 1]!.date, to: daily[i]!.date };
+        if (gap > longestSilence.days)
+          longestSilence = { days: gap, from: daily[i - 1]!.date, to: daily[i]!.date };
       }
 
       // 近 30 / 90 天消息量（用 daily 求和，省去再扫库）。
@@ -1015,11 +1087,15 @@ export const AI_TOOLS: AiTool[] = [
 
       // 逐月消息量。
       const byMonth = new Map<string, number>();
-      for (const d of daily) byMonth.set(d.date.slice(0, 7), (byMonth.get(d.date.slice(0, 7)) ?? 0) + d.count);
+      for (const d of daily)
+        byMonth.set(d.date.slice(0, 7), (byMonth.get(d.date.slice(0, 7)) ?? 0) + d.count);
       const monthly = [...byMonth.entries()].map(([month, count]) => ({ month, count }));
 
       // 建议阅读窗口：消息量最高的前 3 天（最值得回看原话的高峰）。
-      const readWindows = [...daily].sort((x, y) => y.count - x.count).slice(0, 3).map((d) => ({ date: d.date, count: d.count }));
+      const readWindows = [...daily]
+        .sort((x, y) => y.count - x.count)
+        .slice(0, 3)
+        .map((d) => ({ date: d.date, count: d.count }));
 
       return {
         uid,
@@ -1185,7 +1261,11 @@ export const AI_TOOLS: AiTool[] = [
         totalMessages,
         activeDays: daily.length,
         // 排行已解析成群名片/昵称（displayName），报告里可直接展示，不必再自己查名字。
-        topSenders: ranking.map((r) => ({ name: r.displayName, uid: r.uid, count: r.messageCount })),
+        topSenders: ranking.map((r) => ({
+          name: r.displayName,
+          uid: r.uid,
+          count: r.messageCount,
+        })),
         hourlyDistribution,
         daily,
         wordCloud: wordCloud.map((w) => ({ word: w.word, count: w.count })),
@@ -1219,7 +1299,10 @@ export const AI_TOOLS: AiTool[] = [
       const touched = contacts
         .filter((c) => Number(c.sendTime) >= startSec && Number(c.sendTime) < endSec)
         .map((c) => ({ c, wire: recentContactToWire(c), kind: convKindOf(c.chatType) }))
-        .filter((t): t is { c: typeof t.c; wire: typeof t.wire; kind: 'c2c' | 'group' } => t.kind !== null);
+        .filter(
+          (t): t is { c: typeof t.c; wire: typeof t.wire; kind: 'c2c' | 'group' } =>
+            t.kind !== null,
+        );
       const capped = touched.slice(0, CAP);
 
       // 群名映射：一次性建 code→名，避免逐群查询。
@@ -1240,7 +1323,9 @@ export const AI_TOOLS: AiTool[] = [
               : await svc.msgs.getC2cLatest(conv, READ_C2C);
           const limit = t.kind === 'group' ? READ_GROUP : READ_C2C;
           // rows 为最新在前；过滤到当天窗口。
-          const day = rows.filter((r) => Number(r.sendTime) >= startSec && Number(r.sendTime) < endSec);
+          const day = rows.filter(
+            (r) => Number(r.sendTime) >= startSec && Number(r.sendTime) < endSec,
+          );
           let myCount = 0;
           const hourly: Record<number, number> = {};
           let lastSec = 0; // 会话当天最后一条（任意人），用于「最近活跃」展示
@@ -1253,7 +1338,8 @@ export const AI_TOOLS: AiTool[] = [
               myCount += 1;
               if (sec < myFirstSec) myFirstSec = sec;
               if (sec > myLastSec) myLastSec = sec;
-              hourly[new Date(sec * 1000).getHours()] = (hourly[new Date(sec * 1000).getHours()] ?? 0) + 1;
+              hourly[new Date(sec * 1000).getHours()] =
+                (hourly[new Date(sec * 1000).getHours()] ?? 0) + 1;
             }
           }
           const name =
@@ -1383,7 +1469,10 @@ export const AI_TOOLS: AiTool[] = [
       const groupMine = sum(curGroups.items.map((g) => g.count));
       const prevGroupMine = sum(prevGroups.items.map((g) => g.count));
 
-      const delta = (cur: number, prev: number): { value: number; delta: number; deltaPct: number | null } => ({
+      const delta = (
+        cur: number,
+        prev: number,
+      ): { value: number; delta: number; deltaPct: number | null } => ({
         value: cur,
         delta: cur - prev,
         deltaPct: prev > 0 ? Math.round(((cur - prev) / prev) * 100) : null,
@@ -1436,10 +1525,16 @@ export const AI_TOOLS: AiTool[] = [
       '想要「最近N天 vs 上一个等长周期」这种滚动环比，直接用 get_period_overview 更省事；本工具专用于**手动指定**的两段。',
     input: z.object({
       periodA: z
-        .object({ start: z.string().describe('起 YYYY-MM-DD'), end: z.string().describe('止 YYYY-MM-DD（含当天）') })
+        .object({
+          start: z.string().describe('起 YYYY-MM-DD'),
+          end: z.string().describe('止 YYYY-MM-DD（含当天）'),
+        })
         .describe('第一个日期段'),
       periodB: z
-        .object({ start: z.string().describe('起 YYYY-MM-DD'), end: z.string().describe('止 YYYY-MM-DD（含当天）') })
+        .object({
+          start: z.string().describe('起 YYYY-MM-DD'),
+          end: z.string().describe('止 YYYY-MM-DD（含当天）'),
+        })
         .describe('第二个日期段'),
       kind: z.enum(['c2c', 'group']).optional().describe('只比单个会话时传：c2c=私聊 / group=群聊'),
       conv: z.string().optional().describe('只比单个会话时传：私聊对方 uid 或群号（配合 kind）'),
@@ -1450,7 +1545,10 @@ export const AI_TOOLS: AiTool[] = [
       const winB = rangeWindow(periodB.start, periodB.end);
       const selfUid = svc.msgs.selfUid();
 
-      const diff = (a: number, b: number): { a: number; b: number; delta: number; deltaPct: number | null } => ({
+      const diff = (
+        a: number,
+        b: number,
+      ): { a: number; b: number; delta: number; deltaPct: number | null } => ({
         a,
         b,
         delta: a - b,
@@ -1465,9 +1563,13 @@ export const AI_TOOLS: AiTool[] = [
         });
         const [totalA, mineA, totalB, mineB] = await Promise.all([
           svc.msgs.countConv(kind, conv, w(winA)),
-          selfUid ? svc.msgs.countConv(kind, conv, { ...w(winA), senderUid: selfUid }) : Promise.resolve(0),
+          selfUid
+            ? svc.msgs.countConv(kind, conv, { ...w(winA), senderUid: selfUid })
+            : Promise.resolve(0),
           svc.msgs.countConv(kind, conv, w(winB)),
-          selfUid ? svc.msgs.countConv(kind, conv, { ...w(winB), senderUid: selfUid }) : Promise.resolve(0),
+          selfUid
+            ? svc.msgs.countConv(kind, conv, { ...w(winB), senderUid: selfUid })
+            : Promise.resolve(0),
         ]);
         return {
           scope: 'conversation',
@@ -1487,7 +1589,10 @@ export const AI_TOOLS: AiTool[] = [
       }
 
       // ── 账号级对比（复用 ①② 的窗口聚合）──────────────────────────
-      const win = (r: { startSec: number; endSec: number }) => ({ startTime: r.startSec, endTime: r.endSec - 1 });
+      const win = (r: { startSec: number; endSec: number }) => ({
+        startTime: r.startSec,
+        endTime: r.endSec - 1,
+      });
       const [fa, fb, ga, gb] = await Promise.all([
         svc.buddyAnalytics.rankFriendsByActivity(0, win(winA)),
         svc.buddyAnalytics.rankFriendsByActivity(0, win(winB)),
@@ -1531,21 +1636,33 @@ export const AI_TOOLS: AiTool[] = [
       kind: z.enum(['c2c', 'group']).describe('会话类型'),
       conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
       date: z.string().default('').describe('某天 YYYY-MM-DD；空=今天'),
-      limit: z.number().int().min(1).max(300).default(120).describe('返回条数上限（取当天最近的若干条）'),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(300)
+        .default(120)
+        .describe('返回条数上限（取当天最近的若干条）'),
     }),
     run: async ({ kind, conv, date, limit }) => {
       const svc = services();
       const { startSec, endSec, label } = dayWindow(date);
       const READ = kind === 'group' ? 1000 : 600;
       const rows =
-        kind === 'group' ? await svc.msgs.getGroupLatest(conv, READ) : await svc.msgs.getC2cLatest(conv, READ);
+        kind === 'group'
+          ? await svc.msgs.getGroupLatest(conv, READ)
+          : await svc.msgs.getC2cLatest(conv, READ);
       const day = rows.filter((r) => Number(r.sendTime) >= startSec && Number(r.sendTime) < endSec);
       // 读取窗口触顶且最旧一条仍晚于目标日 → 目标日可能落在未扫到的更早区间，coverage 要如实点明。
-      const oldestSec = rows.length ? Number(rows[rows.length - 1]!.sendTime) : Number.MAX_SAFE_INTEGER;
+      const oldestSec = rows.length
+        ? Number(rows[rows.length - 1]!.sendTime)
+        : Number.MAX_SAFE_INTEGER;
       const mayMissEarlier = rows.length >= READ && oldestSec >= endSec;
 
       const selfUin = (await svc.profile.getSelfProfile())?.uin ?? -1n;
-      const otherUids = [...new Set(day.filter((r) => r.senderUin !== selfUin).map((r) => r.senderUid))];
+      const otherUids = [
+        ...new Set(day.filter((r) => r.senderUin !== selfUin).map((r) => r.senderUid)),
+      ];
       const nameByUid = otherUids.length ? await svc.profile.nicksByUids(otherUids) : {};
 
       // day 为最新在前；取当天最近 limit 条后翻成旧→新方便顺读。
@@ -1574,7 +1691,9 @@ export const AI_TOOLS: AiTool[] = [
           : RANK_COVERAGE,
         messages,
         ...(day.length > limit
-          ? { hint: `当天共 ${day.length} 条，只返回最近 ${limit} 条；如需更早可缩小到更早的日期或提高 limit。` }
+          ? {
+              hint: `当天共 ${day.length} 条，只返回最近 ${limit} 条；如需更早可缩小到更早的日期或提高 limit。`,
+            }
           : day.length === 0
             ? {
                 hint: mayMissEarlier
@@ -1597,9 +1716,18 @@ export const AI_TOOLS: AiTool[] = [
     input: z.object({
       kind: z.enum(['c2c', 'group']).describe('会话类型'),
       conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
-      format: z.enum(['html', 'txt', 'json', 'jsonl', 'csv', 'xlsx']).default('html').describe('导出格式，默认 html'),
+      format: z
+        .enum(['html', 'txt', 'json', 'jsonl', 'csv', 'xlsx'])
+        .default('html')
+        .describe('导出格式，默认 html'),
       name: z.string().default('').describe('文件名（建议传联系人/群名，便于识别）'),
-      days: z.number().int().min(1).max(3650).default(0).describe('只导出最近 N 天；0/不传=全部时间'),
+      days: z
+        .number()
+        .int()
+        .min(1)
+        .max(3650)
+        .default(0)
+        .describe('只导出最近 N 天；0/不传=全部时间'),
     }),
     run: async ({ kind, conv, format, name, days }) => {
       const svc = services();
@@ -1608,7 +1736,14 @@ export const AI_TOOLS: AiTool[] = [
       const range =
         days > 0 ? { start: Math.floor(Date.now() / 1000) - days * 86400, end: null } : undefined;
 
-      const taskId = await svc.exportManager.startTask({ kind, conv, name: stem, format, total, range });
+      const taskId = await svc.exportManager.startTask({
+        kind,
+        conv,
+        name: stem,
+        format,
+        total,
+        range,
+      });
       const task = await waitForExport(svc.exportManager, taskId);
 
       const path = task.filePath || task.bundleDir;
@@ -1637,4 +1772,3 @@ export const AI_TOOLS: AiTool[] = [
     },
   }),
 ];
-

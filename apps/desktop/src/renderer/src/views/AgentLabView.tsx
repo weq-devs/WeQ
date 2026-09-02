@@ -8,12 +8,27 @@ import {
   type ReactElement,
   type ReactNode,
 } from 'react';
-import { ArrowLeft, MessageSquarePlus, MessagesSquare, Plus, Send, Settings, Sparkles, Trash2, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  MessageSquarePlus,
+  MessagesSquare,
+  Plus,
+  Send,
+  Settings,
+  Sparkles,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
 import { autoGrowTextarea } from '../lib/textareaAutoGrow';
 import { QqAvatar } from '../components/QqAvatar';
-import { NewCloneModal, type BuddyOption, type FlatModels, type StartCloneArgs } from './agentlab/NewCloneModal';
+import {
+  NewCloneModal,
+  type BuddyOption,
+  type FlatModels,
+  type StartCloneArgs,
+} from './agentlab/NewCloneModal';
 import { CloneProgressModal } from './agentlab/CloneProgressModal';
 import {
   startCloneTask,
@@ -101,7 +116,13 @@ function Row({ label, children }: { label: string; children: ReactNode }): React
   );
 }
 
-function PersonaParamsPanel({ loading, detail }: { loading: boolean; detail: PersonaParamsDetail | null }): ReactElement {
+function PersonaParamsPanel({
+  loading,
+  detail,
+}: {
+  loading: boolean;
+  detail: PersonaParamsDetail | null;
+}): ReactElement {
   if (loading) return <div className="weq-agentlab-params">加载画像参数中…</div>;
   if (!detail) return <div className="weq-agentlab-params">暂无画像参数。</div>;
   const { stats, profile, fewShots } = detail.persona;
@@ -125,33 +146,38 @@ function PersonaParamsPanel({ loading, detail }: { loading: boolean; detail: Per
 
       <Row label="统计">
         <span className="weq-pp-stats">
-          源消息 {stats.sourceMessageCount} · 对方 {stats.friendMessageCount} · 轮次 {stats.turnCount} · 问答对{' '}
-          {stats.pairCount} · 均字 {stats.avgFriendMsgChars} · 连发 {stats.avgFriendBurst} · 语料{' '}
-          {stats.corpusChars} 字
+          源消息 {stats.sourceMessageCount} · 对方 {stats.friendMessageCount} · 轮次{' '}
+          {stats.turnCount} · 问答对 {stats.pairCount} · 均字 {stats.avgFriendMsgChars} · 连发{' '}
+          {stats.avgFriendBurst} · 语料 {stats.corpusChars} 字
           {stats.groupStyleMessageCount > 0 ? ` · 群补采 ${stats.groupStyleMessageCount} 条` : ''}
         </span>
       </Row>
       <Row label="语气">{card.tone || profile.styleSummary || '—'}</Row>
       <Row label="标点习惯">{card.punctuationStyle || '—'}</Row>
       <Row label="称呼">{card.addressing || '—'}</Row>
-      <Row label="性格"><Chips items={card.personalityTraits} /></Row>
-      <Row label="口头禅"><Chips items={card.catchphrases} /></Row>
-      <Row label="话题"><Chips items={card.topics.length ? card.topics : profile.topTerms} /></Row>
+      <Row label="性格">
+        <Chips items={card.personalityTraits} />
+      </Row>
+      <Row label="口头禅">
+        <Chips items={card.catchphrases} />
+      </Row>
+      <Row label="话题">
+        <Chips items={card.topics.length ? card.topics : profile.topTerms} />
+      </Row>
       <Row label="语音">
         {voiceProfile?.scenarioSummary || profile.voiceUsageSummary}（占比{' '}
         {Math.round((voiceProfile?.ratio ?? profile.voiceRatio) * 100)}%）
       </Row>
-      <Row label="系统表情"><Chips items={systemFaces} /></Row>
+      <Row label="系统表情">
+        <Chips items={systemFaces} />
+      </Row>
       <Row label="表情包">
         {stickers.length === 0 ? (
           <span className="weq-pp-dim">—</span>
         ) : (
           <div className="weq-pp-stickers">
             {stickers.map((s) => (
-              <span
-                key={`${s.description}-${s.scenario}-${s.count}`}
-                className="weq-pp-sticker"
-              >
+              <span key={`${s.description}-${s.scenario}-${s.count}`} className="weq-pp-sticker">
                 ×{s.count} {s.description || '（未解读）'}
                 {s.scenario ? `（${s.scenario}）` : ''}
               </span>
@@ -160,9 +186,15 @@ function PersonaParamsPanel({ loading, detail }: { loading: boolean; detail: Per
         )}
       </Row>
       <Row label="关系">{deep.relationship || profile.relationshipSummary || '—'}</Row>
-      <Row label="事实"><Chips items={deep.facts} /></Row>
-      <Row label="反应模式"><Chips items={deep.reactionPatterns} /></Row>
-      <Row label="立场雷点"><Chips items={deep.boundaries} /></Row>
+      <Row label="事实">
+        <Chips items={deep.facts} />
+      </Row>
+      <Row label="反应模式">
+        <Chips items={deep.reactionPatterns} />
+      </Row>
+      <Row label="立场雷点">
+        <Chips items={deep.boundaries} />
+      </Row>
 
       <details className="weq-pp-samples">
         <summary>
@@ -172,7 +204,9 @@ function PersonaParamsPanel({ loading, detail }: { loading: boolean; detail: Per
           {fewShots.map((pair) => (
             <div key={`${pair.prompt}-${pair.reply}`} className="weq-pp-sample">
               <div className="weq-pp-sample-q">我：{pair.prompt}</div>
-              <div>{detail.persona.name}：{pair.reply}</div>
+              <div>
+                {detail.persona.name}：{pair.reply}
+              </div>
             </div>
           ))}
         </div>
@@ -247,7 +281,12 @@ export function AgentLabView(): ReactElement {
     () =>
       (buddies.data ?? []).map((item) => {
         const p = profileByUid.get(item.uid);
-        return { uid: item.uid, uin: p?.uin || item.uin || '', label: p?.label || item.uin || item.uid, avatarUrl: p?.avatarUrl };
+        return {
+          uid: item.uid,
+          uin: p?.uin || item.uin || '',
+          label: p?.label || item.uin || item.uid,
+          avatarUrl: p?.avatarUrl,
+        };
       }),
     [buddies.data, profileByUid],
   );
@@ -257,7 +296,12 @@ export function AgentLabView(): ReactElement {
       (providers.data ?? []).flatMap((p) =>
         p.models
           .filter((m) => m.capabilities.includes(cap))
-          .map((m) => ({ key: `${p.id}::${m.id}`, providerId: p.id, model: m.id, label: `${p.name} · ${m.label ?? m.id}` })),
+          .map((m) => ({
+            key: `${p.id}::${m.id}`,
+            providerId: p.id,
+            model: m.id,
+            label: `${p.name} · ${m.label ?? m.id}`,
+          })),
       );
     return { chat: build('chat'), embedding: build('embedding'), vision: build('vision') };
   }, [providers.data]);
@@ -383,9 +427,11 @@ export function AgentLabView(): ReactElement {
       // 删的是当前打开的会话 → 换成一个新草稿，保持「进来就有个新会话」的体验。
       assistantNavSeq.current += 1;
       const draftKey = assistantNavSeq.current;
-      setSel((cur) => (cur.kind === 'assistant' && cur.sessionId === sessionId
-        ? { kind: 'assistant', sessionId: null, navKey: draftKey }
-        : cur));
+      setSel((cur) =>
+        cur.kind === 'assistant' && cur.sessionId === sessionId
+          ? { kind: 'assistant', sessionId: null, navKey: draftKey }
+          : cur,
+      );
     } catch (error) {
       dialog.error('删除失败', error instanceof Error ? error.message : String(error));
     }
@@ -433,7 +479,10 @@ export function AgentLabView(): ReactElement {
       const segments =
         result.renderedTurns && result.renderedTurns.length > 0
           ? [...result.renderedTurns]
-          : [...(result.segments ?? []), ...(result.sticker ? [`[[sticker:${result.sticker.md5}]]`] : [])];
+          : [
+              ...(result.segments ?? []),
+              ...(result.sticker ? [`[[sticker:${result.sticker.md5}]]`] : []),
+            ];
       if (segments.length === 0) segments.push(result.text);
       await sleep(Math.min(1800, result.replyDelayMs ?? 500));
       let acc = nextHistory;
@@ -523,7 +572,9 @@ export function AgentLabView(): ReactElement {
                     className={`weq-agentlab-item${sel.sessionId === s.id ? ' is-active' : ''}`}
                     onClick={() => openAssistantSession(s.id)}
                   >
-                    <span className="weq-agentlab-item-avatar is-bot"><MessagesSquare size={16} /></span>
+                    <span className="weq-agentlab-item-avatar is-bot">
+                      <MessagesSquare size={16} />
+                    </span>
                     <span className="weq-agentlab-item-text">
                       <strong>{s.title}</strong>
                       <small>{relTime(s.updatedAt)}</small>
@@ -547,114 +598,119 @@ export function AgentLabView(): ReactElement {
           </>
         ) : (
           <>
-        <div className="weq-agentlab-list-head">AgentLab</div>
-        <button
-          className="weq-agentlab-item"
-          onClick={openAssistantDraft}
-        >
-          <span className="weq-agentlab-item-avatar is-bot"><Sparkles size={18} /></span>
-          <span className="weq-agentlab-item-text">
-            <strong>WeQ 助手</strong>
-            <small>调用工具帮你完成操作</small>
-          </span>
-        </button>
+            <div className="weq-agentlab-list-head">AgentLab</div>
+            <button className="weq-agentlab-item" onClick={openAssistantDraft}>
+              <span className="weq-agentlab-item-avatar is-bot">
+                <Sparkles size={18} />
+              </span>
+              <span className="weq-agentlab-item-text">
+                <strong>WeQ 助手</strong>
+                <small>调用工具帮你完成操作</small>
+              </span>
+            </button>
 
-        <div className="weq-agentlab-list-label">好友克隆</div>
-        <div className="weq-agentlab-list-scroll">
-          {personaList.length === 0 ? (
-            <div className="weq-agentlab-empty" style={{ padding: '8px 10px' }}>还没有克隆体。</div>
-          ) : (
-            personaList.map((p) => {
-              const prof = profileByUid.get(p.sourceId);
-              return (
-                <button
-                  key={p.id}
-                  className={`weq-agentlab-item${sel.kind === 'persona' && sel.id === p.id ? ' is-active' : ''}`}
-                  onClick={() => selectPersona(p.id)}
-                >
-                  <QqAvatar uin={prof?.uin} size={34} />
-                  <span className="weq-agentlab-item-text">
-                    <strong>{p.name}</strong>
-                    <small>{p.sourceTitle}</small>
-                  </span>
-                </button>
-              );
-            })
-          )}
-        </div>
+            <div className="weq-agentlab-list-label">好友克隆</div>
+            <div className="weq-agentlab-list-scroll">
+              {personaList.length === 0 ? (
+                <div className="weq-agentlab-empty" style={{ padding: '8px 10px' }}>
+                  还没有克隆体。
+                </div>
+              ) : (
+                personaList.map((p) => {
+                  const prof = profileByUid.get(p.sourceId);
+                  return (
+                    <button
+                      key={p.id}
+                      className={`weq-agentlab-item${sel.kind === 'persona' && sel.id === p.id ? ' is-active' : ''}`}
+                      onClick={() => selectPersona(p.id)}
+                    >
+                      <QqAvatar uin={prof?.uin} size={34} />
+                      <span className="weq-agentlab-item-text">
+                        <strong>{p.name}</strong>
+                        <small>{p.sourceTitle}</small>
+                      </span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
 
-        <div className="weq-agentlab-list-label">群聊</div>
-        <div className="weq-agentlab-list-scroll">
-          {(groups.data ?? []).length === 0 ? (
-            <div className="weq-agentlab-empty" style={{ padding: '8px 10px' }}>还没有群聊。</div>
-          ) : (
-            (groups.data ?? []).map((g) => (
-              <button
-                key={g.id}
-                className={`weq-agentlab-item${sel.kind === 'group' && sel.id === g.id ? ' is-active' : ''}`}
-                onClick={() => setSel({ kind: 'group', id: g.id })}
-              >
-                <span className="weq-agentlab-item-avatar is-bot"><MessagesSquare size={16} /></span>
-                <span className="weq-agentlab-item-text">
-                  <strong>{g.name}</strong>
-                  <small>群聊</small>
-                </span>
-              </button>
-            ))
-          )}
-        </div>
-        <button className="weq-agentlab-newclone" onClick={() => setGroupOpen(true)}>
-          <Plus size={15} /> 新建群聊
-        </button>
-
-        {cloneTasks.length > 0 ? (
-          <div className="weq-clone-tasklist">
-            {cloneTasks.map((t) => (
-              <button
-                key={t.personaId}
-                type="button"
-                className={`weq-clone-task is-${t.status}`}
-                onClick={() => setViewTaskId(t.personaId)}
-                title="查看克隆进度"
-              >
-                <QqAvatar uin={t.uin} size={28} />
-                <span className="weq-clone-task-text">
-                  <strong>{t.name}</strong>
-                  <small>
-                    {t.status === 'running'
-                      ? `${t.phase} · ${Math.round(t.percent)}%`
-                      : t.status === 'done'
-                        ? '克隆完成 · 点击查看'
-                        : '克隆失败 · 点击查看'}
-                  </small>
-                  {t.status === 'running' ? (
-                    <span className="weq-clone-task-bar">
-                      <i style={{ width: `${Math.round(t.percent)}%` }} />
-                    </span>
-                  ) : null}
-                </span>
-                {t.status !== 'running' ? (
-                  <span
-                    className="weq-clone-task-close"
-                    role="button"
-                    tabIndex={0}
-                    aria-label="移除任务"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      dismissTask(t.personaId);
-                    }}
+            <div className="weq-agentlab-list-label">群聊</div>
+            <div className="weq-agentlab-list-scroll">
+              {(groups.data ?? []).length === 0 ? (
+                <div className="weq-agentlab-empty" style={{ padding: '8px 10px' }}>
+                  还没有群聊。
+                </div>
+              ) : (
+                (groups.data ?? []).map((g) => (
+                  <button
+                    key={g.id}
+                    className={`weq-agentlab-item${sel.kind === 'group' && sel.id === g.id ? ' is-active' : ''}`}
+                    onClick={() => setSel({ kind: 'group', id: g.id })}
                   >
-                    <X size={13} />
-                  </span>
-                ) : null}
-              </button>
-            ))}
-          </div>
-        ) : null}
+                    <span className="weq-agentlab-item-avatar is-bot">
+                      <MessagesSquare size={16} />
+                    </span>
+                    <span className="weq-agentlab-item-text">
+                      <strong>{g.name}</strong>
+                      <small>群聊</small>
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+            <button className="weq-agentlab-newclone" onClick={() => setGroupOpen(true)}>
+              <Plus size={15} /> 新建群聊
+            </button>
 
-        <button className="weq-agentlab-newclone" onClick={() => setCloneOpen(true)}>
-          <Plus size={15} /> 新建克隆
-        </button>
+            {cloneTasks.length > 0 ? (
+              <div className="weq-clone-tasklist">
+                {cloneTasks.map((t) => (
+                  <button
+                    key={t.personaId}
+                    type="button"
+                    className={`weq-clone-task is-${t.status}`}
+                    onClick={() => setViewTaskId(t.personaId)}
+                    title="查看克隆进度"
+                  >
+                    <QqAvatar uin={t.uin} size={28} />
+                    <span className="weq-clone-task-text">
+                      <strong>{t.name}</strong>
+                      <small>
+                        {t.status === 'running'
+                          ? `${t.phase} · ${Math.round(t.percent)}%`
+                          : t.status === 'done'
+                            ? '克隆完成 · 点击查看'
+                            : '克隆失败 · 点击查看'}
+                      </small>
+                      {t.status === 'running' ? (
+                        <span className="weq-clone-task-bar">
+                          <i style={{ width: `${Math.round(t.percent)}%` }} />
+                        </span>
+                      ) : null}
+                    </span>
+                    {t.status !== 'running' ? (
+                      <span
+                        className="weq-clone-task-close"
+                        role="button"
+                        tabIndex={0}
+                        aria-label="移除任务"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          dismissTask(t.personaId);
+                        }}
+                      >
+                        <X size={13} />
+                      </span>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
+            <button className="weq-agentlab-newclone" onClick={() => setCloneOpen(true)}>
+              <Plus size={15} /> 新建克隆
+            </button>
           </>
         )}
       </aside>
@@ -710,7 +766,9 @@ export function AgentLabView(): ReactElement {
                   <span>
                     {activePersona
                       ? (() => {
-                          const p = (providers.data ?? []).find((pr) => pr.id === activePersona.models?.chat?.providerId);
+                          const p = (providers.data ?? []).find(
+                            (pr) => pr.id === activePersona.models?.chat?.providerId,
+                          );
                           const modelText = activePersona.models?.chat?.model ?? '旧版克隆，请重建';
                           return `${p ? `${p.name} · ` : ''}${modelText} · 样本 ${activePersona.corpusMessageCount} 条`;
                         })()
@@ -841,7 +899,12 @@ export function AgentLabView(): ReactElement {
             willing: activePersona.willing,
             typo: activePersona.typo,
           }}
-          paramsContent={<PersonaParamsPanel loading={personaDetail.isLoading} detail={personaDetail.data ?? null} />}
+          paramsContent={
+            <PersonaParamsPanel
+              loading={personaDetail.isLoading}
+              detail={personaDetail.data ?? null}
+            />
+          }
           onClose={() => setSettingsOpen(false)}
           onSaved={() => void utils.account.listAgentLabPersonas.invalidate()}
         />

@@ -41,7 +41,8 @@ async function loadAsset(file: string): Promise<string> {
 function injectHead(html: string, head: string): string {
   if (!head) return html;
   if (/<head[^>]*>/i.test(html)) return html.replace(/<head[^>]*>/i, (m) => `${m}\n${head}`);
-  if (/<html[^>]*>/i.test(html)) return html.replace(/<html[^>]*>/i, (m) => `${m}\n<head>${head}</head>`);
+  if (/<html[^>]*>/i.test(html))
+    return html.replace(/<html[^>]*>/i, (m) => `${m}\n<head>${head}</head>`);
   return `<!doctype html><html><head><meta charset="utf-8">${head}</head><body>${html}</body></html>`;
 }
 

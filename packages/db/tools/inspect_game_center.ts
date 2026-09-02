@@ -34,19 +34,31 @@ function describe(v: unknown): string {
     return `<BLOB ${v.byteLength} bytes> ${hex}${v.byteLength > 64 ? '…' : ''}`;
   }
   if (typeof v === 'bigint') return `${v}n`;
-  if (typeof v === 'string') return v.length > 200 ? `${v.slice(0, 200)}… (${v.length} chars)` : `"${v}"`;
+  if (typeof v === 'string')
+    return v.length > 200 ? `${v.slice(0, 200)}… (${v.length} chars)` : `"${v}"`;
   return `${String(v)} (${typeof v})`;
 }
 
 /** Dump every column of every matching row for one table. */
-async function dumpRows(db: QqDb, table: string, whereCol: string, whereVal: string, limit = 3): Promise<void> {
+async function dumpRows(
+  db: QqDb,
+  table: string,
+  whereCol: string,
+  whereVal: string,
+  limit = 3,
+): Promise<void> {
   const info = await db.query(`PRAGMA table_info("${table}")`);
   const cols = info.map((r) => String(r[1]));
-  console.log(`\n================ ${table} — WHERE "${whereCol}" = ${String(whereVal)} ================`);
+  console.log(
+    `\n================ ${table} — WHERE "${whereCol}" = ${String(whereVal)} ================`,
+  );
   console.log(`(schema: ${cols.length} columns)`);
   let rows: Awaited<ReturnType<QqDb['query']>>;
   try {
-    rows = await db.query(`SELECT * FROM "${table}" WHERE "${whereCol}" = ? LIMIT ?`, [whereVal, BigInt(limit)]);
+    rows = await db.query(`SELECT * FROM "${table}" WHERE "${whereCol}" = ? LIMIT ?`, [
+      whereVal,
+      BigInt(limit),
+    ]);
   } catch (e) {
     console.log(`  !! query failed: ${(e as Error).message}`);
     return;

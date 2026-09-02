@@ -54,20 +54,98 @@ interface CacheCategory {
 }
 
 const CATEGORIES: CacheCategory[] = [
-  { id: 'database', label: '本地数据库', desc: '查看 / 修改 QQ 数据库', icon: <Database size={18} />, ready: true },
-  { id: 'avatar', label: '头像资源', desc: 'nt_data 头像缓存', icon: <ImageIcon size={18} />, ready: true },
-  { id: 'sysEmoji', label: '系统表情', desc: '内置表情资源', icon: <Smile size={18} />, ready: true },
-  { id: 'marketEmoji', label: '商城表情', desc: '商城下载的贴纸', icon: <Store size={18} />, ready: true },
-  { id: 'marketPack', label: '商城表情包', desc: '我添加的表情包 · 在线解密', icon: <PackageOpen size={18} />, ready: true },
-  { id: 'customEmoji', label: '自定义表情', desc: '收到的 / 我的表情', icon: <Sticker size={18} />, ready: true },
-  { id: 'relatedEmoji', label: '关联表情', desc: '关键词联想表情', icon: <Smile size={18} />, ready: true },
-  { id: 'fileDir', label: 'File 目录', desc: 'nt_data File 目录', icon: <Folder size={18} />, ready: true },
-  { id: 'downloadFile', label: '下载文件', desc: '下载到本地的文件', icon: <FileDown size={18} />, ready: true },
-  { id: 'album', label: '图片墙资源', desc: '群相册 / 图片墙缓存', icon: <Images size={18} />, ready: true },
-  { id: 'image', label: '图片资源', desc: '聊天图片缓存', icon: <ImageIcon size={18} />, ready: true },
+  {
+    id: 'database',
+    label: '本地数据库',
+    desc: '查看 / 修改 QQ 数据库',
+    icon: <Database size={18} />,
+    ready: true,
+  },
+  {
+    id: 'avatar',
+    label: '头像资源',
+    desc: 'nt_data 头像缓存',
+    icon: <ImageIcon size={18} />,
+    ready: true,
+  },
+  {
+    id: 'sysEmoji',
+    label: '系统表情',
+    desc: '内置表情资源',
+    icon: <Smile size={18} />,
+    ready: true,
+  },
+  {
+    id: 'marketEmoji',
+    label: '商城表情',
+    desc: '商城下载的贴纸',
+    icon: <Store size={18} />,
+    ready: true,
+  },
+  {
+    id: 'marketPack',
+    label: '商城表情包',
+    desc: '我添加的表情包 · 在线解密',
+    icon: <PackageOpen size={18} />,
+    ready: true,
+  },
+  {
+    id: 'customEmoji',
+    label: '自定义表情',
+    desc: '收到的 / 我的表情',
+    icon: <Sticker size={18} />,
+    ready: true,
+  },
+  {
+    id: 'relatedEmoji',
+    label: '关联表情',
+    desc: '关键词联想表情',
+    icon: <Smile size={18} />,
+    ready: true,
+  },
+  {
+    id: 'fileDir',
+    label: 'File 目录',
+    desc: 'nt_data File 目录',
+    icon: <Folder size={18} />,
+    ready: true,
+  },
+  {
+    id: 'downloadFile',
+    label: '下载文件',
+    desc: '下载到本地的文件',
+    icon: <FileDown size={18} />,
+    ready: true,
+  },
+  {
+    id: 'album',
+    label: '图片墙资源',
+    desc: '群相册 / 图片墙缓存',
+    icon: <Images size={18} />,
+    ready: true,
+  },
+  {
+    id: 'image',
+    label: '图片资源',
+    desc: '聊天图片缓存',
+    icon: <ImageIcon size={18} />,
+    ready: true,
+  },
   { id: 'video', label: '视频资源', desc: '聊天视频缓存', icon: <Film size={18} />, ready: true },
-  { id: 'voice', label: '语音资源', desc: '聊天语音缓存', icon: <AudioLines size={18} />, ready: true },
-  { id: 'qzone', label: 'QQ空间缓存', desc: '空间浏览缓存', icon: <Cloud size={18} />, ready: true },
+  {
+    id: 'voice',
+    label: '语音资源',
+    desc: '聊天语音缓存',
+    icon: <AudioLines size={18} />,
+    ready: true,
+  },
+  {
+    id: 'qzone',
+    label: 'QQ空间缓存',
+    desc: '空间浏览缓存',
+    icon: <Cloud size={18} />,
+    ready: true,
+  },
 ];
 
 export function CacheView(): ReactElement {
@@ -176,8 +254,8 @@ export function CacheView(): ReactElement {
           </div>
           {isStatic && (
             <p className="weq-cache-static-note">
-              静态账号只有数据库资源。图片、语音等媒体不属于这份导入的快照，
-              可在「设置 → 账号基础」里关联本机原生目录后于聊天页查看。
+              静态账号只有数据库资源。图片、语音等媒体不属于这份导入的快照， 可在「设置 →
+              账号基础」里关联本机原生目录后于聊天页查看。
             </p>
           )}
         </nav>
@@ -218,8 +296,14 @@ export function CacheView(): ReactElement {
         )}
       </section>
 
-      <ResourceAnalyticsDialog open={showAnalytics && !isStatic} onClose={() => setShowAnalytics(false)} />
-      <ResourceCleanupDialog open={showCleanup && !isStatic} onClose={() => setShowCleanup(false)} />
+      <ResourceAnalyticsDialog
+        open={showAnalytics && !isStatic}
+        onClose={() => setShowAnalytics(false)}
+      />
+      <ResourceCleanupDialog
+        open={showCleanup && !isStatic}
+        onClose={() => setShowCleanup(false)}
+      />
     </div>
   );
 }
@@ -232,9 +316,7 @@ function CachePlaceholder({ label }: { label: string }): ReactElement {
         <Construction size={30} strokeWidth={1.4} />
       </span>
       <strong className="weq-cache-empty-title">{label}</strong>
-      <p className="weq-cache-empty-desc">
-        该分类的查看与清理功能正在开发中，敬请期待。
-      </p>
+      <p className="weq-cache-empty-desc">该分类的查看与清理功能正在开发中，敬请期待。</p>
       <span className="weq-cache-empty-tag">开发中</span>
     </div>
   );

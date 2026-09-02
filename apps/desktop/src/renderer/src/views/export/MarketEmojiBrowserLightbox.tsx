@@ -54,13 +54,9 @@ function PackDetailPane({ packId }: { packId: string }): ReactElement {
     <div className="weq-emb-detail">
       <div className="weq-emb-detail-head">
         <Store size={15} className="weq-emb-detail-head-icon" />
-        <span className="weq-mface-lb-title">
-          {detail.data?.name || `表情包 ${packId}`}
-        </span>
+        <span className="weq-mface-lb-title">{detail.data?.name || `表情包 ${packId}`}</span>
         <em className={`weq-emb-fee is-${fee.tone}`}>{fee.label}</em>
-        {detail.data ? (
-          <span className="weq-mface-lb-count">{detail.data.count} 张</span>
-        ) : null}
+        {detail.data ? <span className="weq-mface-lb-count">{detail.data.count} 张</span> : null}
       </div>
       {detail.isLoading ? (
         <div className="weq-mface-lb-state">
@@ -68,9 +64,7 @@ function PackDetailPane({ packId }: { packId: string }): ReactElement {
           获取表情列表中…
         </div>
       ) : !detail.data ? (
-        <div className="weq-mface-lb-state is-error">
-          无法获取这组表情（网络问题或包不存在）
-        </div>
+        <div className="weq-mface-lb-state is-error">无法获取这组表情（网络问题或包不存在）</div>
       ) : items.length === 0 ? (
         <div className="weq-mface-lb-state">这个表情包暂时没有可显示的表情</div>
       ) : (
@@ -87,7 +81,15 @@ function PackDetailPane({ packId }: { packId: string }): ReactElement {
 }
 
 /** 一张表情图：TEA 解密后的 GIF；失败显示占位。 */
-function EmojiCell({ packId, hash, name }: { packId: string; hash: string; name: string }): ReactElement {
+function EmojiCell({
+  packId,
+  hash,
+  name,
+}: {
+  packId: string;
+  hash: string;
+  name: string;
+}): ReactElement {
   const [broken, setBroken] = useState(false);
   return (
     <figure className="weq-mface-lb-cell" title={name || hash}>

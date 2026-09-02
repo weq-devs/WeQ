@@ -35,7 +35,11 @@ describe('decodeMsgDressColumn font id', () => {
 describe('decodeMsgDressWire (40900 内形态, 无外层 40801 包)', () => {
   it('decodes a raw MsgDressWire payload into decoration ids', () => {
     const bytes = wire({ bubbleId: 2072805, fontId: 20671, widgetId: 104228 });
-    expect(decodeMsgDressWire(bytes)).toEqual({ bubbleId: 2072805, fontId: 20671, widgetId: 104228 });
+    expect(decodeMsgDressWire(bytes)).toEqual({
+      bubbleId: 2072805,
+      fontId: 20671,
+      widgetId: 104228,
+    });
   });
 
   it('falls back to the byte-swapped tag 41531 value when 41525 is zero', () => {

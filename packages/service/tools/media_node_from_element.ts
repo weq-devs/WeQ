@@ -3,7 +3,8 @@ import { mediaNodeFromElement, type MediaElement } from '../src/account/media_ur
 
 const element: MediaElement = {
   kind: 'video',
-  fileToken: 'EhSn7QhnpGd7w0ydYdWXwANsnsgUsBjL6aEBIIcLKM-omZaFnpUDMgRwcm9kUID1JFoQbfyquYTAZoq58XKvCiXHunoCPruCAQJneg',
+  fileToken:
+    'EhSn7QhnpGd7w0ydYdWXwANsnsgUsBjL6aEBIIcLKM-omZaFnpUDMgRwcm9kUID1JFoQbfyquYTAZoq58XKvCiXHunoCPruCAQJneg',
   fileSize: 2_651_339,
   md5Bytes: Buffer.from('257f4d68fbe37c5687a55e8ef3abc859', 'hex'),
   contentHash: Buffer.from('a7ed0867a4677bc34c9d61d597c0036c9ec814b0', 'hex'),

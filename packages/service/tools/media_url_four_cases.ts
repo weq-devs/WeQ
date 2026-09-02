@@ -17,7 +17,8 @@ const SELF_UID = 'u_mGIBTBW7gF4Wocw8zapc6w';
 const GROUP_ID = 673_646_675;
 
 const GROUP_VIDEO_NODE: MediaIndexNode = {
-  fileUuid: 'EhSn7QhnpGd7w0ydYdWXwANsnsgUsBjL6aEBIIcLKM-omZaFnpUDMgRwcm9kUID1JFoQbfyquYTAZoq58XKvCiXHunoCPruCAQJneg',
+  fileUuid:
+    'EhSn7QhnpGd7w0ydYdWXwANsnsgUsBjL6aEBIIcLKM-omZaFnpUDMgRwcm9kUID1JFoQbfyquYTAZoq58XKvCiXHunoCPruCAQJneg',
   fileSize: 2_651_339,
   fileHash: '257f4d68fbe37c5687a55e8ef3abc859',
   fileSha1: 'a7ed0867a4677bc34c9d61d597c0036c9ec814b0',
@@ -39,7 +40,8 @@ const GROUP_VIDEO_NODE: MediaIndexNode = {
 };
 
 const PRIVATE_VIDEO_NODE: MediaIndexNode = {
-  fileUuid: 'EhRFF7qXr0evYoqmITxn-wIucztZOxjY5F8ghQso8sasn-aelQMyBHByb2RQgPUkWhCoXuARhOWyZzz-PprFm9RFegLZ_IIBAmd6',
+  fileUuid:
+    'EhRFF7qXr0evYoqmITxn-wIucztZOxjY5F8ghQso8sasn-aelQMyBHByb2RQgPUkWhCoXuARhOWyZzz-PprFm9RFegLZ_IIBAmd6',
   fileSize: 1_569_368,
   fileHash: 'e83bf46fb1af700525cf998cc366a18a',
   fileSha1: '4517ba97af47af628aa6213c67fb022e733b593b',
@@ -63,8 +65,7 @@ const PRIVATE_VIDEO_NODE: MediaIndexNode = {
 const GROUP_FILE_ID = '/d7f8c7d5-598f-41d9-825d-9d359851812c';
 const GROUP_FILE_BUS_ID = 102;
 
-const PRIVATE_FILE_ID =
-  '4952cc65f95b09df4de35ea1c783c368_aa7d784e-6f77-11f1-a000-9ff47923dfc5';
+const PRIVATE_FILE_ID = '4952cc65f95b09df4de35ea1c783c368_aa7d784e-6f77-11f1-a000-9ff47923dfc5';
 const PRIVATE_FILE_HASH =
   'D6EATltTCMmksa4GEhQ22e9kvtLpyCULDOQdxkwIcongFBiaHibFsgoR8ozYzt0QYwubvoAziaLovqqCEADSAEY';
 
@@ -104,7 +105,9 @@ async function main(): Promise<void> {
 
   console.log('[media-url-four-cases] injecting hook ...');
   const status = await nt.injectAndGetStatusEmbedded(pid, uin);
-  console.log(`[media-url-four-cases] inject result: uin=${status.uin} loggedIn=${status.loggedIn}`);
+  console.log(
+    `[media-url-four-cases] inject result: uin=${status.uin} loggedIn=${status.loggedIn}`,
+  );
 
   const session = {
     context: { uin },

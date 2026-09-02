@@ -63,9 +63,7 @@ export interface UpdateActions {
 const unsupported: UpdateActions = {
   supported: false,
   async check() {
-    return (
-      lastState ?? { current: '', latest: null, hasUpdate: false, base: null, ranked: [] }
-    );
+    return lastState ?? { current: '', latest: null, hasUpdate: false, base: null, ranked: [] };
   },
   async startDownload() {
     // No-op — nothing to install into.

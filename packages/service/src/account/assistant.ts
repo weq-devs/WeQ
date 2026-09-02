@@ -13,7 +13,13 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { basename, extname, join, resolve, sep } from 'node:path';
-import { reportUsage, pickMessageText, type AgentLabEndpoint, type AgentLabModelRef, type AgentLabUsage } from '@weq/agentlab';
+import {
+  reportUsage,
+  pickMessageText,
+  type AgentLabEndpoint,
+  type AgentLabModelRef,
+  type AgentLabUsage,
+} from '@weq/agentlab';
 import type { TokenUsageStore } from './agentlab_usage';
 import type { ConversationStore, ConversationTurn } from './agentlab_conversation';
 import { JsonStore } from '../common/json_store';
@@ -94,7 +100,12 @@ export interface ToolArtifactResult {
 function extractArtifactCard(result: unknown): AssistantArtifact | null {
   if (!result || typeof result !== 'object' || !('artifactCard' in result)) return null;
   const card = (result as ToolArtifactResult).artifactCard;
-  if (card && typeof card.id === 'string' && typeof card.name === 'string' && typeof card.kind === 'string') {
+  if (
+    card &&
+    typeof card.id === 'string' &&
+    typeof card.name === 'string' &&
+    typeof card.kind === 'string'
+  ) {
     return card;
   }
   return null;
@@ -281,8 +292,10 @@ export class AssistantService {
   setConfig(patch: AssistantConfig): AssistantConfig {
     this.config = {
       model: patch.model ?? this.config.model,
-      customPrompt: patch.customPrompt !== undefined ? patch.customPrompt : this.config.customPrompt,
-      reasoningEffort: patch.reasoningEffort !== undefined ? patch.reasoningEffort : this.config.reasoningEffort,
+      customPrompt:
+        patch.customPrompt !== undefined ? patch.customPrompt : this.config.customPrompt,
+      reasoningEffort:
+        patch.reasoningEffort !== undefined ? patch.reasoningEffort : this.config.reasoningEffort,
       mcpServers: patch.mcpServers !== undefined ? patch.mcpServers : this.config.mcpServers,
     };
     this.persistConfig();
@@ -305,7 +318,12 @@ export class AssistantService {
   /** 新建一个空会话并返回（标题待首轮对话后自动总结）。 */
   createSession(): AssistantSession {
     const now = Date.now();
-    const session: AssistantSession = { id: randomUUID(), title: DEFAULT_SESSION_TITLE, createdAt: now, updatedAt: now };
+    const session: AssistantSession = {
+      id: randomUUID(),
+      title: DEFAULT_SESSION_TITLE,
+      createdAt: now,
+      updatedAt: now,
+    };
     this.sessions.push(session);
     this.persistSessions();
     return session;
@@ -432,7 +450,9 @@ export class AssistantService {
       steps.filter((s) => s.kind !== 'text_delta' && s.kind !== 'reasoning_delta');
     const collectToolsUsed = (): string[] => [
       ...new Set(
-        steps.filter((s): s is Extract<AssistantStep, { kind: 'tool_call' }> => s.kind === 'tool_call').map((s) => s.name),
+        steps
+          .filter((s): s is Extract<AssistantStep, { kind: 'tool_call' }> => s.kind === 'tool_call')
+          .map((s) => s.name),
       ),
     ];
 
@@ -605,10 +625,21 @@ export class AssistantService {
               try {
                 const artifact = this.writeReport(args);
                 emit({ kind: 'artifact', artifact });
-                toolMsg = safeStringify({ ok: true, id: artifact.id, name: artifact.name, kind: artifact.kind });
+                toolMsg = safeStringify({
+                  ok: true,
+                  id: artifact.id,
+                  name: artifact.name,
+                  kind: artifact.kind,
+                });
               } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
-                emit({ kind: 'tool_result', id: call.id, name: call.function.name, ok: false, preview: message });
+                emit({
+                  kind: 'tool_result',
+                  id: call.id,
+                  name: call.function.name,
+                  ok: false,
+                  preview: message,
+                });
                 toolMsg = safeStringify({ ok: false, error: message });
               }
               messages.push({ role: 'tool', tool_call_id: call.id, content: toolMsg });
@@ -673,7 +704,7 @@ export class AssistantService {
     // 否则整段剔除：省 token，也避免几十行排版细节稀释调查方法论指令。
     const wantsReport = REPORT_INTENT_PATTERN.test(userText);
     // 随机抽一批「一言」候选（每轮重抽 → 候选池天然变化 → 报告主题句天然多元）。
-    const verses = wantsReport ? this.tools?.sampleHitokoto?.(8) ?? [] : [];
+    const verses = wantsReport ? (this.tools?.sampleHitokoto?.(8) ?? []) : [];
     const verseBlock = verses.length
       ? verses.map((v, i) => `  ${i + 1}. ${v.text}${v.from ? `　—— ${v.from}` : ''}`).join('\n')
       : '';
@@ -715,75 +746,75 @@ export class AssistantService {
       // 意图时才注入；平时整段以空数组 spread 出去，既省 token 又不稀释上面的调查方法论。
       ...(wantsReport
         ? [
-      '【写报告 / 文档】',
-      '- 当产出是成体系的长内容（报告、总结、数据清单、人物分析、时间线、可视化网页…）时，用 write_report 工具把它写成本地文件（**优先 kind="html"**），' +
-        '用户能在你的回复里「查看」或「另存为」；不要把这种长文整段塞进聊天回复里。',
-      '- 渲染环境已内置、开箱即用，**无需写 <style>、无需引任何 CDN**：' +
-        '① 本地 Tailwind 运行时（任意 Tailwind 原子类都可用）；' +
-        '② 一套报告组件库 class（`rp-*`）；' +
-        '③ 一组「皮肤」——给 `<body>` 挂一个 class 就换掉整份报告的背景与主色。',
-      '- ⭐ **这套组件是「调色板」，不是「模板」**：用哪些、用不用、怎么排列组合、整份报告长什么样，' +
-        '**完全由你按内容自由决定**。一份人物分析、一条时间线、一次对比、一个核心结论、一块数据看板，本该长得各不相同——' +
-        '别把所有报告都套进同一个「头图＋指标卡＋排行榜」的壳子里。让结构去贴合内容，而不是让内容去填模板。',
-      '- 🎨 **换肤（背景 + 主色）**：给 `<body>` 挂一个皮肤 class，整份报告的背景与配色随之改变。' +
-        '**每份报告按主题/心情选一款，别老用默认靛紫**：' +
-        '`rp-aurora`(靛紫·默认) `rp-rose`(玫瑰暖) `rp-emerald`(青翠) `rp-ocean`(海蓝) `rp-sunset`(落日橙粉) ' +
-        '`rp-grape`(葡萄紫) `rp-mono`(灰度杂志) `rp-paper`(米色纸感·文艺) `rp-midnight`(深蓝暗色) `rp-ink`(近黑暗色)。' +
-        '可再叠一层纹理：`rp-pat-dots`(点阵) / `rp-pat-grid`(网格) / `rp-pat-rays`(光晕)。' +
-        '想微调，直接覆盖 `--rp-accent` 等变量。如 `<body class="rp-paper rp-pat-dots">`。',
-      '- 🏷️ **开篇（masthead）也别千篇一律**：四选一或自由发挥——' +
-        '`rp-hero`(渐变色块·热闹) / `rp-masthead`(杂志式·细线+衬线大标题·克制) / ' +
-        '`rp-cover`(整屏居中封面·最适合放主题句大字) / `rp-band`(极简·左侧粗边框)。报告标题的重要性不高，别让它占据全部视觉重量。',
-      verseBlock
-        ? '- ✨ **主题句（一言）—— 报告的「大字」主题**：与其堆一个僵硬标题，不如挑一句有格调的话做封面级大字，' +
-            '让报告一眼有记忆点、有情绪。下面是随机候选，**挑一句最贴合本报告主题/心情的**（也可不用、或自拟金句）：\n' +
-            verseBlock +
-            '\n  用 `rp-verse` 渲染，叠不同修饰换风格（务必每份报告都换一种组合，别定式）：' +
-            '`rp-verse-serif`(衬线文艺) `rp-verse-grad`(渐变大字) `rp-verse-outline`(描边空心) ' +
-            '`rp-verse-center`(居中) `rp-verse-mark`(前置大引号) `rp-verse-vert`(左竖条) `rp-verse-card`(卡片承托)；' +
-            '句子放 `<p class="rp-verse-text">`、出处放 `<span class="rp-verse-from">—— 出处</span>`。' +
-            '例：`<div class="rp-verse rp-verse-serif rp-verse-mark"><p class="rp-verse-text">句子…</p><span class="rp-verse-from">—— 出处</span></div>`，' +
-            '很适合放进 `rp-cover` 当封面主角。'
-        : '',
-      '- 可用积木（任选、可只用一两个、也可全不用，自己拿 Tailwind 拼也行）：',
-      '  • `rp-page` 整页容器；开篇用上面四种 masthead 之一（`rp-hero` 头图内放 `rp-eyebrow` + `<h1>` + `<p>`）；主题句用 `rp-verse` 系列；',
-      '  • `rp-grid rp-grid-2/-3/-4` 栅格 + `rp-stat`（`rp-stat-label`/`-value`/`-sub`）指标卡；',
-      '  • `rp-section` + `rp-section-title` 分章节；`rp-card` 内容块；',
-      '  • `rp-rank` 排行榜：每行 `rp-rank-item`(名称 `rp-rank-name` + 进度条 `rp-rank-bar`>`<span style="--rp-pct:73%">` + 数值 `rp-rank-val`)；',
-      '  • `rp-table` 表格（数字单元格加 `rp-num` 右对齐）；`rp-badge` + `-up`/`-down`/`-info`/`-warn` 徽章（配 emoji）；',
-      '  • `rp-quote`（内含 `<cite>` 写是谁、大概何时说的）引用原话；`rp-callout` 高亮/解读块；`rp-divider` 分隔线；`rp-footer` 页脚。',
-      '  • 时间线 `rp-timeline`>`rp-tl-item`(内放 `rp-tl-time` + 内容)，很适合「活跃日记/今日时间线」；标签 `rp-chips`>`rp-chip`（话题/标签）；首字母头像 `rp-ava`（可 `style="--c:#色"`，放成员名前）。',
-      '  • 词云 `rp-cloud`：每个热词一个 `<span class="rp-cloud-word" style="--rp-w:0.8">词</span>`，`--rp-w` 用「该词频/最高词频」算 0~1，自动缩放字号与浓淡（可加 `--c:#色` 单独换色）。get_group_activity 返回的 wordCloud 直接拿来用。',
-      '- 📊 **图表**（纯 CSS/内联 SVG，数据由你绑定，照下面语法写就能出图，别引图表库）：',
-      '  • 饼/环图 `rp-donut`：`<div class="rp-donut" style="--rp-donut:conic-gradient(#6366f1 0 62%,#f59e0b 0 85%,#e5e7eb 0)"><div class="rp-donut-center"><b>62%</b><small>占比</small></div></div>`，' +
-        '配图例 `<div class="rp-legend"><span class="rp-legend-item"><span class="rp-dot" style="--c:#6366f1"></span>我 <b>62%</b></span>…</div>`；单值占比只给两段即可。',
-      '  • 柱状图 `rp-bars`：每根 `<div class="rp-bar" style="--rp-h:73%"><span class="rp-bar-fill"></span><span class="rp-bar-val">42</span><span class="rp-bar-label">周一</span></div>`，--rp-h 用「该值/最大值」算百分比。',
-      '  • 折线/面积图 `rp-spark`：内放你写的 SVG，`<svg viewBox="0 0 100 40" preserveAspectRatio="none"><polygon class="rp-spark-area" points="0,40 0,28 25,18 50,22 75,9 100,14 100,40"/><polyline class="rp-spark-line" points="0,28 25,18 50,22 75,9 100,14"/></svg>`，点位按数据换算到 viewBox 坐标（y 越小越高）。',
-      '- ✨ **艺术字**：封面大字用 `rp-display`（超大渐变标题），行内给某几个字上色用 `rp-gradient-text`，强调短语用 `rp-mark`（荧光笔底）或 `rp-pull`（大号金句引言），文艺感叠 `rp-serif`，小标签用 `rp-kicker`。',
-      '- 想更自由：可叠加任意 Tailwind 原子类微调，也可以自己写 <style>；想换主题色，直接覆盖 CSS 变量即可' +
-        '（如 `<style>:root{--rp-accent:#e11d48;--rp-accent-2:#f59e0b}</style>` 一句换掉整套配色）。组件库只是省事的起点，不是围栏。',
-      '- ⭐ **报告的灵魂是你的洞察，不是数据搬运**：把数字排进格子谁都会，那写死一个生成器就够了，要你做什么？所以每份报告都要：',
-      '  • 穿插**你自己的简短总结与解读**——在聊什么、谁最活跃、氛围/趋势有什么变化、有没有值得一提的瞬间；',
-      '  • 在合适处（用 `rp-callout` 或你自己排的版式）写**一两句走心、贴合这份数据的点评/金句**，让报告有温度、有记忆点（别套话）。',
-      '  • 语气可以活泼、有梗，像一个懂行的朋友在做总结，而不是冷冰冰的数据面板。',
-      '- 下面这段**只是演示几个组件怎么写、怎么嵌套**，不是要你照搬它的布局或主题——请按手上的内容重新决定结构：',
-      '```html',
-      '<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>示例</title></head>',
-      '<body class="rp-ocean rp-pat-dots"><div class="rp-page">',
-      '  <div class="rp-masthead"><span class="rp-kicker">小标签</span><h1>大标题</h1><p>副标题：一句你自己的概览/解读。</p></div>',
-      '  <div class="rp-verse rp-verse-serif rp-verse-mark"><p class="rp-verse-text">一句贴合主题的话。</p><span class="rp-verse-from">—— 出处</span></div>',
-      '  <div class="rp-grid rp-grid-3">',
-      '    <div class="rp-stat"><div class="rp-stat-label">指标名</div><div class="rp-stat-value">1,240</div><div class="rp-stat-sub">附注 <span class="rp-badge rp-badge-up">📈 +18%</span></div></div>',
-      '  </div>',
-      '  <div class="rp-section"><div class="rp-section-title">某章节</div><div class="rp-card"><div class="rp-rank">',
-      '    <div class="rp-rank-item"><span class="rp-rank-name">名称</span><div class="rp-rank-bar"><span style="--rp-pct:100%"></span></div><span class="rp-rank-val">312</span></div>',
-      '  </div></div></div>',
-      '  <div class="rp-callout">这里放一两句走心、贴合数据的点评。<strong>金句加粗。</strong></div>',
-      '  <div class="rp-footer">由 WeQ 助手生成</div>',
-      '</div></body></html>',
-      '```',
-      '- 需要纯文本、便于用户二次编辑时，才用 kind="markdown" 或 "text"。',
-      '- 写完报告后，在聊天里用一两句话说明你写了什么（卡片会自动出现，不用你贴文件内容）。',
+            '【写报告 / 文档】',
+            '- 当产出是成体系的长内容（报告、总结、数据清单、人物分析、时间线、可视化网页…）时，用 write_report 工具把它写成本地文件（**优先 kind="html"**），' +
+              '用户能在你的回复里「查看」或「另存为」；不要把这种长文整段塞进聊天回复里。',
+            '- 渲染环境已内置、开箱即用，**无需写 <style>、无需引任何 CDN**：' +
+              '① 本地 Tailwind 运行时（任意 Tailwind 原子类都可用）；' +
+              '② 一套报告组件库 class（`rp-*`）；' +
+              '③ 一组「皮肤」——给 `<body>` 挂一个 class 就换掉整份报告的背景与主色。',
+            '- ⭐ **这套组件是「调色板」，不是「模板」**：用哪些、用不用、怎么排列组合、整份报告长什么样，' +
+              '**完全由你按内容自由决定**。一份人物分析、一条时间线、一次对比、一个核心结论、一块数据看板，本该长得各不相同——' +
+              '别把所有报告都套进同一个「头图＋指标卡＋排行榜」的壳子里。让结构去贴合内容，而不是让内容去填模板。',
+            '- 🎨 **换肤（背景 + 主色）**：给 `<body>` 挂一个皮肤 class，整份报告的背景与配色随之改变。' +
+              '**每份报告按主题/心情选一款，别老用默认靛紫**：' +
+              '`rp-aurora`(靛紫·默认) `rp-rose`(玫瑰暖) `rp-emerald`(青翠) `rp-ocean`(海蓝) `rp-sunset`(落日橙粉) ' +
+              '`rp-grape`(葡萄紫) `rp-mono`(灰度杂志) `rp-paper`(米色纸感·文艺) `rp-midnight`(深蓝暗色) `rp-ink`(近黑暗色)。' +
+              '可再叠一层纹理：`rp-pat-dots`(点阵) / `rp-pat-grid`(网格) / `rp-pat-rays`(光晕)。' +
+              '想微调，直接覆盖 `--rp-accent` 等变量。如 `<body class="rp-paper rp-pat-dots">`。',
+            '- 🏷️ **开篇（masthead）也别千篇一律**：四选一或自由发挥——' +
+              '`rp-hero`(渐变色块·热闹) / `rp-masthead`(杂志式·细线+衬线大标题·克制) / ' +
+              '`rp-cover`(整屏居中封面·最适合放主题句大字) / `rp-band`(极简·左侧粗边框)。报告标题的重要性不高，别让它占据全部视觉重量。',
+            verseBlock
+              ? '- ✨ **主题句（一言）—— 报告的「大字」主题**：与其堆一个僵硬标题，不如挑一句有格调的话做封面级大字，' +
+                '让报告一眼有记忆点、有情绪。下面是随机候选，**挑一句最贴合本报告主题/心情的**（也可不用、或自拟金句）：\n' +
+                verseBlock +
+                '\n  用 `rp-verse` 渲染，叠不同修饰换风格（务必每份报告都换一种组合，别定式）：' +
+                '`rp-verse-serif`(衬线文艺) `rp-verse-grad`(渐变大字) `rp-verse-outline`(描边空心) ' +
+                '`rp-verse-center`(居中) `rp-verse-mark`(前置大引号) `rp-verse-vert`(左竖条) `rp-verse-card`(卡片承托)；' +
+                '句子放 `<p class="rp-verse-text">`、出处放 `<span class="rp-verse-from">—— 出处</span>`。' +
+                '例：`<div class="rp-verse rp-verse-serif rp-verse-mark"><p class="rp-verse-text">句子…</p><span class="rp-verse-from">—— 出处</span></div>`，' +
+                '很适合放进 `rp-cover` 当封面主角。'
+              : '',
+            '- 可用积木（任选、可只用一两个、也可全不用，自己拿 Tailwind 拼也行）：',
+            '  • `rp-page` 整页容器；开篇用上面四种 masthead 之一（`rp-hero` 头图内放 `rp-eyebrow` + `<h1>` + `<p>`）；主题句用 `rp-verse` 系列；',
+            '  • `rp-grid rp-grid-2/-3/-4` 栅格 + `rp-stat`（`rp-stat-label`/`-value`/`-sub`）指标卡；',
+            '  • `rp-section` + `rp-section-title` 分章节；`rp-card` 内容块；',
+            '  • `rp-rank` 排行榜：每行 `rp-rank-item`(名称 `rp-rank-name` + 进度条 `rp-rank-bar`>`<span style="--rp-pct:73%">` + 数值 `rp-rank-val`)；',
+            '  • `rp-table` 表格（数字单元格加 `rp-num` 右对齐）；`rp-badge` + `-up`/`-down`/`-info`/`-warn` 徽章（配 emoji）；',
+            '  • `rp-quote`（内含 `<cite>` 写是谁、大概何时说的）引用原话；`rp-callout` 高亮/解读块；`rp-divider` 分隔线；`rp-footer` 页脚。',
+            '  • 时间线 `rp-timeline`>`rp-tl-item`(内放 `rp-tl-time` + 内容)，很适合「活跃日记/今日时间线」；标签 `rp-chips`>`rp-chip`（话题/标签）；首字母头像 `rp-ava`（可 `style="--c:#色"`，放成员名前）。',
+            '  • 词云 `rp-cloud`：每个热词一个 `<span class="rp-cloud-word" style="--rp-w:0.8">词</span>`，`--rp-w` 用「该词频/最高词频」算 0~1，自动缩放字号与浓淡（可加 `--c:#色` 单独换色）。get_group_activity 返回的 wordCloud 直接拿来用。',
+            '- 📊 **图表**（纯 CSS/内联 SVG，数据由你绑定，照下面语法写就能出图，别引图表库）：',
+            '  • 饼/环图 `rp-donut`：`<div class="rp-donut" style="--rp-donut:conic-gradient(#6366f1 0 62%,#f59e0b 0 85%,#e5e7eb 0)"><div class="rp-donut-center"><b>62%</b><small>占比</small></div></div>`，' +
+              '配图例 `<div class="rp-legend"><span class="rp-legend-item"><span class="rp-dot" style="--c:#6366f1"></span>我 <b>62%</b></span>…</div>`；单值占比只给两段即可。',
+            '  • 柱状图 `rp-bars`：每根 `<div class="rp-bar" style="--rp-h:73%"><span class="rp-bar-fill"></span><span class="rp-bar-val">42</span><span class="rp-bar-label">周一</span></div>`，--rp-h 用「该值/最大值」算百分比。',
+            '  • 折线/面积图 `rp-spark`：内放你写的 SVG，`<svg viewBox="0 0 100 40" preserveAspectRatio="none"><polygon class="rp-spark-area" points="0,40 0,28 25,18 50,22 75,9 100,14 100,40"/><polyline class="rp-spark-line" points="0,28 25,18 50,22 75,9 100,14"/></svg>`，点位按数据换算到 viewBox 坐标（y 越小越高）。',
+            '- ✨ **艺术字**：封面大字用 `rp-display`（超大渐变标题），行内给某几个字上色用 `rp-gradient-text`，强调短语用 `rp-mark`（荧光笔底）或 `rp-pull`（大号金句引言），文艺感叠 `rp-serif`，小标签用 `rp-kicker`。',
+            '- 想更自由：可叠加任意 Tailwind 原子类微调，也可以自己写 <style>；想换主题色，直接覆盖 CSS 变量即可' +
+              '（如 `<style>:root{--rp-accent:#e11d48;--rp-accent-2:#f59e0b}</style>` 一句换掉整套配色）。组件库只是省事的起点，不是围栏。',
+            '- ⭐ **报告的灵魂是你的洞察，不是数据搬运**：把数字排进格子谁都会，那写死一个生成器就够了，要你做什么？所以每份报告都要：',
+            '  • 穿插**你自己的简短总结与解读**——在聊什么、谁最活跃、氛围/趋势有什么变化、有没有值得一提的瞬间；',
+            '  • 在合适处（用 `rp-callout` 或你自己排的版式）写**一两句走心、贴合这份数据的点评/金句**，让报告有温度、有记忆点（别套话）。',
+            '  • 语气可以活泼、有梗，像一个懂行的朋友在做总结，而不是冷冰冰的数据面板。',
+            '- 下面这段**只是演示几个组件怎么写、怎么嵌套**，不是要你照搬它的布局或主题——请按手上的内容重新决定结构：',
+            '```html',
+            '<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>示例</title></head>',
+            '<body class="rp-ocean rp-pat-dots"><div class="rp-page">',
+            '  <div class="rp-masthead"><span class="rp-kicker">小标签</span><h1>大标题</h1><p>副标题：一句你自己的概览/解读。</p></div>',
+            '  <div class="rp-verse rp-verse-serif rp-verse-mark"><p class="rp-verse-text">一句贴合主题的话。</p><span class="rp-verse-from">—— 出处</span></div>',
+            '  <div class="rp-grid rp-grid-3">',
+            '    <div class="rp-stat"><div class="rp-stat-label">指标名</div><div class="rp-stat-value">1,240</div><div class="rp-stat-sub">附注 <span class="rp-badge rp-badge-up">📈 +18%</span></div></div>',
+            '  </div>',
+            '  <div class="rp-section"><div class="rp-section-title">某章节</div><div class="rp-card"><div class="rp-rank">',
+            '    <div class="rp-rank-item"><span class="rp-rank-name">名称</span><div class="rp-rank-bar"><span style="--rp-pct:100%"></span></div><span class="rp-rank-val">312</span></div>',
+            '  </div></div></div>',
+            '  <div class="rp-callout">这里放一两句走心、贴合数据的点评。<strong>金句加粗。</strong></div>',
+            '  <div class="rp-footer">由 WeQ 助手生成</div>',
+            '</div></body></html>',
+            '```',
+            '- 需要纯文本、便于用户二次编辑时，才用 kind="markdown" 或 "text"。',
+            '- 写完报告后，在聊天里用一两句话说明你写了什么（卡片会自动出现，不用你贴文件内容）。',
           ]
         : []),
       this.config.customPrompt ? `\n【用户额外要求】（优先遵守）\n${this.config.customPrompt}` : '',
@@ -878,7 +909,9 @@ export class AssistantService {
     } catch (error) {
       // 用户取消（AbortError）原样放行，交给上层 aborted 分支；其余多为网络层失败（fetch 抛 TypeError）。
       if (error instanceof Error && error.name === 'AbortError') throw error;
-      throw new Error(`网络连接失败：无法连接到模型服务（${hostOf(endpoint.baseUrl)}），请检查网络或服务地址是否正确。`);
+      throw new Error(
+        `网络连接失败：无法连接到模型服务（${hostOf(endpoint.baseUrl)}），请检查网络或服务地址是否正确。`,
+      );
     }
     if (!res.ok || !res.body) {
       const detail = await res.text().catch(() => '');
@@ -979,7 +1012,12 @@ export class AssistantService {
     const legacy = this.conversations.get(ASSISTANT_AGENT_ID);
     if (!legacy.length) return;
     const now = Date.now();
-    const session: AssistantSession = { id: randomUUID(), title: '历史对话', createdAt: now, updatedAt: now };
+    const session: AssistantSession = {
+      id: randomUUID(),
+      title: '历史对话',
+      createdAt: now,
+      updatedAt: now,
+    };
     this.conversations.append(this.bucketId(session.id), legacy);
     this.conversations.clear(ASSISTANT_AGENT_ID);
     this.sessions.push(session);
@@ -1027,7 +1065,7 @@ function cleanTitle(raw: string): string {
 /** JSON.stringify，循环引用/异常兜底成字符串。 */
 function safeStringify(value: unknown): string {
   try {
-    return typeof value === 'string' ? value : JSON.stringify(value, null, 2) ?? String(value);
+    return typeof value === 'string' ? value : (JSON.stringify(value, null, 2) ?? String(value));
   } catch {
     return String(value);
   }
@@ -1059,8 +1097,15 @@ function capToolResult(result: unknown): string {
   if (full.length <= TOOL_RESULT_CAP) return full;
 
   // result 本身是数组，或含一个可裁剪的大数组字段 → 按条数逐步收窄到放得下。
-  const asObject = result && typeof result === 'object' && !Array.isArray(result) ? (result as Record<string, unknown>) : null;
-  const big = Array.isArray(result) ? { key: '', arr: result as unknown[] } : asObject ? findBigArray(asObject) : null;
+  const asObject =
+    result && typeof result === 'object' && !Array.isArray(result)
+      ? (result as Record<string, unknown>)
+      : null;
+  const big = Array.isArray(result)
+    ? { key: '', arr: result as unknown[] }
+    : asObject
+      ? findBigArray(asObject)
+      : null;
   if (big && big.arr.length > 1) {
     let keep = big.arr.length;
     while (keep > 1) {
@@ -1068,7 +1113,11 @@ function capToolResult(result: unknown): string {
       const note = `结果过长，仅保留前 ${keep}/${big.arr.length} 条；用 offset / before 翻页或缩小 limit / 时间范围获取更多。`;
       const shaped = Array.isArray(result)
         ? { items: big.arr.slice(0, keep), truncatedNote: note }
-        : { ...(asObject as Record<string, unknown>), [big.key]: big.arr.slice(0, keep), truncatedNote: note };
+        : {
+            ...(asObject as Record<string, unknown>),
+            [big.key]: big.arr.slice(0, keep),
+            truncatedNote: note,
+          };
       const s = safeStringify(shaped);
       if (s.length <= TOOL_RESULT_CAP) return s;
       if (keep === 1) break;
@@ -1093,7 +1142,10 @@ function throwIfAborted(signal?: AbortSignal): void {
  */
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${label}超时（${Math.round(ms / 1000)}s）`)), ms);
+    const timer = setTimeout(
+      () => reject(new Error(`${label}超时（${Math.round(ms / 1000)}s）`)),
+      ms,
+    );
     p.then(
       (v) => {
         clearTimeout(timer);
@@ -1142,8 +1194,10 @@ function hostOf(url: string): string {
 /** 把 HTTP 状态码翻译成对用户可读、可操作的错误文案（401/403 密钥、429 限流、5xx 服务、其余兜底）。 */
 function httpErrorMessage(status: number, detail: string): string {
   const tail = detail ? ` — ${detail.slice(0, 300)}` : '';
-  if (status === 401 || status === 403) return `模型密钥无效或无权限（${status}）：请在助手设置里检查该模型的 API Key 是否正确。`;
-  if (status === 429) return '请求过于频繁或额度不足（429）：已自动退避重试仍失败，请稍后再试或更换模型。';
+  if (status === 401 || status === 403)
+    return `模型密钥无效或无权限（${status}）：请在助手设置里检查该模型的 API Key 是否正确。`;
+  if (status === 429)
+    return '请求过于频繁或额度不足（429）：已自动退避重试仍失败，请稍后再试或更换模型。';
   if (status >= 500) return `模型服务暂时不可用（${status}），请稍后重试。${tail}`;
   return `WeQ 助手接口调用失败: HTTP ${status}${tail}`;
 }

@@ -12,7 +12,7 @@ const MISC_DB_PATH = qqDbPath('misc.db');
 
 async function main() {
   const native = loadNative();
-  
+
   // Create a mock session that just has the bits the service needs
   const miscDb = new MiscDb(native.ntHelper, {
     dbPath: MISC_DB_PATH,
@@ -31,7 +31,7 @@ async function main() {
     // We'll use the UID we found in the previous test
     const targetUid = 'u_-5G5s2u1eRSwl5MPLaWV2Q';
     console.log(`[test:status-service] Fetching status for: ${targetUid}`);
-    
+
     const formatted = await service.getOnlineStatus(targetUid);
     if (formatted) {
       console.log('[test:status-service] Formatted Result:');
@@ -39,7 +39,6 @@ async function main() {
     } else {
       console.log('[test:status-service] No status found.');
     }
-
   } catch (err) {
     console.error('[test:status-service] Failed:', err);
   } finally {

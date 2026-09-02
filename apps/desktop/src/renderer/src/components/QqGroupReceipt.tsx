@@ -164,7 +164,9 @@ export function QqGroupReceipt({
           <div className="weq-group-receipt-content">
             <div className="weq-group-receipt-title">{title || '群收款'}</div>
             <div className="weq-group-receipt-amount">
-              {myAmount !== null ? `你需支付${formatAmount(myAmount)}元` : `共${payers.length}人收款`}
+              {myAmount !== null
+                ? `你需支付${formatAmount(myAmount)}元`
+                : `共${payers.length}人收款`}
             </div>
           </div>
         </div>

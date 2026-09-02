@@ -119,17 +119,23 @@ async function main(): Promise<void> {
   if (msgList) {
     console.log(`  说说总数: ${msgList.total},本页 ${msgList.list.length} 条`);
     for (const m of msgList.list.slice(0, 10)) {
-      console.log(`    ${m.time ? new Date(m.time * 1000).toLocaleString() : '?'}: ${m.content.slice(0, 60)}`);
+      console.log(
+        `    ${m.time ? new Date(m.time * 1000).toLocaleString() : '?'}: ${m.content.slice(0, 60)}`,
+      );
     }
   }
 
-  const feeds = await run('好友动态 feeds3_html_more (self)', () =>
-    getQzoneFeeds(cred, uin, 1, 5),
-  );
+  const feeds = await run('好友动态 feeds3_html_more (self)', () => getQzoneFeeds(cred, uin, 1, 5));
   if (feeds) {
     console.log(`  动态数: ${feeds.feeds.length},hasMore=${feeds.hasMore}`);
     for (const f of feeds.feeds.slice(0, 5)) {
-      console.log(`    ${f.nickname} (${f.uin}): ${f.html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60)}`);
+      console.log(
+        `    ${f.nickname} (${f.uin}): ${f.html
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 60)}`,
+      );
     }
   }
 

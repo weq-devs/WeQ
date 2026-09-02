@@ -24,7 +24,9 @@ async function main() {
 
   console.log(`\n[test:notice] 注入 hook 到 pid=${pid} ...`);
   const status = await nt.injectAndGetStatusEmbedded(pid, uin);
-  console.log(`[test:notice] 注入结果: pid=${status.pid} uin=${status.uin} loggedIn=${status.loggedIn}`);
+  console.log(
+    `[test:notice] 注入结果: pid=${status.pid} uin=${status.uin} loggedIn=${status.loggedIn}`,
+  );
 
   const web = new WebQueryService(nt, { context: { uin } } as unknown as AccountSession, () => pid);
 

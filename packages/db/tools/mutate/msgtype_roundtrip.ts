@@ -36,7 +36,9 @@ async function main(): Promise<void> {
   try {
     const before = await db.readMsgType(MSG_ID);
     const bodyBefore = await db.getMsgBody(MSG_ID);
-    console.log(`[roundtrip] start        ${fmt(before)}  body=${bodyBefore?.byteLength ?? 'null'}B`);
+    console.log(
+      `[roundtrip] start        ${fmt(before)}  body=${bodyBefore?.byteLength ?? 'null'}B`,
+    );
     if (!before) throw new Error('probe message not found in group_msg_table');
 
     // 1) restore to the known originals (2,16)
@@ -51,7 +53,9 @@ async function main(): Promise<void> {
     const n2 = await db.writeMsgType(MSG_ID, DELETED.msgType, DELETED.subType);
     const afterDelete = await db.readMsgType(MSG_ID);
     const bodyAfter = await db.getMsgBody(MSG_ID);
-    console.log(`[roundtrip] delete→(1,1) ${fmt(afterDelete)}  affected=${n2}  body=${bodyAfter?.byteLength ?? 'null'}B`);
+    console.log(
+      `[roundtrip] delete→(1,1) ${fmt(afterDelete)}  affected=${n2}  body=${bodyAfter?.byteLength ?? 'null'}B`,
+    );
     if (afterDelete?.msgType !== DELETED.msgType || afterDelete?.subType !== DELETED.subType) {
       throw new Error('delete write did not land');
     }

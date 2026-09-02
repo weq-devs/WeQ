@@ -16,15 +16,14 @@ interface GrayTipPokeMessageProps {
   message: Message;
 }
 
-function getNodeValue(
-  node: Node,
-  attribute: string,
-): string {
-  const attributes = (node as Node & {
-    attributes?: {
-      getNamedItem(name: string): { nodeValue?: string | null } | null;
-    };
-  }).attributes;
+function getNodeValue(node: Node, attribute: string): string {
+  const attributes = (
+    node as Node & {
+      attributes?: {
+        getNamedItem(name: string): { nodeValue?: string | null } | null;
+      };
+    }
+  ).attributes;
   return attributes?.getNamedItem(attribute)?.nodeValue || '';
 }
 
@@ -87,10 +86,12 @@ export function GrayTipPokeMessage({ element, conversation, message }: GrayTipPo
       } else if (conversation.type === 'direct') {
         memberMap.set(conversation.otherUser.id, conversation.otherUser as GroupMember);
         if (conversation.otherUser.identityValue) {
-          memberMap.set(conversation.otherUser.identityValue, conversation.otherUser as GroupMember);
+          memberMap.set(
+            conversation.otherUser.identityValue,
+            conversation.otherUser as GroupMember,
+          );
         }
       }
-
 
       const nodes = Array.from(gtip.childNodes).map((node, index) => {
         if (node.nodeName === 'qq') {
@@ -106,11 +107,19 @@ export function GrayTipPokeMessage({ element, conversation, message }: GrayTipPo
         }
         if (node.nodeName === 'nor') {
           // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-          return <span key={index} className="text-gray-500 px-1">{getNodeValue(node, 'txt') || getNodeText(node)}</span>;
+          return (
+            <span key={index} className="text-gray-500 px-1">
+              {getNodeValue(node, 'txt') || getNodeText(node)}
+            </span>
+          );
         }
         if (node.nodeName === 'url') {
           // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-          return <span key={index} className="text-blue-500">{getNodeValue(node, 'txt') || getNodeText(node)}</span>;
+          return (
+            <span key={index} className="text-blue-500">
+              {getNodeValue(node, 'txt') || getNodeText(node)}
+            </span>
+          );
         }
         if (node.nodeName === 'img') {
           const src = resolveTipImgSrc(getNodeValue(node, 'src'));
@@ -136,51 +145,63 @@ export function GrayTipPokeMessage({ element, conversation, message }: GrayTipPo
           }
         }
         if (conversation.type === 'group') {
-            conversation.members.forEach((m) => {
-                memberMap.set(m.id, m);
-                if (m.identityValue) {
-                    memberMap.set(m.identityValue, m);
-                }
-            });
-        } else if (conversation.type === 'direct') {
-            memberMap.set(conversation.otherUser.id, conversation.otherUser as GroupMember);
-            if (conversation.otherUser.identityValue) {
-                memberMap.set(conversation.otherUser.identityValue, conversation.otherUser as GroupMember);
+          conversation.members.forEach((m) => {
+            memberMap.set(m.id, m);
+            if (m.identityValue) {
+              memberMap.set(m.identityValue, m);
             }
+          });
+        } else if (conversation.type === 'direct') {
+          memberMap.set(conversation.otherUser.id, conversation.otherUser as GroupMember);
+          if (conversation.otherUser.identityValue) {
+            memberMap.set(
+              conversation.otherUser.identityValue,
+              conversation.otherUser as GroupMember,
+            );
+          }
         }
 
-        const items = data.items?.map((item) => {
-          const txt = item.txt || '';
-          const itemKey = `${item.type ?? 'unknown'}-${item.uid ?? item.uin ?? item.param?.[0] ?? ''}-${txt}-${item.src ?? ''}`;
+        const items =
+          data.items?.map((item) => {
+            const txt = item.txt || '';
+            const itemKey = `${item.type ?? 'unknown'}-${item.uid ?? item.uin ?? item.param?.[0] ?? ''}-${txt}-${item.src ?? ''}`;
 
-          // `qq` / `url` 都是「人」节点：uid 或 uin 命中群成员就用群名片,
-          // 否则退到灰条自带的 nm(手机导入的记录只有 nm、群成员表里查不到),
-          // 再退到 txt / 裸 uin。
-          if (item.type === 'qq' || item.type === 'url') {
-            const key = item.uid || item.uin || item.param?.[0] || '';
-            const member = key ? memberMap.get(key) : undefined;
-            const name = (member ? displayUserName(member) : '') || item.nm || txt || item.uin || '';
-            if (name) {
-              return (
-                <span key={itemKey} className="text-blue-500 cursor-pointer hover:underline">
-                  {name}
-                </span>
-              );
+            // `qq` / `url` 都是「人」节点：uid 或 uin 命中群成员就用群名片,
+            // 否则退到灰条自带的 nm(手机导入的记录只有 nm、群成员表里查不到),
+            // 再退到 txt / 裸 uin。
+            if (item.type === 'qq' || item.type === 'url') {
+              const key = item.uid || item.uin || item.param?.[0] || '';
+              const member = key ? memberMap.get(key) : undefined;
+              const name =
+                (member ? displayUserName(member) : '') || item.nm || txt || item.uin || '';
+              if (name) {
+                return (
+                  <span key={itemKey} className="text-blue-500 cursor-pointer hover:underline">
+                    {name}
+                  </span>
+                );
+              }
+              return null;
             }
-            return null;
-          }
 
-          if (item.type === 'nor') {
+            if (item.type === 'nor') {
+              return <span key={itemKey}>{txt}</span>;
+            }
+
+            if (item.type === 'img') {
+              const src = resolveTipImgSrc(item.src ?? '');
+              return src ? (
+                <img
+                  key={itemKey}
+                  src={src}
+                  alt=""
+                  className="inline-block h-[1em] mx-1 align-middle"
+                />
+              ) : null;
+            }
+
             return <span key={itemKey}>{txt}</span>;
-          }
-
-          if (item.type === 'img') {
-            const src = resolveTipImgSrc(item.src ?? '');
-            return src ? <img key={itemKey} src={src} alt="" className="inline-block h-[1em] mx-1 align-middle" /> : null;
-          }
-
-          return <span key={itemKey}>{txt}</span>;
-        }) || [];
+          }) || [];
 
         return <div className="weq-graytip text-center text-gray-500 text-xs py-2">{items}</div>;
       } catch (e) {

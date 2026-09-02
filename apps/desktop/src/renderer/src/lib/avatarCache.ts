@@ -40,7 +40,8 @@ export function cachedAvatarUrl(src: string | null | undefined): string | null {
   if (userNk) return preferCdnEnabled() ? src : localFirst({ scope: 'user', uin: userNk[1]! }, src);
   // Group avatar endpoint: …p.qlogo.cn/gh/<code>/<code>/<size> (code == uid).
   const groupGh = src.match(/^https?:\/\/[^/]*qlogo\.cn\/gh\/(\d+)\//i);
-  if (groupGh) return preferCdnEnabled() ? src : localFirst({ scope: 'group', uid: groupGh[1]! }, src);
+  if (groupGh)
+    return preferCdnEnabled() ? src : localFirst({ scope: 'group', uid: groupGh[1]! }, src);
 
   // Non-QQ remote avatar (e.g. GitHub in demo/agentlab): plain URL disk cache.
   // 「优先使用 CDN」刻意不放行这一支 —— 走到这里的是 ARK 卡片预览图、静态地图、闪传

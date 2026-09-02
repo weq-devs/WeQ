@@ -2411,7 +2411,6 @@ export function MainView(): ReactElement {
         if (kind === 'official' || kind === 'service') return false;
         // 隐藏会话：在 hidden_session_storage_table_v1 里有记录的，不出现在主列表
         return !hiddenUidSet.has(c.targetUid);
-
       })
       .map((contact) => contactToConversation(contact, user, groupNameByCode, botUids))
       .filter((conversation): conversation is Conversation => conversation !== null);

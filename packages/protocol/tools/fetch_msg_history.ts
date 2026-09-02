@@ -1,23 +1,23 @@
 /**
  * 主动拉取历史消息探查工具 —— SsoGetGroupMsg / SsoGetC2cMsg（按 seq 范围）。
  *
-* 打印：
-*   1. 原始响应长度 + 顶层字段 + 消息数量；
-*   2. 指定消息（默认第一条）的原始 hex；
+ * 打印：
+ *   1. 原始响应长度 + 顶层字段 + 消息数量；
+ *   2. 指定消息（默认第一条）的原始 hex；
  *   3. 该消息的原始 tag:value 树 + 解码后的简化 msg JSON（head / sender / session / elements / dress）。
-*
-* 用法：
-*   pnpm --filter @weq/protocol tools:fetch-msg-history --kind group --id 123456789 --start 100 --end 110
-*   pnpm --filter @weq/protocol tools:fetch-msg-history --kind c2c --id u_mGI... --start 100 --end 110
-*   pnpm tsx packages/protocol/tools/fetch_msg_history.ts --kind group --id ... --start ... --end ...
-*
-* 可选参数：
-*   --index N       打印第 N 条消息（默认 0 = 第一条）
-*   --no-hex        不打印消息原始 hex
+ *
+ * 用法：
+ *   pnpm --filter @weq/protocol tools:fetch-msg-history --kind group --id 123456789 --start 100 --end 110
+ *   pnpm --filter @weq/protocol tools:fetch-msg-history --kind c2c --id u_mGI... --start 100 --end 110
+ *   pnpm tsx packages/protocol/tools/fetch_msg_history.ts --kind group --id ... --start ... --end ...
+ *
+ * 可选参数：
+ *   --index N       打印第 N 条消息（默认 0 = 第一条）
+ *   --no-hex        不打印消息原始 hex
  *   --no-json       不打印解码 msg JSON
  *   --no-raw-json   不打印原始 tag:value 树
-*   --resp-hex      额外打印整个响应的 hex
-*   --resp-json     额外打印整个响应的 tag:value JSON
+ *   --resp-hex      额外打印整个响应的 hex
+ *   --resp-json     额外打印整个响应的 tag:value JSON
  *
  * linux 需要 root(ptrace 注入)：
  *   sudo -E node --import tsx packages/protocol/tools/fetch_msg_history.ts ...
@@ -111,7 +111,6 @@ async function resolveTarget(nt: Nt): Promise<{ pid: number; loginUin: string }>
   return { pid, loginUin };
 }
 
-
 function printJson(label: string, bytes: Uint8Array): void {
   console.log(`\n──── ${label} ────`);
   console.log(JSON.stringify(protoToJson(bytes), null, 2));
@@ -137,17 +136,22 @@ async function main(): Promise<void> {
   await ensureSendable(nt, pid, loginUin, { label: 'history' });
 
   const range = { startSeq: START, endSeq: END };
-  const res = KIND === 'group'
-    ? await fetchGroupHistoryRaw(nt, pid, { groupUin: Number(ID), ...range })
-    : await fetchC2cHistoryRaw(nt, pid, { friendUid: ID, ...range });
+  const res =
+    KIND === 'group'
+      ? await fetchGroupHistoryRaw(nt, pid, { groupUin: Number(ID), ...range })
+      : await fetchC2cHistoryRaw(nt, pid, { friendUid: ID, ...range });
 
   console.log('\n════════════════════ 响应概览 ════════════════════');
   console.log(`  命令:        ${res.cmd}`);
-  console.log(`  请求窗口:    seq ${res.range.startSeq} - ${res.range.endSeq}${KIND === 'c2c' ? ' (会话级 NT sequence)' : ''}`);
+  console.log(
+    `  请求窗口:    seq ${res.range.startSeq} - ${res.range.endSeq}${KIND === 'c2c' ? ' (会话级 NT sequence)' : ''}`,
+  );
   if (res.peer.groupUin) console.log(`  会话:        groupUin=${res.peer.groupUin}`);
   if (res.peer.friendUid) console.log(`  会话:        friendUid=${res.peer.friendUid}`);
   console.log(`  响应长度:    ${res.rawResponse.length} 字节`);
-  console.log(`  消息数量:    ${res.messages.length} (可用 --index 0..${Math.max(0, res.messages.length - 1)})`);
+  console.log(
+    `  消息数量:    ${res.messages.length} (可用 --index 0..${Math.max(0, res.messages.length - 1)})`,
+  );
 
   if (SHOW_RESP_HEX) {
     console.log('\n──── 完整响应 hex ────');
@@ -161,9 +165,8 @@ async function main(): Promise<void> {
   }
 
   const index = Math.min(MSG_INDEX, res.messages.length - 1);
-  const steps: PathStep[] = KIND === 'group'
-    ? [{ tag: 3 }, { tag: 6, index }]
-    : [{ tag: 7, index }];
+  const steps: PathStep[] =
+    KIND === 'group' ? [{ tag: 3 }, { tag: 6, index }] : [{ tag: 7, index }];
   const msgBytes = extractPath(res.rawResponse, steps);
 
   console.log('\n════════════════════ 第 ' + index + ' 条消息 ════════════════════');
@@ -178,7 +181,9 @@ async function main(): Promise<void> {
     if (SHOW_RAW_JSON) printJson('原始 tag:value JSON', msgBytes);
     if (SHOW_JSON) printDecoded('解码 msg JSON', decodeMessage(msgBytes));
   }
-  console.log(`\n[history] 消息序号提示: 群聊用群内 seq，私聊用会话级 NT seq${KIND === 'c2c' ? '（不是发送者本地 clientSeq）' : ''}`);
+  console.log(
+    `\n[history] 消息序号提示: 群聊用群内 seq，私聊用会话级 NT seq${KIND === 'c2c' ? '（不是发送者本地 clientSeq）' : ''}`,
+  );
 }
 
 main().catch((e) => {

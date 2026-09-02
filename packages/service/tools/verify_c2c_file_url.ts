@@ -35,13 +35,21 @@ async function main(): Promise<void> {
   console.log(`[verify-c2c-file] pid=${pid} uin=${nt.probeQqLoginInfo(pid)?.uin}`);
   await nt.injectAndGetStatusEmbedded(pid, UIN);
 
-  const db = new QqDb(nt, { dbPath: DB_PATH, key: KEY, algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' } });
+  const db = new QqDb(nt, {
+    dbPath: DB_PATH,
+    key: KEY,
+    algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' },
+  });
   let fileEl: MediaElement;
   try {
-    const rows = await db.query(`SELECT "40800" FROM c2c_msg_table WHERE "40001" = ? LIMIT 1`, [TARGET_MSGID]);
+    const rows = await db.query(`SELECT "40800" FROM c2c_msg_table WHERE "40001" = ? LIMIT 1`, [
+      TARGET_MSGID,
+    ]);
     const blob = rows[0]?.[0];
     if (!(blob instanceof Uint8Array)) throw new Error('row/body not found');
-    const elements = (bodyCodec.decode(sanitizeBytes(blob, MsgBody)).elements ?? []).map((w) => decodeElement(w as never));
+    const elements = (bodyCodec.decode(sanitizeBytes(blob, MsgBody)).elements ?? []).map((w) =>
+      decodeElement(w as never),
+    );
     const found = elements.find((e) => (e as { kind?: string }).kind === 'file');
     if (!found) throw new Error('no file element');
     fileEl = found as unknown as MediaElement;
@@ -49,7 +57,10 @@ async function main(): Promise<void> {
     db.close();
   }
 
-  const session = { context: { uin: UIN }, uidMap: { uidByUin: () => SELF_UID } } as unknown as AccountSession;
+  const session = {
+    context: { uin: UIN },
+    uidMap: { uidByUin: () => SELF_UID },
+  } as unknown as AccountSession;
   const svc = new MediaUrlService(nt, session, () => pid);
 
   console.log(`[verify-c2c-file] resolving URL via getPrivateFileUrlFromElement…`);

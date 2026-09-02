@@ -19,7 +19,9 @@ export class BotCapabilities {
   poke(userId: string, groupId?: string): Promise<unknown> {
     return this.adapter.callAction(
       'send_poke',
-      groupId ? { group_id: Number(groupId), user_id: Number(userId) } : { user_id: Number(userId) },
+      groupId
+        ? { group_id: Number(groupId), user_id: Number(userId) }
+        : { user_id: Number(userId) },
     );
   }
 

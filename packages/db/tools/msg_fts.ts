@@ -14,8 +14,7 @@ import { testEnv } from '@weq/testkit';
 const DB_PATH = testEnv.ftsDbPath;
 const KEY = testEnv.key;
 // pnpm forwards a literal `--` separator into argv; drop it before reading.
-const KEYWORD =
-  process.argv.slice(2).find((a) => a !== '--') ?? testEnv.keyword;
+const KEYWORD = process.argv.slice(2).find((a) => a !== '--') ?? testEnv.keyword;
 
 async function main(): Promise<void> {
   const native = loadNative();

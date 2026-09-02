@@ -95,7 +95,13 @@ export class MsgDecorationCacheService {
                 }
               : { animated: false, itemId: widgetId, url: this.legacyWidgetUrl(widgetId) },
         )
-        .catch((): ResolvedWidget => ({ animated: false, itemId: widgetId, url: this.legacyWidgetUrl(widgetId) }))
+        .catch(
+          (): ResolvedWidget => ({
+            animated: false,
+            itemId: widgetId,
+            url: this.legacyWidgetUrl(widgetId),
+          }),
+        )
         .then((final) => {
           this.widgetResolved.set(widgetId, final);
           this.widgetPending.delete(widgetId);

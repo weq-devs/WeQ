@@ -16,19 +16,19 @@ import { testEnv, qqDbPath } from '@weq/testkit';
 
 const KEY = testEnv.key;
 const ALGO = { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' } as const;
-const DB_PATH =
-  process.env.WEQ_TEST_DB_PATH ??
-  qqDbPath('collection.db');
+const DB_PATH = process.env.WEQ_TEST_DB_PATH ?? qqDbPath('collection.db');
 
 /** One-line human summary of an item, for spot-checking decoded content. */
 function preview(it: CollectionItem): string {
   const s = it.summary;
-  if (s.richMediaSummary) return s.richMediaSummary.brief || s.richMediaSummary.title || '(rich media)';
+  if (s.richMediaSummary)
+    return s.richMediaSummary.brief || s.richMediaSummary.title || '(rich media)';
   if (s.linkSummary) return `${s.linkSummary.title ?? ''} → ${s.linkSummary.url ?? ''}`;
   if (s.fileSummary) return s.fileSummary.fileInfo?.name ?? '(file)';
   if (s.videoSummary) return `video ${s.videoSummary.duration ?? '?'}s`;
   if (s.audioSummary) return `audio ${s.audioSummary.duration ?? '?'}ms`;
-  if (s.locationSummary) return `${s.locationSummary.name ?? ''} @${s.locationSummary.latitude ?? '?'},${s.locationSummary.longitude ?? '?'}`;
+  if (s.locationSummary)
+    return `${s.locationSummary.name ?? ''} @${s.locationSummary.latitude ?? '?'},${s.locationSummary.longitude ?? '?'}`;
   if (s.gallerySummary) return `gallery ×${s.gallerySummary.picList?.length ?? 0}`;
   if (s.textSummary) return s.textSummary.text ?? '(text)';
   return '(unknown)';
@@ -88,7 +88,9 @@ async function main() {
     if (all.length !== total) {
       throw new Error(`pagination mismatch: paged ${all.length} but count says ${total}`);
     }
-    console.log('\n[chain] ✅ codec → db → service verified: pagination consistent, all rows decoded.');
+    console.log(
+      '\n[chain] ✅ codec → db → service verified: pagination consistent, all rows decoded.',
+    );
   } finally {
     db.close();
   }

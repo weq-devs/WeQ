@@ -218,7 +218,9 @@ export function SsePushSection(): ReactElement {
         }
       >
         {servers.length === 0 ? (
-          <div className="weq-set-empty">还没有配置任何推送目标。启用后 WeQ 会把新消息 POST 到该地址。</div>
+          <div className="weq-set-empty">
+            还没有配置任何推送目标。启用后 WeQ 会把新消息 POST 到该地址。
+          </div>
         ) : (
           <ul className="weq-set-server-list">
             {servers.map((server) => {
@@ -420,7 +422,8 @@ export function SsePushSection(): ReactElement {
 
       <p className="weq-set-note">
         <ChevronRight size={13} strokeWidth={2} />
-        事件格式：普通消息为 <code>message</code>（含 text 摘要）；seq 跳变超过阈值时为 <code>mass</code>
+        事件格式：普通消息为 <code>message</code>（含 text 摘要）；seq 跳变超过阈值时为{' '}
+        <code>mass</code>
         （fromSeq / toSeq / count + 最新一条 preview）。推送失败会按指数退避重试，不会丢消息。
       </p>
     </div>

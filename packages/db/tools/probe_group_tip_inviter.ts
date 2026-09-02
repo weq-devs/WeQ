@@ -39,8 +39,14 @@ async function main(): Promise<void> {
     console.log(
       `  user2 ${u2}: ${m2 ? `nick=${m2.nick} role=${m2.role ?? m2.memberRole ?? '?'} joinTime=${m2.joinTime}` : 'NOT A MEMBER'}`,
     );
-    if (m1) console.log(`  user1 raw: ${JSON.stringify(m1, (_k, v) => (typeof v === 'bigint' ? v.toString() : v))}`);
-    if (m2) console.log(`  user2 raw: ${JSON.stringify(m2, (_k, v) => (typeof v === 'bigint' ? v.toString() : v))}`);
+    if (m1)
+      console.log(
+        `  user1 raw: ${JSON.stringify(m1, (_k, v) => (typeof v === 'bigint' ? v.toString() : v))}`,
+      );
+    if (m2)
+      console.log(
+        `  user2 raw: ${JSON.stringify(m2, (_k, v) => (typeof v === 'bigint' ? v.toString() : v))}`,
+      );
   }
 
   db.close();

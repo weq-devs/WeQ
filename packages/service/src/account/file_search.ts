@@ -36,11 +36,7 @@ export class FileSearchService {
   /**
    * Search for a file by timestamp, name, and type.
    */
-  async findFile(
-    timestamp: number,
-    filename: string,
-    type: FileType,
-  ): Promise<SearchResult> {
+  async findFile(timestamp: number, filename: string, type: FileType): Promise<SearchResult> {
     const uin = this.session.context.uin;
     const date = new Date(timestamp);
     const year = date.getFullYear();
@@ -196,10 +192,14 @@ export class FileSearchService {
 
   private getTypeDir(uin: string, type: Exclude<FileType, 'file'>): string | null {
     switch (type) {
-      case 'pic': return this.platform.picDir(uin);
-      case 'ptt': return this.platform.pttDir(uin);
-      case 'video': return this.platform.videoDir(uin);
-      case 'emoji': return this.platform.emojiRecvDir(uin);
+      case 'pic':
+        return this.platform.picDir(uin);
+      case 'ptt':
+        return this.platform.pttDir(uin);
+      case 'video':
+        return this.platform.videoDir(uin);
+      case 'emoji':
+        return this.platform.emojiRecvDir(uin);
     }
   }
 
@@ -213,28 +213,51 @@ export class FileSearchService {
 
   private getIconForExtension(ext: string): string {
     const iconMap: Record<string, string> = {
-      'ai': 'ai.png',
-      'apk': 'apk.png',
-      'mp3': 'audio.png', 'wav': 'audio.png', 'flac': 'audio.png', 'm4a': 'audio.png',
-      'bak': 'bak.png',
-      'ts': 'code.png', 'js': 'code.png', 'c': 'code.png', 'cpp': 'code.png', 'py': 'code.png', 'java': 'code.png',
-      'dmg': 'dmg.png',
-      'doc': 'doc.png', 'docx': 'doc.png',
-      'exe': 'exe.png',
-      'ttf': 'font.png', 'otf': 'font.png',
-      'jpg': 'image.png', 'jpeg': 'image.png', 'png': 'image.png', 'gif': 'image.png', 'webp': 'image.png',
-      'ipa': 'ipa.png',
-      'key': 'keynote.png',
-      'url': 'link.png',
-      'pdf': 'pdf.png',
-      'pkg': 'pkg.png',
-      'ppt': 'ppt.png', 'pptx': 'ppt.png',
-      'psd': 'ps.png',
-      'rar': 'rar.png',
-      'txt': 'txt.png', 'md': 'txt.png',
-      'mp4': 'video.png', 'mkv': 'video.png', 'avi': 'video.png', 'mov': 'video.png',
-      'xls': 'xls.png', 'xlsx': 'xls.png',
-      'zip': 'zip.png', '7z': 'zip.png', 'tar': 'zip.png', 'gz': 'zip.png',
+      ai: 'ai.png',
+      apk: 'apk.png',
+      mp3: 'audio.png',
+      wav: 'audio.png',
+      flac: 'audio.png',
+      m4a: 'audio.png',
+      bak: 'bak.png',
+      ts: 'code.png',
+      js: 'code.png',
+      c: 'code.png',
+      cpp: 'code.png',
+      py: 'code.png',
+      java: 'code.png',
+      dmg: 'dmg.png',
+      doc: 'doc.png',
+      docx: 'doc.png',
+      exe: 'exe.png',
+      ttf: 'font.png',
+      otf: 'font.png',
+      jpg: 'image.png',
+      jpeg: 'image.png',
+      png: 'image.png',
+      gif: 'image.png',
+      webp: 'image.png',
+      ipa: 'ipa.png',
+      key: 'keynote.png',
+      url: 'link.png',
+      pdf: 'pdf.png',
+      pkg: 'pkg.png',
+      ppt: 'ppt.png',
+      pptx: 'ppt.png',
+      psd: 'ps.png',
+      rar: 'rar.png',
+      txt: 'txt.png',
+      md: 'txt.png',
+      mp4: 'video.png',
+      mkv: 'video.png',
+      avi: 'video.png',
+      mov: 'video.png',
+      xls: 'xls.png',
+      xlsx: 'xls.png',
+      zip: 'zip.png',
+      '7z': 'zip.png',
+      tar: 'zip.png',
+      gz: 'zip.png',
     };
 
     const icon = iconMap[ext] || 'unknown.png';

@@ -99,7 +99,12 @@ export namespace GetGroupHistory {
     pid: number,
     params: GroupHistoryParams,
   ): Promise<Record<string, unknown>> =>
-    invokeTrpc(nt, pid, GetGroupHistory as TrpcSpec<GroupHistoryParams, Record<string, unknown>>, params);
+    invokeTrpc(
+      nt,
+      pid,
+      GetGroupHistory as TrpcSpec<GroupHistoryParams, Record<string, unknown>>,
+      params,
+    );
 }
 
 /** 群聊：按 seq 范围拉取，返回原始响应 + 第一条消息原始字节。 */
@@ -111,18 +116,27 @@ export async function fetchGroupHistoryRaw(
   if (!Number.isSafeInteger(params.groupUin) || params.groupUin <= 0) {
     throw new Error(`groupUin 非法: ${String(params.groupUin)}`);
   }
-  if (!Number.isSafeInteger(params.startSeq) || !Number.isSafeInteger(params.endSeq)
-    || params.startSeq > params.endSeq || params.endSeq < 0) {
+  if (
+    !Number.isSafeInteger(params.startSeq) ||
+    !Number.isSafeInteger(params.endSeq) ||
+    params.startSeq > params.endSeq ||
+    params.endSeq < 0
+  ) {
     throw new Error(`seq 窗口非法: ${params.startSeq}-${params.endSeq}`);
   }
 
   const reqBytes = encode(SSO_GET_GROUP_MSG_REQUEST, GetGroupHistory.serialize(params));
   const rawResponse = await sendPacket(nt, pid, SSO_GET_GROUP_MSG_CMD, reqBytes);
   const decoded = decode(SSO_GET_GROUP_MSG_RESPONSE, rawResponse) as {
-    body?: { groupUin?: number; startSequence?: number; endSequence?: number; messages?: unknown[] };
+    body?: {
+      groupUin?: number;
+      startSequence?: number;
+      endSequence?: number;
+      messages?: unknown[];
+    };
   };
   const body = decoded.body ?? {};
-  const messages = Array.isArray(body.messages) ? body.messages as Record<string, unknown>[] : [];
+  const messages = Array.isArray(body.messages) ? (body.messages as Record<string, unknown>[]) : [];
   const firstMessageBytes = extractPath(rawResponse, [{ tag: 3 }, { tag: 6, index: 0 }]);
   return {
     cmd: SSO_GET_GROUP_MSG_CMD,
@@ -161,7 +175,12 @@ export namespace GetC2cHistory {
     pid: number,
     params: C2cHistoryParams,
   ): Promise<Record<string, unknown>> =>
-    invokeTrpc(nt, pid, GetC2cHistory as TrpcSpec<C2cHistoryParams, Record<string, unknown>>, params);
+    invokeTrpc(
+      nt,
+      pid,
+      GetC2cHistory as TrpcSpec<C2cHistoryParams, Record<string, unknown>>,
+      params,
+    );
 }
 
 /** 私聊：按会话级 NT sequence 范围拉取，返回原始响应 + 第一条消息原始字节。 */
@@ -171,8 +190,12 @@ export async function fetchC2cHistoryRaw(
   params: C2cHistoryParams,
 ): Promise<HistoryFetchResult> {
   if (!params.friendUid.trim()) throw new Error('friendUid 不能为空');
-  if (!Number.isSafeInteger(params.startSeq) || !Number.isSafeInteger(params.endSeq)
-    || params.startSeq > params.endSeq || params.endSeq < 0) {
+  if (
+    !Number.isSafeInteger(params.startSeq) ||
+    !Number.isSafeInteger(params.endSeq) ||
+    params.startSeq > params.endSeq ||
+    params.endSeq < 0
+  ) {
     throw new Error(`seq 窗口非法: ${params.startSeq}-${params.endSeq}`);
   }
 
@@ -182,7 +205,9 @@ export async function fetchC2cHistoryRaw(
     friendUid?: string;
     messages?: unknown[];
   };
-  const messages = Array.isArray(decoded.messages) ? decoded.messages as Record<string, unknown>[] : [];
+  const messages = Array.isArray(decoded.messages)
+    ? (decoded.messages as Record<string, unknown>[])
+    : [];
   const firstMessageBytes = extractPath(rawResponse, [{ tag: 7, index: 0 }]);
   return {
     cmd: SSO_GET_C2C_MSG_CMD,

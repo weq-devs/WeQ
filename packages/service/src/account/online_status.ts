@@ -89,7 +89,7 @@ export class OnlineStatusService {
 
     const typeName = ONLINE_TYPE_NAMES[raw.type] || '未知';
     let subTypeName = '';
-    
+
     // As per requirement, only parse subtype for type 10 (ONLINE)
     if (raw.type === OnlineType.ONLINE) {
       subTypeName = SUB_TYPE_NAMES[raw.subType] || '';

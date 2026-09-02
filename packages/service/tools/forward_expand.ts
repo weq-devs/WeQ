@@ -68,7 +68,8 @@ async function main(): Promise<void> {
       // "名字: 内容" line (not the bare placeholder alone).
       const text = forwardToText(lifted, 1);
       if (!text.startsWith('[合并转发]')) fail(`msgId ${id}: text missing 合并转发 header`);
-      if (!text.includes('\n')) fail(`msgId ${id}: text has no expanded lines (still a bare placeholder)`);
+      if (!text.includes('\n'))
+        fail(`msgId ${id}: text has no expanded lines (still a bare placeholder)`);
 
       console.log('  rendered text preview:');
       for (const line of text.split('\n').slice(0, 8)) console.log(`    ${line.slice(0, 90)}`);

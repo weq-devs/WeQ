@@ -55,7 +55,12 @@ const C2C_RESPONSE = hexToBytes(
 describe('响应解码', () => {
   it('SsoGetGroupMsg 响应：body.messages 完整解码', () => {
     const decoded = decode(GetGroupHistory.respSchema, GROUP_RESPONSE) as {
-      body?: { groupUin?: number; startSequence?: number; endSequence?: number; messages?: unknown[] };
+      body?: {
+        groupUin?: number;
+        startSequence?: number;
+        endSequence?: number;
+        messages?: unknown[];
+      };
     };
     expect(decoded.body?.groupUin).toBe(10001);
     expect(decoded.body?.startSequence).toBe(5);

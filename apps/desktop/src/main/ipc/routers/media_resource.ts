@@ -32,24 +32,20 @@ const pageInput = z.object({
 
 export const mediaResourceRouter = router({
   /** One page of a flat hash cache (图片墙 / QQ空间缓存). */
-  listFlat: procedure
-    .input(pageInput.extend({ kind: flatKind }))
-    .query(({ input }) => {
-      return requireServices().mediaResource.listFlat(input.kind, {
-        limit: input.limit,
-        cursor: input.cursor ?? null,
-      });
-    }),
+  listFlat: procedure.input(pageInput.extend({ kind: flatKind })).query(({ input }) => {
+    return requireServices().mediaResource.listFlat(input.kind, {
+      limit: input.limit,
+      cursor: input.cursor ?? null,
+    });
+  }),
 
   /** One page of merged month entries (图片 / 视频, Ori + Thumb by hash). */
-  listMonth: procedure
-    .input(pageInput.extend({ kind: monthKind }))
-    .query(({ input }) => {
-      return requireServices().mediaResource.listMonth(input.kind, {
-        limit: input.limit,
-        cursor: input.cursor ?? null,
-      });
-    }),
+  listMonth: procedure.input(pageInput.extend({ kind: monthKind })).query(({ input }) => {
+    return requireServices().mediaResource.listMonth(input.kind, {
+      limit: input.limit,
+      cursor: input.cursor ?? null,
+    });
+  }),
 
   /** One page of voice clips (语音, Ptt cache — SILK, decoded on demand). */
   listVoice: procedure.input(pageInput).query(({ input }) => {

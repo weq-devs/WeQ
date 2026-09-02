@@ -53,7 +53,11 @@ interface Rgb {
 function normalizeHex(input: string | undefined | null): string | null {
   if (!input) return null;
   let h = input.trim().replace(/^#/, '');
-  if (/^[0-9a-fA-F]{3}$/.test(h)) h = h.split('').map((c) => c + c).join('');
+  if (/^[0-9a-fA-F]{3}$/.test(h))
+    h = h
+      .split('')
+      .map((c) => c + c)
+      .join('');
   if (!/^[0-9a-fA-F]{6}$/.test(h)) return null;
   return `#${h.toLowerCase()}`;
 }
@@ -66,7 +70,9 @@ function hexToRgb(hex: string): Rgb {
 
 function rgbToHex({ r, g, b }: Rgb): string {
   const clamp = (v: number): string =>
-    Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
+    Math.max(0, Math.min(255, Math.round(v)))
+      .toString(16)
+      .padStart(2, '0');
   return `#${clamp(r)}${clamp(g)}${clamp(b)}`;
 }
 

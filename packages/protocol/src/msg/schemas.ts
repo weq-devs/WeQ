@@ -9,7 +9,12 @@
 
 import { message, type ProtoMessage } from '../protobuf';
 
-const f = (name: string, tag: number, type: ProtoMessage['fields'][number]['type'], extra: Partial<{ repeated: boolean; force: boolean }> = {}) => ({ name, tag, type, ...extra });
+const f = (
+  name: string,
+  tag: number,
+  type: ProtoMessage['fields'][number]['type'],
+  extra: Partial<{ repeated: boolean; force: boolean }> = {},
+) => ({ name, tag, type, ...extra });
 
 // ---------- ResponseHead ----------
 
@@ -323,16 +328,12 @@ export const REPLY_ELEMENT: ProtoMessage = message([
 ]);
 
 /** REPLY_ELEMENT.pbReserve（tag 8）：field 6 = 原消息发送者 uid。 */
-export const REPLY_PB_RESERVE: ProtoMessage = message([
-  f('origSenderUid', 6, 'string'),
-]);
+export const REPLY_PB_RESERVE: ProtoMessage = message([f('origSenderUid', 6, 'string')]);
 
 // ---------- elem(tag=24) 钱包 / 红包 ----------
 
 /** 红包皮肤（detail.21）：field 5 是 skinId（部分消息里为空串，按 wire type 自动跳过）。 */
-export const WALLET_SKIN: ProtoMessage = message([
-  f('skinId', 5, 'uint32'),
-]);
+export const WALLET_SKIN: ProtoMessage = message([f('skinId', 5, 'uint32')]);
 
 /** 红包详情（body.3）：redbagTitle / openPrompt / subTitle / skin。 */
 export const WALLET_DETAIL: ProtoMessage = message([
@@ -349,9 +350,7 @@ export const WALLET_BODY: ProtoMessage = message([
 ]);
 
 /** elem(tag=24) 顶层。 */
-export const WALLET_ELEM: ProtoMessage = message([
-  f('body', 1, WALLET_BODY),
-]);
+export const WALLET_ELEM: ProtoMessage = message([f('body', 1, WALLET_BODY)]);
 export const LIGHT_APP_ELEM: ProtoMessage = message([
   f('data', 1, 'bytes'),
   f('msgResid', 2, 'bytes'),
@@ -366,9 +365,7 @@ export const COMMON_ELEM: ProtoMessage = message([
 // ---------- commonElem(serviceType=48) 图片 ----------
 
 /** 图片信息里 imgType 的包裹结构（field 2 才是实际 imgType）。 */
-export const PIC_COMMON_IMG_TYPE: ProtoMessage = message([
-  f('imgType', 2, 'uint32'),
-]);
+export const PIC_COMMON_IMG_TYPE: ProtoMessage = message([f('imgType', 2, 'uint32')]);
 
 /** 图片信息（file.body.info）：fileSize / md5 / contentHash / fileName / imgType / 尺寸 / 原图标记（与 VIDEO_COMMON_INFO 同构）。 */
 export const PIC_COMMON_INFO: ProtoMessage = message([
@@ -393,9 +390,7 @@ export const PIC_COMMON_BODY: ProtoMessage = message([
 ]);
 
 /** file.url：originalUrl 下载路径。 */
-export const PIC_COMMON_URL: ProtoMessage = message([
-  f('originalUrl', 1, 'string'),
-]);
+export const PIC_COMMON_URL: ProtoMessage = message([f('originalUrl', 1, 'string')]);
 
 /** pbElem.1（file）：body + url。 */
 export const PIC_COMMON_FILE: ProtoMessage = message([
@@ -404,9 +399,7 @@ export const PIC_COMMON_FILE: ProtoMessage = message([
 ]);
 
 /** commonElem(serviceType=48).pbElem 顶层。 */
-export const PIC_COMMON_PB: ProtoMessage = message([
-  f('file', 1, PIC_COMMON_FILE),
-]);
+export const PIC_COMMON_PB: ProtoMessage = message([f('file', 1, PIC_COMMON_FILE)]);
 
 // ---------- commonElem(serviceType=48, businessType=21) 视频 ----------
 
@@ -433,9 +426,7 @@ export const VIDEO_COMMON_BODY: ProtoMessage = message([
 ]);
 
 /** pbElem.1 数组里的一项（第 0 项=视频本体，第 1 项=封面缩略图）。 */
-export const VIDEO_COMMON_FILE: ProtoMessage = message([
-  f('body', 1, VIDEO_COMMON_BODY),
-]);
+export const VIDEO_COMMON_FILE: ProtoMessage = message([f('body', 1, VIDEO_COMMON_BODY)]);
 
 /** commonElem(serviceType=48, businessType=21).pbElem 顶层。 */
 export const VIDEO_COMMON_PB: ProtoMessage = message([
@@ -457,9 +448,7 @@ export const FILE_TRANS_INFO: ProtoMessage = message([
 ]);
 
 /** 7 的包裹：field 2 才是文件信息。 */
-export const FILE_TRANS_ITEM: ProtoMessage = message([
-  f('info', 2, FILE_TRANS_INFO),
-]);
+export const FILE_TRANS_ITEM: ProtoMessage = message([f('info', 2, FILE_TRANS_INFO)]);
 
 /** elemValue 跳过 3 字节前缀后的顶层。 */
 export const FILE_TRANS_TOP: ProtoMessage = message([
@@ -492,24 +481,16 @@ export const PTT_COMMON_BODY: ProtoMessage = message([
 ]);
 
 /** pbElem.1：body。 */
-export const PTT_COMMON_FILE: ProtoMessage = message([
-  f('body', 1, PTT_COMMON_BODY),
-]);
+export const PTT_COMMON_FILE: ProtoMessage = message([f('body', 1, PTT_COMMON_BODY)]);
 
 /** pbElem.2.3.5：waveform 包裹（field 2 = 波形字节）。 */
-export const PTT_COMMON_WAVE: ProtoMessage = message([
-  f('waveform', 2, 'bytes'),
-]);
+export const PTT_COMMON_WAVE: ProtoMessage = message([f('waveform', 2, 'bytes')]);
 
 /** pbElem.2.3：wave 容器。 */
-export const PTT_COMMON_META: ProtoMessage = message([
-  f('wave', 5, PTT_COMMON_WAVE),
-]);
+export const PTT_COMMON_META: ProtoMessage = message([f('wave', 5, PTT_COMMON_WAVE)]);
 
 /** pbElem.2：其他信息（只取 waveForm）。 */
-export const PTT_COMMON_EXTRA: ProtoMessage = message([
-  f('meta', 3, PTT_COMMON_META),
-]);
+export const PTT_COMMON_EXTRA: ProtoMessage = message([f('meta', 3, PTT_COMMON_META)]);
 
 /** commonElem(serviceType=48, businessType=22).pbElem 顶层。 */
 export const PTT_COMMON_PB: ProtoMessage = message([
@@ -520,9 +501,7 @@ export const PTT_COMMON_PB: ProtoMessage = message([
 // ---------- commonElem(serviceType=45) markdown ----------
 
 /** pbElem.7：闪传信息，只取 fileSetId（filesetid 不是必需，缺省不输出）。 */
-export const MARKDOWN_FLASH_INFO: ProtoMessage = message([
-  f('fileSetId', 1, 'string'),
-]);
+export const MARKDOWN_FLASH_INFO: ProtoMessage = message([f('fileSetId', 1, 'string')]);
 
 /** commonElem(serviceType=45).pbElem 顶层：只保留 markdownContent / markdownTextSummary / fileSetId。 */
 export const MARKDOWN_COMMON_PB: ProtoMessage = message([
@@ -532,9 +511,7 @@ export const MARKDOWN_COMMON_PB: ProtoMessage = message([
 ]);
 // ---------- commonElem(serviceType=46) 内联键盘 ----------
 
-export const INLINE_KEYBOARD_ACTION_TYPE: ProtoMessage = message([
-  f('actionType', 1, 'uint32'),
-]);
+export const INLINE_KEYBOARD_ACTION_TYPE: ProtoMessage = message([f('actionType', 1, 'uint32')]);
 
 /** 按钮 action（button.3）：actionType 在 2.1，action 在 5。 */
 export const INLINE_KEYBOARD_ACTION: ProtoMessage = message([
@@ -568,9 +545,7 @@ export const INLINE_KEYBOARD_GROUP: ProtoMessage = message([
 ]);
 
 /** commonElem(serviceType=46).pbElem 顶层。 */
-export const INLINE_KEYBOARD_PB: ProtoMessage = message([
-  f('group', 1, INLINE_KEYBOARD_GROUP),
-]);
+export const INLINE_KEYBOARD_PB: ProtoMessage = message([f('group', 1, INLINE_KEYBOARD_GROUP)]);
 export const FONT_INFO: ProtoMessage = message([
   f('fontId2', 15, 'uint32'),
   f('fontId1', 56, 'uint32'),
@@ -586,9 +561,7 @@ export const GENERAL_FLAGS: ProtoMessage = message([
   f('font', 19, FONT_INFO),
 ]);
 
-export const BUBBLE_ELEM: ProtoMessage = message([
-  f('id', 1, 'uint32'),
-]);
+export const BUBBLE_ELEM: ProtoMessage = message([f('id', 1, 'uint32')]);
 
 export const ELEM: ProtoMessage = message([
   f('text', 1, TEXT_ELEM),
@@ -624,9 +597,7 @@ export const MESSAGE_BODY: ProtoMessage = message([
 ]);
 
 /** MsgBody.msgContent（tag 2）——老 wire 私聊文件的承载：notOnlineFile 在 tag 1。 */
-export const MSG_CONTENT: ProtoMessage = message([
-  f('notOnlineFile', 1, NOT_ONLINE_FILE),
-]);
+export const MSG_CONTENT: ProtoMessage = message([f('notOnlineFile', 1, NOT_ONLINE_FILE)]);
 
 export const PUSH_MSG_BODY: ProtoMessage = message([
   f('responseHead', 1, RESPONSE_HEAD),

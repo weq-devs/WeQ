@@ -72,7 +72,9 @@ function validateJson(r: ExportResult): void {
 function validateJsonl(r: ExportResult): void {
   if (r.messageCount <= 0) fail('jsonl: exported 0 messages');
   if (r.fileSize < FULL_READ_LIMIT) {
-    const lines = readFileSync(r.filePath, 'utf-8').split('\n').filter((l) => l.length > 0);
+    const lines = readFileSync(r.filePath, 'utf-8')
+      .split('\n')
+      .filter((l) => l.length > 0);
     if (lines.length !== r.messageCount) fail(`jsonl: ${lines.length} lines != ${r.messageCount}`);
     JSON.parse(lines[0]!);
     JSON.parse(lines[lines.length - 1]!);
@@ -108,25 +110,41 @@ async function main(): Promise<void> {
 
   console.log(`[test:export] group ${GROUP_CODE}\n`);
   try {
-    const json = await exportGroupToJson(msgs, { groupCode: GROUP_CODE, outputPath: out('json'), pageSize: 2000 });
+    const json = await exportGroupToJson(msgs, {
+      groupCode: GROUP_CODE,
+      outputPath: out('json'),
+      pageSize: 2000,
+    });
     logResult(json);
     validateJson(json);
 
-    const jsonl = await exportGroupToJsonl(msgs, { groupCode: GROUP_CODE, outputPath: out('jsonl'), pageSize: 2000 });
+    const jsonl = await exportGroupToJsonl(msgs, {
+      groupCode: GROUP_CODE,
+      outputPath: out('jsonl'),
+      pageSize: 2000,
+    });
     logResult(jsonl);
     validateJsonl(jsonl);
 
-    const txt = await exportGroupToTxt(msgs, { groupCode: GROUP_CODE, outputPath: out('txt'), pageSize: 2000 });
+    const txt = await exportGroupToTxt(msgs, {
+      groupCode: GROUP_CODE,
+      outputPath: out('txt'),
+      pageSize: 2000,
+    });
     logResult(txt);
     validateTxt(txt);
 
     if (json.messageCount !== jsonl.messageCount || json.messageCount !== txt.messageCount) {
-      fail(`message count mismatch across formats: json=${json.messageCount} jsonl=${jsonl.messageCount} txt=${txt.messageCount}`);
+      fail(
+        `message count mismatch across formats: json=${json.messageCount} jsonl=${jsonl.messageCount} txt=${txt.messageCount}`,
+      );
     }
 
     console.log('\n[test:export] sample txt lines:');
     if (txt.fileSize < FULL_READ_LIMIT) {
-      const lines = readFileSync(txt.filePath, 'utf-8').split('\n').filter((l) => l.length > 0);
+      const lines = readFileSync(txt.filePath, 'utf-8')
+        .split('\n')
+        .filter((l) => l.length > 0);
       for (const line of lines.slice(0, 5)) console.log(`    ${line.slice(0, 100)}`);
     }
 

@@ -726,7 +726,12 @@ export function forwardRecordToWire(record: MsgCacheRecord): unknown {
   // decoration (bubble/font/widget), lifted into the same `decoration` shape the
   // main timeline carries so the forward window can render it with the shared
   // useMsgDecoration pipeline.
-  const { elements: _e, subMsgs: _s, proto40801, ...rest } = record as unknown as Record<string, unknown>;
+  const {
+    elements: _e,
+    subMsgs: _s,
+    proto40801,
+    ...rest
+  } = record as unknown as Record<string, unknown>;
   const carrier = sanitize(rest) as Record<string, unknown>;
   const decoration = proto40801 instanceof Uint8Array ? decodeMsgDressWire(proto40801) : null;
   return { ...carrier, elements, subMsgs, ...(decoration ? { decoration } : {}) };

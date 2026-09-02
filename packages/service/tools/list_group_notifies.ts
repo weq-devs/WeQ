@@ -19,15 +19,17 @@ const DB_PATH_ALT = qqDbPath('group_info.db');
 
 async function main() {
   const native = loadNative();
-  
+
   let dbPath = DB_PATH;
   if (!fs.existsSync(dbPath)) {
-      dbPath = DB_PATH_ALT;
+    dbPath = DB_PATH_ALT;
   }
-  
+
   if (!fs.existsSync(dbPath)) {
-      console.error(`[test:group-notify] Could not find group_info.db at ${DB_PATH} or ${DB_PATH_ALT}`);
-      return;
+    console.error(
+      `[test:group-notify] Could not find group_info.db at ${DB_PATH} or ${DB_PATH_ALT}`,
+    );
+    return;
   }
 
   const notifyDb = new GroupNotifyDb(native.ntHelper, {
@@ -38,15 +40,14 @@ async function main() {
 
   try {
     console.log(`[test:group-notify] Fetching notifications for UIN: ${UIN} from ${dbPath}`);
-    
+
     console.log('\n--- Normal Notifications ---');
     const normal = await notifyDb.listNormal(10);
-    console.log(JSON.stringify(normal, (_k, v) => typeof v === 'bigint' ? v.toString() : v, 2));
+    console.log(JSON.stringify(normal, (_k, v) => (typeof v === 'bigint' ? v.toString() : v), 2));
 
     console.log('\n--- Doubt Notifications ---');
     const doubt = await notifyDb.listDoubt(10);
-    console.log(JSON.stringify(doubt, (_k, v) => typeof v === 'bigint' ? v.toString() : v, 2));
-
+    console.log(JSON.stringify(doubt, (_k, v) => (typeof v === 'bigint' ? v.toString() : v), 2));
   } catch (err) {
     console.error('[test:group-notify] Failed:', err);
   } finally {

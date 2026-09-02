@@ -120,20 +120,12 @@ export function ProtoField<
   T extends ScalarType,
   O extends boolean = false,
   R extends boolean = false,
->(
-  no: number,
-  type: T,
-  opts?: ProtoFieldOpts<O, R>,
-): ScalarProtoFieldType<T, O, R>;
+>(no: number, type: T, opts?: ProtoFieldOpts<O, R>): ScalarProtoFieldType<T, O, R>;
 export function ProtoField<
   T extends () => ProtoMessageType,
   O extends boolean = false,
   R extends boolean = false,
->(
-  no: number,
-  type: T,
-  opts?: ProtoFieldOpts<O, R>,
-): MessageProtoFieldType<T, O, R>;
+>(no: number, type: T, opts?: ProtoFieldOpts<O, R>): MessageProtoFieldType<T, O, R>;
 export function ProtoField(
   no: number,
   type: ScalarType | (() => ProtoMessageType),
@@ -168,7 +160,9 @@ export type ProtoFieldReturnType<T, E extends boolean> =
       : never;
 
 export type RequiredFieldsBaseType<T, E extends boolean> = {
-  [K in keyof T as T[K] extends { optional: true } ? never : LowerCamelCase<K & string>]: T[K] extends {
+  [K in keyof T as T[K] extends { optional: true }
+    ? never
+    : LowerCamelCase<K & string>]: T[K] extends {
     repeat: true;
   }
     ? ProtoFieldReturnType<T[K], E>[]
@@ -176,7 +170,9 @@ export type RequiredFieldsBaseType<T, E extends boolean> = {
 };
 
 export type OptionalFieldsBaseType<T, E extends boolean> = {
-  [K in keyof T as T[K] extends { optional: true } ? LowerCamelCase<K & string> : never]?: T[K] extends {
+  [K in keyof T as T[K] extends { optional: true }
+    ? LowerCamelCase<K & string>
+    : never]?: T[K] extends {
     repeat: true;
   }
     ? ProtoFieldReturnType<T[K], E>[]
@@ -191,7 +187,8 @@ export type OptionalFieldsType<T, E extends boolean> = E extends true
   ? Partial<OptionalFieldsBaseType<T, E>>
   : OptionalFieldsBaseType<T, E>;
 
-export type ProtoStructType<T, E extends boolean> = RequiredFieldsType<T, E> & OptionalFieldsType<T, E>;
+export type ProtoStructType<T, E extends boolean> = RequiredFieldsType<T, E> &
+  OptionalFieldsType<T, E>;
 
 export type ProtoEncodeStructType<T> = ProtoStructType<T, true>;
 export type ProtoDecodeStructType<T> = ProtoStructType<T, false>;

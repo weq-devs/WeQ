@@ -545,32 +545,36 @@ export function AccountBasicsSection(): ReactElement {
               手机 QQ 的聊天图片缓存在{' '}
               <code>/sdcard/Android/data/com.tencent.mobileqq/Tencent/MobileQQ/chatpic</code>{' '}
               目录（部分机型是{' '}
-              <code>/storage/emulated/0/Android/data/com.tencent.mobileqq/Tencent/MobileQQ/chatpic</code>
-              ）。把这个目录<strong>完整</strong>备份到电脑，三个子目录{' '}
-              <code>chatraw</code> / <code>chatimg</code> / <code>chatthumb</code> 都要保留。
+              <code>
+                /storage/emulated/0/Android/data/com.tencent.mobileqq/Tencent/MobileQQ/chatpic
+              </code>
+              ）。把这个目录<strong>完整</strong>备份到电脑，三个子目录 <code>chatraw</code> /{' '}
+              <code>chatimg</code> / <code>chatthumb</code> 都要保留。
             </p>
             <p className="weq-set-details-h">备份方案（任选其一）：</p>
             <ol>
               <li>
                 <strong>ADB 命令（推荐，最稳）</strong>：手机开启「开发者选项 → USB
                 调试」，连接电脑后执行
-                <code>adb pull /sdcard/Android/data/com.tencent.mobileqq/Tencent/MobileQQ/chatpic
-                  &lt;电脑上的目标目录&gt;</code>
+                <code>
+                  adb pull /sdcard/Android/data/com.tencent.mobileqq/Tencent/MobileQQ/chatpic
+                  &lt;电脑上的目标目录&gt;
+                </code>
                 ，把整个目录拉下来。
               </li>
               <li>
                 <strong>文件管理器复制</strong>：Android 11+ 的系统文件管理器访问{' '}
-                <code>Android/data</code> 受限，建议用 MT 管理器等第三方文件管理器，或
-                Root 后的文件管理器，把 chatpic 整个文件夹复制到电脑。
+                <code>Android/data</code> 受限，建议用 MT 管理器等第三方文件管理器，或 Root
+                后的文件管理器，把 chatpic 整个文件夹复制到电脑。
               </li>
               <li>
-                <strong>手机整机备份</strong>：用手机自带的「备份与恢复」或第三方备份
-                App 把 QQ 数据整体备份，再从备份里取出 chatpic 目录。
+                <strong>手机整机备份</strong>：用手机自带的「备份与恢复」或第三方备份 App 把 QQ
+                数据整体备份，再从备份里取出 chatpic 目录。
               </li>
             </ol>
             <p>
-              导入时请选择电脑上那个 chatpic 目录本身（即里面直接能看到
-              chatraw / chatimg / chatthumb），而不是它的父目录。
+              导入时请选择电脑上那个 chatpic 目录本身（即里面直接能看到 chatraw / chatimg /
+              chatthumb），而不是它的父目录。
             </p>
           </div>
         </details>

@@ -123,7 +123,11 @@ async function main(): Promise<void> {
   const diag = new QqDb(native.ntHelper, { dbPath: DB_PATH, key: KEY, algo: ALGO });
   const c2cMsgs = new C2cMsgDb(native.ntHelper, { dbPath: DB_PATH, key: KEY, algo: ALGO });
   const groupMsgs = new GroupMsgDb(native.ntHelper, { dbPath: DB_PATH, key: KEY, algo: ALGO });
-  const recentContacts = new RecentContactDb(native.ntHelper, { dbPath: DB_PATH, key: KEY, algo: ALGO });
+  const recentContacts = new RecentContactDb(native.ntHelper, {
+    dbPath: DB_PATH,
+    key: KEY,
+    algo: ALGO,
+  });
   const uidMap = UidMap.from(
     await new UidMappingDb(native.ntHelper, { dbPath: DB_PATH, key: KEY, algo: ALGO }).listAll(),
   );

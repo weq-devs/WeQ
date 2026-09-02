@@ -53,7 +53,8 @@ function printTree(fields: RawField[], indent: string): void {
 
 async function main(): Promise<void> {
   const want = Number(process.argv[2]);
-  if (!Number.isFinite(want)) throw new Error('用法: tools:dump-element-raw <elementType> [安卓目录]');
+  if (!Number.isFinite(want))
+    throw new Error('用法: tools:dump-element-raw <elementType> [安卓目录]');
   const dir = process.argv[3];
 
   const nt = loadNative().ntHelper;

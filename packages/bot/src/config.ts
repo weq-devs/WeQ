@@ -4,7 +4,12 @@
  * 设计原则：**声明式 + 扩展友好**。config.json 由桌面「导出好友」生成，用户只需填 napcat/snowluma
  * 的 ws 地址与 token 即可启动。未来扩展（更多 provider 能力 / 功能开关）只往这里加字段，不改结构。
  */
-import type { AgentLabModelRef, AgentLabEndpoint, EndpointResolver, TtsProviderConfig } from '@weq/agentlab';
+import type {
+  AgentLabModelRef,
+  AgentLabEndpoint,
+  EndpointResolver,
+  TtsProviderConfig,
+} from '@weq/agentlab';
 
 export type AdapterType = 'napcat' | 'snowluma';
 
@@ -77,7 +82,10 @@ export function buildEndpointResolver(providers: BotLlmProvider[]): EndpointReso
   const byId = new Map(providers.map((p) => [p.id, p]));
   return (ref: AgentLabModelRef): AgentLabEndpoint => {
     const p = byId.get(ref.providerId);
-    if (!p) throw new Error(`未配置 LLM provider: ${ref.providerId}（persona 引用了它但 config.llmProviders 里没有）`);
+    if (!p)
+      throw new Error(
+        `未配置 LLM provider: ${ref.providerId}（persona 引用了它但 config.llmProviders 里没有）`,
+      );
     return { baseUrl: p.baseUrl, apiKey: p.apiKey, model: ref.model };
   };
 }

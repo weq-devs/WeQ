@@ -23,13 +23,13 @@ async function main() {
 
   // Try to find a groupCode to test with.
   const anyRows = await (db as any).qq.query('SELECT "60001" FROM group_essence LIMIT 1', []);
-  
+
   if (anyRows.length === 0) {
     console.log('[test:group-essence] No essence messages found in table.');
   } else {
     const groupCode = anyRows[0][0];
     console.log('[test:group-essence] Found groupCode:', groupCode);
-    
+
     const list = await db.listEssence(BigInt(groupCode));
     console.log(`[test:group-essence] Found ${list.length} messages:`);
     console.log(JSON.stringify(list, bigintReplacer, 2));

@@ -11,7 +11,7 @@
  * Wire types 3/4 (group start/end) are obsolete; we reject them.
  */
 
-import { readVarint, } from './varint';
+import { readVarint } from './varint';
 
 export type WireType = 0 | 1 | 2 | 5;
 
@@ -100,7 +100,9 @@ export function readField(buf: Uint8Array, offset: number): WireField | null {
       cursor += len.size;
       const lengthN = Number(len.value);
       if (cursor + lengthN > buf.length) {
-        throw new WireError(`LEN payload truncated at tag ${tag} (need ${lengthN}, have ${buf.length - cursor})`);
+        throw new WireError(
+          `LEN payload truncated at tag ${tag} (need ${lengthN}, have ${buf.length - cursor})`,
+        );
       }
       return {
         tag,

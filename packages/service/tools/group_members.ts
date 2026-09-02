@@ -15,7 +15,7 @@ const DB_PATH = qqDbPath('group_info.db');
 
 async function main() {
   const native = loadNative();
-  
+
   const groupMembersDb = new GroupMemberDb(native.ntHelper, {
     dbPath: DB_PATH,
     key: KEY,
@@ -30,14 +30,13 @@ async function main() {
 
   try {
     console.log(`[test:group-members] Fetching members for group: ${GROUP_CODE}`);
-    
+
     const members = await service.listMembersInGroup(GROUP_CODE, 10);
     console.log(`[test:group-members] Found ${members.length} members (showing top 10):`);
-    
-    members.forEach((m, i) => {
-        console.log(`${i+1}. ${m.nick} (UIN: ${m.uin}, UID: ${m.uid})`);
-    });
 
+    members.forEach((m, i) => {
+      console.log(`${i + 1}. ${m.nick} (UIN: ${m.uin}, UID: ${m.uid})`);
+    });
   } catch (err) {
     console.error('[test:group-members] Failed:', err);
   } finally {

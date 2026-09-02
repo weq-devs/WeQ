@@ -100,12 +100,18 @@ export async function startCloneTask(args: StartCloneArgs): Promise<void> {
     await client.account.buildAgentLabFromC2c.mutate(params);
     setTasks(
       tasks.map((t) =>
-        t.personaId === params.personaId ? { ...t, status: 'done', phase: '完成', percent: 100 } : t,
+        t.personaId === params.personaId
+          ? { ...t, status: 'done', phase: '完成', percent: 100 }
+          : t,
       ),
     );
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    setTasks(tasks.map((t) => (t.personaId === params.personaId ? { ...t, status: 'error', error: msg } : t)));
+    setTasks(
+      tasks.map((t) =>
+        t.personaId === params.personaId ? { ...t, status: 'error', error: msg } : t,
+      ),
+    );
   } finally {
     maybeStopProgressSub();
   }

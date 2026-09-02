@@ -41,12 +41,18 @@ async function main() {
     );
 
     console.log(`\n=== 群 ${GROUP_CODE} 现在在群里的成员 (${active.length} 人) ===`);
-    console.log('uid                                    | uin        | card / nick        | adminFlag | joined');
-    console.log('---------------------------------------|------------|--------------------|-----------|---------');
+    console.log(
+      'uid                                    | uin        | card / nick        | adminFlag | joined',
+    );
+    console.log(
+      '---------------------------------------|------------|--------------------|-----------|---------',
+    );
     for (const r of active) {
       const uid = String(r[0] ?? '').padEnd(38);
       const uin = String(r[1] ?? '').padEnd(10);
-      const name = (String(r[2] || r[3] || '')).slice(0, 18).padEnd(18);
+      const name = String(r[2] || r[3] || '')
+        .slice(0, 18)
+        .padEnd(18);
       const admin = String(r[4] ?? 0).padEnd(9);
       const joined = r[6] ? new Date(Number(r[6]) * 1000).toISOString().slice(0, 10) : '?';
       console.log(`${uid} | ${uin} | ${name} | ${admin} | ${joined}`);
@@ -60,7 +66,7 @@ async function main() {
       [BigInt(GROUP_CODE)],
     );
 
-    const left = all.filter(r => r[5] === 1 || (r[5] !== 0 && r[5] !== null));
+    const left = all.filter((r) => r[5] === 1 || (r[5] !== 0 && r[5] !== null));
     if (left.length > 0) {
       console.log(`\n=== 已退群成员 (${left.length} 人) ===`);
       for (const r of left) {

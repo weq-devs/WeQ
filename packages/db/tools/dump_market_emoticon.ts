@@ -18,7 +18,10 @@ async function main(): Promise<void> {
   const dbPath = qqDbPath('emoji.db');
   const key = testEnv.key;
   const probe = await ntHelper.testDatabaseKey(dbPath, key);
-  const algo = { pageHmacAlgorithm: probe.pageHmacAlgorithm!, kdfHmacAlgorithm: probe.kdfHmacAlgorithm! };
+  const algo = {
+    pageHmacAlgorithm: probe.pageHmacAlgorithm!,
+    kdfHmacAlgorithm: probe.kdfHmacAlgorithm!,
+  };
   const db = new QqDb(ntHelper, { dbPath, key, algo });
 
   try {
@@ -37,4 +40,7 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

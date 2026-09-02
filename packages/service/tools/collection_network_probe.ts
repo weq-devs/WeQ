@@ -179,13 +179,17 @@ async function main(): Promise<void> {
       const bodyOffset = total - bodyLen;
       const head = decodeMessage(buf.subarray(16, bodyOffset), CollectorRespHead);
       const body = decodeMessage(buf.subarray(bodyOffset), CollectorRespBody) as {
-        operation?: { getCollectionList?: { items?: unknown[]; totalCount?: number; reachedBottom?: number } };
+        operation?: {
+          getCollectionList?: { items?: unknown[]; totalCount?: number; reachedBottom?: number };
+        };
       };
       console.log(`\n=== lenient 解析 ===`);
       console.log(`head:`, JSON.stringify(head));
       const page = body.operation?.getCollectionList;
       console.log(`items 条数: ${page?.items?.length ?? 0}`);
-      console.log(`totalCount: ${page?.totalCount ?? '?'}  reachedBottom: ${page?.reachedBottom ?? '?'}`);
+      console.log(
+        `totalCount: ${page?.totalCount ?? '?'}  reachedBottom: ${page?.reachedBottom ?? '?'}`,
+      );
       const bigintSafe = (_k: string, v: unknown) => (typeof v === 'bigint' ? v.toString() : v);
       console.log(`第 1 条 item:`, JSON.stringify(page?.items?.[0], bigintSafe, 2)?.slice(0, 1500));
     } catch (e) {

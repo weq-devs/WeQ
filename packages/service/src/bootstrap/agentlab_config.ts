@@ -38,7 +38,10 @@ export class AgentLabConfigService {
 
   /** 按 id 取 TTS provider 配置（供导出 bot 打包语音配置）。 */
   getTtsProvider(providerId: string): TtsProviderConfig | null {
-    return this.userConfig.getSettings().voiceTranscribe.ttsProviders.find((p) => p.id === providerId) ?? null;
+    return (
+      this.userConfig.getSettings().voiceTranscribe.ttsProviders.find((p) => p.id === providerId) ??
+      null
+    );
   }
 
   /** 把 agent 里的「某任务用哪个 provider 的哪个 model」解析成可调用端点。 */
@@ -65,11 +68,17 @@ export class AgentLabConfigService {
     const baseUrl = input.baseUrl.trim().replace(/\/+$/, '');
     if (!baseUrl) return { ok: false, error: '请先填写 Base URL。' };
     if (!input.model.trim()) return { ok: false, error: '请先添加并填写一个「聊天」能力的模型。' };
-    const endpoint: AgentLabEndpoint = { baseUrl, apiKey: input.apiKey.trim(), model: input.model.trim() };
+    const endpoint: AgentLabEndpoint = {
+      baseUrl,
+      apiKey: input.apiKey.trim(),
+      model: input.model.trim(),
+    };
     return testChatEndpoint(endpoint);
   }
 
-  saveProvider(input: Omit<AgentLabProviderConfig, 'createdAt' | 'updatedAt'>): AgentLabProviderConfig {
+  saveProvider(
+    input: Omit<AgentLabProviderConfig, 'createdAt' | 'updatedAt'>,
+  ): AgentLabProviderConfig {
     const current = this.listProviders();
     const prev = current.find((item) => item.id === input.id);
     const next = normalizeProviderConfig({
@@ -79,10 +88,9 @@ export class AgentLabConfigService {
     validateProviderConfig(next);
     this.userConfig.setSettings({
       agentLab: {
-        providers: [
-          ...current.filter((item) => item.id !== next.id),
-          next,
-        ].sort((a, b) => b.updatedAt - a.updatedAt),
+        providers: [...current.filter((item) => item.id !== next.id), next].sort(
+          (a, b) => b.updatedAt - a.updatedAt,
+        ),
       },
     });
     return next;

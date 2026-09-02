@@ -156,10 +156,9 @@ async function benchmark(db: BuddyMsgFtsDb, label: string): Promise<void> {
   // Probe the FTS5 virtual table (QQ's own pinyin_letter tokenizer).
   try {
     const t3 = performance.now();
-    const fts = await qq.query(
-      `SELECT COUNT(*) FROM ${table}_fts WHERE ${table}_fts MATCH ?`,
-      [KEYWORD],
-    );
+    const fts = await qq.query(`SELECT COUNT(*) FROM ${table}_fts WHERE ${table}_fts MATCH ?`, [
+      KEYWORD,
+    ]);
     console.log(
       `  [fts5 MATCH] ${fts[0]?.[0]} hit(s) in ${(performance.now() - t3).toFixed(0)}ms (UNEXPECTED: it worked!)`,
     );

@@ -71,15 +71,21 @@ function prepareSherpaRuntimeEnv(): void {
 
   if (process.platform === 'win32') {
     const existing = process.env.PATH ?? '';
-    process.env.PATH = Array.from(new Set([...dirs, ...existing.split(';').filter(Boolean)])).join(';');
+    process.env.PATH = Array.from(new Set([...dirs, ...existing.split(';').filter(Boolean)])).join(
+      ';',
+    );
   } else if (process.platform === 'darwin') {
     const key = 'DYLD_LIBRARY_PATH';
     const existing = process.env[key] ?? '';
-    process.env[key] = Array.from(new Set([...dirs, ...existing.split(':').filter(Boolean)])).join(':');
+    process.env[key] = Array.from(new Set([...dirs, ...existing.split(':').filter(Boolean)])).join(
+      ':',
+    );
   } else {
     const key = 'LD_LIBRARY_PATH';
     const existing = process.env[key] ?? '';
-    process.env[key] = Array.from(new Set([...dirs, ...existing.split(':').filter(Boolean)])).join(':');
+    process.env[key] = Array.from(new Set([...dirs, ...existing.split(':').filter(Boolean)])).join(
+      ':',
+    );
   }
 }
 
@@ -90,7 +96,12 @@ function emit(msg: { type: 'final'; text: string } | { type: 'error'; error: str
 function normalizeBuffer(data: WorkerParams['wavData']): Buffer {
   if (Buffer.isBuffer(data)) return data;
   if (data instanceof Uint8Array) return Buffer.from(data);
-  if (data && typeof data === 'object' && (data as { type?: string }).type === 'Buffer' && Array.isArray((data as { data?: unknown }).data)) {
+  if (
+    data &&
+    typeof data === 'object' &&
+    (data as { type?: string }).type === 'Buffer' &&
+    Array.isArray((data as { data?: unknown }).data)
+  ) {
     return Buffer.from((data as { data: number[] }).data);
   }
   return Buffer.alloc(0);

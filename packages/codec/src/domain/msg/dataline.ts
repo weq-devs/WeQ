@@ -16,8 +16,8 @@ export type DatalineDevice = 'phone' | 'pc' | 'pad';
 
 /** 设备伪 uid → 设备类型。 */
 export const DATALINE_UID_TO_DEVICE: Readonly<Record<string, DatalineDevice>> = {
-  'u_Wcc5rknRRqRO8y5gxMD6sA': 'phone',
-  'u_rK7NMsbv2ZjEGPdCuOiCfw': 'pc',
+  u_Wcc5rknRRqRO8y5gxMD6sA: 'phone',
+  u_rK7NMsbv2ZjEGPdCuOiCfw: 'pc',
   'u_l7jpPIZxQo0mzJwoEt-SKw': 'pad',
 };
 
@@ -33,7 +33,7 @@ export const DATALINE_SELF_DEVICE: DatalineDevice = 'pc';
 
 /** 该 uid 是否是数据线设备伪 uid。 */
 export function isDatalineUid(uid: string): boolean {
-  return  Object.hasOwn(DATALINE_UID_TO_DEVICE, uid);
+  return Object.hasOwn(DATALINE_UID_TO_DEVICE, uid);
 }
 
 /** 设备伪 uid → 中文名（未知则返回 null）。 */

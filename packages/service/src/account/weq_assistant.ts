@@ -327,10 +327,10 @@ export class WeqAssistantService {
         const updated = previews.map((p) =>
           p === arkEl ? { ...p, arkData: rewriteArkPort(p.arkData ?? '', newPort) } : p,
         );
-        await this.msgDb.write(
-          `UPDATE recent_contact_v3_table SET "40051" = ? WHERE "40021" = ?`,
-          [rcCodec.encode({ preview: updated }), this.uid],
-        );
+        await this.msgDb.write(`UPDATE recent_contact_v3_table SET "40051" = ? WHERE "40021" = ?`, [
+          rcCodec.encode({ preview: updated }),
+          this.uid,
+        ]);
       }
     }
     return true;

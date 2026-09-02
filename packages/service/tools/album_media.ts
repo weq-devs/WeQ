@@ -34,12 +34,18 @@ async function main(): Promise<void> {
 
   console.log(`\n[album-media] 注入 hook 到 pid=${pid} ...`);
   const status = await nt.injectAndGetStatusEmbedded(pid, uin);
-  console.log(`[album-media] 注入结果: pid=${status.pid} uin=${status.uin} loggedIn=${status.loggedIn}`);
+  console.log(
+    `[album-media] 注入结果: pid=${status.pid} uin=${status.uin} loggedIn=${status.loggedIn}`,
+  );
 
   // 取一个 albumId:命令行指定优先,否则用 web cgi 列出相册取第一个。
   let albumId = ALBUM_ARG;
   if (!albumId) {
-    const web = new WebQueryService(nt, { context: { uin } } as unknown as AccountSession, () => pid);
+    const web = new WebQueryService(
+      nt,
+      { context: { uin } } as unknown as AccountSession,
+      () => pid,
+    );
     const albums = await web.getGroupAlbumList(GROUP);
     console.log(`[album-media] 相册数: ${albums.length}`);
     console.dir(albums, { depth: null });
@@ -48,11 +54,17 @@ async function main(): Promise<void> {
   }
   console.log(`\n[album-media] 目标 albumId=${albumId}`);
 
-  const mediaSvc = new GroupAlbumMediaService(nt, { context: { uin } } as unknown as AccountSession, () => pid);
+  const mediaSvc = new GroupAlbumMediaService(
+    nt,
+    { context: { uin } } as unknown as AccountSession,
+    () => pid,
+  );
   const page = await mediaSvc.getMediaList(GROUP, albumId);
 
   console.log(`\n[album-media] ===== 媒体列表 =====`);
-  console.log(`[album-media] 相册名: ${page.albumName}  媒体数: ${page.mediaList.length}  next: ${page.nextAttachInfo || '(无)'}`);
+  console.log(
+    `[album-media] 相册名: ${page.albumName}  媒体数: ${page.mediaList.length}  next: ${page.nextAttachInfo || '(无)'}`,
+  );
   console.dir(page.mediaList, { depth: null });
 }
 

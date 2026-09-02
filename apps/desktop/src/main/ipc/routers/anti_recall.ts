@@ -52,14 +52,12 @@ export const antiRecallRouter = router({
   }),
 
   /** Turn the feature on/off. Installs or drops triggers to match. */
-  setEnabled: procedure
-    .input(z.object({ enabled: z.boolean() }))
-    .mutation(({ input }) => {
-      // Disabling stays allowed: a snapshot imported from a machine that had
-      // triggers installed must still be able to drop them.
-      if (input.enabled) refuseWhenStatic();
-      return requireServices().antiRecall.setEnabled(input.enabled);
-    }),
+  setEnabled: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+    // Disabling stays allowed: a snapshot imported from a machine that had
+    // triggers installed must still be able to drop them.
+    if (input.enabled) refuseWhenStatic();
+    return requireServices().antiRecall.setEnabled(input.enabled);
+  }),
 
   /**
    * Switch between protecting only the selected conversations and protecting
@@ -73,10 +71,8 @@ export const antiRecallRouter = router({
     }),
 
   /** Replace the set of conversations protected from recall. */
-  setTargets: procedure
-    .input(z.object({ targets: z.array(target) }))
-    .mutation(({ input }) => {
-      refuseWhenStatic();
-      return requireServices().antiRecall.setTargets(input.targets);
-    }),
+  setTargets: procedure.input(z.object({ targets: z.array(target) })).mutation(({ input }) => {
+    refuseWhenStatic();
+    return requireServices().antiRecall.setTargets(input.targets);
+  }),
 });

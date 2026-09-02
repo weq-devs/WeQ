@@ -25,7 +25,17 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = join(__dirname, '..');
 const SRC_DIR = join(REPO, 'resources', 'arks_resource');
-const OUT = join(REPO, 'apps', 'desktop', 'src', 'renderer', 'src', 'components', 'ark', 'ark-cards.generated.json');
+const OUT = join(
+  REPO,
+  'apps',
+  'desktop',
+  'src',
+  'renderer',
+  'src',
+  'components',
+  'ark',
+  'ark-cards.generated.json',
+);
 
 // ---- XML 模板：轻量 tokenizer，只取 id/tag/关键属性与层级 ------------------
 
@@ -95,10 +105,14 @@ function extractVariants(js) {
 
     // 中转变量 -> field
     const local = {}; // 普通局部变量 + self.xxx 都塞进来（self. 前缀保留）
-    for (const mm of block.matchAll(/\blocal\s+(\w+)\s*=\s*(?:utils\.fixurl\(\s*)?data\["(\w+)"\]/g)) {
+    for (const mm of block.matchAll(
+      /\blocal\s+(\w+)\s*=\s*(?:utils\.fixurl\(\s*)?data\["(\w+)"\]/g,
+    )) {
       local[mm[1]] = mm[2];
     }
-    for (const mm of block.matchAll(/\bself\.(\w+)\s*=\s*(?:utils\.fixurl\(\s*)?data\["(\w+)"\]/g)) {
+    for (const mm of block.matchAll(
+      /\bself\.(\w+)\s*=\s*(?:utils\.fixurl\(\s*)?data\["(\w+)"\]/g,
+    )) {
       local[`self.${mm[1]}`] = mm[2];
     }
 
@@ -119,8 +133,10 @@ function extractVariants(js) {
       if (f) bindings[node] = f;
     };
     for (const mm of block.matchAll(/self\.(\w+):SetValue\(\s*([^,)]+?)\s*\)/g)) put(mm[1], mm[2]);
-    for (const mm of block.matchAll(/utils\.set[sS]afeText\(\s*self\.(\w+)\s*,\s*([^,)]+)/g)) put(mm[1], mm[2]);
-    for (const mm of block.matchAll(/utils\.[sS]etImageValue\(\s*self\.(\w+)\s*,\s*([^,)]+)/g)) put(mm[1], mm[2]);
+    for (const mm of block.matchAll(/utils\.set[sS]afeText\(\s*self\.(\w+)\s*,\s*([^,)]+)/g))
+      put(mm[1], mm[2]);
+    for (const mm of block.matchAll(/utils\.[sS]etImageValue\(\s*self\.(\w+)\s*,\s*([^,)]+)/g))
+      put(mm[1], mm[2]);
 
     const jump = /data\["(jumpUrl|qqdocurl|url)"\]/.exec(block)?.[1] ?? null;
 
@@ -192,7 +208,9 @@ function newestTimestampDir(appDir) {
 
 function main() {
   if (!existsSync(SRC_DIR)) {
-    console.error(`✗ 找不到资源目录：${SRC_DIR}\n  需要把 ark 包放回 resources/arks_resource/ 再跑。`);
+    console.error(
+      `✗ 找不到资源目录：${SRC_DIR}\n  需要把 ark 包放回 resources/arks_resource/ 再跑。`,
+    );
     process.exit(1);
   }
   const apps = readdirSync(SRC_DIR).filter((d) => d.startsWith('com.') || d.includes('.'));
@@ -246,10 +264,18 @@ function main() {
 
   // ---- 自检：核对几个关键 app 的绑定是否符合预期 ----
   const expect = [
-    ['com.tencent.miniapp.lua', 'miniapp', { title: 'title', tag: 'source', bottomTag: 'tag', preview: 'preview' }],
+    [
+      'com.tencent.miniapp.lua',
+      'miniapp',
+      { title: 'title', tag: 'source', bottomTag: 'tag', preview: 'preview' },
+    ],
     ['com.tencent.contact.lua', 'contact', { tag: 'tag', avatar: 'avatar' }],
     ['com.tencent.tuwen.lua', 'news', { title: 'title', desc: 'desc', background: 'preview' }],
-    ['com.tencent.together', 'invite', { title: 'title', summary: 'summary', button: 'button', mainImage: 'cover' }],
+    [
+      'com.tencent.together',
+      'invite',
+      { title: 'title', summary: 'summary', button: 'button', mainImage: 'cover' },
+    ],
   ];
   console.log('\n自检：');
   for (const [app, metaKey, want] of expect) {
@@ -258,7 +284,9 @@ function main() {
     if (miss.length === 0) {
       console.log(`  ✓ ${app} [${metaKey}] 绑定正确`);
     } else {
-      console.log(`  ✗ ${app} [${metaKey}] 不符：期望 ${JSON.stringify(want)}，实得 ${JSON.stringify(got)}`);
+      console.log(
+        `  ✗ ${app} [${metaKey}] 不符：期望 ${JSON.stringify(want)}，实得 ${JSON.stringify(got)}`,
+      );
     }
   }
 }

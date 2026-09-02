@@ -23,7 +23,12 @@ function harBody(path: string): unknown {
 }
 
 const SAMPLES: Array<{ label: string; path: string; kind: 'json' | 'har'; minItems: number }> = [
-  { label: '静态排行(气泡)', path: 'resources/dress/ranking-bubble.json', kind: 'json', minItems: 20 },
+  {
+    label: '静态排行(气泡)',
+    path: 'resources/dress/ranking-bubble.json',
+    kind: 'json',
+    minItems: 20,
+  },
   { label: '排行 HAR(气泡)', path: 'tmp/bubble.har', kind: 'har', minItems: 20 },
   { label: '搜索 HAR(气泡)', path: 'tmp/bubble_search.har', kind: 'har', minItems: 40 },
   { label: '排行 HAR(字体)', path: 'tmp/font.har', kind: 'har', minItems: 20 },

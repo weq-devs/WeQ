@@ -103,8 +103,7 @@ async function main(): Promise<void> {
   if (groupId !== undefined && !Number.isSafeInteger(groupId))
     fail(`非法 --group-id: ${GROUP_ID_ARG}`);
   const userId = USER_ID_ARG !== undefined ? Number(USER_ID_ARG) : undefined;
-  if (userId !== undefined && !Number.isSafeInteger(userId))
-    fail(`非法 --user-id: ${USER_ID_ARG}`);
+  if (userId !== undefined && !Number.isSafeInteger(userId)) fail(`非法 --user-id: ${USER_ID_ARG}`);
 
   await SendTuwenArk.invoke(nt, pid, {
     targetId: groupId ?? userId!,

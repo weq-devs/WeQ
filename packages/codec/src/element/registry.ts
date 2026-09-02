@@ -12,12 +12,7 @@
 
 import type { ProtoDecodeStructType, ProtoEncodeStructType } from '../core';
 import type { ElementWire, PreviewElementWire } from '../proto/msg/element';
-import {
-  ElementType,
-  GrayTipSubType,
-  type Element,
-  type UnknownElement,
-} from './types';
+import { ElementType, GrayTipSubType, type Element, type UnknownElement } from './types';
 
 type KnownKind = Exclude<Element['kind'], 'unknown'>;
 
@@ -86,12 +81,20 @@ export function decodeElement(wire: ProtoDecodeStructType<typeof ElementWire>): 
 
   if (type === ElementType.GRAY_TIP) {
     const subType = wire.subType ?? 0;
-    const kind = subType === GrayTipSubType.REVOKE ? 'grayTipRevoke' :
-                 subType === GrayTipSubType.GROUP_TIP ? 'grayTipGroup' :
-                 subType === GrayTipSubType.XML_MSG ? 'grayTipXml' :
-                 subType === GrayTipSubType.JSON ? 'grayTipPoke' :
-                 subType === GrayTipSubType.FILE ? 'grayTipFileRecv' :
-                 subType === GrayTipSubType.AIO_OP ? 'grayTipTempSession' : null;
+    const kind =
+      subType === GrayTipSubType.REVOKE
+        ? 'grayTipRevoke'
+        : subType === GrayTipSubType.GROUP_TIP
+          ? 'grayTipGroup'
+          : subType === GrayTipSubType.XML_MSG
+            ? 'grayTipXml'
+            : subType === GrayTipSubType.JSON
+              ? 'grayTipPoke'
+              : subType === GrayTipSubType.FILE
+                ? 'grayTipFileRecv'
+                : subType === GrayTipSubType.AIO_OP
+                  ? 'grayTipTempSession'
+                  : null;
     if (!kind) return makeUnknown(wire, wire.elementType ?? 0);
     return { kind, ...wire } as Element;
   }

@@ -85,7 +85,10 @@ function str(v: unknown): string {
  * @param app   arkData.app
  * @param meta  arkData.meta（metaKey → 字段块）
  */
-export function resolveArkCard(app: string, meta: Record<string, Record<string, unknown>>): ResolvedArk {
+export function resolveArkCard(
+  app: string,
+  meta: Record<string, Record<string, unknown>>,
+): ResolvedArk {
   const metaKeys = Object.keys(meta ?? {});
   const entry = GENERATED[app];
   if (!entry) return { layout: 'generic', values: null, metaKey: metaKeys[0] ?? null };

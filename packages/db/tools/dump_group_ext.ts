@@ -30,7 +30,8 @@ function describe(v: unknown): string {
   if (v === null || v === undefined) return String(v);
   if (v instanceof Uint8Array) return `<BLOB ${v.byteLength} bytes>`;
   if (typeof v === 'bigint') return `${v}n`;
-  if (typeof v === 'string') return v.length > 120 ? `${v.slice(0, 120)}… (${v.length} chars)` : JSON.stringify(v);
+  if (typeof v === 'string')
+    return v.length > 120 ? `${v.slice(0, 120)}… (${v.length} chars)` : JSON.stringify(v);
   return String(v);
 }
 
@@ -40,7 +41,7 @@ function tryDecodeProto(buf: Uint8Array): string {
     const fields = raw.decode(buf);
     if (fields.length === 0) return '(empty proto)';
     return fields
-      .map(f => {
+      .map((f) => {
         const best = f.guesses[0];
         if (!best) return `  tag=${f.tag} wt=${f.wireType} → (no guess)`;
         let valStr: string;
@@ -81,7 +82,7 @@ async function main(): Promise<void> {
 
   // ── 1. schema ──────────────────────────────────────────────────────────────
   const infoRows = await db.query(`PRAGMA table_info("group_ext_list")`);
-  const cols = infoRows.map(r => String(r[1]));
+  const cols = infoRows.map((r) => String(r[1]));
   console.log(`=== group_ext_list columns (${cols.length}) ===`);
   infoRows.forEach((r) => {
     console.log(`  cid=${r[0]}  name="${r[1]}"  type=${r[2]}`);
@@ -92,11 +93,9 @@ async function main(): Promise<void> {
   console.log(`\nTotal rows: ${countRow[0]?.[0]}`);
 
   // ── 3. sample rows ────────────────────────────────────────────────────────
-  const quotedCols = cols.map(c => `"${c}"`).join(',');
+  const quotedCols = cols.map((c) => `"${c}"`).join(',');
   const where = targetGroup ? `WHERE "60001" = ${targetGroup}` : '';
-  const rows = await db.query(
-    `SELECT ${quotedCols} FROM "group_ext_list" ${where} LIMIT ${limit}`,
-  );
+  const rows = await db.query(`SELECT ${quotedCols} FROM "group_ext_list" ${where} LIMIT ${limit}`);
 
   for (const [ri, row] of rows.entries()) {
     const groupCode = row[cols.indexOf('60001')] ?? row[0];
@@ -123,7 +122,7 @@ async function main(): Promise<void> {
   db.close();
 }
 
-main().catch(e => {
+main().catch((e) => {
   console.error('[dump-group-ext] failed:', e);
   process.exit(1);
 });

@@ -15,14 +15,16 @@ import { loadNative } from '@weq/native';
 import { CollectionDb, type CollectionItem } from '@weq/db';
 import type { AccountSession } from '@weq/account';
 import { CollectionService } from '../src/account/collection';
-import { exportCollections, type CollectionExportRow, type CollectionFormat } from '../src/account/export';
+import {
+  exportCollections,
+  type CollectionExportRow,
+  type CollectionFormat,
+} from '../src/account/export';
 import { testEnv, qqDbPath } from '@weq/testkit';
 
 const KEY = testEnv.key;
 const ALGO = { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' } as const;
-const DB_PATH =
-  process.env.WEQ_TEST_DB_PATH ??
-  qqDbPath('collection.db');
+const DB_PATH = process.env.WEQ_TEST_DB_PATH ?? qqDbPath('collection.db');
 
 /** 把一组图片拍成 wire 形状（uri + 尺寸）。 */
 function pics(list: readonly { uri?: string; width?: number; height?: number }[] | undefined) {
@@ -57,7 +59,9 @@ function flatten(it: CollectionItem): CollectionExportRow {
         }
       : null,
     gallery: s.gallerySummary ? { pics: pics(s.gallerySummary.picList) } : null,
-    audio: s.audioSummary ? { duration: s.audioSummary.duration ?? 0, stt: s.audioSummary.stt ?? '' } : null,
+    audio: s.audioSummary
+      ? { duration: s.audioSummary.duration ?? 0, stt: s.audioSummary.stt ?? '' }
+      : null,
     video: s.videoSummary
       ? {
           title: s.videoSummary.title ?? '',
@@ -127,7 +131,9 @@ async function main() {
       const outputPath = join(outDir, `收藏.${format}`);
       const result = await exportCollections({ format, outputPath }, deps);
       const size = statSync(result.filePath).size;
-      console.log(`[export] ${format.padEnd(5)} → count=${result.count} size=${size}B ${result.filePath}`);
+      console.log(
+        `[export] ${format.padEnd(5)} → count=${result.count} size=${size}B ${result.filePath}`,
+      );
       if (result.count !== total) {
         throw new Error(`${format}: exported ${result.count} but count says ${total}`);
       }
@@ -138,7 +144,10 @@ async function main() {
     const all = await deps.listCollections(10_000, 0);
     const linkCount = all.filter((r) => r.kind === 'link').length;
     const linkOut = join(outDir, '收藏_link.json');
-    const linkResult = await exportCollections({ format: 'json', outputPath: linkOut, kinds: ['link'] }, deps);
+    const linkResult = await exportCollections(
+      { format: 'json', outputPath: linkOut, kinds: ['link'] },
+      deps,
+    );
     console.log(`[export] kind=link filter → count=${linkResult.count} (expected ${linkCount})`);
     if (linkResult.count !== linkCount) {
       throw new Error(`link filter: exported ${linkResult.count} but expected ${linkCount}`);

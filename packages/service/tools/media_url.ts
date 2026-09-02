@@ -11,7 +11,8 @@ import { MediaUrlService } from '../src/account/media_url';
 const GROUP_ID = 673646675;
 
 const VIDEO_NODE: MediaIndexNode = {
-  fileUuid: 'EhSn7QhnpGd7w0ydYdWXwANsnsgUsBjL6aEBIIcLKM-omZaFnpUDMgRwcm9kUID1JFoQbfyquYTAZoq58XKvCiXHunoCPruCAQJneg',
+  fileUuid:
+    'EhSn7QhnpGd7w0ydYdWXwANsnsgUsBjL6aEBIIcLKM-omZaFnpUDMgRwcm9kUID1JFoQbfyquYTAZoq58XKvCiXHunoCPruCAQJneg',
   fileSize: 2_651_339,
   fileHash: '257f4d68fbe37c5687a55e8ef3abc859',
   fileSha1: 'a7ed0867a4677bc34c9d61d597c0036c9ec814b0',
@@ -46,7 +47,10 @@ async function main(): Promise<void> {
   const status = await nt.injectAndGetStatusEmbedded(pid, uin);
   console.log(`[media-url] inject result: uin=${status.uin} loggedIn=${status.loggedIn}`);
 
-  const stub = { context: { uin }, uidMap: { uidByUin: () => undefined } } as unknown as AccountSession;
+  const stub = {
+    context: { uin },
+    uidMap: { uidByUin: () => undefined },
+  } as unknown as AccountSession;
   const svc = new MediaUrlService(nt, stub, () => pid);
 
   console.log('\n[media-url] ===== group video download URL (0x11EA_200) =====');

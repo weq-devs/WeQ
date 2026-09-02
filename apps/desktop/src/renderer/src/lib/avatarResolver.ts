@@ -20,7 +20,10 @@ export function avatarFromUin(uin: string | undefined | null, size: 0 | 100 = 0)
 /**
  * 从群号生成群头像 CDN URL。
  */
-export function avatarFromGroupCode(code: string | undefined | null, size: 0 | 100 = 0): string | null {
+export function avatarFromGroupCode(
+  code: string | undefined | null,
+  size: 0 | 100 = 0,
+): string | null {
   if (!code) return null;
   return `https://p.qlogo.cn/gh/${code}/${code}/${size}`;
 }

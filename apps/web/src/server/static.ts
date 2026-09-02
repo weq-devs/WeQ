@@ -31,9 +31,8 @@ export async function serveStatic(
 
   const out = await fileResponse(path);
   // Hashed asset filenames are immutable; the shell must never be cached.
-  const cache = isFile && clean.startsWith('/assets/')
-    ? 'public, max-age=31536000, immutable'
-    : 'no-store';
+  const cache =
+    isFile && clean.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-store';
   const headers = new Headers(out.headers);
   headers.set('Cache-Control', cache);
   await writeResponse(res, new Response(out.body, { status: out.status, headers }));

@@ -63,7 +63,8 @@ export namespace GetGroupFileUrl {
       (typeof download.downloadDns === 'string' && download.downloadDns) ||
       (typeof download.downloadIp === 'string' && download.downloadIp) ||
       '';
-    const urlBytes = download.downloadUrl instanceof Uint8Array ? download.downloadUrl : new Uint8Array(0);
+    const urlBytes =
+      download.downloadUrl instanceof Uint8Array ? download.downloadUrl : new Uint8Array(0);
     const urlHex = bytesToHexUpper(urlBytes);
     if (!dns || !urlHex) throw new Error('group file url response invalid');
 

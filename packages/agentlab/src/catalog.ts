@@ -14,7 +14,11 @@ export const AGENTLAB_PROVIDER_CATALOG: AgentLabProviderCatalogEntry[] = [
     models: [
       { id: 'deepseek-ai/DeepSeek-V3', label: 'DeepSeek-V3（聊天）', capabilities: ['chat'] },
       { id: 'Qwen/Qwen2.5-72B-Instruct', label: 'Qwen2.5-72B（聊天）', capabilities: ['chat'] },
-      { id: 'Qwen/Qwen3-VL-30B-A3B-Instruct', label: 'Qwen3-VL-30B-A3B（视觉）', capabilities: ['chat', 'vision'] },
+      {
+        id: 'Qwen/Qwen3-VL-30B-A3B-Instruct',
+        label: 'Qwen3-VL-30B-A3B（视觉）',
+        capabilities: ['chat', 'vision'],
+      },
       { id: 'BAAI/bge-m3', label: 'bge-m3（中文向量）', capabilities: ['embedding'] },
     ],
   },
@@ -48,7 +52,11 @@ export const AGENTLAB_PROVIDER_CATALOG: AgentLabProviderCatalogEntry[] = [
     apiKeyHint: 'sk-...',
     models: [
       { id: 'moonshot-v1-8k', label: 'moonshot-v1-8k', capabilities: ['chat'] },
-      { id: 'moonshot-v1-8k-vision-preview', label: 'moonshot-v1-8k-vision', capabilities: ['chat', 'vision'] },
+      {
+        id: 'moonshot-v1-8k-vision-preview',
+        label: 'moonshot-v1-8k-vision',
+        capabilities: ['chat', 'vision'],
+      },
     ],
   },
   {
@@ -70,7 +78,11 @@ export const AGENTLAB_PROVIDER_CATALOG: AgentLabProviderCatalogEntry[] = [
     models: [
       { id: 'gpt-4o-mini', label: 'gpt-4o-mini（聊天/视觉）', capabilities: ['chat', 'vision'] },
       { id: 'gpt-4o', label: 'gpt-4o（聊天/视觉）', capabilities: ['chat', 'vision'] },
-      { id: 'text-embedding-3-small', label: 'text-embedding-3-small（向量）', capabilities: ['embedding'] },
+      {
+        id: 'text-embedding-3-small',
+        label: 'text-embedding-3-small（向量）',
+        capabilities: ['embedding'],
+      },
     ],
   },
   {

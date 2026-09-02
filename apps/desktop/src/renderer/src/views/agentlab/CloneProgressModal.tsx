@@ -29,14 +29,19 @@ export function CloneProgressModal({
   onDismiss: (personaId: string) => void;
 }): ReactElement {
   const running = task.status === 'running';
-  const title = task.status === 'done' ? '克隆完成' : task.status === 'error' ? '克隆失败' : '正在克隆…';
+  const title =
+    task.status === 'done' ? '克隆完成' : task.status === 'error' ? '克隆失败' : '正在克隆…';
 
   return (
     <Modal onClose={onHide} width={460}>
       <div className="weq-clone-modal">
         <header className="weq-clone-modal-head">
-          <span className="weq-clone-modal-icon"><Sparkles size={16} /></span>
-          <strong>{title}：{task.name}</strong>
+          <span className="weq-clone-modal-icon">
+            <Sparkles size={16} />
+          </span>
+          <strong>
+            {title}：{task.name}
+          </strong>
           {running ? (
             <button
               type="button"
@@ -77,11 +82,19 @@ export function CloneProgressModal({
                 隐藏到任务列表
               </button>
             ) : task.status === 'done' ? (
-              <button type="button" className="weq-set-btn" onClick={() => onOpenPersona(task.personaId)}>
+              <button
+                type="button"
+                className="weq-set-btn"
+                onClick={() => onOpenPersona(task.personaId)}
+              >
                 查看克隆体
               </button>
             ) : (
-              <button type="button" className="weq-set-btn weq-set-btn-soft" onClick={() => onDismiss(task.personaId)}>
+              <button
+                type="button"
+                className="weq-set-btn weq-set-btn-soft"
+                onClick={() => onDismiss(task.personaId)}
+              >
                 关闭
               </button>
             )}

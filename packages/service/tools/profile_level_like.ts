@@ -39,7 +39,9 @@ async function main(): Promise<void> {
 
   console.log(`\n[profile] 注入 hook 到 pid=${pid} ...`);
   const status = await nt.injectAndGetStatusEmbedded(pid, selfUin);
-  console.log(`[profile] 注入结果: pid=${status.pid} uin=${status.uin} loggedIn=${status.loggedIn}`);
+  console.log(
+    `[profile] 注入结果: pid=${status.pid} uin=${status.uin} loggedIn=${status.loggedIn}`,
+  );
 
   const targetUin = Number(TARGET_ARG ?? selfUin);
 
@@ -54,7 +56,9 @@ async function main(): Promise<void> {
   console.log(`\n[profile] ===== 0x7ED_12 点赞 (uid=${targetUid}) =====`);
   const like = await GetProfileLike.invoke(nt, pid, { targetUid });
   console.dir(like, { depth: null });
-  console.log(`[profile] >>> 累计获赞: ${like.voteInfo.totalCount}  今日: ${like.voteInfo.todayCount}`);
+  console.log(
+    `[profile] >>> 累计获赞: ${like.voteInfo.totalCount}  今日: ${like.voteInfo.todayCount}`,
+  );
   console.log(`[profile] >>> 收藏数: ${like.favoriteInfo.totalCount}`);
 }
 

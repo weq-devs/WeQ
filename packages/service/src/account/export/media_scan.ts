@@ -176,7 +176,11 @@ function shiftMonth(unixSec: number, delta: number): string {
 }
 
 /** Run `fn` over `items` with at most `limit` in flight. */
-async function mapLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+async function mapLimit<T>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
   let i = 0;
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
     for (;;) {
@@ -359,8 +363,16 @@ export async function scanConvMedia(
   const rawRefs: MediaRef[] = [];
   const iterator =
     kind === 'group'
-      ? iterateGroupMessages(msgs, conv, { pageSize: opts.pageSize, range: opts.range, roam: opts.roam })
-      : iterateC2cMessages(msgs, conv, { pageSize: opts.pageSize, range: opts.range, roam: opts.roam });
+      ? iterateGroupMessages(msgs, conv, {
+          pageSize: opts.pageSize,
+          range: opts.range,
+          roam: opts.roam,
+        })
+      : iterateC2cMessages(msgs, conv, {
+          pageSize: opts.pageSize,
+          range: opts.range,
+          roam: opts.roam,
+        });
   // Private (c2c) files expire from the CDN after ~7 days; stamp them so the
   // scan drops expired ones. Group files persist, so no synthetic TTL there.
   const fileTtlSec = kind === 'c2c' ? PRIVATE_FILE_TTL_SEC : 0;
@@ -379,7 +391,11 @@ export async function scanConvMedia(
   // Dedupe by (kind, stem); keep the first occurrence as the representative.
   const uniqueByKey = new Map<string, MediaRef>();
   const months: Record<MediaKind, Set<string>> = {
-    pic: new Set(), video: new Set(), ptt: new Set(), emoji: new Set(), file: new Set(),
+    pic: new Set(),
+    video: new Set(),
+    ptt: new Set(),
+    emoji: new Set(),
+    file: new Set(),
   };
   for (const ref of rawRefs) {
     const key = `${ref.kind}:${ref.stem}`;
@@ -394,7 +410,11 @@ export async function scanConvMedia(
   // ---- 2. build the on-disk index (readdir each relevant dir once) ----
   const t1 = Date.now();
   const index: Record<MediaKind, Map<string, string>> = {
-    pic: new Map(), video: new Map(), ptt: new Map(), emoji: new Map(), file: new Map(),
+    pic: new Map(),
+    video: new Map(),
+    ptt: new Map(),
+    emoji: new Map(),
+    file: new Map(),
   };
   let indexedDirs = 0;
   let indexedFiles = 0;

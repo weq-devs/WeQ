@@ -179,8 +179,6 @@ export async function getFriendDress(
     targetUin: data.targetUin ?? targetUin,
     isSvip: data.isSvip ?? false,
     avatarUrl: data.avatarImage ?? '',
-    items: data.rawUsingList
-      .filter((r) => !UNRESOLVABLE_APPS.has(r.appId ?? 0))
-      .map(toItem),
+    items: data.rawUsingList.filter((r) => !UNRESOLVABLE_APPS.has(r.appId ?? 0)).map(toItem),
   };
 }

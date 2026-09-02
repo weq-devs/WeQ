@@ -3,13 +3,13 @@
  *
  * 右键消息气泡时显示该消息的三装扮（字体/气泡/挂件）的 ID 和预览图。
  */
-import { Palette, X, ImageOff, Type, MessageCircle, Sparkles } from "lucide-react";
-import { Loader2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { useEscapeToClose } from "../im-template/template/modalUtils";
-import { trpc } from "../trpc/client";
-import { dressFontUrl } from "../lib/resourceUrl";
+import { Palette, X, ImageOff, Type, MessageCircle, Sparkles } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useEscapeToClose } from '../im-template/template/modalUtils';
+import { trpc } from '../trpc/client';
+import { dressFontUrl } from '../lib/resourceUrl';
 
 interface MessageDecorationCardProps {
   decoration: {
@@ -36,7 +36,9 @@ function getLocalUrl(type: 'font' | 'bubble' | 'widget', id: number): string {
   if (type === 'bubble') {
     return isWeb ? `/_media/dressbubble?id=${id}` : `weq-media://dressbubble?id=${id}`;
   }
-  return isWeb ? `/_media/dresspendant?id=${id}&frame=1` : `weq-media://dresspendant?id=${id}&frame=1`;
+  return isWeb
+    ? `/_media/dresspendant?id=${id}&frame=1`
+    : `weq-media://dresspendant?id=${id}&frame=1`;
 }
 
 type ImageState = 'cdn' | 'local' | 'font' | 'fallback';
@@ -90,7 +92,14 @@ function DecorationItem({ type, id, label, icon }: DecorationItemProps) {
     return () => {
       cancelled = true;
     };
-  }, [fontFamily, fontResource.data?.fontFile, fontResource.isInitialLoading, id, imageState, type]);
+  }, [
+    fontFamily,
+    fontResource.data?.fontFile,
+    fontResource.isInitialLoading,
+    id,
+    imageState,
+    type,
+  ]);
 
   const showFontPreview = type === 'font' && imageState === 'font' && fontPreviewState === 'ready';
 
@@ -169,31 +178,43 @@ export function MessageDecorationCard({ decoration, onClose }: MessageDecoration
 
   useEscapeToClose(onClose);
 
-  const hasDecoration = decoration && (decoration.fontId || decoration.bubbleId || decoration.widgetId);
+  const hasDecoration =
+    decoration && (decoration.fontId || decoration.bubbleId || decoration.widgetId);
   const items = [];
 
   if (decoration?.fontId) {
-    items.push({ type: 'font' as const, id: decoration.fontId, label: '字体', icon: <Type size={18} /> });
+    items.push({
+      type: 'font' as const,
+      id: decoration.fontId,
+      label: '字体',
+      icon: <Type size={18} />,
+    });
   }
   if (decoration?.bubbleId) {
-    items.push({ type: 'bubble' as const, id: decoration.bubbleId, label: '气泡', icon: <MessageCircle size={18} /> });
+    items.push({
+      type: 'bubble' as const,
+      id: decoration.bubbleId,
+      label: '气泡',
+      icon: <MessageCircle size={18} />,
+    });
   }
   if (decoration?.widgetId) {
-    items.push({ type: 'widget' as const, id: decoration.widgetId, label: '挂件', icon: <Sparkles size={18} /> });
+    items.push({
+      type: 'widget' as const,
+      id: decoration.widgetId,
+      label: '挂件',
+      icon: <Sparkles size={18} />,
+    });
   }
 
   return createPortal(
-    <div
-      className="weq-profile-layer"
-      role="presentation"
-      onMouseDown={onClose}
-    >
+    <div className="weq-profile-layer" role="presentation" onMouseDown={onClose}>
       <section
         ref={cardRef}
         className="weq-profile-dialog weq-decoration-card weq-anim-pop"
         style={{
-          maxWidth: "800px",
-          width: "90%",
+          maxWidth: '800px',
+          width: '90%',
         }}
         role="dialog"
         aria-modal="true"
@@ -235,6 +256,6 @@ export function MessageDecorationCard({ decoration, onClose }: MessageDecoration
         )}
       </section>
     </div>,
-    document.body
+    document.body,
   );
 }

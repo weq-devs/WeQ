@@ -39,7 +39,9 @@ async function main(): Promise<void> {
   const groupCode = process.argv[5] ?? process.env.WEQ_GROUP_CODE ?? DEFAULT_GROUP;
 
   if (!uin || !pskey || !skey) {
-    throw new Error('用法: pnpm tsx ./packages/service/tools/group_notice_static_key.ts <uin> <pskey> <skey> [groupCode]');
+    throw new Error(
+      '用法: pnpm tsx ./packages/service/tools/group_notice_static_key.ts <uin> <pskey> <skey> [groupCode]',
+    );
   }
 
   const cred: WebCredential = { uin, skey, pskey };
@@ -124,5 +126,3 @@ main().catch((e) => {
   console.error('\n[group] 失败:', e);
   process.exit(1);
 });
-
-

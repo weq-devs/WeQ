@@ -22,11 +22,7 @@ import {
 } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { QqAvatar } from '../QqAvatar';
-import {
-  QqMessageContent,
-  ConvContext,
-  ForwardKindContext,
-} from '../QqMessageContent';
+import { QqMessageContent, ConvContext, ForwardKindContext } from '../QqMessageContent';
 import { FaceEmoji } from '../FaceEmoji';
 import { client } from '../../trpc/client';
 import type { Conversation, User } from '../../im-template/template/types';
@@ -69,8 +65,8 @@ export function AddMessageModal({
   const isGroup = conversation.type === 'group';
   const kind: 'c2c' | 'group' = isGroup ? 'group' : 'c2c';
   const conv = isGroup
-    ? conversation.group?.identityValue ?? ''
-    : conversation.otherUser?.id ?? '';
+    ? (conversation.group?.identityValue ?? '')
+    : (conversation.otherUser?.id ?? '');
   const peerUid = isGroup ? '' : (conversation.otherUser?.id ?? '');
 
   const self: Person = useMemo(
@@ -100,7 +96,8 @@ export function AddMessageModal({
   const resolveName = useMemo(() => {
     const map = new Map<string, string>();
     for (const p of [self, ...members]) map.set(p.uid, p.name);
-    if (!isGroup && conversation.otherUser) map.set(conversation.otherUser.id, conversation.otherUser.displayName);
+    if (!isGroup && conversation.otherUser)
+      map.set(conversation.otherUser.id, conversation.otherUser.displayName);
     return (uid: string, uin: string) => map.get(uid) || uin || uid;
   }, [self, members, conversation, isGroup]);
 
@@ -222,7 +219,9 @@ export function AddMessageModal({
           {view === 'main' ? (
             <>
               <div className="weq-compose-titlewrap">
-                <strong id="weq-compose-title" className="weq-compose-title">添加消息</strong>
+                <strong id="weq-compose-title" className="weq-compose-title">
+                  添加消息
+                </strong>
                 <span className="weq-compose-sub">{subtitle}</span>
               </div>
               <button type="button" className="weq-compose-x" onClick={onClose} title="关闭">
@@ -231,7 +230,12 @@ export function AddMessageModal({
             </>
           ) : (
             <>
-              <button type="button" className="weq-compose-x" onClick={() => setView('main')} title="返回">
+              <button
+                type="button"
+                className="weq-compose-x"
+                onClick={() => setView('main')}
+                title="返回"
+              >
                 <ArrowLeft size={17} />
               </button>
               <strong className="weq-compose-title">{VIEW_TITLE[view]}</strong>
@@ -245,7 +249,11 @@ export function AddMessageModal({
             {/* Sender */}
             <div className="weq-compose-section">
               <label className="weq-compose-label">发送人</label>
-              <button type="button" className="weq-compose-sender" onClick={() => setView('sender')}>
+              <button
+                type="button"
+                className="weq-compose-sender"
+                onClick={() => setView('sender')}
+              >
                 <QqAvatar uin={sender.uin} size={34} />
                 <span className="weq-compose-sender-name">{sender.name}</span>
                 {sender.uin && sender.uin !== '0' ? (
@@ -271,7 +279,11 @@ export function AddMessageModal({
               </label>
               {replyOn ? (
                 replyTarget ? (
-                  <button type="button" className="weq-compose-reply-card" onClick={() => setView('reply')}>
+                  <button
+                    type="button"
+                    className="weq-compose-reply-card"
+                    onClick={() => setView('reply')}
+                  >
                     <span className="weq-compose-reply-sender">
                       {resolveName(replyTarget.senderUid, replyTarget.senderUin)}
                     </span>
@@ -279,7 +291,11 @@ export function AddMessageModal({
                     <span className="weq-compose-sender-swap">更换</span>
                   </button>
                 ) : (
-                  <button type="button" className="weq-compose-pick-btn" onClick={() => setView('reply')}>
+                  <button
+                    type="button"
+                    className="weq-compose-pick-btn"
+                    onClick={() => setView('reply')}
+                  >
                     选择要回复的消息
                   </button>
                 )
@@ -301,7 +317,9 @@ export function AddMessageModal({
 
               <div className="weq-compose-segs">
                 {segments.length === 0 ? (
-                  <div className="weq-compose-segs-empty">用下方按钮添加文字、表情{isGroup ? '、@成员' : ''}或图片</div>
+                  <div className="weq-compose-segs-empty">
+                    用下方按钮添加文字、表情{isGroup ? '、@成员' : ''}或图片
+                  </div>
                 ) : (
                   segments.map((s) => (
                     <SegmentRow
@@ -339,10 +357,20 @@ export function AddMessageModal({
             {error ? <div className="weq-compose-error">{error}</div> : null}
 
             <footer className="weq-compose-foot">
-              <button type="button" className="weq-action-soft" onClick={onClose} disabled={submitting}>
+              <button
+                type="button"
+                className="weq-action-soft"
+                onClick={onClose}
+                disabled={submitting}
+              >
                 取消
               </button>
-              <button type="button" className="weq-action-primary" onClick={submit} disabled={submitting}>
+              <button
+                type="button"
+                className="weq-action-primary"
+                onClick={submit}
+                disabled={submitting}
+              >
                 {submitting ? '添加中…' : '添加消息'}
               </button>
             </footer>

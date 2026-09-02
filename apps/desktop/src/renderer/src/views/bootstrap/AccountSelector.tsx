@@ -9,7 +9,15 @@
  * reachable regardless of where the pill sits in the column.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import { ChevronDown, Database, Smartphone, Trash2 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { QqAvatar } from '../../components/QqAvatar';
@@ -100,16 +108,23 @@ export function AccountSelector({
   return (
     <div className="weq-acct" ref={ref}>
       <span className="weq-static-backup-avatar-wrap">
-        <QqAvatar uin={selected?.uin} url={selected?.avatarUrl} size={140} className="weq-acct-avatar" />
+        <QqAvatar
+          uin={selected?.uin}
+          url={selected?.avatarUrl}
+          size={140}
+          className="weq-acct-avatar"
+        />
         {selected?.static && (
           <span
             className="weq-static-badge is-lg"
             title={selected.mobile ? 'Android 手机备份账号' : '静态离线账号'}
             aria-label={selected.mobile ? 'Android 手机备份账号' : '静态离线账号'}
           >
-            {selected.mobile
-              ? <Smartphone size={13} strokeWidth={2.2} aria-hidden />
-              : <Database size={13} strokeWidth={2.2} aria-hidden />}
+            {selected.mobile ? (
+              <Smartphone size={13} strokeWidth={2.2} aria-hidden />
+            ) : (
+              <Database size={13} strokeWidth={2.2} aria-hidden />
+            )}
           </span>
         )}
       </span>
@@ -170,14 +185,22 @@ export function AccountSelector({
                             title={acc.mobile ? 'Android 手机备份账号' : '静态离线账号'}
                             aria-label={acc.mobile ? 'Android 手机备份账号' : '静态离线账号'}
                           >
-                            {acc.mobile
-                              ? <Smartphone size={9} strokeWidth={2.2} aria-hidden />
-                              : <Database size={9} strokeWidth={2.2} aria-hidden />}
+                            {acc.mobile ? (
+                              <Smartphone size={9} strokeWidth={2.2} aria-hidden />
+                            ) : (
+                              <Database size={9} strokeWidth={2.2} aria-hidden />
+                            )}
                           </span>
                         )}
                       </span>
                       <div className="weq-acct-row-id">
-                        <div className={acc.hasName ? 'weq-acct-row-name' : 'weq-acct-row-name weq-acct-name-strong'}>
+                        <div
+                          className={
+                            acc.hasName
+                              ? 'weq-acct-row-name'
+                              : 'weq-acct-row-name weq-acct-name-strong'
+                          }
+                        >
                           {acc.name}
                         </div>
                         <div className="weq-acct-row-uin">{acc.uin}</div>

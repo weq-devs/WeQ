@@ -21,7 +21,8 @@ async function main() {
     algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' },
   });
 
-  const list = await db.listRequests(10);  console.log(`[test:buddy-req] Found ${list.length} requests.`);
+  const list = await db.listRequests(10);
+  console.log(`[test:buddy-req] Found ${list.length} requests.`);
   if (list.length > 0) {
     console.log('[test:buddy-req] Sample Result:');
     console.log(JSON.stringify(list, bigintReplacer, 2));

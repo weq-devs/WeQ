@@ -43,10 +43,9 @@ export class ForwardMsgDb {
   // `table` is an internal constant (never user input) so interpolating it
   // into the SQL is safe; msgId is bound as a parameter.
   private async queryForward(table: string, msgId: bigint): Promise<MsgCacheRecord[]> {
-    const rows = await this.qq.query(
-      `SELECT "40900" FROM ${table} WHERE "40001" = ? LIMIT 1`,
-      [msgId],
-    );
+    const rows = await this.qq.query(`SELECT "40900" FROM ${table} WHERE "40001" = ? LIMIT 1`, [
+      msgId,
+    ]);
     const blob: SqlValue | undefined = rows[0]?.[0];
     if (!(blob instanceof Uint8Array)) return [];
     return decodeMsgCacheColumn(blob);

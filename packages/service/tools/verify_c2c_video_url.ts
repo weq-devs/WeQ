@@ -26,7 +26,8 @@ const bodyCodec = new ProtoMsg(MsgBody);
 function pretty(v: unknown): string {
   return JSON.stringify(
     v,
-    (_k, x) => (typeof x === 'bigint' ? `${x}n` : x instanceof Uint8Array ? `<bytes:${x.length}>` : x),
+    (_k, x) =>
+      typeof x === 'bigint' ? `${x}n` : x instanceof Uint8Array ? `<bytes:${x.length}>` : x,
     2,
   );
 }
@@ -38,15 +39,26 @@ async function main(): Promise<void> {
   console.log(`[verify-c2c-video] pid=${pid} uin=${nt.probeQqLoginInfo(pid)?.uin}`);
   await nt.injectAndGetStatusEmbedded(pid, UIN);
 
-  const db = new QqDb(nt, { dbPath: DB_PATH, key: KEY, algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' } });
+  const db = new QqDb(nt, {
+    dbPath: DB_PATH,
+    key: KEY,
+    algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' },
+  });
   let videoEl: MediaElement;
   try {
-    const rows = await db.query(`SELECT "40021","40800" FROM c2c_msg_table WHERE "40001" = ? LIMIT 1`, [TARGET_MSGID]);
+    const rows = await db.query(
+      `SELECT "40021","40800" FROM c2c_msg_table WHERE "40001" = ? LIMIT 1`,
+      [TARGET_MSGID],
+    );
     const blob = rows[0]?.[1];
     if (!(blob instanceof Uint8Array)) throw new Error('row/body not found');
     console.log(`[verify-c2c-video] peer(40021)=${rows[0]?.[0]}`);
-    const elements = (bodyCodec.decode(sanitizeBytes(blob, MsgBody)).elements ?? []).map((w) => decodeElement(w as never));
-    console.log(`[verify-c2c-video] kinds = ${elements.map((e) => (e as { kind?: string }).kind).join(', ')}`);
+    const elements = (bodyCodec.decode(sanitizeBytes(blob, MsgBody)).elements ?? []).map((w) =>
+      decodeElement(w as never),
+    );
+    console.log(
+      `[verify-c2c-video] kinds = ${elements.map((e) => (e as { kind?: string }).kind).join(', ')}`,
+    );
     const found = elements.find((e) => (e as { kind?: string }).kind === 'video');
     if (!found) throw new Error('no video element');
     videoEl = found as unknown as MediaElement;
@@ -57,7 +69,10 @@ async function main(): Promise<void> {
   console.log(`\n--- mediaNodeFromElement(videoEl) ---`);
   console.log(pretty(mediaNodeFromElement(videoEl)));
 
-  const session = { context: { uin: UIN }, uidMap: { uidByUin: () => SELF_UID } } as unknown as AccountSession;
+  const session = {
+    context: { uin: UIN },
+    uidMap: { uidByUin: () => SELF_UID },
+  } as unknown as AccountSession;
   const svc = new MediaUrlService(nt, session, () => pid);
 
   console.log(`\n[verify-c2c-video] resolving URL via getPrivateVideoUrlFromElement…`);

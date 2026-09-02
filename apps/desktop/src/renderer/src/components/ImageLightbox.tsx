@@ -66,7 +66,10 @@ export function ImageLightbox(): ReactElement | null {
       <button className="weq-lightbox-close" type="button" onClick={close} aria-label="关闭">
         <X size={22} />
       </button>
-      <div className="weq-lightbox-stage weq-anim-pop" onMouseDown={(event) => event.stopPropagation()}>
+      <div
+        className="weq-lightbox-stage weq-anim-pop"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <img
           ref={zoom.setEl}
           className="weq-lightbox-image"

@@ -35,7 +35,10 @@ export function QrDialog({
         <header className="weq-qr-dialog-head">
           <div>
             <p className="text-[13px] font-medium text-[#0099ff]">扫码登录</p>
-            <h3 id="weq-qr-title" className="weq-display mt-1 text-[21px] font-normal leading-tight text-[#0f2d4c]">
+            <h3
+              id="weq-qr-title"
+              className="weq-display mt-1 text-[21px] font-normal leading-tight text-[#0f2d4c]"
+            >
               QQ 安全验证
             </h3>
           </div>
@@ -45,7 +48,12 @@ export function QrDialog({
             {qrUrl ? (
               <QrImage url={qrUrl} size={154} />
             ) : (
-              <Loader2 className="animate-spin text-[#0099ff]" size={28} strokeWidth={1.7} aria-label="正在获取二维码" />
+              <Loader2
+                className="animate-spin text-[#0099ff]"
+                size={28}
+                strokeWidth={1.7}
+                aria-label="正在获取二维码"
+              />
             )}
           </div>
           <div className="weq-qr-profile">

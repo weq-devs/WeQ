@@ -68,7 +68,9 @@ function printOne(uin: unknown, nick: unknown, isFriend: boolean, blob: unknown)
   const unopened = priv?.unopened ?? [];
   console.log(`  特权: 已开通${opened.length} / 未开通${unopened.length}`);
   for (const p of opened) {
-    console.log(`    [开] biz=${p.bizId} lv=${p.level} icon=${(p.iconUrl || p.iconUrlAlt)?.slice(0, 70)}`);
+    console.log(
+      `    [开] biz=${p.bizId} lv=${p.level} icon=${(p.iconUrl || p.iconUrlAlt)?.slice(0, 70)}`,
+    );
   }
 
   const ext = d.extInfo;

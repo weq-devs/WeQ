@@ -20,9 +20,9 @@ async function main() {
   try {
     console.log('[test:msg-indexes] Checking indexes for group_msg_table...');
     const indexes = await db.query(
-      "SELECT name, sql FROM sqlite_master WHERE type='index' AND tbl_name='group_msg_table';"
+      "SELECT name, sql FROM sqlite_master WHERE type='index' AND tbl_name='group_msg_table';",
     );
-    
+
     console.log(`[test:msg-indexes] Found ${indexes.length} indexes:`);
     indexes.forEach((row, i) => {
       console.log(`\n${i + 1}. Name: ${row[0]}`);
@@ -32,10 +32,9 @@ async function main() {
     // Also check the table schema itself to see primary keys / unique constraints
     console.log('\n[test:msg-indexes] Table Schema:');
     const table = await db.query(
-      "SELECT sql FROM sqlite_master WHERE type='table' AND name='group_msg_table';"
+      "SELECT sql FROM sqlite_master WHERE type='table' AND name='group_msg_table';",
     );
     console.log(table[0]?.[0]);
-
   } catch (err) {
     console.error('[test:msg-indexes] Failed:', err);
   } finally {

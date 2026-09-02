@@ -118,7 +118,9 @@ async function install(db: QqDb): Promise<void> {
     await db.write(sql);
   }
   await status(db);
-  console.log('\n✅ installed. Now start QQ and confirm it boots normally, then recall a test message.');
+  console.log(
+    '\n✅ installed. Now start QQ and confirm it boots normally, then recall a test message.',
+  );
 }
 
 async function uninstall(db: QqDb): Promise<void> {

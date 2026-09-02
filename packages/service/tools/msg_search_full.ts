@@ -12,7 +12,7 @@ const NT_DB_DIR = qqDbDir();
 
 async function main() {
   const native = loadNative();
-  
+
   const buddyFts = new BuddyMsgFtsDb(native.ntHelper, {
     dbPath: `${NT_DB_DIR}\\buddy_msg_fts.db`,
     key: KEY,
@@ -53,11 +53,8 @@ async function main() {
     const fileHits = await service.searchFiles(fileKeyword, 3);
     console.log(`File Hits (${fileHits.length}):`);
     fileHits.forEach((h) => {
-      console.log(
-        ` - [${h.sendTime}] File: ${h.fileName}, Content: ${h.content.slice(0, 30)}`,
-      );
+      console.log(` - [${h.sendTime}] File: ${h.fileName}, Content: ${h.content.slice(0, 30)}`);
     });
-
   } catch (err) {
     console.error('[test:search] Failed:', err);
   } finally {

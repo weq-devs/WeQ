@@ -14,7 +14,17 @@
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { AudioLines, Check, Download, Loader2, Plus, Play, Save, Trash2, Volume2 } from 'lucide-react';
+import {
+  AudioLines,
+  Check,
+  Download,
+  Loader2,
+  Plus,
+  Play,
+  Save,
+  Trash2,
+  Volume2,
+} from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useDialog } from '../Dialog';
 import { useAppDialog } from '../../lib/dialogUtils';
@@ -165,9 +175,13 @@ export function VoiceTranscribeSection(): ReactElement {
                   <div className="weq-voice-model-main">
                     <div className="weq-voice-model-head">
                       <span className="weq-voice-model-name">{m.name}</span>
-                      {m.recommended ? <span className="weq-set-badge weq-set-badge-ok">推荐</span> : null}
+                      {m.recommended ? (
+                        <span className="weq-set-badge weq-set-badge-ok">推荐</span>
+                      ) : null}
                       {m.downloaded ? <span className="weq-set-badge">已下载</span> : null}
-                      {isSelected ? <span className="weq-set-badge weq-set-badge-ok">当前模型</span> : null}
+                      {isSelected ? (
+                        <span className="weq-set-badge weq-set-badge-ok">当前模型</span>
+                      ) : null}
                     </div>
                     <span className="weq-voice-model-desc">{m.desc}</span>
                     <span className="weq-voice-model-size weq-number">
@@ -247,7 +261,15 @@ export function VoiceTranscribeSection(): ReactElement {
 
 // ── TTS 语音合成服务商（克隆体发语音 / 语音克隆用）──────────────────────────────
 
-const TTS_VENDORS = ['openai-compatible', 'gsv2p', 'minimax', 'mimo', 'doubao', 'gpt-sovits', 'cosyvoice'] as const;
+const TTS_VENDORS = [
+  'openai-compatible',
+  'gsv2p',
+  'minimax',
+  'mimo',
+  'doubao',
+  'gpt-sovits',
+  'cosyvoice',
+] as const;
 type TtsVendorLocal = (typeof TTS_VENDORS)[number];
 
 interface TtsForm {
@@ -438,7 +460,9 @@ function TtsProvidersCard(): ReactElement {
     }
     setTesting(true);
     try {
-      const res = await testProvider.mutateAsync(toPayload(normalizeId(form.id || form.name) || 'test'));
+      const res = await testProvider.mutateAsync(
+        toPayload(normalizeId(form.id || form.name) || 'test'),
+      );
       if (!res.ok) {
         dialog.error('测试失败', res.error ?? '未知错误');
         return;
@@ -467,7 +491,11 @@ function TtsProvidersCard(): ReactElement {
       <Card
         title="已保存的 TTS 服务商"
         action={
-          <button type="button" className="weq-set-btn weq-set-btn-soft weq-set-btn-sm" onClick={toggleCreate}>
+          <button
+            type="button"
+            className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+            onClick={toggleCreate}
+          >
             <Plus size={12} />
             {editing && !selectedId ? '收起' : '新建'}
           </button>
@@ -489,9 +517,16 @@ function TtsProvidersCard(): ReactElement {
                   onClick={() => editProvider(item.id)}
                 >
                   <span className="weq-agentlab-provider-name">
-                    <Volume2 size={14} strokeWidth={1.8} aria-hidden style={{ marginRight: 6, verticalAlign: '-2px', opacity: 0.7 }} />
+                    <Volume2
+                      size={14}
+                      strokeWidth={1.8}
+                      aria-hidden
+                      style={{ marginRight: 6, verticalAlign: '-2px', opacity: 0.7 }}
+                    />
                     {item.name}
-                    {entry?.capabilities.clone ? <span className="weq-set-badge weq-set-badge-ok"> 可复刻</span> : null}
+                    {entry?.capabilities.clone ? (
+                      <span className="weq-set-badge weq-set-badge-ok"> 可复刻</span>
+                    ) : null}
                   </span>
                   <small>{entry?.label ?? item.vendor}</small>
                 </button>
@@ -507,7 +542,11 @@ function TtsProvidersCard(): ReactElement {
             label="厂商模板"
             desc={vendorEntry?.note}
             control={
-              <select className="weq-set-input" value={form.vendor} onChange={(e) => applyVendor(e.target.value)}>
+              <select
+                className="weq-set-input"
+                value={form.vendor}
+                onChange={(e) => applyVendor(e.target.value)}
+              >
                 {(catalog.data ?? []).map((item) => (
                   <option key={item.vendor} value={item.vendor}>
                     {item.label}
@@ -519,36 +558,78 @@ function TtsProvidersCard(): ReactElement {
           <Row
             label="服务商 ID"
             desc="稳定标识，留空时按名称自动生成。"
-            control={<input className="weq-set-input" value={form.id} onChange={(e) => update('id', e.target.value)} placeholder="cosyvoice-main" />}
+            control={
+              <input
+                className="weq-set-input"
+                value={form.id}
+                onChange={(e) => update('id', e.target.value)}
+                placeholder="cosyvoice-main"
+              />
+            }
           />
           <Row
             label="显示名称"
-            control={<input className="weq-set-input" value={form.name} onChange={(e) => update('name', e.target.value)} placeholder="CosyVoice" />}
+            control={
+              <input
+                className="weq-set-input"
+                value={form.name}
+                onChange={(e) => update('name', e.target.value)}
+                placeholder="CosyVoice"
+              />
+            }
           />
           <Row
             label="服务地址 (Base URL)"
             desc={vendorEntry ? `模板默认：${vendorEntry.baseUrl}` : undefined}
-            control={<input className="weq-set-input" value={form.baseUrl} onChange={(e) => update('baseUrl', e.target.value)} placeholder="https://..." />}
+            control={
+              <input
+                className="weq-set-input"
+                value={form.baseUrl}
+                onChange={(e) => update('baseUrl', e.target.value)}
+                placeholder="https://..."
+              />
+            }
           />
           {has('apiKey') ? (
             <Row
               label="API Key"
               desc={vendorEntry?.apiKeyHint}
-              control={<input className="weq-set-input" type="password" value={form.apiKey} onChange={(e) => update('apiKey', e.target.value)} placeholder="sk-..." />}
+              control={
+                <input
+                  className="weq-set-input"
+                  type="password"
+                  value={form.apiKey}
+                  onChange={(e) => update('apiKey', e.target.value)}
+                  placeholder="sk-..."
+                />
+              }
             />
           ) : null}
           {has('appId') ? (
             <Row
               label="App ID"
               desc="豆包 X-Api-App-Id"
-              control={<input className="weq-set-input" value={form.appId} onChange={(e) => update('appId', e.target.value)} />}
+              control={
+                <input
+                  className="weq-set-input"
+                  value={form.appId}
+                  onChange={(e) => update('appId', e.target.value)}
+                />
+              }
             />
           ) : null}
           {has('resourceId') ? (
             <Row
               label="Resource ID"
               desc="豆包 X-Api-Resource-Id（如 seed-tts-2.0）"
-              control={<input className="weq-set-input" value={form.resourceId} onChange={(e) => update('resourceId', e.target.value)} placeholder="seed-tts-2.0" />}
+              control={
+                <input
+                  className="weq-set-input"
+                  value={form.resourceId}
+                  onChange={(e) => update('resourceId', e.target.value)}
+                  placeholder="seed-tts-2.0"
+                />
+              }
             />
           ) : null}
           {has('model') ? (
@@ -595,14 +676,25 @@ function TtsProvidersCard(): ReactElement {
                   ? `如：${vendorEntry.presetVoices.map((v) => v.id).join('、')}`
                   : '预置音色 id（preset 模式用）'
               }
-              control={<input className="weq-set-input" value={form.voice} onChange={(e) => update('voice', e.target.value)} placeholder="voice id" />}
+              control={
+                <input
+                  className="weq-set-input"
+                  value={form.voice}
+                  onChange={(e) => update('voice', e.target.value)}
+                  placeholder="voice id"
+                />
+              }
             />
           ) : null}
           {has('format') ? (
             <Row
               label="音频格式"
               control={
-                <select className="weq-set-input" value={form.format} onChange={(e) => update('format', e.target.value)}>
+                <select
+                  className="weq-set-input"
+                  value={form.format}
+                  onChange={(e) => update('format', e.target.value)}
+                >
                   <option value="">默认</option>
                   <option value="mp3">mp3</option>
                   <option value="wav">wav</option>
@@ -614,20 +706,42 @@ function TtsProvidersCard(): ReactElement {
             <Row
               label="语速"
               desc="1.0 为常态，留空用默认。"
-              control={<input className="weq-set-input" value={form.speed} onChange={(e) => update('speed', e.target.value)} placeholder="1.0" />}
+              control={
+                <input
+                  className="weq-set-input"
+                  value={form.speed}
+                  onChange={(e) => update('speed', e.target.value)}
+                  placeholder="1.0"
+                />
+              }
             />
           ) : null}
 
           <div className="weq-set-actions">
-            <button type="button" className="weq-set-btn" onClick={() => void onSave()} disabled={saveProvider.isLoading}>
+            <button
+              type="button"
+              className="weq-set-btn"
+              onClick={() => void onSave()}
+              disabled={saveProvider.isLoading}
+            >
               <Save size={14} />
               保存
             </button>
-            <button type="button" className="weq-set-btn weq-set-btn-soft" onClick={() => void onTest()} disabled={testing}>
+            <button
+              type="button"
+              className="weq-set-btn weq-set-btn-soft"
+              onClick={() => void onTest()}
+              disabled={testing}
+            >
               {testing ? <Loader2 size={14} className="weq-spin" /> : <Play size={14} />}
               测试
             </button>
-            <button type="button" className="weq-set-btn weq-set-btn-soft" onClick={() => void onDelete()} disabled={!selectedId || deleteProvider.isLoading}>
+            <button
+              type="button"
+              className="weq-set-btn weq-set-btn-soft"
+              onClick={() => void onDelete()}
+              disabled={!selectedId || deleteProvider.isLoading}
+            >
               <Trash2 size={14} />
               删除
             </button>
@@ -635,7 +749,8 @@ function TtsProvidersCard(): ReactElement {
           {vendorEntry?.capabilities.clone ? (
             <p className="weq-set-note">
               <Volume2 size={12} style={{ verticalAlign: '-2px', marginRight: 4 }} />
-              这是语音克隆型服务商：在克隆体的「语音」设置里开启语音克隆后，会自动用 TA 的真实语音作参考音频。此处「测试」仅校验连通性。
+              这是语音克隆型服务商：在克隆体的「语音」设置里开启语音克隆后，会自动用 TA
+              的真实语音作参考音频。此处「测试」仅校验连通性。
             </p>
           ) : null}
         </Card>

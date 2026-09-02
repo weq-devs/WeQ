@@ -95,7 +95,9 @@ function fieldType(field: z.ZodTypeAny): { type: FieldType; enumValues?: number[
     case 'ZodNativeEnum':
       return {
         type: 'enum',
-        enumValues: Object.values(base._def.values).filter((v): v is number => typeof v === 'number'),
+        enumValues: Object.values(base._def.values).filter(
+          (v): v is number => typeof v === 'number',
+        ),
       };
     // z.instanceof(Uint8Array) compiles to a ZodEffects — the only effect we use.
     case 'ZodEffects':
@@ -198,7 +200,10 @@ function parseComposeElement(raw: unknown): { ok: true; element: Element } | Com
   }
   const res = COERCED_SCHEMAS[kind as ComposeKind].safeParse(raw);
   if (!res.success) {
-    return { ok: false, error: `${kind} 校验失败: ${res.error.issues.map((i) => `${i.path.join('.')} ${i.message}`).join('; ')}` };
+    return {
+      ok: false,
+      error: `${kind} 校验失败: ${res.error.issues.map((i) => `${i.path.join('.')} ${i.message}`).join('; ')}`,
+    };
   }
   const element = res.data as Element & { origElements?: unknown };
   if (kind === 'reply' && Array.isArray(element.origElements)) {

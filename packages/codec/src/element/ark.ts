@@ -128,8 +128,7 @@ export const SAMPLE_SINGLE_PIC_AD: ArkPayload = {
   desc: '',
   meta: {
     singlePic: {
-      banner:
-        'https://tianquan.gtimg.cn/shoal/vaclient/7224e682-1d74-4144-8f54-661e9113905f.png',
+      banner: 'https://tianquan.gtimg.cn/shoal/vaclient/7224e682-1d74-4144-8f54-661e9113905f.png',
       bannerUrl:
         'https://club.vip.qq.com/mono/web/novel/reader?enteranceId=pcgzh&bookId=1117301994&trace_detail=base64-eyJhcHBpZCI6InBjX2d6aCIsInBhZ2VfaWQiOiIxMDEiLCJpdGVtX2lkIjoiMjkzNDUyMCIsInB1YmxpY19hY2NvdW50X3R5cGUiOiIxIiwiZm9vdGFnZV9pZCI6IiIsImJvb2tfaWQiOiIxMTE3MzAxOTk0In0%3D',
       singlePicItems: [
@@ -261,8 +260,7 @@ export const SAMPLE_MULTI_PIC_NEWS: ArkPayload = {
     multiPic: {
       banner:
         'https://inews.gtimg.com/om_ls/O5IULUKUKX4IBK9EJCFZBZGOz8c9XLObGqkhyU_70CXpcAA_870492/0',
-      bannerText:
-        '"一条大河波浪宽"成绝唱，97岁郭兰英离世，留下《白毛女》等经典作品',
+      bannerText: '"一条大河波浪宽"成绝唱，97岁郭兰英离世，留下《白毛女》等经典作品',
       bannerUrl:
         'https://h5.vip.qq.com/p/cgireport/cgi-bin/handle?adId=3228072&posId=180&reportKey=vab_push&classIndex=5&policyId=12823763&url=https%3A%2F%2Fview.inews.qq.com%2Fq%2F20260812V059A000%3Fbat_id%3D1100339139%26strategy%3Dfeature%26trace_detail%3Dbase64-eyJhcHBpZCI6InZhYl9wdXNoIiwicGFnZV9pZCI6IjE4MCIsIml0ZW1faWQiOiIzMjI4MDcyIiwiaXRlbV90eXBlIjoiNSJ9%26h5costreport%3D1&signDetail=82602ab641177a191484',
       multiPicItems: null,

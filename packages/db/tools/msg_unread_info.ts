@@ -64,7 +64,9 @@ function bigintReplacer(_k: string, v: unknown): unknown {
 }
 
 function bufferToHex(buf: Uint8Array): string {
-  return Array.from(buf).map(b => b.toString(16).padStart(2, '0')).join('');
+  return Array.from(buf)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 main().catch((e) => {

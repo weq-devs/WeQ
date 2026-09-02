@@ -30,7 +30,10 @@ export function readProcStartTime(pid: number): string | null {
   if (rparen < 0) return null;
   // Everything after ") " is space-separated; field 3 (state) is the first
   // token there, so starttime (field 22) is index 22 - 3 = 19.
-  const rest = raw.slice(rparen + 2).trim().split(/\s+/);
+  const rest = raw
+    .slice(rparen + 2)
+    .trim()
+    .split(/\s+/);
   const starttime = rest[19];
   return starttime ?? null;
 }

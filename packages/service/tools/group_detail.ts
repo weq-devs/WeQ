@@ -14,7 +14,7 @@ const DB_PATH = qqDbPath('group_info.db');
 
 async function main() {
   const native = loadNative();
-  
+
   const groupDetailDb = new GroupDetailDb(native.ntHelper, {
     dbPath: DB_PATH,
     key: KEY,
@@ -29,15 +29,14 @@ async function main() {
 
   try {
     console.log(`[test:group-detail] Fetching info for group: ${GROUP_CODE}`);
-    
+
     const detail = await service.getGroupDetail(GROUP_CODE);
     if (detail) {
-        console.log('[test:group-detail] Result:');
-        console.log(JSON.stringify(detail, (_k, v) => typeof v === 'bigint' ? v.toString() : v, 2));
+      console.log('[test:group-detail] Result:');
+      console.log(JSON.stringify(detail, (_k, v) => (typeof v === 'bigint' ? v.toString() : v), 2));
     } else {
-        console.log('[test:group-detail] Group not found.');
+      console.log('[test:group-detail] Group not found.');
     }
-
   } catch (err) {
     console.error('[test:group-detail] Failed:', err);
   } finally {

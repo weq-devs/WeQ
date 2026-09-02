@@ -13,9 +13,24 @@ import { writeFileSync } from 'node:fs';
 // ── 真实样本（来自 dump_mface_elements 的输出）──────────────────────────────────
 // pack / hash(marketEmoticonId) / encryptKey，三者都取自消息 element。
 const SAMPLES = [
-  { pack: '209590', hash: 'fbf5a88c0bfd089e67a8bac58b955a4d', key: '304d5508c9b0e62f', desc: '[生气]' },
-  { pack: '237493', hash: '590da2260d24269af54f33870137c02a', key: '5cfda6afe0c5784f', desc: '[心心]' },
-  { pack: '242229', hash: '41af35c78ea3125b8575da86abc9009e', key: 'b10a6abd3ec7f30e', desc: '[emo]' },
+  {
+    pack: '209590',
+    hash: 'fbf5a88c0bfd089e67a8bac58b955a4d',
+    key: '304d5508c9b0e62f',
+    desc: '[生气]',
+  },
+  {
+    pack: '237493',
+    hash: '590da2260d24269af54f33870137c02a',
+    key: '5cfda6afe0c5784f',
+    desc: '[心心]',
+  },
+  {
+    pack: '242229',
+    hash: '41af35c78ea3125b8575da86abc9009e',
+    key: 'b10a6abd3ec7f30e',
+    desc: '[emo]',
+  },
 ];
 
 const DELTA = 0x9e3779b9;
@@ -49,8 +64,10 @@ function qqteaDecrypt(ct: Uint8Array, key: Uint8Array): Uint8Array | null {
   for (let i = 0; i < 4; i++) k[i] = beU32(key, i * 4);
 
   const out = new Uint8Array(ct.length);
-  let pm0 = 0, pm1 = 0;
-  let pc0 = 0, pc1 = 0;
+  let pm0 = 0,
+    pm1 = 0;
+  let pc0 = 0,
+    pc1 = 0;
 
   for (let off = 0; off < ct.length; off += 8) {
     const c0 = beU32(ct, off);
@@ -58,8 +75,10 @@ function qqteaDecrypt(ct: Uint8Array, key: Uint8Array): Uint8Array | null {
     const [d0, d1] = teaDec((c0 ^ pm0) >>> 0, (c1 ^ pm1) >>> 0, k, 16);
     putBeU32(out, off, (d0 ^ pc0) >>> 0);
     putBeU32(out, off + 4, (d1 ^ pc1) >>> 0);
-    pm0 = d0; pm1 = d1;
-    pc0 = c0; pc1 = c1;
+    pm0 = d0;
+    pm1 = d1;
+    pc0 = c0;
+    pc1 = c1;
   }
 
   // 头部：1 控制位 + (控制位&7) 填充 + 2 salt。
@@ -71,7 +90,10 @@ function qqteaDecrypt(ct: Uint8Array, key: Uint8Array): Uint8Array | null {
   // 尾部：截到最后一个 GIF trailer 0x3b。
   let pos = -1;
   for (let i = body.length - 1; i >= 0; i--) {
-    if (body[i] === 0x3b) { pos = i; break; }
+    if (body[i] === 0x3b) {
+      pos = i;
+      break;
+    }
   }
   return pos >= 0 ? body.subarray(0, pos + 1) : body;
 }
@@ -90,20 +112,32 @@ async function main(): Promise<void> {
         if (!r.ok) continue;
         const b = new Uint8Array(await r.arrayBuffer());
         if (b.length >= 16 && b.length % 8 === 0 && b[0] !== 0x3c) {
-          ct = b; usedRes = res; break;
+          ct = b;
+          usedRes = res;
+          break;
         }
-      } catch { /* try next */ }
+      } catch {
+        /* try next */
+      }
     }
-    if (!ct) { console.log('   ❌ CDN 无有效加密流（300/200 都不行）'); continue; }
+    if (!ct) {
+      console.log('   ❌ CDN 无有效加密流（300/200 都不行）');
+      continue;
+    }
 
     const t0 = performance.now();
     const dec = qqteaDecrypt(ct, keyBytes);
     const ms = performance.now() - t0;
 
-    if (!dec) { console.log(`   ❌ 解密失败（res=${usedRes}, ${ct.length}B）`); continue; }
+    if (!dec) {
+      console.log(`   ❌ 解密失败（res=${usedRes}, ${ct.length}B）`);
+      continue;
+    }
     const magic = Buffer.from(dec.subarray(0, 6)).toString('latin1');
     const ok = magic === 'GIF89a' || magic === 'GIF87a';
-    console.log(`   res=${usedRes} 密文=${ct.length}B → 明文=${dec.length}B  magic=${JSON.stringify(magic)}  ${ok ? '✅' : '❌'}  解密耗时=${ms.toFixed(3)}ms`);
+    console.log(
+      `   res=${usedRes} 密文=${ct.length}B → 明文=${dec.length}B  magic=${JSON.stringify(magic)}  ${ok ? '✅' : '❌'}  解密耗时=${ms.toFixed(3)}ms`,
+    );
     if (ok) {
       const p = `mface_${s.pack}_${s.desc.replace(/[[\]]/g, '')}.gif`;
       writeFileSync(p, dec);

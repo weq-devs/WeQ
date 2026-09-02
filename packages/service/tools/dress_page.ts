@@ -26,14 +26,20 @@ async function main(): Promise<void> {
   const pid = pids[0]!;
   const info = nt.probeQqLoginInfo(pid);
   const myUin = info?.uin ?? '';
-  console.log(`[dress] pid=${pid} 我的uin=${myUin} loggedIn=${info?.loggedIn} target=${TARGET_UIN}`);
+  console.log(
+    `[dress] pid=${pid} 我的uin=${myUin} loggedIn=${info?.loggedIn} target=${TARGET_UIN}`,
+  );
   if (!myUin) throw new Error('probe 没拿到 uin');
 
   console.log(`\n[dress] 注入 hook 到 pid=${pid} ...`);
   const status = await nt.injectAndGetStatusEmbedded(pid, myUin);
   console.log(`[dress] 注入结果: pid=${status.pid} uin=${status.uin} loggedIn=${status.loggedIn}`);
 
-  const web = new WebQueryService(nt, { context: { uin: myUin } } as unknown as AccountSession, () => pid);
+  const web = new WebQueryService(
+    nt,
+    { context: { uin: myUin } } as unknown as AccountSession,
+    () => pid,
+  );
 
   console.log(`\n[dress] ===== 查 ${TARGET_UIN} 的好友装扮 =====`);
   const dress = await web.getFriendDress(TARGET_UIN);

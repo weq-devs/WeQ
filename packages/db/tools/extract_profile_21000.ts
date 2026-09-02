@@ -138,10 +138,11 @@ function extract(uid: string, uin: unknown, nick: string, blob: Uint8Array): Ext
       zip: asStr(child(e, 20029)),
     };
     const tags = asNested(child(e, 20041));
-    if (tags) for (const t of children(tags, 20410)) {
-      const s = asStr(t);
-      if (s) out.interests.push(s);
-    }
+    if (tags)
+      for (const t of children(tags, 20410)) {
+        const s = asStr(t);
+        if (s) out.interests.push(s);
+      }
   }
 
   // --- #22009 QQ空间相册 ---

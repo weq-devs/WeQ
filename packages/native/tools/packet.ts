@@ -243,7 +243,10 @@ function tryDecodeUtf8(buf: Buffer): string | null {
   // 检查是否包含除了标准空白符（换行、制表符等）之外的 C0/C1 控制字符
   for (let i = 0; i < text.length; i++) {
     const code = text.charCodeAt(i);
-    if ((code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d) || (code >= 0x7f && code <= 0x9f)) {
+    if (
+      (code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d) ||
+      (code >= 0x7f && code <= 0x9f)
+    ) {
       return null;
     }
   }
@@ -285,7 +288,10 @@ function dumpProto(buf: Buffer, depth = 0): { ok: boolean; lines: string[] } {
 
       // --- 关键修改：识别 string / 递归嵌套 message / 兜底 bytes ---
       const utf8Str = tryDecodeUtf8(sub);
-      const nested = sub.length > 0 && depth + 1 <= PROTO_MAX_DEPTH ? dumpProto(sub, depth + 1) : { ok: false, lines: [] };
+      const nested =
+        sub.length > 0 && depth + 1 <= PROTO_MAX_DEPTH
+          ? dumpProto(sub, depth + 1)
+          : { ok: false, lines: [] };
 
       if (utf8Str !== null) {
         // 可转义展示换行等字符，防止破坏排版
@@ -297,7 +303,7 @@ function dumpProto(buf: Buffer, depth = 0): { ok: boolean; lines: string[] } {
       } else {
         const preview = sub.subarray(0, PROTO_LEAF_PREVIEW).toString('hex');
         lines.push(
-            `${indent}${field}: bytes(${sub.length}) ${preview}${sub.length > PROTO_LEAF_PREVIEW ? '...' : ''}`,
+          `${indent}${field}: bytes(${sub.length}) ${preview}${sub.length > PROTO_LEAF_PREVIEW ? '...' : ''}`,
         );
       }
     } else if (wire === 5) {

@@ -1,6 +1,13 @@
 import { EventEmitter } from 'node:events';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import type { AccountSession } from '@weq/account';
 import {
@@ -212,9 +219,14 @@ function wavDurationMs(path: string): number {
  * - waveform：按相对振幅算「有声占比」（避开大段静音/停顿/喘气）；scale 无关（按本条最大值归一）。
  * - 文本：太短（1 字）信息不足扣分。
  */
-function scoreVoiceClip(waveform: Uint8Array | undefined, durationMs: number, text: string): number {
+function scoreVoiceClip(
+  waveform: Uint8Array | undefined,
+  durationMs: number,
+  text: string,
+): number {
   const sec = durationMs / 1000;
-  const durScore = sec < 1.5 || sec > 25 ? 0.1 : sec < 3 ? 0.5 : sec <= 10 ? 1 : sec <= 15 ? 0.7 : 0.4;
+  const durScore =
+    sec < 1.5 || sec > 25 ? 0.1 : sec < 3 ? 0.5 : sec <= 10 ? 1 : sec <= 15 ? 0.7 : 0.4;
   let ampScore = 0.5;
   if (waveform && waveform.length >= 4) {
     let max = 1;
@@ -307,7 +319,8 @@ export class AgentLabService extends EventEmitter {
     super();
     this.store = new AgentLabStore(rootDir);
     this.usage = usageStore ?? new TokenUsageStore(join(rootDir, 'usage.json'));
-    this.conversations = conversationStore ?? new ConversationStore(join(rootDir, 'conversations.json'));
+    this.conversations =
+      conversationStore ?? new ConversationStore(join(rootDir, 'conversations.json'));
     this.memories = new MemoryStore(join(rootDir, 'memories.json'));
     this.notes = new NotesStore(join(rootDir, 'notes.json'));
     this.groups = new JsonGroupStore(join(rootDir, 'groups.json'));
@@ -382,9 +395,17 @@ export class AgentLabService extends EventEmitter {
     members: AgentLabGroupMember[];
   } {
     const now = Date.now();
-    const id = `group-${now}-${createHash('sha1').update(input.name + now).digest('hex').slice(0, 8)}`;
+    const id = `group-${now}-${createHash('sha1')
+      .update(input.name + now)
+      .digest('hex')
+      .slice(0, 8)}`;
     const ownerId = this.selfMemberId();
-    const group = this.groups.createGroup({ id, name: input.name.trim() || '未命名群聊', ownerId, now });
+    const group = this.groups.createGroup({
+      id,
+      name: input.name.trim() || '未命名群聊',
+      ownerId,
+      now,
+    });
 
     const members: AgentLabGroupMember[] = [
       { groupId: id, memberId: ownerId, kind: 'user', displayName: '我', joinedAt: now },
@@ -406,7 +427,9 @@ export class AgentLabService extends EventEmitter {
     // 对群里其他克隆体则是初次见面的中性关系。之后随互动动态升降。
     const personaIds = members.filter((m) => m.kind === 'persona').map((m) => m.memberId);
     for (const pid of personaIds) {
-      this.relations.upsert(makeBaseRelation(pid, ownerId, 'user', now, { affinity: 62, familiarity: 45 }));
+      this.relations.upsert(
+        makeBaseRelation(pid, ownerId, 'user', now, { affinity: 62, familiarity: 45 }),
+      );
       for (const other of personaIds) {
         if (other === pid) continue;
         this.relations.upsert(makeBaseRelation(pid, other, 'persona', now));
@@ -466,7 +489,10 @@ export class AgentLabService extends EventEmitter {
   }
 
   private groupMsgId(groupId: string, senderId: string, ts: number, text: string): string {
-    return createHash('sha1').update(`${groupId}:${senderId}:${ts}:${text}`).digest('hex').slice(0, 16);
+    return createHash('sha1')
+      .update(`${groupId}:${senderId}:${ts}:${text}`)
+      .digest('hex')
+      .slice(0, 16);
   }
 
   /**
@@ -607,7 +633,8 @@ export class AgentLabService extends EventEmitter {
               personaName: rec.persona.name,
               tone: rec.persona.profile?.card?.tone || rec.persona.profile?.styleSummary,
               transcript: this.renderNeutralTranscript(members, roundBase, 12),
-              currentSpeaker: trigger.senderKind === 'user' ? '我' : nameById.get(trigger.senderId) ?? '某人',
+              currentSpeaker:
+                trigger.senderKind === 'user' ? '我' : (nameById.get(trigger.senderId) ?? '某人'),
               currentText: trigger.text,
               relationNote: rel ? describeRelationTone(rel) : undefined,
               memories: this.memories
@@ -644,11 +671,18 @@ export class AgentLabService extends EventEmitter {
   }
 
   /** 群历史渲染成中性第三人称文字（谁说了啥），供发言决策用；单条截断、窗口有界。 */
-  private renderNeutralTranscript(members: AgentLabGroupMember[], messages: AgentLabGroupMessage[], limit: number): string {
+  private renderNeutralTranscript(
+    members: AgentLabGroupMember[],
+    messages: AgentLabGroupMessage[],
+    limit: number,
+  ): string {
     const nameById = new Map(members.map((m) => [m.memberId, m.displayName]));
     return messages
       .slice(-limit)
-      .map((m) => `${m.senderKind === 'user' ? '我' : nameById.get(m.senderId) ?? '某人'}: ${m.text.slice(0, 80)}`)
+      .map(
+        (m) =>
+          `${m.senderKind === 'user' ? '我' : (nameById.get(m.senderId) ?? '某人')}: ${m.text.slice(0, 80)}`,
+      )
       .join('\n');
   }
 
@@ -664,7 +698,8 @@ export class AgentLabService extends EventEmitter {
   private crowdedHint(recent: AgentLabGroupMessage[], memberId: string): string {
     if (recent.length === 0) return '';
     const mine = recent.filter((m) => m.senderId === memberId).length;
-    if (mine / recent.length > 0.5) return '你最近已经连着说了好几条了，注意别刷屏，没必要就歇一歇。';
+    if (mine / recent.length > 0.5)
+      return '你最近已经连着说了好几条了，注意别刷屏，没必要就歇一歇。';
     const botShare = recent.filter((m) => m.senderKind === 'persona').length / recent.length;
     if (botShare > 0.7) return '群里最近有点吵（大家都在刷屏），不是特别想说就别接了。';
     return '';
@@ -698,10 +733,16 @@ export class AgentLabService extends EventEmitter {
       const rel = this.relations.get(member.memberId, trigger.senderId);
       const relationNote = rel ? describeRelationTone(rel) : undefined;
       // M5：只召回「关于触发者」的记忆（防串人）。对方是「我」时连旧的无标签记忆一并带上。
-      const memories = this.memories.getAbout(member.memberId, [trigger.senderId], trigger.senderKind === 'user');
+      const memories = this.memories.getAbout(
+        member.memberId,
+        [trigger.senderId],
+        trigger.senderKind === 'user',
+      );
       // 触发者是别的克隆体时，给输入带上「名字」前缀，让 TA 知道是谁在跟自己说话。
-      const triggerName = members.find((m) => m.memberId === trigger.senderId)?.displayName ?? '某人';
-      const inputText = trigger.senderKind === 'user' ? trigger.text : `「${triggerName}」：${trigger.text}`;
+      const triggerName =
+        members.find((m) => m.memberId === trigger.senderId)?.displayName ?? '某人';
+      const inputText =
+        trigger.senderKind === 'user' ? trigger.text : `「${triggerName}」：${trigger.text}`;
 
       await sleep(delayMs); // 越想回越快开口
       const { renderedTurns } = await this.runtime.generatePersonaTurns(persona, pairs, {
@@ -733,7 +774,14 @@ export class AgentLabService extends EventEmitter {
       }
       if (recorded > 0) {
         const exchange = `对方：${trigger.text}\n你：${renderedTurns.join(' / ')}`;
-        this.updateRelationAfterExchange(member.memberId, persona.name, trigger.senderId, trigger.senderKind, exchange, chatEndpoint);
+        this.updateRelationAfterExchange(
+          member.memberId,
+          persona.name,
+          trigger.senderId,
+          trigger.senderKind,
+          exchange,
+          chatEndpoint,
+        );
         // M5：节流地蒸馏「关于触发者」的记忆（带 aboutId 防串人 + 有向量时嵌入）。不阻塞。
         this.maybeDistillGroupMemory(
           member.memberId,
@@ -847,7 +895,12 @@ export class AgentLabService extends EventEmitter {
   }
 
   /** Emit one build-progress event (consumed by the onAgentLabBuildProgress subscription). */
-  private emitProgress(personaId: string, phase: string, percent: number, extra?: { done?: boolean; error?: string }): void {
+  private emitProgress(
+    personaId: string,
+    phase: string,
+    percent: number,
+    extra?: { done?: boolean; error?: string },
+  ): void {
     this.emit('build-progress', {
       personaId,
       phase,
@@ -865,7 +918,9 @@ export class AgentLabService extends EventEmitter {
   }
 
   /** 完整 persona 记录（含全部 pairs），供导出 bot 用。 */
-  getPersonaRecord(personaId: string): { persona: AgentLabPersona; pairs: AgentLabStoredPair[] } | null {
+  getPersonaRecord(
+    personaId: string,
+  ): { persona: AgentLabPersona; pairs: AgentLabStoredPair[] } | null {
     return this.store.getPersona(personaId);
   }
 
@@ -933,7 +988,9 @@ export class AgentLabService extends EventEmitter {
   ): { persona: AgentLabPersona; pairs: Array<{ prompt: string; reply: string }> } | null {
     const record = this.store.getPersona(personaId);
     if (!record) return null;
-    const pairs = record.pairs.slice(0, 40).map((pair) => ({ prompt: pair.prompt, reply: pair.reply }));
+    const pairs = record.pairs
+      .slice(0, 40)
+      .map((pair) => ({ prompt: pair.prompt, reply: pair.reply }));
     return { persona: record.persona, pairs };
   }
 
@@ -960,7 +1017,8 @@ export class AgentLabService extends EventEmitter {
     if (!record) return null;
     const persona = record.persona;
     if (patch.name !== undefined) persona.name = patch.name.trim() || persona.name;
-    if (patch.customPrompt !== undefined) persona.customPrompt = patch.customPrompt.trim() || undefined;
+    if (patch.customPrompt !== undefined)
+      persona.customPrompt = patch.customPrompt.trim() || undefined;
     if (patch.voiceCloneEnabled !== undefined) persona.voiceCloneEnabled = patch.voiceCloneEnabled;
     if (patch.voice !== undefined) persona.voice = patch.voice ?? undefined;
     if (patch.willing !== undefined) persona.willing = patch.willing ?? undefined;
@@ -1055,7 +1113,9 @@ export class AgentLabService extends EventEmitter {
   ): Promise<void> {
     if (!this.media?.transcribe || !(this.media.voiceReady?.() ?? false)) return;
     const groups = await this.session.groupMembers.listUserGroups(targetUid, 50);
-    const picked = [...groups].sort((a, b) => b.lastSpeakTime - a.lastSpeakTime).slice(0, GROUP_MAX);
+    const picked = [...groups]
+      .sort((a, b) => b.lastSpeakTime - a.lastSpeakTime)
+      .slice(0, GROUP_MAX);
     let transcribed = 0;
     for (const g of picked) {
       if (voiceClips.length >= VOICE_REF_NEED || transcribed >= VOICE_TRANSCRIBE_CAP) break;
@@ -1117,7 +1177,9 @@ export class AgentLabService extends EventEmitter {
       if (modality === 'voice' && canTranscribe && transcribed < VOICE_TRANSCRIBE_CAP) {
         const res = await this.transcribePtt(msg.elements, ts);
         if (res.spoken) {
-          text = text.includes('[语音]') ? text.replace('[语音]', `[语音]${res.spoken}`) : `[语音]${res.spoken}`;
+          text = text.includes('[语音]')
+            ? text.replace('[语音]', `[语音]${res.spoken}`)
+            : `[语音]${res.spoken}`;
           transcribed += 1;
           // 收集 TA（好友 = assistant 角色）的干净语音做克隆参考：**排除变声**，按 waveform 质量打分。
           if (role === 'assistant' && res.wavPath && !res.voiceChanged) {
@@ -1144,7 +1206,13 @@ export class AgentLabService extends EventEmitter {
   private async transcribePtt(
     elements: Element[],
     tsMs: number,
-  ): Promise<{ spoken: string | null; wavPath?: string; durationMs?: number; voiceChanged?: boolean; waveform?: Uint8Array }> {
+  ): Promise<{
+    spoken: string | null;
+    wavPath?: string;
+    durationMs?: number;
+    voiceChanged?: boolean;
+    waveform?: Uint8Array;
+  }> {
     const media = this.media;
     if (!media?.transcribe) return { spoken: null };
     const ptt = elements.find((el): el is Extract<Element, { kind: 'ptt' }> => el.kind === 'ptt');
@@ -1172,9 +1240,21 @@ export class AgentLabService extends EventEmitter {
     try {
       const r = await media.transcribe(silk);
       const spoken = r.ok && r.text?.trim() ? r.text.trim() : null;
-      return { spoken, wavPath, durationMs, voiceChanged: ptt.voiceChanged, waveform: ptt.waveform };
+      return {
+        spoken,
+        wavPath,
+        durationMs,
+        voiceChanged: ptt.voiceChanged,
+        waveform: ptt.waveform,
+      };
     } catch {
-      return { spoken: null, wavPath, durationMs, voiceChanged: ptt.voiceChanged, waveform: ptt.waveform };
+      return {
+        spoken: null,
+        wavPath,
+        durationMs,
+        voiceChanged: ptt.voiceChanged,
+        waveform: ptt.waveform,
+      };
     }
   }
 
@@ -1265,7 +1345,12 @@ export class AgentLabService extends EventEmitter {
         const dataUrl = imageToDataUrl(localPath);
         if (dataUrl) {
           // 用这张表情专属的使用情境作 hint（比全局语料切片精准）。
-          const d = await describeSticker(visionEndpoint, chatFriendName, dataUrl, s.contexts.join('\n'));
+          const d = await describeSticker(
+            visionEndpoint,
+            chatFriendName,
+            dataUrl,
+            s.contexts.join('\n'),
+          );
           description = d.description;
           scenario = d.scenario;
         }
@@ -1343,7 +1428,9 @@ export class AgentLabService extends EventEmitter {
   /** 私聊语料不足时去好友所在群学风格：只取 TA 自己的发言，受多重上限约束。 */
   private async collectGroupStyleMessages(targetUid: string): Promise<AgentLabMessage[]> {
     const groups = await this.session.groupMembers.listUserGroups(targetUid, 50);
-    const picked = [...groups].sort((a, b) => b.lastSpeakTime - a.lastSpeakTime).slice(0, GROUP_MAX);
+    const picked = [...groups]
+      .sort((a, b) => b.lastSpeakTime - a.lastSpeakTime)
+      .slice(0, GROUP_MAX);
     const out: AgentLabMessage[] = [];
     for (const g of picked) {
       if (out.length >= GROUP_TOTAL_CAP) break;
@@ -1351,7 +1438,11 @@ export class AgentLabService extends EventEmitter {
       let scanned = 0;
       let taken = 0;
       let beforeSeq: bigint | null = null;
-      while (scanned < PER_GROUP_SCAN_CAP && taken < PER_GROUP_MSG_CAP && out.length < GROUP_TOTAL_CAP) {
+      while (
+        scanned < PER_GROUP_SCAN_CAP &&
+        taken < PER_GROUP_MSG_CAP &&
+        out.length < GROUP_TOTAL_CAP
+      ) {
         const page: GroupMsg[] =
           beforeSeq === null
             ? await this.session.groupMsgs.listLatest(groupCode, 500)
@@ -1443,7 +1534,10 @@ export class AgentLabService extends EventEmitter {
 
     // 1) 私聊语料（翻页拉取，受总消息上限约束；capHit 供后面的语音兜底判断）。
     this.emitProgress(input.personaId, '拉取聊天记录', 8);
-    const { msgs: rawMsgs, capHit } = await this.collectC2cMessages(part, input.limit ?? C2C_CORPUS_CAP);
+    const { msgs: rawMsgs, capHit } = await this.collectC2cMessages(
+      part,
+      input.limit ?? C2C_CORPUS_CAP,
+    );
 
     // 2) 映射成语料（顺手把语音转录成文本，并收集 TA 的干净语音做克隆参考）。
     this.emitProgress(input.personaId, '整理语料 / 转录语音', 28);
@@ -1460,12 +1554,16 @@ export class AgentLabService extends EventEmitter {
 
     // 4) 阈值兜底：**仅 group 模式**且私聊有效语料不足 → 去群里补采风格语料（只学语气，不构成问答对）。
     //    private 模式即便语料不够也不回退群聊（用户明确选择「纯私聊」）。
-    const friendMsgCount = messages.filter((m) => m.role === 'assistant' && isMeaningful(m.text)).length;
+    const friendMsgCount = messages.filter(
+      (m) => m.role === 'assistant' && isMeaningful(m.text),
+    ).length;
     const needGroup = mode === 'group' && friendMsgCount < GROUP_SUPPLEMENT_THRESHOLD;
     if (needGroup) {
       this.emitProgress(input.personaId, '私聊语料不足，群里补采风格', 50);
     }
-    const groupStyleMessages = needGroup ? await this.collectGroupStyleMessages(input.targetUid) : [];
+    const groupStyleMessages = needGroup
+      ? await this.collectGroupStyleMessages(input.targetUid)
+      : [];
 
     // 语音参考兜底（group 模式）：语音不分私聊/群聊、一视同仁——只要还没攒够参考音频就继续补。
     // 先回溯私聊剩余历史（仅在撞 cap、还有更老消息没拉时有意义），仍不够则去好友所在群里补采语音。
@@ -1499,7 +1597,8 @@ export class AgentLabService extends EventEmitter {
         artifacts.stats.groupStyleMessageCount > 0
           ? `、群补采 ${artifacts.stats.groupStyleMessageCount} 条`
           : '';
-      const modeHint = mode === 'private' ? '（当前为「纯私聊」模式，可改用「配合群聊补充」再试）' : '';
+      const modeHint =
+        mode === 'private' ? '（当前为「纯私聊」模式，可改用「配合群聊补充」再试）' : '';
       throw new Error(
         `语料太少，不足以克隆「${peerName}」：私聊有效消息 ${artifacts.stats.friendMessageCount} 条` +
           `${groupNote}，少于 ${GROUP_SUPPLEMENT_THRESHOLD} 条。${modeHint}`,
@@ -1519,7 +1618,12 @@ export class AgentLabService extends EventEmitter {
           extractPersonaCard(chatEndpoint, peerName, artifacts.stats, artifacts.corpusText),
           extractFewShots(chatEndpoint, peerName, artifacts.stats, artifacts.corpusText),
           extractExpressions(chatEndpoint, peerName, artifacts.stats, artifacts.corpusText),
-          this.extractDeepProfileMapReduce(chatEndpoint, peerName, artifacts.turns, input.personaId),
+          this.extractDeepProfileMapReduce(
+            chatEndpoint,
+            peerName,
+            artifacts.turns,
+            input.personaId,
+          ),
         ]);
         profile = { ...artifacts.profile, card, deep, extractedByLlm: true };
         fewShots = shots;
@@ -1534,7 +1638,9 @@ export class AgentLabService extends EventEmitter {
 
     // few-shot 兜底：LLM 没出样本时，从真实问答对里取前几条。
     if (fewShots.length === 0) {
-      fewShots = artifacts.pairs.slice(0, 6).map((pair) => ({ prompt: pair.prompt, reply: pair.reply }));
+      fewShots = artifacts.pairs
+        .slice(0, 6)
+        .map((pair) => ({ prompt: pair.prompt, reply: pair.reply }));
     }
 
     const pairs: AgentLabStoredPair[] = artifacts.pairs;
@@ -1559,7 +1665,12 @@ export class AgentLabService extends EventEmitter {
     }
     const stickers =
       this.media && stickerAccum.size > 0
-        ? await this.buildStickerRefs([...stickerAccum.values()], input.models.vision, peerName, input.personaId)
+        ? await this.buildStickerRefs(
+            [...stickerAccum.values()],
+            input.models.vision,
+            peerName,
+            input.personaId,
+          )
         : [];
 
     // 语音画像：使用场景（chat 模型总结）+ 克隆参考音频（按质量挑 Top-K，已排除变声）。

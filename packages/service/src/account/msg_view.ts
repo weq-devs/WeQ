@@ -562,33 +562,60 @@ function toHex(bytes: Uint8Array | undefined): string {
 export function toRenderElements(elements: Element[]): RenderElement[] {
   return elements.map((el) => {
     switch (el.kind) {
-      case 'text': return mapText(el as TextElement);
-      case 'at': return mapAt(el as AtElement);
-      case 'pic': return mapPic(el as PicElement);
-      case 'file': return mapFile(el as FileElement);
-      case 'video': return mapVideo(el as VideoElement);
-      case 'ptt': return mapPtt(el as PttElement);
-      case 'face': return mapFace(el as FaceElement);
-      case 'reply': return mapReply(el as ReplyElement);
-      case 'grayTipRevoke': return mapGrayTipRevoke(el as GrayTipRevokeElement);
-      case 'grayTipPoke': return mapGrayTipPoke(el as GrayTipPokeElement);
-      case 'grayTipGroup': return mapGrayTipGroup(el as GrayTipGroupElement);
-      case 'grayTipXml': return mapGrayTipXml(el as GrayTipXmlElement);
-      case 'ark': return mapArk(el as ArkElement);
-      case 'mface': return mapMface(el as MfaceElement);
-      case 'markdown': return mapMarkdown(el as MarkdownElement);
-      case 'multiMsg': return mapMultiMsg(el as MultiMsgElement);
-      case 'inlineKeyboard': return mapInlineKeyboard(el as InlineKeyboardElement);
-      case 'call': return mapCall(el as CallElement);
-      case 'wallet': return mapWallet(el as WalletElement);
-      case 'onlineFile': return mapOnlineFile(el as OnlineFileElement);
-      case 'onlineFolder': return mapOnlineFolder(el as OnlineFolderElement);
-      case 'emojiBounce': return mapEmojiBounce(el as EmojiBounceElement);
-      case 'qqDynamic': return mapQqDynamic(el as QqDynamicElement);
-      case 'shareLocation': return mapShareLocation(el as ShareLocationElement);
-      case 'grayTipFileRecv': return mapGrayTipFileRecv(el as GrayTipFileRecvElement);
-      case 'grayTipTempSession': return mapGrayTipTempSession(el as GrayTipTempSessionElement);
-      case 'unknown': return mapUnknown(el as UnknownElement);
+      case 'text':
+        return mapText(el as TextElement);
+      case 'at':
+        return mapAt(el as AtElement);
+      case 'pic':
+        return mapPic(el as PicElement);
+      case 'file':
+        return mapFile(el as FileElement);
+      case 'video':
+        return mapVideo(el as VideoElement);
+      case 'ptt':
+        return mapPtt(el as PttElement);
+      case 'face':
+        return mapFace(el as FaceElement);
+      case 'reply':
+        return mapReply(el as ReplyElement);
+      case 'grayTipRevoke':
+        return mapGrayTipRevoke(el as GrayTipRevokeElement);
+      case 'grayTipPoke':
+        return mapGrayTipPoke(el as GrayTipPokeElement);
+      case 'grayTipGroup':
+        return mapGrayTipGroup(el as GrayTipGroupElement);
+      case 'grayTipXml':
+        return mapGrayTipXml(el as GrayTipXmlElement);
+      case 'ark':
+        return mapArk(el as ArkElement);
+      case 'mface':
+        return mapMface(el as MfaceElement);
+      case 'markdown':
+        return mapMarkdown(el as MarkdownElement);
+      case 'multiMsg':
+        return mapMultiMsg(el as MultiMsgElement);
+      case 'inlineKeyboard':
+        return mapInlineKeyboard(el as InlineKeyboardElement);
+      case 'call':
+        return mapCall(el as CallElement);
+      case 'wallet':
+        return mapWallet(el as WalletElement);
+      case 'onlineFile':
+        return mapOnlineFile(el as OnlineFileElement);
+      case 'onlineFolder':
+        return mapOnlineFolder(el as OnlineFolderElement);
+      case 'emojiBounce':
+        return mapEmojiBounce(el as EmojiBounceElement);
+      case 'qqDynamic':
+        return mapQqDynamic(el as QqDynamicElement);
+      case 'shareLocation':
+        return mapShareLocation(el as ShareLocationElement);
+      case 'grayTipFileRecv':
+        return mapGrayTipFileRecv(el as GrayTipFileRecvElement);
+      case 'grayTipTempSession':
+        return mapGrayTipTempSession(el as GrayTipTempSessionElement);
+      case 'unknown':
+        return mapUnknown(el as UnknownElement);
       default: {
         // Element 联合已被上面的 case 穷尽；真跑到这里说明 codec 新增了 kind
         // 而这里没跟上，原样透传避免整条消息渲染失败。

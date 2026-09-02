@@ -32,10 +32,9 @@ async function main(): Promise<void> {
   }
 
   for (const tbl of ['c2c_msg_table', 'group_msg_table']) {
-    const sql = await db.query(
-      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`,
-      [tbl],
-    );
+    const sql = await db.query(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`, [
+      tbl,
+    ]);
     console.log(`\n=== ${tbl} CREATE TABLE ===`);
     console.log(String(sql[0]?.[0] ?? '(not found)'));
     const idx = await db.query(

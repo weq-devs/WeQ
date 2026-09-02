@@ -265,8 +265,7 @@ export function DbDataGrid({
           {table}
         </span>
         <span className="weq-cache-data-meta">
-          {page.rows.length} 行
-          {page.hasRowid ? '' : ' · 无 rowid（只读）'}
+          {page.rows.length} 行{page.hasRowid ? '' : ' · 无 rowid（只读）'}
           {search ? ' · 已筛选' : ''}
         </span>
         <span className="weq-cache-spacer" />
@@ -394,7 +393,9 @@ export function DbDataGrid({
                         editableCell ? ' is-editable' : ''
                       }`}
                       onDoubleClick={() => beginEdit(ri, ci)}
-                      title={editableCell ? '双击编辑' : isBlob ? '点击查看 / 编辑二进制' : undefined}
+                      title={
+                        editableCell ? '双击编辑' : isBlob ? '点击查看 / 编辑二进制' : undefined
+                      }
                     >
                       {editing ? (
                         <input
@@ -416,7 +417,10 @@ export function DbDataGrid({
                         />
                       ) : cell === null ? (
                         <span className="weq-cache-null">NULL</span>
-                      ) : isBlob && cell !== null && typeof cell === 'object' && cell.t === 'blob' ? (
+                      ) : isBlob &&
+                        cell !== null &&
+                        typeof cell === 'object' &&
+                        cell.t === 'blob' ? (
                         <button
                           type="button"
                           className="weq-cache-blob-btn"
@@ -494,9 +498,7 @@ export function DbDataGrid({
           editable={canEditRows}
           onClose={() => setBlobView(null)}
           onSave={
-            canEditRows
-              ? (hex) => saveBlob(blobView.rowIndex, blobView.colIndex, hex)
-              : undefined
+            canEditRows ? (hex) => saveBlob(blobView.rowIndex, blobView.colIndex, hex) : undefined
           }
         />
       ) : null}

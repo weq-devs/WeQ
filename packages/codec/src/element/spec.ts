@@ -9,11 +9,7 @@
  */
 
 import { z } from 'zod';
-import {
-  PicType,
-  GrayTipSubType,
-  CallType,
-} from './types';
+import { PicType, GrayTipSubType, CallType } from './types';
 
 const BaseElementFieldsSchema = z.object({
   elementId: z.bigint().optional(),
@@ -368,9 +364,15 @@ export const GrayTipPokeElementSchema = BaseElementFieldsSchema.extend({
   actionUniqueId: z.number(),
   tipJson: z.string(),
   tipType: z.number(),
-  actionInitiator: z.object({ uid: z.string().optional(), nickname: z.string().optional() }).optional(),
-  actionTarget: z.object({ uid: z.string().optional(), nickname: z.string().optional() }).optional(),
-  actionAttributes: z.array(z.object({ key: z.string().optional(), value: z.string().optional() })).optional(),
+  actionInitiator: z
+    .object({ uid: z.string().optional(), nickname: z.string().optional() })
+    .optional(),
+  actionTarget: z
+    .object({ uid: z.string().optional(), nickname: z.string().optional() })
+    .optional(),
+  actionAttributes: z
+    .array(z.object({ key: z.string().optional(), value: z.string().optional() }))
+    .optional(),
   grayTipReserved: z.string().optional(),
   grayTipFlag48272: z.boolean().optional(),
   grayTipFlag48275: z.number().optional(),
@@ -391,12 +393,16 @@ export const GrayTipGroupElementSchema = BaseElementFieldsSchema.extend({
   user2Uid: z.string().optional(),
   user2Nick: z.string().optional(),
   user2GroupNick: z.string().optional(),
-  muteInfo: z.object({
-    operator: z.object({ uid: z.string().optional() }).optional(),
-    mutedUser: z.object({ uid: z.string().optional(), groupNick: z.string().optional() }).optional(),
-    timestamp: z.bigint().optional(),
-    duration: z.number().optional(),
-  }).optional(),
+  muteInfo: z
+    .object({
+      operator: z.object({ uid: z.string().optional() }).optional(),
+      mutedUser: z
+        .object({ uid: z.string().optional(), groupNick: z.string().optional() })
+        .optional(),
+      timestamp: z.bigint().optional(),
+      duration: z.number().optional(),
+    })
+    .optional(),
   groupTipFlag48502: z.number().optional(),
   /** 提示所指的群名称（wire tag 48509）。 */
   groupTipGroupName: z.string().optional(),
@@ -426,9 +432,15 @@ export const GrayTipXmlElementSchema = BaseElementFieldsSchema.extend({
   businessId: z.number().optional(),
   actionUniqueId: z.number().optional(),
   callSummary: z.array(z.string()).optional(),
-  actionInitiator: z.object({ uid: z.string().optional(), nickname: z.string().optional() }).optional(),
-  actionTarget: z.object({ uid: z.string().optional(), nickname: z.string().optional() }).optional(),
-  actionAttributes: z.array(z.object({ key: z.string().optional(), value: z.string().optional() })).optional(),
+  actionInitiator: z
+    .object({ uid: z.string().optional(), nickname: z.string().optional() })
+    .optional(),
+  actionTarget: z
+    .object({ uid: z.string().optional(), nickname: z.string().optional() })
+    .optional(),
+  actionAttributes: z
+    .array(z.object({ key: z.string().optional(), value: z.string().optional() }))
+    .optional(),
   tipJson: z.string().optional(),
   tipType: z.number().optional(),
   dynamicTags: QqDynamicTagListSchema,

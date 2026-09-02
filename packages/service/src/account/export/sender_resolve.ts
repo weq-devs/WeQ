@@ -126,7 +126,8 @@ export async function resolveGroupSenders(
     const t = table.get(uid);
     const uin = t?.uin || msgUin;
     const platformId = uin && uin !== '0' ? uin : uid;
-    const role: ResolvedSender['role'] = uid === ownerUid ? 'owner' : t?.adminFlag === 1 ? 'admin' : undefined;
+    const role: ResolvedSender['role'] =
+      uid === ownerUid ? 'owner' : t?.adminFlag === 1 ? 'admin' : undefined;
     out.set(uid, {
       platformId,
       accountName: t?.nick || t?.card || (uin && uin !== '0' ? uin : uid),

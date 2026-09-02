@@ -29,10 +29,7 @@ async function main(): Promise<void> {
   const subTypeTally = new Map<number, number>();
 
   for (const table of ['group_msg_table', 'c2c_msg_table']) {
-    const rows = await db.query(
-      `SELECT "40001","40800" FROM ${table} LIMIT 2000000`,
-      [],
-    );
+    const rows = await db.query(`SELECT "40001","40800" FROM ${table} LIMIT 2000000`, []);
     console.log(`${table}: ${rows.length} rows`);
     for (const r of rows) {
       const blob = r[1];
@@ -59,7 +56,10 @@ async function main(): Promise<void> {
   }
 
   console.log(`scanned=${scanned} grayTipElements=${grayTips}`);
-  console.log('grayTip subType tally:', JSON.stringify([...subTypeTally.entries()].sort((a,b)=>a[0]-b[0])));
+  console.log(
+    'grayTip subType tally:',
+    JSON.stringify([...subTypeTally.entries()].sort((a, b) => a[0] - b[0])),
+  );
 
   for (const [t, info] of [...tally.entries()].sort((a, b) => a[0] - b[0])) {
     console.log(`\n=== groupTipType=${t}  count=${info.count}  msgId=${info.msgId} ===`);

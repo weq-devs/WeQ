@@ -25,6 +25,10 @@ export namespace GetAlbumMediaList {
 
   export const deserialize = (body: Record<string, unknown>): Record<string, unknown> => body;
 
-  export const invoke = (nt: TrpcNative, pid: number, params: Params): Promise<Record<string, unknown>> =>
+  export const invoke = (
+    nt: TrpcNative,
+    pid: number,
+    params: Params,
+  ): Promise<Record<string, unknown>> =>
     invokeTrpc(nt, pid, GetAlbumMediaList as TrpcSpec<Params, Record<string, unknown>>, params);
 }

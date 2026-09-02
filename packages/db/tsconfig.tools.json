@@ -2,13 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
-    "types": [
-      "node"
-    ]
+    "types": ["node"]
   },
-  "include": [
-    "tools/**/*.ts",
-    "test/**/*.ts",
-    "src/**/*.ts"
-  ]
+  "include": ["tools/**/*.ts", "test/**/*.ts", "src/**/*.ts"]
 }

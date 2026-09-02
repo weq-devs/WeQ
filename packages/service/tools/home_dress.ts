@@ -54,13 +54,13 @@ async function main(): Promise<void> {
   if (pids.length === 0) throw new Error('没有运行中的 QQ.exe,请先打开并登录');
 
   let pid = 0;
-  let probed_uin : string | undefined;
+  let probed_uin: string | undefined;
   const seen: string[] = [];
   for (const p of pids) {
     const probed = nt.probeQqLoginInfo(p);
     seen.push(`pid=${p} uin=${probed?.uin || '(未登录)'}`);
     // if (probed?.uin === want) pid = p;
-    probed_uin = probed?.uin
+    probed_uin = probed?.uin;
     pid = p;
   }
   console.log(`[home-dress] QQ 进程: ${seen.join(', ')}`);
@@ -126,7 +126,9 @@ async function main(): Promise<void> {
     tags,
   };
 
-  console.log('\n════════ settings.homeDress(粘进 %APPDATA%/weq/config.json 的 settings 里)════════');
+  console.log(
+    '\n════════ settings.homeDress(粘进 %APPDATA%/weq/config.json 的 settings 里)════════',
+  );
   console.log(JSON.stringify({ homeDress: dress }, null, 2));
 
   const missing = (Object.keys(dress) as Array<keyof HomeDress>).filter((k) =>

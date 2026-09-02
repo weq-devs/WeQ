@@ -63,7 +63,9 @@ export class BotOrchestrator {
     });
   }
 
-  private async onEvent(event: Parameters<Parameters<OneBot11Adapter['onEvent']>[0]>[0]): Promise<void> {
+  private async onEvent(
+    event: Parameters<Parameters<OneBot11Adapter['onEvent']>[0]>[0],
+  ): Promise<void> {
     const msg = normalizeInbound(event, this.selfId);
     if (!msg) return;
     if (msg.senderId === this.selfId) return; // 不理会自己发的
@@ -102,8 +104,14 @@ export class BotOrchestrator {
       return;
     }
     this.opts.stats?.onReplyGenerated();
-    console.log(`[${ts()}] └ 生成 ${result.renderedTurns.length} 条: ${JSON.stringify(result.renderedTurns)}`);
-    await this.deliver({ chatType: 'private', peerId: msg.peerId }, result.renderedTurns, result.replyDelayMs);
+    console.log(
+      `[${ts()}] └ 生成 ${result.renderedTurns.length} 条: ${JSON.stringify(result.renderedTurns)}`,
+    );
+    await this.deliver(
+      { chatType: 'private', peerId: msg.peerId },
+      result.renderedTurns,
+      result.replyDelayMs,
+    );
 
     const next: AgentLabChatTurn[] = [
       ...history,
@@ -118,7 +126,8 @@ export class BotOrchestrator {
     const history = this.histories.get(msg.peerId) ?? [];
     // 存在感（最近自己占比）+ 冷却（距上次开口）——喂给意愿闸压制刷屏/抢话。
     const recent = history.slice(-8);
-    const selfShareRecent = recent.length > 0 ? recent.filter((t) => t.role === 'assistant').length / recent.length : 0;
+    const selfShareRecent =
+      recent.length > 0 ? recent.filter((t) => t.role === 'assistant').length / recent.length : 0;
     const lastReplyAt = this.lastGroupReplyAt.get(msg.peerId);
     const msSinceOwnLastReply = lastReplyAt !== undefined ? Date.now() - lastReplyAt : undefined;
 
@@ -148,8 +157,14 @@ export class BotOrchestrator {
 
     if (!result.silent && result.renderedTurns.length > 0) {
       this.opts.stats?.onReplyGenerated();
-      console.log(`[${ts()}]   生成 ${result.renderedTurns.length} 条: ${JSON.stringify(result.renderedTurns)}`);
-      await this.deliver({ chatType: 'group', peerId: msg.peerId }, result.renderedTurns, result.replyDelayMs);
+      console.log(
+        `[${ts()}]   生成 ${result.renderedTurns.length} 条: ${JSON.stringify(result.renderedTurns)}`,
+      );
+      await this.deliver(
+        { chatType: 'group', peerId: msg.peerId },
+        result.renderedTurns,
+        result.replyDelayMs,
+      );
       for (const t of result.renderedTurns) history.push({ role: 'assistant', text: t });
       this.lastGroupReplyAt.set(msg.peerId, Date.now());
     }

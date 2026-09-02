@@ -15,7 +15,11 @@ export interface OpenAiToolSpec {
 }
 
 /** 剥掉 optional/default 包装，返回内核 schema + 是否必填 + 描述。 */
-function unwrap(schema: z.ZodTypeAny): { core: z.ZodTypeAny; required: boolean; description?: string } {
+function unwrap(schema: z.ZodTypeAny): {
+  core: z.ZodTypeAny;
+  required: boolean;
+  description?: string;
+} {
   let cur = schema;
   let required = true;
   let description = cur.description;

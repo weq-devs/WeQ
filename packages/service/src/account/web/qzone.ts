@@ -61,7 +61,8 @@ export function parseQzoneJson<T>(text: string): T {
 function parseJsLiteral(src: string): unknown {
   let i = 0;
   const n = src.length;
-  const isWs = (c: string): boolean => c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f' || c === '\v';
+  const isWs = (c: string): boolean =>
+    c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f' || c === '\v';
   const skipWs = (): void => {
     while (i < n && isWs(src[i]!)) i++;
   };
@@ -83,7 +84,15 @@ function parseJsLiteral(src: string): unknown {
           i += 6;
           continue;
         }
-        const simple: Record<string, string> = { n: '\n', t: '\t', r: '\r', b: '\b', f: '\f', v: '\v', '0': '\0' };
+        const simple: Record<string, string> = {
+          n: '\n',
+          t: '\t',
+          r: '\r',
+          b: '\b',
+          f: '\f',
+          v: '\v',
+          '0': '\0',
+        };
         out += e !== undefined ? (simple[e] ?? e) : ''; // \/ → /, \' → ', 未知转义 → 原字符
         i += 2;
         continue;

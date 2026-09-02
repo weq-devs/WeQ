@@ -39,12 +39,14 @@ function mask(value: string): string {
 
 function preview(it: CollectionItem): string {
   const s = it.summary;
-  if (s.richMediaSummary) return s.richMediaSummary.brief || s.richMediaSummary.title || '(rich media)';
+  if (s.richMediaSummary)
+    return s.richMediaSummary.brief || s.richMediaSummary.title || '(rich media)';
   if (s.linkSummary) return `${s.linkSummary.title ?? ''} → ${s.linkSummary.url ?? ''}`;
   if (s.fileSummary) return s.fileSummary.fileInfo?.name ?? '(file)';
   if (s.videoSummary) return `video ${s.videoSummary.title ?? ''}`;
   if (s.audioSummary) return `audio ${s.audioSummary.duration ?? '?'}ms`;
-  if (s.locationSummary) return `${s.locationSummary.name ?? ''} @${s.locationSummary.latitude ?? '?'},${s.locationSummary.longitude ?? '?'}`;
+  if (s.locationSummary)
+    return `${s.locationSummary.name ?? ''} @${s.locationSummary.latitude ?? '?'},${s.locationSummary.longitude ?? '?'}`;
   if (s.gallerySummary) return `gallery ×${s.gallerySummary.picList?.length ?? 0}`;
   if (s.textSummary) return s.textSummary.text ?? '(text)';
   return '(unknown)';
@@ -99,7 +101,9 @@ function dumpResponse(label: string, bytes: Uint8Array): void {
   console.log(buf.subarray(0, 1000).toString('utf8'));
   if (buf.length >= 16) {
     console.log(`--- envelope 头 ---`);
-    console.log(`magic ok: ${buf.subarray(0, 4).equals(Buffer.from(MAGIC))} (${buf.subarray(0, 4).toString('hex')})`);
+    console.log(
+      `magic ok: ${buf.subarray(0, 4).equals(Buffer.from(MAGIC))} (${buf.subarray(0, 4).toString('hex')})`,
+    );
     console.log(`totalLength(6): ${buf.readUInt32BE(6)}  实际: ${buf.length}`);
     console.log(`bodyLength(10): ${buf.readUInt32BE(10)}`);
   } else {
@@ -154,9 +158,13 @@ async function rawProbe(uin: string, pskey: string): Promise<void> {
         promptMsg?: string;
       };
       console.log(`\n--- 信封解析 ---`);
-      console.log(`retCode: ${head.retCode ?? '?'}  retMsg: ${head.retMsg ?? ''}  promptMsg: ${head.promptMsg ?? ''}`);
+      console.log(
+        `retCode: ${head.retCode ?? '?'}  retMsg: ${head.retMsg ?? ''}  promptMsg: ${head.promptMsg ?? ''}`,
+      );
       if (head.retCode !== 0) {
-        console.log(`!! 服务端返回错误码 ${head.retCode}:${head.retMsg || head.promptMsg || ''} —— 凭据/参数问题`);
+        console.log(
+          `!! 服务端返回错误码 ${head.retCode}:${head.retMsg || head.promptMsg || ''} —— 凭据/参数问题`,
+        );
       }
     } catch (e) {
       console.error(`信封解析失败:`, e);
@@ -171,13 +179,17 @@ async function main(): Promise<void> {
   const count = Math.max(1, Number(process.argv[5] ?? 50) || 50);
 
   if (!uin || !pskey) {
-    throw new Error('用法: pnpm tsx ./packages/service/tools/collection_static_key.ts <uin> <pskey> [skey] [count]');
+    throw new Error(
+      '用法: pnpm tsx ./packages/service/tools/collection_static_key.ts <uin> <pskey> [skey] [count]',
+    );
   }
 
   console.log(`[static] uin  = ${uin}`);
   console.log(`[static] pskey= ${mask(pskey)} (长度 ${pskey.length})`);
   console.log(`[static] skey = ${mask(skey)} (长度 ${skey.length})`);
-  console.log(`[static] 注:collector 报文只把 pskey 放进 head.ticket + Cookie vi,skey 不参与请求。`);
+  console.log(
+    `[static] 注:collector 报文只把 pskey 放进 head.ticket + Cookie vi,skey 不参与请求。`,
+  );
   console.log(`[static] 目标: 拉取前 ${count} 条(分页内部自动处理)...\n`);
 
   const cred: WebCredential = { uin, skey, pskey };
@@ -187,7 +199,9 @@ async function main(): Promise<void> {
     page.items.forEach((it, i) => {
       const who = it.author?.strId || it.author?.uid || '?';
       const when = it.collectTime ? new Date(it.collectTime).toLocaleString() : '?';
-      console.log(`  ${String(i + 1).padStart(4)}. [${it.kind.padEnd(9)}] ${when} by ${who}: ${preview(it).slice(0, 90)}`);
+      console.log(
+        `  ${String(i + 1).padStart(4)}. [${it.kind.padEnd(9)}] ${when} by ${who}: ${preview(it).slice(0, 90)}`,
+      );
     });
 
     const dist = new Map<string, number>();

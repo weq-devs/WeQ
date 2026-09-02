@@ -144,7 +144,13 @@ export class GroupInfoService {
   /** In-flight build, so concurrent callers share one heavy scan. */
   private relationGraphBuilding: Promise<RelationGraphData> | null = null;
   /** Optional Web query service for fetching essence message content. */
-  private webQueryService?: { getGroupEssence: (groupCode: string, pageStart?: number, pageLimit?: number) => Promise<unknown[]> };
+  private webQueryService?: {
+    getGroupEssence: (
+      groupCode: string,
+      pageStart?: number,
+      pageLimit?: number,
+    ) => Promise<unknown[]>;
+  };
 
   constructor(private readonly session: AccountSession) {
     this.groupNotifyService = new GroupNotifyService(session);
@@ -153,7 +159,13 @@ export class GroupInfoService {
   /**
    * Set the web query service (called by app context after services are assembled).
    */
-  setWebQueryService(webQuery: { getGroupEssence: (groupCode: string, pageStart?: number, pageLimit?: number) => Promise<unknown[]> }): void {
+  setWebQueryService(webQuery: {
+    getGroupEssence: (
+      groupCode: string,
+      pageStart?: number,
+      pageLimit?: number,
+    ) => Promise<unknown[]>;
+  }): void {
     this.webQueryService = webQuery;
   }
 
@@ -196,13 +208,16 @@ export class GroupInfoService {
     // 2) Aggregate membership by uid across every group. While scanning, also
     //    grab my own member level in each group (my record is excluded from the
     //    aggregation below, so capture it first).
-    const agg = new Map<
-      string,
-      { uin: string; nick: string; card: string; groups: Set<string> }
-    >();
+    const agg = new Map<string, { uin: string; nick: string; card: string; groups: Set<string> }>();
     const myLevelByGroup = new Map<string, number>();
     for (const code of groupCodes) {
-      let members: Array<{ uid: string; uin: string; nick: string; card: string; memberLevel: number }>;
+      let members: Array<{
+        uid: string;
+        uin: string;
+        nick: string;
+        card: string;
+        memberLevel: number;
+      }>;
       try {
         members = await this.session.groupMembers.listMemberBriefsInGroup(
           BigInt(code),
@@ -246,9 +261,7 @@ export class GroupInfoService {
     nodes = nodes.slice(0, MAX_NODES);
 
     // 4) Enrich with profile intimacy / friend flag (one batched query).
-    const profiles = await this.session.profileInfo.profilesByUids(
-      nodes.map((n) => n.uid),
-    );
+    const profiles = await this.session.profileInfo.profilesByUids(nodes.map((n) => n.uid));
     const profileByUid = new Map(profiles.map((p) => [p.uid, p]));
     for (const node of nodes) {
       const profile = profileByUid.get(node.uid);
@@ -315,18 +328,20 @@ export class GroupInfoService {
     groupCode: string,
     pageStart = 0,
     pageLimit = 50,
-  ): Promise<Array<{
-    msgSeq: number;
-    msgRandom: number;
-    senderUin: string;
-    senderNick: string;
-    senderTime: number;
-    operatorUin: string;
-    operatorNick: string;
-    operatorTime: number;
-    content: Array<{ type: number; text?: string; imageUrl?: string; [key: string]: unknown }>;
-    canRemove: boolean;
-  }>> {
+  ): Promise<
+    Array<{
+      msgSeq: number;
+      msgRandom: number;
+      senderUin: string;
+      senderNick: string;
+      senderTime: number;
+      operatorUin: string;
+      operatorNick: string;
+      operatorTime: number;
+      content: Array<{ type: number; text?: string; imageUrl?: string; [key: string]: unknown }>;
+      canRemove: boolean;
+    }>
+  > {
     if (!this.webQueryService) return [];
 
     try {
@@ -481,9 +496,7 @@ export class GroupInfoService {
       if (batch.length < 500) break;
     }
 
-    const sorted = [...counts.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, limit);
+    const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit);
 
     // Batch-resolve display names
     const uids = sorted.map(([uid]) => uid);
@@ -494,7 +507,9 @@ export class GroupInfoService {
         for (const m of members) {
           memberMap.set(m.uid, m.card || m.nick || m.uid);
         }
-      } catch { /* fall through, use uin/uid as name */ }
+      } catch {
+        /* fall through, use uin/uid as name */
+      }
     }
 
     return sorted.map(([uid, messageCount]) => ({
@@ -606,7 +621,7 @@ export class GroupInfoService {
                 const prev = emojiCounts.get(key);
                 emojiCounts.set(key, {
                   faceId,
-                  faceText: el.faceText ? String(el.faceText) : prev?.faceText ?? '',
+                  faceText: el.faceText ? String(el.faceText) : (prev?.faceText ?? ''),
                   count: (prev?.count ?? 0) + 1,
                 });
               }
@@ -652,9 +667,7 @@ export class GroupInfoService {
       .slice(0, 10)
       .map(([phrase, count]) => ({ phrase, count }));
 
-    const commonEmojis = [...emojiCounts.values()]
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 12);
+    const commonEmojis = [...emojiCounts.values()].sort((a, b) => b.count - a.count).slice(0, 12);
 
     return {
       statistics: stats,
@@ -958,7 +971,9 @@ export class GroupInfoService {
     const startTime = window ? window.startTime : days > 0 ? now - days * 86400 : undefined;
     const endTime = window ? window.endTime : days > 0 ? now : undefined;
     const selfUid =
-      by === 'me' ? this.session.uidMap.uidByUin(BigInt(this.session.context.uin ?? 0)) ?? '' : '';
+      by === 'me'
+        ? (this.session.uidMap.uidByUin(BigInt(this.session.context.uin ?? 0)) ?? '')
+        : '';
 
     const groups = await this.session.groupDetail.listAll(2000, 0);
     const nameByCode = new Map(groups.map((g) => [String(g.groupCode), g.groupName]));
@@ -974,7 +989,11 @@ export class GroupInfoService {
     });
 
     const items = codes
-      .map((code) => ({ groupCode: code, groupName: nameByCode.get(code) || code, count: counts[code] ?? 0 }))
+      .map((code) => ({
+        groupCode: code,
+        groupName: nameByCode.get(code) || code,
+        count: counts[code] ?? 0,
+      }))
       .filter((g) => g.count > 0)
       .sort((a, b) => b.count - a.count);
 

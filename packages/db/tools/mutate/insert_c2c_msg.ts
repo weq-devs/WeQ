@@ -59,7 +59,8 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   console.log('candidate peers (sortNo, uid, msgCount):');
-  for (const p of peers) console.log(`  ${String(p[0]).padEnd(6)} ${String(p[1]).padEnd(28)} ${p[2]}`);
+  for (const p of peers)
+    console.log(`  ${String(p[0]).padEnd(6)} ${String(p[1]).padEnd(28)} ${p[2]}`);
 
   const pick = peers[Math.floor(Math.random() * peers.length)]!;
   const sortNo = pick[0] as bigint;
@@ -113,11 +114,18 @@ async function main(): Promise<void> {
   for (const c of NULL_COLUMNS) values[idx(c)] = null;
 
   console.log(`last : msgId=${lastMsgId}n  msgSeq=${lastSeq}n  sendTime=${lastTime}n`);
-  console.log(`new  : msgId=${newMsgId}n  msgSeq=${newSeq}n  sendTime=${nowSec}n (${now.toLocaleString()})\n`);
+  console.log(
+    `new  : msgId=${newMsgId}n  msgSeq=${newSeq}n  sendTime=${nowSec}n (${now.toLocaleString()})\n`,
+  );
   console.log('row to insert (overrides marked *):');
   cols.forEach((c, i) => {
     const changed =
-      c === '40001' || c === '40002' || c === '40003' || c === '40050' || c === '40058' || NULL_COLUMNS.has(c);
+      c === '40001' ||
+      c === '40002' ||
+      c === '40003' ||
+      c === '40050' ||
+      c === '40058' ||
+      NULL_COLUMNS.has(c);
     console.log(`  ${c.padEnd(8)} = ${describe(values[i])}${changed ? ' *' : ''}`);
   });
 

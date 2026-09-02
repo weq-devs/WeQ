@@ -14,7 +14,15 @@
  */
 
 import { useState, type ReactElement } from 'react';
-import { ArrowLeft, KeyRound, RefreshCw, ChevronDown, Store, Sparkles, Calculator } from 'lucide-react';
+import {
+  ArrowLeft,
+  KeyRound,
+  RefreshCw,
+  ChevronDown,
+  Store,
+  Sparkles,
+  Calculator,
+} from 'lucide-react';
 import type { MarketEmoticonPackage, MarketPackFeeType } from '@weq/service';
 import { trpc } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
@@ -78,7 +86,11 @@ export function MarketPackExplorer(): ReactElement {
         <span className="weq-cache-data-meta">
           {list.length} 个 · 点击表情包在线获取表情列表并解密查看
         </span>
-        <button type="button" className="weq-mpack-keytool-btn" onClick={() => setShowKeyTool(true)}>
+        <button
+          type="button"
+          className="weq-mpack-keytool-btn"
+          onClick={() => setShowKeyTool(true)}
+        >
           <Calculator size={14} /> 密钥计算器
         </button>
       </div>
@@ -99,7 +111,13 @@ export function MarketPackExplorer(): ReactElement {
 }
 
 /** 列表大卡片：封面(首张表情) + 名称 + 介绍 + 来源徽章。详情懒加载补全。 */
-function PackCard({ pkg, onOpen }: { pkg: MarketEmoticonPackage; onOpen: () => void }): ReactElement {
+function PackCard({
+  pkg,
+  onOpen,
+}: {
+  pkg: MarketEmoticonPackage;
+  onOpen: () => void;
+}): ReactElement {
   const detail = trpc.account.marketEmoji.getPackDetail.useQuery({ packId: pkg.packId });
   const [broken, setBroken] = useState(false);
 
@@ -128,7 +146,11 @@ function PackCard({ pkg, onOpen }: { pkg: MarketEmoticonPackage; onOpen: () => v
         <small className="weq-mpack-summary">{summary || '暂无介绍'}</small>
         <span className="weq-mpack-foot">
           <code>#{pkg.packId}</code>
-          {detail.data ? <span>{detail.data.count} 张</span> : <span className="weq-mpack-loading">…</span>}
+          {detail.data ? (
+            <span>{detail.data.count} 张</span>
+          ) : (
+            <span className="weq-mpack-loading">…</span>
+          )}
         </span>
       </span>
     </button>
@@ -226,9 +248,9 @@ function PackDetail({
                 </p>
                 <code className="weq-mpack-principle-code">key = md5( str(时间戳) )[:16]</code>
                 <p>
-                  时间戳有两条来源：① 免费/VIP 包的 xydata 元数据直接带；② 付费包拿不到时，
-                  在 <b>上架时间(updateTime) 附近的时间窗内爆破</b>——用已知明文 GIF 头验证
-                  TEA 前两块即可秒级命中。
+                  时间戳有两条来源：① 免费/VIP 包的 xydata 元数据直接带；② 付费包拿不到时， 在{' '}
+                  <b>上架时间(updateTime) 附近的时间窗内爆破</b>——用已知明文 GIF 头验证 TEA
+                  前两块即可秒级命中。
                 </p>
                 <code className="weq-mpack-principle-code">
                   明文ᵢ = Dec( 密文ᵢ ⊕ 上块中间值 ) ⊕ 上块密文　（腾讯交织链式 TEA，非标准 CBC）
@@ -252,7 +274,15 @@ function PackDetail({
 }
 
 /** 一张表情：TEA 解密后的 GIF（密钥后端自动恢复）；失败显示占位。 */
-function EmojiCell({ packId, hash, name }: { packId: string; hash: string; name: string }): ReactElement {
+function EmojiCell({
+  packId,
+  hash,
+  name,
+}: {
+  packId: string;
+  hash: string;
+  name: string;
+}): ReactElement {
   const [broken, setBroken] = useState(false);
   return (
     <figure className="weq-mpack-emoji" title={name || hash}>

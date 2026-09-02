@@ -22,12 +22,14 @@ const PAGE_SIZE = Math.max(1, Math.min(Number(process.argv[3] ?? 200) || 200, 20
 
 function preview(it: CollectionItem): string {
   const s = it.summary;
-  if (s.richMediaSummary) return s.richMediaSummary.brief || s.richMediaSummary.title || '(rich media)';
+  if (s.richMediaSummary)
+    return s.richMediaSummary.brief || s.richMediaSummary.title || '(rich media)';
   if (s.linkSummary) return `${s.linkSummary.title ?? ''} → ${s.linkSummary.url ?? ''}`;
   if (s.fileSummary) return s.fileSummary.fileInfo?.name ?? '(file)';
   if (s.videoSummary) return `video ${s.videoSummary.title ?? ''}`;
   if (s.audioSummary) return `audio ${s.audioSummary.duration ?? '?'}ms`;
-  if (s.locationSummary) return `${s.locationSummary.name ?? ''} @${s.locationSummary.latitude ?? '?'},${s.locationSummary.longitude ?? '?'}`;
+  if (s.locationSummary)
+    return `${s.locationSummary.name ?? ''} @${s.locationSummary.latitude ?? '?'},${s.locationSummary.longitude ?? '?'}`;
   if (s.gallerySummary) return `gallery ×${s.gallerySummary.picList?.length ?? 0}`;
   if (s.textSummary) return s.textSummary.text ?? '(text)';
   return '(unknown)';
@@ -103,9 +105,7 @@ async function main(): Promise<void> {
   console.log('\n[online] 列表(按收藏时间倒序):');
   all.forEach((it, i) => {
     const who = it.author?.strId || it.author?.uid || '?';
-    const when = it.collectTime
-      ? new Date(it.collectTime).toLocaleString()
-      : '?';
+    const when = it.collectTime ? new Date(it.collectTime).toLocaleString() : '?';
     console.log(
       `  ${String(i + 1).padStart(4)}. [${it.kind.padEnd(9)}] ${when} by ${who}: ${preview(it).slice(0, 90)}`,
     );

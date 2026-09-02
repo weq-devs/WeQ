@@ -511,9 +511,7 @@ export function TaskList({
 
   // 收拢时的总进度条（所有任务的加权平均）
   const overallProgress = hasTasks
-    ? Math.min(100, Math.round(
-        tasks.reduce((sum, t) => sum + taskPct(t), 0) / tasks.length,
-      ))
+    ? Math.min(100, Math.round(tasks.reduce((sum, t) => sum + taskPct(t), 0) / tasks.length))
     : 0;
   const runningCount = tasks.filter((t) => t.status === 'running').length;
 
@@ -541,9 +539,7 @@ export function TaskList({
             全部完成
           </span>
         ) : !isExpanded && hasTasks ? (
-          <span className="weq-exp-tasks-mini-status">
-            {overallProgress}%
-          </span>
+          <span className="weq-exp-tasks-mini-status">{overallProgress}%</span>
         ) : null}
         {onSaveAll && completedCount > 0 ? (
           <button

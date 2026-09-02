@@ -14,7 +14,12 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { timingSafeEqual, createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import type { AgentLabPersona, AgentLabStickerRef, AgentLabStore, TtsProviderConfig } from '@weq/agentlab';
+import type {
+  AgentLabPersona,
+  AgentLabStickerRef,
+  AgentLabStore,
+  TtsProviderConfig,
+} from '@weq/agentlab';
 import type { RuntimeLogger } from '@weq/agentlab';
 import type { StatsStore } from '../stats';
 import { renderAppHtml } from './app.html';
@@ -62,7 +67,7 @@ interface OverviewPayload {
 function buildOverview(deps: WebUiDeps): OverviewPayload {
   const p = deps.persona;
   const providerName = p.voice?.providerId
-    ? deps.ttsProviders?.find((t) => t.id === p.voice?.providerId)?.name ?? p.voice.providerId
+    ? (deps.ttsProviders?.find((t) => t.id === p.voice?.providerId)?.name ?? p.voice.providerId)
     : undefined;
   return {
     persona: { name: p.name, sourceKind: p.sourceKind, sourceTitle: p.sourceTitle },
@@ -145,7 +150,10 @@ function keyMatches(provided: string, expected: string): boolean {
 
 function sendJson(res: ServerResponse, code: number, body: unknown): void {
   const s = JSON.stringify(body);
-  res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.writeHead(code, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+  });
   res.end(s);
 }
 
@@ -252,14 +260,19 @@ export function startWebUi(deps: WebUiDeps): Promise<WebUiHandle> {
       }
       // 表情列表。
       if (method === 'GET' && url === '/api/stickers') {
-        sendJson(res, 200, { stickers: listStickers(deps.persona), canDescribe: !!deps.visionDescribe });
+        sendJson(res, 200, {
+          stickers: listStickers(deps.persona),
+          canDescribe: !!deps.visionDescribe,
+        });
         return;
       }
       // 上传新表情：body { dataUrl } → 存 <md5>.png → 追加/更新 persona.stickers → 有图像模型则解析一次 → savePersona。
       if (method === 'POST' && url === '/api/stickers') {
         let dataUrl = '';
         try {
-          const parsed = JSON.parse((await readBody(req, 8 * 1024 * 1024)) || '{}') as { dataUrl?: unknown };
+          const parsed = JSON.parse((await readBody(req, 8 * 1024 * 1024)) || '{}') as {
+            dataUrl?: unknown;
+          };
           dataUrl = typeof parsed.dataUrl === 'string' ? parsed.dataUrl : '';
         } catch {
           sendJson(res, 400, { error: '请求体过大或格式错误' });
@@ -297,7 +310,9 @@ export function startWebUi(deps: WebUiDeps): Promise<WebUiHandle> {
             ref.description = d.description || '';
             ref.scenario = d.scenario || '';
           } catch (err) {
-            deps.logger?.warn(`表情解析失败（将走随机发）：${err instanceof Error ? err.message : String(err)}`);
+            deps.logger?.warn(
+              `表情解析失败（将走随机发）：${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
         // 落盘（保留原 pairs）。
@@ -366,7 +381,9 @@ export function startWebUi(deps: WebUiDeps): Promise<WebUiHandle> {
 
   return new Promise((resolve) => {
     server.on('error', (err) => {
-      log?.error(`WebUI 启动失败（端口 ${deps.port}）：${err instanceof Error ? err.message : String(err)}`);
+      log?.error(
+        `WebUI 启动失败（端口 ${deps.port}）：${err instanceof Error ? err.message : String(err)}`,
+      );
       resolve({ close: () => undefined, port: deps.port });
     });
     server.listen(deps.port, '127.0.0.1', () => {

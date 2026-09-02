@@ -111,21 +111,15 @@ function MarketFacePackView({
     <div className="weq-mface-lb-panel">
       <div className="weq-mface-lb-head">
         <Store size={16} className="weq-mface-lb-head-icon" />
-        <span className="weq-mface-lb-title">
-          {detail.data?.name || `表情包 ${packId}`}
-        </span>
+        <span className="weq-mface-lb-title">{detail.data?.name || `表情包 ${packId}`}</span>
         <em className={`weq-mpack-fee is-${fee.tone}`}>{fee.label}</em>
-        {detail.data ? (
-          <span className="weq-mface-lb-count">{detail.data.count} 张</span>
-        ) : null}
+        {detail.data ? <span className="weq-mface-lb-count">{detail.data.count} 张</span> : null}
       </div>
 
       {detail.isLoading ? (
         <div className="weq-mface-lb-state">获取这组表情中…</div>
       ) : !detail.data ? (
-        <div className="weq-mface-lb-state is-error">
-          无法获取这组表情（网络问题或包不存在）
-        </div>
+        <div className="weq-mface-lb-state is-error">无法获取这组表情（网络问题或包不存在）</div>
       ) : items.length === 0 ? (
         <div className="weq-mface-lb-state">这个表情包暂时没有可显示的表情</div>
       ) : (
@@ -161,10 +155,7 @@ function MarketFaceCell({
 }): ReactElement {
   const [broken, setBroken] = useState(false);
   return (
-    <figure
-      className={`weq-mface-lb-cell${active ? ' is-active' : ''}`}
-      title={name || hash}
-    >
+    <figure className={`weq-mface-lb-cell${active ? ' is-active' : ''}`} title={name || hash}>
       <span className="weq-mface-lb-stage">
         {broken ? (
           <RefreshCw size={18} strokeWidth={1.4} className="weq-mface-lb-fallback" />

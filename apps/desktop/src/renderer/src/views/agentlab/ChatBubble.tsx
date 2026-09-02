@@ -17,7 +17,9 @@ export function normFaceKey(s: string): string {
 }
 
 /** 由 getSystemFaces 结果构建 归一化外显文字 → faceId 的映射。 */
-export function buildFaceMap(entries: ReadonlyArray<{ id: number; desc: string }>): Map<string, number> {
+export function buildFaceMap(
+  entries: ReadonlyArray<{ id: number; desc: string }>,
+): Map<string, number> {
   const map = new Map<string, number>();
   for (const e of entries) {
     const key = normFaceKey(e.desc);
@@ -34,13 +36,27 @@ function escapeRegExp(s: string): string {
 function renderWithFaces(text: string, faces: FaceContext): ReactNode {
   const tokens = faces.whitelist.filter(Boolean);
   if (tokens.length === 0) return text;
-  const re = new RegExp(`(${tokens.slice().sort((a, b) => b.length - a.length).map(escapeRegExp).join('|')})`, 'g');
+  const re = new RegExp(
+    `(${tokens
+      .slice()
+      .sort((a, b) => b.length - a.length)
+      .map(escapeRegExp)
+      .join('|')})`,
+    'g',
+  );
   const parts = text.split(re);
   return parts.map((part, i) => {
     const id = faces.descToId.get(normFaceKey(part));
     if (id !== undefined && tokens.includes(part)) {
       // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-      return <FaceEmoji key={i} element={{ faceId: id, faceText: part }} size="1.3em" className="weq-inline-face" />;
+      return (
+        <FaceEmoji
+          key={i}
+          element={{ faceId: id, faceText: part }}
+          size="1.3em"
+          className="weq-inline-face"
+        />
+      );
     }
     // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
     return <Fragment key={i}>{part}</Fragment>;
@@ -75,7 +91,11 @@ function VoiceBubble({ personaId, voiceId }: { personaId: string; voiceId: strin
       <span className="weq-agentlab-voice-bars" aria-hidden>
         {Array.from({ length: 6 }).map((_, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-          <span key={i} className={`weq-agentlab-voice-bar${playing ? ' is-playing' : ''}`} style={{ animationDelay: `${i * 0.12}s` }} />
+          <span
+            key={i}
+            className={`weq-agentlab-voice-bar${playing ? ' is-playing' : ''}`}
+            style={{ animationDelay: `${i * 0.12}s` }}
+          />
         ))}
       </span>
       <span className="weq-agentlab-voice-label">语音</span>

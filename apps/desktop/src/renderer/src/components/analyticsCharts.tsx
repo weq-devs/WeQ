@@ -7,11 +7,11 @@
  *   - WordCloud           — canvas-measured spiral layout, Chinese-friendly
  */
 
-import { Loader2 } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { cn } from "../im-template/template/classNames";
+import { Loader2 } from 'lucide-react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { cn } from '../im-template/template/classNames';
 
-export const ACCENT = "var(--weq-accent-effective)";
+export const ACCENT = 'var(--weq-accent-effective)';
 
 /**
  * Accent-following categorical palette. Every entry is a `color-mix` dominated
@@ -21,18 +21,18 @@ export const ACCENT = "var(--weq-accent-effective)";
  * WordCloud approach below.
  */
 export const ACCENT_SERIES = [
-  "var(--weq-accent-effective)",
-  "color-mix(in srgb, var(--weq-accent-effective) 80%, #8b5cf6)",
-  "color-mix(in srgb, var(--weq-accent-effective) 72%, #06b6d4)",
-  "color-mix(in srgb, var(--weq-accent-effective) 74%, #22c55e)",
-  "color-mix(in srgb, var(--weq-accent-effective) 76%, #f59e0b)",
-  "color-mix(in srgb, var(--weq-accent-effective) 72%, #ec4899)",
-  "color-mix(in srgb, var(--weq-accent-effective) 64%, #f43f5e)",
-  "color-mix(in srgb, var(--weq-fg-primary) 42%, var(--weq-accent-effective))",
+  'var(--weq-accent-effective)',
+  'color-mix(in srgb, var(--weq-accent-effective) 80%, #8b5cf6)',
+  'color-mix(in srgb, var(--weq-accent-effective) 72%, #06b6d4)',
+  'color-mix(in srgb, var(--weq-accent-effective) 74%, #22c55e)',
+  'color-mix(in srgb, var(--weq-accent-effective) 76%, #f59e0b)',
+  'color-mix(in srgb, var(--weq-accent-effective) 72%, #ec4899)',
+  'color-mix(in srgb, var(--weq-accent-effective) 64%, #f43f5e)',
+  'color-mix(in srgb, var(--weq-fg-primary) 42%, var(--weq-accent-effective))',
 ] as const;
 
 /** A soft, theme-neutral colour for a "misc/其它" slice. */
-export const ACCENT_MUTED = "color-mix(in srgb, var(--weq-fg-primary) 26%, transparent)";
+export const ACCENT_MUTED = 'color-mix(in srgb, var(--weq-fg-primary) 26%, transparent)';
 
 export interface DailyActivityItem {
   date: string;
@@ -51,16 +51,16 @@ export function formatNumber(n: number): string {
 }
 
 export function formatDate(ts: number | null): string {
-  if (!ts) return "-";
+  if (!ts) return '-';
   const d = new Date(ts * 1000);
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
 }
 
 /** Human-readable duration from seconds: 12秒 / 3分20秒 / 1.5小时 / 2天. */
 export function formatDuration(sec: number): string {
-  if (sec === null || sec === undefined || sec < 0 || !Number.isFinite(sec)) return "-";
+  if (sec === null || sec === undefined || sec < 0 || !Number.isFinite(sec)) return '-';
   // Timestamps are second-resolution, so a 0s gap = replied within the same second.
-  if (sec < 1) return "<1秒";
+  if (sec < 1) return '<1秒';
   if (sec < 60) return `${Math.round(sec)}秒`;
   if (sec < 3600) {
     const m = Math.floor(sec / 60);
@@ -104,7 +104,7 @@ export function DonutChart({
   let acc = 0;
 
   return (
-    <div className={cn("ba-donut", stack && "ba-donut-stack")}>
+    <div className={cn('ba-donut', stack && 'ba-donut-stack')}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="ba-donut-svg">
         <circle
           cx={cx}
@@ -186,7 +186,7 @@ export function HourlyBarChart({
         return (
           // biome-ignore lint/suspicious/noArrayIndexKey: 固定 24 小时槽位,索引即稳定键
           <div className="ga-bar-col" key={hour}>
-            <div className="ga-bar-value-label">{value > 0 ? formatNumber(value) : ""}</div>
+            <div className="ga-bar-value-label">{value > 0 ? formatNumber(value) : ''}</div>
             <div className="ga-bar-track">
               <div
                 className="ga-bar-fill"
@@ -208,19 +208,32 @@ export function HourlyBarChart({
 /* GitHub-style contribution heatmap (绿墙)                            */
 /* ------------------------------------------------------------------ */
 
-const MONTH_NAMES = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"];
+const MONTH_NAMES = [
+  '1月',
+  '2月',
+  '3月',
+  '4月',
+  '5月',
+  '6月',
+  '7月',
+  '8月',
+  '9月',
+  '10月',
+  '11月',
+  '12月',
+];
 const DAY_MS = 86400000;
 /** The heatmap always renders a full trailing year (53 weeks ≈ 371 days). */
 const HEATMAP_DAYS = 371;
 
 function parseYmd(s: string): Date {
-  const [y, m, d] = s.split("-").map(Number);
+  const [y, m, d] = s.split('-').map(Number);
   return new Date(y, m - 1, d);
 }
 function fmtYmd(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
     d.getDate(),
-  ).padStart(2, "0")}`;
+  ).padStart(2, '0')}`;
 }
 
 function intensityLevel(count: number, max: number): number {
@@ -254,11 +267,11 @@ export function ContributionHeatmap({ data }: { data: DailyActivityItem[] }) {
     let lastMonth = -1;
     while (cur.getTime() <= last.getTime()) {
       const week: Array<{ date: string; count: number; inRange: boolean }> = [];
-      let labelForWeek = "";
+      let labelForWeek = '';
       for (let i = 0; i < 7; i++) {
         const key = fmtYmd(cur);
         const inRange = cur.getTime() >= start.getTime() && cur.getTime() <= last.getTime();
-        const count = inRange ? counts.get(key) ?? 0 : 0;
+        const count = inRange ? (counts.get(key) ?? 0) : 0;
         if (inRange) {
           if (count > max) max = count;
           if (count > 0) {
@@ -286,7 +299,8 @@ export function ContributionHeatmap({ data }: { data: DailyActivityItem[] }) {
     <div className="ga-heatmap">
       <div className="ga-hm-meta">
         <span>
-          共 <strong>{formatNumber(model.total)}</strong> 条消息 · 活跃 <strong>{model.activeDays}</strong> 天
+          共 <strong>{formatNumber(model.total)}</strong> 条消息 · 活跃{' '}
+          <strong>{model.activeDays}</strong> 天
         </span>
       </div>
       <div className="ga-hm-scroll">
@@ -304,7 +318,7 @@ export function ContributionHeatmap({ data }: { data: DailyActivityItem[] }) {
                 {week.map((cell) => (
                   <div
                     key={cell.date}
-                    className={cn("ga-hm-cell", !cell.inRange && "is-empty")}
+                    className={cn('ga-hm-cell', !cell.inRange && 'is-empty')}
                     data-level={cell.inRange ? intensityLevel(cell.count, model.max) : undefined}
                     title={cell.inRange ? `${cell.date} · ${cell.count} 条` : undefined}
                   />
@@ -332,12 +346,12 @@ export function ContributionHeatmap({ data }: { data: DailyActivityItem[] }) {
 /* ------------------------------------------------------------------ */
 
 const WC_COLORS = [
-  "var(--weq-accent-effective)",
-  "color-mix(in srgb, var(--weq-accent-effective) 72%, #8b5cf6)",
-  "color-mix(in srgb, var(--weq-accent-effective) 60%, #ec4899)",
-  "color-mix(in srgb, var(--weq-accent-effective) 65%, #22c55e)",
-  "color-mix(in srgb, var(--weq-accent-effective) 70%, #f59e0b)",
-  "color-mix(in srgb, var(--weq-fg-primary) 62%, transparent)",
+  'var(--weq-accent-effective)',
+  'color-mix(in srgb, var(--weq-accent-effective) 72%, #8b5cf6)',
+  'color-mix(in srgb, var(--weq-accent-effective) 60%, #ec4899)',
+  'color-mix(in srgb, var(--weq-accent-effective) 65%, #22c55e)',
+  'color-mix(in srgb, var(--weq-accent-effective) 70%, #f59e0b)',
+  'color-mix(in srgb, var(--weq-fg-primary) 62%, transparent)',
 ];
 
 interface PlacedWord {
@@ -367,8 +381,8 @@ function layoutWords(
   fontFamily: string,
 ): PlacedWord[] {
   if (width <= 0 || words.length === 0) return [];
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d");
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
   if (!ctx) return [];
 
   const list = words.slice(0, 80);
@@ -440,7 +454,7 @@ export function WordCloud({ words, height = 300 }: { words: WordCloudItem[]; hei
       setPlaced([]);
       return;
     }
-    const fontFamily = getComputedStyle(el).fontFamily || "sans-serif";
+    const fontFamily = getComputedStyle(el).fontFamily || 'sans-serif';
     setPlaced(layoutWords(words, width, height, fontFamily));
   }, [words, width, height]);
 

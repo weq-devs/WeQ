@@ -5,7 +5,14 @@ export {
   modelsWithCapability,
   resolveEndpoint,
 } from './provider';
-export { embedTexts, runPersonaChat, reportUsage, keywordsOf, testChatEndpoint, pickMessageText } from './http';
+export {
+  embedTexts,
+  runPersonaChat,
+  reportUsage,
+  keywordsOf,
+  testChatEndpoint,
+  pickMessageText,
+} from './http';
 export { selectStickerByEmotion, pickRandomSticker } from './sticker';
 export { humanizeText, DEFAULT_TYPO_INTENSITY } from './typo';
 export { scoreReplyWillingness } from './willing';

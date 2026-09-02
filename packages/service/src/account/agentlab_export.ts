@@ -135,7 +135,11 @@ export async function buildBotExport(input: BotExportInput): Promise<BotExportRe
     id: randomUUID(),
   };
   const config = {
-    adapter: { type: input.adapter.type, wsUrl: input.adapter.wsUrl, token: input.adapter.token ?? '' },
+    adapter: {
+      type: input.adapter.type,
+      wsUrl: input.adapter.wsUrl,
+      token: input.adapter.token ?? '',
+    },
     selfId: input.selfId,
     personaDir: './persona',
     llmProviders: input.llmProviders,
@@ -161,7 +165,11 @@ export async function buildBotExport(input: BotExportInput): Promise<BotExportRe
 
   // 7) README。
   const webuiUrl = `http://127.0.0.1:${webuiPort}`;
-  await writeFile(join(input.outDir, 'README.md'), renderReadme(persona.name, input, { ...webui, url: webuiUrl }), 'utf-8');
+  await writeFile(
+    join(input.outDir, 'README.md'),
+    renderReadme(persona.name, input, { ...webui, url: webuiUrl }),
+    'utf-8',
+  );
 
   return {
     outDir: input.outDir,

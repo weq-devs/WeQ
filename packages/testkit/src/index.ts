@@ -272,7 +272,11 @@ export function androidBackup(dir: string, keyOverride?: string): AndroidBackup 
       if (keyOverride) return keyOverride;
 
       const inner = md5hex(uid());
-      const dirName = dir.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? '';
+      const dirName =
+        dir
+          .replace(/[\\/]+$/, '')
+          .split(/[\\/]/)
+          .pop() ?? '';
       if (dirName.startsWith('nt_qq_') && dirName.slice(6) !== md5hex(inner + ANDROID_DIR_SALT)) {
         throw new Error(
           `[@weq/testkit] 目录名跟 uid 对不上（${dirName}），不是 uid 派生目录；请手动指定密钥。`,
@@ -307,7 +311,6 @@ export const androidEnv: AndroidBackup = {
     return androidBackup(androidRoot(), optional('WEQ_TEST_ANDROID_KEY')).key;
   },
 };
-
 
 /**
  * Gate for every script under a `tools/mutate/` directory.

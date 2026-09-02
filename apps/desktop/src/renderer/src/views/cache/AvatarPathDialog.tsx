@@ -110,7 +110,11 @@ export function AvatarPathDialog({ onClose }: { onClose: () => void }): ReactEle
               if (e.key === 'Enter') void run();
             }}
           />
-          <button className="weq-action-primary weq-avpath-go" onClick={() => void run()} disabled={loading}>
+          <button
+            className="weq-action-primary weq-avpath-go"
+            onClick={() => void run()}
+            disabled={loading}
+          >
             <Search size={14} /> {loading ? '计算中…' : '计算'}
           </button>
         </div>
@@ -118,14 +122,13 @@ export function AvatarPathDialog({ onClose }: { onClose: () => void }): ReactEle
         {/* algorithm — shown as the rationale, always visible */}
         <div className="weq-avpath-algo">
           <span className="weq-avpath-algo-label">算法依据</span>
-          <code className="weq-avpath-algo-code">
-            hash = md5( md5( md5(uid) + uid ) + uid )
-          </code>
+          <code className="weq-avpath-algo-code">hash = md5( md5( md5(uid) + uid ) + uid )</code>
           <code className="weq-avpath-algo-code">
             path = avatar/&lt;scope&gt;/&lt;hash 前两位&gt;/（b_大图 | s_缩略图）+ hash
           </code>
           <p className="weq-avpath-algo-note">
-            好友：uin 经 <b>profile_info_v6</b> 表查出 uid；群聊：uin 即 uid（纯数字）。三重 MD5 均为十六进制字符串拼接。
+            好友：uin 经 <b>profile_info_v6</b> 表查出 uid；群聊：uin 即 uid（纯数字）。三重 MD5
+            均为十六进制字符串拼接。
           </p>
         </div>
 

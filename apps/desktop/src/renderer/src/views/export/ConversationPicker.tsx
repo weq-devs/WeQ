@@ -74,11 +74,21 @@ export function ConversationPicker({
       </div>
 
       <div className="weq-exp-tools">
-        <button type="button" className="weq-exp-tool" onClick={selectAll} disabled={filtered.length === 0}>
+        <button
+          type="button"
+          className="weq-exp-tool"
+          onClick={selectAll}
+          disabled={filtered.length === 0}
+        >
           <CheckCheck size={14} />
           {allFilteredSelected ? '取消全选' : '全选'}
         </button>
-        <button type="button" className="weq-exp-tool" onClick={invert} disabled={filtered.length === 0}>
+        <button
+          type="button"
+          className="weq-exp-tool"
+          onClick={invert}
+          disabled={filtered.length === 0}
+        >
           <FlipHorizontal2 size={14} />
           反选
         </button>

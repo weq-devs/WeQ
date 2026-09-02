@@ -110,7 +110,11 @@ function rankMemories(
     const vec = memories.filter((m) => Array.isArray(m.embedding) && m.embedding.length > 0);
     if (vec.length > 0) {
       const ranked = vec
-        .map((m) => ({ m, score: cosineSimilarity(m.embedding ?? [], queryEmbedding) + Math.log1p(m.accessCount) * 0.03 }))
+        .map((m) => ({
+          m,
+          score:
+            cosineSimilarity(m.embedding ?? [], queryEmbedding) + Math.log1p(m.accessCount) * 0.03,
+        }))
         .filter((e) => e.score > 0.2)
         .sort((a, b) => b.score - a.score)
         .slice(0, k)
@@ -142,7 +146,11 @@ function rankMemories(
 }
 
 /** 表达风格库选择：关键词相关优先，再按 count 加权补齐。 */
-function selectExpressions(expressions: AgentLabExpression[], input: string, max: number): AgentLabExpression[] {
+function selectExpressions(
+  expressions: AgentLabExpression[],
+  input: string,
+  max: number,
+): AgentLabExpression[] {
   if (expressions.length === 0 || max <= 0) return [];
   const inputWords = new Set(splitKeywords(input));
   const scored = expressions.map((e) => {
@@ -198,7 +206,21 @@ function describeNow(now: Date): string {
   const h = now.getHours();
   const min = now.getMinutes();
   const period =
-    h < 5 ? '凌晨' : h < 8 ? '清晨' : h < 11 ? '早上' : h < 13 ? '中午' : h < 17 ? '下午' : h < 19 ? '傍晚' : h < 23 ? '晚上' : '深夜';
+    h < 5
+      ? '凌晨'
+      : h < 8
+        ? '清晨'
+        : h < 11
+          ? '早上'
+          : h < 13
+            ? '中午'
+            : h < 17
+              ? '下午'
+              : h < 19
+                ? '傍晚'
+                : h < 23
+                  ? '晚上'
+                  : '深夜';
   const hh = String(h).padStart(2, '0');
   const mm = String(min).padStart(2, '0');
   return `现在是 ${y}年${mo}月${d}日 ${week} ${period} ${hh}:${mm}。`;
@@ -236,10 +258,13 @@ function buildSystemPrompt(
   ];
   if (card.personalityTraits.length > 0) lines.push(`性格：${card.personalityTraits.join('、')}`);
   if (card.catchphrases.length > 0) {
-    lines.push(`口头禅：${card.catchphrases.join('、')}（真人只是偶尔冒一句：大多数消息都不带，绝不要每条都带）`);
+    lines.push(
+      `口头禅：${card.catchphrases.join('、')}（真人只是偶尔冒一句：大多数消息都不带，绝不要每条都带）`,
+    );
   }
   if (card.punctuationStyle) lines.push(`标点习惯：${card.punctuationStyle}`);
-  if (card.addressing && card.addressing !== '无特别称呼') lines.push(`你对对方的称呼：${card.addressing}`);
+  if (card.addressing && card.addressing !== '无特别称呼')
+    lines.push(`你对对方的称呼：${card.addressing}`);
   if (card.topics.length > 0) lines.push(`你们常聊：${card.topics.join('、')}`);
 
   // 表达风格库：(情境→句式) 习惯，比口头禅更细。低优先注入，看情况自然用，别硬套。
@@ -271,7 +296,9 @@ function buildSystemPrompt(
     lines.push('', '【你的表情包】（想发哪张就作为一条独立的 emoji 消息发，别用文字旁白表情）：');
     if (stickers.length > 0) {
       lines.push(
-        ...stickers.map((s, i) => `${i + 1}. ${s.description}${s.scenario ? `（${s.scenario}）` : ''}`),
+        ...stickers.map(
+          (s, i) => `${i + 1}. ${s.description}${s.scenario ? `（${s.scenario}）` : ''}`,
+        ),
         '发表情规则：挑你**真正想表达**的那张，作为一条独立消息 `{"type":"emoji","content":"编号"}`（编号就是上面的数字）。' +
           '绝对不要用文字去旁白一个表情（写成「（捂脸）」「[狗头]」「企鹅吐舌」都是错的，发不出图、只会变尬文字）。' +
           '表情通常是"单独回一个表情"代替打字（对方说了句好笑的，你就只回个表情、别的不发），而不是每条话后面都补一个——大多数消息里根本没有表情。',
@@ -298,10 +325,15 @@ function buildSystemPrompt(
   }
 
   if (deep.facts.length > 0) {
-    lines.push('', '【你的生活背景】（这些就是你自己的事，自然地知道，别像背资料）', ...deep.facts.map((f) => `- ${f}`));
+    lines.push(
+      '',
+      '【你的生活背景】（这些就是你自己的事，自然地知道，别像背资料）',
+      ...deep.facts.map((f) => `- ${f}`),
+    );
   }
   if (deep.relationship) lines.push('', `【你们的关系】${deep.relationship}`);
-  else if (persona.profile.relationshipSummary) lines.push('', `【你们的关系】${persona.profile.relationshipSummary}`);
+  else if (persona.profile.relationshipSummary)
+    lines.push('', `【你们的关系】${persona.profile.relationshipSummary}`);
 
   // 群聊 M4：此刻对当前说话人的关系态（好感/情绪）→ 语气指令，随互动动态变化。
   if (relationNote?.trim()) lines.push('', `【你此刻的状态】${relationNote.trim()}`);
@@ -318,16 +350,28 @@ function buildSystemPrompt(
     lines.push('', '【你在不同情境下的典型反应】', ...deep.reactionPatterns.map((r) => `- ${r}`));
   }
   if (deep.boundaries.length > 0) {
-    lines.push('', '【你的立场与边界】（不熟的领域别装懂，回避的话题照样回避）', ...deep.boundaries.map((b) => `- ${b}`));
+    lines.push(
+      '',
+      '【你的立场与边界】（不熟的领域别装懂，回避的话题照样回避）',
+      ...deep.boundaries.map((b) => `- ${b}`),
+    );
   }
   if ((deep.sharedEvents ?? []).length > 0) {
-    lines.push('', '【你们的共同经历】（聊到时自然提，别像在念档案）', ...deep.sharedEvents.map((e) => `- ${e}`));
+    lines.push(
+      '',
+      '【你们的共同经历】（聊到时自然提，别像在念档案）',
+      ...deep.sharedEvents.map((e) => `- ${e}`),
+    );
   }
 
   // 对话反思的 episodes：和克隆体之前聊过什么（episodic memory），记得就好别主动复述。
   const episodes = notes?.episodes ?? [];
   if (episodes.length > 0) {
-    lines.push('', '【你们最近聊过】（之前的对话，记得就好，别主动复述）', ...episodes.map((e) => `- ${e}`));
+    lines.push(
+      '',
+      '【你们最近聊过】（之前的对话，记得就好，别主动复述）',
+      ...episodes.map((e) => `- ${e}`),
+    );
   }
 
   if (persona.fewShots.length > 0) {
@@ -371,14 +415,20 @@ function buildSystemPrompt(
   // 对话反思的 corrections：对方之前明确指出过的扮演问题，强约束、必须遵守。
   const corrections = notes?.corrections ?? [];
   if (corrections.length > 0) {
-    lines.push('', '【扮演纠正】（对方之前指出过的问题，必须遵守，优先级高于上面的风格）', ...corrections.map((c) => `- ${c}`));
+    lines.push(
+      '',
+      '【扮演纠正】（对方之前指出过的问题，必须遵守，优先级高于上面的风格）',
+      ...corrections.map((c) => `- ${c}`),
+    );
   }
 
   const custom = persona.customPrompt?.trim();
   if (custom) lines.push('', '【额外要求】（用户设定，优先遵守）', custom);
 
   // 【输出格式】放最后，作为最强的硬性约束：整段回复必须是 JSON 数组，一个元素 = 一条消息。
-  const typeLines = ['  · text = 一条文字消息，content 就是这句话（系统表情如 /捂脸 直接写在文字里）。'];
+  const typeLines = [
+    '  · text = 一条文字消息，content 就是这句话（系统表情如 /捂脸 直接写在文字里）。',
+  ];
   if (hasAnySticker) {
     typeLines.push(
       stickers.length > 0
@@ -387,7 +437,11 @@ function buildSystemPrompt(
     );
   }
   if (voiceEnabled) typeLines.push('  · ptt = 发一条语音，content 是你要说的话。');
-  const allowedTypes = ['text', ...(hasAnySticker ? ['emoji'] : []), ...(voiceEnabled ? ['ptt'] : [])];
+  const allowedTypes = [
+    'text',
+    ...(hasAnySticker ? ['emoji'] : []),
+    ...(voiceEnabled ? ['ptt'] : []),
+  ];
   const exampleEmoji = hasAnySticker
     ? stickers.length > 0
       ? ',{"type":"emoji","content":"1"}'
@@ -407,11 +461,7 @@ function buildSystemPrompt(
   return lines.join('\n');
 }
 
-async function postJson<T>(
-  endpoint: AgentLabEndpoint,
-  path: string,
-  body: unknown,
-): Promise<T> {
+async function postJson<T>(endpoint: AgentLabEndpoint, path: string, body: unknown): Promise<T> {
   const res = await fetch(`${endpoint.baseUrl}${path}`, {
     method: 'POST',
     headers: {
@@ -429,7 +479,9 @@ async function postJson<T>(
 }
 
 /** OpenAI 兼容消息里同时可能存在 content 和 reasoning_content（推理模型专用），取首个非空。 */
-export function pickMessageText(msg: { content?: unknown; reasoning_content?: unknown } | undefined): string {
+export function pickMessageText(
+  msg: { content?: unknown; reasoning_content?: unknown } | undefined,
+): string {
   if (!msg) return '';
   const c = typeof msg.content === 'string' ? msg.content : '';
   const r = typeof msg.reasoning_content === 'string' ? msg.reasoning_content : '';
@@ -446,14 +498,17 @@ export async function testChatEndpoint(
   endpoint: AgentLabEndpoint,
 ): Promise<{ ok: boolean; error?: string; reply?: string }> {
   try {
-    const data = await postJson<{ choices?: Array<{ message?: { content?: string; reasoning_content?: string } }> }>(
+    const data = await postJson<{
+      choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
+    }>(
       endpoint,
       '/chat/completions',
       // 推理模型需要更多 token 预算才能产出 content；64 足够短路"你好"又不浪费。
       { model: endpoint.model, messages: [{ role: 'user', content: '你好' }], max_tokens: 64 },
     );
     const reply = pickMessageText(data.choices?.[0]?.message);
-    if (!reply) return { ok: false, error: '接口可达，但返回内容为空（模型可能不支持 chat/completions）。' };
+    if (!reply)
+      return { ok: false, error: '接口可达，但返回内容为空（模型可能不支持 chat/completions）。' };
     return { ok: true, reply };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -475,7 +530,9 @@ export async function embedTexts(
   });
   reportUsage(endpoint, data);
   const embeddings =
-    data.data?.map((item) => item.embedding).filter((item): item is number[] => Array.isArray(item)) ?? [];
+    data.data
+      ?.map((item) => item.embedding)
+      .filter((item): item is number[] => Array.isArray(item)) ?? [];
   if (embeddings.length !== inputs.length) {
     throw new Error('AgentLab embedding 返回数量不匹配');
   }
@@ -498,7 +555,9 @@ function rankPairs(
   queryEmbedding: number[] | null,
 ): AgentLabStoredPair[] {
   if (queryEmbedding && queryEmbedding.length > 0) {
-    const vectorPairs = pairs.filter((pair) => Array.isArray(pair.embedding) && pair.embedding.length > 0);
+    const vectorPairs = pairs.filter(
+      (pair) => Array.isArray(pair.embedding) && pair.embedding.length > 0,
+    );
     if (vectorPairs.length > 0) {
       const ranked = vectorPairs
         .map((pair) => ({ pair, score: cosineSimilarity(pair.embedding ?? [], queryEmbedding) }))
@@ -609,7 +668,11 @@ function parseActions(
     typoIntensity === undefined ? humanizeText(s) : humanizeText(s, typoIntensity);
   // 剥掉模型可能从历史里学回来的内部标记，避免混进 content 漏给用户。
   const stripMarkers = (s: string): string =>
-    s.replace(EMOTION_MARKER_G, '').replace(STICKER_MD5_MARKER_G, '').replace(VOICE_MARKER_G, '').trim();
+    s
+      .replace(EMOTION_MARKER_G, '')
+      .replace(STICKER_MD5_MARKER_G, '')
+      .replace(VOICE_MARKER_G, '')
+      .trim();
 
   // 稳健解析出消息数组（失败 → null，走整段降级）。
   let items: RawMessageItem[] | null = null;
@@ -638,7 +701,9 @@ function parseActions(
     if (!clean) continue;
     if (type === 'ptt') {
       // 开了语音 → 语音动作；没开 → 降级成文字，别把要说的话丢了。
-      actions.push(voiceEnabled ? { kind: 'voice', text: clean } : { kind: 'text', text: humanize(clean) });
+      actions.push(
+        voiceEnabled ? { kind: 'voice', text: clean } : { kind: 'text', text: humanize(clean) },
+      );
     } else {
       // text，以及任何未知 type 的兜底：都当文字。
       actions.push({ kind: 'text', text: humanize(clean) });
@@ -679,7 +744,11 @@ export async function runPersonaChat(
   }
   const matches = rankPairs(req.pairs, req.input, queryEmbedding);
   const usedMemories = rankMemories(memoryPool, req.input, queryEmbedding);
-  const expressions = selectExpressions(req.persona.expressions ?? [], req.input, willing.score < 0.4 ? 2 : 4);
+  const expressions = selectExpressions(
+    req.persona.expressions ?? [],
+    req.input,
+    willing.score < 0.4 ? 2 : 4,
+  );
 
   const system = buildSystemPrompt(
     req.persona,
@@ -694,7 +763,9 @@ export async function runPersonaChat(
     { role: 'system', content: system },
     // 历史里的内部表情标记 [[sticker:md5]] 脱敏成 [表情]，否则模型会照着历史模仿、
     // 把这个内部格式（连带真实 md5）原样吐回来。
-    ...req.history.slice(-8).map((item) => ({ role: item.role, content: sanitizeHistoryText(item.text) })),
+    ...req.history
+      .slice(-8)
+      .map((item) => ({ role: item.role, content: sanitizeHistoryText(item.text) })),
     { role: 'user', content: req.input },
   ];
 
@@ -716,14 +787,30 @@ export async function runPersonaChat(
   // 解析成有序动作（text/sticker/voice）。表情走「编号清单」自知选择，
   // 语音走 [[语音]] 前缀（仅当本轮开了语音克隆）。系统表情 /微笑 这类不在此处理，
   // 直接内联在文本里由前端 ChatBubble 渲染。
-  const actions = parseActions(raw, req.persona, !!req.voiceEnabled, willing.maxSegments, req.typoIntensity);
+  const actions = parseActions(
+    raw,
+    req.persona,
+    !!req.voiceEnabled,
+    willing.maxSegments,
+    req.typoIntensity,
+  );
   // 极端兜底：模型啥可用内容都没产出（全空 / 只有匹配不上的标记）→ 给个最短回应。
   if (actions.length === 0) {
-    actions.push({ kind: 'text', text: req.typoIntensity === undefined ? humanizeText('嗯') : humanizeText('嗯', req.typoIntensity) });
+    actions.push({
+      kind: 'text',
+      text:
+        req.typoIntensity === undefined
+          ? humanizeText('嗯')
+          : humanizeText('嗯', req.typoIntensity),
+    });
   }
 
-  const segments = actions.filter((a): a is { kind: 'text'; text: string } => a.kind === 'text').map((a) => a.text);
-  const firstSticker = actions.find((a): a is { kind: 'sticker'; sticker: AgentLabStickerRef } => a.kind === 'sticker');
+  const segments = actions
+    .filter((a): a is { kind: 'text'; text: string } => a.kind === 'text')
+    .map((a) => a.text);
+  const firstSticker = actions.find(
+    (a): a is { kind: 'sticker'; sticker: AgentLabStickerRef } => a.kind === 'sticker',
+  );
   const firstVoice = actions.find((a): a is { kind: 'voice'; text: string } => a.kind === 'voice');
 
   // text 字段：分条文本优先（落库/few-shot 用）；纯表情/纯语音时给个可读占位。

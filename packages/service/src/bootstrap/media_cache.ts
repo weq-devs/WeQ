@@ -147,7 +147,11 @@ export class MediaCacheService {
    * interleave on the event loop. An expired file is deleted so the refetch
    * below writes a clean entry.
    */
-  private async readFromDisk(url: string, subdir: CacheSubdir, ttl: number): Promise<MediaBlob | null> {
+  private async readFromDisk(
+    url: string,
+    subdir: CacheSubdir,
+    ttl: number,
+  ): Promise<MediaBlob | null> {
     const base = this.basePath(url, subdir);
     for (const ext of ['png', 'jpg', 'gif', 'webp']) {
       const path = `${base}.${ext}`;

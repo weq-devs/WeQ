@@ -47,11 +47,15 @@ async function main(): Promise<void> {
     } catch (e) {
       // pos 翻过头时服务端回 code=0 且 msglist:null → 库里按结构异常抛错。
       // 对翻页而言这就是「没有更多了」,优雅停止即可。
-      console.log(`[qzone] page=${page} pos=${pos} 拉取中止(通常=没有更多): ${(e as Error).message.slice(0, 80)}`);
+      console.log(
+        `[qzone] page=${page} pos=${pos} 拉取中止(通常=没有更多): ${(e as Error).message.slice(0, 80)}`,
+      );
       break;
     }
     total = msg.total;
-    console.log(`[qzone] page=${page} pos=${pos} → 本页 ${msg.list.length} 条 (total=${total}, 累计 ${all.length + msg.list.length})`);
+    console.log(
+      `[qzone] page=${page} pos=${pos} → 本页 ${msg.list.length} 条 (total=${total}, 累计 ${all.length + msg.list.length})`,
+    );
     if (msg.list.length === 0) {
       console.log('[qzone] 本页 0 条,停止翻页。');
       break;
@@ -68,7 +72,11 @@ async function main(): Promise<void> {
   }
   console.log(`[qzone] 翻页完成:累计拿到 ${all.length}/${total} 条说说`);
   console.dir(
-    all.map((e) => ({ ...e, images: `<${e.images.length} imgs>`, content: e.content.slice(0, 30) })),
+    all.map((e) => ({
+      ...e,
+      images: `<${e.images.length} imgs>`,
+      content: e.content.slice(0, 30),
+    })),
     { depth: null },
   );
 

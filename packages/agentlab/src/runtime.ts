@@ -15,7 +15,12 @@ import { join } from 'node:path';
 import { runPersonaChat, embedTexts } from './http';
 import { scoreReplyGate, willingLevelBias } from './reply_gate';
 import { describeRelationTone } from './relation';
-import { distillMemories, reflectConversation, scoreInteractionSentiment, decideGroupReply } from './extract';
+import {
+  distillMemories,
+  reflectConversation,
+  scoreInteractionSentiment,
+  decideGroupReply,
+} from './extract';
 import type { AgentLabStore } from './store';
 import type {
   AgentLabPersona,
@@ -267,12 +272,17 @@ export class AgentRuntime {
     const voice = persona.voice;
     const log = this.logger?.child({ personaId: persona.id, textLen: text.length });
     if (!this.tts || !voice) {
-      log?.warn('语音合成跳过：未接入 TTS 或克隆体没绑定语音', { hasTts: !!this.tts, hasVoiceBinding: !!voice });
+      log?.warn('语音合成跳过：未接入 TTS 或克隆体没绑定语音', {
+        hasTts: !!this.tts,
+        hasVoiceBinding: !!voice,
+      });
       return null;
     }
     const caps = this.tts.getCapabilities(voice.providerId);
     if (!caps) {
-      log?.warn('语音合成失败：找不到 TTS provider（可能已被删除或未配置）', { providerId: voice.providerId });
+      log?.warn('语音合成失败：找不到 TTS provider（可能已被删除或未配置）', {
+        providerId: voice.providerId,
+      });
       return null;
     }
     try {
@@ -281,9 +291,12 @@ export class AgentRuntime {
         const refClips = persona.voiceProfile?.refClips ?? [];
         const clips = refClips.filter((c) => existsSync(c.path));
         if (clips.length === 0) {
-          log?.warn('语音合成失败：clone 模式但没有可用的参考音频（refClips 为空或 wav 文件已丢失）', {
-            refClipCount: refClips.length,
-          });
+          log?.warn(
+            '语音合成失败：clone 模式但没有可用的参考音频（refClips 为空或 wav 文件已丢失）',
+            {
+              refClipCount: refClips.length,
+            },
+          );
           return null;
         }
         opts.refClip = { path: clips[0]!.path, text: clips[0]!.text };
@@ -368,7 +381,8 @@ export class AgentRuntime {
   async chat(input: { personaId: string; history: AgentLabChatTurn[]; text: string }) {
     const record = this.store.getPersona(input.personaId);
     if (!record) throw new Error('找不到 persona');
-    if (!record.persona.models?.chat) throw new Error('这是旧版克隆体，模型结构已更新，请删除后重建');
+    if (!record.persona.models?.chat)
+      throw new Error('这是旧版克隆体，模型结构已更新，请删除后重建');
     const ctx = { personaId: input.personaId, scope: 'chat' as const };
     const chatEndpoint = this.resolveWithUsage(record.persona.models.chat, 'chat', ctx);
     const embeddingEndpoint = record.persona.models.embedding
@@ -407,13 +421,17 @@ export class AgentRuntime {
     }
 
     const now = Date.now();
-    const { result, renderedTurns } = await this.generatePersonaTurns(record.persona, record.pairs, {
-      chatEndpoint,
-      embeddingEndpoint,
-      history: input.history,
-      input: input.text,
-      now,
-    });
+    const { result, renderedTurns } = await this.generatePersonaTurns(
+      record.persona,
+      record.pairs,
+      {
+        chatEndpoint,
+        embeddingEndpoint,
+        history: input.history,
+        input: input.text,
+        now,
+      },
+    );
 
     const assistantTurns: ConversationTurnLike[] = renderedTurns.map((text) => ({
       role: 'assistant',
@@ -532,9 +550,22 @@ export class AgentRuntime {
      * 更自然但每条消息多一次 LLM 调用）；'heuristic'=纯启发式打分（快·省 token）。
      */
     mode?: 'llm' | 'heuristic';
-  }): Promise<{ renderedTurns: string[]; replyDelayMs: number; silent: boolean; reason: string; score: number }> {
+  }): Promise<{
+    renderedTurns: string[];
+    replyDelayMs: number;
+    silent: boolean;
+    reason: string;
+    score: number;
+  }> {
     const record = this.store.getPersona(input.personaId);
-    if (!record?.persona.models?.chat) return { renderedTurns: [], replyDelayMs: 0, silent: true, reason: 'no-chat-model', score: 0 };
+    if (!record?.persona.models?.chat)
+      return {
+        renderedTurns: [],
+        replyDelayMs: 0,
+        silent: true,
+        reason: 'no-chat-model',
+        score: 0,
+      };
     const persona = record.persona;
     const willing = persona.willing;
     const relation = this.relations.get(input.personaId, input.senderId);
@@ -570,7 +601,13 @@ export class AgentRuntime {
         crowdedHint: this.crowdedHintFromShare(input.selfShareRecent),
       });
       if (!decision.reply) {
-        return { renderedTurns: [], replyDelayMs: 0, silent: true, reason: decision.reason, score: 0 };
+        return {
+          renderedTurns: [],
+          replyDelayMs: 0,
+          silent: true,
+          reason: decision.reason,
+          score: 0,
+        };
       }
       replyDelayMs = Math.round(300 + Math.random() * 500);
       reason = decision.reason;
@@ -589,7 +626,13 @@ export class AgentRuntime {
         mustReplyOnMention: willing?.mustReplyOnMention !== false,
       });
       if (!decision.shouldReply) {
-        return { renderedTurns: [], replyDelayMs: decision.replyDelayMs, silent: true, reason: decision.reason, score: decision.score };
+        return {
+          renderedTurns: [],
+          replyDelayMs: decision.replyDelayMs,
+          silent: true,
+          reason: decision.reason,
+          score: decision.score,
+        };
       }
       replyDelayMs = decision.replyDelayMs;
       reason = decision.reason;

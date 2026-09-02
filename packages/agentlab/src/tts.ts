@@ -98,7 +98,9 @@ export interface TtsVendorCatalogEntry {
   apiKeyHint?: string;
   capabilities: TtsCapabilities;
   /** 该厂商配置用到哪些字段（前端据此显隐表单项）。 */
-  fields: Array<'apiKey' | 'appId' | 'resourceId' | 'model' | 'cloneModel' | 'voice' | 'format' | 'speed'>;
+  fields: Array<
+    'apiKey' | 'appId' | 'resourceId' | 'model' | 'cloneModel' | 'voice' | 'format' | 'speed'
+  >;
   /** 默认模型（preset 模式 / model 留空时用；前端表单展示成占位与提示）。 */
   defaultModel?: string;
   /** 语音复刻默认模型（clone 模式 / model 留空时用；前端把它作为「语音克隆默认配置」显示出来）。 */
@@ -201,22 +203,48 @@ export function getTtsCapabilities(vendor: TtsVendor): TtsCapabilities {
 // ── 情感映射（照插件，按厂商语义不同）──────────────────────────────────────────
 
 const MINIMAX_EMOTION_MAP: Record<string, string> = {
-  开心: 'happy', 高兴: 'happy', 兴奋: 'happy',
-  伤心: 'sad', 难过: 'sad', 失望: 'sad', 委屈: 'sad',
-  生气: 'angry', 愤怒: 'angry',
-  害怕: 'fearful', 恐惧: 'fearful', 厌恶: 'disgusted', 恶心: 'disgusted',
-  惊讶: 'surprised', 震惊: 'surprised',
-  平静: 'calm', 冷静: 'calm', 严肃: 'calm',
-  流畅: 'fluent', 自然: 'fluent',
-  耳语: 'whisper', 低语: 'whisper', 轻声: 'whisper', 悄悄话: 'whisper',
+  开心: 'happy',
+  高兴: 'happy',
+  兴奋: 'happy',
+  伤心: 'sad',
+  难过: 'sad',
+  失望: 'sad',
+  委屈: 'sad',
+  生气: 'angry',
+  愤怒: 'angry',
+  害怕: 'fearful',
+  恐惧: 'fearful',
+  厌恶: 'disgusted',
+  恶心: 'disgusted',
+  惊讶: 'surprised',
+  震惊: 'surprised',
+  平静: 'calm',
+  冷静: 'calm',
+  严肃: 'calm',
+  流畅: 'fluent',
+  自然: 'fluent',
+  耳语: 'whisper',
+  低语: 'whisper',
+  轻声: 'whisper',
+  悄悄话: 'whisper',
 };
 const MINIMAX_VALID_EMOTIONS = new Set(Object.values(MINIMAX_EMOTION_MAP));
 
 const DOUBAO_EMOTION_MAP: Record<string, string> = {
-  开心: '你的语气再欢乐一点', 兴奋: '用特别兴奋激动的语气说话', 温柔: '用温柔体贴的语气说话',
-  生气: '你得跟我互怼！就是跟我用吵架的语气对话', 愤怒: '用愤怒的语气说话', 伤心: '用特别特别痛心的语气说话',
-  失望: '用失望沮丧的语气说话', 委屈: '用委屈的语气说话', 平静: '用平静淡定的语气说话',
-  严肃: '用严肃认真的语气说话', 慢速: '说慢一点', 快速: '说快一点', 小声: '你嗓门再小点', 大声: '大声一点',
+  开心: '你的语气再欢乐一点',
+  兴奋: '用特别兴奋激动的语气说话',
+  温柔: '用温柔体贴的语气说话',
+  生气: '你得跟我互怼！就是跟我用吵架的语气对话',
+  愤怒: '用愤怒的语气说话',
+  伤心: '用特别特别痛心的语气说话',
+  失望: '用失望沮丧的语气说话',
+  委屈: '用委屈的语气说话',
+  平静: '用平静淡定的语气说话',
+  严肃: '用严肃认真的语气说话',
+  慢速: '说慢一点',
+  快速: '说快一点',
+  小声: '你嗓门再小点',
+  大声: '大声一点',
 };
 
 // ── 工具 ────────────────────────────────────────────────────────────────────
@@ -241,11 +269,16 @@ function trimSlash(url: string): string {
 
 /** 至少 100 字节才算有效音频（照插件 validate_audio_data）。 */
 function ensureAudio(buf: Buffer, vendor: string): Buffer {
-  if (!buf || buf.length < 100) throw new Error(`${vendor} 返回的音频数据无效（${buf?.length ?? 0} 字节）`);
+  if (!buf || buf.length < 100)
+    throw new Error(`${vendor} 返回的音频数据无效（${buf?.length ?? 0} 字节）`);
   return buf;
 }
 
-async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -257,7 +290,11 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
 
 // ── 各厂商后端：text → 音频字节 ──────────────────────────────────────────────
 
-type Backend = (cfg: TtsProviderConfig, text: string, opts: TtsSynthesizeOptions) => Promise<TtsSynthesizeResult>;
+type Backend = (
+  cfg: TtsProviderConfig,
+  text: string,
+  opts: TtsSynthesizeOptions,
+) => Promise<TtsSynthesizeResult>;
 
 /** OpenAI 兼容 /audio/speech（SiliconFlow / OpenAI / 自建），返回原始二进制。 */
 const openAiCompatible: Backend = async (cfg, text, opts) => {
@@ -277,7 +314,10 @@ const openAiCompatible: Backend = async (cfg, text, opts) => {
     },
     opts.timeoutMs ?? DEFAULT_TIMEOUT,
   );
-  if (!res.ok) throw new Error(`TTS(openai) HTTP ${res.status} — ${(await res.text().catch(() => '')).slice(0, 200)}`);
+  if (!res.ok)
+    throw new Error(
+      `TTS(openai) HTTP ${res.status} — ${(await res.text().catch(() => '')).slice(0, 200)}`,
+    );
   return { audio: ensureAudio(Buffer.from(await res.arrayBuffer()), 'openai'), format };
 };
 
@@ -291,7 +331,11 @@ const gsv2p: Backend = async (cfg, text, opts) => {
         cfg.baseUrl || 'https://gsv2p.acgnai.top/v1/audio/speech',
         {
           method: 'POST',
-          headers: { accept: 'application/json', 'content-type': 'application/json', authorization: `Bearer ${cfg.apiKey}` },
+          headers: {
+            accept: 'application/json',
+            'content-type': 'application/json',
+            authorization: `Bearer ${cfg.apiKey}`,
+          },
           body: JSON.stringify({
             model: cfg.model || 'tts-v4',
             input: text,
@@ -304,7 +348,8 @@ const gsv2p: Backend = async (cfg, text, opts) => {
       );
       const ct = res.headers.get('content-type') ?? '';
       const buf = Buffer.from(await res.arrayBuffer());
-      if (res.ok && !ct.includes('application/json')) return { audio: ensureAudio(buf, 'gsv2p'), format };
+      if (res.ok && !ct.includes('application/json'))
+        return { audio: ensureAudio(buf, 'gsv2p'), format };
       lastErr = `HTTP ${res.status} — ${buf.toString('utf-8').slice(0, 150)}`;
     } catch (e) {
       lastErr = e instanceof Error ? e.message : String(e);
@@ -318,7 +363,8 @@ const gsv2p: Backend = async (cfg, text, opts) => {
 const minimax: Backend = async (cfg, text, opts) => {
   const format = opts.format ?? cfg.format ?? 'mp3';
   const emotion = opts.emotion
-    ? MINIMAX_EMOTION_MAP[opts.emotion] ?? (MINIMAX_VALID_EMOTIONS.has(opts.emotion) ? opts.emotion : undefined)
+    ? (MINIMAX_EMOTION_MAP[opts.emotion] ??
+      (MINIMAX_VALID_EMOTIONS.has(opts.emotion) ? opts.emotion : undefined))
     : undefined;
   const voiceSetting: Record<string, unknown> = {
     voice_id: opts.voice ?? cfg.voice ?? 'male-qn-qingse',
@@ -343,10 +389,17 @@ const minimax: Backend = async (cfg, text, opts) => {
     },
     opts.timeoutMs ?? DEFAULT_TIMEOUT,
   );
-  if (!res.ok) throw new Error(`TTS(minimax) HTTP ${res.status} — ${(await res.text().catch(() => '')).slice(0, 200)}`);
-  const data = (await res.json()) as { base_resp?: { status_code?: number; status_msg?: string }; data?: { audio?: string } };
+  if (!res.ok)
+    throw new Error(
+      `TTS(minimax) HTTP ${res.status} — ${(await res.text().catch(() => '')).slice(0, 200)}`,
+    );
+  const data = (await res.json()) as {
+    base_resp?: { status_code?: number; status_msg?: string };
+    data?: { audio?: string };
+  };
   const code = data.base_resp?.status_code ?? -1;
-  if (code !== 0) throw new Error(`TTS(minimax) 业务错误 ${code}：${data.base_resp?.status_msg ?? ''}`);
+  if (code !== 0)
+    throw new Error(`TTS(minimax) 业务错误 ${code}：${data.base_resp?.status_msg ?? ''}`);
   const hex = data.data?.audio;
   if (!hex) throw new Error('TTS(minimax) 响应缺少音频');
   return { audio: ensureAudio(Buffer.from(hex, 'hex'), 'minimax'), format };
@@ -394,8 +447,13 @@ const mimo: Backend = async (cfg, text, opts) => {
     },
     opts.timeoutMs ?? DEFAULT_TIMEOUT,
   );
-  if (!res.ok) throw new Error(`TTS(mimo) HTTP ${res.status} — ${(await res.text().catch(() => '')).slice(0, 200)}`);
-  const data = (await res.json()) as { choices?: Array<{ message?: { audio?: { data?: string } } }> };
+  if (!res.ok)
+    throw new Error(
+      `TTS(mimo) HTTP ${res.status} — ${(await res.text().catch(() => '')).slice(0, 200)}`,
+    );
+  const data = (await res.json()) as {
+    choices?: Array<{ message?: { audio?: { data?: string } } }>;
+  };
   const b64 = data.choices?.[0]?.message?.audio?.data;
   if (!b64) throw new Error('TTS(mimo) 响应缺少音频');
   return { audio: ensureAudio(Buffer.from(b64, 'base64'), 'mimo'), format };
@@ -427,7 +485,10 @@ const doubao: Backend = async (cfg, text, opts) => {
     },
     opts.timeoutMs ?? DEFAULT_TIMEOUT,
   );
-  if (!res.ok) throw new Error(`TTS(doubao) HTTP ${res.status} — ${(await res.text().catch(() => '')).slice(0, 150)}`);
+  if (!res.ok)
+    throw new Error(
+      `TTS(doubao) HTTP ${res.status} — ${(await res.text().catch(() => '')).slice(0, 150)}`,
+    );
   const body = await res.text();
   const chunks: Buffer[] = [];
   for (const line of body.split('\n')) {
@@ -471,7 +532,10 @@ const gptSovits: Backend = async (cfg, text, opts) => {
     { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) },
     opts.timeoutMs ?? DEFAULT_TIMEOUT,
   );
-  if (!res.ok) throw new Error(`TTS(gpt-sovits) HTTP ${res.status} — ${(await res.text().catch(() => '')).slice(0, 150)}`);
+  if (!res.ok)
+    throw new Error(
+      `TTS(gpt-sovits) HTTP ${res.status} — ${(await res.text().catch(() => '')).slice(0, 150)}`,
+    );
   return { audio: ensureAudio(Buffer.from(await res.arrayBuffer()), 'gpt-sovits'), format: 'wav' };
 };
 
@@ -507,7 +571,11 @@ const cosyvoice: Backend = async (cfg, text, opts) => {
   };
   const call = await fetchWithTimeout(
     `${root}/call/generate_audio`,
-    { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) },
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    },
     timeout,
   );
   if (!call.ok) throw new Error(`CosyVoice 调用失败 HTTP ${call.status}`);
@@ -516,7 +584,11 @@ const cosyvoice: Backend = async (cfg, text, opts) => {
   if (!eventId) throw new Error('CosyVoice 未返回 event_id');
 
   // 3) SSE 拉结果：事件流里找到带文件 url 的完成帧。
-  const result = await fetchWithTimeout(`${root}/call/generate_audio/${eventId}`, { method: 'GET' }, timeout);
+  const result = await fetchWithTimeout(
+    `${root}/call/generate_audio/${eventId}`,
+    { method: 'GET' },
+    timeout,
+  );
   if (!result.ok) throw new Error(`CosyVoice 取结果失败 HTTP ${result.status}`);
   const stream = await result.text();
   const fileUrl = extractGradioFileUrl(stream, root);
@@ -525,7 +597,10 @@ const cosyvoice: Backend = async (cfg, text, opts) => {
   // 4) 下载生成的音频。
   const audioRes = await fetchWithTimeout(fileUrl, { method: 'GET' }, timeout);
   if (!audioRes.ok) throw new Error(`CosyVoice 下载音频失败 HTTP ${audioRes.status}`);
-  return { audio: ensureAudio(Buffer.from(await audioRes.arrayBuffer()), 'cosyvoice'), format: 'wav' };
+  return {
+    audio: ensureAudio(Buffer.from(await audioRes.arrayBuffer()), 'cosyvoice'),
+    format: 'wav',
+  };
 };
 
 const BACKENDS: Record<TtsVendor, Backend> = {
@@ -590,7 +665,8 @@ function mergeDoubaoChunks(chunks: Buffer[]): Buffer {
   const header = Buffer.from(first.subarray(0, dataOffset));
   const parts: Buffer[] = [first.subarray(dataOffset)];
   for (const c of chunks.slice(1)) {
-    if (c.length > 44 && c.toString('ascii', 0, 4) === 'RIFF') parts.push(c.subarray(findWavDataOffset(c)));
+    if (c.length > 44 && c.toString('ascii', 0, 4) === 'RIFF')
+      parts.push(c.subarray(findWavDataOffset(c)));
     else parts.push(c);
   }
   const audio = Buffer.concat(parts);
@@ -627,7 +703,11 @@ export class TtsService {
   }
 
   /** 合成一段语音，返回音频字节 + 格式。失败抛错（调用方决定降级）。 */
-  async synthesize(cfg: TtsProviderConfig, text: string, opts: TtsSynthesizeOptions = {}): Promise<TtsSynthesizeResult> {
+  async synthesize(
+    cfg: TtsProviderConfig,
+    text: string,
+    opts: TtsSynthesizeOptions = {},
+  ): Promise<TtsSynthesizeResult> {
     const body = text.trim();
     if (!body) throw new Error('待合成文本为空');
     const backend = BACKENDS[cfg.vendor];

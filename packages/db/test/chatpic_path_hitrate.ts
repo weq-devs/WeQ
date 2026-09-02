@@ -85,7 +85,9 @@ function picMd5sFromBody(body: Uint8Array): string[] {
       if (el.kind !== 'pic') continue;
       const md5 =
         (el.md5 ?? '').trim().toUpperCase() ||
-        Buffer.from(el.md5Bytes ?? new Uint8Array()).toString('hex').toUpperCase();
+        Buffer.from(el.md5Bytes ?? new Uint8Array())
+          .toString('hex')
+          .toUpperCase();
       out.push(md5);
     }
   } catch {
@@ -157,8 +159,8 @@ interface FolderStat {
 
 async function main(): Promise<void> {
   const chatpicRoot =
-    (envOptional('WEQ_TEST_CHATPIC_ROOT', 'D:/estkim/chatpic').replace(/[\\/]+$/, '') ||
-      'D:/estkim/chatpic');
+    envOptional('WEQ_TEST_CHATPIC_ROOT', 'D:/estkim/chatpic').replace(/[\\/]+$/, '') ||
+    'D:/estkim/chatpic';
   if (!existsSync(chatpicRoot)) throw new Error(`chatpic 根目录不存在: ${chatpicRoot}`);
 
   const nt = loadNative().ntHelper;

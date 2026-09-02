@@ -14,7 +14,15 @@
  */
 
 import { useState, type ReactElement } from 'react';
-import { ArrowRight, Database, FolderSearch, HelpCircle, KeyRound, Loader2, Smartphone } from 'lucide-react';
+import {
+  ArrowRight,
+  Database,
+  FolderSearch,
+  HelpCircle,
+  KeyRound,
+  Loader2,
+  Smartphone,
+} from 'lucide-react';
 import { client } from '../../trpc/client';
 import { useDialog } from '../../components/Dialog';
 import { QqAvatar } from '../../components/QqAvatar';
@@ -42,7 +50,11 @@ type Probe =
 
 type Stage = 'picking' | 'probing' | 'done';
 
-export function StaticBackupPanel({ onEntered }: { onEntered: (uin: string) => void }): ReactElement {
+export function StaticBackupPanel({
+  onEntered,
+}: {
+  onEntered: (uin: string) => void;
+}): ReactElement {
   const showError = useDialog((s) => s.showError);
 
   const [dirPath, setDirPath] = useState<string>('');
@@ -84,7 +96,12 @@ export function StaticBackupPanel({ onEntered }: { onEntered: (uin: string) => v
       }
       // 后端自动算出了密钥（安卓备份目录）—— 收下来，「进入」要拿它开库。
       if ('derivedKey' in r && r.derivedKey) setKey(r.derivedKey);
-      setProbe({ kind: 'ready', preview: r.preview, derived: 'derivedKey' in r && !!r.derivedKey, mobile: 'mobile' in r && !!r.mobile });
+      setProbe({
+        kind: 'ready',
+        preview: r.preview,
+        derived: 'derivedKey' in r && !!r.derivedKey,
+        mobile: 'mobile' in r && !!r.mobile,
+      });
       setStage('done');
     } catch (e) {
       // 网络/IPC 层异常：填了密钥就留在密钥态，否则当作目录问题。
@@ -125,9 +142,11 @@ export function StaticBackupPanel({ onEntered }: { onEntered: (uin: string) => v
                 title={probe.mobile ? 'Android 手机备份账号' : '静态离线账号'}
                 aria-label={probe.mobile ? 'Android 手机备份账号' : '静态离线账号'}
               >
-                {probe.mobile
-                  ? <Smartphone size={13} strokeWidth={2.2} aria-hidden />
-                  : <Database size={13} strokeWidth={2.2} aria-hidden />}
+                {probe.mobile ? (
+                  <Smartphone size={13} strokeWidth={2.2} aria-hidden />
+                ) : (
+                  <Database size={13} strokeWidth={2.2} aria-hidden />
+                )}
               </span>
             </span>
             <div className="weq-static-backup-title">
@@ -136,7 +155,14 @@ export function StaticBackupPanel({ onEntered }: { onEntered: (uin: string) => v
           </>
         ) : (
           <>
-            <img src={qqLogoUrl} alt="" width={140} height={140} className="weq-static-backup-logo" aria-hidden />
+            <img
+              src={qqLogoUrl}
+              alt=""
+              width={140}
+              height={140}
+              className="weq-static-backup-logo"
+              aria-hidden
+            />
             <div className="weq-static-backup-title">导入本地数据库</div>
           </>
         )}
@@ -239,9 +265,7 @@ export function StaticBackupPanel({ onEntered }: { onEntered: (uin: string) => v
         <div className="weq-static-hint">已从目录自动推算出数据库密钥，无需手动输入。</div>
       )}
 
-      {probe.kind === 'badDb' && (
-        <div className="weq-static-error">打开失败：{probe.error}</div>
-      )}
+      {probe.kind === 'badDb' && <div className="weq-static-error">打开失败：{probe.error}</div>}
     </div>
   );
 }

@@ -24,7 +24,11 @@ const CASES: Array<{ what: string; table: string; msgId: string }> = [
   { what: 'TEXT 可信链接 (subType=2)', table: 'group_msg_table', msgId: '7549183873220801564' },
   { what: '语音转文字 (PTT 45923)', table: 'c2c_msg_table', msgId: '7397644804072039304' },
   { what: 'CDN IP/端口 (PIC 45806/45807)', table: 'group_msg_table', msgId: '7416157402068439336' },
-  { what: '撤回者群名片 (GRAY_TIP 47707/47716)', table: 'group_msg_table', msgId: '7416202100200981686' },
+  {
+    what: '撤回者群名片 (GRAY_TIP 47707/47716)',
+    table: 'group_msg_table',
+    msgId: '7416202100200981686',
+  },
   { what: '互动标识纯文本 (GRAY_TIP 48274)', table: 'c2c_msg_table', msgId: '7420025779182201391' },
   { what: '位置共享 (elementType=28)', table: 'c2c_msg_table', msgId: '7429928725160164844' },
 ];
@@ -37,14 +41,27 @@ function ipv4(n: number): string {
 function summarize(el: Record<string, unknown>): string[] {
   const out: string[] = [`kind=${el.kind}  subType=${el.subType ?? 0}`];
   const interesting = [
-    'textContent', 'fileName', 'fileSize', 'fileToken',
-    'pttTranscript', 'pttDuration',
-    'cdnServerIp', 'cdnServerPort', 'thumbnailLocalPath',
-    'recallSenderNick', 'recallSenderGroupNick', 'recallRevokeNick', 'recallRevokeGroupNick',
-    'recallSenderNickCopy', 'recallRevokeNickCopy',
-    'grayTipPlainText', 'grayTipTimestamp',
-    'tempSessionGroupCode', 'aioOpFlag47501',
-    'shareLocationText', 'urlVerifyFlag',
+    'textContent',
+    'fileName',
+    'fileSize',
+    'fileToken',
+    'pttTranscript',
+    'pttDuration',
+    'cdnServerIp',
+    'cdnServerPort',
+    'thumbnailLocalPath',
+    'recallSenderNick',
+    'recallSenderGroupNick',
+    'recallRevokeNick',
+    'recallRevokeGroupNick',
+    'recallSenderNickCopy',
+    'recallRevokeNickCopy',
+    'grayTipPlainText',
+    'grayTipTimestamp',
+    'tempSessionGroupCode',
+    'aioOpFlag47501',
+    'shareLocationText',
+    'urlVerifyFlag',
     'groupTipGroupName',
   ];
   for (const k of interesting) {
@@ -55,7 +72,8 @@ function summarize(el: Record<string, unknown>): string[] {
     else if (k === 'cdnServerIp' && typeof v === 'number') shown = `${v} (${ipv4(v)})`;
     else if (k === 'grayTipTimestamp' && typeof v === 'number') {
       shown = `${v} (${new Date(v * 1000).toISOString().slice(0, 19).replace('T', ' ')})`;
-    } else if (typeof v === 'string') shown = JSON.stringify(v.length > 80 ? `${v.slice(0, 80)}…` : v);
+    } else if (typeof v === 'string')
+      shown = JSON.stringify(v.length > 80 ? `${v.slice(0, 80)}…` : v);
     else shown = String(v);
     out.push(`  ${k} = ${shown}`);
   }
@@ -74,10 +92,9 @@ async function main(): Promise<void> {
     console.log(`${c.what}   [${c.table}] ${c.msgId}`);
     console.log('─'.repeat(74));
 
-    const rows = await db.query(
-      `SELECT "40800" FROM "${c.table}" WHERE "40001" = ? LIMIT 1`,
-      [BigInt(c.msgId)],
-    );
+    const rows = await db.query(`SELECT "40800" FROM "${c.table}" WHERE "40001" = ? LIMIT 1`, [
+      BigInt(c.msgId),
+    ]);
     const body = rows[0]?.[0];
     if (!(body instanceof Uint8Array)) {
       console.log('  ✗ 行不存在或 40800 为空');
@@ -96,7 +113,10 @@ async function main(): Promise<void> {
         // Round-trip: encode back and make sure the bytes survive.
         const reWire = encodeElement(el as never);
         const reBytes = BODY.encode({ elements: [reWire] });
-        const reBack = decodeElement(BODY.decode(reBytes).elements![0]!) as unknown as Record<string, unknown>;
+        const reBack = decodeElement(BODY.decode(reBytes).elements![0]!) as unknown as Record<
+          string,
+          unknown
+        >;
         const ok = reBack.kind === el.kind;
         console.log(`    ${ok ? '✓' : '✗'} round-trip ${ok ? 'ok' : `kind 变了: ${reBack.kind}`}`);
         ok ? pass++ : fail++;

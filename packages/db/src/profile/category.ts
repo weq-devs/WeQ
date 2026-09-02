@@ -6,7 +6,7 @@
 
 import { ProtoMsg } from '@weq/codec';
 import { CategoryListBody } from '@weq/codec/proto/profile/25011';
-import type { DatabaseAlgorithms, NtHelperBinding, } from '@weq/native';
+import type { DatabaseAlgorithms, NtHelperBinding } from '@weq/native';
 import { QqDb } from '../qq_db';
 
 const categoryCodec = new ProtoMsg(CategoryListBody);
@@ -35,18 +35,15 @@ export class CategoryDb {
    * List all categories. Parses the first row found.
    */
   async listCategories(): Promise<Category[]> {
-    const rows = await this.qq.query(
-      `SELECT "25011" FROM category_list_v2 LIMIT 1`,
-      [],
-    );
+    const rows = await this.qq.query(`SELECT "25011" FROM category_list_v2 LIMIT 1`, []);
     if (rows.length === 0) return [];
-    
+
     const blob = rows[0]![0];
     if (!(blob instanceof Uint8Array)) return [];
 
     try {
       const decoded = categoryCodec.decode(blob);
-      return (decoded.items ?? []).map(item => ({
+      return (decoded.items ?? []).map((item) => ({
         id: item.id ?? 0,
         name: item.name ?? '',
         buddyCount: item.buddyCount ?? 0,

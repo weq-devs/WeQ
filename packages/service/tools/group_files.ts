@@ -22,11 +22,15 @@ async function main(): Promise<void> {
   const pid = pids[0]!;
   const info = nt.probeQqLoginInfo(pid);
   const uin = info?.uin ?? '';
-  console.log(`[group-files] pid=${pid} uin=${uin} loggedIn=${info?.loggedIn} group=${GROUP} dir=${FOLDER}`);
+  console.log(
+    `[group-files] pid=${pid} uin=${uin} loggedIn=${info?.loggedIn} group=${GROUP} dir=${FOLDER}`,
+  );
 
   console.log(`\n[group-files] 注入 hook 到 pid=${pid} ...`);
   const status = await nt.injectAndGetStatusEmbedded(pid, uin);
-  console.log(`[group-files] 注入结果: pid=${status.pid} uin=${status.uin} loggedIn=${status.loggedIn}`);
+  console.log(
+    `[group-files] 注入结果: pid=${status.pid} uin=${status.uin} loggedIn=${status.loggedIn}`,
+  );
 
   const session = {
     context: { uin },
@@ -36,7 +40,9 @@ async function main(): Promise<void> {
 
   console.log(`\n[group-files] ===== 目录列表 dir=${FOLDER} =====`);
   const listing = await svc.list(GROUP, FOLDER);
-  console.log(`[group-files] 文件夹 ${listing.folders.length} 个 / 文件 ${listing.files.length} 个`);
+  console.log(
+    `[group-files] 文件夹 ${listing.folders.length} 个 / 文件 ${listing.files.length} 个`,
+  );
   console.dir(listing.folders, { depth: null });
   console.dir(listing.files.slice(0, 5), { depth: null });
 

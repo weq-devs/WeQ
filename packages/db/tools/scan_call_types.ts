@@ -202,7 +202,9 @@ async function main(): Promise<void> {
   console.log('\n\n================ 已枚举组合的样本（对照用） ================');
   for (const { m, s, b } of entries) {
     if (KNOWN_METHOD[m] === undefined || KNOWN_SUBTYPE[s] === undefined) continue;
-    console.log(`\n### method=${m}/${KNOWN_METHOD[m]} sub=${s}/${KNOWN_SUBTYPE[s]} count=${b.count}`);
+    console.log(
+      `\n### method=${m}/${KNOWN_METHOD[m]} sub=${s}/${KNOWN_SUBTYPE[s]} count=${b.count}`,
+    );
     for (const sm of b.samples) {
       console.log(
         `  - [${sm.time}] ${sm.conv} 发送者=${sm.senderUin} 时长=${sm.duration}` +

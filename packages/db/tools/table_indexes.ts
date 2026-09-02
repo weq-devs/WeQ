@@ -20,10 +20,14 @@ async function check(name: string, tableName: string) {
 
   try {
     console.log(`\n--- [${name}.db] ---`);
-    const tableInfo = await db.query(`SELECT sql FROM sqlite_master WHERE type='table' AND name='${tableName}';`);
+    const tableInfo = await db.query(
+      `SELECT sql FROM sqlite_master WHERE type='table' AND name='${tableName}';`,
+    );
     console.log(`Schema: ${tableInfo[0]?.[0]}`);
 
-    const indexes = await db.query(`SELECT name, sql FROM sqlite_master WHERE type='index' AND tbl_name='${tableName}';`);
+    const indexes = await db.query(
+      `SELECT name, sql FROM sqlite_master WHERE type='index' AND tbl_name='${tableName}';`,
+    );
     console.log(`Found ${indexes.length} indexes:`);
     indexes.forEach((idx) => {
       console.log(`  - ${idx[0]}: ${idx[1]}`);

@@ -28,23 +28,29 @@ type ContextMenuState = {
   y: number;
 };
 
-export function ArkFeedView({ conversationId, title, onBack, onEditMessage }: ArkFeedViewProps & { onEditMessage?: (msgId: string) => void }) {
+export function ArkFeedView({
+  conversationId,
+  title,
+  onBack,
+  onEditMessage,
+}: ArkFeedViewProps & { onEditMessage?: (msgId: string) => void }) {
   const [messages, setMessages] = useState<ArkMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
   const isService = conversationId.startsWith('service:');
-  const isOfficial = !isService && conversationId !== 'merged:official' && conversationId !== 'merged:service';
+  const isOfficial =
+    !isService && conversationId !== 'merged:official' && conversationId !== 'merged:service';
 
   const officialFeed = trpc.account.listOfficialAccountArkFeed.useQuery(
     { peerUid: conversationId, limit: 100 },
-    { enabled: isOfficial }
+    { enabled: isOfficial },
   );
 
   const appId = isService ? conversationId.replace('service:', '') : '';
   const serviceFeed = trpc.account.listServiceAccountArkFeed.useQuery(
     { appId, limit: 100 },
-    { enabled: isService }
+    { enabled: isService },
   );
 
   useEffect(() => {
@@ -55,7 +61,14 @@ export function ArkFeedView({ conversationId, title, onBack, onEditMessage }: Ar
       setMessages(serviceFeed.data as ArkMessage[]);
       setLoading(serviceFeed.isLoading);
     }
-  }, [isOfficial, isService, officialFeed.data, officialFeed.isLoading, serviceFeed.data, serviceFeed.isLoading]);
+  }, [
+    isOfficial,
+    isService,
+    officialFeed.data,
+    officialFeed.isLoading,
+    serviceFeed.data,
+    serviceFeed.isLoading,
+  ]);
 
   const arkMessages = useMemo(() => {
     const filtered = messages.filter((msg) => {

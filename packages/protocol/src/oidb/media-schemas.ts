@@ -73,12 +73,16 @@ const NTV2_VIDEO_DOWNLOAD_EXT = message([
   { name: 'sceneType', tag: 2, type: 'uint32' },
   { name: 'subBusiType', tag: 3, type: 'uint32', force: true },
   { name: 'field5', tag: 5, type: 'uint32', force: true },
-  { name: 'videoMeta', tag: 6, type: message([
-    { name: 'businessType', tag: 1, type: 'uint32' },
-    { name: 'channelParams', tag: 2, type: 'string' },
-    { name: 'videoFlag45421', tag: 3, type: 'string' },
-    { name: 'videoFlag45863', tag: 4, type: 'uint32' },
-  ]) },
+  {
+    name: 'videoMeta',
+    tag: 6,
+    type: message([
+      { name: 'businessType', tag: 1, type: 'uint32' },
+      { name: 'channelParams', tag: 2, type: 'string' },
+      { name: 'videoFlag45421', tag: 3, type: 'string' },
+      { name: 'videoFlag45863', tag: 4, type: 'uint32' },
+    ]),
+  },
 ]);
 
 const NTV2_DOWNLOAD_EXTRA = message([{ name: 'field1', tag: 1, type: 'uint32', force: true }]);
@@ -372,7 +376,10 @@ export interface MediaIndexNode {
 }
 
 /** Build the NTV2 `download.node` object from a {@link MediaIndexNode}. */
-export function normalizeMediaNode(node: MediaIndexNode, forceDefaultFields = false): Record<string, unknown> {
+export function normalizeMediaNode(
+  node: MediaIndexNode,
+  forceDefaultFields = false,
+): Record<string, unknown> {
   if (!node.fileUuid) throw new Error('media node fileUuid is required');
   const t = node.type ?? {};
   const forced = (value: number | undefined): number | undefined => {

@@ -44,10 +44,9 @@ async function main() {
   );
   let matchedBy = '40001';
   if (rows.length === 0) {
-    rows = await db.query(
-      `SELECT rowid, "40001", "40062" FROM ${TABLE} WHERE rowid = ? LIMIT 1`,
-      [BigInt(TARGET)],
-    );
+    rows = await db.query(`SELECT rowid, "40001", "40062" FROM ${TABLE} WHERE rowid = ? LIMIT 1`, [
+      BigInt(TARGET),
+    ]);
     matchedBy = 'rowid';
   }
 

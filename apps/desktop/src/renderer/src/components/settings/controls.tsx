@@ -23,7 +23,11 @@ export function SectionHeader({
   return (
     <header className="weq-set-head">
       <div className="weq-set-head-title">
-        {icon ? <span className="weq-set-head-icon" aria-hidden>{icon}</span> : null}
+        {icon ? (
+          <span className="weq-set-head-icon" aria-hidden>
+            {icon}
+          </span>
+        ) : null}
         <h3 className={`weq-set-title${titleClassName ? ` ${titleClassName}` : ''}`}>{title}</h3>
       </div>
       {desc ? <p className="weq-set-desc">{desc}</p> : null}

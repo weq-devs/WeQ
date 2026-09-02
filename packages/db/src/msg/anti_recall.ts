@@ -157,9 +157,27 @@ interface TableSpec {
 
 /** The three message tables and how each is filtered by conversation. */
 const TABLE_SPECS: readonly TableSpec[] = [
-  { kind: 'c2c', table: 'c2c_msg_table', filterCol: '40021', filterNumeric: false, trigger: 'weq_anti_recall_c2c' },
-  { kind: 'group', table: 'group_msg_table', filterCol: '40027', filterNumeric: true, trigger: 'weq_anti_recall_group' },
-  { kind: 'dataline', table: 'dataline_msg_table', filterCol: '40021', filterNumeric: false, trigger: 'weq_anti_recall_dataline' },
+  {
+    kind: 'c2c',
+    table: 'c2c_msg_table',
+    filterCol: '40021',
+    filterNumeric: false,
+    trigger: 'weq_anti_recall_c2c',
+  },
+  {
+    kind: 'group',
+    table: 'group_msg_table',
+    filterCol: '40027',
+    filterNumeric: true,
+    trigger: 'weq_anti_recall_group',
+  },
+  {
+    kind: 'dataline',
+    table: 'dataline_msg_table',
+    filterCol: '40021',
+    filterNumeric: false,
+    trigger: 'weq_anti_recall_dataline',
+  },
 ] as const;
 
 /** Quote a value as a SQL string literal (single quotes, doubled to escape). */
@@ -321,7 +339,10 @@ END`;
 export class AntiRecallDb {
   private readonly qq: QqDb;
 
-  constructor(nt: NtHelperBinding, opts: { dbPath: string; key?: string; algo?: DatabaseAlgorithms }) {
+  constructor(
+    nt: NtHelperBinding,
+    opts: { dbPath: string; key?: string; algo?: DatabaseAlgorithms },
+  ) {
     this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
   }
 
@@ -423,8 +444,15 @@ export class AntiRecallDb {
    */
   private async ensureRecallLogSchema(): Promise<void> {
     const required = [
-      'msgid', 'conv', 'table_kind', 'sender_uid', 'revoke_uid',
-      'orig_seq', 'recall_ts', 'orig_body', 'graytip_done',
+      'msgid',
+      'conv',
+      'table_kind',
+      'sender_uid',
+      'revoke_uid',
+      'orig_seq',
+      'recall_ts',
+      'orig_body',
+      'graytip_done',
     ];
     const info = await this.qq.query(`PRAGMA table_info("${RECALL_LOG_TABLE}")`);
     if (info.length > 0) {

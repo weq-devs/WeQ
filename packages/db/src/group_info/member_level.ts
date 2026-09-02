@@ -61,11 +61,11 @@ export class GroupMemberLevelInfoDb {
 function rowToLevelInfo(row: SqlRow): GroupMemberLevelInfo {
   const blob = row[2];
   let levelConfigs: GroupLevelConfigItem[] = [];
-  
+
   if (blob instanceof Uint8Array) {
     try {
       const decoded = levelCodec.decode(blob);
-      levelConfigs = (decoded.items ?? []).map(item => ({
+      levelConfigs = (decoded.items ?? []).map((item) => ({
         level: item.level ?? 0,
         levelName: item.levelName ?? '',
       }));

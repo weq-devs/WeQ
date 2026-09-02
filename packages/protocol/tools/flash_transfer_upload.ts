@@ -67,14 +67,14 @@ async function resolveTarget(nt: Nt): Promise<{ pid: number; info: QqPortLoginIn
   if (pids.length > 1) {
     const candidates = pids.map((p) => ({ pid: p, info: probeSafe(nt, p) }));
     const hit = wantUin
-        ? candidates.find((c) => c.info?.uin === wantUin && c.info.loggedIn)
-        : candidates.find((c) => c.info?.loggedIn);
+      ? candidates.find((c) => c.info?.uin === wantUin && c.info.loggedIn)
+      : candidates.find((c) => c.info?.loggedIn);
     if (!hit) {
       throw new Error(
-          `多个 QQ 进程且无法确定登录账号:${pids.join(', ')}` +
+        `多个 QQ 进程且无法确定登录账号:${pids.join(', ')}` +
           (wantUin
-              ? `(没有 uin=${wantUin} 且已登录的进程)`
-              : '(可用 .env 配置 WEQ_TEST_UIN 来指定)'),
+            ? `(没有 uin=${wantUin} 且已登录的进程)`
+            : '(可用 .env 配置 WEQ_TEST_UIN 来指定)'),
       );
     }
     pid = hit.pid;

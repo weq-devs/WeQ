@@ -31,7 +31,10 @@ export function renderAppHtml(botName: string): string {
 }
 
 function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+  return s.replace(
+    /[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!,
+  );
 }
 
 /* ── 样式：复刻 WeQ 视觉语言（极光 + 几何线 + 玻璃拟态）· 浅/深双模式 ────────── */

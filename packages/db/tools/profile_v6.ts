@@ -22,14 +22,15 @@ async function main() {
     algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' },
   });
 
-  console.log('[test:profile-v6] Querying target UIN:', UIN_TARGET);  const profile = await db.getProfileByUin(UIN_TARGET);
-  
+  console.log('[test:profile-v6] Querying target UIN:', UIN_TARGET);
+  const profile = await db.getProfileByUin(UIN_TARGET);
+
   if (profile) {
     console.log('[test:profile-v6] Result found:');
     console.log(JSON.stringify(profile, bigintReplacer, 2));
   } else {
     console.log('[test:profile-v6] User not found in cache.');
-    
+
     // Fallback: list some profiles to see what's there
     const list = await db.listProfiles(3);
     console.log('[test:profile-v6] Listing some cached profiles instead:');

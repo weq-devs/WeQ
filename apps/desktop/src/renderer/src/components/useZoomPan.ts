@@ -59,20 +59,23 @@ export function useZoomPan(resetKey: unknown, opts?: { clickZoom?: boolean }): Z
   useEffect(() => setT(IDENTITY), [resetKey]);
 
   /** 以 (clientX, clientY) 为锚点缩放到 nextScale，锚点在屏幕上保持不动。 */
-  const zoomAt = useCallback((clientX: number, clientY: number, nextScale: number, rect: DOMRect) => {
-    const cur = ref.current;
-    const s = clampScale(nextScale);
-    if (s === cur.scale) return;
-    if (s <= 1) {
-      setT(IDENTITY);
-      return;
-    }
-    // rect 是元素当前（已变换）的包围盒，其中心即当前屏幕中心。
-    const cx = rect.left + rect.width / 2;
-    const cy = rect.top + rect.height / 2;
-    const k = 1 - s / cur.scale;
-    setT({ scale: s, tx: cur.tx + (clientX - cx) * k, ty: cur.ty + (clientY - cy) * k });
-  }, []);
+  const zoomAt = useCallback(
+    (clientX: number, clientY: number, nextScale: number, rect: DOMRect) => {
+      const cur = ref.current;
+      const s = clampScale(nextScale);
+      if (s === cur.scale) return;
+      if (s <= 1) {
+        setT(IDENTITY);
+        return;
+      }
+      // rect 是元素当前（已变换）的包围盒，其中心即当前屏幕中心。
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const k = 1 - s / cur.scale;
+      setT({ scale: s, tx: cur.tx + (clientX - cx) * k, ty: cur.ty + (clientY - cy) * k });
+    },
+    [],
+  );
 
   // 滚轮缩放：用原生 non-passive 监听，才能 preventDefault 阻止页面滚动。
   useEffect(() => {

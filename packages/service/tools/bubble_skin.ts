@@ -16,7 +16,11 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { resolveBubbleSkin, legacyBubbleStaticUrl, type BubbleSkin } from '../src/account/bubble_skin';
+import {
+  resolveBubbleSkin,
+  legacyBubbleStaticUrl,
+  type BubbleSkin,
+} from '../src/account/bubble_skin';
 import { normalizeMallItems } from '../src/account/web/dress_mall';
 import type { AvatarCacheService } from '../src/bootstrap/media_cache';
 
@@ -78,7 +82,9 @@ async function main(): Promise<void> {
         `${skin.imageSize.w}×${skin.imageSize.h} animated=${skin.animated} color=${skin.textColor}`,
     );
     if (!sliceOk) {
-      console.log(`     期望 slice L${want.slice[0]} T${want.slice[1]} R${want.slice[2]} B${want.slice[3]}`);
+      console.log(
+        `     期望 slice L${want.slice[0]} T${want.slice[1]} R${want.slice[2]} B${want.slice[3]}`,
+      );
       failed++;
     }
     if (!animOk) {
@@ -89,7 +95,9 @@ async function main(): Promise<void> {
 
   // 不存在的 itemId 必须干净地回 null,而不是抛错或吐出一个瞎猜的 skin。
   const bogus = await resolveBubbleSkin(directCache, 1, { staticUrl: legacyBubbleStaticUrl(1) });
-  console.log(`${bogus === null ? '✅' : '❌'} 不存在的 itemId=1 → ${bogus === null ? 'null' : '意外拿到 skin'}`);
+  console.log(
+    `${bogus === null ? '✅' : '❌'} 不存在的 itemId=1 → ${bogus === null ? 'null' : '意外拿到 skin'}`,
+  );
   if (bogus !== null) failed++;
 
   // ── material 路径:新款 hash 目录。这是回归用例 ──
@@ -139,7 +147,9 @@ async function main(): Promise<void> {
       staticUrl: legacyBubbleStaticUrl(legacyItem.itemId),
     });
     const same =
-      viaMaterial && viaProbe && JSON.stringify(viaMaterial.slice) === JSON.stringify(viaProbe.slice);
+      viaMaterial &&
+      viaProbe &&
+      JSON.stringify(viaMaterial.slice) === JSON.stringify(viaProbe.slice);
     console.log(
       `${same ? '✅' : '❌'} ${legacyItem.itemId} 两条路径 slice 一致` +
         ` (material=${viaMaterial ? fmt(viaMaterial.slice) : 'null'}` +

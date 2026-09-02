@@ -216,9 +216,10 @@ let pageLogoUri: string | null | undefined;
 function brandLogoDataUri(): string | null {
   if (pageLogoUri !== undefined) return pageLogoUri;
   const path = resolveResource('brand', 'logo.png');
-  pageLogoUri = path && existsSync(path)
-    ? `data:image/png;base64,${readFileSync(path).toString('base64')}`
-    : null;
+  pageLogoUri =
+    path && existsSync(path)
+      ? `data:image/png;base64,${readFileSync(path).toString('base64')}`
+      : null;
   return pageLogoUri;
 }
 

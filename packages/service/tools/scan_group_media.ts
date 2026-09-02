@@ -78,14 +78,18 @@ async function main(): Promise<void> {
 
     console.log('\n  timing:');
     console.log(`    db collect : ${r.collectMs} ms`);
-    console.log(`    index build: ${r.indexBuildMs} ms  (${r.indexedDirs} dirs, ${r.indexedFiles} files indexed)`);
+    console.log(
+      `    index build: ${r.indexBuildMs} ms  (${r.indexedDirs} dirs, ${r.indexedFiles} files indexed)`,
+    );
     console.log(`    match      : ${r.matchMs} ms`);
     console.log(`    total      : ${r.durationMs} ms`);
 
     // ---- assertions ----
     if (r.totalRefs <= 0) throw new Error('no media references found — unexpected for this group');
-    if (r.foundFiles + r.missingFiles !== r.uniqueFiles) throw new Error('found + missing != unique');
-    if (r.expiredFiles + r.downloadableFiles !== r.missingFiles) throw new Error('expired + downloadable != missing');
+    if (r.foundFiles + r.missingFiles !== r.uniqueFiles)
+      throw new Error('found + missing != unique');
+    if (r.expiredFiles + r.downloadableFiles !== r.missingFiles)
+      throw new Error('expired + downloadable != missing');
 
     console.log('\n[test:scan-media] PASS');
   } finally {

@@ -74,7 +74,7 @@ export namespace GetQqShowUrl {
       | Record<string, unknown>
       | undefined;
     const key = toInt(entry?.key);
-    const url = key === QQ_SHOW_KEY ? (entry?.url as string | undefined) ?? '' : '';
+    const url = key === QQ_SHOW_KEY ? ((entry?.url as string | undefined) ?? '') : '';
     return { uin: toInt(profile.uin), hasShow: url !== '', url };
   };
 

@@ -30,7 +30,11 @@ function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(`ASSERT FAILED: ${msg}`);
 }
 
-async function count(db: string, sql: string, params?: (string | bigint | number)[]): Promise<number> {
+async function count(
+  db: string,
+  sql: string,
+  params?: (string | bigint | number)[],
+): Promise<number> {
   const rows = await loadNative().ntHelper.executeSql(db, sql, (params as never) ?? null);
   return Number(rows[0]?.[0] ?? 0);
 }
@@ -109,7 +113,9 @@ async function main(): Promise<void> {
     targets,
   );
   const watermarks = new Map(wmRows.map((r) => [String(r[0]), BigInt(String(r[1]))]));
-  console.log(`[verify] watermarks: ${[...watermarks.entries()].map(([p, s]) => `${p}=${s}`).join(', ')}`);
+  console.log(
+    `[verify] watermarks: ${[...watermarks.entries()].map(([p, s]) => `${p}=${s}`).join(', ')}`,
+  );
 
   // --- 4) drive the real incremental (ready is set by sync()) ---
   await idx.incrementalFromWatermarks(watermarks);
@@ -128,7 +134,11 @@ async function main(): Promise<void> {
         )
       )[0]?.[0] ?? 0,
     );
-    const idxCount = await count(indexDbPath, `SELECT COUNT(*) FROM weq_fts_keys WHERE partition = ?`, [p]);
+    const idxCount = await count(
+      indexDbPath,
+      `SELECT COUNT(*) FROM weq_fts_keys WHERE partition = ?`,
+      [p],
+    );
     console.log(`[verify] partition ${p}: index ${idxCount} vs source ${srcCount}`);
     assert(idxCount === srcCount, `partition ${p}: index ${idxCount} != source ${srcCount}`);
   }
@@ -155,7 +165,9 @@ async function main(): Promise<void> {
   assert(snippet.length > 0, 'no searchable body found');
   const kw = String(snippet[0]?.[0]).slice(0, 8);
   const hits = await idx.searchPartition(BigInt(targets[0]!), kw, 5, 0);
-  console.log(`[verify] searchPartition("${kw}") -> total=${hits.total} items=${hits.items.length}`);
+  console.log(
+    `[verify] searchPartition("${kw}") -> total=${hits.total} items=${hits.items.length}`,
+  );
   assert(hits.total > 0, 'search returned nothing');
 
   console.log('\n[verify] ALL CHECKS PASSED');

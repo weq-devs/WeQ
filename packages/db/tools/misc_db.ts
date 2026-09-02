@@ -13,7 +13,7 @@ const MISC_DB_PATH = qqDbPath('misc.db');
 
 async function main() {
   const native = loadNative();
-  
+
   console.log('[test:misc-status] Opening:', MISC_DB_PATH);
   const db = new MiscDb(native.ntHelper, {
     dbPath: MISC_DB_PATH,
@@ -23,18 +23,21 @@ async function main() {
 
   try {
     // 1. List some UIDs from the table to see what's available
-    const rows = await db.query("SELECT \"48901\" FROM online_status_kv_table LIMIT 5;");
+    const rows = await db.query('SELECT "48901" FROM online_status_kv_table LIMIT 5;');
     if (!rows || rows.length === 0) {
       console.log('[test:misc-status] No UIDs found in table.');
       return;
     }
-    console.log(`[test:misc-status] Found ${rows.length} sample UIDs:`, rows.map(r => r[0]));
+    console.log(
+      `[test:misc-status] Found ${rows.length} sample UIDs:`,
+      rows.map((r) => r[0]),
+    );
 
     const firstRow = rows[0];
     if (firstRow) {
       const targetUid = firstRow[0] as string;
       console.log(`[test:misc-status] Fetching status for: ${targetUid}`);
-      
+
       const status = await db.getUserOnlineStatus(targetUid);
       if (status) {
         console.log('[test:misc-status] Decoded Status:');
@@ -43,7 +46,6 @@ async function main() {
         console.log('[test:misc-status] No status found for this UID.');
       }
     }
-
   } catch (err) {
     console.error('[test:misc-status] Failed:', err);
   } finally {

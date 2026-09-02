@@ -15,11 +15,17 @@ function describe(v: unknown): string {
 async function main() {
   const native = loadNative();
   const db = new QqDb(native.ntHelper, {
-    dbPath: testEnv.profileDbPath, key: testEnv.key,
+    dbPath: testEnv.profileDbPath,
+    key: testEnv.key,
     algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' },
   });
-  const tables = await db.query(`SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%adelie%'`);
-  console.log('tables:', tables.map((t) => String(t[0])));
+  const tables = await db.query(
+    `SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%adelie%'`,
+  );
+  console.log(
+    'tables:',
+    tables.map((t) => String(t[0])),
+  );
   for (const t of tables) {
     const table = String(t[0]);
     const info = await db.query(`PRAGMA table_info("${table}")`);
@@ -36,12 +42,22 @@ async function main() {
         if (v instanceof Uint8Array && v.byteLength) {
           try {
             console.log(`    hex: ${Buffer.from(v).toString('hex').slice(0, 400)}`);
-            console.log(`    raw: ${JSON.stringify(raw.decode(v), (_k, x) => (typeof x === 'bigint' ? x.toString() : x))}`.slice(0, 3000));
-          } catch { /* ignore */ }
+            console.log(
+              `    raw: ${JSON.stringify(raw.decode(v), (_k, x) => (typeof x === 'bigint' ? x.toString() : x))}`.slice(
+                0,
+                3000,
+              ),
+            );
+          } catch {
+            /* ignore */
+          }
         }
       }
     }
   }
   db.close();
 }
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

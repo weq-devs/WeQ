@@ -331,7 +331,10 @@ export async function openStaticAccount(
   const deletedSessions = new DeletedSessionDb(nt, opts(msgDbPath));
   const serviceAssistantContacts = new ServiceAssistantContactDb(nt, opts(msgDbPath));
   // 服务号（118）消息表结构同 c2c，复用 C2cMsgDb 只换表名；分区键是 appId（40035）。
-  const serviceAssistantMsgs = new C2cMsgDb(nt, { ...opts(msgDbPath), table: 'service_assistant_msg_table' });
+  const serviceAssistantMsgs = new C2cMsgDb(nt, {
+    ...opts(msgDbPath),
+    table: 'service_assistant_msg_table',
+  });
 
   // Load the uid ↔ uin ↔ sortNo directory.
   const uidMappingDb = new UidMappingDb(nt, opts(msgDbPath));
