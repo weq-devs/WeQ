@@ -407,7 +407,18 @@ export function GlobalSettingsSection(): ReactElement {
                       </span>
                     ) : null}
                   </div>
-                  {!isAutoEnter ? (
+                  {isAutoEnter ? (
+                    <button
+                      type="button"
+                      className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+                      onClick={() => void onClearAutoEnter()}
+                      disabled={clearAutoEnter.isLoading}
+                      title="下次打开 WeQ 不再自动进入该账号"
+                    >
+                      <RotateCcw size={12} strokeWidth={1.8} aria-hidden />
+                      取消默认进入
+                    </button>
+                  ) : (
                     <button
                       type="button"
                       className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
@@ -417,7 +428,7 @@ export function GlobalSettingsSection(): ReactElement {
                       <User size={12} strokeWidth={1.8} aria-hidden />
                       设为默认
                     </button>
-                  ) : null}
+                  )}
                   <button
                     type="button"
                     className="weq-set-btn weq-set-btn-soft weq-set-btn-sm weq-set-btn-del"
@@ -434,8 +445,9 @@ export function GlobalSettingsSection(): ReactElement {
           </div>
         )}
         <p className="weq-set-note">
-          已保存的账号配置，点击「设为默认」后下次打开 WeQ 将自动进入该账号；「删除」只移除 WeQ
-          侧保存的配置，不影响 QQ 本体数据。
+          已保存的账号配置，点击「设为默认」后下次打开 WeQ 将自动进入该账号；想改回手动选择，
+          对已默认的账号点击「取消默认进入」即可。「删除」只移除 WeQ 侧保存的配置，不影响 QQ
+          本体数据。
         </p>
         {autoEnterTarget ? (
           <div className="weq-set-actions">
