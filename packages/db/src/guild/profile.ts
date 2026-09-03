@@ -1,5 +1,5 @@
 /**
- * `t_GPro_CommonUserProfile_v2` (in guild1.db) - cached common profiles of
+ * `t_GPro_CommonUserProfile_v2` (PC: guild1.db; Android backup: gpro_v1-6_<uid>.db) -
  * QQ 频道 users, keyed by guild tiny id.
  *
  * Column map (subset we read):
@@ -13,7 +13,7 @@ import type { GuildCommonProfile } from './types';
 import { QqDb } from '../qq_db';
 
 export interface GuildCommonProfileDbOptions {
-  /** Absolute path to guild1.db. */
+  /** Absolute path to the profile-cache DB (PC: guild1.db; Android: gpro_v1-6_<uid>.db). */
   dbPath: string;
   /** SQLCipher key (omit for plain decrypted). */
   key?: string;
