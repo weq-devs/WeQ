@@ -115,7 +115,6 @@ import {
   getLogDir,
   logErrorContext,
   type AccountConfigMetadata,
-  type AnnualReportPreferences,
   type DbWatchHandle,
   type NewMessages,
   type DbChange,

@@ -84,8 +84,6 @@ export function AnnualReportView({ onBack }: { onBack: () => void }): ReactEleme
     [pages.length],
   );
 
-  const activePage = pages[index];
-  const activeState = activePage ? states[activePage.id] : undefined;
   const availableYears = manifestQuery.data?.availableYears ?? [year];
   const scopeLabel = useMemo(() => {
     const scope = manifestQuery.data?.scope;
@@ -114,7 +112,7 @@ export function AnnualReportView({ onBack }: { onBack: () => void }): ReactEleme
   if (!pages.length) {
     return (
       <div className="weq-report-root weq-report-empty">
-        <p>当前没有可显示的年度报告页面。</p>
+        <p>您的数据过少，目前的配置展示无法为您生成自定义的报告，更改配置或者换个账号再试试吧～</p>
         <button type="button" onClick={onBack}>
           返回
         </button>

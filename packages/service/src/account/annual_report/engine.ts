@@ -1,13 +1,14 @@
 import type { AccountSession } from '@weq/account';
 import { AnnualReportCache, scopeKey } from './cache';
-import { buildYearStatsCore } from './core';
 import { createReportQueries } from './queries';
 import { currentReportYear, normalizeReportYear } from './time';
 import { findReportPage, reportPages } from './pages';
 import {
   DEFAULT_REPORT_SCOPE,
   type AnnualReportPreferences,
+  type PageAvailability,
   type ReportManifest,
+  type ReportPageDefinition,
   type ReportPageError,
   type ReportPageResult,
   type ReportScope,
@@ -41,13 +42,19 @@ export class AnnualReportService {
     this.preferences = options.preferences ?? DEFAULT_PREFERENCES;
   }
 
-  getManifest(year?: number): ReportManifest {
+  /** Lightweight directory: manifest + per-page availability (probed & cached). */
+  async getManifest(year?: number): Promise<ReportManifest> {
     const normalizedYear = normalizeReportYear(year);
-    const pages = this.resolvePages();
-    const availableYears = [normalizedYear];
+    const candidates = this.resolveCandidates();
+    const availability = await Promise.all(
+      candidates.map((page) => this.checkAvailability(normalizedYear, page)),
+    );
+    const pages = candidates
+      .filter((_, index) => availability[index]?.available)
+      .map((page) => page.manifest);
     return {
       year: normalizedYear,
-      availableYears,
+      availableYears: [normalizedYear],
       scope: this.scope,
       pages,
       availablePages: reportPages
@@ -119,23 +126,12 @@ export class AnnualReportService {
     cacheable: boolean,
   ): Promise<ReportPageResult> {
     try {
-      const coreKey = [year, scopeKey(this.scope), this.dataRevision].join('|');
-      let corePromise = this.cache.getCore(coreKey);
-      if (!corePromise) {
-        corePromise = buildYearStatsCore(this.session, year, this.scope);
-        this.cache.setCore(coreKey, corePromise);
-        void corePromise.catch(() => {
-          if (this.cache.getCore(coreKey) === corePromise) this.cache.deleteCore(coreKey);
-        });
-      }
-      const core = await corePromise;
       const page = findReportPage(pageId);
       if (!page) throw new Error(`找不到年度报告页面：${pageId}`);
       const data = await page.compute({
         year,
         scope: this.scope,
-        core,
-        q: createReportQueries(),
+        q: createReportQueries(this.session),
         signal: new AbortController().signal,
         dataRevision: this.dataRevision,
       });
@@ -158,7 +154,43 @@ export class AnnualReportService {
     }
   }
 
-  private resolvePages() {
+  /**
+   * Cheap per-page eligibility probe. Results are memoized in memory so a
+   * manifest refresh doesn't re-hit the database for every page.
+   */
+  private async checkAvailability(
+    year: number,
+    page: ReportPageDefinition,
+  ): Promise<PageAvailability> {
+    if (!page.availability) return { available: true };
+    const key = [
+      'avail',
+      year,
+      page.manifest.id,
+      page.manifest.version,
+      scopeKey(this.scope),
+      this.dataRevision,
+    ].join('|');
+    const cached = this.cache.getAvailability(key);
+    if (cached) return cached;
+    const running = Promise.resolve(
+      page.availability({
+        year,
+        scope: this.scope,
+        q: createReportQueries(this.session),
+        dataRevision: this.dataRevision,
+      }),
+    );
+    this.cache.setAvailability(key, running);
+    void running.then(
+      () => this.cache.deleteAvailability(key),
+      () => this.cache.deleteAvailability(key),
+    );
+    return running;
+  }
+
+  /** Preference-merged candidate page definitions, in display order. */
+  private resolveCandidates(): ReportPageDefinition[] {
     const defaults = reportPages
       .filter((page) => page.manifest.enabledByDefault)
       .sort((a, b) => a.manifest.order - b.manifest.order);
@@ -174,8 +206,7 @@ export class AnnualReportService {
           (order.get(a.manifest.id) ?? Number.MAX_SAFE_INTEGER) -
             (order.get(b.manifest.id) ?? Number.MAX_SAFE_INTEGER) ||
           a.manifest.order - b.manifest.order,
-      )
-      .map((page) => page.manifest);
+      );
   }
 
   private error(code: string, message: string, retryable: boolean): ReportPageError {
@@ -203,7 +234,9 @@ function assertJsonSafe(value: unknown, path = 'data'): void {
   }
   if (value === null || typeof value !== 'object') return;
   if (Array.isArray(value)) {
-    value.forEach((item, index) => assertJsonSafe(item, `${path}[${index}]`));
+    value.forEach((item, index) => {
+      assertJsonSafe(item, `${path}[${index}]`);
+    });
     return;
   }
   for (const [key, item] of Object.entries(value)) assertJsonSafe(item, `${path}.${key}`);

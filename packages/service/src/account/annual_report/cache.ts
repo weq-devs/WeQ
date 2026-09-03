@@ -1,25 +1,13 @@
-import type { ReportPageResult, ReportScope, YearStatsCore } from './types';
+import type { PageAvailability, ReportPageResult, ReportScope } from './types';
 
 export function scopeKey(scope: ReportScope): string {
   return JSON.stringify(scope);
 }
 
 export class AnnualReportCache {
-  private readonly core = new Map<string, Promise<YearStatsCore>>();
   private readonly pages = new Map<string, ReportPageResult>();
   private readonly inFlight = new Map<string, Promise<ReportPageResult>>();
-
-  getCore(key: string): Promise<YearStatsCore> | undefined {
-    return this.core.get(key);
-  }
-
-  setCore(key: string, value: Promise<YearStatsCore>): void {
-    this.core.set(key, value);
-  }
-
-  deleteCore(key: string): void {
-    this.core.delete(key);
-  }
+  private readonly availability = new Map<string, Promise<PageAvailability>>();
 
   getPage(key: string): ReportPageResult | undefined {
     return this.pages.get(key);
@@ -41,9 +29,21 @@ export class AnnualReportCache {
     this.inFlight.delete(key);
   }
 
+  getAvailability(key: string): Promise<PageAvailability> | undefined {
+    return this.availability.get(key);
+  }
+
+  setAvailability(key: string, value: Promise<PageAvailability>): void {
+    this.availability.set(key, value);
+  }
+
+  deleteAvailability(key: string): void {
+    this.availability.delete(key);
+  }
+
   clear(): void {
-    this.core.clear();
     this.pages.clear();
     this.inFlight.clear();
+    this.availability.clear();
   }
 }
