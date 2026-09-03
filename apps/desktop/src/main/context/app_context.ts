@@ -852,7 +852,6 @@ export function initAppContext(): AppContext {
       const dressInstall = createDressService(
         platform.native.ntHelper,
         platform.native.ntHelper,
-        bootstrap.avatarCache,
         dressConfigDir,
         sharedDressCache,
         resolveOnlinePid,
@@ -1339,7 +1338,6 @@ export function initAppContext(): AppContext {
       const dressInstall = createDressService(
         platform.native.ntHelper,
         platform.native.ntHelper,
-        bootstrap.avatarCache,
         dressConfigDir,
         sharedDressCache,
         livePid,

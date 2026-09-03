@@ -228,15 +228,15 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
     syncDressSkin(manifest);
   }, [manifest]);
 
-  // 「已装」里没有商城预览图的气泡(消息 40801 逐条自动装、以及 CDN 直链装的遗留款),
+  // 「已装」里没有商城预览图的气泡(旧版 40801 自动装遗留的条目、以及旧配置里缺预览图的
+  // 条目 —— 现在 40801 解析只进共享缓存、不再写「已装」,但旧配置里的条目还在),
   // 预先注入本地预览 CSS —— 渲染层只负责摆 DOM,样式写一次就够。用 layout effect
   // 让样式赶在首帧绘制前落地,避免「已装」网格先闪一帧裸文字气泡。
   useLayoutEffect(() => {
     if (!manifest) return;
     for (const b of manifest.bubbles) {
-      // 只对解析出完整 skin 的款注入(localFile / staticUrl 至少有一);
-      // 注入时底图优先本地 PNG,拿不到才用 chat 同源的 dress 代理地址。
-      if (!b.previewUrl && (b.localFile || b.staticUrl)) injectBubblePreviewCss(b);
+      // local-only:能进清单的款本地九宫格必在,直接画本体当预览。
+      if (!b.previewUrl) injectBubblePreviewCss(b);
     }
   }, [manifest]);
 
@@ -283,11 +283,10 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
         // 显示可以,落盘不行(存进清单就洗不掉,列表会永远显示占位名)。
         const name = nameForManifest;
         if (mallKind === 'bubble') {
-          // material 原样回传 —— 外链推不出来,后端靠它零探测装上(见 dressup 路由)。
+          // 只带 itemId —— 后端走本地离线 bundle → protocol 唯一下载链(见 dressup 路由)。
           // name/previewUrl 同理:装完只剩 itemId,商城没有按 id 查详情的接口。
           await installBubble.mutateAsync({
             itemId: item.itemId,
-            material: item.material,
             name,
             previewUrl: item.previewLargeUrl || item.previewUrl,
           });
@@ -529,7 +528,6 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
           ) : (
             <div className="weq-dress-card-noimg">无预览</div>
           )}
-          {item.animated ? <span className="weq-dress-badge">动效</span> : null}
         </div>
         <div className="weq-dress-card-body">
           <strong title={item.name}>{item.name}</strong>
@@ -694,18 +692,15 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
       return (
         <div className="weq-dress-grid">
           {mine.map((m) => {
-            // 「已装」里没有商城预览图的款(消息 40801 逐条自动装的)—— 预览直接画
+            // 「已装」里没有商城预览图的款(旧版 40801 自动装遗留的)—— 预览直接画
             // 气泡 / 字体本体:气泡优先本地持久化 PNG,字体走本地 ttf 排样例文字。
             const localPreview =
               mallKind === 'bubble' ? (
                 (() => {
-                  // skin 完整(localFile 本地 PNG 或 staticUrl CDN 直链)就能把气泡本体
-                  // 画出来 —— 底图与 chat 渲染同源、首选项为本地文件,不另猜预览图。
+                  // local-only:能进清单的款本地九宫格必在,直接把气泡本体画出来当预览
+                  // —— 底图与 chat 渲染同源,不另猜预览图。
                   const skin = manifest?.bubbles.find((b) => b.itemId === m.itemId);
-                  return m.installed &&
-                    skin &&
-                    !skin.previewUrl &&
-                    (skin.localFile || skin.staticUrl) ? (
+                  return m.installed && skin && !skin.previewUrl ? (
                     <BubbleLocalPreview itemId={m.itemId} />
                   ) : undefined;
                 })()
@@ -726,10 +721,6 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
                 labels: m.installed ? [] : ['QQ 同款'],
                 price: 0,
                 mallName: '',
-                animated: false,
-                color: '',
-                // 清单里没有 material(只有解析后的结果),未装的那款靠后端 protocol 兜底。
-                material: null,
               },
               // 存的是 CDN 裸链,进 <img> 前得跟商城列表一样过 weq-media://dress 代理。
               m.previewUrl ? dressUrl(m.previewUrl) : '',

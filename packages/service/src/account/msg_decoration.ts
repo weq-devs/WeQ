@@ -4,12 +4,13 @@
  * Column 40801 gives us {bubbleId, fontId, widgetId} per message. This service
  * resolves those raw itemIds into renderable data:
  *
- *  - bubble: full BubbleSkin (via DressService — tries legacy CDN URL
- *    then protocol fallback). Cached permanently in memory by itemId.
- *  - font: same pattern as bubble — auto-installs via DressService
- *    (requires an online instance; see installFont's doc). Cached permanently
- *    in memory by itemId, so the same itemId across many messages only pays
- *    the scupdate round-trip once per session.
+ *  - bubble: full BubbleSkin (via DressService.fetchBubble — local offline
+ *    bundle zip first, then protocol; both resolve to a local nine-patch PNG).
+ *    Cached permanently in memory by itemId.
+ *  - font: same pattern as bubble — fetches the ttf via DressService.fetchFont
+ *    (requires an online instance unless a local offline bundle exists).
+ *    Cached permanently in memory by itemId, so the same itemId across many
+ *    messages only pays the scupdate round-trip once per session.
  *  - widget: DressService.resolvePendantAnimation() (scupdate bid=4,
  *    other.zip → aio_file.zip frame sequence) first — needs an online
  *    instance and isn't guaranteed to hit; falls back straight to the guessed
@@ -17,6 +18,12 @@
  *    there's no intermediate "static aio_50.png" tier. Unlike font, no
  *    online instance is not an error here — it's just another reason to
  *    fall back silently.
+ *
+ * Bubbles/fonts go through the resource-only fetch* methods on purpose:
+ * per-message resolution exists to draw this message's decoration locally,
+ * so the asset landing in the shared cache is enough — the account's
+ * "已装" list is only ever written by explicit user installs (mall clicks /
+ * QQ-own sync), never by parsing someone else's messages.
  *
  * Same itemId → cache hit, never re-fetched for the session lifetime.
  */
@@ -116,8 +123,9 @@ export class MsgDecorationCacheService {
     if (this.bubbleResolved.has(itemId)) return this.bubbleResolved.get(itemId)!;
     let pending = this.bubblePending.get(itemId);
     if (!pending) {
+      // fetch 版:资源落共享缓存即可供渲染,不写账号「已装」清单(见 installBubble 的注释)。
       pending = this.dressInstall
-        .installBubble(itemId)
+        .fetchBubble(itemId)
         .then((skin) => {
           this.bubbleResolved.set(itemId, skin);
           this.bubblePending.delete(itemId);
@@ -134,23 +142,24 @@ export class MsgDecorationCacheService {
   }
 
   /**
-   * Mirrors {@link resolveBubble}: installFont() itself already caches on
-   * disk (manifest) and is a no-op if the ttf is already there, so the only
-   * thing this in-memory layer adds is de-duping concurrent/repeat lookups
-   * for the same itemId within the session — including failed ones (no
-   * online instance, item pulled from shelf, …), so we don't re-hit scupdate
-   * on every message using that font.
+   * Mirrors {@link resolveBubble}: fetchFont() itself already caches on disk
+   * (ttf in the shared cache) and is a no-op if the file is already there, so
+   * the only thing this in-memory layer adds is de-duping concurrent/repeat
+   * lookups for the same itemId within the session — including failed ones
+   * (no online instance, item pulled from shelf, …), so we don't re-hit
+   * scupdate on every message using that font.
    *
-   * Name/previewUrl are left blank — this path never feeds the "my dress"
-   * list (that's only populated by explicit user installs), it only needs
-   * the ttf file path to hand back.
+   * Uses fetchFont (resource-only), so this path never feeds the account's
+   * "my dress" / installed list — that is written only by explicit user
+   * installs via installFont. Message rendering just needs the ttf file path
+   * to hand back.
    */
   private async resolveFont(itemId: number): Promise<string | null> {
     if (this.fontResolved.has(itemId)) return this.fontResolved.get(itemId)!;
     let pending = this.fontPending.get(itemId);
     if (!pending) {
       pending = this.dressInstall
-        .installFont(itemId, '')
+        .fetchFont(itemId)
         .then((entry) => {
           this.fontResolved.set(itemId, entry.file);
           this.fontPending.delete(itemId);

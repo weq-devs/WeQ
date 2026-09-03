@@ -82,7 +82,6 @@ export function migrateDressData(
             itemId: bubble.itemId,
             slice: bubble.slice,
             imageSize: bubble.imageSize,
-            animated: bubble.animated,
             textColor: bubble.textColor,
             ...(bubble.animationFrameCount
               ? {

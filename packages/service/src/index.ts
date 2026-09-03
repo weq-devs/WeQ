@@ -102,11 +102,7 @@ export type {
 } from './account/user_config';
 export { fetchHomeDress, toPeerDress } from './account/home_dress';
 export type { HomeDressSnapshot, PeerDressSnapshot } from './account/home_dress';
-export {
-  resolveBubbleSkin,
-  legacyBubbleStaticUrl,
-} from './account/bubble_skin';
-export type { BubbleSkin, BubbleSlice, BubbleSource } from './account/bubble_skin';
+export type { BubbleSkin, BubbleSlice } from './account/bubble_skin';
 export { DressService, createDressService } from './account/dress_service';
 export { DressConfigService } from './account/dress_config';
 export { DressSharedCache, fontFamilyFor } from './account/dress_shared_cache';
@@ -125,7 +121,7 @@ export {
   normalizeMallItems,
   DressAppId,
 } from './account/web/dress_mall';
-export type { DressMallItem, BubbleMaterial } from './account/web/dress_mall';
+export type { DressMallItem } from './account/web/dress_mall';
 export { AccountMonitorService } from './account/monitor';
 export {
   MediaDownloadService,

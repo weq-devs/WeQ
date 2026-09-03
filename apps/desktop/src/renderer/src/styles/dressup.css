@@ -333,18 +333,6 @@
   font-size: 11px;
 }
 
-.weq-dress-badge {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  padding: 2px 6px;
-  border-radius: 5px;
-  background: rgba(18, 168, 255, 0.9);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 600;
-}
-
 .weq-dress-card-body {
   display: flex;
   flex-direction: column;
@@ -437,7 +425,7 @@
 }
 
 /* ===== 「已装」本地预览 =====
- * 没有商城预览图的气泡 / 字体(消息 40801 逐条自动装的款)直接用本地素材画预览:
+ * 没有商城预览图的气泡 / 字体(旧版 40801 自动装遗留的款)直接用本地素材画预览:
  * 气泡本体样式由 dressSkin.bubblePreviewCss 按 itemId 注入(几何与聊天同源),字体
  * 是 FontFace 加载本地 ttf 后排样例文字 —— 都不碰 CDN。 */
 .weq-dress-bubble-preview-stage {

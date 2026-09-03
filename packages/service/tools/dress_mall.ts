@@ -60,15 +60,12 @@ function main(): void {
 
     console.log(
       `${ok ? '✅' : '❌'} ${s.label}: ${items.length} 条(≥${s.minItems})` +
-        ` 动效 ${items.filter((i) => i.animated).length}` +
-        ` 有color ${items.filter((i) => i.color).length}` +
         ` 字段不全 ${bad.length}`,
     );
     const f = items[0];
     if (f) {
       console.log(
-        `      #1 id=${f.itemId} appId=${f.appId} "${f.name}" ${f.price}Q` +
-          ` [${f.labels.join('/')}] anim=${f.animated} color=${f.color || '(none)'}`,
+        `      #1 id=${f.itemId} appId=${f.appId} "${f.name}" ${f.price}Q [${f.labels.join('/')}]`,
       );
     }
     for (const b of bad.slice(0, 3)) {

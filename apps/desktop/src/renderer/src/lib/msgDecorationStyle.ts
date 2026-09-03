@@ -15,7 +15,6 @@ import {
   dressBubbleFrameUrl,
   dressPendantFrameUrl,
   dressFontUrl,
-  dressUrl,
 } from './resourceUrl';
 import { bubbleLinkMentionRules, bubbleRestrictsTextColor } from './dressSkin';
 
@@ -195,11 +194,9 @@ export function injectBubbleCss(skin: BubbleSkin): void {
           skin.animationRepeat ?? 0,
         )
       : null;
-  const imageUrl = frameAnim
-    ? dressBubbleFrameUrl(skin.itemId, 1)
-    : skin.localFile
-      ? dressBubbleUrl(skin.itemId)
-      : dressUrl(skin.staticUrl);
+
+  // local-only:气泡永远是本地九宫格(zip 链下载),没有 CDN 直链分支。
+  const imageUrl = frameAnim ? dressBubbleFrameUrl(skin.itemId, 1) : dressBubbleUrl(skin.itemId);
 
   const rules = [
     frameAnim?.keyframes ?? '',
@@ -248,27 +245,6 @@ export function injectBubbleCss(skin: BubbleSkin): void {
     frameAnim ? `  animation: ${frameAnim.animation};` : '',
     `}`,
   );
-
-  if (skin.animationUrl) {
-    const animUrl = dressUrl(skin.animationUrl);
-    const selAfter = lineContentSel('bubble', skin.itemId, '::after');
-    rules.push(
-      `${selAfter} {`,
-      `  content: "";`,
-      `  position: absolute;`,
-      `  inset: 0;`,
-      `  z-index: -1;`,
-      `  pointer-events: none;`,
-      `  border-style: solid;`,
-      `  border-width: 0;`,
-      `  border-image-source: url("${animUrl}");`,
-      `  border-image-slice: ${slice};`,
-      `  border-image-width: ${width};`,
-      `  border-image-repeat: stretch;`,
-      `}`,
-    );
-    rules.push(`${theirsBubbleSel(skin.itemId, '::after')} { transform: scaleX(-1); }`);
-  }
 
   // context-active highlight (can't rely on background when border-image is set)
   rules.push(

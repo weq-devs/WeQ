@@ -66,20 +66,6 @@ const PEER_QQ_SHOW_HINT = '获取失败 —— QQ 秀形象要发 OIDB 包，请
 const kindInput = z.enum(['bubble', 'font', 'widget']);
 type DressKindInput = z.infer<typeof kindInput>;
 
-/**
- * 商城条目自带的权威九宫格参数,由前端从列表项原样回传。
- *
- * 之所以让前端带回来而不是后端再查一遍:外链推不出来(见 service 的 bubble_skin 模块头),
- * 而列表响应里已经有了 —— 再查一次商城接口纯属浪费,而且离线时根本查不了。
- */
-const bubbleMaterial = z.object({
-  staticAll: z.string().min(1),
-  animationAll: z.string(),
-  zoomPointX: z.number().int().positive(),
-  zoomPointY: z.number().int().positive(),
-  color: z.string(),
-});
-
 function appIdFor(kind: DressKindInput): DressAppId {
   if (kind === 'bubble') return DressAppId.Bubble;
   return kind === 'font' ? DressAppId.Font : DressAppId.Widget;
@@ -221,28 +207,25 @@ export const dressupRouter = router({
   /**
    * 装一款气泡。
    *
-   * `material` 是商城条目自带的权威参数(外链/拉伸点/文字色)。**给了就不需要在线 QQ**
-   * —— 外链推不出来,但 material 里就有。前端从列表项原样回传即可。
-   * 不给时(只有 itemId,如「QQ 正在用的那款」)会先查本地离线 bundle,没有才回退
-   * protocol,那一步才需要在线实例。
+   * 只凭 itemId 走唯一下载链:先查本地离线 bundle(zip),没有才回退 protocol 换链
+   * (那一步才需要在线 QQ 实例)。不再有商城 material / CDN 直链路径。
+   *
+   * 款名 / 预览图:渲染用不到,但装完之后「我的装扮」只剩 itemId 可查,
+   * 不在这一刻记下来就再也补不回来了(商城没有按 id 查详情的接口)。
    */
   installBubble: procedure
     .input(
       z.object({
         itemId: z.number().int().positive(),
-        material: bubbleMaterial.nullish(),
-        // 款名 / 预览图:渲染用不到,但装完之后「我的装扮」只剩 itemId 可查,
-        // 不在这一刻记下来就再也补不回来了(商城没有按 id 查详情的接口)。
         name: z.string().optional(),
         previewUrl: z.string().optional(),
       }),
     )
     .mutation(async ({ input }) => {
-      const skin = await requireServices().dressInstall.installBubble(
-        input.itemId,
-        input.material ?? null,
-        { name: input.name, previewUrl: input.previewUrl },
-      );
+      const skin = await requireServices().dressInstall.installBubble(input.itemId, {
+        name: input.name,
+        previewUrl: input.previewUrl,
+      });
       if (!skin) {
         throw new Error(
           qqOnline()
@@ -355,8 +338,9 @@ export const dressupRouter = router({
    * 同一 itemId 在 service 层有内存缓存：首次需要异步解析（bubble / font 可能要下载
    * 资源），之后恒定命中缓存——前端应以 staleTime: Infinity 查询。
    *
-   * font 与 bubble 同样是「按需自动装」：未装过就走 scupdate 下载（需要在线实例，
-   * 没有在线实例时该条 fontFile 为 null，前端不渲染自定义字体，不报错）。
+   * font 与 bubble 同样是「按需下载」：资源只进共享缓存（fetch 版，不写「已装」清单），
+   * 未缓存过就走 scupdate 下载（需要在线实例，没有在线实例时该条 fontFile 为 null，
+   * 前端不渲染自定义字体，不报错）。
    * widget 优先走 scupdate 换真实动画帧（other.zip → aio_file.zip，同样需要在线实例，
    * 不设「静态 aio_50.png」中间兜底），拿不到时直接回退到按 itemId 拼 CDN URL 的
    * 猜测（成功率不保证，但好过没有）；两种情况 `widget` 字段恒非 null（widgetId > 0

@@ -8,12 +8,10 @@
  */
 
 import type { BubbleSkin } from './bubble_skin';
-import type { BubbleMaterial } from './web/dress_mall';
 import { DressConfigService, type DressScope, type DressBackgroundSource } from './dress_config';
 import { DressSharedCache, fontFamilyFor } from './dress_shared_cache';
 import type { TrpcNative } from '@weq/protocol';
 import type { NtHelperBinding } from '@weq/native';
-import type { AvatarCacheService } from '../bootstrap/media_cache';
 
 /** 已装的一款字体（兼容旧接口）。 */
 export interface InstalledFont {
@@ -139,15 +137,33 @@ export class DressService {
   }
 
   /**
-   * 安装一款气泡。
+   * 把一款气泡的资源下载到共享缓存 —— **不写「已装」清单**。
+   *
+   * 与 {@link installBubble} 的唯一区别:install 是「用户显式安装」语义(下载 + 记录到
+   * 账号已装清单),fetch 只保证资源在本地可用(消息 40801 逐条渲染的按需下载、导出
+   * 补全),不改变账号的已装状态。两类调用方混用 install 是「已装」被被动填充的根源。
+   *
+   * 下载链只有一条:本地离线 bundle(zip) → 在线 protocol(zip),不再有商城 material /
+   * CDN static-all 直链(见 dress_shared_cache 的 installBubble)。
+   */
+  async fetchBubble(itemId: number): Promise<BubbleSkin | null> {
+    return this.cache.installBubble(itemId);
+  }
+
+  /** fetch 版字体:同上 —— 只把 ttf 拿到共享缓存,不写「已装」清单。 */
+  async fetchFont(itemId: number): Promise<{ family: string; file: string }> {
+    return this.cache.installFont(itemId, '');
+  }
+
+  /**
+   * 安装一款气泡（显式安装:下载资源 + 标记已装）。
    */
   async installBubble(
     itemId: number,
-    material?: BubbleMaterial | null,
     meta?: { name?: string; previewUrl?: string },
   ): Promise<BubbleSkin | null> {
     // 1. 下载/解析资源到共享缓存。
-    const skin = await this.cache.installBubble(itemId, material);
+    const skin = await this.fetchBubble(itemId);
     if (!skin) return null;
 
     // 2. 标记已装 + 记录商城元数据。
@@ -158,11 +174,11 @@ export class DressService {
   }
 
   /**
-   * 安装一款字体。
+   * 安装一款字体（显式安装:下载资源 + 标记已装）。
    */
   async installFont(itemId: number, name: string, previewUrl?: string): Promise<InstalledFont> {
     // 1. 下载/转换资源到共享缓存。
-    const { family, file } = await this.cache.installFont(itemId, name);
+    const { family, file } = await this.fetchFont(itemId);
 
     // 2. 标记已装 + 记录商城元数据。
     this.config.markFontInstalled(itemId, { name, previewUrl });
@@ -303,7 +319,7 @@ export class DressService {
     // 气泡：只在用户从没自己选过时才同步。
     if (own.bubbleId && cfg.activeBubble === 0) {
       try {
-        await this.installBubble(own.bubbleId, null, {
+        await this.installBubble(own.bubbleId, {
           name: own.bubbleName,
           previewUrl: own.bubblePreviewUrl,
         });
@@ -357,8 +373,7 @@ export class DressService {
  * 创建装扮服务（工厂函数）。
  *
  * @param nt TrpcNative 实例（发 OIDB 包）。
- * @param ntHelper NtHelperBinding 实例（字体转换）。
- * @param avatarCache 头像缓存服务（气泡解析用）。
+ * @param ntHelper NtHelperBinding 实例（字体转换 / 离线 bundle 索引）。
  * @param configDir 账号配置目录（如 `config/accounts/{configId}/`）。
  * @param sharedCacheDir 全局共享缓存目录（如 `cache/dress_shared/`）。
  * @param resolvePid 获取在线 QQ pid 的函数。
@@ -366,12 +381,11 @@ export class DressService {
 export function createDressService(
   nt: TrpcNative,
   ntHelper: NtHelperBinding,
-  avatarCache: AvatarCacheService,
   configDir: string,
   sharedCacheDir: string,
   resolvePid: () => number,
 ): DressService {
   const config = new DressConfigService(configDir);
-  const cache = new DressSharedCache(nt, ntHelper, avatarCache, sharedCacheDir, resolvePid);
+  const cache = new DressSharedCache(nt, ntHelper, sharedCacheDir, resolvePid);
   return new DressService(config, cache);
 }

@@ -19,10 +19,9 @@
  *     slice L64/T55/R62/B55),即 QQ 的设计里文字本来就会「伸进」角落的装饰区。
  *     若用真 border 撑开,内容会被挤到拉伸带以内,气泡看着会胖一圈。
  *
- *  2. **动效款是「静态底 + APNG 叠加」,不是二选一。**
- *     实测 2078642 的 `animation-all.png` 只有几颗淡星星,气泡本体在 `static-all.png`
- *     里 —— 只贴动效层会得到一个几乎空白的气泡。所以静态层画在元素自身,动效层叠在
- *     `::after` 上(`.message-content` 上没有既有伪元素,不冲突)。
+ *  2. **动效只有一种形态:bubbleframe 逐帧九宫格(由 CSS `@keyframes` 切换
+ *     `border-image-source`)。** 服务侧只从 zip 链(本地 bundle / protocol)装资源,
+ *     不再有 CDN 的 APNG 叠加层,所以这里不铺 `::after` 动效层。
  *
  *  3. **必须给 min-width / min-height。** 小于四角固定区之和的尺寸会让对角切片互相
  *     挤压,浏览器按比例压缩,气泡就变形了。
@@ -38,7 +37,7 @@
  */
 
 import type { ResolvedWidget } from '@weq/service';
-import { dressBubbleUrl, dressBubbleFrameUrl, dressPendantFrameUrl, dressUrl } from './resourceUrl';
+import { dressBubbleUrl, dressBubbleFrameUrl, dressPendantFrameUrl } from './resourceUrl';
 
 /** 与 service 的 BubbleSkin 同构(渲染侧用得到的部分)。 */
 export interface BubbleSkinCss {
@@ -46,19 +45,14 @@ export interface BubbleSkinCss {
   slice: { left: number; top: number; right: number; bottom: number };
   imageSize: { w: number; h: number };
   textColor: string;
-  /** 静态底图 CDN 直链。走本地文件时为空串,看 {@link localFile}。 */
-  staticUrl: string;
   /**
-   * 有值表示这款是走 protocol 兜底装的,九宫格是本地 PNG(路径在主进程,这里只需知道
-   * 有没有)。此时要走 `weq-media://dressbubble` —— `dress` 那支有 host 白名单。
+   * local-only 模型下九宫格恒为本地 PNG(路径在主进程,渲染走
+   * `weq-media://dressbubble?id=`,这里只需要知道有值)。
    */
   localFile: string | null;
-  /** 动效叠加层 url(APNG)。没有动效版本时为 null。 */
-  animationUrl: string | null;
   /**
    * 整泡帧动画的帧数(见 service 的 BubbleSkin.animationFrameCount)。有值时
-   * {@link bubbleRules} 生成 `@keyframes` 逐帧切换 border-image-source,取代
-   * {@link animationUrl} 那套单张 APNG 叠加层。
+   * {@link bubbleRules} 生成 `@keyframes` 逐帧切换 border-image-source。
    */
   animationFrameCount?: number;
   /** 每帧停留时长(ms)。 */
@@ -154,8 +148,8 @@ function frameAnimationCss(
 
 /** 气泡是否「限制」了文字颜色。 */
 export function bubbleRestrictsTextColor(textColor: string): boolean {
-  // service 侧解析（bubble_skin.ts 的 resolveTextColor）：只有这款气泡自己规定颜色（material
-  // color / 不透明纯色填充推断）才是具体色值；回退主题正文色时是 var()，不算限制。
+  // service 侧解析（bubble_skin.ts 的 buildLocalBubbleSkin）：只有 config.json 给了权威
+  // 文字色才是具体色值；回退主题正文色时是 var()，不算限制。
   return !textColor.trim().startsWith('var(');
 }
 
@@ -270,7 +264,7 @@ function baseBubbleRule(
     `  border-radius: 0;`,
     m.frameAnim && animate ? `  animation: ${m.frameAnim.animation};` : '',
     // 纵向 padding:让文字对齐拉伸源。top < bottom 时拉伸源偏上,减少上 padding;
-    // top > bottom 时拉伸源偏下,增加上 padding。公式源自九宫格恒等式(bubble_skin.ts:323)。
+    // top > bottom 时拉伸源偏下,增加上 padding。公式源自九宫格恒等式(bubble_skin.ts 模块头)。
     `  padding: ${m.topPad} ${m.rightPad} ${m.bottomPad};`,
     `  min-width: ${m.minWidth};`,
     `  min-height: ${m.minHeight};`,
@@ -328,30 +322,6 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
     );
   }
 
-  // 动效层:同一套 slice/width,叠在静态底之上。APNG 由浏览器自己播,无需 keyframes。
-  // z-index 为负是为了压在**文字**下面 —— 绝对定位的伪元素默认画在在流内容之上,
-  // 不给层级的话动效会糊住消息正文。父元素 isolation:isolate 保证这个负值不外溢。
-  if (skin.animationUrl) {
-    rules.push(
-      `${sel}::after {`,
-      `  content: "";`,
-      `  position: absolute;`,
-      `  inset: 0;`,
-      `  z-index: -1;`,
-      `  pointer-events: none;`,
-      `  border-style: solid;`,
-      `  border-width: 0;`,
-      `  border-image-source: url("${dressUrl(skin.animationUrl)}");`,
-      `  border-image-slice: ${m.slice};`,
-      `  border-image-width: ${m.width};`,
-      `  border-image-repeat: stretch;`,
-      `}`,
-    );
-    if (theirsSel) {
-      rules.push(`${theirsSel}::after { transform: scaleX(-1); }`);
-    }
-  }
-
   // 右键选中:贴图盖住了 background,改用 outline 提示。
   const activeLine = scope === 'all' ? '.message-line' : '.message-line.mine';
   rules.push(
@@ -372,7 +342,7 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
 
 /**
  * 独立气泡预览的九宫格 CSS —— 给非聊天容器用(目前是「已装」列表里没有商城预览图的
- * 那批气泡,如消息 40801 逐条自动装的款,素材是本地九宫格 PNG)。
+ * 那批气泡,如旧版 40801 自动装遗留的款,素材是本地九宫格 PNG)。
  *
  * 与 bubbleRules 共用 bubbleMetrics / baseBubbleRule,几何完全一致;静态预览只画
  * 第一帧,不带循环动效。sel 是调用方自己的容器选择器,样式注入由调用方负责。
@@ -445,11 +415,11 @@ function fontFamilyFor(itemId: number): string {
 /**
  * 气泡静态底图的 url。整泡帧动画取第 1 帧(见 {@link frameAnimationCss} —— 那套
  * keyframes 会在动画开始后接管 border-image-source,这里给的是初始/无动画兜底值)。
- * 没有帧动画时按原规则:本地兜底装的走 dressbubble,CDN 直链走 dress。
+ * 无帧动画时走 dressbubble(本地九宫格,唯一形态)。
  */
 function bubbleImageUrl(skin: BubbleSkinCss): string {
   if (skin.animationFrameCount) return dressBubbleFrameUrl(skin.itemId, 1);
-  return skin.localFile ? dressBubbleUrl(skin.itemId) : dressUrl(skin.staticUrl);
+  return dressBubbleUrl(skin.itemId);
 }
 
 /**
@@ -566,7 +536,6 @@ export async function applyDressSkinPreloaded(
   await Promise.all(
     [
       bubble ? preloadImage(bubbleImageUrl(bubble)) : null,
-      bubble?.animationUrl ? preloadImage(dressUrl(bubble.animationUrl)) : null,
       font ? preloadFont(font) : null,
       // 挂件帧是本地 protocol 文件,首帧以后基本秒达;但首帧没解码就开播仍然会闪,
       // 所以逐帧预加载完再注入(与 msgDecorationStyle 的 preloadImages 同思路)。
