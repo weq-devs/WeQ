@@ -44,6 +44,7 @@ import { trpc, client } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
 import { useToast } from '../components/Toast';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
+import { fixProfileAvatarUrl } from '../lib/avatarResolver';
 import { datalineName, toChatTypeNumber } from '@weq/codec';
 import type { ExportPresets } from '@weq/service';
 import { Avatar, Segmented } from './export/widgets';
@@ -506,9 +507,11 @@ export function ExportView(): ReactElement {
             {
               id: `self:${self.uin}`,
               name: self.nick?.trim() ? `${self.nick}（我）` : '我的空间',
-              // 资料库存的头像常是本地 CDN token，渲染层用不了 —— 有 uin 就按
-              // 与好友行同一套公共 qlogo 规则派生，避免回退成昵称首字符。
-              avatarUrl: self.avatarUrl || convAvatarUrl('c2c', self.uid, self.uin),
+              // 资料库存的头像是 `qh.qlogo.cn/g?b=qq&ek=...&s=`（空 s= 会 400，
+              // 且该域已加进渲染层 CSP）—— 先补成 s=0 直接使用；没有存档头像
+              // 再按 uin 拼公共 CDN 兜底，避免回退成昵称首字符。
+              avatarUrl:
+                fixProfileAvatarUrl(self.avatarUrl) || convAvatarUrl('c2c', self.uid, self.uin),
               kind: 'c2c',
               uin: self.uin,
               total: 0,

@@ -10,8 +10,10 @@
  * 说说按发表时间**倒序**，配合时间范围可提前停止翻页。
  *
  * 产物格式：json / txt / html。HTML 完整渲染：资料头（空间头像 / 昵称）+
- * 说说卡片（表情外链 qzonestyle、配图网格、赞 / 评论数、评论区含回复）。
- * 配图与互动拉取由调用方保证 —— 含 html 时强制下载配图 + 拉取评论 / 点赞。
+ * 说说卡片（表情外链 qzonestyle、配图网格、赞 / 评论数、评论区含回复）；
+ * 评论默认展开前 3 条、点赞默认展开前 10 人，更多可点按钮展开 / 收起（参考
+ * QzoneArchive 归档页，内联脚本切换，无需联网）。配图与互动拉取由调用方保证
+ * —— 含 html 时强制下载配图 + 拉取评论 / 点赞。
  */
 
 import { createExportWriter } from './stream_utils';
@@ -212,6 +214,10 @@ const QZONE_HTML_STYLE = `
   .stats { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 12px; padding-top: 10px; border-top: 1px dashed #e1e8f2; color: #7e899a; font-size: 12px; }
   .stats .likes { color: #e15b64; }
   .sep { color: #c3ccd8; }
+  .toggle { border: 0; background: none; padding: 0; color: #2684ff; cursor: pointer; font-size: 12px; font-family: inherit; line-height: inherit; white-space: nowrap; }
+  .toggle:hover { text-decoration: underline; }
+  .comments-more { display: flex; flex-direction: column; gap: 12px; }
+  [hidden] { display: none !important; }
   .comments { margin-top: 12px; display: flex; flex-direction: column; gap: 12px; background: #f5f8fc; border-radius: 12px; padding: 12px 14px; }
   .comment, .reply { display: flex; gap: 8px; }
   .comment .avatar, .reply .avatar { width: 30px; height: 30px; font-size: 13px; }
@@ -229,6 +235,38 @@ const QZONE_HTML_STYLE = `
     .pictures { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
     .pictures img { height: 140px; }
   }
+`;
+
+/**
+ * 评论区 / 点赞名单展开-收起的原地切换脚本（不依赖任何外部库）：
+ * 监听 `.toggle` 按钮点击，把按钮 `data-target` 选中的折叠容器 `hidden` 属性取反，
+ * 并同步按钮文案（`data-more` / `data-less`）与 `aria-expanded`。点赞还有
+ * `data-suffix`（尾缀「 赞了」），展开时一并显示。
+ */
+const QZONE_HTML_SCRIPT = `
+<script>
+(function () {
+  'use strict';
+  document.addEventListener('click', function (ev) {
+    var btn = ev.target && ev.target.closest ? ev.target.closest('button.toggle') : null;
+    if (!btn) return;
+    var card = btn.closest('article.card');
+    if (!card) return;
+    var target = card.querySelector(btn.getAttribute('data-target'));
+    if (!target) return;
+    // 当前折叠 → 点开；当前展开 → 收起。
+    var collapsed = target.hidden;
+    target.hidden = !collapsed;
+    var suffix = btn.getAttribute('data-suffix');
+    if (suffix) {
+      var suffixEl = card.querySelector(suffix);
+      if (suffixEl) suffixEl.hidden = !collapsed;
+    }
+    btn.textContent = collapsed ? btn.getAttribute('data-less') : btn.getAttribute('data-more');
+    btn.setAttribute('aria-expanded', collapsed ? 'true' : 'false');
+  });
+})();
+</script>
 `;
 
 /** QQ 空间头像（QzoneArchive 同款 qlogo2 域）；无有效 uin 返回空串。 */
@@ -343,38 +381,70 @@ function commentContentHtml(c: QzoneComment): string {
   );
 }
 
-/** 一组评论（一级 + 回复）渲染成评论区 HTML。 */
-function commentsToHtml(comments: QzoneComment[]): string {
-  const blocks = groupComments(comments);
-  const out: string[] = [];
-  for (const block of blocks) {
-    out.push('<div class="comment">');
-    out.push(avatarElement(block.root.uin, block.root.nickname));
-    out.push('<div class="comment-main">');
-    out.push(commentMetaHtml(block.root));
-    const text = qzoneTextToHtml(block.root.content);
-    if (text || block.root.images.length) {
-      out.push(`<p class="comment-text">${text}${commentPicsToHtml(block.root)}</p>`);
-    }
-    if (block.replies.length > 0) {
-      out.push('<div class="replies">');
-      for (const r of block.replies) out.push(commentContentHtml(r));
-      out.push('</div>');
-    }
-    out.push('</div></div>');
+/** 评论区默认展开的一级评论条数（含回复）；超出折叠，点「查看全部」展开。 */
+const COMMENTS_PREVIEW = 3;
+/** 点赞列表默认展开的人数；超出折叠，点「等 N 人赞了」展开。 */
+const LIKES_PREVIEW = 10;
+
+/** 单个评论块（一级评论 + 其回复）渲染成 HTML。 */
+function commentBlockToHtml(block: { root: QzoneComment; replies: QzoneComment[] }): string {
+  const out: string[] = ['<div class="comment">'];
+  out.push(avatarElement(block.root.uin, block.root.nickname));
+  out.push('<div class="comment-main">');
+  out.push(commentMetaHtml(block.root));
+  const text = qzoneTextToHtml(block.root.content);
+  if (text || block.root.images.length) {
+    out.push(`<p class="comment-text">${text}${commentPicsToHtml(block.root)}</p>`);
   }
+  if (block.replies.length > 0) {
+    out.push('<div class="replies">');
+    for (const r of block.replies) out.push(commentContentHtml(r));
+    out.push('</div>');
+  }
+  out.push('</div></div>');
   return out.join('');
 }
 
-/** 点赞列表（前 10 个名字，超出补「等 N 人赞了」）。 */
+/**
+ * 一组评论（一级 + 回复）渲染成评论区 HTML：默认只展开前 {@link COMMENTS_PREVIEW}
+ * 条一级评论，超出部分折叠进 `comments-more`，配「查看全部 / 收起评论」展开按钮
+ * （参考 QzoneArchive 归档页）。
+ */
+function commentsToHtml(comments: QzoneComment[]): string {
+  const blocks = groupComments(comments);
+  const rendered = blocks.map(commentBlockToHtml);
+  if (rendered.length <= COMMENTS_PREVIEW) return rendered.join('');
+  const shown = rendered.slice(0, COMMENTS_PREVIEW).join('');
+  const rest = rendered.slice(COMMENTS_PREVIEW).join('');
+  const toggle =
+    `<button type="button" class="toggle comments-toggle" data-target=".comments-more" ` +
+    `data-more="查看全部 ${comments.length} 条评论" data-less="收起评论" ` +
+    `aria-expanded="false">查看全部 ${comments.length} 条评论</button>`;
+  return `${shown}<div class="comments-more" hidden>${rest}</div>${toggle}`;
+}
+
+/**
+ * 点赞列表：≤ {@link LIKES_PREVIEW} 人直接列出；更多时折叠为前 10 人 +
+ * 「等 N 人赞了」展开按钮，点开看完整名单（参考 QzoneArchive 归档页）。
+ */
 function likesToHtml(likes: QzoneLike[]): string {
   if (likes.length === 0) return '';
-  const names = likes
-    .slice(0, 10)
-    .map((l) => escapeHtml(l.nickname || l.uin || 'QQ用户'))
-    .join('、');
-  const label = likes.length > 10 ? `${names} 等 ${likes.length} 人赞了` : `${names} 赞了`;
-  return `<span class="likes">♥ ${label}</span>`;
+  const name = (l: QzoneLike): string => escapeHtml(l.nickname || l.uin || 'QQ用户');
+  const names = likes.map(name);
+  if (names.length <= LIKES_PREVIEW) {
+    return `<span class="likes">♥ ${names.join('、')} 赞了</span>`;
+  }
+  const shown = names.slice(0, LIKES_PREVIEW).join('、');
+  const rest = names.slice(LIKES_PREVIEW).join('、');
+  const toggle =
+    `<button type="button" class="toggle like-toggle" data-target=".like-more" ` +
+    `data-suffix=".like-suffix" data-more="等 ${likes.length} 人赞了" data-less="收起" ` +
+    `aria-expanded="false">等 ${likes.length} 人赞了</button>`;
+  return (
+    `<span class="likes">♥ <span class="like-names">${shown}</span>` +
+    `<span class="like-more" hidden>、${rest}</span>` +
+    `<span class="like-suffix" hidden> 赞了</span> ${toggle}</span>`
+  );
 }
 
 /** 帖子统计行：赞 + 评论数。 */
@@ -450,7 +520,8 @@ function buildHtmlDoc(name: string, uin: string, count: number, postsHtml: strin
     `<title>${title} · QQ 空间说说</title>\n<style>${QZONE_HTML_STYLE}</style>\n</head>\n<body>\n` +
     `<div class="wrap">\n${profile}\n` +
     `<main class="post-list">\n${postsHtml}\n</main>\n` +
-    `<footer class="foot">共 ${count} 条说说 · 导出于 ${exportedAt}</footer>\n</div>\n</body>\n</html>\n`
+    `<footer class="foot">共 ${count} 条说说 · 导出于 ${exportedAt}</footer>\n</div>\n` +
+    `${QZONE_HTML_SCRIPT}\n</body>\n</html>\n`
   );
 }
 
