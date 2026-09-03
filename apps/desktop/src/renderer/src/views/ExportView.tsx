@@ -107,8 +107,8 @@ const MODES: ModeDef[] = [
   },
   {
     id: 'qzone',
-    label: '好友QQ空间导出',
-    desc: '导出好友空间说说',
+    label: 'QQ空间导出',
+    desc: '导出好友 / 自己的空间说说',
     icon: <Globe size={18} />,
   },
   {
@@ -141,6 +141,14 @@ interface ConvWire {
   targetUin: string;
   targetDisplayName: string;
   messageCount?: number;
+}
+
+/** account.getSelfProfile wire 里本页用到的字段（自己的空间选项）。 */
+interface SelfProfileWire {
+  uid: string;
+  uin: string;
+  nick: string;
+  avatarUrl: string;
 }
 
 interface GroupWire {
@@ -208,6 +216,13 @@ function fmtSeconds(sec: number): string {
   return m > 0 ? `${m}:${String(r).padStart(2, '0')}` : `${s}"`;
 }
 
+/** QQ 空间导出格式收窄：html 直通，其余非 txt 一律回退 json。 */
+function qzoneFormatOf(f: ExportFormat): 'json' | 'txt' | 'html' {
+  if (f === 'txt') return 'txt';
+  if (f === 'html') return 'html';
+  return 'json';
+}
+
 /** wire → 预览行：每种 kind 收敛出「标题 + 摘要」（对齐收藏弹窗各卡片的主信息）。 */
 function collectionPreview(it: CollectionItemWire): CollectionPreviewItem {
   let title = '';
@@ -272,6 +287,8 @@ export function ExportView(): ReactElement {
   const pushToast = useToast((s) => s.push);
 
   const conversations = trpc.account.listConversationsWithCount.useQuery();
+  /** 自己的账号资料 —— QQ 空间导出列表里「自己」这个选项用它取 uin / 昵称。 */
+  const selfProfile = trpc.account.getSelfProfile.useQuery();
   const databases = trpc.account.listDatabases.useQuery();
   const groups = trpc.account.listAllGroups.useQuery({ limit: 2000 });
   const tasks = trpc.account.listExportTasks.useQuery();
@@ -352,9 +369,10 @@ export function ExportView(): ReactElement {
     };
   }, []);
 
-  // 好友空间 only json/txt; 联系人受子类限制 — clamp。
+  // 好友空间 only json/txt/html; 联系人受子类限制 — clamp。
   useEffect(() => {
-    if (mode === 'qzone' && format !== 'json' && format !== 'txt') setFormat('json');
+    if (mode === 'qzone' && format !== 'json' && format !== 'txt' && format !== 'html')
+      setFormat('json');
     if (mode === 'contacts') {
       const allowed =
         contactScope === 'friends'
@@ -477,10 +495,26 @@ export function ExportView(): ReactElement {
     });
   }, [guildSessions.data]);
 
-  // 好友空间导出：只列私聊好友（排除群聊、公众号、服务号），且需有效 uin。
+  // QQ 空间导出目标：自己的空间（置顶）+ 私聊好友（排除群聊、公众号、服务号，且需有效 uin）。
   const friendItems = useMemo<PickItem[]>(() => {
+    const self = selfProfile.data as SelfProfileWire | null | undefined;
     const raw = (conversations.data ?? []) as ConvWire[];
-    return raw
+    // 导出自己时能看到自己的私密说说，与好友的只读视角不同。
+    const mine: PickItem[] =
+      self?.uin && self.uin !== '0'
+        ? [
+            {
+              id: `self:${self.uin}`,
+              name: self.nick?.trim() ? `${self.nick}（我）` : '我的空间',
+              avatarUrl: self.avatarUrl || null,
+              kind: 'c2c',
+              uin: self.uin,
+              total: 0,
+              meta: '自己的空间 · 说说',
+            },
+          ]
+        : [];
+    const friends: PickItem[] = raw
       .filter((c) => {
         // 排除公众号(103)和服务号(118)
         const chatTypeNum = Number(c.chatType);
@@ -499,7 +533,8 @@ export function ExportView(): ReactElement {
         total: Number(c.messageCount ?? 0),
         meta: `${fmtCount(Number(c.messageCount ?? 0))} 条 · 私聊`,
       }));
-  }, [conversations.data]);
+    return [...mine, ...friends];
+  }, [conversations.data, selfProfile.data]);
 
   const groupItems = useMemo<PickItem[]>(() => {
     return ((groups.data ?? []) as GroupWire[]).map((g) => ({
@@ -848,7 +883,7 @@ export function ExportView(): ReactElement {
   }
 
   /**
-   * Pre-flight for 好友空间导出: a live QQ instance must be logged in (the QZone
+   * Pre-flight for QQ 空间导出: a live QQ instance must be logged in (the QZone
    * web CGI needs this account's skey/pskey). Returns false to abort with a
    * prompt to open QQ.
    */
@@ -863,14 +898,14 @@ export function ExportView(): ReactElement {
     if (!online) {
       await dialog.info(
         '需要打开 QQ',
-        '导出好友 QQ 空间需要登录该账号的 QQ 客户端以获取访问凭证。请打开并登录 QQ 后重试。',
+        '导出 QQ 空间需要登录该账号的 QQ 客户端以获取访问凭证。请打开并登录 QQ 后重试。',
       );
       return false;
     }
     return true;
   }
 
-  /** 好友空间导出：每个选中好友起一个说说导出任务（json/txt 多选 + 可选下载配图）。 */
+  /** QQ 空间导出：每个选中目标（好友 / 自己）起一个说说导出任务（json/txt/html 多选 + 配图）。 */
   async function runQzoneExport(options: ExportOptions, formats: ExportFormat[]): Promise<void> {
     const targets = friendItems.filter((it) => convSelection.has(it.id));
     if (targets.length === 0) return;
@@ -882,13 +917,15 @@ export function ExportView(): ReactElement {
     try {
       for (const t of targets) {
         if (!t.uin) continue;
-        const fmt0 = (formats[0] === 'txt' ? 'txt' : 'json') as 'json' | 'txt';
+        const fmt0 = qzoneFormatOf(formats[0] ?? 'json');
         await client.account.startQzoneExport.mutate({
           targetUin: t.uin,
           name: t.name,
           format: fmt0,
-          formats: formats.map((f) => (f === 'txt' ? 'txt' : 'json')) as Array<'json' | 'txt'>,
-          downloadMedia: options.exportMedia,
+          formats: formats.map(qzoneFormatOf),
+          // HTML 需要本地配图渲染：只要选了 HTML 就强制下载（灯箱里也会锁定勾选）。
+          downloadMedia: options.exportMedia || formats.includes('html'),
+          includeInteraction: options.qzoneInteractions,
           range,
         });
       }
@@ -1386,10 +1423,10 @@ export function ExportView(): ReactElement {
 
   const activeMode = MODES.find((m) => m.id === mode)!;
   // 底部格式 chips 只保留给不走灯箱的导出收藏；
-  // 完整消息 / 好友空间 / 定时的格式选择已移入灯箱多选。
+  // 完整消息 / QQ空间 / 定时的格式选择已移入灯箱多选。
   const showFormatChips = mode === 'collection';
   const formatOptions = COLLECTION_FORMATS;
-  // 好友空间导出只列好友（排除群聊）；其余多选模式用全部会话。
+  // QQ空间导出只列目标空间（自己 + 好友）；其余多选模式用全部会话。
   const pickerItems = mode === 'qzone' ? friendItems : convItems;
 
   const primaryLabel =
@@ -1439,7 +1476,7 @@ export function ExportView(): ReactElement {
       return n ? `${n} 个分组` : '全部好友';
     }
     const n = lightbox === 'guild' ? guildSelection.size : convSelection.size;
-    return lightbox === 'qzone' ? `${n} 位好友` : `${n} 个会话`;
+    return lightbox === 'qzone' ? `${n} 个空间` : `${n} 个会话`;
   })();
 
   const lightboxHeadline =
@@ -1448,7 +1485,7 @@ export function ExportView(): ReactElement {
       : lightbox === 'album'
         ? '导出群相册'
         : lightbox === 'qzone'
-          ? '导出好友 QQ 空间'
+          ? '导出 QQ 空间'
           : lightbox === 'guild'
             ? '导出频道私聊消息'
             : lightbox === 'contacts'
@@ -1533,7 +1570,7 @@ export function ExportView(): ReactElement {
                 loading={conversations.isLoading}
                 selected={convSelection}
                 onChange={setConvSelection}
-                emptyText={mode === 'qzone' ? '暂无好友（仅私聊可导出空间）' : undefined}
+                emptyText={mode === 'qzone' ? '暂无好友（仅私聊会话可作为导出目标）' : undefined}
               />
             ) : mode === 'guild' ? (
               <ConversationPicker
@@ -1640,8 +1677,8 @@ export function ExportView(): ReactElement {
                 <span className="weq-exp-foot-hint">
                   {mode === 'qzone'
                     ? convSelection.size > 0
-                      ? `已选 ${convSelection.size} 位好友 · 灯箱内选择格式与配图`
-                      : '请先选择至少一位好友'
+                      ? `已选 ${convSelection.size} 个空间 · 灯箱内选择格式与配图`
+                      : '请先选择要导出的空间'
                     : mode === 'guild'
                       ? guildSelection.size > 0
                         ? `已选 ${guildSelection.size} 个会话 · 频道私聊仅本地消息，不支持漫游拉取`

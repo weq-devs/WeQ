@@ -2833,17 +2833,20 @@ export const accountRouter = router({
     }),
 
   /**
-   * Start a friend-QZone (说说) export. Requires an online QQ (the web CGI needs
-   * this account's skey/pskey). `conv` carries the friend's uin. Media = 配图.
+   * Start a QZone (说说) export — 目标可以是好友或自己（`conv` 承载目标 uin）。
+   * Requires an online QQ (the web CGI needs this account's skey/pskey).
+   * Media = 配图。HTML 格式会强制下载配图（task_manager 内保证）。
    */
   startQzoneExport: procedure
     .input(
       z.object({
         targetUin: z.string().min(1),
         name: z.string().min(1),
-        format: z.enum(['json', 'txt']),
-        /** 多格式导出：json / txt 一次任务全出。 */
-        formats: z.array(z.enum(['json', 'txt'])).optional(),
+        format: z.enum(['json', 'txt', 'html']),
+        /** 多格式导出：json / txt / html 一次任务全出。 */
+        formats: z.array(z.enum(['json', 'txt', 'html'])).optional(),
+        /** 补全互动：按 tid 拉取评论 + 点赞（feeds3 HTML 解析，best-effort，需在线 QQ）。 */
+        includeInteraction: z.boolean().optional(),
         downloadMedia: z.boolean(),
         range: z.object({ start: z.number().nullable(), end: z.number().nullable() }).optional(),
       }),
@@ -2858,6 +2861,7 @@ export const accountRouter = router({
         name: input.name,
         format: input.format,
         ...(input.formats?.length ? { formats: input.formats } : {}),
+        ...(input.includeInteraction ? { qzoneInteractions: true } : {}),
         total: 0,
         media: {
           exportMedia: input.downloadMedia,

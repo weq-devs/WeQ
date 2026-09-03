@@ -212,6 +212,8 @@ export interface ExportTask {
   chatlab?: boolean;
   /** 好友 QQ 空间说说导出（`conv` = 好友 uin；走独立的 Web 拉取流水线）。 */
   qzone?: boolean;
+  /** 好友空间导出：按 tid 补全评论 / 点赞（feeds3 HTML 解析，best-effort）。 */
+  qzoneInteractions?: boolean;
   /** 联系人导出（好友列表 / 群成员列表；走独立的资料库拉取流水线）。
    *  `group` 时 `conv` = 群号；`friends` 时 `conv` 为空。 */
   contacts?: { scope: 'friends' | 'group'; categoryIds?: number[] };
@@ -386,6 +388,8 @@ export class ExportTaskManager extends EventEmitter {
     chatlab?: boolean;
     /** 好友 QQ 空间说说导出（走独立流水线）。 */
     qzone?: boolean;
+    /** 好友空间导出：按 tid 补全评论 / 点赞（需在线 QQ；deps.qzone.fetchInteractions）。 */
+    qzoneInteractions?: boolean;
     /** 联系人导出（好友 / 群成员；走独立流水线）。 */
     contacts?: { scope: 'friends' | 'group'; categoryIds?: number[] };
     /** 收藏导出（QQ 收藏；走独立流水线）。 */
@@ -486,6 +490,7 @@ export class ExportTaskManager extends EventEmitter {
         current: 0,
         total: opts.total,
         qzone: true,
+        ...(opts.qzoneInteractions ? { qzoneInteractions: true } : {}),
         ...(opts.media ? { media: opts.media } : {}),
         ...(opts.range ? { range: opts.range } : {}),
         stages: qStages,
@@ -1778,8 +1783,9 @@ export class ExportTaskManager extends EventEmitter {
   }
 
   /**
-   * 好友 QQ 空间说说导出：翻页拉说说 → 写 json/txt →（可选）下载配图。
-   * 独立于消息流水线；`conv` 是好友 uin，拉取能力走注入的 `deps.qzone`。
+   * QQ 空间说说导出：翻页拉说说 → 写 json/txt/html →（可选）下载配图。
+   * 独立于消息流水线；`conv` 是目标空间 uin（好友或自己），拉取能力走注入的
+   * `deps.qzone`。含 html 格式时强制下载配图。
    */
   private async runQzoneTask(id: string): Promise<void> {
     const task = this.tasks.get(id);
@@ -1796,8 +1802,10 @@ export class ExportTaskManager extends EventEmitter {
     try {
       const qzone = this.deps.qzone;
       if (!qzone) throw new Error('QQ 空间拉取能力不可用（需在线 QQ）。');
-      const wantMedia = Boolean(task.media?.exportMedia);
+      // HTML 导出靠本地配图渲染，含 html 格式时强制下载配图（不管用户是否勾选）。
       const formats = task.formats?.length ? task.formats : [task.format];
+      const wantMedia = Boolean(task.media?.exportMedia) || formats.includes('html');
+      const wantInteraction = Boolean(task.qzoneInteractions && qzone.fetchInteractions);
       // 多格式或下载配图 → 产物为 bundle 目录（多个文件 + media/），否则单文件。
       const isBundle = wantMedia || formats.length > 1;
       const outDir = isBundle ? join(this.cacheDir, `bundle-${id}`) : this.cacheDir;
@@ -1816,6 +1824,7 @@ export class ExportTaskManager extends EventEmitter {
       let totalCount = 0;
       let mediaOk = 0;
       let mediaFailed = 0;
+      let interactionSummary: string | undefined;
       let firstFilePath = '';
       for (let i = 0; i < formats.length; i += 1) {
         const format = formats[i]!;
@@ -1825,14 +1834,16 @@ export class ExportTaskManager extends EventEmitter {
         );
         if (i === 0) firstFilePath = outPath;
         const base = totalCount;
+        const qzoneFormat = format === 'txt' ? 'txt' : format === 'html' ? 'html' : 'json';
         const result = await exportQzone(
           {
             targetUin: task.conv,
             name: task.name,
-            format: format === 'txt' ? 'txt' : 'json',
+            format: qzoneFormat,
             outputPath: outPath,
-            // 配图只下载一次（第一份格式携带）。
+            // 配图 / 互动都只取一次（第一份格式携带），多格式产物共用。
             mediaRoot: i === 0 ? mediaRoot : undefined,
+            includeInteraction: i === 0 ? wantInteraction : false,
             range: task.range,
             onProgress: (current, total, note) => {
               if (aborted()) return;
@@ -1855,6 +1866,16 @@ export class ExportTaskManager extends EventEmitter {
               });
               this.log(id, 'media', `下载配图 ${done}/${total}`);
             },
+            onInteraction: (done, total, note) => {
+              if (aborted()) return;
+              this.touchStage(task, 'message', {
+                status: 'running',
+                current: base + done,
+                total: base + (total || done),
+                note,
+              });
+              this.log(id, 'message', note);
+            },
             signal: abort.signal,
           },
           qzone,
@@ -1866,6 +1887,15 @@ export class ExportTaskManager extends EventEmitter {
         totalCount += result.count;
         mediaOk += result.mediaOk;
         mediaFailed += result.mediaFailed;
+        if (i === 0 && result.interaction) {
+          const it = result.interaction;
+          interactionSummary = it.failed
+            ? '互动拉取失败（正文已导出）'
+            : it.posts > 0
+              ? `互动 ${it.posts} 条 · 评论 ${it.comments} / 赞 ${it.likes}`
+              : '未发现评论 / 点赞';
+          this.log(id, 'message', interactionSummary);
+        }
         if (formats.length > 1) {
           this.log(id, 'message', `格式 ${format.toUpperCase()} 完成：${result.count} 条说说`);
         }
@@ -1881,10 +1911,12 @@ export class ExportTaskManager extends EventEmitter {
           status: 'completed',
           current: totalCount,
           total: totalCount,
-          note:
+          note: [
             formats.length > 1
               ? `${totalCount} 条 × ${formats.length} 种格式`
               : `${totalCount} 条说说`,
+            ...(interactionSummary ? [interactionSummary] : []),
+          ].join(' · '),
         },
         { persist: true },
       );

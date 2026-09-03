@@ -82,6 +82,8 @@ const exportPresetOptionsSchema = z.object({
     end: z.number().nullable(),
   }),
   exportMedia: z.boolean(),
+  /** 好友 QQ 空间导出：补全评论 + 点赞（读端对旧数据缺省补 false）。 */
+  qzoneInteractions: z.boolean(),
   mediaKinds: z.object({
     image: z.boolean(),
     voice: z.boolean(),

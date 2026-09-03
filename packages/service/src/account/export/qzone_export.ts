@@ -1,5 +1,5 @@
 /**
- * 好友 QQ 空间（说说）导出器。
+ * QQ 空间（说说）导出器 —— 目标可以是好友或自己的空间。
  *
  * 与消息导出流水线不同 —— 数据来自 QQ 空间 Web CGI（`emotion_cgi_msglist_v6`），
  * 而非本地消息库。拉取能力由 deps 注入（service 包不依赖账号服务，照 chatlab
@@ -8,6 +8,9 @@
  *
  * 翻页要点：服务端分页会**重复**返回条目（真机 test 实测），故按 `tid` 去重；
  * 说说按发表时间**倒序**，配合时间范围可提前停止翻页。
+ *
+ * 产物格式：json / txt / html。HTML 引用与配图下载同一套命名规则下的本地
+ * `media/` 相对路径（配图是否下载由调用方保证 —— 含 html 时强制下载）。
  */
 
 import { createExportWriter } from './stream_utils';
@@ -15,19 +18,33 @@ import { mkdir } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { downloadUrlToFile } from '../media_url';
 import type { QzoneEmotion, QzoneMsgListResult } from '../web/qzone';
+import type {
+  QzoneComment,
+  QzoneInteraction,
+  QzoneInteractionTarget,
+  QzoneLike,
+} from '../web/qzone_interaction';
 import type { ExportTimeRange } from './types';
 
 /** 注入的说说拉取能力（一页）。 */
 export interface QzoneExportDeps {
   fetchMsgList: (targetUin: string, pos: number, num: number) => Promise<QzoneMsgListResult>;
+  /**
+   * Best-effort 批量读取若干说说的评论 + 点赞（feeds3 HTML 解析，需在线 QQ）。
+   * 可选 —— 未注入时「补全互动」直接跳过。返回 Map<tid, 互动>，缺漏 tid 返回空桶。
+   */
+  fetchInteractions?: (
+    targetUin: string,
+    targets: QzoneInteractionTarget[],
+  ) => Promise<Map<string, QzoneInteraction>>;
 }
 
 export interface QzoneExportOpts {
-  /** 目标好友 uin。 */
+  /** 目标空间 uin（好友或自己）。 */
   targetUin: string;
   /** 展示名（写进文件头 / 进度）。 */
   name: string;
-  format: 'json' | 'txt';
+  format: 'json' | 'txt' | 'html';
   /** 说说文件输出路径。 */
   outputPath: string;
   /** 传入则下载配图到该 `media/` 目录（否则不下载）。 */
@@ -36,6 +53,10 @@ export interface QzoneExportOpts {
   range?: ExportTimeRange;
   /** 拉取进度：已获取去重条数 / 总数 / 说明。 */
   onProgress: (current: number, total: number, note: string) => void;
+  /** 补全互动（评论 + 点赞）：拉取说说后按 tid 逐条补。缺 deps.fetchInteractions 时忽略。 */
+  includeInteraction?: boolean;
+  /** 互动拉取进度。 */
+  onInteraction?: (done: number, total: number, note: string) => void;
   /** 配图下载进度。 */
   onMedia?: (done: number, total: number) => void;
   signal?: AbortSignal;
@@ -47,6 +68,17 @@ export interface QzoneExportResult {
   count: number;
   mediaOk: number;
   mediaFailed: number;
+  /** 补全互动开启时的统计（未开启为 undefined）。 */
+  interaction?: {
+    /** 带互动的说说条数（有评论或有点赞）。 */
+    posts: number;
+    /** 拉到的一级+二级评论总数。 */
+    comments: number;
+    /** 拉到的点赞用户总数。 */
+    likes: number;
+    /** 批量拉取整体失败（互动缺失，正文照常导出）。 */
+    failed: boolean;
+  };
 }
 
 const PAGE_SIZE = 20;
@@ -125,12 +157,151 @@ function fmtTime(sec: number): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
-/** 一条说说渲染成 TXT 段落。 */
-function emotionToTxt(e: QzoneEmotion): string {
+/** 带互动字段的说说（导出内部形态，互动的说说在渲染时才读取这两个字段）。 */
+interface EmotionWithInteraction extends QzoneEmotion {
+  comments?: QzoneComment[];
+  likes?: QzoneLike[];
+}
+
+/** HTML 转义（文本与属性值通用，防注入）。 */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/** 转义 + 换行转 `<br>`（说说 / 评论正文用）。 */
+function escapeMultiline(s: string): string {
+  return escapeHtml(s).replace(/\r?\n/g, '<br>');
+}
+
+const QZONE_HTML_STYLE = `
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif; background: #f3f4f6; color: #1f2328; line-height: 1.6; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 16px; }
+  .head { text-align: center; padding: 20px 0 8px; }
+  .head h1 { margin: 0 0 4px; font-size: 22px; }
+  .head p, .foot { color: #6b7280; font-size: 13px; margin: 0; }
+  main { display: flex; flex-direction: column; gap: 14px; padding: 14px 0; }
+  .post { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px 16px; box-shadow: 0 1px 2px rgb(0 0 0 / 0.04); }
+  .post header { display: flex; align-items: center; gap: 8px; color: #6b7280; font-size: 12px; margin-bottom: 8px; }
+  .post header time { margin-right: auto; }
+  .badge { background: #eef2ff; color: #4f46e5; border-radius: 999px; padding: 1px 8px; font-size: 11px; }
+  .badge.is-private { background: #fef3c7; color: #92400e; }
+  .txt { word-break: break-word; }
+  .imgs { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin-top: 10px; }
+  .imgs img { width: 100%; border-radius: 8px; display: block; }
+  .imgs-links { margin-top: 8px; font-size: 13px; }
+  .imgs-links a, .cimg a { color: #2563eb; }
+  .comments { margin-top: 10px; padding-top: 8px; border-top: 1px dashed #e5e7eb; }
+  .comment { font-size: 13px; margin: 6px 0; }
+  .comment b { color: #4b5563; font-weight: 600; margin-right: 6px; }
+  .comment time { color: #9ca3af; font-size: 11px; margin-right: 6px; }
+  .comment p { margin: 2px 0; }
+  .likes { margin-top: 8px; color: #b91c1c; font-size: 12px; }
+  .likes .lk { background: #fee2e2; border-radius: 999px; padding: 1px 8px; margin-right: 6px; }
+  .foot { text-align: center; padding: 10px 0 30px; }
+`;
+
+/** 一条评论渲染成 HTML 行。 */
+function commentToHtml(c: QzoneComment): string {
+  const who = c.isReply
+    ? `${escapeHtml(c.nickname || c.uin)} 回复 ${escapeHtml(c.replyToNickname || c.replyToUin || '')}`.trim()
+    : escapeHtml(c.nickname || c.uin);
+  const t = c.time ? `<time>${escapeHtml(fmtTime(c.time))}</time>` : '';
+  const text = escapeMultiline(c.content) || (c.images.length ? '[图片]' : '');
+  const pics = c.images.length
+    ? `<span class="cimg">${c.images
+        .map((u) => `<a href="${escapeHtml(u)}" target="_blank" rel="noreferrer">[图片]</a>`)
+        .join('')}</span>`
+    : '';
+  return `<div class="comment"><b>${who}</b>${t}<p>${text}${pics}</p></div>`;
+}
+
+/** 点赞列表渲染成 HTML 一行（无赞返回空串）。 */
+function likesToHtml(likes: QzoneLike[]): string {
+  if (likes.length === 0) return '';
+  const names = likes.map((l) => escapeHtml(l.nickname || l.uin)).join('、');
+  return `<div class="likes"><span class="lk">赞</span>${names}</div>`;
+}
+
+/**
+ * 一条说说渲染成 HTML article。配图引用 bundle 内的本地 `media/` 相对路径
+ * （`localMedia` 由调用方按是否实际下载配图传入）；未下载时退化为远程链接。
+ */
+function emotionToHtml(e: EmotionWithInteraction, localMedia: boolean): string {
+  const time = e.time ? `<time>${escapeHtml(fmtTime(e.time))}</time>` : '';
+  const badges = [
+    e.isPrivate ? '<span class="badge is-private">私密</span>' : '',
+    e.commentNum ? `<span class="badge">评论 ${e.commentNum}</span>` : '',
+  ].join('');
+  const content = e.content ? `<div class="txt">${escapeMultiline(e.content)}</div>` : '';
+  const images = e.images.length
+    ? localMedia
+      ? `<div class="imgs">${e.images
+          .map(
+            (url, i) =>
+              `<img loading="lazy" src="media/${encodeURI(imageFileName(e, url, i))}" alt="">`,
+          )
+          .join('')}</div>`
+      : `<div class="imgs-links">${e.images
+          .map(
+            (url, i) =>
+              `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">配图 ${i + 1}</a>`,
+          )
+          .join('')}</div>`
+    : '';
+  const comments = e.comments?.length
+    ? `<div class="comments">${e.comments.map(commentToHtml).join('')}</div>`
+    : '';
+  const likes = e.likes?.length ? likesToHtml(e.likes) : '';
+  return `<article class="post"><header>${time}${badges}</header>${content}${images}${comments}${likes}</article>`;
+}
+
+/** 整页 HTML 文档（标题 / 统计 + 各说说 article）。 */
+function buildHtmlDoc(name: string, count: number, postsHtml: string): string {
+  const title = escapeHtml(name || 'QQ 空间');
+  const exportedAt = escapeHtml(fmtTime(Math.floor(Date.now() / 1000)));
+  return (
+    '<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1">\n' +
+    `<title>${title} · QQ 空间说说</title>\n<style>${QZONE_HTML_STYLE}</style>\n</head>\n<body>\n` +
+    '<div class="wrap">\n<header class="head">\n' +
+    `<h1>${title} 的 QQ 空间</h1>\n` +
+    `<p>说说导出 · 共 ${count} 条 · 导出于 ${exportedAt}</p>\n</header>\n` +
+    `<main>\n${postsHtml}\n</main>\n` +
+    `<footer class="foot">共 ${count} 条说说</footer>\n</div>\n</body>\n</html>\n`
+  );
+}
+
+/** 一条评论渲染成 TXT 行（缩进）。 */
+function commentToTxt(c: QzoneComment, indent: string): string {
+  const who = c.isReply
+    ? `${c.nickname || c.uin} 回复 ${c.replyToNickname || c.replyToUin || ''}`.trim()
+    : c.nickname || c.uin;
+  const t = c.time ? ` ${fmtTime(c.time)}` : '';
+  const line = `${indent}${who}${t}: ${c.content || (c.images.length ? '[图片]' : '')}`;
+  return c.images.length ? `${line} 图: ${c.images.join(', ')}` : line;
+}
+
+/** 一条说说渲染成 TXT 段落（含互动时附评论 / 点赞）。 */
+function emotionToTxt(e: EmotionWithInteraction): string {
   const head = `[${fmtTime(e.time)}]${e.isPrivate ? ' (私密)' : ''}${e.commentNum ? ` (评论 ${e.commentNum})` : ''}`;
   const lines = [head];
   if (e.content) lines.push(e.content);
   if (e.images.length) lines.push(`图片: ${e.images.join(', ')}`);
+  const comments = e.comments ?? [];
+  const likes = e.likes ?? [];
+  if (comments.length) {
+    lines.push(`评论 ${comments.length} 条:`);
+    for (const c of comments) lines.push(commentToTxt(c, '  '));
+  }
+  if (likes.length) {
+    lines.push(`赞: ${likes.map((l) => l.nickname || l.uin).join('、')}`);
+  }
   lines.push('—'.repeat(24));
   return `${lines.join('\n')}\n`;
 }
@@ -139,6 +310,11 @@ function emotionToTxt(e: QzoneEmotion): string {
 function picExt(url: string): string {
   const ext = extname(url.split('?')[0] ?? '').toLowerCase();
   return /^\.(jpg|jpeg|png|gif|webp|bmp)$/.test(ext) ? ext : '.jpg';
+}
+
+/** 说说配图的本地文件名 —— 下载落盘与 HTML 引用必须共用同一套命名。 */
+function imageFileName(e: QzoneEmotion, url: string, i: number): string {
+  return `${e.tid}_${i}${picExt(url)}`;
 }
 
 /** 下载全部说说配图到 `mediaRoot`，并发 4，返回成败计数。 */
@@ -151,7 +327,7 @@ async function downloadImages(
   const jobs: Array<{ url: string; dest: string }> = [];
   for (const e of emotions) {
     e.images.forEach((url, i) => {
-      jobs.push({ url, dest: join(mediaRoot, `${e.tid}_${i}${picExt(url)}`) });
+      jobs.push({ url, dest: join(mediaRoot, imageFileName(e, url, i)) });
     });
   }
   const total = jobs.length;
@@ -183,7 +359,51 @@ async function downloadImages(
 }
 
 /**
- * 导出一个好友的 QQ 空间说说到 json / txt，可选下载配图（bundle）。
+ * 批量补拉说说评论 + 点赞，挂在 emotion 上（含空的互动桶；便于 JSON 稳定输出）。
+ * 拉取整体失败时返回 failed=true，正文照常导出 —— 互动是增强项，不能因它废掉整次导出。
+ */
+async function attachInteractions(
+  filtered: EmotionWithInteraction[],
+  deps: QzoneExportDeps,
+  opts: QzoneExportOpts,
+): Promise<{ failed: boolean; interactionPosts: number }> {
+  const onInteraction = opts.onInteraction;
+  try {
+    if (!deps.fetchInteractions) {
+      onInteraction?.(0, filtered.length, '互动能力不可用，跳过');
+      return { failed: false, interactionPosts: 0 };
+    }
+    const targets: QzoneInteractionTarget[] = filtered.map((e) => ({ tid: e.tid, time: e.time }));
+    onInteraction?.(0, filtered.length, '拉取评论 / 点赞…');
+    const map = await deps.fetchInteractions(opts.targetUin, targets);
+    let posts = 0;
+    for (const e of filtered) {
+      const it = map.get(e.tid);
+      if (it) {
+        e.comments = it.comments;
+        e.likes = it.likes;
+        if (it.comments.length || it.likes.length) posts += 1;
+      } else {
+        e.comments = [];
+        e.likes = [];
+      }
+    }
+    onInteraction?.(filtered.length, filtered.length, `互动完成：${posts} 条有评论/赞`);
+    return { failed: false, interactionPosts: posts };
+  } catch (e) {
+    // 互动拉取失败（票据 / 风控 / 网络）不阻断正文导出：置空并标记 failed。
+    for (const em of filtered) {
+      em.comments = [];
+      em.likes = [];
+    }
+    onInteraction?.(0, filtered.length, `互动拉取失败: ${(e as Error).message}`);
+    return { failed: true, interactionPosts: 0 };
+  }
+}
+
+/**
+ * 导出一个空间（好友或自己）的说说到 json / txt / html，可选下载配图（bundle）、
+ * 补全评论/点赞。
  */
 export async function exportQzone(
   opts: QzoneExportOpts,
@@ -198,12 +418,35 @@ export async function exportQzone(
     opts.signal,
   );
   const filtered = fetched.filter((e) => inRange(e, opts.range));
+  // 互动字段挂在 EmotionWithInteraction 上；不带互动时数组元素仍是合法 QzoneEmotion。
+  const rows: EmotionWithInteraction[] = filtered;
 
-  // 写盘（说说量级不大，一次性写；json 带缩进便于阅读）。
+  // 补全互动（评论 + 点赞）：一次批量拉取，JSON / TXT 两份产物共用同一份数据。
+  let interaction: QzoneExportResult['interaction'];
+  if (opts.includeInteraction && !opts.signal?.aborted) {
+    const { failed, interactionPosts } = await attachInteractions(rows, deps, opts);
+    const commentCount = rows.reduce((s, e) => s + (e.comments?.length ?? 0), 0);
+    const likeCount = rows.reduce((s, e) => s + (e.likes?.length ?? 0), 0);
+    interaction = {
+      posts: interactionPosts,
+      comments: commentCount,
+      likes: likeCount,
+      failed,
+    };
+  }
+
+  // 写盘（说说量级不大，一次性写；json 带缩进便于阅读）。HTML 的配图引用本地
+  // media/ 相对路径 —— 配图是否实际下载由调用方保证（含 html 时强制下载）。
   const body =
     opts.format === 'json'
-      ? JSON.stringify(filtered, null, 2)
-      : filtered.map(emotionToTxt).join('\n');
+      ? JSON.stringify(rows, null, 2)
+      : opts.format === 'html'
+        ? buildHtmlDoc(
+            opts.name,
+            rows.length,
+            rows.map((e) => emotionToHtml(e, Boolean(opts.mediaRoot))).join('\n'),
+          )
+        : rows.map(emotionToTxt).join('\n');
   const writer = createExportWriter(opts.outputPath);
   await writer.write(body);
   await writer.end();
@@ -216,5 +459,11 @@ export async function exportQzone(
     mediaFailed = r.failed;
   }
 
-  return { filePath: opts.outputPath, count: filtered.length, mediaOk, mediaFailed };
+  return {
+    filePath: opts.outputPath,
+    count: filtered.length,
+    mediaOk,
+    mediaFailed,
+    ...(interaction ? { interaction } : {}),
+  };
 }

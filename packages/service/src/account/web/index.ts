@@ -23,6 +23,11 @@ import {
   type QzoneMsgListResult,
   type QzoneFeedsResult,
 } from './qzone';
+import {
+  collectQzoneInteractions,
+  type QzoneInteraction,
+  type QzoneInteractionTarget,
+} from './qzone_interaction';
 import { getSelfDress, type SelfDress } from './self_dress';
 import { getFriendMutualMark, type FriendMutualMark } from './friend_mutualmark';
 import { getDressRank, searchDress, type DressAppId, type DressMallItem } from './dress_mall';
@@ -106,6 +111,19 @@ export class WebQueryService {
       getQzoneFeeds(c, selfUin ?? c.uin, pageNum, count),
     );
   }
+
+  /**
+   * Best-effort 读取某空间若干说说的评论 + 点赞（feeds3 HTML 解析）。
+   * 供好友空间导出「补全互动」使用；互动缺失不抛错(空桶)，拉取失败抛错。
+   */
+  async getQzoneInteractions(
+    targetUin: string,
+    targets: QzoneInteractionTarget[],
+  ): Promise<Map<string, QzoneInteraction>> {
+    return withRetry(this.creds, QZONE_DOMAIN, (c) =>
+      collectQzoneInteractions(c, targetUin, targets),
+    );
+  }
 }
 
 export {
@@ -155,3 +173,14 @@ export type {
   QzoneFeed,
   QzoneFeedsResult,
 } from './qzone';
+export {
+  collectQzoneInteractions,
+  parseFeeds3Comments,
+  parseFeeds3Likes,
+} from './qzone_interaction';
+export type {
+  QzoneComment,
+  QzoneLike,
+  QzoneInteraction,
+  QzoneInteractionTarget,
+} from './qzone_interaction';

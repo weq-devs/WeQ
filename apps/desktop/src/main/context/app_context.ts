@@ -1027,8 +1027,11 @@ export function initAppContext(): AppContext {
                 return uin ? { uid: '', uin, nick: '' } : null;
               },
             },
-            // 好友 QQ 空间说说导出：翻页拉取能力（需在线 QQ）。
-            qzone: { fetchMsgList: (uin, pos, num) => webQuery.getQzoneMsgList(uin, pos, num) },
+            // 好友 QQ 空间说说导出：翻页拉取 + 评论/点赞补全能力（需在线 QQ）。
+            qzone: {
+              fetchMsgList: (uin, pos, num) => webQuery.getQzoneMsgList(uin, pos, num),
+              fetchInteractions: (uin, targets) => webQuery.getQzoneInteractions(uin, targets),
+            },
             // 联系人导出（好友 / 群成员）：本地资料库拉取，bigint 归一化为字符串。
             contacts: {
               listBuddies: async (limit, offset) => {
@@ -1504,7 +1507,10 @@ export function initAppContext(): AppContext {
                 return uin ? { uid: '', uin, nick: '' } : null;
               },
             },
-            qzone: { fetchMsgList: (uin, pos, num) => webQuery.getQzoneMsgList(uin, pos, num) },
+            qzone: {
+              fetchMsgList: (uin, pos, num) => webQuery.getQzoneMsgList(uin, pos, num),
+              fetchInteractions: (uin, targets) => webQuery.getQzoneInteractions(uin, targets),
+            },
             // 收藏导出：静态账号同样有本地收藏库，可离线导出。
             collection: {
               listCollections: async (limit, offset) => {

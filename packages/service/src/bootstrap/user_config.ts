@@ -128,6 +128,8 @@ export interface ExportPresetOptions {
     end: number | null;
   };
   exportMedia: boolean;
+  /** 好友 QQ 空间导出：补全评论 + 点赞（读取时缺省补 false，字段始终存在）。 */
+  qzoneInteractions: boolean;
   mediaKinds: {
     image: boolean;
     voice: boolean;
@@ -236,6 +238,7 @@ function normalizeExportPresetOptions(value: unknown): ExportPresetOptions | und
       end: range.end,
     },
     exportMedia: o.exportMedia,
+    qzoneInteractions: typeof o.qzoneInteractions === 'boolean' ? o.qzoneInteractions : false,
     mediaKinds: {
       image: mediaKinds.image,
       voice: mediaKinds.voice,
