@@ -32,6 +32,7 @@ import { SettingsDialog } from '../components/SettingsDialog';
 import { CollectionDialog } from '../components/CollectionDialog';
 import { WonderfulToolsDialog } from '../components/WonderfulToolsDialog';
 import { GuildDirectDialog } from '../components/GuildDirectDialog';
+import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { HelpDialog } from '../components/HelpDialog';
 import { DressUpDialog } from '../components/DressUpDialog';
 import { MarketEmojiBrowserLightbox } from './export/MarketEmojiBrowserLightbox';
@@ -1706,6 +1707,7 @@ export function MainView(): ReactElement {
   const [collectionOpen, setCollectionOpen] = useState(false);
   const [wonderfulToolsOpen, setWonderfulToolsOpen] = useState(false);
   const [guildDirectOpen, setGuildDirectOpen] = useState(false);
+  const [qzoneAlbumOpen, setQzoneAlbumOpen] = useState(false);
   const [marketBrowserOpen, setMarketBrowserOpen] = useState(false);
   const [dressUpOpen, setDressUpOpen] = useState(false);
   // 装扮样式注入提到这一层 —— 进主界面就生效,不必先打开装扮灯箱。
@@ -3864,6 +3866,7 @@ export function MainView(): ReactElement {
             onOpenCollection={() => setCollectionOpen(true)}
             onOpenWonderfulTools={() => setWonderfulToolsOpen(true)}
             onOpenGuildDirect={() => setGuildDirectOpen(true)}
+            onOpenQzoneAlbum={() => setQzoneAlbumOpen(true)}
             onOpenMarketBrowser={() => setMarketBrowserOpen(true)}
             onOpenDressUp={() => setDressUpOpen(true)}
             onOpenProfile={noopAsync}
@@ -4099,6 +4102,11 @@ export function MainView(): ReactElement {
             onClose={() => setGuildDirectOpen(false)}
             selfUser={user}
             renderers={messageRenderers}
+          />
+          <QzoneAlbumDialog
+            open={qzoneAlbumOpen}
+            onClose={() => setQzoneAlbumOpen(false)}
+            hostUin={user.identityValue}
           />
           <DatabaseDamagedDialog event={damagedEvent} onClose={() => setDamagedEvent(null)} />
           {marketBrowserOpen ? (

@@ -507,10 +507,12 @@ export function ExportLightbox({
                 {isQzone ? (
                   <Card title="QQ 空间导出">
                     <div className="weq-exp-placeholder">
-                      <span>导出该空间的说说（内容 / 时间 / 评论数 / 配图；可选导出自己）</span>
+                      <span>
+                        导出该空间的说说（内容 / 时间 / 评论数 / 配图 / 视频；可选导出自己）
+                      </span>
                       <small>
-                        需登录该账号的 QQ 客户端。配图存入 media/；HTML
-                        格式会强制下载配图并本地引用（离线可看）；评论与点赞从动态页解析，仅覆盖翻到的动态，可能不全。
+                        需登录该账号的 QQ 客户端。配图与视频存入 media/；HTML
+                        格式会强制下载媒体并本地引用（离线可看）；评论与点赞从动态页解析，仅覆盖翻到的动态，可能不全。
                       </small>
                     </div>
                   </Card>
@@ -563,11 +565,11 @@ export function ExportLightbox({
                       <>
                         <MasterRow
                           icon={<ImageIcon size={17} />}
-                          label="下载配图"
+                          label="下载媒体（配图 / 视频）"
                           desc={
                             htmlForced
-                              ? 'HTML 导出需要本地配图，已随格式强制开启'
-                              : '说说正文始终导出；配图开启后存入 media/ 子目录'
+                              ? 'HTML 导出需要本地媒体，已随格式强制开启'
+                              : '说说正文始终导出；配图与视频开启后存入 media/ 子目录'
                           }
                           checked={opts.exportMedia}
                           disabled={htmlForced}

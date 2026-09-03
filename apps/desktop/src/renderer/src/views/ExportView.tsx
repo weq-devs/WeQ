@@ -1686,7 +1686,7 @@ export function ExportView(): ReactElement {
                 <span className="weq-exp-foot-hint">
                   {mode === 'qzone'
                     ? convSelection.size > 0
-                      ? `已选 ${convSelection.size} 个空间 · 灯箱内选择格式与配图`
+                      ? `已选 ${convSelection.size} 个空间 · 灯箱内选择格式与媒体`
                       : '请先选择要导出的空间'
                     : mode === 'guild'
                       ? guildSelection.size > 0

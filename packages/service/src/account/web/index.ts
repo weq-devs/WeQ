@@ -202,6 +202,7 @@ export {
 } from './qzone';
 export type {
   QzoneEmotion,
+  QzoneEmotionVideo,
   QzoneMsgListResult,
   QzoneFeed,
   QzoneFeedsResult,

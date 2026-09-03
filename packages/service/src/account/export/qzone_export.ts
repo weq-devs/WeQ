@@ -10,17 +10,17 @@
  * 说说按发表时间**倒序**，配合时间范围可提前停止翻页。
  *
  * 产物格式：json / txt / html。HTML 完整渲染：资料头（空间头像 / 昵称）+
- * 说说卡片（表情外链 qzonestyle、配图网格、赞 / 评论数、评论区含回复）；
+ * 说说卡片（表情外链 qzonestyle、配图网格 + 视频卡片、赞 / 评论数、评论区含回复）；
  * 评论默认展开前 3 条、点赞默认展开前 10 人，更多可点按钮展开 / 收起（参考
- * QzoneArchive 归档页，内联脚本切换，无需联网）。配图与互动拉取由调用方保证
- * —— 含 html 时强制下载配图 + 拉取评论 / 点赞。
+ * QzoneArchive 归档页，内联脚本切换，无需联网）。配图 / 视频与互动拉取由调用方保证
+ * —— 含 html 时强制下载媒体 + 拉取评论 / 点赞。
  */
 
 import { createExportWriter } from './stream_utils';
 import { mkdir } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { downloadUrlToFile } from '../media_url';
-import type { QzoneEmotion, QzoneMsgListResult } from '../web/qzone';
+import type { QzoneEmotion, QzoneEmotionVideo, QzoneMsgListResult } from '../web/qzone';
 import type {
   QzoneComment,
   QzoneInteraction,
@@ -211,6 +211,11 @@ const QZONE_HTML_STYLE = `
   .pictures a { display: block; border-radius: 8px; overflow: hidden; background: #eef2f7; }
   .pictures img { display: block; width: 100%; height: 210px; object-fit: cover; }
   .pictures.is-one img { height: auto; max-height: 720px; object-fit: contain; }
+  .pictures video.media-video { display: block; width: 100%; height: 210px; object-fit: contain; background: #0d1117; border-radius: 8px; }
+  .pictures.is-one video.media-video { height: auto; max-height: 720px; }
+  .pictures a.video-link { position: relative; }
+  .video-play { position: absolute; inset: 0; display: grid; place-items: center; font-size: 22px; color: #fff; background: rgb(0 0 0 / 0.32); }
+  .pictures .ph { display: block; padding: 84px 0; text-align: center; color: #8b98a8; }
   .stats { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 12px; padding-top: 10px; border-top: 1px dashed #e1e8f2; color: #7e899a; font-size: 12px; }
   .stats .likes { color: #e15b64; }
   .sep { color: #c3ccd8; }
@@ -234,6 +239,7 @@ const QZONE_HTML_STYLE = `
     .card, .profile { padding: 13px 14px; border-radius: 14px; }
     .pictures { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
     .pictures img { height: 140px; }
+    .pictures video.media-video { height: 140px; }
   }
 `;
 
@@ -460,19 +466,45 @@ function statsToHtml(e: EmotionWithInteraction): string {
   return `<div class="stats">${parts.join('<span class="sep">·</span>')}</div>`;
 }
 
-/** 说说配图网格：下载了走本地 `media/`，否则直接引用远端图（完整渲染）。 */
+/** 视频卡片：下载了走本地 `media/`（poster 封面 + 本体 mp4），否则引用远端本体。 */
+function videoToHtml(
+  e: QzoneEmotion,
+  v: QzoneEmotionVideo,
+  i: number,
+  localMedia: boolean,
+): string {
+  if (localMedia) {
+    const body = `media/${encodeURI(videoBodyFileName(e, i))}`;
+    const cover = v.coverUrl ? `media/${encodeURI(videoCoverFileName(e, i))}` : '';
+    return (
+      `<video class="media-video" controls preload="none"` +
+      (cover ? ` poster="${escapeHtml(cover)}"` : '') +
+      ` src="${escapeHtml(body)}"></video>`
+    );
+  }
+  // 远端：封面图外链本体 mp4（有封面才有图，纯视频帖可能连封面都没有）。
+  const inner = v.coverUrl
+    ? `<img loading="lazy" src="${escapeHtml(v.coverUrl)}" alt="视频 ${i + 1}" referrerpolicy="no-referrer">`
+    : '<span class="ph">[视频]</span>';
+  return (
+    `<a class="video-link" href="${escapeHtml(v.videoUrl)}" target="_blank" rel="noreferrer">` +
+    `${inner}<span class="video-play">▶</span></a>`
+  );
+}
+
+/** 说说配图网格：图片 + 视频混合排布；下载了走本地 `media/`，否则直接引用远端（完整渲染）。 */
 function picturesToHtml(e: QzoneEmotion, localMedia: boolean): string {
-  if (e.images.length === 0) return '';
-  const one = e.images.length === 1;
-  const items = e.images
-    .map((url, i) => {
-      const local = localMedia ? `media/${encodeURI(imageFileName(e, url, i))}` : '';
-      const href = local || url;
-      const ext = local ? '' : ' target="_blank" rel="noreferrer"';
-      return `<a href="${escapeHtml(href)}"${ext}><img loading="lazy" src="${escapeHtml(href)}" alt="配图 ${i + 1}" referrerpolicy="no-referrer"></a>`;
-    })
-    .join('');
-  return `<div class="pictures${one ? ' is-one' : ''}">${items}</div>`;
+  const imgs = e.images.map((url, i) => {
+    const local = localMedia ? `media/${encodeURI(imageFileName(e, url, i))}` : '';
+    const href = local || url;
+    const ext = local ? '' : ' target="_blank" rel="noreferrer"';
+    return `<a href="${escapeHtml(href)}"${ext}><img loading="lazy" src="${escapeHtml(href)}" alt="配图 ${i + 1}" referrerpolicy="no-referrer"></a>`;
+  });
+  const vids = e.videos.map((v, i) => videoToHtml(e, v, i, localMedia));
+  const items = [...imgs, ...vids];
+  if (items.length === 0) return '';
+  const one = items.length === 1;
+  return `<div class="pictures${one ? ' is-one' : ''}">${items.join('')}</div>`;
 }
 
 /**
@@ -541,6 +573,10 @@ function emotionToTxt(e: EmotionWithInteraction): string {
   const lines = [head];
   if (e.content) lines.push(e.content);
   if (e.images.length) lines.push(`图片: ${e.images.join(', ')}`);
+  for (const v of e.videos) {
+    const dur = v.duration ? ` (${Math.round(v.duration / 1000)}s)` : '';
+    lines.push(`视频${dur}${v.coverUrl ? ` 封面: ${v.coverUrl}` : ''}: ${v.videoUrl}`);
+  }
   const comments = e.comments ?? [];
   const likes = e.likes ?? [];
   if (comments.length) {
@@ -565,8 +601,17 @@ function imageFileName(e: QzoneEmotion, url: string, i: number): string {
   return `${e.tid}_${i}${picExt(url)}`;
 }
 
-/** 下载全部说说配图到 `mediaRoot`，并发 4，返回成败计数。 */
-async function downloadImages(
+/** 视频本体落盘名（mp4）与封面落盘名（jpg）—— 下载与 HTML 引用共用。 */
+function videoBodyFileName(e: QzoneEmotion, i: number): string {
+  return `${e.tid}_v${i}.mp4`;
+}
+
+function videoCoverFileName(e: QzoneEmotion, i: number): string {
+  return `${e.tid}_v${i}.jpg`;
+}
+
+/** 下载全部说说配图 + 视频到 `mediaRoot`，并发 4，返回成败计数。 */
+async function downloadMedia(
   emotions: QzoneEmotion[],
   mediaRoot: string,
   onMedia?: (done: number, total: number) => void,
@@ -576,6 +621,14 @@ async function downloadImages(
   for (const e of emotions) {
     e.images.forEach((url, i) => {
       jobs.push({ url, dest: join(mediaRoot, imageFileName(e, url, i)) });
+    });
+    e.videos.forEach((v, i) => {
+      if (v.videoUrl) {
+        jobs.push({ url: v.videoUrl, dest: join(mediaRoot, videoBodyFileName(e, i)) });
+      }
+      if (v.coverUrl) {
+        jobs.push({ url: v.coverUrl, dest: join(mediaRoot, videoCoverFileName(e, i)) });
+      }
     });
   }
   const total = jobs.length;
@@ -743,7 +796,7 @@ export async function exportQzone(
   let mediaOk = 0;
   let mediaFailed = 0;
   if (opts.mediaRoot && !opts.signal?.aborted) {
-    const r = await downloadImages(filtered, opts.mediaRoot, opts.onMedia, opts.signal);
+    const r = await downloadMedia(filtered, opts.mediaRoot, opts.onMedia, opts.signal);
     mediaOk = r.ok;
     mediaFailed = r.failed;
   }

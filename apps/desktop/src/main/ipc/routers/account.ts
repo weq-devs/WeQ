@@ -250,6 +250,19 @@ const decryptDbInput = z.object({
 const groupAlbumInput = z.object({
   groupCode: z.string().min(1),
 });
+
+/** 个人空间相册列表入参：hostUin = 该空间的 QQ 号（自己或好友）。 */
+const qzoneAlbumListInput = z.object({
+  hostUin: z.string().min(1),
+});
+
+/** 相册内媒体分页入参：topicId = 相册列表里的 album.id。 */
+const qzoneAlbumMediaInput = z.object({
+  hostUin: z.string().min(1),
+  topicId: z.string().min(1),
+  pageStart: z.number().int().min(0).optional().default(0),
+  pageNum: z.number().int().min(1).max(100).optional().default(30),
+});
 /** 导出装扮资源（气泡 / 字体 / 挂件），缺省不导出。 */
 const dressInput = z
   .object({
@@ -2638,6 +2651,33 @@ export const accountRouter = router({
     const services = requireServices();
     requireQqOnlineForAlbum(services);
     return collectAlbumMedia(services, input.groupCode, input.albumId);
+  }),
+
+  // ---- 个人空间相册（QQ 空间 · 空间相册查看器）----
+
+  /**
+   * 某个 QQ 空间（自己或好友）的相册列表。走 qzone web cgi，需要在线 QQ ——
+   * p_skey 可由 ptlogin2 本地快速登录兜底，无需注入 / ClientKey。
+   */
+  qzoneAlbumList: procedure.input(qzoneAlbumListInput).query(async ({ input }) => {
+    const services = requireServices();
+    requireOnlineQqForWeb(services);
+    return services.webQuery.getQzoneAlbums(input.hostUin);
+  }),
+
+  /**
+   * 某个相册内的媒体（照片 / 视频）列表，分页。`topicId` = 相册列表里的
+   * `album.id`；`pageStart` 偏移 + `pageNum` 页大小支持深翻。同样需要在线 QQ。
+   */
+  qzoneAlbumMedia: procedure.input(qzoneAlbumMediaInput).query(async ({ input }) => {
+    const services = requireServices();
+    requireOnlineQqForWeb(services);
+    return services.webQuery.getQzoneAlbumPhotos(
+      input.hostUin,
+      input.topicId,
+      input.pageStart,
+      input.pageNum,
+    );
   }),
 
   /** Folder dialog for group album export output. */

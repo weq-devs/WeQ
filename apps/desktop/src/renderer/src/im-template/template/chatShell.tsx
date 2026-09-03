@@ -36,6 +36,7 @@ export function ChatShell({
   onOpenInvite,
   onOpenWonderfulTools,
   onOpenGuildDirect,
+  onOpenQzoneAlbum,
   onQueryChange,
   onQuickInvite,
   onCreateGroup,
@@ -72,6 +73,7 @@ export function ChatShell({
   onOpenInvite: () => void;
   onOpenWonderfulTools: () => void;
   onOpenGuildDirect: () => void;
+  onOpenQzoneAlbum: () => void;
   onQueryChange: (query: string) => void;
   onQuickInvite: () => void;
   onCreateGroup: () => void;
@@ -103,6 +105,7 @@ export function ChatShell({
           onOpenInvite={onOpenInvite}
           onOpenWonderfulTools={onOpenWonderfulTools}
           onOpenGuildDirect={onOpenGuildDirect}
+          onOpenQzoneAlbum={onOpenQzoneAlbum}
           messageBadgeCount={messageBadgeCount}
           contactBadgeCount={contactBadgeCount}
           showTools={showTools}

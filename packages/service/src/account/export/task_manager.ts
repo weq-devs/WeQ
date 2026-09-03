@@ -477,7 +477,7 @@ export class ExportTaskManager extends EventEmitter {
         { key: 'message', label: '导出说说', status: 'pending', current: 0, total: opts.total },
       ];
       if (wantMedia)
-        qStages.push({ key: 'media', label: '下载配图', status: 'pending', current: 0, total: 0 });
+        qStages.push({ key: 'media', label: '下载媒体', status: 'pending', current: 0, total: 0 });
       const qTask: ExportTask = {
         id,
         kind: opts.kind,
@@ -1867,7 +1867,7 @@ export class ExportTaskManager extends EventEmitter {
                 total,
                 note: `下载 ${done}/${total}`,
               });
-              this.log(id, 'media', `下载配图 ${done}/${total}`);
+              this.log(id, 'media', `下载媒体 ${done}/${total}`);
             },
             onInteraction: (done, total, note) => {
               if (aborted()) return;
