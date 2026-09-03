@@ -151,6 +151,7 @@ export { ServiceAccountService } from './account/service_account';
 export type { ServiceAccountSummary } from './account/service_account';
 export { ForwardMsgService } from './account/forward';
 export { MsgService } from './account/msg';
+export * from './account/annual_report';
 export {
   GroupInfoService,
   type RelationGraphData,
