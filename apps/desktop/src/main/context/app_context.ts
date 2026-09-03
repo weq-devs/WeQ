@@ -1031,6 +1031,9 @@ export function initAppContext(): AppContext {
             qzone: {
               fetchMsgList: (uin, pos, num) => webQuery.getQzoneMsgList(uin, pos, num),
               fetchInteractions: (uin, targets) => webQuery.getQzoneInteractions(uin, targets),
+              // 点赞权威源：动态页 HTML 偶发不渲染 user-list，空赞的帖子用
+              // r.qzone qz_opcnt2 补一轮名单（导出时自动触发，失败则保留 HTML 结果）。
+              fetchLikes: (uin, tid) => webQuery.getQzoneLikes(uin, tid),
             },
             // 联系人导出（好友 / 群成员）：本地资料库拉取，bigint 归一化为字符串。
             contacts: {
@@ -1510,6 +1513,9 @@ export function initAppContext(): AppContext {
             qzone: {
               fetchMsgList: (uin, pos, num) => webQuery.getQzoneMsgList(uin, pos, num),
               fetchInteractions: (uin, targets) => webQuery.getQzoneInteractions(uin, targets),
+              // 点赞权威源：动态页 HTML 偶发不渲染 user-list，空赞的帖子用
+              // r.qzone qz_opcnt2 补一轮名单（导出时自动触发，失败则保留 HTML 结果）。
+              fetchLikes: (uin, tid) => webQuery.getQzoneLikes(uin, tid),
             },
             // 收藏导出：静态账号同样有本地收藏库，可离线导出。
             collection: {

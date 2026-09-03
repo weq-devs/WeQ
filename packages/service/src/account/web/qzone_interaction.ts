@@ -2,15 +2,18 @@
  * QQ 空间说说「互动」读取 —— 评论列表 + 点赞列表。
  *
  * QQ 空间没有公开的纯 JSON 互动读取接口（PC/mobile 评论详情接口在多数环境下
- * 实测不可用），社区逆向方案（onebot-qzone）一致的做法是解析 **feeds3 预渲染
- * HTML**：每条动态的 HTML 里内嵌了评论区（`comments-item`）和点赞区
- * （`user-list` / `f-item-passive` 点赞事件）。本模块移植自 onebot-qzone 的
- * `feeds3/` 解析器，数据源与我们仓库 {@link qzone.getQzoneFeeds} 是同一条
- * `feeds3_html_more` 链路。
+ * 实测不可用），社区逆向方案（onebot-qzone）一致的做法是解析 **预渲染 HTML**：
+ * 每条动态的 HTML 里内嵌了评论区（`comments-item`）和点赞区
+ * （`user-list` / `f-item-passive` 点赞事件）。本模块解析器移植自 onebot-qzone
+ * 的 `feeds3/` 解析器。
  *
- * 读取路径（best-effort）：
- *   1. 作者空间 feeds3（scope=1，最近 count 条）—— 主力，查指定说说；
- *   2. 未命中时翻 ic2 `feeds_html_act_all`（start/count 分页，hostuin=作者）。
+ * 数据源是浏览器「空间主页 / 全部动态」链路的 `feeds_html_act_all`（hostuin =
+ * 目标空间，自己或好友皆可）。注意该 cgi 的动态列表**不在** `data.data`，而在
+ * `data.host_data / about_data / friend_data / firstpage_data` 四个数组里 ——
+ * 实测空间主页的说说在 `friend_data`（元素自带 key/uin/abstime 结构化字段 +
+ * 预渲染 html）。误读 `data.data` 会永远拿到空页：曾经只有近期被好友互动过的
+ * 帖子能靠 feeds3 链路碰巧补到评论，其余说说全部落空（「只补到第一条」的 bug，
+ * 见 {@link collectQzoneInteractions}）。
  *
  * 局限（与 onebot-qzone 相同）：评论区只在「该动态出现的页面 HTML」里内嵌，
  * 深翻页能扩大覆盖但不保证全量；且不保证返回所有评论/点赞 —— 调用方按
@@ -831,12 +834,31 @@ function toQzoneLike(l: Feeds3LikeRecord): QzoneLike {
   return { uin: l.uin, nickname: l.nickname, time: l.abstime, customItemId: l.customItemId };
 }
 
-// ───────────────────────── 拉取（feeds3_html_more scope=1 / feeds_html_act_all） ─────────────────────────
+// ───────────────────────── 拉取（feeds_html_act_all 空间主页动态） ─────────────────────────
+//
+// 数据源是浏览器「空间主页 / 全部动态」链路的 `feeds_html_act_all`（hostuin =
+// 目标空间，自己或好友皆可，经真机验证）。动态列表**不在** `data.data`，而在
+// `data.host_data / about_data / friend_data / firstpage_data` 四个数组里 —— 实测
+// 空间主页的说说在 `friend_data`（每元素带 key/uin/abstime 结构化字段 + 预渲染
+// html）。曾经误读 `data.data` 导致永远拿到空页，只有近期被好友互动过的帖子能
+// 靠别的链路碰巧补到评论（即「只补到第一条」的 bug）。
 
-interface RawFeedsData {
+interface RawActAllItem {
+  key?: string;
+  uin?: string | number;
+  abstime?: string | number;
+  html?: string;
+}
+
+interface RawActAllData {
   code?: number;
   message?: string;
-  data?: { data?: Array<{ html?: string }> | null };
+  data?: {
+    host_data?: RawActAllItem[] | null;
+    about_data?: RawActAllItem[] | null;
+    friend_data?: RawActAllItem[] | null;
+    firstpage_data?: RawActAllItem[] | null;
+  };
 }
 
 /** 判定「票据不对」—— 与 qzone.ts 同一套，好让 withRetry 换票重试。 */
@@ -847,65 +869,26 @@ function qzoneCodeError(what: string, code: number, message?: string): Error {
   return AUTH_CODES.has(code) ? new WebAuthError(msg, code) : new Error(msg);
 }
 
-/** 非执行解析 feeds3 JSONP body 并把每条 html 拼成一个整页 HTML。 */
-async function fetchFeeds3HtmlPage(
-  cred: WebCredential,
-  uin: string,
-  scope: number,
-  count: number,
-  extra: Record<string, string>,
-): Promise<string> {
-  const gtk = computeBkn(cred.pskey || cred.skey);
-  const params = new URLSearchParams({
-    uin,
-    scope: String(scope),
-    view: '1',
-    filter: 'all',
-    applist: 'all',
-    flag: '1',
-    pagenum: '1',
-    aisortEndTime: '0',
-    aisortOffset: '0',
-    aisortBeginTime: '0',
-    begintime: '0',
-    count: String(count),
-    g_tk: String(gtk),
-    useutf8: '1',
-    outputhtmlfeed: '1',
-    format: 'json',
-    callback: '_preloadCallback',
-    ...extra,
-  });
-  const url = `https://h5.qzone.qq.com/proxy/domain/ic2.qzone.qq.com/cgi-bin/feeds/feeds3_html_more?${params.toString()}`;
-  const text = await webRequestText(url, {
-    method: 'GET',
-    cookie: cookieHeader(cred),
-    headers: { Referer: `https://user.qzone.qq.com/${uin}` },
-  });
-  const data = parseQzoneCallback<RawFeedsData>(text);
-  if (typeof data.code === 'number' && data.code !== 0) {
-    throw qzoneCodeError('qzone feeds3 interaction', data.code, data.message);
-  }
-  const items = data.data?.data;
-  if (!Array.isArray(items)) {
-    throw new Error(`无法获取空间动态(互动读取): ${text.slice(0, 200)}`);
-  }
-  return items.map((i) => decodeFeedHtml(i?.html ?? '')).join('');
+/** act_all 一页的解析结果：拼好的 HTML + 本页各动态的结构化句柄。 */
+interface ActAllPage {
+  /** 本页全部动态 html 的拼接（decode 后，直接喂桶解析器）。 */
+  html: string;
+  /** 本页动态（含 0 互动帖）—— 供「覆盖判定 / 最旧时间早停」。 */
+  items: RawActAllItem[];
 }
 
-/** ic2 `feeds_html_act_all` 分页（浏览器「全部动态」链路），返回整页 HTML。 */
-async function fetchFeedsActAllHtml(
+/** ic2 `feeds_html_act_all` 分页（浏览器「空间主页 / 全部动态」链路）。 */
+async function fetchActAllPage(
   cred: WebCredential,
-  pageUin: string,
   hostUin: string,
   start: number,
   count: number,
-): Promise<string> {
+): Promise<ActAllPage> {
   const gtk = computeBkn(cred.pskey || cred.skey);
   const params = new URLSearchParams({
-    uin: pageUin,
+    uin: hostUin,
     hostuin: hostUin,
-    scope: '0',
+    scope: '1',
     filter: 'all',
     flag: '1',
     refresh: '0',
@@ -927,15 +910,90 @@ async function fetchFeedsActAllHtml(
     cookie: cookieHeader(cred),
     headers: { Referer: `https://user.qzone.qq.com/${hostUin}` },
   });
-  const data = parseQzoneCallback<RawFeedsData>(text);
+  const data = parseQzoneCallback<RawActAllData>(text);
   if (typeof data.code === 'number' && data.code !== 0) {
     throw qzoneCodeError('qzone feeds_html_act_all', data.code, data.message);
   }
-  const items = data.data?.data;
-  if (!Array.isArray(items)) {
-    throw new Error(`无法获取空间动态(act_all): ${text.slice(0, 200)}`);
+  const items: RawActAllItem[] = [];
+  const groups = data.data;
+  if (groups) {
+    for (const group of [
+      groups.host_data,
+      groups.about_data,
+      groups.friend_data,
+      groups.firstpage_data,
+    ]) {
+      if (Array.isArray(group)) {
+        for (const it of group) if (it && (it.html || it.key)) items.push(it);
+      }
+    }
   }
-  return items.map((i) => decodeFeedHtml(i?.html ?? '')).join('');
+  const html = items.map((i) => decodeFeedHtml(i?.html ?? '')).join('');
+  return { html, items };
+}
+
+// ───────────────────────── 点赞列表（r.qzone qz_opcnt2） ─────────────────────────
+//
+// 备用/精确源：网页版点开「赞」名单时调 `r.qzone.qq.com/cgi-bin/user/qz_opcnt2`，
+// 返回结构化 `[[uin, 昵称, face], …]`，比动态页 HTML 里偶发缺失的 user-list 稳定。
+// 局限：名单无时间/个性赞信息（time=0、customItemId=''）；实测单次返回完整名单
+// （cnt == list 长度）；>~100 人的超大赞数是否截断未验证，best-effort 看待。
+
+interface RawOpCntData {
+  code?: number;
+  message?: string;
+  data?: Array<{
+    current?: {
+      likedata?: {
+        cnt?: number;
+        list?: Array<[string | number, string, string | number]>;
+      };
+    };
+  }> | null;
+}
+
+/**
+ * 经 qz_opcnt2 读取某条说说的点赞名单（uin + 昵称）。
+ * 失败/无赞返回空数组；票据类错误抛 {@link WebAuthError}（供 withRetry 换票）。
+ */
+export async function fetchQzoneLikes(
+  cred: WebCredential,
+  authorUin: string,
+  tid: string,
+): Promise<QzoneLike[]> {
+  const gtk = computeBkn(cred.pskey || cred.skey);
+  // unikey = 「说说页 URL<.>同样 URL」，形如 …/mood/{tid}.1。原样交给
+  // URLSearchParams 编码一次即可 —— 千万别先 encodeURIComponent 再塞进去
+  // （会把 % 二次编码成 %25，服务端匹配不到 key 而静默返回空）。
+  const mood = `http://user.qzone.qq.com/${authorUin}/mood/${tid}.1`;
+  const params = new URLSearchParams({
+    _stp: String(Date.now()),
+    unikey: `${mood}<.>${mood}`,
+    face: '0',
+    fupdate: '1',
+    g_tk: String(gtk),
+  });
+  const url = `https://user.qzone.qq.com/proxy/domain/r.qzone.qq.com/cgi-bin/user/qz_opcnt2?${params.toString()}`;
+  const text = await webRequestText(url, {
+    method: 'GET',
+    cookie: cookieHeader(cred),
+    headers: { Referer: `https://user.qzone.qq.com/${authorUin}` },
+  });
+  const data = parseQzoneCallback<RawOpCntData>(text);
+  if (typeof data.code === 'number' && data.code !== 0) {
+    throw qzoneCodeError('qzone qz_opcnt2 likes', data.code, data.message);
+  }
+  const likedata = data.data?.[0]?.current?.likedata;
+  const list = likedata?.list;
+  if (!Array.isArray(list)) return [];
+  const likes: QzoneLike[] = [];
+  for (const entry of list) {
+    const uinStr = String(entry?.[0] ?? '');
+    const nickname = entry?.[1] ?? '';
+    if (!uinStr || uinStr === '0') continue;
+    likes.push({ uin: uinStr, nickname, time: 0, customItemId: '' });
+  }
+  return likes;
 }
 
 // ───────────────────────── 批量收集 + tid 解析 ─────────────────────────
@@ -976,67 +1034,54 @@ function parseIntoBuckets(html: string, buckets: InteractionBuckets): void {
 /** act_all 翻页上限：超过即停，避免对远古说说无谓轰炸（评论覆盖是 best-effort）。 */
 const ACT_ALL_MAX_PAGES = 20;
 const ACT_ALL_PAGE_COUNT = 20;
-/** feeds3 作者空间首页拉取条数。 */
-const AUTHOR_FEED_COUNT = 50;
-
-function commentTidsOfBuckets(buckets: InteractionBuckets): Set<string> {
-  const keys = new Set<string>();
-  for (const k of buckets.comments.keys()) keys.add(k);
-  for (const k of buckets.likes.keys()) keys.add(k);
-  return keys;
-}
 
 /**
- * 把请求的说说 tid 解析到桶：先直接相等命中，再按 (作者 uin, 发表时间) 反查
- * feeds3 里 d{uin}_{time}_… 形态的别名桶（说说列表 tid 与 feeds3 html key 偶有出入）。
+ * 单个 target 在桶里的命中。先直接按 tid 查评论/点赞桶；都没有时按
+ * (作者 uin, 发表时间) 反查 d{uin}_{time}_… 形态的别名桶（说说列表 tid 与
+ * 网页动态 html key 偶有出入：hex fkey ↔ d{uin}_{abstime}_… / 纯数字 tid）。
+ * 完全没有任何桶 / 别名时返回 undefined —— 表示「这页还没翻到该帖或它 0 互动」。
  */
-function resolveBuckets(
+function lookupBucket(
   buckets: InteractionBuckets,
   authorUin: string,
-  targets: QzoneInteractionTarget[],
-): Map<string, QzoneInteraction> {
-  const out = new Map<string, QzoneInteraction>();
-  const present = commentTidsOfBuckets(buckets);
-  for (const t of targets) {
-    let comments = buckets.comments.get(t.tid);
-    let likes = buckets.likes.get(t.tid);
-    const isEmpty = (comments?.length ?? 0) === 0 && (likes?.length ?? 0) === 0;
-    if (isEmpty) {
-      // 别名反查：在桶键里找同作者、时间窗一致的 key（说说列表 tid 与 feeds3
-      // html key 偶有出入：hex fkey ↔ d{uin}_{abstime}_… / 纯数字 tid）。
-      let aliasKey = '';
-      for (const key of present) {
-        if (key === t.tid || (t.time > 0 && key === String(t.time))) {
-          aliasKey = key;
-          break;
-        }
-        if (t.time <= 0) continue;
-        const embedded = `_${t.time}_`;
-        const sameAuthor = key.startsWith(`d${authorUin}_`) || t.tid.includes(String(authorUin));
-        if (key.includes(embedded) && sameAuthor) {
-          aliasKey = key;
-          break;
-        }
+  t: QzoneInteractionTarget,
+): QzoneInteraction | undefined {
+  let comments = buckets.comments.get(t.tid);
+  let likes = buckets.likes.get(t.tid);
+  if (!comments && !likes) {
+    let aliasKey = '';
+    for (const key of new Set([...buckets.comments.keys(), ...buckets.likes.keys()])) {
+      if (key === t.tid || (t.time > 0 && key === String(t.time))) {
+        aliasKey = key;
+        break;
       }
-      if (aliasKey) {
-        comments = buckets.comments.get(aliasKey);
-        likes = buckets.likes.get(aliasKey);
+      if (t.time <= 0) continue;
+      const embedded = `_${t.time}_`;
+      const sameAuthor = key.startsWith(`d${authorUin}_`) || t.tid.includes(String(authorUin));
+      if (key.includes(embedded) && sameAuthor) {
+        aliasKey = key;
+        break;
       }
     }
-    out.set(t.tid, {
-      comments: (comments ?? []).map(toQzoneComment),
-      likes: (likes ?? []).map(toQzoneLike),
-    });
+    if (!aliasKey) return undefined;
+    comments = buckets.comments.get(aliasKey);
+    likes = buckets.likes.get(aliasKey);
   }
-  return out;
+  return {
+    comments: (comments ?? []).map(toQzoneComment),
+    likes: (likes ?? []).map(toQzoneLike),
+  };
 }
 
 /**
  * Best-effort 批量读取某空间若干说说的评论 + 点赞。
  *
- * 先拉作者空间 feeds3（scope=1，最近 50 条），未命中的说说再翻
- * `feeds_html_act_all` 至多 {@link ACT_ALL_MAX_PAGES} 页。任一页失败即抛错
- * （抛错交给调用方决定：走 withRetry 换票或按 best-effort 降级）。
+ * 数据源只有 `feeds_html_act_all`（空间主页 / 全部动态，hostuin = 目标空间）：
+ * 从 start=0 逐页翻，每页把动态 html 解析进评论/点赞桶，再逐 target 结算 ——
+ * 命中的收官，未命中的继续翻下一页；某帖已在该页出现过（结构化 key 判定，0 互动）
+ * 或发表时间已早于翻到的最旧动态（后面只会更旧）时按空互动收官。首页失败即抛错
+ * （走 withRetry 换票或让调用方按 best-effort 降级）；后续页失败则提前收手。
+ * 翻页上限 {@link ACT_ALL_MAX_PAGES}，未覆盖的 target 一律按空桶返回。
  */
 export async function collectQzoneInteractions(
   cred: WebCredential,
@@ -1045,34 +1090,49 @@ export async function collectQzoneInteractions(
 ): Promise<Map<string, QzoneInteraction>> {
   if (targets.length === 0) return new Map();
   const buckets: InteractionBuckets = { comments: new Map(), likes: new Map() };
+  const out = new Map<string, QzoneInteraction>();
+  let pending = [...targets];
+  // 已翻到的动态 key 与最旧发表时间：用来把 0 互动帖/已翻过的帖提前收官为空。
+  const seenKeys = new Set<string>();
+  let oldestSeen = 0;
 
-  const first = await fetchFeeds3HtmlPage(cred, authorUin, 1, AUTHOR_FEED_COUNT, {});
-  parseIntoBuckets(first, buckets);
-
-  const resolved = resolveBuckets(buckets, authorUin, targets);
-  const isMissing = (t: QzoneInteractionTarget): boolean => {
-    const r = resolved.get(t.tid);
-    return !r || (r.comments.length === 0 && r.likes.length === 0);
-  };
-  if (targets.every((t) => !isMissing(t))) return resolved;
-
-  // 作者空间首页没覆盖到的说说，翻 feeds_html_act_all 分页兜底（best-effort）。
-  for (let page = 0; page < ACT_ALL_MAX_PAGES; page += 1) {
-    const stillMissing = targets.filter(isMissing);
-    if (stillMissing.length === 0) break;
+  for (let page = 0; page < ACT_ALL_MAX_PAGES && pending.length > 0; page += 1) {
     const start = page * ACT_ALL_PAGE_COUNT;
-    let html: string;
+    let res: ActAllPage;
     try {
-      html = await fetchFeedsActAllHtml(cred, authorUin, authorUin, start, ACT_ALL_PAGE_COUNT);
-    } catch {
-      break; // act_all 失败不再纠结：互动是 best-effort，不阻断正文导出
+      res = await fetchActAllPage(cred, authorUin, start, ACT_ALL_PAGE_COUNT);
+    } catch (e) {
+      // 首页就失败 = 真错误（票据 / 风控 / 无权限），上抛给 withRetry 换票。
+      if (page === 0) throw e;
+      break; // 后续页失败：互动是 best-effort，不阻断正文导出
     }
-    parseIntoBuckets(html, buckets);
-    const got = resolveBuckets(buckets, authorUin, stillMissing);
-    for (const t of stillMissing) {
-      const r = got.get(t.tid)!;
-      resolved.set(t.tid, r);
+    if (res.items.length === 0) break; // 空页 = 翻到头
+    parseIntoBuckets(res.html, buckets);
+
+    for (const it of res.items) {
+      if (it.key) seenKeys.add(it.key);
+      const t = Number(it.abstime ?? 0) || 0;
+      if (t && (oldestSeen === 0 || t < oldestSeen)) oldestSeen = t;
     }
+
+    const still: QzoneInteractionTarget[] = [];
+    for (const t of pending) {
+      const hit = lookupBucket(buckets, authorUin, t);
+      if (hit) {
+        out.set(t.tid, hit);
+        continue;
+      }
+      // 该帖出现在已翻页面里（0 互动）或已翻过它的发表时间 → 空桶收官。
+      const timePassed = oldestSeen > 0 && t.time > 0 && t.time < oldestSeen;
+      if (seenKeys.has(t.tid) || timePassed) {
+        out.set(t.tid, { comments: [], likes: [] });
+        continue;
+      }
+      still.push(t);
+    }
+    pending = still;
   }
-  return resolved;
+  // 翻到头 / 超页上限仍未覆盖 → best-effort 空桶，不阻断正文导出。
+  for (const t of pending) out.set(t.tid, { comments: [], likes: [] });
+  return out;
 }

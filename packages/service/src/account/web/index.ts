@@ -14,9 +14,15 @@ import type { AccountSession } from '@weq/account';
 import { WebCredentialProvider, withRetry, type WebNative } from './credential';
 import { getFriendDress, type FriendDress } from './friend_dress';
 import { getGroupAlbumList, type GroupAlbum } from './group_album';
-import { getHonorList, type HonorType, type HonorMember } from './group_honor';
+import {
+  getQzoneAlbumList,
+  getQzoneAlbumMedia,
+  type QzoneAlbum,
+  type QzoneAlbumMediaResult,
+} from './qzone_album';
 import { getGroupNotice, type GroupNotice } from './group_notice';
 import { getGroupEssence, type GroupEssenceMessage } from './group_essence';
+import { getHonorList, type HonorType, type HonorMember } from './group_honor';
 import {
   getQzoneMsgList,
   getQzoneFeeds,
@@ -25,8 +31,10 @@ import {
 } from './qzone';
 import {
   collectQzoneInteractions,
+  fetchQzoneLikes,
   type QzoneInteraction,
   type QzoneInteractionTarget,
+  type QzoneLike,
 } from './qzone_interaction';
 import { getSelfDress, type SelfDress } from './self_dress';
 import { getFriendMutualMark, type FriendMutualMark } from './friend_mutualmark';
@@ -113,7 +121,7 @@ export class WebQueryService {
   }
 
   /**
-   * Best-effort 读取某空间若干说说的评论 + 点赞（feeds3 HTML 解析）。
+   * Best-effort 读取某空间若干说说的评论 + 点赞（空间动态页 HTML 解析）。
    * 供好友空间导出「补全互动」使用；互动缺失不抛错(空桶)，拉取失败抛错。
    */
   async getQzoneInteractions(
@@ -122,6 +130,31 @@ export class WebQueryService {
   ): Promise<Map<string, QzoneInteraction>> {
     return withRetry(this.creds, QZONE_DOMAIN, (c) =>
       collectQzoneInteractions(c, targetUin, targets),
+    );
+  }
+
+  /**
+   * 读某条说说的点赞名单（r.qzone qz_opcnt2，结构化 uin+昵称）。
+   * 比动态页 HTML 里的 user-list 稳定（HTML 偶发不渲染名单）。
+   */
+  async getQzoneLikes(targetUin: string, tid: string): Promise<QzoneLike[]> {
+    return withRetry(this.creds, QZONE_DOMAIN, (c) => fetchQzoneLikes(c, targetUin, tid));
+  }
+
+  /** 某 QQ 空间（自己或好友）的相册列表。 */
+  async getQzoneAlbums(targetUin: string): Promise<QzoneAlbum[]> {
+    return withRetry(this.creds, QZONE_DOMAIN, (c) => getQzoneAlbumList(c, targetUin));
+  }
+
+  /** 某相册内媒体（照片/视频）列表；`topicId` = 相册列表里的 `album.id`。 */
+  async getQzoneAlbumPhotos(
+    targetUin: string,
+    topicId: string,
+    pageStart = 0,
+    pageNum = 30,
+  ): Promise<QzoneAlbumMediaResult> {
+    return withRetry(this.creds, QZONE_DOMAIN, (c) =>
+      getQzoneAlbumMedia(c, targetUin, topicId, pageStart, pageNum),
     );
   }
 }
@@ -173,8 +206,11 @@ export type {
   QzoneFeed,
   QzoneFeedsResult,
 } from './qzone';
+export { getQzoneAlbumList, getQzoneAlbumMedia } from './qzone_album';
+export type { QzoneAlbum, QzoneAlbumPhoto, QzoneAlbumMediaResult } from './qzone_album';
 export {
   collectQzoneInteractions,
+  fetchQzoneLikes,
   parseFeeds3Comments,
   parseFeeds3Likes,
 } from './qzone_interaction';

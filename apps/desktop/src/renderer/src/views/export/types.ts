@@ -160,7 +160,7 @@ export interface ExportOptions {
   exportMedia: boolean;
   /** 导出媒体时按类别筛选（图片 / 语音 / 视频 / 文件 / QQ 系统表情）。 */
   mediaKinds: MediaKinds;
-  /** 好友 QQ 空间导出：按 tid 补全评论 + 点赞（feeds3 HTML 解析，best-effort）。 */
+  /** 好友 QQ 空间导出：按 tid 补全评论 + 点赞（空间动态页 HTML 解析，best-effort）。 */
   qzoneInteractions: boolean;
   /** 消息补全：扫描 seq 空窗，从 QQ 服务端拉取本机缺失的消息（需在线 QQ）。 */
   completeMessages: boolean;

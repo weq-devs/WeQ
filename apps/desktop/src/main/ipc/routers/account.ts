@@ -2845,7 +2845,7 @@ export const accountRouter = router({
         format: z.enum(['json', 'txt', 'html']),
         /** 多格式导出：json / txt / html 一次任务全出。 */
         formats: z.array(z.enum(['json', 'txt', 'html'])).optional(),
-        /** 补全互动：按 tid 拉取评论 + 点赞（feeds3 HTML 解析，best-effort，需在线 QQ）。 */
+        /** 补全互动：按 tid 拉取评论 + 点赞（空间动态页 HTML 解析，best-effort，需在线 QQ）。 */
         includeInteraction: z.boolean().optional(),
         downloadMedia: z.boolean(),
         range: z.object({ start: z.number().nullable(), end: z.number().nullable() }).optional(),

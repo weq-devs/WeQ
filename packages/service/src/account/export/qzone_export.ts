@@ -30,13 +30,19 @@ import type { ExportTimeRange } from './types';
 export interface QzoneExportDeps {
   fetchMsgList: (targetUin: string, pos: number, num: number) => Promise<QzoneMsgListResult>;
   /**
-   * Best-effort 批量读取若干说说的评论 + 点赞（feeds3 HTML 解析，需在线 QQ）。
+   * Best-effort 批量读取若干说说的评论 + 点赞（空间动态页 HTML 解析，需在线 QQ）。
    * 可选 —— 未注入时「补全互动」直接跳过。返回 Map<tid, 互动>，缺漏 tid 返回空桶。
    */
   fetchInteractions?: (
     targetUin: string,
     targets: QzoneInteractionTarget[],
   ) => Promise<Map<string, QzoneInteraction>>;
+  /**
+   * Best-effort 读单条说说的点赞名单（r.qzone qz_opcnt2）。可选 —— 注入后，
+   * 「补全互动」会对动态页 HTML 没拿到赞的帖子自动补一轮权威名单（见
+   * {@link attachInteractions}）；失败时保留 HTML 结果，不抛错。
+   */
+  fetchLikes?: (targetUin: string, tid: string) => Promise<QzoneLike[]>;
 }
 
 export interface QzoneExportOpts {
@@ -376,19 +382,55 @@ async function attachInteractions(
     const targets: QzoneInteractionTarget[] = filtered.map((e) => ({ tid: e.tid, time: e.time }));
     onInteraction?.(0, filtered.length, '拉取评论 / 点赞…');
     const map = await deps.fetchInteractions(opts.targetUin, targets);
-    let posts = 0;
     for (const e of filtered) {
       const it = map.get(e.tid);
       if (it) {
         e.comments = it.comments;
         e.likes = it.likes;
-        if (it.comments.length || it.likes.length) posts += 1;
       } else {
         e.comments = [];
         e.likes = [];
       }
     }
-    onInteraction?.(filtered.length, filtered.length, `互动完成：${posts} 条有评论/赞`);
+    // 点赞补全（顺便）：动态页 HTML 偶发不渲染 user-list 名单 → 对「HTML 没拿到
+    // 赞」的帖子用 r.qzone qz_opcnt2 补一轮权威名单。只补空赞的帖子，少打扰；
+    // 单条失败保留 HTML 结果继续（赞是增强项，不因它中断导出）。
+    let likesTopUp = 0;
+    if (deps.fetchLikes && !opts.signal?.aborted) {
+      const needTopUp = filtered.filter((e) => (e.likes?.length ?? 0) === 0);
+      if (needTopUp.length > 0) {
+        let done = 0;
+        let next = 0;
+        const worker = async (): Promise<void> => {
+          for (;;) {
+            if (opts.signal?.aborted) return;
+            const idx = next++;
+            if (idx >= needTopUp.length) return;
+            const e = needTopUp[idx]!;
+            try {
+              const ls = await deps.fetchLikes!(opts.targetUin, e.tid);
+              if (ls.length > 0) {
+                e.likes = ls;
+                likesTopUp += 1;
+              }
+            } catch {
+              // qz_opcnt2 单条失败 → 保留 HTML 空赞，best-effort。
+            }
+            done += 1;
+            onInteraction?.(done, needTopUp.length, `补拉点赞 ${done}/${needTopUp.length}…`);
+          }
+        };
+        await Promise.all(Array.from({ length: Math.min(4, needTopUp.length) }, worker));
+      }
+    }
+    let posts = 0;
+    for (const e of filtered) {
+      if ((e.comments?.length ?? 0) > 0 || (e.likes?.length ?? 0) > 0) posts += 1;
+    }
+    const note = likesTopUp
+      ? `互动完成：${posts} 条有评论/赞（qz_opcnt2 补拉 ${likesTopUp} 条赞）`
+      : `互动完成：${posts} 条有评论/赞`;
+    onInteraction?.(filtered.length, filtered.length, note);
     return { failed: false, interactionPosts: posts };
   } catch (e) {
     // 互动拉取失败（票据 / 风控 / 网络）不阻断正文导出：置空并标记 failed。
