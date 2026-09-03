@@ -37,6 +37,8 @@ import {
   type FormattedOnlineStatus,
   type RenderC2cMsg,
   type RenderGroupMsg,
+  type GuildDirectSessionView,
+  type RenderGuildDirectMsg,
 } from '@weq/service';
 import type { GroupNotice, HiddenSessionSummary } from '@weq/service';
 
@@ -383,6 +385,91 @@ export function groupMsgToWire(m: RenderGroupMsg): ChatMsgWire {
     setEmojiList: m.setEmojiList,
     deletedKind: m.deletedKind,
     recall: m.recall,
+    decoration: m.decoration,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// QQ 频道私聊 (guild_msg.db / guild1.db) — IPC wire shapes.
+// ---------------------------------------------------------------------------
+
+/** 频道私聊会话行（direct_node_list_table）。nodeId 是消息分页键。 */
+export interface GuildDirectSessionWire {
+  /** 40027 会话 node id。 */
+  nodeId: string;
+  /** 40022 direct route gid。 */
+  directGid: string;
+  /** 40050 最新消息时间（unix 秒）。 */
+  lastTime: string;
+  /** 40003 最新消息 seq。 */
+  lastSeq: string;
+  /** 42051 对方 guild tiny id。 */
+  peerTinyId: string;
+  /** 42052 所在 guild id。 */
+  guildId: string;
+  /** 42053 所在 guild 展示名。 */
+  guildName: string;
+  /** 42055 对方在该频道内的昵称（可能为空）。 */
+  nickChannel: string;
+  /** 42054 对方全局昵称（可能为空）。 */
+  nickGlobal: string;
+  /** 列表展示昵称（频道昵称 → 全局昵称 → profile → id）。 */
+  peerNick: string;
+  /** avatar_meta_ 派生头像 URL；无法解析时为 null。 */
+  peerAvatarUrl: string | null;
+  /** 40051 最新消息预览元素（sanitized；频道元素常无可见文本）。 */
+  preview: unknown | null;
+  /** 本地消息总数（导出任务进度分母；频道私聊没有漫游缓存可并计）。 */
+  messageCount: number;
+}
+
+/** 频道私聊消息行（guild_msg_table）。 */
+export interface GuildDirectMsgWire {
+  /** 40001 message id。 */
+  msgId: string;
+  /** 40003 per-conversation seq（消息分页游标）。 */
+  msgSeq: string;
+  /** 40027 会话 node id。 */
+  nodeId: string;
+  /** 40026/40025 发送者 guild tiny id。 */
+  senderTinyId: string;
+  /** 40013 发送来源：'0' = 对方；其它（2）= 本账号设备。 */
+  sendType: string;
+  /** 40050 发送时间（unix 秒）。 */
+  sendTime: string;
+  /** 40800 渲染元素（sanitized）。 */
+  elements: unknown[];
+  /** 40801 逐条消息装扮（气泡/字体/挂件）。 */
+  decoration?: { bubbleId: number; fontId: number; widgetId: number };
+}
+
+export function guildDirectSessionToWire(v: GuildDirectSessionView): GuildDirectSessionWire {
+  return {
+    nodeId: v.nodeId,
+    directGid: v.directGid,
+    lastTime: v.lastTime,
+    lastSeq: v.lastSeq,
+    peerTinyId: v.peerTinyId,
+    guildId: v.guildId,
+    guildName: v.guildName,
+    nickChannel: v.raw.nickChannel,
+    nickGlobal: v.raw.nickGlobal,
+    peerNick: v.peerNick,
+    peerAvatarUrl: v.peerAvatarUrl,
+    preview: v.preview ? sanitize(v.preview) : null,
+    messageCount: v.messageCount,
+  };
+}
+
+export function guildDirectMsgToWire(m: RenderGuildDirectMsg): GuildDirectMsgWire {
+  return {
+    msgId: m.msgId.toString(),
+    msgSeq: m.msgSeq.toString(),
+    nodeId: m.nodeId.toString(),
+    senderTinyId: m.senderTinyId.toString(),
+    sendType: m.sendType.toString(),
+    sendTime: m.sendTime.toString(),
+    elements: sanitize(m.elements),
     decoration: m.decoration,
   };
 }

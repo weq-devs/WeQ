@@ -35,6 +35,7 @@ export function ChatShell({
   onOpenHelp: _onOpenHelp, // Not used but kept for interface consistency
   onOpenInvite,
   onOpenWonderfulTools,
+  onOpenGuildDirect,
   onQueryChange,
   onQuickInvite,
   onCreateGroup,
@@ -70,6 +71,7 @@ export function ChatShell({
   onOpenHelp: () => void;
   onOpenInvite: () => void;
   onOpenWonderfulTools: () => void;
+  onOpenGuildDirect: () => void;
   onQueryChange: (query: string) => void;
   onQuickInvite: () => void;
   onCreateGroup: () => void;
@@ -100,6 +102,7 @@ export function ChatShell({
           onOpenHelp={onOpenHelp}
           onOpenInvite={onOpenInvite}
           onOpenWonderfulTools={onOpenWonderfulTools}
+          onOpenGuildDirect={onOpenGuildDirect}
           messageBadgeCount={messageBadgeCount}
           contactBadgeCount={contactBadgeCount}
           showTools={showTools}

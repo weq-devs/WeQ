@@ -137,6 +137,8 @@ export { ExternalRkeyService } from './account/external_rkey';
 export { normalizeNapcatBaseUrl, fetchNapcatRkeys } from './account/rkey_server';
 export type { NapcatRkeyServerResult } from './account/rkey_server';
 export { RecentContactService } from './account/recent_contact';
+export { GuildDirectService, guildAvatarUrlFromMeta } from './account/guild_direct';
+export type { GuildDirectSessionView, RenderGuildDirectMsg } from './account/guild_direct';
 export { HiddenSessionService } from './account/hidden_session';
 export type { HiddenSessionSummary } from './account/hidden_session';
 export { DeletedSessionService } from './account/deleted_session';

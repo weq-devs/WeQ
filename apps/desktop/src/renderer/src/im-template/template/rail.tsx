@@ -3,6 +3,7 @@ import {
   Bot,
   LayoutGrid,
   MessageCircle,
+  MessagesSquare,
   Download,
   Settings,
   Hash,
@@ -37,6 +38,7 @@ export function AppRail({
   onOpenHelp,
   onOpenInvite,
   onOpenWonderfulTools,
+  onOpenGuildDirect,
   messageBadgeCount = 0,
   contactBadgeCount = 0,
   showTools = true,
@@ -55,6 +57,7 @@ export function AppRail({
   onOpenHelp: () => void;
   onOpenInvite: () => void;
   onOpenWonderfulTools: () => void;
+  onOpenGuildDirect: () => void;
   messageBadgeCount?: number;
   contactBadgeCount?: number;
   showTools?: boolean;
@@ -77,6 +80,7 @@ export function AppRail({
     { id: 'collection', label: '我的收藏', icon: Bookmark, onSelect: onOpenCollection },
     { id: 'market', label: '商城表情', icon: Store, onSelect: onOpenMarketBrowser },
     { id: 'wonderful', label: '妙妙工具', icon: Wand2, onSelect: onOpenWonderfulTools },
+    { id: 'guildDirect', label: '频道私聊', icon: MessagesSquare, onSelect: onOpenGuildDirect },
     { id: 'help', label: '帮助', icon: HelpCircle, onSelect: onOpenHelp },
   ];
 

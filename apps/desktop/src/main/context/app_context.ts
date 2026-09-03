@@ -57,6 +57,7 @@ import {
   RecentContactService,
   HiddenSessionService,
   DeletedSessionService,
+  GuildDirectService,
   OfficialAccountService,
   ServiceAccountService,
   UnreadInfoService,
@@ -376,6 +377,8 @@ export interface BootstrapServices {
 export interface AccountServices {
   msgs: MsgService;
   recentContacts: RecentContactService;
+  /** QQ 频道私聊会话与消息（guild_msg.db / guild1.db，静态本地读取）。 */
+  guildDirect: GuildDirectService;
   hiddenSessions: HiddenSessionService;
   deletedSessions: DeletedSessionService;
   officialAccount: OfficialAccountService;
@@ -896,9 +899,11 @@ export function initAppContext(): AppContext {
         resolveOnlinePid,
         join(userConfig.cacheDir('roam-msg'), `${session.context.uin}.db`),
       );
+      const guildDirect = new GuildDirectService(session);
       this.services = {
         msgs: new MsgService(session, deletedMsgs, antiRecall),
         recentContacts: new RecentContactService(session),
+        guildDirect,
         hiddenSessions: new HiddenSessionService(session),
         deletedSessions: new DeletedSessionService(session),
         officialAccount: new OfficialAccountService(session),
@@ -968,6 +973,7 @@ export function initAppContext(): AppContext {
           userConfig.cacheDir(join('export', exportConfigId)),
           {
             // Cache-first avatar resolution for the 导出头像 option.
+            guildDirect,
             avatarCache: bootstrap.avatarCache,
             // rkey-backed CDN image completion (媒体补全).
             mediaDownload,
@@ -1379,9 +1385,11 @@ export function initAppContext(): AppContext {
         livePid,
         join(userConfig.cacheDir('roam-msg'), `${session.context.uin}.db`),
       );
+      const guildDirect = new GuildDirectService(session);
       this.services = {
         msgs: new MsgService(session, deletedMsgs, antiRecall),
         recentContacts: new RecentContactService(session),
+        guildDirect,
         hiddenSessions: new HiddenSessionService(session),
         deletedSessions: new DeletedSessionService(session),
         officialAccount: new OfficialAccountService(session),
@@ -1449,6 +1457,7 @@ export function initAppContext(): AppContext {
           new MsgService(session),
           userConfig.cacheDir(join('export', exportConfigId)),
           {
+            guildDirect,
             avatarCache: bootstrap.avatarCache,
             mediaDownload,
             mediaUrl,

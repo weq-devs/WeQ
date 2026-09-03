@@ -45,10 +45,10 @@ export interface SenderResolveDeps {
   resolveGroupMembers?: (groupCode: string, uids: string[]) => Promise<ResolvedGroupMember[]>;
   /** Group: name + owner uid for the meta block. */
   groupMeta?: (groupCode: string) => Promise<{ name: string; ownerUid: string } | null>;
-  /** c2c: resolve one uid → its uin + nick. */
-  resolveProfile?: (uid: string) => Promise<{ uin: string; nick: string } | null>;
-  /** The exporting (self) account: uid + uin + nick. */
-  self?: () => Promise<{ uid: string; uin: string; nick: string } | null>;
+  /** c2c: resolve one uid → its uin + nick (+ 可选公开头像覆盖，频道私聊用)。 */
+  resolveProfile?: (uid: string) => Promise<{ uin: string; nick: string; avatar?: string } | null>;
+  /** The exporting (self) account: uid + uin + nick (+ 可选公开头像覆盖，频道私聊用)。 */
+  self?: () => Promise<{ uid: string; uin: string; nick: string; avatar?: string } | null>;
 }
 
 /** A sender's resolved identity, cached per uid for the message pass. */
@@ -60,6 +60,8 @@ export interface ResolvedSender {
   /** groupNickname (group card), when present. */
   groupNickname?: string;
   role?: 'owner' | 'admin';
+  /** 公开头像 URL 覆盖（默认按 platformId 拼 uin CDN；频道私聊无 uin 时用 avatar_meta）。 */
+  avatar?: string;
 }
 
 /** Public avatar CDN url for a uin (project convention — never a signed url). */
@@ -149,14 +151,22 @@ export async function resolveC2cSenders(
   const self = deps.self ? await deps.self().catch(() => null) : null;
   if (self) {
     const platformId = self.uin && self.uin !== '0' ? self.uin : self.uid;
-    senders.set(self.uid, { platformId, accountName: self.nick || platformId });
+    senders.set(self.uid, {
+      platformId,
+      accountName: self.nick || platformId,
+      ...(self.avatar ? { avatar: self.avatar } : {}),
+    });
     ownerId = platformId;
   }
   // Peer uid is the conversation key itself.
   const peer = deps.resolveProfile ? await deps.resolveProfile(conv).catch(() => null) : null;
   const peerUin = peer?.uin && peer.uin !== '0' ? peer.uin : conv;
   if (!senders.has(conv)) {
-    senders.set(conv, { platformId: peerUin, accountName: peer?.nick || peerUin });
+    senders.set(conv, {
+      platformId: peerUin,
+      accountName: peer?.nick || peerUin,
+      ...(peer?.avatar ? { avatar: peer.avatar } : {}),
+    });
   }
   return { senders, ownerId };
 }

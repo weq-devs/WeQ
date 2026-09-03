@@ -31,6 +31,7 @@ import { RailAccountFooter } from '../components/RailAccountFooter';
 import { SettingsDialog } from '../components/SettingsDialog';
 import { CollectionDialog } from '../components/CollectionDialog';
 import { WonderfulToolsDialog } from '../components/WonderfulToolsDialog';
+import { GuildDirectDialog } from '../components/GuildDirectDialog';
 import { HelpDialog } from '../components/HelpDialog';
 import { DressUpDialog } from '../components/DressUpDialog';
 import { MarketEmojiBrowserLightbox } from './export/MarketEmojiBrowserLightbox';
@@ -1704,6 +1705,7 @@ export function MainView(): ReactElement {
   const [helpOpen, setHelpOpen] = useState(false);
   const [collectionOpen, setCollectionOpen] = useState(false);
   const [wonderfulToolsOpen, setWonderfulToolsOpen] = useState(false);
+  const [guildDirectOpen, setGuildDirectOpen] = useState(false);
   const [marketBrowserOpen, setMarketBrowserOpen] = useState(false);
   const [dressUpOpen, setDressUpOpen] = useState(false);
   // 装扮样式注入提到这一层 —— 进主界面就生效,不必先打开装扮灯箱。
@@ -3861,6 +3863,7 @@ export function MainView(): ReactElement {
             onOpenSettings={() => setSettingsOpen(true)}
             onOpenCollection={() => setCollectionOpen(true)}
             onOpenWonderfulTools={() => setWonderfulToolsOpen(true)}
+            onOpenGuildDirect={() => setGuildDirectOpen(true)}
             onOpenMarketBrowser={() => setMarketBrowserOpen(true)}
             onOpenDressUp={() => setDressUpOpen(true)}
             onOpenProfile={noopAsync}
@@ -4090,6 +4093,12 @@ export function MainView(): ReactElement {
           <WonderfulToolsDialog
             open={wonderfulToolsOpen}
             onClose={() => setWonderfulToolsOpen(false)}
+          />
+          <GuildDirectDialog
+            open={guildDirectOpen}
+            onClose={() => setGuildDirectOpen(false)}
+            selfUser={user}
+            renderers={messageRenderers}
           />
           <DatabaseDamagedDialog event={damagedEvent} onClose={() => setDamagedEvent(null)} />
           {marketBrowserOpen ? (

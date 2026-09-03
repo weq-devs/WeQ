@@ -86,6 +86,8 @@ import {
   onlineStatusToWire,
   elementsToEditable,
   elementsFromEditable,
+  guildDirectSessionToWire,
+  guildDirectMsgToWire,
   type ChatMsgWire,
 } from '../serde';
 
@@ -1579,6 +1581,119 @@ export const accountRouter = router({
       }),
     )
     .query(({ input }) => fetchFrom(input.kind, input.conv, BigInt(input.sinceSeq), input.limit)),
+
+  /**
+   * QQ 频道私聊会话列表（direct_node_list_table）。只读会话表，绝不回扫
+   * guild_msg_table 补全；40051 最新消息预览一并返回。
+   */
+  guildDirectListSessions: procedure.query(async () => {
+    const sessions = await requireServices().guildDirect.listSessions();
+    return sessions.map(guildDirectSessionToWire);
+  }),
+
+  /** 频道私聊最新 N 条消息（seq 大到小）。nodeId = 会话 40027。 */
+  guildDirectLatest: procedure
+    .input(
+      z.object({
+        nodeId: z.string().min(1),
+        limit: z.number().int().min(1).max(200).default(50),
+      }),
+    )
+    .query(async ({ input }) => {
+      const msgs = await requireServices().guildDirect.getLatest(input.nodeId, input.limit);
+      return msgs.map(guildDirectMsgToWire);
+    }),
+
+  /** 比 beforeSeq 更旧的一页频道私聊消息（向上滚动），返回仍为 seq 大到小。 */
+  guildDirectBefore: procedure
+    .input(
+      z.object({
+        nodeId: z.string().min(1),
+        beforeSeq: z.string().min(1),
+        limit: z.number().int().min(1).max(200).default(50),
+      }),
+    )
+    .query(async ({ input }) => {
+      const msgs = await requireServices().guildDirect.getBefore(
+        input.nodeId,
+        BigInt(input.beforeSeq),
+        input.limit,
+      );
+      return msgs.map(guildDirectMsgToWire);
+    }),
+
+  /**
+   * 频道私聊导出（QQ 频道私聊 / guild_msg.db）。
+   *
+   * 与「完整消息格式」同款多格式 / 媒体 / 装扮 / 头像流水线，唯一差别：
+   * 不支持漫游消息补全（IPC 侧强制 completeMessages=false）。消息源按 nodeId
+   * 走 guild_msg_table，身份快照（对方 tinyId / 昵称 / 头像 + 自己 QQ 号 /
+   * 昵称）由服务端一次性组装并随任务持久化。
+   */
+  guildDirectStartExport: procedure
+    .input(
+      z.object({
+        /** 会话 40027 node id（消息分页键）。 */
+        nodeId: z.string().min(1),
+        /** 任务显示名（对方昵称）。 */
+        name: z.string().min(1),
+        format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']),
+        /** 多格式导出：一次任务产出多个文件进同一 bundle（媒体只带一份）。 */
+        formats: z.array(z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html'])).optional(),
+        /** Also export every sender's avatar into an avatars/ subfolder. */
+        exportAvatar: z.boolean().optional(),
+        /** ChatLab interchange format (json/jsonl carry ChatLab structure). */
+        chatlab: z.boolean().optional(),
+        /** 导出装扮资源（气泡 / 字体 / 挂件，只导出会话实际用到的款）。 */
+        dress: dressInput,
+        /** Media export: copy local media into media/ and CDN-complete images. */
+        media: z
+          .object({
+            exportMedia: z.boolean(),
+            completeMessages: z.boolean(),
+            completeMedia: z.boolean(),
+            downloadVideo: z.boolean(),
+            downloadFile: z.boolean(),
+            downloadPtt: z.boolean(),
+            transcribeVoice: z.boolean(),
+            /** 导出媒体时按类别筛选（图片 / 语音 / 视频 / 文件 / QQ 系统表情）。 */
+            mediaKinds: z
+              .object({
+                image: z.boolean(),
+                voice: z.boolean(),
+                video: z.boolean(),
+                file: z.boolean(),
+                sysface: z.boolean(),
+              })
+              .optional(),
+            /** 下载本地未缓存的装扮资源。 */
+            completeDress: z.boolean().optional(),
+          })
+          .optional(),
+        /** Inclusive send-time window (unix seconds); null bound = open-ended. */
+        range: z.object({ start: z.number().nullable(), end: z.number().nullable() }).optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const services = requireServices();
+      const guild = await services.guildDirect.buildExportMeta(input.nodeId);
+      const total = await services.guildDirect.countMessages(input.nodeId);
+      return services.exportManager.startTask({
+        kind: 'c2c',
+        conv: guild.peerTinyId,
+        name: input.name,
+        format: input.format,
+        ...(input.formats?.length ? { formats: input.formats } : {}),
+        total,
+        ...(input.exportAvatar ? { exportAvatar: true } : {}),
+        ...(input.chatlab ? { chatlab: true } : {}),
+        ...(input.dress ? { dress: input.dress } : {}),
+        // 频道私聊不支持漫游消息：不论前端怎么勾，补全始终关闭。
+        ...(input.media ? { media: { ...input.media, completeMessages: false } } : {}),
+        ...(input.range ? { range: input.range } : {}),
+        guild,
+      });
+    }),
 
   /** Get detailed profile for the currently logged-in user. */
   getSelfProfile: procedure.query(async () => {

@@ -532,8 +532,9 @@ function renderMessage(
   const isSelf = Boolean(selfId) && sender.platformId === selfId;
   const name = escapeHtml(sender.groupNickname || sender.accountName);
   const numeric = /^\d+$/.test(sender.platformId);
-  const ava = numeric
-    ? `<img class="ava" loading="lazy" src="${escapeHtml(avatarUrlForUin(sender.platformId))}" alt="">`
+  const avaSrc = sender.avatar ?? (numeric ? avatarUrlForUin(sender.platformId) : null);
+  const ava = avaSrc
+    ? `<img class="ava" loading="lazy" src="${escapeHtml(avaSrc)}" alt="">`
     : `<span class="ava ava-none">${escapeHtml((sender.accountName || '?').slice(0, 1))}</span>`;
   const role =
     sender.role === 'owner'

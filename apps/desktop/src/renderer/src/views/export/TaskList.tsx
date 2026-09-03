@@ -112,6 +112,8 @@ export interface UiTask {
   isContacts?: boolean;
   /** 收藏导出。 */
   isCollection?: boolean;
+  /** 频道私聊导出（guild_msg.db；无漫游消息）。 */
+  isGuild?: boolean;
 }
 
 const STATUS_LABEL: Record<UiTask['status'], string> = {
@@ -143,6 +145,7 @@ function taskTypeLabel(t: UiTask): string {
   if (t.isQzone) return 'QQ 空间导出';
   if (t.isContacts) return '联系人导出';
   if (t.isCollection) return '收藏导出';
+  if (t.isGuild) return '消息导出 · 频道私聊';
   return t.kind === 'group' ? '消息导出 · 群聊' : '消息导出 · 私聊';
 }
 

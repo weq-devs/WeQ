@@ -53,7 +53,7 @@ import {
   type Schedule,
 } from './types';
 
-export type LightboxVariant = 'full' | 'qzone' | 'scheduled' | 'album' | 'contacts';
+export type LightboxVariant = 'full' | 'guild' | 'qzone' | 'scheduled' | 'album' | 'contacts';
 
 export interface LightboxResult {
   /** 灯箱里多选的导出格式（至少一种）。 */
@@ -242,6 +242,7 @@ export function ExportLightbox({
 
   const isAlbum = variant === 'album';
   const isQzone = variant === 'qzone';
+  const isGuild = variant === 'guild';
   const isScheduled = variant === 'scheduled';
   const isContacts = variant === 'contacts';
   const isMessageFlow = !isAlbum && !isQzone && !isContacts;
@@ -456,11 +457,16 @@ export function ExportLightbox({
                     />
                     <StepRow
                       step="4.2"
-                      title="补充拉取的漫游消息"
-                      desc="扫描本地缓存中的漫游消息一并导出（未在线时也会读取缓存数据库）"
+                      title={isGuild ? '拉取漫游消息' : '补充拉取的漫游消息'}
+                      desc={
+                        isGuild
+                          ? '频道私聊仅导出本机已有的消息记录，不支持漫游消息拉取'
+                          : '扫描本地缓存中的漫游消息一并导出（未在线时也会读取缓存数据库）'
+                      }
                       control={
                         <Toggle
-                          checked={opts.completeMessages}
+                          checked={isGuild ? false : opts.completeMessages}
+                          disabled={isGuild}
                           onChange={(v) => patch({ completeMessages: v })}
                         />
                       }

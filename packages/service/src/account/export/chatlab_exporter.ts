@@ -254,8 +254,9 @@ function toChatlabMember(s: ResolvedSender): ChatlabMember {
     accountName: s.accountName,
   };
   if (s.groupNickname) m.groupNickname = s.groupNickname;
-  // Only a real uin yields a usable public avatar url.
-  if (/^\d+$/.test(s.platformId)) m.avatar = avatarUrlForUin(s.platformId);
+  // 频道私聊先走注入的公开头像覆盖；否则只有真实 uin 才有可用的 qlogo CDN。
+  if (s.avatar) m.avatar = s.avatar;
+  else if (/^\d+$/.test(s.platformId)) m.avatar = avatarUrlForUin(s.platformId);
   if (s.role) m.roles = [{ id: s.role }];
   return m;
 }

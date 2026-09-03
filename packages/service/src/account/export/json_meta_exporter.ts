@@ -81,8 +81,12 @@ function toMember(uid: string, s: ResolvedSender): JsonExportedMember {
     accountName: s.accountName,
     ...(s.groupNickname ? { groupNickname: s.groupNickname } : {}),
     ...(s.role ? { role: s.role } : {}),
-    // Only a real uin yields a usable public avatar url.
-    ...(/^\d+$/.test(s.platformId) ? { avatar: avatarUrlForUin(s.platformId) } : {}),
+    // 频道私聊先走注入的公开头像覆盖；否则只有真实 uin 才有可用的 qlogo CDN。
+    ...(s.avatar
+      ? { avatar: s.avatar }
+      : /^\d+$/.test(s.platformId)
+        ? { avatar: avatarUrlForUin(s.platformId) }
+        : {}),
   };
 }
 

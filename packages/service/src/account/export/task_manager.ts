@@ -19,6 +19,7 @@ import { writeFileSync, readFileSync, existsSync, mkdirSync, unlinkSync, rmSync 
 import { join } from 'node:path';
 import { sanitizeSegment, uniqueName } from '../../common/path_sanitize';
 import type { MsgService } from '../msg';
+import type { SenderResolveDeps } from './sender_resolve';
 import type { GapFetchedMessage, GapHistoryService } from '../gap_history';
 import type { AvatarCacheService } from '../../bootstrap/media_cache';
 import type { MediaDownloadService } from '../media_download';
@@ -43,7 +44,7 @@ import {
   type CollectionExportDeps,
   type CollectionFormat,
 } from './collection_export';
-import { exportAvatars } from './avatar_export';
+import { exportAvatars, exportGuildAvatars } from './avatar_export';
 import {
   copyFoundMedia,
   decodeFoundVoices,
@@ -88,6 +89,8 @@ import type {
   ExportTimeRange,
   GroupExportOptions,
 } from './types';
+import { GuildMsgSource, type GuildExportTaskMeta } from './guild_source';
+import type { GuildDirectService } from '../guild_direct';
 
 /** 每个任务保留的任务日志行数上限（内存环形缓冲，防列表 IPC 膨胀）。 */
 const MAX_TASK_LOGS = 400;
@@ -223,6 +226,8 @@ export interface ExportTask {
   media?: MediaExportOptions;
   /** Inclusive send-time window for this export, if narrowed from 全部时间. */
   range?: ExportTimeRange;
+  /** 频道私聊导出任务（kind 仍为 'c2c'，conv = peerTinyId，消息源走 guild_msg.db）。 */
+  guild?: GuildExportTaskMeta;
   /** Bundle folder (message file + avatars/ + media/) when avatars or media are on. */
   bundleDir?: string;
   /** Number of avatars written, when avatars were exported. */
@@ -271,6 +276,8 @@ export interface MediaDeps {
   transcribe?: TranscribeVoiceFn;
   /** ChatLab name / role / profile resolvers (account-side; injected from the app). */
   chatlab?: ChatlabDeps;
+  /** 频道私聊（guild direct）导出源——guild_msg.db / guild1.db，由 app 注入。 */
+  guildDirect?: GuildDirectService;
   /** QQ 空间说说拉取能力（Web CGI；需在线 QQ，由 app 注入）。 */
   qzone?: QzoneExportDeps;
   /** 联系人（好友 / 群成员）资料库拉取能力（由 app 注入）。 */
@@ -298,6 +305,8 @@ export class ExportTaskManager extends EventEmitter {
   private abortControllers = new Map<string, AbortController>();
   /** 任务日志（内存环形缓冲，不随 export_tasks.json 持久化）。 */
   private taskLogs = new Map<string, TaskLogLine[]>();
+  /** 频道私聊导出任务的消息源缓存（taskId → guild_msg.db 适配源）。 */
+  private guildSources = new Map<string, GuildMsgSource>();
   /**
    * 全局任务执行队列（并发 1）：同一时刻只跑一个任务。多会话同时导出时，
    * 后面的任务排队，避免 A 任务的补全还没拉完、B 任务的装扮/消息/媒体已经
@@ -385,10 +394,14 @@ export class ExportTaskManager extends EventEmitter {
     dress?: DressExportKinds;
     media?: MediaExportOptions;
     range?: ExportTimeRange;
+    /** 频道私聊导出：会话身份快照（消息源走 guild_msg.db，无漫游补全）。 */
+    guild?: GuildExportTaskMeta;
   }): Promise<string> {
     // 清洗 conv (uid/uin/groupCode) 以避免 Windows 文件名非法字符（陌生人 uid 含 *）
     const safeConv = opts.conv.replace(/\*/g, 'x');
-    const id = `${opts.kind}-${safeConv}-${Date.now()}`;
+    const id = opts.guild
+      ? `guild-${safeConv}-${Date.now()}`
+      : `${opts.kind}-${safeConv}-${Date.now()}`;
     const wantMedia = Boolean(opts.media?.exportMedia);
     const wantAvatars = Boolean(opts.exportAvatar);
     const wantTranscribe = Boolean(opts.media?.transcribeVoice);
@@ -564,6 +577,7 @@ export class ExportTaskManager extends EventEmitter {
       ...(opts.media ? { media: opts.media } : {}),
       ...(wantDress && opts.dress ? { dress: opts.dress } : {}),
       ...(opts.range ? { range: opts.range } : {}),
+      ...(opts.guild ? { guild: opts.guild } : {}),
       stages,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -610,6 +624,51 @@ export class ExportTaskManager extends EventEmitter {
     return task.stages.find((s) => s.key === key);
   }
 
+  /** 该任务的导出消息源：guild 任务用 guild_msg.db 适配源，其余用主库 MsgService。 */
+  private msgsFor(task: ExportTask): MsgService {
+    if (!task.guild) return this.msgs;
+    let src = this.guildSources.get(task.id);
+    if (!src) {
+      const svc = this.deps.guildDirect;
+      if (!svc) throw new Error('频道私聊导出需要注入 guildDirect 服务');
+      src = new GuildMsgSource(svc, task.guild);
+      this.guildSources.set(task.id, src);
+    }
+    // 适配源只实现 c2c 分支用到的成员子集；按 kind='c2c' 的调用契约使用。
+    return src as unknown as MsgService;
+  }
+
+  /** 结构化导出（json / chatlab / html）的昵称解析：guild 任务覆盖 self / peer 身份。 */
+  private senderDeps(task: ExportTask): SenderResolveDeps | undefined {
+    const base = this.deps.chatlab;
+    const g = task.guild;
+    if (!g || !base) return base;
+    return {
+      ...base,
+      self: async () => {
+        if (g.selfTinyId) {
+          return {
+            uid: g.selfTinyId,
+            uin: '',
+            nick: g.selfNick || '',
+            avatar: g.selfAvatarUrl ?? undefined,
+          };
+        }
+        return base.self ? base.self() : null;
+      },
+      resolveProfile: async (uid: string) => {
+        if (uid === g.peerTinyId) {
+          return {
+            uin: '',
+            nick: g.peerNick || g.peerTinyId,
+            avatar: g.peerAvatarUrl ?? undefined,
+          };
+        }
+        return base.resolveProfile ? base.resolveProfile(uid) : null;
+      },
+    };
+  }
+
   /**
    * 惰性、记忆化的漫游补全消息来源：消息导出与媒体扫描各自会读一遍，这里只
    * 真正查一次缓存（读整个会话的 [1, uint32 max] 区间，一次索引区间扫描）。
@@ -618,7 +677,7 @@ export class ExportTaskManager extends EventEmitter {
     const deps = this.deps.messageBackfill;
     let promise: Promise<GapFetchedMessage[]> | null = null;
     return () => {
-      if (!deps || (task.kind !== 'group' && task.kind !== 'c2c')) return [];
+      if (!deps || task.guild || (task.kind !== 'group' && task.kind !== 'c2c')) return [];
       promise ??= deps.cached(task.kind, task.conv, 1, 0xffffffff);
       return promise;
     };
@@ -772,7 +831,7 @@ export class ExportTaskManager extends EventEmitter {
 
       // ---- stage: 消息补全 (runs FIRST — fills the roam cache so the message
       // stage + media scan below can include the backfilled messages) ----
-      const wantBackfill = Boolean(task.media?.completeMessages);
+      const wantBackfill = Boolean(task.media?.completeMessages && !task.guild);
       let rateLimitedNotified = false;
       if (wantBackfill) {
         const backfillDeps = this.deps.messageBackfill;
@@ -801,8 +860,8 @@ export class ExportTaskManager extends EventEmitter {
                 const startTime = task.range?.start ?? undefined;
                 const endTime = task.range?.end ?? undefined;
                 return task.kind === 'group'
-                  ? this.msgs.getGroupSeqDesc(task.conv, { startTime, endTime })
-                  : this.msgs.getC2cSeqDesc(task.conv, { startTime, endTime });
+                  ? this.msgsFor(task).getGroupSeqDesc(task.conv, { startTime, endTime })
+                  : this.msgsFor(task).getC2cSeqDesc(task.conv, { startTime, endTime });
               },
               fetch: (k, c, start, end) => backfillDeps.fetch(k, c, start, end),
               concurrency: 8,
@@ -958,10 +1017,17 @@ export class ExportTaskManager extends EventEmitter {
 
       const dressScanPromise =
         wantDress && task.dress && this.deps.dressInstall
-          ? collectDressUsage(this.msgs, task.kind, task.conv, task.dress, task.range, roam)
+          ? collectDressUsage(
+              this.msgsFor(task),
+              task.kind,
+              task.conv,
+              task.dress,
+              task.range,
+              roam,
+            )
           : Promise.resolve(null);
       const mediaScanPromise = scanStage
-        ? scanConvMedia(this.msgs, task.kind, task.conv, dirs!, {
+        ? scanConvMedia(this.msgsFor(task), task.kind, task.conv, dirs!, {
             pageSize: 2000,
             range: task.range,
             roam,
@@ -972,7 +1038,7 @@ export class ExportTaskManager extends EventEmitter {
       const countPromise = (async (): Promise<number> => {
         if (task.kind !== 'group' && task.kind !== 'c2c') return 0;
         try {
-          let total = await this.msgs.countConv(task.kind, task.conv, {
+          let total = await this.msgsFor(task).countConv(task.kind, task.conv, {
             startTime: task.range?.start ?? undefined,
             endTime: task.range?.end ?? undefined,
           });
@@ -1319,7 +1385,71 @@ export class ExportTaskManager extends EventEmitter {
         });
       }
 
-      if (wantAvatars && senders && avatarCache) {
+      // 频道私聊导出头像：会话只有双方（对方 + 自己），且没有 uin 可拼 qlogo，
+      // 头像依据身份快照里的公开 URL（avatar_meta / 主帐号 qlogo）写进 avatars/ 目录。
+      if (wantAvatars && task.guild && avatarCache) {
+        jobs.push(async () => {
+          // 与 c2c 一样等 message 阶段结束后执行（为了序列与步骤视图一致）。
+          await messageJob.catch(() => null);
+          if (aborted()) return;
+          const g = task.guild!;
+          const targets: Array<{ id: string; url: string | null }> = [
+            { id: g.peerTinyId, url: g.peerAvatarUrl },
+            ...(g.selfTinyId ? [{ id: g.selfTinyId, url: g.selfAvatarUrl ?? null }] : []),
+          ];
+          const usable = targets.filter((t) => t.url);
+          if (usable.length === 0) {
+            const s0 = this.stage(task, 'avatar');
+            if (s0) {
+              s0.status = 'completed';
+              s0.current = 0;
+              s0.total = 0;
+              s0.note = '无可用头像来源';
+              this.saveTasks();
+            }
+            this.log(id, 'avatar', '频道私聊会话无可用头像来源，跳过头像下载');
+            return;
+          }
+          this.log(id, 'avatar', `下载头像：共 ${usable.length} 位成员（频道私聊）`);
+          this.touchStage(
+            task,
+            'avatar',
+            {
+              status: 'running',
+              total: usable.length,
+              current: 0,
+              note: `下载 0/${usable.length}`,
+            },
+            { persist: true },
+          );
+          const r = await exportGuildAvatars(avatarCache, usable, outDir, {
+            onProgress: (done, total) => {
+              if (aborted()) return;
+              this.touchStage(task, 'avatar', {
+                current: done,
+                total,
+                note: `下载 ${done}/${total}`,
+              });
+              if (done % 50 === 0 || done === total) {
+                this.log(id, 'avatar', `下载头像 ${done}/${total}`);
+              }
+            },
+          });
+          task.avatarCount = r.ok;
+          this.touchStage(
+            task,
+            'avatar',
+            {
+              status: 'completed',
+              current: r.total,
+              total: r.total,
+              failed: r.failed,
+              note: `已下载 ${r.ok}${r.failed ? ` · 失败 ${r.failed}` : ''}`,
+            },
+            { persist: true },
+          );
+        });
+      } else if (wantAvatars && senders && avatarCache) {
         jobs.push(async () => {
           // 发言者集合由消息导出收集，等 message 阶段完成后接续执行。
           await messageJob.catch(() => null);
@@ -1575,7 +1705,7 @@ export class ExportTaskManager extends EventEmitter {
             async (ref, text) => {
               // Cache the result on the element (wire tag 45923) so this clip is
               // skipped on any later export — and shows up in chat right away.
-              await this.msgs.setPttTranscript(BigInt(ref.msgId), ref.fileName, text);
+              await this.msgsFor(task).setPttTranscript(BigInt(ref.msgId), ref.fileName, text);
             },
             (text, level) => this.log(id, 'transcribe', text, level ?? 'info'),
           );
@@ -2268,7 +2398,7 @@ export class ExportTaskManager extends EventEmitter {
     onLog(`开始补全${label}…`);
     const ctx = {
       mediaUrl: this.deps.mediaUrl,
-      msgs: this.msgs,
+      msgs: this.msgsFor(task),
       kind: task.kind,
       conv: task.conv,
       gapHistory: this.deps.gapHistory,
@@ -2389,7 +2519,7 @@ export class ExportTaskManager extends EventEmitter {
     // normalized messages), and resolves names/roles itself — its own exporter.
     if (task.chatlab && (format === 'json' || format === 'jsonl')) {
       return exportToChatlab(
-        this.msgs,
+        this.msgsFor(task),
         {
           kind: task.kind,
           conv: task.conv,
@@ -2403,14 +2533,14 @@ export class ExportTaskManager extends EventEmitter {
           collectSenders: senders,
           collectFaces: faces,
         },
-        this.deps.chatlab ?? {},
+        this.senderDeps(task) ?? {},
       );
     }
     // HTML resolves names / roles / self-alignment itself (like ChatLab) and
     // wraps the records in a document — its own exporter, both kinds.
     if (format === 'html') {
       return exportToHtml(
-        this.msgs,
+        this.msgsFor(task),
         {
           kind: task.kind,
           conv: task.conv,
@@ -2427,12 +2557,12 @@ export class ExportTaskManager extends EventEmitter {
           dressLookup,
           dressManifest: dressManifest ?? undefined,
         },
-        this.deps.chatlab ?? {},
+        this.senderDeps(task) ?? {},
       );
     }
     // XLSX is a binary workbook, not a character stream — its own loop, both kinds.
     if (format === 'xlsx') {
-      return exportToXlsx(this.msgs, {
+      return exportToXlsx(this.msgsFor(task), {
         kind: task.kind,
         conv: task.conv,
         outputPath,
@@ -2461,16 +2591,17 @@ export class ExportTaskManager extends EventEmitter {
       };
       switch (format) {
         case 'json':
-          return exportGroupToJson(this.msgs, opts, this.deps.chatlab);
+          return exportGroupToJson(this.msgsFor(task), opts, this.senderDeps(task));
         case 'jsonl':
-          return exportGroupToJsonl(this.msgs, opts, this.deps.chatlab);
+          return exportGroupToJsonl(this.msgsFor(task), opts, this.senderDeps(task));
         case 'csv':
-          return exportGroupToCsv(this.msgs, opts);
+          return exportGroupToCsv(this.msgsFor(task), opts);
         default:
-          return exportGroupToTxt(this.msgs, opts);
+          return exportGroupToTxt(this.msgsFor(task), opts);
       }
     }
     return this.exportC2c(
+      this.msgsFor(task),
       task.kind,
       task.name,
       task.conv,
@@ -2484,10 +2615,12 @@ export class ExportTaskManager extends EventEmitter {
       withMediaPaths,
       roam,
       dressLookup,
+      this.senderDeps(task),
     );
   }
 
   private async exportC2c(
+    msgs: MsgService,
     kind: ConvKind,
     convName: string,
     peerUid: string,
@@ -2501,11 +2634,12 @@ export class ExportTaskManager extends EventEmitter {
     withMediaPaths?: boolean,
     roam?: RoamMessageSource,
     dressLookup?: (msgId: string) => MsgDecoration | undefined,
+    deps?: SenderResolveDeps,
   ): Promise<ExportResult> {
     // 私聊/官方号/服务号的 JSON 同样带上成员昵称（meta + members + senderName）。
-    if ((format === 'json' || format === 'jsonl') && this.deps.chatlab) {
+    if ((format === 'json' || format === 'jsonl') && deps) {
       return exportJsonConversation(
-        this.msgs,
+        msgs,
         {
           kind,
           conv: peerUid,
@@ -2521,7 +2655,7 @@ export class ExportTaskManager extends EventEmitter {
           withMediaPaths,
           dressLookup,
         },
-        this.deps.chatlab,
+        deps,
       );
     }
     const framing: Framing =
@@ -2546,7 +2680,7 @@ export class ExportTaskManager extends EventEmitter {
     let count = 0;
     try {
       if (framing.head) await writer.write(framing.head);
-      for await (const m of iterateC2cMessages(this.msgs, peerUid, {
+      for await (const m of iterateC2cMessages(msgs, peerUid, {
         pageSize: 2000,
         range,
         roam,
@@ -2556,7 +2690,7 @@ export class ExportTaskManager extends EventEmitter {
         if (dec) exported.decoration = dec;
         senders?.add(exported.senderUin);
         if (faces) collectFaceIds(exported.elements, faces);
-        await expandForwards(this.msgs, 'c2c', exported);
+        await expandForwards(msgs, 'c2c', exported);
         if (withMediaPaths) annotateLocalPaths(exported.elements);
         const record = renderRecord(exported);
         await writer.write(count === 0 ? record : framing.between + record);
