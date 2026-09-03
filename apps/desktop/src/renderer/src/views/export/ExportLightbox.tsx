@@ -265,17 +265,18 @@ export function ExportLightbox({
     return allowed && allowed.length > 0 ? allowed : [formatOptions[0]!.value];
   });
 
-  /** QQ 空间 HTML 导出靠本地配图渲染：选中 HTML 时锁定「下载配图」为开。 */
+  /** QQ 空间 HTML 导出靠本地配图 + 评论/点赞渲染：选中 HTML 时锁定
+   *  「下载配图」与「评论与点赞」为开。 */
   const htmlForced = isQzone && formats.includes('html');
 
   function patch(next: Partial<ExportOptions>): void {
     setOpts((o) => ({ ...o, ...next }));
   }
 
-  // 切到 HTML 时自动补开配图下载，避免产出引用缺失 media 的 html。
+  // 切到 HTML 时自动补开配图下载 + 评论/点赞拉取，避免产出渲染不全的 html。
   useEffect(() => {
     if (!htmlForced) return;
-    setOpts((o) => (o.exportMedia ? o : { ...o, exportMedia: true }));
+    setOpts((o) => ({ ...o, exportMedia: true, qzoneInteractions: true }));
   }, [htmlForced]);
 
   /** 切换某个导出格式（至少保留一种）。 */
@@ -575,8 +576,13 @@ export function ExportLightbox({
                         <MasterRow
                           icon={<Heart size={17} />}
                           label="评论与点赞"
-                          desc="按说说逐条补拉评论（含回复）与点赞用户，写进导出文件（尽力而为，可能不全）"
-                          checked={opts.qzoneInteractions}
+                          desc={
+                            htmlForced
+                              ? 'HTML 导出包含评论与点赞，已随格式强制开启'
+                              : '按说说逐条补拉评论（含回复）与点赞用户，写进导出文件（尽力而为，可能不全）'
+                          }
+                          checked={htmlForced || opts.qzoneInteractions}
+                          disabled={htmlForced}
                           onChange={(v) => patch({ qzoneInteractions: v })}
                         />
                       </>

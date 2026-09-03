@@ -9,8 +9,9 @@
  * 翻页要点：服务端分页会**重复**返回条目（真机 test 实测），故按 `tid` 去重；
  * 说说按发表时间**倒序**，配合时间范围可提前停止翻页。
  *
- * 产物格式：json / txt / html。HTML 引用与配图下载同一套命名规则下的本地
- * `media/` 相对路径（配图是否下载由调用方保证 —— 含 html 时强制下载）。
+ * 产物格式：json / txt / html。HTML 完整渲染：资料头（空间头像 / 昵称）+
+ * 说说卡片（表情外链 qzonestyle、配图网格、赞 / 评论数、评论区含回复）。
+ * 配图与互动拉取由调用方保证 —— 含 html 时强制下载配图 + 拉取评论 / 点赞。
  */
 
 import { createExportWriter } from './stream_utils';
@@ -186,100 +187,270 @@ function escapeMultiline(s: string): string {
 
 const QZONE_HTML_STYLE = `
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif; background: #f3f4f6; color: #1f2328; line-height: 1.6; }
-  .wrap { max-width: 860px; margin: 0 auto; padding: 16px; }
-  .head { text-align: center; padding: 20px 0 8px; }
-  .head h1 { margin: 0 0 4px; font-size: 22px; }
-  .head p, .foot { color: #6b7280; font-size: 13px; margin: 0; }
-  main { display: flex; flex-direction: column; gap: 14px; padding: 14px 0; }
-  .post { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px 16px; box-shadow: 0 1px 2px rgb(0 0 0 / 0.04); }
-  .post header { display: flex; align-items: center; gap: 8px; color: #6b7280; font-size: 12px; margin-bottom: 8px; }
-  .post header time { margin-right: auto; }
-  .badge { background: #eef2ff; color: #4f46e5; border-radius: 999px; padding: 1px 8px; font-size: 11px; }
-  .badge.is-private { background: #fef3c7; color: #92400e; }
-  .txt { word-break: break-word; }
-  .imgs { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin-top: 10px; }
-  .imgs img { width: 100%; border-radius: 8px; display: block; }
-  .imgs-links { margin-top: 8px; font-size: 13px; }
-  .imgs-links a, .cimg a { color: #2563eb; }
-  .comments { margin-top: 10px; padding-top: 8px; border-top: 1px dashed #e5e7eb; }
-  .comment { font-size: 13px; margin: 6px 0; }
-  .comment b { color: #4b5563; font-weight: 600; margin-right: 6px; }
-  .comment time { color: #9ca3af; font-size: 11px; margin-right: 6px; }
-  .comment p { margin: 2px 0; }
-  .likes { margin-top: 8px; color: #b91c1c; font-size: 12px; }
-  .likes .lk { background: #fee2e2; border-radius: 999px; padding: 1px 8px; margin-right: 6px; }
-  .foot { text-align: center; padding: 10px 0 30px; }
+  body { margin: 0; background: #eef2f7; color: #243247; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif; font-size: 14px; line-height: 1.7; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 24px 14px 44px; }
+  .profile { display: flex; align-items: center; gap: 14px; background: #fff; border: 1px solid #e5eaf2; border-radius: 16px; padding: 16px 18px; margin-bottom: 14px; box-shadow: 0 8px 24px rgb(32 56 88 / 0.05); }
+  .profile h1 { margin: 0 0 2px; font-size: 20px; line-height: 1.4; }
+  .profile p { margin: 0; color: #758298; font-size: 13px; }
+  .avatar { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 50%; flex: none; object-fit: cover; background: #e4ebf5; color: #5b6b83; font-weight: 600; font-size: 15px; }
+  .profile .avatar { width: 72px; height: 72px; font-size: 26px; }
+  .post-list { display: flex; flex-direction: column; gap: 14px; }
+  article.card { background: #fff; border: 1px solid #e5eaf2; border-radius: 16px; padding: 16px 18px; box-shadow: 0 8px 24px rgb(32 56 88 / 0.04); }
+  .card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .who { min-width: 0; }
+  .who strong { display: block; font-size: 15px; line-height: 1.3; }
+  .who small { display: block; color: #7e899a; font-size: 12px; line-height: 1.5; }
+  .badge.is-private { display: inline-block; background: #fff3ec; color: #d46b08; border-radius: 999px; padding: 0 8px; font-size: 11px; }
+  .content { margin: 10px 0 0; overflow-wrap: anywhere; }
+  .em { width: 22px; height: 22px; vertical-align: -5px; margin: 0 1px; display: inline-block; }
+  .mention { color: #2684ff; }
+  .pictures { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 6px; margin-top: 10px; }
+  .pictures.is-one { grid-template-columns: minmax(0, 1fr); }
+  .pictures a { display: block; border-radius: 8px; overflow: hidden; background: #eef2f7; }
+  .pictures img { display: block; width: 100%; height: 210px; object-fit: cover; }
+  .pictures.is-one img { height: auto; max-height: 720px; object-fit: contain; }
+  .stats { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 12px; padding-top: 10px; border-top: 1px dashed #e1e8f2; color: #7e899a; font-size: 12px; }
+  .stats .likes { color: #e15b64; }
+  .sep { color: #c3ccd8; }
+  .comments { margin-top: 12px; display: flex; flex-direction: column; gap: 12px; background: #f5f8fc; border-radius: 12px; padding: 12px 14px; }
+  .comment, .reply { display: flex; gap: 8px; }
+  .comment .avatar, .reply .avatar { width: 30px; height: 30px; font-size: 13px; }
+  .comment-main { min-width: 0; flex: 1; }
+  .comment-meta { color: #7e899a; font-size: 12px; }
+  .comment-meta b { color: #2684ff; font-weight: 600; margin-right: 4px; }
+  .comment-meta time { color: #a6b0be; margin-left: 4px; }
+  .comment-text { margin: 2px 0 0; overflow-wrap: anywhere; }
+  .replies { margin: 10px 0 0 4px; padding-left: 12px; border-left: 2px solid #d9e5f7; display: flex; flex-direction: column; gap: 10px; }
+  .cimg a { color: #2684ff; margin-right: 8px; white-space: nowrap; }
+  .foot { text-align: center; color: #8b98a8; font-size: 12px; padding: 26px 0 6px; }
+  @media (max-width: 600px) {
+    .wrap { padding: 12px 8px 32px; }
+    .card, .profile { padding: 13px 14px; border-radius: 14px; }
+    .pictures { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+    .pictures img { height: 140px; }
+  }
 `;
 
-/** 一条评论渲染成 HTML 行。 */
-function commentToHtml(c: QzoneComment): string {
-  const who = c.isReply
-    ? `${escapeHtml(c.nickname || c.uin)} 回复 ${escapeHtml(c.replyToNickname || c.replyToUin || '')}`.trim()
-    : escapeHtml(c.nickname || c.uin);
-  const t = c.time ? `<time>${escapeHtml(fmtTime(c.time))}</time>` : '';
-  const text = escapeMultiline(c.content) || (c.images.length ? '[图片]' : '');
-  const pics = c.images.length
-    ? `<span class="cimg">${c.images
-        .map((u) => `<a href="${escapeHtml(u)}" target="_blank" rel="noreferrer">[图片]</a>`)
-        .join('')}</span>`
-    : '';
-  return `<div class="comment"><b>${who}</b>${t}<p>${text}${pics}</p></div>`;
+/** QQ 空间头像（QzoneArchive 同款 qlogo2 域）；无有效 uin 返回空串。 */
+function qzoneAvatarUrl(uin: string | undefined): string {
+  const u = (uin ?? '').trim();
+  if (!u || u === '0') return '';
+  return `https://qlogo2.store.qq.com/qzone/${u}/${u}/100`;
 }
 
-/** 点赞列表渲染成 HTML 一行（无赞返回空串）。 */
+/** 头像元素：有 uin 用远端 qlogo `<img>`（需联网），缺失时回退昵称首字符。 */
+function avatarElement(uin: string | undefined, fallbackName: string): string {
+  const url = qzoneAvatarUrl(uin);
+  if (!url) {
+    const fb = escapeHtml((fallbackName || '?').trim().slice(0, 1) || '?');
+    return `<span class="avatar fb">${fb}</span>`;
+  }
+  return `<img class="avatar" src="${url}" alt="" loading="lazy" referrerpolicy="no-referrer">`;
+}
+
+/** QQ 表情渲染成 qzonestyle 外链 gif；个别新表情只有 png，首载失败自动换 png。 */
+function emojiToHtml(code: string): string {
+  return (
+    `<img class="em" src="https://qzonestyle.gtimg.cn/qzone/em/${code}.gif" alt="[QQ表情]" ` +
+    `loading="lazy" referrerpolicy="no-referrer" ` +
+    `onerror="this.onerror=null;this.src='https://qzonestyle.gtimg.cn/qzone/em/${code}.png'">`
+  );
+}
+
+/** 说说 / 评论正文里的提及 token（@{uin,nick}）与表情 token（[em]eXXX[/em]）。 */
+const QZONE_TEXT_TOKEN_RE = /@\{uin:([^,}]+),nick:([^}]+)(?:,[^}]*)?\}|\[em\](e\d+)\[\/em\]/g;
+
+/**
+ * QQ 空间富文本 → 安全 HTML：文本转义 + 换行 `<br>`，表情渲染成外链图片，
+ * 提及渲染成高亮 @昵称（与 QzoneArchive 前端/导出保持一致）。
+ */
+function qzoneTextToHtml(text: string): string {
+  let out = '';
+  let cursor = 0;
+  for (const m of text.matchAll(QZONE_TEXT_TOKEN_RE)) {
+    const idx = m.index ?? 0;
+    if (idx > cursor) out += escapeMultiline(text.slice(cursor, idx));
+    if (m[3] !== undefined) {
+      out += emojiToHtml(m[3]);
+    } else {
+      const uin = escapeHtml(m[1] ?? '');
+      const nick = escapeHtml(m[2] ?? '');
+      out += `<span class="mention" title="QQ ${uin}">@${nick}</span>`;
+    }
+    cursor = idx + m[0].length;
+  }
+  return out + escapeMultiline(text.slice(cursor));
+}
+
+/** 评论里带的图片 → 「[图片]」外链。 */
+function commentPicsToHtml(c: QzoneComment): string {
+  if (c.images.length === 0) return '';
+  const links = c.images
+    .map((u) => `<a href="${escapeHtml(u)}" target="_blank" rel="noreferrer">[图片]</a>`)
+    .join('');
+  return `<span class="cimg">${links}</span>`;
+}
+
+/** 一条评论（一级或回复）的元信息行：昵称 + 动作 + 时间。 */
+function commentMetaHtml(c: QzoneComment): string {
+  const who = escapeHtml(c.nickname || c.uin || 'QQ 用户');
+  const parts = [`<b>${who}</b>`];
+  if (c.isReply) {
+    const target = (c.replyToNickname || c.replyToUin || '').trim();
+    parts.push(target ? `回复 <b>${escapeHtml(target)}</b>` : '回复');
+  } else {
+    parts.push('评论了');
+  }
+  if (c.time) parts.push(`<time>${escapeHtml(fmtTime(c.time))}</time>`);
+  return `<div class="comment-meta">${parts.join(' ')}</div>`;
+}
+
+/** 一级评论 + 其二级回复，flat → 分层（保持原顺序）。 */
+function groupComments(
+  comments: QzoneComment[],
+): Array<{ root: QzoneComment; replies: QzoneComment[] }> {
+  const out: Array<{ root: QzoneComment; replies: QzoneComment[] }> = [];
+  const byId = new Map<string, { root: QzoneComment; replies: QzoneComment[] }>();
+  for (const c of comments) {
+    if (!c.isReply) {
+      const bucket = { root: c, replies: [] as QzoneComment[] };
+      byId.set(c.id, bucket);
+      out.push(bucket);
+      continue;
+    }
+    const parent = c.parentCommentId ? byId.get(c.parentCommentId) : undefined;
+    if (parent) {
+      parent.replies.push(c);
+    } else {
+      // 解析器一般把回复紧跟在所属一级评论之后；个别乱序时挂到最近一条保序。
+      const last = out[out.length - 1];
+      if (last) last.replies.push(c);
+      else out.push({ root: c, replies: [] });
+    }
+  }
+  return out;
+}
+
+/** 单条评论正文块（头像 + 元信息 + 文字）。 */
+function commentContentHtml(c: QzoneComment): string {
+  const avatar = avatarElement(c.uin, c.nickname);
+  const text = qzoneTextToHtml(c.content);
+  return (
+    `<div class="${c.isReply ? 'reply' : 'comment'}">${avatar}` +
+    `<div class="comment-main">${commentMetaHtml(c)}` +
+    `${text || c.images.length ? `<p class="comment-text">${text}${commentPicsToHtml(c)}</p>` : ''}` +
+    '</div></div>'
+  );
+}
+
+/** 一组评论（一级 + 回复）渲染成评论区 HTML。 */
+function commentsToHtml(comments: QzoneComment[]): string {
+  const blocks = groupComments(comments);
+  const out: string[] = [];
+  for (const block of blocks) {
+    out.push('<div class="comment">');
+    out.push(avatarElement(block.root.uin, block.root.nickname));
+    out.push('<div class="comment-main">');
+    out.push(commentMetaHtml(block.root));
+    const text = qzoneTextToHtml(block.root.content);
+    if (text || block.root.images.length) {
+      out.push(`<p class="comment-text">${text}${commentPicsToHtml(block.root)}</p>`);
+    }
+    if (block.replies.length > 0) {
+      out.push('<div class="replies">');
+      for (const r of block.replies) out.push(commentContentHtml(r));
+      out.push('</div>');
+    }
+    out.push('</div></div>');
+  }
+  return out.join('');
+}
+
+/** 点赞列表（前 10 个名字，超出补「等 N 人赞了」）。 */
 function likesToHtml(likes: QzoneLike[]): string {
   if (likes.length === 0) return '';
-  const names = likes.map((l) => escapeHtml(l.nickname || l.uin)).join('、');
-  return `<div class="likes"><span class="lk">赞</span>${names}</div>`;
+  const names = likes
+    .slice(0, 10)
+    .map((l) => escapeHtml(l.nickname || l.uin || 'QQ用户'))
+    .join('、');
+  const label = likes.length > 10 ? `${names} 等 ${likes.length} 人赞了` : `${names} 赞了`;
+  return `<span class="likes">♥ ${label}</span>`;
+}
+
+/** 帖子统计行：赞 + 评论数。 */
+function statsToHtml(e: EmotionWithInteraction): string {
+  const parts: string[] = [];
+  const likes = e.likes ?? [];
+  const likesHtml = likesToHtml(likes);
+  if (likesHtml) parts.push(likesHtml);
+  // 拉过互动就按实际拉到评论数，否则用服务端返回的计数。
+  const cmtTotal = Math.max(e.commentNum || 0, e.comments?.length ?? 0);
+  if (cmtTotal > 0) parts.push(`<span class="cmt-count">💬 ${cmtTotal} 条评论</span>`);
+  if (parts.length === 0) return '';
+  return `<div class="stats">${parts.join('<span class="sep">·</span>')}</div>`;
+}
+
+/** 说说配图网格：下载了走本地 `media/`，否则直接引用远端图（完整渲染）。 */
+function picturesToHtml(e: QzoneEmotion, localMedia: boolean): string {
+  if (e.images.length === 0) return '';
+  const one = e.images.length === 1;
+  const items = e.images
+    .map((url, i) => {
+      const local = localMedia ? `media/${encodeURI(imageFileName(e, url, i))}` : '';
+      const href = local || url;
+      const ext = local ? '' : ' target="_blank" rel="noreferrer"';
+      return `<a href="${escapeHtml(href)}"${ext}><img loading="lazy" src="${escapeHtml(href)}" alt="配图 ${i + 1}" referrerpolicy="no-referrer"></a>`;
+    })
+    .join('');
+  return `<div class="pictures${one ? ' is-one' : ''}">${items}</div>`;
 }
 
 /**
- * 一条说说渲染成 HTML article。配图引用 bundle 内的本地 `media/` 相对路径
- * （`localMedia` 由调用方按是否实际下载配图传入）；未下载时退化为远程链接。
+ * 一条说说渲染成 HTML article（参考 QzoneArchive 归档页）：头像 + 昵称头、
+ * 正文（表情外链 / 提及）、配图、赞与评论数、评论区（含回复）。
  */
-function emotionToHtml(e: EmotionWithInteraction, localMedia: boolean): string {
-  const time = e.time ? `<time>${escapeHtml(fmtTime(e.time))}</time>` : '';
-  const badges = [
-    e.isPrivate ? '<span class="badge is-private">私密</span>' : '',
-    e.commentNum ? `<span class="badge">评论 ${e.commentNum}</span>` : '',
-  ].join('');
-  const content = e.content ? `<div class="txt">${escapeMultiline(e.content)}</div>` : '';
-  const images = e.images.length
-    ? localMedia
-      ? `<div class="imgs">${e.images
-          .map(
-            (url, i) =>
-              `<img loading="lazy" src="media/${encodeURI(imageFileName(e, url, i))}" alt="">`,
-          )
-          .join('')}</div>`
-      : `<div class="imgs-links">${e.images
-          .map(
-            (url, i) =>
-              `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">配图 ${i + 1}</a>`,
-          )
-          .join('')}</div>`
-    : '';
-  const comments = e.comments?.length
-    ? `<div class="comments">${e.comments.map(commentToHtml).join('')}</div>`
-    : '';
-  const likes = e.likes?.length ? likesToHtml(e.likes) : '';
-  return `<article class="post"><header>${time}${badges}</header>${content}${images}${comments}${likes}</article>`;
+function emotionToHtml(
+  e: EmotionWithInteraction,
+  author: { name: string; uin: string },
+  localMedia: boolean,
+): string {
+  const when = e.time ? fmtTime(e.time) : '';
+  const privateBadge = e.isPrivate ? '<span class="badge is-private">私密</span>' : '';
+  const head =
+    '<header class="card-head">' +
+    avatarElement(author.uin, author.name) +
+    '<div class="who">' +
+    `<strong>${escapeHtml(author.name || 'QQ 用户')}</strong>` +
+    `<small>${when}${privateBadge ? ` · ${privateBadge}` : ''}</small>` +
+    '</div></header>';
+  const content = e.content ? `<div class="content">${qzoneTextToHtml(e.content)}</div>` : '';
+  const pictures = picturesToHtml(e, localMedia);
+  const stats = statsToHtml(e);
+  const comments =
+    e.comments && e.comments.length > 0
+      ? `<section class="comments">${commentsToHtml(e.comments)}</section>`
+      : '';
+  return `<article class="card">${head}${content}${pictures}${stats}${comments}</article>`;
 }
 
-/** 整页 HTML 文档（标题 / 统计 + 各说说 article）。 */
-function buildHtmlDoc(name: string, count: number, postsHtml: string): string {
+/** 整页 HTML 文档：资料头（头像 / 昵称 / 统计）+ 各说说 article。 */
+function buildHtmlDoc(name: string, uin: string, count: number, postsHtml: string): string {
   const title = escapeHtml(name || 'QQ 空间');
   const exportedAt = escapeHtml(fmtTime(Math.floor(Date.now() / 1000)));
+  const profile =
+    '<header class="profile">' +
+    avatarElement(uin, name) +
+    '<div class="profile-main">' +
+    `<h1>${title} 的 QQ 空间</h1>` +
+    `<p>${uin ? `QQ ${escapeHtml(uin)} · ` : ''}说说导出 · 共 ${count} 条 · 导出于 ${exportedAt}</p>` +
+    '</div></header>';
   return (
     '<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n' +
     '<meta name="viewport" content="width=device-width,initial-scale=1">\n' +
     `<title>${title} · QQ 空间说说</title>\n<style>${QZONE_HTML_STYLE}</style>\n</head>\n<body>\n` +
-    '<div class="wrap">\n<header class="head">\n' +
-    `<h1>${title} 的 QQ 空间</h1>\n` +
-    `<p>说说导出 · 共 ${count} 条 · 导出于 ${exportedAt}</p>\n</header>\n` +
-    `<main>\n${postsHtml}\n</main>\n` +
-    `<footer class="foot">共 ${count} 条说说</footer>\n</div>\n</body>\n</html>\n`
+    `<div class="wrap">\n${profile}\n` +
+    `<main class="post-list">\n${postsHtml}\n</main>\n` +
+    `<footer class="foot">共 ${count} 条说说 · 导出于 ${exportedAt}</footer>\n</div>\n</body>\n</html>\n`
   );
 }
 
@@ -485,8 +656,13 @@ export async function exportQzone(
       : opts.format === 'html'
         ? buildHtmlDoc(
             opts.name,
+            opts.targetUin,
             rows.length,
-            rows.map((e) => emotionToHtml(e, Boolean(opts.mediaRoot))).join('\n'),
+            rows
+              .map((e) =>
+                emotionToHtml(e, { name: opts.name, uin: opts.targetUin }, Boolean(opts.mediaRoot)),
+              )
+              .join('\n'),
           )
         : rows.map(emotionToTxt).join('\n');
   const writer = createExportWriter(opts.outputPath);

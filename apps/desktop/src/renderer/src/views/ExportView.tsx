@@ -44,7 +44,7 @@ import { trpc, client } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
 import { useToast } from '../components/Toast';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
-import { datalineName } from '@weq/codec';
+import { datalineName, toChatTypeNumber } from '@weq/codec';
 import type { ExportPresets } from '@weq/service';
 import { Avatar, Segmented } from './export/widgets';
 import { ChipsSkeleton, PickerListSkeleton, ScheduleListSkeleton } from './export/ExportSkeleton';
@@ -89,7 +89,7 @@ interface ModeDef {
 const MODES: ModeDef[] = [
   {
     id: 'full',
-    label: '完整消息格式',
+    label: '聊天消息导出',
     desc: 'JSON / JSONL / XLSX / CSV / TXT / HTML',
     icon: <MessagesSquare size={18} />,
   },
@@ -506,7 +506,9 @@ export function ExportView(): ReactElement {
             {
               id: `self:${self.uin}`,
               name: self.nick?.trim() ? `${self.nick}（我）` : '我的空间',
-              avatarUrl: self.avatarUrl || null,
+              // 资料库存的头像常是本地 CDN token，渲染层用不了 —— 有 uin 就按
+              // 与好友行同一套公共 qlogo 规则派生，避免回退成昵称首字符。
+              avatarUrl: self.avatarUrl || convAvatarUrl('c2c', self.uid, self.uin),
               kind: 'c2c',
               uin: self.uin,
               total: 0,
@@ -516,8 +518,10 @@ export function ExportView(): ReactElement {
         : [];
     const friends: PickItem[] = raw
       .filter((c) => {
-        // 排除公众号(103)和服务号(118)
-        const chatTypeNum = Number(c.chatType);
+        // 排除公众号(103)/服务号(118)：wire 的 chatType 既可能是枚举名字符串
+        // （如 KCHATTYPETEMPPUBLICACCOUNT），也可能是数字 —— Number() 直接比较
+        // 会漏掉字符串形态，官方号因此混进列表。统一转数字再判。
+        const chatTypeNum = toChatTypeNumber(c.chatType);
         if (chatTypeNum === 103 || chatTypeNum === 118) return false;
         // 排除群聊
         if (String(c.chatType).includes('GROUP')) return false;
@@ -531,7 +535,8 @@ export function ExportView(): ReactElement {
         kind: 'c2c' as const,
         uin: c.targetUin,
         total: Number(c.messageCount ?? 0),
-        meta: `${fmtCount(Number(c.messageCount ?? 0))} 条 · 私聊`,
+        // 导出的内容是目标空间的说说，不是私聊消息 —— 别拿聊天条数当说明。
+        meta: '好友空间 · 说说',
       }));
     return [...mine, ...friends];
   }, [conversations.data, selfProfile.data]);
@@ -923,9 +928,10 @@ export function ExportView(): ReactElement {
           name: t.name,
           format: fmt0,
           formats: formats.map(qzoneFormatOf),
-          // HTML 需要本地配图渲染：只要选了 HTML 就强制下载（灯箱里也会锁定勾选）。
+          // HTML 需要完整渲染：只要选了 HTML 就强制下载配图 + 拉取评论/点赞
+          // （灯箱里也会锁定勾选）。
           downloadMedia: options.exportMedia || formats.includes('html'),
-          includeInteraction: options.qzoneInteractions,
+          includeInteraction: options.qzoneInteractions || formats.includes('html'),
           range,
         });
       }

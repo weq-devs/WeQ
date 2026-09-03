@@ -1805,7 +1805,10 @@ export class ExportTaskManager extends EventEmitter {
       // HTML 导出靠本地配图渲染，含 html 格式时强制下载配图（不管用户是否勾选）。
       const formats = task.formats?.length ? task.formats : [task.format];
       const wantMedia = Boolean(task.media?.exportMedia) || formats.includes('html');
-      const wantInteraction = Boolean(task.qzoneInteractions && qzone.fetchInteractions);
+      // HTML 需要完整渲染：含 html 格式时同样强制拉取评论 / 点赞（能力不可用时跳过）。
+      const wantInteraction = Boolean(
+        (task.qzoneInteractions || formats.includes('html')) && qzone.fetchInteractions,
+      );
       // 多格式或下载配图 → 产物为 bundle 目录（多个文件 + media/），否则单文件。
       const isBundle = wantMedia || formats.length > 1;
       const outDir = isBundle ? join(this.cacheDir, `bundle-${id}`) : this.cacheDir;
