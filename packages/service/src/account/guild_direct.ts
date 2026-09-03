@@ -9,8 +9,10 @@
  */
 
 import type { AccountSession } from '@weq/account';
+import type { Element, MsgDecoration } from '@weq/codec';
 import type { GuildDirectMsg, GuildDirectSession } from '@weq/db';
 import { toRenderElements, type RenderElement } from './msg_view';
+import type { GuildExportTaskMeta } from './export/guild_source';
 
 /** One DM conversation row + the peer profile resolved for display. */
 export interface GuildDirectSessionView {
@@ -34,6 +36,8 @@ export interface GuildDirectSessionView {
   peerAvatarUrl: string | null;
   /** Decoded 40051 preview element (may not carry visible text). */
   preview: unknown | null;
+  /** 本地消息总数（导出任务的进度分母；频道私聊没有漫游缓存可并计）。 */
+  messageCount: number;
   /** Raw session row kept for the wire (peer nick / guild columns). */
   raw: Omit<GuildDirectSession, 'preview'>;
 }
@@ -71,6 +75,11 @@ export function guildAvatarUrlFromMeta(meta: string): string | null {
   return null;
 }
 
+/** 自己的公开头像：主帐号有 QQ 号，用与 c2c 导出同款 qlogo CDN。 */
+function qqAvatarUrlForUin(uin: string): string {
+  return `https://thirdqq.qlogo.cn/g?b=sdk&s=0&nk=${uin}`;
+}
+
 export class GuildDirectService {
   constructor(private readonly session: AccountSession) {}
 
@@ -82,6 +91,9 @@ export class GuildDirectService {
       const tinyIds = sessions.map((s) => s.peerTinyId);
       const profiles = await this.session.guildCommonProfiles.listByTinyIds(tinyIds);
       const byTinyId = new Map(profiles.map((p) => [p.tinyId, p]));
+      const countByNode = new Map(
+        (await this.session.guildDirectMsgs.countAllByNode()).map((c) => [c.nodeId, c.count]),
+      );
       return sessions.map((s) => {
         const profile = byTinyId.get(s.peerTinyId);
         return {
@@ -95,6 +107,7 @@ export class GuildDirectService {
           peerNick: s.nickChannel || s.nickGlobal || profile?.nick || s.peerTinyId.toString(),
           peerAvatarUrl: profile ? guildAvatarUrlFromMeta(profile.avatarMeta) : null,
           preview: s.preview ?? null,
+          messageCount: countByNode.get(s.nodeId) ?? 0,
           raw: s,
         };
       });
@@ -120,6 +133,76 @@ export class GuildDirectService {
   async getAfter(nodeId: string, afterSeq: bigint, limit = 50): Promise<RenderGuildDirectMsg[]> {
     const msgs = await this.session.guildDirectMsgs.listAfter(BigInt(nodeId), afterSeq, limit);
     return msgs.map(renderGuildDirectMsg);
+  }
+
+  /** 该会话本地消息数（导出任务进度分母；可按发送时间窗过滤）。 */
+  async countMessages(
+    nodeId: string,
+    range: { startTime?: number; endTime?: number } = {},
+  ): Promise<number> {
+    return this.session.guildDirectMsgs.countMessages(BigInt(nodeId), range);
+  }
+
+  /** 本账号在该会话自己发的第一条消息的 guild tinyId；没发过时为 ''。 */
+  async selfTinyId(nodeId: string): Promise<string> {
+    const v = await this.session.guildDirectMsgs.findSelfTinyId(BigInt(nodeId));
+    return v === null || v === 0n ? '' : v.toString();
+  }
+
+  /** 按 msgId 回读 40800 原始元素（导出媒体补全阶段用）。 */
+  async rawElementsOf(msgId: bigint): Promise<Element[] | null> {
+    const blob = await this.session.guildDirectMsgs.getMsgBody(msgId);
+    if (!blob) return null;
+    const { decodeBody } = await import('@weq/db');
+    return decodeBody(blob);
+  }
+
+  /** 按 msgId 回读 40801 装扮（导出装扮阶段用）。 */
+  async decorationOf(msgId: bigint): Promise<MsgDecoration | null> {
+    const blob = await this.session.guildDirectMsgs.getMsgDressBlob(msgId);
+    if (!blob) return null;
+    const { decodeDress } = await import('@weq/db');
+    return decodeDress(blob) ?? null;
+  }
+
+  /**
+   * 导出任务的身份快照（IPC 一次性组装，随任务持久化供历史回放）。
+   * 对方用 direct_node_list_table + guild1.db profile；自己用
+   * guild_msg_table 里发过的第一条消息的 tinyId + 主帐号账户
+   * 资料库的 QQ 号/昵称。频道私聊没有 QQ 号，
+   * senderUin 统一为 ''（消息不可能是漫游拉来的）。
+   */
+  async buildExportMeta(nodeId: string): Promise<GuildExportTaskMeta> {
+    const node = BigInt(nodeId);
+    const sessions = await this.session.guildDirectNodes.listSessions();
+    const s = sessions.find((x) => x.nodeId === node);
+    if (!s) throw new Error(`未找到频道私聊会话（nodeId=${nodeId}）`);
+    const profiles = await this.session.guildCommonProfiles.listByTinyIds([s.peerTinyId]);
+    const profile = profiles[0] ?? null;
+    const selfTinyId = await this.selfTinyId(nodeId);
+    const selfUin = this.session.context.uin;
+    let selfNick = '';
+    if (selfUin) {
+      try {
+        const selfProfile = await this.session.profileInfo.getProfileByUin(BigInt(selfUin));
+        selfNick = selfProfile?.nick ?? '';
+      } catch {
+        // 资料库缺失时昵称留空；导出时回退到 platformId。
+      }
+    }
+    return {
+      nodeId,
+      peerTinyId: s.peerTinyId.toString(),
+      guildId: s.guildId.toString(),
+      guildName: s.guildName,
+      peerNick: s.nickChannel || s.nickGlobal || profile?.nick || s.peerTinyId.toString(),
+      peerAvatarUrl: profile ? guildAvatarUrlFromMeta(profile.avatarMeta) : null,
+      selfTinyId,
+      selfNick,
+      selfUin,
+      selfUid: '',
+      selfAvatarUrl: selfUin ? qqAvatarUrlForUin(selfUin) : null,
+    };
   }
 }
 

@@ -419,6 +419,8 @@ export interface GuildDirectSessionWire {
   peerAvatarUrl: string | null;
   /** 40051 最新消息预览元素（sanitized；频道元素常无可见文本）。 */
   preview: unknown | null;
+  /** 本地消息总数（导出任务进度分母；频道私聊没有漫游缓存可并计）。 */
+  messageCount: number;
 }
 
 /** 频道私聊消息行（guild_msg_table）。 */
@@ -455,6 +457,7 @@ export function guildDirectSessionToWire(v: GuildDirectSessionView): GuildDirect
     peerNick: v.peerNick,
     peerAvatarUrl: v.peerAvatarUrl,
     preview: v.preview ? sanitize(v.preview) : null,
+    messageCount: v.messageCount,
   };
 }
 

@@ -31,6 +31,7 @@ import {
   Music,
   Pause,
   Play,
+  Radio,
   Search,
   Sticker,
   Trash2,
@@ -93,6 +94,12 @@ const MODES: ModeDef[] = [
     icon: <MessagesSquare size={18} />,
   },
   {
+    id: 'guild',
+    label: '频道私聊数据',
+    desc: '本地频道私聊 · 完整消息格式（不支持漫游拉取）',
+    icon: <Radio size={18} />,
+  },
+  {
     id: 'decrypt',
     label: '解密数据库',
     desc: '导出原始 SQLite 供研究',
@@ -140,6 +147,16 @@ interface GroupWire {
   groupCode: string;
   groupName: string;
   memberCount: number;
+}
+
+/** 频道私聊会话 wire 行（serde.guildDirectSessionToWire 输出，取导出用到的字段）。 */
+interface GuildSessionWire {
+  nodeId: string;
+  peerTinyId: string;
+  guildName?: string;
+  peerNick: string;
+  peerAvatarUrl: string | null;
+  messageCount?: number;
 }
 
 /** A friend row rendered in the 导出联系人 · 好友 preview list. */
@@ -261,7 +278,13 @@ export function ExportView(): ReactElement {
   const schedules = trpc.account.listSchedules.useQuery();
 
   const [mode, setMode] = useState<ExportMode>('full');
+  // 频道私聊会话列表（guild_msg.db；只在该模式下加载）。
+  const guildSessions = trpc.account.guildDirectListSessions.useQuery(undefined, {
+    enabled: mode === 'guild',
+  });
   const [convSelection, setConvSelection] = useState<Set<string>>(new Set());
+  /** 频道私聊多选：id = nodeId（与普通会话 uid 空间不同，分开存。） */
+  const [guildSelection, setGuildSelection] = useState<Set<string>>(new Set());
   /** 任务面板展开/收起（默认收起）。 */
   const [taskPanelExpanded, setTaskPanelExpanded] = useState(false);
   /** 新任务到达时，强制选中该任务。 */
@@ -440,6 +463,20 @@ export function ExportView(): ReactElement {
     });
   }, [conversations.data]);
 
+  // 频道私聊选择列表：id = nodeId，总数取会话本地消息计数。
+  const guildItems = useMemo<PickItem[]>(() => {
+    return ((guildSessions.data ?? []) as GuildSessionWire[]).map((c) => {
+      const count = Number(c.messageCount ?? 0);
+      return {
+        id: c.nodeId,
+        name: c.peerNick || c.peerTinyId,
+        avatarUrl: c.peerAvatarUrl,
+        total: count,
+        meta: `${fmtCount(count)} 条 · 频道私聊`,
+      };
+    });
+  }, [guildSessions.data]);
+
   // 好友空间导出：只列私聊好友（排除群聊、公众号、服务号），且需有效 uin。
   const friendItems = useMemo<PickItem[]>(() => {
     const raw = (conversations.data ?? []) as ConvWire[];
@@ -551,6 +588,7 @@ export function ExportView(): ReactElement {
       isQzone: Boolean((t as { qzone?: boolean }).qzone),
       isContacts: Boolean((t as { contacts?: unknown }).contacts),
       isCollection: Boolean((t as { collection?: unknown }).collection),
+      isGuild: Boolean((t as { guild?: unknown }).guild),
       // conv === 'marketpack' は商城表情下载タスクの sentinel（task_manager 内で設定）。
       isMarketPack: (t as unknown as { conv?: string }).conv === 'marketpack',
     }));
@@ -676,6 +714,11 @@ export function ExportView(): ReactElement {
     }
     if (mode === 'collection') {
       void runCollectionExport();
+      return;
+    }
+    if (mode === 'guild') {
+      if (guildSelection.size === 0) return;
+      setLightbox('guild');
       return;
     }
     if (convSelection.size === 0) return;
@@ -998,6 +1041,84 @@ export function ExportView(): ReactElement {
     }
   }
 
+  /**
+   * 频道私聊导出：消息源走 guild_msg.db，与完整消息同款格式 /
+   * 媒体 / 装扮 / 头像；唯一差异 = 不支持漫游消息拉取
+   * （completeMessages 恒 false）。
+   */
+  async function runGuildDirectExport(
+    options: ExportOptions,
+    opts: { formats?: ExportFormat[] } = {},
+  ): Promise<void> {
+    const targets = guildItems.filter((it) => guildSelection.has(it.id));
+    // null bounds = open-ended; both null (全部时间) means no filtering.
+    const range = { start: options.range.start, end: options.range.end };
+    const formats = opts.formats && opts.formats.length > 0 ? opts.formats : [format];
+    const media = {
+      exportMedia: options.exportMedia,
+      // 频道私聊没有漫游缓存可拉，这项始终关闭。
+      completeMessages: false,
+      completeMedia: options.exportMedia && options.completeMedia,
+      downloadVideo: options.exportMedia && options.downloadVideo,
+      downloadFile: options.exportMedia && options.downloadFile,
+      downloadPtt: options.exportMedia && options.downloadPtt,
+      transcribeVoice: options.transcribeVoice,
+      mediaKinds: options.exportMedia ? options.mediaKinds : undefined,
+      completeDress: options.completeDress,
+    };
+
+    if (media.completeMedia || media.downloadVideo || media.downloadFile || media.downloadPtt) {
+      const ok = await preflightMediaCompletion();
+      if (!ok) return;
+    } else if (media.exportMedia) {
+      const ok = await dialog.confirm(
+        '未开启媒体补全',
+        '已开启「导出媒体文件」但未开启「补全缺失媒体」。本地缓存中缺失的图片 / 视频 / 文件不会从云端下载，可能有大量媒体无法导出。是否继续？',
+        { okLabel: '继续导出', cancelLabel: '返回', tone: 'warning' },
+      );
+      if (!ok) return;
+    }
+
+    // 语音转写需要已下载的转录模型，缺失则提示去设置页（不阻断其它导出选项）。
+    if (media.transcribeVoice) {
+      const ok = await preflightVoiceTranscribe();
+      if (!ok) return;
+    }
+
+    setSubmitting(true);
+    try {
+      const autoSaveTaskIds: string[] = [];
+      for (const t of targets) {
+        // 多格式合并为同一个任务：所有格式写进同一 bundle，媒体/头像/装扮只带一份。
+        const fmt0 = formats[0] ?? format;
+        const id = await client.account.guildDirectStartExport.mutate({
+          nodeId: t.id,
+          name: t.name,
+          format: fmt0 as Exclude<ExportFormat, 'vcard'>,
+          formats: formats as Exclude<ExportFormat, 'vcard'>[],
+          exportAvatar: options.exportAvatar,
+          ...(options.dress.bubble || options.dress.font || options.dress.widget
+            ? { dress: options.dress }
+            : {}),
+          ...(options.chatlab ? { chatlab: true } : {}),
+          media,
+          range,
+        });
+        if (options.autoSave) autoSaveTaskIds.push(id);
+      }
+      if (autoSaveTaskIds.length > 0) {
+        autoSaveIds.current = new Set([...autoSaveIds.current, ...autoSaveTaskIds]);
+      }
+      setGuildSelection(new Set());
+      setLightbox(null);
+      refetchTasks();
+    } catch (e) {
+      dialog.error('启动频道私聊导出失败', e instanceof Error ? e.message : String(e));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   async function runDecryptExport(result: DecryptLightboxResult): Promise<void> {
     const targets = selectedDbs;
     if (targets.length === 0) return;
@@ -1118,14 +1239,20 @@ export function ExportView(): ReactElement {
     // 先把这次确认的配置写进全局 user_config（失败不阻断导出，只影响下次回填）。
     if (
       lightbox === 'full' ||
+      lightbox === 'guild' ||
       lightbox === 'scheduled' ||
       lightbox === 'qzone' ||
       lightbox === 'contacts'
     ) {
-      rememberPreset(lightbox, result);
+      // 频道私聊与完整消息同款灯箱，配置共享。
+      rememberPreset(lightbox === 'guild' ? 'full' : lightbox, result);
     }
     if (lightbox === 'full') {
       void runFullExport(result.options, { formats: result.formats });
+      return;
+    }
+    if (lightbox === 'guild') {
+      void runGuildDirectExport(result.options, { formats: result.formats });
       return;
     }
     if (lightbox === 'qzone') {
@@ -1293,7 +1420,9 @@ export function ExportView(): ReactElement {
             ? contactScope === 'group' && !contactGroupId
             : mode === 'collection'
               ? collectionLoading || (collectionCounts.all ?? 0) === 0
-              : convSelection.size === 0;
+              : mode === 'guild'
+                ? guildSelection.size === 0
+                : convSelection.size === 0;
 
   // Lightbox summary line.
   const lightboxSummary = (() => {
@@ -1309,7 +1438,7 @@ export function ExportView(): ReactElement {
       const n = catSelection.size;
       return n ? `${n} 个分组` : '全部好友';
     }
-    const n = convSelection.size;
+    const n = lightbox === 'guild' ? guildSelection.size : convSelection.size;
     return lightbox === 'qzone' ? `${n} 位好友` : `${n} 个会话`;
   })();
 
@@ -1320,11 +1449,13 @@ export function ExportView(): ReactElement {
         ? '导出群相册'
         : lightbox === 'qzone'
           ? '导出好友 QQ 空间'
-          : lightbox === 'contacts'
-            ? contactScope === 'friends'
-              ? '导出好友列表'
-              : '导出群成员列表'
-            : '导出聊天记录';
+          : lightbox === 'guild'
+            ? '导出频道私聊消息'
+            : lightbox === 'contacts'
+              ? contactScope === 'friends'
+                ? '导出好友列表'
+                : '导出群成员列表'
+              : '导出聊天记录';
 
   return (
     <div className="weq-exp">
@@ -1403,6 +1534,14 @@ export function ExportView(): ReactElement {
                 selected={convSelection}
                 onChange={setConvSelection}
                 emptyText={mode === 'qzone' ? '暂无好友（仅私聊可导出空间）' : undefined}
+              />
+            ) : mode === 'guild' ? (
+              <ConversationPicker
+                items={guildItems}
+                loading={guildSessions.isLoading}
+                selected={guildSelection}
+                onChange={setGuildSelection}
+                emptyText="暂无频道私聊会话（需本机有 QQ 频道私聊记录）"
               />
             ) : mode === 'contacts' ? (
               <div className="weq-exp-contacts">
@@ -1497,15 +1636,19 @@ export function ExportView(): ReactElement {
                     small
                   />
                 </div>
-              ) : mode === 'full' || mode === 'qzone' ? (
+              ) : mode === 'full' || mode === 'qzone' || mode === 'guild' ? (
                 <span className="weq-exp-foot-hint">
                   {mode === 'qzone'
                     ? convSelection.size > 0
                       ? `已选 ${convSelection.size} 位好友 · 灯箱内选择格式与配图`
                       : '请先选择至少一位好友'
-                    : convSelection.size > 0
-                      ? `已选 ${convSelection.size} 个会话 · 灯箱内选择格式与内容`
-                      : '请先选择至少一个会话'}
+                    : mode === 'guild'
+                      ? guildSelection.size > 0
+                        ? `已选 ${guildSelection.size} 个会话 · 频道私聊仅本地消息，不支持漫游拉取`
+                        : '请先选择至少一个频道私聊会话'
+                      : convSelection.size > 0
+                        ? `已选 ${convSelection.size} 个会话 · 灯箱内选择格式与内容`
+                        : '请先选择至少一个会话'}
                 </span>
               ) : mode === 'contacts' ? (
                 <span className="weq-exp-foot-hint">
@@ -1572,13 +1715,17 @@ export function ExportView(): ReactElement {
           // 优先回填最近一次导出的配置；联系人导出默认不下载头像（大群头像量大）。
           initialOptions={
             lightbox !== 'album'
-              ? (exportPresets?.[lightbox]?.options ??
+              ? (exportPresets?.[lightbox === 'guild' ? 'full' : lightbox]?.options ??
                 (lightbox === 'contacts'
                   ? { ...DEFAULT_OPTIONS, exportAvatar: false }
                   : DEFAULT_OPTIONS))
               : undefined
           }
-          initialFormats={lightbox !== 'album' ? exportPresets?.[lightbox]?.formats : undefined}
+          initialFormats={
+            lightbox !== 'album'
+              ? exportPresets?.[lightbox === 'guild' ? 'full' : lightbox]?.formats
+              : undefined
+          }
           initialSchedule={exportPresets?.scheduled?.schedule}
           submitting={submitting}
           onPickPath={async () => {

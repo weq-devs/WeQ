@@ -21,7 +21,7 @@
  *   40801  dress        (BLOB - per-message decoration)
  */
 
-import type { DatabaseAlgorithms, NtHelperBinding, SqlRow } from '@weq/native';
+import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import type { GuildDirectMsg } from './types';
 import { decodeBody, decodeDress, toBigint } from '../msg/util';
 import { QqDb } from '../qq_db';
@@ -88,6 +88,71 @@ export class GuildDirectMsgDb {
   /** Drop the cached native connection. */
   close(): void {
     this.qq.close();
+  }
+
+  /** 该会话的消息总数（可带发送时间窗过滤；频道私聊没有漫游缓存可并计）。 */
+  async countMessages(
+    nodeId: bigint,
+    range: { startTime?: number; endTime?: number } = {},
+  ): Promise<number> {
+    const conds = ['"40027" = ?'];
+    const args: SqlValue[] = [nodeId];
+    if (range.startTime != null) {
+      conds.push('"40050" >= ?');
+      args.push(BigInt(range.startTime));
+    }
+    if (range.endTime != null) {
+      conds.push('"40050" <= ?');
+      args.push(BigInt(range.endTime));
+    }
+    const rows = await this.qq.query(
+      `SELECT COUNT(*) FROM guild_msg_table WHERE ${conds.join(' AND ')}`,
+      args,
+    );
+    const v = rows[0]?.[0];
+    return typeof v === 'bigint' ? Number(v) : Number(v ?? 0);
+  }
+
+  /** 每个会话的消息总数（会话列表一次性取，避免逐会话 N+1 查询）。 */
+  async countAllByNode(): Promise<Array<{ nodeId: bigint; count: number }>> {
+    const rows = await this.qq.query(
+      'SELECT "40027", COUNT(*) FROM guild_msg_table GROUP BY "40027"',
+    );
+    return rows.map((r) => ({
+      nodeId: toBigint(r[0]),
+      count: typeof r[1] === 'bigint' ? Number(r[1]) : Number(r[1] ?? 0),
+    }));
+  }
+
+  /** 本账号自己在该会话发出的第一条消息的 senderTinyId（无自己消息时为 null）。 */
+  async findSelfTinyId(nodeId: bigint): Promise<bigint | null> {
+    const rows = await this.qq.query(
+      'SELECT "40026" FROM guild_msg_table WHERE "40027" = ? AND "40013" != 0 LIMIT 1',
+      [nodeId],
+    );
+    const v = rows[0]?.[0];
+    if (v === null || v === undefined) return null;
+    return toBigint(v);
+  }
+
+  /** 按 msgId 取该行 40800 正文 blob（导出媒体补全阶段回读原始元素用）。 */
+  async getMsgBody(msgId: bigint): Promise<Uint8Array | null> {
+    const rows = await this.qq.query(
+      'SELECT "40800" FROM guild_msg_table WHERE "40001" = ? LIMIT 1',
+      [msgId],
+    );
+    const v = rows[0]?.[0];
+    return v instanceof Uint8Array ? v : null;
+  }
+
+  /** 按 msgId 取该行 40801 装扮 blob（导出装扮阶段按条回读用）。 */
+  async getMsgDressBlob(msgId: bigint): Promise<Uint8Array | null> {
+    const rows = await this.qq.query(
+      'SELECT "40801" FROM guild_msg_table WHERE "40001" = ? LIMIT 1',
+      [msgId],
+    );
+    const v = rows[0]?.[0];
+    return v instanceof Uint8Array ? v : null;
   }
 }
 

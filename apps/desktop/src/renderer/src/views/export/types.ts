@@ -10,6 +10,7 @@
 /** Left-rail modes. */
 export type ExportMode =
   | 'full'
+  | 'guild'
   | 'decrypt'
   | 'qzone'
   | 'contacts'

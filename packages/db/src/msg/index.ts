@@ -36,7 +36,7 @@ export type {
   RecallLogRow,
 } from './anti_recall';
 
-export { decodeBody } from './util';
+export { decodeBody, decodeDress } from './util';
 export type { C2cMsg, GroupMsg, BuddyMsgFtsHit, SeqWindow } from './types';
 
 export type { AppendMsgFields, AppendMsgResult } from './append';
