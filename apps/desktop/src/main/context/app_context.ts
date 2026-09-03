@@ -56,6 +56,7 @@ import {
   RecentContactService,
   HiddenSessionService,
   DeletedSessionService,
+  GuildDirectService,
   OfficialAccountService,
   ServiceAccountService,
   UnreadInfoService,
@@ -375,6 +376,8 @@ export interface BootstrapServices {
 export interface AccountServices {
   msgs: MsgService;
   recentContacts: RecentContactService;
+  /** QQ 频道私聊会话与消息（guild_msg.db / guild1.db，静态本地读取）。 */
+  guildDirect: GuildDirectService;
   hiddenSessions: HiddenSessionService;
   deletedSessions: DeletedSessionService;
   officialAccount: OfficialAccountService;
@@ -897,6 +900,7 @@ export function initAppContext(): AppContext {
       this.services = {
         msgs: new MsgService(session, deletedMsgs, antiRecall),
         recentContacts: new RecentContactService(session),
+        guildDirect: new GuildDirectService(session),
         hiddenSessions: new HiddenSessionService(session),
         deletedSessions: new DeletedSessionService(session),
         officialAccount: new OfficialAccountService(session),
@@ -1378,6 +1382,7 @@ export function initAppContext(): AppContext {
       this.services = {
         msgs: new MsgService(session, deletedMsgs, antiRecall),
         recentContacts: new RecentContactService(session),
+        guildDirect: new GuildDirectService(session),
         hiddenSessions: new HiddenSessionService(session),
         deletedSessions: new DeletedSessionService(session),
         officialAccount: new OfficialAccountService(session),

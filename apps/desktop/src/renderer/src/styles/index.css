@@ -18368,3 +18368,288 @@ html[data-theme="dark"] .weq-applock-bind-success strong {
 html[data-theme="dark"] .weq-applock-bind-success small {
   color: #99a7b8;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   频道私聊查看器 (components/GuildDirectDialog)
+   大灯箱：左会话列表（direct_node_list_table）+ 右消息区（guild_msg_table，
+   复用主聊天 .message-scroll + MessageBubble，含 40801 装扮渲染）。
+   ───────────────────────────────────────────────────────────────────────── */
+.weq-guild-direct {
+	display: flex;
+	flex-direction: column;
+	width: min(1120px, 94vw);
+	height: min(86vh, 740px);
+	overflow: hidden;
+	border-radius: 12px;
+	color: var(--weq-fg-primary);
+	background: var(--weq-bg-surface);
+}
+
+.weq-guild-direct-head {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: space-between;
+	height: 52px;
+	padding: 0 14px 0 20px;
+	border-bottom: 1px solid var(--weq-border-subtle);
+	background: var(--weq-bg-surface);
+}
+
+.weq-guild-direct-title {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+}
+
+.weq-guild-direct-title strong {
+	overflow: hidden;
+	font-size: 15px;
+	font-weight: 650;
+	letter-spacing: 0.01em;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.weq-guild-direct-title-icon {
+	display: grid;
+	flex: 0 0 auto;
+	place-items: center;
+	width: 24px;
+	height: 24px;
+	border-radius: 7px;
+	color: #fff;
+	background: var(--weq-accent-effective);
+}
+
+.weq-guild-direct-body {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+}
+
+/* ---- 左列：会话列表 ---- */
+.weq-guild-direct-side {
+	display: flex;
+	flex: 0 0 296px;
+	flex-direction: column;
+	min-height: 0;
+	border-right: 1px solid var(--weq-border-subtle);
+	background: var(--weq-bg-surface);
+}
+
+.weq-guild-direct-side-title {
+	padding: 12px 16px 6px;
+	font-size: 12px;
+	font-weight: 500;
+	color: var(--weq-fg-secondary);
+}
+
+.weq-guild-direct-list {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	padding: 2px 8px 12px;
+}
+
+.weq-guild-direct-item {
+	display: flex;
+	width: 100%;
+	gap: 10px;
+	align-items: flex-start;
+	padding: 9px 10px;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.weq-guild-direct-item:hover {
+	background: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent);
+}
+
+.weq-guild-direct-item.active {
+	background: color-mix(in srgb, var(--weq-accent-effective) 11%, transparent);
+}
+
+.weq-guild-direct-item > .avatar,
+.weq-guild-direct-chat-head > .avatar {
+	width: 38px;
+	height: 38px;
+	flex: 0 0 auto;
+}
+
+.weq-guild-direct-item-main {
+	display: flex;
+	flex: 1;
+	min-width: 0;
+	flex-direction: column;
+	gap: 3px;
+}
+
+.weq-guild-direct-item-top {
+	display: flex;
+	gap: 8px;
+	align-items: baseline;
+	justify-content: space-between;
+	min-width: 0;
+}
+
+.weq-guild-direct-item-title {
+	display: flex;
+	flex: 1 1 auto;
+	min-width: 0;
+	gap: 6px;
+	align-items: baseline;
+	overflow: hidden;
+}
+
+.weq-guild-direct-item-name {
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	font-size: 13px;
+	font-weight: 600;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.weq-guild-direct-item-time {
+	flex: 0 0 auto;
+	font-size: 11px;
+	color: var(--weq-fg-tertiary);
+}
+
+.weq-guild-direct-item-guild {
+	display: inline-flex;
+	flex: 0 1 auto;
+	min-width: 0;
+	gap: 3px;
+	align-items: center;
+	font-size: 11px;
+	color: var(--weq-accent-effective);
+}
+
+.weq-guild-direct-item-guild-text {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.weq-guild-direct-item-preview {
+	overflow: hidden;
+	font-size: 12px;
+	color: var(--weq-fg-secondary);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* ---- 右列：聊天 ---- */
+.weq-guild-direct-chat {
+	display: flex;
+	flex: 1;
+	min-width: 0;
+	flex-direction: column;
+	background: var(--weq-bg-surface);
+}
+
+.weq-guild-direct-chat-head {
+	display: flex;
+	flex: 0 0 auto;
+	gap: 10px;
+	align-items: center;
+	padding: 10px 16px;
+	border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+.weq-guild-direct-chat-title {
+	min-width: 0;
+}
+
+.weq-guild-direct-chat-namewrap {
+	display: flex;
+	min-width: 0;
+	gap: 8px;
+	align-items: center;
+}
+
+.weq-guild-direct-chat-namewrap strong {
+	overflow: hidden;
+	font-size: 14px;
+	font-weight: 600;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.weq-guild-direct-chat-guild {
+	display: inline-flex;
+	flex: 0 1 auto;
+	min-width: 0;
+	gap: 4px;
+	align-items: center;
+	font-size: 11px;
+	color: var(--weq-accent-effective);
+}
+
+.weq-guild-direct-chat-guild-text {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.weq-guild-direct-topbar {
+	display: flex;
+	flex: 0 0 24px;
+	align-items: center;
+	justify-content: center;
+	font-size: 11px;
+	color: var(--weq-fg-tertiary);
+	user-select: none;
+}
+
+/* 复用主聊天滚动容器；用 flex 撑满右列而不是固定高度。 */
+.weq-guild-direct-msgs {
+	flex: 1;
+	height: auto;
+	min-height: 0;
+}
+
+.weq-guild-direct-msg {
+	display: flex;
+	flex-direction: column;
+}
+
+.weq-guild-direct-empty {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	align-items: center;
+	justify-content: center;
+	height: 100%;
+	padding: 24px 16px;
+	color: var(--weq-fg-secondary);
+	font-size: 12px;
+	text-align: center;
+}
+
+.weq-guild-direct-empty small {
+	max-width: 340px;
+	font-size: 11px;
+	line-height: 1.6;
+	color: var(--weq-fg-tertiary);
+	overflow-wrap: anywhere;
+}
+
+.weq-guild-direct-pick-hint {
+	gap: 10px;
+}
+
+.weq-guild-direct-pick-hint > svg {
+	opacity: 0.55;
+}

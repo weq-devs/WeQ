@@ -47,6 +47,9 @@ import {
   MiscDb,
   QqDb,
   UnreadInfoDb,
+  GuildDirectNodeDb,
+  GuildDirectMsgDb,
+  GuildCommonProfileDb,
 } from '@weq/db';
 import type { DatabaseAlgorithms, NtHelperBinding } from '@weq/native';
 import type { Platform } from '@weq/platform';
@@ -308,6 +311,8 @@ export async function openStaticAccount(
       join(dirPath, 'file_assistant.db'),
       join(dirPath, 'collection.db'),
       join(dirPath, 'misc.db'),
+      join(dirPath, 'guild_msg.db'),
+      join(dirPath, 'guild1.db'),
     ],
     dbKey,
     algos,
@@ -350,6 +355,13 @@ export async function openStaticAccount(
 
   const forwardMsgs = new ForwardMsgDb(nt, opts(msgDbPath));
   const unreadInfo = new UnreadInfoDb(nt, opts(msgDbPath));
+
+  // ---- guild (QQ 频道); files may be absent for non-channel accounts ----
+  const guildMsgDbPath = join(dirPath, 'guild_msg.db');
+  const guild1DbPath = join(dirPath, 'guild1.db');
+  const guildDirectNodes = new GuildDirectNodeDb(nt, opts(guildMsgDbPath));
+  const guildDirectMsgs = new GuildDirectMsgDb(nt, opts(guildMsgDbPath));
+  const guildCommonProfiles = new GuildCommonProfileDb(nt, opts(guild1DbPath));
 
   // ---- full-text-search indexes (may not exist; search will fail gracefully) ----
   const buddyMsgFts = new BuddyMsgFtsDb(nt, opts(join(dirPath, 'buddy_msg_fts.db')));
@@ -420,6 +432,9 @@ export async function openStaticAccount(
     botProfiles,
     misc,
     unreadInfo,
+    guildDirectNodes,
+    guildDirectMsgs,
+    guildCommonProfiles,
     dispose(): void {
       if (disposed) return;
       disposed = true;
@@ -451,6 +466,9 @@ export async function openStaticAccount(
       botProfiles.close();
       misc.close();
       unreadInfo.close();
+      guildDirectNodes.close();
+      guildDirectMsgs.close();
+      guildCommonProfiles.close();
     },
   };
 }

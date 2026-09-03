@@ -39,6 +39,9 @@ import {
   BotProfileDb,
   MiscDb,
   UnreadInfoDb,
+  GuildDirectNodeDb,
+  GuildDirectMsgDb,
+  GuildCommonProfileDb,
   wrapBindingForCorruption,
 } from '@weq/db';
 import type { CorruptionSuspectInfo } from '@weq/db';
@@ -168,6 +171,12 @@ export interface AccountSession {
   readonly misc: MiscDb;
   /** Unread info (nt_msg.db). */
   readonly unreadInfo: UnreadInfoDb;
+  /** 频道私聊会话列表（guild_msg.db -> direct_node_list_table）. */
+  readonly guildDirectNodes: GuildDirectNodeDb;
+  /** 频道私聊消息（guild_msg.db -> guild_msg_table, 40027 分区）. */
+  readonly guildDirectMsgs: GuildDirectMsgDb;
+  /** 频道常用资料缓存（guild1.db -> t_GPro_CommonUserProfile_v2）. */
+  readonly guildCommonProfiles: GuildCommonProfileDb;
   /** Close every db this session opened. Idempotent. */
   dispose(): void;
 }
@@ -440,6 +449,25 @@ export async function openAccount(
     algo: a(msgDbPath),
   });
 
+  // 频道（QQ 频道）相关的库与主消息库同目录。guild_msg.db 存私聊会话表 +
+  // 消息表；guild1.db 存常用用户资料缓存。构造是惰性的（不真正打开文件），
+  // 没有频道数据的账号不影响会话打开，查询侧再自行容错。
+  const guildDirectNodes = new GuildDirectNodeDb(nt, {
+    dbPath: guildMsgDbPath,
+    key: ctx.dbKey,
+    algo: a(guildMsgDbPath),
+  });
+  const guildDirectMsgs = new GuildDirectMsgDb(nt, {
+    dbPath: guildMsgDbPath,
+    key: ctx.dbKey,
+    algo: a(guildMsgDbPath),
+  });
+  const guildCommonProfiles = new GuildCommonProfileDb(nt, {
+    dbPath: guild1DbPath,
+    key: ctx.dbKey,
+    algo: a(guild1DbPath),
+  });
+
   let disposed = false;
   return {
     context: { ...ctx, algos: resolvedAlgos },
@@ -474,6 +502,9 @@ export async function openAccount(
     botProfiles,
     misc,
     unreadInfo,
+    guildDirectNodes,
+    guildDirectMsgs,
+    guildCommonProfiles,
     dispose(): void {
       if (disposed) return;
       disposed = true;
@@ -505,6 +536,9 @@ export async function openAccount(
       botProfiles.close();
       misc.close();
       unreadInfo.close();
+      guildDirectNodes.close();
+      guildDirectMsgs.close();
+      guildCommonProfiles.close();
       // Future db instances close here too.
     },
   };

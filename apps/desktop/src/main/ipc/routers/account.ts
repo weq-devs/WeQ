@@ -85,6 +85,8 @@ import {
   onlineStatusToWire,
   elementsToEditable,
   elementsFromEditable,
+  guildDirectSessionToWire,
+  guildDirectMsgToWire,
   type ChatMsgWire,
 } from '../serde';
 
@@ -1576,6 +1578,46 @@ export const accountRouter = router({
       }),
     )
     .query(({ input }) => fetchFrom(input.kind, input.conv, BigInt(input.sinceSeq), input.limit)),
+
+  /**
+   * QQ 频道私聊会话列表（direct_node_list_table）。只读会话表，绝不回扫
+   * guild_msg_table 补全；40051 最新消息预览一并返回。
+   */
+  guildDirectListSessions: procedure.query(async () => {
+    const sessions = await requireServices().guildDirect.listSessions();
+    return sessions.map(guildDirectSessionToWire);
+  }),
+
+  /** 频道私聊最新 N 条消息（seq 大到小）。nodeId = 会话 40027。 */
+  guildDirectLatest: procedure
+    .input(
+      z.object({
+        nodeId: z.string().min(1),
+        limit: z.number().int().min(1).max(200).default(50),
+      }),
+    )
+    .query(async ({ input }) => {
+      const msgs = await requireServices().guildDirect.getLatest(input.nodeId, input.limit);
+      return msgs.map(guildDirectMsgToWire);
+    }),
+
+  /** 比 beforeSeq 更旧的一页频道私聊消息（向上滚动），返回仍为 seq 大到小。 */
+  guildDirectBefore: procedure
+    .input(
+      z.object({
+        nodeId: z.string().min(1),
+        beforeSeq: z.string().min(1),
+        limit: z.number().int().min(1).max(200).default(50),
+      }),
+    )
+    .query(async ({ input }) => {
+      const msgs = await requireServices().guildDirect.getBefore(
+        input.nodeId,
+        BigInt(input.beforeSeq),
+        input.limit,
+      );
+      return msgs.map(guildDirectMsgToWire);
+    }),
 
   /** Get detailed profile for the currently logged-in user. */
   getSelfProfile: procedure.query(async () => {
