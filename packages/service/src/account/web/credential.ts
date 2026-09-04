@@ -95,6 +95,17 @@ export async function probePtLoginPort(nt: WebNative, pid: number): Promise<numb
   return probe.port;
 }
 
+/**
+ * hook 负缓存（「hook 控制 socket 打不通」）的冷却窗口。
+ *
+ * 未注入时 `fetchClientKey` / `fetchSkey` / `fetchPskey` 会在已死的 hook 控制
+ * socket 上等约 5 秒超时才报错。失败结果如果从不缓存，每次 web cgi 调用都会
+ * 白等这 5 秒（即使 skey/pskey 早已缓存）。这里把「hook 不可用」按 pid 负缓存：
+ * 窗口内不再碰死 socket，直接走 pt_login 兜底；窗口过后重试一次，兼顾中途手动
+ * 注入 QQ 后能回到 hook 快路径。QQ 重启（pid 变化）则立即重试。
+ */
+const HOOK_DEAD_COOLDOWN_MS = 60_000;
+
 /** 通过 ptlogin2 本地快速登录获取 skey（无需注入 hook）；失败抛错。 */
 export async function fetchSkeyViaPtLogin(
   nt: WebNative,
@@ -177,6 +188,10 @@ export class WebCredentialProvider {
   private readonly pskeyByDomain = new Map<string, string>();
   private readonly cookieByDomain = new Map<string, string>();
   private readonly seededDomains = new Set<string>();
+  /** 负缓存：已知 hook 控制 socket 不可达的 pid；null 表示未知/活着。 */
+  private hookDeadPid: number | null = null;
+  /** 上次确认 hook 不可达的时间戳（毫秒）。 */
+  private hookDeadAt = 0;
   private readonly logger;
 
   constructor(
@@ -224,6 +239,34 @@ export class WebCredentialProvider {
     this.seededDomains.delete(domain);
   }
 
+  /**
+   * 包一层 hook 调用：负缓存窗口内直接抛（不碰死 socket），调用失败则记负缓存。
+   * 这样「hook 打不通」的代价从每次 ~5s 超时降到一次日志，且后续调用直接走
+   * pt_login 兜底。
+   */
+  private async hookCall<T>(pid: number, fn: () => Promise<T>): Promise<T> {
+    if (this.isHookKnownDead(pid)) {
+      throw new Error('hook 控制 socket 已知不可达（负缓存窗口内），跳过 hook 调用');
+    }
+    try {
+      return await fn();
+    } catch (error) {
+      this.markHookDead(pid);
+      throw error;
+    }
+  }
+
+  /** 当前 pid 是否处于「hook 已知不可用」负缓存窗口内。pid 变化（QQ 重启）自动失效。 */
+  private isHookKnownDead(pid: number): boolean {
+    return this.hookDeadPid === pid && Date.now() - this.hookDeadAt < HOOK_DEAD_COOLDOWN_MS;
+  }
+
+  /** 记录 hook 不可用。 */
+  private markHookDead(pid: number): void {
+    this.hookDeadPid = pid;
+    this.hookDeadAt = Date.now();
+  }
+
   /** Credential bundle for `domain` (e.g. 'qun.qq.com', 'qzone.qq.com'). */
   async forDomain(domain: string): Promise<WebCredential> {
     const pid = this.resolvePid();
@@ -250,7 +293,7 @@ export class WebCredentialProvider {
       let skey = jar.skey ?? this.skey ?? undefined;
       if (!skey) {
         try {
-          skey = await this.nt.fetchSkey(pid, this.uin);
+          skey = await this.hookCall(pid, () => this.nt.fetchSkey(pid, this.uin));
           this.logger.info('fetched skey', { event: 'fetch-skey', pid, domain });
         } catch (hookError) {
           // hook 不可用（未注入 / 注入掉了 / 完全离线模式）→ ptlogin2 本地快速登录兜底。
@@ -262,7 +305,7 @@ export class WebCredentialProvider {
       let pskey = jar.p_skey ?? this.pskeyByDomain.get(domain);
       if (pskey === undefined) {
         try {
-          pskey = await this.nt.fetchPskey(pid, this.uin, domain);
+          pskey = await this.hookCall(pid, () => this.nt.fetchPskey(pid, this.uin, domain));
           this.logger.info('fetched pskey', { event: 'fetch-pskey', pid, domain });
         } catch (hookError) {
           // 未注入拿不到 p_skey → 回退 ptlogin2 本地快速登录（仅支持已验证的四域）。
@@ -353,7 +396,7 @@ export class WebCredentialProvider {
     if (cached) return parseCookieHeader(cached);
 
     try {
-      const ck = parseClientKeyJson(await this.nt.fetchClientKey(pid));
+      const ck = parseClientKeyJson(await this.hookCall(pid, () => this.nt.fetchClientKey(pid)));
       if (!ck) {
         this.logger.warn('clientKey unavailable — falling back to skey/p_skey cookie', {
           event: 'harvest-jar-no-clientkey',
@@ -362,6 +405,8 @@ export class WebCredentialProvider {
         });
         return {};
       }
+      // clientKey 拿到了 → hook 活着，清掉负缓存（后续调用走 hook 快路径）。
+      this.hookDeadPid = null;
       const jar = await fetchPtlogin2Jar(ck, this.uin, domain);
       this.cookieByDomain.set(
         domain,
@@ -379,6 +424,7 @@ export class WebCredentialProvider {
       });
       return jar;
     } catch (error) {
+      // hookCall 已在失败时记负缓存：窗口内不再打 fetchClientKey（省每次 ~5s 超时）。
       this.logger.warn('ptlogin2 jump failed — falling back to skey/p_skey cookie', {
         event: 'harvest-jar-failed',
         pid,
