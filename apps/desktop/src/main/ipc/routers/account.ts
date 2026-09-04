@@ -263,6 +263,30 @@ const qzoneAlbumMediaInput = z.object({
   pageStart: z.number().int().min(0).optional().default(0),
   pageNum: z.number().int().min(1).max(100).optional().default(30),
 });
+
+/** 相册视频本体入参：picKey = 媒体列表里的 lloc/sloc。 */
+const qzoneAlbumVideoUrlInput = z.object({
+  hostUin: z.string().min(1),
+  topicId: z.string().min(1),
+  picKey: z.string().min(1),
+});
+
+/** 待导出的相册媒体条目（多选下载用，对齐 QzoneAlbumPhoto wire）。 */
+const qzoneAlbumMediaItemInput = z.object({
+  id: z.string().min(1),
+  name: z.string().optional(),
+  url: z.string().min(1),
+  isVideo: z.boolean().optional(),
+  picKey: z.string().optional(),
+});
+
+const exportQzoneAlbumMediaInput = z.object({
+  hostUin: z.string().min(1),
+  topicId: z.string().min(1),
+  outputDir: z.string().min(1),
+  items: z.array(qzoneAlbumMediaItemInput).min(1),
+  concurrency: z.number().int().min(1).max(8).optional(),
+});
 /** 导出装扮资源（气泡 / 字体 / 挂件），缺省不导出。 */
 const dressInput = z
   .object({
@@ -321,6 +345,17 @@ export interface AlbumExportResult {
     albumTitle: string;
     fileName: string;
     url: string;
+    error: string;
+  }>;
+}
+
+export interface QzoneAlbumMediaExportResult {
+  outputDir: string;
+  total: number;
+  ok: number;
+  failed: Array<{
+    name: string;
+    fileName: string;
     error: string;
   }>;
 }
@@ -776,6 +811,70 @@ async function exportGroupAlbums(
         albumTitle: item.albumTitle,
         fileName: item.fileName,
         url: item.url,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  });
+
+  return { outputDir: input.outputDir, total: work.length, ok, failed };
+}
+
+/**
+ * 并发下载选中的个人空间相册媒体到 `outputDir`。与 {@link exportGroupAlbums}
+ * 共用同一套下载工具函数；区别是个人相册列表只给视频封面，下载视频前按
+ * picKey 现取 mp4 本体（签名会过期），取不到则回退封面图。
+ */
+async function exportQzoneAlbumMedia(
+  services: AccountServices,
+  input: z.infer<typeof exportQzoneAlbumMediaInput>,
+): Promise<QzoneAlbumMediaExportResult> {
+  requireOnlineQqForWeb(services);
+
+  const work: Array<{
+    isVideo: boolean;
+    url: string;
+    picKey: string;
+    targetPath: string;
+  }> = [];
+  const used = new Set<string>();
+  input.items.forEach((item, index) => {
+    const fileName = uniqueFilename(
+      filenameFromUrl(item.url, item.name ?? '', index, item.isVideo ? '.mp4' : '.jpg'),
+      used,
+    );
+    work.push({
+      isVideo: Boolean(item.isVideo),
+      url: item.url,
+      picKey: item.picKey ?? '',
+      targetPath: join(input.outputDir, fileName),
+    });
+  });
+
+  const failed: QzoneAlbumMediaExportResult['failed'] = [];
+  let ok = 0;
+  await mkdir(input.outputDir, { recursive: true });
+  await runWithConcurrency(work, input.concurrency ?? 4, async (item) => {
+    try {
+      let url = item.url;
+      if (item.isVideo && item.picKey) {
+        try {
+          const mp4 = await services.webQuery.getQzoneAlbumVideoUrl(
+            input.hostUin,
+            input.topicId,
+            item.picKey,
+          );
+          if (mp4) url = mp4;
+        } catch {
+          // 本体取不到就下封面图，不中断整个任务。
+        }
+      }
+      await mkdir(dirname(item.targetPath), { recursive: true });
+      await downloadAlbumUrl(url, item.targetPath);
+      ok += 1;
+    } catch (e) {
+      failed.push({
+        name: item.url,
+        fileName: basename(item.targetPath),
         error: e instanceof Error ? e.message : String(e),
       });
     }
@@ -2678,6 +2777,23 @@ export const accountRouter = router({
       input.pageStart,
       input.pageNum,
     );
+  }),
+
+  /** 相册视频本体 mp4 URL（列表只给封面，播放/下载前按 picKey 现取）。 */
+  qzoneAlbumVideoUrl: procedure.input(qzoneAlbumVideoUrlInput).query(async ({ input }) => {
+    const services = requireServices();
+    requireOnlineQqForWeb(services);
+    return services.webQuery.getQzoneAlbumVideoUrl(input.hostUin, input.topicId, input.picKey);
+  }),
+
+  /** Folder dialog for qzone album media export output. */
+  pickQzoneAlbumExportDir: procedure.mutation(async () => {
+    return getHost().pickDirectory({ title: '选择空间相册保存文件夹' });
+  }),
+
+  /** 并发下载选中的空间相册媒体（照片原图 / 视频本体）到所选文件夹。 */
+  exportQzoneAlbumMedia: procedure.input(exportQzoneAlbumMediaInput).mutation(async ({ input }) => {
+    return exportQzoneAlbumMedia(requireServices(), input);
   }),
 
   /** Folder dialog for group album export output. */

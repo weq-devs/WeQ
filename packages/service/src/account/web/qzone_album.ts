@@ -151,6 +151,8 @@ export interface QzoneAlbumPhoto {
   uploadTime: number;
   /** 是否视频。 */
   isVideo: boolean;
+  /** 视频取 mp4 本体的定位键（lloc/sloc；非视频为空）。 */
+  picKey: string;
   width: number;
   height: number;
 }
@@ -167,8 +169,24 @@ interface RawPhoto {
   desc?: string;
   url?: string;
   pre?: string;
+  /** 原图直链（部分接口只有 raw 或 lloc 有完整图）。 */
+  raw?: string;
+  /** 大图定位键（lloc / sloc），视频取 mp4 本体时当 picKey 用。 */
+  lloc?: string;
+  sloc?: string;
   uploadtime?: number | string;
   is_video?: boolean | number;
+  /** 老接口把视频挂在 phototype='video'（无 is_video）。 */
+  phototype?: string;
+  video_info?: {
+    download_url?: string;
+    url1?: string;
+    url2?: string;
+    url3?: string;
+    video_url?: string;
+    video_id?: string | number;
+    video_time?: string | number;
+  };
   width?: number | string;
   height?: number | string;
 }
@@ -236,12 +254,91 @@ export async function getQzoneAlbumMedia(
     id: String(p.id ?? ''),
     name: p.name ?? '',
     desc: p.desc ?? '',
-    url: p.url || p.pre || '',
+    url: p.url || p.pre || p.raw || '',
     thumbUrl: p.pre ?? '',
     uploadTime: Number(p.uploadtime ?? 0),
-    isVideo: Boolean(p.is_video),
+    isVideo: Boolean(p.is_video) || p.phototype === 'video',
+    // 视频取 mp4 本体用的定位键（列表 cgi 只给封面，本体要另查）。
+    picKey: p.lloc || p.sloc || '',
     width: Number(p.width ?? 0),
     height: Number(p.height ?? 0),
   }));
   return { photos, totalInAlbum: Number(data?.totalInAlbum ?? photos.length) };
+}
+
+// ───────────────────────── 视频本体 URL ─────────────────────────
+// 相册媒体列表 cgi 只给视频封面（不给本体 mp4）。本体要拿 picKey 再查一次
+// `cgi_floatview_photo_list_v2`（相册浮层详情），从 `video_info` 里抠出 mp4。
+
+interface RawFloatviewPhoto {
+  picKey?: string;
+  lloc?: string;
+  is_video?: boolean | number;
+  video_info?: RawPhoto['video_info'];
+}
+
+interface RawFloatviewRet {
+  code?: number;
+  message?: string;
+  data?: {
+    photos?: RawFloatviewPhoto[] | null;
+  };
+}
+
+/**
+ * 查一条相册视频的本体 mp4 URL。`picKey` 即媒体列表里的 `lloc`/`sloc`。
+ * 带签名会过期，导出 / 播放前即时取。拿不到 mp4（如只有 m3u8）返回空串。
+ * 凭证失效抛 {@link WebAuthError}。
+ */
+export async function getQzoneAlbumVideoUrl(
+  cred: WebCredential,
+  hostUin: string,
+  topicId: string,
+  picKey: string,
+): Promise<string> {
+  const gtk = computeBkn(cred.pskey || cred.skey);
+  const params = new URLSearchParams({
+    g_tk: String(gtk),
+    t: String(Date.now()),
+    topicId,
+    picKey,
+    shootTime: '',
+    cmtOrder: '1',
+    fupdate: '1',
+    plat: 'qzone',
+    source: 'qzone',
+    cmtNum: '10',
+    likeNum: '5',
+    inCharset: 'utf-8',
+    outCharset: 'utf-8',
+    callbackFun: 'viewer',
+    offset: '0',
+    number: '15',
+    uin: hostUin,
+    hostUin,
+    appid: '4',
+    isFirst: '1',
+    sortOrder: '1',
+    showMode: '1',
+    need_private_comment: '1',
+    prevNum: '9',
+    postNum: '18',
+  });
+  const url = `https://user.qzone.qq.com/proxy/domain/photo.qzone.qq.com/fcgi-bin/cgi_floatview_photo_list_v2?${params.toString()}`;
+  const text = await webRequestText(url, {
+    method: 'GET',
+    cookie: cookieHeader(cred),
+    headers: { Referer: `https://user.qzone.qq.com/${hostUin}`, 'User-Agent': WEB_UA },
+  });
+  const ret = parseQzoneCallback<RawFloatviewRet>(text);
+  if (typeof ret.code === 'number' && ret.code !== 0) {
+    throw qzoneCodeError('qzone 相册视频详情', ret.code, ret.message);
+  }
+  const photo = (ret.data?.photos ?? []).find(
+    (p) => p.picKey === picKey || p.lloc === picKey || p.is_video || p.video_info,
+  );
+  const vi = photo?.video_info;
+  // mp4 本体：download_url 是新接口形态，url3 是旧接口形态；video_url 是 m3u8
+  // （Chromium 不能直接播），一律不取。
+  return vi?.download_url || vi?.url3 || '';
 }

@@ -148,6 +148,7 @@ export function McpServerSection(): ReactElement {
   return (
     <div className="weq-set">
       <SectionHeader
+        icon={<Plug size={16} strokeWidth={1.8} />}
         title="MCP 服务器"
         desc="开启后，Claude Desktop 等支持 MCP 的 AI 客户端可通过本地接口读取当前账号的聊天数据。"
       />

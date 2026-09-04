@@ -32,6 +32,7 @@ import {
   RefreshCw,
   Smartphone,
   Trash2,
+  User,
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useDialog } from '../Dialog';
@@ -214,7 +215,11 @@ export function AccountBasicsSection(): ReactElement {
 
   return (
     <div className="weq-set">
-      <SectionHeader title="账号基础" desc="当前账号的资料、密钥，以及实时消息与媒体补全开关。" />
+      <SectionHeader
+        icon={<User size={16} strokeWidth={1.8} />}
+        title="账号基础"
+        desc="当前账号的资料、密钥，以及实时消息与媒体补全开关。"
+      />
 
       {/* Self profile hero */}
       <Card>

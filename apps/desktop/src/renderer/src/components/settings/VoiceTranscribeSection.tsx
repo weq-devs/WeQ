@@ -154,8 +154,8 @@ export function VoiceTranscribeSection(): ReactElement {
     <div className="weq-set">
       <SectionHeader
         icon={<AudioLines size={18} strokeWidth={1.8} />}
-        title="语音转录"
-        desc="下载并选择离线语音识别模型。选中后，聊天中的语音消息将出现「转文字」按钮。"
+        title="语音配置"
+        desc="语音相关功能统一在这里配置：离线语音识别（转文字）的模型下载与选择，以及文字转语音（TTS）的服务商。"
       />
 
       <Card title="转录模型">
@@ -483,13 +483,8 @@ function TtsProvidersCard(): ReactElement {
 
   return (
     <>
-      <SectionHeader
-        icon={<Volume2 size={18} strokeWidth={1.8} />}
-        title="TTS 语音合成"
-        desc="配置文字转语音服务商。配好后，克隆体（好友克隆）才能发语音；支持复刻的厂商（CosyVoice / GPT-SoVITS）可用 TA 本人的声音说话。"
-      />
       <Card
-        title="已保存的 TTS 服务商"
+        title="TTS 语音合成"
         action={
           <button
             type="button"
@@ -501,6 +496,10 @@ function TtsProvidersCard(): ReactElement {
           </button>
         }
       >
+        <p className="weq-set-desc">
+          配置文字转语音服务商。配好后，克隆体（好友克隆）才能发语音；支持复刻的厂商（CosyVoice /
+          GPT-SoVITS）可用 TA 本人的声音说话。
+        </p>
         {(providers.data ?? []).length === 0 ? (
           <div className="weq-set-row-desc" style={{ padding: '4px 2px' }}>
             还没有 TTS 服务商，点右上角「新建」添加一个。推荐 CosyVoice（免费、可复刻）。

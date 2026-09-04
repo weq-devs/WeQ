@@ -81,6 +81,17 @@ export function VideoLightbox(): ReactElement | null {
           autoPlay
           style={zoom.style}
           onMouseDown={zoom.onMouseDown}
+          onError={(e) => {
+            // TEMP-DEBUG：排查空间相册个别视频播不了（复现后贴回即可删）。
+            const el = e.currentTarget;
+            console.warn('[qzal-video-debug] <video> 播放失败', {
+              src: el.currentSrc || src,
+              errorCode: el.error?.code,
+              errorMsg: el.error?.message,
+              networkState: el.networkState,
+              readyState: el.readyState,
+            });
+          }}
         />
       </div>
     </div>,

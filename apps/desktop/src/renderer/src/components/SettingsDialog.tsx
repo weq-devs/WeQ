@@ -41,7 +41,7 @@ import { ExternalRkeySection } from './settings/ExternalRkeySection';
 import { SsePushSection } from './settings/SsePushSection';
 import { WeqAssistantSection } from './settings/WeqAssistantSection';
 import { AntiRecallSection } from './settings/AntiRecallSection';
-import { Toggle } from './settings/controls';
+import { SectionHeader, Toggle } from './settings/controls';
 import { trpc } from '../trpc/client';
 import {
   useThemeStore,
@@ -326,8 +326,11 @@ function AppearanceSection(): ReactElement {
 
   return (
     <section className="weq-settings-section">
-      <h3 className="weq-settings-section-title">个性显示</h3>
-      <p>主题模式、主题色、界面背景、组件风格与消息渲染都在这里调整，改动即时生效。</p>
+      <SectionHeader
+        icon={<Palette size={16} strokeWidth={1.8} />}
+        title="个性显示"
+        desc="主题模式、主题色、界面背景、组件风格与消息渲染都在这里调整，改动即时生效。"
+      />
 
       <div className="weq-settings-appearance-card">
         <div className="weq-settings-appearance-head">

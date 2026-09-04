@@ -14,7 +14,7 @@
  */
 
 import { useEffect, useState, type ReactElement } from 'react';
-import { Check, Copy } from 'lucide-react';
+import { Check, Copy, Sparkles } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
@@ -114,6 +114,7 @@ export function WeqAssistantSection(): ReactElement {
   return (
     <div className="weq-set">
       <SectionHeader
+        icon={<Sparkles size={16} strokeWidth={1.8} />}
         title="WeQ 助手"
         desc="在你的 QQ 本体里注入一个内置「WeQ助手」公众号会话，用来推送每日推文、日报等内容。卡片封面与跳转页由本机服务生成，完全离线。"
       />

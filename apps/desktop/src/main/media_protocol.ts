@@ -216,18 +216,24 @@ async function albumRemoteResponse(src: string): Promise<Response> {
     // 群公告图片
     host === 'gdynamic.qpic.cn';
   if (!allowed) return notFound('album image host not allowed');
-  // Referer 的协议必须跟目标一致：Chromium 禁止 https→http 的 referrer 降级,
-  // 撞上就是 ERR_BLOCKED_BY_CLIENT(资料卡精选图片走的 ugc.qpic.cn 只有 http)。
-  const res = await fetch(src, {
-    headers: {
-      Referer: `${target.protocol}//user.qzone.qq.com/`,
-      'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome Safari/537.36',
-    },
-  });
+  // 视频（含 moov 在文件尾部的非 faststart mp4）要能 seek，必须把 Chromium 发来的
+  // Range 转发给上游（否则一律回 200 全量 = 不可 seek 流，demuxer 打不开 moov 在
+  // 末尾的文件，报 DEMUXER_ERROR_COULD_NOT_OPEN）。上游 CDN 支持 206。
+  const incoming = currentRequest.getStore();
+  const headers: Record<string, string> = {
+    // Referer 的协议必须跟目标一致：Chromium 禁止 https→http 的 referrer 降级,
+    // 撞上就是 ERR_BLOCKED_BY_CLIENT(资料卡精选图片走的 ugc.qpic.cn 只有 http)。
+    Referer: `${target.protocol}//user.qzone.qq.com/`,
+    'User-Agent':
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome Safari/537.36',
+  };
+  const range = incoming?.headers.get('range');
+  if (range) headers.Range = range;
+  const res = await fetch(src, { headers });
   if (!res.ok) return new Response(`album image http ${res.status}`, { status: res.status });
   const contentType = res.headers.get('content-type') ?? '';
-  // 视频原样回传：要保留 range 支持,且不能把整段 mp4 读进内存。
+  // 视频原样回传：要保留 range 支持（上游 206 + content-range 直接透传），
+  // 且不能把整段 mp4 读进内存。
   if (!contentType.startsWith('image/')) return res;
   // 图片则重新组装：qpic 带 `connection: keep-alive` 这类逐跳头,原样回传会让
   // Chromium 的协议处理器直接 ERR_UNEXPECTED。只挑必要的头。

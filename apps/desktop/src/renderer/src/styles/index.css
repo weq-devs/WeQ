@@ -18905,7 +18905,6 @@ html[data-theme="dark"] .weq-applock-bind-success small {
 	border-radius: 10px;
 	overflow: hidden;
 	background: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent);
-	cursor: pointer;
 	transition:
 		border-color 150ms ease,
 		transform 150ms ease,
@@ -18918,11 +18917,67 @@ html[data-theme="dark"] .weq-applock-bind-success small {
 	box-shadow: 0 14px 28px -22px color-mix(in srgb, var(--weq-accent-effective) 40%, black);
 }
 
-.weq-qzal-media-card img {
+.weq-qzal-media-card.is-checked {
+	border-color: var(--weq-accent-effective);
+	box-shadow: 0 0 0 1px var(--weq-accent-effective) inset;
+}
+
+.weq-qzal-media-body {
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+	gap: 6px;
+	padding: 0;
+	border: none;
+	background: none;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.weq-qzal-media-thumb {
+	position: relative;
+	display: block;
+	width: 100%;
+}
+
+.weq-qzal-media-thumb img {
 	display: block;
 	width: 100%;
 	aspect-ratio: 1 / 1;
 	object-fit: cover;
+}
+
+.weq-qzal-media-check {
+	position: absolute;
+	top: 8px;
+	left: 8px;
+	z-index: 2;
+	display: grid;
+	place-items: center;
+	width: 22px;
+	height: 22px;
+	padding: 0;
+	border: 1.5px solid rgb(255 255 255 / 0.85);
+	border-radius: 50%;
+	background: rgb(0 0 0 / 0.38);
+	backdrop-filter: blur(3px);
+	color: #fff;
+	box-shadow: 0 1px 4px rgb(0 0 0 / 0.25);
+	cursor: pointer;
+	transition:
+		background-color 150ms ease,
+		border-color 150ms ease;
+}
+
+.weq-qzal-media-check:hover {
+	background: rgb(0 0 0 / 0.55);
+}
+
+.weq-qzal-media-check.is-on {
+	border-color: var(--weq-accent-effective);
+	background: var(--weq-accent-effective);
 }
 
 .weq-qzal-media-play {
@@ -18964,14 +19019,99 @@ html[data-theme="dark"] .weq-applock-bind-success small {
 	color: var(--weq-fg-tertiary, var(--weq-fg-secondary));
 }
 
-.weq-qzal-loadmore {
+.weq-qzal-selectbar {
 	display: flex;
-	justify-content: center;
-	padding: 6px 0 2px;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: 10px;
 }
 
-.weq-qzal-loadmore-btn {
-	padding: 7px 22px;
+.weq-qzal-select-all {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 10px;
+	border: 1px solid var(--weq-border-subtle);
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--weq-accent-effective) 7%, transparent);
+	color: var(--weq-fg-secondary);
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+	transition:
+		border-color 150ms ease,
+		background-color 150ms ease,
+		color 150ms ease;
+}
+
+.weq-qzal-select-all:hover {
+	border-color: var(--weq-border-strong);
+}
+
+.weq-qzal-select-all.is-on {
+	border-color: var(--weq-accent-effective);
+	color: var(--weq-accent-effective);
+}
+
+.weq-qzal-check {
+	display: inline-grid;
+	place-items: center;
+	width: 15px;
+	height: 15px;
+	border: 1px solid currentColor;
+	border-radius: 4px;
+}
+
+.weq-qzal-select-count {
+	flex: 1;
+	font-size: 12px;
+	color: var(--weq-fg-secondary);
+}
+
+.weq-qzal-download {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 5px 14px;
+	border: none;
+	border-radius: 999px;
+	background: var(--weq-accent-effective);
+	color: #fff;
+	font: inherit;
+	font-size: 12px;
+	font-weight: 550;
+	cursor: pointer;
+	transition:
+		opacity 150ms ease,
+		transform 150ms ease;
+}
+
+.weq-qzal-download:hover:not(:disabled) {
+	transform: translateY(-1px);
+}
+
+.weq-qzal-download:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+
+.weq-qzal-sentinel {
+	min-height: 40px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.weq-qzal-sentinel-text {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 11px;
+	color: var(--weq-fg-tertiary, var(--weq-fg-secondary));
+}
+
+.weq-qzal-retry {
+	padding: 5px 14px;
 	border: 1px solid var(--weq-border-subtle);
 	border-radius: 999px;
 	background: color-mix(in srgb, var(--weq-accent-effective) 9%, transparent);
@@ -18979,19 +19119,11 @@ html[data-theme="dark"] .weq-applock-bind-success small {
 	font: inherit;
 	font-size: 12px;
 	cursor: pointer;
-	transition:
-		border-color 150ms ease,
-		background-color 150ms ease;
 }
 
-.weq-qzal-loadmore-btn:hover {
+.weq-qzal-retry:hover {
 	border-color: var(--weq-border-strong);
 	background: color-mix(in srgb, var(--weq-accent-effective) 15%, transparent);
-}
-
-.weq-qzal-loadmore-btn:disabled {
-	opacity: 0.6;
-	cursor: default;
 }
 
 .weq-qzal-end {

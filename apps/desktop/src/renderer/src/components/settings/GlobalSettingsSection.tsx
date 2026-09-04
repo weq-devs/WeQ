@@ -24,6 +24,7 @@ import {
   Loader2,
   Minimize2,
   RotateCcw,
+  Settings2,
   Trash2,
   User,
 } from 'lucide-react';
@@ -301,7 +302,11 @@ export function GlobalSettingsSection(): ReactElement {
 
   return (
     <div className="weq-set">
-      <SectionHeader title="全局设置" desc="与账号无关的应用级设置。" />
+      <SectionHeader
+        icon={<Settings2 size={16} strokeWidth={1.8} />}
+        title="全局设置"
+        desc="与账号无关的应用级设置。"
+      />
 
       {/* Version */}
       <Card>

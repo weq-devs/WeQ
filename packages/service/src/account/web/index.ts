@@ -17,6 +17,7 @@ import { getGroupAlbumList, type GroupAlbum } from './group_album';
 import {
   getQzoneAlbumList,
   getQzoneAlbumMedia,
+  getQzoneAlbumVideoUrl,
   type QzoneAlbum,
   type QzoneAlbumMediaResult,
 } from './qzone_album';
@@ -157,6 +158,13 @@ export class WebQueryService {
       getQzoneAlbumMedia(c, targetUin, topicId, pageStart, pageNum),
     );
   }
+
+  /** 相册视频本体 mp4 URL（列表只给封面，本体按 picKey 另查）。 */
+  async getQzoneAlbumVideoUrl(targetUin: string, topicId: string, picKey: string): Promise<string> {
+    return withRetry(this.creds, QZONE_DOMAIN, (c) =>
+      getQzoneAlbumVideoUrl(c, targetUin, topicId, picKey),
+    );
+  }
 }
 
 export {
@@ -207,7 +215,7 @@ export type {
   QzoneFeed,
   QzoneFeedsResult,
 } from './qzone';
-export { getQzoneAlbumList, getQzoneAlbumMedia } from './qzone_album';
+export { getQzoneAlbumList, getQzoneAlbumMedia, getQzoneAlbumVideoUrl } from './qzone_album';
 export type { QzoneAlbum, QzoneAlbumPhoto, QzoneAlbumMediaResult } from './qzone_album';
 export {
   collectQzoneInteractions,
