@@ -63,22 +63,13 @@ export type ReportPageResult<D = unknown> = {
  * Whether a page qualifies for the account / year / scope.
  *
  * `getManifest` probes each candidate page cheaply and only exposes pages that
- * report `available: true`, so data-ineligible pages (e.g. no friends reach the
- * intimacy threshold) never enter the deck. The probe is a lightweight query —
- * heavy per-page computation still happens lazily via `getPageData`.
+ * report `available: true`, so data-ineligible pages (e.g. a year with no sent
+ * messages) never enter the deck. The probe is a lightweight query — heavy
+ * per-page computation still happens lazily via `getPageData`.
  */
 export type PageAvailability = {
   available: boolean;
   reason?: string;
-};
-
-/** One friend row from the QQ profile intimacy ranking. */
-export type IntimacyFriend = {
-  uid: string;
-  uin: string;
-  nick: string;
-  remark: string;
-  intimacy: number;
 };
 
 /**
@@ -87,17 +78,33 @@ export type IntimacyFriend = {
  * a database handle or SQL.
  */
 export type ReportQueries = {
-  intimacy: {
+  /**
+   * Message-volume stats for the overview card. One pass per table, no body
+   * decode — deliberately the cheapest global aggregates we can offer.
+   */
+  overview: {
     /**
-     * Friends whose QQ intimacy score is at least `minScore`, sorted 高→低,
-     * at most `limit` rows.
+     * Sent / received split for one half-open time window [startTime, endTime)
+     * (unix seconds), across c2c + group tables only (dataline excluded).
      */
-    listFriendsByIntimacy(minScore: number, limit: number): Promise<IntimacyFriend[]>;
+    countByDirection(
+      startTime: number,
+      endTime: number,
+    ): Promise<{
+      c2cSent: number;
+      c2cReceived: number;
+      groupSent: number;
+      groupReceived: number;
+    }>;
+  };
+  /** Engine-level metadata, not page data. */
+  meta: {
     /**
-     * Cheap existence probe for `getManifest`: does at least one friend reach
-     * `minScore`? Sorted ranking means a single top-row fetch decides it.
+     * Oldest message sendTime (unix seconds) across c2c + group tables, or
+     * null when the account has no messages at all. Derives the first
+     * selectable report year; the engine caches the result.
      */
-    hasFriendAtIntimacy(minScore: number): Promise<boolean>;
+    oldestMessageTime(): Promise<number | null>;
   };
 };
 

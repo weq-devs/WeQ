@@ -381,6 +381,77 @@ export class C2cMsgDb {
   }
 
   /**
+   * Oldest sendTime (column 40050, unix seconds) in the whole table, or null
+   * when empty. Unindexed — a single-pass MIN scan; used once per report open
+   * to derive the first available year, then cached by the caller.
+   */
+  async oldestSendTime(): Promise<bigint | null> {
+    const rows = await this.qq.query(`SELECT MIN("40050") FROM ${this.table} WHERE "40050" > 0`);
+    const value = rows[0]?.[0];
+    return value == null ? null : toBigint(value);
+  }
+
+  /**
+   * Infer the account's own uin from the data itself, in ONE pass: in
+   * `c2c_msg_table` column 40021 (targetUid) is always the peer, and the rows
+   * we sent are exactly the ones whose 40020 (senderUid) differs from the
+   * peer. So the most common 40033 among those rows is our own uin — fully
+   * independent of profile_info / session identity, and always consistent with
+   * the database being scanned. This is the correct uin to feed the group
+   * direction count, whose 40033 carries real senders. Returns null when there
+   * is no evidence (no sent rows at all).
+   */
+  async inferSelfUin(): Promise<bigint | null> {
+    const rows = await this.qq.query(
+      `SELECT "40033", COUNT(*) AS n FROM ${this.table}
+       WHERE "40020" != "40021" AND "40020" != '' AND "40033" > 0
+       GROUP BY "40033" ORDER BY n DESC LIMIT 1`,
+    );
+    const value = rows[0]?.[0];
+    return value == null ? null : toBigint(value);
+  }
+
+  /**
+   * Split the whole table's rows in a time window into sent / received, in ONE
+   * pass. Direction comes from the data itself — no external identity needed:
+   * 40021 (targetUid) is always the peer, so `senderUid != targetUid` marks a
+   * row as sent (QQ writes the peer into both columns for incoming rows). Rows
+   * with an empty senderUid are malformed edge cases and never count as sent.
+   * Excludes dataline / service tables — callers pass the exact C2cMsgDb
+   * instance they want (c2c = private chats only).
+   */
+  async countByDirection(
+    opts: { startTime?: number; endTime?: number } = {},
+  ): Promise<{ sent: number; received: number }> {
+    const conditions: string[] = [];
+    const params: SqlValue[] = [];
+    if (opts.startTime != null && opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      params.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime != null && opts.endTime > 0) {
+      conditions.push(`"40050" < ?`);
+      params.push(BigInt(opts.endTime));
+    }
+    const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
+    const rows = await this.qq.query(
+      `SELECT CASE WHEN "40020" != "40021" AND "40020" != '' THEN 1 ELSE 0 END AS mine, COUNT(*) AS n
+       FROM ${this.table}${where}
+       GROUP BY 1`,
+      params,
+    );
+    let sent = 0;
+    let received = 0;
+    for (const row of rows) {
+      const mine = Number(row[0] ?? 0);
+      const n = Number(row[1] ?? 0);
+      if (mine === 1) sent = n;
+      else received = n;
+    }
+    return { sent, received };
+  }
+
+  /**
    * Batch count messages per peer by uid. Returns { uid: count }.
    *
    * `opts` narrows the count without changing the (indexed) `40021 IN (…)`

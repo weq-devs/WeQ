@@ -32,6 +32,8 @@ export class AnnualReportService {
   private readonly scope: ReportScope;
   private readonly dataRevision: string;
   private preferences: AnnualReportPreferences;
+  /** Memoized [startYear..currentYear]; keyed by dataRevision. */
+  private availableYearsCache: { key: string; years: number[] } | null = null;
 
   constructor(
     private readonly session: AccountSession,
@@ -40,6 +42,24 @@ export class AnnualReportService {
     this.scope = options.scope ?? DEFAULT_REPORT_SCOPE;
     this.dataRevision = options.dataRevision ?? session.msgDbPath;
     this.preferences = options.preferences ?? DEFAULT_PREFERENCES;
+  }
+
+  /**
+   * The selectable report years: [earliest message year .. current year].
+   * The earliest year comes from the oldest stored message (c2c + group) — a
+   * single MIN scan per table, cached for the session's data revision.
+   */
+  async getAvailableYears(): Promise<number[]> {
+    if (this.availableYearsCache?.key === this.dataRevision) {
+      return this.availableYearsCache.years;
+    }
+    const oldest = await createReportQueries(this.session).meta.oldestMessageTime();
+    const startYear = oldest ? new Date(oldest * 1000).getFullYear() : currentReportYear();
+    const nowYear = currentReportYear();
+    const years: number[] = [];
+    for (let y = Math.min(startYear, nowYear); y <= nowYear; y += 1) years.push(y);
+    this.availableYearsCache = { key: this.dataRevision, years };
+    return years;
   }
 
   /** Lightweight directory: manifest + per-page availability (probed & cached). */
@@ -54,7 +74,7 @@ export class AnnualReportService {
       .map((page) => page.manifest);
     return {
       year: normalizedYear,
-      availableYears: [normalizedYear],
+      availableYears: await this.getAvailableYears(),
       scope: this.scope,
       pages,
       availablePages: reportPages

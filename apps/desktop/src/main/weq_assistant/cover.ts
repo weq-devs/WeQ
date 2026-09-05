@@ -52,8 +52,11 @@ let logoUriCache: string | null | undefined;
  * Locate a CJK-capable TTF/OTF. satori can't read `.ttc` collections, so we
  * prefer a bundled `.ttf`, then Windows' DengXian (`Deng.ttf`, a plain TTF that
  * ships with Win10/11). Throws if none is found — the caller surfaces it.
+ *
+ * Exported so the annual-report export pipeline (same satori+resvg chain) can
+ * reuse the same font resolution instead of duplicating it.
  */
-function loadFont(): Buffer {
+export function loadCjkFont(): Buffer {
   if (fontCache) return fontCache;
   const candidates = [
     resolveResource('assistant', 'fonts', 'cover.ttf'),
@@ -305,7 +308,7 @@ export async function renderCardPng(spec: CardSpec): Promise<Buffer> {
   const svg = await satori(root as unknown as import('react').ReactNode, {
     width,
     height,
-    fonts: [{ name: 'Cover', data: loadFont(), weight: 400, style: 'normal' }],
+    fonts: [{ name: 'Cover', data: loadCjkFont(), weight: 400, style: 'normal' }],
   });
 
   // Supersample: render the SVG at SCALE× device width, downscaled by the viewer,

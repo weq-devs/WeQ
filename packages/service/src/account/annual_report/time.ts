@@ -18,6 +18,12 @@ export function reportYearRange(year: number): { from: Date; to: Date } {
   };
 }
 
+/** The same half-open year window as unix seconds — the SQL filter for counts. */
+export function reportYearUnixRange(year: number): { startSec: number; endSec: number } {
+  const { from, to } = reportYearRange(year);
+  return { startSec: Math.floor(from.getTime() / 1000), endSec: Math.floor(to.getTime() / 1000) };
+}
+
 export function localDateKey(timestampSeconds: number): string {
   const date = new Date(timestampSeconds * 1000);
   const year = date.getFullYear();

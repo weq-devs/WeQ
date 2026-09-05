@@ -1,13 +1,45 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactElement,
+} from 'react';
 import { ArrowLeft, ChevronDown, ChevronUp, LoaderCircle, RefreshCw } from 'lucide-react';
+import type { ReportManifest } from '@weq/service';
 import { client, trpc } from '../../trpc/client';
 import { AnnualReportStage } from './AnnualReportStage';
+import { AnnualReportEntry } from './AnnualReportEntry';
 import { renderReportPage } from './pageRegistry';
+import { ReportViewContext, type ReportViewContextValue } from './reportContext';
 import '../../styles/annual-report.css';
 
 type PageState = { status: 'idle' | 'loading' | 'ok' | 'error'; data?: unknown; error?: string };
 
+const SLIDE_TRANSITION =
+  'opacity 900ms cubic-bezier(0.16, 1, 0.3, 1), transform 900ms cubic-bezier(0.16, 1, 0.3, 1), filter 900ms cubic-bezier(0.16, 1, 0.3, 1)';
+
+/**
+ * 相邻页做「景深退场」：往后压一点、糊掉、压暗。翻页时前一页像被推进暗处，
+ * 而不是两张卡片并排滑动 —— 这是报告的电影感来源之一。
+ */
+function slideStyle(pageIndex: number, index: number): CSSProperties {
+  const delta = pageIndex - index;
+  const distance = Math.abs(delta);
+  return {
+    opacity: distance > 1 ? 0 : 1 - distance * 0.82,
+    transform: `scale(${1 - distance * 0.08}) translateY(${delta * -2}%)`,
+    filter: distance > 0 ? 'blur(14px)' : 'none',
+    transition: SLIDE_TRANSITION,
+    zIndex: distance === 0 ? 2 : 1,
+    pointerEvents: distance === 0 ? 'auto' : 'none',
+  };
+}
+
 export function AnnualReportView({ onBack }: { onBack: () => void }): ReactElement {
+  const [phase, setPhase] = useState<'entry' | 'report'>('entry');
   const [year, setYear] = useState(() => new Date().getFullYear());
   const manifestQuery = trpc.account.annualReport.getManifest.useQuery(
     { year },
@@ -16,7 +48,47 @@ export function AnnualReportView({ onBack }: { onBack: () => void }): ReactEleme
       staleTime: 60_000,
     },
   );
-  const pages = manifestQuery.data?.pages ?? [];
+
+  if (phase === 'entry') {
+    return (
+      <div className="weq-report-root is-entry">
+        <AnnualReportEntry
+          manifest={manifestQuery.data ?? null}
+          loading={manifestQuery.isLoading}
+          isFetching={manifestQuery.isFetching}
+          error={manifestQuery.error?.message ?? null}
+          selectedYear={year}
+          onSelectYear={setYear}
+          onGenerate={() => setPhase('report')}
+          onBack={onBack}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <ReportDeckView
+      year={year}
+      manifest={manifestQuery.data ?? null}
+      manifestLoading={manifestQuery.isLoading}
+      onBackToEntry={() => setPhase('entry')}
+    />
+  );
+}
+
+function ReportDeckView({
+  year,
+  manifest,
+  manifestLoading,
+  onBackToEntry,
+}: {
+  year: number;
+  manifest: ReportManifest | null;
+  manifestLoading: boolean;
+  onBackToEntry: () => void;
+}): ReactElement {
+  const pages = manifest?.pages ?? [];
+  const availableYears = manifest?.availableYears ?? [year];
   const [index, setIndex] = useState(0);
   const [states, setStates] = useState<Record<string, PageState>>({});
   const generationRef = useRef(0);
@@ -29,6 +101,7 @@ export function AnnualReportView({ onBack }: { onBack: () => void }): ReactEleme
     generationRef.current += 1;
   }, [year]);
 
+  /** 加载一页；成功/失败都 resolve，让顺序队列继续往下走。 */
   const loadPage = useCallback(
     async (pageId: string, force = false): Promise<void> => {
       const currentGeneration = generationRef.current;
@@ -67,15 +140,28 @@ export function AnnualReportView({ onBack }: { onBack: () => void }): ReactEleme
     [year],
   );
 
+  // 顺序加载：第 1 页好了立即显示，然后 2、3、4… 依次补齐。
+  useEffect(() => {
+    if (pages.length === 0) return;
+    let cancelled = false;
+    const generation = generationRef.current;
+    (async () => {
+      for (const page of pages) {
+        if (cancelled || generation !== generationRef.current) return;
+        await loadPage(page.id);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pages, loadPage]);
+
+  // 翻到还没加载的页时立即加载（不用等队列轮到）。
   useEffect(() => {
     const active = pages[index];
     if (!active) return;
     void loadPage(active.id);
-    const next = pages[index + 1];
-    const previous = pages[index - 1];
-    if (next) void loadPage(next.id);
-    if (previous) void loadPage(previous.id);
-  }, [index, loadPage, pages]);
+  }, [index, pages, loadPage]);
 
   const moveTo = useCallback(
     (next: number) => {
@@ -84,122 +170,151 @@ export function AnnualReportView({ onBack }: { onBack: () => void }): ReactEleme
     [pages.length],
   );
 
-  const availableYears = manifestQuery.data?.availableYears ?? [year];
   const scopeLabel = useMemo(() => {
-    const scope = manifestQuery.data?.scope;
+    const scope = manifest?.scope;
     if (!scope) return '';
     return [scope.includeC2c && '私聊', scope.includeGroups && '群聊'].filter(Boolean).join(' + ');
-  }, [manifestQuery.data?.scope]);
+  }, [manifest?.scope]);
 
-  if (manifestQuery.isLoading) {
+  const contextValue = useMemo<ReportViewContextValue>(
+    () => ({
+      year,
+      startYear: availableYears[0] ?? year,
+      scopeLabel,
+      slides: pages
+        .filter((page) => states[page.id]?.status === 'ok')
+        .map((page) => ({ page, data: states[page.id]?.data })),
+    }),
+    [year, availableYears, scopeLabel, pages, states],
+  );
+
+  if (manifestLoading && !manifest) {
     return (
       <div className="weq-report-root weq-report-loading">
         <LoaderCircle className="weq-report-spin" size={32} aria-label="正在加载年度报告" />
       </div>
     );
   }
-  if (manifestQuery.error) {
+  if (!manifest) {
     return (
       <div className="weq-report-root weq-report-error">
-        <p>年度报告目录加载失败：{manifestQuery.error.message}</p>
-        <button type="button" onClick={() => void manifestQuery.refetch()}>
+        <p>年度报告目录加载失败</p>
+        <button type="button" onClick={onBackToEntry}>
           <RefreshCw size={16} />
-          重试
+          返回重试
         </button>
       </div>
     );
   }
-  if (!pages.length) {
+  if (pages.length === 0) {
     return (
       <div className="weq-report-root weq-report-empty">
-        <p>您的数据过少，目前的配置展示无法为您生成自定义的报告，更改配置或者换个账号再试试吧～</p>
-        <button type="button" onClick={onBack}>
-          返回
+        <p>{year} 年没有可展示的卡片 —— 至少需要发出过一条私聊或群聊消息，报告才会出现。</p>
+        <button type="button" onClick={onBackToEntry}>
+          换个年份
         </button>
       </div>
     );
   }
 
   return (
-    <div className="weq-report-root">
+    <div className="weq-report-root is-deck">
       <div className="weq-report-chrome">
-        <button className="weq-report-back" type="button" onClick={onBack}>
-          <ArrowLeft size={18} />
-          返回
+        <button className="weq-report-back" type="button" onClick={onBackToEntry}>
+          <ArrowLeft size={16} aria-hidden />
+          <span>年份</span>
         </button>
-        <div className="weq-report-heading">
-          <strong>{year} 年度报告</strong>
-          <span>{scopeLabel}</span>
+        <div className="weq-report-brand">
+          <span className="weq-report-brand-year weq-number">{year}</span>
+          <span className="weq-report-brand-name">年度报告</span>
+          {scopeLabel ? <span className="weq-report-brand-scope">{scopeLabel}</span> : null}
         </div>
-        <label className="weq-report-year">
-          年份
-          <select value={year} onChange={(event) => setYear(Number(event.target.value))}>
-            {availableYears.map((availableYear) => (
-              <option key={availableYear} value={availableYear}>
-                {availableYear}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="weq-report-progress">
+          <span className="weq-number">{String(index + 1).padStart(2, '0')}</span>
+          <span className="weq-report-progress-slash" aria-hidden>
+            /
+          </span>
+          <span className="weq-report-progress-total weq-number">
+            {String(pages.length).padStart(2, '0')}
+          </span>
+        </div>
       </div>
-      <AnnualReportStage index={index} count={pages.length} onIndexChange={moveTo}>
-        {pages.map((page, pageIndex) => {
-          const state = states[page.id] ?? { status: 'idle' as const };
-          return (
-            <div className="weq-report-slide" key={page.id} aria-hidden={pageIndex !== index}>
-              {state.status === 'loading' || state.status === 'idle' ? (
-                <div className="weq-report-page-status">
-                  <LoaderCircle className="weq-report-spin" size={32} />
-                  <span>正在整理这一页…</span>
-                </div>
-              ) : null}
-              {state.status === 'error' ? (
-                <div className="weq-report-page-status">
-                  <p>{state.error}</p>
-                  <button type="button" onClick={() => void loadPage(page.id, true)}>
-                    <RefreshCw size={16} />
-                    重试
-                  </button>
-                </div>
-              ) : null}
-              {state.status === 'ok' ? renderReportPage(page, state.data) : null}
-            </div>
-          );
-        })}
-      </AnnualReportStage>
-      <div className="weq-report-controls">
+
+      <ReportViewContext.Provider value={contextValue}>
+        <AnnualReportStage index={index} count={pages.length} onIndexChange={moveTo}>
+          {pages.map((page, pageIndex) => {
+            const state = states[page.id] ?? { status: 'idle' as const };
+            const active = pageIndex === index;
+            return (
+              <div
+                className={`weq-report-slide${active ? ' is-active' : ''}`}
+                key={page.id}
+                style={slideStyle(pageIndex, index)}
+                aria-hidden={!active}
+              >
+                {state.status === 'loading' || state.status === 'idle' ? (
+                  <div className="weq-report-page-status">
+                    <LoaderCircle className="weq-report-spin" size={30} aria-hidden />
+                    <span>正在整理这一页…</span>
+                  </div>
+                ) : null}
+                {state.status === 'error' ? (
+                  <div className="weq-report-page-status">
+                    <p>{state.error}</p>
+                    <button type="button" onClick={() => void loadPage(page.id, true)}>
+                      <RefreshCw size={16} />
+                      重试
+                    </button>
+                  </div>
+                ) : null}
+                {state.status === 'ok' ? renderReportPage(page, state.data, active) : null}
+              </div>
+            );
+          })}
+        </AnnualReportStage>
+      </ReportViewContext.Provider>
+
+      <div className="weq-report-rail" aria-label="报告翻页">
         <button
           type="button"
+          className="weq-report-rail-arrow"
           onClick={() => moveTo(index - 1)}
           disabled={index === 0}
           aria-label="上一页"
         >
-          <ChevronUp size={18} />
+          <ChevronUp size={16} aria-hidden />
         </button>
-        <div className="weq-report-dots" aria-label="报告页码">
+        <div className="weq-report-ticks">
           {pages.map((page, pageIndex) => (
             <button
               key={page.id}
               type="button"
-              className={pageIndex === index ? 'active' : ''}
+              className={`weq-report-tick${pageIndex === index ? ' is-active' : ''}`}
               onClick={() => moveTo(pageIndex)}
               aria-label={`第 ${pageIndex + 1} 页：${page.title}`}
-            />
+              aria-current={pageIndex === index}
+            >
+              <span className="weq-report-tick-mark" aria-hidden />
+              <span className="weq-report-tick-name" aria-hidden>
+                {page.title}
+              </span>
+            </button>
           ))}
         </div>
-        <span>
-          {index + 1} / {pages.length}
-        </span>
         <button
           type="button"
+          className="weq-report-rail-arrow"
           onClick={() => moveTo(index + 1)}
           disabled={index === pages.length - 1}
           aria-label="下一页"
         >
-          <ChevronDown size={18} />
+          <ChevronDown size={16} aria-hidden />
         </button>
       </div>
-      <div className="weq-report-hint">滚轮 / 触摸 / ↑↓ 翻页</div>
+      <div className="weq-report-hint" data-visible={index === 0 ? 'yes' : 'no'}>
+        <span className="weq-report-hint-arrow" aria-hidden />
+        向下滑动继续
+      </div>
     </div>
   );
 }

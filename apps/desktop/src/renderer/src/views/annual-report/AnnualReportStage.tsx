@@ -2,7 +2,14 @@ import { useCallback, useEffect, useRef, useState, type ReactElement, type React
 
 const DESIGN_WIDTH = 960;
 const DESIGN_HEIGHT = 640;
+/** 舞台四周留白比例 —— 报告不贴边，像一页印在纸上的开面。 */
+const STAGE_INSET = 0.92;
 
+/**
+ * 报告舞台：把 960×640 的设计画幅等比缩放到可用空间，页面在画幅内**同位层叠**
+ * （不是横向/纵向滑动轨），翻页由各页自己的 transform/opacity/blur 完成景深过渡。
+ * 负责滚轮、触摸、键盘三种翻页输入。
+ */
 export function AnnualReportStage({
   index,
   count,
@@ -35,7 +42,12 @@ export function AnnualReportStage({
     if (!host) return undefined;
     const resize = (): void => {
       const rect = host.getBoundingClientRect();
-      setScale(Math.min(rect.width / DESIGN_WIDTH, rect.height / DESIGN_HEIGHT));
+      setScale(
+        Math.min(
+          (rect.width * STAGE_INSET) / DESIGN_WIDTH,
+          (rect.height * STAGE_INSET) / DESIGN_HEIGHT,
+        ),
+      );
     };
     resize();
     const observer = new ResizeObserver(resize);
@@ -70,7 +82,7 @@ export function AnnualReportStage({
     move(event.deltaY > 0 ? 1 : -1);
     window.setTimeout(() => {
       wheelLockRef.current = false;
-    }, 420);
+    }, 520);
   }
 
   function onPointerDown(event: React.PointerEvent<HTMLDivElement>): void {
@@ -111,12 +123,7 @@ export function AnnualReportStage({
           transform: `translate(-50%, -50%) scale(${scale})`,
         }}
       >
-        <div
-          className="weq-report-deck"
-          style={{ transform: `translateY(-${index * DESIGN_HEIGHT}px)` }}
-        >
-          {children}
-        </div>
+        {children}
       </div>
     </div>
   );

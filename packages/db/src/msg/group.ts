@@ -376,6 +376,59 @@ export class GroupMsgDb {
   }
 
   /**
+   * Oldest sendTime (column 40050, unix seconds) in the whole table, or null
+   * when empty. Unindexed — a single-pass MIN scan; used once per report open
+   * to derive the first available year, then cached by the caller.
+   */
+  async oldestSendTime(): Promise<bigint | null> {
+    const rows = await this.qq.query(`SELECT MIN("40050") FROM group_msg_table WHERE "40050" > 0`);
+    const value = rows[0]?.[0];
+    return value == null ? null : toBigint(value);
+  }
+
+  /**
+   * Split the whole table's rows in a time window into sent / received, in ONE
+   * pass. Unlike c2c (whose direction is derivable from the row itself), group
+   * rows carry the *real* sender uin in 40033 — so `selfUin` (the account's
+   * own uin) marks a row as sent; everything else counts as received. Pass the
+   * uin inferred from c2c data (see `C2cMsgDb.inferSelfUin`), which is always
+   * consistent with this database, rather than a session/profile value that
+   * may point at a different account. A per-group GROUP BY here would be a
+   * separate scan — the report only needs the table-wide split, so this is the
+   * cheapest shape (one scan, no body decode).
+   */
+  async countByDirection(
+    opts: { startTime?: number; endTime?: number; selfUin?: bigint } = {},
+  ): Promise<{ sent: number; received: number }> {
+    const conditions: string[] = [];
+    const params: SqlValue[] = [];
+    if (opts.startTime != null && opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      params.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime != null && opts.endTime > 0) {
+      conditions.push(`"40050" < ?`);
+      params.push(BigInt(opts.endTime));
+    }
+    const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
+    const rows = await this.qq.query(
+      `SELECT CASE WHEN "40033" = ? THEN 1 ELSE 0 END AS mine, COUNT(*) AS n
+       FROM group_msg_table${where}
+       GROUP BY 1`,
+      [...params, opts.selfUin ?? 0n],
+    );
+    let sent = 0;
+    let received = 0;
+    for (const row of rows) {
+      const mine = Number(row[0] ?? 0);
+      const n = Number(row[1] ?? 0);
+      if (mine === 1) sent = n;
+      else received = n;
+    }
+    return { sent, received };
+  }
+
+  /**
    * Batch count messages per group. Returns { groupCode: count }.
    *
    * `opts` adds extra `AND`s onto the same indexed `40027 IN (…)` scan:
