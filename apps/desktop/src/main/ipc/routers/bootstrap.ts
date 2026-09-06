@@ -19,6 +19,10 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { isMcpRunning } from '../../mcp/server';
+import {
+  installMcpAgents as installMcpAgentConfigs,
+  listMcpAgentTargets,
+} from '../../mcp/agent_installer';
 import { isWeqServerRunning } from '../../weq_assistant/server';
 import { runElevatedKeyScan } from '../../mac_scan_elevation';
 import {
@@ -908,6 +912,45 @@ export const bootstrapRouter = router({
       2,
     );
   }),
+
+  /** 扫描本机已有的 MCP 客户端（Claude Code / Codex / Cursor / VS Code …）。 */
+  listMcpAgentTargets: procedure.query(() => {
+    const mcp = requireBootstrap().userConfig.getSettings().mcp;
+    return listMcpAgentTargets({
+      url: `http://127.0.0.1:${mcp.port}`,
+      token: mcp.token,
+    });
+  }),
+
+  /**
+   * 把 WeQ MCP 服务器写入选中的本机客户端。首次安装会自动启用 MCP 服务器并
+   * 生成令牌；每个客户端只保留一个 `weq` 条目，已是最新的条目直接跳过，不会
+   * 重复安装。
+   */
+  installMcpToAgents: procedure
+    .input(
+      z.object({
+        targets: z.array(z.string().min(1)).min(1).max(50),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const userConfig = requireBootstrap().userConfig;
+      const current = userConfig.getSettings().mcp;
+      if (!current.enabled || !current.token) {
+        const token = current.token || randomBytes(32).toString('hex');
+        userConfig.setSettings({ mcp: { enabled: true, token } });
+        await getAppContext().applyMcp(userConfig.getSettings().mcp);
+      }
+      const mcp = userConfig.getSettings().mcp;
+      const results = installMcpAgentConfigs(input.targets, {
+        url: `http://127.0.0.1:${mcp.port}`,
+        token: mcp.token,
+      });
+      return {
+        server: { enabled: mcp.enabled, port: mcp.port, token: mcp.token },
+        results,
+      };
+    }),
 
   // ---- WeQ 助手 (account-bound; renders inside QQ itself) ----
 

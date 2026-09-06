@@ -11,12 +11,26 @@
  *   - setMcpPort          — 改端口（运行中会重启）
  *   - regenerateMcpToken  — 重新生成令牌
  *   - getMcpClientConfig  — 可粘贴的客户端配置 JSON 片段
+ *   - listMcpAgentTargets — 扫描本机已安装的 MCP 客户端（含安装状态）
+ *   - installMcpToAgents  — 把 WeQ 写入选中的客户端（自动启用服务，不重复安装）
  *
  * 查询用 staleTime:0 + refetchOnMount:'always'，避免重开弹窗看到旧值。
  */
 
-import { useEffect, useState, type ReactElement } from 'react';
-import { Check, ClipboardCopy, Copy, Eye, EyeOff, KeyRound, Plug, RotateCcw } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import {
+  AlertCircle,
+  Check,
+  ClipboardCopy,
+  Copy,
+  Download,
+  Eye,
+  EyeOff,
+  KeyRound,
+  Plug,
+  RefreshCw,
+  RotateCcw,
+} from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
@@ -26,14 +40,15 @@ function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-const TOOLS: Array<{ name: string; desc: string }> = [
-  { name: 'search_messages', desc: '全文搜索聊天记录' },
-  { name: 'list_conversations', desc: '最近会话列表' },
-  { name: 'get_messages', desc: '读取某会话最新消息' },
-  { name: 'list_groups', desc: '群聊列表' },
-  { name: 'list_buddies', desc: '好友列表' },
-  { name: 'get_self_profile', desc: '自己的资料' },
-];
+interface AgentTarget {
+  key: string;
+  name: string;
+  configPath: string;
+  available: boolean;
+  installed: boolean;
+  upToDate: boolean;
+  error?: string;
+}
 
 export function McpServerSection(): ReactElement {
   const showError = useDialog((s) => s.showError);
@@ -56,12 +71,60 @@ export function McpServerSection(): ReactElement {
   const busy = setEnabled.isLoading || setPort.isLoading || regen.isLoading;
 
   const data = status.data;
+  const agentTargets = trpc.bootstrap.listMcpAgentTargets.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
+  const installToAgents = trpc.bootstrap.installMcpToAgents.useMutation();
   const token = data?.token ?? '';
   const [reveal, setReveal] = useState(false);
   const [copiedToken, setCopiedToken] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [copiedConfig, setCopiedConfig] = useState(false);
   const [portDraft, setPortDraft] = useState('');
+  const [selectedAgents, setSelectedAgents] = useState<Set<string>>(new Set());
+  const hydratedAgents = useRef(false);
+
+  /** 只展示本机确实存在的客户端，并按安装状态分组。 */
+  const visibleTargets = useMemo(
+    () => (agentTargets.data ?? []).filter((t) => t.available),
+    [agentTargets.data],
+  );
+  const actionableTargets = useMemo(
+    () => visibleTargets.filter((t) => !t.installed || !t.upToDate),
+    [visibleTargets],
+  );
+
+  // 首次扫描完成时默认勾选所有可安装 / 可更新的客户端；之后用户手动改选不覆盖。
+  useEffect(() => {
+    if (!agentTargets.data || hydratedAgents.current) return;
+    hydratedAgents.current = true;
+    setSelectedAgents(
+      new Set(
+        agentTargets.data
+          .filter((t) => t.available && (!t.installed || !t.upToDate))
+          .map((t) => t.key),
+      ),
+    );
+  }, [agentTargets.data]);
+
+  // 扫描结果变化后，把已不存在的勾选清掉（例如刚安装完已变成「已是最新」）。
+  useEffect(() => {
+    const actionableKeys = new Set(actionableTargets.map((t) => t.key));
+    setSelectedAgents((prev) => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const key of prev) {
+        if (actionableKeys.has(key)) {
+          next.add(key);
+        } else {
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [actionableTargets]);
 
   // Sync the port input whenever the server reports a (possibly changed) port.
   useEffect(() => {
@@ -99,6 +162,7 @@ export function McpServerSection(): ReactElement {
       }
       await status.refetch();
       await clientConfig.refetch();
+      await agentTargets.refetch();
     } catch (e) {
       showError(next ? '启动 MCP 服务器失败' : '停止 MCP 服务器失败', errMsg(e));
       await status.refetch();
@@ -116,6 +180,7 @@ export function McpServerSection(): ReactElement {
       const result = await setPort.mutateAsync({ port });
       await status.refetch();
       await clientConfig.refetch();
+      await agentTargets.refetch();
       if (result.port !== port) {
         pushToast({
           tone: 'info',
@@ -136,9 +201,69 @@ export function McpServerSection(): ReactElement {
       await regen.mutateAsync();
       await status.refetch();
       await clientConfig.refetch();
+      await agentTargets.refetch();
       pushToast({ tone: 'success', title: '令牌已重新生成' });
     } catch (e) {
       showError('重新生成令牌失败', errMsg(e));
+    }
+  }
+
+  async function onRescan(): Promise<void> {
+    hydratedAgents.current = false;
+    await agentTargets.refetch();
+  }
+
+  function toggleAgent(key: string): void {
+    setSelectedAgents((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }
+
+  function agentStatus(t: AgentTarget): { tone: 'ok' | 'stale' | 'new'; text: string } {
+    if (t.installed && t.upToDate) return { tone: 'ok', text: '已是最新' };
+    if (t.installed) return { tone: 'stale', text: '需更新' };
+    return { tone: 'new', text: '可安装' };
+  }
+
+  async function onInstallAgents(): Promise<void> {
+    const targets = [...selectedAgents];
+    if (!targets.length) return;
+    try {
+      const result = await installToAgents.mutateAsync({ targets });
+      await status.refetch();
+      await clientConfig.refetch();
+      await agentTargets.refetch();
+
+      const ok = result.results.filter((r) =>
+        ['installed', 'updated', 'up-to-date'].includes(r.status),
+      ).length;
+      const errors = result.results.filter((r) => r.status === 'error');
+      const skipped = result.results.filter((r) => r.status === 'skipped').length;
+      if (errors.length) {
+        showError(
+          '部分客户端安装失败',
+          errors.map((e) => `${e.name}：${e.message ?? '未知错误'}`).join('\n'),
+        );
+      } else if (result.results.length === 0) {
+        pushToast({ tone: 'info', title: '没有可安装的客户端' });
+      } else {
+        const parts: string[] = [];
+        if (ok) parts.push(`${ok} 个成功`);
+        if (skipped) parts.push(`${skipped} 个跳过`);
+        pushToast({
+          tone: errors.length ? 'error' : 'success',
+          title: parts.length ? `安装完成（${parts.join('，')}）` : '安装完成',
+          message: '重启 AI 客户端后即可在对话中调用 WeQ 工具。',
+        });
+      }
+    } catch (e) {
+      showError('安装到客户端失败', errMsg(e));
     }
   }
 
@@ -150,7 +275,7 @@ export function McpServerSection(): ReactElement {
       <SectionHeader
         icon={<Plug size={16} strokeWidth={1.8} />}
         title="MCP 服务器"
-        desc="开启后，Claude Desktop 等支持 MCP 的 AI 客户端可通过本地接口读取当前账号的聊天数据。"
+        desc="开启后，支持 MCP 的 AI 客户端可通过本地接口读取当前账号的聊天数据；也可以一键安装到本机已有的 AI 客户端。"
       />
 
       {/* Switch + live state */}
@@ -279,20 +404,107 @@ export function McpServerSection(): ReactElement {
         </div>
       </Card>
 
-      {/* Available tools */}
-      <Card title="可用工具">
-        <ul className="weq-set-mcp-tools">
-          {TOOLS.map((t) => (
-            <li key={t.name} className="weq-set-mcp-tool">
-              <Plug size={13} strokeWidth={1.8} aria-hidden />
-              <code>{t.name}</code>
-              <span className="weq-set-mcp-tool-desc">{t.desc}</span>
-            </li>
-          ))}
-        </ul>
+      {/* Install into local agents */}
+      <Card
+        title="安装到本机 AI 客户端"
+        action={
+          <button
+            type="button"
+            className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+            disabled={agentTargets.isFetching}
+            onClick={() => void onRescan()}
+          >
+            <RefreshCw size={13} className={agentTargets.isFetching ? 'is-spin' : ''} />
+            重新扫描
+          </button>
+        }
+      >
         <p className="weq-set-note">
-          全部为只读工具，且仅监听本机 127.0.0.1。请勿把地址与令牌暴露到公网。
+          自动把当前地址与访问令牌写入所选客户端的 MCP 配置；若服务尚未启用会先自动开启。
+          同一客户端只保留一个 <code>weq</code> 条目，不会重复安装。
         </p>
+
+        {agentTargets.isLoading ? (
+          <p className="weq-set-empty">正在扫描本机客户端…</p>
+        ) : visibleTargets.length === 0 ? (
+          <div className="weq-set-empty">
+            <AlertCircle size={15} aria-hidden />
+            没找到本机已安装的 MCP 客户端。请先安装 Claude Code / Codex / Cursor / VS Code
+            等，再回来扫描。
+          </div>
+        ) : (
+          <div className="weq-set-agent-list">
+            {visibleTargets.map((t) => {
+              const actionable = !t.installed || !t.upToDate;
+              const status = agentStatus(t);
+              const checked = selectedAgents.has(t.key);
+              return (
+                <div
+                  key={t.key}
+                  className={`weq-set-agent-item${actionable ? ' is-actionable' : ''}${
+                    checked ? ' is-on' : ''
+                  }`}
+                  role="checkbox"
+                  aria-checked={actionable && checked}
+                  aria-disabled={!actionable}
+                  onClick={() => {
+                    if (actionable) toggleAgent(t.key);
+                  }}
+                >
+                  <span className={`weq-set-agent-chk${checked ? ' is-on' : ''}`} aria-hidden>
+                    {checked ? <Check size={12} /> : null}
+                  </span>
+                  <span className="weq-set-agent-main">
+                    <span className="weq-set-agent-name">{t.name}</span>
+                    <code className="weq-set-agent-path">{t.configPath}</code>
+                  </span>
+                  <span
+                    className={`weq-set-agent-tag is-${status.tone}`}
+                    title={
+                      status.tone === 'stale' ? '地址或令牌已变化，可勾选后重新写入' : undefined
+                    }
+                  >
+                    {status.text}
+                  </span>
+                  {t.error ? (
+                    <span className="weq-set-agent-tag is-error" title={t.error}>
+                      读取失败
+                    </span>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {actionableTargets.length > 1 ? (
+          <button
+            type="button"
+            className="weq-set-linkbtn"
+            disabled={installToAgents.isLoading}
+            onClick={() =>
+              setSelectedAgents((prev) =>
+                prev.size === actionableTargets.length
+                  ? new Set()
+                  : new Set(actionableTargets.map((t) => t.key)),
+              )
+            }
+          >
+            {selectedAgents.size === actionableTargets.length ? '清空选择' : '全选'}
+          </button>
+        ) : null}
+
+        <div className="weq-set-actions">
+          <button
+            type="button"
+            className="weq-set-btn"
+            disabled={!selectedAgents.size || installToAgents.isLoading}
+            onClick={() => void onInstallAgents()}
+          >
+            <Download size={14} strokeWidth={1.8} />
+            {installToAgents.isLoading ? '正在安装…' : `安装到已选客户端（${selectedAgents.size}）`}
+          </button>
+        </div>
       </Card>
     </div>
   );

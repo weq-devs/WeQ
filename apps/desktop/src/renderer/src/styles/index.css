@@ -5314,6 +5314,36 @@ html[data-theme='dark'] .weq-set-input {
   border-color: rgba(255, 255, 255, 0.12);
 }
 
+html[data-theme='dark'] .weq-set-agent-item {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.02);
+  color: #d5dde6;
+}
+
+html[data-theme='dark'] .weq-set-agent-item.is-actionable:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(86, 168, 247, 0.34);
+}
+
+html[data-theme='dark'] .weq-set-agent-item.is-on {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, #1b2129);
+  border-color: rgba(86, 168, 247, 0.45);
+}
+
+html[data-theme='dark'] .weq-set-agent-chk {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: #141920;
+}
+
+html[data-theme='dark'] .weq-set-agent-path {
+  color: #7f8c9b;
+}
+
+html[data-theme='dark'] .weq-set-agent-tag {
+  background: rgba(255, 255, 255, 0.08);
+  color: #a6b1bf;
+}
+
 .weq-set-mcp-state {
   display: inline-flex;
   align-items: center;
@@ -5331,26 +5361,133 @@ html[data-theme='dark'] .weq-set-input {
   box-shadow: 0 0 0 3px color-mix(in srgb, #18a058 22%, transparent);
 }
 
-.weq-set-mcp-tools {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.weq-set-agent-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
-.weq-set-mcp-tool {
+
+.weq-set-agent-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12.5px;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #374151;
+  font-size: 13px;
+  transition: border-color 140ms ease, background-color 140ms ease;
 }
-.weq-set-mcp-tool code {
+
+.weq-set-agent-item:not(.is-actionable) {
+  opacity: 0.72;
+}
+
+.weq-set-agent-item.is-actionable {
+  cursor: pointer;
+}
+
+.weq-set-agent-item.is-actionable:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 4%, #ffffff);
+}
+
+.weq-set-agent-item.is-on {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 58%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 7%, #ffffff);
+}
+
+.weq-set-agent-chk {
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  flex: none;
+  border: 1.5px solid #c2c8d0;
+  border-radius: 5px;
+  background: #ffffff;
+  color: transparent;
+  transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease;
+}
+
+.weq-set-agent-item.is-on .weq-set-agent-chk {
+  border-color: var(--weq-accent-effective);
+  background: var(--weq-accent-effective);
+  color: #ffffff;
+}
+
+.weq-set-agent-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.weq-set-agent-name {
+  font-weight: 500;
+}
+
+.weq-set-agent-path {
   font-family: var(--weq-font-mono, monospace);
-  color: var(--weq-accent-effective);
+  font-size: 11px;
+  color: #8a93a0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.weq-set-mcp-tool-desc {
-  color: color-mix(in srgb, currentColor 60%, transparent);
+
+.weq-set-agent-tag {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #6b7280;
+  font-size: 11px;
+}
+
+.weq-set-agent-tag.is-ok {
+  background: rgba(24, 160, 88, 0.1);
+  color: #18a058;
+}
+
+.weq-set-agent-tag.is-stale {
+  background: rgba(217, 84, 43, 0.12);
+  color: #d9542b;
+}
+
+.weq-set-agent-tag.is-new {
+  background: color-mix(in srgb, var(--weq-accent-effective) 11%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective) 82%, #0f2d4c);
+}
+
+.weq-set-agent-tag.is-error {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.weq-set-linkbtn {
+  margin-top: 7px;
+  padding: 1px 0;
+  border: 0;
+  background: transparent;
+  color: var(--weq-accent-effective);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.weq-set-linkbtn:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.weq-set-linkbtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.weq-set-btn svg.is-spin {
+  animation: weq-set-spin 0.8s linear infinite;
 }
 
 /* rKey list */
