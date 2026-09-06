@@ -22,6 +22,7 @@ export function createReportQueries(session: AccountSession): ReportQueries {
   };
   const countCache = new Map<string, Promise<DirectionCounts>>();
   let oldestCache: Promise<number | null> | null = null;
+  let sentYearsCache: Promise<number[]> | null = null;
 
   function oldestMessageTime(): Promise<number | null> {
     if (oldestCache) return oldestCache;
@@ -40,6 +41,26 @@ export function createReportQueries(session: AccountSession): ReportQueries {
         throw error;
       });
     return oldestCache;
+  }
+
+  /**
+   * 「发出过至少一条消息」的年份并集，升序去重。私聊按行内自证方向判定，群聊
+   * 用与 countByDirection 同一个 self marker（uid 优先、uin 兜底）。
+   */
+  function sentYears(): Promise<number[]> {
+    if (sentYearsCache) return sentYearsCache;
+    sentYearsCache = Promise.all([
+      session.c2cMsgs.sentYears(),
+      session.groupMsgs.sentYears(
+        selfUid ? { senderUid: selfUid } : selfUin > 0n ? { selfUin } : {},
+      ),
+    ])
+      .then(([c2c, group]) => [...new Set([...c2c, ...group])].sort((a, b) => a - b))
+      .catch((error: unknown) => {
+        sentYearsCache = null;
+        throw error;
+      });
+    return sentYearsCache;
   }
 
   return {
@@ -79,10 +100,15 @@ export function createReportQueries(session: AccountSession): ReportQueries {
     meta: {
       /**
        * Oldest message sendTime (unix seconds) across c2c + group tables, or
-       * null when the account has no stored messages at all. Drives the first
-       * selectable report year. Two MIN scans, cached by the engine.
+       * null when the account has no stored messages at all. Drives the
+       * 「历史以来」span denominator. Two MIN scans, cached by the engine.
        */
       oldestMessageTime,
+      /**
+       * The years the account actually sent something in — the selectable
+       * report years. Two DISTINCT-year scans, cached here for the session.
+       */
+      sentYears,
     },
   };
 }

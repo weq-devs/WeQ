@@ -1,8 +1,8 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import type { OverviewPageData } from '@weq/service';
+import { isAllTimeYear, reportEraLabel, reportSinceLabel } from '@weq/service/report-time';
 import { PageFrame, type ReportPageProps } from '../pageFrame';
 import { Odometer, usePrefersReducedMotion } from '../Odometer';
-import { useReportView } from '../reportContext';
 
 function fmt(n: number): string {
   return new Intl.NumberFormat('zh-CN').format(n);
@@ -20,32 +20,20 @@ function formatPerDay(perDay: number): string {
   return perDay > 0 ? '<0.1' : '0';
 }
 
-/** 这一年已经过完的天数 —— 当年只算到今天，往年算整年。用于日均。 */
-function elapsedDays(year: number): number {
-  const now = new Date();
-  if (year !== now.getFullYear()) {
-    const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
-    return isLeap ? 366 : 365;
-  }
-  const start = new Date(year, 0, 1);
-  const diff = (now.getTime() - start.getTime()) / 86_400_000;
-  return Math.max(1, Math.ceil(diff));
-}
-
 /**
  * 年度总览 —— 报告开篇。整页只有一个主角：这一年你发出的消息总数，
  * 用里程表式巨型数字砸在正中；其余全部退到发丝线以下的数据带里。
  *
  * 刻意不做卡片、不做仪表盘：一个巨数 + 一条私聊/群聊分割轨 + 一行小字数据带，
- * 加上出血的描边年份衬底。startYear === year 时文案用「历史以来」。
+ * 加上出血的描边年份衬底。「历史以来」口径下衬底字换成 ALL，文案由
+ * `reportEraLabel` 统一给出，日均的分母用服务端下发的 `spanDays`。
  */
 export function OverviewPage({
   page,
   data,
   active,
 }: ReportPageProps<OverviewPageData>): ReactElement {
-  const { startYear } = useReportView();
-  const { year, totalSent, totalReceived, c2cSent, groupSent } = data;
+  const { year, totalSent, totalReceived, c2cSent, groupSent, spanDays, firstMessageTime } = data;
   const reduce = usePrefersReducedMotion();
   const [railOpen, setRailOpen] = useState(false);
 
@@ -58,11 +46,12 @@ export function OverviewPage({
     return () => window.clearTimeout(timer);
   }, [active, reduce]);
 
-  const eraLabel = year === startYear ? '历史以来' : `${year} 年`;
+  const eraLabel = reportEraLabel(year);
+  const sinceLabel = reportSinceLabel(year, firstMessageTime);
   const sentSum = Math.max(1, c2cSent + groupSent);
   const c2cPct = Math.round((c2cSent / sentSum) * 100);
   const groupPct = 100 - c2cPct;
-  const perDay = totalSent / elapsedDays(year);
+  const perDay = totalSent / Math.max(1, spanDays);
   /** 你每说 100 句，朋友们回了多少句。 */
   const echo = totalSent > 0 ? Math.round((totalReceived / totalSent) * 100) : 0;
 
@@ -75,11 +64,12 @@ export function OverviewPage({
           年度总览<span className="weq-report-eyebrow-en">OVERVIEW</span>
         </>
       }
-      ghost={year}
+      ghost={isAllTimeYear(year) ? 'ALL' : year}
     >
       <div className="weq-ov">
         <p className="weq-ov-lede weq-report-line" style={{ '--i': 1 } as React.CSSProperties}>
-          {eraLabel}，你一共说出了
+          {eraLabel}
+          {sinceLabel ? <span className="weq-ov-since">（{sinceLabel}）</span> : null}，你一共说出了
         </p>
 
         <div className="weq-ov-hero weq-report-line" style={{ '--i': 2 } as React.CSSProperties}>

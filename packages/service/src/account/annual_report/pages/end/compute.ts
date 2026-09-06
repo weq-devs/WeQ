@@ -1,5 +1,5 @@
 import type { PageAvailability, ReportPageDefinition } from '../../types';
-import { reportYearUnixRange } from '../../time';
+import { isAllTimeYear, reportYearUnixRange } from '../../time';
 import type { EndPageData } from './types';
 
 /**
@@ -26,7 +26,11 @@ export const endPage: ReportPageDefinition<EndPageData> = {
     const hasSent = counts.c2cSent + counts.groupSent > 0;
     return {
       available: hasSent,
-      reason: hasSent ? undefined : '这一年你没有发出任何消息',
+      reason: hasSent
+        ? undefined
+        : isAllTimeYear(year)
+          ? '这台电脑上没有你发出过的消息'
+          : '这一年你没有发出任何消息',
     };
   },
   compute: async ({ year }) => ({ year }),

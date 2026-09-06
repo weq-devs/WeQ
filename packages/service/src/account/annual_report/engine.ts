@@ -1,7 +1,7 @@
 import type { AccountSession } from '@weq/account';
 import { AnnualReportCache, scopeKey } from './cache';
 import { createReportQueries } from './queries';
-import { currentReportYear, normalizeReportYear } from './time';
+import { ALL_TIME_YEAR, currentReportYear, normalizeReportYear } from './time';
 import { findReportPage, reportPages } from './pages';
 import {
   DEFAULT_REPORT_SCOPE,
@@ -34,7 +34,7 @@ export class AnnualReportService {
   private readonly scope: ReportScope;
   private readonly dataRevision: string;
   private preferences: AnnualReportPreferences;
-  /** Memoized [startYear..currentYear]; keyed by dataRevision. */
+  /** Memoized selectable periods; keyed by dataRevision. */
   private availableYearsCache: { key: string; years: number[] } | null = null;
 
   constructor(
@@ -48,26 +48,43 @@ export class AnnualReportService {
   }
 
   /**
-   * The selectable report years: [earliest message year .. current year].
-   * The earliest year comes from the oldest stored message (c2c + group) — a
-   * single MIN scan per table, cached for the session's data revision.
+   * The selectable report periods: `ALL_TIME_YEAR` first, then every year the
+   * account actually *sent* a c2c or group message in, ascending.
+   *
+   * Deliberately not `[earliest..currentYear]` — that span invented years the
+   * account was silent in, and every one of them opened an empty report. The
+   * set now comes from two DISTINCT-year scans, cached for the session's data
+   * revision. An account with no sent messages at all gets `[]`: there is no
+   * period worth offering, and the entry page says so.
    */
   async getAvailableYears(): Promise<number[]> {
     if (this.availableYearsCache?.key === this.dataRevision) {
       return this.availableYearsCache.years;
     }
-    const oldest = await this.queries.meta.oldestMessageTime();
-    const startYear = oldest ? new Date(oldest * 1000).getFullYear() : currentReportYear();
+    const sent = await this.queries.meta.sentYears();
     const nowYear = currentReportYear();
-    const years: number[] = [];
-    for (let y = Math.min(startYear, nowYear); y <= nowYear; y += 1) years.push(y);
+    const years =
+      sent.length === 0 ? [] : [ALL_TIME_YEAR, ...sent.filter((year) => year <= nowYear + 1)];
     this.availableYearsCache = { key: this.dataRevision, years };
     return years;
   }
 
+  /**
+   * The period to open on when the caller didn't name one: the most recent year
+   * with data, or 「历史以来」 for an account with none.
+   */
+  async getDefaultYear(): Promise<number> {
+    const years = await this.getAvailableYears();
+    return years.length === 0 ? ALL_TIME_YEAR : (years[years.length - 1] as number);
+  }
+
   /** Lightweight directory: manifest + per-page availability (probed & cached). */
   async getManifest(year?: number): Promise<ReportManifest> {
-    const normalizedYear = normalizeReportYear(year);
+    // 没指定年份时不再默认「今年」—— 今年可能一条都没发过。落到最近一个真的
+    // 有数据的年份，账号完全没有数据时落到「历史以来」（页面集会是空的）。
+    const availableYears = await this.getAvailableYears();
+    const normalizedYear =
+      year === undefined ? await this.getDefaultYear() : normalizeReportYear(year);
     const candidates = this.resolveCandidates();
     const availability = await Promise.all(
       candidates.map((page) => this.checkAvailability(normalizedYear, page)),
@@ -77,7 +94,7 @@ export class AnnualReportService {
       .map((page) => page.manifest);
     return {
       year: normalizedYear,
-      availableYears: await this.getAvailableYears(),
+      availableYears,
       scope: this.scope,
       pages,
       availablePages: reportPages

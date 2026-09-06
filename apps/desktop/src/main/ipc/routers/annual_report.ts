@@ -3,6 +3,7 @@ import { writeFile } from 'node:fs/promises';
 import { getAppContext, type AccountServices } from '../../context/app_context';
 import type { AnnualReportPreferences } from '@weq/service';
 import { getHost } from '@weq/service';
+import { reportPeriodLabel } from '@weq/service/report-time';
 import {
   renderLongImagePng,
   renderPdfFromHtml,
@@ -39,17 +40,21 @@ async function saveBuffer(
 }
 
 export const annualReportRouter = router({
-  /** Lightweight directory; page payloads are loaded separately. */
+  /**
+   * Lightweight directory; page payloads are loaded separately.
+   * `year` omitted = 让服务端挑开屏口径（最近一个真的有数据的年份）；
+   * `year: 0`（`ALL_TIME_YEAR`）= 历史以来。
+   */
   getManifest: procedure
-    .input(z.object({ year: z.number().int().optional() }).optional())
+    .input(z.object({ year: z.number().int().min(0).optional() }).optional())
     .query(({ input }) => requireServices().annualReport.getManifest(input?.year)),
 
-  /** The selectable years [earliest message year .. current year]. */
+  /** 可选口径：`0`（历史以来）+ 发出过至少一条消息的年份。 */
   getAvailableYears: procedure.query(() => requireServices().annualReport.getAvailableYears()),
 
   /** Compute one page in the main process; failures stay isolated to this page. */
   getPageData: procedure
-    .input(z.object({ year: z.number().int(), pageId: z.string().min(1) }))
+    .input(z.object({ year: z.number().int().min(0), pageId: z.string().min(1) }))
     .query(({ input }) => requireServices().annualReport.getPageData(input.year, input.pageId)),
 
   /** Persist the user's page collection; changing it never invalidates page data. */
@@ -77,11 +82,11 @@ export const annualReportRouter = router({
 
   /** 导出为自包含 HTML（保存到用户选择的位置）。 */
   exportHtml: procedure
-    .input(z.object({ year: z.number().int(), html: z.string().min(1) }))
+    .input(z.object({ year: z.number().int().min(0), html: z.string().min(1) }))
     .mutation(async ({ input }) => {
       const path = await saveBuffer(
         Buffer.from(input.html, 'utf8'),
-        `QQ年度报告_${input.year}.html`,
+        `QQ年度报告_${reportPeriodLabel(input.year)}.html`,
         'html',
       );
       return { saved: path != null, path };
@@ -89,10 +94,10 @@ export const annualReportRouter = router({
 
   /** 把同一份 HTML 渲染成 A4 PDF 保存。 */
   exportPdf: procedure
-    .input(z.object({ year: z.number().int(), html: z.string().min(1) }))
+    .input(z.object({ year: z.number().int().min(0), html: z.string().min(1) }))
     .mutation(async ({ input }) => {
       const pdf = await renderPdfFromHtml(input.html);
-      const path = await saveBuffer(pdf, `QQ年度报告_${input.year}.pdf`, 'pdf');
+      const path = await saveBuffer(pdf, `QQ年度报告_${reportPeriodLabel(input.year)}.pdf`, 'pdf');
       return { saved: path != null, path };
     }),
 
@@ -100,9 +105,7 @@ export const annualReportRouter = router({
   exportLongImage: procedure
     .input(
       z.object({
-        year: z.number().int(),
-        /** 账号最早有记录的年份，决定「历史以来 / xxxx 年」文案。 */
-        startYear: z.number().int().optional(),
+        year: z.number().int().min(0),
         slides: z.array(exportSlideInput).min(1),
       }),
     )
@@ -114,8 +117,12 @@ export const annualReportRouter = router({
         category: s.category,
         data: s.data,
       }));
-      const png = await renderLongImagePng(slides, input.startYear ?? input.year);
-      const path = await saveBuffer(png, `QQ年度报告_${input.year}_长图.png`, 'png');
+      const png = await renderLongImagePng(slides);
+      const path = await saveBuffer(
+        png,
+        `QQ年度报告_${reportPeriodLabel(input.year)}_长图.png`,
+        'png',
+      );
       return { saved: path != null, path };
     }),
 });

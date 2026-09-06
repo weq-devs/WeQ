@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactElement } from 'react';
 import { FileCode2, FileImage, FileText, LoaderCircle } from 'lucide-react';
 import type { EndPageData } from '@weq/service';
+import { isAllTimeYear, reportPeriodLabel } from '@weq/service/report-time';
 import { client } from '../../../trpc/client';
 import { useToast } from '../../../components/Toast';
 import { PageFrame, type ReportPageProps } from '../pageFrame';
@@ -25,11 +26,12 @@ const EXPORT_OPTIONS: Array<{
  * 与开篇同一套排印语言：出血描边字衬底、发丝线、逐层浮现。
  */
 export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): ReactElement {
-  const { year, startYear, slides } = useReportView();
+  const { year, slides } = useReportView();
   const pushToast = useToast((s) => s.push);
   const [busy, setBusy] = useState<ExportKind | null>(null);
+  const allTime = isAllTimeYear(year);
 
-  const html = useMemo(() => buildReportHtml(year, slides, startYear), [year, slides, startYear]);
+  const html = useMemo(() => buildReportHtml(year, slides), [year, slides]);
 
   async function runExport(kind: ExportKind): Promise<void> {
     if (busy) return;
@@ -59,7 +61,6 @@ export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): R
         }));
         const result = await client.account.annualReport.exportLongImage.mutate({
           year,
-          startYear,
           slides: payload,
         });
         pushToast({
@@ -93,7 +94,7 @@ export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): R
     >
       <div className="weq-end">
         <p className="weq-end-line weq-report-line" style={{ '--i': 1 } as React.CSSProperties}>
-          这一年的话都说完了。
+          {allTime ? '你说过的话，都在这里了。' : '这一年的话都说完了。'}
         </p>
         <h2 className="weq-end-title weq-report-line" style={{ '--i': 2 } as React.CSSProperties}>
           辛苦了
@@ -101,11 +102,11 @@ export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): R
         <p className="weq-end-sub weq-report-line" style={{ '--i': 3 } as React.CSSProperties}>
           聊天记录只留在这台电脑上。
           <br />
-          明年这个时候，我们再看一次。
+          {allTime ? '往后的话，也还长。' : '明年这个时候，我们再看一次。'}
         </p>
 
         <div className="weq-end-take weq-report-line" style={{ '--i': 4 } as React.CSSProperties}>
-          <span className="weq-end-take-label">把这份 {data.year} 带走</span>
+          <span className="weq-end-take-label">把这份 {reportPeriodLabel(data.year)} 带走</span>
           <div className="weq-end-take-row">
             {EXPORT_OPTIONS.map((option) => {
               const Icon = option.icon;

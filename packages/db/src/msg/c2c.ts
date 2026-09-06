@@ -392,6 +392,25 @@ export class C2cMsgDb {
   }
 
   /**
+   * The distinct local-time years in which we *sent* at least one private
+   * message. Same direction test as {@link countByDirection} (40021 is always
+   * the peer, so `senderUid != targetUid` marks a sent row), and the year is
+   * derived with `'localtime'` so the buckets line up exactly with the
+   * report's local-midnight year boundaries.
+   *
+   * One unindexed pass — the same cost as the MIN scan it replaces; the caller
+   * caches the result for the session's data revision.
+   */
+  async sentYears(): Promise<number[]> {
+    const rows = await this.qq.query(
+      `SELECT DISTINCT CAST(strftime('%Y',"40050",'unixepoch','localtime') AS INTEGER) AS y
+       FROM ${this.table}
+       WHERE "40050" > 0 AND "40020" != "40021" AND "40020" != ''`,
+    );
+    return rows.map((row) => Number(row[0] ?? 0)).filter((year) => year > 0);
+  }
+
+  /**
    * Infer the account's own uin from the data itself, in ONE pass: in
    * `c2c_msg_table` column 40021 (targetUid) is always the peer, and the rows
    * we sent are exactly the ones whose 40020 (senderUid) differs from the

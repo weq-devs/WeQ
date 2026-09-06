@@ -33,7 +33,13 @@ export type AnnualReportPreferences = {
 };
 
 export type ReportManifest = {
+  /** The report's period. `ALL_TIME_YEAR` (0) = 「历史以来」. */
   year: number;
+  /**
+   * Selectable periods, ascending, with `ALL_TIME_YEAR` (0) first when the
+   * account has any data at all. Only years the account actually *sent* a
+   * message in are listed — silent years have no report to show.
+   */
   availableYears: number[];
   scope: ReportScope;
   /** Effective ordered page collection for browsing (data-eligible ∩ user preference). */
@@ -101,10 +107,16 @@ export type ReportQueries = {
   meta: {
     /**
      * Oldest message sendTime (unix seconds) across c2c + group tables, or
-     * null when the account has no messages at all. Derives the first
-     * selectable report year; the engine caches the result.
+     * null when the account has no messages at all. The denominator anchor for
+     * 「历史以来」per-day figures; the engine caches the result.
      */
     oldestMessageTime(): Promise<number | null>;
+    /**
+     * The local-time years in which the account sent at least one c2c or group
+     * message, ascending. This — not the [oldest..now] span — is the set of
+     * selectable report years: a year you never spoke in has no report.
+     */
+    sentYears(): Promise<number[]>;
   };
 };
 

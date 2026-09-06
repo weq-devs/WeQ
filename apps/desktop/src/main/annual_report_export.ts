@@ -14,6 +14,7 @@ import { BrowserWindow } from 'electron';
 import { loadCjkFont } from './weq_assistant/cover';
 import satori from 'satori';
 import { Resvg } from '@resvg/resvg-js';
+import { isAllTimeYear, reportEraLabel, reportSinceLabel } from '@weq/service/report-time';
 
 /** 一张导出卡片的最小契约 —— 与 renderer 发送的页面数据对齐。 */
 export type ReportExportSlide = {
@@ -64,20 +65,6 @@ function formatPerDay(perDay: number): string {
   if (perDay >= 1) return perDay.toFixed(1);
   if (perDay >= 0.1) return perDay.toFixed(2);
   return perDay > 0 ? '<0.1' : '0';
-}
-
-/**
- * 这一年已经过完的天数。与屏幕版 OverviewPage 的 `elapsedDays` 同一口径：
- * 当年只算到今天，往年算整年 —— 否则同一份数据在屏幕上和长图里日均会不同。
- */
-function elapsedDays(year: number): number {
-  const now = new Date();
-  if (year !== now.getFullYear()) {
-    const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
-    return isLeap ? 366 : 365;
-  }
-  const diff = (now.getTime() - new Date(year, 0, 1).getTime()) / 86_400_000;
-  return Math.max(1, Math.ceil(diff));
 }
 
 /** 一条发丝分隔线。satori 没有 border 简写的完整支持，用实心 div 更稳。 */
@@ -313,7 +300,7 @@ function bandBlock(cells: Array<{ label: string; value: string; unit: string }>)
   ]);
 }
 
-function overviewTree(data: Record<string, unknown>, startYear: number): El {
+function overviewTree(data: Record<string, unknown>): El {
   const year = Number(data.year ?? 0);
   const totalSent = Number(data.totalSent ?? 0);
   const totalReceived = Number(data.totalReceived ?? 0);
@@ -322,10 +309,13 @@ function overviewTree(data: Record<string, unknown>, startYear: number): El {
   const sentSum = Math.max(1, c2cSent + groupSent);
   const c2cPct = Math.round((c2cSent / sentSum) * 100);
   const groupPct = 100 - c2cPct;
-  const perDay = totalSent / elapsedDays(year);
+  // 日均分母由服务端下发，屏幕版 / HTML / 长图三处同源。
+  const perDay = totalSent / Math.max(1, Number(data.spanDays ?? 1));
   const echo = totalSent > 0 ? Math.round((totalReceived / totalSent) * 100) : 0;
-  // 与屏幕版同一条文案规则：最早有记录的那年用「历史以来」。
-  const eraLabel = year === startYear ? '历史以来' : `${year} 年`;
+  const firstMessageTime =
+    typeof data.firstMessageTime === 'number' ? data.firstMessageTime : null;
+  const since = reportSinceLabel(year, firstMessageTime);
+  const eraLabel = reportEraLabel(year) + (since ? `（${since}）` : '');
 
   return slideFrame(
     [
@@ -363,19 +353,20 @@ function overviewTree(data: Record<string, unknown>, startYear: number): El {
         { label: '你说 100 句，回声', value: fmt(echo), unit: '句' },
       ]),
     ],
-    String(year),
+    isAllTimeYear(year) ? 'ALL' : String(year),
   );
 }
 
 function endTree(data: Record<string, unknown>): El {
   const year = Number(data.year ?? 0);
+  const allTime = isAllTimeYear(year);
   return slideFrame(
     [
       el('div', { display: 'flex', flexDirection: 'column', alignItems: 'center' }, [
         el(
           'div',
           { fontSize: 30, color: PALETTE.inkMuted, letterSpacing: 12 },
-          '这一年的话都说完了。',
+          allTime ? '你说过的话，都在这里了。' : '这一年的话都说完了。',
         ),
         el(
           'div',
@@ -390,13 +381,13 @@ function endTree(data: Record<string, unknown>): El {
         el(
           'div',
           { marginTop: 18, fontSize: 30, color: PALETTE.inkSoft, letterSpacing: 4 },
-          '明年这个时候，我们再看一次。',
+          allTime ? '往后的话，也还长。' : '明年这个时候，我们再看一次。',
         ),
         el('div', { marginTop: 78, width: 120, height: 1, backgroundColor: PALETTE.hair }),
         el(
           'div',
           { marginTop: 30, fontSize: 24, color: PALETTE.accent, letterSpacing: 10 },
-          `${year} 年度报告`,
+          allTime ? '全部记录 · WEQ' : `${year} 年度报告`,
         ),
       ]),
     ],
@@ -436,9 +427,9 @@ function genericTree(slide: ReportExportSlide): El {
   );
 }
 
-function treeForSlide(slide: ReportExportSlide, startYear: number): El {
+function treeForSlide(slide: ReportExportSlide): El {
   const data = (slide.data ?? {}) as Record<string, unknown>;
-  if (slide.pageId === 'overview') return overviewTree(data, startYear);
+  if (slide.pageId === 'overview') return overviewTree(data);
   if (slide.pageId === 'end') return endTree(data);
   return genericTree(slide);
 }
@@ -447,12 +438,10 @@ function treeForSlide(slide: ReportExportSlide, startYear: number): El {
  * 把全部卡片竖排渲染成一张长图 PNG。卡片数量 × 1920px 可能很高，satori/resvg
  * 都能直接处理；输出按 SLIDE_W × 2 超采样，保证 CJK 清晰。
  *
- * `startYear` 是账号最早有记录的年份，用于「历史以来 / xxxx 年」文案分支。
+ * 口径文案（历史以来 / xxxx 年）由每页数据里的 `year` 自证，与屏幕版和 HTML
+ * 共用 `@weq/service/report-time`，不再靠调用方额外传 `startYear`。
  */
-export async function renderLongImagePng(
-  slides: ReportExportSlide[],
-  startYear = 0,
-): Promise<Buffer> {
+export async function renderLongImagePng(slides: ReportExportSlide[]): Promise<Buffer> {
   const fontData = loadCjkFont();
   const root = el(
     'div',
@@ -462,7 +451,7 @@ export async function renderLongImagePng(
       display: 'flex',
       flexDirection: 'column',
     },
-    slides.map((slide) => treeForSlide(slide, startYear)),
+    slides.map((slide) => treeForSlide(slide)),
   );
   const svg = await satori(root as unknown as import('react').ReactNode, {
     width: SLIDE_W,

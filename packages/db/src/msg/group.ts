@@ -387,6 +387,33 @@ export class GroupMsgDb {
   }
 
   /**
+   * The distinct local-time years in which *we* sent at least one group
+   * message. Self marker follows {@link countByDirection}: `senderUid`
+   * (40020) when the caller has the account's own uid resident, else
+   * `selfUin` (40033). The year is derived with `'localtime'` so buckets line
+   * up with the report's local-midnight year boundaries.
+   *
+   * Returns `[]` when no self marker is supplied — with neither uid nor uin we
+   * cannot tell our rows apart, and claiming every year would be worse than
+   * claiming none (c2c still contributes its own years).
+   */
+  async sentYears(opts: { selfUin?: bigint; senderUid?: string } = {}): Promise<number[]> {
+    const mine = opts.senderUid
+      ? { clause: `"40020" = ? AND "40020" != ''`, value: opts.senderUid as SqlValue }
+      : opts.selfUin !== undefined && opts.selfUin > 0n
+        ? { clause: `"40033" = ?`, value: opts.selfUin as SqlValue }
+        : null;
+    if (!mine) return [];
+    const rows = await this.qq.query(
+      `SELECT DISTINCT CAST(strftime('%Y',"40050",'unixepoch','localtime') AS INTEGER) AS y
+       FROM group_msg_table
+       WHERE "40050" > 0 AND ${mine.clause}`,
+      [mine.value],
+    );
+    return rows.map((row) => Number(row[0] ?? 0)).filter((year) => year > 0);
+  }
+
+  /**
    * Split the whole table's rows in a time window into sent / received, in ONE
    * pass. `senderUid` (column 40020, the account's own uid) is the preferred
    * self marker when the caller already has it resident (e.g. from the

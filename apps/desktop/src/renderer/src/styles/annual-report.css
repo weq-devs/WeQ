@@ -204,6 +204,14 @@ html[data-theme="dark"] .weq-report-root {
   animation: rp-year-drop 1100ms var(--rp-ease-epic) both;
 }
 
+/* 「历史以来」不是数字，衬线巨字 + tabular-nums 那套排印对它不适用：
+   收一档字号、恢复正常字距，才不会顶到画幅两边。 */
+.weq-entry-year-num.is-all-time {
+  font-size: clamp(64px, 12vw, 148px);
+  letter-spacing: 0.04em;
+  font-variant-numeric: normal;
+}
+
 .weq-entry-lede {
   max-width: 34ch;
   margin: 0;
@@ -275,6 +283,18 @@ html[data-theme="dark"] .weq-report-root {
   font-size: 19px;
   font-weight: 600;
   transform: translateY(-3px);
+}
+
+/* 「历史以来」是轨上唯一的非年份刻度：CJK 比四位数字宽，稍微收字号并
+   把左右内距放开，和相邻年份之间留出「这一项不一样」的呼吸。 */
+.weq-entry-strip-year.is-all-time {
+  padding: 0 18px;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+}
+
+.weq-entry-strip-year.is-all-time[data-active="yes"] {
+  font-size: 17px;
 }
 
 .weq-entry-strip-mark {
@@ -409,6 +429,12 @@ html[data-theme="dark"] .weq-report-root {
   font-weight: 500;
   letter-spacing: 0.02em;
   color: var(--rp-ink);
+}
+
+/* 顶栏的「历史以来」：CJK 在 20px 衬线下比四位数字重，收一档保持天平。 */
+.weq-report-brand-year.is-all-time {
+  font-size: 17px;
+  letter-spacing: 0.1em;
 }
 
 .weq-report-brand-name {
@@ -763,6 +789,13 @@ html[data-theme="dark"] .weq-report-root {
   font-family: var(--rp-serif);
   font-size: 21px;
   letter-spacing: 0.1em;
+}
+
+/* 「历史以来」口径下的起点说明（「自 xxxx 年 x 月起」），在引句内插，退到次级。 */
+.weq-ov-since {
+  font-size: 0.86em;
+  color: var(--rp-ink-muted);
+  letter-spacing: 0.06em;
 }
 
 /* 主角：巨型里程表数字。基线对齐一个细体的「条消息」。 */

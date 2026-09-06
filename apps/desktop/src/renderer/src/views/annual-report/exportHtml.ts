@@ -9,6 +9,12 @@
  * 不用卡片与面板底；每张卡片一页 A4 竖版，与 satori 长图共用同一份 JSON。
  */
 import type { ReportPageManifest } from '@weq/service';
+import {
+  isAllTimeYear,
+  reportEraLabel,
+  reportPeriodLabel,
+  reportSinceLabel,
+} from '@weq/service/report-time';
 
 export type ExportSlide = {
   page: ReportPageManifest;
@@ -33,20 +39,6 @@ function formatPerDay(perDay: number): string {
   if (perDay >= 1) return perDay.toFixed(1);
   if (perDay >= 0.1) return perDay.toFixed(2);
   return perDay > 0 ? '&lt;0.1' : '0';
-}
-
-/**
- * 这一年已经过完的天数。与屏幕版 OverviewPage 的 `elapsedDays` 同一口径：
- * 当年只算到今天，往年算整年 —— 否则同一份数据在屏幕上和导出里日均会不同。
- */
-function elapsedDays(year: number): number {
-  const now = new Date();
-  if (year !== now.getFullYear()) {
-    const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
-    return isLeap ? 366 : 365;
-  }
-  const diff = (now.getTime() - new Date(year, 0, 1).getTime()) / 86_400_000;
-  return Math.max(1, Math.ceil(diff));
 }
 
 const CSS = `
@@ -195,7 +187,7 @@ function slideFoot(right: string): string {
   </section>`;
 }
 
-function overviewSlide(data: Record<string, unknown>, startYear: number): string {
+function overviewSlide(data: Record<string, unknown>): string {
   const year = Number(data.year ?? 0);
   const totalSent = Number(data.totalSent ?? 0);
   const totalReceived = Number(data.totalReceived ?? 0);
@@ -204,12 +196,15 @@ function overviewSlide(data: Record<string, unknown>, startYear: number): string
   const sum = Math.max(1, c2cSent + groupSent);
   const c2cPct = Math.round((c2cSent / sum) * 100);
   const groupPct = 100 - c2cPct;
-  const perDay = totalSent / elapsedDays(year);
+  // 日均分母由服务端下发（自然年整年 / 历史以来从首条消息算起），屏幕与导出同源。
+  const perDay = totalSent / Math.max(1, Number(data.spanDays ?? 1));
   const echo = totalSent > 0 ? Math.round((totalReceived / totalSent) * 100) : 0;
-  // 与屏幕版同一条文案规则：最早有记录的那年用「历史以来」。
-  const eraLabel = year === startYear ? '历史以来' : `${year} 年`;
+  const firstMessageTime =
+    typeof data.firstMessageTime === 'number' ? data.firstMessageTime : null;
+  const since = reportSinceLabel(year, firstMessageTime);
+  const eraLabel = reportEraLabel(year) + (since ? `（${since}）` : '');
 
-  return `${slideOpen(String(year))}
+  return `${slideOpen(isAllTimeYear(year) ? 'ALL' : String(year))}
     <div class="eyebrow">年度总览 · OVERVIEW</div>
     <div class="lede">${escapeHtml(eraLabel)}，你一共说出了</div>
     <div class="hero">
@@ -243,17 +238,20 @@ function overviewSlide(data: Record<string, unknown>, startYear: number): string
         <div class="band-dt">你说 100 句，回声</div>
         <div class="band-dd"><span class="band-num">${fmt(echo)}</span><span class="band-unit">句</span></div>
       </div>
-    </div>${slideFoot(`${year} · 01`)}`;
+    </div>${slideFoot(`${reportPeriodLabel(year)} · 01`)}`;
 }
 
 function endSlide(data: Record<string, unknown>): string {
   const year = Number(data.year ?? 0);
+  const allTime = isAllTimeYear(year);
   return `${slideOpen('FIN', true)}
     <div class="end">
-      <div class="end-line">这一年的话都说完了。</div>
+      <div class="end-line">${allTime ? '你说过的话，都在这里了。' : '这一年的话都说完了。'}</div>
       <div class="end-title">辛苦了</div>
-      <div class="end-sub">聊天记录只留在这台电脑上。<br>明年这个时候，我们再看一次。</div>
-    </div>${slideFoot(`${year} · FIN`)}`;
+      <div class="end-sub">聊天记录只留在这台电脑上。<br>${
+        allTime ? '往后的话，也还长。' : '明年这个时候，我们再看一次。'
+      }</div>
+    </div>${slideFoot(`${reportPeriodLabel(year)} · FIN`)}`;
 }
 
 function genericSlide(slide: ExportSlide): string {
@@ -265,15 +263,14 @@ function genericSlide(slide: ExportSlide): string {
 }
 
 /**
- * 由已加载的页面数据拼出自包含 HTML 文档。
- * `startYear` 是账号最早有记录的年份，用于「历史以来 / xxxx 年」的文案分支，
- * 与屏幕版保持一致。
+ * 由已加载的页面数据拼出自包含 HTML 文档。口径文案（历史以来 / xxxx 年）
+ * 由每页数据里的 `year` 自证，与屏幕版共用 `@weq/service/report-time`。
  */
-export function buildReportHtml(year: number, slides: ExportSlide[], startYear = year): string {
+export function buildReportHtml(year: number, slides: ExportSlide[]): string {
   const body = slides
     .map((slide) => {
       const data = (slide.data ?? {}) as Record<string, unknown>;
-      if (slide.page.id === 'overview') return overviewSlide(data, startYear);
+      if (slide.page.id === 'overview') return overviewSlide(data);
       if (slide.page.id === 'end') return endSlide(data);
       return genericSlide(slide);
     })
@@ -283,7 +280,7 @@ export function buildReportHtml(year: number, slides: ExportSlide[], startYear =
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${year} 年度报告</title>
+<title>${escapeHtml(reportPeriodLabel(year))} 年度报告</title>
 <style>${CSS}</style>
 </head>
 <body>
