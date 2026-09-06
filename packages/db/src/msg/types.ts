@@ -66,6 +66,53 @@ export interface GroupMsg {
 }
 
 /**
+ * 一「套」装扮（气泡 + 字体 + 挂件的一个具体组合）在时间窗内的使用情况。
+ *
+ * 以套为单位而不是三类分开统计，是因为 40801 这一列本身记的就是一套：用户当时把
+ * 哪个气泡配哪个字体配哪个挂件发了这条消息。年度报告要还原的是「那条消息当年长
+ * 什么样」，拆成三张榜就没有那个画面了。
+ */
+export interface DressOutfitTally {
+  /** 0 = 这一项没穿。 */
+  bubbleId: number;
+  fontId: number;
+  widgetId: number;
+  /** 穿这套发出的消息条数。 */
+  count: number;
+  /**
+   * 穿这套发出的**真实消息纯文本**样本（已清洗、已截断，见 `tallyDressBlobs`）。
+   * 报告拿它把当年的消息重新画一遍 —— 这是整页回忆感的来源。
+   */
+  samples: string[];
+  /** 这套第一次 / 最后一次出现的 sendTime（unix 秒）。0 = 未知。 */
+  firstTime: number;
+  lastTime: number;
+}
+
+/**
+ * 装扮使用计数 —— 列 40801 在一个时间窗内的聚合，年度报告「最喜欢的装扮」的原始素材。
+ *
+ * 三张表各自算一份，调用方相加即可（{@link mergeDressTally}）。计数单位是**消息条数**
+ * 而不是「用过几天」：一条消息同时带气泡 + 字体 + 挂件时，三个 map 各加一次，所以
+ * 三类的和大于 {@link decorated}。
+ *
+ * `outfits` 是给报告用的主视图（按套），三个单类 map 只剩「一共穿过几款气泡/字体/
+ * 挂件」这类概述用途。
+ */
+export interface DressTally {
+  /** 气泡 itemId → 用它发出的消息条数。 */
+  bubble: Record<number, number>;
+  /** 聊天字体 itemId → 条数。40801 里字体有 41525 / 41531 两个 tag，解码已归一。 */
+  font: Record<number, number>;
+  /** 头像挂件 itemId → 条数。 */
+  widget: Record<number, number>;
+  /** 至少带一项装扮的消息条数 —— 不是三类之和（一条消息可以三项齐全）。 */
+  decorated: number;
+  /** `"bubbleId:fontId:widgetId"` → 这套的使用情况。 */
+  outfits: Record<string, DressOutfitTally>;
+}
+
+/**
  * The conversation's seq window for a time range, returned by
  * `*MsgDb.listSeqDesc` — powers the export 「消息补全」seq 空窗扫描.
  *

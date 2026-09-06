@@ -21,8 +21,8 @@
  */
 
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
-import type { C2cMsg, SeqWindow } from './types';
-import { decodeBody, decodeDress, toBigint, toStr } from './util';
+import type { C2cMsg, DressTally, SeqWindow } from './types';
+import { decodeBody, decodeDress, emptyDressTally, tallyDressBlobs, toBigint, toStr } from './util';
 import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './append';
 import { QqDb } from '../qq_db';
 
@@ -468,6 +468,35 @@ export class C2cMsgDb {
       else received = n;
     }
     return { sent, received };
+  }
+
+  /**
+   * 统计**我发出的**私聊消息里各套装扮各用了多少条（列 40801），顺带采样正文。
+   *
+   * 一次单向扫描：`SELECT "40801","40800","40050"` + 与 {@link countByDirection} 同一个
+   * 方向判据（40021 恒为对端，`senderUid != targetUid` 即我发的）。40800 虽然选进来了，
+   * 但**只在某套装扮的样本还没攒够时才解码**（见 {@link tallyDressBlobs}），全表扫描里
+   * 真正解正文的次数是「套数 × 每套上限」这个常数级的量。
+   *
+   * 空 BLOB 的行在 SQL 侧就滤掉（`length("40801") > 0`），没装扮的账号几乎整表被
+   * 过滤，扫描量远小于行数。
+   */
+  async tallyDress(opts: { startTime?: number; endTime?: number } = {}): Promise<DressTally> {
+    const conditions = [`"40020" != "40021"`, `"40020" != ''`, `length("40801") > 0`];
+    const params: SqlValue[] = [];
+    if (opts.startTime != null && opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      params.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime != null && opts.endTime > 0) {
+      conditions.push(`"40050" < ?`);
+      params.push(BigInt(opts.endTime));
+    }
+    const rows = await this.qq.query(
+      `SELECT "40801","40800","40050" FROM ${this.table} WHERE ${conditions.join(' AND ')}`,
+      params,
+    );
+    return tallyDressBlobs(rows, emptyDressTally());
   }
 
   /**

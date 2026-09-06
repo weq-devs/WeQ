@@ -14,24 +14,34 @@ import { client, trpc } from '../../trpc/client';
 import { AnnualReportStage } from './AnnualReportStage';
 import { AnnualReportEntry } from './AnnualReportEntry';
 import { renderReportPage } from './pageRegistry';
-import { ReportViewContext, type ReportViewContextValue } from './reportContext';
+import { applyReportFont, clearReportFont } from './reportFont';
+import {
+  ReportViewContext,
+  type PageTurnGuard,
+  type ReportViewContextValue,
+} from './reportContext';
 import '../../styles/annual-report.css';
 
 type PageState = { status: 'idle' | 'loading' | 'ok' | 'error'; data?: unknown; error?: string };
 
 const SLIDE_TRANSITION =
-  'opacity 900ms cubic-bezier(0.16, 1, 0.3, 1), transform 900ms cubic-bezier(0.16, 1, 0.3, 1), filter 900ms cubic-bezier(0.16, 1, 0.3, 1)';
+  'opacity 900ms cubic-bezier(0.16, 1, 0.3, 1), transform 1000ms cubic-bezier(0.16, 1, 0.3, 1), filter 900ms cubic-bezier(0.16, 1, 0.3, 1)';
 
 /**
  * 相邻页做「景深退场」：往后压一点、糊掉、压暗。翻页时前一页像被推进暗处，
  * 而不是两张卡片并排滑动 —— 这是报告的电影感来源之一。
+ *
+ * 上下两侧刻意**不对称**：已翻过的页（delta < 0）往上退进景深，还没到的页
+ * （delta > 0）从下方抬起来，位移幅度比退场那侧大一档。对称的话翻上翻下看起来
+ * 一模一样，方向感就丢了 —— 这一点位移差正是「往下翻」的实感来源。
  */
 function slideStyle(pageIndex: number, index: number): CSSProperties {
   const delta = pageIndex - index;
   const distance = Math.abs(delta);
+  const shift = delta < 0 ? distance * -4 : distance * 7;
   return {
     opacity: distance > 1 ? 0 : 1 - distance * 0.82,
-    transform: `scale(${1 - distance * 0.08}) translateY(${delta * -2}%)`,
+    transform: `scale(${1 - distance * 0.08}) translateY(${shift}%)`,
     filter: distance > 0 ? 'blur(14px)' : 'none',
     transition: SLIDE_TRANSITION,
     zIndex: distance === 0 ? 2 : 1,
@@ -100,13 +110,48 @@ function ReportDeckView({
   const [states, setStates] = useState<Record<string, PageState>>({});
   const generationRef = useRef(0);
   const cacheRef = useRef(new Map<string, unknown>());
+  /**
+   * 报告主字体。装扮页选中「最爱字体」后写在这里，作用于整份报告 —— 已经翻过的
+   * 总览页、这一页、结尾页，以及之后加入的任何一页。换年份 / 离开报告时还原。
+   */
+  const [reportFontId, setReportFontIdState] = useState(0);
+  /**
+   * 当前页注册的翻页守卫。装扮页用它让「滚到底」先刷出抽屉、再滚一次才翻页。
+   * 存在 ref 里而不是 state：注册/注销发生在页面的 effect 里，用 state 会让
+   * context value 变化再触发页面重渲，绕回来又重新注册。
+   */
+  const guardRef = useRef<PageTurnGuard | null>(null);
+  const registerPageGuard = useCallback((guard: PageTurnGuard) => {
+    guardRef.current = guard;
+    return () => {
+      // 只清掉自己那个 —— 翻页时新页可能已经先注册上来了。
+      if (guardRef.current === guard) guardRef.current = null;
+    };
+  }, []);
+  const runPageGuard = useCallback(
+    (direction: 1 | -1) => guardRef.current?.(direction) ?? false,
+    [],
+  );
+
+  const setReportFontId = useCallback((itemId: number | null) => {
+    // applyReportFont 会先把 ttf 加载好再落 CSS；失败时静默还原（返回 false），
+    // 所以 state 以它的返回值为准，不以点击意图为准。
+    void applyReportFont(itemId).then((ok) => {
+      setReportFontIdState(ok && itemId ? itemId : 0);
+    });
+  }, []);
 
   useEffect(() => {
     setIndex(0);
     setStates({});
     cacheRef.current.clear();
     generationRef.current += 1;
+    setReportFontIdState(0);
+    clearReportFont();
   }, [year]);
+
+  // 离开报告时把注入的换字样式收干净，别影响应用其余部分。
+  useEffect(() => clearReportFont, []);
 
   /** 加载一页；成功/失败都 resolve，让顺序队列继续往下走。 */
   const loadPage = useCallback(
@@ -190,8 +235,11 @@ function ReportDeckView({
       slides: pages
         .filter((page) => states[page.id]?.status === 'ok')
         .map((page) => ({ page, data: states[page.id]?.data })),
+      reportFontId,
+      setReportFontId,
+      registerPageGuard,
     }),
-    [year, scopeLabel, pages, states],
+    [year, scopeLabel, pages, states, reportFontId, setReportFontId, registerPageGuard],
   );
 
   if (manifestLoading && !manifest) {
@@ -255,7 +303,12 @@ function ReportDeckView({
       </div>
 
       <ReportViewContext.Provider value={contextValue}>
-        <AnnualReportStage index={index} count={pages.length} onIndexChange={moveTo}>
+        <AnnualReportStage
+          index={index}
+          count={pages.length}
+          onIndexChange={moveTo}
+          guard={runPageGuard}
+        >
           {pages.map((page, pageIndex) => {
             const state = states[page.id] ?? { status: 'idle' as const };
             const active = pageIndex === index;

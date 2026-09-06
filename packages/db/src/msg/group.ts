@@ -18,8 +18,16 @@
  */
 
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
-import type { GroupMsg, SeqWindow } from './types';
-import { decodeBody, decodeEmoji, decodeDress, toBigint, toStr } from './util';
+import type { DressTally, GroupMsg, SeqWindow } from './types';
+import {
+  decodeBody,
+  decodeEmoji,
+  decodeDress,
+  emptyDressTally,
+  tallyDressBlobs,
+  toBigint,
+  toStr,
+} from './util';
 import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './append';
 import { QqDb } from '../qq_db';
 
@@ -457,6 +465,39 @@ export class GroupMsgDb {
       else received = n;
     }
     return { sent, received };
+  }
+
+  /**
+   * 统计**我发出的**群消息里各套装扮各用了多少条（列 40801），顺带采样正文。与
+   * {@link C2cMsgDb.tallyDress} 同形，只是「我」的判据换成群聊那一套：`senderUid`
+   * （40020）优先，没有时退到 `selfUin`（40033）。两个都没有就返回空 tally ——
+   * 分不清谁发的时候，把全群的装扮算成自己的会比不算更糟。
+   */
+  async tallyDress(
+    opts: { startTime?: number; endTime?: number; selfUin?: bigint; senderUid?: string } = {},
+  ): Promise<DressTally> {
+    const mine = opts.senderUid
+      ? { clause: `"40020" = ? AND "40020" != ''`, value: opts.senderUid as SqlValue }
+      : opts.selfUin !== undefined && opts.selfUin > 0n
+        ? { clause: `"40033" = ?`, value: opts.selfUin as SqlValue }
+        : null;
+    if (!mine) return emptyDressTally();
+
+    const conditions = [mine.clause, `length("40801") > 0`];
+    const params: SqlValue[] = [mine.value];
+    if (opts.startTime != null && opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      params.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime != null && opts.endTime > 0) {
+      conditions.push(`"40050" < ?`);
+      params.push(BigInt(opts.endTime));
+    }
+    const rows = await this.qq.query(
+      `SELECT "40801","40800","40050" FROM group_msg_table WHERE ${conditions.join(' AND ')}`,
+      params,
+    );
+    return tallyDressBlobs(rows, emptyDressTally());
   }
 
   /**

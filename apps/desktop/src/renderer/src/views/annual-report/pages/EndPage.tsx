@@ -81,17 +81,7 @@ export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): R
   }
 
   return (
-    <PageFrame
-      page={page}
-      active={active}
-      eyebrow={
-        <>
-          结尾<span className="weq-report-eyebrow-en">THE END</span>
-        </>
-      }
-      ghost="FIN"
-      ghostPlacement="center"
-    >
+    <PageFrame page={page} active={active} ghost="FIN" ghostPlacement="center">
       <div className="weq-end">
         <p className="weq-end-line weq-report-line" style={{ '--i': 1 } as React.CSSProperties}>
           {allTime ? '你说过的话，都在这里了。' : '这一年的话都说完了。'}

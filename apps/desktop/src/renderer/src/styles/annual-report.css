@@ -19,6 +19,11 @@
      整条栈在 Win/macOS/Linux 都能落到一款真衬线上，不会退化成无衬线。 */
   --rp-serif: "Playfair Display", Georgia, "Noto Serif CJK SC", "Noto Serif SC",
     "Source Han Serif SC", "Songti SC", SimSun, "Times New Roman", serif;
+  /* 上面那条栈的**不可变副本**。装扮页的「换主字体」会把 --rp-serif 整条换成用户
+     选的手写体（见 reportFont.ts），纯数字元素得有个地方拿回原生衬线 —— 子集化的
+     装扮字体常缺西文数字字形，退化成兜底字会让里程表逐位抖动。 */
+  --rp-serif-base: "Playfair Display", Georgia, "Noto Serif CJK SC", "Noto Serif SC",
+    "Source Han Serif SC", "Songti SC", SimSun, "Times New Roman", serif;
   --rp-sans: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
   --rp-mono: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 
@@ -559,45 +564,6 @@ html[data-theme="dark"] .weq-report-root {
   transform: translate(-50%, -50%) scale(1);
 }
 
-/* 左上角 eyebrow：一行标签 + 一条延伸到画布边的发丝线。 */
-.weq-report-eyebrow {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 16px;
-  color: var(--weq-report-tone);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.34em;
-}
-
-.weq-report-eyebrow-text {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 12px;
-  white-space: nowrap;
-}
-
-.weq-report-eyebrow-en {
-  color: var(--rp-ink-faint);
-  font-family: var(--rp-mono);
-  font-size: 9px;
-  letter-spacing: 0.28em;
-}
-
-.weq-report-eyebrow-rule {
-  flex: 1;
-  height: 1px;
-  background: linear-gradient(90deg, var(--rp-hair), transparent);
-  transform-origin: left center;
-  transform: scaleX(0);
-  transition: transform 1200ms 200ms var(--rp-ease-epic);
-}
-
-.weq-report-page[data-enter="in"] .weq-report-eyebrow-rule {
-  transform: scaleX(1);
-}
-
 .weq-report-canvas {
   position: relative;
   z-index: 1;
@@ -618,8 +584,7 @@ html[data-theme="dark"] .weq-report-root {
   transition-delay: calc(var(--i, 0) * 130ms);
 }
 
-.weq-report-page[data-enter="in"] .weq-report-line,
-.weq-report-page[data-enter="in"] .weq-report-eyebrow {
+.weq-report-page[data-enter="in"] .weq-report-line {
   opacity: 1;
   transform: translateY(0);
 }
@@ -1039,6 +1004,758 @@ html[data-theme="dark"] .weq-report-root {
   letter-spacing: 0.1em;
 }
 
+/* ══ 年度装扮页 ═══════════════════════════════════════════════════════
+ *
+ * 这一页不是数据面板，是「把那一年的自己摆回画面里」。版面分两层，**先后**出现，
+ * 刻意不并排 —— 并排会让「最爱的那一身」和一条滚动的消息流平分视觉重量：
+ *
+ *   第一眼 —— **主体**。最爱的那一套独占整个画幅，四周大片留白。自己的头像
+ *             （+ 挂件）在左，右边一只贴到 0.62 的巨大真气泡，气泡里写那套说过的
+ *             真话、用那套的字体。入场是「气泡吹出来 + 头像落下」，幅度刻意大。
+ *   准备翻页 —— **底账幕布**。滚到底再往下推一次，统计与回忆带像一块幕布从画幅
+ *               下方**切**上来（上沿带一道扫光），主体同时退进景深但不消失。
+ *               里面是装扮率的巨型百分比、气泡/字体/挂件各几款、一条横向滚动的
+ *               真实消息带。再往下才真的翻页，往上收回幕布。
+ *
+ * 幕布横向滚、翻页纵向走：两种运动方向不同，用户不会把「带子在动」误当成翻页。
+ *
+ * 通篇不出现装扮编号：能看的是气泡的样子和字的形状，itemId 谁也读不懂。
+ * 任何一件资源拿不到就静默退化（气泡成描边框 / 字回衬线 / 挂件不画），版式不塌。
+ * ═══════════════════════════════════════════════════════════════════ */
+
+.weq-dress {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  /* 幕布是这一层的绝对定位子元素，切上来时不能溢出画幅。 */
+  overflow: hidden;
+}
+
+/* 主体层。幕布切上来时整层退进景深：上移一点、收小、压暗、微糊 —— 与报告翻页
+   用的是同一套景深语言（见 AnnualReportView 的 slideStyle），所以「幕布上来」
+   看起来像同一份报告的下一个层次，而不是弹出了一个面板。 */
+.weq-dress-stage {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 18px;
+  transform-origin: center 38%;
+  transition:
+    transform 900ms var(--rp-ease-drop),
+    opacity 760ms var(--rp-ease-drop),
+    filter 760ms var(--rp-ease-drop);
+}
+
+.weq-dress[data-open="yes"] .weq-dress-stage {
+  opacity: 0.34;
+  transform: translateY(-9%) scale(0.9);
+  filter: blur(3px);
+}
+
+/* ── 主体：最爱的那一套 ───────────────────────────────────────────── */
+
+/* 主体独占画幅，所以给它上下都留出呼吸：留白是这一页的底座，不是剩下的空间。 */
+.weq-dress-hero {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 30px;
+  padding: 8px 0;
+}
+
+.weq-dress-kicker {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin: 0;
+  color: var(--rp-accent);
+  font-family: var(--rp-serif);
+  font-size: 15px;
+  letter-spacing: 0.28em;
+  /* 抬头先到：主体的其余部分跟着它一层层落。 */
+  opacity: 0;
+  transform: translateY(-12px);
+  transition:
+    opacity 700ms var(--rp-ease-drop),
+    transform 800ms var(--rp-ease-drop);
+}
+
+.weq-dress-hero[data-shown="yes"] .weq-dress-kicker {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.weq-dress-kicker-rule {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, currentcolor, transparent);
+  opacity: 0.42;
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: transform 1400ms 240ms var(--rp-ease-epic);
+}
+
+.weq-dress-hero[data-shown="yes"] .weq-dress-kicker-rule {
+  transform: scaleX(1);
+}
+
+/* 「一个人在说话」：头像贴着气泡的左下，和聊天里一样。主体独占画幅后气泡不必
+   再跟一列流抢宽度，所以给它整幅可用宽度的绝大部分 —— 撑得起来才叫主角。 */
+.weq-dress-say {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: flex-end;
+  gap: 20px;
+}
+
+.weq-dress-say-bubble {
+  min-width: 0;
+  /* 气泡「吹」出来：从头像那一侧带旋转弹进画面，是这一页的开场动作。
+     transform-origin 落在左下角（= 头像的位置），所以看起来是从嘴边冒出来的。 */
+  opacity: 0;
+  transform: scale(0.62) rotate(-8deg) translate(-26px, 22px);
+  transform-origin: left bottom;
+  transition:
+    opacity 760ms var(--rp-ease-drop),
+    transform 1120ms cubic-bezier(0.3, 1.5, 0.42, 1);
+}
+
+.weq-dress-hero[data-shown="yes"] .weq-dress-say-bubble {
+  opacity: 1;
+  transform: scale(1) rotate(0) translate(0, 0);
+}
+
+/* ── 自己的头像 + 挂件 ────────────────────────────────────────────── */
+
+/* 几何照搬聊天页的 .weq-avatar-pendant：正方形舞台、place-items: center、挂件
+   绝对居中后按头像的 2 倍铺开并上偏一点。区别是三个量全部相对 --sz，所以
+   is-hero 只改 --sz 就整体放大 —— 中心对齐和上偏比例自动跟着走，放到多大都不歪。
+   overflow 必须显式 visible：挂件本来就要溢出头像的方框。 */
+.weq-dress-face {
+  position: relative;
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: var(--sz);
+  height: var(--sz);
+  overflow: visible;
+  /* 头像后落地，给气泡让出开场。 */
+  opacity: 0;
+  transform: translateY(18px) scale(0.86);
+  transition:
+    opacity 700ms 180ms var(--rp-ease-drop),
+    transform 900ms 180ms cubic-bezier(0.34, 1.42, 0.44, 1);
+}
+
+.weq-dress-hero[data-shown="yes"] .weq-dress-face {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.weq-dress-face.is-hero {
+  --sz: 116px;
+}
+
+.weq-dress-face.is-line {
+  --sz: 36px;
+}
+
+.weq-dress-face-img {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--rp-ghost);
+}
+
+/* 头像取不到：昵称首字顶上，尺寸跟着 --sz 缩放。 */
+.weq-dress-face-img.is-initial {
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif);
+  font-size: calc(var(--sz) * 0.42);
+  font-weight: 600;
+  border: 1px solid var(--rp-hair);
+}
+
+/* 挂件 = 头像的 2 倍、绝对居中、上偏 --sz 的 1/9（聊天页 36px 对 4px 的那个比例）。
+   max-width/height 必须清掉：全局 img 规则会把它压回容器尺寸。 */
+.weq-dress-face-pendant {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: calc(var(--sz) * 2);
+  height: calc(var(--sz) * 2);
+  max-width: none;
+  max-height: none;
+  transform: translate(-50%, calc(-50% - var(--sz) / 9));
+  object-fit: contain;
+  background-size: contain;
+  background-position: center;
+  background-repeat: no-repeat;
+  pointer-events: none;
+}
+
+/* 主体的挂件轻轻呼吸。位移量很小 —— 挂件跟头像是一体的，飘太远就脱开了。 */
+.weq-dress-face.is-hero .weq-dress-face-pendant {
+  animation: rp-dress-breathe 5.4s ease-in-out infinite;
+}
+
+/* ── 一个真气泡 ───────────────────────────────────────────────────── */
+
+.weq-dress-bubble {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  box-sizing: border-box;
+  /* 几何（border-image / padding / min-size）由 DressBubble.tsx 内联给出，
+     这里只管排印与兜底外观。 */
+  color: var(--rp-ink);
+  font-size: 13px;
+  line-height: 1.5;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+/* 资源没解析出来：一枚描边方框顶上，不留空洞。 */
+.weq-dress-bubble.is-bare {
+  min-width: 96px;
+  min-height: 40px;
+  padding: 10px 15px;
+  border: 1px dashed var(--rp-hair);
+  border-radius: 12px 12px 12px 3px;
+  color: var(--rp-ink-soft);
+}
+
+/* 主体气泡：整页最大的一件东西。独占画幅后可以再放大一档 —— 采样最长 42 字，
+   给一个明确的行宽上限让它折成两三行，比拉成一条长横条更像「一句话」。 */
+.weq-dress-bubble.is-hero {
+  max-width: 640px;
+  font-size: 33px;
+  line-height: 1.5;
+  letter-spacing: 0.06em;
+  white-space: normal;
+  text-wrap: balance;
+  filter: drop-shadow(0 12px 32px rgb(0 0 0 / 0.16));
+}
+
+.weq-dress-bubble.is-hero.is-bare {
+  min-width: 360px;
+  min-height: 124px;
+  padding: 34px 44px;
+}
+
+/* ── 主体页脚：条数 + 那套的款名 ──────────────────────────────────────
+   总量统计（装扮率 / 几款 / 几身）**不在这里** —— 全部搬进底账幕布，主体只留
+   「这一身穿了多少条」和它的三件款名。 */
+
+.weq-dress-hero-foot {
+  display: flex;
+  align-self: stretch;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 18px;
+  border-top: 1px solid var(--rp-hair);
+  opacity: 0;
+  transform: translateY(16px);
+  transition:
+    opacity 800ms 420ms var(--rp-ease-drop),
+    transform 860ms 420ms var(--rp-ease-drop);
+}
+
+.weq-dress-hero[data-shown="yes"] .weq-dress-hero-foot {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.weq-dress-hero-count {
+  display: flex;
+  align-items: baseline;
+  gap: 11px;
+}
+
+.weq-dress-hero-num {
+  color: var(--rp-ink);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 64px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.weq-dress-hero-unit {
+  color: var(--rp-ink-muted);
+  font-size: 13px;
+  letter-spacing: 0.2em;
+}
+
+/* 款名一行。三件里没记过商城元数据的自然不出现，整行都空就是一行空白。 */
+.weq-dress-hero-note {
+  margin: 0;
+  overflow: hidden;
+  color: var(--rp-ink-soft);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 「再往下」提示 ───────────────────────────────────────────────────
+   幕布没上来时告诉用户「还有」；上来后它就是多余的一行小字，直接淡掉。 */
+
+.weq-dress-more {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 14px;
+  margin: 0;
+  padding-bottom: 2px;
+  color: var(--rp-ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.26em;
+  transition: opacity 500ms ease, transform 600ms var(--rp-ease-drop);
+}
+
+.weq-dress-more-rule {
+  width: 34px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, currentcolor);
+}
+
+.weq-dress[data-open="yes"] .weq-dress-more {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+/* ══ 底账幕布 ═════════════════════════════════════════════════════════
+ *
+ * 准备翻页时从画幅下方**切**上来的一层。切屏感来自三件事一起发生：
+ *   1. 整层从 100% 位移到 0（`--rp-ease-epic` 那条前后都很陡的曲线，像换幕）；
+ *   2. 上沿一道扫光横穿（`::after` 的 `rp-dress-sweep`），只在切的一瞬间可见；
+ *   3. 主体同时退进景深（见 .weq-dress-stage）。
+ *
+ * 幕布**不占**布局（绝对定位）：主体的版式完全不受它开合影响，所以「凸显最爱的
+ * 那一身」这件事在任何状态下都成立。
+ * ═══════════════════════════════════════════════════════════════════ */
+
+.weq-dress-ledger {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 3;
+  /* 幕布高度：够放巨型百分比 + 一行计数 + 一条气泡带，不铺满整幅 ——
+     顶上那截露出来的主体是「它还在」的证据。 */
+  height: 72%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  box-sizing: border-box;
+  /* 上沿一条发丝线 + 从纸色渐深的底：像一张纸压在另一张纸上面。 */
+  border-top: 1px solid var(--rp-hair);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--rp-paper) 88%, var(--rp-ink)) 0%,
+    var(--rp-paper-deep) 46%,
+    var(--rp-paper-deep) 100%
+  );
+  box-shadow: 0 -22px 60px rgb(0 0 0 / 0.22);
+  transform: translateY(101%);
+  /* 关掉时不吃指针事件，也不让读屏进来（aria-hidden 在组件侧一起给）。 */
+  pointer-events: none;
+  transition: transform 820ms var(--rp-ease-epic);
+}
+
+.weq-dress-ledger[data-open="yes"] {
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+/* 切屏的那道扫光。只在开的一瞬跑一次 —— animation 挂在 [data-open="yes"] 上，
+   所以每次开合都会重新触发（关掉时元素回到无动画状态）。 */
+.weq-dress-ledger-edge {
+  position: absolute;
+  top: -1px;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.weq-dress-ledger-edge::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--rp-accent) 42%,
+    color-mix(in srgb, var(--rp-accent) 40%, white) 50%,
+    var(--rp-accent) 58%,
+    transparent
+  );
+  transform: translateX(-100%);
+}
+
+.weq-dress-ledger[data-open="yes"] .weq-dress-ledger-edge::after {
+  animation: rp-dress-sweep 900ms var(--rp-ease-epic) both;
+}
+
+.weq-dress-ledger-inner {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: 20px;
+  /* 与页面画布同一套左右留白（PageFrame 的 76px），幕布里的字才跟主体对齐。 */
+  padding: 30px 76px 26px;
+}
+
+/* 幕布内容整体延后一点点进场：先看见幕布切上来，再看见上面的字落定。
+   位移量小，只是让层次分明，不是又一次入场动画。 */
+.weq-dress-ledger-head,
+.weq-dress-ledger-note,
+.weq-dress-band,
+.weq-dress-ledger-close {
+  opacity: 0;
+  transform: translateY(14px);
+  transition:
+    opacity 620ms var(--rp-ease-drop),
+    transform 700ms var(--rp-ease-drop);
+}
+
+.weq-dress-ledger[data-open="yes"] .weq-dress-ledger-head {
+  opacity: 1;
+  transform: translateY(0);
+  transition-delay: 260ms;
+}
+
+.weq-dress-ledger[data-open="yes"] .weq-dress-ledger-note {
+  opacity: 1;
+  transform: translateY(0);
+  transition-delay: 360ms;
+}
+
+.weq-dress-ledger[data-open="yes"] .weq-dress-band {
+  opacity: 1;
+  transform: translateY(0);
+  transition-delay: 440ms;
+}
+
+.weq-dress-ledger[data-open="yes"] .weq-dress-ledger-close {
+  opacity: 1;
+  transform: translateY(0);
+  transition-delay: 540ms;
+}
+
+/* 巨型百分比在左、四格计数在右，中间一条发丝线分隔。 */
+.weq-dress-ledger-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 40px;
+}
+
+/* ── 装扮率：这一层的主角 ─────────────────────────────────────────── */
+
+.weq-dress-rate {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.weq-dress-rate-num {
+  color: var(--rp-ink);
+  /* 里程表的数字始终用原生衬线：装扮字体常缺西文数字字形（见 --rp-serif-base）。 */
+  font-family: var(--rp-serif-base) !important;
+  font-size: 104px;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+}
+
+.weq-dress-rate-pct {
+  color: var(--rp-accent);
+  font-family: var(--rp-serif-base);
+  font-size: 42px;
+  font-weight: 600;
+}
+
+.weq-dress-rate-label {
+  display: flex;
+  margin-left: 12px;
+  flex-direction: column;
+  color: var(--rp-ink-muted);
+  font-size: 12px;
+  letter-spacing: 0.2em;
+}
+
+.weq-dress-rate-label em {
+  color: var(--rp-ink-soft);
+  font-size: 15px;
+  font-style: normal;
+  letter-spacing: 0.14em;
+}
+
+/* ── 用过几款：气泡 / 字体 / 挂件 / 换过几身 ──────────────────────── */
+
+.weq-dress-kinds {
+  display: flex;
+  flex: 0 0 auto;
+  margin: 0;
+  padding-bottom: 6px;
+}
+
+.weq-dress-kind {
+  padding: 0 20px;
+}
+
+.weq-dress-kind + .weq-dress-kind {
+  border-left: 1px solid var(--rp-hair);
+}
+
+.weq-dress-kind:last-child {
+  padding-right: 0;
+}
+
+.weq-dress-kind dt {
+  color: var(--rp-ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+}
+
+.weq-dress-kind dd {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin: 5px 0 0;
+}
+
+.weq-dress-kind dd span {
+  color: var(--rp-ink);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 30px;
+  font-weight: 600;
+}
+
+.weq-dress-kind dd i {
+  color: var(--rp-ink-muted);
+  font-size: 11px;
+  font-style: normal;
+  letter-spacing: 0.16em;
+}
+
+.weq-dress-ledger-note {
+  margin: 0;
+  color: var(--rp-ink-muted);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+}
+
+/* ── 回忆带：横向滚动的真实消息 ───────────────────────────────────── */
+
+/* 横着滚是刻意的：翻页是纵向的，两种运动方向不同，用户不会把带子在动误当成翻页。
+   两端 mask 淡出，看起来像从画幅外滚进来又滚出去。 */
+.weq-dress-band {
+  position: relative;
+  min-width: 0;
+  flex: 0 0 auto;
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
+}
+
+.weq-dress-band-lane {
+  display: flex;
+  align-items: center;
+  /* 轨道要能超出容器宽度才滚得起来 —— 不能让 flex 把两份内容压进一屏。 */
+  width: max-content;
+  gap: 16px;
+  padding: 6px 0;
+  will-change: transform;
+}
+
+/* 内容复制了两份首尾相接，位移 -50% 正好是一整份 —— 循环点上下内容一致，无缝。
+   只在幕布切上来后才跑：幕后跑动画既看不见又白烧一份合成层。 */
+.weq-dress-band-lane[data-run="yes"] {
+  animation: rp-dress-band var(--dur, 30s) linear infinite;
+}
+
+.weq-dress-band[data-rolling="no"] .weq-dress-band-lane {
+  width: 100%;
+  flex-wrap: wrap;
+}
+
+.weq-dress-band-cell {
+  flex: 0 0 auto;
+}
+
+.weq-dress-band .weq-dress-bubble {
+  max-width: 340px;
+  font-size: 14px;
+  white-space: normal;
+  text-wrap: pretty;
+}
+
+/* 收起按钮 —— 键盘/鼠标用户的显式出口（滚轮往上也能收，见 DressPage 的守卫）。 */
+.weq-dress-ledger-close {
+  align-self: flex-start;
+  padding: 6px 0;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: none;
+  color: var(--rp-ink-faint);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  cursor: pointer;
+  transition: color 240ms ease, border-color 240ms ease;
+}
+
+.weq-dress-ledger-close:hover {
+  border-bottom-color: var(--rp-accent);
+  color: var(--rp-ink);
+}
+
+/* ── 「也拿来写这份报告？」 ───────────────────────────────────────────
+   属于主体层（那款字是「这一身」的一部分），所以留在主体里，不进幕布。 */
+
+.weq-dress-adopt {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rp-hair);
+}
+
+.weq-dress-adopt-ask {
+  color: var(--rp-ink-soft);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+}
+
+/* 用那款字体自己写自己 —— 比写出款名更能说明「换上会长这样」。 */
+.weq-dress-adopt-ask em {
+  margin-right: 6px;
+  color: var(--rp-ink);
+  font-size: 22px;
+  font-style: normal;
+}
+
+.weq-dress-adopt-btn {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--rp-ink-faint);
+  background: none;
+  color: var(--rp-ink);
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  cursor: pointer;
+  transition:
+    border-color 260ms ease,
+    color 260ms ease,
+    gap 260ms var(--rp-ease-drop);
+}
+
+.weq-dress-adopt-btn:hover {
+  border-bottom-color: var(--rp-accent);
+  gap: 13px;
+}
+
+.weq-dress-adopt-btn[data-on="yes"] {
+  border-bottom-color: var(--rp-accent);
+  color: var(--rp-accent);
+}
+
+/* 主体挂件的呼吸：幅度很小，只为让画面有一点活气。 */
+@keyframes rp-dress-breathe {
+  0%,
+  100% {
+    transform: translate(-50%, calc(-50% - var(--sz) / 9)) scale(1);
+  }
+  50% {
+    transform: translate(-50%, calc(-50% - var(--sz) / 9 - 3px)) scale(1.028);
+  }
+}
+
+/* 回忆带的循环横滚。-50% = 一整份内容的宽度（内容复制了两份）。 */
+@keyframes rp-dress-band {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* 幕布上沿的扫光：横穿一次就停（both + 单次），是「切屏」的那一下亮边。 */
+@keyframes rp-dress-sweep {
+  from {
+    opacity: 0;
+    transform: translateX(-100%);
+  }
+  22% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+}
+
+/* 窄画幅：主体的尺度整体收一档 —— 主体独占画幅，所以这里不再需要「让回忆流让位」。
+   幕布把左右留白也收窄，跟 PageFrame 在窄幅下的观感一致。 */
+@media (max-width: 1000px) {
+  .weq-dress-face.is-hero {
+    --sz: 82px;
+  }
+
+  .weq-dress-bubble.is-hero {
+    max-width: 100%;
+    font-size: 25px;
+  }
+
+  .weq-dress-hero-num {
+    font-size: 48px;
+  }
+
+  .weq-dress-ledger-inner {
+    padding: 24px 40px 22px;
+  }
+
+  .weq-dress-ledger-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .weq-dress-rate-num {
+    font-size: 76px;
+  }
+
+  .weq-dress-kinds {
+    padding-bottom: 0;
+  }
+
+  .weq-dress-kind:first-child {
+    padding-left: 0;
+  }
+}
+
 /* ══ 状态 / 兜底 ══════════════════════════════════════════════════════ */
 
 .weq-report-unknown,
@@ -1219,8 +1936,7 @@ html[data-theme="dark"] .weq-report-root {
     transition-delay: 0ms !important;
   }
 
-  .weq-report-line,
-  .weq-report-eyebrow {
+  .weq-report-line {
     opacity: 1 !important;
     transform: none !important;
   }
@@ -1229,8 +1945,28 @@ html[data-theme="dark"] .weq-report-root {
     opacity: 1 !important;
   }
 
-  .weq-report-eyebrow-rule {
-    transform: scaleX(1) !important;
+  /* 主体的入场靠 data 属性驱动，减少动态时直接呈现终态。 */
+  .weq-dress-hero {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  /* 幕布仍然要「开合」——那是功能而不是修饰（不开就看不到统计），
+     只是不再滑动和扫光，改成直接换状态。 */
+  .weq-dress-ledger {
+    transform: translateY(101%) !important;
+  }
+
+  .weq-dress-ledger[data-open="yes"] {
+    transform: translateY(0) !important;
+  }
+
+  .weq-dress-ledger-edge {
+    display: none;
+  }
+
+  .weq-dress-stage {
+    filter: none !important;
   }
 }
 

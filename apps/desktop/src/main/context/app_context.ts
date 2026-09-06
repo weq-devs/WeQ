@@ -129,6 +129,7 @@ import {
   type InjectHook,
 } from '@weq/service';
 import { resolveResource } from '../resource';
+import { createDressNameResolver } from '../dress_names';
 import {
   openAccount,
   openStaticAccount,
@@ -912,6 +913,7 @@ export function initAppContext(): AppContext {
         accountConfig,
         annualReport: new AnnualReportService(session, {
           preferences: accountConfig.getRecord()?.annualReport,
+          resolveDressNames: createDressNameResolver(dressInstall),
         }),
         forwardMsgs: new ForwardMsgService(session, platform.native.ntHelper, resolveOnlinePid),
         groupInfo,
@@ -1404,6 +1406,7 @@ export function initAppContext(): AppContext {
         accountConfig,
         annualReport: new AnnualReportService(session, {
           preferences: accountConfig.getRecord()?.annualReport,
+          resolveDressNames: createDressNameResolver(dressInstall),
         }),
         forwardMsgs: new ForwardMsgService(session, platform.native.ntHelper, livePid),
         groupInfo,

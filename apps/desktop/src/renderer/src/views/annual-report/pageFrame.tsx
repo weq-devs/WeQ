@@ -16,16 +16,17 @@ export type ReportPageComponent<D = unknown> = (props: ReportPageProps<D>) => Re
 
 /**
  * 报告页画布。刻意不提供「小标题 + 大标题 + 描述」这套面板头部 —— 每一页
- * 自己决定排印，框架只负责三件共享的事：
+ * 自己决定排印，框架只负责两件共享的事：
  *
  *   - `ghost`：巨型描边衬底字（年份 / 关键数字），出血裁切，是全报告的视觉签名；
- *   - `eyebrow`：左上角一行细体标签 + 延伸的发丝线；
  *   - `active` 驱动的入场：`data-enter` 交给 CSS，子元素按 `--i` 错峰浮现。
+ *
+ * 页眉标签（「年度总览 / OVERVIEW」那一行）刻意**没有**：每页的主体自己就说明了
+ * 自己是什么，页眉只是在画幅顶上再挤一行小字，白占空间。
  */
 export function PageFrame({
   page,
   active,
-  eyebrow,
   ghost,
   ghostPlacement = 'bottom-right',
   tone,
@@ -33,7 +34,6 @@ export function PageFrame({
 }: {
   page: ReportPageManifest;
   active: boolean;
-  eyebrow?: ReactNode;
   /** 巨型描边衬底字，通常是年份。 */
   ghost?: ReactNode;
   ghostPlacement?: 'bottom-right' | 'top-left' | 'center';
@@ -51,12 +51,6 @@ export function PageFrame({
       {ghost != null ? (
         <div className={`weq-report-ghost is-${ghostPlacement}`} aria-hidden>
           {ghost}
-        </div>
-      ) : null}
-      {eyebrow != null ? (
-        <div className="weq-report-eyebrow" style={{ '--i': 0 } as React.CSSProperties}>
-          <span className="weq-report-eyebrow-text">{eyebrow}</span>
-          <span className="weq-report-eyebrow-rule" aria-hidden />
         </div>
       ) : null}
       <div className="weq-report-canvas">{children}</div>

@@ -1,5 +1,6 @@
 import type { AccountSession } from '@weq/account';
-import type { ReportQueries } from './types';
+import { mergeDressTally, type DressTally } from '@weq/db';
+import type { DressNameResolver, ReportQueries } from './types';
 
 /**
  * Create the typed query capability passed to page compute / availability hooks.
@@ -7,7 +8,10 @@ import type { ReportQueries } from './types';
  * The surface is deliberately small and typed: pages get read-only, account-bound
  * queries and never touch `AccountSession`, a database handle or raw SQL.
  */
-export function createReportQueries(session: AccountSession): ReportQueries {
+export function createReportQueries(
+  session: AccountSession,
+  options: { resolveDressNames?: DressNameResolver } = {},
+): ReportQueries {
   // 自己的 uid 用 session 打开时已经驻留内存的 uidMap（nt_uid_mapping_table）
   // 反查，不在这里对 c2c 消息表做任何推断扫描。群聊方向计数按 uid 精确匹配
   // 40020，和 chat 里既有的 selfUid / 群活跃统计口径一致。
@@ -21,6 +25,7 @@ export function createReportQueries(session: AccountSession): ReportQueries {
     groupReceived: number;
   };
   const countCache = new Map<string, Promise<DirectionCounts>>();
+  const dressCache = new Map<string, Promise<DressTally>>();
   let oldestCache: Promise<number | null> | null = null;
   let sentYearsCache: Promise<number[]> | null = null;
 
@@ -95,6 +100,43 @@ export function createReportQueries(session: AccountSession): ReportQueries {
           });
         }
         return running;
+      },
+    },
+    dress: {
+      /**
+       * 装扮 tally（列 40801）。两张表各一次单列扫描后合并，与 countByDirection
+       * 共用同一个 self marker（uid 优先、uin 兜底），口径因此和总览页一致。
+       *
+       * 与 countByDirection 同款的 per-window 记忆化：availability 探一次、compute
+       * 再取一次，只扫一遍库。
+       */
+      async tally(startTime: number, endTime: number) {
+        const key = `${startTime}:${endTime}`;
+        let running = dressCache.get(key);
+        if (!running) {
+          running = Promise.all([
+            session.c2cMsgs.tallyDress({ startTime, endTime }),
+            session.groupMsgs.tallyDress({
+              startTime,
+              endTime,
+              ...(selfUid ? { senderUid: selfUid } : selfUin > 0n ? { selfUin } : {}),
+            }),
+          ]).then(([c2c, group]) => mergeDressTally([c2c, group]));
+          dressCache.set(key, running);
+          void running.catch(() => {
+            dressCache.delete(key);
+          });
+        }
+        return running;
+      },
+      /** 宿主没注入解析器时一律返回空表 —— 渲染层会退回 `#itemId`。 */
+      names(kind, itemIds) {
+        if (!options.resolveDressNames || itemIds.length === 0) return {};
+        try {
+          return options.resolveDressNames(kind, itemIds);
+        } catch {
+          return {};
+        }
       },
     },
     meta: {

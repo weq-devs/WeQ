@@ -147,6 +147,45 @@ const CSS = `
   .band-dd { margin-top: 2mm; display: flex; align-items: baseline; gap: 1.5mm; }
   .band-num { font-family: var(--serif); font-size: 22pt; font-weight: 600; color: var(--ink); }
   .band-unit { font-size: 9pt; letter-spacing: 2px; color: var(--ink-muted); }
+  /* 装扮页。屏幕版画的是真气泡，导出版画不了（见 dressSlide），改用引号盛那句话。 */
+  .dr-top { margin-top: 4mm; padding-bottom: 6mm; border-bottom: 0.25mm solid var(--hair); }
+  .dr-say {
+    position: relative;
+    padding-left: 8mm;
+    font-family: var(--serif);
+    font-size: 24pt;
+    font-weight: 600;
+    line-height: 1.5;
+    color: var(--ink);
+  }
+  .dr-say::before {
+    position: absolute;
+    left: 0;
+    top: -1mm;
+    content: "“";
+    font-family: var(--serif);
+    font-size: 34pt;
+    color: var(--accent);
+  }
+  .dr-worn { margin-top: 2mm; font-size: 9pt; letter-spacing: 1px; color: var(--ink-soft); }
+  .dr-sum { margin-top: 5mm; font-size: 9.5pt; letter-spacing: 1px; color: var(--ink-muted); }
+  /* 用过几款：与屏幕版底账幕布里那四格同一份数字，排成一行发丝线分隔的小字。 */
+  .dr-kinds { margin-top: 3mm; display: flex; gap: 5mm; font-size: 9pt; color: var(--ink-soft); }
+  .dr-kinds span + span { padding-left: 5mm; border-left: 0.25mm solid var(--hair); }
+  .dr-memos { margin-top: 7mm; display: flex; flex-direction: column; gap: 2.4mm; }
+  .dr-memo { display: flex; align-items: baseline; gap: 4mm; }
+  .dr-memo-text {
+    flex: 1;
+    overflow: hidden;
+    font-family: var(--serif);
+    font-size: 11pt;
+    color: var(--ink-soft);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .dr-memo-text::before { content: "「"; color: var(--ink-faint); }
+  .dr-memo-text::after { content: "」"; color: var(--ink-faint); }
+  .dr-memo-meta { flex: 0 0 auto; font-family: var(--mono); font-size: 7.5pt; color: var(--ink-faint); }
   /* 结尾页 */
   .end { text-align: center; }
   .end-line { font-family: var(--serif); font-size: 12pt; letter-spacing: 5px; color: var(--ink-muted); }
@@ -204,7 +243,6 @@ function overviewSlide(data: Record<string, unknown>): string {
   const eraLabel = reportEraLabel(year) + (since ? `（${since}）` : '');
 
   return `${slideOpen(isAllTimeYear(year) ? 'ALL' : String(year))}
-    <div class="eyebrow">年度总览 · OVERVIEW</div>
     <div class="lede">${escapeHtml(eraLabel)}，你一共说出了</div>
     <div class="hero">
       <span class="hero-num">${fmt(totalSent)}</span>
@@ -240,6 +278,92 @@ function overviewSlide(data: Record<string, unknown>): string {
     </div>${slideFoot(`${reportPeriodLabel(year)} · 01`)}`;
 }
 
+/**
+ * 装扮页的导出版。
+ *
+ * 屏幕上那一页的主角是**真实渲染的气泡贴图 + 头像挂件**，而导出产物必须自包含、
+ * 离线可看 —— 九宫格 PNG 和挂件帧都在主进程的共享缓存里，`weq-media://` 协议在导出的
+ * HTML 里解析不了，内联成 base64 又会让一份 A4 报告涨到几十 MB。
+ *
+ * 所以导出版换一套表达，但**换的是皮不是骨**：单位仍然是「一套」，主角仍然是最爱的
+ * 那一身，回忆仍然是当年真说过的话 —— 只是气泡画不出来，改用排印的引号来盛。
+ * 装扮编号一律不出现（屏幕版也不出现）：款名有就写，没有就只写话。
+ */
+function dressSlide(data: Record<string, unknown>): string {
+  const year = Number(data.year ?? 0);
+  const decorated = Number(data.decorated ?? 0);
+  const totalSent = Number(data.totalSent ?? 0);
+  const coverage = totalSent > 0 ? Math.round((decorated / totalSent) * 100) : 0;
+
+  type Outfit = {
+    key: string;
+    count: number;
+    samples: string[];
+    bubbleName: string;
+    fontName: string;
+    widgetName: string;
+  };
+  const outfits = (data.outfits ?? []) as Outfit[];
+  const hero = outfits[0];
+  // 「换过几身」读服务端下发的总数：`outfits` 有 JSON 体积护栏，会被截断。
+  const outfitCount = Number(data.outfitCount ?? outfits.length);
+  const kinds = [
+    ['气泡', Number((data.bubble as { distinct?: number } | undefined)?.distinct ?? 0)],
+    ['字体', Number((data.font as { distinct?: number } | undefined)?.distinct ?? 0)],
+    ['挂件', Number((data.widget as { distinct?: number } | undefined)?.distinct ?? 0)],
+  ] as const;
+
+  /** 那套的三件款名连成一行。都没记过元数据就是空串，整行不出现。 */
+  const wornAs = (outfit: Outfit): string =>
+    [
+      outfit.bubbleName && `气泡「${outfit.bubbleName}」`,
+      outfit.fontName && `字体「${outfit.fontName}」`,
+      outfit.widgetName && `挂件「${outfit.widgetName}」`,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+
+  const heroLine = hero
+    ? hero.samples.reduce((best, s) => (s.length > best.length ? s : best), '')
+    : '';
+
+  // 回忆：一套取一句，A4 放得下六行。与屏幕版的轮转取样同一个意思 —— 相邻两句
+  // 来自不同的套装，才看得出「那一年我换过好几身」。
+  const memories = outfits
+    .map((outfit) => ({ outfit, text: outfit.samples[0] ?? '' }))
+    .filter((m) => m.text.length > 0)
+    .slice(hero && heroLine ? 1 : 0, 7)
+    .map(
+      (m) => `<div class="dr-memo">
+        <span class="dr-memo-text">${escapeHtml(m.text)}</span>
+        <span class="dr-memo-meta">${fmt(m.outfit.count)} 条</span>
+      </div>`,
+    )
+    .join('');
+
+  return `${slideOpen(isAllTimeYear(year) ? 'ALL' : String(year))}
+    <div class="lede">${escapeHtml(reportEraLabel(year))}，我最爱这身</div>
+    ${
+      hero
+        ? `<div class="dr-top">
+             ${heroLine ? `<div class="dr-say">${escapeHtml(heroLine)}</div>` : ''}
+             <div class="hero"><span class="hero-num">${fmt(hero.count)}</span><span class="hero-unit">条消息穿着它</span></div>
+             ${wornAs(hero) ? `<div class="dr-worn">${escapeHtml(wornAs(hero))}</div>` : ''}
+           </div>`
+        : ''
+    }
+    <div class="dr-sum">总共换过 ${fmt(outfitCount)} 身，打扮了 ${fmt(decorated)} 条消息${
+      coverage > 0 ? `（占你发言的 ${coverage}%）` : ''
+    }</div>
+    <div class="dr-kinds">${kinds
+      .filter(([, n]) => n > 0)
+      .map(([label, n]) => `<span>${label} ${fmt(n)} 款</span>`)
+      .join('')}</div>
+    ${memories ? `<div class="dr-memos">${memories}</div>` : ''}${slideFoot(
+      `${reportPeriodLabel(year)} · DRESS`,
+    )}`;
+}
+
 function endSlide(data: Record<string, unknown>): string {
   const year = Number(data.year ?? 0);
   const allTime = isAllTimeYear(year);
@@ -270,6 +394,7 @@ export function buildReportHtml(year: number, slides: ExportSlide[]): string {
     .map((slide) => {
       const data = (slide.data ?? {}) as Record<string, unknown>;
       if (slide.page.id === 'overview') return overviewSlide(data);
+      if (slide.page.id === 'dress') return dressSlide(data);
       if (slide.page.id === 'end') return endSlide(data);
       return genericSlide(slide);
     })

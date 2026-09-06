@@ -1,5 +1,17 @@
 /** Shared contracts for the compile-time annual-report page system. */
 
+import type { DressTally } from '@weq/db';
+
+/** 三类个性装扮。与 `account.dressup.*` 的 kind 取值一致。 */
+export type DressKind = 'bubble' | 'font' | 'widget';
+
+/**
+ * 款名解析器 —— 由宿主（主进程）注入，因为名字的两个来源都在 service 之外：
+ * 账号的「已装」清单（DressService）与仓库里的静态商城榜单（resources/dress）。
+ * 不注入时报告照常出，只是每款显示 `#itemId`。
+ */
+export type DressNameResolver = (kind: DressKind, itemIds: number[]) => Record<number, string>;
+
 export type ReportScope = {
   includeC2c: boolean;
   includeGroups: boolean;
@@ -102,6 +114,22 @@ export type ReportQueries = {
       groupSent: number;
       groupReceived: number;
     }>;
+  };
+  /**
+   * 消息装扮（列 40801）的聚合。年度报告「最喜欢的装扮」页专用。
+   */
+  dress: {
+    /**
+     * 我在 [startTime, endTime)（unix 秒）内发出的消息里，每款气泡 / 字体 / 挂件
+     * 各被用在多少条消息上。私聊 + 群聊各一次单列扫描后合并，不解码消息体。
+     */
+    tally(startTime: number, endTime: number): Promise<DressTally>;
+    /**
+     * 款名解析（同步，纯本地）。来源是账号「已装」清单里记下的商城元数据 + 仓库里
+     * 那份静态商城榜单，两者都拿不到的 itemId **不出现**在结果里 —— 渲染层退回
+     * 「#itemId」，不去猜一个假名字。
+     */
+    names(kind: DressKind, itemIds: number[]): Record<number, string>;
   };
   /** Engine-level metadata, not page data. */
   meta: {

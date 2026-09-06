@@ -6,6 +6,7 @@ import { findReportPage, reportPages } from './pages';
 import {
   DEFAULT_REPORT_SCOPE,
   type AnnualReportPreferences,
+  type DressNameResolver,
   type PageAvailability,
   type ReportManifest,
   type ReportPageDefinition,
@@ -25,6 +26,11 @@ export type AnnualReportServiceOptions = {
   scope?: ReportScope;
   dataRevision?: string;
   preferences?: AnnualReportPreferences;
+  /**
+   * 装扮款名解析器（可选）。名字的两个来源（账号已装清单 / 仓库静态商城榜单）都在
+   * service 之外，所以由宿主注入；不注入时装扮页照常出，只是显示 `#itemId`。
+   */
+  resolveDressNames?: DressNameResolver;
 };
 
 export class AnnualReportService {
@@ -43,7 +49,9 @@ export class AnnualReportService {
   ) {
     this.scope = options.scope ?? DEFAULT_REPORT_SCOPE;
     this.dataRevision = options.dataRevision ?? session.msgDbPath;
-    this.queries = createReportQueries(this.session);
+    this.queries = createReportQueries(this.session, {
+      resolveDressNames: options.resolveDressNames,
+    });
     this.preferences = options.preferences ?? DEFAULT_PREFERENCES;
   }
 

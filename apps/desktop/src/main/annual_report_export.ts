@@ -321,11 +321,6 @@ function overviewTree(data: Record<string, unknown>): El {
     [
       el(
         'div',
-        { fontSize: 22, letterSpacing: 12, color: PALETTE.accent, fontWeight: 700 },
-        '年度总览 · OVERVIEW',
-      ),
-      el(
-        'div',
         { marginTop: 40, fontSize: 40, color: PALETTE.inkSoft, letterSpacing: 6 },
         `${eraLabel}，你一共说出了`,
       ),
@@ -352,6 +347,150 @@ function overviewTree(data: Record<string, unknown>): El {
         { label: '收到', value: fmt(totalReceived), unit: '条' },
         { label: '你说 100 句，回声', value: fmt(echo), unit: '句' },
       ]),
+    ],
+    isAllTimeYear(year) ? 'ALL' : String(year),
+  );
+}
+
+/**
+ * 装扮页的长图版。
+ *
+ * 与 HTML 导出同一个取舍（见 exportHtml.ts 的 dressSlide）：屏幕上那页的主角是真实
+ * 渲染的气泡贴图 + 头像挂件，而 satori 只画传进来的这棵树 —— 贴图要先读盘再内联，
+ * 一张 9:16 长图会因此涨到几十 MB。
+ *
+ * 所以长图版换的是皮不是骨：单位仍然是「一套」，主角仍是最爱的那一身，回忆仍是当年
+ * 真说过的话，只是气泡改用排印的引号来盛。装扮编号一律不出现。
+ */
+function dressTree(data: Record<string, unknown>): El {
+  const year = Number(data.year ?? 0);
+  const decorated = Number(data.decorated ?? 0);
+  const totalSent = Number(data.totalSent ?? 0);
+  const coverage = totalSent > 0 ? Math.round((decorated / totalSent) * 100) : 0;
+
+  type Outfit = {
+    key: string;
+    count: number;
+    samples: string[];
+    bubbleName: string;
+    fontName: string;
+    widgetName: string;
+  };
+  const outfits = (data.outfits ?? []) as Outfit[];
+  const hero = outfits[0];
+  // 「换过几身」读服务端下发的总数：`outfits` 有 JSON 体积护栏，会被截断。
+  const outfitCount = Number(data.outfitCount ?? outfits.length);
+  const kinds = [
+    ['气泡', Number((data.bubble as { distinct?: number } | undefined)?.distinct ?? 0)],
+    ['字体', Number((data.font as { distinct?: number } | undefined)?.distinct ?? 0)],
+    ['挂件', Number((data.widget as { distinct?: number } | undefined)?.distinct ?? 0)],
+  ] as const;
+  const heroLine = hero
+    ? hero.samples.reduce((best, s) => (s.length > best.length ? s : best), '')
+    : '';
+  const wornAs = hero
+    ? [
+        hero.bubbleName && `气泡「${hero.bubbleName}」`,
+        hero.fontName && `字体「${hero.fontName}」`,
+        hero.widgetName && `挂件「${hero.widgetName}」`,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : '';
+
+  // 回忆：一套取一句，长图放得下六行。轮转取样的意思和屏幕版一致 —— 相邻两句来自
+  // 不同的套装，才看得出「那一年我换过好几身」。
+  const memories = outfits
+    .map((outfit) => ({ outfit, text: outfit.samples[0] ?? '' }))
+    .filter((m) => m.text.length > 0)
+    .slice(hero && heroLine ? 1 : 0, 7);
+
+  return slideFrame(
+    [
+      el(
+        'div',
+        { fontSize: 40, color: PALETTE.accent, letterSpacing: 10 },
+        `${reportEraLabel(year)}，我最爱这身`,
+      ),
+      ...(heroLine
+        ? [
+            el(
+              'div',
+              {
+                marginTop: 40,
+                fontSize: 72,
+                fontWeight: 700,
+                color: PALETTE.ink,
+                lineHeight: 1.45,
+              },
+              `“${heroLine}”`,
+            ),
+          ]
+        : []),
+      ...(hero
+        ? [
+            el('div', { marginTop: 30, display: 'flex', alignItems: 'baseline' }, [
+              el(
+                'div',
+                { fontSize: 128, fontWeight: 700, color: PALETTE.ink, letterSpacing: -4 },
+                fmt(hero.count),
+              ),
+              el(
+                'div',
+                { marginLeft: 22, fontSize: 34, color: PALETTE.inkMuted, letterSpacing: 6 },
+                '条消息穿着它',
+              ),
+            ]),
+          ]
+        : []),
+      ...(wornAs
+        ? [el('div', { marginTop: 10, fontSize: 26, color: PALETTE.inkSoft }, wornAs)]
+        : []),
+      el('div', { marginTop: 40, width: SLIDE_W - 144, height: 1, backgroundColor: PALETTE.hair }),
+      el(
+        'div',
+        { marginTop: 26, fontSize: 28, color: PALETTE.inkMuted, letterSpacing: 2 },
+        `总共换过 ${fmt(outfitCount)} 身，打扮了 ${fmt(decorated)} 条消息${
+          coverage > 0 ? `（占你发言的 ${coverage}%）` : ''
+        }`,
+      ),
+      // 用过几款：与屏幕版底账幕布里那三格同一份数字。一款都没有的类目不出现。
+      ...(kinds.some(([, n]) => n > 0)
+        ? [
+            el(
+              'div',
+              { marginTop: 12, display: 'flex', fontSize: 26, color: PALETTE.inkSoft },
+              kinds
+                .filter(([, n]) => n > 0)
+                .map(([label, n], index) =>
+                  el('div', index === 0 ? {} : { marginLeft: 26 }, `${label} ${fmt(n)} 款`),
+                ),
+            ),
+          ]
+        : []),
+      ...memories.map((memory) =>
+        el(
+          'div',
+          {
+            marginTop: 22,
+            display: 'flex',
+            alignItems: 'baseline',
+            width: SLIDE_W - 144,
+          },
+          [
+            el(
+              'div',
+              { flex: 1, fontSize: 30, color: PALETTE.inkSoft, overflow: 'hidden' },
+              `「${memory.text}」`,
+            ),
+            el(
+              'div',
+              { marginLeft: 22, fontSize: 22, color: PALETTE.inkFaint },
+              `${fmt(memory.outfit.count)} 条`,
+            ),
+          ],
+        ),
+      ),
     ],
     isAllTimeYear(year) ? 'ALL' : String(year),
   );
@@ -430,6 +569,7 @@ function genericTree(slide: ReportExportSlide): El {
 function treeForSlide(slide: ReportExportSlide): El {
   const data = (slide.data ?? {}) as Record<string, unknown>;
   if (slide.pageId === 'overview') return overviewTree(data);
+  if (slide.pageId === 'dress') return dressTree(data);
   if (slide.pageId === 'end') return endTree(data);
   return genericTree(slide);
 }

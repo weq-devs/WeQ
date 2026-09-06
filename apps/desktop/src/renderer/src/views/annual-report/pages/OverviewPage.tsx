@@ -56,16 +56,7 @@ export function OverviewPage({
   const echo = totalSent > 0 ? Math.round((totalReceived / totalSent) * 100) : 0;
 
   return (
-    <PageFrame
-      page={page}
-      active={active}
-      eyebrow={
-        <>
-          年度总览<span className="weq-report-eyebrow-en">OVERVIEW</span>
-        </>
-      }
-      ghost={isAllTimeYear(year) ? 'ALL' : year}
-    >
+    <PageFrame page={page} active={active} ghost={isAllTimeYear(year) ? 'ALL' : year}>
       <div className="weq-ov">
         <p className="weq-ov-lede weq-report-line" style={{ '--i': 1 } as React.CSSProperties}>
           {eraLabel}
