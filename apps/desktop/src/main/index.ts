@@ -29,7 +29,6 @@ import {
 import { getAppContext } from './context/app_context';
 import { checkForUpdate, installUpdateActions } from './update/updater';
 import { stopMcpServer } from './mcp/server';
-import { stopWeqServer } from './weq_assistant/server';
 import { registerWeqAssistantIpc } from './weq_assistant/ipc';
 import { disposeExternalMcp } from './mcp/external';
 import { registerChannelIpc } from './channel';
@@ -630,9 +629,11 @@ app.on('before-quit', () => {
 });
 
 // Best-effort: stop the account-bound MCP server on quit even if the account
-// was never explicitly closed (clearAccount also stops it).
+// was never explicitly closed (clearAccount also stops it). The weq-daemon
+// companion process is deliberately NOT touched on quit — its lifecycle
+// belongs to autostart / the user, and it keeps serving the QQ cards after
+// WeQ is gone.
 app.on('will-quit', () => {
   void stopMcpServer();
-  void stopWeqServer();
   void disposeExternalMcp();
 });

@@ -332,6 +332,8 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.20)(lightningcss@1.32.0)
 
+  packages/daemon: {}
+
   packages/db:
     dependencies:
       '@weq/codec':

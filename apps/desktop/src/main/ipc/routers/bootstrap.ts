@@ -23,7 +23,7 @@ import {
   installMcpAgents as installMcpAgentConfigs,
   listMcpAgentTargets,
 } from '../../mcp/agent_installer';
-import { isWeqServerRunning } from '../../weq_assistant/server';
+import { daemonHttpStatus } from '@weq/service';
 import { runElevatedKeyScan } from '../../mac_scan_elevation';
 import {
   accountEventBus,
@@ -954,15 +954,16 @@ export const bootstrapRouter = router({
 
   // ---- WeQ 助手 (account-bound; renders inside QQ itself) ----
 
-  /** Current WeQ 助手 config + live state. */
-  getWeqAssistantStatus: procedure.query(() => {
+  /** Current WeQ 助手 config + live state (from the weq-daemon control pipe). */
+  getWeqAssistantStatus: procedure.query(async () => {
     const weq = requireBootstrap().userConfig.getSettings().weqAssistant;
+    const status = await daemonHttpStatus();
     return {
       enabled: weq.enabled,
       port: weq.port,
       host: '127.0.0.1',
       url: `http://127.0.0.1:${weq.port}`,
-      running: isWeqServerRunning(),
+      running: status?.running ?? false,
     };
   }),
 

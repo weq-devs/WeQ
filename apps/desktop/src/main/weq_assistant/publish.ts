@@ -1,61 +1,31 @@
 /**
- * WeQ 助手 local HTTP server (loopback, no auth).
+ * WeQ 助手推文「发布」—— 把每条推物化成 docroot 下的静态文件。
  *
- * QQ itself fetches this server's URLs to render the WeQ 助手 ARK card — the
- * cover image and the click-through page. Because the requester is QQ (not our
- * renderer) it can't send auth headers, so this endpoint is unauthenticated but
- * bound to 127.0.0.1 only and serves nothing sensitive (a generated cover PNG +
- * a static push page).
+ * 守护进程（weq-daemon）只是个「端口 + 目录」的静态文件服务器，路由 1:1 对应
+ * 推文的 `coverPath` / `pagePath`（见 daemon httpd.rs）：
  *
- * Lifecycle mirrors the MCP server: started/stopped with the account + settings
- * toggle (see context/app_context.ts). Port-fallback: if the requested port is
- * taken, probe the next N and bind the first free one; the caller persists the
- * real port and rewrites the ARK card to match.
+ *   /p/daily        → <docroot>/p/daily.html
+ *   /cover/daily    → <docroot>/cover/daily.png   （无扩展名请求由 httpd 补 .png/.html）
+ *   /p/stats        → <docroot>/p/stats.html
+ *   /cover/stats    → <docroot>/cover/stats.png
+ *   /avatar.png     → <docroot>/avatar.png
  *
- * Routes:
- *   GET /cover/daily  → PNG (satori/resvg generated "每日推文" card cover)
- *   GET /p/daily      → HTML  (the push page opened on card click)
- *   GET /avatar.png   → PNG (WeQ logo; avatar fallback — main avatar is a local file)
- *   GET /healthz      → 200 "ok"
+ * 渲染函数全部来自原 server.ts 时代的纯函数（satori/resvg + HTML 字符串拼接，
+ * 零 Electron 依赖），主题在渲染时烘焙进产物 —— 守护进程不读任何配置。
+ * 主题变更 / 统计快照刷新后重新调用 {@link publishWeqAssistantDocroot} 即可。
  */
 
-import http from 'node:http';
-import { readFileSync, existsSync } from 'node:fs';
-import { getLogger, logErrorContext } from '@weq/service';
-import { resolveResource } from '../resource';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, normalize, sep } from 'node:path';
+
 import { renderCardPng, dailyCardSpec } from './cover';
 import { buildPalette, getWeqTheme } from './theme';
 import { getWeqStats } from './stats';
 import { renderStatsPageHtml, statsPendingHtml, statsCardSpec } from './stats_page';
+import { resolveResource } from '../resource';
+import { getLogger } from '@weq/service';
 
-const logger = getLogger().child({ scope: 'weq-assistant-server' });
-
-export interface WeqServerOptions {
-  port: number;
-}
-
-const PORT_FALLBACK_ATTEMPTS = 20;
-
-let httpServer: http.Server | null = null;
-let activeConfig: WeqServerOptions | null = null;
-
-export function isWeqServerRunning(): boolean {
-  return httpServer !== null;
-}
-
-/**
- * Register the renderer→main theme pipe. The renderer's `applyTheme` calls this
- * whenever accent / 深浅 changes (and once on hydrate), so the 每日推文 封面 + 跳转页
- * — rendered here in the main process — track WeQ Desktop's theme. Idempotent;
- * safe to call once at startup even before the server is enabled.
- *
- * Lives in `./ipc` (not here) so this module stays importable outside Electron:
- * the web app pulls in `startWeqServer` / `isWeqServerRunning` and must not
- * drag `electron` into its bundle.
- */
-export function runningWeqServerConfig(): WeqServerOptions | null {
-  return activeConfig;
-}
+const logger = getLogger().child({ scope: 'weq-assistant-publish' });
 
 function todayLabel(): string {
   const d = new Date();
@@ -63,18 +33,14 @@ function todayLabel(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-/**
- * Push page opened when the QQ user taps the card. Handcrafted single page (not
- * the report system) — a 「欢迎使用 WeQ」intro that briefly presents the project
- * (see README). The push channel will later carry real subscriptions (日报 /
- * 通知). Colors follow WeQ Desktop's theme via the live snapshot (accent + 深/
- * 浅), matching the ARK cover 1:1.
- */
+// ── 页面渲染（自 server.ts 原样迁移） ─────────────────────────────────────
+// 原实现内联在 HTTP handler 里；守护进程模式下没有 handler，这里改成纯函数。
+
 /**
  * Inline lucide icons (paths copied verbatim from `lucide-react@0.469`). The push
- * page is a plain HTML string in the main process — we can't mount React
- * components — so we emit the same SVG the component library would, keeping the
- * icons consistent with WeQ Desktop's UI. `currentColor` lets CSS tint them.
+ * page is a plain HTML string — we can't mount React components — so we emit the
+ * same SVG the component library would, keeping the icons consistent with WeQ
+ * Desktop's UI. `currentColor` lets CSS tint them.
  */
 const LUCIDE_PATHS: Record<string, string> = {
   smartphone: '<rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/>',
@@ -97,6 +63,23 @@ function lucide(name: keyof typeof LUCIDE_PATHS, size: number): string {
   );
 }
 
+/** WeQ logo as a data URI for the push page, or null if the asset is missing. */
+let pageLogoUri: string | null | undefined;
+function brandLogoDataUri(): string | null {
+  if (pageLogoUri !== undefined) return pageLogoUri;
+  const path = resolveResource('brand', 'logo.png');
+  pageLogoUri =
+    path && existsSync(path)
+      ? `data:image/png;base64,${readFileSync(path).toString('base64')}`
+      : null;
+  return pageLogoUri;
+}
+
+/**
+ * Push page opened when the QQ user taps the 「每日推文」 card. Colors follow
+ * WeQ Desktop's theme via the live snapshot (accent + 深/浅), matching the ARK
+ * cover 1:1.
+ */
 function dailyPageHtml(): string {
   const date = todayLabel();
   const p = buildPalette(getWeqTheme());
@@ -211,156 +194,95 @@ function dailyPageHtml(): string {
 </html>`;
 }
 
-/** WeQ logo as a data URI for the push page, or null if the asset is missing. */
-let pageLogoUri: string | null | undefined;
-function brandLogoDataUri(): string | null {
-  if (pageLogoUri !== undefined) return pageLogoUri;
-  const path = resolveResource('brand', 'logo.png');
-  pageLogoUri =
-    path && existsSync(path)
-      ? `data:image/png;base64,${readFileSync(path).toString('base64')}`
-      : null;
-  return pageLogoUri;
+// ── 落盘 ──────────────────────────────────────────────────────────────────
+
+/** docroot 内的安全写入路径；越界（`..` 等）返回 null。 */
+function safeDocrootPath(docroot: string, route: string): string | null {
+  const cleaned = route.split('?')[0] ?? '';
+  const rel = normalize(cleaned).replaceAll('\\', '/');
+  const full = normalize(join(docroot, rel));
+  const rootWithSep = normalize(docroot.endsWith(sep) ? docroot : docroot + sep);
+  if (!full.startsWith(rootWithSep)) return null;
+  return full;
 }
 
-function sendPng(res: http.ServerResponse, png: Buffer): void {
-  res.writeHead(200, {
-    'content-type': 'image/png',
-    'cache-control': 'no-cache',
-    'content-length': String(png.byteLength),
-  });
-  res.end(png);
-}
-
-function notFound(res: http.ServerResponse): void {
-  res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
-  res.end('not found');
-}
-
-async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-  const url = new URL(req.url ?? '/', 'http://127.0.0.1');
-  const path = url.pathname;
+function writeFile(docroot: string, route: string, data: string | Buffer): boolean {
+  const path = safeDocrootPath(docroot, route);
+  if (!path) {
+    logger.warn('refusing to write outside docroot', { event: 'weq-publish-escape', route });
+    return false;
+  }
   try {
-    if (path === '/healthz') {
-      res.writeHead(200, { 'content-type': 'text/plain' });
-      res.end('ok');
-      return;
-    }
-    if (path === '/cover/daily') {
-      const png = await renderCardPng(dailyCardSpec(todayLabel()));
-      sendPng(res, png);
-      return;
-    }
-    if (path === '/p/daily' || path === '/p/daily/') {
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      res.end(dailyPageHtml());
-      return;
-    }
-    // 「群数据周报」推文：封面 + 跳转页都只读内存快照（getWeqStats），零计算；
-    // 快照由 app_context 后台算好落盘再灌进内存（见 weq_assistant/stats.ts）。
-    if (path === '/cover/stats') {
-      const png = await renderCardPng(statsCardSpec(getWeqStats()));
-      sendPng(res, png);
-      return;
-    }
-    if (path === '/p/stats' || path === '/p/stats/') {
-      const report = getWeqStats();
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      res.end(report ? renderStatsPageHtml(report) : statsPendingHtml());
-      return;
-    }
-    if (path === '/avatar.png') {
-      const logo = resolveResource('brand', 'logo.png');
-      if (logo && existsSync(logo)) {
-        sendPng(res, readFileSync(logo));
-        return;
-      }
-      notFound(res);
-      return;
-    }
-    notFound(res);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, data);
+    return true;
   } catch (error) {
-    logger.error('weq-assistant request failed', {
-      event: 'weq-request-error',
-      path,
-      ...logErrorContext(error),
+    logger.warn('failed to write published file', {
+      event: 'weq-publish-write-failed',
+      route,
+      error: error instanceof Error ? error.message : String(error),
     });
-    if (!res.headersSent) {
-      res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
-      res.end('internal error');
-    }
+    return false;
   }
 }
 
-function tryListen(server: http.Server, port: number): Promise<boolean> {
-  return new Promise((resolve, reject) => {
-    const onError = (err: NodeJS.ErrnoException): void => {
-      server.off('listening', onListening);
-      if (err.code === 'EADDRINUSE') {
-        resolve(false);
-        return;
-      }
-      reject(err);
-    };
-    const onListening = (): void => {
-      server.off('error', onError);
-      resolve(true);
-    };
-    server.once('error', onError);
-    server.once('listening', onListening);
-    server.listen(port, '127.0.0.1');
-  });
+export interface PublishOptions {
+  /** docroot 绝对路径（由调用方从设置 / appDataRoot 派生）。 */
+  docroot: string;
+  /** 群数据周报统计快照缺失时也发布「生成中」占位页（默认 true）。 */
+  includeStats?: boolean;
 }
 
 /**
- * Start (or restart) the WeQ 助手 server. Idempotent for the same port. Probes
- * the next `PORT_FALLBACK_ATTEMPTS` ports if the requested one is busy; returns
- * the port actually bound so the caller can persist it + rewrite the ARK card.
+ * 把当前主题 + 当前统计快照下的全部推文页面 / 封面物化到 docroot。
+ * 幂等：内容不变时重写同路径文件，QQ 侧 `cache-control: no-cache` 保证即时生效。
+ * 返回成功写入的路由数。
  */
-export async function startWeqServer(opts: WeqServerOptions): Promise<number> {
-  if (httpServer) {
-    if (activeConfig && activeConfig.port === opts.port) return activeConfig.port;
-    await stopWeqServer();
-  }
-  const server = http.createServer((req, res) => {
-    void handleRequest(req, res);
-  });
-  let boundPort = -1;
-  for (let i = 0; i < PORT_FALLBACK_ATTEMPTS; i += 1) {
-    const port = opts.port + i;
-    if (port > 65535) break;
-    if (await tryListen(server, port)) {
-      boundPort = port;
-      break;
-    }
-    logger.warn('weq-assistant port in use, trying next', { event: 'weq-port-busy', port });
-  }
-  if (boundPort === -1) {
-    server.close();
-    throw new Error(
-      `WeQ 助手端口 ${opts.port}–${Math.min(opts.port + PORT_FALLBACK_ATTEMPTS - 1, 65535)} 都被占用，无法启动。`,
-    );
-  }
-  httpServer = server;
-  activeConfig = { port: boundPort };
-  logger.info('weq-assistant server started', {
-    event: 'weq-start',
-    port: boundPort,
-    requestedPort: opts.port,
-    url: `http://127.0.0.1:${boundPort}`,
-  });
-  return boundPort;
-}
+export async function publishWeqAssistantDocroot(opts: PublishOptions): Promise<number> {
+  const { docroot, includeStats = true } = opts;
+  let written = 0;
 
-/** Stop the server if running. Idempotent. */
-export async function stopWeqServer(): Promise<void> {
-  const server = httpServer;
-  if (!server) return;
-  httpServer = null;
-  activeConfig = null;
-  await new Promise<void>((resolve) => {
-    server.close(() => resolve());
-    server.closeAllConnections?.();
+  // 每日推文（欢迎页）
+  if (writeFile(docroot, 'p/daily.html', dailyPageHtml())) written += 1;
+  try {
+    if (writeFile(docroot, 'cover/daily.png', await renderCardPng(dailyCardSpec(todayLabel()))))
+      written += 1;
+  } catch (error) {
+    // 字体缺失等渲染失败不应阻断其它产物的发布。
+    logger.warn('failed to render daily cover', {
+      event: 'weq-publish-cover-failed',
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  // 群数据周报（有快照出完整页，无快照出「生成中」占位）
+  if (includeStats) {
+    const report = getWeqStats();
+    if (
+      writeFile(docroot, 'p/stats.html', report ? renderStatsPageHtml(report) : statsPendingHtml())
+    )
+      written += 1;
+    try {
+      if (writeFile(docroot, 'cover/stats.png', await renderCardPng(statsCardSpec(report))))
+        written += 1;
+    } catch (error) {
+      logger.warn('failed to render stats cover', {
+        event: 'weq-publish-cover-failed',
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  // logo（会话头像兜底）
+  const logoPath = resolveResource('brand', 'logo.png');
+  if (logoPath && existsSync(logoPath)) {
+    if (writeFile(docroot, 'avatar.png', readFileSync(logoPath))) written += 1;
+  }
+
+  logger.info('published weq assistant docroot', {
+    event: 'weq-publish',
+    docroot,
+    written,
   });
-  logger.info('weq-assistant server stopped', { event: 'weq-stop' });
+  return written;
 }

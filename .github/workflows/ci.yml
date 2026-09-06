@@ -65,6 +65,36 @@ jobs:
       - name: Type-check all packages
         run: pnpm -r typecheck
 
+  # Rust 守护进程（packages/daemon）：fmt + clippy -D warnings + 单测，与 TS 侧
+  # 的 lint/typecheck/test 同级门禁。cargo 缓存加速重复构建。
+  daemon:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/daemon
+
+      - name: Format check
+        run: cargo fmt --check
+        working-directory: packages/daemon
+
+      # clippy 以 -D warnings 为门禁：任何告警即失败，与 biome lint 同一标准。
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+        working-directory: packages/daemon
+
+      - name: Tests
+        run: cargo test
+        working-directory: packages/daemon
+
   # 离线单测（packages/*/test/*.test.ts）。需要真 QQ 环境的探针脚本在
   # packages/*/tools/ 下，不在这里跑 —— 约定见 docs/develop/testing.md。
   test:
