@@ -42,7 +42,7 @@ function todayLabel(): string {
  * same SVG the component library would, keeping the icons consistent with WeQ
  * Desktop's UI. `currentColor` lets CSS tint them.
  */
-const LUCIDE_PATHS: Record<string, string> = {
+export const LUCIDE_PATHS: Record<string, string> = {
   smartphone: '<rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/>',
   'refresh-cw':
     '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>' +
@@ -55,7 +55,7 @@ const LUCIDE_PATHS: Record<string, string> = {
     '<path d="m9 12 2 2 4-4"/>',
   lock: '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
 };
-function lucide(name: keyof typeof LUCIDE_PATHS, size: number): string {
+export function lucide(name: keyof typeof LUCIDE_PATHS, size: number): string {
   return (
     `<svg class="ico" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" ` +
     `stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ` +
@@ -204,6 +204,14 @@ function safeDocrootPath(docroot: string, route: string): string | null {
   const rootWithSep = normalize(docroot.endsWith(sep) ? docroot : docroot + sep);
   if (!full.startsWith(rootWithSep)) return null;
   return full;
+}
+
+/**
+ * 把单个文件安全地写进 docroot（release 推文等外部发布方共用同一安全边界）。
+ * 返回是否成功写入。
+ */
+export function publishDocrootFile(docroot: string, route: string, data: string | Buffer): boolean {
+  return writeFile(docroot, route, data);
 }
 
 function writeFile(docroot: string, route: string, data: string | Buffer): boolean {

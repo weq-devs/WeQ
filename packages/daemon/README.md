@@ -29,11 +29,20 @@ WeQ Desktop (Electron)                    weq-daemon (本包，原生二进制)
 | `http_start` | `port`, `docroot` | `started { port }` | 开启（或按新参数替换）HTTP 服务；同参数幂等；成功后**记忆**到状态文件 |
 | `http_stop` | — | `stopped` | 关 HTTP 并**清除记忆**（重启后保持关闭）；守护进程本体存活 |
 | `http_status` | — | `http_status { running, port?, docroot? }` | 查询状态 |
+| `release_watch_start` | `{ api_base, repo, interval_secs, current_version }` | `release_watch_status { info }` | 开启（或按新参数重启）GitHub release 轮询（Rust 实现，普通轮询） |
+| `release_watch_stop` | — | `stopped` | 关闭轮询（latest_seen / pending 保留） |
+| `release_watch_status` | — | `release_watch_status { info }` | 查询轮询状态（含未确认的新版本 `pending`） |
+| `release_ack` | `version` | `release_watch_status { info }` | GUI 已处理该版本：清 pending、推进 current_version |
+| `autostart_set` | `{ enabled, gui_exe }` | `autostart_applied { enabled }` | 注册 / 撤销 **WeQ GUI** 的开机自启（写平台注册 + 落记忆）——Electron 自己不注册任务 |
+| `autostart_sync` | — | `autostart_applied { enabled }` | 按记忆对账一次（WeQ 拉起守护进程后调用，修复被手动删除的注册） |
+| `autostart_status` | — | `autostart_status { enabled, registered }` | 意图 vs 平台注册实际在位 |
 | `stop` | — | （无帧，EOF） | 优雅退出守护进程；**保留记忆**（重启后按记忆恢复） |
+
+`release_watch_status.info = { watching, repo?, interval_secs?, current_version?, latest_seen?, pending?, last_error? }`。发现比 `current_version` 新的 release ⇒ 置 `pending`，GUI 轮询状态读它弹系统通知 + 发推文（内容取 CHANGELOG.md 对应章节），处理后 `release_ack`。
 
 ### 跨重启记忆
 
-守护进程把最近一次成功的 `http_start {port, docroot}` 存进自己的状态文件（按管道名区分）：
+守护进程把最近一次成功的 `http_start {port, docroot}` 存进自己的状态文件（按管道名区分，release 监控与 GUI 自启记忆也住同一目录）：
 
 - Windows：`%LOCALAPPDATA%\weq-daemon\<pipe>.json`
 - macOS：`~/Library/Application Support/weq-daemon/<pipe>.json`
@@ -63,7 +72,7 @@ sock.on('connect', () => sock.end(frame({ cmd: 'http_start', port: 17690, docroo
 
 ```
 weq-daemon serve              # 守护进程模式（自启动注册的命令）
-weq-daemon ping|http-status|stop [--pipe <name>]
+weq-daemon ping|http-status|release-status|autostart-status|stop [--pipe <name>]
 weq-daemon install|uninstall|status [--pipe <name>]
 ```
 

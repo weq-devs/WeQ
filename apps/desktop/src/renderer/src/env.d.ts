@@ -4,6 +4,7 @@ interface Window {
   electron?: import('@electron-toolkit/preload').ElectronAPI;
   weq: {
     openLogDir(): Promise<boolean>;
+    revealPath(path: string): Promise<boolean>;
     channel: {
       open(theme?: 'system' | 'light' | 'dark'): Promise<boolean>;
       prepare(theme?: 'system' | 'light' | 'dark'): Promise<{ partition: string; url: string }>;

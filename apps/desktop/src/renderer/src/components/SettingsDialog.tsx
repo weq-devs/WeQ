@@ -13,6 +13,7 @@ import {
   type ReactNode,
 } from 'react';
 import {
+  Activity,
   AudioLines,
   Bot,
   Check,
@@ -26,7 +27,6 @@ import {
   Radio,
   Settings2,
   ShieldCheck,
-  Sparkles,
   Sun,
   User,
   X,
@@ -39,7 +39,7 @@ import { VoiceTranscribeSection } from './settings/VoiceTranscribeSection';
 import { McpServerSection } from './settings/McpServerSection';
 import { ExternalRkeySection } from './settings/ExternalRkeySection';
 import { SsePushSection } from './settings/SsePushSection';
-import { WeqAssistantSection } from './settings/WeqAssistantSection';
+import { DaemonSection } from './settings/DaemonSection';
 import { AntiRecallSection } from './settings/AntiRecallSection';
 import { SectionHeader, Toggle } from './settings/controls';
 import { trpc } from '../trpc/client';
@@ -61,7 +61,7 @@ type SectionId =
   | 'mcp'
   | 'rkey'
   | 'sse'
-  | 'weq';
+  | 'daemon';
 
 interface SettingsSection {
   id: SectionId;
@@ -132,10 +132,10 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => <SsePushSection />,
   },
   {
-    id: 'weq',
-    label: 'WeQ 助手',
-    icon: <Sparkles size={16} strokeWidth={1.8} />,
-    render: () => <WeqAssistantSection />,
+    id: 'daemon',
+    label: '守护进程',
+    icon: <Activity size={16} strokeWidth={1.8} />,
+    render: () => <DaemonSection />,
   },
 ];
 

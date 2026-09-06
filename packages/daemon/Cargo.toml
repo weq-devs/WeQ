@@ -23,6 +23,8 @@ tokio = { version = "1", features = [
 ] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+ureq = { version = "2", default-features = false, features = ["tls", "gzip", "json"] }
+log = "0.4"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"

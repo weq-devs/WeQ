@@ -569,6 +569,8 @@ jobs:
     needs: [windows, linux-x64, linux-arm64, macos-x64, macos-arm64, mac-merge-update-info, web]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: 生成并写入中文 Release 说明
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -576,6 +578,11 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+
+          # 约定：版本说明的「内容」来自 CHANGELOG.md 对应版本的章节
+          # （与 WeQ 助手推文 / 系统通知同一数据源），GitHub 自动生成的
+          # commit/PR 变更列表附在后面作为补充。
+          SECTION=$(node scripts/extract-changelog.mjs "${TAG}" CHANGELOG.md)
 
           # 让 GitHub 从上一个 tag 到本 tag 自动生成变更列表（commit/PR）。
           # 只取其中的正文（.body），拼到我们自己的中文说明后面。
@@ -585,6 +592,9 @@ jobs:
 
           NOTES=$(cat <<EOF
           ## weQ ${TAG}
+
+          ### 更新内容
+          ${SECTION}
 
           ### 下载
           - **Windows**: \`weQ-${TAG#v}-setup.exe\`
@@ -633,9 +643,9 @@ jobs:
 
           gh release download "${VERSION}" --pattern "${EXE}" --dir /tmp/release
 
-          # 取 commit 正文；若为空则回退到 subject
-          BODY=$(git log -1 --pretty=format:%b)
-          [ -z "$BODY" ] && BODY=$(git log -1 --pretty=format:%s)
+          # 约定：QQ 通知的「详细更改」取 CHANGELOG.md 对应版本章节
+          # （与 WeQ 助手推文 / Release 说明同一数据源）。
+          BODY=$(node scripts/extract-changelog.mjs "${VERSION}" CHANGELOG.md)
 
           # 检查 exe 大小，超过 200 MB 则不作为附件发送（QQ 限制）
           EXE_SIZE=$(stat -c%s "/tmp/release/${EXE}")

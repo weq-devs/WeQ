@@ -31,10 +31,30 @@ pub async fn run_control_loop(pipe_name: &str) -> Result<(), String> {
     let state = DaemonState::new();
     // 按记忆恢复上次的 HTTP 服务（如有）。失败只记日志 —— 管道必须照常就绪。
     crate::persist::restore_on_boot(&state, pipe_name).await;
+    // release 轮询按状态文件恢复（pending / 配置）；无记忆则保持空闲。
+    let release = crate::release::ReleaseWatcher::new(pipe_name);
+    release.restore().await;
+    let _ = CURRENT_RELEASE.set(release);
+    // 按记忆决定要不要拉起 WeQ GUI（守护进程开机自启 → GUI 跟着起）。
+    crate::gui_autostart::launch_gui_on_boot(pipe_name);
     imp::serve_forever(pipe_name, state).await
 }
 
+/// 当前 release 监控句柄。`run_control_loop` 进入时写入，之后只读。
+static CURRENT_RELEASE: std::sync::OnceLock<crate::release::ReleaseWatcher> =
+    std::sync::OnceLock::new();
+
+/// 命令分发用的共享句柄。
+fn current_release() -> &'static crate::release::ReleaseWatcher {
+    CURRENT_RELEASE
+        .get()
+        .expect("release watcher initialised before serving")
+}
+
 /// 单客户端处理：读一帧 → 分发 → 写回 → 关连接。
+///
+/// `handle_request` 通过 `CURRENT_RELEASE` 取 release 监控句柄 —— 命令分发不
+/// 需要额外传参，与 `current_pipe_name()` 同一模式。
 async fn serve_client<S>(mut stream: S, state: SharedState) -> Result<(), String>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -118,12 +138,110 @@ async fn handle_request(req: Request, state: &SharedState) -> Response {
                 docroot: cfg.as_ref().map(|c| c.docroot.clone()),
             }
         }
+        Request::ReleaseWatchStart(cfg) => {
+            if cfg.repo.trim().is_empty() {
+                return Response::Error {
+                    message: "repo must not be empty".to_string(),
+                };
+            }
+            current_release().start(cfg).await;
+            Response::ReleaseWatchStatus(status_response(current_release().status().await))
+        }
+        Request::ReleaseWatchStop => {
+            current_release().stop().await;
+            Response::Stopped
+        }
+        Request::ReleaseWatchStatus => {
+            Response::ReleaseWatchStatus(status_response(current_release().status().await))
+        }
+        Request::ReleaseAck { version } => {
+            if version.trim().is_empty() {
+                return Response::Error {
+                    message: "version must not be empty".to_string(),
+                };
+            }
+            current_release().ack(version.trim()).await;
+            Response::ReleaseWatchStatus(status_response(current_release().status().await))
+        }
+        Request::AutostartSet(memory) => {
+            let pipe = current_pipe_name();
+            // 先执行平台注册 / 卸载，成功才落记忆 —— 记忆永远反映「真实在位」的状态。
+            let result = if memory.enabled {
+                crate::gui_autostart::register_gui(pipe, &memory.gui_exe)
+            } else {
+                crate::gui_autostart::unregister_gui(pipe)
+            };
+            match result {
+                Ok(()) => {
+                    if let Some(dir) = crate::persist::release_state_dir() {
+                        if memory.enabled {
+                            crate::gui_autostart::save_gui(&dir, pipe, true, &memory.gui_exe);
+                        } else {
+                            crate::gui_autostart::clear_gui(&dir, pipe);
+                        }
+                    }
+                    crate::logger::info(&format!(
+                        "gui autostart set: enabled={} exe={}",
+                        memory.enabled, memory.gui_exe
+                    ));
+                    Response::AutostartApplied {
+                        enabled: memory.enabled,
+                    }
+                }
+                Err(message) => Response::Error { message },
+            }
+        }
+        Request::AutostartSync => {
+            // WeQ 刚拉起守护进程时的对账：按记忆里的开关再执行一遍注册 / 卸载，
+            // 让「意图」与「平台实际在位」收敛（用户手动删了任务也能自动补回）。
+            let pipe = current_pipe_name();
+            let Some(dir) = crate::persist::release_state_dir() else {
+                return Response::AutostartApplied { enabled: false };
+            };
+            match crate::gui_autostart::load_gui(&dir, pipe) {
+                Some(memory) if memory.enabled => {
+                    match crate::gui_autostart::register_gui(pipe, &memory.gui_exe) {
+                        Ok(()) => Response::AutostartApplied { enabled: true },
+                        Err(message) => Response::Error { message },
+                    }
+                }
+                Some(_) => match crate::gui_autostart::unregister_gui(pipe) {
+                    Ok(()) => Response::AutostartApplied { enabled: false },
+                    Err(message) => Response::Error { message },
+                },
+                None => Response::AutostartApplied { enabled: false },
+            }
+        }
+        Request::AutostartStatus => {
+            let pipe = current_pipe_name();
+            let enabled = crate::persist::release_state_dir()
+                .and_then(|dir| crate::gui_autostart::load_gui(&dir, pipe))
+                .map(|m| m.enabled)
+                .unwrap_or(false);
+            Response::AutostartStatus {
+                enabled,
+                registered: crate::gui_autostart::registered(pipe),
+            }
+        }
         Request::Stop => {
             DaemonState::http_stop(state).await;
             crate::logger::info("stop requested via control pipe — exiting");
             // HTTP 已关停；直接退出进程（控制循环无法从 handler 里优雅返回）。
             std::process::exit(0);
         }
+    }
+}
+
+/// 把 release 监控的内部快照映射成协议响应。
+fn status_response(s: crate::release::ReleaseStatus) -> crate::protocol::ReleaseWatchInfo {
+    crate::protocol::ReleaseWatchInfo {
+        watching: s.watching,
+        repo: s.config.as_ref().map(|c| c.repo.clone()),
+        interval_secs: s.config.as_ref().map(|c| c.interval_secs),
+        current_version: s.config.as_ref().map(|c| c.current_version.clone()),
+        latest_seen: s.latest_seen,
+        pending: s.pending,
+        last_error: s.last_error,
     }
 }
 

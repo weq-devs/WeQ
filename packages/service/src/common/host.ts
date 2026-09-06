@@ -79,6 +79,13 @@ export interface HostBridge {
   appVersion(): string;
   /** False in dev builds. */
   isPackaged(): boolean;
+  /**
+   * Absolute path of the current executable (`app.getPath('exe')` on Electron,
+   * `process.execPath` on web/server). The daemon autostart hands this to the
+   * weq-daemon so IT can launch the GUI on boot (WeQ never registers its own
+   * autostart task).
+   */
+  currentExePath(): string;
 }
 
 let installed: HostBridge | null = null;

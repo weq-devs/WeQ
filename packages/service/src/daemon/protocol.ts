@@ -19,11 +19,52 @@ export const DAEMON_PIPE_NAME = 'weq-daemon';
 export const DAEMON_MAX_FRAME = 1024 * 1024;
 
 /** 当前协议版本标记（写进 ping 响应，便于排查两端不匹配）。 */
+/** GitHub release 轮询配置（`release_watch_start` 下发；Rust `ReleaseWatchConfig` 镜像）。 */
+export interface DaemonReleaseWatchConfig {
+  /** GitHub API 根（默认官方；可指向镜像）。 */
+  api_base: string;
+  /** 仓库 `owner/name`。 */
+  repo: string;
+  /** 轮询间隔（秒；守护进程侧下限 60）。 */
+  interval_secs: number;
+  /** 当前已安装版本（`1.2.3`，不带 `v` 前缀；空串 = 未知）。 */
+  current_version: string;
+}
+
+/** `release_watch_status` 的载荷（Rust `ReleaseWatchInfo` 镜像）。 */
+export interface DaemonReleaseWatchInfo {
+  watching: boolean;
+  repo: string | null;
+  interval_secs: number | null;
+  current_version: string | null;
+  /** 最近一次成功轮询到的最新版本。 */
+  latest_seen: string | null;
+  /** 未确认的新版本（GUI 弹窗 / 推文用）。 */
+  pending: string | null;
+  /** 最近一次轮询的网络错误摘要；成功一轮后清空。 */
+  last_error: string | null;
+}
+
+/** 自启动注册记忆（`autostart_set` 下发；Rust `AutostartMemory` 镜像）。 */
+export interface DaemonAutostartMemory {
+  /** true = 注册开机自启；false = 撤销注册。 */
+  enabled: boolean;
+  /** 要拉起的 WeQ GUI 可执行文件（绝对路径）。 */
+  gui_exe: string;
+}
+
 export type DaemonRequest =
   | { cmd: 'ping' }
   | { cmd: 'http_start'; port: number; docroot: string }
   | { cmd: 'http_stop' }
   | { cmd: 'http_status' }
+  | { cmd: 'release_watch_start'; cfg: DaemonReleaseWatchConfig }
+  | { cmd: 'release_watch_stop' }
+  | { cmd: 'release_watch_status' }
+  | { cmd: 'release_ack'; version: string }
+  | { cmd: 'autostart_set'; memory: DaemonAutostartMemory }
+  | { cmd: 'autostart_sync' }
+  | { cmd: 'autostart_status' }
   | { cmd: 'stop' };
 
 export type DaemonResponse =
@@ -31,6 +72,9 @@ export type DaemonResponse =
   | { res: 'started'; port: number }
   | { res: 'stopped' }
   | { res: 'http_status'; running: boolean; port: number | null; docroot: string | null }
+  | { res: 'release_watch_status'; info: DaemonReleaseWatchInfo }
+  | { res: 'autostart_applied'; enabled: boolean }
+  | { res: 'autostart_status'; enabled: boolean; registered: boolean }
   | { res: 'error'; message: string };
 
 /** 控制管道的完整连接目标。 */

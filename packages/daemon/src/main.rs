@@ -21,11 +21,13 @@
 //! 并存多套（不同管道名 + 不同端口），测试互不干扰。
 
 mod autostart;
+mod gui_autostart;
 mod httpd;
 mod logger;
 mod persist;
 mod pipe;
 mod protocol;
+mod release;
 mod state;
 
 use std::process::ExitCode;
@@ -60,6 +62,8 @@ fn run(args: &[String]) -> Result<(), String> {
         "ping" => client_once(&pipe_name, &Request::Ping),
         "http-status" => client_once(&pipe_name, &Request::HttpStatus),
         "stop" => client_once(&pipe_name, &Request::Stop),
+        "release-status" => client_once(&pipe_name, &Request::ReleaseWatchStatus),
+        "autostart-status" => client_once(&pipe_name, &Request::AutostartStatus),
         "install" => autostart::install(&pipe_name),
         "uninstall" => autostart::uninstall_with(&pipe_name),
         "status" => {
@@ -137,6 +141,35 @@ fn print_response(resp: &Response) {
             (true, _, _) => println!("running"),
             (false, _, _) => println!("not running"),
         },
+        Response::ReleaseWatchStatus(info) => {
+            let crate::protocol::ReleaseWatchInfo {
+                watching,
+                repo,
+                interval_secs,
+                current_version,
+                latest_seen,
+                pending,
+                last_error,
+            } = info;
+            let watching = *watching;
+            if watching {
+                println!(
+                    "watching repo={:?} interval={:?} current={:?} latest={:?} pending={:?} error={:?}",
+                    repo, interval_secs, current_version, latest_seen, pending, last_error
+                );
+            } else {
+                println!("not watching");
+            }
+        }
+        Response::AutostartApplied { enabled } => {
+            println!("autostart enabled={enabled}");
+        }
+        Response::AutostartStatus {
+            enabled,
+            registered,
+        } => {
+            println!("autostart enabled={enabled} registered={registered}");
+        }
         Response::Error { message } => println!("error: {message}"),
     }
 }
@@ -155,6 +188,8 @@ COMMANDS:
   serve        守护进程模式（自启动注册的就是这条命令）
   ping         探活运行中的守护进程
   http-status  查询 HTTP 服务状态（运行中则带端口 / docroot）
+  release-status  查询 GitHub release 轮询状态（含未确认的新版本）
+  autostart-status  查询 WeQ GUI 自启动状态（意图 + 平台注册）
   stop         停止运行中的守护进程
   install      注册平台自启动（schtasks / LaunchAgent / systemd user unit）
   uninstall    移除平台自启动注册

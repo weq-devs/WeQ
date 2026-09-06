@@ -122,3 +122,67 @@ export async function daemonHttpStatus(
   if (res?.res !== 'http_status') return null;
   return { running: res.running, port: res.port, docroot: res.docroot };
 }
+
+/**
+ * 开启（或按新参数重启）GitHub release 轮询。返回开启后的完整状态；
+ * 守护进程不在返回 null。
+ */
+export async function daemonReleaseWatchStart(
+  cfg: import('./protocol').DaemonReleaseWatchConfig,
+  pipeName: string = DAEMON_PIPE_NAME,
+): Promise<import('./protocol').DaemonReleaseWatchInfo | null> {
+  const res = await callDaemon({ cmd: 'release_watch_start', cfg }, pipeName);
+  return res?.res === 'release_watch_status' ? res.info : null;
+}
+
+/** 关闭 release 轮询（latest_seen / pending 保留）。 */
+export async function daemonReleaseWatchStop(
+  pipeName: string = DAEMON_PIPE_NAME,
+): Promise<boolean> {
+  const res = await callDaemon({ cmd: 'release_watch_stop' }, pipeName);
+  return res !== null && (res.res === 'stopped' || res.res === 'error');
+}
+
+/** 查询 release 轮询状态（含未确认的新版本）；守护进程不在返回 null。 */
+export async function daemonReleaseWatchStatus(
+  pipeName: string = DAEMON_PIPE_NAME,
+): Promise<import('./protocol').DaemonReleaseWatchInfo | null> {
+  const res = await callDaemon({ cmd: 'release_watch_status' }, pipeName);
+  return res?.res === 'release_watch_status' ? res.info : null;
+}
+
+/**
+ * GUI 已处理某版本（弹窗已展示 / 推文已同步）→ 清 pending 并推进
+ * current_version，下一轮不再重复置位。
+ */
+export async function daemonReleaseAck(
+  version: string,
+  pipeName: string = DAEMON_PIPE_NAME,
+): Promise<import('./protocol').DaemonReleaseWatchInfo | null> {
+  const res = await callDaemon({ cmd: 'release_ack', version }, pipeName);
+  return res?.res === 'release_watch_status' ? res.info : null;
+}
+
+/**
+ * 注册 / 撤销 WeQ GUI 的开机自启（写注册表 / plist / systemd unit，并落记忆）。
+ * 注册失败（平台工具报错）返回 `{ ok: false, message }`。
+ */
+export async function daemonAutostartSet(
+  memory: import('./protocol').DaemonAutostartMemory,
+  pipeName: string = DAEMON_PIPE_NAME,
+): Promise<{ ok: true; enabled: boolean } | { ok: false; message: string } | null> {
+  const res = await callDaemon({ cmd: 'autostart_set', memory }, pipeName);
+  if (res === null) return null;
+  if (res.res === 'autostart_applied') return { ok: true, enabled: res.enabled };
+  return { ok: false, message: res.res === 'error' ? res.message : `unexpected: ${res.res}` };
+}
+
+/** 查询 GUI 自启动状态（意图 + 平台注册实际在位）；守护进程不在返回 null。 */
+export async function daemonAutostartStatus(
+  pipeName: string = DAEMON_PIPE_NAME,
+): Promise<{ enabled: boolean; registered: boolean } | null> {
+  const res = await callDaemon({ cmd: 'autostart_status' }, pipeName);
+  return res?.res === 'autostart_status'
+    ? { enabled: res.enabled, registered: res.registered }
+    : null;
+}

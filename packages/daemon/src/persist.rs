@@ -61,6 +61,11 @@ fn state_dir() -> Option<PathBuf> {
     Some(base.join("weq-daemon"))
 }
 
+/// release 监控的状态目录（与 http 记忆同根；不按管道名建子目录，文件名区分）。
+pub fn release_state_dir() -> Option<PathBuf> {
+    state_dir()
+}
+
 /// 目录内状态文件的完整路径。
 fn state_file_in(dir: &Path, pipe_name: &str) -> PathBuf {
     dir.join(format!("{pipe_name}.json"))

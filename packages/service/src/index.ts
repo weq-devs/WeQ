@@ -502,13 +502,25 @@ export {
   decodeDaemonFrame,
   parseDaemonResponse,
 } from './daemon/protocol';
-export type { DaemonRequest, DaemonResponse } from './daemon/protocol';
+export type {
+  DaemonRequest,
+  DaemonResponse,
+  DaemonReleaseWatchConfig,
+  DaemonReleaseWatchInfo,
+  DaemonAutostartMemory,
+} from './daemon/protocol';
 export {
   callDaemon,
   pingDaemon,
   daemonHttpStart,
   daemonHttpStop,
   daemonHttpStatus,
+  daemonReleaseWatchStart,
+  daemonReleaseWatchStop,
+  daemonReleaseWatchStatus,
+  daemonReleaseAck,
+  daemonAutostartSet,
+  daemonAutostartStatus,
 } from './daemon/client';
 
 // ---- common (account-independent helpers) ----
