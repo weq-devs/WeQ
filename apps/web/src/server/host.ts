@@ -70,6 +70,11 @@ export function createWebHost({ exportDir, version }: WebHostOptions): HostBridg
       return { url: `/_download/${id}` };
     },
 
+    async renderHtmlToPdf() {
+      // 服务端没有 Electron 渲染引擎；年度报告 PDF 导出只在桌面版提供。
+      throw new Error('web 环境不支持 PDF 渲染，请使用桌面版');
+    },
+
     async openBotConsole({ url }) {
       // The bot console is its own HTTP server; let the browser open it.
       return { url };

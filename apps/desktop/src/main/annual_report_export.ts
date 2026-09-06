@@ -1,16 +1,17 @@
 /**
- * 年度报告导出 —— 三种产物共享同一份数据契约（renderer 已算好的页面 JSON）：
+ * 年度报告导出 —— 共享同一份数据契约（renderer 已算好的页面 JSON）：
  *
  *   - HTML：renderer 侧拼好自包含 HTML 字符串，本模块只管落盘；
- *   - PDF ：把同一份 HTML 载入隔离窗口，`printToPDF` 按 A4 逐页输出；
  *   - 长图：satori（JSX 元素树 → SVG）+ resvg（SVG → PNG），全部卡片竖排
  *     拼成一张 9:16 分享长图，无需任何 DOM 截图。
+ *   - PDF ：把同一份 HTML 载入隔离窗口，`printToPDF` 按 A4 逐页输出 —— 该实现
+ *     依赖 Electron，拆在 `annual_report_pdf.ts` 里由桌面 host 注入，避免把
+ *     `electron` 带进共享 router / web bundle。
  *
  * 长图刻意不用「窗口截图再拼接」：没有拼图依赖，且 satori 输出确定、无字体
  * 落位抖动。与 weq_assistant/cover.ts 共用同一条 satori+resvg 管线与 CJK 字体。
  */
 
-import { BrowserWindow } from 'electron';
 import { loadCjkFont } from './weq_assistant/cover';
 import satori from 'satori';
 import { Resvg } from '@resvg/resvg-js';
@@ -312,8 +313,7 @@ function overviewTree(data: Record<string, unknown>): El {
   // 日均分母由服务端下发，屏幕版 / HTML / 长图三处同源。
   const perDay = totalSent / Math.max(1, Number(data.spanDays ?? 1));
   const echo = totalSent > 0 ? Math.round((totalReceived / totalSent) * 100) : 0;
-  const firstMessageTime =
-    typeof data.firstMessageTime === 'number' ? data.firstMessageTime : null;
+  const firstMessageTime = typeof data.firstMessageTime === 'number' ? data.firstMessageTime : null;
   const since = reportSinceLabel(year, firstMessageTime);
   const eraLabel = reportEraLabel(year) + (since ? `（${since}）` : '');
 
@@ -462,44 +462,4 @@ export async function renderLongImagePng(slides: ReportExportSlide[]): Promise<B
     ],
   });
   return new Resvg(svg, { fitTo: { mode: 'width', value: SLIDE_W * PNG_SCALE } }).render().asPng();
-}
-
-// ---- PDF（隐藏窗口 + printToPDF）----------------------------------------
-
-/**
- * 把 renderer 拼好的自包含 HTML（内联样式、无外部依赖）渲染成 PDF。
- * 复用 link_shot 的隔离窗口范式：不可见、沙箱、无 preload、不碰账号会话。
- */
-export async function renderPdfFromHtml(html: string): Promise<Buffer> {
-  const win = new BrowserWindow({
-    width: 900,
-    height: 1300,
-    show: false,
-    webPreferences: {
-      sandbox: true,
-      contextIsolation: true,
-      nodeIntegration: false,
-      javascript: true,
-    },
-  });
-  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  try {
-    const loaded = win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-    await Promise.race([loaded, new Promise((resolve) => setTimeout(resolve, 8000))]);
-    if (win.isDestroyed()) throw new Error('窗口已销毁');
-    // 等字体/布局落定，避免首帧缺字。
-    await win.webContents
-      .executeJavaScript('document.fonts.ready.then(() => true)')
-      .catch(() => true);
-    const pdf = await win.webContents.printToPDF({
-      printBackground: true,
-      pageSize: 'A4',
-      margins: { top: 0, bottom: 0, left: 0, right: 0 },
-      preferCSSPageSize: true,
-    });
-    if (pdf.length === 0) throw new Error('printToPDF 返回空文件');
-    return pdf;
-  } finally {
-    if (!win.isDestroyed()) win.destroy();
-  }
 }

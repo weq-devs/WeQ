@@ -100,6 +100,11 @@ export const electronHost: HostBridge = {
     return null;
   },
 
+  async renderHtmlToPdf(html) {
+    const { renderPdfFromHtml } = await import('./annual_report_pdf');
+    return renderPdfFromHtml(html);
+  },
+
   async openBotConsole({ url, key, title }) {
     const { openBotWebUiWindow } = await import('./bot_webui_window');
     await openBotWebUiWindow(url, key, title);

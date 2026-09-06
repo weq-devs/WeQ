@@ -216,8 +216,7 @@ function ReportDeckView({
     return (
       <div className="weq-report-root weq-report-empty">
         <p>
-          {reportEraLabel(year)}没有可展示的卡片 ——
-          至少需要发出过一条私聊或群聊消息，报告才会出现。
+          {reportEraLabel(year)}没有可展示的卡片 —— 至少需要发出过一条私聊或群聊消息，报告才会出现。
         </p>
         <button type="button" onClick={onBackToEntry}>
           换个年份

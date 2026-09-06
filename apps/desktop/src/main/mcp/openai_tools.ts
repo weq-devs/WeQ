@@ -3,7 +3,8 @@
  * 供 WeQ 助手（AssistantService）调用。复用同一份 `run`，逻辑只此一处。
  *
  * 这里手写一个**极小**的 zod(v3)→JSON Schema 转换，只覆盖工具里实际用到的类型
- * （string / number / boolean / enum，及 optional / default 包装），不追求通用。
+ * （string / number / boolean / enum / 嵌套 object / array，及 optional / default
+ * 包装），不追求通用。
  */
 
 import type { z } from 'zod';
@@ -55,6 +56,13 @@ function fieldToJson(schema: z.ZodTypeAny): Record<string, unknown> {
     case 'ZodEnum':
       out.type = 'string';
       out.enum = (core as unknown as { _def: { values: string[] } })._def.values;
+      break;
+    case 'ZodArray':
+      out.type = 'array';
+      out.items = fieldToJson((core as unknown as { _def: { type: z.ZodTypeAny } })._def.type);
+      break;
+    case 'ZodObject':
+      Object.assign(out, objectToParameters(core as z.ZodObject<z.ZodRawShape>));
       break;
     default:
       out.type = 'string';

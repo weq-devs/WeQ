@@ -61,6 +61,12 @@ export interface HostBridge {
    */
   openHtmlReport(path: string): Promise<{ url: string } | null>;
   /**
+   * Render a self-contained HTML document to a PDF buffer.
+   * Electron opens an isolated hidden window and calls `printToPDF`; hosts
+   * that can't render PDFs throw (callers surface "unsupported").
+   */
+  renderHtmlToPdf(html: string): Promise<Buffer>;
+  /**
    * Show an exported bot's WebUI console, logging in with `key`. Electron opens
    * a window and returns `null`; web returns the URL for the client to open.
    */

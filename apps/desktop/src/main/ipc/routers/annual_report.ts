@@ -4,11 +4,7 @@ import { getAppContext, type AccountServices } from '../../context/app_context';
 import type { AnnualReportPreferences } from '@weq/service';
 import { getHost } from '@weq/service';
 import { reportPeriodLabel } from '@weq/service/report-time';
-import {
-  renderLongImagePng,
-  renderPdfFromHtml,
-  type ReportExportSlide,
-} from '../../annual_report_export';
+import { renderLongImagePng, type ReportExportSlide } from '../../annual_report_export';
 import { procedure, router } from '../trpc';
 
 function requireServices(): AccountServices {
@@ -96,7 +92,7 @@ export const annualReportRouter = router({
   exportPdf: procedure
     .input(z.object({ year: z.number().int().min(0), html: z.string().min(1) }))
     .mutation(async ({ input }) => {
-      const pdf = await renderPdfFromHtml(input.html);
+      const pdf = await getHost().renderHtmlToPdf(input.html);
       const path = await saveBuffer(pdf, `QQ年度报告_${reportPeriodLabel(input.year)}.pdf`, 'pdf');
       return { saved: path != null, path };
     }),

@@ -199,8 +199,7 @@ function overviewSlide(data: Record<string, unknown>): string {
   // 日均分母由服务端下发（自然年整年 / 历史以来从首条消息算起），屏幕与导出同源。
   const perDay = totalSent / Math.max(1, Number(data.spanDays ?? 1));
   const echo = totalSent > 0 ? Math.round((totalReceived / totalSent) * 100) : 0;
-  const firstMessageTime =
-    typeof data.firstMessageTime === 'number' ? data.firstMessageTime : null;
+  const firstMessageTime = typeof data.firstMessageTime === 'number' ? data.firstMessageTime : null;
   const since = reportSinceLabel(year, firstMessageTime);
   const eraLabel = reportEraLabel(year) + (since ? `（${since}）` : '');
 
