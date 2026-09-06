@@ -29,6 +29,8 @@ export type AnnualReportServiceOptions = {
 
 export class AnnualReportService {
   private readonly cache = new AnnualReportCache();
+  /** One shared query surface: availability / compute / MIN share memoized scans. */
+  private readonly queries: ReturnType<typeof createReportQueries>;
   private readonly scope: ReportScope;
   private readonly dataRevision: string;
   private preferences: AnnualReportPreferences;
@@ -41,6 +43,7 @@ export class AnnualReportService {
   ) {
     this.scope = options.scope ?? DEFAULT_REPORT_SCOPE;
     this.dataRevision = options.dataRevision ?? session.msgDbPath;
+    this.queries = createReportQueries(this.session);
     this.preferences = options.preferences ?? DEFAULT_PREFERENCES;
   }
 
@@ -53,7 +56,7 @@ export class AnnualReportService {
     if (this.availableYearsCache?.key === this.dataRevision) {
       return this.availableYearsCache.years;
     }
-    const oldest = await createReportQueries(this.session).meta.oldestMessageTime();
+    const oldest = await this.queries.meta.oldestMessageTime();
     const startYear = oldest ? new Date(oldest * 1000).getFullYear() : currentReportYear();
     const nowYear = currentReportYear();
     const years: number[] = [];
@@ -151,7 +154,7 @@ export class AnnualReportService {
       const data = await page.compute({
         year,
         scope: this.scope,
-        q: createReportQueries(this.session),
+        q: this.queries,
         signal: new AbortController().signal,
         dataRevision: this.dataRevision,
       });
@@ -197,7 +200,7 @@ export class AnnualReportService {
       page.availability({
         year,
         scope: this.scope,
-        q: createReportQueries(this.session),
+        q: this.queries,
         dataRevision: this.dataRevision,
       }),
     );

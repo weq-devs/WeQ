@@ -8,18 +8,38 @@ import type { ReportQueries } from './types';
  * queries and never touch `AccountSession`, a database handle or raw SQL.
  */
 export function createReportQueries(session: AccountSession): ReportQueries {
-  // 自己的 uin 从 c2c 数据本身推断（见 C2cMsgDb.inferSelfUin）：c2c 里
-  // senderUid != targetUid 的行就是「我发的」，其 40033 众数即自己的 uin。
-  // 这比 session/profile 里的身份更可靠 —— 实测 profile_info_v6 的 self 行
-  // 可能指向别的联系人，导致 group 方向计数全零。推断一次后缓存。
-  let selfUin: bigint | null | undefined; // undefined = 尚未解析
-  async function resolveSelfUin(): Promise<bigint | null> {
-    if (selfUin === undefined) {
-      const inferred = await session.c2cMsgs.inferSelfUin();
-      // context.uin 是字符串；Number() 先兜底空串（BigInt('') 会抛）。
-      selfUin = inferred ?? BigInt(Number(session.context.uin) || 0);
-    }
-    return selfUin;
+  // 自己的 uid 用 session 打开时已经驻留内存的 uidMap（nt_uid_mapping_table）
+  // 反查，不在这里对 c2c 消息表做任何推断扫描。群聊方向计数按 uid 精确匹配
+  // 40020，和 chat 里既有的 selfUid / 群活跃统计口径一致。
+  const selfUin = BigInt(Number(session.context.uin) || 0);
+  const selfUid = selfUin > 0n ? (session.uidMap.uidByUin(selfUin) ?? '') : '';
+
+  type DirectionCounts = {
+    c2cSent: number;
+    c2cReceived: number;
+    groupSent: number;
+    groupReceived: number;
+  };
+  const countCache = new Map<string, Promise<DirectionCounts>>();
+  let oldestCache: Promise<number | null> | null = null;
+
+  function oldestMessageTime(): Promise<number | null> {
+    if (oldestCache) return oldestCache;
+    oldestCache = Promise.all([
+      session.c2cMsgs.oldestSendTime(),
+      session.groupMsgs.oldestSendTime(),
+    ])
+      .then(([c2c, group]) => {
+        const candidates = [c2c, group].filter((v): v is bigint => v != null && v > 0n);
+        return candidates.length === 0
+          ? null
+          : Number(candidates.reduce((a, b) => (a < b ? a : b)));
+      })
+      .catch((error: unknown) => {
+        oldestCache = null;
+        throw error;
+      });
+    return oldestCache;
   }
 
   return {
@@ -30,21 +50,30 @@ export function createReportQueries(session: AccountSession): ReportQueries {
        * are counted — dataline / service tables are never queried here.
        */
       async countByDirection(startTime: number, endTime: number) {
-        const [c2c, group] = await Promise.all([
-          // c2c 方向由行内数据自证（senderUid != targetUid），无需 selfUin。
-          session.c2cMsgs.countByDirection({ startTime, endTime }),
-          session.groupMsgs.countByDirection({
-            startTime,
-            endTime,
-            selfUin: (await resolveSelfUin()) ?? 0n,
-          }),
-        ]);
-        return {
-          c2cSent: c2c.sent,
-          c2cReceived: c2c.received,
-          groupSent: group.sent,
-          groupReceived: group.received,
-        };
+        const key = `${startTime}:${endTime}`;
+        let running = countCache.get(key);
+        if (!running) {
+          running = Promise.all([
+            // c2c 方向由行内数据自证（senderUid != targetUid），无需 uidMap。
+            session.c2cMsgs.countByDirection({ startTime, endTime }),
+            session.groupMsgs.countByDirection({
+              startTime,
+              endTime,
+              ...(selfUid ? { senderUid: selfUid } : selfUin > 0n ? { selfUin } : {}),
+            }),
+          ]).then(([c2c, group]) => ({
+            c2cSent: c2c.sent,
+            c2cReceived: c2c.received,
+            groupSent: group.sent,
+            groupReceived: group.received,
+          }));
+          countCache.set(key, running);
+          // 失败时清掉缓存，页面重试可以重新扫；成功结果保留供 availability/compute 复用。
+          void running.catch(() => {
+            countCache.delete(key);
+          });
+        }
+        return running;
       },
     },
     meta: {
@@ -53,15 +82,7 @@ export function createReportQueries(session: AccountSession): ReportQueries {
        * null when the account has no stored messages at all. Drives the first
        * selectable report year. Two MIN scans, cached by the engine.
        */
-      async oldestMessageTime(): Promise<number | null> {
-        const [c2c, group] = await Promise.all([
-          session.c2cMsgs.oldestSendTime(),
-          session.groupMsgs.oldestSendTime(),
-        ]);
-        const candidates = [c2c, group].filter((v): v is bigint => v != null && v > 0n);
-        if (candidates.length === 0) return null;
-        return Number(candidates.reduce((a, b) => (a < b ? a : b)));
-      },
+      oldestMessageTime,
     },
   };
 }

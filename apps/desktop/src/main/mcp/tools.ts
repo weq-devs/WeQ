@@ -1771,4 +1771,52 @@ export const AI_TOOLS: AiTool[] = [
       };
     },
   }),
+
+  tool({
+    name: 'execute_sql',
+    description:
+      '在当前 QQ 账号本地数据库里执行一条 SQL 语句（SELECT / INSERT / UPDATE / DELETE / PRAGMA / DDL 等均可）。' +
+      '`dbName` 是数据库文件名（如 `msg.db`、`login.db`、`bc_09.db`），可先用 list_databases 查；`table` 是参考用的表名，' +
+      '仅用于结果里的上下文，不参与执行。执行成功返回 `{ success: true, result }`，失败返回 `{ success: false, error }`。' +
+      '⚠️ 写操作会真的改 QQ 数据库，谨慎使用，建议 QQ 关闭时操作。',
+    input: z.object({
+      dbName: z.string().min(1).describe('数据库文件名（如 msg.db、login.db、bc_09.db），可通过 list_databases 获得'),
+      table: z.string().min(1).describe('参考用的表名（仅用于结果上下文，不参与 SQL 执行）'),
+      sql: z.string().min(1).describe('要执行的 SQL 语句（可含多条，用 ; 分隔，末尾分号可省略）'),
+    }),
+    run: async ({ dbName, sql }) => {
+      const dbExplorer = services().dbExplorer;
+
+      // 把数据库文件名解析成完整路径
+      const databases = await dbExplorer.listDatabases();
+      const dbFile = databases.find((d) => d.name.toLowerCase() === dbName.toLowerCase());
+      if (!dbFile) {
+        return {
+          success: false,
+          dbName,
+          error: `未找到名为「${dbName}」的数据库。可通过 list_databases 查看可用数据库。`,
+        };
+      }
+
+      try {
+        const result = await dbExplorer.runSql(dbFile.path, sql);
+        return {
+          success: true,
+          dbName: dbFile.name,
+          dbPath: dbFile.path,
+          table: dbName,
+          result,
+        };
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        return {
+          success: false,
+          dbName: dbFile.name,
+          dbPath: dbFile.path,
+          table: dbName,
+          error: message,
+        };
+      }
+    },
+  }),
 ];
