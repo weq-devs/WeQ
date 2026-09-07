@@ -87,7 +87,7 @@ export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): R
           {allTime ? '你说过的话，都在这里了。' : '这一年的话都说完了。'}
         </p>
         <h2 className="weq-end-title weq-report-line" style={{ '--i': 2 } as React.CSSProperties}>
-          辛苦了
+          The End
         </h2>
         <p className="weq-end-sub weq-report-line" style={{ '--i': 3 } as React.CSSProperties}>
           聊天记录只留在这台电脑上。

@@ -156,8 +156,8 @@ export function InteractionsPage({
                 }
               />
               <FactLine
-                mark="齐"
-                label="齐声"
+                mark="复"
+                label="复读"
                 step={6}
                 primary={
                   <>

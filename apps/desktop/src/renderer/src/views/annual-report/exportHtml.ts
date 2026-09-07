@@ -1572,7 +1572,7 @@ function endSlide(data: Record<string, unknown>): string {
   return `${slideOpen('FIN', true)}
     <div class="end">
       <div class="end-line">${allTime ? '你说过的话，都在这里了。' : '这一年的话都说完了。'}</div>
-      <div class="end-title">辛苦了</div>
+      <div class="end-title">The End</div>
       <div class="end-sub">聊天记录只留在这台电脑上。<br>${
         allTime ? '往后的话，也还长。' : '明年这个时候，我们再看一次。'
       }</div>

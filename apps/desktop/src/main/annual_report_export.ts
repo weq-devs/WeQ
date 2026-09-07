@@ -2267,7 +2267,7 @@ function endTree(data: Record<string, unknown>): El {
         el(
           'div',
           { marginTop: 26, fontSize: 168, fontWeight: 700, color: PALETTE.ink, letterSpacing: 14 },
-          '辛苦了',
+          'The End',
         ),
         el(
           'div',
