@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactElement } from 'react';
-import { FileCode2, FileImage, FileText, LoaderCircle } from 'lucide-react';
+import { FileCode2, FileImage, FileText, LoaderCircle, Share2 } from 'lucide-react';
 import type { EndPageData } from '@weq/service';
 import { isAllTimeYear, reportPeriodLabel } from '@weq/service/report-time';
 import { client } from '../../../trpc/client';
@@ -7,6 +7,7 @@ import { useToast } from '../../../components/Toast';
 import { PageFrame, type ReportPageProps } from '../pageFrame';
 import { useReportView } from '../reportContext';
 import { buildReportHtml } from '../exportHtml';
+import { QzoneShareLightbox } from '../QzoneShareLightbox';
 
 type ExportKind = 'long' | 'html' | 'pdf';
 
@@ -29,6 +30,7 @@ export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): R
   const { year, slides } = useReportView();
   const pushToast = useToast((s) => s.push);
   const [busy, setBusy] = useState<ExportKind | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
   const allTime = isAllTimeYear(year);
 
   const html = useMemo(() => buildReportHtml(year, slides), [year, slides]);
@@ -98,6 +100,16 @@ export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): R
         <div className="weq-end-take weq-report-line" style={{ '--i': 4 } as React.CSSProperties}>
           <span className="weq-end-take-label">把这份 {reportPeriodLabel(data.year)} 带走</span>
           <div className="weq-end-take-row">
+            <button
+              type="button"
+              className="weq-end-take-btn"
+              disabled={busy != null}
+              onClick={() => setShareOpen(true)}
+            >
+              <Share2 size={17} aria-hidden />
+              <span className="weq-end-take-name">分享到空间</span>
+              <span className="weq-end-take-hint">一页一图发说说</span>
+            </button>
             {EXPORT_OPTIONS.map((option) => {
               const Icon = option.icon;
               const isBusy = busy === option.kind;
@@ -122,6 +134,9 @@ export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): R
           </div>
         </div>
       </div>
+      {shareOpen ? (
+        <QzoneShareLightbox year={year} slides={slides} onClose={() => setShareOpen(false)} />
+      ) : null}
     </PageFrame>
   );
 }

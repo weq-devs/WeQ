@@ -2367,3 +2367,166 @@ export async function renderLongImagePng(slides: ReportExportSlide[]): Promise<B
   });
   return new Resvg(svg, { fitTo: { mode: 'width', value: SLIDE_W * PNG_SCALE } }).render().asPng();
 }
+
+// ─────────────── QQ 空间分享 —— 逐页 PNG ───────────────
+// 说说一次最多 9 张图，所以分享不走长图，而是**一页一张图**。每张卡片在长图
+// 版式的基础上加两层：
+//   1. 右上角「分享者」一行：用户头像（base64 内嵌）+ 昵称 —— 用户明确要求
+//      「带上自己的头像」；
+//   2. 底部页脚追加指向 github.com/H3CoF6/WeQ 的署名行。
+// 输出尺寸压到 720×1280：空间图床对超大图压缩狠，超采样到 1440 宽足够清晰。
+
+/** 分享卡片的画幅（9:16 竖屏）。 */
+const SHARE_W = 720;
+const SHARE_H = 1280;
+
+/** 分享卡片专属的署名与跳转指向。 */
+const SHARE_FOOTER = '来自 WEQ · github.com/H3CoF6/WeQ';
+
+/** 分享时附加在每张卡片上的分享者信息。 */
+export interface ShareProfile {
+  /** 昵称（取不到可空 —— 空则不画分享者行）。 */
+  nick: string;
+  /** 头像 PNG/JPEG 字节（取不到可空 —— 空则画首字兜底）。 */
+  avatar?: Buffer;
+  /** 昵称首字，头像缺席时的兜底。 */
+  initial?: string;
+}
+
+/**
+ * 逐页渲染分享 PNG —— 每张卡片独立成图（说说一图一页，不用长图）。
+ * 版式复用 {@link treeForSlide}（与长图同一棵元素树），外面包一层分享壳：
+ * 头像行 + 项目署名。
+ */
+export async function renderSharePngs(
+  slides: ReportExportSlide[],
+  profile: ShareProfile,
+): Promise<Buffer[]> {
+  const fontData = loadCjkFont();
+  const fonts = [
+    { name: 'Report', data: fontData, weight: 400, style: 'normal' },
+    { name: 'Report', data: fontData, weight: 700, style: 'normal' },
+  ] as const;
+
+  const out: Buffer[] = [];
+  for (const slide of slides) {
+    const root = shareFrame(treeForSlide(slide), profile);
+    const svg = await satori(root as unknown as import('react').ReactNode, {
+      width: SHARE_W,
+      height: SHARE_H,
+      fonts: [...fonts],
+    });
+    out.push(
+      new Resvg(svg, { fitTo: { mode: 'width', value: SHARE_W * PNG_SCALE } }).render().asPng(),
+    );
+  }
+  return out;
+}
+
+/** 分享壳：长图卡片缩放进 720×1280 画幅，叠加头像行与署名。 */
+function shareFrame(inner: El, profile: ShareProfile): El {
+  return el(
+    'div',
+    {
+      width: SHARE_W,
+      height: SHARE_H,
+      display: 'flex',
+      position: 'relative',
+      overflow: 'hidden',
+      backgroundColor: PALETTE.paper,
+    },
+    [
+      // 内容层：把长图卡片按 720/1080 缩放居中放进画幅（长图卡片 1080×1920，
+      // 等比缩到 720×1280 正好满幅 —— 同一排版语言，零重排）。
+      el(
+        'div',
+        {
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: SHARE_W,
+          height: SHARE_H,
+          transform: `scale(${SHARE_W / SLIDE_W})`,
+          transformOrigin: 'top left',
+        },
+        [inner],
+      ),
+      // 右上角分享者行：头像 + 昵称。头像缺席画首字兜底。
+      el(
+        'div',
+        {
+          position: 'absolute',
+          top: 26,
+          right: 26,
+          display: 'flex',
+          alignItems: 'center',
+        },
+        [
+          el(
+            'div',
+            {
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              overflow: 'hidden',
+              backgroundColor: 'rgba(201,162,39,0.22)',
+            },
+            profile.avatar
+              ? el('img', {
+                  width: 40,
+                  height: 40,
+                  src: `data:image/png;base64,${profile.avatar.toString('base64')}`,
+                })
+              : el(
+                  'div',
+                  {
+                    fontSize: 20,
+                    fontWeight: 700,
+                    color: PALETTE.accent,
+                  },
+                  profile.initial || '我',
+                ),
+          ),
+          profile.nick
+            ? el(
+                'div',
+                {
+                  marginLeft: 10,
+                  fontSize: 18,
+                  color: PALETTE.inkSoft,
+                  letterSpacing: 2,
+                },
+                profile.nick,
+              )
+            : null,
+        ],
+      ),
+      // 底部署名行：指向项目仓库。
+      el(
+        'div',
+        {
+          position: 'absolute',
+          bottom: 18,
+          left: 0,
+          width: SHARE_W,
+          display: 'flex',
+          justifyContent: 'center',
+        },
+        [
+          el(
+            'div',
+            {
+              fontSize: 15,
+              color: PALETTE.inkFaint,
+              letterSpacing: 2,
+            },
+            SHARE_FOOTER,
+          ),
+        ],
+      ),
+    ],
+  );
+}

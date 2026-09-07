@@ -986,6 +986,345 @@ html[data-theme="dark"] .weq-report-root {
   letter-spacing: 0.1em;
 }
 
+/* ══ QQ 空间分享灯箱 ═══════════════════════════════════════════════
+
+   全部颜色取报告令牌（--rp-*），深浅模式自动跟随报告主题。灯箱是一块
+   「纸上的对开页」：背景压暗，卡片用纸色 + 发丝线描边，与报告同一排印语言。 */
+
+.weq-qzshare-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.46);
+  backdrop-filter: blur(6px);
+  animation: weq-qzshare-fade 220ms var(--rp-ease-drop);
+}
+
+@keyframes weq-qzshare-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.weq-qzshare-card {
+  display: flex;
+  flex-direction: column;
+  width: min(860px, calc(100vw - 64px));
+  max-height: min(640px, calc(100vh - 96px));
+  border: 1px solid var(--rp-hair);
+  background: var(--rp-paper);
+  color: var(--rp-ink);
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.4),
+    0 2px 8px rgba(0, 0, 0, 0.2);
+  animation: weq-qzshare-rise 280ms var(--rp-ease-drop);
+}
+
+@keyframes weq-qzshare-rise {
+  from { opacity: 0; transform: translateY(14px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+
+.weq-qzshare-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid var(--rp-hair);
+}
+
+.weq-qzshare-title {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.weq-qzshare-title-main {
+  font-family: var(--rp-serif);
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+}
+
+.weq-qzshare-title-sub {
+  color: var(--rp-ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+}
+
+.weq-qzshare-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  background: none;
+  color: var(--rp-ink-muted);
+  cursor: pointer;
+  transition: color 200ms ease;
+}
+
+.weq-qzshare-close:hover:not(:disabled) {
+  color: var(--rp-accent);
+}
+
+.weq-qzshare-close:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.weq-qzshare-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── 左栏：页面选择（预览清单） ─────────────────────── */
+
+.weq-qzshare-pages {
+  display: flex;
+  flex: 1.35;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  padding: 16px 14px 16px 22px;
+  overflow-y: auto;
+}
+
+.weq-qzshare-page {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 14px 12px 40px;
+  border: 1px solid var(--rp-hair);
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 200ms ease, background-color 200ms ease;
+}
+
+.weq-qzshare-page:hover {
+  border-color: var(--rp-ink-faint);
+}
+
+.weq-qzshare-page.is-checked {
+  border-color: var(--rp-accent);
+  background: rgba(var(--rp-accent-rgb), 0.07);
+}
+
+.weq-qzshare-page-check {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border: 1px solid var(--rp-ink-faint);
+  color: var(--rp-paper);
+  transition: background-color 180ms ease, border-color 180ms ease;
+}
+
+.weq-qzshare-page.is-checked .weq-qzshare-page-check {
+  border-color: var(--rp-accent);
+  background: var(--rp-accent);
+}
+
+.weq-qzshare-page-ghost {
+  color: var(--rp-ink-faint);
+  font-size: 9px;
+  letter-spacing: 0.26em;
+}
+
+.weq-qzshare-page-title {
+  font-family: var(--rp-serif);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.weq-qzshare-page-desc {
+  color: var(--rp-ink-muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── 右栏：文案 + 权限 + 分享者 ──────────────────── */
+
+.weq-qzshare-compose {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  padding: 16px 22px 16px 14px;
+  border-left: 1px solid var(--rp-hair);
+}
+
+.weq-qzshare-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.weq-qzshare-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background-color: rgba(var(--rp-accent-rgb), 0.16);
+  background-size: cover;
+  background-position: center;
+  color: var(--rp-accent);
+  font-family: var(--rp-serif);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.weq-qzshare-preview-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.weq-qzshare-nick {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.weq-qzshare-scope {
+  color: var(--rp-ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+}
+
+.weq-qzshare-text {
+  flex: 1;
+  min-height: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--rp-hair);
+  background: var(--rp-paper-deep);
+  color: var(--rp-ink);
+  font-family: var(--rp-sans);
+  font-size: 13px;
+  line-height: 1.8;
+  letter-spacing: 0.04em;
+  resize: none;
+  transition: border-color 200ms ease;
+}
+
+.weq-qzshare-text:focus {
+  outline: none;
+  border-color: var(--rp-accent);
+}
+
+.weq-qzshare-rightrow {
+  display: flex;
+  gap: 8px;
+}
+
+.weq-qzshare-right {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 4px;
+  border: 1px solid var(--rp-hair);
+  background: none;
+  color: var(--rp-ink-muted);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: color 180ms ease, border-color 180ms ease, background-color 180ms ease;
+}
+
+.weq-qzshare-right:hover {
+  color: var(--rp-ink);
+}
+
+.weq-qzshare-right.is-active {
+  border-color: var(--rp-accent);
+  background: rgba(var(--rp-accent-rgb), 0.09);
+  color: var(--rp-accent);
+}
+
+.weq-qzshare-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 22px;
+  border-top: 1px solid var(--rp-hair);
+}
+
+.weq-qzshare-count {
+  color: var(--rp-ink-faint);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+}
+
+.weq-qzshare-count.is-over {
+  color: var(--rp-warm);
+}
+
+.weq-qzshare-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.weq-qzshare-cancel {
+  padding: 8px 18px;
+  border: 1px solid var(--rp-hair);
+  background: none;
+  color: var(--rp-ink-muted);
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: color 180ms ease, border-color 180ms ease;
+}
+
+.weq-qzshare-cancel:hover:not(:disabled) {
+  color: var(--rp-ink);
+  border-color: var(--rp-ink-faint);
+}
+
+.weq-qzshare-send {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 22px;
+  border: 1px solid var(--rp-accent);
+  background: var(--rp-accent);
+  color: var(--rp-paper);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: opacity 180ms ease, transform 220ms var(--rp-ease-drop);
+}
+
+.weq-qzshare-send:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.weq-qzshare-send:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 /* ══ 年度装扮页 ═══════════════════════════════════════════════════════
  *
  * 这一页不是数据面板，是「把那一年的自己摆回画面里」。版面从上到下四段，只读一遍：
