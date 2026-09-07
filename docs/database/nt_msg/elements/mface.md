@@ -47,8 +47,7 @@ https://i.gtimg.cn/club/item/parcel/item/<hash前2位>/<hash>/<300_300 或 200_2
 4. 去尾：截到最后一个 GIF trailer `0x3b`；
 5. 结果应以 `GIF89a` / `GIF87a` 开头。
 
-端到端验证脚本：`packages/db/tools/mface_tea_decrypt.ts`
-（`pnpm --filter @weq/db test:mface-tea-decrypt`）。
+TEA 解密实现在 `packages/native` 的媒体解密链路里，行为由离线单测覆盖。
 
 > 📌 详细原理另见 [商城表情的解密](../../../principles/index.md)（编写中）。
 

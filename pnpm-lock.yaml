@@ -349,9 +349,9 @@ importers:
       '@weq/testkit':
         specifier: workspace:*
         version: link:../testkit
-      tsx:
-        specifier: ^4.19.2
-        version: 4.22.4
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.20)(lightningcss@1.32.0)
 
   packages/native:
     devDependencies:
@@ -451,15 +451,40 @@ importers:
       qrcode:
         specifier: ^1.5.4
         version: 1.5.4
-      tsx:
-        specifier: ^4.19.2
-        version: 4.22.4
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.20)(lightningcss@1.32.0)
 
   packages/testkit:
     devDependencies:
       '@types/node':
         specifier: ^22.10.6
         version: 22.19.20
+      '@weq/native':
+        specifier: workspace:*
+        version: link:../native
+
+  packages/tools:
+    dependencies:
+      '@weq/codec':
+        specifier: workspace:*
+        version: link:../codec
+      '@weq/db':
+        specifier: workspace:*
+        version: link:../db
+      '@weq/native':
+        specifier: workspace:*
+        version: link:../native
+      '@weq/testkit':
+        specifier: workspace:*
+        version: link:../testkit
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.6
+        version: 22.19.20
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.4
 
 packages:
 

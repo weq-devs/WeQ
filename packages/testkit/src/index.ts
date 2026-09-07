@@ -340,3 +340,8 @@ export {
   type EnsureSendableOptions,
   type InjectableNative,
 } from './inject';
+export {
+  createSqliteStub,
+  fixtureDb,
+  closeAllFixtureDbs,
+} from './sqlite_stub';

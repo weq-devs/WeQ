@@ -39,7 +39,7 @@ const logger = getLogger().child({ scope: 'rkey-server' });
  *   - 去掉结尾多余的 `/`。
  */
 export function normalizeNapcatBaseUrl(input: string): string {
-  let url = input.trim();
+  let url = input.trim().replace(/\/+$/, ''); // 先去尾斜杠，`…/get_rkey_server/` 也能剥掉端点
   if (!url) return '';
   const lower = url.toLowerCase();
   if (lower.endsWith(`/${ENDPOINT}`)) {

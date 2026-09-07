@@ -29,7 +29,7 @@ import { toRenderElements, type RenderElement } from './msg_view';
 import { RoamMsgCacheDb } from './roam_msg_cache';
 import { mediaElementFromRenderElement, type MediaElement } from './media_url';
 
-/** 服务端单次最多返回约 30 条（见 packages/protocol/tools/scan_msg_history.ts）。 */
+/** 服务端单次最多返回约 30 条（protocol 层分页拉取实测）。 */
 const SERVER_MAX_WINDOW = 30;
 
 /** 一条拉取到的远端消息，形状与主时间线的 ChatMsgWire 对齐。 */

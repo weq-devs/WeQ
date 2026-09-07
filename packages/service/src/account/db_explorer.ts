@@ -291,11 +291,48 @@ export class DbExplorerService {
    */
   async runSql(dbPath: string, sql: string): Promise<QueryResult> {
     const db = await this.open(dbPath);
+    return this.execSql(db, sql, true);
+  }
+
+  /**
+   * Run a read-only statement against any already-decrypted plain-SQLite file
+   * (for example an output of {@link DbDecryptService.decryptDatabases}, or any
+   * other `.db` the user points us at). Opens the file with no SQLCipher key,
+   * so encrypted QQ NT databases are NOT accepted here — use {@link runSql}
+   * for those. Only SELECT / WITH / EXPLAIN statements are allowed (PRAGMA is
+   * excluded because many pragmas write; use `SELECT * FROM pragma_table_info(?)`
+   * or `sqlite_master` instead).
+   */
+  async queryPlainSqliteFile(dbPath: string, sql: string): Promise<QueryResult> {
+    const db = new QqDb(this.platform.native.ntHelper, { dbPath });
+    try {
+      return await this.execSql(db, sql, false, false);
+    } finally {
+      db.close();
+    }
+  }
+
+  private async execSql(
+    db: QqDb,
+    sql: string,
+    allowWrite: boolean,
+    allowPragma = allowWrite,
+  ): Promise<QueryResult> {
     const trimmed = sql.trim().replace(/;+\s*$/, '');
     if (!trimmed) throw new Error('SQL 为空');
 
     const isRead = /^(select|with|pragma|explain)\b/i.test(trimmed);
+    if (isRead && !allowPragma && /^pragma\b/i.test(trimmed)) {
+      throw new Error(
+        '明文文件工具不开放 PRAGMA（许多 pragma 会写文件）。请用 SELECT：表结构查 sqlite_master，列结构查 pragma_table_info。',
+      );
+    }
     if (!isRead) {
+      if (!allowWrite) {
+        throw new Error(
+          '明文文件工具只允许只读语句（SELECT / WITH / EXPLAIN）。要改库请用 execute_sql 且确认风险。',
+        );
+      }
       const rowsAffected = await db.write(sql);
       return { kind: 'write', columns: [], rows: [], rowsAffected, truncated: false };
     }

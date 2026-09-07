@@ -7,36 +7,9 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.tools.json",
-    "tools:c2c-msg": "tsx tools/msg_c2c.ts",
-    "tools:group-msg": "tsx tools/msg_group.ts",
-    "tools:msg-fts": "tsx tools/msg_fts.ts",
-    "tools:msg-fts-probe": "tsx tools/msg_fts_probe.ts",
-    "tools:msg-unread-info": "tsx tools/msg_unread_info.ts",
-    "tools:unread-info": "tsx tools/unread_info.ts",
-    "tools:recent-contact": "tsx tools/recent_contact.ts",
-    "tools:recent-contact-all": "tsx tools/recent_contact_all.ts",
-    "tools:recent-contact-dump": "tsx tools/recent_contact_dump.ts",
-    "tools:dataline": "tsx tools/dataline.ts",
-    "tools:forward": "tsx tools/forward.ts",
-    "tools:market-emoticon-package": "tsx tools/market_emoticon_package.ts",
-    "tools:dump-mface-elements": "tsx tools/dump_mface_elements.ts",
-    "tools:mface-tea-decrypt": "tsx tools/mface_tea_decrypt.ts",
-    "tools:verify-avatar-hash": "tsx tools/verify_avatar_hash.ts",
-    "tools:verify-avatar-probe": "tsx tools/verify_avatar_probe.ts",
-    "tools:verify-new-elements": "tsx tools/verify_new_elements.ts",
-    "tools:android-element-types": "tsx tools/android_element_types.ts",
-    "tools:enum-coverage": "tsx tools/enum_coverage.ts",
-    "tools:dump-element-raw": "tsx tools/dump_element_raw.ts",
-    "tools:inspect-game-center": "tsx tools/inspect_game_center.ts",
-    "tools:scan-profile-info": "tsx tools/scan_profile_info.ts",
-    "tools:debug-android-group-member": "tsx tools/debug_android_group_member.ts",
-    "tools:verify-android-key": "tsx tools/verify_android_key.ts",
-    "tools:verify-db-key": "tsx tools/verify_db_key.ts",
-    "mutate:anti-recall-trigger": "tsx tools/mutate/anti_recall_trigger.ts",
-    "mutate:insert-weq-assistant": "tsx tools/mutate/insert_weq_assistant.ts",
-    "mutate:delete-weq-assistant": "tsx tools/mutate/delete_weq_assistant.ts",
-    "tools:chatpic-path": "tsx test/chatpic_path_hitrate.ts"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@weq/codec": "workspace:*",
@@ -45,6 +18,6 @@
   "devDependencies": {
     "@types/node": "^22.10.6",
     "@weq/testkit": "workspace:*",
-    "tsx": "^4.19.2"
+    "vitest": "^2.1.8"
   }
 }

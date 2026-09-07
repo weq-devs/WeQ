@@ -451,6 +451,7 @@ export {
   exportGroupToTxt,
   iterateGroupMessages,
   toExportedMessage,
+  elementToText,
   elementsToText,
   messageToText,
   formatTime,

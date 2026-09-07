@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@types/node": "^22.10.6"
+    "@types/node": "^22.10.6",
+    "@weq/native": "workspace:*"
   }
 }

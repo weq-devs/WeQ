@@ -273,6 +273,34 @@ export class MsgService {
   }
 
   /**
+   * Fetch one private-chat / dataline message by msgId, fully rendered (reply
+   * media enriched, deleted/recall state attached). The msgId is globally
+   * unique, so this narrows to whichever table `targetUid` maps to; returns
+   * null when no row holds that id.
+   */
+  async getC2cMessageById(targetUid: string, msgId: bigint): Promise<RenderC2cMsg | null> {
+    const rows = await this.c2cDbFor(targetUid).listByMsgIds([msgId]);
+    const m = rows[0];
+    if (!m) return null;
+    await this.enrichReplyMedia([m], 'c2c');
+    const recallMap = await this.recallMapFor('c2c', targetUid);
+    return this.renderC2cWithState(m, recallMap);
+  }
+
+  /** Fetch one group message by msgId, rendered the same way as a chat page. */
+  async getGroupMessageById(
+    targetGroupCode: string,
+    msgId: bigint,
+  ): Promise<RenderGroupMsg | null> {
+    const rows = await this.session.groupMsgs.listByMsgIds([msgId]);
+    const m = rows[0];
+    if (!m) return null;
+    await this.enrichReplyMedia([m], 'group');
+    const recallMap = await this.recallMapFor('group', targetGroupCode);
+    return this.renderGroupWithState(m, recallMap);
+  }
+
+  /**
    * Update the elements of a message by msgId.
    */
   async updateElements(msgId: bigint, elements: Element[]): Promise<boolean> {
