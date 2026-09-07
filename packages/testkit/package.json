@@ -1,6 +1,6 @@
 {
   "name": "@weq/testkit",
-  "version": "0.0.0",
+  "version": "0.4.6",
   "private": true,
   "type": "module",
   "description": "Shared configuration for local integration/probe scripts. Reads a single root .env so no test file hardcodes paths or keys.",
