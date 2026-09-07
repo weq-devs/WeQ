@@ -79,6 +79,73 @@ export interface SentSpeechRow {
 }
 
 /**
+ * 群聊互动统计的“人”聚合（戳一戳目标 / @ 目标）。只留第一名 —— 页面消费的是
+ * 冠军，不是排行榜。`targetUid` 为空时 `targetUin` 仍可用来解析成员名。
+ */
+export interface GroupTargetTop {
+  /** 目标 NT uid；老记录可能只有 uin。 */
+  targetUid: string;
+  /** 目标 QQ 号（十进制字符串）；不知道时为 ''。 */
+  targetUin: string;
+  /** 与这个目标互动最多的那个群（成员名按群维解析时用）。 */
+  groupCode: string;
+  /** 所有群里的合计次数。 */
+  count: number;
+  /** 消息里自带的展示名（群名片可能比它新，页面会先查群成员表）。 */
+  displayName: string;
+}
+
+/** 被 @ 最多的群。 */
+export interface GroupAtMeTop {
+  groupCode: string;
+  count: number;
+}
+
+/** 最长复读的落点。count = 这一轮连续相同正文的消息条数。 */
+export interface GroupEchoLongest {
+  groupCode: string;
+  count: number;
+  /** 被反复发的那句原文（纯排印展示，正文超过一定长度会被截断）。 */
+  text: string;
+}
+
+/**
+ * 一年/历史以来群聊里的四类互动聚合 —— 年度报告「群聊互动」页的原始素材。
+ *
+ * 扫描按群分批、逐条解码 40800，是重活，但只有这一页用；页面排得靠后，用户翻到
+ * 时计算多半已经完成。聚合在 db 层收口，不把整年所有正文送回 service。
+ */
+export interface GroupInteractionTally {
+  poke: {
+    /** 我发起的戳一戳（含戳/捏/揉等 nudge 动作）总数。 */
+    total: number;
+    /** 被我戳得最多的群友；没有可识别目标时为 null。 */
+    top: GroupTargetTop | null;
+  };
+  at: {
+    /** 我发出的、指向具体成员（不含 @全体）的 @ 总数。 */
+    total: number;
+    /** 被我 @ 得最多的群友。 */
+    top: GroupTargetTop | null;
+  };
+  atMe: {
+    /** 别人直接 @ 到我的总数（不含 @全体）。 */
+    total: number;
+    /** 被 @ 最多的群。 */
+    topGroup: GroupAtMeTop | null;
+  };
+  echo: {
+    /**
+     * 我参与过多少次“复读”：长度 ≥ 4 且至少两个人的连续相同正文回合，
+     * 里面出现过我的消息才算一次。
+     */
+    participatedRuns: number;
+    /** 全群最长的复读；没有任何达标回合时为 null。 */
+    longest: GroupEchoLongest | null;
+  };
+}
+
+/**
  * One (peer, calendar-day) bucket of private-chat messages — the atomic unit
  * for the annual report's private-chat highlights page. Direction is derived
  * per row with the same rule as `countByDirection` (40021 is always the peer,

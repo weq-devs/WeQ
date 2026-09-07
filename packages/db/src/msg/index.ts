@@ -46,6 +46,10 @@ export type {
   DressTally,
   DressOutfitTally,
   GroupMsg,
+  GroupTargetTop,
+  GroupAtMeTop,
+  GroupEchoLongest,
+  GroupInteractionTally,
   BuddyMsgFtsHit,
   SeqWindow,
 } from './types';

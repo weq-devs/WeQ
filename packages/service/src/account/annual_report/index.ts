@@ -14,6 +14,7 @@ export {
   rhythmPage,
   voicePage,
   homePage,
+  interactionsPage,
   endPage,
 } from './pages';
 export type { OverviewPageData } from './pages/overview/types';
@@ -45,3 +46,9 @@ export type {
   VoicePicFavorite,
 } from './pages/voice/types';
 export type { HomePageData, HomeGroupTop, HomeTopicWord } from './pages/home/types';
+export type {
+  InteractionsPageData,
+  InteractionsPerson,
+  InteractionsGroupTop,
+  InteractionsEcho,
+} from './pages/interactions/types';

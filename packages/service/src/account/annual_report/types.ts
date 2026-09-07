@@ -5,6 +5,7 @@ import type {
   C2cMsg,
   C2cPeerDayTally,
   DressTally,
+  GroupInteractionTally,
   SentSpeechRow,
   SentWeekdayHourlyGrid,
 } from '@weq/db';
@@ -205,6 +206,24 @@ export type ReportQueries = {
       levelName: string;
       memberCount: number;
     } | null>;
+    /**
+     * 群聊互动页的原始聚合 —— 戳一戳 / @ / 被 @ / 复读。SQL 与正文解码都封装
+     * 在 `GroupMsgDb.tallyInteractions` 里，这里只做窗口记忆化与身份 marker 透传。
+     */
+    interactionTally(startTime: number, endTime: number): Promise<GroupInteractionTally>;
+    /**
+     * 批量取群资料（群名等）。只返回本地有资料的群；查不到的由 compute 用群号兜底。
+     */
+    details(groupCodes: string[]): Promise<Array<{ groupCode: string; groupName: string }>>;
+    /**
+     * 一个群里若干成员的群名片 / 昵称。用来给「被我戳/被我 @ 最多的人」补名字；
+     * 已经退群、本地成员表查不到的人返回空，页面退回消息里自带的展示名。
+     */
+    memberBriefs(
+      groupCode: string,
+      uids: string[],
+      uins: string[],
+    ): Promise<Array<{ uid: string; uin: string; card: string; nick: string }>>;
   };
   /** Engine-level metadata, not page data. */
   meta: {

@@ -3958,6 +3958,360 @@ html[data-theme="dark"] .weq-report-root {
   }
 }
 
+/* ══ 群聊互动页 ═══════════════════════════════════════════════════════
+ *
+ * 这一页没有「唯一指标」，但也不允许主体空着：版心从戳一戳 / @ / 被 @ /
+ * 复读四组统计里，把**数字最大的那一组**顶成巨数——每个人看到的署名都不同，
+ * 那才是这一页的个性化。下半屏再排四行“发生的事”：句子而非卡片，
+ * 数字嵌在句子里，不画面板。颜色取一管旧朱砂，只让赢家的数字和名字带暖色。
+ * ═══════════════════════════════════════════════════════════════════ */
+
+.weq-report-root {
+  --rp-buzz: #a04e3c;
+}
+
+html[data-theme="dark"] .weq-report-root {
+  --rp-buzz: #e79a74;
+}
+
+.weq-it {
+  position: relative;
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.weq-it-kicker {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  margin: 0 0 4px;
+  color: var(--rp-ink-soft);
+  font-size: 13px;
+  letter-spacing: 0.18em;
+}
+
+.weq-it-kicker-meta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  color: var(--rp-ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+}
+
+.weq-it-kicker-meta b {
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.weq-it-kicker-meta i {
+  font-style: normal;
+  opacity: 0.5;
+}
+
+/* ── 上半屏：热闹 ─────────────────────────────────────────────── */
+
+.weq-it-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.weq-it-lede {
+  margin: 0;
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif);
+  font-size: 15px;
+  letter-spacing: 0.14em;
+}
+
+.weq-it-hero-label {
+  margin: 7px 0 0;
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif);
+  font-size: 26px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-wrap: balance;
+}
+
+/* 主体巨数：谁的数字最大，这一页就把谁顶到最上面。 */
+.weq-it-hero-countline {
+  position: relative;
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 14px;
+  margin: 4px 0 0;
+}
+
+.weq-it-hero-num {
+  color: var(--rp-buzz);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 156px;
+  font-weight: 600;
+  letter-spacing: -0.045em;
+  line-height: 0.98;
+}
+
+.weq-it-hero-unit {
+  color: var(--rp-ink);
+  font-family: var(--rp-serif);
+  font-size: 30px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+}
+
+.weq-it-hero-note {
+  margin: 6px auto 0;
+  max-width: 64ch;
+  color: var(--rp-ink-muted);
+  font-family: var(--rp-serif);
+  font-size: 12px;
+  line-height: 1.7;
+  letter-spacing: 0.06em;
+  text-align: center;
+  text-wrap: pretty;
+}
+
+.weq-it-hero-note em,
+.weq-it-hero-note b {
+  color: var(--rp-buzz);
+  font-family: var(--rp-serif);
+  font-style: normal;
+  font-weight: 600;
+}
+
+.weq-it-hero-note i {
+  margin: 0 5px;
+  color: var(--rp-ink-faint);
+  font-style: normal;
+}
+
+.weq-it-hero-note .weq-echo-quote {
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif);
+  letter-spacing: 0.02em;
+}
+
+/* 版心底下两圈很慢的涟漪 —— 数字越大，声浪传得越远。 */
+.weq-it-hero-countline::before,
+.weq-it-hero-countline::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 0;
+  width: 158px;
+  height: 158px;
+  border: 1px solid color-mix(in srgb, var(--rp-buzz) 38%, transparent);
+  border-radius: 50%;
+  opacity: 0;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.weq-report-page[data-enter="in"] .weq-it-hero-countline::before {
+  animation: weq-it-ripple 3.8s ease-out 1000ms infinite;
+}
+
+.weq-report-page[data-enter="in"] .weq-it-hero-countline::after {
+  animation: weq-it-ripple 3.8s ease-out 1450ms infinite;
+}
+
+@keyframes weq-it-ripple {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.86);
+  }
+  18% {
+    opacity: 0.55;
+  }
+  70%,
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.5);
+  }
+}
+
+/* ── 下半屏：四行发生的事 ─────────────────────────────────────── */
+
+.weq-it-score {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--rp-hair);
+}
+
+.weq-it-fact {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin: 0;
+  padding: 7px 0 8px;
+}
+
+.weq-it-fact-mark {
+  flex: 0 0 32px;
+  color: transparent;
+  font-family: var(--rp-serif);
+  font-size: 36px;
+  font-weight: 600;
+  line-height: 0.9;
+  text-align: center;
+  -webkit-text-stroke: 1px color-mix(in srgb, var(--rp-buzz) 46%, transparent);
+}
+
+.weq-it-fact-body {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 9px;
+  row-gap: 1px;
+  overflow: hidden;
+}
+
+.weq-it-fact-label {
+  flex: 0 0 42px;
+  color: var(--rp-buzz);
+  font-family: var(--rp-sans);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+}
+
+.weq-it-fact-main {
+  flex: 0 1 auto;
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif);
+  font-size: 17px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.weq-it-fact-main b.weq-it-fact-num {
+  color: var(--rp-buzz);
+  font-family: var(--rp-serif-base) !important;
+  font-weight: 600;
+}
+
+.weq-it-fact-main em,
+.weq-it-fact-main .weq-it-group {
+  color: var(--rp-buzz);
+  font-family: var(--rp-serif);
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.weq-it-od {
+  display: inline-flex;
+  margin: 0 2px;
+  color: var(--rp-buzz);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 29px;
+  font-weight: 600;
+  vertical-align: baseline;
+}
+
+.weq-it-fact-unit {
+  margin-left: 1px;
+  color: var(--rp-ink-muted);
+  font-family: var(--rp-serif);
+  font-size: 12px;
+  font-style: normal;
+  letter-spacing: 0.1em;
+}
+
+.weq-it-fact-sub {
+  flex: 1 0 100%;
+  min-width: 0;
+  margin-left: 51px;
+  overflow: hidden;
+  color: var(--rp-ink-muted);
+  font-family: var(--rp-serif);
+  font-size: 11.5px;
+  line-height: 1.6;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-it-fact-sub em,
+.weq-it-fact-sub .weq-it-group {
+  color: var(--rp-buzz);
+  font-family: var(--rp-serif);
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.weq-it-fact-sub i {
+  margin: 0 5px;
+  color: var(--rp-ink-faint);
+  font-style: normal;
+}
+
+.weq-it-fact-sub b.weq-number {
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif-base) !important;
+  font-weight: 600;
+}
+
+.weq-it-fact-sub .weq-it-echo-text {
+  display: inline-block;
+  max-width: 30ch;
+  margin-left: 5px;
+  overflow: hidden;
+  color: var(--rp-ink-soft);
+  vertical-align: bottom;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-it-mood {
+  margin: 8px 0 0;
+  color: var(--rp-ink-faint);
+  font-family: var(--rp-serif);
+  font-size: 10.5px;
+  line-height: 1.8;
+  letter-spacing: 0.1em;
+  text-align: center;
+}
+
+/* 窄画幅：巨字仍要巨，四行证据收到刚好一列。 */
+@media (max-width: 1000px) {
+  .weq-it-hero-num {
+    font-size: 142px;
+  }
+
+  .weq-it-hero-label {
+    font-size: 24px;
+  }
+
+  .weq-it-hero-note {
+    font-size: 12px;
+  }
+
+  .weq-it-fact-main {
+    font-size: 15px;
+  }
+
+  .weq-it-od {
+    font-size: 25px;
+  }
+}
+
 /* ══ 状态 / 兜底 ══════════════════════════════════════════════════════ */
 
 .weq-report-unknown,

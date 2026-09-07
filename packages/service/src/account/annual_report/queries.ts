@@ -71,6 +71,7 @@ export function createReportQueries(
     >
   >();
   const groupSpeechCache = new Map<string, Promise<import('@weq/db').SentSpeechRow[]>>();
+  const interactionCache = new Map<string, Promise<import('@weq/db').GroupInteractionTally>>();
   let oldestCache: Promise<number | null> | null = null;
   let sentYearsCache: Promise<number[]> | null = null;
 
@@ -334,6 +335,69 @@ export function createReportQueries(
             levelConfigs.find((config) => config.level === member.memberLevel)?.levelName ?? '',
           memberCount: detail?.memberCount || 0,
         };
+      },
+      /**
+       * 群聊互动页的聚合。同窗口记忆化：availability / compute 之间只扫一次全正文。
+       * 返回的对象是共享只读的，compute 不原地修改，只在上面做取名与收口。
+       */
+      async interactionTally(startTime: number, endTime: number) {
+        const key = `${startTime}:${endTime}`;
+        let running = interactionCache.get(key);
+        if (!running) {
+          running = session.groupMsgs.tallyInteractions({
+            startTime,
+            endTime,
+            senderUid: selfUid || undefined,
+            selfUin: selfUin > 0n ? selfUin : undefined,
+          });
+          interactionCache.set(key, running);
+          // 失败时清掉缓存，页面重试可以重新扫；成功结果保留供重进页面复用。
+          void running.catch(() => {
+            interactionCache.delete(key);
+          });
+        }
+        return running;
+      },
+      /** 群资料批量取名。不排序、缺资料即缺席，调用方自己拿群号兜底。 */
+      async details(groupCodes: string[]) {
+        const unique = [...new Set(groupCodes.filter((code) => /^\d+$/.test(code)))];
+        if (unique.length === 0) return [];
+        const details = await session.groupDetail.detailsByGroupCodes(
+          unique.map((code) => BigInt(code)),
+        );
+        return details.map((group) => ({
+          groupCode: String(group.groupCode),
+          groupName: group.groupName || String(group.groupCode),
+        }));
+      },
+      /** 一个群里按 uid/uin 批量解析群名片。两个都传时按 uid 去重。 */
+      async memberBriefs(groupCode: string, uids: string[], uins: string[]) {
+        const code = BigInt(groupCode);
+        const uidUnique = [...new Set(uids.filter((uid) => uid))];
+        const uinUnique = [...new Set(uins.filter((uin) => /^\d+$/.test(uin)))];
+        const [byUid, byUin] = await Promise.all([
+          uidUnique.length > 0 ? session.groupMembers.getMembersByUids(code, uidUnique) : [],
+          uinUnique.length > 0
+            ? session.groupMembers.getMembersByUins(
+                code,
+                uinUnique.map((uin) => BigInt(uin)),
+              )
+            : [],
+        ]);
+        const seen = new Set<string>();
+        const rows: Array<{ uid: string; uin: string; card: string; nick: string }> = [];
+        for (const member of [...byUid, ...byUin]) {
+          const uid = member.uid;
+          if (!uid || seen.has(uid)) continue;
+          seen.add(uid);
+          rows.push({
+            uid,
+            uin: String(member.uin ?? ''),
+            card: String(member.card ?? ''),
+            nick: String(member.nick ?? ''),
+          });
+        }
+        return rows;
       },
     },
     c2c: {

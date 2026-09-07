@@ -7,6 +7,7 @@ import { openersPage } from './openers/compute';
 import { rhythmPage } from './rhythm/compute';
 import { voicePage } from './voice/compute';
 import { homePage } from './home/compute';
+import { interactionsPage } from './interactions/compute';
 import { endPage } from './end/compute';
 
 /** The only service-side registration point for official report pages. */
@@ -19,6 +20,7 @@ export const reportPages: ReadonlyArray<ReportPageDefinition> = [
   rhythmPage,
   voicePage,
   homePage,
+  interactionsPage,
   endPage,
 ];
 
@@ -35,5 +37,6 @@ export {
   rhythmPage,
   voicePage,
   homePage,
+  interactionsPage,
   endPage,
 };

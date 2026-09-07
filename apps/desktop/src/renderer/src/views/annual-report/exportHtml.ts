@@ -437,6 +437,37 @@ const CSS = `
   @media (prefers-color-scheme: dark) {
     .hm { --home: #e6b866; }
   }
+  /* 群聊互动页。静态产物没有涟漪动画，所以巨字「热闹」仍占视觉重心，
+     四行事实用文字排版排成“发生的事”—— 数字嵌在句子里，不用面板。 */
+  .it { flex: 1; display: flex; flex-direction: column; justify-content: center; text-align: center; }
+  .it { --buzz: #a04e3c; }
+  .it-kicker { display: flex; justify-content: space-between; align-items: baseline; text-align: left; font-size: 8pt; letter-spacing: 3px; color: var(--ink-soft); }
+  .it-kicker-meta { font-size: 7.5pt; letter-spacing: 2px; color: var(--ink-faint); }
+  .it-kicker-meta b { font-family: var(--serif); font-size: 10pt; font-weight: 600; color: var(--ink-soft); }
+  .it-kicker-meta i { font-style: normal; margin: 0 1mm; opacity: 0.5; }
+  .it-lede { margin-top: 9mm; font-family: var(--serif); font-size: 11.5pt; letter-spacing: 3px; color: var(--ink-soft); }
+  .it-hero-label { margin-top: 8mm; font-family: var(--serif); font-size: 24pt; font-weight: 600; letter-spacing: 3px; color: var(--ink); }
+  .it-hero-countline { display: flex; justify-content: center; align-items: baseline; gap: 4mm; margin-top: 3mm; }
+  .it-hero-num { font-family: var(--serif); font-size: 96pt; font-weight: 600; letter-spacing: -2px; color: var(--buzz); line-height: 1; }
+  .it-hero-unit { font-family: var(--serif); font-size: 26pt; letter-spacing: 5px; color: var(--ink-soft); }
+  .it-hero-note { margin: 5mm auto 0; max-width: 134mm; font-family: var(--serif); font-size: 10pt; line-height: 1.9; letter-spacing: 2px; color: var(--ink-muted); }
+  .it-hero-note em { color: var(--buzz); font-style: normal; font-weight: 600; }
+  .it-hero-note b { font-family: var(--serif); font-size: 12pt; font-weight: 600; color: var(--buzz); }
+  .it-hero-note .weq-echo-quote { color: var(--ink-soft); }
+  .it-score { margin-top: 10mm; padding-top: 3mm; border-top: 0.25mm solid var(--hair); text-align: left; }
+  .it-fact { display: grid; grid-template-columns: 10mm 16mm minmax(0, 1fr); column-gap: 3mm; row-gap: 1.4mm; align-items: baseline; padding: 2.7mm 0; }
+  .it-mark { grid-row: 1 / span 2; color: color-mix(in srgb, var(--buzz) 70%, transparent); font-family: var(--serif); font-size: 22pt; font-weight: 600; line-height: 1; text-align: center; }
+  .it-label { font-size: 7.5pt; font-weight: 600; letter-spacing: 3px; color: var(--buzz); }
+  .it-main { font-family: var(--serif); font-size: 12pt; letter-spacing: 1px; color: var(--ink); white-space: nowrap; }
+  .it-main b { font-family: var(--serif); font-size: 16pt; font-weight: 600; color: var(--buzz); }
+  .it-main em { color: var(--buzz); font-style: normal; font-weight: 600; }
+  .it-sub { grid-column: 2 / 4; overflow: hidden; font-family: var(--serif); font-size: 9pt; letter-spacing: 1px; color: var(--ink-muted); text-overflow: ellipsis; white-space: nowrap; }
+  .it-sub em { color: var(--buzz); font-style: normal; font-weight: 600; }
+  .it-sub b { font-family: var(--serif); font-size: 11pt; font-weight: 600; color: var(--ink-soft); }
+  .it-mood { margin: 5mm auto 0; font-family: var(--serif); font-size: 9.5pt; letter-spacing: 2px; color: var(--ink-faint); }
+  @media (prefers-color-scheme: dark) {
+    .it { --buzz: #e79a74; }
+  }
   /* 结尾页 */
   .end { text-align: center; }
   .end-line { font-family: var(--serif); font-size: 12pt; letter-spacing: 5px; color: var(--ink-muted); }
@@ -1201,6 +1232,233 @@ function voiceSlide(data: Record<string, unknown>): string {
 }
 
 /**
+ * 群聊互动页的导出版。没有涟漪与逐字落地的动画，版式钉死在静态：
+ * 主体是四组统计里数字最大的那一枚巨数——每个人看到的署名都不同；
+ * 下半行仍是四行“发生的事”，句子而非卡片。
+ */
+type InteractionsHeroKind = 'at' | 'called' | 'poke' | 'echo';
+
+type InteractionsHero = {
+  kind: InteractionsHeroKind;
+  label: string;
+  num: string;
+  unit: string;
+  note: string;
+};
+
+/** 与屏幕版同款主体选择：挑数字最大的那组，并列时 at 优先。 */
+function interactionsHero(data: Record<string, unknown>): InteractionsHero | null {
+  const pokeTotal = Number(data.pokeTotal ?? 0);
+  const atTotal = Number(data.atTotal ?? 0);
+  const atMeTotal = Number(data.atMeTotal ?? 0);
+  const echoParticipated = Number(data.echoParticipated ?? 0);
+  const echoLongest = (data.echoLongest ?? null) as {
+    count?: number;
+    groupName?: string;
+    text?: string;
+  } | null;
+  const echoCount = Math.max(echoParticipated, Number(echoLongest?.count ?? 0));
+  const candidates: Array<{ kind: InteractionsHeroKind; count: number }> = [
+    { kind: 'at', count: atTotal },
+    { kind: 'called', count: atMeTotal },
+    { kind: 'poke', count: pokeTotal },
+    { kind: 'echo', count: echoCount },
+  ];
+  let best: (typeof candidates)[number] | null = null;
+  for (const candidate of candidates) {
+    if (!best || candidate.count > best.count) best = candidate;
+  }
+  if (!best || best.count <= 0) return null;
+
+  const atTop = (data.atTop ?? null) as { name?: string; count?: number } | null;
+  const pokeTop = (data.pokeTop ?? null) as { name?: string; count?: number } | null;
+  const atMeTop = (data.atMeTop ?? null) as { groupName?: string; count?: number } | null;
+
+  switch (best.kind) {
+    case 'at':
+      return {
+        kind: 'at',
+        label: '我 @ 过别人',
+        num: fmt(atTotal),
+        unit: '次',
+        note: atTop
+          ? `名字喊得最响的是 <em>${escapeHtml(String(atTop.name ?? ''))}</em> · <b>${fmt(
+              Number(atTop.count ?? 0),
+            )}</b> 次——@ 是怕你错过，才把名字放到人前。`
+          : '这一年你 @ 得不多——但每一次，都是怕有人错过。',
+      };
+    case 'called':
+      return {
+        kind: 'called',
+        label: '我被人点名过',
+        num: fmt(atMeTotal),
+        unit: '次',
+        note: atMeTop
+          ? `最多发生在 <em>${escapeHtml(String(atMeTop.groupName ?? ''))}</em> · <b>${fmt(
+              Number(atMeTop.count ?? 0),
+            )}</b> 次——被点名，是被人想起的最短路径。`
+          : '名字被念起的次数还不多——但每一次，都有人记得你。',
+      };
+    case 'poke':
+      return {
+        kind: 'poke',
+        label: '我发起过戳一戳',
+        num: fmt(pokeTotal),
+        unit: '次',
+        note: pokeTop
+          ? `最常被你戳到 <em>${escapeHtml(String(pokeTop.name ?? ''))}</em> · <b>${fmt(
+              Number(pokeTop.count ?? 0),
+            )}</b> 次——戳一戳是最轻的搭话。`
+          : '这一年你伸出的手不多——但每一下，都先越过了屏幕。',
+      };
+    case 'echo': {
+      const longestCount = Number(echoLongest?.count ?? 0);
+      if (echoLongest && longestCount > echoParticipated) {
+        return {
+          kind: 'echo',
+          label: '最长的一次齐声',
+          num: fmt(longestCount),
+          unit: '条',
+          note: `在 <em>${escapeHtml(String(echoLongest.groupName ?? ''))}</em>，大家把 <b class="weq-echo-quote">“${escapeHtml(
+            String(echoLongest.text ?? ''),
+          )}”</b> 连说了 <b>${fmt(longestCount)}</b> 次——一句话被那么多人接住，就不再只是一个人的了。`,
+        };
+      }
+      return {
+        kind: 'echo',
+        label: '我跟上过复读',
+        num: fmt(echoParticipated),
+        unit: '场',
+        note: echoLongest
+          ? `最长一轮在 <em>${escapeHtml(String(echoLongest.groupName ?? ''))}</em>，连了 <b>${fmt(
+              Number(echoLongest.count ?? 0),
+            )}</b> 条——不想一个人笑的时候，你跟着大家开了口。`
+          : `这一年你跟着大家开过 ${fmt(echoParticipated)} 次口——齐声最不怕吵。`,
+      };
+    }
+  }
+}
+
+/** 群聊互动页的导出版。 */
+function interactionsSlide(data: Record<string, unknown>): string {
+  const year = Number(data.year ?? 0);
+  const allTime = isAllTimeYear(year);
+  const pokeTotal = Number(data.pokeTotal ?? 0);
+  const atTotal = Number(data.atTotal ?? 0);
+  const atMeTotal = Number(data.atMeTotal ?? 0);
+  const echoParticipated = Number(data.echoParticipated ?? 0);
+  const pokeTop = (data.pokeTop ?? null) as {
+    name?: string;
+    count?: number;
+  } | null;
+  const atTop = (data.atTop ?? null) as {
+    name?: string;
+    count?: number;
+  } | null;
+  const atMeTop = (data.atMeTop ?? null) as {
+    groupName?: string;
+    count?: number;
+  } | null;
+  const echoLongest = (data.echoLongest ?? null) as {
+    groupName?: string;
+    count?: number;
+    text?: string;
+  } | null;
+  const hasEvidence =
+    pokeTotal > 0 || atTotal > 0 || atMeTotal > 0 || echoParticipated > 0 || echoLongest != null;
+  const hero = interactionsHero(data);
+  const heroGhost = hero
+    ? hero.kind === 'at'
+      ? '@'
+      : hero.kind === 'called'
+        ? '呼'
+        : hero.kind === 'poke'
+          ? '戳'
+          : '齐'
+    : '安';
+
+  const fact = (mark: string, label: string, main: string, sub: string): string =>
+    `<p class="it-fact">
+       <span class="it-mark">${escapeHtml(mark)}</span>
+       <span class="it-label">${escapeHtml(label)}</span>
+       <span class="it-main">${main}</span>
+       <span class="it-sub">${sub}</span>
+     </p>`;
+
+  const era = allTime ? '有记录以来' : `${year} 年`;
+  const body = hasEvidence
+    ? `<div class="it-hero">
+         <p class="it-lede">${era}，你在群聊里做过最多的那件事，是——</p>
+         <h2 class="it-hero-label">${escapeHtml(hero?.label ?? '')}</h2>
+         <p class="it-hero-countline">
+           <span class="it-hero-num">${hero?.num ?? '0'}</span>
+           <span class="it-hero-unit">${escapeHtml(hero?.unit ?? '')}</span>
+         </p>
+         ${hero ? `<p class="it-hero-note">${hero.note}</p>` : ''}
+       </div>
+       <div class="it-score">
+         ${fact(
+           '戳',
+           '伸手',
+           `我发起过 <b>${fmt(pokeTotal)}</b> 次戳一戳`,
+           pokeTop
+             ? `最常被你戳到：<em>${escapeHtml(String(pokeTop.name ?? ''))}</em> · ${fmt(
+                 Number(pokeTop.count ?? 0),
+               )} 次`
+             : '这一年，你的「戳一戳」还没落到具体哪个人身上。',
+         )}
+         ${fact(
+           '@',
+           '点名',
+           `我 @ 过别人 <b>${fmt(atTotal)}</b> 次`,
+           atTop
+             ? `名字喊得最响的：<em>${escapeHtml(String(atTop.name ?? ''))}</em> · ${fmt(
+                 Number(atTop.count ?? 0),
+               )} 次`
+             : '这一年，你还不太习惯在群里点别人的名。',
+         )}
+         ${fact(
+           '呼',
+           '被惦记',
+           atMeTop
+             ? `被 @ 最多的群是 <em>${escapeHtml(String(atMeTop.groupName ?? ''))}</em>`
+             : '这一年，还没有哪个群反复喊你的名字。',
+           atMeTop
+             ? `那里有 <b>${fmt(Number(atMeTop.count ?? 0))}</b> 次，别人把你的名字放进了自己的句子。`
+             : '下一次开场，从你 @ 别人开始。',
+         )}
+         ${fact(
+           '齐',
+           '齐声',
+           `我跟过 <b>${fmt(echoParticipated)}</b> 场复读`,
+           echoLongest
+             ? `最长一轮在 <em>${escapeHtml(String(echoLongest.groupName ?? ''))}</em>：${fmt(
+                 Number(echoLongest.count ?? 0),
+               )} 条“${escapeHtml(String(echoLongest.text ?? ''))}”`
+             : '这一年没有足够长的齐声——热闹的下一条，可能由你开头。',
+         )}
+       </div>
+       <p class="it-mood">你留在群里的，不只有话。每一次伸手、被点名、跟着大家开口——都是「你也在」的证据。</p>`
+    : `<div class="it-hero">
+         <p class="it-lede">${era}，你在群聊里更多是安静地听——</p>
+         <h2 class="it-hero-label">你还没留下可统计的互动</h2>
+         <p class="it-hero-note">戳一戳、@ 与复读的痕迹都还停在别处。没关系，
+           下一条消息，可以从你开始。</p>
+       </div>`;
+
+  return `${slideOpen(heroGhost)}
+    <div class="it">
+      <div class="it-kicker">
+        <span>${escapeHtml(reportEraLabel(year))} · 群聊互动</span>
+        <span class="it-kicker-meta"><b>${fmt(pokeTotal)}</b> 次戳<i>/</i><b>${fmt(
+          atTotal,
+        )}</b> 次 @<i>/</i><b>${fmt(echoParticipated)}</b> 场齐声</span>
+      </div>
+      ${body}
+    </div>${slideFoot(`${reportPeriodLabel(year)} · INTERACTIONS`)}`;
+}
+
+/**
  * 我的主场页的导出版。
  *
  * 屏幕版飘在后面的词云动画进不了自包含 HTML，因此这一版把排印钉死在静态上：
@@ -1345,6 +1603,7 @@ export function buildReportHtml(year: number, slides: ExportSlide[]): string {
       if (slide.page.id === 'rhythm') return rhythmSlide(data);
       if (slide.page.id === 'voice') return voiceSlide(data);
       if (slide.page.id === 'home') return homeSlide(data);
+      if (slide.page.id === 'interactions') return interactionsSlide(data);
       if (slide.page.id === 'end') return endSlide(data);
       return genericSlide(slide);
     })
