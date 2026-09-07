@@ -39,6 +39,7 @@ export type {
 export { decodeBody, decodeDress, emptyDressTally, mergeDressTally, tallyDressBlobs } from './util';
 export type {
   C2cMsg,
+  C2cPeerDayTally,
   DressTally,
   DressOutfitTally,
   GroupMsg,

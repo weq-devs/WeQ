@@ -53,6 +53,7 @@ const CSS = `
     --hair: rgba(22,19,13,0.14);
     --accent: #1c5f8f;
     --ghost-stroke: rgba(22,19,13,0.10);
+    --leaf: #2e7d55;
     --serif: "Playfair Display", Georgia, "Noto Serif CJK SC", "Noto Serif SC",
       "Source Han Serif SC", "Songti SC", SimSun, "Times New Roman", serif;
     --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC",
@@ -70,6 +71,7 @@ const CSS = `
       --hair: rgba(244,240,230,0.13);
       --accent: #c9a227;
       --ghost-stroke: rgba(201,162,39,0.14);
+      --leaf: #3fae70;
     }
   }
   @page { size: A4; margin: 0; }
@@ -147,6 +149,35 @@ const CSS = `
   .band-dd { margin-top: 2mm; display: flex; align-items: baseline; gap: 1.5mm; }
   .band-num { font-family: var(--serif); font-size: 22pt; font-weight: 600; color: var(--ink); }
   .band-unit { font-size: 9pt; letter-spacing: 2px; color: var(--ink-muted); }
+  /* 私聊火花页 */
+  .sp-kicker { display: flex; justify-content: space-between; align-items: baseline; font-size: 8pt; letter-spacing: 3px; color: var(--ink-soft); }
+  .sp-kicker-date { font-family: var(--serif); font-size: 12pt; letter-spacing: 1px; color: var(--ink-faint); }
+  .sp-say { margin-top: 5mm; font-family: var(--serif); font-size: 13pt; letter-spacing: 2px; color: var(--ink-soft); }
+  .sp-say b { color: var(--ink); font-weight: 600; }
+  .sp-hero { display: flex; align-items: baseline; gap: 3mm; margin-top: 2mm; }
+  .sp-hero-num { font-family: var(--serif); font-size: 58pt; font-weight: 600; letter-spacing: -2px; color: var(--ink); }
+  .sp-hero-unit { font-family: var(--serif); font-size: 15pt; letter-spacing: 4px; color: var(--ink-muted); }
+  .sp-wordline { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4mm; margin-top: 2mm; font-family: var(--serif); font-size: 10pt; color: var(--ink-muted); letter-spacing: 1px; }
+  .sp-wordline-word { font-family: var(--serif); font-size: 28pt; font-weight: 600; color: var(--leaf); letter-spacing: 1px; line-height: 0.9; }
+  .sp-wall { margin-top: 8mm; }
+  .sp-wall-head { display: flex; justify-content: space-between; align-items: baseline; }
+  .sp-wall-title { font-family: var(--serif); font-size: 12pt; letter-spacing: 2px; color: var(--ink); }
+  .sp-wall-sub { font-size: 7pt; letter-spacing: 2px; color: var(--ink-faint); }
+  .sp-cols { margin-top: 3mm; display: flex; gap: 0.65mm; }
+  .sp-col { display: flex; flex-direction: column; gap: 0.65mm; }
+  .sp-cell { width: 1.65mm; height: 1.65mm; border-radius: 0.25mm; background: transparent; outline: 0.2mm solid var(--hair); outline-offset: -0.2mm; }
+  .sp-cell.is-1 { background: color-mix(in srgb, var(--leaf) 18%, transparent); }
+  .sp-cell.is-2 { background: color-mix(in srgb, var(--leaf) 38%, transparent); }
+  .sp-cell.is-3 { background: color-mix(in srgb, var(--leaf) 62%, transparent); }
+  .sp-cell.is-4 { background: var(--leaf); outline: none; }
+  .sp-band { display: flex; margin-top: 10mm; border-top: 0.25mm solid var(--hair); }
+  .sp-cell-band { flex: 1; padding: 3mm 3mm 0 0; }
+  .sp-cell-band + .sp-cell-band { padding-left: 3mm; border-left: 0.25mm solid var(--hair); }
+  .sp-dt { font-size: 7pt; letter-spacing: 2px; color: var(--ink-faint); white-space: nowrap; }
+  .sp-dd { margin-top: 1mm; display: flex; align-items: baseline; gap: 1mm; }
+  .sp-num { font-family: var(--serif); font-size: 17pt; font-weight: 600; color: var(--ink); }
+  .sp-unit { font-size: 8pt; color: var(--ink-muted); }
+  .sp-note { margin-top: 1mm; font-size: 7pt; color: var(--leaf); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* 装扮页。屏幕版画的是真气泡，导出版画不了（见 dressSlide），改用引号盛那句话。 */
   .dr-top { margin-top: 4mm; padding-bottom: 6mm; border-bottom: 0.25mm solid var(--hair); }
   .dr-say {
@@ -335,6 +366,127 @@ function dressSlide(data: Record<string, unknown>): string {
     ${slideFoot(`${reportPeriodLabel(year)} · DRESS`)}`;
 }
 
+/**
+ * 私聊火花页的导出版。屏幕版中间的绿墙可以在「历史以来」口径下逐年切换；
+ * 导出是静态的，所以固定渲染服务端下发的默认墙年（自然年 = 该年，历史以来 =
+ * 最近一个有私聊发言的年份），正文和巨数口径不变。
+ */
+function sparkSlide(data: Record<string, unknown>): string {
+  const year = Number(data.year ?? 0);
+  const top = (data.topDay ?? null) as {
+    year: number;
+    month: number;
+    day: number;
+    peerName: string;
+    total: number;
+    mine: number;
+    words: string[];
+  } | null;
+  const wallYear = Number(data.wallYear ?? year);
+  const wallDays = (data.wallDays ?? []) as Array<{
+    year: number;
+    month: number;
+    day: number;
+    count: number;
+  }>;
+  const spark = (data.spark ?? null) as {
+    days: number;
+    peerName: string;
+  } | null;
+  const sentTotal = Number(data.sentTotal ?? 0);
+  const activeDays = Number(data.activeDays ?? 0);
+  const longestSelfRun = Number(data.longestSelfRun ?? 0);
+  const wall = wallDays.filter((day) => day.year === wallYear);
+
+  const hero =
+    top == null
+      ? ''
+      : `
+    <div class="sp-kicker">
+      <span>${escapeHtml(isAllTimeYear(year) ? '历史以来' : `${year} 年`)} · 全部私聊里最用力的一天</span>
+      <span class="sp-kicker-date">${top.year} 年 ${top.month} 月 ${top.day} 日</span>
+    </div>
+    <div class="sp-say">你和 <b>${escapeHtml(top.peerName)}</b></div>
+    <div class="sp-hero">
+      <span class="sp-hero-num">${fmt(top.total)}</span>
+      <span class="sp-hero-unit">条消息</span>
+    </div>
+    ${
+      top.words?.[0]
+        ? `<div class="sp-wordline"><span>那天你们说得最多的，是</span><b class="sp-wordline-word">${escapeHtml(top.words[0])}</b></div>`
+        : ''
+    }`;
+
+  const bands = [
+    { label: '私聊发出', value: fmt(sentTotal), unit: '条' },
+    { label: '开口天数', value: fmt(activeDays), unit: '天' },
+    { label: '最长连续发言', value: fmt(longestSelfRun), unit: '天' },
+    {
+      label: '最长火花',
+      value: fmt(spark?.days ?? 0),
+      unit: '天',
+      note: spark?.peerName ?? '还没有双向的火花',
+    },
+  ];
+
+  return `${slideOpen(isAllTimeYear(year) ? 'ALL' : String(year))}
+    ${hero}
+    <div class="sp-wall">
+      <div class="sp-wall-head">
+        <span class="sp-wall-title">${wallYear} 年</span>
+        <span class="sp-wall-sub">我发出的私聊</span>
+      </div>
+      ${exportWall(wallYear, wall)}
+    </div>
+    <div class="sp-band">
+      ${bands
+        .map(
+          (band) => `
+        <div class="sp-cell-band">
+          <div class="sp-dt">${escapeHtml(band.label)}</div>
+          <div class="sp-dd"><span class="sp-num">${band.value}</span><span class="sp-unit">${band.unit}</span></div>
+          ${band.note ? `<div class="sp-note">${escapeHtml(band.note)}</div>` : ''}
+        </div>`,
+        )
+        .join('')}
+    </div>${slideFoot(`${reportPeriodLabel(year)} · SPARK`)}`;
+}
+
+/** GitHub 绿墙的静态 HTML：一周一列、一列七格，颜色 = 当天自己发出的条数。 */
+function exportWall(
+  year: number,
+  days: Array<{ month: number; day: number; count: number }>,
+): string {
+  const countByDay = new Map<string, number>();
+  for (const day of days) countByDay.set(`${day.month}-${day.day}`, day.count);
+  const start = new Date(year, 0, 1);
+  const mondayOffset = (start.getDay() + 6) % 7;
+  const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  const totalDays = leap ? 366 : 365;
+  const weekCount = Math.ceil((mondayOffset + totalDays) / 7);
+  const counts = [...countByDay.values()];
+  const maxCount = counts.length ? Math.max(...counts) : 1;
+  const columns: string[] = [];
+
+  for (let week = 0; week < weekCount; week++) {
+    let column = '<div class="sp-col">';
+    for (let dow = 0; dow < 7; dow++) {
+      const dayOfYear = week * 7 + dow - mondayOffset;
+      if (dayOfYear < 0 || dayOfYear >= totalDays) {
+        column += '<span class="sp-cell is-0"></span>';
+      } else {
+        const date = new Date(year, 0, 1 + dayOfYear);
+        const count = countByDay.get(`${date.getMonth() + 1}-${date.getDate()}`) ?? 0;
+        const level = count === 0 ? 0 : Math.min(4, 1 + Math.ceil((count / maxCount) * 3));
+        column += `<span class="sp-cell is-${level}"></span>`;
+      }
+    }
+    column += '</div>';
+    columns.push(column);
+  }
+  return `<div class="sp-cols">${columns.join('')}</div>`;
+}
+
 function endSlide(data: Record<string, unknown>): string {
   const year = Number(data.year ?? 0);
   const allTime = isAllTimeYear(year);
@@ -366,6 +518,7 @@ export function buildReportHtml(year: number, slides: ExportSlide[]): string {
       const data = (slide.data ?? {}) as Record<string, unknown>;
       if (slide.page.id === 'overview') return overviewSlide(data);
       if (slide.page.id === 'dress') return dressSlide(data);
+      if (slide.page.id === 'spark') return sparkSlide(data);
       if (slide.page.id === 'end') return endSlide(data);
       return genericSlide(slide);
     })

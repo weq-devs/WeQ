@@ -139,6 +139,39 @@ export function createReportQueries(
         }
       },
     },
+    c2c: {
+      /**
+       * 私聊的「会话 × 日」聚合。SQL 与方向判据都在 `C2cMsgDb` 里（和
+       * `countByDirection` 同一层），这里只按账号会话透传。
+       */
+      async peerDayTallies(startTime: number, endTime: number) {
+        return session.c2cMsgs.peerDayTallies({ startTime, endTime });
+      },
+      /**
+       * 只解码一个会话在某个时间窗内的正文 —— 热词只针对「最忙那天」，
+       * 不需要整表 40800 全量解码。
+       */
+      async peerMessagesInWindow(peerUid: string, startTime: number, endTime: number) {
+        const sortNo = session.uidMap.sortNoByUid(peerUid);
+        const part = sortNo !== undefined ? { sortNo } : { uid: peerUid };
+        return session.c2cMsgs.listTimeWindow(part, { startTime, endTime });
+      },
+      /**
+       * Peer nick / remark / uin 批量解析。profile_info 缓存里没这个人就缺席，
+       * 页面用尾号兜底，不在这里做任何 SQL 推断。
+       */
+      async peerProfiles(uids: string[]) {
+        const unique = [...new Set(uids.filter((uid) => uid))];
+        if (unique.length === 0) return [];
+        const profiles = await session.profileInfo.profilesByUids(unique);
+        return profiles.map((profile) => ({
+          uid: profile.uid,
+          uin: String(profile.uin ?? ''),
+          nick: profile.nick,
+          remark: profile.remark,
+        }));
+      },
+    },
     meta: {
       /**
        * Oldest message sendTime (unix seconds) across c2c + group tables, or

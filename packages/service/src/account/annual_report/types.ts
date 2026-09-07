@@ -1,6 +1,6 @@
 /** Shared contracts for the compile-time annual-report page system. */
 
-import type { DressTally } from '@weq/db';
+import type { C2cMsg, C2cPeerDayTally, DressTally } from '@weq/db';
 
 /** 三类个性装扮。与 `account.dressup.*` 的 kind 取值一致。 */
 export type DressKind = 'bubble' | 'font' | 'widget';
@@ -145,6 +145,30 @@ export type ReportQueries = {
      * selectable report years: a year you never spoke in has no report.
      */
     sentYears(): Promise<number[]>;
+  };
+  /**
+   * 私聊专用聚合 —— 年度报告「私聊火花」页的素材。SQL 全部封装在
+   * `@weq/db` 的 `C2cMsgDb` 里，这里只做 typed 接缝。
+   */
+  c2c: {
+    /**
+     * 一个时间窗内按「会话 × 本地自然日」聚合的条数（含我发/合计），
+     * 一次扫描、不读消息体。自然年窗口由调用方从 `reportYearUnixRange` 拿。
+     */
+    peerDayTallies(startTime: number, endTime: number): Promise<C2cPeerDayTally[]>;
+    /**
+     * 某会话在一个半开时间窗内的完整消息（oldest first）。只用于给「最忙的
+     * 那一天」解码正文做热词，因此窗口是单个 peer-day，而不是整份报告。
+     */
+    peerMessagesInWindow(peerUid: string, startTime: number, endTime: number): Promise<C2cMsg[]>;
+    /**
+     * Batch peer display info (nick / remark / uin) by uid. Rows missing from
+     * the local profile cache are simply absent; the page falls back to a
+     * uid-derived label.
+     */
+    peerProfiles(
+      uids: string[],
+    ): Promise<Array<{ uid: string; uin: string; nick: string; remark: string }>>;
   };
 };
 

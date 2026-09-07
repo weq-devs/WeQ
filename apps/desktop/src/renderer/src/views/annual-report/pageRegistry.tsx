@@ -5,11 +5,13 @@ import type {
   EndPageData,
   OverviewPageData,
   ReportPageManifest,
+  SparkPageData,
 } from '@weq/service';
 import { PageFrame } from './pageFrame';
 import { OverviewPage } from './pages/OverviewPage';
 import { DressPage } from './pages/DressPage';
 import { EndPage } from './pages/EndPage';
+import { SparkPage } from './pages/SparkPage';
 
 type RegistryProps = { page: ReportPageManifest; data: unknown; active: boolean };
 type PageRenderer = (props: RegistryProps) => ReactElement;
@@ -43,6 +45,9 @@ const pageRegistry: Record<string, PageRenderer> = {
   ),
   dress: ({ page, data, active }) => (
     <DressPage page={page} data={data as DressPageData} active={active} />
+  ),
+  spark: ({ page, data, active }) => (
+    <SparkPage page={page} data={data as SparkPageData} active={active} />
   ),
   end: ({ page, data, active }) => (
     <EndPage page={page} data={data as EndPageData} active={active} />

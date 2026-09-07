@@ -21,7 +21,7 @@
  */
 
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
-import type { C2cMsg, DressTally, SeqWindow } from './types';
+import type { C2cMsg, C2cPeerDayTally, DressTally, SeqWindow } from './types';
 import { decodeBody, decodeDress, emptyDressTally, tallyDressBlobs, toBigint, toStr } from './util';
 import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './append';
 import { QqDb } from '../qq_db';
@@ -468,6 +468,69 @@ export class C2cMsgDb {
       else received = n;
     }
     return { sent, received };
+  }
+
+  /**
+   * One-pass aggregation of the whole table (or a time window) into
+   * `(peer, local calendar day)` buckets. Direction follows the same self-proof
+   * as {@link countByDirection}, so `mine` can be subtracted from `total` to get
+   * the peer's side without any external identity.
+   *
+   * The date is derived in SQL with `'localtime'`, keeping the buckets aligned
+   * with the report's local-midnight year boundaries (same as `sentYears`).
+   * No body column is touched — this is the cheapest way to answer "which
+   * conversation, on which day, was the busiest" and to feed per-day walls.
+   */
+  async peerDayTallies(
+    opts: { startTime?: number; endTime?: number } = {},
+  ): Promise<C2cPeerDayTally[]> {
+    // 0 不是合法 sendTime；年度报告的「某年某月某日」故事不能落到 1970 上。
+    const conditions: string[] = [`"40050" > 0`];
+    const params: SqlValue[] = [];
+    if (opts.startTime != null && opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      params.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime != null && opts.endTime > 0) {
+      conditions.push(`"40050" < ?`);
+      params.push(BigInt(opts.endTime));
+    }
+    const where = ` WHERE ${conditions.join(' AND ')}`;
+    const rows = await this.qq.query(
+      `SELECT "40021",
+              strftime('%Y-%m-%d',"40050",'unixepoch','localtime') AS day,
+              COUNT(*) AS total,
+              SUM(CASE WHEN "40020" != "40021" AND "40020" != '' THEN 1 ELSE 0 END) AS mine
+       FROM ${this.table}${where}
+       GROUP BY "40021", day`,
+      params,
+    );
+    return rows.map((row) => ({
+      peerUid: String(row[0] ?? ''),
+      date: String(row[1] ?? ''),
+      total: Number(row[2] ?? 0),
+      mine: Number(row[3] ?? 0),
+    }));
+  }
+
+  /**
+   * Full rows of ONE conversation whose sendTime falls inside a half-open
+   * window, oldest first. Used by the annual report's highlights page to
+   * decode just the bodies of the busiest peer-day (for its common words)
+   * instead of decoding every conversation in the database.
+   */
+  async listTimeWindow(
+    part: C2cPartition,
+    opts: { startTime: number; endTime: number },
+  ): Promise<C2cMsg[]> {
+    const { clause, value } = partitionWhere(part);
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM ${this.table}
+        WHERE ${clause} AND "40050" >= ? AND "40050" < ?
+        ${ORDER_OLDEST_FIRST}`,
+      [value, BigInt(Math.floor(opts.startTime)), BigInt(Math.floor(opts.endTime))],
+    );
+    return rows.map(rowToC2cMsg);
   }
 
   /**

@@ -466,6 +466,206 @@ function dressTree(data: Record<string, unknown>): El {
   );
 }
 
+/**
+ * 私聊火花页的长图版。绿墙固定渲染服务端下发的默认墙年（和 HTML 导出同一个
+ * 口径），satori 不处理 CSS hover / 交互，所以只保留「一年一墙」的静态图。
+ */
+function sparkTree(data: Record<string, unknown>): El {
+  const year = Number(data.year ?? 0);
+  const top = (data.topDay ?? null) as {
+    year: number;
+    month: number;
+    day: number;
+    peerName: string;
+    total: number;
+    mine: number;
+    words: string[];
+  } | null;
+  const wallYear = Number(data.wallYear ?? year);
+  const wallDays = (data.wallDays ?? []) as Array<{
+    year: number;
+    month: number;
+    day: number;
+    count: number;
+  }>;
+  const spark = (data.spark ?? null) as { days: number; peerName: string } | null;
+  const sentTotal = Number(data.sentTotal ?? 0);
+  const activeDays = Number(data.activeDays ?? 0);
+  const longestSelfRun = Number(data.longestSelfRun ?? 0);
+  const wall = wallDays.filter((day) => day.year === wallYear);
+
+  const cells = (): El[] => {
+    const countByDay = new Map<string, number>();
+    for (const day of wall) countByDay.set(`${day.month}-${day.day}`, day.count);
+    const start = new Date(wallYear, 0, 1);
+    const mondayOffset = (start.getDay() + 6) % 7;
+    const leap = (wallYear % 4 === 0 && wallYear % 100 !== 0) || wallYear % 400 === 0;
+    const totalDays = leap ? 366 : 365;
+    const weekCount = Math.ceil((mondayOffset + totalDays) / 7);
+    const max = wall.length ? Math.max(...wall.map((d) => d.count)) : 1;
+    const weeks: El[] = [];
+    for (let week = 0; week < weekCount; week++) {
+      const column: El[] = [];
+      for (let dow = 0; dow < 7; dow++) {
+        const dayOfYear = week * 7 + dow - mondayOffset;
+        if (dayOfYear < 0 || dayOfYear >= totalDays) {
+          column.push(cellEl(0));
+        } else {
+          const date = new Date(wallYear, 0, 1 + dayOfYear);
+          const count = countByDay.get(`${date.getMonth() + 1}-${date.getDate()}`) ?? 0;
+          column.push(cellEl(count === 0 ? 0 : Math.min(4, 1 + Math.ceil((count / max) * 3))));
+        }
+      }
+      weeks.push(el('div', { display: 'flex', flexDirection: 'column', gap: 3 }, column));
+    }
+    return weeks;
+  };
+
+  const hero = top
+    ? [
+        el('div', { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }, [
+          el(
+            'div',
+            { fontSize: 26, color: PALETTE.inkSoft, letterSpacing: 6 },
+            `${isAllTimeYear(year) ? '历史以来' : `${year} 年`} · 全部私聊里最用力的一天`,
+          ),
+          el(
+            'div',
+            { fontSize: 28, color: PALETTE.inkMuted, letterSpacing: 2, fontFamily: 'Report' },
+            `${top.year} 年 ${top.month} 月 ${top.day} 日`,
+          ),
+        ]),
+        el('div', { marginTop: 30, fontSize: 38, color: PALETTE.inkSoft, letterSpacing: 4 }, [
+          `你和 `,
+          el('span', { fontWeight: 700, color: PALETTE.ink }, top.peerName),
+        ]),
+        el('div', { marginTop: 4, display: 'flex', alignItems: 'baseline' }, [
+          el(
+            'div',
+            { fontSize: 168, fontWeight: 700, color: PALETTE.ink, letterSpacing: -6 },
+            fmt(top.total),
+          ),
+          el(
+            'div',
+            { marginLeft: 24, fontSize: 40, color: PALETTE.inkMuted, letterSpacing: 8 },
+            '条消息',
+          ),
+        ]),
+        ...(top.words?.[0]
+          ? [
+              el(
+                'div',
+                {
+                  marginTop: 14,
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  flexWrap: 'wrap',
+                  color: PALETTE.inkMuted,
+                },
+                [
+                  el(
+                    'div',
+                    { fontSize: 26, color: PALETTE.inkMuted, letterSpacing: 3 },
+                    '那天你们说得最多的，是',
+                  ),
+                  el(
+                    'div',
+                    {
+                      marginLeft: 24,
+                      fontSize: top.words[0].length > 8 ? 54 : 96,
+                      fontWeight: 700,
+                      color: '#3fae70',
+                      letterSpacing: 2,
+                      lineHeight: 1,
+                    },
+                    top.words[0],
+                  ),
+                ],
+              ),
+            ]
+          : []),
+      ]
+    : [];
+
+  const bandCell = (label: string, value: string, unit: string, note?: string): El =>
+    el(
+      'div',
+      {
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        paddingTop: 22,
+      },
+      [
+        el('div', { fontSize: 18, color: PALETTE.inkFaint, letterSpacing: 5 }, label),
+        el('div', { marginTop: 10, display: 'flex', alignItems: 'baseline' }, [
+          el('div', { fontSize: 52, fontWeight: 700, color: PALETTE.ink }, value),
+          el(
+            'div',
+            { marginLeft: 8, fontSize: 22, color: PALETTE.inkMuted, letterSpacing: 3 },
+            unit,
+          ),
+        ]),
+        ...(note
+          ? [el('div', { marginTop: 8, fontSize: 18, color: '#3fae70', letterSpacing: 1 }, note)]
+          : []),
+      ],
+    );
+
+  const band = el(
+    'div',
+    {
+      marginTop: 64,
+      display: 'flex',
+      borderTop: `1px solid ${PALETTE.hair}`,
+      width: SLIDE_W - 144,
+    },
+    [
+      bandCell('私聊发出', fmt(sentTotal), '条'),
+      el('div', { width: 1, marginTop: 22, height: 128, backgroundColor: PALETTE.hair }),
+      bandCell('开口天数', fmt(activeDays), '天'),
+      el('div', { width: 1, marginTop: 22, height: 128, backgroundColor: PALETTE.hair }),
+      bandCell('最长连续发言', fmt(longestSelfRun), '天'),
+      el('div', { width: 1, marginTop: 22, height: 128, backgroundColor: PALETTE.hair }),
+      bandCell('最长火花', fmt(spark?.days ?? 0), '天', spark?.peerName ?? '还没有双向的火花'),
+    ],
+  );
+
+  return slideFrame(
+    [
+      ...hero,
+      el('div', { marginTop: 70, display: 'flex', flexDirection: 'column' }, [
+        el('div', { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }, [
+          el('div', { fontSize: 30, color: PALETTE.ink, letterSpacing: 4 }, `${wallYear} 年`),
+          el('div', { fontSize: 18, color: PALETTE.inkFaint, letterSpacing: 5 }, '我发出的私聊'),
+        ]),
+        el('div', { marginTop: 14, display: 'flex', gap: 3 }, cells()),
+      ]),
+      band,
+    ],
+    isAllTimeYear(year) ? 'ALL' : String(year),
+  );
+}
+
+function cellEl(level: number): El {
+  const leaf = (alpha: number): string => `rgba(63,174,112,${alpha})`;
+  return el('div', {
+    width: 12,
+    height: 12,
+    borderRadius: 2,
+    backgroundColor:
+      level === 0
+        ? 'rgba(244,240,230,0.045)'
+        : level === 1
+          ? leaf(0.18)
+          : level === 2
+            ? leaf(0.38)
+            : level === 3
+              ? leaf(0.62)
+              : '#3fae70',
+  });
+}
+
 function endTree(data: Record<string, unknown>): El {
   const year = Number(data.year ?? 0);
   const allTime = isAllTimeYear(year);
@@ -540,6 +740,7 @@ function treeForSlide(slide: ReportExportSlide): El {
   const data = (slide.data ?? {}) as Record<string, unknown>;
   if (slide.pageId === 'overview') return overviewTree(data);
   if (slide.pageId === 'dress') return dressTree(data);
+  if (slide.pageId === 'spark') return sparkTree(data);
   if (slide.pageId === 'end') return endTree(data);
   return genericTree(slide);
 }

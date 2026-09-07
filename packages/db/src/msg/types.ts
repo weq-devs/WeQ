@@ -66,6 +66,23 @@ export interface GroupMsg {
 }
 
 /**
+ * One (peer, calendar-day) bucket of private-chat messages — the atomic unit
+ * for the annual report's private-chat highlights page. Direction is derived
+ * per row with the same rule as `countByDirection` (40021 is always the peer,
+ * so a row whose senderUid differs from the peer was sent by the account).
+ */
+export interface C2cPeerDayTally {
+  /** Conversation peer (column 40021). */
+  peerUid: string;
+  /** Local calendar day, `YYYY-MM-DD` (derived in SQL with 'localtime'). */
+  date: string;
+  /** Both sides combined. */
+  total: number;
+  /** Messages sent by the account itself on that day/peer. */
+  mine: number;
+}
+
+/**
  * 一「套」装扮（气泡 + 字体 + 挂件的一个具体组合）在时间窗内的使用情况。
  *
  * 以套为单位而不是三类分开统计，是因为 40801 这一列本身记的就是一套：用户当时把

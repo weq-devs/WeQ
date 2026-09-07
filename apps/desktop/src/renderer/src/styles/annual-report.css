@@ -1414,6 +1414,380 @@ html[data-theme="dark"] .weq-report-root {
   }
 }
 
+/* ══ 私聊火花页 ═══════════════════════════════════════════════════════
+ *
+ * 版式还是那一套：一句引子、一个巨数、一根数据带。这一页的中间换成
+ * GitHub 式「私聊绿墙」——每天自己发出的私聊条数；深色墙用的是叶子绿，
+ * 在炭黑纸上跳出来，而不是再抄一次强调色（那样绿墙就不绿了）。
+ * ═══════════════════════════════════════════════════════════════════ */
+
+.weq-report-root {
+  --rp-leaf: #2e7d55;
+}
+
+html[data-theme="dark"] .weq-report-root {
+  --rp-leaf: #3fae70;
+}
+
+.weq-sp {
+  display: flex;
+  flex-direction: column;
+}
+
+.weq-sp-kicker {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  margin: 0;
+  color: var(--rp-ink-soft);
+  font-size: 13px;
+  letter-spacing: 0.18em;
+}
+
+.weq-sp-kicker-date {
+  color: var(--rp-ink-faint);
+  font-family: var(--rp-serif);
+  font-size: 15px;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+/* ── 主角：那天的巨数 ─────────────────────────────────────────────── */
+
+.weq-sp-hero {
+  margin-top: 8px;
+}
+
+.weq-sp-hero-say {
+  margin: 0;
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif);
+  font-size: 22px;
+  letter-spacing: 0.1em;
+}
+
+.weq-sp-hero-say em {
+  margin-left: 4px;
+  color: var(--rp-ink);
+  font-style: normal;
+  font-weight: 600;
+}
+
+.weq-sp-hero-row {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+}
+
+.weq-sp-hero-num {
+  font-family: var(--rp-serif-base);
+  font-size: 124px;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  color: var(--rp-ink);
+}
+
+.weq-sp-hero-unit {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--rp-ink);
+  font-family: var(--rp-serif);
+  font-size: 25px;
+  line-height: 1.1;
+}
+
+.weq-sp-hero-unit i {
+  color: var(--rp-ink-muted);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 400;
+  letter-spacing: 0.18em;
+  white-space: nowrap;
+}
+
+.weq-sp-wordline {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 2px 0 0;
+  color: var(--rp-ink-muted);
+  font-family: var(--rp-serif);
+  font-size: 15px;
+  letter-spacing: 0.06em;
+}
+
+.weq-sp-wordline-prefix {
+  color: var(--rp-ink-muted);
+}
+
+.weq-sp-wordline-word {
+  color: var(--rp-leaf);
+  font-family: var(--rp-serif-base);
+  font-size: 76px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 0.9;
+}
+
+.weq-sp-wordline-word.is-long {
+  font-size: 48px;
+}
+
+.weq-sp-wordline.is-empty {
+  color: var(--rp-ink-faint);
+}
+
+/* ── 绿墙 ─────────────────────────────────────────────────────────── */
+
+.weq-sp-wall {
+  margin-top: 12px;
+}
+
+.weq-sp-wall-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 9px;
+}
+
+.weq-sp-wall-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0;
+  color: var(--rp-ink);
+  font-family: var(--rp-serif);
+  font-size: 16px;
+  letter-spacing: 0.1em;
+}
+
+.weq-sp-wall-sub {
+  color: var(--rp-ink-faint);
+  font-family: var(--rp-sans);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+}
+
+.weq-sp-wall-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.weq-sp-wall-nav button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--rp-ink-muted);
+  cursor: pointer;
+  transition: color 220ms ease, background-color 220ms ease;
+}
+
+.weq-sp-wall-nav button:hover:not(:disabled) {
+  background: var(--rp-hair);
+  color: var(--rp-ink);
+}
+
+.weq-sp-wall-nav button:disabled {
+  cursor: default;
+  opacity: 0.25;
+}
+
+.weq-sp-wall-cal {
+  position: relative;
+  touch-action: none;
+}
+
+.weq-sp-wall-months {
+  position: relative;
+  height: 10px;
+  margin: 0 24px 4px 0;
+  color: var(--rp-ink-faint);
+  font-family: var(--rp-mono);
+  font-size: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-sp-wall-months span {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+}
+
+.weq-sp-wall-cols {
+  display: flex;
+  gap: 3px;
+}
+
+.weq-sp-wall-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.weq-sp-wall-cell {
+  display: block;
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--rp-leaf) 0%, transparent);
+  outline: 1px solid var(--rp-hair);
+  outline-offset: -1px;
+}
+
+.weq-sp-wall-cell.is-1 {
+  background: color-mix(in srgb, var(--rp-leaf) 18%, transparent);
+}
+
+.weq-sp-wall-cell.is-2 {
+  background: color-mix(in srgb, var(--rp-leaf) 38%, transparent);
+}
+
+.weq-sp-wall-cell.is-3 {
+  background: color-mix(in srgb, var(--rp-leaf) 62%, transparent);
+}
+
+.weq-sp-wall-cell.is-4 {
+  background: var(--rp-leaf);
+  outline: none;
+}
+
+.weq-sp-wall-legend {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin: 7px 24px 0 0;
+  color: var(--rp-ink-faint);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+}
+
+.weq-sp-wall-legend .weq-sp-wall-cell {
+  width: 9px;
+  height: 9px;
+}
+
+.weq-sp-wall-cell[data-tooltip]:hover {
+  position: relative;
+}
+
+.weq-sp-wall-cell[data-tooltip]:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  z-index: 20;
+  padding: 4px 8px;
+  transform: translateX(-50%);
+  border-radius: 3px;
+  background: var(--rp-ink);
+  color: var(--rp-paper);
+  font-family: var(--rp-sans);
+  font-size: 10px;
+  letter-spacing: 0;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.weq-sp-wall-cell.is-0[data-tooltip]:hover::after {
+  display: none;
+}
+
+/* ── 数据带：四格 + 发丝线 ───────────────────────────────────────── */
+
+.weq-sp-band {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin: 18px 0 0;
+  border-top: 1px solid var(--rp-hair);
+}
+
+.weq-sp-band-cell {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 13px 16px 0 0;
+}
+
+.weq-sp-band-cell + .weq-sp-band-cell {
+  padding-left: 16px;
+  border-left: 1px solid var(--rp-hair);
+}
+
+.weq-sp-band-cell dt {
+  color: var(--rp-ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  white-space: nowrap;
+}
+
+.weq-sp-band-cell dd {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin: 4px 0 0;
+  overflow: hidden;
+}
+
+.weq-sp-band-cell dd .weq-number {
+  color: var(--rp-ink);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.weq-sp-band-cell dd i {
+  color: var(--rp-ink-muted);
+  font-size: 11px;
+  font-style: normal;
+  letter-spacing: 0.12em;
+}
+
+.weq-sp-band-note {
+  margin: 4px 0 0;
+  overflow: hidden;
+  color: var(--rp-leaf);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 窄画幅：巨数收一档，数据带折成两行两格。 */
+@media (max-width: 1000px) {
+  .weq-sp-hero-num {
+    font-size: 96px;
+  }
+
+  .weq-sp-band {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .weq-sp-band-cell {
+    padding: 12px 12px 0 0;
+  }
+
+  .weq-sp-band-cell + .weq-sp-band-cell {
+    padding-left: 12px;
+  }
+
+  .weq-sp-band-cell:nth-child(odd) {
+    border-left: 0;
+    padding-left: 0;
+  }
+}
+
 /* ══ 状态 / 兜底 ══════════════════════════════════════════════════════ */
 
 .weq-report-unknown,
