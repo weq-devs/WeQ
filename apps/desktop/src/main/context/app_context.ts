@@ -917,6 +917,16 @@ export function initAppContext(): AppContext {
         annualReport: new AnnualReportService(session, {
           preferences: accountConfig.getRecord()?.annualReport,
           resolveDressNames: createDressNameResolver(dressInstall),
+          resolveEmojiNames: async (ids) => {
+            const entries = await emojiService.listSystemFaces();
+            const byId = new Map(entries.map((entry) => [entry.id, entry.desc]));
+            const out: Record<number, string> = {};
+            for (const id of ids) {
+              const desc = byId.get(id);
+              if (desc) out[id] = desc;
+            }
+            return out;
+          },
         }),
         forwardMsgs: new ForwardMsgService(session, platform.native.ntHelper, resolveOnlinePid),
         groupInfo,
@@ -1409,6 +1419,16 @@ export function initAppContext(): AppContext {
         annualReport: new AnnualReportService(session, {
           preferences: accountConfig.getRecord()?.annualReport,
           resolveDressNames: createDressNameResolver(dressInstall),
+          resolveEmojiNames: async (ids) => {
+            const entries = await emojiService.listSystemFaces();
+            const byId = new Map(entries.map((entry) => [entry.id, entry.desc]));
+            const out: Record<number, string> = {};
+            for (const id of ids) {
+              const desc = byId.get(id);
+              if (desc) out[id] = desc;
+            }
+            return out;
+          },
         }),
         forwardMsgs: new ForwardMsgService(session, platform.native.ntHelper, livePid),
         groupInfo,

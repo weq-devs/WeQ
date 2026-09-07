@@ -5,6 +5,7 @@ import type {
   C2cMsg,
   C2cPeerDayTally,
   DressTally,
+  SentSpeechRow,
   SentWeekdayHourlyGrid,
 } from '@weq/db';
 
@@ -136,6 +137,27 @@ export type ReportQueries = {
      * 「#itemId」，不去猜一个假名字。
      */
     names(kind: DressKind, itemIds: number[]): Record<number, string>;
+  };
+  /**
+   * 系统表情的名字解析 —— 年度报告「我的话」页给 favourite face 取名。
+   *
+   * 名字的唯一可靠来源是账号的 emoji.db（`base_sys_emoji_table`），而读 emoji.db
+   * 需要 Platform / native 句柄，service 层不持有，所以由宿主注入解析器。消息里
+   * 的 `faceText`（/捂脸 / [捂脸]）也可以取名，但小黄脸那一批不带 text —— 两条
+   * 来源在页面 compute 里兜底拼接：先查这里，查不到再用消息自己的 faceText。
+   */
+  emoji: {
+    names(faceIds: number[]): Promise<Record<number, string>>;
+  };
+  /**
+   * 年度报告「我的话」页的原始素材：我自己发出的消息正文。
+   *
+   * 与 overview/dress 的「不解码 body 的轻扫描」相反，这一页必须看每条消息说了
+   * 什么，所以两张表各做一次全量 40800 解码后合并返回。只有这一页用；返回的
+   * 数组是共享只读的，调用方不得原地修改。
+   */
+  speech: {
+    sentRows(startTime: number, endTime: number): Promise<SentSpeechRow[]>;
   };
   /** Engine-level metadata, not page data. */
   meta: {

@@ -355,6 +355,50 @@ const CSS = `
     .rh-body.dusk { --rhythm: #e29990; }
     .rh-body { --rhythm: #e2bd79; }
   }
+  /* 我的话页。导出版画不了真实表情贴图（weq-asset / weq-media 不自包含），
+     所以系统表情和自定义表情都退回排印：只保留名字与次数，表情的「画面感」
+     只属于屏幕版。主角仍是那句说熟了的词——静态产物里它是整页的视觉重心。 */
+  .vc { flex: 1; display: flex; flex-direction: column; justify-content: center; text-align: center; }
+  .vc-kicker { display: flex; justify-content: space-between; align-items: baseline; text-align: left; font-size: 8pt; letter-spacing: 3px; color: var(--ink-soft); }
+  .vc-kicker-meta { font-size: 7.5pt; letter-spacing: 2px; color: var(--ink-faint); }
+  .vc-kicker-meta b { font-family: var(--serif); font-size: 10pt; font-weight: 600; color: var(--ink-soft); }
+  .vc-lede { margin-top: 12mm; font-family: var(--serif); font-size: 11.5pt; letter-spacing: 3px; color: var(--ink-soft); }
+  .vc-word { margin-top: 1mm; font-family: var(--serif); font-size: 86pt; font-weight: 600; line-height: 1.05; letter-spacing: -2px; color: var(--ink); }
+  .vc-word.long { font-size: 62pt; letter-spacing: 1px; }
+  .vc-count { display: flex; justify-content: center; align-items: center; gap: 5mm; margin-top: 2mm; font-family: var(--serif); font-size: 10.5pt; letter-spacing: 3px; color: var(--voice); }
+  .vc-count b { margin: 0 1mm; font-family: var(--serif); font-size: 15pt; font-weight: 600; color: var(--ink); }
+  .vc-count i { display: inline-block; width: 14mm; height: 0.25mm; background: color-mix(in srgb, var(--voice) 58%, transparent); }
+  .vc-faves { margin-top: 12mm; padding-top: 4mm; border-top: 0.25mm solid var(--hair); }
+  .vc-faves-in { font-size: 8pt; letter-spacing: 5px; color: var(--ink-faint); }
+  .vc-faves-row { display: flex; justify-content: center; gap: 16mm; margin-top: 7mm; }
+  /* 系统表情文字榜：第一名字最大，老朋友顺位缩小。 */
+  .vc-faceband { display: flex; align-items: center; gap: 7mm; }
+  .vc-faceband-tag {
+    writing-mode: vertical-rl;
+    font-size: 8pt;
+    font-weight: 600;
+    letter-spacing: 4px;
+    color: var(--voice);
+  }
+  .vc-face-tiles { display: flex; align-items: flex-end; gap: 13mm; }
+  .vc-face-tiles .vc-fave { min-width: 0; }
+  .vc-face .vc-fave-name { line-height: 1; }
+  .vc-face.rank-0 .vc-fave-name { font-size: 34pt; }
+  .vc-face.rank-1 .vc-fave-name { font-size: 25pt; }
+  .vc-face.rank-2 .vc-fave-name { font-size: 20pt; }
+  .vc-face.rank-3 .vc-fave-name { font-size: 17pt; }
+  .vc-face.rank-0 .vc-fave-count { font-size: 9pt; }
+  .vc-faves-sep { width: 0.25mm; height: 30mm; background: var(--hair); }
+  .vc-fave { display: flex; flex-direction: column; align-items: center; gap: 2mm; }
+  .vc-fave-label { font-size: 7.5pt; font-weight: 600; letter-spacing: 4px; color: var(--voice); }
+  .vc-fave-name { font-family: var(--serif); font-size: 16pt; font-weight: 600; letter-spacing: 2px; color: var(--ink); }
+  .vc-fave-count { font-family: var(--mono); font-size: 8pt; letter-spacing: 1px; color: var(--ink-faint); }
+  .vc-fave-count b { font-family: var(--serif); font-size: 13pt; font-weight: 600; color: var(--voice); }
+  .vc-mood { margin: 12mm auto 0; max-width: 150mm; font-family: var(--serif); font-size: 11pt; line-height: 2; letter-spacing: 2px; color: var(--ink-soft); }
+  .vc { --voice: #9a4f3a; }
+  @media (prefers-color-scheme: dark) {
+    .vc { --voice: #e0a878; }
+  }
   /* 结尾页 */
   .end { text-align: center; }
   .end-line { font-family: var(--serif); font-size: 12pt; letter-spacing: 5px; color: var(--ink-muted); }
@@ -1039,6 +1083,85 @@ function exportRhythmMood(input: {
   return `你的一天没有固定的分时区，${input.activeHours}/24 个小时都可能说话；出现得最勤的是 ${peak}，但你的「收到」从来不挑时间。`;
 }
 
+/**
+ * 我的话页的导出版。
+ *
+ * 屏幕版里那颗系统表情 / 自定义表情是有真实画面的（weq-asset / weq-media 协议），
+ * 自包含 HTML 里画不出来 —— 所以导出版只留下排印：词是主角，两颗表情退成
+ * 一排名字与次数的小注脚。与装扮页同一句取舍：换皮不换骨。
+ */
+function voiceSlide(data: Record<string, unknown>): string {
+  const year = Number(data.year ?? 0);
+  const allTime = isAllTimeYear(year);
+  const sentTotal = Number(data.sentTotal ?? 0);
+  const faceTotal = Number(data.faceTotal ?? 0);
+  const picTotal = Number(data.picTotal ?? 0);
+  const word = (data.word ?? null) as { word?: string; count?: number } | null;
+  const faces = (data.faces ?? []) as Array<{
+    name?: string;
+    count?: number;
+  }>;
+  const pic = (data.pic ?? null) as { count?: number } | null;
+  const heroWord = String(word?.word ?? '……');
+  const heroCount = Number(word?.count ?? 0);
+  const topFaces = faces.slice(0, 4);
+  const hasFaves = topFaces.length > 0 || pic != null;
+  const faveHtml = hasFaves
+    ? `<div class="vc-faves">
+        <p class="vc-faves-in">而表情，是你那句口头禅旁边的语气——</p>
+        <div class="vc-faves-row">
+          ${
+            topFaces.length > 0
+              ? `<div class="vc-faceband">
+                  <span class="vc-faceband-tag">系统表情</span>
+                  <div class="vc-face-tiles">
+                    ${topFaces
+                      .map(
+                        (face, rank) =>
+                          `<div class="vc-fave vc-face rank-${rank}">
+                            <span class="vc-fave-name">${escapeHtml(String(face.name ?? '表情'))}</span>
+                            <span class="vc-fave-count"><b>${fmt(Number(face.count ?? 0))}</b> 次</span>
+                          </div>`,
+                      )
+                      .join('')}
+                  </div>
+                </div>`
+              : ''
+          }
+          ${topFaces.length > 0 && pic ? '<span class="vc-faves-sep"></span>' : ''}
+          ${
+            pic
+              ? `<div class="vc-fave vc-pic">
+                  <span class="vc-fave-label">自定义表情</span>
+                  <span class="vc-fave-name">这张最常被你拿出来</span>
+                  <span class="vc-fave-count"><b>${fmt(Number(pic.count ?? 0))}</b> 次</span>
+                </div>`
+              : ''
+          }
+        </div>
+      </div>`
+    : '';
+
+  return `${slideOpen('话')}
+    <div class="vc">
+      <div class="vc-kicker">
+        <span>${escapeHtml(reportEraLabel(year))} · 我的话</span>
+        <span class="vc-kicker-meta"><b>${fmt(sentTotal)}</b> 条发言 / <b>${fmt(
+          faceTotal,
+        )}</b> 个系统表情${picTotal > 0 ? ` / <b>${fmt(picTotal)}</b> 张自定义表情` : ''}</span>
+      </div>
+      <p class="vc-lede">${allTime ? '从有记录到现在' : `${year} 这一年`}，你说得最多的那个词是</p>
+      <h2 class="vc-word${heroWord.length >= 5 ? ' long' : ''}">${escapeHtml(heroWord)}</h2>
+      <p class="vc-count"><i aria-hidden></i>说了 <b>${fmt(heroCount)}</b> 次<i aria-hidden></i></p>
+      ${hasFaves ? faveHtml : ''}
+      <p class="vc-mood">${
+        heroCount > 0
+          ? `一句话说了 ${fmt(heroCount)} 次，不是因为词穷——是每一次，你都还想把它送到。`
+          : '重复，是你最诚实的告白。'
+      }</p>
+    </div>${slideFoot(`${reportPeriodLabel(year)} · VOICE`)}`;
+}
+
 function endSlide(data: Record<string, unknown>): string {
   const year = Number(data.year ?? 0);
   const allTime = isAllTimeYear(year);
@@ -1074,6 +1197,7 @@ export function buildReportHtml(year: number, slides: ExportSlide[]): string {
       if (slide.page.id === 'friends') return friendsSlide(data);
       if (slide.page.id === 'openers') return openersSlide(data);
       if (slide.page.id === 'rhythm') return rhythmSlide(data);
+      if (slide.page.id === 'voice') return voiceSlide(data);
       if (slide.page.id === 'end') return endSlide(data);
       return genericSlide(slide);
     })

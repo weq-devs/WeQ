@@ -18,7 +18,13 @@
  */
 
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
-import type { DressTally, GroupMsg, SentWeekdayHourlyGrid, SeqWindow } from './types';
+import type {
+  DressTally,
+  GroupMsg,
+  SentSpeechRow,
+  SentWeekdayHourlyGrid,
+  SeqWindow,
+} from './types';
 import {
   buildWeekdayHourlyGrid,
   decodeBody,
@@ -459,6 +465,45 @@ export class GroupMsgDb {
       params,
     );
     return buildWeekdayHourlyGrid(rows);
+  }
+
+  /**
+   * 自己发出的群聊消息，逐条解码正文 —— 年度报告「我的话」页的原始素材。
+   *
+   * 自证 marker 与 {@link sentYears} 完全一致（senderUid 优先、selfUin 兜底；
+   * 两者都没有时返回空数组，不把别人的群发言算给自己）。窗口时间用调用方给的
+   * unix 秒半开区间；空 body 的行在 SQL 侧滤掉。
+   *
+   * 返回的是**共享只读**数组（调用方只在 compute 内聚合，不得修改）。
+   */
+  async sentSpeechRows(
+    opts: { startTime?: number; endTime?: number; selfUin?: bigint; senderUid?: string } = {},
+  ): Promise<SentSpeechRow[]> {
+    const mine = opts.senderUid
+      ? { clause: `"40020" = ? AND "40020" != ''`, value: opts.senderUid as SqlValue }
+      : opts.selfUin !== undefined && opts.selfUin > 0n
+        ? { clause: `"40033" = ?`, value: opts.selfUin as SqlValue }
+        : null;
+    if (!mine) return [];
+
+    const conditions: string[] = [`"40050" > 0`, mine.clause, `length("40800") > 0`];
+    const params: SqlValue[] = [mine.value];
+    if (opts.startTime != null && opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      params.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime != null && opts.endTime > 0) {
+      conditions.push(`"40050" < ?`);
+      params.push(BigInt(opts.endTime));
+    }
+    const rows = await this.qq.query(
+      `SELECT "40050","40800" FROM group_msg_table WHERE ${conditions.join(' AND ')}`,
+      params,
+    );
+    return rows.map((row) => ({
+      sendTime: toBigint(row[0]),
+      elements: decodeBody(row[1]),
+    }));
   }
 
   /**

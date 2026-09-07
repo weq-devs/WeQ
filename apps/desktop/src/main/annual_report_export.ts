@@ -55,6 +55,7 @@ const PALETTE = {
   accent: '#c9a227',
   ghostStroke: 'rgba(201,162,39,0.13)',
   open: '#d9a9cf',
+  voice: '#e0a878',
 };
 
 function fmt(n: number): string {
@@ -1412,6 +1413,239 @@ function padHour(hour: number): string {
   return `${String(hour).padStart(2, '0')}:00`;
 }
 
+/**
+ * 我的话页的长图版。
+ *
+ * 长图同样画不了协议图（weq-asset / weq-media），所以与 HTML 导出版同一取舍：
+ * 那句说熟了的词是整页唯一主角，系统表情榜与自定义表情退成名字次数的小注脚。
+ * 词越大越居中，重复就有多重。
+ */
+function voiceTree(data: Record<string, unknown>): El {
+  const year = Number(data.year ?? 0);
+  const allTime = isAllTimeYear(year);
+  const sentTotal = Number(data.sentTotal ?? 0);
+  const faceTotal = Number(data.faceTotal ?? 0);
+  const picTotal = Number(data.picTotal ?? 0);
+  const word = (data.word ?? null) as { word?: string; count?: number } | null;
+  const faces = (data.faces ?? []) as Array<{ name?: string; count?: number }>;
+  const topFaces = faces.slice(0, 4);
+  const pic = (data.pic ?? null) as { count?: number } | null;
+  const heroWord = String(word?.word ?? '……');
+  const heroCount = Number(word?.count ?? 0);
+  const faceFontSizes = [56, 44, 38, 32];
+
+  const center = el(
+    'div',
+    {
+      width: SLIDE_W - 144,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+    },
+    [
+      el('div', { display: 'flex', justifyContent: 'space-between', width: '100%' }, [
+        el(
+          'div',
+          { fontSize: 28, color: PALETTE.inkSoft, letterSpacing: 7 },
+          `${reportEraLabel(year)} · 我的话`,
+        ),
+        el(
+          'div',
+          { fontSize: 21, color: PALETTE.inkFaint, letterSpacing: 4 },
+          `${fmt(sentTotal)} 条发言 / ${fmt(faceTotal)} 个系统表情${
+            picTotal > 0 ? ` / ${fmt(picTotal)} 张自定义` : ''
+          }`,
+        ),
+      ]),
+      el(
+        'div',
+        { marginTop: 86, fontSize: 36, color: PALETTE.inkSoft, letterSpacing: 4 },
+        `${allTime ? '从有记录到现在' : `${year} 这一年`}，你说得最多的那个词是`,
+      ),
+      el(
+        'div',
+        {
+          marginTop: 18,
+          fontSize: heroWord.length >= 5 ? 148 : 220,
+          fontWeight: 700,
+          color: PALETTE.ink,
+          lineHeight: 1.05,
+          letterSpacing: heroWord.length >= 5 ? 4 : -2,
+        },
+        heroWord,
+      ),
+      el('div', { marginTop: 26, display: 'flex', alignItems: 'center' }, [
+        el('div', { width: 58, height: 1, backgroundColor: rgba(PALETTE.voice, 0.65) }),
+        el(
+          'div',
+          {
+            marginLeft: 22,
+            marginRight: 22,
+            fontSize: 28,
+            color: PALETTE.voice,
+            letterSpacing: 5,
+          },
+          '说了',
+        ),
+        el(
+          'div',
+          {
+            marginRight: 18,
+            fontSize: 48,
+            fontWeight: 700,
+            color: PALETTE.ink,
+            letterSpacing: 0,
+          },
+          fmt(heroCount),
+        ),
+        el('div', { fontSize: 28, color: PALETTE.voice, letterSpacing: 5 }, '次'),
+        el('div', { width: 58, height: 1, backgroundColor: rgba(PALETTE.voice, 0.65) }),
+      ]),
+      ...(topFaces.length > 0 || pic
+        ? [
+            el(
+              'div',
+              { marginTop: 90, display: 'flex', flexDirection: 'column', alignItems: 'center' },
+              [
+                el(
+                  'div',
+                  { fontSize: 20, color: PALETTE.inkFaint, letterSpacing: 12 },
+                  '而表情，是你那句口头禅旁边的语气——',
+                ),
+                el(
+                  'div',
+                  { marginTop: 42, display: 'flex', flexDirection: 'row', alignItems: 'flex-end' },
+                  [
+                    topFaces.length > 0
+                      ? el(
+                          'div',
+                          { display: 'flex', flexDirection: 'column', alignItems: 'center' },
+                          [
+                            el(
+                              'div',
+                              {
+                                fontSize: 20,
+                                color: PALETTE.voice,
+                                letterSpacing: 10,
+                                fontWeight: 700,
+                              },
+                              '系统表情',
+                            ),
+                            el(
+                              'div',
+                              {
+                                marginTop: 24,
+                                display: 'flex',
+                                flexDirection: 'row',
+                                alignItems: 'flex-end',
+                                gap: 54,
+                              },
+                              topFaces.map((face, index) =>
+                                el(
+                                  'div',
+                                  {
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                  },
+                                  [
+                                    el(
+                                      'div',
+                                      {
+                                        fontSize: faceFontSizes[index] ?? 32,
+                                        fontWeight: 700,
+                                        color: PALETTE.ink,
+                                        lineHeight: 1.1,
+                                        letterSpacing: index === 0 ? 1 : 0,
+                                      },
+                                      String(face.name ?? '表情'),
+                                    ),
+                                    el(
+                                      'div',
+                                      {
+                                        marginTop: 10,
+                                        fontSize: 21,
+                                        color: PALETTE.inkFaint,
+                                      },
+                                      `${fmt(Number(face.count ?? 0))} 次`,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                      : null,
+                    topFaces.length > 0 && pic
+                      ? el('div', {
+                          width: 1,
+                          height: 96,
+                          marginLeft: 62,
+                          marginRight: 62,
+                          backgroundColor: PALETTE.hair,
+                        })
+                      : null,
+                    pic
+                      ? el(
+                          'div',
+                          { display: 'flex', flexDirection: 'column', alignItems: 'center' },
+                          [
+                            el(
+                              'div',
+                              {
+                                fontSize: 20,
+                                color: PALETTE.voice,
+                                letterSpacing: 10,
+                                fontWeight: 700,
+                              },
+                              '自定义表情',
+                            ),
+                            el(
+                              'div',
+                              {
+                                marginTop: 24,
+                                fontSize: 38,
+                                fontWeight: 700,
+                                color: PALETTE.ink,
+                                letterSpacing: 2,
+                              },
+                              '这张最常被你拿出来',
+                            ),
+                            el(
+                              'div',
+                              { marginTop: 10, fontSize: 21, color: PALETTE.inkFaint },
+                              `${fmt(Number(pic.count ?? 0))} 次`,
+                            ),
+                          ],
+                        )
+                      : null,
+                  ],
+                ),
+              ],
+            ),
+          ]
+        : []),
+      el(
+        'div',
+        {
+          marginTop: 76,
+          maxWidth: 760,
+          fontSize: 28,
+          color: PALETTE.inkSoft,
+          lineHeight: 1.8,
+          letterSpacing: 3,
+          textAlign: 'center',
+        },
+        heroCount > 0
+          ? `一句话说了 ${fmt(heroCount)} 次，不是因为词穷——是每一次，你都还想把它送到。`
+          : '重复，是你最诚实的告白。',
+      ),
+    ],
+  );
+
+  return slideFrame([center], '话');
+}
+
 /** '#rrggbb' + alpha → rgba()。satori 不支持 color-mix，只能拼字符串。 */
 function rgba(hex: string, alpha: number): string {
   const value = hex.replace('#', '');
@@ -1499,6 +1733,7 @@ function treeForSlide(slide: ReportExportSlide): El {
   if (slide.pageId === 'friends') return friendsTree(data);
   if (slide.pageId === 'openers') return openersTree(data);
   if (slide.pageId === 'rhythm') return rhythmTree(data);
+  if (slide.pageId === 'voice') return voiceTree(data);
   if (slide.pageId === 'end') return endTree(data);
   return genericTree(slide);
 }

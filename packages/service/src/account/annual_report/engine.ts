@@ -31,6 +31,11 @@ export type AnnualReportServiceOptions = {
    * service 之外，所以由宿主注入；不注入时装扮页照常出，只是显示 `#itemId`。
    */
   resolveDressNames?: DressNameResolver;
+  /**
+   * 系统表情 faceId → 干净中文名的解析器（宿主从账号 emoji.db 读）。不注入时
+   * 「我的话」页照常出，表情名退到消息自带 faceText / 「表情 N」。
+   */
+  resolveEmojiNames?: (faceIds: number[]) => Promise<Record<number, string>>;
 };
 
 export class AnnualReportService {
@@ -51,6 +56,7 @@ export class AnnualReportService {
     this.dataRevision = options.dataRevision ?? session.msgDbPath;
     this.queries = createReportQueries(this.session, {
       resolveDressNames: options.resolveDressNames,
+      resolveEmojiNames: options.resolveEmojiNames,
     });
     this.preferences = options.preferences ?? DEFAULT_PREFERENCES;
   }

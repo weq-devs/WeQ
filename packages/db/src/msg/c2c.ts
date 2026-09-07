@@ -26,6 +26,7 @@ import type {
   C2cMsg,
   C2cPeerDayTally,
   DressTally,
+  SentSpeechRow,
   SentWeekdayHourlyGrid,
   SeqWindow,
 } from './types';
@@ -564,6 +565,43 @@ export class C2cMsgDb {
       params,
     );
     return buildWeekdayHourlyGrid(rows);
+  }
+
+  /**
+   * 自己发出的消息，逐条解码正文 —— 年度报告「我的话」页的原始素材。
+   *
+   * 方向沿用 {@link countByDirection} 的自证判据（40021 恒为对端、senderUid 与
+   * 对端不同即我发）。与作息页不同，这一页必须看**说了什么**，所以 40800 每一行
+   * 都要解；空 body 的行直接滤掉。窗口时间用调用方给的 unix 秒半开区间。
+   *
+   * 返回的是**共享只读**数组（调用方只在 compute 内聚合，不得修改）。
+   */
+  async sentSpeechRows(
+    opts: { startTime?: number; endTime?: number } = {},
+  ): Promise<SentSpeechRow[]> {
+    const conditions: string[] = [
+      `"40050" > 0`,
+      `"40020" != "40021"`,
+      `"40020" != ''`,
+      `length("40800") > 0`,
+    ];
+    const params: SqlValue[] = [];
+    if (opts.startTime != null && opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      params.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime != null && opts.endTime > 0) {
+      conditions.push(`"40050" < ?`);
+      params.push(BigInt(opts.endTime));
+    }
+    const rows = await this.qq.query(
+      `SELECT "40050","40800" FROM ${this.table} WHERE ${conditions.join(' AND ')}`,
+      params,
+    );
+    return rows.map((row) => ({
+      sendTime: toBigint(row[0]),
+      elements: decodeBody(row[1]),
+    }));
   }
 
   /**

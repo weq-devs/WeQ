@@ -66,6 +66,19 @@ export interface GroupMsg {
 }
 
 /**
+ * 我自己发出的一条消息（正文已解码）——年度报告「我的话」页做全正文盘点用。
+ *
+ * 只保留盘点真正需要的两样：时间（拼媒体寻址）与解码后的 elements（数文本词频、
+ * 系统表情、自定义表情）。不回传会话标识与发送者列：方向在 SQL 里已经过滤完，
+ * 页面不需要第二次身份判定。
+ */
+export interface SentSpeechRow {
+  /** Unix seconds（列 40050），保留给自定义表情的图片寻址。 */
+  sendTime: bigint;
+  elements: Element[];
+}
+
+/**
  * One (peer, calendar-day) bucket of private-chat messages — the atomic unit
  * for the annual report's private-chat highlights page. Direction is derived
  * per row with the same rule as `countByDirection` (40021 is always the peer,

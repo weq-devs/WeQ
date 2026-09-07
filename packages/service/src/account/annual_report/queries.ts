@@ -35,7 +35,10 @@ function mergeWeekdayHourlyGrids(parts: SentWeekdayHourlyGrid[]): SentWeekdayHou
  */
 export function createReportQueries(
   session: AccountSession,
-  options: { resolveDressNames?: DressNameResolver } = {},
+  options: {
+    resolveDressNames?: DressNameResolver;
+    resolveEmojiNames?: (faceIds: number[]) => Promise<Record<number, string>>;
+  } = {},
 ): ReportQueries {
   // 自己的 uid 用 session 打开时已经驻留内存的 uidMap（nt_uid_mapping_table）
   // 反查，不在这里对 c2c 消息表做任何推断扫描。群聊方向计数按 uid 精确匹配
@@ -54,6 +57,7 @@ export function createReportQueries(
   const dayTallyCache = new Map<string, Promise<C2cPeerDayTally[]>>();
   const initiationCache = new Map<string, Promise<C2cInitiationTally[]>>();
   const weekdayHourlyCache = new Map<string, Promise<SentWeekdayHourlyGrid>>();
+  const speechCache = new Map<string, Promise<import('@weq/db').SentSpeechRow[]>>();
   let oldestCache: Promise<number | null> | null = null;
   let sentYearsCache: Promise<number[]> | null = null;
 
@@ -165,6 +169,48 @@ export function createReportQueries(
         } catch {
           return {};
         }
+      },
+    },
+    emoji: {
+      /**
+       * 批量解析系统表情的名字。宿主没注入解析器时返回空表 —— 页面回退到消息
+       * 自带的 faceText（/捂脸 / [捂脸]），再兜底到「表情 N」。
+       */
+      async names(faceIds: number[]) {
+        if (!options.resolveEmojiNames || faceIds.length === 0) return {};
+        const unique = [...new Set(faceIds.filter((id) => id > 0))];
+        if (unique.length === 0) return {};
+        try {
+          return await options.resolveEmojiNames(unique);
+        } catch {
+          return {};
+        }
+      },
+    },
+    speech: {
+      /**
+       * 我发出的消息正文（解码后）。一次窗口的扫描结果跨调用记忆化，避免同一个
+       * 时间窗被 availability / compute 或多次重试重复扫两遍 —— 这是唯一一个要
+       * 逐条解 40800 的查询面，能省一次就省一次。
+       */
+      async sentRows(startTime: number, endTime: number) {
+        const key = `${startTime}:${endTime}`;
+        let running = speechCache.get(key);
+        if (!running) {
+          running = Promise.all([
+            session.c2cMsgs.sentSpeechRows({ startTime, endTime }),
+            session.groupMsgs.sentSpeechRows({
+              startTime,
+              endTime,
+              ...(selfUid ? { senderUid: selfUid } : selfUin > 0n ? { selfUin } : {}),
+            }),
+          ]).then(([c2c, group]) => [...c2c, ...group]);
+          speechCache.set(key, running);
+          void running.catch(() => {
+            speechCache.delete(key);
+          });
+        }
+        return running;
       },
     },
     c2c: {

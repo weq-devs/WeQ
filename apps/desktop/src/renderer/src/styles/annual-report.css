@@ -3213,6 +3213,371 @@ html[data-theme="dark"] .weq-rh[data-kind="dusk"] {
   }
 }
 
+/* ══ 我的话页 ═════════════════════════════════════════════════════════
+ *
+ * 这一页只有一个主角：你说得最多的那个词。它不排行、不解释，就占在页面正中——
+ * 词有多大，重复就有多重。两颗「最爱表情」（系统 + 自定义）只是大词旁的小注脚，
+ * 与口头禅并排摆成同一句话的三个语气。背景是同一批 top words 散成的词云：
+ * 混乱、很低饱和、慢慢地漂 —— 是回忆的底噪，不是又一个可读组件。
+ * ═══════════════════════════════════════════════════════════════════ */
+
+.weq-report-root {
+  /* 这页自己的墨色：旧信纸上的朱砂——话被重复，就有了被记得的重量。 */
+  --rp-voice: #9a4f3a;
+}
+
+html[data-theme="dark"] .weq-report-root {
+  --rp-voice: #e0a878;
+}
+
+.weq-vc {
+  position: relative;
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  justify-content: center;
+}
+
+/* 除词云外的整页内容都压在词云之上。 */
+.weq-vc > :not(.weq-vc-cloud) {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── 背景词云：乱，但安静 ───────────────────────────────────────── */
+
+.weq-vc-cloud {
+  position: absolute;
+  inset: -4% -3%;
+  z-index: 0;
+  pointer-events: none;
+  user-select: none;
+  overflow: hidden;
+}
+
+.weq-vc-cloud-word {
+  position: absolute;
+  left: var(--wc-left);
+  top: var(--wc-top);
+  margin: 0;
+  color: var(--rp-ink);
+  font-family: var(--rp-serif);
+  font-size: var(--wc-size);
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  opacity: 0;
+  transform: rotate(var(--wc-rot, 0deg)) translateY(12px);
+  transition: opacity 1500ms var(--rp-ease-drop);
+  transition-delay: var(--wc-delay);
+}
+
+/* 翻进来后：词云按各自的延迟浮现，再各自开始缓慢漂流。 */
+.weq-vc-cloud[data-enter="in"] .weq-vc-cloud-word {
+  opacity: var(--wc-alpha, 0.12);
+  animation: weq-vc-drift var(--wc-dur, 9s) ease-in-out var(--wc-delay, 0s) infinite;
+}
+
+@keyframes weq-vc-drift {
+  0%,
+  100% {
+    transform: rotate(var(--wc-rot, 0deg)) translate(0, 0);
+  }
+  33% {
+    transform: rotate(calc(var(--wc-rot, 0deg) + 1.2deg)) translate(1.3%, -1.7%);
+  }
+  66% {
+    transform: rotate(calc(var(--wc-rot, 0deg) - 1deg)) translate(-1.1%, 1.4%);
+  }
+}
+
+/* ── 顶栏 ────────────────────────────────────────────────────────── */
+
+.weq-vc-kicker {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  margin: 0;
+  color: var(--rp-ink-soft);
+  font-size: 13px;
+  letter-spacing: 0.18em;
+}
+
+.weq-vc-kicker-meta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--rp-ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  white-space: nowrap;
+}
+
+.weq-vc-kicker-meta b {
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.weq-vc-kicker-meta i {
+  font-style: normal;
+  opacity: 0.5;
+}
+
+/* ── 主角：一句被你说熟了的词 ───────────────────────────────────── */
+
+.weq-vc-hero {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  margin: 8px 0 0;
+  text-align: center;
+}
+
+.weq-vc-lede {
+  margin: 0;
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif);
+  font-size: 17px;
+  letter-spacing: 0.16em;
+}
+
+/* 词是主角：墨色衬线，不描边，不换字体 —— 它自己就是这一页要说的话。 */
+.weq-vc-word {
+  margin: 6px 0 0;
+  color: var(--rp-ink);
+  font-family: var(--rp-serif);
+  font-size: 142px;
+  font-weight: 600;
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+  opacity: 0;
+  transform: translateY(-30px) scale(1.12);
+  transition:
+    opacity 900ms var(--rp-ease-drop),
+    transform 1000ms var(--rp-ease-drop);
+}
+
+.weq-vc-word.is-long {
+  font-size: 88px;
+  letter-spacing: 0.02em;
+}
+
+/* 盖章只在页面真正进场时播：翻回来重播，翻走时静默收回去。 */
+.weq-report-page[data-enter="in"] .weq-vc-word {
+  animation: weq-vc-stamp 1250ms var(--rp-ease-epic) 260ms both;
+}
+
+@keyframes weq-vc-stamp {
+  0% {
+    opacity: 0;
+    transform: translateY(-30px) scale(1.12);
+  }
+  62% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  76% {
+    transform: translateY(3px) scale(0.995);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.weq-vc-word-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 15px;
+  margin: 10px 0 0;
+  color: var(--rp-voice);
+  font-family: var(--rp-serif);
+  font-size: 15px;
+  letter-spacing: 0.16em;
+}
+
+.weq-vc-word-count b {
+  margin: 0 2px;
+  color: var(--rp-ink);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.weq-vc-word-count i {
+  width: 26px;
+  height: 1px;
+  background: color-mix(in srgb, var(--rp-voice) 55%, transparent);
+}
+
+/* ── 表情带：一句大词旁边的语气 ─────────────────────────────────── */
+
+.weq-vc-faves {
+  margin-top: 24px;
+  text-align: center;
+}
+
+.weq-vc-faves-in {
+  margin: 0;
+  color: var(--rp-ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.28em;
+}
+
+.weq-vc-faves-row {
+  display: inline-flex;
+  align-items: flex-end;
+  justify-content: center;
+  margin-top: 14px;
+}
+
+/* 系统表情榜：左边一枚竖排小签，右边按名次递减排开的贴图。 */
+.weq-vc-faceband {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.weq-vc-faceband-tag {
+  writing-mode: vertical-rl;
+  color: var(--rp-voice);
+  font-family: var(--rp-sans);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.36em;
+}
+
+.weq-vc-face-tiles {
+  display: flex;
+  align-items: flex-end;
+  gap: 30px;
+}
+
+.weq-vc-face-tile {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.weq-vc-face-tile .weq-vc-fave-name {
+  font-size: 12px;
+}
+
+.weq-vc-face-tile .weq-vc-fave-count b {
+  font-size: 15px;
+}
+
+/* 自定义表情单枚。 */
+.weq-vc-fave {
+  display: flex;
+  min-width: 158px;
+  align-items: center;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.weq-vc-fave-label {
+  color: var(--rp-voice);
+  font-family: var(--rp-sans);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.34em;
+  text-indent: 0.34em;
+}
+
+.weq-vc-fave-face {
+  vertical-align: middle;
+}
+
+.weq-vc-pic-img {
+  display: block;
+  width: 74px;
+  height: 74px;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.12));
+}
+
+.weq-vc-pic-broken {
+  display: grid;
+  width: 74px;
+  height: 74px;
+  place-items: center;
+  color: var(--rp-ink-faint);
+  background: var(--rp-ghost);
+  outline: 1px solid var(--rp-hair);
+  outline-offset: -1px;
+}
+
+.weq-vc-fave-name {
+  margin: 0;
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif);
+  font-size: 14px;
+  letter-spacing: 0.08em;
+}
+
+.weq-vc-fave-count {
+  margin: -2px 0 0;
+  color: var(--rp-ink-faint);
+  font-family: var(--rp-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
+.weq-vc-fave-count b {
+  color: var(--rp-voice);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.weq-vc-faves-sep {
+  width: 1px;
+  margin: 28px 38px 6px;
+  background: var(--rp-hair);
+}
+
+/* ── 收束 ────────────────────────────────────────────────────────── */
+
+.weq-vc-mood {
+  margin: 22px auto 0;
+  max-width: 60ch;
+  color: var(--rp-ink-muted);
+  font-family: var(--rp-serif);
+  font-size: 14px;
+  line-height: 1.9;
+  letter-spacing: 0.1em;
+  text-align: center;
+  text-wrap: pretty;
+}
+
+/* 窄画幅：词与表情都收一档，别让词云吃掉主角。 */
+@media (max-width: 1000px) {
+  .weq-vc-word {
+    font-size: 108px;
+  }
+
+  .weq-vc-word.is-long {
+    font-size: 70px;
+  }
+
+  .weq-vc-faves-sep {
+    margin-right: 24px;
+    margin-left: 24px;
+  }
+}
+
 /* ══ 状态 / 兜底 ══════════════════════════════════════════════════════ */
 
 .weq-report-unknown,

@@ -12,6 +12,7 @@ export {
   friendsPage,
   openersPage,
   rhythmPage,
+  voicePage,
   endPage,
 } from './pages';
 export type { OverviewPageData } from './pages/overview/types';
@@ -36,3 +37,9 @@ export type {
   RhythmWindowKind,
   RhythmLabel,
 } from './pages/rhythm/types';
+export type {
+  VoicePageData,
+  VoiceWord,
+  VoiceFaceFavorite,
+  VoicePicFavorite,
+} from './pages/voice/types';

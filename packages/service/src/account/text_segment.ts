@@ -119,6 +119,7 @@ const STOPWORDS = new Set<string>([
   '我们',
   '你们',
   '他们',
+  '正在',
   '这种',
   '一点',
   '不是',

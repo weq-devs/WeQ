@@ -42,6 +42,7 @@ export type {
   C2cPeerDayTally,
   C2cInitiationTally,
   SentWeekdayHourlyGrid,
+  SentSpeechRow,
   DressTally,
   DressOutfitTally,
   GroupMsg,
