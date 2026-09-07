@@ -6,14 +6,16 @@ WeQ 的验证代码分三层，**判据是「能不能无人值守跑」**，而
 | 层 | 位置 | 要真 QQ 吗 | 进 CI 吗 | 干什么用 |
 |---|---|---|---|---|
 | **单测** | `packages/*/test/*.test.ts` | 否 | ✅ `pnpm -r test` | 离线、可重复、有断言 |
-| **只读探针** | `packages/*/tools/*.ts` | 是 | 只过 typecheck | 对着真库 dump / 验证，人眼看输出 |
-| **写库脚本** | `packages/*/tools/mutate/*.ts` | 是 | 只过 typecheck | 会改真实 QQ 数据，需 `--yes` |
+| **CLI 工具** | `packages/tools/*.ts`（`@weq/tools`） | 是 | 只过 typecheck | 产品没有的能力：发任意包、跑任意 SQL、全库搜索 |
+| **写库工具** | `packages/tools/mutate/*.ts` | 是 | 只过 typecheck | 会改真实 QQ 数据，需 `--yes` |
 
 ---
 
 ## 单测 `test/`
 
-vitest 跑，**不许碰 QQ 数据库、不许联网**。数据用抓包/dump 出来的黄金样本硬编码在文件里。
+vitest 跑，**不许碰 QQ 数据库、不许联网**。数据用抓包/dump 出来的黄金样本硬编码在文件里；
+需要 DB 行为的用 `@weq/testkit` 的 `createSqliteStub()`（node:sqlite 假绑定）对
+**明文 SQLite 夹具**跑真的 src 代码路径。
 
 ```bash
 pnpm -r test                      # 全量（CI 跑的就是这条）
@@ -28,33 +30,27 @@ pnpm --filter @weq/codec test:watch
 - **拿「未声明字段」举例时挑个远离已用区间的 tag**。`registry.test.ts` 曾用 tag 47608 当
   未知字段，后来 47608 被建模成 `faceFlag47608`，测试就炸了。
 
-## 只读探针 `tools/`
+## CLI 工具 `packages/tools/`
 
-对着**真实 QQ 数据库**跑，用来回答「这个字段到底存了啥」。不进 CI（没有真机数据），
-但**进 typecheck** —— 这样重构 src 时不会悄悄把探针写挂。
+保留标准只有一条：**这个能力必须是 WeQ 产品本身没有的**。验证 src 能力的探针不是工具
+—— 那是单测（或干脆删掉）。目前只有四个：
 
 ```bash
-pnpm --filter @weq/db      tools:group-msg
-pnpm --filter @weq/service tools:msg-search
+pnpm --filter @weq/tools packet -- ...        # 发任意 OIDB/裸包 + 回放 frida 抓包
+pnpm --filter @weq/tools sql -- nt_msg "..."  # 对 nt_db/ 下任意库执行任意 SQL（.tables/.cols/.schema/.row）
+pnpm --filter @weq/tools search-string -- kw  # 全库全表全列的裸字符串搜索
+pnpm --filter @weq/tools mutate:insert-group-msg --yes  # 往真库插一条消息，看真 QQ 怎么渲染
 ```
 
 跑之前先配 `.env`（`cp .env.example .env`，填 `WEQ_TEST_QQ_ROOT` 和 `WEQ_TEST_DB_KEY`）。
-**不要在脚本里硬编码路径和密钥** —— 一律走 `@weq/testkit`：
+**不要在脚本里硬编码路径和密钥** —— 一律走 `@weq/testkit`。
 
-```ts
-import { testEnv, qqDbPath } from '@weq/testkit';
+工具不进 CI（没有真机数据），但**进 typecheck** —— 重构 src 时不会悄悄把工具写挂。
+写新工具前先问一句：产品里是不是已经有了？有 → 别写，写单测。
 
-const db = new GroupMsgDb(native.ntHelper, {
-  dbPath: qqDbPath('nt_msg.db'),
-  key: testEnv.key,
-  algo: { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' },
-});
-```
+## 写库工具 `packages/tools/mutate/`
 
-## 写库脚本 `tools/mutate/`
-
-会**真的改你的 QQ 数据**：插消息、装 trigger、改 ARK 卡片。单独放一层就是为了让
-「这脚本会写库」在路径上一眼可见。
+会**真的改你的 QQ 数据**：插消息等。单独放一层就是为了让「这脚本会写库」在路径上一眼可见。
 
 每个入口必须调守卫，不带 `--yes` 直接抛错退出：
 
@@ -67,29 +63,21 @@ async function main() {
 }
 ```
 
-```bash
-pnpm --filter @weq/db mutate:insert-weq-assistant --yes
-```
-
 自动化场景可以用 `WEQ_ASSUME_YES=1` 绕过。**跑之前先退出 QQ** —— QQ 持有同一个
 文件，并发写可能失败或锁库。
-
-只读的子命令（比如 `anti-recall-trigger status`）应该在分支里跳过守卫，
-别让只读操作也要 `--yes`。
 
 ---
 
 ## 该放哪一层？
 
-- 有断言、不碰真库 → `test/`，写成 `*.test.ts`
-- 要连真库看数据 → `tools/`
-- 会写真库 → `tools/mutate/`，加守卫
+- 有断言、不碰真库 → `packages/<pkg>/test/`，写成 `*.test.ts`
+- 产品没有的能力、要连真库 → `packages/tools/`
+- 会写真库 → `packages/tools/mutate/`，加守卫
 - **一次性调查，结论已经沉淀进 `docs/`** → 别留，删掉
 
-最后一条是有代价的经验：这三层结构落地前，`packages/db/test/` 下堆了 116 个文件，
-其中 40 多个是防撤回那一次专题留下的 `diag_*` / `probe_*` 残骸。结论早就写进
-`docs/guide/anti-recall.md` 了，脚本留着只会让人不敢删也不敢跑。
-**调查产物的归宿是文档，不是 `test/` 目录。**
+最后一条是有代价的经验（2026-09 大清理）：`packages/*/tools/` 曾堆了 165 个脚本，
+其中九成是「验证 src 已有能力」的一次性探针 —— 结论早写进 docs 和单测了，脚本留着只会
+让人不敢删也不敢跑。**调查产物的归宿是文档和单测，不是 `tools/` 目录。**
 
 ---
 

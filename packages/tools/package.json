@@ -1,0 +1,23 @@
+{
+  "name": "@weq/tools",
+  "version": "0.4.6",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "packet": "tsx packet.ts",
+    "sql": "tsx sql.ts",
+    "search-string": "tsx search_string.ts",
+    "mutate:insert-group-msg": "tsx mutate/insert_group_msg.ts"
+  },
+  "dependencies": {
+    "@weq/codec": "workspace:*",
+    "@weq/db": "workspace:*",
+    "@weq/native": "workspace:*",
+    "@weq/testkit": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.6",
+    "tsx": "^4.19.2"
+  }
+}
