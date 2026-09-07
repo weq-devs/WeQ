@@ -55,6 +55,7 @@ const CSS = `
     --ghost-stroke: rgba(22,19,13,0.10);
     --leaf: #2e7d55;
     --open: #6d4f93;
+    --rhythm: #9a7440;
     --serif: "Playfair Display", Georgia, "Noto Serif CJK SC", "Noto Serif SC",
       "Source Han Serif SC", "Songti SC", SimSun, "Times New Roman", serif;
     --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC",
@@ -74,6 +75,7 @@ const CSS = `
       --ghost-stroke: rgba(201,162,39,0.14);
       --leaf: #3fae70;
       --open: #d9a9cf;
+      --rhythm: #e2bd79;
     }
   }
   @page { size: A4; margin: 0; }
@@ -302,6 +304,57 @@ const CSS = `
   .op-line em { color: var(--open); font-weight: 600; font-style: normal; }
   .op-line-role { margin-right: 3mm; color: var(--open); font-family: var(--sans); font-size: 7.5pt; font-weight: 600; letter-spacing: 3px; }
   .op-line-dot { margin-right: 3mm; color: var(--ink-faint); }
+  /* 我的作息页。人设词走墨色，曲线/墙面用 data-kind 各自的时间色。 */
+  .rh-body { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+  .rh-kicker { display: flex; justify-content: space-between; align-items: baseline; font-size: 8pt; letter-spacing: 3px; color: var(--ink-soft); }
+  .rh-kicker-meta { font-size: 7.5pt; letter-spacing: 2px; color: var(--ink-faint); }
+  .rh-kicker-meta b { font-family: var(--serif); font-size: 10pt; font-weight: 600; color: var(--ink-soft); }
+  .rh-lede { margin-top: 7mm; font-family: var(--serif); font-size: 11.5pt; letter-spacing: 2px; color: var(--ink-soft); }
+  .rh-word { margin-top: 1mm; font-family: var(--serif); font-size: 62pt; font-weight: 600; line-height: 1; letter-spacing: 1px; color: var(--ink); }
+  .rh-word.long { font-size: 48pt; }
+  .rh-badge { display: flex; align-items: baseline; gap: 5mm; margin-top: 3mm; font-size: 8pt; letter-spacing: 3px; color: var(--ink-faint); }
+  .rh-badge .rh-en { color: var(--rhythm); font-weight: 600; letter-spacing: 4px; }
+  .rh-badge .rh-share { font-family: var(--serif); font-size: 20pt; font-weight: 600; letter-spacing: 0; color: var(--rhythm); }
+  .rh-mood { margin-top: 3mm; max-width: 150mm; font-family: var(--serif); font-size: 11pt; line-height: 1.9; letter-spacing: 1px; color: var(--ink-soft); }
+  .rh-pulse { margin-top: 7mm; }
+  .rh-pulse-head { display: flex; justify-content: space-between; align-items: baseline; }
+  .rh-pulse-title { font-size: 7.5pt; font-weight: 600; letter-spacing: 4px; color: var(--rhythm); }
+  .rh-pulse-note { font-size: 7.5pt; letter-spacing: 2px; color: var(--ink-faint); }
+  .rh-pulse-note b { font-family: var(--serif); font-size: 11pt; font-weight: 600; color: var(--ink-soft); }
+  .rh-pulse-svg { display: block; width: 100%; height: 34mm; margin-top: 1mm; overflow: visible; }
+  .rh-pulse-floor { stroke: var(--hair); stroke-width: 1; vector-effect: non-scaling-stroke; }
+  .rh-pulse-peak { stroke: var(--rhythm); stroke-width: 0.8; stroke-dasharray: 2 4; vector-effect: non-scaling-stroke; opacity: 0.55; }
+  .rh-pulse-area { fill: url(#rh-fill); }
+  .rh-fill-top { stop-color: var(--rhythm); stop-opacity: 0.28; }
+  .rh-fill-bottom { stop-color: var(--rhythm); stop-opacity: 0; }
+  .rh-pulse-line { fill: none; stroke: var(--rhythm); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+  .rh-pulse-dot { fill: var(--rhythm); }
+  .rh-pulse-axis { display: flex; justify-content: space-between; margin-top: 1.5mm; color: var(--ink-faint); font-family: var(--mono); font-size: 6.5pt; }
+  .rh-week { margin-top: 6mm; padding-top: 3mm; border-top: 0.25mm solid var(--hair); }
+  .rh-week-title { font-size: 7.5pt; font-weight: 600; letter-spacing: 4px; color: var(--rhythm); }
+  .rh-week-rows { margin-top: 2mm; display: flex; flex-direction: column; gap: 0.6mm; }
+  .rh-week-row { display: flex; align-items: center; gap: 2mm; }
+  .rh-weekday { width: 4mm; text-align: right; font-family: var(--serif); font-size: 7pt; color: var(--ink-faint); }
+  .rh-cells { flex: 1; display: grid; grid-template-columns: repeat(24, 1fr); gap: 0.7mm; }
+  .rh-cell { display: block; height: 2.3mm; border-radius: 0.3mm; background: transparent; outline: 0.18mm solid var(--hair); outline-offset: -0.18mm; }
+  .rh-cell.rhythm { outline-color: color-mix(in srgb, var(--rhythm) 76%, transparent); }
+  .rh-cell.is-1 { background: color-mix(in srgb, var(--rhythm) 16%, transparent); }
+  .rh-cell.is-2 { background: color-mix(in srgb, var(--rhythm) 38%, transparent); }
+  .rh-cell.is-3 { background: color-mix(in srgb, var(--rhythm) 66%, transparent); }
+  .rh-cell.is-4 { background: var(--rhythm); outline: none; }
+  .rh-body.night { --rhythm: #66509f; }
+  .rh-body.us { --rhythm: #4c668b; }
+  .rh-body.early { --rhythm: #ab6d34; }
+  .rh-body.afternoon { --rhythm: #3f7b61; }
+  .rh-body.dusk { --rhythm: #b55349; }
+  @media (prefers-color-scheme: dark) {
+    .rh-body.night { --rhythm: #c3aae6; }
+    .rh-body.us { --rhythm: #9db8da; }
+    .rh-body.early { --rhythm: #e5ad68; }
+    .rh-body.afternoon { --rhythm: #7bc29e; }
+    .rh-body.dusk { --rhythm: #e29990; }
+    .rh-body { --rhythm: #e2bd79; }
+  }
   /* 结尾页 */
   .end { text-align: center; }
   .end-line { font-family: var(--serif); font-size: 12pt; letter-spacing: 5px; color: var(--ink-muted); }
@@ -800,6 +853,192 @@ function openersSlide(data: Record<string, unknown>): string {
     ${slideFoot(`${reportPeriodLabel(year)} · OPENERS`)}`;
 }
 
+/** 作息页的导出版。动画在静态产物里没有，所以曲线直接落终态、墙面满色。 */
+function rhythmSlide(data: Record<string, unknown>): string {
+  const year = Number(data.year ?? 0);
+  const allTime = isAllTimeYear(year);
+  const sentTotal = Number(data.sentTotal ?? 0);
+  const activeHours = Number(data.activeHours ?? 0);
+  const peakHour = Number(data.peakHour ?? 0);
+  const peakCount = Number(data.peakCount ?? 0);
+  const label = (data.label ?? {}) as {
+    kind?: string;
+    word?: string;
+    english?: string;
+    span?: string;
+  };
+  const kind = String(label.kind ?? 'all');
+  const word = String(label.word ?? '随缘上线');
+  const english = String(label.english ?? 'WHENEVER');
+  const span = String(label.span ?? '00:00 – 24:00');
+  const hourly = (data.hourly ?? []) as number[];
+  const matrix = (data.weekdayHourly ?? []) as number[][];
+  const windows = (data.windows ?? []) as Array<Record<string, unknown>>;
+  const main = windows.find((window) => String(window.kind) === kind) ?? null;
+  const mainPct = main ? Math.round(Number(main.share ?? 0) * 100) : 0;
+  const mood = exportRhythmMood({
+    allTime,
+    year,
+    label: { kind, word, span },
+    mainKind: kind,
+    mainPct,
+    peakHour,
+    activeHours,
+  });
+
+  return `${slideOpen('24h')}
+    <div class="rh-body ${escapeHtml(kind)}">
+      <div class="rh-kicker">
+        <span>${escapeHtml(reportEraLabel(year))} · 我的作息</span>
+        <span class="rh-kicker-meta"><b>${fmt(sentTotal)}</b> 条发言 / 一天 <b>${activeHours}</b> 个小时在线</span>
+      </div>
+      <div class="rh-lede">${allTime ? '有记录以来' : `${year} 年`}，你的话有它自己的时区——</div>
+      <h2 class="rh-word${word.length >= 4 ? ' long' : ''}">${escapeHtml(word)}</h2>
+      <div class="rh-badge">
+        <span class="rh-en">${escapeHtml(english)}</span>
+        <span>${escapeHtml(span)}</span>
+        ${main ? `<span class="rh-share">${mainPct}%</span>` : ''}
+      </div>
+      <p class="rh-mood">${escapeHtml(mood)}</p>
+      <div class="rh-pulse">
+        <div class="rh-pulse-head">
+          <span class="rh-pulse-title">一天的心率</span>
+          <span class="rh-pulse-note"><b>${String(peakHour).padStart(2, '0')}:00</b> · ${fmt(
+            peakCount,
+          )} 条</span>
+        </div>
+        ${exportPulse(hourly, peakHour)}
+      </div>
+      <div class="rh-week">
+        <span class="rh-week-title">一周 · 7×24</span>
+        ${exportRhythmWeek(matrix, kind)}
+      </div>
+    </div>${slideFoot(`${reportPeriodLabel(year)} · RHYTHM`)}`;
+}
+
+/** 静态 SVG 曲线。坐标与屏幕版同一套 Catmull-Rom 平滑。 */
+function exportPulse(hourly: number[], peakHour: number): string {
+  const W = 800;
+  const H = 220;
+  const top = 14;
+  const bottom = 12;
+  const max = Math.max(1, ...hourly);
+  const xs = (hour: number): number => (hour / 23) * W;
+  const ys = (count: number): number => H - bottom - (count / max) * (H - top - bottom);
+  const points = hourly.map((count, hour) => [xs(hour), ys(count)] as const);
+  const smooth = smoothExportPath(points);
+  const line = `M ${smooth}`;
+  const area = `M 0 ${H - bottom} L 0 ${ys(hourly[0] ?? 0)} ${smooth} L ${W} ${H - bottom} Z`;
+  const peakX = xs(peakHour);
+  const peakY = ys(hourly[peakHour] ?? 0);
+  return `<svg class="rh-pulse-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="一天 24 小时发出的消息曲线">
+      <defs>
+        <linearGradient id="rh-fill" x1="0" y1="0" x2="0" y2="1">
+          <stop class="rh-fill-top" offset="0%" />
+          <stop class="rh-fill-bottom" offset="100%" />
+        </linearGradient>
+      </defs>
+      <line class="rh-pulse-floor" x1="0" y1="${H - 1}" x2="${W}" y2="${H - 1}" />
+      <line class="rh-pulse-peak" x1="${peakX}" y1="${top}" x2="${peakX}" y2="${H - bottom}" />
+      <path class="rh-pulse-area" d="${area}" />
+      <path class="rh-pulse-line" d="${line}" />
+      <circle class="rh-pulse-dot" cx="${peakX}" cy="${peakY}" r="6" />
+    </svg>
+    <div class="rh-pulse-axis"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>`;
+}
+
+function smoothExportPath(points: ReadonlyArray<readonly [number, number]>): string {
+  if (points.length === 0) return '';
+  if (points.length === 1) return `${points[0]![0]} ${points[0]![1]}`;
+  let d = `${points[0]![0]} ${points[0]![1]}`;
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[Math.max(0, i - 1)]!;
+    const p1 = points[i]!;
+    const p2 = points[i + 1]!;
+    const p3 = points[Math.min(points.length - 1, i + 2)]!;
+    d += ` C ${p1[0] + (p2[0] - p0[0]) / 6} ${p1[1] + (p2[1] - p0[1]) / 6}, ${
+      p2[0] - (p3[0] - p1[0]) / 6
+    } ${p2[1] - (p3[1] - p1[1]) / 6}, ${p2[0]} ${p2[1]}`;
+  }
+  return d;
+}
+
+function exportRhythmWeek(matrix: number[][], kind: string): string {
+  const max = Math.max(1, ...matrix.flat().map((count) => Number(count || 0)));
+  const names: Record<number, string> = {
+    0: '日',
+    1: '一',
+    2: '二',
+    3: '三',
+    4: '四',
+    5: '五',
+    6: '六',
+  };
+  const rows = [1, 2, 3, 4, 5, 6, 0];
+  const rowHtml = rows
+    .map(
+      (dow) => `<div class="rh-week-row">
+          <span class="rh-weekday">${names[dow]}</span>
+          <div class="rh-cells">
+            ${Array.from({ length: 24 }, (_, hour) => {
+              const count = Number(matrix[dow]?.[hour] ?? 0);
+              const level = count === 0 ? 0 : Math.min(4, 1 + Math.ceil((count / max) * 3));
+              const rhythm = kind !== 'all' && exportInWindow(kind, hour);
+              return `<i class="rh-cell is-${level}${rhythm ? ' rhythm' : ''}"></i>`;
+            }).join('')}
+          </div>
+        </div>`,
+    )
+    .join('');
+  return `<div class="rh-week-rows">${rowHtml}</div>`;
+}
+
+function exportInWindow(kind: string, hour: number): boolean {
+  switch (kind) {
+    case 'night':
+      return hour >= 22 || hour < 2;
+    case 'us':
+      return hour >= 2 && hour < 8;
+    case 'early':
+      return hour >= 8 && hour < 12;
+    case 'afternoon':
+      return hour >= 12 && hour < 18;
+    case 'dusk':
+      return hour >= 18 && hour < 22;
+    default:
+      return false;
+  }
+}
+
+/** 与屏幕版同源的煽情句。 */
+function exportRhythmMood(input: {
+  allTime: boolean;
+  year: number;
+  label: { kind: string; word: string; span: string };
+  mainKind: string;
+  mainPct: number;
+  peakHour: number;
+  activeHours: number;
+}): string {
+  const peak = `${String(input.peakHour).padStart(2, '0')}:00`;
+  if (input.mainKind === 'night') {
+    return `深夜 ${input.label.span.replace('–', '到')} 的发言占全天的 ${input.mainPct}%。别人按下晚安，你的话才刚说到一半；最醒着的那一小时，是 ${peak}。`;
+  }
+  if (input.mainKind === 'us') {
+    return `凌晨 ${input.label.span.replace('–', '到')} 占了全天的 ${input.mainPct}%：那时你还在线，像隔着十二个小时时差，给还没睡的人留了一句言。`;
+  }
+  if (input.mainKind === 'early') {
+    return `上午 ${input.label.span.replace('–', '到')} 就贡献了全天的 ${input.mainPct}%：天亮不久，你的消息已经把一天叫醒了，${peak} 是最忙的那一小时。`;
+  }
+  if (input.mainKind === 'afternoon') {
+    return `午后 ${input.label.span.replace('–', '到')} 的 ${input.mainPct}% 发言是每天的续航：困意压不住话匣子，${peak} 前后的对话框最热闹。`;
+  }
+  if (input.mainKind === 'dusk') {
+    return `黄昏 ${input.label.span.replace('–', '到')} 的发言占全天的 ${input.mainPct}%：下班、放学、吃完饭，所有人都上线了，${peak} 是这一天的社交高光。`;
+  }
+  return `你的一天没有固定的分时区，${input.activeHours}/24 个小时都可能说话；出现得最勤的是 ${peak}，但你的「收到」从来不挑时间。`;
+}
+
 function endSlide(data: Record<string, unknown>): string {
   const year = Number(data.year ?? 0);
   const allTime = isAllTimeYear(year);
@@ -834,6 +1073,7 @@ export function buildReportHtml(year: number, slides: ExportSlide[]): string {
       if (slide.page.id === 'spark') return sparkSlide(data);
       if (slide.page.id === 'friends') return friendsSlide(data);
       if (slide.page.id === 'openers') return openersSlide(data);
+      if (slide.page.id === 'rhythm') return rhythmSlide(data);
       if (slide.page.id === 'end') return endSlide(data);
       return genericSlide(slide);
     })

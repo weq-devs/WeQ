@@ -12,7 +12,7 @@ import { sanitizeBytes } from '@weq/codec/raw';
 import { MsgBody } from '@weq/codec/proto/msg/40800';
 import { MsgEmoji } from '@weq/codec/proto/msg/40062';
 import type { SqlRow, SqlValue } from '@weq/native';
-import type { DressTally } from './types';
+import type { DressTally, SentWeekdayHourlyGrid } from './types';
 
 const bodyCodec = new ProtoMsg(MsgBody);
 const emojiCodec = new ProtoMsg(MsgEmoji);
@@ -66,6 +66,23 @@ export function decodeDress(blob: SqlValue | undefined): MsgDecoration | undefin
 
 export function emptyDressTally(): DressTally {
   return { bubble: {}, font: {}, widget: {}, decorated: 0, outfits: {} };
+}
+
+/**
+ * 把 `SELECT dow, hour, n` 的聚合行摊回 7×24 全零矩阵，缺桶自动补 0。
+ * 行序遵循 {@link SentWeekdayHourlyGrid} 的约定：0 = 周日。
+ */
+export function buildWeekdayHourlyGrid(rows: SqlRow[]): SentWeekdayHourlyGrid {
+  const grid: SentWeekdayHourlyGrid = Array.from({ length: 7 }, () =>
+    Array.from({ length: 24 }, () => 0),
+  );
+  for (const row of rows) {
+    const dow = Number(row[0] ?? -1);
+    const hour = Number(row[1] ?? -1);
+    if (dow < 0 || dow > 6 || hour < 0 || hour > 23) continue;
+    grid[dow]![hour] = Number(row[2] ?? 0);
+  }
+  return grid;
 }
 
 /** 每套装扮最多留几条真实消息样本 —— 报告滚动带子够用，又不至于把 JSON 撑大。 */

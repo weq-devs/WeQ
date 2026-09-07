@@ -2720,6 +2720,499 @@ html[data-theme="dark"] .weq-report-root {
   }
 }
 
+/* ══ 我的作息页 ═══════════════════════════════════════════════════════
+ *
+ * 这一页的主角不是图表：左半边是一枚巨大的“作息人设词”
+ * （夜猫子 / 早八人 / 美国作息…），右半边才是证据——一条 24 小时平滑
+ * “心率”，和一根时间轴下的 7×24 周墙。两张图共读同一个钟点，人设才有
+ * 来处；全页因此仍然是一句话，不是仪表盘。
+ *
+ * 颜色由 data-kind 驱动：深宵是紫、日出是琥珀、午后是叶绿……它们只在
+ * 曲线、墙面与小数点发光，巨型字仍用墨色，突出的是文字本身。
+ * ═══════════════════════════════════════════════════════════════════ */
+
+.weq-report-root {
+  --rp-rhythm: #9a7440;
+}
+
+html[data-theme="dark"] .weq-report-root {
+  --rp-rhythm: #e2bd79;
+}
+
+.weq-rh[data-kind="night"] {
+  --rp-rhythm: #66509f;
+}
+
+.weq-rh[data-kind="us"] {
+  --rp-rhythm: #4c668b;
+}
+
+.weq-rh[data-kind="early"] {
+  --rp-rhythm: #ab6d34;
+}
+
+.weq-rh[data-kind="afternoon"] {
+  --rp-rhythm: #3f7b61;
+}
+
+.weq-rh[data-kind="dusk"] {
+  --rp-rhythm: #b55349;
+}
+
+html[data-theme="dark"] .weq-rh[data-kind="night"] {
+  --rp-rhythm: #c3aae6;
+}
+
+html[data-theme="dark"] .weq-rh[data-kind="us"] {
+  --rp-rhythm: #9db8da;
+}
+
+html[data-theme="dark"] .weq-rh[data-kind="early"] {
+  --rp-rhythm: #e5ad68;
+}
+
+html[data-theme="dark"] .weq-rh[data-kind="afternoon"] {
+  --rp-rhythm: #7bc29e;
+}
+
+html[data-theme="dark"] .weq-rh[data-kind="dusk"] {
+  --rp-rhythm: #e29990;
+}
+
+.weq-rh {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.weq-rh-kicker {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  margin: 0;
+  color: var(--rp-ink-soft);
+  font-size: 13px;
+  letter-spacing: 0.18em;
+}
+
+.weq-rh-kicker-meta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--rp-ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  white-space: nowrap;
+}
+
+.weq-rh-kicker-meta b {
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.weq-rh-kicker-meta i {
+  color: var(--rp-ink-faint);
+  font-style: normal;
+  opacity: 0.55;
+}
+
+/* ── 左：巨字人设 + 右：证据 ─────────────────────────────────────── */
+
+.weq-rh-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 0.94fr) minmax(0, 1.06fr);
+  gap: 42px;
+  align-items: center;
+  margin-top: 22px;
+  min-height: 0;
+}
+
+.weq-rh-hero {
+  min-width: 0;
+}
+
+.weq-rh-lede {
+  margin: 0;
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif);
+  font-size: 17px;
+  letter-spacing: 0.08em;
+}
+
+/* 人设巨字：墨色、衬线、不描边 —— 它本身就是这一页要说的话。 */
+.weq-rh-word {
+  margin: 8px 0 0;
+  color: var(--rp-ink);
+  font-family: var(--rp-serif);
+  font-size: 126px;
+  font-weight: 600;
+  line-height: 0.98;
+  letter-spacing: 0.01em;
+  text-wrap: balance;
+}
+
+.weq-rh-word.is-long {
+  font-size: 78px;
+  letter-spacing: 0.04em;
+}
+
+.weq-rh-badge {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 5px 13px;
+  margin: 12px 0 0;
+  color: var(--rp-ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+}
+
+.weq-rh-en {
+  color: var(--rp-rhythm);
+  font-family: var(--rp-sans);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3em;
+}
+
+.weq-rh-span {
+  font-family: var(--rp-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
+.weq-rh-share {
+  color: var(--rp-rhythm);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 36px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.weq-rh-mood {
+  margin: 16px 0 0;
+  max-width: 38ch;
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif);
+  font-size: 15px;
+  line-height: 1.95;
+  letter-spacing: 0.05em;
+  text-wrap: pretty;
+}
+
+.weq-rh-evidence {
+  min-width: 0;
+  padding-left: 38px;
+  border-left: 1px solid var(--rp-hair);
+}
+
+.weq-rh-evidence-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 0;
+}
+
+.weq-rh-evidence-name {
+  margin: 0;
+  color: var(--rp-rhythm);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  white-space: nowrap;
+}
+
+.weq-rh-evidence-note {
+  margin: 0;
+  overflow: hidden;
+  color: var(--rp-ink-faint);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-rh-evidence-note b {
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+/* ── 24 小时心率 ─────────────────────────────────────────────────── */
+
+.weq-rh-pulse {
+  margin-top: 12px;
+}
+
+.weq-rh-pulse-svg {
+  display: block;
+  width: 100%;
+  height: 118px;
+  overflow: visible;
+}
+
+.weq-rh-pulse-floor {
+  stroke: var(--rp-hair);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.weq-rh-pulse-peak-line {
+  stroke: var(--rp-rhythm);
+  stroke-width: 1;
+  opacity: 0;
+  stroke-dasharray: 2 4;
+  vector-effect: non-scaling-stroke;
+  transition: opacity 900ms ease 1300ms;
+}
+
+.weq-rh-pulse-area {
+  opacity: 0;
+  transition: opacity 1100ms ease 950ms;
+}
+
+.weq-rh-pulse-stop-top {
+  stop-color: var(--rp-rhythm);
+  stop-opacity: 0.34;
+}
+
+.weq-rh-pulse-stop-bottom {
+  stop-color: var(--rp-rhythm);
+  stop-opacity: 0;
+}
+
+.weq-rh-pulse-line {
+  fill: none;
+  stroke: var(--rp-rhythm);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1500;
+  stroke-dashoffset: 1500;
+  vector-effect: non-scaling-stroke;
+  transition: stroke-dashoffset 1900ms var(--rp-ease-epic) 150ms;
+}
+
+.weq-rh-pulse-dot {
+  fill: var(--rp-rhythm);
+  opacity: 0;
+  transform: translateY(10px);
+  transition:
+    opacity 700ms ease 1150ms,
+    transform 900ms var(--rp-ease-drop) 1150ms;
+}
+
+.weq-rh-pulse[data-drawn="yes"] .weq-rh-pulse-line {
+  stroke-dashoffset: 0;
+}
+
+.weq-rh-pulse[data-drawn="yes"] .weq-rh-pulse-area,
+.weq-rh-pulse[data-drawn="yes"] .weq-rh-pulse-peak-line {
+  opacity: 1;
+}
+
+.weq-rh-pulse[data-drawn="yes"] .weq-rh-pulse-dot {
+  opacity: 1;
+  transform: translateY(0);
+  animation: rp-rhythm-beat 2.8s ease-in-out 2s infinite;
+}
+
+.weq-rh-pulse-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  padding-left: 1px;
+  color: var(--rp-ink-faint);
+  font-family: var(--rp-mono);
+  font-size: 8px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+/* ── 一周 7×24 绿墙 ──────────────────────────────────────────────── */
+
+.weq-rh-week {
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rp-hair);
+}
+
+.weq-rh-evidence-name.is-week {
+  margin-bottom: 9px;
+}
+
+.weq-rh-week-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.weq-rh-week-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  opacity: 0;
+  transform: translateY(5px);
+  transition:
+    opacity 650ms var(--rp-ease-drop),
+    transform 800ms var(--rp-ease-drop);
+}
+
+.weq-rh-week[data-drawn="yes"] .weq-rh-week-row:nth-child(1) {
+  transition-delay: 1150ms;
+}
+
+.weq-rh-week[data-drawn="yes"] .weq-rh-week-row:nth-child(2) {
+  transition-delay: 1230ms;
+}
+
+.weq-rh-week[data-drawn="yes"] .weq-rh-week-row:nth-child(3) {
+  transition-delay: 1310ms;
+}
+
+.weq-rh-week[data-drawn="yes"] .weq-rh-week-row:nth-child(4) {
+  transition-delay: 1390ms;
+}
+
+.weq-rh-week[data-drawn="yes"] .weq-rh-week-row:nth-child(5) {
+  transition-delay: 1470ms;
+}
+
+.weq-rh-week[data-drawn="yes"] .weq-rh-week-row:nth-child(6) {
+  transition-delay: 1550ms;
+}
+
+.weq-rh-week[data-drawn="yes"] .weq-rh-week-row:nth-child(7) {
+  transition-delay: 1630ms;
+}
+
+.weq-rh-week[data-drawn="yes"] .weq-rh-week-row {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.weq-rh-weekday {
+  flex: 0 0 auto;
+  width: 11px;
+  color: var(--rp-ink-faint);
+  font-family: var(--rp-serif);
+  font-size: 9px;
+  text-align: right;
+}
+
+.weq-rh-week-hours {
+  display: grid;
+  flex: 1;
+  grid-template-columns: repeat(24, minmax(0, 1fr));
+  gap: 3px;
+  min-width: 0;
+}
+
+.weq-rh-cell {
+  display: block;
+  height: 9px;
+  border-radius: 1.5px;
+  background: transparent;
+  outline: 1px solid var(--rp-hair);
+  outline-offset: -1px;
+  transition: background-color 500ms ease;
+}
+
+.weq-rh-cell.is-rhythm {
+  outline-color: color-mix(in srgb, var(--rp-rhythm) 78%, transparent);
+}
+
+.weq-rh-cell.is-1 {
+  background: color-mix(in srgb, var(--rp-rhythm) 16%, transparent);
+}
+
+.weq-rh-cell.is-2 {
+  background: color-mix(in srgb, var(--rp-rhythm) 38%, transparent);
+}
+
+.weq-rh-cell.is-3 {
+  background: color-mix(in srgb, var(--rp-rhythm) 66%, transparent);
+}
+
+.weq-rh-cell.is-4 {
+  background: var(--rp-rhythm);
+  outline: none;
+}
+
+.weq-rh-cell[data-tooltip]:hover {
+  position: relative;
+  z-index: 3;
+}
+
+.weq-rh-cell[data-tooltip]:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  z-index: 20;
+  padding: 4px 8px;
+  transform: translateX(-50%);
+  border-radius: 3px;
+  background: var(--rp-ink);
+  color: var(--rp-paper);
+  font-family: var(--rp-sans);
+  font-size: 9px;
+  letter-spacing: 0;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.weq-rh-cell.is-0[data-tooltip]:hover::after {
+  display: none;
+}
+
+@keyframes rp-rhythm-beat {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--rp-rhythm) 30%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 8px color-mix(in srgb, var(--rp-rhythm) 0%, transparent);
+  }
+}
+
+/* 窄画幅：巨字与人设区收一档，左右两栏让出更多给证据。 */
+@media (max-width: 1000px) {
+  .weq-rh-stage {
+    gap: 26px;
+  }
+
+  .weq-rh-evidence {
+    padding-left: 24px;
+  }
+
+  .weq-rh-word {
+    font-size: 96px;
+  }
+
+  .weq-rh-word.is-long {
+    font-size: 62px;
+  }
+
+  .weq-rh-mood {
+    font-size: 13px;
+    line-height: 1.8;
+  }
+
+  .weq-rh-pulse-svg {
+    height: 104px;
+  }
+}
+
 /* ══ 状态 / 兜底 ══════════════════════════════════════════════════════ */
 
 .weq-report-unknown,

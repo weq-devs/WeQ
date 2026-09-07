@@ -4,8 +4,28 @@ import {
   type C2cInitiationTally,
   type C2cPeerDayTally,
   type DressTally,
+  type SentWeekdayHourlyGrid,
 } from '@weq/db';
 import type { DressNameResolver, ReportQueries } from './types';
+
+/** 私聊 / 群聊两份 7×24 矩阵原位相加，缺行缺列按全零补齐。 */
+function mergeWeekdayHourlyGrids(parts: SentWeekdayHourlyGrid[]): SentWeekdayHourlyGrid {
+  const merged: SentWeekdayHourlyGrid = Array.from({ length: 7 }, () =>
+    Array.from({ length: 24 }, () => 0),
+  );
+  for (const part of parts) {
+    if (!Array.isArray(part)) continue;
+    for (let dow = 0; dow < 7; dow++) {
+      const row = part[dow];
+      if (!Array.isArray(row)) continue;
+      for (let hour = 0; hour < 24; hour++) {
+        const count = Number(row[hour] ?? 0);
+        if (count > 0) merged[dow]![hour] = (merged[dow]![hour] ?? 0) + count;
+      }
+    }
+  }
+  return merged;
+}
 
 /**
  * Create the typed query capability passed to page compute / availability hooks.
@@ -33,6 +53,7 @@ export function createReportQueries(
   const dressCache = new Map<string, Promise<DressTally>>();
   const dayTallyCache = new Map<string, Promise<C2cPeerDayTally[]>>();
   const initiationCache = new Map<string, Promise<C2cInitiationTally[]>>();
+  const weekdayHourlyCache = new Map<string, Promise<SentWeekdayHourlyGrid>>();
   let oldestCache: Promise<number | null> | null = null;
   let sentYearsCache: Promise<number[]> | null = null;
 
@@ -208,6 +229,32 @@ export function createReportQueries(
           nick: profile.nick,
           remark: profile.remark,
         }));
+      },
+    },
+    rhythm: {
+      /**
+       * 与 peerDayTallies 同款的 per-window 记忆化：availability 只问一次方向，
+       * compute 再取同一时间窗，只扫一遍两张表。
+       */
+      async sentWeekdayHourlyTallies(startTime: number, endTime: number) {
+        const key = `${startTime}:${endTime}`;
+        let running = weekdayHourlyCache.get(key);
+        if (!running) {
+          running = Promise.all([
+            session.c2cMsgs.sentWeekdayHourlyTallies({ startTime, endTime }),
+            session.groupMsgs.sentWeekdayHourlyTallies({
+              startTime,
+              endTime,
+              ...(selfUid ? { senderUid: selfUid } : selfUin > 0n ? { selfUin } : {}),
+            }),
+          ]).then(([c2c, group]) => mergeWeekdayHourlyGrids([c2c, group]));
+          weekdayHourlyCache.set(key, running);
+          // 失败时清掉缓存，页面重试可以重新扫。
+          void running.catch(() => {
+            weekdayHourlyCache.delete(key);
+          });
+        }
+        return running;
       },
     },
     meta: {

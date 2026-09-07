@@ -21,8 +21,23 @@
  */
 
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
-import type { C2cInitiationTally, C2cMsg, C2cPeerDayTally, DressTally, SeqWindow } from './types';
-import { decodeBody, decodeDress, emptyDressTally, tallyDressBlobs, toBigint, toStr } from './util';
+import type {
+  C2cInitiationTally,
+  C2cMsg,
+  C2cPeerDayTally,
+  DressTally,
+  SentWeekdayHourlyGrid,
+  SeqWindow,
+} from './types';
+import {
+  buildWeekdayHourlyGrid,
+  decodeBody,
+  decodeDress,
+  emptyDressTally,
+  tallyDressBlobs,
+  toBigint,
+  toStr,
+} from './util';
 import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './append';
 import { QqDb } from '../qq_db';
 
@@ -517,6 +532,38 @@ export class C2cMsgDb {
       total: Number(row[2] ?? 0),
       mine: Number(row[3] ?? 0),
     }));
+  }
+
+  /**
+   * 一个时间窗内**自己发出的**私聊按「星期 × 本地小时」聚合，返回 7×24 矩阵。
+   *
+   * 方向沿用 {@link countByDirection} 的自证判据（40021 恒为对端、senderUid 与
+   * 对端不同即我发），小时/星期用 `'localtime'` 与报告的本地口径对齐。只扫
+   * 40050 一个字段做 GROUP BY，不触碰消息体 —— 这是作息页最低成本的形状。
+   */
+  async sentWeekdayHourlyTallies(
+    opts: { startTime?: number; endTime?: number } = {},
+  ): Promise<SentWeekdayHourlyGrid> {
+    const conditions: string[] = [`"40050" > 0`, `"40020" != "40021"`, `"40020" != ''`];
+    const params: SqlValue[] = [];
+    if (opts.startTime != null && opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      params.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime != null && opts.endTime > 0) {
+      conditions.push(`"40050" < ?`);
+      params.push(BigInt(opts.endTime));
+    }
+    const rows = await this.qq.query(
+      `SELECT CAST(strftime('%w',"40050",'unixepoch','localtime') AS INTEGER) AS dow,
+              CAST(strftime('%H',"40050",'unixepoch','localtime') AS INTEGER) AS hour,
+              COUNT(*) AS n
+       FROM ${this.table}
+       WHERE ${conditions.join(' AND ')}
+       GROUP BY dow, hour`,
+      params,
+    );
+    return buildWeekdayHourlyGrid(rows);
   }
 
   /**

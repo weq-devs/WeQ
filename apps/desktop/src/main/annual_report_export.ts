@@ -1177,6 +1177,250 @@ function openersTree(data: Record<string, unknown>): El {
   );
 }
 
+/**
+ * 我的作息页的长图版。
+ *
+ * satori 不支持 SVG，屏幕与 HTML 里的那条平滑 24 小时心率在这里落成
+ * 24 根圆头柱（等高 = 同时长，柱高 = 那一小时发了多少）——静态分享图
+ * 不逐帧画动画，但这根“脉动”的轮廓和下面的 7×24 墙共用同一条时间轴。
+ * 颜色跟着人设走：深宵紫、日出琥珀、午后叶绿…
+ */
+function rhythmTree(data: Record<string, unknown>): El {
+  const year = Number(data.year ?? 0);
+  const allTime = isAllTimeYear(year);
+  const sentTotal = Number(data.sentTotal ?? 0);
+  const activeHours = Number(data.activeHours ?? 0);
+  const peakHour = Number(data.peakHour ?? 0);
+  const peakCount = Number(data.peakCount ?? 0);
+  const label = (data.label ?? {}) as {
+    kind?: string;
+    word?: string;
+    english?: string;
+    span?: string;
+  };
+  const kind = String(label.kind ?? 'all');
+  const word = String(label.word ?? '随缘上线');
+  const english = String(label.english ?? 'WHENEVER');
+  const span = String(label.span ?? '00:00 – 24:00');
+  const hourly = (data.hourly ?? []) as number[];
+  const matrix = (data.weekdayHourly ?? []) as number[][];
+  const windows = (data.windows ?? []) as Array<Record<string, unknown>>;
+  const main = windows.find((window) => String(window.kind) === kind) ?? null;
+  const mainPct = main ? Math.round(Number(main.share ?? 0) * 100) : 0;
+  const color = rhythmColor(kind);
+
+  const mood =
+    kind === 'night'
+      ? `深夜 ${span.replace('–', '到')} 的发言占全天的 ${mainPct}%。别人按下晚安，你的话才刚说到一半；最醒着的那一小时，是 ${padHour(peakHour)}。`
+      : kind === 'us'
+        ? `凌晨 ${span.replace('–', '到')} 占了全天的 ${mainPct}%：那时你还在线，像隔着十二个小时时差，给还没睡的人留了一句言。`
+        : kind === 'early'
+          ? `上午 ${span.replace('–', '到')} 就贡献了全天的 ${mainPct}%：天亮不久，你的消息已经把一天叫醒了，${padHour(peakHour)} 是最忙的那一小时。`
+          : kind === 'afternoon'
+            ? `午后 ${span.replace('–', '到')} 的 ${mainPct}% 发言是每天的续航：困意压不住话匣子，${padHour(peakHour)} 前后的对话框最热闹。`
+            : kind === 'dusk'
+              ? `黄昏 ${span.replace('–', '到')} 的发言占全天的 ${mainPct}%：下班、放学、吃完饭，所有人都上线了，${padHour(peakHour)} 是这一天的社交高光。`
+              : `你的一天没有固定的分时区，${activeHours}/24 个小时都可能说话；出现得最勤的是 ${padHour(peakHour)}，但你的「收到」从来不挑时间。`;
+
+  const max = Math.max(1, ...hourly.map((count) => Number(count || 0)));
+  const pulseRow = el(
+    'div',
+    {
+      marginTop: 26,
+      width: SLIDE_W - 144,
+      display: 'flex',
+      flexDirection: 'row',
+      alignItems: 'flex-end',
+      gap: 8,
+      height: 220,
+    },
+    hourly.map((count, hour) =>
+      el('div', {
+        flex: 1,
+        height: Math.max(8, Math.round((Number(count || 0) / max) * 212)),
+        borderRadius: hour === peakHour ? 9 : 5,
+        backgroundColor:
+          hour === peakHour
+            ? color
+            : Number(count || 0) === 0
+              ? rgba(color, 0.07)
+              : rgba(color, 0.22 + (Number(count || 0) / max) * 0.62),
+      }),
+    ),
+  );
+
+  const pulseAxis = el(
+    'div',
+    {
+      marginTop: 14,
+      width: SLIDE_W - 144,
+      display: 'flex',
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      fontSize: 17,
+      color: PALETTE.inkFaint,
+      letterSpacing: 3,
+    },
+    ['00', '06', '12', '18', '24'],
+  );
+
+  // 一周从周一开始排；数据行序是 getDay()（0 = 周日）。
+  const names: Record<number, string> = {
+    0: '日',
+    1: '一',
+    2: '二',
+    3: '三',
+    4: '四',
+    5: '五',
+    6: '六',
+  };
+  const cell = (count: number): El => {
+    const level = count === 0 ? 0 : Math.min(4, 1 + Math.ceil((count / max) * 3));
+    return el('div', {
+      width: 22,
+      height: 22,
+      borderRadius: 4,
+      backgroundColor:
+        level === 0
+          ? 'rgba(244,240,230,0.045)'
+          : level === 1
+            ? rgba(color, 0.16)
+            : level === 2
+              ? rgba(color, 0.38)
+              : level === 3
+                ? rgba(color, 0.66)
+                : color,
+    });
+  };
+  const weekRows = [1, 2, 3, 4, 5, 6, 0].map((dow) =>
+    el('div', { marginTop: 9, display: 'flex', alignItems: 'center' }, [
+      el(
+        'div',
+        {
+          width: 28,
+          textAlign: 'right',
+          fontSize: 20,
+          color: PALETTE.inkFaint,
+          fontFamily: 'Report',
+        },
+        names[dow],
+      ),
+      el(
+        'div',
+        { marginLeft: 14, display: 'flex', flexDirection: 'row', gap: 5 },
+        Array.from({ length: 24 }, (_, hour) => cell(Number(matrix[dow]?.[hour] ?? 0))),
+      ),
+    ]),
+  );
+
+  return slideFrame(
+    [
+      el('div', { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }, [
+        el(
+          'div',
+          { fontSize: 30, color: PALETTE.inkSoft, letterSpacing: 6 },
+          `${reportEraLabel(year)} · 我的作息`,
+        ),
+        el(
+          'div',
+          { fontSize: 22, color: PALETTE.inkFaint, letterSpacing: 4 },
+          `${fmt(sentTotal)} 条发言 / 一天 ${activeHours} 个小时在线`,
+        ),
+      ]),
+      el(
+        'div',
+        { marginTop: 58, fontSize: 40, color: PALETTE.inkSoft, letterSpacing: 3 },
+        `${allTime ? '有记录以来' : `${year} 年`}，你的话有它自己的时区——`,
+      ),
+      el(
+        'div',
+        {
+          marginTop: 12,
+          fontSize: word.length >= 4 ? 150 : 190,
+          fontWeight: 700,
+          color: PALETTE.ink,
+          letterSpacing: word.length >= 4 ? 4 : 0,
+          lineHeight: 1,
+        },
+        word,
+      ),
+      el('div', { marginTop: 22, display: 'flex', alignItems: 'baseline' }, [
+        el('div', { fontSize: 24, color, letterSpacing: 8, fontWeight: 700 }, english),
+        el(
+          'div',
+          { marginLeft: 24, fontSize: 22, color: PALETTE.inkFaint, letterSpacing: 4 },
+          span,
+        ),
+        main
+          ? el(
+              'div',
+              {
+                marginLeft: 28,
+                fontSize: 52,
+                fontWeight: 700,
+                color,
+                letterSpacing: -1,
+              },
+              `${mainPct}%`,
+            )
+          : null,
+      ]),
+      el('div', { marginTop: 24, fontSize: 30, color: PALETTE.inkSoft, lineHeight: 1.75 }, mood),
+      el('div', { marginTop: 64, display: 'flex', flexDirection: 'column' }, [
+        el('div', { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }, [
+          el('div', { fontSize: 24, color, letterSpacing: 8, fontWeight: 700 }, '一天的心率'),
+          el('div', { fontSize: 22, color: PALETTE.inkFaint, letterSpacing: 3 }, [
+            el(
+              'span',
+              { fontSize: 30, fontWeight: 700, color: PALETTE.inkSoft },
+              padHour(peakHour),
+            ),
+            ` · ${fmt(peakCount)} 条，${activeHours}/24 小时有人说话`,
+          ]),
+        ]),
+        pulseRow,
+        pulseAxis,
+      ]),
+      el('div', { marginTop: 56, display: 'flex', flexDirection: 'column' }, [
+        el('div', { fontSize: 24, color, letterSpacing: 8, fontWeight: 700 }, '一周 · 7×24'),
+        el('div', { marginTop: 14, display: 'flex', flexDirection: 'column' }, weekRows),
+      ]),
+    ],
+    '24h',
+  );
+}
+
+/** 深色长图的作息色 —— 与屏幕版各 data-kind 的深色档同源。 */
+function rhythmColor(kind: string): string {
+  switch (kind) {
+    case 'night':
+      return '#c3aae6';
+    case 'us':
+      return '#9db8da';
+    case 'early':
+      return '#e5ad68';
+    case 'afternoon':
+      return '#7bc29e';
+    case 'dusk':
+      return '#e29990';
+    default:
+      return '#e2bd79';
+  }
+}
+
+function padHour(hour: number): string {
+  return `${String(hour).padStart(2, '0')}:00`;
+}
+
+/** '#rrggbb' + alpha → rgba()。satori 不支持 color-mix，只能拼字符串。 */
+function rgba(hex: string, alpha: number): string {
+  const value = hex.replace('#', '');
+  const r = Number.parseInt(value.slice(0, 2), 16);
+  const g = Number.parseInt(value.slice(2, 4), 16);
+  const b = Number.parseInt(value.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
 function endTree(data: Record<string, unknown>): El {
   const year = Number(data.year ?? 0);
   const allTime = isAllTimeYear(year);
@@ -1254,6 +1498,7 @@ function treeForSlide(slide: ReportExportSlide): El {
   if (slide.pageId === 'spark') return sparkTree(data);
   if (slide.pageId === 'friends') return friendsTree(data);
   if (slide.pageId === 'openers') return openersTree(data);
+  if (slide.pageId === 'rhythm') return rhythmTree(data);
   if (slide.pageId === 'end') return endTree(data);
   return genericTree(slide);
 }

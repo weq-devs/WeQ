@@ -1,6 +1,12 @@
 /** Shared contracts for the compile-time annual-report page system. */
 
-import type { C2cInitiationTally, C2cMsg, C2cPeerDayTally, DressTally } from '@weq/db';
+import type {
+  C2cInitiationTally,
+  C2cMsg,
+  C2cPeerDayTally,
+  DressTally,
+  SentWeekdayHourlyGrid,
+} from '@weq/db';
 
 /** 三类个性装扮。与 `account.dressup.*` 的 kind 取值一致。 */
 export type DressKind = 'bubble' | 'font' | 'widget';
@@ -178,6 +184,17 @@ export type ReportQueries = {
     peerProfiles(
       uids: string[],
     ): Promise<Array<{ uid: string; uin: string; nick: string; remark: string }>>;
+  };
+  /**
+   * 「自己发出」的时间分布 —— 年度报告「我的作息」页专用，私聊 + 群聊一次合并。
+   */
+  rhythm: {
+    /**
+     * 我在 [startTime, endTime)（unix 秒）内发出的消息按「星期 × 本地小时」聚合，
+     * 返回 7×24 矩阵（0 行 = 周日）。私聊方向由行内数据自证，群聊用与 overview
+     * 同一个 self marker（uid 优先、uin 兜底）。两次单列扫描后合并，不解码消息体。
+     */
+    sentWeekdayHourlyTallies(startTime: number, endTime: number): Promise<SentWeekdayHourlyGrid>;
   };
 };
 

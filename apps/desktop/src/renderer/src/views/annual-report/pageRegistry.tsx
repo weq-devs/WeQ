@@ -7,6 +7,7 @@ import type {
   OpenersPageData,
   OverviewPageData,
   ReportPageManifest,
+  RhythmPageData,
   SparkPageData,
 } from '@weq/service';
 import { PageFrame } from './pageFrame';
@@ -16,6 +17,7 @@ import { EndPage } from './pages/EndPage';
 import { SparkPage } from './pages/SparkPage';
 import { FriendsPage } from './pages/FriendsPage';
 import { OpenersPage } from './pages/OpenersPage';
+import { RhythmPage } from './pages/RhythmPage';
 
 type RegistryProps = { page: ReportPageManifest; data: unknown; active: boolean };
 type PageRenderer = (props: RegistryProps) => ReactElement;
@@ -58,6 +60,9 @@ const pageRegistry: Record<string, PageRenderer> = {
   ),
   openers: ({ page, data, active }) => (
     <OpenersPage page={page} data={data as OpenersPageData} active={active} />
+  ),
+  rhythm: ({ page, data, active }) => (
+    <RhythmPage page={page} data={data as RhythmPageData} active={active} />
   ),
   end: ({ page, data, active }) => (
     <EndPage page={page} data={data as EndPageData} active={active} />

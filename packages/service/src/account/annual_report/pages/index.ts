@@ -4,6 +4,7 @@ import { dressPage } from './dress/compute';
 import { sparkPage } from './spark/compute';
 import { friendsPage } from './friends/compute';
 import { openersPage } from './openers/compute';
+import { rhythmPage } from './rhythm/compute';
 import { endPage } from './end/compute';
 
 /** The only service-side registration point for official report pages. */
@@ -13,6 +14,7 @@ export const reportPages: ReadonlyArray<ReportPageDefinition> = [
   sparkPage,
   friendsPage,
   openersPage,
+  rhythmPage,
   endPage,
 ];
 
@@ -20,4 +22,4 @@ export function findReportPage(pageId: string): ReportPageDefinition | undefined
   return reportPages.find((page) => page.manifest.id === pageId);
 }
 
-export { overviewPage, dressPage, sparkPage, friendsPage, openersPage, endPage };
+export { overviewPage, dressPage, sparkPage, friendsPage, openersPage, rhythmPage, endPage };

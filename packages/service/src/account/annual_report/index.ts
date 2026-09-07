@@ -11,6 +11,7 @@ export {
   sparkPage,
   friendsPage,
   openersPage,
+  rhythmPage,
   endPage,
 } from './pages';
 export type { OverviewPageData } from './pages/overview/types';
@@ -29,3 +30,9 @@ export type {
 } from './pages/spark/types';
 export type { FriendsPageData, FriendRankEntry } from './pages/friends/types';
 export type { OpenersPageData, OpenerEntry } from './pages/openers/types';
+export type {
+  RhythmPageData,
+  RhythmWindow,
+  RhythmWindowKind,
+  RhythmLabel,
+} from './pages/rhythm/types';

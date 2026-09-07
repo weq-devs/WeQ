@@ -18,8 +18,9 @@
  */
 
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
-import type { DressTally, GroupMsg, SeqWindow } from './types';
+import type { DressTally, GroupMsg, SentWeekdayHourlyGrid, SeqWindow } from './types';
 import {
+  buildWeekdayHourlyGrid,
   decodeBody,
   decodeEmoji,
   decodeDress,
@@ -419,6 +420,45 @@ export class GroupMsgDb {
       [mine.value],
     );
     return rows.map((row) => Number(row[0] ?? 0)).filter((year) => year > 0);
+  }
+
+  /**
+   * 一个时间窗内**自己发出的**群聊按「星期 × 本地小时」聚合，返回 7×24 矩阵。
+   *
+   * 自证 marker 与 {@link sentYears} 完全一致（senderUid 优先、selfUin 兜底；
+   * 两者都没有时返回全零矩阵 —— 分不清哪些群消息是自己的时候，全群算给自己
+   * 会把别人的作息也算进来）。小时/星期用 `'localtime'` 与报告口径对齐。
+   */
+  async sentWeekdayHourlyTallies(
+    opts: { startTime?: number; endTime?: number; selfUin?: bigint; senderUid?: string } = {},
+  ): Promise<SentWeekdayHourlyGrid> {
+    const mine = opts.senderUid
+      ? { clause: `"40020" = ? AND "40020" != ''`, value: opts.senderUid as SqlValue }
+      : opts.selfUin !== undefined && opts.selfUin > 0n
+        ? { clause: `"40033" = ?`, value: opts.selfUin as SqlValue }
+        : null;
+    if (!mine) return buildWeekdayHourlyGrid([]);
+
+    const conditions: string[] = [`"40050" > 0`, mine.clause];
+    const params: SqlValue[] = [mine.value];
+    if (opts.startTime != null && opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      params.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime != null && opts.endTime > 0) {
+      conditions.push(`"40050" < ?`);
+      params.push(BigInt(opts.endTime));
+    }
+    const rows = await this.qq.query(
+      `SELECT CAST(strftime('%w',"40050",'unixepoch','localtime') AS INTEGER) AS dow,
+              CAST(strftime('%H',"40050",'unixepoch','localtime') AS INTEGER) AS hour,
+              COUNT(*) AS n
+       FROM group_msg_table
+       WHERE ${conditions.join(' AND ')}
+       GROUP BY dow, hour`,
+      params,
+    );
+    return buildWeekdayHourlyGrid(rows);
   }
 
   /**
