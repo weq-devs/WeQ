@@ -169,23 +169,10 @@ const CSS = `
   }
   .dr-worn { margin-top: 2mm; font-size: 9pt; letter-spacing: 1px; color: var(--ink-soft); }
   .dr-sum { margin-top: 5mm; font-size: 9.5pt; letter-spacing: 1px; color: var(--ink-muted); }
-  /* 用过几款：与屏幕版底账幕布里那四格同一份数字，排成一行发丝线分隔的小字。 */
+  /* 用过几款：与屏幕版数据带前三类同一份数字，排成一行发丝线分隔的小字
+     （屏幕版的「全年装扮率」一格并入上方 dr-sum）。 */
   .dr-kinds { margin-top: 3mm; display: flex; gap: 5mm; font-size: 9pt; color: var(--ink-soft); }
   .dr-kinds span + span { padding-left: 5mm; border-left: 0.25mm solid var(--hair); }
-  .dr-memos { margin-top: 7mm; display: flex; flex-direction: column; gap: 2.4mm; }
-  .dr-memo { display: flex; align-items: baseline; gap: 4mm; }
-  .dr-memo-text {
-    flex: 1;
-    overflow: hidden;
-    font-family: var(--serif);
-    font-size: 11pt;
-    color: var(--ink-soft);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .dr-memo-text::before { content: "「"; color: var(--ink-faint); }
-  .dr-memo-text::after { content: "」"; color: var(--ink-faint); }
-  .dr-memo-meta { flex: 0 0 auto; font-family: var(--mono); font-size: 7.5pt; color: var(--ink-faint); }
   /* 结尾页 */
   .end { text-align: center; }
   .end-line { font-family: var(--serif); font-size: 12pt; letter-spacing: 5px; color: var(--ink-muted); }
@@ -327,27 +314,13 @@ function dressSlide(data: Record<string, unknown>): string {
     ? hero.samples.reduce((best, s) => (s.length > best.length ? s : best), '')
     : '';
 
-  // 回忆：一套取一句，A4 放得下六行。与屏幕版的轮转取样同一个意思 —— 相邻两句
-  // 来自不同的套装，才看得出「那一年我换过好几身」。
-  const memories = outfits
-    .map((outfit) => ({ outfit, text: outfit.samples[0] ?? '' }))
-    .filter((m) => m.text.length > 0)
-    .slice(hero && heroLine ? 1 : 0, 7)
-    .map(
-      (m) => `<div class="dr-memo">
-        <span class="dr-memo-text">${escapeHtml(m.text)}</span>
-        <span class="dr-memo-meta">${fmt(m.outfit.count)} 条</span>
-      </div>`,
-    )
-    .join('');
-
   return `${slideOpen(isAllTimeYear(year) ? 'ALL' : String(year))}
-    <div class="lede">${escapeHtml(reportEraLabel(year))}，我最爱这身</div>
+    <div class="lede">${escapeHtml(reportEraLabel(year))}，我最爱这身装扮</div>
     ${
       hero
         ? `<div class="dr-top">
              ${heroLine ? `<div class="dr-say">${escapeHtml(heroLine)}</div>` : ''}
-             <div class="hero"><span class="hero-num">${fmt(hero.count)}</span><span class="hero-unit">条消息穿着它</span></div>
+             <div class="hero"><span class="hero-num">${fmt(hero.count)}</span><span class="hero-unit">条消息使用这身装扮</span></div>
              ${wornAs(hero) ? `<div class="dr-worn">${escapeHtml(wornAs(hero))}</div>` : ''}
            </div>`
         : ''
@@ -359,9 +332,7 @@ function dressSlide(data: Record<string, unknown>): string {
       .filter(([, n]) => n > 0)
       .map(([label, n]) => `<span>${label} ${fmt(n)} 款</span>`)
       .join('')}</div>
-    ${memories ? `<div class="dr-memos">${memories}</div>` : ''}${slideFoot(
-      `${reportPeriodLabel(year)} · DRESS`,
-    )}`;
+    ${slideFoot(`${reportPeriodLabel(year)} · DRESS`)}`;
 }
 
 function endSlide(data: Record<string, unknown>): string {

@@ -398,19 +398,12 @@ function dressTree(data: Record<string, unknown>): El {
         .join(' · ')
     : '';
 
-  // 回忆：一套取一句，长图放得下六行。轮转取样的意思和屏幕版一致 —— 相邻两句来自
-  // 不同的套装，才看得出「那一年我换过好几身」。
-  const memories = outfits
-    .map((outfit) => ({ outfit, text: outfit.samples[0] ?? '' }))
-    .filter((m) => m.text.length > 0)
-    .slice(hero && heroLine ? 1 : 0, 7);
-
   return slideFrame(
     [
       el(
         'div',
         { fontSize: 40, color: PALETTE.accent, letterSpacing: 10 },
-        `${reportEraLabel(year)}，我最爱这身`,
+        `${reportEraLabel(year)}，我最爱这身装扮`,
       ),
       ...(heroLine
         ? [
@@ -438,7 +431,7 @@ function dressTree(data: Record<string, unknown>): El {
               el(
                 'div',
                 { marginLeft: 22, fontSize: 34, color: PALETTE.inkMuted, letterSpacing: 6 },
-                '条消息穿着它',
+                '条消息使用这身装扮',
               ),
             ]),
           ]
@@ -454,7 +447,7 @@ function dressTree(data: Record<string, unknown>): El {
           coverage > 0 ? `（占你发言的 ${coverage}%）` : ''
         }`,
       ),
-      // 用过几款：与屏幕版底账幕布里那三格同一份数字。一款都没有的类目不出现。
+      // 用过几款：与屏幕版数据带前三类同一份数字。一款都没有的类目这里不出现。
       ...(kinds.some(([, n]) => n > 0)
         ? [
             el(
@@ -468,29 +461,6 @@ function dressTree(data: Record<string, unknown>): El {
             ),
           ]
         : []),
-      ...memories.map((memory) =>
-        el(
-          'div',
-          {
-            marginTop: 22,
-            display: 'flex',
-            alignItems: 'baseline',
-            width: SLIDE_W - 144,
-          },
-          [
-            el(
-              'div',
-              { flex: 1, fontSize: 30, color: PALETTE.inkSoft, overflow: 'hidden' },
-              `「${memory.text}」`,
-            ),
-            el(
-              'div',
-              { marginLeft: 22, fontSize: 22, color: PALETTE.inkFaint },
-              `${fmt(memory.outfit.count)} 条`,
-            ),
-          ],
-        ),
-      ),
     ],
     isAllTimeYear(year) ? 'ALL' : String(year),
   );

@@ -56,8 +56,8 @@ export class AnnualReportService {
   }
 
   /**
-   * The selectable report periods: `ALL_TIME_YEAR` first, then every year the
-   * account actually *sent* a c2c or group message in, ascending.
+   * The selectable report periods: every year the account actually *sent* a c2c
+   * or group message in, ascending, then `ALL_TIME_YEAR` at the far right.
    *
    * Deliberately not `[earliest..currentYear]` — that span invented years the
    * account was silent in, and every one of them opened an empty report. The
@@ -72,18 +72,21 @@ export class AnnualReportService {
     const sent = await this.queries.meta.sentYears();
     const nowYear = currentReportYear();
     const years =
-      sent.length === 0 ? [] : [ALL_TIME_YEAR, ...sent.filter((year) => year <= nowYear + 1)];
+      sent.length === 0 ? [] : [...sent.filter((year) => year <= nowYear + 1), ALL_TIME_YEAR];
     this.availableYearsCache = { key: this.dataRevision, years };
     return years;
   }
 
   /**
    * The period to open on when the caller didn't name one: the most recent year
-   * with data, or 「历史以来」 for an account with none.
+   * with data, or 「历史以来」 for an account with none. `getAvailableYears` is
+   * ascending with `ALL_TIME_YEAR` pinned last, so the default is the largest
+   * real year — not the list tail.
    */
   async getDefaultYear(): Promise<number> {
     const years = await this.getAvailableYears();
-    return years.length === 0 ? ALL_TIME_YEAR : (years[years.length - 1] as number);
+    const latest = years.filter((year) => year !== ALL_TIME_YEAR).pop();
+    return latest ?? ALL_TIME_YEAR;
   }
 
   /** Lightweight directory: manifest + per-page availability (probed & cached). */

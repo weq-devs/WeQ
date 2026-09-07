@@ -20,8 +20,9 @@ import { dressBubbleUrl, dressBubbleFrameUrl } from '../../lib/resourceUrl';
 /** 素材是移动端 2x 的；报告里的气泡当展品看，比聊天里的 0.5 再收一档。 */
 const SCALE = 0.34;
 
-/** 主体气泡的贴图比例。九宫格是矢量般可拉的，放大只让边框更清楚，不会糊。 */
-export const HERO_SCALE = 0.62;
+/** 样张气泡的贴图比例。九宫格是矢量般可拉的，放大只让边框更清楚，不会糊。
+ *  原本 0.62 是「独占整幅」的尺度；巨数接管视觉主角后收小，让位给下面那条线。 */
+export const HERO_SCALE = 0.44;
 
 /** 与 lib/dressSkin.ts 的 PAD_RATIO_Y 同源（npTc padding ÷ slice 实测值）。 */
 const PAD_RATIO_Y = 0.6;

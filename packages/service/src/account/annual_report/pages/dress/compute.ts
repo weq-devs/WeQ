@@ -13,7 +13,8 @@ import type { DressKindData, DressOutfit, DressPageData, DressItemUsage } from '
  * 聚合单位是**一套**（气泡+字体+挂件的组合）而不是三类分开：40801 记的本来就是一套，
  * 报告要还原的是「那年我发的消息长什么样」。三类单榜只留下来算「一共穿过几款」。
  *
- * 展示条件：至少用过一次装扮。一次都没用过的人翻到这页只会看到空页，不如不出现。
+ * 展示条件：至少用过一款聊天字体。这一页的主角是「气泡里的字是什么形状」，一款
+ * 字体都没用过的人翻到这页只剩裸气泡，不如不出现。
  *
  * ⚠️ 字体在 40801 里有两个 tag（41525 首选、41531 是字节序交换过的备用值），归一
  * 由 codec 的 `decodeMsgDressColumn` 负责，这里拿到的 fontId 已经是同一个口径。
@@ -32,9 +33,10 @@ export const dressPage: ReportPageDefinition<DressPageData> = {
   availability: async ({ year, q }): Promise<PageAvailability> => {
     const { startSec, endSec } = reportYearUnixRange(year);
     const tally = await q.dress.tally(startSec, endSec);
+    const fontKinds = Object.values(tally.font).filter((count) => count > 0).length;
     return {
-      available: tally.decorated > 0,
-      reason: tally.decorated > 0 ? undefined : '这段时间你一次装扮都没用过',
+      available: fontKinds > 0,
+      reason: fontKinds > 0 ? undefined : '这段时间你一次字体都没用过',
     };
   },
   compute: async ({ year, q }) => {

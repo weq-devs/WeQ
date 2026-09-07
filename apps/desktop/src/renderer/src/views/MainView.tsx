@@ -3955,7 +3955,7 @@ export function MainView(): ReactElement {
               ) : shell.view === 'channel' ? (
                 <ChannelView />
               ) : shell.view === 'annual' ? (
-                <AnnualReportView onBack={() => shell.switchView('home')} />
+                <AnnualReportView />
               ) : activeConversation?.type === 'merged' ? (
                 <ArkFeedView
                   conversationId={activeConversation.id}

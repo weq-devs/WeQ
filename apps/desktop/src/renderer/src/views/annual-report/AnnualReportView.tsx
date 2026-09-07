@@ -7,7 +7,7 @@ import {
   type CSSProperties,
   type ReactElement,
 } from 'react';
-import { ArrowLeft, ChevronDown, ChevronUp, LoaderCircle, RefreshCw } from 'lucide-react';
+import { ChevronDown, ChevronUp, LoaderCircle, RefreshCw } from 'lucide-react';
 import type { ReportManifest } from '@weq/service';
 import { ALL_TIME_YEAR, reportEraLabel, reportPeriodLabel } from '@weq/service/report-time';
 import { client, trpc } from '../../trpc/client';
@@ -26,6 +26,9 @@ type PageState = { status: 'idle' | 'loading' | 'ok' | 'error'; data?: unknown; 
 
 const SLIDE_TRANSITION =
   'opacity 900ms cubic-bezier(0.16, 1, 0.3, 1), transform 1000ms cubic-bezier(0.16, 1, 0.3, 1), filter 900ms cubic-bezier(0.16, 1, 0.3, 1)';
+
+/** 年份选择海报永久占据轨道第 0 页：所有真页的虚拟索引 = 实际索引 + 1。 */
+const PAGE_OFFSET = 1;
 
 /**
  * 相邻页做「景深退场」：往后压一点、糊掉、压暗。翻页时前一页像被推进暗处，
@@ -49,8 +52,7 @@ function slideStyle(pageIndex: number, index: number): CSSProperties {
   };
 }
 
-export function AnnualReportView({ onBack }: { onBack: () => void }): ReactElement {
-  const [phase, setPhase] = useState<'entry' | 'report'>('entry');
+export function AnnualReportView(): ReactElement {
   /**
    * `null` = 还没选过，让服务端决定开屏口径（最近一个真的有数据的年份）。
    * 不再默认 `new Date().getFullYear()` —— 今年可能一条都没发过，那样开屏
@@ -62,34 +64,22 @@ export function AnnualReportView({ onBack }: { onBack: () => void }): ReactEleme
     {
       refetchOnWindowFocus: false,
       staleTime: 60_000,
+      // 切年份时保留上一份目录继续展示、后台静默换新：availableYears（可选年份
+      // 列表）本就不随年份变化，不该陪着闪一次 skeleton。
+      keepPreviousData: true,
     },
   );
   /** 服务端回填的口径 —— 首次加载时它就是「开屏该看哪一段」的答案。 */
   const effectiveYear = year ?? manifestQuery.data?.year ?? ALL_TIME_YEAR;
-
-  if (phase === 'entry') {
-    return (
-      <div className="weq-report-root is-entry">
-        <AnnualReportEntry
-          manifest={manifestQuery.data ?? null}
-          loading={manifestQuery.isLoading}
-          isFetching={manifestQuery.isFetching}
-          error={manifestQuery.error?.message ?? null}
-          selectedYear={effectiveYear}
-          onSelectYear={setYear}
-          onGenerate={() => setPhase('report')}
-          onBack={onBack}
-        />
-      </div>
-    );
-  }
 
   return (
     <ReportDeckView
       year={effectiveYear}
       manifest={manifestQuery.data ?? null}
       manifestLoading={manifestQuery.isLoading}
-      onBackToEntry={() => setPhase('entry')}
+      manifestFetching={manifestQuery.isFetching}
+      manifestError={manifestQuery.error?.message ?? null}
+      onSelectYear={setYear}
     />
   );
 }
@@ -98,14 +88,23 @@ function ReportDeckView({
   year,
   manifest,
   manifestLoading,
-  onBackToEntry,
+  manifestFetching,
+  manifestError,
+  onSelectYear,
 }: {
   year: number;
   manifest: ReportManifest | null;
   manifestLoading: boolean;
-  onBackToEntry: () => void;
+  manifestFetching: boolean;
+  manifestError: string | null;
+  onSelectYear: (year: number) => void;
 }): ReactElement {
   const pages = manifest?.pages ?? [];
+  /**
+   * 年份选择海报**永久**挂在轨道第 0 页：向下滚直接进第一张真页，向上滚随时
+   * 滚回海报 —— 不需要「点一下 → 去另一页 → 再开始」，也不需要在滚过后摘车厢、
+   * 平移索引。所有真页的虚拟索引恒定 +1（`PAGE_OFFSET`）。
+   */
   const [index, setIndex] = useState(0);
   const [states, setStates] = useState<Record<string, PageState>>({});
   const generationRef = useRef(0);
@@ -116,7 +115,7 @@ function ReportDeckView({
    */
   const [reportFontId, setReportFontIdState] = useState(0);
   /**
-   * 当前页注册的翻页守卫。装扮页用它让「滚到底」先刷出抽屉、再滚一次才翻页。
+   * 当前页注册的翻页守卫（目前没有页面注册，机制为后续交互页保留）。
    * 存在 ref 里而不是 state：注册/注销发生在页面的 effect 里，用 state 会让
    * context value 变化再触发页面重渲，绕回来又重新注册。
    */
@@ -152,6 +151,14 @@ function ReportDeckView({
 
   // 离开报告时把注入的换字样式收干净，别影响应用其余部分。
   useEffect(() => clearReportFont, []);
+
+  // 报告是全视口的固定舞台：进来时把页面滚回顶部，上一屏可能已经滚到别处。
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
+
+  /** 回到第 0 页（年份选择海报）。错误/空态用它兜底：海报是常驻的第 0 页。 */
+  const backToEntry = useCallback(() => setIndex(0), []);
 
   /** 加载一页；成功/失败都 resolve，让顺序队列继续往下走。 */
   const loadPage = useCallback(
@@ -193,8 +200,10 @@ function ReportDeckView({
   );
 
   // 顺序加载：第 1 页好了立即显示，然后 2、3、4… 依次补齐。
+  // 只在真的滚进报告后开始：年份海报停留时点刻度不该触发整份统计的数据库扫描，
+  // 那些扫描会和「切年份」的动画抢 CPU，是选年份掉帧的隐性来源之一。
   useEffect(() => {
-    if (pages.length === 0) return;
+    if (pages.length === 0 || index === 0) return;
     let cancelled = false;
     const generation = generationRef.current;
     (async () => {
@@ -206,18 +215,18 @@ function ReportDeckView({
     return () => {
       cancelled = true;
     };
-  }, [pages, loadPage]);
+  }, [index, pages, loadPage]);
 
   // 翻到还没加载的页时立即加载（不用等队列轮到）。
   useEffect(() => {
-    const active = pages[index];
+    const active = pages[index - PAGE_OFFSET];
     if (!active) return;
     void loadPage(active.id);
   }, [index, pages, loadPage]);
 
   const moveTo = useCallback(
     (next: number) => {
-      setIndex(Math.max(0, Math.min(Math.max(0, pages.length - 1), next)));
+      setIndex(Math.max(0, Math.min(pages.length, next)));
     },
     [pages.length],
   );
@@ -253,7 +262,7 @@ function ReportDeckView({
     return (
       <div className="weq-report-root weq-report-error">
         <p>年度报告目录加载失败</p>
-        <button type="button" onClick={onBackToEntry}>
+        <button type="button" onClick={backToEntry}>
           <RefreshCw size={16} />
           返回重试
         </button>
@@ -266,20 +275,19 @@ function ReportDeckView({
         <p>
           {reportEraLabel(year)}没有可展示的卡片 —— 至少需要发出过一条私聊或群聊消息，报告才会出现。
         </p>
-        <button type="button" onClick={onBackToEntry}>
+        <button type="button" onClick={backToEntry}>
           换个年份
         </button>
       </div>
     );
   }
 
+  /** 第 0 页（年份选择海报）是否正在画面上：是的话 chrome 与刻度轨让位。 */
+  const onEntry = index === 0;
+
   return (
-    <div className="weq-report-root is-deck">
+    <div className="weq-report-root is-deck" data-entry={onEntry ? 'yes' : 'no'}>
       <div className="weq-report-chrome">
-        <button className="weq-report-back" type="button" onClick={onBackToEntry}>
-          <ArrowLeft size={16} aria-hidden />
-          <span>年份</span>
-        </button>
         <div className="weq-report-brand">
           <span
             className={`weq-report-brand-year${year === ALL_TIME_YEAR ? ' is-all-time' : ' weq-number'}`}
@@ -292,7 +300,7 @@ function ReportDeckView({
           {scopeLabel ? <span className="weq-report-brand-scope">{scopeLabel}</span> : null}
         </div>
         <div className="weq-report-progress">
-          <span className="weq-number">{String(index + 1).padStart(2, '0')}</span>
+          <span className="weq-number">{String(Math.max(1, index)).padStart(2, '0')}</span>
           <span className="weq-report-progress-slash" aria-hidden>
             /
           </span>
@@ -305,18 +313,36 @@ function ReportDeckView({
       <ReportViewContext.Provider value={contextValue}>
         <AnnualReportStage
           index={index}
-          count={pages.length}
+          count={pages.length + 1}
           onIndexChange={moveTo}
           guard={runPageGuard}
         >
+          <div
+            className={`weq-report-slide${index === 0 ? ' is-active' : ''}`}
+            style={slideStyle(0, index)}
+            aria-hidden={index !== 0}
+          >
+            <div className="weq-report-entry-wrap">
+              <AnnualReportEntry
+                manifest={manifest}
+                loading={manifestLoading}
+                isFetching={manifestFetching}
+                error={manifestError}
+                selectedYear={year}
+                onSelectYear={onSelectYear}
+                onGenerate={() => moveTo(1)}
+              />
+            </div>
+          </div>
           {pages.map((page, pageIndex) => {
+            const virtualIndex = pageIndex + PAGE_OFFSET;
             const state = states[page.id] ?? { status: 'idle' as const };
-            const active = pageIndex === index;
+            const active = virtualIndex === index;
             return (
               <div
                 className={`weq-report-slide${active ? ' is-active' : ''}`}
                 key={page.id}
-                style={slideStyle(pageIndex, index)}
+                style={slideStyle(virtualIndex, index)}
                 aria-hidden={!active}
               >
                 {state.status === 'loading' || state.status === 'idle' ? (
@@ -356,10 +382,10 @@ function ReportDeckView({
             <button
               key={page.id}
               type="button"
-              className={`weq-report-tick${pageIndex === index ? ' is-active' : ''}`}
-              onClick={() => moveTo(pageIndex)}
+              className={`weq-report-tick${pageIndex + PAGE_OFFSET === index ? ' is-active' : ''}`}
+              onClick={() => moveTo(pageIndex + PAGE_OFFSET)}
               aria-label={`第 ${pageIndex + 1} 页：${page.title}`}
-              aria-current={pageIndex === index}
+              aria-current={pageIndex + PAGE_OFFSET === index}
             >
               <span className="weq-report-tick-mark" aria-hidden />
               <span className="weq-report-tick-name" aria-hidden>
@@ -372,13 +398,13 @@ function ReportDeckView({
           type="button"
           className="weq-report-rail-arrow"
           onClick={() => moveTo(index + 1)}
-          disabled={index === pages.length - 1}
+          disabled={index === pages.length}
           aria-label="下一页"
         >
           <ChevronDown size={16} aria-hidden />
         </button>
       </div>
-      <div className="weq-report-hint" data-visible={index === 0 ? 'yes' : 'no'}>
+      <div className="weq-report-hint" data-visible={index === 1 ? 'yes' : 'no'}>
         <span className="weq-report-hint-arrow" aria-hidden />
         向下滑动继续
       </div>

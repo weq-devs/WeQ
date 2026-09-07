@@ -25,8 +25,8 @@ const WHEEL_COOLDOWN_MS = 620;
  * （不是横向/纵向滑动轨），翻页由各页自己的 transform/opacity/blur 完成景深过渡。
  * 负责滚轮、触摸、键盘三种翻页输入。
  *
- * `guard` 让当前页在翻页发生前截住一次手势（装扮页的「抽屉」用它：滚到底先把
- * 统计刷上来，再滚一次才翻页）。三种输入都经过 `move`，所以只需在这一处问一次。
+ * `guard` 让当前页在翻页发生前截住一次手势（目前没有页面注册，机制为后续需要
+ * 「先展开内层、再翻页」的交互页保留）。三种输入都经过 `move`，所以只需问一次。
  */
 export function AnnualReportStage({
   index,
@@ -43,7 +43,12 @@ export function AnnualReportStage({
   children: ReactNode;
 }): ReactElement {
   const hostRef = useRef<HTMLDivElement>(null);
-  const gestureRef = useRef<{ y: number; moved: boolean } | null>(null);
+  const gestureRef = useRef<{
+    y: number;
+    pointerId: number;
+    moved: boolean;
+    captured: boolean;
+  } | null>(null);
   /** 滚轮手势状态：累积量、上次事件时刻、以及「这一甩已经翻过了」的冷却截止。 */
   const wheelRef = useRef({ acc: 0, lastAt: 0, until: 0 });
   const [scale, setScale] = useState(1);
@@ -58,7 +63,7 @@ export function AnnualReportStage({
   const move = useCallback(
     (delta: number) => {
       // 守卫先看：它吃掉这次手势时不翻页（但滚轮的冷却仍然照常进入，
-      // 免得一甩的惯性尾巴把抽屉刷开后立刻又把页翻走）。
+      // 免得一甩的惯性尾巴在守卫释放后立刻把页翻走）。
       if (delta !== 0 && guardRef.current?.(delta > 0 ? 1 : -1)) return;
       onIndexChange(clampIndex(index + delta));
     },
@@ -128,13 +133,25 @@ export function AnnualReportStage({
   }
 
   function onPointerDown(event: React.PointerEvent<HTMLDivElement>): void {
-    gestureRef.current = { y: event.clientY, moved: false };
-    event.currentTarget.setPointerCapture(event.pointerId);
+    // 刻意不在 pointerdown 就 setPointerCapture：捕获会把后续 pointerup 重定向到
+    // 舞台宿主，叠在它上面的 click 事件就到不了页面里的按钮 —— 年份刻度、CTA、
+    // 重试全都「点了没反应、控制台无报错」。捕获推迟到手势真正成立的那一刻。
+    gestureRef.current = {
+      y: event.clientY,
+      pointerId: event.pointerId,
+      moved: false,
+      captured: false,
+    };
   }
 
   function onPointerMove(event: React.PointerEvent<HTMLDivElement>): void {
     const gesture = gestureRef.current;
     if (!gesture || Math.abs(event.clientY - gesture.y) < 24) return;
+    if (!gesture.captured) {
+      // 拖拽跨过阈值、确认是翻页手势，才把这一指的剩余事件接管给舞台。
+      event.currentTarget.setPointerCapture(gesture.pointerId);
+      gesture.captured = true;
+    }
     gesture.moved = true;
   }
 
