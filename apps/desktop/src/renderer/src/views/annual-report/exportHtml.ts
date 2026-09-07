@@ -204,7 +204,7 @@ const CSS = `
      （屏幕版的「全年装扮率」一格并入上方 dr-sum）。 */
   .dr-kinds { margin-top: 3mm; display: flex; gap: 5mm; font-size: 9pt; color: var(--ink-soft); }
   .dr-kinds span + span { padding-left: 5mm; border-left: 0.25mm solid var(--hair); }
-  /* 好友榜页。屏幕版的头像是 weq-media:// 的本地缓存，导出必须自包含，所以这里
+  /* 好友榜页。屏幕版头像走自定义本地缓存协议，导出必须自包含，所以这里
      一律不画脸。但**两幕的形状照旧分开**：火花是横向引线（长度 = 天数），
      消息量是纵向柱阵（高度 = 条数）—— 那才是这一页区别于其它页的地方，
      丢了形状就只剩两组数字。静态产物没有动画，引线和柱子直接画在终态。 */
