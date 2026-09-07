@@ -607,8 +607,9 @@ void app.whenReady().then(async () => {
     setTimeout(() => void checkForUpdate(true).catch(() => {}), 3000);
   }
 
-  // 守护进程 release 提醒循环（系统通知 + 「版本发布」推文）：始终挂着，每 30s
-  // 读一次守护进程状态；守护进程侧轮询未开启 / 不在时自然为 no-op。
+  // 守护进程 release 提醒循环（发现新版本弹系统通知）：始终挂着，每 30s 读一次
+  // 守护进程状态；守护进程侧轮询未开启 / 不在时自然为 no-op。推文由打包版
+  // 应用内更新检查（update_tweet）统一负责，不在这里重复写。
   startReleaseMonitor();
 
   app.on('activate', () => {

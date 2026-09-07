@@ -2,10 +2,10 @@
  * 「更新可用」推文 —— 应用内更新检查（打包版）发现新版本时，把一条
  * 「WeQ x.y.z 更新可用」推文发进 WeQ 助手。
  *
- * 与守护进程 Release 监控的「版本发布」推文（`/p/release`，由
- * daemon/release_monitor.ts 负责）分工：本模块只服务应用自身的更新检查
- * （`update/updater.ts` 的 checkForUpdate），路由固定用 `/p/update` +
- * `/cover/update`，两边互不覆盖。
+ * 守护进程 Release 监控（daemon/release_monitor.ts）只负责发现新版本时弹系统
+ * 通知；本模块是唯一把新版本写成 WeQ 助手推文的入口，由应用自身的更新检查
+ * （`update/updater.ts` 的 checkForUpdate）触发，路由固定 `/p/update` +
+ * `/cover/update`。
  *
  * 全程 best-effort：助手未开启 / bootstrap 未就绪 / 无账号时静默跳过。
  * 推文先写本地库（tweets.ts），同版本只入库一次；账号在线时立即注入 QQ，

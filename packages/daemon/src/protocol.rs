@@ -72,7 +72,7 @@ pub enum Request {
     ReleaseWatchStop,
     /// 查询 release 轮询状态（含未确认的新版本）。
     ReleaseWatchStatus,
-    /// 用户已确认某版本（ GUI 弹窗已展示 / 已同步推文），守护进程停止为其置位。
+    /// 用户已确认某版本（系统通知已展示），守护进程停止为其置位。
     ReleaseAck { version: String },
     /// 注册 / 撤销 WeQ GUI 的开机自启（写注册表 / plist / systemd unit，并落记忆）。
     AutostartSet(AutostartMemory),

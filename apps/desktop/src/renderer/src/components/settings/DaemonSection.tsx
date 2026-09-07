@@ -5,7 +5,7 @@
  * 守护进程控制面板：
  *
  *   1. 健康性：探活 / 版本 / HTTP 服务 / docroot（getDaemonHealth 聚合快照）；
- *   2. 推送到 QQ 公众号（原 WeQ 助手）：开关 + 端口 + release 推文说明；
+ *   2. 推送到 QQ 公众号（原 WeQ 助手）：开关 + 端口 + 更新推文说明；
  *   3. GitHub release 监控：守护进程 Rust 轮询器开关 + 最近发现 + 系统通知；
  *   4. 开机自动启动：**不注册 Electron 自启任务** —— 写配置交给守护进程
  *      （autostart_set），开机由守护进程拉起 WeQ。
@@ -254,7 +254,7 @@ export function DaemonSection(): ReactElement {
       <Card title="推送到 QQ 公众号（WeQ 助手）">
         <Row
           label="启用 WeQ 助手"
-          desc="开启后在当前账号的 QQ 数据库里创建「WeQ助手」会话，用于推送每日推文、群数据周报与新版本发布。需关闭 QQ 本体后再开启查看。"
+          desc="开启后在当前账号的 QQ 数据库里创建「WeQ助手」会话，用于推送每日推文、群数据周报与「更新可用」推文。需关闭 QQ 本体后再开启查看。"
           control={
             <Toggle
               checked={enabled}
@@ -313,8 +313,8 @@ export function DaemonSection(): ReactElement {
           }
         />
         <p className="weq-set-note">
-          仅监听本机 127.0.0.1。新版本发布时会自动追加一条「版本发布」推文，内容取仓库 CHANGELOG.md
-          里对应版本的章节。
+          仅监听本机 127.0.0.1。打包版应用内更新检查发现新版本时，会追加一条
+          「更新可用」推文（同版本只写一次），内容取仓库 CHANGELOG.md 对应章节。
         </p>
       </Card>
 
@@ -322,7 +322,7 @@ export function DaemonSection(): ReactElement {
       <Card title="GitHub Release 监控">
         <Row
           label="监控新版本发布"
-          desc="守护进程（Rust）每小时轮询一次 GitHub Release；发现新版本时弹系统通知，并向 WeQ助手推送「版本发布」推文。"
+          desc="守护进程（Rust）每小时轮询一次 GitHub Release；发现新版本时弹系统通知提醒更新。推文由打包版更新检查负责，这里不重复写入。"
           control={
             <Toggle
               checked={watching}

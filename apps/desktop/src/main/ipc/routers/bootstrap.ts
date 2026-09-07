@@ -1022,7 +1022,7 @@ export const bootstrapRouter = router({
   /**
    * 开启 / 关闭 release 轮询（守护进程侧 Rust 轮询器）。开启时以当前应用
    * 版本当 current_version，轮询间隔固定 1 小时（大陆网络差也够用）。
-   * GUI 提醒循环（系统通知 + 推文）始终随应用启动挂着 —— 它只读守护进程的
+   * GUI 提醒循环（系统通知）始终随应用启动挂着 —— 它只读守护进程的
    * 状态，watching=false 时不会产生任何提醒。
    */
   setDaemonReleaseWatch: procedure

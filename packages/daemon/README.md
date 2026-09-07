@@ -38,7 +38,7 @@ WeQ Desktop (Electron)                    weq-daemon (本包，原生二进制)
 | `autostart_status` | — | `autostart_status { enabled, registered }` | 意图 vs 平台注册实际在位 |
 | `stop` | — | （无帧，EOF） | 优雅退出守护进程；**保留记忆**（重启后按记忆恢复） |
 
-`release_watch_status.info = { watching, repo?, interval_secs?, current_version?, latest_seen?, pending?, last_error? }`。发现比 `current_version` 新的 release ⇒ 置 `pending`，GUI 轮询状态读它弹系统通知 + 发推文（内容取 CHANGELOG.md 对应章节），处理后 `release_ack`。
+`release_watch_status.info = { watching, repo?, interval_secs?, current_version?, latest_seen?, pending?, last_error? }`。发现比 `current_version` 新的 release ⇒ 置 `pending`，GUI 轮询状态读它弹系统通知提醒更新，处理后 `release_ack`。
 
 ### 跨重启记忆
 

@@ -207,7 +207,7 @@ function safeDocrootPath(docroot: string, route: string): string | null {
 }
 
 /**
- * 把单个文件安全地写进 docroot（release 推文等外部发布方共用同一安全边界）。
+ * 把单个文件安全地写进 docroot（新版本更新推文等外部发布方共用同一安全边界）。
  * 返回是否成功写入。
  */
 export function publishDocrootFile(docroot: string, route: string, data: string | Buffer): boolean {

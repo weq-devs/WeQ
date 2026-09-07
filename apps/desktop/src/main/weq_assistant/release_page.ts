@@ -1,11 +1,12 @@
 /**
- * 「版本发布」推文 —— 新 GitHub release 的封面与跳转页渲染 + 发布。
+ * 新版本推文的封面与跳转页渲染 + 发布（当前唯一调用方是打包版应用内更新检查
+ * 的「更新可用」推文，见 ./update_tweet.ts）。
  *
- * 推文内容约定（见仓库根 CHANGELOG.md）：release 的推文正文 = CHANGELOG.md 里
- * 对应版本的章节；封面 / 页面只吃纯文本摘要（第一条 bullet），不解析 Markdown。
+ * 推文内容约定（见仓库根 CHANGELOG.md）：正文 = CHANGELOG.md 里对应版本的章节；
+ * 封面 / 页面只吃纯文本摘要（第一条 bullet），不解析 Markdown。
  *
- *   /p/release      → <docroot>/p/release.html
- *   /cover/release  → <docroot>/cover/release.png
+ *   /p/update      → <docroot>/p/update.html
+ *   /cover/update  → <docroot>/cover/update.png
  *
  * 渲染复用 cover.ts 的 satori/resvg 管线与 publish.ts 的页面模板风格，主题
  * 在渲染时烘焙进产物（守护进程零渲染逻辑）。幂等：同版本重写同路径文件。
@@ -18,7 +19,7 @@ import { getLogger } from '@weq/service';
 
 const logger = getLogger().child({ scope: 'weq-assistant-release' });
 
-/** 一条 release 推文的渲染输入（全部纯文本，来自 CHANGELOG 章节 + 版本号）。 */
+/** 一条新版本推文的渲染输入（全部纯文本，来自 CHANGELOG 章节 + 版本号）。 */
 export interface ReleasePageInput {
   /** 版本号（`0.5.0`，不带 `v` 前缀）。 */
   version: string;
@@ -30,13 +31,12 @@ export interface ReleasePageInput {
   releaseUrl: string;
   /**
    * docroot 内的路由名（`/p/<slug>.html` / `/cover/<slug>.png`）。
-   * 默认 `release`（守护进程 Release 监控的推文）；应用内更新检查的
-   * 「更新可用」推文用 `update`，两者互不覆盖。
+   * 打包版更新检查的「更新可用」推文固定传 `update`。
    */
   slug?: string;
 }
 
-/** /p/release 的跳转页 HTML（风格与 daily / stats 页一致）。 */
+/** 新版本推文的跳转页 HTML（风格与 daily / stats 页一致）。 */
 export function renderReleasePageHtml(input: ReleasePageInput): string {
   const p = buildPalette(getWeqTheme());
   const icon = (name: keyof typeof LUCIDE_PATHS, size: number): string => lucide(name, size);
@@ -130,7 +130,7 @@ export function renderReleasePageHtml(input: ReleasePageInput): string {
 </html>`;
 }
 
-/** /cover/release 的封面 CardSpec（交给 cover.renderCardPng）。 */
+/** 新版本推文封面（`/cover/<slug>.png`）的 CardSpec（交给 cover.renderCardPng）。 */
 export function releaseCardSpec(input: ReleasePageInput): CardSpec {
   return {
     title: `WeQ ${input.version} 发布`,
@@ -141,7 +141,7 @@ export function releaseCardSpec(input: ReleasePageInput): CardSpec {
 }
 
 /**
- * 把 release 页面 / 封面物化到 docroot（幂等）。复用 publish.ts 的落盘通道
+ * 把新版本推文的页面 / 封面物化到 docroot（幂等）。复用 publish.ts 的落盘通道
  * —— 避免两套「写 docroot」的实现各管各的安全边界。
  */
 export async function publishReleasePages(
