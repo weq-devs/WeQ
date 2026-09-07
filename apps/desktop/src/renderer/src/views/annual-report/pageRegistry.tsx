@@ -4,6 +4,7 @@ import type {
   DressPageData,
   EndPageData,
   FriendsPageData,
+  OpenersPageData,
   OverviewPageData,
   ReportPageManifest,
   SparkPageData,
@@ -14,6 +15,7 @@ import { DressPage } from './pages/DressPage';
 import { EndPage } from './pages/EndPage';
 import { SparkPage } from './pages/SparkPage';
 import { FriendsPage } from './pages/FriendsPage';
+import { OpenersPage } from './pages/OpenersPage';
 
 type RegistryProps = { page: ReportPageManifest; data: unknown; active: boolean };
 type PageRenderer = (props: RegistryProps) => ReactElement;
@@ -53,6 +55,9 @@ const pageRegistry: Record<string, PageRenderer> = {
   ),
   friends: ({ page, data, active }) => (
     <FriendsPage page={page} data={data as FriendsPageData} active={active} />
+  ),
+  openers: ({ page, data, active }) => (
+    <OpenersPage page={page} data={data as OpenersPageData} active={active} />
   ),
   end: ({ page, data, active }) => (
     <EndPage page={page} data={data as EndPageData} active={active} />

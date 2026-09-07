@@ -1,6 +1,6 @@
 /** Shared contracts for the compile-time annual-report page system. */
 
-import type { C2cMsg, C2cPeerDayTally, DressTally } from '@weq/db';
+import type { C2cInitiationTally, C2cMsg, C2cPeerDayTally, DressTally } from '@weq/db';
 
 /** 三类个性装扮。与 `account.dressup.*` 的 kind 取值一致。 */
 export type DressKind = 'bubble' | 'font' | 'widget';
@@ -159,6 +159,12 @@ export type ReportQueries = {
      * 扫描，因此返回的数组是**共享只读**的 —— 调用方只能读，不能原地排序或修改。
      */
     peerDayTallies(startTime: number, endTime: number): Promise<C2cPeerDayTally[]>;
+    /**
+     * 一个时间窗内每个会话的开场次数（我 / 对方），统计单位是对话不是消息。
+     * 底层只扫几列元数据，按 `CONVERSATION_GAP_SECONDS`（静默超 5 小时算新开场）
+     * 切分 —— 与「私聊分析」的主动发起口径同源。
+     */
+    initiationTallies(startTime: number, endTime: number): Promise<C2cInitiationTally[]>;
     /**
      * 某会话在一个半开时间窗内的完整消息（oldest first）。只用于给「最忙的
      * 那一天」解码正文做热词，因此窗口是单个 peer-day，而不是整份报告。

@@ -10,6 +10,7 @@ export {
   dressPage,
   sparkPage,
   friendsPage,
+  openersPage,
   endPage,
 } from './pages';
 export type { OverviewPageData } from './pages/overview/types';
@@ -27,3 +28,4 @@ export type {
   SparkWallDay,
 } from './pages/spark/types';
 export type { FriendsPageData, FriendRankEntry } from './pages/friends/types';
+export type { OpenersPageData, OpenerEntry } from './pages/openers/types';

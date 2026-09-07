@@ -54,6 +54,7 @@ const CSS = `
     --accent: #1c5f8f;
     --ghost-stroke: rgba(22,19,13,0.10);
     --leaf: #2e7d55;
+    --open: #6d4f93;
     --serif: "Playfair Display", Georgia, "Noto Serif CJK SC", "Noto Serif SC",
       "Source Han Serif SC", "Songti SC", SimSun, "Times New Roman", serif;
     --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC",
@@ -72,6 +73,7 @@ const CSS = `
       --accent: #c9a227;
       --ghost-stroke: rgba(201,162,39,0.14);
       --leaf: #3fae70;
+      --open: #d9a9cf;
     }
   }
   @page { size: A4; margin: 0; }
@@ -274,6 +276,32 @@ const CSS = `
   }
   .fr-stack-name { max-width: 100%; overflow: hidden; font-size: 6pt; letter-spacing: 0; color: var(--ink-muted); text-overflow: ellipsis; white-space: nowrap; }
   .fr-stack.champ .fr-stack-name { font-size: 7pt; color: var(--ink-soft); }
+  /* 谁先开口页 */
+  .op-kicker { display: flex; justify-content: space-between; align-items: baseline; font-size: 8pt; letter-spacing: 3px; color: var(--ink-soft); }
+  .op-kicker-meta { font-size: 7.5pt; letter-spacing: 2px; color: var(--ink-faint); }
+  .op-kicker-meta b { font-family: var(--serif); font-size: 10pt; font-weight: 600; color: var(--ink-soft); }
+  .op-lede { margin-top: 10mm; font-family: var(--serif); font-size: 11.5pt; letter-spacing: 2px; color: var(--ink-soft); }
+  .op-lede b { font-family: var(--serif); font-size: 1.1em; font-weight: 600; color: var(--ink); }
+  .op-punch { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 6mm; margin-top: 1mm; }
+  .op-num { font-family: var(--serif); font-size: 90pt; font-weight: 600; letter-spacing: -4px; color: var(--ink); line-height: 1; font-variant-numeric: tabular-nums; }
+  .op-unit { font-family: var(--serif); font-size: 27pt; font-weight: 600; color: var(--open); }
+  .op-word { font-family: var(--serif); font-size: 15pt; letter-spacing: 5px; color: var(--ink-soft); white-space: nowrap; }
+  .op-mood { margin-top: 1mm; font-family: var(--serif); font-size: 12pt; letter-spacing: 2px; color: var(--ink-muted); }
+  .op-beam { display: flex; align-items: center; gap: 6mm; margin-top: 10mm; }
+  .op-side { font-size: 8pt; letter-spacing: 2px; color: var(--ink-faint); white-space: nowrap; }
+  .op-side b { font-family: var(--serif); font-size: 12pt; font-weight: 600; color: var(--ink-soft); }
+  .op-track { position: relative; flex: 1; height: 2mm; }
+  .op-half-peer, .op-half-mine { position: absolute; top: 50%; height: 0.35mm; }
+  .op-half-peer { left: 0; width: 50%; background: var(--hair); }
+  .op-half-mine { right: 0; width: 50%; background: color-mix(in srgb, var(--open) 62%, transparent); }
+  .op-mid { position: absolute; left: 50%; top: 0.35mm; width: 0.25mm; height: 1.3mm; background: var(--hair); }
+  .op-dot { position: absolute; top: 0; width: 2mm; height: 2mm; margin-left: -1mm; border-radius: 50%; background: var(--open); box-shadow: 0 0 2mm color-mix(in srgb, var(--open) 55%, transparent); }
+  .op-tales { margin-top: 10mm; padding-top: 4mm; border-top: 0.25mm solid var(--hair); }
+  .op-tales-in { font-size: 7.5pt; letter-spacing: 4px; color: var(--ink-faint); }
+  .op-line { margin-top: 2.5mm; font-family: var(--serif); font-size: 11pt; line-height: 1.75; letter-spacing: 1px; color: var(--ink-soft); }
+  .op-line em { color: var(--open); font-weight: 600; font-style: normal; }
+  .op-line-role { margin-right: 3mm; color: var(--open); font-family: var(--sans); font-size: 7.5pt; font-weight: 600; letter-spacing: 3px; }
+  .op-line-dot { margin-right: 3mm; color: var(--ink-faint); }
   /* 结尾页 */
   .end { text-align: center; }
   .end-line { font-family: var(--serif); font-size: 12pt; letter-spacing: 5px; color: var(--ink-muted); }
@@ -656,6 +684,122 @@ function friendsSlide(data: Record<string, unknown>): string {
     ${slideFoot(`${reportPeriodLabel(year)} · FRIENDS`)}`;
 }
 
+/**
+ * 谁先开口页的导出版。屏幕版的主角是巨数 + 一句裁决、轨上的星标自己会滑；
+ * 静态产物里星标直接落在最终位置 —— 它把「主动」画成一枚指向 TA / 我之间的
+ * 光点，数字和句子都只是这枚光点的注脚。
+ */
+function openersSlide(data: Record<string, unknown>): string {
+  const year = Number(data.year ?? 0);
+  const allTime = isAllTimeYear(year);
+  const peerCount = Number(data.peerCount ?? 0);
+  const totalStarts = Number(data.totalStarts ?? 0);
+  const selfStarts = Number(data.selfStarts ?? 0);
+  const peerStarts = Number(data.peerStarts ?? 0);
+  const selfPct = Math.round(Number(data.selfRatio ?? 0) * 100);
+  const mood =
+    selfPct >= 60
+      ? '原来，你总是那个先想到别人的人。'
+      : selfPct <= 40
+        ? '原来，有人总比你先想到你。'
+        : '原来，你们总在差不多的时候，想起彼此。';
+
+  type CastRole = { kind: 'mine' | 'peer' | 'balanced'; entry: Record<string, unknown> | null };
+  const mostMine = (data.mostMine ?? null) as Record<string, unknown> | null;
+  const mostPeer = (data.mostPeer ?? null) as Record<string, unknown> | null;
+  const balanced = (data.balanced ?? null) as Record<string, unknown> | null;
+  const cast: CastRole[] = [];
+  const seen = new Set<string>();
+  const push = (kind: CastRole['kind'], entry: Record<string, unknown> | null): void => {
+    const uid = entry?.peerUid ? String(entry.peerUid) : '';
+    if (entry && !seen.has(uid)) {
+      seen.add(uid);
+      cast.push({ kind, entry });
+    }
+  };
+  if (selfPct >= 55) {
+    push('mine', mostMine);
+    push('balanced', balanced);
+    push('peer', mostPeer);
+  } else if (selfPct <= 45) {
+    push('peer', mostPeer);
+    push('balanced', balanced);
+    push('mine', mostMine);
+  } else {
+    push('balanced', balanced);
+    push('mine', mostMine);
+    push('peer', mostPeer);
+  }
+
+  const line = (role: CastRole): string => {
+    const entry = role.entry as {
+      peerName: string;
+      selfStarts: number;
+      peerStarts: number;
+      totalStarts: number;
+    };
+    const roleLabel =
+      role.kind === 'mine'
+        ? '你发起占比最高'
+        : role.kind === 'peer'
+          ? 'TA 发起占比最高'
+          : '最接近 50%';
+    if (role.kind === 'mine') {
+      const minePct = Math.round((entry.selfStarts / entry.totalStarts) * 100);
+      return `<span class="op-line-role">${roleLabel}</span><span class="op-line-dot">·</span><em>${escapeHtml(
+        entry.peerName,
+      )}</em>，这 ${fmt(entry.totalStarts)} 场里你先发起 ${fmt(entry.selfStarts)} 次（发起率 ${minePct}%）—— 是你一直在把 TA 找回来。`;
+    }
+    if (role.kind === 'peer') {
+      const peerPct = Math.round((entry.peerStarts / entry.totalStarts) * 100);
+      return `<span class="op-line-role">${roleLabel}</span><span class="op-line-dot">·</span><em>${escapeHtml(
+        entry.peerName,
+      )}</em>，这 ${fmt(entry.totalStarts)} 场里 TA 先发起 ${fmt(entry.peerStarts)} 次（发起率 ${peerPct}%）—— 有人总比你早一步想你。`;
+    }
+    const minePct = Math.round((entry.selfStarts / entry.totalStarts) * 100);
+    const peerPct = 100 - minePct;
+    return `<span class="op-line-role">${roleLabel}</span><span class="op-line-dot">·</span><em>${escapeHtml(
+      entry.peerName,
+    )}</em>，开场 ${fmt(entry.selfStarts)} : ${fmt(
+      entry.peerStarts,
+    )}，发起率 ${minePct}% : ${peerPct}% —— 谁先想起谁，都不算抢先。`;
+  };
+
+  return `${slideOpen(allTime ? 'ALL' : String(year))}
+    <div class="op-kicker">
+      <span>${escapeHtml(reportEraLabel(year))} · 谁先开口</span>
+      <span class="op-kicker-meta">${fmt(peerCount)} 位朋友 / ${fmt(totalStarts)} 场开场</span>
+    </div>
+    <div class="op-lede">${allTime ? '有记录以来' : '这一年'}你一共发起了 <b>${fmt(
+      selfStarts,
+    )}</b> 场聊天，占全部开场的</div>
+    <div class="op-punch">
+      <span class="op-num">${selfPct}</span>
+      <span class="op-unit">%</span>
+      <span class="op-word">是你先开口</span>
+    </div>
+    <div class="op-mood">${escapeHtml(mood)}</div>
+    <div class="op-beam">
+      <span class="op-side"><span>TA 先开口 </span><b>${fmt(peerStarts)}</b></span>
+      <div class="op-track">
+        <span class="op-half-peer"></span>
+        <span class="op-half-mine"></span>
+        <span class="op-mid"></span>
+        <span class="op-dot" style="left:${selfPct}%"></span>
+      </div>
+      <span class="op-side"><b>${fmt(selfStarts)}</b><span> 我先开口</span></span>
+    </div>
+    ${
+      cast.length > 0
+        ? `<div class="op-tales">
+             <div class="op-tales-in">而这几位朋友，把「先开口」写成了不同的样子</div>
+             ${cast.map((role) => `<p class="op-line">${line(role)}</p>`).join('')}
+           </div>`
+        : ''
+    }
+    ${slideFoot(`${reportPeriodLabel(year)} · OPENERS`)}`;
+}
+
 function endSlide(data: Record<string, unknown>): string {
   const year = Number(data.year ?? 0);
   const allTime = isAllTimeYear(year);
@@ -689,6 +833,7 @@ export function buildReportHtml(year: number, slides: ExportSlide[]): string {
       if (slide.page.id === 'dress') return dressSlide(data);
       if (slide.page.id === 'spark') return sparkSlide(data);
       if (slide.page.id === 'friends') return friendsSlide(data);
+      if (slide.page.id === 'openers') return openersSlide(data);
       if (slide.page.id === 'end') return endSlide(data);
       return genericSlide(slide);
     })

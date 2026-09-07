@@ -2368,6 +2368,358 @@ html[data-theme="dark"] .weq-report-root {
   }
 }
 
+/* ══ 谁先开口页 ═══════════════════════════════════════════════════════
+ *
+ * 一页只有一个主角：你先开口的比例。主角不是一张榜，而是巨数 + 一句
+ * 「是你先开口」；比例再落成轨道上一颗滑动的星标，指向「TA 先」或「我先」。
+ * 三位朋友不排行、不成卡，收在页底同一段叙事里 —— 画面因此读起来像一句话，
+ * 不像统计表。
+ * ═══════════════════════════════════════════════════════════════════ */
+
+.weq-report-root {
+  /* 这一页自己的墨紫：明色是信封上的紫墨水，暗色退成月光下的浅藕。 */
+  --rp-open: #6d4f93;
+}
+
+html[data-theme="dark"] .weq-report-root {
+  --rp-open: #d9a9cf;
+}
+
+.weq-op {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.weq-op-kicker {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  margin: 0 0 13px;
+  color: var(--rp-ink-soft);
+  font-size: 13px;
+  letter-spacing: 0.18em;
+}
+
+.weq-op-kicker-meta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--rp-ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  white-space: nowrap;
+}
+
+.weq-op-kicker-meta b {
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.weq-op-kicker-meta i {
+  font-style: normal;
+  opacity: 0.5;
+}
+
+/* ── 主角：一个巨数，和它背后那句「是你先开口」 ─────────────────── */
+
+.weq-op-hero {
+  margin: 0;
+}
+
+.weq-op-lede {
+  margin: 0;
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif);
+  font-size: 18px;
+  letter-spacing: 0.08em;
+}
+
+.weq-op-lede b {
+  margin: 0 2px;
+  color: var(--rp-ink);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 1.12em;
+  font-weight: 600;
+}
+
+.weq-op-punch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 22px;
+  margin-top: -1px;
+}
+
+.weq-op-num {
+  color: var(--rp-ink);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 172px;
+  font-weight: 600;
+  letter-spacing: -0.05em;
+  line-height: 0.94;
+}
+
+.weq-op-unit {
+  color: var(--rp-open);
+  font-family: var(--rp-serif);
+  font-size: 56px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+/* 「是你先开口」不是单位后缀，是主角旁边的裁决句 —— 字号收一点、字距放开，
+   才不会和巨数抢视线。 */
+.weq-op-word {
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif);
+  font-size: 30px;
+  letter-spacing: 0.2em;
+  white-space: nowrap;
+}
+
+.weq-op-mood {
+  margin: 4px 0 0;
+  color: var(--rp-ink-muted);
+  font-family: var(--rp-serif);
+  font-size: 19px;
+  letter-spacing: 0.08em;
+}
+
+/* ── 开场轨：一颗星标在 TA / 我之间滑动 ────────────────────────────
+ *
+ * 这不是进度条：整条轨代表「开场属于谁」的连续空间，中点是一道发丝刻度，
+ * 星标最终停在你先开口的实际比例上 —— 位置即主动，数字只作为轨两端的证据。
+ */
+
+.weq-op-beam {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0 18px;
+  margin-top: 13px;
+}
+
+.weq-op-beam-side {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  color: var(--rp-ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  white-space: nowrap;
+}
+
+.weq-op-beam-side b {
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.weq-op-beam-side.is-peer b {
+  color: var(--rp-ink-muted);
+}
+
+.weq-op-beam-track {
+  position: relative;
+  height: 18px;
+}
+
+.weq-op-beam-half {
+  position: absolute;
+  top: 50%;
+  height: 1px;
+}
+
+.weq-op-beam-half.is-peer {
+  left: 0;
+  width: 50%;
+  background: var(--rp-ink-faint);
+}
+
+.weq-op-beam-half.is-mine {
+  right: 0;
+  width: 50%;
+  background: color-mix(in srgb, var(--rp-open) 62%, transparent);
+}
+
+.weq-op-beam-mid {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1px;
+  height: 11px;
+  margin: -5.5px 0 0;
+  background: var(--rp-ink-faint);
+}
+
+.weq-op-beam-dot {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  margin: -7.5px 0 0 -7.5px;
+  border: 1px solid var(--rp-open);
+  border-radius: 50%;
+  background: var(--rp-paper);
+  transition: left 1500ms var(--rp-ease-epic);
+  transition-delay: 480ms;
+}
+
+.weq-op-beam-dot b {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--rp-open);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--rp-open) 70%, transparent);
+}
+
+.weq-op-beam[data-open="no"] .weq-op-beam-dot {
+  left: 0;
+}
+
+.weq-op-beam[data-open="yes"] .weq-op-beam-dot {
+  left: calc(var(--pos, 0) * 1%);
+}
+
+/* 星标是这一页唯一的常驻运动：轻轻一呼吸，别人就看见它在「想」。 */
+.weq-op-beam-dot {
+  animation: rp-open-breathe 3.2s ease-in-out 2.2s infinite;
+}
+
+/* ── 页底：三位朋友，不是三张卡 ────────────────────────────────── */
+
+.weq-op-cast {
+  margin-top: 16px;
+  padding-top: 10px;
+  border-top: 1px solid var(--rp-hair);
+}
+
+.weq-op-cast-in {
+  margin: 0;
+  color: var(--rp-ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.24em;
+}
+
+.weq-op-line {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 6px 0 0;
+  opacity: 0;
+  transform: translateY(9px);
+  transition:
+    opacity 700ms var(--rp-ease-drop),
+    transform 800ms var(--rp-ease-drop);
+  transition-delay: calc(760ms + var(--j, 0) * 170ms);
+}
+
+.weq-report-page[data-enter="in"] .weq-op-line {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.weq-op-face {
+  display: grid;
+  flex: 0 0 auto;
+  width: 21px;
+  height: 21px;
+  place-items: center;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--rp-ghost);
+  outline: 1px solid var(--rp-hair);
+  outline-offset: -1px;
+}
+
+.weq-op-face.is-initial {
+  color: var(--rp-open);
+  font-family: var(--rp-serif);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.weq-op-line-say {
+  min-width: 0;
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif);
+  font-size: 15px;
+  line-height: 1.5;
+  letter-spacing: 0.04em;
+  text-wrap: pretty;
+}
+
+.weq-op-line-say em {
+  color: var(--rp-open);
+  font-weight: 600;
+  font-style: normal;
+  letter-spacing: 0.06em;
+}
+
+.weq-op-line-role {
+  color: var(--rp-open);
+  font-family: var(--rp-sans);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  white-space: nowrap;
+}
+
+.weq-op-line-dot {
+  margin: 0 8px;
+  color: var(--rp-ink-faint);
+  font-family: var(--rp-serif);
+}
+
+@keyframes rp-open-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--rp-open) 24%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 7px color-mix(in srgb, var(--rp-open) 0%, transparent);
+  }
+}
+
+@media (max-width: 1000px) {
+  .weq-op-num {
+    font-size: 126px;
+  }
+
+  .weq-op-unit {
+    font-size: 44px;
+  }
+
+  .weq-op-word {
+    font-size: 24px;
+  }
+
+  .weq-op-lede {
+    font-size: 15px;
+  }
+
+  .weq-op-mood {
+    font-size: 16px;
+  }
+
+  .weq-op-line-say {
+    font-size: 13px;
+  }
+}
+
 /* ══ 状态 / 兜底 ══════════════════════════════════════════════════════ */
 
 .weq-report-unknown,

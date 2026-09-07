@@ -1,5 +1,10 @@
 import type { AccountSession } from '@weq/account';
-import { mergeDressTally, type C2cPeerDayTally, type DressTally } from '@weq/db';
+import {
+  mergeDressTally,
+  type C2cInitiationTally,
+  type C2cPeerDayTally,
+  type DressTally,
+} from '@weq/db';
 import type { DressNameResolver, ReportQueries } from './types';
 
 /**
@@ -27,6 +32,7 @@ export function createReportQueries(
   const countCache = new Map<string, Promise<DirectionCounts>>();
   const dressCache = new Map<string, Promise<DressTally>>();
   const dayTallyCache = new Map<string, Promise<C2cPeerDayTally[]>>();
+  const initiationCache = new Map<string, Promise<C2cInitiationTally[]>>();
   let oldestCache: Promise<number | null> | null = null;
   let sentYearsCache: Promise<number[]> | null = null;
 
@@ -158,6 +164,23 @@ export function createReportQueries(
           // 失败时清掉缓存，页面重试可以重新扫。
           void running.catch(() => {
             dayTallyCache.delete(key);
+          });
+        }
+        return running;
+      },
+      /**
+       * 同款 per-window 记忆化。开场页只有一个查询面，SQL 里会按会话序号排一次
+       * 序，因此单独缓存这次结果（与 peerDayTallies 不是同一个聚合，不能共用）。
+       */
+      async initiationTallies(startTime: number, endTime: number) {
+        const key = `${startTime}:${endTime}`;
+        let running = initiationCache.get(key);
+        if (!running) {
+          running = session.c2cMsgs.initiationTallies({ startTime, endTime });
+          initiationCache.set(key, running);
+          // 失败时清掉缓存，页面重试可以重新扫。
+          void running.catch(() => {
+            initiationCache.delete(key);
           });
         }
         return running;

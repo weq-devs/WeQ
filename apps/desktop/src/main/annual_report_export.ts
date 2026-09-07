@@ -54,6 +54,7 @@ const PALETTE = {
   hair: 'rgba(244,240,230,0.14)',
   accent: '#c9a227',
   ghostStroke: 'rgba(201,162,39,0.13)',
+  open: '#d9a9cf',
 };
 
 function fmt(n: number): string {
@@ -955,6 +956,227 @@ function friendsTree(data: Record<string, unknown>): El {
   );
 }
 
+/**
+ * 谁先开口页的长图版。satori 不取头像（`weq-media://` 画不出来），三位朋友
+ * 就只用名字写进句子；轨上的星标没有动画，直接落在你先开口的比例处 —— 巨数、
+ * 一句裁决和一枚指向「TA / 我」之间的光点，就是这一页的全部。
+ */
+function openersTree(data: Record<string, unknown>): El {
+  const year = Number(data.year ?? 0);
+  const allTime = isAllTimeYear(year);
+  const peerCount = Number(data.peerCount ?? 0);
+  const totalStarts = Number(data.totalStarts ?? 0);
+  const selfStarts = Number(data.selfStarts ?? 0);
+  const peerStarts = Number(data.peerStarts ?? 0);
+  const selfPct = Math.round(Number(data.selfRatio ?? 0) * 100);
+  const mood =
+    selfPct >= 60
+      ? '原来，你总是那个先想到别人的人。'
+      : selfPct <= 40
+        ? '原来，有人总比你先想到你。'
+        : '原来，你们总在差不多的时候，想起彼此。';
+
+  type CastRole = { kind: 'mine' | 'peer' | 'balanced'; entry: Record<string, unknown> | null };
+  const mostMine = (data.mostMine ?? null) as Record<string, unknown> | null;
+  const mostPeer = (data.mostPeer ?? null) as Record<string, unknown> | null;
+  const balanced = (data.balanced ?? null) as Record<string, unknown> | null;
+  const cast: CastRole[] = [];
+  const seen = new Set<string>();
+  const push = (kind: CastRole['kind'], entry: Record<string, unknown> | null): void => {
+    const uid = entry?.peerUid ? String(entry.peerUid) : '';
+    if (entry && !seen.has(uid)) {
+      seen.add(uid);
+      cast.push({ kind, entry });
+    }
+  };
+  if (selfPct >= 55) {
+    push('mine', mostMine);
+    push('balanced', balanced);
+    push('peer', mostPeer);
+  } else if (selfPct <= 45) {
+    push('peer', mostPeer);
+    push('balanced', balanced);
+    push('mine', mostMine);
+  } else {
+    push('balanced', balanced);
+    push('mine', mostMine);
+    push('peer', mostPeer);
+  }
+
+  const line = (role: CastRole): El => {
+    const entry = role.entry as {
+      peerName: string;
+      selfStarts: number;
+      peerStarts: number;
+      totalStarts: number;
+    };
+    const name = el('span', { color: PALETTE.open, fontWeight: 700 }, entry.peerName);
+    const roleLabel =
+      role.kind === 'mine'
+        ? '你发起占比最高'
+        : role.kind === 'peer'
+          ? 'TA 发起占比最高'
+          : '最接近 50%';
+    const roleEl = el('span', { fontSize: 22, color: PALETTE.open, letterSpacing: 5 }, roleLabel);
+    if (role.kind === 'mine') {
+      const minePct = Math.round((entry.selfStarts / entry.totalStarts) * 100);
+      return el('div', { marginTop: 22, fontSize: 34, color: PALETTE.inkSoft, letterSpacing: 1 }, [
+        roleEl,
+        ' · ',
+        name,
+        `，这 ${fmt(entry.totalStarts)} 场里你先发起 ${fmt(entry.selfStarts)} 次（发起率 ${minePct}%）—— 是你一直在把 TA 找回来。`,
+      ]);
+    }
+    if (role.kind === 'peer') {
+      const peerPct = Math.round((entry.peerStarts / entry.totalStarts) * 100);
+      return el('div', { marginTop: 22, fontSize: 34, color: PALETTE.inkSoft, letterSpacing: 1 }, [
+        roleEl,
+        ' · ',
+        name,
+        `，这 ${fmt(entry.totalStarts)} 场里 TA 先发起 ${fmt(entry.peerStarts)} 次（发起率 ${peerPct}%）—— 有人总比你早一步想你。`,
+      ]);
+    }
+    const minePct = Math.round((entry.selfStarts / entry.totalStarts) * 100);
+    const peerPct = 100 - minePct;
+    return el('div', { marginTop: 22, fontSize: 34, color: PALETTE.inkSoft, letterSpacing: 1 }, [
+      roleEl,
+      ' · ',
+      name,
+      `，开场 ${fmt(entry.selfStarts)} : ${fmt(entry.peerStarts)}，发起率 ${minePct}% : ${peerPct}% —— 谁先想起谁，都不算抢先。`,
+    ]);
+  };
+
+  return slideFrame(
+    [
+      el('div', { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }, [
+        el(
+          'div',
+          { fontSize: 30, color: PALETTE.inkSoft, letterSpacing: 6 },
+          `${reportEraLabel(year)} · 谁先开口`,
+        ),
+        el(
+          'div',
+          { fontSize: 22, color: PALETTE.inkFaint, letterSpacing: 4 },
+          `${fmt(peerCount)} 位朋友 / ${fmt(totalStarts)} 场开场`,
+        ),
+      ]),
+      el(
+        'div',
+        {
+          marginTop: 80,
+          fontSize: 40,
+          color: PALETTE.inkSoft,
+          letterSpacing: 3,
+        },
+        [
+          `${allTime ? '有记录以来' : '这一年'}你一共发起了 `,
+          el('span', { fontWeight: 700, color: PALETTE.ink }, fmt(selfStarts)),
+          ' 场聊天，占全部开场的',
+        ],
+      ),
+      el('div', { marginTop: 8, display: 'flex', alignItems: 'baseline' }, [
+        el(
+          'div',
+          { fontSize: 240, fontWeight: 700, color: PALETTE.ink, letterSpacing: -10, lineHeight: 1 },
+          `${selfPct}`,
+        ),
+        el('div', { marginLeft: 20, fontSize: 72, fontWeight: 700, color: PALETTE.open }, '%'),
+        el(
+          'div',
+          { marginLeft: 44, fontSize: 38, color: PALETTE.inkSoft, letterSpacing: 10 },
+          '是你先开口',
+        ),
+      ]),
+      el('div', { marginTop: 6, fontSize: 32, color: PALETTE.inkMuted, letterSpacing: 4 }, mood),
+      // 开场轨：左右 50% 各一段发丝 + 中点刻度 + 一枚停在实际比例上的星标。
+      el(
+        'div',
+        {
+          marginTop: 64,
+          width: SLIDE_W - 144,
+          display: 'flex',
+          alignItems: 'center',
+        },
+        [
+          el(
+            'div',
+            { fontSize: 22, color: PALETTE.inkFaint, letterSpacing: 3, whiteSpace: 'nowrap' },
+            `TA 先开口 ${fmt(peerStarts)}`,
+          ),
+          el(
+            'div',
+            { position: 'relative', flex: 1, marginLeft: 28, marginRight: 28, height: 12 },
+            [
+              el('div', {
+                position: 'absolute',
+                top: 5,
+                left: 0,
+                width: '50%',
+                height: 1,
+                backgroundColor: PALETTE.hair,
+              }),
+              el('div', {
+                position: 'absolute',
+                top: 5,
+                right: 0,
+                width: '50%',
+                height: 1,
+                backgroundColor: 'rgba(217,169,207,0.6)',
+              }),
+              el('div', {
+                position: 'absolute',
+                left: '50%',
+                top: 0,
+                width: 1,
+                height: 12,
+                backgroundColor: PALETTE.hair,
+              }),
+              el('div', {
+                position: 'absolute',
+                top: 0,
+                left: `${selfPct}%`,
+                width: 12,
+                height: 12,
+                marginLeft: -6,
+                borderRadius: 6,
+                backgroundColor: PALETTE.open,
+              }),
+            ],
+          ),
+          el(
+            'div',
+            { fontSize: 22, color: PALETTE.inkFaint, letterSpacing: 3, whiteSpace: 'nowrap' },
+            `${fmt(selfStarts)} 我先开口`,
+          ),
+        ],
+      ),
+      ...(cast.length > 0
+        ? [
+            el(
+              'div',
+              {
+                marginTop: 64,
+                display: 'flex',
+                flexDirection: 'column',
+                borderTop: `1px solid ${PALETTE.hair}`,
+                paddingTop: 24,
+              },
+              [
+                el(
+                  'div',
+                  { fontSize: 20, color: PALETTE.inkFaint, letterSpacing: 6 },
+                  '而这几位朋友，把「先开口」写成了不同的样子',
+                ),
+                ...cast.map((role) => line(role)),
+              ],
+            ),
+          ]
+        : []),
+    ],
+    allTime ? 'ALL' : String(year),
+  );
+}
+
 function endTree(data: Record<string, unknown>): El {
   const year = Number(data.year ?? 0);
   const allTime = isAllTimeYear(year);
@@ -1031,6 +1253,7 @@ function treeForSlide(slide: ReportExportSlide): El {
   if (slide.pageId === 'dress') return dressTree(data);
   if (slide.pageId === 'spark') return sparkTree(data);
   if (slide.pageId === 'friends') return friendsTree(data);
+  if (slide.pageId === 'openers') return openersTree(data);
   if (slide.pageId === 'end') return endTree(data);
   return genericTree(slide);
 }

@@ -21,12 +21,18 @@
  */
 
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
-import type { C2cMsg, C2cPeerDayTally, DressTally, SeqWindow } from './types';
+import type { C2cInitiationTally, C2cMsg, C2cPeerDayTally, DressTally, SeqWindow } from './types';
 import { decodeBody, decodeDress, emptyDressTally, tallyDressBlobs, toBigint, toStr } from './util';
 import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './append';
 import { QqDb } from '../qq_db';
 
 const SELECT_COLUMNS = `"40001","40020","40021","40030","40033","40050","40800","40003","40011","40012","40801"`;
+
+/**
+ * 会话切分阈值：沉默超过这个时长，下一次说话就是一场新对话。私聊总结
+ * （`BuddyAnalyticsService`）逐好友扫描与年度报告全私聊聚合共用同一个值。
+ */
+export const CONVERSATION_GAP_SECONDS = 5 * 60 * 60;
 
 /**
  * Conversation ordering. 40003 alone is NOT a total order: gray tips share the
@@ -511,6 +517,70 @@ export class C2cMsgDb {
       total: Number(row[2] ?? 0),
       mine: Number(row[3] ?? 0),
     }));
+  }
+
+  /**
+   * 一个时间窗内每个会话的「开场次数」拆分 —— 只扫四列元数据（对端 / 发送者 /
+   * 时间 / 会话序号），不触碰 40800 消息体。
+   *
+   * 切分规则与 {@link CONVERSATION_GAP_SECONDS} 一致：会话内相邻消息间隔超过
+   * 阈值就是一场新对话，时间窗内的第一条消息也永远算一场（年度报告把一个自然
+   * 年的开场称为「这一年的开场」）。窗口为 0/缺省时覆盖整表，供「历史以来」口径。
+   */
+  async initiationTallies(
+    opts: { startTime?: number; endTime?: number; gapSeconds?: number } = {},
+  ): Promise<C2cInitiationTally[]> {
+    const conditions: string[] = [`"40050" > 0`];
+    const params: SqlValue[] = [];
+    if (opts.startTime != null && opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      params.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime != null && opts.endTime > 0) {
+      conditions.push(`"40050" < ?`);
+      params.push(BigInt(opts.endTime));
+    }
+    const gapSeconds = opts.gapSeconds ?? CONVERSATION_GAP_SECONDS;
+    // 按会话分组把消息排回原始先后：同 40027 内 40003 递增；灰色提示共用 seq
+    // 时再由 sendTime / msgId 落定 —— 与 buddy_analytics 逐会话扫描的次序一致。
+    const rows = await this.qq.query(
+      `SELECT "40021","40020","40050"
+       FROM ${this.table}
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY "40027" ASC, "40003" ASC, "40050" ASC, "40001" ASC`,
+      params,
+    );
+
+    const buckets = new Map<string, C2cInitiationTally>();
+    let lastPeerUid: string | null = null;
+    let prevTime = 0;
+    for (const row of rows) {
+      const peerUid = String(row[0] ?? '');
+      if (!peerUid) continue;
+      const sendTime = Number(row[2] ?? 0);
+      if (!Number.isFinite(sendTime) || sendTime <= 0) continue;
+      if (peerUid !== lastPeerUid) {
+        lastPeerUid = peerUid;
+        prevTime = 0;
+      }
+      const sender = toStr(row[1]);
+      const mine = sender !== '' && sender !== peerUid;
+      const bucket = buckets.get(peerUid);
+      if (!bucket) {
+        buckets.set(peerUid, {
+          peerUid,
+          mine: mine ? 1 : 0,
+          theirs: mine ? 0 : 1,
+          total: 1,
+        });
+      } else if (prevTime === 0 || sendTime - prevTime > gapSeconds) {
+        bucket.total++;
+        if (mine) bucket.mine++;
+        else bucket.theirs++;
+      }
+      prevTime = sendTime;
+    }
+    return [...buckets.values()];
   }
 
   /**

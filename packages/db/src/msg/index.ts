@@ -7,7 +7,7 @@
  * `*Msg` shapes defined in `types.ts`.
  */
 
-export { C2cMsgDb } from './c2c';
+export { C2cMsgDb, CONVERSATION_GAP_SECONDS } from './c2c';
 export type { C2cMsgDbOptions, C2cPartition } from './c2c';
 
 export { GroupMsgDb } from './group';
@@ -40,6 +40,7 @@ export { decodeBody, decodeDress, emptyDressTally, mergeDressTally, tallyDressBl
 export type {
   C2cMsg,
   C2cPeerDayTally,
+  C2cInitiationTally,
   DressTally,
   DressOutfitTally,
   GroupMsg,

@@ -83,6 +83,26 @@ export interface C2cPeerDayTally {
 }
 
 /**
+ * 一个会话在一个时间窗内「聊天开场」的两方拆分 —— 统计单位是**对话**，
+ * 不是消息条数。
+ *
+ * 同一会话里相邻两条消息的间隔超过 `CONVERSATION_GAP_SECONDS` 时，下一条消息
+ * 所在的那一侧记一次「开场」；时间窗内该会话的第一条消息也记一次。方向沿用
+ * `countByDirection` 的自证判据（40021 恒为对端，senderUid != targetUid 即我
+ * 发出的消息），所以无需外部身份。
+ */
+export interface C2cInitiationTally {
+  /** Conversation peer (column 40021). */
+  peerUid: string;
+  /** 自己开场（先开口）的次数。 */
+  mine: number;
+  /** 对方开场（先开口）的次数。 */
+  theirs: number;
+  /** 双方开场次数合计。 */
+  total: number;
+}
+
+/**
  * 一「套」装扮（气泡 + 字体 + 挂件的一个具体组合）在时间窗内的使用情况。
  *
  * 以套为单位而不是三类分开统计，是因为 40801 这一列本身记的就是一套：用户当时把

@@ -9,14 +9,14 @@
  */
 
 import type { AccountSession } from '@weq/account';
-import type { C2cMsg, C2cPartition } from '@weq/db';
+import { CONVERSATION_GAP_SECONDS, type C2cMsg, type C2cPartition } from '@weq/db';
 import { segmentWords } from './text_segment';
 
 /** A silence longer than this splits two conversations (seconds). Replies that
  *  straddle a split are treated as a fresh initiation, not a reply — which is
  *  exactly how we avoid counting "orphan" replies to a message that actually
- *  ended the previous conversation. */
-const CONVERSATION_GAP_SECONDS = 5 * 60 * 60;
+ *  ended the previous conversation. The constant lives in `@weq/db` and is shared
+ *  with the annual report's all-private-chat aggregate. */
 
 export interface BuddyReplyStats {
   fastestSec: number;
