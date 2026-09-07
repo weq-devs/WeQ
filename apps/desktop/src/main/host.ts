@@ -113,4 +113,5 @@ export const electronHost: HostBridge = {
 
   appVersion: () => app.getVersion(),
   isPackaged: () => app.isPackaged,
+  currentExePath: () => app.getPath('exe'),
 };

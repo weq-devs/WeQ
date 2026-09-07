@@ -19,11 +19,20 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { isMcpRunning } from '../../mcp/server';
+import { currentReleaseStatus, currentAppVersion } from '../../daemon/release_monitor';
+import { getDaemonHealth } from '../../daemon/health';
+import { resolveDaemonBinary } from '../../daemon/runtime';
+import {
+  daemonReleaseWatchStart,
+  daemonReleaseWatchStop,
+  daemonAutostartSet,
+  daemonAutostartStatus,
+} from '@weq/service';
 import {
   installMcpAgents as installMcpAgentConfigs,
   listMcpAgentTargets,
 } from '../../mcp/agent_installer';
-import { isWeqServerRunning } from '../../weq_assistant/server';
+import { daemonHttpStatus } from '@weq/service';
 import { runElevatedKeyScan } from '../../mac_scan_elevation';
 import {
   accountEventBus,
@@ -954,15 +963,16 @@ export const bootstrapRouter = router({
 
   // ---- WeQ 助手 (account-bound; renders inside QQ itself) ----
 
-  /** Current WeQ 助手 config + live state. */
-  getWeqAssistantStatus: procedure.query(() => {
+  /** Current WeQ 助手 config + live state (from the weq-daemon control pipe). */
+  getWeqAssistantStatus: procedure.query(async () => {
     const weq = requireBootstrap().userConfig.getSettings().weqAssistant;
+    const status = await daemonHttpStatus();
     return {
       enabled: weq.enabled,
       port: weq.port,
       host: '127.0.0.1',
       url: `http://127.0.0.1:${weq.port}`,
-      running: isWeqServerRunning(),
+      running: status?.running ?? false,
     };
   }),
 
@@ -993,6 +1003,64 @@ export const bootstrapRouter = router({
       userConfig.setSettings({ weqAssistant: { port: input.port } });
       await getAppContext().applyWeqAssistant(userConfig.getSettings().weqAssistant);
       return userConfig.getSettings().weqAssistant;
+    }),
+
+  // ---- 守护进程（weq-daemon）：健康 / release 监控 / GUI 自启动 ----
+  // 设置 → 守护进程 页的数据面。守护进程本体（Rust）负责 GitHub 轮询与
+  // 自启动注册；这里只是把查询与下发暴露给渲染层。
+
+  /** 聚合健康快照：探活 + 版本 + HTTP + release 轮询 + 自启动注册。 */
+  getDaemonHealth: procedure.query(() => {
+    return getDaemonHealth();
+  }),
+
+  /** 守护进程二进制是否随安装包就位（缺失提示先 pnpm build:daemon）。 */
+  getDaemonBinaryStatus: procedure.query(() => {
+    return { available: resolveDaemonBinary() !== null };
+  }),
+
+  /**
+   * 开启 / 关闭 release 轮询（守护进程侧 Rust 轮询器）。开启时以当前应用
+   * 版本当 current_version，轮询间隔固定 1 小时（大陆网络差也够用）。
+   * GUI 提醒循环（系统通知 + 推文）始终随应用启动挂着 —— 它只读守护进程的
+   * 状态，watching=false 时不会产生任何提醒。
+   */
+  setDaemonReleaseWatch: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(async ({ input }) => {
+      if (!input.enabled) {
+        await daemonReleaseWatchStop();
+      } else {
+        const started = await daemonReleaseWatchStart({
+          api_base: 'https://api.github.com',
+          repo: 'H3CoF6/WeQ',
+          interval_secs: 3600,
+          current_version: currentAppVersion(),
+        });
+        if (started === null) {
+          throw new Error(
+            '守护进程未运行，无法开启 Release 监控。请先开启 WeQ 助手（或启动守护进程）。',
+          );
+        }
+      }
+      return currentReleaseStatus();
+    }),
+
+  /**
+   * 注册 / 撤销 WeQ 的开机自启 —— 按约定**不注册 Electron 自启动任务**，
+   * 而是 `autostart_set` 交给守护进程：守护进程写平台注册（并落记忆），
+   * 开机时由它拉起 WeQ。需要守护进程在跑，不在则抛错由前端提示。
+   */
+  setDaemonAutostart: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(async ({ input }) => {
+      const guiExe = getHost().currentExePath();
+      const result = await daemonAutostartSet({ enabled: input.enabled, gui_exe: guiExe });
+      if (result === null) {
+        throw new Error('守护进程未运行，无法设置开机自启。请先开启 WeQ 助手（或启动守护进程）。');
+      }
+      if (!result.ok) throw new Error(result.message);
+      return daemonAutostartStatus();
     }),
 
   // ---- first-run onboarding (欢迎使用) ----

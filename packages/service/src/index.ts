@@ -493,6 +493,36 @@ export type {
   MarketPackDownloadItem,
 } from './account/export';
 
+// ---- daemon (weq-daemon 伴生守护进程的统一管道客户端) ----
+export {
+  DAEMON_PIPE_NAME,
+  DAEMON_MAX_FRAME,
+  daemonPipePath,
+  encodeDaemonFrame,
+  decodeDaemonFrame,
+  parseDaemonResponse,
+} from './daemon/protocol';
+export type {
+  DaemonRequest,
+  DaemonResponse,
+  DaemonReleaseWatchConfig,
+  DaemonReleaseWatchInfo,
+  DaemonAutostartMemory,
+} from './daemon/protocol';
+export {
+  callDaemon,
+  pingDaemon,
+  daemonHttpStart,
+  daemonHttpStop,
+  daemonHttpStatus,
+  daemonReleaseWatchStart,
+  daemonReleaseWatchStop,
+  daemonReleaseWatchStatus,
+  daemonReleaseAck,
+  daemonAutostartSet,
+  daemonAutostartStatus,
+} from './daemon/client';
+
 // ---- common (account-independent helpers) ----
 export { VoiceTranscribeService, VOICE_MODELS, getVoiceModel } from './common/voice_transcribe';
 export type {

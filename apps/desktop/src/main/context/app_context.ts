@@ -31,7 +31,8 @@ import {
   type Platform,
 } from '@weq/platform';
 import { startMcpServer, stopMcpServer } from '../mcp/server';
-import { startWeqServer, stopWeqServer } from '../weq_assistant/server';
+import { ensureDaemonRunning, startDaemonHttp } from '../daemon/runtime';
+import { publishWeqAssistantDocroot } from '../weq_assistant/publish';
 import { refreshWeqStats, setWeqStats, statsCachePath } from '../weq_assistant/stats';
 import { ensureDefaultTweets, tweetsStorePath } from '../weq_assistant/tweets';
 import { aiToolSpecs, runAiTool } from '../mcp/openai_tools';
@@ -111,6 +112,7 @@ import {
   createNtMsgDbHook,
   formatDbHealthFailures,
   writeDbHealthReport,
+  daemonHttpStop,
   initLogger,
   getLogger,
   getLogDir,
@@ -548,11 +550,13 @@ export interface AppContext {
    */
   applyMcp(config: McpServerConfig): Promise<void>;
   /**
-   * Apply the WeQ 助手 config to the open account: when enabled, fabricate the
-   * built-in "WeQ助手" conversation in the live QQ db (idempotent) + start the
-   * loopback HTTP server; when disabled, stop the server (account data is left
-   * in place). Rewrites the ARK card when the port changed. No-op when no
-   * account is open. Returns the port the server actually bound to (or 0).
+   * Apply the WeQ 助手 config: when enabled, publish the tweet pages / covers
+   * into the daemon docroot, make sure the weq-daemon companion process is up
+   * (never killed by us), start its static HTTP server and — with an account
+   * open — sync the ARK cards into the QQ db. When disabled, stop the daemon's
+   * HTTP only (the daemon process itself is left running); the fabricated
+   * conversation rows are removed best-effort. Returns the port the daemon
+   * actually bound to (or 0).
    */
   applyWeqAssistant(config: WeqAssistantConfig): Promise<number>;
   /**
@@ -774,7 +778,6 @@ export function initAppContext(): AppContext {
       accountMonitor?.stop();
       accountMonitor = null;
       void stopMcpServer();
-      void stopWeqServer();
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
       this.account?.dispose();
@@ -1262,7 +1265,6 @@ export function initAppContext(): AppContext {
       accountMonitor?.stop();
       accountMonitor = null;
       void stopMcpServer();
-      void stopWeqServer();
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
       this.account?.dispose();
@@ -1621,7 +1623,6 @@ export function initAppContext(): AppContext {
       this.scheduler?.stop();
       this.scheduler = null;
       void stopMcpServer();
-      void stopWeqServer();
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
       unmountDbWatch();
@@ -1696,73 +1697,107 @@ export function initAppContext(): AppContext {
       }
     },
     async applyWeqAssistant(config: WeqAssistantConfig): Promise<number> {
-      // Only live accounts host the server / own the fabricated conversation.
-      if (!this.account || !this.platform) {
-        await stopWeqServer();
-        return 0;
-      }
       logger.info('applying weq assistant config', {
         event: 'apply-weq-assistant',
-        accountUin: this.account.context.uin,
+        accountUin: this.account?.context.uin ?? null,
         enabled: config.enabled,
         port: config.port,
       });
-      // 静态账号禁止往原生 nt_data 写助手头像：库来自别处，uin 却可能与本机某个
-      // 在线账号相同，写进去就污染了别人的数据。
-      const svc = new WeqAssistantService(
-        this.account,
-        this.platform,
-        userConfig.getWeqAssistantUid(),
-        !this.accountIsStatic,
-      );
 
-      // 关闭：停 server + 只删会话列表行（recent_contact）。mapping / c2c 一概保留——
-      // 推文（消息）与身份目录留在库里，下次开启对比本地补齐即可。best-effort。
+      // 关闭：只关守护进程上的 HTTP（守护进程本体绝不动 —— 它的生命周期属于
+      // 开机自启 / 用户）。会话行的删除仍需要开着账号，best-effort。
       if (!config.enabled) {
-        await stopWeqServer();
-        try {
-          await svc.removeContact();
-        } catch (error) {
-          logger.warn('failed to remove weq assistant contact on disable', {
-            event: 'weq-disable-failed',
-            ...logErrorContext(error),
-          });
+        const stopped = await daemonHttpStop();
+        if (!stopped) {
+          logger.warn('failed to stop weq daemon http', { event: 'weq-http-stop-failed' });
+        }
+        if (this.account && this.platform) {
+          // 静态账号禁止往原生 nt_data 写助手头像（见下方开启路径的说明）。
+          const svc = new WeqAssistantService(
+            this.account,
+            this.platform,
+            userConfig.getWeqAssistantUid(),
+            !this.accountIsStatic,
+          );
+          try {
+            await svc.removeContact();
+          } catch (error) {
+            logger.warn('failed to remove weq assistant contact on disable', {
+              event: 'weq-disable-failed',
+              ...logErrorContext(error),
+            });
+          }
         }
         return 0;
       }
 
-      // 1) Start the loopback server (port fallback may move us up).
-      const boundPort = await startWeqServer({ port: config.port });
-
-      // 2) 本地推文列表是唯一数据源：读本地（首次为空则种入内置两篇，时间固定在本地），
-      //    再 syncTweets——ensureMapping（只写一次）+ 逐条按固定时间去重补进 c2c（只新增
-      //    不删除）+ 把已有卡片端口刷成当前实际端口（改写≠删除）+ 会话列表预览最新一篇。
-      //    best-effort：log but don't crash the toggle.
+      // 1) 发布静态产物到 docroot（推文页 / 封面 / 头像；主题此刻烘焙进文件）。
+      //    docroot 放在 weq-assistant 缓存目录下：清理缓存时自然一并回收。
+      const docroot = join(userConfig.cacheDir('weq-assistant'), 'docroot');
       try {
-        const storePath = tweetsStorePath(userConfig.cacheDir('weq-assistant'));
-        const tweets = ensureDefaultTweets(storePath);
-        const logo = resolveResource('brand', 'logo.png') ?? undefined;
-        await svc.syncTweets(boundPort, tweets, logo);
-        userConfig.setSettings({ weqAssistant: { port: boundPort } });
+        await publishWeqAssistantDocroot({ docroot });
       } catch (error) {
-        logger.error('failed to sync weq assistant tweets', {
-          event: 'weq-ensure-failed',
+        logger.error('failed to publish weq assistant docroot', {
+          event: 'weq-publish-failed',
           ...logErrorContext(error),
         });
       }
 
-      // 「群数据周报」推文的存储/缓存：后台（非阻塞）挑「我等级最高的群」算一份统计
-      // 快照并落盘，页面（/p/stats）只读这份缓存。best-effort：失败只记日志。首帧会先
-      // 把盘上旧缓存灌进内存，避免推文空窗（见 weq_assistant/stats.refreshWeqStats）。
-      if (this.services) {
-        const statsUin = this.account.context.uin;
-        const cachePath = statsCachePath(userConfig.cacheDir('weq-assistant'), statsUin);
-        void refreshWeqStats(this.services.groupInfo, statsUin, cachePath).catch((error) => {
-          logger.warn('failed to refresh weq stats snapshot', {
-            event: 'weq-stats-refresh-failed',
+      // 2) 确保守护进程在（不在则 detached 拉起，从不杀）；3) 开 HTTP，端口被
+      //    占自动向后回落试探。HTTP 与账号无关：没开账号也能开（推文是全局的）。
+      const ready = await ensureDaemonRunning();
+      if (!ready) {
+        throw new Error('weq-daemon 未能启动或控制管道连接超时');
+      }
+      const start = await startDaemonHttp(config.port, docroot);
+      if (!start.ok) {
+        throw new Error(start.message ?? 'weq-daemon http_start failed');
+      }
+      const boundPort = start.port ?? config.port;
+
+      // 4) 注入/刷新 QQ 库里的卡片：ensureMapping + 逐条补卡 + rewriteArkPort
+      //    （存量卡片端口刷成当前实际端口）+ 会话列表预览。需要开着账号，
+      //    best-effort：失败只记日志，不阻断开关。
+      if (this.account && this.platform) {
+        // 静态账号禁止往原生 nt_data 写助手头像：库来自别处，uin 却可能与本机某个
+        // 在线账号相同，写进去就污染了别人的数据。
+        const svc = new WeqAssistantService(
+          this.account,
+          this.platform,
+          userConfig.getWeqAssistantUid(),
+          !this.accountIsStatic,
+        );
+        try {
+          const storePath = tweetsStorePath(userConfig.cacheDir('weq-assistant'));
+          const tweets = ensureDefaultTweets(storePath);
+          const logo = resolveResource('brand', 'logo.png') ?? undefined;
+          await svc.syncTweets(boundPort, tweets, logo);
+          if (boundPort !== config.port) {
+            userConfig.setSettings({ weqAssistant: { port: boundPort } });
+          }
+        } catch (error) {
+          logger.error('failed to sync weq assistant tweets', {
+            event: 'weq-ensure-failed',
             ...logErrorContext(error),
           });
-        });
+        }
+      }
+
+      // 「群数据周报」推文的存储/缓存：后台（非阻塞）挑「我等级最高的群」算一份统计
+      // 快照并落盘，算完后把 stats 页/封面按新快照重新发布进 docroot。best-effort。
+      if (this.services && this.account) {
+        const statsUin = this.account.context.uin;
+        const cachePath = statsCachePath(userConfig.cacheDir('weq-assistant'), statsUin);
+        void refreshWeqStats(this.services.groupInfo, statsUin, cachePath)
+          .then((report) => {
+            if (report) void publishWeqAssistantDocroot({ docroot });
+          })
+          .catch((error) => {
+            logger.warn('failed to refresh weq stats snapshot', {
+              event: 'weq-stats-refresh-failed',
+              ...logErrorContext(error),
+            });
+          });
       }
       // No svc.close() — it shares the session's cached nt_msg.db connection.
       return boundPort;

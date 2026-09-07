@@ -82,5 +82,6 @@ export function createWebHost({ exportDir, version }: WebHostOptions): HostBridg
 
     appVersion: () => version,
     isPackaged: () => process.env.NODE_ENV === 'production',
+    currentExePath: () => process.execPath,
   };
 }

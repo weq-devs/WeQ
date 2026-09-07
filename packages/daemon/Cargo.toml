@@ -1,0 +1,36 @@
+[package]
+name = "weq-daemon"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "WeQ companion daemon — autostart loopback static HTTP server with a local control pipe"
+license = "GPL-3.0-or-later"
+publish = false
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "net",
+    "io-util",
+    "time",
+    "sync",
+    "macros",
+    "process",
+    "fs",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = { version = "2", default-features = false, features = ["tls", "gzip", "json"] }
+log = "0.4"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+strip = "symbols"

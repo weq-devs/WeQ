@@ -29,8 +29,8 @@ import {
 import { getAppContext } from './context/app_context';
 import { checkForUpdate, installUpdateActions } from './update/updater';
 import { stopMcpServer } from './mcp/server';
-import { stopWeqServer } from './weq_assistant/server';
 import { registerWeqAssistantIpc } from './weq_assistant/ipc';
+import { startReleaseMonitor } from './daemon/release_monitor';
 import { disposeExternalMcp } from './mcp/external';
 import { registerChannelIpc } from './channel';
 import { registerQzoneIpc } from './qzone';
@@ -391,6 +391,13 @@ function registerLogIpc(): void {
     await electronHost.revealPath(dir);
     return true;
   });
+
+  // 守护进程设置页「打开 docroot」——只在路径确实指向磁盘上已存在的目录时放行。
+  ipcMain.handle('daemon:reveal-path', async (_event, path?: string) => {
+    if (typeof path !== 'string' || !path || !fs.existsSync(path)) return false;
+    await electronHost.revealPath(path);
+    return true;
+  });
 }
 
 function registerSystemAuthIpc(): void {
@@ -600,6 +607,10 @@ void app.whenReady().then(async () => {
     setTimeout(() => void checkForUpdate(true).catch(() => {}), 3000);
   }
 
+  // 守护进程 release 提醒循环（系统通知 + 「版本发布」推文）：始终挂着，每 30s
+  // 读一次守护进程状态；守护进程侧轮询未开启 / 不在时自然为 no-op。
+  startReleaseMonitor();
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       const w = createWindow();
@@ -630,9 +641,11 @@ app.on('before-quit', () => {
 });
 
 // Best-effort: stop the account-bound MCP server on quit even if the account
-// was never explicitly closed (clearAccount also stops it).
+// was never explicitly closed (clearAccount also stops it). The weq-daemon
+// companion process is deliberately NOT touched on quit — its lifecycle
+// belongs to autostart / the user, and it keeps serving the QQ cards after
+// WeQ is gone.
 app.on('will-quit', () => {
   void stopMcpServer();
-  void stopWeqServer();
   void disposeExternalMcp();
 });

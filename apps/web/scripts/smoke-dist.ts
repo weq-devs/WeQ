@@ -59,6 +59,16 @@ for (const js of ['qr-dbkey.js', 'quick-dbkey.js', 'account-list.js']) {
   );
 }
 
+// Rust daemon binaries ship for all three desktop platforms (built by
+// pnpm build:daemon before packaging). Win32 needs the .exe suffix.
+for (const dir of ['win32-x64', 'linux-x64', 'linux-arm64', 'darwin-x64', 'darwin-arm64']) {
+  const exe = dir.startsWith('win32') ? 'weq-daemon.exe' : 'weq-daemon';
+  check(
+    existsSync(join(dist, 'resources', 'daemon', dir, exe)),
+    `resources/daemon/${dir}/${exe} shipped`,
+  );
+}
+
 // The release ships node_modules pre-installed. If a local build skipped that
 // step, run it here — the server won't start without it.
 if (!existsSync(join(dist, 'node_modules'))) {

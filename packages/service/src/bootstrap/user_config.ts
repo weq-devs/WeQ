@@ -568,7 +568,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   // 8765 在 Windows 上常被百度输入法等占用，默认改用不常冲突的高端口；
   // 即便仍冲突，启动时也会自动向上探测可用端口（见 mcp/server.ts）。
   mcp: { enabled: false, port: 48765, token: '' },
-  // 20000+ 不常用端口；若被占用，启动时自动向上探测（见 weq_assistant/server.ts）。
+  // 20000+ 不常用端口；若被占用，开启时自动向上探测（weq-daemon http_start 的回落试探）。
   weqAssistant: { enabled: false, port: 27182 },
   agentLab: { providers: [] },
   windowCloseBehavior: 'ask',

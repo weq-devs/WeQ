@@ -36,6 +36,11 @@ logs/
 # electron-builder
 release/
 
+# Rust daemon build output (staged into resources/daemon/ by build:daemon,
+# packaged at release time — never committed)
+packages/daemon/target/
+resources/daemon/
+
 
 # extend
 .claude/

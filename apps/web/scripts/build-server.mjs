@@ -105,6 +105,18 @@ if (existsSync(RESOURCES_SRC)) {
   cpSync(RESOURCES_SRC, join(dist, 'resources'), { recursive: true });
 }
 
+// Rust 守护进程二进制随包发布（三平台一起拷，运行时按平台选）。
+// 构建机上没有对应产物时跳过 —— build:daemon 在 release workflow 里先行执行。
+const DAEMON_SRC = join(repoRoot, 'resources', 'daemon');
+if (existsSync(DAEMON_SRC)) {
+  cpSync(DAEMON_SRC, join(dist, 'resources', 'daemon'), { recursive: true });
+  console.log('[build-server] daemon binaries copied into resources/daemon/');
+} else {
+  console.warn(
+    '[build-server] resources/daemon not found — daemon binary not bundled (run pnpm run build:daemon)',
+  );
+}
+
 // A manifest so `node server.mjs` resolves `ws` without a full install.
 mkdirSync(dist, { recursive: true });
 writeFileSync(
