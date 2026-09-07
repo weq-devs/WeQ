@@ -19,12 +19,12 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { isMcpRunning } from '../../mcp/server';
-import { currentReleaseStatus, currentAppVersion } from '../../daemon/release_monitor';
 import { getDaemonHealth } from '../../daemon/health';
 import { resolveDaemonBinary } from '../../daemon/runtime';
 import {
   daemonReleaseWatchStart,
   daemonReleaseWatchStop,
+  daemonReleaseWatchStatus,
   daemonAutostartSet,
   daemonAutostartStatus,
 } from '@weq/service';
@@ -1035,7 +1035,7 @@ export const bootstrapRouter = router({
           api_base: 'https://api.github.com',
           repo: 'H3CoF6/WeQ',
           interval_secs: 3600,
-          current_version: currentAppVersion(),
+          current_version: getHost().appVersion(),
         });
         if (started === null) {
           throw new Error(
@@ -1043,7 +1043,7 @@ export const bootstrapRouter = router({
           );
         }
       }
-      return currentReleaseStatus();
+      return daemonReleaseWatchStatus();
     }),
 
   /**
