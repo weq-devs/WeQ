@@ -399,6 +399,44 @@ const CSS = `
   @media (prefers-color-scheme: dark) {
     .vc { --voice: #e0a878; }
   }
+  /* 我的主场页。静态产物画不了漂动的背景词云，所以让「群名 + 巨数」占据
+     整页的视觉重心；等级 / 头衔只在页底签成一行小签名，五颗话题词收成
+     一句可读的话 —— 换皮不换骨。 */
+  .hm { flex: 1; display: flex; flex-direction: column; justify-content: center; text-align: center; }
+  .hm { --home: #9a6b21; }
+  .hm-kicker { display: flex; justify-content: space-between; align-items: baseline; text-align: left; font-size: 8pt; letter-spacing: 3px; color: var(--ink-soft); }
+  .hm-kicker-meta { font-size: 7.5pt; letter-spacing: 2px; color: var(--ink-faint); }
+  .hm-kicker-meta b { font-family: var(--serif); font-size: 10pt; font-weight: 600; color: var(--ink-soft); }
+  .hm-lede { margin-top: 14mm; font-family: var(--serif); font-size: 12pt; letter-spacing: 3px; color: var(--ink-soft); }
+  .hm-name { margin-top: 2mm; font-family: var(--serif); font-size: 58pt; font-weight: 600; line-height: 1.08; letter-spacing: -1px; color: var(--ink); white-space: nowrap; }
+  .hm-name.long { font-size: 42pt; letter-spacing: 1px; }
+  .hm-name.xl { font-size: 32pt; letter-spacing: 1px; }
+  .hm-countline { display: flex; justify-content: center; align-items: baseline; gap: 4mm; margin-top: 1mm; }
+  .hm-count { font-family: var(--serif); font-size: 94pt; font-weight: 600; letter-spacing: -3px; color: var(--home); line-height: 1.05; }
+  .hm-unit { display: flex; flex-direction: column; gap: 1mm; font-family: var(--serif); color: var(--ink); line-height: 1; }
+  .hm-unit b { font-size: 14pt; font-weight: 600; letter-spacing: 1px; }
+  .hm-unit i { font-size: 7pt; font-style: normal; letter-spacing: 4px; color: var(--ink-muted); }
+  .hm-share { display: flex; justify-content: center; align-items: center; gap: 3mm; margin-top: 2mm; font-family: var(--serif); font-size: 9.5pt; letter-spacing: 3px; color: var(--ink-soft); }
+  .hm-share i { display: inline-block; width: 8mm; height: 0.25mm; background: color-mix(in srgb, var(--home) 60%, transparent); }
+  .hm-sig { display: flex; justify-content: center; margin-top: 9mm; padding-top: 3mm; border-top: 0.25mm solid var(--hair); }
+  .hm-sig-item { display: flex; align-items: baseline; gap: 2mm; }
+  .hm-sig-item + .hm-sig-item { margin-left: 7mm; padding-left: 7mm; border-left: 0.25mm solid var(--hair); }
+  .hm-sig-item i { font-size: 7pt; font-weight: 600; letter-spacing: 4px; color: var(--ink-faint); }
+  .hm-sig-item b { font-family: var(--serif); font-size: 15pt; font-weight: 600; color: var(--ink); }
+  .hm-sig-item em { font-family: var(--serif); font-size: 9pt; color: var(--home); }
+  .hm-topics { margin-top: 10mm; }
+  .hm-topics-in { font-size: 7.5pt; letter-spacing: 5px; color: var(--ink-faint); }
+  .hm-topics-words { display: flex; justify-content: center; align-items: baseline; gap: 8mm; margin-top: 3mm; }
+  .hm-topic { font-family: var(--serif); font-weight: 600; line-height: 1; color: var(--home); }
+  .hm-topic.rank-0 { font-size: 30pt; }
+  .hm-topic.rank-1 { font-size: 22pt; }
+  .hm-topic.rank-2 { font-size: 19pt; }
+  .hm-topic.rank-3 { font-size: 17pt; }
+  .hm-topic.rank-4 { font-size: 15pt; }
+  .hm-mood { margin: 9mm auto 0; max-width: 150mm; font-family: var(--serif); font-size: 10.5pt; line-height: 2; letter-spacing: 2px; color: var(--ink-soft); }
+  @media (prefers-color-scheme: dark) {
+    .hm { --home: #e6b866; }
+  }
   /* 结尾页 */
   .end { text-align: center; }
   .end-line { font-family: var(--serif); font-size: 12pt; letter-spacing: 5px; color: var(--ink-muted); }
@@ -1162,6 +1200,114 @@ function voiceSlide(data: Record<string, unknown>): string {
     </div>${slideFoot(`${reportPeriodLabel(year)} · VOICE`)}`;
 }
 
+/**
+ * 我的主场页的导出版。
+ *
+ * 屏幕版飘在后面的词云动画进不了自包含 HTML，因此这一版把排印钉死在静态上：
+ * 群名 + 巨数占住视觉中心，等级 / 头衔 / 群规模作为发丝线分隔的小签名收在
+ * 页底，五颗高频话题词排成一句可读的话。数据与屏幕版同源，不做二次统计。
+ */
+function homeSlide(data: Record<string, unknown>): string {
+  const year = Number(data.year ?? 0);
+  const allTime = isAllTimeYear(year);
+  const activeGroupCount = Number(data.activeGroupCount ?? 0);
+  const groupSentTotal = Number(data.groupSentTotal ?? 0);
+  const top = (data.top ?? null) as {
+    groupCode?: string;
+    groupName?: string;
+    sentCount?: number;
+    groupTotal?: number;
+    memberCount?: number;
+    memberLevel?: number;
+    levelName?: string;
+    customTitle?: string;
+    role?: string;
+    topics?: Array<{ word?: string; count?: number }>;
+  } | null;
+
+  if (!top) {
+    return `${slideOpen('群')}
+      <div class="hm">
+        <div class="hm-kicker"><span>${escapeHtml(reportEraLabel(year))} · 我的主场</span></div>
+        <p class="hm-mood">群聊记录还在，但本地没有足够的群资料，讲不出这座主场。</p>
+      </div>${slideFoot(`${reportPeriodLabel(year)} · HOME`)}`;
+  }
+
+  const name = String(top.groupName ?? top.groupCode ?? '这个群');
+  const count = Number(top.sentCount ?? 0);
+  const memberLevel = Number(top.memberLevel ?? 0);
+  const memberCount = Number(top.memberCount ?? 0);
+  const levelName = String(top.levelName ?? '');
+  const customTitle = String(top.customTitle ?? '');
+  const role = String(top.role ?? 'member');
+  const share = groupSentTotal > 0 ? Math.round((count / groupSentTotal) * 100) : 0;
+
+  const sig: Array<{ label: string; value: string; note: string }> = [];
+  if (memberLevel > 0) {
+    sig.push({ label: '群等级', value: `LV.${memberLevel}`, note: levelName });
+  }
+  if (customTitle) {
+    sig.push({ label: '群头衔', value: customTitle, note: '' });
+  } else if (role === 'owner' || role === 'admin') {
+    sig.push({ label: '群头衔', value: role === 'owner' ? '群主' : '管理员', note: '' });
+  }
+  if (memberCount > 0) {
+    sig.push({ label: '群成员', value: fmt(memberCount), note: '人' });
+  }
+  const sigHtml =
+    sig.length > 0
+      ? `<p class="hm-sig">${sig
+          .map(
+            (item) =>
+              `<span class="hm-sig-item"><i>${escapeHtml(item.label)}</i><b>${escapeHtml(
+                item.value,
+              )}</b>${item.note ? `<em>${escapeHtml(item.note)}</em>` : ''}</span>`,
+          )
+          .join('')}</p>`
+      : '';
+
+  const topics = (top.topics ?? []).slice(0, 5);
+  const topicsHtml =
+    topics.length > 0
+      ? `<div class="hm-topics">
+          <p class="hm-topics-in">这一年，这个群里的话题集中在</p>
+          <p class="hm-topics-words">
+            ${topics
+              .map(
+                (topic, rank) =>
+                  `<span class="hm-topic rank-${rank}">${escapeHtml(String(topic.word ?? ''))}</span>`,
+              )
+              .join('')}
+          </p>
+        </div>`
+      : '';
+
+  const width = [...name].reduce((sum, char) => sum + (/\p{Script=Han}/u.test(char) ? 1 : 0.62), 0);
+  const nameClass = width > 11 ? ' xl' : width > 7 ? ' long' : '';
+
+  return `${slideOpen('群')}
+    <div class="hm">
+      <div class="hm-kicker">
+        <span>${escapeHtml(reportEraLabel(year))} · 我的主场</span>
+        <span class="hm-kicker-meta"><b>${fmt(activeGroupCount)}</b> 个群说过话 / <b>${fmt(
+          groupSentTotal,
+        )}</b> 条群消息</span>
+      </div>
+      <p class="hm-lede">${allTime ? '有记录以来' : `${year} 年`}，你在群聊里说得最多的地方，是——</p>
+      <h2 class="hm-name${nameClass}">${escapeHtml(name)}</h2>
+      <p class="hm-countline">
+        <span class="hm-count">${fmt(count)}</span>
+        <span class="hm-unit"><b>条</b><i>消息</i></span>
+      </p>
+      <p class="hm-share"><i aria-hidden></i>${
+        share >= 95 ? '你的群消息，几乎都落在这里' : `占你全部群消息的 ${share}%`
+      }<i aria-hidden></i></p>
+      ${sigHtml}
+      ${topicsHtml}
+      <p class="hm-mood">${fmt(count)} 次开口都有回声——热闹不是噪音，是总有人愿意接住你。</p>
+    </div>${slideFoot(`${reportPeriodLabel(year)} · HOME`)}`;
+}
+
 function endSlide(data: Record<string, unknown>): string {
   const year = Number(data.year ?? 0);
   const allTime = isAllTimeYear(year);
@@ -1198,6 +1344,7 @@ export function buildReportHtml(year: number, slides: ExportSlide[]): string {
       if (slide.page.id === 'openers') return openersSlide(data);
       if (slide.page.id === 'rhythm') return rhythmSlide(data);
       if (slide.page.id === 'voice') return voiceSlide(data);
+      if (slide.page.id === 'home') return homeSlide(data);
       if (slide.page.id === 'end') return endSlide(data);
       return genericSlide(slide);
     })

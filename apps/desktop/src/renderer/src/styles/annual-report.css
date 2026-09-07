@@ -3578,6 +3578,386 @@ html[data-theme="dark"] .weq-report-root {
   }
 }
 
+/* ══ 我的主场页 ═════════════════════════════════════════════════════════
+ *
+ * 这一页的视觉主角是「群名 + 消息条数」两个巨人：群名负责「哪里」，巨数负责
+ * 「有多用力」。等级与头衔不收进任何排行榜，只在页底签成一行小签名；群里的
+ * 高频话题词先散成很低的背景底噪，再在页脚抽出五颗变成一句可读的话。
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+.weq-report-root {
+  /* 主场的灯：暖黄。墨字巨数落地后，所有色彩只属于群名这一处。 */
+  --rp-home: #9a6b21;
+}
+
+html[data-theme="dark"] .weq-report-root {
+  --rp-home: #e6b866;
+}
+
+.weq-home {
+  position: relative;
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  justify-content: center;
+}
+
+/* 除话题底噪外的整页内容都压在上层。 */
+.weq-home > :not(.weq-home-cloud) {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── 背景话题云：暖，但安静 ─────────────────────────────────────── */
+
+.weq-home-cloud {
+  position: absolute;
+  inset: -4% -3%;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+
+.weq-home-cloud-word {
+  position: absolute;
+  left: var(--hc-left);
+  top: var(--hc-top);
+  margin: 0;
+  color: var(--rp-ink);
+  font-family: var(--rp-serif);
+  font-size: var(--hc-size);
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  opacity: 0;
+  transform: rotate(var(--hc-rot, 0deg)) translateY(12px);
+  transition: opacity 1500ms var(--rp-ease-drop);
+  transition-delay: var(--hc-delay);
+}
+
+.weq-home-cloud[data-enter="in"] .weq-home-cloud-word {
+  opacity: var(--hc-alpha, 0.1);
+  animation: weq-home-drift var(--hc-dur, 9s) ease-in-out var(--hc-delay, 0s) infinite;
+}
+
+@keyframes weq-home-drift {
+  0%,
+  100% {
+    transform: rotate(var(--hc-rot, 0deg)) translate(0, 0);
+  }
+  33% {
+    transform: rotate(calc(var(--hc-rot, 0deg) + 1.2deg)) translate(1.2%, -1.5%);
+  }
+  66% {
+    transform: rotate(calc(var(--hc-rot, 0deg) - 1deg)) translate(-1%, 1.3%);
+  }
+}
+
+/* ── 顶栏 ─────────────────────────────────────────────────────────── */
+
+.weq-home-kicker {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  margin: 0;
+  color: var(--rp-ink-soft);
+  font-size: 13px;
+  letter-spacing: 0.18em;
+}
+
+.weq-home-kicker-meta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--rp-ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  white-space: nowrap;
+}
+
+.weq-home-kicker-meta b {
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.weq-home-kicker-meta i {
+  font-style: normal;
+  opacity: 0.5;
+}
+
+/* ── 主体：群名 + 消息数，一页里的两个巨人 ───────────────────────── */
+
+.weq-home-hero {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  margin-top: 8px;
+  text-align: center;
+}
+
+.weq-home-lede {
+  margin: 0;
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif);
+  font-size: 16px;
+  letter-spacing: 0.14em;
+}
+
+.weq-home-name {
+  margin: 4px 0 0;
+  color: var(--rp-ink);
+  font-family: var(--rp-serif);
+  font-size: 80px;
+  font-weight: 600;
+  line-height: 1.08;
+  letter-spacing: 0.01em;
+  text-wrap: nowrap;
+  opacity: 0;
+  transform: translateY(-24px) scale(1.08);
+  transition:
+    opacity 800ms var(--rp-ease-drop),
+    transform 950ms var(--rp-ease-drop);
+}
+
+.weq-home-name.is-long {
+  font-size: 58px;
+  letter-spacing: 0.03em;
+}
+
+.weq-home-name.is-xl {
+  font-size: 46px;
+  letter-spacing: 0.04em;
+}
+
+/* 群名「落地」只在该页进场时播：翻回来重播，翻走时静默收回去。 */
+.weq-report-page[data-enter="in"] .weq-home-name {
+  animation: weq-home-stamp 1150ms var(--rp-ease-epic) 300ms both;
+}
+
+@keyframes weq-home-stamp {
+  0% {
+    opacity: 0;
+    transform: translateY(-24px) scale(1.08);
+  }
+  62% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  78% {
+    transform: translateY(2px) scale(0.998);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.weq-home-countline {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 16px;
+  margin: 0;
+}
+
+.weq-home-count {
+  color: var(--rp-home);
+  font-family: var(--rp-serif-base) !important;
+  font-size: 148px;
+  font-weight: 600;
+  letter-spacing: -0.045em;
+}
+
+.weq-home-unit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--rp-ink);
+  font-family: var(--rp-serif);
+  line-height: 1;
+}
+
+.weq-home-unit b {
+  font-size: 25px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+}
+
+.weq-home-unit i {
+  color: var(--rp-ink-muted);
+  font-size: 10px;
+  font-style: normal;
+  letter-spacing: 0.32em;
+  text-indent: 0.32em;
+  white-space: nowrap;
+}
+
+.weq-home-share {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 0;
+  color: var(--rp-ink-soft);
+  font-family: var(--rp-serif);
+  font-size: 12px;
+  letter-spacing: 0.18em;
+}
+
+.weq-home-share i {
+  width: 26px;
+  height: 1px;
+  background: color-mix(in srgb, var(--rp-home) 60%, transparent);
+}
+
+/* ── 签名行：等级 / 头衔 / 群规模，不是卡片，是印在角落的身份 ───── */
+
+.weq-home-sig {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 12px 0 0;
+}
+
+.weq-home-sig-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.weq-home-sig-item i {
+  color: var(--rp-ink-faint);
+  font-family: var(--rp-sans);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0.28em;
+}
+
+.weq-home-sig-item b {
+  color: var(--rp-ink);
+  font-family: var(--rp-serif-base);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.weq-home-sig-item em {
+  color: var(--rp-home);
+  font-family: var(--rp-serif);
+  font-size: 12px;
+  font-style: normal;
+  letter-spacing: 0.08em;
+}
+
+.weq-home-sig-item s {
+  width: 1px;
+  height: 15px;
+  margin: 0 16px;
+  background: var(--rp-hair);
+  text-decoration: none;
+}
+
+/* ── 话题行：五颗最响的词，一起收进同一句话 ─────────────────────── */
+
+.weq-home-topics {
+  margin-top: 12px;
+  text-align: center;
+}
+
+.weq-home-topics-in {
+  margin: 0;
+  color: var(--rp-ink-faint);
+  font-size: 9px;
+  letter-spacing: 0.32em;
+}
+
+.weq-home-topics-words {
+  display: flex;
+  min-height: 46px;
+  align-items: baseline;
+  justify-content: center;
+  gap: 20px;
+  margin: 4px 0 0;
+}
+
+.weq-home-topic-word {
+  color: var(--rp-home);
+  font-family: var(--rp-serif);
+  font-size: var(--sz, 20px);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(12px);
+  transition:
+    opacity 800ms var(--rp-ease-drop),
+    transform 900ms var(--rp-ease-drop);
+  transition-delay: calc(480ms + var(--t, 0) * 90ms);
+}
+
+.weq-report-page[data-enter="in"] .weq-home-topic-word {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ── 收束 ─────────────────────────────────────────────────────────── */
+
+.weq-home-mood {
+  margin: 10px auto 0;
+  max-width: 62ch;
+  color: var(--rp-ink-muted);
+  font-family: var(--rp-serif);
+  font-size: 12px;
+  line-height: 1.9;
+  letter-spacing: 0.1em;
+  text-align: center;
+  text-wrap: pretty;
+}
+
+.weq-home-empty {
+  margin: 0;
+  color: var(--rp-ink-faint);
+  font-family: var(--rp-serif);
+  font-size: 15px;
+  letter-spacing: 0.1em;
+  text-align: center;
+}
+
+/* 窄画幅：群名与巨数各收一档，让主体仍然有冲击力。 */
+@media (max-width: 1000px) {
+  .weq-home-name {
+    font-size: 64px;
+  }
+
+  .weq-home-name.is-long {
+    font-size: 46px;
+  }
+
+  .weq-home-name.is-xl {
+    font-size: 38px;
+  }
+
+  .weq-home-count {
+    font-size: 112px;
+  }
+
+  .weq-home-sig-item b {
+    font-size: 17px;
+  }
+
+  .weq-home-topics-words {
+    gap: 14px;
+  }
+}
+
 /* ══ 状态 / 兜底 ══════════════════════════════════════════════════════ */
 
 .weq-report-unknown,

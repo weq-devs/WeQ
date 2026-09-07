@@ -58,6 +58,19 @@ export function createReportQueries(
   const initiationCache = new Map<string, Promise<C2cInitiationTally[]>>();
   const weekdayHourlyCache = new Map<string, Promise<SentWeekdayHourlyGrid>>();
   const speechCache = new Map<string, Promise<import('@weq/db').SentSpeechRow[]>>();
+  const groupCountCache = new Map<
+    string,
+    Promise<
+      Array<{
+        groupCode: string;
+        groupName: string;
+        memberCount: number;
+        sentCount: number;
+        totalCount: number;
+      }>
+    >
+  >();
+  const groupSpeechCache = new Map<string, Promise<import('@weq/db').SentSpeechRow[]>>();
   let oldestCache: Promise<number | null> | null = null;
   let sentYearsCache: Promise<number[]> | null = null;
 
@@ -211,6 +224,116 @@ export function createReportQueries(
           });
         }
         return running;
+      },
+    },
+    group: {
+      /**
+       * 群聊排行：group_detail 的群元数据 ⋈ 一次按群×方向的轻扫描。availability
+       * 与 compute 问同一个时间窗时共享同一次扫描，因此返回数组共享只读、按
+       * 自己发言数降序，调用方不要原地修改。
+       */
+      async countRows(startTime: number, endTime: number) {
+        const key = `${startTime}:${endTime}`;
+        let running = groupCountCache.get(key);
+        if (!running) {
+          running = (async () => {
+            const groups = await session.groupDetail.listAll(2000, 0);
+            const codes = groups.map((group) => String(group.groupCode));
+            if (codes.length === 0) return [];
+            const rows = await session.groupMsgs.countByGroupAndDirection(codes, {
+              startTime,
+              endTime,
+              ...(selfUid ? { senderUid: selfUid } : selfUin > 0n ? { selfUin } : {}),
+            });
+            const byCode = new Map(rows.map((row) => [row.groupCode, row]));
+            return groups
+              .map((group) => {
+                const code = String(group.groupCode);
+                const bucket = byCode.get(code);
+                return {
+                  groupCode: code,
+                  groupName: group.groupName || code,
+                  memberCount: group.memberCount,
+                  sentCount: bucket?.sent ?? 0,
+                  totalCount: bucket?.total ?? 0,
+                };
+              })
+              .filter((row) => row.sentCount > 0)
+              .sort(
+                (a, b) =>
+                  b.sentCount - a.sentCount ||
+                  b.totalCount - a.totalCount ||
+                  a.groupName.localeCompare(b.groupName, 'zh'),
+              );
+          })();
+          groupCountCache.set(key, running);
+          // 失败时清掉缓存，页面重试可以重新扫；成功结果保留供 availability / compute 复用。
+          void running.catch(() => {
+            groupCountCache.delete(key);
+          });
+        }
+        return running;
+      },
+      /**
+       * 冠军群的全体正文（解码后）。同群同窗口只扫一次，返回共享只读数组。
+       */
+      async speechRows(groupCode: string, startTime: number, endTime: number) {
+        const key = `${groupCode}:${startTime}:${endTime}`;
+        let running = groupSpeechCache.get(key);
+        if (!running) {
+          running = session.groupMsgs.bodyRowsInGroup(groupCode, { startTime, endTime });
+          groupSpeechCache.set(key, running);
+          void running.catch(() => {
+            groupSpeechCache.delete(key);
+          });
+        }
+        return running;
+      },
+      /**
+       * 我在一个群里的成员身份 + 等级名。只给冠军群查一次；本地成员行 / 群元
+       * 数据缺失时返回 null，页面优雅降级而不是编造一个假头衔。
+       */
+      async standing(groupCode: string) {
+        const code = BigInt(groupCode);
+        let member: import('@weq/db').GroupMember | null = null;
+        try {
+          if (selfUid) {
+            const rows = await session.groupMembers.getMembersByUids(code, [selfUid]);
+            member = rows[0] ?? null;
+          }
+          if (!member && selfUin > 0n) {
+            const rows = await session.groupMembers.getMembersByUins(code, [selfUin]);
+            member = rows[0] ?? null;
+          }
+        } catch {
+          return null;
+        }
+        if (!member) return null;
+
+        let detail: import('@weq/db').GroupDetail | null = null;
+        let levelConfigs: Array<{ level: number; levelName: string }> = [];
+        try {
+          detail = await session.groupDetail.getDetail(code);
+        } catch {
+          detail = null;
+        }
+        try {
+          const info = await session.memberLevelInfo.getLevelInfo(code);
+          levelConfigs = info?.levelConfigs ?? [];
+        } catch {
+          levelConfigs = [];
+        }
+
+        const isOwner = Boolean(detail?.ownerUid) && detail?.ownerUid === (member.uid || selfUid);
+        return {
+          groupCode,
+          role: isOwner ? 'owner' : member.adminFlag === 1 ? 'admin' : 'member',
+          customTitle: String(member.customTitle ?? '').trim(),
+          memberLevel: member.memberLevel,
+          levelName:
+            levelConfigs.find((config) => config.level === member.memberLevel)?.levelName ?? '',
+          memberCount: detail?.memberCount || 0,
+        };
       },
     },
     c2c: {

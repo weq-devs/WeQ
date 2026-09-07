@@ -13,6 +13,7 @@ export {
   openersPage,
   rhythmPage,
   voicePage,
+  homePage,
   endPage,
 } from './pages';
 export type { OverviewPageData } from './pages/overview/types';
@@ -43,3 +44,4 @@ export type {
   VoiceFaceFavorite,
   VoicePicFavorite,
 } from './pages/voice/types';
+export type { HomePageData, HomeGroupTop, HomeTopicWord } from './pages/home/types';

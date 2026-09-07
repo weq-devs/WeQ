@@ -507,6 +507,38 @@ export class GroupMsgDb {
   }
 
   /**
+   * 某一个群的**全体成员**在时间窗内发出的正文行 —— 年度报告「我的主场」页
+   * 给冠军群数词云用。与 {@link sentSpeechRows} 不同，这一页要的是「大家聊了
+   * 什么」，所以不按 sender 过滤，只锁群号与时间窗；空 body 的行在 SQL 侧滤掉。
+   *
+   * 窗口与报告口径一致：unix 秒半开区间 [startTime, endTime)。返回的是**共享
+   * 只读**数组（调用方只在 compute 内聚合，不得修改）。
+   */
+  async bodyRowsInGroup(
+    targetGroupCode: string,
+    opts: { startTime?: number; endTime?: number } = {},
+  ): Promise<SentSpeechRow[]> {
+    const conditions: string[] = [`"40027" = ?`, `"40050" > 0`, `length("40800") > 0`];
+    const params: SqlValue[] = [targetGroupCode];
+    if (opts.startTime != null && opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      params.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime != null && opts.endTime > 0) {
+      conditions.push(`"40050" < ?`);
+      params.push(BigInt(opts.endTime));
+    }
+    const rows = await this.qq.query(
+      `SELECT "40050","40800" FROM group_msg_table WHERE ${conditions.join(' AND ')}`,
+      params,
+    );
+    return rows.map((row) => ({
+      sendTime: toBigint(row[0]),
+      elements: decodeBody(row[1]),
+    }));
+  }
+
+  /**
    * Split the whole table's rows in a time window into sent / received, in ONE
    * pass. `senderUid` (column 40020, the account's own uid) is the preferred
    * self marker when the caller already has it resident (e.g. from the
@@ -550,6 +582,69 @@ export class GroupMsgDb {
       else received = n;
     }
     return { sent, received };
+  }
+
+  /**
+   * 时间窗内按群拆分「我发的 / 全群总消息」—— 年度报告「我的主场」页的排行素材。
+   *
+   * 与 {@link countByDirection} 同一套自证 marker（senderUid 优先、selfUin
+   * 兜底）；一次 `GROUP BY 群号, 方向` 的扫描只数几列元数据，不碰 40800 正文。
+   * 窗口是报告口径的半开区间 [startTime, endTime) —— 区别于周报用的
+   * {@link countByGroups}（≤ 闭区间），避免把次年初那一秒算进今年。
+   *
+   * ⚠️ `?` 是**位置绑定**：mine marker 参数在 SELECT 里，必须排在 WHERE 组号
+   *    参数之前，不能追加在后面。
+   */
+  async countByGroupAndDirection(
+    groupCodes: string[],
+    opts: { startTime?: number; endTime?: number; senderUid?: string; selfUin?: bigint } = {},
+  ): Promise<Array<{ groupCode: string; sent: number; total: number }>> {
+    if (groupCodes.length === 0) return [];
+    const mineExpr = opts.senderUid
+      ? `CASE WHEN "40020" = ? AND "40020" != '' THEN 1 ELSE 0 END`
+      : opts.selfUin !== undefined && opts.selfUin > 0n
+        ? `CASE WHEN "40033" = ? THEN 1 ELSE 0 END`
+        : null;
+    if (!mineExpr) {
+      return groupCodes.map((code) => ({ groupCode: code, sent: 0, total: 0 }));
+    }
+
+    const placeholders = groupCodes.map(() => '?').join(',');
+    const conditions: string[] = [`"40027" IN (${placeholders})`];
+    const whereParams: SqlValue[] = [...groupCodes];
+    if (opts.startTime != null && opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      whereParams.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime != null && opts.endTime > 0) {
+      conditions.push(`"40050" < ?`);
+      whereParams.push(BigInt(opts.endTime));
+    }
+    const mineParam: SqlValue = opts.senderUid ?? (opts.selfUin !== undefined ? opts.selfUin : 0n);
+    const rows = await this.qq.query(
+      `SELECT "40027", ${mineExpr} AS mine, COUNT(*) AS n
+       FROM group_msg_table
+       WHERE ${conditions.join(' AND ')}
+       GROUP BY 1, 2`,
+      [mineParam, ...whereParams],
+    );
+
+    const tally = new Map<string, { sent: number; total: number }>();
+    for (const code of groupCodes) tally.set(code, { sent: 0, total: 0 });
+    for (const row of rows) {
+      const code = String(row[0] ?? '');
+      const mine = Number(row[1] ?? 0);
+      const n = Number(row[2] ?? 0);
+      const bucket = tally.get(code);
+      if (!bucket) continue;
+      bucket.total += n;
+      if (mine === 1) bucket.sent += n;
+    }
+    return [...tally.entries()].map(([groupCode, bucket]) => ({
+      groupCode,
+      sent: bucket.sent,
+      total: bucket.total,
+    }));
   }
 
   /**

@@ -56,6 +56,7 @@ const PALETTE = {
   ghostStroke: 'rgba(201,162,39,0.13)',
   open: '#d9a9cf',
   voice: '#e0a878',
+  home: '#e6b866',
 };
 
 function fmt(n: number): string {
@@ -1646,6 +1647,268 @@ function voiceTree(data: Record<string, unknown>): El {
   return slideFrame([center], '话');
 }
 
+/**
+ * 我的主场页的长图版。
+ *
+ * 与 HTML 导出版同一取舍：动画词云进不了静态图，所以这一版让「群名 + 巨数」
+ * 占住整张卡片的视觉重心；等级 / 头衔 / 群规模是发丝线分隔的小签名，五颗高频
+ * 话题词排成页底一句可读的话。数据与屏幕版同源。
+ */
+function homeTree(data: Record<string, unknown>): El {
+  const year = Number(data.year ?? 0);
+  const allTime = isAllTimeYear(year);
+  const activeGroupCount = Number(data.activeGroupCount ?? 0);
+  const groupSentTotal = Number(data.groupSentTotal ?? 0);
+  const top = (data.top ?? null) as {
+    groupCode?: string;
+    groupName?: string;
+    sentCount?: number;
+    memberCount?: number;
+    memberLevel?: number;
+    levelName?: string;
+    customTitle?: string;
+    role?: string;
+    topics?: Array<{ word?: string; count?: number }>;
+  } | null;
+
+  if (!top) {
+    return slideFrame(
+      [
+        el('div', { display: 'flex', flexDirection: 'column', alignItems: 'center' }, [
+          el(
+            'div',
+            { fontSize: 34, color: PALETTE.inkSoft, letterSpacing: 8 },
+            `${reportEraLabel(year)} · 我的主场`,
+          ),
+          el(
+            'div',
+            { marginTop: 40, fontSize: 28, color: PALETTE.inkMuted, lineHeight: 1.9 },
+            '群聊记录还在，但本地没有足够的群资料，讲不出这座主场。',
+          ),
+        ]),
+      ],
+      '群',
+    );
+  }
+
+  const name = String(top.groupName ?? top.groupCode ?? '这个群');
+  const count = Number(top.sentCount ?? 0);
+  const memberLevel = Number(top.memberLevel ?? 0);
+  const memberCount = Number(top.memberCount ?? 0);
+  const levelName = String(top.levelName ?? '');
+  const customTitle = String(top.customTitle ?? '');
+  const role = String(top.role ?? 'member');
+  const share = groupSentTotal > 0 ? Math.round((count / groupSentTotal) * 100) : 0;
+
+  const sig: Array<{ label: string; value: string; note: string }> = [];
+  if (memberLevel > 0) {
+    sig.push({ label: '群等级', value: `LV.${memberLevel}`, note: levelName });
+  }
+  if (customTitle) {
+    sig.push({ label: '群头衔', value: customTitle, note: '' });
+  } else if (role === 'owner' || role === 'admin') {
+    sig.push({ label: '群头衔', value: role === 'owner' ? '群主' : '管理员', note: '' });
+  }
+  if (memberCount > 0) {
+    sig.push({ label: '群成员', value: fmt(memberCount), note: '人' });
+  }
+
+  const topics = (top.topics ?? []).slice(0, 5);
+  const topicSizes = [66, 46, 40, 36, 34];
+
+  const center = el(
+    'div',
+    {
+      width: SLIDE_W - 144,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+    },
+    [
+      el('div', { display: 'flex', justifyContent: 'space-between', width: '100%' }, [
+        el(
+          'div',
+          { fontSize: 28, color: PALETTE.inkSoft, letterSpacing: 7 },
+          `${reportEraLabel(year)} · 我的主场`,
+        ),
+        el(
+          'div',
+          { fontSize: 21, color: PALETTE.inkFaint, letterSpacing: 4 },
+          `${fmt(activeGroupCount)} 个群说过话 / ${fmt(groupSentTotal)} 条群消息`,
+        ),
+      ]),
+      el(
+        'div',
+        { marginTop: 88, fontSize: 36, color: PALETTE.inkSoft, letterSpacing: 4 },
+        `${allTime ? '有记录以来' : `${year} 年`}，你在群聊里说得最多的地方，是——`,
+      ),
+      el(
+        'div',
+        {
+          marginTop: 22,
+          fontSize: nameVisualWidth(name) > 11 ? 66 : nameVisualWidth(name) > 7 ? 80 : 112,
+          fontWeight: 700,
+          color: PALETTE.ink,
+          lineHeight: 1.08,
+          letterSpacing: nameVisualWidth(name) > 7 ? 2 : -1,
+          textAlign: 'center',
+          whiteSpace: 'nowrap',
+        },
+        name,
+      ),
+      el('div', { marginTop: 26, display: 'flex', alignItems: 'baseline' }, [
+        el(
+          'div',
+          {
+            fontSize: count >= 100000 ? 158 : count >= 10000 ? 188 : 232,
+            fontWeight: 700,
+            color: PALETTE.home,
+            lineHeight: 1,
+            letterSpacing: -7,
+          },
+          fmt(count),
+        ),
+        el(
+          'div',
+          { marginLeft: 26, display: 'flex', flexDirection: 'column', alignItems: 'center' },
+          [
+            el('div', { fontSize: 44, fontWeight: 700, color: PALETTE.ink }, '条'),
+            el(
+              'div',
+              { marginTop: 4, fontSize: 20, color: PALETTE.inkMuted, letterSpacing: 8 },
+              '消息',
+            ),
+          ],
+        ),
+      ]),
+      el('div', { marginTop: 24, display: 'flex', alignItems: 'center' }, [
+        el('div', { width: 56, height: 1, backgroundColor: rgba(PALETTE.home, 0.65) }),
+        el(
+          'div',
+          {
+            marginLeft: 18,
+            marginRight: 18,
+            fontSize: 26,
+            color: PALETTE.inkSoft,
+            letterSpacing: 3,
+          },
+          share >= 95 ? '你的群消息，几乎都落在这里' : `占你全部群消息的 ${share}%`,
+        ),
+        el('div', { width: 56, height: 1, backgroundColor: rgba(PALETTE.home, 0.65) }),
+      ]),
+      ...(sig.length > 0
+        ? [
+            el('div', { marginTop: 64, display: 'flex', flexDirection: 'column' }, [
+              el('div', {
+                width: SLIDE_W - 144,
+                height: 1,
+                backgroundColor: PALETTE.hair,
+              }),
+              el('div', { marginTop: 38, display: 'flex' }, buildSigRow(sig)),
+            ]),
+          ]
+        : []),
+      ...(topics.length > 0
+        ? [
+            el(
+              'div',
+              { marginTop: 78, display: 'flex', flexDirection: 'column', alignItems: 'center' },
+              [
+                el(
+                  'div',
+                  { fontSize: 20, color: PALETTE.inkFaint, letterSpacing: 10 },
+                  '这一年，这个群里的话题集中在',
+                ),
+                el(
+                  'div',
+                  { marginTop: 32, display: 'flex', alignItems: 'flex-end', gap: 54 },
+                  topics.map((topic, rank) =>
+                    el(
+                      'div',
+                      {
+                        fontSize: topicSizes[rank] ?? 32,
+                        fontWeight: 700,
+                        color: PALETTE.home,
+                        lineHeight: 1,
+                        letterSpacing: 1,
+                      },
+                      String(topic.word ?? ''),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ]
+        : []),
+      el(
+        'div',
+        {
+          marginTop: 72,
+          maxWidth: 760,
+          fontSize: 26,
+          color: PALETTE.inkSoft,
+          lineHeight: 1.8,
+          letterSpacing: 3,
+          textAlign: 'center',
+        },
+        `${fmt(count)} 次开口都有回声——热闹不是噪音，是总有人愿意接住你。`,
+      ),
+    ],
+  );
+
+  return slideFrame([center], '群');
+}
+
+/** 签名行：每格内容 + 格间一条 1px 竖线（satori 不落 border，竖线用显式 div）。 */
+function buildSigRow(sig: Array<{ label: string; value: string; note: string }>): El[] {
+  const row: El[] = [];
+  sig.forEach((item, index) => {
+    if (index > 0) {
+      row.push(
+        el('div', {
+          width: 1,
+          height: 78,
+          marginLeft: 54,
+          marginRight: 54,
+          backgroundColor: PALETTE.hair,
+        }),
+      );
+    }
+    row.push(
+      el('div', { display: 'flex', flexDirection: 'column', alignItems: 'center' }, [
+        el('div', { fontSize: 18, color: PALETTE.inkFaint, letterSpacing: 6 }, item.label),
+        el('div', { marginTop: 12, display: 'flex', alignItems: 'baseline' }, [
+          el(
+            'div',
+            { fontSize: 44, fontWeight: 700, color: PALETTE.ink, letterSpacing: 1 },
+            item.value,
+          ),
+          ...(item.note
+            ? [
+                el(
+                  'div',
+                  {
+                    marginLeft: 12,
+                    fontSize: 22,
+                    color: PALETTE.home,
+                    letterSpacing: 2,
+                  },
+                  item.note,
+                ),
+              ]
+            : []),
+        ]),
+      ]),
+    );
+  });
+  return row;
+}
+
+/** 群名的排版宽度（中文按 1、西文按 0.62），决定长图里的字号档。 */
+function nameVisualWidth(name: string): number {
+  return [...name].reduce((sum, char) => sum + (/\p{Script=Han}/u.test(char) ? 1 : 0.62), 0);
+}
+
 /** '#rrggbb' + alpha → rgba()。satori 不支持 color-mix，只能拼字符串。 */
 function rgba(hex: string, alpha: number): string {
   const value = hex.replace('#', '');
@@ -1734,6 +1997,7 @@ function treeForSlide(slide: ReportExportSlide): El {
   if (slide.pageId === 'openers') return openersTree(data);
   if (slide.pageId === 'rhythm') return rhythmTree(data);
   if (slide.pageId === 'voice') return voiceTree(data);
+  if (slide.pageId === 'home') return homeTree(data);
   if (slide.pageId === 'end') return endTree(data);
   return genericTree(slide);
 }

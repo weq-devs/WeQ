@@ -159,6 +159,53 @@ export type ReportQueries = {
   speech: {
     sentRows(startTime: number, endTime: number): Promise<SentSpeechRow[]>;
   };
+  /**
+   * 群聊专用聚合 —— 年度报告「我的主场」页的素材。排行 SQL 封装在
+   * `@weq/db` 的 `GroupMsgDb`，这里只做 typed 接缝。
+   */
+  group: {
+    /**
+     * 口径内我在每个「我的群」里发出的消息条数 + 全群总消息数，降序素材。
+     *
+     * 底层是 group_detail 全量元数据 ⋈ 一次 `GROUP BY 群号, 方向` 的群消息
+     * 轻扫描，不解码消息体。方向判据与其它页面共用同一套 self marker
+     * （senderUid 优先、selfUin 兜底）；两个都没有时每个群都返回 0，
+     * 页面会因此不展示。
+     */
+    countRows(
+      startTime: number,
+      endTime: number,
+    ): Promise<
+      Array<{
+        groupCode: string;
+        groupName: string;
+        memberCount: number;
+        /** 口径内自己在群里的发出条数。 */
+        sentCount: number;
+        /** 口径内全群消息总数。 */
+        totalCount: number;
+      }>
+    >;
+    /**
+     * 某一个群在时间窗内的全体正文（解码后）—— 只给冠军群算词云，扫描一次。
+     * 返回的数组是共享只读的，调用方不得原地修改。
+     */
+    speechRows(groupCode: string, startTime: number, endTime: number): Promise<SentSpeechRow[]>;
+    /**
+     * 我在一个群里的成员身份：群角色 / 自定义头衔 / 群等级与等级名。
+     *
+     * 本地没有我的成员行或群元数据时返回 null，页面据此优雅降级（只画群名
+     * 与条数，不硬编一个假头衔）。
+     */
+    standing(groupCode: string): Promise<{
+      groupCode: string;
+      role: 'owner' | 'admin' | 'member';
+      customTitle: string;
+      memberLevel: number;
+      levelName: string;
+      memberCount: number;
+    } | null>;
+  };
   /** Engine-level metadata, not page data. */
   meta: {
     /**

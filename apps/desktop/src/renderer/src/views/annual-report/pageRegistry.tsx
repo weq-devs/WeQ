@@ -4,6 +4,7 @@ import type {
   DressPageData,
   EndPageData,
   FriendsPageData,
+  HomePageData,
   OpenersPageData,
   OverviewPageData,
   ReportPageManifest,
@@ -20,6 +21,7 @@ import { FriendsPage } from './pages/FriendsPage';
 import { OpenersPage } from './pages/OpenersPage';
 import { RhythmPage } from './pages/RhythmPage';
 import { VoicePage } from './pages/VoicePage';
+import { HomePage } from './pages/HomePage';
 
 type RegistryProps = { page: ReportPageManifest; data: unknown; active: boolean };
 type PageRenderer = (props: RegistryProps) => ReactElement;
@@ -68,6 +70,9 @@ const pageRegistry: Record<string, PageRenderer> = {
   ),
   voice: ({ page, data, active }) => (
     <VoicePage page={page} data={data as VoicePageData} active={active} />
+  ),
+  home: ({ page, data, active }) => (
+    <HomePage page={page} data={data as HomePageData} active={active} />
   ),
   end: ({ page, data, active }) => (
     <EndPage page={page} data={data as EndPageData} active={active} />
