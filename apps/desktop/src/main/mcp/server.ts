@@ -10,7 +10,8 @@
  *   - stops on account switch / logout / app quit.
  *
  * Security: bound to loopback only, every request must carry
- * `Authorization: Bearer <token>`. Tools are read-only.
+ * `Authorization: Bearer <token>`. Most tools are read-only; the deliberately
+ * advanced `execute_sql` / `decrypt_database` tools may write (see tools.ts).
  *
  * Transport is stateless — a fresh `McpServer` + transport per request — which
  * is the simplest correct shape for a single local client and avoids any

@@ -83,6 +83,8 @@ Claude Code / Codex / Cursor / VS Code 等 MCP 客户端，勾选后即可一键
 | `get_messages` | 读取某会话消息（时间正序，支持翻页游标 `before` / `nextBefore`）。 |
 | `get_messages_by_date` | 读取某会话**某一天**的消息。 |
 | `get_forward_messages` | 展开一条**合并转发 / 聊天记录**的内容（只读本地 40900 缓存，不联网补拉）。 |
+| `get_message_details` | 取回某条消息的结构化详情：逐条 element 文案、markdown/灰条/卡片 payload、语音转写与本地媒体路径。 |
+| `transcribe_voice_message` | 用本机已下载的转写模型把某条消息里的本地语音即时转成文字（只读、不写回数据库）。 |
 
 ### 防撤回
 
@@ -114,6 +116,11 @@ Claude Code / Codex / Cursor / VS Code 等 MCP 客户端，勾选后即可一键
 | `list_databases` | 列出当前账号目录下的 QQ 数据库文件（`execute_sql` / `decrypt_database` 的选库入口）。 |
 | `execute_sql` | 在本地数据库执行 SQL，可读可写（⚠️ 写操作会真的改动 QQ 数据库）。 |
 | `decrypt_database` | 把加密库解密成明文 SQLite 副本写到本地目录（默认 fast 快路径）。 |
+| `list_db_tables` | 列出某库的表 / 视图 / 索引（无需手写 `sqlite_master`）。 |
+| `get_db_columns` | 列出某表的列信息（无需手写 `PRAGMA table_info`）。 |
+| `query_sqlite_file` | 对**已解密明文 SQLite** 文件执行只读 SQL（`decrypt_database` 的副本可直接查）。 |
+| `decode_blob` | 把 hex / base64 按 protobuf / JCE / schema-free 猜测树解码成可读 JSON，尽量标注字段名。 |
+| `decode_db_blob` | 直接取某库中一行的一列 BLOB/TEXT 并解码（`execute_sql` 查 hex 后自动接 `decode_blob`）。 |
 
 ### 资料与联系人
 

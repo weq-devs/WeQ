@@ -1,7 +1,7 @@
 /**
  * Transport-agnostic tool registry.
  *
- * One source of truth for the read-only capabilities WeQ exposes to AI clients.
+ * One source of truth for the capabilities WeQ exposes to AI clients.
  * The MCP HTTP server (`./server.ts`) is its first consumer; a future in-app
  * assistant (Anthropic SDK tool runner) can reuse the very same `run` functions
  * — so the business logic lives here exactly once.
@@ -15,6 +15,9 @@
 import { z } from 'zod';
 import { getAppContext, type AccountServices } from '../context/app_context';
 import { classifyChatType, datalineName, isDatalineSelfUid, isDatalineUid } from '@weq/codec';
+import type { RenderElement } from '@weq/service';
+import { decodeBlobHex, decodeBlobText } from './blob_decoder';
+import { elementAiDetail, elementsToAiText, mediaForElements } from './msg_rich';
 import {
   recentContactToWire,
   groupDetailToWire,
@@ -68,6 +71,9 @@ interface AiMsgLine {
   sender: string;
   mine: boolean;
   text: string;
+  /** 稳定消息标识（仅 includeIds 时附上，供 get_message_details 回查）。 */
+  msgId?: string;
+  msgSeq?: string;
   /** 与上一条（更早那条）的时间间隔，人读形式（如「2小时」）；仅在间隔较大时附上。 */
   gap?: string;
 }
@@ -234,52 +240,12 @@ function waitForExport(
   });
 }
 
-/** RenderElement[]（wire 形）→ 给 LLM 看的纯文本：媒体只留占位，丢掉体积字段。 */
+/**
+ * RenderElement[]（wire 形）→ 给 LLM 看的可读文本。复用导出管线的 element
+ * 文案（回复引用、markdown 正文、灰条、卡片等都能读出内容），并补上语音转写。
+ */
 function flattenElements(elements: readonly unknown[]): string {
-  const parts: string[] = [];
-  for (const raw of elements ?? []) {
-    const el = raw as { type?: string; data?: Record<string, unknown> };
-    const d = el.data ?? {};
-    switch (el.type) {
-      case 'text':
-      case 'at':
-        parts.push(String(d.textContent ?? '').trim());
-        break;
-      case 'face':
-        parts.push(d.faceText ? `[${String(d.faceText)}]` : '[表情]');
-        break;
-      case 'pic':
-        parts.push('[图片]');
-        break;
-      case 'ptt':
-        parts.push('[语音]');
-        break;
-      case 'video':
-        parts.push('[视频]');
-        break;
-      case 'file':
-        parts.push(d.fileName ? `[文件:${String(d.fileName)}]` : '[文件]');
-        break;
-      case 'reply':
-        parts.push('[回复]');
-        break;
-      case 'mface':
-        parts.push('[表情]');
-        break;
-      case 'ark':
-        parts.push('[卡片]');
-        break;
-      case 'multimsg':
-        parts.push('[聊天记录]');
-        break;
-      case 'markdown':
-        parts.push(String(d.content ?? '[markdown]'));
-        break;
-      default:
-        break; // graytip / 系统提示等对理解会话无意义，忽略
-    }
-  }
-  return parts.filter(Boolean).join(' ').trim() || '[空消息]';
+  return elementsToAiText(elements);
 }
 
 /**
@@ -287,6 +253,8 @@ function flattenElements(elements: readonly unknown[]): string {
  * 结构兼容 {@link RenderC2cMsg} / {@link RenderGroupMsg}（字段更多没关系）。
  */
 interface AiMsgRowLike {
+  msgId?: bigint | number | string;
+  msgSeq?: bigint | number | string;
   senderUid: string;
   /** 普通会话 senderUin 可用；数据线各设备共用同一个 uin，判 mine 走 senderUid。 */
   senderUin?: bigint | number | string;
@@ -325,6 +293,8 @@ function projectRows(
       sender,
       mine,
       text: flattenElements(r.elements ?? []),
+      ...(r.msgId !== undefined ? { msgId: String(r.msgId) } : {}),
+      ...(r.msgSeq !== undefined ? { msgSeq: String(r.msgSeq) } : {}),
     };
     if (prevSec !== null) {
       const gapSec = sec - prevSec;
@@ -348,6 +318,19 @@ async function namesForRows(
   if (otherUids.length === 0) return () => undefined;
   const nameByUid = await svc.profile.nicksByUids(otherUids);
   return (uid) => nameByUid[uid];
+}
+
+/** Resolve an account DB file by name (same lookup execute_sql uses). */
+async function accountDbFile(dbName: string): Promise<{
+  name: string;
+  path: string;
+  bytes: number;
+  kind: string;
+} | null> {
+  const svc = services();
+  const dbs = await svc.dbExplorer.listDatabases();
+  const db = dbs.find((d) => d.name.toLowerCase() === dbName.toLowerCase());
+  return db ? { name: db.name, path: db.path, bytes: db.bytes, kind: db.kind } : null;
 }
 
 /** epoch 毫秒 → YYYY-MM-DD（收藏时间展示用）。 */
@@ -615,6 +598,7 @@ export const AI_TOOLS: AiTool[] = [
       '读取某个会话的消息，按时间正序（旧→新）返回，方便顺读。默认取最新一页。' +
       'kind: c2c=私聊（conv 传对方 uid），group=群聊（conv 传群号）。会话标识可来自 list_conversations / list_groups。' +
       '每条为精简形：time 时间、sender 发送者昵称、mine 是否本人发送、text 文本；间隔较大时附 gap（距上一条多久）。' +
+      '想要拿到某条消息的 msgId/msgSeq 以便回查详情或媒体，把 includeIds 设为 true。' +
       '\n【翻页】返回带 hasMore / nextBefore：还想往更早读，就把 nextBefore 原样传回 before 参数取上一页；' +
       '一次别把 limit 开太大，顺着翻更省 token 也更聚焦。',
     input: z.object({
@@ -625,8 +609,14 @@ export const AI_TOOLS: AiTool[] = [
         .string()
         .default('')
         .describe('翻页游标：上一次返回的 nextBefore（读更早的一页）；不传=最新一页'),
+      includeIds: z
+        .boolean()
+        .default(false)
+        .describe(
+          '是否在每条消息上附带 msgId/msgSeq（供 get_message_details 回查；默认 false 更省 token）',
+        ),
     }),
-    run: async ({ kind, conv, limit, before }) => {
+    run: async ({ kind, conv, limit, before, includeIds }) => {
       const svc = services();
       const selfUin = (await svc.profile.getSelfProfile())?.uin ?? -1n;
       const beforeSeq = before.trim() ? safeBigint(before) : null;
@@ -659,6 +649,7 @@ export const AI_TOOLS: AiTool[] = [
           sender: r.senderUin === selfUin ? '我' : nameByUid[r.senderUid] || String(r.senderUin),
           mine: r.senderUin === selfUin,
           text: flattenElements(r.elements),
+          ...(includeIds ? { msgId: String(r.msgId), msgSeq: String(r.msgSeq) } : {}),
         };
         // 与上一条（更早那条）的间隔：只在 ≥30 分钟时标注，给「聊天有没有断档」的时间感又不刷屏。
         if (i > 0) {
@@ -1709,6 +1700,7 @@ export const AI_TOOLS: AiTool[] = [
       '读取【某个会话】在【某一天】的逐条消息，按时间正序返回——用于「今天/某天和 XX 聊了什么」做话题归纳，或回看某天群里的讨论。' +
       'kind: c2c=私聊（conv 传对方 uid），group=群聊（conv 传群号）；会话标识可由 find_contact 解析。date 默认今天，可传 YYYY-MM-DD。' +
       '每条为精简形：time（HH:mm）、sender 发送者昵称、mine 是否本人、text 文本；间隔较大时附 gap（距上一条多久）。' +
+      '需要 msgId/msgSeq 供 get_message_details 回查时把 includeIds 设为 true。' +
       '\n【局限】只在该会话最近若干条里筛当天；查很久以前的某天可能扫不到（返回 coverage 会点明），那种情况改用 inspect_timeline 的 readWindows 找活跃日、或直接读最近的日期。',
     input: z.object({
       kind: z.enum(['c2c', 'group']).describe('会话类型'),
@@ -1721,8 +1713,12 @@ export const AI_TOOLS: AiTool[] = [
         .max(300)
         .default(120)
         .describe('返回条数上限（取当天最近的若干条）'),
+      includeIds: z
+        .boolean()
+        .default(false)
+        .describe('是否附带 msgId/msgSeq（供 get_message_details 回查；默认 false）'),
     }),
-    run: async ({ kind, conv, date, limit }) => {
+    run: async ({ kind, conv, date, limit, includeIds }) => {
       const svc = services();
       const { startSec, endSec, label } = dayWindow(date);
       const READ = kind === 'group' ? 1000 : 600;
@@ -1751,6 +1747,7 @@ export const AI_TOOLS: AiTool[] = [
           sender: r.senderUin === selfUin ? '我' : nameByUid[r.senderUid] || String(r.senderUin),
           mine: r.senderUin === selfUin,
           text: flattenElements(r.elements),
+          ...(includeIds ? { msgId: String(r.msgId), msgSeq: String(r.msgSeq) } : {}),
         };
         if (i > 0) {
           const gapSec = Number(r.sendTime) - Number(slice[i - 1]!.sendTime);
@@ -1940,7 +1937,7 @@ export const AI_TOOLS: AiTool[] = [
     description:
       '列出某个会话里最近被撤回过的消息（需曾开启防撤回且拦截成功才有记录；整页消息按原时间由旧到新顺读，覆盖最新的一批撤回）。' +
       'kind: c2c=私聊（conv 传对方 uid），group=群聊（conv 传群号）。' +
-      '返回每条：time 发送时间、sender 发送者昵称、mine 是否本人发送、text 原文，以及 recall（byUid 撤回者、bySender 是否本人自撤、time 撤回时间）。' +
+      '返回每条：msgId/msgSeq、time 发送时间、sender 发送者昵称、mine 是否本人发送、text 原文，以及 recall（byUid 撤回者、bySender 是否本人自撤、time 撤回时间）。' +
       '用来回答「TA 撤回了什么」「这个群里最近谁撤回过消息」。只读本地，不发网络。',
     input: z.object({
       kind: z.enum(['c2c', 'group']).describe('会话类型'),
@@ -1990,7 +1987,7 @@ export const AI_TOOLS: AiTool[] = [
     description:
       '列出某个会话里“已删除”的消息（本地行被改成删除签名；整页按原发送时间由旧到新顺读，覆盖最新的一批删除）。' +
       'kind: c2c=私聊（conv 传对方 uid），group=群聊（conv 传群号）。' +
-      '每条：time 发送时间、sender 发送者、mine、text 原文，deletedKind 标记删除来源：' +
+      '每条：msgId/msgSeq、time 发送时间、sender 发送者、mine、text 原文，deletedKind 标记删除来源：' +
       'weq=WeQ 本地删除（应用内可恢复）、qq=QQ 侧原生删除（不可恢复）。' +
       '用来回答「这个会话哪些消息被删了」「删掉的内容是什么」。只读本地，不发网络。',
     input: z.object({
@@ -2033,8 +2030,8 @@ export const AI_TOOLS: AiTool[] = [
   tool({
     name: 'get_forward_messages',
     description:
-      '展开一条「合并转发 / 聊天记录」消息的内容。get_messages 只显示 [聊天记录] 占位、不返回内部 msgId，' +
-      '所以先用 execute_sql 在对应会话表里找到承载该转发的消息（40001 即 msgId），再传 kind（c2c=私聊/group=群聊）+ msgId 到这里。' +
+      '展开一条「合并转发 / 聊天记录」消息的内容。先拿承载消息的 msgId——get_messages 开 includeIds 会返回，' +
+      '或 execute_sql 在对应会话表查 40001——再传 kind（c2c=私聊/group=群聊）+ msgId 到这里。' +
       '本工具只读本机 40900 缓存，绝不联网拉取；本地没有缓存时返回 found=false（并提示没有走网络回退）。' +
       '返回 messages：time、sender、mine、text，嵌套的转发会按 depth 展开（受 maxDepth 限制），并附 hasMore/truncated。' +
       '媒体只保留占位（[图片]/[语音]/[文件]），不返回媒体本体。',
@@ -2118,6 +2115,192 @@ export const AI_TOOLS: AiTool[] = [
             : truncated
               ? `转发内容较长，已截断为 ${limit} 条；如需更深层可调 maxDepth。`
               : '',
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_message_details',
+    description:
+      '取回【某一条消息】的完整结构化详情：逐条 element 的可读文案（回复引用、markdown 正文、' +
+      '灰条/卡片等不再只是占位）、可选 payload 字段，以及本地媒体信息（图片/语音/视频/文件是否已在磁盘、' +
+      '语音转写文本等）。' +
+      '\n【怎么定位消息】msgId 来自 get_messages / get_messages_by_date 的 includeIds=true 输出，' +
+      '或 list_recalled_messages / list_deleted_messages 返回的 msgId；也可以像 get_forward_messages 一样先 execute_sql 查 40001。' +
+      'kind: c2c=私聊（数据线设备 uid 也按 c2c 传），group=群聊；conv 与读该消息的会话一致。' +
+      '只读本地，不发网络；找不到时返回 found=false（msgId 可能不在该会话）。',
+    input: z.object({
+      kind: z.enum(['c2c', 'group']).describe('会话类型（数据线设备 uid 也按 c2c）'),
+      conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
+      msgId: z.string().min(1).describe('目标消息 msgId（40001，数字字符串）'),
+      includePayload: z
+        .boolean()
+        .default(true)
+        .describe('是否附带部分原始 payload（ark/markdown/灰条 XML/tipJson 等较长内容）'),
+      includeMedia: z
+        .boolean()
+        .default(true)
+        .describe('是否在本机媒体缓存里定位图片/语音/视频/文件的本地路径（不发网络）'),
+    }),
+    run: async ({ kind, conv, msgId, includePayload, includeMedia }) => {
+      const svc = services();
+      const id = safeBigint(msgId);
+      if (id === null) throw new Error(`msgId 无效：${msgId}（应为数字字符串）`);
+      const row =
+        kind === 'group'
+          ? await svc.msgs.getGroupMessageById(conv, id)
+          : await svc.msgs.getC2cMessageById(conv, id);
+      if (!row) {
+        return {
+          found: false,
+          kind,
+          conv,
+          msgId,
+          hint: '本地消息表里没有这条消息（msgId 不在该会话/库中，或消息已被彻底清理）。',
+        };
+      }
+
+      const self = await svc.profile.getSelfProfile();
+      const selfUin = self?.uin ?? -1n;
+      const mine = row.senderUin === selfUin;
+      const otherUids = mine ? [] : [row.senderUid];
+      const nameByUid = otherUids.length ? await svc.profile.nicksByUids(otherUids) : {};
+      const sender = mine
+        ? '我'
+        : (datalineName(row.senderUid) ?? nameByUid[row.senderUid] ?? String(row.senderUin));
+
+      const details = row.elements.map((el, i) => elementAiDetail(el, i, includePayload));
+      const media = includeMedia
+        ? await mediaForElements(svc.fileSearch, Number(row.sendTime), row.elements)
+        : [];
+
+      const out: Record<string, unknown> = {
+        found: true,
+        kind,
+        conv,
+        msgId: String(row.msgId),
+        msgSeq: String(row.msgSeq),
+        time: fmtTime(row.sendTime),
+        sender,
+        mine,
+        senderUid: row.senderUid,
+        text: flattenElements(row.elements),
+        elementCount: row.elements.length,
+        elements: details,
+        media,
+      };
+      if (row.deletedKind) out.deletedKind = row.deletedKind;
+      if (row.recall) {
+        out.recall = {
+          byUid: row.recall.revokeUid,
+          bySender: row.recall.sameSender,
+          time: fmtTime(row.recall.recallTs),
+        };
+      }
+      if ('setEmojiList' in row && Array.isArray(row.setEmojiList) && row.setEmojiList.length) {
+        out.reactions = row.setEmojiList.map((e) => ({
+          emojiId: e.emojiId,
+          count: e.setNum,
+          mine: e.isSelfSet,
+        }));
+      }
+      return out;
+    },
+  }),
+
+  tool({
+    name: 'transcribe_voice_message',
+    description:
+      '把某条消息里的本地语音（ptt）交给 WeQ 已下载的语音转写模型即时转成文字。' +
+      '只读本机已缓存的语音文件、不联网拉取，结果**不会写回数据库**（要写回 QQ 供导出复用属于改库副作用，不在本工具范围）。' +
+      '如果该语音之前已经转写（get_message_details 的 media[].transcript 非空），直接读即可，无需再调本工具。' +
+      '定位消息用 msgId：get_messages 开 includeIds 或 list_recalled_messages 会返回。' +
+      '当消息里有多个语音时可传 fileName 指定；不传则尝试全部。模型未下载/未配置时返回明确错误。',
+    input: z.object({
+      kind: z.enum(['c2c', 'group']).describe('会话类型（数据线设备 uid 也按 c2c）'),
+      conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
+      msgId: z.string().min(1).describe('目标消息 msgId（40001，数字字符串）'),
+      fileName: z
+        .string()
+        .optional()
+        .describe('可选：只转写该文件名的 ptt（同一消息带多个语音时用）'),
+    }),
+    run: async ({ kind, conv, msgId, fileName }) => {
+      const ctx = getAppContext();
+      const id = safeBigint(msgId);
+      if (id === null) throw new Error(`msgId 无效：${msgId}（应为数字字符串）`);
+      const row =
+        kind === 'group'
+          ? await services().msgs.getGroupMessageById(conv, id)
+          : await services().msgs.getC2cMessageById(conv, id);
+      if (!row) {
+        return {
+          found: false,
+          kind,
+          conv,
+          msgId,
+          hint: '本地消息表里没有这条消息（msgId 不在该会话/库中）。',
+        };
+      }
+
+      const ptts = row.elements.filter((el): el is Extract<RenderElement, { type: 'ptt' }> => {
+        if (el.type !== 'ptt') return false;
+        if (fileName) return String(el.data.fileName ?? '') === fileName;
+        return true;
+      });
+      if (ptts.length === 0) {
+        return {
+          ok: false,
+          found: true,
+          kind,
+          conv,
+          msgId,
+          error: '这条消息里没有匹配的语音元素。',
+        };
+      }
+
+      const results: Array<Record<string, unknown>> = [];
+      for (const ptt of ptts) {
+        const name = String(ptt.data.fileName ?? '');
+        const entry: Record<string, unknown> = {
+          fileName: name || undefined,
+          durationSec: Number(ptt.data.pttDuration ?? 0) || undefined,
+        };
+        const hit = name
+          ? await services().fileSearch.findFile(Number(row.sendTime), name, 'ptt')
+          : { source: null, thumb: null };
+        if (!hit.source) {
+          entry.ok = false;
+          entry.error = '本机没有该语音的缓存文件（可能是旧消息被清理，或从未下载到本地）。';
+          results.push(entry);
+          continue;
+        }
+        entry.localPath = hit.source;
+        const res = await ctx.transcribeSilk(hit.source);
+        if (res.ok && res.text) {
+          entry.ok = true;
+          entry.transcript = res.text;
+        } else {
+          entry.ok = false;
+          entry.error = res.error ?? '语音转写失败';
+          entry.hint =
+            '模型未下载/未配置时请先在 WeQ「设置 → 语音转录」选择并下载模型；结果不会写回数据库。';
+        }
+        results.push(entry);
+      }
+
+      const allOk = results.every((r) => r.ok === true);
+      return {
+        ok: allOk,
+        found: true,
+        kind,
+        conv,
+        msgId,
+        count: results.length,
+        results,
+        hint: allOk
+          ? '转写结果仅本工具返回；如需把文字写回语音消息（QQ 也会显示），请在内置助手里使用带写库能力的入口。'
+          : '部分语音转写失败，多为模型未就绪或本地音频缺失。',
       };
     },
   }),
@@ -2398,6 +2581,167 @@ export const AI_TOOLS: AiTool[] = [
   }),
 
   tool({
+    name: 'decode_blob',
+    description:
+      '把一段 hex / base64 二进制按 protobuf 或 JCE（QQHook TarsParser 语义）逆向解码成可读 JSON。' +
+      'format=auto 时先按 protobuf 完整解析、失败再试 JCE；两者都不完整时退回 schema-free 猜测树，' +
+      '并给出每个字段可能的含义（utf8 / bool / 时间戳 / zigzag / 定长 float 等）。' +
+      'tag ≥ 1001 的字段会尽量附上 QQ 全局词典里的字段名（小 tag 无全局含义、以嵌套上下文为准）。' +
+      '用于分析 execute_sql 查出来的 BLOB（如 40800 消息体）或任意十六进制/Base64 数据。' +
+      '返回 fields：{ tag, field?, value } 树；bytes 较大时只给摘要 hex。',
+    input: z.object({
+      data: z
+        .string()
+        .min(1)
+        .describe('hex（允许空格/冒号/0x 前缀）或 base64；可先直接粘贴 execute_sql 返回的 hex'),
+      encoding: z
+        .enum(['auto', 'hex', 'base64'])
+        .default('auto')
+        .describe('输入编码；auto 时先按 hex 判定'),
+      format: z
+        .enum(['auto', 'protobuf', 'jce'])
+        .default('auto')
+        .describe('auto=先 protobuf 再 JCE；也可强制按一种解析'),
+    }),
+    run: async ({ data, encoding, format }) => {
+      const result = decodeBlobText(data, encoding, format);
+      if (!result.ok) {
+        return {
+          ok: false,
+          error: result.error,
+          hint: '换更短的片段，或确认输入是完整字节（BLOB 列通常从 execute_sql 直接复制 hex）。',
+        };
+      }
+      return {
+        ok: true,
+        bytes: result.bytes,
+        kind: result.kind,
+        fields: result.fields,
+        ...(result.guessNote ? { guessNote: result.guessNote } : {}),
+        hint:
+          result.kind === 'guess'
+            ? '未完整解析为 protobuf/JCE：上面是 schema-free 猜测。可调 format 强制、裁剪首尾长度头（如 4 字节大端长度）后再试。'
+            : '字段名只来自 QQ 全局 tag 词典；若想把该 blob 按已知表结构解码，可配合 execute_sql 看所在表/列名。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'decode_db_blob',
+    description:
+      '直接取当前账号某个数据库里【第一行满足 SQL 条件的目标列】的 BLOB/TEXT，并按 protobuf/JCE/schema-free 解码。' +
+      '把「先 execute_sql 看 hex、再 decode_blob」两步合成一步：sql 必须是只读 SELECT，column 为要解的目标列名。' +
+      '例：dbName=msg.db, sql=SELECT * FROM c2c_msg_table WHERE 40001=123, column=40800。' +
+      '返回与 decode_blob 相同的 fields 树，并附 source（库/路径/SQL/列/字节数）。',
+    input: z.object({
+      dbName: z
+        .string()
+        .min(1)
+        .describe('数据库文件名（如 msg.db / nt_msg.db），可用 list_databases 查'),
+      sql: z
+        .string()
+        .min(1)
+        .describe('只读 SELECT，取第一行作为目标（建议 WHERE 限定 msgId/rowid）'),
+      column: z.string().min(1).describe('目标列名（结果集里要解码的那一列）'),
+      format: z
+        .enum(['auto', 'protobuf', 'jce'])
+        .default('auto')
+        .describe('同 decode_blob：auto=先 protobuf 再 JCE，失败给猜测树'),
+      encoding: z
+        .enum(['auto', 'hex', 'base64'])
+        .default('auto')
+        .describe('TEXT 单元格的输入编码（BLOB 单元格固定按 hex；auto 先判 hex）'),
+    }),
+    run: async ({ dbName, sql, column, format, encoding }) => {
+      const dbFile = await accountDbFile(dbName);
+      if (!dbFile) {
+        return {
+          ok: false,
+          error: `未找到名为「${dbName}」的数据库。可通过 list_databases 查看可用数据库。`,
+        };
+      }
+      if (!/^(select|with|explain)\b/i.test(sql.trim())) {
+        return {
+          ok: false,
+          dbName: dbFile.name,
+          error: 'decode_db_blob 只接受只读 SELECT / WITH / EXPLAIN，已阻止执行其它语句。',
+        };
+      }
+
+      let result: Awaited<ReturnType<AccountServices['dbExplorer']['runSql']>>;
+      try {
+        result = await services().dbExplorer.runSql(dbFile.path, sql);
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        return { ok: false, dbName: dbFile.name, error: `SQL 执行失败：${message}` };
+      }
+      if (result.kind !== 'rows') {
+        return {
+          ok: false,
+          dbName: dbFile.name,
+          error: 'decode_db_blob 只接受只读 SELECT；当前语句不是读语句。',
+        };
+      }
+      const colIndex = result.columns.indexOf(column);
+      if (colIndex < 0) {
+        return {
+          ok: false,
+          dbName: dbFile.name,
+          column,
+          availableColumns: result.columns,
+          error: `结果集里没有列「${column}」。`,
+        };
+      }
+      if (!result.rows.length) {
+        return { ok: false, dbName: dbFile.name, error: 'SQL 没有返回任何行。' };
+      }
+
+      const cell: unknown = result.rows[0]?.[colIndex];
+      let decoded: ReturnType<typeof decodeBlobHex>;
+      if (
+        cell !== null &&
+        cell !== undefined &&
+        typeof cell === 'object' &&
+        't' in cell &&
+        (cell as { t?: string }).t === 'blob' &&
+        typeof (cell as { hex?: unknown }).hex === 'string'
+      ) {
+        decoded = decodeBlobHex(String((cell as { hex?: unknown }).hex), format);
+      } else if (typeof cell === 'string') {
+        decoded = decodeBlobText(cell, encoding, format);
+      } else {
+        decoded = {
+          ok: false,
+          kind: 'none',
+          bytes: 0,
+          fields: [],
+          error: '目标单元格既不是 BLOB 也不是 TEXT。',
+        };
+      }
+      if (!decoded.ok) {
+        return {
+          ok: false,
+          dbName: dbFile.name,
+          error: decoded.error,
+        };
+      }
+      return {
+        ok: true,
+        source: {
+          dbName: dbFile.name,
+          dbPath: dbFile.path,
+          sql,
+          column,
+        },
+        bytes: decoded.bytes,
+        kind: decoded.kind,
+        fields: decoded.fields,
+        ...(decoded.guessNote ? { guessNote: decoded.guessNote } : {}),
+      };
+    },
+  }),
+
+  tool({
     name: 'execute_sql',
     description:
       '在当前 QQ 账号本地数据库里执行一条 SQL 语句（SELECT / INSERT / UPDATE / DELETE / PRAGMA / DDL 等均可）。' +
@@ -2470,6 +2814,112 @@ export const AI_TOOLS: AiTool[] = [
             ? '当前账号目录下没有找到 .db 文件。'
             : '需要操作某库时把 name 传给 execute_sql；需要拿到明文副本用 decrypt_database。',
       };
+    },
+  }),
+
+  tool({
+    name: 'list_db_tables',
+    description:
+      '列出当前账号某个 QQ 数据库里的表 / 视图 / 索引（来自 sqlite_master，不含内部 sqlite_* 与触发器）。' +
+      'DB 逆向或想确认 execute_sql 该查哪张表时先用它。dbName 用 list_databases 的 name。',
+    input: z.object({
+      dbName: z
+        .string()
+        .min(1)
+        .describe('数据库文件名（如 msg.db、login.db、bc_09.db），可用 list_databases 查'),
+    }),
+    run: async ({ dbName }) => {
+      const dbFile = await accountDbFile(dbName);
+      if (!dbFile) {
+        return {
+          ok: false,
+          error: `未找到名为「${dbName}」的数据库。可通过 list_databases 查看可用数据库。`,
+        };
+      }
+      const objects = await services().dbExplorer.listObjects(dbFile.path);
+      return {
+        ok: true,
+        dbName: dbFile.name,
+        dbPath: dbFile.path,
+        count: objects.length,
+        tables: objects.filter((o) => o.type === 'table'),
+        views: objects.filter((o) => o.type === 'view'),
+        indexes: objects
+          .filter((o) => o.type === 'index')
+          .map((o) => ({
+            name: o.name,
+            table: o.tableName,
+          })),
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_db_columns',
+    description:
+      '列出当前账号某个 QQ 数据库里指定表/视图的列（cid、列名、类型、NOT NULL、是否主键）。' +
+      '配合 list_db_tables / execute_sql 做数据库探索：不用先手写 PRAGMA table_info。',
+    input: z.object({
+      dbName: z.string().min(1).describe('数据库文件名（如 msg.db），可用 list_databases 查'),
+      table: z.string().min(1).describe('表名或视图名（list_db_tables 可查）'),
+    }),
+    run: async ({ dbName, table }) => {
+      const dbFile = await accountDbFile(dbName);
+      if (!dbFile) {
+        return {
+          ok: false,
+          error: `未找到名为「${dbName}」的数据库。可通过 list_databases 查看可用数据库。`,
+        };
+      }
+      try {
+        const columns = await services().dbExplorer.getColumns(dbFile.path, table);
+        return {
+          ok: true,
+          dbName: dbFile.name,
+          dbPath: dbFile.path,
+          table,
+          count: columns.length,
+          columns,
+        };
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        return { ok: false, dbName: dbFile.name, table, error: message };
+      }
+    },
+  }),
+
+  tool({
+    name: 'query_sqlite_file',
+    description:
+      '对【已解密的明文 SQLite 文件】执行只读 SQL（SELECT / WITH / EXPLAIN；PRAGMA 不开放）——' +
+      '例如 decrypt_database 生成的明文副本，或其它已知明文 .db。与 execute_sql 不同：' +
+      '本工具直接接受文件路径、不校验账号目录、也不允许写语句（杜绝误改源库）。' +
+      '返回与 execute_sql 相同的 rows 结构；BLOB 单元格以 hex 形式给出（可再交给 decode_blob / decode_db_blob）。',
+    input: z.object({
+      path: z
+        .string()
+        .min(1)
+        .describe('明文 SQLite 文件的绝对路径（decrypt_database 返回的 outPath 即可直接填）'),
+      sql: z
+        .string()
+        .min(1)
+        .describe(
+          '只读 SQL（SELECT / WITH / EXPLAIN；查表结构用 sqlite_master，查列用 pragma_table_info）',
+        ),
+    }),
+    run: async ({ path, sql }) => {
+      try {
+        const result = await services().dbExplorer.queryPlainSqliteFile(path, sql);
+        return { ok: true, path, sql, result };
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        return {
+          ok: false,
+          path,
+          error: message,
+          hint: '仅支持明文 SQLite（解密副本可直接查；加密的 nt_db 原库请走 execute_sql / list_databases）。',
+        };
+      }
     },
   }),
 
