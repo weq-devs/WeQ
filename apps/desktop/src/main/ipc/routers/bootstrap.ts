@@ -1054,6 +1054,14 @@ export const bootstrapRouter = router({
   setDaemonAutostart: procedure
     .input(z.object({ enabled: z.boolean() }))
     .mutation(async ({ input }) => {
+      // 浏览器版 / pnpm dev：守护进程的 autostart_set 注册的是裸可执行
+      // 文件，web 的 node server.mjs（需要参数 + 工作目录）和开发态
+      // Electron 都不具备开机自启的正确形态 —— 直接拒绝。
+      if (!getHost().canAutostart) {
+        throw new Error(
+          '当前环境不支持开机自启：请使用打包安装版（浏览器版请用 systemd / 计划任务管理）。',
+        );
+      }
       const guiExe = getHost().currentExePath();
       const result = await daemonAutostartSet({ enabled: input.enabled, gui_exe: guiExe });
       if (result === null) {

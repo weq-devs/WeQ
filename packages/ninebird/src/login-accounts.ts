@@ -1,142 +1,35 @@
-import net from 'node:net';
+// 账号列表 loader —— 只读：让 QQ 自己枚举本地历史登录账号。
+//
+// 不抓 dbkey：hook 只挂一个空过滤（保持与旧实现一致的行为），拿到
+// login-list 一帧后即成功终结。用于解密 login.db 失败时的兜底数据源。
+// 公共装配见 ./core/*。
+
+import { resolveQQInfo } from './qq-info';
+import { createLogger } from './core/log';
+import { PIPE_NAME, intEnv } from './core/env';
+import { ensurePipeOpen, isShutdown, sendMessage, sendResultAndExit } from './core/pipe';
+import { loadQQWrapper } from './core/wrapper';
+import { loadHooker } from './core/hooker';
+import { summarizeLoginList } from './core/login-list';
 import {
-    LoginListItem,
-    NodeIGlobalAdapter,
-    NodeIKernelLoginService,
-    NodeIO3MiscListener,
-    NodeIQQNTWrapperEngine,
-    WrapperNodeApi,
-} from './wrapper-types';
-import {getPlatformType, getSystemHostname, getSystemVersion, resolveQQInfo} from './qq-info';
-import fs from 'node:fs';
-import path from 'node:path';
-const PIPE_NAME  = process.env.NINEBIRD_PIPE_NAME || '';
-const TIMEOUT_MS = parseInt(process.env.NINEBIRD_TIMEOUT_MS || '30000', 10);
+    createWrapperSessions,
+    initEngine,
+    initLoginService,
+    resolveDataRoots,
+    setupO3Misc,
+} from './core/engine';
 
+const TIMEOUT_MS = intEnv('NINEBIRD_TIMEOUT_MS', 30_000);
+const log = createLogger('account');
+log(`loaded. PIPE_NAME=${PIPE_NAME} TIMEOUT_MS=${TIMEOUT_MS}`);
 
-const NB_LOG = process.env.NINEBIRD_LOG || '';
-function nbLog(msg: string): void {
-    if (!NB_LOG) return;
-    try {
-        fs.appendFileSync(NB_LOG, `[loader:account pid=${process.pid}] ${msg}\n`);
-    } catch { /* 尽力而为 */ }
-}
-nbLog(`loaded. PIPE_NAME=${PIPE_NAME} TIMEOUT_MS=${TIMEOUT_MS}`);
+async function main(): Promise<void> {
+    log('main() start');
+    await ensurePipeOpen(log);
 
-//
-// Pipe 协议：每条消息一行 NDJSON。
-//   { kind: 'login-list', list: LoginListSummary[] }
-//   { kind: 'result',     success: boolean, error?: string }
-//
-
-let pipeClient: net.Socket | null = null;
-let shutdownCalled = false;
-
-function ensurePipeOpen(): Promise<void> {
-    if (!PIPE_NAME)   {
-        nbLog('ensurePipeOpen: PIPE_NAME empty, skip'); return Promise.resolve();
-    }
-    if (pipeClient)   return Promise.resolve();
-    nbLog(`ensurePipeOpen: connecting to ${PIPE_NAME}`);
-    return new Promise((resolve) => {
-        const c = net.createConnection(PIPE_NAME);
-        const onReady = () => {
-            c.removeListener('error', onErr);
-            pipeClient = c;
-            nbLog('ensurePipeOpen: connected');
-            c.on('error', () => process.exit(1));
-            resolve();
-        };
-        const onErr = (e: Error) => {
-            c.removeListener('connect', onReady);
-            nbLog(`ensurePipeOpen: connect FAILED: ${e && e.message}`);
-            resolve();
-        };
-        c.once('connect', onReady);
-        c.once('error', onErr);
-    });
-}
-
-function sendMessage(obj: object): Promise<void> {
-    if (!pipeClient) return Promise.resolve();
-    return new Promise((resolve) => {
-        pipeClient!.write(JSON.stringify(obj) + '\n', () => resolve());
-    });
-}
-
-async function sendResultAndExit(success: boolean, error?: string): Promise<void> {
-    if (shutdownCalled) return;
-    shutdownCalled = true;
-
-    const result = {
-        kind:    'result',
-        success,
-        error:   error || undefined,
-    };
-
-    if (!pipeClient) {
-        process.exit(success ? 0 : 1);
-    }
-
-    try { await sendMessage(result); } catch {}
-    pipeClient!.end(() => {
-        setTimeout(() => process.exit(0), 100);
-    });
-}
-
-function summarizeLoginList(items: LoginListItem[]) {
-    return items
-        .filter((u) => u.isQuickLogin)
-        .map((u) => ({
-            uin:          u.uin,
-            uid:          u.uid,
-            nickName:     u.nickName,
-            faceUrl:      u.faceUrl,
-            facePath:     u.facePath,
-            loginType:    u.loginType,
-            isQuickLogin: u.isQuickLogin,
-            isAutoLogin:  u.isAutoLogin,
-        }));
-}
-
-function loadQQWrapper(execPath: string, qqVersion: string): WrapperNodeApi {
-    if (process.env['NAPCAT_WRAPPER_PATH']) {
-        const wrapperPath = process.env['NAPCAT_WRAPPER_PATH'];
-        const nativemodule: { exports: WrapperNodeApi } = { exports: {} as WrapperNodeApi };
-        process.dlopen(nativemodule, wrapperPath);
-        return nativemodule.exports;
-    }
-    if (!execPath) {
-        throw new Error('无法加载 Wrapper，execPath 未定义');
-    }
-    let appPath: string;
-    if (process.platform === 'darwin') {
-        appPath = path.resolve(path.dirname(execPath), '../Resources/app');
-    } else if (process.platform === 'linux') {
-        appPath = path.resolve(path.dirname(execPath), './resources/app');
-    } else {
-        appPath = path.resolve(path.dirname(execPath), `./versions/${qqVersion}/`);
-    }
-    let wrapperNodePath = path.resolve(appPath, 'wrapper.node');
-    if (!fs.existsSync(wrapperNodePath)) {
-        wrapperNodePath = path.join(appPath, './resources/app/wrapper.node');
-    }
-    if (!fs.existsSync(wrapperNodePath)) {
-        wrapperNodePath = path.join(path.dirname(execPath), `./resources/app/versions/${qqVersion}/wrapper.node`);
-    }
-    const nativemodule: { exports: WrapperNodeApi } = { exports: {} as WrapperNodeApi };
-    process.dlopen(nativemodule, wrapperNodePath);
-    process.env['NAPCAT_WRAPPER_PATH'] = wrapperNodePath;
-    return nativemodule.exports;
-}
-
-async function main() {
-    nbLog('main() start');
-    await ensurePipeOpen();
-
-    // 超时保护
+    // 超时保护。
     setTimeout(() => {
-        if (!shutdownCalled) {
+        if (!isShutdown()) {
             void sendResultAndExit(false, 'timeout');
         }
     }, TIMEOUT_MS);
@@ -149,84 +42,29 @@ async function main() {
 
         const wrapper = loadQQWrapper(qqInfo.execPath, qqInfo.fullVersion);
 
-        const loaderDir = process.env.NINEBIRD_LOADER_DIR
-            || (process.env.NINEBIRD_LOAD_PATH ? path.dirname(process.env.NINEBIRD_LOAD_PATH) : __dirname);
-        const hookerPath = path.join(loaderDir, 'NineBird.node');
-
-        if (!fs.existsSync(hookerPath)) {
-            return sendResultAndExit(false, `NineBird.node not found: ${hookerPath}`);
+        const loaded = loadHooker();
+        if (!loaded.ok) {
+            return sendResultAndExit(false, `NineBird.node not found: ${loaded.path}`);
         }
-        const hooker = require(hookerPath);
+        const hooker = loaded.hooker;
 
-
-        hooker.installRecvHook((ev: any) => {
-            const hex = ev.hex_data as string;
+        // 只挂空过滤 hook —— 拦下 0xcde_2 但不做任何事（与旧实现一致）。
+        hooker.installRecvHook((ev) => {
+            const hex = ev.hex_data;
             // 没错，这就是0xcde_2
             if (!hex || (!hex.startsWith('08de19') && !hex.startsWith('08DE19'))) {
                 return;
             }
         });
-        let dataPathGlobal = qqInfo.dataPathGlobal;
 
-        try {
-            const util = (wrapper as any).NodeQQNTWrapperUtil;
-            // darwin：wrapper 返回值是“容器套容器”的嵌套根（见 qr-dbkey.ts
-            // 注释），会重建全新 profile；直接保留 qq-info 解析出的路径。
-            const real = process.platform === 'darwin'
-                ? undefined
-                : util?.getNTUserDataInfoConfig?.();
+        // account-list 只需要 global 路径（engine / loginService 配置用）。
+        const { dataPathGlobal } = resolveDataRoots(wrapper, qqInfo);
 
-            if (real) {
-                dataPathGlobal = process.platform === 'linux'
-                    ? path.resolve(real, './global')
-                    : path.resolve(real, './nt_qq/global');
-            }
-        } catch (e) {
-        }
-
-        const engine: NodeIQQNTWrapperEngine = wrapper.NodeIQQNTWrapperEngine.get();
-
-        engine.initWithDeskTopConfig(
-            {
-                base_path_prefix: '',
-                platform_type: getPlatformType(),
-                app_type: 4,
-                app_version: qqInfo.fullVersion,
-                os_version: getSystemVersion(),
-                use_xlog: false,
-                qua: qqInfo.qua,
-                global_path_config: { desktopGlobalPath: dataPathGlobal },
-                thumb_config: { maxSide: 324, minSide: 48, longLimit: 6, density: 2 },
-            },
-            new NodeIGlobalAdapter(),
-        );
-        try {
-            const startupCtor = (wrapper as any).NodeIQQNTStartupSessionWrapper;
-            if (startupCtor?.create) {
-                startupCtor.create();
-            }
-            const sessCtor = (wrapper as any).NodeIQQNTWrapperSession;
-            if (sessCtor?.getNTWrapperSession) {
-                sessCtor.getNTWrapperSession('nt_1');
-            } else if (sessCtor?.create) {
-                sessCtor.create();
-            }
-        } catch (e) {
-        }
-
-        const o3Service = wrapper.NodeIO3MiscService.get();
-        o3Service.addO3MiscListener(new NodeIO3MiscListener());
-
-        const loginService: NodeIKernelLoginService = wrapper.NodeIKernelLoginService.get();
-        loginService.initConfig({
-            machineId: '',
-            appid: qqInfo.appid,
-            platVer: getSystemVersion(),
-            commonPath: dataPathGlobal,
-            clientVer: qqInfo.fullVersion,
-            hostName: getSystemHostname(),
-            externalVersion: false,
-        });
+        initEngine(wrapper, qqInfo, dataPathGlobal);
+        // session 实例只为触发 wrapper 内部的初始化副作用，本身不用。
+        createWrapperSessions(wrapper);
+        setupO3Misc(wrapper);
+        const loginService = initLoginService(wrapper, qqInfo, dataPathGlobal);
 
         const loginList = await loginService.getLoginList();
 
@@ -236,14 +74,13 @@ async function main() {
         });
 
         return sendResultAndExit(true);
-
     } catch (error) {
-        nbLog(`main() threw: ${String(error)}`);
+        log(`main() threw: ${String(error)}`);
         void sendResultAndExit(false, String(error));
     }
 }
 
 main().catch((err) => {
-    nbLog(`main() rejected: ${String(err)}`);
+    log(`main() rejected: ${String(err)}`);
     void sendResultAndExit(false, String(err));
 });

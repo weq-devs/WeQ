@@ -77,6 +77,14 @@ export interface HostBridge {
   }): Promise<{ url: string } | null>;
   /** App version string (`app.getVersion()` on Electron, package version on web). */
   appVersion(): string;
+  /**
+   * Whether the current host may register OS autostart for the GUI. False on
+   * the web/server host (autostart_set registers a bare executable — a Node
+   * server needs args + cwd, so registering it would launch a dead REPL) and
+   * false on unpackaged desktop dev builds. The router refuses
+   * `setDaemonAutostart` and the settings page disables the toggle on false.
+   */
+  readonly canAutostart: boolean;
   /** False in dev builds. */
   isPackaged(): boolean;
   /**

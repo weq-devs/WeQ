@@ -28,6 +28,12 @@ export interface ReleasePageInput {
   summary: string;
   /** GitHub release 页跳转地址。 */
   releaseUrl: string;
+  /**
+   * docroot 内的路由名（`/p/<slug>.html` / `/cover/<slug>.png`）。
+   * 默认 `release`（守护进程 Release 监控的推文）；应用内更新检查的
+   * 「更新可用」推文用 `update`，两者互不覆盖。
+   */
+  slug?: string;
 }
 
 /** /p/release 的跳转页 HTML（风格与 daily / stats 页一致）。 */
@@ -142,10 +148,11 @@ export async function publishReleasePages(
   docroot: string,
   input: ReleasePageInput,
 ): Promise<boolean> {
-  const writtenPage = publishDocrootFile(docroot, 'p/release.html', renderReleasePageHtml(input));
+  const slug = input.slug ?? 'release';
+  const writtenPage = publishDocrootFile(docroot, `p/${slug}.html`, renderReleasePageHtml(input));
   try {
     const png = await renderCardPng(releaseCardSpec(input));
-    const writtenCover = publishDocrootFile(docroot, 'cover/release.png', png);
+    const writtenCover = publishDocrootFile(docroot, `cover/${slug}.png`, png);
     if (writtenPage && writtenCover) return true;
   } catch (error) {
     logger.warn('failed to render release cover', {

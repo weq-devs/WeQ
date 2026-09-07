@@ -16,6 +16,7 @@ import {
   daemonReleaseWatchStatus,
   daemonAutostartStatus,
   DAEMON_PIPE_NAME,
+  getHost,
 } from '@weq/service';
 
 /** {@link getDaemonHealth} 的返回形状。 */
@@ -24,6 +25,8 @@ export interface DaemonHealth {
   alive: boolean;
   /** 守护进程自身版本（alive 时有效）。 */
   version: string | null;
+  /** 当前宿主是否允许设置开机自启（浏览器版 / 开发模式 = false）。 */
+  autostartSupported: boolean;
   http: {
     running: boolean;
     port: number | null;
@@ -53,9 +56,17 @@ export interface DaemonHealth {
  * null（设置页显示「守护进程未运行」，并给出拉起指引）。
  */
 export async function getDaemonHealth(): Promise<DaemonHealth> {
+  const autostartSupported = getHost().canAutostart;
   const pong = await pingDaemon(DAEMON_PIPE_NAME);
   if (!pong) {
-    return { alive: false, version: null, http: null, release: null, autostart: null };
+    return {
+      alive: false,
+      version: null,
+      autostartSupported,
+      http: null,
+      release: null,
+      autostart: null,
+    };
   }
   const [http, release, autostart] = await Promise.all([
     daemonHttpStatus(DAEMON_PIPE_NAME),
@@ -65,6 +76,7 @@ export async function getDaemonHealth(): Promise<DaemonHealth> {
   return {
     alive: true,
     version: pong.version,
+    autostartSupported,
     http: http ? { running: http.running, port: http.port, docroot: http.docroot } : null,
     release: release
       ? {

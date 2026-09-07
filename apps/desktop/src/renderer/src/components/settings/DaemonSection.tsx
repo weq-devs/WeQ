@@ -370,11 +370,19 @@ export function DaemonSection(): ReactElement {
       <Card title="开机自动启动">
         <Row
           label="开机自动启动 WeQ"
-          desc="WeQ 不注册系统自启动任务——设置写入守护进程（weq-daemon），开机后由守护进程拉起 WeQ。守护进程自身随系统自启动注册，始终先于 WeQ 就绪。"
+          desc={
+            healthData?.autostartSupported === false
+              ? '当前环境不支持开机自启：浏览器版的启动由部署方用 systemd / 计划任务管理；开发模式（pnpm dev）不注册自启动。'
+              : 'WeQ 不注册系统自启动任务——设置写入守护进程（weq-daemon），开机后由守护进程拉起 WeQ。守护进程自身随系统自启动注册，始终先于 WeQ 就绪。'
+          }
           control={
             <Toggle
               checked={autostartEnabled}
-              disabled={setAutostart.isLoading || !healthData?.alive}
+              disabled={
+                setAutostart.isLoading ||
+                !healthData?.alive ||
+                healthData?.autostartSupported === false
+              }
               onChange={(next) => void onToggleAutostart(next)}
               label="开机自动启动 WeQ"
             />
@@ -385,11 +393,13 @@ export function DaemonSection(): ReactElement {
             <StateDot
               on={(autostartData?.registered ?? false) && autostartEnabled}
               label={
-                !healthData?.alive
-                  ? '需要守护进程运行'
-                  : autostartData?.registered
-                    ? '系统注册在位'
-                    : '未注册'
+                healthData?.autostartSupported === false
+                  ? '当前环境不支持'
+                  : !healthData?.alive
+                    ? '需要守护进程运行'
+                    : autostartData?.registered
+                      ? '系统注册在位'
+                      : '未注册'
               }
             />
           }

@@ -70,6 +70,23 @@ pnpm i
 pnpm dev
 ```
 
+`pnpm dev` 只启动 electron-vite 开发服务（workspace 里的 TS 包即改即用，无需预构建）；要**完整跑起来**还需按需执行：
+
+| 命令 | 产物 | 用途 |
+| --- | --- | --- |
+| `pnpm run build:ninebird` | `resources/ninebird-runtime/*.js` | QQ 扫码 / 快速登录 loader（登录功能必需） |
+| `pnpm run build:daemon` | `resources/daemon/<平台>-<架构>/weq-daemon` | WeQ 助手推文服务、Release 监控、开机自启（需要 Rust 工具链） |
+| `pnpm run build:bot` | `resources/bot-runtime/bot.mjs` | 机器人推文运行时 |
+
+打包发布：
+
+```bash
+pnpm run build                  # = build:bot + build:ninebird + 桌面版构建 + electron-builder（安装包）
+pnpm --filter @weq/web build    # 浏览器版（先跑 pnpm run build:daemon 保证随包二进制齐全）
+```
+
+统一修改所有包的版本号：`pnpm run version:set 0.5.0`（支持 `--dry-run` 预览；改完记得 `pnpm i` 刷新 lockfile）。
+
 > 贡献代码请先阅读 [贡献指南](./CONTRIBUTING.md)  以及本项目[原理](./docs/principles/index.md) 作为参考
 
 ## 开源协议

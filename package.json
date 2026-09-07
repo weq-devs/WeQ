@@ -20,7 +20,8 @@
     "format:check": "biome format .",
     "check": "biome check .",
     "build:ninebird": "node packages/ninebird/scripts/build.mjs",
-    "build:daemon": "node packages/daemon/scripts/build.mjs"
+    "build:daemon": "node packages/daemon/scripts/build.mjs",
+    "version:set": "node scripts/set-version.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.4",

@@ -31,6 +31,10 @@ export function createWebHost({ exportDir, version }: WebHostOptions): HostBridg
 
   return {
     canReveal: false,
+    // 浏览器版：daemon 的 autostart_set 只注册一个裸可执行文件，而 web 包
+    // 的入口是 `node server.mjs`（需要参数 + 工作目录），注册了也起不来。
+    // 自启动一律拒绝，由部署方用 systemd / 计划任务管理（见 apps/web/README）。
+    canAutostart: false,
 
     async pickDirectory() {
       // No dialog: everything lands in the server-side export dir.

@@ -113,5 +113,8 @@ export const electronHost: HostBridge = {
 
   appVersion: () => app.getVersion(),
   isPackaged: () => app.isPackaged,
+  // 自启动交给守护进程注册的是裸 exe：pnpm dev 拉起的 electron 没有安装、
+  // 没有固定路径语义，注册进系统自启是错的 —— 只允许打包版开启。
+  canAutostart: app.isPackaged,
   currentExePath: () => app.getPath('exe'),
 };
