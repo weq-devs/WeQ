@@ -496,15 +496,34 @@ jobs:
           gh release delete-asset "${{ github.ref_name }}" latest-mac-arm64.yml --yes || true
 
   # ============================ Web（浏览器版）============================
-  # 平台无关：一个 tar.gz 同时含 win32-x64 / linux-x64 / linux-arm64 三份
-  # native/，运行时按 process.platform/arch 自动选，所以只构建一次。
-  # 不内置 Node（要求机器上有 Node ≥22），产物约 24 MB。
+  # 每个平台/架构单独产一个 tar.gz：native/、守护进程二进制和 resvg binding
+  # 都是平台绑定的，所以不再做「一包通吃」的通用包，改到各自 runner 上构建，
+  # 各自只带当前平台的产物。不内置 Node（要求机器上有 Node ≥22）。
   #
   # 依赖 windows job：Release 由 electron-builder --publish 创建，这里只往
   # 已存在的 Release 上传，不自己建。
   web:
     needs: [windows]
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            runs-on: windows-latest
+            architecture: x64
+          - name: Linux x64
+            runs-on: ubuntu-latest
+            architecture: x64
+          - name: Linux arm64
+            runs-on: ubuntu-24.04-arm
+            architecture: arm64
+          - name: macOS Intel (x64)
+            runs-on: macos-15-intel
+            architecture: x64
+          - name: macOS Apple Silicon (arm64)
+            runs-on: macos-15
+            architecture: arm64
+    runs-on: ${{ matrix.runs-on }}
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     steps:
@@ -517,10 +536,20 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          architecture: ${{ matrix.architecture }}
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # 与桌面版各平台 job 同款校验：避免 Rosetta / 架构错配导致打包出
+      # 「arm64 壳 + x64 binding」的坏包。
+      - name: Verify Node architecture
+        shell: bash
+        run: |
+          ARCH="$(node -p process.arch)"
+          echo "node arch: $ARCH"
+          test "$ARCH" = "${{ matrix.architecture }}" || { echo "expected ${{ matrix.architecture }}, got $ARCH"; exit 1; }
 
       # 版本号会被 esbuild 烘焙进 server.mjs（设置页显示 + 压缩包命名）。
       - name: Sync version from tag
@@ -530,8 +559,9 @@ jobs:
       - name: Build ninebird runtime
         run: pnpm run build:ninebird
 
-      # 浏览器版用户自备 Node，守护进程补上二进制：三个平台一起打进压缩包。
-      - name: Build daemon binaries
+      # 浏览器版用户自备 Node，守护进程补上二进制：本 runner 只构建并打进
+      # 当前平台那一份（build-server / pack 会按 process.platform/arch 认定）。
+      - name: Build daemon binary
         run: pnpm run build:daemon
 
       # 含 check 守卫：确认没有 Electron 代码泄漏进 web 构建。
@@ -539,7 +569,7 @@ jobs:
         run: pnpm --filter @weq/web build
 
       # 把 ws / resvg 预装进 dist/node_modules 一起发布，用户解压即可运行，
-      # 不需要联网 npm install。resvg 按平台选 binding，所以三平台的都装上。
+      # 不需要联网 npm install。resvg 按平台选 binding，单平台包只装当前那份。
       - name: Install runtime deps into dist/
         run: pnpm --filter @weq/web deps
 
@@ -551,12 +581,14 @@ jobs:
         run: pnpm --filter @weq/web pack:release ${{ github.ref_name }}
 
       - name: Upload to release
+        shell: bash
         run: gh release upload "${{ github.ref_name }}" apps/web/release/*.tar.gz --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Dump build output on failure
         if: failure()
+        shell: bash
         run: |
           echo "== apps/web/dist =="
           ls -laR apps/web/dist 2>/dev/null | head -50 || echo "(no dist/)"
@@ -602,9 +634,14 @@ jobs:
           - **Linux arm64（未实测）**: \`weQ-${TAG#v}-linux-arm64.AppImage\` / \`.tar.gz\`
           - **macOS Intel (x64)**: \`weQ-${TAG#v}-mac-x64.dmg\`（未签名）
           - **macOS Apple Silicon (arm64)**: \`weQ-${TAG#v}-mac-arm64.dmg\`（未签名）
-          - **浏览器版**: \`weq-web-${TAG#v}.tar.gz\` —— 三平台通用，需自备 Node ≥22。
+          - **浏览器版 Web**（需自备 Node ≥22，每平台一个压缩包，按运行机器选）：
+            - Windows x64: \`weq-web-${TAG#v}-win32-x64.tar.gz\`
+            - Linux x64: \`weq-web-${TAG#v}-linux-x64.tar.gz\`
+            - Linux arm64: \`weq-web-${TAG#v}-linux-arm64.tar.gz\`
+            - macOS Intel (x64): \`weq-web-${TAG#v}-darwin-x64.tar.gz\`
+            - macOS Apple Silicon (arm64): \`weq-web-${TAG#v}-darwin-arm64.tar.gz\`
+            每个包自带对应平台的 native 原生模块与 Rust 守护进程二进制，
             详见[使用说明](https://github.com/${REPO}/blob/main/apps/web/README.md)
-            （包内自带 Rust 守护进程二进制：\`daemon/<platform>-<arch>/\`）
 
           ### 变更
           ${CHANGES}
@@ -639,7 +676,11 @@ jobs:
           LINUX_ARM64_URL="${BASE_URL}/weQ-${VER}-linux-arm64.AppImage"
           MAC_X64_URL="${BASE_URL}/weQ-${VER}-mac-x64.dmg"
           MAC_ARM64_URL="${BASE_URL}/weQ-${VER}-mac-arm64.dmg"
-          WEB_URL="${BASE_URL}/weq-web-${VER}.tar.gz"
+          WEB_WIN_X64_URL="${BASE_URL}/weq-web-${VER}-win32-x64.tar.gz"
+          WEB_LINUX_X64_URL="${BASE_URL}/weq-web-${VER}-linux-x64.tar.gz"
+          WEB_LINUX_ARM64_URL="${BASE_URL}/weq-web-${VER}-linux-arm64.tar.gz"
+          WEB_DARWIN_X64_URL="${BASE_URL}/weq-web-${VER}-darwin-x64.tar.gz"
+          WEB_DARWIN_ARM64_URL="${BASE_URL}/weq-web-${VER}-darwin-arm64.tar.gz"
 
           gh release download "${VERSION}" --pattern "${EXE}" --dir /tmp/release
 
@@ -662,7 +703,11 @@ jobs:
           echo "linux_arm64_url=${LINUX_ARM64_URL}" >> $GITHUB_OUTPUT
           echo "mac_x64_url=${MAC_X64_URL}" >> $GITHUB_OUTPUT
           echo "mac_arm64_url=${MAC_ARM64_URL}" >> $GITHUB_OUTPUT
-          echo "web_url=${WEB_URL}"             >> $GITHUB_OUTPUT
+          echo "web_win_x64_url=${WEB_WIN_X64_URL}"     >> $GITHUB_OUTPUT
+          echo "web_linux_x64_url=${WEB_LINUX_X64_URL}" >> $GITHUB_OUTPUT
+          echo "web_linux_arm64_url=${WEB_LINUX_ARM64_URL}" >> $GITHUB_OUTPUT
+          echo "web_darwin_x64_url=${WEB_DARWIN_X64_URL}" >> $GITHUB_OUTPUT
+          echo "web_darwin_arm64_url=${WEB_DARWIN_ARM64_URL}" >> $GITHUB_OUTPUT
           { echo "body<<BODY_EOF"; echo "$BODY"; echo "BODY_EOF"; } >> $GITHUB_OUTPUT
 
       - name: Send QQ notification (with exe)
@@ -685,7 +730,12 @@ jobs:
             - Linux arm64 AppImage [下载链接](${{ steps.prep.outputs.linux_arm64_url }})
             - macOS Intel dmg（未签名）[下载链接](${{ steps.prep.outputs.mac_x64_url }})
             - macOS Apple Silicon dmg（未签名）[下载链接](${{ steps.prep.outputs.mac_arm64_url }})
-            - 浏览器版 Web [下载链接](${{ steps.prep.outputs.web_url }})
+            - 浏览器版 Web（每平台一包）：
+              Windows x64 [下载链接](${{ steps.prep.outputs.web_win_x64_url }}) /
+              Linux x64 [下载链接](${{ steps.prep.outputs.web_linux_x64_url }}) /
+              Linux arm64 [下载链接](${{ steps.prep.outputs.web_linux_arm64_url }}) /
+              macOS Intel [下载链接](${{ steps.prep.outputs.web_darwin_x64_url }}) /
+              macOS Apple Silicon [下载链接](${{ steps.prep.outputs.web_darwin_arm64_url }})
 
             欢迎大家测试使用新的功能喵~
           file_path: /tmp/release/${{ steps.prep.outputs.exe }}
@@ -712,6 +762,11 @@ jobs:
             - Linux arm64 AppImage [下载链接](${{ steps.prep.outputs.linux_arm64_url }})
             - macOS Intel dmg（未签名）[下载链接](${{ steps.prep.outputs.mac_x64_url }})
             - macOS Apple Silicon dmg（未签名）[下载链接](${{ steps.prep.outputs.mac_arm64_url }})
-            - 浏览器版 Web [下载链接](${{ steps.prep.outputs.web_url }})
+            - 浏览器版 Web（每平台一包）：
+              Windows x64 [下载链接](${{ steps.prep.outputs.web_win_x64_url }}) /
+              Linux x64 [下载链接](${{ steps.prep.outputs.web_linux_x64_url }}) /
+              Linux arm64 [下载链接](${{ steps.prep.outputs.web_linux_arm64_url }}) /
+              macOS Intel [下载链接](${{ steps.prep.outputs.web_darwin_x64_url }}) /
+              macOS Apple Silicon [下载链接](${{ steps.prep.outputs.web_darwin_arm64_url }})
 
             欢迎大家测试使用新的功能喵~

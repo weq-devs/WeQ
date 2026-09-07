@@ -169,7 +169,9 @@ jobs:
           fi
           rm -f apps/desktop/package.release.json
 
-  # 浏览器版打包冒烟：构建 → 两个守卫 → 启动真实产物走一遍鉴权流程。
+  # 浏览器版打包冒烟（linux-x64）：native/ + daemon 随包 → 两个守卫 →
+  # 启动真实产物走一遍鉴权流程。产物现在按平台/架构各自成包，build-web 冒烟
+  # 的就是 release web 矩阵里 linux-x64 那一条。
   # 守卫防的是同一类回归：Electron-only 的代码混进 web 构建后不会报错，
   # 只在运行时炸成一句看不懂的 "does not provide an export named 'app'"。
   build-web:
@@ -198,6 +200,14 @@ jobs:
       # 先打 NineBird loader 运行时，build-server 才会把它拷进 dist/resources/。
       - name: Build ninebird runtime
         run: pnpm run build:ninebird
+
+      # 先打当前平台（linux-x64）的守护进程，build-server 与 smoke 才会把它
+      # 视作打包目标的一部分；与 release 的 web 矩阵保持一致。
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build daemon binary
+        run: pnpm run build:daemon
 
       # build 内含 check：check-electron-free（走真实 import 图）
       # + check-bundle（扫前端产物里残留的自定义协议 URL）。

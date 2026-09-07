@@ -20,7 +20,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -84,7 +84,7 @@ function main() {
   const outDir = join(stageRoot, `${platform}-${arch}`);
   mkdirSync(outDir, { recursive: true });
   const outFile = join(outDir, process.platform === 'win32' ? 'weq-daemon.exe' : 'weq-daemon');
-  execFileSync('cp', ['-f', built, outFile]);
+  copyFileSync(built, outFile);
 
   const size = statSync(outFile).size;
   console.log(`[build:daemon] staged ${outFile} (${(size / 1024 / 1024).toFixed(1)} MB)`);

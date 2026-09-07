@@ -15,7 +15,14 @@
 
 需要 **Node.js ≥ 22**（不内置）。
 
-从 [Releases](../../releases) 下载 `weq-web-<版本>.tar.gz`，解压后：
+从 [Releases](../../releases) 下载与运行机器匹配的压缩包，解压后：
+
+> 每个平台一个包，请按运行机器选择：
+> - Windows x64 → `weq-web-<版本>-win32-x64.tar.gz`
+> - Linux x64 → `weq-web-<版本>-linux-x64.tar.gz`
+> - Linux arm64 → `weq-web-<版本>-linux-arm64.tar.gz`
+> - macOS Intel (x64) → `weq-web-<版本>-darwin-x64.tar.gz`
+> - macOS Apple Silicon (arm64) → `weq-web-<版本>-darwin-arm64.tar.gz`
 
 ```bash
 # Linux（建议 root，原因见下）
@@ -37,8 +44,8 @@ sudo ./start.sh
 
 浏览器打开该地址，粘贴令牌即可进入。之后的流程和桌面版一致：取密钥 → 打开账号 → 看消息。
 
-一个压缩包同时支持 **Windows x64 / Linux x64 / Linux arm64**，启动时按当前平台
-自动选择 `native/` 下对应的原生模块。
+每个压缩包只包含自己平台的原生模块（`native/`）和守护进程二进制
+（`resources/daemon/`），启动时由本机平台直接选用，因此不要跨平台解压使用。
 
 ### Linux 为什么建议 root
 
@@ -143,6 +150,16 @@ pnpm --filter @weq/web start     # 需先 build 过一次
 pnpm --filter @weq/web test        # 鉴权 + 端到端闸测试
 pnpm --filter @weq/web check       # 确认没有 Electron 代码泄漏进 web 构建
 pnpm --filter @weq/web test:dist   # 启动打包产物跑一遍完整流程
+```
+
+`test:dist` 校验随包的 native 与 daemon 都是**当前平台**的产物，所以要先为当前
+机器构建守护进程再打包：
+
+```bash
+pnpm run build:daemon              # 产出 resources/daemon/<platform>-<arch>/
+pnpm --filter @weq/web build       # 构建 + 两个守卫
+pnpm --filter @weq/web deps        # 预装当前平台的 ws / resvg binding
+pnpm --filter @weq/web test:dist   # 冒烟
 ```
 
 `check` 有两个守卫，都是为了防同一类回归 —— Electron-only 的代码悄悄混进 web 构建后，

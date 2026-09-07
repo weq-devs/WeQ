@@ -6,11 +6,9 @@
  * a server with no npm registry access, or no network at all, still has to
  * start.
  *
- * The catch is resvg: it picks its binding from an OPTIONAL dependency chosen
- * by the installing machine's platform, but our archive is universal. So we
- * install the host's own set first, then force-add the bindings for every
- * platform we ship. `js-binding.js` requires them by name at runtime, so
- * whichever one matches the running machine resolves and the rest sit unused.
+ * resvg picks its binding from an OPTIONAL dependency chosen by the installing
+ * machine's platform. Each release archive is single-platform now (built on
+ * that platform's own runner), so only the matching binding is added.
  *
  *   node scripts/install-runtime-deps.mjs
  */
@@ -19,20 +17,10 @@ import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { currentTarget, RESVG_BINDINGS } from './platform.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = resolve(here, '../dist');
-
-/**
- * resvg bindings for every platform/arch the archive claims to support. Kept
- * in sync with `native/` (win32-x64, linux-x64, linux-arm64); the `-gnu`
- * variants cover glibc, which is what the AppImage/tarball target anyway.
- */
-const RESVG_BINDINGS = [
-  '@resvg/resvg-js-win32-x64-msvc',
-  '@resvg/resvg-js-linux-x64-gnu',
-  '@resvg/resvg-js-linux-arm64-gnu',
-];
 
 const RESVG_VERSION = '2.6.2';
 
@@ -51,17 +39,14 @@ function npm(args, label) {
 
 npm(['install', '--omit=dev', '--no-audit', '--no-fund'], 'installing runtime deps');
 
+const target = currentTarget();
+const binding = RESVG_BINDINGS[target];
+
 // `--force` because npm refuses to add a package whose `os`/`cpu` fields don't
-// match the host — which is exactly what we're doing on purpose.
+// match the host — guaranteed to match here, kept for determinism.
 npm(
-  [
-    'install',
-    '--no-audit',
-    '--no-fund',
-    '--force',
-    ...RESVG_BINDINGS.map((p) => `${p}@${RESVG_VERSION}`),
-  ],
-  'installing cross-platform resvg bindings',
+  ['install', '--no-audit', '--no-fund', '--force', `${binding}@${RESVG_VERSION}`],
+  `installing resvg binding for ${target}`,
 );
 
-console.log(`\n  runtime deps installed → ${join(dist, 'node_modules')}\n`);
+console.log(`\n  runtime deps installed → ${join(dist, 'node_modules')} (${target})\n`);

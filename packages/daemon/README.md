@@ -96,7 +96,9 @@ pnpm --filter @weq/daemon test
 产物按 `resources/daemon/<platform>-<arch>/` 落位（`win32-x64` / `linux-x64` / `linux-arm64` / `darwin-x64` / `darwin-arm64`）：
 
 - 桌面版：electron-builder 的 `extraResources` 原样拷贝 `resources/`，二进制随安装包发布（release 环境约 0.7 MB）。
-- 浏览器版：`apps/web/scripts/build-server.mjs` 把 `resources/daemon/` 一并拷进 `dist/`，`smoke-dist.ts` 校验三平台二进制齐全。
+- 浏览器版：每个平台/架构各产一个压缩包（release web 矩阵在各自 runner 上跑
+  `build:daemon`），`apps/web/scripts/build-server.mjs` 把当前平台的
+  `resources/daemon/<platform>-<arch>/` 拷进 `dist/`，`smoke-dist.ts` 校验本平台二进制齐全。
 
 ## 设计边界（刻意的）
 

@@ -49,11 +49,12 @@
 除桌面版外还提供 **WeQ Web** —— 同一套界面与功能，跑在浏览器里。适合无桌面环境的机器
 （NAS / 服务器 / WSL），或想从别的设备访问。
 
-下载 `weq-web-<版本>.tar.gz`（三平台通用，需自备 Node ≥ 22），解压后：
+下载 `weq-web-<版本>-<平台>.tar.gz`（每个平台一个包，需自备 Node ≥ 22），
+解压后直接运行启动脚本即可（Windows 双击 `start.bat`，Linux/macOS 执行 `./start.sh`）：
 
 ```bash
-npm install --omit=dev
-node server.mjs
+./start.sh        # Linux / macOS
+start.bat         # Windows
 ```
 
 终端会打印地址和访问令牌，浏览器打开即可。默认只监听本机；

@@ -4,10 +4,11 @@
  * Separate from `build-server.mjs` so a normal `pnpm build` doesn't pay the
  * compression cost — only the release workflow calls this.
  *
- * One archive covers every platform: `native/` ships all three platform/arch
- * subtrees and the loader picks the right one at runtime. `node_modules` is
- * shipped pre-installed (see `install-runtime-deps.mjs`) so an offline server
- * can start straight out of the tarball.
+ * One archive per platform/arch: `native/` and `resources/daemon/` carry only
+ * the packaging target's binaries (each release runner builds its own web
+ * tarball). `node_modules` is shipped pre-installed (see
+ * `install-runtime-deps.mjs`) so an offline server can start straight out of
+ * the tarball.
  *
  *   node scripts/pack-release.mjs [version]
  */
@@ -16,6 +17,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, openSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { currentTarget, daemonExe, LABELS, nativeRel } from './platform.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appRoot = resolve(here, '..');
@@ -25,6 +27,8 @@ const outDir = join(appRoot, 'release');
 const version =
   process.argv[2]?.replace(/^v/, '') ??
   JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf8')).version;
+const target = currentTarget();
+const label = LABELS[target];
 
 for (const entry of [
   'server.mjs',
@@ -44,8 +48,21 @@ for (const entry of [
 }
 
 mkdirSync(outDir, { recursive: true });
-const name = `weq-web-${version}.tar.gz`;
+const name = `weq-web-${version}-${target}.tar.gz`;
 const archive = join(outDir, name);
+
+// The archive is single-platform: it must contain this machine's native addons
+// and daemon binary or it would ship a package that cannot start QQ-side work.
+for (const required of [
+  join(dist, 'native', nativeRel(target)),
+  join(dist, 'resources', 'daemon', target, daemonExe(target)),
+]) {
+  if (existsSync(required)) continue;
+  console.error(
+    `\n${required} missing — run \`pnpm run build:daemon && pnpm --filter @weq/web build\` first`,
+  );
+  process.exit(1);
+}
 
 // Notes on the argv shape:
 //   -C dist .        unpacks into the current directory, not a nested dist/
@@ -82,4 +99,4 @@ if (res.status !== 0) {
 }
 
 const mb = (statSync(archive).size / 1024 / 1024).toFixed(1);
-console.log(`\n  packed → ${archive}  (${mb} MB)\n`);
+console.log(`\n  packed → ${archive}  (${label}, ${mb} MB)\n`);
