@@ -106,10 +106,10 @@ export async function uploadQzoneImage(
   const body = new URLSearchParams({
     filename: 'filename',
     uin: cred.uin,
-    skey: jar['skey'] ?? cred.skey,
+    skey: jar.skey ?? cred.skey,
     zzpaneluin: cred.uin,
     p_uin: cred.uin,
-    p_skey: jar['p_skey'] ?? cred.pskey,
+    p_skey: jar.p_skey ?? cred.pskey,
     uploadtype: '1',
     albumtype: '7',
     exttype: '0',
@@ -151,7 +151,7 @@ export async function uploadQzoneImage(
   if (typeof data.subcode === 'number' && data.subcode !== 0) {
     throw qzoneCodeError('qzone upload image', data.subcode, data.message);
   }
-  if (!data.data || !data.data.albumid || !data.data.lloc || !data.data.url) {
+  if (!data.data?.albumid || !data.data.lloc || !data.data.url) {
     throw new Error('上传图片失败：响应缺少必要字段');
   }
 
@@ -213,9 +213,7 @@ export async function publishQzoneMsg(
     throw new Error('ugc_right 必须是 1, 4, 16, 64, 128 之一');
   }
   const needsTargets = ugcRight === 16 || ugcRight === 128;
-  const targets = (targetUins ?? [])
-    .map((u) => u.trim())
-    .filter((u) => /^\d+$/.test(u));
+  const targets = (targetUins ?? []).map((u) => u.trim()).filter((u) => /^\d+$/.test(u));
   if (needsTargets && targets.length === 0) {
     throw new Error('ugc_right 为 16/128 时必须提供 targetUins');
   }

@@ -4,7 +4,11 @@ import { getAppContext, type AccountServices } from '../../context/app_context';
 import type { AnnualReportPreferences, ResolvedMsgDecoration } from '@weq/service';
 import { getHost } from '@weq/service';
 import { reportPeriodLabel } from '@weq/service/report-time';
-import { renderLongImagePng, renderSharePngs, type ReportExportSlide } from '../../annual_report_export';
+import {
+  renderLongImagePng,
+  renderSharePngs,
+  type ReportExportSlide,
+} from '../../annual_report_export';
 import { procedure, router } from '../trpc';
 
 /** 说说一次最多带 9 张图 —— 超出的页数在 router 层直接拒绝。 */
@@ -206,7 +210,9 @@ export const annualReportRouter = router({
       const services = requireServices();
 
       if (input.slides.length > QZONE_MAX_IMAGES) {
-        throw new Error(`说说一次最多 ${QZONE_MAX_IMAGES} 张图，当前选了 ${input.slides.length} 页`);
+        throw new Error(
+          `说说一次最多 ${QZONE_MAX_IMAGES} 张图，当前选了 ${input.slides.length} 页`,
+        );
       }
 
       // 分享者信息：昵称 + 头像字节（主进程直接读本地头像缓存，离线也能画）。
@@ -216,8 +222,8 @@ export const annualReportRouter = router({
       try {
         const uin = profile?.uin != null ? String(profile.uin) : '';
         const path = uin
-          ? (await services.avatarResource.resolveByUin('user', uin, 'big')) ??
-            (await services.avatarResource.resolveByUin('user', uin, 'small'))
+          ? ((await services.avatarResource.resolveByUin('user', uin, 'big')) ??
+            (await services.avatarResource.resolveByUin('user', uin, 'small')))
           : null;
         if (path) avatar = await readFile(path);
       } catch {

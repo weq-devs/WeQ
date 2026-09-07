@@ -174,9 +174,7 @@ export function QzoneShareLightbox({
               <span
                 className="weq-qzshare-avatar"
                 style={
-                  selfFace.avatarUrl
-                    ? { backgroundImage: `url(${selfFace.avatarUrl})` }
-                    : undefined
+                  selfFace.avatarUrl ? { backgroundImage: `url(${selfFace.avatarUrl})` } : undefined
                 }
                 aria-hidden
               >
@@ -223,12 +221,7 @@ export function QzoneShareLightbox({
             已选 {selected.size} / {QZONE_MAX_IMAGES} 张
           </span>
           <div className="weq-qzshare-actions">
-            <button
-              type="button"
-              className="weq-qzshare-cancel"
-              disabled={busy}
-              onClick={onClose}
-            >
+            <button type="button" className="weq-qzshare-cancel" disabled={busy} onClick={onClose}>
               取消
             </button>
             <button
