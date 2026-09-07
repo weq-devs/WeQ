@@ -1,5 +1,6 @@
 import type { PageAvailability, ReportPageDefinition } from '../../types';
 import { reportYearUnixRange } from '../../time';
+import { dayIndex, longestRun } from '../../day_runs';
 import { segmentWords } from '../../../text_segment';
 import type { C2cMsg } from '@weq/db';
 import type { SparkBest, SparkPageData, SparkTopDay, SparkWallDay } from './types';
@@ -161,28 +162,6 @@ export const sparkPage: ReportPageDefinition<SparkPageData> = {
     };
   },
 };
-
-/** 本地自然日索引（unix 天数）—— 判断连续用的稳定整数。 */
-function dayIndex(date: string): number {
-  const [y, m, d] = date.split('-').map(Number);
-  return Math.floor(new Date(y!, m! - 1, d!).getTime() / 86_400_000);
-}
-
-/** 最长连续段。 */
-function longestRun(sorted: number[]): number {
-  if (sorted.length === 0) return 0;
-  let longest = 1;
-  let run = 1;
-  for (let i = 1; i < sorted.length; i++) {
-    if (sorted[i] === sorted[i - 1]! + 1) {
-      run += 1;
-      if (run > longest) longest = run;
-    } else {
-      run = 1;
-    }
-  }
-  return longest;
-}
 
 /** 那几天的正文 → 去掉虚词后的高频词。 */
 function topWords(messages: C2cMsg[], n: number): string[] {

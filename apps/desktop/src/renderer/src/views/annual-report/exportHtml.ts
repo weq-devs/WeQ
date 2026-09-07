@@ -204,6 +204,76 @@ const CSS = `
      （屏幕版的「全年装扮率」一格并入上方 dr-sum）。 */
   .dr-kinds { margin-top: 3mm; display: flex; gap: 5mm; font-size: 9pt; color: var(--ink-soft); }
   .dr-kinds span + span { padding-left: 5mm; border-left: 0.25mm solid var(--hair); }
+  /* 好友榜页。屏幕版的头像是 weq-media:// 的本地缓存，导出必须自包含，所以这里
+     一律不画脸。但**两幕的形状照旧分开**：火花是横向引线（长度 = 天数），
+     消息量是纵向柱阵（高度 = 条数）—— 那才是这一页区别于其它页的地方，
+     丢了形状就只剩两组数字。静态产物没有动画，引线和柱子直接画在终态。 */
+  .fr-kicker { display: flex; justify-content: space-between; align-items: baseline; font-size: 8pt; letter-spacing: 3px; color: var(--ink-soft); }
+  .fr-kicker-meta { font-size: 7.5pt; letter-spacing: 2px; color: var(--ink-faint); }
+  .fr-board { margin-top: 7mm; padding-top: 4mm; border-top: 0.25mm solid var(--hair); }
+  .fr-board.spark { --tone: #c2703d; }
+  .fr-board.msg { --tone: var(--accent); }
+  .fr-head { display: flex; align-items: baseline; gap: 5mm; }
+  .fr-eyebrow { font-size: 8pt; letter-spacing: 4px; font-weight: 600; color: var(--tone); }
+  .fr-sub { font-size: 7.5pt; letter-spacing: 1px; color: var(--ink-faint); }
+  .fr-empty { margin-top: 3mm; font-family: var(--serif); font-size: 10pt; color: var(--ink-faint); }
+  .fr-num { font-family: var(--serif); font-weight: 600; letter-spacing: -2pt; color: var(--ink); }
+  /* ── 火花幕：横向引线 ── */
+  .fr-fuse-head { display: flex; align-items: baseline; justify-content: space-between; gap: 6mm; margin-top: 2mm; }
+  .fr-fuse-who { display: flex; flex-direction: column; }
+  .fr-fuse-name { font-family: var(--serif); font-size: 13pt; letter-spacing: 1px; color: var(--ink); }
+  .fr-fuse-msgs { margin-top: 1mm; font-size: 7.5pt; letter-spacing: 2px; color: var(--ink-faint); }
+  .fr-fuse-val { display: flex; align-items: baseline; gap: 2.5mm; }
+  .fr-fuse-num { font-size: 42pt; }
+  .fr-fuse-unit { font-family: var(--serif); font-size: 12pt; letter-spacing: 3px; color: var(--tone); }
+  /* 冠军引线满格，末端一枚火种（静态产物里它不跳，只是一个实心圆头）。 */
+  .fr-fuse-track { position: relative; height: 1.4mm; margin-top: 3mm; border-radius: 0.7mm; background: var(--hair); }
+  .fr-fuse-burn {
+    position: relative;
+    display: block;
+    height: 100%;
+    border-radius: 0.7mm;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--tone) 14%, transparent), var(--tone));
+  }
+  .fr-fuse-ember { position: absolute; right: -1.6mm; top: -1.1mm; width: 3.6mm; height: 3.6mm; border-radius: 50%; background: var(--tone); }
+  .fr-fuse-runner { display: flex; align-items: center; gap: 3mm; margin-top: 3mm; }
+  .fr-fuse-rank { font-family: var(--serif); font-size: 9pt; font-weight: 600; color: var(--ink-faint); }
+  .fr-fuse-rname { width: 26mm; overflow: hidden; font-size: 8.5pt; letter-spacing: 1px; color: var(--ink-soft); text-overflow: ellipsis; white-space: nowrap; }
+  .fr-fuse-rtrack { flex: 1; height: 0.7mm; border-radius: 0.35mm; background: var(--hair); }
+  .fr-fuse-rtrack span { display: block; height: 100%; border-radius: 0.35mm; background: color-mix(in srgb, var(--tone) 58%, transparent); }
+  .fr-fuse-rnum { font-family: var(--serif); font-size: 13pt; font-weight: 600; color: var(--ink); }
+  .fr-fuse-runit { font-size: 7pt; color: var(--ink-faint); }
+  /* ── 消息幕：纵向柱阵。巨数在左，八根柱共基线在右（列宽等分，名字截断）。 ── */
+  .fr-vol { display: flex; align-items: flex-end; gap: 9mm; margin-top: 2mm; }
+  .fr-vol-champ { display: flex; flex-direction: column; padding-bottom: 1mm; }
+  .fr-vol-row { display: flex; align-items: baseline; gap: 2.5mm; }
+  .fr-vol-num { font-size: 40pt; }
+  .fr-vol-unit { font-family: var(--serif); font-size: 12pt; letter-spacing: 3px; color: var(--tone); }
+  .fr-vol-name { margin-top: 1.5mm; font-family: var(--serif); font-size: 12pt; letter-spacing: 1px; color: var(--ink); }
+  .fr-stacks { flex: 1; display: flex; align-items: flex-end; gap: 2mm; }
+  .fr-stack { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 1.4mm; }
+  .fr-stack-val { display: flex; align-items: baseline; gap: 0.6mm; }
+  .fr-stack-val b { font-family: var(--serif); font-size: 8pt; font-weight: 600; color: var(--ink-muted); }
+  .fr-stack.champ .fr-stack-val b { font-size: 12pt; color: var(--tone); }
+  .fr-stack-val i { font-size: 6pt; font-style: normal; color: var(--ink-faint); }
+  /* 八列并排时「条」字只会撑宽列、挤掉名字 —— 只有冠军那根保留。 */
+  .fr-stack:not(.champ) .fr-stack-val i { display: none; }
+  /* 柱身的横纹 = 一层层摞起来的消息。冠军那根更宽、更实。 */
+  .fr-stack-bar {
+    width: 100%;
+    max-width: 6mm;
+    border-radius: 0.6mm 0.6mm 0 0;
+    background: repeating-linear-gradient(180deg, color-mix(in srgb, var(--tone) 42%, transparent) 0 0.8mm, transparent 0.8mm 1.6mm);
+    outline: 0.2mm solid color-mix(in srgb, var(--tone) 24%, transparent);
+    outline-offset: -0.2mm;
+  }
+  .fr-stack.champ .fr-stack-bar {
+    max-width: 11mm;
+    outline: none;
+    background: repeating-linear-gradient(180deg, color-mix(in srgb, var(--tone) 82%, transparent) 0 0.8mm, color-mix(in srgb, var(--tone) 28%, transparent) 0.8mm 1.6mm);
+  }
+  .fr-stack-name { max-width: 100%; overflow: hidden; font-size: 6pt; letter-spacing: 0; color: var(--ink-muted); text-overflow: ellipsis; white-space: nowrap; }
+  .fr-stack.champ .fr-stack-name { font-size: 7pt; color: var(--ink-soft); }
   /* 结尾页 */
   .end { text-align: center; }
   .end-line { font-family: var(--serif); font-size: 12pt; letter-spacing: 5px; color: var(--ink-muted); }
@@ -487,6 +557,105 @@ function exportWall(
   return `<div class="sp-cols">${columns.join('')}</div>`;
 }
 
+/**
+ * 好友榜页的导出版。
+ *
+ * 头像在自包含产物里画不出来（`weq-media://` 解析不了，内联 base64 会让一份 A4
+ * 报告涨好几 MB），所以一律去脸。但**两幕的形状必须保留**：火花是横向引线、
+ * 消息量是纵向柱阵 —— 那是这一页区别于其它页的全部理由，只留数字就等于把这页
+ * 退化成一张表。静态产物没有动画，引线和柱子直接画在终态。
+ */
+function friendsSlide(data: Record<string, unknown>): string {
+  const year = Number(data.year ?? 0);
+  type Entry = { peerName: string; value: number; messages: number };
+  const sparkTop = (data.sparkTop ?? []) as Entry[];
+  const messageTop = (data.messageTop ?? []) as Entry[];
+  const friendCount = Number(data.friendCount ?? 0);
+  const totalMessages = Number(data.totalMessages ?? 0);
+
+  /** 幕头：幕名 + 副题。色调由外层 `.fr-board.spark` / `.msg` 的 --tone 决定。 */
+  const head = (eyebrow: string, sub: string): string =>
+    `<div class="fr-head"><span class="fr-eyebrow">${escapeHtml(eyebrow)}</span><span class="fr-sub">${escapeHtml(sub)}</span></div>`;
+
+  /** 以冠军为满格的百分比，与屏幕版同一个下限（4%）。 */
+  const ratio = (value: number, top: number): number =>
+    Math.max(4, Math.round((value / Math.max(1, top)) * 100));
+
+  // ── 第一幕：横向引线 ──
+  const champSpark = sparkTop[0];
+  const fuse = champSpark
+    ? `<div class="fr-fuse-head">
+         <div class="fr-fuse-who">
+           <span class="fr-fuse-name">${escapeHtml(champSpark.peerName)}</span>
+           <span class="fr-fuse-msgs">${fmt(champSpark.messages)} 条私聊</span>
+         </div>
+         <div class="fr-fuse-val">
+           <span class="fr-num fr-fuse-num">${fmt(champSpark.value)}</span>
+           <span class="fr-fuse-unit">天</span>
+         </div>
+       </div>
+       <div class="fr-fuse-track">
+         <span class="fr-fuse-burn" style="width:100%"><span class="fr-fuse-ember"></span></span>
+       </div>
+       ${sparkTop
+         .slice(1)
+         .map(
+           (entry, index) => `<div class="fr-fuse-runner">
+             <span class="fr-fuse-rank">0${index + 2}</span>
+             <span class="fr-fuse-rname">${escapeHtml(entry.peerName)}</span>
+             <span class="fr-fuse-rtrack"><span style="width:${ratio(entry.value, champSpark.value)}%"></span></span>
+             <span class="fr-fuse-rnum">${fmt(entry.value)}</span>
+             <span class="fr-fuse-runit">天</span>
+           </div>`,
+         )
+         .join('')}`
+    : '<div class="fr-empty">还没有连续两天都互相说话的人</div>';
+
+  // ── 第二幕：纵向柱阵（前八名）。最高柱 30mm，最矮也留 3mm。 ──
+  const champMsg = messageTop[0];
+  const vol = champMsg
+    ? `<div class="fr-vol">
+         <div class="fr-vol-champ">
+           <div class="fr-vol-row">
+             <span class="fr-num fr-vol-num">${fmt(champMsg.value)}</span>
+             <span class="fr-vol-unit">条</span>
+           </div>
+           <div class="fr-vol-name">${escapeHtml(champMsg.peerName)}</div>
+         </div>
+         <div class="fr-stacks">
+           ${messageTop
+             .map((entry, index) => {
+               const h = Math.max(
+                 3,
+                 Math.round((entry.value / Math.max(1, champMsg.value)) * 30 * 10) / 10,
+               );
+               return `<div class="fr-stack${index === 0 ? ' champ' : ''}">
+                 <span class="fr-stack-val"><b>${fmt(entry.value)}</b><i>条</i></span>
+                 <span class="fr-stack-bar" style="height:${h}mm"></span>
+                 <span class="fr-stack-name">${escapeHtml(entry.peerName)}</span>
+               </div>`;
+             })
+             .join('')}
+         </div>
+       </div>`
+    : '<div class="fr-empty">还没有双向来往的私聊</div>';
+
+  return `${slideOpen(isAllTimeYear(year) ? 'ALL' : String(year))}
+    <div class="fr-kicker">
+      <span>${escapeHtml(reportEraLabel(year))} · 和你来往最深的人</span>
+      <span class="fr-kicker-meta">${fmt(friendCount)} 位好友 / ${fmt(totalMessages)} 条私聊</span>
+    </div>
+    <div class="fr-board spark">
+      ${head('最长火花', '连着多少天，你们谁都没有断')}
+      ${fuse}
+    </div>
+    <div class="fr-board msg">
+      ${head('聊得最多', '这段时间里，你们一共说了这么多')}
+      ${vol}
+    </div>
+    ${slideFoot(`${reportPeriodLabel(year)} · FRIENDS`)}`;
+}
+
 function endSlide(data: Record<string, unknown>): string {
   const year = Number(data.year ?? 0);
   const allTime = isAllTimeYear(year);
@@ -519,6 +688,7 @@ export function buildReportHtml(year: number, slides: ExportSlide[]): string {
       if (slide.page.id === 'overview') return overviewSlide(data);
       if (slide.page.id === 'dress') return dressSlide(data);
       if (slide.page.id === 'spark') return sparkSlide(data);
+      if (slide.page.id === 'friends') return friendsSlide(data);
       if (slide.page.id === 'end') return endSlide(data);
       return genericSlide(slide);
     })

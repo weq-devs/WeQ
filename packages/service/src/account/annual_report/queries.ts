@@ -1,5 +1,5 @@
 import type { AccountSession } from '@weq/account';
-import { mergeDressTally, type DressTally } from '@weq/db';
+import { mergeDressTally, type C2cPeerDayTally, type DressTally } from '@weq/db';
 import type { DressNameResolver, ReportQueries } from './types';
 
 /**
@@ -26,6 +26,7 @@ export function createReportQueries(
   };
   const countCache = new Map<string, Promise<DirectionCounts>>();
   const dressCache = new Map<string, Promise<DressTally>>();
+  const dayTallyCache = new Map<string, Promise<C2cPeerDayTally[]>>();
   let oldestCache: Promise<number | null> | null = null;
   let sentYearsCache: Promise<number[]> | null = null;
 
@@ -143,9 +144,23 @@ export function createReportQueries(
       /**
        * 私聊的「会话 × 日」聚合。SQL 与方向判据都在 `C2cMsgDb` 里（和
        * `countByDirection` 同一层），这里只按账号会话透传。
+       *
+       * 与 countByDirection 同款的 per-window 记忆化：私聊火花页和好友榜页问的是
+       * 同一个时间窗的同一批桶（一个问「哪一天」、一个问「哪个人」），共享这一次
+       * 全表扫描。**返回的数组是共享只读的**，调用方不得原地修改。
        */
       async peerDayTallies(startTime: number, endTime: number) {
-        return session.c2cMsgs.peerDayTallies({ startTime, endTime });
+        const key = `${startTime}:${endTime}`;
+        let running = dayTallyCache.get(key);
+        if (!running) {
+          running = session.c2cMsgs.peerDayTallies({ startTime, endTime });
+          dayTallyCache.set(key, running);
+          // 失败时清掉缓存，页面重试可以重新扫。
+          void running.catch(() => {
+            dayTallyCache.delete(key);
+          });
+        }
+        return running;
       },
       /**
        * 只解码一个会话在某个时间窗内的正文 —— 热词只针对「最忙那天」，

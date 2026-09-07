@@ -3,6 +3,7 @@ import { FileQuestion } from 'lucide-react';
 import type {
   DressPageData,
   EndPageData,
+  FriendsPageData,
   OverviewPageData,
   ReportPageManifest,
   SparkPageData,
@@ -12,6 +13,7 @@ import { OverviewPage } from './pages/OverviewPage';
 import { DressPage } from './pages/DressPage';
 import { EndPage } from './pages/EndPage';
 import { SparkPage } from './pages/SparkPage';
+import { FriendsPage } from './pages/FriendsPage';
 
 type RegistryProps = { page: ReportPageManifest; data: unknown; active: boolean };
 type PageRenderer = (props: RegistryProps) => ReactElement;
@@ -48,6 +50,9 @@ const pageRegistry: Record<string, PageRenderer> = {
   ),
   spark: ({ page, data, active }) => (
     <SparkPage page={page} data={data as SparkPageData} active={active} />
+  ),
+  friends: ({ page, data, active }) => (
+    <FriendsPage page={page} data={data as FriendsPageData} active={active} />
   ),
   end: ({ page, data, active }) => (
     <EndPage page={page} data={data as EndPageData} active={active} />

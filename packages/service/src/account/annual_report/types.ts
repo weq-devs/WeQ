@@ -154,6 +154,9 @@ export type ReportQueries = {
     /**
      * 一个时间窗内按「会话 × 本地自然日」聚合的条数（含我发/合计），
      * 一次扫描、不读消息体。自然年窗口由调用方从 `reportYearUnixRange` 拿。
+     *
+     * 按时间窗记忆化：多个页面（私聊火花 / 好友榜）问同一个窗口时共享同一次
+     * 扫描，因此返回的数组是**共享只读**的 —— 调用方只能读，不能原地排序或修改。
      */
     peerDayTallies(startTime: number, endTime: number): Promise<C2cPeerDayTally[]>;
     /**

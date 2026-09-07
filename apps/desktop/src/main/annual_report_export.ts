@@ -666,6 +666,295 @@ function cellEl(level: number): El {
   });
 }
 
+/**
+ * 好友榜页的长图版。
+ *
+ * satori 不取远程图，头像画不出来（屏幕版走的是 `weq-media://` 本地缓存协议），
+ * 所以一律去脸。但**两幕的形状必须保留**：火花是横向引线（长度 = 天数）、
+ * 消息量是纵向柱阵（高度 = 条数）—— 那是这一页区别于其它页的全部理由。
+ *
+ * satori 不支持 repeating-linear-gradient，柱身的「一层层消息」改用一叠等高
+ * 小格子真的堆出来（每格 6px + 3px 缝），视觉目的一致而且更实在。
+ */
+function friendsTree(data: Record<string, unknown>): El {
+  const year = Number(data.year ?? 0);
+  type Entry = { peerName: string; value: number; messages: number };
+  const sparkTop = (data.sparkTop ?? []) as Entry[];
+  const messageTop = (data.messageTop ?? []) as Entry[];
+  const friendCount = Number(data.friendCount ?? 0);
+  const totalMessages = Number(data.totalMessages ?? 0);
+
+  /** 火花幕的暖橙，与屏幕版 --rp-flame 深色档同色。 */
+  const FLAME = '#e08b4a';
+  /** 引线轨与柱阵可用的横向宽度。 */
+  const TRACK_W = SLIDE_W - 144;
+
+  const boardHead = (tone: string, eyebrow: string, sub: string): El =>
+    el('div', { marginTop: 24, display: 'flex', alignItems: 'baseline' }, [
+      el('div', { fontSize: 24, fontWeight: 700, color: tone, letterSpacing: 9 }, eyebrow),
+      el('div', { marginLeft: 22, fontSize: 20, color: PALETTE.inkFaint, letterSpacing: 3 }, sub),
+    ]);
+
+  /** 以冠军为满格的比例，下限 4% —— 与屏幕版同一个口径。 */
+  const ratio = (value: number, top: number): number => Math.max(0.04, value / Math.max(1, top));
+
+  // ══ 第一幕：横向引线 ══
+  const champSpark = sparkTop[0];
+  const fuse: El[] = champSpark
+    ? [
+        el(
+          'div',
+          {
+            marginTop: 16,
+            display: 'flex',
+            alignItems: 'baseline',
+            justifyContent: 'space-between',
+            width: TRACK_W,
+          },
+          [
+            el('div', { display: 'flex', flexDirection: 'column' }, [
+              el(
+                'div',
+                { fontSize: 38, color: PALETTE.ink, letterSpacing: 3 },
+                champSpark.peerName,
+              ),
+              el(
+                'div',
+                { marginTop: 6, fontSize: 20, color: PALETTE.inkFaint, letterSpacing: 4 },
+                `${fmt(champSpark.messages)} 条私聊`,
+              ),
+            ]),
+            el('div', { display: 'flex', alignItems: 'baseline' }, [
+              el(
+                'div',
+                { fontSize: 132, fontWeight: 700, color: PALETTE.ink, letterSpacing: -5 },
+                fmt(champSpark.value),
+              ),
+              el('div', { marginLeft: 16, fontSize: 34, color: FLAME, letterSpacing: 6 }, '天'),
+            ]),
+          ],
+        ),
+        // 冠军的引线永远满格 —— 它就是这一幕的标尺。末端一枚火种收口。
+        el(
+          'div',
+          {
+            marginTop: 18,
+            display: 'flex',
+            alignItems: 'center',
+            width: TRACK_W,
+            height: 8,
+            borderRadius: 4,
+            backgroundColor: FLAME,
+          },
+          [
+            el('div', {
+              marginLeft: TRACK_W - 20,
+              width: 20,
+              height: 20,
+              borderRadius: 10,
+              backgroundColor: FLAME,
+            }),
+          ],
+        ),
+        ...sparkTop.slice(1).map((entry, index) =>
+          el(
+            'div',
+            {
+              marginTop: index === 0 ? 26 : 18,
+              display: 'flex',
+              alignItems: 'center',
+              width: TRACK_W,
+            },
+            [
+              el(
+                'div',
+                { width: 34, fontSize: 24, fontWeight: 700, color: PALETTE.inkFaint },
+                `0${index + 2}`,
+              ),
+              el(
+                'div',
+                { width: 210, fontSize: 24, color: PALETTE.inkSoft, letterSpacing: 2 },
+                entry.peerName,
+              ),
+              // 细轨：先画满宽的暗轨，再叠一段按比例的亮轨。
+              el(
+                'div',
+                {
+                  flex: 1,
+                  display: 'flex',
+                  height: 4,
+                  borderRadius: 2,
+                  backgroundColor: PALETTE.hair,
+                },
+                [
+                  el('div', {
+                    width: `${Math.round(ratio(entry.value, champSpark.value) * 100)}%`,
+                    height: 4,
+                    borderRadius: 2,
+                    backgroundColor: 'rgba(224,139,74,0.58)',
+                  }),
+                ],
+              ),
+              el(
+                'div',
+                { marginLeft: 20, fontSize: 40, fontWeight: 700, color: PALETTE.ink },
+                fmt(entry.value),
+              ),
+              el('div', { marginLeft: 6, fontSize: 20, color: PALETTE.inkFaint }, '天'),
+            ],
+          ),
+        ),
+      ]
+    : [
+        el(
+          'div',
+          { marginTop: 20, fontSize: 26, color: PALETTE.inkFaint, letterSpacing: 3 },
+          '还没有连续两天都互相说话的人',
+        ),
+      ];
+
+  // ══ 第二幕：纵向柱阵（前八名）══
+  const champMsg = messageTop[0];
+  /** 最高柱的像素高；其余按条数等比缩，最矮也留一层。 */
+  const STACK_MAX_H = 200;
+  const LAYER = 6;
+  const GAP = 3;
+  /** 八根柱平分整幅宽度。长图是竖幅，柱阵铺满一行才有「一片」的密度。 */
+  const STACK_SLOT = Math.floor(TRACK_W / 8);
+  const STACK_BAR_W = 56;
+  const CHAMP_BAR_W = 84;
+
+  /** 一根柱子：由 n 层小格子真的堆出来（satori 没有 repeating-linear-gradient）。 */
+  const stackBar = (heightPx: number, width: number, champion: boolean): El => {
+    const layers = Math.max(1, Math.round(heightPx / (LAYER + GAP)));
+    return el(
+      'div',
+      { display: 'flex', flexDirection: 'column-reverse', width },
+      Array.from({ length: layers }, (_, i) =>
+        el('div', {
+          marginTop: i === 0 ? 0 : GAP,
+          width,
+          height: LAYER,
+          backgroundColor: champion ? 'rgba(201,162,39,0.86)' : 'rgba(201,162,39,0.4)',
+        }),
+      ),
+    );
+  };
+
+  const vol: El[] = champMsg
+    ? [
+        // 冠军的巨数独占一行 —— 八根柱挤在它右边会把每根压到看不出高度差。
+        el('div', { marginTop: 16, display: 'flex', alignItems: 'baseline' }, [
+          el(
+            'div',
+            { fontSize: 126, fontWeight: 700, color: PALETTE.ink, letterSpacing: -5 },
+            fmt(champMsg.value),
+          ),
+          el(
+            'div',
+            { marginLeft: 16, fontSize: 34, color: PALETTE.accent, letterSpacing: 6 },
+            '条',
+          ),
+          el(
+            'div',
+            { marginLeft: 28, fontSize: 34, color: PALETTE.ink, letterSpacing: 3 },
+            champMsg.peerName,
+          ),
+        ]),
+        // 柱阵铺满整幅宽度，八根共基线。
+        el(
+          'div',
+          {
+            marginTop: 26,
+            display: 'flex',
+            alignItems: 'flex-end',
+            width: TRACK_W,
+          },
+          messageTop.map((entry, index) => {
+            const champion = index === 0;
+            const height = Math.max(
+              LAYER,
+              Math.round(ratio(entry.value, champMsg.value) * STACK_MAX_H),
+            );
+            return el(
+              'div',
+              {
+                width: STACK_SLOT,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+              },
+              [
+                el(
+                  'div',
+                  {
+                    fontSize: champion ? 30 : 20,
+                    fontWeight: 700,
+                    color: champion ? PALETTE.accent : PALETTE.inkMuted,
+                  },
+                  fmt(entry.value),
+                ),
+                el('div', { marginTop: 10, display: 'flex' }, [
+                  stackBar(height, champion ? CHAMP_BAR_W : STACK_BAR_W, champion),
+                ]),
+                // 定宽 + ellipsis：八列并排时长名字必须截断，不能换行撑高柱阵。
+                el(
+                  'div',
+                  {
+                    marginTop: 12,
+                    width: STACK_SLOT - 8,
+                    display: 'flex',
+                    justifyContent: 'center',
+                    overflow: 'hidden',
+                    whiteSpace: 'nowrap',
+                    textOverflow: 'ellipsis',
+                    fontSize: champion ? 19 : 17,
+                    color: champion ? PALETTE.inkSoft : PALETTE.inkMuted,
+                  },
+                  entry.peerName,
+                ),
+              ],
+            );
+          }),
+        ),
+      ]
+    : [
+        el(
+          'div',
+          { marginTop: 20, fontSize: 26, color: PALETTE.inkFaint, letterSpacing: 3 },
+          '还没有双向来往的私聊',
+        ),
+      ];
+
+  return slideFrame(
+    [
+      el('div', { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }, [
+        el(
+          'div',
+          { fontSize: 26, color: PALETTE.inkSoft, letterSpacing: 6 },
+          `${reportEraLabel(year)} · 和你来往最深的人`,
+        ),
+        el(
+          'div',
+          { fontSize: 20, color: PALETTE.inkFaint, letterSpacing: 3 },
+          `${fmt(friendCount)} 位好友 / ${fmt(totalMessages)} 条私聊`,
+        ),
+      ]),
+      el('div', { marginTop: 52, display: 'flex', flexDirection: 'column' }, [
+        hair(0),
+        boardHead(FLAME, '最长火花', '连着多少天，你们谁都没有断'),
+        ...fuse,
+      ]),
+      el('div', { marginTop: 56, display: 'flex', flexDirection: 'column' }, [
+        hair(0),
+        boardHead(PALETTE.accent, '聊得最多', '这段时间里，你们一共说了这么多'),
+        ...vol,
+      ]),
+    ],
+    isAllTimeYear(year) ? 'ALL' : String(year),
+  );
+}
+
 function endTree(data: Record<string, unknown>): El {
   const year = Number(data.year ?? 0);
   const allTime = isAllTimeYear(year);
@@ -741,6 +1030,7 @@ function treeForSlide(slide: ReportExportSlide): El {
   if (slide.pageId === 'overview') return overviewTree(data);
   if (slide.pageId === 'dress') return dressTree(data);
   if (slide.pageId === 'spark') return sparkTree(data);
+  if (slide.pageId === 'friends') return friendsTree(data);
   if (slide.pageId === 'end') return endTree(data);
   return genericTree(slide);
 }
