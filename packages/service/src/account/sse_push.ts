@@ -464,7 +464,9 @@ function c2cPartition(session: AccountSession, uid: string): { sortNo: bigint } 
 export function normalizeSsePushUrl(input: string): string {
   let url = input.trim();
   if (!url) return '';
-  if (!/^https?:\/\//i.test(url)) url = `http://${url}`;
+  // 只在「完全没有协议」时补 http://；ftp:// 这类非 http(s) 协议交给下面的
+  // protocol 校验拒绝，而不是拼成 http://ftp//… 混过去。
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) url = `http://${url}`;
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
