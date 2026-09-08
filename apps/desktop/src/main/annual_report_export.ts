@@ -37,6 +37,12 @@ const PNG_SCALE = 2;
 
 type El = { type: string; props: Record<string, unknown> };
 function el(type: string, style: Record<string, unknown>, children?: unknown): El {
+  // satori 只认 Flexbox：<div> 一旦带元素 / 数组子节点，就必须显式声明
+  // `display: flex`（或 none），否则渲染直接抛错。未声明时在这里补上默认值，
+  // 语义与 satori 之前把 div 默认当 flex 容器一致，也避免各页漏写。
+  if (type === 'div' && children != null && typeof children !== 'string' && !style.display) {
+    style = { ...style, display: 'flex' };
+  }
   return { type, props: { style, children } };
 }
 
