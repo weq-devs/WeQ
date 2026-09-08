@@ -22,11 +22,10 @@ import type { DatabaseAlgorithms } from '@weq/native';
 import { getLogger, logErrorContext } from '../common/logger';
 
 /**
- * A download rkey issued by QQ's OIDB service (via `fetchDownloadRkeys`). Used
+ * A download rkey issued by QQ's OIDB service (`FetchDownloadRkeys`). Used
  * to authenticate CDN media downloads when a file isn't on disk locally.
  *
- * Normalised from the native JSON (`type_`/`ttl_seconds`/`create_time`). The
- * `rkey` string already carries its `&rkey=` URL prefix, as QQ returns it.
+ * The `rkey` string already carries its `&rkey=` URL prefix, as QQ returns it.
  */
 export interface DownloadRkey {
   /** URL fragment as returned by QQ, e.g. `&rkey=CAQS…`. */
@@ -52,13 +51,9 @@ export function rkeyExpiryMs(r: DownloadRkey): number {
 }
 
 /**
- * A `clientkey` credential issued by QQ's OIDB service (via `fetchClientKey`).
+ * A `clientkey` credential issued by QQ's OIDB service (`FetchClientKey`).
  * Short-lived (≈30 min) token used to authenticate web/cgi calls to QQ's
  * services on this account's behalf.
- *
- * Normalised from the native JSON (`client_key`/`key_index`/`expire_time`).
- * Unlike an rkey, QQ returns only a TTL (no issue time), so we stamp
- * {@link fetchedAt} ourselves when we harvest it.
  */
 export interface ClientKey {
   /** The client_key credential (hex string). */

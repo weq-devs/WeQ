@@ -10,8 +10,8 @@
  *   - `pickDatabase` / `peekDatabaseHeader` / `fetchOtherDeviceKey`
  *                  「其它设备密钥」：选一个其它设备导出的 `nt_msg.db`，
  *                  先展示其头部 hexdump（高亮发包用的 db_salt），再按
- *                  bootstrap 的实例取密钥流程（唯一区别：不注入，直接调
- *                  nt_helper 的 `requestDecryptKey`）向在线 QQ 要密钥。
+ *                  bootstrap 的实例取密钥流程（唯一区别：不注入，直接向
+ *                  在线 QQ 发 OIDB 0xCDE_2）要密钥。
  *
  * 平台差异（win32 / linux）由 `platform.resolveQqPid` 封装：
  *   - win32: Restart Manager 句柄枚举
@@ -26,7 +26,7 @@ import { z } from 'zod';
 import { existsSync } from 'node:fs';
 import { open as openFile } from 'node:fs/promises';
 import type { LoginAccount } from '@weq/native';
-import { getHost } from '@weq/service';
+import { getHost, requestDecryptKeyFromInstance } from '@weq/service';
 import { requireBootstrap, requirePlatform } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import { ensureUidForUin } from './bootstrap';
@@ -239,9 +239,8 @@ export const wonderfulToolsRouter = router({
 
   /**
    * 「其它设备密钥」：按 bootstrap 的实例取密钥流程，但跳过注入，
-   * 直接调 nt_helper 的 `requestDecryptKey(pid, dbPath)`。db_salt 由
-   * native 侧从 dbPath 头部自行提取并发包；这里逐个尝试在线实例，
-   * 第一个成功即返回。
+   * 直接向在线 QQ 发 OIDB 0xCDE_2。db_salt 由 TS 侧从 dbPath 头部自行
+   * 提取并发包；这里逐个尝试在线实例，第一个成功即返回。
    */
   fetchOtherDeviceKey: procedure
     .input(z.object({ dbPath: z.string().min(1) }))
@@ -272,7 +271,11 @@ export const wonderfulToolsRouter = router({
         let lastError: string | null = null;
         for (const pid of pids) {
           try {
-            const key = await platform.native.ntHelper.requestDecryptKey(pid, input.dbPath);
+            const key = await requestDecryptKeyFromInstance(
+              platform.native.ntHelper,
+              pid,
+              input.dbPath,
+            );
             return { success: true, key, pid };
           } catch (error) {
             lastError = error instanceof Error ? error.message : String(error);

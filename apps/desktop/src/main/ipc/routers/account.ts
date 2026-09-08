@@ -39,7 +39,7 @@ import { groupChatBus, type GroupChatStreamEvent } from '../../mcp/agentlab_grou
 import {
   clientKeyExpiryMs,
   buildPtlogin2JumpUrl,
-  parseClientKeyJson,
+  fetchClientKey,
   toRenderElements,
   PRIVATE_PTT_RKEY_TYPE,
   GROUP_PTT_RKEY_TYPE,
@@ -2623,8 +2623,8 @@ export const accountRouter = router({
         return { url: landing, autoLogin: false };
       }
       try {
-        const ck = parseClientKeyJson(await nt.fetchClientKey(record.qqPid));
-        if (!ck) return { url: landing, autoLogin: false };
+        const ck = await fetchClientKey(nt, record.qqPid);
+        if (!ck.clientKey) return { url: landing, autoLogin: false };
         return { url: buildPtlogin2JumpUrl(ck, String(uin), landing), autoLogin: true };
       } catch {
         return { url: landing, autoLogin: false };

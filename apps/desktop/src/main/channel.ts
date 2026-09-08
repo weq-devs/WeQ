@@ -10,7 +10,7 @@
  *
  * Auto-login: when 设置 → 自动注入 QQ（完整功能） is on AND a logged-in QQ.exe for the
  * account is running (already hook-injected by the account monitor), we swap its
- * credential for a `pd.qq.com` p_skey via the native helper and seed the jar with
+ * credential for a `pd.qq.com` p_skey via the TS ticket fetcher and seed the jar with
  * `uin` / `p_uin` / `p_skey` — enough for pd.qq.com to treat the page as logged
  * in. If the setting is off or no online instance exists, we fall back to
  * whatever cookies the persistent partition already holds.
@@ -27,7 +27,7 @@ import { accountConfigId, fetchWebTokens, getLogger, logErrorContext } from '@we
 import { getAppContext } from './context/app_context';
 
 const CHANNEL_URL = 'https://pd.qq.com/';
-/** Domain the channel p_skey is minted for (native `fetchPskey` argument). */
+/** Domain the channel p_skey is minted for (`fetchPskeyFromHook` argument). */
 const CHANNEL_PSKEY_DOMAIN = 'pd.qq.com';
 
 /** WeQ's theme preference, mirrored 1:1 onto `nativeTheme.themeSource`. */
@@ -70,7 +70,7 @@ function resolvePartition(): string {
  * Best-effort auto-login: seed `uin` / `p_uin` / `p_skey` into the channel jar
  * from the live QQ instance. No-op (returns silently) unless 自动注入 QQ（完整功能）
  * is on and a logged-in QQ.exe is online — the monitor injects the hook on
- * account-online, so `fetchPskey` works off the recorded pid. On any failure we
+ * account-online, so the p_skey fetch works off the recorded pid. On any failure we
  * leave the jar untouched and let the persistent cookies (if any) carry login.
  */
 async function injectAutoLoginCookies(partition: string): Promise<void> {

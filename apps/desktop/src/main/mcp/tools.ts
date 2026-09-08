@@ -20,10 +20,11 @@ import type { DressMallItem, RenderElement } from '@weq/service';
 import {
   computeBkn,
   DressAppId,
+  fetchClientKey,
+  fetchDownloadRkeys,
   fetchWebTokens,
   HonorType,
   normalizeMallItems,
-  parseClientKeyJson,
 } from '@weq/service';
 import { searchCatalog } from '../market_catalog';
 import { resolveResource } from '../resource';
@@ -3090,8 +3091,8 @@ export const AI_TOOLS: AiTool[] = [
     input: z.object({}),
     run: async () => {
       onlinePid(); // 只要求在线；clientKey 由 hook 提供
-      const ck = parseClientKeyJson(await ntHelper().fetchClientKey(onlinePid()));
-      if (!ck) {
+      const ck = await fetchClientKey(ntHelper(), onlinePid());
+      if (!ck.clientKey) {
         return {
           ok: false,
           error: 'clientKey 获取失败 —— 确认 QQ 在线且已开启「自动注入 QQ（完整功能）」。',
@@ -3109,27 +3110,15 @@ export const AI_TOOLS: AiTool[] = [
     input: z.object({}),
     run: async () => {
       const pid = onlinePid();
-      const raw = await ntHelper().fetchDownloadRkeys(pid);
-      let arr: unknown;
-      try {
-        arr = JSON.parse(raw);
-      } catch {
-        arr = [];
-      }
-      const items = (Array.isArray(arr) ? arr : [])
-        .map((x) => x as Record<string, unknown>)
-        .filter((o) => typeof o.rkey === 'string')
-        .map((o) => ({
-          rkey: String(o.rkey),
-          type: typeof o.type_ === 'number' ? o.type_ : 0,
-          ttlSeconds: typeof o.ttl_seconds === 'number' ? o.ttl_seconds : 0,
-          createTime: typeof o.create_time === 'number' ? o.create_time : 0,
-        }));
+      const items = await fetchDownloadRkeys(ntHelper(), pid);
       return {
         ok: true,
         count: items.length,
         items: items.map((r) => ({
-          ...r,
+          rkey: r.rkey,
+          type: r.type,
+          ttlSeconds: r.ttlSeconds,
+          createTime: r.createTime,
           expiresAt: new Date((r.createTime + r.ttlSeconds) * 1000).toISOString(),
         })),
         hint: 'rkey 拼在 QQ 媒体 CDN URL 后面（&rkey=…）；过期后重新调用本工具即可。',
@@ -3152,8 +3141,8 @@ export const AI_TOOLS: AiTool[] = [
         site === 'qzone'
           ? `https://user.qzone.qq.com/${uin}/infocenter?loginfrom=31`
           : 'https://pd.qq.com/';
-      const ck = parseClientKeyJson(await ntHelper().fetchClientKey(pid));
-      if (!ck) {
+      const ck = await fetchClientKey(ntHelper(), pid);
+      if (!ck.clientKey) {
         return {
           ok: false,
           site,

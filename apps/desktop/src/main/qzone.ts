@@ -7,8 +7,8 @@
  * jar (keyed by the same (uin, dataDir) id the rest of the app uses).
  *
  * Auto-login: when 设置 → 自动注入 QQ（完整功能） is on AND a logged-in QQ.exe for the
- * account is running, we swap its credential for Qzone's web tokens via the
- * native helper and seed the jar with `uin` / `p_uin` / `skey` / `p_skey` — Qzone
+ * account is running, we swap its credential for Qzone's web tokens via the TS
+ * ticket fetcher and seed the jar with `uin` / `p_uin` / `skey` / `p_skey` — Qzone
  * needs the plain `skey` (for its g_tk csrf) on top of the `p_skey` that 频道 uses,
  * so we fetch both for the `qzone.qq.com` domain. If the setting is off or no
  * online instance exists, we fall back to whatever cookies the persistent
@@ -22,7 +22,7 @@ import { BrowserWindow, ipcMain, nativeTheme, session } from 'electron';
 import { accountConfigId, fetchWebTokens, getLogger, logErrorContext } from '@weq/service';
 import { getAppContext } from './context/app_context';
 
-/** Domain the Qzone skey / p_skey are minted for (native fetch arguments). */
+/** Domain the Qzone skey / p_skey are minted for (hook fetch arguments). */
 const QZONE_PSKEY_DOMAIN = 'qzone.qq.com';
 
 /**

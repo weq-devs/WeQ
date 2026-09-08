@@ -3,25 +3,26 @@
  *
  * Every QQ web cgi (qun.qq.com / h5.qzone.qq.com / web.qun.qq.com) authenticates
  * with a cookie jar (skey + p_skey + uin) plus a `bkn`/`g_tk` csrf token derived
- * from one of those keys. We don't run the ptlogin2 jump in TS — the native
- * `fetchSkey` / `fetchPskey` already swap the account's clientKey for those keys
- * (see nt_helper). This module only:
+ * from one of those keys. The credential flow itself is TS now
+ * (`online_ticket.ts`): fetch the clientKey via OIDB, swap it through ptlogin2
+ * for the keys, and OIDB-fallback p_skey when the jump misses.
  *
  *   1. computes the bkn hash in TS (so a wrong token is easy to spot/debug), and
- *   2. assembles the cookie header from the native-supplied keys.
+ *   2. assembles the cookie header from the TS-fetched keys.
  *
- * `fetchSkey(pid, uin)`        → raw skey string (domain-independent).
- * `fetchPskey(pid, uin, dom)`  → raw p_skey string for `dom`.
+ * `fetchSkeyFromHook(pid, uin)`        → raw skey string (domain-independent).
+ * `fetchPskeyFromHook(pid, uin, dom)`  → raw p_skey string for `dom`.
  */
 
 import type { NtHelperBinding } from '@weq/native';
 import { getLogger, logErrorContext } from '../../common/logger';
-import { fetchPtlogin2Jar, parseClientKeyJson } from './ptlogin';
+import { fetchPtlogin2Jar } from './ptlogin';
+import { fetchClientKey, fetchPskeyFromHook, fetchSkeyFromHook } from '../online_ticket';
 
 /**
  * djb2 hash → 31-bit `bkn` (a.k.a. `g_tk` / csrf token), QQ-web style.
- * Mirrors native `computeBkn`; kept in TS so token mismatches surface here
- * rather than across the napi boundary.
+ * Sole implementation — the former native copy was removed together with the
+ * rest of `nt_helper/src/protocol/service`.
  */
 export function computeBkn(key: string): number {
   let hash = 5381;
@@ -66,15 +67,10 @@ export function cookieHeader(cred: WebCredential): string {
     .join('; ');
 }
 
-/** Minimal native surface the web layer needs — key fetchers + clientKey + pt_login fallback. */
+/** Minimal native surface the web layer needs — generic OIDB send + pt_login fallback. */
 export type WebNative = Pick<
   NtHelperBinding,
-  | 'fetchSkey'
-  | 'fetchPskey'
-  | 'fetchClientKey'
-  | 'probePtLoginPort'
-  | 'ptFetchSkey'
-  | 'ptFetchPskey'
+  'sendOidbPacket' | 'probePtLoginPort' | 'ptFetchSkey' | 'ptFetchPskey'
 >;
 
 /**
@@ -98,9 +94,10 @@ export async function probePtLoginPort(nt: WebNative, pid: number): Promise<numb
 /**
  * hook 负缓存（「hook 控制 socket 打不通」）的冷却窗口。
  *
- * 未注入时 `fetchClientKey` / `fetchSkey` / `fetchPskey` 会在已死的 hook 控制
- * socket 上等约 5 秒超时才报错。失败结果如果从不缓存，每次 web cgi 调用都会
- * 白等这 5 秒（即使 skey/pskey 早已缓存）。这里把「hook 不可用」按 pid 负缓存：
+ * 未注入时 `fetchClientKey` / `fetchSkey` / `fetchPskey` 的 hook 流程会在已死的
+ * hook 控制 socket 上等约 5 秒超时才报错。失败结果如果从不缓存，每次 web cgi
+ * 调用都会白等这 5 秒（即使 skey/pskey 早已缓存）。这里把「hook 不可用」按
+ * pid 负缓存：
  * 窗口内不再碰死 socket，直接走 pt_login 兜底；窗口过后重试一次，兼顾中途手动
  * 注入 QQ 后能回到 hook 快路径。QQ 重启（pid 变化）则立即重试。
  */
@@ -140,7 +137,8 @@ export interface WebTokens {
 
 /**
  * 取某个在线 QQ 进程的 skey / p_skey（用于窗口自动登录等一次性场景）。
- * 已注入时走 native fetch（秒回）；未注入 / 完全离线模式回退 ptlogin2 本地快速登录。
+ * 已注入时走 hook 上的 TS ptlogin2 流程（秒回）；未注入 / 完全离线模式回退
+ * ptlogin2 本地快速登录。
  * 仅支持 PT_LOGIN_DOMAINS；任一步失败返回空串，不抛错。
  */
 export async function fetchWebTokens(
@@ -152,8 +150,8 @@ export async function fetchWebTokens(
 ): Promise<WebTokens> {
   if (!PT_LOGIN_DOMAINS.has(domain)) return { skey: '', pskey: '' };
   try {
-    const skey = opts.needSkey ? await nt.fetchSkey(pid, uin) : '';
-    const pskey = await nt.fetchPskey(pid, uin, domain);
+    const skey = opts.needSkey ? await fetchSkeyFromHook(nt, pid, uin) : '';
+    const pskey = await fetchPskeyFromHook(nt, pid, uin, domain);
     if (pskey && (opts.needSkey ? skey : true)) return { skey, pskey };
   } catch {
     /* 未注入 / 注入掉了 → 走 pt_login 兜底 */
@@ -281,11 +279,11 @@ export class WebCredentialProvider {
 
     try {
       // 主路径:用 clientKey 打 ptlogin2 jump,收一整套 cookie jar(含 pt4_token/
-      // RK/ptcz 等风控 cookie)。失败不致命 —— 回退到 native skey/p_skey 四字段。
+      // RK/ptcz 等风控 cookie)。失败不致命 —— 回退到 skey/p_skey 四字段。
       const jar = await this.harvestJar(pid, domain);
 
-      // skey / p_skey:优先用 jar 里的,jar 没有就回退 native(OIDB)。两个 fetcher
-      // 都走同一条 hook pipe,顺序调用避免争用。
+      // skey / p_skey:优先用 jar 里的,jar 没有就走 hook 上的 TS fetcher。
+      // 两个 fetcher 都走同一条 hook pipe,顺序调用避免争用。
       //
       // 已 seed p_skey 时 skey 允许缺失:seed 的场景是「QQ 已退出、只剩登录时收下的
       // 票据」,此时 fetchSkey 必然打不通 hook。只认 p_skey 的 cgi(如 vip.qq.com 的
@@ -293,7 +291,7 @@ export class WebCredentialProvider {
       let skey = jar.skey ?? this.skey ?? undefined;
       if (!skey) {
         try {
-          skey = await this.hookCall(pid, () => this.nt.fetchSkey(pid, this.uin));
+          skey = await this.hookCall(pid, () => fetchSkeyFromHook(this.nt, pid, this.uin));
           this.logger.info('fetched skey', { event: 'fetch-skey', pid, domain });
         } catch (hookError) {
           // hook 不可用（未注入 / 注入掉了 / 完全离线模式）→ ptlogin2 本地快速登录兜底。
@@ -305,7 +303,9 @@ export class WebCredentialProvider {
       let pskey = jar.p_skey ?? this.pskeyByDomain.get(domain);
       if (pskey === undefined) {
         try {
-          pskey = await this.hookCall(pid, () => this.nt.fetchPskey(pid, this.uin, domain));
+          pskey = await this.hookCall(pid, () =>
+            fetchPskeyFromHook(this.nt, pid, this.uin, domain),
+          );
           this.logger.info('fetched pskey', { event: 'fetch-pskey', pid, domain });
         } catch (hookError) {
           // 未注入拿不到 p_skey → 回退 ptlogin2 本地快速登录（仅支持已验证的四域）。
@@ -396,8 +396,8 @@ export class WebCredentialProvider {
     if (cached) return parseCookieHeader(cached);
 
     try {
-      const ck = parseClientKeyJson(await this.hookCall(pid, () => this.nt.fetchClientKey(pid)));
-      if (!ck) {
+      const ck = await this.hookCall(pid, () => fetchClientKey(this.nt, pid));
+      if (!ck.clientKey) {
         this.logger.warn('clientKey unavailable — falling back to skey/p_skey cookie', {
           event: 'harvest-jar-no-clientkey',
           pid,

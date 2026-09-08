@@ -102,6 +102,12 @@ export type {
 } from './account/user_config';
 export { fetchHomeDress, toPeerDress } from './account/home_dress';
 export type { HomeDressSnapshot, PeerDressSnapshot } from './account/home_dress';
+export {
+  fetchClientKey,
+  fetchDownloadRkeys,
+  requestDecryptKeyFromInstance,
+} from './account/online_ticket';
+export type { OnlineTicketNt } from './account/online_ticket';
 export type { BubbleSkin, BubbleSlice } from './account/bubble_skin';
 export { DressService, createDressService } from './account/dress_service';
 export { DressConfigService } from './account/dress_config';
@@ -396,7 +402,7 @@ export {
   fetchSkeyViaPtLogin,
   fetchPskeyViaPtLogin,
 } from './account/web';
-export { buildPtlogin2JumpUrl, parseClientKeyJson } from './account/web/ptlogin';
+export { buildPtlogin2JumpUrl } from './account/web/ptlogin';
 export type {
   GroupNotice,
   GroupNoticeImage,
