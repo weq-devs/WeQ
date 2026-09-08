@@ -1,5 +1,5 @@
 import type { PageAvailability, ReportPageDefinition } from '../../types';
-import { reportYearUnixRange } from '../../time';
+import { currentReportYear, reportYearUnixRange } from '../../time';
 import { dayIndex, longestRun } from '../../day_runs';
 import { segmentWords } from '../../../text_segment';
 import type { C2cMsg } from '@weq/db';
@@ -49,6 +49,26 @@ export const sparkPage: ReportPageDefinition<SparkPageData> = {
     const { startSec, endSec } = reportYearUnixRange(year);
     const tallies = await q.c2c.peerDayTallies(startSec, endSec);
 
+    /**
+     * 滚动补足：当年只过了几个月时，绿墙的「近一年」往前接到去年 ——
+     * 窗口 = [去年 (当前月+1) 月 1 日, 今年当前月月末]，始终覆盖近 12 个
+     * 月，而不是一整年只剩头几个月的稀疏墙。往年报告与当年 12 月都是
+     * 完整自然年，不需要滚动。
+     */
+    const thisYear = currentReportYear();
+    const thisMonth = new Date().getMonth() + 1;
+    const rolling =
+      year === thisYear && thisMonth < 12
+        ? { fromYear: year - 1, fromMonth: thisMonth + 1, toYear: year, toMonth: thisMonth }
+        : null;
+
+    const trailingTallies = rolling
+      ? await q.c2c.peerDayTallies(
+          Math.floor(new Date(rolling.fromYear, rolling.fromMonth - 1, 1).getTime() / 1000),
+          Math.floor(new Date(year, 0, 1).getTime() / 1000),
+        )
+      : [];
+
     const selfByDate = new Map<string, number>();
     const peerBuckets = new Map<string, number[]>();
     let sentTotal = 0;
@@ -56,24 +76,40 @@ export const sparkPage: ReportPageDefinition<SparkPageData> = {
     let bestMine = 0;
     let bestRow: { peerUid: string; date: string; total: number; mine: number } | null = null;
 
-    for (const row of tallies) {
+    /** 主指标（最忙一天 / 火花 / 发言总量）始终只算报告口径内的天数。 */
+    const inReportWindow = (date: string): boolean => {
+      const rowYear = Number(date.slice(0, 4));
+      return year === 0 || rowYear === year;
+    };
+
+    for (const row of [...tallies, ...trailingTallies]) {
       if (!row.date || !row.peerUid) continue;
-      sentTotal += row.mine;
+      const countsForStats = inReportWindow(row.date);
+      if (countsForStats) {
+        sentTotal += row.mine;
+        if (row.mine > 0 && row.total > row.mine) {
+          const days = peerBuckets.get(row.peerUid);
+          if (days) days.push(dayIndex(row.date));
+          else peerBuckets.set(row.peerUid, [dayIndex(row.date)]);
+        }
+        if (
+          row.total > bestTotal ||
+          (row.total === bestTotal && row.mine > bestMine) ||
+          (row.total === bestTotal && row.mine === bestMine && row.date > (bestRow?.date ?? ''))
+        ) {
+          bestTotal = row.total;
+          bestMine = row.mine;
+          bestRow = row;
+        }
+      }
+      // 绿墙吃整个窗口（含去年补足段）：滚动时把窗口外未来的日期也挡掉。
+      if (rolling) {
+        const [y, m] = [Number(row.date.slice(0, 4)), Number(row.date.slice(5, 7))];
+        const before = y < rolling.fromYear || (y === rolling.fromYear && m < rolling.fromMonth);
+        const after = y > rolling.toYear || (y === rolling.toYear && m > rolling.toMonth);
+        if (before || after) continue;
+      }
       selfByDate.set(row.date, (selfByDate.get(row.date) ?? 0) + row.mine);
-      if (row.mine > 0 && row.total > row.mine) {
-        const days = peerBuckets.get(row.peerUid);
-        if (days) days.push(dayIndex(row.date));
-        else peerBuckets.set(row.peerUid, [dayIndex(row.date)]);
-      }
-      if (
-        row.total > bestTotal ||
-        (row.total === bestTotal && row.mine > bestMine) ||
-        (row.total === bestTotal && row.mine === bestMine && row.date > (bestRow?.date ?? ''))
-      ) {
-        bestTotal = row.total;
-        bestMine = row.mine;
-        bestRow = row;
-      }
     }
 
     // 绿墙：自己发过消息的每一天，按 (year, date) 升序。
@@ -89,6 +125,8 @@ export const sparkPage: ReportPageDefinition<SparkPageData> = {
     }
     const sortedYears = [...wallYears].sort((a, b) => a - b);
     const wallYear = year > 0 && sortedYears.includes(year) ? year : (sortedYears.at(-1) ?? 0);
+    // 滚动墙没有「墙年」的概念 —— 年份标签由窗口自证，这里仍给当年做兜底。
+    const wallWindow = rolling && wallYear === year ? rolling : null;
 
     // 自己：发过消息的天数 + 最长连续发言。
     const activeDays = selfByDate.size;
@@ -153,6 +191,11 @@ export const sparkPage: ReportPageDefinition<SparkPageData> = {
       year,
       wallYears: sortedYears,
       wallYear,
+      /**
+       * 当年的「近 12 个月」滚动窗口（去年某月 → 今年当前月）。null =
+       * 完整自然年墙。绿墙按这个窗口画，主指标不受影响。
+       */
+      wallWindow,
       wallDays,
       topDay,
       sentTotal,

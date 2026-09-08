@@ -31,6 +31,13 @@ import {
   type QzoneFeedsResult,
 } from './qzone';
 import {
+  publishQzoneMsg,
+  uploadQzoneImage,
+  type QzonePublishResult,
+  type QzoneUploadImageResult,
+  type QzoneUgcRight,
+} from './qzone_publish';
+import {
   collectQzoneInteractions,
   fetchQzoneLikes,
   type QzoneInteraction,
@@ -142,6 +149,30 @@ export class WebQueryService {
     return withRetry(this.creds, QZONE_DOMAIN, (c) => fetchQzoneLikes(c, targetUin, tid));
   }
 
+  /**
+   * 上传一张图（base64）到 Qzone 图床，返回 richval 等元数据。
+   * 多图发表：每张调一次，把 richval 收进数组再传给 {@link publishQzone}。
+   */
+  async uploadQzoneImage(imageBase64: string): Promise<QzoneUploadImageResult> {
+    return withRetry(this.creds, QZONE_DOMAIN, (c) => uploadQzoneImage(c, imageBase64));
+  }
+
+  /**
+   * 发表一条说说（图文）到本账号的空间。`richvals` 为上传图片得到的 richval
+   * 数组（多图内部用 `\t` 拼接），空数组即纯文字。发表是主动写行为，Qzone
+   * 对高频风控 —— 调用方自行限流。
+   */
+  async publishQzone(
+    content: string,
+    richvals: string[],
+    ugcRight: QzoneUgcRight = 1,
+    targetUins?: string[],
+  ): Promise<QzonePublishResult> {
+    return withRetry(this.creds, QZONE_DOMAIN, (c) =>
+      publishQzoneMsg(c, content, richvals, ugcRight, targetUins),
+    );
+  }
+
   /** 某 QQ 空间（自己或好友）的相册列表。 */
   async getQzoneAlbums(targetUin: string): Promise<QzoneAlbum[]> {
     return withRetry(this.creds, QZONE_DOMAIN, (c) => getQzoneAlbumList(c, targetUin));
@@ -166,6 +197,12 @@ export class WebQueryService {
     );
   }
 }
+
+export type {
+  QzonePublishResult,
+  QzoneUploadImageResult,
+  QzoneUgcRight,
+} from './qzone_publish';
 
 export {
   PT_LOGIN_DOMAINS,

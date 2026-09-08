@@ -143,22 +143,25 @@ export function OpenersPage({
         {cast.length > 0 ? (
           <section className="weq-op-cast weq-report-line" style={{ '--i': 4 } as CSSProperties}>
             <p className="weq-op-cast-in">而这些朋友，把「先开口」写成了不同的样子——</p>
-            {cast.map((role, index) => (
-              <p
-                className="weq-op-line"
-                key={`${role.kind}:${role.entry.peerUid}`}
-                style={{ '--j': index } as CSSProperties}
-              >
-                <Face name={role.entry.peerName} uin={role.entry.peerUin} />
-                <span className="weq-op-line-say">
-                  <b className="weq-op-line-role">{roleLabel(role.kind)}</b>
-                  <span className="weq-op-line-dot" aria-hidden>
-                    ·
-                  </span>
-                  <NameSay name={role.entry.peerName} text={castSay(role)} />
-                </span>
-              </p>
-            ))}
+            <div className="weq-op-cast-row">
+              {cast.map((role, index) => (
+                <article
+                  className={`weq-op-person is-${role.kind}`}
+                  key={`${role.kind}:${role.entry.peerUid}`}
+                  style={{ '--j': index } as CSSProperties}
+                >
+                  <Face name={role.entry.peerName} uin={role.entry.peerUin} />
+                  <b className="weq-op-person-name">{role.entry.peerName}</b>
+                  <span className="weq-op-line-role">{roleLabel(role.kind)}</span>
+                  <p className="weq-op-person-say">
+                    <NameSay
+                      name={role.entry.peerName}
+                      text={personSay(role.entry.peerName, castSay(role))}
+                    />
+                  </p>
+                </article>
+              ))}
+            </div>
           </section>
         ) : null}
       </div>
@@ -192,4 +195,13 @@ function Face({ name, uin }: { name: string; uin: string }): ReactElement {
     );
   }
   return <img className="weq-op-face" src={url} alt="" aria-hidden />;
+}
+
+/**
+ * castSay 的旧句子以名字开头，人物卡里名字已单独展示，去掉开头的名字与
+ * 紧随的逗号，避免一句里出现两次称呼。
+ */
+function personSay(name: string, text: string): string {
+  const prefix = `${name}，`;
+  return text.startsWith(prefix) ? text.slice(prefix.length) : text;
 }

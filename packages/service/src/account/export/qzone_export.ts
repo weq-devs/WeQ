@@ -106,11 +106,14 @@ function inRange(e: QzoneEmotion, range?: ExportTimeRange): boolean {
 }
 
 /**
- * 翻页拉全某好友的说说（去重）。`pos` 按实际返回条数推进；说说按时间倒序，
+ * 翻页拉全某个空间的说说（去重）。`pos` 按实际返回条数推进；说说按时间倒序，
  * 有 `range.start` 时一旦本页最旧条目早于窗口起点即提前停止。
+ *
+ * 也供年度报告「QQ 空间回忆」页复用 —— 好友空间导出与报告共用同一条已抓包验证
+ * 的翻页通路（页大小 / 翻页间隔 / 去重 / 早停），避免两处各养一套分页参数。
  */
-async function fetchAllEmotions(
-  deps: QzoneExportDeps,
+export async function fetchQzoneEmotionRange(
+  deps: Pick<QzoneExportDeps, 'fetchMsgList'>,
   targetUin: string,
   range: ExportTimeRange | undefined,
   onProgress: (current: number, total: number, note: string) => void,
@@ -747,7 +750,7 @@ export async function exportQzone(
   deps: QzoneExportDeps,
 ): Promise<QzoneExportResult> {
   opts.onProgress(0, 0, '拉取说说…');
-  const fetched = await fetchAllEmotions(
+  const fetched = await fetchQzoneEmotionRange(
     deps,
     opts.targetUin,
     opts.range,

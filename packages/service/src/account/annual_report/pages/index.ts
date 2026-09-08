@@ -8,7 +8,10 @@ import { rhythmPage } from './rhythm/compute';
 import { voicePage } from './voice/compute';
 import { homePage } from './home/compute';
 import { interactionsPage } from './interactions/compute';
+import { monthsPage } from './months/compute';
+import { matePage } from './mate/compute';
 import { endPage } from './end/compute';
+import { qzonePage } from './qzone/compute';
 
 /** The only service-side registration point for official report pages. */
 export const reportPages: ReadonlyArray<ReportPageDefinition> = [
@@ -21,6 +24,9 @@ export const reportPages: ReadonlyArray<ReportPageDefinition> = [
   voicePage,
   homePage,
   interactionsPage,
+  monthsPage,
+  matePage,
+  qzonePage,
   endPage,
 ];
 
@@ -38,5 +44,8 @@ export {
   voicePage,
   homePage,
   interactionsPage,
+  monthsPage,
+  matePage,
+  qzonePage,
   endPage,
 };

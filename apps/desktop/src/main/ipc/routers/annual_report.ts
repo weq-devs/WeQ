@@ -1,11 +1,18 @@
 import { z } from 'zod';
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { getAppContext, type AccountServices } from '../../context/app_context';
 import type { AnnualReportPreferences, ResolvedMsgDecoration } from '@weq/service';
 import { getHost } from '@weq/service';
 import { reportPeriodLabel } from '@weq/service/report-time';
-import { renderLongImagePng, type ReportExportSlide } from '../../annual_report_export';
+import {
+  renderLongImagePng,
+  renderSharePngs,
+  type ReportExportSlide,
+} from '../../annual_report_export';
 import { procedure, router } from '../trpc';
+
+/** 说说一次最多带 9 张图 —— 超出的页数在 router 层直接拒绝。 */
+const QZONE_MAX_IMAGES = 9;
 
 function requireServices(): AccountServices {
   const services = getAppContext().services;
@@ -36,6 +43,53 @@ async function saveBuffer(
 }
 
 export const annualReportRouter = router({
+  /**
+   * 把一条 `weq-media://` 协议 URL 解析成 base64 字节 —— 导出 HTML 时渲染层
+   * 用它把装扮气泡 / 头像内联成 data URI（自包含产物离线可看）。
+   *
+   * 白名单只收导出真正引用的两类资源，复用 media_protocol 的解析函数：
+   *   dressbubble?id=&frame=  装扮气泡九宫格 PNG / 帧动画帧
+   *   avatar?scope=user&uin=&v=&fb=   本机缓存头像（miss 走 CDN 兜底）
+   *
+   * 解析失败返回 null（而不是抛错），导出退回排印版不阻塞。
+   */
+  resolveMediaBase64: procedure
+    .input(z.object({ url: z.string().min(1).max(2048) }))
+    .mutation(async ({ input }) => {
+      const services = requireServices();
+      const parsed = new URL(input.url);
+      if (parsed.protocol !== 'weq-media:') {
+        throw new Error('resolveMediaBase64 only accepts weq-media:// urls');
+      }
+      const kind = parsed.hostname;
+      const q = parsed.searchParams;
+      try {
+        let path: string | null = null;
+        if (kind === 'dressbubble') {
+          const id = Number(q.get('id') ?? '0');
+          const frame = Number(q.get('frame') ?? '0');
+          path = !id
+            ? null
+            : frame > 0
+              ? services.dressInstall.bubbleFrameFile(id, frame)
+              : services.dressInstall.bubbleFile(id);
+        } else if (kind === 'avatar') {
+          const scope = q.get('scope') ?? '';
+          const uin = q.get('uin') ?? '';
+          const variant = q.get('v') === 'small' ? 'small' : 'big';
+          path =
+            scope === 'user' && uin
+              ? ((await services.avatarResource.resolveByUin(scope, uin, variant)) ??
+                (await services.avatarResource.resolveByUin(scope, uin, 'small')))
+              : null;
+        }
+        if (!path) return null;
+        const bytes = await readFile(path);
+        return bytes.toString('base64');
+      } catch {
+        return null;
+      }
+    }),
   /**
    * Lightweight directory; page payloads are loaded separately.
    * `year` omitted = 让服务端挑开屏口径（最近一个真的有数据的年份）；
@@ -180,5 +234,81 @@ export const annualReportRouter = router({
         'png',
       );
       return { saved: path != null, path };
+    }),
+
+  /**
+   * 一键分享到 QQ 空间 —— 逐页渲染成 PNG（一页一图，不用长图），逐张上传到
+   * Qzone 图床，最后以一条带图说说发表到本账号的空间。
+   *
+   * 凭证走 webQuery 的 qzone.qq.com 通路（p_skey 可由 ptlogin2 本地快速登录兑
+   * 换，无需注入），票据失效自动换票重试一次。文案允许用户改；图片不可改。
+   * 发表是主动写行为 —— 这里不做重试轰炸，失败原样上抛给前端提示。
+   */
+  shareQzone: procedure
+    .input(
+      z.object({
+        year: z.number().int().min(0),
+        content: z.string().min(1).max(2000),
+        slides: z.array(exportSlideInput).min(1).max(9),
+        ugcRight: z.union([z.literal(1), z.literal(4), z.literal(64)]).default(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const services = requireServices();
+
+      if (input.slides.length > QZONE_MAX_IMAGES) {
+        throw new Error(
+          `说说一次最多 ${QZONE_MAX_IMAGES} 张图，当前选了 ${input.slides.length} 页`,
+        );
+      }
+
+      // 分享者信息：昵称 + 头像字节（主进程直接读本地头像缓存，离线也能画）。
+      const profile = await services.profile.getSelfProfile();
+      const nick = profile?.nick ?? '';
+      let avatar: Buffer | undefined;
+      try {
+        const uin = profile?.uin != null ? String(profile.uin) : '';
+        const path = uin
+          ? ((await services.avatarResource.resolveByUin('user', uin, 'big')) ??
+            (await services.avatarResource.resolveByUin('user', uin, 'small')))
+          : null;
+        if (path) avatar = await readFile(path);
+      } catch {
+        avatar = undefined; // 头像缺席 → 卡片画首字兜底，不阻断分享。
+      }
+
+      // 1. 逐页渲染 PNG（一页一图）。
+      const slides: ReportExportSlide[] = input.slides.map((s) => ({
+        pageId: s.pageId,
+        title: s.title,
+        description: s.description,
+        category: s.category,
+        data: s.data,
+      }));
+      const pngs = await renderSharePngs(slides, {
+        nick,
+        avatar,
+        initial: nick.slice(0, 1) || '我',
+      });
+
+      // 2. 逐张上传到 Qzone 图床，收集 richval。单张失败明确指出是第几张。
+      const richvals: string[] = [];
+      for (let i = 0; i < pngs.length; i++) {
+        try {
+          const upload = await services.webQuery.uploadQzoneImage(pngs[i]!.toString('base64'));
+          richvals.push(upload.richval);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          throw new Error(`第 ${i + 1} 张图片上传失败：${message}`);
+        }
+      }
+
+      // 3. 发表说说（richvals 内部用 \t 拼接）。
+      const published = await services.webQuery.publishQzone(
+        input.content,
+        richvals,
+        input.ugcRight,
+      );
+      return { tid: published.tid, time: published.time, images: pngs.length };
     }),
 });

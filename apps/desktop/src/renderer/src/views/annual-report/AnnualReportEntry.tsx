@@ -37,7 +37,7 @@ export function AnnualReportEntry({
    */
   const availableYears = manifest?.availableYears ?? [];
   const pages = manifest?.pages ?? [];
-  const canGenerate = pages.length > 0 && !loading && !isFetching;
+  const canGenerate = availableYears.length > 0 && pages.length > 0 && !loading && !isFetching;
   /**
    * 没数据看 `availableYears`，不看 `pages`：切年份的过渡期 manifest 还是上一份
    * （keepPreviousData），pages 可能空了一拍；而可选年份列表不随年份变化，始终可靠。

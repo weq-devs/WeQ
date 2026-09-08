@@ -6,7 +6,12 @@ import {
   type DressTally,
   type SentWeekdayHourlyGrid,
 } from '@weq/db';
-import type { DressNameResolver, ReportQueries } from './types';
+import type {
+  DressNameResolver,
+  ReportQueries,
+  ReportQzoneCapability,
+  ReportQzonePost,
+} from './types';
 
 /** 私聊 / 群聊两份 7×24 矩阵原位相加，缺行缺列按全零补齐。 */
 function mergeWeekdayHourlyGrids(parts: SentWeekdayHourlyGrid[]): SentWeekdayHourlyGrid {
@@ -38,6 +43,7 @@ export function createReportQueries(
   options: {
     resolveDressNames?: DressNameResolver;
     resolveEmojiNames?: (faceIds: number[]) => Promise<Record<number, string>>;
+    qzone?: ReportQzoneCapability;
   } = {},
 ): ReportQueries {
   // 自己的 uid 用 session 打开时已经驻留内存的 uidMap（nt_uid_mapping_table）
@@ -72,6 +78,18 @@ export function createReportQueries(
   >();
   const groupSpeechCache = new Map<string, Promise<import('@weq/db').SentSpeechRow[]>>();
   const interactionCache = new Map<string, Promise<import('@weq/db').GroupInteractionTally>>();
+  const qzonePostsCache = new Map<string, Promise<ReportQzonePost[]>>();
+  let memberSweepCache: Promise<
+    Array<{
+      groupCode: string;
+      uid: string;
+      uin: string;
+      nick: string;
+      card: string;
+    }>
+  > | null = null;
+  let buddyListCache: Promise<Array<{ uid: string; uin: string }>> | null = null;
+  let botUidsCache: Promise<Set<string>> | null = null;
   let oldestCache: Promise<number | null> | null = null;
   let sentYearsCache: Promise<number[]> | null = null;
 
@@ -399,6 +417,28 @@ export function createReportQueries(
         }
         return rows;
       },
+      /**
+       * 跨群重合度页的成员素材。结果按群号在 compute 里分桶；同一个 session
+       * 只扫一次全表，翻页 / 重算共用。
+       */
+      allActiveMembers() {
+        if (!memberSweepCache) {
+          memberSweepCache = session.groupMembers.listAllActiveMemberBriefs().then((rows) =>
+            rows.map((row) => ({
+              groupCode: String(row.groupCode),
+              uid: String(row.uid ?? ''),
+              uin: String(row.uin ?? ''),
+              nick: String(row.nick ?? ''),
+              card: String(row.card ?? ''),
+            })),
+          );
+          // 失败时清掉缓存，页面重试可以重新扫。
+          void memberSweepCache.catch(() => {
+            memberSweepCache = null;
+          });
+        }
+        return memberSweepCache;
+      },
     },
     c2c: {
       /**
@@ -464,6 +504,23 @@ export function createReportQueries(
         }));
       },
     },
+    buddies: {
+      /** 好友名册（buddy_list）的 uid/uin。与消息量无关，是“是不是好友”的权威来源。 */
+      list() {
+        if (!buddyListCache) {
+          buddyListCache = session.buddies.listBuddies().then((rows) =>
+            rows.map((row) => ({
+              uid: String(row.uid ?? ''),
+              uin: row.uin !== undefined && row.uin !== null ? String(row.uin) : '',
+            })),
+          );
+          void buddyListCache.catch(() => {
+            buddyListCache = null;
+          });
+        }
+        return buddyListCache;
+      },
+    },
     rhythm: {
       /**
        * 与 peerDayTallies 同款的 per-window 记忆化：availability 只问一次方向，
@@ -490,6 +547,39 @@ export function createReportQueries(
         return running;
       },
     },
+    qzone: {
+      /**
+       * 在线探测：宿主没注入能力（离线 / 静态无 QQ）时恒 false —— 页面在
+       * availability 阶段被摘掉，不会走到会真的请求网络的 compute。
+       */
+      canQuery() {
+        if (!options.qzone) return false;
+        return options.qzone.canQuery();
+      },
+      /**
+       * 按时间窗记忆化的空间说说拉取。availability 与 compute 问同一个窗口时
+       * 只真正翻页一次；失败时清缓存，页面重试可以重新拉。
+       */
+      posts(startTime: number, endTime: number) {
+        const key = `${startTime}:${endTime}`;
+        let running = qzonePostsCache.get(key);
+        if (!running) {
+          running = options.qzone
+            ? options.qzone.fetchPosts(startTime, endTime)
+            : Promise.resolve([]);
+          qzonePostsCache.set(key, running);
+          void running.catch(() => {
+            qzonePostsCache.delete(key);
+          });
+        }
+        return running;
+      },
+      /** 单条权威赞数；宿主补拉失败返回 null。 */
+      likeCount(tid: string) {
+        if (!options.qzone) return Promise.resolve(null);
+        return options.qzone.fetchLikeCount(tid);
+      },
+    },
     meta: {
       /**
        * Oldest message sendTime (unix seconds) across c2c + group tables, or
@@ -502,6 +592,20 @@ export function createReportQueries(
        * report years. Two DISTINCT-year scans, cached here for the session.
        */
       sentYears,
+      /** 账号自身身份（uid 优先、uin 兜底）——给跨群重合页筛掉“自己”。 */
+      selfIdentity() {
+        return Promise.resolve({ uid: selfUid, uin: String(selfUin) });
+      },
+      /** 机器人 uid 集合。profile_info 的 21000 大列预过滤只解疑似行。 */
+      botUids() {
+        if (!botUidsCache) {
+          botUidsCache = session.profileInfo.botUids();
+          void botUidsCache.catch(() => {
+            botUidsCache = null;
+          });
+        }
+        return botUidsCache;
+      },
     },
   };
 }

@@ -37,6 +37,12 @@ const PNG_SCALE = 2;
 
 type El = { type: string; props: Record<string, unknown> };
 function el(type: string, style: Record<string, unknown>, children?: unknown): El {
+  // satori 只认 Flexbox：<div> 一旦带元素 / 数组子节点，就必须显式声明
+  // `display: flex`（或 none），否则渲染直接抛错。未声明时在这里补上默认值，
+  // 语义与 satori 之前把 div 默认当 flex 容器一致，也避免各页漏写。
+  if (type === 'div' && children != null && typeof children !== 'string' && !style.display) {
+    style = { ...style, display: 'flex' };
+  }
   return { type, props: { style, children } };
 }
 
@@ -58,6 +64,10 @@ const PALETTE = {
   voice: '#e0a878',
   home: '#e6b866',
   buzz: '#e79a74',
+  rose: '#eba3b7',
+  jade: '#77cfc2',
+  qz: '#8fc0e8',
+  qzGold: '#e2ae74',
 };
 
 function fmt(n: number): string {
@@ -1910,6 +1920,25 @@ function nameVisualWidth(name: string): number {
   return [...name].reduce((sum, char) => sum + (/\p{Script=Han}/u.test(char) ? 1 : 0.62), 0);
 }
 
+/** 名字/群名按“可视宽度”截断，超长部分换成省略号。 */
+function fitName(text: string, maxVisual = 14): string {
+  if (nameVisualWidth(text) <= maxVisual) return text;
+  let out = '';
+  let width = 0;
+  for (const char of text) {
+    const w = /\p{Script=Han}/u.test(char) ? 1 : 0.62;
+    if (width + w > maxVisual - 1) break;
+    out += char;
+    width += w;
+  }
+  return `${out}…`;
+}
+
+/** 展示名的首字（兜底问号），导出版画不了头像贴图。 */
+function nameInitial(name: string): string {
+  return Array.from(name || '')[0] ?? '?';
+}
+
 /** '#rrggbb' + alpha → rgba()。satori 不支持 color-mix，只能拼字符串。 */
 function rgba(hex: string, alpha: number): string {
   const value = hex.replace('#', '');
@@ -2253,6 +2282,838 @@ function interactionsTree(data: Record<string, unknown>): El {
   return slideFrame([body], heroGhost);
 }
 
+/**
+ * 陪你走过 12 个月页的长图版。
+ *
+ * 长图没有屏幕版的翻页动画，所以「年度聊伴」的名字 + 霸榜月数巨数直接占住
+ * 版心；十二格月历收在页中偏下的两行里 —— 属于聊伴的月份用胭脂色描边。
+ * 数据与屏幕版同源，只做排印不做二次统计。
+ */
+function monthsTree(data: Record<string, unknown>): El {
+  const year = Number(data.year ?? 0);
+  const champion = (data.champion ?? null) as {
+    peerUid?: string;
+    peerName?: string;
+    messages?: number;
+  } | null;
+  const championCells = Number(data.championMonths ?? 0);
+  const monthCount = Number(data.monthCount ?? 0);
+  const months = (data.months ?? []) as Array<{
+    month?: number;
+    top?: { peerUid?: string; peerName?: string; messages?: number } | null;
+  }>;
+  const carryover = (data.carryoverMonths ?? []) as Array<{
+    month?: number;
+    top?: { peerUid?: string; peerName?: string; messages?: number } | null;
+  }>;
+  /** 去年尾部月份 + 今年：9 月报告 = 去年 10/11/12 + 今年 1..9，正好 12 格。 */
+  const cells = [...carryover.map((cell) => ({ ...cell, carried: true as const })), ...months];
+  const labels = [
+    '一月',
+    '二月',
+    '三月',
+    '四月',
+    '五月',
+    '六月',
+    '七月',
+    '八月',
+    '九月',
+    '十月',
+    '十一月',
+    '十二月',
+  ];
+
+  const monthCell = (cell: (typeof cells)[number]): El => {
+    const top = cell.top ?? null;
+    const ours = Boolean(champion) && Boolean(top) && top!.peerUid === champion?.peerUid;
+    const ringColor = ours ? rgba(PALETTE.rose, 0.78) : rgba(PALETTE.hair, 1);
+    const textColor = ours ? PALETTE.rose : PALETTE.inkMuted;
+    const carried = 'carried' in cell && cell.carried;
+    return el(
+      'div',
+      {
+        width: 132,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        borderBottomWidth: 1,
+        borderBottomColor: ours ? rgba(PALETTE.rose, 0.62) : PALETTE.hair,
+        borderBottomStyle: top ? 'solid' : 'dashed',
+        paddingBottom: 10,
+      },
+      [
+        el(
+          'div',
+          {
+            fontSize: 13,
+            color: carried ? rgba(PALETTE.inkFaint, 0.82) : PALETTE.inkFaint,
+            letterSpacing: 3,
+            fontWeight: 600,
+          },
+          `${carried ? '去年·' : ''}${labels[Number(cell.month ?? 0) - 1] ?? `${cell.month}月`}`,
+        ),
+        el(
+          'div',
+          {
+            marginTop: 8,
+            width: 46,
+            height: 46,
+            borderRadius: 23,
+            backgroundColor: rgba(ours ? PALETTE.rose : PALETTE.paper, 0.9),
+            borderWidth: 1,
+            borderStyle: 'solid',
+            borderColor: ringColor,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          },
+          el(
+            'div',
+            { fontSize: 20, fontWeight: 600, color: textColor },
+            top ? nameInitial(String(top.peerName ?? '')) : '·',
+          ),
+        ),
+        ...(top
+          ? [
+              el(
+                'div',
+                {
+                  marginTop: 6,
+                  maxWidth: 132,
+                  fontSize: 12,
+                  color: ours ? PALETTE.inkSoft : PALETTE.inkMuted,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                },
+                fitName(String(top.peerName ?? ''), 13),
+              ),
+              el(
+                'div',
+                { marginTop: 2, fontSize: 13, fontWeight: 600, color: textColor },
+                fmt(Number(top.messages ?? 0)),
+              ),
+            ]
+          : []),
+      ],
+    );
+  };
+
+  const rows: El[] = [];
+  for (let offset = 0; offset < cells.length; offset += 6) {
+    rows.push(
+      el(
+        'div',
+        { display: 'flex', justifyContent: 'center', gap: 24 },
+        cells.slice(offset, offset + 6).map((cell) => monthCell(cell)),
+      ),
+    );
+  }
+
+  const center = el(
+    'div',
+    { width: SLIDE_W - 144, display: 'flex', flexDirection: 'column', alignItems: 'center' },
+    [
+      el('div', { display: 'flex', justifyContent: 'space-between', width: '100%' }, [
+        el(
+          'div',
+          { fontSize: 28, color: PALETTE.inkSoft, letterSpacing: 7 },
+          `${reportEraLabel(year)} · 陪你走过12个月`,
+        ),
+        el(
+          'div',
+          { fontSize: 21, color: PALETTE.inkFaint, letterSpacing: 4 },
+          `${fmt(Number(data.friendCount ?? 0))} 位好友 / ${fmt(Number(data.totalMessages ?? 0))} 条私聊`,
+        ),
+      ]),
+      ...(champion
+        ? [
+            el(
+              'div',
+              { marginTop: 52, fontSize: 30, color: PALETTE.inkSoft, letterSpacing: 4 },
+              `${reportEraLabel(year)}${carryover.length > 0 ? '（近 12 个月）' : ''}，每个月聊得最多的人一直在换，可最后站在你身边的是——`,
+            ),
+            el(
+              'div',
+              {
+                marginTop: 26,
+                width: 132,
+                height: 132,
+                borderRadius: 66,
+                backgroundColor: rgba(PALETTE.rose, 0.12),
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderWidth: 1,
+                borderStyle: 'solid',
+                borderColor: rgba(PALETTE.rose, 0.7),
+              },
+              el(
+                'div',
+                { fontSize: 58, fontWeight: 600, color: PALETTE.ink },
+                nameInitial(String(champion.peerName ?? '')),
+              ),
+            ),
+            el(
+              'div',
+              {
+                marginTop: 24,
+                fontSize: 52,
+                fontWeight: 600,
+                color: PALETTE.ink,
+                letterSpacing: 2,
+              },
+              fitName(String(champion.peerName ?? ''), 11),
+            ),
+            el('div', { marginTop: 8, display: 'flex', alignItems: 'center' }, [
+              el(
+                'div',
+                {
+                  fontSize: championCells >= 100 ? 112 : championCells >= 10 ? 136 : 158,
+                  fontWeight: 700,
+                  color: PALETTE.rose,
+                  lineHeight: 1,
+                  letterSpacing: -3,
+                },
+                fmt(championCells),
+              ),
+              el(
+                'div',
+                {
+                  marginLeft: 22,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                },
+                [
+                  el('div', { fontSize: 34, fontWeight: 600, color: PALETTE.ink }, '个月'),
+                  el(
+                    'div',
+                    { marginTop: 6, fontSize: 17, color: PALETTE.inkMuted, letterSpacing: 5 },
+                    '的聊天第一名',
+                  ),
+                ],
+              ),
+            ]),
+            el(
+              'div',
+              { marginTop: 16, fontSize: 24, color: PALETTE.inkMuted, letterSpacing: 2 },
+              championCells >= monthCount
+                ? '整整一路，TA 都没有把第一让给别人。'
+                : `TA 拿下了 ${fmt(championCells)} 个月的第一，${
+                    monthCount < 12 ? '今年' : '全年'
+                  }和你聊了 ${fmt(Number(champion.messages ?? 0))} 条。`,
+            ),
+          ]
+        : [
+            el(
+              'div',
+              { marginTop: 110, fontSize: 30, color: PALETTE.inkMuted, letterSpacing: 3 },
+              `${reportEraLabel(year)}，这一年还没有足够多的双向私聊，讲不出「谁陪你走过」的故事。`,
+            ),
+          ]),
+      ...(champion
+        ? [
+            el(
+              'div',
+              { marginTop: 48, display: 'flex', flexDirection: 'column', alignItems: 'center' },
+              [
+                el(
+                  'div',
+                  { fontSize: 18, color: PALETTE.inkFaint, letterSpacing: 8 },
+                  '每月的聊天第一名',
+                ),
+                el(
+                  'div',
+                  { marginTop: 24, display: 'flex', flexDirection: 'column', gap: 20 },
+                  rows,
+                ),
+              ],
+            ),
+            el(
+              'div',
+              {
+                marginTop: 42,
+                maxWidth: 760,
+                fontSize: 24,
+                color: PALETTE.inkSoft,
+                lineHeight: 1.9,
+                letterSpacing: 3,
+                textAlign: 'center',
+              },
+              '真正陪你走过时间的，不是哪一条消息——是那个总在对话框另一边、从不缺席的人。',
+            ),
+          ]
+        : []),
+    ],
+  );
+
+  return slideFrame([center], String(year));
+}
+
+/**
+ * 还没加好友的同路人页的长图版。
+ *
+ * 静态产物里冠军的「大头名 + N 个群」占住版心，光环退成两圈同心衬线；
+ * 共同群名单收在页底当证据，冠军之外再排三位小推荐。数据与屏幕版同源。
+ */
+function mateTree(data: Record<string, unknown>): El {
+  const year = Number(data.year ?? 0);
+  const top = (data.top ?? null) as {
+    name?: string;
+    sharedCount?: number;
+    groups?: Array<{ groupName?: string }>;
+  } | null;
+  const more = (data.more ?? []) as Array<{
+    name?: string;
+    sharedCount?: number;
+  }>;
+
+  const ringDots: El[] = [];
+  for (let index = 0; index < 8; index++) {
+    const angle = (index / 8) * Math.PI * 2;
+    const radius = 196;
+    ringDots.push(
+      el('div', {
+        position: 'absolute',
+        left: SLIDE_W / 2 + Math.cos(angle) * radius - 4,
+        top: 300 + Math.sin(angle) * radius - 4,
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        backgroundColor: rgba(PALETTE.jade, index % 2 === 0 ? 0.48 : 0.22),
+      }),
+    );
+  }
+  const outerRing: El = el('div', {
+    position: 'absolute',
+    left: SLIDE_W / 2 - 252,
+    top: 300 - 252,
+    width: 504,
+    height: 504,
+    borderRadius: 252,
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: rgba(PALETTE.jade, 0.2),
+  });
+  const innerRing: El = el('div', {
+    position: 'absolute',
+    left: SLIDE_W / 2 - 164,
+    top: 300 - 164,
+    width: 328,
+    height: 328,
+    borderRadius: 164,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: rgba(PALETTE.jade, 0.14),
+  });
+
+  const center = el(
+    'div',
+    { width: SLIDE_W - 144, display: 'flex', flexDirection: 'column', alignItems: 'center' },
+    [
+      el('div', { display: 'flex', justifyContent: 'space-between', width: '100%' }, [
+        el(
+          'div',
+          { fontSize: 28, color: PALETTE.inkSoft, letterSpacing: 7 },
+          `${reportEraLabel(year)} · 还没加好友的同路人`,
+        ),
+        el(
+          'div',
+          { fontSize: 21, color: PALETTE.inkFaint, letterSpacing: 4 },
+          `${fmt(Number(data.groupCount ?? 0))} 个群 / ${fmt(Number(data.personCount ?? 0))} 位未加好友的群友`,
+        ),
+      ]),
+      ...(top
+        ? [
+            el(
+              'div',
+              { marginTop: 54, fontSize: 30, color: PALETTE.inkSoft, letterSpacing: 4 },
+              '有些人你以为不认识，其实已经在群里见过很多面了——',
+            ),
+            el(
+              'div',
+              {
+                marginTop: 26,
+                width: 152,
+                height: 152,
+                borderRadius: 76,
+                backgroundColor: rgba(PALETTE.jade, 0.12),
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderWidth: 1,
+                borderStyle: 'solid',
+                borderColor: rgba(PALETTE.jade, 0.72),
+              },
+              el(
+                'div',
+                { fontSize: 64, fontWeight: 600, color: PALETTE.ink },
+                nameInitial(String(top.name ?? '')),
+              ),
+            ),
+            el(
+              'div',
+              {
+                marginTop: 22,
+                fontSize: 54,
+                fontWeight: 600,
+                color: PALETTE.ink,
+                letterSpacing: 2,
+              },
+              fitName(String(top.name ?? ''), 11),
+            ),
+            el('div', { marginTop: 6, display: 'flex', alignItems: 'center' }, [
+              el(
+                'div',
+                {
+                  fontSize: Number(top.sharedCount ?? 0) >= 100 ? 118 : 150,
+                  fontWeight: 700,
+                  color: PALETTE.jade,
+                  lineHeight: 1,
+                  letterSpacing: -3,
+                },
+                fmt(Number(top.sharedCount ?? 0)),
+              ),
+              el(
+                'div',
+                {
+                  marginLeft: 24,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                },
+                [
+                  el('div', { fontSize: 36, fontWeight: 600, color: PALETTE.ink }, '个群'),
+                  el(
+                    'div',
+                    { marginTop: 6, fontSize: 17, color: PALETTE.inkMuted, letterSpacing: 5 },
+                    '里有 TA',
+                  ),
+                ],
+              ),
+            ]),
+            el(
+              'div',
+              { marginTop: 14, fontSize: 24, color: PALETTE.inkMuted, letterSpacing: 2 },
+              `你们还没有加好友——但同一个圈子里，已经重逢了 ${fmt(
+                Number(top.sharedCount ?? 0),
+              )} 次。`,
+            ),
+            el('div', {
+              marginTop: 42,
+              width: SLIDE_W - 144,
+              height: 1,
+              backgroundColor: PALETTE.hair,
+            }),
+            el(
+              'div',
+              { marginTop: 26, fontSize: 18, color: PALETTE.inkFaint, letterSpacing: 8 },
+              '这些群，就是 TA 的「生态位」',
+            ),
+            el(
+              'div',
+              {
+                marginTop: 18,
+                display: 'flex',
+                flexWrap: 'wrap',
+                justifyContent: 'center',
+                alignItems: 'baseline',
+                gap: 14,
+              },
+              (top.groups ?? []).slice(0, 5).map((group, index) =>
+                el(
+                  'div',
+                  {
+                    maxWidth: 300,
+                    fontSize: 24,
+                    color: PALETTE.inkSoft,
+                    letterSpacing: 1,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  },
+                  `${String(index + 1).padStart(2, '0')}  ${fitName(
+                    String(group.groupName ?? ''),
+                    20,
+                  )}`,
+                ),
+              ),
+            ),
+          ]
+        : [
+            el(
+              'div',
+              { marginTop: 120, fontSize: 30, color: PALETTE.inkMuted, letterSpacing: 3 },
+              '在这些群里，还没有一个值得专门加好友的「重逢」。',
+            ),
+          ]),
+      ...(more.length > 0
+        ? [
+            el(
+              'div',
+              { marginTop: 34, display: 'flex', flexDirection: 'column', alignItems: 'center' },
+              [
+                el('div', {
+                  width: SLIDE_W - 144,
+                  height: 1,
+                  backgroundColor: PALETTE.hair,
+                }),
+                el(
+                  'div',
+                  {
+                    marginTop: 28,
+                    display: 'flex',
+                    justifyContent: 'center',
+                    gap: 54,
+                  },
+                  more.slice(0, 3).map((candidate, index) =>
+                    el('div', { display: 'flex', alignItems: 'center', gap: 12 }, [
+                      el(
+                        'div',
+                        { fontSize: 18, fontWeight: 600, color: PALETTE.inkFaint },
+                        `0${index + 2}`,
+                      ),
+                      el(
+                        'div',
+                        {
+                          width: 48,
+                          height: 48,
+                          borderRadius: 24,
+                          borderWidth: 1,
+                          borderStyle: 'solid',
+                          borderColor: rgba(PALETTE.jade, 0.48),
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        },
+                        el(
+                          'div',
+                          { fontSize: 20, fontWeight: 600, color: PALETTE.inkSoft },
+                          nameInitial(String(candidate.name ?? '')),
+                        ),
+                      ),
+                      el(
+                        'div',
+                        {
+                          maxWidth: 180,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          fontSize: 22,
+                          color: PALETTE.inkSoft,
+                          letterSpacing: 1,
+                        },
+                        fitName(String(candidate.name ?? ''), 10),
+                      ),
+                      el(
+                        'div',
+                        { fontSize: 28, fontWeight: 700, color: PALETTE.jade },
+                        fmt(Number(candidate.sharedCount ?? 0)),
+                      ),
+                      el(
+                        'div',
+                        { fontSize: 16, color: PALETTE.inkFaint, letterSpacing: 2 },
+                        '个群',
+                      ),
+                    ]),
+                  ),
+                ),
+              ],
+            ),
+          ]
+        : []),
+      ...(top
+        ? [
+            el(
+              'div',
+              {
+                marginTop: 42,
+                maxWidth: 800,
+                fontSize: 24,
+                color: PALETTE.inkSoft,
+                lineHeight: 1.9,
+                letterSpacing: 3,
+                textAlign: 'center',
+              },
+              '世界很大，圈子很小。同频的人值得一句「你好」——也许加了好友以后，你们会更熟。',
+            ),
+          ]
+        : []),
+    ],
+  );
+
+  return slideFrame([outerRing, innerRing, ...ringDots, center], '缘');
+}
+
+/** QQ 空间说说正文 → 一行可读的安全摘录。 */
+function qzoneQuote(value: unknown): string {
+  const clean = String(value ?? '')
+    .replace(/@\{uin:[^,]+,[^}]+\}/g, '@朋友')
+    .replace(/\[em\]e\d+\[\/em\]/g, '[表情]')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (clean) return clean.length > 46 ? `${clean.slice(0, 46)}…` : clean;
+  return '这条说说没有留下文字。';
+}
+
+/** `N月M日` / `YYYY年N月M日` —— 与屏幕版胶片同源。 */
+function qzoneDay(sec: number, withYear: boolean): string {
+  if (!sec) return '';
+  const date = new Date(sec * 1000);
+  const label = `${date.getMonth() + 1}月${date.getDate()}日`;
+  return withYear ? `${date.getFullYear()}年${label}` : label;
+}
+
+/**
+ * QQ 空间回忆页的长图版。
+ *
+ * 静态产物画不了无限跑动的胶片，版心仍是「N 条说说」的巨数；冠军回忆压成一行
+ * 名句，胶片退成页底一列等宽的帧（日期 + 摘录 + 图/影标记），全页不依赖任何
+ * 远程图片 —— 离线长图也不会裂图。
+ */
+function qzoneTree(data: Record<string, unknown>): El {
+  const year = Number(data.year ?? 0);
+  const allTime = isAllTimeYear(year);
+  const gallery = (data.gallery ?? []) as Array<{
+    time?: number;
+    content?: string;
+    images?: string[];
+    hasVideo?: boolean;
+    likeCount?: number | null;
+  }>;
+  const highlight = (data.highlight ?? null) as {
+    post?: { time?: number; content?: string };
+    metric?: 'like' | 'comment';
+    count?: number;
+  } | null;
+  const firstYear = Number(data.firstPostTime ?? 0)
+    ? `${new Date(Number(data.firstPostTime) * 1000).getFullYear()} 年`
+    : '';
+
+  const frame = (post: (typeof gallery)[number], color: string): El =>
+    el(
+      'div',
+      {
+        flex: '1 1 0',
+        minWidth: 0,
+        height: 132,
+        padding: '14px 16px',
+        backgroundColor: rgba(color, 0.06),
+        borderWidth: 1,
+        borderStyle: 'solid',
+        borderColor: rgba(color, 0.2),
+        display: 'flex',
+        flexDirection: 'column',
+      },
+      [
+        el('div', { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }, [
+          el(
+            'div',
+            { fontSize: 17, color, letterSpacing: 1, fontWeight: 600 },
+            qzoneDay(Number(post.time ?? 0), allTime),
+          ),
+          el(
+            'div',
+            {
+              fontSize: 14,
+              color: rgba(PALETTE.qzGold, 0.9),
+              letterSpacing: 2,
+            },
+            [
+              ...((post.images?.length ?? 0) > 0 ? ['图'] : []),
+              ...(post.hasVideo ? ['影'] : []),
+              ...(post.likeCount ? [`赞 ${fmt(post.likeCount)}`] : []),
+            ].join(' · '),
+          ),
+        ]),
+        el(
+          'div',
+          {
+            marginTop: 10,
+            maxWidth: '100%',
+            fontSize: 18,
+            color: PALETTE.inkSoft,
+            lineHeight: 1.45,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          },
+          qzoneQuote(post.content),
+        ),
+      ],
+    );
+
+  const frames = gallery.slice(0, 6).map((post) => frame(post, PALETTE.qz));
+  const total = Number(data.total ?? 0);
+  const center = el(
+    'div',
+    { width: SLIDE_W - 144, display: 'flex', flexDirection: 'column', alignItems: 'center' },
+    [
+      el('div', { display: 'flex', justifyContent: 'space-between', width: '100%' }, [
+        el(
+          'div',
+          { fontSize: 28, color: PALETTE.inkSoft, letterSpacing: 7 },
+          `${reportEraLabel(year)} · QQ空间回忆`,
+        ),
+        el(
+          'div',
+          { fontSize: 21, color: PALETTE.inkFaint, letterSpacing: 4 },
+          `${allTime && firstYear ? `${firstYear.trim()} 起 / ` : ''}${fmt(total)} 条说说`,
+        ),
+      ]),
+      el(
+        'div',
+        { marginTop: 46, fontSize: 30, color: PALETTE.inkSoft, letterSpacing: 4 },
+        allTime ? '这一路，你把生活寄放在空间里' : `${year} 这一年，你把生活的一部分寄存在空间里`,
+      ),
+      el('div', { marginTop: 20, display: 'flex', alignItems: 'center' }, [
+        el(
+          'div',
+          {
+            fontSize: total >= 100 ? 138 : 168,
+            fontWeight: 700,
+            color: PALETTE.qz,
+            lineHeight: 1,
+            letterSpacing: -4,
+          },
+          fmt(total),
+        ),
+        el(
+          'div',
+          {
+            marginLeft: 24,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-start',
+          },
+          [
+            el('div', { fontSize: 34, fontWeight: 600, color: PALETTE.ink }, '条'),
+            el(
+              'div',
+              { marginTop: 5, fontSize: 17, color: PALETTE.inkMuted, letterSpacing: 6 },
+              '写下的说说',
+            ),
+          ],
+        ),
+      ]),
+      el(
+        'div',
+        { marginTop: 12, fontSize: 24, color: PALETTE.inkMuted, letterSpacing: 3 },
+        '它们未必被很多人看见，却都替你记着那时的你。',
+      ),
+      ...(highlight?.post
+        ? [
+            el('div', {
+              marginTop: 42,
+              width: SLIDE_W - 144,
+              height: 1,
+              backgroundColor: PALETTE.hair,
+            }),
+            el(
+              'div',
+              {
+                marginTop: 24,
+                width: SLIDE_W - 144,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 40,
+              },
+              [
+                el('div', { display: 'flex', flexDirection: 'column', minWidth: 0 }, [
+                  el(
+                    'div',
+                    { fontSize: 18, color: PALETTE.qz, letterSpacing: 6, fontWeight: 600 },
+                    highlight.metric === 'like' ? '被赞得最多的一条' : '被评论最多的一条',
+                  ),
+                  el(
+                    'div',
+                    {
+                      marginTop: 12,
+                      maxWidth: 720,
+                      fontSize: 28,
+                      color: PALETTE.ink,
+                      letterSpacing: 1,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    },
+                    `“${qzoneQuote(highlight.post.content)}”`,
+                  ),
+                  el(
+                    'div',
+                    { marginTop: 8, fontSize: 20, color: PALETTE.inkFaint, letterSpacing: 2 },
+                    [
+                      qzoneDay(Number(highlight.post.time ?? 0), allTime),
+                      ' · ',
+                      el(
+                        'span',
+                        { fontSize: 26, fontWeight: 700, color: PALETTE.qzGold },
+                        fmt(Number(highlight.count ?? 0)),
+                      ),
+                      highlight.metric === 'like' ? ' 次赞' : ' 条评论',
+                    ].join(''),
+                  ),
+                ]),
+                el(
+                  'div',
+                  {
+                    flex: '0 0 auto',
+                    width: 96,
+                    height: 96,
+                    borderWidth: 1,
+                    borderStyle: 'solid',
+                    borderColor: rgba(PALETTE.qz, 0.46),
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 52,
+                    fontWeight: 600,
+                    color: rgba(PALETTE.qz, 0.5),
+                  },
+                  '”',
+                ),
+              ],
+            ),
+          ]
+        : []),
+      ...(frames.length > 0
+        ? [
+            el('div', {
+              marginTop: 42,
+              width: SLIDE_W - 144,
+              height: 1,
+              backgroundColor: PALETTE.hair,
+            }),
+            el(
+              'div',
+              {
+                marginTop: 20,
+                fontSize: 18,
+                color: PALETTE.inkFaint,
+                letterSpacing: 8,
+              },
+              `时光胶片 · ${allTime ? '往回翻，每一帧都是你' : `这一年，你留在空间里的画面`}`,
+            ),
+            el(
+              'div',
+              {
+                marginTop: 18,
+                width: SLIDE_W - 144,
+                display: 'flex',
+                gap: 14,
+              },
+              frames,
+            ),
+          ]
+        : []),
+    ],
+  );
+
+  return slideFrame([center], '忆');
+}
+
 function endTree(data: Record<string, unknown>): El {
   const year = Number(data.year ?? 0);
   const allTime = isAllTimeYear(year);
@@ -2334,6 +3195,9 @@ function treeForSlide(slide: ReportExportSlide): El {
   if (slide.pageId === 'voice') return voiceTree(data);
   if (slide.pageId === 'home') return homeTree(data);
   if (slide.pageId === 'interactions') return interactionsTree(data);
+  if (slide.pageId === 'months') return monthsTree(data);
+  if (slide.pageId === 'mate') return mateTree(data);
+  if (slide.pageId === 'qzone') return qzoneTree(data);
   if (slide.pageId === 'end') return endTree(data);
   return genericTree(slide);
 }
@@ -2366,4 +3230,167 @@ export async function renderLongImagePng(slides: ReportExportSlide[]): Promise<B
     ],
   });
   return new Resvg(svg, { fitTo: { mode: 'width', value: SLIDE_W * PNG_SCALE } }).render().asPng();
+}
+
+// ─────────────── QQ 空间分享 —— 逐页 PNG ───────────────
+// 说说一次最多 9 张图，所以分享不走长图，而是**一页一张图**。每张卡片在长图
+// 版式的基础上加两层：
+//   1. 右上角「分享者」一行：用户头像（base64 内嵌）+ 昵称 —— 用户明确要求
+//      「带上自己的头像」；
+//   2. 底部页脚追加指向 github.com/H3CoF6/WeQ 的署名行。
+// 输出尺寸压到 720×1280：空间图床对超大图压缩狠，超采样到 1440 宽足够清晰。
+
+/** 分享卡片的画幅（9:16 竖屏）。 */
+const SHARE_W = 720;
+const SHARE_H = 1280;
+
+/** 分享卡片专属的署名与跳转指向。 */
+const SHARE_FOOTER = '来自 WEQ · github.com/H3CoF6/WeQ';
+
+/** 分享时附加在每张卡片上的分享者信息。 */
+export interface ShareProfile {
+  /** 昵称（取不到可空 —— 空则不画分享者行）。 */
+  nick: string;
+  /** 头像 PNG/JPEG 字节（取不到可空 —— 空则画首字兜底）。 */
+  avatar?: Buffer;
+  /** 昵称首字，头像缺席时的兜底。 */
+  initial?: string;
+}
+
+/**
+ * 逐页渲染分享 PNG —— 每张卡片独立成图（说说一图一页，不用长图）。
+ * 版式复用 {@link treeForSlide}（与长图同一棵元素树），外面包一层分享壳：
+ * 头像行 + 项目署名。
+ */
+export async function renderSharePngs(
+  slides: ReportExportSlide[],
+  profile: ShareProfile,
+): Promise<Buffer[]> {
+  const fontData = loadCjkFont();
+  const fonts = [
+    { name: 'Report', data: fontData, weight: 400, style: 'normal' },
+    { name: 'Report', data: fontData, weight: 700, style: 'normal' },
+  ] as const;
+
+  const out: Buffer[] = [];
+  for (const slide of slides) {
+    const root = shareFrame(treeForSlide(slide), profile);
+    const svg = await satori(root as unknown as import('react').ReactNode, {
+      width: SHARE_W,
+      height: SHARE_H,
+      fonts: [...fonts],
+    });
+    out.push(
+      new Resvg(svg, { fitTo: { mode: 'width', value: SHARE_W * PNG_SCALE } }).render().asPng(),
+    );
+  }
+  return out;
+}
+
+/** 分享壳：长图卡片缩放进 720×1280 画幅，叠加头像行与署名。 */
+function shareFrame(inner: El, profile: ShareProfile): El {
+  return el(
+    'div',
+    {
+      width: SHARE_W,
+      height: SHARE_H,
+      display: 'flex',
+      position: 'relative',
+      overflow: 'hidden',
+      backgroundColor: PALETTE.paper,
+    },
+    [
+      // 内容层：把长图卡片按 720/1080 缩放居中放进画幅（长图卡片 1080×1920，
+      // 等比缩到 720×1280 正好满幅 —— 同一排版语言，零重排）。
+      el(
+        'div',
+        {
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: SHARE_W,
+          height: SHARE_H,
+          transform: `scale(${SHARE_W / SLIDE_W})`,
+          transformOrigin: 'top left',
+        },
+        [inner],
+      ),
+      // 右上角分享者行：头像 + 昵称。头像缺席画首字兜底。
+      el(
+        'div',
+        {
+          position: 'absolute',
+          top: 26,
+          right: 26,
+          display: 'flex',
+          alignItems: 'center',
+        },
+        [
+          el(
+            'div',
+            {
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              overflow: 'hidden',
+              backgroundColor: 'rgba(201,162,39,0.22)',
+            },
+            profile.avatar
+              ? el('img', {
+                  width: 40,
+                  height: 40,
+                  src: `data:image/png;base64,${profile.avatar.toString('base64')}`,
+                })
+              : el(
+                  'div',
+                  {
+                    fontSize: 20,
+                    fontWeight: 700,
+                    color: PALETTE.accent,
+                  },
+                  profile.initial || '我',
+                ),
+          ),
+          profile.nick
+            ? el(
+                'div',
+                {
+                  marginLeft: 10,
+                  fontSize: 18,
+                  color: PALETTE.inkSoft,
+                  letterSpacing: 2,
+                },
+                profile.nick,
+              )
+            : null,
+        ],
+      ),
+      // 底部署名行：指向项目仓库。
+      el(
+        'div',
+        {
+          position: 'absolute',
+          bottom: 18,
+          left: 0,
+          width: SHARE_W,
+          display: 'flex',
+          justifyContent: 'center',
+        },
+        [
+          el(
+            'div',
+            {
+              fontSize: 15,
+              color: PALETTE.inkFaint,
+              letterSpacing: 2,
+            },
+            SHARE_FOOTER,
+          ),
+        ],
+      ),
+    ],
+  );
 }

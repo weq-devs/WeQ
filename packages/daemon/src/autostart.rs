@@ -40,11 +40,11 @@ fn run(cmd: &mut std::process::Command, what: &str) -> Result<(), String> {
     }
 }
 
-// fn home_dir() -> Result<std::path::PathBuf, String> {
-//     std::env::var_os("HOME")
-//         .map(std::path::PathBuf::from)
-//         .ok_or_else(|| "HOME not set".to_string())
-// }
+fn home_dir() -> Result<std::path::PathBuf, String> {
+    std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .ok_or_else(|| "HOME not set".to_string())
+}
 
 // ---------- Windows: schtasks ONLOGON ----------
 
