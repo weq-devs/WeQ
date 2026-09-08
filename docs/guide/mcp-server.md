@@ -62,6 +62,8 @@ Claude Code / Codex / Cursor / VS Code 等 MCP 客户端，勾选后即可一键
 
 绝大多数工具为**只读**且**只走本地数据、不发网络请求**（收藏固定读本机 `collection.db`、合并转发只在本地 40900 缓存里找、频道私聊/数据线都读本地表）。返回精简后的 JSON（`msgId` / `uin` / `sendTime` 等数值字段为避免精度问题以字符串返回）。工具的会话标识约定：私聊传对方 `uid`，群聊传群号 `groupCode`；遇到人名/群名先用 `find_contact` 解析成会话标识，再去读/搜。
 
+「凭据」「协议能力」「Web CGI 查询」三节的工具属于例外：它们**需要本机有在线且已登录的 QQ 客户端**（部分还需要「自动注入 QQ」开启），会实时向运行中的 QQ 进程取票据或发包。离线 / 完全离线模式下调用会得到明确报错。
+
 > `execute_sql`（可写库）与 `decrypt_database`（写明文副本到本地目录）是例外的高级工具，不属于只读；它们只在你自己本机、持有令牌的前提下可用。
 
 ### 搜索与查找
@@ -160,7 +162,54 @@ Claude Code / Codex / Cursor / VS Code 等 MCP 客户端，勾选后即可一键
 | `get_period_overview` | 账号级周报 / 月报，含与上一周期对比。 |
 | `compare_periods` | 对比任意两个日期区间的消息量与收发占比（可限定单会话）。 |
 
-> 标记为 **assistant-only** 的工具不通过对外 MCP 暴露，仅供 WeQ 内置 AI 助手调用：`export_conversation`（写导出文件）、`set_anti_recall`（写触发器与配置，含开/关防撤回）。对外 MCP 只保留只读查询与上面几个明确标注的高级数据库工具。
+### 凭据（需要在线 QQ）
+
+| 工具 | 说明 |
+| --- | --- |
+| `get_web_tokens` | 取指定域的 skey / p_skey + bkn（hook 实时取，未注入时 ptlogin2 兜底）。⚠️ 登录凭据，勿泄露。 |
+| `get_client_key` | 当前账号的 clientKey 票据。⚠️ 敏感凭据。 |
+| `get_download_rkeys` | 媒体下载 rkey（图片 CDN 签名片段，10=私聊 20=群聊）+ 有效期。 |
+| `get_ptlogin_jump_url` | 生成 QQ空间 / QQ频道 的免登录跳转 URL（一次性 clientKey 跳转链）。 |
+
+### 协议能力（OIDB，需要在线 QQ）
+
+| 工具 | 说明 |
+| --- | --- |
+| `get_peer_stats` | 某用户的 QQ 等级（按 uin）+ 资料卡累计获赞（按 uid），两个包并行。 |
+| `get_qq_show_url` | 某个 QQ 号的 QQ 秀形象 URL（0xFE1_3）。 |
+| `get_flash_share_link` | 把闪传卡片的 fileSetId 换成分享下载链接（0x93d3_1）。 |
+| `fetch_history_window` | 从服务端按 seq 窗口拉取缺失/更早的历史消息（单次 ≤ 30 条，结果写入漫游缓存）。 |
+| `send_tuwen_ark` | 发送自定义图文 Ark 卡片到群聊（0xdc2_34）。⚠️ 真实发送行为。 |
+
+### Web CGI 查询（需要在线 QQ）
+
+| 工具 | 说明 |
+| --- | --- |
+| `get_group_honor` | 群荣誉榜单：龙王 / 群聊炽焰 / 群聊传说 / 快乐源泉。 |
+| `get_group_albums` | 某群的相册列表（qzone cgi）。 |
+| `get_qzone_profile` | 某个 QQ 号的空间说说列表（可深翻）或相册列表。 |
+| `get_friend_dress` | 某用户正在使用的个性装扮（挂件/名片/浮屏等；气泡字体查他人拿不到）。 |
+| `get_self_dress` | 本账号正在使用的全部装扮（含气泡/字体/头像）。 |
+| `get_friend_mutual_mark` | 我与某好友的互动标识（小船/火花/幸运字符，含等级与进度）。 |
+| `get_dress_mall` | 装扮商城：排行榜（离线可用，静态榜单兜底）/ 关键词搜索（需在线）。 |
+
+### 字体与装扮资源
+
+| 工具 | 说明 |
+| --- | --- |
+| `get_dress_resource_url` | 从本地离线 bundle（`resources/dress/*.dat`）查装扮某部件的 CDN URL——纯本地、不需在线 QQ。 |
+| `convert_font` | QQ 私有字体 FTF → 标准 TTF 转换（识别 FTFH/FTFG 私有表、坐标解码、重组 glyf）。⚠️ 写本地文件。 |
+
+### 商城表情
+
+| 工具 | 说明 |
+| --- | --- |
+| `search_market_emoji` | 搜索商城表情包目录（本地离线索引 25000+ 套，可按免费/付费/VIP 过滤）。 |
+| `get_market_pack_detail` | 一套表情包的在线详情（CDN android.json：名称/来源/每张表情 hash）。 |
+| `get_market_pack_key` | 恢复一套表情包的图片解密密钥（免费包读种子，付费包按 updateTime 爆破 TEA；也可手动传种子时间戳）。 |
+| `get_market_pack_image` | 下载并解密一张表情图为明文 GIF（CDN 加密流 → QQTEA → 本地缓存），返回文件路径。 |
+
+> 标记为 **assistant-only** 的工具不通过对外 MCP 暴露，仅供 WeQ 内置 AI 助手调用：`export_conversation`（写导出文件）、`set_anti_recall`（写触发器与配置，含开/关防撤回）。对外 MCP 只保留只读查询与上面几个明确标注的高级数据库工具。凭据类工具（`get_web_tokens` / `get_client_key` 等）返回的是你自己的登录票据，请勿把结果转发给不可信的外部服务。
 
 ## 安全提示
 

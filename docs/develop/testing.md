@@ -1,13 +1,16 @@
 # 测试约定
 
-WeQ 的验证代码分三层，**判据是「能不能无人值守跑」**，而不是「当时在调查什么」。
+WeQ 的验证代码只有一层单测，**判据是「能不能无人值守跑」**，而不是「当时在调查什么」。
 放错层的直接后果是：CI 跑不了的东西混进 CI，或者会改你 QQ 数据的脚本被误触发。
 
 | 层 | 位置 | 要真 QQ 吗 | 进 CI 吗 | 干什么用 |
 |---|---|---|---|---|
 | **单测** | `packages/*/test/*.test.ts` | 否 | ✅ `pnpm -r test` | 离线、可重复、有断言 |
-| **CLI 工具** | `packages/tools/*.ts`（`@weq/tools`） | 是 | 只过 typecheck | 产品没有的能力：发任意包、跑任意 SQL、全库搜索 |
-| **写库工具** | `packages/tools/mutate/*.ts` | 是 | 只过 typecheck | 会改真实 QQ 数据，需 `--yes` |
+
+> 历史：曾经还有一层 `packages/tools/` CLI 工具（发任意包、跑任意 SQL、写库 mutate）。
+> 2026-09 重构时已删除——其中产品化的能力（SQL 执行、凭证获取、协议发包等）已并入
+> 内置 MCP 工具（`apps/desktop/src/main/mcp/tools.ts`，见 `docs/guide/mcp-server.md`），
+> 其余探针类脚本由单测覆盖或直接移除。
 
 ---
 
@@ -30,49 +33,11 @@ pnpm --filter @weq/codec test:watch
 - **拿「未声明字段」举例时挑个远离已用区间的 tag**。`registry.test.ts` 曾用 tag 47608 当
   未知字段，后来 47608 被建模成 `faceFlag47608`，测试就炸了。
 
-## CLI 工具 `packages/tools/`
-
-保留标准只有一条：**这个能力必须是 WeQ 产品本身没有的**。验证 src 能力的探针不是工具
-—— 那是单测（或干脆删掉）。目前只有四个：
-
-```bash
-pnpm --filter @weq/tools packet -- ...        # 发任意 OIDB/裸包 + 回放 frida 抓包
-pnpm --filter @weq/tools sql -- nt_msg "..."  # 对 nt_db/ 下任意库执行任意 SQL（.tables/.cols/.schema/.row）
-pnpm --filter @weq/tools search-string -- kw  # 全库全表全列的裸字符串搜索
-pnpm --filter @weq/tools mutate:insert-group-msg --yes  # 往真库插一条消息，看真 QQ 怎么渲染
-```
-
-跑之前先配 `.env`（`cp .env.example .env`，填 `WEQ_TEST_QQ_ROOT` 和 `WEQ_TEST_DB_KEY`）。
-**不要在脚本里硬编码路径和密钥** —— 一律走 `@weq/testkit`。
-
-工具不进 CI（没有真机数据），但**进 typecheck** —— 重构 src 时不会悄悄把工具写挂。
-写新工具前先问一句：产品里是不是已经有了？有 → 别写，写单测。
-
-## 写库工具 `packages/tools/mutate/`
-
-会**真的改你的 QQ 数据**：插消息等。单独放一层就是为了让「这脚本会写库」在路径上一眼可见。
-
-每个入口必须调守卫，不带 `--yes` 直接抛错退出：
-
-```ts
-import { requireMutationConsent } from '@weq/testkit';
-
-async function main() {
-  requireMutationConsent('往 group_msg_table 插入一条伪造的群消息');
-  // ...
-}
-```
-
-自动化场景可以用 `WEQ_ASSUME_YES=1` 绕过。**跑之前先退出 QQ** —— QQ 持有同一个
-文件，并发写可能失败或锁库。
-
 ---
 
 ## 该放哪一层？
 
 - 有断言、不碰真库 → `packages/<pkg>/test/`，写成 `*.test.ts`
-- 产品没有的能力、要连真库 → `packages/tools/`
-- 会写真库 → `packages/tools/mutate/`，加守卫
 - **一次性调查，结论已经沉淀进 `docs/`** → 别留，删掉
 
 最后一条是有代价的经验（2026-09 大清理）：`packages/*/tools/` 曾堆了 165 个脚本，
