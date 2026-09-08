@@ -204,6 +204,8 @@ function ReportDeckView({
    */
   const candidatePages = useMemo(() => manifest?.pages ?? [], [manifest?.pages]);
   const [pages, setPages] = useState<ReportManifest['pages']>(candidatePages);
+  /** 该口径下所有候选页都因没有「自己发出的消息」被摘掉（可能有收到的消息）。 */
+  const noOwnData = candidatePages.length > 0 && pages.length === 0;
   /**
    * 年份选择海报**永久**挂在轨道第 0 页：向下滚直接进第一张真页，向上滚随时
    * 滚回海报 —— 不需要「点一下 → 去另一页 → 再开始」，也不需要在滚过后摘车厢、
@@ -460,6 +462,7 @@ function ReportDeckView({
                 loading={manifestLoading}
                 isFetching={manifestFetching}
                 error={manifestError}
+                noOwnData={noOwnData}
                 selectedYear={year}
                 onSelectYear={onSelectYear}
                 onGenerate={() => moveTo(1)}

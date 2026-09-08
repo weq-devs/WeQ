@@ -91,7 +91,7 @@ export function createReportQueries(
   let buddyListCache: Promise<Array<{ uid: string; uin: string }>> | null = null;
   let botUidsCache: Promise<Set<string>> | null = null;
   let oldestCache: Promise<number | null> | null = null;
-  let sentYearsCache: Promise<number[]> | null = null;
+  let yearsWithMessagesCache: Promise<number[]> | null = null;
 
   function oldestMessageTime(): Promise<number | null> {
     if (oldestCache) return oldestCache;
@@ -113,23 +113,22 @@ export function createReportQueries(
   }
 
   /**
-   * 「发出过至少一条消息」的年份并集，升序去重。私聊按行内自证方向判定，群聊
-   * 用与 countByDirection 同一个 self marker（uid 优先、uin 兜底）。
+   * 两张消息表各自按 40058（日期 0 点列，走覆盖索引）枚举「有消息的年份」
+   * 并集，升序去重。刻意不判断是否本端原发——这是年份刻度的资格口径，真正的
+   * 「当年有没有可展示页面」由每页 availability 再探一次。
    */
-  function sentYears(): Promise<number[]> {
-    if (sentYearsCache) return sentYearsCache;
-    sentYearsCache = Promise.all([
-      session.c2cMsgs.sentYears(),
-      session.groupMsgs.sentYears(
-        selfUid ? { senderUid: selfUid } : selfUin > 0n ? { selfUin } : {},
-      ),
+  function yearsWithMessages(): Promise<number[]> {
+    if (yearsWithMessagesCache) return yearsWithMessagesCache;
+    yearsWithMessagesCache = Promise.all([
+      session.c2cMsgs.yearsWithMessages(),
+      session.groupMsgs.yearsWithMessages(),
     ])
       .then(([c2c, group]) => [...new Set([...c2c, ...group])].sort((a, b) => a - b))
       .catch((error: unknown) => {
-        sentYearsCache = null;
+        yearsWithMessagesCache = null;
         throw error;
       });
-    return sentYearsCache;
+    return yearsWithMessagesCache;
   }
 
   return {
@@ -144,13 +143,9 @@ export function createReportQueries(
         let running = countCache.get(key);
         if (!running) {
           running = Promise.all([
-            // c2c 方向由行内数据自证（senderUid != targetUid），无需 uidMap。
+            // 两表方向都直接读 QQ 的 40040 = 1 本端原发标记，无需 uidMap。
             session.c2cMsgs.countByDirection({ startTime, endTime }),
-            session.groupMsgs.countByDirection({
-              startTime,
-              endTime,
-              ...(selfUid ? { senderUid: selfUid } : selfUin > 0n ? { selfUin } : {}),
-            }),
+            session.groupMsgs.countByDirection({ startTime, endTime }),
           ]).then(([c2c, group]) => ({
             c2cSent: c2c.sent,
             c2cReceived: c2c.received,
@@ -588,10 +583,11 @@ export function createReportQueries(
        */
       oldestMessageTime,
       /**
-       * The years the account actually sent something in — the selectable
-       * report years. Two DISTINCT-year scans, cached here for the session.
+       * The years whose tables hold any message row — the selectable report
+       * years. Two DISTINCT scans over the covering `(40027,40058)` index,
+       * cached here for the session. No sender judgement, so no table scan.
        */
-      sentYears,
+      yearsWithMessages,
       /** 账号自身身份（uid 优先、uin 兜底）——给跨群重合页筛掉“自己”。 */
       selfIdentity() {
         return Promise.resolve({ uid: selfUid, uin: String(selfUin) });

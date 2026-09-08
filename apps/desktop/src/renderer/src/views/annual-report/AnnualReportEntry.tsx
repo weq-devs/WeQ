@@ -11,14 +11,16 @@ import { isAllTimeYear } from '@weq/service/report-time';
  * 滚动查看报告」—— 进报告后第一步就是一次向下滚）。
  *
  * 轨上只有「真的能生成报告」的口径：发出过至少一条消息的年份，左小右大、
- * 「历史以来」单独钉在最右端 —— 不是最早到今天的连续区间，所以不会有
- * 点进去只看到「没有可展示的卡片」的年份。
+ * 「历史以来」单独钉在最右端。口径是「私聊/群聊里有消息记录的年份」（按
+ * 40058 覆盖索引取，不走全表）；某一年是否真有可展示页面由进入后的页面
+ * availability 懒探测。
  */
 export function AnnualReportEntry({
   manifest,
   loading,
   isFetching,
   error,
+  noOwnData,
   selectedYear,
   onSelectYear,
   onGenerate,
@@ -27,6 +29,8 @@ export function AnnualReportEntry({
   loading: boolean;
   isFetching: boolean;
   error: string | null;
+  /** 这一年有消息记录，但没有一条是自己发出的 —— 页面全被摘掉。 */
+  noOwnData: boolean;
   selectedYear: number;
   onSelectYear: (year: number) => void;
   onGenerate: () => void;
@@ -37,13 +41,16 @@ export function AnnualReportEntry({
    */
   const availableYears = manifest?.availableYears ?? [];
   const pages = manifest?.pages ?? [];
-  const canGenerate = availableYears.length > 0 && pages.length > 0 && !loading && !isFetching;
+  const canGenerate =
+    availableYears.length > 0 && pages.length > 0 && !loading && !isFetching && !noOwnData;
   /**
    * 没数据看 `availableYears`，不看 `pages`：切年份的过渡期 manifest 还是上一份
    * （keepPreviousData），pages 可能空了一拍；而可选年份列表不随年份变化，始终可靠。
    */
   const noData = !loading && !error && manifest != null && availableYears.length === 0;
   const allTime = isAllTimeYear(selectedYear);
+  /** 至少存在消息但没有任何「自己发出」的卡片，且不在 ALL_TIME 时会给出无发消息提示。 */
+  const noOwnForYear = !noData && noOwnData;
   /**
    * 选中的年份不在可选列表里 = 这一年一条都没发过。列表本身不随年份切换变化，
    * 所以过渡期（manifest 还是上一份）这个判定也可靠。
@@ -75,10 +82,14 @@ export function AnnualReportEntry({
         </div>
         <p className="weq-entry-lede">
           {noData
-            ? '这台电脑上还没有你发出过的消息 —— 先聊几句，再回来看。'
+            ? '这台电脑上还没有任何聊天消息 —— 先聊几句，再回来看。'
             : yearEmpty
-              ? '这一年你一条消息都没发出过 —— 换个年份试试。'
-              : '从这台电脑上的聊天记录里，把它读出来。'}
+              ? '这一年没有任何消息记录 —— 换个年份试试。'
+              : noOwnForYear
+                ? allTime
+                  ? '这台电脑上还没有你发出的消息 —— 先发几条，再回来看。'
+                  : '这一年没有你发出的消息 —— 换个年份试试。'
+                : '从这台电脑上的聊天记录里，把它读出来。'}
         </p>
       </div>
 

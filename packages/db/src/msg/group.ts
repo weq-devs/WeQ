@@ -8,6 +8,8 @@
  *   40020  senderUid       (TEXT)
  *   40027  targetGroupCode (INTEGER as text — 群号; conversation key, indexed)
  *   40033  senderUin       (INTEGER — sender QQ number)
+ *   40040  sentSource      (INTEGER — 1 = locally originated / genuinely sent
+ *                          by this account; 0 = sync copy, e.g. self-forwarded)
  *   40050  sendTime        (INTEGER, unix seconds)
  *   40058  dayTimestamp    (INTEGER — midnight timestamp of the day)
  *   40800  msgBody         (BLOB — protobuf repeated ElementWire)
@@ -407,28 +409,22 @@ export class GroupMsgDb {
   }
 
   /**
-   * The distinct local-time years in which *we* sent at least one group
-   * message. Self marker follows {@link countByDirection}: `senderUid`
-   * (40020) when the caller has the account's own uid resident, else
-   * `selfUin` (40033). The year is derived with `'localtime'` so buckets line
-   * up with the report's local-midnight year boundaries.
+   * The distinct local-time years in which the table holds at least one
+   * message. Deliberately does NOT filter by sender/own marker: this is the
+   * cheap year-eligibility probe for the report entry page, and it runs on the
+   * day-midnight column 40058, which is covered by the `(40027,40058)` index —
+   * SQLite resolves it as a covering index scan without touching message rows.
+   * Rows with a 0 / NULL day timestamp (malformed or system rows) are skipped
+   * with `"40058" > 0`.
    *
-   * Returns `[]` when no self marker is supplied — with neither uid nor uin we
-   * cannot tell our rows apart, and claiming every year would be worse than
-   * claiming none (c2c still contributes its own years).
+   * The year is derived with `'localtime'` so buckets line up with the
+   * report's local-midnight year boundaries.
    */
-  async sentYears(opts: { selfUin?: bigint; senderUid?: string } = {}): Promise<number[]> {
-    const mine = opts.senderUid
-      ? { clause: `"40020" = ? AND "40020" != ''`, value: opts.senderUid as SqlValue }
-      : opts.selfUin !== undefined && opts.selfUin > 0n
-        ? { clause: `"40033" = ?`, value: opts.selfUin as SqlValue }
-        : null;
-    if (!mine) return [];
+  async yearsWithMessages(): Promise<number[]> {
     const rows = await this.qq.query(
-      `SELECT DISTINCT CAST(strftime('%Y',"40050",'unixepoch','localtime') AS INTEGER) AS y
+      `SELECT DISTINCT CAST(strftime('%Y',"40058",'unixepoch','localtime') AS INTEGER) AS y
        FROM group_msg_table
-       WHERE "40050" > 0 AND ${mine.clause}`,
-      [mine.value],
+       WHERE "40058" > 0`,
     );
     return rows.map((row) => Number(row[0] ?? 0)).filter((year) => year > 0);
   }
@@ -436,9 +432,9 @@ export class GroupMsgDb {
   /**
    * 一个时间窗内**自己发出的**群聊按「星期 × 本地小时」聚合，返回 7×24 矩阵。
    *
-   * 自证 marker 与 {@link sentYears} 完全一致（senderUid 优先、selfUin 兜底；
-   * 两者都没有时返回全零矩阵 —— 分不清哪些群消息是自己的时候，全群算给自己
-   * 会把别人的作息也算进来）。小时/星期用 `'localtime'` 与报告口径对齐。
+   * 自证 marker 用 senderUid 优先、selfUin 兜底；两者都没有时返回全零矩阵 ——
+   * 分不清哪些群消息是自己的时候，全群算给自己会把别人的作息也算进来。
+   * 小时/星期用 `'localtime'` 与报告口径对齐。
    */
   async sentWeekdayHourlyTallies(
     opts: { startTime?: number; endTime?: number; selfUin?: bigint; senderUid?: string } = {},
@@ -475,9 +471,9 @@ export class GroupMsgDb {
   /**
    * 自己发出的群聊消息，逐条解码正文 —— 年度报告「我的话」页的原始素材。
    *
-   * 自证 marker 与 {@link sentYears} 完全一致（senderUid 优先、selfUin 兜底；
-   * 两者都没有时返回空数组，不把别人的群发言算给自己）。窗口时间用调用方给的
-   * unix 秒半开区间；空 body 的行在 SQL 侧滤掉。
+   * 自证 marker 用 senderUid 优先、selfUin 兜底；两者都没有时返回空数组，
+   * 不把别人的群发言算给自己。窗口时间用调用方给的 unix 秒半开区间；
+   * 空 body 的行在 SQL 侧滤掉。
    *
    * 返回的是**共享只读**数组（调用方只在 compute 内聚合，不得修改）。
    */
@@ -746,17 +742,15 @@ export class GroupMsgDb {
 
   /**
    * Split the whole table's rows in a time window into sent / received, in ONE
-   * pass. `senderUid` (column 40020, the account's own uid) is the preferred
-   * self marker when the caller already has it resident (e.g. from the
-   * session's `uidMap`); `selfUin` remains as a fallback. A per-group GROUP BY
-   * here would be a separate scan — the report only needs the table-wide
-   * split, so this is the cheapest shape (one scan, no body decode).
-   *
-   * ⚠️ `?` is *positional*: the self marker sits in the SELECT list, so it must
-   *    be bound BEFORE the WHERE-clause params, not appended after them.
+   * pass. Sent means QQ's own 40040 marker = 1 (locally originated by this
+   * account), which excludes self-forwarded copies of other people's messages
+   * even though their senderUid is ours. No account identity is needed any
+   * more. Everything else — other members' rows and sync copies alike — is
+   * counted as received. This is the cheapest shape (one scan, no body
+   * decode).
    */
   async countByDirection(
-    opts: { startTime?: number; endTime?: number; selfUin?: bigint; senderUid?: string } = {},
+    opts: { startTime?: number; endTime?: number } = {},
   ): Promise<{ sent: number; received: number }> {
     const conditions: string[] = [];
     const whereParams: SqlValue[] = [];
@@ -769,15 +763,11 @@ export class GroupMsgDb {
       whereParams.push(BigInt(opts.endTime));
     }
     const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
-    const mineExpr = opts.senderUid
-      ? `CASE WHEN "40020" = ? AND "40020" != '' THEN 1 ELSE 0 END`
-      : `CASE WHEN "40033" = ? THEN 1 ELSE 0 END`;
-    const mineParam: SqlValue = opts.senderUid ?? (opts.selfUin !== undefined ? opts.selfUin : 0n);
     const rows = await this.qq.query(
-      `SELECT ${mineExpr} AS mine, COUNT(*) AS n
+      `SELECT "40040" AS mine, COUNT(*) AS n
        FROM group_msg_table${where}
        GROUP BY 1`,
-      [mineParam, ...whereParams],
+      whereParams,
     );
     let sent = 0;
     let received = 0;

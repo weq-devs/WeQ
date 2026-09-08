@@ -722,7 +722,13 @@ html[data-theme="dark"] .weq-report-root {
   display: block;
   transition-property: transform;
   transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
-  will-change: transform;
+  /*
+   * 刻意不设 will-change: transform。该属性会让数字轮在动画结束后仍常驻
+   * 独立合成层；当舞台 scale 或 Windows 分数缩放导致非整数设备像素时，轮子
+   * 与 1em 裁窗各自舍入，静止后会出现「上一格底部残留、当前数字底部截断」。
+   * 不保留常驻层，动画结束后文本与裁窗回到同一次光栅化，两侧对齐一致。
+   * （过渡本身仍然走合成器，动画流畅度不受影响。）
+   */
 }
 
 .weq-od-reel > span {

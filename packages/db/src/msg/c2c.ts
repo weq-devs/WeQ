@@ -9,6 +9,8 @@
  *   40027  sortNo      (INTEGER — per-account peer index; the *indexed* key)
  *   40030  targetUin   (INTEGER — peer QQ number)
  *   40033  senderUin   (INTEGER)
+ *   40040  sentSource  (INTEGER — 1 = locally originated / genuinely sent by
+ *                     this account; 0 = sync copy, e.g. self-forwarded rows)
  *   40050  sendTime    (INTEGER, unix seconds)
  *   40800  msgBody     (BLOB — protobuf repeated ElementWire)
  *
@@ -414,20 +416,23 @@ export class C2cMsgDb {
   }
 
   /**
-   * The distinct local-time years in which we *sent* at least one private
-   * message. Same direction test as {@link countByDirection} (40021 is always
-   * the peer, so `senderUid != targetUid` marks a sent row), and the year is
-   * derived with `'localtime'` so the buckets line up exactly with the
-   * report's local-midnight year boundaries.
+   * The distinct local-time years in which the table holds at least one
+   * message. Deliberately does NOT filter by sender/own marker: this is the
+   * cheap year-eligibility probe for the report entry page, and it runs on the
+   * day-midnight column 40058, which is covered by the `(40027,40058)` index —
+   * SQLite resolves it as a covering index scan without touching message rows.
+   * Rows with a 0 / NULL day timestamp (malformed or system rows) are skipped
+   * with `"40058" > 0`.
    *
-   * One unindexed pass — the same cost as the MIN scan it replaces; the caller
-   * caches the result for the session's data revision.
+   * The year is derived with `'localtime'` so buckets line up exactly with the
+   * report's local-midnight boundaries. The caller caches the result for the
+   * session's data revision.
    */
-  async sentYears(): Promise<number[]> {
+  async yearsWithMessages(): Promise<number[]> {
     const rows = await this.qq.query(
-      `SELECT DISTINCT CAST(strftime('%Y',"40050",'unixepoch','localtime') AS INTEGER) AS y
+      `SELECT DISTINCT CAST(strftime('%Y',"40058",'unixepoch','localtime') AS INTEGER) AS y
        FROM ${this.table}
-       WHERE "40050" > 0 AND "40020" != "40021" AND "40020" != ''`,
+       WHERE "40058" > 0`,
     );
     return rows.map((row) => Number(row[0] ?? 0)).filter((year) => year > 0);
   }
@@ -454,12 +459,12 @@ export class C2cMsgDb {
 
   /**
    * Split the whole table's rows in a time window into sent / received, in ONE
-   * pass. Direction comes from the data itself — no external identity needed:
-   * 40021 (targetUid) is always the peer, so `senderUid != targetUid` marks a
-   * row as sent (QQ writes the peer into both columns for incoming rows). Rows
-   * with an empty senderUid are malformed edge cases and never count as sent.
-   * Excludes dataline / service tables — callers pass the exact C2cMsgDb
-   * instance they want (c2c = private chats only).
+   * pass. Sent means QQ's own 40040 marker = 1 (locally originated by this
+   * account), which excludes self-forwarded copies of other people's messages
+   * even though their senderUid is ours. Everything else — real incoming rows
+   * and sync copies alike — is counted as received. Excludes dataline /
+   * service tables — callers pass the exact C2cMsgDb instance they want
+   * (c2c = private chats only).
    */
   async countByDirection(
     opts: { startTime?: number; endTime?: number } = {},
@@ -476,7 +481,7 @@ export class C2cMsgDb {
     }
     const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
     const rows = await this.qq.query(
-      `SELECT CASE WHEN "40020" != "40021" AND "40020" != '' THEN 1 ELSE 0 END AS mine, COUNT(*) AS n
+      `SELECT "40040" AS mine, COUNT(*) AS n
        FROM ${this.table}${where}
        GROUP BY 1`,
       params,
@@ -499,7 +504,7 @@ export class C2cMsgDb {
    * the peer's side without any external identity.
    *
    * The date is derived in SQL with `'localtime'`, keeping the buckets aligned
-   * with the report's local-midnight year boundaries (same as `sentYears`).
+   * with the report's local-midnight year boundaries.
    * No body column is touched — this is the cheapest way to answer "which
    * conversation, on which day, was the busiest" and to feed per-day walls.
    */

@@ -69,23 +69,26 @@ export class AnnualReportService {
   }
 
   /**
-   * The selectable report periods: every year the account actually *sent* a c2c
-   * or group message in, ascending, then `ALL_TIME_YEAR` at the far right.
+   * The selectable report periods: every year the account has any c2c or group
+   * message row in, ascending, then `ALL_TIME_YEAR` at the far right.
    *
    * Deliberately not `[earliest..currentYear]` — that span invented years the
-   * account was silent in, and every one of them opened an empty report. The
-   * set now comes from two DISTINCT-year scans, cached for the session's data
-   * revision. An account with no sent messages at all gets `[]`: there is no
-   * period worth offering, and the entry page says so.
+   * account was silent in. Years are derived from the indexed day column
+   * 40058 (any message at all, no self-sent judgement), so the entry page
+   * never pays for a sender-aware full-table scan. Whether a chosen year has
+   * pages worth showing is decided lazily per page by `getPageData`; an
+   * account with no message rows at all gets `[]` and the entry page says so.
    */
   async getAvailableYears(): Promise<number[]> {
     if (this.availableYearsCache?.key === this.dataRevision) {
       return this.availableYearsCache.years;
     }
-    const sent = await this.queries.meta.sentYears();
+    const yearsWithMessages = await this.queries.meta.yearsWithMessages();
     const nowYear = currentReportYear();
     const years =
-      sent.length === 0 ? [] : [...sent.filter((year) => year <= nowYear + 1), ALL_TIME_YEAR];
+      yearsWithMessages.length === 0
+        ? []
+        : [...yearsWithMessages.filter((year) => year <= nowYear + 1), ALL_TIME_YEAR];
     this.availableYearsCache = { key: this.dataRevision, years };
     return years;
   }

@@ -57,8 +57,10 @@ export type ReportManifest = {
   year: number;
   /**
    * Selectable periods, ascending, with `ALL_TIME_YEAR` (0) first when the
-   * account has any data at all. Only years the account actually *sent* a
-   * message in are listed — silent years have no report to show.
+   * account has any data at all. Years in which the c2c/group tables hold any
+   * message row are listed (sender-agnostic, derived from the indexed 40058
+   * column); whether a chosen year actually yields pages is decided per page
+   * by availability probing.
    */
   availableYears: number[];
   scope: ReportScope;
@@ -308,11 +310,13 @@ export type ReportQueries = {
      */
     oldestMessageTime(): Promise<number | null>;
     /**
-     * The local-time years in which the account sent at least one c2c or group
-     * message, ascending. This — not the [oldest..now] span — is the set of
-     * selectable report years: a year you never spoke in has no report.
+     * The local-time years in which the account has any c2c or group message,
+     * ascending. Deliberately sender-agnostic so the report entry page can
+     * derive it from the indexed day column 40058 without scanning message
+     * rows. A year shown here can still yield an empty deck when the account
+     * only *received* messages in it — page availability is probed separately.
      */
-    sentYears(): Promise<number[]>;
+    yearsWithMessages(): Promise<number[]>;
     /**
      * 当前账号自己的 uid / uin（uid 缺失时为空串）。跨群重合度页要从成员里
      * 把自己摘出去。
