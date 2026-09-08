@@ -12,6 +12,8 @@ import { useEffect, useMemo, useState, type ReactElement } from 'react';
 /** 落定前多转几圈，纯粹为了手感。 */
 const LOOPS = 2;
 const REEL = Array.from({ length: (LOOPS + 1) * 10 }, (_, i) => i % 10);
+/** 每个数字的高度系数（与 CSS 中 .weq-od-reel > span 的 height 保持一致） */
+const DIGIT_HEIGHT = 1.2;
 
 export function Odometer({
   value,
@@ -68,7 +70,7 @@ export function Odometer({
             <span
               className="weq-od-reel"
               style={{
-                transform: `translateY(-${target}em)`,
+                transform: `translateY(-${target * DIGIT_HEIGHT}em)`,
                 transitionDuration: `${durationMs}ms`,
                 transitionDelay: `${position * stagger}ms`,
               }}

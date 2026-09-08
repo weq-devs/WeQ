@@ -18,7 +18,7 @@ import {
   Copy,
   FolderSearch,
   Github,
-  MonitorUp,
+  // MonitorUp,
   RefreshCw,
   Sparkles,
 } from 'lucide-react';
@@ -412,10 +412,10 @@ export function DaemonSection(): ReactElement {
         />
       </Card>
 
-      <div className="weq-set-footnote" aria-hidden>
-        <MonitorUp size={12} />
-        守护进程协议与自启动注册详见 packages/daemon/README.md
-      </div>
+      {/*<div className="weq-set-footnote" aria-hidden>*/}
+      {/*  <MonitorUp size={12} />*/}
+      {/*  守护进程协议与自启动注册详见 packages/daemon/README.md*/}
+      {/*</div>*/}
     </div>
   );
 }

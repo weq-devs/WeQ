@@ -38,9 +38,9 @@
   --rp-paper: #f4f1ea;
   --rp-paper-deep: #ebe6db;
   --rp-ink: #16130d;
-  --rp-ink-soft: rgba(22, 19, 13, 0.72);
-  --rp-ink-muted: rgba(22, 19, 13, 0.46);
-  --rp-ink-faint: rgba(22, 19, 13, 0.24);
+  --rp-ink-soft: rgba(22, 19, 13, 0.78);
+  --rp-ink-muted: rgba(22, 19, 13, 0.62);
+  --rp-ink-faint: rgba(22, 19, 13, 0.42);
   --rp-hair: rgba(22, 19, 13, 0.14);
   --rp-accent: #1c5f8f;
   --rp-accent-rgb: 28, 95, 143;
@@ -709,13 +709,19 @@ html[data-theme="dark"] .weq-report-root {
   line-height: 1;
 }
 
-/* 一个数位 = 一扇 1em 高的窗口，里面装一条 0-9 的数字轮。 */
+/* 一个数位 = 一扇 1.2em 高的窗口，里面装一条 0-9 的数字轮。
+   增加到 1.2em 是为了给 Windows 字体渲染预留足够的垂直空间。 */
 .weq-od-digit {
   display: inline-block;
   position: relative;
-  height: 1em;
+  height: 1.2em;
   overflow: hidden;
   vertical-align: baseline;
+  /* 强制子像素渲染对齐，避免 Windows 下的半像素偏移 */
+  transform: translateZ(0);
+  /* 禁用字体平滑可能导致的额外空间 */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .weq-od-reel {
@@ -733,8 +739,11 @@ html[data-theme="dark"] .weq-report-root {
 
 .weq-od-reel > span {
   display: block;
-  height: 1em;
-  line-height: 1;
+  height: 1.2em;
+  line-height: 1.2em;
+  text-align: center;
+  overflow: hidden;
+  /* 给字体预留足够的垂直空间，避免被截断 */
 }
 
 .weq-od-sep {
@@ -1961,6 +1970,16 @@ html[data-theme="dark"] .weq-report-root {
   min-width: 0;
   flex-direction: column;
   align-items: center;
+  padding: 8px 6px;
+  border: 1px solid var(--rp-hair);
+  border-radius: 4px;
+  background: var(--rp-paper);
+  transition: border-color 200ms ease, background-color 200ms ease;
+}
+
+.weq-dress-item:hover {
+  border-color: color-mix(in srgb, var(--rp-accent) 35%, transparent);
+  background: color-mix(in srgb, var(--rp-accent) 0.03, transparent);
 }
 
 .weq-dress-item-art {
@@ -4956,20 +4975,13 @@ html[data-theme="dark"] .weq-report-root {
 .weq-it-fact {
   display: flex;
   align-items: flex-start;
-  gap: 14px;
   margin: 0;
-  padding: 7px 0 8px;
+  padding: 10px 0 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--rp-hair) 50%, transparent);
 }
 
-.weq-it-fact-mark {
-  flex: 0 0 32px;
-  color: transparent;
-  font-family: var(--rp-serif);
-  font-size: 36px;
-  font-weight: 600;
-  line-height: 0.9;
-  text-align: center;
-  -webkit-text-stroke: 1px color-mix(in srgb, var(--rp-buzz) 46%, transparent);
+.weq-it-fact:last-child {
+  border-bottom: none;
 }
 
 .weq-it-fact-body {
@@ -4978,18 +4990,20 @@ html[data-theme="dark"] .weq-report-root {
   min-width: 0;
   flex-wrap: wrap;
   align-items: baseline;
-  column-gap: 9px;
-  row-gap: 1px;
+  column-gap: 10px;
+  row-gap: 2px;
   overflow: hidden;
 }
 
 .weq-it-fact-label {
-  flex: 0 0 42px;
+  flex: 0 0 54px;
   color: var(--rp-buzz);
   font-family: var(--rp-sans);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.24em;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  opacity: 0.85;
 }
 
 .weq-it-fact-main {
@@ -5038,7 +5052,7 @@ html[data-theme="dark"] .weq-report-root {
 .weq-it-fact-sub {
   flex: 1 0 100%;
   min-width: 0;
-  margin-left: 51px;
+  margin-left: 64px;
   overflow: hidden;
   color: var(--rp-ink-muted);
   font-family: var(--rp-serif);

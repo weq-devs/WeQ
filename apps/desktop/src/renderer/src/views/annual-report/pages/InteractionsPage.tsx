@@ -75,8 +75,7 @@ export function InteractionsPage({
 
             <section className="weq-it-score">
               <FactLine
-                mark="戳"
-                label="伸手"
+                label="戳一戳"
                 step={3}
                 primary={
                   <>
@@ -88,7 +87,6 @@ export function InteractionsPage({
                       durationMs={1400}
                     />
                     <i className="weq-it-fact-unit">次</i>
-                    戳一戳
                   </>
                 }
                 secondary={
@@ -104,8 +102,7 @@ export function InteractionsPage({
                 }
               />
               <FactLine
-                mark="@"
-                label="点名"
+                label="@ 提及"
                 step={4}
                 primary={
                   <>
@@ -132,13 +129,12 @@ export function InteractionsPage({
                 }
               />
               <FactLine
-                mark="呼"
-                label="被惦记"
+                label="被 @"
                 step={5}
                 primary={
                   data.atMeTop ? (
                     <>
-                      被 @ 最多的群是 <em className="weq-it-group">{data.atMeTop.groupName}</em>
+                      最多在 <em className="weq-it-group">{data.atMeTop.groupName}</em>
                     </>
                   ) : (
                     <>这一年，还没有哪个群反复喊你的名字。</>
@@ -156,7 +152,6 @@ export function InteractionsPage({
                 }
               />
               <FactLine
-                mark="复"
                 label="复读"
                 step={6}
                 primary={
@@ -169,7 +164,6 @@ export function InteractionsPage({
                       durationMs={1400}
                     />
                     <i className="weq-it-fact-unit">场</i>
-                    复读
                   </>
                 }
                 secondary={
@@ -177,7 +171,7 @@ export function InteractionsPage({
                     <>
                       最长一轮在 <em className="weq-it-group">{data.echoLongest.groupName}</em>：
                       <b className="weq-number">{fmt(data.echoLongest.count)}</b> 条
-                      <span className="weq-it-echo-text">“{data.echoLongest.text}”</span>
+                      <span className="weq-it-echo-text">"{data.echoLongest.text}"</span>
                     </>
                   ) : (
                     <>这一年没有足够长的齐声——热闹的下一条，可能由你开头。</>
@@ -204,7 +198,7 @@ export function InteractionsPage({
   );
 }
 
-/** 四组统计在版心里的“署名”。 */
+/** 四组统计在版心里的"署名"。 */
 type HeroKind = 'at' | 'called' | 'poke' | 'echo';
 
 const HERO_GHOST: Record<HeroKind, string> = {
@@ -258,7 +252,7 @@ function pickHero(data: InteractionsPageData): {
   }
 }
 
-/** 主体下面那句“为什么”——只讲赢家的故事，别把四种统计再念一遍。 */
+/** 主体下面那句"为什么"——只讲赢家的故事，别把四种统计再念一遍。 */
 function heroNote(data: InteractionsPageData, kind: HeroKind): ReactNode {
   switch (kind) {
     case 'at':
@@ -299,7 +293,7 @@ function heroNote(data: InteractionsPageData, kind: HeroKind): ReactNode {
         return (
           <>
             在 <em>{longest.groupName}</em>，大家把
-            <b className="weq-echo-quote">“{longest.text}”</b> 连说了{' '}
+            <b className="weq-echo-quote">"{longest.text}"</b> 连说了{' '}
             <b className="weq-number">{fmt(longest.count)}</b> 次
             ——一句话被那么多人接住，就不再只是一个人的了。
           </>
@@ -318,15 +312,13 @@ function heroNote(data: InteractionsPageData, kind: HeroKind): ReactNode {
   }
 }
 
-/** 一行“发生的事”：左边一枚大字标记，右边一句话 + 一行小注。 */
+/** 一行"发生的事"：左边标签，右边一句话 + 一行小注。 */
 function FactLine({
-  mark,
   label,
   step,
   primary,
   secondary,
 }: {
-  mark: string;
   label: string;
   step: number;
   primary: ReactNode;
@@ -334,9 +326,6 @@ function FactLine({
 }): ReactElement {
   return (
     <p className="weq-it-fact weq-report-line" style={{ '--i': step } as CSSProperties}>
-      <span className="weq-it-fact-mark" aria-hidden>
-        {mark}
-      </span>
       <span className="weq-it-fact-body">
         <span className="weq-it-fact-label">{label}</span>
         <span className="weq-it-fact-main">{primary}</span>

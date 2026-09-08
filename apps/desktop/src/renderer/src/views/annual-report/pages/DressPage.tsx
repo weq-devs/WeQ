@@ -312,7 +312,7 @@ function CaseArt({
     const skin = assets.bubbles.get(item.itemId) ?? null;
     return (
       <div className="weq-dress-item-art is-bubble" aria-hidden>
-        <DressBubble skin={skin} scale={0.27} className="is-case">
+        <DressBubble skin={skin} scale={0.42} className="is-case">
           {null}
         </DressBubble>
       </div>
