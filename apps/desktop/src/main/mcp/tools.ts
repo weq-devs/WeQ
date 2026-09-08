@@ -12,10 +12,21 @@
  * shapes (bigint → string) with the same `serde` helpers the tRPC router uses.
  */
 
+import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { getAppContext, type AccountServices } from '../context/app_context';
 import { classifyChatType, datalineName, isDatalineSelfUid, isDatalineUid } from '@weq/codec';
-import type { RenderElement } from '@weq/service';
+import type { DressMallItem, RenderElement } from '@weq/service';
+import {
+  computeBkn,
+  DressAppId,
+  fetchWebTokens,
+  HonorType,
+  normalizeMallItems,
+  parseClientKeyJson,
+} from '@weq/service';
+import { searchCatalog } from '../market_catalog';
+import { resolveResource } from '../resource';
 import { decodeBlobHex, decodeBlobText } from './blob_decoder';
 import { elementAiDetail, elementsToAiText, mediaForElements } from './msg_rich';
 import {
@@ -58,6 +69,62 @@ function services(): AccountServices {
     throw new Error('当前没有已登录的账号，请先在 WeQ 里进入一个账号。');
   }
   return svc;
+}
+
+// ── 在线能力（凭据 / OIDB 协议 / Web CGI）公共小工具 ─────────────────────────
+
+/** 当前账号的 QQ 进程 pid；离线 / 完全离线模式时抛可读错误。 */
+function onlinePid(): number {
+  const ctx = getAppContext();
+  const record = services().accountConfig.getRecord();
+  if (!record?.qqOnline || !record.qqPid) {
+    throw new Error('需要先登录该账号的 QQ 客户端（本工具要走在线实例）。');
+  }
+  if (ctx.bootstrap?.userConfig.getSettings().autoInjectQq === false) {
+    throw new Error('已开启完全离线模式（自动注入 QQ 已关闭），本工具不可用。');
+  }
+  return record.qqPid;
+}
+
+/** 当前账号的 uin（字符串形式）。 */
+function currentUin(): string {
+  const uin = getAppContext().account?.context.uin;
+  if (!uin) throw new Error('当前没有已登录的账号。');
+  return String(uin);
+}
+
+/** 原生 ntHelper 绑定（未加载时抛错）。 */
+function ntHelper() {
+  const nt = getAppContext().platform?.native.ntHelper;
+  if (!nt) throw new Error('原生组件未加载。');
+  return nt;
+}
+
+/** 商城工具的统一结果信封。 */
+function dressMallResult(
+  kind: string,
+  mode: string,
+  items: DressMallItem[],
+  total: number,
+  note: string,
+): unknown {
+  return {
+    ok: true,
+    kind,
+    mode,
+    total,
+    count: items.length,
+    items: items.map((i) => ({
+      itemId: i.itemId,
+      name: i.name,
+      kind,
+      ...(i.labels.length ? { labels: i.labels } : {}),
+      ...(i.price ? { price: i.price } : {}),
+      ...(i.previewUrl ? { previewUrl: i.previewUrl } : {}),
+      ...(i.mallName ? { mallName: i.mallName } : {}),
+    })),
+    note,
+  };
 }
 
 // ── 给 LLM 的紧凑消息投影 ──────────────────────────────────────────────────
@@ -2975,6 +3042,716 @@ export const AI_TOOLS: AiTool[] = [
         mode,
         hint: `明文副本已写入 ${r.outPath}；源库未被修改。`,
       };
+    },
+  }),
+
+  // ── 凭据类 ────────────────────────────────────────────────────────────
+
+  tool({
+    name: 'get_web_tokens',
+    description:
+      '获取当前账号在指定域的 web 凭据（skey / p_skey + bkn）。domain 可选 qzone.qq.com / qun.qq.com / ti.qq.com / vip.qq.com / pd.qq.com。' +
+      '已注入时走 hook 实时取（秒回），未注入时自动回退 ptlogin2 本地快速登录。' +
+      'skey 与域无关；p_skey 按域缓存。⚠️ 返回的是登录凭据，不要泄露、不要写入日志。需要在线 QQ。',
+    input: z.object({
+      domain: z
+        .enum(['qzone.qq.com', 'qun.qq.com', 'ti.qq.com', 'vip.qq.com', 'pd.qq.com'])
+        .describe('要取票据的业务域名'),
+      needSkey: z.boolean().default(false).describe('是否同时取 skey（默认只要 p_skey）'),
+    }),
+    run: async ({ domain, needSkey }) => {
+      const pid = onlinePid();
+      const uin = currentUin();
+      const tokens = await fetchWebTokens(ntHelper(), uin, pid, domain, { needSkey });
+      if (!tokens.pskey && !tokens.skey) {
+        return {
+          ok: false,
+          domain,
+          error: '凭据获取失败（QQ 可能刚重启、票据过期或该域不支持兜底登录）。',
+        };
+      }
+      return {
+        ok: true,
+        domain,
+        uin,
+        ...(tokens.skey ? { skey: tokens.skey } : {}),
+        ...(tokens.pskey ? { pskey: tokens.pskey } : {}),
+        bkn: computeBkn(tokens.pskey || tokens.skey),
+        hint: '凭据短期有效；调外部接口时 cookie 带 skey/p_skey，g_tk 用返回的 bkn。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_client_key',
+    description:
+      '获取当前账号的 clientKey（客户端票据，可换一次性免登跳转 URL）。需要已注入的在线 QQ。' +
+      '⚠️ 一次性敏感凭据，不要泄露。',
+    input: z.object({}),
+    run: async () => {
+      onlinePid(); // 只要求在线；clientKey 由 hook 提供
+      const ck = parseClientKeyJson(await ntHelper().fetchClientKey(onlinePid()));
+      if (!ck) {
+        return {
+          ok: false,
+          error: 'clientKey 获取失败 —— 确认 QQ 在线且已开启「自动注入 QQ（完整功能）」。',
+        };
+      }
+      return { ok: true, clientKey: ck.clientKey, keyIndex: ck.keyIndex };
+    },
+  }),
+
+  tool({
+    name: 'get_download_rkeys',
+    description:
+      '获取当前账号的媒体下载 rkey（图片 CDN 签名 URL 的 &rkey=… 片段）。type: 10=私聊图, 20=群聊图。' +
+      '同时返回各 rkey 的有效期（createTime + ttlSeconds）。需要在线 QQ（hook 实时取）。',
+    input: z.object({}),
+    run: async () => {
+      const pid = onlinePid();
+      const raw = await ntHelper().fetchDownloadRkeys(pid);
+      let arr: unknown;
+      try {
+        arr = JSON.parse(raw);
+      } catch {
+        arr = [];
+      }
+      const items = (Array.isArray(arr) ? arr : [])
+        .map((x) => x as Record<string, unknown>)
+        .filter((o) => typeof o.rkey === 'string')
+        .map((o) => ({
+          rkey: String(o.rkey),
+          type: typeof o.type_ === 'number' ? o.type_ : 0,
+          ttlSeconds: typeof o.ttl_seconds === 'number' ? o.ttl_seconds : 0,
+          createTime: typeof o.create_time === 'number' ? o.create_time : 0,
+        }));
+      return {
+        ok: true,
+        count: items.length,
+        items: items.map((r) => ({
+          ...r,
+          expiresAt: new Date((r.createTime + r.ttlSeconds) * 1000).toISOString(),
+        })),
+        hint: 'rkey 拼在 QQ 媒体 CDN URL 后面（&rkey=…）；过期后重新调用本工具即可。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_ptlogin_jump_url',
+    description:
+      '生成一个 QQ空间 / QQ频道 的【免登录跳转 URL】——浏览器打开即已登录（ptlogin2 跳转链，302 落 cookie）。' +
+      'site=qzone 落地到空间个人中心，site=channel 落地到频道 pd.qq.com。URL 含一次性 clientKey，点击时现取。需要在线且已注入的 QQ。',
+    input: z.object({
+      site: z.enum(['qzone', 'channel']).describe('目标站点'),
+    }),
+    run: async ({ site }) => {
+      const pid = onlinePid();
+      const uin = currentUin();
+      const landing =
+        site === 'qzone'
+          ? `https://user.qzone.qq.com/${uin}/infocenter?loginfrom=31`
+          : 'https://pd.qq.com/';
+      const ck = parseClientKeyJson(await ntHelper().fetchClientKey(pid));
+      if (!ck) {
+        return {
+          ok: false,
+          site,
+          url: landing,
+          autoLogin: false,
+          hint: 'clientKey 不可用，退回裸地址（需手动登录）。',
+        };
+      }
+      const { buildPtlogin2JumpUrl } = await import('@weq/service');
+      return {
+        ok: true,
+        site,
+        url: buildPtlogin2JumpUrl(ck, uin, landing),
+        autoLogin: true,
+        hint: 'URL 含一次性凭据，仅在本次会话使用，不要转发。',
+      };
+    },
+  }),
+
+  // ── 协议能力类（OIDB，需要在线 QQ）──────────────────────────────────
+
+  tool({
+    name: 'get_peer_stats',
+    description:
+      '查询某个用户的【QQ 等级 + 资料卡累计获赞】（两条 OIDB 并行：0xFE1_2 按 uin 查等级，0x7ED_12 按 uid 查获赞）。' +
+      'uin 与 uid 至少传一个：只有 uin 时只查等级，只有 uid 时只查获赞，两个都传时全查。需要在线 QQ。',
+    input: z.object({
+      uin: z.string().optional().describe('目标 QQ 号（纯数字，查等级用）'),
+      uid: z.string().optional().describe('目标 uid（u_ 开头，查获赞用；find_contact 可解析）'),
+    }),
+    run: async ({ uin, uid }) => {
+      const svc = services().peerStats;
+      const out: Record<string, unknown> = {};
+      if (uin?.trim()) out.level = await svc.getQqLevel(uin.trim());
+      if (uid?.trim()) out.likeCount = await svc.getLikeCount(uid.trim());
+      if (Object.keys(out).length === 0) {
+        throw new Error('uin 与 uid 至少传一个。');
+      }
+      return { ok: true, ...(uin ? { uin } : {}), ...(uid ? { uid } : {}), ...out };
+    },
+  }),
+
+  tool({
+    name: 'get_qq_show_url',
+    description:
+      '查询某个 QQ 号的【QQ 秀形象】（OIDB 0xFE1_3，按 uin 查），返回透明全身像 URL；没有 QQ 秀时 hasShow=false。需要在线 QQ。',
+    input: z.object({
+      uin: z.string().min(1).describe('目标 QQ 号（纯数字）'),
+    }),
+    run: async ({ uin }) => {
+      const info = await services().peerStats.getQqShow(uin.trim());
+      return {
+        ok: true,
+        uin,
+        hasShow: info.hasShow,
+        ...(info.hasShow && info.url ? { url: info.url } : {}),
+        ...(!info.hasShow ? { hint: '该账号没有设置 QQ 秀。' } : {}),
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_flash_share_link',
+    description:
+      '把一条【QQ 闪传】卡片的 fileSetId 换成可分享的下载链接（OIDB 0x93d3_1）。' +
+      'fileSetId 来自闪传消息的 fileTransferInfo。需要在线 QQ。',
+    input: z.object({
+      fileSetId: z.string().min(1).describe('闪传 fileset uuid'),
+    }),
+    run: async ({ fileSetId }) => {
+      const shareUrl = await services().flashTransfer.getShareLink(fileSetId.trim());
+      return {
+        ok: shareUrl !== '',
+        fileSetId,
+        ...(shareUrl ? { shareUrl } : { error: '服务端没有返回分享链接（fileset 可能已过期）。' }),
+      };
+    },
+  }),
+
+  tool({
+    name: 'fetch_history_window',
+    description:
+      '【从服务端拉取一段历史消息】（SsoGetGroupMsg / SsoGetC2cMsg，按 msgSeq 窗口，单次最多约 30 条）。' +
+      '用于本地库有 seq 缺口、或想看比本地更早的消息。拉到的消息会写入本机漫游缓存，下次直接命中。' +
+      'kind: c2c=私聊（conv 传对方 uid），group=群聊（conv 传群号）。需要在线 QQ。',
+    input: z.object({
+      kind: z.enum(['c2c', 'group']).describe('会话类型'),
+      conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
+      startSeq: z.number().int().min(0).describe('窗口起始 seq（含，旧端）'),
+      endSeq: z
+        .number()
+        .int()
+        .min(0)
+        .describe('窗口结束 seq（含，新端；end-start ≤ 30，更大的缺口返回 nextStartSeq 分页继续）'),
+    }),
+    run: async ({ kind, conv, startSeq, endSeq }) => {
+      const result = await services().gapHistory.fetch(kind, conv, startSeq, endSeq);
+      if (!result.ok) {
+        return {
+          ok: false,
+          kind,
+          conv,
+          startSeq,
+          endSeq,
+          reason: result.reason,
+          error: result.message,
+        };
+      }
+      return {
+        ok: true,
+        kind,
+        conv,
+        fetched: result.fetched,
+        count: result.messages.length,
+        ...(result.nextStartSeq !== null ? { nextStartSeq: result.nextStartSeq } : {}),
+        messages: result.messages.map((m) => ({
+          time: fmtTime(BigInt(m.sendTime)),
+          msgSeq: m.msgSeq,
+          sender: m.senderUin,
+          text: flattenElements(m.elements),
+        })),
+        ...(!result.nextStartSeq && result.fetched === 0
+          ? { hint: '这段 seq 服务端没有返回消息（可能超出漫游覆盖范围）。' }
+          : {}),
+      };
+    },
+  }),
+
+  tool({
+    name: 'send_tuwen_ark',
+    description:
+      '给私聊或群聊发送一张【自定义图文 Ark 卡片】（OIDB 0xdc2_34：标题 + 描述 + 跳转链接 + 预览图）。' +
+      '⚠️ 这是真实的发送行为，会在目标会话里出现一条卡片消息。需要在线 QQ。',
+    input: z.object({
+      peerType: z.enum(['c2c', 'group']).describe('发送目标类型'),
+      targetId: z.string().min(1).describe('目标 QQ 号（c2c）或群号（group），纯数字'),
+      title: z.string().min(1).max(100).describe('卡片标题'),
+      desc: z.string().max(200).default('').describe('卡片描述'),
+      jumpUrl: z.string().url().describe('点击跳转的 URL'),
+      previewUrl: z.string().url().default('').describe('卡片预览图 URL（可为空）'),
+    }),
+    run: async ({ peerType, targetId, title, desc, jumpUrl, previewUrl }) => {
+      if (peerType !== 'group') {
+        throw new Error('当前只支持发到群聊（peerType=group）。');
+      }
+      await services().flashTransfer.sendTuwenArkToGroup({
+        groupId: Number(targetId.trim()),
+        cardTitle: title,
+        desc,
+        jumpUrl,
+        previewUrl,
+      });
+      return { ok: true, peerType, targetId, hint: '卡片已发送（响应仅 ack，无法撤回）。' };
+    },
+  }),
+
+  // ── Web CGI 查询类 ──────────────────────────────────────────────────
+
+  tool({
+    name: 'get_group_honor',
+    description:
+      '查询某个群的【群荣誉榜单】（qun.qq.com 荣誉页）：type=talkative 龙王/群聊之火, performer 群聊炽焰, legend 群聊传说, emotion 快乐源泉。' +
+      '返回每名：uin、nickname、desc 荣誉描述。需要在线 QQ（凭证可 pt_login 兜底）。',
+    input: z.object({
+      groupCode: z.string().min(1).describe('群号（纯数字，find_contact 可解析群名）'),
+      type: z
+        .enum(['talkative', 'performer', 'legend', 'emotion'])
+        .default('talkative')
+        .describe('荣誉类型'),
+    }),
+    run: async ({ groupCode, type }) => {
+      const map = {
+        talkative: HonorType.Talkative,
+        performer: HonorType.Performer,
+        legend: HonorType.Legend,
+        emotion: HonorType.Emotion,
+      } as const;
+      const list = await services().webQuery.getHonorList(groupCode.trim(), map[type]);
+      return {
+        ok: true,
+        groupCode,
+        type,
+        count: list.length,
+        members: list.map((m) => ({
+          uin: m.uin !== null ? String(m.uin) : null,
+          nickname: m.nickname,
+          desc: m.description,
+        })),
+        ...(list.length === 0 ? { hint: '榜单为空（该群暂无此荣誉数据，或无查看权限）。' } : {}),
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_group_albums',
+    description:
+      '列出某个群的【相册列表】（qzone cgi）：相册 id、名称、照片数、封面、描述、创建/更新时间。' +
+      '相册 id 传给 get_group_album_photos 看内容。需要在线 QQ。',
+    input: z.object({
+      groupId: z.string().min(1).describe('群号（纯数字）'),
+    }),
+    run: async ({ groupId }) => {
+      const albums = await services().webQuery.getGroupAlbumList(groupId.trim());
+      return {
+        ok: true,
+        groupId,
+        count: albums.length,
+        albums: albums.map((a) => ({
+          id: a.id,
+          title: a.title,
+          photoCount: a.photoCount,
+          ...(a.coverUrl ? { coverUrl: a.coverUrl } : {}),
+          ...(a.desc.trim() ? { desc: a.desc } : {}),
+          createTime: a.createTime,
+          updateTime: a.updateTime,
+        })),
+        ...(albums.length === 0 ? { hint: '该群没有相册，或票据已失效。' } : {}),
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_qzone_profile',
+    description:
+      '读取某个 QQ 号的【QQ空间资料】：说说列表（get_emotion_list，pos+num 稳定深翻）或相册列表。' +
+      'mode=msgs 返回说说（内容/时间/图片/视频/评论数），mode=albums 返回相册。需要在线 QQ。',
+    input: z.object({
+      targetUin: z.string().min(1).describe('目标 QQ 号（纯数字；不传查自己）').optional(),
+      mode: z.enum(['msgs', 'albums']).default('msgs').describe('msgs=说说列表, albums=相册列表'),
+      pos: z.number().int().min(0).default(0).describe('说说翻页偏移（mode=msgs）'),
+      num: z.number().int().min(1).max(50).default(10).describe('说说条数上限（mode=msgs）'),
+    }),
+    run: async ({ targetUin, mode, pos, num }) => {
+      const svc = services().webQuery;
+      const uin = (targetUin ?? currentUin()).trim();
+      if (mode === 'albums') {
+        const albums = await svc.getQzoneAlbums(uin);
+        return {
+          ok: true,
+          targetUin: uin,
+          mode,
+          count: albums.length,
+          albums: albums.map((a) => ({
+            id: a.id,
+            name: a.name,
+            mediaCount: a.mediaCount,
+            ...(a.coverUrl ? { coverUrl: a.coverUrl } : {}),
+            createTime: a.createTime ? fmtDate(BigInt(a.createTime)) : '',
+          })),
+        };
+      }
+      const result = await svc.getQzoneMsgList(uin, pos, num);
+      return {
+        ok: true,
+        targetUin: uin,
+        mode,
+        total: result.total,
+        count: result.list.length,
+        ...(pos + result.list.length < result.total ? { nextPos: pos + result.list.length } : {}),
+        list: result.list.map((e) => ({
+          tid: e.tid,
+          time: fmtTime(BigInt(e.time)),
+          content: e.content,
+          commentNum: e.commentNum,
+          ...(e.isPrivate ? { isPrivate: true } : {}),
+          ...(e.images.length ? { images: e.images } : {}),
+          ...(e.videos.length
+            ? {
+                videos: e.videos.map((v) => ({
+                  coverUrl: v.coverUrl,
+                  videoUrl: v.videoUrl,
+                  duration: v.duration,
+                })),
+              }
+            : {}),
+        })),
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_friend_dress',
+    description:
+      '查询某个用户【正在使用的个性装扮】（好友装扮 SSR 页）：挂件/名片/浮屏/输入状态等。' +
+      '注意：气泡/字体/头像装扮服务端对他人查询永远回默认款（已剔除），查自己正在用的全部装扮用 get_self_dress。需要在线 QQ。',
+    input: z.object({
+      targetUin: z.string().min(1).describe('目标 QQ 号（纯数字）'),
+    }),
+    run: async ({ targetUin }) => {
+      const dress = await services().webQuery.getFriendDress(targetUin.trim());
+      if (!dress) {
+        return {
+          ok: false,
+          targetUin,
+          error: '解析不出装扮数据（对方可能关闭了展示，或票据失效）。',
+        };
+      }
+      return {
+        ok: true,
+        targetUin: dress.targetUin,
+        isSvip: dress.isSvip,
+        items: dress.items.map((i) => ({
+          kind: i.kind,
+          name: i.name,
+          itemId: i.itemId,
+          ...(i.price ? { price: i.price } : {}),
+        })),
+        ...(dress.items.length === 0 ? { hint: '对方没有可解析到的装扮（或全是默认款）。' } : {}),
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_self_dress',
+    description:
+      '查询【本账号正在使用的全部个性装扮】（含查他人拿不到的气泡/字体/头像），返回各类目 itemId 与名称。需要在线 QQ。',
+    input: z.object({}),
+    run: async () => {
+      const dress = await services().webQuery.getSelfDress();
+      return {
+        ok: true,
+        uin: dress.uin,
+        items: dress.items.map((i) => ({
+          kind: i.kind,
+          name: i.name,
+          itemId: i.itemId,
+          ...(i.hdUrl ? { hdUrl: i.hdUrl } : {}),
+        })),
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_friend_mutual_mark',
+    description:
+      '查询我与某个好友之间的【互动标识】（友谊的小船/巨轮、火花、幸运字符等，含每个标识的等级、进度、是否点亮、佩戴状态）。' +
+      '传对方 uin。需要在线 QQ。',
+    input: z.object({
+      targetUin: z.string().min(1).describe('目标好友的 QQ 号（纯数字）'),
+    }),
+    run: async ({ targetUin }) => {
+      const mark = await services().webQuery.getFriendMutualMark(targetUin.trim());
+      return {
+        ok: true,
+        targetUin: mark.targetUin,
+        targetNickname: mark.targetNickname,
+        totalNum: mark.totalNum,
+        lightUpNum: mark.lightUpNum,
+        categories: mark.categories.map((c) => ({
+          name: c.name,
+          lightUpNum: c.lightUpNum,
+          totalNum: c.totalNum,
+          marks: c.marks.map((m) => ({
+            name: m.name,
+            symbol: m.symbol,
+            level: m.level,
+            isLightup: m.isLightup,
+            isWearing: m.isWearing,
+            count: m.count,
+            ...(m.nextLevelName ? { nextLevelName: m.nextLevelName } : {}),
+          })),
+        })),
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_dress_mall',
+    description:
+      '查询【装扮商城】目录（气泡/字体/挂件）：mode=rank 排行榜（离线可用，走本地静态榜单兜底），mode=search 关键词搜索（必须在线）。' +
+      'kind: bubble=气泡, font=字体, widget=挂件。返回每款 itemId、名称、预览图、价格。',
+    input: z.object({
+      kind: z.enum(['bubble', 'font', 'widget']).describe('装扮类目'),
+      mode: z
+        .enum(['rank', 'search'])
+        .default('rank')
+        .describe('rank=排行榜（离线可用）, search=搜索（需在线）'),
+      keyword: z.string().default('').describe('搜索关键词（mode=search 时必填）'),
+      pageIndex: z.number().int().min(1).default(1).describe('排行榜页码（从 1 起，mode=rank）'),
+      pageSize: z.number().int().min(1).max(50).default(20).describe('每页条数'),
+    }),
+    run: async ({ kind, mode, keyword, pageIndex, pageSize }): Promise<unknown> => {
+      const appId =
+        kind === 'bubble'
+          ? DressAppId.Bubble
+          : kind === 'font'
+            ? DressAppId.Font
+            : DressAppId.Widget;
+      const svc = services().webQuery;
+      if (mode === 'search') {
+        const kw = keyword.trim();
+        if (!kw) throw new Error('mode=search 时必须传 keyword。');
+        const { items, total } = await svc.searchDress(appId, kw, 0, pageSize);
+        return dressMallResult(
+          kind,
+          'search',
+          items,
+          total,
+          '搜索需要在线 QQ；没有在线实例时会抛错。',
+        );
+      }
+      let items: DressMallItem[];
+      let offline = false;
+      try {
+        items = await svc.getDressRank(appId, pageIndex, pageSize);
+      } catch {
+        // 离线兜底：读仓库里存的一份静态排行榜原始响应。
+        const path = resolveResource('dress', `ranking-${kind}.json`);
+        items = path ? normalizeMallItems(JSON.parse(readFileSync(path, 'utf-8'))) : [];
+        offline = true;
+      }
+      return dressMallResult(
+        kind,
+        'rank',
+        items,
+        items.length,
+        offline
+          ? '当前为离线静态榜单（联网排行榜不可用时的兜底），内容可能不是最新。'
+          : '在线排行榜。',
+      );
+    },
+  }),
+
+  tool({
+    name: 'get_dress_resource_url',
+    description:
+      '从【本地离线资源 bundle】（resources/dress/*.dat，QQ 自带的那批装扮资源）查某款装扮某个部件的 CDN 下载 URL。' +
+      '纯本地查询，不需要在线 QQ。kind: bubble/font/widget；name 部件名如 config.json / static.zip / other.zip / main / fzfont / aio_50.png / xydata.js。' +
+      '查不到（bundle 没收录该款）返回 found=false，需要时改走在线换链。',
+    input: z.object({
+      kind: z.enum(['bubble', 'font', 'widget']).describe('装扮类目'),
+      itemId: z.string().min(1).describe('装扮 id（纯数字）'),
+      name: z.string().min(1).describe('部件名（如 config.json / static.zip / main / fzfont）'),
+    }),
+    run: async ({ kind, itemId, name }) => {
+      const r = ntHelper().queryDressResourceUrl(kind, itemId.trim(), name.trim());
+      if (!r) {
+        return {
+          found: false,
+          kind,
+          itemId,
+          name,
+          hint: '本地 bundle 没有这个条目（该款不在 QQ 自带资源里，或 name 不对）。',
+        };
+      }
+      return {
+        found: true,
+        kind,
+        itemId,
+        name,
+        url: r.url,
+        bytes: r.size,
+      };
+    },
+  }),
+
+  tool({
+    name: 'convert_font',
+    description:
+      '把 QQ 私有字体格式【FTF 转换成标准 TTF】（nt_helper 内置的 convertFont：识别 FTFH/FTFG 私有表、坐标解码、重组 glyf）。' +
+      '输入已是普通 TTF 时会原样拷贝（并删掉 OTS 拒绝的空表）。返回输出文件路径与说明。⚠️ 会写本地文件。',
+    input: z.object({
+      inputPath: z.string().min(1).describe('输入字体文件绝对路径（.ttf，FTF 或普通 TTF）'),
+      outputPath: z.string().min(1).describe('输出 TTF 的绝对路径'),
+    }),
+    run: async ({ inputPath, outputPath }) => {
+      const message = ntHelper().convertFont(inputPath.trim(), outputPath.trim());
+      return { ok: true, inputPath, outputPath, message };
+    },
+  }),
+
+  // ── 商城表情 ────────────────────────────────────────────────────────
+
+  tool({
+    name: 'search_market_emoji',
+    description:
+      '搜索【商城表情包目录】（本地离线索引 25000+ 套：resources/emoji/market.csv）。' +
+      'keyword 对名称/介绍做子串匹配；feeTypes 过滤来源（free/paid/vip/svip）。返回 packId、名称、介绍、来源标签。' +
+      '拿到 packId 后接 get_market_pack_detail 看单套表情清单、get_market_pack_key 破解图片密钥。',
+    input: z.object({
+      keyword: z.string().default('').describe('搜索关键词（名称/介绍子串匹配，空=全部）'),
+      feeTypes: z
+        .array(z.enum(['free', 'paid', 'vip', 'svip']))
+        .default([])
+        .describe('来源过滤（空=全部）'),
+      limit: z.number().int().min(1).max(200).default(30).describe('每页条数'),
+      cursor: z.string().default('').describe('翻页游标（上一页返回的 nextCursor）'),
+    }),
+    run: async ({ keyword, feeTypes, limit, cursor }) => {
+      const page = searchCatalog({
+        keyword,
+        ...(feeTypes.length ? { feeTypes } : {}),
+        limit,
+        ...(cursor ? { cursor } : {}),
+      });
+      return {
+        total: page.total,
+        count: page.entries.length,
+        ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+        entries: page.entries,
+        hint:
+          page.entries.length === 0
+            ? '没有命中；换个更短的关键词，或放宽 feeTypes。'
+            : 'packId 可接 get_market_pack_detail（单套清单）与 get_market_pack_key（图片密钥）。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_market_pack_detail',
+    description:
+      '获取一套【商城表情包的在线详情】：名称、介绍、来源（免费/付费/VIP）、表情数量与每张表情的 hash/名称/关键词。' +
+      '（CDN 拉 android.json 解析。）图片密钥用 get_market_pack_key。',
+    input: z.object({
+      packId: z.string().min(1).describe('表情包 ID（search_market_emoji 返回的 id）'),
+    }),
+    run: async ({ packId }) => {
+      const detail = await services().emoji.getMarketPackDetail(packId.trim());
+      if (!detail) {
+        return { ok: false, packId, error: '拉不到该表情包的详情（id 不存在或 CDN 不可达）。' };
+      }
+      return {
+        ok: true,
+        packId: detail.packId,
+        name: detail.name,
+        summary: detail.summary,
+        feeType: detail.feeType,
+        updateTime: detail.updateTime,
+        count: detail.count,
+        items: detail.items,
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_market_pack_key',
+    description:
+      '破解一套【商城表情包的图片解密密钥】（16 位 ASCII，md5(str(seed)) 前缀）。' +
+      '不传 timestamp 时自动恢复（免费包读元数据种子，付费包在 updateTime 附近爆破 TEA 头）；' +
+      '手动传 timestamp 则按 md5(str(ts))[:16] 本地派生（不查网络）。解密图片走 get_market_pack_image。',
+    input: z.object({
+      packId: z.string().min(1).describe('表情包 ID'),
+      timestamp: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe('手动指定种子时间戳（unix 秒；不传=自动恢复）'),
+    }),
+    run: async ({ packId, timestamp }) => {
+      const key = await services().emoji.getMarketPackKey(
+        packId.trim(),
+        timestamp && timestamp > 0 ? timestamp : undefined,
+      );
+      if (!key) {
+        return {
+          ok: false,
+          packId,
+          error: '密钥恢复失败（未知表情包 / 爆破窗口耗尽）。可试试手动传 timestamp。',
+        };
+      }
+      return {
+        ok: true,
+        packId,
+        key: key.key,
+        timestamp: key.timestamp,
+        source: key.source,
+        hint: '密钥 = md5(str(timestamp)) 前 16 位；配合 CDN 加密 GIF 走 QQTEA 解密。',
+      };
+    },
+  }),
+
+  tool({
+    name: 'get_market_pack_image',
+    description:
+      '下载并解密一张【商城表情图片】为明文 GIF（CDN 加密流 → packId 密钥 QQTEA 解密 → 本地缓存），返回本地文件路径。' +
+      'keyOverride 可透传手动密钥跳过自动恢复。',
+    input: z.object({
+      packId: z.string().min(1).describe('表情包 ID'),
+      hash: z.string().min(6).describe('表情图片 hash（get_market_pack_detail 的 items[].hash）'),
+      keyOverride: z.string().optional().describe('手动密钥（16 位；不传=自动恢复）'),
+    }),
+    run: async ({ packId, hash, keyOverride }) => {
+      const path = await services().emoji.getMarketPackImage(
+        packId.trim(),
+        hash.trim(),
+        keyOverride?.trim() || undefined,
+      );
+      if (!path) {
+        return {
+          ok: false,
+          packId,
+          hash,
+          error:
+            '解密失败（密钥不对或 CDN 不可达）。可先 get_market_pack_key 拿密钥再传 keyOverride。',
+        };
+      }
+      return { ok: true, packId, hash, path, hint: '明文 GIF 已落盘，可用文件工具查看。' };
     },
   }),
 ];

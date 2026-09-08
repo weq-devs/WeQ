@@ -464,28 +464,6 @@ importers:
         specifier: workspace:*
         version: link:../native
 
-  packages/tools:
-    dependencies:
-      '@weq/codec':
-        specifier: workspace:*
-        version: link:../codec
-      '@weq/db':
-        specifier: workspace:*
-        version: link:../db
-      '@weq/native':
-        specifier: workspace:*
-        version: link:../native
-      '@weq/testkit':
-        specifier: workspace:*
-        version: link:../testkit
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.6
-        version: 22.19.20
-      tsx:
-        specifier: ^4.19.2
-        version: 4.22.4
-
 packages:
 
   7zip-bin@5.2.0:

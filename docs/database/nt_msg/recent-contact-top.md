@@ -9,7 +9,7 @@ QQ 会话列表顶部那几个「钉在最前面」的会话就来自这里。
 | ---- | ---- |
 | `packages/db/src/contact/recent_contact_top.ts` | 取行 + 列 → `RecentContactTop` |
 | `packages/db/src/contact/types.ts` | `RecentContactTop` 的字段语义 |
-| `packages/tools/sql.ts` | 通用 SQL 控制台：看这张表的行（`.row recent_contact_v3_table <rowid>` 等） |
+| 内置 MCP 数据库工具 | 通用 SQL：看这张表的行（`execute_sql` 查 `recent_contact_v3_table` 等，见 `docs/guide/mcp-server.md`） |
 
 ---
 

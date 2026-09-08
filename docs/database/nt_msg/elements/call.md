@@ -105,13 +105,17 @@ QQ 已经排好版的 `callSummary`（WeQ 的 `QqCall` 就是这么做的）。
 
 ## 五、排查工具
 
-```bash
-# 看表的列与原始行（通用 SQL 控制台）
-pnpm --filter @weq/tools sql -- nt_msg ".cols group_msg_table"
-pnpm --filter @weq/tools sql -- nt_msg ".row group_msg_table <rowid>"
+用 WeQ 内置 MCP 的数据库工具（见 `docs/guide/mcp-server.md`）：
 
-# 统计 CALL 元素的 (callMethod, subType) 组合
-pnpm --filter @weq/tools sql -- nt_msg "SELECT \"40011\",\"40012\",COUNT(*) FROM group_msg_table GROUP BY \"40011\",\"40012\""
+```text
+# 看表的列
+get_db_columns  { db: "msg.db", table: "group_msg_table" }
+
+# 按 rowid 看整行
+execute_sql     { db: "msg.db", sql: "SELECT * FROM group_msg_table WHERE rowid = <rowid>" }
+
+# 统计 CALL 元素的 (40011, 40012) 组合
+execute_sql     { db: "msg.db", sql: "SELECT \"40011\",\"40012\",COUNT(*) FROM group_msg_table GROUP BY \"40011\",\"40012\"" }
 ```
 
 ---
