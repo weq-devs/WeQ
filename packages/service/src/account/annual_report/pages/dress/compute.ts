@@ -23,7 +23,7 @@ export const dressPage: ReportPageDefinition<DressPageData> = {
   manifest: {
     id: 'dress',
     title: '你最喜欢的装扮',
-    description: '这一年，你把哪身行头穿得最久。',
+    description: '这一年，你把哪身行头穿得最久、穿得最开心。',
     order: 2,
     version: '0.2.0',
     apiVersion: 1,

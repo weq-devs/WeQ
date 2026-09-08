@@ -62,7 +62,7 @@ export function MonthsPage({ page, data, active }: ReportPageProps<MonthsPageDat
               <p className="weq-mo-lede">
                 {reportEraLabel(data.year)}
                 {carryover.length > 0 ? '（近 12 个月）' : ''}
-                ，每个月聊得最多的人一直在换，可最后站在你身边的是——
+                ，每个月坐上聊天榜首的人一直在换，可回头一看，始终在的是——
               </p>
               <Face person={champion} champion />
               <h2 className={`weq-mo-name ${nameSize(champion.peerName)}`}>{champion.peerName}</h2>
@@ -80,10 +80,10 @@ export function MonthsPage({ page, data, active }: ReportPageProps<MonthsPageDat
               </p>
               <p className="weq-mo-note">
                 {championCells >= data.monthCount && carryover.length === 0
-                  ? '整整一路，TA 都没有把第一让给别人。'
-                  : `TA 拿下了 ${fmt(championCells)} 个月的第一，${
+                  ? '一整年，十二个月，TA 从没把第一让给过任何人。'
+                  : `TA 拿下了 ${fmt(championCells)} 个月的榜首，${
                       data.monthCount < 12 ? '今年' : '全年'
-                    }和你聊了 ${fmt(champion.messages)} 条。`}
+                    }和你聊了 ${fmt(champion.messages)} 句。`}
               </p>
             </section>
 
@@ -91,7 +91,7 @@ export function MonthsPage({ page, data, active }: ReportPageProps<MonthsPageDat
               className="weq-mo-calendar weq-report-line"
               style={{ '--i': 3 } as CSSProperties}
             >
-              <p className="weq-mo-calendar-head">每月的聊天第一名</p>
+              <p className="weq-mo-calendar-head">十二个月里的榜首</p>
               <ol className="weq-mo-months">
                 {months.map((cell, index) => (
                   <li
@@ -124,13 +124,13 @@ export function MonthsPage({ page, data, active }: ReportPageProps<MonthsPageDat
             </section>
 
             <p className="weq-mo-mood weq-report-line" style={{ '--i': 4 } as CSSProperties}>
-              真正陪你走过时间的，不是哪一条消息——是那个总在对话框另一边、从不缺席的人。
+              时间会替你筛人——留下来的，是那个总在对话框另一头、从未缺席的人。
             </p>
           </>
         ) : (
           <section className="weq-mo-empty">
-            <p>这一年还没有足够多的双向私聊，讲不出「谁陪你走过」的故事。</p>
-            <p className="weq-mo-empty-sub">下一条消息，可以从你这里开始。</p>
+            <p>这一年还没有足够多的有来有往，讲不出「谁陪你走过」的故事。</p>
+            <p className="weq-mo-empty-sub">故事的第一句，可以从你这里写起。</p>
           </section>
         )}
       </div>

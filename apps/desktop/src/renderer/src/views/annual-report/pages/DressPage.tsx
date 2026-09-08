@@ -35,7 +35,7 @@ function fmt(n: number): string {
 }
 
 /** 主体气泡里写什么：优先用那套说过的最长一句真话，一句都没采到才用兜底文案。 */
-const HERO_FALLBACK = '这一年，我最爱这身';
+const HERO_FALLBACK = '这一年，我最爱这身。';
 
 export function DressPage({ page, data, active }: ReportPageProps<DressPageData>): ReactElement {
   const { year } = data;
@@ -89,19 +89,19 @@ const KIND_META: Record<
     title: '气泡',
     unit: '款',
     verb: '用过',
-    empty: '这一年没有换过气泡，聊天一直保持素净。',
+    empty: '这一年没换过气泡——素颜上阵，话却说得最真。',
   },
   font: {
     title: '字体',
     unit: '款',
     verb: '用过',
-    empty: '这一年聊天一直用系统默认字，没换过新字。',
+    empty: '这一年一直用系统默认字，心意却不打折扣。',
   },
   widget: {
     title: '挂件',
     unit: '款',
     verb: '戴过',
-    empty: '这一年头像上没有挂过新挂件。',
+    empty: '这一年头像上干干净净，一个小饰物都没戴。',
   },
 };
 
@@ -222,7 +222,7 @@ function DressShowcase({
     <aside className="weq-dress-showcase" aria-label="这一年用过的装扮单品">
       <div className="weq-dress-showcase-head">
         <b>装扮展柜</b>
-        <span>用过的，都值得收好</span>
+        <span>每一款，都是当年的心情</span>
       </div>
       <ShowcaseShelf kind="bubble" kindData={data.bubble} assets={assets} />
       <ShowcaseShelf kind="font" kindData={data.font} assets={assets} />

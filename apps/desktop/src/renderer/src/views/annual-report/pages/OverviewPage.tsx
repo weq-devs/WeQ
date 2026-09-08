@@ -60,12 +60,13 @@ export function OverviewPage({
       <div className="weq-ov">
         <p className="weq-ov-lede weq-report-line" style={{ '--i': 1 } as React.CSSProperties}>
           {eraLabel}
-          {sinceLabel ? <span className="weq-ov-since">（{sinceLabel}）</span> : null}，你一共说出了
+          {sinceLabel ? <span className="weq-ov-since">（{sinceLabel}）</span> : null}
+          ，你把心事敲成了
         </p>
 
         <div className="weq-ov-hero weq-report-line" style={{ '--i': 2 } as React.CSSProperties}>
           <Odometer value={totalSent} active={active} className="weq-ov-hero-num" />
-          <span className="weq-ov-hero-unit">条消息</span>
+          <span className="weq-ov-hero-unit">句话</span>
         </div>
 
         <div className="weq-ov-rail weq-report-line" style={{ '--i': 3 } as React.CSSProperties}>
@@ -109,7 +110,7 @@ export function OverviewPage({
             </dd>
           </div>
           <div className="weq-ov-band-cell">
-            <dt>你说 100 句，回声</dt>
+            <dt>你说 100 句，世界回了</dt>
             <dd>
               <span className="weq-number">{fmt(echo)}</span>
               <i>句</i>

@@ -47,7 +47,7 @@ export function HomePage({ page, data, active }: ReportPageProps<HomePageData>):
           <>
             <section className="weq-home-hero">
               <p className="weq-home-lede weq-report-line" style={{ '--i': 2 } as CSSProperties}>
-                {allTime ? '有记录以来' : `${data.year} 年`}，你在群聊里说得最多的地方，是——
+                {allTime ? '有记录以来' : `${data.year} 年`}，你把最多的话，留给了一个地方——
               </p>
               <h2
                 className={`weq-home-name ${nameSize(top.groupName)}`}
@@ -84,7 +84,7 @@ export function HomePage({ page, data, active }: ReportPageProps<HomePageData>):
                 className="weq-home-topics weq-report-line"
                 style={{ '--i': 7 } as CSSProperties}
               >
-                <p className="weq-home-topics-in">这一年，这个群里的话题集中在</p>
+                <p className="weq-home-topics-in">这一年，这里的人都在聊</p>
                 <p className="weq-home-topics-words">
                   {topics.slice(0, TOPIC_SHOW).map((topic, rank) => (
                     <span
@@ -106,11 +106,12 @@ export function HomePage({ page, data, active }: ReportPageProps<HomePageData>):
             ) : null}
 
             <p className="weq-home-mood weq-report-line" style={{ '--i': 8 } as CSSProperties}>
-              {fmt(top.sentCount)} 次开口都有回声——热闹不是噪音，是总有人愿意接住你。
+              {fmt(top.sentCount)} 次开口，次次都有人接。热闹从来不是噪音——
+              是有人一直在，把你的话稳稳接住。
             </p>
           </>
         ) : (
-          <p className="weq-home-empty">群聊记录还在，但本地没有足够的群资料，讲不出这座主场。</p>
+          <p className="weq-home-empty">群聊记录还在，但本地资料不够，讲不出这座主场。</p>
         )}
       </div>
     </PageFrame>

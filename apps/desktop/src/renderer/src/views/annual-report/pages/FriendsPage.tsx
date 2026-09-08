@@ -117,7 +117,7 @@ function FuseBoard({
   const runners = entries.slice(1);
 
   return (
-    <Board variant="spark" eyebrow="最长火花" sub="连着多少天，你们谁都没有断" step={2}>
+    <Board variant="spark" eyebrow="最长火花" sub="连续这么多天，你们谁都没舍得断" step={2}>
       {champion ? (
         <div className="weq-fr-fuse">
           <div className="weq-fr-fuse-head">
@@ -170,7 +170,7 @@ function FuseBoard({
           ) : null}
         </div>
       ) : (
-        <p className="weq-fr-empty">还没有连续两天都互相说话的人</p>
+        <p className="weq-fr-empty">还没有一段连续几天都舍不得断的聊天</p>
       )}
     </Board>
   );
@@ -203,7 +203,7 @@ function StackBoard({
   const champion = entries[0];
 
   return (
-    <Board variant="msg" eyebrow="聊得最多" sub="这段时间里，你们一共说了这么多" step={3}>
+    <Board variant="msg" eyebrow="聊得最多" sub="说不完的话，最后都堆成了这座小山" step={3}>
       {champion ? (
         <div className="weq-fr-vol">
           <div className="weq-fr-vol-champ">
@@ -254,7 +254,7 @@ function StackBoard({
           </ol>
         </div>
       ) : (
-        <p className="weq-fr-empty">还没有双向来往的私聊</p>
+        <p className="weq-fr-empty">还没有一个有来有往的人——第一条消息，随时可以发</p>
       )}
     </Board>
   );

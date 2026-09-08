@@ -36,8 +36,8 @@ export function VoicePage({ page, data, active }: ReportPageProps<VoicePageData>
 
   const mood =
     heroCount > 0
-      ? `一句话说了 ${fmt(heroCount)} 次，不是因为词穷——是每一次，你都还想把它送到。`
-      : '这一页没有足够多的话可说；那就留着，等下一个词被你说熟。';
+      ? `说了 ${fmt(heroCount)} 次。不是词穷——是这句话每次都刚好，接住了当时的心情。`
+      : '这一页很安静。下一个被你说熟的词，还在路上。';
 
   return (
     <PageFrame page={page} active={active} ghost="说" ghostPlacement="bottom-right">
@@ -63,7 +63,7 @@ export function VoicePage({ page, data, active }: ReportPageProps<VoicePageData>
           {hero ? (
             <>
               <p className="weq-vc-lede weq-report-line" style={{ '--i': 2 } as CSSProperties}>
-                {allTime ? '从有记录到现在' : `${data.year} 这一年`}，你说得最多的那个词是
+                {allTime ? '从有记录到现在' : `${data.year} 这一年`}，被你说得最烫的一个词是
               </p>
               <h2 className={`weq-vc-word${hero.word.length >= 5 ? ' is-long' : ''}`}>
                 {hero.word}
@@ -79,14 +79,14 @@ export function VoicePage({ page, data, active }: ReportPageProps<VoicePageData>
             </>
           ) : (
             <p className="weq-vc-lede weq-report-line" style={{ '--i': 2 } as CSSProperties}>
-              这一年，你的话还没有找到一句想重复的。
+              这一年，你的每一句话都是现场发挥的。
             </p>
           )}
         </section>
 
         {hasFaces || data.pic ? (
           <section className="weq-vc-faves weq-report-line" style={{ '--i': 4 } as CSSProperties}>
-            <p className="weq-vc-faves-in">而表情，是你那句口头禅旁边的语气——</p>
+            <p className="weq-vc-faves-in">而表情，是你说不出口的那部分——</p>
             <div className="weq-vc-faves-row">
               {hasFaces ? (
                 <div className="weq-vc-faceband">
@@ -167,7 +167,7 @@ function FavePic({ pic }: { pic: VoicePicFavorite }): ReactElement {
           onError={() => setBroken(true)}
         />
       )}
-      <p className="weq-vc-fave-name">这张最常被你拿出来</p>
+      <p className="weq-vc-fave-name">这张图，替你说了很多次话</p>
       <p className="weq-vc-fave-count">
         <b className="weq-number">{fmt(pic.count)}</b> 次
       </p>

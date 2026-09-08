@@ -336,7 +336,7 @@ function overviewTree(data: Record<string, unknown>): El {
       el(
         'div',
         { marginTop: 40, fontSize: 40, color: PALETTE.inkSoft, letterSpacing: 6 },
-        `${eraLabel}，你一共说出了`,
+        `${eraLabel}，你把心事敲成了`,
       ),
       // 主角：巨型数字 + 基线对齐的单位
       el('div', { marginTop: 10, display: 'flex', alignItems: 'baseline' }, [
@@ -348,7 +348,7 @@ function overviewTree(data: Record<string, unknown>): El {
         el(
           'div',
           { marginLeft: 28, fontSize: 46, color: PALETTE.inkMuted, letterSpacing: 8 },
-          '条消息',
+          '句话',
         ),
       ]),
       railBlock(c2cSent, groupSent, c2cPct, groupPct),
@@ -359,7 +359,7 @@ function overviewTree(data: Record<string, unknown>): El {
           unit: '条',
         },
         { label: '收到', value: fmt(totalReceived), unit: '条' },
-        { label: '你说 100 句，回声', value: fmt(echo), unit: '句' },
+        { label: '你说 100 句，世界回了', value: fmt(echo), unit: '句' },
       ]),
     ],
     isAllTimeYear(year) ? 'ALL' : String(year),
@@ -541,7 +541,7 @@ function sparkTree(data: Record<string, unknown>): El {
           el(
             'div',
             { fontSize: 26, color: PALETTE.inkSoft, letterSpacing: 6 },
-            `${isAllTimeYear(year) ? '历史以来' : `${year} 年`} · 全部私聊里最用力的一天`,
+            `${isAllTimeYear(year) ? '历史以来' : `${year} 年`} · 全部私聊里，最滚烫的一天`,
           ),
           el(
             'div',
@@ -641,7 +641,12 @@ function sparkTree(data: Record<string, unknown>): El {
       el('div', { width: 1, marginTop: 22, height: 128, backgroundColor: PALETTE.hair }),
       bandCell('最长连续发言', fmt(longestSelfRun), '天'),
       el('div', { width: 1, marginTop: 22, height: 128, backgroundColor: PALETTE.hair }),
-      bandCell('最长火花', fmt(spark?.days ?? 0), '天', spark?.peerName ?? '还没有双向的火花'),
+      bandCell(
+        '最长火花',
+        fmt(spark?.days ?? 0),
+        '天',
+        spark?.peerName ?? '还没有人陪你连成一条线',
+      ),
     ],
   );
 
@@ -823,7 +828,7 @@ function friendsTree(data: Record<string, unknown>): El {
         el(
           'div',
           { marginTop: 20, fontSize: 26, color: PALETTE.inkFaint, letterSpacing: 3 },
-          '还没有连续两天都互相说话的人',
+          '还没有一段连续几天都舍不得断的聊天',
         ),
       ];
 
@@ -936,7 +941,7 @@ function friendsTree(data: Record<string, unknown>): El {
         el(
           'div',
           { marginTop: 20, fontSize: 26, color: PALETTE.inkFaint, letterSpacing: 3 },
-          '还没有双向来往的私聊',
+          '还没有一个有来有往的人——第一条消息，随时可以发',
         ),
       ];
 
@@ -956,12 +961,12 @@ function friendsTree(data: Record<string, unknown>): El {
       ]),
       el('div', { marginTop: 52, display: 'flex', flexDirection: 'column' }, [
         hair(0),
-        boardHead(FLAME, '最长火花', '连着多少天，你们谁都没有断'),
+        boardHead(FLAME, '最长火花', '连续这么多天，你们谁都没舍得断'),
         ...fuse,
       ]),
       el('div', { marginTop: 56, display: 'flex', flexDirection: 'column' }, [
         hair(0),
-        boardHead(PALETTE.accent, '聊得最多', '这段时间里，你们一共说了这么多'),
+        boardHead(PALETTE.accent, '聊得最多', '说不完的话，最后都堆成了这座小山'),
         ...vol,
       ]),
     ],
@@ -984,10 +989,10 @@ function openersTree(data: Record<string, unknown>): El {
   const selfPct = Math.round(Number(data.selfRatio ?? 0) * 100);
   const mood =
     selfPct >= 60
-      ? '原来，你总是那个先想到别人的人。'
+      ? '原来，你一直是那个先想到别人的人。这份主动，很珍贵。'
       : selfPct <= 40
-        ? '原来，有人总比你先想到你。'
-        : '原来，你们总在差不多的时候，想起彼此。';
+        ? '原来，你一直被人放在心上——有人总比你先一步想你。'
+        : '原来，你们总在差不多的时刻，同时想起彼此。';
 
   type CastRole = { kind: 'mine' | 'peer' | 'balanced'; entry: Record<string, unknown> | null };
   const mostMine = (data.mostMine ?? null) as Record<string, unknown> | null;
@@ -1082,9 +1087,9 @@ function openersTree(data: Record<string, unknown>): El {
           letterSpacing: 3,
         },
         [
-          `${allTime ? '有记录以来' : '这一年'}你一共发起了 `,
+          `${allTime ? '有记录以来' : '这一年'}，你鼓起勇气发起了 `,
           el('span', { fontWeight: 700, color: PALETTE.ink }, fmt(selfStarts)),
-          ' 场聊天，占全部开场的',
+          ' 场聊天，其中',
         ],
       ),
       el('div', { marginTop: 8, display: 'flex', alignItems: 'baseline' }, [
@@ -1472,7 +1477,7 @@ function voiceTree(data: Record<string, unknown>): El {
       el(
         'div',
         { marginTop: 86, fontSize: 36, color: PALETTE.inkSoft, letterSpacing: 4 },
-        `${allTime ? '从有记录到现在' : `${year} 这一年`}，你说得最多的那个词是`,
+        `${allTime ? '从有记录到现在' : `${year} 这一年`}，被你说得最烫的一个词是`,
       ),
       el(
         'div',
@@ -1522,7 +1527,7 @@ function voiceTree(data: Record<string, unknown>): El {
                 el(
                   'div',
                   { fontSize: 20, color: PALETTE.inkFaint, letterSpacing: 12 },
-                  '而表情，是你那句口头禅旁边的语气——',
+                  '而表情，是你说不出口的那部分——',
                 ),
                 el(
                   'div',
@@ -1621,7 +1626,7 @@ function voiceTree(data: Record<string, unknown>): El {
                                 color: PALETTE.ink,
                                 letterSpacing: 2,
                               },
-                              '这张最常被你拿出来',
+                              '这张图，替你说了很多次话',
                             ),
                             el(
                               'div',
@@ -1649,8 +1654,8 @@ function voiceTree(data: Record<string, unknown>): El {
           textAlign: 'center',
         },
         heroCount > 0
-          ? `一句话说了 ${fmt(heroCount)} 次，不是因为词穷——是每一次，你都还想把它送到。`
-          : '重复，是你最诚实的告白。',
+          ? `说了 ${fmt(heroCount)} 次。不是词穷——是这句话每次都刚好，接住了当时的心情。`
+          : '这一页很安静。下一个被你说熟的词，还在路上。',
       ),
     ],
   );
@@ -1751,7 +1756,7 @@ function homeTree(data: Record<string, unknown>): El {
       el(
         'div',
         { marginTop: 88, fontSize: 36, color: PALETTE.inkSoft, letterSpacing: 4 },
-        `${allTime ? '有记录以来' : `${year} 年`}，你在群聊里说得最多的地方，是——`,
+        `${allTime ? '有记录以来' : `${year} 年`}，你把最多的话，留给了一个地方——`,
       ),
       el(
         'div',
@@ -1828,7 +1833,7 @@ function homeTree(data: Record<string, unknown>): El {
                 el(
                   'div',
                   { fontSize: 20, color: PALETTE.inkFaint, letterSpacing: 10 },
-                  '这一年，这个群里的话题集中在',
+                  '这一年，这里的人都在聊',
                 ),
                 el(
                   'div',
@@ -1862,7 +1867,7 @@ function homeTree(data: Record<string, unknown>): El {
           letterSpacing: 3,
           textAlign: 'center',
         },
-        `${fmt(count)} 次开口都有回声——热闹不是噪音，是总有人愿意接住你。`,
+        `${fmt(count)} 次开口，次次都有人接。热闹从来不是噪音——是有人一直在，把你的话稳稳接住。`,
       ),
     ],
   );
@@ -2018,7 +2023,7 @@ function interactionsTree(data: Record<string, unknown>): El {
       heroNum = atTotal;
       heroUnit = '次';
       heroNote = atTop
-        ? `名字喊得最响的是 ${fit(String(atTop.name ?? ''), 12)} · ${fmt(
+        ? `被你喊得最响的是 ${fit(String(atTop.name ?? ''), 12)} · ${fmt(
             Number(atTop.count ?? 0),
           )} 次——@ 是怕你错过，才把名字放到人前。`
         : '这一年你 @ 得不多——但每一次，都是怕有人错过。';
@@ -2038,7 +2043,7 @@ function interactionsTree(data: Record<string, unknown>): El {
       heroNum = pokeTotal;
       heroUnit = '次';
       heroNote = pokeTop
-        ? `最常被你戳到 ${fit(String(pokeTop.name ?? ''), 12)} · ${fmt(
+        ? `最常吃你一戳的是 ${fit(String(pokeTop.name ?? ''), 12)} · ${fmt(
             Number(pokeTop.count ?? 0),
           )} 次——戳一戳是最轻的搭话。`
         : '这一年你伸出的手不多——但每一下，都先越过了屏幕。';
@@ -2164,7 +2169,7 @@ function interactionsTree(data: Record<string, unknown>): El {
         el(
           'div',
           { marginTop: 64, fontSize: 34, color: PALETTE.inkSoft, letterSpacing: 5 },
-          `${era}，你在群聊里做过最多的那件事，是——`,
+          `${era}，热闹里你做得最多的一件事，是——`,
         ),
         el('div', { marginTop: 28, fontSize: 46, color: PALETTE.ink, letterSpacing: 3 }, heroLabel),
         el(
@@ -2210,20 +2215,20 @@ function interactionsTree(data: Record<string, unknown>): El {
           '伸手',
           [tailEl('我发起过'), countEl(pokeTotal), tailEl('次戳一戳')],
           pokeTop
-            ? `最常被你戳到：${fit(String(pokeTop.name ?? ''), 12)} · ${fmt(
+            ? `最常吃你一戳的：${fit(String(pokeTop.name ?? ''), 12)} · ${fmt(
                 Number(pokeTop.count ?? 0),
               )} 次`
-            : '这一年，你的「戳一戳」还没落到具体哪个人身上。',
+            : '这一年，你的手指还没养成戳人的习惯。',
         ),
         factRow(
           '@',
           '点名',
           [tailEl('我 @ 过别人'), countEl(atTotal), tailEl('次')],
           atTop
-            ? `名字喊得最响的：${fit(String(atTop.name ?? ''), 12)} · ${fmt(
+            ? `被你喊得最响的：${fit(String(atTop.name ?? ''), 12)} · ${fmt(
                 Number(atTop.count ?? 0),
               )} 次`
-            : '这一年，你还不太习惯在群里点别人的名。',
+            : '这一年，你还不太习惯在人群里喊出某个名字。',
         ),
         factRow(
           '呼',
@@ -2232,7 +2237,7 @@ function interactionsTree(data: Record<string, unknown>): El {
             ? [tailEl('被 @ 最多的群是'), nameEl(String(atMeTop.groupName ?? ''))]
             : [tailEl('这一年，还没有哪个群反复喊你的名字')],
           atMeTop
-            ? `那里有 ${fmt(Number(atMeTop.count ?? 0))} 次，别人把你的名字放进了自己的句子。`
+            ? `那里有 ${fmt(Number(atMeTop.count ?? 0))} 次，有人在人群里，专门喊了你的名字。`
             : '下一次开场，从你 @ 别人开始。',
         ),
         factRow(
@@ -2253,7 +2258,7 @@ function interactionsTree(data: Record<string, unknown>): El {
             color: PALETTE.inkFaint,
             letterSpacing: 3,
           },
-          '你留在群里的，不只有话。每一次伸手、被点名、跟着大家开口——都是「你也在」的证据。',
+          '你留在群里的，从来不只是话。每一次伸手、被点名、跟着起哄——都是「那年我也在」的证据。',
         ),
       ])
     : el('div', { display: 'flex', flexDirection: 'column', alignItems: 'center' }, [
@@ -2265,7 +2270,7 @@ function interactionsTree(data: Record<string, unknown>): El {
         el(
           'div',
           { marginTop: 72, fontSize: 34, color: PALETTE.inkMuted, letterSpacing: 4 },
-          `${era}，你在群聊里更多是安静地听——`,
+          `${era}，你在群聊里更多是安静地看——`,
         ),
         el(
           'div',
@@ -2275,7 +2280,7 @@ function interactionsTree(data: Record<string, unknown>): El {
         el(
           'div',
           { marginTop: 30, fontSize: 26, color: PALETTE.inkMuted, letterSpacing: 3 },
-          '戳一戳、@ 与复读的痕迹都还停在别处。没关系——下一条消息，可以从你开始。',
+          '潜水也很好，但偶尔浮上来冒个泡——下一条消息，可以从你开始。',
         ),
       ]);
 
@@ -2431,7 +2436,7 @@ function monthsTree(data: Record<string, unknown>): El {
             el(
               'div',
               { marginTop: 52, fontSize: 30, color: PALETTE.inkSoft, letterSpacing: 4 },
-              `${reportEraLabel(year)}${carryover.length > 0 ? '（近 12 个月）' : ''}，每个月聊得最多的人一直在换，可最后站在你身边的是——`,
+              `${reportEraLabel(year)}${carryover.length > 0 ? '（近 12 个月）' : ''}，每个月坐上聊天榜首的人一直在换，可回头一看，始终在的是——`,
             ),
             el(
               'div',
@@ -2499,17 +2504,17 @@ function monthsTree(data: Record<string, unknown>): El {
               'div',
               { marginTop: 16, fontSize: 24, color: PALETTE.inkMuted, letterSpacing: 2 },
               championCells >= monthCount
-                ? '整整一路，TA 都没有把第一让给别人。'
+                ? '一整年，十二个月，TA 从没把第一让给过任何人。'
                 : `TA 拿下了 ${fmt(championCells)} 个月的第一，${
                     monthCount < 12 ? '今年' : '全年'
-                  }和你聊了 ${fmt(Number(champion.messages ?? 0))} 条。`,
+                  }和你聊了 ${fmt(Number(champion.messages ?? 0))} 句。`,
             ),
           ]
         : [
             el(
               'div',
               { marginTop: 110, fontSize: 30, color: PALETTE.inkMuted, letterSpacing: 3 },
-              `${reportEraLabel(year)}，这一年还没有足够多的双向私聊，讲不出「谁陪你走过」的故事。`,
+              `${reportEraLabel(year)}，这一年还没有足够多的有来有往，讲不出「谁陪你走过」的故事。`,
             ),
           ]),
       ...(champion
@@ -2521,7 +2526,7 @@ function monthsTree(data: Record<string, unknown>): El {
                 el(
                   'div',
                   { fontSize: 18, color: PALETTE.inkFaint, letterSpacing: 8 },
-                  '每月的聊天第一名',
+                  '十二个月里的榜首',
                 ),
                 el(
                   'div',
@@ -2541,7 +2546,7 @@ function monthsTree(data: Record<string, unknown>): El {
                 letterSpacing: 3,
                 textAlign: 'center',
               },
-              '真正陪你走过时间的，不是哪一条消息——是那个总在对话框另一边、从不缺席的人。',
+              '时间会替你筛人——留下来的，是那个总在对话框另一头、从未缺席的人。',
             ),
           ]
         : []),
@@ -2629,7 +2634,7 @@ function mateTree(data: Record<string, unknown>): El {
             el(
               'div',
               { marginTop: 54, fontSize: 30, color: PALETTE.inkSoft, letterSpacing: 4 },
-              '有些人你以为不认识，其实已经在群里见过很多面了——',
+              '有个人，你以为还不认识——其实你们已经在群里打过很多次照面了——',
             ),
             el(
               'div',
@@ -2696,7 +2701,7 @@ function mateTree(data: Record<string, unknown>): El {
             el(
               'div',
               { marginTop: 14, fontSize: 24, color: PALETTE.inkMuted, letterSpacing: 2 },
-              `你们还没有加好友——但同一个圈子里，已经重逢了 ${fmt(
+              `你们还不是好友——但缘分已经在同一个圈子里，让你们重逢了 ${fmt(
                 Number(top.sharedCount ?? 0),
               )} 次。`,
             ),
@@ -2709,7 +2714,7 @@ function mateTree(data: Record<string, unknown>): El {
             el(
               'div',
               { marginTop: 26, fontSize: 18, color: PALETTE.inkFaint, letterSpacing: 8 },
-              '这些群，就是 TA 的「生态位」',
+              '你们这些共同出没的地方',
             ),
             el(
               'div',
@@ -2836,7 +2841,7 @@ function mateTree(data: Record<string, unknown>): El {
                 letterSpacing: 3,
                 textAlign: 'center',
               },
-              '世界很大，圈子很小。同频的人值得一句「你好」——也许加了好友以后，你们会更熟。',
+              '世界很大，圈子很小。能重逢这么多次的人，值得一句「你好」——也许从明天起，你们就是无话不谈的朋友。',
             ),
           ]
         : []),
@@ -2965,7 +2970,9 @@ function qzoneTree(data: Record<string, unknown>): El {
       el(
         'div',
         { marginTop: 46, fontSize: 30, color: PALETTE.inkSoft, letterSpacing: 4 },
-        allTime ? '这一路，你把生活寄放在空间里' : `${year} 这一年，你把生活的一部分寄存在空间里`,
+        allTime
+          ? '这一路，你把生活一幕一幕寄存在空间里'
+          : `${year} 这一年，你把生活的一部分，寄存在了空间里`,
       ),
       el('div', { marginTop: 20, display: 'flex', alignItems: 'center' }, [
         el(
@@ -3000,7 +3007,7 @@ function qzoneTree(data: Record<string, unknown>): El {
       el(
         'div',
         { marginTop: 12, fontSize: 24, color: PALETTE.inkMuted, letterSpacing: 3 },
-        '它们未必被很多人看见，却都替你记着那时的你。',
+        '它们没等来多少点赞，却一直替你收着——那年那天的你。',
       ),
       ...(highlight?.post
         ? [
@@ -3123,7 +3130,7 @@ function endTree(data: Record<string, unknown>): El {
         el(
           'div',
           { fontSize: 30, color: PALETTE.inkMuted, letterSpacing: 12 },
-          allTime ? '你说过的话，都在这里了。' : '这一年的话都说完了。',
+          allTime ? '你说过的话，全都替你收好了。' : '这一年的话，都说到这里了。',
         ),
         el(
           'div',
@@ -3138,7 +3145,7 @@ function endTree(data: Record<string, unknown>): El {
         el(
           'div',
           { marginTop: 18, fontSize: 30, color: PALETTE.inkSoft, letterSpacing: 4 },
-          allTime ? '往后的话，也还长。' : '明年这个时候，我们再看一次。',
+          allTime ? '往后的日子，我们继续写。' : '明年今天，愿你带着更好的故事再来。',
         ),
         el('div', { marginTop: 78, width: 120, height: 1, backgroundColor: PALETTE.hair }),
         el(

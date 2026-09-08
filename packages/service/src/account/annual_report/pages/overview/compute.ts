@@ -19,7 +19,7 @@ export const overviewPage: ReportPageDefinition<OverviewPageData> = {
   manifest: {
     id: 'overview',
     title: '年度总览',
-    description: '这一年你说了多少话，发给了谁。',
+    description: '这一年你敲下多少句话，又收到了多少句回音。',
     order: 1,
     version: '0.1.0',
     apiVersion: 1,

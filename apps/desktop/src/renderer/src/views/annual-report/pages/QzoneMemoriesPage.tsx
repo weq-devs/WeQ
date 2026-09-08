@@ -49,9 +49,9 @@ function quoteOf(post: ReportQzonePost): string {
     .replace(/\s+/g, ' ')
     .trim();
   if (clean) return clean.length > 64 ? `${clean.slice(0, 64)}…` : clean;
-  if (post.images.length > 0) return '一条没有配文字的照片说说。';
-  if (post.hasVideo) return '一段留在空间里的视频。';
-  return '这一天，你只在空间里安静地路过。';
+  if (post.images.length > 0) return '一条没配文字的照片——那年那天的光，都藏在图里。';
+  if (post.hasVideo) return '一段留在空间里的视频，时间在里面慢慢走。';
+  return '这一天，你只路过了一下，没留下话。';
 }
 
 /** 一条说说可展示的封面：图片优先，视频封面兜底；都拿不到返回空串。 */
@@ -109,8 +109,8 @@ export function QzoneMemoriesPage({
         <section className="weq-qz-hero">
           <p className="weq-qz-lede weq-report-line" style={{ '--i': 2 } as CSSProperties}>
             {allTime
-              ? '这一路，你把生活寄放在空间里'
-              : `${data.year} 这一年，你把生活的一部分寄存在空间里`}
+              ? '这一路，你把生活一幕一幕寄存在空间里'
+              : `${data.year} 这一年，你把生活的一部分，寄存在了空间里`}
           </p>
           <div className="weq-qz-countline weq-report-line" style={{ '--i': 3 } as CSSProperties}>
             <Odometer value={data.total} active={active} className="weq-qz-count" />
@@ -120,7 +120,7 @@ export function QzoneMemoriesPage({
             </span>
           </div>
           <p className="weq-qz-mood weq-report-line" style={{ '--i': 4 } as CSSProperties}>
-            它们未必被很多人看见，却都替你记着那时的你。
+            它们没等来多少点赞，却一直替你收着——那年那天的你。
           </p>
         </section>
 
@@ -153,7 +153,7 @@ export function QzoneMemoriesPage({
           >
             <p className="weq-qz-gem-eyebrow">没有一条被点名的说说</p>
             <p className="weq-qz-gem-quote">
-              “还没人给你的心情点赞、留言——但你发过的每一帧，都值得再看一次。”
+              “还没人来敲门——但你写下的每一帧心情，都值得再被看一次。”
             </p>
           </section>
         )}

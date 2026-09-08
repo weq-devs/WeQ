@@ -26,7 +26,7 @@ export const voicePage: ReportPageDefinition<VoicePageData> = {
   manifest: {
     id: 'voice',
     title: '我的话',
-    description: '说得最多的口头禅、最常发的那张脸。',
+    description: '说得最烫的那句口头禅，最常蹦出来的那张脸。',
     order: 7,
     version: '0.1.0',
     apiVersion: 1,

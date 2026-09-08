@@ -46,7 +46,7 @@ export const friendsPage: ReportPageDefinition<FriendsPageData> = {
   manifest: {
     id: 'friends',
     title: '好友榜',
-    description: '烧得最久的火花、聊得最多的人。',
+    description: '烧得最久的火花、聊得最多的人——他们都有名字。',
     order: 4,
     version: '0.1.0',
     apiVersion: 1,

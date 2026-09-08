@@ -24,7 +24,7 @@ export const homePage: ReportPageDefinition<HomePageData> = {
   manifest: {
     id: 'home',
     title: '我的主场',
-    description: '这一年，你把哪群聊成了家。',
+    description: '这一年，你把哪个群聊成了自己的主场。',
     order: 8,
     version: '0.1.0',
     apiVersion: 1,

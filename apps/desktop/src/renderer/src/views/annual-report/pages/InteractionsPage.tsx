@@ -55,7 +55,7 @@ export function InteractionsPage({
         {hasEvidence ? (
           <>
             <section className="weq-it-hero weq-report-line" style={{ '--i': 2 } as CSSProperties}>
-              <p className="weq-it-lede">{era}，你在群聊里做过最多的那件事，是——</p>
+              <p className="weq-it-lede">{era}，热闹里你做得最多的一件事，是——</p>
               <h2 className="weq-it-hero-label" aria-live="polite">
                 {hero?.label}
               </h2>
@@ -94,12 +94,12 @@ export function InteractionsPage({
                 secondary={
                   data.pokeTop ? (
                     <>
-                      最常被你戳到：<em>{data.pokeTop.name}</em>
+                      最常吃你一戳的：<em>{data.pokeTop.name}</em>
                       <i> · </i>
                       <b className="weq-number">{fmt(data.pokeTop.count)}</b> 次
                     </>
                   ) : (
-                    <>这一年，你的「戳一戳」还没落到具体哪个人身上。</>
+                    <>这一年，你的手指还没养成戳人的习惯。</>
                   )
                 }
               />
@@ -122,12 +122,12 @@ export function InteractionsPage({
                 secondary={
                   data.atTop ? (
                     <>
-                      名字喊得最响的：<em>{data.atTop.name}</em>
+                      被你喊得最响的：<em>{data.atTop.name}</em>
                       <i> · </i>
                       <b className="weq-number">{fmt(data.atTop.count)}</b> 次
                     </>
                   ) : (
-                    <>这一年，你还不太习惯在群里点别人的名。</>
+                    <>这一年，你还不太习惯在人群里喊出某个名字。</>
                   )
                 }
               />
@@ -147,8 +147,8 @@ export function InteractionsPage({
                 secondary={
                   data.atMeTop ? (
                     <>
-                      那里有 <b className="weq-number">{fmt(data.atMeTop.count)}</b> 次，别人把
-                      你的名字放进了自己的句子。
+                      那里有 <b className="weq-number">{fmt(data.atMeTop.count)}</b> 次，有人在
+                      人群里，专门喊了你的名字。
                     </>
                   ) : (
                     <>下一次开场，从你 @ 别人开始。</>
@@ -187,15 +187,15 @@ export function InteractionsPage({
             </section>
 
             <p className="weq-it-mood weq-report-line" style={{ '--i': 7 } as CSSProperties}>
-              你留在群里的，不只有话。每一次伸手、被点名、跟着大家开口—— 都是「你也在」的证据。
+              你留在群里的，从来不只是话。每一次伸手、被点名、跟着起哄——都是「那年我也在」的证据。
             </p>
           </>
         ) : (
           <section className="weq-it-hero weq-report-line" style={{ '--i': 2 } as CSSProperties}>
-            <p className="weq-it-lede">{era}，你在群聊里更多是安静地听——</p>
+            <p className="weq-it-lede">{era}，你在群聊里更多是安静地看——</p>
             <h2 className="weq-it-hero-label">你还没留下可统计的互动</h2>
             <p className="weq-it-hero-note">
-              戳一戳、@ 与复读的痕迹都还停在别处。没关系， 下一条消息，可以从你开始。
+              潜水也很好，但偶尔浮上来冒个泡——下一条消息，可以从你开始。
             </p>
           </section>
         )}

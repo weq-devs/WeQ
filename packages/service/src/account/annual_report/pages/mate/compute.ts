@@ -41,7 +41,7 @@ export const matePage: ReportPageDefinition<MatePageData> = {
   manifest: {
     id: 'mate',
     title: '还没加好友的同路人',
-    description: '总在不同的群里遇见同一个人——这大概就是同频。',
+    description: '总在不同的群里遇见同一个人——这大概就叫缘分。',
     order: 11,
     version: '0.1.0',
     apiVersion: 1,

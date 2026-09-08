@@ -73,7 +73,7 @@ export function AnnualReportEntry({
 
       <div className="weq-entry-stage">
         <p className="weq-entry-kicker">
-          {allTime ? '从第一条消息到今天，你都和谁说了话' : '这一年，你都和谁说了话'}
+          {allTime ? '从第一条消息到今天，每一句话都有下落' : '这一年，你把日子过成了多少句话'}
         </p>
         <div className="weq-entry-year" key={selectedYear}>
           <span className={`weq-entry-year-num${allTime ? ' is-all-time' : ' weq-number'}`}>
@@ -89,7 +89,7 @@ export function AnnualReportEntry({
                 ? allTime
                   ? '这台电脑上还没有你发出的消息 —— 先发几条，再回来看。'
                   : '这一年没有你发出的消息 —— 换个年份试试。'
-                : '从这台电脑上的聊天记录里，把它读出来。'}
+                : '答案就藏在这台电脑的聊天记录里。往下，慢慢翻。'}
         </p>
       </div>
 
@@ -134,7 +134,11 @@ export function AnnualReportEntry({
 
       <button type="button" className="weq-entry-cta" disabled={!canGenerate} onClick={onGenerate}>
         <span className="weq-entry-cta-text">
-          {isFetching ? (allTime ? '正在读取全部记录' : '正在读取这一年') : '向下滚动查看报告'}
+          {isFetching
+            ? allTime
+              ? '正在打捞全部记录'
+              : '正在翻这一年的记录'
+            : '向下滚动，开启回忆'}
         </span>
         {isFetching ? (
           <LoaderCircle className="weq-report-spin" size={16} aria-hidden />

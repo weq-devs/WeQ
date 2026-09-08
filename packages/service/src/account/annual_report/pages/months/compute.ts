@@ -34,7 +34,7 @@ export const monthsPage: ReportPageDefinition<MonthsPageData> = {
   manifest: {
     id: 'months',
     title: '陪你走过12个月',
-    description: '每个月聊得最多的人，串起你这一年的陪伴。',
+    description: '十二个月的榜首轮流坐，有人却始终没下过榜。',
     order: 10,
     version: '0.1.0',
     apiVersion: 1,

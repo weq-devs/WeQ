@@ -148,15 +148,15 @@ export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): R
     <PageFrame page={page} active={active} ghost="FIN" ghostPlacement="center">
       <div className="weq-end">
         <p className="weq-end-line weq-report-line" style={{ '--i': 1 } as React.CSSProperties}>
-          {allTime ? '你说过的话，都在这里了。' : '这一年的话都说完了。'}
+          {allTime ? '你说过的话，全都替你收好了。' : '这一年的话，都说到这里了。'}
         </p>
         <h2 className="weq-end-title weq-report-line" style={{ '--i': 2 } as React.CSSProperties}>
           The End
         </h2>
         <p className="weq-end-sub weq-report-line" style={{ '--i': 3 } as React.CSSProperties}>
-          聊天记录只留在这台电脑上。
+          聊天记录只留在这台电脑上，哪儿也不去。
           <br />
-          {allTime ? '往后的话，也还长。' : '明年这个时候，我们再看一次。'}
+          {allTime ? '往后的日子，我们继续写。' : '明年今天，愿你带着更好的故事再来。'}
         </p>
 
         <div className="weq-end-take weq-report-line" style={{ '--i': 4 } as React.CSSProperties}>

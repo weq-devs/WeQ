@@ -38,10 +38,10 @@ export function OpenersPage({
 
   const mood =
     selfPct >= 60
-      ? '原来，你总是那个先想到别人的人。'
+      ? '原来，你一直是那个先想到别人的人。这份主动，很珍贵。'
       : selfPct <= 40
-        ? '原来，有人总比你先想到你。'
-        : '原来，你们总在差不多的时候，想起彼此。';
+        ? '原来，你一直被人放在心上——有人总比你先一步想你。'
+        : '原来，你们总在差不多的时刻，同时想起彼此。';
 
   // 三位朋友按「这页在讲谁」排序：向哪边倾，就把那边的人先放出来 ——
   // 不是并列的三张卡，是同一句话里的三个角色。
@@ -108,8 +108,8 @@ export function OpenersPage({
 
         <section className="weq-op-hero weq-report-line" style={{ '--i': 2 } as CSSProperties}>
           <p className="weq-op-lede">
-            {allTime ? '有记录以来' : `这一年`}你一共发起了
-            <b className="weq-number">{fmt(data.selfStarts)}</b> 场聊天，占全部开场的
+            {allTime ? '有记录以来' : '这一年'}，你鼓起勇气发起了
+            <b className="weq-number">{fmt(data.selfStarts)}</b> 场聊天，其中
           </p>
           <div className="weq-op-punch">
             <Odometer value={selfPct} active={active} className="weq-op-num" />
@@ -142,7 +142,7 @@ export function OpenersPage({
 
         {cast.length > 0 ? (
           <section className="weq-op-cast weq-report-line" style={{ '--i': 4 } as CSSProperties}>
-            <p className="weq-op-cast-in">而这些朋友，把「先开口」写成了不同的样子——</p>
+            <p className="weq-op-cast-in">而这些人，把「先开口」写成了不同的样子——</p>
             <div className="weq-op-cast-row">
               {cast.map((role, index) => (
                 <article

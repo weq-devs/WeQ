@@ -699,10 +699,10 @@ function overviewSlide(data: Record<string, unknown>): string {
   const eraLabel = reportEraLabel(year) + (since ? `（${since}）` : '');
 
   return `${slideOpen(isAllTimeYear(year) ? 'ALL' : String(year))}
-    <div class="lede">${escapeHtml(eraLabel)}，你一共说出了</div>
+    <div class="lede">${escapeHtml(eraLabel)}，你把心事敲成了</div>
     <div class="hero">
       <span class="hero-num">${fmt(totalSent)}</span>
-      <span class="hero-unit">条消息</span>
+      <span class="hero-unit">句话</span>
     </div>
     <div class="rail">
       <div class="rail-track">
@@ -728,7 +728,7 @@ function overviewSlide(data: Record<string, unknown>): string {
         <div class="band-dd"><span class="band-num">${fmt(totalReceived)}</span><span class="band-unit">条</span></div>
       </div>
       <div class="band-cell">
-        <div class="band-dt">你说 100 句，回声</div>
+        <div class="band-dt">你说 100 句，世界回了</div>
         <div class="band-dd"><span class="band-num">${fmt(echo)}</span><span class="band-unit">句</span></div>
       </div>
     </div>${slideFoot(`${reportPeriodLabel(year)} · 01`)}`;
@@ -856,7 +856,7 @@ function sparkSlide(data: Record<string, unknown>): string {
       ? ''
       : `
     <div class="sp-kicker">
-      <span>${escapeHtml(isAllTimeYear(year) ? '历史以来' : `${year} 年`)} · 全部私聊里最用力的一天</span>
+      <span>${escapeHtml(isAllTimeYear(year) ? '历史以来' : `${year} 年`)} · 全部私聊里，最滚烫的一天</span>
       <span class="sp-kicker-date">${top.year} 年 ${top.month} 月 ${top.day} 日</span>
     </div>
     <div class="sp-say">你和 <b>${escapeHtml(top.peerName)}</b></div>
@@ -878,7 +878,7 @@ function sparkSlide(data: Record<string, unknown>): string {
       label: '最长火花',
       value: fmt(spark?.days ?? 0),
       unit: '天',
-      note: spark?.peerName ?? '还没有双向的火花',
+      note: spark?.peerName ?? '还没有人陪你连成一条线',
     },
   ];
 
@@ -993,7 +993,7 @@ function friendsSlide(data: Record<string, unknown>): string {
            </div>`,
          )
          .join('')}`
-    : '<div class="fr-empty">还没有连续两天都互相说话的人</div>';
+    : '<div class="fr-empty">还没有一段连续几天都舍不得断的聊天</div>';
 
   // ── 第二幕：纵向柱阵（前八名）。最高柱 30mm，最矮也留 3mm。 ──
   const champMsg = messageTop[0];
@@ -1023,7 +1023,7 @@ function friendsSlide(data: Record<string, unknown>): string {
              .join('')}
          </div>
        </div>`
-    : '<div class="fr-empty">还没有双向来往的私聊</div>';
+    : '<div class="fr-empty">还没有一个有来有往的人——第一条消息，随时可以发</div>';
 
   return `${slideOpen(isAllTimeYear(year) ? 'ALL' : String(year))}
     <div class="fr-kicker">
@@ -1031,11 +1031,11 @@ function friendsSlide(data: Record<string, unknown>): string {
       <span class="fr-kicker-meta">${fmt(friendCount)} 位好友 / ${fmt(totalMessages)} 条私聊</span>
     </div>
     <div class="fr-board spark">
-      ${head('最长火花', '连着多少天，你们谁都没有断')}
+      ${head('最长火花', '连续这么多天，你们谁都没舍得断')}
       ${fuse}
     </div>
     <div class="fr-board msg">
-      ${head('聊得最多', '这段时间里，你们一共说了这么多')}
+      ${head('聊得最多', '说不完的话，最后都堆成了这座小山')}
       ${vol}
     </div>
     ${slideFoot(`${reportPeriodLabel(year)} · FRIENDS`)}`;
@@ -1056,10 +1056,10 @@ function openersSlide(data: Record<string, unknown>): string {
   const selfPct = Math.round(Number(data.selfRatio ?? 0) * 100);
   const mood =
     selfPct >= 60
-      ? '原来，你总是那个先想到别人的人。'
+      ? '原来，你一直是那个先想到别人的人。这份主动，很珍贵。'
       : selfPct <= 40
-        ? '原来，有人总比你先想到你。'
-        : '原来，你们总在差不多的时候，想起彼此。';
+        ? '原来，你一直被人放在心上——有人总比你先一步想你。'
+        : '原来，你们总在差不多的时刻，同时想起彼此。';
 
   type CastRole = { kind: 'mine' | 'peer' | 'balanced'; entry: Record<string, unknown> | null };
   const mostMine = (data.mostMine ?? null) as Record<string, unknown> | null;
@@ -1130,9 +1130,9 @@ function openersSlide(data: Record<string, unknown>): string {
       <span>${escapeHtml(reportEraLabel(year))} · 谁先开口</span>
       <span class="op-kicker-meta">${fmt(peerCount)} 位朋友 / ${fmt(totalStarts)} 场开场</span>
     </div>
-    <div class="op-lede">${allTime ? '有记录以来' : '这一年'}你一共发起了 <b>${fmt(
+    <div class="op-lede">${allTime ? '有记录以来' : '这一年'}，你鼓起勇气发起了 <b>${fmt(
       selfStarts,
-    )}</b> 场聊天，占全部开场的</div>
+    )}</b> 场聊天，其中</div>
     <div class="op-punch">
       <span class="op-num">${selfPct}</span>
       <span class="op-unit">%</span>
@@ -1371,7 +1371,7 @@ function voiceSlide(data: Record<string, unknown>): string {
   const hasFaves = topFaces.length > 0 || pic != null;
   const faveHtml = hasFaves
     ? `<div class="vc-faves">
-        <p class="vc-faves-in">而表情，是你那句口头禅旁边的语气——</p>
+        <p class="vc-faves-in">而表情，是你说不出口的那部分——</p>
         <div class="vc-faves-row">
           ${
             topFaces.length > 0
@@ -1396,7 +1396,7 @@ function voiceSlide(data: Record<string, unknown>): string {
             pic
               ? `<div class="vc-fave vc-pic">
                   <span class="vc-fave-label">自定义表情</span>
-                  <span class="vc-fave-name">这张最常被你拿出来</span>
+                  <span class="vc-fave-name">这张图，替你说了很多次话</span>
                   <span class="vc-fave-count"><b>${fmt(Number(pic.count ?? 0))}</b> 次</span>
                 </div>`
               : ''
@@ -1413,14 +1413,14 @@ function voiceSlide(data: Record<string, unknown>): string {
           faceTotal,
         )}</b> 个系统表情${picTotal > 0 ? ` / <b>${fmt(picTotal)}</b> 张自定义表情` : ''}</span>
       </div>
-      <p class="vc-lede">${allTime ? '从有记录到现在' : `${year} 这一年`}，你说得最多的那个词是</p>
+      <p class="vc-lede">${allTime ? '从有记录到现在' : `${year} 这一年`}，被你说得最烫的一个词是</p>
       <h2 class="vc-word${heroWord.length >= 5 ? ' long' : ''}">${escapeHtml(heroWord)}</h2>
       <p class="vc-count"><i aria-hidden></i>说了 <b>${fmt(heroCount)}</b> 次<i aria-hidden></i></p>
       ${hasFaves ? faveHtml : ''}
       <p class="vc-mood">${
         heroCount > 0
-          ? `一句话说了 ${fmt(heroCount)} 次，不是因为词穷——是每一次，你都还想把它送到。`
-          : '重复，是你最诚实的告白。'
+          ? `说了 ${fmt(heroCount)} 次。不是词穷——是这句话每次都刚好，接住了当时的心情。`
+          : '这一页很安静。下一个被你说熟的词，还在路上。'
       }</p>
     </div>${slideFoot(`${reportPeriodLabel(year)} · VOICE`)}`;
 }
@@ -1476,7 +1476,7 @@ function interactionsHero(data: Record<string, unknown>): InteractionsHero | nul
         num: fmt(atTotal),
         unit: '次',
         note: atTop
-          ? `名字喊得最响的是 <em>${escapeHtml(String(atTop.name ?? ''))}</em> · <b>${fmt(
+          ? `被你喊得最响的是 <em>${escapeHtml(String(atTop.name ?? ''))}</em> · <b>${fmt(
               Number(atTop.count ?? 0),
             )}</b> 次——@ 是怕你错过，才把名字放到人前。`
           : '这一年你 @ 得不多——但每一次，都是怕有人错过。',
@@ -1500,9 +1500,9 @@ function interactionsHero(data: Record<string, unknown>): InteractionsHero | nul
         num: fmt(pokeTotal),
         unit: '次',
         note: pokeTop
-          ? `最常被你戳到 <em>${escapeHtml(String(pokeTop.name ?? ''))}</em> · <b>${fmt(
+          ? `最常吃你一戳的是 <em>${escapeHtml(String(pokeTop.name ?? ''))}</em> · <b>${fmt(
               Number(pokeTop.count ?? 0),
-            )}</b> 次——戳一戳是最轻的搭话。`
+            )}</b> 次——戳一戳，是最轻也最软的搭话。`
           : '这一年你伸出的手不多——但每一下，都先越过了屏幕。',
       };
     case 'echo': {
@@ -1582,7 +1582,7 @@ function interactionsSlide(data: Record<string, unknown>): string {
   const era = allTime ? '有记录以来' : `${year} 年`;
   const body = hasEvidence
     ? `<div class="it-hero">
-         <p class="it-lede">${era}，你在群聊里做过最多的那件事，是——</p>
+         <p class="it-lede">${era}，热闹里你做得最多的一件事，是——</p>
          <h2 class="it-hero-label">${escapeHtml(hero?.label ?? '')}</h2>
          <p class="it-hero-countline">
            <span class="it-hero-num">${hero?.num ?? '0'}</span>
@@ -1599,7 +1599,7 @@ function interactionsSlide(data: Record<string, unknown>): string {
              ? `最常被你戳到：<em>${escapeHtml(String(pokeTop.name ?? ''))}</em> · ${fmt(
                  Number(pokeTop.count ?? 0),
                )} 次`
-             : '这一年，你的「戳一戳」还没落到具体哪个人身上。',
+             : '这一年，你的手指还没养成戳人的习惯。',
          )}
          ${fact(
            '@',
@@ -1609,7 +1609,7 @@ function interactionsSlide(data: Record<string, unknown>): string {
              ? `名字喊得最响的：<em>${escapeHtml(String(atTop.name ?? ''))}</em> · ${fmt(
                  Number(atTop.count ?? 0),
                )} 次`
-             : '这一年，你还不太习惯在群里点别人的名。',
+             : '这一年，你还不太习惯在人群里喊出某个名字。',
          )}
          ${fact(
            '呼',
@@ -1632,11 +1632,11 @@ function interactionsSlide(data: Record<string, unknown>): string {
              : '这一年没有足够长的齐声——热闹的下一条，可能由你开头。',
          )}
        </div>
-       <p class="it-mood">你留在群里的，不只有话。每一次伸手、被点名、跟着大家开口——都是「你也在」的证据。</p>`
+       <p class="it-mood">你留在群里的，从来不只是话。每一次伸手、被点名、跟着起哄——都是「那年我也在」的证据。</p>`
     : `<div class="it-hero">
-         <p class="it-lede">${era}，你在群聊里更多是安静地听——</p>
+         <p class="it-lede">${era}，你在群聊里更多是安静地看——</p>
          <h2 class="it-hero-label">你还没留下可统计的互动</h2>
-         <p class="it-hero-note">戳一戳、@ 与复读的痕迹都还停在别处。没关系，
+         <p class="it-hero-note">潜水也很好，但偶尔浮上来冒个泡——
            下一条消息，可以从你开始。</p>
        </div>`;
 
@@ -1722,7 +1722,7 @@ function homeSlide(data: Record<string, unknown>): string {
   const topicsHtml =
     topics.length > 0
       ? `<div class="hm-topics">
-          <p class="hm-topics-in">这一年，这个群里的话题集中在</p>
+          <p class="hm-topics-in">这一年，这里的人都在聊</p>
           <p class="hm-topics-words">
             ${topics
               .map(
@@ -1745,7 +1745,7 @@ function homeSlide(data: Record<string, unknown>): string {
           groupSentTotal,
         )}</b> 条群消息</span>
       </div>
-      <p class="hm-lede">${allTime ? '有记录以来' : `${year} 年`}，你在群聊里说得最多的地方，是——</p>
+      <p class="hm-lede">${allTime ? '有记录以来' : `${year} 年`}，你把最多的话，留给了一个地方——</p>
       <h2 class="hm-name${nameClass}">${escapeHtml(name)}</h2>
       <p class="hm-countline">
         <span class="hm-count">${fmt(count)}</span>
@@ -1756,7 +1756,7 @@ function homeSlide(data: Record<string, unknown>): string {
       }<i aria-hidden></i></p>
       ${sigHtml}
       ${topicsHtml}
-      <p class="hm-mood">${fmt(count)} 次开口都有回声——热闹不是噪音，是总有人愿意接住你。</p>
+      <p class="hm-mood">${fmt(count)} 次开口，次次都有人接。热闹从来不是噪音—— 是有人一直在，把你的话稳稳接住。</p>
     </div>${slideFoot(`${reportPeriodLabel(year)} · HOME`)}`;
 }
 
@@ -1841,8 +1841,8 @@ function monthsSlide(data: Record<string, unknown>): string {
         champion
           ? `<div class="mo-lede">${escapeHtml(reportEraLabel(year))}${
               carryover.length > 0 ? '（近 12 个月）' : ''
-            }，每个月聊得最多的人一直在换，
-            可最后站在你身边的是——</div>
+            }，每个月坐上聊天榜首的人一直在换，
+            可回头一看，始终在的是——</div>
             <div class="mo-avatar">${avatarImg(
               champion.peerUin,
               String(champion.peerName ?? ''),
@@ -1857,16 +1857,16 @@ function monthsSlide(data: Record<string, unknown>): string {
             </div>
             <p class="mo-note">${
               championCells >= monthCount
-                ? '整整一路，TA 都没有把第一让给别人。'
-                : `TA 拿下了 ${fmt(championCells)} 个月的第一，${
+                ? '一整年，十二个月，TA 从没把第一让给过任何人。'
+                : `TA 拿下了 ${fmt(championCells)} 个月的榜首，${
                     monthCount < 12 ? '今年' : '全年'
-                  }和你聊了 ${fmt(Number(champion.messages ?? 0))} 条。`
+                  }和你聊了 ${fmt(Number(champion.messages ?? 0))} 句。`
             }</p>
             <div class="mo-calendar">
-              <p class="mo-calendar-head">每月的聊天第一名</p>
+              <p class="mo-calendar-head">十二个月里的榜首</p>
               <ol class="mo-months">${calendar}</ol>
             </div>
-            <p class="mo-mood">真正陪你走过时间的，不是哪一条消息——是那个总在对话框另一边、从不缺席的人。</p>`
+            <p class="mo-mood">时间会替你筛人——留下来的，是那个总在对话框另一头、从未缺席的人。</p>`
           : `<div class="mo-lede">${escapeHtml(reportEraLabel(year))}，这一年还没有足够多的双向私聊，
               讲不出「谁陪你走过」的故事。</div>`
       }
@@ -1952,7 +1952,7 @@ function mateSlide(data: Record<string, unknown>): string {
               ${dots}
             </div>
             <div class="mt-hero">
-              <p class="mt-lede">有些人你以为不认识，其实已经在群里见过很多面了——</p>
+              <p class="mt-lede">有个人，你以为还不认识——其实你们已经在群里打过很多次照面了——</p>
               <div class="mt-avatar">${avatarImg(
                 top.uin ?? top.peerUin,
                 String(top.name ?? ''),
@@ -1965,15 +1965,15 @@ function mateSlide(data: Record<string, unknown>): string {
                 <span class="mt-count">${fmt(Number(top.sharedCount ?? 0))}</span>
                 <span class="mt-unit"><b>个群</b><i>里有 TA</i></span>
               </div>
-              <p class="mt-note">你们还没有加好友——但同一个圈子里，已经重逢了
+              <p class="mt-note">你们还不是好友——但缘分已经在同一个圈子里，让你们重逢了
                 <b>${fmt(Number(top.sharedCount ?? 0))}</b> 次。</p>
             </div>
             <div class="mt-cluster">
-              <p class="mt-cluster-in">这些群，就是 TA 的「生态位」</p>
+              <p class="mt-cluster-in">你们这些共同出没的地方</p>
               <p class="mt-chips">${chips}${chipsPlus}</p>
             </div>
             ${more.length > 0 ? `<ol class="mt-more">${moreHtml}</ol>` : ''}
-            <p class="mt-mood">世界很大，圈子很小。同频的人值得一句「你好」——也许加了好友以后，你们会更熟。</p>`
+            <p class="mt-mood">世界很大，圈子很小。能重逢这么多次的人，值得一句「你好」——也许从明天起，你们就是无话不谈的朋友。</p>`
           : `<p class="mt-lede">在这些群里，还没有一个值得专门加好友的「重逢」。</p>`
       }
     </div>${slideFoot(`${reportPeriodLabel(year)} · MATE`)}`;
@@ -1984,10 +1984,10 @@ function endSlide(data: Record<string, unknown>): string {
   const allTime = isAllTimeYear(year);
   return `${slideOpen('FIN', true)}
     <div class="end">
-      <div class="end-line">${allTime ? '你说过的话，都在这里了。' : '这一年的话都说完了。'}</div>
+      <div class="end-line">${allTime ? '你说过的话，全都替你收好了。' : '这一年的话，都说到这里了。'}</div>
       <div class="end-title">The End</div>
-      <div class="end-sub">聊天记录只留在这台电脑上。<br>${
-        allTime ? '往后的话，也还长。' : '明年这个时候，我们再看一次。'
+      <div class="end-sub">聊天记录只留在这台电脑上，哪儿也不去。<br>${
+        allTime ? '往后的日子，我们继续写。' : '明年今天，愿你带着更好的故事再来。'
       }</div>
     </div>${slideFoot(`${reportPeriodLabel(year)} · FIN`)}`;
 }
@@ -2000,7 +2000,7 @@ function qzoneQuote(value: unknown): string {
     .replace(/\s+/g, ' ')
     .trim();
   if (clean) return clean.length > 58 ? `${clean.slice(0, 58)}…` : clean;
-  return '这条说说没有留下文字。';
+  return '这条说说没有留下文字——那年那天的光，都藏在配图里。';
 }
 
 /** `N月M日` / `YYYY年N月M日` —— 与屏幕版时光胶片同一份时间语言。 */
@@ -2071,12 +2071,12 @@ function qzoneSlide(data: Record<string, unknown>): string {
           Number(data.total ?? 0),
         )}</b> 条说说</span>
       </div>
-      <p class="qz-lede">${allTime ? '这一路，你把生活寄放在空间里' : `${year} 这一年，你把生活的一部分寄存在空间里`}</p>
+      <p class="qz-lede">${allTime ? '这一路，你把生活一幕一幕寄存在空间里' : `${year} 这一年，你把生活的一部分，寄存在了空间里`}</p>
       <div class="qz-countline">
         <span class="qz-count">${fmt(Number(data.total ?? 0))}</span>
         <span class="qz-unit"><b>条</b><i>写下的说说</i></span>
       </div>
-      <p class="qz-mood">它们未必被很多人看见，却都替你记着那时的你。</p>
+      <p class="qz-mood">它们没等来多少点赞，却一直替你收着——那年那天的你。</p>
       ${gem}
       ${
         frames

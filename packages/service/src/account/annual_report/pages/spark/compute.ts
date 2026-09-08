@@ -25,7 +25,7 @@ export const sparkPage: ReportPageDefinition<SparkPageData> = {
   manifest: {
     id: 'spark',
     title: '私聊火花',
-    description: '聊得最用力的一天、烧得最久的那段火花。',
+    description: '聊得最滚烫的那一天，烧得最久的那段火花。',
     order: 3,
     version: '0.1.0',
     apiVersion: 1,

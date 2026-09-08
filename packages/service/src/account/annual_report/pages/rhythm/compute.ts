@@ -63,7 +63,7 @@ export const rhythmPage: ReportPageDefinition<RhythmPageData> = {
   manifest: {
     id: 'rhythm',
     title: '我的作息',
-    description: '24 个小时里，你的话更常在哪一段醒来。',
+    description: '一天 24 小时，你的话总有自己的时区。',
     order: 6,
     version: '0.1.0',
     apiVersion: 1,

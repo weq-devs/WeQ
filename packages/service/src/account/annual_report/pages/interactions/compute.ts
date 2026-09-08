@@ -23,7 +23,7 @@ export const interactionsPage: ReportPageDefinition<InteractionsPageData> = {
   manifest: {
     id: 'interactions',
     title: '群聊互动',
-    description: '戳一戳、@、被点名与复读——热闹里，你也在场。',
+    description: '戳一戳、@、被点名与复读——热闹的证据，都在这儿。',
     order: 9,
     version: '0.1.0',
     apiVersion: 1,

@@ -35,7 +35,7 @@ export const qzonePage: ReportPageDefinition<QzoneMemoriesPageData> = {
   manifest: {
     id: 'qzone',
     title: 'QQ空间回忆',
-    description: '发出去的那些心情、照片和点赞，是你留在空间里的另一段人生。',
+    description: '发出去的心情、照片和晚霞——都是那年那天的你。',
     order: 12,
     version: '0.1.0',
     apiVersion: 1,

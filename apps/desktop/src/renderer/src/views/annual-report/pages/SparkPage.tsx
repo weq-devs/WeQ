@@ -57,7 +57,7 @@ export function SparkPage({ page, data, active }: ReportPageProps<SparkPageData>
     <PageFrame page={page} active={active} ghost={allTime ? 'ALL' : data.year} tone="#2f8a5b">
       <div className="weq-sp">
         <header className="weq-sp-kicker weq-report-line" style={{ '--i': 1 } as CSSProperties}>
-          <span>{allTime ? '历史以来' : `${data.year} 年`} · 全部私聊里最用力的一天</span>
+          <span>{allTime ? '历史以来' : `${data.year} 年`} · 全部私聊里，最滚烫的一天</span>
           {top ? (
             <span className="weq-sp-kicker-date">
               {top.year} 年 {top.month} 月 {top.day} 日
@@ -73,7 +73,7 @@ export function SparkPage({ page, data, active }: ReportPageProps<SparkPageData>
             <div className="weq-sp-hero-row">
               <Odometer value={top.total} active={active} className="weq-sp-hero-num" />
               <span className="weq-sp-hero-unit">
-                条<i>消息，聊了一整天</i>
+                条<i>消息，从早聊到晚</i>
               </span>
             </div>
             {top.words.length > 0 ? (
@@ -84,7 +84,7 @@ export function SparkPage({ page, data, active }: ReportPageProps<SparkPageData>
                 </b>
               </p>
             ) : (
-              <p className="weq-sp-wordline is-empty">那天的话，存在这条记录里了</p>
+              <p className="weq-sp-wordline is-empty">那天说了什么，纸短情长，略。</p>
             )}
           </section>
         ) : null}
@@ -116,7 +116,7 @@ export function SparkPage({ page, data, active }: ReportPageProps<SparkPageData>
             label="最长火花"
             value={fmt(data.spark?.days ?? 0)}
             unit="天"
-            note={data.spark?.peerName ?? '还没有双向的火花'}
+            note={data.spark?.peerName ?? '还没有人陪你连成一条线'}
           />
         </dl>
       </div>

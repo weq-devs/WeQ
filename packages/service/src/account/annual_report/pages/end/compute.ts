@@ -13,7 +13,7 @@ export const endPage: ReportPageDefinition<EndPageData> = {
   manifest: {
     id: 'end',
     title: '这一年，辛苦了',
-    description: '你的 {year} 年度报告，到此结束。',
+    description: '说过的每句话，都被认真收好了。你的年度报告，到此落幕。',
     order: 999,
     version: '0.1.0',
     apiVersion: 1,

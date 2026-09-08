@@ -55,7 +55,7 @@ export function MatePage({ page, data, active }: ReportPageProps<MatePageData>):
 
             <section className="weq-mt-hero">
               <p className="weq-mt-lede weq-report-line" style={{ '--i': 2 } as CSSProperties}>
-                有些人你以为不认识，其实已经在群里见过很多面了——
+                有个人，你以为还不认识——其实你们已经在群里打过很多次照面了——
               </p>
               <div
                 className="weq-mt-face-wrap weq-report-line"
@@ -82,7 +82,7 @@ export function MatePage({ page, data, active }: ReportPageProps<MatePageData>):
                 </span>
               </p>
               <p className="weq-mt-note weq-report-line" style={{ '--i': 6 } as CSSProperties}>
-                你们还没有加好友——但同一个圈子里，已经重逢了{' '}
+                你们还不是好友——但缘分已经在同一个圈子里，让你们重逢了{' '}
                 <b className="weq-number">{fmt(top.sharedCount)}</b> 次。
               </p>
             </section>
@@ -91,7 +91,7 @@ export function MatePage({ page, data, active }: ReportPageProps<MatePageData>):
               className="weq-mt-cluster weq-report-line"
               style={{ '--i': 7 } as CSSProperties}
             >
-              <p className="weq-mt-cluster-in">这些群，就是 TA 的「生态位」</p>
+              <p className="weq-mt-cluster-in">你们这些共同出没的地方</p>
               <p className="weq-mt-chips">
                 {top.groups.slice(0, HERO_GROUPS_SHOW).map((group, index) => (
                   <span className="weq-mt-chip" key={group.groupCode}>
@@ -136,13 +136,13 @@ export function MatePage({ page, data, active }: ReportPageProps<MatePageData>):
             ) : null}
 
             <p className="weq-mt-mood weq-report-line" style={{ '--i': 9 } as CSSProperties}>
-              世界很大，圈子很小。同频的人值得一句「你好」——也许加了好友以后，你们会更熟。
+              世界很大，圈子很小。能重逢这么多次的人，值得一句「你好」——也许从明天起，你们就是无话不谈的朋友。
             </p>
           </>
         ) : (
           <section className="weq-mt-empty">
-            <p>在这些群里，还没有一个值得专门加好友的「重逢」。</p>
-            <p className="weq-mt-empty-sub">多待几个感兴趣的圈子，同频的人自然会再出现。</p>
+            <p>这些圈子里，还没有出现过值得专门打招呼的「重逢」。</p>
+            <p className="weq-mt-empty-sub">多待几个喜欢的圈子，同频的人总会再出现。</p>
           </section>
         )}
       </div>

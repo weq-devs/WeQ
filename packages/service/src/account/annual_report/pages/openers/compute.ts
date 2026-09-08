@@ -40,7 +40,7 @@ export const openersPage: ReportPageDefinition<OpenersPageData> = {
   manifest: {
     id: 'openers',
     title: '谁先开口',
-    description: '每场聊天都有一个先开口的人。这一年，谁先想到谁。',
+    description: '每场聊天都有一个先开口的人。这一年，是谁总先想起谁。',
     order: 5,
     version: '0.1.0',
     apiVersion: 1,
