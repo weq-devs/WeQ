@@ -33,6 +33,7 @@ import {
 import { startMcpServer, stopMcpServer } from '../mcp/server';
 import { ensureDaemonRunning, startDaemonHttp } from '../daemon/runtime';
 import { publishWeqAssistantDocroot } from '../weq_assistant/publish';
+import { createReportQzoneCapability } from '../report_qzone';
 import { refreshWeqStats, setWeqStats, statsCachePath } from '../weq_assistant/stats';
 import { ensureDefaultTweets, tweetsStorePath } from '../weq_assistant/tweets';
 import { aiToolSpecs, runAiTool } from '../mcp/openai_tools';
@@ -917,6 +918,10 @@ export function initAppContext(): AppContext {
         annualReport: new AnnualReportService(session, {
           preferences: accountConfig.getRecord()?.annualReport,
           resolveDressNames: createDressNameResolver(dressInstall),
+          qzone: createReportQzoneCapability(webQuery, session.context.uin, () => {
+            const record = accountConfig.getRecord();
+            return Boolean(record?.qqOnline && record.qqPid);
+          }),
           resolveEmojiNames: async (ids) => {
             const entries = await emojiService.listSystemFaces();
             const byId = new Map(entries.map((entry) => [entry.id, entry.desc]));
@@ -1419,6 +1424,10 @@ export function initAppContext(): AppContext {
         annualReport: new AnnualReportService(session, {
           preferences: accountConfig.getRecord()?.annualReport,
           resolveDressNames: createDressNameResolver(dressInstall),
+          qzone: createReportQzoneCapability(webQuery, session.context.uin, () => {
+            const record = accountConfig.getRecord();
+            return Boolean(record?.qqOnline && record.qqPid);
+          }),
           resolveEmojiNames: async (ids) => {
             const entries = await emojiService.listSystemFaces();
             const byId = new Map(entries.map((entry) => [entry.id, entry.desc]));

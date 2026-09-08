@@ -446,6 +446,7 @@ export type { PeerStats } from './account/peer_stats';
 
 // ---- export pipeline (account/export) ----
 export {
+  fetchQzoneEmotionRange,
   exportGroupToJson,
   exportGroupToJsonl,
   exportGroupToTxt,

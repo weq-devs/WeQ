@@ -589,6 +589,38 @@ const CSS = `
   @media (prefers-color-scheme: dark) {
     .mt { --mt: #77cfc2; }
   }
+  /* QQ 空间回忆页。静态产物没有流动胶片与巨数轮播，主体仍是「N 条说说」的
+     巨大数字；冠军回忆压缩成一行带引号的名句，脚下胶片退成一行条状帧 ——
+     每帧是日期 + 文字摘录（含图/视频标记），不依赖远程图片也能离线读。 */
+  .qz { flex: 1; display: flex; flex-direction: column; justify-content: center; text-align: center; }
+  .qz { --qz: #2f6fa8; --qz-gold: #b07c38; }
+  .qz-kicker { display: flex; justify-content: space-between; align-items: baseline; text-align: left; font-size: 8pt; letter-spacing: 3px; color: var(--ink-soft); }
+  .qz-kicker-meta { font-size: 7.5pt; letter-spacing: 2px; color: var(--ink-faint); }
+  .qz-kicker-meta b { font-family: var(--serif); font-size: 10pt; font-weight: 600; color: var(--ink-soft); }
+  .qz-lede { margin-top: 9mm; font-family: var(--serif); font-size: 12pt; letter-spacing: 3px; color: var(--ink-soft); }
+  .qz-countline { display: flex; justify-content: center; align-items: center; gap: 5mm; margin-top: 1mm; }
+  .qz-count { font-family: var(--serif); font-size: 100pt; font-weight: 600; letter-spacing: -4px; line-height: 1; color: var(--qz); }
+  .qz-unit { display: flex; flex-direction: column; align-items: flex-start; gap: 1mm; text-align: left; }
+  .qz-unit b { font-family: var(--serif); font-size: 17pt; font-weight: 600; letter-spacing: 1px; color: var(--ink); }
+  .qz-unit i { font-size: 7pt; font-style: normal; letter-spacing: 4px; color: var(--ink-muted); }
+  .qz-mood { margin-top: 1mm; font-family: var(--serif); font-size: 9.5pt; letter-spacing: 2px; color: var(--ink-muted); }
+  .qz-gem { display: grid; grid-template-columns: minmax(0, 1fr) 36mm; align-items: center; gap: 6mm; margin: 7mm auto 0; max-width: 168mm; padding-top: 4mm; border-top: 0.25mm solid var(--hair); text-align: left; }
+  .qz-gem-copy { min-width: 0; }
+  .qz-gem-eyebrow { font-size: 7.5pt; font-weight: 700; letter-spacing: 4px; color: var(--qz); }
+  .qz-gem-quote { display: block; margin-top: 2mm; overflow: hidden; font-family: var(--serif); font-size: 14pt; line-height: 1.7; letter-spacing: 1px; color: var(--ink); text-overflow: ellipsis; white-space: nowrap; }
+  .qz-gem-meta { margin-top: 1.5mm; font-size: 8pt; letter-spacing: 2px; color: var(--ink-faint); }
+  .qz-gem-meta b { font-family: var(--serif); font-size: 12pt; font-weight: 600; color: var(--qz-gold); }
+  .qz-gem-mark { display: flex; align-items: center; justify-content: center; width: 36mm; height: 24mm; border: 0.3mm solid color-mix(in srgb, var(--qz) 58%, transparent); font-family: var(--serif); font-size: 14mm; color: color-mix(in srgb, var(--qz) 62%, transparent); }
+  .qz-reel { margin-top: 8mm; padding-top: 3mm; border-top: 0.25mm solid var(--hair); }
+  .qz-reel-in { font-size: 7pt; letter-spacing: 5px; color: var(--ink-faint); }
+  .qz-frames { display: flex; justify-content: center; gap: 2.6mm; margin-top: 3mm; }
+  .qz-frame { flex: 1 1 0; min-width: 0; height: 17mm; padding: 1.6mm 2mm; background: color-mix(in srgb, var(--qz) 7%, var(--paper-deep)); border: 0.2mm solid color-mix(in srgb, var(--qz) 24%, var(--hair)); text-align: left; overflow: hidden; }
+  .qz-frame-date { font-family: var(--serif); font-size: 6.5pt; color: var(--qz); letter-spacing: 1px; }
+  .qz-frame-tag { margin-left: 1mm; font-size: 5.5pt; letter-spacing: 1px; color: var(--qz-gold); }
+  .qz-frame-text { display: -webkit-box; margin-top: 1mm; overflow: hidden; font-family: var(--serif); font-size: 7pt; line-height: 1.45; letter-spacing: 0.5px; color: var(--ink-muted); -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+  @media (prefers-color-scheme: dark) {
+    .qz { --qz: #8fc0e8; --qz-gold: #e2ae74; }
+  }
   /* 结尾页 */
   .end { text-align: center; }
   .end-line { font-family: var(--serif); font-size: 12pt; letter-spacing: 5px; color: var(--ink-muted); }
@@ -1960,6 +1992,103 @@ function endSlide(data: Record<string, unknown>): string {
     </div>${slideFoot(`${reportPeriodLabel(year)} · FIN`)}`;
 }
 
+/** QQ 空间说说正文 → 一行可读的安全摘录（提及 / 表情 token 只做文本兜底）。 */
+function qzoneQuote(value: unknown): string {
+  const clean = String(value ?? '')
+    .replace(/@\{uin:[^,]+,[^}]+\}/g, '@朋友')
+    .replace(/\[em\]e\d+\[\/em\]/g, '[表情]')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (clean) return clean.length > 58 ? `${clean.slice(0, 58)}…` : clean;
+  return '这条说说没有留下文字。';
+}
+
+/** `N月M日` / `YYYY年N月M日` —— 与屏幕版时光胶片同一份时间语言。 */
+function qzoneDay(sec: number, withYear: boolean): string {
+  if (!sec) return '';
+  const date = new Date(sec * 1000);
+  const label = `${date.getMonth() + 1}月${date.getDate()}日`;
+  return withYear ? `${date.getFullYear()}年${label}` : label;
+}
+
+/** QQ 空间回忆页的导出版。 */
+function qzoneSlide(data: Record<string, unknown>): string {
+  const year = Number(data.year ?? 0);
+  const allTime = isAllTimeYear(year);
+  const gallery = (data.gallery ?? []) as Array<{
+    tid?: string;
+    time?: number;
+    content?: string;
+    images?: string[];
+    videoCover?: string;
+    hasVideo?: boolean;
+    likeCount?: number | null;
+    commentCount?: number;
+    isPrivate?: boolean;
+  }>;
+  const highlight = (data.highlight ?? null) as {
+    post?: (typeof gallery)[number];
+    metric?: 'like' | 'comment';
+    count?: number;
+  } | null;
+  const firstYear = Number(data.firstPostTime ?? 0)
+    ? `${new Date(Number(data.firstPostTime) * 1000).getFullYear()} 年`
+    : '';
+  const frames = gallery
+    .slice(0, 8)
+    .map((post) => {
+      const tags: string[] = [];
+      if ((post.images?.length ?? 0) > 0) tags.push('图');
+      if (post.hasVideo) tags.push('影');
+      if (post.likeCount) tags.push(`♥${fmt(post.likeCount)}`);
+      const date = qzoneDay(Number(post.time ?? 0), allTime);
+      return `<div class="qz-frame"><span class="qz-frame-date">${escapeHtml(
+        date,
+      )}</span>${tags.length > 0 ? `<span class="qz-frame-tag">${tags.join(' · ')}</span>` : ''}<p class="qz-frame-text">${escapeHtml(
+        qzoneQuote(post.content),
+      )}</p></div>`;
+    })
+    .join('');
+
+  const gem = highlight?.post
+    ? `<div class="qz-gem">
+        <div class="qz-gem-copy">
+          <p class="qz-gem-eyebrow">${highlight.metric === 'like' ? '被赞得最多的一条' : '被评论最多的一条'}</p>
+          <p class="qz-gem-quote">“${escapeHtml(qzoneQuote(highlight.post.content))}”</p>
+          <p class="qz-gem-meta">${escapeHtml(
+            qzoneDay(Number(highlight.post.time ?? 0), allTime),
+          )} · <b>${fmt(Number(highlight.count ?? 0))}</b> ${highlight.metric === 'like' ? '次赞' : '条评论'}</p>
+        </div>
+        <div class="qz-gem-mark" aria-hidden>”</div>
+      </div>`
+    : '';
+
+  return `${slideOpen('忆')}
+    <div class="qz">
+      <div class="qz-kicker">
+        <span>${escapeHtml(reportEraLabel(year))} · QQ空间回忆</span>
+        <span class="qz-kicker-meta">${allTime && firstYear ? `<b>${escapeHtml(firstYear.trim())}</b> 起 / ` : ''}<b>${fmt(
+          Number(data.total ?? 0),
+        )}</b> 条说说</span>
+      </div>
+      <p class="qz-lede">${allTime ? '这一路，你把生活寄放在空间里' : `${year} 这一年，你把生活的一部分寄存在空间里`}</p>
+      <div class="qz-countline">
+        <span class="qz-count">${fmt(Number(data.total ?? 0))}</span>
+        <span class="qz-unit"><b>条</b><i>写下的说说</i></span>
+      </div>
+      <p class="qz-mood">它们未必被很多人看见，却都替你记着那时的你。</p>
+      ${gem}
+      ${
+        frames
+          ? `<div class="qz-reel">
+              <p class="qz-reel-in">时光胶片 · ${allTime ? '往回翻，每一帧都是你' : `这一年，你留在空间里的画面`}</p>
+              <div class="qz-frames">${frames}</div>
+            </div>`
+          : ''
+      }
+    </div>${slideFoot(`${reportPeriodLabel(year)} · QZONE`)}`;
+}
+
 function genericSlide(slide: ExportSlide): string {
   return `${slideOpen(slide.page.category)}
     <div class="eyebrow">${escapeHtml(slide.page.category)}</div>
@@ -2070,6 +2199,7 @@ export function buildReportHtml(year: number, slides: ExportSlide[]): string {
       if (slide.page.id === 'interactions') return interactionsSlide(data);
       if (slide.page.id === 'months') return monthsSlide(data);
       if (slide.page.id === 'mate') return mateSlide(data);
+      if (slide.page.id === 'qzone') return qzoneSlide(data);
       if (slide.page.id === 'end') return endSlide(data);
       return genericSlide(slide);
     })

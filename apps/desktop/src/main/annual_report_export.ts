@@ -66,6 +66,8 @@ const PALETTE = {
   buzz: '#e79a74',
   rose: '#eba3b7',
   jade: '#77cfc2',
+  qz: '#8fc0e8',
+  qzGold: '#e2ae74',
 };
 
 function fmt(n: number): string {
@@ -2844,6 +2846,274 @@ function mateTree(data: Record<string, unknown>): El {
   return slideFrame([outerRing, innerRing, ...ringDots, center], '缘');
 }
 
+/** QQ 空间说说正文 → 一行可读的安全摘录。 */
+function qzoneQuote(value: unknown): string {
+  const clean = String(value ?? '')
+    .replace(/@\{uin:[^,]+,[^}]+\}/g, '@朋友')
+    .replace(/\[em\]e\d+\[\/em\]/g, '[表情]')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (clean) return clean.length > 46 ? `${clean.slice(0, 46)}…` : clean;
+  return '这条说说没有留下文字。';
+}
+
+/** `N月M日` / `YYYY年N月M日` —— 与屏幕版胶片同源。 */
+function qzoneDay(sec: number, withYear: boolean): string {
+  if (!sec) return '';
+  const date = new Date(sec * 1000);
+  const label = `${date.getMonth() + 1}月${date.getDate()}日`;
+  return withYear ? `${date.getFullYear()}年${label}` : label;
+}
+
+/**
+ * QQ 空间回忆页的长图版。
+ *
+ * 静态产物画不了无限跑动的胶片，版心仍是「N 条说说」的巨数；冠军回忆压成一行
+ * 名句，胶片退成页底一列等宽的帧（日期 + 摘录 + 图/影标记），全页不依赖任何
+ * 远程图片 —— 离线长图也不会裂图。
+ */
+function qzoneTree(data: Record<string, unknown>): El {
+  const year = Number(data.year ?? 0);
+  const allTime = isAllTimeYear(year);
+  const gallery = (data.gallery ?? []) as Array<{
+    time?: number;
+    content?: string;
+    images?: string[];
+    hasVideo?: boolean;
+    likeCount?: number | null;
+  }>;
+  const highlight = (data.highlight ?? null) as {
+    post?: { time?: number; content?: string };
+    metric?: 'like' | 'comment';
+    count?: number;
+  } | null;
+  const firstYear = Number(data.firstPostTime ?? 0)
+    ? `${new Date(Number(data.firstPostTime) * 1000).getFullYear()} 年`
+    : '';
+
+  const frame = (post: (typeof gallery)[number], color: string): El =>
+    el(
+      'div',
+      {
+        flex: '1 1 0',
+        minWidth: 0,
+        height: 132,
+        padding: '14px 16px',
+        backgroundColor: rgba(color, 0.06),
+        borderWidth: 1,
+        borderStyle: 'solid',
+        borderColor: rgba(color, 0.2),
+        display: 'flex',
+        flexDirection: 'column',
+      },
+      [
+        el('div', { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }, [
+          el(
+            'div',
+            { fontSize: 17, color, letterSpacing: 1, fontWeight: 600 },
+            qzoneDay(Number(post.time ?? 0), allTime),
+          ),
+          el(
+            'div',
+            {
+              fontSize: 14,
+              color: rgba(PALETTE.qzGold, 0.9),
+              letterSpacing: 2,
+            },
+            [
+              ...((post.images?.length ?? 0) > 0 ? ['图'] : []),
+              ...(post.hasVideo ? ['影'] : []),
+              ...(post.likeCount ? [`赞 ${fmt(post.likeCount)}`] : []),
+            ].join(' · '),
+          ),
+        ]),
+        el(
+          'div',
+          {
+            marginTop: 10,
+            maxWidth: '100%',
+            fontSize: 18,
+            color: PALETTE.inkSoft,
+            lineHeight: 1.45,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          },
+          qzoneQuote(post.content),
+        ),
+      ],
+    );
+
+  const frames = gallery.slice(0, 6).map((post) => frame(post, PALETTE.qz));
+  const total = Number(data.total ?? 0);
+  const center = el(
+    'div',
+    { width: SLIDE_W - 144, display: 'flex', flexDirection: 'column', alignItems: 'center' },
+    [
+      el('div', { display: 'flex', justifyContent: 'space-between', width: '100%' }, [
+        el(
+          'div',
+          { fontSize: 28, color: PALETTE.inkSoft, letterSpacing: 7 },
+          `${reportEraLabel(year)} · QQ空间回忆`,
+        ),
+        el(
+          'div',
+          { fontSize: 21, color: PALETTE.inkFaint, letterSpacing: 4 },
+          `${allTime && firstYear ? `${firstYear.trim()} 起 / ` : ''}${fmt(total)} 条说说`,
+        ),
+      ]),
+      el(
+        'div',
+        { marginTop: 46, fontSize: 30, color: PALETTE.inkSoft, letterSpacing: 4 },
+        allTime ? '这一路，你把生活寄放在空间里' : `${year} 这一年，你把生活的一部分寄存在空间里`,
+      ),
+      el('div', { marginTop: 20, display: 'flex', alignItems: 'center' }, [
+        el(
+          'div',
+          {
+            fontSize: total >= 100 ? 138 : 168,
+            fontWeight: 700,
+            color: PALETTE.qz,
+            lineHeight: 1,
+            letterSpacing: -4,
+          },
+          fmt(total),
+        ),
+        el(
+          'div',
+          {
+            marginLeft: 24,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-start',
+          },
+          [
+            el('div', { fontSize: 34, fontWeight: 600, color: PALETTE.ink }, '条'),
+            el(
+              'div',
+              { marginTop: 5, fontSize: 17, color: PALETTE.inkMuted, letterSpacing: 6 },
+              '写下的说说',
+            ),
+          ],
+        ),
+      ]),
+      el(
+        'div',
+        { marginTop: 12, fontSize: 24, color: PALETTE.inkMuted, letterSpacing: 3 },
+        '它们未必被很多人看见，却都替你记着那时的你。',
+      ),
+      ...(highlight?.post
+        ? [
+            el('div', {
+              marginTop: 42,
+              width: SLIDE_W - 144,
+              height: 1,
+              backgroundColor: PALETTE.hair,
+            }),
+            el(
+              'div',
+              {
+                marginTop: 24,
+                width: SLIDE_W - 144,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 40,
+              },
+              [
+                el('div', { display: 'flex', flexDirection: 'column', minWidth: 0 }, [
+                  el(
+                    'div',
+                    { fontSize: 18, color: PALETTE.qz, letterSpacing: 6, fontWeight: 600 },
+                    highlight.metric === 'like' ? '被赞得最多的一条' : '被评论最多的一条',
+                  ),
+                  el(
+                    'div',
+                    {
+                      marginTop: 12,
+                      maxWidth: 720,
+                      fontSize: 28,
+                      color: PALETTE.ink,
+                      letterSpacing: 1,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    },
+                    `“${qzoneQuote(highlight.post.content)}”`,
+                  ),
+                  el(
+                    'div',
+                    { marginTop: 8, fontSize: 20, color: PALETTE.inkFaint, letterSpacing: 2 },
+                    [
+                      qzoneDay(Number(highlight.post.time ?? 0), allTime),
+                      ' · ',
+                      el(
+                        'span',
+                        { fontSize: 26, fontWeight: 700, color: PALETTE.qzGold },
+                        fmt(Number(highlight.count ?? 0)),
+                      ),
+                      highlight.metric === 'like' ? ' 次赞' : ' 条评论',
+                    ].join(''),
+                  ),
+                ]),
+                el(
+                  'div',
+                  {
+                    flex: '0 0 auto',
+                    width: 96,
+                    height: 96,
+                    borderWidth: 1,
+                    borderStyle: 'solid',
+                    borderColor: rgba(PALETTE.qz, 0.46),
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 52,
+                    fontWeight: 600,
+                    color: rgba(PALETTE.qz, 0.5),
+                  },
+                  '”',
+                ),
+              ],
+            ),
+          ]
+        : []),
+      ...(frames.length > 0
+        ? [
+            el('div', {
+              marginTop: 42,
+              width: SLIDE_W - 144,
+              height: 1,
+              backgroundColor: PALETTE.hair,
+            }),
+            el(
+              'div',
+              {
+                marginTop: 20,
+                fontSize: 18,
+                color: PALETTE.inkFaint,
+                letterSpacing: 8,
+              },
+              `时光胶片 · ${allTime ? '往回翻，每一帧都是你' : `这一年，你留在空间里的画面`}`,
+            ),
+            el(
+              'div',
+              {
+                marginTop: 18,
+                width: SLIDE_W - 144,
+                display: 'flex',
+                gap: 14,
+              },
+              frames,
+            ),
+          ]
+        : []),
+    ],
+  );
+
+  return slideFrame([center], '忆');
+}
+
 function endTree(data: Record<string, unknown>): El {
   const year = Number(data.year ?? 0);
   const allTime = isAllTimeYear(year);
@@ -2927,6 +3197,7 @@ function treeForSlide(slide: ReportExportSlide): El {
   if (slide.pageId === 'interactions') return interactionsTree(data);
   if (slide.pageId === 'months') return monthsTree(data);
   if (slide.pageId === 'mate') return mateTree(data);
+  if (slide.pageId === 'qzone') return qzoneTree(data);
   if (slide.pageId === 'end') return endTree(data);
   return genericTree(slide);
 }

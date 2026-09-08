@@ -45,6 +45,7 @@ export {
 } from './sysface_export';
 export {
   exportQzone,
+  fetchQzoneEmotionRange,
   type QzoneExportDeps,
   type QzoneExportOpts,
   type QzoneExportResult,

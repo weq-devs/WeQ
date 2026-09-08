@@ -11,6 +11,7 @@ import { interactionsPage } from './interactions/compute';
 import { monthsPage } from './months/compute';
 import { matePage } from './mate/compute';
 import { endPage } from './end/compute';
+import { qzonePage } from './qzone/compute';
 
 /** The only service-side registration point for official report pages. */
 export const reportPages: ReadonlyArray<ReportPageDefinition> = [
@@ -25,6 +26,7 @@ export const reportPages: ReadonlyArray<ReportPageDefinition> = [
   interactionsPage,
   monthsPage,
   matePage,
+  qzonePage,
   endPage,
 ];
 
@@ -44,5 +46,6 @@ export {
   interactionsPage,
   monthsPage,
   matePage,
+  qzonePage,
   endPage,
 };

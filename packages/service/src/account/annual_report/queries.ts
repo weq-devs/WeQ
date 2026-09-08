@@ -6,7 +6,12 @@ import {
   type DressTally,
   type SentWeekdayHourlyGrid,
 } from '@weq/db';
-import type { DressNameResolver, ReportQueries } from './types';
+import type {
+  DressNameResolver,
+  ReportQueries,
+  ReportQzoneCapability,
+  ReportQzonePost,
+} from './types';
 
 /** 私聊 / 群聊两份 7×24 矩阵原位相加，缺行缺列按全零补齐。 */
 function mergeWeekdayHourlyGrids(parts: SentWeekdayHourlyGrid[]): SentWeekdayHourlyGrid {
@@ -38,6 +43,7 @@ export function createReportQueries(
   options: {
     resolveDressNames?: DressNameResolver;
     resolveEmojiNames?: (faceIds: number[]) => Promise<Record<number, string>>;
+    qzone?: ReportQzoneCapability;
   } = {},
 ): ReportQueries {
   // 自己的 uid 用 session 打开时已经驻留内存的 uidMap（nt_uid_mapping_table）
@@ -72,6 +78,7 @@ export function createReportQueries(
   >();
   const groupSpeechCache = new Map<string, Promise<import('@weq/db').SentSpeechRow[]>>();
   const interactionCache = new Map<string, Promise<import('@weq/db').GroupInteractionTally>>();
+  const qzonePostsCache = new Map<string, Promise<ReportQzonePost[]>>();
   let memberSweepCache: Promise<
     Array<{
       groupCode: string;
@@ -538,6 +545,39 @@ export function createReportQueries(
           });
         }
         return running;
+      },
+    },
+    qzone: {
+      /**
+       * 在线探测：宿主没注入能力（离线 / 静态无 QQ）时恒 false —— 页面在
+       * availability 阶段被摘掉，不会走到会真的请求网络的 compute。
+       */
+      canQuery() {
+        if (!options.qzone) return false;
+        return options.qzone.canQuery();
+      },
+      /**
+       * 按时间窗记忆化的空间说说拉取。availability 与 compute 问同一个窗口时
+       * 只真正翻页一次；失败时清缓存，页面重试可以重新拉。
+       */
+      posts(startTime: number, endTime: number) {
+        const key = `${startTime}:${endTime}`;
+        let running = qzonePostsCache.get(key);
+        if (!running) {
+          running = options.qzone
+            ? options.qzone.fetchPosts(startTime, endTime)
+            : Promise.resolve([]);
+          qzonePostsCache.set(key, running);
+          void running.catch(() => {
+            qzonePostsCache.delete(key);
+          });
+        }
+        return running;
+      },
+      /** 单条权威赞数；宿主补拉失败返回 null。 */
+      likeCount(tid: string) {
+        if (!options.qzone) return Promise.resolve(null);
+        return options.qzone.fetchLikeCount(tid);
       },
     },
     meta: {

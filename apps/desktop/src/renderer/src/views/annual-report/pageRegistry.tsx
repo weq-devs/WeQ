@@ -14,6 +14,7 @@ import type {
   RhythmPageData,
   VoicePageData,
   SparkPageData,
+  QzoneMemoriesPageData,
 } from '@weq/service';
 import { PageFrame } from './pageFrame';
 import { OverviewPage } from './pages/OverviewPage';
@@ -28,6 +29,7 @@ import { HomePage } from './pages/HomePage';
 import { InteractionsPage } from './pages/InteractionsPage';
 import { MonthsPage } from './pages/MonthsPage';
 import { MatePage } from './pages/MatePage';
+import { QzoneMemoriesPage } from './pages/QzoneMemoriesPage';
 
 type RegistryProps = { page: ReportPageManifest; data: unknown; active: boolean };
 type PageRenderer = (props: RegistryProps) => ReactElement;
@@ -88,6 +90,9 @@ const pageRegistry: Record<string, PageRenderer> = {
   ),
   mate: ({ page, data, active }) => (
     <MatePage page={page} data={data as MatePageData} active={active} />
+  ),
+  qzone: ({ page, data, active }) => (
+    <QzoneMemoriesPage page={page} data={data as QzoneMemoriesPageData} active={active} />
   ),
   end: ({ page, data, active }) => (
     <EndPage page={page} data={data as EndPageData} active={active} />

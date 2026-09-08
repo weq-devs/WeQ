@@ -69,6 +69,57 @@ export type ReportManifest = {
   preferences: AnnualReportPreferences;
 };
 
+/**
+ * 一条可以进入「QQ 空间回忆」页的说说的归一化形态。
+ *
+ * 与 `@weq/account/web` 的 {@link QzoneEmotion} 同源，但这里刻意只保留页面要画的
+ * 字段 —— 评论数来自说说列表自带的 `cmtnum`（精确）；点赞数是后来按 tid 走
+ * qz_opcnt2 权威源补的，没补/补失败时是 null，页面据此退回「评论最多」口径。
+ */
+export type ReportQzonePost = {
+  /** 说说 tid —— 点赞补拉与回跳 QQ 空间的句柄。 */
+  tid: string;
+  /** 发表时间 unix 秒。 */
+  time: number;
+  /** 说说正文（qzone 富文本 token 原样保留，渲染层只做安全文本展示）。 */
+  content: string;
+  /** 图片 URL（取消息列表给到的最大变体）；渲染层经 weq-media://album 代理加载。 */
+  images: string[];
+  /** 视频封面 URL（纯图/纯文字说说为空串）。 */
+  videoCover: string;
+  /** 是否带视频（视频封面可能缺失，渲染层画「视频」角标兜底）。 */
+  hasVideo: boolean;
+  /** 精确评论数（说说列表自带）。 */
+  commentCount: number;
+  /** 精确点赞数；未拉取/拉取失败为 null。 */
+  likeCount: number | null;
+  /** 仅自己可见。 */
+  isPrivate: boolean;
+};
+
+/**
+ * 主进程注入的 QQ 空间读能力 —— 年度报告里唯一的在线页面用它做 availability /
+ * compute。宿主（app_context）把 WebQueryService + 在线 QQ 探测包成这个接缝，
+ * service 层因此不依赖 web cgi 的实现细节，离线环境拿不到 p_skey 时自然 unavailable。
+ */
+export type ReportQzoneCapability = {
+  /**
+   * 当前账号能否走 qzone web cgi：有在线 QQ 实例即可（ptlogin2 本地快速登录
+   * 兜底换 p_skey，不需要「自动注入 QQ」已开启）。
+   */
+  canQuery(): Promise<boolean> | boolean;
+  /**
+   * 拉取本账号在 [startSec, endSec)（unix 秒，0/0 = 不限）内的全部说说。
+   * 分页去重、倒序返回；宿主负责 600ms 翻页间隔与翻页上限（与好友空间导出同源）。
+   */
+  fetchPosts(startSec: number, endSec: number): Promise<ReportQzonePost[]>;
+  /**
+   * 读一条说说的权威点赞数（qz_opcnt2）。失败返回 null —— 点赞是增强项，
+   * 补不齐时页面退回「评论最多」，不让整页因此失败。
+   */
+  fetchLikeCount(tid: string): Promise<number | null>;
+};
+
 export type ReportPageStatus = 'ok' | 'error' | 'unavailable';
 
 export type ReportPageError = {
@@ -316,6 +367,22 @@ export type ReportQueries = {
      * 同一个 self marker（uid 优先、uin 兜底）。两次单列扫描后合并，不解码消息体。
      */
     sentWeekdayHourlyTallies(startTime: number, endTime: number): Promise<SentWeekdayHourlyGrid>;
+  };
+  /**
+   * QQ 空间回忆 —— 唯一的在线页面。素材不在本地聊天库里，而是本账号的空间
+   * （走 qzone web cgi，需要在线 QQ 的 ptlogin/p_skey）。没有注入宿主能力时
+   * availability 直接不通过，离线环境这页不会出现在 deck 里。
+   */
+  qzone: {
+    /** 在线实例探测（有 pid 即可；ptlogin 本地快速登录兜底换 p_skey）。 */
+    canQuery(): Promise<boolean> | boolean;
+    /**
+     * 一个时间窗内自己的全部说说。按窗口记忆化：availability 探一次、compute
+     * 再取同一窗口时共享同一批翻页结果。返回的数组是共享只读的，调用方不得修改。
+     */
+    posts(startTime: number, endTime: number): Promise<ReportQzonePost[]>;
+    /** 一条说说的权威点赞数；宿主补拉失败返回 null，页面退回评论口径。 */
+    likeCount(tid: string): Promise<number | null>;
   };
 };
 

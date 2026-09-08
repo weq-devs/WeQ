@@ -17,6 +17,7 @@ export {
   interactionsPage,
   monthsPage,
   matePage,
+  qzonePage,
   endPage,
 } from './pages';
 export type { OverviewPageData } from './pages/overview/types';
@@ -56,3 +57,8 @@ export type {
 } from './pages/interactions/types';
 export type { MonthsPageData, MonthFriendEntry, MonthCompanionCell } from './pages/months/types';
 export type { MatePageData, MateCandidate, MateSharedGroup } from './pages/mate/types';
+export type {
+  QzoneMemoriesPageData,
+  QzoneMemoryHighlight,
+  QzoneMemoryMetric,
+} from './pages/qzone/types';

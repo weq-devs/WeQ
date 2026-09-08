@@ -13,6 +13,7 @@ import {
   type ReportPageError,
   type ReportPageResult,
   type ReportScope,
+  type ReportQzoneCapability,
 } from './types';
 
 const DEFAULT_PREFERENCES: AnnualReportPreferences = {
@@ -36,6 +37,11 @@ export type AnnualReportServiceOptions = {
    * 「我的话」页照常出，表情名退到消息自带 faceText / 「表情 N」。
    */
   resolveEmojiNames?: (faceIds: number[]) => Promise<Record<number, string>>;
+  /**
+   * QQ 空间回忆的在线读能力。离线 / 静态账号不注入 —— 该页 availability 恒不
+   * 通过，deck 里自然没有这一页。
+   */
+  qzone?: ReportQzoneCapability;
 };
 
 export class AnnualReportService {
@@ -57,6 +63,7 @@ export class AnnualReportService {
     this.queries = createReportQueries(this.session, {
       resolveDressNames: options.resolveDressNames,
       resolveEmojiNames: options.resolveEmojiNames,
+      qzone: options.qzone,
     });
     this.preferences = options.preferences ?? DEFAULT_PREFERENCES;
   }

@@ -59,6 +59,8 @@ function computationDescription(pageId: string): string {
       return '正在把私聊按月分桶，排出每个月的聊天第一名';
     case 'mate':
       return '正在扫群成员与好友名册，计算跨群兴趣重合度';
+    case 'qzone':
+      return '正在从你的 QQ 空间逐页拉取说说（需要 QQ 在线）';
     case 'end':
       return '正在收尾这一份报告';
     default:
